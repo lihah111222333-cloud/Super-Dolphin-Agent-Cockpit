@@ -237,7 +237,7 @@ func (r *poolRecycler) retryCleanupPendingWorkspace(mgr *manager, scope Resolved
 	current.state = workspaceStateClosing
 	delete(mgr.workspaces, snapshot.key)
 	mgr.mu.Unlock()
-	shutdownErr, closeErr := shutdownWorkspaceClient(snapshot.client)
+	shutdownErr, closeErr := shutdownWorkspaceClientForIdle(snapshot.client)
 	if closeErr != nil {
 		restoreCleanupPendingWorkspace(mgr, snapshot)
 	} else {

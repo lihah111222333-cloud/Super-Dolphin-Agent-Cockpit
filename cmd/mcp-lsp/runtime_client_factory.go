@@ -118,6 +118,11 @@ type goplsRootCohortClient struct {
 	lease *multilsp.GoplsRootCohortLease
 }
 
+var (
+	_ multilsp.IdleReleasableClient      = (*goplsRootCohortClient)(nil)
+	_ multilsp.IdleReleaseRequiredClient = (*goplsRootCohortClient)(nil)
+)
+
 // UnderlyingLSPClient 保留真实 transport owner，供 multilsp 进程树和资源清理穿透 wrapper。
 func (c *goplsRootCohortClient) UnderlyingLSPClient() multilsp.Client {
 	if c == nil {
@@ -151,6 +156,18 @@ func (c *goplsRootCohortClient) Close() error {
 	return c.lease.ReleaseWithOwner(func() error {
 		return c.Client.Close()
 	})
+}
+
+// RequiresIdleRelease marks the shared gopls forwarder as requiring the root
+// cohort owner path when the manager recycler reaches its idle deadline.
+func (c *goplsRootCohortClient) RequiresIdleRelease() bool {
+	return c != nil && c.lease != nil
+}
+
+// ReleaseForIdle is the only recycler-facing close path for a shared gopls
+// forwarder; it preserves ReleaseWithOwner ordering and durable fence evidence.
+func (c *goplsRootCohortClient) ReleaseForIdle() error {
+	return c.Close()
 }
 
 // runtimeServerResolveResourceLimits 解析主次 RSS/heap 上限并拒绝无法证明安全的组合。

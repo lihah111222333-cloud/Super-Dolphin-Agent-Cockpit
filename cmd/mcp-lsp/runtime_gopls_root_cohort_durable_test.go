@@ -233,7 +233,7 @@ func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *t
 	}
 }
 
-func TestRuntimeDurableGoplsRootCohortCrossControllerOwnerUnavailableStaysPending(t *testing.T) {
+func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
 	}
@@ -242,11 +242,11 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerOwnerUnavailableStaysPendin
 		t.Fatalf("secure test cache root: %v", err)
 	}
 	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
-	firstValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(time.Second)
+	firstValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(40 * time.Millisecond)
 	if err != nil {
 		t.Fatalf("new first durable controller: %v", err)
 	}
-	secondValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(time.Second)
+	secondValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(40 * time.Millisecond)
 	if err != nil {
 		t.Fatalf("new second durable controller: %v", err)
 	}
@@ -257,12 +257,214 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerOwnerUnavailableStaysPendin
 	if err != nil {
 		t.Fatalf("first AcquireLease: %v", err)
 	}
-	if err := lease.ReleaseWithOwner(func() error { return nil }); err != nil {
+	oldClosed := make(chan struct{}, 1)
+	if err := lease.ReleaseWithOwner(func() error {
+		oldClosed <- struct{}{}
+		return nil
+	}); err != nil {
 		t.Fatalf("first ReleaseWithOwner: %v", err)
 	}
-	if _, err := second.AcquireLease(config); !errors.Is(err, multilsp.ErrGoplsRootCohortDrainCleanupPending) {
-		t.Fatalf("cross-controller admission error = %v, want CleanupPending while owner callback is unreachable", err)
+	next, err := second.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("cross-controller admission error = %v, want atomic fenced re-admission", err)
 	}
+	if next.Fence().Epoch <= lease.Fence().Epoch {
+		t.Fatalf("cross-controller admission epoch = %d, want > old epoch %d", next.Fence().Epoch, lease.Fence().Epoch)
+	}
+	dir := runtimeServerGoplsRootCohortDir(first.root, config)
+	state, err := runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("read fenced state: %v", err)
+	}
+	if state.DrainStatus != runtimeGoplsRootCohortDrainActive || len(state.PendingCleanups) != 1 {
+		t.Fatalf("fenced state = %+v, want active new epoch with one old cleanup evidence", state)
+	}
+	if state.PendingCleanups[0].Fence.toValue() != lease.Fence() {
+		t.Fatalf("old cleanup fence = %+v, want %v", state.PendingCleanups[0].Fence, lease.Fence())
+	}
+	if state.PendingCleanups[0].Status != runtimeGoplsRootCohortDrainCleanupPending {
+		t.Fatalf("old cleanup status = %q, want cleanup_pending evidence", state.PendingCleanups[0].Status)
+	}
+	select {
+	case <-oldClosed:
+	case <-time.After(time.Second):
+		t.Fatal("old owner did not clean its own forwarder at persisted deadline")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+		if err == nil && len(state.PendingCleanups) == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("read post-cleanup state: %v", err)
+	}
+	if len(state.PendingCleanups) != 0 {
+		t.Fatalf("old cleanup evidence remained after owner callback: %+v", state.PendingCleanups)
+	}
+	if err := next.ReleaseWithOwner(func() error { return nil }); err != nil {
+		t.Fatalf("release new epoch: %v", err)
+	}
+}
+
+func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
+	}
+	cacheRoot := t.TempDir()
+	if err := os.Chmod(cacheRoot, 0o700); err != nil {
+		t.Fatalf("secure test cache root: %v", err)
+	}
+	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
+	firstValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(25 * time.Millisecond)
+	if err != nil {
+		t.Fatalf("new first durable controller: %v", err)
+	}
+	secondValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(25 * time.Millisecond)
+	if err != nil {
+		t.Fatalf("new second durable controller: %v", err)
+	}
+	first := firstValue.(*runtimeServerDurableGoplsRootCohortController)
+	second := secondValue.(*runtimeServerDurableGoplsRootCohortController)
+	config := runtimeDurableGoplsRootCohortTestConfig("cross-owner-unreachable")
+	lease, err := first.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("first AcquireLease: %v", err)
+	}
+	oldClosed := make(chan struct{}, 1)
+	if err := lease.ReleaseWithOwner(func() error {
+		oldClosed <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatalf("first ReleaseWithOwner: %v", err)
+	}
+	// Simulate the old sidecar disappearing before its in-memory callback can
+	// run. The durable record remains, but the new sidecar has no authority to
+	// invoke that callback.
+	first.drainMu.Lock()
+	delete(first.pendingOwner, config.RepositoryInstanceProof.CanonicalRootDigest)
+	first.drainMu.Unlock()
+	next, err := second.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("new admission with unreachable old owner: %v", err)
+	}
+	if next.Fence().Epoch <= lease.Fence().Epoch {
+		t.Fatalf("new epoch = %d, want > old epoch %d", next.Fence().Epoch, lease.Fence().Epoch)
+	}
+	dir := runtimeServerGoplsRootCohortDir(second.root, config)
+	deadline := time.Now().Add(time.Second)
+	var state *runtimeServerDurableGoplsRootCohortState
+	for time.Now().Before(deadline) {
+		state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+		if err == nil && len(state.PendingCleanups) == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("read retained cleanup state: %v", err)
+	}
+	if state.DrainStatus != runtimeGoplsRootCohortDrainActive || len(state.PendingCleanups) != 1 {
+		t.Fatalf("unreachable-owner state = %+v, want active new epoch plus pending evidence", state)
+	}
+	if state.PendingCleanups[0].Status != runtimeGoplsRootCohortDrainCleanupPending {
+		t.Fatalf("unreachable-owner cleanup status = %q, want cleanup_pending evidence", state.PendingCleanups[0].Status)
+	}
+	if snapshot, ok := second.Snapshot(config); !ok || snapshot.State != multilsp.GoplsRootCohortStateCleanupPending || snapshot.ActiveMembers != 1 {
+		t.Fatalf("snapshot = (%+v, %v), want cleanup_pending projection with new member", snapshot, ok)
+	}
+	select {
+	case <-oldClosed:
+		t.Fatal("new sidecar or stale worker invoked unreachable old owner callback")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := next.ReleaseWithOwner(func() error { return nil }); err != nil {
+		t.Fatalf("release new epoch: %v", err)
+	}
+}
+
+func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
+	}
+	cacheRoot := t.TempDir()
+	if err := os.Chmod(cacheRoot, 0o700); err != nil {
+		t.Fatalf("secure test cache root: %v", err)
+	}
+	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
+	controllerValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(25 * time.Millisecond)
+	if err != nil {
+		t.Fatalf("new durable controller: %v", err)
+	}
+	controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
+	config := runtimeDurableGoplsRootCohortTestConfig("forwarder-close")
+	lease, err := controller.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("AcquireLease: %v", err)
+	}
+	forwarder := &durableForwarderCloseProbe{closed: make(chan struct{}, 1)}
+	client := &goplsRootCohortClient{Client: forwarder, lease: &lease}
+	if err := client.Close(); err != nil {
+		t.Fatalf("goplsRootCohortClient.Close: %v", err)
+	}
+	if got := forwarder.closes.Load(); got != 0 {
+		t.Fatalf("forwarder Close calls before persisted deadline = %d, want 0", got)
+	}
+	dir := runtimeServerGoplsRootCohortDir(controller.root, config)
+	state, err := runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("read draining state: %v", err)
+	}
+	if state.IdleDeadlineUnixNano <= time.Now().UnixNano() {
+		t.Fatalf("idle deadline = %d, want future persisted deadline", state.IdleDeadlineUnixNano)
+	}
+	select {
+	case <-forwarder.closed:
+	case <-time.After(time.Second):
+		t.Fatal("forwarder Close did not run at persisted deadline")
+	}
+	if got := forwarder.closes.Load(); got != 1 {
+		t.Fatalf("forwarder Close calls after deadline = %d, want exactly one", got)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+		if err == nil && state.DrainStatus == runtimeGoplsRootCohortDrainCompleted && state.CompletionReceipt != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("read completion receipt: %v", err)
+	}
+	if state.DrainStatus != runtimeGoplsRootCohortDrainCompleted || state.CompletionReceipt == "" {
+		t.Fatalf("completion state = %+v, want receipt (daemon listen self-exit remains N/V)", state)
+	}
+	next, err := controller.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("subsequent admission after completion: %v", err)
+	}
+	if next.Fence().Epoch <= lease.Fence().Epoch {
+		t.Fatalf("restart admission epoch = %d, want > %d", next.Fence().Epoch, lease.Fence().Epoch)
+	}
+	if err := next.ReleaseWithOwner(func() error { return nil }); err != nil {
+		t.Fatalf("release restart admission: %v", err)
+	}
+}
+
+type durableForwarderCloseProbe struct {
+	multilsp.Client
+	closes atomic.Int32
+	closed chan struct{}
+}
+
+func (p *durableForwarderCloseProbe) Close() error {
+	if p.closes.Add(1) == 1 {
+		p.closed <- struct{}{}
+	}
+	return nil
 }
 
 func runtimeDurableGoplsRootCohortTestConfig(suffix string) multilsp.GoplsRootCohortConfig {

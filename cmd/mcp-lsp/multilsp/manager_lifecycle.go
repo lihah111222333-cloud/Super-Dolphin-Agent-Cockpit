@@ -417,6 +417,23 @@ func shutdownWorkspaceClient(client Client) (error, error) {
 	return shutdownErr, client.Close()
 }
 
+// shutdownWorkspaceClientForIdle keeps shared-daemon forwarders on their
+// root-owner release path. A required owner without ReleaseForIdle is
+// fail-closed: the caller restores CleanupPending instead of invoking Close.
+func shutdownWorkspaceClientForIdle(client Client) (error, error) {
+	releasable, hasRelease := client.(IdleReleasableClient)
+	if required, ok := client.(IdleReleaseRequiredClient); ok && required.RequiresIdleRelease() && !hasRelease {
+		return nil, ErrIdleReleaseOwnerUnavailable
+	}
+	shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
+	shutdownErr := client.Shutdown(shutCtx)
+	cancel()
+	if hasRelease {
+		return shutdownErr, releasable.ReleaseForIdle()
+	}
+	return shutdownErr, client.Close()
+}
+
 func newClientFromFactory(factory ClientFactory, cfg workspaceConfig, handler protocol.NotificationHandler) (Client, error) {
 	if len(cfg.env) > 0 {
 		envFactory, ok := factory.(ClientFactoryWithEnv)

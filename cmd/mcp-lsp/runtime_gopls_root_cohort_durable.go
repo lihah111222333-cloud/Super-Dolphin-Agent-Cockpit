@@ -31,6 +31,19 @@ const (
 	runtimeGoplsRootCohortDrainCompleted      = "completed"
 )
 
+// runtimeGoplsRootCohortCleanupEvidence 是已经被 admission fence 隔离的
+// 旧 drain。它与当前 epoch 的 DrainStatus 分离，保证新 sidecar 可以原子
+// 重准入，而旧 owner 仍只能清理它自己持有的 forwarder。
+type runtimeGoplsRootCohortCleanupEvidence struct {
+	Fence                runtimeServerDurableGoplsRootCohortFence `json:"fence"`
+	IdleDeadlineUnixNano int64                                    `json:"idle_deadline_unix_nano"`
+	OwnerPID             int                                      `json:"owner_pid"`
+	OwnerStartIdentity   string                                   `json:"owner_start_identity"`
+	Status               string                                   `json:"status"`
+	LastError            string                                   `json:"last_error"`
+	RetryUnixNano        int64                                    `json:"retry_unix_nano"`
+}
+
 // runtimeServerDurableGoplsRootCohortController is the cross-sidecar owner for
 // root admission. The cache-root lock serializes every state transition; the
 // state file and member files are private, strict JSON records rather than an
@@ -61,24 +74,27 @@ type runtimeServerDurableGoplsRootCohortConfig struct {
 }
 
 type runtimeServerDurableGoplsRootCohortState struct {
-	SchemaVersion        int                                       `json:"schema_version"`
-	ConfigDigest         string                                    `json:"config_digest"`
-	Config               runtimeServerDurableGoplsRootCohortConfig `json:"config"`
-	Epoch                uint64                                    `json:"epoch"`
-	JournalRevision      uint64                                    `json:"journal_revision"`
-	NextMemberGeneration uint64                                    `json:"next_member_generation"`
-	NextSequence         uint64                                    `json:"next_sequence"`
-	DrainStatus          string                                    `json:"drain_status"`
-	IdleDeadlineUnixNano int64                                     `json:"idle_deadline_unix_nano"`
-	DrainEpoch           uint64                                    `json:"drain_epoch"`
-	OwnerPID             int                                       `json:"owner_pid"`
-	OwnerStartIdentity   string                                    `json:"owner_start_identity"`
-	OwnerMemberID        string                                    `json:"owner_member_id"`
-	OwnerLeaseID         string                                    `json:"owner_lease_id"`
-	CompletionReceipt    string                                    `json:"completion_receipt"`
-	CompletionUnixNano   int64                                     `json:"completion_unix_nano"`
-	LastDrainError       string                                    `json:"last_drain_error"`
-	DrainRetryUnixNano   int64                                     `json:"drain_retry_unix_nano"`
+	SchemaVersion         int                                       `json:"schema_version"`
+	ConfigDigest          string                                    `json:"config_digest"`
+	Config                runtimeServerDurableGoplsRootCohortConfig `json:"config"`
+	Epoch                 uint64                                    `json:"epoch"`
+	JournalRevision       uint64                                    `json:"journal_revision"`
+	NextMemberGeneration  uint64                                    `json:"next_member_generation"`
+	NextSequence          uint64                                    `json:"next_sequence"`
+	DrainStatus           string                                    `json:"drain_status"`
+	IdleDeadlineUnixNano  int64                                     `json:"idle_deadline_unix_nano"`
+	DrainEpoch            uint64                                    `json:"drain_epoch"`
+	OwnerPID              int                                       `json:"owner_pid"`
+	OwnerStartIdentity    string                                    `json:"owner_start_identity"`
+	OwnerMemberID         string                                    `json:"owner_member_id"`
+	OwnerJournalRevision  uint64                                    `json:"owner_journal_revision"`
+	OwnerMemberGeneration uint64                                    `json:"owner_member_generation"`
+	OwnerLeaseID          string                                    `json:"owner_lease_id"`
+	CompletionReceipt     string                                    `json:"completion_receipt"`
+	CompletionUnixNano    int64                                     `json:"completion_unix_nano"`
+	LastDrainError        string                                    `json:"last_drain_error"`
+	DrainRetryUnixNano    int64                                     `json:"drain_retry_unix_nano"`
+	PendingCleanups       []runtimeGoplsRootCohortCleanupEvidence   `json:"pending_cleanups,omitempty"`
 }
 
 type runtimeServerDurableGoplsRootCohortFence struct {
@@ -167,23 +183,20 @@ func (c *runtimeServerDurableGoplsRootCohortController) AcquireLease(config mult
 		if err != nil {
 			return multilsp.GoplsRootCohortFence{}, err
 		}
-		if active == 0 && state.JournalRevision > 0 &&
-			(state.DrainStatus == runtimeGoplsRootCohortDrainDraining ||
-				state.DrainStatus == runtimeGoplsRootCohortDrainAttempting ||
-				state.DrainStatus == runtimeGoplsRootCohortDrainCleanupPending) &&
-			runtimeServerGoplsRootCohortOwnerAlive(*state) {
-			return multilsp.GoplsRootCohortFence{}, multilsp.ErrGoplsRootCohortDrainCleanupPending
-		}
 		if active == 0 && state.JournalRevision > 0 {
+			// Admission is fenced atomically with the old idle drain. A sidecar
+			// that cannot reach the previous callback must not be blocked for the
+			// entire 15 minute window; preserve the old owner evidence in a
+			// separate typed journal entry and let only that old owner perform
+			// cleanup when its deadline arrives.
+			runtimeServerPromoteGoplsRootCohortDrain(state)
 			state.Epoch++
 			if state.Epoch == 0 {
 				return multilsp.GoplsRootCohortFence{}, errors.New("gopls root cohort epoch overflow")
 			}
 		}
 		state.DrainStatus = runtimeGoplsRootCohortDrainActive
-		state.IdleDeadlineUnixNano = 0
-		state.DrainEpoch = 0
-		state.DrainRetryUnixNano = 0
+		runtimeServerClearCurrentGoplsRootCohortDrain(state)
 		state.NextMemberGeneration++
 		state.NextSequence++
 		state.JournalRevision++
@@ -235,16 +248,95 @@ func (c *runtimeServerDurableGoplsRootCohortController) AcquireLease(config mult
 	return lease, nil
 }
 
-func runtimeServerGoplsRootCohortOwnerAlive(state runtimeServerDurableGoplsRootCohortState) bool {
-	if state.OwnerPID <= 1 || state.OwnerStartIdentity == "" {
-		return false
+// runtimeServerPromoteGoplsRootCohortDrain fences the current drain before a
+// new epoch is admitted. The callback remains in the old controller's memory;
+// this journal only records which old fence is still responsible for cleanup.
+func runtimeServerPromoteGoplsRootCohortDrain(state *runtimeServerDurableGoplsRootCohortState) {
+	if state == nil || state.DrainEpoch == 0 || state.OwnerLeaseID == "" {
+		return
 	}
-	alive, err := hiddenexec.ProcessAlive(state.OwnerPID)
-	if err != nil || !alive {
-		return false
+	switch state.DrainStatus {
+	case runtimeGoplsRootCohortDrainDraining,
+		runtimeGoplsRootCohortDrainAttempting,
+		runtimeGoplsRootCohortDrainCleanupPending:
+	default:
+		return
 	}
-	start, err := hiddenexec.ProcessStartIdentity(state.OwnerPID)
-	return err == nil && start == state.OwnerStartIdentity
+	evidence := runtimeGoplsRootCohortCleanupEvidence{
+		Fence: runtimeServerDurableGoplsRootCohortFence{
+			Epoch:            state.DrainEpoch,
+			JournalRevision:  state.OwnerJournalRevision,
+			MemberID:         state.OwnerMemberID,
+			MemberGeneration: state.OwnerMemberGeneration,
+			LeaseID:          state.OwnerLeaseID,
+		},
+		IdleDeadlineUnixNano: state.IdleDeadlineUnixNano,
+		OwnerPID:             state.OwnerPID,
+		OwnerStartIdentity:   state.OwnerStartIdentity,
+		Status:               runtimeGoplsRootCohortDrainCleanupPending,
+		LastError:            state.LastDrainError,
+		RetryUnixNano:        state.DrainRetryUnixNano,
+	}
+	if evidence.RetryUnixNano == 0 {
+		evidence.RetryUnixNano = evidence.IdleDeadlineUnixNano
+	}
+	for index := range state.PendingCleanups {
+		if state.PendingCleanups[index].Fence.Epoch == evidence.Fence.Epoch &&
+			state.PendingCleanups[index].Fence.LeaseID == evidence.Fence.LeaseID {
+			state.PendingCleanups[index] = evidence
+			return
+		}
+	}
+	state.PendingCleanups = append(state.PendingCleanups, evidence)
+}
+
+func runtimeServerFindGoplsRootCohortCleanup(state *runtimeServerDurableGoplsRootCohortState, fence multilsp.GoplsRootCohortFence) (int, bool) {
+	if state == nil {
+		return 0, false
+	}
+	for index := range state.PendingCleanups {
+		if state.PendingCleanups[index].Fence.toValue() == fence {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func runtimeServerClearCurrentGoplsRootCohortDrain(state *runtimeServerDurableGoplsRootCohortState) {
+	if state == nil {
+		return
+	}
+	state.IdleDeadlineUnixNano = 0
+	state.DrainEpoch = 0
+	state.OwnerPID = 0
+	state.OwnerStartIdentity = ""
+	state.OwnerMemberID = ""
+	state.OwnerJournalRevision = 0
+	state.OwnerMemberGeneration = 0
+	state.OwnerLeaseID = ""
+	state.LastDrainError = ""
+	state.DrainRetryUnixNano = 0
+}
+
+func runtimeServerGoplsRootCohortCleanupEvidenceValid(evidence runtimeGoplsRootCohortCleanupEvidence) error {
+	if evidence.Fence.Epoch == 0 || evidence.Fence.JournalRevision == 0 ||
+		evidence.Fence.MemberGeneration == 0 || evidence.Fence.MemberID == "" || evidence.Fence.LeaseID == "" {
+		return errors.New("gopls root cohort pending cleanup fence is invalid")
+	}
+	if evidence.IdleDeadlineUnixNano <= 0 || evidence.OwnerPID <= 1 || evidence.OwnerStartIdentity == "" {
+		return errors.New("gopls root cohort pending cleanup owner evidence is invalid")
+	}
+	switch evidence.Status {
+	case runtimeGoplsRootCohortDrainDraining,
+		runtimeGoplsRootCohortDrainAttempting,
+		runtimeGoplsRootCohortDrainCleanupPending:
+	default:
+		return errors.New("gopls root cohort pending cleanup status is invalid")
+	}
+	if evidence.Status == runtimeGoplsRootCohortDrainCleanupPending && evidence.RetryUnixNano <= 0 {
+		return errors.New("gopls root cohort pending cleanup retry deadline is invalid")
+	}
+	return nil
 }
 
 func (c *runtimeServerDurableGoplsRootCohortController) cancelPendingDrainForAdmission(config multilsp.GoplsRootCohortConfig) error {
@@ -266,12 +358,20 @@ func (c *runtimeServerDurableGoplsRootCohortController) cancelPendingDrainForAdm
 
 func (c *runtimeServerDurableGoplsRootCohortController) markDrainCompletion(config multilsp.GoplsRootCohortConfig, fence multilsp.GoplsRootCohortFence) error {
 	_, err := runtimeServerDurableGoplsRootCohortWithStateLock(c, config, func(dir string, state *runtimeServerDurableGoplsRootCohortState) (struct{}, error) {
-		if state == nil || state.Epoch != fence.Epoch || state.OwnerLeaseID != fence.LeaseID {
+		if state == nil {
 			return struct{}{}, nil
 		}
-		state.DrainStatus = runtimeGoplsRootCohortDrainCompleted
-		state.IdleDeadlineUnixNano = 0
-		state.DrainRetryUnixNano = 0
+		matched := state.Epoch == fence.Epoch && state.OwnerLeaseID == fence.LeaseID
+		if matched {
+			state.DrainStatus = runtimeGoplsRootCohortDrainCompleted
+			runtimeServerClearCurrentGoplsRootCohortDrain(state)
+		} else if index, ok := runtimeServerFindGoplsRootCohortCleanup(state, fence); ok {
+			state.PendingCleanups = append(state.PendingCleanups[:index], state.PendingCleanups[index+1:]...)
+			matched = true
+		}
+		if !matched {
+			return struct{}{}, nil
+		}
 		state.CompletionUnixNano = time.Now().UnixNano()
 		state.CompletionReceipt = runtimeServerDigestString(strings.Join([]string{
 			"gopls-root-drain-complete-v1", fmt.Sprint(fence.Epoch), fence.LeaseID, fmt.Sprint(state.CompletionUnixNano),
@@ -345,7 +445,7 @@ func (c *runtimeServerDurableGoplsRootCohortController) Snapshot(config multilsp
 		if active > 0 {
 			stateValue = multilsp.GoplsRootCohortStateAdmitted
 		}
-		if state.DrainStatus == runtimeGoplsRootCohortDrainCleanupPending {
+		if state.DrainStatus == runtimeGoplsRootCohortDrainCleanupPending || len(state.PendingCleanups) > 0 {
 			stateValue = multilsp.GoplsRootCohortStateCleanupPending
 		}
 		if closed {
@@ -432,18 +532,14 @@ func (c *runtimeServerDurableGoplsRootCohortController) release(config multilsp.
 		}
 		if active > 0 {
 			state.DrainStatus = runtimeGoplsRootCohortDrainActive
-			state.IdleDeadlineUnixNano = 0
-			state.DrainEpoch = 0
-			state.DrainRetryUnixNano = 0
+			runtimeServerClearCurrentGoplsRootCohortDrain(state)
 			closeNow = owner
 		} else {
 			if owner == nil {
 				// No owner means the client failed before a forwarder was published;
 				// release the admission immediately without inventing a daemon drain.
 				state.DrainStatus = runtimeGoplsRootCohortDrainCompleted
-				state.IdleDeadlineUnixNano = 0
-				state.DrainEpoch = 0
-				state.DrainRetryUnixNano = 0
+				runtimeServerClearCurrentGoplsRootCohortDrain(state)
 				state.CompletionUnixNano = time.Now().UnixNano()
 				state.CompletionReceipt = runtimeServerDigestString(strings.Join([]string{
 					"gopls-root-release-no-forwarder-v1", fmt.Sprint(fence.Epoch), fence.LeaseID, fmt.Sprint(state.CompletionUnixNano),
@@ -455,6 +551,8 @@ func (c *runtimeServerDurableGoplsRootCohortController) release(config multilsp.
 				state.OwnerPID = lease.OwnerPID
 				state.OwnerStartIdentity = lease.OwnerStartIdentity
 				state.OwnerMemberID = fence.MemberID
+				state.OwnerJournalRevision = fence.JournalRevision
+				state.OwnerMemberGeneration = fence.MemberGeneration
 				state.OwnerLeaseID = fence.LeaseID
 				schedule = true
 			}
@@ -513,14 +611,66 @@ func (c *runtimeServerDurableGoplsRootCohortController) restorePendingOwner(pend
 	c.rememberPendingOwner(pending.config, pending.fence, pending.owner)
 }
 
+// persistedGoplsRootCohortDeadline is the only timer authority. Workers never
+// recompute a deadline from their own scheduling time, so a sidecar restart or
+// a delayed goroutine cannot extend the configured idle window.
+func (c *runtimeServerDurableGoplsRootCohortController) persistedGoplsRootCohortDeadline(
+	config multilsp.GoplsRootCohortConfig,
+	fence multilsp.GoplsRootCohortFence,
+	retry bool,
+) (time.Time, bool, error) {
+	type deadlineResult struct {
+		unixNano int64
+		found    bool
+	}
+	result, err := runtimeServerDurableGoplsRootCohortWithStateLock(c, config, func(_ string, state *runtimeServerDurableGoplsRootCohortState) (deadlineResult, error) {
+		if state == nil {
+			return deadlineResult{}, nil
+		}
+		if state.Epoch == fence.Epoch && state.OwnerLeaseID == fence.LeaseID {
+			if retry {
+				return deadlineResult{unixNano: state.DrainRetryUnixNano, found: state.DrainRetryUnixNano > 0}, nil
+			}
+			return deadlineResult{unixNano: state.IdleDeadlineUnixNano, found: state.IdleDeadlineUnixNano > 0}, nil
+		}
+		if index, ok := runtimeServerFindGoplsRootCohortCleanup(state, fence); ok {
+			evidence := state.PendingCleanups[index]
+			if retry {
+				return deadlineResult{unixNano: evidence.RetryUnixNano, found: evidence.RetryUnixNano > 0}, nil
+			}
+			return deadlineResult{unixNano: evidence.IdleDeadlineUnixNano, found: evidence.IdleDeadlineUnixNano > 0}, nil
+		}
+		return deadlineResult{}, nil
+	})
+	if err != nil || !result.found {
+		return time.Time{}, result.found, err
+	}
+	return time.Unix(0, result.unixNano), true, nil
+}
+
 func (c *runtimeServerDurableGoplsRootCohortController) runScheduledDrain(config multilsp.GoplsRootCohortConfig, fence multilsp.GoplsRootCohortFence) {
 	pending, ok := c.peekPendingOwner(config.RepositoryInstanceProof.CanonicalRootDigest, fence)
 	if !ok {
 		return
 	}
-	deadline := time.Now().Add(c.drainWindow)
+	deadline, found, err := c.persistedGoplsRootCohortDeadline(config, fence, false)
+	if err != nil {
+		c.restorePendingOwner(pending)
+		if recordErr := c.recordDrainFailure(config, fence, pending.owner, err); recordErr != nil {
+			c.restorePendingOwner(pending)
+		}
+		return
+	}
+	if !found {
+		// A newer epoch already fenced this owner without a durable cleanup
+		// record. It must not execute a stale callback.
+		return
+	}
 	if err := c.waitUntil(deadline); err != nil {
 		c.restorePendingOwner(pending)
+		if recordErr := c.recordDrainFailure(config, fence, pending.owner, err); recordErr != nil {
+			c.restorePendingOwner(pending)
+		}
 		return
 	}
 	pending, ok = c.takePendingOwner(config.RepositoryInstanceProof.CanonicalRootDigest, fence)
@@ -529,7 +679,9 @@ func (c *runtimeServerDurableGoplsRootCohortController) runScheduledDrain(config
 	}
 	if err := c.executeDrain(pending); err != nil {
 		c.restorePendingOwner(pending)
-		_ = c.recordDrainFailure(config, fence, pending.owner, err)
+		if recordErr := c.recordDrainFailure(config, fence, pending.owner, err); recordErr != nil {
+			c.restorePendingOwner(pending)
+		}
 	}
 }
 
@@ -580,103 +732,128 @@ func (c *runtimeServerDurableGoplsRootCohortController) drainRetryDuration() tim
 func (c *runtimeServerDurableGoplsRootCohortController) executeDrain(pending runtimeServerGoplsRootCohortPendingOwner) error {
 	config, fence := pending.config, pending.fence
 	shouldRun, err := runtimeServerDurableGoplsRootCohortWithStateLock(c, config, func(dir string, state *runtimeServerDurableGoplsRootCohortState) (bool, error) {
-		if state == nil || state.DrainStatus != runtimeGoplsRootCohortDrainDraining || state.DrainEpoch != fence.Epoch || state.OwnerLeaseID != fence.LeaseID || state.Epoch != fence.Epoch {
+		if state == nil || pending.owner == nil {
 			return false, nil
 		}
-		active, countErr := runtimeServerCountGoplsRootCohortLeases(dir, state.ConfigDigest)
-		if countErr != nil {
-			return false, countErr
+		if state.Epoch == fence.Epoch && state.DrainEpoch == fence.Epoch && state.OwnerLeaseID == fence.LeaseID {
+			if state.DrainStatus != runtimeGoplsRootCohortDrainDraining && state.DrainStatus != runtimeGoplsRootCohortDrainCleanupPending && state.DrainStatus != runtimeGoplsRootCohortDrainAttempting {
+				return false, nil
+			}
+			active, countErr := runtimeServerCountGoplsRootCohortLeases(dir, state.ConfigDigest)
+			if countErr != nil {
+				return false, countErr
+			}
+			if active != 0 {
+				return false, nil
+			}
+			if state.DrainStatus != runtimeGoplsRootCohortDrainAttempting {
+				state.DrainStatus = runtimeGoplsRootCohortDrainAttempting
+				state.JournalRevision++
+				if err := runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state); err != nil {
+					return false, err
+				}
+			}
+			return true, nil
 		}
-		if active != 0 {
-			return false, nil
+		if index, ok := runtimeServerFindGoplsRootCohortCleanup(state, fence); ok {
+			evidence := &state.PendingCleanups[index]
+			switch evidence.Status {
+			case runtimeGoplsRootCohortDrainDraining, runtimeGoplsRootCohortDrainCleanupPending:
+				evidence.Status = runtimeGoplsRootCohortDrainAttempting
+				state.JournalRevision++
+				if err := runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state); err != nil {
+					return false, err
+				}
+				return true, nil
+			case runtimeGoplsRootCohortDrainAttempting:
+				return true, nil
+			default:
+				return false, nil
+			}
 		}
-		state.DrainStatus = runtimeGoplsRootCohortDrainAttempting
-		state.JournalRevision++
-		if err := runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state); err != nil {
-			return false, err
-		}
-		return true, nil
+		// A newer epoch fenced this callback without retaining an old cleanup
+		// record. Never close a forwarder from a stale callback in that case.
+		return false, nil
 	})
 	if err != nil {
 		return err
 	}
 	if !shouldRun {
-		if closeErr := pending.owner(); closeErr != nil {
-			c.restorePendingOwner(pending)
-			return closeErr
-		}
 		return nil
 	}
 	if err := pending.owner(); err != nil {
 		return err
 	}
-	_, err = runtimeServerDurableGoplsRootCohortWithStateLock(c, config, func(dir string, state *runtimeServerDurableGoplsRootCohortState) (struct{}, error) {
-		if state == nil || state.DrainStatus != runtimeGoplsRootCohortDrainAttempting || state.DrainEpoch != fence.Epoch || state.OwnerLeaseID != fence.LeaseID || state.Epoch != fence.Epoch {
-			return struct{}{}, nil
-		}
-		state.DrainStatus = runtimeGoplsRootCohortDrainCompleted
-		state.IdleDeadlineUnixNano = 0
-		state.DrainRetryUnixNano = 0
-		state.CompletionUnixNano = time.Now().UnixNano()
-		state.CompletionReceipt = runtimeServerDigestString(strings.Join([]string{
-			"gopls-root-drain-complete-v1", fmt.Sprint(fence.Epoch), fence.LeaseID, fmt.Sprint(state.CompletionUnixNano),
-		}, "\x00"))
-		state.JournalRevision++
-		return struct{}{}, runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state)
-	})
-	return err
+	return c.markDrainCompletion(config, fence)
 }
 
 func (c *runtimeServerDurableGoplsRootCohortController) recordDrainFailure(config multilsp.GoplsRootCohortConfig, fence multilsp.GoplsRootCohortFence, owner func() error, drainErr error) error {
 	if owner != nil {
 		c.rememberPendingOwner(config, fence, owner)
 	}
-	_, stateErr := runtimeServerDurableGoplsRootCohortWithStateLock(c, config, func(dir string, state *runtimeServerDurableGoplsRootCohortState) (struct{}, error) {
-		if state == nil || state.Epoch != fence.Epoch {
-			return struct{}{}, nil
+	matched, stateErr := runtimeServerDurableGoplsRootCohortWithStateLock(c, config, func(dir string, state *runtimeServerDurableGoplsRootCohortState) (bool, error) {
+		if state == nil {
+			return false, nil
 		}
-		state.OwnerMemberID = fence.MemberID
-		state.OwnerLeaseID = fence.LeaseID
-		state.DrainStatus = runtimeGoplsRootCohortDrainCleanupPending
-		state.LastDrainError = drainErr.Error()
-		state.DrainRetryUnixNano = time.Now().Add(c.drainRetryDuration()).UnixNano()
-		state.JournalRevision++
-		return struct{}{}, runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state)
+		retryUnixNano := time.Now().Add(c.drainRetryDuration()).UnixNano()
+		if state.Epoch == fence.Epoch && state.OwnerLeaseID == fence.LeaseID {
+			state.OwnerMemberID = fence.MemberID
+			state.OwnerJournalRevision = fence.JournalRevision
+			state.OwnerMemberGeneration = fence.MemberGeneration
+			state.DrainStatus = runtimeGoplsRootCohortDrainCleanupPending
+			state.LastDrainError = drainErr.Error()
+			state.DrainRetryUnixNano = retryUnixNano
+			state.JournalRevision++
+			return true, runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state)
+		}
+		if index, ok := runtimeServerFindGoplsRootCohortCleanup(state, fence); ok {
+			evidence := &state.PendingCleanups[index]
+			evidence.Status = runtimeGoplsRootCohortDrainCleanupPending
+			evidence.LastError = drainErr.Error()
+			evidence.RetryUnixNano = retryUnixNano
+			state.JournalRevision++
+			return true, runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state)
+		}
+		return false, nil
 	})
 	result := errors.Join(multilsp.ErrGoplsRootCohortDrainCleanupPending, drainErr, stateErr)
-	if owner != nil && stateErr == nil {
+	if owner != nil && stateErr == nil && matched {
 		go c.retryPendingDrain(config, fence)
 	}
 	return result
 }
 
 func (c *runtimeServerDurableGoplsRootCohortController) retryPendingDrain(config multilsp.GoplsRootCohortConfig, fence multilsp.GoplsRootCohortFence) {
-	timer := time.NewTimer(c.drainRetryDuration())
-	defer timer.Stop()
-	<-timer.C
+	deadline, found, err := c.persistedGoplsRootCohortDeadline(config, fence, true)
+	if err != nil {
+		if pending, ok := c.peekPendingOwner(config.RepositoryInstanceProof.CanonicalRootDigest, fence); ok {
+			if recordErr := c.recordDrainFailure(config, fence, pending.owner, err); recordErr != nil {
+				c.restorePendingOwner(pending)
+			}
+		}
+		return
+	}
+	if !found {
+		return
+	}
+	if err := c.waitUntil(deadline); err != nil {
+		if pending, ok := c.peekPendingOwner(config.RepositoryInstanceProof.CanonicalRootDigest, fence); ok {
+			if recordErr := c.recordDrainFailure(config, fence, pending.owner, err); recordErr != nil {
+				c.restorePendingOwner(pending)
+			}
+		}
+		return
+	}
 	pending, ok := c.takePendingOwner(config.RepositoryInstanceProof.CanonicalRootDigest, fence)
 	if !ok {
 		return
 	}
-	if err := pending.owner(); err != nil {
+	if err := c.executeDrain(pending); err != nil {
 		c.restorePendingOwner(pending)
-		_ = c.recordDrainFailure(config, fence, pending.owner, err)
-		return
-	}
-	_, _ = runtimeServerDurableGoplsRootCohortWithStateLock(c, config, func(dir string, state *runtimeServerDurableGoplsRootCohortState) (struct{}, error) {
-		if state == nil || state.Epoch != fence.Epoch || state.OwnerLeaseID != fence.LeaseID {
-			return struct{}{}, nil
+		if recordErr := c.recordDrainFailure(config, fence, pending.owner, err); recordErr != nil {
+			c.restorePendingOwner(pending)
 		}
-		state.DrainStatus = runtimeGoplsRootCohortDrainCompleted
-		state.IdleDeadlineUnixNano = 0
-		state.DrainRetryUnixNano = 0
-		state.CompletionUnixNano = time.Now().UnixNano()
-		state.CompletionReceipt = runtimeServerDigestString(strings.Join([]string{
-			"gopls-root-drain-complete-v1", fmt.Sprint(fence.Epoch), fence.LeaseID, fmt.Sprint(state.CompletionUnixNano),
-		}, "\x00"))
-		state.JournalRevision++
-		return struct{}{}, runtimeServerWriteGoplsRootCohortState(filepath.Join(dir, "state.json"), *state)
-	})
+	}
 }
 
 func runtimeServerDurableGoplsRootCohortWithStateLock[T any](c *runtimeServerDurableGoplsRootCohortController, config multilsp.GoplsRootCohortConfig, fn func(string, *runtimeServerDurableGoplsRootCohortState) (T, error)) (result T, retErr error) {
@@ -753,6 +930,11 @@ func (s runtimeServerDurableGoplsRootCohortState) configValue() (multilsp.GoplsR
 	config := s.Config.value()
 	if err := config.Validate(); err != nil {
 		return multilsp.GoplsRootCohortConfig{}, fmt.Errorf("gopls root cohort state config is invalid: %w", err)
+	}
+	for _, evidence := range s.PendingCleanups {
+		if err := runtimeServerGoplsRootCohortCleanupEvidenceValid(evidence); err != nil {
+			return multilsp.GoplsRootCohortConfig{}, err
+		}
 	}
 	if multilsp.DigestGoplsRootCohortConfig(config) != s.ConfigDigest {
 		return multilsp.GoplsRootCohortConfig{}, errors.New("gopls root cohort state config digest mismatch")

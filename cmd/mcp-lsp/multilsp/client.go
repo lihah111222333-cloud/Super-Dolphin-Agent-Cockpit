@@ -27,6 +27,9 @@ var (
 	ErrMethodNotSupported = errors.New("LSP server request not supported")
 	ErrTransportClosed    = errors.New("LSP transport closed")
 	ErrBinaryRequired     = errors.New("LSP binary is required")
+	// ErrIdleReleaseOwnerUnavailable 表示 idle recycler 无法取得共享 daemon
+	// forwarder 的唯一 ReleaseForIdle owner；调用方必须保留 CleanupPending。
+	ErrIdleReleaseOwnerUnavailable = errors.New("LSP idle release owner unavailable")
 )
 
 // Client 定义 multilsp manager 与底层 LSP transport 交互的最小生命周期接口。
@@ -57,6 +60,21 @@ type HealthCheckedClient interface {
 type WrappedClient interface {
 	Client
 	UnderlyingLSPClient() Client
+}
+
+// IdleReleasableClient 把 idle recycler 的关闭绑定到共享资源 owner。
+// gopls root cohort client 必须实现 ReleaseForIdle；recycler 不得在该路径
+// 退回裸 Client.Close，从而绕过 root lease/fence 与 forwarder drain。
+type IdleReleasableClient interface {
+	Client
+	ReleaseForIdle() error
+}
+
+// IdleReleaseRequiredClient 标记一个 client 必须走 IdleReleasableClient。
+// 标记存在但未实现 ReleaseForIdle 时，recycler fail-closed 并保留 cleanup owner。
+type IdleReleaseRequiredClient interface {
+	Client
+	RequiresIdleRelease() bool
 }
 
 // Options 描述启动 LSP client 时传给 transport、initialize 和回调处理器的配置。
