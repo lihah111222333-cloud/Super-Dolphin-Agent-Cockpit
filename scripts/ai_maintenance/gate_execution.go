@@ -133,7 +133,7 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"sqlc:verify":       cacheable(func() error { return runCommand("", "make", "sqlc-verify-worktree") }),
 		"diff:whitespace":   {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
-	maps.Copy(runners, ownedGateRunners(plan))
+	maps.Copy(runners, ownedGateRunners(plan, newE2EExecutionPolicy()))
 	return runners
 }
 

@@ -60,11 +60,26 @@ func TestPushGatePlanRoutesVitestExcludedE2EToExplicitCommands(t *testing.T) {
 			pushPlan := mustGatePlanForScope(t, []string{test.file}, true)
 			assertStringSetOmits(t, commitPlan.RequiredGates, "frontend:e2e", "frontend:changed-tests")
 			assertStringSetContains(t, pushPlan.RequiredGates, "frontend:e2e")
-			commands := frontendE2ECommands(pushPlan.ChangedFiles)
+			commands := newE2EExecutionPolicy().frontendE2ECommands(pushPlan.ChangedFiles)
 			if len(commands) != 1 || commands[0].script != test.script {
 				t.Fatalf("frontend E2E commands = %#v, want %q", commands, test.script)
 			}
 		})
+	}
+}
+
+func TestNewE2EExecutionPolicyOwnsMutableDescriptors(t *testing.T) {
+	first := newE2EExecutionPolicy()
+	second := newE2EExecutionPolicy()
+
+	first.allFrontendE2ECommands[0].script = "mutated"
+	first.frontendE2EMatches[0].script = "mutated"
+
+	if second.allFrontendE2ECommands[0].script == "mutated" {
+		t.Fatal("frontend E2E command descriptors are shared between policies")
+	}
+	if second.frontendE2EMatches[0].script == "mutated" {
+		t.Fatal("frontend E2E match descriptors are shared between policies")
 	}
 }
 
