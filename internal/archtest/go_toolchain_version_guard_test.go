@@ -224,7 +224,7 @@ func collectOwnedGoModule(
 		return walkErr
 	}
 	if entry.IsDir() {
-		return skipOwnedGoModuleDirectory(entry.Name())
+		return skipOwnedGoModuleDirectory(path, repository)
 	}
 	if entry.Name() != "go.mod" {
 		return nil
@@ -232,8 +232,16 @@ func collectOwnedGoModule(
 	return recordOwnedGoModule(path, repository, want, stale)
 }
 
-func skipOwnedGoModuleDirectory(name string) error {
-	if name == ".git" || name == "third_party" {
+func skipOwnedGoModuleDirectory(path, repository string) error {
+	relative, err := filepath.Rel(repository, path)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(filepath.ToSlash(relative), "/") {
+		return nil
+	}
+	switch relative {
+	case ".git", ".tmp", ".workspace", ".worktrees", "third_party":
 		return filepath.SkipDir
 	}
 	return nil
@@ -286,6 +294,56 @@ func assertDerivedGoToolchainConsumers(t *testing.T, repository string) {
 				t.Fatalf("derived Go toolchain consumer %s is missing %q", path, fragment)
 			}
 		}
+	}
+}
+
+func TestAssertOwnedGoModulesMatchSkipsUncontrolledReplicaDirectories(t *testing.T) {
+	repository := t.TempDir()
+	writeGoToolchainGuardTestFile(t, filepath.Join(repository, "go.mod"), "module example.com/root\n\ngo 1.26.5\n")
+	writeGoToolchainGuardTestFile(t, filepath.Join(repository, "build", "gate", "runtime-tools", "go.mod"), "module example.com/runtime-tools\n\ngo 1.26.5\n")
+	for _, directory := range []string{".tmp", ".workspace", ".worktrees"} {
+		writeGoToolchainGuardTestFile(t, filepath.Join(repository, directory, "historical", "go.mod"), "module example.com/historical\n\ngo 1.25.7\n")
+	}
+
+	assertOwnedGoModulesMatch(t, repository, "go1.26.5")
+}
+
+func TestCompareGoToolchainConsumersReportsUnknownManagedModule(t *testing.T) {
+	consumers := map[string]goToolchainConsumer{
+		"go.mod": {Path: "go.mod", Reason: "规范模块"},
+	}
+	discovered := map[string][]string{
+		"go.mod":                   {"go 1.26.5"},
+		"nested/new-module/go.mod": {"go 1.26.5"},
+	}
+
+	_, unknown := compareGoToolchainConsumers(consumers, discovered, "go1.26.5")
+	if len(unknown) != 1 || unknown[0] != "nested/new-module/go.mod" {
+		t.Fatalf("unknown managed module = %v, want [nested/new-module/go.mod]", unknown)
+	}
+}
+
+func TestSkipOwnedGoModuleDirectoryKeepsManagedNestedModules(t *testing.T) {
+	repository := t.TempDir()
+	for _, directory := range []string{
+		"build",
+		filepath.Join("build", "gate"),
+		filepath.Join("build", "gate", "runtime-proxy"),
+		filepath.Join("build", "gate", "runtime-tools"),
+	} {
+		if err := skipOwnedGoModuleDirectory(filepath.Join(repository, directory), repository); err != nil {
+			t.Fatalf("managed directory %s skip result = %v, want nil", directory, err)
+		}
+	}
+}
+
+func writeGoToolchainGuardTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create test directory for %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write test file %s: %v", path, err)
 	}
 }
 
