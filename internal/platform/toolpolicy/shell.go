@@ -19,100 +19,96 @@ type gitBranchArgState struct {
 	listMode bool
 }
 
-var readOnlyShellCommands = map[string]shellCommandPolicy{
-	"cat":  allowPathReaderArgs,
-	"git":  allowGitArgs,
-	"grep": allowAnyReadOnlyArgs,
-	"head": allowAnyReadOnlyArgs,
-	"ls":   allowAnyReadOnlyArgs,
-	"nl":   allowAnyReadOnlyArgs,
-	"pwd":  allowNoArgs,
-	"rg":   allowRipgrepArgs,
-	"sed":  allowSedArgs,
-	"tail": allowAnyReadOnlyArgs,
-	"wc":   allowAnyReadOnlyArgs,
+// readOnlyShellCommandPolicy 返回固定只读命令的参数策略。
+func readOnlyShellCommandPolicy(name string) (shellCommandPolicy, bool) {
+	switch name {
+	case "cat":
+		return allowPathReaderArgs, true
+	case "git":
+		return allowGitArgs, true
+	case "grep", "head", "ls", "nl", "tail", "wc":
+		return allowAnyReadOnlyArgs, true
+	case "pwd":
+		return allowNoArgs, true
+	case "rg":
+		return allowRipgrepArgs, true
+	case "sed":
+		return allowSedArgs, true
+	default:
+		return nil, false
+	}
 }
 
-var deniedShellCommands = map[string]struct{}{
-	"bash":      {},
-	"bg":        {},
-	"disown":    {},
-	"exec":      {},
-	"fg":        {},
-	"fish":      {},
-	"jobs":      {},
-	"kill":      {},
-	"killall":   {},
-	"nohup":     {},
-	"osascript": {},
-	"pkill":     {},
-	"screen":    {},
-	"setsid":    {},
-	"sh":        {},
-	"sleep":     {},
-	"sudo":      {},
-	"su":        {},
-	"tmux":      {},
-	"wait":      {},
-	"zsh":       {},
+// isDeniedShellCommand 判断命令是否明确禁止。
+func isDeniedShellCommand(name string) bool {
+	switch name {
+	case "bash", "bg", "disown", "exec", "fg", "fish", "jobs", "kill", "killall",
+		"nohup", "osascript", "pkill", "screen", "setsid", "sh", "sleep", "sudo",
+		"su", "tmux", "wait", "zsh":
+		return true
+	default:
+		return false
+	}
 }
 
-var dangerousShellArgs = map[string]struct{}{
-	"-c":             {},
-	"-delete":        {},
-	"-exec":          {},
-	"-i":             {},
-	"--command":      {},
-	"--config-env":   {},
-	"--delete":       {},
-	"--exec":         {},
-	"--exec-path":    {},
-	"--ext-diff":     {},
-	"--in-place":     {},
-	"--out-dir":      {},
-	"--output":       {},
-	"--outfile":      {},
-	"--receive-pack": {},
-	"--textconv":     {},
-	"--upload-pack":  {},
+// isDangerousShellArg 判断参数是否能够触发执行、写入或 provider 配置。
+func isDangerousShellArg(arg string) bool {
+	switch arg {
+	case "-c", "-delete", "-exec", "-i", "--command", "--config-env", "--delete",
+		"--exec", "--exec-path", "--ext-diff", "--in-place", "--out-dir", "--output",
+		"--outfile", "--receive-pack", "--textconv", "--upload-pack":
+		return true
+	default:
+		return false
+	}
 }
 
-var dangerousShellArgPrefixes = []string{
-	"--config-env=",
-	"--exec=",
-	"--exec-path=",
-	"--out-dir=",
-	"--output=",
-	"--outfile=",
-	"--receive-pack=",
-	"--upload-pack=",
+// hasDangerousShellArgPrefix 判断带值参数是否具有危险前缀。
+func hasDangerousShellArgPrefix(arg string) bool {
+	switch {
+	case strings.HasPrefix(arg, "--config-env="),
+		strings.HasPrefix(arg, "--exec="),
+		strings.HasPrefix(arg, "--exec-path="),
+		strings.HasPrefix(arg, "--out-dir="),
+		strings.HasPrefix(arg, "--output="),
+		strings.HasPrefix(arg, "--outfile="),
+		strings.HasPrefix(arg, "--receive-pack="),
+		strings.HasPrefix(arg, "--upload-pack="):
+		return true
+	default:
+		return false
+	}
 }
 
-var gitBranchReadOnlyFlags = map[string]struct{}{
-	"--all":          {},
-	"--color":        {},
-	"--column":       {},
-	"--list":         {},
-	"--no-color":     {},
-	"--no-column":    {},
-	"--remotes":      {},
-	"--show-current": {},
-	"-a":             {},
-	"-r":             {},
-	"-v":             {},
-	"-vv":            {},
+// isGitBranchReadOnlyFlag 判断 branch 的无值只读标记。
+func isGitBranchReadOnlyFlag(arg string) bool {
+	switch arg {
+	case "--all", "--color", "--column", "--list", "--no-color", "--no-column",
+		"--remotes", "--show-current", "-a", "-r", "-v", "-vv":
+		return true
+	default:
+		return false
+	}
 }
 
-var gitBranchOptionalValueFlags = map[string]struct{}{
-	"--contains":  {},
-	"--merged":    {},
-	"--no-merged": {},
+// isGitBranchOptionalValueFlag 判断 branch 的可选值只读标记。
+func isGitBranchOptionalValueFlag(arg string) bool {
+	switch arg {
+	case "--contains", "--merged", "--no-merged":
+		return true
+	default:
+		return false
+	}
 }
 
-var gitBranchRequiredValueFlags = map[string]struct{}{
-	"--format":    {},
-	"--points-at": {},
-	"--sort":      {},
+// isGitBranchRequiredValueFlag 判断 branch 的必需值只读标记。
+func isGitBranchRequiredValueFlag(arg string) bool {
+	switch arg {
+	case "--format", "--points-at", "--sort":
+		return true
+	default:
+		return false
+	}
 }
 
 // ClassifyShell 判断一条 shell 字符串是否属于规划/只读阶段可接受的读命令。
@@ -128,10 +124,10 @@ func ClassifyShell(command string) Decision {
 
 	name := words[0]
 	args := words[1:]
-	if _, denied := deniedShellCommands[name]; denied {
+	if isDeniedShellCommand(name) {
 		return deny(CodeShellCommandDenied, fmt.Sprintf("toolpolicy: shell command %q is not read-only", name))
 	}
-	policy, ok := readOnlyShellCommands[name]
+	policy, ok := readOnlyShellCommandPolicy(name)
 	if !ok {
 		return deny(CodeShellCommandDenied, fmt.Sprintf("toolpolicy: shell command %q is not in read-only table", name))
 	}
@@ -223,13 +219,11 @@ func isShellSyntaxRune(r rune) bool {
 // firstDangerousShellArg 找出会切换到命令执行、写文件或 provider 子进程配置的参数。
 func firstDangerousShellArg(args []string) string {
 	for _, arg := range args {
-		if _, denied := dangerousShellArgs[arg]; denied {
+		if isDangerousShellArg(arg) {
 			return arg
 		}
-		for _, prefix := range dangerousShellArgPrefixes {
-			if strings.HasPrefix(arg, prefix) {
-				return arg
-			}
+		if hasDangerousShellArgPrefix(arg) {
+			return arg
 		}
 	}
 	return ""
@@ -308,7 +302,7 @@ func (s *gitBranchArgState) consume(arg string, rest []string) (int, bool) {
 }
 
 func (s *gitBranchArgState) consumeReadOnlyFlag(arg string) bool {
-	if _, ok := gitBranchReadOnlyFlags[arg]; ok {
+	if isGitBranchReadOnlyFlag(arg) {
 		s.markListMode(arg)
 		return true
 	}
@@ -326,7 +320,7 @@ func (s *gitBranchArgState) markListMode(flag string) {
 }
 
 func consumeGitBranchOptionalValue(arg string, rest []string) (int, bool, bool) {
-	if _, ok := gitBranchOptionalValueFlags[arg]; !ok {
+	if !isGitBranchOptionalValueFlag(arg) {
 		return 0, false, false
 	}
 	if hasGitBranchValue(rest) {
@@ -336,7 +330,7 @@ func consumeGitBranchOptionalValue(arg string, rest []string) (int, bool, bool) 
 }
 
 func consumeGitBranchRequiredValue(arg string, rest []string) (int, bool, bool) {
-	if _, ok := gitBranchRequiredValueFlags[arg]; !ok {
+	if !isGitBranchRequiredValueFlag(arg) {
 		return 0, false, false
 	}
 	return 1, hasGitBranchValue(rest), true
@@ -347,21 +341,9 @@ func hasGitBranchValue(rest []string) bool {
 }
 
 func gitBranchInlineValueFlag(arg string) (string, bool) {
-	for _, flags := range []map[string]struct{}{
-		gitBranchOptionalValueFlags,
-		gitBranchRequiredValueFlags,
-		{"--list": {}},
+	for _, flag := range []string{
+		"--contains", "--merged", "--no-merged", "--format", "--points-at", "--sort", "--list",
 	} {
-		flag, ok := gitBranchInlineValueFlagInMap(arg, flags)
-		if ok {
-			return flag, true
-		}
-	}
-	return "", false
-}
-
-func gitBranchInlineValueFlagInMap(arg string, flags map[string]struct{}) (string, bool) {
-	for flag := range flags {
 		prefix := flag + "="
 		if strings.HasPrefix(arg, prefix) && strings.TrimPrefix(arg, prefix) != "" {
 			return flag, true

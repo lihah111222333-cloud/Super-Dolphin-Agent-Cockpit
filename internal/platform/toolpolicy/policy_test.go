@@ -86,6 +86,51 @@ func TestTrustFailsClosedForUnknownExternalAndExternalReadOnlyHint(t *testing.T)
 	}
 }
 
+func TestShellRulePredicatesKeepExactMembership(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"cat", "git", "grep", "head", "ls", "nl", "pwd", "rg", "sed", "tail", "wc"} {
+		if _, ok := readOnlyShellCommandPolicy(name); !ok {
+			t.Fatalf("readOnlyShellCommandPolicy(%q) = not found", name)
+		}
+	}
+	for _, name := range []string{"bash", "bg", "disown", "exec", "fg", "fish", "jobs", "kill", "killall", "nohup", "osascript", "pkill", "screen", "setsid", "sh", "sleep", "sudo", "su", "tmux", "wait", "zsh"} {
+		if !isDeniedShellCommand(name) {
+			t.Fatalf("isDeniedShellCommand(%q) = false", name)
+		}
+	}
+	for _, arg := range []string{"-c", "-delete", "-exec", "-i", "--command", "--config-env", "--delete", "--exec", "--exec-path", "--ext-diff", "--in-place", "--out-dir", "--output", "--outfile", "--receive-pack", "--textconv", "--upload-pack"} {
+		if !isDangerousShellArg(arg) {
+			t.Fatalf("isDangerousShellArg(%q) = false", arg)
+		}
+	}
+	for _, arg := range []string{"--config-env=x", "--exec=x", "--exec-path=x", "--out-dir=x", "--output=x", "--outfile=x", "--receive-pack=x", "--upload-pack=x"} {
+		if !hasDangerousShellArgPrefix(arg) {
+			t.Fatalf("hasDangerousShellArgPrefix(%q) = false", arg)
+		}
+	}
+	for _, flag := range []string{"--all", "--color", "--column", "--list", "--no-color", "--no-column", "--remotes", "--show-current", "-a", "-r", "-v", "-vv"} {
+		if !isGitBranchReadOnlyFlag(flag) {
+			t.Fatalf("isGitBranchReadOnlyFlag(%q) = false", flag)
+		}
+	}
+	for _, flag := range []string{"--contains", "--merged", "--no-merged"} {
+		if !isGitBranchOptionalValueFlag(flag) {
+			t.Fatalf("isGitBranchOptionalValueFlag(%q) = false", flag)
+		}
+	}
+	for _, flag := range []string{"--format", "--points-at", "--sort"} {
+		if !isGitBranchRequiredValueFlag(flag) {
+			t.Fatalf("isGitBranchRequiredValueFlag(%q) = false", flag)
+		}
+	}
+	for _, unknown := range []string{"__unknown__"} {
+		if _, ok := readOnlyShellCommandPolicy(unknown); ok || isDeniedShellCommand(unknown) || isDangerousShellArg(unknown) || hasDangerousShellArgPrefix(unknown) || isGitBranchReadOnlyFlag(unknown) || isGitBranchOptionalValueFlag(unknown) || isGitBranchRequiredValueFlag(unknown) {
+			t.Fatalf("unknown value %q is unexpectedly accepted", unknown)
+		}
+	}
+}
+
 func TestShellClassificationAllowsReadOnlyCommandTable(t *testing.T) {
 	tests := []string{
 		"pwd",
