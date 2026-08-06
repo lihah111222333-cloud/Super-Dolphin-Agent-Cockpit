@@ -14,36 +14,44 @@ var backtickStripRe = regexp.MustCompile("`[^`]*`")
 var sentenceSplitRe = regexp.MustCompile(`[。？！?!,，\n]`)
 var continuationRe = regexp.MustCompile(`^(.+) \(续(?: (\d+))?\)$`)
 
-var fillerPrefixes = []string{
-	"能不能帮我", "能不能", "帮我一下", "帮我", "请帮我", "请",
-	"你能", "你帮我", "你", "看看", "我想", "我要",
-	"给我",
+func titleFillerPrefixes() []string {
+	return []string{
+		"能不能帮我", "能不能", "帮我一下", "帮我", "请帮我", "请",
+		"你能", "你帮我", "你", "看看", "我想", "我要",
+		"给我",
+	}
 }
 
-var chineseFillerWords = []string{
-	"一下", "的", "了", "吧", "啊", "呢", "嘛", "哦", "嗯", "吗",
+func titleChineseFillerWords() []string {
+	return []string{
+		"一下", "的", "了", "吧", "啊", "呢", "嘛", "哦", "嗯", "吗",
+	}
 }
 
-var chinesePronouns = map[string]bool{
-	"这":  true,
-	"这个": true,
-	"那":  true,
-	"那个": true,
-	"它":  true,
-	"他":  true,
-	"她":  true,
-	"我":  true,
-	"你":  true,
-	"这些": true,
-	"那些": true,
+func titleChinesePronouns() map[string]bool {
+	return map[string]bool{
+		"这":  true,
+		"这个": true,
+		"那":  true,
+		"那个": true,
+		"它":  true,
+		"他":  true,
+		"她":  true,
+		"我":  true,
+		"你":  true,
+		"这些": true,
+		"那些": true,
+	}
 }
 
-var englishFillerWords = map[string]bool{
-	"the": true, "a": true, "an": true, "in": true,
-	"at": true, "on": true, "of": true, "to": true,
-	"for": true, "and": true, "or": true, "is": true,
-	"are": true, "was": true, "were": true, "it": true,
-	"this": true, "that": true, "with": true,
+func titleEnglishFillerWords() map[string]bool {
+	return map[string]bool{
+		"the": true, "a": true, "an": true, "in": true,
+		"at": true, "on": true, "of": true, "to": true,
+		"for": true, "and": true, "or": true, "is": true,
+		"are": true, "was": true, "were": true, "it": true,
+		"this": true, "that": true, "with": true,
+	}
 }
 
 // Extract 从 prompt 文本中提取简洁标题，清理前缀填充词、代码块和标点，返回空字符串表示无法提取有效标题。
@@ -100,7 +108,7 @@ func firstSentence(prompt string) string {
 }
 
 func removeFiller(s string) string {
-	for _, prefix := range fillerPrefixes {
+	for _, prefix := range titleFillerPrefixes() {
 		if strings.HasPrefix(s, prefix) {
 			return removeFiller(strings.TrimSpace(strings.TrimPrefix(s, prefix)))
 		}
@@ -109,7 +117,7 @@ func removeFiller(s string) string {
 }
 
 func removeChineseParticles(s string) string {
-	for _, p := range chineseFillerWords {
+	for _, p := range titleChineseFillerWords() {
 		s = strings.ReplaceAll(s, p, "")
 	}
 	return s
@@ -117,9 +125,10 @@ func removeChineseParticles(s string) string {
 
 func removeEnglishFillers(s string) string {
 	tokens := strings.Fields(s)
+	fillerWords := titleEnglishFillerWords()
 	out := tokens[:0]
 	for _, t := range tokens {
-		if !englishFillerWords[strings.ToLower(t)] {
+		if !fillerWords[strings.ToLower(t)] {
 			out = append(out, t)
 		}
 	}
@@ -225,8 +234,9 @@ func isAllPronouns(s string) bool {
 	if len(tokens) == 0 {
 		return false
 	}
+	pronouns := titleChinesePronouns()
 	for _, t := range tokens {
-		if !chinesePronouns[t] {
+		if !pronouns[t] {
 			return false
 		}
 	}
