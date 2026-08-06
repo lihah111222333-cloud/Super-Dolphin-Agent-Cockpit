@@ -23,7 +23,7 @@ func TestDuplicateSwitchKeysGuard(t *testing.T) {
 	violations := scanForDuplicateSwitchKeys(t, repoRoot)
 	var unfrozen []string
 	for _, v := range violations {
-		file := strings.SplitN(v, ":", 2)[0]
+		file, _, _ := strings.Cut(v, ":")
 		if frozen[file] {
 			continue
 		}

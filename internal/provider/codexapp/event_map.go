@@ -224,14 +224,27 @@ func codexEventRequiresTimestamp(eventType string) bool {
 	if isTurnTerminalEvent(eventType) {
 		return true
 	}
-	switch strings.TrimSpace(eventType) {
-	case "thread/started", "session.configured", "agent:launched", "thread/status/changed",
-		"shutdown.complete", "shutdown_complete", "recovery.attempt", "connection.dead",
-		"turn/started", "turn.started":
+	eventType = strings.TrimSpace(eventType)
+	return isCodexAgentLaunchedEvent(eventType) ||
+		isCodexAgentStoppedEvent(eventType) ||
+		eventType == "thread/status/changed" ||
+		eventType == "recovery.attempt" ||
+		eventType == "connection.dead" ||
+		eventType == "turn/started" ||
+		eventType == "turn.started"
+}
+
+func isCodexAgentLaunchedEvent(eventType string) bool {
+	switch eventType {
+	case "thread/started", "session.configured", "agent:launched":
 		return true
 	default:
 		return false
 	}
+}
+
+func isCodexAgentStoppedEvent(eventType string) bool {
+	return eventType == "shutdown.complete" || eventType == "shutdown_complete"
 }
 
 func publishCodexTranslatedEvent(eventType string, ev any, publish func(ev any)) {

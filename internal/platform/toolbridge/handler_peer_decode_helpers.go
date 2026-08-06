@@ -328,8 +328,12 @@ func requiresCodexSurfaceFamilyTool(family, name string) bool {
 }
 
 func requiresCanonicalCodexSurfaceTool(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "file", "inspect", "xref", "grep", "structure", "patch_edit", "completion", "launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent", "list_agents", "get_agent_report", "get_agent_reports", ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameHistoryRead, ToolNameReadSection, "skill_expand_body":
+	name = strings.TrimSpace(name)
+	if isToolCWDTraceCanonicalTool(name) {
+		return true
+	}
+	switch name {
+	case "send_message", "stop_agent", "recover_agent", "interrupt_agent", "list_agents", "get_agent_report", "get_agent_reports", ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameHistoryRead, ToolNameReadSection, "skill_expand_body":
 		return true
 	default:
 		return false
