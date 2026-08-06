@@ -27,6 +27,7 @@ import (
 type SearchMatch struct {
 	AbsPath, SearchRoot string `json:"-"`
 	limitReached        bool
+	explicitHiddenRoot  string
 	File                string `json:"file"`
 	Line                int    `json:"line"`
 	Col                 int    `json:"col"`
@@ -101,6 +102,7 @@ func searchTextResolvedPaths(ctx context.Context, opts TextSearchOptions, matche
 		}
 		if !searchPath.Info.IsDir() {
 			found, err := searchTextFile(ctx, searchPath.Path.Root, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, opts.MaxResults-len(results))
+			markExplicitHiddenRoot(found, searchPath.explicitHiddenRoot)
 			if stop, err := appendSearchResults(&results, found, err); err != nil {
 				return nil, err
 			} else if stop {
@@ -109,7 +111,7 @@ func searchTextResolvedPaths(ctx context.Context, opts TextSearchOptions, matche
 			continue
 		}
 		if err := filepath.WalkDir(searchPath.Path.AbsPath, func(candidate string, entry os.DirEntry, walkErr error) error {
-			return walkSearchEntry(ctx, searchPath.Path.AbsPath, candidate, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, opts.MaxResults, &results, entry, walkErr)
+			return walkSearchEntry(ctx, searchPath.Path.AbsPath, candidate, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, opts.MaxResults, &results, searchPath.explicitHiddenRoot, entry, walkErr)
 		}); err != nil {
 			if errors.Is(err, errSearchResultsLimitReached) {
 				break
@@ -150,6 +152,7 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 		} else {
 			found, err = runSGPatternSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxResults-len(results))
 		}
+		markExplicitHiddenRoot(found, searchPath.explicitHiddenRoot)
 		if stop, err := appendSearchResults(&results, found, err); err != nil {
 			return nil, err
 		} else if stop {
@@ -204,6 +207,14 @@ func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchM
 }
 
 func shouldExcludeSearchMatch(match SearchMatch) bool {
+	if explicitRoot := strings.TrimSpace(match.explicitHiddenRoot); explicitRoot != "" {
+		if filepath.Clean(match.AbsPath) == filepath.Clean(explicitRoot) {
+			return false
+		}
+		if relPath := relativeSearchMatchPath(explicitRoot, match.AbsPath); relPath != "" {
+			return shouldExcludePath(relPath)
+		}
+	}
 	filterPath := match.AbsPath
 	if relPath := relativeSearchMatchPath(match.SearchRoot, match.AbsPath); relPath != "" {
 		filterPath = relPath
@@ -240,8 +251,9 @@ func statSearchPath(root string, roots []string, rawPath string) (PathInfo, os.F
 }
 
 type searchPathStat struct {
-	Path PathInfo
-	Info os.FileInfo
+	Path               PathInfo
+	Info               os.FileInfo
+	explicitHiddenRoot string
 }
 
 // statSearchPaths 解析并 stat 一个或多个搜索入口。
@@ -252,7 +264,7 @@ func statSearchPaths(root string, roots []string, rawPath string, explicitPaths 
 	}
 	pathInfo, info, err := statSearchPath(root, roots, rawPath)
 	if err == nil {
-		return []searchPathStat{{Path: pathInfo, Info: info}}, nil
+		return []searchPathStat{{Path: pathInfo, Info: info, explicitHiddenRoot: explicitHiddenSearchRoot(pathInfo, isExplicitSearchPath(rawPath))}}, nil
 	}
 	fields := splitSearchPathList(rawPath)
 	if len(fields) <= 1 {
@@ -264,7 +276,7 @@ func statSearchPaths(root string, roots []string, rawPath string, explicitPaths 
 		if fieldErr != nil {
 			return nil, fmt.Errorf("stat search path %q from %q: %w", field, rawPath, fieldErr)
 		}
-		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info})
+		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info, explicitHiddenRoot: explicitHiddenSearchRoot(pathInfo, true)})
 	}
 	return searchPaths, nil
 }
@@ -276,9 +288,47 @@ func statExplicitSearchPaths(root string, roots []string, rawPaths []string) ([]
 		if err != nil {
 			return nil, fmt.Errorf("stat search path %q: %w", rawPath, err)
 		}
-		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info})
+		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info, explicitHiddenRoot: explicitHiddenSearchRoot(pathInfo, true)})
 	}
 	return searchPaths, nil
+}
+
+// isExplicitSearchPath 区分用户传入的 path 与空值或点号默认根。
+func isExplicitSearchPath(rawPath string) bool {
+	trimmed := strings.TrimSpace(rawPath)
+	return trimmed != "" && trimmed != "."
+}
+
+// explicitHiddenSearchRoot 仅为已解析、位于可信根内的 .agent/.agents 显式搜索入口授予局部放行根。
+func explicitHiddenSearchRoot(pathInfo PathInfo, explicit bool) string {
+	if !explicit {
+		return ""
+	}
+	relPath := relativeSearchMatchPath(pathInfo.Root, pathInfo.AbsPath)
+	if relPath == "" || !containsHiddenAgentDirectory(relPath) {
+		return ""
+	}
+	return pathInfo.AbsPath
+}
+
+// containsHiddenAgentDirectory 判断路径段是否命中 .agent 或 .agents。
+func containsHiddenAgentDirectory(path string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(filepath.Clean(path)), "/") {
+		if segment == ".agent" || segment == ".agents" {
+			return true
+		}
+	}
+	return false
+}
+
+// markExplicitHiddenRoot 把局部放行根附着到同一显式搜索入口产生的结果上。
+func markExplicitHiddenRoot(matches []SearchMatch, explicitRoot string) {
+	if strings.TrimSpace(explicitRoot) == "" {
+		return
+	}
+	for index := range matches {
+		matches[index].explicitHiddenRoot = explicitRoot
+	}
 }
 
 func splitSearchPathList(rawPath string) []string {
@@ -287,7 +337,7 @@ func splitSearchPathList(rawPath string) []string {
 
 // walkSearchEntry 处理 WalkDir 遍历到的单个候选项。
 // 目录会按跳过规则剪枝，文件必须通过 glob、大小和二进制检查后才读取。
-func walkSearchEntry(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher, maxResults int, results *[]SearchMatch, entry os.DirEntry, walkErr error) error {
+func walkSearchEntry(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher, maxResults int, results *[]SearchMatch, explicitHiddenRoot string, entry os.DirEntry, walkErr error) error {
 	if maxResultsReached(len(*results), maxResults) {
 		(*results)[len(*results)-1].limitReached = true
 		return errSearchResultsLimitReached
@@ -302,15 +352,15 @@ func walkSearchEntry(ctx context.Context, root, candidate, searchRoot, glob stri
 		return fmt.Errorf("walk %s: missing dir entry", candidate)
 	}
 	if entry.IsDir() {
-		if shouldSkipDir(entry.Name()) || isInsideGoModCache(candidate) {
+		if (shouldSkipDir(entry.Name()) && filepath.Clean(candidate) != filepath.Clean(explicitHiddenRoot)) || isInsideGoModCache(candidate) {
 			return filepath.SkipDir
 		}
 		return nil
 	}
-	return walkSearchFile(ctx, root, candidate, searchRoot, glob, maxFileBytes, matcher, maxResults, results, entry)
+	return walkSearchFile(ctx, root, candidate, searchRoot, glob, maxFileBytes, matcher, maxResults, results, explicitHiddenRoot, entry)
 }
 
-func walkSearchFile(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher, maxResults int, results *[]SearchMatch, entry os.DirEntry) error {
+func walkSearchFile(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher, maxResults int, results *[]SearchMatch, explicitHiddenRoot string, entry os.DirEntry) error {
 	selected, err := shouldSearchPath(root, candidate, glob, maxFileBytes, entry)
 	if err != nil {
 		return err
@@ -319,6 +369,7 @@ func walkSearchFile(ctx context.Context, root, candidate, searchRoot, glob strin
 		return nil
 	}
 	found, err := searchTextFile(ctx, root, candidate, searchRoot, glob, maxFileBytes, matcher, maxResults-len(*results))
+	markExplicitHiddenRoot(found, explicitHiddenRoot)
 	if stop, err := appendSearchResults(results, found, err); err != nil {
 		return fmt.Errorf("search %s: %w", candidate, err)
 	} else if stop {

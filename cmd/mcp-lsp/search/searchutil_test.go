@@ -119,7 +119,7 @@ func TestSearchTextCaseSensitiveOverride(t *testing.T) {
 
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
 	var results []SearchMatch
-	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher(t, "x"), 0, &results, nil, errors.New("walk boom"))
+	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher(t, "x"), 0, &results, "", nil, errors.New("walk boom"))
 	if err == nil || !strings.Contains(err.Error(), "walk boom") {
 		t.Fatalf("walkSearchEntry() error = %v, want walk boom", err)
 	}
@@ -368,6 +368,94 @@ func TestSearchTextSkipsWorkspaceNoiseDirectories(t *testing.T) {
 	}
 	if matches[0].AbsPath != keep {
 		t.Fatalf("SearchText() match path = %q, want %q", matches[0].AbsPath, keep)
+	}
+}
+
+func TestSearchTextExplicitAgentTargetsPermitOnlyRequestedScope(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	agentsFirst := filepath.Join(root, ".agents", "first.go")
+	agentsSecond := filepath.Join(root, ".agents", "nested", "second.go")
+	agentOnly := filepath.Join(root, ".agent", "only.go")
+	outside := filepath.Join(root, "outside.go")
+	for _, testFile := range []string{agentsFirst, agentsSecond, agentOnly, outside} {
+		writeSearchTestFile(t, testFile, "package fixture\nconst needle = true\n")
+	}
+
+	cases := map[string]struct {
+		path  string
+		paths []string
+		want  []string
+	}{
+		"path_hidden_directory": {
+			path: filepath.Join(root, ".agents"),
+			want: []string{".agents/first.go", ".agents/nested/second.go"},
+		},
+		"paths_hidden_files": {
+			paths: []string{agentsFirst, agentOnly},
+			want:  []string{".agent/only.go", ".agents/first.go"},
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			matches, searchErr := SearchText(context.Background(), TextSearchOptions{
+				Root: root, Path: testCase.path, Paths: testCase.paths, Query: "needle",
+			})
+			if searchErr != nil {
+				t.Fatalf("SearchText() error = %v", searchErr)
+			}
+			filtered, total, truncated := FilterAndCapSearchMatches(matches, 0)
+			if truncated || total != len(testCase.want) {
+				t.Fatalf("FilterAndCapSearchMatches() total=%d truncated=%v, want %d false", total, truncated, len(testCase.want))
+			}
+			got := searchTestRelativePaths(t, root, filtered)
+			if len(got) != len(testCase.want) {
+				t.Fatalf("filtered paths = %#v, want %#v", got, testCase.want)
+			}
+			for _, want := range testCase.want {
+				if !got[want] {
+					t.Fatalf("filtered paths = %#v, missing %s", got, want)
+				}
+			}
+			if got["outside.go"] || got[".agents/nested/second.go"] && name == "paths_hidden_files" {
+				t.Fatalf("filtered paths = %#v, exceeded requested scope", got)
+			}
+		})
+	}
+}
+
+func TestSearchTextRejectsExplicitHiddenTargetOutsideTrustedRoots(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), ".agents", "outside.go")
+	writeSearchTestFile(t, outside, "package fixture\nconst needle = true\n")
+
+	_, err = SearchText(context.Background(), TextSearchOptions{
+		Root: root, Path: outside, Query: "needle",
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("SearchText() error = %v, want trusted-root rejection", err)
+	}
+}
+
+func TestSearchTextDefaultPathDoesNotPermitHiddenAgentTargets(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	writeSearchTestFile(t, filepath.Join(root, ".agents", "hidden.go"), "package fixture\nconst needle = true\n")
+
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Path: ".", Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	filtered, total, truncated := FilterAndCapSearchMatches(matches, 0)
+	if truncated || total != 0 || len(filtered) != 0 {
+		t.Fatalf("FilterAndCapSearchMatches() = %#v, %d, %v; want no default hidden matches", filtered, total, truncated)
 	}
 }
 
