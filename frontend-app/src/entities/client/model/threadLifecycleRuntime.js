@@ -262,32 +262,15 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     const existing = interruptFlights.get(key);
     if (existing) return existing.actionPromise;
 
-    let underlyingPromise;
-    const trackedRpc = (request) => {
-      try {
-        underlyingPromise = Promise.resolve(rpc(request));
-      }
-      catch (error) {
-        underlyingPromise = Promise.reject(error);
-      }
-      return underlyingPromise;
-    };
-    const actionPromise = executeActiveThreadRPC(action, trackedRpc);
+    const actionPromise = executeActiveThreadRPC(action, rpc);
     const flight = { actionPromise };
     interruptFlights.set(key, flight);
-    let actionSettled = false;
-    let underlyingSettled = false;
     const releaseSettledFlight = () => {
-      if (!actionSettled || !underlyingSettled) return;
       if (interruptFlights.get(key) === flight) interruptFlights.delete(key);
     };
     void actionPromise.then(
-      () => { actionSettled = true; releaseSettledFlight(); },
-      () => { actionSettled = true; releaseSettledFlight(); },
-    );
-    void (underlyingPromise || actionPromise).then(
-      () => { underlyingSettled = true; releaseSettledFlight(); },
-      () => { underlyingSettled = true; releaseSettledFlight(); },
+      releaseSettledFlight,
+      releaseSettledFlight,
     );
     return actionPromise;
   };

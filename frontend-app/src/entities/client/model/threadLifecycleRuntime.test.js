@@ -398,10 +398,11 @@ describe('thread lifecycle runtime', () => {
     await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
   });
 
-  it('keeps a timed-out interrupt single-flight locked until the underlying RPC settles', async () => {
+  it('starts a new interrupt flight after timeout without letting the old RPC settle affect it', async () => {
     vi.useFakeTimers();
     try {
       let resolveFirstRpc;
+      let resolveSecondRpc;
       const runtime = createRuntime();
       const deps = createDeps({
         createRequestId: vi.fn()
@@ -412,7 +413,9 @@ describe('thread lifecycle runtime', () => {
         .mockImplementationOnce(() => new Promise((resolve) => {
           resolveFirstRpc = resolve;
         }))
-        .mockResolvedValueOnce(successfulInterruptResult({ requestId: 'stop-request-2' }));
+        .mockImplementationOnce(() => new Promise((resolve) => {
+          resolveSecondRpc = resolve;
+        }));
       attachActiveThreadRpcRuntime(runtime, deps);
 
       const first = runtime.activeThreadRPC('thread.interrupt', rpc);
@@ -420,18 +423,30 @@ describe('thread lifecycle runtime', () => {
       await vi.advanceTimersByTimeAsync(INTERRUPT_RPC_TIMEOUT_MS);
       await firstTimeout;
 
-      await expect(runtime.activeThreadRPC('thread.interrupt', rpc))
-        .rejects.toMatchObject({ code: 'THREAD_INTERRUPT_RPC_TIMEOUT' });
-      expect(rpc).toHaveBeenCalledTimes(1);
-      expect(deps.createRequestId).toHaveBeenCalledTimes(1);
+      const second = runtime.activeThreadRPC('thread.interrupt', rpc);
+      void second.catch(() => undefined);
+      expect(rpc).toHaveBeenCalledTimes(2);
+      expect(deps.createRequestId).toHaveBeenCalledTimes(2);
+      expect(rpc).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        expectedTurnId: 'turn-1',
+        requestId: 'stop-request-2',
+      }));
 
       resolveFirstRpc(successfulInterruptResult());
       await Promise.resolve();
       await Promise.resolve();
+      expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
 
-      await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+      const sameSecondFlight = runtime.activeThreadRPC('thread.interrupt', rpc);
+      expect(sameSecondFlight).toBe(second);
       expect(rpc).toHaveBeenCalledTimes(2);
       expect(deps.createRequestId).toHaveBeenCalledTimes(2);
+
+      resolveSecondRpc(successfulInterruptResult({ requestId: 'stop-request-2' }));
+      await expect(Promise.all([second, sameSecondFlight])).resolves.toEqual([true, true]);
+      expect(runtime.notifyAction.mock.calls.filter(([message, tone]) => (
+        message === '已发送中断请求' && tone === 'success'
+      ))).toEqual([['已发送中断请求', 'success', { threadId: 'thread-1' }]]);
     }
     finally {
       vi.useRealTimers();
