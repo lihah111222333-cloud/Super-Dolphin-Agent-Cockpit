@@ -22,24 +22,29 @@ import (
 
 // Module 将具体 store/module/provider 实现接到 toolbridge 的窄接口端口，
 // 并在调用者 root scope 保留 readiness、decorate、invoke 的原始装配顺序。
-var Module = fx.Options(
-	fx.Module("toolbridgeadapter",
-		fx.Provide(
-			provideToolbridgeAgentThreadLookup,
-			provideToolbridgeThreadConfigOverrideStore,
-			provideToolbridgeUIPreferenceReader,
-			provideToolbridgeWorkDirResolver,
-			provideToolbridgeMCPToolLifecycleBackfiller,
-			provideToolbridgeMCPToolLifecyclePolicyReader,
+
+var Module = newModule()
+
+func newModule() fx.Option {
+	return fx.Options(
+		fx.Module("toolbridgeadapter",
+			fx.Provide(
+				provideToolbridgeAgentThreadLookup,
+				provideToolbridgeThreadConfigOverrideStore,
+				provideToolbridgeUIPreferenceReader,
+				provideToolbridgeWorkDirResolver,
+				provideToolbridgeMCPToolLifecycleBackfiller,
+				provideToolbridgeMCPToolLifecyclePolicyReader,
+			),
 		),
-	),
-	fx.Provide(
-		newCodexToolbridgeReadinessProbe,
-		provideToolbridgeReadinessProbe,
-	),
-	fx.Decorate(decorateSessionStarterWithToolbridgeReadiness),
-	fx.Invoke(bindToolbridgeCodexHandlers),
-)
+		fx.Provide(
+			newCodexToolbridgeReadinessProbe,
+			provideToolbridgeReadinessProbe,
+		),
+		fx.Decorate(decorateSessionStarterWithToolbridgeReadiness),
+		fx.Invoke(bindToolbridgeCodexHandlers),
+	)
+}
 
 // ----- binding store 适配器 -----
 

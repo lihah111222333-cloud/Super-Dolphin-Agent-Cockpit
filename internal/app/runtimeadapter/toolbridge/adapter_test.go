@@ -17,6 +17,12 @@ import (
 	"go.uber.org/fx"
 )
 
+func TestNewModuleReturnsOption(t *testing.T) {
+	if newModule() == nil {
+		t.Fatal("newModule() returned nil")
+	}
+}
+
 func TestToolCallBindingFromStoreProjectsAndTrimsFields(t *testing.T) {
 	t.Parallel()
 
