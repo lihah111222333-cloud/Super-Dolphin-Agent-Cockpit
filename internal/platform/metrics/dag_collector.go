@@ -7,23 +7,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var dagRetryCountPerNodeDesc = prometheus.NewDesc(
-	"retry_count_per_node",
-	"Highest committed wakeup retry attempt observed per DAG node, capped by in-process series budget.",
-	[]string{"dag_key", "node_key"},
-	nil,
-)
-
-type dagRetryCountPerNodeCollector struct{ source *dagmetrics.Registry }
-
-func (dagRetryCountPerNodeCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- dagRetryCountPerNodeDesc
+type dagRetryCountPerNodeCollector struct {
+	source *dagmetrics.Registry
+	desc   *prometheus.Desc
 }
 
+// Describe declares the retry-count-per-node metric exported by this collector.
+func (c dagRetryCountPerNodeCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.desc
+}
+
+// Collect emits retry-count-per-node samples from the collector's explicit source.
 func (c dagRetryCountPerNodeCollector) Collect(ch chan<- prometheus.Metric) {
 	for _, count := range c.source.Read().RetryCountPerNode {
-		ch <- prometheus.MustNewConstMetric(dagRetryCountPerNodeDesc, prometheus.CounterValue, float64(count.Count), count.DagKey, count.NodeKey)
+		ch <- prometheus.MustNewConstMetric(c.desc, prometheus.CounterValue, float64(count.Count), count.DagKey, count.NodeKey)
 	}
+}
+
+func newDAGRetryCountPerNodeDesc() *prometheus.Desc {
+	return prometheus.NewDesc(
+		"retry_count_per_node",
+		"Highest committed wakeup retry attempt observed per DAG node, capped by in-process series budget.",
+		[]string{"dag_key", "node_key"},
+		nil,
+	)
 }
 
 // DAGCollector owns one DAG metrics registry and its isolated Prometheus export.
@@ -33,12 +40,8 @@ type DAGCollector struct {
 }
 
 // NewDAGCollector creates the process-local DAG metrics owner used by mcp-orch.
-func NewDAGCollector() *DAGCollector {
-	collector, err := NewDAGCollectorFor(dagmetrics.NewRegistry())
-	if err != nil {
-		panic(fmt.Sprintf("metrics: create DAG collector: %v", err))
-	}
-	return collector
+func NewDAGCollector() (*DAGCollector, error) {
+	return NewDAGCollectorFor(dagmetrics.NewRegistry())
 }
 
 // NewDAGCollectorFor exports a supplied DAG registry without using DefaultRegisterer.
@@ -51,7 +54,7 @@ func NewDAGCollectorFor(source *dagmetrics.Registry) (*DAGCollector, error) {
 		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "dispatch_failed_total", Help: "Number of wakeup dispatch attempts that were committed as failed."}, func() float64 { return float64(source.Read().DispatchFailedTotal) }),
 		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "dispatch_retry_alert_total", Help: "Number of DAG node retry threshold alerts triggered."}, func() float64 { return float64(source.Read().RetryAlertTotal) }),
 		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "retry_count_per_node_overflow_total", Help: "Number of DAG node retry observations not exported with per-node labels after the in-process series cap."}, func() float64 { return float64(source.Read().RetryCountPerNodeOverflow) }),
-		dagRetryCountPerNodeCollector{source: source},
+		dagRetryCountPerNodeCollector{source: source, desc: newDAGRetryCountPerNodeDesc()},
 	)
 	return &DAGCollector{source: source, registry: registry}, nil
 }

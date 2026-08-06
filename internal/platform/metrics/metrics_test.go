@@ -79,7 +79,11 @@ func newMetricsHandler(t *testing.T, cronSource *cronmetrics.Metrics, skillSourc
 	if err != nil {
 		t.Fatalf("NewSkillCollector() error = %v", err)
 	}
-	handler, err := NewHandler(Collectors{Cron: cron, DAG: NewDAGCollector(), Dream: dream, Bootstrap: NewBootstrapMetrics(), Skill: skill})
+	dag, err := NewDAGCollector()
+	if err != nil {
+		t.Fatalf("NewDAGCollector() error = %v", err)
+	}
+	handler, err := NewHandler(Collectors{Cron: cron, DAG: dag, Dream: dream, Bootstrap: NewBootstrapMetrics(), Skill: skill})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}

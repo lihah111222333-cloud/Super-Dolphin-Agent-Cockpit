@@ -163,14 +163,18 @@ func normalizeRolloutUserContent(text string, metadata json.RawMessage, metrics 
 
 const rolloutSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"
 
-var rolloutSystemNoiseTagPairs = []struct {
+type rolloutSystemNoiseTagPair struct {
 	open  string
 	close string
-}{
-	{open: "<environment_context>", close: "</environment_context>"},
-	{open: "<instructions>", close: "</instructions>"},
-	{open: "<permissions instructions>", close: "</permissions instructions>"},
-	{open: "<turn_aborted>", close: "</turn_aborted>"},
+}
+
+func rolloutSystemNoiseTagPairs() []rolloutSystemNoiseTagPair {
+	return []rolloutSystemNoiseTagPair{
+		{open: "<environment_context>", close: "</environment_context>"},
+		{open: "<instructions>", close: "</instructions>"},
+		{open: "<permissions instructions>", close: "</permissions instructions>"},
+		{open: "<turn_aborted>", close: "</turn_aborted>"},
+	}
 }
 
 func isSystemNoiseText(text string) bool {
@@ -178,7 +182,7 @@ func isSystemNoiseText(text string) bool {
 	if strings.HasPrefix(trimmed, "# agents.md") {
 		return true
 	}
-	for _, pair := range rolloutSystemNoiseTagPairs {
+	for _, pair := range rolloutSystemNoiseTagPairs() {
 		if strings.HasPrefix(trimmed, pair.open) {
 			return true
 		}
@@ -205,7 +209,7 @@ func stripOneLeadingSystemNoise(text string) (string, bool) {
 	if strings.HasPrefix(lower, "# agents.md") {
 		return stripAgentsMDBlock(trimmed), true
 	}
-	for _, pair := range rolloutSystemNoiseTagPairs {
+	for _, pair := range rolloutSystemNoiseTagPairs() {
 		if strings.HasPrefix(lower, pair.open) {
 			return stripTagBlock(trimmed, pair.close), true
 		}

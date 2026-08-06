@@ -36,13 +36,23 @@ func newTestMetricsHandler(t *testing.T, skillSource *skillmetrics.Registry) htt
 	if err != nil {
 		t.Fatalf("NewSkillCollector() error = %v", err)
 	}
+	dag := newTestDAGCollector(t)
 	handler, err := metrics.NewHandler(metrics.Collectors{
-		Cron: cron, DAG: metrics.NewDAGCollector(), Dream: dream, Bootstrap: metrics.NewBootstrapMetrics(), Skill: skill,
+		Cron: cron, DAG: dag, Dream: dream, Bootstrap: metrics.NewBootstrapMetrics(), Skill: skill,
 	})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func newTestDAGCollector(t *testing.T) *metrics.DAGCollector {
+	t.Helper()
+	collector, err := metrics.NewDAGCollector()
+	if err != nil {
+		t.Fatalf("NewDAGCollector() error = %v", err)
+	}
+	return collector
 }
 
 func TestHTTPAssetRoutesExposePrometheusMetricsEndpointWhenExplicitlyEnabled(t *testing.T) {
@@ -181,7 +191,7 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Frontend:         testHTTPFrontendFS(),
 		Metrics:          cronmetrics.New(),
-		DAGMetrics:       metrics.NewDAGCollector(),
+		DAGMetrics:       newTestDAGCollector(t),
 		BootstrapMetrics: metrics.NewBootstrapMetrics(),
 		SkillMetrics:     skillmetrics.NewRegistry(),
 		Binding:          newHTTPAssetTestApp(),
@@ -219,7 +229,7 @@ func TestNewHTTPAssetServerUsesDevSessionTokenForWebSocket(t *testing.T) {
 		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Frontend:         testHTTPFrontendFS(),
 		Metrics:          cronmetrics.New(),
-		DAGMetrics:       metrics.NewDAGCollector(),
+		DAGMetrics:       newTestDAGCollector(t),
 		BootstrapMetrics: metrics.NewBootstrapMetrics(),
 		SkillMetrics:     skillmetrics.NewRegistry(),
 		Binding:          newHTTPAssetTestApp(),
@@ -240,7 +250,7 @@ func TestHTTPAssetServerRejectsNonLoopbackConfiguredAddr(t *testing.T) {
 		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Frontend:         testHTTPFrontendFS(),
 		Metrics:          cronmetrics.New(),
-		DAGMetrics:       metrics.NewDAGCollector(),
+		DAGMetrics:       newTestDAGCollector(t),
 		BootstrapMetrics: metrics.NewBootstrapMetrics(),
 		SkillMetrics:     skillmetrics.NewRegistry(),
 		Binding:          newHTTPAssetTestApp(),

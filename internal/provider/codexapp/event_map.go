@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -128,123 +129,16 @@ func (t *codexEventTranslator) translateEvent(raw dto.RawProviderEvent, publish 
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
+	t.handleUntranslatedEvent(eventType, payload, raw)
+}
+
+func (t *codexEventTranslator) handleUntranslatedEvent(eventType string, payload map[string]any, raw dto.RawProviderEvent) {
 	if logCodexMCPStartupStatus(eventType, payload) {
 		return
 	}
 	if shouldWarnUnknownRawEvent(eventType, payload, t.retryProgressPattern) {
 		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload_metadata", raw.SanitizedCopy().Data)
 	}
-}
-
-const (
-	codexMissingTimestampCode           = "codex_missing_timestamp"
-	codexInvalidTimestampCode           = "codex_invalid_timestamp"
-	codexTerminalTimestampProtocolError = "terminal contract: provider timestamp invalid"
-)
-
-// codexTimestampProviderError 对会生成生命周期或终态记录的坏时间显式返回 provider error。
-func codexTimestampProviderError(raw dto.RawProviderEvent) (dto.RawProviderEvent, agentdto.AgentError, bool) {
-	if !codexEventRequiresTimestamp(raw.EventType) {
-		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
-	}
-	payload, err := decodeRawEventPayload(raw.Data)
-	if err != nil {
-		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
-	}
-	rawTimestamp := stringValue(payload, "timestamp", "ts", "createdAt", "created_at")
-	if rawTimestamp != "" && !shared.ParseRFC3339Loose(rawTimestamp).IsZero() {
-		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
-	}
-	code := codexMissingTimestampCode
-	message := "codexapp: provider event missing timestamp"
-	if rawTimestamp != "" {
-		code = codexInvalidTimestampCode
-		message = "codexapp: provider event invalid timestamp"
-	}
-	errorPayload := map[string]any{
-		"agentId":           payloadAgentID(payload),
-		"threadId":          payloadThreadID(payload),
-		"sessionId":         stringValue(payload, "sessionId", "session_id"),
-		"turnId":            stringValue(payload, "turnId", "turn_id"),
-		"callId":            stringValue(payload, "callId", "call_id"),
-		"toolName":          stringValue(payload, "toolName", "tool_name"),
-		"timestamp":         time.Now().UTC().Format(time.RFC3339Nano),
-		"code":              code,
-		"message":           message + ": " + strings.TrimSpace(raw.EventType),
-		"source_event_type": strings.TrimSpace(raw.EventType),
-		"raw_timestamp":     strings.TrimSpace(rawTimestamp),
-	}
-	rawErr := dto.RawProviderEvent{EventType: "error", Data: errorPayload}
-	return rawErr, agentdto.AgentError{
-		AgentSessionHeader: buildAgentSessionHeader(errorPayload),
-		RawType:            rawErr.EventType,
-		Message:            rawErr.PublicMessage("Provider reported an error."),
-		Code:               code,
-		Payload:            rawErr.SafePayload(),
-	}, true
-}
-
-// codexTerminalTimestampInvalid 仅标记会中断 canonical terminal 的坏 provider 时间。
-func codexTerminalTimestampInvalid(raw dto.RawProviderEvent) bool {
-	if !isTurnTerminalEvent(raw.EventType) {
-		return false
-	}
-	_, _, invalid := codexTimestampProviderError(raw)
-	return invalid
-}
-
-// publishCodexTimestampFailureTerminal 在可归因 terminal 时间无效时发布脱敏的失败终态。
-// 原始时间和 provider 错误只保留在内部 provider error 通道，绝不进入 TurnCompleted。
-func publishCodexTimestampFailureTerminal(hooks providershared.RuntimeHooks, raw dto.RawProviderEvent, publish func(ev any)) {
-	if !isTurnTerminalEvent(raw.EventType) {
-		return
-	}
-	payload, err := decodeRawEventPayload(raw.Data)
-	if err != nil {
-		return
-	}
-	agentID := strings.TrimSpace(payloadAgentID(payload))
-	turnID := strings.TrimSpace(payloadTurnID(payload))
-	if agentID == "" || strings.TrimSpace(payloadThreadID(payload)) == "" || turnID == "" {
-		return
-	}
-	safePayload := map[string]any{
-		"agentId":   agentID,
-		"threadId":  agentID,
-		"sessionId": stringValue(payload, "sessionId", "session_id"),
-		"turnId":    turnID,
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
-		"error":     codexTerminalTimestampProtocolError,
-	}
-	terminal := &dto.TerminalOutcome{Status: "failed", ContractError: "provider timestamp invalid"}
-	publishCodexTranslatedEvent(raw.EventType, translateTurnTerminalEvent(hooks, safePayload, terminal), publish)
-}
-
-func codexEventRequiresTimestamp(eventType string) bool {
-	if isTurnTerminalEvent(eventType) {
-		return true
-	}
-	eventType = strings.TrimSpace(eventType)
-	return isCodexAgentLaunchedEvent(eventType) ||
-		isCodexAgentStoppedEvent(eventType) ||
-		eventType == "thread/status/changed" ||
-		eventType == "recovery.attempt" ||
-		eventType == "connection.dead" ||
-		eventType == "turn/started" ||
-		eventType == "turn.started"
-}
-
-func isCodexAgentLaunchedEvent(eventType string) bool {
-	switch eventType {
-	case "thread/started", "session.configured", "agent:launched":
-		return true
-	default:
-		return false
-	}
-}
-
-func isCodexAgentStoppedEvent(eventType string) bool {
-	return eventType == "shutdown.complete" || eventType == "shutdown_complete"
 }
 
 func publishCodexTranslatedEvent(eventType string, ev any, publish func(ev any)) {
@@ -421,28 +315,36 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any, retryPr
 	if isRetryProgressRawError(eventType, payload, retryProgressPattern) {
 		return false
 	}
-	switch strings.TrimSpace(eventType) {
-	case "item/started", "item_started", "agent/event/item_started",
-		"item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed",
-		"item/plan/delta", "item_plan_delta", "agent/event/item_plan_delta",
-		"item/plan/updated", "item_plan_updated", "agent/event/item_plan_updated",
-		"thread/tokenUsage/updated",
-		"account/rateLimits/updated",
-		"tool:use_begin", "tool:use_end":
+	if isKnownNoisyCodexEvent(eventType) {
 		return false
 	}
 	if len(payload) == 0 {
 		return true
 	}
+	return !hasCodexTokenUsage(payload)
+}
+
+func isKnownNoisyCodexEvent(eventType string) bool {
+	return slices.Contains([]string{
+		"item/started", "item_started", "agent/event/item_started",
+		"item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed",
+		"item/plan/delta", "item_plan_delta", "agent/event/item_plan_delta",
+		"item/plan/updated", "item_plan_updated", "agent/event/item_plan_updated",
+		"thread/tokenUsage/updated", "account/rateLimits/updated",
+		"tool:use_begin", "tool:use_end",
+	}, strings.TrimSpace(eventType))
+}
+
+func hasCodexTokenUsage(payload map[string]any) bool {
 	usage := nestedValue(payload, "usage")
-	return !hasAnyKey(usage,
+	return hasAnyKey(usage,
 		"inputTokens", "input_tokens",
 		"promptTokens", "prompt_tokens",
 		"outputTokens", "output_tokens",
 		"completionTokens", "completion_tokens",
 		"totalTokens", "total_tokens",
 		"contextWindowTokens", "context_window_tokens",
-	) && !hasAnyKey(payload,
+	) || hasAnyKey(payload,
 		"inputTokens", "input_tokens",
 		"promptTokens", "prompt_tokens",
 		"outputTokens", "output_tokens",
@@ -522,44 +424,31 @@ func translateTurnEventWithRuntimeHooksAndSampler(hooks providershared.RuntimeHo
 	case "turn/interrupted", "turn.interrupted":
 		return translateTurnTerminalEvent(hooks, payload, terminal), true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
-		if sampler.ShouldLog("message") {
-			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
-				"sample_rate", "0.1%",
-				"event_type", eventType,
-				"stream", "message",
-				"thread_id", payloadThreadID(payload),
-				"agent_id", payloadAgentID(payload),
-				"delta_len", len(stringValue(payload, "delta", "content")),
-			)
-		}
+		logCodexTurnDelta(sampler, "message", eventType, payload)
 		return turnOutputDelta(payload, "message"), true
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "reasoning.delta":
-		if sampler.ShouldLog("reasoning") {
-			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
-				"sample_rate", "0.1%",
-				"event_type", eventType,
-				"stream", "reasoning",
-				"thread_id", payloadThreadID(payload),
-				"agent_id", payloadAgentID(payload),
-				"delta_len", len(stringValue(payload, "delta", "content")),
-			)
-		}
+		logCodexTurnDelta(sampler, "reasoning", eventType, payload)
 		return turnOutputDelta(payload, "reasoning"), true
 	case "item/commandExecution/outputDelta", "exec_output_delta":
-		if sampler.ShouldLog("stdout") {
-			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
-				"sample_rate", "0.1%",
-				"event_type", eventType,
-				"stream", "stdout",
-				"thread_id", payloadThreadID(payload),
-				"agent_id", payloadAgentID(payload),
-				"delta_len", len(stringValue(payload, "delta", "content")),
-			)
-		}
+		logCodexTurnDelta(sampler, "stdout", eventType, payload)
 		return turnOutputDelta(payload, "stdout"), true
 	default:
 		return nil, false
 	}
+}
+
+func logCodexTurnDelta(sampler *pkglogger.Sampler, stream, eventType string, payload map[string]any) {
+	if !sampler.ShouldLog(stream) {
+		return
+	}
+	pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
+		"sample_rate", "0.1%",
+		"event_type", eventType,
+		"stream", stream,
+		"thread_id", payloadThreadID(payload),
+		"agent_id", payloadAgentID(payload),
+		"delta_len", len(stringValue(payload, "delta", "content")),
+	)
 }
 
 func selectedCodexTerminal(terminals []*dto.TerminalOutcome) *dto.TerminalOutcome {
