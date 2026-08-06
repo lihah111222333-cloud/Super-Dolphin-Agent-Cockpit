@@ -110,6 +110,16 @@ func (f *DriverFactory) SetSkillMetrics(metrics *skillmetrics.Registry) {
 	f.skillMetrics = metrics
 }
 
+// SetLogRuntime 注入创建 agent 文件日志所需的显式 runtime owner。
+func (f *DriverFactory) SetLogRuntime(runtime *pkglogger.Runtime) {
+	if f == nil || runtime == nil {
+		panic("codexapp logger runtime is required")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logRuntime = runtime
+}
+
 func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 	if f == nil {
 		return nil
@@ -161,6 +171,7 @@ func (f *DriverFactory) currentSkillMetrics() *skillmetrics.Registry {
 // newDriver 创建单个 Codex driver 实例。
 // 环境变量里的 app-server URL 优先；否则只在 legacy ServerManager 已运行时复用共享地址。
 func newDriver(
+	logRuntime *pkglogger.Runtime,
 	logger *slog.Logger,
 	eventDispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
@@ -171,8 +182,11 @@ func newDriver(
 	recovery contract.SessionRecoveryReporter,
 	listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error),
 ) contract.Driver {
+	if logRuntime == nil {
+		panic("codexapp logger runtime is required")
+	}
 	if logger == nil {
-		logger = pkglogger.Get()
+		logger = logRuntime.Get()
 	}
 	serverURL := strings.TrimSpace(os.Getenv("CODEX_APP_SERVER_URL"))
 	if serverURL == "" && manager != nil && manager.Running() {
@@ -184,6 +198,7 @@ func newDriver(
 	}
 	return &driver{
 		logger:          logger,
+		logRuntime:      logRuntime,
 		serverURL:       serverURL,
 		eventDispatcher: eventDispatcher,
 		approvals:       approvals,

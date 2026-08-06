@@ -142,9 +142,9 @@ func ParentSpanIDFromContext(ctx context.Context) string {
 }
 
 // FromContext 从 context 读取日志器，并自动附加 trace 字段。
-// context 缺失 logger 时使用当前全局日志器。
+// context 缺失 logger 时使用标准库的当前 logger。
 func FromContext(ctx context.Context) *slog.Logger {
-	base := getLogger()
+	base := slog.Default()
 	if ctx == nil {
 		return base
 	}
@@ -154,43 +154,38 @@ func FromContext(ctx context.Context) *slog.Logger {
 	return withTraceAttrs(ctx, base)
 }
 
-// Get 返回当前全局日志器。
-func Get() *slog.Logger { return getLogger() }
+// Get 返回标准库的当前日志器。
+func Get() *slog.Logger { return slog.Default() }
 
 // Get 返回 runtime 当前日志器。
 func (r *Runtime) Get() *slog.Logger { return r.getLogger() }
 
-// With 返回绑定固定字段的全局日志器派生实例。
-func With(args ...any) *slog.Logger { return getLogger().With(args...) }
+// With 返回绑定固定字段的标准日志器派生实例。
+func With(args ...any) *slog.Logger { return slog.Default().With(args...) }
 
 // Info 通过当前全局日志器写入 info 日志。
-func Info(msg string, args ...any) { getLogger().Info(msg, args...) }
+func Info(msg string, args ...any) { slog.Default().Info(msg, args...) }
 
 // Error 通过当前全局日志器写入 error 日志。
-func Error(msg string, args ...any) { getLogger().Error(msg, args...) }
+func Error(msg string, args ...any) { slog.Default().Error(msg, args...) }
 
 // Warn 通过当前全局日志器写入 warn 日志。
-func Warn(msg string, args ...any) { getLogger().Warn(msg, args...) }
+func Warn(msg string, args ...any) { slog.Default().Warn(msg, args...) }
 
 // Debug 通过当前全局日志器写入 debug 日志。
-func Debug(msg string, args ...any) { getLogger().Debug(msg, args...) }
+func Debug(msg string, args ...any) { slog.Default().Debug(msg, args...) }
 
 // Infof 先格式化消息再通过全局日志器写入 info 日志。
-func Infof(format string, args ...any) { getLogger().Info(fmt.Sprintf(format, args...)) }
+func Infof(format string, args ...any) { slog.Default().Info(fmt.Sprintf(format, args...)) }
 
 // Errorf 先格式化消息再通过全局日志器写入 error 日志。
-func Errorf(format string, args ...any) { getLogger().Error(fmt.Sprintf(format, args...)) }
+func Errorf(format string, args ...any) { slog.Default().Error(fmt.Sprintf(format, args...)) }
 
 // Warnf 先格式化消息再通过全局日志器写入 warn 日志。
-func Warnf(format string, args ...any) { getLogger().Warn(fmt.Sprintf(format, args...)) }
+func Warnf(format string, args ...any) { slog.Default().Warn(fmt.Sprintf(format, args...)) }
 
 // Debugf 先格式化消息再通过全局日志器写入 debug 日志。
-func Debugf(format string, args ...any) { getLogger().Debug(fmt.Sprintf(format, args...)) }
-
-// Fatal 写入 error 级别日志后关闭 DB/file handler 并以 1 退出。
-func Fatal(msg string, args ...any) {
-	currentRuntime().Fatal(msg, args...)
-}
+func Debugf(format string, args ...any) { slog.Default().Debug(fmt.Sprintf(format, args...)) }
 
 // Fatal 写入 error 级别日志后关闭 runtime handler 并以 1 退出。
 func (r *Runtime) Fatal(msg string, args ...any) {
@@ -201,16 +196,16 @@ func (r *Runtime) Fatal(msg string, args ...any) {
 }
 
 // Infow 兼容 zap 风格键值字段写入 info 日志。
-func Infow(msg string, keysAndValues ...any) { getLogger().Info(msg, keysAndValues...) }
+func Infow(msg string, keysAndValues ...any) { slog.Default().Info(msg, keysAndValues...) }
 
 // Warnw 兼容 zap 风格键值字段写入 warn 日志。
-func Warnw(msg string, keysAndValues ...any) { getLogger().Warn(msg, keysAndValues...) }
+func Warnw(msg string, keysAndValues ...any) { slog.Default().Warn(msg, keysAndValues...) }
 
 // Errorw 兼容 zap 风格键值字段写入 error 日志。
-func Errorw(msg string, keysAndValues ...any) { getLogger().Error(msg, keysAndValues...) }
+func Errorw(msg string, keysAndValues ...any) { slog.Default().Error(msg, keysAndValues...) }
 
 // Debugw 兼容 zap 风格键值字段写入 debug 日志。
-func Debugw(msg string, keysAndValues ...any) { getLogger().Debug(msg, keysAndValues...) }
+func Debugw(msg string, keysAndValues ...any) { slog.Default().Debug(msg, keysAndValues...) }
 
 // InfoLevel 返回 slog info 级别，供调用方避免直接依赖 slog。
 func InfoLevel() slog.Level { return slog.LevelInfo }
@@ -224,11 +219,6 @@ func ErrorLevel() slog.Level { return slog.LevelError }
 // DebugLevel 返回 slog debug 级别，供调用方避免直接依赖 slog。
 func DebugLevel() slog.Level { return slog.LevelDebug }
 
-// CurrentLogFilePath 返回当前文件日志路径；未初始化文件 handler 时返回空字符串。
-func CurrentLogFilePath() string {
-	return currentRuntime().CurrentLogFilePath()
-}
-
 // CurrentLogFilePath 返回 runtime 当前文件日志路径；未初始化文件 handler 时返回空字符串。
 func (r *Runtime) CurrentLogFilePath() string {
 	r.mu.Lock()
@@ -236,13 +226,18 @@ func (r *Runtime) CurrentLogFilePath() string {
 	return r.logFilePath
 }
 
-// IsDebugEnabled 判断当前全局日志器是否启用 debug 级别。
+// IsDebugEnabled 判断 runtime 当前日志器是否启用 debug 级别。
 func IsDebugEnabled() bool {
-	return getLogger().Enabled(context.Background(), slog.LevelDebug)
+	return slog.Default().Enabled(context.Background(), slog.LevelDebug)
 }
 
-// SetForTest 在测试中替换全局日志器，并同步 slog 默认 logger。
-func SetForTest(l *slog.Logger) { currentRuntime().SetForTest(l) }
+// SetForTest 仅在测试中替换标准库默认日志器；本包不保存任何全局 logger 状态。
+func SetForTest(l *slog.Logger) {
+	if l == nil {
+		panic("test logger is required")
+	}
+	slog.SetDefault(l)
+}
 
 // SetForTest 在测试中替换 runtime 日志器，并同步 slog 默认 logger。
 func (r *Runtime) SetForTest(l *slog.Logger) { r.storeLogger(l) }

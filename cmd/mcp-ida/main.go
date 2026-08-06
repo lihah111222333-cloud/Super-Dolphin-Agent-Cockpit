@@ -22,7 +22,6 @@ func protectMCPStdout() (*os.File, error) {
 		return nil, errors.New("mcp-ida: os.Stderr is nil")
 	}
 	os.Stdout = os.Stderr
-	pkglogger.InitWithConsoleWriter(os.Stderr)
 	return stdout, nil
 }
 

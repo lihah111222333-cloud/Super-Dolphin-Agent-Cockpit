@@ -51,6 +51,7 @@ type DriverFactory struct {
 	contract.DriverFactory
 	mu              sync.RWMutex
 	logger          *slog.Logger
+	logRuntime      *pkglogger.Runtime
 	eventDispatcher *unified.EventDispatcher
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
@@ -68,6 +69,7 @@ type DriverFactory struct {
 
 type driver struct {
 	logger          *slog.Logger
+	logRuntime      *pkglogger.Runtime
 	serverURL       string
 	eventDispatcher *unified.EventDispatcher
 	approvals       *rpc.ApprovalManager
@@ -164,8 +166,9 @@ func NewDriverFactory(
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			raw := newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.mirror, factory.recovery, factory.currentListTools())
+			raw := newDriver(factory.logRuntime, logger, dispatcher, approvals, reporter, manager, pool, factory.mirror, factory.recovery, factory.currentListTools())
 			if d, ok := raw.(*driver); ok {
+				d.logRuntime = factory.logRuntime
 				d.runtimeHooks = factory.runtimeHooks
 				d.skillMetrics = factory.currentSkillMetrics()
 				d.prepareTools = factory.currentPrepareTools()
@@ -207,7 +210,7 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, withRuntimeHooks(d.runtimeHooks), withSkillMetrics(d.skillMetrics))
+	opts = append(opts, withRuntimeHooks(d.runtimeHooks), withSkillMetrics(d.skillMetrics), withLogRuntime(d.logRuntime))
 	s, err := newSessionWithOptions(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err
@@ -280,7 +283,7 @@ func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, withRuntimeHooks(d.runtimeHooks), withSkillMetrics(d.skillMetrics))
+	opts = append(opts, withRuntimeHooks(d.runtimeHooks), withSkillMetrics(d.skillMetrics), withLogRuntime(d.logRuntime))
 	s, err := newSessionWithOptions(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err

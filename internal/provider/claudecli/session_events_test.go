@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -90,9 +91,11 @@ func TestBaseDataUsesPublicThreadIDAndSeparateSessionID(t *testing.T) {
 
 func TestDecodeClaudeLineLogsOnlySafePayloadMetadata(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	old := slog.Default()
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.InitWithConsoleWriter(&buf)
+	loggerRuntime.BindDefault()
+	t.Cleanup(func() { slog.SetDefault(old) })
 
 	_, err := decodeClaudeLine([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"token=sk-live-secret"}]}}`), rawBase{AgentID: "agent-1"})
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 const testHTTPMCPHeaderSessionID = "Mcp-Session-Id"
 
 func TestHTTPInitializeCreatesSessionAndRejectsMissingSession(t *testing.T) {
-	server := NewHTTPServer("test", "dev", testToolProvider{})
+	server := newTestHTTPServer("test", "dev", testToolProvider{})
 	sessionID := initializeHTTPSession(t, server)
 	if sessionID == "" {
 		t.Fatal("initialize session ID is empty")
@@ -33,7 +33,7 @@ func TestHTTPInitializeCreatesSessionAndRejectsMissingSession(t *testing.T) {
 }
 
 func TestHTTPInitializeNotificationDoesNotCreateSession(t *testing.T) {
-	server := NewHTTPServer("test", "dev", testToolProvider{})
+	server := newTestHTTPServer("test", "dev", testToolProvider{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(
 		`{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test"}}}`,
@@ -49,7 +49,7 @@ func TestHTTPInitializeNotificationDoesNotCreateSession(t *testing.T) {
 
 func TestHTTPIdleSessionReaperRefreshesAccessAndPreservesInFlightCall(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	server.sessionIdleTTL = time.Minute
 	sessionID := initializeHTTPSession(t, server)
 	session := requireHTTPSessionForTest(t, server, sessionID)
@@ -85,7 +85,7 @@ func TestHTTPIdleSessionReaperRefreshesAccessAndPreservesInFlightCall(t *testing
 
 func TestHTTPIdleSessionReaperEvictsIdleSessionsAndStopTerminatesRemainder(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	server.sessionIdleTTL = 15 * time.Millisecond
 	server.sessionReapInterval = time.Millisecond
 	if _, err := server.Start(context.Background(), "127.0.0.1:0"); err != nil {
@@ -122,7 +122,7 @@ func TestHTTPIdleSessionReaperEvictsIdleSessionsAndStopTerminatesRemainder(t *te
 
 func TestHTTPCancellationIsIsolatedBySession(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	sessionA := initializeHTTPSession(t, server)
 	sessionB := initializeHTTPSession(t, server)
 
@@ -147,7 +147,7 @@ func TestHTTPCancellationIsIsolatedBySession(t *testing.T) {
 
 func TestHTTPDuplicateRequestIDIsIsolatedBySession(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	sessionA := initializeHTTPSession(t, server)
 	sessionB := initializeHTTPSession(t, server)
 
@@ -174,7 +174,7 @@ func TestHTTPDuplicateRequestIDIsIsolatedBySession(t *testing.T) {
 
 func TestHTTPClientDisconnectCancelsToolCall(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	sessionID := initializeHTTPSession(t, server)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := startHTTPToolCall(t, server, sessionID, 12, "disconnect", ctx)
@@ -187,7 +187,7 @@ func TestHTTPClientDisconnectCancelsToolCall(t *testing.T) {
 
 func TestHTTPNetworkDisconnectCancelsToolCall(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	addr, err := server.Start(context.Background(), "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -242,7 +242,7 @@ func TestHTTPNetworkDisconnectCancelsToolCall(t *testing.T) {
 
 func TestHTTPMalformedCancellationIsContainedWithinSession(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	sessionID := initializeHTTPSession(t, server)
 	done := startHTTPToolCall(t, server, sessionID, 13, "malformed-cancel", context.Background())
 	waitProviderEvent(t, provider.started, "malformed-cancel")
@@ -269,7 +269,7 @@ func TestHTTPMalformedCancellationIsContainedWithinSession(t *testing.T) {
 
 func TestHTTPDeleteSessionCancelsOnlyThatSession(t *testing.T) {
 	provider := newCancellationTestProvider()
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	sessionA := initializeHTTPSession(t, server)
 	sessionB := initializeHTTPSession(t, server)
 	doneA := startHTTPToolCall(t, server, sessionA, 21, "delete-a", context.Background())

@@ -15,11 +15,6 @@ const (
 	updateVersionEnv  = "SUPER_DOLPHIN_UPDATE_VERSION"
 )
 
-// ConfigureServiceFromEnv 从环境变量读取 service metadata，并用 defaultVersion 兜住版本缺失。
-func ConfigureServiceFromEnv(defaultVersion string) {
-	currentRuntime().ConfigureServiceFromEnv(defaultVersion)
-}
-
 // ConfigureServiceFromEnv 从环境变量读取 service metadata，并更新 runtime。
 func (r *Runtime) ConfigureServiceFromEnv(defaultVersion string) {
 	r.SetServiceMetadata(
@@ -27,11 +22,6 @@ func (r *Runtime) ConfigureServiceFromEnv(defaultVersion string) {
 		firstLogValue(os.Getenv(serviceVersionEnv), os.Getenv(updateVersionEnv), defaultVersion, "dev"),
 		normalizeLogEnv(firstLogValue(os.Getenv(serviceEnvEnv), os.Getenv(appEnvEnv), os.Getenv(runtimeModeEnv), "dev")),
 	)
-}
-
-// SetServiceMetadata 更新全局 service metadata，并重建当前日志器让后续日志带上新字段。
-func SetServiceMetadata(name, version, env string) {
-	currentRuntime().SetServiceMetadata(name, version, env)
 }
 
 // SetServiceMetadata 更新 runtime service metadata，并重建当前日志器让后续日志带上新字段。

@@ -22,7 +22,7 @@ func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
 	const startupPermanentErrorFailFastMax = 5 * time.Second
 	serverURL := startStartupPermanentErrorServer(t)
 	var released atomic.Int32
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		pool:         newSingleURLPoolForTest(t, serverURL),
 		mirror:       &recordingSkillMirrorReconciler{},

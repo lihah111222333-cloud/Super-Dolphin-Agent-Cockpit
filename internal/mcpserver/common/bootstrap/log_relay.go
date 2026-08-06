@@ -34,11 +34,14 @@ type localLogFallbackRecord struct {
 
 // InstallLogRelay 在 logger 层安装 relay hook，把当前 peer 进程日志转发到控制平面。
 // relay 放在 logger 层而不是调用点上，保证诊断日志覆盖完整。
-func (c *Client) InstallLogRelay() {
+func (c *Client) InstallLogRelay(runtime *pkglogger.Runtime) {
 	if c == nil {
-		return
+		panic("bootstrap client is required")
 	}
-	pkglogger.SetRelayHook(func(ctx context.Context, payload pkglogger.RelayPayload) {
+	if runtime == nil {
+		panic("logger runtime is required")
+	}
+	runtime.SetRelayHook(func(ctx context.Context, payload pkglogger.RelayPayload) {
 		_ = c.relayLog(ctx, payload)
 	})
 }

@@ -170,9 +170,9 @@ func TestCodexTimestampValidationMatchesClaudeProviderErrors(t *testing.T) {
 
 func TestTranslateCodexEventWarnsOnUnknownRawEvent(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(&buf)
+	runtime.BindDefault()
 
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "mystery/event",
@@ -202,9 +202,9 @@ func TestTranslateCodexEventWarnsOnUnknownRawEvent(t *testing.T) {
 
 func TestTranslateCodexEventRejectsBadJSONPayload(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(&buf)
+	runtime.BindDefault()
 
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "turn/completed",
@@ -221,9 +221,9 @@ func TestTranslateCodexEventRejectsBadJSONPayload(t *testing.T) {
 
 func TestTranslateCodexEventRejectsMissingCriticalIDs(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(&buf)
+	runtime.BindDefault()
 
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "turn/completed",
@@ -244,9 +244,9 @@ func TestTranslateCodexEventRejectsMissingCriticalIDs(t *testing.T) {
 
 func TestTranslateCodexEventSuppressesAccountRateLimitsUpdated(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(&buf)
+	runtime.BindDefault()
 
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "account/rateLimits/updated",
@@ -262,9 +262,9 @@ func TestTranslateCodexEventSuppressesAccountRateLimitsUpdated(t *testing.T) {
 
 func TestTranslateCodexEventSuppressesRetryProgressErrorWarning(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(&buf)
+	runtime.BindDefault()
 
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "error",
@@ -289,9 +289,9 @@ func TestTranslateCodexEventSuppressesRetryProgressErrorWarning(t *testing.T) {
 
 func TestTranslateCodexEventMCPStartupStatusOnlyWarnsOnFailures(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(&buf)
+	runtime.BindDefault()
 
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "mcpServer/startupStatus/updated",

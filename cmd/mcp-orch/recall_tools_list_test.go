@@ -15,7 +15,7 @@ func TestMCPToolsListIncludesPromptRecall(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	var output bytes.Buffer
 	registry := tools.NewRegistry(tools.Dependencies{})
-	server := common.NewServer("mcp-orch", "dev", common.NewStdioTransport(input, &output), registryToolProvider{registry: registry})
+	server := newTestMCPServer("mcp-orch", "dev", common.NewStdioTransport(input, &output), registryToolProvider{registry: registry})
 
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)

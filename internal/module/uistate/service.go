@@ -18,6 +18,7 @@ import (
 )
 
 type service struct {
+	logRuntime            *pkglogger.Runtime
 	logger                *slog.Logger
 	outputDeltaLogSampler *pkglogger.Sampler
 	threads               contract.ThreadLister
@@ -68,6 +69,7 @@ func WithObservability(trace *observability.Service) ServiceOption {
 
 // NewService 创建 uistate 服务，并初始化内存投影、fallback 偏好和 timeline 状态。
 func NewService(
+	logRuntime *pkglogger.Runtime,
 	logger *slog.Logger,
 	threads contract.ThreadLister,
 	agents AgentLister,
@@ -76,10 +78,14 @@ func NewService(
 	runtimeCfg runtimeConfigLookup,
 	options ...ServiceOption,
 ) (*service, Service, error) {
+	if logRuntime == nil {
+		return nil, nil, errors.New("uistate: logger runtime is required")
+	}
 	if logger == nil {
-		logger = pkglogger.Get()
+		logger = logRuntime.Get()
 	}
 	svc := &service{
+		logRuntime:            logRuntime,
 		logger:                logger,
 		outputDeltaLogSampler: pkglogger.NewEverySampler(1000),
 		threads:               threads,

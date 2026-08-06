@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // TestNewStdioServerFailsFastWhenMcpStdoutNil 锁定 Fix-B：mcpStdout 未初始化时必须返回 error，
@@ -16,7 +18,7 @@ func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
 		}
 	})
 
-	_, err := newStdioServer(newRegistry(newRegistryParams{}))
+	_, err := newStdioServer(newRegistry(newRegistryParams{}), pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	if err == nil {
 		t.Fatal("newStdioServer() error = nil, want error when mcpStdout is nil")
 	}

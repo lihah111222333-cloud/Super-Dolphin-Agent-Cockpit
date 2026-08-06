@@ -32,7 +32,7 @@ func assertRecoveryFailureStopsRemoteStart(t *testing.T, code string) {
 	}
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
-	d := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, &ServerManager{}, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, &ServerManager{}, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
 	d.prepareTools = func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 		return nil, driverRecoveryCarrier{failure: failure, cause: errors.New("secret MCP admission details")}
 	}

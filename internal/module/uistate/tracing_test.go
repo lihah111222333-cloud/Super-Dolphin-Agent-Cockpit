@@ -20,7 +20,7 @@ func TestUIStatePatchTraceExcludesPatchPayloadBody(t *testing.T) {
 	t.Parallel()
 
 	trace := newUITraceService()
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil, WithObservability(trace))
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil, WithObservability(trace))
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -44,7 +44,7 @@ func TestUIStateTimelineAndProjectionTraceUseIdentifiersOnly(t *testing.T) {
 	t.Parallel()
 
 	trace := newUITraceService()
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil, WithObservability(trace))
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil, WithObservability(trace))
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -77,7 +77,7 @@ func TestUIStateTraceRecordFailureIsLogged(t *testing.T) {
 		observability.WithSink(failingUITraceSink{}),
 		observability.WithSampler(observability.NewSampler(observability.SamplerConfig{HighFrequencyKeepEvery: 1})),
 	)
-	svc, _, err := NewService(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})), nil, nil, nil, nil, nil, WithObservability(trace))
+	svc, _, err := NewService(testLoggerRuntime(), slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})), nil, nil, nil, nil, nil, WithObservability(trace))
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

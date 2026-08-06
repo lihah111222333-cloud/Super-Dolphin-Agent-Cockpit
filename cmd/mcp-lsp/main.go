@@ -24,22 +24,23 @@ func main() {
 	rlimit.Init()
 	stdout := os.Stdout
 	os.Stdout = os.Stderr
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{ServiceName: binaryName, ServiceVersion: binaryVersion, LogFilePrefix: binaryName})
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		_, _ = os.Stderr.WriteString("mcp-lsp resolve user home failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
-	if err := initSidecarFileLogger(homeDir, os.Stderr); err != nil {
+	if err := initSidecarFileLogger(logRuntime, homeDir, os.Stderr); err != nil {
 		_, _ = os.Stderr.WriteString(err.Error() + "\n")
 		os.Exit(1)
 	}
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {
-		pkglogger.Get().Error("mcp-lsp startup env failed", pkglogger.FieldError, err)
+		logRuntime.Get().Error("mcp-lsp startup env failed", pkglogger.FieldError, err)
 		os.Exit(1)
 	}
 	if err := runtimeenv.ConfigureSidecarRuntime(); err != nil {
-		pkglogger.Get().Error("mcp-lsp sidecar runtime env failed", pkglogger.FieldError, err)
+		logRuntime.Get().Error("mcp-lsp sidecar runtime env failed", pkglogger.FieldError, err)
 		os.Exit(1)
 	}
 	// sidecar 只处理轻量协议转发，限制调度线程避免和宿主/工具进程抢占 CPU。
@@ -50,14 +51,18 @@ func main() {
 }
 
 // initSidecarFileLogger 将 mcp-lsp 日志同时写入 stderr 和进程自有的私有文件。
-func initSidecarFileLogger(homeDir string, console io.Writer) error {
+func initSidecarFileLogger(logRuntime *pkglogger.Runtime, homeDir string, console io.Writer) error {
+	if logRuntime == nil {
+		return fmt.Errorf("initialize mcp-lsp file logger: logger runtime is required")
+	}
 	logDir := filepath.Join(homeDir, ".multi-agent", "log", binaryName)
-	if err := pkglogger.InitWithFileOptions(logDir, pkglogger.FileOptions{
+	if err := logRuntime.InitWithFileOptions(logDir, pkglogger.FileOptions{
 		Prefix:        binaryName,
 		ConsoleWriter: console,
 	}); err != nil {
 		return fmt.Errorf("initialize mcp-lsp file logger: %w", err)
 	}
+	logRuntime.BindDefault()
 	return nil
 }
 

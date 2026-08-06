@@ -53,46 +53,50 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if exitCode := runUpdaterMain(ctx); exitCode != 0 {
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.InitWithConsoleWriter(os.Stderr)
+	if exitCode := runUpdaterMain(ctx, loggerRuntime.Get()); exitCode != 0 {
 		os.Exit(exitCode)
 	}
 }
 
 // runUpdaterMain 暂存稳定 helper 后执行 updater，并在返回前清理暂存文件。
-func runUpdaterMain(ctx context.Context) (exitCode int) {
+func runUpdaterMain(ctx context.Context, logger *slog.Logger) (exitCode int) {
+	if logger == nil {
+		return 2
+	}
 	if ctx == nil {
-		slog.Error("updater context is required")
+		logger.Error("updater context is required")
 		return 2
 	}
 	cleanup, err := recovery.PrepareReleaseFilesystemHelper()
 	if err != nil {
-		slog.Error("prepare release filesystem helper failed", "error", err)
+		logger.Error("prepare release filesystem helper failed", "error", err)
 		return 2
 	}
 	defer func() {
 		if err := cleanup(); err != nil {
-			slog.Error("cleanup release filesystem helper failed", "error", err)
+			logger.Error("cleanup release filesystem helper failed", "error", err)
 			if exitCode == 0 {
 				exitCode = 1
 			}
 		}
 	}()
-	pkglogger.InitWithConsoleWriter(os.Stderr)
 	req, err := parseInstallRequest(os.Args[1:])
 	if err != nil {
-		pkglogger.Get().Error("super-dolphin-updater request failed", "error", err)
+		logger.Error("super-dolphin-updater request failed", "error", err)
 		return 2
 	}
 	if os.Getenv(updaterDetachedEnv) != "1" {
 		updater := defaultUpdaterApp()
 		if err := updater.startDetachedUpdater(req.LogPath); err != nil {
-			pkglogger.Get().Error("super-dolphin-updater detach failed", "error", err)
+			logger.Error("super-dolphin-updater detach failed", "error", err)
 			return 1
 		}
 		return 0
 	}
 	if err := defaultUpdaterApp().install(ctx, req); err != nil {
-		pkglogger.Get().Error("super-dolphin-updater install failed", "error", err)
+		logger.Error("super-dolphin-updater install failed", "error", err)
 		return 1
 	}
 	return 0

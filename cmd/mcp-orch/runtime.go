@@ -46,12 +46,13 @@ type registryToolProvider struct {
 type bootstrapRunner struct {
 	cfg        bootstrap.Config
 	client     bootstrapClient
+	logRuntime *pkglogger.Runtime
 	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
 // bootstrapClient 定义 bootstrap 客户端的核心操作接口。
 type bootstrapClient interface {
-	InstallLogRelay()
+	InstallLogRelay(*pkglogger.Runtime)
 	Start(context.Context) error
 	Close() error
 	hookSubscriber
@@ -62,31 +63,41 @@ type runtimeParams struct {
 	fx.In
 
 	Logger     *slog.Logger
+	LogRuntime *pkglogger.Runtime
 	Runners    []platformrunner.Runner `group:"runners"`
 	Shutdowner fx.Shutdowner
 }
 
 type openLogFileFunc func(string, int, os.FileMode) (*os.File, error)
 
+// newLoggerRuntime creates the owner shared by mcp-orch transports and its relay.
+func newLoggerRuntime() *pkglogger.Runtime {
+	return pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+}
+
 // newLogger 初始化日志写入器，优先写入 /tmp/mcp-orch-<pid>.log，失败时回退到 stderr。
-func newLogger(cfg *platformconfig.Config) *slog.Logger {
-	return newLoggerWithOpenFile(cfg, os.OpenFile, os.Stderr)
+func newLogger(logRuntime *pkglogger.Runtime, cfg *platformconfig.Config) *slog.Logger {
+	return newLoggerWithOpenFile(logRuntime, cfg, os.OpenFile, os.Stderr)
 }
 
 // newLoggerWithOpenFile 初始化 mcp-orch logger，并把文件打开动作注入出来供测试覆盖失败分支。
-func newLoggerWithOpenFile(_ *platformconfig.Config, openLogFile openLogFileFunc, stderr io.Writer) *slog.Logger {
+func newLoggerWithOpenFile(logRuntime *pkglogger.Runtime, _ *platformconfig.Config, openLogFile openLogFileFunc, stderr io.Writer) *slog.Logger {
+	if logRuntime == nil {
+		panic("mcp-orch logger runtime is required")
+	}
 	if stderr == nil {
 		stderr = os.Stderr
 	}
 	// MCP stdio 的 stdout 留给 JSON-RPC，日志回退也只能写 stderr 或文件。
 	logPath := fmt.Sprintf("/tmp/mcp-orch-%d.log", os.Getpid())
 	if f, err := openLogFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
-		pkglogger.InitWithConsoleWriter(f)
+		logRuntime.InitWithConsoleWriter(f)
 	} else {
 		slog.New(slog.NewTextHandler(stderr, nil)).Warn("mcp-orch logger fallback to stderr", "path", logPath, "error", err)
-		pkglogger.InitWithConsoleWriter(stderr)
+		logRuntime.InitWithConsoleWriter(stderr)
 	}
-	return pkglogger.Get()
+	logRuntime.BindDefault()
+	return logRuntime.Get()
 }
 
 // newQueries 创建 mcp-orch store 使用的 sqlc 查询集。
@@ -262,7 +273,7 @@ func newAgentListPorts(state contract.AgentStateReader, reports contract.AgentRe
 
 // newStdioServer 创建 mcp-orch stdio MCP server，stdout 使用已绑定的 MCP 输出通道。
 // mcpStdout 由 main() 最早阶段写入；nil 表示程序装配顺序异常，必须 fail-fast 阻止用脏 stdout 破坏 JSON-RPC framing。
-func newStdioServer(registry tools.Registry) (*common.Server, error) {
+func newStdioServer(registry tools.Registry, logRuntime *pkglogger.Runtime) (*common.Server, error) {
 	stdout := mcpStdout.Load()
 	if stdout == nil {
 		return nil, fmt.Errorf("mcp-orch: mcpStdout not initialized; program assembly order is broken")
@@ -274,6 +285,7 @@ func newStdioServer(registry tools.Registry) (*common.Server, error) {
 		transport,
 		registryToolProvider{registry: registry},
 		common.WithToolErrorClassifier(tools.ToolErrorClassifier),
+		common.WithLoggerRuntime(logRuntime),
 	), nil
 }
 
@@ -283,8 +295,11 @@ func newStdioRunner(server *common.Server) platformrunner.Runner {
 }
 
 // newBootstrapRunner 创建 peer bootstrap runner，等待 stdio server ready 后再注册主控。
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
-	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) platformrunner.Runner {
+	if logRuntime == nil {
+		panic("mcp-orch logger runtime is required")
+	}
+	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}
 }
 
 // ListTools 只把 registry 定义转换为 MCP tool 列表，不解释 scope。
@@ -341,7 +356,7 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 // Run 在 peer 模式才向主控注册，让 toolbridge 能代理 tools/list 和 tools/call。
 // 普通 stdio sidecar 不能注册，否则可能被主控当独立 peer 清理掉。
 func (r bootstrapRunner) Run(ctx context.Context) error {
-	r.client.InstallLogRelay()
+	r.client.InstallLogRelay(r.logRuntime)
 	if r.stdioReady != nil {
 		select {
 		case <-r.stdioReady:

@@ -42,7 +42,7 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
@@ -94,7 +94,7 @@ func TestThreadStartFailsWhenRequiredModelListFails(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
@@ -140,7 +140,7 @@ func TestThreadStartConfigGPTDefaultRequiresModelList(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
@@ -203,7 +203,7 @@ func TestDriverStartSessionPreservesExplicitOverrideGPT5Model(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
@@ -265,7 +265,7 @@ func TestDriverStartSessionPreservesExplicitOverrideGPT55Model(t *testing.T) {
 			return mustJSON(map[string]any{"ok": true})
 		}
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),

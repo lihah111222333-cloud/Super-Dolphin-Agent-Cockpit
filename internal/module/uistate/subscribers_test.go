@@ -14,7 +14,7 @@ import (
 func TestNewUIStateSubscribersSpec(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestUIStateSubscribersRegisterCancelAndDeliver(t *testing.T) {
 
 	dispatcher := platformbus.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService error = %v", err)
 	}

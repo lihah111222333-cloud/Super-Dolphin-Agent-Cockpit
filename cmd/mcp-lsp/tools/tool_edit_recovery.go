@@ -2,12 +2,11 @@ package tools
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // editRecoveryLogEntry 记录“磁盘已写入但 LSP 同步未完成”的恢复线索。
@@ -36,13 +35,13 @@ func logEditDiskConfirmation(path string, diffBytes int, syncErr error) {
 		DiffBytes: diffBytes,
 		SyncError: syncError,
 	}
-	pkglogger.Warn("mcp-lsp patch_edit disk write confirmed before LSP sync returned",
+	slog.Warn("mcp-lsp patch_edit disk write confirmed before LSP sync returned",
 		"file_path", path,
 		"diff_bytes", diffBytes,
 		"sync_error", syncError,
 	)
 	if err := appendEditRecoveryLog(entry); err != nil {
-		pkglogger.Warn("mcp-lsp patch_edit recovery log write failed", "error", err)
+		slog.Warn("mcp-lsp patch_edit recovery log write failed", "error", err)
 	}
 }
 
@@ -69,8 +68,7 @@ func appendEditRecoveryLog(entry editRecoveryLogEntry) error {
 	return err
 }
 
-// editRecoveryLogDir 优先使用显式 fallback 目录，其次复用当前 logger 文件目录。
-// 两者都不可用时返回 false，让编辑主流程不因辅助日志失败而中断。
+// editRecoveryLogDir 只使用显式 fallback 目录，避免依赖进程级日志 runtime。
 func editRecoveryLogDir() (string, bool) {
 	if dir := strings.TrimSpace(os.Getenv("GO_AGENT_LOG_FALLBACK_DIR")); dir != "" {
 		abs, err := filepath.Abs(dir)
@@ -78,9 +76,6 @@ func editRecoveryLogDir() (string, bool) {
 			return "", false
 		}
 		return abs, true
-	}
-	if logPath := strings.TrimSpace(pkglogger.CurrentLogFilePath()); logPath != "" {
-		return filepath.Dir(logPath), true
 	}
 	return "", false
 }

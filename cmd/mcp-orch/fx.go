@@ -54,6 +54,7 @@ func newMCPOrchApp(remoteAddr string) *fx.App {
 		fx.Options(buildOrchestrationOptions(remoteAddr)...),
 		orchestrationTransportOptions(),
 		fx.Provide(
+			newLoggerRuntime,
 			newLogger,
 			newQueries,
 			newAgentThreadStore,

@@ -3,6 +3,7 @@ package claudecli
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,9 +29,11 @@ func mustBuildCLIArgs(t testing.TB, model, instructions, mcpConfigPath string, c
 // 日志可以保留 server 摘要，但不能输出 DSN、token query 或任何原始参数 secret。
 func TestLogManifestLaunchRedactsArgsAndURLSecrets(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	old := slog.Default()
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.InitWithConsoleWriter(&buf)
+	loggerRuntime.BindDefault()
+	t.Cleanup(func() { slog.SetDefault(old) })
 
 	logManifestLaunch("claude", "/work/project", "sonnet", "/tmp/mcp.json", dto.MCPManifest{Binaries: []dto.MCPBinary{
 		{
@@ -61,9 +64,11 @@ func TestLogManifestLaunchRedactsArgsAndURLSecrets(t *testing.T) {
 // env value、RPC 地址和命令行 secret 都不能写进结构化日志。
 func TestLogManifestLaunchKeepsEnvKeysOnly(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	old := slog.Default()
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.InitWithConsoleWriter(&buf)
+	loggerRuntime.BindDefault()
+	t.Cleanup(func() { slog.SetDefault(old) })
 
 	logManifestLaunch("claude", "/work/project", "sonnet", "/tmp/mcp.json", dto.MCPManifest{Binaries: []dto.MCPBinary{{
 		Name: "orch",
@@ -96,9 +101,11 @@ func TestLogManifestLaunchKeepsEnvKeysOnly(t *testing.T) {
 // cwd、临时 mcp config、绝对 command 目录和 URL 非固定 path/query/fragment 都不能写入日志。
 func TestLogManifestLaunchOmitsRawPathsAndSummarizesURL(t *testing.T) {
 	var buf bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	old := slog.Default()
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.InitWithConsoleWriter(&buf)
+	loggerRuntime.BindDefault()
+	t.Cleanup(func() { slog.SetDefault(old) })
 
 	cwd := "/Users/l05/private/repo"
 	mcpPath := "/var/folders/l05/private/mcp-config.json"

@@ -31,7 +31,10 @@ type httpRunner struct {
 }
 
 // newHTTPRunner 在 peer 模式下创建 HTTP runner；非 peer 模式返回阻塞空 runner。
-func newHTTPRunner(registry tools.Registry) platformrunner.Runner {
+func newHTTPRunner(registry tools.Registry, logRuntime *pkglogger.Runtime) platformrunner.Runner {
+	if logRuntime == nil {
+		panic("mcp-orch logger runtime is required")
+	}
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		// Non-peer mode: return a runner that blocks until context done.
 		return blockRunner{}
@@ -47,6 +50,7 @@ func newHTTPRunner(registry tools.Registry) platformrunner.Runner {
 				toolProvider,
 				common.WithBearerToken(bearerToken),
 				common.WithHTTPToolErrorClassifier(tools.ToolErrorClassifier),
+				common.WithHTTPLoggerRuntime(logRuntime),
 			)
 			addr, err := srv.Start(ctx, "127.0.0.1:0")
 			return addr, srv.Stop, err

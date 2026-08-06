@@ -14,8 +14,8 @@ import (
 //
 // V3 的日志分三层：
 //
-//	Layer 1: pkg/logger — 全局日志函数（logger.Info/Error/Warn 等），启动层使用。
-//	Layer 2: log/slog — 标准结构化日志（pkg/logger.Init 后通过 slog.SetDefault 生效）。
+//	Layer 1: pkg/logger — Runtime 持有日志、relay 和后台任务状态，入口层显式创建并注入 owner。
+//	Layer 2: log/slog — 标准结构化日志；需要兼容默认日志器时由已创建的 Runtime 显式 BindDefault。
 //	Layer 3 (禁止): "log" 标准库 — 无结构化字段、无级别控制、无 relay 管道。
 //
 // 全面禁止：

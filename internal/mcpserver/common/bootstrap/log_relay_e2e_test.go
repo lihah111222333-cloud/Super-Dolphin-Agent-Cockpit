@@ -36,13 +36,9 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 		Logger:   backendLogger,
 	}).Handlers)
 
-	previousLogger := pkglogger.Get()
-	pkglogger.ClearRelayHook()
-	pkglogger.InitWithConsoleWriter(io.Discard)
-	t.Cleanup(func() {
-		pkglogger.ClearRelayHook()
-		pkglogger.SetForTest(previousLogger)
-	})
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	logRuntime.InitWithConsoleWriter(io.Discard)
+	t.Cleanup(logRuntime.ClearRelayHook)
 
 	client, err := bootstrap.New(bootstrap.Config{
 		RPCAddr:             addr,
@@ -56,7 +52,7 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bootstrap New() error = %v", err)
 	}
-	client.InstallLogRelay()
+	client.InstallLogRelay(logRuntime)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	if err := client.Start(ctx); err != nil {
@@ -64,7 +60,7 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
-	pkglogger.Warn("lsp relay backend persistence e2e",
+	logRuntime.Get().Warn("lsp relay backend persistence e2e",
 		pkglogger.FieldToolName, "grep",
 		pkglogger.FieldComponent, "mcp-lsp",
 	)

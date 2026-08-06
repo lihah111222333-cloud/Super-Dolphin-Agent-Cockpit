@@ -34,12 +34,12 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 
 func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123 ")
-	got, ok := newDriver(nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil).(*driver)
+	got, ok := newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil))
+		t.Fatalf("newDriver(testLoggerRuntime(t), ) type = %T, want *driver", newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil))
 	}
 	if got.logger == nil {
-		t.Fatal("newDriver() logger = nil")
+		t.Fatal("newDriver(testLoggerRuntime(t), ) logger = nil")
 	}
 	if got.serverURL != "ws://127.0.0.1:9123" {
 		t.Fatalf("serverURL = %q, want ws://127.0.0.1:9123", got.serverURL)
@@ -69,7 +69,7 @@ func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	d := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
 	var prepared contract.CodexToolSurfaceScope
 	var bound contract.CodexToolSurfaceScope
 	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
@@ -193,6 +193,7 @@ func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	t.Parallel()
 
 	factory := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory.SetLogRuntime(testLoggerRuntime(t))
 	if factory.Name != "codex" {
 		t.Fatalf("factory.Name = %q, want codex", factory.Name)
 	}
@@ -208,7 +209,7 @@ func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 	reporter := &stubRuntimeReporter{}
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123/ws ")
-	got := newDriver(nil, nil, testApprovalManager(), reporter, nil, nil, nil, nil, nil).(*driver)
+	got := newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), reporter, nil, nil, nil, nil, nil).(*driver)
 	if err := got.reportRuntime(" agent-1 ", got.serverURL); err != nil {
 		t.Fatalf("reportRuntime() error = %v", err)
 	}
@@ -246,7 +247,7 @@ func TestCodexDriverFactoryRequiresApprovalManager(t *testing.T) {
 }
 
 func TestDriverStartAndResumeRequireApprovalManagerBeforeRequestPreparation(t *testing.T) {
-	d := &driver{}
+	d := &driver{logRuntime: testLoggerRuntime(t)}
 
 	if _, err := d.StartSession(context.Background(), dto.StartSessionRequest{}); !errors.Is(err, errApprovalManagerRequired) {
 		t.Fatalf("StartSession() error = %v, want %v", err, errApprovalManagerRequired)
@@ -344,7 +345,7 @@ func newCodexDriverWithRuntimeReporterForTest(t *testing.T, reporter contract.Ru
 		t.Fatalf("newModeAwareRuntimeReporter() error = %v", err)
 	}
 	serverURL := startCodexRPCServer(t, runtimeReportCodexRPCResult)
-	driver := &driver{
+	driver := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
@@ -397,7 +398,7 @@ func codexResumeRequestForRuntimeReportTest(t *testing.T) dto.ResumeSessionReque
 func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 	t.Parallel()
 
-	s, err := newSession(context.Background(), nil, startCodexTestServer(t), " agent-1 ", nil, testApprovalManager(), nil, testSkillMetrics(t))
+	s, err := newSession(context.Background(), testLoggerRuntime(t), startCodexTestServer(t), " agent-1 ", nil, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -464,7 +465,7 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 
 func mustBuildThreadStartParams(t *testing.T, req dto.StartSessionRequest) threadStartParams {
 	t.Helper()
-	params, err := (&driver{}).buildThreadStartParams(req)
+	params, err := (&driver{logRuntime: testLoggerRuntime(t)}).buildThreadStartParams(req)
 	if err != nil {
 		t.Fatalf("buildThreadStartParams() error = %v", err)
 	}
@@ -507,7 +508,7 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 func TestBuildThreadStartParamsRejectsEmptyPromptAssembly(t *testing.T) {
 	t.Parallel()
 
-	_, err := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{})
+	_, err := (&driver{logRuntime: testLoggerRuntime(t)}).buildThreadStartParams(dto.StartSessionRequest{})
 	if err == nil || !strings.Contains(err.Error(), "start prompt assembly is empty") {
 		t.Fatalf("buildThreadStartParams() error = %v, want empty start prompt assembly error", err)
 	}
@@ -767,7 +768,7 @@ func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T
 	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
 		return startSessionInjectResult(method, wantHome)
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
@@ -817,7 +818,7 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
 		return canonicalCodexHomeResult(method, wantHome)
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
@@ -859,7 +860,7 @@ func TestDriverStartSessionSendsRestrictedSandboxPolicyOnWire(t *testing.T) {
 		}
 		return mustJSON(map[string]any{"ok": true})
 	})
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),

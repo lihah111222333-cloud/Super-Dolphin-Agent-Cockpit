@@ -16,7 +16,6 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestForceCompletePublishesInterruptedSystemTerminal(t *testing.T) {
@@ -445,7 +444,7 @@ func receiveForceCompleteParams(t *testing.T, ch <-chan map[string]any, timeoutM
 
 func newForceCompleteTestSession(t *testing.T, serverURL string) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil, testSkillMetrics(t))
+	s, err := newSession(context.Background(), testLoggerRuntime(t), serverURL, "agent-1", nil, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

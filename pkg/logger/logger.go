@@ -55,7 +55,9 @@ type RuntimeConfig struct {
 
 // Runtime 持有日志子系统的可变运行态，包括当前 logger、文件 writer、relay、watchdog 和 agent 文件。
 type Runtime struct {
-	logger atomic.Pointer[slog.Logger]
+	logger       atomic.Pointer[slog.Logger]
+	defaultBound atomic.Bool
+	redactor     *logRedactor
 
 	mu              sync.Mutex
 	logFile         *os.File
@@ -80,12 +82,7 @@ type Runtime struct {
 	safeWG         sync.WaitGroup
 }
 
-var (
-	defaultRuntime = NewRuntime(RuntimeConfig{})
-	runtimeState   atomic.Pointer[Runtime]
-)
-
-// NewRuntime 创建独立日志 runtime；调用方可在程序 bootstrap 中通过 InstallRuntime 安装。
+// NewRuntime 创建独立日志 runtime；调用方必须显式持有并注入该 owner。
 func NewRuntime(cfg RuntimeConfig) *Runtime {
 	mode := normalizeMode(cfg.Mode)
 	if cfg.Mode == "" {
@@ -118,36 +115,31 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 		activeLevel:       level,
 		logFilePrefix:     prefix,
 		agentFiles:        map[string]*os.File{},
+		redactor:          newLogRedactor(),
 	}
 	r.logger.Store(r.newLogger(mode, level))
 	return r
 }
 
-// InstallRuntime 安装当前进程使用的日志 runtime，并返回先前 runtime 便于测试恢复。
-func InstallRuntime(r *Runtime) *Runtime {
+// BindDefault 将本 runtime 显式发布为进程的标准 slog logger。
+// 后续 runtime 重建 logger 时会同步更新 slog.Default，保证已注入 owner 的输出语义不漂移。
+func (r *Runtime) BindDefault() {
 	if r == nil {
-		fmt.Fprintln(os.Stderr, "logger runtime is nil")
-		os.Exit(1)
+		panic("logger runtime is required")
 	}
-	previous := currentRuntime()
-	runtimeState.Store(r)
-	if l := r.getLogger(); l != nil {
-		slog.SetDefault(l)
-	}
-	return previous
+	r.defaultBound.Store(true)
+	slog.SetDefault(r.Get())
 }
 
-func currentRuntime() *Runtime {
-	if r := runtimeState.Load(); r != nil {
-		return r
+func (r *Runtime) getLogger() *slog.Logger {
+	if r == nil {
+		panic("logger runtime is required")
 	}
-	return defaultRuntime
+	if l := r.logger.Load(); l != nil {
+		return l
+	}
+	panic("logger runtime has no logger")
 }
-
-// getLogger 返回当前 runtime 的日志器。
-func getLogger() *slog.Logger { return currentRuntime().getLogger() }
-
-func (r *Runtime) getLogger() *slog.Logger { return r.logger.Load() }
 
 func (r *Runtime) storeLogger(l *slog.Logger) {
 	if l == nil {
@@ -156,7 +148,7 @@ func (r *Runtime) storeLogger(l *slog.Logger) {
 		return
 	}
 	r.logger.Store(l)
-	if currentRuntime() == r {
+	if r.defaultBound.Load() {
 		slog.SetDefault(l)
 	}
 }
@@ -232,7 +224,7 @@ func outputWriterForMode(mode Mode) io.Writer {
 }
 
 // replaceLogAttr 统一清洗日志字段、格式化时间与级别，并映射到 ECS 字段名。
-func replaceLogAttr(_ []string, a slog.Attr) slog.Attr {
+func (r *Runtime) replaceLogAttr(_ []string, a slog.Attr) slog.Attr {
 	switch a.Key {
 	case slog.TimeKey:
 		if t, ok := a.Value.Any().(time.Time); ok {
@@ -241,7 +233,7 @@ func replaceLogAttr(_ []string, a slog.Attr) slog.Attr {
 	case slog.LevelKey:
 		a.Value = slog.StringValue(strings.ToLower(a.Value.String()))
 	}
-	a = sanitizeLogAttr(a)
+	a = r.redactor.sanitizeAttr(a)
 	return mapECSLogAttr(a)
 }
 
@@ -270,16 +262,16 @@ func mapECSLogAttr(a slog.Attr) slog.Attr {
 	return a
 }
 
-// newHandler 根据模式构建 JSON 或 text handler，并挂载错误增强与 relay 包装。
+// newHandler 构造独立 handler，供不需要共享 runtime 状态的包内测试使用。
 func newHandler(mode Mode, level slog.Level, out io.Writer) slog.Handler {
-	return currentRuntime().newHandler(mode, level, out)
+	return NewRuntime(RuntimeConfig{}).newHandler(mode, level, out)
 }
 
 func (r *Runtime) newHandler(mode Mode, level slog.Level, out io.Writer) slog.Handler {
 	opts := &slog.HandlerOptions{
 		Level:       level,
 		AddSource:   normalizeMode(mode) != Production,
-		ReplaceAttr: replaceLogAttr,
+		ReplaceAttr: r.replaceLogAttr,
 	}
 	var handler slog.Handler
 	if normalizeMode(mode) == Production {
@@ -299,30 +291,15 @@ func (r *Runtime) newLoggerWithWriter(mode Mode, level slog.Level, out io.Writer
 	return r.applyGlobalAttrs(slog.New(r.newHandler(mode, level, out)))
 }
 
-// Init 根据字符串入参初始化全局日志模式和级别。
-func Init(env string) {
-	currentRuntime().Init(env)
-}
-
 // Init 根据字符串入参初始化 runtime 日志模式和级别。
 func (r *Runtime) Init(env string) {
 	mode, level := resolveInitModeAndLevel(env)
 	r.InitModeWithLevel(mode, level)
 }
 
-// InitMode 使用模式默认级别初始化全局日志器。
-func InitMode(mode Mode) {
-	currentRuntime().InitMode(mode)
-}
-
 // InitMode 使用模式默认级别初始化 runtime 日志器。
 func (r *Runtime) InitMode(mode Mode) {
 	r.InitModeWithLevel(mode, defaultLevelForMode(mode))
-}
-
-// InitModeWithLevel 设置全局模式和级别；文件 handler 已打开时会重建多路输出。
-func InitModeWithLevel(mode Mode, level slog.Level) {
-	currentRuntime().InitModeWithLevel(mode, level)
 }
 
 // InitModeWithLevel 设置 runtime 模式和级别；文件 handler 已打开时会重建多路输出。
@@ -337,7 +314,7 @@ func (r *Runtime) InitModeWithLevel(mode Mode, level slog.Level) {
 		r.rebuildLoggerWithFile(f)
 		return
 	}
-	r.storeLogger(r.newLogger(r.activeMode, r.activeLevel))
+	r.storeLogger(r.newLogger(mode, level))
 }
 
 // nextRunNumber 为同一天同前缀日志文件计算递增序号。
@@ -390,20 +367,9 @@ func openPrivateAppendFile(path string) (*os.File, error) {
 	return f, nil
 }
 
-// InitWithFile 使用默认选项初始化文件日志输出。
-func InitWithFile(logDir string) error {
-	return currentRuntime().InitWithFile(logDir)
-}
-
 // InitWithFile 使用默认选项初始化 runtime 文件日志输出。
 func (r *Runtime) InitWithFile(logDir string) error {
 	return r.InitWithFileOptions(logDir, FileOptions{})
-}
-
-// InitWithFileOptions 创建新的文件日志，并关闭旧文件 handler 和 watcher。
-// 成功后日志会同时写入控制台和文件，并启动 watchdog 处理文件被删除的情况。
-func InitWithFileOptions(logDir string, opts FileOptions) error {
-	return currentRuntime().InitWithFileOptions(logDir, opts)
 }
 
 // InitWithFileOptions 创建 runtime 文件日志，并关闭旧文件 handler 和 watcher。
@@ -441,13 +407,8 @@ func (r *Runtime) InitWithFileOptions(logDir string, opts FileOptions) error {
 
 	r.rebuildLoggerWithFile(f)
 	r.safeGo("logger.watchLogFile", func() { r.watchLogFile(absPath, stopCh) })
-	Info("log file opened", "path", absPath, "run", run)
+	r.Get().Info("log file opened", "path", absPath, "run", run)
 	return nil
-}
-
-// InitWithConsoleWriter 切回仅控制台 writer，并关闭已有文件日志资源。
-func InitWithConsoleWriter(out io.Writer) {
-	currentRuntime().InitWithConsoleWriter(out)
 }
 
 // InitWithConsoleWriter 切回 runtime 控制台 writer，并关闭已有文件日志资源。
@@ -483,11 +444,6 @@ func (r *Runtime) rebuildLoggerWithFile(f *os.File) {
 	}
 	writer := io.MultiWriter(console, f)
 	r.storeLogger(r.newLoggerWithWriter(mode, level, writer))
-}
-
-// SetProject 更新全局 project 字段，并立即重建当前日志器。
-func SetProject(name string) {
-	currentRuntime().SetProject(name)
 }
 
 // SetProject 更新 runtime project 字段，并立即重建当前日志器。

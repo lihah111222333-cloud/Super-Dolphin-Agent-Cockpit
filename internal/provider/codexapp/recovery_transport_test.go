@@ -18,7 +18,6 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 type rpcMethodRecorder struct {
@@ -677,7 +676,7 @@ func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
 
 func newRecoveryTestSessionWithDispatcher(t *testing.T, server *httptest.Server, dispatcher *unified.EventDispatcher) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
+	s, err := newSession(context.Background(), testLoggerRuntime(t), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

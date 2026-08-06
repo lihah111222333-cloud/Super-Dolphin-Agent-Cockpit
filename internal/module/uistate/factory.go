@@ -5,7 +5,6 @@ import (
 
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // applyMutation 统一 projection handler 的加锁、变更、构造 patch 和发事件流程。
@@ -27,9 +26,6 @@ func applyMutation(s *service, threadID string, mutator func(), patchBuilder fun
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
-
-// logFilePath 返回当前日志文件路径，供 UI 展示调试入口。
-func logFilePath() string { return pkglogger.CurrentLogFilePath() }
 
 // copyThreadGroups 深拷贝线程分组，避免快照调用方改写内部状态。
 func copyThreadGroups(items []ThreadGroup) []ThreadGroup {

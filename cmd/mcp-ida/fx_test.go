@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -48,7 +47,7 @@ func TestEmptyToolProviderCallToolFailsClosed(t *testing.T) {
 // TestNewStdioServerFailsFastWhenStdoutOwnerNil 锁定缺少 MCP stdout owner 时必须返回 error，
 // 不得 fallback 到 os.Stdout，否则会把普通 stdout 当作 MCP JSON-RPC 通道继续使用。
 func TestNewStdioServerFailsFastWhenStdoutOwnerNil(t *testing.T) {
-	_, err := newStdioServer(nil)
+	_, err := newStdioServer(nil, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	if err == nil {
 		t.Fatal("newStdioServer(nil) error = nil, want missing owner error")
 	}
@@ -88,6 +87,7 @@ func TestBootstrapRunnerRequiresRPCAddr(t *testing.T) {
 	runner := bootstrapRunner{
 		cfg:        bootstrap.Config{BinaryName: "mcp-ida", Metrics: platformmetrics.NewBootstrapMetrics()},
 		client:     client,
+		logRuntime: pkglogger.NewRuntime(pkglogger.RuntimeConfig{}),
 		stdioReady: ready,
 	}
 	err = runner.Run(ctx)
@@ -141,7 +141,7 @@ func TestBootstrapConfigDoesNotOfferBootSnapshotIDACapability(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", addr)
 	t.Setenv("GO_AGENT_CTL_BOOTSTRAP_JSON", `{"instance_id":"snap-1","boot_id":"boot-1","binary_name":"mcp-ida","client_kind":"ida","capabilities":["tools/ida"]}`)
 
-	cfg, err := buildBootstrapConfig(nil, platformmetrics.NewBootstrapMetrics())
+	cfg, err := buildBootstrapConfig(nil, platformmetrics.NewBootstrapMetrics(), pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	if err != nil {
 		t.Fatalf("buildBootstrapConfig() error = %v", err)
 	}
@@ -168,13 +168,10 @@ func TestBootstrapConfigDoesNotOfferBootSnapshotIDACapability(t *testing.T) {
 
 func TestBootstrapConfigChangedLogRedactsPayload(t *testing.T) {
 	var buf bytes.Buffer
-	pkglogger.InitModeWithLevel(pkglogger.Production, slog.LevelInfo)
-	pkglogger.InitWithConsoleWriter(&buf)
-	t.Cleanup(func() {
-		pkglogger.InitWithConsoleWriter(os.Stderr)
-	})
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	logRuntime.InitWithConsoleWriter(&buf)
 
-	cfg, err := buildBootstrapConfig(nil, platformmetrics.NewBootstrapMetrics())
+	cfg, err := buildBootstrapConfig(nil, platformmetrics.NewBootstrapMetrics(), logRuntime)
 	if err != nil {
 		t.Fatalf("buildBootstrapConfig() error = %v", err)
 	}

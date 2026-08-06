@@ -51,7 +51,7 @@ func TestToolPayloadLogRedactsArgumentsAndResultByDefault(t *testing.T) {
 		return map[string]any{"success": true}, nil
 	}}
 
-	server := NewServer("mcp-lsp", "dev", NewStdioTransport(bytes.NewReader(req), &output), provider)
+	server := newTestServer("mcp-lsp", "dev", NewStdioTransport(bytes.NewReader(req), &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -118,7 +118,7 @@ func TestToolPayloadLogDebugModeStillRedactsSecrets(t *testing.T) {
 			transport: "stdio",
 			run: func(t *testing.T, dir string) {
 				var output bytes.Buffer
-				server := NewServer("mcp-lsp", "dev", NewStdioTransport(bytes.NewReader(secretToolCallRequest(t, "req-secret")), &output), testToolProvider{})
+				server := newTestServer("mcp-lsp", "dev", NewStdioTransport(bytes.NewReader(secretToolCallRequest(t, "req-secret")), &output), testToolProvider{})
 				if err := server.Run(context.Background()); err != nil {
 					t.Fatalf("Run() error = %v", err)
 				}
@@ -128,7 +128,7 @@ func TestToolPayloadLogDebugModeStillRedactsSecrets(t *testing.T) {
 			name:      "http",
 			transport: "http",
 			run: func(t *testing.T, dir string) {
-				server := NewHTTPServer("mcp-lsp", "dev", testToolProvider{})
+				server := newTestHTTPServer("mcp-lsp", "dev", testToolProvider{})
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(secretToolCallRequest(t, "req-secret-http")))
 				attachInitializedHTTPSession(t, server, req)
@@ -176,7 +176,7 @@ func TestToolPayloadLogRedactsProviderErrorsAcrossTransports(t *testing.T) {
 			run: func(t *testing.T, dir string, provider ToolProvider) {
 				t.Helper()
 				var output bytes.Buffer
-				server := NewServer("mcp-lsp", "dev", NewStdioTransport(bytes.NewReader(toolCallRequest(t, "error-stdio", "error", nil)), &output), provider)
+				server := newTestServer("mcp-lsp", "dev", NewStdioTransport(bytes.NewReader(toolCallRequest(t, "error-stdio", "error", nil)), &output), provider)
 				if err := server.Run(context.Background()); err != nil {
 					t.Fatalf("Run() error = %v", err)
 				}
@@ -186,7 +186,7 @@ func TestToolPayloadLogRedactsProviderErrorsAcrossTransports(t *testing.T) {
 			name: "http",
 			run: func(t *testing.T, dir string, provider ToolProvider) {
 				t.Helper()
-				server := NewHTTPServer("mcp-lsp", "dev", provider)
+				server := newTestHTTPServer("mcp-lsp", "dev", provider)
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(toolCallRequest(t, "error-http", "error", nil)))
 				attachInitializedHTTPSession(t, server, req)
@@ -274,7 +274,7 @@ func assertSnapshotStatusAndRedaction(t *testing.T, meta map[string]any, wantSta
 func TestToolPayloadLogMarksHTTPTransportDeprecated(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(toolPayloadLogDirEnv, dir)
-	server := NewHTTPServer("mcp-lsp", "dev", testToolProvider{})
+	server := newTestHTTPServer("mcp-lsp", "dev", testToolProvider{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(toolCallRequest(t, 12, "edit", map[string]any{
 		"patch": "+http legacy path\n",

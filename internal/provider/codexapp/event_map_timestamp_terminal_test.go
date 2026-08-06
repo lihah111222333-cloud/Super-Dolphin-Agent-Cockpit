@@ -46,6 +46,26 @@ func TestCodexTimestampProviderErrorForMissingLifecycleAndInvalidTerminal(t *tes
 	}
 }
 
+func TestCodexEventRequiresTimestampMatchesLifecycleContract(t *testing.T) {
+	for _, eventType := range []string{
+		"thread/started", "session.configured", "agent:launched", "thread/status/changed",
+		"shutdown.complete", "shutdown_complete", "recovery.attempt", "connection.dead",
+		"turn/started", "turn.started",
+	} {
+		if !codexEventRequiresTimestamp(eventType) {
+			t.Fatalf("codexEventRequiresTimestamp(%q) = false, want true", eventType)
+		}
+	}
+	for _, eventType := range []string{"item/started", "unknown.event", ""} {
+		if codexEventRequiresTimestamp(eventType) {
+			t.Fatalf("codexEventRequiresTimestamp(%q) = true, want false", eventType)
+		}
+	}
+	if !codexEventRequiresTimestamp("turn/completed") {
+		t.Fatal("codexEventRequiresTimestamp(turn/completed) = false, want terminal event true")
+	}
+}
+
 func TestCodexSessionObservesMissingNonTerminalLifecycleTimestamp(t *testing.T) {
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })

@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"io/fs"
-	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -29,6 +28,7 @@ import (
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
@@ -400,9 +400,10 @@ const (
 
 func providerProductionGraphOptions(module fx.Option, omissions ...providerGraphOmission) fx.Option {
 	omitted := providerGraphOmissionSet(omissions...)
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
 	opts := []fx.Option{
 		module,
-		fx.Supply(slog.Default()),
+		fx.Supply(logRuntime, logRuntime.Get()),
 		fx.Provide(func() *event.Dispatcher { return event.NewDispatcher() }),
 		fx.Provide(unified.NewEventDispatcher),
 		fx.Provide(rpc.NewApprovalManager),

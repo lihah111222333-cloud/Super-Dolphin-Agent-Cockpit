@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func waitCodexTestConn(t *testing.T, ch <-chan *websocket.Conn) *websocket.Conn {
@@ -205,7 +204,7 @@ func startCancelInflightToolBridgeServer(t *testing.T) *httptest.Server {
 
 func newStartedRecoverySession(t *testing.T, serverURL string, manager *ServerManager) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(serverURL, "http"), "agent-1", nil, testApprovalManager(), manager, testSkillMetrics(t))
+	s, err := newSession(context.Background(), testLoggerRuntime(t), "ws"+strings.TrimPrefix(serverURL, "http"), "agent-1", nil, testApprovalManager(), manager, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

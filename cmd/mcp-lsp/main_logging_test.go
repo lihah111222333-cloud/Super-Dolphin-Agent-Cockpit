@@ -21,17 +21,13 @@ func TestInitSidecarFileLoggerPersistsFatalError(t *testing.T) {
 		ServiceVersion: binaryVersion,
 		LogFilePrefix:  binaryName,
 	})
-	previous := pkglogger.InstallRuntime(logRuntime)
-	t.Cleanup(func() {
-		logRuntime.InitWithConsoleWriter(io.Discard)
-		pkglogger.InstallRuntime(previous)
-	})
+	t.Cleanup(logRuntime.ShutdownFileHandler)
 
 	var stderr bytes.Buffer
-	if err := initSidecarFileLogger(homeDir, &stderr); err != nil {
+	if err := initSidecarFileLogger(logRuntime, homeDir, &stderr); err != nil {
 		t.Fatalf("initSidecarFileLogger() error = %v", err)
 	}
-	logPath := pkglogger.CurrentLogFilePath()
+	logPath := logRuntime.CurrentLogFilePath()
 	wantDir := filepath.Join(homeDir, ".multi-agent", "log", binaryName)
 	if filepath.Dir(logPath) != wantDir {
 		t.Fatalf("log directory = %q, want %q", filepath.Dir(logPath), wantDir)
@@ -41,7 +37,7 @@ func TestInitSidecarFileLoggerPersistsFatalError(t *testing.T) {
 	}
 
 	sentinel := errors.New("startup sentinel")
-	pkglogger.Get().Error("mcp-lsp failed", pkglogger.FieldError, sentinel)
+	logRuntime.Get().Error("mcp-lsp failed", pkglogger.FieldError, sentinel)
 
 	content, err := os.ReadFile(logPath)
 	if err != nil {
@@ -64,7 +60,8 @@ func TestInitSidecarFileLoggerFailsClosed(t *testing.T) {
 	if err := os.WriteFile(homeFile, []byte("blocked"), 0o600); err != nil {
 		t.Fatalf("create blocking home file: %v", err)
 	}
-	err := initSidecarFileLogger(homeFile, io.Discard)
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	err := initSidecarFileLogger(logRuntime, homeFile, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "initialize mcp-lsp file logger") {
 		t.Fatalf("initSidecarFileLogger() error = %v, want file logger initialization failure", err)
 	}

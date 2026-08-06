@@ -341,7 +341,7 @@ func TestServerToolsCallUsesTrustedTopLevelScope(t *testing.T) {
 	called := false
 	provider := trustedTopLevelScopeProvider(t, &called, trustedRoot)
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -397,7 +397,7 @@ func TestHTTPDirectPeerRequiresTrustedScopeMetadata(t *testing.T) {
 		}
 		return map[string]any{"isolation_pass": true}, nil
 	}}
-	server := NewHTTPServer("mcp-lsp", "dev", provider)
+	server := newTestHTTPServer("mcp-lsp", "dev", provider)
 	rec := httptest.NewRecorder()
 	raw, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
@@ -440,7 +440,7 @@ func TestHTTPDirectPeerWithoutTrustedMetadataIsNotMultiAgentIsolationPass(t *tes
 		}
 		return map[string]any{"isolation_pass": false, "reason": "scope_missing"}, nil
 	}}
-	server := NewHTTPServer("mcp-lsp", "dev", provider)
+	server := newTestHTTPServer("mcp-lsp", "dev", provider)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"file","arguments":{"agent_id":"forged-agent","cwd":"/forged"}}}`))
 	attachInitializedHTTPSession(t, server, req)
@@ -463,7 +463,7 @@ func TestRawJSONRPCInvalidRequestReturnsErrorAndContinues(t *testing.T) {
 	}, "\n"))
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -484,7 +484,7 @@ func TestRawJSONStreamSyntaxErrorClosesConnection(t *testing.T) {
 	}, "\n"))
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
 	if err := server.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want raw syntax/desync to close connection")
 	}
@@ -499,7 +499,7 @@ func TestFramedStdioMalformedFrameStopsConnection(t *testing.T) {
 	input.WriteString(framedPayload(`{"jsonrpc":"2.0","id":2,"method":"ping"}`))
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(&input, &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(&input, &output), testToolProvider{})
 	if err := server.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want malformed framed JSON to stop connection")
 	}
@@ -509,7 +509,7 @@ func TestFramedStdioMalformedFrameStopsConnection(t *testing.T) {
 }
 
 func TestRollbackKeepsHTTPMCPCompatibility(t *testing.T) {
-	server := NewHTTPServer("mcp-lsp", "dev", testToolProvider{})
+	server := newTestHTTPServer("mcp-lsp", "dev", testToolProvider{})
 	addr, err := server.Start(context.Background(), "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)

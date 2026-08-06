@@ -83,6 +83,7 @@ type DriverFactoryParams struct {
 	fx.In
 
 	Logger       *slog.Logger
+	LogRuntime   *pkglogger.Runtime
 	Dispatcher   *unified.EventDispatcher
 	Approvals    *rpc.ApprovalManager
 	Reporter     contract.RuntimeReporter
@@ -107,8 +108,12 @@ func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
 	if p.Metrics == nil {
 		return nil, fmt.Errorf("codexapp skill metrics registry is required")
 	}
+	if p.LogRuntime == nil {
+		return nil, fmt.Errorf("codexapp logger runtime is required")
+	}
 	factory := NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery, p.RuntimeHooks)
 	factory.SetSkillMetrics(p.Metrics)
+	factory.SetLogRuntime(p.LogRuntime)
 	return factory, nil
 }
 

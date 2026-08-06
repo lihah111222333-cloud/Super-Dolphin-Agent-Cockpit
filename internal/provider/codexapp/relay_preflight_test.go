@@ -13,7 +13,7 @@ import (
 func TestDevLocalCodexLaunchIgnoresResidualRelayEnv(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "privileged")
-	d := &driver{mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t), mirror: &recordingSkillMirrorReconciler{}}
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-local",
 		CWD:     t.TempDir(),
@@ -28,7 +28,7 @@ func TestPackagedAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T)
 	t.Setenv(providershared.RuntimeModeEnv, providershared.RuntimeModePackaged)
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "")
-	d := &driver{mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t), mirror: &recordingSkillMirrorReconciler{}}
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-managed",
 		CWD:     t.TempDir(),
@@ -45,7 +45,7 @@ func TestPackagedAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T)
 func TestPackagedAppManagedCodexLaunchRejectsPrivilegedRelayAPIKey(t *testing.T) {
 	t.Setenv(providershared.RuntimeModeEnv, providershared.RuntimeModePackaged)
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "privileged")
-	d := &driver{mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t), mirror: &recordingSkillMirrorReconciler{}}
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-managed",
 		CWD:     t.TempDir(),
@@ -65,15 +65,4 @@ func mustDefaultCodexCLIHomeForTest(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	return mustCanonicalCodexHome(t, home)
-}
-
-func mustAppManagedCodexHomeForTest(t *testing.T) string {
-	t.Helper()
-	superHome := t.TempDir()
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	home, err := providershared.AppManagedProviderHome(providershared.ProviderCodex)
-	if err != nil {
-		t.Fatalf("AppManagedProviderHome() error = %v", err)
-	}
-	return home
 }

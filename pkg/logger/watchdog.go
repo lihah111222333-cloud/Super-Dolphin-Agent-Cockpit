@@ -25,14 +25,14 @@ func (r *Runtime) watchLogFile(path string, stop chan struct{}) {
 				continue
 			}
 			if !errors.Is(err, os.ErrNotExist) {
-				Error("log file watchdog: stat failed", "path", path, "error", err)
+			r.Get().Error("log file watchdog: stat failed", "path", path, "error", err)
 				return
 			}
 			if err := r.reopenLogFile(path); err != nil {
-				Error("log file watchdog: reopen failed", "path", path, "error", err)
+			r.Get().Error("log file watchdog: reopen failed", "path", path, "error", err)
 				return
 			}
-			Info("log file watchdog: reopened deleted log file", "path", path)
+			r.Get().Info("log file watchdog: reopened deleted log file", "path", path)
 		}
 	}
 }
@@ -66,11 +66,6 @@ func (r *Runtime) closeLogFileLocked() {
 		_ = r.logFile.Sync()
 		_ = r.logFile.Close()
 	}
-}
-
-// ShutdownFileHandler 关闭 agent 专属日志、文件 watcher 和主日志文件。
-func ShutdownFileHandler() {
-	currentRuntime().ShutdownFileHandler()
 }
 
 // ShutdownFileHandler 关闭 runtime 的 agent 专属日志、文件 watcher 和主日志文件。

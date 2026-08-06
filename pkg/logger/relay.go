@@ -27,19 +27,9 @@ type relayHookHolder struct {
 // relayDisabledKey 是 context 中禁用 relay 的私有 key。
 type relayDisabledKey struct{}
 
-// SetRelayHook 安装全局 relay hook；后续日志写入本地后会同步调用它。
-func SetRelayHook(h RelayHook) {
-	currentRuntime().SetRelayHook(h)
-}
-
 // SetRelayHook 安装 runtime relay hook；后续日志写入本地后会同步调用它。
 func (r *Runtime) SetRelayHook(h RelayHook) {
 	r.relayHookState.Store(relayHookHolder{hook: h})
-}
-
-// ClearRelayHook 清空全局 relay hook。
-func ClearRelayHook() {
-	currentRuntime().ClearRelayHook()
 }
 
 // ClearRelayHook 清空 runtime relay hook。
@@ -102,7 +92,7 @@ func (h *relayHandler) Handle(ctx context.Context, rec slog.Record) error {
 	payload := RelayPayload{
 		Level:  relayLevelString(rec.Level),
 		Msg:    strings.TrimSpace(rec.Message),
-		Fields: relayRecordFields(h.groups, h.attrs, rec),
+		Fields: h.runtime.relayRecordFields(h.groups, h.attrs, rec),
 	}
 	hook(ctx, payload)
 	return err
@@ -141,17 +131,17 @@ func relayLevelString(level slog.Level) string {
 }
 
 // relayRecordFields 合并 handler attrs 与 record attrs，并展开 group key。
-func relayRecordFields(groups []string, attrs []slog.Attr, rec slog.Record) map[string]any {
+func (r *Runtime) relayRecordFields(groups []string, attrs []slog.Attr, rec slog.Record) map[string]any {
 	fields := map[string]any{}
 	if !rec.Time.IsZero() {
 		fields["origin_time"] = rec.Time.Format(time.RFC3339Nano)
 	}
 	prefix := strings.Join(groups, ".")
 	for _, attr := range attrs {
-		relayAppendAttr(fields, prefix, attr)
+		r.relayAppendAttr(fields, prefix, attr)
 	}
 	rec.Attrs(func(attr slog.Attr) bool {
-		relayAppendAttr(fields, prefix, attr)
+		r.relayAppendAttr(fields, prefix, attr)
 		return true
 	})
 	if len(fields) == 0 {
@@ -161,9 +151,9 @@ func relayRecordFields(groups []string, attrs []slog.Attr, rec slog.Record) map[
 }
 
 // relayAppendAttr 递归展开 attr，并用 prefix 保留 slog group 层级。
-func relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
+func (r *Runtime) relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
-	attr = sanitizeLogAttr(attr)
+	attr = r.redactor.sanitizeAttr(attr)
 	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
 		return
@@ -177,7 +167,7 @@ func relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
 			nextPrefix += key
 		}
 		for _, child := range attr.Value.Group() {
-			relayAppendAttr(dst, nextPrefix, child)
+			r.relayAppendAttr(dst, nextPrefix, child)
 		}
 		return
 	}

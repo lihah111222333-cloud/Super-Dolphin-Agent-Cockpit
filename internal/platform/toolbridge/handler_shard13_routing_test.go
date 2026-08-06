@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,9 +33,11 @@ func assertPublicToolErrorPayload(t *testing.T, payload, raw string) {
 func TestLogToolCallFailureDoesNotExposeRawError(t *testing.T) {
 	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
 	var logs bytes.Buffer
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(&logs)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	old := slog.Default()
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.InitWithConsoleWriter(&logs)
+	loggerRuntime.BindDefault()
+	t.Cleanup(func() { slog.SetDefault(old) })
 
 	logToolCallFailure("test", errors.New(marker))
 

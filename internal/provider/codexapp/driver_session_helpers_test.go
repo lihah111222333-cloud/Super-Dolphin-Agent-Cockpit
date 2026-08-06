@@ -79,7 +79,7 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	t.Parallel()
 
 	serverURL := startCodexRPCServer(t, resumeApprovalPolicyResult)
-	d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
 	workDir := t.TempDir()
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:           "codex",
@@ -121,7 +121,7 @@ func TestDriverResumeSessionRejectsInvalidThreadResult(t *testing.T) {
 					return mustJSON(map[string]any{"ok": true})
 				}
 			})
-			d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
+			d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
 			got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 				Provider:           "codex",
 				AgentID:            "agent-1",
@@ -167,7 +167,7 @@ func TestDriverResumeSessionRejectsMissingProviderThreadID(t *testing.T) {
 	t.Parallel()
 
 	serverURL := startCodexRPCServer(t, resumeApprovalPolicyResult)
-	d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
 	_, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:           "codex",
 		AgentID:            "agent-1",

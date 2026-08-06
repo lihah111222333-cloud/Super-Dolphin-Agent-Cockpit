@@ -47,9 +47,10 @@ type manifestFlags struct {
 
 // main 是 release manifest CLI 入口。
 func main() {
-	pkglogger.InitWithConsoleWriter(os.Stderr)
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.InitWithConsoleWriter(os.Stderr)
 	if err := run(os.Args[1:]); err != nil {
-		pkglogger.Get().Error("super-dolphin-release-manifest failed", "error", err)
+		loggerRuntime.Get().Error("super-dolphin-release-manifest failed", "error", err)
 		os.Exit(1)
 	}
 }

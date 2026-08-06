@@ -14,7 +14,7 @@ import (
 func TestNewUIStateHandlersRegistersProjectRoutes(t *testing.T) {
 	t.Parallel()
 
-	_, svc, err := NewService(nil, nil, nil, nil, nil, nil)
+	_, svc, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -36,7 +36,7 @@ func TestProjectHandlersDispatchRoundTrip(t *testing.T) {
 
 	dir := t.TempDir()
 	wantPath := normalizeProjectPath(dir)
-	_, svc, err := NewService(nil, nil, nil, nil, nil, nil)
+	_, svc, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -62,7 +62,7 @@ func TestProjectHandlersDispatchRoundTrip(t *testing.T) {
 func TestProjectHandlersEncodeEmptyProjectsAsArray(t *testing.T) {
 	t.Parallel()
 
-	_, svc, err := NewService(nil, nil, nil, nil, nil, nil)
+	_, svc, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -98,7 +98,7 @@ func TestAddProjectDeduplicatesEquivalentPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filepath.Rel() error = %v", err)
 	}
-	_, svc, err := NewService(nil, nil, nil, nil, nil, nil)
+	_, svc, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -117,7 +117,7 @@ func TestAddProjectDeduplicatesEquivalentPaths(t *testing.T) {
 func TestAddProjectRejectsMissingDirectory(t *testing.T) {
 	t.Parallel()
 
-	_, svc, err := NewService(nil, nil, nil, nil, nil, nil)
+	_, svc, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -139,7 +139,7 @@ func TestAddProjectDeduplicatesSymlinkAlias(t *testing.T) {
 	if err := os.Symlink(target, aliasPath); err != nil {
 		aliasPath = filepath.Join(target, "..", filepath.Base(target))
 	}
-	_, svc, err := NewService(nil, nil, nil, nil, nil, nil)
+	_, svc, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

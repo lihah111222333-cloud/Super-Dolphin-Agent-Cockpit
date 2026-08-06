@@ -113,7 +113,7 @@ func newCancellationServerHarness(
 		cancel: cancel,
 		done:   make(chan struct{}),
 	}
-	server := NewServer("test", "dev", NewStdioTransport(input, harness.output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, harness.output), provider)
 	harness.runWG.Go(func() {
 		err := server.Run(ctx)
 		harness.runErrM.Lock()

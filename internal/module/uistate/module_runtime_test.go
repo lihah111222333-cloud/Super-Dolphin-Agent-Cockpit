@@ -15,7 +15,7 @@ func TestNewServiceDefersInitialThreadLoad(t *testing.T) {
 	threadErr := errors.New("schema not migrated")
 	lister := &threadListerStub{err: threadErr}
 
-	svc, _, err := NewService(nil, lister, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, lister, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -34,11 +34,11 @@ func TestNewServiceDefersInitialThreadLoad(t *testing.T) {
 func TestNewServiceOwnsOutputDeltaLogSampler(t *testing.T) {
 	t.Parallel()
 
-	first, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	first, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("first NewService() error = %v", err)
 	}
-	second, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	second, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("second NewService() error = %v", err)
 	}
@@ -59,7 +59,7 @@ func TestLoadInitialStatePopulatesThreads(t *testing.T) {
 		AgentID: "agent-1",
 		Status:  "running",
 	}}}
-	svc, _, err := NewService(nil, lister, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, lister, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestLoadInitialStatePopulatesThreads(t *testing.T) {
 func TestGetStateAndSidebarFilterStaleActiveThreadPreferences(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -181,7 +181,7 @@ func TestEnrichFromDBSkipsPerThreadRuntimeFallbackAfterBatchError(t *testing.T) 
 	t.Parallel()
 
 	lookup := &runtimeConfigLookupStub{err: errors.New("batch config unavailable")}
-	svc, _, err := NewService(nil, nil, nil, nil, nil, lookup)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, lookup)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

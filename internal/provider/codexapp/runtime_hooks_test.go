@@ -1,10 +1,23 @@
 package codexapp
 
 import (
+	"io"
 	"testing"
 
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
+
+func testLoggerRuntime(t *testing.T) *pkglogger.Runtime {
+	t.Helper()
+	return newTestLoggerRuntime()
+}
+
+func newTestLoggerRuntime() *pkglogger.Runtime {
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(io.Discard)
+	return runtime
+}
 
 // configureCaptureRuntimeHookForTest 为单个测试创建结果捕获 owner，禁止写入进程级状态。
 func configureCaptureRuntimeHookForTest(t *testing.T, capture providershared.CaptureToolResultFunc) providershared.RuntimeHooks {

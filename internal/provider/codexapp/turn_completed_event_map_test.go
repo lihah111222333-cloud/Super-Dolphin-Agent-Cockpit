@@ -556,8 +556,7 @@ func TestOnNotification_StaleMalformedTerminalDoesNotLeakRawTurnIDToLogs(t *test
 	var logs bytes.Buffer
 	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{Mode: pkglogger.Production, Level: slog.LevelInfo})
 	runtime.InitWithConsoleWriter(&logs)
-	previous := pkglogger.InstallRuntime(runtime)
-	t.Cleanup(func() { pkglogger.InstallRuntime(previous) })
+	runtime.BindDefault()
 
 	h := newTurnHandle("local-trusted", "T-trusted")
 	s := &session{agentID: "trusted-agent", turns: map[string]*turnHandle{"T-trusted": h}, activeTurnID: "T-trusted"}

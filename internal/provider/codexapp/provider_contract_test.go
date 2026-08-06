@@ -21,7 +21,6 @@ import (
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/contracttest"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
@@ -285,7 +284,7 @@ func codexAppApprovalContractCase() contracttest.Case {
 			}
 			return mustJSON(map[string]any{"ok": true})
 		})
-		s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-approval-contract", nil, rpc.NewApprovalManager(nil, nil), nil, testSkillMetrics(t))
+		s, err := newSession(context.Background(), testLoggerRuntime(t), serverURL, "agent-approval-contract", nil, rpc.NewApprovalManager(nil, nil), nil, testSkillMetrics(t))
 		if err != nil {
 			t.Fatalf("newSession() error = %v", err)
 		}
@@ -378,7 +377,7 @@ func codexAppResumeIdentityContractCase() contracttest.Case {
 			}
 		})
 		reporter := &stubRuntimeReporter{}
-		d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
+		d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
 		resumed, err := d.ResumeSession(context.Background(), req)
 		if err != nil {
 			t.Fatalf("ResumeSession() error = %v", err)
@@ -400,7 +399,7 @@ func codexAppToolbridgeContractCase() contracttest.Case {
 		serverURL := startToolBridgeRPCServer(t, recorder)
 		manager := &ServerManager{}
 		listToolsCalls := 0
-		got := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			listToolsCalls++
 			return []codexprotocol.DynamicToolSchema{{
 				Name:        "contract.echo",
@@ -491,7 +490,7 @@ func codexAppRuntimeReportContractCase() contracttest.Case {
 	return contracttest.Case{Name: "session url runtime report", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
 		reporter := &stubRuntimeReporter{}
-		d := &driver{approvals: testApprovalManager(), reporter: reporter}
+		d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), reporter: reporter}
 		s := newRuntimeReportSessionForTest(" agent-1 ", " ws://127.0.0.1:4567/ws ")
 		finishRuntimeReportSession(t, d, s)
 		assertRuntimeReportFromSessionURL(t, reporter, s, 4567)
@@ -618,7 +617,7 @@ func newCodexAppContractDriverEnv() *codexAppContractDriverEnv {
 		_ = pool.Close(context.Background())
 		closeServer()
 	}
-	env.driver = &driver{
+	env.driver = &driver{logRuntime: newTestLoggerRuntime(),
 		approvals:    testApprovalManager(),
 		pool:         pool,
 		mirror:       &recordingSkillMirrorReconciler{},

@@ -12,7 +12,7 @@ func TestCodexToolSurfaceScopeUsesRuntimeConfigAliases(t *testing.T) {
 
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
-	scope, err := (&driver{}).codexToolSurfaceScope("agent-1", "local-thread-1", "provider-thread-1", workDir, map[string]any{
+	scope, err := (&driver{logRuntime: testLoggerRuntime(t)}).codexToolSurfaceScope("agent-1", "local-thread-1", "provider-thread-1", workDir, map[string]any{
 		"additional_working_directories": []any{extraDir},
 		"env": map[string]any{
 			"SUPER_DOLPHIN_TEST_FLAG": "1",
@@ -44,7 +44,7 @@ func TestCodexToolSurfaceScopeUsesRuntimeConfigAliases(t *testing.T) {
 func TestCodexToolSurfaceScopeCarriesDisallowedTools(t *testing.T) {
 	t.Parallel()
 
-	scope, err := (&driver{}).codexToolSurfaceScope("agent-1", "local-thread-1", "provider-thread-1", t.TempDir(), map[string]any{
+	scope, err := (&driver{logRuntime: testLoggerRuntime(t)}).codexToolSurfaceScope("agent-1", "local-thread-1", "provider-thread-1", t.TempDir(), map[string]any{
 		"disallowed_tools": "memory_write, launch_agent, connect_tool_source",
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func TestCodexToolSurfaceScopeCarriesDisallowedTools(t *testing.T) {
 func TestCodexToolSurfaceScopeRejectsMalformedDisallowedTools(t *testing.T) {
 	t.Parallel()
 
-	_, err := (&driver{}).codexToolSurfaceScope("agent-1", "local-thread-1", "provider-thread-1", t.TempDir(), map[string]any{
+	_, err := (&driver{logRuntime: testLoggerRuntime(t)}).codexToolSurfaceScope("agent-1", "local-thread-1", "provider-thread-1", t.TempDir(), map[string]any{
 		"disallowed_tools": map[string]any{"tool": "memory_write"},
 	})
 	if err == nil {

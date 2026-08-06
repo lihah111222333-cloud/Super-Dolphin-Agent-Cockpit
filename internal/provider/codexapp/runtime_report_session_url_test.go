@@ -48,7 +48,7 @@ func assertRuntimeReportFromSessionURL(t *testing.T, reporter *stubRuntimeReport
 // TestFinishStartedSessionReportsRuntimeFromSessionURL 防止 pool 会话因 driver.serverURL 为空上报 0 端口。
 func TestFinishStartedSessionReportsRuntimeFromSessionURL(t *testing.T) {
 	reporter := &stubRuntimeReporter{}
-	d := &driver{reporter: reporter}
+	d := &driver{logRuntime: testLoggerRuntime(t), reporter: reporter}
 	s := newRuntimeReportSessionForTest(" agent-1 ", " ws://127.0.0.1:4567/ws ")
 
 	finishRuntimeReportSession(t, d, s)

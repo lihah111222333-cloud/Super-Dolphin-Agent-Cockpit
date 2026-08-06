@@ -17,7 +17,7 @@ import (
 
 func newRoutingDriver(t *testing.T, pool *ServerPool) *driver {
 	t.Helper()
-	return &driver{
+	return &driver{logRuntime: testLoggerRuntime(t),
 		approvals: testApprovalManager(),
 		logger:    slog.Default(),
 		pool:      pool,
@@ -227,7 +227,7 @@ func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *te
 	mirror := &recordingSkillMirrorReconciler{
 		events: &events,
 	}
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-default",
@@ -276,7 +276,7 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
 	mirror := &recordingSkillMirrorReconciler{events: &events}
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-subdir",
@@ -306,7 +306,7 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), mirror: mirror}
 
 	session, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-no-pool",
@@ -341,7 +341,7 @@ func TestStartSessionMirrorContentConflictBlocksPoolAcquire(t *testing.T) {
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals: testApprovalManager(),
 		logger:    slog.Default(),
 		pool:      pool,
@@ -377,7 +377,7 @@ func TestStartSessionMirrorSafetyConflictBlocksPoolAcquire(t *testing.T) {
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals: testApprovalManager(),
 		logger:    slog.Default(),
 		pool:      pool,
@@ -416,7 +416,7 @@ func TestStartSessionProviderHomeChmodFailureBlocksStart(t *testing.T) {
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-codex-home-permission",
@@ -448,7 +448,7 @@ func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 		return newFakeServer("ws://unused"), nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-no-mirror",
@@ -475,7 +475,7 @@ func TestStartSessionMirrorReconcileFailureBlocksPoolAcquire(t *testing.T) {
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals: testApprovalManager(),
 		logger:    slog.Default(),
 		pool:      pool,
@@ -509,7 +509,7 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-explicit",
@@ -542,7 +542,7 @@ func TestStartSessionRejectsRelativeExplicitCodexHome(t *testing.T) {
 		return nil, nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: &recordingSkillMirrorReconciler{}}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-relative-home",
@@ -571,7 +571,7 @@ func TestStartSessionRejectsMalformedCodexIdentityBeforeHomeOrMirror(t *testing.
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-malformed-home",
@@ -620,7 +620,7 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err = d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-explicit-normalized",
@@ -702,7 +702,7 @@ func TestStartSessionRejectsEmptyCWDBeforeMirrorReconcile(t *testing.T) {
 		return nil, nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
-	d := &driver{approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: &recordingSkillMirrorReconciler{}}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-empty-cwd"})
 	if err == nil || !strings.Contains(err.Error(), "provider project cwd is required") {

@@ -9,12 +9,13 @@ import (
 )
 
 func TestRelayHookCanBeInstalledAfterHandlerCreation(t *testing.T) {
-	ClearRelayHook()
-	t.Cleanup(ClearRelayHook)
+	runtime := NewRuntime(RuntimeConfig{})
+	runtime.ClearRelayHook()
+	t.Cleanup(runtime.ClearRelayHook)
 
 	var got RelayPayload
-	logger := slog.New(newHandler(Development, slog.LevelDebug, io.Discard))
-	SetRelayHook(func(_ context.Context, payload RelayPayload) {
+	logger := slog.New(runtime.newHandler(Development, slog.LevelDebug, io.Discard))
+	runtime.SetRelayHook(func(_ context.Context, payload RelayPayload) {
 		got = payload
 	})
 
@@ -32,12 +33,13 @@ func TestRelayHookCanBeInstalledAfterHandlerCreation(t *testing.T) {
 }
 
 func TestRelayHookHonorsDisabledContext(t *testing.T) {
-	ClearRelayHook()
-	t.Cleanup(ClearRelayHook)
+	runtime := NewRuntime(RuntimeConfig{})
+	runtime.ClearRelayHook()
+	t.Cleanup(runtime.ClearRelayHook)
 
 	var calls int
-	logger := slog.New(newHandler(Development, slog.LevelDebug, io.Discard))
-	SetRelayHook(func(context.Context, RelayPayload) {
+	logger := slog.New(runtime.newHandler(Development, slog.LevelDebug, io.Discard))
+	runtime.SetRelayHook(func(context.Context, RelayPayload) {
 		calls++
 	})
 
@@ -49,12 +51,13 @@ func TestRelayHookHonorsDisabledContext(t *testing.T) {
 }
 
 func TestRelayHookRedactsSensitiveAttrs(t *testing.T) {
-	ClearRelayHook()
-	t.Cleanup(ClearRelayHook)
+	runtime := NewRuntime(RuntimeConfig{})
+	runtime.ClearRelayHook()
+	t.Cleanup(runtime.ClearRelayHook)
 
 	var got RelayPayload
-	logger := slog.New(newHandler(Production, slog.LevelInfo, io.Discard))
-	SetRelayHook(func(_ context.Context, payload RelayPayload) {
+	logger := slog.New(runtime.newHandler(Production, slog.LevelInfo, io.Discard))
+	runtime.SetRelayHook(func(_ context.Context, payload RelayPayload) {
 		got = payload
 	})
 

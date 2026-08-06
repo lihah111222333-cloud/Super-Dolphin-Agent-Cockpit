@@ -150,6 +150,14 @@ type Server struct {
 // ServerOption configures the stdio MCP server.
 type ServerOption func(*Server)
 
+// WithLoggerRuntime 为此 Server 的 payloadLogger 注入显式日志 runtime owner。
+func WithLoggerRuntime(runtime *pkglogger.Runtime) ServerOption {
+	if runtime == nil {
+		panic("logger runtime is required")
+	}
+	return func(s *Server) { s.payloadLogger.runtime = runtime }
+}
+
 // WithToolErrorClassifier 安装 sidecar 本地工具错误分类器，避免 common 扩张领域依赖。
 func WithToolErrorClassifier(classifier ToolErrorClassifier) ServerOption {
 	return func(s *Server) {
@@ -250,6 +258,9 @@ func NewServer(name, version string, transport *StdioTransport, tools ToolProvid
 		if opt != nil {
 			opt(s)
 		}
+	}
+	if s.payloadLogger.runtime == nil {
+		panic("mcp server logger runtime is required")
 	}
 	return s
 }

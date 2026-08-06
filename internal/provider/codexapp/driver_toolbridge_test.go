@@ -38,7 +38,7 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -73,7 +73,7 @@ func TestToolBridge_StartSession_ChatModeCarriesDynamicTools(t *testing.T) {
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -104,7 +104,7 @@ func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 
 	var gotScope contract.CodexToolSurfaceScope
 	var gotBindScope contract.CodexToolSurfaceScope
-	d := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
 	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 		gotScope = scope
 		return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
@@ -174,7 +174,7 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	got := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "memory_read",
 			Description: "host direct memory read",
@@ -258,7 +258,7 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
 	var gotScope contract.CodexToolSurfaceScope
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		pool:         newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http")),
 		mirror:       &recordingSkillMirrorReconciler{},
@@ -372,7 +372,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	defer server.Close()
 	pool := newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http"))
 
-	d := &driver{
+	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		manager:      manager,
 		pool:         pool,
@@ -471,7 +471,7 @@ func requireToolBridgeDriver(t *testing.T, raw any) *driver {
 	t.Helper()
 	got, ok := raw.(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", raw)
+		t.Fatalf("newDriver(testLoggerRuntime(t), ) type = %T, want *driver", raw)
 	}
 	got.skillMetrics = testSkillMetrics(t)
 	return got

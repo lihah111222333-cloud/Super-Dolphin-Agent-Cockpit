@@ -408,7 +408,7 @@ func TestReplayFailureDispatchesConnectionDead(t *testing.T) {
 	// Register the codexapp event translator so connection.dead → AgentFailed.
 	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
-	s, err := newSession(context.Background(), pkglogger.Get(), url, "agent-test", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
+	s, err := newSession(context.Background(), testLoggerRuntime(t), url, "agent-test", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession(): %v", err)
 	}
@@ -493,7 +493,7 @@ func TestReplayFailureIncrementsCountTowardsMax(t *testing.T) {
 	dispatcher := unified.NewEventDispatcher(bus, pkglogger.Get())
 	RegisterTranslators(dispatcher)
 
-	s, err := newSession(context.Background(), pkglogger.Get(), url, "agent-test", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
+	s, err := newSession(context.Background(), testLoggerRuntime(t), url, "agent-test", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession(): %v", err)
 	}

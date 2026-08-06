@@ -65,9 +65,9 @@ type receivedTransportResponse struct {
 func captureTransportResponseLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	logs := &bytes.Buffer{}
-	old := pkglogger.Get()
-	pkglogger.InitWithConsoleWriter(logs)
-	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(logs)
+	runtime.BindDefault()
 	return logs
 }
 

@@ -12,9 +12,9 @@ import (
 
 func TestFromContextAddsTraceFields(t *testing.T) {
 	var buf bytes.Buffer
-	previous := InstallRuntime(NewRuntime(RuntimeConfig{}))
-	SetForTest(slog.New(newHandler(Production, slog.LevelInfo, &buf)))
-	t.Cleanup(func() { InstallRuntime(previous) })
+	runtime := NewRuntime(RuntimeConfig{})
+	runtime.SetForTest(slog.New(runtime.newHandler(Production, slog.LevelInfo, &buf)))
+	runtime.BindDefault()
 
 	ctx := WithTraceContext(context.Background(), "trace-1", "span-1", "parent-1")
 	FromContext(ctx).Info("hello")
@@ -205,7 +205,7 @@ func TestProductionLogUsesECSCoreFields(t *testing.T) {
 func TestReplaceLogAttrFormatsTimestampAsUTCPlus8DateTime(t *testing.T) {
 	stamp := time.Date(2026, 6, 15, 1, 2, 3, 456_000_000, time.UTC)
 
-	got := replaceLogAttr(nil, slog.Time(slog.TimeKey, stamp))
+	got := NewRuntime(RuntimeConfig{}).replaceLogAttr(nil, slog.Time(slog.TimeKey, stamp))
 
 	if got.Key != FieldTimestamp {
 		t.Fatalf("timestamp key = %q, want %q", got.Key, FieldTimestamp)

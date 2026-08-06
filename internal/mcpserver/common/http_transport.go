@@ -45,6 +45,14 @@ func WithHTTPToolErrorClassifier(classifier ToolErrorClassifier) HTTPServerOptio
 	}
 }
 
+// WithHTTPLoggerRuntime 为此 HTTPServer 的 payloadLogger 注入显式日志 runtime owner。
+func WithHTTPLoggerRuntime(runtime *pkglogger.Runtime) HTTPServerOption {
+	if runtime == nil {
+		panic("logger runtime is required")
+	}
+	return func(h *HTTPServer) { h.payloadLogger.runtime = runtime }
+}
+
 // HTTPServer 通过 legacy Streamable HTTP 暴露 MCP JSON-RPC 协议（POST /mcp）。
 // 多个旧 Claude CLI 实例可共用同一 endpoint；当前工具执行路径应使用 stdio sidecar Server。
 // Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
@@ -89,6 +97,9 @@ func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerO
 		if opt != nil {
 			opt(h)
 		}
+	}
+	if h.payloadLogger.runtime == nil {
+		panic("mcp HTTP server logger runtime is required")
 	}
 	return h
 }

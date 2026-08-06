@@ -48,3 +48,21 @@ func TestRedactLogStringDatabasePathBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeRedactorsAreMutationIsolated(t *testing.T) {
+	first := NewRuntime(RuntimeConfig{})
+	second := NewRuntime(RuntimeConfig{})
+
+	if first.redactor == second.redactor || first.redactor.patterns[0].pattern == second.redactor.patterns[0].pattern {
+		t.Fatal("logger runtimes share mutable redactor state")
+	}
+	first.redactor.patterns[0].replacement = "MUTATED"
+	first.redactor.markers[0] = "not_token"
+
+	if got := second.redactor.redactString("Authorization: Bearer private-token"); got != "Authorization: Bearer "+redactedValue {
+		t.Fatalf("second runtime redaction = %q, want isolated replacement", got)
+	}
+	if !second.redactor.secretLikeKey("access_token") {
+		t.Fatal("second runtime marker set was mutated through first runtime")
+	}
+}

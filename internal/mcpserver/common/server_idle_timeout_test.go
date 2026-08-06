@@ -12,7 +12,7 @@ import (
 func TestServerIdleTimeoutClosesBlockedStdioRead(t *testing.T) {
 	reader, writer := io.Pipe()
 	t.Cleanup(func() { _ = writer.Close() })
-	server := NewServer(
+	server := newTestServer(
 		"idle-test",
 		"dev",
 		NewStdioTransport(reader, &bytes.Buffer{}),

@@ -30,7 +30,10 @@ type httpRunner struct {
 
 // newHTTPRunner 根据 peer 配置选择 HTTP MCP runner 或空阻塞 runner。
 // 非 peer 模式仍要阻塞进程生命周期，避免 sidecar 初始化后立即退出。
-func newHTTPRunner(handlers ToolHandlers) platformrunner.Runner {
+func newHTTPRunner(handlers ToolHandlers, logRuntime *pkglogger.Runtime) platformrunner.Runner {
+	if logRuntime == nil {
+		panic("mcp-lsp logger runtime is required")
+	}
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		return lspBlockRunner{}
 	}
@@ -39,7 +42,7 @@ func newHTTPRunner(handlers ToolHandlers) platformrunner.Runner {
 	return &httpRunner{
 		bearerToken: bearerToken,
 		startServer: func(ctx context.Context) (string, func(context.Context) error, error) {
-			srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, tools, common.WithBearerToken(bearerToken))
+			srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, tools, common.WithBearerToken(bearerToken), common.WithHTTPLoggerRuntime(logRuntime))
 			addr, err := srv.Start(ctx, "127.0.0.1:0")
 			return addr, srv.Stop, err
 		},

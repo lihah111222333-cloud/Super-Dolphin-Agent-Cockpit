@@ -14,9 +14,11 @@ import (
 
 func TestUILogRouteDemotesSidebarRefreshLifecycleWarnings(t *testing.T) {
 	var logs bytes.Buffer
-	origLogger := pkglogger.Get()
-	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { pkglogger.SetForTest(origLogger) })
+	origLogger := slog.Default()
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	loggerRuntime.SetForTest(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	loggerRuntime.BindDefault()
+	t.Cleanup(func() { slog.SetDefault(origLogger) })
 
 	server := newWailsRPCServer(t, &App{})
 	_, err := server.Dispatch(context.Background(), "ui/log", json.RawMessage(`{
@@ -81,14 +83,16 @@ func TestUILogRouteRedactsNestedFrontendFieldsInLogsAndRelay(t *testing.T) {
 		"raw-inline-cookie",
 	}
 
-	origLogger := pkglogger.Get()
+	origLogger := slog.Default()
+	loggerRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
 	t.Cleanup(func() {
-		pkglogger.SetForTest(origLogger)
-		pkglogger.ClearRelayHook()
+		loggerRuntime.ClearRelayHook()
+		slog.SetDefault(origLogger)
 	})
 
 	var logs bytes.Buffer
-	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	loggerRuntime.SetForTest(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	loggerRuntime.BindDefault()
 	server := newWailsRPCServer(t, &App{})
 	if _, err := server.Dispatch(context.Background(), "ui/log", payload); err != nil {
 		t.Fatalf("Dispatch(ui/log) for local log error = %v", err)
@@ -96,8 +100,8 @@ func TestUILogRouteRedactsNestedFrontendFieldsInLogsAndRelay(t *testing.T) {
 	assertNoFrontendLogLeak(t, logs.String(), forbidden)
 
 	var relays []pkglogger.RelayPayload
-	pkglogger.InitWithConsoleWriter(io.Discard)
-	pkglogger.SetRelayHook(func(_ context.Context, payload pkglogger.RelayPayload) {
+	loggerRuntime.InitWithConsoleWriter(io.Discard)
+	loggerRuntime.SetRelayHook(func(_ context.Context, payload pkglogger.RelayPayload) {
 		if payload.Msg == "frontend: auth.login_failed" {
 			relays = append(relays, payload)
 		}

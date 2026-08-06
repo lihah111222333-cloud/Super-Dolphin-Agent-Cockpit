@@ -39,7 +39,7 @@ type stubBootstrapClient struct {
 	mode           string
 }
 
-func (s *stubBootstrapClient) InstallLogRelay() {
+func (s *stubBootstrapClient) InstallLogRelay(*pkglogger.Runtime) {
 	s.relayCalls++
 }
 
@@ -141,10 +141,9 @@ func TestNewLoggerFallbackWarnsToStderr(t *testing.T) {
 	var stderr bytes.Buffer
 	openErr := errors.New("open denied")
 
-	newLoggerWithOpenFile(nil, func(string, int, os.FileMode) (*os.File, error) {
+	newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
 		return nil, openErr
 	}, &stderr)
-	t.Cleanup(func() { pkglogger.InitWithConsoleWriter(io.Discard) })
 
 	if got := stderr.String(); !strings.Contains(got, "mcp-orch logger fallback to stderr") {
 		t.Fatalf("stderr = %q, want fallback warning", got)
@@ -164,10 +163,9 @@ func TestNewLoggerFallbackDoesNotWriteStdout(t *testing.T) {
 	})
 
 	var stderr bytes.Buffer
-	newLoggerWithOpenFile(nil, func(string, int, os.FileMode) (*os.File, error) {
+	newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
 		return nil, errors.New("open denied")
 	}, &stderr)
-	t.Cleanup(func() { pkglogger.InitWithConsoleWriter(io.Discard) })
 
 	os.Stdout = originalStdout
 	if err := stdoutW.Close(); err != nil {
@@ -193,10 +191,9 @@ func TestNewLoggerOpenSuccessSkipsFallbackWarning(t *testing.T) {
 	t.Cleanup(func() { _ = logFile.Close() })
 
 	var stderr bytes.Buffer
-	newLoggerWithOpenFile(nil, func(string, int, os.FileMode) (*os.File, error) {
+	newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
 		return logFile, nil
 	}, &stderr)
-	t.Cleanup(func() { pkglogger.InitWithConsoleWriter(io.Discard) })
 
 	if got := stderr.String(); strings.Contains(got, "mcp-orch logger fallback to stderr") {
 		t.Fatalf("stderr = %q, want no fallback warning", got)

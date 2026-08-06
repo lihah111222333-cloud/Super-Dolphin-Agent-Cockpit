@@ -8,15 +8,18 @@ import (
 
 // NewStderrCollector 返回可写入的 stderr 收集器，并异步把子进程 stderr 行转为日志。
 // 空行会跳过，包含 error/panic/fatal 的行按 error 级别输出。
-func NewStderrCollector(prefix string) io.WriteCloser {
+func (r *Runtime) NewStderrCollector(prefix string) io.WriteCloser {
+	if r == nil {
+		panic("logger runtime is required")
+	}
 	pr, pw := io.Pipe()
-	safeGo("logger.collectStderr", func() { collectStderr(prefix, pr) })
+	r.safeGo("logger.collectStderr", func() { r.collectStderr(prefix, pr) })
 	return pw
 }
 
-// collectStderr 扫描 stderr 行并按关键词分级写入全局日志。
-func collectStderr(prefix string, r io.Reader) {
-	scanner := bufio.NewScanner(r)
+// collectStderr 扫描 stderr 行并按关键词分级写入 runtime 日志。
+func (r *Runtime) collectStderr(prefix string, source io.Reader) {
+	scanner := bufio.NewScanner(source)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -24,10 +27,13 @@ func collectStderr(prefix string, r io.Reader) {
 		}
 		msg := prefix + ": " + line
 		if isErrorKeyword(line) {
-			Error(msg)
+			r.Get().Error(msg)
 		} else {
-			Info(msg)
+			r.Get().Info(msg)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		r.Get().Error("scan child process stderr", "prefix", prefix, "error", err)
 	}
 }
 

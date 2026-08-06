@@ -84,7 +84,7 @@ func TestDirectStdioServerMcpLSPFamilyRoutesTrustedScopeToManagerPool(t *testing
 	})
 	require.NoError(t, err)
 	var output bytes.Buffer
-	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
 	require.NoError(t, server.Run(context.Background()))
 	require.True(t, called, "direct stdio tools/call did not reach handler")
 	require.NotContains(t, output.String(), "unsupported LSP scope family")
@@ -133,7 +133,7 @@ func TestDirectStdioServerMcpLSPFamilyUsesRuntimeWorkspaceRootsWhenMetadataMissi
 	})
 	require.NoError(t, err)
 	var output bytes.Buffer
-	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
 	require.NoError(t, server.Run(context.Background()))
 	require.True(t, called, "direct stdio tools/call did not reach handler")
 	require.NotContains(t, output.String(), common.ErrMissingWorkspaceRoots.Error())

@@ -30,6 +30,7 @@ import (
 type bootstrapRunner struct {
 	cfg        bootstrap.Config
 	client     *bootstrap.Client
+	logRuntime *pkglogger.Runtime
 	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
@@ -57,6 +58,7 @@ func run(stdout *os.File) error {
 		fx.NopLogger,
 		fx.Supply(stdout),
 		fx.Provide(
+			newSidecarLoggerRuntime,
 			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager, metrics *platformmetrics.BootstrapMetrics) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
@@ -122,20 +124,30 @@ func run(stdout *os.File) error {
 	return app.Stop(stopCtx)
 }
 
+func newSidecarLoggerRuntime() *pkglogger.Runtime {
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	runtime.InitWithConsoleWriter(os.Stderr)
+	runtime.BindDefault()
+	return runtime
+}
+
 // newServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
-func newServer(stdout *os.File, handlers ToolHandlers) (*common.Server, error) {
+func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Runtime) (*common.Server, error) {
 	if stdout == nil {
 		return nil, errors.New("mcp-lsp: stdout is nil; program assembly order is broken")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
 		defs: toolDefinitions(handlers),
-	}), nil
+	}, common.WithLoggerRuntime(logRuntime)), nil
 }
 
 // newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
-	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) platformrunner.Runner {
+	if logRuntime == nil {
+		panic("mcp-lsp logger runtime is required")
+	}
+	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}
 }
 
 // provideLSPBackgroundRunners 将语言 manager 的后台 runner 挂到根运行组。
@@ -387,7 +399,7 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 
 // Run 启动 LSP bootstrap 流程，等待 stdio server 就绪后按模式决定是否连接控制面 RPC。
 func (r bootstrapRunner) Run(ctx context.Context) error {
-	r.client.InstallLogRelay()
+	r.client.InstallLogRelay(r.logRuntime)
 	// 双通道启动顺序：先等本地 stdio MCP server 就绪，再连接控制面 jrpc2。
 	// 这样控制面开始派发请求时，工具执行通道已经存在。
 	if r.stdioReady != nil {

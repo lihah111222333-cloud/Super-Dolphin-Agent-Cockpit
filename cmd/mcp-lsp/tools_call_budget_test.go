@@ -49,7 +49,7 @@ func TestDirectToolsCallGrepContentWithinSixteenKiBBudget(t *testing.T) {
 		Manifest: ToolManifest{Name: "grep"},
 		Handler:  ToolHandler(lsptools.NewGrepHandler(lsptools.Config{WorkspaceRoot: root})),
 	}}
-	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}

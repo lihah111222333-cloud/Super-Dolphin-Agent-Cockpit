@@ -6,13 +6,14 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"go.uber.org/fx"
 )
 
 // TestNewStdioServerFailsFastWhenMcpStdoutNil 锁定 stdout 未注入时必须返回 error，
 // 不得 fallback 到 os.Stdout，否则会把普通 stdout 当作 MCP JSON-RPC 通道继续使用。
 func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
-	_, err := newServer(nil, ToolHandlers{})
+	_, err := newServer(nil, ToolHandlers{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	if err == nil {
 		t.Fatal("newServer() error = nil, want error when stdout is nil")
 	}

@@ -146,7 +146,7 @@ func (g *errorPronePatternGuard) guardToolbridgePayloadSpoofingPattern() {
 
 func (g *errorPronePatternGuard) guardMissingContextSuppressionPattern() {
 	const rel = "pkg/logger/relay.go"
-	g.requireContains(rel, "global relay handlers must check for context-specific suppression",
+	g.requireContains(rel, "runtime-owned relay handlers must check for context-specific suppression",
 		"relayDisabled(ctx)",
 	)
 }

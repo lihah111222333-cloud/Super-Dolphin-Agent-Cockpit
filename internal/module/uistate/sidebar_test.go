@@ -22,7 +22,7 @@ import (
 func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -373,7 +373,7 @@ func TestGetSidebarDoesNotExposeLegacyTaskMetadataInRuntime(t *testing.T) {
 			"handoffFile": "legacy-task.md",
 		},
 	}
-	svc, _, err := NewService(nil, nil, nil, nil, nil, threads)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, threads)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -474,7 +474,7 @@ func TestSetPreferencePublishesProjectionUpdatesForSettingsKeys(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -535,7 +535,7 @@ func newSidebarProjectionTestService(t *testing.T) (*event.Dispatcher, *service)
 	t.Helper()
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -680,7 +680,7 @@ func TestSummarizeThreadsProjectsArchivedStatus(t *testing.T) {
 func TestGetSidebarProjectsDBArchivedStatusIntoArchivesMap(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -731,7 +731,7 @@ func TestApplyThreadStoppedDeletedRemovesSidebarThread(t *testing.T) {
 func TestApplyThreadStoppedUnarchiveClearsLifecycleArchive(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -758,7 +758,7 @@ func TestApplyThreadStoppedUnarchiveClearsLifecycleArchive(t *testing.T) {
 func TestGetSidebarProjectsLifecycleArchivedAfterRuntimeStateDerivation(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

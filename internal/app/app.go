@@ -48,13 +48,20 @@ const (
 	codexRelayPrivilegedAPIKeyEnv = "SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
 )
 
+// loggerResult 显式发布日志 runtime owner 和当前日志器，供 Fx 图分别注入。
+type loggerResult struct {
+	fx.Out
+
+	Runtime *pkglogger.Runtime
+	Logger  *slog.Logger
+}
+
 // NewLogger 初始化应用日志器并记录构建信息。
-func NewLogger() *slog.Logger {
+func NewLogger() loggerResult {
 	info := currentBuildInfo()
 	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{
 		ServiceVersion: info.Version,
 	})
-	pkglogger.InstallRuntime(logRuntime)
 	logRuntime.ConfigureServiceFromEnv(info.Version)
 	logRuntime.Init(os.Getenv("LOG_LEVEL"))
 
@@ -73,7 +80,8 @@ func NewLogger() *slog.Logger {
 		"build_time", info.BuildTime,
 		"runtime", info.Runtime,
 	)
-	return logRuntime.Get()
+	logRuntime.BindDefault()
+	return loggerResult{Runtime: logRuntime, Logger: logRuntime.Get()}
 }
 
 // buildInfo 保存启动日志中展示的构建元数据。

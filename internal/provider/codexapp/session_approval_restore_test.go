@@ -81,7 +81,7 @@ func TestResumeApprovalPolicyComesFromResumeResponse(t *testing.T) {
 
 func approvalRestoreDriverForTest(t *testing.T, serverURL string) *driver {
 	t.Helper()
-	return &driver{
+	return &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		pool:         newSingleURLPoolForTest(t, serverURL),
 		mirror:       &recordingSkillMirrorReconciler{},

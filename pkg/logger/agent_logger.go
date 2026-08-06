@@ -10,12 +10,6 @@ import (
 	"strings"
 )
 
-// NewAgentLogger 创建绑定 agent_id 的日志器，并在文件日志已开启时额外写入 agent 专属文件。
-// 主日志未打开时返回仅绑定 agent_id 的日志器；专属文件创建或权限收紧失败时返回错误。
-func NewAgentLogger(agentID string) (*slog.Logger, error) {
-	return currentRuntime().NewAgentLogger(agentID)
-}
-
 // NewAgentLogger 创建绑定 agent_id 的 runtime 日志器，并在文件日志已开启时额外写入 agent 专属文件。
 func (r *Runtime) NewAgentLogger(agentID string) (*slog.Logger, error) {
 	agentID = strings.TrimSpace(agentID)
@@ -75,12 +69,6 @@ func (r *Runtime) openOrReuseAgentFile(agentID, path string) (*os.File, error) {
 	}
 	r.agentFiles[agentID] = f
 	return f, nil
-}
-
-// CloseAgentLogger 关闭指定 agent 的专属日志文件。
-// 未知或已关闭 ID 会被忽略，便于 shutdown 路径重复调用。
-func CloseAgentLogger(agentID string) {
-	currentRuntime().CloseAgentLogger(agentID)
 }
 
 // CloseAgentLogger 关闭 runtime 中指定 agent 的专属日志文件。

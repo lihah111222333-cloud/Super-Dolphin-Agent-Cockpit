@@ -22,7 +22,7 @@ func validResumePromptSnapshotForTest() dto.PromptAssemblySnapshot {
 func TestResumeSessionRejectsEmptyPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
-	_, err := (&driver{approvals: testApprovalManager()}).ResumeSession(context.Background(), dto.ResumeSessionRequest{
+	_, err := (&driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager()}).ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		ProviderThreadID: "11111111-2222-3333-4444-555555555555",
 		ThreadID:         "thread-1",
 		AgentID:          "agent-1",

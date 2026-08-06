@@ -59,7 +59,7 @@ func TestDirectToolsCallReadFileReturnsPlainTextContent(t *testing.T) {
 		Manifest: ToolManifest{Name: "file"},
 		Handler:  ToolHandler(lsptools.NewFileHandler(lsptools.Config{WorkspaceRoot: root})),
 	}}
-	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func runDirectToolCallForPlainText(t *testing.T, request []byte, defs []toolDefi
 	registerPlainTextRendererForTest(t)
 
 	var output bytes.Buffer
-	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}

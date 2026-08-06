@@ -8,7 +8,7 @@ import (
 
 func TestCodexToolSurfaceScopeAddsMCPConfigHTTPBinaries(t *testing.T) {
 	workDir := t.TempDir()
-	scope, err := (&driver{}).codexToolSurfaceScope("agent-1", "", "", workDir, map[string]any{
+	scope, err := (&driver{logRuntime: testLoggerRuntime(t)}).codexToolSurfaceScope("agent-1", "", "", workDir, map[string]any{
 		"mcpConfig": map[string]any{
 			"mcpServers": map[string]any{
 				"my-search": map[string]any{
@@ -44,7 +44,7 @@ func assertSurfaceManifestHTTPBinary(t *testing.T, manifest dto.MCPManifest, nam
 }
 
 func TestCodexToolSurfaceScopeRejectsMalformedMCPConfig(t *testing.T) {
-	_, err := (&driver{}).codexToolSurfaceScope("agent-1", "", "", t.TempDir(), map[string]any{
+	_, err := (&driver{logRuntime: testLoggerRuntime(t)}).codexToolSurfaceScope("agent-1", "", "", t.TempDir(), map[string]any{
 		"mcpConfig": map[string]any{},
 	})
 	if err == nil {

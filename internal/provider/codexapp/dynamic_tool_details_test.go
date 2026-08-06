@@ -23,7 +23,7 @@ func TestToolBridgeStartSessionAdvertisesDynamicToolDetails(t *testing.T) {
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
 	want := echoDynamicToolDetail()
-	driver := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	driver := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{Name: want.name, Description: want.description, InputSchema: want.inputSchema, OutputSchema: want.outputSchema}}, nil
 	}))
 
@@ -44,7 +44,7 @@ func TestToolBridgeStartSessionAdvertisesScopedSurfaceToolDetails(t *testing.T) 
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	want := grepDynamicToolDetail()
-	driver := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, &ServerManager{}, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	driver := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, &ServerManager{}, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
 	driver.prepareTools = func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{Name: want.name, Description: want.description, InputSchema: want.inputSchema, OutputSchema: want.outputSchema}}, nil
 	}

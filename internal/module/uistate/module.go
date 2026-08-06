@@ -10,6 +10,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"go.uber.org/fx"
 )
 
@@ -29,6 +30,7 @@ type serviceParams struct {
 	fx.In
 
 	Logger        *slog.Logger
+	LogRuntime    *pkglogger.Runtime
 	ThreadLister  contract.ThreadLister `optional:"true"`
 	Agents        AgentLister           `optional:"true"`
 	Preferences   PreferenceStore
@@ -43,7 +45,7 @@ var Module = fx.Module("uistate",
 		if p.RuntimeConfig != nil {
 			rcl = p.RuntimeConfig
 		}
-		return NewService(p.Logger, p.ThreadLister, p.Agents, p.Preferences, p.Bindings, rcl, WithObservability(p.Trace))
+		return NewService(p.LogRuntime, p.Logger, p.ThreadLister, p.Agents, p.Preferences, p.Bindings, rcl, WithObservability(p.Trace))
 	}),
 	// 对外只发布窄 ProjectState facade，让 UI 层读取项目状态时不依赖 uistate 包内实现。
 	fx.Provide(NewProjectStateFacade),

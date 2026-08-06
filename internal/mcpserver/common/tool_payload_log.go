@@ -29,6 +29,7 @@ const (
 // toolPayloadLogger 为单个 MCP server 持有载荷快照序号，避免跨 server 共享可变状态。
 type toolPayloadLogger struct {
 	sequence atomic.Uint64
+	runtime  *pkglogger.Runtime
 }
 
 var (
@@ -255,7 +256,7 @@ func isSensitivePayloadKey(key string) bool {
 
 // write 将快照 JSON 写入磁盘，返回文件路径和字节数。
 func (l *toolPayloadLogger) write(snapshot toolPayloadSnapshot) toolPayloadLogRef {
-	dir, err := toolPayloadLogDir()
+	dir, err := l.toolPayloadLogDir()
 	if err != nil {
 		return toolPayloadLogRef{Err: err}
 	}
@@ -267,7 +268,7 @@ func (l *toolPayloadLogger) write(snapshot toolPayloadSnapshot) toolPayloadLogRe
 		return toolPayloadLogRef{Err: err}
 	}
 	line = append(line, '\n')
-	for attempt := 0; attempt < maxToolPayloadSnapshotCreateAttempts; attempt++ {
+	for range maxToolPayloadSnapshotCreateAttempts {
 		path := filepath.Join(dir, l.snapshotFileName(snapshot))
 		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if errors.Is(err, fs.ErrExist) {
@@ -290,12 +291,15 @@ func (l *toolPayloadLogger) write(snapshot toolPayloadSnapshot) toolPayloadLogRe
 }
 
 // toolPayloadLogDir 解析工具载荷快照目录，优先使用显式环境变量，其次跟随当前日志文件。
-func toolPayloadLogDir() (string, error) {
+func (l *toolPayloadLogger) toolPayloadLogDir() (string, error) {
 	if dir := strings.TrimSpace(os.Getenv(toolPayloadLogDirEnv)); dir != "" {
 		return filepath.Abs(dir)
 	}
-	if logPath := strings.TrimSpace(pkglogger.CurrentLogFilePath()); logPath != "" {
-		return filepath.Join(filepath.Dir(logPath), "tool-payloads"), nil
+	if l != nil && l.runtime != nil {
+		logPath := strings.TrimSpace(l.runtime.CurrentLogFilePath())
+		if logPath != "" {
+			return filepath.Join(filepath.Dir(logPath), "tool-payloads"), nil
+		}
 	}
 	if dir := strings.TrimSpace(os.Getenv(logFallbackDirEnv)); dir != "" {
 		abs, err := filepath.Abs(dir)

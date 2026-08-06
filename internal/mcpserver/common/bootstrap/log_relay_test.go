@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,8 +19,9 @@ import (
 )
 
 func TestInstallLogRelaySendsLoggerRecordsThroughControlPlane(t *testing.T) {
-	pkglogger.ClearRelayHook()
-	t.Cleanup(pkglogger.ClearRelayHook)
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	logRuntime.InitWithConsoleWriter(io.Discard)
+	t.Cleanup(logRuntime.ClearRelayHook)
 
 	got := make(chan mcpdto.LogNotify, 1)
 	local := jrpcserver.NewLocal(handler.Map{
@@ -38,9 +40,9 @@ func TestInstallLogRelaySendsLoggerRecordsThroughControlPlane(t *testing.T) {
 	})
 	client.conn = local.Client
 	client.lease = mcpdto.LeaseKey{InstanceID: "inst-1", Generation: 7}
-	client.InstallLogRelay()
+	client.InstallLogRelay(logRuntime)
 
-	pkglogger.Warn("relay bridge test", "foo", "bar")
+	logRuntime.Get().Warn("relay bridge test", "foo", "bar")
 
 	select {
 	case req := <-got:
@@ -65,8 +67,9 @@ func TestInstallLogRelaySendsLoggerRecordsThroughControlPlane(t *testing.T) {
 }
 
 func TestInstallLogRelayFallsBackToDedicatedFileWhenRPCUnavailable(t *testing.T) {
-	pkglogger.ClearRelayHook()
-	t.Cleanup(pkglogger.ClearRelayHook)
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	logRuntime.InitWithConsoleWriter(io.Discard)
+	t.Cleanup(logRuntime.ClearRelayHook)
 
 	dir := t.TempDir()
 	t.Setenv(logFallbackDirEnv, dir)
@@ -75,9 +78,9 @@ func TestInstallLogRelayFallsBackToDedicatedFileWhenRPCUnavailable(t *testing.T)
 		BinaryName: "mcp-lsp",
 		ClientKind: mcpdto.ClientKindLSP,
 	})
-	client.InstallLogRelay()
+	client.InstallLogRelay(logRuntime)
 
-	pkglogger.Warn("relay offline test", "foo", "bar")
+	logRuntime.Get().Warn("relay offline test", "foo", "bar")
 
 	path := filepath.Join(dir, "mcp-lsp-"+time.Now().Format("2006-01-02")+".log")
 	file, err := os.Open(path)

@@ -88,7 +88,7 @@ func TestFramedStdioMalformedJSONReturnsParseError(t *testing.T) {
 	input.WriteString(framedPayload(`{"jsonrpc":`))
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(&input, &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(&input, &output), testToolProvider{})
 	if err := server.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want malformed framed JSON to close the connection")
 	}
@@ -102,13 +102,13 @@ func TestFramedStdioMalformedJSONReturnsParseError(t *testing.T) {
 func runProtocolRequest(t *testing.T, payload string, httpTransport bool) []byte {
 	t.Helper()
 	if httpTransport {
-		server := NewHTTPServer("test", "dev", testToolProvider{})
+		server := newTestHTTPServer("test", "dev", testToolProvider{})
 		rec := httptest.NewRecorder()
 		server.handleMCP(rec, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(payload)))
 		return append([]byte(nil), rec.Body.Bytes()...)
 	}
 	var output bytes.Buffer
-	server := NewServer("test", "dev", NewStdioTransport(strings.NewReader(payload), &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(strings.NewReader(payload), &output), testToolProvider{})
 	if err := server.Run(context.Background()); err != nil && json.Valid([]byte(payload)) {
 		t.Fatalf("Run() error = %v", err)
 	}

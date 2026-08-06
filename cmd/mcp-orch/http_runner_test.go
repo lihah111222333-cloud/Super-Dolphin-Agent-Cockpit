@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestNewHTTPRunnerPeerModeRequiresSessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_PEER_MODE", "1")
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "")
 
-	runner := newHTTPRunner(tools.Registry{})
+	runner := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	httpRunner, ok := runner.(*httpRunner)
 	if !ok {
 		t.Fatalf("newHTTPRunner() = %T, want *httpRunner", runner)
@@ -32,7 +33,7 @@ func TestNewHTTPRunnerPeerModeCarriesSessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_PEER_MODE", "1")
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", " secret ")
 
-	runner := newHTTPRunner(tools.Registry{})
+	runner := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	httpRunner, ok := runner.(*httpRunner)
 	if !ok {
 		t.Fatalf("newHTTPRunner() = %T, want *httpRunner", runner)
@@ -47,7 +48,7 @@ func TestNewHTTPRunnerPeerModeCarriesLegacySessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "")
 	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", " legacy-secret ")
 
-	runner := newHTTPRunner(tools.Registry{})
+	runner := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	httpRunner, ok := runner.(*httpRunner)
 	if !ok {
 		t.Fatalf("newHTTPRunner() = %T, want *httpRunner", runner)

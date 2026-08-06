@@ -16,7 +16,7 @@ import (
 func TestUIStateGetAcceptsKnownDiffRevision(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -32,7 +32,7 @@ func TestUIStateGetAcceptsKnownDiffRevision(t *testing.T) {
 func TestUIPreferencesGetDefaultsGlobalActiveProviderToCodex(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestUIPreferencesGetDefaultsGlobalActiveProviderToCodex(t *testing.T) {
 func TestUIPreferencesGetDoesNotSynthesizeScopedActiveProvider(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestUIVideoSetAPIKeyPersistsWithoutExplicitSuperDolphinHome(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HOME", "")
 	t.Setenv("SILICONFLOW_API_KEY", "")
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestUIVideoSetAPIKeyDoesNotMutateProcessEnvWhenPersistenceFails(t *testing.
 	t.Setenv("SUPER_DOLPHIN_HOME", blockedHome)
 	t.Setenv("SILICONFLOW_API_KEY", "sk-existing")
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

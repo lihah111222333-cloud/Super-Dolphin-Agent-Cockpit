@@ -114,7 +114,7 @@ func (forceCompleteTargetNotFoundError) ForceCompleteTargetNotFound() bool {
 
 func newSession(
 	transportCtx context.Context,
-	logger *slog.Logger,
+	logRuntime *pkglogger.Runtime,
 	serverURL string,
 	agentID string,
 	dispatcher *unified.EventDispatcher,
@@ -122,18 +122,22 @@ func newSession(
 	manager *ServerManager,
 	metrics *skillmetrics.Registry,
 ) (*session, error) {
+	if logRuntime == nil {
+		return nil, errors.New("codexapp logger runtime is required")
+	}
 	if metrics == nil {
 		return nil, errors.New("codexapp skill metrics registry is required")
 	}
 	return newSessionWithOptions(
 		transportCtx,
-		logger,
+		logRuntime.Get(),
 		serverURL,
 		agentID,
 		dispatcher,
 		approvals,
 		manager,
 		withSkillMetrics(metrics),
+		withLogRuntime(logRuntime),
 	)
 }
 
@@ -149,9 +153,6 @@ func newSessionWithOptions(
 	manager *ServerManager,
 	opts ...sessionOption,
 ) (*session, error) {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
 	cfg := sessionOptions{approvalScopeReader: rand.Reader}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -159,6 +160,13 @@ func newSessionWithOptions(
 	if cfg.skillMetrics == nil {
 		releaseSessionPoolSlot(cfg)
 		return nil, errors.New("codexapp skill metrics registry is required")
+	}
+	if cfg.logRuntime == nil {
+		releaseSessionPoolSlot(cfg)
+		return nil, errors.New("codexapp logger runtime is required")
+	}
+	if logger == nil {
+		logger = cfg.logRuntime.Get()
 	}
 	if err := requireApprovalManager(approvals); err != nil {
 		releaseSessionPoolSlot(cfg)
@@ -181,7 +189,7 @@ func newSessionWithOptions(
 	}
 	// session ctx 从 transportCtx 派生，调用方取消 transport 上下文时会级联触发会话关闭。
 	ctx, cancel := context.WithCancel(transportCtx)
-	agentLog, err := pkglogger.NewAgentLogger(agentID)
+	agentLog, err := cfg.logRuntime.NewAgentLogger(agentID)
 	if err != nil {
 		cancel()
 		closeErr := t.Close()
@@ -253,6 +261,7 @@ type sessionOptions struct {
 	approvalScopeReader io.Reader
 	runtimeHooks        providershared.RuntimeHooks
 	skillMetrics        *skillmetrics.Registry
+	logRuntime          *pkglogger.Runtime
 }
 
 func withPoolServer(url string, release func()) sessionOption {
@@ -280,6 +289,10 @@ func withSkillMetrics(metrics *skillmetrics.Registry) sessionOption {
 		panic("codexapp skill metrics registry is required")
 	}
 	return func(o *sessionOptions) { o.skillMetrics = metrics }
+}
+
+func withLogRuntime(runtime *pkglogger.Runtime) sessionOption {
+	return func(o *sessionOptions) { o.logRuntime = runtime }
 }
 
 // generateApprovalSessionScope 从不可预测随机源生成 RFC 4122 version 4 会话 scope。
@@ -313,7 +326,7 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		return
 	}
 	if len(msg.ID) != 0 {
-		pkglogger.Warn("codexapp: unsupported inbound request",
+		s.logger.Warn("codexapp: unsupported inbound request",
 			"agent_id", s.agentID, "method", strings.TrimSpace(msg.Method))
 		if respErr := resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method)); respErr != nil {
 			s.logger.Warn("codexapp: unsupported method respond failed",
@@ -503,7 +516,7 @@ func (s *session) resolveTurnStartModel(ctx context.Context, requested string) (
 	}
 	if resolution.replaced {
 		s.setRuntimeConfigValue("model", resolution.model)
-		pkglogger.Info("codexapp: turn/start selected supported model from model/list",
+		s.logger.Info("codexapp: turn/start selected supported model from model/list",
 			"agent_id", s.agentID,
 			"thread_id", s.ThreadID(),
 			"requested_model", requested,

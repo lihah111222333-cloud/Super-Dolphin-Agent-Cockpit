@@ -47,7 +47,7 @@ func TestServerHandlesToolsList(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestServerToolsListNilProviderReturnsInternalError(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), nil)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), nil)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -71,7 +71,7 @@ func TestServerToolsListRejectsInvalidToolSchema(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), badSchemaToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), badSchemaToolProvider{})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -91,7 +91,7 @@ func TestServerInitializeAcceptsStandardClientFields(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"roots":{"listChanged":true}},"clientInfo":{"name":"codex-cli","version":"0.142.2"},"_meta":{"trace":"init-1"}}}`)
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -114,7 +114,7 @@ func TestServerInitializeAcceptsStandardClientFields(t *testing.T) {
 }
 
 func TestHTTPInitializeAcceptsStandardMCPMeta(t *testing.T) {
-	server := NewHTTPServer("test", "dev", testToolProvider{})
+	server := newTestHTTPServer("test", "dev", testToolProvider{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":31,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codex-cli"},"_meta":{"trace":"init-http"}}}`))
 
@@ -142,7 +142,7 @@ func TestServerHandlesToolsCall(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`)
 	var output bytes.Buffer
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -174,7 +174,7 @@ func TestServerToolsCallAcceptsStandardMCPMeta(t *testing.T) {
 		return map[string]any{"ok": true}, nil
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -233,7 +233,7 @@ func TestToolsCallRejectsMissingNameBeforeProvider(t *testing.T) {
 			}}
 			var raw []byte
 			if tt.http {
-				server := NewHTTPServer("test", "dev", provider)
+				server := newTestHTTPServer("test", "dev", provider)
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tt.body))
 				attachInitializedHTTPSession(t, server, req)
@@ -244,7 +244,7 @@ func TestToolsCallRejectsMissingNameBeforeProvider(t *testing.T) {
 				raw = rec.Body.Bytes()
 			} else {
 				var output bytes.Buffer
-				server := NewServer("test", "dev", NewStdioTransport(bytes.NewBufferString(tt.body), &output), provider)
+				server := newTestServer("test", "dev", NewStdioTransport(bytes.NewBufferString(tt.body), &output), provider)
 				if err := server.Run(context.Background()); err != nil {
 					t.Fatalf("Run() error = %v", err)
 				}
@@ -265,7 +265,7 @@ func TestToolsCallReturnsStructuredToolError(t *testing.T) {
 		return nil, errors.New("decode params: json: unknown field \"bad\"")
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -297,7 +297,7 @@ func TestToolsCallUsesInjectedToolErrorClassifier(t *testing.T) {
 		}, true
 	}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider, WithToolErrorClassifier(classifier))
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider, WithToolErrorClassifier(classifier))
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -319,7 +319,7 @@ func TestToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
 		return typedNil, errors.New(message)
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -341,7 +341,7 @@ func TestHTTPToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
 		var typedNil map[string]any
 		return typedNil, errors.New(message)
 	}}
-	server := NewHTTPServer("test", "dev", provider)
+	server := newTestHTTPServer("test", "dev", provider)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":29,"method":"tools/call","params":{"name":"launch_agent","arguments":{}}}`))
 	attachInitializedHTTPSession(t, server, req)
@@ -373,7 +373,7 @@ func TestHTTPToolsCallUsesInjectedToolErrorClassifier(t *testing.T) {
 			Hint: "next: choose a different domain key",
 		}, true
 	}
-	server := NewHTTPServer("test", "dev", provider, WithHTTPToolErrorClassifier(classifier))
+	server := newTestHTTPServer("test", "dev", provider, WithHTTPToolErrorClassifier(classifier))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`))
 	attachInitializedHTTPSession(t, server, req)
@@ -393,7 +393,7 @@ func TestHTTPToolsCallUsesInjectedToolErrorClassifier(t *testing.T) {
 }
 
 func TestHTTPToolsListRejectsInvalidToolSchema(t *testing.T) {
-	server := NewHTTPServer("test", "dev", badSchemaToolProvider{})
+	server := newTestHTTPServer("test", "dev", badSchemaToolProvider{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":36,"method":"tools/list"}`))
 	attachInitializedHTTPSession(t, server, req)
@@ -407,7 +407,7 @@ func TestHTTPToolsListRejectsInvalidToolSchema(t *testing.T) {
 }
 
 func TestHTTPToolsListNilProviderReturnsInternalError(t *testing.T) {
-	server := NewHTTPServer("test", "dev", nil)
+	server := newTestHTTPServer("test", "dev", nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":37,"method":"tools/list"}`))
 	attachInitializedHTTPSession(t, server, req)
@@ -421,7 +421,7 @@ func TestHTTPToolsListNilProviderReturnsInternalError(t *testing.T) {
 }
 
 func TestHTTPRejectsOversizedBody(t *testing.T) {
-	server := NewHTTPServer("test", "dev", testToolProvider{})
+	server := newTestHTTPServer("test", "dev", testToolProvider{})
 	rec := httptest.NewRecorder()
 	body := strings.Repeat(" ", 10*1024*1024) + "{}"
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
@@ -466,7 +466,7 @@ func TestToolsCallErrorEnvelopeSetsMCPIsError(t *testing.T) {
 		return nil, NewCodedToolError("path_outside_workspace", errors.New("outside"), false, "stay inside roots")
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -494,7 +494,7 @@ func TestToolsCallPreservesStructuredValueReturnedWithError(t *testing.T) {
 		}, errors.New("patch matched multiple locations")
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -520,7 +520,7 @@ func TestToolsCallSuccessFalsePayloadSetsMCPIsError(t *testing.T) {
 		return map[string]any{"success": false, "error": "edit failed"}, nil
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -542,7 +542,7 @@ func TestToolsCallStringPayloadDoesNotSetMCPIsError(t *testing.T) {
 		return "hover text", nil
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -564,7 +564,7 @@ func TestOutsideWorkspaceRootErrorIsStructured(t *testing.T) {
 		return nil, errors.New(`path "/tmp/outside.go" is outside workspace roots [/repo]`)
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -584,7 +584,7 @@ func TestTimeoutErrorIsStructuredRetryable(t *testing.T) {
 		return nil, context.DeadlineExceeded
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -605,7 +605,7 @@ func TestRecoveryErrorIsStructured(t *testing.T) {
 		panic("boom")
 	}}
 
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -662,7 +662,7 @@ func TestTransportsAcceptAbsentAndNullJSONRPCID(t *testing.T) {
 			body := `{"jsonrpc":"2.0"` + tt.idField + `,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`
 			var raw []byte
 			if tt.http {
-				server := NewHTTPServer("test", "dev", provider)
+				server := newTestHTTPServer("test", "dev", provider)
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
 				attachInitializedHTTPSession(t, server, req)
@@ -670,7 +670,7 @@ func TestTransportsAcceptAbsentAndNullJSONRPCID(t *testing.T) {
 				raw = rec.Body.Bytes()
 			} else {
 				var output bytes.Buffer
-				server := NewServer("test", "dev", NewStdioTransport(strings.NewReader(body), &output), provider)
+				server := newTestServer("test", "dev", NewStdioTransport(strings.NewReader(body), &output), provider)
 				if err := server.Run(context.Background()); err != nil {
 					t.Fatalf("Run() error = %v", err)
 				}
@@ -716,7 +716,7 @@ func TestTransportsRejectInvalidJSONRPCIDBeforeProvider(t *testing.T) {
 			body := `{"jsonrpc":"2.0","id":` + tt.id + `,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`
 			var raw []byte
 			if tt.http {
-				server := NewHTTPServer("test", "dev", provider)
+				server := newTestHTTPServer("test", "dev", provider)
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
 				attachInitializedHTTPSession(t, server, req)
@@ -724,7 +724,7 @@ func TestTransportsRejectInvalidJSONRPCIDBeforeProvider(t *testing.T) {
 				raw = rec.Body.Bytes()
 			} else {
 				var output bytes.Buffer
-				server := NewServer("test", "dev", NewStdioTransport(strings.NewReader(body), &output), provider)
+				server := newTestServer("test", "dev", NewStdioTransport(strings.NewReader(body), &output), provider)
 				if err := server.Run(context.Background()); err != nil {
 					t.Fatalf("Run() error = %v", err)
 				}

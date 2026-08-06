@@ -8,7 +8,7 @@ import (
 // withTraceAttrs 将 context 中的 trace 字段绑定到日志器；没有 trace 信息时返回原日志器。
 func withTraceAttrs(ctx context.Context, base *slog.Logger) *slog.Logger {
 	if base == nil {
-		base = getLogger()
+		base = slog.Default()
 	}
 	if ctx == nil {
 		return base

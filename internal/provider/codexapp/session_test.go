@@ -43,6 +43,7 @@ func TestNewSessionWithOptionsRejectsNilApprovalManagerAndReleasesPoolSlot(t *te
 		nil,
 		withPoolServer("ws://127.0.0.1:1", func() { releases++ }),
 		withSkillMetrics(testSkillMetrics(t)),
+		withLogRuntime(testLoggerRuntime(t)),
 	)
 	if s != nil {
 		t.Fatalf("newSessionWithOptions() session = %#v, want nil", s)
@@ -61,11 +62,7 @@ func TestNewSessionWithOptionsPropagatesAgentLogFailureAndReleasesPoolSlot(t *te
 	if err := runtime.InitWithFile(logDir); err != nil {
 		t.Fatalf("init file logger: %v", err)
 	}
-	previous := pkglogger.InstallRuntime(runtime)
-	t.Cleanup(func() {
-		pkglogger.InstallRuntime(previous)
-		runtime.ShutdownFileHandler()
-	})
+	t.Cleanup(runtime.ShutdownFileHandler)
 	if err := os.Mkdir(filepath.Join(logDir, "agent-blocked.log"), 0o700); err != nil {
 		t.Fatalf("create blocking agent log directory: %v", err)
 	}
@@ -83,6 +80,7 @@ func TestNewSessionWithOptionsPropagatesAgentLogFailureAndReleasesPoolSlot(t *te
 		nil,
 		withPoolServer(serverURL, func() { releases++ }),
 		withSkillMetrics(testSkillMetrics(t)),
+		withLogRuntime(runtime),
 	)
 	if err == nil || !strings.Contains(err.Error(), "create agent logger") {
 		t.Fatalf("newSessionWithOptions() error = %v, want agent logger failure", err)

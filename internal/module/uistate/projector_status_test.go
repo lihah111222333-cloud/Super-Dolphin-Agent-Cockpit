@@ -476,7 +476,7 @@ func TestArchivedThreadStatusSurvivesLaterAgentStopped(t *testing.T) {
 func newProjectionTestService(t *testing.T) *service {
 	t.Helper()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

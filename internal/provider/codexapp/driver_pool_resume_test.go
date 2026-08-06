@@ -98,7 +98,7 @@ func TestPrepareResumeSessionRequestDefaultsMissingLegacyIdentity(t *testing.T) 
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 	workDir := t.TempDir()
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logger: slog.Default(), mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), logger: slog.Default(), mirror: mirror}
 
 	got, err := d.prepareResumeSessionRequest(context.Background(), dto.ResumeSessionRequest{
 		Provider: "codex",
