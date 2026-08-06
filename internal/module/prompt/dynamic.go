@@ -60,29 +60,31 @@ type dynamicSectionSpec struct {
 	startOnly   bool
 }
 
-// dynamicSectionSpecs 只排好各个 prompt slot 的顺序和缓存方式。
+// dynamicSectionSpecs 返回独立的 slot 定义，防止 package 级 slice 被任意调用方改写。
 // 真正内容由 memory、thread 等模块注册进来，prompt 不直接读它们的内部实现。
-var dynamicSectionSpecs = []dynamicSectionSpec{
-	{name: DynamicSectionSessionGuidance, order: 110, cachePolicy: InputScoped},
-	{name: DynamicSectionProjectDefaultRules, order: 112, cachePolicy: InputScoped},
-	{name: DynamicSectionAvailableExperts, order: 115, cachePolicy: InputScoped},
-	{name: DynamicSectionRecallCatalog, order: 118, cachePolicy: InputScoped},
-	{name: DynamicSectionPersonalizationProfile, order: 119, cachePolicy: InputScoped},
-	{name: DynamicSectionMemory, order: 120, cachePolicy: InputScoped, startOnly: true},
-	{name: DynamicSectionMemoryEntrypoint, order: 122, cachePolicy: InputScoped, startOnly: true},
-	{name: DynamicSectionMemoryContext, order: 125, cachePolicy: InputScoped},
-	{name: DynamicSectionEnvInfoSimple, order: 130, cachePolicy: InputScoped},
-	{name: DynamicSectionDatasource, order: 135, cachePolicy: Uncached},
-	{name: DynamicSectionDatasourceV2, order: 136, cachePolicy: Uncached},
-	{name: DynamicSectionLanguage, order: 140, cachePolicy: InputScoped},
-	{name: DynamicSectionMCPInstructions, order: 150, cachePolicy: Uncached},
-	{name: DynamicSectionOutputStyle, order: 200, cachePolicy: CacheByName},
-	{name: DynamicSectionScratchpad, order: 210, cachePolicy: CacheByName},
-	{name: DynamicSectionFRC, order: 220, cachePolicy: CacheByName},
-	{name: DynamicSectionSummarizeToolResults, order: 230, cachePolicy: CacheByName},
-	{name: DynamicSectionNumericLengthAnchors, order: 240, cachePolicy: CacheByName},
-	{name: DynamicSectionTokenBudget, order: 250, cachePolicy: CacheByName},
-	{name: DynamicSectionBrief, order: 260, cachePolicy: CacheByName},
+func dynamicSectionSpecs() []dynamicSectionSpec {
+	return []dynamicSectionSpec{
+		{name: DynamicSectionSessionGuidance, order: 110, cachePolicy: InputScoped},
+		{name: DynamicSectionProjectDefaultRules, order: 112, cachePolicy: InputScoped},
+		{name: DynamicSectionAvailableExperts, order: 115, cachePolicy: InputScoped},
+		{name: DynamicSectionRecallCatalog, order: 118, cachePolicy: InputScoped},
+		{name: DynamicSectionPersonalizationProfile, order: 119, cachePolicy: InputScoped},
+		{name: DynamicSectionMemory, order: 120, cachePolicy: InputScoped, startOnly: true},
+		{name: DynamicSectionMemoryEntrypoint, order: 122, cachePolicy: InputScoped, startOnly: true},
+		{name: DynamicSectionMemoryContext, order: 125, cachePolicy: InputScoped},
+		{name: DynamicSectionEnvInfoSimple, order: 130, cachePolicy: InputScoped},
+		{name: DynamicSectionDatasource, order: 135, cachePolicy: Uncached},
+		{name: DynamicSectionDatasourceV2, order: 136, cachePolicy: Uncached},
+		{name: DynamicSectionLanguage, order: 140, cachePolicy: InputScoped},
+		{name: DynamicSectionMCPInstructions, order: 150, cachePolicy: Uncached},
+		{name: DynamicSectionOutputStyle, order: 200, cachePolicy: CacheByName},
+		{name: DynamicSectionScratchpad, order: 210, cachePolicy: CacheByName},
+		{name: DynamicSectionFRC, order: 220, cachePolicy: CacheByName},
+		{name: DynamicSectionSummarizeToolResults, order: 230, cachePolicy: CacheByName},
+		{name: DynamicSectionNumericLengthAnchors, order: 240, cachePolicy: CacheByName},
+		{name: DynamicSectionTokenBudget, order: 250, cachePolicy: CacheByName},
+		{name: DynamicSectionBrief, order: 260, cachePolicy: CacheByName},
+	}
 }
 
 // SectionName 返回 DynamicTextProvider 绑定的 slot 名称，注册时会校验该名称是否已声明。
@@ -100,8 +102,9 @@ func (p DynamicTextProvider) Resolve(ctx context.Context, input SectionContext) 
 
 // DynamicSlotNames 返回已声明的动态 slot 名称，供 provider 注册方和 UI 做能力发现。
 func DynamicSlotNames() []string {
-	names := make([]string, 0, len(dynamicSectionSpecs))
-	for _, spec := range dynamicSectionSpecs {
+	specs := dynamicSectionSpecs()
+	names := make([]string, 0, len(specs))
+	for _, spec := range specs {
 		names = append(names, spec.name)
 	}
 	return names
@@ -456,8 +459,9 @@ func (s *service) UnregisterDynamicProvider(name string) bool {
 
 // dynamicSlotSections 将声明好的动态 slot 转成 PromptSection，注册表为空时也保留 slot 顺序。
 func (s *service) dynamicSlotSections() []PromptSection {
-	sections := make([]PromptSection, 0, len(dynamicSectionSpecs))
-	for _, spec := range dynamicSectionSpecs {
+	specs := dynamicSectionSpecs()
+	sections := make([]PromptSection, 0, len(specs))
+	for _, spec := range specs {
 		sections = append(sections, s.dynamicSlotSection(spec))
 	}
 	return sections
@@ -491,7 +495,7 @@ func (s *service) resolveDynamicSection(ctx context.Context, name string, input 
 
 // dynamicSectionSpecForName 查找已声明 slot；注册未知名称会 fail-fast，防止 prompt 段落悄悄丢失。
 func dynamicSectionSpecForName(name string) (dynamicSectionSpec, bool) {
-	for _, spec := range dynamicSectionSpecs {
+	for _, spec := range dynamicSectionSpecs() {
 		if spec.name == name {
 			return spec, true
 		}

@@ -23,20 +23,24 @@ type staticSectionSpec struct {
 	resolve func(BuildCtx) *string
 }
 
-var staticSectionSpecs = []staticSectionSpec{
-	{name: SectionIdentity, order: 10, resolve: resolveIdentitySection},
-	{name: SectionSystemConstraints, order: 20, resolve: staticSectionContent(sectionSystemConstraintsText)},
-	{name: SectionEngineering, order: 30, resolve: resolveEngineeringSection},
-	{name: SectionActions, order: 40, resolve: staticSectionContent(sectionActionsText)},
-	{name: SectionToolPreferences, order: 50, resolve: resolveToolPreferencesSection},
-	{name: SectionStyle, order: 60, resolve: staticSectionContent(sectionStyleText)},
-	{name: SectionOutputEfficiency, order: 70, resolve: resolveOutputEfficiencySection},
+// staticSectionSpecs 返回独立的静态 section 定义，避免 package 级 slice 作为共享可变状态泄漏。
+func staticSectionSpecs() []staticSectionSpec {
+	return []staticSectionSpec{
+		{name: SectionIdentity, order: 10, resolve: resolveIdentitySection},
+		{name: SectionSystemConstraints, order: 20, resolve: staticSectionContent(sectionSystemConstraintsText)},
+		{name: SectionEngineering, order: 30, resolve: resolveEngineeringSection},
+		{name: SectionActions, order: 40, resolve: staticSectionContent(sectionActionsText)},
+		{name: SectionToolPreferences, order: 50, resolve: resolveToolPreferencesSection},
+		{name: SectionStyle, order: 60, resolve: staticSectionContent(sectionStyleText)},
+		{name: SectionOutputEfficiency, order: 70, resolve: resolveOutputEfficiencySection},
+	}
 }
 
 // StaticSections 返回全部内置静态 section，顺序由 staticSectionSpecs 统一维护。
 func StaticSections() []PromptSection {
-	sections := make([]PromptSection, 0, len(staticSectionSpecs))
-	for _, spec := range staticSectionSpecs {
+	specs := staticSectionSpecs()
+	sections := make([]PromptSection, 0, len(specs))
+	for _, spec := range specs {
 		sections = append(sections, staticTextSection(spec))
 	}
 	return sections

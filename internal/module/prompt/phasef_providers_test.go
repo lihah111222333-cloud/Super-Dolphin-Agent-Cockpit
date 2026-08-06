@@ -378,7 +378,7 @@ func TestEveryInputScopedSectionAddsExplicitCacheDependencies(t *testing.T) {
 		Start: &StartInput{CWD: "/repo/start", Prompt: "start prompt", PromptKey: "start-key"},
 		Turn:  &TurnInput{CWD: "/repo/turn", ThreadID: "thread-1", UserText: "turn text", PromptKey: "turn-key"},
 	}
-	for _, spec := range dynamicSectionSpecs {
+	for _, spec := range dynamicSectionSpecs() {
 		if spec.cachePolicy != InputScoped {
 			continue
 		}

@@ -11,32 +11,39 @@ type ModelDescriptor struct {
 	LatestModelFamily string
 }
 
-var knownModelDescriptors = map[string]ModelDescriptor{
-	"gpt-5.5": {
-		ID:                "gpt-5.5",
-		MarketingName:     "GPT-5.5",
-		LatestModelFamily: "GPT-5.5 (model ID: gpt-5.5)",
-	},
-	"gpt-5.4": {
-		ID:                "gpt-5.4",
-		MarketingName:     "GPT-5.4",
-		LatestModelFamily: "GPT-5.4 (model ID: gpt-5.4)",
-	},
-}
-
 // LookupModelDescriptor 查找模型描述；未知模型保留原始 ID，避免环境提示丢失实际模型名。
 func LookupModelDescriptor(model string) ModelDescriptor {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return ModelDescriptor{}
 	}
-	if descriptor, ok := knownModelDescriptors[strings.ToLower(model)]; ok {
+	if descriptor, ok := knownModelDescriptor(strings.ToLower(model)); ok {
 		if strings.TrimSpace(descriptor.ID) == "" {
 			descriptor.ID = model
 		}
 		return descriptor
 	}
 	return ModelDescriptor{ID: model}
+}
+
+// knownModelDescriptor 返回内置模型的独立描述值，避免共享可变 map 泄漏到调用方。
+func knownModelDescriptor(model string) (ModelDescriptor, bool) {
+	switch model {
+	case "gpt-5.5":
+		return ModelDescriptor{
+			ID:                "gpt-5.5",
+			MarketingName:     "GPT-5.5",
+			LatestModelFamily: "GPT-5.5 (model ID: gpt-5.5)",
+		}, true
+	case "gpt-5.4":
+		return ModelDescriptor{
+			ID:                "gpt-5.4",
+			MarketingName:     "GPT-5.4",
+			LatestModelFamily: "GPT-5.4 (model ID: gpt-5.4)",
+		}, true
+	default:
+		return ModelDescriptor{}, false
+	}
 }
 
 // IsZero 判断描述符是否没有可展示的模型信息。

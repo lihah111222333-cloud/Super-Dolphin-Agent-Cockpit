@@ -162,7 +162,6 @@ func envInfoSimpleSectionDependency(section PromptSection, input SectionContext)
 		Platform                     string   `json:"platform,omitempty"`
 		Shell                        string   `json:"shell,omitempty"`
 		ShellNote                    string   `json:"shellNote,omitempty"`
-		OSVersion                    string   `json:"osVersion,omitempty"`
 		LanguageServerTools          []string `json:"languageServerTools,omitempty"`
 		AdditionalWorkingDirectories []string `json:"additionalWorkingDirectories,omitempty"`
 		Provider                     string   `json:"provider,omitempty"`
@@ -179,7 +178,6 @@ func envInfoSimpleSectionDependency(section PromptSection, input SectionContext)
 		Platform:                     promptPlatform(),
 		Shell:                        promptShellName(),
 		ShellNote:                    promptShellNote(),
-		OSVersion:                    promptUnameSR(),
 		LanguageServerTools:          sectionLanguageServerTools(input.BuildCtx),
 		AdditionalWorkingDirectories: sortedPromptValues(input.BuildCtx.AdditionalWorkingDirectories),
 		Provider:                     strings.TrimSpace(input.BuildCtx.Provider),

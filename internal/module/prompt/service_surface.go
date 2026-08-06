@@ -221,9 +221,9 @@ func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service
 	}
 	svc.registerBuiltInSections()
 	mustRegisterDynamicProvider(svc, SessionGuidanceProvider{})
-	mustRegisterDynamicProvider(svc, EnvInfoProvider{})
+	mustRegisterDynamicProvider(svc, newEnvInfoProvider())
 	mustRegisterDynamicProvider(svc, LanguageProvider{})
-	mustRegisterDynamicProvider(svc, MCPInstructionsProvider{})
+	mustRegisterDynamicProvider(svc, newMCPInstructionsProvider())
 	mustRegisterDynamicProvider(svc, OutputStyleProvider{})
 	mustRegisterDynamicProvider(svc, ScratchpadProvider{})
 	mustRegisterDynamicProvider(svc, FRCProvider{})

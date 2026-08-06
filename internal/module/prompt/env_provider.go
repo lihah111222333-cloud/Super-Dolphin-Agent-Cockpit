@@ -20,7 +20,25 @@ const (
 )
 
 // EnvInfoProvider 渲染当前工作区、运行平台、模型和工具状态，供动态 system prompt 注入。
-type EnvInfoProvider struct{}
+// XML 转义器和 uname 缓存由创建它的 prompt Service 独占，避免跨 Service 共享运行时状态。
+type EnvInfoProvider struct {
+	xmlEscaper *strings.Replacer
+	unameSR    func() string
+}
+
+// newEnvInfoProvider 创建带独占运行时状态的环境信息 provider。
+func newEnvInfoProvider() EnvInfoProvider {
+	return EnvInfoProvider{
+		xmlEscaper: strings.NewReplacer(
+			"&", "&amp;",
+			"<", "&lt;",
+			">", "&gt;",
+			`"`, "&quot;",
+			"'", "&apos;",
+		),
+		unameSR: sync.OnceValue(loadPromptUnameSR),
+	}
+}
 
 // promptEnvRenderMode 区分主会话的 Markdown 环境提示和子代理的 XML 环境提示。
 type promptEnvRenderMode int
@@ -51,26 +69,20 @@ type promptEnvSnapshot struct {
 	FrontierGuidance             string
 }
 
-// promptEnvXMLEscaper 转义子代理 XML 块中的用户路径和模型元数据，避免尖括号破坏标签结构。
-var promptEnvXMLEscaper = strings.NewReplacer(
-	"&", "&amp;",
-	"<", "&lt;",
-	">", "&gt;",
-	`"`, "&quot;",
-	"'", "&apos;",
-)
-
 // SectionName 返回环境信息动态 section 的注册名。
 func (EnvInfoProvider) SectionName() string {
 	return DynamicSectionEnvInfoSimple
 }
 
 // Resolve 根据调用阶段渲染主会话或子代理环境提示；无外部 IO 失败路径。
-func (EnvInfoProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
-	snapshot := buildPromptEnvSnapshot(input)
+func (p EnvInfoProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
+	if p.xmlEscaper == nil || p.unameSR == nil {
+		return nil, fmt.Errorf("env info provider is not initialized")
+	}
+	snapshot := p.buildPromptEnvSnapshot(input)
 	text := renderSimpleEnvInfo(snapshot)
 	if promptEnvRenderModeForInput(input) == promptEnvRenderSubagent {
-		text = renderSubagentEnvInfo(snapshot)
+		text = p.renderSubagentEnvInfo(snapshot)
 	}
 	return &text, nil
 }
@@ -92,7 +104,7 @@ func (m promptEnvRenderMode) String() string {
 }
 
 // buildPromptEnvSnapshot 集中读取 BuildCtx、模型目录和本机环境，保证 Markdown/XML 两种渲染共用同一份数据。
-func buildPromptEnvSnapshot(input SectionContext) promptEnvSnapshot {
+func (p EnvInfoProvider) buildPromptEnvSnapshot(input SectionContext) promptEnvSnapshot {
 	build := input.BuildCtx
 	descriptor := LookupModelDescriptor(build.Model)
 	return promptEnvSnapshot{
@@ -103,7 +115,7 @@ func buildPromptEnvSnapshot(input SectionContext) promptEnvSnapshot {
 		Platform:                     promptPlatform(),
 		Shell:                        promptShellName(),
 		ShellNote:                    promptShellNote(),
-		OSVersion:                    promptUnameSR(),
+		OSVersion:                    p.unameSR(),
 		LanguageServerStatus:         promptLanguageServerStatus(build),
 		AdditionalWorkingDirectories: sortedPromptValues(build.AdditionalWorkingDirectories),
 		Provider:                     strings.TrimSpace(build.Provider),
@@ -168,27 +180,27 @@ func renderSimpleEnvInfo(snapshot promptEnvSnapshot) string {
 
 // renderSubagentEnvInfo 渲染子代理可解析的 XML 环境块。
 // 空值字段会被跳过，避免把缺失信息写成空标签误导下游代理。
-func renderSubagentEnvInfo(snapshot promptEnvSnapshot) string {
+func (p EnvInfoProvider) renderSubagentEnvInfo(snapshot promptEnvSnapshot) string {
 	lines := []string{"Environment details for this subagent are below.", "<env>"}
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("primaryWorkingDirectory", snapshot.CWD))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("isGitRepository", promptBoolText(snapshot.IsGitRepo)))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("gitRoot", snapshot.GitRoot))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("isWorktree", promptBoolText(snapshot.IsWorktree)))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("primaryWorkingDirectory", snapshot.CWD))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("isGitRepository", promptBoolText(snapshot.IsGitRepo)))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("gitRoot", snapshot.GitRoot))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("isWorktree", promptBoolText(snapshot.IsWorktree)))
 	if snapshot.IsWorktree {
-		lines = appendPromptEnvLine(lines, promptEnvXMLLine("worktreeNote", promptWorktreeNote))
+		lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("worktreeNote", promptWorktreeNote))
 	}
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("platform", snapshot.Platform))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("shell", snapshot.Shell))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("shellNote", snapshot.ShellNote))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("osVersion", snapshot.OSVersion))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("languageServerStatus", snapshot.LanguageServerStatus))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("platform", snapshot.Platform))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("shell", snapshot.Shell))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("shellNote", snapshot.ShellNote))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("osVersion", snapshot.OSVersion))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("languageServerStatus", snapshot.LanguageServerStatus))
 	for _, dir := range snapshot.AdditionalWorkingDirectories {
-		lines = appendPromptEnvLine(lines, promptEnvXMLLine("additionalWorkingDirectory", dir))
+		lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("additionalWorkingDirectory", dir))
 	}
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("provider", snapshot.Provider))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("modelMetadata", snapshot.ModelMetadata))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("knowledgeCutoff", snapshot.KnowledgeCutoff))
-	lines = appendPromptEnvLine(lines, promptEnvXMLLine("frontierGuidance", snapshot.FrontierGuidance))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("provider", snapshot.Provider))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("modelMetadata", snapshot.ModelMetadata))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("knowledgeCutoff", snapshot.KnowledgeCutoff))
+	lines = appendPromptEnvLine(lines, p.promptEnvXMLLine("frontierGuidance", snapshot.FrontierGuidance))
 	lines = append(lines, "</env>")
 	return strings.Join(lines, "\n")
 }
@@ -202,13 +214,13 @@ func appendPromptEnvLine(lines []string, line string) []string {
 }
 
 // promptEnvXMLLine 构造单行 XML 字段，并统一处理空 tag、空值和转义。
-func promptEnvXMLLine(tag, value string) string {
+func (p EnvInfoProvider) promptEnvXMLLine(tag, value string) string {
 	tag = strings.TrimSpace(tag)
 	value = strings.TrimSpace(value)
 	if tag == "" || value == "" {
 		return ""
 	}
-	return fmt.Sprintf("  <%s>%s</%s>", tag, promptEnvXMLEscaper.Replace(value), tag)
+	return fmt.Sprintf("  <%s>%s</%s>", tag, p.xmlEscaper.Replace(value), tag)
 }
 
 // promptBoolText 使用小写布尔文本，匹配环境 XML 的稳定格式。
@@ -261,13 +273,6 @@ func promptShellNote() string {
 		return promptWindowsShellSyntaxNote
 	}
 	return ""
-}
-
-var promptUnameSRValue = sync.OnceValue(loadPromptUnameSR)
-
-// promptUnameSR 返回缓存后的 OS 版本摘要，避免每次组装 prompt 都执行 uname。
-func promptUnameSR() string {
-	return promptUnameSRValue()
 }
 
 // loadPromptUnameSR 通过 uname -sr 探测类 Unix 版本，失败时退回 GOOS/GOARCH。

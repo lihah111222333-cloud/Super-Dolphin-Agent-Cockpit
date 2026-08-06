@@ -15,14 +15,17 @@ const mcpInstructionsDeltaAttachmentKind = "mcp_instructions_delta"
 var (
 	_ DynamicSectionProvider        = MCPInstructionsProvider{}
 	_ dynamicTurnAttachmentProvider = MCPInstructionsProvider{}
-
-	defaultMCPInstructionsTracker = sync.OnceValue(newMCPInstructionsTracker)
 )
 
 // MCPInstructionsProvider 注入或增量推送当前 live MCP server instructions。
-// 记录器可由测试注入；生产路径默认按进程记录每个 thread 的上次快照。
+// 记录器由所属 prompt Service 持有；测试可以注入独立记录器。
 type MCPInstructionsProvider struct {
 	tracker *mcpInstructionsTracker
+}
+
+// newMCPInstructionsProvider 创建持有独立 delta 状态的 provider。
+func newMCPInstructionsProvider() MCPInstructionsProvider {
+	return MCPInstructionsProvider{tracker: newMCPInstructionsTracker()}
 }
 
 // mcpInstructionsTracker 保存每个 thread 已发送的 MCP instructions，用于计算后续 turn 的增量。
@@ -76,10 +79,10 @@ func (p MCPInstructionsProvider) ResolveTurnAttachments(_ context.Context, input
 		return nil
 	}
 	threadID := strings.TrimSpace(input.Turn.ThreadID)
-	tracker := p.trackerOrDefault()
 	if threadID == "" {
 		return nil
 	}
+	tracker := p.trackerOrFail()
 	snapshot := input.BuildCtx.MCPSnapshot
 	if !snapshot.InstructionsDeltaEnabled {
 		tracker.Reset(threadID)
@@ -93,12 +96,12 @@ func (p MCPInstructionsProvider) ResolveTurnAttachments(_ context.Context, input
 	return []dto.AttachmentEnvelope{attachment}
 }
 
-// trackerOrDefault 返回注入记录器或进程级默认记录器。
-func (p MCPInstructionsProvider) trackerOrDefault() *mcpInstructionsTracker {
-	if p.tracker != nil {
-		return p.tracker
+// trackerOrFail 返回当前 provider 独占的记录器；未通过构造器创建是编程错误。
+func (p MCPInstructionsProvider) trackerOrFail() *mcpInstructionsTracker {
+	if p.tracker == nil {
+		panic("MCPInstructionsProvider requires an initialized tracker")
 	}
-	return defaultMCPInstructionsTracker()
+	return p.tracker
 }
 
 // Update 保存指定 thread 的当前 instructions 快照并返回相对上次快照的 diff。

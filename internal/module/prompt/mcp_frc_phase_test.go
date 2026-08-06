@@ -9,7 +9,7 @@ import (
 )
 
 func TestMCPInstructionsProviderSkipsFullSectionWhenDeltaEnabled(t *testing.T) {
-	provider := MCPInstructionsProvider{}
+	provider := newMCPInstructionsProvider()
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{MCPSnapshot: MCPSnapshot{
 		Servers:                  []string{"lsp"},
 		Instructions:             map[string]string{"lsp": "Use the LSP MCP first."},
@@ -24,7 +24,7 @@ func TestMCPInstructionsProviderSkipsFullSectionWhenDeltaEnabled(t *testing.T) {
 }
 
 func TestMCPInstructionsProviderTurnAttachmentsDiffAddAndRemove(t *testing.T) {
-	provider := MCPInstructionsProvider{tracker: newMCPInstructionsTracker()}
+	provider := newMCPInstructionsProvider()
 	ctx := SectionContext{Turn: &TurnInput{ThreadID: "thread-mcp-delta"}}
 	ctx.BuildCtx.MCPSnapshot = MCPSnapshot{
 		Servers:                  []string{"lsp"},
@@ -50,6 +50,46 @@ func TestMCPInstructionsProviderTurnAttachmentsDiffAddAndRemove(t *testing.T) {
 	}
 	if !strings.Contains(third[0].Content, "## orch") || !strings.Contains(third[0].Content, "## lsp") || !strings.Contains(third[0].Content, "no longer apply") {
 		t.Fatalf("third delta content = %q, want add+revoke diff", third[0].Content)
+	}
+}
+
+func TestMCPInstructionsProviderTurnAttachmentsRequiresConstructor(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("ResolveTurnAttachments() did not panic for an uninitialized tracker")
+		}
+	}()
+	MCPInstructionsProvider{}.ResolveTurnAttachments(context.Background(), SectionContext{
+		Turn: &TurnInput{ThreadID: "thread-mcp-uninitialized"},
+		BuildCtx: BuildCtx{MCPSnapshot: MCPSnapshot{
+			InstructionsDeltaEnabled: true,
+		}},
+	})
+}
+
+func TestNewServiceOwnsMCPInstructionsDeltaState(t *testing.T) {
+	input := TurnInput{
+		ThreadID: "thread-mcp-owner-isolation",
+		MCPSnapshot: MCPSnapshot{
+			Servers:                  []string{"lsp"},
+			Instructions:             map[string]string{"lsp": "Use the LSP MCP first."},
+			InstructionsDeltaEnabled: true,
+		},
+	}
+	first, err := NewService(&Config{}, nil).AssembleTurn(context.Background(), input)
+	if err != nil {
+		t.Fatalf("first AssembleTurn() error = %v", err)
+	}
+	if len(first.Attachments) != 1 {
+		t.Fatalf("first Attachments = %#v, want one MCP delta", first.Attachments)
+	}
+
+	second, err := NewService(&Config{}, nil).AssembleTurn(context.Background(), input)
+	if err != nil {
+		t.Fatalf("second AssembleTurn() error = %v", err)
+	}
+	if len(second.Attachments) != 1 {
+		t.Fatalf("second Attachments = %#v, want an independent MCP delta", second.Attachments)
 	}
 }
 

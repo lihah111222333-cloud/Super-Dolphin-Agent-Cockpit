@@ -7,7 +7,7 @@ import (
 )
 
 func TestMCPInstructionsProviderResolveBuildsServerBlocks(t *testing.T) {
-	provider := MCPInstructionsProvider{}
+	provider := newMCPInstructionsProvider()
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{MCPSnapshot: MCPSnapshot{
 		Servers: []string{"orch", "lsp"},
 		Instructions: map[string]string{
@@ -42,7 +42,7 @@ func TestMCPInstructionsProviderResolveBuildsServerBlocks(t *testing.T) {
 }
 
 func TestMCPInstructionsProviderResolveSkipsServersWithoutInstructions(t *testing.T) {
-	provider := MCPInstructionsProvider{}
+	provider := newMCPInstructionsProvider()
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{MCPSnapshot: MCPSnapshot{
 		Servers: []string{"orch"},
 		Instructions: map[string]string{

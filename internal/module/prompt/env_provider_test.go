@@ -8,7 +8,7 @@ import (
 
 func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
-	provider := EnvInfoProvider{}
+	provider := newEnvInfoProvider()
 
 	text, err := provider.Resolve(context.Background(), SectionContext{
 		BuildCtx: BuildCtx{
@@ -53,12 +53,19 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 }
 
 func TestEnvInfoProviderResolveWithoutLSPToolsMarksUnavailable(t *testing.T) {
-	provider := EnvInfoProvider{}
+	provider := newEnvInfoProvider()
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{EnabledTools: []string{"exec_command"}}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
 	if text == nil || !strings.Contains(*text, "- Language server status: not enabled in this session") {
 		t.Fatalf("Resolve() = %v, want missing-LSP notice", text)
+	}
+}
+
+func TestEnvInfoProviderResolveRequiresConstructor(t *testing.T) {
+	text, err := (EnvInfoProvider{}).Resolve(context.Background(), SectionContext{})
+	if err == nil || text != nil {
+		t.Fatalf("Resolve() = (%v, %v), want constructor error", text, err)
 	}
 }
