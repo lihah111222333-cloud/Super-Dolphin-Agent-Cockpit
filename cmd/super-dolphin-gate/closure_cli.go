@@ -9,10 +9,6 @@ import (
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-var closureActions = map[string]struct{}{
-	"check": {}, "refresh": {}, "refresh-dependencies": {}, "provenance": {},
-}
-
 func runClosureCheck(args []string) error {
 	if len(args) != 3 || args[1] != "--tree" || !isClosureAction(args[0]) || strings.TrimSpace(args[2]) == "" {
 		return protocolError("closure check, refresh, refresh-dependencies, or provenance requires one --tree <staged-tree-sha> argument")
@@ -37,8 +33,12 @@ func runClosureCheck(args []string) error {
 }
 
 func isClosureAction(action string) bool {
-	_, ok := closureActions[action]
-	return ok
+	switch action {
+	case "check", "refresh", "refresh-dependencies", "provenance":
+		return true
+	default:
+		return false
+	}
 }
 
 // writeClosureProvenance 同时输出已编译生成器身份和精确候选树重建身份。
