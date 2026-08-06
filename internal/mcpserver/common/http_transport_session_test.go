@@ -249,7 +249,7 @@ func TestHTTPMalformedCancellationIsContainedWithinSession(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(
-		`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":{"invalid":true}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":13,"reason":{"invalid":true}}}`,
 	))
 	req.Header.Set(testHTTPMCPHeaderSessionID, sessionID)
 	server.handleMCP(rec, req)

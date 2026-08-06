@@ -222,6 +222,7 @@ type inFlightToolCall struct {
 // cancelledParams 是 MCP notifications/cancelled 的标准参数。
 type cancelledParams struct {
 	RequestID json.RawMessage `json:"requestId"`
+	Reason    string          `json:"reason,omitempty"`
 }
 
 // NewServer 创建 stdio MCP 服务端，并补齐空 name/version 的开发默认值。

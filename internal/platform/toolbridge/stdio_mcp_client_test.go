@@ -149,6 +149,29 @@ func TestStdioMCPClientRejectsOversizePeerResponse(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientCancellationPublishesReason(t *testing.T) {
+	transport := newFakeStdioTransport()
+	client := newTestStdioMCPClient(t, transport)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan stdioRequestOutcome, 1)
+	var requestWG sync.WaitGroup
+	requestWG.Go(func() {
+		raw, err := client.request(ctx, "tools/list", map[string]any{})
+		result <- stdioRequestOutcome{raw: raw, err: err}
+	})
+	t.Cleanup(requestWG.Wait)
+
+	request := waitForStdioWrites(t, transport, 1)[0]
+	requestID := stdioWriteID(t, request)
+	cancel()
+	if err := waitForStdioOutcome(t, result).err; err != context.Canceled {
+		t.Fatalf("request() error = %v, want context canceled", err)
+	}
+	cancellation := waitForStdioWrites(t, transport, 2)[1]
+	assertStdioCancellationWithReason(t, cancellation, requestID, context.Canceled.Error())
+}
+
 func TestDefaultStdioClientFactoryRejectsUntrustedRuntimeCommand(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -445,6 +468,16 @@ func assertStdioCancellation(t *testing.T, payload any, wantID int64) {
 	}
 	if requestID := params["requestId"]; requestID != wantID {
 		t.Fatalf("stdio cancellation requestId = %#v, want %d", requestID, wantID)
+	}
+}
+
+func assertStdioCancellationWithReason(t *testing.T, payload any, wantID int64, wantReason string) {
+	t.Helper()
+	assertStdioCancellation(t, payload, wantID)
+	write := payload.(map[string]any)
+	params := write["params"].(map[string]any)
+	if reason := params["reason"]; reason != wantReason {
+		t.Fatalf("stdio cancellation reason = %#v, want %q", reason, wantReason)
 	}
 }
 

@@ -210,6 +210,25 @@ func TestServerCancellationCancelsActiveToolCallWithoutBlockingNextRequest(t *te
 	harness.expectNoResponse(t)
 }
 
+func TestServerCancellationAcceptsOptionalReasonWithoutReturningIt(t *testing.T) {
+	const reason = "caller canceled: token=secret"
+	provider := newCancellationTestProvider()
+	harness := newPipedCancellationServerHarness(t, provider)
+
+	harness.send(t, `{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"reason","arguments":{}}}`)
+	waitProviderEvent(t, provider.started, "reason")
+	harness.send(t, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":51,"reason":"`+reason+`"}}`)
+	waitProviderEvent(t, provider.canceled, "reason")
+	response, err := json.Marshal(harness.response(t))
+	if err != nil {
+		t.Fatalf("marshal tools/call response: %v", err)
+	}
+	if strings.Contains(string(response), reason) {
+		t.Fatalf("tools/call response exposed cancellation reason: %s", response)
+	}
+	harness.expectNoResponse(t)
+}
+
 func TestServerCancellationKeepsNumericAndStringIDsDistinct(t *testing.T) {
 	provider := newCancellationTestProvider()
 	harness := newPipedCancellationServerHarness(t, provider)
