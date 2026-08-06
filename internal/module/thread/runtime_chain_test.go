@@ -9,6 +9,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 func TestStartAssemblyMergesBuiltinBaseAndUserRuntimeAssets(t *testing.T) {
@@ -158,6 +159,7 @@ func newRuntimeChainService(
 		catalog,
 		promptpkg.EvaluateMatchWhen,
 		promptpkg.EvaluateEnableWhen,
+		idgen.NewGenerator(),
 	).(*service)
 }
 

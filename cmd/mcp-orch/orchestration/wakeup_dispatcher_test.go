@@ -16,11 +16,15 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
 )
 
 // NewWakeupDispatcher supplies a test-local explicit DAG metrics owner.
 func NewWakeupDispatcher(store taskdag.WakeupDispatchStore, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig) (*WakeupDispatcher, error) {
+	if cfg.AgentIDGenerator == nil {
+		cfg.AgentIDGenerator = idgen.NewGenerator()
+	}
 	return NewWakeupDispatcherWithMetrics(store, launcher, logger, cfg, dagmetrics.NewRegistry())
 }
 

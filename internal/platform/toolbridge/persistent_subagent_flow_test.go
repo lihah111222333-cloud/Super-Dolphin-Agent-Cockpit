@@ -14,6 +14,7 @@ import (
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 // testThreadConfigOverrideStore 把 Thread-owned store 端口收窄成 handler 只需要的 ConfigOverride 读取口。
@@ -215,7 +216,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 		Agent:      platformconfig.AgentConfig{PersistentSubagentDefault: true},
 		Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
 	}
-	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, sessions, starter, nil, &persistentFlowOrchestration{}, nil, &persistentFlowPromptAssembly{}, cfg, nil, nil, nil, nil, nil, nil)
+	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, sessions, starter, nil, &persistentFlowOrchestration{}, nil, &persistentFlowPromptAssembly{}, cfg, nil, nil, nil, nil, nil, idgen.NewGenerator())
 
 	result, err := service.Start(ctx, threadmod.StartRequest{
 		AgentID:       "agent-child-persistent",

@@ -6,10 +6,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 func TestNewAgentID_Format(t *testing.T) {
-	id := NewAgentID()
+	id := NewAgentID(idgen.NewGenerator())
 	// Must match agent_{digits} with no trailing random hex.
 	matched, err := regexp.MatchString(`^agent_\d+$`, id)
 	if err != nil {
@@ -21,7 +23,7 @@ func TestNewAgentID_Format(t *testing.T) {
 }
 
 func TestNewAgentID_NoRandomSuffix(t *testing.T) {
-	id := NewAgentID()
+	id := NewAgentID(idgen.NewGenerator())
 	parts := strings.SplitN(id, "_", 2)
 	if len(parts) != 2 {
 		t.Fatalf("NewAgentID() = %q, expected exactly one underscore after prefix", id)
@@ -33,8 +35,9 @@ func TestNewAgentID_NoRandomSuffix(t *testing.T) {
 }
 
 func TestNewAgentID_Uniqueness(t *testing.T) {
-	a := NewAgentID()
-	b := NewAgentID()
+	generator := idgen.NewGenerator()
+	a := NewAgentID(generator)
+	b := NewAgentID(generator)
 	if b == a {
 		t.Fatalf("NewAgentID() returned duplicate %q", a)
 	}
@@ -42,6 +45,7 @@ func TestNewAgentID_Uniqueness(t *testing.T) {
 
 func TestNewAgentID_ConcurrentUniqueness(t *testing.T) {
 	const n = 1000
+	generator := idgen.NewGenerator()
 	start := make(chan struct{})
 	ids := make(chan string, n)
 	var wg sync.WaitGroup
@@ -56,7 +60,7 @@ func TestNewAgentID_ConcurrentUniqueness(t *testing.T) {
 	for range n {
 		wg.Go(func() {
 			<-start
-			ids <- NewAgentID()
+			ids <- NewAgentID(generator)
 		})
 	}
 	close(start)

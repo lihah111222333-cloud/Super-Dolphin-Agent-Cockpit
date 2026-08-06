@@ -89,7 +89,7 @@ func TestNamePolicy_NoNameNoPromptStaysEmpty(t *testing.T) {
 func TestNamePolicy_NormalizeDoesNotDeriveNameFromPrompt(t *testing.T) {
 	t.Parallel()
 
-	req, _, err := normalizeStartRequest(StartRequest{
+	req, _, err := normalizeStartRequestWithTestGenerator(StartRequest{
 		Provider: "codex",
 		CWD:      wantStartCWD(t),
 		Prompt:   "  user message  ",
@@ -105,7 +105,7 @@ func TestNamePolicy_NormalizeDoesNotDeriveNameFromPrompt(t *testing.T) {
 func TestNamePolicy_NormalizePreservesExplicitName(t *testing.T) {
 	t.Parallel()
 
-	req, _, err := normalizeStartRequest(StartRequest{
+	req, _, err := normalizeStartRequestWithTestGenerator(StartRequest{
 		Provider: "codex",
 		CWD:      wantStartCWD(t),
 		Name:     "  my agent  ",
@@ -123,7 +123,7 @@ func TestNamePolicy_NormalizeTruncatesLongName(t *testing.T) {
 	t.Parallel()
 
 	longName := strings.Repeat("あ", 200)
-	req, _, err := normalizeStartRequest(StartRequest{
+	req, _, err := normalizeStartRequestWithTestGenerator(StartRequest{
 		Provider: "codex",
 		CWD:      wantStartCWD(t),
 		Name:     longName,

@@ -330,13 +330,13 @@ func reserveLaunchAgentIDWithRuntimeState(state *toolRuntimeState, ctx context.C
 		state.agentIDReg.reservations[candidate] = struct{}{}
 		return candidate, releaseLaunchAgentIDWithRuntimeState(state, candidate), true, nil
 	}
-	candidate = shared.NewAgentID()
+	candidate = shared.NewAgentID(state.agentIDGenerator)
 	for range 64 {
 		if !launchAgentIDInUseLockedWithRuntimeState(state, candidate, existing) {
 			state.agentIDReg.reservations[candidate] = struct{}{}
 			return candidate, releaseLaunchAgentIDWithRuntimeState(state, candidate), true, nil
 		}
-		candidate = shared.NewAgentID()
+		candidate = shared.NewAgentID(state.agentIDGenerator)
 	}
 	state.agentIDReg.reservations[candidate] = struct{}{}
 	return candidate, releaseLaunchAgentIDWithRuntimeState(state, candidate), true, nil
@@ -547,7 +547,7 @@ func launchRequestFromExecutableWithRuntimeState(state *toolRuntimeState, in Lau
 	}
 	agentID := strings.TrimSpace(in.AgentID)
 	if agentID == "" {
-		agentID = shared.NewAgentID()
+		agentID = shared.NewAgentID(state.agentIDGenerator)
 	}
 	provider, err := validateLaunchProviderWithRuntimeState(state, in.Provider)
 	if err != nil {

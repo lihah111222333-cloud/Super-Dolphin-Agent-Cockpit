@@ -433,7 +433,7 @@ func assertThreadStartLaunchMetadata(t *testing.T, req StartRequest) {
 func TestNormalizeStartRequestRejectsInvalidToolSurfaceMode(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := normalizeStartRequest(StartRequest{
+	_, _, err := normalizeStartRequestWithTestGenerator(StartRequest{
 		Provider:        "codex",
 		CWD:             "/tmp/demo",
 		ToolSurfaceMode: "full",
@@ -456,7 +456,7 @@ func TestBuildPendingSpawnRequestPreservesToolSurfaceMode(t *testing.T) {
 			ToolSurfaceMode: "chat",
 		}),
 	}
-	req, err := buildPendingSpawnRequest(row, "thread-pending", "hello", "/tmp/demo")
+	req, err := buildPendingSpawnRequestWithTestGenerator(row, "thread-pending", "hello", "/tmp/demo")
 	if err != nil {
 		t.Fatalf("buildPendingSpawnRequest() error = %v", err)
 	}

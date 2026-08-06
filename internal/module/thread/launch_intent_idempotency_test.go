@@ -15,7 +15,7 @@ import (
 func TestStartLaunchIntentReusesPendingThreadResult(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -49,7 +49,7 @@ func TestStartLaunchIntentReusesPendingThreadResult(t *testing.T) {
 func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -99,7 +99,7 @@ func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 }
 
 func TestStartLaunchIntentRejectsMalformedID(t *testing.T) {
-	svc := &service{threadStore: &stubThreadStore{}}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: &stubThreadStore{}}
 
 	_, err := svc.Start(context.Background(), StartRequest{
 		LaunchIntentID: "../agent_unsafe",
@@ -119,7 +119,7 @@ func TestStartLaunchIntentRejectsMalformedID(t *testing.T) {
 func TestStartLaunchIntentRejectsParameterMismatch(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -147,7 +147,7 @@ func TestStartLaunchIntentRejectsParameterMismatch(t *testing.T) {
 func TestStartLaunchIntentPendingFailureKeepsRowAndRetainsKey(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &cleanupCountingThreadStore{}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -176,7 +176,7 @@ func TestStartLaunchIntentPendingFailureKeepsRowAndRetainsKey(t *testing.T) {
 func TestStartLaunchIntentRetainsKeyAfterPendingCleanupRetainedError(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &cleanupCountingThreadStore{}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -205,7 +205,7 @@ func TestStartLaunchIntentRetainsKeyAfterPendingCleanupRetainedError(t *testing.
 func TestStartLaunchIntentRetainsKeyWhenPendingFailureStatusUpdateFails(t *testing.T) {
 	statusErr := errors.New("status update failed")
 	threads := &cleanupCountingThreadStore{statusErr: statusErr}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -271,7 +271,7 @@ func TestStartLaunchIntentRetainedPendingStatusFailureBlocksDirectSpawnRetry(t *
 func TestStartLaunchIntentCompleteAllowsKeyReuse(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -318,7 +318,7 @@ func assertPendingTerminalAllowsKeyReuse(t *testing.T, terminate func(context.Co
 	t.Helper()
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "codex",
@@ -545,7 +545,7 @@ func eagerSnapshotFailureFixture(t *testing.T) (*cleanupCountingThreadStore, *st
 	session := &stubSession{threadID: "018f00e0-39fc-72ac-a47a-2a858c75d111"}
 	orch := &launchIntentOrchestration{bindGeneration: 1}
 	sessionProvider := &launchIntentSessionProvider{stubSessionProvider: &stubSessionProvider{}}
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore:  threads,
 		bindingStore: bindings,
 		starter: &stubSessionStarter{onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {

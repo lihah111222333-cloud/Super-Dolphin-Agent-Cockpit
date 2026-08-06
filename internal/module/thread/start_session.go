@@ -22,14 +22,17 @@ const maxAgentIDReservationRetries = 64
 
 // normalizeStartRequest 整理 start 请求并生成最终 agent id。
 // 返回的第二个值是原始候选 id，后续释放预留时依赖它区分调用方显式传入和系统生成。
-func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
+func normalizeStartRequest(req StartRequest, generator *idgen.Generator) (StartRequest, string, error) {
+	if generator == nil {
+		return StartRequest{}, "", errors.New("thread: agent id generator required")
+	}
 	req = trimStartRequest(req)
 	req.Name = normalizeStartDisplayName(req.Name)
 	if req.LaunchIntentID != "" && req.AgentID != "" {
 		return StartRequest{}, "", errors.New("thread: agent_id cannot be provided with launch_intent_id")
 	}
 	if req.AgentID == "" {
-		req.AgentID = idgen.NewAgentID()
+		req.AgentID = generator.NewAgentID()
 	}
 	req, err := resolveStartConfig(req)
 	if err != nil {
@@ -48,7 +51,7 @@ func (s *service) reserveUniqueStartAgentID(
 	candidate = strings.TrimSpace(candidate)
 	parentID := strings.TrimSpace(req.ParentAgentID)
 	if candidate == "" {
-		candidate = idgen.NewAgentID()
+		candidate = s.agentIDGenerator.NewAgentID()
 	}
 	s.agentIDMu.Lock()
 	defer s.agentIDMu.Unlock()
@@ -98,7 +101,7 @@ func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID st
 // 返回的 release 必须由调用方在启动失败或状态持久化完成后释放，避免进程内预留泄漏。
 func (s *service) reserveGeneratedRootAgentIDLocked(ctx context.Context) (string, func(), error) {
 	for range maxAgentIDReservationRetries {
-		candidate := idgen.NewAgentID()
+		candidate := s.agentIDGenerator.NewAgentID()
 		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
 		if err != nil {
 			return "", nil, err

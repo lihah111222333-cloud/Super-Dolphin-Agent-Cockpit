@@ -12,6 +12,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 // stubRouterStore 实现 taskdag.Store 所需的最小方法。
@@ -59,7 +60,10 @@ func (s *stubRouterStore) ListRunNodes(_ context.Context, _ string, runID int64)
 	return out, nil
 }
 
-func routerTestRunID(id int64) *int64 { return &id }
+func routerTestRunID(id int64) *int64 {
+	runID := id
+	return &runID
+}
 
 // UpdateRunningNodeStatus 覆盖 taskdag.Store 嵌入，避免 advanceAgentNodeToRunning
 // 触发 nil-embedding panic；记录调用并允许注入状态推进错误。
@@ -77,7 +81,7 @@ func (s *stubRouterStore) CompleteNodeAndScheduleDownstream(_ context.Context, i
 		return nil, s.completeErr
 	}
 	return &taskdag.CompleteNodeWithDownstreamResult{
-		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: routerTestRunID(input.RunID), Status: input.Status, Result: input.Result},
+		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: new(input.RunID), Status: input.Status, Result: input.Result},
 	}, nil
 }
 
@@ -179,14 +183,14 @@ func TestNodeExecutorRouter_AgentLifecycleHooks(t *testing.T) {
 
 func TestProvideExecutorsWireLifecycleHooks(t *testing.T) {
 	hooks := ProvideNodeLifecycleHooks(discardLogger())
-	agentExec, err := ProvideAgentExecutor(&stubAgentLauncher{}, noopNodeSpawnRecorder{}, hooks)
+	agentExec, err := ProvideAgentExecutor(&stubAgentLauncher{}, noopNodeSpawnRecorder{}, hooks, idgen.NewGenerator())
 	if err != nil {
 		t.Fatalf("ProvideAgentExecutor() error = %v, want nil", err)
 	}
 	if got := agentExec.Hooks(); got[nodeexec.HookBeforeExecute] == nil || got[nodeexec.HookOnFailure] == nil {
 		t.Fatalf("agent hooks = %v, want production lifecycle hooks wired", got)
 	}
-	if _, err := ProvideAgentExecutor(&stubAgentLauncher{}, nil, hooks); err == nil {
+	if _, err := ProvideAgentExecutor(&stubAgentLauncher{}, nil, hooks, idgen.NewGenerator()); err == nil {
 		t.Fatalf("ProvideAgentExecutor(nil recorder) error = nil, want fail-fast")
 	}
 	autoExec := ProvideAutomationExecutor(stubAutomationCmdGetter{}, stubAutomationCmdRunner{}, hooks)

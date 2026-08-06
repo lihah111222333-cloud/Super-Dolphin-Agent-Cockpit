@@ -17,6 +17,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idempotency"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -57,6 +58,7 @@ type sessionGenerationRemover interface {
 
 type service struct {
 	logger                  *slog.Logger
+	agentIDGenerator        *idgen.Generator
 	threadStore             ThreadStore
 	archiveStateStore       ArchiveStateStore
 	bindingStore            BindingStore

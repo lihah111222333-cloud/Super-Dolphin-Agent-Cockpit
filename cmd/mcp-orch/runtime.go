@@ -33,6 +33,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared/builtinprompts"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -176,24 +177,25 @@ func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 type newRegistryParams struct {
 	fx.In
 
-	AgentLaunch     contract.AgentLaunchPort
-	AgentState      contract.AgentStateReader
-	AgentStopWait   contract.AgentStopWaitPort
-	AgentRecovery   contract.AgentRecoveryPort
-	AgentInterrupt  contract.AgentInterruptPort
-	AgentReports    contract.AgentReportPort
-	TurnSubmission  contract.TurnSubmissionPort
-	DAGCreate       contract.DAGCreateRuntime
-	DAGRuntime      contract.DAGRuntime
-	DAGDelete       contract.DAGDeleteRuntime
-	DAGNodeStatus   contract.DAGNodeStatusRuntime
-	DAGNodeDispatch contract.DAGNodeDispatchRuntime
-	WS              workspace.Service
-	Prompt          promptstore.Store
-	BuiltinPrompts  contract.BuiltinPromptRegistry
-	Command         commandcardstore.Store
-	SharedFile      sharedfilestore.Store
-	ModelRegistry   modelregistry.Registry
+	AgentLaunch      contract.AgentLaunchPort
+	AgentState       contract.AgentStateReader
+	AgentStopWait    contract.AgentStopWaitPort
+	AgentRecovery    contract.AgentRecoveryPort
+	AgentInterrupt   contract.AgentInterruptPort
+	AgentReports     contract.AgentReportPort
+	TurnSubmission   contract.TurnSubmissionPort
+	DAGCreate        contract.DAGCreateRuntime
+	DAGRuntime       contract.DAGRuntime
+	DAGDelete        contract.DAGDeleteRuntime
+	DAGNodeStatus    contract.DAGNodeStatusRuntime
+	DAGNodeDispatch  contract.DAGNodeDispatchRuntime
+	WS               workspace.Service
+	Prompt           promptstore.Store
+	BuiltinPrompts   contract.BuiltinPromptRegistry
+	Command          commandcardstore.Store
+	SharedFile       sharedfilestore.Store
+	ModelRegistry    modelregistry.Registry
+	AgentIDGenerator *idgen.Generator
 }
 
 // newModelRegistry 创建模型注册表，失败时报错阻断启动。
@@ -212,7 +214,7 @@ func newBuiltinPromptRegistry() (contract.BuiltinPromptRegistry, error) {
 
 // newRegistry 汇总 orchestration、workspace、prompt 等依赖并注册 MCP tools。
 func newRegistry(p newRegistryParams) tools.Registry {
-	return tools.NewRegistry(tools.Dependencies{
+	return tools.NewRegistryWithAgentIDGenerator(tools.Dependencies{
 		ToolPorts:      toolPortsFromRegistryParams(p),
 		Workspace:      p.WS,
 		Prompt:         p.Prompt,
@@ -220,7 +222,7 @@ func newRegistry(p newRegistryParams) tools.Registry {
 		CommandCard:    p.Command,
 		SharedFile:     p.SharedFile,
 		ModelRegistry:  p.ModelRegistry,
-	})
+	}, p.AgentIDGenerator)
 }
 
 // toolPortsFromRegistryParams 把 fx 注入的 contract 窄口装配为工具 registry 的端口集合。

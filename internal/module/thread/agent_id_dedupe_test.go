@@ -10,7 +10,7 @@ import (
 
 func TestPrepareStartRequestReassignsExistingExplicitAgentID(t *testing.T) {
 	cwd := wantStartCWD(t)
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "agent-dup"}},
 	}
 	req, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
@@ -33,7 +33,7 @@ func TestPrepareStartRequestReassignsExistingExplicitAgentID(t *testing.T) {
 
 func TestPrepareStartRequestPreservesAvailableExplicitAgentID(t *testing.T) {
 	cwd := wantStartCWD(t)
-	svc := &service{threadStore: &stubThreadStore{}}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: &stubThreadStore{}}
 	req, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-keep",
 		Name:     "worker",
@@ -51,7 +51,7 @@ func TestPrepareStartRequestPreservesAvailableExplicitAgentID(t *testing.T) {
 
 func TestPrepareStartRequestRejectsAgentIDWhenCollisionCheckFails(t *testing.T) {
 	cwd := wantStartCWD(t)
-	svc := &service{threadStore: &stubThreadStore{existsErr: errors.New("db unavailable")}}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: &stubThreadStore{existsErr: errors.New("db unavailable")}}
 	_, _, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-db-error",
 		Name:     "worker",
@@ -71,7 +71,7 @@ func TestPrepareStartRequestRejectsAgentIDWhenCollisionCheckFails(t *testing.T) 
 
 func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 	cwd := wantStartCWD(t)
-	svc := &service{threadStore: &stubThreadStore{}}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: &stubThreadStore{}}
 	const n = 2
 	start := make(chan struct{})
 	ids := make(chan string, n)
@@ -128,7 +128,7 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 
 func TestPrepareStartRequestFailsFastOnInvalidRuntimeMode(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "mystery")
-	svc := &service{threadStore: &stubThreadStore{}}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: &stubThreadStore{}}
 
 	_, _, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-invalid-runtime",

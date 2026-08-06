@@ -16,6 +16,7 @@ import (
 	platformobs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -484,7 +485,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil)
+	return newService(logger, idgen.NewGenerator(), threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewServiceWithPromptAssembly 构造带 prompt assembly 的 thread 服务。
@@ -502,7 +503,7 @@ func NewServiceWithPromptAssembly(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil)
+	return newService(logger, idgen.NewGenerator(), threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil)
 }
 
 // NewServiceWithPromptAssemblyAndSharedFiles 构造完整 thread 服务。
@@ -523,19 +524,21 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	promptCatalog PromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
 	enableWhenEval contract.EnableWhenEvaluator,
+	agentIDGenerator *idgen.Generator,
 	tracingOpt ...*platformobs.Service,
 ) Service {
 	var tracing *platformobs.Service
 	if len(tracingOpt) > 0 {
 		tracing = tracingOpt[0]
 	}
-	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptCatalog, matchWhenEval, enableWhenEval, tracing)
+	return newService(logger, agentIDGenerator, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptCatalog, matchWhenEval, enableWhenEval, tracing)
 }
 
 // newService 统一完成 thread service wiring。
 // 构造阶段会创建事件 emitter、后台 worker 和进程内缓存；外层构造器只负责选择依赖集合。
 func newService(
 	logger *slog.Logger,
+	agentIDGenerator *idgen.Generator,
 	threadStore ThreadStore,
 	bindingStore BindingStore,
 	sessions SessionProvider,
@@ -552,6 +555,9 @@ func newService(
 	enableWhenEval contract.EnableWhenEvaluator,
 	tracing *platformobs.Service,
 ) Service {
+	if agentIDGenerator == nil {
+		panic("thread: agent id generator required")
+	}
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -562,6 +568,7 @@ func newService(
 	archiveStateStore, _ := threadStore.(ArchiveStateStore)
 	s := &service{
 		logger:                  logger,
+		agentIDGenerator:        agentIDGenerator,
 		threadStore:             threadStore,
 		archiveStateStore:       archiveStateStore,
 		bindingStore:            bindingStore,

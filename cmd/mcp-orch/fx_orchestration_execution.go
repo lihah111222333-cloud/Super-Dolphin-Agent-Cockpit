@@ -13,6 +13,7 @@ import (
 	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/commandcard"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	"go.uber.org/fx"
 )
 
@@ -21,6 +22,7 @@ func orchestrationExecutionOptions(remoteAddr string) fx.Option {
 	options := []fx.Option{
 		fx.Module("orchestration-execution",
 			fx.Provide(
+				idgen.NewGenerator,
 				func(lc fx.Lifecycle, turnStarter contract.OrchestrationTurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 					return buildLauncher(lc, turnStarter, logger, remoteAddr)
 				},

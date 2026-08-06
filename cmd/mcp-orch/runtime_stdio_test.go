@@ -18,7 +18,7 @@ func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
 		}
 	})
 
-	_, err := newStdioServer(newRegistry(newRegistryParams{}), pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	_, err := newStdioServer(newRegistry(newRegistryParamsForTest()), pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	if err == nil {
 		t.Fatal("newStdioServer() error = nil, want error when mcpStdout is nil")
 	}

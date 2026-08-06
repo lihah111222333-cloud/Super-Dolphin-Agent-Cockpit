@@ -11,6 +11,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 func TestStartSessionUsesPromptAssembly(t *testing.T) {
@@ -130,6 +131,7 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 		store,
 		promptpkg.EvaluateMatchWhen,
 		promptpkg.EvaluateEnableWhen,
+		idgen.NewGenerator(),
 	).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{

@@ -74,7 +74,7 @@ func TestSpawnIfNeeded_SkipsStoppedThread(t *testing.T) {
 		Status:        statusStopped,
 		PendingLaunch: true,
 	}}
-	svc := &service{threadStore: store}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: store}
 
 	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-1", "hello", "")
 	if err != nil {
@@ -95,7 +95,7 @@ func TestSpawnIfNeeded_SkipsArchivedThread(t *testing.T) {
 		Status:        statusArchived,
 		PendingLaunch: true,
 	}}
-	svc := &service{threadStore: store}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: store}
 
 	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-2", "hello", "")
 	if err != nil {
@@ -111,7 +111,7 @@ func TestStartPendingLaunchSkipsPromptAssemblyPreflight(t *testing.T) {
 
 	store := &stubThreadStore{}
 	startCalled := false
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore: store,
 		promptAssembly: errorPromptAssembly{
 			err: errors.New("ClaudeMd candidate containment: safe read: path escapes root"),
@@ -144,7 +144,7 @@ func TestStartPendingLaunchAllowsIntakeMetadataWithoutStartingProvider(t *testin
 
 	store := &stubThreadStore{}
 	startCalled := false
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore:    store,
 		promptAssembly: promptAssemblyStub{},
 		starter: &startOnlySessionStarter{onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
@@ -188,7 +188,7 @@ func TestSpawnIfNeededPreservesPendingLaunchSandboxPreference(t *testing.T) {
 	sessions := &stubSessionProvider{}
 	bindings := &stubBindingStore{}
 	var capturedStart dto.StartSessionRequest
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore:             store,
 		bindingStore:            bindings,
 		sessions:                sessions,
@@ -254,7 +254,7 @@ func TestSpawnIfNeededKeepsPendingThreadRetryableOnSpawnFailure(t *testing.T) {
 		deletedIDs: &deletedIDs,
 	}
 	var stopped []threaddto.Stopped
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore: store,
 		promptAssembly: errorPromptAssembly{
 			err: errors.New("codex pool disabled for explicit identity"),
@@ -296,7 +296,7 @@ func TestSpawnIfNeededLaunchIntentFailureKeepsThreadVisible(t *testing.T) {
 	}
 	cause := errors.New("codex provider start failed")
 	var stopped []threaddto.Stopped
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore: store,
 		promptAssembly: errorPromptAssembly{
 			err: cause,
@@ -332,7 +332,7 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "codex", PromptKey: "main/missing"}),
 	}}
 	sessions := &stubSessionProvider{}
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore:             store,
 		bindingStore:            &stubBindingStore{},
 		sessions:                sessions,
@@ -383,7 +383,7 @@ func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
 	}}
 	sessions := &stubSessionProvider{}
 	bindings := &stubBindingStore{}
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore:             store,
 		bindingStore:            bindings,
 		sessions:                sessions,
@@ -437,7 +437,7 @@ func TestSpawnIfNeededUsesRuntimeCodexIdentityWhenPendingConfigIsPartial(t *test
 	}}
 	sessions := &stubSessionProvider{}
 	bindings := &stubBindingStore{}
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore:             store,
 		bindingStore:            bindings,
 		sessions:                sessions,
@@ -478,7 +478,7 @@ func TestRunPendingSpawnPropagatesRouterError(t *testing.T) {
 		},
 		insertErr: errors.New("version insert failed"),
 	}
-	svc := &service{
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(),
 		threadStore:   &stubThreadStore{},
 		promptCatalog: store,
 	}
@@ -508,7 +508,7 @@ func TestBuildPendingSpawnRequestRejectsMissingStoredCWD(t *testing.T) {
 		PendingLaunch: true,
 	}
 
-	_, err := buildPendingSpawnRequest(row, "thread-pending-missing-cwd", "hello", "")
+	_, err := buildPendingSpawnRequestWithTestGenerator(row, "thread-pending-missing-cwd", "hello", "")
 	if err == nil {
 		t.Fatal("buildPendingSpawnRequest() error = nil, want missing cwd error")
 	}
@@ -527,7 +527,7 @@ func TestBuildPendingSpawnRequestRejectsRequestCWDMismatch(t *testing.T) {
 		Cwd:           "/repo/stored-worktree",
 	}
 
-	_, err := buildPendingSpawnRequest(row, "thread-pending-cwd-mismatch", "hello", "/repo/active-window")
+	_, err := buildPendingSpawnRequestWithTestGenerator(row, "thread-pending-cwd-mismatch", "hello", "/repo/active-window")
 	if err == nil {
 		t.Fatal("buildPendingSpawnRequest() error = nil, want cwd mismatch error")
 	}
@@ -576,7 +576,7 @@ func TestStopPendingThread_CleansLaunchMutex(t *testing.T) {
 		Status:        statusCreated,
 		PendingLaunch: true,
 	}}
-	svc := &service{threadStore: store}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: store}
 
 	// Pre-populate the mutex map as if SpawnIfNeeded had been called.
 	_ = svc.acquirePendingLaunchLock("thread-pending-3")
@@ -601,7 +601,7 @@ func TestArchivePendingThread_CleansLaunchMutex(t *testing.T) {
 		Status:        statusCreated,
 		PendingLaunch: true,
 	}}
-	svc := &service{threadStore: store}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: store}
 
 	// Pre-populate the mutex map.
 	_ = svc.acquirePendingLaunchLock("thread-pending-4")
@@ -630,7 +630,7 @@ func TestDeletePendingThread_SkipsBindingResolution(t *testing.T) {
 		}},
 		deletedIDs: &deletedIDs,
 	}
-	svc := &service{threadStore: store}
+	svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: store}
 
 	// Pre-populate the mutex map.
 	_ = svc.acquirePendingLaunchLock("thread-pending-5")

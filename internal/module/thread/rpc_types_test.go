@@ -325,7 +325,7 @@ func TestThreadRPCParamsRejectUnknownFields(t *testing.T) {
 func TestNormalizeStartRequestRejectsMissingProvider(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := normalizeStartRequest(StartRequest{
+	_, _, err := normalizeStartRequestWithTestGenerator(StartRequest{
 		BaseInstructions: "  launch me  ",
 		CWD:              wantStartCWD(t),
 	})
@@ -337,7 +337,7 @@ func TestNormalizeStartRequestRejectsMissingProvider(t *testing.T) {
 func TestNormalizeStartRequestRejectsAgentIDWithLaunchIntentID(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := normalizeStartRequest(StartRequest{
+	_, _, err := normalizeStartRequestWithTestGenerator(StartRequest{
 		AgentID: "agent_from_client", LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider: "codex", CWD: wantStartCWD(t),
 	})
@@ -349,7 +349,7 @@ func TestNormalizeStartRequestRejectsAgentIDWithLaunchIntentID(t *testing.T) {
 func TestNormalizeStartRequestDoesNotDeriveNameFromPrompt(t *testing.T) {
 	t.Parallel()
 
-	req, _, err := normalizeStartRequest(StartRequest{Provider: "codex", Prompt: "  launch me  ", CWD: wantStartCWD(t)})
+	req, _, err := normalizeStartRequestWithTestGenerator(StartRequest{Provider: "codex", Prompt: "  launch me  ", CWD: wantStartCWD(t)})
 	if err != nil {
 		t.Fatalf("normalizeStartRequest() error = %v", err)
 	}
@@ -367,7 +367,7 @@ func TestNormalizeStartRequestDoesNotDeriveNameFromPrompt(t *testing.T) {
 func TestNormalizeStartRequestDropsConfigArtifacts(t *testing.T) {
 	t.Parallel()
 
-	req, _, err := normalizeStartRequest(StartRequest{
+	req, _, err := normalizeStartRequestWithTestGenerator(StartRequest{
 		Provider:      "codex",
 		ModelProvider: "[object Object]",
 		Model:         "[object Object]",

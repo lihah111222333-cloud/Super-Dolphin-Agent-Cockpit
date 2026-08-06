@@ -17,7 +17,7 @@ func TestStartLaunchIntentRetainedPendingTerminalKeepsKey(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			statusErr := errors.New("status update failed")
 			threads := &cleanupCountingThreadStore{statusErr: statusErr}
-			svc := &service{threadStore: threads}
+			svc := &service{agentIDGenerator: newTestAgentIDGenerator(), threadStore: threads}
 			req := StartRequest{LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111", Provider: "codex", CWD: wantStartCWD(t), DeferSpawn: true}
 			first, err := svc.Start(context.Background(), req)
 			if err != nil {

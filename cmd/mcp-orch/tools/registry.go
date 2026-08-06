@@ -13,6 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools/modelregistry"
 	workspace "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/workspace"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 // ToolPorts 按工具消费面拆分 orchestration 依赖，避免 registry 持有完整服务边界。
@@ -57,6 +58,7 @@ type Registry struct {
 // 它必须由拥有工具定义的构造器创建，不能跨 Registry 共享。
 type toolRuntimeState struct {
 	agentIDReg                 *agentIDRegistry
+	agentIDGenerator           *idgen.Generator
 	applyOpsActionEnum         []string
 	applyOpsOpEnum             []string
 	creatableNodeTypeEnum      []string
@@ -72,8 +74,16 @@ type toolRuntimeState struct {
 
 // newToolRuntimeState 构造一个工具定义所有者专属的运行时状态。
 func newToolRuntimeState() *toolRuntimeState {
+	return newToolRuntimeStateWithAgentIDGenerator(idgen.NewGenerator())
+}
+
+func newToolRuntimeStateWithAgentIDGenerator(generator *idgen.Generator) *toolRuntimeState {
+	if generator == nil {
+		panic("tools: agent id generator required")
+	}
 	return &toolRuntimeState{
 		agentIDReg:                 &agentIDRegistry{},
+		agentIDGenerator:           generator,
 		applyOpsActionEnum:         []string{"update_dag", "add_node", "update_node", "remove_node", "apply_ops_raw"},
 		applyOpsOpEnum:             []string{string(nodeexec.OpKindUpdateDAG), string(nodeexec.OpKindAddNode), string(nodeexec.OpKindUpdateNode), string(nodeexec.OpKindRemoveNode)},
 		creatableNodeTypeEnum:      []string{"agent", "automation"},
@@ -90,7 +100,12 @@ func newToolRuntimeState() *toolRuntimeState {
 
 // NewRegistry 汇总所有工具定义并建立名称索引。
 func NewRegistry(deps Dependencies) Registry {
-	runtimeState := newToolRuntimeState()
+	return NewRegistryWithAgentIDGenerator(deps, idgen.NewGenerator())
+}
+
+// NewRegistryWithAgentIDGenerator 使用应用根持有的 generator 构造工具注册表。
+func NewRegistryWithAgentIDGenerator(deps Dependencies, generator *idgen.Generator) Registry {
+	runtimeState := newToolRuntimeStateWithAgentIDGenerator(generator)
 	tools := append(orchestrationToolDefinitionsWithRuntimeState(deps.ToolPorts, runtimeState), taskToolDefinitionsWithRuntimeState(deps.ToolPorts, runtimeState)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
 	tools = append(tools, promptToolDefinitions(deps.Prompt, deps.BuiltinPrompts)...)

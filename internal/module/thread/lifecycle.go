@@ -84,7 +84,7 @@ type bindGenerationStatusRecord struct {
 // 返回的 release 必须在 startOnce 结束时执行，确保失败路径不会留下进程内 id 预留。
 func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (StartRequest, string, func(), error) {
 	callerProvidedID := strings.TrimSpace(req.AgentID) != ""
-	req, agentID, err := normalizeStartRequest(req)
+	req, agentID, err := normalizeStartRequest(req, s.agentIDGenerator)
 	if err != nil {
 		return req, "", nil, err
 	}

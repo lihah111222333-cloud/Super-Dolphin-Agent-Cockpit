@@ -10,6 +10,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	"go.uber.org/fx"
 )
 
@@ -17,9 +18,10 @@ var _ contract.PendingLaunchSpawner = (Service)(nil)
 
 var Module = fx.Module("thread",
 	fx.Provide(
+		idgen.NewGenerator,
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndSharedFiles,
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, ""),
 			fx.As(new(Service)),
 			fx.As(new(contract.PendingLaunchSpawner)),
 		),

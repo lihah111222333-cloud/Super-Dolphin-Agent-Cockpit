@@ -98,7 +98,7 @@ func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wa
 		return d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner cwd unavailable: %w", err), failFast)
 	}
 	req := LaunchRequest{
-		AgentID:   idgen.NewAgentID(),
+		AgentID:   d.agentIDGenerator.NewAgentID(),
 		Name:      sanitizeReplanLaunchName(w.DagKey, w.NodeKey),
 		AgentKey:  replanPlannerAgentKey,
 		AgentType: "agent",
@@ -730,9 +730,12 @@ func (a *serviceAgentLauncher) StopLaunchedThread(ctx context.Context, threadID 
 }
 
 // ProvideAgentExecutor 为 fx 提供带 spawn recorder 和 lifecycle hooks 的 agent executor。
-func ProvideAgentExecutor(launcher nodeexec.AgentLauncher, recorder nodeexec.NodeSpawnRecorder, hooks NodeLifecycleHooks) (*nodeexec.AgentExecutor, error) {
+func ProvideAgentExecutor(launcher nodeexec.AgentLauncher, recorder nodeexec.NodeSpawnRecorder, hooks NodeLifecycleHooks, generator *idgen.Generator) (*nodeexec.AgentExecutor, error) {
 	if recorder == nil {
 		return nil, errors.New("node router: agent executor requires node spawn recorder")
 	}
-	return nodeexec.NewAgentExecutor(launcher, nodeexec.WithRecorder(recorder), nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler(hooks))), nil
+	if generator == nil {
+		return nil, errors.New("node router: agent id generator required")
+	}
+	return nodeexec.NewAgentExecutor(launcher, nodeexec.WithRecorder(recorder), nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler(hooks)), nodeexec.WithAgentIDGenerator(generator)), nil
 }

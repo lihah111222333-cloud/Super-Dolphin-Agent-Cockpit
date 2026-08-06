@@ -16,6 +16,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idempotency"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -188,7 +189,7 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	}
 
 	agentID := threadID
-	req, err := buildPendingSpawnRequest(row, agentID, userInputForRouter, requestCWD)
+	req, err := buildPendingSpawnRequest(s.agentIDGenerator, row, agentID, userInputForRouter, requestCWD)
 	if err != nil {
 		return false, SpawnRouting{}, s.cleanupFailedPendingLaunch(ctx, threadID, agentID, err)
 	}
@@ -240,7 +241,7 @@ func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*t
 
 // buildPendingSpawnRequest 从 pending row 和首轮输入重建 StartRequest。
 // 存储 CWD 是权威值，请求 CWD 只用于校验；若规范化后 agent id 被改写，直接报错阻断错误绑定。
-func buildPendingSpawnRequest(row *threadConfigStoreRecord, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
+func buildPendingSpawnRequest(generator *idgen.Generator, row *threadConfigStoreRecord, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
 	cwd, err := resolvePendingLaunchCWD(row.Cwd, requestCWD)
 	if err != nil {
 		return StartRequest{}, err
@@ -269,7 +270,7 @@ func buildPendingSpawnRequest(row *threadConfigStoreRecord, agentID, userInputFo
 		ToolSurfaceMode:  storedCfg.ToolSurfaceMode,
 		Config:           clone.RuntimeConfigMap(storedCfg.Runtime),
 	}
-	normalized, normalizedAgentID, err := normalizeStartRequest(req)
+	normalized, normalizedAgentID, err := normalizeStartRequest(req, generator)
 	if err != nil {
 		return StartRequest{}, fmt.Errorf("thread: normalize pending spawn: %w", err)
 	}

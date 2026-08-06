@@ -23,6 +23,7 @@ import (
 	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	"github.com/qmuntal/stateless"
 	"go.uber.org/fx"
 
@@ -620,10 +621,11 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 type ProvideWakeupDispatcherRunnerIn struct {
 	fx.In
 
-	Store      taskdag.WakeupDispatchStore `optional:"true"`
-	Launcher   WakeupLauncher
-	Logger     *slog.Logger `optional:"true"`
-	DAGMetrics *platformmetrics.DAGCollector
+	Store            taskdag.WakeupDispatchStore `optional:"true"`
+	Launcher         WakeupLauncher
+	Logger           *slog.Logger `optional:"true"`
+	DAGMetrics       *platformmetrics.DAGCollector
+	AgentIDGenerator *idgen.Generator
 }
 
 // ProvideWakeupDispatcher 创建共享 wakeup dispatcher；未注入 Store 时返回 nil。
@@ -637,7 +639,10 @@ func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatc
 		logger.Info("orchestration: wakeup dispatcher disabled (no taskdag store provided)")
 		return nil, nil
 	}
-	dispatcher, err := NewWakeupDispatcherWithMetrics(in.Store, in.Launcher, logger, WakeupDispatcherConfig{}, in.DAGMetrics.Registry())
+	if in.AgentIDGenerator == nil {
+		return nil, errors.New("orchestration: agent id generator required")
+	}
+	dispatcher, err := NewWakeupDispatcherWithMetrics(in.Store, in.Launcher, logger, WakeupDispatcherConfig{AgentIDGenerator: in.AgentIDGenerator}, in.DAGMetrics.Registry())
 	if err != nil {
 		return nil, err
 	}

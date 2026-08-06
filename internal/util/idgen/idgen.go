@@ -16,24 +16,36 @@ func NewID(prefix string) string {
 	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().UnixMilli(), hex.EncodeToString(buf))
 }
 
-var lastAgentIDValue atomic.Uint64
+// Generator 持有当前进程根 agent ID 的单调序列状态。
+// 每个应用根必须显式构造并把同一实例注入其直接消费者。
+type Generator struct {
+	lastAgentIDValue atomic.Uint64
+}
+
+// NewGenerator 创建独立的根 agent ID 生成器。
+func NewGenerator() *Generator {
+	return &Generator{}
+}
 
 // NewAgentID 生成根 agent ID，并保证进程内单调递增。
 // 并发启动可能落在同一时钟刻度内，因此不能只依赖墙上时间去重。
-func NewAgentID() string {
-	return fmt.Sprintf("agent_%d", nextAgentIDValue())
+func (g *Generator) NewAgentID() string {
+	if g == nil {
+		panic("idgen: nil Generator")
+	}
+	return fmt.Sprintf("agent_%d", g.nextAgentIDValue())
 }
 
 // nextAgentIDValue 返回严格大于上次值的纳秒时间戳候选。
-func nextAgentIDValue() uint64 {
+func (g *Generator) nextAgentIDValue() uint64 {
 	for {
 		now := uint64(time.Now().UnixNano())
-		last := lastAgentIDValue.Load()
+		last := g.lastAgentIDValue.Load()
 		candidate := now
 		if candidate <= last {
 			candidate = last + 1
 		}
-		if lastAgentIDValue.CompareAndSwap(last, candidate) {
+		if g.lastAgentIDValue.CompareAndSwap(last, candidate) {
 			return candidate
 		}
 	}

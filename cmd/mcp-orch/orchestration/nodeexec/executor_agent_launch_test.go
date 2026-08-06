@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
 func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
@@ -26,8 +27,8 @@ func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
 		Title:    "Validate DAG node",
 	}
 
-	req := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
-	again := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
+	req := buildLaunchRequestFromAgentConfig(idgen.NewGenerator(), &cfg, node, RunContext{})
+	again := buildLaunchRequestFromAgentConfig(idgen.NewGenerator(), &cfg, node, RunContext{})
 
 	if !strings.HasPrefix(req.AgentID, "agent_") {
 		t.Fatalf("AgentID = %q, want agent_*", req.AgentID)
@@ -65,7 +66,7 @@ func TestBuildLaunchRequestFromAgentConfigForwardsRuntimeHints(t *testing.T) {
 		},
 	}
 
-	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+	req := buildLaunchRequestFromAgentConfig(idgen.NewGenerator(), &cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
 
 	if got := launchEnvValue(req.Env, "AGENT_PROVIDER"); got != "codex" {
 		t.Fatalf("AGENT_PROVIDER = %q, want codex", got)
@@ -99,7 +100,7 @@ func TestBuildLaunchRequestFromAgentConfigForwardsCodexModelProvider(t *testing.
 		t.Fatalf("unmarshal agent config: %v", err)
 	}
 
-	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+	req := buildLaunchRequestFromAgentConfig(idgen.NewGenerator(), &cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
 
 	if got := launchEnvValue(req.Env, "AGENT_CODEX_HOME"); got != "/Users/mac/.codex" {
 		t.Fatalf("AGENT_CODEX_HOME = %q, want /Users/mac/.codex; env=%#v", got, req.Env)
@@ -185,7 +186,7 @@ func TestAgentExecutorExecuteCodexProviderAllowsEmptyIdentity(t *testing.T) {
 func TestBuildLaunchRequestFromAgentConfigDoesNotInventCWD(t *testing.T) {
 	t.Parallel()
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
-	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+	req := buildLaunchRequestFromAgentConfig(idgen.NewGenerator(), &cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
 	if req.Cwd != "" {
 		t.Fatalf("Cwd = %q, want empty until exec.cwd is explicit", req.Cwd)
 	}

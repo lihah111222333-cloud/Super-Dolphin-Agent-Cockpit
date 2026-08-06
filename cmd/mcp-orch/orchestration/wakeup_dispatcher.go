@@ -31,6 +31,7 @@ const (
 
 // WakeupDispatcherConfig 控制 dispatcher 单轮领取和重试节奏；零值会在启动前补齐默认值。
 type WakeupDispatcherConfig struct {
+	AgentIDGenerator *idgen.Generator
 	ClaimedBy        string
 	LeaseInterval    string
 	BatchLimit       int32
@@ -43,7 +44,10 @@ type WakeupDispatcherConfig struct {
 func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 	out := c
 	if out.ClaimedBy == "" {
-		out.ClaimedBy = "mcp-orch-dispatcher-" + idgen.NewAgentID()
+		if out.AgentIDGenerator == nil {
+			panic("wakeup dispatcher: agent id generator required")
+		}
+		out.ClaimedBy = "mcp-orch-dispatcher-" + out.AgentIDGenerator.NewAgentID()
 	}
 	if out.LeaseInterval == "" {
 		out.LeaseInterval = defaultWakeupLeaseInterval
@@ -67,10 +71,11 @@ type WakeupLauncher interface {
 
 // WakeupDispatcher 负责 claim due wakeup、投递执行、按结果 retry/fail/mark sent。
 type WakeupDispatcher struct {
-	store    taskdag.WakeupDispatchStore
-	launcher WakeupLauncher // 非 DAG wakeup 的启动入口；DAG wakeup 优先走 nodeRouter。
-	logger   *slog.Logger
-	cfg      WakeupDispatcherConfig
+	store            taskdag.WakeupDispatchStore
+	launcher         WakeupLauncher // 非 DAG wakeup 的启动入口；DAG wakeup 优先走 nodeRouter。
+	logger           *slog.Logger
+	cfg              WakeupDispatcherConfig
+	agentIDGenerator *idgen.Generator
 
 	nodeRouter *NodeExecutorRouter
 
@@ -85,6 +90,9 @@ type WakeupDispatcher struct {
 func NewWakeupDispatcherWithMetrics(store taskdag.WakeupDispatchStore, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig, dagMetrics *dagmetrics.Registry) (*WakeupDispatcher, error) {
 	if store == nil {
 		return nil, errors.New("wakeup dispatcher: store required")
+	}
+	if cfg.AgentIDGenerator == nil {
+		return nil, errors.New("wakeup dispatcher: agent id generator required")
 	}
 	if dagMetrics == nil {
 		return nil, errors.New("wakeup dispatcher: DAG metrics registry is required")
@@ -106,6 +114,7 @@ func NewWakeupDispatcherWithMetrics(store taskdag.WakeupDispatchStore, launcher 
 		launcher:               launcher,
 		logger:                 logger,
 		cfg:                    normalized,
+		agentIDGenerator:       normalized.AgentIDGenerator,
 		leaseHeartbeatInterval: heartbeatInterval,
 		subscriberMetrics:      newDAGSubscriberCounter(),
 		dagMetrics:             dagMetrics,

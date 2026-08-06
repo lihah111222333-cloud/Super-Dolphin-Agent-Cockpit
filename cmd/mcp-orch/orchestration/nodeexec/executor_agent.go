@@ -17,9 +17,10 @@ import (
 // 成功拿到 child thread_id 后会通过 NodeSpawnRecorder 写回节点行；生产 wiring 缺 recorder
 // 会在上层构造路径拦截，直接构造器的 nil recorder 仅用于不需要持久化写回的单测。
 type AgentExecutor struct {
-	launcher AgentLauncher
-	recorder NodeSpawnRecorder
-	hooks    map[HookPoint]HookHandler
+	launcher         AgentLauncher
+	agentIDGenerator *idgen.Generator
+	recorder         NodeSpawnRecorder
+	hooks            map[HookPoint]HookHandler
 }
 
 // AgentLauncher 是 AgentExecutor 启动子 agent 的最小端口。
@@ -79,6 +80,11 @@ type NodeSpawnRecorder interface {
 // inputs 数据不走构造器，而是随每次 Execute 的 RunContext 传入，避免跨 run 状态泄漏。
 type Option func(*AgentExecutor)
 
+// WithAgentIDGenerator 注入应用根持有的 agent ID 生成器。
+func WithAgentIDGenerator(generator *idgen.Generator) Option {
+	return func(e *AgentExecutor) { e.agentIDGenerator = generator }
+}
+
 // WithRecorder 注入 child thread_id 写回端口。
 // 生产路径应提供 recorder；省略时 Execute 只做启动，不会持久化 spawn 关系。
 func WithRecorder(recorder NodeSpawnRecorder) Option {
@@ -95,7 +101,7 @@ func WithHooks(hooks map[HookPoint]HookHandler) Option {
 // launcher 为 nil 时不 panic，Execute 会把缺失 wiring 归为 validation 失败，
 // 让 dispatcher 以正常节点失败路径收敛，而不是让运行循环崩溃。
 func NewAgentExecutor(launcher AgentLauncher, opts ...Option) *AgentExecutor {
-	e := &AgentExecutor{launcher: launcher}
+	e := &AgentExecutor{launcher: launcher, agentIDGenerator: idgen.NewGenerator()}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(e)
@@ -159,7 +165,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	}
 
 	// 构造 LaunchRequest 并启动子 agent；inputsPrefix 必须在 first_turn 之前，保证上游上下文先进入模型。
-	req := buildLaunchRequestFromAgentConfig(cfg, node, runCtx)
+	req := buildLaunchRequestFromAgentConfig(e.agentIDGenerator, cfg, node, runCtx)
 	req.Prompt = composePrompt(inputsPrefix, artifactOutputContract(cfg.Outputs.ToArtifact), cfg.FirstTurn)
 	threadID, launchErr := e.launchAgent(ctx, req, node, runCtx)
 	return e.agentLaunchOutcome(ctx, node, runCtx, threadID, launchErr), nil
@@ -445,12 +451,15 @@ func resolveSpawnKeys(node Node, runCtx RunContext) (string, string) {
 //   - Provider/Model/Effort 通过 LaunchRequest.Env 传递给 remoteLauncher；
 //   - CWD 取 cfg.exec.cwd；
 //   - FirstTurn 作为初始 Prompt 注入。
-func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunContext) contract.LaunchRequest {
+func buildLaunchRequestFromAgentConfig(generator *idgen.Generator, cfg *AgentNodeConfig, node Node, _ RunContext) contract.LaunchRequest {
 	if cfg == nil {
 		return contract.LaunchRequest{}
 	}
+	if generator == nil {
+		panic("nodeexec: agent id generator required")
+	}
 	req := contract.LaunchRequest{
-		AgentID:   idgen.NewAgentID(),
+		AgentID:   generator.NewAgentID(),
 		Name:      sanitizeLaunchName(node.Title),
 		AgentKey:  strings.TrimSpace(cfg.Exec.AgentKey),
 		PromptKey: strings.TrimSpace(cfg.Exec.PromptKey),
