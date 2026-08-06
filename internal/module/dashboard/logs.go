@@ -28,7 +28,7 @@ func matchesLogSource(entrySource, filterSource string) bool {
 
 // matchesLogFields 对 LogFilter 中的精确字段逐项匹配，空字段表示不过滤。
 func matchesLogFields(entry LogEntry, filter LogFilter) bool {
-	for _, field := range logFilterFields {
+	for _, field := range newLogFilterFields() {
 		if !matchField(logFilterValue(filter, field), logEntryValue(entry, field)) {
 			return false
 		}

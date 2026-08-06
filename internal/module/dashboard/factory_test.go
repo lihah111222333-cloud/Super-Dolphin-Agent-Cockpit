@@ -52,3 +52,13 @@ func TestMapLogEntryIncludesTraceSpanFields(t *testing.T) {
 		t.Fatalf("matchesLogFilter() matched wrong parent span: %+v", entry)
 	}
 }
+
+func TestNewLogFilterFieldsReturnsIndependentSlice(t *testing.T) {
+	first := newLogFilterFields()
+	first[0] = "mutated"
+
+	second := newLogFilterFields()
+	if second[0] != logFieldLevel {
+		t.Fatalf("first log filter field = %q, want %q", second[0], logFieldLevel)
+	}
+}

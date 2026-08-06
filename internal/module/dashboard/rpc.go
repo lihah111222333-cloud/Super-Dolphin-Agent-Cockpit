@@ -180,7 +180,7 @@ func (p *dagDispatchNodeParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	for key := range payload {
-		if _, ok := dagDispatchNodeFields[key]; !ok {
+		if !isDAGDispatchNodeField(key) {
 			return fmt.Errorf("dashboard/dagDispatchNode: unknown field %q", key)
 		}
 	}
@@ -192,12 +192,14 @@ func (p *dagDispatchNodeParams) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// dagDispatchNodeFields 是 dagDispatchNodeParams 允许的 JSON 字段集合。
-var dagDispatchNodeFields = map[string]struct{}{
-	"assignedTo": {},
-	"dagKey":     {},
-	"nodeKey":    {},
-	"runId":      {},
+// isDAGDispatchNodeField 判断字段是否允许出现在 dagDispatchNodeParams 中。
+func isDAGDispatchNodeField(field string) bool {
+	switch field {
+	case "assignedTo", "dagKey", "nodeKey", "runId":
+		return true
+	default:
+		return false
+	}
 }
 
 // dagTerminateParams 是 dashboard/dagTerminate 的请求参数。

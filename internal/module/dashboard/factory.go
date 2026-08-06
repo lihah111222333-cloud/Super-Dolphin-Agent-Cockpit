@@ -53,44 +53,20 @@ const (
 	logFieldToolName     logFilterField = "tool_name"
 )
 
-// logFilterFields 是需要对 exact field 执行匹配的字段顺序。
-var logFilterFields = []logFilterField{
-	logFieldLevel,
-	logFieldLogger,
-	logFieldComponent,
-	logFieldAgentID,
-	logFieldThreadID,
-	logFieldTraceID,
-	logFieldSpanID,
-	logFieldParentSpanID,
-	logFieldEventType,
-	logFieldToolName,
-}
-
-var logFilterReaders = map[logFilterField]func(LogFilter) string{
-	logFieldLevel:        func(filter LogFilter) string { return filter.Level },
-	logFieldLogger:       func(filter LogFilter) string { return filter.Logger },
-	logFieldComponent:    func(filter LogFilter) string { return filter.Component },
-	logFieldAgentID:      func(filter LogFilter) string { return filter.AgentID },
-	logFieldThreadID:     func(filter LogFilter) string { return filter.ThreadID },
-	logFieldTraceID:      func(filter LogFilter) string { return filter.TraceID },
-	logFieldSpanID:       func(filter LogFilter) string { return filter.SpanID },
-	logFieldParentSpanID: func(filter LogFilter) string { return filter.ParentSpanID },
-	logFieldEventType:    func(filter LogFilter) string { return filter.EventType },
-	logFieldToolName:     func(filter LogFilter) string { return filter.ToolName },
-}
-
-var logEntryReaders = map[logFilterField]func(LogEntry) string{
-	logFieldLevel:        func(entry LogEntry) string { return entry.Level },
-	logFieldLogger:       func(entry LogEntry) string { return entry.Logger },
-	logFieldComponent:    func(entry LogEntry) string { return entry.Component },
-	logFieldAgentID:      func(entry LogEntry) string { return entry.AgentID },
-	logFieldThreadID:     func(entry LogEntry) string { return entry.ThreadID },
-	logFieldTraceID:      func(entry LogEntry) string { return entry.TraceID },
-	logFieldSpanID:       func(entry LogEntry) string { return entry.SpanID },
-	logFieldParentSpanID: func(entry LogEntry) string { return entry.ParentSpanID },
-	logFieldEventType:    func(entry LogEntry) string { return entry.EventType },
-	logFieldToolName:     func(entry LogEntry) string { return entry.ToolName },
+// newLogFilterFields 返回需要进行精确匹配的字段顺序。
+func newLogFilterFields() []logFilterField {
+	return []logFilterField{
+		logFieldLevel,
+		logFieldLogger,
+		logFieldComponent,
+		logFieldAgentID,
+		logFieldThreadID,
+		logFieldTraceID,
+		logFieldSpanID,
+		logFieldParentSpanID,
+		logFieldEventType,
+		logFieldToolName,
+	}
 }
 
 // safeList 执行可选 reader 查询。
@@ -158,18 +134,74 @@ func (p dagsParams) ToFilter() contract.ListDAGsFilter {
 
 // logFilterValue 读取 LogFilter 中指定字段的过滤值。
 func logFilterValue(filter LogFilter, field logFilterField) string {
-	if reader, ok := logFilterReaders[field]; ok {
-		return reader(filter)
+	switch field {
+	case logFieldLevel:
+		return filter.Level
+	case logFieldLogger:
+		return filter.Logger
+	case logFieldComponent:
+		return filter.Component
+	case logFieldAgentID:
+		return filter.AgentID
+	default:
+		return logFilterTraceValue(filter, field)
 	}
-	return ""
+}
+
+// logFilterTraceValue 读取 LogFilter 中 trace 及后续字段的过滤值。
+func logFilterTraceValue(filter LogFilter, field logFilterField) string {
+	switch field {
+	case logFieldThreadID:
+		return filter.ThreadID
+	case logFieldTraceID:
+		return filter.TraceID
+	case logFieldSpanID:
+		return filter.SpanID
+	case logFieldParentSpanID:
+		return filter.ParentSpanID
+	case logFieldEventType:
+		return filter.EventType
+	case logFieldToolName:
+		return filter.ToolName
+	default:
+		return ""
+	}
 }
 
 // logEntryValue 读取 LogEntry 中指定字段的实际值。
 func logEntryValue(entry LogEntry, field logFilterField) string {
-	if reader, ok := logEntryReaders[field]; ok {
-		return reader(entry)
+	switch field {
+	case logFieldLevel:
+		return entry.Level
+	case logFieldLogger:
+		return entry.Logger
+	case logFieldComponent:
+		return entry.Component
+	case logFieldAgentID:
+		return entry.AgentID
+	default:
+		return logEntryTraceValue(entry, field)
 	}
-	return ""
+}
+
+// logEntryTraceValue 读取 LogEntry 中 trace 及后续字段的实际值。
+func logEntryTraceValue(entry LogEntry, field logFilterField) string {
+	switch field {
+	case logFieldThreadID:
+		return entry.ThreadID
+	case logFieldTraceID:
+		return entry.TraceID
+	case logFieldSpanID:
+		return entry.SpanID
+	case logFieldParentSpanID:
+		return entry.ParentSpanID
+	case logFieldEventType:
+		return entry.EventType
+	case logFieldToolName:
+		return entry.ToolName
+	default:
+		return ""
+	}
 }
 
 // newSystemLogListFilter 将统一 LogFilter 投影为 system log 查询参数。
