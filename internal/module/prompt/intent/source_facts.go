@@ -184,7 +184,7 @@ func promptIntentExternalPromptSourceFacts() []promptIntentSourceFactRequirement
 	return []promptIntentSourceFactRequirement{
 		{category: "identity", label: "外部身份", always: true},
 		{category: "safety", label: "安全边界", always: true},
-		{category: "tool_protocol", label: "外部工具协议", terms: externalToolProtocolTerms},
+		{category: "tool_protocol", label: "外部工具协议", terms: promptIntentExternalToolProtocolTerms()},
 		{category: "search_reading", label: "搜索和读取代码", terms: []string{"search", "read", "file", "codebase"}},
 		{category: "code_change", label: "代码修改", terms: []string{"code change", "modify", "edit", "implementation"}},
 		{category: "dependency_api", label: "依赖/API 检查", terms: []string{"dependency", "dependencies", "library", "api", "external api"}},

@@ -529,7 +529,7 @@ func appendPromptIntentMissingIssue(issues []Issue, field, message, value string
 // 仅匹配明确的禁用词，避免误伤用户写出的具体场景说明。
 func promptIntentVagueWhenToUse(value string) bool {
 	text := normalizePromptIntentComparableText(value)
-	return promptIntentEqualsAnyTerm(text, promptIntentVagueWhenToUseTerms)
+	return promptIntentEqualsAnyTerm(text, promptIntentVagueWhenToUseTerms())
 }
 
 // promptIntentVagueOutput 判断 output 是否短到无法指导模型产出结构化结果。
@@ -537,8 +537,8 @@ func promptIntentVagueWhenToUse(value string) bool {
 func promptIntentVagueOutput(value string) bool {
 	text := normalizePromptIntentText(value)
 	return compactRuneLen(text) < 6 ||
-		promptIntentEqualsAnyTerm(text, promptIntentVagueOutputTerms) ||
-		(compactRuneLen(text) <= 16 && containsAnyPromptIntentTerm(text, promptIntentVagueOutputTerms))
+		promptIntentEqualsAnyTerm(text, promptIntentVagueOutputTerms()) ||
+		(compactRuneLen(text) <= 16 && containsAnyPromptIntentTerm(text, promptIntentVagueOutputTerms()))
 }
 
 // promptIntentNeedsSaveBoundary 判断草稿是否涉及保存、记忆或知识沉淀。
@@ -553,53 +553,59 @@ func promptIntentNeedsSaveBoundary(rawInput string, card Card) bool {
 		card.Output,
 		strings.Join(card.HitExamples, "\n"),
 	}, "\n"))
-	return containsAnyPromptIntentTerm(text, promptIntentSaveBoundaryTerms)
+	return containsAnyPromptIntentTerm(text, promptIntentSaveBoundaryTerms())
 }
 
-// promptIntentSaveBoundaryTerms 是触发保存边界说明的中英文关键词集合。
-var promptIntentSaveBoundaryTerms = []string{
-	"保存",
-	"记忆",
-	"沉淀",
-	"长期复用",
-	"知识库",
-	"持久化",
-	"save",
-	"saved",
-	"saving",
-	"remember",
-	"save to memory",
-	"store in memory",
-	"project memory",
-	"persist",
-	"knowledge base",
+// promptIntentSaveBoundaryTerms 返回触发保存边界说明的中英文关键词集合。
+func promptIntentSaveBoundaryTerms() []string {
+	return []string{
+		"保存",
+		"记忆",
+		"沉淀",
+		"长期复用",
+		"知识库",
+		"持久化",
+		"save",
+		"saved",
+		"saving",
+		"remember",
+		"save to memory",
+		"store in memory",
+		"project memory",
+		"persist",
+		"knowledge base",
+	}
 }
 
-// promptIntentVagueWhenToUseTerms 是 when_to_use 中不可接受的泛化占位短语。
-var promptIntentVagueWhenToUseTerms = []string{
-	"需要时使用",
-	"需要时",
-	"适用时使用",
-	"有需要时",
-	"所有任务",
-	"任何任务",
-	"use when needed",
-	"when needed",
-	"as needed",
-	"all tasks",
-	"any request",
+// promptIntentVagueWhenToUseTerms 返回 when_to_use 中不可接受的泛化占位短语。
+func promptIntentVagueWhenToUseTerms() []string {
+	return []string{
+		"需要时使用",
+		"需要时",
+		"适用时使用",
+		"有需要时",
+		"所有任务",
+		"任何任务",
+		"use when needed",
+		"when needed",
+		"as needed",
+		"all tasks",
+		"any request",
+	}
 }
 
-// promptIntentVagueOutputTerms 是 output 中不可接受的低信息占位短语。
-var promptIntentVagueOutputTerms = []string{
-	"整理结果",
-	"回答用户",
-	"输出结果",
-	"处理结果",
-	"结果",
-	"answer",
-	"response",
-	"output result",
+// promptIntentVagueOutputTerms 返回 output 中不可接受的低信息占位短语。
+func promptIntentVagueOutputTerms() []string {
+	return []string{
+		"整理结果",
+		"回答用户",
+		"输出结果",
+		"处理结果",
+		"结果",
+		"answer",
+		"response",
+		"output result",
+	}
 }
 
 // promptIntentEqualsAnyTerm 按规范化后的可比较文本做等值匹配。

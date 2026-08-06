@@ -3,69 +3,77 @@ package intent
 
 import "strings"
 
-// providerIdentityTerms 是表示 provider/模型身份的关键词，用于检测内容是否含有身份污染。
-var providerIdentityTerms = []string{
-	"you are claude",
-	"你是 claude",
-	"你是claude",
-	"claude code",
-	"you are cursor",
-	"你是 cursor",
-	"你是cursor",
-	"lovable",
-	"chatgpt",
-	"codex cli",
-	"operate exclusively in trae",
+// promptIntentProviderIdentityTerms 返回表示 provider/模型身份的关键词，用于检测内容是否含有身份污染。
+func promptIntentProviderIdentityTerms() []string {
+	return []string{
+		"you are claude",
+		"你是 claude",
+		"你是claude",
+		"claude code",
+		"you are cursor",
+		"你是 cursor",
+		"你是cursor",
+		"lovable",
+		"chatgpt",
+		"codex cli",
+		"operate exclusively in trae",
+	}
 }
 
-// externalToolProtocolTerms 是外部工具协议关键词，检测内容是否引用了平台专属工具。
-var externalToolProtocolTerms = []string{
-	"bash tool",
-	"bash tools",
-	"bash and edit tools",
-	"edit tool",
-	"edit tools",
-	"cursor rules",
-	"mcp__",
-	"read_file",
-	"write_file",
-	"str_replace_editor",
-	"computer use",
+// promptIntentExternalToolProtocolTerms 返回外部工具协议关键词，检测内容是否引用了平台专属工具。
+func promptIntentExternalToolProtocolTerms() []string {
+	return []string{
+		"bash tool",
+		"bash tools",
+		"bash and edit tools",
+		"edit tool",
+		"edit tools",
+		"cursor rules",
+		"mcp__",
+		"read_file",
+		"write_file",
+		"str_replace_editor",
+		"computer use",
+	}
 }
 
-// externalSystemPromptTerms 是外部 system/provider/persona prompt 特征词，用于判断输入是否来自外部提示词。
-var externalSystemPromptTerms = []string{
-	"you are claude",
-	"you are cursor",
-	"you are chatgpt",
-	"you are codex",
-	"you are an ai assistant",
-	"you are a powerful agentic ai coding assistant",
-	"operate exclusively in trae",
-	"system prompt",
-	"developer message",
-	"developer instructions",
-	"persona prompt",
-	"provider prompt",
-	"你是 claude",
-	"你是claude",
-	"你是 cursor",
-	"你是cursor",
-	"你是 chatgpt",
-	"你是chatgpt",
+// promptIntentExternalSystemPromptTerms 返回外部 system/provider/persona prompt 特征词，用于判断输入是否来自外部提示词。
+func promptIntentExternalSystemPromptTerms() []string {
+	return []string{
+		"you are claude",
+		"you are cursor",
+		"you are chatgpt",
+		"you are codex",
+		"you are an ai assistant",
+		"you are a powerful agentic ai coding assistant",
+		"operate exclusively in trae",
+		"system prompt",
+		"developer message",
+		"developer instructions",
+		"persona prompt",
+		"provider prompt",
+		"你是 claude",
+		"你是claude",
+		"你是 cursor",
+		"你是cursor",
+		"你是 chatgpt",
+		"你是chatgpt",
+	}
 }
 
-// overbroadScopeTerms 是适用范围过宽的关键词，触发 review 级别问题提示。
-var overbroadScopeTerms = []string{
-	"always",
-	"everything",
-	"all tasks",
-	"every task",
-	"any request",
-	"所有任务",
-	"任何任务",
-	"所有请求",
-	"总是",
+// promptIntentOverbroadScopeTerms 返回适用范围过宽的关键词，触发 review 级别问题提示。
+func promptIntentOverbroadScopeTerms() []string {
+	return []string{
+		"always",
+		"everything",
+		"all tasks",
+		"every task",
+		"any request",
+		"所有任务",
+		"任何任务",
+		"所有请求",
+		"总是",
+	}
 }
 
 // SafetyIssues 对用户原始输入和生成的草稿卡片执行安全校验，返回所有安全问题列表。
@@ -131,22 +139,22 @@ func promptIntentDefaultRuleStillLooksExternal(cardText string) bool {
 
 // promptIntentLooksLikeExternalSystemPrompt 判断文本是否包含外部系统提示词特征词。
 func promptIntentLooksLikeExternalSystemPrompt(text string) bool {
-	return containsAnyPromptIntentTerm(text, externalSystemPromptTerms)
+	return containsAnyPromptIntentTerm(text, promptIntentExternalSystemPromptTerms())
 }
 
 // promptIntentContainsProviderIdentity 判断文本是否含有模型/供应商身份声明。
 func promptIntentContainsProviderIdentity(text string) bool {
-	return containsAnyPromptIntentTerm(text, providerIdentityTerms)
+	return containsAnyPromptIntentTerm(text, promptIntentProviderIdentityTerms())
 }
 
 // promptIntentContainsExternalToolProtocol 判断文本是否含有外部工具协议关键词。
 func promptIntentContainsExternalToolProtocol(text string) bool {
-	return containsAnyPromptIntentTerm(text, externalToolProtocolTerms)
+	return containsAnyPromptIntentTerm(text, promptIntentExternalToolProtocolTerms())
 }
 
 // promptIntentLooksOverbroad 判断文本是否含有适用范围过宽的关键词。
 func promptIntentLooksOverbroad(text string) bool {
-	return containsAnyPromptIntentTerm(text, overbroadScopeTerms)
+	return containsAnyPromptIntentTerm(text, promptIntentOverbroadScopeTerms())
 }
 
 // containsAnyPromptIntentTerm 检查文本是否包含词表中的任意一项（大小写不敏感）。
