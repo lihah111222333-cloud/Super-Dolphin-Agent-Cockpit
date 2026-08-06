@@ -11,75 +11,42 @@ import (
 // redacted 是所有敏感字段统一替换后的展示值。
 const redacted = "[REDACTED]"
 
-// secretPatterns 覆盖常见 token、密钥和 Authorization 文本形态。
-var secretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;&]+`),
-	regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\s*[:=]\s*)[^\s,;&]+`),
-	regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
-}
-
 var metadataCamelBoundaryPattern = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
-var sensitiveMetadataKeyTokens = map[string]struct{}{
-	"auth":        {},
-	"body":        {},
-	"content":     {},
-	"credential":  {},
-	"credentials": {},
-	"cwd":         {},
-	"env":         {},
-	"input":       {},
-	"output":      {},
-	"params":      {},
-	"password":    {},
-	"path":        {},
-	"paths":       {},
-	"profile":     {},
-	"prompt":      {},
-	"raw":         {},
-	"secret":      {},
-	"stack":       {},
-	"text":        {},
-	"token":       {},
+// sanitizerRules 是一个 Sanitizer 或诊断 projector 独占的脱敏规则 owner。
+type sanitizerRules struct {
+	secretPatterns     []*regexp.Regexp
+	sensitiveKeyTokens map[string]struct{}
+	sensitiveExactKeys map[string]struct{}
 }
 
-var sensitiveMetadataKeys = map[string]struct{}{
-	"access_token":    {},
-	"api_key":         {},
-	"auth_token":      {},
-	"authorization":   {},
-	"file_content":    {},
-	"file_contents":   {},
-	"file_path":       {},
-	"id_token":        {},
-	"message_text":    {},
-	"output_tail":     {},
-	"raw_input":       {},
-	"raw_output":      {},
-	"raw_params":      {},
-	"raw_stack":       {},
-	"refresh_token":   {},
-	"request_params":  {},
-	"result_preview":  {},
-	"stack_trace":     {},
-	"stacktrace":      {},
-	"tool_result":     {},
-	"tool_results":    {},
-	"user_message":    {},
-	"user_prompt":     {},
-	"workspace_root":  {},
-	"workspace_roots": {},
+// newSanitizerRules 创建完整规则集；规则只在构造期建立，调用期不会回写。
+func newSanitizerRules() sanitizerRules {
+	return sanitizerRules{
+		secretPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;&]+`),
+			regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\s*[:=]\s*)[^\s,;&]+`),
+			regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
+		},
+		sensitiveKeyTokens: map[string]struct{}{
+			"auth": {}, "body": {}, "content": {}, "credential": {}, "credentials": {}, "cwd": {}, "env": {}, "input": {}, "output": {}, "params": {}, "password": {}, "path": {}, "paths": {}, "profile": {}, "prompt": {}, "raw": {}, "secret": {}, "stack": {}, "text": {}, "token": {},
+		},
+		sensitiveExactKeys: map[string]struct{}{
+			"access_token": {}, "api_key": {}, "auth_token": {}, "authorization": {}, "file_content": {}, "file_contents": {}, "file_path": {}, "id_token": {}, "message_text": {}, "output_tail": {}, "raw_input": {}, "raw_output": {}, "raw_params": {}, "raw_stack": {}, "refresh_token": {}, "request_params": {}, "result_preview": {}, "stack_trace": {}, "stacktrace": {}, "tool_result": {}, "tool_results": {}, "user_message": {}, "user_prompt": {}, "workspace_root": {}, "workspace_roots": {},
+		},
+	}
 }
 
 // Sanitizer 负责把 trace event 中的字符串、栈和 metadata 约束到可落盘形态。
 type Sanitizer struct {
 	stringMaxBytes   int
 	metadataMaxBytes int
+	rules            sanitizerRules
 }
 
 // NewSanitizer 根据配置创建 trace 脱敏器。
 func NewSanitizer(cfg Config) Sanitizer {
-	return Sanitizer{stringMaxBytes: cfg.StringMaxBytes, metadataMaxBytes: cfg.MetadataMaxBytes}
+	return Sanitizer{stringMaxBytes: cfg.StringMaxBytes, metadataMaxBytes: cfg.MetadataMaxBytes, rules: newSanitizerRules()}
 }
 
 // SanitizeEvent 统一设置 schema version，并脱敏事件所有可变文本字段。
@@ -108,7 +75,7 @@ func (s Sanitizer) SanitizeEvent(event TraceEvent) TraceEvent {
 // String 规范化多行文本、替换敏感片段，并按 UTF-8 边界截断。
 func (s Sanitizer) String(value string) string {
 	value = normalizeMultiline(value)
-	for _, pattern := range secretPatterns {
+	for _, pattern := range s.rules.secretPatterns {
 		value = pattern.ReplaceAllString(value, "$1"+redacted)
 	}
 	return truncateUTF8(value, s.stringMaxBytes)
@@ -185,7 +152,7 @@ func finiteFloat(value float64) (any, bool) {
 
 // metadataString 对敏感键直接整体隐藏，否则走通用字符串脱敏。
 func (s Sanitizer) metadataString(key string, value string) string {
-	if secretLikeKey(key) {
+	if s.secretLikeKey(key) {
 		return redacted
 	}
 	return s.String(value)
@@ -210,16 +177,16 @@ func (s Sanitizer) stringMap(values map[string]string) map[string]string {
 }
 
 // secretLikeKey 用键名判断字段是否应整体隐藏。
-func secretLikeKey(key string) bool {
+func (s Sanitizer) secretLikeKey(key string) bool {
 	normalized := normalizeMetadataKey(key)
 	if normalized == "" {
 		return false
 	}
-	if _, ok := sensitiveMetadataKeys[normalized]; ok {
+	if _, ok := s.rules.sensitiveExactKeys[normalized]; ok {
 		return true
 	}
 	for part := range strings.SplitSeq(normalized, "_") {
-		if _, ok := sensitiveMetadataKeyTokens[part]; ok {
+		if _, ok := s.rules.sensitiveKeyTokens[part]; ok {
 			return true
 		}
 	}

@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -22,7 +23,7 @@ func (h *Handler) recordToolTrace(ctx context.Context, event observability.Trace
 	}
 	fillToolTrace(ctx, &event)
 	if err := h.tracer.Record(ctx, event); err != nil {
-		observability.WarnRecordError(h.logger, "toolbridge", event, err)
+		h.tracer.WarnRecordError(h.logger, "toolbridge", event, err)
 	}
 }
 
@@ -184,9 +185,7 @@ func toolTraceEndEvent(req ToolCallRequest, result any, callErr error, elapsed t
 		"truncated":            false,
 		"affected_files_count": int64(affectedFiles),
 	}
-	for key, value := range toolTraceErrorMetadata(result, callErr) {
-		metadata[key] = value
-	}
+	maps.Copy(metadata, toolTraceErrorMetadata(result, callErr))
 	return observability.TraceEvent{
 		Method:      "tool.call.end",
 		ThreadID:    req.ThreadID,

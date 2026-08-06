@@ -36,17 +36,18 @@ func (f QueryTailReaderFunc) QueryTraceEvents(ctx context.Context, query Query) 
 // Service 负责 trace 采样、内存索引、可选 JSONL 写入和落盘 tail 回读。
 // tail 查询有并发上限和同查询合并，避免 UI 重复查询压垮落盘读取路径。
 type Service struct {
-	enabled        bool
-	disabledReason string
-	index          *Index
-	sampler        *Sampler
-	sanitizer      Sanitizer
-	sink           serviceSink
-	tail           queryTailReader
-	tailSem        chan struct{}
-	tailTimeoutMS  int
-	inflight       map[Query]*tailCall
-	inflightMu     sync.Mutex
+	enabled             bool
+	disabledReason      string
+	index               *Index
+	sampler             *Sampler
+	sanitizer           Sanitizer
+	sink                serviceSink
+	tail                queryTailReader
+	tailSem             chan struct{}
+	tailTimeoutMS       int
+	inflight            map[Query]*tailCall
+	inflightMu          sync.Mutex
+	recordErrorWarnings *recordErrorWarningLimiter
 }
 
 // ServiceOption 在创建 observability Service 时注入 sink、tail reader 或采样器。
@@ -63,7 +64,7 @@ type tailCall struct {
 // NewService 创建启用状态的 observability 服务，并应用测试或运行时注入选项。
 func NewService(cfg Config, options ...ServiceOption) *Service {
 	cfg = normalizeServiceConfig(cfg)
-	svc := &Service{enabled: true, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}}
+	svc := &Service{enabled: true, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}, recordErrorWarnings: newRecordErrorWarningLimiter()}
 	for _, option := range options {
 		option(svc)
 	}
@@ -77,7 +78,7 @@ func NewDisabledService(cfg Config) *Service {
 	if reason == "" {
 		reason = "observability tracing disabled"
 	}
-	return &Service{enabled: false, disabledReason: reason, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}}
+	return &Service{enabled: false, disabledReason: reason, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}, recordErrorWarnings: newRecordErrorWarningLimiter()}
 }
 
 // WithSink 注入 trace 持久化 sink。

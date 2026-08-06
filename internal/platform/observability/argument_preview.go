@@ -16,17 +16,27 @@ const (
 	argumentPreviewTruncated   = "... [truncated]"
 )
 
-var argumentPreviewAssignmentPrefixes = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)--(?:api[_-]?key|private[_-]?key|token|access-token|secret|password|credential|cookie|session|certificate)(?:[=\s]+)`),
-	regexp.MustCompile(`(?i)authorization\s*[:=]\s*bearer\s+`),
-	regexp.MustCompile(`(?i)\b(?:api[_-]?key|private[_-]?key|secret[_-]?key|access[_-]?token|token|password|credential|cookie|session|certificate)\s*[:=]\s*`),
-	regexp.MustCompile(`(?i)\b[A-Z_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z_]*\s*=\s*`),
+// argumentPreviewRules 把一次预览所需的正则规则固定在单次调用 owner 内，避免跨 runtime 共享可变 slice。
+type argumentPreviewRules struct {
+	assignmentPrefixes []*regexp.Regexp
+	patterns           []*regexp.Regexp
 }
 
-var argumentPreviewPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`sk-[A-Za-z0-9_-]+`),
-	regexp.MustCompile(`(?i)(?:/Users|/home|/private|/tmp|/var|/etc|/Volumes)/[^\s,;&"'}]+`),
-	regexp.MustCompile(`[A-Za-z]:\\[^\s,;&"'}]+`),
+// newArgumentPreviewRules 创建一次工具参数预览使用的完整脱敏规则集。
+func newArgumentPreviewRules() argumentPreviewRules {
+	return argumentPreviewRules{
+		assignmentPrefixes: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)--(?:api[_-]?key|private[_-]?key|token|access-token|secret|password|credential|cookie|session|certificate)(?:[=\s]+)`),
+			regexp.MustCompile(`(?i)authorization\s*[:=]\s*bearer\s+`),
+			regexp.MustCompile(`(?i)\b(?:api[_-]?key|private[_-]?key|secret[_-]?key|access[_-]?token|token|password|credential|cookie|session|certificate)\s*[:=]\s*`),
+			regexp.MustCompile(`(?i)\b[A-Z_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z_]*\s*=\s*`),
+		},
+		patterns: []*regexp.Regexp{
+			regexp.MustCompile(`sk-[A-Za-z0-9_-]+`),
+			regexp.MustCompile(`(?i)(?:/Users|/home|/private|/tmp|/var|/etc|/Volumes)/[^\s,;&"'}]+`),
+			regexp.MustCompile(`[A-Za-z]:\\[^\s,;&"'}]+`),
+		},
+	}
 }
 
 var argumentPreviewJSONLikePair = regexp.MustCompile(`"[^"\\\x00-\x1f]{1,128}"[ \t\r\n]*:`)
@@ -34,56 +44,61 @@ var argumentPreviewJSONLikePair = regexp.MustCompile(`"[^"\\\x00-\x1f]{1,128}"[ 
 // SafeToolArgumentsPreview 将任意工具参数编码成短预览，并统一执行参数脱敏与长度上限。
 // provider、toolbridge 和 UI 消费面都应从这里取 ArgumentsPreview，避免各自实现不同规则。
 func SafeToolArgumentsPreview(raw any) string {
+	rules := newArgumentPreviewRules()
 	if raw == nil {
 		return ""
 	}
 	switch typed := raw.(type) {
 	case string:
-		return SafeToolArgumentsPreviewString(typed)
+		return safeToolArgumentsPreviewString(typed, rules)
 	case []byte:
-		return safeToolArgumentsPreviewBytes(typed)
+		return safeToolArgumentsPreviewBytes(typed, rules)
 	case json.RawMessage:
-		return safeToolArgumentsPreviewBytes(typed)
+		return safeToolArgumentsPreviewBytes(typed, rules)
 	}
 	encoded, err := json.Marshal(raw)
 	if err != nil {
-		return SafeToolArgumentsPreviewString(fmt.Sprint(raw))
+		return safeToolArgumentsPreviewString(fmt.Sprint(raw), rules)
 	}
-	return safeToolArgumentsPreviewBytes(encoded)
+	return safeToolArgumentsPreviewBytes(encoded, rules)
 }
 
 // SafeToolArgumentsPreviewString 处理已经是字符串形态的工具参数预览。
 // 调用方传入 provider 原始 preview 时仍会走 JSON 感知脱敏、16KiB 输入上限和 512B 输出上限。
 func SafeToolArgumentsPreviewString(raw string) string {
+	return safeToolArgumentsPreviewString(raw, newArgumentPreviewRules())
+}
+
+func safeToolArgumentsPreviewString(raw string, rules argumentPreviewRules) string {
 	if len(raw) > argumentPreviewRawLimit {
-		return safeOversizedToolArgumentsPreview([]byte(raw[:argumentPreviewRawLimit]))
+		return safeOversizedToolArgumentsPreview([]byte(raw[:argumentPreviewRawLimit]), rules)
 	}
-	return safeToolArgumentsPreviewBytes([]byte(raw))
+	return safeToolArgumentsPreviewBytes([]byte(raw), rules)
 }
 
 // safeToolArgumentsPreviewBytes 对超限结构化输入 fail-closed，仅解析大小受限的完整输入。
-func safeToolArgumentsPreviewBytes(raw []byte) string {
+func safeToolArgumentsPreviewBytes(raw []byte, rules argumentPreviewRules) string {
 	limited, rawTruncated := limitArgumentPreviewRaw(raw)
 	if rawTruncated {
-		return safeOversizedToolArgumentsPreview(limited)
+		return safeOversizedToolArgumentsPreview(limited, rules)
 	}
 	text := strings.TrimSpace(strings.ToValidUTF8(string(limited), ""))
 	if text == "" {
 		return ""
 	}
-	if preview, ok := safeToolArgumentsPreviewJSON(text); ok {
+	if preview, ok := safeToolArgumentsPreviewJSON(text, rules); ok {
 		return finishArgumentPreview(preview, false)
 	}
-	return finishArgumentPreview(sanitizeArgumentPreviewText(text), false)
+	return finishArgumentPreview(sanitizeArgumentPreviewText(text, rules), false)
 }
 
 // safeOversizedToolArgumentsPreview 仅处理已经限制为 16KiB 的超限输入前缀。
-func safeOversizedToolArgumentsPreview(prefix []byte) string {
+func safeOversizedToolArgumentsPreview(prefix []byte, rules argumentPreviewRules) string {
 	if argumentPreviewPrefixLooksStructured(prefix) {
 		return finishArgumentPreview(redacted, true)
 	}
 	text := strings.TrimSpace(strings.ToValidUTF8(string(prefix), ""))
-	return finishArgumentPreview(sanitizeArgumentPreviewText(text), true)
+	return finishArgumentPreview(sanitizeArgumentPreviewText(text, rules), true)
 }
 
 // argumentPreviewPrefixLooksStructured 在固定大小探针内识别容器、短前缀键值和任意有限层 JSON 字符串转义。
@@ -174,7 +189,7 @@ func limitArgumentPreviewRaw(raw []byte) ([]byte, bool) {
 	return raw[:argumentPreviewRawLimit], true
 }
 
-func safeToolArgumentsPreviewJSON(text string) (string, bool) {
+func safeToolArgumentsPreviewJSON(text string, rules argumentPreviewRules) (string, bool) {
 	var decoded any
 	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
 		return "", false
@@ -184,7 +199,7 @@ func safeToolArgumentsPreviewJSON(text string) (string, bool) {
 	default:
 		return "", false
 	}
-	encoded, err := json.Marshal(sanitizeArgumentPreviewValue(decoded, ""))
+	encoded, err := json.Marshal(sanitizeArgumentPreviewValue(decoded, "", rules))
 	if err != nil {
 		return "", false
 	}
@@ -193,7 +208,7 @@ func safeToolArgumentsPreviewJSON(text string) (string, bool) {
 
 // sanitizeArgumentPreviewValue 递归复制 JSON 参数结构，并在敏感 key 下整体替换值。
 // 普通字符串继续走文本正则，确保 command 里的 token/flag 也不会绕过 JSON key 脱敏。
-func sanitizeArgumentPreviewValue(value any, key string) any {
+func sanitizeArgumentPreviewValue(value any, key string, rules argumentPreviewRules) any {
 	if key != "" && sensitiveArgumentPreviewKey(key) {
 		return redacted
 	}
@@ -201,28 +216,28 @@ func sanitizeArgumentPreviewValue(value any, key string) any {
 	case map[string]any:
 		out := make(map[string]any, len(typed))
 		for childKey, childValue := range typed {
-			out[sanitizeArgumentPreviewText(childKey)] = sanitizeArgumentPreviewValue(childValue, childKey)
+			out[sanitizeArgumentPreviewText(childKey, rules)] = sanitizeArgumentPreviewValue(childValue, childKey, rules)
 		}
 		return out
 	case []any:
 		out := make([]any, 0, len(typed))
 		for _, childValue := range typed {
-			out = append(out, sanitizeArgumentPreviewValue(childValue, key))
+			out = append(out, sanitizeArgumentPreviewValue(childValue, key, rules))
 		}
 		return out
 	case string:
-		return sanitizeArgumentPreviewStringValue(typed)
+		return sanitizeArgumentPreviewStringValue(typed, rules)
 	default:
 		return typed
 	}
 }
 
-func sanitizeArgumentPreviewStringValue(value string) string {
+func sanitizeArgumentPreviewStringValue(value string, rules argumentPreviewRules) string {
 	text := strings.TrimSpace(value)
-	if preview, ok := safeToolArgumentsPreviewJSON(text); ok {
+	if preview, ok := safeToolArgumentsPreviewJSON(text, rules); ok {
 		return preview
 	}
-	return sanitizeArgumentPreviewText(value)
+	return sanitizeArgumentPreviewText(value, rules)
 }
 
 // sensitiveArgumentPreviewKey 识别参数对象中必须整值替换的敏感字段名。
@@ -280,21 +295,21 @@ func sensitiveArgumentPreviewKeySegment(segment string) bool {
 	}
 }
 
-func sanitizeArgumentPreviewText(text string) string {
+func sanitizeArgumentPreviewText(text string, rules argumentPreviewRules) string {
 	if containsSensitivePEM(text) {
 		return redacted
 	}
 	text = strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(text)
-	text = redactSensitiveArgumentPreviewAssignments(text)
-	for _, pattern := range argumentPreviewPatterns {
+	text = redactSensitiveArgumentPreviewAssignments(text, rules)
+	for _, pattern := range rules.patterns {
 		text = pattern.ReplaceAllString(text, redacted)
 	}
 	return strings.Join(strings.Fields(text), " ")
 }
 
 // redactSensitiveArgumentPreviewAssignments 对敏感 key、环境变量和 flag 的赋值做整值替换。
-func redactSensitiveArgumentPreviewAssignments(text string) string {
-	for _, prefix := range argumentPreviewAssignmentPrefixes {
+func redactSensitiveArgumentPreviewAssignments(text string, rules argumentPreviewRules) string {
+	for _, prefix := range rules.assignmentPrefixes {
 		text = redactArgumentPreviewAssignmentsByPrefix(text, prefix)
 	}
 	return text

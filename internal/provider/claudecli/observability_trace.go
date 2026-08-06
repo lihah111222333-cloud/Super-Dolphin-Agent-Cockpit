@@ -32,7 +32,7 @@ func (d *driver) recordDriverTrace(ctx context.Context, event observability.Trac
 	}
 	fillClaudeTrace(ctx, &event, d.traceSpanCounter)
 	if err := d.tracer.Record(ctx, event); err != nil {
-		observability.WarnRecordError(d.logger, "provider.claudecli.driver", event, err)
+		d.tracer.WarnRecordError(d.logger, "provider.claudecli.driver", event, err)
 	}
 }
 
@@ -45,7 +45,7 @@ func (s *session) recordProviderTrace(ctx context.Context, event observability.T
 	}
 	fillClaudeTrace(ctx, &event, s.traceSpanCounter)
 	if err := s.tracer.Record(ctx, event); err != nil {
-		observability.WarnRecordError(s.logger, "provider.claudecli.session", event, err)
+		s.tracer.WarnRecordError(s.logger, "provider.claudecli.session", event, err)
 	}
 }
 

@@ -80,19 +80,6 @@ type BusEventSummary struct {
 	Success   *bool  `json:"success,omitempty"`
 }
 
-var busSummaryStringSetters = map[string]func(*BusEventSummary, string){
-	"ThreadID":  func(summary *BusEventSummary, value string) { summary.ThreadID = value },
-	"AgentID":   func(summary *BusEventSummary, value string) { summary.AgentID = value },
-	"SessionID": func(summary *BusEventSummary, value string) { summary.SessionID = value },
-	"TurnID":    func(summary *BusEventSummary, value string) { summary.TurnID = value },
-	"CallID":    func(summary *BusEventSummary, value string) { summary.CallID = value },
-	"ToolName":  func(summary *BusEventSummary, value string) { summary.ToolName = value },
-	"Provider":  func(summary *BusEventSummary, value string) { summary.Provider = value },
-	"Model":     func(summary *BusEventSummary, value string) { summary.Model = value },
-	"Stream":    func(summary *BusEventSummary, value string) { summary.Stream = value },
-	"InputType": func(summary *BusEventSummary, value string) { summary.InputType = value },
-}
-
 // SafePreview 将任意值转换为单行脱敏预览；超过 maxBytes 时只返回大小和哈希。
 func SafePreview(value any, maxBytes int) SafePreviewResult {
 	raw := safePreviewBytes(value)
@@ -387,18 +374,36 @@ func collectBusSummaryField(field reflect.StructField, value reflect.Value, summ
 }
 
 func setBusSummaryField(name string, value reflect.Value, summary *BusEventSummary) bool {
-	if setter, ok := busSummaryStringSetters[name]; ok {
-		setter(summary, safeSummaryString(value))
-		return true
-	}
-	if name == "Success" {
+	switch name {
+	case "ThreadID":
+		summary.ThreadID = safeSummaryString(value)
+	case "AgentID":
+		summary.AgentID = safeSummaryString(value)
+	case "SessionID":
+		summary.SessionID = safeSummaryString(value)
+	case "TurnID":
+		summary.TurnID = safeSummaryString(value)
+	case "CallID":
+		summary.CallID = safeSummaryString(value)
+	case "ToolName":
+		summary.ToolName = safeSummaryString(value)
+	case "Provider":
+		summary.Provider = safeSummaryString(value)
+	case "Model":
+		summary.Model = safeSummaryString(value)
+	case "Stream":
+		summary.Stream = safeSummaryString(value)
+	case "InputType":
+		summary.InputType = safeSummaryString(value)
+	case "Success":
 		if value.Kind() == reflect.Bool {
 			success := value.Bool()
 			summary.Success = &success
 		}
-		return true
+	default:
+		return false
 	}
-	return false
+	return true
 }
 
 func safeSummaryString(value reflect.Value) string {
@@ -409,7 +414,7 @@ func safeSummaryString(value reflect.Value) string {
 }
 
 func safePreviewSanitizer(maxBytes int) Sanitizer {
-	return Sanitizer{stringMaxBytes: maxBytes, metadataMaxBytes: maxBytes}
+	return NewSanitizer(Config{StringMaxBytes: maxBytes, MetadataMaxBytes: maxBytes})
 }
 
 // safePreviewJSON 对对象或数组 JSON 做键名感知脱敏，避免 quoted password/token 绕过文本正则。
@@ -432,7 +437,7 @@ func safePreviewJSON(raw []byte, sanitizer Sanitizer) (string, bool) {
 
 // safePreviewJSONValue 递归复制 JSON 值，敏感键下的值整体替换，普通字符串继续走通用脱敏。
 func safePreviewJSONValue(value any, key string, sanitizer Sanitizer) any {
-	if key != "" && secretLikeKey(key) {
+	if key != "" && sanitizer.secretLikeKey(key) {
 		return redacted
 	}
 	switch typed := value.(type) {

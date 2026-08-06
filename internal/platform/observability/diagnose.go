@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -223,9 +224,7 @@ func (d *TraceDiagnosis) addTailStatus(result QueryResult, err error, projector 
 // tailDecodeWarnings 将最多 TraceDiagnosisMaxTailWarnings 个 JSONL 解码错误转成人类可读提示。
 func tailDecodeWarnings(errors []TailDecodeError, projector traceDiagnosisProjector) []string {
 	limit := len(errors)
-	if limit > TraceDiagnosisMaxTailWarnings {
-		limit = TraceDiagnosisMaxTailWarnings
-	}
+	limit = min(limit, TraceDiagnosisMaxTailWarnings)
 	warnings := make([]string, 0, limit)
 	for _, decodeError := range errors[:limit] {
 		warnings = append(warnings, tailDecodeWarning(decodeError, projector))
@@ -316,11 +315,14 @@ func errorSummaryFromEvent(event TraceEvent, includeStack bool, projector traceD
 }
 
 // traceDiagnosisProjector 负责诊断输出的路径相对化、敏感信息脱敏和字符串限长。
-type traceDiagnosisProjector struct{ roots []string }
+type traceDiagnosisProjector struct {
+	roots []string
+	rules sanitizerRules
+}
 
 // newTraceDiagnosisProjector 从请求中的 workspace/cwd 构造可公开的路径根。
 func newTraceDiagnosisProjector(req TraceDiagnosisRequest) traceDiagnosisProjector {
-	return traceDiagnosisProjector{roots: diagnosisRoots(req.WorkspaceRoot, req.CWD)}
+	return traceDiagnosisProjector{roots: diagnosisRoots(req.WorkspaceRoot, req.CWD), rules: newSanitizerRules()}
 }
 
 // codeAnchor 对源码锚点做路径和函数名脱敏。
@@ -331,9 +333,7 @@ func (p traceDiagnosisProjector) codeAnchor(anchor CodeAnchor) CodeAnchor {
 // stack 裁剪并脱敏 stack frame，避免一次 panic 泄露大量本机路径。
 func (p traceDiagnosisProjector) stack(frames []StackFrame) []StackFrame {
 	limit := len(frames)
-	if limit > TraceDiagnosisMaxStackFrames {
-		limit = TraceDiagnosisMaxStackFrames
-	}
+	limit = min(limit, TraceDiagnosisMaxStackFrames)
 	out := make([]StackFrame, 0, limit)
 	for _, frame := range frames[:limit] {
 		out = append(out, StackFrame{File: p.path(frame.File), Function: p.string(frame.Function), Line: frame.Line})
@@ -349,7 +349,7 @@ func (p traceDiagnosisProjector) status(status Status) Status {
 // string 规范化多行文本、脱敏 secret/身份/路径并按诊断字符串上限截断。
 func (p traceDiagnosisProjector) string(value string) string {
 	value = normalizeMultiline(value)
-	for _, pattern := range secretPatterns {
+	for _, pattern := range p.rules.secretPatterns {
 		value = pattern.ReplaceAllString(value, "$1"+redacted)
 	}
 	value = diagnosisEmailPattern.ReplaceAllString(value, redacted)
@@ -457,11 +457,6 @@ func diagnosisRelativePath(root string, candidate string) (string, bool) {
 	return rel, true
 }
 
-// diagnosisString 对单个字符串应用默认诊断脱敏规则。
-func diagnosisString(value string) string {
-	return newTraceDiagnosisProjector(TraceDiagnosisRequest{}).string(value)
-}
-
 // addEvent 收集事件关联 ID，所有值先经过 projector 脱敏和限长。
 func (ids *TraceDiagnosisRelatedIDs) addEvent(event TraceEvent, projector traceDiagnosisProjector) {
 	ids.ThreadIDs = appendUniqueBounded(ids.ThreadIDs, event.ThreadID, projector)
@@ -477,10 +472,8 @@ func appendUniqueBounded(values []string, value string, projector traceDiagnosis
 	if value == "" || len(values) >= TraceDiagnosisMaxRelatedIDs {
 		return values
 	}
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
+	if slices.Contains(values, value) {
+		return values
 	}
 	return append(values, value)
 }
