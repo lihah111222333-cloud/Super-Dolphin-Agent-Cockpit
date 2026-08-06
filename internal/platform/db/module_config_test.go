@@ -170,6 +170,26 @@ func TestNewDBRejectsUnwritableExistingParentWithRedaction(t *testing.T) {
 	}
 }
 
+func TestRequiredSchemaOwnersReturnIndependentValues(t *testing.T) {
+	tables := requiredBaselineTables()
+	tables[0] = "test-mutation"
+	if got := requiredBaselineTables()[0]; got != "agent_provider_binding" {
+		t.Fatalf("requiredBaselineTables()[0] = %q, want agent_provider_binding", got)
+	}
+
+	columns := requiredBaselineColumns()
+	columns[0].table = "test-mutation"
+	if got := requiredBaselineColumns()[0]; got != (requiredSQLiteColumn{table: "agent_threads", column: "prompt_snapshot"}) {
+		t.Fatalf("requiredBaselineColumns()[0] = %#v, want agent_threads.prompt_snapshot", got)
+	}
+
+	views := requiredTerminalProtocolViews()
+	views[0] = "test-mutation"
+	if got := requiredTerminalProtocolViews()[0]; got != "terminal_outcome_heads" {
+		t.Fatalf("requiredTerminalProtocolViews()[0] = %q, want terminal_outcome_heads", got)
+	}
+}
+
 func TestRunSQLiteMigrationsAndSchemaGate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "super-dolphin.db")
 	database, err := NewDB(&config.Config{SQLitePath: path})
@@ -184,7 +204,7 @@ func TestRunSQLiteMigrationsAndSchemaGate(t *testing.T) {
 	if err := VerifyMinSchemaVersion(context.Background(), database); err != nil {
 		t.Fatalf("VerifyMinSchemaVersion() error = %v", err)
 	}
-	for _, table := range requiredBaselineTables {
+	for _, table := range requiredBaselineTables() {
 		assertSQLiteTableExists(t, database, table)
 	}
 	assertMigrationMarkerCount(t, database, "001_baseline.sql", 1)

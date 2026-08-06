@@ -32,51 +32,53 @@ func NewDB(cfg *config.Config) (*sql.DB, error) {
 // MinRequiredSchemaVersion 是当前二进制正常运行所需的 schema_migrations.version 下限。
 const MinRequiredSchemaVersion = 123
 
-var requiredBaselineTables = []string{
-	// agent_codex_binding: 历史遗留表，数据合并至 agent_provider_binding.codex_thread_id，无活跃 sqlc query
-	// topology_approval_archives: 无 sql/queries/*.sql 文件，不进入 SQLite runtime
-	"agent_provider_binding",
-	"agent_status",
-	"agent_threads",
-	"terminal_outcome_current_heads",
-	"public_terminal_outcome_history",
-	"terminal_outcome_private_dag_payloads",
-	"terminal_outcome_outbox_v2",
-	"audit_events",
-	"bus_exception_logs",
-	"prompts",
-	"prompt_templates",
-	"prompt_template_versions",
-	"prompt_versions",
-	"prompt_template_sections",
-	"prompt_recall_topics",
-	"prompt_routing_tests",
-	"prompt_intent_drafts",
-	"command_cards",
-	"command_card_versions",
-	"command_card_runs",
-	"shared_files",
-	"agent_feedback_events",
-	"session_insights",
-	"hook_pending_reviews",
-	"agent_interactions",
-	"topology_approvals",
-	"ui_preferences",
-	"system_logs",
-	"task_traces",
-	"cwd_instance_locks",
-	"turn_dedupe_registry",
-	"cron_jobs",
-	"cron_job_runs",
-	"task_acks",
-	"task_dags",
-	"task_dag_runs",
-	"task_dag_nodes",
-	"task_dag_wakeups",
-	"task_dag_worker_leases",
-	"workspace_run_files",
-	"workspace_runs",
-	"runtime_locks",
+func requiredBaselineTables() []string {
+	return []string{
+		// agent_codex_binding: 历史遗留表，数据合并至 agent_provider_binding.codex_thread_id，无活跃 sqlc query
+		// topology_approval_archives: 无 sql/queries/*.sql 文件，不进入 SQLite runtime
+		"agent_provider_binding",
+		"agent_status",
+		"agent_threads",
+		"terminal_outcome_current_heads",
+		"public_terminal_outcome_history",
+		"terminal_outcome_private_dag_payloads",
+		"terminal_outcome_outbox_v2",
+		"audit_events",
+		"bus_exception_logs",
+		"prompts",
+		"prompt_templates",
+		"prompt_template_versions",
+		"prompt_versions",
+		"prompt_template_sections",
+		"prompt_recall_topics",
+		"prompt_routing_tests",
+		"prompt_intent_drafts",
+		"command_cards",
+		"command_card_versions",
+		"command_card_runs",
+		"shared_files",
+		"agent_feedback_events",
+		"session_insights",
+		"hook_pending_reviews",
+		"agent_interactions",
+		"topology_approvals",
+		"ui_preferences",
+		"system_logs",
+		"task_traces",
+		"cwd_instance_locks",
+		"turn_dedupe_registry",
+		"cron_jobs",
+		"cron_job_runs",
+		"task_acks",
+		"task_dags",
+		"task_dag_runs",
+		"task_dag_nodes",
+		"task_dag_wakeups",
+		"task_dag_worker_leases",
+		"workspace_run_files",
+		"workspace_runs",
+		"runtime_locks",
+	}
 }
 
 type requiredSQLiteColumn struct {
@@ -84,28 +86,32 @@ type requiredSQLiteColumn struct {
 	column string
 }
 
-var requiredBaselineColumns = []requiredSQLiteColumn{
-	{table: "agent_threads", column: "prompt_snapshot"},
-	{table: "agent_provider_binding", column: "provider_recovery_home"},
-	{table: "hook_pending_reviews", column: "thread_id"},
-	{table: "hook_pending_reviews", column: "turn_id"},
-	{table: "hook_pending_reviews", column: "payload"},
-	{table: "shared_files", column: "content_location"},
-	{table: "turn_dedupe_registry", column: "terminal_at"},
-	{table: "terminal_outcome_current_heads", column: "capability"},
-	{table: "terminal_outcome_current_heads", column: "version"},
-	{table: "terminal_outcome_current_heads", column: "terminal_identity"},
-	{table: "public_terminal_outcome_history", column: "head_version"},
-	{table: "public_terminal_outcome_history", column: "public_outcome_json"},
-	{table: "terminal_outcome_private_dag_payloads", column: "payload_json"},
-	{table: "terminal_outcome_outbox_v2", column: "public_payload_json"},
-	{table: "terminal_outcome_outbox_v2", column: "claim_token"},
+func requiredBaselineColumns() []requiredSQLiteColumn {
+	return []requiredSQLiteColumn{
+		{table: "agent_threads", column: "prompt_snapshot"},
+		{table: "agent_provider_binding", column: "provider_recovery_home"},
+		{table: "hook_pending_reviews", column: "thread_id"},
+		{table: "hook_pending_reviews", column: "turn_id"},
+		{table: "hook_pending_reviews", column: "payload"},
+		{table: "shared_files", column: "content_location"},
+		{table: "turn_dedupe_registry", column: "terminal_at"},
+		{table: "terminal_outcome_current_heads", column: "capability"},
+		{table: "terminal_outcome_current_heads", column: "version"},
+		{table: "terminal_outcome_current_heads", column: "terminal_identity"},
+		{table: "public_terminal_outcome_history", column: "head_version"},
+		{table: "public_terminal_outcome_history", column: "public_outcome_json"},
+		{table: "terminal_outcome_private_dag_payloads", column: "payload_json"},
+		{table: "terminal_outcome_outbox_v2", column: "public_payload_json"},
+		{table: "terminal_outcome_outbox_v2", column: "claim_token"},
+	}
 }
 
-var requiredTerminalProtocolViews = []string{
-	"terminal_outcome_heads",
-	"public_terminal_outcomes",
-	"terminal_outcome_outbox",
+func requiredTerminalProtocolViews() []string {
+	return []string{
+		"terminal_outcome_heads",
+		"public_terminal_outcomes",
+		"terminal_outcome_outbox",
+	}
 }
 
 // VerifyMinSchemaVersion 校验 SQLite schema 版本和基线表完整性。
@@ -171,7 +177,7 @@ func verifySQLiteBaselineTables(ctx context.Context, q any) error {
 
 func missingSQLiteBaselineTables(ctx context.Context, q sqlContextQueryRow) ([]string, error) {
 	var missing []string
-	for _, table := range requiredBaselineTables {
+	for _, table := range requiredBaselineTables() {
 		var exists int
 		if err := q.QueryRowContext(ctx,
 			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -193,7 +199,7 @@ func verifyTerminalProtocolViews(ctx context.Context, q any) error {
 	if !ok {
 		return fmt.Errorf("unsupported terminal protocol queryer %T", q)
 	}
-	for _, name := range requiredTerminalProtocolViews {
+	for _, name := range requiredTerminalProtocolViews() {
 		var objectType string
 		if err := v.QueryRowContext(ctx,
 			"SELECT type FROM sqlite_master WHERE name = ?",
@@ -228,9 +234,10 @@ func verifySQLiteRequiredColumns(ctx context.Context, q any) error {
 // missingSQLiteRequiredColumns 汇总 schema gate 需要的缺失列列表。
 // 同一张表只读取一次 PRAGMA，避免启动检查随 required 列数量线性重复扫表。
 func missingSQLiteRequiredColumns(ctx context.Context, q sqlContextQuery) ([]string, error) {
-	columnsByTable := make(map[string]map[string]struct{}, len(requiredBaselineColumns))
+	requiredColumns := requiredBaselineColumns()
+	columnsByTable := make(map[string]map[string]struct{}, len(requiredColumns))
 	missing := make([]string, 0)
-	for _, required := range requiredBaselineColumns {
+	for _, required := range requiredColumns {
 		columns, ok := columnsByTable[required.table]
 		if !ok {
 			var err error

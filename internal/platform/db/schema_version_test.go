@@ -236,7 +236,7 @@ func (queryRowOnly) QueryRowContext(context.Context, string, ...any) *sql.Row {
 
 func createMarkerBaselineTables(t *testing.T, db *sql.DB) {
 	t.Helper()
-	for _, table := range requiredBaselineTables {
+	for _, table := range requiredBaselineTables() {
 		if _, err := db.ExecContext(context.Background(), fmt.Sprintf(`CREATE TABLE %s (id INTEGER)`, table)); err != nil {
 			t.Fatalf("create marker table %s: %v", table, err)
 		}
