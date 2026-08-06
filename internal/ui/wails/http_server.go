@@ -64,16 +64,41 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 // NewHTTPAssetServer 创建同时服务前端资源和 JRPC WebSocket 的 runner。
 // WebSocket token 在 runner 构造时确定，后续 route guard 和 asset cookie 共用同一值。
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
+	handler, previewAddr, startupErr := buildHTTPAssetHandler(p)
+	metricsHandler, metricsErr := buildHTTPMetricsHandler(p)
+	if metricsErr != nil {
+		startupErr = errors.Join(startupErr, metricsErr)
+	}
+	return httpAssetRunnerResult{
+		Runner: &httpAssetServer{
+			logger:      p.Logger,
+			addr:        resolveHTTPAssetAddr(),
+			handler:     handler,
+			metrics:     metricsHandler,
+			server:      p.Server,
+			wsToken:     resolveWailsWebSocketToken(),
+			previewAddr: previewAddr,
+			startupErr:  startupErr,
+		},
+	}
+}
+
+// buildHTTPAssetHandler 构造资源 handler 并汇总资源初始化错误。
+func buildHTTPAssetHandler(p httpAssetServerParams) (http.Handler, *sharedFilePreviewHTTPAddr, error) {
 	handler, startupErr := assetHandlerFromForMode(p.Frontend, isDebug(p.Config))
 	localAssets, localErr := p.Binding.localImageAssets()
 	sharedAssets, previewAddr, sharedErr := p.Binding.sharedFilePreviewAssets()
 	startupErr = errors.Join(startupErr, localErr, sharedErr)
-	if handler != nil {
-		if localErr == nil && sharedErr == nil {
-			handler = withSharedFilePreviewAssetsRegistry(withClipboardAssetsRegistry(handler, localAssets), sharedAssets)
-		}
+	if handler != nil && localErr == nil && sharedErr == nil {
+		handler = withSharedFilePreviewAssetsRegistry(withClipboardAssetsRegistry(handler, localAssets), sharedAssets)
 	}
+	return handler, previewAddr, startupErr
+}
+
+// buildHTTPMetricsHandler 构造本地指标 handler 并汇总 collector 错误。
+func buildHTTPMetricsHandler(p httpAssetServerParams) (http.Handler, error) {
 	cronCollector, err := metrics.NewCronRecoveryCollector(p.Metrics)
+	var startupErr error
 	if err != nil {
 		startupErr = errors.Join(startupErr, err)
 	}
@@ -98,18 +123,7 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 			startupErr = errors.Join(startupErr, err)
 		}
 	}
-	return httpAssetRunnerResult{
-		Runner: &httpAssetServer{
-			logger:      p.Logger,
-			addr:        resolveHTTPAssetAddr(),
-			handler:     handler,
-			metrics:     metricsHandler,
-			server:      p.Server,
-			wsToken:     resolveWailsWebSocketToken(),
-			previewAddr: previewAddr,
-			startupErr:  startupErr,
-		},
-	}
+	return metricsHandler, startupErr
 }
 
 // resolveHTTPAssetAddr 解析 HTTP asset server 监听地址。
