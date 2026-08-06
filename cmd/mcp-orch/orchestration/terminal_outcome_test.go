@@ -844,7 +844,7 @@ func addTerminalOutcomeTestAgent(svc *service) *agentRuntime {
 		ExpectedActiveState: string(agent.state), ActivatedAt: time.Date(2026, 7, 29, 1, 2, 2, 0, time.UTC),
 	})
 	if err != nil {
-		panic(err)
+		panic(err) // archguard:ignore panic_count -- test fixture cannot continue without activating the canonical terminal head.
 	}
 	agent.terminalHeadVersion = head.Version
 	return agent
@@ -867,11 +867,11 @@ func terminalOutcomeEvent(success bool) turndto.TurnCompleted {
 	}
 	terminal, err := turndto.NewTurnTerminalV2(ev, "terminal:event-1")
 	if err != nil {
-		panic(err)
+		panic(err) // archguard:ignore panic_count -- test fixture requires a valid canonical terminal to exercise terminal outcomes.
 	}
 	ev, err = turndto.AttachCanonicalTurnTerminal(ev, terminal)
 	if err != nil {
-		panic(err)
+		panic(err) // archguard:ignore panic_count -- test fixture requires canonical terminal attachment before exercising terminal outcomes.
 	}
 	return ev
 }

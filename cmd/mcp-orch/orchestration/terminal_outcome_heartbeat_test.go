@@ -11,6 +11,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
 
 func TestOutboxProjectorHeartbeatPreventsConcurrentReclaimDuringSlowDAGProjection(t *testing.T) {
@@ -35,9 +36,9 @@ func TestOutboxProjectorHeartbeatPreventsConcurrentReclaimDuringSlowDAGProjectio
 	}
 	const lease = 500 * time.Millisecond
 	projected := make(chan error, 1)
-	go func() {
+	runtimesafe.SafeGo(t.Context(), svc.logger, "orchestration.test.terminalOutcomeHeartbeatSlowProjection", func(context.Context) {
 		projected <- svc.ProcessTerminalOutcomeOutbox(context.Background(), "worker-heartbeat-a", lease, 1)
-	}()
+	})
 	select {
 	case <-lookup.started:
 	case <-time.After(time.Second):
@@ -85,9 +86,9 @@ func TestOutboxProjectorHeartbeatRenewFailureCancelsWorkWithoutAck(t *testing.T)
 	svc.terminalOutcomes = probe
 
 	result := make(chan error, 1)
-	go func() {
+	runtimesafe.SafeGo(t.Context(), svc.logger, "orchestration.test.terminalOutcomeHeartbeatRenewFailure", func(context.Context) {
 		result <- svc.processTerminalOutcomeOutboxItem(t.Context(), workerID, lease, item)
-	}()
+	})
 	waitForTerminalOutcomeHeartbeatWork(t, lookup.started)
 	err := waitForTerminalOutcomeHeartbeatResult(t, result)
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, renewErr) {
@@ -111,14 +112,14 @@ func TestOutboxProjectorHeartbeatPanicCompletesWithoutAck(t *testing.T) {
 		if probe.renewCalls.Add(1) == 1 {
 			return probe.TerminalOutcomeCommitPort.RenewTerminalOutcomeOutbox(ctx, outboxID, workerID, claimToken, lease)
 		}
-		panic("unstable heartbeat detail")
+		panic("unstable heartbeat detail") // archguard:ignore panic_count -- test injects heartbeat panic to verify stable recovery without acknowledging the outbox item.
 	}
 	svc.terminalOutcomes = probe
 
 	result := make(chan error, 1)
-	go func() {
+	runtimesafe.SafeGo(t.Context(), svc.logger, "orchestration.test.terminalOutcomeHeartbeatPanic", func(context.Context) {
 		result <- svc.processTerminalOutcomeOutboxItem(t.Context(), workerID, lease, item)
-	}()
+	})
 	waitForTerminalOutcomeHeartbeatWork(t, lookup.started)
 	err := waitForTerminalOutcomeHeartbeatResult(t, result)
 	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "terminal outcome heartbeat panicked") {
@@ -144,9 +145,9 @@ func TestOutboxProjectorCallerCancellationJoinsWithoutAck(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	result := make(chan error, 1)
-	go func() {
+	runtimesafe.SafeGo(ctx, svc.logger, "orchestration.test.terminalOutcomeCallerCancellation", func(context.Context) {
 		result <- svc.processTerminalOutcomeOutboxItem(ctx, workerID, lease, item)
-	}()
+	})
 	waitForTerminalOutcomeHeartbeatWork(t, lookup.started)
 	cancel()
 	err := waitForTerminalOutcomeHeartbeatResult(t, result)
