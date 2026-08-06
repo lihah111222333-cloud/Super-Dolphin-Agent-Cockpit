@@ -77,14 +77,14 @@ func newLoggerRuntime() *pkglogger.Runtime {
 }
 
 // newLogger 初始化日志写入器，优先写入 /tmp/mcp-orch-<pid>.log，失败时回退到 stderr。
-func newLogger(logRuntime *pkglogger.Runtime, cfg *platformconfig.Config) *slog.Logger {
+func newLogger(logRuntime *pkglogger.Runtime, cfg *platformconfig.Config) (*slog.Logger, error) {
 	return newLoggerWithOpenFile(logRuntime, cfg, os.OpenFile, os.Stderr)
 }
 
 // newLoggerWithOpenFile 初始化 mcp-orch logger，并把文件打开动作注入出来供测试覆盖失败分支。
-func newLoggerWithOpenFile(logRuntime *pkglogger.Runtime, _ *platformconfig.Config, openLogFile openLogFileFunc, stderr io.Writer) *slog.Logger {
+func newLoggerWithOpenFile(logRuntime *pkglogger.Runtime, _ *platformconfig.Config, openLogFile openLogFileFunc, stderr io.Writer) (*slog.Logger, error) {
 	if logRuntime == nil {
-		panic("mcp-orch logger runtime is required")
+		return nil, errors.New("mcp-orch logger runtime is required")
 	}
 	if stderr == nil {
 		stderr = os.Stderr
@@ -98,7 +98,7 @@ func newLoggerWithOpenFile(logRuntime *pkglogger.Runtime, _ *platformconfig.Conf
 		logRuntime.InitWithConsoleWriter(stderr)
 	}
 	logRuntime.BindDefault()
-	return logRuntime.Get()
+	return logRuntime.Get(), nil
 }
 
 // newQueries 创建 mcp-orch store 使用的 sqlc 查询集。
@@ -297,11 +297,11 @@ func newStdioRunner(server *common.Server) platformrunner.Runner {
 }
 
 // newBootstrapRunner 创建 peer bootstrap runner，等待 stdio server ready 后再注册主控。
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) platformrunner.Runner {
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) (platformrunner.Runner, error) {
 	if logRuntime == nil {
-		panic("mcp-orch logger runtime is required")
+		return nil, errors.New("mcp-orch logger runtime is required")
 	}
-	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}
+	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}, nil
 }
 
 // ListTools 只把 registry 定义转换为 MCP tool 列表，不解释 scope。

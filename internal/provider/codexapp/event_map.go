@@ -23,12 +23,16 @@ import (
 )
 
 // RegisterTranslators 将 Codex raw event 翻译器注册到统一事件分发器。
-func RegisterTranslators(dispatcher *unified.EventDispatcher, configuredHooks ...providershared.RuntimeHooks) {
-	hooks := runtimeHooksOrZero(configuredHooks)
+func RegisterTranslators(dispatcher *unified.EventDispatcher, configuredHooks ...providershared.RuntimeHooks) error {
+	hooks, err := runtimeHooksOrZero(configuredHooks)
+	if err != nil {
+		return err
+	}
 	if dispatcher != nil {
 		translator := newCodexEventTranslator(hooks)
 		dispatcher.Register(translator.translateAdapterEvent)
 	}
+	return nil
 }
 
 type codexEventTranslator struct {
@@ -50,9 +54,14 @@ func (t *codexEventTranslator) translateAdapterEvent(raw dto.RawProviderEvent, p
 }
 
 // translateCodexAdapterEvent 为绕过 session 的合法 raw producer 幂等附加 canonical outcome。
-func translateCodexAdapterEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) {
-	translator := newCodexEventTranslator(runtimeHooksOrZero(configuredHooks))
+func translateCodexAdapterEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) error {
+	hooks, err := runtimeHooksOrZero(configuredHooks)
+	if err != nil {
+		return err
+	}
+	translator := newCodexEventTranslator(hooks)
 	translator.translateAdapterEvent(raw, publish)
+	return nil
 }
 
 func canonicalizeCodexAdapterRaw(raw dto.RawProviderEvent) dto.RawProviderEvent {
@@ -90,9 +99,14 @@ func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeade
 
 // translateCodexEvent 把 Codex app-server raw event 分派到 agent、turn、tool 三类统一事件。
 // 未识别事件只在排除 token usage、重试进度和已知噪声后告警，避免日志被高频流事件淹没。
-func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) {
-	translator := newCodexEventTranslator(runtimeHooksOrZero(configuredHooks))
+func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) error {
+	hooks, err := runtimeHooksOrZero(configuredHooks)
+	if err != nil {
+		return err
+	}
+	translator := newCodexEventTranslator(hooks)
 	translator.translateEvent(raw, publish)
+	return nil
 }
 
 func (t *codexEventTranslator) translateEvent(raw dto.RawProviderEvent, publish func(ev any)) {
@@ -582,8 +596,7 @@ func isKnownAgentState(state string) bool {
 
 // translateToolEvent 将 Codex tool/approval/diff 事件转换为统一 tool DTO。
 // tool end 会捕获结果预览并落盘大结果，避免 UI 事件携带过大的原始 payload。
-func translateToolEvent(eventType string, payload map[string]any, configuredHooks ...providershared.RuntimeHooks) (any, bool) {
-	hooks := runtimeHooksOrZero(configuredHooks)
+func translateToolEvent(eventType string, payload map[string]any, hooks providershared.RuntimeHooks) (any, bool) {
 	if isApprovalBridgeMethod(eventType) {
 		return tooldto.ToolApprovalRequested{
 			ToolApprovalHeader: buildToolApprovalHeader(payload),

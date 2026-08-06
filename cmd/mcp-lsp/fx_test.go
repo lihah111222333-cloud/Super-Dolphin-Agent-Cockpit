@@ -22,6 +22,12 @@ func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
 	}
 }
 
+func TestNewBootstrapRunnerRequiresLoggerRuntime(t *testing.T) {
+	if _, err := newBootstrapRunner(bootstrap.Config{}, nil, nil, nil); err == nil {
+		t.Fatal("newBootstrapRunner() error = nil, want missing logger runtime")
+	}
+}
+
 func TestBootstrapProviderRejectsInvalidSnapshotDuringGraphConstruction(t *testing.T) {
 	app := fx.New(
 		fx.NopLogger,

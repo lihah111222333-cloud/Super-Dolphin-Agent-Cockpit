@@ -142,11 +142,11 @@ func stripBootSnapshotCapabilities(raw json.RawMessage) (json.RawMessage, error)
 }
 
 // newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) platformrunner.Runner {
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) (platformrunner.Runner, error) {
 	if logRuntime == nil {
-		panic("mcp-ida logger runtime is required")
+		return nil, errors.New("mcp-ida logger runtime is required")
 	}
-	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}
+	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}, nil
 }
 
 func newSidecarLoggerRuntime() *pkglogger.Runtime {
@@ -209,9 +209,9 @@ func newStdioRunner(server *common.Server) platformrunner.Runner {
 
 // bindRuntime 将运行组生命周期绑定到 fx，OnStart 启动 goroutine 运行所有 runner，
 // OnStop 取消 ctx 并等待运行组退出，超时时返回 ctx 错误。
-func bindRuntime(lc fx.Lifecycle, params runtimeParams, logRuntime *pkglogger.Runtime) {
+func bindRuntime(lc fx.Lifecycle, params runtimeParams, logRuntime *pkglogger.Runtime) error {
 	if logRuntime == nil {
-		panic("mcp-ida logger runtime is required")
+		return errors.New("mcp-ida logger runtime is required")
 	}
 	log := logRuntime.Get()
 	var (
@@ -260,4 +260,5 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams, logRuntime *pkglogger.Ru
 			}
 		},
 	})
+	return nil
 }

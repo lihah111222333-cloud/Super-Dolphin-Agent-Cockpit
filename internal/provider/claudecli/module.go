@@ -42,7 +42,7 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.ProxyTokenFn, p.Mirror, p.Recovery, p.Metrics, p.Tracer)
+			return buildDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.ProxyTokenFn, p.Mirror, p.Recovery, p.Metrics, p.Tracer)
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "Read", Label: "直接读项目文件", Description: "绕过项目文件工具直接读取工作区文件。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},

@@ -141,9 +141,11 @@ func TestNewLoggerFallbackWarnsToStderr(t *testing.T) {
 	var stderr bytes.Buffer
 	openErr := errors.New("open denied")
 
-	newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
+	if _, err := newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
 		return nil, openErr
-	}, &stderr)
+	}, &stderr); err != nil {
+		t.Fatalf("newLoggerWithOpenFile() error = %v", err)
+	}
 
 	if got := stderr.String(); !strings.Contains(got, "mcp-orch logger fallback to stderr") {
 		t.Fatalf("stderr = %q, want fallback warning", got)
@@ -163,9 +165,11 @@ func TestNewLoggerFallbackDoesNotWriteStdout(t *testing.T) {
 	})
 
 	var stderr bytes.Buffer
-	newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
+	if _, err := newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
 		return nil, errors.New("open denied")
-	}, &stderr)
+	}, &stderr); err != nil {
+		t.Fatalf("newLoggerWithOpenFile() error = %v", err)
+	}
 
 	os.Stdout = originalStdout
 	if err := stdoutW.Close(); err != nil {
@@ -191,12 +195,23 @@ func TestNewLoggerOpenSuccessSkipsFallbackWarning(t *testing.T) {
 	t.Cleanup(func() { _ = logFile.Close() })
 
 	var stderr bytes.Buffer
-	newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
+	if _, err := newLoggerWithOpenFile(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), nil, func(string, int, os.FileMode) (*os.File, error) {
 		return logFile, nil
-	}, &stderr)
+	}, &stderr); err != nil {
+		t.Fatalf("newLoggerWithOpenFile() error = %v", err)
+	}
 
 	if got := stderr.String(); strings.Contains(got, "mcp-orch logger fallback to stderr") {
 		t.Fatalf("stderr = %q, want no fallback warning", got)
+	}
+}
+
+func TestRuntimeProvidersRequireLoggerRuntime(t *testing.T) {
+	if _, err := newLoggerWithOpenFile(nil, nil, nil, nil); err == nil {
+		t.Fatal("newLoggerWithOpenFile() error = nil, want missing logger runtime")
+	}
+	if _, err := newBootstrapRunner(bootstrap.Config{}, nil, nil, nil); err == nil {
+		t.Fatal("newBootstrapRunner() error = nil, want missing logger runtime")
 	}
 }
 

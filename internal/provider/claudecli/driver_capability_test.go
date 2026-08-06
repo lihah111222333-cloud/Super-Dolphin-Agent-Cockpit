@@ -45,15 +45,15 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 func TestNewDriverDefaultsLoggerAndBinaryPath(t *testing.T) {
 	t.Parallel()
 
-	got, ok := newDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
+	got, ok := buildDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)))
+		t.Fatalf("buildDriver() type = %T, want *driver", buildDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)))
 	}
 	if got.logger == nil {
-		t.Fatal("newDriver() logger = nil")
+		t.Fatal("buildDriver() logger = nil")
 	}
 	if got.binaryPath == "" {
-		t.Fatal("newDriver() binaryPath = empty")
+		t.Fatal("buildDriver() binaryPath = empty")
 	}
 	if got.Name() != "claude" {
 		t.Fatalf("Name() = %q, want claude", got.Name())
@@ -100,6 +100,12 @@ func TestClaudeDriverFactoryRequiresSkillMetricsRegistry(t *testing.T) {
 	}
 }
 
+func TestNewDriverRequiresSkillMetricsRegistry(t *testing.T) {
+	if _, err := newDriver(nil, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
+		t.Fatal("newDriver() error = nil, want missing skill metrics registry")
+	}
+}
+
 func completeClaudeDriverFactoryParamsForTest(t *testing.T) driverFactoryParams {
 	return driverFactoryParams{
 		Reporter:   &stubRuntimeReporter{},
@@ -112,7 +118,7 @@ func TestDriverReportRuntimeUsesProviderWithoutPort(t *testing.T) {
 	t.Parallel()
 
 	reporter := &stubRuntimeReporter{}
-	got := newDriver(nil, nil, reporter, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
+	got := buildDriver(nil, nil, reporter, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 	if err := got.reportRuntime(" agent-1 "); err != nil {
 		t.Fatalf("reportRuntime() error = %v", err)
 	}

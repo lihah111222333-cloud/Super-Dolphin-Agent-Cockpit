@@ -96,6 +96,15 @@ func TestBootstrapRunnerRequiresRPCAddr(t *testing.T) {
 	}
 }
 
+func TestRuntimeProvidersRequireLoggerRuntime(t *testing.T) {
+	if _, err := newBootstrapRunner(bootstrap.Config{}, nil, nil, nil); err == nil {
+		t.Fatal("newBootstrapRunner() error = nil, want missing logger runtime")
+	}
+	if err := bindRuntime(nil, runtimeParams{}, nil); err == nil {
+		t.Fatal("bindRuntime() error = nil, want missing logger runtime")
+	}
+}
+
 func TestRunFailsWhenRPCAddrMissing(t *testing.T) {
 	originalStdin := os.Stdin
 	t.Cleanup(func() {

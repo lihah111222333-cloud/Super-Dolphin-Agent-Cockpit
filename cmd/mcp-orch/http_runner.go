@@ -31,13 +31,13 @@ type httpRunner struct {
 }
 
 // newHTTPRunner 在 peer 模式下创建 HTTP runner；非 peer 模式返回阻塞空 runner。
-func newHTTPRunner(registry tools.Registry, logRuntime *pkglogger.Runtime) platformrunner.Runner {
+func newHTTPRunner(registry tools.Registry, logRuntime *pkglogger.Runtime) (platformrunner.Runner, error) {
 	if logRuntime == nil {
-		panic("mcp-orch logger runtime is required")
+		return nil, errors.New("mcp-orch logger runtime is required")
 	}
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		// Non-peer mode: return a runner that blocks until context done.
-		return blockRunner{}
+		return blockRunner{}, nil
 	}
 	toolProvider := registryToolProvider{registry: registry}
 	bearerToken := bootstrap.SessionTokenFromEnv()
@@ -57,7 +57,7 @@ func newHTTPRunner(registry tools.Registry, logRuntime *pkglogger.Runtime) platf
 		},
 		writePeerDiscovery:   discovery.WritePeerDiscovery,
 		cleanupPeerDiscovery: discovery.CleanupPeerDiscovery,
-	}
+	}, nil
 }
 
 // blockRunner 是非 peer 模式的占位 runner，只等待上下文取消。

@@ -44,8 +44,8 @@ var Module = fx.Module("provider.codexapp",
 )
 
 // registerTranslatorsWithRuntimeHooks 将同一 runtime owner 显式注入 Codex 事件翻译链。
-func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, hooks providershared.RuntimeHooks) {
-	RegisterTranslators(dispatcher, hooks)
+func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, hooks providershared.RuntimeHooks) error {
+	return RegisterTranslators(dispatcher, hooks)
 }
 
 // provideDefaultPeerSupervisor 构造生产使用的 PeerSupervisor runner。
@@ -111,7 +111,10 @@ func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
 	if p.LogRuntime == nil {
 		return nil, fmt.Errorf("codexapp logger runtime is required")
 	}
-	factory := NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery, p.RuntimeHooks)
+	factory, err := NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery, p.RuntimeHooks)
+	if err != nil {
+		return nil, err
+	}
 	factory.SetSkillMetrics(p.Metrics)
 	factory.SetLogRuntime(p.LogRuntime)
 	return factory, nil

@@ -10,11 +10,20 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
+func TestNewHTTPRunnerRequiresLoggerRuntime(t *testing.T) {
+	if _, err := newHTTPRunner(tools.Registry{}, nil); err == nil {
+		t.Fatal("newHTTPRunner() error = nil, want missing logger runtime")
+	}
+}
+
 func TestNewHTTPRunnerPeerModeRequiresSessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_PEER_MODE", "1")
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "")
 
-	runner := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	runner, err := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	if err != nil {
+		t.Fatalf("newHTTPRunner() error = %v", err)
+	}
 	httpRunner, ok := runner.(*httpRunner)
 	if !ok {
 		t.Fatalf("newHTTPRunner() = %T, want *httpRunner", runner)
@@ -23,7 +32,7 @@ func TestNewHTTPRunnerPeerModeRequiresSessionToken(t *testing.T) {
 		t.Fatalf("bearerToken = %q, want empty before fail-fast Run", httpRunner.bearerToken)
 	}
 
-	err := httpRunner.Run(context.Background())
+	err = httpRunner.Run(context.Background())
 	if !errors.Is(err, errOrchHTTPSessionTokenRequired) {
 		t.Fatalf("Run() error = %v, want errOrchHTTPSessionTokenRequired", err)
 	}
@@ -33,7 +42,10 @@ func TestNewHTTPRunnerPeerModeCarriesSessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_PEER_MODE", "1")
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", " secret ")
 
-	runner := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	runner, err := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	if err != nil {
+		t.Fatalf("newHTTPRunner() error = %v", err)
+	}
 	httpRunner, ok := runner.(*httpRunner)
 	if !ok {
 		t.Fatalf("newHTTPRunner() = %T, want *httpRunner", runner)
@@ -48,7 +60,10 @@ func TestNewHTTPRunnerPeerModeCarriesLegacySessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "")
 	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", " legacy-secret ")
 
-	runner := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	runner, err := newHTTPRunner(tools.Registry{}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	if err != nil {
+		t.Fatalf("newHTTPRunner() error = %v", err)
+	}
 	httpRunner, ok := runner.(*httpRunner)
 	if !ok {
 		t.Fatalf("newHTTPRunner() = %T, want *httpRunner", runner)

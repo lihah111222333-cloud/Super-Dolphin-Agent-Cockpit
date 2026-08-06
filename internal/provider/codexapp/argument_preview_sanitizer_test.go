@@ -10,6 +10,7 @@ import (
 	"github.com/kelindar/event"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
@@ -21,7 +22,7 @@ func TestTranslateToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 		"callId":    "call-1",
 		"toolName":  "shell",
 		"arguments": sensitiveCodexArguments(),
-	})
+	}, providershared.RuntimeHooks{})
 	if !ok {
 		t.Fatal("translateToolEvent() ok=false, want ToolCallBegin")
 	}
@@ -40,7 +41,7 @@ func TestTranslateToolCallBeginFailsClosedForOversizedEncodedArguments(t *testin
 		"callId":    "call-oversized",
 		"toolName":  "shell",
 		"arguments": raw,
-	})
+	}, providershared.RuntimeHooks{})
 	if !ok {
 		t.Fatal("translateToolEvent() ok=false, want ToolCallBegin")
 	}

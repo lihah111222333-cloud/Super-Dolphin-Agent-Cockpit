@@ -14,6 +14,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
 type stubRuntimeReporter struct {
@@ -192,7 +193,10 @@ func TestCodexNativeToolPolicyDoesNotOverrideSandboxForNativelyDisabledWriteTool
 func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	t.Parallel()
 
-	factory := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory, err := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewDriverFactory() error = %v", err)
+	}
 	factory.SetLogRuntime(testLoggerRuntime(t))
 	if factory.Name != "codex" {
 		t.Fatalf("factory.Name = %q, want codex", factory.Name)
@@ -203,6 +207,13 @@ func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	}
 	if got.Name() != "codex" {
 		t.Fatalf("created driver Name() = %q, want codex", got.Name())
+	}
+}
+
+func TestNewDriverFactoryRejectsMultipleRuntimeHooksOwners(t *testing.T) {
+	_, err := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil, providershared.RuntimeHooks{}, providershared.RuntimeHooks{})
+	if err == nil {
+		t.Fatal("NewDriverFactory() error = nil, want multiple runtime hooks owners failure")
 	}
 }
 

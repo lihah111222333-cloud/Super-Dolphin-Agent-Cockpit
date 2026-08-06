@@ -119,10 +119,14 @@ func (d *driver) proxyHTTPToken() string {
 }
 
 // newDriver 创建 Claude CLI driver，并注入可替换的启动、认证和观测依赖。
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) (contract.Driver, error) {
 	if metrics == nil {
-		panic("claudecli skill metrics registry is required")
+		return nil, errors.New("claudecli skill metrics registry is required")
 	}
+	return buildDriver(logger, eventDispatcher, reporter, reg, proxyAddrFn, proxyTokenFn, mirror, recovery, metrics, tracers...), nil
+}
+
+func buildDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

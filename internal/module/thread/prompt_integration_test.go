@@ -115,7 +115,7 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 			return session, nil
 		},
 	}
-	svc := NewServiceWithPromptAssemblyAndSharedFiles(
+	rawSvc, err := NewServiceWithPromptAssemblyAndSharedFiles(
 		silentLogger(),
 		threads,
 		nil,
@@ -132,7 +132,11 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 		promptpkg.EvaluateMatchWhen,
 		promptpkg.EvaluateEnableWhen,
 		idgen.NewGenerator(),
-	).(*service)
+	)
+	if err != nil {
+		t.Fatalf("NewServiceWithPromptAssemblyAndSharedFiles() error = %v", err)
+	}
+	svc := rawSvc.(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-non-forced",

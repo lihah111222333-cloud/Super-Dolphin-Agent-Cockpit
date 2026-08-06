@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -526,12 +527,15 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	enableWhenEval contract.EnableWhenEvaluator,
 	agentIDGenerator *idgen.Generator,
 	tracingOpt ...*platformobs.Service,
-) Service {
+) (Service, error) {
+	if agentIDGenerator == nil {
+		return nil, errors.New("thread: agent id generator required")
+	}
 	var tracing *platformobs.Service
 	if len(tracingOpt) > 0 {
 		tracing = tracingOpt[0]
 	}
-	return newService(logger, agentIDGenerator, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptCatalog, matchWhenEval, enableWhenEval, tracing)
+	return newService(logger, agentIDGenerator, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptCatalog, matchWhenEval, enableWhenEval, tracing), nil
 }
 
 // newService 统一完成 thread service wiring。
@@ -555,9 +559,6 @@ func newService(
 	enableWhenEval contract.EnableWhenEvaluator,
 	tracing *platformobs.Service,
 ) Service {
-	if agentIDGenerator == nil {
-		panic("thread: agent id generator required")
-	}
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

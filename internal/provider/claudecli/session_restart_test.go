@@ -140,7 +140,7 @@ func loggedInClaudeAuthStatus(context.Context, string, string, cliLaunchConfig) 
 
 func newTestDriverWithLaunch(t *testing.T, mirror contract.SkillMirrorReconciler, fn testLaunchCLI) *driver {
 	t.Helper()
-	d := newDriver(nil, nil, nil, nil, nil, nil, mirror, nil, testSkillMetrics(t)).(*driver)
+	d := buildDriver(nil, nil, nil, nil, nil, nil, mirror, nil, testSkillMetrics(t)).(*driver)
 	d.launchCLI = overrideLaunchCLI(t, fn)
 	d.authStatus = loggedInClaudeAuthStatus
 	return d

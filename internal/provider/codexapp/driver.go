@@ -34,14 +34,14 @@ func requireApprovalManager(approvals *rpc.ApprovalManager) error {
 	return nil
 }
 
-func runtimeHooksOrZero(configured []providershared.RuntimeHooks) providershared.RuntimeHooks {
+func runtimeHooksOrZero(configured []providershared.RuntimeHooks) (providershared.RuntimeHooks, error) {
 	switch len(configured) {
 	case 0:
-		return providershared.RuntimeHooks{}
+		return providershared.RuntimeHooks{}, nil
 	case 1:
-		return configured[0]
+		return configured[0], nil
 	default:
-		panic("codexapp: exactly one runtime hooks owner is allowed")
+		return providershared.RuntimeHooks{}, errors.New("codexapp: exactly one runtime hooks owner is allowed")
 	}
 }
 
@@ -150,8 +150,11 @@ func NewDriverFactory(
 	mirror contract.SkillMirrorReconciler,
 	recovery contract.SessionRecoveryReporter,
 	runtimeHooks ...providershared.RuntimeHooks,
-) *DriverFactory {
-	hooks := runtimeHooksOrZero(runtimeHooks)
+) (*DriverFactory, error) {
+	hooks, err := runtimeHooksOrZero(runtimeHooks)
+	if err != nil {
+		return nil, err
+	}
 	factory := &DriverFactory{
 		logger:          logger,
 		eventDispatcher: dispatcher,
@@ -180,7 +183,7 @@ func NewDriverFactory(
 		NativeTools: codexNativeToolDescriptors(),
 	}
 
-	return factory
+	return factory, nil
 }
 
 // Name 返回 provider 注册名。

@@ -143,11 +143,11 @@ func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Run
 }
 
 // newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) platformrunner.Runner {
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, logRuntime *pkglogger.Runtime, server *common.Server) (platformrunner.Runner, error) {
 	if logRuntime == nil {
-		panic("mcp-lsp logger runtime is required")
+		return nil, errors.New("mcp-lsp logger runtime is required")
 	}
-	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}
+	return bootstrapRunner{cfg: cfg, client: client, logRuntime: logRuntime, stdioReady: server.Ready()}, nil
 }
 
 // provideLSPBackgroundRunners 将语言 manager 的后台 runner 挂到根运行组。

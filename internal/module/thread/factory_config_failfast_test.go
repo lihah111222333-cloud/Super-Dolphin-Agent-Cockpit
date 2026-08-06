@@ -12,6 +12,12 @@ import (
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
+func TestNewServiceWithSharedFilesRequiresAgentIDGenerator(t *testing.T) {
+	if _, err := NewServiceWithPromptAssemblyAndSharedFiles(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
+		t.Fatal("NewServiceWithPromptAssemblyAndSharedFiles() error = nil, want missing agent id generator")
+	}
+}
+
 type failFastBindingStore struct {
 	stubBindingStore
 	agentErr      map[string]error

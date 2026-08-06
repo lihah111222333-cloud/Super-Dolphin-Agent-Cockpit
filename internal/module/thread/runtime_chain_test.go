@@ -22,7 +22,7 @@ func TestStartAssemblyMergesBuiltinBaseAndUserRuntimeAssets(t *testing.T) {
 	}
 
 	sessions := &stubSessionProvider{}
-	svc := newRuntimeChainService(store, promptAssembly, sessions, runtimeChainStarter(t, sessions))
+	svc := newRuntimeChainService(t, store, promptAssembly, sessions, runtimeChainStarter(t, sessions))
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-runtime-chain",
 		Provider: "codex",
@@ -138,12 +138,13 @@ func runtimeChainHiddenSubstrings() []string {
 }
 
 func newRuntimeChainService(
+	t *testing.T,
 	catalog PromptCatalog,
 	promptAssembly contract.PromptAssemblyService,
 	sessions *stubSessionProvider,
 	starter contract.SessionStarter,
 ) *service {
-	return NewServiceWithPromptAssemblyAndSharedFiles(
+	rawSvc, err := NewServiceWithPromptAssemblyAndSharedFiles(
 		silentLogger(),
 		&stubThreadStore{},
 		nil,
@@ -160,7 +161,11 @@ func newRuntimeChainService(
 		promptpkg.EvaluateMatchWhen,
 		promptpkg.EvaluateEnableWhen,
 		idgen.NewGenerator(),
-	).(*service)
+	)
+	if err != nil {
+		t.Fatalf("NewServiceWithPromptAssemblyAndSharedFiles() error = %v", err)
+	}
+	return rawSvc.(*service)
 }
 
 func runtimeChainJSONTags(tags ...string) json.RawMessage {

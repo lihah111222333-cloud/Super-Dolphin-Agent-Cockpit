@@ -345,7 +345,7 @@ func TestTranslateToolApprovalResolvedPreservesRequestID(t *testing.T) {
 		"threadId":  "thread-1",
 		"callId":    "call-1",
 		"approved":  true,
-	})
+	}, providershared.RuntimeHooks{})
 	if !ok {
 		t.Fatal("translateToolEvent() ok = false, want true")
 	}
