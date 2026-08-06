@@ -210,7 +210,8 @@ func looksLikeLegacyInjectedBlock(lines []string, start int) bool {
 		return false
 	}
 	summaryMatched, usageMatched := legacySkillMarkerMatches(strings.TrimSpace(lines[start]))
-	for i := start + 1; i < len(lines) && i <= start+legacySkillLookahead; i++ {
+	end := min(len(lines), start+legacySkillLookahead+1)
+	for i := start + 1; i < end; i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
@@ -221,10 +222,15 @@ func looksLikeLegacyInjectedBlock(lines []string, start int) bool {
 		summary, usage := legacySkillMarkerMatches(line)
 		summaryMatched = summaryMatched || summary
 		usageMatched = usageMatched || usage
-		if summaryMatched && usageMatched {
+		if legacySkillMarkersComplete(summaryMatched, usageMatched) {
 			return true
 		}
 	}
+	return legacySkillMarkersComplete(summaryMatched, usageMatched)
+}
+
+// legacySkillMarkersComplete 判断旧格式注入块的两个标记是否齐全。
+func legacySkillMarkersComplete(summaryMatched, usageMatched bool) bool {
 	return summaryMatched && usageMatched
 }
 
