@@ -308,13 +308,7 @@ func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Cont
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, "", "", err
 		}
-		items, err := manager.Diagnostics(ctx, []string{target.URI})
-		if err != nil {
-			return nil, "", "", err
-		}
-		filtered := diagnosticsForTargetURI(target.URI, items)
-		message := diagnosticsMessageAfterFetch("", []string{target.URI}, filtered)
-		return filtered, "language_override", message, nil
+		return fetchDeletedLanguageOverrideDiagnostics(ctx, manager, target)
 	}
 	if _, err := h.openFile(ctx, target.AbsPath, input.LanguageID); err != nil {
 		return nil, "", "", err
@@ -331,6 +325,17 @@ func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Cont
 		}
 	}
 	items, err := manager.Diagnostics(ctx, nil)
+	if err != nil {
+		return nil, "", "", err
+	}
+	filtered := diagnosticsForTargetURI(target.URI, items)
+	message := diagnosticsMessageAfterFetch("", []string{target.URI}, filtered)
+	return filtered, "language_override", message, nil
+}
+
+// fetchDeletedLanguageOverrideDiagnostics 让已删除文档走 manager 的诊断清理，而不尝试打开或重开文件。
+func fetchDeletedLanguageOverrideDiagnostics(ctx context.Context, manager lspmanager.Manager, target diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {
+	items, err := manager.Diagnostics(ctx, []string{target.URI})
 	if err != nil {
 		return nil, "", "", err
 	}
