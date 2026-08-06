@@ -104,6 +104,12 @@ func TestMemoryModuleInvalidProjectRootFailsConstruction(t *testing.T) {
 	}
 }
 
+func TestSetTeamMemoryRuntimeReadyRequiresManager(t *testing.T) {
+	if err := setTeamMemoryRuntimeReady(nil, true); err == nil {
+		t.Fatal("setTeamMemoryRuntimeReady(nil, true) error = nil, want required manager error")
+	}
+}
+
 func TestServiceRunConsolidationWithoutHooks(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	writeMemoryIndexFixture(t, root)

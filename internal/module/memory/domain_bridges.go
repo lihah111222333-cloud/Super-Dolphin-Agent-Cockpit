@@ -90,8 +90,12 @@ func firstTeamBuildCtx(buildCtx []contract.BuildCtx) contract.BuildCtx {
 	return buildCtx[0]
 }
 
-func setTeamMemoryRuntimeReady(ready bool) {
-	teampkg.SetRuntimeReady(ready)
+func setTeamMemoryRuntimeReady(manager *TeamMemoryManager, ready bool) error {
+	if manager == nil {
+		return errors.New("team memory manager is required")
+	}
+	manager.SetRuntimeReady(ready)
+	return nil
 }
 
 // ScanTeamMemContent 扫描团队记忆内容并提取结构化条目。

@@ -15,7 +15,6 @@ import (
 
 func newTransitionTestService(t *testing.T) (*TeamSyncService, contract.BuildCtx) {
 	t.Helper()
-	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
 	teamRoot := filepath.Join(t.TempDir(), teamMemoryRootDirName)
 	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
@@ -23,6 +22,7 @@ func newTransitionTestService(t *testing.T) (*TeamSyncService, contract.BuildCtx
 	}
 	cfg := newTestConfig(teamRoot)
 	manager := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, manager, true)
 	svc := NewTeamSyncService(cfg, manager, NewTeamMemoryGuard(manager), nil, nil)
 	svc.remote = &teamSyncRemoteStub{oauthReady: true}
 	svc.resolveRepoSlug = func(_ context.Context, root string) (string, error) {

@@ -12,7 +12,6 @@ import (
 )
 
 func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
@@ -22,7 +21,9 @@ func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
-	hooks := newTestHooks(withTestCfg(cfg), withTeam(NewTeamMemoryManager(cfg)))
+	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, true)
+	hooks := newTestHooks(withTestCfg(cfg), withTeam(team))
 	intent := SaveIntent{
 		Detected: true,
 		Type:     MemoryTypeProject,
@@ -59,7 +60,6 @@ func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
 }
 
 func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
@@ -69,7 +69,9 @@ func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
-	hooks := newTestHooks(withTestCfg(cfg), withTeam(NewTeamMemoryManager(cfg)))
+	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, true)
+	hooks := newTestHooks(withTestCfg(cfg), withTeam(team))
 	intent := SaveIntent{
 		Detected: true,
 		Type:     MemoryTypeUser,
@@ -97,7 +99,6 @@ func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 }
 
 func TestTeamWriteIntentOverflowMergesWithinTeamScope(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
@@ -107,7 +108,9 @@ func TestTeamWriteIntentOverflowMergesWithinTeamScope(t *testing.T) {
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
-	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: NewTeamMemoryManager(cfg)})
+	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, true)
+	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: team})
 	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	teamStore, err := newDiskStore(teamRoot, nil)
 	if err != nil {

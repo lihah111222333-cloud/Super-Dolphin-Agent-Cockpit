@@ -79,11 +79,11 @@ func (s *teamSyncInvalidatorStub) Invalidate(_ context.Context, reason contract.
 }
 
 func TestTeamSyncKairosActiveSkipsWatcher(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
 	cfg := newTestConfig(filepath.Join(projectRoot, teamMemoryRootDirName))
 	cfg.projectRoot = projectRoot
 	manager := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, manager, true)
 	remote := &teamSyncRemoteStub{oauthReady: true}
 	invalidator := &teamSyncInvalidatorStub{}
 	svc := NewTeamSyncService(cfg, manager, NewTeamMemoryGuard(manager), nil, nil)
@@ -107,7 +107,6 @@ func TestTeamSyncKairosActiveSkipsWatcher(t *testing.T) {
 }
 
 func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
@@ -117,6 +116,7 @@ func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
 		t.Fatalf("MkdirAll(team root) error = %v", err)
 	}
 	manager := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, manager, true)
 	guard := NewTeamMemoryGuard(manager)
 	invalidator := &teamSyncInvalidatorStub{}
 	remote := &teamSyncRemoteStub{oauthReady: true}

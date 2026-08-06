@@ -35,6 +35,15 @@ func TestTeamSecretGuardAllowsSafeToolTimeWrite(t *testing.T) {
 	}
 }
 
+func TestTeamSecretRulesAreCallScoped(t *testing.T) {
+	rules := teamSecretRules()
+	rules[0].id = "mutated"
+	findings := ScanTeamMemContent("-----BEGIN PRIVATE KEY-----\n")
+	if len(findings) != 1 || findings[0].RuleID != "private_key" {
+		t.Fatalf("ScanTeamMemContent() findings = %#v, want private_key", findings)
+	}
+}
+
 func TestTeamSecretGuardSkipsOnlySecretFilesOnPrePush(t *testing.T) {
 	guard := NewTeamMemoryGuard(nil)
 	result := guard.FilterPushFiles(map[string]string{

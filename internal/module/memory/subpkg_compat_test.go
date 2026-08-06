@@ -3,14 +3,17 @@ package memory
 import (
 	"testing"
 	"time"
-
-	teampkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/team"
 )
 
-func withTeamMemoryRuntimeReady(t *testing.T, ready bool) {
+func withTeamMemoryRuntimeReady(t *testing.T, manager *TeamMemoryManager, ready bool) {
 	t.Helper()
-	restore := teampkg.SwapRuntimeReadyFuncForTest(func() bool { return ready })
-	t.Cleanup(restore)
+	if manager == nil {
+		t.Fatal("team memory manager is required")
+	}
+	manager.SetRuntimeReady(ready)
+	t.Cleanup(func() {
+		manager.SetRuntimeReady(false)
+	})
 }
 
 func waitForHandle(t *testing.T, handle *PrefetchHandle) {

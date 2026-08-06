@@ -50,26 +50,13 @@ func (disabledConfig) ProjectRoot(contract.BuildCtx) string { return "" }
 
 // TeamMemoryManager 管理团队记忆的启用状态和路径配置。
 type TeamMemoryManager struct {
-	cfg Config
+	cfg          Config
+	runtimeReady atomic.Bool
 }
 
-var teamMemoryRuntimeReady atomic.Bool
-
-// SetRuntimeReady 设置团队记忆运行时是否就绪；就绪状态通过原子变量在进程内共享。
-func SetRuntimeReady(ready bool) {
-	teamMemoryRuntimeReady.Store(ready)
-}
-
-// SwapRuntimeReadyFuncForTest 临时替换运行时就绪状态供测试使用，返回还原函数。
-func SwapRuntimeReadyFuncForTest(fn func() bool) func() {
-	if fn == nil {
-		fn = func() bool { return false }
-	}
-	prev := teamMemoryRuntimeReady.Load()
-	teamMemoryRuntimeReady.Store(fn())
-	return func() {
-		teamMemoryRuntimeReady.Store(prev)
-	}
+// SetRuntimeReady 设置当前团队记忆 owner 的运行时就绪状态。
+func (m *TeamMemoryManager) SetRuntimeReady(ready bool) {
+	m.runtimeReady.Store(ready)
 }
 
 // NewTeamMemoryManager 创建 TeamMemoryManager，cfg 为 nil 时使用禁用配置。
@@ -110,7 +97,7 @@ func isTeamMemoryEnabled(m *TeamMemoryManager, buildCtx contract.BuildCtx) bool 
 	if !gate.AutoEnabled || !gate.TeamMemEnabled || gate.KairosActive {
 		return false
 	}
-	if !teamMemoryRuntimeReady.Load() {
+	if !m.runtimeReady.Load() {
 		return false
 	}
 	_, err := configuredTeamMemPath(m, buildCtx)

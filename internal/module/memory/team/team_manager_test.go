@@ -27,9 +27,9 @@ func TestTeamManagerRuntimeGateDefaultsClosed(t *testing.T) {
 }
 
 func TestTeamManagerComputesPathWhenRuntimeReady(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	manager := NewTeamMemoryManager(newTestConfig(filepath.Join(autoRoot, teamMemoryRootDirName)))
+	withTeamMemoryRuntimeReady(t, manager, true)
 	wantRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	if !manager.IsTeamMemoryEnabled() {
 		t.Fatal("IsTeamMemoryEnabled() = false, want true")
@@ -43,8 +43,8 @@ func TestTeamManagerComputesPathWhenRuntimeReady(t *testing.T) {
 }
 
 func TestTeamManagerKairosBlocksRuntimePathInjection(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	manager := NewTeamMemoryManager(newTestConfig(filepath.Join(t.TempDir(), "automem", teamMemoryRootDirName)))
+	withTeamMemoryRuntimeReady(t, manager, true)
 	buildCtx := contract.BuildCtx{SessionFlags: map[string]bool{"memory_kairos": true}}
 	if manager.IsTeamMemoryEnabled(buildCtx) {
 		t.Fatal("IsTeamMemoryEnabled() = true, want false when Kairos is active")
@@ -54,5 +54,18 @@ func TestTeamManagerKairosBlocksRuntimePathInjection(t *testing.T) {
 	}
 	if got := manager.GetTeamMemEntrypoint(buildCtx); got != "" {
 		t.Fatalf("GetTeamMemEntrypoint() = %q, want empty when Kairos is active", got)
+	}
+}
+
+func TestTeamManagerRuntimeReadinessIsInstanceOwned(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "automem", teamMemoryRootDirName)
+	ready := NewTeamMemoryManager(newTestConfig(root))
+	closed := NewTeamMemoryManager(newTestConfig(root))
+	ready.SetRuntimeReady(true)
+	if !ready.IsTeamMemoryEnabled() {
+		t.Fatal("ready manager IsTeamMemoryEnabled() = false, want true")
+	}
+	if closed.IsTeamMemoryEnabled() {
+		t.Fatal("closed manager IsTeamMemoryEnabled() = true, want false")
 	}
 }

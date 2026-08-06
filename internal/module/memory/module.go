@@ -561,15 +561,13 @@ func bindMemoryDrainShutdown(p memoryDrainShutdownParams) {
 
 // registerTeamMemoryRuntime 只标记 team memory 是否已可用。
 // combined memory prompt 会看这个状态；这里不要启动同步或写文件。
-func registerTeamMemoryRuntime(lc fx.Lifecycle) {
+func registerTeamMemoryRuntime(lc fx.Lifecycle, manager *TeamMemoryManager) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			setTeamMemoryRuntimeReady(true)
-			return nil
+			return setTeamMemoryRuntimeReady(manager, true)
 		},
 		OnStop: func(context.Context) error {
-			setTeamMemoryRuntimeReady(false)
-			return nil
+			return setTeamMemoryRuntimeReady(manager, false)
 		},
 	})
 }

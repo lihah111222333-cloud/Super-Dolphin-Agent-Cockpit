@@ -55,8 +55,13 @@ func memoryIndexPath(root string) string {
 	return filepath.Join(root, memoryIndexFileName)
 }
 
-func withTeamMemoryRuntimeReady(t *testing.T, ready bool) {
+func withTeamMemoryRuntimeReady(t *testing.T, manager *TeamMemoryManager, ready bool) {
 	t.Helper()
-	restore := SwapRuntimeReadyFuncForTest(func() bool { return ready })
-	t.Cleanup(restore)
+	if manager == nil {
+		t.Fatal("team memory manager is required")
+	}
+	manager.SetRuntimeReady(ready)
+	t.Cleanup(func() {
+		manager.SetRuntimeReady(false)
+	})
 }

@@ -50,14 +50,16 @@ type teamSecretRule struct {
 	pattern *regexp.Regexp
 }
 
-// teamSecretRules 是内置的密钥检测规则集，覆盖私钥、GitHub token、OpenAI key、AWS key 等常见密钥格式。
-var teamSecretRules = []teamSecretRule{
-	{id: "private_key", pattern: regexp.MustCompile(`(?m)-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----`)},
-	{id: "github_pat", pattern: regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`)},
-	{id: "github_token", pattern: regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,255}\b`)},
-	{id: "openai_key", pattern: regexp.MustCompile(`\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b`)},
-	{id: "aws_access_key", pattern: regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`)},
-	{id: "quoted_secret_assignment", pattern: regexp.MustCompile(`(?im)\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|auth[_-]?token)\b\s*[:=]\s*['"][A-Za-z0-9/_+=.-]{16,}['"]`)},
+// teamSecretRules 创建当前扫描所需的规则快照，避免共享可变集合成为安全策略的第二 owner。
+func teamSecretRules() [6]teamSecretRule {
+	return [6]teamSecretRule{
+		{id: "private_key", pattern: regexp.MustCompile(`(?m)-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----`)},
+		{id: "github_pat", pattern: regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`)},
+		{id: "github_token", pattern: regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,255}\b`)},
+		{id: "openai_key", pattern: regexp.MustCompile(`\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b`)},
+		{id: "aws_access_key", pattern: regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`)},
+		{id: "quoted_secret_assignment", pattern: regexp.MustCompile(`(?im)\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|auth[_-]?token)\b\s*[:=]\s*['"][A-Za-z0-9/_+=.-]{16,}['"]`)},
+	}
 }
 
 // NewTeamMemoryGuard 创建团队记忆写入守卫。
@@ -125,8 +127,9 @@ func (g *TeamMemoryGuard) FilterPushFiles(files map[string]string) TeamMemPrePus
 // 返回结果按行号和规则 ID 排序，便于 UI 和日志稳定展示。
 func ScanTeamMemContent(content string) []TeamMemSecretFinding {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")
-	findings := make([]TeamMemSecretFinding, 0, len(teamSecretRules))
-	for _, rule := range teamSecretRules {
+	rules := teamSecretRules()
+	findings := make([]TeamMemSecretFinding, 0, len(rules))
+	for _, rule := range rules {
 		findings = appendTeamSecretRuleFindings(findings, normalized, rule)
 	}
 	sort.Slice(findings, func(i, j int) bool {
