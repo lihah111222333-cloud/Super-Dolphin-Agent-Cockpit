@@ -142,19 +142,6 @@ const (
 	codexTerminalTimestampProtocolError = "terminal contract: provider timestamp invalid"
 )
 
-var codexLifecycleEventsRequiringTimestamp = map[string]struct{}{
-	"thread/started":        {},
-	"session.configured":    {},
-	"agent:launched":        {},
-	"thread/status/changed": {},
-	"shutdown.complete":     {},
-	"shutdown_complete":     {},
-	"recovery.attempt":      {},
-	"connection.dead":       {},
-	"turn/started":          {},
-	"turn.started":          {},
-}
-
 // codexTimestampProviderError 对会生成生命周期或终态记录的坏时间显式返回 provider error。
 func codexTimestampProviderError(raw dto.RawProviderEvent) (dto.RawProviderEvent, agentdto.AgentError, bool) {
 	if !codexEventRequiresTimestamp(raw.EventType) {
@@ -237,8 +224,14 @@ func codexEventRequiresTimestamp(eventType string) bool {
 	if isTurnTerminalEvent(eventType) {
 		return true
 	}
-	_, ok := codexLifecycleEventsRequiringTimestamp[strings.TrimSpace(eventType)]
-	return ok
+	switch strings.TrimSpace(eventType) {
+	case "thread/started", "session.configured", "agent:launched", "thread/status/changed",
+		"shutdown.complete", "shutdown_complete", "recovery.attempt", "connection.dead",
+		"turn/started", "turn.started":
+		return true
+	default:
+		return false
+	}
 }
 
 func publishCodexTranslatedEvent(eventType string, ev any, publish func(ev any)) {

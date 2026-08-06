@@ -618,7 +618,7 @@ func observeMissingCodexLifecycleTimestamp(method string, params json.RawMessage
 	if isTurnTerminalEvent(method) {
 		return params
 	}
-	if _, ok := codexLifecycleEventsRequiringTimestamp[method]; !ok {
+	if !codexEventRequiresTimestamp(method) {
 		return params
 	}
 	payload := decodeEventPayload(params)
