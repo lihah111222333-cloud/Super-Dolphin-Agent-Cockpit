@@ -59,6 +59,11 @@ type busEventSummary struct {
 
 func setBusSummaryStringField(name string, value reflect.Value, summary *busEventSummary) bool {
 	text := safeBusSummaryString(value)
+	return setBusSummaryIdentityString(name, text, summary) || setBusSummaryDetailString(name, text, summary)
+}
+
+// setBusSummaryIdentityString 写入事件关联身份字段。
+func setBusSummaryIdentityString(name, text string, summary *busEventSummary) bool {
 	switch name {
 	case "ThreadID":
 		summary.ThreadID = text
@@ -70,6 +75,15 @@ func setBusSummaryStringField(name string, value reflect.Value, summary *busEven
 		summary.TurnID = text
 	case "CallID":
 		summary.CallID = text
+	default:
+		return false
+	}
+	return true
+}
+
+// setBusSummaryDetailString 写入工具和模型明细字段。
+func setBusSummaryDetailString(name, text string, summary *busEventSummary) bool {
+	switch name {
 	case "ToolName":
 		summary.ToolName = text
 	case "Provider":

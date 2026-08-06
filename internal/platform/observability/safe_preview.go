@@ -374,6 +374,24 @@ func collectBusSummaryField(field reflect.StructField, value reflect.Value, summ
 }
 
 func setBusSummaryField(name string, value reflect.Value, summary *BusEventSummary) bool {
+	if setBusSummaryIdentityField(name, value, summary) {
+		return true
+	}
+	if setBusSummaryDetailField(name, value, summary) {
+		return true
+	}
+	if name != "Success" {
+		return false
+	}
+	if value.Kind() == reflect.Bool {
+		success := value.Bool()
+		summary.Success = &success
+	}
+	return true
+}
+
+// setBusSummaryIdentityField 写入事件关联身份字段。
+func setBusSummaryIdentityField(name string, value reflect.Value, summary *BusEventSummary) bool {
 	switch name {
 	case "ThreadID":
 		summary.ThreadID = safeSummaryString(value)
@@ -385,6 +403,15 @@ func setBusSummaryField(name string, value reflect.Value, summary *BusEventSumma
 		summary.TurnID = safeSummaryString(value)
 	case "CallID":
 		summary.CallID = safeSummaryString(value)
+	default:
+		return false
+	}
+	return true
+}
+
+// setBusSummaryDetailField 写入工具和模型明细字段。
+func setBusSummaryDetailField(name string, value reflect.Value, summary *BusEventSummary) bool {
+	switch name {
 	case "ToolName":
 		summary.ToolName = safeSummaryString(value)
 	case "Provider":
@@ -395,11 +422,6 @@ func setBusSummaryField(name string, value reflect.Value, summary *BusEventSumma
 		summary.Stream = safeSummaryString(value)
 	case "InputType":
 		summary.InputType = safeSummaryString(value)
-	case "Success":
-		if value.Kind() == reflect.Bool {
-			success := value.Bool()
-			summary.Success = &success
-		}
 	default:
 		return false
 	}
