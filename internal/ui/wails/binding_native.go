@@ -14,7 +14,7 @@ import (
 
 const maxClipboardImageBytes = 10 << 20
 
-var clipboardPNGSig = []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+const clipboardPNGSig = "\x89PNG\r\n\x1a\n"
 
 // SaveClipboardImage 接受前端从 `ClipboardEvent`/`Blob` 读取并编码好的 base64 图像数据，
 // 解码后写入临时 PNG 文件并返回其路径。允许载荷带 `data:image/...;base64,` 前缀。
@@ -68,7 +68,7 @@ func decodeClipboardImagePayload(payload string) ([]byte, error) {
 	if len(data) > maxClipboardImageBytes {
 		return nil, fmt.Errorf("clipboard image: payload exceeds size limit of %d bytes", maxClipboardImageBytes)
 	}
-	if !bytes.HasPrefix(data, clipboardPNGSig) {
+	if !bytes.HasPrefix(data, []byte(clipboardPNGSig)) {
 		return nil, errors.New("clipboard image: png header mismatch")
 	}
 	return data, nil

@@ -335,12 +335,6 @@ func matchesArtifactName(name, prefix, id string) bool {
 		prefix == "" && name == id+".jsonl"
 }
 
-// parseLine 按 provider JSONL 结构解析单行历史，无法生成消息时返回 ok=false。
-func parseLine(raw []byte, provider string) (dto.Message, bool) {
-	message, ok, _ := parseLineStrict(raw, provider)
-	return message, ok
-}
-
 // parseLineStrict 解析 provider JSONL 并传播损坏记录错误。
 func parseLineStrict(raw []byte, provider string) (dto.Message, bool, error) {
 	switch normalized := strings.ToLower(strings.TrimSpace(provider)); normalized {
@@ -351,12 +345,6 @@ func parseLineStrict(raw []byte, provider string) (dto.Message, bool, error) {
 	default:
 		return dto.Message{}, false, fmt.Errorf("unsupported provider %q", normalized)
 	}
-}
-
-// parseCodexLine 解析 Codex rollout JSONL 的 response_item/message 记录。
-func parseCodexLine(raw []byte) (dto.Message, bool) {
-	message, ok, _ := parseCodexLineStrict(raw)
-	return message, ok
 }
 
 // parseCodexLineStrict 严格解析 Codex JSONL 单行。
@@ -385,12 +373,6 @@ func parseCodexLineStrict(raw []byte) (dto.Message, bool, error) {
 	}
 	message, ok := buildMessage(payload.Role, collectText(payload.Content), line.Timestamp)
 	return message, ok, nil
-}
-
-// parseClaudeLine 解析 Claude CLI JSONL 的 message 记录。
-func parseClaudeLine(raw []byte) (dto.Message, bool) {
-	message, ok, _ := parseClaudeLineStrict(raw)
-	return message, ok
 }
 
 // parseClaudeLineStrict 严格解析 Claude JSONL 单行。
@@ -430,17 +412,6 @@ func buildMessage(role, content, rawTime string) (dto.Message, bool) {
 	return dto.Message{Role: role, Content: content, Timestamp: parseTime(rawTime)}, true
 }
 
-// rolloutSystemNoiseTagPairs 列出 Codex rollout 开头需要剥离的系统上下文块。
-var rolloutSystemNoiseTagPairs = []struct {
-	open  string
-	close string
-}{
-	{open: "<environment_context>", close: "</environment_context>"},
-	{open: "<instructions>", close: "</instructions>"},
-	{open: "<permissions instructions>", close: "</permissions instructions>"},
-	{open: "<turn_aborted>", close: "</turn_aborted>"},
-}
-
 // normalizeHistoryUserContent 去掉 provider 历史前缀中的系统噪声。
 func normalizeHistoryUserContent(content string) (string, bool) {
 	content = stripLeadingSystemNoise(content)
@@ -471,7 +442,15 @@ func stripOneLeadingSystemNoise(text string) (string, bool) {
 	if strings.HasPrefix(lower, "# agents.md") {
 		return stripAgentsMDBlock(trimmed), true
 	}
-	for _, pair := range rolloutSystemNoiseTagPairs {
+	for _, pair := range []struct {
+		open  string
+		close string
+	}{
+		{open: "<environment_context>", close: "</environment_context>"},
+		{open: "<instructions>", close: "</instructions>"},
+		{open: "<permissions instructions>", close: "</permissions instructions>"},
+		{open: "<turn_aborted>", close: "</turn_aborted>"},
+	} {
 		if strings.HasPrefix(lower, pair.open) {
 			return stripTagBlock(trimmed, pair.close), true
 		}

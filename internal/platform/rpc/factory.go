@@ -44,7 +44,7 @@ var approvalMethodCatalog = approvalMethodCatalogSpec{
 // approvedDecision 构造自动批准决策。
 func approvedDecision() contract.ApprovalDecision {
 	return contract.ApprovalDecision{
-		Approved: boolPtr(true),
+		Approved: new(true),
 		Reason:   "auto_approved",
 	}
 }
@@ -56,7 +56,7 @@ func declinedDecision(reason string) contract.ApprovalDecision {
 		reason = "decline"
 	}
 	return contract.ApprovalDecision{
-		Approved: boolPtr(false),
+		Approved: new(false),
 		Reason:   reason,
 	}
 }
@@ -91,16 +91,6 @@ func (c approvalMethodCatalogSpec) callback(req ApprovalRequest) string {
 		return c.requestUserInput
 	}
 	return c.defaultCallback
-}
-
-// isPushMethod 判断方法是否允许从 raw provider 事件转为 push。
-func (c approvalMethodCatalogSpec) isPushMethod(method string) bool {
-	method = c.normalize(method)
-	if method == "" {
-		return false
-	}
-	_, ok := c.pushEligibleMethods[method]
-	return ok
 }
 
 // isExpectedCloseErr 判断错误是否属于连接关闭或上下文取消的预期退出。

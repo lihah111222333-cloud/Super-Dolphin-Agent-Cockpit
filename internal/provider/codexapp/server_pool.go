@@ -58,7 +58,6 @@ var (
 	ErrPoolClosed      = errors.New("codexapp: server pool is closed")
 	ErrInvalidIdentity = errors.New("codexapp: invalid codex identity")
 	ErrPoolCapacity    = errors.New("codexapp: server pool capacity exhausted")
-	noopRelease        = func() {}
 )
 
 // ServerPool 按 canonical Codex 身份和 owner 管理 app-server 实例。
@@ -116,11 +115,11 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity, ownerKey string) (SpawnedServer, func(), error) {
 	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
-		return nil, noopRelease, err
+		return nil, func() {}, err
 	}
 	ownerKey = strings.TrimSpace(ownerKey)
 	if ownerKey == "" {
-		return nil, noopRelease, fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
+		return nil, func() {}, fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
 	}
 	entryKey := poolEntryKey{home: home, instanceKey: key, modelProvider: provider, processPolicy: poolSpawnPolicySignature(ctx), ownerKey: ownerKey}
 	p.mu.Lock()
@@ -132,11 +131,11 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	// 启动新进程前先检查退避窗口，避免失败身份被快速重试打爆。
 	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
 		p.mu.Unlock()
-		return nil, noopRelease, err
+		return nil, func() {}, err
 	}
 	if err := p.checkCapacityLocked(entryKey); err != nil {
 		p.mu.Unlock()
-		return nil, noopRelease, err
+		return nil, func() {}, err
 	}
 	spawnAt := fastPath.now
 	p.mu.Unlock()
@@ -145,7 +144,7 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	if _, err, _ := p.flight.Do(flightKey, func() (any, error) {
 		return p.spawnAndStore(ctx, entryKey, home, provider, spawnAt)
 	}); err != nil {
-		return nil, noopRelease, err
+		return nil, func() {}, err
 	}
 	p.mu.Lock()
 	fastPath = p.acquireFastPathLocked(entryKey)
@@ -153,7 +152,7 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	if fastPath.done {
 		return fastPath.server, fastPath.release, fastPath.err
 	}
-	return nil, noopRelease, errors.New("codexapp: pool spawned server unavailable")
+	return nil, func() {}, errors.New("codexapp: pool spawned server unavailable")
 }
 
 type acquireFastPathResult struct {
@@ -168,7 +167,7 @@ type acquireFastPathResult struct {
 // acquireFastPathLocked 在持锁状态下处理复用、关闭和死进程快路径。
 // 返回 done=false 时调用方必须释放锁后执行真正的 spawn，避免长时间持锁启动进程。
 func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPathResult {
-	result := acquireFastPathResult{release: noopRelease}
+	result := acquireFastPathResult{release: func() {}}
 	if p.closed {
 		result.err = ErrPoolClosed
 		result.done = true

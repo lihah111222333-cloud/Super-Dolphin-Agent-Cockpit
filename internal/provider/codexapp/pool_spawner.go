@@ -65,13 +65,8 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 	t.processErr = nil
 	t.stateMu.Unlock()
 	t.startWatchLocalProcess(proc)
-	if registry != nil {
-		if pid := t.localPID(); pid > 0 {
-			if err := registry.RegisterChecked(pid, "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir}); err != nil {
-				_ = t.shutdownTransport(false)
-				return nil, fmt.Errorf("codexapp: pool pidregistry register: %w", err)
-			}
-		}
+	if err := registerPoolProcess(t, registry, home, workDir); err != nil {
+		return nil, err
 	}
 	// 建立池持有的控制 WebSocket 和 initialize 握手，避免 app-server 启动后因零客户端超时退出。
 	// 上层 session 仍会创建自己的连接；这里的连接只负责维持池中进程可用性。
@@ -84,6 +79,17 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 	fields = append(fields, platformshared.SafePathLogFields("work_dir", workDir)...)
 	logger.Info("codexapp: pool spawned app-server", fields...)
 	return t, nil
+}
+
+func registerPoolProcess(t *transport, registry *pidregistry.Registry, home, workDir string) error {
+	if registry == nil || t.localPID() <= 0 {
+		return nil
+	}
+	if err := registry.RegisterChecked(t.localPID(), "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir}); err != nil {
+		_ = t.shutdownTransport(false)
+		return fmt.Errorf("codexapp: pool pidregistry register: %w", err)
+	}
+	return nil
 }
 
 type poolSpawnWorkDirContextKey struct{}
@@ -254,15 +260,18 @@ func buildPoolSpawnEnv(parent []string, home, workDir string) []string {
 	return buildAllowlistedSpawnEnv(parent, overrides)
 }
 
-// codexSpawnEnvAllowlist 列出允许传给子 app-server 的父进程环境变量。
+// codexSpawnEnvAllowlist 返回允许传给子 app-server 的父进程环境变量。
 // 其他 CODEX_*、OPENAI_* 污染项会被剥离，确保 CODEX_HOME 是唯一身份来源。
-var codexSpawnEnvAllowlist = []string{"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TMPDIR", "TEMP", "TMP", "SHELL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv, providershared.SuperDolphinHomeEnv, codexRelayBootstrapTokenEnv}
+func codexSpawnEnvAllowlist() []string {
+	return []string{"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TMPDIR", "TEMP", "TMP", "SHELL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv, providershared.SuperDolphinHomeEnv, codexRelayBootstrapTokenEnv}
+}
 
 // buildAllowlistedSpawnEnv 从父环境中只保留允许传递给 codex app-server 的变量。
 // overrides 会在数据库环境拦截后覆盖同名值，最终再补齐 loopback no_proxy 以保证本地握手可达。
 func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []string {
-	allowed := make(map[string]struct{}, len(codexSpawnEnvAllowlist))
-	for _, key := range codexSpawnEnvAllowlist {
+	allowlist := codexSpawnEnvAllowlist()
+	allowed := make(map[string]struct{}, len(allowlist))
+	for _, key := range allowlist {
 		allowed[strings.ToUpper(key)] = struct{}{}
 	}
 	merged := make(map[string]string, len(allowed)+len(overrides))

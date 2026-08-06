@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
@@ -282,10 +283,8 @@ func requireEnum(value, field string, allowed []string) (string, error) {
 	if trimmed == "" {
 		return "", errors.New(field + " is required")
 	}
-	for _, candidate := range allowed {
-		if trimmed == candidate {
-			return trimmed, nil
-		}
+	if slices.Contains(allowed, trimmed) {
+		return trimmed, nil
 	}
 	return "", fmt.Errorf(
 		"%s 取值非法：%q，必须是 %v 之一 (invalid %s %q: must be one of %v)",

@@ -265,9 +265,9 @@ func structElementIsInterface(expression ast.Expr, element *ast.KeyValueExpr, va
 	if !ok || expression != element.Value {
 		return false
 	}
-	for index := 0; index < valueType.NumFields(); index++ {
-		if valueType.Field(index).Name() == name.Name {
-			return isInterface(valueType.Field(index).Type())
+	for field := range valueType.Fields() {
+		if field.Name() == name.Name {
+			return isInterface(field.Type())
 		}
 	}
 	return false

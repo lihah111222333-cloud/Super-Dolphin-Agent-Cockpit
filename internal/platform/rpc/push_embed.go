@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
@@ -221,9 +222,7 @@ func clonePayloadMap(payload any) (map[string]any, bool) {
 // cloneStringAnyMap 浅复制 string-any map。
 func cloneStringAnyMap(in map[string]any) map[string]any {
 	out := make(map[string]any, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 
