@@ -282,6 +282,24 @@ class IssueLedgerCliTests(unittest.TestCase):
         issue = self.mutate("complete-fix", issue)
         self.assertEqual(issue["status"], "READY_TO_VERIFY")
 
+    def test_complete_fix_rejects_unconsumed_arguments_before_mutation(self) -> None:
+        repo, url, commit = self.create_git_repository()
+        self.init([self.repository("core", url)])
+        issue = self.ready_to_verify()
+        issue = self.register_evidence(issue, repo, commit, "FIX_COMMIT")
+        before = self.digest()
+
+        for option, value in (("--resolution", "ignored"), ("--progress", "ignored")):
+            with self.subTest(option=option):
+                completed = self.invoke_raw(
+                    "issue", "complete-fix", "--issue-id", issue["issue_id"],
+                    "--expected-version", str(issue["version"]), "--actor", "tester",
+                    "--idempotency-key", self.key("complete-fix-unconsumed"), option, value,
+                )
+                self.assertEqual(completed.returncode, 2, completed.stderr + completed.stdout)
+                self.assertIn("unrecognized arguments:", completed.stderr)
+                self.assertEqual(self.digest(), before)
+
     def test_record_progress_appends_checkpoint_without_changing_fixing_snapshot(self) -> None:
         self.init()
         issue = self.report()

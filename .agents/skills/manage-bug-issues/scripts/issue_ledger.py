@@ -793,9 +793,25 @@ def parser() -> argparse.ArgumentParser:
     history = ip.add_parser("history"); history.add_argument("--issue-id")
     relations = ip.add_parser("relations"); relations.add_argument("--issue-id")
     relation_get = ip.add_parser("relation-get"); relation_get.add_argument("--relation-id")
-    changing = ("record-history-search", "confirm", "start-investigation", "identify-root-cause", "authorize-fix", "revoke-fix-authorization", "start-fix", "record-progress", "complete-fix", "record-verification", "reopen", "defer", "resolve-without-fix")
-    for name in changing:
-        p = ip.add_parser(name); p.add_argument("--issue-id"); p.add_argument("--expected-version", type=int); p.add_argument("--actor"); p.add_argument("--idempotency-key"); p.add_argument("--payload-json"); p.add_argument("--root-cause"); p.add_argument("--authorized-by"); p.add_argument("--authorization-scope"); p.add_argument("--resolution"); p.add_argument("--verification-result"); p.add_argument("--progress")
+    changing = {
+        "record-history-search": (),
+        "confirm": (),
+        "start-investigation": (),
+        "identify-root-cause": ("root_cause",),
+        "authorize-fix": ("authorized_by", "authorization_scope"),
+        "revoke-fix-authorization": (),
+        "start-fix": (),
+        "record-progress": ("progress",),
+        "complete-fix": (),
+        "record-verification": ("resolution", "verification_result"),
+        "reopen": (),
+        "defer": ("resolution",),
+        "resolve-without-fix": ("resolution",),
+    }
+    for name, command_fields in changing.items():
+        p = ip.add_parser(name); p.add_argument("--issue-id"); p.add_argument("--expected-version", type=int); p.add_argument("--actor"); p.add_argument("--idempotency-key"); p.add_argument("--payload-json")
+        for field_name in command_fields:
+            p.add_argument("--" + field_name.replace("_", "-"))
         if name == "resolve-without-fix": p.add_argument("--target-issue-id")
     relate = ip.add_parser("relate"); relate.add_argument("--issue-id"); relate.add_argument("--target-issue-id"); relate.add_argument("--relation-type"); relate.add_argument("--expected-version", type=int); relate.add_argument("--actor"); relate.add_argument("--idempotency-key"); relate.add_argument("--payload-json")
     evidence = groups.add_parser("evidence"); ep = evidence.add_subparsers(dest="evidence_command", required=True)
