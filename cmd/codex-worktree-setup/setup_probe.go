@@ -14,11 +14,27 @@ import (
 	"strings"
 )
 
-var requiredLSPTools = []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"}
+type lspProbeRequirements struct {
+	tools      []string
+	probeFiles []string
+}
 
-var requiredLSPProbeFiles = []string{
-	"cmd/mcp-lsp/main.go",
-	"frontend-app/src/main.jsx",
+func newLSPProbeRequirements() lspProbeRequirements {
+	return lspProbeRequirements{
+		tools: []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"},
+		probeFiles: []string{
+			"cmd/mcp-lsp/main.go",
+			"frontend-app/src/main.jsx",
+		},
+	}
+}
+
+func requiredLSPTools(yield func(int, string) bool) {
+	for index, name := range newLSPProbeRequirements().tools {
+		if !yield(index, name) {
+			return
+		}
+	}
 }
 
 type rpcResponse struct {
@@ -42,6 +58,7 @@ type mcpProbe struct {
 
 // probeMCP 启动真实 worktree binary，并通过 Go 与 JS 文件 diagnostics 验证语言服务器可用。
 func probeMCP(ctx context.Context, binary, worktree string, env map[string]string) ([]string, error) {
+	requirements := newLSPProbeRequirements()
 	probe, err := startMCPProbe(ctx, binary, worktree, env)
 	if err != nil {
 		return nil, err
@@ -60,11 +77,11 @@ func probeMCP(ctx context.Context, binary, worktree string, env map[string]strin
 	if err != nil {
 		return nil, probe.fail("decode tools/list", err)
 	}
-	if err := validateToolNames(names); err != nil {
+	if err := validateToolNames(requirements, names); err != nil {
 		return nil, probe.fail("validate tools/list", err)
 	}
 	nextID := 3
-	for _, file := range requiredLSPProbeFiles {
+	for _, file := range requirements.probeFiles {
 		if err := probe.fileDiagnostics(nextID, file); err != nil {
 			return nil, probe.fail("diagnostics "+file, err)
 		}
@@ -229,8 +246,8 @@ func sidecarEnvironment(overrides map[string]string) []string {
 }
 
 // validateToolNames 要求 tools/list 恰好包含七个短工具名。
-func validateToolNames(names []string) error {
-	want := append([]string(nil), requiredLSPTools...)
+func validateToolNames(requirements lspProbeRequirements, names []string) error {
+	want := append([]string(nil), requirements.tools...)
 	got := append([]string(nil), names...)
 	sort.Strings(want)
 	sort.Strings(got)

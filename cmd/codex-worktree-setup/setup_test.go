@@ -171,15 +171,29 @@ func TestConfiguredPathDropsTransientCodexEntriesAndDuplicates(t *testing.T) {
 }
 
 func TestValidateToolNamesRequiresExactShortSurface(t *testing.T) {
-	want := append([]string(nil), requiredLSPTools...)
-	if err := validateToolNames(want); err != nil {
+	requirements := newLSPProbeRequirements()
+	want := append([]string(nil), requirements.tools...)
+	if err := validateToolNames(requirements, want); err != nil {
 		t.Fatalf("validateToolNames() error = %v", err)
 	}
-	if err := validateToolNames(want[:len(want)-1]); err == nil {
+	if err := validateToolNames(requirements, want[:len(want)-1]); err == nil {
 		t.Fatal("validateToolNames() error = nil for missing tool")
 	}
-	if err := validateToolNames(append(want, "extra")); err == nil {
+	if err := validateToolNames(requirements, append(want, "extra")); err == nil {
 		t.Fatal("validateToolNames() error = nil for extra tool")
+	}
+}
+
+func TestNewLSPProbeRequirementsOwnsMutableSlices(t *testing.T) {
+	first := newLSPProbeRequirements()
+	second := newLSPProbeRequirements()
+	if len(first.tools) == 0 || len(first.probeFiles) == 0 {
+		t.Fatalf("requirements = %#v, want populated tool and probe-file slices", first)
+	}
+	first.tools[0] = "mutated"
+	first.probeFiles[0] = "mutated"
+	if second.tools[0] == "mutated" || second.probeFiles[0] == "mutated" {
+		t.Fatalf("requirements share mutable state: first=%#v second=%#v", first, second)
 	}
 }
 
