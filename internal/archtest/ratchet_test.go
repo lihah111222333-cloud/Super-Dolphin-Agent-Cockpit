@@ -414,6 +414,48 @@ func launch() {
 	}
 }
 
+func TestCheckWithBaselineFlagsMutableCompositeGlobal(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "internal", "risk", "mutable_composite.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	body := `package risk
+
+import "sync"
+
+type sharedState struct {
+	mu sync.Mutex
+	values map[string]int
+}
+
+var shared = sharedState{
+	mu: sync.Mutex{},
+	values: map[string]int{"seed": 1},
+}
+`
+	if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	result := CheckWithBaseline(CheckOptions{
+		RepoRoot:  root,
+		ScanRoots: []string{"internal"},
+		SkipDirs:  DefaultSkipDirs(),
+	}, Baseline{})
+	if result.OK() {
+		t.Fatal("CheckWithBaseline() OK for mutable composite global, want NewFileViolations")
+	}
+	if len(result.NewFileViolations) != 1 {
+		t.Fatalf("NewFileViolations = %#v, want one global_vars violation", result.NewFileViolations)
+	}
+	violation := result.NewFileViolations[0]
+	if violation.File != "internal/risk/mutable_composite.go" || !strings.Contains(violation.Message, "global_vars") {
+		t.Fatalf("NewFileViolations[0] = %#v, want mutable composite global_vars violation", violation)
+	}
+}
+
 func TestExistingNonBaselineFileGetsZeroToleranceMetrics(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "internal", "risk", "existing_risk.go")

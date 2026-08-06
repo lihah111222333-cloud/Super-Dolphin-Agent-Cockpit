@@ -58,6 +58,148 @@ func TestCountGlobalVarsV3_Exemptions(t *testing.T) {
 	}
 }
 
+func TestCountGlobalVarsV3RejectsMutableCompositeInitializers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		source string
+		want   int
+	}{
+		{
+			name: "value struct with mutex and map",
+			source: `package sample
+import "sync"
+type state struct {
+	mu sync.Mutex
+	values map[string]int
+}
+var shared = state{mu: sync.Mutex{}, values: map[string]int{"seed": 1}}
+`,
+			want: 1,
+		},
+		{
+			name: "pointer struct with mutex and map",
+			source: `package sample
+import "sync"
+type state struct {
+	mu sync.Mutex
+	values map[string]int
+}
+var shared = &state{mu: sync.Mutex{}, values: map[string]int{"seed": 1}}
+`,
+			want: 1,
+		},
+		{
+			name: "anonymous struct with mutex and map",
+			source: `package sample
+import "sync"
+var shared = struct {
+	mu sync.Mutex
+	values map[string]int
+}{values: map[string]int{"seed": 1}}
+`,
+			want: 1,
+		},
+		{name: "map", source: "package sample\nvar lookup = map[string]int{\"seed\": 1}\n", want: 1},
+		{name: "slice", source: "package sample\nvar values = []int{1, 2}\n", want: 1},
+		{name: "channel make", source: "package sample\nvar updates = make(chan int)\n", want: 1},
+		{name: "pointer", source: "package sample\nvar descriptor = &struct{ Name string }{Name: \"sample\"}\n", want: 1},
+		{name: "function", source: "package sample\nvar hook = func() {}\n", want: 1},
+		{name: "sync zero value", source: "package sample\nimport \"sync\"\nvar lock sync.Mutex\n", want: 1},
+		{name: "atomic zero value", source: "package sample\nimport \"sync/atomic\"\nvar counter atomic.Int64\n", want: 1},
+		{name: "sync composite", source: "package sample\nimport \"sync\"\nvar lock = sync.Mutex{}\n", want: 1},
+		{name: "atomic composite", source: "package sample\nimport \"sync/atomic\"\nvar counter = atomic.Int64{}\n", want: 1},
+		{name: "unknown constructor", source: "package sample\nvar cache = NewCache()\n", want: 1},
+		{name: "unresolved composite", source: "package sample\nvar cache = external.Cache{}\n", want: 1},
+		{name: "unproven embed selector", source: "package sample\nvar files embed.FS\n", want: 1},
+		{
+			name:   "multi name multi rhs",
+			source: "package sample\nvar lookup, state = [1]int{1}, map[string]int{\"seed\": 1}\n",
+			want:   1,
+		},
+		{
+			name:   "multi name shared expression",
+			source: "package sample\nvar left, right = NewPair()\n",
+			want:   2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := measureGlobalVarsFromSource(t, tt.source); got != tt.want {
+				t.Fatalf("GlobalVars = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountGlobalVarsV3PreservesProvenImmutableInitializers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{name: "constant array", source: "package sample\nconst width = 2\nvar values = [width]string{\"a\", \"b\"}\n"},
+		{
+			name: "scalar descriptor",
+			source: `package sample
+type descriptor struct {
+	name string
+	enabled bool
+}
+var current = descriptor{name: "sample", enabled: true}
+`,
+		},
+		{
+			name: "readonly array lookup",
+			source: `package sample
+type entry struct {
+	key string
+	value int
+}
+var lookup = [...]entry{{key: "a", value: 1}, {key: "b", value: 2}}
+`,
+		},
+		{name: "paired immutable rhs", source: "package sample\nvar left, right = [1]int{1}, [1]int{2}\n"},
+		{name: "regexp", source: "package sample\nimport \"regexp\"\nvar pattern = regexp.MustCompile(\"sample\")\n"},
+		{name: "fx module", source: "package sample\nimport \"go.uber.org/fx\"\nvar Module = fx.Module(\"sample\")\n"},
+		{name: "aliased embed filesystem", source: "package sample\nimport embedded \"embed\"\nvar files embedded.FS\n"},
+		{
+			name: "interface assertion",
+			source: `package sample
+type runner interface{ Run() }
+type implementation struct{}
+func (*implementation) Run() {}
+var _ runner = (*implementation)(nil)
+`,
+		},
+		{
+			name: "formal ignore",
+			source: `package sample
+// archguard:ignore global_vars -- test fixture explicitly owns mutable process state
+var shared = map[string]int{"seed": 1}
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := measureGlobalVarsFromSource(t, tt.source); got != 0 {
+				t.Fatalf("GlobalVars = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func measureGlobalVarsFromSource(t *testing.T, source string) int {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fixture.go")
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("write global variable fixture: %v", err)
+	}
+	return MeasureFileMetrics(path).GlobalVars
+}
+
 func TestCheckAllAllowsLargePackageLineTotals(t *testing.T) {
 	t.Parallel()
 

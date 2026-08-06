@@ -5,6 +5,8 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path"
+	"strconv"
 	"strings"
 )
 
@@ -90,9 +92,10 @@ func countEffectiveLinesFromRaw(rawLines []string) int {
 //   - var Module = fx.Module(...)
 //   - var _ Interface = (*impl)(nil) 接口合规检查
 //   - var ErrExample / var errExample 哨兵错误
-//   - regexp.MustCompile / event.New 不可变全局
+//   - regexp.MustCompile 已证明只读的查找表
 func countGlobalVarsV3(fset *token.FileSet, node *ast.File, ignores archGuardIgnores) int {
 	count := 0
+	immutableContext := newImmutableGlobalContext(node)
 	for _, decl := range node.Decls {
 		gd, ok := decl.(*ast.GenDecl)
 		if !ok || gd.Tok != token.VAR {
@@ -103,136 +106,406 @@ func countGlobalVarsV3(fset *token.FileSet, node *ast.File, ignores archGuardIgn
 			if !ok {
 				continue
 			}
-			for _, name := range vs.Names {
-				if name.Name == "_" {
-					continue
-				}
-				if ignores.has(fset.Position(name.Pos()).Line, "global_vars") {
-					continue
-				}
-				if isExemptGlobalVar(name.Name, vs) {
-					continue
-				}
-				count++
-			}
+			count += countGlobalValueSpec(fset, vs, ignores, immutableContext)
 		}
 	}
 	return count
 }
 
+// countGlobalValueSpec 按名称精确匹配 RHS，并对无法证明的共享或错位初始化保守计数。
+func countGlobalValueSpec(
+	fset *token.FileSet,
+	vs *ast.ValueSpec,
+	ignores archGuardIgnores,
+	immutableContext immutableGlobalContext,
+) int {
+	count := 0
+	for nameIndex, name := range vs.Names {
+		if name.Name == "_" || ignores.has(fset.Position(name.Pos()).Line, "global_vars") {
+			continue
+		}
+		initializer, hasInitializer := globalInitializerForName(vs, nameIndex)
+		if len(vs.Values) > 0 && !hasInitializer {
+			count++
+			continue
+		}
+		if !isExemptGlobalVar(name.Name, vs.Type, initializer, hasInitializer, immutableContext) {
+			count++
+		}
+	}
+	return count
+}
+
+type immutableGlobalContext struct {
+	types     map[string]ast.Expr
+	constants map[string]struct{}
+	imports   map[string]string
+}
+
+// newImmutableGlobalContext 建立当前文件可证明的本地类型和常量索引。
+func newImmutableGlobalContext(node *ast.File) immutableGlobalContext {
+	context := immutableGlobalContext{
+		types:     make(map[string]ast.Expr),
+		constants: make(map[string]struct{}),
+		imports:   make(map[string]string),
+	}
+	indexImmutableImports(node.Imports, context.imports)
+	indexImmutableDeclarations(node.Decls, context)
+	return context
+}
+
+// indexImmutableImports 记录当前文件的显式 import 名称和真实路径。
+func indexImmutableImports(imports []*ast.ImportSpec, indexed map[string]string) {
+	for _, importSpec := range imports {
+		importPath, err := strconv.Unquote(importSpec.Path.Value)
+		if err != nil {
+			continue
+		}
+		localName := path.Base(importPath)
+		if importSpec.Name != nil {
+			localName = importSpec.Name.Name
+		}
+		if localName != "_" && localName != "." {
+			indexed[localName] = importPath
+		}
+	}
+}
+
+// indexImmutableDeclarations 记录当前文件的本地类型和常量声明。
+func indexImmutableDeclarations(declarations []ast.Decl, context immutableGlobalContext) {
+	for _, declaration := range declarations {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		switch general.Tok {
+		case token.TYPE:
+			indexImmutableTypes(general.Specs, context.types)
+		case token.CONST:
+			indexImmutableConstants(general.Specs, context.constants)
+		}
+	}
+}
+
+// indexImmutableTypes 记录类型声明的本地底层表达式。
+func indexImmutableTypes(specifications []ast.Spec, indexed map[string]ast.Expr) {
+	for _, specification := range specifications {
+		typeSpec, ok := specification.(*ast.TypeSpec)
+		if ok {
+			indexed[typeSpec.Name.Name] = typeSpec.Type
+		}
+	}
+}
+
+// indexImmutableConstants 记录当前文件中可用于纯值表达式的常量名称。
+func indexImmutableConstants(specifications []ast.Spec, indexed map[string]struct{}) {
+	for _, specification := range specifications {
+		valueSpec, ok := specification.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for _, name := range valueSpec.Names {
+			indexed[name.Name] = struct{}{}
+		}
+	}
+}
+
+// globalInitializerForName 只返回与名称一一对应的初始化表达式。
+func globalInitializerForName(vs *ast.ValueSpec, nameIndex int) (ast.Expr, bool) {
+	if len(vs.Values) == 0 || len(vs.Values) != len(vs.Names) || nameIndex >= len(vs.Values) {
+		return nil, false
+	}
+	return vs.Values[nameIndex], true
+}
+
 // isExemptGlobalVar 判断包级 var 是否属于全局变量 guard 的允许形态。
 // 只豁免哨兵错误、fx.Module、接口合规检查和不可变初始化，避免状态型全局变量溜过。
-func isExemptGlobalVar(name string, vs *ast.ValueSpec) bool {
+func isExemptGlobalVar(
+	name string,
+	typeExpr ast.Expr,
+	initializer ast.Expr,
+	hasInitializer bool,
+	context immutableGlobalContext,
+) bool {
 	// 哨兵错误: ErrExample or errExample
 	if strings.HasPrefix(name, "Err") || strings.HasPrefix(name, "err") {
 		return true
 	}
-	// fx.Module 声明: var Module = fx.Module(...)
-	if name == "Module" {
-		return true
+	if hasInitializer {
+		return isImmutableGlobalInit(initializer, context)
 	}
-	// 接口合规检查: var _ Interface = (*)
-	if name == "_" {
-		return true
-	}
-	// 检查右值是否为不可变全局构造
-	if len(vs.Values) > 0 {
-		if isImmutableGlobalInit(vs.Values[0]) {
-			return true
-		}
-	}
-	// 无右值时检查类型：embed.FS 和 atomic.* 零值声明
-	return len(vs.Values) == 0 && isExemptZeroValueType(vs.Type)
+	return isExemptZeroValueType(typeExpr, context)
 }
 
-// isExemptZeroValueType 检查零值声明的类型是否属于豁免类型（embed.FS、atomic.*）。
-func isExemptZeroValueType(typeExpr ast.Expr) bool {
-	switch t := typeExpr.(type) {
-	case *ast.SelectorExpr:
-		if t.Sel.Name == "FS" {
-			return true
-		}
-		pkg, ok := t.X.(*ast.Ident)
-		return ok && pkg.Name == "atomic"
-	case *ast.IndexExpr:
-		// atomic.Pointer[T] — generic atomic type
-		sel, ok := t.X.(*ast.SelectorExpr)
-		if !ok {
-			return false
-		}
-		pkg, ok := sel.X.(*ast.Ident)
-		return ok && pkg.Name == "atomic"
+// isExemptZeroValueType 检查零值声明是否为只读嵌入文件系统。
+func isExemptZeroValueType(typeExpr ast.Expr, context immutableGlobalContext) bool {
+	selector, ok := typeExpr.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != "FS" {
+		return false
 	}
-	return false
+	packageName, ok := selector.X.(*ast.Ident)
+	return ok && context.imports[packageName.Name] == "embed"
 }
 
 // isImmutableGlobalInit 检查初始化表达式是否为不可变全局构造。
-// 覆盖：函数调用类（regexp.MustCompile, promauto.NewCounter 等）、复合字面量（slice/map/struct literal）、
-// 函数字面量（no-op 占位符，如 test hook 默认值）、flag 包注册、常量乘法表达式（如 5 * time.Minute）。
-func isImmutableGlobalInit(expr ast.Expr) bool {
+// 仅放行可证明的纯值数组、纯标量结构和显式登记的只读构造。
+func isImmutableGlobalInit(expr ast.Expr, context immutableGlobalContext) bool {
 	switch e := expr.(type) {
 	case *ast.CompositeLit:
-		return true
-	case *ast.FuncLit:
-		return true
+		return isImmutableCompositeLiteral(e, nil, context, make(map[string]bool))
 	case *ast.CallExpr:
-		return isImmutableFuncCall(e)
-	case *ast.UnaryExpr:
-		if _, ok := e.X.(*ast.CompositeLit); ok {
-			return true
-		}
-		return false
+		return isImmutableFuncCall(e, context)
 	case *ast.BinaryExpr:
-		return isConstantExpr(e)
+		return isConstantExpr(e, context)
 	default:
 		return false
 	}
 }
 
-// isConstantExpr 递归检查表达式是否为纯常量（字面量、包选择器或其乘积），
-// 用于豁免如 5 * time.Minute 这类 const-like 全局变量。
-func isConstantExpr(expr ast.Expr) bool {
+// isImmutableCompositeLiteral 验证复合字面量的类型和每个元素均为纯值。
+func isImmutableCompositeLiteral(
+	literal *ast.CompositeLit,
+	expectedType ast.Expr,
+	context immutableGlobalContext,
+	visiting map[string]bool,
+) bool {
+	typeExpr := literal.Type
+	if typeExpr == nil {
+		typeExpr = expectedType
+	}
+	switch valueType := typeExpr.(type) {
+	case *ast.Ident:
+		definition, ok := context.types[valueType.Name]
+		if !ok || visiting[valueType.Name] {
+			return false
+		}
+		visiting[valueType.Name] = true
+		resolvedLiteral := *literal
+		resolvedLiteral.Type = definition
+		immutable := isImmutableCompositeLiteral(&resolvedLiteral, nil, context, visiting)
+		delete(visiting, valueType.Name)
+		return immutable
+	case *ast.ArrayType:
+		return isImmutableArrayLiteral(literal, valueType, context, visiting)
+	case *ast.StructType:
+		return isImmutableStructLiteral(literal, valueType, context, visiting)
+	default:
+		return false
+	}
+}
+
+// isImmutableArrayLiteral 验证定长数组的键和值均为可证明纯值。
+func isImmutableArrayLiteral(
+	literal *ast.CompositeLit,
+	arrayType *ast.ArrayType,
+	context immutableGlobalContext,
+	visiting map[string]bool,
+) bool {
+	if !isImmutableArrayLength(arrayType.Len, context) {
+		return false
+	}
+	for _, element := range literal.Elts {
+		value := element
+		if keyed, ok := element.(*ast.KeyValueExpr); ok {
+			if !isConstantExpr(keyed.Key, context) {
+				return false
+			}
+			value = keyed.Value
+		}
+		if !isImmutableCompositeValue(value, arrayType.Elt, context, visiting) {
+			return false
+		}
+	}
+	return true
+}
+
+// isImmutableStructLiteral 验证结构字面量只写入可证明的纯值字段。
+func isImmutableStructLiteral(
+	literal *ast.CompositeLit,
+	structType *ast.StructType,
+	context immutableGlobalContext,
+	visiting map[string]bool,
+) bool {
+	fields := flattenImmutableStructFields(structType)
+	for elementIndex, element := range literal.Elts {
+		fieldIndex := elementIndex
+		value := element
+		if keyed, ok := element.(*ast.KeyValueExpr); ok {
+			fieldName, ok := keyed.Key.(*ast.Ident)
+			if !ok {
+				return false
+			}
+			fieldIndex = immutableStructFieldIndex(fields, fieldName.Name)
+			value = keyed.Value
+		}
+		if fieldIndex < 0 || fieldIndex >= len(fields) {
+			return false
+		}
+		if !isImmutableValueType(fields[fieldIndex].typeExpr, context, visiting) ||
+			!isImmutableCompositeValue(value, fields[fieldIndex].typeExpr, context, visiting) {
+			return false
+		}
+	}
+	for _, field := range fields {
+		if !isImmutableValueType(field.typeExpr, context, visiting) {
+			return false
+		}
+	}
+	return true
+}
+
+type immutableStructField struct {
+	name     string
+	typeExpr ast.Expr
+}
+
+// flattenImmutableStructFields 展开结构中的合并字段声明。
+func flattenImmutableStructFields(structType *ast.StructType) []immutableStructField {
+	if structType.Fields == nil {
+		return nil
+	}
+	var fields []immutableStructField
+	for _, field := range structType.Fields.List {
+		if len(field.Names) == 0 {
+			fields = append(fields, immutableStructField{typeExpr: field.Type})
+			continue
+		}
+		for _, name := range field.Names {
+			fields = append(fields, immutableStructField{name: name.Name, typeExpr: field.Type})
+		}
+	}
+	return fields
+}
+
+// immutableStructFieldIndex 查找具名结构字段的位置。
+func immutableStructFieldIndex(fields []immutableStructField, name string) int {
+	for index, field := range fields {
+		if field.name == name {
+			return index
+		}
+	}
+	return -1
+}
+
+// isImmutableCompositeValue 验证复合字面量中的单个值。
+func isImmutableCompositeValue(
+	expr ast.Expr,
+	expectedType ast.Expr,
+	context immutableGlobalContext,
+	visiting map[string]bool,
+) bool {
+	switch value := expr.(type) {
+	case *ast.CompositeLit:
+		return isImmutableCompositeLiteral(value, expectedType, context, visiting)
+	case *ast.BasicLit:
+		return true
+	case *ast.Ident:
+		return isConstantIdentifier(value.Name, context)
+	case *ast.ParenExpr:
+		return isImmutableCompositeValue(value.X, expectedType, context, visiting)
+	case *ast.UnaryExpr, *ast.BinaryExpr:
+		return isConstantExpr(value, context)
+	default:
+		return false
+	}
+}
+
+// isImmutableValueType 判断类型是否只包含标量、定长数组或纯值结构。
+func isImmutableValueType(typeExpr ast.Expr, context immutableGlobalContext, visiting map[string]bool) bool {
+	switch valueType := typeExpr.(type) {
+	case *ast.Ident:
+		if isBuiltinScalarType(valueType.Name) {
+			return true
+		}
+		definition, ok := context.types[valueType.Name]
+		if !ok || visiting[valueType.Name] {
+			return false
+		}
+		visiting[valueType.Name] = true
+		immutable := isImmutableValueType(definition, context, visiting)
+		delete(visiting, valueType.Name)
+		return immutable
+	case *ast.ArrayType:
+		return isImmutableArrayLength(valueType.Len, context) &&
+			isImmutableValueType(valueType.Elt, context, visiting)
+	case *ast.StructType:
+		for _, field := range flattenImmutableStructFields(valueType) {
+			if !isImmutableValueType(field.typeExpr, context, visiting) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+// isImmutableArrayLength 判断数组长度是否为省略号或当前文件可证明的常量。
+func isImmutableArrayLength(length ast.Expr, context immutableGlobalContext) bool {
+	if _, ok := length.(*ast.Ellipsis); ok {
+		return true
+	}
+	return length != nil && isConstantExpr(length, context)
+}
+
+// isBuiltinScalarType 判断标识符是否为 Go 内建标量类型。
+func isBuiltinScalarType(name string) bool {
+	switch name {
+	case "bool", "string",
+		"int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+		"byte", "rune", "float32", "float64", "complex64", "complex128":
+		return true
+	default:
+		return false
+	}
+}
+
+// isConstantExpr 递归检查表达式是否由字面量、本地常量和常量运算组成。
+func isConstantExpr(expr ast.Expr, context immutableGlobalContext) bool {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		return true
 	case *ast.Ident:
-		return true
-	case *ast.SelectorExpr:
-		return true
+		return isConstantIdentifier(e.Name, context)
+	case *ast.ParenExpr:
+		return isConstantExpr(e.X, context)
+	case *ast.UnaryExpr:
+		return e.Op != token.AND && e.Op != token.ARROW && isConstantExpr(e.X, context)
 	case *ast.BinaryExpr:
-		return isConstantExpr(e.X) && isConstantExpr(e.Y)
+		return isConstantExpr(e.X, context) && isConstantExpr(e.Y, context)
 	default:
 		return false
 	}
 }
 
-func isImmutableFuncCall(call *ast.CallExpr) bool {
-	switch fn := call.Fun.(type) {
-	case *ast.SelectorExpr:
-		return isImmutableSelectorCall(fn)
-	case *ast.Ident:
-		return strings.HasPrefix(fn.Name, "New") || strings.HasPrefix(fn.Name, "Must")
+// isConstantIdentifier 判断标识符是否为内建布尔值或当前文件常量。
+func isConstantIdentifier(name string, context immutableGlobalContext) bool {
+	if name == "true" || name == "false" || name == "iota" {
+		return true
 	}
-	return false
+	_, ok := context.constants[name]
+	return ok
 }
 
-// isImmutableSelectorCall 判断选择器调用是否属于允许的不可变全局初始化。
-// 仅放行 fx、sync、atomic、regexp、promauto 等已知无运行态写入风险的构造。
-func isImmutableSelectorCall(sel *ast.SelectorExpr) bool {
-	pkg, ok := sel.X.(*ast.Ident)
+// isImmutableFuncCall 仅放行已明确登记为只读声明的构造调用。
+func isImmutableFuncCall(call *ast.CallExpr, context immutableGlobalContext) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
 	}
-	name := sel.Sel.Name
-	switch pkg.Name {
-	case "fx":
-		return name == "Module"
-	case "sync":
-		return name == "OnceValue"
-	case "flag":
-		return true
+	packageName, ok := selector.X.(*ast.Ident)
+	if !ok {
+		return false
 	}
-	return strings.HasPrefix(name, "New") || strings.HasPrefix(name, "Must")
+	switch context.imports[packageName.Name] {
+	case "go.uber.org/fx":
+		return selector.Sel.Name == "Module"
+	case "regexp":
+		return selector.Sel.Name == "MustCompile"
+	default:
+		return false
+	}
 }
 
 // hasInitFunc 检查文件是否包含 init() 函数。
