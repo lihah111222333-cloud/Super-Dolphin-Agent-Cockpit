@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,10 @@ func TestManagedToolCallRejectsOldSurfaceAfterReplacement(t *testing.T) {
 	}
 	entered := make(chan struct{})
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releasePeer := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
 	firstLocal := newManagedToolPeer(t, registry, firstBootstrap, "request-1", func() {
 		close(entered)
 		<-release
@@ -36,14 +41,17 @@ func TestManagedToolCallRejectsOldSurfaceAfterReplacement(t *testing.T) {
 
 	instance := registry.FindActiveByKind(mcpdto.ClientKindOrch)[0]
 	h := &Handler{registry: registry, proxyAuthToken: newProxyAuthToken()}
-	callDone := make(chan error, 1)
-	go func() {
-		_, callErr := h.callPeerTool(context.Background(), instance, ToolCallRequest{
-			Name:      "inspect",
-			Arguments: json.RawMessage(`{}`),
-		})
-		callDone <- callErr
-	}()
+	var calls sync.WaitGroup
+	callDone, callFinished := startManagedAuthorityErrorCallForTest(t, &calls, h, instance)
+	t.Cleanup(func() {
+		releasePeer()
+		select {
+		case <-callFinished:
+			calls.Wait()
+		case <-time.After(time.Second):
+			t.Error("managed tools/call did not finish during cleanup")
+		}
+	})
 	select {
 	case <-entered:
 	case <-time.After(time.Second):
@@ -58,7 +66,7 @@ func TestManagedToolCallRejectsOldSurfaceAfterReplacement(t *testing.T) {
 	}
 	secondLocal := newManagedToolPeer(t, registry, replacement, "request-2", nil)
 	defer secondLocal.Close()
-	close(release)
+	releasePeer()
 
 	select {
 	case err := <-callDone:
@@ -68,6 +76,26 @@ func TestManagedToolCallRejectsOldSurfaceAfterReplacement(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("managed tools/call did not finish after replacement")
 	}
+}
+
+func startManagedAuthorityErrorCallForTest(
+	t *testing.T,
+	calls *sync.WaitGroup,
+	h *Handler,
+	instance *mcpcontrol.ToolInstance,
+) (<-chan error, <-chan struct{}) {
+	t.Helper()
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	calls.Go(func() {
+		defer close(finished)
+		_, err := h.callPeerTool(context.Background(), instance, ToolCallRequest{
+			Name:      "inspect",
+			Arguments: json.RawMessage(`{}`),
+		})
+		done <- err
+	})
+	return done, finished
 }
 
 func newManagedToolPeer(
