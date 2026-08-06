@@ -434,10 +434,8 @@ func (s *session) publishSyntheticTerminal(turnID string, payload map[string]any
 }
 
 type turnToolFailure struct {
-	TurnID   string
-	CallID   string
-	ToolName string
-	Error    string
+	TurnID, CallID  string
+	ToolName, Error string
 }
 
 type toolEndTranslator func(map[string]any) (any, bool)
