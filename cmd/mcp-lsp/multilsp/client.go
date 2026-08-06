@@ -362,6 +362,11 @@ func (c *client) Shutdown(ctx context.Context) error {
 	} else {
 		c.transport.logShutdownStage("protocol_shutdown", "completed", nil)
 	}
+	return c.finishProtocolExit(ctx, preparationErr, shutdownErrors)
+}
+
+// finishProtocolExit 仅在 exact owner preparation 成功后发送 exit，并完成本地关闭状态。
+func (c *client) finishProtocolExit(ctx context.Context, preparationErr error, shutdownErrors []error) error {
 	if preparationErr != nil {
 		c.transport.logShutdownStage("protocol_exit", "skipped", preparationErr)
 		return errors.Join(shutdownErrors...)

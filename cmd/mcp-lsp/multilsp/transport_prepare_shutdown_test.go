@@ -83,6 +83,21 @@ func TestClientShutdownPreparationFailureSkipsExitAndPreservesOwner(t *testing.T
 	}
 
 	err := c.Shutdown(ctx)
+	assertPreparationFailureProtocolState(t, c, owner, writer, ctx, err, want)
+	assertPreparationFailureLogs(t, logs.Bytes(), want)
+	assertPreparationFailureClose(t, c, owner)
+}
+
+func assertPreparationFailureProtocolState(
+	t *testing.T,
+	c *client,
+	owner *countingProcessTreeOwner,
+	writer *shutdownRecordingWriter,
+	ctx context.Context,
+	err error,
+	want error,
+) {
+	t.Helper()
 	if !errors.Is(err, want) {
 		t.Fatalf("Shutdown() error = %v, want %v", err, want)
 	}
@@ -98,17 +113,25 @@ func TestClientShutdownPreparationFailureSkipsExitAndPreservesOwner(t *testing.T
 	if ctx.Err() != nil {
 		t.Fatalf("Shutdown() sent exit and canceled test context: %v", ctx.Err())
 	}
+}
+
+func assertPreparationFailureLogs(t *testing.T, logs []byte, want error) {
+	t.Helper()
 	for _, stage := range []string{"prepare", "protocol_shutdown", "protocol_exit"} {
-		if !bytes.Contains(logs.Bytes(), []byte("\"stage\":\""+stage+"\"")) {
-			t.Fatalf("shutdown logs missing stage %q: %s", stage, logs.String())
+		if !bytes.Contains(logs, []byte("\"stage\":\""+stage+"\"")) {
+			t.Fatalf("shutdown logs missing stage %q: %s", stage, logs)
 		}
 	}
-	if !bytes.Contains(logs.Bytes(), []byte("\"stage\":\"protocol_exit\",\"action_result\":\"skipped\"")) {
-		t.Fatalf("shutdown logs did not mark protocol exit skipped: %s", logs.String())
+	if !bytes.Contains(logs, []byte("\"stage\":\"protocol_exit\",\"action_result\":\"skipped\"")) {
+		t.Fatalf("shutdown logs did not mark protocol exit skipped: %s", logs)
 	}
-	if bytes.Contains(logs.Bytes(), []byte(want.Error())) {
-		t.Fatalf("shutdown logs leaked preparation error: %s", logs.String())
+	if bytes.Contains(logs, []byte(want.Error())) {
+		t.Fatalf("shutdown logs leaked preparation error: %s", logs)
 	}
+}
+
+func assertPreparationFailureClose(t *testing.T, c *client, owner *countingProcessTreeOwner) {
+	t.Helper()
 	if err := c.Close(); err != nil {
 		t.Fatalf("Close() after preparation failure error = %v", err)
 	}
