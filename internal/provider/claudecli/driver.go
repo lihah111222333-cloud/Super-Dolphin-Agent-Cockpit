@@ -24,11 +24,14 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
-// claudeCapabilities 描述 Claude provider 当前暴露给上层 runtime 的能力。
-var claudeCapabilities = dto.CapabilitySet{
-	dto.CapMessageSend:  true,
-	dto.CapModelSwitch:  true,
-	dto.CapTurnOverride: true,
+// claudeCapabilities 构造 Claude provider 当前暴露给上层 runtime 的能力集合。
+// 每次调用返回独立 map，避免 package-level mutable state 成为跨会话共享 owner。
+func claudeCapabilities() dto.CapabilitySet {
+	return dto.CapabilitySet{
+		dto.CapMessageSend:  true,
+		dto.CapModelSwitch:  true,
+		dto.CapTurnOverride: true,
+	}
 }
 
 // driver 是 Claude CLI provider 的 Driver 实现，负责启动 CLI、维护 runtime 观测和 skill mirror。
@@ -166,7 +169,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		CWD:      strings.TrimSpace(req.CWD),
 		AdditionalWorkingDirectories: providershared.ConfigStringSlice(req.Config,
 			"additionalWorkingDirectories", "additional_working_directories"),
-		ThreadCaps:     copyCapabilities(claudeCapabilities),
+		ThreadCaps:     claudeCapabilities(),
 		BinaryDir:      providershared.ResolveBinaryDir(req.CWD, req.Config),
 		Env:            providershared.StringMap(req.Config["env"]),
 		AutoApprove:    providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
@@ -217,7 +220,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		CWD:      strings.TrimSpace(req.CWD),
 		AdditionalWorkingDirectories: providershared.ConfigStringSlice(rawConfig,
 			"additionalWorkingDirectories", "additional_working_directories"),
-		ThreadCaps:     copyCapabilities(claudeCapabilities),
+		ThreadCaps:     claudeCapabilities(),
 		BinaryDir:      providershared.ResolveBinaryDir(req.CWD, rawConfig),
 		Env:            providershared.StringMap(rawConfig["env"]),
 		AutoApprove:    providershared.ConfigStringSlice(rawConfig, "auto_approve", "autoApprove"),
@@ -422,7 +425,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		sessionID:         initialThreadID,
 		threadReady:       make(chan struct{}),
 		transport:         started.transport,
-		caps:              copyCapabilities(claudeCapabilities),
+		caps:              claudeCapabilities(),
 		history:           started.history,
 		logger:            d.logger,
 		eventDispatcher:   d.eventDispatcher,

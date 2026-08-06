@@ -231,14 +231,15 @@ func claudeResumeRequestForRuntimeReportTest(t *testing.T) dto.ResumeSessionRequ
 func TestSessionCapabilitiesMatchClaudeDeclaration(t *testing.T) {
 	t.Parallel()
 
-	s := &session{caps: copyCapabilities(claudeCapabilities)}
+	want := claudeCapabilities()
+	s := &session{caps: copyCapabilities(want)}
 	got := s.Capabilities()
-	if len(got) != len(claudeCapabilities) {
-		t.Fatalf("len(Capabilities()) = %d, want %d", len(got), len(claudeCapabilities))
+	if len(got) != len(want) {
+		t.Fatalf("len(Capabilities()) = %d, want %d", len(got), len(want))
 	}
-	for cap, want := range claudeCapabilities {
-		if got[cap] != want {
-			t.Fatalf("Capabilities()[%q] = %v, want %v", cap, got[cap], want)
+	for cap, enabled := range want {
+		if got[cap] != enabled {
+			t.Fatalf("Capabilities()[%q] = %v, want %v", cap, got[cap], enabled)
 		}
 	}
 }
@@ -246,7 +247,7 @@ func TestSessionCapabilitiesMatchClaudeDeclaration(t *testing.T) {
 func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 	t.Parallel()
 
-	s := &session{caps: copyCapabilities(claudeCapabilities)}
+	s := &session{caps: copyCapabilities(claudeCapabilities())}
 	got := s.Capabilities()
 	got[dto.CapMessageSend] = false
 	if !contract.HasCapability(s.caps, dto.CapMessageSend) {
@@ -257,7 +258,17 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 func TestClaudeDeclarationOmitsContextCompact(t *testing.T) {
 	t.Parallel()
 
-	if contract.HasCapability(claudeCapabilities, dto.CapContextCompact) {
+	if contract.HasCapability(claudeCapabilities(), dto.CapContextCompact) {
 		t.Fatalf("claudeCapabilities unexpectedly declares %q", dto.CapContextCompact)
+	}
+}
+
+func TestClaudeCapabilitiesReturnsIndependentMaps(t *testing.T) {
+	t.Parallel()
+
+	first := claudeCapabilities()
+	first[dto.CapMessageSend] = false
+	if !contract.HasCapability(claudeCapabilities(), dto.CapMessageSend) {
+		t.Fatal("claude capability declaration leaked a mutable shared map")
 	}
 }
