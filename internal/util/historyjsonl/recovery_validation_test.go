@@ -31,16 +31,36 @@ func TestDefaultRecoveryValidatorReusesSingleInstanceConcurrently(t *testing.T) 
 	const workers = 64
 	results := make(chan *recoveryValidator, workers)
 	errResults := make(chan error, workers)
+	ready := make(chan struct{}, workers)
+	start := make(chan struct{})
+	original := defaultRecoveryValidator
+	var initialized atomic.Int32
+	defaultRecoveryValidator = sync.OnceValue(func() struct {
+		validator *recoveryValidator
+		err       error
+	} {
+		initialized.Add(1)
+		validator, err := newRecoveryValidator(defaultRecoveryFS, defaultRecoveryArtifactCacheLimit)
+		return struct {
+			validator *recoveryValidator
+			err       error
+		}{validator: validator, err: err}
+	})
+	t.Cleanup(func() { defaultRecoveryValidator = original })
 	var group sync.WaitGroup
-	group.Add(workers)
 	for range workers {
-		go func() {
-			defer group.Done()
+		group.Go(func() {
+			ready <- struct{}{}
+			<-start
 			result := defaultRecoveryValidator()
 			results <- result.validator
 			errResults <- result.err
-		}()
+		})
 	}
+	for range workers {
+		<-ready
+	}
+	close(start)
 	group.Wait()
 	close(results)
 	close(errResults)
@@ -62,6 +82,9 @@ func TestDefaultRecoveryValidatorReusesSingleInstanceConcurrently(t *testing.T) 
 		if validator != first {
 			t.Fatalf("defaultRecoveryValidator() validator = %p, want single instance %p", validator, first)
 		}
+	}
+	if got := initialized.Load(); got != 1 {
+		t.Fatalf("defaultRecoveryValidator() initialization count = %d, want 1", got)
 	}
 }
 
@@ -187,24 +210,8 @@ func TestRecoveryValidatorRejectsSameMetadataIdentityRewrite(t *testing.T) {
 	if _, err := validator.validate(req); err != nil {
 		t.Fatalf("prime validate() error = %v", err)
 	}
-	before, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat artifact: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q}}`+"\n", otherIdentity)), 0o600); err != nil {
-		t.Fatalf("rewrite artifact: %v", err)
-	}
-	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
-		t.Fatalf("restore artifact timestamps: %v", err)
-	}
-	after, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat rewritten artifact: %v", err)
-	}
-	if !sameRecoveryFile(before, after) {
-		t.Fatalf("test rewrite did not preserve inode/size/mtime/mode")
-	}
-	_, err = validator.validate(req)
+	rewriteRecoveryCodexArtifactIdentityPreservingMetadata(t, path, otherIdentity)
+	_, err := validator.validate(req)
 	if !IsRecoveryArtifactIdentityError(err) {
 		t.Fatalf("validate() error = %v, want identity mismatch", err)
 	}
@@ -300,6 +307,7 @@ func BenchmarkRecoveryValidatorCachedLargeArtifact(b *testing.B) {
 	if _, err := validator.validate(req); err != nil {
 		b.Fatalf("prime validate() error = %v", err)
 	}
+	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
 		if _, err := validator.validate(req); err != nil {
@@ -337,6 +345,31 @@ func writeRecoveryCodexArtifact(tb recoveryTestTB, home, identity string, messag
 		tb.Fatalf("write recovery artifact: %v", err)
 	}
 	return path
+}
+
+func rewriteRecoveryCodexArtifactIdentityPreservingMetadata(tb recoveryTestTB, path, identity string) {
+	tb.Helper()
+	before, err := os.Stat(path)
+	if err != nil {
+		tb.Fatalf("stat artifact: %v", err)
+	}
+	body := []byte(fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q}}`+"\n", identity))
+	if int64(len(body)) != before.Size() {
+		tb.Fatalf("rewrite artifact length = %d, want original size %d", len(body), before.Size())
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		tb.Fatalf("rewrite artifact: %v", err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		tb.Fatalf("restore artifact timestamps: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		tb.Fatalf("stat rewritten artifact: %v", err)
+	}
+	if !sameRecoveryFile(before, after) {
+		tb.Fatalf("test rewrite did not preserve inode/size/mtime/mode")
+	}
 }
 
 func recoveryCodexMessageLine(content string) string {
