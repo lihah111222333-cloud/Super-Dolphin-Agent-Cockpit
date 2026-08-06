@@ -452,7 +452,7 @@ flowchart LR
 
 ### 6.1 测试入口
 
-> freeze 口径：本卷直接涉及的 `dashboard / skill / uistate` 当前无独立 freeze 项；相邻 `prompt` 真值仍以 §1.1 的 `27` 为准。
+> freeze 口径：本卷直接涉及的 `dashboard / skill / uistate` 当前无独立 freeze 项；相邻 `prompt` 真值仍以 §1.1 的 `30` 为准。
 
 | 包 | 测试文件 | 核心 Test* | 锁定点 |
 |---|---|---|---|
