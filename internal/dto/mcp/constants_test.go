@@ -55,7 +55,13 @@ func TestOrchCapabilitiesAreNotPackageGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse constants source: %v", err)
 	}
-	for _, declaration := range parsed.Decls {
+	if mcpConstantsHasPackageVar(parsed.Decls, "orchCapabilities") {
+		t.Errorf("orchCapabilities must be function-scoped, found package var in %s", path)
+	}
+}
+
+func mcpConstantsHasPackageVar(declarations []ast.Decl, target string) bool {
+	for _, declaration := range declarations {
 		gen, ok := declaration.(*ast.GenDecl)
 		if !ok || gen.Tok != token.VAR {
 			continue
@@ -66,10 +72,11 @@ func TestOrchCapabilitiesAreNotPackageGlobal(t *testing.T) {
 				continue
 			}
 			for _, name := range value.Names {
-				if name.Name == "orchCapabilities" {
-					t.Errorf("orchCapabilities must be function-scoped, found package var in %s", path)
+				if name.Name == target {
+					return true
 				}
 			}
 		}
 	}
+	return false
 }

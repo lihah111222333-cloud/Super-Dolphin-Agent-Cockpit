@@ -45,28 +45,41 @@ func TestRuntimeStateHasNoPackageGlobalOwner(t *testing.T) {
 		"factory_events.go":        "eventPublishers",
 		"stop_helper.go":           "defaultStopSpawnedAgentCounter",
 	} {
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(filepath.Dir(testFile), fileName), nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", fileName, err)
+		path := filepath.Join(filepath.Dir(testFile), fileName)
+		if wakeupFileHasPackageVar(t, path, symbol) {
+			t.Fatalf("%s must not retain package-global runtime state", symbol)
 		}
-		for _, declaration := range file.Decls {
-			general, ok := declaration.(*ast.GenDecl)
-			if !ok || general.Tok != token.VAR {
-				continue
-			}
-			for _, spec := range general.Specs {
-				value, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for _, name := range value.Names {
-					if name.Name == symbol {
-						t.Fatalf("%s must not retain package-global runtime state", symbol)
-					}
-				}
+	}
+}
+
+func wakeupFileHasPackageVar(t *testing.T, path, symbol string) bool {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", filepath.Base(path), err)
+	}
+	for _, declaration := range file.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if ok && general.Tok == token.VAR && wakeupSpecsContainName(general.Specs, symbol) {
+			return true
+		}
+	}
+	return false
+}
+
+func wakeupSpecsContainName(specs []ast.Spec, symbol string) bool {
+	for _, spec := range specs {
+		value, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for _, name := range value.Names {
+			if name.Name == symbol {
+				return true
 			}
 		}
 	}
+	return false
 }
 
 func TestWakeupDispatcherFailsDAGWakeupMissingRunID(t *testing.T) {

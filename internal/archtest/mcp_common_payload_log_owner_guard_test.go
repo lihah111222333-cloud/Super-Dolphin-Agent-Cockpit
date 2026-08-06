@@ -89,28 +89,48 @@ func mcpPayloadIsAtomicUint64(expr ast.Expr) bool {
 
 func mcpPayloadStructHasLogger(file *ast.File, structName string) bool {
 	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.TYPE {
-			continue
+		if mcpPayloadDeclHasLogger(decl, structName) {
+			return true
 		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != structName {
-				continue
-			}
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				return false
-			}
-			for _, field := range structType.Fields.List {
-				for _, name := range field.Names {
-					if name.Name == "payloadLogger" {
-						if ident, ok := field.Type.(*ast.Ident); ok && ident.Name == "toolPayloadLogger" {
-							return true
-						}
-					}
-				}
-			}
+	}
+	return false
+}
+
+func mcpPayloadDeclHasLogger(decl ast.Decl, structName string) bool {
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok || gen.Tok != token.TYPE {
+		return false
+	}
+	for _, spec := range gen.Specs {
+		if mcpPayloadTypeSpecHasLogger(spec, structName) {
+			return true
+		}
+	}
+	return false
+}
+
+func mcpPayloadTypeSpecHasLogger(spec ast.Spec, structName string) bool {
+	typeSpec, ok := spec.(*ast.TypeSpec)
+	if !ok || typeSpec.Name.Name != structName {
+		return false
+	}
+	structType, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return false
+	}
+	for _, field := range structType.Fields.List {
+		ident, typeOK := field.Type.(*ast.Ident)
+		if typeOK && ident.Name == "toolPayloadLogger" && mcpPayloadFieldNamed(field, "payloadLogger") {
+			return true
+		}
+	}
+	return false
+}
+
+func mcpPayloadFieldNamed(field *ast.Field, target string) bool {
+	for _, name := range field.Names {
+		if name.Name == target {
+			return true
 		}
 	}
 	return false

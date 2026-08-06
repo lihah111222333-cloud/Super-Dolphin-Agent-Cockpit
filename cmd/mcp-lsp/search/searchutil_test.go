@@ -400,29 +400,32 @@ func TestSearchTextExplicitAgentTargetsPermitOnlyRequestedScope(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			matches, searchErr := SearchText(context.Background(), TextSearchOptions{
-				Root: root, Path: testCase.path, Paths: testCase.paths, Query: "needle",
-			})
-			if searchErr != nil {
-				t.Fatalf("SearchText() error = %v", searchErr)
-			}
-			filtered, total, truncated := FilterAndCapSearchMatches(matches, 0)
-			if truncated || total != len(testCase.want) {
-				t.Fatalf("FilterAndCapSearchMatches() total=%d truncated=%v, want %d false", total, truncated, len(testCase.want))
-			}
-			got := searchTestRelativePaths(t, root, filtered)
-			if len(got) != len(testCase.want) {
-				t.Fatalf("filtered paths = %#v, want %#v", got, testCase.want)
-			}
-			for _, want := range testCase.want {
-				if !got[want] {
-					t.Fatalf("filtered paths = %#v, missing %s", got, want)
-				}
-			}
-			if got["outside.go"] || got[".agents/nested/second.go"] && name == "paths_hidden_files" {
-				t.Fatalf("filtered paths = %#v, exceeded requested scope", got)
-			}
+			assertExplicitAgentSearchScope(t, root, name, testCase.path, testCase.paths, testCase.want)
 		})
+	}
+}
+
+func assertExplicitAgentSearchScope(t *testing.T, root, name, path string, paths, wantPaths []string) {
+	t.Helper()
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Path: path, Paths: paths, Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	filtered, total, truncated := FilterAndCapSearchMatches(matches, 0)
+	if truncated || total != len(wantPaths) {
+		t.Fatalf("FilterAndCapSearchMatches() total=%d truncated=%v, want %d false", total, truncated, len(wantPaths))
+	}
+	got := searchTestRelativePaths(t, root, filtered)
+	if len(got) != len(wantPaths) {
+		t.Fatalf("filtered paths = %#v, want %#v", got, wantPaths)
+	}
+	for _, want := range wantPaths {
+		if !got[want] {
+			t.Fatalf("filtered paths = %#v, missing %s", got, want)
+		}
+	}
+	if got["outside.go"] || got[".agents/nested/second.go"] && name == "paths_hidden_files" {
+		t.Fatalf("filtered paths = %#v, exceeded requested scope", got)
 	}
 }
 

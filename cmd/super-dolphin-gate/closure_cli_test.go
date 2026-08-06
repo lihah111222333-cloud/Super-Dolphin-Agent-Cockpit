@@ -56,21 +56,32 @@ func TestClosureActionsAreNotPackageGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse closure source: %v", err)
 	}
-	for _, declaration := range parsed.Decls {
+	if hasPackageVarNamed(parsed.Decls, "closureActions") {
+		t.Errorf("closureActions must be function-scoped, found package var in %s", path)
+	}
+}
+
+func hasPackageVarNamed(declarations []ast.Decl, target string) bool {
+	for _, declaration := range declarations {
 		gen, ok := declaration.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
+		if ok && gen.Tok == token.VAR && valueSpecsContainName(gen.Specs, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func valueSpecsContainName(specs []ast.Spec, target string) bool {
+	for _, spec := range specs {
+		value, ok := spec.(*ast.ValueSpec)
+		if !ok {
 			continue
 		}
-		for _, spec := range gen.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for _, name := range value.Names {
-				if name.Name == "closureActions" {
-					t.Errorf("closureActions must be function-scoped, found package var in %s", path)
-				}
+		for _, name := range value.Names {
+			if name.Name == target {
+				return true
 			}
 		}
 	}
+	return false
 }

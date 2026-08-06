@@ -28,25 +28,37 @@ func dbQueryTablePolicyViolations(decls []ast.Decl) []string {
 	var violations []string
 	hasPolicy := false
 	for _, decl := range decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == "isAllowedTable" {
+		if isAllowedTablePolicyDecl(decl) {
 			hasPolicy = true
 			continue
 		}
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if ok && dbQueryTablePolicyHasMap(valueSpec) {
-				violations = append(violations, "internal/store/dbquery/executor.go: package-level map is forbidden for table policy")
-			}
+		if dbQueryDeclHasPackageMap(decl) {
+			violations = append(violations, "internal/store/dbquery/executor.go: package-level map is forbidden for table policy")
 		}
 	}
 	if !hasPolicy {
 		violations = append(violations, "internal/store/dbquery/executor.go: isAllowedTable policy function is required")
 	}
 	return violations
+}
+
+func isAllowedTablePolicyDecl(decl ast.Decl) bool {
+	fn, ok := decl.(*ast.FuncDecl)
+	return ok && fn.Recv == nil && fn.Name.Name == "isAllowedTable"
+}
+
+func dbQueryDeclHasPackageMap(decl ast.Decl) bool {
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok || gen.Tok != token.VAR {
+		return false
+	}
+	for _, spec := range gen.Specs {
+		valueSpec, ok := spec.(*ast.ValueSpec)
+		if ok && dbQueryTablePolicyHasMap(valueSpec) {
+			return true
+		}
+	}
+	return false
 }
 
 func dbQueryTablePolicyHasMap(spec *ast.ValueSpec) bool {

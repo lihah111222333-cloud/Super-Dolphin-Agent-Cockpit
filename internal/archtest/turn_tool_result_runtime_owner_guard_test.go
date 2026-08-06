@@ -93,23 +93,29 @@ func turnToolResultRuntimeHasField(file *ast.File, wantField, wantType string) b
 		return false
 	}
 	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.TYPE {
+		if turnToolResultDeclHasField(decl, wantField, wantType) {
+			return true
+		}
+	}
+	return false
+}
+
+func turnToolResultDeclHasField(decl ast.Decl, wantField, wantType string) bool {
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok || gen.Tok != token.TYPE {
+		return false
+	}
+	for _, spec := range gen.Specs {
+		typeSpec, ok := spec.(*ast.TypeSpec)
+		if !ok || typeSpec.Name.Name != "ToolResultRuntime" {
 			continue
 		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != "ToolResultRuntime" {
-				continue
-			}
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				return false
-			}
-			for _, field := range structType.Fields.List {
-				if !turnToolResultRuntimeFieldMatches(field, wantField, wantType) {
-					continue
-				}
+		structType, ok := typeSpec.Type.(*ast.StructType)
+		if !ok {
+			return false
+		}
+		for _, field := range structType.Fields.List {
+			if turnToolResultRuntimeFieldMatches(field, wantField, wantType) {
 				return true
 			}
 		}

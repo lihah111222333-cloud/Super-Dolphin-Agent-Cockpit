@@ -49,30 +49,43 @@ func TestDescriptorStateIsFunctionScoped(t *testing.T) {
 	}
 	for _, name := range files {
 		path := filepath.Join(filepath.Dir(thisFile), name)
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
-		for _, declaration := range parsed.Decls {
-			gen, ok := declaration.(*ast.GenDecl)
-			if !ok || gen.Tok != token.VAR {
-				continue
-			}
-			for _, spec := range gen.Specs {
-				value, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for _, name := range value.Names {
-					if _, forbidden := forbidden[name.Name]; forbidden {
-						t.Errorf("%s must be function-scoped, found package var in %s", name.Name, path)
-					}
-				}
+		for _, symbol := range descriptorPackageVars(t, path) {
+			if _, blocked := forbidden[symbol]; blocked {
+				t.Errorf("%s must be function-scoped, found package var in %s", symbol, path)
 			}
 		}
 	}
+}
+
+func descriptorPackageVars(t *testing.T, path string) []string {
+	t.Helper()
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", filepath.Base(path), err)
+	}
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", filepath.Base(path), err)
+	}
+	var names []string
+	for _, declaration := range parsed.Decls {
+		names = append(names, descriptorDeclVarNames(declaration)...)
+	}
+	return names
+}
+
+func descriptorDeclVarNames(declaration ast.Decl) []string {
+	gen, ok := declaration.(*ast.GenDecl)
+	if !ok || gen.Tok != token.VAR {
+		return nil
+	}
+	var names []string
+	for _, spec := range gen.Specs {
+		if value, ok := spec.(*ast.ValueSpec); ok {
+			for _, name := range value.Names {
+				names = append(names, name.Name)
+			}
+		}
+	}
+	return names
 }

@@ -85,28 +85,7 @@ func authorizeRecoveryTestBinding(binding *BindingRecord) {
 func TestRecoveryTestHomeEntryLifecycleScopesFixtureAuthorization(t *testing.T) {
 	var cleanPath string
 	t.Run("writer registers canonical codex home and cleanup removes it", func(t *testing.T) {
-		home := filepath.Join(t.TempDir(), "nested", "..", "codex-home")
-		cleanPath = writeExistingProviderHistoryFile(t, "00000000-0000-4000-8000-000000000010", "codex", home)
-		raw, ok := recoveryTestHomeByPath.Load(cleanPath)
-		if !ok {
-			t.Fatal("writer did not register recovery test home")
-		}
-		entry, ok := raw.(recoveryTestHomeEntry)
-		if !ok || entry.token == nil {
-			t.Fatalf("recovery test home entry = %#v, want tokenized entry", raw)
-		}
-		wantHome, err := contract.CanonicalizeCodexHome(home)
-		if err != nil {
-			t.Fatalf("canonicalize expected Codex home: %v", err)
-		}
-		if entry.home != wantHome {
-			t.Fatalf("writer recovery home = %q, want %q", entry.home, wantHome)
-		}
-		binding := &BindingRecord{Provider: "codex", RolloutPath: cleanPath}
-		authorizeRecoveryTestBinding(binding)
-		if binding.ProviderRecoveryHome != wantHome {
-			t.Fatalf("authorized recovery home = %q, want %q", binding.ProviderRecoveryHome, wantHome)
-		}
+		cleanPath = verifyRecoveryTestHomeRegistration(t)
 	})
 	if _, ok := recoveryTestHomeByPath.Load(cleanPath); ok {
 		t.Fatal("writer cleanup retained recovery test home entry")
@@ -115,8 +94,7 @@ func TestRecoveryTestHomeEntryLifecycleScopesFixtureAuthorization(t *testing.T) 
 	var replacementPath string
 	replacement := recoveryTestHomeEntry{home: "replacement-home", token: new(byte)}
 	t.Run("writer cleanup does not delete newer entry", func(t *testing.T) {
-		replacementPath = writeExistingProviderHistoryFile(t, "00000000-0000-4000-8000-000000000011")
-		recoveryTestHomeByPath.Store(replacementPath, replacement)
+		replacementPath = replaceRecoveryTestHomeEntry(t, replacement)
 	})
 	raw, ok := recoveryTestHomeByPath.Load(replacementPath)
 	if !ok || raw != replacement {
@@ -125,6 +103,40 @@ func TestRecoveryTestHomeEntryLifecycleScopesFixtureAuthorization(t *testing.T) 
 	if !recoveryTestHomeByPath.CompareAndDelete(replacementPath, replacement) {
 		t.Fatal("cleanup replacement recovery test home entry")
 	}
+}
+
+func verifyRecoveryTestHomeRegistration(t *testing.T) string {
+	t.Helper()
+	home := filepath.Join(t.TempDir(), "nested", "..", "codex-home")
+	cleanPath := writeExistingProviderHistoryFile(t, "00000000-0000-4000-8000-000000000010", "codex", home)
+	raw, ok := recoveryTestHomeByPath.Load(cleanPath)
+	if !ok {
+		t.Fatal("writer did not register recovery test home")
+	}
+	entry, ok := raw.(recoveryTestHomeEntry)
+	if !ok || entry.token == nil {
+		t.Fatalf("recovery test home entry = %#v, want tokenized entry", raw)
+	}
+	wantHome, err := contract.CanonicalizeCodexHome(home)
+	if err != nil {
+		t.Fatalf("canonicalize expected Codex home: %v", err)
+	}
+	if entry.home != wantHome {
+		t.Fatalf("writer recovery home = %q, want %q", entry.home, wantHome)
+	}
+	binding := &BindingRecord{Provider: "codex", RolloutPath: cleanPath}
+	authorizeRecoveryTestBinding(binding)
+	if binding.ProviderRecoveryHome != wantHome {
+		t.Fatalf("authorized recovery home = %q, want %q", binding.ProviderRecoveryHome, wantHome)
+	}
+	return cleanPath
+}
+
+func replaceRecoveryTestHomeEntry(t *testing.T, replacement recoveryTestHomeEntry) string {
+	t.Helper()
+	path := writeExistingProviderHistoryFile(t, "00000000-0000-4000-8000-000000000011")
+	recoveryTestHomeByPath.Store(path, replacement)
+	return path
 }
 
 func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) {

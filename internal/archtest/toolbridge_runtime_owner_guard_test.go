@@ -27,21 +27,41 @@ func TestToolbridgeRuntimeOwnersRemainInstanceScoped(t *testing.T) {
 		files[rel] = toolbridgeOwnerParseFile(t, root, rel)
 	}
 	violations := toolbridgeForbiddenGlobalViolations(files)
-	if !toolbridgeStructHasAtomicField(files["internal/platform/toolbridge/handler.go"], "Handler", "persistentSubagentDefaultFallbackTotal") || !toolbridgeStructHasAtomicField(files["internal/platform/toolbridge/handler.go"], "Handler", "toolTraceSpanSeq") {
-		violations = append(violations, "internal/platform/toolbridge/handler.go: Handler must own both atomic runtime counters")
-	}
-	if !toolbridgeFunctionHasSwitch(files["internal/platform/toolbridge/types.go"], "isCurrentLSPToolName") || !toolbridgeFunctionHasSwitch(files["internal/platform/toolbridge/handler_peer_decode_helpers.go"], "isToolCWDTraceCanonicalTool") || !toolbridgeFunctionHasSwitch(files["internal/platform/toolbridge/handler_peer_decode_helpers.go"], "requiresCanonicalCodexSurfaceTool") {
-		violations = append(violations, "toolbridge allow-list predicates must remain pure switches")
-	}
-	if !toolbridgeFunctionHasOSClientLiteral(files["internal/platform/toolbridge/http_mcp_client.go"], "buildHTTPMCPClient") {
-		violations = append(violations, "internal/platform/toolbridge/http_mcp_client.go: buildHTTPMCPClient must construct an instance HTTP client")
-	}
-	if !toolbridgeFunctionHasProxyAddressParam(files["internal/platform/toolbridge/module.go"], "provideProxyAddrFn") || !toolbridgeFunctionHasProxyAddressParam(files["internal/platform/toolbridge/module.go"], "registerProxyLifecycle") {
-		violations = append(violations, "internal/platform/toolbridge/module.go: proxy address must be an explicit owner dependency")
-	}
+	violations = append(violations, toolbridgeOwnerFieldViolations(files)...)
+	violations = append(violations, toolbridgePredicateViolations(files)...)
+	violations = append(violations, toolbridgeClientViolations(files)...)
 	if len(violations) > 0 {
 		t.Fatalf("toolbridge runtime owner violations:\n%s", strings.Join(violations, "\n"))
 	}
+}
+
+func toolbridgeOwnerFieldViolations(files map[string]*ast.File) []string {
+	handler := files["internal/platform/toolbridge/handler.go"]
+	if toolbridgeStructHasAtomicField(handler, "Handler", "persistentSubagentDefaultFallbackTotal") && toolbridgeStructHasAtomicField(handler, "Handler", "toolTraceSpanSeq") {
+		return nil
+	}
+	return []string{"internal/platform/toolbridge/handler.go: Handler must own both atomic runtime counters"}
+}
+
+func toolbridgePredicateViolations(files map[string]*ast.File) []string {
+	if toolbridgeFunctionHasSwitch(files["internal/platform/toolbridge/types.go"], "isCurrentLSPToolName") &&
+		toolbridgeFunctionHasSwitch(files["internal/platform/toolbridge/handler_peer_decode_helpers.go"], "isToolCWDTraceCanonicalTool") &&
+		toolbridgeFunctionHasSwitch(files["internal/platform/toolbridge/handler_peer_decode_helpers.go"], "requiresCanonicalCodexSurfaceTool") {
+		return nil
+	}
+	return []string{"toolbridge allow-list predicates must remain pure switches"}
+}
+
+func toolbridgeClientViolations(files map[string]*ast.File) []string {
+	var violations []string
+	if !toolbridgeFunctionHasOSClientLiteral(files["internal/platform/toolbridge/http_mcp_client.go"], "buildHTTPMCPClient") {
+		violations = append(violations, "internal/platform/toolbridge/http_mcp_client.go: buildHTTPMCPClient must construct an instance HTTP client")
+	}
+	if !toolbridgeFunctionHasProxyAddressParam(files["internal/platform/toolbridge/module.go"], "provideProxyAddrFn") ||
+		!toolbridgeFunctionHasProxyAddressParam(files["internal/platform/toolbridge/module.go"], "registerProxyLifecycle") {
+		violations = append(violations, "internal/platform/toolbridge/module.go: proxy address must be an explicit owner dependency")
+	}
+	return violations
 }
 
 func toolbridgeOwnerParseFile(t *testing.T, root, rel string) *ast.File {
@@ -66,24 +86,29 @@ func toolbridgeForbiddenGlobalViolations(files map[string]*ast.File) []string {
 	}
 	var violations []string
 	for rel, file := range files {
-		if file == nil {
-			violations = append(violations, fmt.Sprintf("%s: source file is required", rel))
+		violations = append(violations, toolbridgeFileGlobalViolations(rel, file, forbidden)...)
+	}
+	return violations
+}
+
+func toolbridgeFileGlobalViolations(rel string, file *ast.File, forbidden map[string]bool) []string {
+	if file == nil {
+		return []string{fmt.Sprintf("%s: source file is required", rel)}
+	}
+	var violations []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
 			continue
 		}
-		for _, decl := range file.Decls {
-			gen, ok := decl.(*ast.GenDecl)
-			if !ok || gen.Tok != token.VAR {
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
 				continue
 			}
-			for _, spec := range gen.Specs {
-				value, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for _, name := range value.Names {
-					if forbidden[name.Name] {
-						violations = append(violations, fmt.Sprintf("%s: package-level runtime owner %q is forbidden", rel, name.Name))
-					}
+			for _, name := range value.Names {
+				if forbidden[name.Name] {
+					violations = append(violations, fmt.Sprintf("%s: package-level runtime owner %q is forbidden", rel, name.Name))
 				}
 			}
 		}
@@ -96,26 +121,40 @@ func toolbridgeStructHasAtomicField(file *ast.File, structName, fieldName string
 		return false
 	}
 	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.TYPE {
+		if toolbridgeDeclHasAtomicField(decl, structName, fieldName) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolbridgeDeclHasAtomicField(decl ast.Decl, structName, fieldName string) bool {
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok || gen.Tok != token.TYPE {
+		return false
+	}
+	for _, spec := range gen.Specs {
+		typeSpec, ok := spec.(*ast.TypeSpec)
+		if !ok || typeSpec.Name.Name != structName {
 			continue
 		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != structName {
-				continue
+		structType, ok := typeSpec.Type.(*ast.StructType)
+		if !ok {
+			return false
+		}
+		for _, field := range structType.Fields.List {
+			if toolbridgeFieldMatchesAtomic(field, fieldName) {
+				return true
 			}
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				return false
-			}
-			for _, field := range structType.Fields.List {
-				for _, name := range field.Names {
-					if name.Name == fieldName && toolbridgeIsAtomicUint64(field.Type) {
-						return true
-					}
-				}
-			}
+		}
+	}
+	return false
+}
+
+func toolbridgeFieldMatchesAtomic(field *ast.Field, fieldName string) bool {
+	for _, name := range field.Names {
+		if name.Name == fieldName {
+			return toolbridgeIsAtomicUint64(field.Type)
 		}
 	}
 	return false

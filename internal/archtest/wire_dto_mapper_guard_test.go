@@ -90,13 +90,23 @@ func TestWireDTOMapperProjectionRegistryAndCoverageFailClosed(t *testing.T) {
 	}
 	for _, tc := range registryCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := wireDTOMapperProjectionRegistry(tc.projections)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("wireDTOMapperProjectionRegistry() error = %v, want %q", err, tc.want)
-			}
+			assertWireDTOProjectionRegistryError(t, tc.projections, tc.want)
 		})
 	}
 
+	assertWireDTOCoverageFailures(t, valid)
+}
+
+func assertWireDTOProjectionRegistryError(t *testing.T, projections []WireDTOMapperProjection, want string) {
+	t.Helper()
+	_, err := wireDTOMapperProjectionRegistry(projections)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("wireDTOMapperProjectionRegistry() error = %v, want %q", err, want)
+	}
+}
+
+func assertWireDTOCoverageFailures(t *testing.T, valid WireDTOMapperProjection) {
+	t.Helper()
 	fields := []wireDTOJSONField{{jsonName: "value"}}
 	projections, err := wireDTOMapperProjectionRegistry([]WireDTOMapperProjection{valid})
 	if err != nil {
