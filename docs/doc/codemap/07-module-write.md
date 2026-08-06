@@ -178,19 +178,19 @@ sequenceDiagram
     participant T as thread.Service
     participant TURN as turn.Service
     participant O as Orchestration
-    participant DB as binding/thread store
+    participant DB as thread archive state store
     participant UI as uistate
 
     RPC->>T: Archive(threadID)
     T->>TURN: InterruptActiveTurn(source=thread_archived)
     T->>T: closeSessionForAgent()
     T->>O: stopManagedAgent()
-    T->>DB: UpdateStatus(archived) + SetArchived(true)
+    T->>DB: ArchiveStateStore.SetArchiveState(archived=true; atomically updates agent_threads.status + agent_provider_binding.archived)
     T->>TURN: CleanupThread(reason=thread_archived)
     T-->>UI: threaddto.Stopped(status=archived)
 
     RPC->>T: Unarchive(threadID)
-    T->>DB: UpdateStatus(created) + SetArchived(false)
+    T->>DB: ArchiveStateStore.SetArchiveState(archived=false; atomically updates agent_threads.status + agent_provider_binding.archived)
     T->>T: evictZombieSession()
     T->>T: backgroundResumeIfNeeded()
 ```
@@ -199,6 +199,7 @@ sequenceDiagram
 
 - `Archive`：`internal/module/thread/archive.go:12-53`
 - `Unarchive`：`internal/module/thread/archive.go:55-80`
+- 归档状态由 thread-owned `ArchiveStateStore.SetArchiveState` 统一提交，不属于 binding store 的独立写口：它在同一 `IMMEDIATE` 事务中写入 `agent_threads.status + agent_provider_binding.archived`。锚点：`internal/module/thread/archive.go:118-128`、`internal/store/thread/archive_state.go:20-67`。
 - archive 不清 `SessionUUID`，只打 archived 标记；这是 unarchive 能靠 UUID 自动恢复 provider thread 的前提。
 - unarchive **不发 thread 事件**，只是预热 session；真正的 `Started` 要等后台 resume 成功后才出现。
 

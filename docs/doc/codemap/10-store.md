@@ -93,7 +93,6 @@
   - `Upsert(ctx context.Context, params UpsertParams) error`
   - `DeleteByAgentID(ctx context.Context, agentID string) error`
   - `UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error`
-  - `SetArchived(ctx context.Context, params SetArchivedParams) error`
   - `GetByAgentID(ctx context.Context, agentID string) (*Binding, error)`
   - `BindAgentThread(ctx context.Context, params BindAgentThreadParams) error`
   - `UnbindAgentThread(ctx context.Context, agentID string) error`
@@ -104,7 +103,7 @@
   - `Upsert`：写 `agent_provider_binding`；若遇到 `(provider, provider_thread_id)` 唯一冲突，会回查旧记录，若 `agent_id` 相同则视作幂等成功。
   - `BindAgentThread`：使用 `thread_binding.sql`。**插入路径**会写入 `provider='codex'`、`provider_thread_id=thread_id`、`codex_thread_id=thread_id`；**agent_id 冲突路径**只更新 `codex_thread_id/cwd/updated_at`，不会改写 `provider/provider_thread_id`。
   - `GetThreadByAgent`：`COALESCE(NULLIF(codex_thread_id, ''), provider_thread_id)`，优先取 `codex_thread_id`。
-  - `UpdateSessionUUID / SetArchived / UpdateAgentCwd`：更新可变元数据列。
+  - `UpdateSessionUUID / UpdateAgentCwd`：更新 binding 的可变元数据列；归档状态不由 binding store 单独写入。
 - **表 / SQL**：
   - 主查询：`agent_provider_binding.sql`
   - 线程绑定辅助查询：`thread_binding.sql`
@@ -268,6 +267,7 @@
   - `SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshot) error`
   - `LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error)`
   - `UpdateStatus(ctx context.Context, params UpdateStatusParams) error`
+  - `ArchiveStateStore.SetArchiveState(ctx context.Context, params ArchiveStateParams) error`
   - `DeleteByThreadID(ctx context.Context, threadID string) error`
   - `ResetRunning(ctx context.Context) error`
   - `ExpireStale(ctx context.Context, params ExpireStaleParams) (int64, error)`
@@ -276,6 +276,7 @@
   - `ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error)`
 - **关键实现**：
   - `Upsert`：写 `agent_threads` 主运行信息与 `config_override`。
+  - `ArchiveStateStore.SetArchiveState`：thread-owned 归档状态写口；以 `IMMEDIATE` 事务原子更新 `agent_threads.status + agent_provider_binding.archived`，任一目标缺失或写入失败都会回滚。
   - `SavePromptSnapshot`：把 `PromptSnapshot{displayName, baseInstructions, boundary, developerInstructions, provider, version, hash, sectionSnapshot, generation}` 序列化为 JSON，写回 `agent_threads.prompt_snapshot`；若 `SectionSnapshot=nil` 会先归一化为空 map，避免落成 `null`。
   - `LoadPromptSnapshot`：走独立 SQL 只取 `prompt_snapshot` 列；空 payload 或字面量 `null` 视为“没有快照”，反序列化后再次保证 `SectionSnapshot` 非 nil；`UnmarshalJSON` 会同时兼容 modern camelCase 与 legacy snake_case 字段。
   - `Save/LoadPromptSnapshot` 的 not-found 语义来自两条不同路径：`Save` 依赖 `UPDATE ... :execrows` 的 `RowsAffected==0` 主动返回 `ErrNotFound`，`Load` 则因为 `SELECT ... :one` 在缺行时产生 driver not-found error，再经 `WrapStoreError` 统一归类为 `ErrNotFound`。
