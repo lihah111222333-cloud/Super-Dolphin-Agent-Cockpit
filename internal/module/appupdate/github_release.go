@@ -11,12 +11,12 @@ import (
 	"strings"
 )
 
-// githubLatestReleaseAPI 是 GitHub latest release API 的 URL 模板。
-const githubLatestReleaseAPI = "https://api.github.com/repos/%s/%s/releases/latest"
+const (
+	// githubLatestReleaseAPI 是 GitHub latest release API 的 URL 模板。
+	githubLatestReleaseAPI = "https://api.github.com/repos/%s/%s/releases/latest"
 
-var blockedGitHubUpdateRepos = map[string]struct{}{
-	"xiaoxiaotest9527-bit/-": {},
-}
+	blockedGitHubUpdateRepo = "xiaoxiaotest9527-bit/-"
+)
 
 // githubRelease 是 GitHub latest release API 返回的最小结构。
 type githubRelease struct {
@@ -148,10 +148,15 @@ func validateGitHubRepo(repo string) error {
 		return err
 	}
 	normalized := strings.ToLower(owner + "/" + name)
-	if _, blocked := blockedGitHubUpdateRepos[normalized]; blocked {
+	if isBlockedGitHubUpdateRepo(normalized) {
 		return fmt.Errorf("%s uses known placeholder/test repo %q", envUpdateGitHubRepo, repo)
 	}
 	return nil
+}
+
+// isBlockedGitHubUpdateRepo 只接受已规范化的 owner/repo，并拒绝唯一已知的占位更新源。
+func isBlockedGitHubUpdateRepo(normalizedRepo string) bool {
+	return normalizedRepo == blockedGitHubUpdateRepo
 }
 
 // githubRepoParts 解析 "owner/repo" 格式字符串，不符合格式时返回错误。

@@ -183,6 +183,23 @@ func TestValidateGitHubRepoRejectsPlaceholderTestRepo(t *testing.T) {
 	}
 }
 
+func TestBlockedGitHubUpdateRepoMatchesOnlyKnownPlaceholder(t *testing.T) {
+	tests := []struct {
+		repo string
+		want bool
+	}{
+		{repo: testBlockedGitHubRepo, want: true},
+		{repo: testValidGitHubRepo, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.repo, func(t *testing.T) {
+			if got := isBlockedGitHubUpdateRepo(tt.repo); got != tt.want {
+				t.Fatalf("isBlockedGitHubUpdateRepo(%q) = %v, want %v", tt.repo, got, tt.want)
+			}
+		})
+	}
+}
+
 func testGitHubManifestPayload(t *testing.T, body []byte, platform string) ManifestPayload {
 	t.Helper()
 	payload := testManifestPayload()
