@@ -30,19 +30,20 @@ func NewDefaultRegistry() (contract.BuiltinPromptRegistry, error) {
 
 // LoadRegistryFromFS 从给定文件系统加载 manifest、模板和正文，并在构建 registry 前完成校验。
 func LoadRegistryFromFS(source readFileFS) (*Registry, error) {
+	rules := newValidationRules()
 	manifest, err := loadManifest(source)
 	if err != nil {
 		return nil, err
 	}
 	templates := make([]loadedTemplate, 0, len(manifest.Templates))
 	for _, path := range manifest.Templates {
-		template, err := loadTemplate(source, path)
+		template, err := loadTemplate(source, path, rules)
 		if err != nil {
 			return nil, err
 		}
 		templates = append(templates, template)
 	}
-	if err := validateLoadedTemplates(templates); err != nil {
+	if err := validateLoadedTemplates(templates, rules); err != nil {
 		return nil, err
 	}
 	return newRegistry(templates), nil
@@ -66,7 +67,7 @@ func loadManifest(source readFileFS) (manifestConfig, error) {
 }
 
 // loadTemplate 读取单个模板配置和其引用的 section 正文。
-func loadTemplate(source readFileFS, path string) (loadedTemplate, error) {
+func loadTemplate(source readFileFS, path string, rules validationRules) (loadedTemplate, error) {
 	data, err := source.ReadFile(path)
 	if err != nil {
 		return loadedTemplate{}, fmt.Errorf("builtin prompts: read %s: %w", path, err)
@@ -76,7 +77,7 @@ func loadTemplate(source readFileFS, path string) (loadedTemplate, error) {
 		return loadedTemplate{}, fmt.Errorf("builtin prompts: parse %s: %w", path, err)
 	}
 	normalizeTemplate(&cfg)
-	if err := validateTemplateConfig(path, cfg); err != nil {
+	if err := validateTemplateConfig(path, cfg, rules); err != nil {
 		return loadedTemplate{}, err
 	}
 	sections, err := loadSections(source, path, cfg.Sections)

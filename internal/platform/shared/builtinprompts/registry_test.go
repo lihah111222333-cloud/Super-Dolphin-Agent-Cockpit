@@ -464,6 +464,19 @@ func TestRegistryAllowsDirectEnglishExternalProviderIdentityWarning(t *testing.T
 	require.NoError(t, err)
 }
 
+func TestValidationRulesArePrivateToEachLoad(t *testing.T) {
+	t.Parallel()
+
+	first := newValidationRules()
+	second := newValidationRules()
+	first.allowedKinds["test-only"] = struct{}{}
+	first.externalIdentityPatterns[0] = identityPattern{phrase: "test-only", compact: "testonly"}
+
+	_, kindShared := second.allowedKinds["test-only"]
+	require.False(t, kindShared)
+	require.NotEqual(t, "test-only", second.externalIdentityPatterns[0].phrase)
+}
+
 type testFS map[string]string
 
 func (fs testFS) ReadFile(name string) ([]byte, error) {
