@@ -47,6 +47,79 @@ func TestHTTPInitializeNotificationDoesNotCreateSession(t *testing.T) {
 	}
 }
 
+func TestHTTPIdleSessionReaperRefreshesAccessAndPreservesInFlightCall(t *testing.T) {
+	provider := newCancellationTestProvider()
+	server := NewHTTPServer("test", "dev", provider)
+	server.sessionIdleTTL = time.Minute
+	sessionID := initializeHTTPSession(t, server)
+	session := requireHTTPSessionForTest(t, server, sessionID)
+
+	session.mu.Lock()
+	session.lastAccess = time.Now().Add(-2 * server.sessionIdleTTL)
+	session.mu.Unlock()
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	request.Header.Set(testHTTPMCPHeaderSessionID, sessionID)
+	if _, _, err := server.requireSession(request); err != nil {
+		t.Fatalf("requireSession() error = %v", err)
+	}
+	server.reapIdleSessions(time.Now())
+	waitForHTTPSessionCount(t, server, 1)
+
+	done := startHTTPToolCall(t, server, sessionID, 31, "idle-in-flight", context.Background())
+	waitProviderEvent(t, provider.started, "idle-in-flight")
+	session.mu.Lock()
+	session.lastAccess = time.Now().Add(-2 * server.sessionIdleTTL)
+	session.mu.Unlock()
+	server.reapIdleSessions(time.Now())
+	waitForHTTPSessionCount(t, server, 1)
+
+	cancelHTTPToolCall(t, server, sessionID, 31)
+	waitProviderEvent(t, provider.canceled, "idle-in-flight")
+	waitHTTPResponse(t, done)
+	session.mu.Lock()
+	session.lastAccess = time.Now().Add(-2 * server.sessionIdleTTL)
+	session.mu.Unlock()
+	server.reapIdleSessions(time.Now())
+	waitForHTTPSessionCount(t, server, 0)
+}
+
+func TestHTTPIdleSessionReaperEvictsIdleSessionsAndStopTerminatesRemainder(t *testing.T) {
+	provider := newCancellationTestProvider()
+	server := NewHTTPServer("test", "dev", provider)
+	server.sessionIdleTTL = 15 * time.Millisecond
+	server.sessionReapInterval = time.Millisecond
+	if _, err := server.Start(context.Background(), "127.0.0.1:0"); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := server.Stop(stopCtx); err != nil {
+			t.Errorf("Stop() error = %v", err)
+		}
+	})
+
+	initializeHTTPSession(t, server)
+	waitForHTTPSessionCount(t, server, 0)
+
+	sessionID := initializeHTTPSession(t, server)
+	done := startHTTPToolCall(t, server, sessionID, 32, "stop-in-flight", context.Background())
+	waitProviderEvent(t, provider.started, "stop-in-flight")
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := server.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	waitProviderEvent(t, provider.canceled, "stop-in-flight")
+	waitHTTPResponse(t, done)
+	waitForHTTPSessionCount(t, server, 0)
+	select {
+	case <-server.sessionReaperDone:
+	case <-time.After(time.Second):
+		t.Fatal("session reaper did not stop")
+	}
+}
+
 func TestHTTPCancellationIsIsolatedBySession(t *testing.T) {
 	provider := newCancellationTestProvider()
 	server := NewHTTPServer("test", "dev", provider)
@@ -347,5 +420,33 @@ func waitHTTPResponse(t *testing.T, done <-chan *httptest.ResponseRecorder) *htt
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for HTTP response")
 		return nil
+	}
+}
+
+func requireHTTPSessionForTest(t *testing.T, server *HTTPServer, sessionID string) *httpMCPSession {
+	t.Helper()
+	server.sessionsMu.RLock()
+	session := server.sessions[sessionID]
+	server.sessionsMu.RUnlock()
+	if session == nil {
+		t.Fatalf("session %q is not active", sessionID)
+	}
+	return session
+}
+
+func waitForHTTPSessionCount(t *testing.T, server *HTTPServer, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		server.sessionsMu.RLock()
+		got := len(server.sessions)
+		server.sessionsMu.RUnlock()
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("sessions = %d, want %d", got, want)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

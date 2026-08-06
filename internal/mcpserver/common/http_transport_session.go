@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
@@ -28,9 +29,10 @@ var (
 
 // httpMCPSession 隔离单个 Streamable HTTP 客户端的请求 ID 与取消函数。
 type httpMCPSession struct {
-	mu       sync.Mutex
-	inFlight map[jsonRPCIDKey]*inFlightToolCall
-	closed   bool
+	mu         sync.Mutex
+	inFlight   map[jsonRPCIDKey]*inFlightToolCall
+	lastAccess time.Time
+	closed     bool
 }
 
 // handleInitializeRequest 完成握手后创建 session；失败握手不得占用 session。
@@ -82,7 +84,10 @@ func (h *HTTPServer) createSession() (string, error) {
 	if _, exists := h.sessions[sessionID]; exists {
 		return "", errors.New("generated duplicate HTTP MCP session ID")
 	}
-	h.sessions[sessionID] = &httpMCPSession{inFlight: make(map[jsonRPCIDKey]*inFlightToolCall)}
+	h.sessions[sessionID] = &httpMCPSession{
+		inFlight:   make(map[jsonRPCIDKey]*inFlightToolCall),
+		lastAccess: time.Now(),
+	}
 	return sessionID, nil
 }
 
@@ -94,11 +99,12 @@ func (h *HTTPServer) requireSession(r *http.Request) (*httpMCPSession, int, erro
 	}
 	h.sessionsMu.RLock()
 	session := h.sessions[sessionID]
-	h.sessionsMu.RUnlock()
-	if session == nil {
-		return nil, http.StatusNotFound, errHTTPMCPSessionUnknown
+	if session != nil && session.touch(time.Now()) {
+		h.sessionsMu.RUnlock()
+		return session, 0, nil
 	}
-	return session, 0, nil
+	h.sessionsMu.RUnlock()
+	return nil, http.StatusNotFound, errHTTPMCPSessionUnknown
 }
 
 // handleDeleteSession 终止一个 session，并取消其全部进行中工具调用。
@@ -129,6 +135,23 @@ func (h *HTTPServer) terminateAllSessions() {
 	for id, session := range h.sessions {
 		sessions = append(sessions, session)
 		delete(h.sessions, id)
+	}
+	h.sessionsMu.Unlock()
+	for _, session := range sessions {
+		session.terminate()
+	}
+}
+
+// reapIdleSessions 摘除超过 idle TTL 且没有进行中调用的 session。
+func (h *HTTPServer) reapIdleSessions(now time.Time) {
+	h.sessionsMu.Lock()
+	sessions := make([]*httpMCPSession, 0)
+	for id, session := range h.sessions {
+		if !session.isIdleAt(now, h.sessionIdleTTL) {
+			continue
+		}
+		delete(h.sessions, id)
+		sessions = append(sessions, session)
 	}
 	h.sessionsMu.Unlock()
 	for _, session := range sessions {
@@ -177,6 +200,7 @@ func (s *httpMCPSession) beginToolCall(
 			fmt.Sprintf("too many active tools/call requests in session (limit %d)", maxHTTPInFlightToolCalls),
 		)
 	}
+	s.lastAccess = time.Now()
 	callCtx, cancel := context.WithCancel(ctx)
 	call := &inFlightToolCall{cancel: cancel}
 	s.inFlight[key] = call
@@ -189,6 +213,24 @@ func (s *httpMCPSession) beginToolCall(
 		s.mu.Unlock()
 	}
 	return callCtx, finish, nil
+}
+
+// touch 刷新活跃 session 的最后访问时间，已关闭 session 不再复活。
+func (s *httpMCPSession) touch(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.lastAccess = now
+	return true
+}
+
+// isIdleAt 仅在没有进行中调用且最后访问超过 TTL 时允许回收。
+func (s *httpMCPSession) isIdleAt(now time.Time, ttl time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed && len(s.inFlight) == 0 && !s.lastAccess.After(now.Add(-ttl))
 }
 
 // cancelRequest 仅取消当前 session 中匹配协议类型和值的请求 ID。

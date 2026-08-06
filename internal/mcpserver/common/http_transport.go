@@ -19,6 +19,11 @@ import (
 
 const maxHTTPBodyBytes = 10 * 1024 * 1024
 
+const (
+	httpMCPSessionIdleTTL      = 15 * time.Minute
+	httpMCPSessionReapInterval = time.Minute
+)
+
 // HTTPServerOption 配置 legacy Streamable HTTP MCP transport。
 // Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 type HTTPServerOption func(*HTTPServer)
@@ -53,6 +58,12 @@ type HTTPServer struct {
 
 	sessionsMu sync.RWMutex
 	sessions   map[string]*httpMCPSession
+
+	sessionIdleTTL      time.Duration
+	sessionReapInterval time.Duration
+	sessionReaperMu     sync.Mutex
+	sessionReaperCancel context.CancelFunc
+	sessionReaperDone   chan struct{}
 }
 
 // NewHTTPServer 创建使用 Streamable HTTP transport 的 legacy MCP server。
@@ -66,10 +77,12 @@ func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerO
 		version = "dev"
 	}
 	h := &HTTPServer{
-		name:     name,
-		version:  version,
-		tools:    tools,
-		sessions: make(map[string]*httpMCPSession),
+		name:                name,
+		version:             version,
+		tools:               tools,
+		sessions:            make(map[string]*httpMCPSession),
+		sessionIdleTTL:      httpMCPSessionIdleTTL,
+		sessionReapInterval: httpMCPSessionReapInterval,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -101,6 +114,7 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}
+	h.startSessionReaper()
 	var serveWG sync.WaitGroup
 	serveWG.Go(func() {
 		defer func() {
@@ -122,12 +136,67 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 // Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 // Stop 优雅关闭 legacy HTTP server；未启动时直接返回 nil。
 func (h *HTTPServer) Stop(ctx context.Context) error {
+	reaperErr := h.stopSessionReaper(ctx)
 	h.terminateAllSessions()
 	if h.server == nil {
-		return nil
+		return reaperErr
 	}
 	pkglogger.Info("mcp http: stopping", "server", h.name)
-	return h.server.Shutdown(ctx)
+	shutdownErr := h.server.Shutdown(ctx)
+	if reaperErr != nil {
+		return reaperErr
+	}
+	return shutdownErr
+}
+
+// startSessionReaper 启动单个受控的 session idle TTL 回收循环。
+func (h *HTTPServer) startSessionReaper() {
+	h.sessionReaperMu.Lock()
+	defer h.sessionReaperMu.Unlock()
+	if h.sessionReaperCancel != nil {
+		return
+	}
+	reaperCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	h.sessionReaperCancel = cancel
+	h.sessionReaperDone = done
+	interval := h.sessionReapInterval
+	if interval <= 0 {
+		panic("HTTP MCP session reaper interval must be positive")
+	}
+	var reaperWG sync.WaitGroup
+	reaperWG.Go(func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-reaperCtx.Done():
+				return
+			case now := <-ticker.C:
+				h.reapIdleSessions(now)
+			}
+		}
+	})
+}
+
+// stopSessionReaper 取消回收循环，并有界等待其退出。
+func (h *HTTPServer) stopSessionReaper(ctx context.Context) error {
+	h.sessionReaperMu.Lock()
+	cancel := h.sessionReaperCancel
+	done := h.sessionReaperDone
+	h.sessionReaperCancel = nil
+	h.sessionReaperMu.Unlock()
+	if cancel == nil {
+		return nil
+	}
+	cancel()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // handleMCP 处理单个 HTTP JSON-RPC 请求；notification 返回 202 且不写响应体。
