@@ -40,16 +40,12 @@ var skillBlockFooterNewFormat = regexp.MustCompile(`^\[/skill:([a-z0-9][a-z0-9-]
 //	[skill:foo:bar]    → name 内部含 `:`
 var skillBlockHeaderLegacy = regexp.MustCompile(`^\[skill:[^\]]*\]`)
 
-// legacySkillMarkers 是旧格式注入块必须在 lookahead 窗口内同时命中的两个标记。
-// 对齐 codexapp/history_rollout.go 与 claudecli/history_trim.go 的原始实现，
-// 保证读取旧 rollout 文件时剥离行为不变。
-var legacySkillMarkers = []struct {
-	label         string
-	allowContains bool
-}{
-	{label: "摘要:", allowContains: true},
-	{label: "使用方式: ", allowContains: false},
-}
+// 旧格式注入块必须在 lookahead 窗口内同时命中这两个固定 marker。
+// 它们是纯判定规则，不保留可变共享集合。
+const (
+	legacySkillSummaryMarker = "摘要:"
+	legacySkillUsageMarker   = "使用方式: "
+)
 
 // legacySkillLookahead 是旧格式识别在 header 之后扫描的最大行数，复刻旧实现。
 const legacySkillLookahead = 8
@@ -83,7 +79,7 @@ type SkillBlockHeader struct {
 //  1. 新格式 `[skill:<name>::<mode>@v<ver>]`：字符级严格匹配，用户无合法理由
 //     写出这种串，因此 Format=New 可直接视为注入块。
 //  2. 旧格式 `[skill:<任意>]`：可能是用户正常文本（如引用工具名），必须配合
-//     后续 lookahead 窗口 AND 命中 legacySkillMarkers 才能判定注入块。
+//     后续 lookahead 窗口 AND 命中两个固定 marker 才能判定注入块。
 //
 // 未匹配返回 Format=None。
 func ParseSkillBlockHeader(line string) SkillBlockHeader {
@@ -210,14 +206,13 @@ func findMatchingSkillBlockFooter(lines []string, start int, header SkillBlockHe
 }
 
 // looksLikeLegacyInjectedBlock 识别无 footer 的旧格式注入块：
-// 从 start 行起，向后扫描至多 legacySkillLookahead 行，累积 legacySkillMarkers
+// 从 start 行起，向后扫描至多 legacySkillLookahead 行，累积两个固定 marker
 // 的命中；遇到下一个 [skill:...] header 即停止。AND 全命中才判定为注入块。
 func looksLikeLegacyInjectedBlock(lines []string, start int) bool {
 	if start < 0 || start >= len(lines) {
 		return false
 	}
-	matched := map[string]bool{}
-	markLegacySkillMarkers(strings.TrimSpace(lines[start]), matched)
+	summaryMatched, usageMatched := legacySkillMarkerMatches(strings.TrimSpace(lines[start]))
 	for i := start + 1; i < len(lines) && i <= start+legacySkillLookahead; i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
@@ -226,27 +221,19 @@ func looksLikeLegacyInjectedBlock(lines []string, start int) bool {
 		if strings.HasPrefix(line, "[skill:") {
 			break
 		}
-		markLegacySkillMarkers(line, matched)
-		if len(matched) == len(legacySkillMarkers) {
+		summary, usage := legacySkillMarkerMatches(line)
+		summaryMatched = summaryMatched || summary
+		usageMatched = usageMatched || usage
+		if summaryMatched && usageMatched {
 			return true
 		}
 	}
-	return len(matched) == len(legacySkillMarkers)
+	return summaryMatched && usageMatched
 }
 
-func markLegacySkillMarkers(line string, matched map[string]bool) {
-	for _, marker := range legacySkillMarkers {
-		if matchLegacySkillMarker(line, marker.label, marker.allowContains) {
-			matched[marker.label] = true
-		}
-	}
-}
-
-func matchLegacySkillMarker(line, marker string, allowContains bool) bool {
-	if allowContains {
-		return strings.Contains(line, marker)
-	}
-	return strings.HasPrefix(line, marker)
+// legacySkillMarkerMatches 返回单行命中的旧格式 marker；不维护共享规则状态。
+func legacySkillMarkerMatches(line string) (summary, usage bool) {
+	return strings.Contains(line, legacySkillSummaryMarker), strings.HasPrefix(line, legacySkillUsageMarker)
 }
 
 // parseVersionString 把 "1", "2", ... 解析为 int。无效返回 0（不影响剥离决策）。

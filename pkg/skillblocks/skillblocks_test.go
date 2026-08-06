@@ -261,7 +261,7 @@ func TestTrimInjectedSkillBlocks_LegacyNameWithColon(t *testing.T) {
 
 // TestTrimInjectedSkillBlocks_LegacyOnlyOneMarker 防御 AND 退化为 OR：
 // 仅命中 "摘要:" 但没有 "使用方式: " 时，legacy 判定必须不剥离。
-// 未来有人误改 `len(matched) == len(legacySkillMarkers)` 为 `>= 1` 会被卡住。
+// 未来有人误把固定 marker 的 AND 判定改为 OR 会被卡住。
 func TestTrimInjectedSkillBlocks_LegacyOnlyOneMarker(t *testing.T) {
 	input := strings.Join([]string{
 		"normal user text",
@@ -271,6 +271,27 @@ func TestTrimInjectedSkillBlocks_LegacyOnlyOneMarker(t *testing.T) {
 	}, "\n")
 	if got := TrimInjectedSkillBlocks(input); got != input {
 		t.Fatalf("single-marker MUST NOT trim, got %q", got)
+	}
+}
+
+// TestLegacySkillMarkerMatches 验证旧格式 marker 判定不依赖可变共享规则集合。
+func TestLegacySkillMarkerMatches(t *testing.T) {
+	tests := []struct {
+		name                 string
+		line                 string
+		wantSummary, wantUse bool
+	}{
+		{name: "summary contains", line: "prefix 摘要: detail", wantSummary: true},
+		{name: "usage at line start", line: "使用方式: detail", wantUse: true},
+		{name: "usage requires prefix", line: "prefix 使用方式: detail"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotSummary, gotUse := legacySkillMarkerMatches(tt.line)
+			if gotSummary != tt.wantSummary || gotUse != tt.wantUse {
+				t.Fatalf("legacy marker matches = (%t, %t), want (%t, %t)", gotSummary, gotUse, tt.wantSummary, tt.wantUse)
+			}
+		})
 	}
 }
 
