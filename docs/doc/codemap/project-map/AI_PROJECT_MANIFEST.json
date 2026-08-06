@@ -5,13 +5,13 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4572,
+  "files": 4575,
   "domains": {
     "docs-agent": 91,
-    "other": 1123,
+    "other": 1125,
     "app-ui": 740,
     "platform-provider": 1248,
-    "orchestration": 406,
+    "orchestration": 407,
     "modules": 754,
     "store-sql": 210
   },
@@ -29,8 +29,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 406,
-        "size_kb": 91.9,
+        "file_count": 407,
+        "size_kb": 92.1,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -64,18 +64,18 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1123,
-        "size_kb": 223.5,
+        "file_count": 1125,
+        "size_kb": 223.9,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 813,
+    "cmd": 814,
     "docs": 83,
     "frontend-app": 734,
-    "internal": 2672,
+    "internal": 2674,
     "pkg": 30,
     "scripts": 180,
     "sql": 29,

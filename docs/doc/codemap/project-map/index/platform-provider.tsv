@@ -334,7 +334,7 @@ internal/mcpserver/common/bootstrap/lifecycle.go	internal	platform-provider	go-s
 internal/mcpserver/common/bootstrap/log_relay_e2e_test.go	internal	platform-provider	go-test	3771	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,e2e,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/log_relay_test.go	internal	platform-provider	go-test	3144	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/log_relay.go	internal	platform-provider	go-source	6842	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/managed_authority_test.go	internal	platform-provider	go-test	4465	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,managed,authority,test,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/managed_authority_test.go	internal	platform-provider	go-test	5039	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,managed,authority,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/reconnect.go	internal	platform-provider	go-source	3872	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,reconnect,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/report_queue.go	internal	platform-provider	go-source	6562	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,report,queue,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/s5b_fail_closed_test.go	internal	platform-provider	go-test	3841	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,s5b,fail,closed,test,MCP,server,公共框架,与,transport
@@ -355,8 +355,8 @@ internal/mcpserver/common/structured_content_test.go	internal	platform-provider	
 internal/mcpserver/common/structured_content.go	internal	platform-provider	go-source	658	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,structured,content,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_error_envelope_test.go	internal	platform-provider	go-test	8061	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,error,envelope,test,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_error_envelope.go	internal	platform-provider	go-source	6699	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,error,envelope,MCP,server,公共框架,bootstrap,与,transport
-internal/mcpserver/common/tool_payload_log_test.go	internal	platform-provider	go-test	10465	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,test,MCP,server,公共框架,bootstrap,与,transport
-internal/mcpserver/common/tool_payload_log.go	internal	platform-provider	go-source	12673	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,MCP,server,公共框架,bootstrap,与,transport
+internal/mcpserver/common/tool_payload_log_test.go	internal	platform-provider	go-test	12238	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,test,MCP,server,公共框架,bootstrap,与,transport
+internal/mcpserver/common/tool_payload_log.go	internal	platform-provider	go-source	13381	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	3299	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,result,MCP,server,公共框架,bootstrap,与,transport
 internal/platform/appupdatefailure/io_darwin.go	internal	platform-provider	go-source	7651	基础设施层	internal,platform,appupdatefailure,io,darwin,基础设施层
 internal/platform/appupdatefailure/json_darwin.go	internal	platform-provider	go-source	3828	基础设施层	internal,platform,appupdatefailure,json,darwin,基础设施层
@@ -500,7 +500,7 @@ internal/platform/eventsurface/methods.go	internal	platform-provider	go-source	2
 internal/platform/eventsurface/remote_decode.go	internal	platform-provider	go-source	5505	基础设施层	internal,platform,eventsurface,remote,decode,基础设施层
 internal/platform/eventsurface/task_contract_test.go	internal	platform-provider	go-test	2446	基础设施层	internal,platform,eventsurface,task,contract,test,基础设施层
 internal/platform/eventsurface/terminal_order_test.go	internal	platform-provider	go-test	4015	基础设施层	internal,platform,eventsurface,terminal,order,test,基础设施层
-internal/platform/eventsurface/wire_dto_mapper_contract_test.go	internal	platform-provider	go-test	2769	基础设施层	internal,platform,eventsurface,wire,dto,mapper,contract,test,基础设施层
+internal/platform/eventsurface/wire_dto_mapper_contract_test.go	internal	platform-provider	go-test	4889	基础设施层	internal,platform,eventsurface,wire,dto,mapper,contract,test,基础设施层
 internal/platform/hooks/dispatch_worker_test.go	internal	platform-provider	go-test	10901	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,test,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatch_worker.go	internal	platform-provider	go-source	7044	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatcher_test.go	internal	platform-provider	go-test	14441	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatcher,test,hook,配置,执行与三阶段拦截
@@ -537,7 +537,7 @@ internal/platform/hooks/test_helpers_test.go	internal	platform-provider	go-test	
 internal/platform/httpegress/policy_test.go	internal	platform-provider	go-test	2343	基础设施层	internal,platform,httpegress,policy,test,基础设施层
 internal/platform/httpegress/policy.go	internal	platform-provider	go-source	6592	基础设施层	internal,platform,httpegress,policy,基础设施层
 internal/platform/mcpcontrol/config_change_test.go	internal	platform-provider	go-test	14538	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,test,MCP,控制平面与,peer,注册
-internal/platform/mcpcontrol/config_change_wire_dto_contract_test.go	internal	platform-provider	go-test	2053	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,wire,dto,contract,test,MCP,控制平面与,peer,注册
+internal/platform/mcpcontrol/config_change_wire_dto_contract_test.go	internal	platform-provider	go-test	2955	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,wire,dto,contract,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_change.go	internal	platform-provider	go-source	5676	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_fanout_worker_release_lifecycle_test.go	internal	platform-provider	go-test	6071	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,fanout,worker,release,lifecycle,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_fanout_worker_test.go	internal	platform-provider	go-test	12769	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,fanout,worker,test,MCP,控制平面与,peer,注册
@@ -555,9 +555,9 @@ internal/platform/mcpcontrol/handlers_hooks_test.go	internal	platform-provider	g
 internal/platform/mcpcontrol/handlers_hooks.go	internal	platform-provider	go-source	6868	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,handlers,hooks,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/handlers_test.go	internal	platform-provider	go-test	13260	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,handlers,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/handlers.go	internal	platform-provider	go-source	18974	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,handlers,MCP,控制平面与,peer,注册
-internal/platform/mcpcontrol/managed_authority_receipt_test.go	internal	platform-provider	go-test	13752	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,receipt,test,MCP,控制平面与,peer,注册
-internal/platform/mcpcontrol/managed_authority_test.go	internal	platform-provider	go-test	29310	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,test,MCP,控制平面与,peer,注册
-internal/platform/mcpcontrol/managed_authority.go	internal	platform-provider	go-source	10671	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,MCP,控制平面与,peer,注册
+internal/platform/mcpcontrol/managed_authority_receipt_test.go	internal	platform-provider	go-test	17723	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,receipt,test,MCP,控制平面与,peer,注册
+internal/platform/mcpcontrol/managed_authority_test.go	internal	platform-provider	go-test	30204	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,test,MCP,控制平面与,peer,注册
+internal/platform/mcpcontrol/managed_authority.go	internal	platform-provider	go-source	11662	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/managed_lease.go	internal	platform-provider	go-source	2197	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,lease,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/module.go	internal	platform-provider	go-source	7336	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,module,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/peers.go	internal	platform-provider	go-source	1800	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,peers,MCP,控制平面与,peer,注册
@@ -566,7 +566,7 @@ internal/platform/mcpcontrol/registry_callback_test.go	internal	platform-provide
 internal/platform/mcpcontrol/registry_helpers.go	internal	platform-provider	go-source	3966	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,registry,helpers,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/registry_lifecycle_test.go	internal	platform-provider	go-test	5934	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,registry,lifecycle,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/registry_notify_test.go	internal	platform-provider	go-test	10169	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,registry,notify,test,MCP,控制平面与,peer,注册
-internal/platform/mcpcontrol/registry_support.go	internal	platform-provider	go-source	13149	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,registry,support,MCP,控制平面与,peer,注册
+internal/platform/mcpcontrol/registry_support.go	internal	platform-provider	go-source	13228	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,registry,support,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/registry.go	internal	platform-provider	go-source	18197	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,registry,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/release_scope.go	internal	platform-provider	go-source	7557	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,release,scope,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/report_handlers_test.go	internal	platform-provider	go-test	4731	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,report,handlers,test,MCP,控制平面与,peer,注册
@@ -1136,7 +1136,7 @@ internal/provider/codexapp/session_test.go	internal	platform-provider	go-test	26
 internal/provider/codexapp/session_turn_test.go	internal	platform-provider	go-test	16832	Codex app/server provider 集成	internal,provider,codexapp,session,turn,test,Codex,app,server,集成
 internal/provider/codexapp/session_turn.go	internal	platform-provider	go-source	20744	Codex app/server provider 集成	internal,provider,codexapp,session,turn,Codex,app,server,集成
 internal/provider/codexapp/session.go	internal	platform-provider	go-source	29976	Codex app/server provider 集成	internal,provider,codexapp,session,Codex,app,server,集成
-internal/provider/codexapp/sidecar_runtime_env_test.go	internal	platform-provider	go-test	8423	Codex app/server provider 集成	internal,provider,codexapp,sidecar,runtime,env,test,Codex,app,server,集成
+internal/provider/codexapp/sidecar_runtime_env_test.go	internal	platform-provider	go-test	9084	Codex app/server provider 集成	internal,provider,codexapp,sidecar,runtime,env,test,Codex,app,server,集成
 internal/provider/codexapp/sidecar_runtime_env.go	internal	platform-provider	go-source	11387	Codex app/server provider 集成	internal,provider,codexapp,sidecar,runtime,env,Codex,app,server,集成
 internal/provider/codexapp/support.go	internal	platform-provider	go-source	28112	Codex app/server provider 集成	internal,provider,codexapp,support,Codex,app,server,集成
 internal/provider/codexapp/supportutil/codex_config.go	internal	platform-provider	go-source	1999	Codex app/server provider 集成	internal,provider,codexapp,supportutil,codex,config,Codex,app,server,集成
