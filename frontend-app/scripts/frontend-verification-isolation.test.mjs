@@ -52,9 +52,10 @@ describe('frontend verification isolation', () => {
   it('accepts only the fixed isolation modes', () => {
     expect(FRONTEND_VERIFICATION_ISOLATION_MAX_BUFFER).toBe(64 * 1024 * 1024);
     expect(FRONTEND_VERIFICATION_ISOLATION_MODES).toEqual(['delivery-test', 'embed-verify']);
-    expect(parseFrontendVerificationIsolationMode(['delivery-test'])).toBe('delivery-test');
-    expect(() => parseFrontendVerificationIsolationMode(['delivery-test', 'extra'])).toThrow('Expected exactly one isolation mode');
-    expect(() => parseFrontendVerificationIsolationMode(['anything-else'])).toThrow('Expected exactly one isolation mode');
+    expect(parseFrontendVerificationIsolationMode(['delivery-test'])).toEqual({ mode: 'delivery-test', cached: false });
+    expect(parseFrontendVerificationIsolationMode(['embed-verify', '--cached'])).toEqual({ mode: 'embed-verify', cached: true });
+    expect(() => parseFrontendVerificationIsolationMode(['delivery-test', 'extra'])).toThrow('Expected one isolation mode optionally followed by --cached');
+    expect(() => parseFrontendVerificationIsolationMode(['anything-else'])).toThrow('Expected one isolation mode optionally followed by --cached');
   });
 
   it('bounds every default controlled process output at 64 MiB', () => {
@@ -107,8 +108,34 @@ describe('frontend verification isolation', () => {
     });
 
     expect(invocation).toHaveBeenCalledWith('git', expect.arrayContaining(['clone', '--no-local', '--quiet', '--no-checkout']), expect.any(Object));
+    expect(invocation).toHaveBeenCalledWith('git', ['diff', '--binary', '--full-index', 'HEAD'], expect.any(Object));
     expect(invocation).toHaveBeenCalledWith('git', expect.arrayContaining(['apply', '--index', '--whitespace=error-all']), expect.any(Object));
     expect(existsSync(temporaryRoot)).toBe(false);
+  });
+
+  it('uses only the staged overlay when cached mode is requested', () => {
+    const repositoryRoot = initializeRepository();
+    writeFileSync(join(repositoryRoot, 'tracked.txt'), 'staged\n', 'utf8');
+    run('git', ['add', 'tracked.txt'], { cwd: repositoryRoot });
+    writeFileSync(join(repositoryRoot, 'tracked.txt'), 'unstaged\n', 'utf8');
+    const invocation = vi.fn((command, args, options) => {
+      if (command === 'npm') return '';
+      if (command === 'make') {
+        expect(readFileSync(join(options.cwd, 'tracked.txt'), 'utf8')).toBe('staged\n');
+        return '';
+      }
+      return run(command, args, options);
+    });
+
+    runFrontendVerificationIsolation('embed-verify', {
+      cached: true,
+      repositoryRoot,
+      runCommand: invocation,
+      makeTemporaryDirectory,
+      platform: 'linux',
+    });
+
+    expect(invocation).toHaveBeenCalledWith('git', ['diff', '--binary', '--full-index', '--cached'], expect.any(Object));
   });
 
   it('removes its own temporary directory when a fixed command fails', () => {

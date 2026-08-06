@@ -636,6 +636,15 @@ func TestNewGateExecutionScopeRejectsAmbiguousWhitespaceTruth(t *testing.T) {
 	}
 }
 
+func TestFrontendEmbedVerifyArgsPreserveExecutionScope(t *testing.T) {
+	if got, want := frontendEmbedVerifyArgs(gateExecutionScope{}), []string{"run", "verify:embed:isolated"}; !slices.Equal(got, want) {
+		t.Fatalf("normal frontend embed verify args = %v, want %v", got, want)
+	}
+	if got, want := frontendEmbedVerifyArgs(gateExecutionScope{diffCached: true}), []string{"run", "verify:embed:isolated", "--", "--cached"}; !slices.Equal(got, want) {
+		t.Fatalf("cached frontend embed verify args = %v, want %v", got, want)
+	}
+}
+
 func TestRunWhitespaceCheckUsesExplicitGitTruthScope(t *testing.T) {
 	binDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "git-args.log")

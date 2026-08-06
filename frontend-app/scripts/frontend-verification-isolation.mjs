@@ -34,10 +34,10 @@ function runGit(runCommand, args, repositoryRoot, environment) {
 }
 
 export function parseFrontendVerificationIsolationMode(args) {
-  if (!Array.isArray(args) || args.length !== 1 || !FRONTEND_VERIFICATION_ISOLATION_MODES.includes(args[0])) {
-    throw new TypeError('Expected exactly one isolation mode: ' + FRONTEND_VERIFICATION_ISOLATION_MODES.join('|'));
-  }
-  return args[0];
+	if (!Array.isArray(args) || args.length < 1 || args.length > 2 || !FRONTEND_VERIFICATION_ISOLATION_MODES.includes(args[0]) || (args.length === 2 && args[1] !== '--cached')) {
+		throw new TypeError('Expected one isolation mode optionally followed by --cached: ' + FRONTEND_VERIFICATION_ISOLATION_MODES.join('|'));
+	}
+	return Object.freeze({ mode: args[0], cached: args[1] === '--cached' });
 }
 
 export function commandForFrontendVerificationIsolation(mode, candidateRoot, platform = process.platform) {
@@ -59,6 +59,7 @@ export function commandForFrontendVerificationIsolation(mode, candidateRoot, pla
 }
 
 export function runFrontendVerificationIsolation(mode, {
+	cached = false,
   repositoryRoot = REPOSITORY_ROOT,
   runCommand = defaultRunCommand,
   makeTemporaryDirectory = (prefix) => mkdtempSync(join(tmpdir(), prefix)),
@@ -67,11 +68,13 @@ export function runFrontendVerificationIsolation(mode, {
   environment = process.env,
   platform = process.platform,
 } = {}) {
-  const verifiedMode = parseFrontendVerificationIsolationMode([mode]);
-  const isolatedEnvironment = repositoryLocalGitEnvironment(environment);
-  const sourceRoot = runGit(runCommand, ['rev-parse', '--show-toplevel'], repositoryRoot, isolatedEnvironment);
-  const revision = runGit(runCommand, ['rev-parse', 'HEAD'], sourceRoot, isolatedEnvironment);
-  const overlay = runGit(runCommand, ['diff', '--binary', '--full-index', 'HEAD'], sourceRoot, isolatedEnvironment);
+	if (typeof cached !== 'boolean') throw new TypeError('Expected cached to be a boolean');
+	const verifiedMode = parseFrontendVerificationIsolationMode([mode]).mode;
+	const isolatedEnvironment = repositoryLocalGitEnvironment(environment);
+	const sourceRoot = runGit(runCommand, ['rev-parse', '--show-toplevel'], repositoryRoot, isolatedEnvironment);
+	const revision = runGit(runCommand, ['rev-parse', 'HEAD'], sourceRoot, isolatedEnvironment);
+	const diffArgs = ['diff', '--binary', '--full-index', cached ? '--cached' : 'HEAD'];
+	const overlay = runGit(runCommand, diffArgs, sourceRoot, isolatedEnvironment);
   const temporaryRoot = makeTemporaryDirectory(TEMPORARY_DIRECTORY_PREFIX);
   const candidateRoot = join(temporaryRoot, 'candidate');
 
@@ -110,7 +113,8 @@ export function runFrontendVerificationIsolation(mode, {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
-    runFrontendVerificationIsolation(parseFrontendVerificationIsolationMode(process.argv.slice(2)));
+		const { mode, cached } = parseFrontendVerificationIsolationMode(process.argv.slice(2));
+		runFrontendVerificationIsolation(mode, { cached });
   } catch (error) {
     process.stderr.write((error instanceof Error ? error.stack : String(error)) + '\n');
     process.exitCode = 1;

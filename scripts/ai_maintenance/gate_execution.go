@@ -124,7 +124,7 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"frontend:lint":                cacheable(func() error { return runCommand("frontend-app", "npm", "run", "lint") }),
 		"frontend:typecheck-contracts": {run: func() error { return runCommand("frontend-app", "npm", "run", "typecheck:contracts") }},
 		"frontend:changed-tests":       cacheable(func() error { return runFrontendChangedTests(plan) }),
-		"frontend:embed-verify":        cacheable(func() error { return runCommand("", "make", "frontend-embed-verify") }),
+		"frontend:embed-verify":        cacheable(func() error { return runFrontendEmbedVerify(executionScope) }),
 		"frontend:performance-verify": {run: func() error {
 			return runCommand("frontend-app", "npm", "run", "performance:verify")
 		}},
@@ -135,6 +135,20 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 	}
 	maps.Copy(runners, ownedGateRunners(plan, newE2EExecutionPolicy()))
 	return runners
+}
+
+// runFrontendEmbedVerify 通过隔离 runner 执行嵌入验证。
+func runFrontendEmbedVerify(executionScope gateExecutionScope) error {
+	return runCommand("frontend-app", "npm", frontendEmbedVerifyArgs(executionScope)...)
+}
+
+// frontendEmbedVerifyArgs 将 staged 真值显式传给隔离 runner。
+func frontendEmbedVerifyArgs(executionScope gateExecutionScope) []string {
+	args := []string{"run", "verify:embed:isolated"}
+	if executionScope.diffCached {
+		args = append(args, "--", "--cached")
+	}
+	return args
 }
 
 // frontendStaticGuardCommand 返回 hook 与 CI 共用的只读前端静态门禁命令。

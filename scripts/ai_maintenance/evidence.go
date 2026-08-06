@@ -141,7 +141,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
 		"frontend:changed-tests":       {"npx vitest run"},
 		"frontend:e2e":                 {"npm run test:e2e:", "npm run smoke:desktop:"},
-		"frontend:embed-verify":        {"make frontend-embed-verify"},
+		"frontend:embed-verify":        {"npm run verify:embed:isolated"},
 		"frontend:performance-verify":  {"npm run performance:verify"},
 		"workflow:actionlint":          {"make actionlint"},
 		"release:semantic-guards":      {"go test ./scripts"},

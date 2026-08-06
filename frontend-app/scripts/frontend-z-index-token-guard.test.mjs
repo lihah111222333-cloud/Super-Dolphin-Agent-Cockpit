@@ -58,7 +58,7 @@ describe('frontend z-index token guard', () => {
     expect(packageJson.scripts['test:full']).toBe(
       'npm run test:hook:preflight && vitest run --maxWorkers=2 --exclude scripts/delivery-smoke-runner.test.mjs && node scripts/frontend-verification-isolation.mjs delivery-test',
     );
-    expect(packageJson.scripts).not.toHaveProperty('verify:embed:isolated');
+    expect(packageJson.scripts['verify:embed:isolated']).toBe('node scripts/frontend-verification-isolation.mjs embed-verify');
     expect(packageJson.scripts['test:hook:core']).not.toContain('--no-file-parallelism');
   });
 

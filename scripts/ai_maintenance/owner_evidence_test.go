@@ -320,7 +320,7 @@ COMMANDS_RUN:
     exit: 0
   - cmd: cd frontend-app && npm run build
     exit: 0
-  - cmd: make frontend-embed-verify
+  - cmd: cd frontend-app && npm run verify:embed:isolated
     exit: 0
   - cmd: make codemap-check
     exit: 0

@@ -90,7 +90,7 @@ func frontendBuildSyncOwners(packageJSON, makefile string) ([]string, error) {
 		}
 	}
 	var current string
-	for _, line := range strings.Split(makefile, "\n") {
+	for line := range strings.SplitSeq(makefile, "\n") {
 		if match := frontendMakeTargetPattern.FindStringSubmatch(line); match != nil {
 			current = match[1]
 			continue
@@ -205,7 +205,7 @@ func frontendAddAIRunnerEdges(t *testing.T, graph map[string][]string) {
 		"ai:frontend:static-guards":       staticGuard,
 		"ai:frontend:lint":                "npm:lint",
 		"ai:frontend:typecheck-contracts": "npm:typecheck:contracts",
-		"ai:frontend:embed-verify":        "make:frontend-embed-verify",
+		"ai:frontend:embed-verify":        "npm:verify:embed:isolated",
 		"ai:frontend:performance-verify":  "npm:performance:verify",
 	}
 	for from, to := range edges {
