@@ -122,9 +122,6 @@ func TestWriteIntentDedupCrossScopeDuplicateWritesCurrentScope(t *testing.T) {
 
 func newWriteIntentDedupTestHooks(t *testing.T, teamEnabled bool) (*MemoryLifecycleHooks, string) {
 	t.Helper()
-	if teamEnabled {
-		withTeamMemoryRuntimeReady(t, true)
-	}
 	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
@@ -134,7 +131,11 @@ func newWriteIntentDedupTestHooks(t *testing.T, teamEnabled bool) (*MemoryLifecy
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: teamEnabled},
 	}
-	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: NewTeamMemoryManager(cfg)})
+	team := NewTeamMemoryManager(cfg)
+	if teamEnabled {
+		withTeamMemoryRuntimeReady(t, team, true)
+	}
+	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: team})
 	if hooks == nil {
 		t.Fatal("NewMemoryLifecycleHooks() returned nil")
 	}

@@ -13,18 +13,17 @@ import (
 // 这些基线测试覆盖 team manager 非空时的入口注入路径。
 // 既有 entrypoint_provider_test 主要走 team=nil；这里锁住 team block 注入，避免后续排序调整静默漏掉团队记忆。
 //
-// runtime-ready gate 是进程级开关；本文件通过 withTeamMemoryRuntimeReady 安装逐测函数指针，
-// 并用 Cleanup 恢复旧值，避免同包并发测试争用同一个 atomic.Bool。因此这些测试不调用 t.Parallel()。
+// runtime-ready gate 由每个 team manager 独立持有；测试只配置自己创建的 manager，
+// Cleanup 会将该实例恢复为未就绪状态，不与其他实例争用。
 
 func TestPhase4BaselineEntrypointProviderInjectsTeamBlock(t *testing.T) {
 	t.Setenv(envHarnessKind, "")
-	withTeamMemoryRuntimeReady(t, true)
-
 	cfg := newPhase4BaselineConfig(t, true)
 	writePhase4BaselineMemory(t, cfg.AutoMemPathOverride, "- [Architecture](architecture.md) — start here")
 	writePhase4BaselineMemory(t, mustConfiguredTeamMemRoot(t, cfg), "- [Dashboard owner](owner.md) — team-side guidance")
 
 	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, true)
 	provider := NewEntrypointProvider(cfg, team, nil)
 	out, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{},
@@ -49,11 +48,11 @@ func TestPhase4BaselineEntrypointProviderTeamDisabledOmitsTeamBlock(t *testing.T
 	// runtime-ready 保持开启，专门验证入口注入只受 TeamMemEnabled 控制。
 	// 如果未来把 runtime-ready 折进入口短路条件，TeamMemEnabled=false 的反例会立刻失败。
 	t.Setenv(envHarnessKind, "")
-	withTeamMemoryRuntimeReady(t, true)
 	cfg := newPhase4BaselineConfig(t, false)
 	writePhase4BaselineMemory(t, cfg.AutoMemPathOverride, "- [Private only](private.md)")
 
 	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, true)
 	provider := NewEntrypointProvider(cfg, team, nil)
 	out, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{},

@@ -243,7 +243,6 @@ func TestMemoryRulesProviderDoesNotLeakAbsoluteDisplayPath(t *testing.T) {
 // 注入断言已转到 entrypoint_provider_test.go 的 Resolve 行为测试。
 
 func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
@@ -258,7 +257,9 @@ func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
 	svc := prompt.NewService(&prompt.Config{}, nil)
-	if err := svc.RegisterDynamicProvider(NewRulesProvider(cfg, NewMemoryRuleEngine(), NewTeamMemoryManager(cfg))); err != nil {
+	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, true)
+	if err := svc.RegisterDynamicProvider(NewRulesProvider(cfg, NewMemoryRuleEngine(), team)); err != nil {
 		t.Fatalf("RegisterDynamicProvider() error = %v", err)
 	}
 
@@ -297,7 +298,6 @@ func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
 }
 
 func TestCombinedRulesProviderFallsBackToStandardWithoutTeamRuntime(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, false)
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
@@ -311,7 +311,9 @@ func TestCombinedRulesProviderFallsBackToStandardWithoutTeamRuntime(t *testing.T
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
-	text, err := NewRulesProvider(cfg, NewMemoryRuleEngine(), NewTeamMemoryManager(cfg)).Resolve(context.Background(), prompt.SectionContext{
+	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, false)
+	text, err := NewRulesProvider(cfg, NewMemoryRuleEngine(), team).Resolve(context.Background(), prompt.SectionContext{
 		BuildCtx: contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot},
 		Start:    &prompt.StartInput{},
 	})
@@ -330,7 +332,6 @@ func TestCombinedRulesProviderFallsBackToStandardWithoutTeamRuntime(t *testing.T
 }
 
 func TestCombinedRulesProviderSuppressesCombinedWhenKairosActive(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
@@ -344,7 +345,9 @@ func TestCombinedRulesProviderSuppressesCombinedWhenKairosActive(t *testing.T) {
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true, Kairos: true},
 	}
-	text, err := NewRulesProvider(cfg, NewMemoryRuleEngine(), NewTeamMemoryManager(cfg)).Resolve(context.Background(), prompt.SectionContext{
+	team := NewTeamMemoryManager(cfg)
+	withTeamMemoryRuntimeReady(t, team, true)
+	text, err := NewRulesProvider(cfg, NewMemoryRuleEngine(), team).Resolve(context.Background(), prompt.SectionContext{
 		BuildCtx: contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot},
 		Start:    &prompt.StartInput{},
 	})
