@@ -642,7 +642,7 @@ func isKnownAgentState(state string) bool {
 	if state == "" {
 		return false
 	}
-	for _, candidate := range agentdto.StateDefinitions {
+	for _, candidate := range agentdto.StateDefinitions() {
 		if string(candidate.Name) == state {
 			return true
 		}

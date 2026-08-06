@@ -115,7 +115,7 @@ func newLifecycleController(p lifecycleControllerParams) *lifecycleController {
 		recoveryStore:  recoveryStore,
 		machineCfg: platformstatemachine.Config{
 			Initial: string(agentdto.StateProvisioning),
-			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
+			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions()),
 		},
 		processExitWaitTimeout: 30 * time.Second,
 		exitMonitor:            exitmonitor.New(p.logger),

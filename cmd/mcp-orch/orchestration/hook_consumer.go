@@ -629,8 +629,9 @@ func resolveTransitionPath(from, to string) []string {
 		trigger string
 		dest    string
 	}
-	adj := make(map[string][]edge, len(agentdto.StateDefinitions))
-	for _, td := range agentdto.TransitionDefinitions {
+	states := agentdto.StateDefinitions()
+	adj := make(map[string][]edge, len(states))
+	for _, td := range agentdto.TransitionDefinitions() {
 		adj[string(td.From)] = append(adj[string(td.From)], edge{trigger: string(td.Trigger), dest: string(td.To)})
 	}
 	// BFS parent map 保留抵达每个状态的触发器和上一个状态。

@@ -34,21 +34,22 @@ func publicOrchestrationError(summary string, cause error) string {
 }
 
 func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platformstatemachine.StateConfig {
-	permits := make(map[string][]platformstatemachine.Permit, len(agentdto.StateDefinitions))
+	states := agentdto.StateDefinitions()
+	permits := make(map[string][]platformstatemachine.Permit, len(states))
 	for _, def := range defs {
 		permits[string(def.From)] = append(permits[string(def.From)], platformstatemachine.Permit{
 			Trigger: string(def.Trigger),
 			Dest:    string(def.To),
 		})
 	}
-	states := make([]platformstatemachine.StateConfig, 0, len(agentdto.StateDefinitions))
-	for _, def := range agentdto.StateDefinitions {
-		states = append(states, platformstatemachine.StateConfig{
+	configs := make([]platformstatemachine.StateConfig, 0, len(states))
+	for _, def := range states {
+		configs = append(configs, platformstatemachine.StateConfig{
 			Name:    string(def.Name),
 			Permits: permits[string(def.Name)],
 		})
 	}
-	return states
+	return configs
 }
 
 // BindActiveTurnID 把当前活跃 turn 绑定到 provider 返回的真实 turn ID。
