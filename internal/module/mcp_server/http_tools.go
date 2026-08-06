@@ -19,7 +19,19 @@ const (
 	mcpHTTPAcceptHeader     = "application/json, text/event-stream"
 )
 
-var defaultMCPHTTPClient = httpegress.NewPublicHTTPClient(30 * time.Second)
+type defaultMCPHTTPDoer uint8
+
+const defaultMCPHTTPClient defaultMCPHTTPDoer = iota
+
+// Do 为每次 HTTP MCP 请求构造独立的公网 egress client，避免服务实例共享可变 client 底层状态。
+func (defaultMCPHTTPDoer) Do(req *http.Request) (*http.Response, error) {
+	return newDefaultMCPHTTPClient().Do(req)
+}
+
+// newDefaultMCPHTTPClient 创建保持固定超时和公网出站约束的独立 HTTP client。
+func newDefaultMCPHTTPClient() *http.Client {
+	return httpegress.NewPublicHTTPClient(30 * time.Second)
+}
 
 type mcpHTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)

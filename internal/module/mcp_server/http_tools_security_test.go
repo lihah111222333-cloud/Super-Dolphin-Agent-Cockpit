@@ -11,9 +11,26 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
+
+func TestDefaultMCPHTTPClientFactoryReturnsIndependentPublicClients(t *testing.T) {
+	first := newDefaultMCPHTTPClient()
+	second := newDefaultMCPHTTPClient()
+	if first == second {
+		t.Fatal("newDefaultMCPHTTPClient() returned shared client state")
+	}
+	for _, client := range []*http.Client{first, second} {
+		if client.Timeout != 30*time.Second {
+			t.Fatalf("default HTTP client timeout = %s, want %s", client.Timeout, 30*time.Second)
+		}
+		if client.Transport == nil || client.CheckRedirect == nil {
+			t.Fatal("default HTTP client omitted public egress safeguards")
+		}
+	}
+}
 
 func TestAddServersRejectsUnsafeHTTPHeaders(t *testing.T) {
 	svc := NewServiceWithStore(newMemoryMCPServerStore())
