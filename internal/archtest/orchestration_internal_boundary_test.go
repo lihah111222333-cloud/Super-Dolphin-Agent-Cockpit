@@ -176,6 +176,51 @@ func TestNodeRouterDoesNotGrowServiceAgentLauncherDebt(t *testing.T) {
 	failIfViolations(t, violations)
 }
 
+func TestOrchestrationStopSpawnedAgentDebtLocksMetricsOwnerAndSingleCall(t *testing.T) {
+	const relPath = "cmd/mcp-orch/orchestration/node_router.go"
+	for _, fixture := range []struct {
+		name          string
+		calls         string
+		wantViolation string
+	}{
+		{
+			name:  "allowed-explicit-owner",
+			calls: "StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID, a.lifecycle.stopMetrics)",
+		},
+		{
+			name:          "reject-arbitrary-fifth-dependency",
+			calls:         "StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID, a.lifecycle.otherMetrics)",
+			wantViolation: "must remain exactly StopSpawnedAgent",
+		},
+		{
+			name: "reject-duplicate-call",
+			calls: `StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID, a.lifecycle.stopMetrics)
+	StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID, a.lifecycle.stopMetrics)`,
+			wantViolation: "allowance got 2 call(s), want 1",
+		},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			source := fmt.Appendf(nil, "package orchestration\nfunc fixture() {\n\t%s\n}\n", fixture.calls)
+			file, err := parser.ParseFile(fset, relPath, source, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("parse StopSpawnedAgent fixture: %v", err)
+			}
+
+			violations := orchestrationInternalBoundaryStopSpawnedAgentDebt(fset, file, relPath)
+			if fixture.wantViolation == "" {
+				if len(violations) != 0 {
+					t.Fatalf("allowed StopSpawnedAgent violations = %v, want none", violations)
+				}
+				return
+			}
+			if len(violations) != 1 || !strings.Contains(violations[0], fixture.wantViolation) {
+				t.Fatalf("StopSpawnedAgent violations = %v, want one containing %q", violations, fixture.wantViolation)
+			}
+		})
+	}
+}
+
 func TestOrchestrationAdaptersDoNotHoldFullService(t *testing.T) {
 	t.Parallel()
 
@@ -597,7 +642,7 @@ func orchestrationInternalBoundaryStopSpawnedAgentDebt(fset *token.FileSet, file
 		}
 		matches++
 		if !orchestrationInternalBoundaryIsAllowedStopSpawnedAgentCall(call) {
-			violations = append(violations, fmt.Sprintf("%s:%d StopSpawnedAgent adapter must remain exactly StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID)", relPath, fset.Position(call.Pos()).Line))
+			violations = append(violations, fmt.Sprintf("%s:%d StopSpawnedAgent adapter must remain exactly StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID, a.lifecycle.stopMetrics)", relPath, fset.Position(call.Pos()).Line))
 		}
 		return true
 	})
@@ -608,7 +653,7 @@ func orchestrationInternalBoundaryStopSpawnedAgentDebt(fset *token.FileSet, file
 }
 
 func orchestrationInternalBoundaryIsAllowedStopSpawnedAgentCall(call *ast.CallExpr) bool {
-	if len(call.Args) != 4 {
+	if len(call.Args) != 5 {
 		return false
 	}
 	checks := []bool{
@@ -616,6 +661,7 @@ func orchestrationInternalBoundaryIsAllowedStopSpawnedAgentCall(call *ast.CallEx
 		orchestrationInternalBoundarySelectorChain(call.Args[1], "a", "lifecycle", "threads"),
 		orchestrationInternalBoundarySelectorChain(call.Args[2], "a", "lifecycle", "stopper"),
 		orchestrationInternalBoundaryIsIdent(call.Args[3], "threadID"),
+		orchestrationInternalBoundarySelectorChain(call.Args[4], "a", "lifecycle", "stopMetrics"),
 	}
 	return !slices.Contains(checks, false)
 }
