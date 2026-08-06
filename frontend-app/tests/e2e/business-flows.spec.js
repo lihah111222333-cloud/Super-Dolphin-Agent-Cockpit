@@ -50,6 +50,16 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByTestId('settings-page')).toBeVisible();
+
+  const runtime = await runtimeSnapshot(page);
+  const readinessCalls = runtime.calls.filter((call) => call.method === 'ui/frontend/readiness');
+  const readinessProbeEpochs = readinessCalls.filter((call) => call.params.phase === 'probe').map((call) => call.response.epoch);
+  const readinessCommitEpochs = readinessCalls.filter((call) => call.params.phase === 'commit').map((call) => call.params.epoch);
+  expect(readinessProbeEpochs).not.toEqual([]);
+  expect(readinessCommitEpochs).toEqual(readinessProbeEpochs);
+  expect(runtime.unhandledRPC).toEqual([]);
+  expect(runtime.failures).toEqual([]);
+  expect(runtime.runtimeTelemetry.filter((item) => item.status === 'error' || String(item.phase || '').endsWith('.failed') || String(item.phase || '').endsWith('.timeout'))).toEqual([]);
 });
 
 test('high-risk chat send creates a thread then starts a turn through the bridge', async ({ page }) => {
@@ -114,6 +124,14 @@ test('high-risk chat send creates a thread then starts a turn through the bridge
     expect.objectContaining({ method: 'turn/start', phase: 'runtime.rpc.send.done', status: 'ok' }),
     expect.objectContaining({ method: 'turn/start', phase: 'runtime.rpc.settled', status: 'ok' }),
   ]));
+  const readinessCalls = runtime.calls.filter((call) => call.method === 'ui/frontend/readiness');
+  const readinessProbeEpochs = readinessCalls.filter((call) => call.params.phase === 'probe').map((call) => call.response.epoch);
+  const readinessCommitEpochs = readinessCalls.filter((call) => call.params.phase === 'commit').map((call) => call.params.epoch);
+  expect(readinessProbeEpochs).not.toEqual([]);
+  expect(readinessCommitEpochs).toEqual(readinessProbeEpochs);
+  expect(runtime.unhandledRPC).toEqual([]);
+  expect(runtime.failures).toEqual([]);
+  expect(runtime.runtimeTelemetry.filter((item) => item.status === 'error' || String(item.phase || '').endsWith('.failed') || String(item.phase || '').endsWith('.timeout'))).toEqual([]);
 });
 
 async function openBusinessEntry(page, { label, route, assert, navTestId = 'sidebar-nav' }) {
@@ -253,6 +271,8 @@ async function installStrictWailsMock(page) {
       unhandledRPC: [],
       nonWailsSockets: [],
       eventNotifications: 0,
+      nextReadinessEpoch: 1,
+      readinessProbeEpoch: null,
       nextThreadId: 'thread-business-e2e',
       recentEvents: [{
         trace_id: 'business-flow-trace-1',
@@ -303,11 +323,13 @@ async function installStrictWailsMock(page) {
 
       respond(call) {
         try {
+          const result = responseForRPC(call.method, call.params);
+          if (call.method === 'ui/frontend/readiness' && call.params.phase === 'probe') call.response = result;
           this.onmessage?.({
             data: JSON.stringify({
               jsonrpc: '2.0',
               id: call.id,
-              result: responseForRPC(call.method, call.params),
+              result,
             }),
           });
           if (call.method === 'turn/start') this.emitNotification('thread/tokenUsage/updated', {
@@ -354,7 +376,46 @@ async function installStrictWailsMock(page) {
     function responseForRPC(method, params) {
       if (method === 'ui/log' || method === 'observability/frontend/ingest') return { ok: true };
       if (method === 'ui/buildInfo') return { version: 'business-flow-e2e' };
-      if (method === 'config/read') return { cwd: '/repo/app' };
+      if (method === 'config/read') return {
+        model: 'gpt-5.5',
+        modelProvider: null,
+        cwd: '/repo/app',
+        approvalPolicy: 'on-failure',
+        sandbox: 'workspace-write',
+        config: null,
+        baseInstructions: null,
+        developerInstructions: null,
+        personality: null,
+        toolRouting: {
+          mode: 'legacy',
+          routerModel: '',
+          routerProvider: 'openai_compatible',
+          routerBaseURL: '',
+          routerHasAPIKey: false,
+          confidenceThreshold: 0.65,
+          timeoutSec: 8,
+        },
+      };
+      if (method === 'ui/frontend/readiness') {
+        if (!params || typeof params !== 'object' || Array.isArray(params)) {
+          throw new Error('readiness request must be an object');
+        }
+        if (params.phase === 'probe') {
+          if (Object.keys(params).length !== 1) throw new Error('readiness probe must contain only phase');
+          const epoch = state.nextReadinessEpoch;
+          state.nextReadinessEpoch += 1;
+          state.readinessProbeEpoch = epoch;
+          return { epoch };
+        }
+        if (params.phase === 'commit') {
+          if (Object.keys(params).length !== 2) throw new Error('readiness commit must contain only phase and epoch');
+          if (!Number.isSafeInteger(params.epoch) || params.epoch <= 0) throw new Error('readiness commit epoch must be a positive safe integer');
+          if (state.readinessProbeEpoch === null) throw new Error('readiness commit requires a prior probe');
+          if (params.epoch !== state.readinessProbeEpoch) throw new Error('readiness commit epoch does not match probe epoch');
+          return { epoch: params.epoch };
+        }
+        throw new Error(`readiness phase is unknown: ${String(params.phase)}`);
+      }
       if (method === 'ui/windowBootstrap/get') return { snapshot: null };
       if (method === 'ui/preferences/get') return preferenceFor(params);
       if (method === 'ui/preferences/getAll') return { preferences: {} };
