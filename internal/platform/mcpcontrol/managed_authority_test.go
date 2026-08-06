@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,18 +192,34 @@ func TestManagedGenerationSurvivesEvictAndRegistryRestart(t *testing.T) {
 
 func TestSQLiteGenerationStoreSerializesTwoProcesses(t *testing.T) {
 	dbPath, markerPath := prepareSQLiteGenerationStore(t)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
 	type childResult struct {
 		output string
 		err    error
 	}
 	outputs := make(chan childResult, 2)
+	var children sync.WaitGroup
 	for range 2 {
-		go func() {
+		children.Go(func() {
 			output, err := runGenerationChildCommand(dbPath, markerPath, "next")
-			outputs <- childResult{output: output, err: err}
-		}()
+			select {
+			case outputs <- childResult{output: output, err: err}:
+			case <-ctx.Done():
+			}
+		})
 	}
-	first, second := <-outputs, <-outputs
+	results := make([]childResult, 0, 2)
+	for range 2 {
+		select {
+		case result := <-outputs:
+			results = append(results, result)
+		case <-ctx.Done():
+			t.Fatalf("concurrent generation children did not finish: %v", ctx.Err())
+		}
+	}
+	children.Wait()
+	first, second := results[0], results[1]
 	if first.err != nil || second.err != nil {
 		t.Fatalf("concurrent generation children errors = %v / %v, output = %q / %q",
 			first.err, second.err, first.output, second.output)
@@ -626,22 +643,35 @@ func TestStrictOrchActivationLeavesLSPAndIDARegistrationUnchanged(t *testing.T) 
 }
 
 func TestManagedCallbackAllowsRegistryReentryAndConcurrentLeaseProgress(t *testing.T) {
-	registry, lease, entered, release, notifyDone := startBlockingManagedCallback(t)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	registry, lease, entered, release, notifyDone, joined := startBlockingManagedCallback(t, ctx)
 	waitManagedCallbackEntered(t, entered)
 	registerAndHeartbeatConcurrentLSP(t, registry)
 	evictPinnedManagedLease(t, registry, lease)
-	close(release)
-	requireManagedCallbackStale(t, notifyDone)
+	release()
+	requireManagedCallbackStale(t, ctx, notifyDone)
+	select {
+	case <-joined:
+	case <-ctx.Done():
+		t.Fatalf("callback worker did not join: %v", ctx.Err())
+	}
 }
 
 func startBlockingManagedCallback(
 	t *testing.T,
-) (*ToolRegistry, dto.LeaseKey, <-chan struct{}, chan<- struct{}, <-chan error) {
+	ctx context.Context,
+) (*ToolRegistry, dto.LeaseKey, <-chan struct{}, func(), <-chan error, <-chan struct{}) {
 	t.Helper()
 	registry := NewRegistry()
 	lease := dto.LeaseKey{InstanceID: managedOrchInstanceID, Generation: 1}
 	entered := make(chan struct{})
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseCallback := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
+	t.Cleanup(releaseCallback)
 	peer := &stubCallbackPeer{
 		notifyFn: func(ctx context.Context, _ string, _ any) error {
 			if _, err := registry.Heartbeat(ctx, dto.HeartbeatRequest{
@@ -672,15 +702,22 @@ func startBlockingManagedCallback(
 	registry.mu.Unlock()
 
 	notifyDone := make(chan error, 1)
-	go func() {
+	var callback sync.WaitGroup
+	callback.Go(func() {
 		notifyDone <- registry.NotifyByCapability(
-			context.Background(),
+			ctx,
 			"blocking-callback",
 			"test/block",
 			map[string]bool{"ok": true},
 		)
-	}()
-	return registry, lease, entered, release, notifyDone
+	})
+	joined := make(chan struct{})
+	var joiner sync.WaitGroup
+	joiner.Go(func() {
+		callback.Wait()
+		close(joined)
+	})
+	return registry, lease, entered, releaseCallback, notifyDone, joined
 }
 
 func waitManagedCallbackEntered(t *testing.T, entered <-chan struct{}) {
@@ -730,15 +767,15 @@ func evictPinnedManagedLease(t *testing.T, registry *ToolRegistry, lease dto.Lea
 	}
 }
 
-func requireManagedCallbackStale(t *testing.T, notifyDone <-chan error) {
+func requireManagedCallbackStale(t *testing.T, ctx context.Context, notifyDone <-chan error) {
 	t.Helper()
 	select {
 	case err := <-notifyDone:
 		if err == nil || !strings.Contains(err.Error(), "became stale during callback") {
 			t.Fatalf("NotifyByCapability() error = %v, want stale generation fence", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("callback did not finish after replacement fence")
+	case <-ctx.Done():
+		t.Fatalf("callback did not finish after replacement fence: %v", ctx.Err())
 	}
 }
 
