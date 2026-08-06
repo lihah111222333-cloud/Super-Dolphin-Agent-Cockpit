@@ -1,4 +1,7 @@
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import process, { cwd, execPath } from 'node:process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runManagedCommand } from './managed-command.mjs';
@@ -9,7 +12,9 @@ import {
   DELIVERY_COMMANDS,
   DELIVERY_COMMAND_TIMEOUT_MS,
   DELIVERY_RUNNER_CONTENT_PATHS,
+  canonicalRepositoryRoot,
   inspectDeliveryCommands,
+  parseArguments,
   runDeliveryCommands,
   validateDeliveryCaseResult,
 } from './delivery-smoke-runner.mjs';
@@ -24,11 +29,31 @@ const FAILURE_SMOKE_ENV_CONFLICTS = Object.freeze([
   'VITE_DEV_URL',
   'FRONTEND_DEVSERVER_URL',
 ]);
+const temporaryDirectories = [];
+
+function runGit(repositoryRoot, args) {
+  return execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' });
+}
+
+function createDeliveryRepositoryFixture() {
+  const repositoryRoot = mkdtempSync(join(tmpdir(), 'delivery-smoke-runner-'));
+  temporaryDirectories.push(repositoryRoot);
+  mkdirSync(join(repositoryRoot, 'frontend-app'), { recursive: true });
+  mkdirSync(join(repositoryRoot, 'nested', 'path'), { recursive: true });
+  writeFileSync(join(repositoryRoot, 'tracked.txt'), 'base\n', 'utf8');
+  runGit(repositoryRoot, ['init', '--quiet']);
+  runGit(repositoryRoot, ['add', '.']);
+  runGit(repositoryRoot, ['-c', 'user.name=Codex', '-c', 'user.email=codex@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
+  return repositoryRoot;
+}
 
 describe('delivery smoke runner', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.useRealTimers();
+    for (const directory of temporaryDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('locks build, embed, start and failure smoke commands exactly', () => {
@@ -55,6 +80,42 @@ describe('delivery smoke runner', () => {
     ['zero test count', [], 0],
   ])('rejects invalid structured evidence registry: %s', (_name, caseIds, testCount) => {
     expect(() => validateDeliveryCaseResult(caseIds, testCount)).toThrow(/delivery/);
+  });
+
+  it('canonicalizes the default runner root and a nested --repo path to their Git top-levels', () => {
+    const repositoryRoot = createDeliveryRepositoryFixture();
+    const nestedRepositoryPath = join(repositoryRoot, 'nested', 'path');
+
+    expect(canonicalRepositoryRoot(join(cwd(), 'scripts'))).toBe(resolve(cwd(), '..'));
+    expect(parseArguments(['--inspect', '--repo', nestedRepositoryPath])).toEqual({
+      mode: 'inspect',
+      repositoryRoot: canonicalRepositoryRoot(repositoryRoot),
+      subjectSha: runGit(repositoryRoot, ['rev-parse', 'HEAD']).trim(),
+    });
+  });
+
+  it.each([
+    ['tracked', (repositoryRoot) => writeFileSync(join(repositoryRoot, 'tracked.txt'), 'changed\n', 'utf8')],
+    ['staged', (repositoryRoot) => {
+      writeFileSync(join(repositoryRoot, 'tracked.txt'), 'staged\n', 'utf8');
+      runGit(repositoryRoot, ['add', 'tracked.txt']);
+    }],
+    ['untracked', (repositoryRoot) => writeFileSync(join(repositoryRoot, 'untracked.txt'), 'new\n', 'utf8')],
+  ])('fails fast before delivery work for a %s worktree change', (_name, makeDirty) => {
+    const repositoryRoot = createDeliveryRepositoryFixture();
+    makeDirty(repositoryRoot);
+
+    expect(() => parseArguments(['--verify', '--repo', join(repositoryRoot, 'nested', 'path')]))
+      .toThrow('delivery smoke requires a clean worktree');
+  });
+
+  it('preflights worktree cleanliness before validating a detached subject', () => {
+    const repositoryRoot = createDeliveryRepositoryFixture();
+    writeFileSync(join(repositoryRoot, 'untracked.txt'), 'new\n', 'utf8');
+
+    expect(() => parseArguments([
+      '--inspect', '--repo', join(repositoryRoot, 'nested', 'path'), '--subject', 'a'.repeat(40),
+    ])).toThrow('delivery smoke requires a clean worktree');
   });
 
   it.each([
@@ -355,8 +416,13 @@ describe('delivery smoke runner', () => {
     });
   });
 
-  it('keeps T05 verification independently invocable while checking its hashed runner contract', async () => {
-    const result = await runManagedCommand(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--inspect'], {
+  it('keeps T05 verification independently invocable from a clean subject clone while checking its hashed runner contract', async () => {
+    const repositoryRoot = mkdtempSync(join(tmpdir(), 'delivery-smoke-runner-subject-'));
+    temporaryDirectories.push(repositoryRoot);
+    runGit(resolve(cwd(), '..'), ['clone', '--no-local', '--quiet', resolve(cwd(), '..'), repositoryRoot]);
+    const result = await runManagedCommand(execPath, [
+      join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--inspect', '--repo', join(repositoryRoot, 'frontend-app'),
+    ], {
       cwd: cwd(),
       timeoutMs: 30_000,
       killGraceMs: 1_000,

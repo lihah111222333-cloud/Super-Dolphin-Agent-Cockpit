@@ -87,6 +87,16 @@ function canonicalRepositoryRoot(candidate) {
   return resolve(result.stdout.trim());
 }
 
+function requireCleanDeliveryWorktree(repositoryRoot) {
+  const result = spawnSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    env: repositoryLocalGitEnvironment(),
+  });
+  if (result.status !== 0) throw new Error(`git worktree status failed: ${result.stderr}`);
+  if (result.stdout.trim()) throw new Error('delivery smoke requires a clean worktree');
+}
+
 function inspectDeliveryCommands(packageJSON, makefile) {
   const commands = DELIVERY_COMMANDS.map((command) => {
     if (command.packageScript) {
@@ -258,12 +268,14 @@ function parseArguments(args) {
     } else if (arg === '--subject') {
       options.subjectSha = args[++index] || '';
     } else if (arg === '--repo') {
-      options.repositoryRoot = canonicalRepositoryRoot(args[++index] || '');
+      options.repositoryRoot = args[++index] || '';
     } else {
       throw new TypeError(`unsupported delivery smoke argument: ${arg}`);
     }
   }
   if (!options.mode) throw new TypeError('one of --inspect or --verify is required');
+  options.repositoryRoot = canonicalRepositoryRoot(options.repositoryRoot);
+  requireCleanDeliveryWorktree(options.repositoryRoot);
   const head = currentCommit(options.repositoryRoot);
   if (!options.subjectSha) options.subjectSha = head;
   requireSubjectSha(options.subjectSha, head);
@@ -310,6 +322,7 @@ export {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
   DELIVERY_RUNNER_CONTENT_PATHS,
+  canonicalRepositoryRoot,
   inspectDeliveryCommands,
   parseArguments,
   runDeliveryCommands,
