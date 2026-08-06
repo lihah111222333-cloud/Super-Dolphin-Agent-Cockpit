@@ -219,6 +219,28 @@ func validateWireDTOMapperCoverage(
 	exemptions map[string]WireDTOMapperExemption,
 	projections map[string]map[string]WireDTOMapperProjection,
 ) error {
+	producer, missing, err := wireDTOMapperProducerCoverage(fields, exemptions, projections)
+	if err != nil {
+		return err
+	}
+	if len(missing) != 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("producer JSON fields missing from mapper projection registry: %v", missing)
+	}
+	stale := staleWireDTOMapperRegistryFields(producer, exemptions, projections)
+	if len(stale) != 0 {
+		sort.Strings(stale)
+		return fmt.Errorf("mapper registry references fields that no longer exist: %v", stale)
+	}
+	return nil
+}
+
+// wireDTOMapperProducerCoverage 计算 producer 字段及未覆盖字段。
+func wireDTOMapperProducerCoverage(
+	fields []wireDTOJSONField,
+	exemptions map[string]WireDTOMapperExemption,
+	projections map[string]map[string]WireDTOMapperProjection,
+) (map[string]bool, []string, error) {
 	producer := make(map[string]bool, len(fields))
 	var missing []string
 	for _, field := range fields {
@@ -226,16 +248,21 @@ func validateWireDTOMapperCoverage(
 		_, exempt := exemptions[field.jsonName]
 		_, projected := projections[field.jsonName]
 		if exempt && projected {
-			return fmt.Errorf("producer JSON field %q is both projected and exempt", field.jsonName)
+			return nil, nil, fmt.Errorf("producer JSON field %q is both projected and exempt", field.jsonName)
 		}
 		if !exempt && !projected {
 			missing = append(missing, field.jsonName)
 		}
 	}
-	if len(missing) != 0 {
-		sort.Strings(missing)
-		return fmt.Errorf("producer JSON fields missing from mapper projection registry: %v", missing)
-	}
+	return producer, missing, nil
+}
+
+// staleWireDTOMapperRegistryFields 收集已不存在的 exemption 和 projection。
+func staleWireDTOMapperRegistryFields(
+	producer map[string]bool,
+	exemptions map[string]WireDTOMapperExemption,
+	projections map[string]map[string]WireDTOMapperProjection,
+) []string {
 	var stale []string
 	for field := range exemptions {
 		if !producer[field] {
@@ -247,11 +274,7 @@ func validateWireDTOMapperCoverage(
 			stale = append(stale, "projection:"+field)
 		}
 	}
-	if len(stale) != 0 {
-		sort.Strings(stale)
-		return fmt.Errorf("mapper registry references fields that no longer exist: %v", stale)
-	}
-	return nil
+	return stale
 }
 
 // assertWireDTOMapperExactDelta 拒绝错误键、错误值、漏项和任何未登记的额外 delta。

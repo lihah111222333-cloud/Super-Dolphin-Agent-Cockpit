@@ -191,9 +191,22 @@ func defaultCapabilityRootFunctions(file *ast.File) []*ast.FuncDecl {
 
 // defaultCapabilityRootsLiteral 验证默认根函数的唯一语句是返回 []string 字面量。
 func defaultCapabilityRootsLiteral(function *ast.FuncDecl) (*ast.CompositeLit, error) {
-	if function.Recv != nil || function.Type.TypeParams != nil || len(function.Type.Params.List) != 0 || !isStringSliceResult(function.Type.Results) {
-		return nil, fmt.Errorf("defaultCapabilityRoots must be declared as func defaultCapabilityRoots() []string")
+	if err := validateDefaultCapabilityRootsSignature(function); err != nil {
+		return nil, err
 	}
+	return defaultCapabilityRootsReturnLiteral(function)
+}
+
+// validateDefaultCapabilityRootsSignature 验证默认根函数签名。
+func validateDefaultCapabilityRootsSignature(function *ast.FuncDecl) error {
+	if function.Recv != nil || function.Type.TypeParams != nil || len(function.Type.Params.List) != 0 || !isStringSliceResult(function.Type.Results) {
+		return fmt.Errorf("defaultCapabilityRoots must be declared as func defaultCapabilityRoots() []string")
+	}
+	return nil
+}
+
+// defaultCapabilityRootsReturnLiteral 提取并验证唯一返回字面量。
+func defaultCapabilityRootsReturnLiteral(function *ast.FuncDecl) (*ast.CompositeLit, error) {
 	if function.Body == nil || len(function.Body.List) != 1 {
 		return nil, fmt.Errorf("defaultCapabilityRoots must contain exactly one return statement")
 	}
