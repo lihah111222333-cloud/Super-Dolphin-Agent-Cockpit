@@ -109,6 +109,27 @@ func TestManagedRegisterDedupeAndCapabilityNegotiationAreReal(t *testing.T) {
 	}
 }
 
+func TestManagedOrchAllowedCapabilitiesAreRequestLocal(t *testing.T) {
+	first := managedOrchAllowedCapabilities()
+	delete(first, "tools/task")
+	second := managedOrchAllowedCapabilities()
+	if _, ok := second["tools/task"]; !ok {
+		t.Fatal("managed capability profile leaked mutation across requests")
+	}
+	request := dto.RegisterRequest{
+		ClientKind:          dto.ClientKindOrch,
+		CapabilitiesOffered: []string{"tools/workspace", "tools/unknown", "tools/task"},
+		ManagedAuthority:    &dto.ManagedAuthorityProof{},
+	}
+	negotiated, rejected := negotiateRegisterCapabilities(request)
+	if got := strings.Join(negotiated, ","); got != "tools/workspace,tools/task" {
+		t.Fatalf("negotiated capabilities = %q, want request order preserved", got)
+	}
+	if got := strings.Join(rejected, ","); got != "tools/unknown" {
+		t.Fatalf("rejected capabilities = %q, want unsupported capability only", got)
+	}
+}
+
 func TestManagedRegisterSameRequestRecoversLostAckAndRejectsReplay(t *testing.T) {
 	registry := newStrictManagedTestRegistry(NewMemoryGenerationStore())
 	bootstrap, err := registry.IssueManagedAuthority(context.Background(), dto.ManagedAuthorityIssueRequest{BinaryName: "mcp-orch"})

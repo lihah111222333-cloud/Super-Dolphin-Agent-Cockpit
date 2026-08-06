@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -51,9 +52,13 @@ func (r *ToolRegistry) IssueManagedAuthority(_ context.Context, req dto.ManagedA
 		ProtocolVersion: dto.ManagedAuthorityProtocolVersion,
 	}
 	claims := canonicalManagedClaims(boot.InstanceID, boot.BootID)
+	claimsHash, err := managedClaimsHash(claims, json.Marshal)
+	if err != nil {
+		return dto.ManagedAuthorityBootstrap{}, err
+	}
 	r.authorityMu.Lock()
 	r.managedAuthorities[boot.InstanceID] = &managedAuthorityState{
-		claimsHash: managedClaimsHash(claims),
+		claimsHash: claimsHash,
 		tokenHash:  sha256.Sum256([]byte(token)),
 	}
 	r.authorityMu.Unlock()
@@ -67,8 +72,10 @@ func (r *ToolRegistry) consumeManagedAuthority(req dto.RegisterRequest, peer Pee
 	}
 	proof := req.ManagedAuthority
 	requestID := strings.TrimSpace(proof.RequestID)
-	claimsHash := managedClaimsHash(req)
-	requestHash := managedRegisterFingerprint(req)
+	claimsHash, requestHash, err := managedRegisterHashes(req)
+	if err != nil {
+		return dto.RegisterResponse{}, false, err
+	}
 	tokenHash := sha256.Sum256([]byte(proof.Token))
 
 	r.authorityMu.Lock()
@@ -178,7 +185,25 @@ func canonicalManagedClaims(instanceID, bootID string) dto.RegisterRequest {
 	}
 }
 
-func managedClaimsHash(req dto.RegisterRequest) [sha256.Size]byte {
+// managedRegisterHashes 顺序计算 claims 与完整请求指纹并向注册链传播序列化错误。
+func managedRegisterHashes(
+	req dto.RegisterRequest,
+) ([sha256.Size]byte, [sha256.Size]byte, error) {
+	claimsHash, err := managedClaimsHash(req, json.Marshal)
+	if err != nil {
+		return [sha256.Size]byte{}, [sha256.Size]byte{}, err
+	}
+	requestHash, err := managedRegisterFingerprint(req, json.Marshal)
+	if err != nil {
+		return [sha256.Size]byte{}, [sha256.Size]byte{}, err
+	}
+	return claimsHash, requestHash, nil
+}
+
+func managedClaimsHash(
+	req dto.RegisterRequest,
+	marshal func(any) ([]byte, error),
+) ([sha256.Size]byte, error) {
 	claims := struct {
 		InstanceID string `json:"instance_id"`
 		BootID     string `json:"boot_id"`
@@ -198,15 +223,18 @@ func managedClaimsHash(req dto.RegisterRequest) [sha256.Size]byte {
 		PeerKind:   req.PeerKind,
 		Shared:     req.Shared,
 	}
-	raw, err := json.Marshal(claims)
+	raw, err := marshal(claims)
 	if err != nil {
-		panic("fixed managed claims cannot fail to marshal")
+		return [sha256.Size]byte{}, fmt.Errorf("marshal managed authority claims: %w", err)
 	}
-	return sha256.Sum256(raw)
+	return sha256.Sum256(raw), nil
 }
 
 // managedRegisterFingerprint 绑定所有已规范化且会影响注册、租约或协商结果的请求字段。
-func managedRegisterFingerprint(req dto.RegisterRequest) [sha256.Size]byte {
+func managedRegisterFingerprint(
+	req dto.RegisterRequest,
+	marshal func(any) ([]byte, error),
+) ([sha256.Size]byte, error) {
 	var resumeGeneration uint64
 	var hasResumeGeneration bool
 	if req.ResumeFromGeneration != nil {
@@ -216,7 +244,11 @@ func managedRegisterFingerprint(req dto.RegisterRequest) [sha256.Size]byte {
 	var proofHash [sha256.Size]byte
 	var hasProof bool
 	if req.ManagedAuthority != nil {
-		proofHash = managedAuthorityProofFingerprint(*req.ManagedAuthority)
+		var err error
+		proofHash, err = managedAuthorityProofFingerprint(*req.ManagedAuthority, marshal)
+		if err != nil {
+			return [sha256.Size]byte{}, err
+		}
 		hasProof = true
 	}
 	payload := struct {
@@ -256,15 +288,18 @@ func managedRegisterFingerprint(req dto.RegisterRequest) [sha256.Size]byte {
 		ProofHash:            proofHash,
 		HasProof:             hasProof,
 	}
-	raw, err := json.Marshal(payload)
+	raw, err := marshal(payload)
 	if err != nil {
-		panic("managed register fingerprint payload cannot fail to marshal")
+		return [sha256.Size]byte{}, fmt.Errorf("marshal managed register fingerprint: %w", err)
 	}
-	return sha256.Sum256(raw)
+	return sha256.Sum256(raw), nil
 }
 
 // managedAuthorityProofFingerprint 绑定 proof 的版本、幂等请求号和 token。
-func managedAuthorityProofFingerprint(proof dto.ManagedAuthorityProof) [sha256.Size]byte {
+func managedAuthorityProofFingerprint(
+	proof dto.ManagedAuthorityProof,
+	marshal func(any) ([]byte, error),
+) ([sha256.Size]byte, error) {
 	payload := struct {
 		ProtocolVersion string `json:"protocol_version"`
 		RequestID       string `json:"request_id"`
@@ -274,11 +309,11 @@ func managedAuthorityProofFingerprint(proof dto.ManagedAuthorityProof) [sha256.S
 		RequestID:       proof.RequestID,
 		Token:           proof.Token,
 	}
-	raw, err := json.Marshal(payload)
+	raw, err := marshal(payload)
 	if err != nil {
-		panic("managed authority proof fingerprint cannot fail to marshal")
+		return [sha256.Size]byte{}, fmt.Errorf("marshal managed authority proof fingerprint: %w", err)
 	}
-	return sha256.Sum256(raw)
+	return sha256.Sum256(raw), nil
 }
 
 func constantTimeHashEqual(left, right [sha256.Size]byte) bool {

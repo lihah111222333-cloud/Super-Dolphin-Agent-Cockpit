@@ -277,17 +277,20 @@ func missingCapabilities(required, offered []string) []string {
 	return missing
 }
 
-var managedOrchAllowedCapabilities = normalizedStringSet(dto.OrchCapabilities())
+func managedOrchAllowedCapabilities() map[string]struct{} {
+	return normalizedStringSet(dto.OrchCapabilities())
+}
 
 // negotiateRegisterCapabilities 只为 managed orch 套用服务端 profile；旧 LSP/IDA 保持全部 offered 接受。
 func negotiateRegisterCapabilities(req dto.RegisterRequest) ([]string, []string) {
 	if req.ManagedAuthority == nil || req.ClientKind != dto.ClientKindOrch {
 		return platformshared.CloneStrings(req.CapabilitiesOffered), []string{}
 	}
+	allowedCapabilities := managedOrchAllowedCapabilities()
 	negotiated := make([]string, 0, len(req.CapabilitiesOffered))
 	rejected := make([]string, 0)
 	for _, capability := range req.CapabilitiesOffered {
-		if _, ok := managedOrchAllowedCapabilities[capability]; ok {
+		if _, ok := allowedCapabilities[capability]; ok {
 			negotiated = append(negotiated, capability)
 		} else {
 			rejected = append(rejected, capability)

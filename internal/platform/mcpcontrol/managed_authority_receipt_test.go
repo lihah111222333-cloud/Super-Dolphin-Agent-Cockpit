@@ -2,6 +2,8 @@ package mcpcontrol
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -33,8 +35,10 @@ func TestManagedRegisterRealFingerprintConsumesEveryNormalizedField(t *testing.T
 		t.Fatalf("normalizeManagedRegisterRequest() error = %v", err)
 	}
 	archtest.AssertWireDTOMapperConsumesProducerFieldsFrom(t, baseline, func(input dto.RegisterRequest) map[string]any {
+		fingerprint, err := managedRegisterFingerprint(input, json.Marshal)
 		return map[string]any{
-			"fingerprint": fmt.Sprintf("%x", managedRegisterFingerprint(input)),
+			"error":       managedTestErrorString(err),
+			"fingerprint": fmt.Sprintf("%x", fingerprint),
 		}
 	}, nil, managedFingerprintProjections())
 }
@@ -57,7 +61,15 @@ func TestManagedRegisterRequiredCapabilityLegalMutationAffectsNormalizerAndFinge
 	if fmt.Sprint(baseline.CapabilitiesRequired) == fmt.Sprint(mutated.CapabilitiesRequired) {
 		t.Fatal("normalizer output ignored legal required-capability mutation")
 	}
-	if managedRegisterFingerprint(baseline) == managedRegisterFingerprint(mutated) {
+	baselineFingerprint, err := managedRegisterFingerprint(baseline, json.Marshal)
+	if err != nil {
+		t.Fatalf("managedRegisterFingerprint(baseline) error = %v", err)
+	}
+	mutatedFingerprint, err := managedRegisterFingerprint(mutated, json.Marshal)
+	if err != nil {
+		t.Fatalf("managedRegisterFingerprint(mutated) error = %v", err)
+	}
+	if baselineFingerprint == mutatedFingerprint {
 		t.Fatal("fingerprint ignored legal required-capability mutation")
 	}
 }
@@ -142,10 +154,48 @@ func TestManagedAuthorityProofRealValidatorConsumesEveryField(t *testing.T) {
 		Token:           "token-1",
 	}
 	archtest.AssertWireDTOMapperConsumesProducerFieldsFrom(t, baseline, func(input dto.ManagedAuthorityProof) map[string]any {
+		fingerprint, err := managedAuthorityProofFingerprint(input, json.Marshal)
 		return map[string]any{
-			"fingerprint": fmt.Sprintf("%x", managedAuthorityProofFingerprint(input)),
+			"error":       managedTestErrorString(err),
+			"fingerprint": fmt.Sprintf("%x", fingerprint),
 		}
 	}, nil, managedAuthorityProofFingerprintProjections())
+}
+
+func TestManagedFingerprintMarshalErrorsPropagateWithoutGlobalSeam(t *testing.T) {
+	wantErr := errors.New("marshal failed")
+	failMarshal := func(any) ([]byte, error) { return nil, wantErr }
+	request := managedFieldGuardRegisterRequest(3)
+	tests := []struct {
+		name string
+		hash func() error
+	}{
+		{name: "claims", hash: func() error {
+			_, err := managedClaimsHash(request, failMarshal)
+			return err
+		}},
+		{name: "register payload", hash: func() error {
+			requestWithoutProof := request
+			requestWithoutProof.ManagedAuthority = nil
+			_, err := managedRegisterFingerprint(requestWithoutProof, failMarshal)
+			return err
+		}},
+		{name: "proof", hash: func() error {
+			_, err := managedAuthorityProofFingerprint(*request.ManagedAuthority, failMarshal)
+			return err
+		}},
+		{name: "nested proof", hash: func() error {
+			_, err := managedRegisterFingerprint(request, failMarshal)
+			return err
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.hash(); !errors.Is(err, wantErr) {
+				t.Fatalf("fingerprint error = %v, want wrapped %v", err, wantErr)
+			}
+		})
+	}
 }
 
 func managedNormalizerProjections() []archtest.WireDTOMapperProjection {
@@ -180,11 +230,13 @@ func managedNormalizedOutput(input any) map[string]any {
 }
 
 func managedRegisterFingerprintOutput(input any) map[string]any {
-	return map[string]any{"fingerprint": fmt.Sprintf("%x", managedRegisterFingerprint(input.(dto.RegisterRequest)))}
+	fingerprint, err := managedRegisterFingerprint(input.(dto.RegisterRequest), json.Marshal)
+	return map[string]any{"error": managedTestErrorString(err), "fingerprint": fmt.Sprintf("%x", fingerprint)}
 }
 
 func managedAuthorityProofFingerprintOutput(input any) map[string]any {
-	return map[string]any{"fingerprint": fmt.Sprintf("%x", managedAuthorityProofFingerprint(input.(dto.ManagedAuthorityProof)))}
+	fingerprint, err := managedAuthorityProofFingerprint(input.(dto.ManagedAuthorityProof), json.Marshal)
+	return map[string]any{"error": managedTestErrorString(err), "fingerprint": fmt.Sprintf("%x", fingerprint)}
 }
 
 func managedTestErrorString(err error) string {
