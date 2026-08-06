@@ -17,6 +17,7 @@ import (
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
 
 var errTerminalProjectionNotReady = errors.New("terminal outcome projection runtime is not ready")
@@ -685,22 +686,31 @@ func (s *service) processTerminalOutcomeOutboxItem(ctx context.Context, workerID
 	}
 	workCtx, cancelWork := context.WithCancel(ctx)
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
-	heartbeatDone := make(chan error, 1)
-	go func() {
-		heartbeatDone <- s.renewTerminalOutcomeLease(heartbeatCtx, cancelWork, workerID, lease, item)
-	}()
+	heartbeatDone := s.startTerminalOutcomeHeartbeat(heartbeatCtx, cancelWork, workerID, lease, item)
 
 	workErr := s.projectTerminalOutcomeOutboxItem(workCtx, item)
 	cancelHeartbeat()
 	heartbeatErr := <-heartbeatDone
 	cancelWork()
-	if workErr != nil {
-		return workErr
-	}
-	if heartbeatErr != nil {
-		return heartbeatErr
+	if err := errors.Join(workErr, heartbeatErr); err != nil {
+		return err
 	}
 	return s.terminalOutcomes.MarkTerminalOutcomeProjected(ctx, item.ID, workerID, item.ClaimToken)
+}
+
+// startTerminalOutcomeHeartbeat 启动受统一 panic 恢复保护的续租，并保证所有退出路径都关闭完成通道。
+func (s *service) startTerminalOutcomeHeartbeat(ctx context.Context, cancelWork context.CancelFunc, workerID string, lease time.Duration, item contract.TerminalOutcomeOutboxItem) <-chan error {
+	done := make(chan error, 1)
+	runtimesafe.SafeGo(ctx, s.logger, "orchestration.terminalOutcomeHeartbeat", func(context.Context) {
+		heartbeatErr := errors.New("terminal outcome heartbeat panicked")
+		defer func() {
+			cancelWork()
+			done <- heartbeatErr
+			close(done)
+		}()
+		heartbeatErr = s.renewTerminalOutcomeLease(ctx, cancelWork, workerID, lease, item)
+	})
+	return done
 }
 
 // renewTerminalOutcomeLease 只用当前 worker/token 续租；fence 丢失时取消正在执行的投影。

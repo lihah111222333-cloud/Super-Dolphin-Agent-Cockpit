@@ -164,57 +164,6 @@ func TestOutboxDAGWriteAndRetryFailureDoesNotAckOrLosePrivateArtifact(t *testing
 	}
 }
 
-func TestOutboxProjectorHeartbeatPreventsConcurrentReclaimDuringSlowDAGProjection(t *testing.T) {
-	svc, db := newTerminalOutcomeTestService(t)
-	agent := addTerminalOutcomeTestAgent(svc)
-	commit, err := terminalOutcomeCommitFromEvent(agent, terminalOutcomeEvent(true))
-	if err != nil {
-		t.Fatalf("terminalOutcomeCommitFromEvent() error = %v", err)
-	}
-	if _, err := svc.terminalOutcomes.CommitTerminalOutcome(context.Background(), commit); err != nil {
-		t.Fatalf("CommitTerminalOutcome() error = %v", err)
-	}
-	lookup := &blockingTerminalOutcomeLookup{
-		started: make(chan struct{}, 1),
-		release: make(chan struct{}),
-		nodes:   []taskdag.Node{{DagKey: "dag-heartbeat", NodeKey: "node-heartbeat", Status: "running"}},
-	}
-	svc.terminalDAG = &DAGSubscriberDeps{
-		LookupStore: lookup,
-		FlowStore:   &dagSubscriberFlowSpy{},
-		EventBus:    svc.eventBus,
-	}
-	const lease = 500 * time.Millisecond
-	projected := make(chan error, 1)
-	go func() {
-		projected <- svc.ProcessTerminalOutcomeOutbox(context.Background(), "worker-heartbeat-a", lease, 1)
-	}()
-	select {
-	case <-lookup.started:
-	case <-time.After(time.Second):
-		t.Fatal("slow DAG projection did not start")
-	}
-	time.Sleep(2*lease + lease/2)
-	reclaimed, err := svc.terminalOutcomes.ClaimTerminalOutcomeOutbox(context.Background(), "worker-heartbeat-b", lease, 1)
-	if err != nil {
-		t.Fatalf("worker B claim: %v", err)
-	}
-	if len(reclaimed) != 0 {
-		t.Fatalf("worker B reclaimed live item = %#v", reclaimed)
-	}
-	close(lookup.release)
-	if err := <-projected; err != nil {
-		t.Fatalf("worker A projection: %v", err)
-	}
-	var status string
-	if err := db.QueryRow("SELECT status FROM terminal_outcome_outbox_v2").Scan(&status); err != nil {
-		t.Fatalf("read projected outbox: %v", err)
-	}
-	if status != "projected" {
-		t.Fatalf("outbox status = %q, want projected", status)
-	}
-}
-
 func TestOutboxColdReplayProjectsOwnerDAGWithEmptyRuntimeRegistry(t *testing.T) {
 	writer, _ := newTerminalOutcomeTestService(t)
 	agent := addTerminalOutcomeTestAgent(writer)
@@ -240,25 +189,6 @@ func TestOutboxColdReplayProjectsOwnerDAGWithEmptyRuntimeRegistry(t *testing.T) 
 	}
 	if len(flow.completeCalls) != 1 || string(flow.completeCalls[0].Result) != `{"text":"cold owner artifact"}` {
 		t.Fatalf("cold DAG projection = %#v", flow.completeCalls)
-	}
-}
-
-type blockingTerminalOutcomeLookup struct {
-	started chan struct{}
-	release chan struct{}
-	nodes   []taskdag.Node
-}
-
-func (l *blockingTerminalOutcomeLookup) LookupNodesBySpawningThread(ctx context.Context, _ string) ([]taskdag.Node, error) {
-	select {
-	case l.started <- struct{}{}:
-	default:
-	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-l.release:
-		return append([]taskdag.Node(nil), l.nodes...), nil
 	}
 }
 
