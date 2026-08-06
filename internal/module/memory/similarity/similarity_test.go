@@ -168,6 +168,49 @@ func TestAppendIgnoredConcurrent(t *testing.T) {
 	}
 }
 
+func TestAppendIgnoredWaitsForPersistentLock(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, ignoredLockFileName)
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock file: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = lockFile.Close()
+	})
+	if err := lockIgnoredFile(lockFile); err != nil {
+		t.Fatalf("lock ignored file: %v", err)
+	}
+	locked := true
+	t.Cleanup(func() {
+		if locked {
+			_ = unlockIgnoredFile(lockFile)
+		}
+	})
+
+	appendDone := make(chan error, 1)
+	go func() {
+		appendDone <- AppendIgnored(dir, "private:a.md|team:b.md")
+	}()
+	select {
+	case err := <-appendDone:
+		t.Fatalf("AppendIgnored returned before lock release: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := unlockIgnoredFile(lockFile); err != nil {
+		t.Fatalf("unlock ignored file: %v", err)
+	}
+	locked = false
+	select {
+	case err := <-appendDone:
+		if err != nil {
+			t.Fatalf("AppendIgnored after lock release: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AppendIgnored did not resume after lock release")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Prompt + parse
 // ---------------------------------------------------------------------------

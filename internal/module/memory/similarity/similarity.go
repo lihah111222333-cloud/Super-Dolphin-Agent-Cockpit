@@ -1,5 +1,5 @@
 // Package similarity 负责"记忆中心相似度对"的整合与忽略持久化：
-//   - 忽略 set 文件存储（.similarity-ignored.json，原子写 + 进程内互斥）；
+//   - 忽略 set 文件存储（.similarity-ignored.json，原子写 + 跨进程文件锁）；
 //   - LLM 智能整合主流程（prompt 构造、调用 DreamExecutor、解析 decisions、应用到磁盘）。
 //
 // 与主包（internal/module/memory）的耦合通过 Deps 接口反向依赖：
@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/dedup"
@@ -85,7 +84,10 @@ type Deps interface {
 // Ignored set 持久化（pairKey + load + append）
 // ---------------------------------------------------------------------------
 
-const ignoredFileName = ".similarity-ignored.json"
+const (
+	ignoredFileName     = ".similarity-ignored.json"
+	ignoredLockFileName = ".similarity-ignored.lock"
+)
 
 // ignoredFile 是 .similarity-ignored.json 的磁盘结构。
 type ignoredFile struct {
@@ -101,11 +103,6 @@ func IgnoreKey(targetA, pathA, targetB, pathB string) string {
 	}
 	return a + "|" + b
 }
-
-// ignoreMgr 串行化 ignored set 文件的读改写，避免同一进程内并发忽略操作丢失更新。
-type ignoreMgr struct{ mu sync.Mutex }
-
-var ignoreMgrInst = &ignoreMgr{}
 
 // LoadIgnored 读取 privateRoot 下 .similarity-ignored.json 的 ignored set。
 // privateRoot 为空、文件不存在或 JSON 解析失败都返回错误。
@@ -141,6 +138,7 @@ func LoadIgnored(privateRoot string) (map[string]struct{}, error) {
 }
 
 // AppendIgnored 把 key 追加到 ignored set 并原子写盘（已存在 → 幂等无操作）。
+// 它用 privateRoot 内的持久化锁保护读改写，避免不同进程的追加丢失更新。
 func AppendIgnored(privateRoot, key string) error {
 	root := strings.TrimSpace(privateRoot)
 	if root == "" {
@@ -150,8 +148,41 @@ func AppendIgnored(privateRoot, key string) error {
 	if key == "" {
 		return errors.New("ignored key is empty")
 	}
-	ignoreMgrInst.mu.Lock()
-	defer ignoreMgrInst.mu.Unlock()
+	return withIgnoredFileLock(root, func() error {
+		return appendIgnoredLocked(root, key)
+	})
+}
+
+// withIgnoredFileLock 在 operation 的整个读改写期间持有 privateRoot 的持久化锁。
+// 获取、释放或关闭锁文件失败都返回给调用方，避免静默放宽写入边界。
+func withIgnoredFileLock(root string, operation func() error) (retErr error) {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return fmt.Errorf("ensure private root: %w", err)
+	}
+	lockFile, err := os.OpenFile(filepath.Join(root, ignoredLockFileName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open similarity ignored lock: %w", err)
+	}
+	if err := lockIgnoredFile(lockFile); err != nil {
+		retErr = fmt.Errorf("lock similarity ignored: %w", err)
+		if closeErr := lockFile.Close(); closeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close similarity ignored lock: %w", closeErr))
+		}
+		return retErr
+	}
+	defer func() {
+		if err := unlockIgnoredFile(lockFile); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("unlock similarity ignored: %w", err))
+		}
+		if err := lockFile.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close similarity ignored lock: %w", err))
+		}
+	}()
+	return operation()
+}
+
+// appendIgnoredLocked 执行 ignored set 的读改写；调用方必须持有 ignored lock。
+func appendIgnoredLocked(root, key string) error {
 	path := filepath.Join(root, ignoredFileName)
 	if _, statErr := os.Stat(path); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
@@ -171,7 +202,7 @@ func AppendIgnored(privateRoot, key string) error {
 }
 
 // writeIgnored 把 set 排序后原子写到 privateRoot/.similarity-ignored.json。
-// 调用方必须持有 ignoreLock。
+// 调用方必须持有 ignored lock。
 func writeIgnored(privateRoot string, set map[string]struct{}) error {
 	keys := make([]string, 0, len(set))
 	for k := range set {
