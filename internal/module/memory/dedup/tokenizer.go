@@ -7,24 +7,24 @@ import (
 	"unicode"
 )
 
-// 中文停用词表（内联常量集合）
-var chineseStopWords = map[string]struct{}{
-	"的": {}, "是": {}, "在": {}, "了": {}, "把": {},
-	"被": {}, "和": {}, "与": {}, "或": {}, "不": {},
-	"也": {}, "都": {}, "要": {}, "会": {}, "到": {},
-	"就": {}, "这": {}, "那": {}, "有": {}, "个": {},
-	"为": {}, "上": {}, "中": {}, "下": {}, "让": {},
-	"从": {}, "对": {}, "已": {}, "但": {}, "而": {},
-	"之": {},
+// isChineseStopWord 以不可变分支表达中文停用词集合。
+func isChineseStopWord(word string) bool {
+	switch word {
+	case "的", "是", "在", "了", "把", "被", "和", "与", "或", "不", "也", "都", "要", "会", "到", "就", "这", "那", "有", "个", "为", "上", "中", "下", "让", "从", "对", "已", "但", "而", "之":
+		return true
+	default:
+		return false
+	}
 }
 
-// 英文停用词表（内联常量集合）
-var englishStopWords = map[string]struct{}{
-	"the": {}, "a": {}, "an": {}, "is": {}, "are": {},
-	"was": {}, "were": {}, "be": {}, "been": {}, "to": {},
-	"of": {}, "in": {}, "for": {}, "on": {}, "with": {},
-	"at": {}, "by": {}, "and": {}, "or": {}, "but": {},
-	"not": {}, "this": {}, "that": {}, "it": {}, "its": {},
+// isEnglishStopWord 以不可变分支表达英文停用词集合。
+func isEnglishStopWord(word string) bool {
+	switch word {
+	case "the", "a", "an", "is", "are", "was", "were", "be", "been", "to", "of", "in", "for", "on", "with", "at", "by", "and", "or", "but", "not", "this", "that", "it", "its":
+		return true
+	default:
+		return false
+	}
 }
 
 // isCJK 判断 r 是否属于 CJK（中日韩）字符范围。
@@ -117,7 +117,7 @@ func tokenizeAndFilter(s string) string {
 		}
 		w := word.String()
 		word.Reset()
-		if _, ok := englishStopWords[strings.ToLower(w)]; ok {
+		if isEnglishStopWord(strings.ToLower(w)) {
 			return
 		}
 		tokens = append(tokens, w)
@@ -153,7 +153,7 @@ func collectCJKRun(runes []rune, start, n int) (string, int) {
 	i := start
 	for i < n && isCJK(runes[i]) {
 		rs := string(runes[i])
-		if _, ok := chineseStopWords[rs]; !ok {
+		if !isChineseStopWord(rs) {
 			b.WriteString(rs)
 		}
 		i++

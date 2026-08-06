@@ -4,6 +4,29 @@ import (
 	"testing"
 )
 
+func TestStopWordPredicatesPreserveTokenizationContract(t *testing.T) {
+	for _, word := range []string{"的", "是", "在", "了", "把", "被", "和", "与", "或", "不", "也", "都", "要", "会", "到", "就", "这", "那", "有", "个", "为", "上", "中", "下", "让", "从", "对", "已", "但", "而", "之"} {
+		if !isChineseStopWord(word) {
+			t.Fatalf("Chinese stop word %q was retained", word)
+		}
+	}
+	for _, word := range []string{"我", "学习", "时", "用户", "协作"} {
+		if isChineseStopWord(word) {
+			t.Fatalf("Chinese content word %q was filtered", word)
+		}
+	}
+	for _, word := range []string{"the", "a", "an", "is", "are", "was", "were", "be", "been", "to", "of", "in", "for", "on", "with", "at", "by", "and", "or", "but", "not", "this", "that", "it", "its"} {
+		if !isEnglishStopWord(word) {
+			t.Fatalf("English stop word %q was retained", word)
+		}
+	}
+	for _, word := range []string{"commit", "memory", "server", "tool"} {
+		if isEnglishStopWord(word) {
+			t.Fatalf("English content word %q was filtered", word)
+		}
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	tests := []struct {
 		name  string
