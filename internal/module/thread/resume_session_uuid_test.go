@@ -13,6 +13,11 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
+type recoveryTestHomeEntry struct {
+	home  string
+	token *byte
+}
+
 var recoveryTestHomeByPath sync.Map
 
 func writeExistingProviderHistoryFile(t *testing.T, args ...string) string {
@@ -44,7 +49,19 @@ func writeExistingProviderHistoryFile(t *testing.T, args ...string) string {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write provider history file: %v", err)
 	}
-	recoveryTestHomeByPath.Store(path, home)
+	recoveryHome := home
+	if strings.EqualFold(provider, "codex") {
+		canonical, err := contract.CanonicalizeCodexHome(home)
+		if err != nil {
+			t.Fatalf("canonicalize recovery test Codex home: %v", err)
+		}
+		recoveryHome = canonical
+	}
+	entry := recoveryTestHomeEntry{home: recoveryHome, token: new(byte)}
+	recoveryTestHomeByPath.Store(path, entry)
+	t.Cleanup(func() {
+		recoveryTestHomeByPath.CompareAndDelete(path, entry)
+	})
 	return path
 }
 
@@ -52,19 +69,61 @@ func authorizeRecoveryTestBinding(binding *BindingRecord) {
 	if binding == nil {
 		return
 	}
-	home, ok := recoveryTestHomeByPath.Load(binding.RolloutPath)
+	raw, ok := recoveryTestHomeByPath.Load(binding.RolloutPath)
 	if !ok {
 		return
 	}
+	entry, ok := raw.(recoveryTestHomeEntry)
+	if !ok {
+		panic("recovery test home entry has invalid type")
+	}
 	if binding.ProviderRecoveryHome == "" {
-		binding.ProviderRecoveryHome = home.(string)
-		if strings.EqualFold(binding.Provider, "codex") {
-			canonical, err := contract.CanonicalizeCodexHome(binding.ProviderRecoveryHome)
-			if err != nil {
-				panic(fmt.Sprintf("canonicalize recovery test Codex home: %v", err))
-			}
-			binding.ProviderRecoveryHome = canonical
+		binding.ProviderRecoveryHome = entry.home
+	}
+}
+
+func TestRecoveryTestHomeEntryLifecycleScopesFixtureAuthorization(t *testing.T) {
+	var cleanPath string
+	t.Run("writer registers canonical codex home and cleanup removes it", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "nested", "..", "codex-home")
+		cleanPath = writeExistingProviderHistoryFile(t, "00000000-0000-4000-8000-000000000010", "codex", home)
+		raw, ok := recoveryTestHomeByPath.Load(cleanPath)
+		if !ok {
+			t.Fatal("writer did not register recovery test home")
 		}
+		entry, ok := raw.(recoveryTestHomeEntry)
+		if !ok || entry.token == nil {
+			t.Fatalf("recovery test home entry = %#v, want tokenized entry", raw)
+		}
+		wantHome, err := contract.CanonicalizeCodexHome(home)
+		if err != nil {
+			t.Fatalf("canonicalize expected Codex home: %v", err)
+		}
+		if entry.home != wantHome {
+			t.Fatalf("writer recovery home = %q, want %q", entry.home, wantHome)
+		}
+		binding := &BindingRecord{Provider: "codex", RolloutPath: cleanPath}
+		authorizeRecoveryTestBinding(binding)
+		if binding.ProviderRecoveryHome != wantHome {
+			t.Fatalf("authorized recovery home = %q, want %q", binding.ProviderRecoveryHome, wantHome)
+		}
+	})
+	if _, ok := recoveryTestHomeByPath.Load(cleanPath); ok {
+		t.Fatal("writer cleanup retained recovery test home entry")
+	}
+
+	var replacementPath string
+	replacement := recoveryTestHomeEntry{home: "replacement-home", token: new(byte)}
+	t.Run("writer cleanup does not delete newer entry", func(t *testing.T) {
+		replacementPath = writeExistingProviderHistoryFile(t, "00000000-0000-4000-8000-000000000011")
+		recoveryTestHomeByPath.Store(replacementPath, replacement)
+	})
+	raw, ok := recoveryTestHomeByPath.Load(replacementPath)
+	if !ok || raw != replacement {
+		t.Fatalf("replacement recovery test home entry = %#v, want %#v", raw, replacement)
+	}
+	if !recoveryTestHomeByPath.CompareAndDelete(replacementPath, replacement) {
+		t.Fatal("cleanup replacement recovery test home entry")
 	}
 }
 
