@@ -104,8 +104,8 @@ func startDrainTestWorkers(scheduler *autoDreamScheduler, nested *nestedIngestWo
 func enqueueDrainTestWork(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, count int) {
 	for i := range count {
 		scheduler.Enqueue("thread-scheduler")
-		// 每次使用不同 persistedPath，避免 nestedIngestWorker 的 coalesce key 合并入队。
-		nested.Enqueue("thread-nested", "tool", "result", "/tmp/path-"+string(rune('0'+i)))
+		// 每次使用不同 CallID，避免 nestedIngestWorker 的 coalesce key 合并入队。
+		nested.Enqueue("thread-nested", "call-"+string(rune('0'+i)), "tool", "result", "/tmp/path-"+string(rune('0'+i)))
 		teamSync.EnqueueStart(threaddto.Started{
 			ThreadID: "thread-teamsync",
 			CWD:      "/tmp/cwd",
@@ -181,7 +181,7 @@ func assertPostDrainEnqueuesDropped(
 	preNestedEnqueued := nested.EnqueuedTotal()
 	preTeamEnqueued := teamSync.EnqueuedTotal()
 	scheduler.Enqueue("thread-late")
-	nested.Enqueue("thread-late", "tool", "result", "/tmp/late")
+	nested.Enqueue("thread-late", "call-late", "tool", "result", "/tmp/late")
 	teamSync.EnqueueStart(threaddto.Started{ThreadID: "thread-late", CWD: "/tmp/cwd"})
 	if got := scheduler.DroppedTotal(); got != preSchedDropped+1 {
 		t.Errorf("autoDreamScheduler did not drop post-Stop enqueue: DroppedTotal delta = %d, want 1", got-preSchedDropped)

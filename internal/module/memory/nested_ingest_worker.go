@@ -41,16 +41,16 @@ type nestedIngestRuntime interface {
 }
 
 // nestedIngestKey 标识可合并的 nested ingest 请求。
-// 同一 thread、tool、persistedPath 的重复事件只保留最新 payload；关闭前的 pending
+// 同一 thread 内只有相同 CallID 的 replay 才保留最新 payload；关闭前的 pending
 // 请求必须由 worker drain，不能在总线回调里做慢速读盘。
 type nestedIngestKey struct {
-	threadID      string
-	toolName      string
-	persistedPath string
+	threadID string
+	callID   string
 }
 
 type nestedIngestRequest struct {
 	threadID      string
+	callID        string
 	toolName      string
 	result        string
 	persistedPath string
@@ -123,9 +123,10 @@ func (w *nestedIngestWorker) Start() {
 }
 
 // Enqueue 记录一次 ToolCallEnd nested ingest 请求。
-// 该方法只做 O(1) 内存写入和非阻塞 wake，适合总线回调调用；同 key 重复事件会合并为
-// 最新 payload，慢速文件读取留给 worker drain。拒绝原因通过 error 和指标显式暴露。
-func (w *nestedIngestWorker) Enqueue(threadID, toolName, result, persistedPath string) error {
+// 该方法只做 O(1) 内存写入和非阻塞 wake，适合总线回调调用；同 thread 内同 CallID
+// 的 replay 会合并为最新 payload，慢速文件读取留给 worker drain。拒绝原因通过 error
+// 和指标显式暴露。
+func (w *nestedIngestWorker) Enqueue(threadID, callID, toolName, result, persistedPath string) error {
 	if w == nil {
 		return ErrNestedIngestUnavailable
 	}
@@ -136,7 +137,11 @@ func (w *nestedIngestWorker) Enqueue(threadID, toolName, result, persistedPath s
 	if threadID == "" {
 		return w.reject(ErrNestedIngestInvalid)
 	}
-	requestBytes := len(threadID) + len(toolName) + len(result) + len(persistedPath)
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return w.reject(ErrNestedIngestInvalid)
+	}
+	requestBytes := len(threadID) + len(callID) + len(toolName) + len(result) + len(persistedPath)
 	if requestBytes > nestedIngestResultByteLimit {
 		return w.reject(fmt.Errorf(
 			"%w: bytes=%d limit=%d",
@@ -151,15 +156,15 @@ func (w *nestedIngestWorker) Enqueue(threadID, toolName, result, persistedPath s
 	default:
 	}
 	key := nestedIngestKey{
-		threadID:      threadID,
-		toolName:      strings.TrimSpace(toolName),
-		persistedPath: strings.TrimSpace(persistedPath),
+		threadID: threadID,
+		callID:   callID,
 	}
 	req := nestedIngestRequest{
 		threadID:      threadID,
-		toolName:      key.toolName,
+		callID:        callID,
+		toolName:      strings.TrimSpace(toolName),
 		result:        result,
-		persistedPath: key.persistedPath,
+		persistedPath: strings.TrimSpace(persistedPath),
 	}
 	w.mu.Lock()
 	_, duplicate := w.pending[key]

@@ -65,7 +65,7 @@ func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 	rt := &fakeNestedIngestRuntime{block: block, started: make(chan struct{})}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
 	w.Start()
-	w.Enqueue("thread-A", "Read", "payload", "/tmp/blocked")
+	w.Enqueue("thread-A", "call-blocked", "Read", "payload", "/tmp/blocked")
 	waitNestedWorkerStarted(t, rt)
 	enqueueNestedIngestBurst(t, w)
 
@@ -91,11 +91,11 @@ func TestNestedIngestWorkerPendingQueueIsBounded(t *testing.T) {
 
 	w := newNestedIngestWorker(&fakeNestedIngestRuntime{}, pkglogger.Get())
 	for i := range nestedIngestPendingLimit {
-		if err := w.Enqueue("thread-cap", "Read", "payload", fmt.Sprintf("/tmp/file-%03d", i)); err != nil {
+		if err := w.Enqueue("thread-cap", fmt.Sprintf("call-%03d", i), "Read", "payload", fmt.Sprintf("/tmp/file-%03d", i)); err != nil {
 			t.Fatalf("Enqueue(%d) error = %v, want nil", i, err)
 		}
 	}
-	err := w.Enqueue("thread-cap", "Read", "payload", "/tmp/overflow")
+	err := w.Enqueue("thread-cap", "call-overflow", "Read", "payload", "/tmp/overflow")
 	if !errors.Is(err, ErrNestedIngestQueueFull) {
 		t.Fatalf("overflow Enqueue() error = %v, want ErrNestedIngestQueueFull", err)
 	}
@@ -115,7 +115,7 @@ func TestNestedIngestWorkerRejectsOversizedPreview(t *testing.T) {
 	t.Parallel()
 
 	w := newNestedIngestWorker(&fakeNestedIngestRuntime{}, pkglogger.Get())
-	err := w.Enqueue("thread-cap", "Read", strings.Repeat("x", nestedIngestResultByteLimit+1), "")
+	err := w.Enqueue("thread-cap", "call-large", "Read", strings.Repeat("x", nestedIngestResultByteLimit+1), "")
 	if !errors.Is(err, ErrNestedIngestResultLarge) {
 		t.Fatalf("Enqueue(oversized preview) error = %v, want ErrNestedIngestResultLarge", err)
 	}
@@ -132,13 +132,13 @@ func TestNestedIngestWorkerDropThreadRemovesOnlyMatchingPending(t *testing.T) {
 	t.Parallel()
 
 	w := newNestedIngestWorker(&fakeNestedIngestRuntime{}, pkglogger.Get())
-	if err := w.Enqueue("thread-drop", "Read", "one", "/tmp/one"); err != nil {
+	if err := w.Enqueue("thread-drop", "call-one", "Read", "one", "/tmp/one"); err != nil {
 		t.Fatalf("Enqueue(thread-drop one) error = %v", err)
 	}
-	if err := w.Enqueue("thread-drop", "Read", "two", "/tmp/two"); err != nil {
+	if err := w.Enqueue("thread-drop", "call-two", "Read", "two", "/tmp/two"); err != nil {
 		t.Fatalf("Enqueue(thread-drop two) error = %v", err)
 	}
-	if err := w.Enqueue("thread-keep", "Read", "keep", "/tmp/keep"); err != nil {
+	if err := w.Enqueue("thread-keep", "call-keep", "Read", "keep", "/tmp/keep"); err != nil {
 		t.Fatalf("Enqueue(thread-keep) error = %v", err)
 	}
 	if dropped := w.DropThread("thread-drop"); dropped != 2 {
@@ -156,12 +156,72 @@ func TestNestedIngestWorkerDropThreadRemovesOnlyMatchingPending(t *testing.T) {
 	stopNestedIngestWorker(t, w)
 }
 
+func TestNestedIngestWorkerCoalescesOnlySameCallID(t *testing.T) {
+	t.Parallel()
+
+	rt := &fakeNestedIngestRuntime{}
+	w := newNestedIngestWorker(rt, pkglogger.Get())
+	if err := w.Enqueue("thread-call-id", "call-one", "Read", "first", ""); err != nil {
+		t.Fatalf("Enqueue(first) error = %v", err)
+	}
+	if err := w.Enqueue("thread-call-id", "call-two", "Read", "second", ""); err != nil {
+		t.Fatalf("Enqueue(second) error = %v", err)
+	}
+	if err := w.Enqueue("thread-call-id", "call-one", "Read", "first-replayed", "/tmp/replayed"); err != nil {
+		t.Fatalf("Enqueue(replay) error = %v", err)
+	}
+
+	w.mu.Lock()
+	pending := len(w.pending)
+	_, hasFirst := w.pending[nestedIngestKey{threadID: "thread-call-id", callID: "call-one"}]
+	_, hasSecond := w.pending[nestedIngestKey{threadID: "thread-call-id", callID: "call-two"}]
+	w.mu.Unlock()
+	if pending != 2 || !hasFirst || !hasSecond {
+		t.Fatalf("pending CallID identities = count:%d first:%t second:%t, want two distinct calls", pending, hasFirst, hasSecond)
+	}
+	if got := w.CoalescedTotal(); got != 1 {
+		t.Fatalf("CoalescedTotal = %d, want 1 for same CallID replay", got)
+	}
+
+	stopNestedIngestWorker(t, w)
+	calls := rt.Calls()
+	if len(calls) != 2 {
+		t.Fatalf("AddToolReadResult call count = %d, want 2 distinct CallIDs", len(calls))
+	}
+	results := make(map[string]string, len(calls))
+	for _, call := range calls {
+		results[call.result] = call.persistedPath
+	}
+	if results["first-replayed"] != "/tmp/replayed" || results["second"] != "" {
+		t.Fatalf("drained results = %#v, want replayed first and untouched second", results)
+	}
+}
+
+func TestNestedIngestWorkerRejectsBlankCallID(t *testing.T) {
+	t.Parallel()
+
+	w := newNestedIngestWorker(&fakeNestedIngestRuntime{}, pkglogger.Get())
+	err := w.Enqueue("thread-call-id", "   ", "Read", "payload", "")
+	if !errors.Is(err, ErrNestedIngestInvalid) {
+		t.Fatalf("Enqueue(blank CallID) error = %v, want ErrNestedIngestInvalid", err)
+	}
+	w.mu.Lock()
+	pending := len(w.pending)
+	w.mu.Unlock()
+	if pending != 0 {
+		t.Fatalf("pending queue after blank CallID = %d, want 0", pending)
+	}
+	if got := w.RejectedTotal(); got != 1 {
+		t.Fatalf("RejectedTotal after blank CallID = %d, want 1", got)
+	}
+}
+
 func TestNestedIngestWorkerRecordsRuntimeFailure(t *testing.T) {
 	t.Parallel()
 
 	rt := &fakeNestedIngestRuntime{err: errors.New("runtime rejected")}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
-	if err := w.Enqueue("thread-fail", "Read", "payload", "/tmp/fail"); err != nil {
+	if err := w.Enqueue("thread-fail", "call-fail", "Read", "payload", "/tmp/fail"); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 	stopNestedIngestWorker(t, w)
@@ -188,7 +248,7 @@ func enqueueNestedIngestBurst(t *testing.T, w *nestedIngestWorker) {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		for range 16 {
-			w.Enqueue("thread-A", "Read", "payload", "/tmp/file")
+			w.Enqueue("thread-A", "call-burst", "Read", "payload", "/tmp/file")
 		}
 		close(enqueueDone)
 	})
@@ -247,7 +307,7 @@ func TestNestedIngestWorkerEnqueueAfterStopDrops(t *testing.T) {
 	}
 
 	beforeEnq := w.EnqueuedTotal()
-	w.Enqueue("thread-post-stop", "Read", "payload", "/tmp/file")
+	w.Enqueue("thread-post-stop", "call-post-stop", "Read", "payload", "/tmp/file")
 	if got := w.EnqueuedTotal(); got != beforeEnq {
 		t.Errorf("EnqueuedTotal after post-Stop enqueue = %d, want %d", got, beforeEnq)
 	}
@@ -266,9 +326,9 @@ func TestNestedIngestWorkerStopDrainsPending(t *testing.T) {
 	// 故意不启动 worker goroutine；Stop 仍要排空 pending，而不是无限等待 doneCh。
 
 	for range 3 {
-		w.Enqueue("thread-drain", "Read", "payload", "/tmp/file") // 相同 key 只保留 1 个 pending。
+		w.Enqueue("thread-drain", "call-drain", "Read", "payload", "/tmp/file") // 相同 key 只保留 1 个 pending。
 	}
-	w.Enqueue("thread-drain", "Read", "payload-other", "/tmp/other") // 不同 key 额外保留 1 个 pending。
+	w.Enqueue("thread-drain", "call-other", "Read", "payload-other", "/tmp/other") // 不同 key 额外保留 1 个 pending。
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -291,7 +351,7 @@ func TestNestedIngestWorkerStartAfterStopIsNoop(t *testing.T) {
 
 	rt := &fakeNestedIngestRuntime{}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
-	w.Enqueue("thread-drain", "Read", "payload", "/tmp/file")
+	w.Enqueue("thread-drain", "call-drain", "Read", "payload", "/tmp/file")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -303,7 +363,7 @@ func TestNestedIngestWorkerStartAfterStopIsNoop(t *testing.T) {
 	if w.started.Load() {
 		t.Fatal("Start after Stop marked worker as started; want no-op")
 	}
-	w.Enqueue("thread-after-stop", "Read", "payload", "/tmp/after")
+	w.Enqueue("thread-after-stop", "call-after-stop", "Read", "payload", "/tmp/after")
 	time.Sleep(20 * time.Millisecond)
 
 	if got := len(rt.Calls()); got != 1 {
@@ -325,8 +385,8 @@ func TestNestedIngestWorkerBlankThreadIDIsNoop(t *testing.T) {
 		_ = w.Stop(ctx)
 	}()
 
-	w.Enqueue("", "Read", "payload", "/tmp/file")
-	w.Enqueue("   ", "Read", "payload", "/tmp/file")
+	w.Enqueue("", "call-empty-thread", "Read", "payload", "/tmp/file")
+	w.Enqueue("   ", "call-blank-thread", "Read", "payload", "/tmp/file")
 
 	time.Sleep(20 * time.Millisecond)
 	if got := w.EnqueuedTotal(); got != 0 {

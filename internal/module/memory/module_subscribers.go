@@ -99,7 +99,7 @@ func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIng
 		// 集合和 wake 信号，并在自己的 goroutine 中调用 AddToolReadResult。
 		if nested != nil {
 			appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
-				if err := nested.Enqueue(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath); err != nil {
+				if err := nested.Enqueue(ev.ThreadID, ev.CallID, ev.ToolName, ev.Result, ev.PersistedPath); err != nil {
 					pkglogger.Warn("memory: nested ingest rejected",
 						"thread_id", ev.ThreadID,
 						"tool_name", ev.ToolName,
