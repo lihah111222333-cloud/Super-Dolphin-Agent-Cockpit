@@ -89,6 +89,22 @@ func TestNextRetryAtHonoursExponentialBackoff(t *testing.T) {
 	}
 }
 
+func TestDefaultBackoffReturnsIndependentConfig(t *testing.T) {
+	t.Parallel()
+
+	first := DefaultBackoff()
+	first.Base = time.Nanosecond
+	first.Cap = time.Nanosecond
+	second := DefaultBackoff()
+
+	if second.Base != 30*time.Second {
+		t.Fatalf("default base = %s, want 30s", second.Base)
+	}
+	if second.Cap != 15*time.Minute {
+		t.Fatalf("default cap = %s, want 15m", second.Cap)
+	}
+}
+
 func TestDedupeKeyIsDeterministic(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 4, 22, 8, 0, 0, 0, time.UTC)

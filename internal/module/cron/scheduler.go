@@ -157,6 +157,7 @@ type SchedulerConfig struct {
 
 // withDefaults 补齐 scheduler 配置的默认值。
 func (c SchedulerConfig) withDefaults() SchedulerConfig {
+	defaultBackoff := DefaultBackoff()
 	if strings.TrimSpace(c.ClaimedBy) == "" {
 		c.ClaimedBy = "cron-scheduler"
 	}
@@ -173,10 +174,10 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 		c.MaxClaim = DefaultMaxClaim
 	}
 	if c.Backoff.Base <= 0 {
-		c.Backoff.Base = DefaultBackoff.Base
+		c.Backoff.Base = defaultBackoff.Base
 	}
 	if c.Backoff.Cap <= 0 {
-		c.Backoff.Cap = DefaultBackoff.Cap
+		c.Backoff.Cap = defaultBackoff.Cap
 	}
 	return c
 }

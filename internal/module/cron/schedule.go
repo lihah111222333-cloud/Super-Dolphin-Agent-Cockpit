@@ -12,12 +12,14 @@ import (
 	robfigcron "github.com/robfig/cron/v3"
 )
 
-// cronParser 是共享的 cron 表达式解析器，支持标准 5 字段格式和常见描述符。
-var cronParser = robfigcron.NewParser(
-	robfigcron.Minute | robfigcron.Hour | robfigcron.Dom |
-		robfigcron.Month | robfigcron.Dow |
-		robfigcron.Descriptor,
-)
+// newCronParser 创建支持标准 5 字段格式和常见描述符的表达式解析器。
+func newCronParser() robfigcron.Parser {
+	return robfigcron.NewParser(
+		robfigcron.Minute | robfigcron.Hour | robfigcron.Dom |
+			robfigcron.Month | robfigcron.Dow |
+			robfigcron.Descriptor,
+	)
+}
 
 // ErrInvalidScheduleExpr 标记 schedule_expr 解析失败。
 // 具体 parser 错误通过 fmt.Errorf 的 wrapping 继续传到调用方和日志。
@@ -33,7 +35,7 @@ func ParseSchedule(scheduleExpr, timezone string) (func(after time.Time) time.Ti
 	if expr == "" {
 		return nil, fmt.Errorf("%w: schedule_expr is empty", ErrInvalidScheduleExpr)
 	}
-	sched, err := cronParser.Parse(expr)
+	sched, err := newCronParser().Parse(expr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidScheduleExpr, err)
 	}
@@ -71,10 +73,17 @@ type BackoffConfig struct {
 	Jitter *rand.Rand // nil 时使用包级随机源
 }
 
-// DefaultBackoff 是生产默认重试退避，使用 30s 起步、15m 封顶。
-var DefaultBackoff = BackoffConfig{
-	Base: 30 * time.Second,
-	Cap:  15 * time.Minute,
+const (
+	defaultBackoffBase = 30 * time.Second
+	defaultBackoffCap  = 15 * time.Minute
+)
+
+// DefaultBackoff 返回独立的生产默认重试退避，使用 30s 起步、15m 封顶。
+func DefaultBackoff() BackoffConfig {
+	return BackoffConfig{
+		Base: defaultBackoffBase,
+		Cap:  defaultBackoffCap,
+	}
 }
 
 // NextRetryAt 根据失败次数计算下一次重试时间。
@@ -84,13 +93,14 @@ func NextRetryAt(cfg BackoffConfig, now, nextRunAt time.Time, failureCount int32
 	if failureCount <= 0 {
 		return time.Time{}
 	}
+	defaults := DefaultBackoff()
 	base := cfg.Base
 	if base <= 0 {
-		base = DefaultBackoff.Base
+		base = defaults.Base
 	}
 	cap := cfg.Cap
 	if cap <= 0 {
-		cap = DefaultBackoff.Cap
+		cap = defaults.Cap
 	}
 	delay := base
 	for i := int32(1); i < failureCount && delay < cap; i++ {
