@@ -40,7 +40,7 @@
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
     "test": "npm run test:full",
-    "test:full": "npm run test:hook:preflight && vitest run --maxWorkers=2",
+    "test:full": "npm run test:hook:preflight && vitest run --maxWorkers=2 --exclude scripts/delivery-smoke-runner.test.mjs && node scripts/frontend-verification-isolation.mjs delivery-test",
     "test:hook": "node scripts/frontend-hook-test-runner.mjs",
     "test:hook:preflight": "npm run guard:critical-skip && npm run guard:turn-contract && npm run typecheck:contracts && npm run audit:rpc-contracts",
     "test:hook:core": "vitest run --changed HEAD^ --maxWorkers=2 --exclude scripts/frontend-maintainability-score.test.mjs",
