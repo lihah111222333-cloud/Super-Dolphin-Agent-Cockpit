@@ -18,9 +18,6 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
-// defaultWSUpgrader 是 WebSocket 升级器，测试可替换其包级配置。
-var defaultWSUpgrader = websocket.Upgrader{}
-
 const (
 	// wailsWSMaxMessageBytes 限制单条 UI WebSocket 消息大小。
 	wailsWSMaxMessageBytes      int64 = 16 * 1024 * 1024
@@ -33,6 +30,7 @@ var _ channel.Channel = (*wsChannel)(nil)
 // UI WebSocket 会计入并发槽位，并在连接建立后触发 Server 的 UI 连接回调。
 func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 	var mux jrpc2.Assigner = wsDispatchAssigner{server: server}
+	upgrader := websocket.Upgrader{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		releaseSlot, err := reserveWailsWSConnectionSlot(server)
 		if err != nil {
@@ -44,7 +42,7 @@ func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 				pkglogger.Get().Error("rpc: failed to release UI websocket slot", "error", err)
 			}
 		}()
-		conn, err := defaultWSUpgrader.Upgrade(w, r, nil)
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
