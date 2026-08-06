@@ -7,7 +7,7 @@
 > <!-- codemap-count path="internal/module/prompt" kind="go-files" expected="30" -->
 > <!-- codemap-count path="internal/module/prompt" kind="go-test-files" expected="51" -->
 > <!-- codemap-count path="internal/module/thread" kind="go-files" expected="31" -->
-> <!-- codemap-count path="internal/module/thread" kind="go-test-files" expected="78" -->
+> <!-- codemap-count path="internal/module/thread" kind="go-test-files" expected="77" -->
 
 ## 1. 这卷回答什么
 
