@@ -44,6 +44,10 @@ func TestRecoveryGraphContainsOnlyAllowedConstructors(t *testing.T) {
 	if err := ValidateRecoveryConstructors(got); err != nil {
 		t.Fatalf("ValidateRecoveryConstructors() error = %v", err)
 	}
+	got[0] = "mutated"
+	if next := RecoveryConstructorIDs(); !slices.Equal(next, want) {
+		t.Fatalf("RecoveryConstructorIDs() reused mutable allowlist: %v", next)
+	}
 }
 
 func TestRecoveryProjectionFieldGuardEnumeratesProducerFields(t *testing.T) {

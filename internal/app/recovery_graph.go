@@ -11,22 +11,25 @@ import (
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
-var allowedRecoveryConstructors = []string{
-	"recovery.state",
-	"recovery.check",
-	"recovery.retry",
-	"recovery.restore",
+func allowedRecoveryConstructors() []string {
+	return []string{
+		"recovery.state",
+		"recovery.check",
+		"recovery.retry",
+		"recovery.restore",
+	}
 }
 
 // RecoveryConstructorIDs 返回 frozen Recovery graph 的精确构造器顺序。
 func RecoveryConstructorIDs() []string {
-	return slices.Clone(allowedRecoveryConstructors)
+	return allowedRecoveryConstructors()
 }
 
 // ValidateRecoveryConstructors 拒绝新增、缺失、重复或乱序的 Recovery 构造器。
 func ValidateRecoveryConstructors(constructors []string) error {
-	if !slices.Equal(constructors, allowedRecoveryConstructors) {
-		return fmt.Errorf("Recovery constructors %v do not match frozen allowlist %v", constructors, allowedRecoveryConstructors)
+	allowed := allowedRecoveryConstructors()
+	if !slices.Equal(constructors, allowed) {
+		return fmt.Errorf("Recovery constructors %v do not match frozen allowlist %v", constructors, allowed)
 	}
 	return nil
 }
