@@ -100,6 +100,18 @@ var shared = struct {
 `,
 			want: 1,
 		},
+		{
+			name: "zero value struct with mutex and map",
+			source: `package sample
+import "sync"
+type state struct {
+	mu sync.Mutex
+	values map[string]int
+}
+var shared = state{}
+`,
+			want: 1,
+		},
 		{name: "map", source: "package sample\nvar lookup = map[string]int{\"seed\": 1}\n", want: 1},
 		{name: "slice", source: "package sample\nvar values = []int{1, 2}\n", want: 1},
 		{name: "channel make", source: "package sample\nvar updates = make(chan int)\n", want: 1},
