@@ -12,13 +12,15 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/projectmaptrusted"
 )
 
-// ManagedOutputs 是 codemap refresh 唯一允许写回工作区的生成物。
-var ManagedOutputs = []string{
-	"README.md",
-	"docs/doc/codemap/13-archtest-boundaries.md",
-	"docs/doc/codemap/README.md",
-	"docs/doc/codemap/ai-index.json",
-	"docs/doc/codemap/anchor-identities.json",
+// managedOutputs 返回本次 codemap refresh 唯一允许写回工作区的生成物快照。
+func managedOutputs() []string {
+	return []string{
+		"README.md",
+		"docs/doc/codemap/13-archtest-boundaries.md",
+		"docs/doc/codemap/README.md",
+		"docs/doc/codemap/ai-index.json",
+		"docs/doc/codemap/anchor-identities.json",
+	}
 }
 
 type managedOutputSnapshot struct {
@@ -50,7 +52,8 @@ func RefreshTree(repository, tree string) (resultErr error) {
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, exact.Cleanup()) }()
-	snapshots, err := snapshotManagedOutputs(exact.RepositoryRoot)
+	outputs := managedOutputs()
+	snapshots, err := snapshotManagedOutputs(exact.RepositoryRoot, outputs)
 	if err != nil {
 		return err
 	}
@@ -60,10 +63,10 @@ func RefreshTree(repository, tree string) (resultErr error) {
 	if err := Generate(exact.SourceRoot, false); err != nil {
 		return fmt.Errorf("refresh codemap index: %w", err)
 	}
-	if err := requireManagedOutputsUnchanged(exact.RepositoryRoot, snapshots); err != nil {
+	if err := requireManagedOutputsUnchanged(exact.RepositoryRoot, outputs, snapshots); err != nil {
 		return err
 	}
-	for _, output := range ManagedOutputs {
+	for _, output := range outputs {
 		if err := replaceManagedOutput(exact.SourceRoot, exact.RepositoryRoot, output); err != nil {
 			return err
 		}
@@ -71,9 +74,9 @@ func RefreshTree(repository, tree string) (resultErr error) {
 	return nil
 }
 
-func snapshotManagedOutputs(repository string) (map[string]managedOutputSnapshot, error) {
-	snapshots := make(map[string]managedOutputSnapshot, len(ManagedOutputs))
-	for _, output := range ManagedOutputs {
+func snapshotManagedOutputs(repository string, outputs []string) (map[string]managedOutputSnapshot, error) {
+	snapshots := make(map[string]managedOutputSnapshot, len(outputs))
+	for _, output := range outputs {
 		path := filepath.Join(repository, filepath.FromSlash(output))
 		info, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -92,12 +95,12 @@ func snapshotManagedOutputs(repository string) (map[string]managedOutputSnapshot
 	return snapshots, nil
 }
 
-func requireManagedOutputsUnchanged(repository string, snapshots map[string]managedOutputSnapshot) error {
-	current, err := snapshotManagedOutputs(repository)
+func requireManagedOutputsUnchanged(repository string, outputs []string, snapshots map[string]managedOutputSnapshot) error {
+	current, err := snapshotManagedOutputs(repository, outputs)
 	if err != nil {
 		return err
 	}
-	for _, output := range ManagedOutputs {
+	for _, output := range outputs {
 		before, after := snapshots[output], current[output]
 		if before.exists != after.exists || before.mode != after.mode || !bytes.Equal(before.data, after.data) {
 			return fmt.Errorf("codemap managed output changed during refresh: %s", output)
