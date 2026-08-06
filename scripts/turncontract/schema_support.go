@@ -17,26 +17,15 @@ const (
 	schemaPositionAllOfEntry
 )
 
-var supportedSchemaKeywords = map[string]struct{}{
-	"$ref":                 {},
-	"additionalProperties": {},
-	"allOf":                {},
-	"anyOf":                {},
-	"const":                {},
-	"else":                 {},
-	"enum":                 {},
-	"if":                   {},
-	"items":                {},
-	"maxItems":             {},
-	"maxLength":            {},
-	"minLength":            {},
-	"not":                  {},
-	"pattern":              {},
-	"properties":           {},
-	"required":             {},
-	"then":                 {},
-	"type":                 {},
-	"uniqueItems":          {},
+// isSupportedSchemaKeyword 以不可变分支表达 runtime 支持的 schema 关键字集合。
+func isSupportedSchemaKeyword(keyword string) bool {
+	switch keyword {
+	case "$ref", "additionalProperties", "allOf", "anyOf", "const", "else", "enum", "if", "items", "maxItems",
+		"maxLength", "minLength", "not", "pattern", "properties", "required", "then", "type", "uniqueItems":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateSupportedSchemaDocument(value any, name string) ([]string, error) {
@@ -93,7 +82,7 @@ func validateNodeKeywords(node map[string]any, path string, position schemaPosit
 			}
 			continue
 		}
-		if _, ok := supportedSchemaKeywords[keyword]; !ok {
+		if !isSupportedSchemaKeyword(keyword) {
 			return fmt.Errorf("%s uses unsupported keyword %q", path, keyword)
 		}
 	}

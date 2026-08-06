@@ -19,6 +19,22 @@ func TestLoadSchemasAcceptsCanonicalSupportedContract(t *testing.T) {
 	}
 }
 
+func TestSupportedSchemaKeywordsPreserveAllowAndRejectSemantics(t *testing.T) {
+	for _, keyword := range []string{
+		"$ref", "additionalProperties", "allOf", "anyOf", "const", "else", "enum", "if", "items", "maxItems",
+		"maxLength", "minLength", "not", "pattern", "properties", "required", "then", "type", "uniqueItems",
+	} {
+		if !isSupportedSchemaKeyword(keyword) {
+			t.Fatalf("supported schema keyword %q was rejected", keyword)
+		}
+	}
+	for _, keyword := range []string{"", "$defs", "contains", "format", "minimum", "oneOf", "title"} {
+		if isSupportedSchemaKeyword(keyword) {
+			t.Fatalf("unsupported schema keyword %q was accepted", keyword)
+		}
+	}
+}
+
 func TestLoadSchemaRejectsUnsupportedKeywordsRecursively(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
