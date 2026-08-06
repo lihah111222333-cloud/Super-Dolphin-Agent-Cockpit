@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -319,44 +320,104 @@ func TestCollectUnknownBuildConstraintFailsClosed(t *testing.T) {
 	}
 }
 
-func TestRegisteredE2EBuildTagGetsTargetCompileEvidence(t *testing.T) {
-	root := t.TempDir()
-	const file = "tagged_e2e_test.go"
-	writeTestFile(t, filepath.Join(root, file), "//go:build e2e\n\npackage a\n")
+func TestRegisteredBuildTagRegistryHasExactLegalTags(t *testing.T) {
+	want := []string{"codex_smoketest", "e2e", "e2e_claude", "e2e_vision", "lsp_integration", "manual", "sqlite_stress"}
+	if len(registeredBuildTagTargets) != len(want) {
+		t.Fatalf("registered build tags = %#v, want %v", registeredBuildTagTargets, want)
+	}
+	for index, tag := range want {
+		registered := registeredBuildTagTargets[index]
+		if registered.version != buildTagTargetRegistryVersion || !reflect.DeepEqual(registered.tags, []string{tag}) {
+			t.Fatalf("registered build tag at index %d = %#v, want version %q tag %q", index, registered, buildTagTargetRegistryVersion, tag)
+		}
+	}
+}
 
+func TestRegisteredBuildTagsMatchTrackedPositiveTagInventory(t *testing.T) {
+	tests := []struct {
+		tag       string
+		fileCount int
+	}{
+		{tag: "codex_smoketest", fileCount: 1},
+		{tag: "e2e", fileCount: 18},
+		{tag: "e2e_claude", fileCount: 1},
+		{tag: "e2e_vision", fileCount: 1},
+		{tag: "lsp_integration", fileCount: 1},
+		{tag: "manual", fileCount: 6},
+		{tag: "sqlite_stress", fileCount: 1},
+	}
+	root := lspDiagnosticsGateRepoRoot(t)
+	for _, tc := range tests {
+		t.Run(tc.tag, func(t *testing.T) {
+			command := exec.Command("git", "grep", "-l", "^//go:build "+tc.tag+"$", "--", "*.go")
+			command.Dir = root
+			output, err := command.Output()
+			if err != nil {
+				t.Fatalf("read tracked positive build-tag inventory for %q: %v", tc.tag, err)
+			}
+			files := strings.Fields(string(output))
+			if len(files) != tc.fileCount {
+				t.Fatalf("tracked positive build-tag inventory for %q = %v, want %d files", tc.tag, files, tc.fileCount)
+			}
+		})
+	}
+}
+
+func TestRegisteredBuildTagsCompileWithTagsAndWriteVersionedEvidence(t *testing.T) {
+	tags := []string{"codex_smoketest", "e2e", "e2e_claude", "e2e_vision", "lsp_integration", "manual", "sqlite_stress"}
+	for _, tag := range tags {
+		t.Run(tag, func(t *testing.T) {
+			root := t.TempDir()
+			file := "tagged_" + tag + "_test.go"
+			writeTestFile(t, filepath.Join(root, file), "//go:build "+tag+"\n\npackage a\n")
+			assertRegisteredBuildTagTarget(t, root, file, tag)
+
+			capture := installFakeGo(t)
+			output := filepath.Join(root, "coverage.json")
+			if err := run(context.Background(), options{root: root, files: []string{file}, output: output, timeout: 2 * time.Second}); err != nil {
+				t.Fatal(err)
+			}
+			assertBuildTagCompileInvocation(t, readFakeGoInvocation(t, capture), tag)
+			assertBuildTagCoverage(t, readCoverageArtifact(t, output), file, tag)
+		})
+	}
+}
+
+func assertRegisteredBuildTagTarget(t *testing.T, root string, file string, tag string) {
+	t.Helper()
 	selection, err := diagnosticTargets(root, options{files: []string{file}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(selection.files) != 0 || len(selection.targetCompiles) != 1 {
-		t.Fatalf("e2e target selection = %#v", selection)
+		t.Fatalf("tagged target selection = %#v", selection)
 	}
 	target := selection.targetCompiles[0]
-	if target.GOOS != runtime.GOOS || target.GOARCH != runtime.GOARCH || strings.Join(target.BuildTags, ",") != "e2e" ||
+	if target.GOOS != runtime.GOOS || target.GOARCH != runtime.GOARCH || strings.Join(target.BuildTags, ",") != tag ||
 		target.BuildTagRegistryVersion != buildTagTargetRegistryVersion {
-		t.Fatalf("e2e target = %#v", target)
+		t.Fatalf("tagged target = %#v, want tag %q", target, tag)
 	}
+}
 
-	capture := installFakeGo(t)
-	output := filepath.Join(root, "coverage.json")
-	if err := run(context.Background(), options{root: root, files: []string{file}, output: output, timeout: 2 * time.Second}); err != nil {
-		t.Fatal(err)
-	}
-	invocation := readFakeGoInvocation(t, capture)
-	if got := strings.Join(invocation.Args, " "); !strings.Contains(got, "test -c -tags e2e -o ") || !strings.HasSuffix(got, " .") {
+func assertBuildTagCompileInvocation(t *testing.T, invocation fakeGoInvocation, tag string) {
+	t.Helper()
+	if got := strings.Join(invocation.Args, " "); !strings.Contains(got, "test -c -tags "+tag+" -o ") || !strings.HasSuffix(got, " .") {
 		t.Fatalf("go compiler args = %q", got)
 	}
 	if invocation.GOOS != runtime.GOOS || invocation.GOARCH != runtime.GOARCH {
 		t.Fatalf("go compiler environment = GOOS=%s GOARCH=%s", invocation.GOOS, invocation.GOARCH)
 	}
-	coverage := readCoverageArtifact(t, output)
+}
+
+func assertBuildTagCoverage(t *testing.T, coverage coverageArtifact, file string, tag string) {
+	t.Helper()
 	if coverage.Inspected != 1 || coverage.TrackedCandidates != 1 || coverage.SkippedCount != 1 || len(coverage.TargetCompiles) != 1 {
-		t.Fatalf("e2e coverage counts = %#v", coverage)
+		t.Fatalf("tagged coverage counts = %#v", coverage)
 	}
 	evidence := coverage.TargetCompiles[0]
-	if strings.Join(evidence.BuildTags, ",") != "e2e" || evidence.BuildTagRegistryVersion != buildTagTargetRegistryVersion ||
+	if evidence.File != file || strings.Join(evidence.BuildTags, ",") != tag || evidence.BuildTagRegistryVersion != buildTagTargetRegistryVersion ||
 		evidence.GOOS != runtime.GOOS || evidence.GOARCH != runtime.GOARCH {
-		t.Fatalf("e2e coverage evidence = %#v", evidence)
+		t.Fatalf("tagged coverage evidence = %#v, want file %q tag %q", evidence, file, tag)
 	}
 }
 
@@ -425,7 +486,7 @@ func TestTargetCompileKeySeparatesBuildTagsAndRegistryVersion(t *testing.T) {
 		t.Fatal("tagged and untagged target compile keys were deduplicated")
 	}
 	otherVersion := tagged
-	otherVersion.BuildTagRegistryVersion = "lsp-build-tags/v2"
+	otherVersion.BuildTagRegistryVersion = "lsp-build-tags/v1"
 	if targetCompileKey("pkg", tagged) == targetCompileKey("pkg", otherVersion) {
 		t.Fatal("different build-tag registry versions were deduplicated")
 	}

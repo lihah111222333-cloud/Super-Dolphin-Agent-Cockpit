@@ -112,7 +112,7 @@ func TestTwoWorktreesNoWorkspaceKeyCollision(t *testing.T) {
 	})
 }
 
-func closeGoWorkE2EManager(t *testing.T, manager *multilsp.Manager) {
+func closeGoWorkE2EManager(t *testing.T, manager interface{ Close() error }) {
 	t.Helper()
 	if err := manager.Close(); err != nil {
 		t.Fatalf("close manager: %v", err)

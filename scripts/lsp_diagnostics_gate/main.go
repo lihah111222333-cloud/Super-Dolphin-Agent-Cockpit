@@ -26,7 +26,7 @@ import (
 
 const (
 	protocolVersion               = "2024-11-05"
-	buildTagTargetRegistryVersion = "lsp-build-tags/v1"
+	buildTagTargetRegistryVersion = "lsp-build-tags/v2"
 	diagnosticsShardFileThreshold = 512
 	diagnosticsAttempts           = 2
 	diagnosticsRetryDelay         = 5 * time.Second
@@ -108,7 +108,13 @@ type registeredBuildTagTarget struct {
 }
 
 var registeredBuildTagTargets = []registeredBuildTagTarget{
+	{version: buildTagTargetRegistryVersion, tags: []string{"codex_smoketest"}},
 	{version: buildTagTargetRegistryVersion, tags: []string{"e2e"}},
+	{version: buildTagTargetRegistryVersion, tags: []string{"e2e_claude"}},
+	{version: buildTagTargetRegistryVersion, tags: []string{"e2e_vision"}},
+	{version: buildTagTargetRegistryVersion, tags: []string{"lsp_integration"}},
+	{version: buildTagTargetRegistryVersion, tags: []string{"manual"}},
+	{version: buildTagTargetRegistryVersion, tags: []string{"sqlite_stress"}},
 }
 
 type rpcResponse struct {
