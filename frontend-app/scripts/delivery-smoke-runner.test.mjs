@@ -288,7 +288,7 @@ describe('delivery smoke runner', () => {
     });
   });
 
-  it('attaches bounded diagnostics to non-exit-2 failures', async () => {
+  it('keeps the legacy failure verdict schema deep-equal for non-exit-2 failures', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));
     const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
@@ -317,14 +317,6 @@ describe('delivery smoke runner', () => {
         durationMs: 0,
         status: 'FAIL',
       }],
-      diagnostics: {
-        availability: 'available',
-        stdout: 'must not be retained',
-        stderr: 'must not be retained',
-        error: '',
-        outputTruncated: true,
-        runnerTruncated: false,
-      },
     });
   });
 

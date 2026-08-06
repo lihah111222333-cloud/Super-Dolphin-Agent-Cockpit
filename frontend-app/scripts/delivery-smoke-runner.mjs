@@ -236,7 +236,7 @@ async function runDeliveryCommands(inspected, runCommand = runManagedCommand, re
         executedCommands: results.length,
         commands: Object.freeze(results),
       };
-      failure.diagnostics = boundedDiagnostics(result);
+      if (result.status === 2) failure.diagnostics = boundedDiagnostics(result);
       return Object.freeze(failure);
     }
   }
