@@ -1211,6 +1211,7 @@ internal/provider/shared/provider_home_test.go	internal	platform-provider	go-tes
 internal/provider/shared/provider_home.go	internal	platform-provider	go-source	18744	provider home、配置和共享 helpers	internal,provider,shared,home,配置和共享,helpers
 internal/provider/shared/proxy_env_test.go	internal	platform-provider	go-test	924	provider home、配置和共享 helpers	internal,provider,shared,proxy,env,test,home,配置和共享,helpers
 internal/provider/shared/proxy_env.go	internal	platform-provider	go-source	1766	provider home、配置和共享 helpers	internal,provider,shared,proxy,env,home,配置和共享,helpers
+internal/provider/shared/skill_mirror_wire_dto_contract_test.go	internal	platform-provider	go-test	3240	provider home、配置和共享 helpers	internal,provider,shared,skill,mirror,wire,dto,contract,test,home,配置和共享,helpers
 internal/provider/shared/terminal_outcome_test.go	internal	platform-provider	go-test	2632	provider home、配置和共享 helpers	internal,provider,shared,terminal,outcome,test,home,配置和共享,helpers
 internal/provider/shared/terminal_outcome.go	internal	platform-provider	go-source	4915	provider home、配置和共享 helpers	internal,provider,shared,terminal,outcome,home,配置和共享,helpers
 internal/provider/toolfilter/presets_test.go	internal	platform-provider	go-test	5983	AI provider 集成层	internal,provider,toolfilter,presets,test,AI,集成层

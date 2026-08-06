@@ -5,14 +5,14 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4578,
+  "files": 4580,
   "domains": {
     "docs-agent": 91,
     "other": 1128,
     "app-ui": 740,
-    "platform-provider": 1248,
+    "platform-provider": 1249,
     "orchestration": 407,
-    "modules": 754,
+    "modules": 755,
     "store-sql": 210
   },
   "index_files": {
@@ -36,15 +36,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 754,
-        "size_kb": 146.8,
+        "file_count": 755,
+        "size_kb": 147,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1248,
-        "size_kb": 232.2,
+        "file_count": 1249,
+        "size_kb": 232.5,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -75,7 +75,7 @@
     "cmd": 814,
     "docs": 83,
     "frontend-app": 734,
-    "internal": 2677,
+    "internal": 2679,
     "pkg": 30,
     "scripts": 180,
     "sql": 29,

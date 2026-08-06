@@ -470,6 +470,7 @@ internal/module/skill/scope_model_test.go	internal	modules	go-test	6287	skill ca
 internal/module/skill/scope_model.go	internal	modules	go-source	15656	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,model,canonical,管理与,provider-native,mirror
 internal/module/skill/scope_test.go	internal	modules	go-test	10889	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,test,canonical,管理与,provider-native,mirror
 internal/module/skill/service.go	internal	modules	go-source	13709	skill canonical 管理与 provider-native mirror	internal,module,skill,service,canonical,管理与,provider-native,mirror
+internal/module/skill/skill_mirror_wire_dto_contract_test.go	internal	modules	go-test	2570	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,wire,dto,contract,test,canonical,管理与,provider-native
 internal/module/skill/skill_name_test.go	internal	modules	go-test	3951	skill canonical 管理与 provider-native mirror	internal,module,skill,name,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skillhash/hash.go	internal	modules	go-source	14191	skill canonical 管理与 provider-native mirror	internal,module,skill,skillhash,hash,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_fs_test.go	internal	modules	go-test	28637	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,test,canonical,管理与,provider-native,mirror
