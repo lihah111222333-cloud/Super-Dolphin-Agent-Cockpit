@@ -10,7 +10,7 @@ import (
 func TestPoolRecyclerRunContinuesAfterProbeFailure(t *testing.T) {
 	client := &p2LifecycleClient{}
 	mgr := &manager{workspaces: map[string]*workspaceClient{
-		"workspace": {key: "workspace", languageID: "go", client: client, generation: 1, state: workspaceStateActive},
+		"workspace": {key: "workspace", languageID: "typescript", client: client, generation: 1, state: workspaceStateActive},
 	}}
 	pool := NewManagerPool(mgr, 1)
 	mgr.pool = pool

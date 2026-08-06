@@ -202,6 +202,11 @@ func (r *poolRecycler) checkManager(_ int, mgr *manager, scope ResolvedLSPToolSc
 // recycleIfNeeded 在单个 workspace client 超过 RSS 上限时尝试回收。
 // 仍有活跃租约时只记录日志不关闭进程，避免正在执行的 LSP 请求被异步切断。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		// gopls 的 daemon/forwarder 由 root cohort controller 独占关闭权。
+		// 旧 RSS、probe-degraded 与 workspace recycler 均不得成为第二个 writer。
+		return
+	}
 	rssBytes, pid, ok, probeDegraded := r.probeWorkspace(mgr, scope, workspace)
 	if !ok {
 		r.failClosedAfterProbeDegradation(mgr, scope, workspace, probeDegraded)
@@ -236,6 +241,9 @@ func (r *poolRecycler) failClosedAfterProbeDegradation(
 	workspace workspaceClient,
 	probeDegraded bool,
 ) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return
+	}
 	if !probeDegraded {
 		return
 	}
@@ -347,6 +355,9 @@ func logRSSRecycleActiveLease(
 }
 
 func executeMemoryRecycle(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, cohortEviction bool) (bool, error) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return false, nil
+	}
 	if cohortEviction {
 		return shutdownResourceCohortWorkspace(mgr, workspace)
 	}
@@ -399,6 +410,9 @@ func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolSc
 	}
 	scanStarted := r.recyclerNow()
 	for _, workspace := range snapshotWorkspaceClients(mgr) {
+		if isGoResourceCohortLanguage(workspace.languageID) {
+			continue
+		}
 		if workspace.state == workspaceStateCleanupPending {
 			r.retryCleanupPendingWorkspace(mgr, scope, workspace)
 			continue
@@ -443,6 +457,9 @@ func (r *poolRecycler) shutdownIdleWorkspace(
 	scope ResolvedLSPToolScope,
 	workspace workspaceClient,
 ) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return
+	}
 	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace)
 	if detached == nil || detached.client == nil {
 		return
@@ -660,6 +677,9 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 // shutdownResourceCohortWorkspace 在跨 worktree cohort 超限时只关闭当前 owner 的空闲 client。
 // 它不立即重建；下一次真实请求会懒启动，从而让总账回到软水位而不跨进程 kill。
 func shutdownResourceCohortWorkspace(mgr *manager, workspace workspaceClient) (bool, error) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return false, nil
+	}
 	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace)
 	if detached == nil || detached.client == nil {
 		return false, nil
@@ -791,7 +811,7 @@ func rssLimitBytesForLanguageOnOS(languageID, goos string) uint64 {
 			return value
 		}
 		if goos == "windows" {
-			return defaultGoplsCohortHardLimitBytes
+			return defaultGoWindowsRSSLimitBytes
 		}
 		return defaultGoRSSLimitBytes
 	}
@@ -832,7 +852,6 @@ func ValidateResourceLimitEnvironment() error {
 		lspGoRSSLimitEnv,
 		lspGoplsHeapLimitEnv,
 		ResourceCohortHardLimitMBEnv,
-		goplsCohortHardLimitEnv,
 	} {
 		if _, _, err := strictRSSLimitBytesFromEnv(key); err != nil {
 			return err
@@ -853,23 +872,6 @@ func ValidateResourceLimitEnvironment() error {
 			nonGoplsLocal,
 			ResourceCohortHardLimitMBEnv,
 			nonGoplsCohort,
-		)
-	}
-	goplsHeap := uint64(defaultGoplsHeapLimitBytes)
-	if value, ok := rssLimitBytesFromEnv(lspGoplsHeapLimitEnv); ok {
-		goplsHeap = value
-	}
-	goplsCohort := uint64(defaultGoplsCohortHardLimitBytes)
-	if value, ok := rssLimitBytesFromEnv(goplsCohortHardLimitEnv); ok {
-		goplsCohort = value
-	}
-	if goplsHeap >= goplsCohort {
-		return fmt.Errorf(
-			"%s (%d bytes) must be lower than %s (%d bytes)",
-			lspGoplsHeapLimitEnv,
-			goplsHeap,
-			goplsCohortHardLimitEnv,
-			goplsCohort,
 		)
 	}
 	return nil

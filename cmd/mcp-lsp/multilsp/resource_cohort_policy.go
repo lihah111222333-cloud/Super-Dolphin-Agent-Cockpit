@@ -38,26 +38,13 @@ func ensureResourceCohortDirectory(path string, create bool) error {
 	return nil
 }
 
-// resourceProcessPolicyForClient 读取创建期确定的主次资源策略；非 gopls 缺失任一字段都会 fail-fast。
+// resourceProcessPolicyForClient 读取创建期确定的非 gopls 主次资源策略。
+// gopls 已迁移到 root cohort controller，禁止重新接入旧 RSS cohort。
 func resourceProcessPolicyForClient(current Client, languageID string) (resourceProcessPolicy, error) {
 	if isGoResourceCohortLanguage(languageID) {
-		return goplsResourceProcessPolicy(current, languageID), nil
+		return resourceProcessPolicy{}, errors.New("gopls resource cohort policy is retired; use the root cohort controller")
 	}
 	return nonGoplsResourceProcessPolicy(current)
-}
-
-// goplsResourceProcessPolicy 保留 gopls forwarder/daemon 的既有 shared cohort 语义。
-func goplsResourceProcessPolicy(current Client, languageID string) resourceProcessPolicy {
-	cohortID := sharedGoplsCohortID(current)
-	if cohortID == "" {
-		cohortID = "gopls-standalone"
-	}
-	return resourceProcessPolicy{
-		repositoryCohortID:   cohortID,
-		role:                 ResourceCohortRoleShared,
-		rssLimitBytes:        rssLimitBytesForLanguage(languageID),
-		cohortHardLimitBytes: goplsCohortHardLimitBytes(),
-	}
 }
 
 // nonGoplsResourceProcessPolicy 严格校验创建期注入的 repo cohort、角色、租约与进程上限。

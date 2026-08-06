@@ -9,10 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,13 +37,11 @@ const (
 	DeprecatedResourceCohortHardLimitMBEnv = "AGENT_LSP_RESOURCE_COHORT_HARD_LIMIT_MB"
 	ResourceCohortRolePrimary              = "primary"
 	ResourceCohortRoleSecondary            = "secondary"
-	ResourceCohortRoleShared               = "shared"
 
 	resourceCohortSchemaVersion      = 2
 	resourceCohortMembersDir         = "members"
-	goplsCohortHardLimitEnv          = "AGENT_LSP_GOPLS_COHORT_RSS_LIMIT_MB"
 	defaultCohortHardLimitBytes      = 15 * 1024 * 1024 * 1024
-	defaultGoplsCohortHardLimitBytes = 4 * 1024 * 1024 * 1024
+	defaultGoWindowsRSSLimitBytes    = 4 * 1024 * 1024 * 1024
 	resourceCohortSoftPercent        = 80
 	resourceCohortReportMaxAge       = 2 * time.Minute
 	resourceCohortClockSkewTolerance = 5 * time.Second
@@ -129,6 +125,9 @@ func evaluateResourceCohort(
 	activeLeases int,
 	now time.Time,
 ) (resourceCohortDecision, error) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return resourceCohortDecision{}, errors.New("gopls resource cohort evaluation is retired; use the root cohort controller")
+	}
 	hardLimit := policy.cohortHardLimitBytes
 	softLimit := hardLimit * resourceCohortSoftPercent / 100
 	cohortDir, enabled, err := resourceCohortDir(current)
@@ -160,12 +159,7 @@ func evaluateResourceCohort(
 			EvictSelf:    activeLeases == 0,
 		}, loadErr
 	}
-	daemonRSS, daemonErr := sharedGoplsDaemonRSSBytes(current)
-	if daemonErr != nil {
-		loaded.ConservativeRSS = addResourceCohortRSS(loaded.ConservativeRSS, hardLimit)
-		loaded.UnhealthyMembers++
-	}
-	aggregate := addResourceCohortRSS(daemonRSS, loaded.ConservativeRSS)
+	aggregate := loaded.ConservativeRSS
 	for _, candidate := range loaded.Members {
 		aggregate = addResourceCohortRSS(aggregate, candidate.RSSBytes)
 	}
@@ -178,7 +172,7 @@ func evaluateResourceCohort(
 		EvictSelf:        slices.Contains(victims, resourceCohortMemberKey(member)),
 		StaleMembers:     loaded.StaleMembers,
 		UnhealthyMembers: loaded.UnhealthyMembers,
-	}, errors.Join(loadErr, daemonErr)
+	}, loadErr
 }
 
 func failedResourceCohortDecision(hardLimit, softLimit, rssBytes uint64, activeLeases int) resourceCohortDecision {
@@ -603,14 +597,13 @@ func validateResourceCohortMember(member resourceCohortMember) error {
 		{member.WorkspaceHash == "", "workspace_hash is empty"},
 		{member.LanguageID == "", "language_id is empty"},
 		{member.RepositoryCohortID == "", "repository_cohort_id is empty"},
-		{member.Role != ResourceCohortRolePrimary && member.Role != ResourceCohortRoleSecondary && member.Role != ResourceCohortRoleShared, "role is invalid"},
+		{member.Role != ResourceCohortRolePrimary && member.Role != ResourceCohortRoleSecondary, "role is invalid"},
 		{member.RSSBytes == 0, "rss_bytes must be greater than zero"},
 		{member.ProcessRSSLimitBytes == 0, "process_rss_limit_bytes must be greater than zero"},
 		{member.CohortHardLimitBytes == 0, "cohort_hard_limit_bytes must be greater than zero"},
 		{member.ProcessRSSLimitBytes > member.CohortHardLimitBytes, "process_rss_limit_bytes exceeds cohort_hard_limit_bytes"},
 		{member.Role == ResourceCohortRoleSecondary && member.ProcessRSSLimitBytes >= 2*1024*1024*1024, "secondary process_rss_limit_bytes must stay below 2 GiB"},
-		{member.Role == ResourceCohortRoleShared && !isGoResourceCohortLanguage(member.LanguageID), "shared role is reserved for gopls"},
-		{member.Role != ResourceCohortRoleShared && !strings.HasPrefix(member.RepositoryCohortID, "repo-"), "non-gopls repository_cohort_id must start with repo-"},
+		{!strings.HasPrefix(member.RepositoryCohortID, "repo-"), "repository_cohort_id must start with repo-"},
 		{member.ActiveLeases < 0, "active_leases must not be negative"},
 		{member.LastActivityUnixNano <= 0, "last_activity_unix_nano must be greater than zero"},
 		{member.UpdatedAtUnixNano <= 0, "updated_at_unix_nano must be greater than zero"},
@@ -688,13 +681,6 @@ func resourceCohortMemberKey(member resourceCohortMember) string {
 		strconv.Itoa(member.ClientPID) + "/" + member.ClientStartIdentity
 }
 
-func goplsCohortHardLimitBytes() uint64 {
-	if value, ok := rssLimitBytesFromEnv(goplsCohortHardLimitEnv); ok {
-		return value
-	}
-	return defaultGoplsCohortHardLimitBytes
-}
-
 func isGoResourceCohortLanguage(languageID string) bool {
 	switch normalizeLanguageID(languageID) {
 	case "go", "gomod", "gosum", "gowork":
@@ -702,70 +688,6 @@ func isGoResourceCohortLanguage(languageID string) bool {
 	default:
 		return false
 	}
-}
-
-// sharedGoplsDaemonRSSBytes 在 POSIX 上读取当前 forwarder 对应的独立 gopls daemon RSS。
-func sharedGoplsDaemonRSSBytes(current Client) (uint64, error) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return 0, nil
-	}
-	cohortID := sharedGoplsCohortID(current)
-	if cohortID == "" {
-		return 0, nil
-	}
-	output, err := exec.Command("ps", "-axo", "pid=,rss=,command=").Output()
-	if err != nil {
-		return 0, fmt.Errorf("list shared gopls daemon processes: %w", err)
-	}
-	return parseSharedGoplsDaemonRSS(output, cohortID)
-}
-
-// sharedGoplsCohortID 从 forwarder 的 remote 参数读取产品 cohort ID。
-func sharedGoplsCohortID(current Client) string {
-	typed, ok := concreteClient(current)
-	if !ok || typed.transport == nil || typed.transport.cmd == nil {
-		return ""
-	}
-	for _, arg := range typed.transport.cmd.Args {
-		if value, ok := strings.CutPrefix(arg, "-remote=auto;"); ok {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-// parseSharedGoplsDaemonRSS 只汇总与指定 cohort ID 精确关联的 gopls serve 进程。
-func parseSharedGoplsDaemonRSS(output []byte, cohortID string) (uint64, error) {
-	cohortID = strings.TrimSpace(cohortID)
-	if cohortID == "" {
-		return 0, nil
-	}
-	var total uint64
-	for line := range strings.SplitSeq(string(output), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		command := strings.Join(fields[2:], " ")
-		if !strings.Contains(command, "gopls serve -listen ") ||
-			!goplsDaemonCommandHasCohort(command, cohortID) {
-			continue
-		}
-		rssKB, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("parse shared gopls daemon RSS: %w", err)
-		}
-		total += rssKB * 1024
-	}
-	if total == 0 {
-		return 0, errors.New("shared gopls cohort is active but daemon RSS was not found")
-	}
-	return total, nil
-}
-
-func goplsDaemonCommandHasCohort(command, cohortID string) bool {
-	token := "-" + cohortID
-	return strings.HasSuffix(command, token) || strings.Contains(command, token+" ")
 }
 
 func effectiveLSPLogMessageType(params protocol.LogMessageParams) protocol.LogMessageType {

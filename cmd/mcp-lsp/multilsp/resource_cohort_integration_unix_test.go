@@ -104,56 +104,13 @@ func TestResourceCohortIntegratesTwoRealOwnersAndOwnerOnlyRecycle(t *testing.T) 
 	assertResourceCohortLazyReportRebuild(t, fixture)
 }
 
-func TestEvaluateResourceCohortJoinsBadReportAndMissingGoplsDaemon(t *testing.T) {
-	t.Setenv(goplsCohortHardLimitEnv, "128")
-	t.Setenv(lspGoRSSLimitEnv, "64")
-	resourceDir := filepath.Join(t.TempDir(), "cohort")
-	membersDir := filepath.Join(resourceDir, resourceCohortMembersDir)
-	if err := os.MkdirAll(membersDir, 0o700); err != nil {
-		t.Fatalf("create resource cohort members directory: %v", err)
-	}
-	badReportPath := filepath.Join(membersDir, "bad-report.json")
-	if err := os.WriteFile(badReportPath, []byte("{"), 0o600); err != nil {
-		t.Fatalf("write malformed cohort report: %v", err)
-	}
-	cohortID := fmt.Sprintf("missing-daemon-%d-%d", os.Getpid(), time.Now().UnixNano())
-	current := &client{transport: &transport{cmd: &exec.Cmd{
-		Args:    []string{"gopls", "-remote=auto;" + cohortID},
-		Env:     []string{ResourceCohortDirEnv + "=" + resourceDir},
-		Process: &os.Process{Pid: os.Getpid()},
-	}}}
-	now := time.Now()
-	workspace := workspaceClient{
-		key:          "combined-resource-cohort-probe-failure",
-		languageID:   "go",
-		client:       current,
-		lastActivity: now,
-	}
-	policy := goplsResourceProcessPolicy(current, workspace.languageID)
-	decision, err := evaluateResourceCohort(current, workspace, policy, 32*1024*1024, os.Getpid(), 1, now)
-	if err == nil {
-		t.Fatal("evaluateResourceCohort() error = nil, want joined report and daemon failures")
-	}
-	for _, want := range []string{"load LSP resource cohort member bad-report.json", "shared gopls cohort is active but daemon RSS was not found"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("evaluateResourceCohort() error = %v, want component %q", err, want)
-		}
-	}
-	if decision.UnhealthyMembers != 2 || decision.EvictSelf || decision.AggregateRSS < decision.HardLimit {
-		t.Fatalf("combined conservative decision = %#v, want two unhealthy inputs, active owner retained, over hard limit", decision)
-	}
-	if _, err := os.Stat(badReportPath + ".bad"); err != nil {
-		t.Fatalf("malformed report was not quarantined: %v", err)
-	}
-}
-
 func TestShutdownResourceCohortWorkspaceRestoresCloseFailureForRetry(t *testing.T) {
 	closeErr := errors.New("injected first cohort close failure")
 	client := &failingCloseP2Client{
 		p2LifecycleClient: &p2LifecycleClient{healthy: true},
 		err:               closeErr,
 	}
-	workspace := &workspaceClient{key: "cohort-close-retry", languageID: "go", client: client}
+	workspace := &workspaceClient{key: "cohort-close-retry", languageID: "typescript", client: client}
 	workspace.generation = 1
 	workspace.state = workspaceStateIdleCountdown
 	workspace.idleSince = time.Now().Add(-2 * idleTimeoutForTest())

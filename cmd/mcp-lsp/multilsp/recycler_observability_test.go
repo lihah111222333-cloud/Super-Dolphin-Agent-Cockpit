@@ -21,7 +21,7 @@ func TestRecyclerProbeDegradedCleanupFailureIsObservable(t *testing.T) {
 	closeErr := errors.New("close failed for " + root)
 	client := &p2LifecycleClient{healthy: true, shutdownFailure: shutdownErr, closeFailure: closeErr}
 	workspace := &workspaceClient{
-		key: root, languageID: "go", client: client, lastActivity: now.Add(-2 * time.Minute), generation: 7,
+		key: root, languageID: "typescript", client: client, lastActivity: now.Add(-2 * time.Minute), generation: 7,
 		state: workspaceStateIdleCountdown, idleSince: now.Add(-2 * time.Minute),
 	}
 	var logs bytes.Buffer
@@ -199,10 +199,10 @@ func TestRecyclerCleanupLogContractRedactsScopeAndError(t *testing.T) {
 func TestRecyclerRSSDeferredLogRedactsWorkspace(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 8, 4, 6, 45, 0, 0, time.UTC)
-	scope := buildTestResolvedScope(t, root, "agent-rss-secret", "thread-rss-secret", "go")
+	scope := buildTestResolvedScope(t, root, "agent-rss-secret", "thread-rss-secret", "typescript")
 	client := &p2LifecycleClient{healthy: true}
 	workspace := workspaceClient{
-		key: root, languageID: "go", client: client, generation: 3,
+		key: root, languageID: "typescript", client: client, generation: 3,
 		state: workspaceStateActive, idleSince: now, lastActivity: now,
 	}
 	var logs bytes.Buffer

@@ -194,8 +194,8 @@ func TestGenericRSSLimitUsesDefaultLimit(t *testing.T) {
 }
 
 func TestWindowsGoplsUsesStandaloneFourGiBProcessLimit(t *testing.T) {
-	if got := rssLimitBytesForLanguageOnOS("go", "windows"); got != defaultGoplsCohortHardLimitBytes {
-		t.Fatalf("Windows standalone gopls RSS limit = %d, want %d", got, defaultGoplsCohortHardLimitBytes)
+	if got := rssLimitBytesForLanguageOnOS("go", "windows"); got != defaultGoWindowsRSSLimitBytes {
+		t.Fatalf("Windows standalone gopls RSS limit = %d, want %d", got, defaultGoWindowsRSSLimitBytes)
 	}
 }
 
@@ -207,14 +207,12 @@ func TestValidateResourceLimitEnvironmentRejectsInvalidAndInconsistentValues(t *
 	}{
 		{name: "nonnumeric", key: ResourceCohortHardLimitMBEnv, value: "large"},
 		{name: "deprecated owner", key: DeprecatedResourceCohortHardLimitMBEnv, value: "15360"},
-		{name: "zero", key: goplsCohortHardLimitEnv, value: "0"},
 		{
 			name:  "overflow",
 			key:   ResourceCohortHardLimitMBEnv,
 			value: strconv.FormatUint(^uint64(0)/(1024*1024)+1, 10),
 		},
 		{name: "local below cohort", key: lspRSSLimitEnv, value: "2048"},
-		{name: "gopls heap reaches cohort", key: lspGoplsHeapLimitEnv, value: "4096"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -232,7 +230,6 @@ func TestValidateResourceLimitEnvironmentAcceptsConsistentOverrides(t *testing.T
 	t.Setenv(lspRSSLimitEnv, "16384")
 	t.Setenv(ResourceCohortHardLimitMBEnv, "15360")
 	t.Setenv(lspGoplsHeapLimitEnv, "3584")
-	t.Setenv(goplsCohortHardLimitEnv, "4096")
 	if err := ValidateResourceLimitEnvironment(); err != nil {
 		t.Fatalf("ValidateResourceLimitEnvironment() error = %v", err)
 	}
@@ -245,7 +242,6 @@ func clearResourceLimitEnvironmentForTest(t *testing.T) {
 		lspGoRSSLimitEnv,
 		lspGoplsHeapLimitEnv,
 		ResourceCohortHardLimitMBEnv,
-		goplsCohortHardLimitEnv,
 	} {
 		t.Setenv(key, "")
 	}
@@ -289,10 +285,10 @@ func TestPoolRecyclerIdleWorkspaceWinsOverRSSRecycle(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, Logger: logger}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	scoped := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-idle", "thread-1"))
+	scoped := scopedManagerForTest(t, mgr, testLSPToolScopeForLanguage(root, "agent-idle", "thread-1", "typescript"))
 
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root})
-	client, err := scoped.EnsureClient(ctx, target, "go")
+	client, err := scoped.EnsureClient(ctx, target, "typescript")
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
@@ -329,9 +325,9 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, Logger: logger}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	scoped := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-idle-error", "thread-1"))
+	scoped := scopedManagerForTest(t, mgr, testLSPToolScopeForLanguage(root, "agent-idle-error", "thread-1", "typescript"))
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root})
-	client, err := scoped.EnsureClient(ctx, target, "go")
+	client, err := scoped.EnsureClient(ctx, target, "typescript")
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
@@ -343,7 +339,7 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 		ManagerKey: "manager-idle-error",
 		ScopeKey:   "scope-idle-error",
 		LSPToolScope: LSPToolScope{
-			LanguageID: "go",
+			LanguageID: "typescript",
 		},
 	})
 	logText := logs.String()
@@ -366,7 +362,7 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 		ManagerKey: "manager-idle-error",
 		ScopeKey:   "scope-idle-error",
 		LSPToolScope: LSPToolScope{
-			LanguageID: "go",
+			LanguageID: "typescript",
 		},
 	})
 	assertIdleCleanupOwner(t, scoped, client, 0, "after successful retry")
@@ -400,7 +396,7 @@ func TestRecyclerProbeFailureHealthAndRecovery(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	mgr := &manager{logger: logger}
 	client := &p2LifecycleClient{}
-	workspace := workspaceClient{key: secretPath, languageID: "go", client: client, generation: 1, state: workspaceStateActive}
+	workspace := workspaceClient{key: secretPath, languageID: "typescript", client: client, generation: 1, state: workspaceStateActive}
 	scope := ResolvedLSPToolScope{ManagerKey: "manager-test", ScopeKey: "scope-test"}
 	recycler := newPoolRecycler(nil)
 	recycler.rssProbe = func(Client) (uint64, int, error) {
@@ -422,6 +418,52 @@ func TestRecyclerProbeFailureHealthAndRecovery(t *testing.T) {
 	recycler.recycleIfNeeded(mgr, scope, workspace)
 	health = recycler.HealthSnapshot()
 	assertRecyclerProbeRecoveryHealth(t, health)
+}
+
+func TestRecyclerDoesNotProbeOrCloseGopls(t *testing.T) {
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork"} {
+		t.Run(languageID, func(t *testing.T) {
+			client := &p2LifecycleClient{healthy: true}
+			now := time.Now()
+			workspace := &workspaceClient{
+				key:          "workspace-gopls-root-cohort-owner-" + languageID,
+				languageID:   languageID,
+				client:       client,
+				generation:   1,
+				state:        workspaceStateIdleCountdown,
+				idleSince:    now.Add(-2 * idleTimeoutForTest()),
+				lastActivity: now.Add(-2 * idleTimeoutForTest()),
+			}
+			mgr := &manager{idleTimeout: idleTimeoutForTest(), workspaces: map[string]*workspaceClient{workspace.key: workspace}}
+			recycler := newPoolRecycler(nil)
+			recycler.now = func() time.Time { return now }
+			probeCalls := 0
+			recycler.rssProbe = func(Client) (uint64, int, error) {
+				probeCalls++
+				return 0, 0, errors.New("probe must not run for gopls")
+			}
+
+			recycler.recycleIfNeeded(mgr, ResolvedLSPToolScope{}, *workspace)
+			recycler.checkIdleWorkspaces(mgr, ResolvedLSPToolScope{})
+			for _, cohortEviction := range []bool{false, true} {
+				recycled, err := executeMemoryRecycle(mgr, ResolvedLSPToolScope{}, *workspace, cohortEviction)
+				if recycled || err != nil {
+					t.Fatalf("executeMemoryRecycle(cohortEviction=%t) = (%v, %v), want (false, nil)", cohortEviction, recycled, err)
+				}
+			}
+			recycler.failClosedAfterProbeDegradation(mgr, ResolvedLSPToolScope{}, *workspace, true)
+			if recycled, err := shutdownResourceCohortWorkspace(mgr, *workspace); recycled || err != nil {
+				t.Fatalf("shutdownResourceCohortWorkspace() = (%v, %v), want (false, nil)", recycled, err)
+			}
+
+			if probeCalls != 0 || client.closed {
+				t.Fatalf("gopls recycler probe/close = (%d, %v), want (0, false)", probeCalls, client.closed)
+			}
+			if got := snapshotWorkspaceClients(mgr); len(got) != 1 || got[0].client != client {
+				t.Fatalf("gopls workspace after legacy recycler = %#v, want retained root-controller owner", got)
+			}
+		})
+	}
 }
 
 func TestRecyclerProbeDegradationFailsClosedForIdleClient(t *testing.T) {
@@ -455,7 +497,7 @@ func TestRecyclerProbeFailuresAreTrackedPerClient(t *testing.T) {
 	failingClient := &p2LifecycleClient{healthy: true}
 	healthyClient := &p2LifecycleClient{healthy: true}
 	failing := &workspaceClient{key: "workspace-failing-probe", languageID: "typescript", client: failingClient, generation: 1, state: workspaceStateIdleCountdown, idleSince: time.Now().Add(-2 * idleTimeoutForTest())}
-	// 该测试只覆盖 probe 计数；使用无需 repository lease 的 gopls policy，避免伪 client 绕过非 gopls fail-fast 契约。
+	// 该测试只覆盖 probe 计数；健康 Go client 由 root cohort controller 接管，不参与旧 recycler。
 	healthy := &workspaceClient{key: "workspace-healthy-probe", languageID: "go", client: healthyClient, generation: 1, state: workspaceStateActive}
 	mgr := &manager{idleTimeout: idleTimeoutForTest(), workspaces: map[string]*workspaceClient{
 		failing.key: failing,
@@ -493,7 +535,7 @@ func assertRecyclerProbeFailureLog(t *testing.T, logText, secretRoot string) {
 	t.Helper()
 	for _, want := range []string{
 		"LSP recycler RSS probe failed", `"manager_key_sha256":`,
-		`"scope_key_sha256":`, `"workspace_sha256":`, `"language":"go"`,
+		`"scope_key_sha256":`, `"workspace_sha256":`, `"language":"typescript"`,
 	} {
 		if !strings.Contains(logText, want) {
 			t.Fatalf("probe failure log missing %q: %s", want, logText)
@@ -517,7 +559,7 @@ func TestRecyclerInvalidPIDAndMultiWorkspaceFailuresAreObservable(t *testing.T) 
 	clientA := &p2LifecycleClient{}
 	clientB := &p2LifecycleClient{}
 	mgr := &manager{workspaces: map[string]*workspaceClient{
-		"workspace-a": {key: "workspace-a", languageID: "go", client: clientA, generation: 1, state: workspaceStateActive},
+		"workspace-a": {key: "workspace-a", languageID: "typescript", client: clientA, generation: 1, state: workspaceStateActive},
 		"workspace-b": {key: "workspace-b", languageID: "typescript", client: clientB, generation: 1, state: workspaceStateActive},
 	}}
 	recycler := newPoolRecycler(nil)

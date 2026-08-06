@@ -59,13 +59,6 @@ func TestResourceCohortEvictsOldestIdleOwnersUntilSoftLimit(t *testing.T) {
 	}
 }
 
-func TestGoplsResourceCohortDefaultHardLimit(t *testing.T) {
-	t.Setenv(goplsCohortHardLimitEnv, "")
-	if got := goplsCohortHardLimitBytes(); got != 4*1024*1024*1024 {
-		t.Fatalf("gopls cohort hard limit = %d, want 4 GiB", got)
-	}
-}
-
 const (
 	resourceCohortCustomHardMiB    = 512
 	resourceCohortCustomProcessMiB = 384
@@ -555,21 +548,6 @@ func TestLoadResourceCohortMembersRejectsFutureTimestampConservatively(t *testin
 	}
 	if loaded.UnhealthyMembers != 1 || loaded.ConservativeRSS != member.CohortHardLimitBytes {
 		t.Fatalf("future report result = %#v, want one full-limit reserve", loaded)
-	}
-}
-
-func TestParseSharedGoplsDaemonRSSCountsOnlyRequestedCohort(t *testing.T) {
-	output := []byte(
-		"100 1024 /tmp/gopls serve -listen unix;/tmp/gopls-daemon.user-sdmcp2-wanted -listen.timeout 1m\n" +
-			"101 2048 /tmp/gopls serve -listen unix;/tmp/gopls-daemon.user-sdmcp2-other -listen.timeout 1m\n" +
-			"102 4096 /tmp/gopls -remote=auto;sdmcp2-wanted\n",
-	)
-	got, err := parseSharedGoplsDaemonRSS(output, "sdmcp2-wanted")
-	if err != nil {
-		t.Fatalf("parseSharedGoplsDaemonRSS() error = %v", err)
-	}
-	if got != 1024*1024 {
-		t.Fatalf("daemon RSS = %d, want %d", got, 1024*1024)
 	}
 }
 
