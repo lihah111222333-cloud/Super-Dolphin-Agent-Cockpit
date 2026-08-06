@@ -45,6 +45,9 @@ func runRemoteInvocation(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if options.WorkloadID != "" || options.CompletionReceiptPath != "" {
+		return protocolError("--workload and --completion-receipt are only valid with the test command")
+	}
 	result, input, runErr := executeRemoteRun(options)
 	return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
 }

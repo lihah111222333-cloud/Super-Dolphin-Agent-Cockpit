@@ -55,25 +55,27 @@ func (config remoteRunConfig) Validate() error {
 }
 
 type remoteRunOptions struct {
-	ConfigPath       string
-	RepositoryRoot   string
-	RemoteName       string
-	RemoteURL        string
-	Commit           string
-	Tree             string
-	ParentCommit     string
-	Base             string
-	Profile          string
-	Scenario         string
-	Entrypoint       string
-	Tests            []string
-	LocalRef         string
-	RemoteRef        string
-	ObservedRemote   string
-	UpdateKind       string
-	LedgerPath       string
-	AgentTokenDigest string
-	Calibration      bool
+	ConfigPath            string
+	RepositoryRoot        string
+	RemoteName            string
+	RemoteURL             string
+	Commit                string
+	Tree                  string
+	ParentCommit          string
+	Base                  string
+	Profile               string
+	Scenario              string
+	Entrypoint            string
+	Tests                 []string
+	WorkloadID            string
+	CompletionReceiptPath string
+	LocalRef              string
+	RemoteRef             string
+	ObservedRemote        string
+	UpdateKind            string
+	LedgerPath            string
+	AgentTokenDigest      string
+	Calibration           bool
 }
 
 type remoteStringListFlag []string

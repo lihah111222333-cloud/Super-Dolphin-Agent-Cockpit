@@ -2,9 +2,12 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -260,6 +263,185 @@ func TestValidateReceiptRejectsMissingImplementation(t *testing.T) {
 	if err := ValidateReceipt(document, "quick", path); err == nil || !strings.Contains(err.Error(), "implementation_status=missing") {
 		t.Fatalf("ValidateReceipt() error = %v, want missing implementation rejection", err)
 	}
+}
+
+func TestRemoteTestSelectorsProjectsCatalogGoTestCommand(t *testing.T) {
+	selectors, err := RemoteTestSelectors([]string{
+		"go", "test", "./cmd/mcp-lsp", "-tags=e2e",
+		"-run", "^Test(Alpha|Beta)$", "-count=1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"./cmd/mcp-lsp#TestAlpha", "./cmd/mcp-lsp#TestBeta"}
+	if !slices.Equal(selectors, want) {
+		t.Fatalf("RemoteTestSelectors() = %v, want %v", selectors, want)
+	}
+}
+
+func TestRemoteTestSelectorsRejectsShellOrRegexCommand(t *testing.T) {
+	for _, command := range [][]string{
+		{"sh", "-c", "go test ./cmd/mcp-lsp"},
+		{"go", "test", "./cmd/mcp-lsp", "-run", "Test.*"},
+	} {
+		if _, err := RemoteTestSelectors(command); err == nil {
+			t.Fatalf("RemoteTestSelectors(%v) unexpectedly succeeded", command)
+		}
+	}
+}
+
+func TestDefault15mReceiptBindsCompletionAndCurrentGitIdentity(t *testing.T) {
+	document, root, receipt, completionPath := default15mReceiptFixture(t)
+	if err := AttachCompletionProvenance(&receipt, root, completionPath); err != nil {
+		t.Fatalf("AttachCompletionProvenance() error = %v", err)
+	}
+	receiptPath := filepath.Join(root, "receipt.json")
+	writeReceiptJSON(t, receiptPath, receipt)
+	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err != nil {
+		t.Fatalf("ValidateReceiptAt() error = %v", err)
+	}
+	if err := ValidateCompletionReceipt(root, completionPath); err != nil {
+		t.Fatalf("ValidateCompletionReceipt() error = %v", err)
+	}
+}
+
+func TestDefault15mReceiptRejectsCompletionChainAndGitDrift(t *testing.T) {
+	document, root, receipt, completionPath := default15mReceiptFixture(t)
+	if err := AttachCompletionProvenance(&receipt, root, completionPath); err != nil {
+		t.Fatalf("AttachCompletionProvenance() error = %v", err)
+	}
+	receipt.GitHead = strings.Repeat("0", 40)
+	receiptPath := filepath.Join(root, "receipt.json")
+	writeReceiptJSON(t, receiptPath, receipt)
+	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err == nil || !strings.Contains(err.Error(), "Git HEAD/tree") {
+		t.Fatalf("ValidateReceiptAt() error = %v, want Git provenance rejection", err)
+	}
+	badCompletion := filepath.Join(root, "completion-bad.json")
+	proof := defaultCompletionProof(t, root)
+	proof["action_order"] = []string{"mark_draining", "completed"}
+	writeJSON(t, badCompletion, proof)
+	if err := AttachCompletionProvenance(&receipt, root, badCompletion); err == nil || !strings.Contains(err.Error(), "action order") {
+		t.Fatalf("AttachCompletionProvenance() error = %v, want action-order rejection", err)
+	}
+}
+
+func TestLoadAtBindsResolvedGitTreeDespiteWorkingTreeDrift(t *testing.T) {
+	document, raw, root := validFixture(t)
+	document.Workloads[0].Command = []string{"go", "test", "./cmd/mcp-lsp", "-run", "^TestFoo$"}
+	raw = encodeWithDigest(t, &document)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, Path)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, Path), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runCatalogGit(t, root, "init", "--quiet")
+	runCatalogGit(t, root, "config", "user.name", "catalog-test")
+	runCatalogGit(t, root, "config", "user.email", "catalog-test@example.invalid")
+	runCatalogGit(t, root, "add", ".")
+	runCatalogGit(t, root, "commit", "--quiet", "-m", "候选目录")
+	_, tree, err := currentGitIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateID := document.Workloads[0].ID
+	// Working tree drift is valid JSON with a new digest, but must not change
+	// the catalog decision already bound to the candidate tree.
+	drift := document
+	drift.Workloads = append([]Workload(nil), document.Workloads...)
+	drift.Workloads[0].ID = "working-tree-drift"
+	driftRaw := encodeWithDigest(t, &drift)
+	if err := os.WriteFile(filepath.Join(root, Path), driftRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := LoadAt(root, tree)
+	if err != nil {
+		t.Fatalf("LoadAt() error = %v", err)
+	}
+	if candidate.Workloads[0].ID != candidateID {
+		t.Fatalf("LoadAt() workload ID = %q, want candidate %q", candidate.Workloads[0].ID, candidateID)
+	}
+	working, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load() drifted catalog error = %v", err)
+	}
+	if working.Workloads[0].ID != "working-tree-drift" {
+		t.Fatalf("Load() workload ID = %q, want drift", working.Workloads[0].ID)
+	}
+}
+
+func TestValidateCompletionReceiptForCandidateRejectsWorkingTreeIdentity(t *testing.T) {
+	_, root, _, completionPath := default15mReceiptFixture(t)
+	gitHead, tree, err := currentGitIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCompletionReceiptForCandidate(gitHead, tree, completionPath); err != nil {
+		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v", err)
+	}
+	if err := ValidateCompletionReceiptForCandidate(strings.Repeat("0", 40), tree, completionPath); err == nil || !strings.Contains(err.Error(), "candidate") {
+		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v, want candidate mismatch", err)
+	}
+}
+
+func default15mReceiptFixture(t *testing.T) (Catalog, string, Receipt, string) {
+	t.Helper()
+	root := t.TempDir()
+	runCatalogGit(t, root, "init", "--quiet")
+	runCatalogGit(t, root, "config", "user.name", "catalog-test")
+	runCatalogGit(t, root, "config", "user.email", "catalog-test@example.invalid")
+	if err := os.WriteFile(filepath.Join(root, "source.txt"), []byte("source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runCatalogGit(t, root, "add", "source.txt")
+	runCatalogGit(t, root, "commit", "--quiet", "-m", "初始化")
+	receiptRequired := true
+	workload := Workload{ID: "mcp-lsp-default-15m", ImplementationStatus: "implemented", ProducerImplementationStatus: "implemented", RunnerTarget: "remote-gate-test", Platforms: []string{runtime.GOOS}, TimeoutSeconds: 1500, TriggerClass: default15mTriggerClass, ReceiptSchema: ReceiptSchema, ProducerWorkflowPath: ".github/workflows/ci.yml", ProducerArtifactName: "mcp-lsp-default-15m-receipt", T6Blocking: true, ReleaseBlocking: true, ReceiptRequired: &receiptRequired, Command: []string{"go", "test", "./cmd/mcp-lsp", "-run", "^TestFoo$"}}
+	document := Catalog{Schema: Schema, Workloads: []Workload{workload}}
+	raw := encodeWithDigest(t, &document)
+	_ = raw
+	receipt := Receipt{Schema: ReceiptSchema, WorkloadID: workload.ID, CatalogDigest: document.CatalogDigest, RunnerTarget: workload.RunnerTarget, ProducerWorkflowPath: workload.ProducerWorkflowPath, ProducerArtifactName: workload.ProducerArtifactName, ProducerImplementationStatus: workload.ProducerImplementationStatus, ExecutionOrigin: "local-runner", Platform: runtime.GOOS, TimeoutSeconds: workload.TimeoutSeconds, Command: workload.Command, StartedAt: "2026-08-07T00:00:00.000000000Z", FinishedAt: "2026-08-07T00:00:01.000000000Z", WorkloadStartedAt: "2026-08-07T00:00:00.000000000Z", WorkloadFinishedAt: "2026-08-07T00:00:01.000000000Z", Status: "pass", ExitCode: 0}
+	completionPath := filepath.Join(root, "completion.json")
+	writeJSON(t, completionPath, defaultCompletionProof(t, root))
+	return document, root, receipt, completionPath
+}
+
+func defaultCompletionProof(t *testing.T, root string) map[string]any {
+	t.Helper()
+	gitHead, tree, err := currentGitIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]any{
+		"git_head": gitHead, "source_tree_digest": tree, "cohort_id": "sha256:" + strings.Repeat("1", 64), "repository_instance_proof_hash": "sha256:" + strings.Repeat("2", 64), "epoch": uint64(3), "daemon_owner_receipt_hash": "sha256:" + strings.Repeat("3", 64), "action_order": completionActionOrder, "forwarder_count_after": 0, "daemon_observed_after": false, "telemetry_identities_gone": true, "endpoint_unreachable": true, "native_owner_released": true, "quiet_window_verified": true, "next_epoch": uint64(4), "status": "completed",
+	}
+}
+
+func runCatalogGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", root}, args...)...)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+}
+
+func writeJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeReceiptJSON(t *testing.T, path string, value Receipt) {
+	t.Helper()
+	if value.WorkloadID == "" {
+		t.Fatal(fmt.Errorf("receipt workload ID is empty"))
+	}
+	writeJSON(t, path, value)
 }
 
 func canonicalReceipt(document Catalog) Receipt {

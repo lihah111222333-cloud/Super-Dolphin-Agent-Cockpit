@@ -18,9 +18,10 @@ import (
 )
 
 type runnerOptions struct {
-	id      string
-	receipt string
-	plan    bool
+	id                string
+	receipt           string
+	completionReceipt string
+	plan              bool
 }
 
 func main() {
@@ -51,8 +52,14 @@ func run(args []string) error {
 	if !workload.SupportsCurrentPlatform() {
 		return fmt.Errorf("workload %q is not registered for platform %q", workload.ID, runtime.GOOS)
 	}
+	if workload.ID == "mcp-lsp-default-15m" && runtime.GOOS == "windows" {
+		return fmt.Errorf("workload %q is N/V on Windows until native daemon owner receipt is implemented", workload.ID)
+	}
 	if workload.ImplementationStatus != "implemented" {
 		return fmt.Errorf("workload %q is N/V: implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
+	}
+	if workload.ProducerImplementationStatus != "implemented" {
+		return fmt.Errorf("workload %q is N/V: producer_implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ProducerImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
 	}
 	if options.plan {
 		return printPlan(document, workload)
@@ -61,13 +68,18 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	return executeWorkload(repoRoot, document, workload, receiptPath)
+	completionReceiptPath, err := resolveCompletionReceiptPath(workload, options.completionReceipt)
+	if err != nil {
+		return err
+	}
+	return executeWorkload(repoRoot, document, workload, receiptPath, completionReceiptPath)
 }
 
 func parseOptions(args []string) (runnerOptions, error) {
 	fs := flag.NewFlagSet("run_mcp_lsp_workload", flag.ContinueOnError)
 	id := fs.String("id", "", "catalog workload ID")
 	receipt := fs.String("receipt", "", "absolute or repository-relative receipt path")
+	completionReceipt := fs.String("completion-receipt", "", "absolute root-cohort completion receipt path (required by default-15m)")
 	plan := fs.Bool("print-plan", false, "print the catalog-resolved plan without executing it")
 	if err := fs.Parse(args); err != nil {
 		return runnerOptions{}, err
@@ -78,7 +90,7 @@ func parseOptions(args []string) (runnerOptions, error) {
 	if strings.TrimSpace(*id) == "" {
 		return runnerOptions{}, errors.New("--id is required; workload commands are catalog-owned")
 	}
-	return runnerOptions{id: *id, receipt: *receipt, plan: *plan}, nil
+	return runnerOptions{id: *id, receipt: *receipt, completionReceipt: *completionReceipt, plan: *plan}, nil
 }
 
 // findRepoRoot 从当前目录向上寻找仓库根目录。
@@ -115,6 +127,27 @@ func resolveReceiptPath(repoRoot, requested, workloadID string) (string, error) 
 	return filepath.Clean(requested), nil
 }
 
+// resolveCompletionReceiptPath 只接受显式 CLI 参数；不从环境变量或默认路径
+// 猜测 completion receipt，避免把缺失的 root-cohort 证据伪装为 PASS。
+func resolveCompletionReceiptPath(workload catalog.Workload, requested string) (string, error) {
+	if workload.TriggerClass != "default-15m-source-e2e" {
+		if strings.TrimSpace(requested) == "" {
+			return "", nil
+		}
+		if strings.TrimSpace(requested) != "" && !filepath.IsAbs(requested) {
+			return "", errors.New("--completion-receipt must be absolute")
+		}
+		return filepath.Clean(requested), nil
+	}
+	if strings.TrimSpace(requested) == "" {
+		return "", fmt.Errorf("workload %q requires explicit --completion-receipt", workload.ID)
+	}
+	if !filepath.IsAbs(requested) {
+		return "", errors.New("--completion-receipt must be absolute")
+	}
+	return filepath.Clean(requested), nil
+}
+
 func printPlan(document catalog.Catalog, workload catalog.Workload) error {
 	plan := struct {
 		ID                           string   `json:"id"`
@@ -140,7 +173,7 @@ func printPlan(document catalog.Catalog, workload catalog.Workload) error {
 }
 
 // executeWorkload 按目录命令执行 workload，并原子写入本地回执。
-func executeWorkload(repoRoot string, document catalog.Catalog, workload catalog.Workload, receiptPath string) error {
+func executeWorkload(repoRoot string, document catalog.Catalog, workload catalog.Workload, receiptPath, completionReceiptPath string) error {
 	started := time.Now().UTC()
 	timeout, err := catalog.TimeoutDuration(workload.TimeoutSeconds)
 	if err != nil {
@@ -154,6 +187,9 @@ func executeWorkload(repoRoot string, document catalog.Catalog, workload catalog
 		"MCP_LSP_WORKLOAD_ID="+workload.ID,
 		"MCP_LSP_WORKLOAD_CATALOG_DIGEST="+document.CatalogDigest,
 	)
+	if completionReceiptPath != "" {
+		command.Env = append(command.Env, "MCP_LSP_COMPLETION_RECEIPT="+completionReceiptPath)
+	}
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	runErr := command.Run()
@@ -167,6 +203,14 @@ func executeWorkload(repoRoot string, document catalog.Catalog, workload catalog
 		TimeoutSeconds: workload.TimeoutSeconds, Command: append([]string(nil), workload.Command...),
 		StartedAt: started.Format(time.RFC3339Nano), FinishedAt: finished.Format(time.RFC3339Nano),
 		Status: status, ExitCode: exitCode,
+		WorkloadStartedAt: started.Format(time.RFC3339Nano), WorkloadFinishedAt: finished.Format(time.RFC3339Nano),
+	}
+	if completionReceiptPath != "" {
+		if err := catalog.AttachCompletionProvenance(&receipt, repoRoot, completionReceiptPath); err != nil && runErr == nil {
+			runErr = err
+			status, exitCode = "failed", -1
+			receipt.Status, receipt.ExitCode = status, exitCode
+		}
 	}
 	if err := writeReceipt(receiptPath, receipt); err != nil {
 		return err

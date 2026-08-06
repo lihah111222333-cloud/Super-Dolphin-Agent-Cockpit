@@ -68,7 +68,7 @@ func run(args []string) error {
 	if err := validateConsumers(repoRoot, document); err != nil {
 		return err
 	}
-	if err := validateRequestedReceipt(document, request); err != nil {
+	if err := validateRequestedReceipt(repoRoot, document, request); err != nil {
 		return err
 	}
 	fmt.Printf("mcp-lsp workload catalog PASS schema=%s digest=%s workloads=%d\n", document.Schema, document.CatalogDigest, len(document.Workloads))
@@ -93,14 +93,14 @@ func parseGuardRequest(args []string) (guardRequest, error) {
 }
 
 // validateRequestedReceipt 校验命令行指定的回执路径和内容。
-func validateRequestedReceipt(document catalog.Catalog, request guardRequest) error {
+func validateRequestedReceipt(repoRoot string, document catalog.Catalog, request guardRequest) error {
 	if request.receipt == "" {
 		return nil
 	}
 	if !filepath.IsAbs(request.receipt) {
 		return fmt.Errorf("--receipt must be absolute")
 	}
-	return catalog.ValidateReceipt(document, request.id, request.receipt)
+	return catalog.ValidateReceiptAt(document, repoRoot, request.id, request.receipt)
 }
 
 func findRepoRoot() (string, error) {
@@ -286,6 +286,7 @@ func parseDeclaredTests(path string) (map[string]bool, error) {
 func validateConsumers(repoRoot string, document catalog.Catalog) error {
 	consumerPaths := []string{
 		"Makefile",
+		"cmd/super-dolphin-gate/test_cli.go",
 		"scripts/ai_maintenance/main.go",
 		"scripts/ai_maintenance/owned_gate_execution.go",
 		"scripts/ai_maintenance/evidence.go",
@@ -335,6 +336,9 @@ func requireQuickConsumerReferences(repoRoot, quickID string) error {
 		if err := requireConsumerID(repoRoot, relative, quickID); err != nil {
 			return err
 		}
+	}
+	if err := requireConsumerID(repoRoot, "cmd/super-dolphin-gate/test_cli.go", "mcp-lsp-default-15m"); err != nil {
+		return err
 	}
 	return requireConsumerID(repoRoot, ".githooks/README.md", quickID)
 }

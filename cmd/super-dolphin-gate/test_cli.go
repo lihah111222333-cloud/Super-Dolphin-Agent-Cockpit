@@ -1,6 +1,18 @@
 package main
 
-import "io"
+import (
+	"fmt"
+	"io"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
+)
+
+const mcpLSPDefault15mWorkloadID = "mcp-lsp-default-15m"
 
 // runTestInvocation 固定 test 场景，并把所有工作负载交给权威远程 ECI 协调器。
 func runTestInvocation(args []string, stdout io.Writer) error {
@@ -12,6 +24,14 @@ func runTestInvocation(args []string, stdout io.Writer) error {
 		return err
 	}
 	result, input, runErr := executeRemoteRun(options)
+	if runErr == nil && options.WorkloadID != "" && options.CompletionReceiptPath != "" {
+		candidateHead, candidateTree, err := mcpLSPCandidateIdentityFromInput(input)
+		if err != nil {
+			runErr = fmt.Errorf("resolve workload candidate identity: %w", err)
+		} else if err := catalog.ValidateCompletionReceiptForCandidate(candidateHead, candidateTree, options.CompletionReceiptPath); err != nil {
+			runErr = fmt.Errorf("validate workload %q completion receipt: %w", options.WorkloadID, err)
+		}
+	}
 	return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
 }
 
@@ -26,9 +46,136 @@ func parseAutoTestRunOptions(args []string) (remoteRunOptions, error) {
 		options.UpdateKind != "" {
 		return remoteRunOptions{}, protocolError("test command does not accept scenario, profile, entrypoint, or push flags")
 	}
-	if len(options.Tests) == 0 {
-		return remoteRunOptions{}, protocolError("test command requires at least one --test selector")
+	if options.CompletionReceiptPath != "" && !filepath.IsAbs(options.CompletionReceiptPath) {
+		return remoteRunOptions{}, protocolError("--completion-receipt must be an absolute path")
+	}
+	if options.WorkloadID != "" {
+		if err := bindMcpLSPWorkloadSelectors(&options); err != nil {
+			return remoteRunOptions{}, protocolError("bind workload %q: %v", options.WorkloadID, err)
+		}
+	} else {
+		if options.CompletionReceiptPath != "" {
+			return remoteRunOptions{}, protocolError("--completion-receipt requires --workload")
+		}
+		if len(options.Tests) == 0 {
+			return remoteRunOptions{}, protocolError("test command requires at least one --test selector")
+		}
 	}
 	options.Scenario = "test"
 	return options, nil
+}
+
+// bindMcpLSPWorkloadSelectors resolves a catalog workload before the request
+// reaches the ECI coordinator. Missing implementation, unsupported Windows,
+// and selector drift are all explicit N/V/protocol failures; no local test is
+// executed as a fallback.
+func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {
+	if options == nil || strings.TrimSpace(options.WorkloadID) == "" {
+		return fmt.Errorf("workload ID is required")
+	}
+	repository, err := filepath.Abs(options.RepositoryRoot)
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	candidateHead, candidateTree, err := resolveMcpLSPCandidateIdentity(repository, *options)
+	if err != nil {
+		return err
+	}
+	document, err := catalog.LoadAt(repository, candidateTree)
+	if err != nil {
+		return err
+	}
+	workload, err := document.Find(options.WorkloadID)
+	if err != nil {
+		return err
+	}
+	if !workload.SupportsCurrentPlatform() {
+		return fmt.Errorf("platform %q is N/V for workload (registered platforms=%s)", runtime.GOOS, strings.Join(workload.Platforms, ","))
+	}
+	if workload.ID == mcpLSPDefault15mWorkloadID && runtime.GOOS == "windows" {
+		return fmt.Errorf("default-15m workload is N/V on Windows until native daemon owner receipt is implemented")
+	}
+	if workload.ImplementationStatus != "implemented" {
+		if workload.ID == mcpLSPDefault15mWorkloadID {
+			return fmt.Errorf("default-15m workload is N/V: implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
+		}
+		return fmt.Errorf("implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
+	}
+	if workload.ProducerImplementationStatus != "implemented" {
+		return fmt.Errorf("workload %q is N/V: producer_implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ProducerImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
+	}
+	if workload.TriggerClass == "default-15m-source-e2e" && options.CompletionReceiptPath == "" {
+		return fmt.Errorf("default-15m requires explicit --completion-receipt")
+	}
+	selectors, err := catalog.RemoteTestSelectors(workload.Command)
+	if err != nil {
+		return err
+	}
+	if len(options.Tests) == 0 {
+		options.Tests = selectors
+	} else if !sameSelectorSet(options.Tests, selectors) {
+		return fmt.Errorf("--test selectors do not exactly match catalog workload command")
+	}
+	// Freeze the resolved candidate so a moving HEAD or symbolic revision cannot
+	// change the source between catalog binding and remote execution.
+	if options.Tree != "" {
+		options.Tree = candidateTree
+		options.ParentCommit = candidateHead
+	} else {
+		options.Commit = candidateHead
+	}
+	return nil
+}
+
+func resolveMcpLSPCandidateIdentity(repository string, options remoteRunOptions) (string, string, error) {
+	if strings.TrimSpace(repository) == "" {
+		return "", "", fmt.Errorf("repository root is required")
+	}
+	if options.Tree != "" {
+		if options.ParentCommit == "" {
+			return "", "", fmt.Errorf("workload candidate tree requires --parent commit")
+		}
+		tree, err := remoteGitOutput(repository, "rev-parse", "--verify", "--end-of-options", options.Tree+"^{tree}")
+		if err != nil {
+			return "", "", fmt.Errorf("resolve workload candidate tree: %w", err)
+		}
+		head, err := remoteGitOutput(repository, "rev-parse", "--verify", "--end-of-options", options.ParentCommit+"^{commit}")
+		if err != nil {
+			return "", "", fmt.Errorf("resolve workload candidate parent commit: %w", err)
+		}
+		return head, tree, nil
+	}
+	if options.Commit == "" {
+		return "", "", fmt.Errorf("workload candidate commit or tree is required")
+	}
+	head, err := remoteGitOutput(repository, "rev-parse", "--verify", "--end-of-options", options.Commit+"^{commit}")
+	if err != nil {
+		return "", "", fmt.Errorf("resolve workload candidate commit: %w", err)
+	}
+	tree, err := remoteGitOutput(repository, "rev-parse", "--verify", "--end-of-options", head+"^{tree}")
+	if err != nil {
+		return "", "", fmt.Errorf("resolve workload candidate tree: %w", err)
+	}
+	return head, tree, nil
+}
+
+func mcpLSPCandidateIdentityFromInput(input remoteci.RunInput) (string, string, error) {
+	head := input.Commit
+	if head == "" && input.Source.Tree != nil {
+		head = input.Source.Tree.ParentCommitSHA
+	}
+	if head == "" || input.Tree == "" {
+		return "", "", fmt.Errorf("remote run input is missing candidate commit/tree")
+	}
+	return head, input.Tree, nil
+}
+
+func sameSelectorSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	leftCopy, rightCopy := append([]string(nil), left...), append([]string(nil), right...)
+	slices.Sort(leftCopy)
+	slices.Sort(rightCopy)
+	return slices.Equal(leftCopy, rightCopy)
 }

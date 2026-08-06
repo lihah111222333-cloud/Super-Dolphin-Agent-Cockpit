@@ -24,7 +24,7 @@ func validateRemoteCalibrationOptions(options remoteRunOptions) error {
 
 // remoteCalibrationHasScenarioOptions 判断校准是否混入运行场景或测试选择器。
 func remoteCalibrationHasScenarioOptions(options remoteRunOptions) bool {
-	return options.Base != "" || options.Profile != "" || options.Scenario != "" || len(options.Tests) != 0
+	return options.Base != "" || options.Profile != "" || options.Scenario != "" || len(options.Tests) != 0 || options.WorkloadID != "" || options.CompletionReceiptPath != ""
 }
 
 // remoteCalibrationHasSourceOptions 判断校准是否混入推送或显式树 source 参数。

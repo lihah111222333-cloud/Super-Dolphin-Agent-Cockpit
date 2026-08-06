@@ -27,6 +27,8 @@ func parseRemoteRunOptions(args []string) (remoteRunOptions, error) {
 	flags.StringVar(&options.Entrypoint, "entrypoint", "", "canonical CI entrypoint ID")
 	var tests remoteStringListFlag
 	flags.Var(&tests, "test", "exact Go package or frontend Vitest file; repeatable")
+	flags.StringVar(&options.WorkloadID, "workload", "", "catalog-owned mcp-lsp workload ID")
+	flags.StringVar(&options.CompletionReceiptPath, "completion-receipt", "", "absolute root-cohort completion receipt path")
 	flags.StringVar(&options.LocalRef, "local-ref", "", "local ref for push profile")
 	flags.StringVar(&options.RemoteRef, "remote-ref", "", "remote ref for push profile")
 	flags.StringVar(&options.ObservedRemote, "observed-remote", "", "observed remote commit for push profile")
