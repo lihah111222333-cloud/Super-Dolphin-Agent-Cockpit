@@ -46,32 +46,14 @@ type Registry struct {
 	retryByNode map[string]NodeRetryCount
 }
 
-var defaultRegistry = NewRegistry()
-
 // NewRegistry 创建独立 DAG 指标 registry。
 func NewRegistry() *Registry {
 	return &Registry{retryByNode: map[string]NodeRetryCount{}}
 }
 
-// DefaultRegistry 返回当前进程默认 DAG 指标 registry。
-func DefaultRegistry() *Registry {
-	return defaultRegistry
-}
-
-// IncDispatchFailed 记录一次 DAG dispatch 失败。
-func IncDispatchFailed() {
-	DefaultRegistry().IncDispatchFailed()
-}
-
 // IncDispatchFailed 记录一次 DAG dispatch 失败。
 func (r *Registry) IncDispatchFailed() {
 	r.dispatchFailedTotal.Add(1)
-}
-
-// RecordRetry 记录节点重试，并在达到阈值时返回 ShouldAlert。
-// 空 DAG 或节点 key 会被忽略，节点序列过多时只增加 overflow，避免指标基数失控。
-func RecordRetry(dagKey, nodeKey string, attemptCount int32) RetryRecord {
-	return DefaultRegistry().RecordRetry(dagKey, nodeKey, attemptCount)
 }
 
 // RecordRetry 记录节点重试，并在达到阈值时返回 ShouldAlert。
@@ -110,11 +92,6 @@ func (r *Registry) RecordRetry(dagKey, nodeKey string, attemptCount int32) Retry
 }
 
 // Read 返回当前 DAG 指标快照，并稳定排序节点计数便于测试和导出。
-func Read() Snapshot {
-	return DefaultRegistry().Read()
-}
-
-// Read 返回当前 DAG 指标快照，并稳定排序节点计数便于测试和导出。
 func (r *Registry) Read() Snapshot {
 	r.mu.RLock()
 	retries := make([]NodeRetryCount, 0, len(r.retryByNode))
@@ -137,11 +114,6 @@ func (r *Registry) Read() Snapshot {
 }
 
 // RetryCountForNode 返回指定 DAG/node 已记录的最大重试次数。
-func RetryCountForNode(dagKey, nodeKey string) uint64 {
-	return DefaultRegistry().RetryCountForNode(dagKey, nodeKey)
-}
-
-// RetryCountForNode 返回指定 DAG/node 已记录的最大重试次数。
 func (r *Registry) RetryCountForNode(dagKey, nodeKey string) uint64 {
 	dagKey = strings.TrimSpace(dagKey)
 	nodeKey = strings.TrimSpace(nodeKey)
@@ -151,11 +123,6 @@ func (r *Registry) RetryCountForNode(dagKey, nodeKey string) uint64 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.retryByNode[dagKey+"\x00"+nodeKey].Count
-}
-
-// ResetForTesting 清空所有 DAG 指标，仅供测试隔离使用。
-func ResetForTesting() {
-	DefaultRegistry().ResetForTesting()
 }
 
 // ResetForTesting 清空 registry 所有 DAG 指标，仅供测试隔离使用。

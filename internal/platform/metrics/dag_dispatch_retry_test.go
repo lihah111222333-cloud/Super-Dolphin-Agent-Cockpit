@@ -5,12 +5,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
 )
 
 func TestMetricsHandlerServesDAGDispatchRetryCounters(t *testing.T) {
-	registry := dagmetrics.DefaultRegistry()
+	registry := DAGRegistry()
 	registry.ResetForTesting()
 	t.Cleanup(registry.ResetForTesting)
 	registry.IncDispatchFailed()

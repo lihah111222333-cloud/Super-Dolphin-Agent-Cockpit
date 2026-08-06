@@ -14,7 +14,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 // ErrDispatchStoreUnset 表示 service 被构造时没拿到 taskdag.DispatchNodeStore
@@ -94,7 +94,7 @@ type DispatchRetryAlertSink interface {
 
 // recordDispatchFailedMetric 记录一次派发失败指标。
 func recordDispatchFailedMetric() {
-	dagmetrics.DefaultRegistry().IncDispatchFailed()
+	platformmetrics.DAGRegistry().IncDispatchFailed()
 }
 
 // recordDispatchRetryMetric 记录派发重试指标，并在达到阈值时生成告警载荷。
@@ -103,7 +103,7 @@ func recordDispatchRetryMetric(w *taskdag.Wakeup, lastErr string) (DispatchRetry
 		return DispatchRetryAlert{}, false
 	}
 	attemptCount := max(w.AttemptCount, 1)
-	record := dagmetrics.DefaultRegistry().RecordRetry(w.DagKey, w.NodeKey, attemptCount)
+	record := platformmetrics.DAGRegistry().RecordRetry(w.DagKey, w.NodeKey, attemptCount)
 	if record.DagKey == "" || record.NodeKey == "" {
 		return DispatchRetryAlert{}, false
 	}
