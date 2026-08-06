@@ -2,6 +2,12 @@ package notify
 
 import (
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
@@ -27,6 +33,66 @@ func TestIsTerminalNodeStatus(t *testing.T) {
 	for _, s := range []string{"", "running", "pending", "dispatching", "awaiting_verify"} {
 		if isTerminalNodeStatus(s) {
 			t.Errorf("isTerminalNodeStatus(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestResolveHasNoPackageGlobalTerminalStatusState(t *testing.T) {
+	t.Parallel()
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate resolve test source")
+	}
+	resolvedFile, err := parser.ParseFile(token.NewFileSet(), filepath.Join(filepath.Dir(testFile), "resolve.go"), nil, 0)
+	if err != nil {
+		t.Fatalf("parse resolve source: %v", err)
+	}
+	for _, declaration := range resolvedFile.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range general.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, name := range value.Names {
+				if name.Name == "terminalNodeStatuses" {
+					t.Fatal("terminal status resolution must not retain package-global mutable state")
+				}
+			}
+		}
+	}
+}
+
+func TestTerminalNodeStatusResolutionConcurrent(t *testing.T) {
+	t.Parallel()
+	statuses := []struct {
+		status string
+		want   bool
+	}{
+		{status: " done ", want: true},
+		{status: "FAILED", want: true},
+		{status: "running", want: false},
+		{status: "", want: false},
+	}
+	results := make(chan error, len(statuses)*64)
+	for range 64 {
+		for _, tc := range statuses {
+			tc := tc
+			go func() {
+				if got := isTerminalNodeStatus(tc.status); got != tc.want {
+					results <- fmt.Errorf("isTerminalNodeStatus(%q) = %v, want %v", tc.status, got, tc.want)
+					return
+				}
+				results <- nil
+			}()
+		}
+	}
+	for range cap(results) {
+		if err := <-results; err != nil {
+			t.Fatal(err)
 		}
 	}
 }

@@ -11,23 +11,16 @@ import (
 	taskdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/task"
 )
 
-// terminalNodeStatuses 列出值得发送通知的 taskdag 终态。
-// running、pending 等中间态不发送，避免通知队列被不可行动的状态变更刷屏。
-var terminalNodeStatuses = map[string]bool{
-	"done":      true,
-	"succeeded": true,
-	"completed": true,
-	"failed":    true,
-	"error":     true,
-	"cancelled": true,
-	"canceled":  true,
-	"skipped":   true,
-}
-
 // isTerminalNodeStatus 归一化并判断目标状态是否为终态。
 // 这里统一 trim/lower，避免存储层大小写差异泄漏到订阅器控制流。
+// 终态集合通过无状态 switch 固定，避免跨调用共享可变通知解析状态。
 func isTerminalNodeStatus(status string) bool {
-	return terminalNodeStatuses[strings.ToLower(strings.TrimSpace(status))]
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "done", "succeeded", "completed", "failed", "error", "cancelled", "canceled", "skipped":
+		return true
+	default:
+		return false
+	}
 }
 
 // resolveNodeAlias 按节点优先的顺序解析通知渠道别名：
