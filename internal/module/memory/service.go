@@ -26,6 +26,7 @@ type Service interface {
 	EnsureRoot(ctx context.Context) error
 	RunConsolidation(ctx context.Context) error
 	GetDreamTaskStatus() DreamTaskSnapshot
+	GetNestedIngestHealth() NestedIngestHealthSnapshot
 	KillDreamTask() error
 	MemoryCoordinator() *diskLockCoordinator
 }
@@ -80,6 +81,9 @@ type MemoryLifecycleHooks struct {
 	dreamMu     sync.Mutex
 	dreamTask   *dreamTaskState
 	dreamHealth autoDreamHealthSnapshot
+
+	nestedIngestMu     sync.Mutex
+	nestedIngestHealth NestedIngestHealthSnapshot
 
 	dedupFilter *dedup.Filter
 
@@ -216,6 +220,50 @@ func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
 		return DreamTaskSnapshot{}
 	}
 	return s.dreamHooks.GetDreamTaskStatus()
+}
+
+// NestedIngestHealthSnapshot 是 nested ingest 拒绝的唯一生产状态快照。
+// 每次拒绝都保留累计数及最近一次的错误、线程和发生时间，供 UI health 消费。
+type NestedIngestHealthSnapshot struct {
+	RejectedTotal int64
+	LastError     string
+	LastAt        time.Time
+	LastThreadID  string
+}
+
+// recordNestedIngestRejection 记录一次不能进入 nested ingest worker 的事件。
+// 调用方必须传入真实错误；缺失 health owner 或错误属于装配/调用错误，立即终止而非静默丢弃。
+func (h *MemoryLifecycleHooks) recordNestedIngestRejection(threadID string, err error) {
+	if h == nil {
+		panic("memory: nested ingest rejection health owner is required")
+	}
+	if err == nil {
+		panic("memory: nested ingest rejection error is required")
+	}
+	h.nestedIngestMu.Lock()
+	defer h.nestedIngestMu.Unlock()
+	h.nestedIngestHealth.RejectedTotal++
+	h.nestedIngestHealth.LastError = err.Error()
+	h.nestedIngestHealth.LastAt = time.Now().UTC()
+	h.nestedIngestHealth.LastThreadID = threadID
+}
+
+// GetNestedIngestHealth 返回 nested ingest 拒绝状态的一致快照。
+func (h *MemoryLifecycleHooks) GetNestedIngestHealth() NestedIngestHealthSnapshot {
+	if h == nil {
+		return NestedIngestHealthSnapshot{}
+	}
+	h.nestedIngestMu.Lock()
+	defer h.nestedIngestMu.Unlock()
+	return h.nestedIngestHealth
+}
+
+// GetNestedIngestHealth 返回当前服务管理的 nested ingest 拒绝状态。
+func (s *service) GetNestedIngestHealth() NestedIngestHealthSnapshot {
+	if s == nil || s.dreamHooks == nil {
+		return NestedIngestHealthSnapshot{}
+	}
+	return s.dreamHooks.GetNestedIngestHealth()
 }
 
 // KillDreamTask 请求终止正在运行的 dream 整理任务。

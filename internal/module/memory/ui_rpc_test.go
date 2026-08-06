@@ -196,6 +196,80 @@ func TestBuildUIMemorySnapshotSurfacesAutoDreamHealth(t *testing.T) {
 	}
 }
 
+func TestBuildUIMemorySnapshotSurfacesNestedIngestHealth(t *testing.T) {
+	projectRoot := newTestGitProjectRoot(t)
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
+	}
+	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
+	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, nil, NewMemoryExtractor(), NewManifestBuilder())
+	before := time.Now().UTC()
+	hooks.recordNestedIngestRejection("thread-1", errors.New("nested ingest: pending queue limit exceeded"))
+	after := time.Now().UTC()
+
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, hooks), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	got := snapshot.Overview.Health.NestedIngest
+	if got == nil {
+		t.Fatal("Overview.Health.NestedIngest = nil, want rejection health")
+	}
+	if got.RejectedTotal != 1 || got.LastError != "nested ingest: pending queue limit exceeded" || got.LastThreadID != "thread-1" || got.LastAt.Before(before) || got.LastAt.After(after) {
+		t.Fatalf("NestedIngest = %+v, want total/error/thread/time", got)
+	}
+}
+
+// TestNestedIngestHealthProjectionCoversProducerFields prevents producer fields
+// from silently disappearing before the UIMemoryHealth wire DTO.
+func TestNestedIngestHealthProjectionCoversProducerFields(t *testing.T) {
+	producer := NestedIngestHealthSnapshot{
+		RejectedTotal: 7,
+		LastError:     "nested ingest: queue full",
+		LastAt:        time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC),
+		LastThreadID:  "thread-7",
+	}
+	consumer := uiNestedIngestHealthFromSnapshot(producer)
+	if consumer == nil {
+		t.Fatal("uiNestedIngestHealthFromSnapshot() = nil, want projected health")
+	}
+
+	consumerFieldByProducerField := map[string]string{
+		"RejectedTotal": "RejectedTotal",
+		"LastError":     "LastError",
+		"LastAt":        "LastAt",
+		"LastThreadID":  "LastThreadID",
+	}
+	producerValue := reflect.ValueOf(producer)
+	consumerValue := reflect.ValueOf(*consumer)
+	producerType := reflect.TypeFor[NestedIngestHealthSnapshot]()
+	consumerType := reflect.TypeFor[UINestedIngestHealth]()
+	for index := range producerType.NumField() {
+		producerField := producerType.Field(index)
+		consumerName, ok := consumerFieldByProducerField[producerField.Name]
+		if !ok {
+			t.Fatalf("producer field %q has no UINestedIngestHealth consumer", producerField.Name)
+		}
+		consumerField, ok := consumerType.FieldByName(consumerName)
+		if !ok {
+			t.Fatalf("producer field %q maps to missing consumer field %q", producerField.Name, consumerName)
+		}
+		if got, want := consumerValue.FieldByIndex(consumerField.Index).Interface(), producerValue.Field(index).Interface(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("producer field %q projected as %#v, want %#v", producerField.Name, got, want)
+		}
+	}
+	for producerName := range consumerFieldByProducerField {
+		if _, ok := producerType.FieldByName(producerName); !ok {
+			t.Fatalf("stale producer field registry entry %q", producerName)
+		}
+	}
+	healthField, ok := reflect.TypeFor[UIMemoryHealth]().FieldByName("NestedIngest")
+	if !ok || strings.Split(healthField.Tag.Get("json"), ",")[0] != "nestedIngest" {
+		t.Fatalf("UIMemoryHealth.NestedIngest json field = %q, want nestedIngest", healthField.Tag.Get("json"))
+	}
+}
+
 func TestConsolidateAllDreamFailureUsesUserFacingError(t *testing.T) {
 	err := publicConsolidateAllError(fmt.Errorf("%w: provider failed", similarity.ErrLLMConsolidate))
 	if err == nil {

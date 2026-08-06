@@ -99,12 +99,13 @@ type UIMemoryEntry struct {
 
 // UIMemoryHealth 汇总可执行的治理信号，如类型计数和相似组，用于 UI banner 而非写盘校验。
 type UIMemoryHealth struct {
-	PreferenceCount    int                `json:"preferenceCount"`
-	ProjectCount       int                `json:"projectCount"`
-	MaxPerCategory     int                `json:"maxPerCategory"`
-	SimilarGroups      []UISimilarGroup   `json:"similarGroups,omitempty"`
-	SimilarityDegraded bool               `json:"similarityDegraded,omitempty"`
-	AutoDream          *UIAutoDreamHealth `json:"autoDream,omitempty"`
+	PreferenceCount    int                   `json:"preferenceCount"`
+	ProjectCount       int                   `json:"projectCount"`
+	MaxPerCategory     int                   `json:"maxPerCategory"`
+	SimilarGroups      []UISimilarGroup      `json:"similarGroups,omitempty"`
+	SimilarityDegraded bool                  `json:"similarityDegraded,omitempty"`
+	AutoDream          *UIAutoDreamHealth    `json:"autoDream,omitempty"`
+	NestedIngest       *UINestedIngestHealth `json:"nestedIngest,omitempty"`
 }
 
 // UIAutoDreamHealth 是 UI 展示自动 dream 整理状态的只读 DTO。
@@ -119,6 +120,14 @@ type UIAutoDreamHealth struct {
 	Running        bool      `json:"running"`
 	ThreadID       string    `json:"threadID,omitempty"`
 	Phase          string    `json:"phase,omitempty"`
+}
+
+// UINestedIngestHealth 是 UI 展示 nested ingest 拒绝状态的只读 DTO。
+type UINestedIngestHealth struct {
+	RejectedTotal int64     `json:"rejectedTotal"`
+	LastError     string    `json:"lastError"`
+	LastAt        time.Time `json:"lastAt"`
+	LastThreadID  string    `json:"lastThreadID"`
 }
 
 // UISimilarGroup 是前端相似记忆提示的 wire DTO，target/path 会回传给 ignore/merge RPC。
@@ -173,6 +182,9 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 	populateUIMemoryHealthSimilarGroups(health, logger, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries, scanBudget)
 	if autoHealth := uiAutoDreamHealthFromSnapshot(svc.GetDreamTaskStatus()); autoHealth != nil {
 		health.AutoDream = autoHealth
+	}
+	if nestedHealth := uiNestedIngestHealthFromSnapshot(svc.GetNestedIngestHealth()); nestedHealth != nil {
+		health.NestedIngest = nestedHealth
 	}
 	scanMetadata := scanBudget.metadata()
 
@@ -237,6 +249,18 @@ func uiAutoDreamHealthFromSnapshot(snapshot DreamTaskSnapshot) *UIAutoDreamHealt
 		Running:        snapshot.Running,
 		ThreadID:       snapshot.ThreadID,
 		Phase:          snapshot.Phase,
+	}
+}
+
+func uiNestedIngestHealthFromSnapshot(snapshot NestedIngestHealthSnapshot) *UINestedIngestHealth {
+	if snapshot.RejectedTotal == 0 {
+		return nil
+	}
+	return &UINestedIngestHealth{
+		RejectedTotal: snapshot.RejectedTotal,
+		LastError:     snapshot.LastError,
+		LastAt:        snapshot.LastAt,
+		LastThreadID:  snapshot.LastThreadID,
 	}
 }
 

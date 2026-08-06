@@ -100,6 +100,7 @@ func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIng
 		if nested != nil {
 			appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
 				if err := nested.Enqueue(ev.ThreadID, ev.CallID, ev.ToolName, ev.Result, ev.PersistedPath); err != nil {
+					p.Hooks.recordNestedIngestRejection(ev.ThreadID, err)
 					pkglogger.Warn("memory: nested ingest rejected",
 						"thread_id", ev.ThreadID,
 						"tool_name", ev.ToolName,
