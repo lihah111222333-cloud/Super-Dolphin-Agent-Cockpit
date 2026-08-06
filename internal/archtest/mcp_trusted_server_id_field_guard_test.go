@@ -53,8 +53,7 @@ func trustedServerIDOwnerField(t *testing.T) reflect.StructField {
 	t.Helper()
 	owner := reflect.TypeFor[contract.MCPServerConfig]()
 	var matched []reflect.StructField
-	for i := range owner.NumField() {
-		field := owner.Field(i)
+	for field := range owner.Fields() {
 		if strings.Split(field.Tag.Get("json"), ",")[0] == contract.RuntimeMCPTrustedServerIDKey {
 			matched = append(matched, field)
 		}
@@ -143,6 +142,41 @@ import providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal
 	}
 }
 
+func TestManagedMCPBinaryProductionOwnerGuardSkipsTemporaryTrees(t *testing.T) {
+	const source = `package fixture
+
+import providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+
+func buildForgedBinary() providerdto.MCPBinary {
+	return providerdto.NewManagedMCPBinary(providerdto.MCPBinary{Name: "forged"})
+}
+`
+	root := t.TempDir()
+	for _, relPath := range []string{
+		".tmp/preview/repo/internal/contract/manifest.go",
+		"cmd/forged/main.go",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(relPath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create %s directory: %v", relPath, err)
+		}
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			t.Fatalf("write %s: %v", relPath, err)
+		}
+	}
+
+	calls, err := managedMCPProductionCalls(root)
+	if err != nil {
+		t.Fatalf("scan temporary tree fixture: %v", err)
+	}
+	if len(calls) != 1 || calls[0].Path != "cmd/forged/main.go" {
+		t.Fatalf("managed constructor calls = %+v, want only real production mutation", calls)
+	}
+	if err := validateManagedMCPProductionCalls(calls); err == nil || !strings.Contains(err.Error(), "cmd/forged/main.go:buildForgedBinary") {
+		t.Fatalf("managed constructor mutation error = %v, want real production reference rejection", err)
+	}
+}
+
 type managedMCPProductionCall struct {
 	Path     string
 	Function string
@@ -192,7 +226,7 @@ func managedMCPProductionCalls(root string) ([]managedMCPProductionCall, error) 
 func managedMCPExcludedProductionDir(rel string) bool {
 	for part := range strings.SplitSeq(rel, "/") {
 		switch part {
-		case ".git", ".worktrees", ".workspace", ".build-cache", ".agent", ".agents",
+		case ".git", ".worktrees", ".workspace", ".build-cache", ".agent", ".agents", ".tmp",
 			"vendor", "node_modules", "dist", "bin", "test", "testdata", "docs", "third_party":
 			return true
 		}
