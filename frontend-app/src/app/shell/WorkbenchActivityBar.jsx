@@ -1,5 +1,5 @@
 import React from 'react';
-import { PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Settings as SettingsIcon } from 'lucide-react';
 
 export function WorkbenchActivityBar({
   activePage,
@@ -10,17 +10,19 @@ export function WorkbenchActivityBar({
 }) {
   return (
     <nav className="workbench-activity-bar" aria-label="工作台活动栏">
-      <button
-        type="button"
-        className="workbench-activity-button workbench-activity-toggle"
-        aria-label={sidebarOpen ? '收起主侧栏' : '展开主侧栏'}
-        aria-expanded={sidebarOpen}
-        onClick={onToggleSidebar}
-      >
-        {sidebarOpen
-          ? <PanelLeftClose size={18} aria-hidden="true" />
-          : <PanelLeftOpen size={18} aria-hidden="true" />}
-      </button>
+      <div className="workbench-activity-toggle-zone">
+        <button
+          type="button"
+          className="workbench-activity-button workbench-activity-toggle"
+          aria-label={sidebarOpen ? '收起主侧栏' : '展开主侧栏'}
+          aria-expanded={sidebarOpen}
+          onClick={onToggleSidebar}
+        >
+          {sidebarOpen
+            ? <ChevronLeft size={18} aria-hidden="true" />
+            : <ChevronRight size={18} aria-hidden="true" />}
+        </button>
+      </div>
       <div className="workbench-activity-destinations">
         {items.map((item) => {
           const Icon = item.icon;

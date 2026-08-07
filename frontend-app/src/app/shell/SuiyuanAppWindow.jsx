@@ -2,6 +2,7 @@ import React, { Suspense, useCallback, useMemo, useState } from 'react';
 import {
   Bell,
   Brain,
+  ChevronLeft,
   CircleUserRound,
   Clock3,
   Database,
@@ -9,7 +10,6 @@ import {
   Menu,
   MessageSquareText,
   Moon,
-  PanelLeftClose,
   Puzzle,
   Sailboat,
   Settings as SettingsIcon,
@@ -25,7 +25,7 @@ import { APP_COMMAND_IDS, APP_COMMAND_REGISTRY } from '../commands/appCommandReg
 import { createAppCommandRuntime } from '../commands/appCommandRuntime.js';
 import { useAppCommandDispatcher } from '../commands/useAppCommandDispatcher.js';
 import { CommandPalette } from '../../features/command-palette/ui/CommandPalette.jsx';
-import { errorMessage, textValue } from '../../pages/shared/pageShared.js';
+import { errorMessage } from '../../pages/shared/pageShared.js';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from '../../shared/ui/runUIAction.js';
 import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
@@ -37,6 +37,7 @@ import { useWorkbenchLayout } from '../../shared/layout/useWorkbenchLayout.js';
 import { WorkbenchActivityBar } from './WorkbenchActivityBar.jsx';
 import { WorkbenchBottomPanel } from './WorkbenchBottomPanel.jsx';
 import { WorkbenchStatusBar } from './WorkbenchStatusBar.jsx';
+import { ChatActionsTrigger } from '../../pages/chat/components/ChatPageHeader.jsx';
 
 const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
@@ -58,23 +59,6 @@ const SUIYUAN_MOBILE_NAV_ITEMS = Object.freeze([
 ]);
 function hasOpenLocalEscapeSurface() {
   return Boolean(document.querySelector('dialog[open], [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
-}
-
-function workflowSubpageLabel(workflowView, copy) {
-  if (workflowView === 'templates') return copy.templatePageTitle;
-  if (workflowView === 'freeDesign') return copy.freeDesignPageTitle;
-  return '';
-}
-
-function appPageTitleLabel(page, copy) {
-  if (page === 'workflows') return copy.workflow.title || copy.nav.workflows;
-  if (page === 'prompts') return copy.prompts.title || copy.nav.prompts;
-  if (page === 'files') return copy.files.title || copy.nav.files;
-  if (page === 'memory') return copy.memory.title || copy.nav.memory;
-  if (page === 'observability') return copy.observability.title || copy.nav.observability;
-  if (page === 'settings') return copy.settings.title || copy.nav.settings;
-  if (page === 'skills') return copy.skills.title || copy.nav.skills;
-  return copy.nav[page] || copy.nav.chat;
 }
 
 function uiActionOptions(store) {
@@ -150,7 +134,7 @@ function SuiyuanChatNavGroup({ copy, item, projectPath, sidebar, store }) {
 }
 
 function SuiyuanSidebar({ copy, layout, projectPath, sidebar, store }) {
-  const { activePage, closeSidebar, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
+  const { activePage, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
 
   return (
@@ -169,16 +153,6 @@ function SuiyuanSidebar({ copy, layout, projectPath, sidebar, store }) {
           <strong>{APP_BRAND_NAME}</strong>
           <span>AI Desktop</span>
         </div>
-        <button
-          type="button"
-          className="suiyuan-sidebar-collapse"
-          aria-label={copy.workbench.collapse}
-          title={copy.workbench.collapse}
-          aria-controls="app-sidebar"
-          onClick={closeSidebar}
-        >
-          <PanelLeftClose size={17} aria-hidden="true" />
-        </button>
       </div>
       <button type="button" className="suiyuan-new-chat" aria-label={copy.workbench.newChat} onClick={startNewChat}>
         <Plus size={18} aria-hidden="true" />
@@ -306,7 +280,7 @@ function AppCommandPalette({ copy, onClose, open, runtime }) {
   );
 }
 
-function SuiyuanTopAppBar({ copy, currentPageLabel, locale, controls }) {
+function SuiyuanTopAppBar({ chatAction, copy, locale, controls }) {
   const {
     isDark,
     setActivePage,
@@ -317,10 +291,6 @@ function SuiyuanTopAppBar({ copy, currentPageLabel, locale, controls }) {
   const ThemeIcon = isDark ? Sun : Moon;
   return (
     <header className="suiyuan-top-appbar" aria-label="Suiyuan app bar">
-      <div className="suiyuan-appbar-title">
-        <span>{copy.currentPagePrefix}</span>
-        <h1>{currentPageLabel}</h1>
-      </div>
       <div className="suiyuan-appbar-actions" aria-label="Workspace actions">
         <button
           type="button"
@@ -358,6 +328,7 @@ function SuiyuanTopAppBar({ copy, currentPageLabel, locale, controls }) {
         >
           {locale.toUpperCase()}
         </button>
+        {chatAction}
       </div>
     </header>
   );
@@ -384,8 +355,14 @@ function SuiyuanMainSurface(model) {
       style={{ '--workbench-bottom-height': `${store.activePage === 'chat' ? bottomPanelHeight : 0}px` }}
     >
       <SuiyuanTopAppBar
+        chatAction={store.activePage === 'chat' ? (
+          <ChatActionsTrigger
+            copy={copy.chat}
+            projectPath={content.projectPath}
+            store={store}
+          />
+        ) : null}
         copy={copy}
-        currentPageLabel={header.currentPageLabel}
         locale={header.locale}
         controls={header.controls}
       />
@@ -430,12 +407,6 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
     updateBanner,
   } = shell;
   const { copy, locale, toggleLocale } = language;
-  const [currentPageState, setCurrentPageState] = useState({ activePage: store.activePage, workflowView: 'automation' });
-  if (currentPageState.activePage !== store.activePage) {
-    setCurrentPageState({ activePage: store.activePage, workflowView: 'automation' });
-  }
-  const currentWorkflowView = currentPageState.activePage === store.activePage ? currentPageState.workflowView : 'automation';
-  const currentPageLabelOverride = store.activePage === 'workflows' ? workflowSubpageLabel(currentWorkflowView, copy.workflow) : '';
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const isTest = typeof globalThis !== 'undefined' && globalThis.process?.env?.NODE_ENV === 'test';
     if (isTest) return false;
@@ -449,22 +420,16 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
   const geometrySnapshot = workbenchLayout.snapshot;
   const layoutActions = workbenchLayout.actions;
   const SidebarToggleIcon = sidebarOpen ? X : Menu;
-  const activeLabel = appPageTitleLabel(store.activePage, copy);
-  const currentPageLabel = currentPageLabelOverride || activeLabel;
   const isDark = theme === 'dark';
   const themeLabel = isDark ? copy.workbench.dayMode : copy.workbench.nightMode;
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
     store.setActivePage(page);
-    setCurrentPageState({ activePage: page, workflowView: 'automation' });
     const isTest = typeof globalThis !== 'undefined' && globalThis.process?.env?.NODE_ENV === 'test';
     if (isTest || (typeof window !== 'undefined' && window.innerWidth <= 920)) {
       setSidebarOpen(false);
     }
   }, [store]);
-  const handleWorkflowViewChange = useCallback((workflowView) => {
-    setCurrentPageState({ activePage: 'workflows', workflowView: textValue(workflowView) || 'automation' });
-  }, []);
   const startNewChat = useCallback(() => {
     setActivePageFromSidebar('chat');
     runUIAction('thread.new', () => store?.newThread?.(), uiActionOptions(store));
@@ -524,7 +489,6 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
           projectPath={projectPath}
           sidebar={{
             activePage: store.activePage,
-            closeSidebar,
             isOpen: sidebarOpen,
             memorySimilarCount: memoryBadge.memorySimilarCount,
             setActivePage: setActivePageFromSidebar,
@@ -532,13 +496,26 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
           }}
           store={store}
         />
+        {sidebarOpen ? (
+          <div className="suiyuan-sidebar-collapse-zone">
+            <button
+              type="button"
+              className="suiyuan-sidebar-collapse"
+              aria-label={copy.workbench.collapse}
+              title={copy.workbench.collapse}
+              aria-controls="app-sidebar"
+              onClick={closeSidebar}
+            >
+              <ChevronLeft size={17} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
         <SuiyuanMainSurface
           appearance={shell.appearance}
-          content={{ geometrySnapshot, handleWorkflowViewChange, layoutActions, memoryBadge, projectPath, rightPanelOpen, shortcutController }}
+          content={{ geometrySnapshot, layoutActions, memoryBadge, projectPath, rightPanelOpen, shortcutController }}
           copy={copy}
           header={{
             controls: { isDark, setActivePage: setActivePageFromSidebar, themeLabel, toggleLocale, toggleTheme },
-            currentPageLabel,
             locale,
           }}
           store={store}

@@ -27,6 +27,7 @@ function ChatPageRoute(props) {
   const { copy, geometrySnapshot, layoutActions, projectPath, rightPanelOpen, setRightPanelOpen, store } = props;
   return (
     <ChatPage
+      actionsHostedInTopBar
       copy={copy.chat}
       geometrySnapshot={geometrySnapshot}
       layoutActions={layoutActions}

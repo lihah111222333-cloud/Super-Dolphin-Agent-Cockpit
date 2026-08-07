@@ -378,11 +378,6 @@
       "actionId": "provider.reconnect.bootstrap-deferred"
     },
     {
-      "caseId": "a.producer.runtime.panel.toggle",
-      "layer": "A",
-      "actionId": "runtime.panel.toggle"
-    },
-    {
       "caseId": "a.producer.settings.build.bootstrap",
       "layer": "A",
       "actionId": "settings.build.bootstrap"
@@ -2415,15 +2410,6 @@
         "b.wrapper.promise-reject",
         "b.wrapper.sink-failure",
         "c.background-reconnect"
-      ]
-    },
-    {
-      "actionId": "runtime.panel.toggle",
-      "errorSource": "sync-throw",
-      "evidence": [
-        "a.producer.runtime.panel.toggle",
-        "b.wrapper.sync-throw",
-        "b.wrapper.sink-failure"
       ]
     },
     {

@@ -832,17 +832,6 @@
       ]
     },
     {
-      "actionId": "runtime.panel.toggle",
-      "producerCount": 1,
-      "kind": "user",
-      "owner": "runtime/panel",
-      "visibleSink": "ActionFailureSink",
-      "healthSink": "frontendHealthStore",
-      "errorSources": [
-        "sync-throw"
-      ]
-    },
-    {
       "actionId": "settings.build.bootstrap",
       "producerCount": 1,
       "kind": "background",

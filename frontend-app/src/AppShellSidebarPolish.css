@@ -23,8 +23,7 @@
 .sidebar-tree-folder,
 .sidebar-task-thread,
 .sidebar-icon-action,
-.sidebar-brand-actions button,
-.suiyuan-sidebar-collapse {
+.sidebar-brand-actions button {
   transition: background var(--transition), color var(--transition);
 }
 

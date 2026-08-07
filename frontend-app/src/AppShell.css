@@ -40,6 +40,7 @@
 }
 
 .sa-body.suiyuan-shell-body {
+  position: relative;
   grid-row: 1;
   height: 100%;
   min-height: 0;
@@ -105,26 +106,50 @@
   letter-spacing: 0;
 }
 
+.suiyuan-sidebar-collapse-zone {
+  position: fixed;
+  top: calc(50% - 12px);
+  left: var(--workbench-sidebar-width);
+  z-index: var(--z-shell-control);
+  width: 112px;
+  height: 160px;
+  display: flex;
+  align-items: center;
+  transform: translateY(-50%);
+}
+
 .suiyuan-sidebar-collapse {
-  width: 36px;
-  height: 36px;
-  margin-left: auto;
-  flex: 0 0 36px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  aspect-ratio: 1;
+  margin: 0 0 0 12px;
+  flex: 0 0 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 8px;
-  background: transparent;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 50%;
+  background: var(--surface);
   color: var(--text-sec);
   cursor: pointer;
+  opacity: 0;
+  transform: translateX(-48px);
+  transition: background var(--motion-hover), border-color var(--motion-hover), color var(--motion-hover), opacity var(--motion-hover), transform var(--motion-overlay);
+  box-shadow: var(--suiyuan-card-shadow);
 }
 
+.suiyuan-sidebar-collapse-zone:hover .suiyuan-sidebar-collapse,
+.suiyuan-sidebar-collapse-zone:focus-within .suiyuan-sidebar-collapse,
 .suiyuan-sidebar-collapse:hover,
 .suiyuan-sidebar-collapse:focus-visible {
   background: var(--surface-2);
   color: var(--text-pri);
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .suiyuan-new-chat {
@@ -345,14 +370,14 @@
 .suiyuan-top-appbar {
   position: absolute;
   inset: 0 0 auto;
-  z-index: var(--z-local-sticky);
+  z-index: var(--z-shell-control);
   width: 100%;
-  height: 64px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 0 24px;
+  padding: 0 12px;
   border-bottom: 0;
   background: var(--bg);
 }
@@ -460,16 +485,22 @@
 .sa-window.suiyuan-shell .suiyuan-main-canvas > .memory-page,
 .sa-window.suiyuan-shell .suiyuan-main-canvas > .skills-tabbed-container,
 .sa-window.suiyuan-shell .suiyuan-main-canvas > .settings-page {
-  padding-top: 64px;
+  padding-top: 32px;
 }
 
 .sa-window.suiyuan-shell .chat-page-header {
-  min-height: 44px;
-  flex: 0 0 44px;
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: var(--z-local-sticky);
+  min-height: 32px;
+  height: 32px;
+  flex: 0 0 0;
   flex-wrap: nowrap;
   align-items: center;
   gap: 0;
   padding: 0;
+  pointer-events: none;
+  background: transparent;
 }
 
 .sa-window.suiyuan-shell .chat-page-title {
@@ -479,8 +510,8 @@
 
 .sa-window.suiyuan-shell .chat-more-button,
 .sa-window.suiyuan-shell .chat-header-tool {
-  width: 44px;
-  height: 44px;
+  width: 30px;
+  height: 30px;
   border-radius: 0;
 }
 
@@ -490,11 +521,21 @@
   margin: 0 0 0 auto;
 }
 
+.sa-window.suiyuan-shell .chat-more-button,
+.sa-window.suiyuan-shell .chat-header-tool,
+.sa-window.suiyuan-shell .chat-sidepanel-shortcut {
+  pointer-events: auto;
+}
+
 .sa-window.suiyuan-shell .chat-page-title h1,
 .sa-window.suiyuan-shell .page-header > h1,
 .sa-window.suiyuan-shell .page-header > p,
 .sa-window.suiyuan-shell .prompt-header,
 .sa-window.suiyuan-shell .observability-page .settings-header {
+  display: none;
+}
+
+.sa-window.suiyuan-shell .suiyuan-appbar-title {
   display: none;
 }
 
@@ -1718,6 +1759,7 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  overflow: visible;
   border-right: 1px solid var(--sidebar-border);
   background: color-mix(in srgb, var(--sidebar-bg) 90%, var(--bg));
   padding: 10px 6px;
@@ -1773,8 +1815,37 @@
   margin-top: auto;
 }
 
+.workbench-activity-toggle-zone {
+  position: fixed;
+  top: calc(50% - 12px);
+  left: 48px;
+  z-index: var(--z-shell-control);
+  width: 112px;
+  height: 160px;
+  display: flex;
+  align-items: center;
+  transform: translateY(-50%);
+}
+
 .workbench-activity-toggle {
-  margin-bottom: 6px;
+  width: 32px;
+  height: 32px;
+  margin: 0 0 0 12px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--suiyuan-card-shadow);
+  opacity: 0;
+  transform: translateX(-48px);
+  transition: background var(--motion-hover), border-color var(--motion-hover), color var(--motion-hover), opacity var(--motion-hover), transform var(--motion-overlay);
+}
+
+.workbench-activity-toggle-zone:hover .workbench-activity-toggle,
+.workbench-activity-toggle-zone:focus-within .workbench-activity-toggle,
+.workbench-activity-toggle:hover,
+.workbench-activity-toggle:focus-visible {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .sa-window.sidebar-open .workbench-activity-bar {

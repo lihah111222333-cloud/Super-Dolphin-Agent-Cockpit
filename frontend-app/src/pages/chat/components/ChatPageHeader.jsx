@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from 'react-aria-components';
-import { CheckCircle2, CircleStop, Copy, GitBranch, MoreHorizontal, PanelRight, PanelTopOpen, RefreshCw } from 'lucide-react';
+import { CheckCircle2, CircleStop, Copy, GitBranch, MoreHorizontal, PanelTopOpen, RefreshCw } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { activeThreadForStore, displayThreadName } from '../adapters/threadStateAdapter.js';
 import { ProjectSelector } from './ProjectSelector.jsx';
@@ -16,9 +16,7 @@ function restoreTriggerFocus(ref) {
   focus();
 }
 
-function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen, setRightPanelOpen }) {
-  const [actionsOpen, setActionsOpen] = useState(false);
-  const actionsButtonRef = useRef(null);
+function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, showActions = true }) {
   const canUseThreadActions = Boolean(store?.hasActiveThreadActions?.());
   const canInterruptThread = Boolean(store?.hasInterruptibleThreadAction?.());
   const canForceCompleteThread = typeof store?.hasForceCompleteThreadAction === 'function'
@@ -28,37 +26,11 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
   const recoveryRequesting = Boolean(feedback?.recoveryRequesting);
   const activeThread = activeThreadForStore(store);
   const title = store?.activeThreadId && activeThread ? displayThreadName(activeThread) : '聊天页面';
-  const setActionsMenuOpen = (isOpen) => {
-    setActionsOpen(isOpen);
-    if (!isOpen) restoreTriggerFocus(actionsButtonRef);
-  };
   return (
     <header className="chat-page-header">
       <div className="chat-page-title">
         <h1>{title}</h1>
-        <MenuTrigger isOpen={actionsOpen} onOpenChange={setActionsMenuOpen}>
-          <AriaButton
-            ref={actionsButtonRef}
-            type="button"
-            className={`chat-more-button ${actionsOpen ? 'active' : ''}`}
-            aria-label="聊天操作"
-            title="聊天操作"
-            aria-expanded={actionsOpen}
-          >
-            <MoreHorizontal size={24} aria-hidden="true" />
-          </AriaButton>
-          <ChatActionsMenu
-            copy={copy}
-            canForceCompleteThread={canForceCompleteThread}
-            canInterruptThread={canInterruptThread}
-            canUseThreadActions={canUseThreadActions}
-            recoveryRequesting={recoveryRequesting}
-            projectPath={projectPath}
-            rightPanelOpen={rightPanelOpen}
-            setRightPanelOpen={setRightPanelOpen}
-            store={store}
-          />
-        </MenuTrigger>
+        {showActions ? <ChatActionsTrigger copy={copy} projectPath={projectPath} store={store} /> : null}
       </div>
       <div className="chat-header-tools" aria-label="聊天视图工具">
         {feedback?.bootstrapRecovery ? (
@@ -73,25 +45,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
             <RefreshCw size={18} aria-hidden="true" />
           </button>
         ) : null}
-        <button
-          type="button"
-          className="chat-header-tool"
-          aria-label="布局视图"
-          title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-          aria-pressed={rightPanelOpen}
-          onClick={() => setRightPanelOpen?.((prev) => !prev)}
-        >
-          <PanelRight size={22} aria-hidden="true" />
-        </button>
       </div>
-      <button
-        type="button"
-        className="chat-sidepanel-shortcut"
-        aria-label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-        title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-        aria-pressed={rightPanelOpen}
-        onClick={() => setRightPanelOpen?.((prev) => !prev)}
-      />
       <div className="chat-legacy-actions" aria-label="聊天操作">
         <button
           type="button"
@@ -147,6 +101,45 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
   );
 }
 
+function ChatActionsTrigger({ copy = APP_COPY.zh.chat, projectPath, store }) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsButtonRef = useRef(null);
+  const canUseThreadActions = Boolean(store?.hasActiveThreadActions?.());
+  const canInterruptThread = Boolean(store?.hasInterruptibleThreadAction?.());
+  const canForceCompleteThread = typeof store?.hasForceCompleteThreadAction === 'function'
+    ? Boolean(store.hasForceCompleteThreadAction())
+    : canInterruptThread;
+  const feedback = chatHeaderFeedbackForStore(store);
+  const recoveryRequesting = Boolean(feedback?.recoveryRequesting);
+  const onOpenChange = (isOpen) => {
+    setActionsOpen(isOpen);
+    if (!isOpen) restoreTriggerFocus(actionsButtonRef);
+  };
+  return (
+    <MenuTrigger isOpen={actionsOpen} onOpenChange={onOpenChange}>
+      <AriaButton
+        ref={actionsButtonRef}
+        type="button"
+        className={`chat-more-button ${actionsOpen ? 'active' : ''}`}
+        aria-label="聊天操作"
+        title="聊天操作"
+        aria-expanded={actionsOpen}
+      >
+        <MoreHorizontal size={24} aria-hidden="true" />
+      </AriaButton>
+      <ChatActionsMenu
+        copy={copy}
+        canForceCompleteThread={canForceCompleteThread}
+        canInterruptThread={canInterruptThread}
+        canUseThreadActions={canUseThreadActions}
+        recoveryRequesting={recoveryRequesting}
+        projectPath={projectPath}
+        store={store}
+      />
+    </MenuTrigger>
+  );
+}
+
 function ChatActionsMenu({
   copy = APP_COPY.zh.chat,
   canForceCompleteThread,
@@ -154,8 +147,6 @@ function ChatActionsMenu({
   canUseThreadActions,
   recoveryRequesting,
   projectPath,
-  rightPanelOpen,
-  setRightPanelOpen,
   store,
 }) {
   const runAction = (key) => {
@@ -177,9 +168,6 @@ function ChatActionsMenu({
         break;
       case 'recover-thread':
         runUIAction('thread.recover', () => store.recoverActiveThread?.());
-        break;
-      case 'toggle-runtime-panel':
-        runUIAction('runtime.panel.toggle', () => setRightPanelOpen?.((prev) => !prev));
         break;
       default:
         throw new Error(`Unknown chat header action: ${String(key)}`);
@@ -228,11 +216,6 @@ function ChatActionsMenu({
         label={recoveryRequesting ? '正在恢复' : (canUseThreadActions ? '进程恢复' : '请先选择会话')}
         disabled={!canUseThreadActions || recoveryRequesting}
       />
-        <ChatActionMenuItem
-          id="toggle-runtime-panel"
-        icon={PanelTopOpen}
-        label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-      />
       </Menu>
     </Popover>
   );
@@ -247,4 +230,4 @@ function ChatActionMenuItem({ disabled = false, icon: Icon, id, label }) {
   );
 }
 
-export { ChatPageHeader };
+export { ChatActionsTrigger, ChatPageHeader };

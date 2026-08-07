@@ -38,6 +38,7 @@ describe('ChatPageHeader', () => {
     fireEvent.click(screen.getByRole('button', { name: '\u804a\u5929\u64cd\u4f5c' }));
 
     const menu = await screen.findByTestId('chat-actions-menu');
+    expect(within(menu).queryByRole('menuitem', { name: /侧边栏/ })).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole('menuitem', { name: '\u65b0\u7a97\u53e3\uff08\u72ec\u7acb\u8fdb\u7a0b\uff09' }));
 
     expect(store.openNewWindow).toHaveBeenCalledTimes(1);
