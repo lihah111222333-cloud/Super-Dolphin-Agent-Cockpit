@@ -35,7 +35,7 @@ function terminalDiagnosticText(error) {
   ].join('\n');
 }
 
-function TerminalPublicError({ error }) {
+function TerminalPublicError({ error, processInternal = false }) {
   const publicError = publicErrorForRemoteTerminal(error);
   const [copyState, setCopyState] = useState('idle');
   const resetTimerRef = useRef(null);
@@ -73,7 +73,7 @@ function TerminalPublicError({ error }) {
       <strong>{publicError.title}</strong>
       <span>{publicError.message}</span>
       {diagnosticId ? <code className="turn-terminal-diagnostic-id">{'\u8bca\u65ad ID\uff1a'}{diagnosticId}</code> : null}
-      {canCopyDiagnostics ? (
+      {canCopyDiagnostics && !processInternal ? (
         <div className="turn-terminal-actions" aria-label={'\u7ec8\u6001\u9519\u8bef\u6062\u590d\u64cd\u4f5c'}>
           <button
             type="button"
@@ -182,6 +182,7 @@ const TimelineMessage = memo(function TimelineMessage({
   smoothStreaming,
   onScrollIfSticky,
   formatTime,
+  processInternal = false,
 }) {
   const streamKey = `${trimmedText(activeThreadId)}:${trimmedText(message.id)}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
@@ -203,10 +204,10 @@ const TimelineMessage = memo(function TimelineMessage({
     const error = message.publicError;
     const isFailure = message.terminalOutcome === 'failed' || (message.terminalOutcome !== 'success' && error);
     return (
-      <article className="message assistant no-avatar turn-terminal-message">
+      <article className={`message assistant no-avatar turn-terminal-message${processInternal ? ' process-internal' : ''}`}>
         <div className="bubble">
           {isFailure ? (
-            <TerminalPublicError error={error} />
+            <TerminalPublicError error={error} processInternal={processInternal} />
           ) : (
             <output role="status" className="turn-terminal-status">{TERMINAL_STATUS_LABELS[message.terminalOutcome] || '\u5df2\u5b8c\u6210'}</output>
           )}
@@ -220,14 +221,13 @@ const TimelineMessage = memo(function TimelineMessage({
   // 消息体使用 Ant Design X Bubble 原生聊天气泡；Markdown/附件/复制等既有
   // 渲染能力作为 content/footer 插槽继续复用，业务数据与流式语义不变。
   return (
-    <article className={`message ${message.role} no-avatar`}>
+    <article className={`message ${message.role} no-avatar${processInternal ? ' process-internal' : ''}`}>
       <Bubble
         className={`chat-x-bubble chat-x-bubble--${isUser ? 'user' : 'assistant'}`}
         placement={isUser ? 'end' : 'start'}
         variant={isUser ? 'filled' : 'outlined'}
         shape="corner"
-        avatar={isUser ? undefined : CHAT_ASSISTANT_AVATAR}
-        header={isUser ? <time>{formatTime(message.time)}</time> : undefined}
+        avatar={isUser || processInternal ? undefined : CHAT_ASSISTANT_AVATAR}
         loading={streamingAssistant && !trimmedText(displayText)}
         content={(
           <>
@@ -235,18 +235,18 @@ const TimelineMessage = memo(function TimelineMessage({
             <MessageContent text={displayText} actions={actions} forceMarkdown={streamedMarkdown} />
           </>
         )}
-        footer={isUser ? undefined : (
-          <div className="assistant-footer">
-            {streamingAssistant ? (
+        footer={(
+          <div className={isUser ? 'user-footer' : 'assistant-footer'}>
+            {!isUser && streamingAssistant ? (
               <output className="assistant-thinking-status" aria-live="polite">
                 {ASSISTANT_THINKING_LABEL}
               </output>
             ) : null}
             <time>{formatTime(message.time)}</time>
-            <AssistantMessageActions copy={copy} text={message.text} />
+            {isUser || processInternal ? null : <AssistantMessageActions copy={copy} text={message.text} />}
           </div>
         )}
-        footerPlacement="outer-start"
+        footerPlacement={processInternal ? 'inner-end' : 'outer-start'}
       />
     </article>
   );

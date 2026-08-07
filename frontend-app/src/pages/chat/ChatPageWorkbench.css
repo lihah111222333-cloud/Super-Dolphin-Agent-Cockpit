@@ -337,8 +337,9 @@
 }
 
 .conversation:not(.conversation--intro) {
+  position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -353,7 +354,8 @@
 }
 
 .conversation:not(.conversation--intro) .composer--docked {
-  grid-row: 3;
+  position: absolute;
+  inset: auto 0 0;
 }
 
 .conversation:not(.conversation--intro) .timeline {
@@ -470,8 +472,9 @@
   background: var(--code-block-bg);
 }
 
-.assistant-footer {
-  justify-content: flex-end;
+.assistant-footer,
+.user-footer {
+  justify-content: flex-start;
 }
 
 .composer {
@@ -487,6 +490,7 @@
   z-index: var(--z-local-sticky);
   padding: 14px 0 18px;
   align-self: end;
+  pointer-events: none;
 }
 
 .conversation:not(.conversation--intro) .composer.composer--docked {
@@ -511,6 +515,13 @@
   background: var(--composer-docked-bg, var(--surface));
   box-shadow: var(--composer-shadow);
   overflow: visible;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-layout {
+    transition: none;
+  }
 }
 
 /* 输入区焦点态：卡片描边转主色 + 克制外环，明确当前输入上下文。 */

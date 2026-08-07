@@ -39,6 +39,7 @@ function TurnProcessGroup({
               smoothStreaming={smoothStreaming}
               onScrollIfSticky={onScrollIfSticky}
               formatTime={formatTime}
+              processInternal
             />
           );
         })}

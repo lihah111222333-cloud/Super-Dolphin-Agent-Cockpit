@@ -106,10 +106,11 @@
 }
 
 .chat-main-column {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .timeline-shell {
@@ -136,11 +137,22 @@
   scrollbar-gutter: stable;
 }
 
+.chat-scroll-bottom-zone {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  z-index: var(--z-local-sticky);
+  width: 200px;
+  height: 96px;
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+
 .chat-scroll-bottom-btn {
   position: absolute;
-  right: max(18px, var(--conversation-content-right-gutter));
-  bottom: 18px;
-  z-index: var(--z-local-sticky);
+  left: 50%;
+  right: auto;
+  bottom: 12px;
   width: 32px;
   height: 32px;
   display: inline-flex;
@@ -152,18 +164,24 @@
   color: var(--text-sec);
   padding: 0;
   box-shadow: var(--suiyuan-card-shadow);
-  transition: transform var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
+  opacity: 0;
+  transform: translate(-50%, 48px);
+  transition: transform var(--motion-overlay), opacity var(--motion-hover), border-color var(--transition), background var(--transition), color var(--transition);
 }
 
-.chat-scroll-bottom-btn:hover {
+.chat-scroll-bottom-zone:hover .chat-scroll-bottom-btn,
+.chat-scroll-bottom-zone:focus-within .chat-scroll-bottom-btn,
+.chat-scroll-bottom-btn:hover,
+.chat-scroll-bottom-btn:focus-visible {
   border-color: color-mix(in srgb, var(--accent-2) 44%, var(--border-strong));
   background: color-mix(in srgb, var(--surface-2) 94%, var(--accent-2));
   color: var(--text-pri);
-  transform: translateY(-1px);
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .chat-scroll-bottom-btn:active {
-  transform: translateY(0);
+  transform: translate(-50%, 0);
 }
 
 .chat-scroll-bottom-btn:focus-visible {

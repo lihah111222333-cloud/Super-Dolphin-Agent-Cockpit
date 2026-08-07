@@ -19,7 +19,7 @@ function localScreenshotPath(separator) {
   it('renders user attachments as image previews and file pills', () => {
     const onOpenPath = vi.fn();
 
-    render(
+    const { container } = render(
       <TimelineMessage
         message={{
           id: 'user-1',
@@ -43,6 +43,8 @@ function localScreenshotPath(separator) {
       raw: 'summary.md',
     }));
     expect(screen.getByText('with files')).toBeInTheDocument();
+    expect(container.querySelector('.ant-bubble-header time')).toBeNull();
+    expect(container.querySelector('.ant-bubble-footer .user-footer time')).toHaveTextContent('16:00');
   });
 
   it('renders assistant footer actions and notifies sticky scrolling while streaming', () => {
@@ -61,6 +63,8 @@ function localScreenshotPath(separator) {
     expect(screen.getByText('streaming reply')).toBeInTheDocument();
     expect(screen.getByText('\u601d\u8003\u4e2d')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /\u590d\u5236/ })).toBeInTheDocument();
+    expect(container.querySelector('.ant-bubble-footer .assistant-footer time')).toHaveTextContent('16:00');
+    expect(container.querySelector('.assistant-footer .message-actions')).not.toBeNull();
     expect(onScrollIfSticky).toHaveBeenCalledWith(false);
     const streamingMarkdownContainer = container.querySelector('.message-markdown');
     const streamingParagraph = streamingMarkdownContainer.querySelector('p');

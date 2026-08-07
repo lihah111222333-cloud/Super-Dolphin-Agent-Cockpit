@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TurnProcessGroup } from './TurnProcessGroup.jsx';
 
@@ -15,7 +15,7 @@ const baseProps = {
   },
   formatTime: () => '08:30',
   messages: [
-    { id: 'tool-1', role: 'assistant', kind: 'tool', title: 'grep', text: 'result', done: true },
+    { id: 'assistant-1', role: 'assistant', text: 'result', done: true },
   ],
   onScrollIfSticky: () => {},
   smoothStreaming: false,
@@ -33,6 +33,9 @@ describe('TurnProcessGroup', () => {
 
     expect(group).toHaveAttribute('open');
     expect(screen.getByText('result')).toBeInTheDocument();
+    expect(group.querySelector('.chat-bubble-avatar')).toBeNull();
+    expect(within(group).queryByRole('button', { name: /复制/ })).not.toBeInTheDocument();
+    expect(within(group).getByText('08:30')).toBeInTheDocument();
   });
 
   it('uses the running summary without opening the disclosure', () => {

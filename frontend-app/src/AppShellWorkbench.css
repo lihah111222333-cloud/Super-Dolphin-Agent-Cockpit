@@ -67,7 +67,8 @@
 }
 
 /* 4. AI 消息底部的扁平 footer 样式（包括时间与操作动作） */
-.assistant-footer {
+.assistant-footer,
+.user-footer {
   display: flex;
   align-items: center;
   gap: 12px;

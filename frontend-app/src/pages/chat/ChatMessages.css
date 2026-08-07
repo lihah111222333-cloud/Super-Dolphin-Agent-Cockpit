@@ -808,8 +808,21 @@ button.user-attachment-file-pill:focus-visible {
   margin-top: 6px;
 }
 
-.chat-x-bubble .ant-bubble-footer .assistant-footer {
+.chat-x-bubble .ant-bubble-footer .assistant-footer,
+.chat-x-bubble .ant-bubble-footer .user-footer {
   margin-top: 0;
+}
+
+.assistant-footer .message-actions {
+  min-height: 34px;
+  margin-top: 0;
+}
+
+.assistant-footer > time,
+.user-footer > time {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* 助手头像：品牌主色细边小牌，与空状态 Logo 牌同一语言。 */
@@ -823,6 +836,14 @@ button.user-attachment-file-pill:focus-visible {
   border-radius: 10px;
   background: color-mix(in srgb, var(--primary) 9%, var(--surface-2));
   color: var(--primary);
+}
+
+.message.process-internal .assistant-footer {
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 4px 8px 2px;
+  color: var(--text-subtle);
+  font-size: 11px;
 }
 
 /* X Bubble 加载态圆点继承主色，不额外定制。 */

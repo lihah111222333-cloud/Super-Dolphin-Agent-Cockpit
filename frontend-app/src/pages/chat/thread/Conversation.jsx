@@ -151,6 +151,16 @@ function useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot }
   }, [activeThreadId, composerInputRef, snapshot]);
 }
 
+function ScrollBottomControl({ copy, onScrollToBottom }) {
+  return (
+    <div className="chat-scroll-bottom-zone">
+      <button type="button" className="chat-scroll-bottom-btn" title={copy.scrollBottom} aria-label={copy.scrollBottom} onClick={onScrollToBottom}>
+        <ChevronDown size={15} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 function Conversation(props) {
   const {
     copy = APP_COPY.zh.chat,
@@ -247,9 +257,8 @@ function Conversation(props) {
     markMessageSent();
     return result;
   }, [clearPendingReasoningHint, markMessageSent, sendMessage, startPendingReasoningHint]);
-  const scrollTimelineToBottomSmooth = useCallback(() => {
-    scrollToBottom(true);
-  }, [scrollToBottom]);
+  const scrollTimelineToBottomSmooth = useCallback(() => scrollToBottom(true), [scrollToBottom]);
+  const scrollBottomControl = activeThreadId && !timelineContentBlocked ? <ScrollBottomControl copy={copy} onScrollToBottom={scrollTimelineToBottomSmooth} /> : null;
   const composer = (
     <ConversationComposer
       {...props}
@@ -260,6 +269,7 @@ function Conversation(props) {
       approvalPending={approvalPending}
       sendMessage={sendMessageAndScrollToBottom}
       showProviderToggle={!activeThreadId}
+      scrollBottomControl={scrollBottomControl}
     />
   );
   const conversationClass = `conversation${introMode ? ' conversation--intro' : ''}${composerController.dropActive ? ' drop-active' : ''}`;
@@ -293,7 +303,6 @@ function Conversation(props) {
         onTimelineTouchMove={onTimelineTouchMove}
         onTimelineTouchStart={onTimelineTouchStart}
         onTimelineWheel={onTimelineWheel}
-        onScrollToBottom={scrollTimelineToBottomSmooth}
         onScrollIfSticky={scrollIfSticky}
         timelineRef={timelineRef}
       />
@@ -338,6 +347,7 @@ function ConversationComposer({
   canUseProjectActions,
   inputRef,
   approvalPending,
+  scrollBottomControl,
 }) {
   return (
     <ComposerDock
@@ -358,6 +368,7 @@ function ConversationComposer({
       canUseProjectActions={canUseProjectActions}
       inputRef={inputRef}
       approvalPending={approvalPending}
+      scrollBottomControl={scrollBottomControl}
     />
   );
 }
@@ -415,7 +426,6 @@ function ConversationTimeline({
   onTimelineTouchMove,
   onTimelineTouchStart,
   onTimelineWheel,
-  onScrollToBottom,
   onScrollIfSticky,
   timelineRef,
   smoothStreaming,
@@ -511,17 +521,6 @@ function ConversationTimeline({
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
         <div style={{ height: 0 }} aria-hidden="true" />
       </div>
-      {activeThreadId && !introMode && !timelineContentBlocked ? (
-        <button
-          type="button"
-          className="chat-scroll-bottom-btn"
-          title={copy.scrollBottom}
-          aria-label={copy.scrollBottom}
-          onClick={onScrollToBottom}
-        >
-          <ChevronDown size={15} aria-hidden="true" />
-        </button>
-      ) : null}
     </div>
   );
 }

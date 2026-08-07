@@ -112,6 +112,7 @@ function ComposerDock({
   approvalPending = false,
   slashCommandService,
   fetchPromptHistory,
+  scrollBottomControl,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
   const effectiveCanUseProjectActions = canUseProjectActions && !approvalPending;
@@ -183,6 +184,7 @@ function ComposerDock({
       inert={approvalPending}
       aria-disabled={approvalPending ? 'true' : undefined}
     >
+      {floating ? null : scrollBottomControl}
       <div className="composer-card">
         {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">{copy.dropHint}</div> : null}
         <SlashCommandPalette {...palette} copy={slashCopy} cwd={projectPath} />
