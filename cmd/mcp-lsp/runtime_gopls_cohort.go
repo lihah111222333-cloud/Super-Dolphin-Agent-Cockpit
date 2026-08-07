@@ -53,7 +53,10 @@ func runtimeServerGoplsCohortID(command multilsp.ServerCommand, binary string, e
 	if err != nil {
 		return "", err
 	}
-	cohortEnv := runtimeServerGoplsEnvironment(env)
+	cohortEnv, err := runtimeServerGoplsSemanticEnvironment(env)
+	if err != nil {
+		return "", err
+	}
 	cohortEnv = append(cohortEnv, runtimeServerGoplsDaemonArgs(command.Args))
 	cohortEnv = append(cohortEnv, "GOPLS_BINARY_SHA256="+binaryDigest)
 	return "sdmcp2-" + runtimeServerEnvironmentFingerprint(cohortEnv), nil
@@ -77,7 +80,10 @@ func runtimeServerGoplsRootCohortConfig(
 	if err != nil {
 		return multilsp.GoplsRootCohortConfig{}, err
 	}
-	effective := runtimeServerGoplsEffectiveConfigDigest(command, binaryDigest, env)
+	effective, err := runtimeServerGoplsEffectiveConfigDigest(command, binaryDigest, env)
+	if err != nil {
+		return multilsp.GoplsRootCohortConfig{}, err
+	}
 	config := multilsp.GoplsRootCohortConfig{
 		RepositoryInstanceProof: proof,
 		EffectiveConfigDigest:   effective,
@@ -130,14 +136,42 @@ func runtimeServerCanonicalRootPath(identity string) (string, error) {
 	return "", fmt.Errorf("canonical root identity has unsupported form: %q", identity)
 }
 
-func runtimeServerGoplsEffectiveConfigDigest(command multilsp.ServerCommand, binaryDigest string, env []string) string {
+func runtimeServerGoplsEffectiveConfigDigest(command multilsp.ServerCommand, binaryDigest string, env []string) (string, error) {
+	semanticEnv, err := runtimeServerGoplsSemanticEnvironment(env)
+	if err != nil {
+		return "", err
+	}
 	value := strings.Join([]string{
-		"gopls-effective-config-v1",
+		"gopls-effective-config-v2",
 		binaryDigest,
-		runtimeServerEnvironmentFingerprint(runtimeServerGoplsEnvironment(env)),
+		runtimeServerEnvironmentFingerprint(semanticEnv),
 		runtimeServerGoplsDaemonArgs(command.Args),
 	}, "\x00")
-	return runtimeServerDigestString(value)
+	return runtimeServerDigestString(value), nil
+}
+
+// runtimeServerGoplsSemanticEnvironment 将会影响 Go 构建的环境收敛为稳定语义身份。
+// 原始 PATH 只用于解析实际 go 工具链；digest 记录解析后的真实路径与内容摘要，
+// 避免 Codex arg0 临时目录、重复目录或等价 PATH 顺序把同一工具链拆成不同 cohort。
+func runtimeServerGoplsSemanticEnvironment(overrides []string) ([]string, error) {
+	relevant := runtimeServerGoplsEnvironment(overrides)
+	goBinary, goDigest, err := runtimeServerBinaryIdentity("go", relevant)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Go toolchain for gopls cohort: %w", err)
+	}
+	semantic := make([]string, 0, len(relevant)+2)
+	for _, entry := range relevant {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key == "PATH" {
+			continue
+		}
+		semantic = append(semantic, entry)
+	}
+	semantic = append(semantic,
+		"GO_BINARY_REALPATH="+goBinary,
+		"GO_BINARY_SHA256="+goDigest,
+	)
+	return semantic, nil
 }
 
 func runtimeServerGoplsCohortIDFromConfig(config multilsp.GoplsRootCohortConfig) string {

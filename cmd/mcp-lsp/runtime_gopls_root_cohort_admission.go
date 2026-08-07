@@ -86,15 +86,25 @@ func runtimeServerPrepareGoplsRootCohortState(dir string, config multilsp.GoplsR
 	}
 	if newState {
 		runtimeServerInitializeGoplsRootCohortState(state, config)
-	} else if err := runtimeServerValidateGoplsRootCohortAdmissionState(state, config); err != nil {
-		return err
+		return nil
 	}
-	if err := runtimeServerCleanupGoplsRootCohortLeases(dir, state.ConfigDigest); err != nil {
-		return err
-	}
-	active, err := runtimeServerCountGoplsRootCohortLeases(dir, state.ConfigDigest)
+	stored, err := state.configValue()
 	if err != nil {
 		return err
+	}
+	storedDigest := state.ConfigDigest
+	if err := runtimeServerCleanupGoplsRootCohortLeases(dir, storedDigest); err != nil {
+		return err
+	}
+	active, err := runtimeServerCountGoplsRootCohortLeases(dir, storedDigest)
+	if err != nil {
+		return err
+	}
+	if !storedEqualGoplsRootCohortConfig(stored, config) {
+		if active != 0 || !runtimeServerGoplsRootCohortConfigRotationAllowed(state) {
+			return runtimeServerGoplsRootCohortConfigConflict(config)
+		}
+		return runtimeServerRotateGoplsRootCohortConfig(state, config)
 	}
 	return runtimeServerAdvanceGoplsRootCohortEpoch(state, active)
 }
@@ -109,14 +119,46 @@ func runtimeServerInitializeGoplsRootCohortState(state *runtimeServerDurableGopl
 	}
 }
 
-func runtimeServerValidateGoplsRootCohortAdmissionState(state *runtimeServerDurableGoplsRootCohortState, config multilsp.GoplsRootCohortConfig) error {
-	stored, err := state.configValue()
-	if err != nil {
-		return err
+func runtimeServerGoplsRootCohortConfigConflict(config multilsp.GoplsRootCohortConfig) error {
+	return fmt.Errorf("%w for canonical root proof %s", multilsp.ErrGoplsRootCohortConfigConflict, config.RepositoryInstanceProof.CanonicalRootDigest)
+}
+
+// runtimeServerGoplsRootCohortConfigRotationAllowed 只允许已证明没有活跃 member、
+// 当前 drain owner 或历史 cleanup owner 的状态进入下一配置代际。
+func runtimeServerGoplsRootCohortConfigRotationAllowed(state *runtimeServerDurableGoplsRootCohortState) bool {
+	if state == nil || len(state.PendingCleanups) != 0 {
+		return false
 	}
-	if !storedEqualGoplsRootCohortConfig(stored, config) {
-		return fmt.Errorf("%w for canonical root proof %s", multilsp.ErrGoplsRootCohortConfigConflict, config.RepositoryInstanceProof.CanonicalRootDigest)
+	if state.DrainStatus != runtimeGoplsRootCohortDrainActive && state.DrainStatus != runtimeGoplsRootCohortDrainCompleted {
+		return false
 	}
+	return state.IdleDeadlineUnixNano == 0 &&
+		state.DrainEpoch == 0 &&
+		state.OwnerPID == 0 &&
+		state.OwnerStartIdentity == "" &&
+		state.OwnerMemberID == "" &&
+		state.OwnerJournalRevision == 0 &&
+		state.OwnerMemberGeneration == 0 &&
+		state.OwnerLeaseID == "" &&
+		state.LastDrainError == "" &&
+		state.DrainRetryUnixNano == 0
+}
+
+// runtimeServerRotateGoplsRootCohortConfig 在同一 canonical root 锁内切换到下一
+// immutable 配置代际，并保留单调 fence 计数，避免旧 fence 在新配置中重放。
+func runtimeServerRotateGoplsRootCohortConfig(state *runtimeServerDurableGoplsRootCohortState, config multilsp.GoplsRootCohortConfig) error {
+	nextEpoch := state.Epoch + 1
+	if nextEpoch == 0 {
+		return errors.New("gopls root cohort config generation overflow")
+	}
+	journalRevision := state.JournalRevision
+	nextMemberGeneration := state.NextMemberGeneration
+	nextSequence := state.NextSequence
+	runtimeServerInitializeGoplsRootCohortState(state, config)
+	state.Epoch = nextEpoch
+	state.JournalRevision = journalRevision
+	state.NextMemberGeneration = nextMemberGeneration
+	state.NextSequence = nextSequence
 	return nil
 }
 
