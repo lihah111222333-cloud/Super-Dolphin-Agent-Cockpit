@@ -49,6 +49,21 @@ func TestMcpLSPGoplsDaemonE2EEntryPinsLongGoTestTimeout(t *testing.T) {
 	assertScriptContains(t, script, "-count=1")
 }
 
+func TestMcpLSPRealGoplsE2EsFailFastWhenBinaryMissing(t *testing.T) {
+	daemon := readRepoFile(t, "../cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go")
+	assertScriptContains(t, daemon, `t.Skip("skipping real gopls daemon lifecycle e2e test in short mode")`)
+	assertScriptContains(t, daemon, `t.Fatalf("gopls is required for real daemon lifecycle e2e: %v", err)`)
+	if strings.Contains(daemon, `t.Skipf("gopls is not installed:`) {
+		t.Fatal("real gopls daemon E2E must not skip when gopls is unavailable")
+	}
+
+	worktree := readRepoFile(t, "../cmd/mcp-lsp/lsp_binary_go_worktree_e2e_test.go")
+	assertScriptContains(t, worktree, `t.Fatalf("gopls is required for real Go worktree diagnostics e2e: %v", err)`)
+	if strings.Contains(worktree, `t.Skipf("gopls is required for real Go worktree diagnostics e2e:`) {
+		t.Fatal("real Go worktree E2E must not skip when gopls is unavailable")
+	}
+}
+
 func requireMcpLSPResourceCohortGateSection(
 	t *testing.T,
 	content, start, end string,

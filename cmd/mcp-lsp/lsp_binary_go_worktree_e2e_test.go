@@ -100,7 +100,7 @@ func startPrebuiltLSPBinaryClient(t *testing.T, binary, root string) *lspBinaryC
 func requireRealGopls(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("gopls"); err != nil {
-		t.Skipf("gopls is required for real Go worktree diagnostics e2e: %v", err)
+		t.Fatalf("gopls is required for real Go worktree diagnostics e2e: %v", err)
 	}
 }
 

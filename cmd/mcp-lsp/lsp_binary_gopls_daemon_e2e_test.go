@@ -88,7 +88,7 @@ func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	}
 	goplsPath, err := exec.LookPath("gopls")
 	if err != nil {
-		t.Skipf("gopls is not installed: %v", err)
+		t.Fatalf("gopls is required for real daemon lifecycle e2e: %v", err)
 	}
 
 	roots, targets := writeRealGoplsLinkedWorktreeFixtures(t)
