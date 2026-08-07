@@ -17,7 +17,7 @@ frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vit
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
 frontend-app/package-lock.json	frontend-app	app-ui	json	276052	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	5216	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	5310	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	652	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
@@ -47,16 +47,16 @@ frontend-app/scripts/chat-history-benchmark.test.mjs	frontend-app	app-ui	js-test
 frontend-app/scripts/contracts-typecheck-guard.test.mjs	frontend-app	app-ui	js-test	9010	React 前端构建与校验脚本	frontend,app,scripts,contracts,typecheck,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/critical-typecheck-files.json	frontend-app	app-ui	json	3455	React 前端构建与校验脚本	frontend,app,scripts,critical,typecheck,files,React,前端构建与校验脚本
 frontend-app/scripts/critical-typecheck-guard.mjs	frontend-app	app-ui	js-source	9183	React 前端构建与校验脚本	frontend,app,scripts,critical,typecheck,guard,React,前端构建与校验脚本
-frontend-app/scripts/delivery-smoke-runner.mjs	frontend-app	app-ui	js-source	12274	React 前端构建与校验脚本	frontend,app,scripts,delivery,smoke,runner,React,前端构建与校验脚本
-frontend-app/scripts/delivery-smoke-runner.test.mjs	frontend-app	app-ui	js-test	14487	React 前端构建与校验脚本	frontend,app,scripts,delivery,smoke,runner,test,React,前端构建与校验脚本
+frontend-app/scripts/delivery-smoke-runner.mjs	frontend-app	app-ui	js-source	12809	React 前端构建与校验脚本	frontend,app,scripts,delivery,smoke,runner,React,前端构建与校验脚本
+frontend-app/scripts/delivery-smoke-runner.test.mjs	frontend-app	app-ui	js-test	19057	React 前端构建与校验脚本	frontend,app,scripts,delivery,smoke,runner,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-contract.mjs	frontend-app	app-ui	js-source	4803	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,contract,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-smoke.integration.test.mjs	frontend-app	app-ui	js-test	390	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,smoke,integration,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-smoke.mjs	frontend-app	app-ui	js-source	19824	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-smoke.test.mjs	frontend-app	app-ui	js-test	10287	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-runner-contract.test.mjs	frontend-app	app-ui	js-test	3447	React 前端构建与校验脚本	frontend,app,scripts,desktop,runner,contract,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-smoke-codex-stub.mjs	frontend-app	app-ui	js-source	353	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,codex,stub,React,前端构建与校验脚本
-frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	13101	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,React,前端构建与校验脚本
-frontend-app/scripts/desktop-smoke.test.mjs	frontend-app	app-ui	js-test	7225	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,test,React,前端构建与校验脚本
+frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	13138	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,React,前端构建与校验脚本
+frontend-app/scripts/desktop-smoke.test.mjs	frontend-app	app-ui	js-test	7402	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-ux-smoke.mjs	frontend-app	app-ui	js-source	7456	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-ux-smoke.test.mjs	frontend-app	app-ui	js-test	2476	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/evidence-provenance.mjs	frontend-app	app-ui	js-source	10075	React 前端构建与校验脚本	frontend,app,scripts,evidence,provenance,React,前端构建与校验脚本
@@ -95,10 +95,10 @@ frontend-app/scripts/frontend-runtime-seed-dependency-integrity.test.mjs	fronten
 frontend-app/scripts/frontend-state-ownership-guard.mjs	frontend-app	app-ui	js-source	25954	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui	js-test	8805	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-registry.json	frontend-app	app-ui	json	5222	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,registry,React,前端构建与校验脚本
-frontend-app/scripts/frontend-verification-isolation.mjs	frontend-app	app-ui	js-source	4563	React 前端构建与校验脚本	frontend,app,scripts,verification,isolation,React,前端构建与校验脚本
-frontend-app/scripts/frontend-verification-isolation.test.mjs	frontend-app	app-ui	js-test	5986	React 前端构建与校验脚本	frontend,app,scripts,verification,isolation,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-verification-isolation.mjs	frontend-app	app-ui	js-source	4905	React 前端构建与校验脚本	frontend,app,scripts,verification,isolation,React,前端构建与校验脚本
+frontend-app/scripts/frontend-verification-isolation.test.mjs	frontend-app	app-ui	js-test	7273	React 前端构建与校验脚本	frontend,app,scripts,verification,isolation,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-z-index-token-guard.mjs	frontend-app	app-ui	js-source	10459	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,React,前端构建与校验脚本
-frontend-app/scripts/frontend-z-index-token-guard.test.mjs	frontend-app	app-ui	js-test	9886	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-z-index-token-guard.test.mjs	frontend-app	app-ui	js-test	9937	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/lib/frontend-code-size-baseline-transaction.mjs	frontend-app	app-ui	js-source	34441	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,baseline,transaction,React,前端构建与校验脚本
 frontend-app/scripts/lib/frontend-code-size-baseline.mjs	frontend-app	app-ui	js-source	1539	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,baseline,React,前端构建与校验脚本
 frontend-app/scripts/lib/frontend-code-size-cli.mjs	frontend-app	app-ui	js-source	186	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,cli,React,前端构建与校验脚本

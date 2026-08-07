@@ -63,6 +63,7 @@ docs/契约/fail-fast-convention.md	docs	docs-agent	doc	9470	项目文档体系	
 docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	25081	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
 docs/契约/fx-convention.md	docs	docs-agent	doc	3512	项目文档体系	docs,契约,fx,convention,项目文档体系
 docs/契约/jrpc2-convention.md	docs	docs-agent	doc	34601	项目文档体系	docs,契约,jrpc2,convention,项目文档体系
+docs/契约/mcp-lsp-gopls-root-cohort.md	docs	docs-agent	doc	2896	项目文档体系	docs,契约,mcp,lsp,gopls,root,cohort,项目文档体系
 docs/契约/mcp-service-convention.md	docs	docs-agent	doc	16169	项目文档体系	docs,契约,mcp,service,convention,项目文档体系
 docs/契约/modularity-convention.md	docs	docs-agent	doc	47932	项目文档体系	docs,契约,modularity,convention,项目文档体系
 docs/契约/onion-architecture-convention.md	docs	docs-agent	doc	4227	项目文档体系	docs,契约,onion,architecture,convention,项目文档体系

@@ -5,14 +5,14 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4612,
+  "files": 4656,
   "domains": {
-    "docs-agent": 91,
-    "other": 1142,
+    "docs-agent": 92,
+    "other": 1154,
     "app-ui": 743,
-    "platform-provider": 1258,
-    "orchestration": 409,
-    "modules": 759,
+    "platform-provider": 1281,
+    "orchestration": 411,
+    "modules": 765,
     "store-sql": 210
   },
   "index_files": {
@@ -29,22 +29,22 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 409,
-        "size_kb": 92.7,
+        "file_count": 411,
+        "size_kb": 93.1,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 759,
-        "size_kb": 147.9,
+        "file_count": 765,
+        "size_kb": 149.1,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1258,
-        "size_kb": 234,
+        "file_count": 1281,
+        "size_kb": 238.5,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -57,27 +57,27 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 91,
-        "size_kb": 13.1,
+        "file_count": 92,
+        "size_kb": 13.2,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1142,
-        "size_kb": 227.3,
+        "file_count": 1154,
+        "size_kb": 230,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 818,
-    "docs": 83,
+    "cmd": 837,
+    "docs": 84,
     "frontend-app": 736,
-    "internal": 2704,
+    "internal": 2725,
     "pkg": 30,
-    "scripts": 181,
+    "scripts": 184,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -233,7 +233,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.013,
+    "unknown_ratio": 0.0129,
     "unknown_files": 60,
     "thresholds": {
       "max_unknown_ratio": 0.05
