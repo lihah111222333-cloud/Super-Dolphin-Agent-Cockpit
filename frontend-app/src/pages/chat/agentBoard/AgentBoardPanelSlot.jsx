@@ -5,8 +5,8 @@ import { AgentBoardPanel } from './AgentBoardPanel.jsx';
  * AgentBoardPanelSlot 与 RuntimePanelSlot 结构一致：
  * 复用同一套右侧栏 splitter 与拖拽调整宽度机制，仅内容换成 Agent 看板。
  */
-function AgentBoardPanelSlot({ resize, panel }) {
-  if (!resize.open) return null;
+function AgentBoardPanelSlot({ keepMounted = false, resize, panel }) {
+  if (!resize.open && !keepMounted) return null;
   return (
     <>
       <button
@@ -20,6 +20,8 @@ function AgentBoardPanelSlot({ resize, panel }) {
         aria-valuenow={resize.width}
         title="调整侧边栏宽度"
         data-testid="right-panel-resizer"
+        aria-hidden={!resize.open}
+        disabled={!resize.open}
         onKeyDown={resize.handleKeyDown}
         onPointerDown={resize.beginResize}
       >
@@ -31,6 +33,7 @@ function AgentBoardPanelSlot({ resize, panel }) {
         onSelectAgent={panel.onSelectAgent}
         onCollapse={panel.onCollapse}
         onShowRuntime={panel.onShowRuntime}
+        open={resize.open}
       />
     </>
   );

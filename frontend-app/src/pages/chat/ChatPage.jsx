@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from 'react';
-import { Bot, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Bot, ChevronLeft, ChevronRight, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
 } from './adapters/threadStateAdapter.js';
@@ -32,6 +32,23 @@ import './ChatMessages.css';
 import './ChatReasoning.css';
 import './ChatPage.css';
 import './agentBoard/AgentBoard.css';
+
+const RIGHT_PANEL_EXIT_MS = 180;
+const CLOSED_RIGHT_PANEL_COLUMNS = 'minmax(0, 1fr) 0px 0px';
+
+function useRightPanelPresence(open) {
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return undefined;
+    }
+    if (!mounted) return undefined;
+    const timer = window.setTimeout(() => setMounted(false), RIGHT_PANEL_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [mounted, open]);
+  return mounted;
+}
 
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
 
@@ -188,8 +205,26 @@ function useActiveChatThreadSync(store, activeThreadId) {
   }, [activeThreadId, loading, store, timelineReady]);
 }
 
+function ChatSidepanelShortcut({ onToggle, open }) {
+  return (
+    <div className="chat-sidepanel-shortcut-zone">
+      <button
+        type="button"
+        className={`chat-sidepanel-shortcut${open ? ' is-open' : ''}`}
+        aria-label={open ? '隐藏侧边栏' : '显示侧边栏'}
+        title={open ? '隐藏侧边栏' : '显示侧边栏'}
+        aria-pressed={open}
+        onClick={() => onToggle((prev) => !prev)}
+      >
+        {open ? <ChevronRight size={16} aria-hidden="true" /> : <ChevronLeft size={16} aria-hidden="true" />}
+      </button>
+    </div>
+  );
+}
+
 function ChatPage(props) {
   const {
+    actionsHostedInTopBar = false,
     copy = APP_COPY.zh.chat,
     geometrySnapshot,
     layoutActions,
@@ -222,6 +257,7 @@ function ChatPage(props) {
     rightPanelOpen,
     setRightPanelOpen: layoutActions.right.setOpen,
   });
+  const rightPanelMounted = useRightPanelPresence(rightPanelOpen);
   const agentBoardCompact = geometrySnapshot.viewport.width <= AGENT_BOARD_COMPACT_VIEWPORT_WIDTH;
   const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
   const prefillIntroSuggestion = (prompt) => {
@@ -229,10 +265,15 @@ function ChatPage(props) {
   };
 
   return (
-    <section className={`chat-page${introMode ? ' chat-page--intro' : ''}`} data-testid="chat-page">
+    <section
+      className={`chat-page${introMode ? ' chat-page--intro' : ''}`}
+      data-testid="chat-page"
+      style={{ '--chat-right-offset': geometrySnapshot.cssVars['--composer-right-offset'] }}
+    >
       {showHeader ? (
-        <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={layoutActions.right.setOpen} />
+        <ChatPageHeader copy={copy} showActions={!actionsHostedInTopBar} store={store} projectPath={projectPath} />
       ) : null}
+      <ChatSidepanelShortcut onToggle={layoutActions.right.setOpen} open={rightPanelOpen} />
       <ChatActionFeedback
         copy={copy}
         feedback={headerFeedback}
@@ -243,7 +284,9 @@ function ChatPage(props) {
         data-testid="chat-layout"
         style={{
           '--composer-right-offset': geometrySnapshot.cssVars['--composer-right-offset'],
-          gridTemplateColumns: geometrySnapshot.gridTemplateColumns,
+          gridTemplateColumns: rightPanelOpen
+            ? geometrySnapshot.gridTemplateColumns
+            : CLOSED_RIGHT_PANEL_COLUMNS,
         }}
       >
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
@@ -284,8 +327,9 @@ function ChatPage(props) {
             messageActions={messageActions}
           />
         </div>
-        {agentBoard.rightPanelView === 'agents' ? (
+        {rightPanelMounted && agentBoard.rightPanelView === 'agents' ? (
           <AgentBoardPanelSlot
+            keepMounted={rightPanelMounted}
             panel={{
               formatTime,
               onCollapse: agentBoard.collapse,
@@ -302,7 +346,7 @@ function ChatPage(props) {
               width: geometrySnapshot.aria.rightNow,
             }}
           />
-        ) : (
+        ) : rightPanelMounted ? (
           <RuntimePanelSlot
             beginResize={layoutActions.right.begin}
             codeFileActions={runtimeCodeActions}
@@ -310,6 +354,7 @@ function ChatPage(props) {
             geometrySnapshot={geometrySnapshot}
             handleKeyDown={layoutActions.right.keyDown}
             layoutActions={layoutActions}
+            keepMounted={rightPanelMounted}
             onShowAgents={agentBoard.showAgents}
             open={rightPanelOpen}
             projectPath={runtimeProject}
@@ -317,7 +362,7 @@ function ChatPage(props) {
             renderMarkdownPreview={renderCodePreviewMarkdown}
             threadData={threadData}
           />
-        )}
+        ) : null}
       </div>
       {codePreview.dialogs}
     </section>

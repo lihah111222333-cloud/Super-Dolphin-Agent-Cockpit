@@ -63,6 +63,14 @@ function renderSlot(overrides = {}) {
     expect(screen.queryByTestId('runtime-panel')).toBeNull();
   });
 
+  it('keeps a closing panel mounted but removes it from interaction', () => {
+    renderSlot({ keepMounted: true, open: false });
+
+    expect(screen.getByTestId('runtime-panel')).toHaveClass('is-closing');
+    expect(screen.getByTestId('runtime-panel')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('right-panel-resizer')).toBeDisabled();
+  });
+
   it('renders the right panel shell and wires resize events', () => {
     const { props } = renderSlot();
     const resizer = screen.getByTestId('right-panel-resizer');

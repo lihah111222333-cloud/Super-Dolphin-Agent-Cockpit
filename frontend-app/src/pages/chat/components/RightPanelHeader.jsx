@@ -4,7 +4,11 @@ import { X } from 'lucide-react';
 function RightPanelViewTabs({ activeView, onShowAgents, onShowRuntime }) {
   const agentsActive = activeView === 'agents';
   return (
-    <div className="right-panel-view-tabs" role="group" aria-label="右侧栏视图切换">
+    <div
+      className={`right-panel-view-tabs${agentsActive ? ' is-agents' : ' is-runtime'}`}
+      role="group"
+      aria-label="右侧栏视图切换"
+    >
       <button
         type="button"
         className={`right-panel-view-tab${agentsActive ? ' is-active' : ''}`}

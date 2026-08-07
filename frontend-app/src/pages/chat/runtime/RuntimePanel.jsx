@@ -22,6 +22,7 @@ function RuntimePanel({
   layoutActions,
   onCollapse,
   onShowAgents,
+  open = true,
   renderMarkdownPreview,
 }) {
   /*
@@ -44,8 +45,10 @@ function RuntimePanel({
   });
   return (
     <aside
-      className="runtime-panel"
+      className={`runtime-panel${open ? ' is-open' : ' is-closing'}`}
+      aria-hidden={!open}
       data-testid="runtime-panel"
+      inert={open ? undefined : true}
       style={geometrySnapshot.cssVars}
     >
       <RightPanelHeader activeView="runtime" onCollapse={onCollapse} onShowAgents={onShowAgents}>

@@ -11,6 +11,10 @@
   background: var(--workbench-bg);
 }
 
+.sa-window.suiyuan-shell .chat-page {
+  position: relative;
+}
+
 /* 深色下 Header 与消息区之间补一条低对比分层线 + 轻微表面抬升。 */
 .sa-window[data-theme="dark"] .chat-page-header {
   border-bottom: 1px solid var(--line);
@@ -235,14 +239,55 @@
   cursor: not-allowed;
 }
 
-.chat-legacy-actions,
-.chat-sidepanel-shortcut {
+.chat-legacy-actions {
   position: absolute;
   left: -10000px;
   top: 0;
   width: 1px;
   height: 1px;
   overflow: visible;
+}
+
+.chat-sidepanel-shortcut-zone {
+  position: fixed;
+  top: calc(50% - 12px);
+  right: var(--chat-right-offset, 0px);
+  z-index: var(--z-local-sticky);
+  width: 112px;
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  transform: translateY(-50%);
+}
+
+.chat-sidepanel-shortcut {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-sec);
+  box-shadow: var(--suiyuan-card-shadow);
+  margin-right: 12px;
+  opacity: 0;
+  transform: translateX(48px);
+  transition: background var(--transition), border-color var(--transition), color var(--transition), opacity var(--motion-hover), transform var(--motion-overlay);
+}
+
+.chat-sidepanel-shortcut-zone:hover .chat-sidepanel-shortcut,
+.chat-sidepanel-shortcut-zone:focus-within .chat-sidepanel-shortcut,
+.chat-sidepanel-shortcut:hover,
+.chat-sidepanel-shortcut:focus-visible {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text-pri);
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .chat-layout {
@@ -252,6 +297,7 @@
   min-height: 0;
   display: grid;
   overflow: hidden;
+  transition: grid-template-columns 180ms ease;
 }
 
 .chat-page--intro .chat-layout {

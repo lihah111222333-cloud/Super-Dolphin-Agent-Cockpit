@@ -8,6 +8,7 @@ function RuntimePanelSlot({
   geometrySnapshot,
   handleKeyDown,
   layoutActions,
+  keepMounted = false,
   onShowAgents,
   open,
   projectPath,
@@ -19,7 +20,7 @@ function RuntimePanelSlot({
    * RuntimePanelSlot 只负责右侧栏外壳：splitter 和 RuntimePanel 透传。
    * 宽度计算与打开/关闭状态仍由 ChatPage 的布局 hook 管理。
    */
-  if (!open) return null;
+  if (!open && !keepMounted) return null;
   return (
     <>
       <button
@@ -33,6 +34,8 @@ function RuntimePanelSlot({
         aria-valuenow={geometrySnapshot.aria.rightNow}
         title="调整侧边栏宽度"
         data-testid="right-panel-resizer"
+        aria-hidden={!open}
+        disabled={!open}
         onKeyDown={handleKeyDown}
         onPointerDown={beginResize}
       >
@@ -53,6 +56,7 @@ function RuntimePanelSlot({
         layoutActions={layoutActions}
         onCollapse={() => layoutActions.right.setOpen(false)}
         onShowAgents={onShowAgents}
+        open={open}
       />
     </>
   );

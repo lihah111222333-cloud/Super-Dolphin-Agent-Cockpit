@@ -44,6 +44,11 @@ function renderPanel(viewModel, overrides = {}) {
 }
 
 describe('AgentBoardPanel', () => {
+  it('marks the active tab position for the sliding indicator', () => {
+    renderPanel(dockedViewModel([]));
+
+    expect(screen.getByRole('group', { name: '右侧栏视图切换' })).toHaveClass('is-agents');
+  });
   it('shows structural counts for running, waiting, completed and failed', () => {
     const viewModel = dockedViewModel([
       agent('root'),

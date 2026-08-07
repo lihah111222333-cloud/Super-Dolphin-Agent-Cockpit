@@ -35,9 +35,16 @@ function PanelBody({ viewModel, formatTime, onSelectAgent }) {
  * docked 模式的 Agent 看板右侧栏。
  * 与 RuntimePanel 共享右侧栏布局：头部提供「运行时」切换入口和收起按钮。
  */
-function AgentBoardPanel({ viewModel, formatTime, onSelectAgent, onCollapse, onShowRuntime }) {
+function AgentBoardPanel(props) {
+  const { viewModel, formatTime, onSelectAgent, onCollapse, onShowRuntime, open = true } = props;
   return (
-    <aside className="agent-board-panel" aria-label="Agent 看板详情栏" data-testid="agent-board-panel">
+    <aside
+      className={`agent-board-panel${open ? ' is-open' : ' is-closing'}`}
+      aria-hidden={!open}
+      aria-label="Agent 看板详情栏"
+      data-testid="agent-board-panel"
+      inert={open ? undefined : true}
+    >
       <RightPanelHeader activeView="agents" onCollapse={onCollapse} onShowRuntime={onShowRuntime} />
       <div className="agent-board-panel__body">
         <PanelBody viewModel={viewModel} formatTime={formatTime} onSelectAgent={onSelectAgent} />

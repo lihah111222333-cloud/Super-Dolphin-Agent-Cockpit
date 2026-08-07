@@ -58,6 +58,14 @@
   border-left: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
   background: var(--surface-2);
   box-shadow: inset 1px 0 0 color-mix(in srgb, var(--surface) 62%, transparent);
+  transform: translateX(100%);
+  opacity: 0;
+  transition: transform 180ms ease, opacity 140ms ease;
+}
+
+.runtime-panel.is-open {
+  transform: translateX(0);
+  opacity: 1;
 }
 
 .right-panel-header {
@@ -120,6 +128,7 @@
 }
 
 .right-panel-view-tabs {
+  position: relative;
   width: 128px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -131,7 +140,23 @@
   padding: 2px;
 }
 
+.right-panel-view-tabs::before {
+  position: absolute;
+  inset: 2px auto 2px 2px;
+  width: calc((100% - 8px) / 2);
+  border-radius: 999px;
+  background: var(--surface-3);
+  content: '';
+  transition: transform 160ms ease;
+}
+
+.right-panel-view-tabs.is-runtime::before {
+  transform: translateX(calc(100% + 4px));
+}
+
 .right-panel-view-tab {
+  position: relative;
+  z-index: var(--z-local-raised);
   min-width: 0;
   border: 0;
   border-radius: 999px;
@@ -143,9 +168,16 @@
 }
 
 .right-panel-view-tab.is-active {
-  background: var(--surface-3);
+  background: transparent;
   color: var(--text);
   font-weight: 650;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runtime-panel,
+  .right-panel-view-tabs::before {
+    transition: none;
+  }
 }
 
 .right-panel-view-tab:focus-visible {

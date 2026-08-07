@@ -472,7 +472,10 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '筛选消息' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '消息列表' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '布局视图' })).toHaveAttribute('aria-pressed', 'false');
+    const sidepanelShortcut = screen.getByRole('button', { name: '显示侧边栏' });
+    expect(sidepanelShortcut).toHaveAttribute('aria-pressed', 'false');
+    expect(sidepanelShortcut).not.toHaveClass('is-open');
+    expect(sidepanelShortcut.querySelector('.lucide-chevron-left')).toBeInTheDocument();
     expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
     expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
@@ -511,8 +514,10 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(timeline.scrollTop).toBe(960);
     requestAnimationFrameSpy.mockRestore();
 
-    fireEvent.click(screen.getByRole('button', { name: '布局视图' }));
+    fireEvent.click(sidepanelShortcut);
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '隐藏侧边栏' })).toHaveClass('is-open');
+    expect(screen.getByRole('button', { name: '隐藏侧边栏' }).querySelector('.lucide-chevron-right')).toBeInTheDocument();
     expect(store.setRightPanelWidth).toBeUndefined();
     expect(shellLayout.storage.set).toHaveBeenCalledWith(
       'super-dolphin.shell.right-panel-width',
@@ -569,9 +574,6 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     fireEvent.click(within(menu).getByRole('menuitem', { name: '进程恢复' }));
     expect(store.recoverActiveThread).toHaveBeenCalledTimes(1);
 
-    menu = openMenu();
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '显示侧边栏' }));
-    await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
   });
 
   it('disables force complete controls when the selected thread has no active turn target', () => {

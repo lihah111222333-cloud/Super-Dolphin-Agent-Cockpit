@@ -25,6 +25,21 @@ function boardStore(overrides = {}) {
   });
 }
 
+function pointerEvent(type, { pointerId, clientX, clientY }) {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperties(event, {
+    pointerId: { value: pointerId },
+    clientX: { value: clientX },
+    clientY: { value: clientY },
+  });
+  return event;
+}
+
+function mockDragBounds(card, { cardRect, containerRect }) {
+  card.getBoundingClientRect = () => cardRect;
+  card.parentElement.getBoundingClientRect = () => containerRect;
+}
+
 const originalInnerWidth = window.innerWidth;
 
 afterEach(() => {
@@ -36,8 +51,44 @@ it('默认在聊天页面展示常态悬浮看板，不打开右侧栏', () => {
 
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
   expect(screen.getByTestId('agent-board-floating')).toHaveTextContent('Agents');
+  expect(screen.getByTestId('agent-floating-list')).toHaveTextContent('Agent worker');
+  expect(screen.getByTestId('agent-floating-list')).toHaveTextContent('任务 worker');
   expect(screen.queryByTestId('agent-board-panel')).toBeNull();
   expect(screen.queryByTestId('runtime-panel')).toBeNull();
+});
+
+it('可拖动悬浮看板并保留新的偏移位置', () => {
+  render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" />);
+
+  const card = screen.getByTestId('agent-board-floating');
+  const header = card.querySelector('.agent-board-floating__header');
+  mockDragBounds(card, {
+    cardRect: { left: 200, right: 760, top: 40, bottom: 140 },
+    containerRect: { left: 0, right: 1200, top: 0, bottom: 800 },
+  });
+  fireEvent(header, pointerEvent('pointerdown', { pointerId: 1, clientX: 100, clientY: 80 }));
+  fireEvent(header, pointerEvent('pointermove', { pointerId: 1, clientX: 140, clientY: 110 }));
+  fireEvent(header, pointerEvent('pointerup', { pointerId: 1, clientX: 140, clientY: 110 }));
+
+  expect(card.style.getPropertyValue('--agent-board-drag-x')).toBe('40px');
+  expect(card.style.getPropertyValue('--agent-board-drag-y')).toBe('30px');
+});
+
+it('拖动悬浮看板时限制在聊天主列内部', () => {
+  render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" />);
+
+  const card = screen.getByTestId('agent-board-floating');
+  const header = card.querySelector('.agent-board-floating__header');
+  mockDragBounds(card, {
+    cardRect: { left: 100, right: 300, top: 20, bottom: 120 },
+    containerRect: { left: 0, right: 500, top: 0, bottom: 400 },
+  });
+  fireEvent(header, pointerEvent('pointerdown', { pointerId: 2, clientX: 100, clientY: 80 }));
+  fireEvent(header, pointerEvent('pointermove', { pointerId: 2, clientX: 1000, clientY: -1000 }));
+  fireEvent(header, pointerEvent('pointerup', { pointerId: 2, clientX: 1000, clientY: -1000 }));
+
+  expect(card.style.getPropertyValue('--agent-board-drag-x')).toBe('192px');
+  expect(card.style.getPropertyValue('--agent-board-drag-y')).toBe('-12px');
 });
 
 it('点击展开按钮后切换为 docked 右侧栏并保留宽度调整能力', () => {
@@ -51,15 +102,17 @@ it('点击展开按钮后切换为 docked 右侧栏并保留宽度调整能力',
   expect(screen.getByTestId('agent-hierarchy')).toBeInTheDocument();
 });
 
-it('收起右侧栏后恢复悬浮看板', () => {
+it('收起右侧栏时先播放退出动画，再恢复悬浮看板', async () => {
   render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" />);
 
   fireEvent.click(screen.getByTestId('agent-board-expand'));
   expect(screen.getByTestId('agent-board-panel')).toBeInTheDocument();
 
   fireEvent.click(screen.getByTestId('agent-board-collapse'));
-  expect(screen.queryByTestId('agent-board-panel')).toBeNull();
+  expect(screen.getByTestId('agent-board-panel')).toHaveClass('is-closing');
+  expect(screen.getByTestId('agent-board-panel')).toHaveAttribute('aria-hidden', 'true');
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByTestId('agent-board-panel')).toBeNull());
 });
 
 it('Runtime 右侧栏展开时悬浮看板同样隐藏', () => {
@@ -69,7 +122,7 @@ it('Runtime 右侧栏展开时悬浮看板同样隐藏', () => {
   expect(screen.queryByTestId('agent-board-floating')).toBeNull();
 });
 
-it('Agent/Runtime 切换过程中悬浮看板不出现，收起后恢复', () => {
+it('Agent/Runtime 切换过程中悬浮看板不出现，收起动画后恢复', async () => {
   render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" rightPanelOpen={true} />);
 
   expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
@@ -87,8 +140,9 @@ it('Agent/Runtime 切换过程中悬浮看板不出现，收起后恢复', () =>
 
   fireEvent.click(screen.getByTestId('runtime-show-agents'));
   fireEvent.click(screen.getByTestId('agent-board-collapse'));
-  expect(screen.queryByTestId('agent-board-panel')).toBeNull();
+  expect(screen.getByTestId('agent-board-panel')).toHaveClass('is-closing');
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByTestId('agent-board-panel')).toBeNull());
 });
 
 it('展开右侧看板后可选中对应 Agent 并展示层级', () => {
