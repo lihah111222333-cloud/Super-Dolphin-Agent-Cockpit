@@ -8,6 +8,9 @@ import (
 const (
 	mcpLSPResourceCohortE2ETarget = "test-e2e-mcp-lsp-resource-cohort"
 	mcpLSPResourceCohortE2ERun    = "^TestMcpLSPBinary(LinkedWorktreesResourceCohortRecycleAndRecover|ResourceCohortMalformedReportQuarantine)_E2E$"
+	mcpLSPGoplsDaemonE2ETarget    = "test-e2e-gopls-daemon-lifecycle"
+	mcpLSPGoplsDaemonE2EScript    = "run_mcp_lsp_gopls_daemon_e2e.sh"
+	mcpLSPGoplsDaemonE2ERun       = "^TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E$"
 )
 
 func TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E(t *testing.T) {
@@ -33,6 +36,17 @@ func TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E(t *testing.T) {
 	if strings.Count(guardScript, `run_mcp_lsp_resource_cohort_e2e "$real_go"`) != 1 {
 		t.Fatal("resource cohort E2E must be selected only by canonical backend mode")
 	}
+}
+
+func TestMcpLSPGoplsDaemonE2EEntryPinsLongGoTestTimeout(t *testing.T) {
+	makefile := readRepoFile(t, "../Makefile")
+	script := readRepoFile(t, mcpLSPGoplsDaemonE2EScript)
+
+	assertScriptContains(t, makefile, mcpLSPGoplsDaemonE2ETarget+":\n\t./scripts/"+mcpLSPGoplsDaemonE2EScript)
+	assertScriptContains(t, script, "./scripts/test_with_guard.sh --quick-guard -tags=e2e ./cmd/mcp-lsp")
+	assertScriptContains(t, script, "-run '"+mcpLSPGoplsDaemonE2ERun+"'")
+	assertScriptContains(t, script, "-timeout 20m")
+	assertScriptContains(t, script, "-count=1")
 }
 
 func requireMcpLSPResourceCohortGateSection(
