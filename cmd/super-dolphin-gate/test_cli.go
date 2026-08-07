@@ -35,37 +35,56 @@ func parseAutoTestRunOptions(args []string) (remoteRunOptions, error) {
 	if err != nil {
 		return remoteRunOptions{}, err
 	}
-	if options.Scenario != "" || options.Profile != "" || options.Entrypoint != "" ||
-		options.LocalRef != "" || options.RemoteRef != "" || options.ObservedRemote != "" ||
-		options.UpdateKind != "" {
-		return remoteRunOptions{}, protocolError("test command does not accept scenario, profile, entrypoint, or push flags")
+	if err := validateAutoTestFlags(options); err != nil {
+		return remoteRunOptions{}, err
 	}
-	if options.CompletionReceiptPath != "" && !filepath.IsAbs(options.CompletionReceiptPath) {
-		return remoteRunOptions{}, protocolError("--completion-receipt must be an absolute path")
-	}
-	if options.WorkloadID != "" {
-		if err := bindMcpLSPWorkloadSelectors(&options); err != nil {
-			return remoteRunOptions{}, protocolError("bind workload %q: %v", options.WorkloadID, err)
-		}
-	} else {
-		if options.CompletionReceiptPath != "" {
-			return remoteRunOptions{}, protocolError("--completion-receipt requires --workload")
-		}
-		if len(options.Tests) == 0 {
-			return remoteRunOptions{}, protocolError("test command requires at least one --test selector")
-		}
+	if err := bindOrValidateAutoTestSelectors(&options); err != nil {
+		return remoteRunOptions{}, err
 	}
 	options.Scenario = "test"
 	return options, nil
 }
 
-// bindMcpLSPWorkloadSelectors resolves a catalog workload before the request
-// reaches the ECI coordinator. Missing implementation, unsupported Windows,
-// and selector drift are all explicit N/V/protocol failures; no local test is
-// executed as a fallback.
+// validateAutoTestFlags 拒绝 test 命令接管的场景、推送和非绝对回执参数。
+func validateAutoTestFlags(options remoteRunOptions) error {
+	if options.Scenario != "" || options.Profile != "" || options.Entrypoint != "" ||
+		options.LocalRef != "" || options.RemoteRef != "" || options.ObservedRemote != "" ||
+		options.UpdateKind != "" {
+		return protocolError("test command does not accept scenario, profile, entrypoint, or push flags")
+	}
+	if options.CompletionReceiptPath != "" && !filepath.IsAbs(options.CompletionReceiptPath) {
+		return protocolError("--completion-receipt must be an absolute path")
+	}
+	return nil
+}
+
+// bindOrValidateAutoTestSelectors 绑定 catalog workload 或校验独立 test 选择器。
+func bindOrValidateAutoTestSelectors(options *remoteRunOptions) error {
+	if options.WorkloadID != "" {
+		if err := bindMcpLSPWorkloadSelectors(options); err != nil {
+			return protocolError("bind workload %q: %v", options.WorkloadID, err)
+		}
+		return nil
+	}
+	return validateStandaloneTestSelectors(*options)
+}
+
+// validateStandaloneTestSelectors 校验没有 workload 绑定时的 CLI 选择器边界。
+func validateStandaloneTestSelectors(options remoteRunOptions) error {
+	if options.CompletionReceiptPath != "" {
+		return protocolError("--completion-receipt requires --workload")
+	}
+	if len(options.Tests) == 0 {
+		return protocolError("test command requires at least one --test selector")
+	}
+	return nil
+}
+
+// bindMcpLSPWorkloadSelectors 在请求进入 ECI 前解析目录 workload；实现缺失、
+// Windows 不支持和选择器漂移均显式返回 N/V/协议错误，不回退到本地测试。
 func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {
-	if options == nil || strings.TrimSpace(options.WorkloadID) == "" {
-		return fmt.Errorf("workload ID is required")
+	if err := validateMcpLSPBindingInput(options); err != nil {
+		return err
 	}
 	repository, err := filepath.Abs(options.RepositoryRoot)
 	if err != nil {
@@ -83,6 +102,26 @@ func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := validateMcpLSPWorkload(workload, *options); err != nil {
+		return err
+	}
+	selectors, err := catalog.RemoteTestSelectors(workload.Command)
+	if err != nil {
+		return err
+	}
+	return applyMcpLSPWorkloadBinding(options, candidateHead, candidateTree, selectors)
+}
+
+// validateMcpLSPBindingInput 校验 workload 绑定所需的指针和 ID。
+func validateMcpLSPBindingInput(options *remoteRunOptions) error {
+	if options == nil || strings.TrimSpace(options.WorkloadID) == "" {
+		return fmt.Errorf("workload ID is required")
+	}
+	return nil
+}
+
+// validateMcpLSPWorkload 执行平台、实现状态和远程 completion authority 门禁。
+func validateMcpLSPWorkload(workload catalog.Workload, options remoteRunOptions) error {
 	if !workload.SupportsCurrentPlatform() {
 		return fmt.Errorf("platform %q is N/V for workload (registered platforms=%s)", runtime.GOOS, strings.Join(workload.Platforms, ","))
 	}
@@ -90,10 +129,7 @@ func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {
 		return fmt.Errorf("default-15m workload is N/V on Windows until native daemon owner receipt is implemented")
 	}
 	if workload.ImplementationStatus != "implemented" {
-		if workload.ID == mcpLSPDefault15mWorkloadID {
-			return fmt.Errorf("default-15m workload is N/V: implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
-		}
-		return fmt.Errorf("implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
+		return mcpLSPImplementationStatusError(workload)
 	}
 	if workload.ProducerImplementationStatus != "implemented" {
 		return fmt.Errorf("workload %q is N/V: producer_implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ProducerImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
@@ -104,10 +140,19 @@ func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {
 	if workload.TriggerClass == "default-15m-source-e2e" && options.CompletionReceiptPath == "" {
 		return fmt.Errorf("default-15m requires explicit --completion-receipt")
 	}
-	selectors, err := catalog.RemoteTestSelectors(workload.Command)
-	if err != nil {
-		return err
+	return nil
+}
+
+// mcpLSPImplementationStatusError 保持默认 15m 与其他 workload 的 N/V 文案契约。
+func mcpLSPImplementationStatusError(workload catalog.Workload) error {
+	if workload.ID == mcpLSPDefault15mWorkloadID {
+		return fmt.Errorf("default-15m workload is N/V: implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
 	}
+	return fmt.Errorf("implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
+}
+
+// applyMcpLSPWorkloadBinding 写入 catalog 选择器并冻结解析后的候选 commit/tree。
+func applyMcpLSPWorkloadBinding(options *remoteRunOptions, candidateHead, candidateTree string, selectors []string) error {
 	if len(options.Tests) == 0 {
 		options.Tests = selectors
 	} else if !sameSelectorSet(options.Tests, selectors) {
@@ -124,6 +169,7 @@ func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {
 	return nil
 }
 
+// resolveMcpLSPCandidateIdentity 解析显式 commit/tree 为固定的 Git 对象身份。
 func resolveMcpLSPCandidateIdentity(repository string, options remoteRunOptions) (string, string, error) {
 	if strings.TrimSpace(repository) == "" {
 		return "", "", fmt.Errorf("repository root is required")

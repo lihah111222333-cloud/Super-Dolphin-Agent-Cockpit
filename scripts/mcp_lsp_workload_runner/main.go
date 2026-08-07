@@ -41,14 +41,31 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	document, workload, err := loadRunnerWorkload(repoRoot, options.id)
+	if err != nil {
+		return err
+	}
+	if err := validateRunnerWorkload(workload); err != nil {
+		return err
+	}
+	return executeRunnerWorkload(options, repoRoot, document, workload)
+}
+
+// loadRunnerWorkload 从受信仓库目录加载并解析目标 workload。
+func loadRunnerWorkload(repoRoot, id string) (catalog.Catalog, catalog.Workload, error) {
 	document, err := catalog.Load(repoRoot)
 	if err != nil {
-		return err
+		return catalog.Catalog{}, catalog.Workload{}, err
 	}
-	workload, err := document.Find(options.id)
+	workload, err := document.Find(id)
 	if err != nil {
-		return err
+		return catalog.Catalog{}, catalog.Workload{}, err
 	}
+	return document, workload, nil
+}
+
+// validateRunnerWorkload 在任何计划或执行前执行平台、实现和 authority 门禁。
+func validateRunnerWorkload(workload catalog.Workload) error {
 	if !workload.SupportsCurrentPlatform() {
 		return fmt.Errorf("workload %q is not registered for platform %q", workload.ID, runtime.GOOS)
 	}
@@ -61,9 +78,11 @@ func run(args []string) error {
 	if workload.ProducerImplementationStatus != "implemented" {
 		return fmt.Errorf("workload %q is N/V: producer_implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ProducerImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
 	}
-	if err := catalog.RequireRemoteCompletionAuthority(workload); err != nil {
-		return err
-	}
+	return catalog.RequireRemoteCompletionAuthority(workload)
+}
+
+// executeRunnerWorkload 解析回执路径并执行已通过门禁的 workload。
+func executeRunnerWorkload(options runnerOptions, repoRoot string, document catalog.Catalog, workload catalog.Workload) error {
 	if options.plan {
 		return printPlan(document, workload)
 	}

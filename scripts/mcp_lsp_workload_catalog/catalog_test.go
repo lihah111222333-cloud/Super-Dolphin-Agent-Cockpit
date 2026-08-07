@@ -496,7 +496,7 @@ func defaultCompletionProof(t *testing.T, root string) map[string]any {
 		t.Fatal(err)
 	}
 	return map[string]any{
-		"git_head": gitHead, "source_tree_digest": tree, "cohort_id": "sha256:" + strings.Repeat("1", 64), "repository_instance_proof_hash": "sha256:" + strings.Repeat("2", 64), "epoch": uint64(3), "daemon_owner_receipt_hash": "sha256:" + strings.Repeat("3", 64), "remote_run_id": "run-1", "remote_job_id": "job-1", "remote_artifact_name": "mcp-lsp-default-15m-receipt", "remote_artifact_digest": "sha256:" + strings.Repeat("4", 64), "action_order": completionActionOrder, "forwarder_count_after": 0, "daemon_observed_after": false, "telemetry_identities_gone": true, "endpoint_unreachable": true, "native_owner_released": true, "quiet_window_verified": true, "next_epoch": uint64(4), "status": "completed",
+		"git_head": gitHead, "source_tree_digest": tree, "cohort_id": "sha256:" + strings.Repeat("1", 64), "repository_instance_proof_hash": "sha256:" + strings.Repeat("2", 64), "epoch": uint64(3), "daemon_owner_receipt_hash": "sha256:" + strings.Repeat("3", 64), "remote_run_id": "run-1", "remote_job_id": "job-1", "remote_artifact_name": "mcp-lsp-default-15m-receipt", "remote_artifact_digest": "sha256:" + strings.Repeat("4", 64), "action_order": completionActionOrder(), "forwarder_count_after": 0, "daemon_observed_after": false, "telemetry_identities_gone": true, "endpoint_unreachable": true, "native_owner_released": true, "quiet_window_verified": true, "next_epoch": uint64(4), "status": "completed",
 	}
 }
 

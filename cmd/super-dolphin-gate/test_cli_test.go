@@ -4,10 +4,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
@@ -64,6 +66,21 @@ func TestParseAutoTestRunOptionsBindsDefaultMcpLSPWorkloadAndKeepsItNV(t *testin
 	})
 	if err == nil || !strings.Contains(err.Error(), "default-15m workload is N/V") {
 		t.Fatalf("default workload parse error = %v, want explicit N/V", err)
+	}
+}
+
+func TestValidateMcpLSPWorkloadBlocksDefaultAuthorityBeforeExecution(t *testing.T) {
+	receiptPath := filepath.Join(t.TempDir(), "completion.json")
+	workload := catalog.Workload{
+		ID:                           mcpLSPDefault15mWorkloadID,
+		ImplementationStatus:         "implemented",
+		ProducerImplementationStatus: "implemented",
+		Platforms:                    []string{runtime.GOOS},
+		TriggerClass:                 "default-15m-source-e2e",
+	}
+	err := validateMcpLSPWorkload(workload, remoteRunOptions{CompletionReceiptPath: receiptPath})
+	if err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("validateMcpLSPWorkload() error = %v, want authority N/V before execution", err)
 	}
 }
 
