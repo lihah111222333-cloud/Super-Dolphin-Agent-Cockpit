@@ -8,7 +8,7 @@ import { APPEARANCE_ACCENT_TOKENS } from './appearance/appearanceSchema.js';
  *
  * 这里的颜色不是第二套独立色板：每个值都与 styles.css 的
  * `:root[data-theme="dark"|"light"]` 以及 AppShell.css 的
- * `.sa-window.suiyuan-shell[data-theme="dark"]` 中的 CSS Token 一一对应。
+ * `.sa-window.super-dolphin-agent-shell[data-theme="dark"]` 中的 CSS Token 一一对应。
  * 修改任一侧色值时，必须同步另一侧，并同步 styles.test.js 的契约断言。
  *
  * 深色方向：深石墨底 + 蓝紫主色（AI Command Center），三级表面层次：
@@ -35,7 +35,7 @@ const DARK_TOKENS = Object.freeze({
   colorBgLayout: '#0e1014', // --app-bg
   colorBgContainer: '#161920', // --surface
   colorBgElevated: '#232833', // --surface-3（浮起面板/弹层）
-  colorBgSpotlight: '#2a303d', // Tooltip/聚焦浮层 ≈ --suiyuan-surface-highest
+  colorBgSpotlight: '#2a303d', // Tooltip/聚焦浮层 ≈ --super-dolphin-agent-surface-highest
   colorText: '#e9ebf2', // --text-pri
   colorTextSecondary: '#b8bfcc', // --text-sec
   colorTextTertiary: '#8b93a3', // --text-muted
@@ -45,7 +45,7 @@ const DARK_TOKENS = Object.freeze({
   fontFamily: FONT_FAMILY,
   controlHeight: 34,
   boxShadow: '0 24px 72px rgba(0, 0, 0, 0.38)', // --shadow
-  boxShadowSecondary: '0 8px 30px rgba(0, 0, 0, 0.2)', // --suiyuan-input-shadow
+  boxShadowSecondary: '0 8px 30px rgba(0, 0, 0, 0.2)', // --super-dolphin-agent-input-shadow
   ...MOTION_TOKENS,
 });
 
@@ -120,7 +120,7 @@ const LIGHT_TOKENS = Object.freeze({
   fontFamily: FONT_FAMILY,
   controlHeight: 34,
   boxShadow: '0 22px 70px rgba(30, 38, 68, 0.12)', // --shadow
-  boxShadowSecondary: '0 8px 30px rgba(30, 38, 68, 0.06)', // --suiyuan-input-shadow
+  boxShadowSecondary: '0 8px 30px rgba(30, 38, 68, 0.06)', // --super-dolphin-agent-input-shadow
   ...MOTION_TOKENS,
 });
 

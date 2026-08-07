@@ -223,7 +223,7 @@ function MemoryToolbar(props) {
           <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={searchText} onChange={(event) => setSearchText(event.target.value)} />
         </label>
         <div className="memory-create">
-          <button type="button" className="suiyuan-btn-fusion-ghost memory-create-button"
+          <button type="button" className="super-dolphin-agent-btn-fusion-ghost memory-create-button"
             aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen}
             aria-disabled={disabled || writeUnavailable || undefined}
             title={writeUnavailable ? '当前项目不是 Git 仓库，记忆功能仅支持 Git 项目' : (disabled ? '请先选择项目' : undefined)}
@@ -270,11 +270,11 @@ function MemoryAutoDreamPanel({ autoDream, copy, disabled, projectPending }) {
           <span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? copy.autoDreamOn : copy.autoDreamOff}
         </p>
         <small className="memory-auto-dream-description">{copy.autoDreamDescription}</small>
-        <button type="button" className={'memory-auto-dream-toggle suiyuan-switch-btn' + (autoDream.enabled ? ' active' : '')}
+        <button type="button" className={'memory-auto-dream-toggle super-dolphin-agent-switch-btn' + (autoDream.enabled ? ' active' : '')}
           aria-disabled={disabled || projectPending || undefined}
           title={disabled ? '当前项目不可写入记忆' : (projectPending ? '请先选择项目' : undefined)}
           onClick={() => { void autoDream.toggleAutoDream(); }} disabled={disabled || autoDream.toggling}>
-          <span className="suiyuan-switch-track" aria-hidden="true"><span className="suiyuan-switch-thumb" /></span>
+          <span className="super-dolphin-agent-switch-track" aria-hidden="true"><span className="super-dolphin-agent-switch-thumb" /></span>
           <span className="memory-auto-dream-toggle-text">{autoDream.enabled ? copy.disable : copy.enable}</span>
         </button>
         {autoDream.pendingRestart ? <small className="memory-pending">{copy.pendingRestart}</small> : null}

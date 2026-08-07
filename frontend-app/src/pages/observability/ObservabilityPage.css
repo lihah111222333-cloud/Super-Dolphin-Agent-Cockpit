@@ -47,8 +47,8 @@
   min-width: 0;
   gap: 7px;
   color: var(--text-sec);
-  font-size: var(--suiyuan-text-label-size);
-  line-height: var(--suiyuan-text-label-line);
+  font-size: var(--super-dolphin-agent-text-label-size);
+  line-height: var(--super-dolphin-agent-text-label-line);
   font-weight: 600;
 }
 
@@ -59,7 +59,7 @@
   min-width: 0;
   height: 40px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--panel-2);
   color: var(--text-pri);
   padding: 0 11px;
@@ -80,7 +80,7 @@
   margin-top: 12px;
 }
 
-.observability-search .suiyuan-btn-fusion:disabled {
+.observability-search .super-dolphin-agent-btn-fusion:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

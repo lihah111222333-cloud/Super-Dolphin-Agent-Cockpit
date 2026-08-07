@@ -7,7 +7,7 @@
 1. 在聊天输入框首个非空字符为 `/` 时打开统一命令面板。
 2. 让用户通过同一入口检索 Skills、提示词、自动化、MCP 工具和少量内置聊天命令。
 3. Skill 与 MCP 工具使用结构化请求字段绑定到本次发送，不把能力名称伪装成普通提示词。
-4. 保持 Suiyuan 输入栏现有布局、项目选择、模型选择、附件和发送行为稳定。
+4. 保持 Super Dolphin Agent 输入栏现有布局、项目选择、模型选择、附件和发送行为稳定。
 
 ## 非目标
 
@@ -163,7 +163,7 @@ manualSkillSelection: true
 - 面板锚定在 composer card 上方，不改变输入栏宽度或推挤对话时间线。
 - 桌面最大宽度约 520px，同时不超过 composer 可用宽度。
 - 列表最大高度约 360px，结果区域内部滚动；类别标题可保持可见。
-- 使用现有 Suiyuan surface、border、text 和 primary token，不新增独立色板或渐变。
+- 使用现有 Super Dolphin Agent surface、border、text 和 primary token，不新增独立色板或渐变。
 - 条目图标和能力标签使用 Lucide 图标；标签保持紧凑，不在标签内堆叠描述。
 - 移动端面板左右贴合 composer 内边界，长名称和描述单行省略；不得覆盖发送按钮。
 - 明暗主题保持同一结构与尺寸，背景必须不透明。

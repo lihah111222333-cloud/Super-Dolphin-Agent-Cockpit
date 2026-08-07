@@ -1,10 +1,10 @@
-# Suiyuan Chat UI Redesign Implementation Plan
+# Super Dolphin Agent Chat UI Redesign Implementation Plan
 
 > **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. In super-agent-v3, subagents may use platform-native dispatch directly; use mcp-orch DAG runs and nodes (`task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`) only when persistent orchestration records are needed. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement the B3 Stitch-faithful Suiyuan redesign for the app shell and Chat workflow.
+**Goal:** Implement the B3 Stitch-faithful Super Dolphin Agent redesign for the app shell and Chat workflow.
 
-**Architecture:** Keep the current React/Vite page structure and store/API bridge intact while translating `DESIGN.md` into the existing CSS token system. Apply the high-fidelity Suiyuan composition through scoped shell and Chat CSS first, with React component edits only when required to expose stable class hooks or preserve accessibility.
+**Architecture:** Keep the current React/Vite page structure and store/API bridge intact while translating `DESIGN.md` into the existing CSS token system. Apply the high-fidelity Super Dolphin Agent composition through scoped shell and Chat CSS first, with React component edits only when required to expose stable class hooks or preserve accessibility.
 
 **Tech Stack:** React 19, Vite, Vitest, Testing Library, PostCSS-based CSS assertions, existing CSS modules/files, Wails bridge through current frontend contracts.
 
@@ -17,7 +17,7 @@
 Planned files and responsibilities:
 
 - Modify: `frontend-app/src/styles.css`
-  - Owns Suiyuan theme tokens and light/dark token aliases used by app shell and Chat.
+  - Owns Super Dolphin Agent theme tokens and light/dark token aliases used by app shell and Chat.
 - Modify: `frontend-app/src/styles.test.js`
   - Owns CSS cascade, token, layout, and shrink-safety assertions.
 - Modify: `frontend-app/src/AppShell.css`
@@ -25,7 +25,7 @@ Planned files and responsibilities:
 - Modify: `frontend-app/src/AppChrome.css`
   - Owns outer window/background chrome and shell framing.
 - Modify: `frontend-app/src/App.test.jsx`
-  - Owns shell smoke tests if existing rendered structure needs a Suiyuan class or data hook assertion.
+  - Owns shell smoke tests if existing rendered structure needs a Super Dolphin Agent class or data hook assertion.
 - Modify: `frontend-app/src/pages/chat/ChatPage.css`
   - Owns Chat workbench grid, conversation canvas, intro state, timeline container, splitters, scroll control.
 - Modify: `frontend-app/src/pages/chat/ChatPageWorkbench.css`
@@ -152,19 +152,19 @@ git status --short
 
 Expected: no production source changes from this task.
 
-## Task 2: Suiyuan Token And CSS Guardrail Tests
+## Task 2: Super Dolphin Agent Token And CSS Guardrail Tests
 
 **Files:**
 - Modify: `frontend-app/src/styles.test.js`
 - Modify: `frontend-app/src/styles.css`
 - Test: `frontend-app/src/styles.test.js`
 
-- [ ] **Step 1: Write failing Suiyuan token assertions**
+- [ ] **Step 1: Write failing Super Dolphin Agent token assertions**
 
 Add this test block near the existing `theme-aware component styles` tests in `frontend-app/src/styles.test.js`:
 
 ```js
-describe('suiyuan design tokens', () => {
+describe('super-dolphin-agent design tokens', () => {
   it('maps the light theme to exported DESIGN.md tokens', () => {
     const light = declarationsFor('.sa-window[data-theme="light"]');
 
@@ -180,14 +180,14 @@ describe('suiyuan design tokens', () => {
     expect(light['--text-muted']).toBe('#8b7268');
   });
 
-  it('keeps the Suiyuan workbench aliases available for shell and chat surfaces', () => {
+  it('keeps the Super Dolphin Agent workbench aliases available for shell and chat surfaces', () => {
     const root = declarationsFor(':root');
 
-    expect(root['--suiyuan-sidebar-width']).toBe('280px');
-    expect(root['--suiyuan-content-max-width']).toBe('1100px');
-    expect(root['--suiyuan-gutter']).toBe('24px');
-    expect(root['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.05)');
-    expect(root['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.04)');
+    expect(root['--super-dolphin-agent-sidebar-width']).toBe('280px');
+    expect(root['--super-dolphin-agent-content-max-width']).toBe('1100px');
+    expect(root['--super-dolphin-agent-gutter']).toBe('24px');
+    expect(root['--super-dolphin-agent-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.05)');
+    expect(root['--super-dolphin-agent-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.04)');
   });
 });
 ```
@@ -201,35 +201,35 @@ cd frontend-app
 npx vitest run src/styles.test.js --no-file-parallelism --maxWorkers=1
 ```
 
-Expected: FAIL. The failure should mention mismatched light theme tokens or missing `--suiyuan-*` aliases.
+Expected: FAIL. The failure should mention mismatched light theme tokens or missing `--super-dolphin-agent-*` aliases.
 
-- [ ] **Step 3: Implement Suiyuan tokens**
+- [ ] **Step 3: Implement Super Dolphin Agent tokens**
 
-Modify `frontend-app/src/styles.css` so `:root` defines shared Suiyuan aliases and the light theme uses the exported `DESIGN.md` values:
+Modify `frontend-app/src/styles.css` so `:root` defines shared Super Dolphin Agent aliases and the light theme uses the exported `DESIGN.md` values:
 
 ```css
 :root {
   color-scheme: dark;
-  --suiyuan-background: #fbf9f2;
-  --suiyuan-surface-bright: #fbf9f3;
-  --suiyuan-surface-lowest: #ffffff;
-  --suiyuan-surface-low: #f5f4ed;
-  --suiyuan-surface: #f0eee7;
-  --suiyuan-surface-high: #eae8e1;
-  --suiyuan-surface-highest: #e4e3dc;
-  --suiyuan-on-surface: #1b1c18;
-  --suiyuan-on-surface-variant: #584238;
-  --suiyuan-outline: #8b7268;
-  --suiyuan-outline-variant: #e0c0b3;
-  --suiyuan-primary: #a03b00;
-  --suiyuan-primary-deep: #792b00;
-  --suiyuan-primary-fixed: #ffdbcd;
-  --suiyuan-primary-fixed-dim: #ffb597;
-  --suiyuan-sidebar-width: 280px;
-  --suiyuan-content-max-width: 1100px;
-  --suiyuan-gutter: 24px;
-  --suiyuan-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.05);
-  --suiyuan-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+  --super-dolphin-agent-background: #fbf9f2;
+  --super-dolphin-agent-surface-bright: #fbf9f3;
+  --super-dolphin-agent-surface-lowest: #ffffff;
+  --super-dolphin-agent-surface-low: #f5f4ed;
+  --super-dolphin-agent-surface: #f0eee7;
+  --super-dolphin-agent-surface-high: #eae8e1;
+  --super-dolphin-agent-surface-highest: #e4e3dc;
+  --super-dolphin-agent-on-surface: #1b1c18;
+  --super-dolphin-agent-on-surface-variant: #584238;
+  --super-dolphin-agent-outline: #8b7268;
+  --super-dolphin-agent-outline-variant: #e0c0b3;
+  --super-dolphin-agent-primary: #a03b00;
+  --super-dolphin-agent-primary-deep: #792b00;
+  --super-dolphin-agent-primary-fixed: #ffdbcd;
+  --super-dolphin-agent-primary-fixed-dim: #ffb597;
+  --super-dolphin-agent-sidebar-width: 280px;
+  --super-dolphin-agent-content-max-width: 1100px;
+  --super-dolphin-agent-gutter: 24px;
+  --super-dolphin-agent-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.05);
+  --super-dolphin-agent-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
   /* keep the existing dark theme tokens below this block */
 }
 
@@ -262,8 +262,8 @@ Modify `frontend-app/src/styles.css` so `:root` defines shared Suiyuan aliases a
   --primary-action-bg-hover: var(--primary-2);
   --primary-action-border: rgba(121, 43, 0, 0.46);
   --primary-action-text: #ffffff;
-  --primary-action-shadow: var(--suiyuan-input-shadow);
-  --shadow: var(--suiyuan-card-shadow);
+  --primary-action-shadow: var(--super-dolphin-agent-input-shadow);
+  --shadow: var(--super-dolphin-agent-card-shadow);
   --radius: 16px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -292,7 +292,7 @@ Run:
 ```bash
 git status --short
 git add frontend-app/src/styles.css frontend-app/src/styles.test.js
-git commit -m "style(frontend): add suiyuan theme tokens"
+git commit -m "style(frontend): add super-dolphin-agent theme tokens"
 ```
 
 Expected: commit includes only `styles.css` and `styles.test.js`.
@@ -310,8 +310,8 @@ Expected: commit includes only `styles.css` and `styles.test.js`.
 Add this test in `frontend-app/src/styles.test.js` near the existing navigation assertions:
 
 ```js
-describe('suiyuan shell layout', () => {
-  it('uses warm Suiyuan surfaces for the app shell and primary navigation', () => {
+describe('super-dolphin-agent shell layout', () => {
+  it('uses warm Super Dolphin Agent surfaces for the app shell and primary navigation', () => {
     const navRail = declarationsFor('.nav-rail');
     const activeNav = declarationsFor('.nav-rail button.active');
     const topCommand = declarationsFor('.top-command');
@@ -338,9 +338,9 @@ npx vitest run src/styles.test.js --no-file-parallelism --maxWorkers=1
 
 Expected: FAIL on one or more shell declarations if current shell still uses old surfaces.
 
-- [ ] **Step 3: Implement Suiyuan shell surfaces**
+- [ ] **Step 3: Implement Super Dolphin Agent shell surfaces**
 
-Update `frontend-app/src/AppShell.css` with the Suiyuan shell rules:
+Update `frontend-app/src/AppShell.css` with the Super Dolphin Agent shell rules:
 
 ```css
 .nav-rail {
@@ -413,7 +413,7 @@ Run:
 ```bash
 git status --short
 git add frontend-app/src/AppShell.css frontend-app/src/AppChrome.css frontend-app/src/styles.test.js
-git commit -m "style(frontend): apply suiyuan shell navigation"
+git commit -m "style(frontend): apply super-dolphin-agent shell navigation"
 ```
 
 Expected: commit includes shell CSS and the style test.
@@ -436,7 +436,7 @@ Expected: commit includes shell CSS and the style test.
 Add this test to `frontend-app/src/styles.test.js`:
 
 ```js
-describe('suiyuan chat canvas', () => {
+describe('super-dolphin-agent chat canvas', () => {
   it('centers the chat canvas and renders message surfaces as warm cards', () => {
     const conversation = declarationsFor('.conversation');
     const activeConversation = declarationsFor('.conversation:not(.conversation--intro)');
@@ -449,7 +449,7 @@ describe('suiyuan chat canvas', () => {
     expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
     expect(timeline['align-items']).toBe('center');
     expect(assistantMessage.background).toBe('var(--surface)');
-    expect(assistantMessage['box-shadow']).toBe('var(--suiyuan-card-shadow)');
+    expect(assistantMessage['box-shadow']).toBe('var(--super-dolphin-agent-card-shadow)');
     expect(userMessage.background).toBe('var(--surface-3)');
     expect(markdownPre.background).toBe('var(--surface-code)');
   });
@@ -473,7 +473,7 @@ Update `frontend-app/src/pages/chat/ChatPage.css`:
 
 ```css
 .conversation {
-  --conversation-content-width: min(var(--suiyuan-content-max-width), calc(100% - clamp(32px, 7vw, 112px)));
+  --conversation-content-width: min(var(--super-dolphin-agent-content-max-width), calc(100% - clamp(32px, 7vw, 112px)));
   --conversation-content-left-nudge: 0px;
   border-right: 1px solid var(--line);
   background: var(--bg);
@@ -494,7 +494,7 @@ Update `frontend-app/src/pages/chat/ChatPage.css`:
   border: 1px solid var(--line-strong);
   background: var(--surface);
   color: var(--text-sec);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .splitter {
@@ -515,7 +515,7 @@ Update `frontend-app/src/pages/chat/ChatPageWorkbench.css` to keep late cascade 
 }
 
 .conversation {
-  --conversation-content-width: min(var(--suiyuan-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))));
+  --conversation-content-width: min(var(--super-dolphin-agent-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))));
   background: var(--bg);
 }
 
@@ -527,14 +527,14 @@ Update `frontend-app/src/pages/chat/ChatPageWorkbench.css` to keep late cascade 
 
 - [ ] **Step 4: Implement message and reasoning surfaces**
 
-Update `frontend-app/src/pages/chat/ChatMessages.css` by mapping message shells to Suiyuan cards:
+Update `frontend-app/src/pages/chat/ChatMessages.css` by mapping message shells to Super Dolphin Agent cards:
 
 ```css
 .message {
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--surface);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .message.assistant {
@@ -599,7 +599,7 @@ Run:
 ```bash
 git status --short
 git add frontend-app/src/styles.test.js frontend-app/src/pages/chat/ChatPage.css frontend-app/src/pages/chat/ChatPageWorkbench.css frontend-app/src/pages/chat/ChatMessages.css frontend-app/src/pages/chat/ChatTimeline.css frontend-app/src/pages/chat/ChatReasoning.css
-git commit -m "style(chat): apply suiyuan conversation canvas"
+git commit -m "style(chat): apply super-dolphin-agent conversation canvas"
 ```
 
 Expected: commit includes only Chat canvas/message CSS and the related style test.
@@ -618,7 +618,7 @@ Expected: commit includes only Chat canvas/message CSS and the related style tes
 Add this test in `frontend-app/src/styles.test.js` inside `describe('composer layout styles', ...)`:
 
 ```js
-it('renders the Suiyuan floating composer as a raised white input object', () => {
+it('renders the Super Dolphin Agent floating composer as a raised white input object', () => {
   const floatingCard = declarationsFor('.composer--floating .composer-card');
   const textarea = declarationsFor('.composer--floating textarea');
   const meta = declarationsFor('.composer--floating .composer-meta');
@@ -627,7 +627,7 @@ it('renders the Suiyuan floating composer as a raised white input object', () =>
 
   expect(floatingCard.background).toBe('var(--surface)');
   expect(floatingCard['border-radius']).toBe('28px');
-  expect(floatingCard['box-shadow']).toContain('var(--suiyuan-input-shadow)');
+  expect(floatingCard['box-shadow']).toContain('var(--super-dolphin-agent-input-shadow)');
   expect(textarea.padding).toBe('22px 26px 12px');
   expect(meta['min-height']).toBe('58px');
   expect(send.background).toBe('var(--primary-action-bg)');
@@ -658,7 +658,7 @@ cd frontend-app
 npx vitest run src/styles.test.js src/pages/chat/composer/ComposerDock.test.jsx --no-file-parallelism --maxWorkers=1
 ```
 
-Expected: FAIL on new Suiyuan composer style assertions if CSS is still on the old dark treatment.
+Expected: FAIL on new Super Dolphin Agent composer style assertions if CSS is still on the old dark treatment.
 
 - [ ] **Step 4: Implement composer CSS**
 
@@ -683,7 +683,7 @@ Update `frontend-app/src/pages/chat/composer/ComposerDock.css`:
   border: 1px solid var(--line);
   border-radius: 28px;
   background: var(--surface);
-  box-shadow: var(--suiyuan-input-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  box-shadow: var(--super-dolphin-agent-input-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .composer--floating textarea {
@@ -749,12 +749,12 @@ Run:
 ```bash
 git status --short
 git add frontend-app/src/styles.test.js frontend-app/src/pages/chat/composer/ComposerDock.css frontend-app/src/pages/chat/composer/ComposerDock.test.jsx
-git commit -m "style(chat): redesign composer with suiyuan input"
+git commit -m "style(chat): redesign composer with super-dolphin-agent input"
 ```
 
 Expected: commit includes composer CSS, composer test, and style test.
 
-## Task 6: Runtime Inspector Suiyuan Treatment
+## Task 6: Runtime Inspector Super Dolphin Agent Treatment
 
 **Files:**
 - Modify: `frontend-app/src/styles.test.js`
@@ -765,7 +765,7 @@ Expected: commit includes composer CSS, composer test, and style test.
 
 - [ ] **Step 1: Write failing runtime inspector assertions**
 
-Update the existing `keeps runtime panel details shrink-safe inside the right rail` test in `frontend-app/src/styles.test.js` to assert Suiyuan inspector surfaces:
+Update the existing `keeps runtime panel details shrink-safe inside the right rail` test in `frontend-app/src/styles.test.js` to assert Super Dolphin Agent inspector surfaces:
 
 ```js
 it('keeps runtime panel details shrink-safe inside the right rail', () => {
@@ -904,7 +904,7 @@ Expected: commit includes runtime CSS and style test only, unless `RuntimePanelC
 Add this test to `frontend-app/src/styles.test.js`:
 
 ```js
-describe('suiyuan responsive chat workbench', () => {
+describe('super-dolphin-agent responsive chat workbench', () => {
   it('collapses side surfaces before the message canvas becomes unreadable', () => {
     const narrowConversation = mediaDeclarationFor('(max-width: 760px)', '.conversation', 'border-right');
     const narrowFloatingComposer = mediaDeclarationFor('(max-width: 760px)', '.composer--floating', 'width');
@@ -1016,7 +1016,7 @@ Run:
 ```bash
 git status --short
 git add frontend-app/src/styles.test.js frontend-app/src/pages/chat/ChatPage.css frontend-app/src/pages/chat/composer/ComposerDock.css
-git commit -m "style(chat): verify suiyuan responsive workbench"
+git commit -m "style(chat): verify super-dolphin-agent responsive workbench"
 ```
 
 Expected: final implementation commit includes responsive CSS and tests only.

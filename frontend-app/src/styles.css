@@ -4,53 +4,53 @@
   color-scheme: light;
   /* 亮色「Airy Command Center」基线：冷白/云灰表面 + 蓝紫主色，
      与深色 AI Command Center 共用同一套应用主题语言。 */
-  --suiyuan-background: #f5f7fa;
-  --suiyuan-surface-bright: #f5f7fa;
-  --suiyuan-surface-lowest: #ffffff;
-  --suiyuan-surface-low: #f2f4f9;
-  --suiyuan-surface: #eceff5;
-  --suiyuan-surface-high: #e2e7f0;
-  --suiyuan-surface-highest: #dae0eb;
-  --suiyuan-surface-variant: #dae0eb;
-  --suiyuan-on-surface: #171a23;
-  --suiyuan-on-surface-variant: #4c5568;
-  --suiyuan-secondary: #5d6474;
-  --suiyuan-secondary-fixed-dim: #c3c9d6;
-  --suiyuan-outline: #8a93a8;
-  --suiyuan-outline-variant: #d3d9e5;
-  --suiyuan-primary: #4f5dd8;
-  --suiyuan-primary-deep: #3d4ac0;
-  --suiyuan-primary-fixed: #e2e7ff;
-  --suiyuan-primary-fixed-dim: #b9c2f8;
-  --suiyuan-primary-container: #6672e8;
-  --suiyuan-inverse-surface: #2a2e3a;
-  --suiyuan-inverse-on-surface: #f2f4fa;
-  --suiyuan-sidebar-width: 280px;
-  --suiyuan-content-max-width: 1100px;
-  --suiyuan-gutter: 24px;
-  --suiyuan-page-margin: 32px;
-  --suiyuan-mobile-padding: 16px;
-  --suiyuan-radius-card: 16px;
-  --suiyuan-radius-input: 24px;
-  --suiyuan-radius-control: 8px;
-  --suiyuan-text-display-size: 40px;
-  --suiyuan-text-display-line: 52px;
-  --suiyuan-text-headline-size: 24px;
-  --suiyuan-text-headline-line: 32px;
-  --suiyuan-text-body-large-size: 18px;
-  --suiyuan-text-body-large-line: 28px;
-  --suiyuan-text-body-size: 14px;
-  --suiyuan-text-body-line: 22px;
-  --suiyuan-text-label-size: 12px;
-  --suiyuan-text-label-line: 16px;
-  --suiyuan-text-label-xs-size: 11px;
-  --suiyuan-text-label-xs-line: 14px;
-  --suiyuan-mobile-nav-height: 64px;
-  --suiyuan-card-shadow: 0 20px 40px -10px rgba(30, 38, 68, 0.08);
-  --suiyuan-input-shadow: 0 8px 30px rgba(30, 38, 68, 0.06);
-  --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  --suiyuan-logo-shadow: 0 1px 2px rgba(30, 38, 68, 0.08);
-  --suiyuan-send-shadow: 0 4px 6px -1px rgba(30, 38, 68, 0.12), 0 2px 4px -2px rgba(30, 38, 68, 0.12);
+  --super-dolphin-agent-background: #f5f7fa;
+  --super-dolphin-agent-surface-bright: #f5f7fa;
+  --super-dolphin-agent-surface-lowest: #ffffff;
+  --super-dolphin-agent-surface-low: #f2f4f9;
+  --super-dolphin-agent-surface: #eceff5;
+  --super-dolphin-agent-surface-high: #e2e7f0;
+  --super-dolphin-agent-surface-highest: #dae0eb;
+  --super-dolphin-agent-surface-variant: #dae0eb;
+  --super-dolphin-agent-on-surface: #171a23;
+  --super-dolphin-agent-on-surface-variant: #4c5568;
+  --super-dolphin-agent-secondary: #5d6474;
+  --super-dolphin-agent-secondary-fixed-dim: #c3c9d6;
+  --super-dolphin-agent-outline: #8a93a8;
+  --super-dolphin-agent-outline-variant: #d3d9e5;
+  --super-dolphin-agent-primary: #4f5dd8;
+  --super-dolphin-agent-primary-deep: #3d4ac0;
+  --super-dolphin-agent-primary-fixed: #e2e7ff;
+  --super-dolphin-agent-primary-fixed-dim: #b9c2f8;
+  --super-dolphin-agent-primary-container: #6672e8;
+  --super-dolphin-agent-inverse-surface: #2a2e3a;
+  --super-dolphin-agent-inverse-on-surface: #f2f4fa;
+  --super-dolphin-agent-sidebar-width: 280px;
+  --super-dolphin-agent-content-max-width: 1100px;
+  --super-dolphin-agent-gutter: 24px;
+  --super-dolphin-agent-page-margin: 32px;
+  --super-dolphin-agent-mobile-padding: 16px;
+  --super-dolphin-agent-radius-card: 16px;
+  --super-dolphin-agent-radius-input: 24px;
+  --super-dolphin-agent-radius-control: 8px;
+  --super-dolphin-agent-text-display-size: 40px;
+  --super-dolphin-agent-text-display-line: 52px;
+  --super-dolphin-agent-text-headline-size: 24px;
+  --super-dolphin-agent-text-headline-line: 32px;
+  --super-dolphin-agent-text-body-large-size: 18px;
+  --super-dolphin-agent-text-body-large-line: 28px;
+  --super-dolphin-agent-text-body-size: 14px;
+  --super-dolphin-agent-text-body-line: 22px;
+  --super-dolphin-agent-text-label-size: 12px;
+  --super-dolphin-agent-text-label-line: 16px;
+  --super-dolphin-agent-text-label-xs-size: 11px;
+  --super-dolphin-agent-text-label-xs-line: 14px;
+  --super-dolphin-agent-mobile-nav-height: 64px;
+  --super-dolphin-agent-card-shadow: 0 20px 40px -10px rgba(30, 38, 68, 0.08);
+  --super-dolphin-agent-input-shadow: 0 8px 30px rgba(30, 38, 68, 0.06);
+  --super-dolphin-agent-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  --super-dolphin-agent-logo-shadow: 0 1px 2px rgba(30, 38, 68, 0.08);
+  --super-dolphin-agent-send-shadow: 0 4px 6px -1px rgba(30, 38, 68, 0.12), 0 2px 4px -2px rgba(30, 38, 68, 0.12);
   --bg: #f5f7fa;
   --bg-elevated: #ffffff;
   --app-bg: #f5f7fa;
@@ -106,17 +106,17 @@
   --purple: var(--primary);
   --text: var(--text-pri);
   --font-cjk: Inter, Outfit, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
-  --suiyuan-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  --super-dolphin-agent-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
   /* Luminous Minimalist: fusion 表面统一为中性暖色卡片，禁止廉价渐变。 */
-  --suiyuan-fusion-bg: var(--surface);
-  --suiyuan-fusion-border: var(--border);
-  --suiyuan-fusion-color: var(--text-pri);
-  --suiyuan-fusion-shadow: var(--suiyuan-card-shadow);
-  --suiyuan-beta-bg: var(--surface-2);
-  --suiyuan-beta-color: var(--text-sec);
-  --suiyuan-fusion-btn-bg: var(--primary-action-bg);
-  --suiyuan-fusion-btn-color: var(--primary-action-text);
-  --suiyuan-fusion-btn-shadow: none;
+  --super-dolphin-agent-fusion-bg: var(--surface);
+  --super-dolphin-agent-fusion-border: var(--border);
+  --super-dolphin-agent-fusion-color: var(--text-pri);
+  --super-dolphin-agent-fusion-shadow: var(--super-dolphin-agent-card-shadow);
+  --super-dolphin-agent-beta-bg: var(--surface-2);
+  --super-dolphin-agent-beta-color: var(--text-sec);
+  --super-dolphin-agent-fusion-btn-bg: var(--primary-action-bg);
+  --super-dolphin-agent-fusion-btn-color: var(--primary-action-text);
+  --super-dolphin-agent-fusion-btn-shadow: none;
   /* MCP 工具卡片：浅色主题下使用统一冷灰蓝底，保证白色文字对比度 */
   --mcp-card-bg: #2e3340;
   --mcp-card-bg-hover: #383e4c;
@@ -202,18 +202,18 @@
   --red: var(--error);
   --purple: var(--primary);
   --text: var(--text-pri);
-  --suiyuan-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  --suiyuan-inverse-surface: #eef0f5;
-  --suiyuan-inverse-on-surface: #262a33;
-  --suiyuan-fusion-bg: var(--surface-2);
-  --suiyuan-fusion-border: var(--border);
-  --suiyuan-fusion-color: var(--text-pri);
-  --suiyuan-fusion-shadow: none;
-  --suiyuan-beta-bg: var(--surface-3);
-  --suiyuan-beta-color: var(--text-sec);
-  --suiyuan-fusion-btn-bg: var(--primary-action-bg);
-  --suiyuan-fusion-btn-color: var(--primary-action-text);
-  --suiyuan-fusion-btn-shadow: none;
+  --super-dolphin-agent-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  --super-dolphin-agent-inverse-surface: #eef0f5;
+  --super-dolphin-agent-inverse-on-surface: #262a33;
+  --super-dolphin-agent-fusion-bg: var(--surface-2);
+  --super-dolphin-agent-fusion-border: var(--border);
+  --super-dolphin-agent-fusion-color: var(--text-pri);
+  --super-dolphin-agent-fusion-shadow: none;
+  --super-dolphin-agent-beta-bg: var(--surface-3);
+  --super-dolphin-agent-beta-color: var(--text-sec);
+  --super-dolphin-agent-fusion-btn-bg: var(--primary-action-bg);
+  --super-dolphin-agent-fusion-btn-color: var(--primary-action-text);
+  --super-dolphin-agent-fusion-btn-shadow: none;
   /* MCP 工具卡片：深色主题下使用比页面稍亮的冷灰底，文字保持近白 */
   --mcp-card-bg: #20242e;
   --mcp-card-bg-hover: #272c38;
@@ -267,27 +267,27 @@ select {
 }
 
 .fusion-surface {
-  background: var(--suiyuan-fusion-bg);
-  border: 1px solid var(--suiyuan-fusion-border);
-  border-radius: var(--suiyuan-radius-card);
-  box-shadow: var(--suiyuan-fusion-shadow);
-  color: var(--suiyuan-fusion-color);
+  background: var(--super-dolphin-agent-fusion-bg);
+  border: 1px solid var(--super-dolphin-agent-fusion-border);
+  border-radius: var(--super-dolphin-agent-radius-card);
+  box-shadow: var(--super-dolphin-agent-fusion-shadow);
+  color: var(--super-dolphin-agent-fusion-color);
   padding: 24px;
 }
 
 .fusion-surface-glass {
-  background: var(--suiyuan-beta-bg);
+  background: var(--super-dolphin-agent-beta-bg);
   color: var(--text-pri);
   border: 1px solid var(--line);
   border-radius: 12px;
 }
 
 .fusion-toolbar {
-  background: var(--suiyuan-fusion-bg);
-  border: 1px solid var(--suiyuan-fusion-border);
-  border-radius: var(--suiyuan-radius-card);
-  box-shadow: var(--suiyuan-fusion-shadow);
-  color: var(--suiyuan-fusion-color);
+  background: var(--super-dolphin-agent-fusion-bg);
+  border: 1px solid var(--super-dolphin-agent-fusion-border);
+  border-radius: var(--super-dolphin-agent-radius-card);
+  box-shadow: var(--super-dolphin-agent-fusion-shadow);
+  color: var(--super-dolphin-agent-fusion-color);
   padding: 12px 18px;
   display: flex;
   align-items: center;
@@ -298,15 +298,15 @@ select {
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--ink);
-  border-radius: var(--suiyuan-radius-input);
+  border-radius: var(--super-dolphin-agent-radius-input);
   padding: 0 12px;
   height: 36px;
 }
 
-.suiyuan-btn-fusion {
-  background: var(--suiyuan-fusion-btn-bg);
-  color: var(--suiyuan-fusion-btn-color);
-  box-shadow: var(--suiyuan-fusion-btn-shadow);
+.super-dolphin-agent-btn-fusion {
+  background: var(--super-dolphin-agent-fusion-btn-bg);
+  color: var(--super-dolphin-agent-fusion-btn-color);
+  box-shadow: var(--super-dolphin-agent-fusion-btn-shadow);
   border: none;
   border-radius: 999px;
   padding: 6px 16px;
@@ -318,13 +318,13 @@ select {
   transition: background 150ms ease, opacity 150ms ease;
 }
 
-.suiyuan-btn-fusion:hover:not(:disabled) {
+.super-dolphin-agent-btn-fusion:hover:not(:disabled) {
   background: var(--primary-action-bg-hover);
   opacity: 1;
 }
 
-.suiyuan-btn-fusion-ghost {
-  background: var(--suiyuan-beta-bg);
+.super-dolphin-agent-btn-fusion-ghost {
+  background: var(--super-dolphin-agent-beta-bg);
   color: var(--text-pri);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -337,7 +337,7 @@ select {
   transition: background 150ms ease;
 }
 
-.suiyuan-btn-fusion-ghost:hover:not(:disabled) {
+.super-dolphin-agent-btn-fusion-ghost:hover:not(:disabled) {
   background: var(--surface-3);
 }
 

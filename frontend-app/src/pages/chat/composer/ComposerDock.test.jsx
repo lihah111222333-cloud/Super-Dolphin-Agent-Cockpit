@@ -491,7 +491,7 @@ describe('ComposerDock', () => {
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
     expect(screen.getByTestId('composer-dock').querySelector('.composer-card')).toBeInTheDocument();
     expect(screen.getByText('燧元 AI 可能出错，请核对重要信息。')).toHaveClass('composer-disclaimer');
-    expect(screen.queryByText('Suiyuan AI can make mistakes. Consider verifying critical information.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Super Dolphin Agent can make mistakes. Consider verifying critical information.')).not.toBeInTheDocument();
   });
 
   it('switches the primary action to interrupt when the active thread is interruptible', () => {

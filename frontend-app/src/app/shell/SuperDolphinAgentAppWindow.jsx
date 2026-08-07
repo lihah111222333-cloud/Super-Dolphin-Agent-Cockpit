@@ -29,7 +29,7 @@ import { errorMessage } from '../../pages/shared/pageShared.js';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from '../../shared/ui/runUIAction.js';
 import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
-import suiyuanBrandIcon from '../../assets/suiyuan-brand-icon.png';
+import superDolphinAgentBrandIcon from '../../assets/super-dolphin-agent-brand-icon.png';
 import { appShortcutPlatform } from './appShortcutPlatform.js';
 import { updateVersionFromResult } from './appUpdateVersion.js';
 import { useShellLayoutStore } from './model/useShellLayoutStore.js';
@@ -39,7 +39,7 @@ import { WorkbenchBottomPanel } from './WorkbenchBottomPanel.jsx';
 import { WorkbenchStatusBar } from './WorkbenchStatusBar.jsx';
 import { ChatActionsTrigger } from '../../pages/chat/components/ChatPageHeader.jsx';
 
-const SUIYUAN_NAV_ITEMS = Object.freeze([
+const SUPER_DOLPHIN_AGENT_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
   { id: 'skills', label: 'Plugins', labelKey: 'skills', icon: Puzzle },
   { id: 'workflows', label: 'Automation', labelKey: 'workflows', icon: SlidersHorizontal },
@@ -50,7 +50,7 @@ const SUIYUAN_NAV_ITEMS = Object.freeze([
 ]);
 
 // 移动端底部导航：仅保留核心目的地，完整导航仍由抽屉侧栏提供。
-const SUIYUAN_MOBILE_NAV_ITEMS = Object.freeze([
+const SUPER_DOLPHIN_AGENT_MOBILE_NAV_ITEMS = Object.freeze([
   { id: 'chat', labelKey: 'chatShort', icon: MessageSquareText },
   { id: 'skills', labelKey: 'skillsShort', icon: Puzzle },
   { id: 'prompts', labelKey: 'promptsShort', icon: CircleUserRound },
@@ -93,7 +93,7 @@ function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
   );
 }
 
-function SuiyuanNavButton({ activePage, copy, item, memoryBadgeCount, setActivePage }) {
+function SuperDolphinAgentNavButton({ activePage, copy, item, memoryBadgeCount, setActivePage }) {
   const Icon = item.icon;
   const active = activePage === item.id;
   const label = copy.nav[item.labelKey] || item.label;
@@ -101,7 +101,7 @@ function SuiyuanNavButton({ activePage, copy, item, memoryBadgeCount, setActiveP
   return (
     <button
       type="button"
-      className={`suiyuan-nav-item${active ? ' active' : ''}`}
+      className={`super-dolphin-agent-nav-item${active ? ' active' : ''}`}
       onClick={() => setActivePage(item.id)}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
@@ -113,11 +113,11 @@ function SuiyuanNavButton({ activePage, copy, item, memoryBadgeCount, setActiveP
   );
 }
 
-function SuiyuanChatNavGroup({ copy, item, projectPath, sidebar, store }) {
+function SuperDolphinAgentChatNavGroup({ copy, item, projectPath, sidebar, store }) {
   const { activePage, setActivePage } = sidebar;
   return (
-    <div className="suiyuan-chat-nav-group">
-      <SuiyuanNavButton
+    <div className="super-dolphin-agent-chat-nav-group">
+      <SuperDolphinAgentNavButton
         activePage={activePage}
         copy={copy}
         item={item}
@@ -125,7 +125,7 @@ function SuiyuanChatNavGroup({ copy, item, projectPath, sidebar, store }) {
         setActivePage={setActivePage}
       />
       {activePage === 'chat' ? (
-        <div className="suiyuan-chat-project-tree">
+        <div className="super-dolphin-agent-chat-project-tree">
           <ChatSidebarProjectTree copy={copy.workbench} projectPath={projectPath} setActivePage={setActivePage} store={store} />
         </div>
       ) : null}
@@ -133,41 +133,41 @@ function SuiyuanChatNavGroup({ copy, item, projectPath, sidebar, store }) {
   );
 }
 
-function SuiyuanSidebar({ copy, layout, projectPath, sidebar, store }) {
+function SuperDolphinAgentSidebar({ copy, layout, projectPath, sidebar, store }) {
   const { activePage, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
 
   return (
     <aside
       id="app-sidebar"
-      className={`app-sidebar suiyuan-sidebar${isOpen ? ' is-open' : ''}`}
+      className={`app-sidebar super-dolphin-agent-sidebar${isOpen ? ' is-open' : ''}`}
       data-testid="app-sidebar"
       aria-label={copy.workbench.ariaLabel}
     >
-      <div className="suiyuan-brand-block">
-        <span className="suiyuan-brand-light-mark" data-testid="suiyuan-brand-light-logo" aria-hidden="true">
+      <div className="super-dolphin-agent-brand-block">
+        <span className="super-dolphin-agent-brand-light-mark" data-testid="super-dolphin-agent-brand-light-logo" aria-hidden="true">
           <Sailboat size={14} strokeWidth={2} />
         </span>
-        <img className="suiyuan-brand-dark-mark" data-testid="suiyuan-brand-dark-logo" src={suiyuanBrandIcon} alt="" aria-hidden="true" />
-        <div className="suiyuan-brand-meta">
+        <img className="super-dolphin-agent-brand-dark-mark" data-testid="super-dolphin-agent-brand-dark-logo" src={superDolphinAgentBrandIcon} alt="" aria-hidden="true" />
+        <div className="super-dolphin-agent-brand-meta">
           <strong>{APP_BRAND_NAME}</strong>
           <span>AI Desktop</span>
         </div>
       </div>
-      <button type="button" className="suiyuan-new-chat" aria-label={copy.workbench.newChat} onClick={startNewChat}>
+      <button type="button" className="super-dolphin-agent-new-chat" aria-label={copy.workbench.newChat} onClick={startNewChat}>
         <Plus size={18} aria-hidden="true" />
         <span>{copy.workbench.newChat}</span>
       </button>
-      <nav className="suiyuan-nav" data-testid="sidebar-nav" aria-label="Suiyuan navigation">
-        <SuiyuanChatNavGroup
+      <nav className="super-dolphin-agent-nav" data-testid="sidebar-nav" aria-label="Super Dolphin Agent navigation">
+        <SuperDolphinAgentChatNavGroup
           copy={copy}
-          item={SUIYUAN_NAV_ITEMS[0]}
+          item={SUPER_DOLPHIN_AGENT_NAV_ITEMS[0]}
           projectPath={projectPath}
           sidebar={sidebar}
           store={store}
         />
-        {SUIYUAN_NAV_ITEMS.slice(1).map((item) => (
-          <SuiyuanNavButton
+        {SUPER_DOLPHIN_AGENT_NAV_ITEMS.slice(1).map((item) => (
+          <SuperDolphinAgentNavButton
             key={item.id}
             activePage={activePage}
             copy={copy}
@@ -177,10 +177,10 @@ function SuiyuanSidebar({ copy, layout, projectPath, sidebar, store }) {
           />
         ))}
       </nav>
-      <div className="suiyuan-sidebar-footer">
+      <div className="super-dolphin-agent-sidebar-footer">
         <button
           type="button"
-          className={`suiyuan-footer-item${activePage === 'settings' ? ' active' : ''}`}
+          className={`super-dolphin-agent-footer-item${activePage === 'settings' ? ' active' : ''}`}
           aria-label={copy.workbench.settings}
           onClick={() => setActivePage('settings')}
         >
@@ -191,7 +191,7 @@ function SuiyuanSidebar({ copy, layout, projectPath, sidebar, store }) {
           href="https://github.com/anthropic-ai/super-agent-v3"
           target="_blank"
           rel="noopener noreferrer"
-          className="suiyuan-footer-item"
+          className="super-dolphin-agent-footer-item"
         >
           <HelpCircle size={15} aria-hidden="true" />
           <span>{copy.workbench.help || 'Help'}</span>
@@ -214,10 +214,10 @@ function SuiyuanSidebar({ copy, layout, projectPath, sidebar, store }) {
   );
 }
 
-function SuiyuanMobileNav({ activePage, copy, setActivePage }) {
+function SuperDolphinAgentMobileNav({ activePage, copy, setActivePage }) {
   return (
-    <nav className="suiyuan-mobile-nav" data-testid="mobile-nav" aria-label={copy.workbench.mobileNavAriaLabel}>
-      {SUIYUAN_MOBILE_NAV_ITEMS.map((item) => {
+    <nav className="super-dolphin-agent-mobile-nav" data-testid="mobile-nav" aria-label={copy.workbench.mobileNavAriaLabel}>
+      {SUPER_DOLPHIN_AGENT_MOBILE_NAV_ITEMS.map((item) => {
         const Icon = item.icon;
         const active = activePage === item.id;
         const label = copy.nav[item.labelKey] || copy.nav[item.id] || item.id;
@@ -225,7 +225,7 @@ function SuiyuanMobileNav({ activePage, copy, setActivePage }) {
           <button
             key={item.id}
             type="button"
-            className={`suiyuan-mobile-nav-item${active ? ' active' : ''}`}
+            className={`super-dolphin-agent-mobile-nav-item${active ? ' active' : ''}`}
             onClick={() => setActivePage(item.id)}
             aria-label={label}
             aria-current={active ? 'page' : undefined}
@@ -280,7 +280,7 @@ function AppCommandPalette({ copy, onClose, open, runtime }) {
   );
 }
 
-function SuiyuanTopAppBar({ chatAction, copy, locale, controls }) {
+function SuperDolphinAgentTopAppBar({ chatAction, copy, locale, controls }) {
   const {
     isDark,
     setActivePage,
@@ -290,11 +290,11 @@ function SuiyuanTopAppBar({ chatAction, copy, locale, controls }) {
   } = controls;
   const ThemeIcon = isDark ? Sun : Moon;
   return (
-    <header className="suiyuan-top-appbar" aria-label="Suiyuan app bar">
-      <div className="suiyuan-appbar-actions" aria-label="Workspace actions">
+    <header className="super-dolphin-agent-top-appbar" aria-label="Super Dolphin Agent app bar">
+      <div className="super-dolphin-agent-appbar-actions" aria-label="Workspace actions">
         <button
           type="button"
-          className="suiyuan-icon-action"
+          className="super-dolphin-agent-icon-action"
           aria-label={copy.workbench.notifications}
           title={copy.workbench.notifications}
           onClick={() => setActivePage('observability')}
@@ -303,7 +303,7 @@ function SuiyuanTopAppBar({ chatAction, copy, locale, controls }) {
         </button>
         <button
           type="button"
-          className="suiyuan-icon-action"
+          className="super-dolphin-agent-icon-action"
           aria-label={copy.workbench.history}
           title={copy.workbench.history}
           onClick={() => setActivePage('chat')}
@@ -312,7 +312,7 @@ function SuiyuanTopAppBar({ chatAction, copy, locale, controls }) {
         </button>
         <button
           type="button"
-          className="suiyuan-icon-action"
+          className="super-dolphin-agent-icon-action"
           aria-label={`${copy.workbench.switchThemePrefix}${themeLabel}`}
           title={themeLabel}
           onClick={toggleTheme}
@@ -321,7 +321,7 @@ function SuiyuanTopAppBar({ chatAction, copy, locale, controls }) {
         </button>
         <button
           type="button"
-          className="suiyuan-locale-action"
+          className="super-dolphin-agent-locale-action"
           aria-label={copy.switchLanguage}
           title={copy.switchLanguage}
           onClick={toggleLocale}
@@ -334,7 +334,7 @@ function SuiyuanTopAppBar({ chatAction, copy, locale, controls }) {
   );
 }
 
-function useSuiyuanWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLayoutStore, sidebarOpen }) {
+function useSuperDolphinAgentWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLayoutStore, sidebarOpen }) {
   const rightPreference = useShellLayoutStore(shellLayoutStore, (state) => state.rightPanelWidth);
   const setRightPreference = useShellLayoutStore(shellLayoutStore, (state) => state.setRightPanelWidth);
   return useWorkbenchLayout({
@@ -346,15 +346,15 @@ function useSuiyuanWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLay
   });
 }
 
-function SuiyuanMainSurface(model) {
+function SuperDolphinAgentMainSurface(model) {
   const { appearance, content, copy, header, store, updateBanner } = model;
   const [bottomPanelHeight, setBottomPanelHeight] = useState(36);
   return (
     <main
-      className="sa-main suiyuan-main"
+      className="sa-main super-dolphin-agent-main"
       style={{ '--workbench-bottom-height': `${store.activePage === 'chat' ? bottomPanelHeight : 0}px` }}
     >
-      <SuiyuanTopAppBar
+      <SuperDolphinAgentTopAppBar
         chatAction={store.activePage === 'chat' ? (
           <ChatActionsTrigger
             copy={copy.chat}
@@ -367,7 +367,7 @@ function SuiyuanMainSurface(model) {
         controls={header.controls}
       />
       <AppUpdateBanner copy={copy.update} updateBanner={updateBanner} />
-      <div className="suiyuan-main-canvas">
+      <div className="super-dolphin-agent-main-canvas">
         <Suspense fallback={<PageLoadingFallback />}>
           <ActivePageContent
             activePage={store.activePage}
@@ -396,7 +396,7 @@ function SuiyuanMainSurface(model) {
   );
 }
 
-export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
+export function SuperDolphinAgentAppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
   const {
     memoryBadge,
     projectPath,
@@ -416,7 +416,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
     return true;
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const workbenchLayout = useSuiyuanWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLayoutStore, sidebarOpen });
+  const workbenchLayout = useSuperDolphinAgentWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLayoutStore, sidebarOpen });
   const geometrySnapshot = workbenchLayout.snapshot;
   const layoutActions = workbenchLayout.actions;
   const SidebarToggleIcon = sidebarOpen ? X : Menu;
@@ -446,10 +446,10 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
   useAppCommandDispatcher({ runtime: commandRuntime });
   return (
     <div
-      className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`}
+      className={`sa-window super-dolphin-agent-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`}
       data-command-palette-open={paletteOpen}
       data-accent={shell.appearance.accent}
-      data-brand="suiyuan"
+      data-brand="super-dolphin-agent"
       data-theme={theme}
       data-theme-mode={shell.appearance.themeMode}
       data-ui-scale={shell.appearance.uiScale}
@@ -473,17 +473,17 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
         <SidebarToggleIcon size={22} aria-hidden="true" />
       </button>
       {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label={copy.workbench.close} onClick={closeSidebar} /> : null}
-      <div className="sa-body suiyuan-shell-body">
+      <div className="sa-body super-dolphin-agent-shell-body">
         {!sidebarOpen ? (
           <WorkbenchActivityBar
             activePage={store.activePage}
-            items={SUIYUAN_NAV_ITEMS}
+            items={SUPER_DOLPHIN_AGENT_NAV_ITEMS}
             onSelect={setActivePageFromSidebar}
             onToggleSidebar={() => setSidebarOpen(true)}
             sidebarOpen={false}
           />
         ) : null}
-        <SuiyuanSidebar
+        <SuperDolphinAgentSidebar
           copy={copy}
           layout={workbenchLayout}
           projectPath={projectPath}
@@ -497,10 +497,10 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
           store={store}
         />
         {sidebarOpen ? (
-          <div className="suiyuan-sidebar-collapse-zone">
+          <div className="super-dolphin-agent-sidebar-collapse-zone">
             <button
               type="button"
-              className="suiyuan-sidebar-collapse"
+              className="super-dolphin-agent-sidebar-collapse"
               aria-label={copy.workbench.collapse}
               title={copy.workbench.collapse}
               aria-controls="app-sidebar"
@@ -510,7 +510,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
             </button>
           </div>
         ) : null}
-        <SuiyuanMainSurface
+        <SuperDolphinAgentMainSurface
           appearance={shell.appearance}
           content={{ geometrySnapshot, layoutActions, memoryBadge, projectPath, rightPanelOpen, shortcutController }}
           copy={copy}
@@ -530,7 +530,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
         themeMode={shell.appearance.themeMode}
         uiScale={shell.appearance.uiScale}
       />
-      <SuiyuanMobileNav activePage={store.activePage} copy={copy} setActivePage={setActivePageFromSidebar} />
+      <SuperDolphinAgentMobileNav activePage={store.activePage} copy={copy} setActivePage={setActivePageFromSidebar} />
       <AppCommandPalette copy={copy.commands} onClose={() => setPaletteOpen(false)} open={paletteOpen} runtime={commandRuntime} />
       <ActionFailureSink />
     </div>

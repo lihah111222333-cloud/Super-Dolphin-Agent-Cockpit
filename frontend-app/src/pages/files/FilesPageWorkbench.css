@@ -14,7 +14,7 @@
 .file-row {
   background: var(--surface) !important;
   border: 1px solid var(--border) !important;
-  border-radius: var(--suiyuan-radius-card) !important;
+  border-radius: var(--super-dolphin-agent-radius-card) !important;
   padding: 20px !important;
   display: flex;
   flex-direction: column;
@@ -24,7 +24,7 @@
 
 .file-row:hover {
   border-color: var(--border-strong) !important;
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .file-row header {
@@ -82,7 +82,7 @@
 
 .file-path-container {
   background: var(--surface-2);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   padding: 6px 12px;
   margin-bottom: 12px;
   border: 1px solid var(--border);

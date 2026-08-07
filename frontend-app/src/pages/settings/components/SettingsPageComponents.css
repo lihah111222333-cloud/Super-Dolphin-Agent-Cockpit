@@ -29,7 +29,7 @@
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   padding: 9px 11px;
 }
@@ -160,7 +160,7 @@
   width: 100%;
   min-height: 120px;
   resize: vertical;
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-pri);
@@ -286,7 +286,7 @@
   gap: 3px;
   min-width: 150px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 8px 10px;
@@ -339,7 +339,7 @@
   width: 100px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   color: var(--text-pri);
   font-family: var(--font-cjk);
   font-size: 13px;
@@ -384,7 +384,7 @@
   align-items: center;
   padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   font-size: 11px;
   color: var(--text-sec);

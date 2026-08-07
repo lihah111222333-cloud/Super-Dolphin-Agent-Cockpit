@@ -407,7 +407,7 @@ select:focus-visible {
 .prompt-card:hover {
   border-color: var(--border-strong);
   background: color-mix(in srgb, var(--surface-2) 58%, var(--surface));
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .skill-card h3,
@@ -718,7 +718,7 @@ select:focus-visible {
   border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
   border-radius: var(--radius-xl, 16px);
   background: var(--surface);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   padding: 16px;
 }
 
@@ -779,7 +779,7 @@ select:focus-visible {
   border-radius: var(--radius-md, 8px);
   background: var(--panel);
   padding: 16px;
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .personalization-overview dt {
@@ -1088,7 +1088,7 @@ select:focus-visible {
   }
 }
 
-/* Suiyuan Redesign Tabs: Synchronizing style with Skill tab (.skills-subtabs-header) */
+/* Super Dolphin Agent Redesign Tabs: Synchronizing style with Skill tab (.skills-subtabs-header) */
 .shared-files-tabs,
 .memory-tabs,
 .prompt-tabs,
@@ -1158,7 +1158,7 @@ select:focus-visible {
 
 .data-card-clickable:hover {
   transform: translateY(-2px);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .data-card-clickable:active {

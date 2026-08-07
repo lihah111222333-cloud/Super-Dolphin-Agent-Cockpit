@@ -5,7 +5,7 @@ import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { runUIAction } from './shared/ui/runUIAction.js';
 import { SidebarProjectTree, SidebarTaskSummary } from './WorkbenchSidebarProjectTree.jsx';
 import { APP_BRAND_NAME, APP_COPY } from './shared/i18n/appI18n.js';
-import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
+import superDolphinAgentBrandIcon from './assets/super-dolphin-agent-brand-icon.png';
 import { COLOR_THEMES } from './app/appShellModel.js';
 
 const WORKBENCH_SIDEBAR_MIN_WIDTH = 280;
@@ -99,7 +99,7 @@ export function WorkbenchSidebar({
     >
       <div className="sidebar-brand-row">
         <div className="sidebar-brand">
-          <img src={suiyuanBrandIcon} alt="" aria-hidden="true" />
+          <img src={superDolphinAgentBrandIcon} alt="" aria-hidden="true" />
           <strong>{APP_BRAND_NAME}</strong>
         </div>
         <div className="sidebar-brand-actions" aria-label={copy.workbench.tools}>

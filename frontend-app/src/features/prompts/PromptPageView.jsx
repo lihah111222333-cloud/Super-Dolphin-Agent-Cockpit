@@ -405,9 +405,9 @@ const fieldError = (key) => (profileErrors[key] ? <span className="personalizati
         {profileSaving ? copy.saving : copy.saveProfile}
       </button>
     </section>
-    <section className="personalization-profile-card suiyuan-import-memory-card" aria-label={copy.importMemoryTitle}>
-      <div className="suiyuan-import-memory-content">
-        <Upload size={28} className="suiyuan-import-memory-icon" />
+    <section className="personalization-profile-card super-dolphin-agent-import-memory-card" aria-label={copy.importMemoryTitle}>
+      <div className="super-dolphin-agent-import-memory-content">
+        <Upload size={28} className="super-dolphin-agent-import-memory-icon" />
         <h3>{copy.importMemoryTitle}</h3>
         <p>{copy.importMemoryText}</p>
         <button type="button" aria-disabled={isProjectPending || undefined} title={isProjectPending ? '请先选择项目' : undefined} onClick={handleImportClick}>

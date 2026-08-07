@@ -10,7 +10,7 @@
 
 .enterprise-template-card:hover {
   transform: translateY(-2px);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .enterprise-template-card:active {

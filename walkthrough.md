@@ -19,32 +19,32 @@
 
 ## 2. 设计令牌落入现有 CSS 的方式
 
-没有新建平行体系，全部并入 `frontend-app/src/styles.css` 已有的 `--suiyuan-*` / 主题变量块：
+没有新建平行体系，全部并入 `frontend-app/src/styles.css` 已有的 `--super-dolphin-agent-*` / 主题变量块：
 
-- 新增（`:root` 浅色共享规则，暗色自动继承）：`--suiyuan-primary-container:#c84d05`、`--suiyuan-inverse-surface:#30312c`（暗色下反转为 `#f2f1ea`）、`--suiyuan-inverse-on-surface`、`--suiyuan-page-margin:32px`、`--suiyuan-mobile-padding:16px`、`--suiyuan-radius-card:16px`、`--suiyuan-radius-input:24px`、`--suiyuan-radius-control:8px`、排版字阶（`--suiyuan-text-display-*` 40/52、`--suiyuan-text-headline-*` 24/32、`--suiyuan-text-body-large-*` 18/28、`--suiyuan-text-body-*` 14/22、`--suiyuan-text-label-*` 12/16、`--suiyuan-text-label-xs-*` 11/14）、`--suiyuan-mobile-nav-height:64px`。
+- 新增（`:root` 浅色共享规则，暗色自动继承）：`--super-dolphin-agent-primary-container:#c84d05`、`--super-dolphin-agent-inverse-surface:#30312c`（暗色下反转为 `#f2f1ea`）、`--super-dolphin-agent-inverse-on-surface`、`--super-dolphin-agent-page-margin:32px`、`--super-dolphin-agent-mobile-padding:16px`、`--super-dolphin-agent-radius-card:16px`、`--super-dolphin-agent-radius-input:24px`、`--super-dolphin-agent-radius-control:8px`、排版字阶（`--super-dolphin-agent-text-display-*` 40/52、`--super-dolphin-agent-text-headline-*` 24/32、`--super-dolphin-agent-text-body-large-*` 18/28、`--super-dolphin-agent-text-body-*` 14/22、`--super-dolphin-agent-text-label-*` 12/16、`--super-dolphin-agent-text-label-xs-*` 11/14）、`--super-dolphin-agent-mobile-nav-height:64px`。
 - 既有令牌已与设计一致，未改值：`#fbf9f3/#ffffff/#f5f4ed/#f0eee7/#eae8e1`、`#1b1c18/#584238`、`#a03b00/#792b00/#ffdbcd/#ffb597`、`#8b7268/#e0c0b3`、`#ba1a1a`、侧边栏 280px、内容 1100px、gutter 24px、卡片/输入阴影。
-- 深色背景说明：`DESIGN_SYSTEM.md` 的 `Inverse surface #30312c` 是 M3 反色表面令牌，四张正式 Dark 设计图的实际页面底色为近黑暖色；按“正式设计图优先”原则，暗色页面底保持现有 `#131411/#1b1c18/#1e1f1b/#242620` 体系（与 02/04/06/08 截图一致），`#30312c` 作为 `--suiyuan-inverse-surface` 令牌使用。
-- fusion 渐变清除：`--suiyuan-fusion-bg` 由 `linear-gradient(135deg,#a03b00,#ffb597)` 改为 `var(--surface)`（暗色 `var(--surface-2)`），`.fusion-surface/.fusion-surface-glass/.fusion-toolbar` 变为中性暖色卡片，`.suiyuan-btn-fusion` 变为主色胶囊、`.suiyuan-btn-fusion-ghost` 变为中性描边胶囊；`MemoryPage.css` 与 `PromptPageView.css` 中的渐变 `!important` 覆盖块整体删除。设计稿明令删除的 `Skill Fusion` 横幅未恢复（`SkillsPage.test.jsx:290` 仍断言其不存在）。
+- 深色背景说明：`DESIGN_SYSTEM.md` 的 `Inverse surface #30312c` 是 M3 反色表面令牌，四张正式 Dark 设计图的实际页面底色为近黑暖色；按“正式设计图优先”原则，暗色页面底保持现有 `#131411/#1b1c18/#1e1f1b/#242620` 体系（与 02/04/06/08 截图一致），`#30312c` 作为 `--super-dolphin-agent-inverse-surface` 令牌使用。
+- fusion 渐变清除：`--super-dolphin-agent-fusion-bg` 由 `linear-gradient(135deg,#a03b00,#ffb597)` 改为 `var(--surface)`（暗色 `var(--surface-2)`），`.fusion-surface/.fusion-surface-glass/.fusion-toolbar` 变为中性暖色卡片，`.super-dolphin-agent-btn-fusion` 变为主色胶囊、`.super-dolphin-agent-btn-fusion-ghost` 变为中性描边胶囊；`MemoryPage.css` 与 `PromptPageView.css` 中的渐变 `!important` 覆盖块整体删除。设计稿明令删除的 `Skill Fusion` 横幅未恢复（`SkillsPage.test.jsx:290` 仍断言其不存在）。
 
 ## 3. 逐页实际修改
 
 ### 外壳（`src/App.jsx`、`src/AppShell.css`、`src/styles.css`、i18n）
 
-- 侧边栏 280px 固定 + 居中主画布保持不变；修复浅色 `新对话` 按钮 `opacity:0.8` 导致的褪色（实色 `#a03b00`，hover `#c84d05`）；导航激活态背景由 10% 提至 55% `--suiyuan-primary-fixed`，保留 4px 左侧指示条；底部保持 Settings/Help，无用户卡片。
-- 新增移动端底部导航 `.suiyuan-mobile-nav`（`SuiyuanMobileNav`，`App.jsx:532-557`）：聊天/插件/定制角色/记忆/设置 5 项，仅 `≤920px` 显示（`AppShell.css:531-598`），抽屉侧栏打开时隐藏；主画布底部留白与浮动输入框 `bottom` 同步抬升，不遮挡内容；新增短标签 i18n 键 `nav.chatShort/memoryShort`、`workbench.mobileNavAriaLabel`（中英双份）。
+- 侧边栏 280px 固定 + 居中主画布保持不变；修复浅色 `新对话` 按钮 `opacity:0.8` 导致的褪色（实色 `#a03b00`，hover `#c84d05`）；导航激活态背景由 10% 提至 55% `--super-dolphin-agent-primary-fixed`，保留 4px 左侧指示条；底部保持 Settings/Help，无用户卡片。
+- 新增移动端底部导航 `.super-dolphin-agent-mobile-nav`（`SuperDolphinAgentMobileNav`，`App.jsx:532-557`）：聊天/插件/定制角色/记忆/设置 5 项，仅 `≤920px` 显示（`AppShell.css:531-598`），抽屉侧栏打开时隐藏；主画布底部留白与浮动输入框 `bottom` 同步抬升，不遮挡内容；新增短标签 i18n 键 `nav.chatShort/memoryShort`、`workbench.mobileNavAriaLabel`（中英双份）。
 - 顶栏保留真实功能入口（通知/历史/主题/语言），未添加设计稿中的 `Overview/Usage/Limits/Upgrade Plan` 营销链接（`styles.test.js:1531-1539` 本就禁止其进入外壳）。
-- `.sa-window` 增加 `data-brand="suiyuan"`：激活既有的品牌作用域规则（聊天 hero 的 logo tile 与副标题此前因无人设置该属性而永久 `display:none`）。
+- `.sa-window` 增加 `data-brand="super-dolphin-agent"`：激活既有的品牌作用域规则（聊天 hero 的 logo tile 与副标题此前因无人设置该属性而永久 `display:none`）。
 
 ### 聊天页（`src/pages/chat/ChatPage.css`、`composer/ComposerDock.css`、`ChatPageWorkbench.css`）— 对应 01/02
 
-- hero：标题 display 字阶 40px/600/52px、`-0.02em`，`燧元` 主色高亮保留；副标题 18/28、`--suiyuan-on-surface-variant`(#584238)；logo tile 与副标题经 `data-brand` 修复后实际显示。
-- 建议卡：白底（暗色 `--suiyuan-surface-low`）、1px `--suiyuan-outline-variant`、16px 圆角、静止无阴影、hover `--suiyuan-card-shadow` + `translateY(-2px)`；图标浅色 tile（暗色为纯主色图标）；标题/描述显式颜色。
-- 浮动输入卡：圆角 20→24px（`--suiyuan-radius-input`），白底 + `--suiyuan-input-shadow`；工具行保留 添加文件/Add image/项目选择/模型选择/发送 全部真实交互；暗色发送键改为 `--suiyuan-primary-container`(#c84d05) + 近白箭头（对齐 02 设计）；免责声明修复为 `--suiyuan-on-surface-variant`（原 `#c6c7c4` 在浅底上约 1.6:1 不可读）。
+- hero：标题 display 字阶 40px/600/52px、`-0.02em`，`燧元` 主色高亮保留；副标题 18/28、`--super-dolphin-agent-on-surface-variant`(#584238)；logo tile 与副标题经 `data-brand` 修复后实际显示。
+- 建议卡：白底（暗色 `--super-dolphin-agent-surface-low`）、1px `--super-dolphin-agent-outline-variant`、16px 圆角、静止无阴影、hover `--super-dolphin-agent-card-shadow` + `translateY(-2px)`；图标浅色 tile（暗色为纯主色图标）；标题/描述显式颜色。
+- 浮动输入卡：圆角 20→24px（`--super-dolphin-agent-radius-input`），白底 + `--super-dolphin-agent-input-shadow`；工具行保留 添加文件/Add image/项目选择/模型选择/发送 全部真实交互；暗色发送键改为 `--super-dolphin-agent-primary-container`(#c84d05) + 近白箭头（对齐 02 设计）；免责声明修复为 `--super-dolphin-agent-on-surface-variant`（原 `#c6c7c4` 在浅底上约 1.6:1 不可读）。
 - 暂缓：设计稿的方形发送键（保持产品现有圆形）；暗色 hero logo tile 保留。
 
 ### 插件与技能（`src/pages/skills/SkillsPageHub.css`、`SkillsPage.css`、`DatasourcePage.css`）— 对应 03/04
 
-- 三个子栏目共享统一骨架：白容器卡（`min(1080px,100%-48px)`、16px 圆角、`--suiyuan-card-shadow`）+ 卡内标题（32px/760）+ 说明 + tab 行（激活 tab 暖橙下划线、semibold；非激活 muted）。
+- 三个子栏目共享统一骨架：白容器卡（`min(1080px,100%-48px)`、16px 圆角、`--super-dolphin-agent-card-shadow`）+ 卡内标题（32px/760）+ 说明 + tab 行（激活 tab 暖橙下划线、semibold；非激活 muted）。
 - 技能库：单列列表改为 `repeat(auto-fill,minmax(280px,1fr))` 卡片网格；`.skill-card-redesign` 全套样式落地（此前零样式）：暖底 `--surface-2`、16px 圆角、图标 tile、显式标题/路径/描述色、tag chips、scope 胶囊、底部分隔线 + 操作按钮（编辑详情 outline、删除 danger）；统计行 4 张暖底统计卡；工具栏搜索 24px pill + 分段控件 + 批量导入/新建技能（主色胶囊）。
 - MCP 工具卡：保留深色 `--mcp-card-*` 卡片契约（对比度见第 7 节），仅圆角 8→16px、min-height 54→60；`注册技能工具` 卡由深色虚线改为中性虚线卡（1.5px dashed `--border-strong`、`--surface-2` 底）。
 - 技能冲突面板：中性 warning 表面（白卡 + 3px `--accent` 左边条 + 6% tint 头部），推荐/次要按钮分级（主色胶囊/中性描边），冲突处理、筛选、导入、MCP 开关逻辑未动。
@@ -58,13 +58,13 @@
 - 三张统计卡（总览/健康度/自动沉淀）：白底（暗色抬升面）、16px 圆角、细边、软阴影、显式文字色；健康度 meter 轨道 `--surface-3`；自动沉淀卡开关右置为真 switch（保留未生效 fail-fast 反馈与 pendingRestart 提示）。
 - 工具栏中性白卡：搜索 24px pill + 新建主色胶囊（保留在工具栏内——`App.test.jsx:6057` 钉住该位置，与设计“页头右侧”不同，属有意保留差异）；`.memory-tabs` 偏好/项目/全部 保持。
 - 空态改为 340px 高中性面板（白卡、66px 图标圆、加粗标题、限宽描述），无橙色背景。
-- 删除渐变 `!important` 覆盖块与全部死 CSS（`.memory-stats-card*`、`.bias-*`、`.suiyuan-memory-empty-canvas*` 等），746→~470 行；修复 `.memory-similar-list` 负 margin；`code` 预览不再裁剪。
+- 删除渐变 `!important` 覆盖块与全部死 CSS（`.memory-stats-card*`、`.bias-*`、`.super-dolphin-agent-memory-empty-canvas*` 等），746→~470 行；修复 `.memory-similar-list` 负 margin；`code` 预览不再裁剪。
 
 ### 个性化角色（`src/features/prompts/Personalization.css`、`PromptPagePolish.css`、`PromptPageView.css`、`PromptPageView.jsx`）— 对应 07/08
 
 - 渐变 hero 改为平静页头： eyebrow + 24px 标题 + 副标题在左，4 张白色统计卡（定制角色/知识/默认规则/待确认）在右，白卡深字（暗色为抬升面浅字）；`.personalization-overview` 背景 `var(--surface)`→`transparent`，让标题与统计卡直接落在画布上。
 - 个人资料卡：白 16px 卡、图标+标题+状态 chip、昵称/职业并排、textareas 全宽、输入 `--surface-2` + 细边 + 显式文字色、行内校验错误保留；`保存个人资料` 改左对齐主色胶囊（原全宽）。
-- 导入记忆卡：上传图标在内容上方（`--suiyuan-primary-fixed` tile）、标题、描述、`导入记忆` 胶囊在卡片底部居中；点击仍打开 `参考资料` tab 的向导。
+- 导入记忆卡：上传图标在内容上方（`--super-dolphin-agent-primary-fixed` tile）、标题、描述、`导入记忆` 胶囊在卡片底部居中；点击仍打开 `参考资料` tab 的向导。
 - 提示词卡：中性 16px 卡、徽章中性 pill、操作区分隔线；弹窗表面去米色化到令牌（顺带修复暗色下米色弹窗的错色）；删除渐变 `!important` 覆盖块与未使用的 drag-zone CSS。
 
 ### 其余页面（阶段 7，无独立设计图）

@@ -27,44 +27,44 @@
   transition: background var(--transition), color var(--transition);
 }
 
-.suiyuan-new-chat {
+.super-dolphin-agent-new-chat {
   transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-spring);
 }
 
 /* 新对话按钮：hover 轻微抬升与阴影收放；按下快速回落，释放经 spring 回弹 */
-.suiyuan-new-chat:hover {
+.super-dolphin-agent-new-chat:hover {
   transform: translateY(-1px);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
-.suiyuan-new-chat:active:not(:disabled) {
+.super-dolphin-agent-new-chat:active:not(:disabled) {
   transform: translateY(0);
   transition-duration: var(--motion-instant);
 }
 
 /* 导航选中指示条：scaleY + opacity 平滑出现，避免生硬跳变 */
-.suiyuan-nav-item::before,
-.suiyuan-footer-item::before {
+.super-dolphin-agent-nav-item::before,
+.super-dolphin-agent-footer-item::before {
   opacity: 0;
   transform: scaleY(0.45);
   transition: opacity var(--motion-hover), transform var(--motion-hover), background var(--motion-hover);
 }
 
-.suiyuan-nav-item.active::before,
-.suiyuan-footer-item.active::before {
+.super-dolphin-agent-nav-item.active::before,
+.super-dolphin-agent-footer-item.active::before {
   opacity: 1;
   transform: scaleY(1);
 }
 
 /* 导航 hover：仅图标轻微位移，文字保持不动 */
-.suiyuan-nav-item svg,
-.suiyuan-footer-item svg,
+.super-dolphin-agent-nav-item svg,
+.super-dolphin-agent-footer-item svg,
 .app-sidebar-nav button svg {
   transition: transform var(--motion-hover);
 }
 
-.suiyuan-nav-item:hover svg,
-.suiyuan-footer-item:hover svg,
+.super-dolphin-agent-nav-item:hover svg,
+.super-dolphin-agent-footer-item:hover svg,
 .app-sidebar-nav button:hover svg {
   transform: translateX(2px);
 }
@@ -82,6 +82,6 @@
 }
 
 .sidebar-project-thread-list,
-.suiyuan-chat-project-tree {
+.super-dolphin-agent-chat-project-tree {
   animation: sd-tree-in var(--motion-fast) var(--ease-standard);
 }

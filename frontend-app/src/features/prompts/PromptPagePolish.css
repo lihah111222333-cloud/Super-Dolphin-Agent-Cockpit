@@ -14,7 +14,7 @@
 .prompt-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-card, 16px);
+  border-radius: var(--super-dolphin-agent-radius-card, 16px);
   box-shadow: none;
   color: var(--text-pri);
   padding: 20px;

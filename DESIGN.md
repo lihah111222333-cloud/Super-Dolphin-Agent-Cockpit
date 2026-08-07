@@ -1,5 +1,5 @@
 ---
-name: Suiyuan AI
+name: Super Dolphin Agent
 colors:
   surface: '#f5f7fa'
   surface-dim: '#dae0eb'
@@ -98,7 +98,7 @@ spacing:
 ---
 
 ## Brand & Style
-Suiyuan embodies a **Sophisticated Minimalist** aesthetic tailored for high-productivity AI interactions. The brand personality is intellectual, calm, and precise, expressed through a cool "Airy Command Center" light palette that mirrors the dark "AI Command Center" theme—one design language, two luminance environments.
+Super Dolphin Agent embodies a **Sophisticated Minimalist** aesthetic tailored for high-productivity AI interactions. The brand personality is intellectual, calm, and precise, expressed through a cool "Airy Command Center" light palette that mirrors the dark "AI Command Center" theme—one design language, two luminance environments.
 
 The design style sits at the intersection of **Corporate Modern** and **Tactile Minimalism**. It avoids the sterility of pure flat design by using subtle tonal layering and soft, diffused "custom-shadows" to suggest depth without the heaviness of traditional skeuomorphism. The interface is designed to feel like a "canvas"—a quiet, reliable space where the user's thoughts and AI's outputs take center stage. The target audience includes developers, researchers, and creative professionals who value precision and clarity.
 

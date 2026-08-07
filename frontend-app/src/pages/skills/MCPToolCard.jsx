@@ -22,7 +22,7 @@ export function MCPToolCard({ errorMessage, mcpServerStatus, state, tool }) {
           aria-label={`${model.actionLabel} ${tool.title}`}
           aria-disabled={projectMissing || undefined}
           title={projectMissing ? '请先选择项目' : undefined}
-          className={`suiyuan-switch-btn mcp-tool-toggle ${model.nextAction === 'stop' ? 'active is-stop' : 'is-start'}`}
+          className={`super-dolphin-agent-switch-btn mcp-tool-toggle ${model.nextAction === 'stop' ? 'active is-stop' : 'is-start'}`}
           onClick={() => {
             if (projectMissing) {
               state.onProjectRequired?.(tool);
@@ -32,8 +32,8 @@ export function MCPToolCard({ errorMessage, mcpServerStatus, state, tool }) {
           }}
           disabled={Boolean(model.action)}
         >
-          <span className="suiyuan-switch-track">
-            <span className="suiyuan-switch-thumb" />
+          <span className="super-dolphin-agent-switch-track">
+            <span className="super-dolphin-agent-switch-thumb" />
           </span>
         </button>
       </div>

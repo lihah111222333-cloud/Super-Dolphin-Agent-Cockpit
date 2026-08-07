@@ -1,11 +1,11 @@
-# Suiyuan Chat UI Redesign Design
+# Super Dolphin Agent Chat UI Redesign Design
 
 Date: 2026-07-09
 Status: Approved design draft, awaiting user review before implementation planning
 
 ## Context
 
-The Stitch project `Codex Style Main Console` contains a Suiyuan design system named `Luminous Minimalist` and a set of Suiyuan UI preview screens. The design system's `theme.designMd` has been exported to the repository root as `DESIGN.md`.
+The Stitch project `Codex Style Main Console` contains a Super Dolphin Agent design system named `Luminous Minimalist` and a set of Super Dolphin Agent UI preview screens. The design system's `theme.designMd` has been exported to the repository root as `DESIGN.md`.
 
 The current product UI source is `frontend-app`. The UI pages are routed from `frontend-app/src/AppRoutes.jsx`; the current Chat surface is implemented under `frontend-app/src/pages/chat`, with global tokens in `frontend-app/src/styles.css` and shell styling in `frontend-app/src/AppShell.css` / `frontend-app/src/AppChrome.css`.
 
@@ -13,7 +13,7 @@ During brainstorming, the chosen direction was **B3: Stitch-faithful high fideli
 
 ## Goals
 
-1. Bring the primary app shell and Chat workflow close to the Suiyuan Stitch preview language.
+1. Bring the primary app shell and Chat workflow close to the Super Dolphin Agent Stitch preview language.
 2. Use `DESIGN.md` as the source for color, typography, spacing, radius, and elevation decisions.
 3. Preserve the existing frontend data flow, API bridge behavior, thread state, runtime state, and fail-fast error behavior.
 4. Make the Chat surface feel like a warm, calm, high-productivity work canvas rather than the current dark blue/purple console.
@@ -29,7 +29,7 @@ During brainstorming, the chosen direction was **B3: Stitch-faithful high fideli
 
 ## Design Source
 
-Use these Suiyuan tokens and principles from `DESIGN.md`:
+Use these Super Dolphin Agent tokens and principles from `DESIGN.md`:
 
 - Primary brand color: `#a03b00` / burnt sienna, plus `#792b00` for deeper primary action states.
 - Main background: `#fbf9f2` and `#fbf9f3`.
@@ -46,7 +46,7 @@ The implementation should translate these values into the existing CSS token sys
 
 The target Chat workbench is a three-zone composition:
 
-1. **Left Suiyuan navigation / thread entry**
+1. **Left Super Dolphin Agent navigation / thread entry**
    - Use a warmer, wider, more legible navigation treatment.
    - Active state uses a sienna indicator and primary-fixed wash instead of the current blue/purple accent.
    - Existing navigation state, route handling, badges, and thread selection behavior remain unchanged.
@@ -65,7 +65,7 @@ The target Chat workbench is a three-zone composition:
 
 ### App Shell
 
-Replace the current dark blue/purple shell feel with the Suiyuan light work surface. The shell should feel calm and high-productivity, not like a marketing page. Use existing shell components and CSS files, but revise tokens, active nav treatment, borders, panel backgrounds, and top-command surfaces.
+Replace the current dark blue/purple shell feel with the Super Dolphin Agent light work surface. The shell should feel calm and high-productivity, not like a marketing page. Use existing shell components and CSS files, but revise tokens, active nav treatment, borders, panel backgrounds, and top-command surfaces.
 
 The shell must preserve:
 
@@ -78,7 +78,7 @@ The shell must preserve:
 
 ### Chat Header
 
-The Chat header should become a quieter contextual bar. It should surface thread/project/model controls without competing with the message canvas. It should use Suiyuan label styling, softer borders, and pill-like action controls where appropriate.
+The Chat header should become a quieter contextual bar. It should surface thread/project/model controls without competing with the message canvas. It should use Super Dolphin Agent label styling, softer borders, and pill-like action controls where appropriate.
 
 Header feedback and approval error output remain visible and must not be visually muted below error affordance.
 
@@ -88,7 +88,7 @@ Messages should appear as readable cards on the centered canvas:
 
 - Assistant messages use raised white cards with subtle outline and ambient shadow.
 - User messages use a quieter filled surface, right-aligned or visually distinct from assistant output.
-- Tool, reasoning, approval, code, diff, image, and directive content inherit Suiyuan surfaces but keep their functional affordances.
+- Tool, reasoning, approval, code, diff, image, and directive content inherit Super Dolphin Agent surfaces but keep their functional affordances.
 - Long code/diff content must prioritize legibility over decorative warmth.
 
 The timeline must preserve:
@@ -189,7 +189,7 @@ Focused verification:
 - Run affected Chat/component tests when touched.
 - Verify intro Chat, active Chat with timeline, runtime-open, runtime-closed, and narrow viewport states.
 - Exercise send, interrupt, drag/drop, attachment preview, approval, code preview, runtime resize, focus traversal, and scroll-to-bottom.
-- Visually compare the result against the Suiyuan Stitch direction and `DESIGN.md` tokens.
+- Visually compare the result against the Super Dolphin Agent Stitch direction and `DESIGN.md` tokens.
 
 Repository housekeeping:
 
@@ -198,7 +198,7 @@ Repository housekeeping:
 
 ## Acceptance Criteria
 
-1. The app shell and Chat workflow visibly match the Suiyuan light, warm, tactile minimalist direction.
+1. The app shell and Chat workflow visibly match the Super Dolphin Agent light, warm, tactile minimalist direction.
 2. Chat remains usable for real coding sessions: readable messages, legible code/diff blocks, visible runtime state, and clear composer actions.
 3. Existing data flow and fail-fast behavior remain unchanged.
 4. Desktop and narrow viewport layouts have no overlapping controls or clipped essential text.

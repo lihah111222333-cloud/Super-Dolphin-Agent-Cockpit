@@ -2,7 +2,7 @@
   background: var(--surface);
   border-color: var(--border);
   color: var(--text-pri);
-  box-shadow: var(--suiyuan-input-highlight);
+  box-shadow: var(--super-dolphin-agent-input-highlight);
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 

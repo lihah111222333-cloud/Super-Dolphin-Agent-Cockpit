@@ -2261,7 +2261,7 @@
                   "bytes": 672
                 },
                 {
-                  "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png",
+                  "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png",
                   "bytes": 99172
                 },
                 {
@@ -2803,7 +2803,7 @@
                     "sha256": "a74309a2851312c1cb56c63b9fb920a7cb2a08b9787c45ea560ee904badabbe4"
                   },
                   {
-                    "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png",
+                    "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png",
                     "bytes": 99172,
                     "sha256": "e2b54f33390db6d41ae01021a0283b43edc6c9ede3ac8c4f885761c3be4f76c6"
                   },
@@ -5002,7 +5002,7 @@
                   "bytes": 672
                 },
                 {
-                  "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png",
+                  "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png",
                   "bytes": 99172
                 },
                 {
@@ -5544,7 +5544,7 @@
                     "sha256": "a74309a2851312c1cb56c63b9fb920a7cb2a08b9787c45ea560ee904badabbe4"
                   },
                   {
-                    "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png",
+                    "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png",
                     "bytes": 99172,
                     "sha256": "e2b54f33390db6d41ae01021a0283b43edc6c9ede3ac8c4f885761c3be4f76c6"
                   },
@@ -7697,7 +7697,7 @@
             "bytes": 672
           },
           {
-            "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png",
+            "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png",
             "bytes": 99172
           },
           {
@@ -8239,7 +8239,7 @@
               "sha256": "a74309a2851312c1cb56c63b9fb920a7cb2a08b9787c45ea560ee904badabbe4"
             },
             {
-              "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png",
+              "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png",
               "bytes": 99172,
               "sha256": "e2b54f33390db6d41ae01021a0283b43edc6c9ede3ac8c4f885761c3be4f76c6"
             },
@@ -13382,7 +13382,7 @@
                   },
                   {
                     "bytes": 99172,
-                    "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png",
+                    "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png",
                     "sha256": "e2b54f33390db6d41ae01021a0283b43edc6c9ede3ac8c4f885761c3be4f76c6"
                   },
                   {
@@ -13857,7 +13857,7 @@
                 },
                 {
                   "bytes": 99172,
-                  "path": "assets/suiyuan-brand-icon-CvqwZ9gc.png"
+                  "path": "assets/super-dolphin-agent-brand-icon-CvqwZ9gc.png"
                 },
                 {
                   "bytes": 30593,
@@ -18560,7 +18560,7 @@
             ],
             "kind": "user",
             "line": 269,
-            "sourcePath": "src/app/shell/SuiyuanAppWindow.jsx",
+            "sourcePath": "src/app/shell/SuperDolphinAgentAppWindow.jsx",
             "sourceSha256": "c11f15d85f7cbc5266868e876f1f2a3c01d341bc04ab89628a2487590eb1f540"
           },
           {
@@ -18640,7 +18640,7 @@
             ],
             "kind": "user",
             "line": 394,
-            "sourcePath": "src/app/shell/SuiyuanAppWindow.jsx",
+            "sourcePath": "src/app/shell/SuperDolphinAgentAppWindow.jsx",
             "sourceSha256": "c11f15d85f7cbc5266868e876f1f2a3c01d341bc04ab89628a2487590eb1f540"
           },
           {
@@ -24450,7 +24450,7 @@
           {
             "actionId": "thread.interrupt",
             "bindingKeys": [
-              "src/app/shell/SuiyuanAppWindow.jsx:269:34",
+              "src/app/shell/SuperDolphinAgentAppWindow.jsx:269:34",
               "src/pages/chat/components/ChatPageHeader.jsx:109:38",
               "src/pages/chat/components/ChatPageHeader.jsx:177:21",
               "src/pages/chat/composer/ComposerMeta.jsx:39:19"
@@ -24472,7 +24472,7 @@
           {
             "actionId": "thread.interrupt",
             "bindingKeys": [
-              "src/app/shell/SuiyuanAppWindow.jsx:269:34",
+              "src/app/shell/SuperDolphinAgentAppWindow.jsx:269:34",
               "src/pages/chat/components/ChatPageHeader.jsx:109:38",
               "src/pages/chat/components/ChatPageHeader.jsx:177:21",
               "src/pages/chat/composer/ComposerMeta.jsx:39:19"
@@ -24494,7 +24494,7 @@
           {
             "actionId": "thread.interrupt",
             "bindingKeys": [
-              "src/app/shell/SuiyuanAppWindow.jsx:269:34",
+              "src/app/shell/SuperDolphinAgentAppWindow.jsx:269:34",
               "src/pages/chat/components/ChatPageHeader.jsx:109:38",
               "src/pages/chat/components/ChatPageHeader.jsx:177:21",
               "src/pages/chat/composer/ComposerMeta.jsx:39:19"
@@ -24518,7 +24518,7 @@
             "bindingKeys": [
               "src/WorkbenchSidebar.jsx:89:17",
               "src/WorkbenchSidebarProjectTree.jsx:328:17",
-              "src/app/shell/SuiyuanAppWindow.jsx:394:17"
+              "src/app/shell/SuperDolphinAgentAppWindow.jsx:394:17"
             ],
             "errorSource": "sync-throw",
             "evidence": [
@@ -24539,7 +24539,7 @@
             "bindingKeys": [
               "src/WorkbenchSidebar.jsx:89:17",
               "src/WorkbenchSidebarProjectTree.jsx:328:17",
-              "src/app/shell/SuiyuanAppWindow.jsx:394:17"
+              "src/app/shell/SuperDolphinAgentAppWindow.jsx:394:17"
             ],
             "errorSource": "promise-reject",
             "evidence": [

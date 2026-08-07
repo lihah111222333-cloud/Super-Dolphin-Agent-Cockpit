@@ -22,16 +22,16 @@
 
 .shared-files-overview-copy span {
   color: var(--text-muted);
-  font-size: var(--suiyuan-text-label-size);
-  line-height: var(--suiyuan-text-label-line);
+  font-size: var(--super-dolphin-agent-text-label-size);
+  line-height: var(--super-dolphin-agent-text-label-line);
 }
 
 .shared-files-overview-copy h2 {
   margin: 0;
   color: var(--text-pri);
-  font-size: var(--suiyuan-text-headline-size);
+  font-size: var(--super-dolphin-agent-text-headline-size);
   font-weight: 500;
-  line-height: var(--suiyuan-text-headline-line);
+  line-height: var(--super-dolphin-agent-text-headline-line);
 }
 
 .shared-files-overview dl {
@@ -48,8 +48,8 @@
 
 .shared-files-overview dt {
   color: var(--text-muted);
-  font-size: var(--suiyuan-text-label-size);
-  line-height: var(--suiyuan-text-label-line);
+  font-size: var(--super-dolphin-agent-text-label-size);
+  line-height: var(--super-dolphin-agent-text-label-line);
 }
 
 .shared-files-overview dd {
@@ -74,7 +74,7 @@
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-input);
+  border-radius: var(--super-dolphin-agent-radius-input);
   background: var(--surface);
   color: var(--text-muted);
   padding: 0 12px;
@@ -100,7 +100,7 @@
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   outline: 0;
@@ -125,15 +125,15 @@
 
 .file-intro h2 {
   color: var(--text-pri);
-  font-size: var(--suiyuan-text-headline-size);
+  font-size: var(--super-dolphin-agent-text-headline-size);
   font-weight: 500;
-  line-height: var(--suiyuan-text-headline-line);
+  line-height: var(--super-dolphin-agent-text-headline-line);
 }
 
 .file-intro p {
   color: var(--text-sec);
-  font-size: var(--suiyuan-text-body-size);
-  line-height: var(--suiyuan-text-body-line);
+  font-size: var(--super-dolphin-agent-text-body-size);
+  line-height: var(--super-dolphin-agent-text-body-line);
 }
 
 .shared-files-tabs {
@@ -275,7 +275,7 @@
   grid-template-columns: 90px minmax(0, 1fr);
   row-gap: 6px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface-2);
   margin: 0 0 14px;
   padding: 12px;
@@ -285,7 +285,7 @@
   max-height: 52vh;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface-code);
   padding: 14px;
   color: var(--text-sec);

@@ -198,7 +198,7 @@
     grid-template-columns: 0px minmax(0, 1fr) !important;
   }
 
-  .sa-window.sidebar-collapsed .sa-body.suiyuan-shell-body {
+  .sa-window.sidebar-collapsed .sa-body.super-dolphin-agent-shell-body {
     grid-template-columns: 48px 0 minmax(0, 1fr) !important;
   }
 

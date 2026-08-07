@@ -537,9 +537,9 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card {
-  border-color: var(--suiyuan-surface-variant);
+  border-color: var(--super-dolphin-agent-surface-variant);
   background: var(--surface);
-  box-shadow: var(--suiyuan-input-shadow);
+  box-shadow: var(--super-dolphin-agent-input-shadow);
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating textarea {
@@ -565,24 +565,24 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach {
-  border-color: var(--suiyuan-surface-variant);
-  background: var(--suiyuan-surface-low);
-  color: var(--suiyuan-secondary);
+  border-color: var(--super-dolphin-agent-surface-variant);
+  background: var(--super-dolphin-agent-surface-low);
+  color: var(--super-dolphin-agent-secondary);
   box-shadow: none;
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-model {
-  border-color: color-mix(in srgb, var(--suiyuan-primary-fixed) 30%, transparent);
-  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent);
-  color: var(--suiyuan-on-surface);
+  border-color: color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 30%, transparent);
+  background: color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 10%, transparent);
+  color: var(--super-dolphin-agent-on-surface);
   box-shadow: none;
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .send:disabled {
   border: 0;
-  background: var(--suiyuan-primary) !important;
+  background: var(--super-dolphin-agent-primary) !important;
   color: var(--on-accent) !important;
-  box-shadow: var(--suiyuan-send-shadow);
+  box-shadow: var(--super-dolphin-agent-send-shadow);
   opacity: 1;
 }
 
@@ -810,7 +810,7 @@ textarea:disabled {
 .prompt-editor-modal button:active:not(:disabled),
 .prompt-wizard-modal button:active:not(:disabled),
 .skills-editor-modal button:active:not(:disabled),
-.suiyuan-new-chat:active:not(:disabled),
+.super-dolphin-agent-new-chat:active:not(:disabled),
 .btn:active:not(:disabled) {
   transform: translateY(1px);
 }
@@ -1017,7 +1017,7 @@ textarea:disabled {
 
 /* 图标按钮：仅少量动作图标使用轻微旋转/放大 */
 .theme-toggle svg,
-.suiyuan-sidebar-collapse svg,
+.super-dolphin-agent-sidebar-collapse svg,
 .sidebar-icon-action svg,
 .workbench-toggle svg {
   transition: transform var(--motion-hover);
@@ -1027,7 +1027,7 @@ textarea:disabled {
   transform: rotate(15deg);
 }
 
-.suiyuan-sidebar-collapse:hover svg,
+.super-dolphin-agent-sidebar-collapse:hover svg,
 .sidebar-icon-action:hover svg,
 .workbench-toggle:hover svg {
   transform: scale(1.08);
@@ -1036,7 +1036,7 @@ textarea:disabled {
 /* 主题切换：仅主要表面过渡背景与边框色，避免全页刺眼闪烁 */
 .sa-window,
 .titlebar,
-.suiyuan-top-appbar,
+.super-dolphin-agent-top-appbar,
 .sa-main,
 .chat-page,
 .fusion-surface,
@@ -1081,7 +1081,7 @@ textarea:disabled {
   .chat-intro-card,
   .empty-state > span,
   .sidebar-project-thread-list,
-  .suiyuan-chat-project-tree,
+  .super-dolphin-agent-chat-project-tree,
   .reasoning-trace[open] .reasoning-step-list,
   .top-command .action-feedback,
   .titlebar .action-feedback,

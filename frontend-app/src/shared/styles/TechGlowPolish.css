@@ -87,7 +87,7 @@
 .sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:hover,
 .sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:focus-visible {
   border-color: color-mix(in srgb, var(--primary) 52%, transparent);
-  background: linear-gradient(165deg, var(--suiyuan-surface-high) 0%, color-mix(in srgb, var(--primary) 7%, var(--suiyuan-surface-high)) 100%);
+  background: linear-gradient(165deg, var(--super-dolphin-agent-surface-high) 0%, color-mix(in srgb, var(--primary) 7%, var(--super-dolphin-agent-surface-high)) 100%);
   box-shadow: var(--tech-card-hover-shadow);
   transform: translateY(-3px);
 }
@@ -117,7 +117,7 @@
 
 /* ---------- 新对话主按钮：蓝紫→紫罗兰渐变 + 主色光晕 ---------- */
 
-.sa-window[data-theme="dark"] .suiyuan-new-chat {
+.sa-window[data-theme="dark"] .super-dolphin-agent-new-chat {
   border: 0;
   background: linear-gradient(135deg, var(--primary) 0%, var(--violet) 100%);
   color: var(--primary-ink);
@@ -127,8 +127,8 @@
   transition: box-shadow var(--motion-hover), transform var(--motion-hover), filter var(--motion-hover);
 }
 
-.sa-window[data-theme="dark"] .suiyuan-new-chat:hover:not(:disabled),
-.sa-window[data-theme="dark"] .suiyuan-new-chat:focus-visible {
+.sa-window[data-theme="dark"] .super-dolphin-agent-new-chat:hover:not(:disabled),
+.sa-window[data-theme="dark"] .super-dolphin-agent-new-chat:focus-visible {
   background: linear-gradient(135deg, var(--primary-2) 0%, var(--violet) 100%);
   box-shadow:
     0 8px 30px color-mix(in srgb, var(--primary) 48%, transparent),
@@ -136,7 +136,7 @@
   transform: translateY(-1px);
 }
 
-.sa-window[data-theme="dark"] .suiyuan-new-chat:active:not(:disabled) {
+.sa-window[data-theme="dark"] .super-dolphin-agent-new-chat:active:not(:disabled) {
   transform: translateY(0);
 }
 
@@ -299,7 +299,7 @@
 
 /* ---------- 浅色新对话主按钮：同族渐变 + 柔和投影 ---------- */
 
-.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat {
+.sa-window.super-dolphin-agent-shell[data-theme="light"] .super-dolphin-agent-new-chat {
   border: 0;
   background: linear-gradient(135deg, var(--primary) 0%, var(--violet) 100%);
   color: var(--tech-white);
@@ -309,16 +309,16 @@
   transition: box-shadow var(--motion-hover), transform var(--motion-hover), filter var(--motion-hover);
 }
 
-.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat:hover:not(:disabled),
-.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat:focus-visible {
-  background: linear-gradient(135deg, var(--suiyuan-primary-container) 0%, var(--violet) 100%);
+.sa-window.super-dolphin-agent-shell[data-theme="light"] .super-dolphin-agent-new-chat:hover:not(:disabled),
+.sa-window.super-dolphin-agent-shell[data-theme="light"] .super-dolphin-agent-new-chat:focus-visible {
+  background: linear-gradient(135deg, var(--super-dolphin-agent-primary-container) 0%, var(--violet) 100%);
   box-shadow:
     0 8px 28px color-mix(in srgb, var(--primary) 38%, transparent),
     inset 0 1px 0 var(--tech-highlight-26);
   transform: translateY(-1px);
 }
 
-.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat:active:not(:disabled) {
+.sa-window.super-dolphin-agent-shell[data-theme="light"] .super-dolphin-agent-new-chat:active:not(:disabled) {
   transform: translateY(0);
 }
 
@@ -335,7 +335,7 @@
 
 .sa-window[data-theme="light"] .composer .send:not(:disabled):not(.send--interrupt):hover,
 .sa-window[data-theme="light"] .composer .send:not(:disabled):not(.send--interrupt):focus-visible {
-  background: linear-gradient(135deg, var(--suiyuan-primary-container) 0%, var(--violet) 100%);
+  background: linear-gradient(135deg, var(--super-dolphin-agent-primary-container) 0%, var(--violet) 100%);
   box-shadow:
     0 6px 24px color-mix(in srgb, var(--primary) 44%, transparent),
     inset 0 1px 0 var(--tech-highlight-28);

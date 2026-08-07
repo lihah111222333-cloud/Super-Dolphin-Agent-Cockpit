@@ -33,9 +33,9 @@
 }
 
 .automation-empty-state h2 {
-  font-size: var(--suiyuan-text-headline-size);
+  font-size: var(--super-dolphin-agent-text-headline-size);
   font-weight: 500;
-  line-height: var(--suiyuan-text-headline-line);
+  line-height: var(--super-dolphin-agent-text-headline-line);
   color: var(--text-pri);
   margin: 0 0 24px 0;
 }

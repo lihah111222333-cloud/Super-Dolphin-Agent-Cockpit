@@ -598,8 +598,8 @@ function resolutionActionVisualKind(actionEntry) {
   const action = (actionEntry.action || actionEntry).toString();
   if (action === 'view_diff' || action === 'view_unmanaged') return 'ghost resolution-btn-secondary';
   if (action === 'delete') return 'danger-button';
-  if (actionEntry.recommended || actionEntry.preferred) return 'suiyuan-btn-fusion resolution-btn-primary';
-  return 'suiyuan-btn-fusion-ghost resolution-btn-secondary';
+  if (actionEntry.recommended || actionEntry.preferred) return 'super-dolphin-agent-btn-fusion resolution-btn-primary';
+  return 'super-dolphin-agent-btn-fusion-ghost resolution-btn-secondary';
 }
 
 function SkillResolutionActionButton({ actionEntry, actionIndex, conflict, providerEntry, resolution }) {

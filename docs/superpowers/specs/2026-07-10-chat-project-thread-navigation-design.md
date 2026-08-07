@@ -48,7 +48,7 @@
 
 ## 组件边界
 
-1. `SuiyuanSidebar` 负责决定何时展示聊天树，并向树传入当前 `projectPath`、store 和页面切换动作。
+1. `SuperDolphinAgentSidebar` 负责决定何时展示聊天树，并向树传入当前 `projectPath`、store 和页面切换动作。
 2. 现有 `SidebarProjectTree` 继续负责项目展开、会话加载、会话操作和项目级新建会话。
 3. 现有 `ProjectSelector` 继续负责输入栏项目菜单，不复制项目选项生成或选择逻辑。
 4. `ComposerMeta` 只负责将项目选择器放入工具栏，并保持附件、模型、发送动作的现有布局。

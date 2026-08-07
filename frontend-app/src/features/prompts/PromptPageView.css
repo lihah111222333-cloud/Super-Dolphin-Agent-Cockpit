@@ -497,12 +497,12 @@
 }
 
 /* Custom Drag-and-drop look zone for memory imports */
-.suiyuan-import-memory-card {
+.super-dolphin-agent-import-memory-card {
   display: flex;
   flex-direction: column;
 }
 
-.suiyuan-import-memory-content {
+.super-dolphin-agent-import-memory-content {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -511,20 +511,20 @@
   gap: 12px;
 }
 
-.suiyuan-import-memory-content h3 {
+.super-dolphin-agent-import-memory-content h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-pri);
 }
 
-.suiyuan-import-memory-content p {
+.super-dolphin-agent-import-memory-content p {
   margin: 0;
   font-size: 13px;
   color: var(--text-sec);
   line-height: 1.5;
 }
 
-.suiyuan-import-memory-content button {
+.super-dolphin-agent-import-memory-content button {
   margin-top: auto;
 }

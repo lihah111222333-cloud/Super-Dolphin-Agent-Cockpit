@@ -1,5 +1,5 @@
 .conversation {
-  --conversation-content-width: min(var(--suiyuan-content-max-width), calc(100% - clamp(32px, 7vw, 112px)));
+  --conversation-content-width: min(var(--super-dolphin-agent-content-max-width), calc(100% - clamp(32px, 7vw, 112px)));
   --conversation-content-left-nudge: 0px;
   --conversation-content-left-gutter: max(
     28px,
@@ -163,7 +163,7 @@
   background: var(--surface);
   color: var(--text-sec);
   padding: 0;
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   opacity: 0;
   transform: translate(-50%, 48px);
   transition: transform var(--motion-overlay), opacity var(--motion-hover), border-color var(--transition), background var(--transition), color var(--transition);
@@ -257,20 +257,20 @@
 }
 
 .sa-window .chat-page.chat-page--intro {
-  background: var(--suiyuan-surface-bright);
+  background: var(--super-dolphin-agent-surface-bright);
 }
 
 .sa-window .chat-page.chat-page--intro .chat-layout,
 .sa-window .chat-page.chat-page--intro .conversation,
 .sa-window .chat-page.chat-page--intro .conversation--intro {
-  background: var(--suiyuan-surface-bright);
+  background: var(--super-dolphin-agent-surface-bright);
 }
 
 .sa-window[data-theme="dark"] .chat-page.chat-page--intro,
 .sa-window[data-theme="dark"] .chat-page.chat-page--intro .chat-layout,
 .sa-window[data-theme="dark"] .chat-page.chat-page--intro .conversation,
 .sa-window[data-theme="dark"] .chat-page.chat-page--intro .conversation--intro {
-  background: var(--suiyuan-surface-bright);
+  background: var(--super-dolphin-agent-surface-bright);
 }
 
 .sa-window .chat-page.chat-page--intro .conversation {
@@ -290,7 +290,7 @@
 }
 
 .chat-intro-spotlight__inner {
-  width: min(var(--suiyuan-content-max-width), 100%);
+  width: min(var(--super-dolphin-agent-content-max-width), 100%);
   height: auto;
   min-width: 0;
   display: flex;
@@ -326,14 +326,14 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 24px;
-  border: 1px solid color-mix(in srgb, var(--suiyuan-outline-variant) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--super-dolphin-agent-outline-variant) 50%, transparent);
   border-radius: 16px;
   background: var(--surface-2);
-  color: var(--suiyuan-primary);
-  box-shadow: var(--suiyuan-logo-shadow);
+  color: var(--super-dolphin-agent-primary);
+  box-shadow: var(--super-dolphin-agent-logo-shadow);
 }
 
-.sa-window[data-brand="suiyuan"] .chat-intro-logo-tile {
+.sa-window[data-brand="super-dolphin-agent"] .chat-intro-logo-tile {
   display: flex;
 }
 
@@ -363,9 +363,9 @@
   max-width: min(780px, 100%);
   margin: 0;
   color: var(--text-pri);
-  font-size: var(--suiyuan-text-display-size);
+  font-size: var(--super-dolphin-agent-text-display-size);
   font-weight: 600;
-  line-height: var(--suiyuan-text-display-line);
+  line-height: var(--super-dolphin-agent-text-display-line);
   letter-spacing: -0.02em;
   text-align: center;
   text-wrap: balance;
@@ -373,7 +373,7 @@
 }
 
 .chat-intro-title em {
-  color: var(--suiyuan-primary);
+  color: var(--super-dolphin-agent-primary);
   font-style: normal;
   font-weight: inherit;
 }
@@ -388,16 +388,16 @@
   min-height: 56px;
   margin: 0;
   margin-top: 16px;
-  color: var(--suiyuan-on-surface-variant);
-  font-size: var(--suiyuan-text-body-large-size);
+  color: var(--super-dolphin-agent-on-surface-variant);
+  font-size: var(--super-dolphin-agent-text-body-large-size);
   font-weight: 400;
-  line-height: var(--suiyuan-text-body-large-line);
+  line-height: var(--super-dolphin-agent-text-body-large-line);
   letter-spacing: 0;
   text-align: center;
   text-wrap: balance;
 }
 
-.sa-window[data-brand="suiyuan"] .chat-intro-subtitle {
+.sa-window[data-brand="super-dolphin-agent"] .chat-intro-subtitle {
   display: block;
 }
 
@@ -419,11 +419,11 @@
   align-items: flex-start;
   gap: 8px;
   box-sizing: border-box;
-  border: 1px solid var(--suiyuan-outline-variant);
-  border-color: var(--suiyuan-outline-variant);
-  border-radius: var(--suiyuan-radius-card);
-  background: var(--suiyuan-surface-lowest);
-  color: var(--suiyuan-on-surface);
+  border: 1px solid var(--super-dolphin-agent-outline-variant);
+  border-color: var(--super-dolphin-agent-outline-variant);
+  border-radius: var(--super-dolphin-agent-radius-card);
+  background: var(--super-dolphin-agent-surface-lowest);
+  color: var(--super-dolphin-agent-on-surface);
   box-shadow: none;
   padding: 24px;
   text-align: left;
@@ -433,9 +433,9 @@
 
 .chat-intro-card:hover,
 .chat-intro-card:focus-visible {
-  border-color: color-mix(in srgb, var(--suiyuan-outline) 40%, var(--suiyuan-outline-variant));
-  background: var(--suiyuan-surface-lowest);
-  box-shadow: var(--suiyuan-card-shadow);
+  border-color: color-mix(in srgb, var(--super-dolphin-agent-outline) 40%, var(--super-dolphin-agent-outline-variant));
+  background: var(--super-dolphin-agent-surface-lowest);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   transform: translateY(-2px);
 }
 
@@ -457,8 +457,8 @@
   justify-content: center;
   margin-bottom: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 32%, transparent);
-  color: var(--suiyuan-primary);
+  background: color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 32%, transparent);
+  color: var(--super-dolphin-agent-primary);
   transition: background var(--transition), color var(--transition);
 }
 
@@ -469,8 +469,8 @@
 
 .chat-intro-card:hover .chat-intro-card__icon,
 .chat-intro-card:focus-visible .chat-intro-card__icon {
-  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 55%, transparent);
-  color: var(--suiyuan-primary);
+  background: color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 55%, transparent);
+  color: var(--super-dolphin-agent-primary);
 }
 
 .chat-intro-card__title,
@@ -492,33 +492,33 @@
 
 .chat-intro-card__description {
   min-height: 0;
-  color: var(--suiyuan-on-surface-variant);
-  font-size: var(--suiyuan-text-body-size);
+  color: var(--super-dolphin-agent-on-surface-variant);
+  font-size: var(--super-dolphin-agent-text-body-size);
   font-weight: 400;
-  line-height: var(--suiyuan-text-body-line);
+  line-height: var(--super-dolphin-agent-text-body-line);
   letter-spacing: 0;
 }
 
 .sa-window[data-theme="dark"] .chat-intro-card {
-  border-color: var(--suiyuan-outline-variant);
-  background: var(--suiyuan-surface-low);
+  border-color: var(--super-dolphin-agent-outline-variant);
+  background: var(--super-dolphin-agent-surface-low);
   box-shadow: none;
 }
 
 .sa-window[data-theme="dark"] .chat-intro-card:hover,
 .sa-window[data-theme="dark"] .chat-intro-card:focus-visible {
-  border-color: color-mix(in srgb, var(--suiyuan-outline) 45%, var(--suiyuan-outline-variant));
-  background: var(--suiyuan-surface-high);
-  box-shadow: var(--suiyuan-card-shadow);
+  border-color: color-mix(in srgb, var(--super-dolphin-agent-outline) 45%, var(--super-dolphin-agent-outline-variant));
+  background: var(--super-dolphin-agent-surface-high);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .sa-window[data-theme="dark"] .chat-intro-card__icon {
   background: transparent;
-  color: var(--suiyuan-primary);
+  color: var(--super-dolphin-agent-primary);
 }
 
 .sa-window[data-theme="dark"] .chat-intro-card__description {
-  color: var(--suiyuan-on-surface-variant);
+  color: var(--super-dolphin-agent-on-surface-variant);
 }
 
 .sa-window .chat-page.chat-page--intro .conversation--intro .timeline-shell {

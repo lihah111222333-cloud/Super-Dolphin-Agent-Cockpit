@@ -29,7 +29,7 @@ import {
 } from './app/appShellModel.js';
 import { AppearanceProvider } from './app/appearance/AppearanceProvider.jsx';
 import { applyAppearanceToElement, createBrowserAppearanceStore } from './app/appearance/appearanceStore.js';
-import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';
+import { SuperDolphinAgentAppWindow } from './app/shell/SuperDolphinAgentAppWindow.jsx';
 import { appShortcutPlatform } from './app/shell/appShortcutPlatform.js';
 import { antdLocaleFor, antdThemeConfig } from './app/antdTheme.js';
 import { updateVersionFromResult } from './app/shell/appUpdateVersion.js';
@@ -328,7 +328,7 @@ function ConfiguredAppWindow({ language, shortcutCwd, ...props }) {
     registry: APP_COMMAND_REGISTRY,
     setPreference: appCommandPreferencePort.setPreference,
   });
-  return <SuiyuanAppWindow {...props} language={language} shortcutController={shortcutController} />;
+  return <SuperDolphinAgentAppWindow {...props} language={language} shortcutController={shortcutController} />;
 }
 
 function AppWindowShortcutBoundary({ language, shell, shellLayoutStore, store }) {

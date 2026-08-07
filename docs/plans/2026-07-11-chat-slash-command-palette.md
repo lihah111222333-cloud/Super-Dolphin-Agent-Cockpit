@@ -6,7 +6,7 @@
 
 **Architecture:** Add a read-only `toolbridge/tools/list` RPC for the active canonical tool surface, then normalize all five command sources behind focused frontend adapters and a cached catalog service. Keep the palette interaction local to the composer, while the client store owns scoped capability identities and serializes them into the existing `selectedSkills`, `selectedSkillRefs`, `manualSkillSelection`, and `enabledTools` turn fields.
 
-**Tech Stack:** Go, Fx, jrpc2 strict handlers, React 19, TanStack Query 5, Zustand 5, Vitest, Testing Library, Lucide React, existing Suiyuan CSS tokens and Wails RPC bridge.
+**Tech Stack:** Go, Fx, jrpc2 strict handlers, React 19, TanStack Query 5, Zustand 5, Vitest, Testing Library, Lucide React, existing Super Dolphin Agent CSS tokens and Wails RPC bridge.
 
 **Verification Surface:** `internal/platform/toolbridge`, `internal/app`, frontend RPC contract matrix and response guards, slash-command model/adapters/hooks/components, composer draft/send store, `frontend-app` lint/test/build, React Doctor, required LSP navigation and diagnostics, desktop/mobile light/dark browser checks.
 

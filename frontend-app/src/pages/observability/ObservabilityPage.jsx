@@ -76,7 +76,7 @@ function ObservabilitySearchForm({ copy, filters, loading, onFilter, onSubmit })
 <ObservabilityStatusFilter copy={copy} value={filters.status} onChange={(value) => onFilter('status', value)} /> <ObservabilityTextFilter label="Method" value={filters.method} placeholder="thread/start" onChange={(value) => onFilter('method', value)} />
 <ObservabilityTextFilter label={copy.keyword} value={filters.keyword} placeholder={copy.statusPlaceholder} onChange={(value) => onFilter('keyword', value)} />
 <ObservabilityTextFilter label="Limit" value={filters.limit} inputMode="numeric" onChange={(value) => onFilter('limit', value)} /> </div> <div className="settings-actions">
-<button type="submit" className="suiyuan-btn-fusion" disabled={loading}>{loading ? copy.querying : copy.queryLatest}</button> </div> </form> ); }
+<button type="submit" className="super-dolphin-agent-btn-fusion" disabled={loading}>{loading ? copy.querying : copy.queryLatest}</button> </div> </form> ); }
 function ObservabilityTextFilter({ inputMode, label, placeholder = '', value, onChange }) { return ( <label> {label} <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} inputMode={inputMode} /> </label> ); }
 function ObservabilityStatusFilter({ copy, value, onChange }) { return (
 <label> {copy.status} <select value={value} onChange={(event) => onChange(event.target.value)}> <option value="">{copy.all}</option> <option value="ok">ok</option> <option value="slow">slow</option> <option value="error">error</option> <option value="panic">panic</option>

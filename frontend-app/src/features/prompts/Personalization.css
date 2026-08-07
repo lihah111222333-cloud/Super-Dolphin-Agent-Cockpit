@@ -28,25 +28,25 @@
 
 .personalization-overview-copy span {
   color: var(--text-muted);
-  font-size: var(--suiyuan-text-label-xs-size, 11px);
+  font-size: var(--super-dolphin-agent-text-label-xs-size, 11px);
   font-weight: 650;
   letter-spacing: 0.08em;
-  line-height: var(--suiyuan-text-label-xs-line, 14px);
+  line-height: var(--super-dolphin-agent-text-label-xs-line, 14px);
   opacity: 1;
   text-transform: uppercase;
 }
 
 .personalization-overview-copy h2 {
   color: var(--text-pri);
-  font-size: var(--suiyuan-text-headline-size, 24px);
+  font-size: var(--super-dolphin-agent-text-headline-size, 24px);
   font-weight: 500;
-  line-height: var(--suiyuan-text-headline-line, 32px);
+  line-height: var(--super-dolphin-agent-text-headline-line, 32px);
 }
 
 .personalization-overview-copy p {
   color: var(--text-sec);
-  font-size: var(--suiyuan-text-body-size, 14px);
-  line-height: var(--suiyuan-text-body-line, 22px);
+  font-size: var(--super-dolphin-agent-text-body-size, 14px);
+  line-height: var(--super-dolphin-agent-text-body-line, 22px);
   opacity: 1;
 }
 
@@ -61,17 +61,17 @@
   gap: 2px;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-card, 16px);
+  border-radius: var(--super-dolphin-agent-radius-card, 16px);
   background: var(--surface);
   padding: 14px 16px;
 }
 
 .personalization-overview-hero .fusion-surface-glass dt {
   color: var(--text-muted);
-  font-size: var(--suiyuan-text-label-xs-size, 11px);
+  font-size: var(--super-dolphin-agent-text-label-xs-size, 11px);
   font-weight: 650;
   letter-spacing: 0.06em;
-  line-height: var(--suiyuan-text-label-xs-line, 14px);
+  line-height: var(--super-dolphin-agent-text-label-xs-line, 14px);
   opacity: 1;
   text-transform: uppercase;
 }
@@ -89,7 +89,7 @@
   min-width: 0;
   gap: 16px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-card, 16px);
+  border-radius: var(--super-dolphin-agent-radius-card, 16px);
   background: var(--surface);
   box-shadow: none;
   padding: 24px;
@@ -122,9 +122,9 @@
   border-radius: 999px;
   background: var(--surface-2);
   color: var(--text-sec);
-  font-size: var(--suiyuan-text-label-xs-size, 11px);
+  font-size: var(--super-dolphin-agent-text-label-xs-size, 11px);
   font-weight: 600;
-  line-height: var(--suiyuan-text-label-xs-line, 14px);
+  line-height: var(--super-dolphin-agent-text-label-xs-line, 14px);
   opacity: 1;
   padding: 3px 10px;
   white-space: nowrap;
@@ -137,7 +137,7 @@
 
 .personalization-form-grid label {
   color: var(--text-muted);
-  font-size: var(--suiyuan-text-label-size, 12px);
+  font-size: var(--super-dolphin-agent-text-label-size, 12px);
   font-weight: 650;
   letter-spacing: 0.02em;
 }
@@ -149,11 +149,11 @@
 .personalization-form-grid input,
 .personalization-form-grid textarea {
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-control, 8px);
+  border-radius: var(--super-dolphin-agent-radius-control, 8px);
   background: var(--surface-2);
   color: var(--text-pri);
-  font-size: var(--suiyuan-text-body-size, 14px);
-  line-height: var(--suiyuan-text-body-line, 22px);
+  font-size: var(--super-dolphin-agent-text-body-size, 14px);
+  line-height: var(--super-dolphin-agent-text-body-line, 22px);
   padding: 10px 12px;
 }
 
@@ -180,7 +180,7 @@
 
 /* 暖橙主操作药丸：保存个人资料左对齐，导入记忆在卡片底部居中。 */
 .personalization-profile-card > button,
-.suiyuan-import-memory-content button {
+.super-dolphin-agent-import-memory-content button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -191,14 +191,14 @@
   background: var(--primary-action-bg);
   color: var(--primary-action-text);
   cursor: pointer;
-  font-size: var(--suiyuan-text-body-size, 14px);
+  font-size: var(--super-dolphin-agent-text-body-size, 14px);
   font-weight: 650;
   padding: 0 22px;
   transition: background var(--transition), border-color var(--transition);
 }
 
 .personalization-profile-card > button:hover:not(:disabled),
-.suiyuan-import-memory-content button:hover:not(:disabled) {
+.super-dolphin-agent-import-memory-content button:hover:not(:disabled) {
   border-color: var(--primary-action-border);
   background: var(--primary-action-bg-hover);
 }
@@ -211,32 +211,32 @@
 }
 
 /* 导入记忆卡片：图标在顶部，标题居中，按钮落在卡片底部。 */
-.suiyuan-import-memory-content {
+.super-dolphin-agent-import-memory-content {
   gap: 14px;
 }
 
-.suiyuan-import-memory-icon {
+.super-dolphin-agent-import-memory-icon {
   box-sizing: content-box;
   flex: 0 0 auto;
   border-radius: 12px;
-  background: var(--suiyuan-primary-fixed);
+  background: var(--super-dolphin-agent-primary-fixed);
   color: var(--primary);
   padding: 10px;
 }
 
-.suiyuan-import-memory-content h3 {
+.super-dolphin-agent-import-memory-content h3 {
   color: var(--text-pri);
   font-size: 16px;
   font-weight: 700;
 }
 
-.suiyuan-import-memory-content p {
+.super-dolphin-agent-import-memory-content p {
   color: var(--text-sec);
   font-size: 13px;
   line-height: 1.5;
 }
 
-.suiyuan-import-memory-content button {
+.super-dolphin-agent-import-memory-content button {
   align-self: center;
 }
 
@@ -245,6 +245,6 @@
   display: block;
   margin-top: 4px;
   color: var(--error);
-  font-size: var(--suiyuan-text-label-size, 12px);
+  font-size: var(--super-dolphin-agent-text-label-size, 12px);
   line-height: 1.35;
 }

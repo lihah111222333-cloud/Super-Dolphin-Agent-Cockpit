@@ -255,7 +255,7 @@ export async function importDatasourceSelection(ctx) {
 
 function DataSourceImporterCard({ busyAction, handleImport, sourcePath }) {
   return (
-    <div className="mcp-tool-card add-new-card suiyuan-upload-card fusion-surface" data-testid="datasource-import-zone" onClick={() => { if (busyAction !== 'import') void handleImport(); }}>
+    <div className="mcp-tool-card add-new-card super-dolphin-agent-upload-card fusion-surface" data-testid="datasource-import-zone" onClick={() => { if (busyAction !== 'import') void handleImport(); }}>
       <div className="mcp-tool-icon add-new" aria-hidden="true">
         <Upload size={20} />
       </div>
@@ -270,7 +270,7 @@ function DataSourceImporterCard({ busyAction, handleImport, sourcePath }) {
         <button
           type="button"
           data-testid="datasource-import-button"
-          className="suiyuan-btn-fusion"
+          className="super-dolphin-agent-btn-fusion"
           disabled={busyAction === 'import'}
           onClick={(e) => { e.stopPropagation(); void handleImport(); }}
         >

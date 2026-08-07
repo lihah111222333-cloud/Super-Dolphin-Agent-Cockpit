@@ -261,7 +261,7 @@ it.each([
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
-    expect(within(sidebar).getByText('燧元')).toBeInTheDocument();
+    expect(within(sidebar).getByText('Super Dolphin Agent')).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '新对话' })).toHaveTextContent('新对话');
     expect(within(sidebar).getByRole('button', { name: '设置' })).toHaveTextContent('设置');
     expect(within(sidebar).getByRole('button', { name: '聊天页面' })).toHaveTextContent('聊天页面');
@@ -394,11 +394,11 @@ it.each([
     render(<App />);
 
     await waitForBackendThreadHeading();
-    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 Super Dolphin Agent 中构建什么？')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
 
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
     expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '聊天页面' })).toHaveClass('active');
     expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('');
@@ -409,7 +409,7 @@ it.each([
 
     await waitForBackendThreadHeading();
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
 
     fireEvent.keyDown(window, { key: ',', ctrlKey: true });
     await waitFor(() => expect(useClientStore.getState().activePage).toBe('settings'));
@@ -471,7 +471,7 @@ it.each([
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
 
     expect(screen.getByRole('heading', { name: '后端线程' })).toBeInTheDocument();
-    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 Super Dolphin Agent 中构建什么？')).not.toBeInTheDocument();
   });
 
   it.each([
@@ -490,7 +490,7 @@ it.each([
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
 
     expect(screen.getByRole('heading', { name: '后端线程' })).toBeInTheDocument();
-    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 Super Dolphin Agent 中构建什么？')).not.toBeInTheDocument();
   });
 
   it('uses the authoritative loaded shortcut override instead of the default binding', async () => {
@@ -505,7 +505,7 @@ it.each([
     expect(screen.getByRole('heading', { name: '后端线程' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'm', ctrlKey: true });
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
   });
 
   it('rebinds the runtime only after save completes its authoritative read-after-write', async () => {
@@ -536,9 +536,9 @@ it.each([
     ))).toHaveLength(2));
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
-    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 Super Dolphin Agent 中构建什么？')).not.toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'm', ctrlKey: true });
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
   });
 
   it('shows an app update banner after the background check finds a new version', async () => {

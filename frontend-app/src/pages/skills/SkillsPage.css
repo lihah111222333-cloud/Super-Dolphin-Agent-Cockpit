@@ -49,7 +49,7 @@
   padding: 40px 20px;
   background: var(--surface);
   border: 1px dashed var(--border);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   margin-top: 16px;
 }
 
@@ -359,7 +359,7 @@
   border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-xl, 16px);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   overflow: hidden;
 }
 
@@ -539,9 +539,9 @@
   max-height: 260px;
   overflow: auto;
   white-space: pre-wrap;
-  border: 1px solid var(--suiyuan-beta-bg);
+  border: 1px solid var(--super-dolphin-agent-beta-bg);
   border-radius: var(--radius-sm);
-  background: var(--suiyuan-beta-bg);
+  background: var(--super-dolphin-agent-beta-bg);
   padding: 10px;
   color: inherit;
 }
@@ -729,8 +729,8 @@
   padding: 0 12px;
 }
 
-/* 冲突处理按钮：中性胶囊为默认；主推荐操作走 .suiyuan-btn-fusion 主操作胶囊（不覆盖其主色）。 */
-.skills-resolution-panel button:not(.suiyuan-btn-fusion):not(.suiyuan-btn-fusion-ghost) {
+/* 冲突处理按钮：中性胶囊为默认；主推荐操作走 .super-dolphin-agent-btn-fusion 主操作胶囊（不覆盖其主色）。 */
+.skills-resolution-panel button:not(.super-dolphin-agent-btn-fusion):not(.super-dolphin-agent-btn-fusion-ghost) {
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -739,8 +739,8 @@
   padding: 0 14px;
 }
 
-.skills-resolution-panel .suiyuan-btn-fusion,
-.skills-resolution-panel .suiyuan-btn-fusion-ghost {
+.skills-resolution-panel .super-dolphin-agent-btn-fusion,
+.skills-resolution-panel .super-dolphin-agent-btn-fusion-ghost {
   min-height: 34px;
   padding: 0 16px;
   font-size: 13px;

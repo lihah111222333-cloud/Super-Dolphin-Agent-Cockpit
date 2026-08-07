@@ -13,17 +13,17 @@
 .memory-hero-title {
   margin: 0;
   color: var(--text-pri);
-  font-size: var(--suiyuan-text-headline-size);
+  font-size: var(--super-dolphin-agent-text-headline-size);
   font-weight: 500;
   letter-spacing: 0;
-  line-height: var(--suiyuan-text-headline-line);
+  line-height: var(--super-dolphin-agent-text-headline-line);
 }
 
 .memory-hero-subtitle {
   margin: 4px 0 0;
   color: var(--text-sec);
-  font-size: var(--suiyuan-text-body-size);
-  line-height: var(--suiyuan-text-body-line);
+  font-size: var(--super-dolphin-agent-text-body-size);
+  line-height: var(--super-dolphin-agent-text-body-line);
 }
 
 /* Stats row: three equal cards on desktop, one column on narrow screens. */
@@ -38,9 +38,9 @@
   min-height: 112px;
   margin: 0;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: var(--surface);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   color: var(--text-pri);
   padding: 18px 20px;
 }
@@ -51,10 +51,10 @@
   gap: 6px;
   margin: 0 0 12px;
   color: var(--text-muted);
-  font-size: var(--suiyuan-text-label-xs-size);
+  font-size: var(--super-dolphin-agent-text-label-xs-size);
   font-weight: 700;
   letter-spacing: 0.08em;
-  line-height: var(--suiyuan-text-label-xs-line);
+  line-height: var(--super-dolphin-agent-text-label-xs-line);
   text-transform: uppercase;
 }
 
@@ -261,7 +261,7 @@
   z-index: var(--z-local-sticky);
   min-width: 132px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   padding: 6px;
   box-shadow: var(--shadow);
@@ -312,7 +312,7 @@
   gap: 12px;
   margin: 0 28px 16px;
   border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: color-mix(in srgb, var(--warning) 8%, var(--surface));
   color: var(--warning);
   padding: 12px 20px;
@@ -341,7 +341,7 @@
   align-items: center;
   gap: 10px;
   border: 1px solid color-mix(in srgb, var(--warning) 26%, var(--border));
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: color-mix(in srgb, var(--warning) 9%, var(--surface));
   padding: 10px 12px;
   color: var(--text-sec);
@@ -360,7 +360,7 @@
 .memory-notice {
   margin: 0 28px 12px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   padding: 10px 12px;
   color: var(--text-sec);
   background: var(--surface);
@@ -394,9 +394,9 @@
 .memory-page .memory-card {
   border: 1px solid var(--border);
   border-left: 3px solid var(--warning);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: var(--surface);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   color: var(--text-pri);
   padding: 20px;
 }
@@ -457,9 +457,9 @@
   min-height: 340px;
   margin: 0 28px 24px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: var(--surface);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   color: var(--text-muted);
 }
 
@@ -514,7 +514,7 @@
 .memory-content-label textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface-2);
   color: var(--text-pri);
   padding: 10px 12px;

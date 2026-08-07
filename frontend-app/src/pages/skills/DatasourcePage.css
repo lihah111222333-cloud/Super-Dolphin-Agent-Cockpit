@@ -1,16 +1,16 @@
 /* 数据源导入区：中性虚线上传卡（与 MCP“注册技能工具”卡同一套虚线语言），
    去除 fusion 白卡阴影，保持上传图标、标题、提示与主操作导入按钮。 */
-.datasource-container .suiyuan-upload-card {
+.datasource-container .super-dolphin-agent-upload-card {
   box-shadow: none;
   padding: 20px 24px;
 }
 
-.datasource-container .suiyuan-upload-card .mcp-tool-icon.add-new {
+.datasource-container .super-dolphin-agent-upload-card .mcp-tool-icon.add-new {
   background: var(--surface-3);
   color: var(--primary);
 }
 
-.datasource-container .suiyuan-upload-card .selected-path {
+.datasource-container .super-dolphin-agent-upload-card .selected-path {
   display: inline-block;
   margin-top: 4px;
   padding: 3px 8px;
@@ -22,7 +22,7 @@
   overflow-wrap: anywhere;
 }
 
-.datasource-container .suiyuan-upload-card .mcp-tool-actions .suiyuan-btn-fusion {
+.datasource-container .super-dolphin-agent-upload-card .mcp-tool-actions .super-dolphin-agent-btn-fusion {
   min-height: 40px;
   border: 0;
   border-radius: 999px;
@@ -33,7 +33,7 @@
   padding: 0 20px;
 }
 
-.datasource-container .suiyuan-upload-card .mcp-tool-actions .suiyuan-btn-fusion:hover:not(:disabled) {
+.datasource-container .super-dolphin-agent-upload-card .mcp-tool-actions .super-dolphin-agent-btn-fusion:hover:not(:disabled) {
   background: var(--primary-action-bg-hover);
   color: var(--primary-action-text);
 }
@@ -77,14 +77,14 @@
   align-items: start;
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   padding: 16px;
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 
 .datasource-card:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .datasource-card-icon {

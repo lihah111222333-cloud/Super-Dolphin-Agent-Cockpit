@@ -10,7 +10,7 @@
 .settings-page .data-card-vue {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   box-shadow: none;
   transition: background var(--transition), border-color var(--transition), box-shadow var(--transition), color var(--transition);
   padding: 16px;
@@ -19,7 +19,7 @@
 .settings-page .panel:hover,
 .settings-page .data-card-vue:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 dl {
@@ -78,7 +78,7 @@ dd {
 .form-grid textarea {
   min-height: 32px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 0 10px;

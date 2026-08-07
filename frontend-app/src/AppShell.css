@@ -1,4 +1,4 @@
-.sa-window.suiyuan-shell {
+.sa-window.super-dolphin-agent-shell {
   height: 100vh;
   min-height: 0;
   display: grid;
@@ -7,39 +7,39 @@
   background: var(--bg);
 }
 
-.sa-window.suiyuan-shell[data-theme="light"] {
+.sa-window.super-dolphin-agent-shell[data-theme="light"] {
   --sidebar-bg: #eef1f7;
   --sidebar-border: #d3d9e5;
   --sidebar-active: color-mix(in srgb, var(--primary) 8%, var(--surface));
   --primary-soft: color-mix(in srgb, var(--primary) 10%, var(--surface));
 }
 
-.sa-window.suiyuan-shell[data-theme="dark"] {
+.sa-window.super-dolphin-agent-shell[data-theme="dark"] {
   /* 深色 AI Command Center：与 styles.css dark 块同源的深石墨 + 蓝紫。 */
-  --suiyuan-background: #0e1014;
-  --suiyuan-surface-bright: #0e1014;
-  --suiyuan-surface-lowest: #161920;
-  --suiyuan-surface-low: #1b1f28;
-  --suiyuan-surface: #1b1f28;
-  --suiyuan-surface-high: #232833;
-  --suiyuan-surface-highest: #2a303d;
-  --suiyuan-on-surface: #e9ebf2;
-  --suiyuan-on-surface-variant: #b8bfcc;
-  --suiyuan-outline: #8b93a3;
-  --suiyuan-outline-variant: #2b313e;
-  --suiyuan-primary: #8f9ff8;
-  --suiyuan-primary-deep: #aeb7fb;
-  --suiyuan-primary-fixed: rgba(143, 159, 248, 0.16);
-  --suiyuan-primary-fixed-dim: #8f9ff8;
-  --suiyuan-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
-  --suiyuan-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-  --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --super-dolphin-agent-background: #0e1014;
+  --super-dolphin-agent-surface-bright: #0e1014;
+  --super-dolphin-agent-surface-lowest: #161920;
+  --super-dolphin-agent-surface-low: #1b1f28;
+  --super-dolphin-agent-surface: #1b1f28;
+  --super-dolphin-agent-surface-high: #232833;
+  --super-dolphin-agent-surface-highest: #2a303d;
+  --super-dolphin-agent-on-surface: #e9ebf2;
+  --super-dolphin-agent-on-surface-variant: #b8bfcc;
+  --super-dolphin-agent-outline: #8b93a3;
+  --super-dolphin-agent-outline-variant: #2b313e;
+  --super-dolphin-agent-primary: #8f9ff8;
+  --super-dolphin-agent-primary-deep: #aeb7fb;
+  --super-dolphin-agent-primary-fixed: rgba(143, 159, 248, 0.16);
+  --super-dolphin-agent-primary-fixed-dim: #8f9ff8;
+  --super-dolphin-agent-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
+  --super-dolphin-agent-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  --super-dolphin-agent-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --sidebar-bg: #13161d;
   --sidebar-border: #262c37;
   --sidebar-active: color-mix(in srgb, var(--primary) 14%, var(--surface-2));
 }
 
-.sa-body.suiyuan-shell-body {
+.sa-body.super-dolphin-agent-shell-body {
   position: relative;
   grid-row: 1;
   height: 100%;
@@ -50,7 +50,7 @@
   background: var(--bg);
 }
 
-.app-sidebar.suiyuan-sidebar {
+.app-sidebar.super-dolphin-agent-sidebar {
   position: relative;
   width: var(--workbench-sidebar-width);
   height: 100%;
@@ -65,7 +65,7 @@
   overflow: hidden;
 }
 
-.suiyuan-brand-block {
+.super-dolphin-agent-brand-block {
   min-width: 0;
   min-height: 36px;
   display: flex;
@@ -73,24 +73,24 @@
   gap: 12px;
 }
 
-.suiyuan-brand-light-mark {
+.super-dolphin-agent-brand-light-mark {
   display: none;
 }
 
-.suiyuan-brand-block img {
+.super-dolphin-agent-brand-block img {
   width: 28px;
   height: 28px;
   border-radius: 8px;
   box-shadow: none;
 }
 
-.suiyuan-brand-meta {
+.super-dolphin-agent-brand-meta {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
 
-.suiyuan-brand-meta strong {
+.super-dolphin-agent-brand-meta strong {
   color: var(--text-pri);
   font-size: 17px;
   font-weight: 780;
@@ -98,7 +98,7 @@
   letter-spacing: 0;
 }
 
-.suiyuan-brand-meta span {
+.super-dolphin-agent-brand-meta span {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 620;
@@ -106,7 +106,7 @@
   letter-spacing: 0;
 }
 
-.suiyuan-sidebar-collapse-zone {
+.super-dolphin-agent-sidebar-collapse-zone {
   position: fixed;
   top: calc(50% - 12px);
   left: var(--workbench-sidebar-width);
@@ -118,7 +118,7 @@
   transform: translateY(-50%);
 }
 
-.suiyuan-sidebar-collapse {
+.super-dolphin-agent-sidebar-collapse {
   width: 32px;
   min-width: 32px;
   height: 32px;
@@ -139,20 +139,20 @@
   opacity: 0;
   transform: translateX(-48px);
   transition: background var(--motion-hover), border-color var(--motion-hover), color var(--motion-hover), opacity var(--motion-hover), transform var(--motion-overlay);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
-.suiyuan-sidebar-collapse-zone:hover .suiyuan-sidebar-collapse,
-.suiyuan-sidebar-collapse-zone:focus-within .suiyuan-sidebar-collapse,
-.suiyuan-sidebar-collapse:hover,
-.suiyuan-sidebar-collapse:focus-visible {
+.super-dolphin-agent-sidebar-collapse-zone:hover .super-dolphin-agent-sidebar-collapse,
+.super-dolphin-agent-sidebar-collapse-zone:focus-within .super-dolphin-agent-sidebar-collapse,
+.super-dolphin-agent-sidebar-collapse:hover,
+.super-dolphin-agent-sidebar-collapse:focus-visible {
   background: var(--surface-2);
   color: var(--text-pri);
   opacity: 1;
   transform: translateX(0);
 }
 
-.suiyuan-new-chat {
+.super-dolphin-agent-new-chat {
   width: 100%;
   min-height: 40px;
   display: inline-flex;
@@ -170,23 +170,23 @@
   cursor: pointer;
 }
 
-.suiyuan-new-chat:hover,
-.suiyuan-new-chat:focus-visible {
+.super-dolphin-agent-new-chat:hover,
+.super-dolphin-agent-new-chat:focus-visible {
   background: var(--primary-action-bg-hover);
 }
 
-.suiyuan-nav {
+.super-dolphin-agent-nav {
   display: grid;
   gap: 6px;
 }
 
-.suiyuan-chat-nav-group {
+.super-dolphin-agent-chat-nav-group {
   display: grid;
   gap: 6px;
   min-height: 0;
 }
 
-.suiyuan-chat-project-tree {
+.super-dolphin-agent-chat-project-tree {
   min-height: 0;
   max-height: min(300px, 32vh);
   margin-left: 10px;
@@ -198,39 +198,39 @@
   border-left: 1px solid var(--sidebar-border);
 }
 
-.suiyuan-chat-project-tree .sidebar-project-tree {
+.super-dolphin-agent-chat-project-tree .sidebar-project-tree {
   min-height: 0;
   padding-top: 2px;
   overflow: visible;
   border-top: 0;
 }
 
-.suiyuan-chat-project-tree .sidebar-section-heading {
+.super-dolphin-agent-chat-project-tree .sidebar-section-heading {
   min-height: 28px;
   margin-bottom: 4px;
   font-size: 12px;
 }
 
-.suiyuan-chat-project-tree .sidebar-tree-folder {
+.super-dolphin-agent-chat-project-tree .sidebar-tree-folder {
   min-height: 30px;
   gap: 6px;
   padding: 0 6px;
   font-size: 12px;
 }
 
-.suiyuan-chat-project-tree .sidebar-project-thread-list {
+.super-dolphin-agent-chat-project-tree .sidebar-project-thread-list {
   margin-left: 16px;
   padding-left: 8px;
 }
 
-.suiyuan-chat-project-tree .sidebar-project-thread {
+.super-dolphin-agent-chat-project-tree .sidebar-project-thread {
   min-height: 26px;
   padding: 0 6px;
   font-size: 12px;
 }
 
-.suiyuan-nav-item,
-.suiyuan-footer-item {
+.super-dolphin-agent-nav-item,
+.super-dolphin-agent-footer-item {
   position: relative;
   width: 100%;
   min-height: 34px;
@@ -250,8 +250,8 @@
   transition: background 160ms ease, color 160ms ease;
 }
 
-.suiyuan-nav-item::before,
-.suiyuan-footer-item::before {
+.super-dolphin-agent-nav-item::before,
+.super-dolphin-agent-footer-item::before {
   content: "";
   position: absolute;
   inset: 7px auto 7px 0;
@@ -261,42 +261,42 @@
   transition: background 160ms ease;
 }
 
-.suiyuan-nav-item:hover,
-.suiyuan-nav-item:focus-visible,
-.suiyuan-footer-item:hover,
-.suiyuan-footer-item:focus-visible {
+.super-dolphin-agent-nav-item:hover,
+.super-dolphin-agent-nav-item:focus-visible,
+.super-dolphin-agent-footer-item:hover,
+.super-dolphin-agent-footer-item:focus-visible {
   color: var(--text-pri);
   background: var(--surface-2);
 }
 
-.suiyuan-nav-item.active,
-.suiyuan-footer-item.active {
+.super-dolphin-agent-nav-item.active,
+.super-dolphin-agent-footer-item.active {
   color: var(--text-pri);
   background: var(--primary-soft);
 }
 
-.suiyuan-nav-item.active::before,
-.suiyuan-footer-item.active::before {
+.super-dolphin-agent-nav-item.active::before,
+.super-dolphin-agent-footer-item.active::before {
   width: 4px;
   background: var(--primary);
 }
 
-.suiyuan-nav-item svg,
-.suiyuan-footer-item svg,
-.suiyuan-new-chat svg {
+.super-dolphin-agent-nav-item svg,
+.super-dolphin-agent-footer-item svg,
+.super-dolphin-agent-new-chat svg {
   flex: 0 0 auto;
   stroke-width: 2;
 }
 
-.suiyuan-nav-item span,
-.suiyuan-footer-item span {
+.super-dolphin-agent-nav-item span,
+.super-dolphin-agent-footer-item span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.suiyuan-nav-item i {
+.super-dolphin-agent-nav-item i {
   width: 8px;
   height: 8px;
   margin-left: auto;
@@ -304,7 +304,7 @@
   background: var(--primary);
 }
 
-.suiyuan-sidebar-footer {
+.super-dolphin-agent-sidebar-footer {
   margin-top: auto;
   display: grid;
   gap: 6px;
@@ -312,52 +312,52 @@
   border-top: 1px solid var(--sidebar-border);
 }
 
-.sa-window[data-theme="light"] .app-sidebar.suiyuan-sidebar {
-  border-right-color: color-mix(in srgb, var(--suiyuan-outline-variant) 30%, transparent);
-  color: var(--suiyuan-secondary);
+.sa-window[data-theme="light"] .app-sidebar.super-dolphin-agent-sidebar {
+  border-right-color: color-mix(in srgb, var(--super-dolphin-agent-outline-variant) 30%, transparent);
+  color: var(--super-dolphin-agent-secondary);
 }
 
-.sa-window[data-theme="light"] .suiyuan-brand-meta strong {
-  color: var(--suiyuan-primary);
+.sa-window[data-theme="light"] .super-dolphin-agent-brand-meta strong {
+  color: var(--super-dolphin-agent-primary);
 }
 
-.sa-window[data-theme="light"] .suiyuan-brand-meta span {
-  color: var(--suiyuan-secondary);
+.sa-window[data-theme="light"] .super-dolphin-agent-brand-meta span {
+  color: var(--super-dolphin-agent-secondary);
 }
 
-.sa-window[data-theme="light"] .suiyuan-new-chat {
+.sa-window[data-theme="light"] .super-dolphin-agent-new-chat {
   border: 0;
-  background: var(--suiyuan-primary);
+  background: var(--super-dolphin-agent-primary);
   color: var(--primary-action-text);
   box-shadow: none;
 }
 
-.sa-window[data-theme="light"] .suiyuan-new-chat:hover,
-.sa-window[data-theme="light"] .suiyuan-new-chat:focus-visible {
-  background: var(--suiyuan-primary-container);
+.sa-window[data-theme="light"] .super-dolphin-agent-new-chat:hover,
+.sa-window[data-theme="light"] .super-dolphin-agent-new-chat:focus-visible {
+  background: var(--super-dolphin-agent-primary-container);
 }
 
-.sa-window[data-theme="light"] .suiyuan-nav-item,
-.sa-window[data-theme="light"] .suiyuan-footer-item {
-  color: var(--suiyuan-secondary);
+.sa-window[data-theme="light"] .super-dolphin-agent-nav-item,
+.sa-window[data-theme="light"] .super-dolphin-agent-footer-item {
+  color: var(--super-dolphin-agent-secondary);
 }
 
-.sa-window[data-theme="light"] .suiyuan-nav-item.active,
-.sa-window[data-theme="light"] .suiyuan-footer-item.active {
-  color: var(--suiyuan-primary);
-  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 55%, transparent);
+.sa-window[data-theme="light"] .super-dolphin-agent-nav-item.active,
+.sa-window[data-theme="light"] .super-dolphin-agent-footer-item.active {
+  color: var(--super-dolphin-agent-primary);
+  background: color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 55%, transparent);
 }
 
-.sa-window[data-theme="light"] .suiyuan-sidebar-footer {
-  border-top-color: color-mix(in srgb, var(--suiyuan-outline-variant) 30%, transparent);
+.sa-window[data-theme="light"] .super-dolphin-agent-sidebar-footer {
+  border-top-color: color-mix(in srgb, var(--super-dolphin-agent-outline-variant) 30%, transparent);
 }
 
-.suiyuan-footer-item:disabled {
+.super-dolphin-agent-footer-item:disabled {
   cursor: default;
   opacity: 1;
 }
 
-.suiyuan-main {
+.super-dolphin-agent-main {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -367,7 +367,7 @@
   background: var(--bg);
 }
 
-.suiyuan-top-appbar {
+.super-dolphin-agent-top-appbar {
   position: absolute;
   inset: 0 0 auto;
   z-index: var(--z-shell-control);
@@ -382,14 +382,14 @@
   background: var(--bg);
 }
 
-.suiyuan-appbar-title {
+.super-dolphin-agent-appbar-title {
   min-width: 0;
   margin-right: auto;
   display: grid;
   gap: 3px;
 }
 
-.suiyuan-appbar-title span {
+.super-dolphin-agent-appbar-title span {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
@@ -397,7 +397,7 @@
   letter-spacing: 0;
 }
 
-.suiyuan-appbar-title h1 {
+.super-dolphin-agent-appbar-title h1 {
   min-width: 0;
   max-width: min(420px, 42vw);
   margin: 0;
@@ -411,21 +411,21 @@
   white-space: nowrap;
 }
 
-.suiyuan-appbar-actions {
+.super-dolphin-agent-appbar-actions {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 18px;
 }
 
-.suiyuan-appbar-actions {
+.super-dolphin-agent-appbar-actions {
   margin-left: auto;
   gap: 8px;
 }
 
-.suiyuan-icon-action,
-.suiyuan-locale-action,
-.suiyuan-profile-action {
+.super-dolphin-agent-icon-action,
+.super-dolphin-agent-locale-action,
+.super-dolphin-agent-profile-action {
   min-height: 30px;
   display: inline-flex;
   align-items: center;
@@ -438,29 +438,29 @@
   cursor: pointer;
 }
 
-.suiyuan-icon-action,
-.suiyuan-profile-action {
+.super-dolphin-agent-icon-action,
+.super-dolphin-agent-profile-action {
   width: 30px;
 }
 
-.suiyuan-locale-action {
+.super-dolphin-agent-locale-action {
   min-width: 30px;
   padding: 0 8px;
   font-size: 10px;
   font-weight: 760;
 }
 
-.suiyuan-icon-action:hover,
-.suiyuan-icon-action:focus-visible,
-.suiyuan-locale-action:hover,
-.suiyuan-locale-action:focus-visible,
-.suiyuan-profile-action:hover,
-.suiyuan-profile-action:focus-visible {
+.super-dolphin-agent-icon-action:hover,
+.super-dolphin-agent-icon-action:focus-visible,
+.super-dolphin-agent-locale-action:hover,
+.super-dolphin-agent-locale-action:focus-visible,
+.super-dolphin-agent-profile-action:hover,
+.super-dolphin-agent-profile-action:focus-visible {
   color: var(--text-pri);
   background: var(--surface-2);
 }
 
-.suiyuan-main-canvas {
+.super-dolphin-agent-main-canvas {
   flex: 1 1 auto;
   height: 100%;
   min-height: 0;
@@ -469,26 +469,26 @@
   overflow: hidden;
 }
 
-.suiyuan-main-canvas > .chat-page,
-.suiyuan-main-canvas > .console-page,
-.suiyuan-main-canvas > .workflow-page,
-.suiyuan-main-canvas > .memory-page,
-.suiyuan-main-canvas > .skills-tabbed-container,
-.suiyuan-main-canvas > .settings-page {
+.super-dolphin-agent-main-canvas > .chat-page,
+.super-dolphin-agent-main-canvas > .console-page,
+.super-dolphin-agent-main-canvas > .workflow-page,
+.super-dolphin-agent-main-canvas > .memory-page,
+.super-dolphin-agent-main-canvas > .skills-tabbed-container,
+.super-dolphin-agent-main-canvas > .settings-page {
   height: 100%;
   min-height: 0;
 }
 
-.sa-window.suiyuan-shell .suiyuan-main-canvas > .chat-page,
-.sa-window.suiyuan-shell .suiyuan-main-canvas > .console-page,
-.sa-window.suiyuan-shell .suiyuan-main-canvas > .workflow-page,
-.sa-window.suiyuan-shell .suiyuan-main-canvas > .memory-page,
-.sa-window.suiyuan-shell .suiyuan-main-canvas > .skills-tabbed-container,
-.sa-window.suiyuan-shell .suiyuan-main-canvas > .settings-page {
+.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .chat-page,
+.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .console-page,
+.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .workflow-page,
+.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .memory-page,
+.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .skills-tabbed-container,
+.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .settings-page {
   padding-top: 32px;
 }
 
-.sa-window.suiyuan-shell .chat-page-header {
+.sa-window.super-dolphin-agent-shell .chat-page-header {
   position: absolute;
   inset: 0 0 auto;
   z-index: var(--z-local-sticky);
@@ -503,62 +503,62 @@
   background: transparent;
 }
 
-.sa-window.suiyuan-shell .chat-page-title {
+.sa-window.super-dolphin-agent-shell .chat-page-title {
   align-self: stretch;
   gap: 0;
 }
 
-.sa-window.suiyuan-shell .chat-more-button,
-.sa-window.suiyuan-shell .chat-header-tool {
+.sa-window.super-dolphin-agent-shell .chat-more-button,
+.sa-window.super-dolphin-agent-shell .chat-header-tool {
   width: 30px;
   height: 30px;
   border-radius: 0;
 }
 
-.sa-window.suiyuan-shell .chat-header-tools {
+.sa-window.super-dolphin-agent-shell .chat-header-tools {
   align-self: stretch;
   gap: 0;
   margin: 0 0 0 auto;
 }
 
-.sa-window.suiyuan-shell .chat-more-button,
-.sa-window.suiyuan-shell .chat-header-tool,
-.sa-window.suiyuan-shell .chat-sidepanel-shortcut {
+.sa-window.super-dolphin-agent-shell .chat-more-button,
+.sa-window.super-dolphin-agent-shell .chat-header-tool,
+.sa-window.super-dolphin-agent-shell .chat-sidepanel-shortcut {
   pointer-events: auto;
 }
 
-.sa-window.suiyuan-shell .chat-page-title h1,
-.sa-window.suiyuan-shell .page-header > h1,
-.sa-window.suiyuan-shell .page-header > p,
-.sa-window.suiyuan-shell .prompt-header,
-.sa-window.suiyuan-shell .observability-page .settings-header {
+.sa-window.super-dolphin-agent-shell .chat-page-title h1,
+.sa-window.super-dolphin-agent-shell .page-header > h1,
+.sa-window.super-dolphin-agent-shell .page-header > p,
+.sa-window.super-dolphin-agent-shell .prompt-header,
+.sa-window.super-dolphin-agent-shell .observability-page .settings-header {
   display: none;
 }
 
-.sa-window.suiyuan-shell .suiyuan-appbar-title {
+.sa-window.super-dolphin-agent-shell .super-dolphin-agent-appbar-title {
   display: none;
 }
 
-.sa-window.suiyuan-shell .page-header {
+.sa-window.super-dolphin-agent-shell .page-header {
   min-height: 0;
   padding-block: 0;
 }
 
-.sa-window.suiyuan-shell .page-header .page-actions {
+.sa-window.super-dolphin-agent-shell .page-header .page-actions {
   width: 100%;
   margin-left: 0;
 }
 
-.suiyuan-mobile-nav {
+.super-dolphin-agent-mobile-nav {
   display: none;
 }
 
 @media (max-width: 920px) {
-  .sa-body.suiyuan-shell-body {
+  .sa-body.super-dolphin-agent-shell-body {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .app-sidebar.suiyuan-sidebar {
+  .app-sidebar.super-dolphin-agent-sidebar {
     position: fixed;
     inset: 0 auto 0 0;
     z-index: var(--z-shell-control);
@@ -572,37 +572,37 @@
     box-shadow: none;
   }
 
-  .app-sidebar.suiyuan-sidebar.is-open {
+  .app-sidebar.super-dolphin-agent-sidebar.is-open {
     margin-left: 0;
     box-shadow: var(--shadow);
   }
 
-  .app-sidebar.suiyuan-sidebar:not(.is-open) {
+  .app-sidebar.super-dolphin-agent-sidebar:not(.is-open) {
     padding-inline: 0;
     border-right: 0;
     pointer-events: none;
     visibility: hidden;
   }
 
-  .suiyuan-top-appbar {
+  .super-dolphin-agent-top-appbar {
     min-width: 0;
     padding: 0 14px 0 64px;
   }
 
-  .suiyuan-appbar-title h1 {
+  .super-dolphin-agent-appbar-title h1 {
     max-width: 34vw;
     font-size: 15px;
   }
 
-  .suiyuan-appbar-actions {
+  .super-dolphin-agent-appbar-actions {
     gap: 4px;
   }
 
-  .suiyuan-main-canvas {
-    padding-bottom: calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
+  .super-dolphin-agent-main-canvas {
+    padding-bottom: calc(var(--super-dolphin-agent-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
   }
 
-  .suiyuan-mobile-nav {
+  .super-dolphin-agent-mobile-nav {
     position: fixed;
     inset: auto 0 0 0;
     z-index: var(--z-local-sticky);
@@ -610,17 +610,17 @@
     align-items: stretch;
     justify-content: space-around;
     gap: 2px;
-    min-height: var(--suiyuan-mobile-nav-height);
+    min-height: var(--super-dolphin-agent-mobile-nav-height);
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
     background: var(--surface);
     border-top: 1px solid var(--line);
   }
 
-  .sa-window.sidebar-open .suiyuan-mobile-nav {
+  .sa-window.sidebar-open .super-dolphin-agent-mobile-nav {
     display: none;
   }
 
-  .suiyuan-mobile-nav-item {
+  .super-dolphin-agent-mobile-nav-item {
     flex: 1 1 0;
     min-width: 0;
     display: inline-flex;
@@ -629,36 +629,36 @@
     justify-content: center;
     gap: 3px;
     border: 0;
-    border-radius: var(--suiyuan-radius-control);
+    border-radius: var(--super-dolphin-agent-radius-control);
     background: transparent;
     color: var(--text-sec);
     padding: 4px 2px;
-    font-size: var(--suiyuan-text-label-xs-size);
+    font-size: var(--super-dolphin-agent-text-label-xs-size);
     font-weight: 600;
-    line-height: var(--suiyuan-text-label-xs-line);
+    line-height: var(--super-dolphin-agent-text-label-xs-line);
     cursor: pointer;
   }
 
-  .suiyuan-mobile-nav-item span {
+  .super-dolphin-agent-mobile-nav-item span {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .suiyuan-mobile-nav-item:hover,
-  .suiyuan-mobile-nav-item:focus-visible {
+  .super-dolphin-agent-mobile-nav-item:hover,
+  .super-dolphin-agent-mobile-nav-item:focus-visible {
     color: var(--text-pri);
     background: var(--surface-2);
   }
 
-  .suiyuan-mobile-nav-item.active {
+  .super-dolphin-agent-mobile-nav-item.active {
     color: var(--primary);
     background: var(--primary-soft);
   }
 
   .sa-window .composer.composer--floating[data-file-drop-target] {
-    bottom: calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--super-dolphin-agent-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -1634,7 +1634,7 @@
 }
 
 /* Sidebar user profile card */
-.suiyuan-sidebar-profile-card {
+.super-dolphin-agent-sidebar-profile-card {
   margin-top: auto;
   padding: 10px 14px;
   display: flex;
@@ -1646,7 +1646,7 @@
   transition: background var(--transition);
 }
 
-.suiyuan-profile-avatar-wrapper {
+.super-dolphin-agent-profile-avatar-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1657,14 +1657,14 @@
   color: var(--primary);
 }
 
-.suiyuan-profile-info {
+.super-dolphin-agent-profile-info {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.suiyuan-profile-name {
+.super-dolphin-agent-profile-name {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-pri);
@@ -1673,7 +1673,7 @@
   text-overflow: ellipsis;
 }
 
-.suiyuan-profile-subtext {
+.super-dolphin-agent-profile-subtext {
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
@@ -1681,8 +1681,8 @@
   text-overflow: ellipsis;
 }
 
-/* Make suiyuan-sidebar footer simpler since profile is at bottom */
-.suiyuan-sidebar-footer {
+/* Make super-dolphin-agent-sidebar footer simpler since profile is at bottom */
+.super-dolphin-agent-sidebar-footer {
   margin-top: auto;
   height: 36px;
   min-height: 36px;
@@ -1694,13 +1694,13 @@
   gap: 8px;
 }
 
-.suiyuan-sidebar-footer .suiyuan-footer-item {
+.super-dolphin-agent-sidebar-footer .super-dolphin-agent-footer-item {
   flex: 1;
   justify-content: center;
 }
 
-/* Suiyuan general toggle switch button */
-.suiyuan-switch-btn {
+/* Super Dolphin Agent general toggle switch button */
+.super-dolphin-agent-switch-btn {
   background: transparent !important;
   border: 0 !important;
   padding: 0 !important;
@@ -1712,7 +1712,7 @@
   cursor: pointer;
 }
 
-.suiyuan-switch-track {
+.super-dolphin-agent-switch-track {
   position: relative;
   width: 44px;
   height: 24px;
@@ -1722,12 +1722,12 @@
   transition: background 160ms ease, border-color 160ms ease;
 }
 
-.suiyuan-switch-btn.active .suiyuan-switch-track {
+.super-dolphin-agent-switch-btn.active .super-dolphin-agent-switch-track {
   background: var(--primary);
   border-color: var(--primary);
 }
 
-.suiyuan-switch-thumb {
+.super-dolphin-agent-switch-thumb {
   position: absolute;
   top: 3px;
   left: 3px;
@@ -1735,17 +1735,17 @@
   height: 16px;
   border-radius: 999px;
   background: var(--text-pri);
-  box-shadow: var(--suiyuan-switch-shadow);
+  box-shadow: var(--super-dolphin-agent-switch-shadow);
   transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background 160ms ease;
 }
 
-.suiyuan-switch-btn.active .suiyuan-switch-thumb {
+.super-dolphin-agent-switch-btn.active .super-dolphin-agent-switch-thumb {
   transform: translateX(20px);
   background: var(--primary-ink);
 }
 
 /* UI-CODEG D2: one production workbench shell, split into activity/main/content/bottom/status regions. */
-.sa-body.suiyuan-shell-body {
+.sa-body.super-dolphin-agent-shell-body {
   height: 100%;
   grid-template-columns: 0 var(--workbench-sidebar-width) minmax(0, 1fr);
 }
@@ -1834,7 +1834,7 @@
   border: 1px solid var(--sidebar-border);
   border-radius: 50%;
   background: var(--surface);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   opacity: 0;
   transform: translateX(-48px);
   transition: background var(--motion-hover), border-color var(--motion-hover), color var(--motion-hover), opacity var(--motion-hover), transform var(--motion-overlay);
@@ -1861,7 +1861,7 @@
   display: none;
 }
 
-.app-sidebar.suiyuan-sidebar {
+.app-sidebar.super-dolphin-agent-sidebar {
   grid-column: 2;
   min-width: var(--workbench-sidebar-width);
   max-width: var(--workbench-sidebar-width);
@@ -1872,24 +1872,24 @@
   transition: transform var(--motion-overlay), visibility 0s linear 0s;
 }
 
-.suiyuan-main {
+.super-dolphin-agent-main {
   grid-column: 3;
   height: 100%;
 }
 
-.suiyuan-top-appbar {
+.super-dolphin-agent-top-appbar {
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 88%, var(--surface));
   backdrop-filter: blur(14px);
 }
 
-.suiyuan-appbar-title {
+.super-dolphin-agent-appbar-title {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: baseline;
   gap: 8px;
 }
 
-.suiyuan-appbar-title span::after {
+.super-dolphin-agent-appbar-title span::after {
   margin-left: 8px;
   color: var(--text-subtle);
   content: '/';
@@ -2073,11 +2073,11 @@
 }
 
 @media (max-width: 920px) {
-  .sa-window.suiyuan-shell {
+  .sa-window.super-dolphin-agent-shell {
     grid-template-rows: minmax(0, 1fr);
   }
 
-  .sa-body.suiyuan-shell-body {
+  .sa-body.super-dolphin-agent-shell-body {
     height: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2087,18 +2087,18 @@
     display: none;
   }
 
-  .app-sidebar.suiyuan-sidebar {
+  .app-sidebar.super-dolphin-agent-sidebar {
     height: 100%;
     transition: margin-left var(--motion-overlay), box-shadow var(--motion-overlay);
   }
 
-  .suiyuan-main {
+  .super-dolphin-agent-main {
     height: 100%;
   }
 
   .workbench-bottom-panel {
     position: fixed;
-    inset: auto 0 var(--suiyuan-mobile-nav-height);
+    inset: auto 0 var(--super-dolphin-agent-mobile-nav-height);
     z-index: var(--z-shell-control);
     max-height: 70vh;
     box-shadow: 0 -18px 48px color-mix(in srgb, var(--bg) 55%, transparent);
@@ -2115,7 +2115,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .workbench-activity-button,
-  .app-sidebar.suiyuan-sidebar,
+  .app-sidebar.super-dolphin-agent-sidebar,
   .workbench-bottom-panel {
     transition-duration: 0ms;
   }

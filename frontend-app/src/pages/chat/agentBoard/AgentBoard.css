@@ -26,7 +26,7 @@
 .agent-board-floating.is-dragging {
   cursor: grabbing;
   transition: none;
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
 .agent-board-floating--compact {

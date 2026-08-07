@@ -4,22 +4,22 @@
 
 **Goal:** 在聊天页面的同一侧栏中恢复“项目 -> 会话”两级导航，并让输入栏项目控件可切换项目且与侧栏同步。
 
-**Architecture:** 复用现有 `SidebarProjectTree` 处理项目展开、项目会话加载和会话动作，`SuiyuanSidebar` 只负责在聊天页激活时挂载它。输入栏复用现有 `ProjectSelector`，项目树和项目菜单均通过 `useClientStore` 的 `activeProject`、`projects` 与已有动作同步，不新增状态或 RPC。
+**Architecture:** 复用现有 `SidebarProjectTree` 处理项目展开、项目会话加载和会话动作，`SuperDolphinAgentSidebar` 只负责在聊天页激活时挂载它。输入栏复用现有 `ProjectSelector`，项目树和项目菜单均通过 `useClientStore` 的 `activeProject`、`projects` 与已有动作同步，不新增状态或 RPC。
 
 **Tech Stack:** React 19、Zustand、React Aria Components、Vitest、Testing Library、CSS、Vite。
 
-**Verification Surface:** `frontend-app`，重点覆盖 `App` 侧栏集成、聊天 composer、Suiyuan 侧栏样式与浏览器响应式交互。
+**Verification Surface:** `frontend-app`，重点覆盖 `App` 侧栏集成、聊天 composer、Super Dolphin Agent 侧栏样式与浏览器响应式交互。
 
 ---
 
 ## 文件结构
 
-- Modify: `frontend-app/src/App.jsx` - 在新版 Suiyuan 侧栏中挂载聊天项目与会话树，并传递当前 store 与项目路径。
+- Modify: `frontend-app/src/App.jsx` - 在新版 Super Dolphin Agent 侧栏中挂载聊天项目与会话树，并传递当前 store 与项目路径。
 - Modify: `frontend-app/src/App.test.jsx` - 固定聊天页才显示两级树、项目会话归属和主导航顺序。
 - Modify: `frontend-app/src/pages/chat/composer/ComposerMeta.jsx` - 在启用项目选择时渲染现有 `ProjectSelector`。
 - Modify: `frontend-app/src/pages/chat/thread/Conversation.jsx` - 为实际聊天 composer 启用项目选择器。
 - Modify: `frontend-app/src/pages/chat/composer/ComposerDock.test.jsx` - 固定输入栏项目菜单的可点击和切换行为。
-- Modify: `frontend-app/src/AppShell.css` - 添加 Suiyuan 聊天树的紧凑布局、滚动和文本截断规则。
+- Modify: `frontend-app/src/AppShell.css` - 添加 Super Dolphin Agent 聊天树的紧凑布局、滚动和文本截断规则。
 - Modify: `frontend-app/src/pages/chat/ChatPageWorkbench.css` - 让项目选择器在 composer 单行工具栏内稳定收缩。
 - Modify: `frontend-app/src/styles.test.js` - 固定树形导航和 composer 项目按钮的结构尺寸。
 
@@ -44,7 +44,7 @@ it('shows the project-thread tree only while chat is active', async () => {
   render(<App />);
 
   const sidebar = await screen.findByTestId('app-sidebar');
-  const nav = within(sidebar).getByRole('navigation', { name: 'Suiyuan navigation' });
+  const nav = within(sidebar).getByRole('navigation', { name: 'Super Dolphin Agent navigation' });
   expect(await within(nav).findByRole('region', { name: '项目' })).toBeInTheDocument();
   expect(within(nav).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();
 
@@ -94,19 +94,19 @@ cd frontend-app
 npx vitest run src/App.test.jsx --no-file-parallelism --maxWorkers=1
 ```
 
-Expected: FAIL，因为当前 `SuiyuanSidebar` 只渲染主导航，不挂载 `SidebarProjectTree`。
+Expected: FAIL，因为当前 `SuperDolphinAgentSidebar` 只渲染主导航，不挂载 `SidebarProjectTree`。
 
 - [ ] **Step 4: 增加聚焦的聊天导航组组件**
 
-在 `App.jsx` 导入现有树，并把聊天按钮与树封装为小组件，避免增加 `SuiyuanSidebar` 嵌套深度：
+在 `App.jsx` 导入现有树，并把聊天按钮与树封装为小组件，避免增加 `SuperDolphinAgentSidebar` 嵌套深度：
 
 ```jsx
 import { SidebarProjectTree } from './WorkbenchSidebarProjectTree.jsx';
 
-function SuiyuanChatNavGroup({ activePage, copy, item, projectPath, setActivePage, store }) {
+function SuperDolphinAgentChatNavGroup({ activePage, copy, item, projectPath, setActivePage, store }) {
   return (
-    <div className="suiyuan-chat-nav-group">
-      <SuiyuanNavButton
+    <div className="super-dolphin-agent-chat-nav-group">
+      <SuperDolphinAgentNavButton
         activePage={activePage}
         copy={copy}
         item={item}
@@ -114,7 +114,7 @@ function SuiyuanChatNavGroup({ activePage, copy, item, projectPath, setActivePag
         setActivePage={setActivePage}
       />
       {activePage === 'chat' ? (
-        <div className="suiyuan-chat-project-tree">
+        <div className="super-dolphin-agent-chat-project-tree">
           <SidebarProjectTree copy={copy.workbench} projectPath={projectPath} setActivePage={setActivePage} store={store} />
         </div>
       ) : null}
@@ -123,20 +123,20 @@ function SuiyuanChatNavGroup({ activePage, copy, item, projectPath, setActivePag
 }
 ```
 
-- [ ] **Step 5: 在 Suiyuan 侧栏挂载聊天组**
+- [ ] **Step 5: 在 Super Dolphin Agent 侧栏挂载聊天组**
 
 将第一个聊天项单独渲染，其余主导航保持原顺序：
 
 ```jsx
-function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
+function SuperDolphinAgentSidebar({ copy, projectPath, sidebar, store }) {
   const { activePage, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
-  const chatItem = SUIYUAN_NAV_ITEMS[0];
-  const remainingItems = SUIYUAN_NAV_ITEMS.slice(1);
+  const chatItem = SUPER_DOLPHIN_AGENT_NAV_ITEMS[0];
+  const remainingItems = SUPER_DOLPHIN_AGENT_NAV_ITEMS.slice(1);
 
   return (
-    <nav className="suiyuan-nav" data-testid="sidebar-nav" aria-label="Suiyuan navigation">
-      <SuiyuanChatNavGroup
+    <nav className="super-dolphin-agent-nav" data-testid="sidebar-nav" aria-label="Super Dolphin Agent navigation">
+      <SuperDolphinAgentChatNavGroup
         activePage={activePage}
         copy={copy}
         item={chatItem}
@@ -145,7 +145,7 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
         store={store}
       />
       {remainingItems.map((item) => (
-        <SuiyuanNavButton
+        <SuperDolphinAgentNavButton
           key={item.id}
           activePage={activePage}
           copy={copy}
@@ -159,10 +159,10 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
 }
 ```
 
-向 `SuiyuanSidebar` 传递现有 `projectPath` 和 shell `store`：
+向 `SuperDolphinAgentSidebar` 传递现有 `projectPath` 和 shell `store`：
 
 ```jsx
-<SuiyuanSidebar
+<SuperDolphinAgentSidebar
   copy={copy}
   projectPath={projectPath}
   store={store}
@@ -181,7 +181,7 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
 项目树会新增按钮，原测试不得再用 `getAllByRole('button')` 统计整个 nav：
 
 ```jsx
-const navButtons = Array.from(screen.getByTestId('sidebar-nav').querySelectorAll('.suiyuan-nav-item'));
+const navButtons = Array.from(screen.getByTestId('sidebar-nav').querySelectorAll('.super-dolphin-agent-nav-item'));
 expect(navButtons.map((button) => button.textContent)).toEqual([
   '聊天页面',
   '插件与技能',
@@ -343,13 +343,13 @@ Expected: 无 diagnostics，命令无输出。
 
 - [ ] **Step 1: 编写样式失败测试**
 
-在 Suiyuan shell 样式测试中固定两级树滚动窗口和 composer 项目按钮收缩规则：
+在 Super Dolphin Agent shell 样式测试中固定两级树滚动窗口和 composer 项目按钮收缩规则：
 
 ```js
 it('keeps the chat project tree compact and independently scrollable', () => {
-  const group = declarationsFor('.suiyuan-chat-nav-group');
-  const tree = declarationsFor('.suiyuan-chat-project-tree');
-  const threadTitle = declarationsFor('.suiyuan-chat-project-tree .sidebar-thread-title');
+  const group = declarationsFor('.super-dolphin-agent-chat-nav-group');
+  const tree = declarationsFor('.super-dolphin-agent-chat-project-tree');
+  const threadTitle = declarationsFor('.super-dolphin-agent-chat-project-tree .sidebar-thread-title');
 
   expect(group.display).toBe('grid');
   expect(group['min-width']).toBe('0');
@@ -380,20 +380,20 @@ cd frontend-app
 npx vitest run src/styles.test.js --no-file-parallelism --maxWorkers=1
 ```
 
-Expected: FAIL，因为 Suiyuan 聊天树和 composer 项目选择器尚无这些 scoped 规则。
+Expected: FAIL，因为 Super Dolphin Agent 聊天树和 composer 项目选择器尚无这些 scoped 规则。
 
 - [ ] **Step 3: 添加聊天树紧凑样式**
 
-在 `AppShell.css` 的 `.suiyuan-nav` 规则附近添加：
+在 `AppShell.css` 的 `.super-dolphin-agent-nav` 规则附近添加：
 
 ```css
-.suiyuan-chat-nav-group {
+.super-dolphin-agent-chat-nav-group {
   min-width: 0;
   display: grid;
   gap: 6px;
 }
 
-.suiyuan-chat-project-tree {
+.super-dolphin-agent-chat-project-tree {
   min-width: 0;
   max-height: min(300px, 32vh);
   margin-left: 12px;
@@ -404,23 +404,23 @@ Expected: FAIL，因为 Suiyuan 聊天树和 composer 项目选择器尚无这�
   scrollbar-gutter: stable;
 }
 
-.suiyuan-chat-project-tree .sidebar-project-tree {
+.super-dolphin-agent-chat-project-tree .sidebar-project-tree {
   padding-top: 0;
   border-top: 0;
   overflow: visible;
 }
 
-.suiyuan-chat-project-tree .sidebar-tree-folder {
+.super-dolphin-agent-chat-project-tree .sidebar-tree-folder {
   min-height: 30px;
   font-size: 13px;
 }
 
-.suiyuan-chat-project-tree .sidebar-project-thread {
+.super-dolphin-agent-chat-project-tree .sidebar-project-thread {
   min-height: 28px;
   font-size: 12px;
 }
 
-.suiyuan-chat-project-tree .sidebar-thread-title {
+.super-dolphin-agent-chat-project-tree .sidebar-thread-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1,10 +1,10 @@
-# Suiyuan MCP-Faithful Chat Redesign Implementation Plan
+# Super Dolphin Agent MCP-Faithful Chat Redesign Implementation Plan
 
 > **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. In super-agent-v3, subagents may use platform-native dispatch directly; use mcp-orch DAG runs and nodes (`task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`) only when persistent orchestration records are needed. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rework the current Suiyuan Chat UI so the first screen follows the Stitch MCP preview composition, not only the exported token sheet.
+**Goal:** Rework the current Super Dolphin Agent Chat UI so the first screen follows the Stitch MCP preview composition, not only the exported token sheet.
 
-**Architecture:** Treat Stitch MCP screens as the visual source of truth and keep `DESIGN.md` as the token source. Preserve the existing React/store/API behavior, but reshape the shell, intro stage, suggestion cards, and composer to match the `Suiyuan Chat Interface - Vibe Style` screen. Keep dark-mode-compatible structure from `Suiyuan Chat - Dark Mode`, without introducing decorative orbs in the light default.
+**Architecture:** Treat Stitch MCP screens as the visual source of truth and keep `DESIGN.md` as the token source. Preserve the existing React/store/API behavior, but reshape the shell, intro stage, suggestion cards, and composer to match the `Super Dolphin Agent Chat Interface - Vibe Style` screen. Keep dark-mode-compatible structure from `Super Dolphin Agent Chat - Dark Mode`, without introducing decorative orbs in the light default.
 
 **Tech Stack:** React 19, Vite, existing CSS files, Vitest, Testing Library, Wails bridge.
 
@@ -18,13 +18,13 @@ Project: `projects/16556859161700396548` (`Codex Style Main Console`)
 
 Primary reference:
 - Screen: `projects/16556859161700396548/screens/5959839627de4f9899f8e00a44d03b14`
-- Title: `Suiyuan Chat Interface - Vibe Style`
-- Downloaded evidence: `.tmp/stitch-suiyuan/chat-vibe.png`, `.tmp/stitch-suiyuan/chat-vibe.html`
+- Title: `Super Dolphin Agent Chat Interface - Vibe Style`
+- Downloaded evidence: `.tmp/stitch-super-dolphin-agent/chat-vibe.png`, `.tmp/stitch-super-dolphin-agent/chat-vibe.html`
 
 Secondary reference:
 - Screen: `projects/16556859161700396548/screens/eaa8d7d9d8754330883e3406d844e1c4`
-- Title: `Suiyuan Chat - Dark Mode`
-- Downloaded evidence: `.tmp/stitch-suiyuan/chat-dark.png`, `.tmp/stitch-suiyuan/chat-dark.html`
+- Title: `Super Dolphin Agent Chat - Dark Mode`
+- Downloaded evidence: `.tmp/stitch-super-dolphin-agent/chat-dark.png`, `.tmp/stitch-super-dolphin-agent/chat-dark.html`
 
 Design system:
 - Asset: `assets/65a0020aad314c30b58e354bf65be2c2`
@@ -34,8 +34,8 @@ Design system:
 ## Visual Facts To Match
 
 From `chat-vibe.html`:
-- Left sidebar is a fixed `280px` Suiyuan product nav, not a project/thread/task sidebar.
-- Sidebar brand block shows icon, `Suiyuan`, and `AI Canvas`.
+- Left sidebar is a fixed `280px` Super Dolphin Agent product nav, not a project/thread/task sidebar.
+- Sidebar brand block shows icon, `Super Dolphin Agent`, and `AI Canvas`.
 - Primary CTA is a pill-like `New Chat` button.
 - Primary nav order: `Chat`, `Plugins`, `Automation`, `Roles`, `Files`, `Memory`, `Logs`; footer: `Settings`, `Support`.
 - Active nav uses a `4px` left indicator and primary-fixed wash.
@@ -78,7 +78,7 @@ Current screenshot at `http://127.0.0.1:5175/` shows:
 
 **Steps:**
 - [ ] Use LSP `structure` and `file(read_file)` on `frontend-app/src/App.jsx`, `frontend-app/src/AppShell.css`, `frontend-app/src/AppChrome.css`, and `frontend-app/src/styles.test.js`.
-- [ ] Add or update CSS tests asserting the light shell exposes a 280px nav, Suiyuan nav active state with 4px indicator, and top app bar link labels `Overview`, `Usage`, `Limits`.
+- [ ] Add or update CSS tests asserting the light shell exposes a 280px nav, Super Dolphin Agent nav active state with 4px indicator, and top app bar link labels `Overview`, `Usage`, `Limits`.
 - [ ] Adjust shell markup/classes only as needed to present a Stitch-faithful product nav on Chat first screen while preserving route switching, locale, theme, settings, and existing navigation actions.
 - [ ] Make the sidebar visually match the primary reference: product brand block, pill CTA, nav icon/text rows, footer actions, no project/task sections on the first Chat intro view.
 - [ ] Keep keyboard labels and button accessible names intact.
@@ -177,7 +177,7 @@ Current screenshot at `http://127.0.0.1:5175/` shows:
 - [ ] Run `cd frontend-app && npm run build`.
 - [ ] Start `./run-new-ui-desktop.sh`.
 - [ ] Capture a browser screenshot at `http://127.0.0.1:5175/`.
-- [ ] Compare against `.tmp/stitch-suiyuan/chat-vibe.png`: 280px nav, top app bar, centered logo/title/subtitle/cards, bottom floating composer, warm Suiyuan palette, no one-note dark console feel.
+- [ ] Compare against `.tmp/stitch-super-dolphin-agent/chat-vibe.png`: 280px nav, top app bar, centered logo/title/subtitle/cards, bottom floating composer, warm Super Dolphin Agent palette, no one-note dark console feel.
 - [ ] Report remaining deliberate differences caused by existing product behavior.
 
 ## Dispatch Notes
@@ -185,5 +185,5 @@ Current screenshot at `http://127.0.0.1:5175/` shows:
 Workers must know:
 - The repository has unrelated user Go changes in `internal/archtest/**` and `internal/platform/toolbridge/**`; do not touch or revert them.
 - The current branch also has local startup fixes in `frontend-app/vite.config.js`, `frontend-app/vite.config.test.js`, `internal/provider/codexapp/sidecar_runtime_env.go`, `internal/provider/codexapp/sidecar_runtime_env_test.go`, and `run-new-ui-desktop.sh`; do not mix UI work into those files unless explicitly assigned.
-- `.tmp/stitch-suiyuan/**` and `.superpowers/**` are evidence/temp artifacts and must not be committed.
+- `.tmp/stitch-super-dolphin-agent/**` and `.superpowers/**` are evidence/temp artifacts and must not be committed.
 - Fail-fast behavior remains mandatory; do not add silent UI fallbacks for missing project, cwd, provider, thread, or runtime data.

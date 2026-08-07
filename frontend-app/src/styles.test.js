@@ -45,7 +45,7 @@ const cssFiles = [
 
 const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
 const appSource = readFileSync(path.join(cwd(), 'src/App.jsx'), 'utf8');
-const suiyuanAppWindowSource = readFileSync(path.join(cwd(), 'src/app/shell/SuiyuanAppWindow.jsx'), 'utf8');
+const superDolphinAgentAppWindowSource = readFileSync(path.join(cwd(), 'src/app/shell/SuperDolphinAgentAppWindow.jsx'), 'utf8');
 const indexSource = readFileSync(path.join(cwd(), 'index.html'), 'utf8');
 const mainCssImports = [...mainSource.matchAll(/^import '\.\/([^']+\.css)';$/gm)].map((match) => `src/${match[1]}`);
 const cssSources = new Map(cssFiles.map((file) => {
@@ -521,7 +521,7 @@ describe('composer layout styles', () => {
     expect(activeComposer.position).toBe('absolute'); expect(activeComposer.inset).toBe('auto 0 0');
   });
 
-  it('renders the Suiyuan floating composer as a raised white input object', () => {
+  it('renders the Super Dolphin Agent floating composer as a raised white input object', () => {
     const floatingCard = declarationsFor('.composer--floating .composer-card');
     const textarea = declarationsFor('.composer--floating textarea');
     const meta = declarationsFor('.composer--floating .composer-meta');
@@ -529,8 +529,8 @@ describe('composer layout styles', () => {
     const disabledSend = declarationsFor('.composer .send:disabled');
 
     expect(floatingCard.background).toBe('var(--surface)');
-    expect(floatingCard['border-radius']).toBe('var(--suiyuan-radius-input)');
-    expect(floatingCard['box-shadow']).toContain('var(--suiyuan-input-shadow)');
+    expect(floatingCard['border-radius']).toBe('var(--super-dolphin-agent-radius-input)');
+    expect(floatingCard['box-shadow']).toContain('var(--super-dolphin-agent-input-shadow)');
     expect(textarea.padding).toBe('18px 20px 12px');
     expect(meta['min-height']).toBe('48px');
     expect(send.background).toBe('var(--primary-action-bg)');
@@ -729,7 +729,7 @@ describe('composer layout styles', () => {
 });
 
 describe('theme-aware component styles', () => {
-  describe('suiyuan design tokens', () => {
+  describe('super-dolphin-agent design tokens', () => {
     it('maps the light theme to exported DESIGN.md tokens', () => {
       const light = declarationsFor('.sa-window[data-theme="light"]');
       const lightSpecific = declarationsFor('.sa-window[data-theme="light"].sa-window');
@@ -751,16 +751,16 @@ describe('theme-aware component styles', () => {
       expect(lightSpecific['--text-sec']).toBe('#4c5568');
     });
 
-    it('keeps the Suiyuan workbench aliases available for shell and chat surfaces', () => {
+    it('keeps the Super Dolphin Agent workbench aliases available for shell and chat surfaces', () => {
       const rootTokens = declarationsFor(':root'); const glass = cssSources.get('src/shared/styles/GlassCardPolish.css');
 
-      expect(rootTokens['--suiyuan-sidebar-width']).toBe('280px');
-      expect(rootTokens['--suiyuan-content-max-width']).toBe('1100px');
+      expect(rootTokens['--super-dolphin-agent-sidebar-width']).toBe('280px');
+      expect(rootTokens['--super-dolphin-agent-content-max-width']).toBe('1100px');
       expect(glass).toContain('backdrop-filter: blur(20px) saturate(145%)'); expect(glass).toContain('.chat-intro-card'); expect(glass).toContain('.mcp-tool-title-line h2');
-      expect(rootTokens['--suiyuan-gutter']).toBe('24px');
-      expect(rootTokens['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(30, 38, 68, 0.08)');
-      expect(rootTokens['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(30, 38, 68, 0.06)');
-      expect(rootTokens['--suiyuan-input-highlight']).toBe('inset 0 1px 0 rgba(255, 255, 255, 0.82)');
+      expect(rootTokens['--super-dolphin-agent-gutter']).toBe('24px');
+      expect(rootTokens['--super-dolphin-agent-card-shadow']).toBe('0 20px 40px -10px rgba(30, 38, 68, 0.08)');
+      expect(rootTokens['--super-dolphin-agent-input-shadow']).toBe('0 8px 30px rgba(30, 38, 68, 0.06)');
+      expect(rootTokens['--super-dolphin-agent-input-highlight']).toBe('inset 0 1px 0 rgba(255, 255, 255, 0.82)');
     });
   });
 
@@ -1075,7 +1075,7 @@ describe('conversation grid styles', () => {
   });
 });
 
-describe('suiyuan chat canvas', () => {
+describe('super-dolphin-agent chat canvas', () => {
   it('centers the chat canvas with unframed assistant responses and compact user bubbles', () => {
     const conversation = declarationsFor('.conversation');
     const activeConversation = declarationsFor('.conversation:not(.conversation--intro)');
@@ -1104,7 +1104,7 @@ describe('suiyuan chat canvas', () => {
   });
 });
 
-describe('suiyuan responsive chat workbench', () => {
+describe('super-dolphin-agent responsive chat workbench', () => {
   it('collapses side surfaces before the message canvas becomes unreadable', () => {
     const narrowConversation = mediaDeclarationFor('(max-width: 760px)', '.conversation', 'border-right');
     const narrowFloatingComposer = mediaDeclarationFor('(max-width: 760px)', '.composer--floating', 'width');
@@ -1139,7 +1139,7 @@ describe('conversation content column styles', () => {
     const headerTool = declarationsFor('.chat-header-tool');
     const disabledHeaderTool = declarationsFor('.chat-header-tool:disabled');
 
-    expect(conversation['--conversation-content-width']).toBe('min(var(--suiyuan-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))))');
+    expect(conversation['--conversation-content-width']).toBe('min(var(--super-dolphin-agent-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))))');
     expect(activeConversation.display).toBe('grid');
     expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr)');
     expect(activeConversation.overflow).toBe('hidden');
@@ -1276,7 +1276,7 @@ describe('conversation content column styles', () => {
     expect(floating['--composer-floating-max-width']).toBe('800px');
     expect(floating['--composer-floating-bottom-gap']).toBe('22px');
     expect(sharedCard.padding).toBe('0');
-    expect(sharedCard['border-radius']).toBe('var(--suiyuan-radius-input)');
+    expect(sharedCard['border-radius']).toBe('var(--super-dolphin-agent-radius-input)');
     expect(sharedTextarea.height).toBe('76px');
     expect(sharedTextarea['min-height']).toBe('76px');
     expect(sharedMeta['min-height']).toBe('48px');
@@ -1313,31 +1313,31 @@ describe('conversation content column styles', () => {
     expect(darkTextarea.height).toBeUndefined();
     expect(darkTextarea['min-height']).toBeUndefined();
     expect(lightCard.background).toBe('var(--surface)');
-    expect(lightCard['border-color']).toBe('var(--suiyuan-surface-variant)');
-    expect(lightCard['box-shadow']).toBe('var(--suiyuan-input-shadow)');
-    expect(lightAttach.background).toBe('var(--suiyuan-surface-low)');
-    expect(lightAttach['border-color']).toBe('var(--suiyuan-surface-variant)');
-    expect(lightModel.background).toBe('color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent)');
-    expect(disabledSend.background).toBe('var(--suiyuan-primary)');
+    expect(lightCard['border-color']).toBe('var(--super-dolphin-agent-surface-variant)');
+    expect(lightCard['box-shadow']).toBe('var(--super-dolphin-agent-input-shadow)');
+    expect(lightAttach.background).toBe('var(--super-dolphin-agent-surface-low)');
+    expect(lightAttach['border-color']).toBe('var(--super-dolphin-agent-surface-variant)');
+    expect(lightModel.background).toBe('color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 10%, transparent)');
+    expect(disabledSend.background).toBe('var(--super-dolphin-agent-primary)');
     expect(disabledSend.color).toBe('var(--on-accent)');
-    expect(disclaimer.color).toBe('var(--suiyuan-on-surface-variant)');
+    expect(disclaimer.color).toBe('var(--super-dolphin-agent-on-surface-variant)');
     expect(disclaimer.margin).toBeUndefined();
     expect(disclaimer['font-weight']).toBeUndefined();
     expect(disclaimer['line-height']).toBeUndefined();
     expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
   });
 
-  it('keeps the Suiyuan intro and floating composer dark when the shell theme is dark', () => {
+  it('keeps the Super Dolphin Agent intro and floating composer dark when the shell theme is dark', () => {
     const intro = declarationsFor('.sa-window[data-theme="dark"] .chat-page.chat-page--intro');
     const darkCard = declarationsFor('.sa-window[data-theme="dark"] .chat-intro-card');
     const composerBackdrop = declarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target]');
     const composerCard = declarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-card');
 
-    expect(intro.background).toContain('var(--suiyuan-surface-bright)');
-    expect(darkCard.background).toContain('var(--suiyuan-surface-low)');
+    expect(intro.background).toContain('var(--super-dolphin-agent-surface-bright)');
+    expect(darkCard.background).toContain('var(--super-dolphin-agent-surface-low)');
     expect(composerBackdrop.background).toContain('var(--bg)');
-    expect(composerCard.background).toContain('var(--suiyuan-surface-low)');
-    expect(composerCard['border-color']).toContain('var(--suiyuan-outline-variant)');
+    expect(composerCard.background).toContain('var(--super-dolphin-agent-surface-low)');
+    expect(composerCard['border-color']).toContain('var(--super-dolphin-agent-outline-variant)');
   });
 
   it('keeps light and dark intro geometry structurally isomorphic', () => {
@@ -1378,7 +1378,7 @@ describe('conversation content column styles', () => {
     expect(suggestions['margin-bottom']).toBe('128px');
     expect(card['min-height']).toBe('174px');
     expect(card.gap).toBe('8px');
-    expect(card['border-color']).toBe('var(--suiyuan-outline-variant)');
+    expect(card['border-color']).toBe('var(--super-dolphin-agent-outline-variant)');
     expect(card.padding).toBe('24px');
     expect(cardIcon.width).toBe('36px');
     expect(cardIcon.height).toBe('36px');
@@ -1388,9 +1388,9 @@ describe('conversation content column styles', () => {
     expect(cardTitle.margin).toBe('8px 0 0');
     expect(cardTitle['font-weight']).toBe('700');
     expect(cardDescription['min-height']).toBe('0');
-    expect(cardDescription.color).toBe('var(--suiyuan-on-surface-variant)');
+    expect(cardDescription.color).toBe('var(--super-dolphin-agent-on-surface-variant)');
     expect(cardDescription['font-weight']).toBe('400');
-    expect(cardDescription['line-height']).toBe('var(--suiyuan-text-body-line)');
+    expect(cardDescription['line-height']).toBe('var(--super-dolphin-agent-text-body-line)');
     expect(darkSpotlight.inset).toBeUndefined();
     expect(darkSpotlight.padding).toBeUndefined();
     expect(darkTitle['font-weight']).toBeUndefined();
@@ -1437,16 +1437,16 @@ describe('conversation content column styles', () => {
 });
 
 describe('workbench shell styles', () => {
-  describe('suiyuan shell layout', () => {
-    it('uses warm Suiyuan surfaces for the app shell and primary navigation', () => {
-      const navRail = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
-      const activeNav = declarationsFor('.suiyuan-nav-item.active');
-      const activeIndicator = declarationsFor('.suiyuan-nav-item.active::before');
-      const topCommand = topLevelDeclarationsFor('.suiyuan-top-appbar');
-      const mobileTopCommand = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-top-appbar', 'padding');
-      const mainCanvas = declarationsFor('.suiyuan-main-canvas');
-      const nonChatPage = declarationsFor('.sa-window.suiyuan-shell .suiyuan-main-canvas > .chat-page');
-      const skillsPage = declarationsFor('.sa-window.suiyuan-shell .suiyuan-main-canvas > .skills-tabbed-container');
+  describe('super-dolphin-agent shell layout', () => {
+    it('uses warm Super Dolphin Agent surfaces for the app shell and primary navigation', () => {
+      const navRail = topLevelDeclarationsFor('.app-sidebar.super-dolphin-agent-sidebar');
+      const activeNav = declarationsFor('.super-dolphin-agent-nav-item.active');
+      const activeIndicator = declarationsFor('.super-dolphin-agent-nav-item.active::before');
+      const topCommand = topLevelDeclarationsFor('.super-dolphin-agent-top-appbar');
+      const mobileTopCommand = mediaDeclarationFor('(max-width: 920px)', '.super-dolphin-agent-top-appbar', 'padding');
+      const mainCanvas = declarationsFor('.super-dolphin-agent-main-canvas');
+      const nonChatPage = declarationsFor('.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .chat-page');
+      const skillsPage = declarationsFor('.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .skills-tabbed-container');
       const main = declarationsFor('.sa-main');
 
       expect(navRail.background).toBe('var(--sidebar-bg)');
@@ -1466,12 +1466,12 @@ describe('workbench shell styles', () => {
     });
 
     it('renders the mobile bottom navigation as a fixed bar and keeps content clear of it', () => {
-      const desktopNav = topLevelDeclarationsFor('.suiyuan-mobile-nav');
-      const mobileNav = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-mobile-nav', 'position');
-      const drawerOpenNav = mediaDeclarationFor('(max-width: 920px)', '.sa-window.sidebar-open .suiyuan-mobile-nav', 'display');
-      const navItem = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-mobile-nav-item', 'flex-direction');
-      const activeItem = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-mobile-nav-item.active', 'color');
-      const mainCanvas = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-main-canvas', 'padding-bottom');
+      const desktopNav = topLevelDeclarationsFor('.super-dolphin-agent-mobile-nav');
+      const mobileNav = mediaDeclarationFor('(max-width: 920px)', '.super-dolphin-agent-mobile-nav', 'position');
+      const drawerOpenNav = mediaDeclarationFor('(max-width: 920px)', '.sa-window.sidebar-open .super-dolphin-agent-mobile-nav', 'display');
+      const navItem = mediaDeclarationFor('(max-width: 920px)', '.super-dolphin-agent-mobile-nav-item', 'flex-direction');
+      const activeItem = mediaDeclarationFor('(max-width: 920px)', '.super-dolphin-agent-mobile-nav-item.active', 'color');
+      const mainCanvas = mediaDeclarationFor('(max-width: 920px)', '.super-dolphin-agent-main-canvas', 'padding-bottom');
       const floatingComposer = mediaDeclarationFor('(max-width: 920px)', '.sa-window .composer.composer--floating[data-file-drop-target]', 'bottom');
 
       expect(desktopNav.display).toBe('none');
@@ -1482,27 +1482,27 @@ describe('workbench shell styles', () => {
       expect(drawerOpenNav.display).toBe('none');
       expect(navItem['flex-direction']).toBe('column');
       expect(activeItem.color).toBe('var(--primary)');
-      expect(mainCanvas['padding-bottom']).toBe('calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px))');
-      expect(floatingComposer.bottom).toBe('calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px))');
+      expect(mainCanvas['padding-bottom']).toBe('calc(var(--super-dolphin-agent-mobile-nav-height) + env(safe-area-inset-bottom, 0px))');
+      expect(floatingComposer.bottom).toBe('calc(var(--super-dolphin-agent-mobile-nav-height) + env(safe-area-inset-bottom, 0px))');
     });
 
     it('keeps the light sidebar on the dark-mode geometry', () => {
-      const sharedSidebar = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
-      const sharedBrand = topLevelDeclarationsFor('.suiyuan-brand-block');
-      const sharedBrandTitle = topLevelDeclarationsFor('.suiyuan-brand-meta strong');
-      const sharedNewChat = topLevelDeclarationsFor('.suiyuan-new-chat');
-      const sharedNav = topLevelDeclarationsFor('.suiyuan-nav');
-      const sharedNavItem = topLevelDeclarationsFor('.suiyuan-nav-item');
-      const lightSidebar = declarationsFor('.sa-window[data-theme="light"] .app-sidebar.suiyuan-sidebar');
-      const lightBrand = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-block');
-      const lightMark = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-light-mark');
-      const lightDarkMark = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-dark-mark');
-      const lightBrandTitle = declarationsFor('.sa-window[data-theme="light"] .suiyuan-brand-meta strong');
-      const lightNewChat = declarationsFor('.sa-window[data-theme="light"] .suiyuan-new-chat');
-      const lightNav = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav');
-      const lightNavItem = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item');
-      const activeNav = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item.active');
-      const activeIndicator = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item.active::before');
+      const sharedSidebar = topLevelDeclarationsFor('.app-sidebar.super-dolphin-agent-sidebar');
+      const sharedBrand = topLevelDeclarationsFor('.super-dolphin-agent-brand-block');
+      const sharedBrandTitle = topLevelDeclarationsFor('.super-dolphin-agent-brand-meta strong');
+      const sharedNewChat = topLevelDeclarationsFor('.super-dolphin-agent-new-chat');
+      const sharedNav = topLevelDeclarationsFor('.super-dolphin-agent-nav');
+      const sharedNavItem = topLevelDeclarationsFor('.super-dolphin-agent-nav-item');
+      const lightSidebar = declarationsFor('.sa-window[data-theme="light"] .app-sidebar.super-dolphin-agent-sidebar');
+      const lightBrand = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-brand-block');
+      const lightMark = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-brand-light-mark');
+      const lightDarkMark = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-brand-dark-mark');
+      const lightBrandTitle = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-brand-meta strong');
+      const lightNewChat = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-new-chat');
+      const lightNav = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-nav');
+      const lightNavItem = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-nav-item');
+      const activeNav = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-nav-item.active');
+      const activeIndicator = declarationsFor('.sa-window[data-theme="light"] .super-dolphin-agent-nav-item.active::before');
 
       expect(sharedSidebar.gap).toBe('12px');
       expect(sharedSidebar.padding).toBe('10px 12px');
@@ -1537,38 +1537,38 @@ describe('workbench shell styles', () => {
       for (const property of ['font-size', 'font-weight', 'line-height']) {
         expect(lightNavItem[property]).toBeUndefined();
       }
-      expect(lightNewChat.background).toBe('var(--suiyuan-primary)');
+      expect(lightNewChat.background).toBe('var(--super-dolphin-agent-primary)');
       expect(lightNewChat['box-shadow']).toBe('none');
       expect(lightNewChat.opacity).toBeUndefined();
-      expect(activeNav.color).toBe('var(--suiyuan-primary)');
+      expect(activeNav.color).toBe('var(--super-dolphin-agent-primary)');
       expect(activeNav['font-weight']).toBeUndefined();
       expect(activeIndicator.inset).toBeUndefined();
     });
 
-    it('keeps marketing tabs and upgrade CTAs out of the Suiyuan app shell', () => {
-      expect(appSource).not.toContain('SUIYUAN_APP_TABS');
+    it('keeps marketing tabs and upgrade CTAs out of the Super Dolphin Agent app shell', () => {
+      expect(appSource).not.toContain('SUPER_DOLPHIN_AGENT_APP_TABS');
       expect(appSource).not.toContain("label: 'Overview'");
       expect(appSource).not.toContain("label: 'Usage'");
       expect(appSource).not.toContain("label: 'Limits'");
       expect(appSource).not.toContain('Upgrade Plan');
       expect(appSource).not.toContain('Support');
-      expect(css).not.toContain('suiyuan-upgrade-action');
+      expect(css).not.toContain('super-dolphin-agent-upgrade-action');
     });
 
-    it('maps Suiyuan design tokens to dark surfaces in dark mode', () => {
-      const darkShell = declarationsFor('.sa-window.suiyuan-shell[data-theme="dark"]');
+    it('maps Super Dolphin Agent design tokens to dark surfaces in dark mode', () => {
+      const darkShell = declarationsFor('.sa-window.super-dolphin-agent-shell[data-theme="dark"]');
 
-      expect(darkShell['--suiyuan-background']).toBe('#0e1014');
-      expect(darkShell['--suiyuan-surface-bright']).toBe('#0e1014');
-      expect(darkShell['--suiyuan-surface-lowest']).toBe('#161920');
-      expect(darkShell['--suiyuan-surface-low']).toBe('#1b1f28');
-      expect(darkShell['--suiyuan-on-surface']).toBe('#e9ebf2');
-      expect(darkShell['--suiyuan-primary']).toBe('#8f9ff8');
-      expect(darkShell['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.3)');
-      expect(darkShell['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.2)');
+      expect(darkShell['--super-dolphin-agent-background']).toBe('#0e1014');
+      expect(darkShell['--super-dolphin-agent-surface-bright']).toBe('#0e1014');
+      expect(darkShell['--super-dolphin-agent-surface-lowest']).toBe('#161920');
+      expect(darkShell['--super-dolphin-agent-surface-low']).toBe('#1b1f28');
+      expect(darkShell['--super-dolphin-agent-on-surface']).toBe('#e9ebf2');
+      expect(darkShell['--super-dolphin-agent-primary']).toBe('#8f9ff8');
+      expect(darkShell['--super-dolphin-agent-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.3)');
+      expect(darkShell['--super-dolphin-agent-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.2)');
     });
 
-    it('renders memory controls as compact Suiyuan components', () => {
+    it('renders memory controls as compact Super Dolphin Agent components', () => {
       const stats = topLevelDeclarationsFor('.memory-page .memory-stats');
       const panel = declarationsFor('.memory-page .memory-stats .panel');
       const overviewChip = declarationsFor('.memory-page .memory-overview-breakdown > span');
@@ -1577,7 +1577,7 @@ describe('workbench shell styles', () => {
       const createMenu = declarationsFor('.memory-page .memory-create-menu');
 
       expect(stats['grid-template-columns']).toBe('repeat(3, minmax(0, 1fr))');
-      expect(panel['border-radius']).toBe('var(--suiyuan-radius-card)');
+      expect(panel['border-radius']).toBe('var(--super-dolphin-agent-radius-card)');
       expect(overviewChip['border-radius']).toBe('999px');
       expect(autoToggle['grid-column']).toBe('2');
       expect(createButton.background).toBe('var(--primary-action-bg)');
@@ -1589,16 +1589,16 @@ describe('workbench shell styles', () => {
   });
 
   it('keeps the screenshot-style sidebar fixed and branded', () => {
-    const shell = topLevelDeclarationsFor('.sa-window.suiyuan-shell'); const sidebar = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
-    const body = topLevelDeclarationsFor('.sa-body.suiyuan-shell-body');
-    const brand = declarationsFor('.suiyuan-brand-block');
-    const brandMeta = declarationsFor('.suiyuan-brand-meta');
-    const newChat = declarationsFor('.suiyuan-new-chat');
-    const nav = declarationsFor('.suiyuan-nav');
-    const chatNavGroup = declarationsFor('.suiyuan-chat-nav-group');
-    const projectTree = declarationsFor('.suiyuan-chat-project-tree');
-    const collapseZone = declarationsFor('.suiyuan-sidebar-collapse-zone'); const collapseButton = declarationsFor('.suiyuan-sidebar-collapse'); const activityZone = declarationsFor('.workbench-activity-toggle-zone'); const activityButton = declarationsFor('.workbench-activity-toggle'); const sidepanelZone = declarationsFor('.chat-sidepanel-shortcut-zone'); const sidepanelButton = declarationsFor('.chat-sidepanel-shortcut'); const activityDestinations = topLevelDeclarationsFor('.workbench-activity-destinations'); const statusBar = topLevelDeclarationsFor('.workbench-status-bar');
-    const collapsedSidebar = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .app-sidebar', 'visibility'); const collapsedBody = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .sa-body.suiyuan-shell-body', 'grid-template-columns');
+    const shell = topLevelDeclarationsFor('.sa-window.super-dolphin-agent-shell'); const sidebar = topLevelDeclarationsFor('.app-sidebar.super-dolphin-agent-sidebar');
+    const body = topLevelDeclarationsFor('.sa-body.super-dolphin-agent-shell-body');
+    const brand = declarationsFor('.super-dolphin-agent-brand-block');
+    const brandMeta = declarationsFor('.super-dolphin-agent-brand-meta');
+    const newChat = declarationsFor('.super-dolphin-agent-new-chat');
+    const nav = declarationsFor('.super-dolphin-agent-nav');
+    const chatNavGroup = declarationsFor('.super-dolphin-agent-chat-nav-group');
+    const projectTree = declarationsFor('.super-dolphin-agent-chat-project-tree');
+    const collapseZone = declarationsFor('.super-dolphin-agent-sidebar-collapse-zone'); const collapseButton = declarationsFor('.super-dolphin-agent-sidebar-collapse'); const activityZone = declarationsFor('.workbench-activity-toggle-zone'); const activityButton = declarationsFor('.workbench-activity-toggle'); const sidepanelZone = declarationsFor('.chat-sidepanel-shortcut-zone'); const sidepanelButton = declarationsFor('.chat-sidepanel-shortcut'); const activityDestinations = topLevelDeclarationsFor('.workbench-activity-destinations'); const statusBar = topLevelDeclarationsFor('.workbench-status-bar');
+    const collapsedSidebar = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .app-sidebar', 'visibility'); const collapsedBody = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .sa-body.super-dolphin-agent-shell-body', 'grid-template-columns');
 
     expect(shell.display).toBe('grid'); expect(shell['grid-template-rows']).toBe('minmax(0, 1fr) 24px'); expect(shell.overflow).toBe('hidden');
     expect(sidebar.width).toBe('var(--workbench-sidebar-width)');
@@ -1623,17 +1623,17 @@ describe('workbench shell styles', () => {
   });
 
   it('keeps the primary product nav while nesting projects under Chat', () => {
-    expect(appSource).toContain("import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';");
-    expect(appSource).toContain('<SuiyuanAppWindow');
-    expect(suiyuanAppWindowSource).toContain('<ChatSidebarProjectTree');
-    expect(suiyuanAppWindowSource).not.toContain('<SidebarTaskSummary');
-    expect(suiyuanAppWindowSource).toContain("label: 'Chat'");
-    expect(suiyuanAppWindowSource).toContain("label: 'Plugins'");
-    expect(suiyuanAppWindowSource).toContain("label: 'Automation'");
-    expect(suiyuanAppWindowSource).toContain("label: 'Roles'");
-    expect(suiyuanAppWindowSource).toContain("label: 'Files'");
-    expect(suiyuanAppWindowSource).toContain("label: 'Memory'");
-    expect(suiyuanAppWindowSource).toContain("label: 'Logs'");
+    expect(appSource).toContain("import { SuperDolphinAgentAppWindow } from './app/shell/SuperDolphinAgentAppWindow.jsx';");
+    expect(appSource).toContain('<SuperDolphinAgentAppWindow');
+    expect(superDolphinAgentAppWindowSource).toContain('<ChatSidebarProjectTree');
+    expect(superDolphinAgentAppWindowSource).not.toContain('<SidebarTaskSummary');
+    expect(superDolphinAgentAppWindowSource).toContain("label: 'Chat'");
+    expect(superDolphinAgentAppWindowSource).toContain("label: 'Plugins'");
+    expect(superDolphinAgentAppWindowSource).toContain("label: 'Automation'");
+    expect(superDolphinAgentAppWindowSource).toContain("label: 'Roles'");
+    expect(superDolphinAgentAppWindowSource).toContain("label: 'Files'");
+    expect(superDolphinAgentAppWindowSource).toContain("label: 'Memory'");
+    expect(superDolphinAgentAppWindowSource).toContain("label: 'Logs'");
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
@@ -1643,7 +1643,7 @@ describe('workbench shell styles', () => {
     const openSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar.is-open')[0];
     const mobileResizer = mediaDeclarationsFor('(max-width: 920px)', '.workbench-sidebar-resizer')[0];
     const scrim = mediaDeclarationsFor('(max-width: 920px)', '.sidebar-scrim')[0];
-    const closedSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar.suiyuan-sidebar:not(.is-open)')[0];
+    const closedSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar.super-dolphin-agent-sidebar:not(.is-open)')[0];
 
     expect(desktopToggle.display).toBe('none');
     expect(mobileToggle.display).toBe('inline-flex');
@@ -1702,7 +1702,7 @@ describe('composer control styles', () => {
     const row = topLevelDeclarationsFor('.project-dropdown-row');
 
     expect(trigger.background).toBe('var(--surface)');
-    expect(trigger['box-shadow']).toBe('var(--suiyuan-input-highlight)');
+    expect(trigger['box-shadow']).toBe('var(--super-dolphin-agent-input-highlight)');
     expect(popover.background).toBe('var(--surface)');
     expect(popover.border).toBe('1px solid var(--border)');
     expect(popover['border-radius']).toBe('8px');
@@ -2211,7 +2211,7 @@ describe('fusion surface redesign contracts', () => {
   });
 });
 
-describe('suiyuan theme contract', () => {
+describe('super-dolphin-agent theme contract', () => {
   it('keeps the retired late visual layers out of the stylesheet', () => {
     const retiredFragments = [
       'Purple-blue luminous direction',
@@ -2262,7 +2262,7 @@ describe('suiyuan theme contract', () => {
     expect(light['--accent-2']).toBe('var(--primary-2)');
   });
 
-  it('uses the Suiyuan primary action treatment in light mode', () => {
+  it('uses the Super Dolphin Agent primary action treatment in light mode', () => {
     const tokens = declarationsFor(':root[data-theme="dark"]');
     const light = declarationsFor('.sa-window[data-theme="light"]');
     const primary = declarationsFor('.btn-primary');

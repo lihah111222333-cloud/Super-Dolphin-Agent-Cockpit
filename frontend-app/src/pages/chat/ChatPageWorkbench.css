@@ -11,7 +11,7 @@
   background: var(--workbench-bg);
 }
 
-.sa-window.suiyuan-shell .chat-page {
+.sa-window.super-dolphin-agent-shell .chat-page {
   position: relative;
 }
 
@@ -272,7 +272,7 @@
   border-radius: 50%;
   background: var(--surface);
   color: var(--text-sec);
-  box-shadow: var(--suiyuan-card-shadow);
+  box-shadow: var(--super-dolphin-agent-card-shadow);
   margin-right: 12px;
   opacity: 0;
   transform: translateX(48px);
@@ -318,7 +318,7 @@
 }
 
 .conversation {
-  --conversation-content-width: min(var(--suiyuan-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))));
+  --conversation-content-width: min(var(--super-dolphin-agent-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))));
   min-width: 0;
   background: var(--bg);
 }
@@ -535,9 +535,9 @@
   margin: 0 auto;
   border: 1px solid var(--line);
   border-color: var(--line);
-  border-radius: var(--suiyuan-radius-input);
+  border-radius: var(--super-dolphin-agent-radius-input);
   background: var(--surface);
-  box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
+  box-shadow: var(--super-dolphin-agent-input-shadow), var(--super-dolphin-agent-input-highlight);
   overflow: visible;
 }
 
@@ -561,7 +561,7 @@
   height: 76px;
   min-height: 76px;
   padding: 18px 20px 12px;
-  border-radius: var(--suiyuan-radius-input) var(--suiyuan-radius-input) 0 0;
+  border-radius: var(--super-dolphin-agent-radius-input) var(--super-dolphin-agent-radius-input) 0 0;
 }
 
 .composer textarea::placeholder {
@@ -974,7 +974,7 @@
   }
 }
 
-/* Keep the high-specificity light override aligned with exported Suiyuan tokens. */
+/* Keep the high-specificity light override aligned with exported Super Dolphin Agent tokens. */
 .sa-window[data-theme="light"].sa-window {
   --bg: #f5f7fa;
   --bg-elevated: #ffffff;

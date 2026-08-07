@@ -131,7 +131,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     const addFileButton = screen.getByRole('button', { name: 'Add file' });
     expect(addFileButton.textContent).toBe('');
     expect(addFileButton.querySelector('svg')).toBeInTheDocument();
-    expect(screen.getByText('Suiyuan AI can make mistakes. Consider verifying critical information.')).toBeInTheDocument();
+    expect(screen.getByText('Super Dolphin Agent can make mistakes. Consider verifying critical information.')).toBeInTheDocument();
     expect(screen.queryByText('总结文档')).not.toBeInTheDocument();
     expect(screen.queryByText('燧元 AI 可能出错，请核对重要信息。')).not.toBeInTheDocument();
     expect(store.setDraft).toHaveBeenCalledWith('Please summarize this document, highlighting key conclusions, risks, and next steps.');

@@ -54,16 +54,16 @@
 }
 
 .sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] {
-  --primary: var(--suiyuan-primary);
-  --primary-soft: var(--suiyuan-primary-fixed);
-  --info: var(--suiyuan-primary);
-  --blue: var(--suiyuan-primary);
+  --primary: var(--super-dolphin-agent-primary);
+  --primary-soft: var(--super-dolphin-agent-primary-fixed);
+  --info: var(--super-dolphin-agent-primary);
+  --blue: var(--super-dolphin-agent-primary);
   /* 暗色发送圆钮：蓝紫主色底 + 深墨箭头，与深色 AI Command Center 基线一致 */
-  --primary-action-bg: var(--suiyuan-primary);
-  --primary-action-bg-hover: var(--suiyuan-primary-deep);
-  --primary-action-border: var(--suiyuan-primary);
+  --primary-action-bg: var(--super-dolphin-agent-primary);
+  --primary-action-bg-hover: var(--super-dolphin-agent-primary-deep);
+  --primary-action-border: var(--super-dolphin-agent-primary);
   --primary-action-text: var(--primary-ink);
-  --primary-action-shadow: var(--suiyuan-input-shadow);
+  --primary-action-shadow: var(--super-dolphin-agent-input-shadow);
   background: linear-gradient(
     to top,
     var(--bg) 0%,
@@ -206,9 +206,9 @@
   margin: 0 auto;
   border: 1px solid var(--line);
   border-color: var(--line);
-  border-radius: var(--suiyuan-radius-input);
+  border-radius: var(--super-dolphin-agent-radius-input);
   background: var(--surface);
-  box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
+  box-shadow: var(--super-dolphin-agent-input-shadow), var(--super-dolphin-agent-input-highlight);
 }
 
 .composer.composer--floating[data-file-drop-target] .composer-card {
@@ -220,48 +220,48 @@
   margin: 0 auto;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface));
-  border-radius: var(--suiyuan-radius-input);
-  background: var(--suiyuan-surface-lowest, var(--surface));
-  box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
+  border-radius: var(--super-dolphin-agent-radius-input);
+  background: var(--super-dolphin-agent-surface-lowest, var(--surface));
+  box-shadow: var(--super-dolphin-agent-input-shadow), var(--super-dolphin-agent-input-highlight);
   overflow: visible;
   pointer-events: auto;
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card {
-  border-color: var(--suiyuan-surface-variant);
+  border-color: var(--super-dolphin-agent-surface-variant);
   background: var(--surface);
-  box-shadow: var(--suiyuan-input-shadow);
+  box-shadow: var(--super-dolphin-agent-input-shadow);
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-attach,
 .sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-attach-image {
-  border-color: var(--suiyuan-surface-variant);
-  background: var(--suiyuan-surface-low);
-  color: var(--suiyuan-secondary);
+  border-color: var(--super-dolphin-agent-surface-variant);
+  background: var(--super-dolphin-agent-surface-low);
+  color: var(--super-dolphin-agent-secondary);
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-model {
-  border-color: color-mix(in srgb, var(--suiyuan-primary-fixed) 30%, transparent);
-  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent);
-  color: var(--suiyuan-on-surface);
+  border-color: color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 30%, transparent);
+  background: color-mix(in srgb, var(--super-dolphin-agent-primary-fixed) 10%, transparent);
+  color: var(--super-dolphin-agent-on-surface);
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .send:disabled {
   border: 0;
-  background: var(--suiyuan-primary);
+  background: var(--super-dolphin-agent-primary);
   color: var(--on-accent);
-  box-shadow: var(--suiyuan-send-shadow);
+  box-shadow: var(--super-dolphin-agent-send-shadow);
   opacity: 1;
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer-disclaimer {
-  color: var(--suiyuan-on-surface-variant);
+  color: var(--super-dolphin-agent-on-surface-variant);
 }
 
 .sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-card {
-  border-color: var(--suiyuan-outline-variant);
-  background: var(--suiyuan-surface-low);
-  box-shadow: var(--suiyuan-input-shadow);
+  border-color: var(--super-dolphin-agent-outline-variant);
+  background: var(--super-dolphin-agent-surface-low);
+  box-shadow: var(--super-dolphin-agent-input-shadow);
 }
 
 .composer textarea {
@@ -295,7 +295,7 @@
   padding: 18px 20px 12px;
   border: 0;
   border-bottom: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-input) var(--suiyuan-radius-input) 0 0;
+  border-radius: var(--super-dolphin-agent-radius-input) var(--super-dolphin-agent-radius-input) 0 0;
   background: transparent;
   color: var(--text-pri);
   font-size: 15px;

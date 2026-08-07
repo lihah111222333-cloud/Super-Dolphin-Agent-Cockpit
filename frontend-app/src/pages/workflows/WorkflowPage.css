@@ -33,7 +33,7 @@
 .enterprise-workflow-templates {
   margin: 16px 16px 0;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: var(--surface);
   padding: 16px;
   outline: none;
@@ -107,7 +107,7 @@
 .enterprise-template-filters select {
   min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 0 10px;
@@ -149,7 +149,7 @@
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   color: var(--text-sec);
   background: var(--surface);
 }
@@ -221,7 +221,7 @@
 .enterprise-template-format select {
   min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 0 10px;
@@ -242,7 +242,7 @@
 .enterprise-template-workbench {
   margin: 12px 16px 0;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: var(--surface);
   padding: 16px;
 }
@@ -342,7 +342,7 @@
   width: 100%;
   min-height: 36px;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 8px 10px;
@@ -376,7 +376,7 @@
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--line);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   color: var(--text-muted);
   background: var(--surface-2);
 }
@@ -483,7 +483,7 @@
 .enterprise-design-progress {
   margin: 12px 16px 0;
   border: 1px solid color-mix(in srgb, var(--accent-2) 35%, var(--line));
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: color-mix(in srgb, var(--accent-2) 7%, var(--surface));
   padding: 14px;
 }
@@ -582,7 +582,7 @@
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: var(--suiyuan-radius-card);
+  border-radius: var(--super-dolphin-agent-radius-card);
   background: var(--surface);
   padding: 12px;
 }
@@ -673,7 +673,7 @@
   color: var(--text-sec);
   background: var(--surface-code);
   padding: 6px 12px;
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   border: 1px solid var(--line);
   max-width: 100%;
   overflow-x: auto;
@@ -885,7 +885,7 @@
 .dag-run-list-toggle {
   min-height: 42px;
   border: 1px solid var(--border);
-  border-radius: var(--suiyuan-radius-control);
+  border-radius: var(--super-dolphin-agent-radius-control);
   background: var(--surface);
   color: var(--text-sec);
   font-weight: 700;

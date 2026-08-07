@@ -1,5 +1,5 @@
 const APP_BRAND_NAME = '燧元';
-const APP_LANGUAGE_STORAGE_KEY = 'suiyuan-language';
+const APP_LANGUAGE_STORAGE_KEY = 'super-dolphin-agent-language';
 
 const APP_LOCALES = Object.freeze({
   zh: 'zh',
