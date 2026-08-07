@@ -229,6 +229,7 @@ func (m *manager) capturePublishDiagnostics(params protocol.PublishDiagnosticsPa
 	params.URI = uri
 
 	scope := m.scopeForPublishedDiagnostics(params.URI)
+	m.logClangdDiagnosticsAttribution(scope)
 	key := diagnosticStoreKeyFor(scope, params.URI)
 	return capturedPublishDiagnostics{
 		params:        params,
@@ -573,7 +574,6 @@ func (m *manager) scopeForPublishedDiagnostics(uri string) ResolvedLSPToolScope 
 	}
 	return ResolvedLSPToolScope{LSPToolScope: LSPToolScope{LanguageID: languageFromURI(uri)}}
 }
-
 func (m *manager) resolvedScopeForURI(ctx context.Context, uri, languageID string) (documentRef, workspaceConfig, ResolvedLSPToolScope, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, languageID)
 	if err != nil {

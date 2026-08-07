@@ -28,8 +28,7 @@ func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
 	if err == nil {
 		return cleanSortedUniquePaths(roots), nil
 	}
-	var execErr *exec.Error
-	if !errors.As(err, &execErr) {
+	if _, ok := errors.AsType[*exec.Error](err); !ok {
 		return nil, err
 	}
 	return parseGoWorkModuleRootsFallback(goWorkPath)
@@ -323,7 +322,13 @@ func lspProjectIgnoredDirSet(service string) map[string]struct{} {
 }
 
 func normalizeLanguageID(languageID string) string {
-	return strings.ToLower(strings.TrimSpace(languageID))
+	languageID = strings.ToLower(strings.TrimSpace(languageID))
+	switch languageID {
+	case "mq5", "mqh":
+		return "cpp"
+	default:
+		return languageID
+	}
 }
 
 func fileURIFromPath(absPath string) string {

@@ -18,6 +18,7 @@ type languageOverrideRegistry struct {
 	manager       *languageOverrideManager
 	gotFilePath   string
 	gotLanguageID string
+	fileErr       error
 }
 
 func (r *languageOverrideRegistry) GetManagerForFile(_ context.Context, filePath string) (lspmanager.Manager, error) {
@@ -36,6 +37,9 @@ func (r *languageOverrideRegistry) GetManagerForFile(_ context.Context, filePath
 func (r *languageOverrideRegistry) GetManagerForFileWithLanguage(_ context.Context, filePath, languageID string) (lspmanager.Manager, error) {
 	r.gotFilePath = filePath
 	r.gotLanguageID = languageID
+	if r.fileErr != nil {
+		return nil, r.fileErr
+	}
 	return lspmanager.ManagerWithResolvedScope(r.manager, lspmanager.ResolvedToolScope{
 		ToolScope: lspmanager.ToolScope{LanguageID: languageID, TargetPath: filePath},
 		ScopeKey:  "scope",
@@ -129,6 +133,42 @@ func TestManagerForFileAutomaticallyRoutesSQLiteSQL(t *testing.T) {
 	}
 	if registry.gotLanguageID != sqliteSQLLanguageID {
 		t.Fatalf("registry language = %q, want %q", registry.gotLanguageID, sqliteSQLLanguageID)
+	}
+}
+
+func TestManagerForFileWrapsUnsupportedLanguageAttribution(t *testing.T) {
+	root := t.TempDir()
+	target := writeSQLDialectTestFile(t, root, "sample.unknown", "opaque\n")
+	registry := &languageOverrideRegistry{
+		manager: &languageOverrideManager{},
+		fileErr: lspmanager.ErrUnsupportedLanguage,
+	}
+
+	_, err := managerForFile(context.Background(), registry, target, "proto")
+	if err == nil {
+		t.Fatal("managerForFile() error = nil, want language_unsupported")
+	}
+	if !errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		t.Fatalf("managerForFile() error = %v, want errors.Is ErrUnsupportedLanguage", err)
+	}
+	var coded *common.CodedToolError
+	if !errors.As(err, &coded) {
+		t.Fatalf("managerForFile() error = %T, want *common.CodedToolError", err)
+	}
+	if coded.Code != "language_unsupported" {
+		t.Fatalf("coded error = %q, want language_unsupported", coded.Code)
+	}
+	wantDetected := lspmanager.DetectLanguageID(target)
+	for key, want := range map[string]any{
+		"requested_language": "proto",
+		"detected_language":  wantDetected,
+		"resolved_language":  "proto",
+		"file_extension":     ".unknown",
+		"adapter_status":     "registry_lookup_miss",
+	} {
+		if got := coded.Meta[key]; got != want {
+			t.Errorf("coded meta[%q] = %#v, want %#v", key, got, want)
+		}
 	}
 }
 

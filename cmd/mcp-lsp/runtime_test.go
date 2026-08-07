@@ -700,10 +700,44 @@ func writeTypeScriptNPMFixture(t *testing.T) (string, string) {
 }
 
 func TestRuntimePrimaryLanguageIDsIncludeShellscriptAndSQL(t *testing.T) {
-	for _, languageID := range []string{"shellscript", "sql"} {
+	for _, languageID := range []string{"shellscript", "proto", "sql"} {
 		if !slices.Contains(runtimePrimaryLanguageIDs(), languageID) {
 			t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing %s", runtimePrimaryLanguageIDs(), languageID)
 		}
+	}
+}
+
+func TestSetupInstallerRegistersBufProtoLanguageServer(t *testing.T) {
+	binDir := t.TempDir()
+	writeMcpLSPExecutable(t, binDir, "buf")
+	bufBinary := filepath.Join(binDir, mcpLSPExecutableFileName("buf"))
+	t.Setenv("PATH", binDir)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(proto) error = %v", err)
+	}
+	if result.Binary != "buf" || result.Path != bufBinary {
+		t.Fatalf("proto installer result = %#v, want buf at %q", result, bufBinary)
+	}
+}
+
+func TestSetupInstallerReportsMissingBufBinaryForProto(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
+	if err == nil {
+		t.Fatal("EnsureInstalledDetailed(proto) error = nil, want missing binary")
+	}
+	var missing *lspinstaller.MissingBinaryError
+	if !errors.As(err, &missing) {
+		t.Fatalf("EnsureInstalledDetailed(proto) error = %T %v, want MissingBinaryError", err, err)
+	}
+	if languageID, binaryName := missing.MissingLSPBinary(); languageID != "proto" || binaryName != "buf" {
+		t.Fatalf("missing proto binary = (%q, %q), want (proto, buf)", languageID, binaryName)
+	}
+	if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		t.Fatalf("missing proto binary error was classified as unsupported language: %v", err)
 	}
 }
 

@@ -103,6 +103,10 @@ func defaultCoreLSPProjectAdapters() []lspProjectAdapterEntry {
 		{contract.LSPServiceSQL, lspProjectAdapter(
 			[]string{".sqllsrc.json", "sqlc.yaml", "sqlc.yml", "go.mod", "package.json"},
 			commonLSPIgnoredDirs(), []string{".sql"})},
+		{contract.LSPServiceProto, lspProjectAdapter(
+			[]string{"buf.yaml", "buf.work.yaml", ".git"},
+			[]string{".buf", ".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
+			[]string{".proto"})},
 	}
 }
 
@@ -123,7 +127,7 @@ func defaultNativeLSPProjectAdapters() []lspProjectAdapterEntry {
 		{contract.LSPServiceClangd, lspProjectAdapter(
 			[]string{"compile_commands.json", "compile_flags.txt", "CMakeLists.txt", ".clangd"},
 			[]string{".build-cache", ".git", ".workspace", "build", "dist", "node_modules", "vendor"},
-			[]string{".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm"})},
+			[]string{".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm", ".mq5", ".mqh"})},
 		{contract.LSPServiceSwift, lspProjectAdapter(
 			[]string{"Package.swift", ".swiftpm"},
 			[]string{".build", ".build-cache", ".git", ".workspace", "DerivedData", "node_modules", "vendor"},
@@ -204,6 +208,7 @@ func lspConfigFromEnv() (contract.LSPConfig, error) {
 		{service: contract.LSPServiceTerraform, prefix: "LSP_TERRAFORM"},
 		{service: contract.LSPServiceGraphQL, prefix: "LSP_GRAPHQL"},
 		{service: contract.LSPServicePrisma, prefix: "LSP_PRISMA"},
+		{service: contract.LSPServiceProto, prefix: "LSP_PROTO"},
 		{service: contract.LSPServiceShell, prefix: "LSP_SHELL"},
 		{service: contract.LSPServiceSQL, prefix: "LSP_SQL"},
 	} {
@@ -214,6 +219,7 @@ func lspConfigFromEnv() (contract.LSPConfig, error) {
 	return cfg, nil
 }
 
+// effectiveLSPIdleTimeout 解析规范及兼容环境变量，校验冲突后返回有效的 LSP 空闲超时。
 func effectiveLSPIdleTimeout(defaultTimeout time.Duration) (time.Duration, error) {
 	canonical, canonicalSet := os.LookupEnv(lspIdleTimeoutEnv)
 	legacy, legacySet := os.LookupEnv(lspIdleTimeoutLegacyEnv)

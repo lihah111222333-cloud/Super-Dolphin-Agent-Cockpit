@@ -302,6 +302,7 @@ const (
 	LSPServiceTerraform = "terraform"
 	LSPServiceGraphQL   = "graphql"
 	LSPServicePrisma    = "prisma"
+	LSPServiceProto     = "proto"
 	LSPServiceShell     = "shell"
 	LSPServiceSQL       = "sql"
 )

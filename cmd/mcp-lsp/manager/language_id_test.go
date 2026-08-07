@@ -14,6 +14,26 @@ func TestDetectLanguageIDReactExtensions(t *testing.T) {
 	}
 }
 
+func TestDetectLanguageIDProtoExtension(t *testing.T) {
+	for _, file := range []string{"schema.proto", "PROTO/messages.PROTO"} {
+		if got := DetectLanguageID(file); got != "proto" {
+			t.Fatalf("DetectLanguageID(%q) = %q, want proto", file, got)
+		}
+	}
+}
+
+func TestDetectLanguageIDMQLUsesClangdCpp(t *testing.T) {
+	cases := map[string]string{
+		"Experts/robot.mq5":  "cpp",
+		"Include/common.MQH": "cpp",
+	}
+	for file, want := range cases {
+		if got := DetectLanguageID(file); got != want {
+			t.Fatalf("DetectLanguageID(%q) = %q, want %q", file, got, want)
+		}
+	}
+}
+
 func TestDetectLanguageIDDockerBaseNames(t *testing.T) {
 	cases := map[string]string{
 		"Containerfile":        "dockerfile",
@@ -71,6 +91,8 @@ func TestLanguageIDForExtensionResolvesAllCategoriesWithoutRegistryState(t *test
 		".html":      "html",
 		".scss":      "css",
 		".cpp":       "cpp",
+		".mq5":       "cpp",
+		".mqh":       "cpp",
 		".swift":     "swift",
 		".py":        "python",
 		".php":       "php",
@@ -81,6 +103,7 @@ func TestLanguageIDForExtensionResolvesAllCategoriesWithoutRegistryState(t *test
 		".terraform": "",
 		".tf":        "terraform",
 		".graphql":   "graphql",
+		".proto":     "proto",
 		".md":        "markdown",
 		".json":      "json",
 		".yaml":      "yaml",

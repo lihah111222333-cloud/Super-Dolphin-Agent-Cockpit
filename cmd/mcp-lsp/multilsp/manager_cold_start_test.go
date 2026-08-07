@@ -195,6 +195,7 @@ func coldStartLanguageCases(t *testing.T) []coldStartLanguageCase {
 		{languageID: "objective-cpp", write: writeColdStartObjectiveCPPFixture},
 		{languageID: "php", write: writeColdStartPHPFixture},
 		{languageID: "prisma", write: writeColdStartPrismaFixture},
+		{languageID: "proto", write: writeColdStartProtoFixture},
 		{languageID: "python", write: writeColdStartPythonFixture},
 		{languageID: "ruby", write: writeColdStartRubyFixture},
 		{languageID: "rust", write: writeColdStartRustFixture},
@@ -368,6 +369,12 @@ func writeColdStartPrismaFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeColdStartFile(t, root, "package.json", `{"name":"cold-prisma"}`)
 	return writeColdStartFile(t, root, "schema.prisma", "datasource db { provider = \"sqlite\" url = \"file:dev.db\" }\n")
+}
+
+func writeColdStartProtoFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeColdStartFile(t, root, "buf.yaml", "version: v2\n")
+	return writeColdStartFile(t, root, "api/v1/message.proto", "syntax = \"proto3\";\nmessage Message {}\n")
 }
 
 func writeColdStartGoFixture(t *testing.T, root string) string {

@@ -105,6 +105,9 @@ type client struct {
 	resourceReportsReleased     bool
 	resourceCohortLeaseReleased bool
 	capabilities                protocol.ServerCapabilities
+	serverName                  string
+	serverVersion               string
+	initializeResponseKnown     bool
 }
 
 // concreteClient 穿透有限层包装器，定位拥有 transport 与进程资源的真实 client。
@@ -333,7 +336,7 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 		c.markDeadIfClientFailure(err)
 		return fmt.Errorf("LSP initialized notification: %w", err)
 	}
-	capabilities, err := decodeInitializeResult(result)
+	capabilities, serverInfo, err := decodeInitializeResultAttribution(result)
 	if err != nil {
 		return err
 	}
@@ -341,6 +344,9 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	c.rootURI = rootURI
 	c.initialized = true
 	c.capabilities = capabilities
+	c.serverName = serverInfo.name
+	c.serverVersion = serverInfo.version
+	c.initializeResponseKnown = true
 	c.stateMu.Unlock()
 	return nil
 }
@@ -511,6 +517,112 @@ func (c *client) ServerCapabilities() protocol.ServerCapabilities {
 	return c.dynamicRegistrations.serverCapabilities(capabilities)
 }
 
+type initializeServerInfo struct {
+	name    string
+	version string
+}
+
+type initializeResultAttribution struct {
+	Capabilities protocol.ServerCapabilities
+	ServerInfo   struct {
+		Name    string
+		Version string
+	}
+}
+
+// lspClientAttribution 提取服务端能力和进程身份的有限观测字段，排除路径、参数和请求正文。
+func lspClientAttribution(current Client) map[string]any {
+	attrs := map[string]any{}
+	concrete, concreteOK := concreteClient(current)
+	if concreteOK {
+		concrete.stateMu.RLock()
+		known := concrete.initializeResponseKnown
+		name := concrete.serverName
+		version := concrete.serverVersion
+		capabilities := concrete.capabilities
+		concrete.stateMu.RUnlock()
+		if known {
+			attrs["capabilities_known"] = true
+			attrs["capability_snapshot"] = serverCapabilitySnapshot(capabilities)
+		}
+		if name != "" {
+			attrs["server_name"] = name
+		}
+		if version != "" {
+			attrs["server_version"] = version
+		}
+		if executable := concrete.serverExecutable(); executable != "" {
+			attrs["server_executable"] = executable
+		}
+		if pid := concrete.serverProcessID(); pid > 0 {
+			attrs["server_pid"] = pid
+		}
+		return attrs
+	}
+	if capabilityClient, ok := current.(ServerCapabilitiesClient); ok {
+		attrs["capabilities_known"] = true
+		attrs["capability_snapshot"] = serverCapabilitySnapshot(capabilityClient.ServerCapabilities())
+	}
+	return attrs
+}
+
+// serverExecutable 返回子进程可执行文件的 basename，避免日志记录原始路径。
+func (c *client) serverExecutable() string {
+	if c == nil || c.transport == nil || c.transport.cmd == nil {
+		return ""
+	}
+	command := strings.TrimSpace(c.transport.cmd.Path)
+	if command == "" && len(c.transport.cmd.Args) > 0 {
+		command = strings.TrimSpace(c.transport.cmd.Args[0])
+	}
+	if command == "" {
+		return ""
+	}
+	executable := path.Base(command)
+	if executable == "." || executable == "/" || executable == "" {
+		return ""
+	}
+	return executable
+}
+
+func (c *client) serverProcessID() int {
+	if c == nil || c.transport == nil || c.transport.cmd == nil || c.transport.cmd.Process == nil {
+		return 0
+	}
+	return c.transport.cmd.Process.Pid
+}
+
+func serverCapabilitySnapshot(capabilities protocol.ServerCapabilities) string {
+	values := []string{
+		"call_hierarchy=" + boolString(serverCapabilityAvailable(capabilities.CallHierarchyProvider)),
+		"code_action=" + boolString(serverCapabilityAvailable(capabilities.CodeActionProvider)),
+		"completion=" + boolString(serverCapabilityAvailable(capabilities.CompletionProvider)),
+		"definition=" + boolString(serverCapabilityAvailable(capabilities.DefinitionProvider)),
+		"diagnostic=" + boolString(serverCapabilityAvailable(capabilities.DiagnosticProvider)),
+		"document_formatting=" + boolString(serverCapabilityAvailable(capabilities.DocumentFormattingProvider)),
+		"document_symbol=" + boolString(serverCapabilityAvailable(capabilities.DocumentSymbolProvider)),
+		"folding_range=" + boolString(serverCapabilityAvailable(capabilities.FoldingRangeProvider)),
+		"hover=" + boolString(serverCapabilityAvailable(capabilities.HoverProvider)),
+		"implementation=" + boolString(serverCapabilityAvailable(capabilities.ImplementationProvider)),
+		"references=" + boolString(serverCapabilityAvailable(capabilities.ReferencesProvider)),
+		"rename=" + boolString(serverCapabilityAvailable(capabilities.RenameProvider)),
+		"semantic_tokens=" + boolString(serverCapabilityAvailable(capabilities.SemanticTokensProvider)),
+		"signature_help=" + boolString(serverCapabilityAvailable(capabilities.SignatureHelpProvider)),
+		"text_document_sync=" + boolString(serverCapabilityAvailable(capabilities.TextDocumentSync)),
+		"type_definition=" + boolString(serverCapabilityAvailable(capabilities.TypeDefinitionProvider)),
+		"type_hierarchy=" + boolString(serverCapabilityAvailable(capabilities.TypeHierarchyProvider)),
+		"workspace_symbol=" + boolString(serverCapabilityAvailable(capabilities.WorkspaceSymbolProvider)),
+	}
+	return strings.Join(values, ",")
+}
+
+func boolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
 func (c *client) canInitialize(rootURI string) error {
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
@@ -559,15 +671,18 @@ func (c *client) markDeadIfClientFailure(err error) {
 	}
 }
 
-func decodeInitializeResult(result json.RawMessage) (protocol.ServerCapabilities, error) {
+func decodeInitializeResultAttribution(result json.RawMessage) (protocol.ServerCapabilities, initializeServerInfo, error) {
 	if len(result) == 0 {
-		return protocol.ServerCapabilities{}, nil
+		return protocol.ServerCapabilities{}, initializeServerInfo{}, nil
 	}
-	var decoded protocol.InitializeResult
+	var decoded initializeResultAttribution
 	if err := json.Unmarshal(result, &decoded); err != nil {
-		return protocol.ServerCapabilities{}, fmt.Errorf("decode initialize result: %w", err)
+		return protocol.ServerCapabilities{}, initializeServerInfo{}, fmt.Errorf("decode initialize result: %w", err)
 	}
-	return decoded.Capabilities, nil
+	return decoded.Capabilities, initializeServerInfo{
+		name:    strings.TrimSpace(decoded.ServerInfo.Name),
+		version: strings.TrimSpace(decoded.ServerInfo.Version),
+	}, nil
 }
 
 // clientCapabilities 声明本 sidecar 支持的 LSP 能力集合。

@@ -33,7 +33,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 		projectAdapterFromConfig(markdownAdapterDefaults(), cfg, contract.LSPServiceMarkdown),
 		projectAdapterFromConfig(vueAdapterDefaults(), cfg, contract.LSPServiceVue),
 		projectAdapterFromConfig(svelteAdapterDefaults(), cfg, contract.LSPServiceSvelte),
-		projectAdapterFromConfig(clangdAdapterDefaults(), cfg, contract.LSPServiceClangd),
+		clangdAdapterFromConfig(cfg),
 		projectAdapterFromConfig(swiftAdapterDefaults(), cfg, contract.LSPServiceSwift),
 		projectAdapterFromConfig(csharpAdapterDefaults(), cfg, contract.LSPServiceCSharp),
 		projectAdapterFromConfig(phpAdapterDefaults(), cfg, contract.LSPServicePHP),
@@ -46,6 +46,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 		projectAdapterFromConfig(graphqlAdapterDefaults(), cfg, contract.LSPServiceGraphQL),
 		projectAdapterFromConfig(prismaAdapterDefaults(), cfg, contract.LSPServicePrisma),
 		projectAdapterFromConfig(shellAdapterDefaults(), cfg, contract.LSPServiceShell),
+		projectAdapterFromConfig(protoAdapterDefaults(), cfg, contract.LSPServiceProto),
 		sqliteSQLAdapterFromConfig(cfg),
 		documentFallbackAdapter{languageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs)},
 	)
@@ -305,6 +306,14 @@ func shellAdapterDefaults() projectLanguageAdapter {
 		languageIDs: []string{"shellscript"},
 		command:     ServerCommand{Executable: "bash-language-server", Args: []string{"start"}},
 		rootKind:    "shell_project",
+	}
+}
+
+func protoAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"proto"},
+		command:     ServerCommand{Executable: "buf", Args: []string{"lsp", "serve"}},
+		rootKind:    "proto_project",
 	}
 }
 

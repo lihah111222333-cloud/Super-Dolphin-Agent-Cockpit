@@ -216,7 +216,7 @@ func runtimePrimaryLanguageIDs() []string {
 		"go", "javascript", "python", "css", "html", "json", "yaml", "markdown",
 		"vue", "svelte", "c", "swift", "csharp", "php", "ruby", "kotlin", "dart",
 		"lua", "dockerfile", "terraform", "graphql", "prisma", "rust", "java",
-		"shellscript", "sql",
+		"shellscript", "proto", "sql",
 	}
 }
 
@@ -462,6 +462,7 @@ func registerNativeToolInstallers(inst *installer.Provider) {
 	registerInstallerSpecs(inst, []runtimeInstallerSpec{
 		{[]string{"c", "cpp", "objective-c", "objective-cpp"}, "clangd", "brew", []string{"install", "llvm"}},
 		{[]string{"swift"}, "sourcekit-lsp", "brew", []string{"install", "swift"}},
+		{[]string{"proto"}, "buf", "brew", []string{"install", "buf"}},
 		{[]string{"csharp"}, "csharp-ls", "dotnet", []string{"tool", "install", "--global", "csharp-ls"}},
 		{[]string{"ruby"}, "solargraph", "brew", []string{"install", "solargraph"}},
 		{[]string{"kotlin"}, "kotlin-language-server", "brew", []string{"install", "kotlin-language-server"}},

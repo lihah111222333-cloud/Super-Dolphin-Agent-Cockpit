@@ -114,6 +114,7 @@ func TestGenericLanguageServicesMatrixCoversDefaultLSPClients(t *testing.T) {
 		"objective-cpp",
 		"php",
 		"prisma",
+		"proto",
 		"python",
 		"ruby",
 		"rust",

@@ -228,6 +228,69 @@ func assertSQLBootstrapPolicy(t *testing.T, policy BootstrapPolicy) {
 	}
 }
 
+func TestLanguageAdapterRegistryFromConfigRegistersProtoBufAdapter(t *testing.T) {
+	root, target := writeProtoAdapterTestFixture(t)
+	adapter := requireProtoAdapter(t)
+	assertProtoAdapterServerCommand(t, adapter)
+	resolved := resolveProtoAdapterScope(t, adapter, root, target)
+	assertProtoAdapterScope(t, adapter, resolved, root)
+}
+
+func writeProtoAdapterTestFixture(t *testing.T) (string, string) {
+	t.Helper()
+	root := canonicalScopePath(t.TempDir(), "")
+	target := filepath.Join(root, "api", "v1", "message.proto")
+	writeGenericTestFile(t, filepath.Join(root, "buf.yaml"), "version: v2\n")
+	writeGenericTestFile(t, target, "syntax = \"proto3\";\nmessage Message {}\n")
+	return root, target
+}
+
+func requireProtoAdapter(t *testing.T) LanguageAdapter {
+	t.Helper()
+	registry := NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("proto")
+	if !ok {
+		t.Fatal("missing proto adapter")
+	}
+	return adapter
+}
+
+func assertProtoAdapterServerCommand(t *testing.T, adapter LanguageAdapter) {
+	t.Helper()
+	command, err := adapter.ServerCommand(context.Background(), ResolvedLanguageScope{})
+	if err != nil {
+		t.Fatalf("proto ServerCommand: %v", err)
+	}
+	if command.Executable != "buf" || !reflect.DeepEqual(command.Args, []string{"lsp", "serve"}) {
+		t.Fatalf("proto ServerCommand() = %#v, want buf lsp serve", command)
+	}
+}
+
+func resolveProtoAdapterScope(t *testing.T, adapter LanguageAdapter, root, target string) ResolvedLanguageScope {
+	t.Helper()
+	resolved, err := adapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        root,
+		LanguageID: "proto",
+		TargetPath: target,
+	}, target)
+	if err != nil {
+		t.Fatalf("proto ResolveRoot: %v", err)
+	}
+	return resolved
+}
+
+func assertProtoAdapterScope(t *testing.T, adapter LanguageAdapter, resolved ResolvedLanguageScope, root string) {
+	t.Helper()
+	if resolved.WorkspaceRoot != root || resolved.LanguageID != "proto" || resolved.RootKind != "proto_project" {
+		t.Fatalf("proto resolved scope = %#v, want proto project at %q", resolved, root)
+	}
+	policy := adapter.BootstrapPolicy(resolved)
+	if !policy.OpenTarget || !policy.TreatMissingDiagnosticsAsEmpty || !reflect.DeepEqual(policy.FirstSourceExtensions, []string{".proto"}) {
+		t.Fatalf("proto BootstrapPolicy() = %#v, want open target and .proto source", policy)
+	}
+}
+
 func TestPythonAdapterRequiresExplicitDiagnosticsPublish(t *testing.T) {
 	registry := NewDefaultLanguageAdapterRegistry()
 	adapter, ok := registry.AdapterForLanguage("python")

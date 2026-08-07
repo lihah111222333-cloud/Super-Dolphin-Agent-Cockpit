@@ -107,7 +107,7 @@ func languageIDForSystemsExtension(ext string) (string, bool) {
 	switch ext {
 	case ".c", ".h":
 		return "c", true
-	case ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx":
+	case ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx", ".mq5", ".mqh":
 		return "cpp", true
 	case ".m":
 		return "objective-c", true
@@ -159,6 +159,8 @@ func languageIDForToolExtension(ext string) (string, bool) {
 		return "graphql", true
 	case ".prisma":
 		return "prisma", true
+	case ".proto":
+		return "proto", true
 	default:
 		return "", false
 	}

@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"time"
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type strictToolUnknownFieldError struct {
@@ -152,8 +154,8 @@ func addStrictJSONFields(t reflect.Type, allowed map[string]struct{}) {
 	if t.Kind() != reflect.Struct {
 		return
 	}
-	for i := range t.NumField() {
-		addStrictJSONField(t.Field(i), allowed)
+	for field := range t.Fields() {
+		addStrictJSONField(field, allowed)
 	}
 }
 
@@ -346,7 +348,33 @@ func managerForFile(ctx context.Context, registry lspmanager.Registry, filePath 
 	if err != nil {
 		return nil, err
 	}
-	return registry.GetManagerForFileWithLanguage(ctx, filePath, resolvedLanguageID)
+	manager, err := registry.GetManagerForFileWithLanguage(ctx, filePath, resolvedLanguageID)
+	if err != nil && errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		return nil, languageUnsupportedError(
+			err,
+			filePath,
+			normalizeLanguageIDOverride(languageID),
+			lspmanager.DetectLanguageID(filePath),
+			resolvedLanguageID,
+		)
+	}
+	return manager, err
+}
+
+func languageUnsupportedError(err error, filePath, requested, detected, resolved string) error {
+	meta := map[string]any{
+		"requested_language": requested,
+		"detected_language":  detected,
+		"resolved_language":  resolved,
+		"file_extension":     strings.ToLower(filepath.Ext(filePath)),
+		"adapter_status":     "registry_lookup_miss",
+	}
+	return &common.CodedToolError{
+		Err:       err,
+		Code:      "language_unsupported",
+		Retryable: false,
+		Meta:      meta,
+	}
 }
 
 func normalizeLanguageIDOverride(languageID string) string {

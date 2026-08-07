@@ -126,6 +126,7 @@ func TestRuntimeSemanticLSPBinariesDerivedFromAdapters(t *testing.T) {
 		"rust-analyzer",
 		"jdtls",
 		"bash-language-server",
+		"buf",
 		"sqruff",
 	}
 	if !reflect.DeepEqual(got, want) {

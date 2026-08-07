@@ -66,15 +66,55 @@ func TestLoggingIncludesDocumentSymbolCapabilityMethod(t *testing.T) {
 			Err:       errors.New("unsupported capability"),
 			Code:      "capability_unsupported",
 			Retryable: false,
-			Meta:      map[string]any{"lsp_method": "textDocument/documentSymbol"},
+			Meta: map[string]any{
+				"lsp_method":          "textDocument/documentSymbol",
+				"server_executable":   "sqruff",
+				"server_name":         "sqruff",
+				"server_version":      "0.23.1",
+				"server_pid":          12345,
+				"capabilities_known":  true,
+				"capability_snapshot": "document_symbol=false,diagnostic=true",
+			},
 		}
 	})(context.Background(), nil)
 
 	for _, field := range []string{
 		`"error_code":"capability_unsupported"`, `"retryable":false`, `"lsp_method":"textDocument/documentSymbol"`,
+		`"server_executable":"sqruff"`, `"server_name":"sqruff"`, `"server_version":"0.23.1"`,
+		`"server_pid":12345`, `"capabilities_known":true`, `"capability_snapshot":"document_symbol=false,diagnostic=true"`,
 	} {
 		if !strings.Contains(output.String(), field) {
 			t.Fatalf("capability log missing %s: %s", field, output.String())
+		}
+	}
+}
+
+func TestLoggingIncludesLanguageUnsupportedAttribution(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	_, _ = Logging(logger, "structure")(func(context.Context, json.RawMessage) (any, error) {
+		return nil, &common.CodedToolError{
+			Err:       errors.New("unsupported language"),
+			Code:      "language_unsupported",
+			Retryable: false,
+			Meta: map[string]any{
+				"requested_language": "proto",
+				"detected_language":  "unknown",
+				"resolved_language":  "proto",
+				"file_extension":     ".unknown",
+				"adapter_status":     "registry_lookup_miss",
+			},
+		}
+	})(context.Background(), nil)
+
+	for _, field := range []string{
+		`"error_code":"language_unsupported"`, `"retryable":false`,
+		`"requested_language":"proto"`, `"detected_language":"unknown"`,
+		`"resolved_language":"proto"`, `"file_extension":".unknown"`,
+		`"adapter_status":"registry_lookup_miss"`,
+	} {
+		if !strings.Contains(output.String(), field) {
+			t.Fatalf("language attribution log missing %s: %s", field, output.String())
 		}
 	}
 }

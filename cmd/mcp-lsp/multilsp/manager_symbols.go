@@ -222,16 +222,14 @@ func (m *manager) requestDocumentSymbols(ctx context.Context, client Client, ref
 			Code:      "capability_unsupported",
 			Retryable: false,
 			Hint:      "next: use a language server that advertises or dynamically registers textDocument/documentSymbol",
-			Meta: map[string]any{
-				"lsp_method": protocol.MethodDocumentSymbol,
-			},
+			Meta:      capabilityErrorMeta(protocol.MethodDocumentSymbol, client),
 		}
 	}
 	raw, err := m.request(ctx, client, protocol.MethodDocumentSymbol, protocol.DocumentSymbolParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
 	})
 	if err != nil {
-		return nil, unsupportedCapabilityError(err)
+		return nil, unsupportedCapabilityErrorForMethod(err, protocol.MethodDocumentSymbol, client)
 	}
 	return decodeDocumentSymbols(raw)
 }
@@ -244,6 +242,15 @@ func clientSupportsDocumentSymbols(client Client) bool {
 		return true
 	}
 	return serverCapabilityAvailable(capClient.ServerCapabilities().DocumentSymbolProvider)
+}
+
+func capabilityErrorMeta(method string, client Client) map[string]any {
+	meta := lspClientAttribution(client)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	meta["lsp_method"] = method
+	return meta
 }
 
 // WorkspaceSymbol 查询指定语言 workspace 内的符号。
@@ -259,7 +266,7 @@ func (m *managerStructure) WorkspaceSymbol(ctx context.Context, query string, la
 	}
 	raw, err := m.request(ctx, client, protocol.MethodWorkspaceSymbol, protocol.WorkspaceSymbolParams{Query: query})
 	if err != nil {
-		return nil, unsupportedCapabilityError(err)
+		return nil, unsupportedCapabilityErrorForMethod(err, protocol.MethodWorkspaceSymbol, client)
 	}
 	return decodeWorkspaceSymbols(raw)
 }

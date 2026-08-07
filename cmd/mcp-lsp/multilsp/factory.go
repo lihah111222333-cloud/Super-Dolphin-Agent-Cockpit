@@ -11,6 +11,7 @@ import (
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type documentParamsBuilder func(documentRef) any
@@ -72,7 +73,7 @@ func requestDocument[T any](
 	}
 	raw, err := m.request(ctx, client, method, buildDocumentParams(ref, build))
 	if err != nil {
-		return zero, unsupportedCapabilityError(err)
+		return zero, unsupportedCapabilityErrorForMethod(err, method, client)
 	}
 	if decode == nil {
 		return zero, nil
@@ -171,12 +172,12 @@ func queryHierarchy[I any, R any](
 	}
 	items, err := prepareHierarchy[I](ctx, m, client, prepareMethod, ref.uri, position)
 	if err != nil {
-		return nil, unsupportedCapabilityError(err)
+		return nil, unsupportedCapabilityErrorForMethod(err, prepareMethod, client)
 	}
 	if len(items) == 0 && m.shouldRetryEmptyHierarchyPrepare(ref.languageID, prepareMethod) {
 		items, err = retryEmptyHierarchyPrepare[I](ctx, m, ref, client, prepareMethod, position)
 		if err != nil {
-			return nil, unsupportedCapabilityError(err)
+			return nil, unsupportedCapabilityErrorForMethod(err, prepareMethod, client)
 		}
 	}
 	results := make([]R, 0, len(items))
@@ -268,7 +269,7 @@ func resolveHierarchyDirections[I any, R any](
 		}
 		raw, err := m.request(ctx, client, step.method, step.params(item))
 		if err != nil {
-			return result, unsupportedCapabilityError(err)
+			return result, unsupportedCapabilityErrorForMethod(err, step.method, client)
 		}
 		if err := step.assign(&result, raw); err != nil {
 			return result, fmt.Errorf("decode %s: %w", step.label, err)
@@ -282,11 +283,17 @@ func isLSPMethodNotFound(err error) bool {
 	return errors.As(err, &responseErr) && responseErr.Code == jsonRPCMethodNotFound
 }
 
-func unsupportedCapabilityError(err error) error {
+func unsupportedCapabilityErrorForMethod(err error, method string, client Client) error {
 	if !isLSPMethodNotFound(err) {
 		return err
 	}
-	return fmt.Errorf("%w: %w", lspmanager.ErrUnsupportedCapability, err)
+	meta := capabilityErrorMeta(method, client)
+	return &common.CodedToolError{
+		Err:       fmt.Errorf("%w: %w", lspmanager.ErrUnsupportedCapability, err),
+		Code:      "capability_unsupported",
+		Retryable: false,
+		Meta:      meta,
+	}
 }
 
 func decodeUnionList[T any](raw json.RawMessage, decode unionDecodeFunc[T]) ([]T, error) {

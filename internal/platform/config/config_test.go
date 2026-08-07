@@ -457,6 +457,12 @@ func TestNew_DefaultsLSPConfig(t *testing.T) {
 	sql := requireLSPProjectAdapter(t, cfg, contract.LSPServiceSQL)
 	requireStringSliceContains(t, "LSP sql root markers", sql.RootMarkers, "sqlc.yaml")
 	requireStringSliceContains(t, "LSP sql first source extensions", sql.FirstSourceExtensions, ".sql")
+	proto := requireLSPProjectAdapter(t, cfg, contract.LSPServiceProto)
+	for _, marker := range []string{"buf.yaml", "buf.work.yaml", ".git"} {
+		requireStringSliceContains(t, "LSP proto root markers", proto.RootMarkers, marker)
+	}
+	requireStringSliceContains(t, "LSP proto ignored dirs", proto.IgnoredDirNames, ".buf")
+	requireStringSliceContains(t, "LSP proto first source extensions", proto.FirstSourceExtensions, ".proto")
 }
 
 func requireLSPProjectAdapter(t *testing.T, cfg *Config, service string) contract.LSPProjectAdapterConfig {
@@ -491,6 +497,9 @@ func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
 		"LSP_JSTS_ROOT_MARKERS=custom.workspace,package.json",
 		"LSP_PYTHON_ROOT_MARKERS=pyproject.toml,requirements.txt",
 		"LSP_SQL_ROOT_MARKERS=.sqllsrc.json,sqlc.yaml",
+		"LSP_PROTO_ROOT_MARKERS=buf.workspace,buf.yaml",
+		"LSP_PROTO_IGNORED_DIRS=.buf,third_party",
+		"LSP_PROTO_FIRST_SOURCE_EXTENSIONS=.proto,.protodevel",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte(body+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -508,6 +517,15 @@ func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
 	}
 	if got := cfg.LSP.ProjectAdapters[contract.LSPServiceSQL].RootMarkers; !slices.Equal(got, []string{".sqllsrc.json", "sqlc.yaml"}) {
 		t.Fatalf("LSP sql root markers = %#v", got)
+	}
+	if got := cfg.LSP.ProjectAdapters[contract.LSPServiceProto].RootMarkers; !slices.Equal(got, []string{"buf.workspace", "buf.yaml"}) {
+		t.Fatalf("LSP proto root markers = %#v", got)
+	}
+	if got := cfg.LSP.ProjectAdapters[contract.LSPServiceProto].IgnoredDirNames; !slices.Equal(got, []string{".buf", "third_party"}) {
+		t.Fatalf("LSP proto ignored dirs = %#v", got)
+	}
+	if got := cfg.LSP.ProjectAdapters[contract.LSPServiceProto].FirstSourceExtensions; !slices.Equal(got, []string{".proto", ".protodevel"}) {
+		t.Fatalf("LSP proto first source extensions = %#v", got)
 	}
 }
 
@@ -560,6 +578,7 @@ func clearLSPConfigEnv(t *testing.T) {
 		"LSP_CSS_ROOT_MARKERS",
 		"LSP_SHELL_ROOT_MARKERS",
 		"LSP_SQL_ROOT_MARKERS",
+		"LSP_PROTO_ROOT_MARKERS",
 		"LSP_JSTS_IGNORED_DIRS",
 		"LSP_PYTHON_IGNORED_DIRS",
 		"LSP_RUST_IGNORED_DIRS",
@@ -567,8 +586,10 @@ func clearLSPConfigEnv(t *testing.T) {
 		"LSP_CSS_IGNORED_DIRS",
 		"LSP_SHELL_IGNORED_DIRS",
 		"LSP_SQL_IGNORED_DIRS",
+		"LSP_PROTO_IGNORED_DIRS",
 		"LSP_SHELL_FIRST_SOURCE_EXTENSIONS",
 		"LSP_SQL_FIRST_SOURCE_EXTENSIONS",
+		"LSP_PROTO_FIRST_SOURCE_EXTENSIONS",
 		"LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP",
 	} {
 		t.Setenv(key, "")
