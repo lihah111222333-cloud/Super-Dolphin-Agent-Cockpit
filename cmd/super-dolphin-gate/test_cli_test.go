@@ -69,6 +69,25 @@ func TestParseAutoTestRunOptionsBindsDefaultMcpLSPWorkloadAndKeepsItNV(t *testin
 	}
 }
 
+func TestParseAutoTestRunOptionsRejectsLocalMcpLSPWorkloadsForRemoteCLI(t *testing.T) {
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, workloadID := range []string{"mcp-lsp-idle-quick", "mcp-lsp-native-process-tree"} {
+		_, err := parseAutoTestRunOptions([]string{
+			"--config", "/tmp/config.json",
+			"--ledger", "/tmp/config.baseline-state.sqlite",
+			"--repository", "../..",
+			"--agent-token", token,
+			"--workload", workloadID,
+		})
+		if err == nil || !strings.Contains(err.Error(), "remote test cannot execute local runner target") || !strings.Contains(err.Error(), "local runner receipts cannot substitute remote authority") {
+			t.Fatalf("local workload %q parse error = %v, want remote N/V", workloadID, err)
+		}
+	}
+}
+
 func TestValidateMcpLSPWorkloadBlocksDefaultAuthorityBeforeExecution(t *testing.T) {
 	receiptPath := filepath.Join(t.TempDir(), "completion.json")
 	workload := catalog.Workload{

@@ -120,7 +120,8 @@ func validateMcpLSPBindingInput(options *remoteRunOptions) error {
 	return nil
 }
 
-// validateMcpLSPWorkload 执行平台、实现状态和远程 completion authority 门禁。
+// validateMcpLSPWorkload 执行平台、实现状态和远程 completion authority 门禁；
+// local runner workload 不得经 remote test 伪装为 ECI 结果。
 func validateMcpLSPWorkload(workload catalog.Workload, options remoteRunOptions) error {
 	if !workload.SupportsCurrentPlatform() {
 		return fmt.Errorf("platform %q is N/V for workload (registered platforms=%s)", runtime.GOOS, strings.Join(workload.Platforms, ","))
@@ -134,13 +135,29 @@ func validateMcpLSPWorkload(workload catalog.Workload, options remoteRunOptions)
 	if workload.ProducerImplementationStatus != "implemented" && catalog.IsRemoteAuthoritativeWorkload(workload) {
 		return fmt.Errorf("workload %q is N/V: producer_implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ProducerImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
 	}
-	if err := catalog.RequireRemoteCompletionAuthority(workload); err != nil {
+	if err := validateMcpLSPRemoteAuthority(workload); err != nil {
 		return err
 	}
 	if workload.TriggerClass == "default-15m-source-e2e" && options.CompletionReceiptPath == "" {
 		return fmt.Errorf("default-15m requires explicit --completion-receipt")
 	}
 	return nil
+}
+
+// validateMcpLSPRemoteAuthority 先校验远程 authority，再拒绝本地 runner workload。
+func validateMcpLSPRemoteAuthority(workload catalog.Workload) error {
+	if err := catalog.RequireRemoteCompletionAuthority(workload); err != nil {
+		return err
+	}
+	return rejectLocalMcpLSPRemoteWorkload(workload)
+}
+
+// rejectLocalMcpLSPRemoteWorkload 防止本地 runner 回执被当作 ECI 权威结果。
+func rejectLocalMcpLSPRemoteWorkload(workload catalog.Workload) error {
+	if !catalog.IsLocalRunnerWorkload(workload) {
+		return nil
+	}
+	return fmt.Errorf("workload %q is N/V: remote test cannot execute local runner target %q; local runner receipts cannot substitute remote authority", workload.ID, workload.RunnerTarget)
 }
 
 // mcpLSPImplementationStatusError 保持默认 15m 与其他 workload 的 N/V 文案契约。

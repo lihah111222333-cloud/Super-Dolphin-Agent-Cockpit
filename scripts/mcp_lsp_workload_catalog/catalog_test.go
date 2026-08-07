@@ -353,6 +353,25 @@ func TestRequireRemoteCompletionAuthorityFailsBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestIsLocalRunnerWorkloadOnlyMatchesLocalTargets(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{name: "quick local", target: "local-go-test", want: true},
+		{name: "native local", target: "local-process-test", want: true},
+		{name: "remote", target: "remote-gate-test"},
+		{name: "missing", target: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsLocalRunnerWorkload(Workload{RunnerTarget: test.target}); got != test.want {
+				t.Fatalf("IsLocalRunnerWorkload(%q) = %t, want %t", test.target, got, test.want)
+			}
+		})
+	}
+}
+
 func TestAttachCompletionProvenanceMapsAndComparesRemoteAuthority(t *testing.T) {
 	_, root, receipt, completionPath := default15mReceiptFixture(t)
 	receipt.WorkloadID = "mcp-lsp-idle-quick"

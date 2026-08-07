@@ -30,10 +30,15 @@ func TestResolveCompletionReceiptPathDoesNotInferShortWorkloadReceipt(t *testing
 }
 
 func TestValidateRunnerWorkloadClassifiesLocalAndRemoteProducerGates(t *testing.T) {
-	local := catalog.Workload{ID: "mcp-lsp-idle-quick", ImplementationStatus: "implemented", ProducerImplementationStatus: "missing", RunnerTarget: "local-go-test", Platforms: []string{runtime.GOOS}, TriggerClass: "quick"}
-	if err := validateRunnerWorkload(local); err != nil {
-		t.Fatalf("validateRunnerWorkload(local) error = %v, want quick local workload allowed", err)
+	for _, local := range []catalog.Workload{
+		{ID: "mcp-lsp-idle-quick", ImplementationStatus: "implemented", ProducerImplementationStatus: "missing", RunnerTarget: "local-go-test", Platforms: []string{runtime.GOOS}, TriggerClass: "quick"},
+		{ID: "mcp-lsp-native-process-tree", ImplementationStatus: "implemented", ProducerImplementationStatus: "missing", RunnerTarget: "local-go-test", Platforms: []string{runtime.GOOS}, TriggerClass: "native"},
+	} {
+		if err := validateRunnerWorkload(local); err != nil {
+			t.Fatalf("validateRunnerWorkload(%q) error = %v, want local workload allowed", local.ID, err)
+		}
 	}
+	local := catalog.Workload{ID: "mcp-lsp-idle-quick", ImplementationStatus: "implemented", ProducerImplementationStatus: "missing", RunnerTarget: "local-go-test", Platforms: []string{runtime.GOOS}, TriggerClass: "quick"}
 	remote := local
 	remote.ID = "remote-soak"
 	remote.RunnerTarget = "remote-gate-test"
