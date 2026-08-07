@@ -239,12 +239,21 @@ func completionActionOrder() []string {
 }
 
 // RequireRemoteCompletionAuthority 在任何远程或本地执行前检查 completion
-// artifact 的权威绑定；默认 15 分钟 workload 尚无该能力时必须保持 N/V。
+// artifact 的权威绑定；仅远程权威 workload 尚无该能力时保持 N/V。
 func RequireRemoteCompletionAuthority(workload Workload) error {
-	if workload.ID == default15mWorkloadID {
-		return fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", workload.ID)
+	if !IsRemoteAuthoritativeWorkload(workload) {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", workload.ID)
+}
+
+// IsRemoteAuthoritativeWorkload 按 workload 身份、触发类别和 runner 目标分类。
+// local-* runner（quick/native）只走本地回执，不要求远程 artifact authority。
+func IsRemoteAuthoritativeWorkload(workload Workload) bool {
+	if workload.ID == default15mWorkloadID || workload.TriggerClass == default15mTriggerClass {
+		return true
+	}
+	return workload.RunnerTarget != "" && !strings.HasPrefix(workload.RunnerTarget, "local-")
 }
 
 // validateReceiptProvenance 校验默认 15 分钟 E2E 的 Git 身份和 root-cohort

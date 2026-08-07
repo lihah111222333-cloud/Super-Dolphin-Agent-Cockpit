@@ -75,7 +75,7 @@ func validateRunnerWorkload(workload catalog.Workload) error {
 	if workload.ImplementationStatus != "implemented" {
 		return fmt.Errorf("workload %q is N/V: implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
 	}
-	if workload.ProducerImplementationStatus != "implemented" {
+	if workload.ProducerImplementationStatus != "implemented" && catalog.IsRemoteAuthoritativeWorkload(workload) {
 		return fmt.Errorf("workload %q is N/V: producer_implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ProducerImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
 	}
 	return catalog.RequireRemoteCompletionAuthority(workload)

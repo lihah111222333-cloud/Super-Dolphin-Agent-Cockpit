@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -25,5 +26,19 @@ func TestResolveCompletionReceiptPathDoesNotInferShortWorkloadReceipt(t *testing
 	}
 	if path != "" {
 		t.Fatalf("resolveCompletionReceiptPath() = %q, want empty", path)
+	}
+}
+
+func TestValidateRunnerWorkloadClassifiesLocalAndRemoteProducerGates(t *testing.T) {
+	local := catalog.Workload{ID: "mcp-lsp-idle-quick", ImplementationStatus: "implemented", ProducerImplementationStatus: "missing", RunnerTarget: "local-go-test", Platforms: []string{runtime.GOOS}, TriggerClass: "quick"}
+	if err := validateRunnerWorkload(local); err != nil {
+		t.Fatalf("validateRunnerWorkload(local) error = %v, want quick local workload allowed", err)
+	}
+	remote := local
+	remote.ID = "remote-soak"
+	remote.RunnerTarget = "remote-gate-test"
+	remote.TriggerClass = "soak"
+	if err := validateRunnerWorkload(remote); err == nil || !strings.Contains(err.Error(), "producer_implementation_status=missing") {
+		t.Fatalf("validateRunnerWorkload(remote) error = %v, want producer N/V", err)
 	}
 }

@@ -329,9 +329,27 @@ func TestRequireRemoteCompletionAuthorityFailsBeforeExecution(t *testing.T) {
 	if err := RequireRemoteCompletionAuthority(workload); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
 		t.Fatalf("RequireRemoteCompletionAuthority() error = %v, want fail-closed authority error", err)
 	}
-	short := Workload{ID: "mcp-lsp-idle-quick", TriggerClass: "quick", ImplementationStatus: "implemented", ProducerImplementationStatus: "implemented"}
-	if err := RequireRemoteCompletionAuthority(short); err != nil {
-		t.Fatalf("RequireRemoteCompletionAuthority(short) error = %v, want nil", err)
+	for _, test := range []struct {
+		name     string
+		workload Workload
+		want     bool
+	}{
+		{name: "quick local", workload: Workload{ID: "mcp-lsp-idle-quick", RunnerTarget: "local-go-test", TriggerClass: "quick"}},
+		{name: "native local", workload: Workload{ID: "mcp-lsp-native-process-tree", RunnerTarget: "local-go-test", TriggerClass: "native"}},
+		{name: "remote target", workload: Workload{ID: "remote-soak", RunnerTarget: "remote-gate-test", TriggerClass: "soak"}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsRemoteAuthoritativeWorkload(test.workload); got != test.want {
+				t.Fatalf("IsRemoteAuthoritativeWorkload() = %t, want %t for %#v", got, test.want, test.workload)
+			}
+			err := RequireRemoteCompletionAuthority(test.workload)
+			if test.want && (err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority")) {
+				t.Fatalf("RequireRemoteCompletionAuthority() error = %v, want authority N/V", err)
+			}
+			if !test.want && err != nil {
+				t.Fatalf("RequireRemoteCompletionAuthority() error = %v, want nil", err)
+			}
+		})
 	}
 }
 
