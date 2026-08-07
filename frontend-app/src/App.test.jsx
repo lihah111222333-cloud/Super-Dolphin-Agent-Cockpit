@@ -903,6 +903,7 @@ async function showAllTraceDashboardEvents() {
     expect(within(sidebar).getByRole('button', { name: '插件与技能' })).toHaveTextContent('插件与技能');
     expect(within(appbar).getByRole('button', { name: '通知' })).toBeInTheDocument();
     expect(within(appbar).getByRole('button', { name: '历史记录' })).toBeInTheDocument();
+    expect(document.querySelector('.suiyuan-appbar-title')).not.toBeInTheDocument();
     expect(screen.queryByText('Overview')).not.toBeInTheDocument();
     expect(screen.queryByText('Usage')).not.toBeInTheDocument();
     expect(screen.queryByText('Limits')).not.toBeInTheDocument();
@@ -913,10 +914,10 @@ async function showAllTraceDashboardEvents() {
     expect(within(sidebar).getByRole('button', { name: 'Chat' })).toHaveTextContent('Chat');
     expect(within(appbar).getByRole('button', { name: 'Notifications' })).toBeInTheDocument();
     expect(within(appbar).getByRole('button', { name: 'History' })).toBeInTheDocument();
-    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('Chat');
+    expect(within(sidebar).getByRole('button', { name: 'Chat' })).toHaveClass('active');
     fireEvent.click(screen.getByRole('button', { name: 'Switch to 中文' }));
     expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
-    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('聊天页面');
+    expect(within(sidebar).getByRole('button', { name: '聊天页面' })).toHaveClass('active');
     expect(within(sidebar).getByRole('separator', { name: '调整工作台侧栏宽度' })).toBeInTheDocument();
   });
 
@@ -945,7 +946,6 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
 
     fireEvent.click(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' }));
-    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('设置');
     expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' })).toHaveClass('active');
     expect(shell).not.toHaveClass('sidebar-open');
   });
@@ -1585,15 +1585,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
-  it('exposes an explicit collapse control inside the Suiyuan sidebar', () => {
+  it('exposes an explicit collapse control outside the Suiyuan sidebar', () => {
     render(<App skipBootstrap />);
-
     const shell = screen.getByTestId('frontend-app');
     fireEvent.click(screen.getByRole('button', { name: '展开主侧栏' }));
     expect(shell).toHaveClass('sidebar-open');
-
-    const collapseButton = within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '折叠侧栏' });
-    expect(collapseButton).toHaveAttribute('title', '折叠侧栏');
+    const collapseButton = screen.getByRole('button', { name: '折叠侧栏' });
+    expect({ container: collapseButton.closest('#app-sidebar'), title: collapseButton.title }).toEqual({ container: null, title: '折叠侧栏' });
     expect(collapseButton.textContent).toBe('');
     fireEvent.click(collapseButton);
 
@@ -1667,7 +1665,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const workflowButton = await screen.findByRole('button', { name: '自动化' });
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
-    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('自动化');
     expect(window.location.pathname).toBe('/dags');
   });
 
@@ -1680,7 +1677,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => expect(chatButton).toHaveClass('active'));
     expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
-    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('聊天页面');
+    expect(chatButton).toHaveClass('active');
   });
 
   it('lets user navigation override the explicit boot URL after initial route sync', async () => {
@@ -1694,7 +1691,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(getSidebarNavButton('插件与技能'));
 
     await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
-    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('插件与技能');
     expect(window.location.pathname).toBe('/skills');
   });
 
@@ -1713,7 +1709,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
-    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('插件与技能');
+    expect(getSidebarNavButton('插件与技能')).toHaveClass('active');
   });
 
   it('hides idle status noise while keeping the provider badge in thread cards', async () => {
@@ -3726,8 +3722,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '显示侧边栏' })).toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
-
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
     expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
@@ -3761,7 +3756,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.keyDown(leftResizer, { key: 'ArrowLeft' });
 
     expect(leftResizer).toHaveAttribute('aria-valuenow', '324');
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     let rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
@@ -3782,7 +3777,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.keyDown(rightResizer, { key: 'Home' });
 
     expect(storage.value()).toBe('0');
-    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
@@ -3941,10 +3936,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
     dispatchPointer(window, 'pointermove', 1480);
     expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
     dispatchPointer(window, 'pointerup', 1480);
-
-    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('runtime-panel')).toHaveClass('is-closing'); expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
+    await waitFor(() => expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument());
     expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
     expect(storage.value()).toBe('0');
   });
 
@@ -4147,8 +4141,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     expect(leftResizer).toHaveAttribute('aria-valuenow', '280');
     expect(screen.getByTestId('frontend-app')).toHaveStyle({ '--workbench-sidebar-width': '280px' });
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
-
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const rightResizer = screen.getByTestId('right-panel-resizer');
 
@@ -4158,7 +4151,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => {
       expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
-      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
     });
   });
 
@@ -5271,17 +5264,17 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it.each([
-    ['提示词', '个性化', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
-    ['自动化', '自动化', '创建首个自动化', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
-    ['记忆中心', '记忆中心', '暂无记忆', () => expect(backend.getMemorySnapshot).not.toHaveBeenCalledWith({ cwd: '未选择项目' })],
-  ])('keeps the %s route visible while project context resolves', async (navLabel, heading, settledText, assertNoInvalidLoad) => {
+    ['提示词', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
+    ['自动化', '创建首个自动化', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
+    ['记忆中心', '暂无记忆', () => expect(backend.getMemorySnapshot).not.toHaveBeenCalledWith({ cwd: '未选择项目' })],
+  ])('keeps the %s route visible while project context resolves', async (navLabel, settledText, assertNoInvalidLoad) => {
     const config = deferred();
     backend.readConfig.mockReturnValueOnce(config.promise);
 
     render(<App />);
     fireEvent.click(screen.getByLabelText(navLabel));
 
-    await waitFor(() => expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent(heading));
+    await waitFor(() => expect(screen.getByLabelText(navLabel)).toHaveClass('active'));
     assertNoInvalidLoad();
 
     await act(async () => {
@@ -5300,7 +5293,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     fireEvent.click(screen.getByLabelText('共享文件'));
 
-    await waitFor(() => expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('文件产物'));
+    await waitFor(() => expect(screen.getByLabelText('共享文件')).toHaveClass('active'));
     expect(screen.queryByText('正在连接本地项目...')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(backend.listSharedFiles).toHaveBeenCalledWith();

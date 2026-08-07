@@ -1,10 +1,10 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-29T21:15:11Z"
+    "updatedAt": "2026-08-07T08:43:13Z"
   },
   "files": {
     "src/App.test.jsx": {
-      "lines": 7281,
+      "lines": 7279,
       "maxFuncLen": 81,
       "maxNesting": 5,
       "maxParams": 4,
@@ -109,7 +109,7 @@
       ]
     },
     "src/styles.test.js": {
-      "lines": 2157,
+      "lines": 2149,
       "maxFuncLen": 26,
       "maxNesting": 5,
       "maxParams": 4,

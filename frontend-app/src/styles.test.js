@@ -283,7 +283,7 @@ describe('layer token and overlay host contract', () => {
     expect(mainCssImports[0]).toBe(LAYER_TOKENS_FILE);
   });
 
-  it('keeps all 44 active z-index declarations in 12 files on exact known token references', () => {
+  it('keeps all 52 active z-index declarations in 12 files on exact known token references', () => {
     const declarations = activeZIndexDeclarations();
     const files = [...new Set(declarations.map((declaration) => declaration.file))].sort();
     const invalid = declarations.filter((declaration) => {
@@ -291,7 +291,7 @@ describe('layer token and overlay host contract', () => {
       return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
     });
 
-    expect(declarations).toHaveLength(48);
+    expect(declarations).toHaveLength(52);
     expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
     expect(invalid).toEqual([]);
   });
@@ -518,7 +518,7 @@ describe('composer layout styles', () => {
     expect(textarea['overflow-y']).toBe('auto');
     expect(activeTimelineShell['grid-row']).toBe('2');
     expect(activeTimeline.padding).toBe('24px 0 clamp(112px, 16vh, 172px)');
-    expect(activeComposer['grid-row']).toBe('3');
+    expect(activeComposer.position).toBe('absolute'); expect(activeComposer.inset).toBe('auto 0 0');
   });
 
   it('renders the Suiyuan floating composer as a raised white input object', () => {
@@ -1088,7 +1088,7 @@ describe('suiyuan chat canvas', () => {
     const markdownPre = declarationsFor('.message-markdown pre');
 
     expect(conversation.background).toBe('var(--bg)');
-    expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
+    expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr)');
     expect(timeline['align-items']).toBe('center');
     expect(message.border).toBe('0');
     expect(message.background).toBe('transparent');
@@ -1134,14 +1134,14 @@ describe('conversation content column styles', () => {
     const composerMeta = declarationsFor('.composer-meta');
     const composerAttach = declarationsFor('.composer-attach');
     const composerSend = declarationsFor('.composer .send');
-    const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
+    const chatMainColumn = declarationsFor('.chat-main-column'); const scrollZone = declarationsFor('.chat-scroll-bottom-zone'); const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
     const headerTools = declarationsFor('.chat-header-tools');
     const headerTool = declarationsFor('.chat-header-tool');
     const disabledHeaderTool = declarationsFor('.chat-header-tool:disabled');
 
     expect(conversation['--conversation-content-width']).toBe('min(var(--suiyuan-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))))');
     expect(activeConversation.display).toBe('grid');
-    expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
+    expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr)');
     expect(activeConversation.overflow).toBe('hidden');
     expect(activeTimelineShell['min-height']).toBe('0');
     expect(activeTimelineShell.overflow).toBe('hidden');
@@ -1192,11 +1192,7 @@ describe('conversation content column styles', () => {
     expect(composerSend.width).toBe('40px');
     expect(composerSend['min-width']).toBe('40px');
     expect(composerSend.height).toBe('40px');
-    expect(scrollButton.position).toBe('absolute');
-    expect(scrollButton.right).toBe('max(18px, var(--conversation-content-right-gutter))');
-    expect(scrollButton.bottom).toBe('18px');
-    expect(scrollButton.width).toBe('32px');
-    expect(scrollButton.height).toBe('32px');
+    expect(chatMainColumn.position).toBe('relative'); expect(chatMainColumn['grid-template-rows']).toBe('minmax(0, 1fr)'); expect(scrollZone.width).toBe('200px'); expect(scrollZone.height).toBe('96px'); expect(scrollZone.bottom).toBe('100%'); expect(scrollZone['pointer-events']).toBe('auto'); expect(scrollButton.position).toBe('absolute'); expect(scrollButton.left).toBe('50%'); expect(scrollButton.right).toBe('auto'); expect(scrollButton.bottom).toBe('12px'); expect(scrollButton.opacity).toBe('0'); expect(scrollButton.transform).toBe('translate(-50%, 48px)'); expect(scrollButton.width).toBe('32px'); expect(scrollButton.height).toBe('32px');
   });
 
   it('keeps the new-chat intro stage positioned and full width', () => {
@@ -1458,14 +1454,14 @@ describe('workbench shell styles', () => {
       expect(activeNav.color).toBe('var(--text-pri)');
       expect(activeIndicator.width).toBe('4px');
       expect(topCommand.position).toBe('absolute');
-      expect(topCommand.height).toBe('64px');
-      expect(topCommand.padding).toBe('0 24px');
+      expect(topCommand.height).toBe('32px');
+      expect(topCommand.padding).toBe('0 12px');
       expect(mobileTopCommand.padding).toBe('0 14px 0 64px');
       expect(topCommand.background).toBe('color-mix(in srgb, var(--bg) 88%, var(--surface))');
       expect(topCommand['border-bottom']).toBe('1px solid var(--border)');
       expect(mainCanvas.height).toBe('100%');
-      expect(nonChatPage['padding-top']).toBe('64px');
-      expect(skillsPage['padding-top']).toBe('64px');
+      expect(nonChatPage['padding-top']).toBe('32px');
+      expect(skillsPage['padding-top']).toBe('32px');
       expect(main.background).toBe('var(--bg)');
     });
 
@@ -1507,7 +1503,6 @@ describe('workbench shell styles', () => {
       const lightNavItem = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item');
       const activeNav = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item.active');
       const activeIndicator = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item.active::before');
-      const appbarTitle = topLevelDeclarationsFor('.suiyuan-appbar-title h1');
 
       expect(sharedSidebar.gap).toBe('12px');
       expect(sharedSidebar.padding).toBe('10px 12px');
@@ -1523,7 +1518,6 @@ describe('workbench shell styles', () => {
       expect(sharedNavItem['font-size']).toBe('13px');
       expect(sharedNavItem['font-weight']).toBe('620');
       expect(sharedNavItem['line-height']).toBe('18px');
-      expect(appbarTitle['line-height']).toBe('1.25');
       for (const property of ['gap', 'padding']) expect(lightSidebar[property]).toBeUndefined();
       for (const property of ['width', 'min-height', 'margin', 'gap']) expect(lightBrand[property]).toBeUndefined();
       for (const property of ['width', 'height', 'display']) expect(lightMark[property]).toBeUndefined();
@@ -1603,7 +1597,7 @@ describe('workbench shell styles', () => {
     const nav = declarationsFor('.suiyuan-nav');
     const chatNavGroup = declarationsFor('.suiyuan-chat-nav-group');
     const projectTree = declarationsFor('.suiyuan-chat-project-tree');
-    const collapseButton = declarationsFor('.suiyuan-sidebar-collapse'); const activityDestinations = topLevelDeclarationsFor('.workbench-activity-destinations'); const statusBar = topLevelDeclarationsFor('.workbench-status-bar');
+    const collapseZone = declarationsFor('.suiyuan-sidebar-collapse-zone'); const collapseButton = declarationsFor('.suiyuan-sidebar-collapse'); const activityZone = declarationsFor('.workbench-activity-toggle-zone'); const activityButton = declarationsFor('.workbench-activity-toggle'); const sidepanelZone = declarationsFor('.chat-sidepanel-shortcut-zone'); const sidepanelButton = declarationsFor('.chat-sidepanel-shortcut'); const activityDestinations = topLevelDeclarationsFor('.workbench-activity-destinations'); const statusBar = topLevelDeclarationsFor('.workbench-status-bar');
     const collapsedSidebar = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .app-sidebar', 'visibility'); const collapsedBody = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .sa-body.suiyuan-shell-body', 'grid-template-columns');
 
     expect(shell.display).toBe('grid'); expect(shell['grid-template-rows']).toBe('minmax(0, 1fr) 24px'); expect(shell.overflow).toBe('hidden');
@@ -1624,9 +1618,7 @@ describe('workbench shell styles', () => {
     expect(projectTree['overflow-y']).toBe('auto');
     expect(projectTree['overscroll-behavior']).toBe('contain');
     expect(projectTree['scrollbar-gutter']).toBe('stable');
-    expect(collapseButton.width).toBe('36px');
-    expect(collapseButton.height).toBe('36px');
-    expect(collapseButton['margin-left']).toBe('auto');
+    expect(collapseZone.top).toBe('calc(50% - 12px)'); expect(activityZone.top).toBe(collapseZone.top); expect(sidepanelZone.top).toBe(collapseZone.top); expect(collapseButton['border-radius']).toBe('50%'); expect(collapseButton.width).toBe('32px'); expect(collapseButton['min-width']).toBe('32px'); expect(collapseButton.height).toBe('32px'); expect(collapseButton['min-height']).toBe('32px'); expect(collapseButton.flex).toBe('0 0 32px'); expect(collapseButton.opacity).toBe('0'); expect(collapseButton.transform).toBe('translateX(-48px)'); expect(activityButton.opacity).toBe('0'); expect(activityButton.transform).toBe('translateX(-48px)'); expect(sidepanelButton['margin-right']).toBe('12px'); expect(sidepanelButton.opacity).toBe('0'); expect(sidepanelButton.transform).toBe('translateX(48px)');
     expect(activityDestinations['margin-top']).toBe('50px'); expect(statusBar.position).toBe('relative'); expect(statusBar['grid-row']).toBe('2'); expect(collapsedSidebar.visibility).toBe('hidden'); expect(collapsedBody['grid-template-columns']).toBe('48px 0 minmax(0, 1fr)');
   });
 
