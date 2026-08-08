@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
@@ -119,14 +121,22 @@ func cloneRemoteWorkloadInputDigests(inputDigests map[string]string) map[string]
 }
 
 type remoteWorkloadEnvironment struct {
-	SchemaVersion     string `json:"schema_version"`
-	Platform          string `json:"platform"`
-	PolicyDigest      string `json:"policy_digest"`
-	ToolchainDigest   string `json:"toolchain_digest"`
-	RuntimeSeedSHA256 string `json:"runtime_seed_sha256"`
+	SchemaVersion             string   `json:"schema_version"`
+	Platform                  string   `json:"platform"`
+	PolicyDigest              string   `json:"policy_digest"`
+	ToolchainDigest           string   `json:"toolchain_digest"`
+	RuntimeSeedSHA256         string   `json:"runtime_seed_sha256"`
+	CGOEnabled                string   `json:"cgo_enabled"`
+	GOOS                      string   `json:"goos"`
+	GOARCH                    string   `json:"goarch"`
+	SemanticEnvironmentSchema string   `json:"semantic_environment_schema"`
+	SemanticEnvironment       []string `json:"semantic_environment"`
+	WorkerExecutionProvenance string   `json:"worker_execution_provenance"`
 }
 
-// remoteWorkloadEnvironmentDigest 只绑定会改变 workload 正确性的执行语义；模式、资源档位、资源策略、终止预算和协调器源码仅影响本次运行，不能阻断 PASS 复用。
+// remoteWorkloadEnvironmentDigest 计算 worker 的稳定语义环境摘要；worker
+// contract/provenance 由 canonical cicontract owner 提供，candidate source、job、
+// agent、资源与 cache 路径不进入 PASS identity。
 func remoteWorkloadEnvironmentDigest(input RunInput, workerTimeout time.Duration, resourcePolicy shardresource.Policy) (string, error) {
 	if err := gate.ValidateExecutorWorkloadTimeout(workerTimeout); err != nil {
 		return "", fmt.Errorf("validate remote workload environment timeout: %w", err)
@@ -134,16 +144,59 @@ func remoteWorkloadEnvironmentDigest(input RunInput, workerTimeout time.Duration
 	if err := resourcePolicy.Validate(); err != nil {
 		return "", fmt.Errorf("validate remote workload resource policy: %w", err)
 	}
+	semanticEnvironment := cicontract.CanonicalWorkerExecutionEnvironment()
+	semanticEnvironment = append([]string(nil), semanticEnvironment...)
+	sort.Strings(semanticEnvironment)
+	semanticValues, err := remoteWorkerSemanticEnvironmentValues(semanticEnvironment)
+	if err != nil {
+		return "", err
+	}
 	payload, err := json.Marshal(remoteWorkloadEnvironment{
-		SchemaVersion: "remote-workload-pass-environment/v7", Platform: input.Platform,
-		PolicyDigest: input.PolicyDigest, ToolchainDigest: input.ToolchainDigest,
-		RuntimeSeedSHA256: input.RuntimeSeedSHA256,
+		SchemaVersion:             "remote-workload-pass-environment/v8",
+		Platform:                  input.Platform,
+		PolicyDigest:              input.PolicyDigest,
+		ToolchainDigest:           input.ToolchainDigest,
+		RuntimeSeedSHA256:         input.RuntimeSeedSHA256,
+		CGOEnabled:                semanticValues["CGO_ENABLED"],
+		GOOS:                      semanticValues["GOOS"],
+		GOARCH:                    semanticValues["GOARCH"],
+		SemanticEnvironmentSchema: cicontract.WorkerExecutionEnvironmentSchemaVersion,
+		SemanticEnvironment:       semanticEnvironment,
+		WorkerExecutionProvenance: cicontract.WorkerExecutionProvenanceID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode remote workload environment: %w", err)
 	}
+	return remoteWorkloadEnvironmentSHA256(payload), nil
+}
+
+func remoteWorkloadEnvironmentSHA256(payload []byte) string {
 	sum := sha256.Sum256(payload)
-	return fmt.Sprintf("sha256:%x", sum), nil
+	return fmt.Sprintf("sha256:%x", sum)
+}
+
+// remoteWorkerSemanticEnvironmentValues 将 canonical owner 的 one-hot env
+// 投影为摘要中的显式平台字段；重复、缺失或 malformed assignment 均阻断。
+func remoteWorkerSemanticEnvironmentValues(environment []string) (map[string]string, error) {
+	values := make(map[string]string, len(environment))
+	seen := make(map[string]struct{}, len(environment))
+	for _, assignment := range environment {
+		key, value, ok := strings.Cut(assignment, "=")
+		if !ok || strings.TrimSpace(key) == "" || strings.Contains(key, "=") {
+			return nil, fmt.Errorf("worker semantic environment assignment %q is malformed or duplicated", assignment)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return nil, fmt.Errorf("worker semantic environment assignment %q is malformed or duplicated", assignment)
+		}
+		seen[key] = struct{}{}
+		values[key] = value
+	}
+	for _, key := range []string{"CGO_ENABLED", "GOOS", "GOARCH"} {
+		if strings.TrimSpace(values[key]) == "" {
+			return nil, fmt.Errorf("worker semantic environment is missing %s", key)
+		}
+	}
+	return values, nil
 }
 
 // lookupRemoteWorkloadPasses 严格投影已提升证据；缺项是正常 cache miss，伪造或漂移证据立即阻断。
@@ -221,7 +274,10 @@ func prepareRemoteWorkloadReuse(
 			return remoteWorkloadReusePreparation{}, err
 		}
 	}
-	reusedWorkloads, cacheMisses := classifyRemoteWorkloadPasses(identities, reused)
+	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, fmt.Errorf("classify remote workload PASS reuse: %w", err)
+	}
 	preparation.reused = reused
 	preparation.identities = identities
 	preparation.reusedWorkloads = reusedWorkloads
@@ -229,21 +285,103 @@ func prepareRemoteWorkloadReuse(
 	return preparation, nil
 }
 
-// classifyRemoteWorkloadPasses 以身份顺序投影已复用证据与需要新建分片的 workload。
-func classifyRemoteWorkloadPasses(
+// remoteWorkloadPassPackageKey 返回同一测试二进制可能共享的包身份。
+//
+// 同包 selector 可能通过 TestMain/init、包级变量、fixture 或 t.Parallel
+// 观察到其它 selector 的副作用；只有明确属于不同 parent（例如 normal/race）
+// 或 target kind（例如 test/benchmark）的执行语义时才允许保持独立复用。任何无法由 canonical workload parser
+// 闭合的目标都必须阻断，而不能退化为一个可复用的独立组。
+func remoteWorkloadPassPackageKey(identity gate.WorkloadPassIdentity) (string, error) {
+	parent, targetKind, target, targeted, err := gate.ParseWorkloadID(string(identity.WorkloadID))
+	if err != nil {
+		return "", fmt.Errorf("parse remote workload %q: %w", identity.WorkloadID, err)
+	}
+	if !targeted {
+		return "", nil
+	}
+	var packageTarget string
+	switch targetKind {
+	case gate.WorkloadTargetGoTest:
+		parsed, parseErr := gate.ParseGoTestTarget(target)
+		if parseErr != nil {
+			return "", fmt.Errorf("parse remote Go test workload %q: %w", identity.WorkloadID, parseErr)
+		}
+		packageTarget = parsed.Package
+	case gate.WorkloadTargetGoBenchmark:
+		parsed, parseErr := gate.ParseGoBenchmarkTarget(target)
+		if parseErr != nil {
+			return "", fmt.Errorf("parse remote Go benchmark workload %q: %w", identity.WorkloadID, parseErr)
+		}
+		packageTarget = parsed.Package
+	case gate.WorkloadTargetGoPackage:
+		if _, parseErr := gate.NewGoPackageWorkload(parent, target, 1); parseErr != nil {
+			return "", fmt.Errorf("parse remote Go package workload %q: %w", identity.WorkloadID, parseErr)
+		}
+		packageTarget = target
+	default:
+		return "", nil
+	}
+	return string(parent) + "\x00" + string(targetKind) + "\x00" + packageTarget, nil
+}
+
+// classifyRemoteWorkloadPassesStrict 以身份顺序投影复用证据，并在同包命中/未命中
+// 混合时将整个 package 降为 MISS，避免共享 test binary/batch 的状态副作用。
+func classifyRemoteWorkloadPassesStrict(
 	identities []gate.WorkloadPassIdentity,
 	reused map[string]gate.WorkloadPassEvidence,
-) ([]gate.WorkloadPassEvidence, []gate.GateID) {
+) ([]gate.WorkloadPassEvidence, []gate.GateID, error) {
 	reusedWorkloads := make([]gate.WorkloadPassEvidence, 0, len(reused))
 	cacheMisses := make([]gate.GateID, 0, len(identities)-len(reused))
+	packageHits := make(map[string]struct{})
+	packageMisses := make(map[string]struct{})
+	packageKeys := make(map[string]string, len(identities))
 	for _, identity := range identities {
-		if evidence, ok := reused[string(identity.WorkloadID)]; ok {
+		key, err := remoteWorkloadPassPackageKey(identity)
+		if err != nil {
+			return nil, nil, err
+		}
+		packageKeys[string(identity.WorkloadID)] = key
+		if key == "" {
+			continue
+		}
+		if _, ok := reused[string(identity.WorkloadID)]; ok {
+			packageHits[key] = struct{}{}
+		} else {
+			packageMisses[key] = struct{}{}
+		}
+	}
+	for _, identity := range identities {
+		workloadID := string(identity.WorkloadID)
+		packageKey := packageKeys[workloadID]
+		_, mixedPackage := packageHits[packageKey]
+		if mixedPackage {
+			_, mixedPackage = packageMisses[packageKey]
+		}
+		if evidence, ok := reused[workloadID]; ok && !mixedPackage {
 			reusedWorkloads = append(reusedWorkloads, evidence)
 			continue
 		}
 		cacheMisses = append(cacheMisses, identity.WorkloadID)
 	}
-	return reusedWorkloads, cacheMisses
+	return reusedWorkloads, cacheMisses, nil
+}
+
+// classifyRemoteWorkloadPasses 保持现有测试辅助面的二元投影；生产 Prepare
+// 使用 strict 版本并将解析错误直接返回。解析失败时该兼容投影保守地把所有
+// identity 视为 MISS，绝不返回陈旧 PASS。
+func classifyRemoteWorkloadPasses(
+	identities []gate.WorkloadPassIdentity,
+	reused map[string]gate.WorkloadPassEvidence,
+) ([]gate.WorkloadPassEvidence, []gate.GateID) {
+	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
+	if err == nil {
+		return reusedWorkloads, cacheMisses
+	}
+	cacheMisses = make([]gate.GateID, 0, len(identities))
+	for _, identity := range identities {
+		cacheMisses = append(cacheMisses, identity.WorkloadID)
+	}
+	return nil, cacheMisses
 }
 
 // apply 将复用决策绑定到本次独立 job 的结果投影。

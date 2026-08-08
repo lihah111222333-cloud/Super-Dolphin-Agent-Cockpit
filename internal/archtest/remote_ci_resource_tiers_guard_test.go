@@ -67,10 +67,12 @@ func assertRemoteCIResourcePassIdentityContract(t *testing.T, root string) {
 	t.Helper()
 	reuse := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/workload_pass_reuse.go"))
 	if strings.Contains(reuse, `ResourcePolicyDigest`) || strings.Contains(reuse, `remote-workload-pass-environment/v4`) ||
-		strings.Contains(reuse, `WorkerTimeout                string`) || strings.Contains(reuse, `CandidateGateSourceSHA256`) {
-		t.Error("workload PASS identity must exclude resource, timeout, and whole candidate Gate source identities")
+		strings.Contains(reuse, `WorkerTimeout                string`) || strings.Contains(reuse, `CandidateGateSourceSHA256`) ||
+		strings.Contains(reuse, `remoteWorkloadWorkerExecutionDigest`) || strings.Contains(reuse, `WorkerExecutionContractSHA256`) ||
+		strings.Contains(reuse, `RunnerIdentityDigest`) {
+		t.Error("workload PASS identity must exclude resource, timeout, candidate Gate source, and tree-derived worker fallback identities")
 	}
-	for _, required := range []string{`remote-workload-pass-environment/v7`, `ToolchainDigest`, `RuntimeSeedSHA256`, `PolicyDigest`} {
+	for _, required := range []string{`remote-workload-pass-environment/v8`, `ToolchainDigest`, `RuntimeSeedSHA256`, `PolicyDigest`, `WorkerExecutionProvenance`, `SemanticEnvironment`} {
 		if !strings.Contains(reuse, required) {
 			t.Errorf("workload PASS identity is missing correctness marker %q", required)
 		}

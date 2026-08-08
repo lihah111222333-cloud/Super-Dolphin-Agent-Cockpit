@@ -34,8 +34,12 @@ type remoteGitTreeSnapshot struct {
 	goSourcesMu     sync.Mutex
 
 	cacheMu                       sync.Mutex
+	exactCompileRootMu            sync.Mutex
+	productionIndexMu             sync.Mutex
 	productionClosureCache        map[string]remoteProductionClosureCache
 	goTestDeclarationCache        map[string]remoteGoTestDeclarationCache
+	exactCompileRootCache         map[remoteExactCompileRootKey]remoteExactCompileRootCacheEntry
+	productionIndexCache          map[string]remoteGoProductionIndexCacheEntry
 	goWorkloadSharedScript        *remoteGitTreeEntry
 	goPackageInputDigestCache     map[remoteGoPackageInputDigestKey]string
 	goPackageInputEntriesCache    map[remoteGoPackageInputDigestKey][]remoteGitTreeEntry
@@ -44,6 +48,8 @@ type remoteGitTreeSnapshot struct {
 	closureCaptureCalls           uint64
 	goEmbedResolutionComputations uint64
 	goEmbedResolutionCacheHits    uint64
+	exactCompileRootComputations  uint64
+	productionIndexComputations   uint64
 	closureCapture                *remoteInputClosureCapture
 	closureCaptureMu              sync.Mutex
 	closureCaptureStateMu         sync.RWMutex

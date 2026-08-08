@@ -646,6 +646,7 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 	)
 	joined := "\n" + strings.Join(environment, "\n") + "\n"
 	for _, want := range []string{
+		"\nCGO_ENABLED=1\n",
 		"\nHOME=/workspace/work/home\n",
 		"\nGIT_AUTHOR_NAME=Super Dolphin Gate Executor\n",
 		"\nGIT_AUTHOR_EMAIL=gate-executor@super-dolphin.invalid\n",
@@ -654,11 +655,13 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 		"\nGIT_COMMITTER_EMAIL=gate-executor@super-dolphin.invalid\n",
 		"\nGIT_COMMITTER_DATE=946684800 +0000\n",
 		"\nGOCACHE=/workspace/work/go-cache\n",
+		"\nGOARCH=amd64\n",
 		"\nGOCACHEPROG=gate worker go-cache-proxy --seed /seed --private /private\n",
 		"\nGOMODCACHE=/workspace/work/go-mod-cache\n",
 		"\nGOPROXY=off\n",
 		"\nGOROOT=/usr/local/go\n",
 		"\nGOTMPDIR=/workspace/work/tmp\n",
+		"\nGOOS=linux\n",
 		"\nLD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:/usr/lib:/lib\n",
 		"\nFONTCONFIG_FILE=fonts.conf\n",
 		"\nFONTCONFIG_PATH=/etc/fonts\n",

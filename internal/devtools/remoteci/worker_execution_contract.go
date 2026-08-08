@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	workerExecutionContractSchemaVersion = 3
+	workerExecutionContractSchemaVersion = 4
 	workerExecutionPlatform              = cicontract.TargetPlatform
 )
 

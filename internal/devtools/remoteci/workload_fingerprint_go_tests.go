@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/godistribution"
 )
 
@@ -35,6 +36,21 @@ type remoteGoTestDeclaration struct {
 
 type remoteGoBuildProfile struct {
 	race bool
+}
+
+type remoteGoTestScope uint8
+
+const (
+	remoteGoTestScopeSelector remoteGoTestScope = iota
+	remoteGoTestScopePackage
+	remoteGoTestScopeTree
+)
+
+func (scope remoteGoTestScope) widen(other remoteGoTestScope) remoteGoTestScope {
+	if other > scope {
+		return other
+	}
+	return scope
 }
 
 func (profile remoteGoBuildProfile) cacheKey() string {
@@ -400,9 +416,7 @@ func remoteGoTestSelectedDeclarations(target remoteGoTestDeclaration, files []re
 			return nil, true
 		}
 		for dependency := range dependencies {
-			for _, helper := range declarations[dependency] {
-				queue = append(queue, helper)
-			}
+			queue = append(queue, declarations[dependency]...)
 		}
 	}
 	return selectedDeclarations, false
@@ -427,12 +441,23 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 				return nil, false, err
 			}
 		}
-		observesWholeTree, err := snapshot.addGoTestFileObservedEntries(
+		productionScope, err := snapshot.addGoProductionRuntimeObservedEntries(
+			directory,
+			declaration,
+			selected,
+			profile,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+		scope, err := snapshot.addGoTestFileObservedEntriesScoped(
 			directory,
 			declaration.file,
 			declaration.declaration,
 			selected,
 		)
+		scope = scope.widen(productionScope)
+		observesWholeTree := scope == remoteGoTestScopeTree
 		if err != nil || observesWholeTree {
 			return nil, observesWholeTree, err
 		}
@@ -513,7 +538,8 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 		}
 		observedPath, ok := remoteGoTestRelativePath(directory, staticPath)
 		if !ok {
-			// 静态绝对路径或越出仓库根的路径可证明不是候选树输入。
+			// 非 canonical source 根或越出候选树的路径无法安全闭合，必须整树绑定。
+			wholeTree = true
 			return true
 		}
 		switch kind {
@@ -552,123 +578,6 @@ func remoteGoTestImports(file *ast.File) map[string]string {
 		imports[name] = importPath
 	}
 	return imports
-}
-
-// remoteGoTestObservation 分类测试中的候选树运行时观察。
-func remoteGoTestObservation(call *ast.CallExpr, file *ast.File, imports map[string]string) (kind string, staticPath string, dynamic bool) {
-	importPath, method, ok := remoteGoTestSelector(call, imports)
-	if !ok {
-		if remoteGoTestObservationAlias(call, file, imports) {
-			// 受观察函数的别名可能在运行时访问候选树或启动子进程，无法安全精确闭合。
-			return "tree", "", true
-		}
-		return "", "", false
-	}
-	if remoteGoTestProcessOrCWDObservation(importPath, method) {
-		// 子进程、系统调用和 cwd 变更都可能让目标观察候选树任意位置。
-		return "tree", "", true
-	}
-	if importPath == "golang.org/x/tools/go/packages" && method == "Load" {
-		return "tree", "", true
-	}
-	index, observesPath := remoteGoTestObservationPathIndex(importPath, method)
-	if !observesPath {
-		return "", "", false
-	}
-	value, ok := remoteGoTestStringArgument(call, index)
-	if !ok {
-		// 已识别但无法静态闭合路径的仓库读取可能解析到候选树任意位置，
-		// 因此纳入全树，避免静默复用陈旧 PASS。
-		return remoteGoTestObservationKind(method), "", true
-	}
-	if importPath == "io/fs" {
-		value, ok = remoteGoTestFSObservationPath(call, file, imports, value)
-		if !ok {
-			// 无法解析的 fs.FS 根同样可能指向候选树内容。
-			return remoteGoTestObservationKind(method), "", true
-		}
-	}
-	return remoteGoTestObservationKind(method), value, false
-}
-
-func remoteGoTestSelector(call *ast.CallExpr, imports map[string]string) (string, string, bool) {
-	selector, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return "", "", false
-	}
-	packageName, ok := selector.X.(*ast.Ident)
-	if !ok {
-		return "", "", false
-	}
-	return imports[packageName.Name], selector.Sel.Name, true
-}
-
-// remoteGoTestProcessOrCWDObservation 判断会逃逸静态文件闭包的进程或工作目录调用。
-func remoteGoTestProcessOrCWDObservation(importPath, method string) bool {
-	switch importPath {
-	case "os/exec", "syscall", "golang.org/x/sys/unix":
-		return true
-	case "os":
-		return method == "Chdir" || method == "StartProcess"
-	default:
-		return false
-	}
-}
-
-// remoteGoTestObservationAlias 识别被赋值为受观察函数的包级或函数级别名。
-func remoteGoTestObservationAlias(call *ast.CallExpr, file *ast.File, imports map[string]string) bool {
-	identifier, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return false
-	}
-	matched := false
-	ast.Inspect(file, func(node ast.Node) bool {
-		if matched {
-			return false
-		}
-		switch value := node.(type) {
-		case *ast.ValueSpec:
-			matched = remoteGoTestObservationAliasValueSpec(identifier.Name, value, imports)
-		case *ast.AssignStmt:
-			matched = remoteGoTestObservationAliasValue(identifier.Name, value.Lhs, value.Rhs, imports)
-		}
-		return !matched
-	})
-	return matched
-}
-
-// remoteGoTestObservationAliasValueSpec 将变量声明统一为表达式列表后判断函数别名。
-func remoteGoTestObservationAliasValueSpec(name string, value *ast.ValueSpec, imports map[string]string) bool {
-	names := make([]ast.Expr, len(value.Names))
-	for index, identifier := range value.Names {
-		names[index] = identifier
-	}
-	return remoteGoTestObservationAliasValue(name, names, value.Values, imports)
-}
-
-// remoteGoTestObservationAliasValue 判断同位置变量是否接收受观察的函数值。
-func remoteGoTestObservationAliasValue(name string, names, values []ast.Expr, imports map[string]string) bool {
-	if len(names) != len(values) {
-		return false
-	}
-	for index, candidate := range names {
-		identifier, ok := candidate.(*ast.Ident)
-		if !ok || identifier.Name != name {
-			continue
-		}
-		selector, ok := values[index].(*ast.SelectorExpr)
-		if !ok {
-			return false
-		}
-		packageName, ok := selector.X.(*ast.Ident)
-		if !ok {
-			return false
-		}
-		importPath := imports[packageName.Name]
-		_, observesPath := remoteGoTestObservationPathIndex(importPath, selector.Sel.Name)
-		return observesPath || remoteGoTestProcessOrCWDObservation(importPath, selector.Sel.Name)
-	}
-	return false
 }
 
 // remoteGoTestObservationPathIndex 返回仓库读取路径参数的位置。
@@ -782,9 +691,21 @@ func remoteGoTestStringArgument(call *ast.CallExpr, index int) (string, bool) {
 	return value, err == nil
 }
 
+// remoteGoTestRelativePath 将测试观察路径安全收敛到规范工作树相对路径。
 func remoteGoTestRelativePath(directory string, value string) (string, bool) {
-	if value == "" || path.IsAbs(value) {
+	if value == "" {
 		return "", false
+	}
+	if path.IsAbs(value) {
+		if value == gate.ExecutorSourcePath {
+			return ".", true
+		}
+		prefix := gate.ExecutorSourcePath + "/"
+		if !strings.HasPrefix(value, prefix) {
+			return "", false
+		}
+		directory = "."
+		value = strings.TrimPrefix(value, prefix)
 	}
 	resolved := path.Clean(path.Join(directory, value))
 	if resolved == ".." || strings.HasPrefix(resolved, "../") {

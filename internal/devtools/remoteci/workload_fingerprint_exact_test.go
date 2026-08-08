@@ -59,6 +59,32 @@ func TestReflect(t *testing.T) { _ = exec.Command("sh", "testdata/script.sh").Ru
 	}
 }
 
+// TestExactGoTestDigestIgnoresUnselectedDynamicRuntimeObservation 验证未选 sibling
+// 的动态进程观察不扩散 selector 运行时闭包，但 sibling 源码仍属于编译输入。
+func TestExactGoTestDigestIgnoresUnselectedDynamicRuntimeObservation(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	testSource := `package fixture
+import ("os"; "testing")
+func TestX(t *testing.T) { _, _ = os.ReadFile("testdata/fixture.txt") }`
+	sibling := `package fixture
+import ("os/exec"; "testing")
+func TestSibling(t *testing.T) { command := "testdata/script.sh"; _ = exec.Command("sh", command).Run() }`
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(baseline, "fixture/unselected_test.go", []byte(sibling))
+	want := testExactGoTestDigest(t, baseline, target)
+	changedUnrelated := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changedUnrelated, "fixture/unselected_test.go", []byte(sibling))
+	testExactGoTestDigestReplaceFile(changedUnrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
+	if got := testExactGoTestDigest(t, changedUnrelated, target); got != want {
+		t.Fatalf("unselected dynamic sibling widened selector digest: got %s want %s", got, want)
+	}
+	changedSibling := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changedSibling, "fixture/unselected_test.go", []byte(sibling+"\nvar siblingMarker = \"changed\"\n"))
+	if got := testExactGoTestDigest(t, changedSibling, target); got == want {
+		t.Fatal("unselected dynamic sibling source change was omitted from compile digest")
+	}
+}
+
 // TestExactGoTestDigestFailsClosedForDynamicReflection 验证反射动态调用无法静态
 // 闭合时仍绑定整个候选 tree。
 func TestExactGoTestDigestFailsClosedForDynamicReflection(t *testing.T) {
@@ -154,8 +180,8 @@ func TestX(t *testing.T) { _, _ = syscall.ForkExec("testdata/script.sh", []strin
 	}
 }
 
-// TestExactGoTestDigestBindsProductionHelperDynamicSource 验证生产 helper 的动态路径只按编译源码和包资产绑定，不把无关 project-map 扩为全树。
-func TestExactGoTestDigestBindsProductionHelperDynamicSource(t *testing.T) {
+// TestExactGoTestDigestFailsClosedForProductionHelperDynamicSource 验证生产 helper 的动态路径无法闭合时绑定全树。
+func TestExactGoTestDigestFailsClosedForProductionHelperDynamicSource(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
 	production := `package fixture
 import ("os"; "path/filepath")
@@ -168,8 +194,8 @@ func TestX(t *testing.T) { readFixture() }`
 	unrelated := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
 	testExactGoTestDigestReplaceFile(unrelated, "fixture/main.go", []byte(production))
 	testExactGoTestDigestReplaceFile(unrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
-	if testExactGoTestDigest(t, baseline, target) != testExactGoTestDigest(t, unrelated, target) {
-		t.Fatal("unobserved production helper dynamic path widened the exact digest to the project map")
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, unrelated, target) {
+		t.Fatal("production helper dynamic path did not bind the project map")
 	}
 	changedProduction := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
 	testExactGoTestDigestReplaceFile(changedProduction, "fixture/main.go", []byte(production+"\nvar productionMarker = \"changed\"\n"))
@@ -178,8 +204,8 @@ func TestX(t *testing.T) { readFixture() }`
 	}
 }
 
-// TestExactGoTestDigestBindsProductionHelperProcessSource 验证生产 helper 的子进程路径只按编译源码和包资产绑定，不把无关 project-map 扩为全树。
-func TestExactGoTestDigestBindsProductionHelperProcessSource(t *testing.T) {
+// TestExactGoTestDigestFailsClosedForProductionHelperProcessSource 验证生产 helper 的子进程路径无法闭合时绑定全树。
+func TestExactGoTestDigestFailsClosedForProductionHelperProcessSource(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
 	production := `package fixture
 import "os/exec"
@@ -192,8 +218,8 @@ func TestX(t *testing.T) { runFixtureScript() }`
 	unrelated := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
 	testExactGoTestDigestReplaceFile(unrelated, "fixture/main.go", []byte(production))
 	testExactGoTestDigestReplaceFile(unrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
-	if testExactGoTestDigest(t, baseline, target) != testExactGoTestDigest(t, unrelated, target) {
-		t.Fatal("unobserved production helper process path widened the exact digest to the project map")
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, unrelated, target) {
+		t.Fatal("production helper process path did not bind the project map")
 	}
 	changedProduction := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
 	testExactGoTestDigestReplaceFile(changedProduction, "fixture/main.go", []byte(production+"\nvar productionMarker = \"changed\"\n"))

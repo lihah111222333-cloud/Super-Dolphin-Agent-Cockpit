@@ -66,7 +66,7 @@ func TestGoPackageTargetForSourceUsesModuleAgnosticCanonicalPaths(t *testing.T) 
 			t.Fatalf("NewGoPackageWorkload(%q) error = %v", target, err)
 		}
 	}
-	for _, target := range []string{"../escape", "./internal/../cmd", "./bad path", "./internal/..."} {
+	for _, target := range []string{"../escape", "./..", "./../outside", "./internal/../cmd", "./bad path", "./internal/..."} {
 		if _, err := NewGoPackageWorkload(GateIDBackendTestWithGuard, target, 1); err == nil {
 			t.Fatalf("invalid Go package workload %q was accepted", target)
 		}

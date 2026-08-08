@@ -66,7 +66,7 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
 		return "", err
 	}
-	observesWholeTree, err := snapshot.addGoExactTestEntries(targetDirectory, selected, profile)
+	observesWholeTree, err := snapshot.addGoExactTestCompileEntries(targetDirectory, selected, profile)
 	if err != nil {
 		return "", err
 	}
@@ -83,15 +83,6 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	entries := sortedRemoteGitTreeEntries(selected)
 	snapshot.captureInputClosure(entries)
 	return digestGoTestEntries(entries, testSources)
-}
-
-// addGoExactTestEntries 汇总 Go test 编译闭包；目标测试运行时观察由 goTestSources 单独处理。
-func (snapshot *remoteGitTreeSnapshot) addGoExactTestEntries(
-	directory string,
-	selected map[string]remoteGitTreeEntry,
-	profile remoteGoBuildProfile,
-) (bool, error) {
-	return snapshot.addGoExactTestCompileEntries(directory, selected, profile)
 }
 
 func (snapshot *remoteGitTreeSnapshot) goBenchmarkInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {

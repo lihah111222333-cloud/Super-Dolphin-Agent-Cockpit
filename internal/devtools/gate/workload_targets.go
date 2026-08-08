@@ -417,6 +417,11 @@ func GoPackageTargetForSource(file string) (string, bool) {
 // isCanonicalGoPackageTarget 仅检查 Go 包字符串自身的语法与路径规范性。
 func isCanonicalGoPackageTarget(target string) bool {
 	relative := strings.TrimPrefix(target, "./")
+	for component := range strings.SplitSeq(relative, "/") {
+		if component == ".." {
+			return false
+		}
+	}
 	return target != "" && strings.TrimSpace(target) == target && !strings.ContainsAny(target, "\\\x00\r\n,") &&
 		strings.IndexFunc(target, unicode.IsSpace) < 0 && strings.HasPrefix(target, "./") &&
 		!strings.Contains(target, "...") && path.Clean(relative) == relative

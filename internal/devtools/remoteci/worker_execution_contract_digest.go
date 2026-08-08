@@ -7,6 +7,8 @@ import (
 	"go/ast"
 	"go/token"
 	"sort"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
@@ -15,9 +17,34 @@ func digestWorkerExecutionClosure(
 	closure *workerExecutionGoClosure,
 	assets *workerExecutionAssets,
 ) (string, error) {
+	return digestWorkerExecutionClosureWithSemanticEnvironment(
+		closure,
+		assets,
+		cicontract.WorkerExecutionEnvironmentSchemaVersion,
+		cicontract.WorkerExecutionProvenanceID,
+		cicontract.CanonicalWorkerExecutionEnvironment(),
+	)
+}
+
+// digestWorkerExecutionClosureWithSemanticEnvironment 让契约测试显式证明
+// schema/provenance bump 会改变 worker contract digest；生产入口仍只传 canonical owner 材料。
+func digestWorkerExecutionClosureWithSemanticEnvironment(
+	closure *workerExecutionGoClosure,
+	assets *workerExecutionAssets,
+	semanticEnvironmentSchema string,
+	workerExecutionProvenance string,
+	semanticEnvironment []string,
+) (string, error) {
 	hasher := sha256.New()
 	fmt.Fprintf(hasher, "worker-execution-contract-schema %d\n", workerExecutionContractSchemaVersion)
 	fmt.Fprintf(hasher, "platform %s\n", workerExecutionPlatform)
+	fmt.Fprintf(hasher, "semantic-environment-schema %s\n", semanticEnvironmentSchema)
+	fmt.Fprintf(hasher, "execution-provenance %s\n", workerExecutionProvenance)
+	semanticEnvironment = append([]string(nil), semanticEnvironment...)
+	sort.Strings(semanticEnvironment)
+	for _, assignment := range semanticEnvironment {
+		fmt.Fprintf(hasher, "environment %s\n", assignment)
+	}
 	units := make([]*workerExecutionGoUnit, 0, len(closure.selected))
 	for _, unit := range closure.selected {
 		units = append(units, unit)
