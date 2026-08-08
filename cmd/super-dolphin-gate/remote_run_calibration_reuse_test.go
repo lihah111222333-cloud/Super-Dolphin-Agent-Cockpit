@@ -10,6 +10,11 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
+// remoteCalibrationRacePackage 仅为证据回归测试识别独立 race workload。
+func remoteCalibrationRacePackage(parent gatecontract.GateID, kind gatecontract.WorkloadKind) bool {
+	return parent == gatecontract.GateIDBackendTestGuardWithRace && kind == gatecontract.WorkloadKindGoTest
+}
+
 func TestRemoteCalibrationReusedPassRequiresPersistedTimingEvidence(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
 	fixture.calibration.Toolchain = remoteRunRunnerIdentityState().ToolchainDigest
@@ -200,9 +205,10 @@ func remoteCalibrationResultBindingFixtures() ([3]remoteci.RunInput, [3]remoteci
 		input, result := calibrationRunsInputResult(scenario, 1)
 		input.Tree = strings.Repeat("a", 40)
 		input.Source.SourceTreeSHA = input.Tree
-		if index == 0 {
+		switch index {
+		case 0:
 			input.Source.Kind = gatecontract.SourceKindTree
-		} else if index == 1 {
+		case 1:
 			input.Source.Kind = gatecontract.SourceKindRange
 		}
 		result.SourceTreeSHA = input.Tree

@@ -1,6 +1,6 @@
 # super-agent-v3 代码地图
 
-> 由自动索引脚本维护，当前覆盖 19 卷核心模块。
+> 由自动索引脚本维护，当前覆盖 20 卷核心模块。
 
 ## 阅读边界提示
 
@@ -37,6 +37,7 @@
 | 11 | [11-prompt-thread.md](11-prompt-thread.md) | 11B Prompt / Thread 代码地图 |
 | 12 | [12-dream-pipeline.md](12-dream-pipeline.md) | 12 Dream Pipeline 代码地图 |
 | 13 | [13-archtest-boundaries.md](13-archtest-boundaries.md) | 13 Archtest 后端边界规则地图 |
+| 14 | [14-remote-ci.md](14-remote-ci.md) | 14 远程 CI / ECI / ImageCache 单路径 |
 
 ## 生成时间
 

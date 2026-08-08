@@ -344,12 +344,6 @@ if ! gate_bin=$(trusted_gate_launcher_for_tree "$repo_root" "$staged_tree"); the
 fi
 
 umask 077
-gate_output_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit.XXXXXX")
-cleanup_output() {
-  rm -f "$gate_output_file"
-}
-trap cleanup_output EXIT HUP INT TERM
-
 remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
 remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
 if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
@@ -369,8 +363,8 @@ remote_args=(
   --parent "$parent_commit"
 )
 set +e
-"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"
-hook_rc=${PIPESTATUS[0]}
+"$gate_bin" "${remote_args[@]}" 2>&1
+hook_rc=$?
 set -e
 if [[ "$hook_rc" -ne 0 ]]; then
   exit "$hook_rc"

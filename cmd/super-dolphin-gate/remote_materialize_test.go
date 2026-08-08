@@ -203,41 +203,6 @@ func validRemoteMaterializeShardRequest(t *testing.T) remoteci.ShardRequest {
 	return request
 }
 
-func TestHandoffRemoteWorkRoot(t *testing.T) {
-	root := t.TempDir()
-	var mode os.FileMode
-	var uid, gid int
-	err := handoffRemoteWorkRoot(root, func(path string, value os.FileMode) error {
-		if path != root {
-			t.Fatalf("chmod path = %q, want %q", path, root)
-		}
-		mode = value
-		return nil
-	}, func(path string, gotUID int, gotGID int) error {
-		if path != root {
-			t.Fatalf("chown path = %q, want %q", path, root)
-		}
-		uid, gid = gotUID, gotGID
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("handoffRemoteWorkRoot() error = %v", err)
-	}
-	if mode != 0o700 || uid != remoteExecutorUID || gid != remoteExecutorGID {
-		t.Fatalf("handoff = mode %o uid %d gid %d", mode, uid, gid)
-	}
-}
-
-func TestHandoffRemoteWorkRootRejectsNonEmptyDirectory(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "stale"), []byte("stale"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := handoffRemoteWorkRoot(root, os.Chmod, os.Chown); err == nil {
-		t.Fatal("handoffRemoteWorkRoot() unexpectedly passed")
-	}
-}
-
 func TestInstallAcceptedBootstrapManifestPublishesV1BeforeHandoff(t *testing.T) {
 	bootstrap := acceptedBootstrapManifestFixture(t)
 	root := t.TempDir()

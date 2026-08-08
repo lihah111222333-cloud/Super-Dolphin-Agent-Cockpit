@@ -353,21 +353,6 @@ func hashGitObject(format gate.GitObjectFormat, objectType string, body []byte) 
 	}
 }
 
-// GateImageInputs 是一个 job tree 经校验后的确定性镜像输入视图。
-type GateImageInputs struct {
-	SubmittedSourceTree string
-	PolicyDigest        string
-	ImageSchemaVersion  string
-	Platform            string
-	SourceEntries       []sourceexport.TreeEntry
-	ImageInputDigest    string
-	ContextDigest       string
-	InputManifestDigest string
-	ToolchainDigest     string
-	DockerfileDigest    string
-	GateSourceDigest    string
-}
-
 func cloneTreeEntries(entries []sourceexport.TreeEntry) []sourceexport.TreeEntry {
 	cloned := make([]sourceexport.TreeEntry, len(entries))
 	for index, entry := range entries {

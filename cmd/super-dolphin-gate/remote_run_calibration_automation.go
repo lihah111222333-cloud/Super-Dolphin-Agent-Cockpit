@@ -77,7 +77,7 @@ func optionalCalibrationResource(has bool, resource shardresource.Class) []shard
 	return []shardresource.Class{resource}
 }
 
-// completeAutomaticRemoteCalibration 通过 SQLite CAS 复查、修复或执行当前候选的校准。
+// completeAutomaticRemoteCalibration 通过 SQLite 复查或执行当前候选的校准。
 func completeAutomaticRemoteCalibration(options remoteRunOptions, state remoteci.BaselineState, runnerIdentity string, run func(remoteRunOptions) error, expected ...shardresource.Class) error {
 	ready, err := prepareAutomaticRemoteCalibrationLedger(options.LedgerPath, state, runnerIdentity, expected...)
 	if err != nil {
@@ -88,7 +88,7 @@ func completeAutomaticRemoteCalibration(options remoteRunOptions, state remoteci
 	}
 	accepted, err := tryAcceptAutomaticRemoteCalibration(options, state, runnerIdentity)
 	if err != nil {
-		return infrastructureError("repair automatic remote duration calibration: %v", err)
+		return infrastructureError("accept automatic remote duration calibration: %v", err)
 	}
 	if accepted {
 		return nil
@@ -297,7 +297,7 @@ func loadRemoteDurationCalibrationCatalogs(
 	return catalogs, true, nil
 }
 
-// prepareAutomaticRemoteCalibrationLedger 迁移同基线旧身份，并仅清除真正失配的校准。
+// prepareAutomaticRemoteCalibrationLedger 只接受当前 runner 身份的完整校准，并清除失配元数据。
 func prepareAutomaticRemoteCalibrationLedger(
 	ledgerPath string,
 	state remoteci.BaselineState,
@@ -323,68 +323,37 @@ func prepareAutomaticRemoteCalibrationLedger(
 			time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
 		}
 	}
-	return false, errors.New("reset remote duration calibration exceeded retry limit")
+	return false, errors.New("clear remote duration calibration exceeded retry limit")
 }
 
-// prepareAutomaticRemoteCalibrationAttempt 执行一次校准账本读取、迁移或冲突重试。
+// prepareAutomaticRemoteCalibrationAttempt 执行一次校准元数据读取或窄边界清除。
 func prepareAutomaticRemoteCalibrationAttempt(
 	store *gatecontract.DurationLedgerStore,
 	state remoteci.BaselineState,
 	runnerIdentity string,
 	expected []shardresource.Class,
-) (bool, bool, bool, error) {
-	metadata, err := store.LoadMetadata()
+) (ready, retry, done bool, err error) {
+	snapshot, err := store.LoadMetadata()
 	if errors.Is(err, os.ErrNotExist) {
 		return false, false, true, nil
 	}
 	if err != nil {
 		return false, false, false, err
 	}
-	if remoteDurationCalibrationMatches(metadata.Ledger.Calibration, state, runnerIdentity) && calibrationResourceMatches(metadata.Ledger.Calibration, expected) {
-		ready, err := remoteDurationCalibrationSnapshotReady(store, metadata, state, runnerIdentity, expected)
+	if remoteDurationCalibrationMatches(snapshot.Ledger.Calibration, state, runnerIdentity) && calibrationResourceMatches(snapshot.Ledger.Calibration, expected) {
+		ready, err := remoteDurationCalibrationSnapshotReady(store, snapshot, state, runnerIdentity, expected)
 		return ready, false, true, err
 	}
-	ready, retry, err := repairAutomaticRemoteCalibrationLedger(store, state, runnerIdentity, expected...)
-	if err != nil {
-		return false, false, false, err
-	}
-	if retry {
-		return false, true, false, nil
-	}
-	if !ready {
+	if snapshot.Ledger.Calibration == nil {
 		return false, false, true, nil
 	}
-	metadata, err = store.LoadMetadata()
-	if err != nil {
-		return false, false, false, err
-	}
-	ready, err = remoteDurationCalibrationSnapshotReady(store, metadata, state, runnerIdentity, expected)
-	return ready, false, true, err
-}
-
-// repairAutomaticRemoteCalibrationLedger 执行一次迁移或失配校准清理，并报告是否应重试 CAS。
-func repairAutomaticRemoteCalibrationLedger(store *gatecontract.DurationLedgerStore, state remoteci.BaselineState, runnerIdentity string, expected ...shardresource.Class) (bool, bool, error) {
-	snapshot, err := store.Load()
-	if err != nil {
-		return false, false, err
-	}
-	ledger := snapshot.Ledger
-	legacyIdentity := legacyRemoteRunnerIdentityDigest(state)
-	changed := migrateLegacyRemoteDurationSamples(&ledger, state, legacyIdentity, runnerIdentity)
-	changed, ready := reconcileLegacyRemoteCalibration(&ledger, state, legacyIdentity, runnerIdentity, changed)
-	if ready && !calibrationResourceMatches(ledger.Calibration, expected) {
-		ledger.Calibration = nil
-		changed, ready = true, false
-	}
-	if !changed && !ready {
-		return false, false, nil
-	}
-	if _, err := store.CompareAndSwap(snapshot.Generation, ledger); err == nil {
-		return ready, false, nil
+	// 窄边界 CAS 只清除校准元数据，不物化或重写样本。
+	if _, err := store.CompareAndSwapCalibration(snapshot.Generation, nil); err == nil {
+		return false, false, true, nil
 	} else if errors.Is(err, gatecontract.ErrDurationLedgerConflict) || errors.Is(err, gatecontract.ErrDurationLedgerBusy) {
-		return false, true, nil
+		return false, true, false, nil
 	} else {
-		return false, false, err
+		return false, false, false, err
 	}
 }
 
@@ -398,54 +367,6 @@ func calibrationResourceMatches(calibration *gatecontract.DurationCalibration, e
 	}
 	resource := expected[0]
 	return calibration.CalibrationResourceClassID == resource.ID && calibration.CalibrationResourceCPU == resource.VCPU && calibration.CalibrationResourceMemoryGiB == resource.MemoryGiB
-}
-
-// reconcileLegacyRemoteCalibration 更新旧身份校准，或清除与当前 runner 不可比的记录。
-func reconcileLegacyRemoteCalibration(ledger *gatecontract.DurationLedger, state remoteci.BaselineState, legacyIdentity, runnerIdentity string, changed bool) (bool, bool) {
-	if legacyRemoteDurationCalibrationMatches(ledger.Calibration, state, legacyIdentity) {
-		calibration := *ledger.Calibration
-		calibration.Runner = runnerIdentity
-		ledger.Calibration = &calibration
-		return true, true
-	}
-	if ledger.Calibration != nil {
-		ledger.Calibration = nil
-		return true, false
-	}
-	return changed, false
-}
-
-// legacyRemoteDurationCalibrationMatches 判断校准是否仍属于可迁移的旧 runner 身份。
-func legacyRemoteDurationCalibrationMatches(
-	calibration *gatecontract.DurationCalibration,
-	state remoteci.BaselineState,
-	legacyIdentity string,
-) bool {
-	return calibration != nil &&
-		gatecontract.ValidateDurationCalibration(*calibration) == nil &&
-		calibration.SchemaVersion == gatecontract.DurationCalibrationSchemaVersion &&
-		calibration.Platform == state.Platform &&
-		calibration.Runner == legacyIdentity &&
-		calibration.Toolchain == state.ToolchainDigest
-}
-
-func migrateLegacyRemoteDurationSamples(
-	ledger *gatecontract.DurationLedger,
-	state remoteci.BaselineState,
-	legacyIdentity string,
-	runnerIdentity string,
-) bool {
-	changed := false
-	for index := range ledger.Samples {
-		bucket := &ledger.Samples[index].Bucket
-		if bucket.Platform != state.Platform || bucket.Toolchain != state.ToolchainDigest ||
-			bucket.Runner != legacyIdentity {
-			continue
-		}
-		bucket.Runner = runnerIdentity
-		changed = true
-	}
-	return changed
 }
 
 // remoteAutomaticCalibrationOptions 只传递校准所需身份，并优先绑定当前候选源码。
@@ -549,20 +470,6 @@ func remoteRunnerIdentityDigest(state remoteci.BaselineState, workerExecutionDig
 		state.ToolchainDigest,
 		state.RuntimeSeedSHA256,
 		workerExecutionDigest,
-	}, "\x00")
-	digest := sha256.Sum256([]byte(material))
-	return fmt.Sprintf("sha256:%x", digest)
-}
-
-// legacyRemoteRunnerIdentityDigest 仅迁移 v1 样本；v2 依赖 RuntimeImage，不能在 v3 语义下复用。
-func legacyRemoteRunnerIdentityDigest(state remoteci.BaselineState) string {
-	material := strings.Join([]string{
-		"super-dolphin-gate-runner-identity-v1",
-		state.RuntimeImage,
-		state.PolicyDigest,
-		state.ToolchainDigest,
-		state.GateBinarySHA256,
-		state.RuntimeSeedSHA256,
 	}, "\x00")
 	digest := sha256.Sum256([]byte(material))
 	return fmt.Sprintf("sha256:%x", digest)

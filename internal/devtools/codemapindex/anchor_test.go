@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,6 +89,49 @@ func TestAIIndex_CompactFormat(t *testing.T) {
 				"Regenerate with: make codemap-refresh",
 			lines,
 		)
+	}
+}
+
+// TestAIIndexRemoteCICoverage 锁定远程 CI 编号分卷与核心源码进入 canonical ai-index。
+func TestAIIndexRemoteCICoverage(t *testing.T) {
+	root := projectRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "docs", "doc", "codemap", "ai-index.json"))
+	if err != nil {
+		t.Fatalf("read ai-index.json: %v", err)
+	}
+	var index codemapindex.Index
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatalf("decode ai-index.json: %v", err)
+	}
+	requireRemoteCICodemap(t, index.Codemaps)
+	for _, source := range []string{
+		"cmd/super-dolphin-gate/main.go",
+		"internal/devtools/remoteci/coordinator.go",
+		"internal/devtools/cicontract/contract.go",
+		"internal/devtools/alicloud/eci/client.go",
+		"internal/devtools/alicloud/oss/client.go",
+	} {
+		requireRemoteCISource(t, index.Files, source)
+	}
+}
+
+func requireRemoteCICodemap(t *testing.T, codemaps []codemapindex.Codemap) {
+	t.Helper()
+	if !slices.ContainsFunc(codemaps, func(codemap codemapindex.Codemap) bool {
+		return codemap.ID == "14" && codemap.File == "14-remote-ci.md"
+	}) {
+		t.Fatal("ai-index.json missing 14-remote-ci.md codemap")
+	}
+}
+
+func requireRemoteCISource(t *testing.T, files map[string]*codemapindex.FileEntry, source string) {
+	t.Helper()
+	entry := files[source]
+	if entry == nil || len(entry.Refs) == 0 {
+		t.Fatalf("ai-index.json missing remote CI source reference for %s", source)
+	}
+	if !slices.ContainsFunc(entry.Refs, func(ref codemapindex.Ref) bool { return ref.CodemapID == "14" }) {
+		t.Fatalf("ai-index.json source %s is not routed through codemap 14: %#v", source, entry.Refs)
 	}
 }
 

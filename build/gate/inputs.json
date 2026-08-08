@@ -1772,6 +1772,7 @@
     "internal/archtest/fx_invoke_guard_fixture_test.go",
     "internal/archtest/fx_invoke_guard_test.go",
     "internal/archtest/fx_lifecycle_guard_test.go",
+    "internal/archtest/gate_retired_action_promotion_protocol_guard_test.go",
     "internal/archtest/go_toolchain_version_guard_test.go",
     "internal/archtest/guard_check.go",
     "internal/archtest/guard_check_test.go",
@@ -2069,7 +2070,6 @@
     "internal/devtools/frontendcodesizetrusted/execution_closure.go",
     "internal/devtools/frontendcodesizetrusted/frontend_code_size.go",
     "internal/devtools/frontendcodesizetrusted/frontend_code_size_test.go",
-    "internal/devtools/gate/action_grant_validation.go",
     "internal/devtools/gate/calibration_checkpoint_store.go",
     "internal/devtools/gate/ci_catalog_observation_identity_test.go",
     "internal/devtools/gate/ci_catalog_store.go",
@@ -2091,7 +2091,6 @@
     "internal/devtools/gate/container_shards_test.go",
     "internal/devtools/gate/contracts.go",
     "internal/devtools/gate/contracts_test.go",
-    "internal/devtools/gate/contracts_validation_release.go",
     "internal/devtools/gate/entrypoints.go",
     "internal/devtools/gate/entrypoints_test.go",
     "internal/devtools/gate/executor.go",
@@ -4650,7 +4649,6 @@
     "internal/devtools/frontendcodesizetrusted/assets/scripts/lib/frontend-code-size-guard-runner.mjs",
     "internal/devtools/frontendcodesizetrusted/execution_closure.go",
     "internal/devtools/frontendcodesizetrusted/frontend_code_size.go",
-    "internal/devtools/gate/action_grant_validation.go",
     "internal/devtools/gate/calibration_checkpoint_store.go",
     "internal/devtools/gate/ci_catalog_store.go",
     "internal/devtools/gate/ci_query_store.go",
@@ -4664,7 +4662,6 @@
     "internal/devtools/gate/compile_timing_sqlite_write.go",
     "internal/devtools/gate/container_shards.go",
     "internal/devtools/gate/contracts.go",
-    "internal/devtools/gate/contracts_validation_release.go",
     "internal/devtools/gate/entrypoints.go",
     "internal/devtools/gate/executor.go",
     "internal/devtools/gate/executor_cache_metrics.go",
@@ -4865,6 +4862,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6521,
-  "source_snapshot_paths_sha256": "sha256:707bac0962bd6f84e427016f6f375873b9817c1e7fab446bbe286054481abf70"
+  "source_snapshot_input_count": 6522,
+  "source_snapshot_paths_sha256": "sha256:8f18dae7a5a9c3e9363aa51f53a4438bcd852ab1fcf5c0885a5274fdf9c09a89"
 }

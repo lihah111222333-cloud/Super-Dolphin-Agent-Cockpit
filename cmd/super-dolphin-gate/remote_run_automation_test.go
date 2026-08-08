@@ -400,13 +400,13 @@ func TestPrepareAutomaticRemoteCalibrationLedgerPreservesSamples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Ledger.Calibration != nil || len(snapshot.Ledger.Samples) != 1 ||
-		snapshot.Ledger.Samples[0] != sample {
-		t.Fatalf("reset ledger = %#v", snapshot.Ledger)
+	if snapshot.Ledger.Calibration != nil ||
+		len(snapshot.Ledger.Samples) != 1 || snapshot.Ledger.Samples[0] != sample {
+		t.Fatalf("mismatched calibration was not cleared without rewriting samples: %#v", snapshot.Ledger)
 	}
 }
 
-func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *testing.T) {
+func TestPrepareAutomaticRemoteCalibrationLedgerDoesNotReuseRetiredV1Identity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
 	store, err := gatecontract.NewDurationLedgerStore(path)
 	if err != nil {
@@ -414,7 +414,7 @@ func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *
 	}
 	state := remoteRunRunnerIdentityState()
 	runnerIdentity := remoteRunRunnerIdentity(state)
-	legacyIdentity := legacyRemoteRunnerIdentityDigest(state)
+	legacyIdentity := "sha256:" + strings.Repeat("e", 64)
 	sample := gatecontract.DurationSample{
 		Bucket: gatecontract.DurationBucket{
 			WorkloadID: "guard:fixture", CommandDigest: strings.Repeat("1", 64),
@@ -441,11 +441,10 @@ func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Ledger.Calibration == nil ||
-		snapshot.Ledger.Calibration.Runner != runnerIdentity ||
+	if snapshot.Ledger.Calibration != nil ||
 		len(snapshot.Ledger.Samples) != 1 ||
-		snapshot.Ledger.Samples[0].Bucket.Runner != runnerIdentity {
-		t.Fatalf("migrated ledger = %#v", snapshot.Ledger)
+		snapshot.Ledger.Samples[0].Bucket.Runner != legacyIdentity {
+		t.Fatalf("retired v1 identity was reused or rewritten: %#v", snapshot.Ledger)
 	}
 }
 

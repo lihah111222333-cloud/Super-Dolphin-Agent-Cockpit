@@ -28,12 +28,12 @@ func TestRemoteCIRetiredLegacyArtifactsDoNotReturn(t *testing.T) {
 	}
 }
 
-// TestRemoteCIRejectsRetiredFullBuildContextSymbols keeps the delta archive as
-// the only transferable source payload. OCI identity may retain digests, but
-// the retired full-context API and tar field must not return.
+// TestRemoteCIRejectsRetiredFullBuildContextSymbols keeps the thin bundle as
+// the only transferable source payload; retired full-context and image-input
+// APIs must not return.
 func TestRemoteCIRejectsRetiredFullBuildContextSymbols(t *testing.T) {
 	root := findRepoRoot(t)
-	for _, symbol := range []string{"ContextTar", "PrepareOCIBuildContext", "OCIBuildContext", "buildCanonicalContext"} {
+	for _, symbol := range []string{"ContextTar", "PrepareOCIBuildContext", "OCIBuildContext", "buildCanonicalContext", "GateImageInputs"} {
 		hasSymbolInRemoteCIProductionSource(t, root, symbol)
 	}
 }

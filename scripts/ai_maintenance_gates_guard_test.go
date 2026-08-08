@@ -19,10 +19,16 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		`--repository "$repo_root"`,
 		`--tree "$staged_tree"`,
 		`--parent "$parent_commit"`,
-		`"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`,
+		`"$gate_bin" "${remote_args[@]}" 2>&1`,
+		`hook_rc=$?`,
 	} {
 		if !strings.Contains(preCommit, required) {
 			return fmt.Errorf("pre-commit must route through trusted gate CLI command %q", required)
+		}
+	}
+	for _, forbidden := range []string{"gate_output_file", "tee", `mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit.`} {
+		if strings.Contains(preCommit, forbidden) {
+			return fmt.Errorf("pre-commit must not restore retired gate output spool %q", forbidden)
 		}
 	}
 	for _, required := range []string{
@@ -60,7 +66,8 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, preCommit, `--config "$remote_config"`)
 	assertScriptContains(t, preCommit, `--ledger "$remote_ledger"`)
 	assertScriptContains(t, preCommit, `--repository "$repo_root"`)
-	assertScriptContains(t, preCommit, `"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`)
+	assertScriptContains(t, preCommit, `"$gate_bin" "${remote_args[@]}" 2>&1`)
+	assertScriptContains(t, preCommit, `hook_rc=$?`)
 	assertScriptContains(t, prePush, `remote hook pre-push`)
 	assertScriptContains(t, prePush, `--config "$remote_config"`)
 	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
@@ -77,6 +84,27 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestAIMaintenanceGateRejectsRetiredPreCommitOutputSpool(t *testing.T) {
+	script := readScript(t, "ai_maintenance_gates.sh")
+	preCommit := readRepoFile(t, "../.githooks/pre-commit")
+	prePush := readRepoFile(t, "../.githooks/pre-push")
+
+	mutatedPreCommit := strings.Replace(
+		preCommit,
+		`"$gate_bin" "${remote_args[@]}" 2>&1`,
+		`"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`,
+		1,
+	)
+	if err := validateAIMaintenanceHookRoutes(mutatedPreCommit, prePush, script); err == nil {
+		t.Fatal("reintroducing the pre-commit output spool must be rejected")
+	}
+
+	mutatedPreCommit = strings.Replace(preCommit, "hook_rc=$?", "", 1)
+	if err := validateAIMaintenanceHookRoutes(mutatedPreCommit, prePush, script); err == nil {
+		t.Fatal("dropping the direct gate exit-status capture must be rejected")
 	}
 }
 

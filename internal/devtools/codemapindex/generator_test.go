@@ -239,7 +239,7 @@ func prepareCodemapSemanticPolicyFixture(t *testing.T, root string) {
 		t.Fatalf("read codemap policy fixture: %v", err)
 	}
 	writeCodemapFixtureFile(t, root, "scripts/codemap_policy.txt", string(policy))
-	shards := []string{"app-ui.tsv", "docs-agent.tsv", "modules.tsv", "orchestration.tsv", "other.tsv", "platform-provider.tsv", "store-sql.tsv"}
+	shards := []string{"app-ui.tsv", "docs-agent.tsv", "modules.tsv", "orchestration.tsv", "other.tsv", "platform-provider.tsv", "remote-ci.tsv", "store-sql.tsv"}
 	var manifest strings.Builder
 	manifest.WriteString("{\"index_files\":{\"shards\":[")
 	for index, shard := range shards {

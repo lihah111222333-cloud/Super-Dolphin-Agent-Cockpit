@@ -21,7 +21,7 @@ func TestBuildGatePlanRoutesEveryIndexedProjectMapSurface(t *testing.T) {
 	}
 
 	plan := mustBuildGatePlan(t, []string{".githooks/pre-commit"})
-	assertStringSetOmits(t, plan.RequiredGates, "project-map:check")
+	assertStringSetContains(t, plan.RequiredGates, "project-map:check")
 }
 
 func TestProjectMapRoutingCoversGeneratorIndexedRoots(t *testing.T) {

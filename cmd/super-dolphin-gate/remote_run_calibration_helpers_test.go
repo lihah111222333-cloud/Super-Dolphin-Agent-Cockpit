@@ -44,6 +44,23 @@ func seedRemoteDurationCalibrationFixtureOverhead(t *testing.T, fixture remoteDu
 	seedRemoteRunShardOverheadFixture(t, fixture.store, fixture.calibration.Runner, fixture.calibration.AcceptedSnapshotID)
 }
 
+// remoteCalibrationCatalog 仅为测试 fixture 构造待持久化的校准 catalog。
+func remoteCalibrationCatalog(input remoteci.RunInput) (gatecontract.WorkloadCatalog, string, error) {
+	plan, err := gatecontract.BuildGatePlan(input.Profile, input.Source)
+	if err != nil {
+		return gatecontract.WorkloadCatalog{}, "", err
+	}
+	catalog, err := gatecontract.BuildCalibrationWorkloadCatalog(plan, gatecontract.DefaultWorkloadBootstrapPolicy(), input.Inventory)
+	if err != nil {
+		return gatecontract.WorkloadCatalog{}, "", err
+	}
+	digest, err := gatecontract.WorkloadCatalogDigest(catalog)
+	if err != nil {
+		return gatecontract.WorkloadCatalog{}, "", err
+	}
+	return catalog, digest, nil
+}
+
 func mustRemoteCalibrationCatalog(t *testing.T, input remoteci.RunInput) (gatecontract.WorkloadCatalog, string) {
 	t.Helper()
 	catalog, _, err := remoteCalibrationCatalog(input)

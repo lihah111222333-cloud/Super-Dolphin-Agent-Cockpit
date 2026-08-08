@@ -426,23 +426,6 @@ func prepareRemoteCalibrationLedger(path string) (*gatecontract.DurationLedgerSt
 	return store, nil
 }
 
-// remoteCalibrationCatalog 从固定运行输入生成可比较的 workload catalog 与 digest。
-func remoteCalibrationCatalog(input remoteci.RunInput) (gatecontract.WorkloadCatalog, string, error) {
-	plan, err := gatecontract.BuildGatePlan(input.Profile, input.Source)
-	if err != nil {
-		return gatecontract.WorkloadCatalog{}, "", err
-	}
-	catalog, err := gatecontract.BuildCalibrationWorkloadCatalog(plan, gatecontract.DefaultWorkloadBootstrapPolicy(), input.Inventory)
-	if err != nil {
-		return gatecontract.WorkloadCatalog{}, "", err
-	}
-	digest, err := gatecontract.WorkloadCatalogDigest(catalog)
-	if err != nil {
-		return gatecontract.WorkloadCatalog{}, "", err
-	}
-	return catalog, digest, nil
-}
-
 // acceptRemoteDurationCalibration 用 CAS 接受每个 catalog workload 都有成功样本的首代校准。
 func acceptRemoteDurationCalibration(
 	store *gatecontract.DurationLedgerStore,
@@ -640,11 +623,6 @@ func remoteCalibrationRunnableRacePackageTarget(workload remoteCalibrationWorklo
 	default:
 		return "", false, nil
 	}
-}
-
-// remoteCalibrationRacePackage 识别必须拥有独立证据的 Go race workload。
-func remoteCalibrationRacePackage(parent gatecontract.GateID, kind gatecontract.WorkloadKind) bool {
-	return parent == gatecontract.GateIDBackendTestGuardWithRace && kind == gatecontract.WorkloadKindGoTest
 }
 
 // remoteCalibrationWorkloadHasPass 优先使用本轮通过集合，再回退到可比较账本样本。

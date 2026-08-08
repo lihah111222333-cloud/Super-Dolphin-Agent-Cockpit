@@ -665,7 +665,7 @@ func (policy gatePlanPolicy) codemapRelevant(file string) bool {
 // projectMapRelevant mirrors the generator's indexed roots so path or size drift is never skipped.
 func projectMapRelevant(file string) bool {
 	for _, prefix := range []string{
-		"cmd/", "docs/", "frontend-app/", "internal/", "migrations/", "pkg/",
+		".githooks/", "cmd/", "config/", "docs/", "frontend-app/", "internal/", "migrations/", "pkg/",
 		"scripts/", "sql/", "test/", "tests/", "third_party/",
 	} {
 		if strings.HasPrefix(file, prefix) {

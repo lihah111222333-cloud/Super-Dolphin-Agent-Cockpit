@@ -779,42 +779,6 @@ func remoteRunCheckReceipts(
 	return receipts, nil
 }
 
-// validateRemoteRunStoredCheckReceipts 校验权威账本精确保存了本次调用生成的检查回执。
-func validateRemoteRunStoredCheckReceipts(
-	store *gatecontract.DurationLedgerStore,
-	jobID string,
-	want []gatecontract.CheckReceiptRecord,
-) error {
-	if store == nil {
-		return errors.New("remote CI duration ledger store is required")
-	}
-	got, err := store.LoadCheckReceipts(jobID)
-	if err != nil {
-		return fmt.Errorf("reload remote CI check receipts: %w", err)
-	}
-	if len(got) != len(want) {
-		return fmt.Errorf("reloaded remote CI check receipt count = %d, want %d", len(got), len(want))
-	}
-	wantByCheck := make(map[cicontract.RequiredCheck]gatecontract.CheckReceiptRecord, len(want))
-	for _, receipt := range want {
-		if _, duplicate := wantByCheck[receipt.RequiredCheck]; duplicate {
-			return fmt.Errorf("expected remote CI check receipt %q is duplicated", receipt.RequiredCheck)
-		}
-		wantByCheck[receipt.RequiredCheck] = receipt
-	}
-	for _, receipt := range got {
-		expected, found := wantByCheck[receipt.RequiredCheck]
-		if !found || receipt != expected {
-			return fmt.Errorf("reloaded remote CI check receipt %q does not exactly match this invocation", receipt.RequiredCheck)
-		}
-		delete(wantByCheck, receipt.RequiredCheck)
-	}
-	if len(wantByCheck) != 0 {
-		return errors.New("reloaded remote CI check receipt collection is incomplete")
-	}
-	return nil
-}
-
 // remoteRunIsFullAuthoritativeAcceptance 判断完整的暂定运行形态是否可由唯一 SQLite 权威最终化。
 func remoteRunIsFullAuthoritativeAcceptance(
 	catalog gatecontract.WorkloadCatalog,

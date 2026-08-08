@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**4819**
+> 已索引文件：**4827**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/plans/**, docs/superpowers/**, docs/archive/**, docs/before/**, docs/迁移/**, docs/ai01-docs/**, docs/cc/**, docs/li/**, docs/pians/**, docs/调研/**, docs/healthy-check/**, docs/decisions/**, docs/reviews/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -26,8 +26,9 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/modules.tsv` | 763 | 148.7 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1289 | 240.2 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 210 | 30.9 KB | 持久化层：store、sqlc、SQL queries、migrations |
+| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 206 | 55.5 KB | 远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 96 | 14.0 KB | 代码地图、ADR、契约与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 1293 | 260.2 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 1095 | 217.6 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -46,16 +47,18 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2844 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 2843 | 应用内部模块、平台、provider、store 与守卫 |
 | `cmd` | 859 | 可执行入口与 MCP peer |
 | `frontend-app` | 749 | 当前 React/Vite 新 UI |
 | `scripts` | 189 | 工程自动化脚本 |
-| `docs` | 88 | 当前文档、生成索引、开发中材料与历史证据 |
+| `docs` | 89 | 当前文档、生成索引、开发中材料与历史证据 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
 | `(root)` | 12 | 仓库根级配置和说明 |
 | `test` | 9 | 测试夹具和辅助资源 |
 | `third_party` | 9 | 第三方参考材料 |
+| `.githooks` | 5 | 其他项目资源 |
+| `config` | 3 | 其他项目资源 |
 | `tests` | 1 | 跨包和脚本级测试资源 |
 
 ## 4. 运行入口地图
@@ -65,6 +68,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | Desktop host | `cmd/agent-terminal/main.go` | local desktop host | Wails desktop host, HTTP/RPC bridge, frontend embed host |
 | MCP orchestration peer | `cmd/mcp-orch/main.go` | stdio / managed peer | Agent lifecycle, DAG, wakeup, workspace and shared file tools |
 | MCP LSP peer | `cmd/mcp-lsp/main.go` | stdio / managed peer | Generic multi-language LSP peer and code intelligence tools |
+| Remote CI gate | `cmd/super-dolphin-gate/main.go` | Git hooks / manual gate | Exact-tree SQLite authority to unbounded Alibaba Cloud ECI shards |
 | React UI | `frontend-app/src/main.jsx` | 5175 dev server | Current React/Vite frontend entry |
 | macOS dev runner | `run-new-ui-desktop.sh` | 5175 dev UI + local desktop host | Desktop host plus Vite dev flow |
 | Windows dev runner | `run-new-ui-desktop.ps1` | 5175 dev UI + local desktop host | PowerShell desktop host plus Vite dev flow |
@@ -101,6 +105,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 修改 App adapter 分包 | `internal/app/storeadapter/` | `internal/app/runtimeadapter/` | `store runtime adapter` |
 | 修改控制面/bootstrap | `internal/platform/mcpcontrol/` | `internal/mcpserver/common/bootstrap/` | `peer register bootstrap hooks` |
 | 修改持久化/SQL | `internal/store/` | `sql/queries/` | `store sqlc migration queries` |
+| 修改远程 CI/ECI/ImageCache | `internal/devtools/remoteci/` | `cmd/super-dolphin-gate/` | `remote ci eci imagecache sqlite workload shard receipt` |
 | 修改代码地图 | `docs/doc/codemap/` | `scripts/codemap_index.go` | `codemap ai-index make codemap-refresh` |
 | 修改架构守卫 | `internal/archtest/` | `internal/archtest/freeze_baseline.json` | `guard baseline ratchet freeze` |
 | 查 AI maintenance gates | `scripts/ai_maintenance/` | `.githooks/pre-push` | `ai maintenance gates validation local hooks generated files` |
@@ -157,6 +162,16 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `cmd/mcp-orch/orchestration` | 186 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
 | `cmd/mcp-lsp/tools` | 64 | LSP MCP tools 实现 |
 | `cmd/mcp-lsp/multilsp` | 104 | 多语言 LSP manager、transport 与缓存 |
+
+### remote CI
+
+| 子系统 | 文件数 | 职责 |
+|---|---:|---|
+| `cmd/super-dolphin-gate` | 60 | remote run/hook/materializer/manifest installer/worker CLI |
+| `internal/devtools/remoteci` | 109 | coordinator、source transport、workload identity 与 timing |
+| `internal/devtools/cicontract` | 8 | ECI/ImageCache/SQLite canonical contract owner |
+| `internal/devtools/alicloud/eci` | 13 | 阿里云 ECI 生命周期与 ImageCache 只读验证 |
+| `internal/devtools/alicloud/oss` | 3 | OSS 内容寻址传输 |
 
 ## 8. 文档与知识地图
 

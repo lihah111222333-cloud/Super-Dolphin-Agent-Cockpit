@@ -38,7 +38,8 @@ docs/doc/codemap/11-memory.md	docs	docs-agent	doc	28332	手写代码地图卷与
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59499	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11793	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
 docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	22096	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
-docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
+docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	3635	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
+docs/doc/codemap/README.md	docs	docs-agent	doc	3221	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	466797	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	3512479	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
@@ -79,7 +80,6 @@ docs/契约/mcp-service-convention.md	docs	docs-agent	doc	16169	项目文档体�
 docs/契约/modularity-convention.md	docs	docs-agent	doc	47932	项目文档体系	docs,契约,modularity,convention,项目文档体系
 docs/契约/onion-architecture-convention.md	docs	docs-agent	doc	4227	项目文档体系	docs,契约,onion,architecture,convention,项目文档体系
 docs/契约/recall-topic-naming.md	docs	docs-agent	doc	1328	项目文档体系	docs,契约,recall,topic,naming,项目文档体系
-docs/契约/remote-ci-eci-imagecache-contract.md	docs	docs-agent	doc	66879	项目文档体系	docs,契约,remote,ci,eci,imagecache,contract,项目文档体系
 docs/契约/rungroup-convention.md	docs	docs-agent	doc	3717	项目文档体系	docs,契约,rungroup,convention,项目文档体系
 docs/契约/sqlc-convention.md	docs	docs-agent	doc	3949	项目文档体系	docs,契约,sqlc,convention,项目文档体系
 docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文档体系	docs,契约,statemachine,event,convention,项目文档体系

@@ -16,6 +16,7 @@ const MANIFEST_JSON = path.join(OUTPUT_DIR, 'AI_PROJECT_MANIFEST.json');
 
 const INDEXED_TOP_LEVEL_DIRS = new Set([
   'cmd',
+  'config',
   'docs',
   'frontend-app',
   'internal',
@@ -26,6 +27,7 @@ const INDEXED_TOP_LEVEL_DIRS = new Set([
   'test',
   'tests',
   'third_party',
+  '.githooks',
 ]);
 
 const INDEXED_ROOT_FILES = new Set([
@@ -171,6 +173,7 @@ const DOMAIN_DESCRIPTIONS = {
   modules: '业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等',
   'platform-provider': '基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider',
   'store-sql': '持久化层：store、sqlc、SQL queries、migrations',
+  'remote-ci': '远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker',
   'docs-agent': '代码地图、ADR、契约与 docs 项目知识',
   other: '公共库、脚本、测试、配置与其他根级资源',
 };
@@ -193,6 +196,22 @@ const MODULE_DESCRIPTIONS = {
 };
 
 const PURPOSE_RULES = [
+  ['cmd/super-dolphin-gate/', '远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口'],
+  ['internal/devtools/remoteci/', '远程 CI coordinator、source transport、workload identity、ECI shard 与 timing ledger'],
+  ['internal/devtools/cicontract/', '远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner'],
+  ['internal/devtools/alicloud/eci/', '阿里云 ECI container group 与 ImageCache 只读客户端'],
+  ['internal/devtools/alicloud/oss/', '远程 CI OSS 内容寻址传输客户端'],
+  ['config/remote-ci/', '远程 CI strict 配置与 generation-one receipt 输入'],
+  ['.githooks/pre-commit', '精确 staged tree 的远程 CI pre-commit 门禁入口'],
+  ['.githooks/pre-push', '精确 ref update 的远程 CI pre-push 门禁入口'],
+  ['.githooks/trusted-gate-launcher.sh', '远程 CI trusted gate launcher 验证入口'],
+  ['scripts/ci_truth_image_gate.sh', '远程 CI release/full gate 启动脚本'],
+  ['scripts/git_with_remote_ci_credentials.sh', '远程 CI 短期凭据与 agent token Git 启动器'],
+  ['scripts/init_remote_ci_local.sh', '远程 CI 本地配置、SQLite 与 Git alias 初始化脚本'],
+  ['scripts/remote_ci_', '远程 CI 脚本守卫与凭据回归测试'],
+  ['scripts/tests/test_gate_hook_', '远程 CI Git hook 入口与生产 E2E shell 回归'],
+  ['docs/契约/remote-ci-eci-imagecache-contract.md', '远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约'],
+
   ['frontend-app/src/pages/', 'React 页面与路由级 UI'],
   ['frontend-app/src/entities/', 'React 客户端状态、thread/composer/store 模型'],
   ['frontend-app/src/shared/api/', 'React 前端 API facade 与 Wails bridge'],
@@ -286,6 +305,7 @@ const QUICK_ROUTES = [
   ['修改 App adapter 分包', 'internal/app/storeadapter/', 'internal/app/runtimeadapter/', 'store runtime adapter'],
   ['修改控制面/bootstrap', 'internal/platform/mcpcontrol/', 'internal/mcpserver/common/bootstrap/', 'peer register bootstrap hooks'],
   ['修改持久化/SQL', 'internal/store/', 'sql/queries/', 'store sqlc migration queries'],
+  ['修改远程 CI/ECI/ImageCache', 'internal/devtools/remoteci/', 'cmd/super-dolphin-gate/', 'remote ci eci imagecache sqlite workload shard receipt'],
   ['修改代码地图', 'docs/doc/codemap/', 'scripts/codemap_index.go', 'codemap ai-index make codemap-refresh'],
   ['修改架构守卫', 'internal/archtest/', 'internal/archtest/freeze_baseline.json', 'guard baseline ratchet freeze'],
 ];
@@ -306,6 +326,7 @@ const RUNTIME_ENTRY_ROWS = [
   ['Desktop host', 'cmd/agent-terminal/main.go', 'local desktop host', 'Wails desktop host, HTTP/RPC bridge, frontend embed host'],
   ['MCP orchestration peer', 'cmd/mcp-orch/main.go', 'stdio / managed peer', 'Agent lifecycle, DAG, wakeup, workspace and shared file tools'],
   ['MCP LSP peer', 'cmd/mcp-lsp/main.go', 'stdio / managed peer', 'Generic multi-language LSP peer and code intelligence tools'],
+  ['Remote CI gate', 'cmd/super-dolphin-gate/main.go', 'Git hooks / manual gate', 'Exact-tree SQLite authority to unbounded Alibaba Cloud ECI shards'],
   ['React UI', 'frontend-app/src/main.jsx', '5175 dev server', 'Current React/Vite frontend entry'],
   ['macOS dev runner', 'run-new-ui-desktop.sh', '5175 dev UI + local desktop host', 'Desktop host plus Vite dev flow'],
   ['Windows dev runner', 'run-new-ui-desktop.ps1', '5175 dev UI + local desktop host', 'PowerShell desktop host plus Vite dev flow'],
@@ -356,6 +377,13 @@ const SUBSYSTEM_PREFIX_GROUPS = [
     ['cmd/mcp-orch/orchestration', 'agent 生命周期、DAG、wakeup、report 与 hook 消费'],
     ['cmd/mcp-lsp/tools', 'LSP MCP tools 实现'],
     ['cmd/mcp-lsp/multilsp', '多语言 LSP manager、transport 与缓存'],
+  ]],
+  ['remote CI', [
+    ['cmd/super-dolphin-gate', 'remote run/hook/materializer/manifest installer/worker CLI'],
+    ['internal/devtools/remoteci', 'coordinator、source transport、workload identity 与 timing'],
+    ['internal/devtools/cicontract', 'ECI/ImageCache/SQLite canonical contract owner'],
+    ['internal/devtools/alicloud/eci', '阿里云 ECI 生命周期与 ImageCache 只读验证'],
+    ['internal/devtools/alicloud/oss', 'OSS 内容寻址传输'],
   ]],
 ];
 
@@ -664,6 +692,7 @@ function topModule(file) {
 }
 
 function classifyDomain(file) {
+  if (isRemoteCIPath(file)) return 'remote-ci';
   if (file.startsWith('frontend-app/')) return 'app-ui';
   if (file.startsWith('cmd/agent-terminal/')) return 'app-ui';
   if (file.startsWith('cmd/mcp-orch/')) return 'orchestration';
@@ -672,6 +701,24 @@ function classifyDomain(file) {
   if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
   if (file.startsWith('docs/') || file === 'CLAUDE.md' || file === 'AGENTS.md' || file === 'README.md' || (file.startsWith('README.') && file.endsWith('.md'))) return 'docs-agent';
   return 'other';
+}
+
+function isRemoteCIPath(file) {
+  return file.startsWith('cmd/super-dolphin-gate/') ||
+    file.startsWith('internal/devtools/remoteci/') ||
+    file.startsWith('internal/devtools/cicontract/') ||
+    file.startsWith('internal/devtools/alicloud/eci/') ||
+    file.startsWith('internal/devtools/alicloud/oss/') ||
+    file.startsWith('config/remote-ci/') ||
+    file === '.githooks/pre-commit' ||
+    file === '.githooks/pre-push' ||
+    file === '.githooks/trusted-gate-launcher.sh' ||
+    file === 'scripts/ci_truth_image_gate.sh' ||
+    file === 'scripts/git_with_remote_ci_credentials.sh' ||
+    file === 'scripts/init_remote_ci_local.sh' ||
+    file.startsWith('scripts/remote_ci_') ||
+    file.startsWith('scripts/tests/test_gate_hook_') ||
+    file === 'docs/契约/remote-ci-eci-imagecache-contract.md';
 }
 
 function classifyType(file) {

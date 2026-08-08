@@ -265,6 +265,7 @@ func trustedProjectMapPolicy() string {
 		"shard\tmodules\tmodules.tsv",
 		"shard\tplatform-provider\tplatform-provider.tsv",
 		"shard\tstore-sql\tstore-sql.tsv",
+		"shard\tremote-ci\tremote-ci.tsv",
 		"shard\tdocs-agent\tdocs-agent.tsv",
 		"shard\tother\tother.tsv",
 		"",

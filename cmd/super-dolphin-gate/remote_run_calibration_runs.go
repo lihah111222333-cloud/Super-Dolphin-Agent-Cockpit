@@ -18,7 +18,7 @@ type remoteCalibrationIdentity struct {
 // validateRemoteCalibrationOptions 限制校准只接收可复现身份、存储和分片容量参数。
 func validateRemoteCalibrationOptions(options remoteRunOptions) error {
 	if remoteCalibrationHasScenarioOptions(options) || remoteCalibrationHasSourceOptions(options) {
-		return protocolError("remote calibrate accepts only run identity, storage, and shard-limit flags")
+		return protocolError("remote calibrate accepts only run identity and storage flags")
 	}
 	return nil
 }

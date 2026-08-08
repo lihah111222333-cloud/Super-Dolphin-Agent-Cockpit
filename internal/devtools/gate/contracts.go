@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 	"unicode/utf8"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -111,88 +110,6 @@ type SourceSpec struct {
 	SourceTreeSHA string          `json:"source_tree_sha"`
 }
 
-// SignatureAlgorithm identifies the signer algorithm used by a trusted host component.
-type SignatureAlgorithm string
-
-const SignatureAlgorithmEd25519 SignatureAlgorithm = "ed25519"
-
-// SignerIdentity identifies the host key and rotation epoch used for a signature.
-type SignerIdentity struct {
-	KeyID     string             `json:"key_id"`
-	KeyEpoch  uint64             `json:"key_epoch"`
-	Algorithm SignatureAlgorithm `json:"algorithm"`
-}
-
-// ImageIdentity binds execution to a complete OCI platform identity.
-type ImageIdentity struct {
-	Registry               string   `json:"registry"`
-	OCIIndexDigest         string   `json:"oci_index_digest"`
-	PlatformManifestDigest string   `json:"platform_manifest_digest"`
-	ConfigDigest           string   `json:"config_digest"`
-	RootFSDiffIDs          []string `json:"rootfs_diff_ids"`
-	OS                     string   `json:"os"`
-	Architecture           string   `json:"architecture"`
-	Variant                string   `json:"variant,omitempty"`
-}
-
-// TrustedRunnerIdentity binds the runner binary, signer, and accepted policy.
-type TrustedRunnerIdentity struct {
-	BinaryDigest string         `json:"binary_digest"`
-	Signer       SignerIdentity `json:"signer"`
-	PolicyDigest string         `json:"policy_digest"`
-}
-
-// TrustedAdapterIdentity identifies the signed adapter allowed to consume a grant.
-type TrustedAdapterIdentity struct {
-	Name         string         `json:"name"`
-	BinaryDigest string         `json:"binary_digest"`
-	Signer       SignerIdentity `json:"signer"`
-}
-
-// ActionAudience identifies the external authority requested by a grant.
-type ActionAudience string
-
-const (
-	ActionAudienceGitPush      ActionAudience = "git.push"
-	ActionAudienceRelease      ActionAudience = "release"
-	ActionAudienceImagePromote ActionAudience = "image.promote"
-)
-
-// GrantRequest binds an external action request to a receipt, owner, adapter, attempt, and nonce.
-type GrantRequest struct {
-	ReceiptID            string                 `json:"receipt_id"`
-	ReceiptDigest        string                 `json:"receipt_digest"`
-	RepoID               string                 `json:"repo_id"`
-	InvocationID         string                 `json:"invocation_id"`
-	InvocationOwner      string                 `json:"invocation_owner"`
-	SubscriberCapability string                 `json:"subscriber_capability"`
-	Adapter              TrustedAdapterIdentity `json:"adapter"`
-	ProcessChallenge     string                 `json:"process_challenge"`
-	SourceTreeSHA        string                 `json:"source_tree_sha"`
-	Generation           uint64                 `json:"generation"`
-	Audience             ActionAudience         `json:"audience"`
-	ActionPolicy         string                 `json:"action_policy"`
-	RemoteURL            string                 `json:"remote_url,omitempty"`
-	Ref                  string                 `json:"ref,omitempty"`
-	OldSHA               string                 `json:"old_sha,omitempty"`
-	NewSHA               string                 `json:"new_sha,omitempty"`
-	ReleaseRepository    string                 `json:"release_repository,omitempty"`
-	ReleaseTag           string                 `json:"release_tag,omitempty"`
-	ReleaseCommitSHA     string                 `json:"release_commit_sha,omitempty"`
-	ReleaseAssets        []ReleaseAsset         `json:"release_assets,omitempty"`
-	ActionAttemptID      string                 `json:"action_attempt_id"`
-	RequestNonce         string                 `json:"request_nonce"`
-	RequestedAt          time.Time              `json:"requested_at"`
-	ExpiresAt            time.Time              `json:"expires_at"`
-}
-
-// ReleaseAsset binds one GitHub release asset to its normalized upload name and bytes.
-type ReleaseAsset struct {
-	Name   string `json:"name"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
-}
-
 // ResultStatus identifies the terminal state of a remote or local execution result.
 type ResultStatus string
 
@@ -204,58 +121,3 @@ const (
 	ResultStatusInfraFailed       ResultStatus = "infra_failed"
 	ResultStatusPassedStalePolicy ResultStatus = "passed_stale_policy"
 )
-
-// ActionGrantState identifies the durable two-phase lifecycle of an action grant.
-type ActionGrantState string
-
-const (
-	ActionGrantStateIssued   ActionGrantState = "issued"
-	ActionGrantStateConsumed ActionGrantState = "consumed"
-	ActionGrantStateExpired  ActionGrantState = "expired"
-	ActionGrantStateRevoked  ActionGrantState = "revoked"
-)
-
-// ActionGrant is the canonical signed, single-use authorization for an external action.
-type ActionGrant struct {
-	SchemaVersion uint32           `json:"schema_version"`
-	GrantID       string           `json:"grant_id"`
-	Request       GrantRequest     `json:"request"`
-	State         ActionGrantState `json:"state"`
-	IssuedAt      time.Time        `json:"issued_at"`
-	ExpiresAt     time.Time        `json:"expires_at"`
-	ConsumedAt    *time.Time       `json:"consumed_at,omitempty"`
-	RevokedAt     *time.Time       `json:"revoked_at,omitempty"`
-	Signer        SignerIdentity   `json:"signer"`
-	Signature     string           `json:"signature"`
-}
-
-const (
-	AcceptedImageRecordSchemaVersion uint32 = 1
-	PromotionRecordSchemaVersion     uint32 = 1
-)
-
-// AcceptedImageRecord 是 accepted image authority 的完整签名状态。
-type AcceptedImageRecord struct {
-	SchemaVersion        uint32                `json:"schema_version"`
-	RepoID               string                `json:"repo_id"`
-	TrustedRef           string                `json:"trusted_ref"`
-	TrustedCommit        string                `json:"trusted_commit"`
-	SourceTree           string                `json:"source_tree"`
-	PolicyDigest         string                `json:"policy_digest"`
-	ImageInputDigest     string                `json:"image_input_digest"`
-	Image                ImageIdentity         `json:"image"`
-	Runner               TrustedRunnerIdentity `json:"runner"`
-	Generation           uint64                `json:"generation"`
-	PreviousRecordDigest string                `json:"previous_record_digest,omitempty"`
-	AcceptedAt           time.Time             `json:"accepted_at"`
-	Signer               SignerIdentity        `json:"signer"`
-	Signature            string                `json:"signature"`
-}
-
-// PromotionRecord 携带调用方观察到的 CAS 状态和下一份已签 authority 记录。
-type PromotionRecord struct {
-	SchemaVersion        uint32              `json:"schema_version"`
-	ExpectedRecordDigest string              `json:"expected_record_digest"`
-	ExpectedGeneration   uint64              `json:"expected_generation"`
-	Next                 AcceptedImageRecord `json:"next"`
-}

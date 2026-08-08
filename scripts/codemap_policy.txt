@@ -17,5 +17,6 @@ shard	orchestration	orchestration.tsv
 shard	modules	modules.tsv
 shard	platform-provider	platform-provider.tsv
 shard	store-sql	store-sql.tsv
+shard	remote-ci	remote-ci.tsv
 shard	docs-agent	docs-agent.tsv
 shard	other	other.tsv

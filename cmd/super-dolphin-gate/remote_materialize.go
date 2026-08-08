@@ -494,31 +494,6 @@ func stageRemoteSourceObjects(ctx context.Context, workRoot string, request remo
 	return tempRoot, bundlePath, manifestPath, nil
 }
 
-// handoffRemoteWorkRoot 在确认空目录后收紧权限并移交给固定 executor UID/GID。
-func handoffRemoteWorkRoot(
-	workRoot string,
-	chmod func(string, os.FileMode) error,
-	chown func(string, int, int) error,
-) error {
-	if chmod == nil || chown == nil {
-		return errors.New("remote work root ownership operations are required")
-	}
-	entries, err := os.ReadDir(workRoot)
-	if err != nil {
-		return fmt.Errorf("read remote work root: %w", err)
-	}
-	if len(entries) != 0 {
-		return errors.New("remote work root must be empty before executor handoff")
-	}
-	if err := chmod(workRoot, 0o700); err != nil {
-		return fmt.Errorf("protect remote work root: %w", err)
-	}
-	if err := chown(workRoot, remoteExecutorUID, remoteExecutorGID); err != nil {
-		return fmt.Errorf("assign remote work root to executor: %w", err)
-	}
-	return nil
-}
-
 // handoffRemoteWorkRootWithManifest 将唯一固定 manifest 与 work root 一并移交。
 func handoffRemoteWorkRootWithManifest(
 	workRoot string,

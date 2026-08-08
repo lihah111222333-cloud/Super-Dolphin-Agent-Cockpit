@@ -232,15 +232,45 @@ func remoteRunReceiptTestComplete(t *testing.T, plan gatecontract.GatePlan, cata
 	if err := finalizeRemoteRunReceiptAuthority(input, complete, receipts, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateRemoteRunStoredCheckReceipts(store, complete.JobID, receipts); err != nil {
-		t.Fatal(err)
-	}
+	assertRemoteRunStoredCheckReceipts(t, store, complete.JobID, receipts)
 	recorded, err := store.LoadRemoteCIRun(complete.JobID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !recorded.Authoritative {
 		t.Fatal("finalizer did not promote the provisional remote run")
+	}
+}
+
+// assertRemoteRunStoredCheckReceipts 保留回执持久化的精确回归断言，并直接读取正式 SQLite 边界。
+func assertRemoteRunStoredCheckReceipts(t *testing.T, store *gatecontract.DurationLedgerStore, jobID string, want []gatecontract.CheckReceiptRecord) {
+	t.Helper()
+	if store == nil {
+		t.Fatal("remote CI duration ledger store is required")
+	}
+	got, err := store.LoadCheckReceipts(jobID)
+	if err != nil {
+		t.Fatalf("reload remote CI check receipts: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("reloaded remote CI check receipt count = %d, want %d", len(got), len(want))
+	}
+	wantByCheck := make(map[cicontract.RequiredCheck]gatecontract.CheckReceiptRecord, len(want))
+	for _, receipt := range want {
+		if _, duplicate := wantByCheck[receipt.RequiredCheck]; duplicate {
+			t.Fatalf("expected remote CI check receipt %q is duplicated", receipt.RequiredCheck)
+		}
+		wantByCheck[receipt.RequiredCheck] = receipt
+	}
+	for _, receipt := range got {
+		expected, found := wantByCheck[receipt.RequiredCheck]
+		if !found || receipt != expected {
+			t.Fatalf("reloaded remote CI check receipt %q does not exactly match this invocation", receipt.RequiredCheck)
+		}
+		delete(wantByCheck, receipt.RequiredCheck)
+	}
+	if len(wantByCheck) != 0 {
+		t.Fatalf("reloaded remote CI check receipt collection is incomplete")
 	}
 }
 

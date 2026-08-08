@@ -150,7 +150,7 @@ func validateRemotePreCommitOptions(options remoteRunOptions) error {
 	}
 	for _, value := range invalid {
 		if value {
-			return protocolError("remote pre-commit hook requires one --tree and --parent with only storage and shard-limit flags")
+			return protocolError("remote pre-commit hook requires one --tree and --parent with only storage flags")
 		}
 	}
 	return nil
