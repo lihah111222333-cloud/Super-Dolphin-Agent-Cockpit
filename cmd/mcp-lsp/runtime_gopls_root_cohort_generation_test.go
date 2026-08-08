@@ -11,7 +11,7 @@ import (
 
 func TestRuntimeServerArgsIgnoresVolatilePathEntriesWhenGoToolchainIsStable(t *testing.T) {
 	goplsBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
-	goBinary := writeRuntimeServerCacheFixture(t, "go", "#!/bin/sh\nexit 0\n")
+	goBinary := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("stable"))
 	toolchainDir := filepath.Dir(goBinary)
 	volatileFirst := filepath.Join(t.TempDir(), ".codex", "tmp", "arg0", "first")
 	volatileSecond := filepath.Join(t.TempDir(), ".codex", "tmp", "arg0", "second")
@@ -36,8 +36,8 @@ func TestRuntimeServerArgsIgnoresVolatilePathEntriesWhenGoToolchainIsStable(t *t
 
 func TestRuntimeServerArgsSeparatesDifferentResolvedGoToolchains(t *testing.T) {
 	goplsBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
-	firstGo := writeRuntimeServerCacheFixture(t, "go", "#!/bin/sh\nexit 0\n")
-	secondGo := writeRuntimeServerCacheFixture(t, "go", "#!/bin/sh\nexit 1\n")
+	firstGo := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("first"))
+	secondGo := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("second"))
 	command := multilsp.ServerCommand{
 		Executable: "gopls",
 		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},

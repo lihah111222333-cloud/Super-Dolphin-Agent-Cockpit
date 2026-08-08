@@ -79,6 +79,49 @@ func TestMcpLSPBinaryConcurrentAgentsRespectGoplsRootCohortIsolation_E2E(t *test
 	}
 }
 
+// TestMcpLSPBinaryCodexHostIgnoresUnrelatedGOEnvironmentForRootCohort_E2E 锁定
+// Codex 宿主并发 sidecar 的无关 GO 前缀变量不得拆分同一项目根的 gopls cohort。
+func TestMcpLSPBinaryCodexHostIgnoresUnrelatedGOEnvironmentForRootCohort_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Codex host root-cohort environment E2E in short mode")
+	}
+	if gostdruntime.GOOS == "windows" {
+		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsGoFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsArgsLangserver(t)
+	cacheRoot := filepath.Join(t.TempDir(), "codex-host-lsp-cache")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	first := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		"AGENT_LSP_SHARED_CACHE_DIR=" + cacheRoot,
+		"GOOGLE_APPLICATION_CREDENTIALS=" + filepath.Join(t.TempDir(), "codex-host-a.json"),
+	})
+	t.Cleanup(func() { first.close(t) })
+	first.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	firstResult := first.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, first, firstResult, "Codex host sidecar A document_symbol")
+
+	second := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		"AGENT_LSP_SHARED_CACHE_DIR=" + cacheRoot,
+		"GOOGLE_APPLICATION_CREDENTIALS=" + filepath.Join(t.TempDir(), "codex-host-b.json"),
+	})
+	t.Cleanup(func() { second.close(t) })
+	second.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	secondResult := second.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, second, secondResult, "Codex host sidecar B document_symbol with unrelated GO environment drift")
+}
+
 func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping real gopls daemon lifecycle e2e test in short mode")

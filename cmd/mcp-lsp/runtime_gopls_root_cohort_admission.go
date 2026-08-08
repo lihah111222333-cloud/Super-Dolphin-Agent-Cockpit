@@ -138,28 +138,49 @@ func runtimeServerGoplsRootCohortConfigConflict(config multilsp.GoplsRootCohortC
 // runtimeServerGoplsRootCohortConfigRotationAllowed 只允许已证明没有活跃 member、
 // 当前 drain owner 或历史 cleanup owner 的状态进入下一配置代际。
 func runtimeServerGoplsRootCohortConfigRotationAllowed(state *runtimeServerDurableGoplsRootCohortState) bool {
-	if state == nil || len(state.PendingCleanups) != 0 {
+	if state == nil || !runtimeServerGoplsRootCohortCompletionEvidenceValid(state) {
 		return false
 	}
-	if state.DrainStatus != runtimeGoplsRootCohortDrainActive && state.DrainStatus != runtimeGoplsRootCohortDrainCompleted {
-		return false
-	}
-	return runtimeServerGoplsRootCohortRotationFieldsClear(state)
+	return !runtimeServerGoplsRootCohortHasRotationBlocker(state)
 }
 
-// runtimeServerGoplsRootCohortRotationFieldsClear 确认当前状态没有残留
-// 排空所有者、截止时间或错误记录，满足配置代际切换的空闲证明。
-func runtimeServerGoplsRootCohortRotationFieldsClear(state *runtimeServerDurableGoplsRootCohortState) bool {
-	return state.IdleDeadlineUnixNano == 0 &&
-		state.DrainEpoch == 0 &&
-		state.OwnerPID == 0 &&
-		state.OwnerStartIdentity == "" &&
-		state.OwnerMemberID == "" &&
-		state.OwnerJournalRevision == 0 &&
-		state.OwnerMemberGeneration == 0 &&
-		state.OwnerLeaseID == "" &&
-		state.LastDrainError == "" &&
-		state.DrainRetryUnixNano == 0
+// runtimeServerGoplsRootCohortCompletionEvidenceValid 校验可轮换终态与完成凭据一致。
+func runtimeServerGoplsRootCohortCompletionEvidenceValid(state *runtimeServerDurableGoplsRootCohortState) bool {
+	switch state.DrainStatus {
+	case runtimeGoplsRootCohortDrainActive:
+		return state.CompletionReceipt == "" && state.CompletionUnixNano == 0
+	case runtimeGoplsRootCohortDrainCompleted:
+		return state.CompletionReceipt != "" && state.CompletionUnixNano > 0
+	default:
+		return false
+	}
+}
+
+// runtimeServerGoplsRootCohortHasRotationBlocker 汇总所有尚未清理的 owner、fence 与 retry 证据。
+func runtimeServerGoplsRootCohortHasRotationBlocker(state *runtimeServerDurableGoplsRootCohortState) bool {
+	for _, value := range []string{
+		state.OwnerStartIdentity,
+		state.OwnerMemberID,
+		state.OwnerLeaseID,
+		state.LastDrainError,
+	} {
+		if value != "" {
+			return true
+		}
+	}
+	for _, value := range []uint64{
+		state.DrainEpoch,
+		state.OwnerJournalRevision,
+		state.OwnerMemberGeneration,
+	} {
+		if value != 0 {
+			return true
+		}
+	}
+	return len(state.PendingCleanups) != 0 ||
+		state.IdleDeadlineUnixNano != 0 ||
+		state.OwnerPID != 0 ||
+		state.DrainRetryUnixNano != 0
 }
 
 // runtimeServerRotateGoplsRootCohortConfig 在同一 canonical root 锁内切换到下一

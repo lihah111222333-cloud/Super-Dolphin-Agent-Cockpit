@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T) {
@@ -117,6 +118,9 @@ func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t
 	if newLease.Fence().Epoch <= oldLease.Fence().Epoch || newLease.Fence().MemberGeneration <= oldLease.Fence().MemberGeneration {
 		t.Fatalf("rotated fence did not advance monotonically: old=%+v new=%+v", oldLease.Fence(), newLease.Fence())
 	}
+	if err := controller.ValidateFence(oldConfig, oldLease.Fence()); !errors.Is(err, multilsp.ErrGoplsRootCohortFenceStale) {
+		t.Fatalf("old fence validation after rotation = %v, want ErrGoplsRootCohortFenceStale", err)
+	}
 	if _, err := os.Stat(leasePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale lease remains after config rotation: %v", err)
 	}
@@ -133,6 +137,157 @@ func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t
 	}
 	if err := newLease.Release(); err != nil {
 		t.Fatalf("release new lease: %v", err)
+	}
+}
+
+func TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
+	}
+	cacheRoot := t.TempDir()
+	if err := os.Chmod(cacheRoot, 0o700); err != nil {
+		t.Fatalf("secure test cache root: %v", err)
+	}
+	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
+	controller, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(10 * time.Millisecond)
+	if err != nil {
+		t.Fatalf("new durable controller: %v", err)
+	}
+	oldConfig := runtimeDurableGoplsRootCohortTestConfig("concurrent-old")
+	oldLease, err := controller.AcquireLease(oldConfig)
+	if err != nil {
+		t.Fatalf("old AcquireLease: %v", err)
+	}
+	if err := oldLease.Release(); err != nil {
+		t.Fatalf("release old lease: %v", err)
+	}
+
+	firstConfig := oldConfig
+	firstConfig.CohortID = "sdmcp2-test-concurrent-first"
+	firstConfig.EffectiveConfigDigest = "effective-concurrent-first"
+	secondConfig := oldConfig
+	secondConfig.CohortID = "sdmcp2-test-concurrent-second"
+	secondConfig.EffectiveConfigDigest = "effective-concurrent-second"
+	type result struct {
+		config multilsp.GoplsRootCohortConfig
+		lease  multilsp.GoplsRootCohortLease
+		err    error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	var workers errgroup.Group
+	for _, config := range []multilsp.GoplsRootCohortConfig{firstConfig, secondConfig} {
+		config := config
+		workers.Go(func() error {
+			<-start
+			lease, err := controller.AcquireLease(config)
+			results <- result{config: config, lease: lease, err: err}
+			return nil
+		})
+	}
+	close(start)
+	if err := workers.Wait(); err != nil {
+		t.Fatalf("wait concurrent rotations: %v", err)
+	}
+	firstResult := <-results
+	secondResult := <-results
+	var winner, loser result
+	if firstResult.err == nil {
+		winner, loser = firstResult, secondResult
+	} else {
+		winner, loser = secondResult, firstResult
+	}
+	if winner.err != nil {
+		t.Fatalf("both concurrent rotations failed: first=%v second=%v", firstResult.err, secondResult.err)
+	}
+	if !errors.Is(loser.err, multilsp.ErrGoplsRootCohortConfigConflict) {
+		t.Fatalf("losing concurrent rotation error = %v, want ErrGoplsRootCohortConfigConflict", loser.err)
+	}
+	if err := controller.ValidateFence(winner.config, winner.lease.Fence()); err != nil {
+		t.Fatalf("winning concurrent rotation fence is invalid: %v", err)
+	}
+	if err := winner.lease.Release(); err != nil {
+		t.Fatalf("release winning concurrent rotation lease: %v", err)
+	}
+}
+
+func TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix(t *testing.T) {
+	cleanActive := runtimeServerDurableGoplsRootCohortState{
+		DrainStatus: runtimeGoplsRootCohortDrainActive,
+	}
+	cleanCompleted := cleanActive
+	cleanCompleted.DrainStatus = runtimeGoplsRootCohortDrainCompleted
+	cleanCompleted.CompletionReceipt = "completion-receipt"
+	cleanCompleted.CompletionUnixNano = 1
+
+	tests := []struct {
+		name  string
+		state *runtimeServerDurableGoplsRootCohortState
+		want  bool
+	}{
+		{name: "nil", state: nil},
+		{name: "clean active", state: &cleanActive, want: true},
+		{name: "clean completed with receipt", state: &cleanCompleted, want: true},
+	}
+	dirtyCases := []struct {
+		name   string
+		mutate func(*runtimeServerDurableGoplsRootCohortState)
+	}{
+		{name: "draining", mutate: func(state *runtimeServerDurableGoplsRootCohortState) {
+			state.DrainStatus = runtimeGoplsRootCohortDrainDraining
+		}},
+		{name: "attempting", mutate: func(state *runtimeServerDurableGoplsRootCohortState) {
+			state.DrainStatus = runtimeGoplsRootCohortDrainAttempting
+		}},
+		{name: "cleanup pending", mutate: func(state *runtimeServerDurableGoplsRootCohortState) {
+			state.DrainStatus = runtimeGoplsRootCohortDrainCleanupPending
+		}},
+		{name: "idle deadline", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.IdleDeadlineUnixNano = 1 }},
+		{name: "drain epoch", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.DrainEpoch = 1 }},
+		{name: "owner pid", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.OwnerPID = 1 }},
+		{name: "owner start identity", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.OwnerStartIdentity = "owner" }},
+		{name: "owner member id", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.OwnerMemberID = "member" }},
+		{name: "owner journal revision", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.OwnerJournalRevision = 1 }},
+		{name: "owner member generation", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.OwnerMemberGeneration = 1 }},
+		{name: "owner lease id", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.OwnerLeaseID = "lease" }},
+		{name: "last drain error", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.LastDrainError = "failed" }},
+		{name: "drain retry", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.DrainRetryUnixNano = 1 }},
+		{name: "active completion receipt", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.CompletionReceipt = "stale-receipt" }},
+		{name: "active completion time", mutate: func(state *runtimeServerDurableGoplsRootCohortState) { state.CompletionUnixNano = 1 }},
+		{name: "pending cleanup", mutate: func(state *runtimeServerDurableGoplsRootCohortState) {
+			state.PendingCleanups = []runtimeGoplsRootCohortCleanupEvidence{{Status: runtimeGoplsRootCohortDrainCleanupPending}}
+		}},
+	}
+	for _, tc := range dirtyCases {
+		state := cleanActive
+		tc.mutate(&state)
+		tests = append(tests, struct {
+			name  string
+			state *runtimeServerDurableGoplsRootCohortState
+			want  bool
+		}{name: tc.name, state: &state})
+	}
+	completedWithoutReceipt := cleanCompleted
+	completedWithoutReceipt.CompletionReceipt = ""
+	tests = append(tests, struct {
+		name  string
+		state *runtimeServerDurableGoplsRootCohortState
+		want  bool
+	}{name: "completed without receipt", state: &completedWithoutReceipt})
+	completedWithoutTime := cleanCompleted
+	completedWithoutTime.CompletionUnixNano = 0
+	tests = append(tests, struct {
+		name  string
+		state *runtimeServerDurableGoplsRootCohortState
+		want  bool
+	}{name: "completed without time", state: &completedWithoutTime})
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runtimeServerGoplsRootCohortConfigRotationAllowed(tc.state); got != tc.want {
+				t.Fatalf("rotation allowed = %v, want %v for state %+v", got, tc.want, tc.state)
+			}
+		})
 	}
 }
 

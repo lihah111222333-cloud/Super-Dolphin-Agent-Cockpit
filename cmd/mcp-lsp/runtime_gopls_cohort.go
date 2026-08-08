@@ -1,17 +1,28 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
+
+const runtimeServerGoplsGoEnvTimeout = 5 * time.Second
+
+func runtimeServerGoplsDefaultableEnvironmentKeys() []string {
+	return []string{"GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT"}
+}
 
 // runtimeServerArgs 按 gopls 二进制内容、Go 构建环境和 daemon 参数派生唯一共享 cohort。
 func runtimeServerArgs(command multilsp.ServerCommand, binary string, env []string) ([]string, error) {
@@ -41,6 +52,7 @@ func runtimeServerArgsForOS(command multilsp.ServerCommand, binary string, env [
 	return args, nil
 }
 
+// runtimeServerGoplsCohortID 按可选 root authority 与稳定工具链身份生成共享 daemon ID。
 func runtimeServerGoplsCohortID(command multilsp.ServerCommand, binary string, env []string, workspaceRoot ...string) (string, error) {
 	if len(workspaceRoot) > 0 && strings.TrimSpace(workspaceRoot[0]) != "" {
 		config, err := runtimeServerGoplsRootCohortConfig(command, binary, workspaceRoot[0], env)
@@ -49,7 +61,7 @@ func runtimeServerGoplsCohortID(command multilsp.ServerCommand, binary string, e
 		}
 		return config.CohortID, nil
 	}
-	_, binaryDigest, err := runtimeServerBinaryIdentity(binary, env)
+	binaryRealpath, binaryDigest, err := runtimeServerBinaryIdentity(binary, env)
 	if err != nil {
 		return "", err
 	}
@@ -58,6 +70,7 @@ func runtimeServerGoplsCohortID(command multilsp.ServerCommand, binary string, e
 		return "", err
 	}
 	cohortEnv = append(cohortEnv, runtimeServerGoplsDaemonArgs(command.Args))
+	cohortEnv = append(cohortEnv, "GOPLS_BINARY_REALPATH="+binaryRealpath)
 	cohortEnv = append(cohortEnv, "GOPLS_BINARY_SHA256="+binaryDigest)
 	return "sdmcp2-" + runtimeServerEnvironmentFingerprint(cohortEnv), nil
 }
@@ -76,11 +89,11 @@ func runtimeServerGoplsRootCohortConfig(
 	if err != nil {
 		return multilsp.GoplsRootCohortConfig{}, err
 	}
-	_, binaryDigest, err := runtimeServerBinaryIdentity(binary, env)
+	binaryRealpath, binaryDigest, err := runtimeServerBinaryIdentity(binary, env)
 	if err != nil {
 		return multilsp.GoplsRootCohortConfig{}, err
 	}
-	effective, err := runtimeServerGoplsEffectiveConfigDigest(command, binaryDigest, env)
+	effective, err := runtimeServerGoplsEffectiveConfigDigest(command, binaryRealpath, binaryDigest, env)
 	if err != nil {
 		return multilsp.GoplsRootCohortConfig{}, err
 	}
@@ -136,13 +149,14 @@ func runtimeServerCanonicalRootPath(identity string) (string, error) {
 	return "", fmt.Errorf("canonical root identity has unsupported form: %q", identity)
 }
 
-func runtimeServerGoplsEffectiveConfigDigest(command multilsp.ServerCommand, binaryDigest string, env []string) (string, error) {
+func runtimeServerGoplsEffectiveConfigDigest(command multilsp.ServerCommand, binaryRealpath, binaryDigest string, env []string) (string, error) {
 	semanticEnv, err := runtimeServerGoplsSemanticEnvironment(env)
 	if err != nil {
 		return "", err
 	}
 	value := strings.Join([]string{
-		"gopls-effective-config-v2",
+		"gopls-effective-config-v3",
+		binaryRealpath,
 		binaryDigest,
 		runtimeServerEnvironmentFingerprint(semanticEnv),
 		runtimeServerGoplsDaemonArgs(command.Args),
@@ -151,7 +165,7 @@ func runtimeServerGoplsEffectiveConfigDigest(command multilsp.ServerCommand, bin
 }
 
 // runtimeServerGoplsSemanticEnvironment 将会影响 Go 构建的环境收敛为稳定语义身份。
-// 原始 PATH 只用于解析实际 go 工具链；digest 记录解析后的真实路径与内容摘要，
+// 原始 PATH 只用于解析实际 Go 与显式辅助工具；digest 记录解析后的真实路径与内容摘要，
 // 避免 Codex arg0 临时目录、重复目录或等价 PATH 顺序把同一工具链拆成不同 cohort。
 func runtimeServerGoplsSemanticEnvironment(overrides []string) ([]string, error) {
 	relevant := runtimeServerGoplsEnvironment(overrides)
@@ -159,10 +173,17 @@ func runtimeServerGoplsSemanticEnvironment(overrides []string) ([]string, error)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Go toolchain for gopls cohort: %w", err)
 	}
+	defaultable, err := runtimeServerGoplsDefaultEnvironment(goBinary, relevant)
+	if err != nil {
+		return nil, err
+	}
 	semantic := make([]string, 0, len(relevant)+2)
 	for _, entry := range relevant {
-		key, _, ok := strings.Cut(entry, "=")
+		key, value, ok := strings.Cut(entry, "=")
 		if ok && key == "PATH" {
+			continue
+		}
+		if defaultValue, defaultableKey := defaultable[key]; defaultableKey && (value == "" || value == defaultValue) {
 			continue
 		}
 		semantic = append(semantic, entry)
@@ -171,7 +192,148 @@ func runtimeServerGoplsSemanticEnvironment(overrides []string) ([]string, error)
 		"GO_BINARY_REALPATH="+goBinary,
 		"GO_BINARY_SHA256="+goDigest,
 	)
+	auxiliary, err := runtimeServerGoplsAuxiliaryToolEnvironment(relevant)
+	if err != nil {
+		return nil, err
+	}
+	return append(semantic, auxiliary...), nil
+}
+
+// runtimeServerGoplsAuxiliaryToolEnvironment 将显式 Go 辅助工具绑定到真实二进制身份。
+func runtimeServerGoplsAuxiliaryToolEnvironment(relevant []string) ([]string, error) {
+	semantic := make([]string, 0, 16)
+	for _, key := range []string{"CC", "CXX", "FC", "AR", "GCCGO", "GOCACHEPROG", "PKG_CONFIG"} {
+		command := strings.TrimSpace(runtimeServerEnvValue(relevant, key))
+		if command == "" {
+			continue
+		}
+		executable, err := runtimeServerCommandExecutable(command)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s for gopls cohort: %w", key, err)
+		}
+		toolRealpath, toolDigest, err := runtimeServerBinaryIdentity(executable, relevant)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s tool for gopls cohort: %w", key, err)
+		}
+		semantic = append(semantic,
+			key+"_BINARY_REALPATH="+toolRealpath,
+			key+"_BINARY_SHA256="+toolDigest,
+		)
+	}
 	return semantic, nil
+}
+
+// runtimeServerGoplsDefaultEnvironment 查询移除显式覆盖后的 Go 默认环境，
+// 使缺省值与宿主重复写出的同值收敛为同一语义身份；真正自定义值仍保留在 digest。
+func runtimeServerGoplsDefaultEnvironment(goBinary string, relevant []string) (map[string]string, error) {
+	defaultableKeys := runtimeServerGoplsDefaultableEnvironmentKeys()
+	present := false
+	for _, key := range defaultableKeys {
+		if _, ok := runtimeServerEnvLookup(relevant, key); ok {
+			present = true
+			break
+		}
+	}
+	if !present {
+		return nil, nil
+	}
+	merged := appendRuntimeServerEnvironment(os.Environ(), relevant)
+	probeEnv := slices.DeleteFunc(merged, func(entry string) bool {
+		key, _, ok := strings.Cut(entry, "=")
+		return ok && slices.Contains(defaultableKeys, key)
+	})
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), runtimeServerGoplsGoEnvTimeout)
+	defer cancel()
+	args := append([]string{"env", "-json"}, defaultableKeys...)
+	command := hiddenexec.CommandContext(ctx, goBinary, args...)
+	command.Env = probeEnv
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("resolve default Go environment for gopls cohort: %w", err)
+	}
+	defaults := make(map[string]string, len(defaultableKeys))
+	if err := json.Unmarshal(output, &defaults); err != nil {
+		return nil, fmt.Errorf("decode default Go environment for gopls cohort: %w", err)
+	}
+	for _, key := range defaultableKeys {
+		if _, ok := defaults[key]; !ok {
+			return nil, fmt.Errorf("default Go environment for gopls cohort omitted %s", key)
+		}
+	}
+	return defaults, nil
+}
+
+// runtimeServerCommandExecutable 读取 Go 工具变量中的首个命令词，并保留引号与转义路径语义。
+func runtimeServerCommandExecutable(command string) (string, error) {
+	parser := runtimeServerCommandWordParser{}
+	for _, char := range command {
+		if parser.consume(char) {
+			return parser.executable.String(), nil
+		}
+	}
+	return parser.finish(command)
+}
+
+type runtimeServerCommandWordParser struct {
+	executable strings.Builder
+	quote      rune
+	escaped    bool
+}
+
+// consume 吸收一个命令字符；返回 true 表示首个命令词已经结束。
+func (p *runtimeServerCommandWordParser) consume(char rune) bool {
+	if p.escaped {
+		p.executable.WriteRune(char)
+		p.escaped = false
+		return false
+	}
+	if p.quote != 0 {
+		return p.consumeQuoted(char)
+	}
+	return p.consumeUnquoted(char)
+}
+
+// consumeQuoted 吸收引号内字符，单引号内不解释反斜杠。
+func (p *runtimeServerCommandWordParser) consumeQuoted(char rune) bool {
+	if char == '\\' && p.quote != '\'' {
+		p.escaped = true
+	} else if char == p.quote {
+		p.quote = 0
+	} else {
+		p.executable.WriteRune(char)
+	}
+	return false
+}
+
+// consumeUnquoted 吸收未加引号字符，并在首个空白边界结束命令词。
+func (p *runtimeServerCommandWordParser) consumeUnquoted(char rune) bool {
+	if char == '\\' {
+		p.escaped = true
+		return false
+	}
+	if char == '\'' || char == '"' {
+		p.quote = char
+		return false
+	}
+	if char == ' ' || char == '\t' || char == '\r' || char == '\n' {
+		return p.executable.Len() > 0
+	}
+	p.executable.WriteRune(char)
+	return false
+}
+
+// finish 校验命令词终态，拒绝空命令、未闭合引号和未闭合转义。
+func (p *runtimeServerCommandWordParser) finish(command string) (string, error) {
+	if p.quote != 0 {
+		return "", fmt.Errorf("unterminated quote in command %q", command)
+	}
+	if p.escaped {
+		return "", fmt.Errorf("unterminated escape in command %q", command)
+	}
+	if p.executable.Len() == 0 {
+		return "", fmt.Errorf("command executable is empty")
+	}
+	return p.executable.String(), nil
 }
 
 func runtimeServerGoplsCohortIDFromConfig(config multilsp.GoplsRootCohortConfig) string {
@@ -221,11 +383,15 @@ func runtimeServerRelevantGoplsEnvironmentKey(key string) bool {
 	if strings.HasPrefix(key, "GO_AGENT_") {
 		return false
 	}
-	if strings.HasPrefix(key, "GO") || strings.HasPrefix(key, "CGO_") {
-		return true
-	}
 	switch key {
-	case "HOME", "PATH", "CC", "CXX", "FC", "AR", "PKG_CONFIG", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "CPATH", "LIBRARY_PATH":
+	case "GO111MODULE", "GO386", "GOAMD64", "GOARCH", "GOARM", "GOARM64", "GOAUTH", "GOCACHE", "GOCACHEPROG", "GODEBUG", "GOENV",
+		"GOEXPERIMENT", "GOFIPS140", "GOFLAGS", "GOINSECURE", "GOMIPS", "GOMIPS64", "GOMODCACHE", "GONOPROXY", "GONOSUMDB",
+		"GOOS", "GOPATH", "GOPPC64", "GOPRIVATE", "GOPROXY", "GORISCV64", "GOROOT", "GOSUMDB", "GOTOOLCHAIN",
+		"GOVCS", "GOWASM", "GOWORK",
+		"CGO_ENABLED", "CGO_CFLAGS", "CGO_CFLAGS_ALLOW", "CGO_CFLAGS_DISALLOW", "CGO_CPPFLAGS", "CGO_CPPFLAGS_ALLOW",
+		"CGO_CPPFLAGS_DISALLOW", "CGO_CXXFLAGS", "CGO_CXXFLAGS_ALLOW", "CGO_CXXFLAGS_DISALLOW", "CGO_FFLAGS",
+		"CGO_FFLAGS_ALLOW", "CGO_FFLAGS_DISALLOW", "CGO_LDFLAGS", "CGO_LDFLAGS_ALLOW", "CGO_LDFLAGS_DISALLOW",
+		"HOME", "PATH", "CC", "CXX", "FC", "AR", "GCCGO", "PKG_CONFIG", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "CPATH", "LIBRARY_PATH":
 		return true
 	default:
 		return false
