@@ -40,7 +40,7 @@ function createDependencyIntegrityFixture() {
   return { appRoot, nodeModulesRoot };
 }
 
-it('uses a verified read-only seed through a physical Vite overlay', () => {
+it('uses a verified read-only seed through physical and image-linked Vite overlays', () => {
   const fixture = createDependencyIntegrityFixture();
   const original = dependencyTreeIntegrity(fixture.appRoot);
   expect(resolveImmutableDependencySeed(fixture.appRoot)).toBeUndefined();
@@ -61,6 +61,50 @@ it('uses a verified read-only seed through a physical Vite overlay', () => {
   try {
     const { nodeModulesRoot: _overlayRoot, ...actual } = dependencyTreeIntegrity(fixture.appRoot);
     expect(actual).toEqual(expected);
+    const viteSeed = join(seedContainer, 'vite-cache');
+    mkdirSync(viteSeed);
+    rmSync(join(fixture.nodeModulesRoot, '.vite'), { recursive: true });
+    symlinkSync(viteSeed, join(fixture.nodeModulesRoot, '.vite'));
+    const { nodeModulesRoot: _linkedRoot, ...linked } = dependencyTreeIntegrity(fixture.appRoot);
+    expect(linked).toEqual(expected);
+
+    const privateCacheContainer = mkdtempSync(join(tmpdir(), 'frontend-private-vite-cache-'));
+    temporaryDirectories.push(privateCacheContainer);
+    const privateViteCache = join(privateCacheContainer, '.vite-temp');
+    mkdirSync(privateViteCache);
+    expect(privateViteCache.startsWith(seedRoot)).toBe(false);
+    expect(privateViteCache).not.toBe(join(fixture.nodeModulesRoot, '.vite-temp'));
+    mkdirSync(join(fixture.nodeModulesRoot, '.vite-temp'));
+    let mismatch;
+    try {
+      dependencyTreeIntegrity(fixture.appRoot);
+    } catch (error) {
+      mismatch = error;
+    }
+    expect(mismatch?.message).toBe(
+      'immutable dependency overlay entries do not match the configured seed (extra=.vite-temp)',
+    );
+    expect(mismatch?.message).not.toContain(seedContainer);
+  } finally {
+    if (previousSeed === undefined) delete process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED;
+    else process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED = previousSeed;
+  }
+});
+
+it('rejects image and private Vite entries in a configured dependency seed', () => {
+  const fixture = createDependencyIntegrityFixture();
+  const seedContainer = mkdtempSync(join(tmpdir(), 'frontend-runtime-seed-reserved-'));
+  temporaryDirectories.push(seedContainer);
+  const seedRoot = join(seedContainer, 'node_modules');
+  cpSync(fixture.nodeModulesRoot, seedRoot, { recursive: true, dereference: false });
+  mkdirSync(join(seedRoot, '.vite'));
+  mkdirSync(join(seedRoot, '.vite-temp'));
+  const previousSeed = process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED;
+  process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED = seedRoot;
+  try {
+    expect(() => dependencyTreeIntegrity(fixture.appRoot)).toThrow(
+      'immutable dependency seed contains reserved overlay entries: .vite,.vite-temp',
+    );
   } finally {
     if (previousSeed === undefined) delete process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED;
     else process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED = previousSeed;

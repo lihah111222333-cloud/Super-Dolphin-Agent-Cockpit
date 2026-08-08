@@ -24,8 +24,12 @@ function page(text, overrides = {}) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('usePromptHistory', () => {
@@ -156,8 +160,64 @@ describe('usePromptHistory', () => {
     expect(successfulFetch).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps a previous action retryable after a thread lifecycle signal update', async () => {
+    const fetchPage = vi.fn()
+      .mockResolvedValueOnce(page('before'))
+      .mockResolvedValueOnce(page('after-event'));
+    const setDraft = vi.fn();
+    const common = {
+      activeThreadId: 'thread-1',
+      cwd: '/repo',
+      draft: 'draft',
+      fetchPage,
+      sendMessage: vi.fn(),
+      setDraft,
+    };
+    const { result, rerender } = renderHook(
+      ({ threadLifecycleSignal }) => usePromptHistory({ ...common, threadLifecycleSignal }),
+      { initialProps: { threadLifecycleSignal: [{ id: 'thread-1' }] } },
+    );
+    const stalePrevious = result.current.previous;
+
+    await act(async () => { await stalePrevious(); });
+    rerender({ threadLifecycleSignal: [{ id: 'thread-1' }, { actionName: 'event' }] });
+    await act(async () => { await stalePrevious(); });
+
+    expect(setDraft).toHaveBeenLastCalledWith('after-event');
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a pending history failure observable across a lifecycle signal update', async () => {
+    const pending = deferred();
+    const fetchPage = vi.fn()
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(page('after-event'));
+    const setDraft = vi.fn();
+    const common = {
+      activeThreadId: 'thread-1',
+      cwd: '/repo',
+      draft: 'draft',
+      fetchPage,
+      sendMessage: vi.fn(),
+      setDraft,
+    };
+    const { result, rerender } = renderHook(
+      ({ threadLifecycleSignal }) => usePromptHistory({ ...common, threadLifecycleSignal }),
+      { initialProps: { threadLifecycleSignal: [{ id: 'thread-1' }] } },
+    );
+    const stalePrevious = result.current.previous;
+    const firstNavigation = stalePrevious();
+    rerender({ threadLifecycleSignal: [{ id: 'thread-1' }, { actionName: 'event' }] });
+    pending.reject(new Error('history failed'));
+
+    await expect(firstNavigation).rejects.toThrow('history failed');
+    await act(async () => { await stalePrevious(); });
+    expect(setDraft).toHaveBeenLastCalledWith('after-event');
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
+
   it.each(['create', 'delete', 'archive', 'rename'])(
-    'recreates the controller when a same-cwd thread lifecycle signal changes for %s',
+    'invalidates history when a same-cwd thread lifecycle signal changes for %s',
     async (actionName) => {
       const fetchPage = vi.fn()
         .mockResolvedValueOnce(page('before'))

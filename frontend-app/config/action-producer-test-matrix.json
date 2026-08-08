@@ -851,7 +851,7 @@
       "caseId": "c.file",
       "layer": "C",
       "semanticFamily": "file",
-      "file": "src/App.test.jsx",
+      "file": "src/App.feature-routes.test.jsx",
       "testName": "keeps cached shared files visible and exposes retry when a background sync fails"
     },
     {

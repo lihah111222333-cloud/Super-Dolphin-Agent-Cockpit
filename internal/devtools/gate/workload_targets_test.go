@@ -5,6 +5,39 @@ import (
 	"testing"
 )
 
+func TestParsePlaywrightE2ETargetBindsSpecAndDescribe(t *testing.T) {
+	for _, test := range []struct {
+		target string
+		spec   string
+		grep   string
+	}{
+		{playwrightBusinessReadSurfacesTarget, "tests/e2e/business-flows.spec.js", "business-read-surfaces"},
+		{playwrightBusinessChatBridgeTarget, "tests/e2e/business-flows.spec.js", "business-chat-bridge"},
+		{playwrightDesktopShellTarget, "tests/e2e/desktop-wide.spec.js", "desktop-shell"},
+		{playwrightDesktopBusinessPagesTarget, "tests/e2e/desktop-wide.spec.js", "desktop-business-pages"},
+		{playwrightDesktopReadSettingsTarget, "tests/e2e/desktop-wide.spec.js", "desktop-read-settings"},
+	} {
+		spec, grep, err := ParsePlaywrightE2ETarget(test.target)
+		if err != nil {
+			t.Fatalf("ParsePlaywrightE2ETarget(%q): %v", test.target, err)
+		}
+		if spec != test.spec || grep != test.grep {
+			t.Fatalf("ParsePlaywrightE2ETarget(%q) = (%q, %q), want (%q, %q)", test.target, spec, grep, test.spec, test.grep)
+		}
+	}
+	for _, target := range []string{
+		"tests/e2e/business-flows.spec.js",
+		"tests/e2e/business-flows.spec.js#unknown",
+		"tests/e2e/business-flows.spec.js#business-read-surfaces#extra",
+		"tests/e2e/business-flows.spec.js#business-read-surfaces|.*",
+		"tests/e2e/business-flows.spec.js#business-read-surfaces --project=evil",
+	} {
+		if _, _, err := ParsePlaywrightE2ETarget(target); err == nil {
+			t.Fatalf("invalid Playwright target %q was accepted", target)
+		}
+	}
+}
+
 func TestGoPackageTargetForSourceUsesModuleAgnosticCanonicalPaths(t *testing.T) {
 	cases := []struct {
 		file string
@@ -119,7 +152,6 @@ func TestSplitGoGuardWorkloadsUseFixedEntrypoints(t *testing.T) {
 	}{
 		{GoGuardTargetSource, []string{"./scripts/test_with_guard.sh", "--ci-guard-source"}, true},
 		{GoGuardTargetSourceRawGoTest, []string{"./scripts/forbid_raw_go_test.sh"}, false},
-		{GoGuardTargetSourceCodeSize, []string{"go", "run", "./scripts/code_size_guard.go"}, false},
 		{GoGuardTargetCopylocksProvider, []string{"./scripts/test_with_guard.sh", "--ci-copylocks", "provider"}, false},
 		{GoGuardTargetCopylocksPlatform, []string{"./scripts/test_with_guard.sh", "--ci-copylocks", "platform"}, false},
 		{GoGuardTargetCopylocksThread, []string{"./scripts/test_with_guard.sh", "--ci-copylocks", "thread"}, false},

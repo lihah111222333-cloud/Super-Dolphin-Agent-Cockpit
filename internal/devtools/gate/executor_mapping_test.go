@@ -13,10 +13,16 @@ import (
 func TestExecutorProgramsCoverCanonicalGateRegistry(t *testing.T) {
 	programs := ExecutorPrograms()
 	registry := GateRegistry()
-	if len(programs) != len(registry) {
-		t.Fatalf("executor programs = %d, registry gates = %d", len(programs), len(registry))
+	if len(programs) != len(registry)-1 {
+		t.Fatalf("executor programs = %d, registry gates = %d (one expansion-only gate)", len(programs), len(registry))
 	}
 	for _, spec := range registry {
+		if isExpansionOnlyGate(spec.ID) {
+			if _, ok := programs[spec.ID]; ok {
+				t.Errorf("expansion-only gate %q unexpectedly has a canonical executor", spec.ID)
+			}
+			continue
+		}
 		program, ok := programs[spec.ID]
 		if !ok {
 			t.Errorf("canonical gate %q has no executor program", spec.ID)
@@ -113,7 +119,7 @@ func TestAIMaintenanceExecutorRunsPinnedActionlintInsideContainer(t *testing.T) 
 
 func TestProjectMapExecutorUsesTrustedCLIWithoutRepositoryGenerator(t *testing.T) {
 	program := ExecutorPrograms()[GateIDProjectMapCheck]
-	want := []string{"super-dolphin-gate", "project-map", "check", "--tree-from-index"}
+	want := []string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-index"}
 	if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, want) {
 		t.Fatalf("project map executor steps = %#v, want trusted compiled CLI check", program.Steps)
 	}
@@ -124,10 +130,22 @@ func TestProjectMapExecutorUsesTrustedCLIWithoutRepositoryGenerator(t *testing.T
 	if slices.Contains(program.RequiredPaths, "Makefile") || slices.Contains(program.RequiredPaths, "scripts/generate_ai_project_map.mjs") {
 		t.Fatalf("project map executor trusts candidate repository entrypoints: %#v", program.RequiredPaths)
 	}
-	searchPath := filepath.SplitList(ExecutorSearchPath)
-	if len(searchPath) == 0 || searchPath[0] != filepath.Dir(ExecutorGateBinaryPath) {
-		t.Fatalf("executor search path = %q, want current gate directory first", ExecutorSearchPath)
+	resolved, err := resolveStepExecutable(t.TempDir(), ExecutorSelfCommandName, ExecutorSearchPath)
+	if err != nil {
+		t.Fatalf("resolve current candidate gate executable: %v", err)
 	}
+	wantExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantExecutable, err = filepath.EvalSymlinks(wantExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != wantExecutable {
+		t.Fatalf("resolved candidate gate = %q, want current executable %q", resolved, wantExecutable)
+	}
+	searchPath := filepath.SplitList(ExecutorSearchPath)
 	assertImageSystemToolsAreAddressable(t, searchPath)
 }
 
@@ -177,13 +195,38 @@ func TestRaceProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 }
 
 func TestNilnessProgramUsesBoundedGoResources(t *testing.T) {
-	nilness := ExecutorPrograms()[GateIDBackendNilness]
-	want := ExecutorStep{
-		Argv:        []string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./..."},
-		Environment: []string{"GOFLAGS=-p=4", "GOMAXPROCS=4", "GOMEMLIMIT=6GiB"},
+	if _, ok := ExecutorPrograms()[GateIDBackendNilness]; ok {
+		t.Fatal("nilness gate unexpectedly retained a canonical executor")
 	}
-	if !reflect.DeepEqual(nilness.Steps, []ExecutorStep{want}) {
-		t.Fatalf("nilness gate steps = %#v, want bounded Go execution", nilness.Steps)
+	if _, _, err := executorProgramForWorkload(GateIDBackendNilness); err == nil || !strings.Contains(err.Error(), "expanded workload") {
+		t.Fatalf("canonical nilness executor error = %v, want expansion-only failure", err)
+	}
+}
+
+func TestNilnessPackageProgramUsesTheAnalyzerForOnePackage(t *testing.T) {
+	id, err := targetWorkloadID(GateIDBackendNilness, workloadTargetGoPackage, "./internal/alpha")
+	if err != nil {
+		t.Fatalf("targetWorkloadID() error = %v", err)
+	}
+	parent, program, err := executorProgramForWorkload(GateID(id))
+	if err != nil {
+		t.Fatalf("executorProgramForWorkload() error = %v", err)
+	}
+	if parent != GateIDBackendNilness {
+		t.Fatalf("parent gate = %q, want %q", parent, GateIDBackendNilness)
+	}
+	want := ExecutorStep{
+		Argv:        []string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./internal/alpha"},
+		Environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=2", "GOMEMLIMIT=3GiB"},
+	}
+	if !reflect.DeepEqual(program.Steps, []ExecutorStep{want}) {
+		t.Fatalf("nilness package steps = %#v, want one package analyzer invocation", program.Steps)
+	}
+	if !program.NeedsGoSeed || program.NeedsFrontendSeed || program.NeedsFrontendEmbedSeed {
+		t.Fatalf("nilness package seeds = go:%t frontend:%t frontend_embed:%t", program.NeedsGoSeed, program.NeedsFrontendSeed, program.NeedsFrontendEmbedSeed)
+	}
+	if !slices.Equal(program.RequiredPaths, []string{"scripts/nilness_guard.go"}) {
+		t.Fatalf("nilness package required paths = %v", program.RequiredPaths)
 	}
 }
 

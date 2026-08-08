@@ -315,24 +315,101 @@ func assertProviderContractEventCapture(t *testing.T, file *ast.File) {
 		if len(call.Args) < 4 {
 			t.Fatalf("CaptureProviderEventTranslation has %d args, want translator arg", len(call.Args))
 		}
-		switch arg := call.Args[3].(type) {
-		case *ast.Ident:
-			if strings.TrimSpace(arg.Name) == "" || arg.Name == "nil" {
-				t.Fatal("event capture translator must be a package-local function")
-			}
-		case *ast.SelectorExpr:
-			if strings.TrimSpace(arg.Sel.Name) == "" {
-				t.Fatal("event capture translator selector is empty")
-			}
-		default:
-			t.Fatalf("event capture translator = %T, want function identifier", arg)
-		}
+		assertProviderContractEventCaptureTranslator(t, call.Args[3])
 		found = true
 		return true
 	})
 	if !found {
 		t.Fatal("provider contract test must capture provider event translation")
 	}
+}
+
+func providerContractTranslatorNamesFromCall(t *testing.T, call *ast.CallExpr) []string {
+	if len(call.Args) < 4 {
+		t.Fatalf("CaptureProviderEventTranslation has %d args, want provider-local translator arg", len(call.Args))
+	}
+	return providerContractTranslatorNamesFromExpr(t, call.Args[3])
+}
+
+func providerContractTranslatorNamesFromExpr(t *testing.T, expr ast.Expr) []string {
+	switch translator := expr.(type) {
+	case *ast.Ident:
+		if strings.TrimSpace(translator.Name) == "" || translator.Name == "nil" {
+			t.Fatalf("CaptureProviderEventTranslation translator = %T, want provider-local function identifier", expr)
+		}
+		return []string{translator.Name}
+	case *ast.FuncLit:
+		names := providerContractTranslatorNames(translator)
+		if len(names) == 0 {
+			t.Fatalf("CaptureProviderEventTranslation translator = %T, want closure calling provider-local function", expr)
+		}
+		return names
+	default:
+		t.Fatalf("CaptureProviderEventTranslation translator = %T, want provider-local function identifier or translator closure", expr)
+		return nil
+	}
+}
+
+func assertProviderContractEventCaptureTranslator(t *testing.T, expr ast.Expr) {
+	switch arg := expr.(type) {
+	case *ast.Ident:
+		if strings.TrimSpace(arg.Name) == "" || arg.Name == "nil" {
+			t.Fatal("event capture translator must be a package-local function")
+		}
+	case *ast.SelectorExpr:
+		if strings.TrimSpace(arg.Sel.Name) == "" {
+			t.Fatal("event capture translator selector is empty")
+		}
+	case *ast.FuncLit:
+		if len(providerContractTranslatorNames(arg)) == 0 {
+			t.Fatal("event capture translator closure must call a named translate function")
+		}
+	default:
+		t.Fatalf("event capture translator = %T, want function identifier or translator closure", expr)
+	}
+}
+
+func providerContractTranslatorNames(fn *ast.FuncLit) []string {
+	if fn == nil || fn.Body == nil {
+		return nil
+	}
+	return providerContractTranslatorNameList(providerContractTranslatorNameSet(fn.Body))
+}
+
+func providerContractTranslatorNameSet(body *ast.BlockStmt) map[string]bool {
+	found := make(map[string]bool)
+	ast.Inspect(body, func(n ast.Node) bool {
+		name := providerContractTranslatorName(n)
+		if name != "" {
+			found[name] = true
+		}
+		return true
+	})
+	return found
+}
+
+func providerContractTranslatorName(n ast.Node) string {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return ""
+	}
+	ident, ok := call.Fun.(*ast.Ident)
+	if !ok || !strings.HasPrefix(ident.Name, "translate") {
+		return ""
+	}
+	return ident.Name
+}
+
+func providerContractTranslatorNameList(found map[string]bool) []string {
+	if len(found) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(found))
+	for name := range found {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func assertProviderContractNoForbiddenShortcuts(t *testing.T, file *ast.File) {

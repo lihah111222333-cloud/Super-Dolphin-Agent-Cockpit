@@ -31,20 +31,39 @@ func TestParseRemoteRunOptions(t *testing.T) {
 		"--base", "main^",
 		"--profile", string(gatecontract.ProfileRelease),
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
+		"--force",
 	})
 	if err != nil {
 		t.Fatalf("parseRemoteRunOptions() error = %v", err)
 	}
 	assertParsedRemoteRunOptions(t, options, digest)
+	if !options.Force {
+		t.Fatal("parseRemoteRunOptions(--force) did not set force mode")
+	}
 }
 
-func TestParseRemoteRunOptionsRejectsRetiredWorkloadReuseFlag(t *testing.T) {
+func TestNormalizeRemoteSQLiteAuthorityMakesRelativeConfigAbsolute(t *testing.T) {
+	configPath := filepath.Join("testdata", "remote-ci.json")
+	var ledgerPath string
+	if err := normalizeRemoteSQLiteAuthority(configPath, &ledgerPath); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(filepath.Join("testdata", "remote-ci.baseline-state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledgerPath != want || !filepath.IsAbs(ledgerPath) {
+		t.Fatalf("normalized ledger path = %q, want absolute %q", ledgerPath, want)
+	}
+}
+
+func TestParseRemoteRunOptionsRejectsUnknownWorkloadReuseFlag(t *testing.T) {
 	_, err := parseRemoteRunOptions([]string{
 		"--config", "/tmp/remote-ci.json",
-		"--force-rerun",
+		"--force-unknown",
 	})
 	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
-		t.Fatalf("parseRemoteRunOptions(retired workload reuse flag) error = %v", err)
+		t.Fatalf("parseRemoteRunOptions(unknown workload reuse flag) error = %v", err)
 	}
 }
 
@@ -120,25 +139,28 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 		t.Fatalf("loadRemoteRunConfig() error = %v", err)
 	}
 	if config.RegionID != "cn-shenzhen" || config.OSS.SourcePrefix != "baseline-artifacts/source-bundles/" ||
-		len(config.Capacity.ResourcePolicy.Classes) != 4 ||
-		config.Capacity.ResourcePolicy.Bootstrap.GoTest != "memory" {
+		len(config.Capacity.ResourcePolicy.Classes) != 3 ||
+		config.Capacity.ResourcePolicy.Bootstrap.GoTest != "small" {
 		t.Fatalf("loadRemoteRunConfig() = %#v", config)
 	}
 }
 
 func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	cases := map[string]string{
-		"unknown field":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 8`, `"schema_version": 8, "unknown": true`, 1),
-		"legacy schema":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 8`, `"schema_version": 7`, 1),
+		"unknown field":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 10`, `"schema_version": 10, "unknown": true`, 1),
+		"legacy schema":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 10`, `"schema_version": 9`, 1),
 		"legacy data cache":      strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"data_cache": {}, "capacity":`, 1),
 		"legacy OCI cache":       strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"oci_cache": {}, "capacity":`, 1),
 		"legacy runtime":         strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "capacity":`, 1),
 		"legacy baseline prefix": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "source-bundles/", "baseline_prefix": "baseline-artifacts/"`, 1),
 		"legacy seed class":      strings.Replace(validRemoteRunConfigJSON(), `"resource_policy":`, `"seed_class": "memory", "resource_policy":`, 1),
-		"missing network":        strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
+		"missing network":        strings.Replace(validRemoteRunConfigJSON(), `"vswitches": [{"id":"vsw-zone-a","zone_id":"cn-test-a"},{"id":"vsw-zone-b","zone_id":"cn-test-b"}]`, `"vswitches": [{"id":"vsw-zone-a","zone_id":"cn-test-a"}]`, 1),
+		"non Aliyun provider":    strings.Replace(validRemoteRunConfigJSON(), `"aliyun_cli": "aliyun"`, `"aliyun_cli": "generic-cloud"`, 1),
 		"wrong cpu":              strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
-		"wrong memory":           strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
-		"unknown bootstrap":      strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
+		"wrong memory":           strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 16`, `"memory_gib": 32`, 1),
+		"unknown bootstrap":      strings.Replace(validRemoteRunConfigJSON(), `"go_test": "small"`, `"go_test": "missing"`, 1),
+		"legacy normal classes":  strings.Replace(validRemoteRunConfigJSON(), `"normal_classes":`, `"classes":`, 1),
+		"legacy calibration ID":  strings.Replace(validRemoteRunConfigJSON(), `"calibration_resource": {`, `"calibration_class": "maximum", "calibration_resource": {`, 1),
 		"absolute source":        strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "/source-bundles/"`, 1),
 		"traversal source":       strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "../source-bundles/"`, 1),
 		"unterminated source":    strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "source-bundles"`, 1),
@@ -179,7 +201,7 @@ func TestResolveRemoteRunInputAcceptsRefreshedRuntimeImageFromSQLiteAuthority(t 
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
 		Profile:        string(gatecontract.ProfileLocalFast),
-		LedgerPath:     writeRemoteRunLedgerFixture(t, remoteRunRunnerIdentity(state)),
+		LedgerPath:     writeRemoteRunLedgerFixture(t, remoteRunRunnerIdentity(state), state.ImageCacheSnapshotID),
 	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatalf("refreshed SQLite baseline rejected by run source: %v", err)
@@ -335,11 +357,14 @@ func TestResolveRemoteRunInputBindsPushCreateToEmptyTree(t *testing.T) {
 func writeRemoteRunLedgerFixture(t *testing.T, runners ...string) string {
 	t.Helper()
 	runner := remoteRunRunnerIdentity(remoteRunRunnerIdentityState())
-	if len(runners) > 1 {
-		t.Fatalf("remote run ledger fixture accepts at most one runner identity, got %d", len(runners))
+	snapshotID := "snap-baseline-1"
+	if len(runners) > 2 {
+		t.Fatalf("remote run ledger fixture accepts at most one runner identity and one snapshot, got %d", len(runners))
 	}
 	if len(runners) == 1 {
 		runner = runners[0]
+	} else if len(runners) == 2 {
+		runner, snapshotID = runners[0], runners[1]
 	}
 	path := filepath.Join(t.TempDir(), "ci-duration-ledger.sqlite")
 	store, err := gatecontract.NewDurationLedgerStore(path)
@@ -348,25 +373,29 @@ func writeRemoteRunLedgerFixture(t *testing.T, runners ...string) string {
 	}
 	ledger := gatecontract.NewDurationLedger()
 	ledger.Calibration = &gatecontract.DurationCalibration{
-		SchemaVersion:        gatecontract.DurationCalibrationSchemaVersion,
-		Commit:               strings.Repeat("1", 40),
-		Tree:                 strings.Repeat("2", 40),
-		Platform:             "linux/amd64",
-		Runner:               runner,
-		Toolchain:            remoteRunRunnerIdentityState().ToolchainDigest,
-		CommitEntrypoint:     gatecontract.CIEntrypointGitPreCommit,
-		PushEntrypoint:       gatecontract.CIEntrypointGitPrePush,
-		ReleaseEntrypoint:    gatecontract.CIEntrypointRelease,
-		CommitCatalogDigest:  "sha256:" + strings.Repeat("7", 64),
-		PushCatalogDigest:    "sha256:" + strings.Repeat("8", 64),
-		ReleaseCatalogDigest: "sha256:" + strings.Repeat("9", 64),
-		WorkloadCount:        1,
-		RacePackageCount:     1,
-		CompletedAt:          time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC),
+		SchemaVersion:              gatecontract.DurationCalibrationSchemaVersion,
+		Commit:                     strings.Repeat("1", 40),
+		Tree:                       strings.Repeat("2", 40),
+		Platform:                   "linux/amd64",
+		Runner:                     runner,
+		Toolchain:                  remoteRunRunnerIdentityState().ToolchainDigest,
+		CommitEntrypoint:           gatecontract.CIEntrypointGitPreCommit,
+		PushEntrypoint:             gatecontract.CIEntrypointGitPrePush,
+		ReleaseEntrypoint:          gatecontract.CIEntrypointRelease,
+		CommitCatalogDigest:        "sha256:" + strings.Repeat("7", 64),
+		PushCatalogDigest:          "sha256:" + strings.Repeat("8", 64),
+		ReleaseCatalogDigest:       "sha256:" + strings.Repeat("9", 64),
+		CalibrationResourceClassID: "calibration", CalibrationResourceCPU: 4, CalibrationResourceMemoryGiB: 8,
+		WorkloadCount:      1,
+		RacePackageCount:   1,
+		AcceptedSnapshotID: "snapshot-test",
+		CompletedAt:        time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC),
 	}
 	if _, err := store.CompareAndSwap(0, ledger); err != nil {
 		t.Fatal(err)
 	}
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
+	seedRemoteRunShardOverheadFixture(t, store, runner, snapshotID)
 	return path
 }
 
@@ -406,6 +435,7 @@ func TestRemoteCalibrationRunOptionsUseAuthoritativeCommitPushAndReleaseEntrypoi
 
 func TestAcceptRemoteDurationCalibrationRequiresEveryShardableWorkloadAndRacePackage(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
+	seedRemoteDurationCalibrationFixtureOverhead(t, fixture)
 	samples, missingWorkload, missingRace := fixture.samplesExceptRequiredWorkloads(t)
 	if _, err := fixture.store.AppendSamples(fixture.acceptedGeneration, samples); err != nil {
 		t.Fatal(err)
@@ -438,6 +468,7 @@ func TestAcceptRemoteDurationCalibrationRequiresEveryShardableWorkloadAndRacePac
 
 func TestAcceptRemoteDurationCalibrationReusesEquivalentConcurrentWinner(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
+	seedRemoteDurationCalibrationFixtureOverhead(t, fixture)
 	appendCompleteRemoteCalibrationSamples(t, fixture)
 	first, second := concurrentRemoteCalibrationAccepts(t, fixture)
 	assertEquivalentCalibrationSnapshots(t, first, second)
@@ -445,6 +476,7 @@ func TestAcceptRemoteDurationCalibrationReusesEquivalentConcurrentWinner(t *test
 
 func TestAcceptRemoteDurationCalibrationRejectsNonEquivalentConcurrentWinner(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
+	seedRemoteDurationCalibrationFixtureOverhead(t, fixture)
 	appendCompleteRemoteCalibrationSamples(t, fixture)
 	if _, err := fixture.accept(); err != nil {
 		t.Fatal(err)
@@ -501,6 +533,7 @@ func assertEquivalentCalibrationSnapshots(t *testing.T, first, second gatecontra
 
 func TestAcceptRemoteDurationCalibrationDoesNotRequireOwnerOnlyWorkloadDuration(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
+	seedRemoteDurationCalibrationFixtureOverhead(t, fixture)
 	samples := make([]gatecontract.DurationSample, 0, len(fixture.expected))
 	foundOwnerOnly := false
 	for _, workload := range fixture.expected {
@@ -511,8 +544,9 @@ func TestAcceptRemoteDurationCalibrationDoesNotRequireOwnerOnlyWorkloadDuration(
 		samples = append(samples, gatecontract.DurationSample{
 			Bucket: gatecontract.DurationBucket{
 				WorkloadID: workload.ID, CommandDigest: workload.CommandDigest,
+				InputDigest: workload.InputDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration,
 				Platform: fixture.calibration.Platform, Runner: fixture.calibration.Runner,
-				Toolchain: fixture.calibration.Toolchain,
+				Toolchain: fixture.calibration.Toolchain, ResourceClassID: fixture.calibration.CalibrationResourceClassID, ResourceCPU: fixture.calibration.CalibrationResourceCPU, ResourceMemoryGiB: fixture.calibration.CalibrationResourceMemoryGiB,
 			},
 			Succeeded:  true,
 			DurationMS: 1_000,
@@ -550,6 +584,31 @@ func TestRemoteProfileDeadlineKeeps100SecondsAdvisory(t *testing.T) {
 	}
 	if _, err := remoteProfileDeadline(gatecontract.Profile("unknown")); err == nil {
 		t.Fatal("remoteProfileDeadline() accepted unsupported profile")
+	}
+}
+
+func TestRemoteWorkerTimeoutUsesCanonicalCalibrationBudget(t *testing.T) {
+	cases := []struct {
+		name        string
+		profile     gatecontract.Profile
+		calibration bool
+		want        time.Duration
+	}{
+		{name: "local-fast calibration", profile: gatecontract.ProfileLocalFast, calibration: true, want: remoteCalibrationWorkerTimeout},
+		{name: "push calibration", profile: gatecontract.ProfilePush, calibration: true, want: remoteCalibrationWorkerTimeout},
+		{name: "release calibration", profile: gatecontract.ProfileRelease, calibration: true, want: remoteCalibrationWorkerTimeout},
+		{name: "release normal", profile: gatecontract.ProfileRelease, want: 30 * time.Minute},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := remoteWorkerTimeout(testCase.profile, testCase.calibration)
+			if err != nil || got != testCase.want {
+				t.Fatalf("remoteWorkerTimeout(%q, calibration=%t) = %v, %v; want %v", testCase.profile, testCase.calibration, got, err, testCase.want)
+			}
+		})
+	}
+	if _, err := remoteWorkerTimeout(gatecontract.Profile("unknown"), true); err == nil {
+		t.Fatal("remoteWorkerTimeout() accepted unsupported calibration profile")
 	}
 }
 

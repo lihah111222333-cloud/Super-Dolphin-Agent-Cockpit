@@ -3,12 +3,14 @@ package archtest
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // RatchetViolation 是棘轮检查发现的单个恶化。
@@ -117,14 +119,85 @@ func NewBaselineMetricCache() *BaselineMetricCache {
 	return &BaselineMetricCache{metrics: make(map[string]FileMetrics)}
 }
 
+// baselineMetricCacheKey 将同一工作树中的相对/绝对路径归一到同一个缓存键。
+func baselineMetricCacheKey(path string) string {
+	if path == "" {
+		return path
+	}
+	if absolute, err := filepath.Abs(path); err == nil {
+		return filepath.Clean(absolute)
+	}
+	return filepath.Clean(path)
+}
+
+func (c *BaselineMetricCache) cached(path string) (FileMetrics, bool) {
+	if c == nil {
+		return FileMetrics{}, false
+	}
+	metrics, ok := c.metrics[baselineMetricCacheKey(path)]
+	return metrics, ok
+}
+
 // Measure 返回当前检查快照中 path 的文件度量。
 func (c *BaselineMetricCache) Measure(path string) FileMetrics {
-	if metrics, ok := c.metrics[path]; ok {
+	if metrics, ok := c.cached(path); ok {
 		return metrics
 	}
 	metrics := MeasureBaselineFileMetrics(path)
-	c.metrics[path] = metrics
+	c.metrics[baselineMetricCacheKey(path)] = metrics
 	return metrics
+}
+
+// StoreParsedFile 将已由 go/packages 解析的 AST 写入本次 baseline 缓存，避免再次 parser.ParseFile。
+func (c *BaselineMetricCache) StoreParsedFile(path string, fset *token.FileSet, node *ast.File) error {
+	if c == nil {
+		return fmt.Errorf("baseline metric cache is required")
+	}
+	if path == "" || fset == nil || node == nil {
+		return fmt.Errorf("parsed baseline file requires path, file set, and AST")
+	}
+	if _, ok := c.cached(path); ok {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read parsed baseline file %s: %w", path, err)
+	}
+	metrics := measureFileMetricsFromASTWithOptions(SplitLines(data), fset, node, true)
+	c.metrics[baselineMetricCacheKey(path)] = normalizeBaselineMetrics(path, metrics)
+	return nil
+}
+
+// Preload 在既有文件清单上并行采集尚未缓存的指标，保持结果按路径确定性写入。
+func (c *BaselineMetricCache) Preload(files map[string]string) {
+	if c == nil || len(files) == 0 {
+		return
+	}
+	paths := make([]string, 0, len(files))
+	for _, path := range files {
+		if _, ok := c.cached(path); ok {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) == 0 {
+		return
+	}
+	sort.Strings(paths)
+	measured := make([]FileMetrics, len(paths))
+	var group errgroup.Group
+	for index, path := range paths {
+		group.Go(func() error {
+			measured[index] = MeasureBaselineFileMetrics(path)
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		log.Fatalf("preload baseline metrics: %v", err)
+	}
+	for index, path := range paths {
+		c.metrics[baselineMetricCacheKey(path)] = measured[index]
+	}
 }
 
 // CheckWithBaseline 执行全仓棘轮检查。
@@ -151,6 +224,7 @@ func CheckWithBaselineCachedFiles(opts CheckOptions, bl Baseline, cache *Baselin
 	if files == nil {
 		return CheckResult{}, fmt.Errorf("baseline file snapshot is required")
 	}
+	cache.Preload(files)
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
 		repoRoot = "."
@@ -190,29 +264,7 @@ func checkWithBaseline(opts CheckOptions, bl Baseline, cache *BaselineMetricCach
 // MeasureBaselineFileMetrics 补齐 baseline 棘轮使用的全部注册指标。
 // 单文件守卫仍走轻量 CheckAll；baseline 路径必须覆盖新文件缺基线时的质量债务。
 func MeasureBaselineFileMetrics(path string) FileMetrics {
-	m := MeasureFileMetrics(path)
-	if m.Lines == 0 {
-		return m
-	}
-	node, ok := parseMetricFile(path)
-	if !ok || ast.IsGenerated(node) {
-		return m
-	}
-	m.NakedGoroutines = CountNakedGoStmts(node)
-	return normalizeBaselineMetrics(path, m)
-}
-
-func parseMetricFile(path string) (*ast.File, bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false
-	}
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, data, parser.ParseComments|parser.SkipObjectResolution)
-	if err != nil {
-		return nil, false
-	}
-	return node, true
+	return normalizeBaselineMetrics(path, measureBaselineFileMetrics(path))
 }
 
 // newFileMetricViolations 对不在 baseline 中的扫描文件执行所有硬阈值检查。

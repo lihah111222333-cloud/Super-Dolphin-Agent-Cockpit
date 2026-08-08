@@ -249,32 +249,28 @@ func (c *Client) joinTrackedOwners(timeout time.Duration) error {
 	if timeout <= 0 {
 		return ErrShutdownTimeout
 	}
-	deadline := c.currentTime().Add(timeout)
+	if c == nil || c.now == nil {
+		return errors.New("acp: client clock is required")
+	}
+	deadline := c.now().Add(timeout)
 	for {
 		owners := c.trackedOwners()
 		if len(owners) == 0 {
 			return nil
 		}
-		pending := waitTrackedOwners(owners, deadline, c.currentTime)
+		pending := waitTrackedOwners(owners, deadline, c.now)
 		if len(pending) > 0 {
 			return errors.Join(pending...)
 		}
-		if !c.currentTime().Before(deadline) {
+		if !c.now().Before(deadline) {
 			return ErrShutdownTimeout
 		}
 	}
 }
 
-func (c *Client) currentTime() time.Time {
-	if c == nil || c.now == nil {
-		panic("acp: client clock required")
-	}
-	return c.now()
-}
-
 func waitTrackedOwners(owners []trackedOwner, deadline time.Time, now func() time.Time) []error {
 	if now == nil {
-		panic("acp: owner wait clock required")
+		return []error{errors.New("acp: owner wait clock is required")}
 	}
 	var pending []error
 	for _, owner := range owners {

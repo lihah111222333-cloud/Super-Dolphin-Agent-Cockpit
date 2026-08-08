@@ -17,22 +17,22 @@ import (
 )
 
 // runRemoteHook 分派远程 Git hook 的严格适配器。
-func runRemoteHook(args []string, input io.Reader, stdout io.Writer) error {
+func runRemoteHook(args []string, input io.Reader, stdout io.Writer, progressWriters ...io.Writer) error {
 	if len(args) == 0 {
 		return protocolError("remote hook requires pre-commit or pre-push")
 	}
 	switch args[0] {
 	case "pre-commit":
-		return runRemotePreCommitHook(args[1:], stdout)
+		return runRemotePreCommitHook(args[1:], stdout, progressWriters...)
 	case "pre-push":
-		return runRemotePrePushHook(args[1:], input, stdout)
+		return runRemotePrePushHook(args[1:], input, stdout, progressWriters...)
 	default:
 		return protocolError("remote hook adapter must be pre-commit or pre-push")
 	}
 }
 
-// runRemotePreCommitHook 将显式 tree/parent 绑定为本地快速门禁。
-func runRemotePreCommitHook(args []string, stdout io.Writer) error {
+// runRemotePreCommitHook 将显式 tree/parent 绑定为远程 ECI 快速门禁。
+func runRemotePreCommitHook(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
 	if err := requireRemoteCIAgentToken([]string{"remote", "hook", "pre-commit"}, args, stdout); err != nil {
 		return err
 	}
@@ -45,7 +45,13 @@ func runRemotePreCommitHook(args []string, stdout io.Writer) error {
 	}
 	options.Scenario = "commit"
 	options.Entrypoint = string(gatecontract.CIEntrypointGitPreCommit)
+	progress, err := newRemoteProgressObserver(progressWriters...)
+	if err != nil {
+		return err
+	}
+	options.ProgressObserver = progress
 	result, input, runErr := executeRemoteRun(options)
+	runErr = errors.Join(runErr, remoteci.ProgressError(progress))
 	if runErr != nil {
 		return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
 	}
@@ -64,7 +70,7 @@ func runRemotePreCommitHook(args []string, stdout io.Writer) error {
 }
 
 // runRemotePrePushHook 为每个规范化 ref update 运行并验证独立远程门禁。
-func runRemotePrePushHook(args []string, input io.Reader, stdout io.Writer) error {
+func runRemotePrePushHook(args []string, input io.Reader, stdout io.Writer, progressWriters ...io.Writer) error {
 	if err := requireRemoteCIAgentToken([]string{"remote", "hook", "pre-push"}, args, stdout); err != nil {
 		return err
 	}
@@ -80,6 +86,11 @@ func runRemotePrePushHook(args []string, input io.Reader, stdout io.Writer) erro
 	if err != nil {
 		return infrastructureError("create remote pre-push delivery identity: %v", err)
 	}
+	progress, err := newRemoteProgressObserver(progressWriters...)
+	if err != nil {
+		return err
+	}
+	options.ProgressObserver = progress
 	requests, err := gatehook.NormalizePrePush(context.Background(), options.RepositoryRoot, deliveryID, input)
 	if err != nil {
 		return sourceError("normalize remote pre-push refs: %v", err)
@@ -103,6 +114,7 @@ func runRemotePrePushRequest(options remoteRunOptions, request gatehook.Request,
 		return protocolError("remote pre-push request %d: %v", index+1, err)
 	}
 	result, input, runErr := executeRemoteRun(runOptions)
+	runErr = errors.Join(runErr, remoteci.ProgressError(runOptions.ProgressObserver))
 	if runErr != nil {
 		return emitRemoteRunResult(stdout, input.LedgerStore, result, fmt.Errorf("ref update %d: %w", index+1, runErr))
 	}
@@ -167,6 +179,7 @@ func parseRemotePrePushOptions(args []string) (remoteRunOptions, string, string,
 	flags.StringVar(&options.RepositoryRoot, "repository", ".", "Git repository root")
 	flags.StringVar(&options.LedgerPath, "ledger", "", "remote baseline and duration ledger SQLite authority path")
 	flags.StringVar(&agentToken, "agent-token", "", "remote CI agent token")
+	flags.BoolVar(&options.Force, "force", false, "force execution of every shardable workload and bypass PASS reuse")
 	if err := flags.Parse(args); err != nil {
 		return options, "", "", protocolError("parse remote pre-push flags: %v", err)
 	}

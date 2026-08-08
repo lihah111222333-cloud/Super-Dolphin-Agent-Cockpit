@@ -2,7 +2,6 @@ package remoteci
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -17,63 +16,7 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
-
-// remoteGoTestInventories 从精确 Git tree 枚举每个 Go 包在 runner 平台会执行的顶层测试。
-func (snapshot *remoteGitTreeSnapshot) remoteGoTestInventories(
-	ctx context.Context,
-	workloads []gate.Workload,
-	platform string,
-) (map[string][]string, error) {
-	hasTarget, err := hasRemoteGoTestTarget(workloads)
-	if err != nil {
-		return nil, err
-	}
-	if !hasTarget {
-		return map[string][]string{}, nil
-	}
-	if err := snapshot.prepareGoSources(ctx); err != nil {
-		return nil, err
-	}
-	goos, goarch, err := remoteGoTestPlatform(platform)
-	if err != nil {
-		return nil, err
-	}
-	inventories := make(map[string][]string)
-	for _, workload := range workloads {
-		names, included, err := snapshot.remoteGoTestInventoryForWorkload(workload, goos, goarch)
-		if err != nil {
-			return nil, err
-		}
-		if included {
-			inventories[workload.ID] = names
-		}
-	}
-	return inventories, nil
-}
-
-// hasRemoteGoTestTarget 判断工作负载是否包含需要远程盘点的 Go 目标。
-func hasRemoteGoTestTarget(workloads []gate.Workload) (bool, error) {
-	for _, workload := range workloads {
-		_, kind, _, targeted, err := gate.ParseWorkloadID(workload.ID)
-		if err != nil {
-			return false, err
-		}
-		if targeted && isRemoteGoTestTarget(kind) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// isRemoteGoTestTarget 判断工作负载类型是否需要远程 Go 测试盘点。
-func isRemoteGoTestTarget(kind gate.WorkloadTargetKind) bool {
-	return kind == gate.WorkloadTargetGoPackage ||
-		kind == gate.WorkloadTargetGoTest ||
-		kind == gate.WorkloadTargetGoBenchmark
-}
 
 // remoteGoTestPlatform 校验并拆分远程执行平台。
 func remoteGoTestPlatform(platform string) (string, string, error) {
@@ -82,126 +25,6 @@ func remoteGoTestPlatform(platform string) (string, string, error) {
 		return "", "", errors.New("remote Go test inventory platform is invalid")
 	}
 	return goos, goarch, nil
-}
-
-// remoteGoTestInventoryForWorkload 校验单个远程 Go 工作负载并返回包级盘点结果。
-func (snapshot *remoteGitTreeSnapshot) remoteGoTestInventoryForWorkload(
-	workload gate.Workload,
-	goos string,
-	goarch string,
-) ([]string, bool, error) {
-	parent, kind, target, targeted, err := gate.ParseWorkloadID(workload.ID)
-	if err != nil {
-		return nil, false, err
-	}
-	if !targeted || !isRemoteGoTestTarget(kind) {
-		return nil, false, nil
-	}
-	switch kind {
-	case gate.WorkloadTargetGoPackage:
-		return snapshot.remoteGoPackageWorkloadInventory(workload.ID, target, goos, goarch, parent)
-	case gate.WorkloadTargetGoTest:
-		return snapshot.validateRemoteGoTestWorkload(workload.ID, target, goos, goarch, parent)
-	case gate.WorkloadTargetGoBenchmark:
-		return snapshot.validateRemoteGoBenchmarkWorkload(workload.ID, target, goos, goarch)
-	}
-	return nil, false, nil
-}
-
-// remoteGoPackageWorkloadInventory 枚举包级工作负载的可执行测试。
-func (snapshot *remoteGitTreeSnapshot) remoteGoPackageWorkloadInventory(
-	workloadID string,
-	target string,
-	goos string,
-	goarch string,
-	parent gate.GateID,
-) ([]string, bool, error) {
-	directory, err := remoteGoPackageDirectory(target)
-	if err != nil {
-		return nil, false, err
-	}
-	race := parent == gate.GateIDBackendTestGuardWithRace
-	buildable, err := snapshot.remoteGoPackageMatchesPlatform(directory, goos, goarch, race)
-	if err != nil {
-		return nil, false, fmt.Errorf("match Go package for workload %q: %w", workloadID, err)
-	}
-	if !buildable {
-		return nil, false, nil
-	}
-	names, err := snapshot.remoteGoPackageTestInventory(
-		directory, goos, goarch, race,
-	)
-	if err != nil {
-		return nil, false, fmt.Errorf("enumerate Go tests for workload %q: %w", workloadID, err)
-	}
-	return names, true, nil
-}
-
-// validateRemoteGoTestWorkload 确认精确测试工作负载可在远程包中执行。
-func (snapshot *remoteGitTreeSnapshot) validateRemoteGoTestWorkload(
-	workloadID string,
-	target string,
-	goos string,
-	goarch string,
-	parent gate.GateID,
-) ([]string, bool, error) {
-	testTarget, err := gate.ParseGoTestTarget(target)
-	if err != nil {
-		return nil, false, err
-	}
-	if err := snapshot.requireRemoteGoTarget(
-		testTarget, goos, goarch, parent == gate.GateIDBackendTestGuardWithRace, false,
-	); err != nil {
-		return nil, false, fmt.Errorf("validate Go test workload %q: %w", workloadID, err)
-	}
-	return nil, false, nil
-}
-
-// validateRemoteGoBenchmarkWorkload 确认精确基准工作负载可在远程包中执行。
-func (snapshot *remoteGitTreeSnapshot) validateRemoteGoBenchmarkWorkload(
-	workloadID string,
-	target string,
-	goos string,
-	goarch string,
-) ([]string, bool, error) {
-	benchmarkTarget, err := gate.ParseGoBenchmarkTarget(target)
-	if err != nil {
-		return nil, false, err
-	}
-	if err := snapshot.requireRemoteGoTarget(benchmarkTarget, goos, goarch, false, true); err != nil {
-		return nil, false, fmt.Errorf("validate Go benchmark workload %q: %w", workloadID, err)
-	}
-	return nil, false, nil
-}
-
-// requireRemoteGoTarget 确认指定测试或基准目标存在于精确包盘点中。
-func (snapshot *remoteGitTreeSnapshot) requireRemoteGoTarget(
-	target gate.GoTestTarget,
-	goos string,
-	goarch string,
-	race bool,
-	benchmark bool,
-) error {
-	directory, err := remoteGoPackageDirectory(target.Package)
-	if err != nil {
-		return err
-	}
-	files, err := snapshot.remoteGoPackageTestFiles(directory, goos, goarch, race)
-	if err != nil {
-		return err
-	}
-	names, err := goTestNamesFromFiles(files, goos)
-	if benchmark {
-		names, err = goBenchmarkNamesFromFiles(files, goos)
-	}
-	if err != nil {
-		return err
-	}
-	index := sort.SearchStrings(names, target.Name)
-	if index == len(names) || names[index] != target.Name {
-		return fmt.Errorf("%q is absent from exact package %q", target.Name, target.Package)
-	}
-	return nil
 }
 
 // remoteGoPackageTestInventory 返回精确包中可执行的顶层测试名称。

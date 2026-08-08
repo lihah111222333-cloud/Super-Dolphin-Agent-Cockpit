@@ -35,6 +35,7 @@ func parseRemoteRunOptions(args []string) (remoteRunOptions, error) {
 	flags.StringVar(&options.UpdateKind, "update-kind", "", "push update kind")
 	flags.StringVar(&options.LedgerPath, "ledger", "", "remote baseline and duration ledger SQLite authority path")
 	flags.StringVar(&agentToken, "agent-token", "", "remote CI agent token")
+	flags.BoolVar(&options.Force, "force", false, "force execution of every shardable workload and bypass PASS reuse")
 	if err := flags.Parse(args); err != nil {
 		return options, protocolError("parse remote run flags: %v", err)
 	}

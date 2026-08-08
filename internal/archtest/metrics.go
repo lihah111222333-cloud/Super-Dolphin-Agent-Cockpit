@@ -13,6 +13,15 @@ import (
 // MeasureFileMetrics 对单个 Go 文件执行全量 AST 指标测量，返回可用于棘轮比较的 FileMetrics。
 // path 必须是可 os.ReadFile 的绝对或相对路径。
 func MeasureFileMetrics(path string) FileMetrics {
+	return measureFileMetricsFromPath(path, false)
+}
+
+// measureBaselineFileMetrics 读取一次文件并补齐 baseline 专用的裸 goroutine 指标。
+func measureBaselineFileMetrics(path string) FileMetrics {
+	return measureFileMetricsFromPath(path, true)
+}
+
+func measureFileMetricsFromPath(path string, includeNakedGoroutines bool) FileMetrics {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return FileMetrics{}
@@ -23,11 +32,16 @@ func MeasureFileMetrics(path string) FileMetrics {
 		return FileMetrics{}
 	}
 	rawLines := SplitLines(data)
-	return measureFileMetricsFromAST(rawLines, fset, node)
+	return measureFileMetricsFromASTWithOptions(rawLines, fset, node, includeNakedGoroutines)
 }
 
 // measureFileMetricsFromAST 在已解析的 AST 上执行全量指标采集。
 func measureFileMetricsFromAST(rawLines []string, fset *token.FileSet, node *ast.File) FileMetrics {
+	return measureFileMetricsFromASTWithOptions(rawLines, fset, node, false)
+}
+
+// measureFileMetricsFromASTWithOptions 统一采集指标，并按调用方需要补齐 baseline 质量指标。
+func measureFileMetricsFromASTWithOptions(rawLines []string, fset *token.FileSet, node *ast.File, includeNakedGoroutines bool) FileMetrics {
 	var m FileMetrics
 	ignores := collectArchGuardIgnores(fset, node)
 
@@ -51,6 +65,9 @@ func measureFileMetricsFromAST(rawLines []string, fset *token.FileSet, node *ast
 	}
 	m.MaxUnderscore = measureMaxUnderscore(node)
 	m.RawGoroutines = countRawGoroutines(node)
+	if includeNakedGoroutines {
+		m.NakedGoroutines = CountNakedGoStmts(node)
+	}
 	m.MissingDocs = countMissingDocComments(node)
 	m.MaxStructMethods = measureMaxStructMethods(node)
 	return m

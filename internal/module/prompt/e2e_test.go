@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	datasource "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/datasource"
 	memory "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory"
@@ -325,6 +326,7 @@ func newFxHarness(t *testing.T) *fxHarness {
 		fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))),
 		fx.Supply(fx.Annotate(datasourceStore, fx.As(new(datasource.DatasourceDocumentStore)))),
 		fx.Provide(
+			event.NewDispatcher,
 			func() thread.SessionStarter { return h.bridge },
 			func() thread.SessionProvider { return h.bridge },
 			func() thread.ThreadStore { return h.threadStore },

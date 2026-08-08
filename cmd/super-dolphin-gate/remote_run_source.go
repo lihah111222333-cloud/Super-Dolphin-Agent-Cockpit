@@ -9,6 +9,7 @@ import (
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
 type remoteResolvedTarget struct {
@@ -37,6 +38,10 @@ func resolveRemoteRunInput(
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
+	calibrationResource, err := remoteRunInputCalibrationResource(options)
+	if err != nil {
+		return remoteci.RunInput{}, err
+	}
 	inventory, err := buildRemoteRunInventory(repositoryRoot, target, scenario, options.Tests, state.Platform)
 	if err != nil {
 		return remoteci.RunInput{}, err
@@ -58,13 +63,15 @@ func resolveRemoteRunInput(
 		RunnerBaseCommit: state.MainCommit, RunnerBaseTree: state.MainTree,
 		Source: source, Profile: profile, Entrypoint: entrypoint,
 		Platform: state.Platform, PolicyDigest: state.PolicyDigest,
-		ToolchainDigest: state.ToolchainDigest,
-		LedgerSnapshot:  ledger,
-		LedgerStore:     ledgerStore,
-		Inventory:       inventory,
-		SelectedTests:   scenario == "test",
-		Calibration:     options.Calibration,
-		RunnerImage:     state.RuntimeImage, RunnerIdentityDigest: runnerIdentity,
+		ToolchainDigest:     state.ToolchainDigest,
+		LedgerSnapshot:      ledger,
+		LedgerStore:         ledgerStore,
+		Inventory:           inventory,
+		SelectedTests:       scenario == "test",
+		Calibration:         options.Calibration,
+		CalibrationResource: calibrationResource,
+		Force:               options.Force,
+		RunnerImage:         state.RuntimeImage, RunnerIdentityDigest: runnerIdentity,
 		ImageCacheSnapshotID:         state.ImageCacheSnapshotID,
 		BaselineManifestDigest:       state.BaselineManifestDigest,
 		RunnerConfigDigest:           remoteRuntimeImageDigest(state.RuntimeImage),
@@ -74,6 +81,21 @@ func resolveRemoteRunInput(
 		RuntimeSeedSHA256:            state.RuntimeSeedSHA256,
 		OCIProjectCache:              state.OCIProjectCache,
 	}, nil
+}
+
+// remoteRunInputCalibrationResource 让所有校准 RunInput 在离开唯一解析入口前绑定固定资源身份。
+func remoteRunInputCalibrationResource(options remoteRunOptions) (shardresource.Class, error) {
+	if !options.Calibration {
+		return shardresource.Class{}, nil
+	}
+	resource, configured, err := remoteCalibrationResourceForOptions(options)
+	if err != nil {
+		return shardresource.Class{}, fmt.Errorf("load calibration run input resource: %w", err)
+	}
+	if !configured {
+		return shardresource.Class{}, errors.New("calibration run input requires a configured resource")
+	}
+	return resource, nil
 }
 
 // resolveRemoteCandidateGateIdentity 读取 exact candidate tree 的 Gate 编译闭包与工具链身份。
@@ -113,7 +135,8 @@ func resolveRemoteRunSource(options remoteRunOptions) (string, string, gatecontr
 }
 
 // loadRemoteRunLedger 从唯一 SQLite authority 读取 planning snapshot；校准要求
-// 由 normal 入口在 PreparedRun 判定为 miss 后单独验证。
+// 由 normal 入口在 PreparedRun 判定为 miss 后单独验证。普通运行第一次只读元数据，
+// 避免空账本在 PASS 复用判定与自动校准之前自锁；miss 路径随后刷新严格 planning snapshot。
 func loadRemoteRunLedger(
 	options remoteRunOptions,
 	state remoteci.BaselineState,
@@ -123,16 +146,48 @@ func loadRemoteRunLedger(
 	if err != nil {
 		return gatecontract.DurationLedgerSnapshot{}, nil, err
 	}
-	ledger, err := store.LoadPlanning(gatecontract.PlanningContext{
-		Platform:         state.Platform,
-		Runner:           runnerIdentity,
-		Toolchain:        state.ToolchainDigest,
-		TargetDurationMS: gatecontract.FullCITargetDurationMS,
-	})
+	if !options.Calibration {
+		ledger, err := store.LoadMetadata()
+		if err != nil {
+			return gatecontract.DurationLedgerSnapshot{}, nil, err
+		}
+		return ledger, store, nil
+	}
+	context, err := remoteRunPlanningContext(options, state, runnerIdentity)
+	if err != nil {
+		return gatecontract.DurationLedgerSnapshot{}, nil, err
+	}
+	ledger, err := store.LoadPlanning(context)
 	if err != nil {
 		return gatecontract.DurationLedgerSnapshot{}, nil, err
 	}
 	return ledger, store, nil
+}
+
+// remoteRunPlanningContext 将固定校准规格绑定到第一次 planning 读取，避免在后置 RunInput 配置前丢失资源身份。
+func remoteRunPlanningContext(options remoteRunOptions, state remoteci.BaselineState, runnerIdentity string) (gatecontract.PlanningContext, error) {
+	context := gatecontract.PlanningContext{
+		Platform:           state.Platform,
+		Runner:             runnerIdentity,
+		Toolchain:          state.ToolchainDigest,
+		Calibration:        options.Calibration,
+		TargetDurationMS:   gatecontract.FullCITargetDurationMS,
+		AcceptedSnapshotID: state.ImageCacheSnapshotID,
+	}
+	if !options.Calibration {
+		return context, nil
+	}
+	resource, configured, err := remoteCalibrationResourceForOptions(options)
+	if err != nil {
+		return gatecontract.PlanningContext{}, fmt.Errorf("load calibration planning resource: %w", err)
+	}
+	if !configured {
+		return gatecontract.PlanningContext{}, errors.New("calibration planning requires a configured resource")
+	}
+	context.CalibrationResourceClassID = resource.ID
+	context.CalibrationResourceCPU = resource.VCPU
+	context.CalibrationResourceMemoryGiB = resource.MemoryGiB
+	return context, nil
 }
 
 // buildRemoteRunInventory 从固定 revision 构建 inventory 并应用 test 场景选择器。
@@ -249,15 +304,14 @@ func resolveRemoteCommitTarget(
 	}, nil
 }
 
-// validateRemoteDurationCalibration 确保非测试运行使用与已接受基线一致的首代校准。
+// validateRemoteDurationCalibration 确保普通运行使用与已接受基线一致的首代校准。
 func validateRemoteDurationCalibration(
 	options remoteRunOptions,
-	scenario string,
 	state remoteci.BaselineState,
 	runnerIdentity string,
 	ledger gatecontract.DurationLedger,
 ) error {
-	if options.Calibration || scenario == "test" {
+	if options.Calibration {
 		return nil
 	}
 	calibration := ledger.Calibration
@@ -266,6 +320,13 @@ func validateRemoteDurationCalibration(
 	}
 	if !remoteDurationCalibrationMatches(calibration, state, runnerIdentity) {
 		return errors.New("remote CI duration calibration does not match the accepted runner baseline")
+	}
+	resource, configured, err := remoteCalibrationResourceForOptions(options)
+	if err != nil {
+		return fmt.Errorf("load configured remote calibration resource: %w", err)
+	}
+	if configured && !calibrationResourceMatches(calibration, []shardresource.Class{resource}) {
+		return errors.New("remote CI duration calibration resource does not match configured independent calibration class")
 	}
 	return nil
 }

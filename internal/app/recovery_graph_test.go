@@ -492,13 +492,14 @@ func createRolledBackStartup(t *testing.T) (*recovery.Store, recovery.Transactio
 	})
 	token := transaction.RollbackRestart.LaunchToken
 	process := transaction.RollbackRestart.ACK.Process
+	endpoint := mustStartupValue(t, func() (string, error) {
+		return recovery.RollbackRestartTerminationEndpoint(transaction.Identity.TransactionID, token)
+	})
 	return store, transaction, recovery.ProcessIdentity{
 		PID: process.PID, StartToken: process.StartToken, ExecutableIdentity: process.ExecutableIdentity,
-		ExecutableSHA256: process.ExecutableSHA256,
-		TerminationEndpoint: filepath.Join(os.TempDir(), fmt.Sprintf(
-			"sd-rr-%s-%s.sock", string(transaction.Identity.TransactionID)[:8], token[:16],
-		)),
-		TerminationToken: token,
+		ExecutableSHA256:    process.ExecutableSHA256,
+		TerminationEndpoint: endpoint,
+		TerminationToken:    token,
 	}
 }
 

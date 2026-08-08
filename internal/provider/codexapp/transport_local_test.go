@@ -36,9 +36,21 @@ type localCodexHelper struct {
 	childPIDPath string
 }
 
+const inboundFrameLimitTestBytes = 64 * 1024
+
 func TestTransportConnectOnceCapsInboundFrame(t *testing.T) {
-	t.Run("boundary", func(t *testing.T) { assertInboundFrameLimit(t, transportInboundFrameMaxBytes, false) })
-	t.Run("oversized", func(t *testing.T) { assertInboundFrameLimit(t, transportInboundFrameMaxBytes+1, true) })
+	t.Run("boundary", func(t *testing.T) {
+		assertInboundFrameLimit(t, inboundFrameLimitTestBytes, inboundFrameLimitTestBytes, false)
+	})
+	t.Run("oversized", func(t *testing.T) {
+		assertInboundFrameLimit(t, inboundFrameLimitTestBytes, inboundFrameLimitTestBytes+1, true)
+	})
+}
+
+func TestTransportConnectOnceUsesProductionInboundFrameLimit(t *testing.T) {
+	if got, want := transportInboundFrameMaxBytes, 4*1024*1024; got != want {
+		t.Fatalf("transportInboundFrameMaxBytes = %d, want %d", got, want)
+	}
 }
 
 func TestTransportRespondWithIDDoesNotExposeRawCallError(t *testing.T) {
@@ -123,14 +135,14 @@ func assertSanitizedTransportFailureLog(t *testing.T, output string) {
 	}
 }
 
-func assertInboundFrameLimit(t *testing.T, size int, wantErr bool) {
+func assertInboundFrameLimit(t *testing.T, limit, size int, wantErr bool) {
 	t.Helper()
 	server, serverWrite := newInboundFrameServer(size)
 	defer server.Close()
 
 	transport := &transport{serverURL: "ws" + strings.TrimPrefix(server.URL, "http")}
-	if err := transport.connectOnce(context.Background()); err != nil {
-		t.Fatalf("connectOnce() error = %v", err)
+	if err := transport.connectOnceWithReadLimit(context.Background(), int64(limit)); err != nil {
+		t.Fatalf("connectOnceWithReadLimit() error = %v", err)
 	}
 	defer transport.closeSocket()
 	ws := transport.currentWS()
@@ -390,6 +402,8 @@ func TestTransportDispatchReadMessage_CodexRolloutFramesDispatchToolLifecycle(t 
 	}
 }
 
+// TestCodexHelperProcess 仅作为显式子进程入口，不属于默认远程 CI workload。
+// super-dolphin-ci: helper
 func TestCodexHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_CODEX_HELPER") != "1" {
 		return

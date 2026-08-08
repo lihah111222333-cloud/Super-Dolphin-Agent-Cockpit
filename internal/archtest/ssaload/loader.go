@@ -18,12 +18,18 @@ type Options struct {
 	Patterns []string
 	Tests    bool
 	Overlay  map[string][]byte
+	// LoadMode 在调用方只需要 package 身份和文件元数据时覆盖默认 typed syntax 模式。
+	// 零值保持历史 LoadSyntax 行为。
+	LoadMode packages.LoadMode
 	Include  func(*packages.Package) bool
 }
 
-// Load 按固定语法模式加载并筛选确定性 package 集合。
+// Load 按调用方指定的加载模式加载并筛选确定性 package 集合。
 func Load(opts Options) ([]*packages.Package, error) {
-	mode := packages.LoadSyntax
+	mode := opts.LoadMode
+	if mode == 0 {
+		mode = packages.LoadSyntax
+	}
 	if opts.Tests {
 		mode |= packages.NeedForTest
 	}
@@ -31,7 +37,7 @@ func Load(opts Options) ([]*packages.Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	byID, messages := collectLoadCandidates(loaded, opts.Include)
+	byID, messages := collectLoadCandidates(loaded, opts.Include, mode&packages.NeedSyntax != 0)
 	if len(messages) > 0 {
 		sort.Strings(messages)
 		return nil, fmt.Errorf("package load failed: %s", strings.Join(messages, "; "))
@@ -50,7 +56,7 @@ func Load(opts Options) ([]*packages.Package, error) {
 }
 
 // collectLoadCandidates 分离顶层候选选择与依赖错误聚合，保持旧扫描语义。
-func collectLoadCandidates(loaded []*packages.Package, include func(*packages.Package) bool) (map[string]*packages.Package, []string) {
+func collectLoadCandidates(loaded []*packages.Package, include func(*packages.Package) bool, requireSyntax bool) (map[string]*packages.Package, []string) {
 	byID := map[string]*packages.Package{}
 	var messages []string
 	for _, pkg := range loaded {
@@ -61,7 +67,7 @@ func collectLoadCandidates(loaded []*packages.Package, include func(*packages.Pa
 		if include != nil && !include(pkg) {
 			continue
 		}
-		if len(pkg.Syntax) == 0 {
+		if loadCandidateSyntaxMissing(pkg, requireSyntax) {
 			messages = append(messages, fmt.Sprintf("package %s has empty syntax", pkg.ID))
 		}
 		byID[pkg.ID] = pkg
@@ -75,6 +81,11 @@ func collectLoadCandidates(loaded []*packages.Package, include func(*packages.Pa
 		}
 	})
 	return byID, messages
+}
+
+// loadCandidateSyntaxMissing 在 typed loader 模式下拒绝没有语法树的候选包。
+func loadCandidateSyntaxMissing(pkg *packages.Package, requireSyntax bool) bool {
+	return requireSyntax && len(pkg.Syntax) == 0
 }
 
 // Build 校验精确 package 后构建 SSA，并把 builder panic 转为错误。

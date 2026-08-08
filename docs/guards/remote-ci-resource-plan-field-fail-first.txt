@@ -1,0 +1,7 @@
+Remote CI resource plan field guard fail-first evidence
+
+Date: 2026-08-06
+Command: go test ./internal/devtools/remoteci -run TestRemoteResourcePlanFieldContract -count=1
+Temporary fault: removed the ResourceCPU projection from gate.PlannedWorkload to shardresource.Workload.
+Observed failure: TestRemoteResourcePlanFieldContract failed with "resource selection workload ID, duration, CPU, and memory are required".
+Restoration: restored the ResourceCPU projection; the same command passes.

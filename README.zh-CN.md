@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **维护者声明：原创代码与项目自有文档 100% 由 AI 编写，由人类指导，由仓库守护。** 产品代码、测试代码和项目自有文档均由 AI 智能体编写或重构。人类负责产品意图、架构裁决、凭据和发布。AI 作者身份不代表绝对正确：每项被接受的改动仍必须通过仓库拥有的证据与门禁。上游法律和社区文本保留其原始署名。
 
-**本地优先的交付门禁。** 日常提交与推送由纳入版本控制的 [Git hooks](.githooks/README.md) 强制验收，不依赖付费的 GitHub 托管 CI。`pre-commit` 检查暂存快照、AI 维护规则、全仓守卫和受影响代码；`commit-msg` 要求修复类提交携带回归证据；`pre-push` 校验当前 `HEAD` 的推送范围，运行受影响包与契约检查，对受影响 Go 包执行 nilness 分析，并对已登记并发面运行 Race 测试。延后执行的 Provider E2E、`gosec`/安全扫描和发布检查仍是明确的独立门禁，不会被夸大为日常 hook 路径已经覆盖的能力。
+**真值镜像交付门禁。** 纳入版本控制的 [Git hooks](.githooks/README.md)、手动 `make ci-l0` 与 `make ci-l1` 以及发布校验使用失败即阻断的远程 ECI 门禁。GitHub 仅是 Git 远端，不提供 CI runner。`pre-commit` 与手动 L0-L1 命令检查精确暂存树或引用更新，发布校验检查精确提交。远程配置、来源证明、结果权威、清理证据缺失或门禁失败都会拒绝操作。`commit-msg` 仍要求中文提交文本和修复测试证据。
 
 Super Dolphin Agent 是一套 **生产级、AI 原生的氛围编程工程与多智能体开发控制平面**。它把本地桌面运行时、MCP 编排、多语言 LSP 导航、Provider 集成、持久化工作流和机器强制执行的工程边界整合为一个可工作的参考实现。
 
@@ -260,10 +260,10 @@ make capcontract-check
 
 | 指标 | 当前真源 |
 |---|---|
-| 架构测试 | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 329 runnable `Test*` functions across 127 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| 架构测试 | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 426 runnable `Test*` functions across 148 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | 架构规则 | [生成的后端边界地图](docs/doc/codemap/13-archtest-boundaries.md) |
 | 测试覆盖率 | 从当前测试运行重新计算；不声明静态百分比 |
-| CI | [GitHub Actions](.github/workflows/ci.yml) |
+| CI | [阿里云 ECI 契约](docs/契约/remote-ci-eci-imagecache-contract.md) |
 
 <!-- sd:security -->
 ## 安全

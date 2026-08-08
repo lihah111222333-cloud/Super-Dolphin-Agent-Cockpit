@@ -269,6 +269,39 @@ func TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition(t *tes
 	}
 }
 
+// TestRemoteCIRunCatalogIndexAcceptsOwnerExecutionFromCatalog 保留 owner-only 证明并与 shardable 覆盖分离。
+func TestRemoteCIRunCatalogIndexAcceptsOwnerExecutionFromCatalog(t *testing.T) {
+	workloadID := GateID("workload-partition")
+	ownerID := GateIDReleaseLayeredCheck
+	if _, err := newRemoteCIRunCatalogIndex(WorkloadCatalog{Workloads: []Workload{{ID: "non-owner", Shardable: false}}}); err == nil || !strings.Contains(err.Error(), "is not the release owner") {
+		t.Fatalf("non-owner catalog error = %v", err)
+	}
+	index, err := newRemoteCIRunCatalogIndex(WorkloadCatalog{Workloads: []Workload{
+		{ID: string(workloadID), Shardable: true},
+		{ID: string(ownerID), Shardable: false},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := index.shardable[ownerID]; ok {
+		t.Fatal("owner-only catalog entry was indexed as shardable")
+	}
+	if _, ok := index.executions[ownerID]; !ok {
+		t.Fatal("owner-only catalog entry was not indexed as a direct execution")
+	}
+	record := RemoteCIRunRecord{
+		Status:     ResultStatusPassed,
+		Executions: []PlanGateExecution{{GateID: ownerID}},
+	}
+	if err := index.validateRecorded(record, []GateID{workloadID}); err != nil {
+		t.Fatalf("validate recorded owner execution: %v", err)
+	}
+	record.Executions = append(record.Executions, PlanGateExecution{GateID: GateID("release:missing-owner")})
+	if err := index.validateRecorded(record, nil); err == nil || !strings.Contains(err.Error(), "absent from its catalog") {
+		t.Fatalf("validate recorded unknown owner error = %v", err)
+	}
+}
+
 // TestWorkloadPassEvidenceConcurrentPromotionKeepsJobsIsolated 验证两个 fresh job 并发提升不会串写来源。
 func TestWorkloadPassEvidenceConcurrentPromotionKeepsJobsIsolated(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 1)
@@ -559,6 +592,48 @@ func TestWorkloadPassEvidenceRejectsForgedIdentityAndOrigin(t *testing.T) {
 	}
 }
 
+// TestFinalizeRemoteCIRunAuthorityRejectsCatalogIdentityDrift 验证最终化不能
+// 提升与 canonical workload catalog 不一致的 executed identity。
+func TestFinalizeRemoteCIRunAuthorityRejectsCatalogIdentityDrift(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*WorkloadPassIdentity)
+	}{
+		{name: "execution_digest", mutate: func(identity *WorkloadPassIdentity) {
+			identity.ExecutionDigest = digestForWorkloadPass("forged-execution")
+		}},
+		{name: "input_digest", mutate: func(identity *WorkloadPassIdentity) {
+			identity.InputDigest = digestForWorkloadPass("forged-input")
+		}},
+		{name: "environment_digest", mutate: func(identity *WorkloadPassIdentity) {
+			identity.EnvironmentDigest = digestForWorkloadPass("forged-environment")
+		}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertFinalizationRejectsPersistedWorkloadIdentityDrift(t, testCase.mutate)
+		})
+	}
+}
+
+// assertFinalizationRejectsPersistedWorkloadIdentityDrift 篡改单个持久化身份字段并验证最终化 fail-fast。
+func assertFinalizationRejectsPersistedWorkloadIdentityDrift(t *testing.T, mutate func(*WorkloadPassIdentity)) {
+	t.Helper()
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, _, receipts := recordWorkloadPassRun(t, store, "catalog-identity-drift", 1, "workload-catalog-identity-drift")
+	database := openWorkloadPassDatabase(t, store)
+	defer database.Close()
+	forged := record.WorkloadResults[0].Identity
+	mutate(&forged)
+	forged.IdentityDigest = workloadPassIdentityDigest(t, forged)
+	if _, err := database.Exec(`UPDATE ci_run_workload_results SET identity_digest = ?, execution_digest = ?, input_digest = ?, environment_digest = ? WHERE job_id = ? AND workload_id = ?`, forged.IdentityDigest, forged.ExecutionDigest, forged.InputDigest, forged.EnvironmentDigest, record.JobID, string(forged.WorkloadID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err == nil {
+		t.Fatal("finalization accepted workload identity drift from canonical catalog")
+	}
+}
+
 // recordProvisionalWorkloadPassRun 构造等待最终化的 fresh run，保留全部可提升输入但不预先授予 authority。
 func recordProvisionalWorkloadPassRun(t *testing.T, store *DurationLedgerStore, jobID string, generation uint64, workload string) (RemoteCIRunRecord, WorkloadPassIdentity, []CheckReceiptRecord) {
 	t.Helper()
@@ -572,7 +647,11 @@ func recordProvisionalWorkloadPassRun(t *testing.T, store *DurationLedgerStore, 
 
 // remoteCIRunAuthorityIdentity 从持久化前的 immutable run 字段构造最终化 CAS 身份。
 func remoteCIRunAuthorityIdentity(record RemoteCIRunRecord) RemoteCIRunAuthorityIdentity {
-	return RemoteCIRunAuthorityIdentity{JobID: record.JobID, AgentTokenDigest: record.AgentTokenDigest, Entrypoint: record.Entrypoint, Profile: record.Profile, PlanDigest: record.PlanDigest, CatalogDigest: record.CatalogDigest, AcceptedGeneration: record.AcceptedGeneration, ImageCacheSnapshotID: record.ImageCacheSnapshotID, SourceTreeSHA: record.SourceTreeSHA, CandidateGateSourceSHA256: record.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: record.CandidateGateToolchainSHA256, RunnerImage: record.RunnerImage, StartedAt: record.StartedAt}
+	identities := make([]WorkloadPassIdentity, 0, len(record.WorkloadResults))
+	for _, result := range record.WorkloadResults {
+		identities = append(identities, result.Identity)
+	}
+	return RemoteCIRunAuthorityIdentity{JobID: record.JobID, AgentTokenDigest: record.AgentTokenDigest, Force: record.Force, Entrypoint: record.Entrypoint, Profile: record.Profile, PlanDigest: record.PlanDigest, CatalogDigest: record.CatalogDigest, AcceptedGeneration: record.AcceptedGeneration, ImageCacheSnapshotID: record.ImageCacheSnapshotID, SourceTreeSHA: record.SourceTreeSHA, CandidateGateSourceSHA256: record.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: record.CandidateGateToolchainSHA256, RunnerImage: record.RunnerImage, StartedAt: record.StartedAt, WorkloadPassIdentities: identities}
 }
 
 // installFinalizeFailure 在 store 私有最终化 hook 上注入一个精确失败点，不改变 SQLite schema。
@@ -653,8 +732,9 @@ func recordWorkloadPassRun(t *testing.T, store *DurationLedgerStore, jobID strin
 func recordWorkloadPassRunAt(t *testing.T, store *DurationLedgerStore, jobID string, generation uint64, workload string, now time.Time) (RemoteCIRunRecord, WorkloadPassIdentity, []CheckReceiptRecord) {
 	t.Helper()
 	treeSHA := strings.Repeat(fmt.Sprintf("%x", generation), 40)
-	workloadID := GateID(workload)
-	catalog := WorkloadCatalog{Version: durationLedgerVersion, Authoritative: true, Workloads: []Workload{{ID: workload, Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 1, Shardable: true}}}
+	workloadID := GateIDBackendTestWithGuard
+	catalogWorkload := Workload{ID: string(workloadID), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), InputDigest: digestForWorkloadPass("input-" + workload), BootstrapEstimateMS: 1, Shardable: true}
+	catalog := WorkloadCatalog{Version: durationLedgerVersion, Authoritative: true, Workloads: []Workload{catalogWorkload}}
 	catalogDigest, err := WorkloadCatalogDigest(catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -662,9 +742,9 @@ func recordWorkloadPassRunAt(t *testing.T, store *DurationLedgerStore, jobID str
 	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{SourceTreeSHA: treeSHA, Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, AcceptedGeneration: generation, ObservedAt: now}); err != nil {
 		t.Fatalf("record workload catalog: %v", err)
 	}
-	identity := WorkloadPassIdentity{WorkloadID: workloadID, ExecutionDigest: digestForWorkloadPass("execution-" + workload), InputDigest: digestForWorkloadPass("input-" + workload), EnvironmentDigest: digestForWorkloadPass("environment-" + workload)}
+	identity := WorkloadPassIdentity{WorkloadID: workloadID, ExecutionDigest: WorkloadPassExecutionDigest(catalogWorkload), InputDigest: catalogWorkload.InputDigest, EnvironmentDigest: digestForWorkloadPass("environment-" + workload)}
 	identity.IdentityDigest = workloadPassIdentityDigest(t, identity)
-	shard := RemoteCIShardRecord{ShardIdentity: digestForWorkloadPass("shard-" + jobID), ContainerGroup: "eci-" + jobID, ContainerStatus: "Succeeded", Workloads: []GateID{workloadID}, MaterializationTiming: measuredShardMaterializationTiming(digestForWorkloadPass("shard-" + jobID)), Resources: RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 16}}
+	shard := RemoteCIShardRecord{ShardIdentity: digestForWorkloadPass("shard-" + jobID), ContainerGroup: "eci-" + jobID, ContainerStatus: "Succeeded", Workloads: []GateID{workloadID}, MaterializationTiming: measuredShardMaterializationTiming(digestForWorkloadPass("shard-" + jobID)), Resources: RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8}}
 	execution := PlanGateExecution{ShardIdentity: shard.ShardIdentity, GateID: workloadID, Status: ResultStatusPassed, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
 	record := RemoteCIRunRecord{JobID: jobID, AgentTokenDigest: digestForWorkloadPass("agent-" + jobID), Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, AcceptedGeneration: generation, ImageCacheSnapshotID: fmt.Sprintf("snapshot-%d", generation), PlanDigest: "sha256:plan", CatalogDigest: catalogDigest, SourceTreeSHA: treeSHA, CandidateGateSourceSHA256: digestForWorkloadPass("gate-source-" + jobID), CandidateGateToolchainSHA256: digestForWorkloadPass("gate-toolchain-" + jobID), RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true, Shards: []RemoteCIShardRecord{shard}, WorkloadExecutions: []PlanGateExecution{execution}, WorkloadResults: []RemoteCIWorkloadResult{{Identity: identity, Disposition: WorkloadDispositionExecuted, OriginJobID: jobID, OriginAcceptedGeneration: generation}}, TimingObservations: authoritativeTimingObservationsForTest(jobID, execution)}
 	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
@@ -676,7 +756,7 @@ func recordWorkloadPassRunAt(t *testing.T, store *DurationLedgerStore, jobID str
 // completeWorkloadPassReceipts 构造与 run 的 tree、generation 和 agent 身份完全绑定的全部回执。
 func completeWorkloadPassReceipts(t *testing.T, record RemoteCIRunRecord) []CheckReceiptRecord {
 	t.Helper()
-	receipts := testCompleteCheckReceipts(record.JobID, record.SourceTreeSHA, record.StartedAt)
+	receipts := completeWorkloadPassReceiptsForTime(record, record.StartedAt)
 	for index := range receipts {
 		receipts[index].AcceptedGeneration = record.AcceptedGeneration
 		receipts[index].AcceptedSnapshotID = record.ImageCacheSnapshotID
@@ -688,6 +768,12 @@ func completeWorkloadPassReceipts(t *testing.T, record RemoteCIRunRecord) []Chec
 		receipts[index].ReceiptSHA256 = digest
 	}
 	return receipts
+}
+
+// completeWorkloadPassReceiptsForTime 构造测试目录实际覆盖的 normal 检查回执。
+func completeWorkloadPassReceiptsForTime(record RemoteCIRunRecord, startedAt time.Time) []CheckReceiptRecord {
+	receipts := testCompleteCheckReceipts(record.JobID, record.SourceTreeSHA, startedAt)[1:2]
+	return append([]CheckReceiptRecord(nil), receipts...)
 }
 
 // lookupSingleWorkloadPassEvidence 查回恰好一条严格匹配的提升证据。
@@ -726,7 +812,7 @@ func mutateWorkloadPassReceipt(t *testing.T, store *DurationLedgerStore, jobID, 
 	}
 	arguments := []any{jobID}
 	if mutation == "tamper" {
-		arguments = append(arguments, cicontract.RequiredCheckGate)
+		arguments = append(arguments, cicontract.RequiredCheckNormal)
 	}
 	if _, err := database.Exec(query, arguments...); err != nil {
 		t.Fatalf("%s workload receipt: %v", mutation, err)

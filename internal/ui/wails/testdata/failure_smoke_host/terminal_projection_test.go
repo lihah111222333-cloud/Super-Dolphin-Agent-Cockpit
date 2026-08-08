@@ -23,7 +23,11 @@ func TestPublishTerminalFailurePublishesCanonicalTerminal(t *testing.T) {
 		t.Cleanup(cancel)
 	}
 
-	if err := publishTerminalFailure(providerDispatchers(dispatcher)); err != nil {
+	providers, err := providerDispatchers(dispatcher)
+	if err != nil {
+		t.Fatalf("providerDispatchers() error = %v", err)
+	}
+	if err := publishTerminalFailure(providers); err != nil {
 		t.Fatalf("publishTerminalFailure() error = %v", err)
 	}
 

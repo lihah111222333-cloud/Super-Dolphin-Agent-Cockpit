@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -192,7 +193,7 @@ func (result RemoteCIWorkloadResult) Validate() error {
 }
 
 // promoteSQLiteRemoteCIWorkloadPassEvidence 在同一写事务内验证并提升本次执行结果。
-func promoteSQLiteRemoteCIWorkloadPassEvidence(tx *sql.Tx, jobID string) error {
+func promoteSQLiteRemoteCIWorkloadPassEvidence(tx *sql.Tx, jobID string, verifiedIdentities map[GateID]WorkloadPassIdentity) error {
 	record, err := loadPromotableRemoteCIRun(tx, jobID)
 	if err != nil {
 		return err
@@ -202,7 +203,7 @@ func promoteSQLiteRemoteCIWorkloadPassEvidence(tx *sql.Tx, jobID string) error {
 		return err
 	}
 	executions := indexWorkloadExecutions(record.WorkloadExecutions)
-	if err := promoteExecutedWorkloadPassEvidence(tx, record, receiptDigest, executions); err != nil {
+	if err := promoteExecutedWorkloadPassEvidence(tx, record, receiptDigest, executions, verifiedIdentities); err != nil {
 		return err
 	}
 	return nil
@@ -216,6 +217,9 @@ func loadPromotableRemoteCIRun(tx *sql.Tx, jobID string) (RemoteCIRunRecord, err
 	}
 	if err := loadRemoteCIRunDetails(tx, jobID, &record); err != nil {
 		return RemoteCIRunRecord{}, err
+	}
+	if err := validateSQLiteRemoteCIRunCatalogCoverage(tx, record); err != nil {
+		return RemoteCIRunRecord{}, fmt.Errorf("validate promotable remote CI catalog coverage: %w", err)
 	}
 	if record.Status != ResultStatusPassed || !record.Authoritative || !record.CleanupComplete {
 		return RemoteCIRunRecord{}, errors.New("workload pass evidence promotion requires passed authoritative cleaned run")
@@ -241,6 +245,7 @@ func promoteExecutedWorkloadPassEvidence(
 	record RemoteCIRunRecord,
 	receiptDigest string,
 	executions map[GateID]PlanGateExecution,
+	verifiedIdentities map[GateID]WorkloadPassIdentity,
 ) error {
 	for _, result := range record.WorkloadResults {
 		if result.Disposition != WorkloadDispositionExecuted {
@@ -250,7 +255,11 @@ func promoteExecutedWorkloadPassEvidence(
 		if !ok {
 			return fmt.Errorf("executed workload result %q lacks execution", result.Identity.WorkloadID)
 		}
-		if err := insertWorkloadPassEvidence(tx, record, receiptDigest, result.Identity, execution); err != nil {
+		identity, ok := verifiedIdentities[result.Identity.WorkloadID]
+		if !ok || identity != result.Identity {
+			return fmt.Errorf("executed workload result %q is not in the verified authority identity set", result.Identity.WorkloadID)
+		}
+		if err := insertWorkloadPassEvidence(tx, record, receiptDigest, identity, execution); err != nil {
 			return err
 		}
 	}
@@ -289,7 +298,9 @@ func (store *DurationLedgerStore) LookupWorkloadPassEvidence(identities []Worklo
 	if err := validateWorkloadPassIdentities(identities); err != nil {
 		return nil, err
 	}
-	database, err := store.openSQLiteAuthority(false)
+	// 首次读取缺失 authority 时按契约原子初始化当前 schema/index；accepted baseline
+	// 仍由下方读取严格验证，空库不会生成默认代或放宽 PASS。
+	database, err := store.openSQLiteAuthority(true)
 	if err != nil {
 		return nil, err
 	}
@@ -323,25 +334,6 @@ func validateWorkloadPassIdentities(identities []WorkloadPassIdentity) error {
 	return nil
 }
 
-// loadWorkloadPassEvidenceForIdentities 在固定 accepted 代窗口内读取每个身份的最新证据。
-func loadWorkloadPassEvidenceForIdentities(
-	tx *sql.Tx,
-	identities []WorkloadPassIdentity,
-	currentGeneration uint64,
-) ([]WorkloadPassEvidence, error) {
-	result := make([]WorkloadPassEvidence, 0, len(identities))
-	for _, identity := range identities {
-		evidence, found, err := loadLatestWorkloadPassEvidence(tx, identity, currentGeneration)
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			result = append(result, evidence)
-		}
-	}
-	return result, nil
-}
-
 // loadCurrentAcceptedGenerationForWorkloadEvidence 在同一只读事务内读取并验证 accepted 基线代。
 func loadCurrentAcceptedGenerationForWorkloadEvidence(tx *sql.Tx) (uint64, error) {
 	var schemaVersion uint32
@@ -372,18 +364,39 @@ func retainedWorkloadPassGenerations(current uint64) [3]string {
 	}
 }
 
-// workloadReceiptSetSHA256 对完整 current check receipt 集合重算规范摘要。
+// workloadReceiptSetSHA256 对完整 current check receipt 集合或失败 provisional
+// 的完整 SQLite workload projection 重算规范摘要。
 func workloadReceiptSetSHA256(tx *sql.Tx, record RemoteCIRunRecord) (string, error) {
+	if !record.Authoritative && remoteCIProvisionalFailureStatus(record.Status) && record.CleanupComplete {
+		return provisionalWorkloadProjectionSHA256(tx, record)
+	}
 	receipts, err := loadCheckReceiptsForEvidence(tx, record.JobID)
 	if err != nil {
 		return "", err
 	}
-	if err := validateCompletePassingCheckReceipts(receipts); err != nil {
-		return "", fmt.Errorf("stored complete check receipts: %w", err)
+	if err := validateWorkloadReceiptSetBinding(tx, record, receipts); err != nil {
+		return "", err
 	}
-	if receipts[0].JobID != record.JobID || receipts[0].AgentTokenDigest != record.AgentTokenDigest || receipts[0].CandidateTreeSHA != record.SourceTreeSHA || receipts[0].AcceptedGeneration != record.AcceptedGeneration || receipts[0].AcceptedSnapshotID != record.ImageCacheSnapshotID {
-		return "", errors.New("check receipt set does not bind promotion run")
+	return digestWorkloadReceiptSet(receipts)
+}
+
+// validateWorkloadReceiptSetBinding 校验完整回执集合与 promotion run 的目录和身份绑定。
+func validateWorkloadReceiptSetBinding(tx *sql.Tx, record RemoteCIRunRecord, receipts []CheckReceiptRecord) error {
+	if err := validateSQLiteWorkloadCatalogPassingCheckReceipts(tx, record.CatalogDigest, receipts); err != nil {
+		return fmt.Errorf("stored complete check receipts: %w", err)
 	}
+	if len(receipts) == 0 {
+		return errors.New("check receipt set is empty")
+	}
+	first := receipts[0]
+	if first.JobID != record.JobID || first.AgentTokenDigest != record.AgentTokenDigest || first.Force != record.Force || first.CandidateTreeSHA != record.SourceTreeSHA || first.AcceptedGeneration != record.AcceptedGeneration || first.AcceptedSnapshotID != record.ImageCacheSnapshotID {
+		return errors.New("check receipt set does not bind promotion run")
+	}
+	return nil
+}
+
+// digestWorkloadReceiptSet 对 canonical receipt 摘要排序后计算规范集合 digest。
+func digestWorkloadReceiptSet(receipts []CheckReceiptRecord) (string, error) {
 	digests := make([]string, 0, len(receipts))
 	for _, receipt := range receipts {
 		digests = append(digests, receipt.ReceiptSHA256)
@@ -399,7 +412,7 @@ func workloadReceiptSetSHA256(tx *sql.Tx, record RemoteCIRunRecord) (string, err
 
 // loadCheckReceiptsForEvidence 从 SQLite 读取指定运行的全部 current check receipts。
 func loadCheckReceiptsForEvidence(tx *sql.Tx, jobID string) ([]CheckReceiptRecord, error) {
-	rows, err := tx.Query(`SELECT run_id, job_id, candidate_tree_sha, agent_token_digest, accepted_generation, accepted_snapshot_id, required_check, executed, reused, reuse_proof_sha256, passed, started_at_unix_ms, completed_at_unix_ms, duration_ms, receipt_sha256 FROM ci_check_receipts WHERE job_id = ? ORDER BY required_check`, jobID)
+	rows, err := tx.Query(`SELECT run_id, job_id, candidate_tree_sha, agent_token_digest, accepted_generation, accepted_snapshot_id, required_check, executed, reused, reuse_proof_sha256, passed, force, started_at_unix_ms, completed_at_unix_ms, duration_ms, receipt_sha256 FROM ci_check_receipts WHERE job_id = ? ORDER BY required_check`, jobID)
 	if err != nil {
 		return nil, mapDurationLedgerSQLiteError("query workload evidence check receipts", err)
 	}
@@ -408,9 +421,9 @@ func loadCheckReceiptsForEvidence(tx *sql.Tx, jobID string) ([]CheckReceiptRecor
 	for rows.Next() {
 		var receipt CheckReceiptRecord
 		var generation, check string
-		var executed, reused, passed int
+		var executed, reused, passed, force int
 		var started, completed, duration int64
-		if err := rows.Scan(&receipt.RunID, &receipt.JobID, &receipt.CandidateTreeSHA, &receipt.AgentTokenDigest, &generation, &receipt.AcceptedSnapshotID, &check, &executed, &reused, &receipt.ReuseProofSHA256, &passed, &started, &completed, &duration, &receipt.ReceiptSHA256); err != nil {
+		if err := rows.Scan(&receipt.RunID, &receipt.JobID, &receipt.CandidateTreeSHA, &receipt.AgentTokenDigest, &generation, &receipt.AcceptedSnapshotID, &check, &executed, &reused, &receipt.ReuseProofSHA256, &passed, &force, &started, &completed, &duration, &receipt.ReceiptSHA256); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan workload evidence check receipt", err)
 		}
 		var parseErr error
@@ -422,6 +435,10 @@ func loadCheckReceiptsForEvidence(tx *sql.Tx, jobID string) ([]CheckReceiptRecor
 		receipt.Executed = executed == 1
 		receipt.Reused = reused == 1
 		receipt.Passed = passed == 1
+		if force != 0 && force != 1 {
+			return nil, errors.New("stored workload evidence receipt force identity is invalid")
+		}
+		receipt.Force = force == 1
 		receipt.StartedAt = unixMilliUTC(started)
 		receipt.CompletedAt = unixMilliUTC(completed)
 		receipt.Duration = time.Duration(duration) * time.Millisecond
@@ -499,55 +516,48 @@ func loadRemoteCIWorkloadResults(tx *sql.Tx, jobID string) ([]RemoteCIWorkloadRe
 	return results, nil
 }
 
-// loadLatestWorkloadPassEvidence 仅从当前 accepted 代三代窗口读取严格匹配身份的最新证据。
-func loadLatestWorkloadPassEvidence(tx *sql.Tx, identity WorkloadPassIdentity, currentGeneration uint64) (WorkloadPassEvidence, bool, error) {
-	retainedGenerations := retainedWorkloadPassGenerations(currentGeneration)
-	row := tx.QueryRow(`SELECT evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256 FROM ci_workload_pass_evidence AS evidence INNER JOIN ci_runs AS runs ON runs.job_id = evidence.origin_job_id AND runs.accepted_generation = evidence.accepted_generation AND runs.source_tree_sha = evidence.origin_source_tree_sha WHERE evidence.identity_digest = ? AND evidence.accepted_generation IN (?, ?, ?) AND runs.status = 'passed' AND runs.authoritative = 1 AND runs.cleanup_complete = 1 ORDER BY length(evidence.accepted_generation) DESC, evidence.accepted_generation DESC LIMIT 1`, identity.IdentityDigest, retainedGenerations[0], retainedGenerations[1], retainedGenerations[2])
-	var evidence WorkloadPassEvidence
-	var generation, workloadID, executionJSON string
-	err := row.Scan(&generation, &workloadID, &evidence.Identity.ExecutionDigest, &evidence.Identity.InputDigest, &evidence.Identity.EnvironmentDigest, &evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256, &executionJSON, &evidence.EvidenceSHA256)
-	if errors.Is(err, sql.ErrNoRows) {
-		return WorkloadPassEvidence{}, false, nil
+// validateStoredWorkloadPassEvidenceOrigin 校验 evidence 与来源 run 的 generation/tree 绑定。
+func validateStoredWorkloadPassEvidenceOrigin(record RemoteCIRunRecord, evidence WorkloadPassEvidence) error {
+	if evidence.OriginAcceptedGeneration != record.AcceptedGeneration {
+		return errors.New("stored workload pass evidence generation does not match origin run")
 	}
-	if err != nil {
-		return WorkloadPassEvidence{}, false, mapDurationLedgerSQLiteError("load workload pass evidence", err)
+	if evidence.OriginSourceTreeSHA != record.SourceTreeSHA {
+		return errors.New("stored workload pass evidence tree does not match origin run")
 	}
-	evidence.Identity.IdentityDigest = identity.IdentityDigest
-	evidence.Identity.WorkloadID = GateID(workloadID)
-	if !workloadPassIdentityMatches(evidence.Identity, identity) {
-		return WorkloadPassEvidence{}, false, errors.New("stored workload pass evidence identity does not match lookup request")
+	if record.ImageCacheSnapshotID == "" {
+		return errors.New("stored workload pass evidence origin snapshot is missing")
 	}
-	evidence.OriginAcceptedGeneration, err = strconv.ParseUint(generation, 10, 64)
-	if err != nil || evidence.OriginAcceptedGeneration == 0 {
-		return WorkloadPassEvidence{}, false, errors.New("stored workload pass evidence generation is invalid")
-	}
-	if err := cicontract.ValidateWorkloadPassEvidenceGeneration(currentGeneration, evidence.OriginAcceptedGeneration); err != nil {
-		return WorkloadPassEvidence{}, false, err
-	}
-	if err = json.Unmarshal([]byte(executionJSON), &evidence.OriginExecution); err != nil {
-		return WorkloadPassEvidence{}, false, fmt.Errorf("decode stored workload pass execution: %w", err)
-	}
-	if err := validateStoredWorkloadPassEvidence(tx, evidence); err != nil {
-		return WorkloadPassEvidence{}, false, err
-	}
-	return evidence, true, nil
+	return nil
 }
 
-// validateStoredWorkloadPassEvidence 复核持久化证据的内容、运行来源和 current receipt 集合。
-func validateStoredWorkloadPassEvidence(tx *sql.Tx, evidence WorkloadPassEvidence) error {
-	if err := validateWorkloadPassEvidence(evidence); err != nil {
-		return fmt.Errorf("stored workload pass evidence: %w", err)
+// validateProvisionalWorkloadPassEvidenceWithContext 验证单项 provisional
+// evidence，复用已加载的 catalog 与 workload execution 索引。
+func validateProvisionalWorkloadPassEvidenceWithContext(
+	record RemoteCIRunRecord,
+	evidence WorkloadPassEvidence,
+	canonical map[GateID]Workload,
+	executions map[GateID]PlanGateExecution,
+) error {
+	if err := validateCanonicalWorkloadPassIdentity(evidence.Identity, canonical); err != nil {
+		return fmt.Errorf("stored provisional workload identity: %w", err)
 	}
-	record, err := loadRemoteCIRunRow(tx, evidence.OriginJobID)
-	if err != nil {
+	execution, ok := executions[evidence.Identity.WorkloadID]
+	if !ok {
+		return fmt.Errorf("stored provisional workload %q execution is missing", evidence.Identity.WorkloadID)
+	}
+	if err := validateProvisionalWorkloadPassCandidate(record, RemoteCIWorkloadResult{Identity: evidence.Identity, Disposition: WorkloadDispositionExecuted, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration}, execution); err != nil {
 		return err
 	}
-	if evidence.OriginAcceptedGeneration != record.AcceptedGeneration || evidence.OriginSourceTreeSHA != record.SourceTreeSHA || record.ImageCacheSnapshotID == "" {
-		return errors.New("stored workload pass evidence origin does not match origin run")
+	encodedStored, err := json.Marshal(execution)
+	if err != nil {
+		return fmt.Errorf("encode stored provisional workload execution: %w", err)
 	}
-	receiptDigest, err := workloadReceiptSetSHA256(tx, record)
-	if err != nil || receiptDigest != evidence.OriginReceiptSetSHA256 {
-		return errors.New("stored workload pass evidence receipt set is missing or tampered")
+	encodedEvidence, err := json.Marshal(evidence.OriginExecution)
+	if err != nil {
+		return fmt.Errorf("encode provisional workload evidence execution: %w", err)
+	}
+	if !bytes.Equal(encodedStored, encodedEvidence) {
+		return errors.New("stored provisional workload evidence execution was tampered")
 	}
 	return nil
 }
@@ -558,114 +568,6 @@ func workloadPassIdentityMatches(stored WorkloadPassIdentity, requested Workload
 		stored.ExecutionDigest == requested.ExecutionDigest &&
 		stored.InputDigest == requested.InputDigest &&
 		stored.EnvironmentDigest == requested.EnvironmentDigest
-}
-
-// RemoteCIRunAuthorityIdentity 将最终化操作绑定到不可变的 CI 运行记录。
-type RemoteCIRunAuthorityIdentity struct {
-	JobID                        string
-	AgentTokenDigest             string
-	Entrypoint                   CIEntrypointID
-	Profile                      Profile
-	PlanDigest                   string
-	CatalogDigest                string
-	AcceptedGeneration           uint64
-	ImageCacheSnapshotID         string
-	SourceTreeSHA                string
-	CandidateGateSourceSHA256    string
-	CandidateGateToolchainSHA256 string
-	RunnerImage                  string
-	StartedAt                    time.Time
-}
-
-// FinalizeRemoteCIRunAuthorityWithSamples 在同一 SQLite 事务中追加样本与回执、验证提升资格、提升新鲜证据并完成最终 CAS。
-func (store *DurationLedgerStore) FinalizeRemoteCIRunAuthorityWithSamples(identity RemoteCIRunAuthorityIdentity, receipts []CheckReceiptRecord, samples []DurationSample, promoteFresh bool) error {
-	if store == nil {
-		return errors.New("duration ledger store is nil")
-	}
-	if err := validateRemoteCIRunAuthorityFinalization(identity, receipts, samples); err != nil {
-		return err
-	}
-	database, err := store.openSQLiteAuthority(false)
-	if err != nil {
-		return err
-	}
-	defer database.Close()
-	return withSQLiteWriteTransaction(database, "finalize remote CI run authority", func(tx *sql.Tx) error {
-		return finalizeSQLiteRemoteCIRunAuthority(tx, store, identity, receipts, samples, promoteFresh, store.finalizeFault)
-	})
-}
-
-// validateRemoteCIRunAuthorityFinalization 在事务开始前拒绝不完整或不匹配的最终化输入。
-func validateRemoteCIRunAuthorityFinalization(identity RemoteCIRunAuthorityIdentity, receipts []CheckReceiptRecord, samples []DurationSample) error {
-	if err := validateCompletePassingCheckReceipts(receipts); err != nil {
-		return err
-	}
-	if len(samples) != 0 {
-		if err := ValidateDurationLedger(DurationLedger{Version: durationLedgerVersion, Samples: samples}); err != nil {
-			return fmt.Errorf("validate finalized duration samples: %w", err)
-		}
-	}
-	if receipts[0].JobID != identity.JobID || receipts[0].CandidateTreeSHA != identity.SourceTreeSHA || receipts[0].AgentTokenDigest != identity.AgentTokenDigest || receipts[0].AcceptedGeneration != identity.AcceptedGeneration || receipts[0].AcceptedSnapshotID != identity.ImageCacheSnapshotID {
-		return errors.New("check receipts do not match provisional remote CI run identity")
-	}
-	return nil
-}
-
-// finalizeSQLiteRemoteCIRunAuthority 在同一事务中按固定顺序完成权威提升及保留清理。
-func finalizeSQLiteRemoteCIRunAuthority(tx *sql.Tx, store *DurationLedgerStore, identity RemoteCIRunAuthorityIdentity, receipts []CheckReceiptRecord, samples []DurationSample, promoteFresh bool, fault durationLedgerFinalizeFault) error {
-	if store == nil {
-		return errors.New("duration ledger store is required for finalization")
-	}
-	if err := verifySQLiteProvisionalRemoteCIRunForAuthority(tx, identity); err != nil {
-		return err
-	}
-	if err := appendSQLiteRemoteCIRunAuthorityArtifacts(tx, identity, receipts, samples, fault); err != nil {
-		return err
-	}
-	if err := invokeDurationLedgerFinalizeFault(fault, durationLedgerFinalizeStepCAS); err != nil {
-		return err
-	}
-	if err := promoteSQLiteRemoteCIRunAuthorityCAS(tx, identity.JobID); err != nil {
-		return err
-	}
-	if promoteFresh {
-		if err := invokeDurationLedgerFinalizeFault(fault, durationLedgerFinalizeStepPromotion); err != nil {
-			return err
-		}
-		if err := promoteSQLiteRemoteCIWorkloadPassEvidence(tx, identity.JobID); err != nil {
-			return err
-		}
-	}
-	if err := store.appendDurationLedgerObservationEvent(
-		tx,
-		durationLedgerObservationEventRemoteRunFinalize,
-		identity.JobID,
-		strconv.FormatUint(identity.AcceptedGeneration, 10),
-		map[string]any{"identity": identity, "receipts": receipts, "samples": samples, "promote_fresh": promoteFresh},
-	); err != nil {
-		return err
-	}
-	return compactDurationLedgerAuthority(tx)
-}
-
-// verifySQLiteProvisionalRemoteCIRunForAuthority 在提升前于事务内重新验证 provisional 运行记录。
-func verifySQLiteProvisionalRemoteCIRunForAuthority(tx *sql.Tx, identity RemoteCIRunAuthorityIdentity) error {
-	record := RemoteCIRunRecord{JobID: identity.JobID, AgentTokenDigest: identity.AgentTokenDigest, Entrypoint: identity.Entrypoint, Profile: identity.Profile, PlanDigest: identity.PlanDigest, CatalogDigest: identity.CatalogDigest, AcceptedGeneration: identity.AcceptedGeneration, ImageCacheSnapshotID: identity.ImageCacheSnapshotID, SourceTreeSHA: identity.SourceTreeSHA, CandidateGateSourceSHA256: identity.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: identity.CandidateGateToolchainSHA256, RunnerImage: identity.RunnerImage, StartedAt: identity.StartedAt}
-	if err := verifySQLiteRemoteCIRunIdentity(tx, record); err != nil {
-		return err
-	}
-	stored, err := loadRemoteCIRunRow(tx, identity.JobID)
-	if err != nil {
-		return err
-	}
-	if err := loadRemoteCIRunDetails(tx, identity.JobID, &stored); err != nil {
-		return err
-	}
-	stored.Authoritative = true
-	if err := validateRemoteCIRunRecord(stored); err != nil {
-		return fmt.Errorf("validate provisional remote CI run for authority promotion: %w", err)
-	}
-	return nil
 }
 
 // appendSQLiteRemoteCIRunAuthorityArtifacts 在 CAS 前按顺序写入样本并验证、写入和重载回执。
@@ -717,42 +619,59 @@ func promoteSQLiteRemoteCIRunAuthorityCAS(tx *sql.Tx, jobID string) error {
 }
 
 func appendSQLiteCheckReceipts(tx *sql.Tx, receipts []CheckReceiptRecord) error {
-	query := fmt.Sprintf(`INSERT INTO %s (run_id, job_id, candidate_tree_sha, agent_token_digest, accepted_generation, accepted_snapshot_id, required_check, executed, reused, reuse_proof_sha256, passed, started_at_unix_ms, completed_at_unix_ms, duration_ms, receipt_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, cicontract.CheckReceiptsTable)
+	query := fmt.Sprintf(`INSERT INTO %s (run_id, job_id, candidate_tree_sha, agent_token_digest, force, accepted_generation, accepted_snapshot_id, required_check, executed, reused, reuse_proof_sha256, passed, started_at_unix_ms, completed_at_unix_ms, duration_ms, receipt_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, cicontract.CheckReceiptsTable)
 	for _, receipt := range receipts {
-		if _, err := tx.Exec(query, receipt.RunID, receipt.JobID, receipt.CandidateTreeSHA, receipt.AgentTokenDigest, strconv.FormatUint(receipt.AcceptedGeneration, 10), receipt.AcceptedSnapshotID, string(receipt.RequiredCheck), boolToSQLite(receipt.Executed), boolToSQLite(receipt.Reused), receipt.ReuseProofSHA256, receipt.StartedAt.UTC().UnixMilli(), receipt.CompletedAt.UTC().UnixMilli(), receipt.Duration.Milliseconds(), receipt.ReceiptSHA256); err != nil {
+		if _, err := tx.Exec(query, receipt.RunID, receipt.JobID, receipt.CandidateTreeSHA, receipt.AgentTokenDigest, boolToSQLite(receipt.Force), strconv.FormatUint(receipt.AcceptedGeneration, 10), receipt.AcceptedSnapshotID, string(receipt.RequiredCheck), boolToSQLite(receipt.Executed), boolToSQLite(receipt.Reused), receipt.ReuseProofSHA256, receipt.StartedAt.UTC().UnixMilli(), receipt.CompletedAt.UTC().UnixMilli(), receipt.Duration.Milliseconds(), receipt.ReceiptSHA256); err != nil {
 			return mapDurationLedgerSQLiteError("append check receipt", err)
 		}
 	}
 	return nil
 }
 
+type receiptReloadIdentity struct {
+	force  bool
+	digest string
+}
+
 // verifySQLiteCheckReceiptReload 逐项核对本次事务回读的回执摘要，拒绝缺失、额外或漂移记录。
 func verifySQLiteCheckReceiptReload(tx *sql.Tx, jobID string, want []CheckReceiptRecord) error {
-	rows, err := tx.Query(fmt.Sprintf(`SELECT required_check, receipt_sha256 FROM %s WHERE job_id = ?`, cicontract.CheckReceiptsTable), jobID)
+	rows, err := tx.Query(fmt.Sprintf(`SELECT required_check, force, receipt_sha256 FROM %s WHERE job_id = ?`, cicontract.CheckReceiptsTable), jobID)
 	if err != nil {
 		return mapDurationLedgerSQLiteError("reload check receipts", err)
 	}
 	defer rows.Close()
-	wantByCheck := make(map[cicontract.RequiredCheck]string, len(want))
+	wantByCheck := make(map[cicontract.RequiredCheck]receiptReloadIdentity, len(want))
 	for _, receipt := range want {
-		wantByCheck[receipt.RequiredCheck] = receipt.ReceiptSHA256
+		wantByCheck[receipt.RequiredCheck] = receiptReloadIdentity{force: receipt.Force, digest: receipt.ReceiptSHA256}
 	}
+	if err := scanSQLiteCheckReceiptReload(rows, wantByCheck); err != nil {
+		return err
+	}
+	if len(wantByCheck) != 0 {
+		return errors.New("reloaded check receipt collection is incomplete")
+	}
+	return nil
+}
+
+// scanSQLiteCheckReceiptReload 读取并核对事务内回执的 force/digest 身份集合。
+func scanSQLiteCheckReceiptReload(rows *sql.Rows, wantByCheck map[cicontract.RequiredCheck]receiptReloadIdentity) error {
 	for rows.Next() {
 		var check cicontract.RequiredCheck
+		var force int
 		var digest string
-		if err := rows.Scan(&check, &digest); err != nil {
+		if err := rows.Scan(&check, &force, &digest); err != nil {
 			return mapDurationLedgerSQLiteError("scan reloaded check receipt", err)
 		}
-		if wantByCheck[check] != digest {
+		if force != 0 && force != 1 {
+			return errors.New("reloaded check receipt force identity is invalid")
+		}
+		if expected, ok := wantByCheck[check]; !ok || expected.force != (force == 1) || expected.digest != digest {
 			return errors.New("reloaded check receipt does not exactly match this invocation")
 		}
 		delete(wantByCheck, check)
 	}
 	if err := rows.Err(); err != nil {
 		return mapDurationLedgerSQLiteError("iterate reloaded check receipts", err)
-	}
-	if len(wantByCheck) != 0 {
-		return errors.New("reloaded check receipt collection is incomplete")
 	}
 	return nil
 }

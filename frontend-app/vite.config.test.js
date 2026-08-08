@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
@@ -8,6 +9,8 @@ import {
   ATH_SOURCE_ROOT_HEADER,
   agenticHarnessIdentityPlugin,
   createFrontendViteConfig,
+  FRONTEND_VITE_CACHE_DIR_ENV,
+  resolveFrontendViteCacheDir,
   validateVitestSuitePolicy,
   VITEST_SUITE_POLICY,
 } from './vite.config.js';
@@ -79,7 +82,7 @@ describe('frontend vite dev proxy', () => {
 
 describe('frontend vite watch config', () => {
   it('enables polling by default for direct npm run dev', () => {
-    expect(packageJson.scripts.dev).toBe('vite --host 127.0.0.1 --port 5175 --strictPort');
+    expect(packageJson.scripts.dev).toBe('vite --configLoader runner --host 127.0.0.1 --port 5175 --strictPort');
     expect(createFrontendViteConfig({}).server.watch.usePolling).toBe(true);
   });
 
@@ -99,6 +102,42 @@ describe('frontend vite watch config', () => {
       SUPER_DOLPHIN_VITE_USE_POLLING: '0',
       CHOKIDAR_USEPOLLING: '1',
     })).toThrow(/conflicting frontend watch config/);
+  });
+});
+
+describe('frontend Vite cache isolation', () => {
+  it('defaults to the writable .vite-temp path and honors each worker path', () => {
+    const defaultConfig = createFrontendViteConfig({});
+    expect(defaultConfig.cacheDir).toBe(join(process.cwd(), '..', '.tmp', 'frontend-vite', '.vite-temp'));
+    expect(defaultConfig.cacheDir).not.toBe(join(process.cwd(), 'node_modules', '.vite-temp'));
+
+    const firstShardDir = '/workspace/work/s184/tmp/.vite-temp';
+    const secondShardDir = '/workspace/work/s185/tmp/.vite-temp';
+    expect(resolveFrontendViteCacheDir({ [FRONTEND_VITE_CACHE_DIR_ENV]: firstShardDir })).toBe(firstShardDir);
+    expect(resolveFrontendViteCacheDir({ [FRONTEND_VITE_CACHE_DIR_ENV]: secondShardDir })).toBe(secondShardDir);
+    expect(firstShardDir).not.toBe(secondShardDir);
+  });
+
+  it.each([
+    ['', 'empty'],
+    ['relative/.vite-temp', 'relative'],
+    ['/workspace/work/tmp/vite-cache', 'wrong suffix'],
+    [' /workspace/work/tmp/.vite-temp', 'whitespace padding'],
+    ['/workspace/work/tmp/.vite-temp/../.vite-temp', 'non-normalized'],
+  ])('fails fast for invalid worker cache path (%s)', (value) => {
+    expect(() => resolveFrontendViteCacheDir({ [FRONTEND_VITE_CACHE_DIR_ENV]: value })).toThrow(
+      new RegExp(FRONTEND_VITE_CACHE_DIR_ENV),
+    );
+  });
+
+  it('rejects paths projected into the read-only image cache', () => {
+    const forbiddenPaths = [
+      join(process.cwd(), 'node_modules', '.vite', '.vite-temp'),
+      join(process.cwd(), 'node_modules', '.vite-temp'),
+    ];
+    for (const imageCacheChild of forbiddenPaths) {
+      expect(() => resolveFrontendViteCacheDir({ [FRONTEND_VITE_CACHE_DIR_ENV]: imageCacheChild })).toThrow(/read-only/);
+    }
   });
 });
 

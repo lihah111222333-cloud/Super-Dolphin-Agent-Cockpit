@@ -11,7 +11,7 @@ import (
 )
 
 func TestAcceptedBaselineStateProjectionRejectsCorruptionAndSnapshotDrift(t *testing.T) {
-	stateJSON := `{"schema_version":12,"generation":7,"image_cache_snapshot_id":"snapshot-7"}`
+	stateJSON := `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(stateJSON)))
 	for name, test := range map[string]struct {
 		state        string
@@ -21,10 +21,17 @@ func TestAcceptedBaselineStateProjectionRejectsCorruptionAndSnapshotDrift(t *tes
 		"corrupt JSON":        {state: `{`, storedDigest: digest, generation: 7},
 		"forged digest":       {state: stateJSON, storedDigest: "sha256:forged", generation: 7},
 		"generation mismatch": {state: stateJSON, storedDigest: digest, generation: 8},
-		"missing snapshot":    {state: `{"schema_version":12,"generation":7}`, storedDigest: "sha256:" + strings.Repeat("0", 64), generation: 7},
+		"legacy schema":       {state: `{"schema_version":12,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
+		"wrong provider":      {state: `{"schema_version":13,"generation":7,"execution_provider":"docker/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
+		"missing region":      {state: `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
+		"missing snapshot":    {state: `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen"}`, generation: 7},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := validateAcceptedBaselineStateProjection(test.state, test.storedDigest, test.generation); err == nil {
+			storedDigest := test.storedDigest
+			if storedDigest == "" {
+				storedDigest = fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(test.state)))
+			}
+			if _, err := validateAcceptedBaselineStateProjection(test.state, storedDigest, test.generation); err == nil {
 				t.Fatal("validateAcceptedBaselineStateProjection() unexpectedly accepted corrupted authority")
 			}
 		})

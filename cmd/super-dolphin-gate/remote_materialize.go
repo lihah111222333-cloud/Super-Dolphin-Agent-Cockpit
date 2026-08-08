@@ -31,7 +31,7 @@ const (
 	remoteRequestKeyEnv       = "SUPER_DOLPHIN_REMOTE_REQUEST_KEY"
 	remoteRequestSHA256Env    = "SUPER_DOLPHIN_REMOTE_REQUEST_SHA256"
 	remoteAgentTokenDigestEnv = gatecontract.ExecutorAgentTokenDigestEnvironment
-	remoteRequestMaxBytes     = 64 << 10
+	remoteRequestMaxBytes     = cicontract.RemoteShardRequestMaxBytes
 	remoteManifestMaxBytes    = 1 << 20
 	remoteSourceBundleMaxSize = 1 << 30
 	remoteSourceBaselineRoot  = "/opt/super-dolphin-gate/source-baseline.git"
@@ -117,8 +117,8 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 	return config, nil
 }
 
-// verifyRemoteOCIProjectCache verifies the cache path supplied by the immutable
-// runtime image before the main worker enables it as a GOCACHEPROG seed.
+// verifyRemoteOCIProjectCache 校验不可变运行时镜像提供的缓存路径，之后 worker
+// 才能将其作为 GOCACHEPROG seed 启用。
 func verifyRemoteOCIProjectCache(request remoteci.ShardRequest) error {
 	if request.OCIProjectCache == nil {
 		return errors.New("remote OCI project cache is required")
@@ -194,19 +194,20 @@ func materializeRemoteSourceWithTiming(
 	sourceRoot string,
 	workRoot string,
 	download remoteObjectDownload,
-) (remoteci.ShardRequest, gatecontract.ShardMaterializationTiming, error) {
+) (remoteci.BootstrapShardRequest, gatecontract.ShardMaterializationTiming, error) {
 	timing := gatecontract.ShardMaterializationTiming{Measurement: gatecontract.MaterializationMeasurementMeasured}
 	if download == nil {
-		return remoteci.ShardRequest{}, timing, errors.New("remote object downloader is required")
+		return remoteci.BootstrapShardRequest{}, timing, errors.New("remote object downloader is required")
 	}
-	request, err := loadRemoteShardRequest(ctx, config, download)
+	bootstrap, err := loadRemoteBootstrapShardRequest(ctx, config, download)
 	if err != nil {
-		return remoteci.ShardRequest{}, timing, err
+		return remoteci.BootstrapShardRequest{}, timing, err
 	}
-	timing.ShardIdentity = request.ShardIdentity
+	request := bootstrap.AsShardRequest()
+	timing.ShardIdentity = bootstrap.ShardIdentity
 	baselineStarted := time.Now().UTC().UnixMilli()
 	if err := verifyRemoteOCIProjectCache(request); err != nil {
-		return remoteci.ShardRequest{}, timing, err
+		return remoteci.BootstrapShardRequest{}, timing, err
 	}
 	baselineCompleted := time.Now().UTC().UnixMilli()
 	if baselineCompleted > baselineStarted {
@@ -216,22 +217,22 @@ func materializeRemoteSourceWithTiming(
 	downloadStarted := time.Now()
 	tempRoot, _, _, err := stageRemoteSourceObjects(ctx, workRoot, request, download)
 	if err != nil {
-		return remoteci.ShardRequest{}, timing, err
+		return remoteci.BootstrapShardRequest{}, timing, err
 	}
 	timing.Source.DownloadMS = time.Since(downloadStarted).Milliseconds()
 	defer os.RemoveAll(tempRoot)
 	verifyStarted := time.Now()
 	if err := verifyRemoteMaterializedSource(ctx, sourceRoot, tempRoot, request); err != nil {
-		return remoteci.ShardRequest{}, timing, err
+		return remoteci.BootstrapShardRequest{}, timing, err
 	}
 	timing.Source.VerifyMS = time.Since(verifyStarted).Milliseconds()
 	if err := os.RemoveAll(tempRoot); err != nil {
-		return remoteci.ShardRequest{}, timing, fmt.Errorf("remove remote materialize staging root: %w", err)
+		return remoteci.BootstrapShardRequest{}, timing, fmt.Errorf("remove remote materialize staging root: %w", err)
 	}
 	tempRoot = ""
 	installStarted := time.Now()
-	if err := handoffRemoteWorkRoot(workRoot, os.Chmod, os.Chown); err != nil {
-		return remoteci.ShardRequest{}, timing, err
+	if err := installAcceptedBootstrapManifest(workRoot, bootstrap); err != nil {
+		return remoteci.BootstrapShardRequest{}, timing, err
 	}
 	timing.Source.InstallMS = time.Since(installStarted).Milliseconds()
 	sourceCompleted := time.Now().UTC().UnixMilli()
@@ -239,9 +240,102 @@ func materializeRemoteSourceWithTiming(
 	timing.Source.StartedAtUnixMS = sourceStarted
 	timing.Source.CompletedAtUnixMS = sourceCompleted
 	if err := timing.Validate(); err != nil {
-		return remoteci.ShardRequest{}, timing, fmt.Errorf("validate remote materialization timing: %w", err)
+		return remoteci.BootstrapShardRequest{}, timing, fmt.Errorf("validate remote materialization timing: %w", err)
 	}
-	return request, timing, nil
+	return bootstrap, timing, nil
+}
+
+// installAcceptedBootstrapManifest 暂时发布 accepted v1 manifest；候选 installer
+// 随后以固定路径原子替换为当前 worker 使用的 manifest。
+func installAcceptedBootstrapManifest(workRoot string, request remoteci.BootstrapShardRequest) error {
+	return installAcceptedBootstrapManifestWithOwnership(workRoot, request, os.Chmod, os.Chown)
+}
+
+func installAcceptedBootstrapManifestWithOwnership(
+	workRoot string,
+	request remoteci.BootstrapShardRequest,
+	chmod func(string, os.FileMode) error,
+	chown func(string, int, int) error,
+) error {
+	if err := requireRemoteWorkRootEmpty(workRoot); err != nil {
+		return err
+	}
+	data, digest, err := remoteci.EncodeAcceptedBootstrapManifestForRequest(request)
+	if err != nil {
+		return fmt.Errorf("encode accepted bootstrap manifest: %w", err)
+	}
+	if digest != request.ShardExecutionManifestDigest {
+		return errors.New("accepted bootstrap manifest digest does not match request")
+	}
+	manifestPath := filepath.Join(workRoot, filepath.Base(gatecontract.ExecutorShardExecutionManifestPath))
+	if err := publishRemoteManifest(workRoot, manifestPath, data); err != nil {
+		return err
+	}
+	return handoffRemoteWorkRootWithManifest(workRoot, filepath.Base(gatecontract.ExecutorShardExecutionManifestPath), chmod, chown)
+}
+
+func requireRemoteWorkRootEmpty(workRoot string) error {
+	entries, err := os.ReadDir(workRoot)
+	if err != nil {
+		return fmt.Errorf("read remote shard work root: %w", err)
+	}
+	if len(entries) != 0 {
+		return errors.New("remote shard work root must be empty before bootstrap manifest publish")
+	}
+	return nil
+}
+
+// publishRemoteManifest 通过临时文件、同步和原子重命名发布 manifest。
+func publishRemoteManifest(workRoot, manifestPath string, data []byte) (returnErr error) {
+	temporary, err := os.CreateTemp(workRoot, ".shard-execution-manifest-*")
+	if err != nil {
+		return fmt.Errorf("create remote shard execution manifest temporary file: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		if returnErr != nil {
+			returnErr = errors.Join(returnErr, os.Remove(temporaryPath))
+		}
+	}()
+	if err := writeRemoteManifestTemp(temporary, data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close remote shard execution manifest: %w", err)
+	}
+	if err := os.Rename(temporaryPath, manifestPath); err != nil {
+		return fmt.Errorf("publish remote shard execution manifest: %w", err)
+	}
+	if err := syncRemoteManifestDirectory(workRoot); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeRemoteManifestTemp(file *os.File, data []byte) error {
+	if err := file.Chmod(0o400); err != nil {
+		return fmt.Errorf("protect remote shard execution manifest temporary file: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("write remote shard execution manifest: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync remote shard execution manifest: %w", err)
+	}
+	return nil
+}
+
+func syncRemoteManifestDirectory(workRoot string) error {
+	directory, err := os.Open(workRoot)
+	if err != nil {
+		return fmt.Errorf("open remote shard work root for sync: %w", err)
+	}
+	defer directory.Close()
+	if err := directory.Sync(); err != nil {
+		return fmt.Errorf("sync remote shard work root: %w", err)
+	}
+	return nil
 }
 
 // verifyRemoteMaterializedSource 复核 source bundle/manifest 并安装精确 detached sourceRoot。
@@ -304,9 +398,29 @@ func verifyRemoteSourceManifestBinding(
 	if manifest.BaselineTreeSHA != request.RunnerBaseTree || manifest.BaselineCommitSHA != baseline.CommitSHA {
 		return errors.New("remote source manifest baseline identity does not match shard request")
 	}
+	return verifyRemoteSourceManifestCommitBinding(request, manifest, baseline)
+}
+
+// verifyRemoteSourceManifestCommitBinding 复核 manifest transport commit 的确定性身份链。
+func verifyRemoteSourceManifestCommitBinding(
+	request remoteci.ShardRequest,
+	manifest remoteci.SourceMaterializationManifest,
+	baseline remoteci.SourceBaseline,
+) error {
+	expectedSyntheticBase, err := remoteci.DeterministicSourceSyntheticBaseCommitSHA(
+		manifest.SyntheticBaseTreeSHA,
+		baseline.CommitSHA,
+		request.Source.ObjectFormat,
+	)
+	if err != nil {
+		return fmt.Errorf("derive expected source synthetic base commit: %w", err)
+	}
+	if manifest.SyntheticBaseCommitSHA != expectedSyntheticBase {
+		return errors.New("remote source manifest synthetic base commit does not match accepted baseline")
+	}
 	expectedTransport, err := remoteci.DeterministicSourceTransportCommitSHA(
 		request.SourceTreeSHA,
-		baseline.CommitSHA,
+		expectedSyntheticBase,
 		request.Source.ObjectFormat,
 	)
 	if err != nil {
@@ -318,7 +432,7 @@ func verifyRemoteSourceManifestBinding(
 	return nil
 }
 
-// verifyRemoteMaterializedGateCLICompileClosure binds the init build to the exact materialized candidate tree.
+// verifyRemoteMaterializedGateCLICompileClosure 将 init 构建绑定到精确物化候选树。
 func verifyRemoteMaterializedGateCLICompileClosure(ctx context.Context, sourceRoot string, request remoteci.ShardRequest) error {
 	sourceDigest, toolchainDigest, _, err := remoteci.LoadGateCLICompileClosure(ctx, sourceRoot, request.SourceTreeSHA)
 	if err != nil {
@@ -330,24 +444,26 @@ func verifyRemoteMaterializedGateCLICompileClosure(ctx context.Context, sourceRo
 	return nil
 }
 
-// loadRemoteShardRequest 下载并校验内容寻址的 shard 请求对象。
-func loadRemoteShardRequest(ctx context.Context, config remoteMaterializeConfig, download remoteObjectDownload) (remoteci.ShardRequest, error) {
+// loadRemoteBootstrapShardRequest 下载并严格校验 accepted schema-14/v1
+// bootstrap 请求对象；current v2 请求不得进入 materializer。
+func loadRemoteBootstrapShardRequest(ctx context.Context, config remoteMaterializeConfig, download remoteObjectDownload) (remoteci.BootstrapShardRequest, error) {
 	var requestData bytes.Buffer
 	if _, err := download(ctx, config.RequestKey, remoteRequestMaxBytes, &requestData); err != nil {
-		return remoteci.ShardRequest{}, fmt.Errorf("download remote shard request: %w", err)
+		return remoteci.BootstrapShardRequest{}, fmt.Errorf("download remote bootstrap shard request: %w", err)
 	}
 	if digestBytes(requestData.Bytes()) != config.RequestSHA256 {
-		return remoteci.ShardRequest{}, errors.New("remote shard request SHA-256 mismatch")
+		return remoteci.BootstrapShardRequest{}, errors.New("remote bootstrap shard request SHA-256 mismatch")
 	}
-	request, err := remoteci.DecodeShardRequest(requestData.Bytes())
+	request, err := remoteci.DecodeBootstrapShardRequest(requestData.Bytes())
 	if err != nil {
-		return remoteci.ShardRequest{}, err
+		return remoteci.BootstrapShardRequest{}, err
 	}
-	if path.Dir(config.RequestKey) != path.Dir(request.SourceBundleKey) {
-		return remoteci.ShardRequest{}, errors.New("remote shard request object directory does not match source objects")
+	objectDirectory := path.Dir(request.SourceBundleKey)
+	if path.Dir(config.RequestKey) != objectDirectory || path.Dir(request.ManifestKey) != objectDirectory {
+		return remoteci.BootstrapShardRequest{}, errors.New("remote bootstrap request object directory does not match source objects")
 	}
 	if request.AgentTokenDigest != config.AgentTokenDigest {
-		return remoteci.ShardRequest{}, errors.New("remote shard request agent token digest does not match init environment")
+		return remoteci.BootstrapShardRequest{}, errors.New("remote bootstrap shard request agent token digest does not match init environment")
 	}
 	return request, nil
 }
@@ -393,6 +509,82 @@ func handoffRemoteWorkRoot(
 	}
 	if len(entries) != 0 {
 		return errors.New("remote work root must be empty before executor handoff")
+	}
+	if err := chmod(workRoot, 0o700); err != nil {
+		return fmt.Errorf("protect remote work root: %w", err)
+	}
+	if err := chown(workRoot, remoteExecutorUID, remoteExecutorGID); err != nil {
+		return fmt.Errorf("assign remote work root to executor: %w", err)
+	}
+	return nil
+}
+
+// handoffRemoteWorkRootWithManifest 将唯一固定 manifest 与 work root 一并移交。
+func handoffRemoteWorkRootWithManifest(
+	workRoot string,
+	manifestName string,
+	chmod func(string, os.FileMode) error,
+	chown func(string, int, int) error,
+) error {
+	manifestPath, err := validateRemoteManifestHandoff(workRoot, manifestName, chmod, chown)
+	if err != nil {
+		return err
+	}
+	return applyRemoteManifestOwnership(workRoot, manifestPath, chmod, chown)
+}
+
+func validateRemoteManifestHandoff(workRoot, manifestName string, chmod func(string, os.FileMode) error, chown func(string, int, int) error) (string, error) {
+	if !validRemoteManifestHandoffArgs(manifestName, chmod, chown) {
+		return "", errors.New("remote work root manifest ownership operations are required")
+	}
+	entries, err := os.ReadDir(workRoot)
+	if err != nil {
+		return "", fmt.Errorf("read remote work root: %w", err)
+	}
+	if !isSingleRemoteManifestEntry(entries, manifestName) {
+		return "", errors.New("remote work root must contain exactly the fixed execution manifest")
+	}
+	manifestPath := filepath.Join(workRoot, manifestName)
+	if err := validateRemoteManifestFile(manifestPath); err != nil {
+		return "", err
+	}
+	return manifestPath, nil
+}
+
+func validRemoteManifestHandoffArgs(manifestName string, chmod func(string, os.FileMode) error, chown func(string, int, int) error) bool {
+	if chmod == nil || chown == nil {
+		return false
+	}
+	return manifestName != "" && filepath.Base(manifestName) == manifestName
+}
+
+func isSingleRemoteManifestEntry(entries []os.DirEntry, manifestName string) bool {
+	if len(entries) != 1 {
+		return false
+	}
+	return entries[0].Name() == manifestName
+}
+
+func validateRemoteManifestFile(manifestPath string) error {
+	info, err := os.Lstat(manifestPath)
+	if err != nil {
+		return fmt.Errorf("stat remote shard execution manifest: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("remote shard execution manifest must be a regular non-symlink file")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("remote shard execution manifest must be a regular non-symlink file")
+	}
+	return nil
+}
+
+func applyRemoteManifestOwnership(workRoot, manifestPath string, chmod func(string, os.FileMode) error, chown func(string, int, int) error) error {
+	if err := chmod(manifestPath, 0o400); err != nil {
+		return fmt.Errorf("protect remote shard execution manifest: %w", err)
+	}
+	if err := chown(manifestPath, remoteExecutorUID, remoteExecutorGID); err != nil {
+		return fmt.Errorf("assign remote shard execution manifest: %w", err)
 	}
 	if err := chmod(workRoot, 0o700); err != nil {
 		return fmt.Errorf("protect remote work root: %w", err)

@@ -98,25 +98,6 @@ func TestNightlyProtocolValidatorRejectsContractDrift(t *testing.T) {
 			},
 			want: "immutable bootstrap",
 		},
-		{
-			name: "CI coordinator only in comment",
-			mutate: func(root string) {
-				replaceFixture(t, root, ".github/workflows/ci.yml",
-					"          docker run --rm image workflow-host\n",
-					"          # docker run --rm image workflow-host\n          echo skipped\n",
-				)
-			},
-			want: "immutable workflow-host coordinator",
-		},
-		{
-			name: "CI owner missing",
-			mutate: func(root string) {
-				if err := os.Remove(filepath.Join(root, ".github", "workflows", "ci.yml")); err != nil {
-					t.Fatal(err)
-				}
-			},
-			want: "read CI owner",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -134,7 +115,6 @@ func writeValidProtocolFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	writeFixtureFile(t, root, "go.mod", "module fixture\n\ngo 1.26\n")
-	writeFixtureFile(t, root, ".github/workflows/ci.yml", "jobs:\n  truth-image-gates:\n    steps:\n      - run: |\n          docker run --rm image workflow-host\n")
 	writeFixtureFile(t, root, rootProtocolPath, protocolFixture(
 		"repository-nightly-gate-health",
 		rootProtocolPath,

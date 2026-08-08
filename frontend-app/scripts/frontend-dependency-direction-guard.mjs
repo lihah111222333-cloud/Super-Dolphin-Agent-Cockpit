@@ -8,7 +8,7 @@ import { parse } from '@babel/parser';
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const registryPath = 'scripts/frontend-dependency-direction-registry.json';
 const sourceExtensionPattern = /\.[cm]?[jt]sx?$/;
-const testFilePattern = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const testFilePattern = /\.(?:test(?:-helper)?|spec)\.[cm]?[jt]sx?$/;
 const sourceCandidates = Object.freeze(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']);
 
 export function validateFrontendDependencyDirection({
@@ -53,7 +53,7 @@ export function dependencyDirectionResult({ sources, registry, today = currentDa
   const unknownSources = [];
   let checkedImports = 0;
 
-  for (const [from, source] of [...normalizedSources].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [from, source] of [...normalizedSources].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
     const fromLayer = layerForPath(from, registry);
     if (!fromLayer) {
       unknownSources.push(from);

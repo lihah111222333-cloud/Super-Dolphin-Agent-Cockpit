@@ -174,7 +174,7 @@ export function startVite(config) {
   }
   console.log(`starting Vite dev server: ${config.baseURL}`);
   return spawn(process.execPath, [
-    viteBin,
+    viteBin, '--configLoader', 'runner',
     '--host',
     DEFAULT_HOST,
     '--port',

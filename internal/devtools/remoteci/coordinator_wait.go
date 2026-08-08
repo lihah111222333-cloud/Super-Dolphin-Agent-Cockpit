@@ -16,6 +16,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const maxTerminalEvidenceRereads = 3
+
+var errECITerminalEvidencePending = errors.New("ECI terminal response may still be converging provider lifecycle fields")
+
 type pendingRemoteShard struct {
 	index   int
 	groupID string
@@ -43,6 +47,7 @@ func (coordinator *Coordinator) waitShards(
 	failures := make([]error, len(shards))
 	warningFailures := make([]error, len(shards))
 	warned := make(map[int]struct{}, len(shards))
+	terminalEvidenceRetries := make(map[int]int, len(shards))
 	warningRetries := make(map[int]pendingRemoteShard)
 	warnings := make([]gate.RemoteCITimingWarning, 0)
 	timer := time.NewTicker(coordinator.config.PollInterval)
@@ -56,7 +61,7 @@ func (coordinator *Coordinator) waitShards(
 		warnings = append(warnings, coordinator.observeShardTargetWarnings(
 			shards, observedItems, groups, warningRun, warned, warningFailures,
 		)...)
-		pending, err = coordinator.collectObservedRemoteShards(ctx, shards, pending, groups, results, failures, warningRun.agentTokenDigest)
+		pending, err = coordinator.collectObservedRemoteShards(ctx, shards, pending, groups, results, failures, terminalEvidenceRetries, warningRun.agentTokenDigest)
 		if err != nil {
 			return results, warnings, err
 		}
@@ -92,6 +97,28 @@ func mergePendingRemoteShards(pending []pendingRemoteShard, retries map[int]pend
 	return merged
 }
 
+// consumeTerminalEvidenceRetry 在终态 provider 字段最终一致性窗口内允许有限次重读。
+func consumeTerminalEvidenceRetry(retries map[int]int, index int) bool {
+	if retries[index] >= maxTerminalEvidenceRereads {
+		return false
+	}
+	retries[index]++
+	return true
+}
+
+// retryTerminalEvidence 等待提供方终态字段在有限窗口内收敛；窗口耗尽后保留原始失败。
+func retryTerminalEvidence(ctx context.Context, timer *time.Ticker, retries map[int]int, index int, status string, err error) (bool, error) {
+	if !errors.Is(err, errECITerminalEvidencePending) || !consumeTerminalEvidenceRetry(retries, index) {
+		return false, nil
+	}
+	select {
+	case <-ctx.Done():
+		return true, remoteCloudShardPendingError(status, ctx.Err())
+	case <-timer.C:
+		return true, nil
+	}
+}
+
 // updateTerminalTimingWarningRetries 重试 SQLite busy 的终态告警写入并清理已收敛分片。
 func updateTerminalTimingWarningRetries(
 	observed []pendingRemoteShard,
@@ -113,7 +140,7 @@ func updateTerminalTimingWarningRetries(
 }
 
 // observeShardTargetWarnings 使用 provider worker StartTime 写入 live SQLite 事实。
-// 写入失败只会被记录和重试，不会提前退出轮询、取消、kill 或标记 shard 失败。
+// 写入失败不会提前退出轮询、取消、kill 或标记 shard 失败；轮询收敛后会作为独立账本基础设施错误 fail-fast。
 func (coordinator *Coordinator) observeShardTargetWarnings(
 	shards []gate.ContainerShard,
 	pending []pendingRemoteShard,
@@ -250,6 +277,9 @@ func observedECIWorkerStartTime(group eci.ContainerGroup) (time.Time, error) {
 	if !found || startedAt.IsZero() {
 		return time.Time{}, errors.New("ECI Running response is missing worker CurrentState.StartTime")
 	}
+	if err := gate.ValidateRemoteCITimingWarningEvidenceStartedAt(startedAt); err != nil {
+		return time.Time{}, fmt.Errorf("ECI Running response worker CurrentState.StartTime: %w", err)
+	}
 	return startedAt, nil
 }
 
@@ -261,8 +291,10 @@ func initializeRemoteShardResults(
 	results := make([]ShardResult, len(shards))
 	for index, shard := range shards {
 		results[index] = ShardResult{
-			ShardIdentity:     shard.IdentityDigest,
-			ExecutedWorkloads: slices.Clone(shard.GateIDs),
+			// 创建失败时只有计划分片，没有云端容器；计划 GateIDs 不是执行证据。
+			// 工作负载仍保留在不可变计划中，占位结果必须保持 executed 为空，
+			// 防止耗时投影为从未启动的分片伪造资源回执。
+			ShardIdentity: shard.IdentityDigest,
 			MaterializationTiming: gate.ShardMaterializationTiming{
 				Measurement: gate.MaterializationMeasurementNotMeasured,
 			},
@@ -327,6 +359,7 @@ func (coordinator *Coordinator) collectObservedRemoteShards(
 	groups map[string]eci.ContainerGroup,
 	results []ShardResult,
 	failures []error,
+	terminalEvidenceRetries map[int]int,
 	expectedAgentTokenDigest string,
 ) ([]pendingRemoteShard, error) {
 	next := make([]pendingRemoteShard, 0, len(pending))
@@ -336,11 +369,29 @@ func (coordinator *Coordinator) collectObservedRemoteShards(
 		if !ok {
 			return nil, fmt.Errorf("remote CI shard container group %q is missing from status observation", item.groupID)
 		}
+		if err := bindObservedECIShardResources(&results[item.index], group); err != nil {
+			failures[item.index] = errors.Join(failures[item.index], remoteShardExecutionError(shards[item.index], err))
+			continue
+		}
 		results[item.index].ContainerStatus = group.Status
 		if terminalECIStatus(group.Status) {
 			if err := bindObservedECIShardTiming(&results[item.index], group); err != nil {
-				return nil, remoteShardExecutionError(shards[item.index], err)
+				if errors.Is(err, errECITerminalEvidencePending) && consumeTerminalEvidenceRetry(terminalEvidenceRetries, item.index) {
+					next = append(next, item)
+					continue
+				}
+				// 提供方生命周期证据只归属于当前分片。畸形终态分片不能进入报告聚合，
+				// 但必须继续排空已经创建的所有兄弟分片，保留它们的终态证据并完成清理，
+				// 不能因一个无效响应丢失其结果。
+				failures[item.index] = errors.Join(failures[item.index], remoteShardExecutionError(shards[item.index], err))
+				continue
 			}
+			terminalEvidence, err := remoteECITerminalEvidence(group)
+			if err != nil {
+				failures[item.index] = errors.Join(failures[item.index], remoteShardExecutionError(shards[item.index], fmt.Errorf("collect ECI terminal evidence: %w", err)))
+				continue
+			}
+			results[item.index].TerminalEvidence = terminalEvidence
 			terminal = append(terminal, item)
 		} else {
 			next = append(next, item)
@@ -398,6 +449,23 @@ func (coordinator *Coordinator) collectTerminalShardReports(
 	_ = workers.Wait()
 }
 
+// bindTerminalShardWithRetry 绑定终态证据；仅对字段最终一致性窗口重读，其他错误立即返回。
+func (coordinator *Coordinator) bindTerminalShardWithRetry(ctx context.Context, shard gate.ContainerShard, groupID string, group eci.ContainerGroup, expectedDigest string, result *ShardResult, timer *time.Ticker, retries map[int]int) error {
+	for {
+		err := coordinator.bindTerminalShardResult(ctx, shard, groupID, group, expectedDigest, result)
+		if err == nil {
+			return nil
+		}
+		retry, retryErr := retryTerminalEvidence(ctx, timer, retries, 0, result.ContainerStatus, err)
+		if retryErr != nil {
+			return retryErr
+		}
+		if !retry {
+			return err
+		}
+	}
+}
+
 // waitShard 保留单分片观察入口，供定点诊断和契约测试使用。
 func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.ContainerShard, groupID string, expectedAgentTokenDigest ...string) (ShardResult, error) {
 	var expectedDigest string
@@ -411,6 +479,7 @@ func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.Contai
 		ShardIdentity: shard.IdentityDigest, ContainerGroup: groupID,
 		ExecutedWorkloads: slices.Clone(shard.GateIDs),
 	}
+	terminalEvidenceRetries := make(map[int]int, 1)
 	timer := time.NewTicker(coordinator.config.PollInterval)
 	defer timer.Stop()
 	for {
@@ -419,8 +488,11 @@ func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.Contai
 			return result, remoteShardExecutionError(shard, err)
 		}
 		result.ContainerStatus = group.Status
+		if err := bindObservedECIShardResources(&result, group); err != nil {
+			return result, remoteShardExecutionError(shard, err)
+		}
 		if terminalECIStatus(result.ContainerStatus) {
-			if err := coordinator.bindTerminalShardResult(ctx, shard, groupID, group, expectedDigest, &result); err != nil {
+			if err := coordinator.bindTerminalShardWithRetry(ctx, shard, groupID, group, expectedDigest, &result, timer, terminalEvidenceRetries); err != nil {
 				return result, err
 			}
 			return result, nil
@@ -431,6 +503,18 @@ func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.Contai
 		case <-timer.C:
 		}
 	}
+}
+
+// bindObservedECIShardResources 记录 Describe 返回的实际规格；缺失的一半规格不允许伪造完整 identity。
+func bindObservedECIShardResources(result *ShardResult, group eci.ContainerGroup) error {
+	if (group.CPU == 0) != (group.MemoryGiB == 0) || group.CPU < 0 || group.MemoryGiB < 0 {
+		return errors.New("ECI Describe response contains an incomplete actual CPU/memory resource identity")
+	}
+	if group.CPU == 0 && group.MemoryGiB == 0 {
+		return nil
+	}
+	result.Resources = eci.Resources{CPU: group.CPU, MemoryGiB: group.MemoryGiB}
+	return nil
 }
 
 // bindTerminalShardResult 绑定终态报告、材料化耗时与诊断；任一缺失或不匹配都会立即阻断该分片。
@@ -445,6 +529,11 @@ func (coordinator *Coordinator) bindTerminalShardResult(
 	if err := bindObservedECIShardTiming(result, group); err != nil {
 		return remoteShardExecutionError(shard, err)
 	}
+	terminalEvidence, err := remoteECITerminalEvidence(group)
+	if err != nil {
+		return remoteShardExecutionError(shard, fmt.Errorf("collect ECI terminal evidence: %w", err))
+	}
+	result.TerminalEvidence = terminalEvidence
 	report, workerLog, err := coordinator.observeShardReport(ctx, shard, groupID, group, expectedAgentTokenDigest)
 	if err != nil {
 		return remoteShardExecutionError(shard, err)
@@ -470,29 +559,57 @@ func (coordinator *Coordinator) bindTerminalShardResult(
 // bindObservedECIShardTiming 只接受权威耗时账本所需的提供方时间戳，禁止以本地轮询时间充当证据。
 func bindObservedECIShardTiming(result *ShardResult, group eci.ContainerGroup) error {
 	if group.CreationTime.IsZero() {
-		return errors.New("ECI terminal response is missing CreationTime")
+		return fmt.Errorf("%w: ECI terminal response is missing CreationTime", errECITerminalEvidencePending)
 	}
 	materializerStartTime, err := observedECIMaterializerStartTime(group)
 	if err != nil {
 		return err
 	}
-	var terminalAt time.Time
+	var groupTerminalAt time.Time
 	switch group.Status {
 	case "Succeeded":
-		terminalAt = group.SucceededTime
+		groupTerminalAt = group.SucceededTime
 	default:
-		terminalAt = group.FailedTime
+		groupTerminalAt = group.FailedTime
 	}
-	if terminalAt.IsZero() {
-		return fmt.Errorf("ECI terminal response is missing terminal time for status %q", group.Status)
+	if groupTerminalAt.IsZero() {
+		return fmt.Errorf("%w: ECI terminal response is missing terminal time for status %q", errECITerminalEvidencePending, group.Status)
 	}
-	if !materializerStartTime.After(group.CreationTime) || !terminalAt.After(materializerStartTime) {
-		return errors.New("ECI provider timestamps are not strictly ordered from CreationTime through materializer StartTime to terminal time")
+	workerFinishedAt, err := observedECIWorkerFinishTime(group)
+	if err != nil {
+		return err
 	}
-	result.ECIWaitStartedAt = group.CreationTime.UTC()
-	result.ECIWaitCompletedAt = materializerStartTime.UTC()
-	result.ECITerminalAt = terminalAt.UTC()
+	if !materializerStartTime.After(group.CreationTime) || !groupTerminalAt.After(materializerStartTime) || !workerFinishedAt.After(materializerStartTime) {
+		return errors.New("ECI provider timestamps are not strictly ordered from CreationTime through materializer StartTime to group and worker terminal times")
+	}
+	terminalAt := groupTerminalAt
+	if workerFinishedAt.After(groupTerminalAt) {
+		terminalAt = workerFinishedAt
+	}
+	result.ECIWaitStartedAt = group.CreationTime.UTC().Truncate(time.Millisecond)
+	result.ECIWaitCompletedAt = materializerStartTime.UTC().Truncate(time.Millisecond)
+	result.ECITerminalAt = terminalAt.UTC().Truncate(time.Millisecond)
 	return nil
+}
+
+// observedECIWorkerFinishTime 返回唯一 worker 容器的 provider CurrentState.FinishTime。
+func observedECIWorkerFinishTime(group eci.ContainerGroup) (time.Time, error) {
+	var finishedAt time.Time
+	found := false
+	for _, container := range group.Containers {
+		if container.Name != "worker" {
+			continue
+		}
+		if found {
+			return time.Time{}, errors.New("ECI terminal response has duplicate worker containers")
+		}
+		found = true
+		finishedAt = container.CurrentState.FinishTime
+	}
+	if !found || finishedAt.IsZero() {
+		return time.Time{}, fmt.Errorf("%w: ECI terminal response is missing worker CurrentState.FinishTime", errECITerminalEvidencePending)
+	}
+	return finishedAt.UTC(), nil
 }
 
 // observedECIMaterializerStartTime 查找唯一 materializer 初始化容器，并校验其提供方启动时间。
@@ -510,7 +627,7 @@ func observedECIMaterializerStartTime(group eci.ContainerGroup) (time.Time, erro
 		materializerStartTime = container.CurrentState.StartTime
 	}
 	if !materializerFound || materializerStartTime.IsZero() {
-		return time.Time{}, errors.New("ECI terminal response is missing materializer init-container CurrentState.StartTime")
+		return time.Time{}, fmt.Errorf("%w: ECI terminal response is missing materializer init-container CurrentState.StartTime", errECITerminalEvidencePending)
 	}
 	return materializerStartTime, nil
 }

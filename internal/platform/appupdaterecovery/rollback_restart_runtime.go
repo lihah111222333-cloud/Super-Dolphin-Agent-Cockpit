@@ -304,7 +304,7 @@ func prepareRollbackRestartControl(
 }
 
 func rollbackRestartRecoveryLaunch(ctx context.Context, transaction Transaction, token, executable string) (runtimeenv.RecoveryLaunch, error) {
-	endpoint, err := rollbackRestartTerminationEndpoint(transaction.Identity.TransactionID, token)
+	endpoint, err := RollbackRestartTerminationEndpoint(transaction.Identity.TransactionID, token)
 	if err != nil {
 		return runtimeenv.RecoveryLaunch{}, err
 	}
@@ -340,7 +340,7 @@ func ValidateActivatedRollbackLaunch(transaction Transaction, process ProcessIde
 
 // validateActivatedRollbackProcess 核对 endpoint、ACK 进程与已恢复旧 release 身份。
 func validateActivatedRollbackProcess(transaction Transaction, process ProcessIdentity, token string) error {
-	endpoint, err := rollbackRestartTerminationEndpoint(transaction.Identity.TransactionID, token)
+	endpoint, err := RollbackRestartTerminationEndpoint(transaction.Identity.TransactionID, token)
 	if err != nil {
 		return err
 	}
@@ -361,8 +361,8 @@ func validateActivatedRollbackProcess(transaction Transaction, process ProcessId
 	return nil
 }
 
-// rollbackRestartTerminationEndpoint 从持久 transaction/token 唯一派生协作终止端点。
-func rollbackRestartTerminationEndpoint(transactionID TransactionID, token string) (string, error) {
+// RollbackRestartTerminationEndpoint 从持久 transaction/token 唯一派生协作终止端点。
+func RollbackRestartTerminationEndpoint(transactionID TransactionID, token string) (string, error) {
 	if !validLowerHex(token, rollbackLaunchTokenBytes*2) {
 		return "", errors.New("rollback restart launch token must be 64 lowercase hex characters")
 	}
@@ -370,9 +370,12 @@ func rollbackRestartTerminationEndpoint(transactionID TransactionID, token strin
 	if !validLowerHex(id, transactionIDBytes*2) {
 		return "", errors.New("rollback restart transaction ID is invalid")
 	}
-	endpoint := filepath.Join(os.TempDir(), fmt.Sprintf(
-		"sd-rr-%s-%s.sock", id[:8], token[:rollbackRestartEndpointNameBytes],
-	))
+	basename := fmt.Sprintf("sd-rr-%s-%s.sock", id[:8], token[:rollbackRestartEndpointNameBytes])
+	root, err := rollbackRestartEndpointRoot(basename)
+	if err != nil {
+		return "", err
+	}
+	endpoint := filepath.Join(root, basename)
 	return filepath.Clean(endpoint), nil
 }
 

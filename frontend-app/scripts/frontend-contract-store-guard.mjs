@@ -58,7 +58,7 @@ function walkSourceFiles(dir) {
       files.push(...walkSourceFiles(fullPath));
       continue;
     }
-    if (sourceExtensionPattern.test(entry.name) && !/\.test\.[cm]?[jt]sx?$/.test(entry.name)) {
+    if (sourceExtensionPattern.test(entry.name) && !/\.test(?:-helper)?\.[cm]?[jt]sx?$/.test(entry.name)) {
       files.push(fullPath);
     }
   }

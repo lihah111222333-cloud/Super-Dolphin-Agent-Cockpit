@@ -84,11 +84,134 @@ func TestRemoteDurationCalibrationMatchesStableRunnerAcrossSourceRefresh(t *test
 	}
 }
 
+// TestRemoteDurationCalibrationReadyRequiresAcceptedShardOverhead 验证 metadata-only 校准不能宣称 ready。
+func TestRemoteDurationCalibrationReadyRequiresAcceptedShardOverhead(t *testing.T) {
+	state := remoteRunRunnerIdentityState()
+	runnerIdentity := remoteRunRunnerIdentity(state)
+	fixture := newRemoteDurationCalibrationFixture(t)
+	fixture.calibration.Runner = runnerIdentity
+	fixture.calibration.WorkloadCount = len(fixture.expected)
+	fixture.calibration.RacePackageCount = len(fixture.inventory.GoPackages)
+	snapshot, err := fixture.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger := snapshot.Ledger
+	ledger.Calibration = &fixture.calibration
+	if _, err := fixture.store.CompareAndSwap(snapshot.Generation, ledger); err != nil {
+		t.Fatal(err)
+	}
+
+	ledgerPath := fixture.store.AuthorityPath()
+	assertRemoteDurationCalibrationMetadataOnlyNotReady(t, ledgerPath, state, runnerIdentity, fixture.store)
+
+	seedRemoteDurationCalibrationFixtureOverhead(t, fixture)
+	assertRemoteDurationCalibrationMetadataOnlyNotReady(t, ledgerPath, state, runnerIdentity, fixture.store)
+
+	recordRemoteDurationCalibrationFixtureCatalogs(t, fixture)
+	appendCompleteRemoteCalibrationSamples(t, fixture)
+	assertRemoteDurationCalibrationCompleteReady(t, ledgerPath, state, runnerIdentity)
+}
+
+// recordRemoteDurationCalibrationFixtureCatalogs 持久化校准 metadata 引用的三个精确目录及观测。
+func recordRemoteDurationCalibrationFixtureCatalogs(t *testing.T, fixture remoteDurationCalibrationFixture) {
+	t.Helper()
+	entries := []struct {
+		catalog    gatecontract.WorkloadCatalog
+		entrypoint gatecontract.CIEntrypointID
+		profile    gatecontract.Profile
+	}{
+		{catalog: fixture.commitCatalog, entrypoint: gatecontract.CIEntrypointGitPreCommit, profile: gatecontract.ProfileLocalFast},
+		{catalog: fixture.pushCatalog, entrypoint: gatecontract.CIEntrypointGitPrePush, profile: gatecontract.ProfilePush},
+		{catalog: fixture.releaseCatalog, entrypoint: gatecontract.CIEntrypointRelease, profile: gatecontract.ProfileRelease},
+	}
+	observedAt := time.Date(2026, 8, 5, 1, 0, 0, 0, time.UTC)
+	for _, entry := range entries {
+		if err := fixture.store.RecordWorkloadCatalog(entry.catalog, gatecontract.WorkloadCatalogObservation{
+			SourceTreeSHA: fixture.calibration.Tree, Entrypoint: entry.entrypoint, Profile: entry.profile,
+			AcceptedGeneration: fixture.acceptedGeneration, ObservedAt: observedAt,
+		}); err != nil {
+			t.Fatalf("record calibration catalog: %v", err)
+		}
+	}
+}
+
+// assertRemoteDurationCalibrationMetadataOnlyNotReady 验证仅有 calibration metadata 时保持不可用且不清理记录。
+func assertRemoteDurationCalibrationMetadataOnlyNotReady(t *testing.T, ledgerPath string, state remoteci.BaselineState, runnerIdentity string, store *gatecontract.DurationLedgerStore) {
+	t.Helper()
+	ready, err := remoteDurationCalibrationReady(ledgerPath, state, runnerIdentity)
+	if err != nil {
+		t.Fatalf("metadata-only readiness check: %v", err)
+	}
+	if ready {
+		t.Fatal("metadata-only calibration reported ready")
+	}
+	prepared, err := prepareAutomaticRemoteCalibrationLedger(ledgerPath, state, runnerIdentity)
+	if err != nil {
+		t.Fatalf("metadata-only preparation: %v", err)
+	}
+	if prepared {
+		t.Fatal("metadata-only calibration prepared as ready")
+	}
+	snapshot, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Ledger.Calibration == nil {
+		t.Fatal("metadata-only calibration was cleared")
+	}
+}
+
+// assertRemoteDurationCalibrationCompleteReady 验证完整 accepted overhead 允许 ready。
+func assertRemoteDurationCalibrationCompleteReady(t *testing.T, ledgerPath string, state remoteci.BaselineState, runnerIdentity string) {
+	t.Helper()
+	ready, err := remoteDurationCalibrationReady(ledgerPath, state, runnerIdentity)
+	if err != nil {
+		t.Fatalf("complete readiness check: %v", err)
+	}
+	if !ready {
+		t.Fatal("complete accepted shard overhead was not ready")
+	}
+	prepared, err := prepareAutomaticRemoteCalibrationLedger(ledgerPath, state, runnerIdentity)
+	if err != nil {
+		t.Fatalf("complete preparation: %v", err)
+	}
+	if !prepared {
+		t.Fatal("complete accepted shard overhead was not prepared as ready")
+	}
+}
+
 func TestEnsureRemoteDurationCalibrationConcurrentAgentsDoNotUseFileAdmission(t *testing.T) {
 	options, state, runnerIdentity := automaticCalibrationConcurrencyFixture(t)
 	started, release, calls, run := concurrentAutomaticCalibrationRun(t, options, state)
 	group := startAutomaticCalibrationCalls(options, state, runnerIdentity, run)
 	assertAutomaticCalibrationRunsOverlap(t, started, release, calls, group)
+}
+
+// TestEnsureRemoteDurationCalibrationRunsForSelectedTests 验证 test 场景 miss 不再跳过自动校准。
+func TestEnsureRemoteDurationCalibrationRunsForSelectedTests(t *testing.T) {
+	options, _, _ := automaticCalibrationConcurrencyFixture(t)
+	options.Scenario = "test"
+	options.Tests = []string{"internal/devtools/gate"}
+	state := remoteRunRunnerIdentityState()
+	state.MainCommit = strings.Repeat("b", 40)
+	runnerIdentity := remoteRunRunnerIdentity(state)
+	var called bool
+	if err := ensureRemoteDurationCalibrationWithRun(options, state, runnerIdentity, func(got remoteRunOptions) error {
+		called = true
+		if got.Scenario != "" || len(got.Tests) != 0 {
+			return fmt.Errorf("automatic calibration retained selected-test options: scenario=%q tests=%v", got.Scenario, got.Tests)
+		}
+		if got.Commit != state.MainCommit {
+			return fmt.Errorf("automatic calibration commit = %q, want %q", got.Commit, state.MainCommit)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("ensureRemoteDurationCalibrationWithRun() error = %v", err)
+	}
+	if !called {
+		t.Fatal("selected-tests miss skipped automatic calibration")
+	}
 }
 
 func automaticCalibrationConcurrencyFixture(t *testing.T) (remoteRunOptions, remoteci.BaselineState, string) {
@@ -173,10 +296,14 @@ func TestEnsureRemoteDurationCalibrationUsesExplicitCandidateWithoutMovingReposi
 	options := remoteRunOptions{
 		Scenario: "commit", RepositoryRoot: repository, Tree: tree,
 		ParentCommit: parent, LedgerPath: ledgerPath,
+		AgentTokenDigest: "sha256:" + strings.Repeat("a", sha256.Size*2),
 	}
 	var calibrationCommit string
 	run := func(got remoteRunOptions) error {
 		calibrationCommit = got.Commit
+		if got.AgentTokenDigest != options.AgentTokenDigest {
+			t.Fatalf("automatic calibration agent token digest = %q, want %q", got.AgentTokenDigest, options.AgentTokenDigest)
+		}
 		return runExplicitCandidateCalibration(repository, tree, parent, ledgerPath, state, got)
 	}
 	if err := ensureRemoteDurationCalibrationWithRun(options, state, runnerIdentity, run); err != nil {
@@ -250,7 +377,8 @@ func TestPrepareAutomaticRemoteCalibrationLedgerPreservesSamples(t *testing.T) {
 	sample := gatecontract.DurationSample{
 		Bucket: gatecontract.DurationBucket{
 			WorkloadID: "guard:fixture", CommandDigest: strings.Repeat("1", 64),
-			Platform: state.Platform, Runner: staleRunner, Toolchain: state.ToolchainDigest,
+			InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: state.Platform, Runner: staleRunner, Toolchain: state.ToolchainDigest,
+			ExecutionMode: gatecontract.DurationExecutionModeCalibration, ResourceClassID: "calibration", ResourceCPU: 4, ResourceMemoryGiB: 8,
 		},
 		Succeeded: true, DurationMS: 1234,
 	}
@@ -290,7 +418,8 @@ func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *
 	sample := gatecontract.DurationSample{
 		Bucket: gatecontract.DurationBucket{
 			WorkloadID: "guard:fixture", CommandDigest: strings.Repeat("1", 64),
-			Platform: state.Platform, Runner: legacyIdentity, Toolchain: state.ToolchainDigest,
+			InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: state.Platform, Runner: legacyIdentity, Toolchain: state.ToolchainDigest,
+			ExecutionMode: gatecontract.DurationExecutionModeCalibration, ResourceClassID: "calibration", ResourceCPU: 4, ResourceMemoryGiB: 8,
 		},
 		Succeeded: true, DurationMS: 1234,
 	}
@@ -305,8 +434,8 @@ func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *
 	if err != nil {
 		t.Fatalf("prepareAutomaticRemoteCalibrationLedger() error = %v", err)
 	}
-	if !ready {
-		t.Fatal("same-baseline legacy calibration was not migrated as ready")
+	if ready {
+		t.Fatal("same-baseline legacy calibration was reported ready without catalogs and complete samples")
 	}
 	snapshot, err := store.Load()
 	if err != nil {
@@ -330,7 +459,7 @@ func TestPrepareAutomaticRemoteCalibrationLedgerDoesNotReuseV2RuntimeImageIdenti
 	v2Identity := historicalV2RemoteRunnerIdentity(state, "sha256:"+strings.Repeat("f", 64))
 	ledger := gatecontract.NewDurationLedger()
 	ledger.Calibration = new(remoteAutomationCalibration(state, v2Identity))
-	ledger.Samples = []gatecontract.DurationSample{{Bucket: gatecontract.DurationBucket{WorkloadID: "guard:fixture", CommandDigest: strings.Repeat("1", 64), Platform: state.Platform, Runner: v2Identity, Toolchain: state.ToolchainDigest}, Succeeded: true, DurationMS: 1234}}
+	ledger.Samples = []gatecontract.DurationSample{{Bucket: gatecontract.DurationBucket{WorkloadID: "guard:fixture", CommandDigest: strings.Repeat("1", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: state.Platform, Runner: v2Identity, Toolchain: state.ToolchainDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration, ResourceClassID: "calibration", ResourceCPU: 4, ResourceMemoryGiB: 8}, Succeeded: true, DurationMS: 1234}}
 	if _, err := store.CompareAndSwap(0, ledger); err != nil {
 		t.Fatal(err)
 	}
@@ -358,20 +487,22 @@ func historicalV2RemoteRunnerIdentity(state remoteci.BaselineState, workerExecut
 
 func remoteAutomationCalibration(state remoteci.BaselineState, runner string) gatecontract.DurationCalibration {
 	return gatecontract.DurationCalibration{
-		SchemaVersion:        gatecontract.DurationCalibrationSchemaVersion,
-		Commit:               strings.Repeat("1", 40),
-		Tree:                 strings.Repeat("2", 40),
-		Platform:             state.Platform,
-		Runner:               runner,
-		Toolchain:            state.ToolchainDigest,
-		CommitEntrypoint:     gatecontract.CIEntrypointGitPreCommit,
-		PushEntrypoint:       gatecontract.CIEntrypointGitPrePush,
-		ReleaseEntrypoint:    gatecontract.CIEntrypointRelease,
-		CommitCatalogDigest:  "sha256:" + strings.Repeat("3", 64),
-		PushCatalogDigest:    "sha256:" + strings.Repeat("4", 64),
-		ReleaseCatalogDigest: "sha256:" + strings.Repeat("5", 64),
-		WorkloadCount:        1,
-		RacePackageCount:     1,
-		CompletedAt:          time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC),
+		SchemaVersion:              gatecontract.DurationCalibrationSchemaVersion,
+		Commit:                     strings.Repeat("1", 40),
+		Tree:                       strings.Repeat("2", 40),
+		Platform:                   state.Platform,
+		Runner:                     runner,
+		Toolchain:                  state.ToolchainDigest,
+		CommitEntrypoint:           gatecontract.CIEntrypointGitPreCommit,
+		PushEntrypoint:             gatecontract.CIEntrypointGitPrePush,
+		ReleaseEntrypoint:          gatecontract.CIEntrypointRelease,
+		CommitCatalogDigest:        "sha256:" + strings.Repeat("3", 64),
+		PushCatalogDigest:          "sha256:" + strings.Repeat("4", 64),
+		ReleaseCatalogDigest:       "sha256:" + strings.Repeat("5", 64),
+		CalibrationResourceClassID: "calibration", CalibrationResourceCPU: 4, CalibrationResourceMemoryGiB: 8,
+		WorkloadCount:      1,
+		RacePackageCount:   1,
+		AcceptedSnapshotID: "snapshot-test",
+		CompletedAt:        time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC),
 	}
 }

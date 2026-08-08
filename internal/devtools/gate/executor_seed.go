@@ -21,7 +21,6 @@ import (
 
 // RuntimeSeedSchemaVersion is the shared image-builder/executor manifest schema.
 const RuntimeSeedSchemaVersion = 12
-const runtimeSeedLegacySchemaVersion = 11
 
 // RuntimeSeedManifest binds immutable runtime seeds to repository lock files.
 type RuntimeSeedManifest struct {
@@ -39,14 +38,14 @@ type RuntimeSeedManifest struct {
 }
 
 type executorPreparedRuntimeSeeds struct {
-	runtimeSeedRoot      string
-	runtimeSeedManifest  string
-	manifest             RuntimeSeedManifest
-	goTreesVerified      bool
-	frontendTreeVerified bool
+	runtimeSeedRoot       string
+	runtimeSeedManifest   string
+	manifest              RuntimeSeedManifest
+	goRootsVerified       bool
+	frontendRootsVerified bool
 }
 
-// installRuntimeSeeds 按门禁需要校验 manifest 后安装锁文件绑定的依赖种子。
+// installRuntimeSeeds 按执行边界取得已验证 manifest 后安装锁文件绑定的依赖种子。
 func installRuntimeSeeds(config executorConfig, layout executorLayout, program ExecutorProgram) error {
 	if !program.NeedsGoSeed && !program.NeedsFrontendSeed {
 		return nil
@@ -59,25 +58,26 @@ func installRuntimeSeeds(config executorConfig, layout executorLayout, program E
 		if err := validateGoRuntimeSeedLocks(layout, manifest); err != nil {
 			return err
 		}
-		if !prepared.goTreesVerified {
-			if err := validateGoRuntimeSeedTrees(config.runtimeSeedRoot, manifest); err != nil {
-				return err
-			}
+		if !prepared.goRootsVerified {
+			return errors.New("prepared runtime seeds do not cover Go dependency roots")
 		}
 	}
 	if program.NeedsFrontendSeed {
-		return installFrontendRuntimeSeed(config, layout, manifest, prepared.frontendTreeVerified)
+		return installFrontendRuntimeSeed(config, layout, manifest, prepared.frontendRootsVerified)
 	}
 	return nil
 }
 
-// installFrontendRuntimeSeed 校验前端锁和依赖树，再为当前分片安装私有可写覆盖层。
+// installFrontendRuntimeSeed 校验前端锁与固定镜像根，再为当前分片安装私有可写覆盖层。
 func installFrontendRuntimeSeed(
 	config executorConfig,
 	layout executorLayout,
 	manifest RuntimeSeedManifest,
-	treeVerified bool,
+	rootsVerified bool,
 ) error {
+	if !rootsVerified {
+		return errors.New("prepared runtime seeds do not cover frontend dependency roots")
+	}
 	boundFile := filepath.Join(layout.sourceCopy, "frontend-app", "package-lock.json")
 	seedRoot := filepath.Join(config.runtimeSeedRoot, "frontend", "node_modules")
 	targetRoot := filepath.Join(layout.sourceCopy, "frontend-app", "node_modules")
@@ -88,32 +88,12 @@ func installFrontendRuntimeSeed(
 	if err != nil {
 		return fmt.Errorf("install frontend runtime seed: runtime seed directory: %w", err)
 	}
-	if !treeVerified {
-		treeDigest, err := RuntimeSeedTreeDigest(seedPath)
-		if err != nil {
-			return fmt.Errorf("install frontend runtime seed: %w", err)
-		}
-		if treeDigest != manifest.NodeModulesTreeSHA256 {
-			return errors.New("install frontend runtime seed: runtime seed tree digest does not match manifest")
-		}
-		npmCacheDigest, err := RuntimeSeedTreeDigest(filepath.Join(config.runtimeSeedRoot, "frontend", "npm-cache"))
-		if err != nil {
-			return fmt.Errorf("install frontend runtime seed: digest npm cache: %w", err)
-		}
-		if npmCacheDigest != manifest.NPMCacheTreeSHA256 {
-			return errors.New("install frontend runtime seed: npm cache tree digest does not match manifest")
-		}
-	}
 	viteSeedRoot := filepath.Join(config.runtimeSeedRoot, "frontend", "vite-cache")
-	viteCacheDigest, err := RuntimeSeedTreeDigest(viteSeedRoot)
-	if err != nil {
-		return fmt.Errorf("install frontend runtime seed: digest Vite cache: %w", err)
+	if _, err := trustedDirectory(viteSeedRoot, false, -1); err != nil {
+		return fmt.Errorf("install frontend runtime seed: Vite cache root: %w", err)
 	}
-	if viteCacheDigest != manifest.ViteCacheTreeSHA256 {
-		return errors.New("install frontend runtime seed: Vite cache tree digest does not match manifest")
-	}
-	if err := installFrontendRuntimeOverlay(seedPath, viteSeedRoot, targetRoot); err != nil {
-		return fmt.Errorf("install frontend runtime overlay: %w", err)
+	if err := installFrontendRuntimeOverlays(seedPath, viteSeedRoot, targetRoot, filepath.Join(layout.tmp, ".vite-temp")); err != nil {
+		return err
 	}
 	if config.executionTiming != nil {
 		config.executionTiming.viteCacheSeedHit = true
@@ -121,73 +101,70 @@ func installFrontendRuntimeSeed(
 	return nil
 }
 
-// installFrontendRuntimeOverlay 把依赖与 Vite cache 直接链接到 accepted 镜像层。
-func installFrontendRuntimeOverlay(seedRoot string, viteSeedRoot string, targetRoot string) error {
-	if _, err := os.Lstat(targetRoot); !errors.Is(err, os.ErrNotExist) {
-		return errors.New("runtime seed target already exists")
-	}
-	if err := os.Mkdir(targetRoot, 0o700); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(seedRoot)
-	if err != nil {
-		return err
-	}
-	reserved := map[string]bool{".vite": true, ".vite-temp": true}
-	for _, entry := range entries {
-		if reserved[entry.Name()] {
-			return fmt.Errorf("runtime seed reserves frontend overlay entry %q", entry.Name())
-		}
-		if err := os.Symlink(filepath.Join(seedRoot, entry.Name()), filepath.Join(targetRoot, entry.Name())); err != nil {
-			return err
-		}
-	}
-	if _, err := trustedDirectory(viteSeedRoot, false, -1); err != nil {
-		return err
-	}
-	if err := os.Symlink(viteSeedRoot, filepath.Join(targetRoot, ".vite")); err != nil {
-		return err
-	}
-	if err := os.Mkdir(filepath.Join(targetRoot, ".vite-temp"), 0o700); err != nil {
-		return err
-	}
-	return nil
-}
-
-// runtimeSeedManifestForProgram 返回当前程序所需且已完成边界验证的 seed manifest。
+// runtimeSeedManifestForProgram 返回当前程序所需且按 plan 或 standalone 边界验证的 seed manifest。
 func runtimeSeedManifestForProgram(
 	config executorConfig,
 	program ExecutorProgram,
 ) (RuntimeSeedManifest, executorPreparedRuntimeSeeds, error) {
 	if config.preparedRuntimeSeeds == nil {
-		prepared, err := prepareExecutorRuntimeSeeds(
-			config.runtimeSeedRoot,
-			config.runtimeSeedManifest,
-			program.NeedsGoSeed,
-			program.NeedsFrontendSeed,
-		)
-		if err != nil {
-			return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, err
-		}
-		if prepared == nil {
-			return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("runtime seed preparation produced no result")
-		}
-		return prepared.manifest, *prepared, nil
+		return standaloneRuntimeSeedManifest(config, program)
 	}
 	prepared := *config.preparedRuntimeSeeds
-	if prepared.runtimeSeedRoot != config.runtimeSeedRoot || prepared.runtimeSeedManifest != config.runtimeSeedManifest {
-		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("prepared runtime seed identity does not match executor config")
-	}
-	if program.NeedsGoSeed && !prepared.goTreesVerified {
-		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("prepared runtime seeds do not cover Go dependencies")
-	}
-	if program.NeedsFrontendSeed && !prepared.frontendTreeVerified {
-		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("prepared runtime seeds do not cover frontend dependencies")
+	if err := validatePreparedRuntimeSeedManifest(config, program, prepared); err != nil {
+		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, err
 	}
 	return prepared.manifest, prepared, nil
 }
 
-// prepareExecutorRuntimeSeeds 每个分片只校验一次不可变依赖树，lane 仅复用已验证结果。
+// standaloneRuntimeSeedManifest 为非计划执行完整复验依赖树，禁止借用 ECI accepted proof。
+func standaloneRuntimeSeedManifest(
+	config executorConfig,
+	program ExecutorProgram,
+) (RuntimeSeedManifest, executorPreparedRuntimeSeeds, error) {
+	prepared, err := prepareExecutorRuntimeSeeds(
+		config.runtimeSeedRoot,
+		config.runtimeSeedManifest,
+		program.NeedsGoSeed,
+		program.NeedsFrontendSeed,
+	)
+	if err != nil {
+		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, err
+	}
+	if prepared == nil {
+		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("runtime seed preparation produced no result")
+	}
+	if program.NeedsGoSeed {
+		if err := validateGoRuntimeSeedTrees(config.runtimeSeedRoot, prepared.manifest); err != nil {
+			return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, err
+		}
+	}
+	if program.NeedsFrontendSeed {
+		if err := validateFrontendRuntimeSeedTrees(config.runtimeSeedRoot, prepared.manifest); err != nil {
+			return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, err
+		}
+	}
+	return prepared.manifest, *prepared, nil
+}
+
+// validatePreparedRuntimeSeedManifest 确认 plan proof 精确覆盖当前程序需要的固定 roots。
+func validatePreparedRuntimeSeedManifest(
+	config executorConfig,
+	program ExecutorProgram,
+	prepared executorPreparedRuntimeSeeds,
+) error {
+	if prepared.runtimeSeedRoot != config.runtimeSeedRoot || prepared.runtimeSeedManifest != config.runtimeSeedManifest {
+		return errors.New("prepared runtime seed identity does not match executor config")
+	}
+	if program.NeedsGoSeed && !prepared.goRootsVerified {
+		return errors.New("prepared runtime seeds do not cover Go dependencies")
+	}
+	if program.NeedsFrontendSeed && !prepared.frontendRootsVerified {
+		return errors.New("prepared runtime seeds do not cover frontend dependencies")
+	}
+	return nil
+}
+
+// prepareExecutorRuntimeSeeds 每个分片只校验一次 accepted manifest、固定根与只读镜像挂载。
 func prepareExecutorRuntimeSeeds(
 	runtimeSeedRoot string,
 	runtimeSeedManifest string,
@@ -201,65 +178,61 @@ func prepareExecutorRuntimeSeeds(
 	if err != nil {
 		return nil, err
 	}
-	legacySchema := manifest.SchemaVersion == runtimeSeedLegacySchemaVersion
-	manifest, err = normalizePreparedRuntimeSeedManifest(runtimeSeedRoot, manifest, needsFrontendSeed)
-	if err != nil {
+	if err := validateRuntimeSeedImageRoots(runtimeSeedRoot, needsGoSeed, needsFrontendSeed); err != nil {
 		return nil, err
-	}
-	if needsGoSeed {
-		if err := validateGoRuntimeSeedTrees(runtimeSeedRoot, manifest); err != nil {
-			return nil, err
-		}
-	}
-	if needsFrontendSeed {
-		if err := validateFrontendRuntimeSeed(runtimeSeedRoot, manifest, legacySchema); err != nil {
-			return nil, err
-		}
 	}
 	return &executorPreparedRuntimeSeeds{
 		runtimeSeedRoot: runtimeSeedRoot, runtimeSeedManifest: runtimeSeedManifest, manifest: manifest,
-		goTreesVerified: needsGoSeed, frontendTreeVerified: needsFrontendSeed,
+		goRootsVerified: needsGoSeed, frontendRootsVerified: needsFrontendSeed,
 	}, nil
 }
 
-// normalizePreparedRuntimeSeedManifest 为旧基线补齐可验证的 npm cache 身份。
-func normalizePreparedRuntimeSeedManifest(
-	runtimeSeedRoot string,
-	manifest RuntimeSeedManifest,
-	needsFrontendSeed bool,
-) (RuntimeSeedManifest, error) {
-	if manifest.SchemaVersion != runtimeSeedLegacySchemaVersion || !needsFrontendSeed {
-		return manifest, nil
-	}
-	npmCacheDigest, err := RuntimeSeedTreeDigest(filepath.Join(runtimeSeedRoot, "frontend", "npm-cache"))
+// validateRuntimeSeedImageRoots 只校验 accepted 不可变镜像的固定根和只读挂载。
+// 树摘要由镜像构建/内容验收生成并复验，normal shard 不重复扫描整棵依赖树。
+func validateRuntimeSeedImageRoots(runtimeSeedRoot string, needsGoSeed bool, needsFrontendSeed bool) error {
+	root, err := trustedDirectory(runtimeSeedRoot, false, -1)
 	if err != nil {
-		return RuntimeSeedManifest{}, fmt.Errorf("bind legacy frontend npm cache seed: %w", err)
+		return fmt.Errorf("runtime seed root: %w", err)
 	}
-	manifest.SchemaVersion = RuntimeSeedSchemaVersion
-	manifest.NPMCacheTreeSHA256 = npmCacheDigest
-	return manifest, nil
+	if root == ExecutorRuntimeSeedRoot {
+		if err := validateReadOnlyImagePath(root); err != nil {
+			return fmt.Errorf("runtime seed image mount: %w", err)
+		}
+	}
+	roots := make([]string, 0, 5)
+	if needsGoSeed {
+		roots = append(roots, filepath.Join(root, "go-proxy"), filepath.Join(root, "go-mod-cache"))
+	}
+	if needsFrontendSeed {
+		roots = append(roots,
+			filepath.Join(root, "frontend", "node_modules"),
+			filepath.Join(root, "frontend", "npm-cache"),
+			filepath.Join(root, "frontend", "vite-cache"),
+		)
+	}
+	for _, seedRoot := range roots {
+		if _, err := trustedDirectory(seedRoot, false, -1); err != nil {
+			return fmt.Errorf("runtime seed image root %q: %w", seedRoot, err)
+		}
+	}
+	return nil
 }
 
-// validateFrontendRuntimeSeed 校验 node_modules，并为当前 schema 额外校验 npm cache。
-func validateFrontendRuntimeSeed(
-	runtimeSeedRoot string,
-	manifest RuntimeSeedManifest,
-	legacySchema bool,
-) error {
-	if err := validateRuntimeSeedTree(
-		filepath.Join(runtimeSeedRoot, "frontend", "node_modules"),
-		manifest.NodeModulesTreeSHA256,
-	); err != nil {
-		return fmt.Errorf("validate frontend runtime seed: %w", err)
-	}
-	if legacySchema {
-		return nil
-	}
-	if err := validateRuntimeSeedTree(
-		filepath.Join(runtimeSeedRoot, "frontend", "npm-cache"),
-		manifest.NPMCacheTreeSHA256,
-	); err != nil {
-		return fmt.Errorf("validate frontend npm cache seed: %w", err)
+// validateFrontendRuntimeSeedTrees 为非计划 standalone 执行保留完整树复验。
+// ECI normal shard 总是携带 plan 级 prepared proof，不进入此慢路径。
+func validateFrontendRuntimeSeedTrees(runtimeSeedRoot string, manifest RuntimeSeedManifest) error {
+	for _, seed := range []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{name: "node_modules", path: filepath.Join(runtimeSeedRoot, "frontend", "node_modules"), expected: manifest.NodeModulesTreeSHA256},
+		{name: "npm cache", path: filepath.Join(runtimeSeedRoot, "frontend", "npm-cache"), expected: manifest.NPMCacheTreeSHA256},
+		{name: "Vite cache", path: filepath.Join(runtimeSeedRoot, "frontend", "vite-cache"), expected: manifest.ViteCacheTreeSHA256},
+	} {
+		if err := validateRuntimeSeedTree(seed.path, seed.expected); err != nil {
+			return fmt.Errorf("validate frontend %s seed: %w", seed.name, err)
+		}
 	}
 	return nil
 }
@@ -270,12 +243,12 @@ func installExecutorSeeds(config executorConfig, layout executorLayout, program 
 		return err
 	}
 	if program.NeedsGoSeed {
-		seedRoots, err := executorGoBuildCacheSeedRoots(config)
+		seedRoot, err := executorGoBuildCacheSeedRoot(config)
 		if err != nil {
 			return err
 		}
 		if config.goBuildCacheRoot == "" {
-			if err := seedExecutorGoBuildCacheSeeds(seedRoots, layout.goCache); err != nil {
+			if err := seedExecutorGoBuildCache(seedRoot, layout.goCache); err != nil {
 				return err
 			}
 		}
@@ -289,11 +262,11 @@ func installExecutorSeeds(config executorConfig, layout executorLayout, program 
 	return installFrontendEmbedSeed(config, layout)
 }
 
-func executorGoBuildCacheSeedRoots(config executorConfig) ([]string, error) {
-	if len(config.goBuildCacheSeedRoots) != 0 {
-		return append([]string(nil), config.goBuildCacheSeedRoots...), nil
+func executorGoBuildCacheSeedRoot(config executorConfig) (string, error) {
+	if config.goBuildCacheSeedRoot != "" {
+		return config.goBuildCacheSeedRoot, nil
 	}
-	return nil, errors.New("Go build cache seeds are not configured")
+	return "", errors.New("Go build cache seed is not configured")
 }
 
 // validateSharedGoModuleCache 确认共享模块缓存和下载元数据均已由基线预热。
@@ -328,7 +301,7 @@ func validateBoundRuntimeFile(path string, expectedDigest string) error {
 	return nil
 }
 
-// validateRuntimeSeedTree 校验环境镜像中的只读依赖树与清单摘要一致。
+// validateRuntimeSeedTree 校验镜像构建或 standalone 执行中的依赖树摘要。
 func validateRuntimeSeedTree(path string, expectedDigest string) error {
 	actualDigest, err := RuntimeSeedTreeDigest(path)
 	if err != nil {
@@ -471,24 +444,9 @@ func (manifest RuntimeSeedManifest) validateShape() error {
 	return manifest.validateDigestFields(true)
 }
 
-// validateDecodedShape 仅为已验收原始镜像接受一代旧清单；新清单的编码仍只允许当前 schema。
+// validateDecodedShape 只接受当前镜像清单 schema，拒绝旧路径回流。
 func (manifest RuntimeSeedManifest) validateDecodedShape() error {
-	switch manifest.SchemaVersion {
-	case RuntimeSeedSchemaVersion:
-		return manifest.validateDigestFields(true)
-	case runtimeSeedLegacySchemaVersion:
-		if manifest.NPMCacheTreeSHA256 != "" {
-			return errors.New("legacy runtime seed manifest declares an npm cache digest")
-		}
-		return manifest.validateDigestFields(false)
-	default:
-		return fmt.Errorf(
-			"runtime seed schema = %d, want %d or rolling predecessor %d",
-			manifest.SchemaVersion,
-			RuntimeSeedSchemaVersion,
-			runtimeSeedLegacySchemaVersion,
-		)
-	}
+	return manifest.validateShape()
 }
 
 func (manifest RuntimeSeedManifest) validateDigestFields(requireNPMCache bool) error {

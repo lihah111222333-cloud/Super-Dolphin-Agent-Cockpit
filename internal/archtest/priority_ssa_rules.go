@@ -125,16 +125,16 @@ func collectPrioritySSAFXInvokeViolations(pkg *prioritySSAPackage, fn *ssa.Funct
 }
 
 // collectPrioritySSAOnStartViolations 扫描 fx.Hook OnStart 回调中的启动副作用。
-func collectPrioritySSAOnStartViolations(pkg *prioritySSAPackage, ssaPkg *ssa.Package) []PrioritySSAViolation {
+func collectPrioritySSAOnStartViolations(pkg *prioritySSAPackage, ssaPkg *ssa.Package, allFunctions []*ssa.Function) []PrioritySSAViolation {
 	targets := prioritySSAOnStartFunctionTargets(pkg)
 	if len(targets) == 0 {
 		return nil
 	}
-	functions := prioritySSAFunctionsByName(ssaPkg)
-	functionsByPos := prioritySSAFunctionsByPos(ssaPkg)
+	functionsByName := prioritySSAFunctionsByName(allFunctions)
+	functionsByPos := prioritySSAFunctionsByPos(allFunctions)
 	var violations []PrioritySSAViolation
 	for _, target := range targets {
-		fn := prioritySSAFunctionForTarget(ssaPkg, target, functions, functionsByPos)
+		fn := prioritySSAFunctionForTarget(ssaPkg, target, functionsByName, functionsByPos)
 		if fn == nil || prioritySSARootBridgeAllowed(pkg, fn) {
 			continue
 		}
@@ -603,9 +603,9 @@ func prioritySSAFunctionTargetFromExpr(pkg *prioritySSAPackage, expr ast.Expr) [
 	}
 }
 
-func prioritySSAFunctionsByPos(ssaPkg *ssa.Package) map[token.Pos]*ssa.Function {
+func prioritySSAFunctionsByPos(functions []*ssa.Function) map[token.Pos]*ssa.Function {
 	out := map[token.Pos]*ssa.Function{}
-	for _, fn := range prioritySSAFunctions(ssaPkg) {
+	for _, fn := range functions {
 		if fn.Pos().IsValid() {
 			out[fn.Pos()] = fn
 		}
@@ -717,9 +717,9 @@ func prioritySSALookupMethod(
 	return prog.LookupMethod(recvType, methodPkg, methodName)
 }
 
-func prioritySSAFunctionsByName(ssaPkg *ssa.Package) map[string]*ssa.Function {
+func prioritySSAFunctionsByName(functions []*ssa.Function) map[string]*ssa.Function {
 	out := map[string]*ssa.Function{}
-	for _, fn := range prioritySSAFunctions(ssaPkg) {
+	for _, fn := range functions {
 		if fn.Parent() == nil {
 			out[fn.Name()] = fn
 			out[prioritySSACleanFunctionValueName(fn.Name())] = fn

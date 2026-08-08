@@ -57,6 +57,85 @@ func TestLoadRemoteCIRunRequiresCurrentExecutionProfile(t *testing.T) {
 	}
 }
 
+// TestLoadRemoteCIRunAcceptsAggregateExecutionProfileOverlap 证明 parent gate 的阶段区间可重叠但均受关键路径约束。
+func TestLoadRemoteCIRunAcceptsAggregateExecutionProfileOverlap(t *testing.T) {
+	profile := ExecutionProfile{
+		CacheSource:      "none",
+		CacheStatus:      CacheObservationNotApplicable,
+		CacheMeasurement: "measured",
+		StartupMS:        2,
+		TestBodyMS:       2,
+		TotalMS:          2,
+	}
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, _, _ := recordWorkloadPassRun(t, store, "aggregate-overlap-profile", 1, string(GateIDWhitespaceCheck))
+	insertRemoteCIGateExecutionProfile(t, store, record, string(encoded))
+
+	loaded, err := store.LoadRemoteCIRun(record.JobID)
+	if err != nil {
+		t.Fatalf("LoadRemoteCIRun() error = %v", err)
+	}
+	if len(loaded.Executions) != 1 || !reflect.DeepEqual(loaded.Executions[0].ExecutionProfile, profile) {
+		t.Fatalf("loaded executions = %#v, want aggregate profile %#v", loaded.Executions, profile)
+	}
+}
+
+func TestLoadRemoteCIRunCanonicalAggregateTimingRoundTripRejectsDrift(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, _, _ := recordWorkloadPassRun(t, store, "aggregate-canonical-roundtrip", 1, string(GateIDWhitespaceCheck))
+	rawStarted := record.StartedAt.Add(123456789 * time.Nanosecond)
+	rawCompleted := rawStarted.Add(12*time.Millisecond + 900*time.Microsecond)
+	started, completed, totalMS, err := CanonicalExecutionInterval(rawStarted, rawCompleted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := ExecutionProfile{
+		CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "measured",
+		StartupMS: 1, TestBodyMS: 2, TotalMS: totalMS,
+	}
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertRemoteCIGateExecutionProfileAt(t, store, record, started, completed, string(encoded))
+	loaded, err := store.LoadRemoteCIRun(record.JobID)
+	if err != nil {
+		t.Fatalf("LoadRemoteCIRun() canonical roundtrip error = %v", err)
+	}
+	assertCanonicalGateExecution(t, loaded.Executions, started, completed, totalMS)
+	corrupted := profile
+	corrupted.TotalMS++
+	corruptedJSON, err := json.Marshal(corrupted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateRemoteCIGateExecutionProfile(t, store, record.JobID, string(corruptedJSON))
+	if _, err := store.LoadRemoteCIRun(record.JobID); err == nil || !strings.Contains(err.Error(), "stored remote CI aggregate execution interval is invalid") {
+		t.Fatalf("LoadRemoteCIRun() corrupted aggregate error = %v", err)
+	}
+}
+
+func assertCanonicalGateExecution(t *testing.T, executions []PlanGateExecution, started, completed time.Time, totalMS int64) {
+	t.Helper()
+	if len(executions) != 1 {
+		t.Fatalf("loaded canonical executions = %#v, want one", executions)
+	}
+	execution := executions[0]
+	if !execution.StartedAt.Equal(started) {
+		t.Fatalf("loaded canonical started_at = %s, want %s", execution.StartedAt, started)
+	}
+	if !execution.CompletedAt.Equal(completed) {
+		t.Fatalf("loaded canonical completed_at = %s, want %s", execution.CompletedAt, completed)
+	}
+	if execution.ExecutionProfile.TotalMS != totalMS {
+		t.Fatalf("loaded canonical total_ms = %d, want %d", execution.ExecutionProfile.TotalMS, totalMS)
+	}
+}
+
 // TestLoadRemoteCIRunRequiresCurrentWorkloadExecutionProfile 证明 child row 同样不能接受空值或旧零画像。
 func TestLoadRemoteCIRunRequiresCurrentWorkloadExecutionProfile(t *testing.T) {
 	for _, test := range []struct {
@@ -85,6 +164,11 @@ func TestLoadRemoteCIRunRequiresCurrentWorkloadExecutionProfile(t *testing.T) {
 // insertRemoteCIGateExecutionProfile 写入精确的查询边界 fixture，不经生产 encoder 修复测试输入。
 func insertRemoteCIGateExecutionProfile(t *testing.T, store *DurationLedgerStore, record RemoteCIRunRecord, profile string) {
 	t.Helper()
+	insertRemoteCIGateExecutionProfileAt(t, store, record, record.StartedAt, record.StartedAt.Add(2*time.Millisecond), profile)
+}
+
+func insertRemoteCIGateExecutionProfileAt(t *testing.T, store *DurationLedgerStore, record RemoteCIRunRecord, startedAt, completedAt time.Time, profile string) {
+	t.Helper()
 	database := openWorkloadPassDatabase(t, store)
 	defer database.Close()
 	if _, err := database.Exec(`
@@ -93,8 +177,25 @@ func insertRemoteCIGateExecutionProfile(t *testing.T, store *DurationLedgerStore
 			completed_at_unix_ms, argv_digest, log_digest, test_timings_json, execution_profile_json
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, record.JobID, string(GateIDWhitespaceCheck), string(ResultStatusPassed), 0,
-		record.StartedAt.UnixMilli(), record.StartedAt.Add(2*time.Millisecond).UnixMilli(), "", "sha256:"+strings.Repeat("b", 64), "[]", profile); err != nil {
+		startedAt.UnixMilli(), completedAt.UnixMilli(), "", "sha256:"+strings.Repeat("b", 64), "[]", profile); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func updateRemoteCIGateExecutionProfile(t *testing.T, store *DurationLedgerStore, jobID, profile string) {
+	t.Helper()
+	database := openWorkloadPassDatabase(t, store)
+	defer database.Close()
+	result, err := database.Exec(`UPDATE ci_gate_executions SET execution_profile_json = ? WHERE job_id = ?`, profile, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated != 1 {
+		t.Fatalf("updated gate profiles = %d, want 1", updated)
 	}
 }
 

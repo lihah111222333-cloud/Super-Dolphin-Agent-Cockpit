@@ -15,7 +15,6 @@ func TestCIEntrypointRegistryCapabilities(t *testing.T) {
 		newCIEntrypoint(CIEntrypointGitPreCommit, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, true, CIEntrypointOwnerManagedGitPreCommit, CIEntrypointAdapterGitPreCommit),
 		newCIEntrypoint(CIEntrypointGitPrePush, []SourceKind{SourceKindRange}, []Profile{ProfilePush}, true, CIEntrypointOwnerManagedGitPrePush, CIEntrypointAdapterGitPrePush),
 		newCIEntrypoint(CIEntrypointManualCLI, []SourceKind{SourceKindCommit, SourceKindTree, SourceKindRange}, []Profile{ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion, ProfileRelease}, false, CIEntrypointOwnerManualCLI, CIEntrypointAdapterManualCLI),
-		newCIEntrypoint(CIEntrypointWorkflowRequired, []SourceKind{SourceKindCommit, SourceKindRange}, []Profile{ProfileRemoteRequired}, true, CIEntrypointOwnerWorkflowRequired, CIEntrypointAdapterWorkflowRequired),
 		newCIEntrypoint(CIEntrypointRelease, []SourceKind{SourceKindCommit}, []Profile{ProfileRelease}, true, CIEntrypointOwnerRelease, CIEntrypointAdapterRelease),
 	}
 	got := CIEntrypointRegistry()
@@ -39,15 +38,14 @@ func TestCIEntrypointStableIDsAndExternalAuthorityOwners(t *testing.T) {
 	for _, entrypoint := range registry {
 		gotIDs = append(gotIDs, string(entrypoint.ID))
 	}
-	wantIDs := []string{"git-pre-commit", "git-pre-push", "manual-cli", "workflow-required", "release"}
+	wantIDs := []string{"git-pre-commit", "git-pre-push", "manual-cli", "release"}
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
 		t.Fatalf("CI entrypoint IDs = %v, want %v", gotIDs, wantIDs)
 	}
 	wantOwners := map[CIEntrypointID]string{
-		CIEntrypointGitPreCommit:     "managed-launcher/git-pre-commit",
-		CIEntrypointGitPrePush:       "managed-launcher/git-pre-push",
-		CIEntrypointWorkflowRequired: "protected-reusable-workflow/github-app-oidc",
-		CIEntrypointRelease:          "external-release-authority",
+		CIEntrypointGitPreCommit: "managed-launcher/git-pre-commit",
+		CIEntrypointGitPrePush:   "managed-launcher/git-pre-push",
+		CIEntrypointRelease:      "external-release-authority",
 	}
 	for _, entrypoint := range registry {
 		if want, ok := wantOwners[entrypoint.ID]; ok && string(entrypoint.Owner) != want {
@@ -165,7 +163,10 @@ func TestValidateCIEntrypointRegistryRejectsMalformedCatalogs(t *testing.T) {
 		build func() []CIEntrypoint
 	}{
 		{name: "empty", build: func() []CIEntrypoint { return nil }},
-		{name: "missing", build: func() []CIEntrypoint { return CIEntrypointRegistry()[:4] }},
+		{name: "missing", build: func() []CIEntrypoint {
+			registry := CIEntrypointRegistry()
+			return registry[:len(registry)-1]
+		}},
 		{name: "duplicate id", build: func() []CIEntrypoint { registry := CIEntrypointRegistry(); registry[1] = registry[0]; return registry }},
 		{name: "unordered", build: func() []CIEntrypoint {
 			registry := CIEntrypointRegistry()

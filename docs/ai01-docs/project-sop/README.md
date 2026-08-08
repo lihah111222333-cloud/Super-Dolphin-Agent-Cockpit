@@ -43,7 +43,7 @@
 - MCP 和工具面：`cmd/mcp-orch/**`、`cmd/mcp-lsp/**`、`internal/mcpserver/common/http_transport.go`
 - 当前 React UI：`frontend-app/package.json`、`frontend-app/src/App.jsx`、`frontend-app/src/shared/api/backendApi.js`
 - 数据模型：`sqlc.yaml`、`internal/platform/db/sqlite/migrations/001_baseline.sql` 及后续 SQLite 迁移
-- CI/CD 和发布：`.github/workflows/ci.yml`、`scripts/package_windows.ps1`、`scripts/package_macos.sh`、`scripts/package_linux.sh`、`scripts/publish_github_release.sh`
+- CI/CD 和发布：`docs/契约/remote-ci-eci-imagecache-contract.md`、`.github/workflows/release.yml`、`scripts/package_windows.ps1`、`scripts/package_macos.sh`、`scripts/package_linux.sh`、`scripts/publish_github_release.sh`
 - 本地观测栈：`deploy/elk/README.md`、`deploy/elk/docker-compose.yml`、`scripts/elk-local.ps1`
 
 ## 本次未执行的动作

@@ -113,6 +113,8 @@ func validRemoteGitObjectID(value string) bool {
 	return err == nil
 }
 func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) error {
+	snapshot.goSourcesMu.Lock()
+	defer snapshot.goSourcesMu.Unlock()
 	if snapshot.goSources != nil {
 		return nil
 	}
@@ -133,7 +135,8 @@ func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) err
 func (snapshot *remoteGitTreeSnapshot) goSourcePaths() []string {
 	paths := make([]string, 0)
 	for _, entry := range snapshot.entries {
-		if entry.kind == "blob" && (path.Ext(entry.path) == ".go" || entry.path == "go.mod" || entry.path == "go.work") {
+		base := path.Base(entry.path)
+		if entry.kind == "blob" && (path.Ext(entry.path) == ".go" || base == "go.mod" || base == "go.sum" || base == "go.work") {
 			paths = append(paths, entry.path)
 		}
 	}
@@ -178,18 +181,77 @@ func localRemoteGoModuleMappings(parsed *modfile.File) ([]remoteGoModuleMapping,
 	return mappings, nil
 }
 
+// localRemoteGoModuleMapping 保留版本化模块替换不参与仓库文件映射，并拒绝越出候选 tree 的本地目录。
 func localRemoteGoModuleMapping(replacement *modfile.Replace) (remoteGoModuleMapping, bool, error) {
-	if replacement.New.Version != "" || !strings.HasPrefix(replacement.New.Path, ".") {
+	if replacement.New.Version != "" {
 		return remoteGoModuleMapping{}, false, nil
 	}
-	directory := path.Clean(replacement.New.Path)
-	if directory == ".." || strings.HasPrefix(directory, "../") {
-		return remoteGoModuleMapping{}, false, errors.New("Go workload fingerprint local replacement escapes the repository")
+	if !modfile.IsDirectoryPath(replacement.New.Path) && !isHomeRelativeGoModulePath(replacement.New.Path) {
+		return remoteGoModuleMapping{}, false, nil
+	}
+	directory, err := canonicalRemoteGoModuleDirectory(replacement.New.Path)
+	if err != nil {
+		return remoteGoModuleMapping{}, false, err
 	}
 	return remoteGoModuleMapping{
 		importPath: replacement.Old.Path,
-		directory:  strings.TrimPrefix(directory, "./"),
+		directory:  directory,
 	}, true, nil
+}
+
+// isHomeRelativeGoModulePath 识别依赖用户主目录展开的本地路径，避免把主目录内容带入远程候选 tree。
+func isHomeRelativeGoModulePath(value string) bool {
+	normalized := strings.ReplaceAll(value, `\`, "/")
+	return normalized == "~" || strings.HasPrefix(normalized, "~/")
+}
+
+// canonicalRemoteGoModuleDirectory 将本地替换归一化为仓库相对目录，并在路径逃逸时 fail-fast。
+func canonicalRemoteGoModuleDirectory(value string) (string, error) {
+	normalized := strings.ReplaceAll(value, `\`, "/")
+	if isHomeRelativeGoModulePath(normalized) || path.IsAbs(normalized) || isWindowsDriveGoModulePath(normalized) {
+		return "", errors.New("Go workload fingerprint local replacement escapes the repository")
+	}
+	directory := path.Clean(normalized)
+	if directory == ".." || strings.HasPrefix(directory, "../") {
+		return "", errors.New("Go workload fingerprint local replacement escapes the repository")
+	}
+	return strings.TrimPrefix(directory, "./"), nil
+}
+
+// isWindowsDriveGoModulePath 识别盘符开头的本地路径，防止跨平台解析漏掉外部文件系统。
+func isWindowsDriveGoModulePath(value string) bool {
+	return len(value) >= 2 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':'
+}
+
+// localGoModuleMetadataEntries 返回根模块及本地替换模块的 go.mod/go.sum tree entries，缺少 go.mod 或非 blob 立即失败。
+func (snapshot *remoteGitTreeSnapshot) localGoModuleMetadataEntries() ([]remoteGitTreeEntry, error) {
+	if snapshot == nil {
+		return nil, errors.New("Go workload fingerprint snapshot is required")
+	}
+	entries := make([]remoteGitTreeEntry, 0, len(snapshot.moduleMappings)*2)
+	seen := make(map[string]struct{}, len(snapshot.moduleMappings)*2)
+	for _, mapping := range snapshot.moduleMappings {
+		for _, base := range []string{"go.mod", "go.sum"} {
+			filePath := path.Join(mapping.directory, base)
+			entry, exists := snapshot.byPath[filePath]
+			if !exists {
+				if base == "go.sum" {
+					continue
+				}
+				return nil, fmt.Errorf("Go workload fingerprint local module %q is missing %s", mapping.importPath, filePath)
+			}
+			if entry.kind != "blob" {
+				return nil, fmt.Errorf("Go workload fingerprint local module metadata %q is not a blob", filePath)
+			}
+			if _, duplicate := seen[filePath]; duplicate {
+				continue
+			}
+			seen[filePath] = struct{}{}
+			entries = append(entries, entry)
+		}
+	}
+	sort.Slice(entries, func(left, right int) bool { return entries[left].path < entries[right].path })
+	return entries, nil
 }
 
 // localGoImports 解析目录源码并返回仓库内依赖目录的确定性列表。
@@ -347,6 +409,7 @@ func (snapshot *remoteGitTreeSnapshot) digestDomainMatching(
 }
 
 func (snapshot *remoteGitTreeSnapshot) digestEntries(entries []remoteGitTreeEntry) (string, error) {
+	snapshot.captureInputClosure(entries)
 	if len(entries) == 0 {
 		return "", errors.New("remote workload production input set is empty")
 	}

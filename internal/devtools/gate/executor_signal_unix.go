@@ -23,7 +23,18 @@ func configureCommandCancellation(command *exec.Cmd) {
 }
 
 func runConfiguredCommand(command *exec.Cmd) error {
-	runErr := command.Run()
+	return runConfiguredCommandWithStart(command, nil)
+}
+
+// runConfiguredCommandWithStart 仅暴露成功的进程启动边界供计时生产者使用，同时保留进程组清理契约。
+func runConfiguredCommandWithStart(command *exec.Cmd, onStart func()) error {
+	if err := command.Start(); err != nil {
+		return err
+	}
+	if onStart != nil {
+		onStart()
+	}
+	runErr := command.Wait()
 	waitErr := waitForCommandProcessGroup(command)
 	if waitErr == nil {
 		return runErr

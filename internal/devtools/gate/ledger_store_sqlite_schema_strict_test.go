@@ -150,7 +150,7 @@ func assertRogueSchemaRefusal(t *testing.T, name, rogueDDL string) {
 }
 
 func TestDurationLedgerSQLiteRejectsRetiredSchemaVersionsBeforeMutation(t *testing.T) {
-	for _, retiredVersion := range []int{1, 2, 3} {
+	for _, retiredVersion := range []int{1, 2, 3, 9} {
 		t.Run(fmt.Sprintf("v%d", retiredVersion), func(t *testing.T) {
 			assertRetiredSchemaVersionRefusal(t, retiredVersion)
 		})
@@ -204,6 +204,21 @@ func TestDurationLedgerSQLiteRejectsRetiredCompatibilityShapesBeforeMutation(t *
 				status TEXT NOT NULL, catalog_digest TEXT NOT NULL)`,
 			insert:    `INSERT INTO ci_runs VALUES ('job-1','tree-1','passed','catalog-1')`,
 			dataQuery: `SELECT job_id FROM ci_runs`, wantData: "job-1",
+		},
+		{
+			name: "legacy shard overhead aggregate policy", table: "duration_shard_overheads",
+			definition: `CREATE TABLE duration_shard_overheads (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				accepted_generation TEXT NOT NULL,
+				schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+				policy_version TEXT NOT NULL CHECK (policy_version = 'nearest-rank-p95-v1'),
+				platform TEXT NOT NULL, runner TEXT NOT NULL, toolchain TEXT NOT NULL,
+				calibration_resource_class_id TEXT NOT NULL,
+				calibration_resource_cpu REAL NOT NULL, calibration_resource_memory_gib REAL NOT NULL,
+				p95_ms INTEGER NOT NULL, sample_count INTEGER NOT NULL,
+				provenance_digest TEXT NOT NULL, accepted_snapshot_id TEXT NOT NULL)`,
+			insert:    `INSERT INTO duration_shard_overheads VALUES (1,'1',1,'nearest-rank-p95-v1','linux/amd64','runner','toolchain','calibration',4,8,1,1,'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','snapshot')`,
+			dataQuery: `SELECT policy_version FROM duration_shard_overheads`, wantData: "nearest-rank-p95-v1",
 		},
 		{
 			name: "nonempty shard missing timing and resources", table: "ci_shards",

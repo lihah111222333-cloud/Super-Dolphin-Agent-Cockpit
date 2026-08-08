@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -78,9 +79,9 @@ func executeRemoteCalibrationRunsWithExecutor(
 	var inputs [3]remoteci.RunInput
 	var results [3]remoteci.RunResult
 	for index, current := range runOptions {
-		input, result, completed, err := reusableRemoteCalibrationCheckpoint(ledgerStore, checkpoint, current.Scenario)
+		input, result, completed, err := reusableRemoteCalibrationCheckpoint(ledgerStore, checkpoint, current.Scenario, current.Force)
 		if err != nil {
-			return inputs, results, infrastructureError("validate remote calibration checkpoint: %v", err)
+			return inputs, results, infrastructureError("validate remote calibration checkpoint: %w", err)
 		}
 		if completed {
 			inputs[index], results[index] = input, result
@@ -104,13 +105,16 @@ func executeRemoteCalibrationRunsWithExecutor(
 }
 
 // reusableRemoteCalibrationCheckpoint 只恢复已由同一 SQLite authority 完整回读的成功场景。
-func reusableRemoteCalibrationCheckpoint(ledgerStore *gatecontract.DurationLedgerStore, checkpoint *remoteci.CalibrationCheckpoint, scenario string) (remoteci.RunInput, remoteci.RunResult, bool, error) {
+func reusableRemoteCalibrationCheckpoint(ledgerStore *gatecontract.DurationLedgerStore, checkpoint *remoteci.CalibrationCheckpoint, scenario string, force bool) (remoteci.RunInput, remoteci.RunResult, bool, error) {
 	if ledgerStore == nil || checkpoint == nil {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, errors.New("remote calibration ledger store and checkpoint are required")
 	}
 	input, result, completed := checkpoint.Completed(scenario)
 	if !completed {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
+	}
+	if !remoteCalibrationCheckpointForceMatches(input, result, force) {
+		return remoteci.RunInput{}, remoteci.RunResult{}, false, errors.New("remote calibration checkpoint force identity does not match current run")
 	}
 	record, found, err := remoteCalibrationCheckpointAuthorityRecord(ledgerStore, result.JobID)
 	if err != nil {
@@ -120,15 +124,25 @@ func reusableRemoteCalibrationCheckpoint(ledgerStore *gatecontract.DurationLedge
 		return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
 	}
 	result = remoteRunResultFromLedgerRecord(record)
-	complete, err := remoteCalibrationCheckpointHasCompleteCatalog(input, result)
-	if err != nil {
+	return finishReusableRemoteCalibrationCheckpoint(ledgerStore, input, result)
+}
+
+// finishReusableRemoteCalibrationCheckpoint 只在 catalog 与规划证据均完整时恢复断点。
+func finishReusableRemoteCalibrationCheckpoint(
+	ledgerStore *gatecontract.DurationLedgerStore,
+	input remoteci.RunInput,
+	result remoteci.RunResult,
+) (remoteci.RunInput, remoteci.RunResult, bool, error) {
+	if err := remoteCalibrationCheckpointRequirePlanningEvidence(ledgerStore, input, result); err != nil {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, err
-	}
-	if !complete {
-		return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
 	}
 	input.LedgerStore = ledgerStore
 	return input, result, true, nil
+}
+
+// remoteCalibrationCheckpointForceMatches 确认断点载荷与当前 force 审计语义一致。
+func remoteCalibrationCheckpointForceMatches(input remoteci.RunInput, result remoteci.RunResult, force bool) bool {
+	return input.Force == force && result.Force == force
 }
 
 // remoteCalibrationCheckpointAuthorityRecord 从唯一账本读取 checkpoint 绑定的运行记录。
@@ -143,22 +157,41 @@ func remoteCalibrationCheckpointAuthorityRecord(ledgerStore *gatecontract.Durati
 	return record, true, nil
 }
 
-// remoteCalibrationCheckpointHasCompleteCatalog 验证权威运行覆盖当前 catalog 的全部 workload。
-func remoteCalibrationCheckpointHasCompleteCatalog(input remoteci.RunInput, result remoteci.RunResult) (bool, error) {
-	catalog, _, err := remoteCalibrationCatalog(input)
+// remoteCalibrationCheckpointRequirePlanningEvidence 只有 SQLite 中已有校准模式样本、
+// 已接受分片开销和该权威运行持久化的精确目录时才允许恢复断点。
+func remoteCalibrationCheckpointRequirePlanningEvidence(
+	ledgerStore *gatecontract.DurationLedgerStore,
+	input remoteci.RunInput,
+	result remoteci.RunResult,
+) error {
+	if ledgerStore == nil {
+		return errors.New("remote calibration ledger store is required")
+	}
+	input.LedgerStore = ledgerStore
+	_, catalog, err := remoteRunContractPlanAndCatalog(input, result)
 	if err != nil {
-		return false, err
+		return err
 	}
-	passed, err := remoteCalibrationPassedCatalogWorkloadSet(input, catalog, result)
+	calibration := gatecontract.DurationCalibration{
+		Platform:                     input.Platform,
+		Runner:                       input.RunnerIdentityDigest,
+		Toolchain:                    input.ToolchainDigest,
+		CalibrationResourceClassID:   input.CalibrationResource.ID,
+		CalibrationResourceCPU:       float64(input.CalibrationResource.VCPU),
+		CalibrationResourceMemoryGiB: float64(input.CalibrationResource.MemoryGiB),
+		AcceptedSnapshotID:           input.ImageCacheSnapshotID,
+	}
+	snapshot, err := ledgerStore.LoadPlanning(remoteCalibrationPlanningContext(calibration))
 	if err != nil {
-		return false, err
+		return err
 	}
-	for _, workload := range catalog.Workloads {
-		if _, ok := passed[remoteCalibrationWorkloadKey(workload)]; !ok {
-			return false, nil
-		}
+	if snapshot.Ledger.ShardOverhead == nil {
+		return fmt.Errorf("%w: accepted shard overhead is incomplete", errRemoteCalibrationSamplesIncomplete)
 	}
-	return true, nil
+	if _, _, err := verifyRemoteCalibrationIndexedEvidence(snapshot, calibration, nil, catalog); err != nil {
+		return err
+	}
+	return nil
 }
 
 func reopenRemoteCalibrationCheckpoint(checkpoint *remoteci.CalibrationCheckpoint, scenario string) (remoteci.RunInput, remoteci.RunResult, bool, error) {
@@ -189,6 +222,8 @@ func remoteCalibrationCheckpointExecutionMatches(input remoteci.RunInput, result
 		record.Entrypoint == result.Entrypoint &&
 		record.Profile == input.Profile &&
 		record.Profile == result.Profile &&
+		record.Force == input.Force &&
+		record.Force == result.Force &&
 		record.PlanDigest == result.PlanDigest &&
 		record.CatalogDigest == result.CatalogDigest &&
 		record.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
@@ -214,12 +249,17 @@ func remoteCalibrationCheckpointPassed(record gatecontract.RemoteCIRunRecord) bo
 }
 
 func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remoteci.RunResult {
+	identities := make([]gatecontract.WorkloadPassIdentity, 0, len(record.WorkloadResults))
+	for _, workload := range record.WorkloadResults {
+		identities = append(identities, workload.Identity)
+	}
 	return remoteci.RunResult{
 		SchemaVersion:                remoteci.RunResultSchemaVersion,
 		AcceptedGeneration:           record.AcceptedGeneration,
 		ImageCacheSnapshotID:         record.ImageCacheSnapshotID,
 		JobID:                        record.JobID,
 		AgentTokenDigest:             record.AgentTokenDigest,
+		Force:                        record.Force,
 		Entrypoint:                   record.Entrypoint,
 		Profile:                      record.Profile,
 		PlanDigest:                   record.PlanDigest,
@@ -234,6 +274,7 @@ func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remo
 		CompletedAt:                  record.CompletedAt,
 		GateExecutions:               append(append([]gatecontract.PlanGateExecution(nil), record.Executions...), record.WorkloadExecutions...),
 		WorkloadExecutions:           append([]gatecontract.PlanGateExecution(nil), record.WorkloadExecutions...),
+		WorkloadPassIdentities:       identities,
 		OptimizationWarnings:         append([]string(nil), record.Warnings...),
 		TimingWarnings:               append([]gatecontract.RemoteCITimingWarning(nil), record.TimingWarnings...),
 		CleanupComplete:              record.CleanupComplete,

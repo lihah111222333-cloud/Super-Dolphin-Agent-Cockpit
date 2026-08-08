@@ -54,12 +54,32 @@ describe('frontend z-index token guard', () => {
     expect(packageJson.scripts['guard:critical-skip']).not.toMatch(/baseline|allowlist|threshold/);
     expect(packageJson.scripts['test:hook']).toBe('node scripts/frontend-hook-test-runner.mjs');
     expect(packageJson.scripts['test:hook:preflight']).toMatch(/^npm run guard:critical-skip\s*&&/);
-    expect(packageJson.scripts['test:hook:core']).toContain('vitest run --changed HEAD^ --maxWorkers=2');
-    expect(packageJson.scripts['test:full']).toBe(
-      'npm run test:hook:preflight && vitest run --maxWorkers=2 --exclude scripts/delivery-smoke-runner.test.mjs && node scripts/frontend-verification-isolation.mjs delivery-test',
-    );
-    expect(packageJson.scripts['verify:embed:isolated']).toBe('node scripts/frontend-verification-isolation.mjs embed-verify');
+    expect(packageJson.scripts['test:hook:core']).toContain('vitest run --configLoader runner --changed HEAD^ --maxWorkers=2');
+    expect(packageJson.scripts['test:full']).toMatch(/^npm run test:hook:preflight\s*&&/);
+    expect(packageJson.scripts['test:full']).toContain('vitest run --configLoader runner --maxWorkers=2');
     expect(packageJson.scripts['test:hook:core']).not.toContain('--no-file-parallelism');
+  });
+
+  it('pins every Vite and Vitest entrypoint to the runner config loader', () => {
+    const packageEntrypoints = Object.entries(packageJson.scripts)
+      .filter(([, command]) => /\b(?:vite|vitest)\b/.test(command));
+    expect(packageEntrypoints.length).toBeGreaterThan(0);
+    for (const [name, command] of packageEntrypoints) {
+      expect(command, name).toContain('--configLoader runner');
+      expect(command, name).not.toContain('--configLoader bundle');
+    }
+
+    const directEntrypoints = [
+      ['scripts/action-production-runtime-runner.mjs', /['"]--configLoader['"],\s*['"]runner['"]/],
+      ['scripts/failure-matrix-runner.mjs', /['"]--configLoader['"],\s*['"]runner['"]/],
+      ['scripts/ui-test-mcp-acceptance.mjs', /['"]--configLoader['"],\s*['"]runner['"]/],
+      ['scripts/delivery-smoke-runner.mjs', /vite build --configLoader runner/],
+    ];
+    for (const [relativePath, marker] of directEntrypoints) {
+      const source = readFileSync(path.join(process.cwd(), relativePath), 'utf8');
+      expect(source, relativePath).toMatch(marker);
+      expect(source, relativePath).not.toMatch(/--configLoader[^\n]*bundle/);
+    }
   });
 
   it('accepts the exact nine-token contract with global and local selectors in one file', () => {

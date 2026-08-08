@@ -63,7 +63,7 @@ func TestFrontendBuildSyncHasUniqueOwner(t *testing.T) {
 
 // TestFrontendBuildSyncOwnerDetection 证明跨 npm/Make 和同一 owner 内的重复同步都会被计数。
 func TestFrontendBuildSyncOwnerDetection(t *testing.T) {
-	packageJSON := `{"scripts":{"build":"vite build && node scripts/sync-frontend-dist.mjs && node scripts/sync-frontend-dist.mjs"}}`
+	packageJSON := `{"scripts":{"build":"vite build --configLoader runner && node scripts/sync-frontend-dist.mjs && node scripts/sync-frontend-dist.mjs"}}`
 	makefile := "frontend-app-build:\n\tnode frontend-app/scripts/sync-frontend-dist.mjs\n"
 	owners, err := frontendBuildSyncOwners(packageJSON, makefile)
 	if err != nil {

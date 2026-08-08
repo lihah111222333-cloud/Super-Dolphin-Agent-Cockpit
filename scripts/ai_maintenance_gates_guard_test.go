@@ -30,7 +30,7 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		`--config "$remote_config"`,
 		`--ledger "$remote_ledger"`,
 		`--repository "$repo_root"`,
-		`exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`,
+		`"$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"`,
 	} {
 		if !strings.Contains(prePush, required) {
 			return fmt.Errorf("pre-push must route through trusted gate CLI command %q", required)
@@ -65,9 +65,9 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, prePush, `--config "$remote_config"`)
 	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
 	assertScriptContains(t, prePush, `--repository "$repo_root"`)
-	assertScriptContains(t, prePush, `exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`)
+	assertScriptContains(t, prePush, `"$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"`)
 	for name, hook := range map[string]string{"pre-commit": preCommit, "pre-push": prePush} {
-		for _, line := range strings.Split(hook, "\n") {
+		for line := range strings.SplitSeq(hook, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "printf ") {
 				continue
 			}
@@ -92,7 +92,7 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 		{
 			name: "pre-commit remote hook command",
 			mutate: func(preCommit, _, _ *string) {
-				*preCommit = strings.Replace(*preCommit, `remote hook pre-commit`, "", 1)
+				*preCommit = strings.ReplaceAll(*preCommit, `remote hook pre-commit`, "")
 			},
 		},
 		{
@@ -104,7 +104,7 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 		{
 			name: "pre-push remote hook command",
 			mutate: func(_, prePush, _ *string) {
-				*prePush = strings.Replace(*prePush, `remote hook pre-push`, "", 1)
+				*prePush = strings.ReplaceAll(*prePush, `remote hook pre-push`, "")
 			},
 		},
 		{

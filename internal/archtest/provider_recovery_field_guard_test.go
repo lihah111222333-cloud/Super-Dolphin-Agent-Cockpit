@@ -2,6 +2,7 @@ package archtest
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -13,9 +14,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest/ssaload"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	modulethread "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
 	moduleuistate "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"
@@ -23,7 +26,8 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-const providerRecoveryImportPath = "github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
+const providerRecoveryModulePath = "github.com/lihah111222333-cloud/super-dolphin-agent"
+const providerRecoveryImportPath = providerRecoveryModulePath + "/internal/util/providerrecovery"
 
 type providerRecoveryConstructionGuard struct {
 	producer reflect.Type
@@ -151,6 +155,73 @@ func TestProviderRecoveryFieldGuardDiscoversAliasAndAssignments(t *testing.T) {
 	}
 }
 
+// TestProviderRecoveryCandidateDiscoveryParity 固定候选 production 包与编译文件集合，避免 typed loader 静默缩小基线。
+func TestProviderRecoveryCandidateDiscoveryParity(t *testing.T) {
+	t.Parallel()
+
+	root := repoRootForGuardTests(t)
+	candidates, err := discoverProviderRecoveryCandidateSet(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		wantPackageCount  = 3
+		wantPackageDigest = "8bba5c3271a3a6a4f28807be4128721aa82a8940bc364388e2babafa8c5136db"
+		wantFileCount     = 62
+		wantFileDigest    = "e4ce9c0b7e84f11e70daca881742b28a702e4417d1efa7f6fd7701808e389c78"
+	)
+	if len(candidates.packagePaths) != wantPackageCount ||
+		providerRecoveryCandidateDigest(candidates.packagePaths) != wantPackageDigest {
+		t.Fatalf("provider recovery candidate packages count=%d digest=%s", len(candidates.packagePaths), providerRecoveryCandidateDigest(candidates.packagePaths))
+	}
+	if len(candidates.filePaths) != wantFileCount ||
+		providerRecoveryCandidateDigest(candidates.filePaths) != wantFileDigest {
+		t.Fatalf("provider recovery candidate files count=%d digest=%s", len(candidates.filePaths), providerRecoveryCandidateDigest(candidates.filePaths))
+	}
+	for _, required := range []string{
+		"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified",
+	} {
+		if !slices.Contains(candidates.packagePaths, required) {
+			t.Fatalf("provider recovery candidate packages missing %s", required)
+		}
+	}
+	for _, required := range []string{
+		"internal/module/thread/lifecycle_helpers.go",
+		"internal/module/uistate/module.go",
+		"internal/provider/unified/session_resolver.go",
+	} {
+		if !slices.Contains(candidates.filePaths, required) {
+			t.Fatalf("provider recovery candidate files missing %s", required)
+		}
+	}
+}
+
+// TestProviderRecoveryCandidateDiscoveryRejectsEmptyOverlay 固定候选为空时必须 fail-fast。
+func TestProviderRecoveryCandidateDiscoveryRejectsEmptyOverlay(t *testing.T) {
+	t.Parallel()
+
+	root := repoRootForGuardTests(t)
+	candidates, err := discoverProviderRecoveryCandidateSet(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay := make(map[string][]byte, len(candidates.filePaths))
+	for _, relative := range candidates.filePaths {
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		overlay[path] = bytes.ReplaceAll(source, []byte(providerRecoveryImportPath), []byte("example.com/removed/providerrecovery"))
+	}
+	if _, err := discoverProviderRecoveryCandidateSet(root, overlay); err == nil ||
+		!strings.Contains(err.Error(), "found no production packages or files") {
+		t.Fatalf("empty candidate overlay error = %v", err)
+	}
+}
+
 // TestProviderRecoveryFieldGuardFailsOnRealMapperSelectorMutation 直接变异真实 production mapper overlay。
 func TestProviderRecoveryFieldGuardFailsOnRealMapperSelectorMutation(t *testing.T) {
 	t.Parallel()
@@ -231,7 +302,98 @@ func providerRecoveryFieldExemptions() map[string]providerRecoveryFieldExemption
 
 // discoverProviderRecoveryConstructions 扫描全部 production Go 文件中的 Request 构造。
 func discoverProviderRecoveryConstructions(root string) (map[string]providerRecoveryConstruction, error) {
-	return discoverTypedProviderRecoveryConstructions(root, "./internal/...")
+	return discoverProviderRecoveryConstructionsWithOverlay(root, nil)
+}
+
+func discoverProviderRecoveryConstructionsWithOverlay(
+	root string,
+	overlay map[string][]byte,
+) (map[string]providerRecoveryConstruction, error) {
+	candidates, err := discoverProviderRecoveryCandidateSet(root, overlay)
+	if err != nil {
+		return nil, err
+	}
+	return discoverTypedProviderRecoveryConstructionsWithOverlay(root, overlay, candidates.packagePaths...)
+}
+
+type providerRecoveryCandidateSet struct {
+	packagePaths []string
+	filePaths    []string
+}
+
+// discoverProviderRecoveryCandidateSet 先用轻量文件元数据装载定位 provider recovery 包，再进入 typed loader。
+func discoverProviderRecoveryCandidateSet(root string, overlay map[string][]byte) (providerRecoveryCandidateSet, error) {
+	loaded, err := ssaload.Load(ssaload.Options{
+		RepoRoot: root,
+		Patterns: []string{"./internal/..."},
+		Tests:    false,
+		Overlay:  overlay,
+		LoadMode: packages.LoadFiles,
+	})
+	if err != nil {
+		return providerRecoveryCandidateSet{}, fmt.Errorf("load provider recovery candidate packages: %w", err)
+	}
+	candidates := providerRecoveryCandidateSet{}
+	for _, pkg := range loaded {
+		if pkg == nil || !providerRecoveryProductionPackagePath(pkg.PkgPath) || len(pkg.GoFiles) == 0 {
+			continue
+		}
+		sourceFiles := append([]string(nil), pkg.GoFiles...)
+		sort.Strings(sourceFiles)
+		imported := false
+		for _, path := range sourceFiles {
+			source, err := providerRecoverySourceBytes(path, overlay)
+			if err != nil {
+				return providerRecoveryCandidateSet{}, fmt.Errorf("read provider recovery candidate source %s: %w", path, err)
+			}
+			file, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
+			if err != nil {
+				return providerRecoveryCandidateSet{}, fmt.Errorf("parse provider recovery candidate source %s: %w", path, err)
+			}
+			_, hasImport, err := providerRecoveryImportAlias(file)
+			if err != nil {
+				return providerRecoveryCandidateSet{}, fmt.Errorf("inspect provider recovery candidate source %s: %w", path, err)
+			}
+			imported = imported || hasImport
+		}
+		if !imported {
+			continue
+		}
+		candidates.packagePaths = append(candidates.packagePaths, pkg.PkgPath)
+		for _, path := range sourceFiles {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return providerRecoveryCandidateSet{}, fmt.Errorf("rel provider recovery candidate source %s: %w", path, err)
+			}
+			candidates.filePaths = append(candidates.filePaths, filepath.ToSlash(relative))
+		}
+	}
+	sort.Strings(candidates.packagePaths)
+	sort.Strings(candidates.filePaths)
+	if len(candidates.packagePaths) == 0 || len(candidates.filePaths) == 0 {
+		return providerRecoveryCandidateSet{}, errors.New("provider recovery candidate discovery found no production packages or files")
+	}
+	return candidates, nil
+}
+
+// providerRecoveryProductionPackagePath 只接受当前模块内的非 archtest 生产包。
+func providerRecoveryProductionPackagePath(pkgPath string) bool {
+	archtestPath := providerRecoveryModulePath + "/internal/archtest"
+	return strings.HasPrefix(pkgPath, providerRecoveryModulePath+"/internal/") &&
+		pkgPath != archtestPath && !strings.HasPrefix(pkgPath, archtestPath+"/")
+}
+
+// providerRecoverySourceBytes 读取 overlay 覆盖后的候选源码，缺失时直接返回错误。
+func providerRecoverySourceBytes(path string, overlay map[string][]byte) ([]byte, error) {
+	if source, ok := overlay[path]; ok {
+		return source, nil
+	}
+	return os.ReadFile(path)
+}
+
+// providerRecoveryCandidateDigest 对排序后的候选包或文件路径生成稳定摘要。
+func providerRecoveryCandidateDigest(paths []string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(paths, "\n"))))
 }
 
 // discoverTypedProviderRecoveryConstructions 以 go/types 的真实类型身份枚举构造。

@@ -14,6 +14,7 @@ import (
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
 func ensureRemoteDurationCalibration(
@@ -39,26 +40,46 @@ func ensureRemoteDurationCalibrationWithRun(
 	if run == nil {
 		return infrastructureError("automatic remote duration calibration executor is nil")
 	}
-	scenario, _, err := resolveRemoteScenario(options)
+	expectedResource, hasExpectedResource, err := remoteCalibrationResourceForOptions(options)
 	if err != nil {
-		return sourceError("resolve remote CI scenario before automatic calibration: %v", err)
+		return infrastructureError("load configured remote calibration resource: %v", err)
 	}
-	if scenario == "test" {
-		return nil
-	}
-	ready, err := remoteDurationCalibrationReady(options.LedgerPath, state, runnerIdentity)
+	resourceArgs := optionalCalibrationResource(hasExpectedResource, expectedResource)
+	ready, err := remoteDurationCalibrationReady(options.LedgerPath, state, runnerIdentity, resourceArgs...)
 	if err != nil && !errors.Is(err, gatecontract.ErrDurationLedgerMetadataMissing) {
 		return infrastructureError("inspect automatic remote duration calibration: %v", err)
 	}
 	if ready {
 		return nil
 	}
-	return completeAutomaticRemoteCalibration(options, state, runnerIdentity, run)
+	return completeAutomaticRemoteCalibration(options, state, runnerIdentity, run, resourceArgs...)
+}
+
+func remoteCalibrationResourceForOptions(options remoteRunOptions) (shardresource.Class, bool, error) {
+	if strings.TrimSpace(options.ConfigPath) == "" {
+		return shardresource.Class{}, false, nil
+	}
+	config, err := loadRemoteRunConfig(options.ConfigPath)
+	if err != nil {
+		return shardresource.Class{}, false, err
+	}
+	resource, err := config.Capacity.ResourcePolicy.ResolveCalibrationClass()
+	if err != nil {
+		return shardresource.Class{}, false, err
+	}
+	return resource, true, nil
+}
+
+func optionalCalibrationResource(has bool, resource shardresource.Class) []shardresource.Class {
+	if !has {
+		return nil
+	}
+	return []shardresource.Class{resource}
 }
 
 // completeAutomaticRemoteCalibration 通过 SQLite CAS 复查、修复或执行当前候选的校准。
-func completeAutomaticRemoteCalibration(options remoteRunOptions, state remoteci.BaselineState, runnerIdentity string, run func(remoteRunOptions) error) error {
-	ready, err := prepareAutomaticRemoteCalibrationLedger(options.LedgerPath, state, runnerIdentity)
+func completeAutomaticRemoteCalibration(options remoteRunOptions, state remoteci.BaselineState, runnerIdentity string, run func(remoteRunOptions) error, expected ...shardresource.Class) error {
+	ready, err := prepareAutomaticRemoteCalibrationLedger(options.LedgerPath, state, runnerIdentity, expected...)
 	if err != nil {
 		return infrastructureError("prepare automatic remote duration calibration: %v", err)
 	}
@@ -114,9 +135,12 @@ func tryAcceptAutomaticRemoteCalibration(
 		}
 		inputs[index] = input
 	}
-	catalogs, digests, err := remoteCalibrationCatalogs(inputs)
+	catalogs, digests, available, err := loadAutomaticRemoteCalibrationCatalogs(inputs)
 	if err != nil {
 		return false, err
+	}
+	if !available {
+		return false, nil
 	}
 	calibration := remoteDurationCalibrationFromInputs(
 		identity.commit,
@@ -135,6 +159,34 @@ func tryAcceptAutomaticRemoteCalibration(
 	)
 }
 
+// loadAutomaticRemoteCalibrationCatalogs 按三次运行的 observation identity 回读唯一 SQLite catalog。
+func loadAutomaticRemoteCalibrationCatalogs(inputs [3]remoteci.RunInput) ([3]gatecontract.WorkloadCatalog, [3]string, bool, error) {
+	var catalogs [3]gatecontract.WorkloadCatalog
+	var digests [3]string
+	for index, input := range inputs {
+		if input.LedgerStore == nil {
+			return catalogs, digests, false, infrastructureError("load exact remote calibration catalog: authority store is required")
+		}
+		record, err := input.LedgerStore.LoadWorkloadCatalogRecordByObservationIdentity(
+			input.Tree,
+			input.Entrypoint,
+			input.Profile,
+			input.AcceptedGeneration,
+		)
+		if errors.Is(err, gatecontract.ErrWorkloadCatalogObservationNotFound) {
+			return catalogs, digests, false, nil
+		}
+		if err != nil {
+			return catalogs, digests, false, err
+		}
+		if err := validateRemoteCalibrationCatalogInputDigests(record.Catalog); err != nil {
+			return catalogs, digests, false, err
+		}
+		catalogs[index], digests[index] = record.Catalog, record.CatalogDigest
+	}
+	return catalogs, digests, true, nil
+}
+
 func acceptRemoteDurationCalibrationFromExistingSamples(
 	store *gatecontract.DurationLedgerStore,
 	calibration gatecontract.DurationCalibration,
@@ -144,7 +196,7 @@ func acceptRemoteDurationCalibrationFromExistingSamples(
 	if err != nil {
 		return false, err
 	}
-	if _, _, err := verifyRemoteCalibrationIndexedEvidence(
+	if _, _, err := verifyRemoteCalibrationAcceptanceEvidence(
 		snapshot,
 		calibration,
 		nil,
@@ -166,6 +218,7 @@ func remoteDurationCalibrationReady(
 	ledgerPath string,
 	state remoteci.BaselineState,
 	runnerIdentity string,
+	expected ...shardresource.Class,
 ) (bool, error) {
 	store, err := gatecontract.NewDurationLedgerStore(ledgerPath)
 	if err != nil {
@@ -178,7 +231,70 @@ func remoteDurationCalibrationReady(
 	if err != nil {
 		return false, err
 	}
-	return remoteDurationCalibrationMatches(snapshot.Ledger.Calibration, state, runnerIdentity), nil
+	return remoteDurationCalibrationSnapshotReady(store, snapshot, state, runnerIdentity, expected)
+}
+
+// remoteDurationCalibrationSnapshotReady 仅在稳定 runner、完整目录、样本与 accepted overhead 均可验证时返回 ready。
+func remoteDurationCalibrationSnapshotReady(
+	store *gatecontract.DurationLedgerStore,
+	snapshot gatecontract.DurationLedgerSnapshot,
+	state remoteci.BaselineState,
+	runnerIdentity string,
+	expected []shardresource.Class,
+) (bool, error) {
+	if len(expected) > 1 {
+		return false, errors.New("remote duration calibration accepts at most one expected resource")
+	}
+	calibration := snapshot.Ledger.Calibration
+	if !remoteDurationCalibrationMatches(calibration, state, runnerIdentity) || !calibrationResourceMatches(calibration, expected) {
+		return false, nil
+	}
+	catalogs, available, err := loadRemoteDurationCalibrationCatalogs(store, *calibration)
+	if err != nil {
+		return false, err
+	}
+	if !available {
+		return false, nil
+	}
+	planning, err := store.LoadPlanning(remoteCalibrationPlanningContext(*calibration))
+	if err != nil {
+		return false, err
+	}
+	if _, _, err := verifyRemoteCalibrationAcceptanceEvidence(planning, *calibration, nil, catalogs...); err != nil {
+		if errors.Is(err, errRemoteCalibrationSamplesIncomplete) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// loadRemoteDurationCalibrationCatalogs 按校准元数据 digest 恢复三个持久化目录及观测。
+func loadRemoteDurationCalibrationCatalogs(
+	store *gatecontract.DurationLedgerStore,
+	calibration gatecontract.DurationCalibration,
+) ([]gatecontract.WorkloadCatalog, bool, error) {
+	digests := [...]string{
+		calibration.CommitCatalogDigest,
+		calibration.PushCatalogDigest,
+		calibration.ReleaseCatalogDigest,
+	}
+	catalogs := make([]gatecontract.WorkloadCatalog, 0, len(digests))
+	for _, digest := range digests {
+		record, err := store.LoadWorkloadCatalogRecord(digest)
+		if errors.Is(err, gatecontract.ErrWorkloadCatalogNotFound) ||
+			errors.Is(err, gatecontract.ErrWorkloadCatalogObservationNotFound) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		if len(record.Observations) == 0 {
+			return nil, false, nil
+		}
+		catalogs = append(catalogs, record.Catalog)
+	}
+	return catalogs, true, nil
 }
 
 // prepareAutomaticRemoteCalibrationLedger 迁移同基线旧身份，并仅清除真正失配的校准。
@@ -186,36 +302,68 @@ func prepareAutomaticRemoteCalibrationLedger(
 	ledgerPath string,
 	state remoteci.BaselineState,
 	runnerIdentity string,
+	expected ...shardresource.Class,
 ) (bool, error) {
 	store, err := gatecontract.NewDurationLedgerStore(ledgerPath)
 	if err != nil {
 		return false, err
 	}
+	if len(expected) > 1 {
+		return false, errors.New("remote duration calibration accepts at most one expected resource")
+	}
 	for attempt := range 16 {
-		metadata, err := store.LoadMetadata()
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
+		ready, retry, done, err := prepareAutomaticRemoteCalibrationAttempt(store, state, runnerIdentity, expected)
 		if err != nil {
 			return false, err
 		}
-		if remoteDurationCalibrationMatches(metadata.Ledger.Calibration, state, runnerIdentity) {
-			return true, nil
-		}
-		ready, retry, err := repairAutomaticRemoteCalibrationLedger(store, state, runnerIdentity)
-		if err != nil {
-			return false, err
-		}
-		if !retry {
+		if done {
 			return ready, nil
 		}
-		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+		if retry {
+			time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+		}
 	}
 	return false, errors.New("reset remote duration calibration exceeded retry limit")
 }
 
+// prepareAutomaticRemoteCalibrationAttempt 执行一次校准账本读取、迁移或冲突重试。
+func prepareAutomaticRemoteCalibrationAttempt(
+	store *gatecontract.DurationLedgerStore,
+	state remoteci.BaselineState,
+	runnerIdentity string,
+	expected []shardresource.Class,
+) (bool, bool, bool, error) {
+	metadata, err := store.LoadMetadata()
+	if errors.Is(err, os.ErrNotExist) {
+		return false, false, true, nil
+	}
+	if err != nil {
+		return false, false, false, err
+	}
+	if remoteDurationCalibrationMatches(metadata.Ledger.Calibration, state, runnerIdentity) && calibrationResourceMatches(metadata.Ledger.Calibration, expected) {
+		ready, err := remoteDurationCalibrationSnapshotReady(store, metadata, state, runnerIdentity, expected)
+		return ready, false, true, err
+	}
+	ready, retry, err := repairAutomaticRemoteCalibrationLedger(store, state, runnerIdentity, expected...)
+	if err != nil {
+		return false, false, false, err
+	}
+	if retry {
+		return false, true, false, nil
+	}
+	if !ready {
+		return false, false, true, nil
+	}
+	metadata, err = store.LoadMetadata()
+	if err != nil {
+		return false, false, false, err
+	}
+	ready, err = remoteDurationCalibrationSnapshotReady(store, metadata, state, runnerIdentity, expected)
+	return ready, false, true, err
+}
+
 // repairAutomaticRemoteCalibrationLedger 执行一次迁移或失配校准清理，并报告是否应重试 CAS。
-func repairAutomaticRemoteCalibrationLedger(store *gatecontract.DurationLedgerStore, state remoteci.BaselineState, runnerIdentity string) (bool, bool, error) {
+func repairAutomaticRemoteCalibrationLedger(store *gatecontract.DurationLedgerStore, state remoteci.BaselineState, runnerIdentity string, expected ...shardresource.Class) (bool, bool, error) {
 	snapshot, err := store.Load()
 	if err != nil {
 		return false, false, err
@@ -224,6 +372,10 @@ func repairAutomaticRemoteCalibrationLedger(store *gatecontract.DurationLedgerSt
 	legacyIdentity := legacyRemoteRunnerIdentityDigest(state)
 	changed := migrateLegacyRemoteDurationSamples(&ledger, state, legacyIdentity, runnerIdentity)
 	changed, ready := reconcileLegacyRemoteCalibration(&ledger, state, legacyIdentity, runnerIdentity, changed)
+	if ready && !calibrationResourceMatches(ledger.Calibration, expected) {
+		ledger.Calibration = nil
+		changed, ready = true, false
+	}
 	if !changed && !ready {
 		return false, false, nil
 	}
@@ -234,6 +386,18 @@ func repairAutomaticRemoteCalibrationLedger(store *gatecontract.DurationLedgerSt
 	} else {
 		return false, false, err
 	}
+}
+
+// calibrationResourceMatches 核对校准账本是否绑定调用方要求的资源规格。
+func calibrationResourceMatches(calibration *gatecontract.DurationCalibration, expected []shardresource.Class) bool {
+	if len(expected) == 0 {
+		return true
+	}
+	if len(expected) != 1 || calibration == nil {
+		return false
+	}
+	resource := expected[0]
+	return calibration.CalibrationResourceClassID == resource.ID && calibration.CalibrationResourceCPU == resource.VCPU && calibration.CalibrationResourceMemoryGiB == resource.MemoryGiB
 }
 
 // reconcileLegacyRemoteCalibration 更新旧身份校准，或清除与当前 runner 不可比的记录。
@@ -251,12 +415,14 @@ func reconcileLegacyRemoteCalibration(ledger *gatecontract.DurationLedger, state
 	return changed, false
 }
 
+// legacyRemoteDurationCalibrationMatches 判断校准是否仍属于可迁移的旧 runner 身份。
 func legacyRemoteDurationCalibrationMatches(
 	calibration *gatecontract.DurationCalibration,
 	state remoteci.BaselineState,
 	legacyIdentity string,
 ) bool {
 	return calibration != nil &&
+		gatecontract.ValidateDurationCalibration(*calibration) == nil &&
 		calibration.SchemaVersion == gatecontract.DurationCalibrationSchemaVersion &&
 		calibration.Platform == state.Platform &&
 		calibration.Runner == legacyIdentity &&
@@ -290,8 +456,10 @@ func remoteAutomaticCalibrationOptions(options remoteRunOptions, state remoteci.
 	}
 	return remoteRunOptions{
 		ConfigPath: options.ConfigPath, RepositoryRoot: options.RepositoryRoot,
-		Commit:     commit,
-		LedgerPath: options.LedgerPath,
+		Commit:           commit,
+		LedgerPath:       options.LedgerPath,
+		AgentTokenDigest: options.AgentTokenDigest,
+		ProgressObserver: options.ProgressObserver,
 	}, nil
 }
 
@@ -407,6 +575,7 @@ func remoteDurationCalibrationMatches(
 	runnerIdentity string,
 ) bool {
 	return calibration != nil &&
+		gatecontract.ValidateDurationCalibration(*calibration) == nil &&
 		calibration.SchemaVersion == gatecontract.DurationCalibrationSchemaVersion &&
 		calibration.Platform == state.Platform &&
 		calibration.Runner == runnerIdentity &&

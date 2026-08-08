@@ -13,11 +13,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const (
-	materializedSourceRef        = "refs/source/materialized"
-	baseSourceRef                = "refs/source/base"
+	materializedSourceRef        = cicontract.SourceBundleRef
+	baseSourceRef                = cicontract.SourceBaseRef
 	copiedSnapshotStatusMaxBytes = 4 << 10
 )
 
@@ -56,7 +58,7 @@ func copiedSnapshotStatusDiagnostic(status []byte) string {
 	return fmt.Sprintf("%s (truncated after %d bytes)", strconv.QuoteToASCII(string(status[:copiedSnapshotStatusMaxBytes])), copiedSnapshotStatusMaxBytes)
 }
 
-// runFullTreeWhitespace 对可信 base 到 HEAD 的对象变更执行空白检查；缺失 base 时保守扫描整树。
+// runFullTreeWhitespace 对物化器发布的可信 base 到 HEAD 的对象变更执行空白检查。
 func runFullTreeWhitespace(
 	ctx context.Context,
 	gitBinary string,
@@ -65,7 +67,7 @@ func runFullTreeWhitespace(
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
-	base, err := trustedWhitespaceBase(ctx, gitBinary, sourceCopy, environment)
+	base, err := trustedSnapshotBase(ctx, gitBinary, sourceCopy, environment)
 	if err != nil {
 		return err
 	}
@@ -80,24 +82,24 @@ func runFullTreeWhitespace(
 	return nil
 }
 
-// trustedWhitespaceBase 只接受可解析为 commit 的显式 base ref，并为确实缺失的 ref 返回空树。
-func trustedWhitespaceBase(ctx context.Context, gitBinary string, sourceCopy string, environment []string) (string, error) {
-	_, found, err := gitOptionalLine(ctx, gitBinary, sourceCopy, environment, "show-ref", "--hash", baseSourceRef)
+// trustedSnapshotBase 只接受物化器发布且可解析为 commit 的显式 base ref。
+func trustedSnapshotBase(ctx context.Context, gitBinary string, sourceCopy string, environment []string) (string, error) {
+	base, found, err := gitOptionalLine(ctx, gitBinary, sourceCopy, environment, "rev-parse", "--verify", "--quiet", baseSourceRef+"^{commit}")
 	if err != nil {
-		return "", fmt.Errorf("inspect trusted whitespace base ref: %w", err)
+		return "", fmt.Errorf("resolve trusted source base ref: %w", err)
 	}
-	if found {
-		base, err := gitLine(ctx, gitBinary, sourceCopy, environment, "rev-parse", "--verify", baseSourceRef+"^{commit}")
-		if err != nil {
-			return "", fmt.Errorf("resolve trusted whitespace base commit: %w", err)
-		}
-		return base, nil
+	if !found {
+		return "", errors.New("materialized source base ref is required")
 	}
-	emptyTree, err := gitLineWithInput(ctx, gitBinary, sourceCopy, environment, bytes.NewReader(nil), "hash-object", "-t", "tree", "--stdin")
+	line, err := gitLine(ctx, gitBinary, sourceCopy, environment, "rev-list", "--parents", "-n", "1", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("resolve conservative whitespace base: %w", err)
+		return "", fmt.Errorf("resolve materialized source parent: %w", err)
 	}
-	return emptyTree, nil
+	parents := strings.Fields(line)
+	if len(parents) != 2 || parents[1] != base {
+		return "", errors.New("materialized source base ref must match the unique transport parent")
+	}
+	return base, nil
 }
 
 // runChangedDiagnostics 只把可信 Git 范围内仍存在的受支持源码送入 LSP 门禁。
@@ -140,22 +142,16 @@ type changedDiagnosticsSelection struct {
 	unsupported int
 }
 
-// trustedChangedDiagnostics 从快照内 base ref 推导诊断目标，缺失 base 时保守扫描整树。
+// trustedChangedDiagnostics 从物化器发布的可信 base ref 推导诊断目标。
 func trustedChangedDiagnostics(
 	ctx context.Context,
 	gitBinary string,
 	sourceCopy string,
 	environment []string,
 ) (changedDiagnosticsSelection, error) {
-	base, found, err := gitOptionalLine(ctx, gitBinary, sourceCopy, environment, "rev-parse", "--verify", "--quiet", baseSourceRef+"^{commit}")
+	base, err := trustedSnapshotBase(ctx, gitBinary, sourceCopy, environment)
 	if err != nil {
-		return changedDiagnosticsSelection{}, fmt.Errorf("resolve trusted source base: %w", err)
-	}
-	if !found {
-		base, err = gitLineWithInput(ctx, gitBinary, sourceCopy, environment, bytes.NewReader(nil), "hash-object", "-t", "tree", "--stdin")
-		if err != nil {
-			return changedDiagnosticsSelection{}, fmt.Errorf("resolve conservative diagnostics base: %w", err)
-		}
+		return changedDiagnosticsSelection{}, err
 	}
 	output, err := gitOutput(ctx, gitBinary, sourceCopy, environment, nil, "diff", "--name-only", "-z", "--diff-filter=ACMRDT", base, "HEAD", "--")
 	if err != nil {

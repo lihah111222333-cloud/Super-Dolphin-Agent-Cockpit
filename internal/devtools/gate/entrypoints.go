@@ -13,11 +13,10 @@ import (
 type CIEntrypointID string
 
 const (
-	CIEntrypointGitPreCommit     CIEntrypointID = "git-pre-commit"
-	CIEntrypointGitPrePush       CIEntrypointID = "git-pre-push"
-	CIEntrypointManualCLI        CIEntrypointID = "manual-cli"
-	CIEntrypointWorkflowRequired CIEntrypointID = "workflow-required"
-	CIEntrypointRelease          CIEntrypointID = "release"
+	CIEntrypointGitPreCommit CIEntrypointID = "git-pre-commit"
+	CIEntrypointGitPrePush   CIEntrypointID = "git-pre-push"
+	CIEntrypointManualCLI    CIEntrypointID = "manual-cli"
+	CIEntrypointRelease      CIEntrypointID = "release"
 )
 
 // CIEntrypointOwner identifies the authority owner assigned to one adapter boundary.
@@ -28,7 +27,6 @@ const (
 	CIEntrypointOwnerManagedGitPrePush   CIEntrypointOwner = "managed-launcher/git-pre-push"
 	CIEntrypointOwnerRepositoryGitHooks  CIEntrypointOwner = "repository-git-hooks"
 	CIEntrypointOwnerManualCLI           CIEntrypointOwner = "gate-cli/manual"
-	CIEntrypointOwnerWorkflowRequired    CIEntrypointOwner = "protected-reusable-workflow/github-app-oidc"
 	CIEntrypointOwnerRelease             CIEntrypointOwner = "external-release-authority"
 )
 
@@ -36,11 +34,10 @@ const (
 type CIEntrypointAdapter string
 
 const (
-	CIEntrypointAdapterGitPreCommit     CIEntrypointAdapter = "git-hook/pre-commit"
-	CIEntrypointAdapterGitPrePush       CIEntrypointAdapter = "git-hook/pre-push"
-	CIEntrypointAdapterManualCLI        CIEntrypointAdapter = "cmd/super-dolphin-gate/manual"
-	CIEntrypointAdapterWorkflowRequired CIEntrypointAdapter = "workflow/required"
-	CIEntrypointAdapterRelease          CIEntrypointAdapter = "release/pipeline"
+	CIEntrypointAdapterGitPreCommit CIEntrypointAdapter = "git-hook/pre-commit"
+	CIEntrypointAdapterGitPrePush   CIEntrypointAdapter = "git-hook/pre-push"
+	CIEntrypointAdapterManualCLI    CIEntrypointAdapter = "cmd/super-dolphin-gate/manual"
+	CIEntrypointAdapterRelease      CIEntrypointAdapter = "release/pipeline"
 )
 
 // CIEntrypoint declares the canonical source, profile, authority, and adapter boundary.
@@ -167,9 +164,7 @@ func (w ciEntrypointJSON) validatePresence() error {
 // Validate 校验 CI 入口 ID 是否属于固定公开集合。
 func (id CIEntrypointID) Validate() error {
 	switch id {
-	case CIEntrypointGitPreCommit, CIEntrypointGitPrePush, CIEntrypointManualCLI,
-		CIEntrypointWorkflowRequired,
-		CIEntrypointRelease:
+	case CIEntrypointGitPreCommit, CIEntrypointGitPrePush, CIEntrypointManualCLI, CIEntrypointRelease:
 		return nil
 	default:
 		return fmt.Errorf("unsupported CI entrypoint id %q", id)
@@ -180,8 +175,7 @@ func (id CIEntrypointID) Validate() error {
 func (owner CIEntrypointOwner) Validate() error {
 	switch owner {
 	case CIEntrypointOwnerManagedGitPreCommit, CIEntrypointOwnerManagedGitPrePush,
-		CIEntrypointOwnerRepositoryGitHooks, CIEntrypointOwnerManualCLI,
-		CIEntrypointOwnerWorkflowRequired, CIEntrypointOwnerRelease:
+		CIEntrypointOwnerRepositoryGitHooks, CIEntrypointOwnerManualCLI, CIEntrypointOwnerRelease:
 		return nil
 	default:
 		return fmt.Errorf("unsupported CI entrypoint owner %q", owner)
@@ -190,8 +184,7 @@ func (owner CIEntrypointOwner) Validate() error {
 
 func (owner CIEntrypointOwner) isTrusted() bool {
 	switch owner {
-	case CIEntrypointOwnerManagedGitPreCommit, CIEntrypointOwnerManagedGitPrePush,
-		CIEntrypointOwnerWorkflowRequired, CIEntrypointOwnerRelease:
+	case CIEntrypointOwnerManagedGitPreCommit, CIEntrypointOwnerManagedGitPrePush, CIEntrypointOwnerRelease:
 		return true
 	default:
 		return false
@@ -202,8 +195,7 @@ func (owner CIEntrypointOwner) isTrusted() bool {
 func (adapter CIEntrypointAdapter) Validate() error {
 	switch adapter {
 	case CIEntrypointAdapterGitPreCommit, CIEntrypointAdapterGitPrePush,
-		CIEntrypointAdapterManualCLI,
-		CIEntrypointAdapterWorkflowRequired, CIEntrypointAdapterRelease:
+		CIEntrypointAdapterManualCLI, CIEntrypointAdapterRelease:
 		return nil
 	default:
 		return fmt.Errorf("unsupported CI entrypoint adapter %q", adapter)
@@ -270,7 +262,6 @@ func canonicalCIEntrypoints() []CIEntrypoint {
 		newCIEntrypoint(CIEntrypointGitPreCommit, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, true, CIEntrypointOwnerManagedGitPreCommit, CIEntrypointAdapterGitPreCommit),
 		newCIEntrypoint(CIEntrypointGitPrePush, []SourceKind{SourceKindRange}, []Profile{ProfilePush}, true, CIEntrypointOwnerManagedGitPrePush, CIEntrypointAdapterGitPrePush),
 		newCIEntrypoint(CIEntrypointManualCLI, allSourceKinds(), allProfiles(), false, CIEntrypointOwnerManualCLI, CIEntrypointAdapterManualCLI),
-		newCIEntrypoint(CIEntrypointWorkflowRequired, []SourceKind{SourceKindCommit, SourceKindRange}, []Profile{ProfileRemoteRequired}, true, CIEntrypointOwnerWorkflowRequired, CIEntrypointAdapterWorkflowRequired),
 		newCIEntrypoint(CIEntrypointRelease, []SourceKind{SourceKindCommit}, []Profile{ProfileRelease}, true, CIEntrypointOwnerRelease, CIEntrypointAdapterRelease),
 	}
 }

@@ -13,7 +13,7 @@ import (
 func TestSQLiteQueryPlanSmoke(t *testing.T) {
 	db, _ := openMigratedSQLiteDB(t, "query-plan")
 	defer db.Close()
-	seedSQLiteReleaseFixture(t, db, sqliteMediumFixtureConfig())
+	seedSQLiteReleaseFixture(t, db, sqliteQueryPlanFixtureConfig())
 	dashboardDAGQueries := readDashboardDAGSnapshotListQueries(t)
 
 	assertQueryPlanUsesIndex(t, db, "idx_agent_threads_agent_key", `
@@ -87,6 +87,20 @@ FROM task_dag_runs
 WHERE dag_key = ? AND status = ?
 ORDER BY started_at DESC, id DESC
 LIMIT 25`, "fixture-dag-0001", "succeeded")
+}
+
+// sqliteQueryPlanFixtureConfig 返回足以触发索引选择、但不会把行级写入放大成容量测试的 fixture。
+// 行数契约由每个 EXPLAIN QUERY PLAN 断言覆盖；大规模分布由独立的 medium/stress gate 覆盖。
+func sqliteQueryPlanFixtureConfig() sqliteFixtureConfig {
+	return sqliteFixtureConfig{
+		Threads:         64,
+		SystemLogs:      256,
+		PromptTemplates: 64,
+		CronJobs:        64,
+		DAGRuns:         64,
+		Wakeups:         256,
+		SessionInsights: 64,
+	}
 }
 
 type dashboardDAGSnapshotListQueries struct {

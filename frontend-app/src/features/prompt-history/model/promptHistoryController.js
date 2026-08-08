@@ -17,6 +17,35 @@ const STALE_PROMPT_HISTORY_MESSAGE = 'prompt history snapshot is stale';
  * }} PromptHistoryControllerOptions
  */
 
+/**
+ * @param {() => boolean} isPending 是否存在待处理操作。
+ * @param {() => void} bumpGeneration 推进生成代次。
+ * @param {() => void} bumpNavigation 推进导航意图。
+ * @param {() => void} reset 重置状态。
+ */
+function createPendingInvalidator(isPending, bumpGeneration, bumpNavigation, reset) {
+  let deferred = false;
+  return {
+    /** @param {boolean} deferPending 是否延迟处理待处理操作。 */
+    request(deferPending) {
+      if (deferPending && isPending()) {
+        deferred = true;
+        bumpNavigation();
+        return;
+      }
+      deferred = false;
+      bumpGeneration();
+      reset();
+    },
+    settle() {
+      if (!deferred) return;
+      deferred = false;
+      bumpGeneration();
+      reset();
+    },
+  };
+}
+
 /** @param {PromptHistoryControllerOptions} options */
 export function createPromptHistoryController({ fetchPage, cwd, activeThreadId = '' }) {
   if (typeof fetchPage !== 'function') throw new Error('fetchPage is required');
@@ -40,6 +69,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   let pendingSelection;
   let draftSentinel = '';
   let disposed = false;
+  const lifecycleInvalidation = createPendingInvalidator(() => Boolean(pending), () => { generation += 1; navigationIntent += 1; }, () => { navigationIntent += 1; pendingSelection = undefined; }, () => { resetPageState(); pending = undefined; pendingSelection = undefined; });
   /** @param {string} draft */
   function captureDraft(draft) {
     if (typeof draft !== 'string') throw new TypeError('draft must be a string');
@@ -61,7 +91,9 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
       const requestGeneration = generation;
       const task = loadPreviousPage(requestGeneration, false);
       const shared = task.finally(() => {
-        if (pending === shared) pending = undefined;
+        if (pending !== shared) return;
+        pending = undefined;
+        lifecycleInvalidation.settle();
       });
       pending = shared;
     }
@@ -95,12 +127,8 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     return selected;
   }
 
-  function invalidate() {
-    generation += 1;
-    navigationIntent += 1;
-    resetPageState();
-    pending = undefined;
-    pendingSelection = undefined;
+  function invalidate({ deferPending = false } = {}) {
+    lifecycleInvalidation.request(deferPending);
   }
 
   function dispose() {
@@ -166,7 +194,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     loaded = false;
   }
 
-  return { captureDraft, previous, next, invalidate, dispose, snapshot };
+  return { captureDraft, previous, next, invalidate, dispose, activate: () => { disposed = false; }, snapshot };
 }
 
 /** @param {unknown} error */

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // MaterializeVerifiedSourceBundle 将已经通过 strict manifest、bundle digest 和 Git
@@ -71,7 +73,13 @@ func importSourceWorktreeBundle(ctx context.Context, bundlePath string, sourceRo
 	if err := verifyBundlePrerequisites(bundlePath, manifest, baseline); err != nil {
 		return err
 	}
-	refInput := fmt.Sprintf("create %s %s\n", sourceBundleRef, manifest.TransportCommitSHA)
+	refInput := fmt.Sprintf(
+		"create %s %s\ncreate %s %s\n",
+		sourceBundleRef,
+		manifest.TransportCommitSHA,
+		cicontract.SourceBaseRef,
+		manifest.SyntheticBaseCommitSHA,
+	)
 	output, err = runGitOutput(ctx, sourceRoot, strings.NewReader(refInput), "update-ref", "--stdin")
 	if err := rejectGitOutput(output, err, "create source worktree refs"); err != nil {
 		return err
@@ -83,6 +91,10 @@ func checkoutMaterializedSource(ctx context.Context, sourceRoot string, manifest
 	output, err := runGitOutput(ctx, sourceRoot, nil, "checkout", "--quiet", "--detach", manifest.TransportCommitSHA)
 	if err := rejectGitOutput(output, err, "checkout materialized source"); err != nil {
 		return err
+	}
+	base, err := runGitOutput(ctx, sourceRoot, nil, "rev-parse", "--verify", cicontract.SourceBaseRef+"^{commit}")
+	if err != nil || strings.TrimSpace(string(base)) != manifest.SyntheticBaseCommitSHA {
+		return errors.New("materialized source base ref does not match synthetic base commit")
 	}
 	status, err := runGitOutput(ctx, sourceRoot, nil, "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {

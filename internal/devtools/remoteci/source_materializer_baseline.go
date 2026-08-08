@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
@@ -17,7 +18,7 @@ const (
 	sourceBundleName            = "source.bundle"
 	sourceManifestName          = "source-manifest.json"
 	sourceBundleRef             = "refs/source/materialized"
-	sourceManifestVersion       = 2
+	sourceManifestVersion       = cicontract.SourceManifestSchemaVersion
 	sourceTransportKind         = "git-bundle-thin"
 	privateSourceFileMode       = 0o400
 	privateSourceDirMode        = 0o700
@@ -37,10 +38,15 @@ type SourceMaterializationManifest struct {
 	// prerequisite supplied by the accepted image. They are deliberately
 	// separate from TrustedBaseCommitSHA, which describes the candidate
 	// SourceSpec parent relationship.
-	BaselineCommitSHA string               `json:"baseline_commit_sha"`
-	BaselineTreeSHA   string               `json:"baseline_tree_sha"`
-	BundleDigest      string               `json:"bundle_digest"`
-	ObjectFormat      gate.GitObjectFormat `json:"object_format"`
+	BaselineCommitSHA string `json:"baseline_commit_sha"`
+	BaselineTreeSHA   string `json:"baseline_tree_sha"`
+	// SyntheticBaseTreeSHA 和 SyntheticBaseCommitSHA 标识 thin bundle 携带的
+	// candidate parent synthetic commit。其 tree 是 SourceSpec parent/base tree（或
+	// deterministic empty tree），唯一 parent 是 accepted baseline commit。
+	SyntheticBaseTreeSHA   string               `json:"synthetic_base_tree_sha"`
+	SyntheticBaseCommitSHA string               `json:"synthetic_base_commit_sha"`
+	BundleDigest           string               `json:"bundle_digest"`
+	ObjectFormat           gate.GitObjectFormat `json:"object_format"`
 }
 
 // SourceBaseline 标识 accepted image 挂载的只读 Git 对象存储。
@@ -53,13 +59,16 @@ type SourceBaseline struct {
 }
 
 const (
-	deterministicSourceBaselineName     = "Super Dolphin Source Baseline"
-	deterministicSourceBaselineEmail    = "source-baseline.invalid"
-	deterministicSourceBaselineDate     = "2000-01-01T00:00:00Z"
-	deterministicSourceBaselineMessage  = "super-dolphin accepted source baseline"
-	deterministicSourceTransportName    = "Super Dolphin Source Transport"
-	deterministicSourceTransportEmail   = "source-transport.invalid"
-	deterministicSourceTransportMessage = "super-dolphin source transport"
+	deterministicSourceBaselineName         = "Super Dolphin Source Baseline"
+	deterministicSourceBaselineEmail        = "source-baseline.invalid"
+	deterministicSourceBaselineDate         = "2000-01-01T00:00:00Z"
+	deterministicSourceBaselineMessage      = "super-dolphin accepted source baseline"
+	deterministicSourceTransportName        = "Super Dolphin Source Transport"
+	deterministicSourceTransportEmail       = "source-transport.invalid"
+	deterministicSourceTransportMessage     = "super-dolphin source transport"
+	deterministicSourceSyntheticBaseName    = "Super Dolphin Source Synthetic Base"
+	deterministicSourceSyntheticBaseEmail   = "source-synthetic-base.invalid"
+	deterministicSourceSyntheticBaseMessage = "super-dolphin source synthetic base"
 )
 
 // DeterministicSourceBaselineCommitSHA 计算镜像 provisioning 必须写入只读
@@ -164,27 +173,59 @@ func deterministicSourceBaselinePayload(tree string) []byte {
 	)
 }
 
-// DeterministicSourceTransportCommitSHA 计算候选 tree 相对 accepted baseline
-// 的固定 transport commit 身份。该 commit 与候选原始 commit/range 历史无关，
-// 唯一 parent 是 image baseline，tree 是 SourceTreeSHA。
-func DeterministicSourceTransportCommitSHA(tree string, baseline string, format gate.GitObjectFormat) (string, error) {
+// DeterministicSourceSyntheticBaseCommitSHA 计算候选 parent synthetic base
+// commit 的固定身份。其 tree 是 SourceSpec 对应 parent/base commit 的 tree，
+// 唯一 parent 是 accepted baseline commit；原始 source history 不进入 bundle。
+func DeterministicSourceSyntheticBaseCommitSHA(tree string, baseline string, format gate.GitObjectFormat) (string, error) {
 	if !validOID(tree, format) || !validOID(baseline, format) {
-		return "", errors.New("source transport tree or baseline commit is invalid")
+		return "", errors.New("source synthetic base tree or baseline commit is invalid")
 	}
-	object, err := hashGitObject(format, "commit", deterministicSourceTransportPayload(tree, baseline))
+	object, err := hashGitObject(format, "commit", deterministicSourceSyntheticBasePayload(tree, baseline))
 	if err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(object), nil
 }
 
-func deterministicSourceTransportPayload(tree string, baseline string) []byte {
+func deterministicSourceSyntheticBasePayload(tree string, baseline string) []byte {
 	return fmt.Appendf(nil,
 		"tree %s\nparent %s\nauthor %s <%s> 946684800 +0000\ncommitter %s <%s> 946684800 +0000\n\n%s\n",
-		tree, baseline, deterministicSourceTransportName, deterministicSourceTransportEmail,
+		tree, baseline, deterministicSourceSyntheticBaseName, deterministicSourceSyntheticBaseEmail,
+		deterministicSourceSyntheticBaseName, deterministicSourceSyntheticBaseEmail,
+		deterministicSourceSyntheticBaseMessage,
+	)
+}
+
+// DeterministicSourceTransportCommitSHA 计算候选 tree 相对 synthetic base
+// 的固定 transport commit 身份。该 commit 与候选原始 commit/range 历史无关，
+// 唯一 parent 是 candidate-parent synthetic base，tree 是 SourceTreeSHA。
+func DeterministicSourceTransportCommitSHA(tree string, syntheticBase string, format gate.GitObjectFormat) (string, error) {
+	if !validOID(tree, format) || !validOID(syntheticBase, format) {
+		return "", errors.New("source transport tree or synthetic base commit is invalid")
+	}
+	object, err := hashGitObject(format, "commit", deterministicSourceTransportPayload(tree, syntheticBase))
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(object), nil
+}
+
+func deterministicSourceTransportPayload(tree string, syntheticBase string) []byte {
+	return fmt.Appendf(nil,
+		"tree %s\nparent %s\nauthor %s <%s> 946684800 +0000\ncommitter %s <%s> 946684800 +0000\n\n%s\n",
+		tree, syntheticBase, deterministicSourceTransportName, deterministicSourceTransportEmail,
 		deterministicSourceTransportName, deterministicSourceTransportEmail,
 		deterministicSourceTransportMessage,
 	)
+}
+
+// DeterministicSourceEmptyTreeSHA 返回所有 Git object format 都可复核的空 tree。
+func DeterministicSourceEmptyTreeSHA(format gate.GitObjectFormat) (string, error) {
+	object, err := hashGitObject(format, "tree", nil)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(object), nil
 }
 
 // transferTreeClosure 将 accepted tree 的完整 Git object 闭包写入 baseline ODB。

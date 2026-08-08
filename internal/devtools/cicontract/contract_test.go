@@ -30,9 +30,77 @@ func TestRemoteCIConcurrencyPolicyHasNoRepositorySerialBoundary(t *testing.T) {
 	}
 }
 
-func TestGenerationOneReceiptImportIsTheOnlyWritePathIdentity(t *testing.T) {
-	if GenerationOneReceiptImportPathID != "external-eci-imagecache-generation-one-strict-receipt-import/v1" {
-		t.Fatalf("GenerationOneReceiptImportPathID = %q", GenerationOneReceiptImportPathID)
+func TestArchtestCompileGroupBudgetIsBoundedPerECIShard(t *testing.T) {
+	if ArchtestMaxSelectorsPerCompileGroup != 64 {
+		t.Fatalf("ArchtestMaxSelectorsPerCompileGroup = %d, want 64", ArchtestMaxSelectorsPerCompileGroup)
+	}
+}
+
+func TestClassifyWorkloadResourceDurationUsesFrozenNormalTiers(t *testing.T) {
+	tests := []struct {
+		durationMS int64
+		want       WorkloadResourceTier
+	}{
+		{durationMS: 1, want: WorkloadResourceTierFast},
+		{durationMS: FastWorkloadResourceDuration.Milliseconds(), want: WorkloadResourceTierFast},
+		{durationMS: FastWorkloadResourceDuration.Milliseconds() + 1, want: WorkloadResourceTierMedium},
+		{durationMS: MediumWorkloadResourceDuration.Milliseconds(), want: WorkloadResourceTierMedium},
+		{durationMS: MediumWorkloadResourceDuration.Milliseconds() + 1, want: WorkloadResourceTierSlow},
+	}
+	for _, test := range tests {
+		got, err := ClassifyWorkloadResourceDuration(test.durationMS)
+		if err != nil {
+			t.Fatalf("ClassifyWorkloadResourceDuration(%d) error = %v", test.durationMS, err)
+		}
+		if got != test.want {
+			t.Fatalf("ClassifyWorkloadResourceDuration(%d) = %d, want %d", test.durationMS, got, test.want)
+		}
+	}
+	if _, err := ClassifyWorkloadResourceDuration(0); err == nil {
+		t.Fatal("ClassifyWorkloadResourceDuration(0) error = nil")
+	}
+}
+
+func TestGenerationOneBootstrapIsTheOnlyWritePathIdentity(t *testing.T) {
+	if GenerationOneBootstrapPathID != "normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1" {
+		t.Fatalf("GenerationOneBootstrapPathID = %q", GenerationOneBootstrapPathID)
+	}
+}
+
+func TestCIExecutionBoundaryIsAlibabaECIOnly(t *testing.T) {
+	if CIExecutionBoundary != "aliyun-eci-only-no-github-runner/v1" {
+		t.Fatalf("CIExecutionBoundary = %q", CIExecutionBoundary)
+	}
+}
+
+func TestOCICacheMaterialCannotClaimECIAuthority(t *testing.T) {
+	if CacheMaterialSchemaID != "remote-ci-cache-material/v1" {
+		t.Fatalf("CacheMaterialSchemaID = %q", CacheMaterialSchemaID)
+	}
+	if CacheMaterialAuthority != "non_authoritative_material" {
+		t.Fatalf("CacheMaterialAuthority = %q", CacheMaterialAuthority)
+	}
+	if strings.Contains(CacheMaterialSchemaID, "generation-one") || strings.Contains(CacheMaterialSchemaID, "receipt") || strings.Contains(CacheMaterialSchemaID, "check") {
+		t.Fatalf("cache material schema must not resemble authoritative evidence: %q", CacheMaterialSchemaID)
+	}
+}
+
+func TestAcceptedBaselineProjectionIsAlibabaECIOnly(t *testing.T) {
+	if err := ValidateAcceptedBaselineProjection(BaselineStateSchemaVersion, ExecutionProviderID, "cn-shenzhen"); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		schema   uint32
+		provider string
+		region   string
+	}{
+		{schema: BaselineStateSchemaVersion - 1, provider: ExecutionProviderID, region: "cn-shenzhen"},
+		{schema: BaselineStateSchemaVersion, provider: "docker/v1", region: "cn-shenzhen"},
+		{schema: BaselineStateSchemaVersion, provider: ExecutionProviderID, region: ""},
+	} {
+		if err := ValidateAcceptedBaselineProjection(test.schema, test.provider, test.region); err == nil {
+			t.Fatalf("projection unexpectedly accepted: %+v", test)
+		}
 	}
 }
 
@@ -45,6 +113,7 @@ func TestIncrementalSourceTransportContractIsFrozen(t *testing.T) {
 		"bundle":              SourceBundleName,
 		"manifest":            SourceManifestName,
 		"ref":                 SourceBundleRef,
+		"base ref":            SourceBaseRef,
 		"transport kind":      SourceTransportKind,
 		"header":              SourceBundleHeaderVersion,
 		"upload barrier":      SourceAssetsUploadBarrier,
@@ -54,6 +123,7 @@ func TestIncrementalSourceTransportContractIsFrozen(t *testing.T) {
 		"bundle":              "source.bundle",
 		"manifest":            "source-manifest.json",
 		"ref":                 "refs/source/materialized",
+		"base ref":            "refs/source/base",
 		"transport kind":      "git-bundle-thin",
 		"header":              "v2",
 		"upload barrier":      "source-bundle-and-strict-manifest-before-lpt-shards/v1",
@@ -63,8 +133,8 @@ func TestIncrementalSourceTransportContractIsFrozen(t *testing.T) {
 			t.Errorf("%s = %q, want %q", name, got, want[name])
 		}
 	}
-	if SourceManifestSchemaVersion != 2 || SourceBundlePrerequisiteCount != 1 {
-		t.Fatalf("source transport schema/prerequisite = %d/%d, want 2/1", SourceManifestSchemaVersion, SourceBundlePrerequisiteCount)
+	if SourceManifestSchemaVersion != 3 || SourceBundlePrerequisiteCount != 1 {
+		t.Fatalf("source transport schema/prerequisite = %d/%d, want 3/1", SourceManifestSchemaVersion, SourceBundlePrerequisiteCount)
 	}
 }
 
@@ -104,12 +174,16 @@ func TestContractValidatorsRejectDrift(t *testing.T) {
 		name string
 		err  error
 	}{
+		{name: "execution provider", err: ValidateExecutionProvider("docker/v1")},
 		{name: "platform", err: ValidateTargetPlatform("linux/arm64")},
 		{name: "toolchain", err: ValidateGoToolchainVersion("go1.25.7")},
 		{name: "shard target", err: ValidateShardTargetDuration(99 * time.Second)},
 		{name: "calibration class", err: ValidateCalibrationResources("", 4, 16)},
 		{name: "calibration CPU", err: ValidateCalibrationResources("fixed", 0, 16)},
 		{name: "calibration memory", err: ValidateCalibrationResources("fixed", 4, 0)},
+		{name: "normal CPU", err: ValidateNormalResources(0, 4)},
+		{name: "normal memory", err: ValidateNormalResources(4, 0)},
+		{name: "normal pair", err: ValidateNormalResources(4, 16)},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -146,6 +220,30 @@ func TestRequiredChecksObservedPassMatrix(t *testing.T) {
 	}
 	if err := ValidateRequiredChecksObservedPass(observations[:len(observations)-1]); err == nil {
 		t.Fatal("expected missing required check observation to be rejected")
+	}
+}
+
+// TestRequiredChecksObservedPassForScopedCatalog 锁定较小 profile 只接受其目录范围，
+// 同时拒绝空、重复或乱序范围。
+func TestRequiredChecksObservedPassForScopedCatalog(t *testing.T) {
+	required := []RequiredCheck{RequiredCheckGate, RequiredCheckNormal, RequiredCheckFrontend}
+	observations := make([]CheckObservation, 0, len(required))
+	for _, check := range required {
+		observation := CheckObservation{Check: check, Executed: true, Passed: true, SourceTree: "target-tree", AcceptedSnapshotID: "accepted-snapshot", PlanDigest: "plan-digest", StartedAtUnixMS: 1, CompletedAtUnixMS: 2, DurationMS: 1}
+		digest, err := CheckObservationReceiptDigest(observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation.ReceiptSHA256 = digest
+		observations = append(observations, observation)
+	}
+	if err := ValidateRequiredChecksObservedPassFor(required, observations); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range [][]RequiredCheck{nil, {RequiredCheckNormal, RequiredCheckGate}, {RequiredCheckGate, RequiredCheckGate}} {
+		if err := ValidateRequiredChecksObservedPassFor(invalid, observations); err == nil {
+			t.Fatalf("invalid required check scope %v was accepted", invalid)
+		}
 	}
 }
 
@@ -232,6 +330,34 @@ func TestCanonicalMarkdownCoversEverySection(t *testing.T) {
 	}
 }
 
+func TestCompileGroupBatchEnvironmentContractLocksTempRoot(t *testing.T) {
+	var compileGroup Requirement
+	for _, requirement := range Requirements() {
+		if requirement.ID == "5.4" {
+			compileGroup = requirement
+			break
+		}
+	}
+	if compileGroup.ID == "" {
+		t.Fatal("compile-group requirement 5.4 is missing")
+	}
+	for _, required := range []string{
+		"worker supervisor",
+		"TMPDIR",
+		"temp-data",
+		"/tmp",
+		"镜像默认环境",
+		"唯一短 0700",
+		"GOTMPDIR",
+		"结束时清理",
+		"长 lane/batchRoot",
+	} {
+		if !strings.Contains(compileGroup.Summary, required) {
+			t.Fatalf("compile-group environment contract is missing %q: %s", required, compileGroup.Summary)
+		}
+	}
+}
+
 func TestAcceptedDocumentMatchesCodeContract(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -245,6 +371,7 @@ func TestAcceptedDocumentMatchesCodeContract(t *testing.T) {
 	document := string(data)
 	assertDocumentBlock(t, document, "code contract", "<!-- cicontract:begin -->", "<!-- cicontract:end -->", CanonicalMarkdown())
 	assertDocumentBlock(t, document, "retention", "<!-- cicontract:retention:begin -->", "<!-- cicontract:retention:end -->", CanonicalRetentionMarkdown())
+	assertDocumentBlock(t, document, "scheduling", "<!-- cicontract:scheduling:begin -->", "<!-- cicontract:scheduling:end -->", CanonicalSchedulingMarkdown())
 	assertDocumentBlock(t, document, "timing", "<!-- cicontract:timing:begin -->", "<!-- cicontract:timing:end -->", CanonicalTimingMarkdown())
 }
 
@@ -307,11 +434,13 @@ func TestRetentionRootsBindExactlyThreeAcceptedGenerations(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		DurationSamplesTable:        true,
-		CatalogObservationsTable:    true,
-		RemoteRunsTable:             true,
-		WorkloadPassEvidenceTable:   true,
-		CalibrationCheckpointsTable: true,
+		DurationSamplesTable:              true,
+		DurationShardOverheadsTable:       true,
+		DurationShardOverheadSamplesTable: true,
+		CatalogObservationsTable:          true,
+		RemoteRunsTable:                   true,
+		WorkloadPassEvidenceTable:         true,
+		CalibrationCheckpointsTable:       true,
 	}
 	for _, binding := range RetentionRootBindings() {
 		if !want[binding.Table] {
@@ -324,5 +453,35 @@ func TestRetentionRootsBindExactlyThreeAcceptedGenerations(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing retention roots: %v", want)
+	}
+}
+
+// TestGenerationOneAuthoritySupportingTablesAreCanonical 锁定首代 schema-only 边界的
+// 非历史根表，并确保它们不会悄然加入三代 retention 根集合。
+func TestGenerationOneAuthoritySupportingTablesAreCanonical(t *testing.T) {
+	want := map[string]bool{
+		DurationCalibrationsTable: true,
+		WorkloadCatalogsTable:     true,
+		LiveTimingWarningsTable:   true,
+	}
+	for _, table := range GenerationOneAuthoritySupportingTables() {
+		if !want[table] {
+			t.Fatalf("unexpected generation-one supporting table %q", table)
+		}
+		delete(want, table)
+		for _, binding := range RetentionRootBindings() {
+			if binding.Table == table {
+				t.Fatalf("generation-one supporting table %q became a retention root", table)
+			}
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing generation-one supporting tables: %v", want)
+	}
+}
+
+func TestECIEphemeralStorageIsFixedAtOneHundredGiB(t *testing.T) {
+	if ECIEphemeralStorageGiB != 100 {
+		t.Fatalf("ECIEphemeralStorageGiB = %d, want 100", ECIEphemeralStorageGiB)
 	}
 }

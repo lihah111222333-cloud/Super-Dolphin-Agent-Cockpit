@@ -29,7 +29,6 @@ const (
 	GoGuardTargetCanonical         = "canonical"
 	GoGuardTargetSource            = "source"
 	GoGuardTargetSourceRawGoTest   = "source-raw-go-test"
-	GoGuardTargetSourceCodeSize    = "source-code-size"
 	GoGuardTargetCopylocksProvider = "copylocks-provider"
 	GoGuardTargetCopylocksPlatform = "copylocks-platform"
 	GoGuardTargetCopylocksThread   = "copylocks-thread"
@@ -152,7 +151,6 @@ func isSplitGoGuardWorkloadTarget(target string) bool {
 	switch target {
 	case GoGuardTargetSource,
 		GoGuardTargetSourceRawGoTest,
-		GoGuardTargetSourceCodeSize,
 		GoGuardTargetCopylocksProvider,
 		GoGuardTargetCopylocksPlatform,
 		GoGuardTargetCopylocksThread:
@@ -197,7 +195,7 @@ func validateNestedGoModulePath(module string) error {
 
 // validateGoPackageWorkloadTarget 校验整包测试所属 gate 与包路径。
 func validateGoPackageWorkloadTarget(gateID GateID, target string) error {
-	if !isBackendTestGate(gateID) {
+	if !isGoPackageWorkloadGate(gateID) {
 		return fmt.Errorf("gate %q does not accept Go package workloads", gateID)
 	}
 	return validateGoPackageTarget(target)
@@ -235,6 +233,24 @@ func validatePlaywrightWorkloadTarget(gateID GateID, target string) error {
 		return fmt.Errorf("gate %q has an invalid Playwright workload", gateID)
 	}
 	return nil
+}
+
+// ParsePlaywrightE2ETarget 将稳定的 spec#describe 身份拆成文件和 grep 选择器。
+func ParsePlaywrightE2ETarget(target string) (string, string, error) {
+	spec, grep, ok := strings.Cut(target, "#")
+	if !ok || spec == "" || grep == "" {
+		return "", "", fmt.Errorf("Playwright E2E target %q must be spec#describe", target)
+	}
+	switch target {
+	case playwrightBusinessReadSurfacesTarget,
+		playwrightBusinessChatBridgeTarget,
+		playwrightDesktopShellTarget,
+		playwrightDesktopBusinessPagesTarget,
+		playwrightDesktopReadSettingsTarget:
+		return spec, grep, nil
+	default:
+		return "", "", fmt.Errorf("unsupported Playwright E2E target %q", target)
+	}
 }
 
 // NewGoTestWorkload 构造绑定精确包、顶层测试和执行语义的原子 workload。
@@ -363,6 +379,19 @@ func isBackendTestGate(gateID GateID) bool {
 	return gateID == GateIDBackendTestWithGuard || gateID == GateIDBackendTestGuardWithRace
 }
 
+func isExpansionOnlyGate(gateID GateID) bool {
+	return gateID == GateIDBackendNilness
+}
+
+func expansionOnlyWorkloadDigest(gateID GateID) string {
+	sum := sha256.Sum256([]byte("super-dolphin-expansion-only:" + string(gateID)))
+	return hex.EncodeToString(sum[:])
+}
+
+func isGoPackageWorkloadGate(gateID GateID) bool {
+	return isBackendTestGate(gateID) || isExpansionOnlyGate(gateID)
+}
+
 // validateGoPackageTarget 只校验无命令注入能力的仓库相对 Go 包目标。
 func validateGoPackageTarget(target string) error {
 	if !isCanonicalGoPackageTarget(target) {
@@ -432,7 +461,8 @@ func isCanonicalVitestTarget(target string) bool {
 }
 
 func isPlaywrightE2ESpec(target string) bool {
-	return target == playwrightBusinessFlowsSpec || target == playwrightDesktopWideSpec
+	_, _, err := ParsePlaywrightE2ETarget(target)
+	return err == nil
 }
 
 func workloadParentGateID(id string) (GateID, error) {

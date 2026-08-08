@@ -32,10 +32,12 @@ type sourcePlan struct {
 	// manifest; they are never used as transport roots or bundle refs.
 	commit     string
 	baseCommit string
+	baseTree   string
 	tree       string
-	// transportCommit is a deterministic synthetic commit whose tree is the
-	// candidate SourceTreeSHA and whose only parent is baseline.CommitSHA.
-	transportCommit string
+	// syntheticBaseCommit 表示相对于 accepted baseline 的 SourceSpec parent/base tree；
+	// transportCommit 随后将此 synthetic commit 作为唯一 parent。
+	syntheticBaseCommit string
+	transportCommit     string
 }
 
 // sourceBundleImporter is implemented by the sourceexport owner; materializers must not duplicate Git tree or bundle parsing.
@@ -73,7 +75,7 @@ func MaterializeSource(ctx context.Context, repoRoot string, spec gate.SourceSpe
 	if err := validateSourceBaseline(ctx, baseline, spec.ObjectFormat); err != nil {
 		return SourceMaterialization{}, err
 	}
-	plan, err := inspectSourcePlan(ctx, repoRoot, spec)
+	plan, err := inspectSourcePlan(ctx, repoRoot, spec, &baseline)
 	if err != nil {
 		return SourceMaterialization{}, err
 	}
@@ -98,17 +100,12 @@ func materializeInStage(ctx context.Context, repoRoot string, outputRoot string,
 	if err := configureObjectStoreAlternate(ctx, bareRoot, baseline); err != nil {
 		return SourceMaterialization{}, err
 	}
-	// Transfer only the candidate tree closure. The original commit/range
-	// history remains SourceSpec identity and is intentionally not serialized.
-	if err := transferObjectClosure(ctx, repoRoot, bareRoot, stageRoot, []string{plan.tree}, []string{baseline.CommitSHA}, spec.ObjectFormat, baseline); err != nil {
+	if err := ensureSourceEmptyTree(ctx, bareRoot, plan.baseTree, spec.ObjectFormat); err != nil {
 		return SourceMaterialization{}, err
 	}
-	transportCommit, err := createTransportCommit(ctx, bareRoot, plan.tree, baseline.CommitSHA, spec.ObjectFormat)
+	var err error
+	plan, err = prepareSourceTransport(ctx, repoRoot, bareRoot, stageRoot, spec, plan, baseline)
 	if err != nil {
-		return SourceMaterialization{}, err
-	}
-	plan.transportCommit = transportCommit
-	if err := prepareBundleRefs(ctx, bareRoot, plan.transportCommit, plan.tree, baseline.CommitSHA, spec.ObjectFormat); err != nil {
 		return SourceMaterialization{}, err
 	}
 	bundlePath := filepath.Join(stageRoot, sourceBundleName)
@@ -127,6 +124,64 @@ func materializeInStage(ctx context.Context, repoRoot string, outputRoot string,
 		return SourceMaterialization{}, err
 	}
 	return publishSourceArtifacts(outputRoot, bundlePath, manifestPath, manifest)
+}
+
+// prepareSourceTransport 在 staging bare repository 中传输对象闭包并创建确定性提交引用。
+func prepareSourceTransport(ctx context.Context, repoRoot string, bareRoot string, stageRoot string, spec gate.SourceSpec, plan sourcePlan, baseline SourceBaseline) (sourcePlan, error) {
+	roots, err := sourceMaterializationRoots(plan.tree, plan.baseTree, spec.ObjectFormat)
+	if err != nil {
+		return sourcePlan{}, err
+	}
+	if err := transferObjectClosure(ctx, repoRoot, bareRoot, stageRoot, roots, []string{baseline.CommitSHA}, spec.ObjectFormat, baseline); err != nil {
+		return sourcePlan{}, err
+	}
+	syntheticBaseCommit, err := createSyntheticBaseCommit(ctx, bareRoot, plan.baseTree, baseline.CommitSHA, spec.ObjectFormat)
+	if err != nil {
+		return sourcePlan{}, err
+	}
+	plan.syntheticBaseCommit = syntheticBaseCommit
+	transportCommit, err := createTransportCommit(ctx, bareRoot, plan.tree, syntheticBaseCommit, spec.ObjectFormat)
+	if err != nil {
+		return sourcePlan{}, err
+	}
+	plan.transportCommit = transportCommit
+	if err := prepareBundleRefs(ctx, bareRoot, plan.transportCommit, plan.tree, plan.syntheticBaseCommit, spec.ObjectFormat); err != nil {
+		return sourcePlan{}, err
+	}
+	return plan, nil
+}
+
+// sourceMaterializationRoots 返回候选树与非空父树的传输根，避免把确定性空树重复传输。
+func sourceMaterializationRoots(tree string, baseTree string, format gate.GitObjectFormat) ([]string, error) {
+	roots := []string{tree}
+	emptyTree, err := DeterministicSourceEmptyTreeSHA(format)
+	if err != nil {
+		return nil, err
+	}
+	if baseTree != emptyTree {
+		roots = append(roots, baseTree)
+	}
+	return roots, nil
+}
+
+// ensureSourceEmptyTree 确保 root/empty-tree SourceSpec 所需的确定性空树已写入候选 ODB。
+func ensureSourceEmptyTree(ctx context.Context, bareRoot string, tree string, format gate.GitObjectFormat) error {
+	emptyTree, err := DeterministicSourceEmptyTreeSHA(format)
+	if err != nil {
+		return err
+	}
+	if tree != emptyTree {
+		return nil
+	}
+	output, err := runGitOutput(ctx, bareRoot, bytes.NewReader(nil), "hash-object", "-t", "tree", "-w", "--stdin")
+	if err != nil {
+		return fmt.Errorf("write deterministic empty source tree: %w", err)
+	}
+	actual, err := strictGitLine(output)
+	if err != nil || actual != emptyTree {
+		return errors.New("deterministic empty source tree identity drifted")
+	}
+	return nil
 }
 
 // ImportAndVerifySourceBundle 在显式 accepted image baseline object store 上
@@ -357,20 +412,21 @@ func verifyRepositoryIdentity(ctx context.Context, repoRoot string, objectFormat
 	return nil
 }
 
-func inspectSourcePlan(ctx context.Context, repoRoot string, spec gate.SourceSpec) (sourcePlan, error) {
+func inspectSourcePlan(ctx context.Context, repoRoot string, spec gate.SourceSpec, baseline *SourceBaseline) (sourcePlan, error) {
 	switch spec.Kind {
 	case gate.SourceKindCommit:
-		return inspectCommitPlan(ctx, repoRoot, spec.Commit.SHA, spec.SourceTreeSHA)
+		return inspectCommitPlan(ctx, repoRoot, spec.Commit.SHA, spec.SourceTreeSHA, spec.ObjectFormat, baseline)
 	case gate.SourceKindTree:
-		return inspectTreePlan(ctx, repoRoot, spec.Tree, spec.SourceTreeSHA)
+		return inspectTreePlan(ctx, repoRoot, spec.Tree, spec.SourceTreeSHA, spec.ObjectFormat, baseline)
 	case gate.SourceKindRange:
-		return inspectRangePlan(ctx, repoRoot, spec.Range, spec.SourceTreeSHA)
+		return inspectRangePlan(ctx, repoRoot, spec.Range, spec.SourceTreeSHA, spec.ObjectFormat, baseline)
 	default:
 		return sourcePlan{}, fmt.Errorf("unsupported source kind %q", spec.Kind)
 	}
 }
 
-func inspectCommitPlan(ctx context.Context, repoRoot string, commitSHA string, expectedTree string) (sourcePlan, error) {
+// inspectCommitPlan 解析 commit source 并确定候选提交对应的父树。
+func inspectCommitPlan(ctx context.Context, repoRoot string, commitSHA string, expectedTree string, format gate.GitObjectFormat, baseline *SourceBaseline) (sourcePlan, error) {
 	commit, err := readSourceObject(ctx, repoRoot, commitSHA)
 	if err != nil {
 		return sourcePlan{}, err
@@ -379,15 +435,26 @@ func inspectCommitPlan(ctx context.Context, repoRoot string, commitSHA string, e
 	if err != nil {
 		return sourcePlan{}, err
 	}
-	plan := sourcePlan{tree: tree, commit: commitSHA}
+	baseTree, err := DeterministicSourceEmptyTreeSHA(format)
+	if err != nil {
+		return sourcePlan{}, err
+	}
+	plan := sourcePlan{tree: tree, commit: commitSHA, baseTree: baseTree}
+	if len(parents) > 1 {
+		return sourcePlan{}, errors.New("commit source must have at most one parent for deterministic source diff")
+	}
 	if len(parents) == 1 {
 		plan.baseCommit = parents[0]
+		plan.baseTree, err = sourceCommitTree(ctx, repoRoot, parents[0], baseline)
+		if err != nil {
+			return sourcePlan{}, fmt.Errorf("read commit source parent tree: %w", err)
+		}
 	}
 	return plan, nil
 }
 
 // inspectTreePlan 复核显式 tree 与可选 parent commit，不读取 index 或 HEAD。
-func inspectTreePlan(ctx context.Context, repoRoot string, source *gate.TreeSource, expectedTree string) (sourcePlan, error) {
+func inspectTreePlan(ctx context.Context, repoRoot string, source *gate.TreeSource, expectedTree string, format gate.GitObjectFormat, baseline *SourceBaseline) (sourcePlan, error) {
 	tree, err := readSourceObject(ctx, repoRoot, source.SHA)
 	if err != nil {
 		return sourcePlan{}, err
@@ -398,23 +465,25 @@ func inspectTreePlan(ctx context.Context, repoRoot string, source *gate.TreeSour
 	if source.SHA != expectedTree {
 		return sourcePlan{}, fmt.Errorf("source tree is %s, want %s", source.SHA, expectedTree)
 	}
+	baseTree, err := DeterministicSourceEmptyTreeSHA(format)
+	if err != nil {
+		return sourcePlan{}, err
+	}
 	if source.ParentCommitSHA != "" {
-		parent, err := readSourceObject(ctx, repoRoot, source.ParentCommitSHA)
+		baseTree, err = sourceCommitTree(ctx, repoRoot, source.ParentCommitSHA, baseline)
 		if err != nil {
-			return sourcePlan{}, err
-		}
-		if parent.kind != "commit" {
-			return sourcePlan{}, fmt.Errorf("tree parent object %s has type %s, want commit", source.ParentCommitSHA, parent.kind)
+			return sourcePlan{}, fmt.Errorf("read tree source parent tree: %w", err)
 		}
 	}
 	return sourcePlan{
 		tree:       source.SHA,
 		baseCommit: source.ParentCommitSHA,
+		baseTree:   baseTree,
 	}, nil
 }
 
 // inspectRangePlan 复核 range 的 head/base 对象类型与 head tree。
-func inspectRangePlan(ctx context.Context, repoRoot string, source *gate.RangeSource, expectedTree string) (sourcePlan, error) {
+func inspectRangePlan(ctx context.Context, repoRoot string, source *gate.RangeSource, expectedTree string, format gate.GitObjectFormat, baseline *SourceBaseline) (sourcePlan, error) {
 	head, err := readSourceObject(ctx, repoRoot, source.HeadSHA)
 	if err != nil {
 		return sourcePlan{}, err
@@ -424,17 +493,35 @@ func inspectRangePlan(ctx context.Context, repoRoot string, source *gate.RangeSo
 		return sourcePlan{}, fmt.Errorf("validate range head: %w", err)
 	}
 	baseCommit := ""
-	if source.BaseKind == gate.BaseKindCommit {
-		base, err := readSourceObject(ctx, repoRoot, source.BaseSHA)
-		if err != nil {
-			return sourcePlan{}, fmt.Errorf("read range base: %w", err)
-		}
-		if base.kind != "commit" {
-			return sourcePlan{}, fmt.Errorf("range base object %s has type %s, want commit", source.BaseSHA, base.kind)
-		}
-		baseCommit = source.BaseSHA
+	baseTree, err := DeterministicSourceEmptyTreeSHA(format)
+	if err != nil {
+		return sourcePlan{}, err
 	}
-	return sourcePlan{tree: tree, commit: source.HeadSHA, baseCommit: baseCommit}, nil
+	if source.BaseKind == gate.BaseKindCommit {
+		baseCommit = source.BaseSHA
+		baseTree, err = sourceCommitTree(ctx, repoRoot, source.BaseSHA, baseline)
+		if err != nil {
+			return sourcePlan{}, fmt.Errorf("read range base tree: %w", err)
+		}
+	}
+	return sourcePlan{tree: tree, commit: source.HeadSHA, baseCommit: baseCommit, baseTree: baseTree}, nil
+}
+
+// sourceCommitTree 读取一个显式 commit，仅返回其 tree identity；parent history 保留在
+// transport bundle 之外。
+func sourceCommitTree(ctx context.Context, repoRoot string, commitSHA string, baseline *SourceBaseline) (string, error) {
+	if baseline != nil && commitSHA == baseline.CommitSHA {
+		return baseline.TreeSHA, nil
+	}
+	commit, err := readSourceObject(ctx, repoRoot, commitSHA)
+	if err != nil {
+		return "", err
+	}
+	tree, _, err := parseCommitObject(commit, "")
+	if err != nil {
+		return "", err
+	}
+	return tree, nil
 }
 
 // readSourceObject 通过 cat-file batch 读取单个显式 OID 并严格拒绝尾随输出。
@@ -509,7 +596,7 @@ func parseCommitObject(object sourceObject, expectedTree string) (string, []stri
 		return "", nil, fmt.Errorf("commit object %s is missing leading tree", object.oid)
 	}
 	tree := string(bytes.TrimPrefix(lines[0], []byte("tree ")))
-	if tree != expectedTree {
+	if expectedTree != "" && tree != expectedTree {
 		return "", nil, fmt.Errorf("source tree is %s, want %s", tree, expectedTree)
 	}
 	parents := make([]string, 0, 2)
@@ -648,15 +735,34 @@ func indexSourceObjectPack(ctx context.Context, bareRoot string, packPath string
 	return nil
 }
 
-// createTransportCommit writes the deterministic transport commit. Git can
-// then produce a standard bundle with exactly one prerequisite because the
-// transport commit directly names the accepted baseline as its sole parent.
-func createTransportCommit(ctx context.Context, bareRoot string, tree string, baseline string, format gate.GitObjectFormat) (string, error) {
-	expected, err := DeterministicSourceTransportCommitSHA(tree, baseline, format)
+// createSyntheticBaseCommit 写入 deterministic candidate-parent commit。
+// 其 tree 是 SourceSpec parent/base tree，唯一 parent 是 accepted baseline，
+// 因此 bundle 保持 thin 且只有一个 prerequisite。
+func createSyntheticBaseCommit(ctx context.Context, bareRoot string, tree string, baseline string, format gate.GitObjectFormat) (string, error) {
+	expected, err := DeterministicSourceSyntheticBaseCommitSHA(tree, baseline, format)
 	if err != nil {
 		return "", err
 	}
-	output, err := runGitOutput(ctx, bareRoot, bytes.NewReader(deterministicSourceTransportPayload(tree, baseline)), "hash-object", "-t", "commit", "-w", "--stdin")
+	output, err := runGitOutput(ctx, bareRoot, bytes.NewReader(deterministicSourceSyntheticBasePayload(tree, baseline)), "hash-object", "-t", "commit", "-w", "--stdin")
+	if err != nil {
+		return "", fmt.Errorf("write deterministic source synthetic base commit: %w", err)
+	}
+	actual, err := strictGitLine(output)
+	if err != nil || actual != expected {
+		return "", errors.New("deterministic source synthetic base commit identity drifted")
+	}
+	return expected, nil
+}
+
+// createTransportCommit writes the deterministic transport commit. Git can
+// then produce a standard bundle with exactly one prerequisite because the
+// transport commit 将 candidate-parent synthetic base 命名为其 parent。
+func createTransportCommit(ctx context.Context, bareRoot string, tree string, syntheticBase string, format gate.GitObjectFormat) (string, error) {
+	expected, err := DeterministicSourceTransportCommitSHA(tree, syntheticBase, format)
+	if err != nil {
+		return "", err
+	}
+	output, err := runGitOutput(ctx, bareRoot, bytes.NewReader(deterministicSourceTransportPayload(tree, syntheticBase)), "hash-object", "-t", "commit", "-w", "--stdin")
 	if err != nil {
 		return "", fmt.Errorf("write deterministic source transport commit: %w", err)
 	}
@@ -667,9 +773,9 @@ func createTransportCommit(ctx context.Context, bareRoot string, tree string, ba
 	return expected, nil
 }
 
-// prepareBundleRefs 只创建确定性的 transport ref；accepted baseline 仅作 prerequisite；
-// creates only the deterministic transport ref; the
-// accepted baseline is a prerequisite, never a bundle ref or uploaded object.
+// prepareBundleRefs 只创建确定性的 transport ref；synthetic base 作为
+// transport 的可达历史随 bundle 携带但不广告额外 ref，accepted baseline
+// 仅作为唯一 prerequisite。
 func prepareBundleRefs(ctx context.Context, bareRoot string, commit string, tree string, parent string, format gate.GitObjectFormat) error {
 	input := fmt.Sprintf("create %s %s\n", sourceBundleRef, commit)
 	commits := []string{commit}
@@ -686,7 +792,7 @@ func prepareBundleRefs(ctx context.Context, bareRoot string, commit string, tree
 		return errors.Join(errors.New("transport commit tree verification failed"), err)
 	}
 	if len(parents) != 1 || parents[0] != parent {
-		return errors.New("transport commit must have exactly the accepted baseline as parent")
+		return errors.New("transport commit must have exactly the synthetic base as parent")
 	}
 	expected, err := DeterministicSourceTransportCommitSHA(tree, parent, format)
 	if err != nil || commit != expected {

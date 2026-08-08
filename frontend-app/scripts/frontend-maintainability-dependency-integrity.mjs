@@ -31,11 +31,11 @@ export const DEPENDENCY_SUPPORTED_ENVIRONMENTS = Object.freeze([{
     { platform: 'win32', arch: 'x64' },
   ],
   evidence: [
-    '.github/workflows/ci.yml#actions/setup-node:20',
+    'docs/契约/remote-ci-eci-imagecache-contract.md#aliyun-eci-only-no-github-runner/v1',
     'build/gate/runtime-deps.lock#linux/arm64',
     'frontend-app/package-lock.json#node_modules/eslint.engines',
     'frontend-app/package-lock.json#node_modules/vite.engines',
-    'frontend-app/scripts/frontend-maintainability-score.test.mjs#portable-dependency-integrity',
+    'frontend-app/scripts/frontend-runtime-seed-dependency-integrity.test.mjs#verified-read-only-seed',
   ],
 }]);
 

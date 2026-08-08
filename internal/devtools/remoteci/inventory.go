@@ -67,6 +67,8 @@ func BuildWorkloadInventory(
 	}, nil
 }
 
+// inventoryPlatformGoPackages 依据精确 commit tree 和目标平台过滤可编译的 Go 包，
+// 使后续测试清单不受当前工作区或其他平台文件影响。
 func inventoryPlatformGoPackages(
 	ctx context.Context,
 	repositoryRoot string,
@@ -119,7 +121,7 @@ func inventoryAtomicGoTests(
 		return nil, nil, err
 	}
 	var normalTargets, raceTargets []gate.GoTestTarget
-	for _, packageTarget := range []string{gate.AtomicArchtestPackageTarget, gate.AtomicCodexAppPackageTarget} {
+	for _, packageTarget := range gate.AtomicGoPackageTargets() {
 		if !slices.Contains(packages, packageTarget) {
 			continue
 		}
@@ -232,6 +234,8 @@ func requireInventoryJSONEOF(decoder *json.Decoder) error {
 	return nil
 }
 
+// validateInventoryVitestSuitePolicy 检查 Vitest 排除策略的版本、非空约束、glob 合法性和重复项，
+// 任何不确定策略都在构建清单前失败，避免静默改变测试范围。
 func validateInventoryVitestSuitePolicy(policy inventoryVitestSuitePolicy) error {
 	if policy.SchemaVersion != 1 || len(policy.DefaultExcludes) == 0 {
 		return errors.New("Vitest suite policy schema is invalid")
@@ -266,6 +270,8 @@ func invalidInventoryVitestGlobPattern(pattern string) bool {
 		strings.ContainsAny(pattern, "\\\x00\r\n")
 }
 
+// validateInventoryVitestGlobSegment 拒绝 glob 路径段中的空段、目录穿越和非法通配符，
+// 仅允许独立的 ** 作为跨目录匹配段。
 func validateInventoryVitestGlobSegment(pattern string, segment string) error {
 	if segment == "" || segment == "." || segment == ".." ||
 		(segment != "**" && strings.Contains(segment, "**")) {
@@ -289,6 +295,7 @@ func (policy inventoryVitestSuitePolicy) excludes(target string) bool {
 	return false
 }
 
+// inventoryVitestGlobMatches 按路径段递归匹配 Vitest glob，明确处理 ** 的零段或多段展开。
 func inventoryVitestGlobMatches(pattern string, target string) bool {
 	patternSegments := strings.Split(pattern, "/")
 	targetSegments := strings.Split(target, "/")

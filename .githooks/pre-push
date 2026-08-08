@@ -11,14 +11,110 @@ repo_root=$(git rev-parse --show-toplevel) || {
   exit 1
 }
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
-if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
-  printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the push.' >&2
-  exit 1
-fi
 
 # 首次身份协商不得读取远程配置或规范化 ref；hook 不签发或保存 token。
 if [[ "${SUPER_DOLPHIN_CI_AGENT_TOKEN-}" == "issue" || -z "${SUPER_DOLPHIN_CI_AGENT_TOKEN+x}" ]]; then
+  if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
+    printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the push.' >&2
+    exit 1
+  fi
   exec "$gate_bin" remote hook pre-push
+fi
+
+umask 077
+push_input_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-prepush.XXXXXX")
+cleanup_push_input() {
+  rm -f -- "$push_input_file"
+}
+trap cleanup_push_input EXIT HUP INT TERM
+cat >"$push_input_file"
+
+object_format=$(git -C "$repo_root" rev-parse --show-object-format) || {
+  printf '%s\n' 'pre-push blocked: Git object format is unavailable.' >&2
+  exit 1
+}
+case "$object_format" in
+  sha1)
+    oid_pattern='[0-9a-f]{40}'
+    zero_oid=0000000000000000000000000000000000000000
+    ;;
+  sha256)
+    oid_pattern='[0-9a-f]{64}'
+    zero_oid=0000000000000000000000000000000000000000000000000000000000000000
+    ;;
+  *)
+    printf 'pre-push blocked: unsupported Git object format %q.\n' "$object_format" >&2
+    exit 1
+    ;;
+esac
+
+selected_push_launcher=
+push_line_number=0
+while IFS= read -r push_line || [[ -n "$push_line" ]]; do
+  push_line_number=$((push_line_number + 1))
+  IFS=$' \t\n' read -r -a push_fields <<<"$push_line"
+  if [[ ${#push_fields[@]} -ne 4 ]]; then
+    printf 'pre-push blocked: stdin line %d must contain exactly four fields.\n' "$push_line_number" >&2
+    exit 1
+  fi
+  local_ref=${push_fields[0]}
+  local_sha=${push_fields[1]}
+  remote_ref=${push_fields[2]}
+  remote_sha=${push_fields[3]}
+  if [[ "$local_ref" != refs/* ]] || ! git -C "$repo_root" check-ref-format "$local_ref" >/dev/null 2>&1; then
+    printf 'pre-push blocked: stdin line %d has an invalid local ref.\n' "$push_line_number" >&2
+    exit 1
+  fi
+  if [[ "$remote_ref" != refs/* ]] || ! git -C "$repo_root" check-ref-format "$remote_ref" >/dev/null 2>&1; then
+    printf 'pre-push blocked: stdin line %d has an invalid remote ref.\n' "$push_line_number" >&2
+    exit 1
+  fi
+  if [[ ! "$local_sha" =~ ^$oid_pattern$ || ! "$remote_sha" =~ ^$oid_pattern$ ]]; then
+    printf 'pre-push blocked: stdin line %d has a non-canonical object id.\n' "$push_line_number" >&2
+    exit 1
+  fi
+  if [[ "$local_sha" == "$zero_oid" ]]; then
+    continue
+  fi
+  local_commit=$(git -C "$repo_root" rev-parse --verify "${local_sha}^{commit}") || {
+    printf 'pre-push blocked: stdin line %d local object is not a commit.\n' "$push_line_number" >&2
+    exit 1
+  }
+  if [[ "$local_commit" != "$local_sha" ]]; then
+    printf 'pre-push blocked: stdin line %d local commit is not canonical.\n' "$push_line_number" >&2
+    exit 1
+  fi
+  local_tree=$(git -C "$repo_root" rev-parse --verify "${local_sha}^{tree}") || {
+    printf 'pre-push blocked: stdin line %d local commit tree is unavailable.\n' "$push_line_number" >&2
+    exit 1
+  }
+  if [[ ! "$local_tree" =~ ^$oid_pattern$ ]]; then
+    printf 'pre-push blocked: stdin line %d local commit tree is not canonical.\n' "$push_line_number" >&2
+    exit 1
+  fi
+  if ! push_launcher=$(trusted_gate_launcher_for_tree "$repo_root" "$local_tree"); then
+    printf 'pre-push blocked: trusted launcher receipt does not match pushed tree %s; run make install-hooks, then retry.\n' "$local_tree" >&2
+    exit 1
+  fi
+  if [[ -n "$selected_push_launcher" && "$selected_push_launcher" != "$push_launcher" ]]; then
+    printf '%s\n' 'pre-push blocked: multiple pushed trees require separate trusted gate invocations.' >&2
+    exit 1
+  fi
+  selected_push_launcher=$push_launcher
+done <"$push_input_file"
+
+if [[ "$push_line_number" -eq 0 ]]; then
+  printf '%s\n' 'pre-push blocked: stdin contains no ref updates.' >&2
+  exit 1
+fi
+
+if [[ -n "$selected_push_launcher" ]]; then
+  gate_bin=$selected_push_launcher
+else
+  if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
+    printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable for delete-only updates; install it with make install-hooks, then retry.' >&2
+    exit 1
+  fi
 fi
 
 remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
@@ -33,4 +129,4 @@ remote_args=(
   --ledger "$remote_ledger"
   --repository "$repo_root"
 )
-exec "$gate_bin" "${remote_args[@]}" "$1" "$2"
+exec "$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"

@@ -3,7 +3,9 @@ package remoteci
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -99,11 +101,15 @@ type sourceUploadOrderRuntime struct {
 
 func (runtime *sourceUploadOrderRuntime) CreateContainerGroup(ctx context.Context, request eci.CreateRequest) (eci.ContainerGroup, error) {
 	requestKey := request.InitContainer.Environment["SUPER_DOLPHIN_REMOTE_REQUEST_KEY"]
+	fullRequestKey := request.InitContainer.Environment[FullRequestKeyEnvironment]
 	if !runtime.store.sourceAssetsReady() {
 		runtime.recordViolation("CreateContainerGroup started before source assets completed")
 	}
 	if !runtime.store.requestUploaded(requestKey) {
 		runtime.recordViolation(fmt.Sprintf("CreateContainerGroup started before shard request %q was uploaded", requestKey))
+	}
+	if !runtime.store.requestUploaded(fullRequestKey) {
+		runtime.recordViolation(fmt.Sprintf("CreateContainerGroup started before full shard request %q was uploaded", fullRequestKey))
 	}
 	if violations := runtime.violationsSnapshot(); len(violations) != 0 {
 		return eci.ContainerGroup{}, fmt.Errorf("remote CI asset ordering violation: %s", strings.Join(violations, "; "))
@@ -128,6 +134,98 @@ type sourceUploadOrderOutcome struct {
 	err    error
 }
 
+const (
+	// sourceUploadOrderSlowWarningAfter 仅用于观测。compile-group 批次和宿主
+	// 资源争用可能让 fake coordinator 暂时得不到调度，但不能把最终完成的
+	// 顺序断言误判为超时失败。
+	sourceUploadOrderSlowWarningAfter = 100 * time.Second
+	// 在 testing.T 自身 deadline 到期前留出很小的诊断窗口。
+	sourceUploadOrderDeadlineSafetyMargin = time.Second
+)
+
+type sourceUploadOrderRunTimerFactory func(time.Duration) (<-chan time.Time, func())
+
+type sourceUploadOrderRunWaitHooks struct {
+	now      func() time.Time
+	newTimer sourceUploadOrderRunTimerFactory
+}
+
+// realSourceUploadOrderRunWaitHooks 为生产等待路径绑定真实时钟和计时器。
+func realSourceUploadOrderRunWaitHooks() sourceUploadOrderRunWaitHooks {
+	return sourceUploadOrderRunWaitHooks{
+		now: time.Now,
+		newTimer: func(duration time.Duration) (<-chan time.Time, func()) {
+			timer := time.NewTimer(duration)
+			return timer.C, func() { timer.Stop() }
+		},
+	}
+}
+
+// waitSourceUploadOrderOutcome 等待 coordinator 的持久化结果。慢速计时器
+// 只产生诊断信号，调用方 context deadline 才是唯一生命周期边界；通过
+// 注入时钟和计时器可以直接测试这份契约，而无需真实等待生产的 100 秒间隔。
+func waitSourceUploadOrderOutcome(
+	ctx context.Context,
+	outcomes <-chan sourceUploadOrderOutcome,
+	hooks sourceUploadOrderRunWaitHooks,
+	onSlow func(time.Duration),
+) (sourceUploadOrderOutcome, error) {
+	if err := validateSourceUploadOrderWaitInputs(ctx, hooks); err != nil {
+		return sourceUploadOrderOutcome{}, err
+	}
+	if onSlow == nil {
+		onSlow = func(time.Duration) {}
+	}
+	startedAt := hooks.now()
+	warning, stop := hooks.newTimer(sourceUploadOrderSlowWarningAfter)
+	if stop != nil {
+		defer stop()
+	}
+	for {
+		select {
+		case outcome, ok := <-outcomes:
+			return sourceUploadOrderOutcomeFromChannel(outcome, ok)
+		case _, ok := <-warning:
+			if !ok {
+				warning = nil
+				continue
+			}
+			warning = nil
+			onSlow(sourceUploadOrderWarningElapsed(hooks, startedAt))
+		case <-ctx.Done():
+			return sourceUploadOrderOutcome{}, fmt.Errorf("source upload order coordinator did not finish before context deadline: %w", ctx.Err())
+		}
+	}
+}
+
+// validateSourceUploadOrderWaitInputs 校验等待器的 context、时钟和计时器注入。
+func validateSourceUploadOrderWaitInputs(ctx context.Context, hooks sourceUploadOrderRunWaitHooks) error {
+	if ctx == nil {
+		return errors.New("source upload order wait context is required")
+	}
+	if hooks.now == nil || hooks.newTimer == nil {
+		return errors.New("source upload order wait clock is required")
+	}
+	return nil
+}
+
+// sourceUploadOrderOutcomeFromChannel 把结果通道关闭转换为明确的测试错误。
+func sourceUploadOrderOutcomeFromChannel(outcome sourceUploadOrderOutcome, ok bool) (sourceUploadOrderOutcome, error) {
+	if !ok {
+		return sourceUploadOrderOutcome{}, errors.New("source upload order outcome channel closed")
+	}
+	return outcome, nil
+}
+
+// sourceUploadOrderWarningElapsed 计算慢速诊断相对于等待起点的实际耗时。
+func sourceUploadOrderWarningElapsed(hooks sourceUploadOrderRunWaitHooks, startedAt time.Time) time.Duration {
+	elapsed := hooks.now().Sub(startedAt)
+	if elapsed < 0 {
+		return 0
+	}
+	return elapsed
+}
+
 type sourceUploadOrderHarness struct {
 	requestBarrier *coordinatorOverlapBarrier
 	createBarrier  *coordinatorOverlapBarrier
@@ -139,7 +237,7 @@ func sourceUploadOrderPlan(t *testing.T) (RunInput, gate.ContainerShardSet) {
 	t.Helper()
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
-	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
+	plannedSet := mustBuildAllMissRemoteExecutionShardSet(t, input)
 	if len(plannedSet.Shards) <= 1 {
 		t.Fatalf("planned shards=%d, want multiple LPT shards", len(plannedSet.Shards))
 	}
@@ -150,7 +248,7 @@ func sourceUploadOrderPlan(t *testing.T) (RunInput, gate.ContainerShardSet) {
 	assertSourceUploadOrderPlanningGeneration(t, plannedSet, planningSnapshot.Generation)
 	planningInput := input
 	planningInput.LedgerSnapshot = planningSnapshot
-	expectedSet := mustBuildRemoteExecutionShardSet(t, planningInput)
+	expectedSet := mustBuildAllMissRemoteExecutionShardSet(t, planningInput)
 	assertSourceUploadOrderLPTPlan(t, plannedSet, expectedSet)
 	return input, plannedSet
 }
@@ -189,28 +287,70 @@ func newSourceUploadOrderHarness(plannedSet gate.ContainerShardSet) sourceUpload
 	}
 }
 
-func startSourceUploadOrderRun(runs *errgroup.Group, coordinator *Coordinator, input RunInput) <-chan sourceUploadOrderOutcome {
+// startSourceUploadOrderRun 在指定 context 下启动一次 coordinator.Run，并缓冲最终结果。
+func startSourceUploadOrderRun(runs *errgroup.Group, coordinator *Coordinator, ctx context.Context, input RunInput) <-chan sourceUploadOrderOutcome {
 	outcomes := make(chan sourceUploadOrderOutcome, 1)
 	runs.Go(func() error {
-		result, err := coordinator.Run(context.Background(), input)
+		result, err := coordinator.Run(ctx, input)
 		outcomes <- sourceUploadOrderOutcome{result: result, err: err}
 		return nil
 	})
 	return outcomes
 }
 
-func awaitSourceUploadOrderRun(t *testing.T, runs *errgroup.Group, outcomes <-chan sourceUploadOrderOutcome) sourceUploadOrderOutcome {
+// sourceUploadOrderRunContext 将 fake coordinator 绑定到测试/worker 的真实 deadline。
+func sourceUploadOrderRunContext(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
-	select {
-	case outcome := <-outcomes:
-		if err := runs.Wait(); err != nil {
-			t.Fatalf("coordinator run group error = %v", err)
+	deadline, ok := t.Deadline()
+	if !ok {
+		timeout, err := sourceUploadOrderWorkerTimeout()
+		if err != nil {
+			t.Fatal(err)
 		}
-		return outcome
-	case <-time.After(5 * time.Second):
-		t.Fatal("coordinator did not finish after releasing all shard barriers")
-		return sourceUploadOrderOutcome{}
+		deadline = time.Now().Add(timeout)
 	}
+	runDeadline := deadline.Add(-sourceUploadOrderDeadlineSafetyMargin)
+	if !runDeadline.After(time.Now()) {
+		t.Fatalf("source upload order test deadline leaves no safety margin: %s", deadline)
+	}
+	return context.WithDeadline(t.Context(), runDeadline)
+}
+
+// sourceUploadOrderWorkerTimeout 复用 worker 的已校验执行时限，避免 -timeout=0
+// 时丢失测试 deadline，同时不把 100 秒优化目标变成终止条件。
+func sourceUploadOrderWorkerTimeout() (time.Duration, error) {
+	raw, configured := os.LookupEnv(gate.ExecutorWorkloadTimeoutEnvironment)
+	if !configured || strings.TrimSpace(raw) == "" {
+		return 0, errors.New("source upload order test requires a worker/test deadline; pass -timeout or configure " + gate.ExecutorWorkloadTimeoutEnvironment)
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", gate.ExecutorWorkloadTimeoutEnvironment, err)
+	}
+	if err := gate.ValidateExecutorWorkloadTimeout(timeout); err != nil {
+		return 0, fmt.Errorf("validate %s: %w", gate.ExecutorWorkloadTimeoutEnvironment, err)
+	}
+	return timeout, nil
+}
+
+// awaitSourceUploadOrderRun 等待结果或真实 deadline，并只在慢速时输出诊断日志。
+func awaitSourceUploadOrderRun(t *testing.T, runs *errgroup.Group, ctx context.Context, outcomes <-chan sourceUploadOrderOutcome) sourceUploadOrderOutcome {
+	t.Helper()
+	outcome, err := waitSourceUploadOrderOutcome(
+		ctx,
+		outcomes,
+		realSourceUploadOrderRunWaitHooks(),
+		func(elapsed time.Duration) {
+			t.Logf("source upload order timing warning: coordinator still running %s after releasing all shard barriers; waiting for worker deadline", elapsed.Round(time.Millisecond))
+		},
+	)
+	if err != nil {
+		t.Fatalf("coordinator run did not finish after releasing all shard barriers: %v", err)
+	}
+	if err := runs.Wait(); err != nil {
+		t.Fatalf("coordinator run group error = %v", err)
+	}
+	return outcome
 }
 
 func assertSourceUploadOrderRunPassed(t *testing.T, outcome sourceUploadOrderOutcome) {
@@ -255,8 +395,11 @@ func TestCoordinatorUploadsCompleteSourceAssetsBeforeAnyShardAdmission(t *testin
 	input, plannedSet := sourceUploadOrderPlan(t)
 	harness := newSourceUploadOrderHarness(plannedSet)
 	coordinator := newTestCoordinator(t, harness.store, harness.runtime)
+	runContext, cancel := sourceUploadOrderRunContext(t)
+	defer cancel()
 	var runs errgroup.Group
-	outcomes := startSourceUploadOrderRun(&runs, coordinator, input)
+	outcomes := startSourceUploadOrderRun(&runs, coordinator, runContext, input)
+	t.Cleanup(func() { _ = runs.Wait() })
 	defer harness.requestBarrier.unblock()
 	defer harness.createBarrier.unblock()
 
@@ -268,7 +411,7 @@ func TestCoordinatorUploadsCompleteSourceAssetsBeforeAnyShardAdmission(t *testin
 	assertECIAdmissionOrder(t, harness.store, harness.runtime)
 
 	harness.createBarrier.unblock()
-	outcome := awaitSourceUploadOrderRun(t, &runs, outcomes)
+	outcome := awaitSourceUploadOrderRun(t, &runs, runContext, outcomes)
 	assertSourceUploadOrderRunPassed(t, outcome)
 	assertUploadedShardRequestsMatchLPTPlan(t, harness.store, harness.runtime, plannedSet)
 }
@@ -353,7 +496,7 @@ func decodeUploadedShardRequests(t *testing.T, contents map[string][]byte, capac
 	t.Helper()
 	requests := make(map[string]ShardRequest, capacity)
 	for key, data := range contents {
-		if !strings.HasSuffix(key, ".request.json") {
+		if !strings.HasSuffix(key, ".request.json") || strings.HasSuffix(key, ".bootstrap.request.json") {
 			continue
 		}
 		request, err := DecodeShardRequest(data)
@@ -383,7 +526,7 @@ func plannedShardsByIdentity(plannedSet gate.ContainerShardSet) map[string]gate.
 func assertShardCreatesMatchRequests(t *testing.T, creates []eci.CreateRequest, requests map[string]ShardRequest, planned map[string]gate.ContainerShard) {
 	t.Helper()
 	for _, create := range creates {
-		key := create.InitContainer.Environment["SUPER_DOLPHIN_REMOTE_REQUEST_KEY"]
+		key := create.InitContainer.Environment[FullRequestKeyEnvironment]
 		request, ok := requests[key]
 		if !ok {
 			t.Fatalf("ECI create references missing uploaded request %q", key)

@@ -600,7 +600,7 @@ function validateResourceFreezeMetric(metric, subjectSha) {
     throw new Error('P04 resource fileCount must match a non-empty files array');
   }
   const paths = metric.files.map(({ path }) => path);
-  const sortedPaths = [...paths].sort((left, right) => left.localeCompare(right));
+  const sortedPaths = [...paths].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
   if (new Set(paths).size !== paths.length || JSON.stringify(paths) !== JSON.stringify(sortedPaths)) {
     throw new Error('P04 resource paths must be exact, unique, and sorted');
   }

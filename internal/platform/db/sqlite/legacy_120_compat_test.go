@@ -11,6 +11,7 @@ import (
 func TestCombinedMigrationUpgradeMatrixReaches123(t *testing.T) {
 	for _, startVersion := range []int{0, 119, 120, 121, 122} {
 		t.Run("start="+migrationVersionLabel(startVersion), func(t *testing.T) {
+			t.Parallel()
 			db := openMigrationTestDB(t)
 			if startVersion != 0 {
 				dir := copyMigrationsThroughVersion(t, "migrations", startVersion)
@@ -44,6 +45,7 @@ func TestLegacy120CompatibilityUpgradesOldAndCanonicalTargetStates(t *testing.T)
 	for _, kind := range []legacy120FixtureKind{managedGenerationFixture, providerRecoveryFixture} {
 		for _, targetExists := range []bool{false, true} {
 			t.Run(string(kind)+"/target="+boolLabel(targetExists), func(t *testing.T) {
+				t.Parallel()
 				fixture := setupLegacy120CompatibilityFixture(t, kind, targetExists)
 				if err := RunMigrations(fixture.ctx, fixture.db, "migrations"); err != nil {
 					t.Fatalf("RunMigrations() error = %v", err)
@@ -69,6 +71,7 @@ func TestLegacy120CompatibilityRollsBackTerminalBodyFailure(t *testing.T) {
 	for _, kind := range []legacy120FixtureKind{managedGenerationFixture, providerRecoveryFixture} {
 		for _, targetExists := range []bool{false, true} {
 			t.Run(string(kind)+"/target="+boolLabel(targetExists), func(t *testing.T) {
+				t.Parallel()
 				fixture := setupLegacy120CompatibilityFixture(t, kind, targetExists)
 				before := legacy120DatabaseSnapshot(t, fixture.db)
 				dir := legacy120CompatibilityDir(t, `
@@ -90,6 +93,7 @@ func TestLegacy120CompatibilityRollsBackTerminalMarkerFailure(t *testing.T) {
 	for _, kind := range []legacy120FixtureKind{managedGenerationFixture, providerRecoveryFixture} {
 		for _, targetExists := range []bool{false, true} {
 			t.Run(string(kind)+"/target="+boolLabel(targetExists), func(t *testing.T) {
+				t.Parallel()
 				fixture := setupLegacy120CompatibilityFixture(t, kind, targetExists)
 				installTerminalMarkerFailureTrigger(t, fixture.db)
 				before := legacy120DatabaseSnapshot(t, fixture.db)
@@ -248,6 +252,7 @@ var legacy120RejectionCases = []legacy120RejectionCase{
 func TestLegacy120CompatibilityRejectsInvalidStatesWithoutSideEffects(t *testing.T) {
 	for _, test := range legacy120RejectionCases {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			fixture := setupLegacy120CompatibilityFixture(t, test.kind, test.targetExists)
 			test.mutate(t, fixture.db)
 			before := legacy120DatabaseSnapshot(t, fixture.db)

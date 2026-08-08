@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -28,6 +29,7 @@ type coordinatorStore struct {
 	deletePrefixes []string
 	objects        map[string][]byte
 	uploadContents map[string][]byte
+	shardRequests  map[string]ShardRequest
 	uploadBarrier  *coordinatorOverlapBarrier
 }
 
@@ -58,7 +60,29 @@ func (store *coordinatorStore) Create(ctx context.Context, localPath string, key
 		store.uploadContents = make(map[string][]byte)
 	}
 	store.uploadContents[key] = append([]byte(nil), data...)
+	store.recordShardRequest(key, data)
 	return nil
+}
+
+func (store *coordinatorStore) recordShardRequest(key string, data []byte) {
+	if !strings.HasSuffix(key, ".request.json") {
+		return
+	}
+	request, err := DecodeShardRequest(data)
+	if err != nil {
+		return
+	}
+	if store.shardRequests == nil {
+		store.shardRequests = make(map[string]ShardRequest)
+	}
+	store.shardRequests[request.ShardExecutionManifestDigest] = request
+}
+
+func (store *coordinatorStore) lookupShardRequest(manifestDigest string) (ShardRequest, bool) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	request, ok := store.shardRequests[manifestDigest]
+	return request, ok
 }
 
 func (store *coordinatorStore) DownloadIfExists(ctx context.Context, key string, localPath string) (bool, error) {
@@ -106,22 +130,44 @@ func (store *coordinatorStore) DeletePrefix(_ context.Context, prefix string) er
 }
 
 type coordinatorRuntime struct {
-	mu            sync.Mutex
-	creates       []eci.CreateRequest
-	deletes       []string
-	logs          map[string]string
-	failAt        int
-	tamperLog     bool
-	failReport    bool
-	failureLog    string
-	status        string
-	initLog       string
-	initLogs      map[string]string
-	groupState    eci.ContainerGroup
-	createBarrier *coordinatorOverlapBarrier
-	deleteBarrier *coordinatorOverlapBarrier
-	describes     [][]string
-	mutateReport  func(*gate.PlanExecutionReport)
+	mu                 sync.Mutex
+	creates            []eci.CreateRequest
+	deletes            []string
+	logs               map[string]string
+	failAt             int
+	tamperLog          bool
+	failReport         bool
+	failureLog         string
+	status             string
+	initLog            string
+	initLogs           map[string]string
+	groupState         eci.ContainerGroup
+	resourcesByID      map[string]eci.Resources
+	lookupShardRequest func(string) (ShardRequest, bool)
+	createBarrier      *coordinatorOverlapBarrier
+	deleteBarrier      *coordinatorOverlapBarrier
+	describes          [][]string
+	mutateReport       func(*gate.PlanExecutionReport)
+}
+
+func bindCoordinatorTestManifestRegistry(store ObjectStore, runtime Runtime) {
+	provider, ok := store.(interface {
+		lookupShardRequest(string) (ShardRequest, bool)
+	})
+	if !ok {
+		return
+	}
+	binder, ok := runtime.(interface {
+		bindCoordinatorTestManifestLookup(func(string) (ShardRequest, bool))
+	})
+	if !ok {
+		return
+	}
+	binder.bindCoordinatorTestManifestLookup(provider.lookupShardRequest)
+}
+
+func (runtime *coordinatorRuntime) bindCoordinatorTestManifestLookup(lookup func(string) (ShardRequest, bool)) {
+	runtime.lookupShardRequest = lookup
 }
 
 func (runtime *coordinatorRuntime) CreateContainerGroup(ctx context.Context, request eci.CreateRequest) (eci.ContainerGroup, error) {
@@ -137,6 +183,10 @@ func (runtime *coordinatorRuntime) CreateContainerGroup(ctx context.Context, req
 		return eci.ContainerGroup{}, fmt.Errorf("injected create failure")
 	}
 	id := fmt.Sprintf("eci-%d", len(runtime.creates))
+	if runtime.resourcesByID == nil {
+		runtime.resourcesByID = make(map[string]eci.Resources)
+	}
+	runtime.resourcesByID[id] = request.Resources
 	sourceStartedAt, sourceCompletedAt, compileStartedAt, compileCompletedAt := runtime.syntheticShardPhaseTimes()
 	if runtime.initLog == "" {
 		timing, timingErr := gate.EncodeShardMaterializationTimingRecord(gate.ShardMaterializationTiming{Measurement: gate.MaterializationMeasurementMeasured, ShardIdentity: request.InitContainer.Environment["SUPER_DOLPHIN_REMOTE_SHARD_IDENTITY"], Source: gate.MaterializationPhaseTiming{StartedAtUnixMS: sourceStartedAt.UnixMilli(), CompletedAtUnixMS: sourceCompletedAt.UnixMilli(), MaterializeMS: sourceCompletedAt.Sub(sourceStartedAt).Milliseconds()}})
@@ -152,11 +202,15 @@ func (runtime *coordinatorRuntime) CreateContainerGroup(ctx context.Context, req
 	if err != nil {
 		return eci.ContainerGroup{}, err
 	}
+	runtime.ensureLogs()
+	runtime.logs[id] = log
+	return eci.ContainerGroup{ID: id, Name: request.ContainerGroupName}, nil
+}
+
+func (runtime *coordinatorRuntime) ensureLogs() {
 	if runtime.logs == nil {
 		runtime.logs = make(map[string]string)
 	}
-	runtime.logs[id] = log
-	return eci.ContainerGroup{ID: id, Name: request.ContainerGroupName}, nil
 }
 
 // syntheticShardPhaseTimes 在调用方持锁期间生成稳定的物化与编译阶段时间。
@@ -180,7 +234,7 @@ func (runtime *coordinatorRuntime) syntheticShardPhaseTimes() (time.Time, time.T
 }
 
 func (runtime *coordinatorRuntime) reportLog(request eci.CreateRequest, executionStartedAt time.Time) (string, error) {
-	report, err := reportFromCreateRequest(request, executionStartedAt)
+	report, err := reportFromCreateRequest(request, executionStartedAt, runtime.lookupShardRequest)
 	if err != nil {
 		return "", err
 	}
@@ -220,6 +274,23 @@ func (runtime *coordinatorRuntime) DescribeContainerGroups(ctx context.Context, 
 	if status == "" {
 		status = "Succeeded"
 	}
+	groupState, resourcesByID := runtime.describeGroupState(status)
+	runtime.mu.Unlock()
+	groups := make([]eci.ContainerGroup, len(ids))
+	for index, id := range ids {
+		groups[index] = groupState
+		groups[index].ID = id
+		groups[index].Name = "shard"
+		groups[index].Status = status
+		if resources, ok := resourcesByID[id]; ok {
+			groups[index].CPU = resources.CPU
+			groups[index].MemoryGiB = resources.MemoryGiB
+		}
+	}
+	return groups, nil
+}
+
+func (runtime *coordinatorRuntime) describeGroupState(status string) (eci.ContainerGroup, map[string]eci.Resources) {
 	runtime.syntheticShardPhaseTimes()
 	groupState := runtime.groupState
 	if groupState.CreationTime.IsZero() {
@@ -228,21 +299,17 @@ func (runtime *coordinatorRuntime) DescribeContainerGroups(ctx context.Context, 
 	if len(groupState.InitContainers) == 0 {
 		groupState.InitContainers = []eci.ContainerStatus{{Name: "materializer", CurrentState: eci.ContainerState{StartTime: groupState.CreationTime.Add(time.Millisecond)}}}
 	}
-	if status == "Succeeded" && groupState.SucceededTime.IsZero() {
-		groupState.SucceededTime = groupState.CreationTime.Add(2 * time.Second)
-	}
-	if status != "Succeeded" && groupState.FailedTime.IsZero() {
+	if status == "Succeeded" {
+		if groupState.SucceededTime.IsZero() {
+			groupState.SucceededTime = groupState.CreationTime.Add(2 * time.Second)
+		}
+	} else if groupState.FailedTime.IsZero() {
 		groupState.FailedTime = groupState.CreationTime.Add(2 * time.Second)
 	}
-	runtime.mu.Unlock()
-	groups := make([]eci.ContainerGroup, len(ids))
-	for index, id := range ids {
-		groups[index] = groupState
-		groups[index].ID = id
-		groups[index].Name = "shard"
-		groups[index].Status = status
-	}
-	return groups, nil
+	groupState = fillSyntheticWorkerFinishTime(groupState, status)
+	resourcesByID := make(map[string]eci.Resources, len(runtime.resourcesByID))
+	maps.Copy(resourcesByID, runtime.resourcesByID)
+	return groupState, resourcesByID
 }
 
 func (runtime *coordinatorRuntime) DescribeContainerLog(_ context.Context, groupID string, containerName string) (string, error) {
@@ -275,7 +342,7 @@ func TestCoordinatorRunCompletesAndCleansRemoteShards(t *testing.T) {
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	input.RepositoryRoot = repository
-	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
+	plannedSet := mustBuildAllMissRemoteExecutionShardSet(t, input)
 	result, err := coordinator.Run(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -295,7 +362,7 @@ func TestCoordinatorRunExecutesEveryPlannedWorkloadDespiteLegacyPassedWorkloadOb
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	input.RepositoryRoot = repository
-	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
+	plannedSet := mustBuildAllMissRemoteExecutionShardSet(t, input)
 	result, err := coordinator.Run(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -308,15 +375,33 @@ func TestCoordinatorRunExecutesEveryPlannedWorkloadDespiteLegacyPassedWorkloadOb
 	}
 }
 
-func mustBuildRemoteExecutionShardSet(t *testing.T, input RunInput) gate.ContainerShardSet {
+func mustBuildAllMissRemoteExecutionShardSet(t *testing.T, input RunInput) gate.ContainerShardSet {
 	t.Helper()
 	plan, catalog, _, err := buildRemotePlan(input)
 	if err != nil {
 		t.Fatalf("buildRemotePlan() error = %v", err)
 	}
-	set, err := buildRemoteExecutionShardSet(plan, catalog, input)
+	if len(input.WorkloadInputDigests) == 0 && input.RepositoryRoot != "" {
+		input.WorkloadInputDigests, err = remoteWorkloadInputDigests(context.Background(), input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
+		if err != nil {
+			t.Fatalf("remoteWorkloadInputDigests() error = %v", err)
+		}
+	}
+	if len(input.WorkloadInputDigests) != 0 {
+		catalog, err = bindRemoteWorkloadInputDigests(catalog, input.WorkloadInputDigests)
+		if err != nil {
+			t.Fatalf("bindRemoteWorkloadInputDigests() error = %v", err)
+		}
+	}
+	misses := make([]gate.GateID, 0, len(catalog.Workloads))
+	for _, workload := range catalog.Workloads {
+		if workload.Shardable {
+			misses = append(misses, gate.GateID(workload.ID))
+		}
+	}
+	set, err := buildRemoteExecutionShardSetForWorkloads(plan, catalog, misses, input)
 	if err != nil {
-		t.Fatalf("buildRemoteExecutionShardSet() error = %v", err)
+		t.Fatalf("buildRemoteExecutionShardSetForWorkloads() error = %v", err)
 	}
 	return set
 }
@@ -332,7 +417,7 @@ func assertCoordinatorRunSideEffects(
 		t.Fatalf("runtime creates=%d deletes=%d", len(runtime.creates), len(runtime.deletes))
 	}
 	temporary := coordinatorTemporaryUploads(store.uploads)
-	wantTemporary := 2 + len(plannedSet.Shards)
+	wantTemporary := 2 + 2*len(plannedSet.Shards)
 	if len(temporary) != wantTemporary || len(store.deletes) != len(temporary) {
 		t.Fatalf("store temporary=%v deletes=%v", temporary, store.deletes)
 	}
@@ -347,21 +432,20 @@ func assertCoordinatorRunSideEffects(
 		t.Fatalf("temporary object delete prefixes=%v", store.deletePrefixes)
 	}
 	assertRemoteSourceObjectPrefix(t, temporary, runtime.creates)
+	assertRemoteRequestObjectsAreContentAddressed(t, store.uploadContents, plannedSet)
+	assertRemoteRequestEnvironmentIdentities(t, store.uploadContents, runtime.creates)
 	for _, request := range runtime.creates {
 		assertRemoteCreateRequestIdentity(t, request)
 		assertRemoteCreateRequestVolumes(t, request)
 	}
 }
 
-func TestRemoteExecutionShardResourcesUsesLargestWorkloadClass(t *testing.T) {
+func TestRemoteExecutionShardResourcesUsesHomogeneousWorkloadClass(t *testing.T) {
 	_, input := remoteRunFixture(t)
-	catalog := gate.WorkloadCatalog{
-		Version: 1,
-		Workloads: []gate.Workload{
-			{ID: string(gate.GateIDWhitespaceCheck), Kind: gate.WorkloadKindGuard, Shardable: true},
-			{ID: string(gate.GateIDBackendTestWithGuard), Kind: gate.WorkloadKindGoTest, Shardable: true},
-		},
-	}
+	plan := gate.WorkloadExecutionPlan{Shards: []gate.ShardPlan{{Workloads: []gate.PlannedWorkload{
+		{Workload: gate.Workload{ID: string(gate.GateIDWhitespaceCheck), Kind: gate.WorkloadKindGuard, Shardable: true}, EstimatedDurationMS: 10_000, ResourceCPU: 4, ResourceMemoryGiB: 8},
+		{Workload: gate.Workload{ID: string(gate.GateIDBackendTestWithGuard), Kind: gate.WorkloadKindGoTest, Shardable: true}, EstimatedDurationMS: 20_000, ResourceCPU: 4, ResourceMemoryGiB: 8},
+	}}}}
 	shards := []gate.ContainerShard{{
 		IdentityDigest: "sha256:" + strings.Repeat("a", 64),
 		GateIDs: []gate.GateID{
@@ -369,24 +453,61 @@ func TestRemoteExecutionShardResourcesUsesLargestWorkloadClass(t *testing.T) {
 			gate.GateIDBackendTestWithGuard,
 		},
 	}}
-	resources, err := remoteExecutionShardResources(testRemoteResourcePolicy(), nil, catalog, shards, input)
+	resources, err := remoteExecutionShardResources(testRemoteResourcePolicy(), nil, plan, shards, input)
 	if err != nil {
 		t.Fatalf("remoteExecutionShardResources() error = %v", err)
 	}
-	if len(resources) != 1 || resources[0].VCPU != 4 || resources[0].MemoryGiB != 16 {
+	if len(resources) != 1 || resources[0].VCPU != 4 || resources[0].MemoryGiB != 8 {
 		t.Fatalf("resources = %#v", resources)
 	}
-	if resources[0].ID != "memory" {
-		t.Fatalf("resources[0].ID = %q, want memory", resources[0].ID)
+	if resources[0].ID != "medium" {
+		t.Fatalf("resources[0].ID = %q, want medium", resources[0].ID)
+	}
+}
+
+func TestRemoteCalibrationShardResourcesKeepFixedResourceTotal(t *testing.T) {
+	policy := testRemoteResourcePolicy()
+	shards := make([]gate.ContainerShard, 3)
+	input := RunInput{Calibration: true, CalibrationResource: policy.CalibrationResource}
+	resources, err := remoteExecutionShardResources(policy, nil, gate.WorkloadExecutionPlan{}, shards, input)
+	if err != nil {
+		t.Fatalf("remoteExecutionShardResources() calibration error = %v", err)
+	}
+	var totalCPU, totalMemory float64
+	for index, resource := range resources {
+		if resource != policy.CalibrationResource {
+			t.Fatalf("resources[%d] = %#v, want fixed calibration resource %#v", index, resource, policy.CalibrationResource)
+		}
+		totalCPU += resource.VCPU
+		totalMemory += resource.MemoryGiB
+	}
+	if got, want := totalCPU, float64(len(shards))*policy.CalibrationResource.VCPU; got != want {
+		t.Fatalf("total calibration CPU = %v, want %v", got, want)
+	}
+	if got, want := totalMemory, float64(len(shards))*policy.CalibrationResource.MemoryGiB; got != want {
+		t.Fatalf("total calibration memory = %v GiB, want %v GiB", got, want)
 	}
 }
 
 func TestBindRemoteShardResourcesPersistsNormalSelectedClass(t *testing.T) {
 	t.Parallel()
 
-	class := shardresource.Class{ID: "medium", VCPU: 4, MemoryGiB: 16}
-	results := []ShardResult{{ShardIdentity: "shard-1"}}
-	requests := []ShardRequest{{ResourceClass: class}}
+	class := shardresource.Class{ID: "medium", VCPU: 4, MemoryGiB: 8}
+	request := ShardRequest{
+		Profile: gate.ProfileLocalFast, PlanDigest: "sha256:" + strings.Repeat("a", 64),
+		ShardIdentity: "sha256:" + strings.Repeat("b", 64), SourceTreeSHA: strings.Repeat("c", 40),
+		GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}, ResourceClass: class,
+	}
+	manifestDigest, manifestErr := request.ComputeShardExecutionManifestDigest()
+	if manifestErr != nil {
+		t.Fatalf("ComputeShardExecutionManifestDigest() error = %v", manifestErr)
+	}
+	request.ShardExecutionManifestDigest = manifestDigest
+	results := []ShardResult{{
+		ShardIdentity: request.ShardIdentity,
+		Resources:     eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB},
+	}}
+	requests := []ShardRequest{request}
 	if err := bindRemoteShardResources(results, []shardresource.Class{class}, requests); err != nil {
 		t.Fatalf("bindRemoteShardResources() error = %v", err)
 	}
@@ -401,11 +522,43 @@ func TestBindRemoteShardResourcesPersistsNormalSelectedClass(t *testing.T) {
 func TestBindRemoteShardResourcesRejectsNormalResourceClassDrift(t *testing.T) {
 	t.Parallel()
 
-	selected := shardresource.Class{ID: "medium", VCPU: 4, MemoryGiB: 16}
-	requested := shardresource.Class{ID: "small", VCPU: 2, MemoryGiB: 8}
-	err := bindRemoteShardResources([]ShardResult{{ShardIdentity: "shard-1"}}, []shardresource.Class{selected}, []ShardRequest{{ResourceClass: requested}})
+	selected := shardresource.Class{ID: "medium", VCPU: 4, MemoryGiB: 8}
+	requested := shardresource.Class{ID: "small", VCPU: 2, MemoryGiB: 4}
+	request := ShardRequest{
+		Profile: gate.ProfileLocalFast, PlanDigest: "sha256:" + strings.Repeat("a", 64),
+		ShardIdentity: "sha256:" + strings.Repeat("b", 64), SourceTreeSHA: strings.Repeat("c", 40),
+		GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}, ResourceClass: requested,
+	}
+	manifestDigest, manifestErr := request.ComputeShardExecutionManifestDigest()
+	if manifestErr != nil {
+		t.Fatalf("ComputeShardExecutionManifestDigest() error = %v", manifestErr)
+	}
+	request.ShardExecutionManifestDigest = manifestDigest
+	err := bindRemoteShardResources([]ShardResult{{ShardIdentity: request.ShardIdentity}}, []shardresource.Class{selected}, []ShardRequest{request})
 	if err == nil || !strings.Contains(err.Error(), "resource_class drifted") {
 		t.Fatalf("bindRemoteShardResources() error = %v, want normal resource_class drift", err)
+	}
+}
+
+func TestBindRemoteShardResourcesRejectsMissingProviderReceipt(t *testing.T) {
+	class := shardresource.Class{ID: "medium", VCPU: 4, MemoryGiB: 8}
+	request := ShardRequest{
+		Profile: gate.ProfileLocalFast, PlanDigest: "sha256:" + strings.Repeat("a", 64),
+		ShardIdentity: "sha256:" + strings.Repeat("b", 64), SourceTreeSHA: strings.Repeat("c", 40),
+		GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}, ResourceClass: class,
+	}
+	manifestDigest, err := request.ComputeShardExecutionManifestDigest()
+	if err != nil {
+		t.Fatalf("ComputeShardExecutionManifestDigest() error = %v", err)
+	}
+	request.ShardExecutionManifestDigest = manifestDigest
+	results := []ShardResult{{ShardIdentity: request.ShardIdentity, ContainerStatus: "Failed"}}
+	err = bindRemoteShardResources(results, []shardresource.Class{class}, []ShardRequest{request})
+	if err == nil || !strings.Contains(err.Error(), "provider resource observation is incomplete") {
+		t.Fatalf("bindRemoteShardResources() error = %v, want missing provider observation", err)
+	}
+	if results[0].Resources != (eci.Resources{}) || results[0].ResourceClass != "" {
+		t.Fatalf("failed missing receipt was synthesized: %#v", results[0])
 	}
 }
 
@@ -474,6 +627,9 @@ func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest) 
 		request.InitContainer.Name != "materializer" {
 		t.Fatalf("create request identity = %+v", request)
 	}
+	if request.Environment["TMPDIR"] != remoteWritableTempMountPath {
+		t.Fatalf("worker TMPDIR = %q, want mounted temp-data root %q", request.Environment["TMPDIR"], remoteWritableTempMountPath)
+	}
 	assertRemoteInitShardCandidateCompile(t, request)
 	assertECIEnvironmentLengths(t, "worker", request.Environment)
 	assertECIEnvironmentLengths(t, "materializer", request.InitContainer.Environment)
@@ -481,23 +637,86 @@ func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest) 
 
 func assertRemoteInitShardCandidateCompile(t *testing.T, request eci.CreateRequest) {
 	t.Helper()
+	bootstrap := remoteShardBootstrapSH()
+	assertRemoteInitBootstrapReference(t, request)
+	assertRemoteInitBootstrapProjection(t, request, bootstrap)
+	assertRemoteInitBootstrapMetrics(t, bootstrap)
+	assertRemoteInitBootstrapIdentityEnvironment(t, request)
+	assertRemoteInitBootstrapContent(t, request.ConfigFileVolumes[0].ConfigFileToPath[0].Content)
+}
+
+func assertRemoteInitBootstrapIdentityEnvironment(t *testing.T, request eci.CreateRequest) {
+	t.Helper()
+	environment := request.InitContainer.Environment
+	if !remoteDigestPattern.MatchString(environment[remoteCandidateGateSourceEnv]) ||
+		!remoteDigestPattern.MatchString(environment[remoteCandidateGateToolEnv]) {
+		t.Fatalf("init candidate Gate identity environment = source:%q toolchain:%q", environment[remoteCandidateGateSourceEnv], environment[remoteCandidateGateToolEnv])
+	}
+}
+
+func assertRemoteInitBootstrapReference(t *testing.T, request eci.CreateRequest) {
+	t.Helper()
 	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
-		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteShardBootstrapSH}) {
+		!reflect.DeepEqual(request.InitContainer.Args, []string{remoteShardBootstrapPath}) {
 		t.Fatalf("init shard command = %+v", request.InitContainer)
 	}
+}
+
+func assertRemoteInitBootstrapProjection(t *testing.T, request eci.CreateRequest, bootstrap string) {
+	t.Helper()
+	if len(request.ConfigFileVolumes) != 1 {
+		t.Fatalf("init shard bootstrap projection count = %d", len(request.ConfigFileVolumes))
+	}
+	volume := request.ConfigFileVolumes[0]
+	if volume.Name != remoteShardBootstrapVolumeName || volume.DefaultMode != eci.ConfigFileVolumeSafeMode || len(volume.ConfigFileToPath) != 1 {
+		t.Fatalf("init shard bootstrap projection = %+v", request.ConfigFileVolumes)
+	}
+	file := volume.ConfigFileToPath[0]
+	if file.Path != remoteShardBootstrapFilePath || file.Content != bootstrap || file.Mode != eci.ConfigFileVolumeSafeMode {
+		t.Fatalf("init shard bootstrap file = %+v", file)
+	}
+}
+
+func assertRemoteInitBootstrapMetrics(t *testing.T, bootstrap string) {
+	t.Helper()
+	expectedMetricsPath := gate.GoBuildCacheProxyMetricsPath(remoteShardPrivateCachePath)
+	if strings.Contains(bootstrap, remoteShardCacheMetricsMarker) ||
+		!strings.Contains(bootstrap, `cache_metrics="`+expectedMetricsPath+`"`) {
+		t.Fatalf("init shard cache metrics path is not bound to gate contract: %q", bootstrap)
+	}
+}
+
+func assertRemoteInitBootstrapContent(t *testing.T, content string) {
+	t.Helper()
 	for _, fragment := range []string{
 		`accepted_gate="/super-dolphin-gate"`,
 		`"$accepted_gate" _remote-materialize`,
 		`private_mod_cache="/tmp/init-go-mod-cache"`,
+		`chmod 0700 "$private_cache" "$private_mod_cache"`,
+		`chmod -R a+rX /workspace/source`,
 		`"$accepted_gate" worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache "$private_mod_cache"`,
 		`cd /workspace/source`,
 		`GOMODCACHE="$private_mod_cache" GOPROXY=off`,
-		`/usr/local/go/bin/go build -mod=mod -trimpath -buildvcs=false -o "$built_gate" ./cmd/super-dolphin-gate`,
+		`candidate_gate_source="${SUPER_DOLPHIN_REMOTE_CANDIDATE_GATE_SOURCE_SHA256:?}"`,
+		`candidate_gate_toolchain="${SUPER_DOLPHIN_REMOTE_CANDIDATE_GATE_TOOLCHAIN_SHA256:?}"`,
+		`GOOS=linux GOARCH=amd64 /usr/local/go/bin/go build -mod=mod -trimpath -buildvcs=false -ldflags "$gate_ldflags" -o "$built_gate" ./cmd/super-dolphin-gate`,
+		`-X main.gateSourceDigest=$candidate_gate_source`,
+		`-X main.gateToolchainDigest=$candidate_gate_toolchain`,
 		`test -x "$built_gate"`,
+		`candidate_gate_identity="$("$built_gate" worker cli-identity; identity_rc=$?; printf x; exit "$identity_rc")"`,
+		`candidate_gate_identity="${candidate_gate_identity%x}"`,
+		`printf 'gate_source_sha256=%s\nplatform=linux/amd64\ntoolchain_digest=%s\nx'`,
+		`expected_gate_identity="${expected_gate_identity%x}"`,
+		`test "$candidate_gate_identity" = "$expected_gate_identity"`,
 	} {
-		if !strings.Contains(request.InitContainer.Args[1], fragment) {
-			t.Fatalf("init shard candidate compile command missing %q: %q", fragment, request.InitContainer.Args[1])
+		if !strings.Contains(content, fragment) {
+			t.Fatalf("init shard candidate compile command missing %q: %q", fragment, content)
 		}
+	}
+	identityCheck := strings.Index(content, `test "$candidate_gate_identity" = "$expected_gate_identity"`)
+	manifestInstall := strings.Index(content, `"$built_gate" _remote-install-manifest`)
+	if identityCheck < 0 || manifestInstall < 0 || identityCheck >= manifestInstall {
+		t.Fatalf("candidate Gate identity must be verified before manifest install: %q", content)
 	}
 }
 
@@ -513,8 +732,8 @@ func assertECIEnvironmentLengths(t *testing.T, container string, environment map
 
 func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest) {
 	t.Helper()
-	if len(request.MainVolumeMounts) != 3 || len(request.InitVolumeMounts) != 3 {
-		t.Fatalf("shard volume mounts = main=%+v init=%+v, want source, work, and temp", request.MainVolumeMounts, request.InitVolumeMounts)
+	if len(request.MainVolumeMounts) != 3 || len(request.InitVolumeMounts) != 4 {
+		t.Fatalf("shard volume mounts = main=%+v init=%+v, want source, work, temp, and read-only bootstrap", request.MainVolumeMounts, request.InitVolumeMounts)
 	}
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[0], gate.ExecutorSourcePath, true)
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[1], gate.ExecutorWorkRoot, false)
@@ -522,6 +741,15 @@ func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest) {
 	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[0], gate.ExecutorSourcePath, false)
 	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[1], gate.ExecutorWorkRoot, false)
 	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[2], remoteWritableTempMountPath, false)
+	if request.InitVolumeMounts[3].Name != remoteShardBootstrapVolumeName {
+		t.Fatalf("init bootstrap volume name = %q, want %q", request.InitVolumeMounts[3].Name, remoteShardBootstrapVolumeName)
+	}
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[3], remoteShardBootstrapMountPath, true)
+	for _, mount := range request.MainVolumeMounts {
+		if mount.Name == remoteShardBootstrapVolumeName {
+			t.Fatalf("main container mounted ConfigFileVolume %q", mount.Name)
+		}
+	}
 }
 
 func assertCoordinatorVolumeMount(t *testing.T, mount eci.VolumeMount, path string, readOnly bool) {
@@ -600,64 +828,6 @@ func TestCoordinatorRunCleansCreatedStateAfterPartialCreateFailure(t *testing.T)
 	}
 	if !result.CleanupComplete || len(runtime.deletes) != len(runtime.creates)-1 {
 		t.Fatalf("partial cleanup result=%+v deletes=%v", result, runtime.deletes)
-	}
-}
-
-func TestCoordinatorRunRejectsMissingWorkerReport(t *testing.T) {
-	repository, input := remoteRunFixture(t)
-	store := &coordinatorStore{}
-	exitCode := int64(137)
-	runtime := &coordinatorRuntime{
-		tamperLog: true,
-		status:    "Failed",
-		initLog:   "materialize exploded",
-		groupState: eci.ContainerGroup{
-			Containers: []eci.ContainerStatus{{
-				Name: "worker",
-				CurrentState: eci.ContainerState{
-					State:    "Terminated",
-					ExitCode: &exitCode,
-					Reason:   "OOMKilled",
-					Message:  "memory limit exceeded",
-				},
-			}},
-			Events: []eci.ContainerGroupEvent{{
-				Type:          "Warning",
-				Reason:        "DeadlineExceeded",
-				Message:       "worker exceeded active deadline",
-				Count:         1,
-				LastTimestamp: "2026-07-27T08:04:00Z",
-			}, {
-				Type:          "Warning",
-				Reason:        "BackOff",
-				Message:       "worker exited",
-				Count:         2,
-				LastTimestamp: "2026-07-27T08:03:00Z",
-			}, {
-				Type:          "Normal",
-				Reason:        "Pulled",
-				Message:       "image ready",
-				Count:         1,
-				LastTimestamp: "2026-07-27T08:02:00Z",
-			}, {
-				Type:          "Normal",
-				Reason:        "Scheduled",
-				Message:       "worker scheduled",
-				Count:         1,
-				LastTimestamp: "2026-07-27T08:01:00Z",
-			}},
-		},
-	}
-	coordinator := newTestCoordinator(t, store, runtime)
-	input.RepositoryRoot = repository
-	result, err := coordinator.Run(context.Background(), input)
-	if err == nil || result.Status == gate.ResultStatusPassed || !result.CleanupComplete {
-		t.Fatalf("Run() result=%+v error=%v", result, err)
-	}
-	for _, fragment := range []string{"status=Failed", "materialize exploded", "exit_code=137", "OOMKilled", "BackOff", "DeadlineExceeded", "index=", "estimated_duration_ms=", "gates="} {
-		if !strings.Contains(err.Error(), fragment) {
-			t.Fatalf("Run() diagnostic error = %v, missing %q", err, fragment)
-		}
 	}
 }
 

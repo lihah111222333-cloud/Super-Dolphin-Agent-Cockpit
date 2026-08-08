@@ -31,6 +31,16 @@ describe('new UI desktop runner contract', () => {
     expect(bash).toContain('FRONTEND_DEVSERVER_URL must match VITE_DEV_URL');
     expect(powershell).toContain('FRONTEND_DEVSERVER_URL must match VITE_DEV_URL');
   });
+
+  it('starts desktop:dev through Node without POSIX environment assignment syntax', async () => {
+    const packageManifest = JSON.parse(await readFile(resolve(repoRoot, 'frontend-app', 'package.json'), 'utf8'));
+    const command = packageManifest.scripts['desktop:dev'];
+    expect(command).toContain("node --input-type=module -e");
+    expect(command).toContain("spawn('go', ['run', './cmd/agent-terminal']");
+    expect(command).toContain('VITE_DEV_URL: process.env.VITE_DEV_URL');
+    expect(command).toContain('SUPER_DOLPHIN_HTTP_ADDR: process.env.SUPER_DOLPHIN_HTTP_ADDR');
+    expect(command).not.toContain('cd .. &&');
+  });
   it('prepares the embedded frontend after Vite is ready and before agent-terminal starts', async () => {
     const bash = await scriptText('run-new-ui-desktop.sh');
 

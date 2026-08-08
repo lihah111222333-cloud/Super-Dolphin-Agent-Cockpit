@@ -37,6 +37,61 @@ func TestExactGoTestDigestIncludesUnselectedPackageTestCompileInputs(t *testing.
 	}
 }
 
+// TestExactGoTestDigestIgnoresUnrelatedReflectImport 验证无关测试的 reflect 导入
+// 不会把静态目标测试退化为全树摘要。
+func TestExactGoTestDigestIgnoresUnrelatedReflectImport(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	testSource := `package fixture
+import ("os"; "testing")
+func TestX(t *testing.T) { _, _ = os.ReadFile("testdata/fixture.txt") }`
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(baseline, "fixture/unselected_test.go", []byte(`package fixture
+import ("os/exec"; "reflect"; "testing")
+func TestReflect(t *testing.T) { _ = exec.Command("sh", "testdata/script.sh").Run(); _ = reflect.DeepEqual(1, 1) }`))
+	want := testExactGoTestDigest(t, baseline, target)
+	changed := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changed, "fixture/unselected_test.go", []byte(`package fixture
+import ("os/exec"; "reflect"; "testing")
+func TestReflect(t *testing.T) { _ = exec.Command("sh", "testdata/script.sh").Run(); _ = reflect.DeepEqual(1, 1) }`))
+	testExactGoTestDigestReplaceFile(changed, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
+	if got := testExactGoTestDigest(t, changed, target); got != want {
+		t.Fatalf("unrelated reflect import widened static target digest: got %s want %s", got, want)
+	}
+}
+
+// TestExactGoTestDigestFailsClosedForDynamicReflection 验证反射动态调用无法静态
+// 闭合时仍绑定整个候选 tree。
+func TestExactGoTestDigestFailsClosedForDynamicReflection(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	source := `package fixture
+import ("os"; "reflect"; "testing")
+func TestX(t *testing.T) {
+	value := reflect.ValueOf(os.ReadFile)
+	_, _ = value.Call([]reflect.Value{reflect.ValueOf("fixture.txt")})
+}`
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(source, "same", "unchanged")
+	changed := testExactGoTestDigestSnapshotWithObservedFiles(source, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changed, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("dynamic reflection change"))
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changed, target) {
+		t.Fatal("dynamic reflection observation did not bind the project map")
+	}
+}
+
+// TestExactGoTestDigestFailsClosedForPackageReflectAlias 验证包级反射值别名仍按动态调用全树绑定。
+func TestExactGoTestDigestFailsClosedForPackageReflectAlias(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	source := `package fixture
+import ("os"; "reflect"; "testing")
+var readValue = reflect.ValueOf(os.ReadFile)
+func TestX(t *testing.T) { _, _ = readValue.Call([]reflect.Value{reflect.ValueOf("fixture.txt")}) }`
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(source, "same", "unchanged")
+	changed := testExactGoTestDigestSnapshotWithObservedFiles(source, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changed, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("package alias reflection change"))
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changed, target) {
+		t.Fatal("package reflect alias observation did not bind the project map")
+	}
+}
+
 // TestExactGoTestDigestFailsClosedForDynamicRepositoryObservations 验证动态路径和函数别名收敛到全树。
 func TestExactGoTestDigestFailsClosedForDynamicRepositoryObservations(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
@@ -99,28 +154,32 @@ func TestX(t *testing.T) { _, _ = syscall.ForkExec("testdata/script.sh", []strin
 	}
 }
 
-// TestExactGoTestDigestFailsClosedForProductionHelperDynamicRepositoryObservations
-// 验证被测生产 helper 的动态仓库读取同样不能复用旧 PASS。
-func TestExactGoTestDigestFailsClosedForProductionHelperDynamicRepositoryObservations(t *testing.T) {
+// TestExactGoTestDigestBindsProductionHelperDynamicSource 验证生产 helper 的动态路径只按编译源码和包资产绑定，不把无关 project-map 扩为全树。
+func TestExactGoTestDigestBindsProductionHelperDynamicSource(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
 	production := `package fixture
 import ("os"; "path/filepath")
-func readFixture() { name := "fixture.txt"; _, _ = os.ReadFile(filepath.Join("testdata", name)) }`
+func readFixture() { _ = os.Chdir("testdata"); name := "fixture.txt"; _, _ = os.ReadFile(filepath.Join(".", name)) }`
 	testSource := `package fixture
 import "testing"
 func TestX(t *testing.T) { readFixture() }`
-	baseline := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "one", "unchanged")
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
 	testExactGoTestDigestReplaceFile(baseline, "fixture/main.go", []byte(production))
-	changed := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "two", "unchanged")
-	testExactGoTestDigestReplaceFile(changed, "fixture/main.go", []byte(production))
-	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changed, target) {
-		t.Fatal("production helper dynamic fixture change reused the prior exact digest")
+	unrelated := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(unrelated, "fixture/main.go", []byte(production))
+	testExactGoTestDigestReplaceFile(unrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
+	if testExactGoTestDigest(t, baseline, target) != testExactGoTestDigest(t, unrelated, target) {
+		t.Fatal("unobserved production helper dynamic path widened the exact digest to the project map")
+	}
+	changedProduction := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changedProduction, "fixture/main.go", []byte(production+"\nvar productionMarker = \"changed\"\n"))
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changedProduction, target) {
+		t.Fatal("production helper source change was omitted from the exact digest")
 	}
 }
 
-// TestExactGoTestDigestFailsClosedForProductionHelperProcessObservations
-// 验证被测生产导入闭包中的子进程同样不能复用旧 PASS。
-func TestExactGoTestDigestFailsClosedForProductionHelperProcessObservations(t *testing.T) {
+// TestExactGoTestDigestBindsProductionHelperProcessSource 验证生产 helper 的子进程路径只按编译源码和包资产绑定，不把无关 project-map 扩为全树。
+func TestExactGoTestDigestBindsProductionHelperProcessSource(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
 	production := `package fixture
 import "os/exec"
@@ -128,18 +187,43 @@ func runFixtureScript() { _ = exec.Command("sh", "testdata/script.sh").Run() }`
 	testSource := `package fixture
 import "testing"
 func TestX(t *testing.T) { runFixtureScript() }`
-	baseline := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "one")
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
 	testExactGoTestDigestReplaceFile(baseline, "fixture/main.go", []byte(production))
-	changed := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "two")
-	testExactGoTestDigestReplaceFile(changed, "fixture/main.go", []byte(production))
-	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changed, target) {
-		t.Fatal("production helper process observation reused the prior exact digest")
+	unrelated := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(unrelated, "fixture/main.go", []byte(production))
+	testExactGoTestDigestReplaceFile(unrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
+	if testExactGoTestDigest(t, baseline, target) != testExactGoTestDigest(t, unrelated, target) {
+		t.Fatal("unobserved production helper process path widened the exact digest to the project map")
+	}
+	changedProduction := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changedProduction, "fixture/main.go", []byte(production+"\nvar productionMarker = \"changed\"\n"))
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changedProduction, target) {
+		t.Fatal("production helper source change was omitted from the exact digest")
+	}
+	changedAsset := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changedAsset, "fixture/main.go", []byte(production))
+	testExactGoTestDigestReplaceFile(changedAsset, "fixture/testdata/script.sh", []byte("#!/bin/sh\necho changed\n"))
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changedAsset, target) {
+		t.Fatal("production process package asset change was omitted from the exact compile closure")
 	}
 }
 
-// TestExactGoTestDigestUsesTargetPackageCWDForImportedProductionHelper
-// 验证 imported helper 的相对读取仍以被测包目录而非 helper 源码目录解析。
-func TestExactGoTestDigestUsesTargetPackageCWDForImportedProductionHelper(t *testing.T) {
+// TestExactGoTestDigestTargetDynamicObservationIncludesProjectMap 验证目标测试本身的动态仓库观察仍绑定完整候选树。
+func TestExactGoTestDigestTargetDynamicObservationIncludesProjectMap(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	source := `package fixture
+import ("os"; "testing")
+func TestX(t *testing.T) { name := "fixture.txt"; _, _ = os.ReadFile(name) }`
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(source, "same", "unchanged")
+	changed := testExactGoTestDigestSnapshotWithObservedFiles(source, "same", "unchanged")
+	testExactGoTestDigestReplaceFile(changed, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("dynamic target observation change"))
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changed, target) {
+		t.Fatal("target test dynamic observation did not bind the project map")
+	}
+}
+
+// TestExactGoTestDigestBindsImportedProductionPackageAssets 验证目标包和 imported helper 包的非 Go 资产属于 exact 编译闭包。
+func TestExactGoTestDigestBindsImportedProductionPackageAssets(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
 	production := `package support
 import "os"
@@ -154,13 +238,19 @@ func TestX(t *testing.T) { support.ReadFixture() }`
 	testExactGoTestDigestReplaceFile(changedTarget, "support/support.go", []byte(production))
 	testExactGoTestDigestReplaceFile(changedTarget, "support/testdata/fixture.txt", []byte("support-one"))
 	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changedTarget, target) {
-		t.Fatal("target package fixture change reused the imported helper PASS")
+		t.Fatal("target production package asset was omitted from the exact compile closure")
 	}
 	changedImported := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "one", "unchanged")
 	testExactGoTestDigestReplaceFile(changedImported, "support/support.go", []byte(production))
 	testExactGoTestDigestReplaceFile(changedImported, "support/testdata/fixture.txt", []byte("support-two"))
-	if testExactGoTestDigest(t, baseline, target) != testExactGoTestDigest(t, changedImported, target) {
-		t.Fatal("imported helper fixture was bound despite target package CWD")
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changedImported, target) {
+		t.Fatal("imported production package asset change was omitted from the exact compile closure")
+	}
+	changedProduction := testExactGoTestDigestSnapshotWithObservedFiles(testSource, "one", "unchanged")
+	testExactGoTestDigestReplaceFile(changedProduction, "support/support.go", []byte(production+"\nvar productionMarker = \"changed\"\n"))
+	testExactGoTestDigestReplaceFile(changedProduction, "support/testdata/fixture.txt", []byte("support-one"))
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, changedProduction, target) {
+		t.Fatal("imported production source change was omitted from the exact digest")
 	}
 }
 
@@ -175,6 +265,369 @@ func TestX(t *testing.T) { _, _ = os.ReadFile("testdata/fixture.txt") }`
 	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/unrelated.txt", []byte("two"))
 	if got := testExactGoTestDigest(t, snapshot, target); got != want {
 		t.Fatal("static observation included an unrelated candidate file")
+	}
+}
+
+// TestExactGoTestDigestClassifiesReadDirAsTreeObservation 锁定 ReadDir 的目录语义，避免把目录路径当作文件查找。
+func TestExactGoTestDigestClassifiesReadDirAsTreeObservation(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	source := `package fixture
+import ("os"; "testing")
+func TestX(t *testing.T) { _, _ = os.ReadDir(".") }`
+	baseline := testExactGoTestDigestSnapshotWithObservedFiles(source, "one", "unchanged")
+	want := testExactGoTestDigest(t, baseline, target)
+	changedAsset := testExactGoTestDigestSnapshotWithObservedFiles(source, "two", "unchanged")
+	if got := testExactGoTestDigest(t, changedAsset, target); got == want {
+		t.Fatal("ReadDir tree observation omitted a changed file below the package directory")
+	}
+	unrelated := testExactGoTestDigestSnapshotWithObservedFiles(source, "one", "unchanged")
+	testExactGoTestDigestReplaceFile(unrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
+	if got := testExactGoTestDigest(t, unrelated, target); got != want {
+		t.Fatal("ReadDir tree observation widened to an unrelated project-map file")
+	}
+}
+
+// TestGoPackageDigestScopesDynamicObservationsToPackageClosure 验证整包模式的动态读取和进程调用不会扩张到无关 Git tree。
+func TestGoPackageDigestScopesDynamicObservationsToPackageClosure(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "dynamic read",
+			source: `package fixture
+import ("os"; "testing")
+func TestX(t *testing.T) { name := "fixture.txt"; _, _ = os.ReadFile(name) }`,
+		},
+		{
+			name: "process",
+			source: `package fixture
+import ("os/exec"; "testing")
+func TestX(t *testing.T) { _ = exec.Command("sh", "testdata/script.sh").Run() }`,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			baseline := testExactGoTestDigestSnapshotWithObservedFiles(test.source, "same", "unchanged")
+			want := testGoPackageDigest(t, baseline, "./fixture")
+			unrelated := testExactGoTestDigestSnapshotWithObservedFiles(test.source, "same", "unchanged")
+			testExactGoTestDigestReplaceFile(unrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
+			if got := testGoPackageDigest(t, unrelated, "./fixture"); got != want {
+				t.Fatalf("dynamic %s observation widened the package digest to the project map", test.name)
+			}
+		})
+	}
+}
+
+// TestGoPackageDigestBindsTestOnlyAndLocalDependencyInputs 验证 test-only 目标和本地生产依赖的源码、资产都属于整包编译闭包。
+func TestGoPackageDigestBindsTestOnlyAndLocalDependencyInputs(t *testing.T) {
+	testSource := `package fixture
+import ("testing"; "example.com/fixture/support")
+func TestX(t *testing.T) { support.ReadFixture() }`
+	production := `package support
+import "os"
+func ReadFixture() { _, _ = os.ReadFile("testdata/fixture.txt") }`
+	newSnapshot := func() *remoteGitTreeSnapshot {
+		snapshot := testExactGoTestDigestSnapshot("")
+		testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte("//go:build windows\n\npackage fixture\n"))
+		testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(testSource))
+		testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/package.txt", []byte("target-one"))
+		testExactGoTestDigestReplaceFile(snapshot, "support/support.go", []byte(production))
+		testExactGoTestDigestReplaceFile(snapshot, "support/testdata/fixture.txt", []byte("support-one"))
+		return snapshot
+	}
+	baseline := newSnapshot()
+	want := testGoPackageDigest(t, baseline, "./fixture")
+	variants := []struct {
+		name string
+		path string
+		data []byte
+	}{
+		{name: "test-only target asset", path: "fixture/testdata/package.txt", data: []byte("target-two")},
+		{name: "local dependency asset", path: "support/testdata/fixture.txt", data: []byte("support-two")},
+		{name: "local dependency source", path: "support/support.go", data: []byte(production + "\nvar sourceMarker = \"changed\"\n")},
+	}
+	for _, variant := range variants {
+		t.Run(variant.name, func(t *testing.T) {
+			changed := newSnapshot()
+			testExactGoTestDigestReplaceFile(changed, variant.path, variant.data)
+			if got := testGoPackageDigest(t, changed, "./fixture"); got == want {
+				t.Fatalf("package digest omitted %s change", variant.name)
+			}
+		})
+	}
+}
+
+// TestGoPackageDigestRetainsStaticObservationAfterDynamic 验证同一文件中动态观察之后仍扫描并绑定显式静态路径。
+func TestGoPackageDigestRetainsStaticObservationAfterDynamic(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "dynamic then static",
+			source: `package fixture
+import ("os"; "testing")
+func TestX(t *testing.T) { name := "fixture.txt"; _, _ = os.ReadFile(name); _, _ = os.ReadFile("../docs/doc/codemap/project-map/AI_PROJECT_MAP.md") }`,
+		},
+		{
+			name: "static then dynamic",
+			source: `package fixture
+import ("os"; "testing")
+func TestX(t *testing.T) { _, _ = os.ReadFile("../docs/doc/codemap/project-map/AI_PROJECT_MAP.md"); name := "fixture.txt"; _, _ = os.ReadFile(name) }`,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			baseline := testExactGoTestDigestSnapshotWithObservedFiles(test.source, "same", "unchanged")
+			testExactGoTestDigestReplaceFile(baseline, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("project-map-one"))
+			want := testGoPackageDigest(t, baseline, "./fixture")
+			changed := testExactGoTestDigestSnapshotWithObservedFiles(test.source, "same", "unchanged")
+			testExactGoTestDigestReplaceFile(changed, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("project-map-two"))
+			if got := testGoPackageDigest(t, changed, "./fixture"); got == want {
+				t.Fatalf("static observation after/before dynamic call was omitted for %s", test.name)
+			}
+		})
+	}
+}
+
+// TestGoEmbedWorkloadDigestsBindOnlyTrackedEmbedAssets 验证 package/exact workload
+// 只绑定 go:embed 实际匹配的 asset，而不会因无关 project-map 变化退化为整树摘要。
+func TestGoEmbedWorkloadDigestsBindOnlyTrackedEmbedAssets(t *testing.T) {
+	tests := []struct {
+		name   string
+		digest func(t *testing.T, snapshot *remoteGitTreeSnapshot) string
+	}{
+		{
+			name: "package",
+			digest: func(t *testing.T, snapshot *remoteGitTreeSnapshot) string {
+				digest, err := snapshot.goPackageInputDigest(context.Background(), "./fixture", remoteGoBuildProfile{})
+				if err != nil {
+					t.Fatalf("goPackageInputDigest(): %v", err)
+				}
+				return digest
+			},
+		},
+		{
+			name: "exact-test",
+			digest: func(t *testing.T, snapshot *remoteGitTreeSnapshot) string {
+				return testExactGoTestDigest(t, snapshot, gate.GoTestTarget{Package: "fixture", Name: "TestX"})
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			baseline := testGoEmbedDigestSnapshot(t, "all:assets", "embedded-one")
+			want := test.digest(t, baseline)
+
+			unrelated := testGoEmbedDigestSnapshot(t, "all:assets", "embedded-one")
+			testExactGoTestDigestReplaceFile(unrelated, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", []byte("unrelated project-map change"))
+			if got := test.digest(t, unrelated); got != want {
+				t.Fatalf("unrelated project-map change altered %s embed digest: got %q want %q", test.name, got, want)
+			}
+
+			assetChanged := testGoEmbedDigestSnapshot(t, "all:assets", "embedded-two")
+			if got := test.digest(t, assetChanged); got == want {
+				t.Fatalf("actual embed asset change did not alter %s digest: %q", test.name, got)
+			}
+		})
+	}
+}
+
+// TestGoEmbedResolutionCacheIsScopedAndImmutable 验证同一包源码只解析一次，
+// 目录、源码内容和缓存错误均保持独立，调用方修改返回 map 也不会污染缓存。
+func TestGoEmbedResolutionCacheIsScopedAndImmutable(t *testing.T) {
+	snapshot := testGoEmbedDigestSnapshot(t, "all:assets", "embedded-one")
+	source := testGoEmbedSource("all:assets")
+	selected, err := snapshot.resolveGoEmbedAssets("fixture", source)
+	if err != nil {
+		t.Fatalf("first resolveGoEmbedAssets(): %v", err)
+	}
+	selected["fixture/assets/embedded.txt"] = remoteGitTreeEntry{}
+	repeated, err := snapshot.resolveGoEmbedAssets("fixture", source)
+	if err != nil {
+		t.Fatalf("repeated resolveGoEmbedAssets(): %v", err)
+	}
+	if repeated["fixture/assets/embedded.txt"].objectID == "" {
+		t.Fatal("mutating the returned embed map changed the immutable cache")
+	}
+	if _, err := snapshot.resolveGoEmbedAssets("other", source); err == nil {
+		t.Fatal("resolveGoEmbedAssets() accepted a directory-scoped unmatched pattern")
+	}
+	if _, err := snapshot.resolveGoEmbedAssets("other", source); err == nil {
+		t.Fatal("cached unmatched go:embed error was lost")
+	}
+	changedSource := testGoEmbedSource("assets/embedded.txt")
+	if _, err := snapshot.resolveGoEmbedAssets("fixture", changedSource); err != nil {
+		t.Fatalf("changed-source resolveGoEmbedAssets(): %v", err)
+	}
+	computations, hits := snapshot.goEmbedResolutionStats()
+	if computations != 3 || hits != 2 {
+		t.Fatalf("go:embed resolution stats = computations:%d hits:%d, want 3/2", computations, hits)
+	}
+}
+
+// TestGoEmbedWorkloadDigestsFailFastForInvalidOrUnmatchedPatterns 锁定 go:embed
+// pattern 的非法语法与无匹配输入不能静默漏掉依赖或回退到整树。
+func TestGoEmbedWorkloadDigestsFailFastForInvalidOrUnmatchedPatterns(t *testing.T) {
+	for _, pattern := range []string{"../outside", "missing/*", "["} {
+		t.Run(pattern, func(t *testing.T) {
+			snapshot := testGoEmbedDigestSnapshot(t, pattern, "embedded-one")
+			if _, err := snapshot.goPackageInputDigest(context.Background(), "./fixture", remoteGoBuildProfile{}); err == nil {
+				t.Fatal("goPackageInputDigest() accepted invalid or unmatched go:embed pattern")
+			}
+			if _, err := snapshot.goExactTestInputDigest(context.Background(), gate.GoTestTarget{Package: "fixture", Name: "TestX"}, remoteGoBuildProfile{}); err == nil {
+				t.Fatal("goExactTestInputDigest() accepted invalid or unmatched go:embed pattern")
+			}
+		})
+	}
+}
+
+// TestGoEmbedRuntimeSeedContractAcceptsOnlyGeneratedWebDist 验证共享 resolver
+// 只为 ECI runtime seed 的精确目录/pattern 放行缺失 tracked asset。
+func TestGoEmbedRuntimeSeedContractAcceptsOnlyGeneratedWebDist(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	selected, err := snapshot.resolveGoEmbedAssets(remoteGoEmbedRuntimeSeedDirectory, testGoEmbedSource("all:web-dist"))
+	if err != nil {
+		t.Fatalf("resolveGoEmbedAssets() rejected runtime-seeded web-dist: %v", err)
+	}
+	if len(selected) != 0 {
+		t.Fatalf("runtime-seeded web-dist unexpectedly contributed tracked assets: %#v", selected)
+	}
+
+	for _, test := range []struct {
+		name      string
+		directory string
+		pattern   string
+	}{
+		{name: "unknown pattern in runtime package", directory: remoteGoEmbedRuntimeSeedDirectory, pattern: "all:missing"},
+		{name: "runtime pattern in unknown package", directory: "fixture", pattern: remoteGoEmbedRuntimeSeedPattern},
+		{name: "non-all runtime pattern", directory: remoteGoEmbedRuntimeSeedDirectory, pattern: "web-dist"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := snapshot.resolveGoEmbedAssets(test.directory, testGoEmbedSource(test.pattern)); err == nil {
+				t.Fatalf("resolveGoEmbedAssets() accepted unknown missing embed directory=%q pattern=%q", test.directory, test.pattern)
+			}
+		})
+	}
+}
+
+// TestGoEmbedPatternTokenizerSupportsQuotedSpaces 验证共享 resolver 保持 quoted
+// pattern 的空格，并继续按 canonical all: 规则匹配嵌套与隐藏 asset。
+func TestGoEmbedPatternTokenizerSupportsQuotedSpaces(t *testing.T) {
+	snapshot := testGoEmbedDigestSnapshot(t, `"assets/embedded file.txt"`, "embedded-one")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/assets/embedded file.txt", []byte("embedded-one"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/assets/.hidden.txt", []byte("hidden"))
+	selected, err := snapshot.resolveGoEmbedAssets("fixture", []byte(`package fixture
+
+import "embed"
+
+//go:embed "assets/embedded file.txt"
+//go:embed all:assets
+var embeddedAssets embed.FS
+`))
+	if err != nil {
+		t.Fatalf("resolveGoEmbedAssets(): %v", err)
+	}
+	for _, filePath := range []string{"fixture/assets/embedded file.txt", "fixture/assets/embedded.txt", "fixture/assets/.hidden.txt"} {
+		if _, ok := selected[filePath]; !ok {
+			t.Fatalf("resolved embed assets omitted %q: %#v", filePath, selected)
+		}
+	}
+}
+
+// TestGoEmbedPatternsUseOnlyParserCommentNodes 验证字符串字面量中的伪 directive 不会参与解析，
+// 而真实的 //go:embed comment node 仍然绑定 tracked asset。
+func TestGoEmbedPatternsUseOnlyParserCommentNodes(t *testing.T) {
+	snapshot := testGoEmbedDigestSnapshot(t, "all:assets", "embedded-one")
+	cases := []struct {
+		name       string
+		source     []byte
+		wantAssets []string
+	}{
+		{
+			name:   "interpreted string",
+			source: []byte("package fixture\n\nvar interpreted = \"//go:embed missing/*\"\n"),
+		},
+		{
+			name:   "raw string",
+			source: []byte("package fixture\n\nvar raw = `//go:embed missing/*`\n"),
+		},
+		{
+			name:       "real comment",
+			source:     testGoEmbedSource("all:assets"),
+			wantAssets: []string{"fixture/assets/embedded.txt"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			selected, err := snapshot.resolveGoEmbedAssets("fixture", test.source)
+			if err != nil {
+				t.Fatalf("resolveGoEmbedAssets(): %v", err)
+			}
+			if len(selected) != len(test.wantAssets) {
+				t.Fatalf("resolved assets = %#v, want paths %v", selected, test.wantAssets)
+			}
+			for _, filePath := range test.wantAssets {
+				if _, ok := selected[filePath]; !ok {
+					t.Fatalf("resolved embed assets omitted %q: %#v", filePath, selected)
+				}
+			}
+		})
+	}
+}
+
+// TestGoEmbedPatternsAcceptDeclarationFragments 验证 worker declaration fragment 仍由 AST comment nodes 解析。
+func TestGoEmbedPatternsAcceptDeclarationFragments(t *testing.T) {
+	snapshot := testGoEmbedDigestSnapshot(t, "all:assets", "embedded-one")
+	cases := []struct {
+		name       string
+		source     []byte
+		wantAssets []string
+	}{
+		{
+			name:   "function raw string pseudo directive",
+			source: []byte("func execute() { _ = `//go:embed missing/*` }"),
+		},
+		{
+			name:       "var declaration real comment",
+			source:     []byte("//go:embed all:assets\nvar embeddedAssets embed.FS"),
+			wantAssets: []string{"fixture/assets/embedded.txt"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			selected, err := snapshot.resolveGoEmbedAssets("fixture", test.source)
+			if err != nil {
+				t.Fatalf("resolveGoEmbedAssets(): %v", err)
+			}
+			if len(selected) != len(test.wantAssets) {
+				t.Fatalf("resolved assets = %#v, want paths %v", selected, test.wantAssets)
+			}
+			for _, filePath := range test.wantAssets {
+				if _, ok := selected[filePath]; !ok {
+					t.Fatalf("resolved embed assets omitted %q: %#v", filePath, selected)
+				}
+			}
+		})
+	}
+}
+
+// TestGoEmbedPatternsRejectParseErrors 验证源码语法错误不会被当作可解析的 embed 输入。
+func TestGoEmbedPatternsRejectParseErrors(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source []byte
+	}{
+		{name: "complete package syntax error", source: []byte("package fixture\nfunc")},
+		{name: "expression fragment", source: []byte("fmt.Println()")},
+		{name: "garbage fragment", source: []byte("not valid Go")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := remoteGoEmbedPatterns(test.source); err == nil {
+				t.Fatal("remoteGoEmbedPatterns() accepted invalid Go source")
+			}
+		})
 	}
 }
 
@@ -267,6 +720,16 @@ func testExactGoTestDigest(t *testing.T, snapshot *remoteGitTreeSnapshot, target
 	return testExactGoTestDigestWithProfile(t, snapshot, target, remoteGoBuildProfile{})
 }
 
+// testGoPackageDigest 计算测试夹具的整包输入摘要。
+func testGoPackageDigest(t *testing.T, snapshot *remoteGitTreeSnapshot, target string) string {
+	t.Helper()
+	digest, err := snapshot.goPackageInputDigest(context.Background(), target, remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("goPackageInputDigest(%s): %v", target, err)
+	}
+	return digest
+}
+
 func testExactGoTestDigestWithProfile(t *testing.T, snapshot *remoteGitTreeSnapshot, target gate.GoTestTarget, profile remoteGoBuildProfile) string {
 	t.Helper()
 	digest, err := snapshot.goExactTestInputDigest(context.Background(), target, profile)
@@ -331,6 +794,20 @@ func testExactGoTestDigestSnapshotWithObservedFiles(testSource, fixture, unrelat
 	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/fixture.txt", []byte(fixture))
 	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/unrelated.txt", []byte(unrelated))
 	return snapshot
+}
+
+// testGoEmbedDigestSnapshot 创建带有明确 tracked embed asset 的 Go workload 夹具。
+func testGoEmbedDigestSnapshot(t *testing.T, pattern, asset string) *remoteGitTreeSnapshot {
+	t.Helper()
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte("package fixture\n\nimport \"embed\"\n\n//go:embed "+pattern+"\nvar embeddedAssets embed.FS\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/assets/embedded.txt", []byte(asset))
+	return snapshot
+}
+
+// testGoEmbedSource 生成包含合法 go:embed directive 的 Go 源码夹具。
+func testGoEmbedSource(pattern string) []byte {
+	return []byte("package fixture\n\nimport \"embed\"\n\n//go:embed " + pattern + "\nvar embeddedAssets embed.FS\n")
 }
 
 // testExactGoTestDigestReplaceFile 更新夹具快照中文件的对象身份和可读取源码。

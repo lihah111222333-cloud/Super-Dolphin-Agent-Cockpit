@@ -26,12 +26,18 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		"--config", "/tmp/remote-ci.json",
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
 		"--repository", "/tmp/repository",
+		"--force",
 		"origin",
 		"ssh://git@example.invalid/repository.git",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertParsedRemotePrePushOptions(t, options, digest, remoteName, remoteURL)
+}
+
+func assertParsedRemotePrePushOptions(t *testing.T, options remoteRunOptions, digest, remoteName, remoteURL string) {
+	t.Helper()
 	if options.ConfigPath != "/tmp/remote-ci.json" ||
 		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" ||
 		options.RepositoryRoot != "/tmp/repository" ||
@@ -39,6 +45,26 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		remoteName != "origin" ||
 		remoteURL != "ssh://git@example.invalid/repository.git" {
 		t.Fatalf("options=%#v remote=%q url=%q", options, remoteName, remoteURL)
+	}
+	if !options.Force {
+		t.Fatal("parseRemotePrePushOptions(--force) did not set force mode")
+	}
+}
+
+func TestParseRemotePrePushOptionsDefaultsToPassReuse(t *testing.T) {
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(cicontract.AgentTokenEnvironment, token)
+	options, _, _, err := parseRemotePrePushOptions([]string{
+		"--config", "/tmp/remote-ci.json", "origin", "ssh://git@example.invalid/repository.git",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.Force {
+		t.Fatal("pre-push hook without --force disabled default PASS reuse")
 	}
 }
 

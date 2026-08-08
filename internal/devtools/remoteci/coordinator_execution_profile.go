@@ -17,25 +17,25 @@ func aggregateWorkloadExecutionProfile(gateID gate.GateID, workloads []gate.Plan
 	if err != nil {
 		return gate.ExecutionProfile{}, time.Time{}, time.Time{}, err
 	}
+	startedAt, completedAt, totalMS, err := gate.CanonicalExecutionInterval(startedAt, completedAt)
+	if err != nil {
+		return gate.ExecutionProfile{}, time.Time{}, time.Time{}, fmt.Errorf("remote CI gate %q aggregate interval: %w", gateID, err)
+	}
 	startup, body, err := shardWorkloadIntervals(workloads)
 	if err != nil {
 		return gate.ExecutionProfile{}, time.Time{}, time.Time{}, fmt.Errorf("remote CI gate %q workload intervals: %w", gateID, err)
 	}
 	profile := gate.ExecutionProfile{
-		CacheSource:             workloads[0].ExecutionProfile.CacheSource,
-		CacheMeasurement:        "measured",
-		BaselineHitByGeneration: make(map[string]uint64),
-		StartupMS:               startup.durationMS,
-		TestBodyMS:              body.durationMS,
-		TotalMS:                 completedAt.Sub(startedAt).Milliseconds(),
+		CacheSource:      aggregateWorkloadCacheSource(workloads),
+		CacheMeasurement: "measured",
+		StartupMS:        startup.durationMS,
+		TestBodyMS:       body.durationMS,
+		TotalMS:          totalMS,
 	}
 	for _, execution := range workloads {
 		if err := mergeAggregateCacheEvidence(&profile, execution.ExecutionProfile); err != nil {
 			return gate.ExecutionProfile{}, time.Time{}, time.Time{}, fmt.Errorf("remote CI gate %q workload %q cache evidence: %w", gateID, execution.GateID, err)
 		}
-	}
-	if len(profile.BaselineHitByGeneration) == 0 {
-		profile.BaselineHitByGeneration = nil
 	}
 	profile.CacheStatus = aggregateExecutionCacheStatus(profile)
 	if err := profile.ValidateAggregate(); err != nil {
@@ -48,7 +48,6 @@ func aggregateWorkloadExecutionProfile(gateID gate.GateID, workloads []gate.Plan
 func validateAggregateWorkloadProfiles(gateID gate.GateID, workloads []gate.PlanGateExecution) (time.Time, time.Time, error) {
 	startedAt, completedAt := workloads[0].StartedAt, workloads[0].CompletedAt
 	seen := make(map[gate.GateID]struct{}, len(workloads))
-	cacheSource := workloads[0].ExecutionProfile.CacheSource
 	for _, execution := range workloads {
 		if execution.GateID == "" {
 			return time.Time{}, time.Time{}, fmt.Errorf("remote CI gate %q has workload without identity", gateID)
@@ -57,7 +56,7 @@ func validateAggregateWorkloadProfiles(gateID gate.GateID, workloads []gate.Plan
 			return time.Time{}, time.Time{}, fmt.Errorf("remote CI gate %q repeats workload %q", gateID, execution.GateID)
 		}
 		seen[execution.GateID] = struct{}{}
-		if err := validateAggregateWorkloadProfile(execution, cacheSource); err != nil {
+		if err := validateAggregateWorkloadProfile(execution); err != nil {
 			return time.Time{}, time.Time{}, err
 		}
 		startedAt, completedAt = expandAggregateWorkloadInterval(startedAt, completedAt, execution)
@@ -65,15 +64,22 @@ func validateAggregateWorkloadProfiles(gateID gate.GateID, workloads []gate.Plan
 	return startedAt, completedAt, nil
 }
 
+// aggregateWorkloadCacheSource 只要任一 child 实测 Go 缓存，就把父 gate 标记为 Go 缓存汇总；其余 child 仍保持 workload 级 none 证据。
+func aggregateWorkloadCacheSource(workloads []gate.PlanGateExecution) string {
+	for _, execution := range workloads {
+		if execution.ExecutionProfile.CacheSource == "go_build_cache" {
+			return "go_build_cache"
+		}
+	}
+	return "none"
+}
+
 // validateAggregateWorkloadProfile 校验单个 child profile 的测量来源和时间包络。
-func validateAggregateWorkloadProfile(execution gate.PlanGateExecution, cacheSource string) error {
+func validateAggregateWorkloadProfile(execution gate.PlanGateExecution) error {
 	if err := execution.ExecutionProfile.Validate(); err != nil {
 		return fmt.Errorf("remote CI workload %q execution profile: %w", execution.GateID, err)
 	}
 	if execution.ExecutionProfile.CacheMeasurement != "measured" {
-		return fmt.Errorf("remote CI workload %q cache measurement/source is inconsistent", execution.GateID)
-	}
-	if execution.ExecutionProfile.CacheSource != cacheSource {
 		return fmt.Errorf("remote CI workload %q cache measurement/source is inconsistent", execution.GateID)
 	}
 	if err := validateAggregateWorkloadInterval(execution); err != nil {
@@ -116,7 +122,7 @@ func expandAggregateWorkloadInterval(startedAt, completedAt time.Time, execution
 	return startedAt, completedAt
 }
 
-// mergeAggregateCacheEvidence 汇总 child 的全部计数和 baseline generation 证据并拒绝溢出。
+// mergeAggregateCacheEvidence 汇总 child 的全部缓存计数并拒绝溢出。
 func mergeAggregateCacheEvidence(aggregate *gate.ExecutionProfile, child gate.ExecutionProfile) error {
 	for _, item := range []struct {
 		name        string
@@ -131,13 +137,6 @@ func mergeAggregateCacheEvidence(aggregate *gate.ExecutionProfile, child gate.Ex
 		if err := addAggregateCacheCount(item.destination, item.value); err != nil {
 			return fmt.Errorf("%s: %w", item.name, err)
 		}
-	}
-	for generation, count := range child.BaselineHitByGeneration {
-		current := aggregate.BaselineHitByGeneration[generation]
-		if err := addAggregateCacheCount(&current, count); err != nil {
-			return fmt.Errorf("baseline generation %q: %w", generation, err)
-		}
-		aggregate.BaselineHitByGeneration[generation] = current
 	}
 	return nil
 }

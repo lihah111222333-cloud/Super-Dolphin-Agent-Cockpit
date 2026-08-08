@@ -94,6 +94,9 @@ func remoteCIFunctionCallCount(file *ast.File, calledName string) int {
 
 func readRemoteCIContractGuardFile(t *testing.T, path string) string {
 	t.Helper()
+	if cached, ok := remoteCIProductionSourceFile(path); ok && cached.data != nil {
+		return string(cached.data)
+	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

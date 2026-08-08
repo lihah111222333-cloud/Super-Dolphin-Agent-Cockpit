@@ -33,7 +33,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "worker" {
 		return runWorkerCLI(args[1:], stdout, stderr)
 	}
-	err := dispatchCLI(args, stdout)
+	err := dispatchCLI(args, stdout, stderr)
 	if err == nil {
 		return int(gatecontract.ExitOK)
 	}
@@ -164,10 +164,11 @@ func writeGateCLIIdentity(args []string, stdout io.Writer) error {
 	if len(args) != 0 {
 		return protocolError("worker cli-identity does not accept arguments")
 	}
-	if gateSourceDigest == "" || gateToolchainDigest == "" {
-		return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, errors.New("gate CLI build identity is not linked"))
+	sourceDigest, toolchainDigest, err := linkedGateCLIIdentity()
+	if err != nil {
+		return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, err)
 	}
-	if _, err := fmt.Fprintf(stdout, "gate_source_sha256=%s\nplatform=%s/%s\ntoolchain_digest=%s\n", gateSourceDigest, runtime.GOOS, runtime.GOARCH, gateToolchainDigest); err != nil {
+	if _, err := fmt.Fprintf(stdout, "gate_source_sha256=%s\nplatform=%s/%s\ntoolchain_digest=%s\n", sourceDigest, runtime.GOOS, runtime.GOARCH, toolchainDigest); err != nil {
 		return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, fmt.Errorf("write gate CLI identity: %w", err))
 	}
 	return nil
@@ -207,40 +208,47 @@ func signalExitCode(caught os.Signal) int {
 }
 
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
-func dispatchCLI(args []string, stdout io.Writer) error {
+func dispatchCLI(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, test, codemap, project-map, worker, remote run, remote provision-generation-one)")
+		return protocolError("subcommand is required (plan, test, codemap, capability-contract, project-map, worker, remote run)")
 	}
-	if handled, err := dispatchPrimaryCLI(args, stdout); handled {
+	if handled, err := dispatchPrimaryCLI(args, stdout, progressWriters...); handled {
 		return err
 	}
 	return protocolError("unknown subcommand %q", args[0])
 }
 
 // dispatchPrimaryCLI 分派 coordinator 命令空间之外的固定子命令。
-func dispatchPrimaryCLI(args []string, stdout io.Writer) (bool, error) {
+func dispatchPrimaryCLI(args []string, stdout io.Writer, progressWriters ...io.Writer) (bool, error) {
 	switch args[0] {
 	case "plan":
 		return true, runPlan(args[1:], stdout)
 	case "test":
-		return true, runTestInvocation(args[1:], stdout)
-	case "codemap", "project-map":
+		return true, runTestInvocation(args[1:], stdout, progressWriters...)
+	case "codemap", "capability-contract", "project-map":
 		return true, runGeneratedMapCLI(args[0], args[1:], stdout)
 	case "closure", "frontend-code-size":
 		return true, runLocalGuardCLI(args, stdout)
 	case "remote":
-		return true, runRemote(args[1:], os.Stdin, stdout)
+		return true, runRemote(args[1:], os.Stdin, stdout, progressWriters...)
+	case "launcher":
+		return true, runLauncherCLI(args[1:])
 	case "_remote-materialize":
 		return true, runRemoteMaterialize(args[1:], stdout)
+	case "_remote-install-manifest":
+		return true, runRemoteInstallManifest(args[1:], stdout)
 	default:
 		return false, nil
 	}
 }
 
-// runGeneratedMapCLI 分派两个精确树绑定的生成地图命令。
+// runGeneratedMapCLI 分派精确树绑定的生成物命令。
 func runGeneratedMapCLI(command string, args []string, stdout io.Writer) error {
 	if command == "codemap" {
 		return runCodemapCLI(args, stdout)
+	}
+	if command == "capability-contract" {
+		return runCapabilityContractCLI(args, stdout)
 	}
 	return runProjectMapCLI(args, stdout)
 }

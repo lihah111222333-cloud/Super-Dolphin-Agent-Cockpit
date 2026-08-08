@@ -1,5 +1,9 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  collectContractStoreGuardViolations,
   contractStoreGuardRatchetFailures,
   contractStoreGuardViolationsFromSources,
   contractStoreGuardViolationsInSource,
@@ -7,6 +11,27 @@ import {
 } from './frontend-contract-store-guard.mjs';
 
 describe('frontend contract/store guard', () => {
+  it('excludes only the anchored test-helper suffix from production scans', () => {
+    const root = mkdtempSync(join(tmpdir(), 'frontend-contract-store-guard-'));
+    try {
+      mkdirSync(join(root, 'src'));
+      const source = 'const timestamp = Date.parse(value);';
+      writeFileSync(join(root, 'src', 'fixture.test-helper.jsx'), source);
+      writeFileSync(join(root, 'src', 'fixture-test-helper.jsx'), source);
+      writeFileSync(join(root, 'src', 'test-helper.js'), source);
+      writeFileSync(join(root, 'src', 'fixture.jsx'), source);
+
+      const violations = collectContractStoreGuardViolations({ root, roots: ['src'] });
+      expect([...new Set(violations.map(({ file }) => file))].sort()).toEqual([
+        'src/fixture-test-helper.jsx',
+        'src/fixture.jsx',
+        'src/test-helper.js',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('detects store bypasses, fallback compatibility reads, and nondeterministic parse/order calls', () => {
     const source = `
       import { useClientStore } from '../entities/client/model/useClientStore.js';

@@ -14,6 +14,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await writeBusinessFlowBugReport(page, testInfo);
 });
 
+test.describe('business-read-surfaces', () => {
 test('discovered business entries open stable read surfaces', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('frontend-app')).toBeVisible();
@@ -21,31 +22,37 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
 
   await openBusinessEntry(page, { label: '插件与技能', route: /\/skills$/, assert: async () => {
     await expect(page.getByRole('heading', { name: 'MCP工具' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '插件与技能', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'SQLite MCP 控制', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Playwright MCP 控制', exact: true })).toBeVisible();
   } });
 
   await openBusinessEntry(page, { label: '自动化', route: /\/dags$/, assert: async () => {
-    await expect(page.getByRole('heading', { name: '自动化', exact: true })).toBeVisible();
+    const overview = page.getByRole('region', { name: '自动化资产', exact: true });
+    await expect(overview).toBeVisible();
+    await expect(overview.getByRole('heading', { name: '自动化和运行状态', exact: true })).toBeVisible();
   } });
 
   await openBusinessEntry(page, { label: '提示词', route: /\/prompts$/, assert: async () => {
-    await expect(page.getByRole('heading', { name: '个性化' })).toBeVisible();
+    const overview = page.getByRole('region', { name: '个性化概览', exact: true });
+    await expect(overview).toBeVisible();
+    await expect(overview.getByRole('heading', { name: '定制角色、知识和记忆', exact: true })).toBeVisible();
   } });
 
   await openBusinessEntry(page, { label: '共享文件', route: /\/files$/, assert: async () => {
-    await expect(page.getByRole('heading', { name: '文件产物', exact: true })).toBeVisible();
-    await expect(page.getByRole('region', { name: '共享文件状态' })).toBeVisible();
+    const overview = page.getByRole('region', { name: '共享文件状态', exact: true });
+    await expect(overview).toBeVisible();
+    await expect(overview.getByRole('heading', { name: '共享文件和最终产物', exact: true })).toBeVisible();
   } });
 
   await openBusinessEntry(page, { label: '记忆中心', route: /\/memory$/, assert: async () => {
     await expect(page.getByRole('heading', { name: '记忆中心', exact: true })).toBeVisible();
-  } });
+  }, navTestId: 'sidebar-nav' });
 
   await openBusinessEntry(page, { label: '链路追踪', route: /\/observability$/, assert: async () => {
     await expect(page.getByTestId('observability-page')).toBeVisible();
     await page.getByRole('button', { name: '查询最新日志' }).click();
     await expect(page.getByTestId('observability-recent-logs')).toBeVisible();
-  } });
+  }, navTestId: 'sidebar-nav' });
 
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page).toHaveURL(/\/settings$/);
@@ -61,7 +68,9 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
   expect(runtime.failures).toEqual([]);
   expect(runtime.runtimeTelemetry.filter((item) => item.status === 'error' || String(item.phase || '').endsWith('.failed') || String(item.phase || '').endsWith('.timeout'))).toEqual([]);
 });
+});
 
+test.describe('business-chat-bridge', () => {
 test('high-risk chat send creates a thread then starts a turn through the bridge', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('chat-page')).toBeVisible();
@@ -132,6 +141,7 @@ test('high-risk chat send creates a thread then starts a turn through the bridge
   expect(runtime.unhandledRPC).toEqual([]);
   expect(runtime.failures).toEqual([]);
   expect(runtime.runtimeTelemetry.filter((item) => item.status === 'error' || String(item.phase || '').endsWith('.failed') || String(item.phase || '').endsWith('.timeout'))).toEqual([]);
+});
 });
 
 async function openBusinessEntry(page, { label, route, assert, navTestId = 'sidebar-nav' }) {
@@ -271,9 +281,8 @@ async function installStrictWailsMock(page) {
       unhandledRPC: [],
       nonWailsSockets: [],
       eventNotifications: 0,
-      nextReadinessEpoch: 1,
-      readinessProbeEpoch: null,
       nextThreadId: 'thread-business-e2e',
+      frontendReadiness: { epoch: 1, committedEpoch: 0 },
       recentEvents: [{
         trace_id: 'business-flow-trace-1',
         span_id: 'span-1',
@@ -373,8 +382,10 @@ async function installStrictWailsMock(page) {
       }
     }
 
-    function responseForRPC(method, params) {
-      if (method === 'ui/log' || method === 'observability/frontend/ingest') return { ok: true };
+    function responseForRPC(method, params = {}) {
+      if (method === 'ui/frontend/readiness') return frontendReadinessResponse(params);
+      if (method === 'ui/log') return { ok: true };
+      if (method === 'observability/frontend/ingest') return frontendTraceIngestResponse(params);
       if (method === 'ui/buildInfo') return { version: 'business-flow-e2e' };
       if (method === 'config/read') return {
         model: 'gpt-5.5',
@@ -396,26 +407,6 @@ async function installStrictWailsMock(page) {
           timeoutSec: 8,
         },
       };
-      if (method === 'ui/frontend/readiness') {
-        if (!params || typeof params !== 'object' || Array.isArray(params)) {
-          throw new Error('readiness request must be an object');
-        }
-        if (params.phase === 'probe') {
-          if (Object.keys(params).length !== 1) throw new Error('readiness probe must contain only phase');
-          const epoch = state.nextReadinessEpoch;
-          state.nextReadinessEpoch += 1;
-          state.readinessProbeEpoch = epoch;
-          return { epoch };
-        }
-        if (params.phase === 'commit') {
-          if (Object.keys(params).length !== 2) throw new Error('readiness commit must contain only phase and epoch');
-          if (!Number.isSafeInteger(params.epoch) || params.epoch <= 0) throw new Error('readiness commit epoch must be a positive safe integer');
-          if (state.readinessProbeEpoch === null) throw new Error('readiness commit requires a prior probe');
-          if (params.epoch !== state.readinessProbeEpoch) throw new Error('readiness commit epoch does not match probe epoch');
-          return { epoch: params.epoch };
-        }
-        throw new Error(`readiness phase is unknown: ${String(params.phase)}`);
-      }
       if (method === 'ui/windowBootstrap/get') return { snapshot: null };
       if (method === 'ui/preferences/get') return preferenceFor(params);
       if (method === 'ui/preferences/getAll') return { preferences: {} };
@@ -460,15 +451,52 @@ async function installStrictWailsMock(page) {
       throw new Error(`unhandled business-flow RPC: ${method}`);
     }
 
+    function frontendReadinessResponse(params) {
+      if (!params || typeof params !== 'object' || Array.isArray(params)) {
+        throw new Error('wails frontend readiness: request must contain one JSON object');
+      }
+      const unknownField = Object.keys(params).find((field) => field !== 'phase' && field !== 'epoch');
+      if (unknownField) throw new Error(`wails frontend readiness: decode request: json: unknown field "${unknownField}"`);
+
+      const phase = typeof params.phase === 'string' ? params.phase : '';
+      if (!phase) throw new Error('wails frontend readiness: phase is required');
+      const hasEpoch = Object.prototype.hasOwnProperty.call(params, 'epoch');
+      if (phase === 'probe') {
+        if (hasEpoch) throw new Error('wails frontend readiness: probe must not include an epoch');
+        return { epoch: state.frontendReadiness.epoch };
+      }
+      if (phase === 'commit') {
+        if (!hasEpoch || !Number.isSafeInteger(params.epoch) || params.epoch <= 0) {
+          throw new Error('wails frontend readiness: commit epoch is required');
+        }
+        if (params.epoch !== state.frontendReadiness.epoch) {
+          throw new Error('wails frontend readiness: epoch does not match current activation');
+        }
+        state.frontendReadiness.committedEpoch = params.epoch;
+        return { epoch: state.frontendReadiness.epoch };
+      }
+      throw new Error('wails frontend readiness: phase must be probe or commit');
+    }
+
+    function frontendTraceIngestResponse(params = {}) {
+      if (!params || typeof params !== 'object' || Array.isArray(params) || !Array.isArray(params.events)) {
+        throw new Error('wails frontend trace ingest: events must be an array');
+      }
+      return { enabled: true, recorded: params.events.length, dropped: 0 };
+    }
+
     function preferenceFor(params = {}) {
       const key = String(params.key || '');
       if (key.includes('provider.active')) return 'codex';
-      if (key.includes('provider.codex.effort')) return null;
+      if (key.includes('.effort')) return 'medium';
       if (key.includes('codexModelProvider')) return 'openai';
       if (key.includes('codexHome')) return '~/.codex';
       if (key.includes('codexInstanceKey')) return 'default';
-      if (key.includes('shortcuts.bindings')) return {};
-      return null;
+      if (key.includes('.sandbox')) return 'workspace-write';
+      if (key.includes('.approvalPolicy')) return 'on-failure';
+      if (key.includes('.personality')) return 'friendly';
+      if (key.includes('.summary')) return 'auto';
+      return '';
     }
 
     function sidebarSnapshot() {
@@ -477,7 +505,14 @@ async function installStrictWailsMock(page) {
         agents: [],
         recent_turns: [],
         workspace: { runs: [] },
-        token_usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, usedTokens: 0 },
+        token_usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          usedTokens: 0,
+          contextWindowTokens: 0,
+          usedPercent: 0,
+        },
       };
     }
 

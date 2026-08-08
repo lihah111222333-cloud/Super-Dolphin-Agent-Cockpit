@@ -162,8 +162,29 @@ func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
 			columns: []sqliteIndexColumnExpectation{{name: "accepted_generation"}, {name: "identity_digest"}},
 		},
 		{
+			table: "ci_workload_pass_evidence_aliases", name: "idx_ci_workload_pass_evidence_alias_source",
+			columns: []sqliteIndexColumnExpectation{{name: "source_identity_digest"}, {name: "source_accepted_generation"}},
+		},
+		{
+			table: "ci_runs", name: "idx_ci_runs_reusable_pass",
+			columns: []sqliteIndexColumnExpectation{{name: "accepted_generation"}, {name: "completed_at_unix_ms", descending: true}, {name: "job_id", descending: true}},
+			partial: 1,
+		},
+		{
 			table: "ci_workload_executions", name: "idx_ci_workload_executions_shard_fk",
 			columns: []sqliteIndexColumnExpectation{{name: "job_id"}, {name: "shard_identity"}},
+		},
+		{
+			table: cicontract.TimingObservationsTable, name: "idx_ci_timing_observations_compile_group",
+			columns: []sqliteIndexColumnExpectation{{name: "job_id"}, {name: "scope"}, {name: "shard_identity"}, {name: "compile_group_id"}, {name: "compile_artifact_key"}, {name: "phase"}},
+		},
+		{
+			table: cicontract.CompileTimingObservationsTable, name: "idx_ci_compile_timing_lookup",
+			columns: []sqliteIndexColumnExpectation{{name: "package_target"}, {name: "semantic_key"}, {name: "platform"}, {name: "runner_identity_digest"}, {name: "toolchain_digest"}, {name: "execution_mode"}, {name: "resource_class_id"}, {name: "resource_cpu"}, {name: "resource_memory_gib"}, {name: "job_id"}},
+		},
+		{
+			table: cicontract.CompileTimingObservationsTable, name: "idx_ci_compile_timing_job",
+			columns: []sqliteIndexColumnExpectation{{name: "job_id"}, {name: "id"}},
 		},
 	}
 	for _, expectation := range expectations {
@@ -173,7 +194,7 @@ func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
 			if !ok {
 				t.Fatalf("PRAGMA index_list(%q) omitted canonical index", expectation.table)
 			}
-			if index.unique != 0 || index.origin != "c" || index.partial != 0 {
+			if index.unique != 0 || index.origin != "c" || index.partial != expectation.partial {
 				t.Fatalf("PRAGMA index_list(%q) entry = %#v, want non-unique canonical index", expectation.table, index)
 			}
 			actualColumns := sqliteIndexColumnsForTest(t, database, expectation.name)
@@ -203,6 +224,7 @@ type sqliteIndexExpectation struct {
 	table   string
 	name    string
 	columns []sqliteIndexColumnExpectation
+	partial int
 }
 
 func sqliteIndexListForTest(t *testing.T, database *sql.DB, table string) map[string]sqliteIndexListEntry {
@@ -305,6 +327,8 @@ func TestDurationLedgerSQLiteRetentionDeletesUseGenerationLeadingIndexes(t *test
 	for _, binding := range cicontract.RetentionRootBindings() {
 		indexName := map[string]string{
 			"duration_samples":                  "idx_duration_samples_retention",
+			"duration_shard_overheads":          "idx_duration_shard_overheads_retention",
+			"duration_shard_overhead_samples":   "idx_duration_shard_overhead_samples_retention",
 			"ci_catalog_observations":           "idx_ci_catalog_observations_retention",
 			"ci_runs":                           "idx_ci_runs_accepted_generation",
 			"ci_workload_pass_evidence":         "idx_ci_workload_pass_evidence_retention",
@@ -408,16 +432,16 @@ func sqliteRequiredQueryPlans() []sqliteQueryPlanTest {
 	return []sqliteQueryPlanTest{
 		{
 			name: "duration planning",
-			query: `SELECT workload_id, command_digest,
+			query: `SELECT workload_id, command_digest, input_digest, execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
 				COALESCE(SUM(CASE WHEN succeeded = 1 THEN duration_ms ELSE 0 END), 0),
 				COALESCE(SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END), 0),
 				COALESCE(MAX(CASE WHEN succeeded = 0 THEN duration_ms ELSE 0 END), 0)
 				FROM duration_samples
-				WHERE platform = ? AND runner = ? AND toolchain = ?
-				GROUP BY workload_id, command_digest`,
+				WHERE execution_mode = ? AND platform = ? AND runner = ? AND toolchain = ?
+				GROUP BY workload_id, command_digest, input_digest, execution_mode, resource_class_id, resource_cpu, resource_memory_gib`,
 			expectedAccess:      []string{"USING INDEX idx_duration_samples_planning"},
 			rejectFullTableScan: []string{"duration_samples"},
-			args:                []any{"linux/amd64", "runner", "toolchain"},
+			args:                []any{DurationExecutionModeNormal, "linux/amd64", "runner", "toolchain"},
 		},
 		{
 			name: "catalog observation loader",
@@ -444,6 +468,41 @@ func sqliteRequiredQueryPlans() []sqliteQueryPlanTest {
 				FROM ci_workload_pass_evidence`,
 			expectedAccess:      []string{"USING COVERING INDEX idx_ci_workload_pass_evidence_retention"},
 			rejectFullTableScan: []string{"ci_workload_pass_evidence"},
+		},
+		{
+			name: "shard overhead sample loader",
+			query: `SELECT accepted_generation, provenance_digest, job_id, shard_identity,
+				total_started_at_unix_ms, total_completed_at_unix_ms,
+				workload_envelope_start_unix_ms, workload_envelope_end_unix_ms,
+				accounted_duration_ms, accounted_interval_count, overhead_ms
+				FROM duration_shard_overhead_samples
+				WHERE accepted_generation = ? AND provenance_digest = ?
+				ORDER BY job_id, shard_identity`,
+			expectedAccess:      []string{"USING INDEX idx_duration_shard_overhead_samples_planning"},
+			rejectFullTableScan: []string{"duration_shard_overhead_samples"},
+			args:                []any{"1", "sha256:" + strings.Repeat("a", 64)},
+		},
+		{
+			name: "compile group timing loader",
+			query: `SELECT compile_group_id, compile_artifact_key, phase, duration_ms
+				FROM ci_timing_observations
+				WHERE job_id = ? AND scope = ? AND shard_identity = ?
+				ORDER BY compile_group_id, compile_artifact_key, phase`,
+			expectedAccess:      []string{"USING INDEX idx_ci_timing_observations_compile_group"},
+			rejectFullTableScan: []string{"ci_timing_observations"},
+			args:                []any{"job", string(cicontract.TimingScopeCompileGroup), "shard"},
+		},
+		{
+			name: "compile timing run loader",
+			query: `SELECT observations.package_target
+				FROM ci_compile_timing_observations AS observations
+				INNER JOIN ci_runs AS runs ON runs.job_id = observations.job_id
+				WHERE observations.job_id = ? AND observations.measurement = 'measured'
+					AND observations.aggregation = 'raw' AND runs.status = 'passed'
+					AND runs.authoritative = 1 AND runs.cleanup_complete = 1`,
+			expectedAccess:      []string{"USING INDEX idx_ci_compile_timing_job"},
+			rejectFullTableScan: []string{"ci_compile_timing_observations"},
+			args:                []any{"job"},
 		},
 	}
 }
@@ -608,11 +667,11 @@ func assertSQLiteSchemaTableRegistry(t *testing.T, database *sql.DB) {
 		t.Fatal(err)
 	}
 	expected := []string{
-		"ci_catalog_observations", "ci_catalog_workloads", "ci_check_receipts", "ci_gate_executions",
+		"ci_catalog_observations", "ci_catalog_workloads", "ci_check_receipts", cicontract.CompileTimingObservationsTable, "ci_gate_executions",
 		"ci_live_timing_warnings", "ci_query_meta", "ci_remote_baseline_state", "ci_run_agent_identities", "ci_run_timing_warnings", "ci_run_warnings", "ci_run_workload_results", "ci_runs", "ci_schema_migrations",
-		"ci_shard_workloads", "ci_shards", "ci_timing_observations", "ci_workload_catalogs",
-		"ci_workload_executions", "ci_workload_pass_evidence",
-		"duration_calibrations", "duration_ledger_meta", "duration_ledger_raw_events", "duration_samples", "remote_ci_calibration_checkpoint_scenarios", "remote_ci_calibration_checkpoints",
+		"ci_shard_terminal_containers", "ci_shard_terminal_events", "ci_shard_workloads", "ci_shards", "ci_timing_observations", "ci_workload_catalogs",
+		"ci_workload_executions", "ci_workload_pass_evidence", "ci_workload_pass_evidence_aliases",
+		"duration_calibrations", "duration_ledger_meta", "duration_ledger_raw_events", "duration_samples", "duration_shard_overhead_samples", "duration_shard_overheads", "remote_ci_calibration_checkpoint_scenarios", "remote_ci_calibration_checkpoints",
 	}
 	if !slices.Equal(actual, expected) {
 		t.Fatalf("SQLite tables = %v, want %v", actual, expected)

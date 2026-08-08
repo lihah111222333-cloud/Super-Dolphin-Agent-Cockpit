@@ -16,16 +16,18 @@ func buildSourceManifest(bundlePath string, spec gate.SourceSpec, plan sourcePla
 		return SourceMaterializationManifest{}, err
 	}
 	manifest := SourceMaterializationManifest{
-		SchemaVersion:        sourceManifestVersion,
-		TransportKind:        sourceTransportKind,
-		Source:               spec,
-		SourceTreeSHA:        plan.tree,
-		TransportCommitSHA:   plan.transportCommit,
-		TrustedBaseCommitSHA: plan.baseCommit,
-		BaselineCommitSHA:    baseline.CommitSHA,
-		BaselineTreeSHA:      baseline.TreeSHA,
-		BundleDigest:         digest,
-		ObjectFormat:         spec.ObjectFormat,
+		SchemaVersion:          sourceManifestVersion,
+		TransportKind:          sourceTransportKind,
+		Source:                 spec,
+		SourceTreeSHA:          plan.tree,
+		TransportCommitSHA:     plan.transportCommit,
+		TrustedBaseCommitSHA:   plan.baseCommit,
+		BaselineCommitSHA:      baseline.CommitSHA,
+		BaselineTreeSHA:        baseline.TreeSHA,
+		SyntheticBaseTreeSHA:   plan.baseTree,
+		SyntheticBaseCommitSHA: plan.syntheticBaseCommit,
+		BundleDigest:           digest,
+		ObjectFormat:           spec.ObjectFormat,
 	}
 	if err := manifest.Validate(); err != nil {
 		return SourceMaterializationManifest{}, err
@@ -44,19 +46,37 @@ func (manifest SourceMaterializationManifest) Validate() error {
 	if manifest.TrustedBaseCommitSHA != "" && !validOID(manifest.TrustedBaseCommitSHA, manifest.ObjectFormat) {
 		return errors.New("source manifest trusted base commit is invalid")
 	}
-	return validateManifestCommitIdentity(manifest)
+	if err := validateManifestCommitIdentity(manifest); err != nil {
+		return err
+	}
+	return validateManifestSyntheticBase(manifest)
 }
 
 // validateManifestIdentityFields 检查 manifest 的 schema、transport、tree、
 // object ID、digest 与 candidate identity 字段。
 func validateManifestIdentityFields(manifest SourceMaterializationManifest) error {
+	if err := validateManifestIdentityMetadata(manifest); err != nil {
+		return err
+	}
+	return validateManifestIdentityObjects(manifest)
+}
+
+// validateManifestIdentityMetadata 检查 manifest 的协议、格式与 source tree 身份。
+func validateManifestIdentityMetadata(manifest SourceMaterializationManifest) error {
 	if manifest.SchemaVersion != sourceManifestVersion || manifest.TransportKind != sourceTransportKind ||
 		manifest.ObjectFormat != manifest.Source.ObjectFormat || manifest.SourceTreeSHA != manifest.Source.SourceTreeSHA {
 		return errors.New("source manifest identity or digest is invalid")
 	}
+	return nil
+}
+
+// validateManifestIdentityObjects 检查 manifest 的 Git object ID 与 bundle digest。
+func validateManifestIdentityObjects(manifest SourceMaterializationManifest) error {
 	if !validOID(manifest.TransportCommitSHA, manifest.ObjectFormat) ||
 		!validOID(manifest.BaselineCommitSHA, manifest.ObjectFormat) ||
 		!validOID(manifest.BaselineTreeSHA, manifest.ObjectFormat) ||
+		!validOID(manifest.SyntheticBaseTreeSHA, manifest.ObjectFormat) ||
+		!validOID(manifest.SyntheticBaseCommitSHA, manifest.ObjectFormat) ||
 		!validDigest(manifest.BundleDigest) {
 		return errors.New("source manifest identity or digest is invalid")
 	}
@@ -100,6 +120,20 @@ func validateManifestTrustedBase(manifest SourceMaterializationManifest) error {
 		if manifest.TrustedBaseCommitSHA != manifest.Source.Tree.ParentCommitSHA {
 			return errors.New("tree manifest trusted base does not match SourceSpec")
 		}
+	}
+	return nil
+}
+
+// validateManifestSyntheticBase 约束候选 parent synthetic commit 的 tree、
+// parent 与 transport commit 身份全部由 manifest 与 accepted baseline 重算。
+func validateManifestSyntheticBase(manifest SourceMaterializationManifest) error {
+	expectedSynthetic, err := DeterministicSourceSyntheticBaseCommitSHA(manifest.SyntheticBaseTreeSHA, manifest.BaselineCommitSHA, manifest.ObjectFormat)
+	if err != nil || manifest.SyntheticBaseCommitSHA != expectedSynthetic {
+		return errors.New("source manifest synthetic base commit is not deterministic")
+	}
+	expectedTransport, err := DeterministicSourceTransportCommitSHA(manifest.SourceTreeSHA, manifest.SyntheticBaseCommitSHA, manifest.ObjectFormat)
+	if err != nil || manifest.TransportCommitSHA != expectedTransport {
+		return errors.New("source manifest transport commit is not deterministic")
 	}
 	return nil
 }

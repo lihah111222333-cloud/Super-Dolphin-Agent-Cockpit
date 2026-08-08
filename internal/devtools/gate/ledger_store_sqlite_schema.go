@@ -37,8 +37,12 @@ CREATE TABLE IF NOT EXISTS duration_calibrations (
 	commit_catalog_digest TEXT NOT NULL,
 	push_catalog_digest TEXT NOT NULL,
 	release_catalog_digest TEXT NOT NULL,
+	calibration_resource_class_id TEXT NOT NULL CHECK (length(trim(calibration_resource_class_id)) > 0 AND calibration_resource_class_id <> 'medium'),
+	calibration_resource_cpu REAL NOT NULL CHECK (calibration_resource_cpu = 4),
+	calibration_resource_memory_gib REAL NOT NULL CHECK (calibration_resource_memory_gib = 8),
 	workload_count INTEGER NOT NULL CHECK (workload_count > 0),
 	race_package_count INTEGER NOT NULL CHECK (race_package_count > 0),
+	accepted_snapshot_id TEXT NOT NULL CHECK (length(trim(accepted_snapshot_id)) > 0),
 	completed_at_unix_ms INTEGER NOT NULL
 );
 
@@ -57,7 +61,7 @@ CREATE TABLE IF NOT EXISTS ci_remote_baseline_state (
 -- remote calibration checkpoint 与 duration samples 共用同一 SQLite authority。
 CREATE TABLE IF NOT EXISTS remote_ci_calibration_checkpoints (
 	identity TEXT PRIMARY KEY,
-	schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+	schema_version INTEGER NOT NULL CHECK (schema_version = 3),
 	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
 	agent_token_digest TEXT NOT NULL,
 	updated_at_unix_ms INTEGER NOT NULL
@@ -83,27 +87,95 @@ CREATE TABLE IF NOT EXISTS duration_samples (
 	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
 	workload_id TEXT NOT NULL,
 	command_digest TEXT NOT NULL,
+	input_digest TEXT NOT NULL CHECK (length(trim(input_digest)) > 0),
 	platform TEXT NOT NULL,
 	runner TEXT NOT NULL,
 	toolchain TEXT NOT NULL,
+	execution_mode TEXT NOT NULL CHECK (execution_mode IN ('normal', 'calibration')),
+	resource_class_id TEXT NOT NULL CHECK (length(trim(resource_class_id)) > 0),
+	resource_cpu REAL NOT NULL CHECK (resource_cpu > 0),
+	resource_memory_gib REAL NOT NULL CHECK (resource_memory_gib > 0),
 	succeeded INTEGER NOT NULL CHECK (succeeded IN (0, 1)),
 	duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
 	target_kind TEXT NOT NULL DEFAULT '',
 	parent_workload_id TEXT NOT NULL DEFAULT '',
 	parent_command_digest TEXT NOT NULL DEFAULT '',
 	target_name TEXT NOT NULL DEFAULT '',
-	target_status TEXT NOT NULL DEFAULT ''
+	target_status TEXT NOT NULL DEFAULT '',
+	CHECK (
+		(execution_mode = 'calibration' AND resource_cpu = 4 AND resource_memory_gib = 8) OR
+		(execution_mode = 'normal' AND ((resource_cpu = 2 AND resource_memory_gib = 4) OR
+			(resource_cpu = 4 AND resource_memory_gib = 8) OR
+			(resource_cpu = 8 AND resource_memory_gib = 16))))
 );
 
 CREATE INDEX IF NOT EXISTS idx_duration_samples_planning
 	ON duration_samples (
-		platform, runner, toolchain, workload_id, command_digest, succeeded, id DESC
+		execution_mode, platform, runner, toolchain, resource_cpu, resource_memory_gib,
+		resource_class_id, workload_id, command_digest, input_digest, succeeded, id DESC
 	);
 
 CREATE INDEX IF NOT EXISTS idx_duration_samples_retention
 	ON duration_samples (
 		accepted_generation, id DESC
 	);
+
+CREATE TABLE IF NOT EXISTS duration_shard_overheads (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
+	schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+	policy_version TEXT NOT NULL CHECK (policy_version = 'accounted-interval-union-nearest-rank-p95-v2'),
+	platform TEXT NOT NULL,
+	runner TEXT NOT NULL,
+	toolchain TEXT NOT NULL,
+	calibration_resource_class_id TEXT NOT NULL,
+	calibration_resource_cpu REAL NOT NULL CHECK (calibration_resource_cpu = 4),
+	calibration_resource_memory_gib REAL NOT NULL CHECK (calibration_resource_memory_gib = 8),
+	p95_ms INTEGER NOT NULL CHECK (p95_ms >= 0),
+	sample_count INTEGER NOT NULL CHECK (sample_count > 0),
+	provenance_digest TEXT NOT NULL,
+	accepted_snapshot_id TEXT NOT NULL CHECK (length(trim(accepted_snapshot_id)) > 0),
+	UNIQUE (accepted_generation, platform, runner, toolchain, calibration_resource_class_id, provenance_digest, accepted_snapshot_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_duration_shard_overheads_planning
+	ON duration_shard_overheads (
+		platform, runner, toolchain, accepted_generation DESC, id DESC
+	);
+
+CREATE INDEX IF NOT EXISTS idx_duration_shard_overheads_retention
+	ON duration_shard_overheads (
+		accepted_generation, id DESC
+	);
+
+CREATE TABLE IF NOT EXISTS duration_shard_overhead_samples (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
+	provenance_digest TEXT NOT NULL,
+	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
+	shard_identity TEXT NOT NULL,
+	total_started_at_unix_ms INTEGER NOT NULL,
+	total_completed_at_unix_ms INTEGER NOT NULL,
+	workload_envelope_start_unix_ms INTEGER NOT NULL,
+	workload_envelope_end_unix_ms INTEGER NOT NULL,
+	accounted_duration_ms INTEGER NOT NULL CHECK (accounted_duration_ms > 0),
+	accounted_interval_count INTEGER NOT NULL CHECK (accounted_interval_count > 0),
+	overhead_ms INTEGER NOT NULL CHECK (overhead_ms >= 0),
+	UNIQUE (accepted_generation, provenance_digest, job_id, shard_identity)
+);
+
+CREATE INDEX IF NOT EXISTS idx_duration_shard_overhead_samples_retention
+	ON duration_shard_overhead_samples (
+		accepted_generation, id DESC
+	);
+
+CREATE INDEX IF NOT EXISTS idx_duration_shard_overhead_samples_planning
+	ON duration_shard_overhead_samples (
+		accepted_generation, provenance_digest, job_id, shard_identity
+	);
+
+CREATE INDEX IF NOT EXISTS idx_duration_shard_overhead_samples_shard_fk
+	ON duration_shard_overhead_samples (job_id, shard_identity);
 
 CREATE TABLE IF NOT EXISTS ci_query_meta (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -140,6 +212,13 @@ CREATE INDEX IF NOT EXISTS idx_ci_catalog_observations_catalog_order
 		catalog_digest, observed_at_unix_ms DESC, source_tree_sha, entrypoint, profile, accepted_generation
 	);
 
+-- workload catalog authority lookup 按完整 observation identity 建立前缀。
+-- 覆盖 catalog_digest 后，DISTINCT 回读不退化为全表扫描。
+CREATE INDEX IF NOT EXISTS idx_ci_catalog_observations_identity_catalog
+	ON ci_catalog_observations (
+		source_tree_sha, entrypoint, profile, accepted_generation, catalog_digest
+	);
+
 CREATE INDEX IF NOT EXISTS idx_ci_catalog_observations_retention
 	ON ci_catalog_observations (accepted_generation, catalog_digest);
 
@@ -150,6 +229,7 @@ CREATE TABLE IF NOT EXISTS ci_catalog_workloads (
 	workload_id TEXT NOT NULL,
 	kind TEXT NOT NULL,
 	command_digest TEXT NOT NULL,
+	input_digest TEXT NOT NULL DEFAULT '',
 	bootstrap_estimate_ms INTEGER NOT NULL CHECK (bootstrap_estimate_ms > 0),
 	shardable INTEGER NOT NULL CHECK (shardable IN (0, 1)),
 	gate_id TEXT NOT NULL,
@@ -163,6 +243,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ci_catalog_workloads_order
 
 CREATE TABLE IF NOT EXISTS ci_runs (
 	job_id TEXT PRIMARY KEY,
+	force INTEGER NOT NULL DEFAULT 0 CHECK (force IN (0, 1)),
 	entrypoint TEXT NOT NULL,
 	profile TEXT NOT NULL,
 	plan_digest TEXT NOT NULL,
@@ -189,6 +270,10 @@ CREATE INDEX IF NOT EXISTS idx_ci_runs_catalog_status
 
 CREATE INDEX IF NOT EXISTS idx_ci_runs_accepted_generation
 	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ci_runs_reusable_pass
+	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC)
+	WHERE authoritative = 1 AND status = 'passed' AND cleanup_complete = 1;
 
 CREATE TABLE IF NOT EXISTS ci_run_agent_identities (
 	job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE,
@@ -251,7 +336,7 @@ CREATE INDEX IF NOT EXISTS idx_ci_workload_executions_shard_fk
 
 CREATE TABLE IF NOT EXISTS ci_timing_observations (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
-	scope TEXT NOT NULL CHECK (scope IN ('run', 'shard', 'workload')),
+	scope TEXT NOT NULL CHECK (scope IN ('run', 'shard', 'workload', 'compile_group')),
 	shard_identity TEXT NOT NULL DEFAULT '',
 	workload_id TEXT NOT NULL DEFAULT '',
 	phase TEXT NOT NULL,
@@ -262,8 +347,30 @@ CREATE TABLE IF NOT EXISTS ci_timing_observations (
 	reason TEXT NOT NULL DEFAULT '',
 	aggregation TEXT NOT NULL CHECK (aggregation IN ('raw', 'interval_union', 'critical_path')),
 	cache_evidence_json TEXT NOT NULL,
-	PRIMARY KEY (job_id, scope, shard_identity, workload_id, phase)
+	compile_group_id TEXT NOT NULL DEFAULT '',
+	compile_artifact_key TEXT NOT NULL DEFAULT '',
+	compile_package_target TEXT NOT NULL DEFAULT '',
+	compile_workload_ids_json TEXT NOT NULL DEFAULT '[]',
+	compile_artifact_sha256 TEXT NOT NULL DEFAULT '',
+	compile_artifact_size INTEGER NOT NULL DEFAULT 0 CHECK (compile_artifact_size >= 0),
+	compile_cache_hits INTEGER NOT NULL DEFAULT 0 CHECK (compile_cache_hits >= 0),
+	compile_cache_misses INTEGER NOT NULL DEFAULT 0 CHECK (compile_cache_misses >= 0),
+	compile_cache_puts INTEGER NOT NULL DEFAULT 0 CHECK (compile_cache_puts >= 0),
+	compile_cache_status TEXT NOT NULL DEFAULT '',
+	compile_status TEXT NOT NULL DEFAULT '',
+	compile_exit_code INTEGER NOT NULL DEFAULT 0,
+	compile_error_text TEXT NOT NULL DEFAULT '',
+	compile_command_digest TEXT NOT NULL DEFAULT '',
+	compile_profile_digest TEXT NOT NULL DEFAULT '',
+	compile_resource_class_id TEXT NOT NULL DEFAULT '',
+	compile_resource_cpu REAL NOT NULL DEFAULT 0,
+	compile_resource_memory_gib REAL NOT NULL DEFAULT 0,
+	compile_execution_mode TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (job_id, scope, shard_identity, workload_id, phase, compile_group_id, compile_artifact_key)
 );
+
+CREATE INDEX IF NOT EXISTS idx_ci_timing_observations_compile_group
+	ON ci_timing_observations (job_id, scope, shard_identity, compile_group_id, compile_artifact_key, phase);
 
 CREATE TABLE IF NOT EXISTS ci_run_warnings (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
@@ -311,14 +418,21 @@ func ensureDurationLedgerSQLiteSchemaWithValidator(
 	return verifyDurationLedgerSQLiteCurrentAuthority(database)
 }
 
+// coordinateDurationLedgerSQLiteSchemaVersion 根据当前 user_version 严格选择初始化、迁移或预检路径。
 func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, validator *durationLedgerSQLiteSchemaValidator, schemaVersion int) error {
 	switch schemaVersion {
 	case 0:
 		return validator.initializeAuthority(database, validator)
 	case durationLedgerSQLiteLegacySchemaVersion:
 		return migrateDurationLedgerSQLiteLegacySchema(database, validator)
+	case durationLedgerSQLiteCompileTimingVersion:
+		return migrateDurationLedgerSQLiteV10Schema(database, validator)
+	case durationLedgerSQLiteV11SchemaVersion:
+		return migrateDurationLedgerSQLiteV11Schema(database, validator)
+	case durationLedgerSQLitePreviousSchemaVersion:
+		return migrateDurationLedgerSQLiteWorkloadPassEvidenceAliasSchema(database, validator)
 	case durationLedgerSQLiteSchemaVersion:
-		return preflightDurationLedgerSQLiteSchema(database, schemaVersion, validator)
+		return migrateDurationLedgerSQLiteReusablePassIndex(database, validator)
 	default:
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
@@ -373,6 +487,10 @@ func migrateDurationLedgerSQLiteLegacySchemaOnConnection(
 	switch schemaVersion {
 	case durationLedgerSQLiteSchemaVersion:
 		return validator.preflight(connection, schemaVersion)
+	case durationLedgerSQLiteV11SchemaVersion:
+		return migrateDurationLedgerSQLiteV11SchemaOnConnection(connection, validator)
+	case durationLedgerSQLiteCompileTimingVersion:
+		return migrateDurationLedgerSQLiteV10SchemaOnConnection(connection, validator)
 	case durationLedgerSQLiteLegacySchemaVersion:
 		if err := preflightDurationLedgerSQLiteLegacySchema(connection, schemaVersion); err != nil {
 			return err
@@ -380,6 +498,15 @@ func migrateDurationLedgerSQLiteLegacySchemaOnConnection(
 	default:
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
+	return migrateDurationLedgerSQLiteLegacyV5OnConnection(connection, validator)
+}
+
+// migrateDurationLedgerSQLiteLegacyV5OnConnection 在预检通过后补齐 v5 的
+// 原始事件和 compile timing 结构，再补齐当前终态证据结构。
+func migrateDurationLedgerSQLiteLegacyV5OnConnection(
+	connection *sql.Conn,
+	validator *durationLedgerSQLiteSchemaValidator,
+) error {
 	for _, statement := range []string{
 		durationLedgerRawObservationEventsTableSchema,
 		durationLedgerRawObservationEventsIndexSchema,
@@ -390,13 +517,29 @@ func migrateDurationLedgerSQLiteLegacySchemaOnConnection(
 			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite raw observation schema", err)
 		}
 	}
+	for _, statement := range durationLedgerCompileTimingSchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite compile timing schema", err)
+		}
+	}
 	if _, err := connection.ExecContext(
 		context.Background(),
-		fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion),
+		fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteV11SchemaVersion),
 	); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite migrated schema version", err)
 	}
-	return validator.preflight(connection, durationLedgerSQLiteSchemaVersion)
+	actual, err := loadDurationLedgerSQLiteSchemaObjects(connection)
+	if err != nil {
+		return err
+	}
+	expected, err := buildDurationLedgerSQLiteReferenceSchemaForStatements(durationLedgerSQLiteV11SchemaStatements())
+	if err != nil {
+		return err
+	}
+	if err := compareDurationLedgerSQLiteSchemaObjects(actual, expected); err != nil {
+		return fmt.Errorf("preflight duration ledger SQLite schema version %d: %w", durationLedgerSQLiteV11SchemaVersion, err)
+	}
+	return migrateDurationLedgerSQLiteV11SchemaOnConnection(connection, validator)
 }
 
 type durationLedgerSQLiteSchemaVersionReader interface {
@@ -500,12 +643,31 @@ func initializeDurationLedgerSQLiteCurrentSchemaOnConnection(
 	if schemaVersion == durationLedgerSQLiteSchemaVersion {
 		return validator.preflight(connection, schemaVersion)
 	}
+	if schemaVersion == durationLedgerSQLiteV11SchemaVersion {
+		return migrateDurationLedgerSQLiteV11SchemaOnConnection(connection, validator)
+	}
+	if schemaVersion == durationLedgerSQLitePreviousSchemaVersion {
+		return migrateDurationLedgerSQLiteWorkloadPassEvidenceAliasSchemaOnConnection(connection, validator)
+	}
+	if schemaVersion == durationLedgerSQLiteCompileTimingVersion {
+		return migrateDurationLedgerSQLiteV10SchemaOnConnection(connection, validator)
+	}
 	if schemaVersion == durationLedgerSQLiteLegacySchemaVersion {
 		return migrateDurationLedgerSQLiteLegacySchemaOnConnection(connection, validator)
 	}
 	if schemaVersion != 0 {
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
+	return initializeDurationLedgerSQLiteEmptySchemaOnConnection(connection, validator, schemaVersion, statements)
+}
+
+// initializeDurationLedgerSQLiteEmptySchemaOnConnection 在已验证的空 authority 事务内执行当前 schema DDL、版本写入和最终预检。
+func initializeDurationLedgerSQLiteEmptySchemaOnConnection(
+	connection *sql.Conn,
+	validator *durationLedgerSQLiteSchemaValidator,
+	schemaVersion int,
+	statements []string,
+) error {
 	if err := validator.preflight(connection, schemaVersion); err != nil {
 		return err
 	}

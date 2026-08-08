@@ -1,0 +1,7 @@
+source_head: 7e3dfdc8f3e2b1a7f9af4879e76c46a1f7fb083c
+reviewed_at: 2026-08-07T09:00:00Z
+snapshot_sha256: f0b0b4efc1fdbdc19b84f554e30fc1f9f7cf3c8151beb5b713241e7178e70ce8
+working_directory: .
+command: go test ./internal/archtest -run '^TestCodeSizeGuard$' -count=1 -v
+expected_exit: 1
+observed_failure: adding the bounded orchestration candidate-discovery test caused the code-size guard to report baseline stale with graduated=1; refresh the exact generated test baseline without changing any metric threshold.

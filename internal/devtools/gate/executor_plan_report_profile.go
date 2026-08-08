@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate/testtiming"
@@ -18,18 +16,28 @@ import (
 func validPlanGateResult(result PlanGateExecution, schemaVersion uint32) bool {
 	return schemaVersion == ExecutorPlanReportSchemaVersion &&
 		validPlanGateTestTimings(result.TestTimings, schemaVersion) &&
+		ValidatePlanGateTimingEvidence(result) == nil &&
 		result.ExecutionProfile.Validate() == nil &&
 		validPlanGateLog(result) &&
 		validPlanGateTimeRange(result) &&
 		validPlanGateExit(result.Status, result.ExitCode)
 }
 
-// Validate 校验执行画像的缓存计数、代际归属和时长，拒绝无法与报告记录互证的数据。
+// ValidatePlanGateTimingEvidence 校验 exact Go selector 的 test2json 时长不超过同一 execution 的实测墙钟与正文区间。
+// 无终态 timing 的 cancelled/未启动结果保留为可诊断观察；一旦存在 timing，必须与同一 execution profile 一致。
+func ValidatePlanGateTimingEvidence(result PlanGateExecution) error {
+	if !isExactGoTestWorkload(result.GateID) || len(result.TestTimings) == 0 {
+		return nil
+	}
+	if err := validateExactGoTestExecutionProfile(result.GateID, result.TestTimings, result.ExecutionProfile); err != nil {
+		return fmt.Errorf("exact Go test timing evidence: %w", err)
+	}
+	return nil
+}
+
+// Validate 校验执行画像的缓存计数和时长，拒绝无法与报告记录互证的数据。
 func (profile ExecutionProfile) Validate() error {
 	if err := validateExecutionProfileCache(profile); err != nil {
-		return err
-	}
-	if err := validateExecutionProfileBaselineGenerations(profile); err != nil {
 		return err
 	}
 	if !validExecutionProfileTiming(profile) {
@@ -46,9 +54,6 @@ func (profile ExecutionProfile) Validate() error {
 // ValidateAggregate 校验 coordinator 从多个 workload 区间聚合出的父 gate 执行画像。
 func (profile ExecutionProfile) ValidateAggregate() error {
 	if err := validateExecutionProfileCache(profile); err != nil {
-		return err
-	}
-	if err := validateExecutionProfileBaselineGenerations(profile); err != nil {
 		return err
 	}
 	if !validAggregateExecutionProfileTiming(profile) {
@@ -94,24 +99,7 @@ func validExecutionProfileCacheMeasurement(measurement string) bool {
 
 func hasExecutionProfileCacheObservations(profile ExecutionProfile) bool {
 	return profile.PrivateHitCount != 0 || profile.BaselineHitCount != 0 || profile.CacheMissCount != 0 ||
-		profile.CachePutCount != 0 || len(profile.BaselineHitByGeneration) != 0
-}
-
-func validateExecutionProfileBaselineGenerations(profile ExecutionProfile) error {
-	var baselineTotal uint64
-	for generation, count := range profile.BaselineHitByGeneration {
-		if !validExecutorGoBuildCacheGeneration(generation) || count == 0 {
-			return errors.New("execution profile baseline generations are invalid")
-		}
-		if ^uint64(0)-baselineTotal < count {
-			return errors.New("execution profile baseline generation counts overflow")
-		}
-		baselineTotal += count
-	}
-	if baselineTotal != profile.BaselineHitCount {
-		return errors.New("execution profile baseline hit total does not match generations")
-	}
-	return nil
+		profile.CachePutCount != 0
 }
 
 // validExecutionProfileTiming 要求各阶段非负且总时长覆盖所有串行阶段。
@@ -149,21 +137,6 @@ func (profile FrontendExecutionProfile) Validate() error {
 	return nil
 }
 
-func encodeExecutionProfileRecord(index int, profile ExecutionProfile) (string, error) {
-	if err := profile.Validate(); err != nil {
-		return "", err
-	}
-	generations, err := encodeBaselineGenerationMap(profile.BaselineHitByGeneration)
-	if err != nil {
-		return "", err
-	}
-	frontend, err := encodeFrontendExecutionProfile(profile.Frontend)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s %06d %s %s %s %d %d %d %d %s %d %d %d %d %d %d %s", planReportProfileRecord, index, profile.CacheSource, profile.CacheStatus, profile.CacheMeasurement, profile.PrivateHitCount, profile.BaselineHitCount, profile.CacheMissCount, profile.CachePutCount, generations, profile.MaterializeMS, profile.DownloadMS, profile.VerifyMS, profile.StartupMS, profile.TestBodyMS, profile.TotalMS, frontend), nil
-}
-
 func encodeFrontendExecutionProfile(profile *FrontendExecutionProfile) (string, error) {
 	if profile == nil {
 		return "-", nil
@@ -178,30 +151,10 @@ func encodeFrontendExecutionProfile(profile *FrontendExecutionProfile) (string, 
 	return hex.EncodeToString(data), nil
 }
 
-// decodeExecutionProfileRecord 严格读取固定字段数和规范空白，防止非规范画像绕过摘要与代际校验。
-func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionProfile, error) {
-	fields := strings.Fields(payload)
-	if len(fields) != 16 || strings.Join(fields, " ") != payload {
-		return ExecutionProfile{}, errors.New("plan report execution profile is invalid")
-	}
-	if err := validatePlanGateRecordIndex(fields[0], expectedIndex); err != nil {
-		return ExecutionProfile{}, err
-	}
-	durations, err := decodeExecutionProfileDurations(fields)
-	if err != nil {
-		return ExecutionProfile{}, err
-	}
-	privateHits, baselineHits, misses, puts, err := decodeExecutionProfileCacheCounts(fields)
-	if err != nil {
-		return ExecutionProfile{}, err
-	}
-	return buildExecutionProfile(fields, durations, privateHits, baselineHits, misses, puts)
-}
-
 func decodeExecutionProfileDurations(fields []string) ([6]int64, error) {
 	var durations [6]int64
 	for index := range durations {
-		value, err := strconv.ParseInt(fields[index+9], 10, 64)
+		value, err := strconv.ParseInt(fields[index+8], 10, 64)
 		if err != nil {
 			return [6]int64{}, errors.New("plan report execution profile duration is invalid")
 		}
@@ -222,15 +175,11 @@ func decodeExecutionProfileCacheCounts(fields []string) (uint64, uint64, uint64,
 }
 
 func buildExecutionProfile(fields []string, durations [6]int64, privateHits uint64, baselineHits uint64, misses uint64, puts uint64) (ExecutionProfile, error) {
-	generations, err := decodeBaselineGenerationMap(fields[8])
+	frontend, err := decodeFrontendExecutionProfile(fields[14])
 	if err != nil {
 		return ExecutionProfile{}, err
 	}
-	frontend, err := decodeFrontendExecutionProfile(fields[15])
-	if err != nil {
-		return ExecutionProfile{}, err
-	}
-	profile := ExecutionProfile{Frontend: frontend, CacheSource: fields[1], CacheStatus: CacheObservationStatus(fields[2]), CacheMeasurement: fields[3], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: durations[0], DownloadMS: durations[1], VerifyMS: durations[2], StartupMS: durations[3], TestBodyMS: durations[4], TotalMS: durations[5]}
+	profile := ExecutionProfile{Frontend: frontend, CacheSource: fields[1], CacheStatus: CacheObservationStatus(fields[2]), CacheMeasurement: fields[3], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, MaterializeMS: durations[0], DownloadMS: durations[1], VerifyMS: durations[2], StartupMS: durations[3], TestBodyMS: durations[4], TotalMS: durations[5]}
 	if err := profile.Validate(); err != nil {
 		return ExecutionProfile{}, err
 	}
@@ -250,53 +199,6 @@ func decodeFrontendExecutionProfile(value string) (*FrontendExecutionProfile, er
 		return nil, errors.New("plan report frontend execution profile is invalid")
 	}
 	return &profile, nil
-}
-
-// encodeBaselineGenerationMap 将代际命中数排序编码，确保摘要输入与传输字段稳定。
-func encodeBaselineGenerationMap(generations map[string]uint64) (string, error) {
-	if len(generations) == 0 {
-		return "-", nil
-	}
-	keys := make([]string, 0, len(generations))
-	for generation, count := range generations {
-		if !validExecutorGoBuildCacheGeneration(generation) || count == 0 {
-			return "", errors.New("execution profile baseline generation is invalid")
-		}
-		keys = append(keys, generation)
-	}
-	sort.Strings(keys)
-	values := make([]string, 0, len(keys))
-	for _, generation := range keys {
-		values = append(values, generation+":"+strconv.FormatUint(generations[generation], 10))
-	}
-	return strings.Join(values, ","), nil
-}
-
-// decodeBaselineGenerationMap 拒绝重复或非规范字段，确保传入字符串可唯一重编码。
-func decodeBaselineGenerationMap(value string) (map[string]uint64, error) {
-	if value == "-" {
-		return nil, nil
-	}
-	generations := make(map[string]uint64)
-	for pair := range strings.SplitSeq(value, ",") {
-		generation, countText, ok := strings.Cut(pair, ":")
-		if !ok || !validExecutorGoBuildCacheGeneration(generation) {
-			return nil, errors.New("plan report baseline generation is invalid")
-		}
-		count, err := strconv.ParseUint(countText, 10, 64)
-		if err != nil || count == 0 {
-			return nil, errors.New("plan report baseline generation count is invalid")
-		}
-		if _, duplicate := generations[generation]; duplicate {
-			return nil, errors.New("plan report baseline generation is duplicated")
-		}
-		generations[generation] = count
-	}
-	canonical, err := encodeBaselineGenerationMap(generations)
-	if err != nil || canonical != value {
-		return nil, errors.New("plan report baseline generations are not canonical")
-	}
-	return generations, nil
 }
 
 // validPlanGateLog 校验日志边界、文本编码和内容摘要。

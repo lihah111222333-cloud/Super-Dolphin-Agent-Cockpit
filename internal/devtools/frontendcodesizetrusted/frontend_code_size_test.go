@@ -81,6 +81,38 @@ func TestCheckLeavesRepositoryBaselinesUntouched(t *testing.T) {
 	}
 }
 
+// TestCheckReplaysAcceptedBaselineAndRequiresExactCandidatePair 验证 check 既接受规范刷新结果，也拒绝候选自行放宽基线。
+func TestCheckReplaysAcceptedBaselineAndRequiresExactCandidatePair(t *testing.T) {
+	root := t.TempDir()
+	writeFrontendFixture(t, root, "accepted")
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "test")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "accepted")
+	accepted := strings.TrimSpace(runGit(t, root, "write-tree"))
+
+	for _, name := range []string{productionBaseline, testBaseline} {
+		if err := os.WriteFile(filepath.Join(root, "frontend-app", name), []byte(`{"marker":"canonical"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGit(t, root, "add", "frontend-app/"+productionBaseline, "frontend-app/"+testBaseline)
+	candidate := strings.TrimSpace(runGit(t, root, "write-tree"))
+	if err := runWithAssets(context.Background(), root, candidate, accepted, Check, canonicalBaselineRuntime()); err != nil {
+		t.Fatalf("canonical candidate check failed: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "frontend-app", productionBaseline), []byte(`{"marker":"inflated"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", "frontend-app/"+productionBaseline)
+	tampered := strings.TrimSpace(runGit(t, root, "write-tree"))
+	if err := runWithAssets(context.Background(), root, tampered, accepted, Check, canonicalBaselineRuntime()); err == nil || !strings.Contains(err.Error(), "accepted-baseline replay") {
+		t.Fatalf("tampered candidate error = %v", err)
+	}
+}
+
 // TestCheckSharesNodeModulesAcrossGitWorktrees 验证孤立工作树复用 common dir 下的唯一依赖缓存。
 func TestCheckSharesNodeModulesAcrossGitWorktrees(t *testing.T) {
 	root := t.TempDir()
@@ -459,6 +491,14 @@ func fakeTrustedRuntime() fstest.MapFS {
 			Data: []byte(`import fs from 'node:fs'; import path from 'node:path'; import process from 'node:process'; const root=process.env.SUPER_DOLPHIN_FRONTEND_CODE_SIZE_APP_ROOT; const scope=process.argv[process.argv.indexOf('--scope')+1]; const target=path.join(root, scope === 'production' ? '.frontend_code_size_guard_baseline.json' : '.frontend_code_size_guard_baseline_test.json'); JSON.parse(fs.readFileSync(target, 'utf8')); if(process.argv.includes('--update')) fs.writeFileSync(target, fs.readFileSync(target));`),
 			Mode: 0o644,
 		},
+	}
+}
+
+func canonicalBaselineRuntime() fstest.MapFS {
+	script := []byte(`import fs from 'node:fs'; import path from 'node:path'; const root=process.env.SUPER_DOLPHIN_FRONTEND_CODE_SIZE_APP_ROOT; const names=['.frontend_code_size_guard_baseline.json','.frontend_code_size_guard_baseline_test.json']; if(process.argv.includes('--update')) for(const name of names) fs.writeFileSync(path.join(root,name),'{"marker":"canonical"}'); for(const name of names) { const value=JSON.parse(fs.readFileSync(path.join(root,name),'utf8')); if(value.marker !== 'canonical') process.exit(1); }`)
+	return fstest.MapFS{
+		"assets/scripts/frontend-code-size-guard.mjs":   {Data: script, Mode: 0o644},
+		"assets/scripts/lib/frontend-code-size-cli.mjs": {Data: script, Mode: 0o644},
 	}
 }
 

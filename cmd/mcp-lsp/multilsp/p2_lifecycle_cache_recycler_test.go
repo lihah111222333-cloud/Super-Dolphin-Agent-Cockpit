@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
 
 func TestReleaseScopeDrainRejectsNewLeaseOnDetachedManager(t *testing.T) {
@@ -167,4 +168,23 @@ func TestPoolIdleCloneDetachRejectsNewClientBeforeClose(t *testing.T) {
 	if got := factory.callCount(); got != 0 {
 		t.Fatalf("factory calls after TTL detach = %d, want 0", got)
 	}
+}
+
+func TestSnapshotManagersCloseRace(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	mgr := newManagerPoolTestManager(t, root)
+	_ = scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-race", "thread-1"))
+
+	done := make(chan struct{})
+	runtimesafe.SafeGo(t.Context(), nil, "multilsp.snapshot-managers-close-race.test", func(context.Context) {
+		defer close(done)
+		for range 500 {
+			_ = mgr.pool.snapshotManagers()
+		}
+	})
+
+	for range 500 {
+		_ = mgr.pool.Close()
+	}
+	<-done
 }

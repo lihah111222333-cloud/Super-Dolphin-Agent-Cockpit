@@ -2,12 +2,12 @@ package gate
 
 import "testing"
 
-func TestExecutorRemoteGoBuildCacheSeedRootsUsesOCISeedWithoutEnvironmentSelection(t *testing.T) {
-	roots, err := ExecutorRemoteGoBuildCacheSeedRoots()
+func TestExecutorRemoteGoBuildCacheSeedRootUsesOCISeedWithoutEnvironmentSelection(t *testing.T) {
+	seedRoot, err := ExecutorRemoteGoBuildCacheSeedRoot()
 	if err != nil {
-		t.Fatalf("ExecutorRemoteGoBuildCacheSeedRoots() error = %v", err)
+		t.Fatalf("ExecutorRemoteGoBuildCacheSeedRoot() error = %v", err)
 	}
-	if len(roots) != 1 || roots[0] != ExecutorOCIProjectGoBuildCacheSeedRoot {
-		t.Fatalf("OCI seed roots = %v", roots)
+	if seedRoot != ExecutorOCIProjectGoBuildCacheSeedRoot {
+		t.Fatalf("OCI seed root = %v", seedRoot)
 	}
 }

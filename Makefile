@@ -298,7 +298,7 @@ app-cover-run:
 app-cover-report:
 	TARGET=app-server ./scripts/ui-coverage.sh report
 
-.PHONY: ci-l0 ci-l1 ci-l2-claude ci-l3-release install-hooks _hook_check protocol-sync-check rpc-regression-check
+.PHONY: ci-l0 ci-l1 ci-l3-release install-hooks _hook_check protocol-sync-check rpc-regression-check
 
 # install-hooks: 一次性激活 .githooks/ 下的 pre-commit / commit-msg / pre-push
 # 用相对路径写入 core.hooksPath，让每个 linked worktree 都解析到自己的 .githooks
@@ -331,9 +331,6 @@ ci-l1:
 test-deferred:
 	@echo "=== deferred E2E packages only (sequential, -p 1) ==="
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s -v
-
-ci-l2-claude:
-	@./scripts/ci_truth_image_gate.sh remote-required
 
 ci-l3-release:
 	@./scripts/ci_truth_image_gate.sh release

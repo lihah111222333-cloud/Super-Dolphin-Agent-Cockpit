@@ -18,8 +18,8 @@ type invalidCodemapSemanticCase struct {
 
 func TestGeneratedAtForModeUsesInjectedClock(t *testing.T) {
 	if got := generatedAtForMode(false, filepath.Join(t.TempDir(), "missing-index.json"), func() time.Time {
-		return time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
-	}); got != "2026-08-01" {
+		return time.Date(2026, time.August, 1, 0, 30, 0, 0, time.FixedZone("UTC+14", 14*60*60))
+	}); got != "2026-07-31" {
 		t.Fatalf("generatedAtForMode() = %q", got)
 	}
 }

@@ -8,7 +8,7 @@ import (
 )
 
 // BaselineFileSnapshot 在一次守卫运行中复用全仓 Go 文件枚举。
-// 文件度量仍由 BaselineMetricCache 按需读取，快照不跨源码快照复用。
+// 文件度量由同一次 BaselineMetricCache 按需或预加载读取，快照不跨源码快照复用。
 type BaselineFileSnapshot struct {
 	production map[string]string
 	tests      map[string]string

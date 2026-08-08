@@ -120,6 +120,8 @@ func retentionGenerationIndexName(t *testing.T, binding cicontract.RetentionRoot
 	t.Helper()
 	indexes := map[string]string{
 		"duration_samples":                  "idx_duration_samples_retention",
+		"duration_shard_overheads":          "idx_duration_shard_overheads_retention",
+		"duration_shard_overhead_samples":   "idx_duration_shard_overhead_samples_retention",
 		"ci_catalog_observations":           "idx_ci_catalog_observations_retention",
 		"ci_runs":                           "idx_ci_runs_accepted_generation",
 		"ci_workload_pass_evidence":         "idx_ci_workload_pass_evidence_retention",
@@ -132,6 +134,37 @@ func retentionGenerationIndexName(t *testing.T, binding cicontract.RetentionRoot
 	return index
 }
 
+const retentionDurationFixtureBatchRows = 200
+
+// insertRetentionDurationFixtureRows 在同一事务中批量写入 retention 矩阵的样本行。
+func insertRetentionDurationFixtureRows(t *testing.T, tx *sql.Tx, generation string, rowCount int, workloadPrefix, commandPrefix string) {
+	t.Helper()
+	for offset := 0; offset < rowCount; offset += retentionDurationFixtureBatchRows {
+		batchRows := retentionDurationFixtureBatchRows
+		if remaining := rowCount - offset; remaining < batchRows {
+			batchRows = remaining
+		}
+		var query strings.Builder
+		query.WriteString(`INSERT INTO duration_samples (
+			accepted_generation, workload_id, command_digest, input_digest,
+			platform, runner, toolchain, execution_mode, resource_class_id,
+			resource_cpu, resource_memory_gib, succeeded, duration_ms
+		) VALUES `)
+		args := make([]any, 0, batchRows*3)
+		for row := 0; row < batchRows; row++ {
+			if row > 0 {
+				query.WriteString(",")
+			}
+			query.WriteString("(?,?,?,'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','linux/amd64','eci','go','normal','small',2,4,1,1)")
+			index := offset + row
+			args = append(args, generation, fmt.Sprintf("%s-%d", workloadPrefix, index), fmt.Sprintf("%s-%d", commandPrefix, index))
+		}
+		if _, err := tx.Exec(query.String(), args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func testSingleGenerationHasNoRowCap(t *testing.T, db *sql.DB) {
 	t.Helper()
 	tx, err := db.Begin()
@@ -139,11 +172,7 @@ func testSingleGenerationHasNoRowCap(t *testing.T, db *sql.DB) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for i := 0; i != 500; i++ {
-		if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, platform, runner, toolchain, succeeded, duration_ms) VALUES ('1', ?, ?, 'linux/amd64', 'eci', 'go', 1, 1)`, fmt.Sprintf("workload-%d", i), fmt.Sprintf("digest-%d", i)); err != nil {
-			t.Fatal(err)
-		}
-	}
+	insertRetentionDurationFixtureRows(t, tx, "1", 500, "workload", "digest")
 	if err := compactDurationLedgerAuthority(tx); err != nil {
 		t.Fatal(err)
 	}
@@ -163,11 +192,7 @@ func testRetainedGenerationsHaveNoRowCap(t *testing.T) {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for generation := uint64(1); generation <= 4; generation++ {
-		for row := 0; row != 500; row++ {
-			if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, platform, runner, toolchain, succeeded, duration_ms) VALUES (?, ?, ?, 'linux/amd64', 'eci', 'go', 1, 1)`, fmt.Sprintf("%d", generation), fmt.Sprintf("workload-%d-%d", generation, row), fmt.Sprintf("command-%d-%d", generation, row)); err != nil {
-				t.Fatal(err)
-			}
-		}
+		insertRetentionDurationFixtureRows(t, tx, fmt.Sprintf("%d", generation), 500, fmt.Sprintf("workload-%d", generation), fmt.Sprintf("command-%d", generation))
 	}
 	if err := compactDurationLedgerAuthority(tx); err != nil {
 		t.Fatal(err)
@@ -243,16 +268,16 @@ func testSparseRootsShareGlobalGenerationWindow(t *testing.T) {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, statement := range []string{
-		`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, platform, runner, toolchain, succeeded, duration_ms) VALUES ('9', 'sparse-sample', 'sparse-command', 'linux/amd64', 'eci', 'go', 1, 1)`,
+		`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain, execution_mode, resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms) VALUES ('9', 'sparse-sample', 'sparse-command', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'linux/amd64', 'eci', 'go', 'normal', 'small', 2, 4, 1, 1)`,
 		`INSERT INTO ci_workload_catalogs (catalog_digest, catalog_version, authoritative, workload_count, created_at_unix_ms) VALUES ('sparse', 1, 1, 1, 1)`,
-		`INSERT INTO ci_runs (job_id, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete) VALUES ('sparse-run', 'commit', 'default', 'plan', 'sparse', '10', 'snapshot-10', 'tree', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'image', 'passed', 1, 1, 2, 1)`,
+		`INSERT INTO ci_runs (job_id, force, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete) VALUES ('sparse-run', 0, 'commit', 'default', 'plan', 'sparse', '10', 'snapshot-10', 'tree', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'image', 'passed', 1, 1, 2, 1)`,
 		`INSERT INTO ci_catalog_observations (catalog_digest, source_tree_sha, entrypoint, profile, accepted_generation, observed_at_unix_ms) VALUES ('sparse', 'tree-12', 'commit', 'default', '12', 1)`,
 	} {
 		if _, err := tx.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, agent_token_digest, accepted_generation, updated_at_unix_ms) VALUES ('sparse-checkpoint', 2, ?, '11', 1)`, retentionTestAgentTokenDigest); err != nil {
+	if _, err := tx.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, agent_token_digest, accepted_generation, updated_at_unix_ms) VALUES ('sparse-checkpoint', 3, ?, '11', 1)`, retentionTestAgentTokenDigest); err != nil {
 		t.Fatal(err)
 	}
 	if err := compactDurationLedgerAuthority(tx); err != nil {
@@ -274,7 +299,7 @@ func testRetentionRollback(t *testing.T, db *sql.DB) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, platform, runner, toolchain, succeeded, duration_ms) VALUES ('5', 'rollback', 'rollback', 'linux/amd64', 'eci', 'go', 1, 1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain, execution_mode, resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms) VALUES ('5', 'rollback', 'rollback', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'linux/amd64', 'eci', 'go', 'normal', 'small', 2, 4, 1, 1)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := compactDurationLedgerAuthority(tx); err != nil {
@@ -341,13 +366,13 @@ func insertGenerationRoots(t *testing.T, tx *sql.Tx, generation uint64, shared b
 	if _, err := tx.Exec(`INSERT INTO ci_catalog_observations (catalog_digest, source_tree_sha, entrypoint, profile, accepted_generation, observed_at_unix_ms) VALUES (?, ?, 'commit', 'default', ?, ?)`, catalog, "tree-"+g, g, generation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, platform, runner, toolchain, succeeded, duration_ms) VALUES (?, ?, ?, 'linux/amd64', 'eci', 'go', 1, 1)`, g, "sample-"+g, "command-"+g); err != nil {
+	if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain, execution_mode, resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms) VALUES (?, ?, ?, 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'linux/amd64', 'eci', 'go', 'normal', 'small', 2, 4, 1, 1)`, g, "sample-"+g, "command-"+g); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, agent_token_digest, accepted_generation, updated_at_unix_ms) VALUES (?, 2, ?, ?, ?)`, "checkpoint-"+g, retentionTestAgentTokenDigest, g, generation); err != nil {
+	if _, err := tx.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, agent_token_digest, accepted_generation, updated_at_unix_ms) VALUES (?, 3, ?, ?, ?)`, "checkpoint-"+g, retentionTestAgentTokenDigest, g, generation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO ci_runs (job_id, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete) VALUES (?, 'commit', 'default', ?, ?, ?, ?, ?, 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'image', 'passed', 1, 1, 2, 1)`, "run-"+g, "plan-"+g, catalog, g, "snapshot-"+g, "tree-"+g); err != nil {
+	if _, err := tx.Exec(`INSERT INTO ci_runs (job_id, force, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete) VALUES (?, 0, 'commit', 'default', ?, ?, ?, ?, ?, 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'image', 'passed', 1, 1, 2, 1)`, "run-"+g, "plan-"+g, catalog, g, "snapshot-"+g, "tree-"+g); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO ci_shards (job_id, shard_identity, container_group_id, container_status) VALUES (?, 'shard', 'container', 'Succeeded')`, "run-"+g); err != nil {

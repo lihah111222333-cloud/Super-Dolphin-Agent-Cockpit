@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -68,6 +69,32 @@ type sourceMaterializerFixture struct {
 	candidateTree        string
 }
 
+func TestSourceMaterializationRootsOmitsOnlyDeterministicEmptyTree(t *testing.T) {
+	emptyTree, err := DeterministicSourceEmptyTreeSHA(gate.GitObjectFormatSHA1)
+	if err != nil {
+		t.Fatalf("DeterministicSourceEmptyTreeSHA() error = %v", err)
+	}
+	tests := []struct {
+		name     string
+		baseTree string
+		want     []string
+	}{
+		{name: "empty parent", baseTree: emptyTree, want: []string{"candidate-tree"}},
+		{name: "non-empty parent", baseTree: "parent-tree", want: []string{"candidate-tree", "parent-tree"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := sourceMaterializationRoots("candidate-tree", test.baseTree, gate.GitObjectFormatSHA1)
+			if err != nil {
+				t.Fatalf("sourceMaterializationRoots() error = %v", err)
+			}
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("sourceMaterializationRoots() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestMaterializeVerifiedSourceBundleRoundTrip(t *testing.T) {
 	fixture := newSourceMaterializerFixture(t, "candidate.txt", "candidate\n", "seed", "candidate.txt", "candidate changed\n", "candidate", true)
 	artifacts, _ := materializeSourceFixture(t, fixture, commitSourceSpec(fixture))
@@ -90,14 +117,118 @@ func TestMaterializeVerifiedSourceBundleRejectsBundleDigestDrift(t *testing.T) {
 	assertEmptyMaterializerDirectory(t, sourceRoot)
 }
 
+func TestMaterializeVerifiedSourceBundleRejectsSyntheticBaseManifestTamper(t *testing.T) {
+	fixture := newSourceMaterializerFixture(t, "candidate.txt", "candidate\n", "seed", "candidate.txt", "candidate changed\n", "candidate", true)
+	artifacts, materialization := materializeSourceFixture(t, fixture, commitSourceSpec(fixture))
+	manifestData, err := os.ReadFile(materialization.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestData = bytes.Replace(manifestData, []byte(materialization.Manifest.SyntheticBaseCommitSHA), []byte(strings.Repeat("0", 40)), 1)
+	if err := os.Chmod(materialization.ManifestPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(materialization.ManifestPath, manifestData, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot := canonicalMaterializerTempDir(t)
+	if _, err := MaterializeVerifiedSourceBundle(context.Background(), artifacts, sourceRoot, fixture.baseline); err == nil {
+		t.Fatal("MaterializeVerifiedSourceBundle() accepted synthetic base manifest tamper")
+	}
+	assertEmptyMaterializerDirectory(t, sourceRoot)
+}
+
+func TestMaterializeVerifiedSourceBundleUsesSourceParentTreeForCRLFWhitespaceRange(t *testing.T) {
+	fixture := newCRLFParentMaterializerFixture(t)
+	spec := gate.SourceSpec{Kind: gate.SourceKindCommit, ObjectFormat: gate.GitObjectFormatSHA1, Commit: &gate.CommitSource{SHA: fixture.candidateCommit}, SourceTreeSHA: fixture.candidateTree}
+	artifacts := canonicalMaterializerTempDir(t)
+	materialization, err := MaterializeSource(context.Background(), fixture.repository, spec, artifacts, fixture.baseline)
+	if err != nil {
+		t.Fatalf("MaterializeSource() error = %v", err)
+	}
+	sourceRoot := canonicalMaterializerTempDir(t)
+	manifest, err := MaterializeVerifiedSourceBundle(context.Background(), artifacts, sourceRoot, fixture.baseline)
+	if err != nil {
+		t.Fatalf("MaterializeVerifiedSourceBundle() error = %v", err)
+	}
+	assertCRLFParentMaterialization(t, sourceRoot, fixture, materialization, manifest)
+}
+
+type crlfParentMaterializerFixture struct {
+	repository      string
+	baseline        SourceBaseline
+	parentCommit    string
+	parentTree      string
+	candidateCommit string
+	candidateTree   string
+}
+
+func newCRLFParentMaterializerFixture(t *testing.T) crlfParentMaterializerFixture {
+	t.Helper()
+	repository := canonicalMaterializerTempDir(t)
+	setupMaterializerRepository(t, repository)
+	writeMaterializerFile(t, repository, "legacy.txt", "line\n")
+	runMaterializerGit(t, repository, "add", "legacy.txt")
+	runMaterializerGit(t, repository, "commit", "--quiet", "-m", "accepted source")
+	baselineTree := strings.TrimSpace(runMaterializerGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	baselineRoot := canonicalMaterializerTempDir(t)
+	baseline, err := BuildSourceBaseline(context.Background(), repository, baselineTree, baselineRoot, gate.GitObjectFormatSHA1)
+	if err != nil {
+		t.Fatalf("BuildSourceBaseline() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "legacy.txt"), []byte("line\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runMaterializerGit(t, repository, "add", "legacy.txt")
+	runMaterializerGit(t, repository, "commit", "--quiet", "-m", "legacy CRLF parent")
+	parentCommit := strings.TrimSpace(runMaterializerGit(t, repository, "rev-parse", "HEAD"))
+	parentTree := strings.TrimSpace(runMaterializerGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	writeMaterializerFile(t, repository, "added.go", "package added\n")
+	runMaterializerGit(t, repository, "add", "added.go")
+	runMaterializerGit(t, repository, "commit", "--quiet", "-m", "candidate")
+	candidateCommit := strings.TrimSpace(runMaterializerGit(t, repository, "rev-parse", "HEAD"))
+	candidateTree := strings.TrimSpace(runMaterializerGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	return crlfParentMaterializerFixture{
+		repository:      repository,
+		baseline:        baseline,
+		parentCommit:    parentCommit,
+		parentTree:      parentTree,
+		candidateCommit: candidateCommit,
+		candidateTree:   candidateTree,
+	}
+}
+
+func assertCRLFParentMaterialization(t *testing.T, sourceRoot string, fixture crlfParentMaterializerFixture, materialization SourceMaterialization, manifest SourceMaterializationManifest) {
+	t.Helper()
+	wantSynthetic, err := DeterministicSourceSyntheticBaseCommitSHA(fixture.parentTree, fixture.baseline.CommitSHA, gate.GitObjectFormatSHA1)
+	if err != nil {
+		t.Fatalf("DeterministicSourceSyntheticBaseCommitSHA() error = %v", err)
+	}
+	if manifest.TrustedBaseCommitSHA != fixture.parentCommit || manifest.SyntheticBaseTreeSHA != fixture.parentTree || manifest.SyntheticBaseCommitSHA != wantSynthetic {
+		t.Fatalf("manifest source parent identity = %#v", manifest)
+	}
+	assertMaterializerBaseRef(t, sourceRoot, wantSynthetic)
+	command := exec.Command("git", "-C", sourceRoot, "diff", "--check", "refs/source/base", "HEAD", "--")
+	output, err := command.CombinedOutput()
+	if err != nil || len(output) != 0 {
+		t.Fatalf("synthetic base diff --check = err=%v output=%q", err, output)
+	}
+	if materialization.Manifest.SyntheticBaseCommitSHA != manifest.SyntheticBaseCommitSHA {
+		t.Fatalf("materialization/worker synthetic base mismatch: %s vs %s", materialization.Manifest.SyntheticBaseCommitSHA, manifest.SyntheticBaseCommitSHA)
+	}
+}
+
 func TestSourceTransportCommitCoversCommitRangeTreeAndUnrelatedHistory(t *testing.T) {
 	fixture := newSourceMaterializerFixture(t, "baseline.txt", "accepted\n", "accepted source", "candidate.txt", "candidate\n", "candidate", false)
-	wantTransport, err := DeterministicSourceTransportCommitSHA(fixture.candidateTree, fixture.baseline.CommitSHA, gate.GitObjectFormatSHA1)
+	wantSynthetic, err := DeterministicSourceSyntheticBaseCommitSHA(fixture.baseline.TreeSHA, fixture.baseline.CommitSHA, gate.GitObjectFormatSHA1)
+	if err != nil {
+		t.Fatalf("DeterministicSourceSyntheticBaseCommitSHA() error = %v", err)
+	}
+	wantTransport, err := DeterministicSourceTransportCommitSHA(fixture.candidateTree, wantSynthetic, gate.GitObjectFormatSHA1)
 	if err != nil {
 		t.Fatalf("DeterministicSourceTransportCommitSHA() error = %v", err)
 	}
 	for _, spec := range transportSourceSpecs(fixture) {
-		spec := spec
 		t.Run(string(spec.Kind), func(t *testing.T) {
 			assertTransportMaterialization(t, fixture, spec, wantTransport)
 		})
@@ -134,7 +265,7 @@ func newSourceMaterializerFixture(t *testing.T, baselineFile string, baselineCon
 
 func setupMaterializerRepository(t *testing.T, repository string) {
 	t.Helper()
-	runMaterializerGit(t, repository, "init", "--quiet")
+	runMaterializerGit(t, repository, "init", "--quiet", "--initial-branch=main")
 	runMaterializerGit(t, repository, "config", "user.email", "source-materializer@example.invalid")
 	runMaterializerGit(t, repository, "config", "user.name", "Source Materializer")
 }
@@ -165,11 +296,15 @@ func materializeSourceFixture(t *testing.T, fixture sourceMaterializerFixture, s
 
 func assertRoundTripMaterialization(t *testing.T, sourceRoot string, manifest SourceMaterializationManifest, fixture sourceMaterializerFixture) {
 	t.Helper()
-	wantTransport, err := DeterministicSourceTransportCommitSHA(fixture.candidateTree, fixture.baseline.CommitSHA, gate.GitObjectFormatSHA1)
+	wantSynthetic, err := DeterministicSourceSyntheticBaseCommitSHA(fixture.baseline.TreeSHA, fixture.baseline.CommitSHA, gate.GitObjectFormatSHA1)
+	if err != nil {
+		t.Fatalf("DeterministicSourceSyntheticBaseCommitSHA() error = %v", err)
+	}
+	wantTransport, err := DeterministicSourceTransportCommitSHA(fixture.candidateTree, wantSynthetic, gate.GitObjectFormatSHA1)
 	if err != nil {
 		t.Fatalf("DeterministicSourceTransportCommitSHA() error = %v", err)
 	}
-	if manifest.SourceTreeSHA != fixture.candidateTree || manifest.Source.Commit.SHA != fixture.candidateCommit || manifest.TransportCommitSHA != wantTransport {
+	if manifest.SourceTreeSHA != fixture.candidateTree || manifest.Source.Commit.SHA != fixture.candidateCommit || manifest.SyntheticBaseTreeSHA != fixture.baseline.TreeSHA || manifest.SyntheticBaseCommitSHA != wantSynthetic || manifest.TransportCommitSHA != wantTransport {
 		t.Fatalf("materialized manifest = %#v", manifest)
 	}
 	content, err := os.ReadFile(filepath.Join(sourceRoot, "candidate.txt"))
@@ -180,6 +315,14 @@ func assertRoundTripMaterialization(t *testing.T, sourceRoot string, manifest So
 		t.Fatalf("materialized source = %q", content)
 	}
 	assertMaterializerRepository(t, sourceRoot, fixture.candidateTree, wantTransport)
+	assertMaterializerBaseRef(t, sourceRoot, wantSynthetic)
+}
+
+func assertMaterializerBaseRef(t *testing.T, sourceRoot string, want string) {
+	t.Helper()
+	if got := strings.TrimSpace(runMaterializerGit(t, sourceRoot, "rev-parse", "--verify", "refs/source/base^{commit}")); got != want {
+		t.Fatalf("materialized source base ref = %s, want %s", got, want)
+	}
 }
 
 func assertMaterializerRepository(t *testing.T, sourceRoot string, wantTree string, wantHead string) {
@@ -243,7 +386,11 @@ func assertTransportMaterialization(t *testing.T, fixture sourceMaterializerFixt
 	t.Helper()
 	artifacts, materialization := materializeSourceFixture(t, fixture, spec)
 	manifest := materialization.Manifest
-	if manifest.TransportCommitSHA != wantTransport || manifest.SourceTreeSHA != fixture.candidateTree || manifest.Source.SourceTreeSHA != fixture.candidateTree {
+	wantSynthetic, err := DeterministicSourceSyntheticBaseCommitSHA(fixture.baseline.TreeSHA, fixture.baseline.CommitSHA, gate.GitObjectFormatSHA1)
+	if err != nil {
+		t.Fatalf("DeterministicSourceSyntheticBaseCommitSHA() error = %v", err)
+	}
+	if manifest.TransportCommitSHA != wantTransport || manifest.SourceTreeSHA != fixture.candidateTree || manifest.Source.SourceTreeSHA != fixture.candidateTree || manifest.SyntheticBaseTreeSHA != fixture.baseline.TreeSHA || manifest.SyntheticBaseCommitSHA != wantSynthetic {
 		t.Fatalf("transport manifest = %#v", manifest)
 	}
 	assertSingleTransportPrerequisite(t, materialization.BundlePath, manifest, fixture.baseline)
@@ -252,6 +399,7 @@ func assertTransportMaterialization(t *testing.T, fixture sourceMaterializerFixt
 		t.Fatalf("MaterializeVerifiedSourceBundle() error = %v", err)
 	}
 	assertMaterializerRepository(t, sourceRoot, fixture.candidateTree, wantTransport)
+	assertMaterializerBaseRef(t, sourceRoot, wantSynthetic)
 	if runMaterializerGitExpectFailure(t, sourceRoot, "cat-file", "-e", fixture.baselineSourceCommit+"^{commit}") == nil {
 		t.Fatalf("unrelated original source history %s was included in transport", fixture.baselineSourceCommit)
 	}
@@ -285,18 +433,18 @@ func assertSingleTransportPrerequisite(t *testing.T, bundlePath string, manifest
 }
 
 func parseMaterializerBundleHeader(data []byte) (materializerTestBundleHeader, error) {
-	headerEnd := bytes.Index(data, []byte("\n\n"))
-	if headerEnd < 0 {
+	headerBytes, _, found := bytes.Cut(data, []byte("\n\n"))
+	if !found {
 		return materializerTestBundleHeader{}, fmt.Errorf("source bundle is missing header terminator")
 	}
-	lines := strings.Split(string(data[:headerEnd]), "\n")
+	lines := strings.Split(string(headerBytes), "\n")
 	if len(lines) < 2 || lines[0] != "# v2 git bundle" {
-		return materializerTestBundleHeader{}, fmt.Errorf("source bundle header = %q", string(data[:headerEnd]))
+		return materializerTestBundleHeader{}, fmt.Errorf("source bundle header = %q", string(headerBytes))
 	}
 	var header materializerTestBundleHeader
 	for _, line := range lines[1:] {
-		if strings.HasPrefix(line, "-") {
-			fields := strings.Fields(strings.TrimPrefix(line, "-"))
+		if prerequisite, ok := strings.CutPrefix(line, "-"); ok {
+			fields := strings.Fields(prerequisite)
 			if len(fields) > 0 {
 				header.prerequisites = append(header.prerequisites, fields[0])
 			}

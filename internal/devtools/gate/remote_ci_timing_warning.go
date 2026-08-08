@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -99,6 +100,16 @@ func validateRemoteCITimingWarningTimestamps(warning RemoteCITimingWarning) erro
 	if !canonicalRemoteCITimingWarningTime(warning.ObservedAt) {
 		return errors.New("remote CI timing warning evidence timestamps must use exact milliseconds")
 	}
+	if err := ValidateRemoteCITimingWarningEvidenceStartedAt(warning.EvidenceStartedAt); err != nil {
+		return err
+	}
+	if err := validateRemoteCITimingWarningUnixMilliseconds(
+		warning.ObservedAt,
+		"observed_at",
+		math.MaxInt64,
+	); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -180,6 +191,31 @@ func validateRemoteCITimingWarningThreshold(warning RemoteCITimingWarning) error
 
 func canonicalRemoteCITimingWarningTime(value time.Time) bool {
 	return !value.IsZero() && value.Equal(value.UTC().Truncate(time.Millisecond))
+}
+
+// ValidateRemoteCITimingWarningEvidenceStartedAt 校验 provider 起始时间可安全写入 SQLite live/final timing warning。
+func ValidateRemoteCITimingWarningEvidenceStartedAt(value time.Time) error {
+	return validateRemoteCITimingWarningUnixMilliseconds(
+		value,
+		"evidence_started_at",
+		math.MaxInt64-cicontract.ShardTargetDuration.Milliseconds(),
+	)
+}
+
+// validateRemoteCITimingWarningUnixMilliseconds 校验时间对应的 Unix 毫秒落在 SQLite 整数可接受范围内。
+func validateRemoteCITimingWarningUnixMilliseconds(value time.Time, field string, maxMS int64) error {
+	normalized := value.UTC().Truncate(time.Millisecond)
+	if normalized.Before(time.UnixMilli(1).UTC()) {
+		return fmt.Errorf("remote CI timing warning %s Unix milliseconds must be > 0", field)
+	}
+	if normalized.After(time.UnixMilli(maxMS).UTC()) {
+		return fmt.Errorf("remote CI timing warning %s Unix milliseconds must be <= %d", field, maxMS)
+	}
+	unixMS := normalized.UnixMilli()
+	if unixMS <= 0 || unixMS > maxMS {
+		return fmt.Errorf("remote CI timing warning %s Unix milliseconds is outside the SQLite int64 range", field)
+	}
+	return nil
 }
 
 type remoteCITimingWarningKey struct {
@@ -480,6 +516,15 @@ func remoteCITimingWarningSetsEqual(first, second []RemoteCITimingWarning) bool 
 
 // validateRemoteCIRunTimingWarnings 闭合结构化事实与最终 run 身份及人类文本投影。
 func validateRemoteCIRunTimingWarnings(record RemoteCIRunRecord) error {
+	seen := make(map[remoteCITimingWarningKey]struct{}, len(record.TimingWarnings))
+	for _, warning := range record.TimingWarnings {
+		if err := validateRemoteCIRunTimingWarning(record, warning, seen); err != nil {
+			return err
+		}
+	}
+	if record.Status != ResultStatusPassed {
+		return validateRemoteCIRunTimingWarningHumanProjection(record)
+	}
 	expectedWorkload, err := BuildRemoteCIWorkloadTimingWarnings(
 		record.JobID, record.AgentTokenDigest, record.AcceptedGeneration,
 		record.WorkloadExecutions, record.TimingObservations,
@@ -488,11 +533,7 @@ func validateRemoteCIRunTimingWarnings(record RemoteCIRunRecord) error {
 		return err
 	}
 	actualWorkload := make([]RemoteCITimingWarning, 0, len(expectedWorkload))
-	seen := make(map[remoteCITimingWarningKey]struct{}, len(record.TimingWarnings))
 	for _, warning := range record.TimingWarnings {
-		if err := validateRemoteCIRunTimingWarning(record, warning, seen); err != nil {
-			return err
-		}
 		if warning.Scope == cicontract.TimingScopeWorkload {
 			actualWorkload = append(actualWorkload, warning)
 		}
@@ -520,8 +561,8 @@ func validateRemoteCIRunTimingWarning(
 		return fmt.Errorf("remote CI timing warning %v is duplicated", warning.key())
 	}
 	seen[warning.key()] = struct{}{}
-	if warning.Scope == cicontract.TimingScopeShard && !remoteCIRunHasShard(record.Shards, warning.ShardIdentity) {
-		return fmt.Errorf("remote CI running warning shard %q is not part of its run", warning.ShardIdentity)
+	if !remoteCIRunHasShard(record.Shards, warning.ShardIdentity) {
+		return fmt.Errorf("remote CI timing warning shard %q is not part of its run", warning.ShardIdentity)
 	}
 	return nil
 }
@@ -535,21 +576,24 @@ func remoteCIRunHasShard(shards []RemoteCIShardRecord, identity string) bool {
 	return false
 }
 
-// validateRemoteCIRunTimingWarningHumanProjection 校验人类文本是结构化告警的精确投影。
+// validateRemoteCIRunTimingWarningHumanProjection 校验 timing warning 文本均有结构化事实，
+// 同时允许同一 run 的 planner optimization warning 进入统一 warnings 投影。
 func validateRemoteCIRunTimingWarningHumanProjection(record RemoteCIRunRecord) error {
-	if len(record.Warnings) != len(record.TimingWarnings) {
-		return errors.New("remote CI human warnings must be derived exactly from structured timing warnings")
+	if len(record.Warnings) < len(record.TimingWarnings) {
+		return errors.New("remote CI human warnings are missing structured timing projections")
 	}
 	expected := make(map[string]struct{}, len(record.TimingWarnings))
 	for _, warning := range record.TimingWarnings {
 		expected[warning.WarningText] = struct{}{}
 	}
-	if len(expected) != len(record.TimingWarnings) {
-		return errors.New("remote CI structured timing warning human projections are duplicated")
-	}
+	seen := make(map[string]struct{}, len(record.Warnings))
 	for _, warning := range record.Warnings {
+		if _, duplicate := seen[warning]; duplicate {
+			return errors.New("remote CI human warnings are duplicated")
+		}
+		seen[warning] = struct{}{}
 		if _, exists := expected[warning]; !exists {
-			return errors.New("remote CI human warning lacks a structured timing warning fact")
+			continue
 		}
 		delete(expected, warning)
 	}

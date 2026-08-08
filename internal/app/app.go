@@ -231,11 +231,13 @@ func RunHeadlessDesktop(
 		return errors.Join(err, stopper.Stop())
 	}
 
+	waitErr := owner.WaitRuntimeDone(ctx)
 	var runErr error
-	select {
-	case <-ctx.Done():
+	if waitErr != nil {
 		runErr = context.Cause(ctx)
-	case <-app.Done():
+		if runErr == nil {
+			runErr = waitErr
+		}
 	}
 	owner.Cancel()
 	preDrainErr := preDrainDesktopRuntime(ctx, owner)

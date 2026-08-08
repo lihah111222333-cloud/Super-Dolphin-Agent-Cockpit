@@ -14,6 +14,7 @@ const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
 const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
 const DELIVERY_RUNNER_CONTENT_PATHS = FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS;
 export const DELIVERY_COMMAND_TIMEOUT_MS = 900_000;
+const NPM_COMMAND = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const DELIVERY_DIAGNOSTIC_MAX_BYTES = 4 * 1024;
 const RUNNER_TRUNCATION_MARKER = '\n...[runner truncated]...\n';
 
@@ -21,10 +22,10 @@ const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
     id: 'frontend-build',
     cwd: 'frontend-app',
-    argv: Object.freeze(['npm', 'run', 'build']),
+    argv: Object.freeze([NPM_COMMAND, 'run', 'build']),
     packageScript: Object.freeze({
       name: 'build',
-      value: 'vite build && node scripts/sync-frontend-dist.mjs',
+      value: 'vite build --configLoader runner && node scripts/sync-frontend-dist.mjs',
     }),
   }),
   Object.freeze({
@@ -35,7 +36,7 @@ const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
     id: 'desktop-start-smoke',
     cwd: 'frontend-app',
-    argv: Object.freeze(['npm', 'run', 'smoke:desktop:rpc']),
+    argv: Object.freeze([NPM_COMMAND, 'run', 'smoke:desktop:rpc']),
     packageScript: Object.freeze({
       name: 'smoke:desktop:rpc',
       value: 'node scripts/desktop-smoke.mjs',
@@ -44,7 +45,7 @@ const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
     id: 'desktop-failure-smoke',
     cwd: 'frontend-app',
-    argv: Object.freeze(['npm', 'run', 'smoke:desktop:failure']),
+    argv: Object.freeze([NPM_COMMAND, 'run', 'smoke:desktop:failure']),
     packageScript: Object.freeze({
       name: 'smoke:desktop:failure',
       value: 'node scripts/desktop-failure-smoke.mjs',

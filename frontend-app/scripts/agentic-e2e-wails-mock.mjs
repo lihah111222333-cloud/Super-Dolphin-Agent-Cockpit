@@ -1,8 +1,18 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const agenticE2EMockBrowserHelperPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'lib/agentic-e2e-wails-mock-browser-helper.mjs');
+if (!existsSync(agenticE2EMockBrowserHelperPath)) throw new Error(`agentic e2e mock Wails browser helper is missing: ${agenticE2EMockBrowserHelperPath}`);
+
 export async function installAgenticE2EMockWails(page, options = {}) {
   const sandbox = normalizeMockSandbox(options.sandbox);
+  await page.addInitScript({ path: agenticE2EMockBrowserHelperPath });
   await page.addInitScript((mockOptions) => {
     const NativeWebSocket = window.WebSocket;
     const sandboxConfig = mockOptions.sandbox;
+    const wailsHelpers = window.__AGENTIC_E2E_MOCK_WAILS_HELPERS__;
+    if (!wailsHelpers) throw new Error('agentic e2e mock Wails browser helper is unavailable');
     const state = {
       calls: [],
       failures: [],
@@ -13,6 +23,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       settingsWrites: [],
       eventNotifications: 0,
       nextThreadId: 'thread-agentic-e2e',
+      frontendReadiness: { epoch: 1, committedEpoch: 0 },
       recentEvents: [{
         trace_id: 'agentic-e2e-trace-1',
         span_id: 'span-1',
@@ -129,11 +140,13 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     }
 
     function responseForRPC(method, params = {}) {
-      if (method === 'ui/log' || method === 'observability/frontend/ingest') return { ok: true };
+      if (method === 'ui/frontend/readiness') return wailsHelpers.frontendReadinessResponse(state, params);
+      if (method === 'ui/log') return { ok: true };
+      if (method === 'observability/frontend/ingest') return wailsHelpers.frontendTraceIngestResponse(params);
       if (method === 'ui/buildInfo') return { version: 'agentic-e2e-mock' };
-      if (method === 'config/read') return { cwd: sandboxConfig.projectDir };
+      if (method === 'config/read') return wailsHelpers.configReadResponse(sandboxConfig);
       if (method === 'ui/windowBootstrap/get') return { snapshot: null };
-      if (method === 'ui/preferences/get') return preferenceFor(params);
+      if (method === 'ui/preferences/get') return wailsHelpers.preferenceResponse(sandboxConfig, params);
       if (method === 'ui/preferences/getAll') return { preferences: {} };
       if (method === 'ui/preferences/set') return savePreference(params, method);
       if (method === 'ui/projects/get') return projectList();
@@ -142,7 +155,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       if (method === 'ui/projects/add') return addProject(params, method);
       if (method === 'ui/projects/setActive') return setActiveProject(params, method);
       if (method === 'ui/projects/remove') return projectList();
-      if (method === 'ui/sidebar/get') return sidebarSnapshot();
+      if (method === 'ui/sidebar/get') return wailsHelpers.sidebarSnapshot();
       if (method === 'ui/state/get') return threadState(params.threadId || params.thread_id || state.nextThreadId);
       if (method === 'thread/messages') return { messages: [] };
       if (method === 'thread/config/get') return threadConfig(params.threadId || params.thread_id || state.nextThreadId);
@@ -463,25 +476,6 @@ export async function installAgenticE2EMockWails(page, options = {}) {
 
     function looksPathLike(value) {
       return value.startsWith('/') || value.includes(sandboxConfig.rootDir);
-    }
-
-    function preferenceFor(params = {}) {
-      const key = String(params.key || '');
-      if (key.includes('provider.active')) return 'codex';
-      if (key.includes('codexModelProvider')) return 'openai';
-      if (key.includes('codexHome')) return sandboxConfig.homeDir;
-      if (key.includes('codexInstanceKey')) return 'default';
-      return '';
-    }
-
-    function sidebarSnapshot() {
-      return {
-        activeThreadId: '',
-        threads: [],
-        active_turn: null,
-        tokenUsageByThread: {},
-        activityStatsByThread: {},
-      };
     }
 
     function threadState(threadId) {

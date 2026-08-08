@@ -1484,6 +1484,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
+        "cmd/mcp-orch/orchestration/nodeexec.WithAgentIDGenerator",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
@@ -1849,6 +1850,7 @@
         "cmd/mcp-orch/tools.ListRunsInput",
         "cmd/mcp-orch/tools.ListRunsOutput",
         "cmd/mcp-orch/tools.NewRegistry",
+        "cmd/mcp-orch/tools.NewRegistryWithAgentIDGenerator",
         "cmd/mcp-orch/tools.ObjectSchema",
         "cmd/mcp-orch/tools.PromptListOutput",
         "cmd/mcp-orch/tools.RawObjectSchema",
@@ -2095,6 +2097,7 @@
         "cmd/mcp-orch/tools.newSharedFileListResult",
         "cmd/mcp-orch/tools.newTTSRequest",
         "cmd/mcp-orch/tools.newToolRuntimeState",
+        "cmd/mcp-orch/tools.newToolRuntimeStateWithAgentIDGenerator",
         "cmd/mcp-orch/tools.newWorkflowDiagnosticsOutput",
         "cmd/mcp-orch/tools.newWorkspaceListRunsOutput",
         "cmd/mcp-orch/tools.nodeConfig",
@@ -3280,6 +3283,7 @@
         "internal/provider/claudecli.baseData",
         "internal/provider/claudecli.buildAttachmentText",
         "internal/provider/claudecli.buildCLIArgs",
+        "internal/provider/claudecli.buildDriver",
         "internal/provider/claudecli.buildEventData",
         "internal/provider/claudecli.buildStdioServer",
         "internal/provider/claudecli.buildSteerPayload",
@@ -3546,6 +3550,7 @@
         "internal/provider/claudecli.writeSystemPromptDump",
         "internal/provider/codexapp.*DriverFactory.SetBindTools",
         "internal/provider/codexapp.*DriverFactory.SetListTools",
+        "internal/provider/codexapp.*DriverFactory.SetLogRuntime",
         "internal/provider/codexapp.*DriverFactory.SetPrepareTools",
         "internal/provider/codexapp.*DriverFactory.SetReleaseTools",
         "internal/provider/codexapp.*DriverFactory.SetSkillMetrics",
@@ -3621,6 +3626,17 @@
         "internal/provider/codexapp.*SessionRuntime.tickHealth",
         "internal/provider/codexapp.*SessionRuntime.waitReader",
         "internal/provider/codexapp.*SessionRuntime.waitReaderDone",
+        "internal/provider/codexapp.*codexEventTranslator.handleUntranslatedEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateAdapterEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateEvent",
+        "internal/provider/codexapp.*codexInstaller.ensureCLIAvailable",
+        "internal/provider/codexapp.*codexInstaller.ensureManagedCodexCLI",
+        "internal/provider/codexapp.*codexInstaller.extractCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.extractCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installCodexAsset",
+        "internal/provider/codexapp.*codexInstaller.installCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.installCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installManagedCodexCLI",
         "internal/provider/codexapp.*driver.Name",
         "internal/provider/codexapp.*driver.ResolveResumeSessionIdentity",
         "internal/provider/codexapp.*driver.ResumeSession",
@@ -3867,6 +3883,7 @@
         "internal/provider/codexapp.*transport.connect",
         "internal/provider/codexapp.*transport.connectAttempt",
         "internal/provider/codexapp.*transport.connectOnce",
+        "internal/provider/codexapp.*transport.connectOnceWithReadLimit",
         "internal/provider/codexapp.*transport.currentProcess",
         "internal/provider/codexapp.*transport.currentWS",
         "internal/provider/codexapp.*transport.currentWSOrErr",
@@ -3918,7 +3935,6 @@
         "internal/provider/codexapp.CodexBootstrapConfig",
         "internal/provider/codexapp.DriverFactory",
         "internal/provider/codexapp.DriverFactoryParams",
-        "internal/provider/codexapp.EnsureCLIAvailable",
         "internal/provider/codexapp.EnsureCodexBootstrap",
         "internal/provider/codexapp.Message",
         "internal/provider/codexapp.NewDriverFactory",
@@ -4026,8 +4042,10 @@
         "internal/provider/codexapp.codexCapabilities",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
         "internal/provider/codexapp.codexEventRequiresTimestamp",
+        "internal/provider/codexapp.codexEventTranslator",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
+        "internal/provider/codexapp.codexExtractLimits",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
         "internal/provider/codexapp.codexFunctionCallOutputOutcome",
         "internal/provider/codexapp.codexGitHubAsset",
@@ -4035,6 +4053,7 @@
         "internal/provider/codexapp.codexHTTPClient",
         "internal/provider/codexapp.codexInstallState",
         "internal/provider/codexapp.codexInstallVersionParts",
+        "internal/provider/codexapp.codexInstaller",
         "internal/provider/codexapp.codexLocalMCPCommand",
         "internal/provider/codexapp.codexMCPToolElapsedMS",
         "internal/provider/codexapp.codexMCPToolErrorText",
@@ -4075,6 +4094,7 @@
         "internal/provider/codexapp.codexSandboxPolicyFromMode",
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
+        "internal/provider/codexapp.codexSpawnEnvAllowlist",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
@@ -4111,6 +4131,7 @@
         "internal/provider/codexapp.decodeTurnToolFailure",
         "internal/provider/codexapp.defaultCodexAppLogger",
         "internal/provider/codexapp.defaultCodexCLIHome",
+        "internal/provider/codexapp.defaultCodexExtractLimits",
         "internal/provider/codexapp.defaultCodexModelProviderForHome",
         "internal/provider/codexapp.defaultPeerNames",
         "internal/provider/codexapp.dependencyProfileFromFactoryParams",
@@ -4128,9 +4149,7 @@
         "internal/provider/codexapp.enrichSpawnError",
         "internal/provider/codexapp.enrichToolCallParams",
         "internal/provider/codexapp.enrichToolCallParamsStrict",
-        "internal/provider/codexapp.ensureCodexCLIAvailable",
         "internal/provider/codexapp.ensureCodexInstallLayout",
-        "internal/provider/codexapp.ensureManagedCodexCLI",
         "internal/provider/codexapp.ensurePeerSessionToken",
         "internal/provider/codexapp.ensureResolvedCodexProviderHome",
         "internal/provider/codexapp.eventTime",
@@ -4140,6 +4159,7 @@
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
         "internal/provider/codexapp.extractCodexWheel",
+        "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
         "internal/provider/codexapp.extractRolloutText",
@@ -4160,6 +4180,7 @@
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasCodexTimestampField",
+        "internal/provider/codexapp.hasCodexTokenUsage",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -4171,11 +4192,7 @@
         "internal/provider/codexapp.injectPeerBootstrapIdentity",
         "internal/provider/codexapp.injectToolCallMetadata",
         "internal/provider/codexapp.installCodexArchive",
-        "internal/provider/codexapp.installCodexAsset",
-        "internal/provider/codexapp.installCodexTarGz",
-        "internal/provider/codexapp.installCodexWheel",
         "internal/provider/codexapp.installCodexWrapper",
-        "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
         "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
@@ -4184,6 +4201,8 @@
         "internal/provider/codexapp.isApprovalBridgeMethod",
         "internal/provider/codexapp.isAssistantMessageCompletedMethod",
         "internal/provider/codexapp.isAssistantMessageItem",
+        "internal/provider/codexapp.isCodexAgentLaunchedEvent",
+        "internal/provider/codexapp.isCodexAgentStoppedEvent",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
@@ -4192,6 +4211,7 @@
         "internal/provider/codexapp.isExecutable",
         "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
+        "internal/provider/codexapp.isKnownNoisyCodexEvent",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
         "internal/provider/codexapp.isMessageStreamDeltaEvent",
@@ -4226,6 +4246,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnDelta",
         "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
@@ -4245,6 +4266,8 @@
         "internal/provider/codexapp.mustJSON",
         "internal/provider/codexapp.nestedToolCallString",
         "internal/provider/codexapp.nestedValue",
+        "internal/provider/codexapp.newCodexEventTranslator",
+        "internal/provider/codexapp.newCodexInstaller",
         "internal/provider/codexapp.newCodexModelResolver",
         "internal/provider/codexapp.newDreamExecutor",
         "internal/provider/codexapp.newDriver",
@@ -4360,6 +4383,7 @@
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
         "internal/provider/codexapp.recoverySnapshotTurnID",
+        "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
@@ -4394,6 +4418,8 @@
         "internal/provider/codexapp.rolloutMetadataItem",
         "internal/provider/codexapp.rolloutPayload",
         "internal/provider/codexapp.rolloutReader",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPair",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPairs",
         "internal/provider/codexapp.runPoolSpawn",
         "internal/provider/codexapp.runtimeHooksOrZero",
         "internal/provider/codexapp.runtimeReportDeferredStatus",
@@ -4470,6 +4496,7 @@
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnEventWithRuntimeHooks",
+        "internal/provider/codexapp.translateTurnEventWithRuntimeHooksAndSampler",
         "internal/provider/codexapp.translateTurnTerminalEvent",
         "internal/provider/codexapp.transport",
         "internal/provider/codexapp.transportCallError",
@@ -4523,11 +4550,13 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.waitSupervisorCompletion",
         "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
         "internal/provider/codexapp.withHealthInterval",
+        "internal/provider/codexapp.withLogRuntime",
         "internal/provider/codexapp.withPoolServer",
         "internal/provider/codexapp.withPoolSpawnLSPConfig",
         "internal/provider/codexapp.withPoolSpawnNativeToolPolicy",
@@ -6508,6 +6537,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
+        "cmd/mcp-orch/orchestration/nodeexec.WithAgentIDGenerator",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
@@ -6873,6 +6903,7 @@
         "cmd/mcp-orch/tools.ListRunsInput",
         "cmd/mcp-orch/tools.ListRunsOutput",
         "cmd/mcp-orch/tools.NewRegistry",
+        "cmd/mcp-orch/tools.NewRegistryWithAgentIDGenerator",
         "cmd/mcp-orch/tools.ObjectSchema",
         "cmd/mcp-orch/tools.PromptListOutput",
         "cmd/mcp-orch/tools.RawObjectSchema",
@@ -7119,6 +7150,7 @@
         "cmd/mcp-orch/tools.newSharedFileListResult",
         "cmd/mcp-orch/tools.newTTSRequest",
         "cmd/mcp-orch/tools.newToolRuntimeState",
+        "cmd/mcp-orch/tools.newToolRuntimeStateWithAgentIDGenerator",
         "cmd/mcp-orch/tools.newWorkflowDiagnosticsOutput",
         "cmd/mcp-orch/tools.newWorkspaceListRunsOutput",
         "cmd/mcp-orch/tools.nodeConfig",
@@ -8304,6 +8336,7 @@
         "internal/provider/claudecli.baseData",
         "internal/provider/claudecli.buildAttachmentText",
         "internal/provider/claudecli.buildCLIArgs",
+        "internal/provider/claudecli.buildDriver",
         "internal/provider/claudecli.buildEventData",
         "internal/provider/claudecli.buildStdioServer",
         "internal/provider/claudecli.buildSteerPayload",
@@ -8570,6 +8603,7 @@
         "internal/provider/claudecli.writeSystemPromptDump",
         "internal/provider/codexapp.*DriverFactory.SetBindTools",
         "internal/provider/codexapp.*DriverFactory.SetListTools",
+        "internal/provider/codexapp.*DriverFactory.SetLogRuntime",
         "internal/provider/codexapp.*DriverFactory.SetPrepareTools",
         "internal/provider/codexapp.*DriverFactory.SetReleaseTools",
         "internal/provider/codexapp.*DriverFactory.SetSkillMetrics",
@@ -8645,6 +8679,17 @@
         "internal/provider/codexapp.*SessionRuntime.tickHealth",
         "internal/provider/codexapp.*SessionRuntime.waitReader",
         "internal/provider/codexapp.*SessionRuntime.waitReaderDone",
+        "internal/provider/codexapp.*codexEventTranslator.handleUntranslatedEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateAdapterEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateEvent",
+        "internal/provider/codexapp.*codexInstaller.ensureCLIAvailable",
+        "internal/provider/codexapp.*codexInstaller.ensureManagedCodexCLI",
+        "internal/provider/codexapp.*codexInstaller.extractCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.extractCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installCodexAsset",
+        "internal/provider/codexapp.*codexInstaller.installCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.installCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installManagedCodexCLI",
         "internal/provider/codexapp.*driver.Name",
         "internal/provider/codexapp.*driver.ResolveResumeSessionIdentity",
         "internal/provider/codexapp.*driver.ResumeSession",
@@ -8891,6 +8936,7 @@
         "internal/provider/codexapp.*transport.connect",
         "internal/provider/codexapp.*transport.connectAttempt",
         "internal/provider/codexapp.*transport.connectOnce",
+        "internal/provider/codexapp.*transport.connectOnceWithReadLimit",
         "internal/provider/codexapp.*transport.currentProcess",
         "internal/provider/codexapp.*transport.currentWS",
         "internal/provider/codexapp.*transport.currentWSOrErr",
@@ -8942,7 +8988,6 @@
         "internal/provider/codexapp.CodexBootstrapConfig",
         "internal/provider/codexapp.DriverFactory",
         "internal/provider/codexapp.DriverFactoryParams",
-        "internal/provider/codexapp.EnsureCLIAvailable",
         "internal/provider/codexapp.EnsureCodexBootstrap",
         "internal/provider/codexapp.Message",
         "internal/provider/codexapp.NewDriverFactory",
@@ -9050,8 +9095,10 @@
         "internal/provider/codexapp.codexCapabilities",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
         "internal/provider/codexapp.codexEventRequiresTimestamp",
+        "internal/provider/codexapp.codexEventTranslator",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
+        "internal/provider/codexapp.codexExtractLimits",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
         "internal/provider/codexapp.codexFunctionCallOutputOutcome",
         "internal/provider/codexapp.codexGitHubAsset",
@@ -9059,6 +9106,7 @@
         "internal/provider/codexapp.codexHTTPClient",
         "internal/provider/codexapp.codexInstallState",
         "internal/provider/codexapp.codexInstallVersionParts",
+        "internal/provider/codexapp.codexInstaller",
         "internal/provider/codexapp.codexLocalMCPCommand",
         "internal/provider/codexapp.codexMCPToolElapsedMS",
         "internal/provider/codexapp.codexMCPToolErrorText",
@@ -9099,6 +9147,7 @@
         "internal/provider/codexapp.codexSandboxPolicyFromMode",
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
+        "internal/provider/codexapp.codexSpawnEnvAllowlist",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
@@ -9135,6 +9184,7 @@
         "internal/provider/codexapp.decodeTurnToolFailure",
         "internal/provider/codexapp.defaultCodexAppLogger",
         "internal/provider/codexapp.defaultCodexCLIHome",
+        "internal/provider/codexapp.defaultCodexExtractLimits",
         "internal/provider/codexapp.defaultCodexModelProviderForHome",
         "internal/provider/codexapp.defaultPeerNames",
         "internal/provider/codexapp.dependencyProfileFromFactoryParams",
@@ -9152,9 +9202,7 @@
         "internal/provider/codexapp.enrichSpawnError",
         "internal/provider/codexapp.enrichToolCallParams",
         "internal/provider/codexapp.enrichToolCallParamsStrict",
-        "internal/provider/codexapp.ensureCodexCLIAvailable",
         "internal/provider/codexapp.ensureCodexInstallLayout",
-        "internal/provider/codexapp.ensureManagedCodexCLI",
         "internal/provider/codexapp.ensurePeerSessionToken",
         "internal/provider/codexapp.ensureResolvedCodexProviderHome",
         "internal/provider/codexapp.eventTime",
@@ -9164,6 +9212,7 @@
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
         "internal/provider/codexapp.extractCodexWheel",
+        "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
         "internal/provider/codexapp.extractRolloutText",
@@ -9184,6 +9233,7 @@
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasCodexTimestampField",
+        "internal/provider/codexapp.hasCodexTokenUsage",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -9195,11 +9245,7 @@
         "internal/provider/codexapp.injectPeerBootstrapIdentity",
         "internal/provider/codexapp.injectToolCallMetadata",
         "internal/provider/codexapp.installCodexArchive",
-        "internal/provider/codexapp.installCodexAsset",
-        "internal/provider/codexapp.installCodexTarGz",
-        "internal/provider/codexapp.installCodexWheel",
         "internal/provider/codexapp.installCodexWrapper",
-        "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
         "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
@@ -9208,6 +9254,8 @@
         "internal/provider/codexapp.isApprovalBridgeMethod",
         "internal/provider/codexapp.isAssistantMessageCompletedMethod",
         "internal/provider/codexapp.isAssistantMessageItem",
+        "internal/provider/codexapp.isCodexAgentLaunchedEvent",
+        "internal/provider/codexapp.isCodexAgentStoppedEvent",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
@@ -9216,6 +9264,7 @@
         "internal/provider/codexapp.isExecutable",
         "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
+        "internal/provider/codexapp.isKnownNoisyCodexEvent",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
         "internal/provider/codexapp.isMessageStreamDeltaEvent",
@@ -9250,6 +9299,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnDelta",
         "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
@@ -9269,6 +9319,8 @@
         "internal/provider/codexapp.mustJSON",
         "internal/provider/codexapp.nestedToolCallString",
         "internal/provider/codexapp.nestedValue",
+        "internal/provider/codexapp.newCodexEventTranslator",
+        "internal/provider/codexapp.newCodexInstaller",
         "internal/provider/codexapp.newCodexModelResolver",
         "internal/provider/codexapp.newDreamExecutor",
         "internal/provider/codexapp.newDriver",
@@ -9384,6 +9436,7 @@
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
         "internal/provider/codexapp.recoverySnapshotTurnID",
+        "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
@@ -9418,6 +9471,8 @@
         "internal/provider/codexapp.rolloutMetadataItem",
         "internal/provider/codexapp.rolloutPayload",
         "internal/provider/codexapp.rolloutReader",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPair",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPairs",
         "internal/provider/codexapp.runPoolSpawn",
         "internal/provider/codexapp.runtimeHooksOrZero",
         "internal/provider/codexapp.runtimeReportDeferredStatus",
@@ -9494,6 +9549,7 @@
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnEventWithRuntimeHooks",
+        "internal/provider/codexapp.translateTurnEventWithRuntimeHooksAndSampler",
         "internal/provider/codexapp.translateTurnTerminalEvent",
         "internal/provider/codexapp.transport",
         "internal/provider/codexapp.transportCallError",
@@ -9547,11 +9603,13 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.waitSupervisorCompletion",
         "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
         "internal/provider/codexapp.withHealthInterval",
+        "internal/provider/codexapp.withLogRuntime",
         "internal/provider/codexapp.withPoolServer",
         "internal/provider/codexapp.withPoolSpawnLSPConfig",
         "internal/provider/codexapp.withPoolSpawnNativeToolPolicy",
@@ -11532,6 +11590,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
+        "cmd/mcp-orch/orchestration/nodeexec.WithAgentIDGenerator",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
@@ -11897,6 +11956,7 @@
         "cmd/mcp-orch/tools.ListRunsInput",
         "cmd/mcp-orch/tools.ListRunsOutput",
         "cmd/mcp-orch/tools.NewRegistry",
+        "cmd/mcp-orch/tools.NewRegistryWithAgentIDGenerator",
         "cmd/mcp-orch/tools.ObjectSchema",
         "cmd/mcp-orch/tools.PromptListOutput",
         "cmd/mcp-orch/tools.RawObjectSchema",
@@ -12143,6 +12203,7 @@
         "cmd/mcp-orch/tools.newSharedFileListResult",
         "cmd/mcp-orch/tools.newTTSRequest",
         "cmd/mcp-orch/tools.newToolRuntimeState",
+        "cmd/mcp-orch/tools.newToolRuntimeStateWithAgentIDGenerator",
         "cmd/mcp-orch/tools.newWorkflowDiagnosticsOutput",
         "cmd/mcp-orch/tools.newWorkspaceListRunsOutput",
         "cmd/mcp-orch/tools.nodeConfig",
@@ -13328,6 +13389,7 @@
         "internal/provider/claudecli.baseData",
         "internal/provider/claudecli.buildAttachmentText",
         "internal/provider/claudecli.buildCLIArgs",
+        "internal/provider/claudecli.buildDriver",
         "internal/provider/claudecli.buildEventData",
         "internal/provider/claudecli.buildStdioServer",
         "internal/provider/claudecli.buildSteerPayload",
@@ -13594,6 +13656,7 @@
         "internal/provider/claudecli.writeSystemPromptDump",
         "internal/provider/codexapp.*DriverFactory.SetBindTools",
         "internal/provider/codexapp.*DriverFactory.SetListTools",
+        "internal/provider/codexapp.*DriverFactory.SetLogRuntime",
         "internal/provider/codexapp.*DriverFactory.SetPrepareTools",
         "internal/provider/codexapp.*DriverFactory.SetReleaseTools",
         "internal/provider/codexapp.*DriverFactory.SetSkillMetrics",
@@ -13669,6 +13732,17 @@
         "internal/provider/codexapp.*SessionRuntime.tickHealth",
         "internal/provider/codexapp.*SessionRuntime.waitReader",
         "internal/provider/codexapp.*SessionRuntime.waitReaderDone",
+        "internal/provider/codexapp.*codexEventTranslator.handleUntranslatedEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateAdapterEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateEvent",
+        "internal/provider/codexapp.*codexInstaller.ensureCLIAvailable",
+        "internal/provider/codexapp.*codexInstaller.ensureManagedCodexCLI",
+        "internal/provider/codexapp.*codexInstaller.extractCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.extractCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installCodexAsset",
+        "internal/provider/codexapp.*codexInstaller.installCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.installCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installManagedCodexCLI",
         "internal/provider/codexapp.*driver.Name",
         "internal/provider/codexapp.*driver.ResolveResumeSessionIdentity",
         "internal/provider/codexapp.*driver.ResumeSession",
@@ -13915,6 +13989,7 @@
         "internal/provider/codexapp.*transport.connect",
         "internal/provider/codexapp.*transport.connectAttempt",
         "internal/provider/codexapp.*transport.connectOnce",
+        "internal/provider/codexapp.*transport.connectOnceWithReadLimit",
         "internal/provider/codexapp.*transport.currentProcess",
         "internal/provider/codexapp.*transport.currentWS",
         "internal/provider/codexapp.*transport.currentWSOrErr",
@@ -13966,7 +14041,6 @@
         "internal/provider/codexapp.CodexBootstrapConfig",
         "internal/provider/codexapp.DriverFactory",
         "internal/provider/codexapp.DriverFactoryParams",
-        "internal/provider/codexapp.EnsureCLIAvailable",
         "internal/provider/codexapp.EnsureCodexBootstrap",
         "internal/provider/codexapp.Message",
         "internal/provider/codexapp.NewDriverFactory",
@@ -14074,8 +14148,10 @@
         "internal/provider/codexapp.codexCapabilities",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
         "internal/provider/codexapp.codexEventRequiresTimestamp",
+        "internal/provider/codexapp.codexEventTranslator",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
+        "internal/provider/codexapp.codexExtractLimits",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
         "internal/provider/codexapp.codexFunctionCallOutputOutcome",
         "internal/provider/codexapp.codexGitHubAsset",
@@ -14083,6 +14159,7 @@
         "internal/provider/codexapp.codexHTTPClient",
         "internal/provider/codexapp.codexInstallState",
         "internal/provider/codexapp.codexInstallVersionParts",
+        "internal/provider/codexapp.codexInstaller",
         "internal/provider/codexapp.codexLocalMCPCommand",
         "internal/provider/codexapp.codexMCPToolElapsedMS",
         "internal/provider/codexapp.codexMCPToolErrorText",
@@ -14123,6 +14200,7 @@
         "internal/provider/codexapp.codexSandboxPolicyFromMode",
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
+        "internal/provider/codexapp.codexSpawnEnvAllowlist",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
@@ -14159,6 +14237,7 @@
         "internal/provider/codexapp.decodeTurnToolFailure",
         "internal/provider/codexapp.defaultCodexAppLogger",
         "internal/provider/codexapp.defaultCodexCLIHome",
+        "internal/provider/codexapp.defaultCodexExtractLimits",
         "internal/provider/codexapp.defaultCodexModelProviderForHome",
         "internal/provider/codexapp.defaultPeerNames",
         "internal/provider/codexapp.dependencyProfileFromFactoryParams",
@@ -14176,9 +14255,7 @@
         "internal/provider/codexapp.enrichSpawnError",
         "internal/provider/codexapp.enrichToolCallParams",
         "internal/provider/codexapp.enrichToolCallParamsStrict",
-        "internal/provider/codexapp.ensureCodexCLIAvailable",
         "internal/provider/codexapp.ensureCodexInstallLayout",
-        "internal/provider/codexapp.ensureManagedCodexCLI",
         "internal/provider/codexapp.ensurePeerSessionToken",
         "internal/provider/codexapp.ensureResolvedCodexProviderHome",
         "internal/provider/codexapp.eventTime",
@@ -14188,6 +14265,7 @@
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
         "internal/provider/codexapp.extractCodexWheel",
+        "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
         "internal/provider/codexapp.extractRolloutText",
@@ -14208,6 +14286,7 @@
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasCodexTimestampField",
+        "internal/provider/codexapp.hasCodexTokenUsage",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -14219,11 +14298,7 @@
         "internal/provider/codexapp.injectPeerBootstrapIdentity",
         "internal/provider/codexapp.injectToolCallMetadata",
         "internal/provider/codexapp.installCodexArchive",
-        "internal/provider/codexapp.installCodexAsset",
-        "internal/provider/codexapp.installCodexTarGz",
-        "internal/provider/codexapp.installCodexWheel",
         "internal/provider/codexapp.installCodexWrapper",
-        "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
         "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
@@ -14232,6 +14307,8 @@
         "internal/provider/codexapp.isApprovalBridgeMethod",
         "internal/provider/codexapp.isAssistantMessageCompletedMethod",
         "internal/provider/codexapp.isAssistantMessageItem",
+        "internal/provider/codexapp.isCodexAgentLaunchedEvent",
+        "internal/provider/codexapp.isCodexAgentStoppedEvent",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
@@ -14240,6 +14317,7 @@
         "internal/provider/codexapp.isExecutable",
         "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
+        "internal/provider/codexapp.isKnownNoisyCodexEvent",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
         "internal/provider/codexapp.isMessageStreamDeltaEvent",
@@ -14274,6 +14352,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnDelta",
         "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
@@ -14293,6 +14372,8 @@
         "internal/provider/codexapp.mustJSON",
         "internal/provider/codexapp.nestedToolCallString",
         "internal/provider/codexapp.nestedValue",
+        "internal/provider/codexapp.newCodexEventTranslator",
+        "internal/provider/codexapp.newCodexInstaller",
         "internal/provider/codexapp.newCodexModelResolver",
         "internal/provider/codexapp.newDreamExecutor",
         "internal/provider/codexapp.newDriver",
@@ -14408,6 +14489,7 @@
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
         "internal/provider/codexapp.recoverySnapshotTurnID",
+        "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
@@ -14442,6 +14524,8 @@
         "internal/provider/codexapp.rolloutMetadataItem",
         "internal/provider/codexapp.rolloutPayload",
         "internal/provider/codexapp.rolloutReader",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPair",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPairs",
         "internal/provider/codexapp.runPoolSpawn",
         "internal/provider/codexapp.runtimeHooksOrZero",
         "internal/provider/codexapp.runtimeReportDeferredStatus",
@@ -14518,6 +14602,7 @@
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnEventWithRuntimeHooks",
+        "internal/provider/codexapp.translateTurnEventWithRuntimeHooksAndSampler",
         "internal/provider/codexapp.translateTurnTerminalEvent",
         "internal/provider/codexapp.transport",
         "internal/provider/codexapp.transportCallError",
@@ -14571,11 +14656,13 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.waitSupervisorCompletion",
         "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
         "internal/provider/codexapp.withHealthInterval",
+        "internal/provider/codexapp.withLogRuntime",
         "internal/provider/codexapp.withPoolServer",
         "internal/provider/codexapp.withPoolSpawnLSPConfig",
         "internal/provider/codexapp.withPoolSpawnNativeToolPolicy",
@@ -16556,6 +16643,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
+        "cmd/mcp-orch/orchestration/nodeexec.WithAgentIDGenerator",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
@@ -16921,6 +17009,7 @@
         "cmd/mcp-orch/tools.ListRunsInput",
         "cmd/mcp-orch/tools.ListRunsOutput",
         "cmd/mcp-orch/tools.NewRegistry",
+        "cmd/mcp-orch/tools.NewRegistryWithAgentIDGenerator",
         "cmd/mcp-orch/tools.ObjectSchema",
         "cmd/mcp-orch/tools.PromptListOutput",
         "cmd/mcp-orch/tools.RawObjectSchema",
@@ -17167,6 +17256,7 @@
         "cmd/mcp-orch/tools.newSharedFileListResult",
         "cmd/mcp-orch/tools.newTTSRequest",
         "cmd/mcp-orch/tools.newToolRuntimeState",
+        "cmd/mcp-orch/tools.newToolRuntimeStateWithAgentIDGenerator",
         "cmd/mcp-orch/tools.newWorkflowDiagnosticsOutput",
         "cmd/mcp-orch/tools.newWorkspaceListRunsOutput",
         "cmd/mcp-orch/tools.nodeConfig",
@@ -18352,6 +18442,7 @@
         "internal/provider/claudecli.baseData",
         "internal/provider/claudecli.buildAttachmentText",
         "internal/provider/claudecli.buildCLIArgs",
+        "internal/provider/claudecli.buildDriver",
         "internal/provider/claudecli.buildEventData",
         "internal/provider/claudecli.buildStdioServer",
         "internal/provider/claudecli.buildSteerPayload",
@@ -18618,6 +18709,7 @@
         "internal/provider/claudecli.writeSystemPromptDump",
         "internal/provider/codexapp.*DriverFactory.SetBindTools",
         "internal/provider/codexapp.*DriverFactory.SetListTools",
+        "internal/provider/codexapp.*DriverFactory.SetLogRuntime",
         "internal/provider/codexapp.*DriverFactory.SetPrepareTools",
         "internal/provider/codexapp.*DriverFactory.SetReleaseTools",
         "internal/provider/codexapp.*DriverFactory.SetSkillMetrics",
@@ -18693,6 +18785,17 @@
         "internal/provider/codexapp.*SessionRuntime.tickHealth",
         "internal/provider/codexapp.*SessionRuntime.waitReader",
         "internal/provider/codexapp.*SessionRuntime.waitReaderDone",
+        "internal/provider/codexapp.*codexEventTranslator.handleUntranslatedEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateAdapterEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateEvent",
+        "internal/provider/codexapp.*codexInstaller.ensureCLIAvailable",
+        "internal/provider/codexapp.*codexInstaller.ensureManagedCodexCLI",
+        "internal/provider/codexapp.*codexInstaller.extractCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.extractCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installCodexAsset",
+        "internal/provider/codexapp.*codexInstaller.installCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.installCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installManagedCodexCLI",
         "internal/provider/codexapp.*driver.Name",
         "internal/provider/codexapp.*driver.ResolveResumeSessionIdentity",
         "internal/provider/codexapp.*driver.ResumeSession",
@@ -18939,6 +19042,7 @@
         "internal/provider/codexapp.*transport.connect",
         "internal/provider/codexapp.*transport.connectAttempt",
         "internal/provider/codexapp.*transport.connectOnce",
+        "internal/provider/codexapp.*transport.connectOnceWithReadLimit",
         "internal/provider/codexapp.*transport.currentProcess",
         "internal/provider/codexapp.*transport.currentWS",
         "internal/provider/codexapp.*transport.currentWSOrErr",
@@ -18990,7 +19094,6 @@
         "internal/provider/codexapp.CodexBootstrapConfig",
         "internal/provider/codexapp.DriverFactory",
         "internal/provider/codexapp.DriverFactoryParams",
-        "internal/provider/codexapp.EnsureCLIAvailable",
         "internal/provider/codexapp.EnsureCodexBootstrap",
         "internal/provider/codexapp.Message",
         "internal/provider/codexapp.NewDriverFactory",
@@ -19098,8 +19201,10 @@
         "internal/provider/codexapp.codexCapabilities",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
         "internal/provider/codexapp.codexEventRequiresTimestamp",
+        "internal/provider/codexapp.codexEventTranslator",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
+        "internal/provider/codexapp.codexExtractLimits",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
         "internal/provider/codexapp.codexFunctionCallOutputOutcome",
         "internal/provider/codexapp.codexGitHubAsset",
@@ -19107,6 +19212,7 @@
         "internal/provider/codexapp.codexHTTPClient",
         "internal/provider/codexapp.codexInstallState",
         "internal/provider/codexapp.codexInstallVersionParts",
+        "internal/provider/codexapp.codexInstaller",
         "internal/provider/codexapp.codexLocalMCPCommand",
         "internal/provider/codexapp.codexMCPToolElapsedMS",
         "internal/provider/codexapp.codexMCPToolErrorText",
@@ -19147,6 +19253,7 @@
         "internal/provider/codexapp.codexSandboxPolicyFromMode",
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
+        "internal/provider/codexapp.codexSpawnEnvAllowlist",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
@@ -19183,6 +19290,7 @@
         "internal/provider/codexapp.decodeTurnToolFailure",
         "internal/provider/codexapp.defaultCodexAppLogger",
         "internal/provider/codexapp.defaultCodexCLIHome",
+        "internal/provider/codexapp.defaultCodexExtractLimits",
         "internal/provider/codexapp.defaultCodexModelProviderForHome",
         "internal/provider/codexapp.defaultPeerNames",
         "internal/provider/codexapp.dependencyProfileFromFactoryParams",
@@ -19200,9 +19308,7 @@
         "internal/provider/codexapp.enrichSpawnError",
         "internal/provider/codexapp.enrichToolCallParams",
         "internal/provider/codexapp.enrichToolCallParamsStrict",
-        "internal/provider/codexapp.ensureCodexCLIAvailable",
         "internal/provider/codexapp.ensureCodexInstallLayout",
-        "internal/provider/codexapp.ensureManagedCodexCLI",
         "internal/provider/codexapp.ensurePeerSessionToken",
         "internal/provider/codexapp.ensureResolvedCodexProviderHome",
         "internal/provider/codexapp.eventTime",
@@ -19212,6 +19318,7 @@
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
         "internal/provider/codexapp.extractCodexWheel",
+        "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
         "internal/provider/codexapp.extractRolloutText",
@@ -19232,6 +19339,7 @@
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasCodexTimestampField",
+        "internal/provider/codexapp.hasCodexTokenUsage",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -19243,11 +19351,7 @@
         "internal/provider/codexapp.injectPeerBootstrapIdentity",
         "internal/provider/codexapp.injectToolCallMetadata",
         "internal/provider/codexapp.installCodexArchive",
-        "internal/provider/codexapp.installCodexAsset",
-        "internal/provider/codexapp.installCodexTarGz",
-        "internal/provider/codexapp.installCodexWheel",
         "internal/provider/codexapp.installCodexWrapper",
-        "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
         "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
@@ -19256,6 +19360,8 @@
         "internal/provider/codexapp.isApprovalBridgeMethod",
         "internal/provider/codexapp.isAssistantMessageCompletedMethod",
         "internal/provider/codexapp.isAssistantMessageItem",
+        "internal/provider/codexapp.isCodexAgentLaunchedEvent",
+        "internal/provider/codexapp.isCodexAgentStoppedEvent",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
@@ -19264,6 +19370,7 @@
         "internal/provider/codexapp.isExecutable",
         "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
+        "internal/provider/codexapp.isKnownNoisyCodexEvent",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
         "internal/provider/codexapp.isMessageStreamDeltaEvent",
@@ -19298,6 +19405,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnDelta",
         "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
@@ -19317,6 +19425,8 @@
         "internal/provider/codexapp.mustJSON",
         "internal/provider/codexapp.nestedToolCallString",
         "internal/provider/codexapp.nestedValue",
+        "internal/provider/codexapp.newCodexEventTranslator",
+        "internal/provider/codexapp.newCodexInstaller",
         "internal/provider/codexapp.newCodexModelResolver",
         "internal/provider/codexapp.newDreamExecutor",
         "internal/provider/codexapp.newDriver",
@@ -19432,6 +19542,7 @@
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
         "internal/provider/codexapp.recoverySnapshotTurnID",
+        "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
@@ -19466,6 +19577,8 @@
         "internal/provider/codexapp.rolloutMetadataItem",
         "internal/provider/codexapp.rolloutPayload",
         "internal/provider/codexapp.rolloutReader",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPair",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPairs",
         "internal/provider/codexapp.runPoolSpawn",
         "internal/provider/codexapp.runtimeHooksOrZero",
         "internal/provider/codexapp.runtimeReportDeferredStatus",
@@ -19542,6 +19655,7 @@
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnEventWithRuntimeHooks",
+        "internal/provider/codexapp.translateTurnEventWithRuntimeHooksAndSampler",
         "internal/provider/codexapp.translateTurnTerminalEvent",
         "internal/provider/codexapp.transport",
         "internal/provider/codexapp.transportCallError",
@@ -19595,11 +19709,13 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.waitSupervisorCompletion",
         "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
         "internal/provider/codexapp.withHealthInterval",
+        "internal/provider/codexapp.withLogRuntime",
         "internal/provider/codexapp.withPoolServer",
         "internal/provider/codexapp.withPoolSpawnLSPConfig",
         "internal/provider/codexapp.withPoolSpawnNativeToolPolicy",
@@ -21580,6 +21696,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
+        "cmd/mcp-orch/orchestration/nodeexec.WithAgentIDGenerator",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
@@ -21948,6 +22065,7 @@
         "cmd/mcp-orch/tools.ListRunsInput",
         "cmd/mcp-orch/tools.ListRunsOutput",
         "cmd/mcp-orch/tools.NewRegistry",
+        "cmd/mcp-orch/tools.NewRegistryWithAgentIDGenerator",
         "cmd/mcp-orch/tools.ObjectSchema",
         "cmd/mcp-orch/tools.PromptListOutput",
         "cmd/mcp-orch/tools.RawObjectSchema",
@@ -22194,6 +22312,7 @@
         "cmd/mcp-orch/tools.newSharedFileListResult",
         "cmd/mcp-orch/tools.newTTSRequest",
         "cmd/mcp-orch/tools.newToolRuntimeState",
+        "cmd/mcp-orch/tools.newToolRuntimeStateWithAgentIDGenerator",
         "cmd/mcp-orch/tools.newWorkflowDiagnosticsOutput",
         "cmd/mcp-orch/tools.newWorkspaceListRunsOutput",
         "cmd/mcp-orch/tools.nodeConfig",
@@ -23379,6 +23498,7 @@
         "internal/provider/claudecli.baseData",
         "internal/provider/claudecli.buildAttachmentText",
         "internal/provider/claudecli.buildCLIArgs",
+        "internal/provider/claudecli.buildDriver",
         "internal/provider/claudecli.buildEventData",
         "internal/provider/claudecli.buildStdioServer",
         "internal/provider/claudecli.buildSteerPayload",
@@ -23647,6 +23767,7 @@
         "internal/provider/claudecli.writeSystemPromptDump",
         "internal/provider/codexapp.*DriverFactory.SetBindTools",
         "internal/provider/codexapp.*DriverFactory.SetListTools",
+        "internal/provider/codexapp.*DriverFactory.SetLogRuntime",
         "internal/provider/codexapp.*DriverFactory.SetPrepareTools",
         "internal/provider/codexapp.*DriverFactory.SetReleaseTools",
         "internal/provider/codexapp.*DriverFactory.SetSkillMetrics",
@@ -23722,6 +23843,17 @@
         "internal/provider/codexapp.*SessionRuntime.tickHealth",
         "internal/provider/codexapp.*SessionRuntime.waitReader",
         "internal/provider/codexapp.*SessionRuntime.waitReaderDone",
+        "internal/provider/codexapp.*codexEventTranslator.handleUntranslatedEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateAdapterEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateEvent",
+        "internal/provider/codexapp.*codexInstaller.ensureCLIAvailable",
+        "internal/provider/codexapp.*codexInstaller.ensureManagedCodexCLI",
+        "internal/provider/codexapp.*codexInstaller.extractCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.extractCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installCodexAsset",
+        "internal/provider/codexapp.*codexInstaller.installCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.installCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installManagedCodexCLI",
         "internal/provider/codexapp.*driver.Name",
         "internal/provider/codexapp.*driver.ResolveResumeSessionIdentity",
         "internal/provider/codexapp.*driver.ResumeSession",
@@ -23968,6 +24100,7 @@
         "internal/provider/codexapp.*transport.connect",
         "internal/provider/codexapp.*transport.connectAttempt",
         "internal/provider/codexapp.*transport.connectOnce",
+        "internal/provider/codexapp.*transport.connectOnceWithReadLimit",
         "internal/provider/codexapp.*transport.currentProcess",
         "internal/provider/codexapp.*transport.currentWS",
         "internal/provider/codexapp.*transport.currentWSOrErr",
@@ -24019,7 +24152,6 @@
         "internal/provider/codexapp.CodexBootstrapConfig",
         "internal/provider/codexapp.DriverFactory",
         "internal/provider/codexapp.DriverFactoryParams",
-        "internal/provider/codexapp.EnsureCLIAvailable",
         "internal/provider/codexapp.EnsureCodexBootstrap",
         "internal/provider/codexapp.Message",
         "internal/provider/codexapp.NewDriverFactory",
@@ -24127,8 +24259,10 @@
         "internal/provider/codexapp.codexCapabilities",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
         "internal/provider/codexapp.codexEventRequiresTimestamp",
+        "internal/provider/codexapp.codexEventTranslator",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
+        "internal/provider/codexapp.codexExtractLimits",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
         "internal/provider/codexapp.codexFunctionCallOutputOutcome",
         "internal/provider/codexapp.codexGitHubAsset",
@@ -24136,6 +24270,7 @@
         "internal/provider/codexapp.codexHTTPClient",
         "internal/provider/codexapp.codexInstallState",
         "internal/provider/codexapp.codexInstallVersionParts",
+        "internal/provider/codexapp.codexInstaller",
         "internal/provider/codexapp.codexLocalMCPCommand",
         "internal/provider/codexapp.codexMCPToolElapsedMS",
         "internal/provider/codexapp.codexMCPToolErrorText",
@@ -24176,6 +24311,7 @@
         "internal/provider/codexapp.codexSandboxPolicyFromMode",
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
+        "internal/provider/codexapp.codexSpawnEnvAllowlist",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
@@ -24213,6 +24349,7 @@
         "internal/provider/codexapp.decodeTurnToolFailure",
         "internal/provider/codexapp.defaultCodexAppLogger",
         "internal/provider/codexapp.defaultCodexCLIHome",
+        "internal/provider/codexapp.defaultCodexExtractLimits",
         "internal/provider/codexapp.defaultCodexModelProviderForHome",
         "internal/provider/codexapp.defaultPeerNames",
         "internal/provider/codexapp.dependencyProfileFromFactoryParams",
@@ -24230,9 +24367,7 @@
         "internal/provider/codexapp.enrichSpawnError",
         "internal/provider/codexapp.enrichToolCallParams",
         "internal/provider/codexapp.enrichToolCallParamsStrict",
-        "internal/provider/codexapp.ensureCodexCLIAvailable",
         "internal/provider/codexapp.ensureCodexInstallLayout",
-        "internal/provider/codexapp.ensureManagedCodexCLI",
         "internal/provider/codexapp.ensurePeerSessionToken",
         "internal/provider/codexapp.ensureResolvedCodexProviderHome",
         "internal/provider/codexapp.eventTime",
@@ -24242,6 +24377,7 @@
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
         "internal/provider/codexapp.extractCodexWheel",
+        "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
         "internal/provider/codexapp.extractRolloutText",
@@ -24262,6 +24398,7 @@
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasCodexTimestampField",
+        "internal/provider/codexapp.hasCodexTokenUsage",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -24273,11 +24410,7 @@
         "internal/provider/codexapp.injectPeerBootstrapIdentity",
         "internal/provider/codexapp.injectToolCallMetadata",
         "internal/provider/codexapp.installCodexArchive",
-        "internal/provider/codexapp.installCodexAsset",
-        "internal/provider/codexapp.installCodexTarGz",
-        "internal/provider/codexapp.installCodexWheel",
         "internal/provider/codexapp.installCodexWrapper",
-        "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
         "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
@@ -24285,6 +24418,8 @@
         "internal/provider/codexapp.isApprovalBridgeMethod",
         "internal/provider/codexapp.isAssistantMessageCompletedMethod",
         "internal/provider/codexapp.isAssistantMessageItem",
+        "internal/provider/codexapp.isCodexAgentLaunchedEvent",
+        "internal/provider/codexapp.isCodexAgentStoppedEvent",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
@@ -24293,6 +24428,7 @@
         "internal/provider/codexapp.isExecutable",
         "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
+        "internal/provider/codexapp.isKnownNoisyCodexEvent",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
         "internal/provider/codexapp.isMessageStreamDeltaEvent",
@@ -24329,6 +24465,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnDelta",
         "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
@@ -24349,6 +24486,8 @@
         "internal/provider/codexapp.mustJSON",
         "internal/provider/codexapp.nestedToolCallString",
         "internal/provider/codexapp.nestedValue",
+        "internal/provider/codexapp.newCodexEventTranslator",
+        "internal/provider/codexapp.newCodexInstaller",
         "internal/provider/codexapp.newCodexModelResolver",
         "internal/provider/codexapp.newDreamExecutor",
         "internal/provider/codexapp.newDriver",
@@ -24464,6 +24603,7 @@
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
         "internal/provider/codexapp.recoverySnapshotTurnID",
+        "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
@@ -24499,6 +24639,8 @@
         "internal/provider/codexapp.rolloutMetadataItem",
         "internal/provider/codexapp.rolloutPayload",
         "internal/provider/codexapp.rolloutReader",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPair",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPairs",
         "internal/provider/codexapp.runPoolSpawn",
         "internal/provider/codexapp.runtimeHooksOrZero",
         "internal/provider/codexapp.runtimeReportDeferredStatus",
@@ -24573,6 +24715,7 @@
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnEventWithRuntimeHooks",
+        "internal/provider/codexapp.translateTurnEventWithRuntimeHooksAndSampler",
         "internal/provider/codexapp.translateTurnTerminalEvent",
         "internal/provider/codexapp.transport",
         "internal/provider/codexapp.transportCallError",
@@ -24627,11 +24770,13 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.waitSupervisorCompletion",
         "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
         "internal/provider/codexapp.withHealthInterval",
+        "internal/provider/codexapp.withLogRuntime",
         "internal/provider/codexapp.withPoolServer",
         "internal/provider/codexapp.withPoolSpawnLSPConfig",
         "internal/provider/codexapp.withPoolSpawnNativeToolPolicy",
@@ -26612,6 +26757,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
+        "cmd/mcp-orch/orchestration/nodeexec.WithAgentIDGenerator",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
@@ -26980,6 +27126,7 @@
         "cmd/mcp-orch/tools.ListRunsInput",
         "cmd/mcp-orch/tools.ListRunsOutput",
         "cmd/mcp-orch/tools.NewRegistry",
+        "cmd/mcp-orch/tools.NewRegistryWithAgentIDGenerator",
         "cmd/mcp-orch/tools.ObjectSchema",
         "cmd/mcp-orch/tools.PromptListOutput",
         "cmd/mcp-orch/tools.RawObjectSchema",
@@ -27226,6 +27373,7 @@
         "cmd/mcp-orch/tools.newSharedFileListResult",
         "cmd/mcp-orch/tools.newTTSRequest",
         "cmd/mcp-orch/tools.newToolRuntimeState",
+        "cmd/mcp-orch/tools.newToolRuntimeStateWithAgentIDGenerator",
         "cmd/mcp-orch/tools.newWorkflowDiagnosticsOutput",
         "cmd/mcp-orch/tools.newWorkspaceListRunsOutput",
         "cmd/mcp-orch/tools.nodeConfig",
@@ -28411,6 +28559,7 @@
         "internal/provider/claudecli.baseData",
         "internal/provider/claudecli.buildAttachmentText",
         "internal/provider/claudecli.buildCLIArgs",
+        "internal/provider/claudecli.buildDriver",
         "internal/provider/claudecli.buildEventData",
         "internal/provider/claudecli.buildStdioServer",
         "internal/provider/claudecli.buildSteerPayload",
@@ -28679,6 +28828,7 @@
         "internal/provider/claudecli.writeSystemPromptDump",
         "internal/provider/codexapp.*DriverFactory.SetBindTools",
         "internal/provider/codexapp.*DriverFactory.SetListTools",
+        "internal/provider/codexapp.*DriverFactory.SetLogRuntime",
         "internal/provider/codexapp.*DriverFactory.SetPrepareTools",
         "internal/provider/codexapp.*DriverFactory.SetReleaseTools",
         "internal/provider/codexapp.*DriverFactory.SetSkillMetrics",
@@ -28754,6 +28904,17 @@
         "internal/provider/codexapp.*SessionRuntime.tickHealth",
         "internal/provider/codexapp.*SessionRuntime.waitReader",
         "internal/provider/codexapp.*SessionRuntime.waitReaderDone",
+        "internal/provider/codexapp.*codexEventTranslator.handleUntranslatedEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateAdapterEvent",
+        "internal/provider/codexapp.*codexEventTranslator.translateEvent",
+        "internal/provider/codexapp.*codexInstaller.ensureCLIAvailable",
+        "internal/provider/codexapp.*codexInstaller.ensureManagedCodexCLI",
+        "internal/provider/codexapp.*codexInstaller.extractCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.extractCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installCodexAsset",
+        "internal/provider/codexapp.*codexInstaller.installCodexTarGz",
+        "internal/provider/codexapp.*codexInstaller.installCodexWheel",
+        "internal/provider/codexapp.*codexInstaller.installManagedCodexCLI",
         "internal/provider/codexapp.*driver.Name",
         "internal/provider/codexapp.*driver.ResolveResumeSessionIdentity",
         "internal/provider/codexapp.*driver.ResumeSession",
@@ -29000,6 +29161,7 @@
         "internal/provider/codexapp.*transport.connect",
         "internal/provider/codexapp.*transport.connectAttempt",
         "internal/provider/codexapp.*transport.connectOnce",
+        "internal/provider/codexapp.*transport.connectOnceWithReadLimit",
         "internal/provider/codexapp.*transport.currentProcess",
         "internal/provider/codexapp.*transport.currentWS",
         "internal/provider/codexapp.*transport.currentWSOrErr",
@@ -29051,7 +29213,6 @@
         "internal/provider/codexapp.CodexBootstrapConfig",
         "internal/provider/codexapp.DriverFactory",
         "internal/provider/codexapp.DriverFactoryParams",
-        "internal/provider/codexapp.EnsureCLIAvailable",
         "internal/provider/codexapp.EnsureCodexBootstrap",
         "internal/provider/codexapp.Message",
         "internal/provider/codexapp.NewDriverFactory",
@@ -29159,8 +29320,10 @@
         "internal/provider/codexapp.codexCapabilities",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
         "internal/provider/codexapp.codexEventRequiresTimestamp",
+        "internal/provider/codexapp.codexEventTranslator",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
+        "internal/provider/codexapp.codexExtractLimits",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
         "internal/provider/codexapp.codexFunctionCallOutputOutcome",
         "internal/provider/codexapp.codexGitHubAsset",
@@ -29168,6 +29331,7 @@
         "internal/provider/codexapp.codexHTTPClient",
         "internal/provider/codexapp.codexInstallState",
         "internal/provider/codexapp.codexInstallVersionParts",
+        "internal/provider/codexapp.codexInstaller",
         "internal/provider/codexapp.codexLocalMCPCommand",
         "internal/provider/codexapp.codexMCPToolElapsedMS",
         "internal/provider/codexapp.codexMCPToolErrorText",
@@ -29208,6 +29372,7 @@
         "internal/provider/codexapp.codexSandboxPolicyFromMode",
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
+        "internal/provider/codexapp.codexSpawnEnvAllowlist",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
@@ -29245,6 +29410,7 @@
         "internal/provider/codexapp.decodeTurnToolFailure",
         "internal/provider/codexapp.defaultCodexAppLogger",
         "internal/provider/codexapp.defaultCodexCLIHome",
+        "internal/provider/codexapp.defaultCodexExtractLimits",
         "internal/provider/codexapp.defaultCodexModelProviderForHome",
         "internal/provider/codexapp.defaultPeerNames",
         "internal/provider/codexapp.dependencyProfileFromFactoryParams",
@@ -29262,9 +29428,7 @@
         "internal/provider/codexapp.enrichSpawnError",
         "internal/provider/codexapp.enrichToolCallParams",
         "internal/provider/codexapp.enrichToolCallParamsStrict",
-        "internal/provider/codexapp.ensureCodexCLIAvailable",
         "internal/provider/codexapp.ensureCodexInstallLayout",
-        "internal/provider/codexapp.ensureManagedCodexCLI",
         "internal/provider/codexapp.ensurePeerSessionToken",
         "internal/provider/codexapp.ensureResolvedCodexProviderHome",
         "internal/provider/codexapp.eventTime",
@@ -29274,6 +29438,7 @@
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
         "internal/provider/codexapp.extractCodexWheel",
+        "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
         "internal/provider/codexapp.extractRolloutText",
@@ -29294,6 +29459,7 @@
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasCodexTimestampField",
+        "internal/provider/codexapp.hasCodexTokenUsage",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -29305,11 +29471,7 @@
         "internal/provider/codexapp.injectPeerBootstrapIdentity",
         "internal/provider/codexapp.injectToolCallMetadata",
         "internal/provider/codexapp.installCodexArchive",
-        "internal/provider/codexapp.installCodexAsset",
-        "internal/provider/codexapp.installCodexTarGz",
-        "internal/provider/codexapp.installCodexWheel",
         "internal/provider/codexapp.installCodexWrapper",
-        "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
         "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
@@ -29317,6 +29479,8 @@
         "internal/provider/codexapp.isApprovalBridgeMethod",
         "internal/provider/codexapp.isAssistantMessageCompletedMethod",
         "internal/provider/codexapp.isAssistantMessageItem",
+        "internal/provider/codexapp.isCodexAgentLaunchedEvent",
+        "internal/provider/codexapp.isCodexAgentStoppedEvent",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
@@ -29325,6 +29489,7 @@
         "internal/provider/codexapp.isExecutable",
         "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
+        "internal/provider/codexapp.isKnownNoisyCodexEvent",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
         "internal/provider/codexapp.isMessageStreamDeltaEvent",
@@ -29361,6 +29526,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnDelta",
         "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
@@ -29381,6 +29547,8 @@
         "internal/provider/codexapp.mustJSON",
         "internal/provider/codexapp.nestedToolCallString",
         "internal/provider/codexapp.nestedValue",
+        "internal/provider/codexapp.newCodexEventTranslator",
+        "internal/provider/codexapp.newCodexInstaller",
         "internal/provider/codexapp.newCodexModelResolver",
         "internal/provider/codexapp.newDreamExecutor",
         "internal/provider/codexapp.newDriver",
@@ -29496,6 +29664,7 @@
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
         "internal/provider/codexapp.recoverySnapshotTurnID",
+        "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
@@ -29531,6 +29700,8 @@
         "internal/provider/codexapp.rolloutMetadataItem",
         "internal/provider/codexapp.rolloutPayload",
         "internal/provider/codexapp.rolloutReader",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPair",
+        "internal/provider/codexapp.rolloutSystemNoiseTagPairs",
         "internal/provider/codexapp.runPoolSpawn",
         "internal/provider/codexapp.runtimeHooksOrZero",
         "internal/provider/codexapp.runtimeReportDeferredStatus",
@@ -29605,6 +29776,7 @@
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnEventWithRuntimeHooks",
+        "internal/provider/codexapp.translateTurnEventWithRuntimeHooksAndSampler",
         "internal/provider/codexapp.translateTurnTerminalEvent",
         "internal/provider/codexapp.transport",
         "internal/provider/codexapp.transportCallError",
@@ -29659,11 +29831,13 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.waitSupervisorCompletion",
         "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
         "internal/provider/codexapp.withHealthInterval",
+        "internal/provider/codexapp.withLogRuntime",
         "internal/provider/codexapp.withPoolServer",
         "internal/provider/codexapp.withPoolSpawnLSPConfig",
         "internal/provider/codexapp.withPoolSpawnNativeToolPolicy",
@@ -30179,13 +30353,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2480,
-    "total_methods": 1288,
+    "total_functions": 2492,
+    "total_methods": 1301,
     "total_interfaces": 192,
     "total_interface_methods": 381,
-    "total_exported": 1332,
-    "total_unexported": 3266,
-    "total_structs": 638
+    "total_exported": 1334,
+    "total_unexported": 3293,
+    "total_structs": 642
   },
   "packages": [
     {
@@ -30424,6 +30598,10 @@
             {
               "name": "hooks",
               "type": "NodeLifecycleHooks"
+            },
+            {
+              "name": "generator",
+              "type": "*idgen.Generator"
             }
           ],
           "returns": [
@@ -51024,6 +51202,19 @@
           ]
         },
         {
+          "name": "WithAgentIDGenerator",
+          "exported": true,
+          "params": [
+            {
+              "name": "generator",
+              "type": "*idgen.Generator"
+            }
+          ],
+          "returns": [
+            "Option"
+          ]
+        },
+        {
           "name": "WithAutomationHooks",
           "exported": true,
           "params": [
@@ -51708,6 +51899,10 @@
           "name": "buildLaunchRequestFromAgentConfig",
           "exported": false,
           "params": [
+            {
+              "name": "generator",
+              "type": "*idgen.Generator"
+            },
             {
               "name": "cfg",
               "type": "*AgentNodeConfig"
@@ -57276,6 +57471,23 @@
           ]
         },
         {
+          "name": "NewRegistryWithAgentIDGenerator",
+          "exported": true,
+          "params": [
+            {
+              "name": "deps",
+              "type": "Dependencies"
+            },
+            {
+              "name": "generator",
+              "type": "*idgen.Generator"
+            }
+          ],
+          "returns": [
+            "Registry"
+          ]
+        },
+        {
           "name": "NewRegistry",
           "exported": true,
           "params": [
@@ -60544,6 +60756,19 @@
           "returns": [
             "*http.Request",
             "error"
+          ]
+        },
+        {
+          "name": "newToolRuntimeStateWithAgentIDGenerator",
+          "exported": false,
+          "params": [
+            {
+              "name": "generator",
+              "type": "*idgen.Generator"
+            }
+          ],
+          "returns": [
+            "*toolRuntimeState"
           ]
         },
         {
@@ -73070,6 +73295,55 @@
           ]
         },
         {
+          "name": "buildDriver",
+          "exported": false,
+          "params": [
+            {
+              "name": "logger",
+              "type": "*slog.Logger"
+            },
+            {
+              "name": "eventDispatcher",
+              "type": "*unified.EventDispatcher"
+            },
+            {
+              "name": "reporter",
+              "type": "contract.RuntimeReporter"
+            },
+            {
+              "name": "reg",
+              "type": "*pidregistry.Registry"
+            },
+            {
+              "name": "proxyAddrFn",
+              "type": "func() string"
+            },
+            {
+              "name": "proxyTokenFn",
+              "type": "func() string"
+            },
+            {
+              "name": "mirror",
+              "type": "contract.SkillMirrorReconciler"
+            },
+            {
+              "name": "recovery",
+              "type": "contract.SessionRecoveryReporter"
+            },
+            {
+              "name": "metrics",
+              "type": "*skillmetrics.Registry"
+            },
+            {
+              "name": "tracers",
+              "type": "...*observability.Service"
+            }
+          ],
+          "returns": [
+            "contract.Driver"
+          ]
+        },
+        {
           "name": "buildEventData",
           "exported": false,
           "params": [
@@ -74785,7 +75059,8 @@
             }
           ],
           "returns": [
-            "contract.Driver"
+            "contract.Driver",
+            "error"
           ]
         },
         {
@@ -79158,19 +79433,6 @@
           ]
         },
         {
-          "name": "EnsureCLIAvailable",
-          "exported": true,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
           "name": "EnsureCodexBootstrap",
           "exported": true,
           "params": [
@@ -79229,7 +79491,8 @@
             }
           ],
           "returns": [
-            "*DriverFactory"
+            "*DriverFactory",
+            "error"
           ]
         },
         {
@@ -79284,7 +79547,8 @@
             }
           ],
           "returns": [
-            "*ServerManager"
+            "*ServerManager",
+            "error"
           ]
         },
         {
@@ -79319,10 +79583,15 @@
             {
               "name": "logger",
               "type": "*slog.Logger"
+            },
+            {
+              "name": "installer",
+              "type": "*codexInstaller"
             }
           ],
           "returns": [
-            "Spawner"
+            "Spawner",
+            "error"
           ]
         },
         {
@@ -79337,6 +79606,9 @@
               "name": "configuredHooks",
               "type": "...providershared.RuntimeHooks"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -79504,6 +79776,10 @@
             },
             {
               "name": "written",
+              "type": "int64"
+            },
+            {
+              "name": "maxTotalBytes",
               "type": "int64"
             }
           ],
@@ -80875,6 +81151,13 @@
           ]
         },
         {
+          "name": "codexSpawnEnvAllowlist",
+          "exported": false,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "codexSupportedPlatformValue",
           "exported": false,
           "params": [
@@ -81378,6 +81661,13 @@
           ]
         },
         {
+          "name": "defaultCodexExtractLimits",
+          "exported": false,
+          "returns": [
+            "codexExtractLimits"
+          ]
+        },
+        {
           "name": "defaultCodexModelProviderForHome",
           "exported": false,
           "params": [
@@ -81579,38 +81869,12 @@
           ]
         },
         {
-          "name": "ensureCodexCLIAvailable",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
           "name": "ensureCodexInstallLayout",
           "exported": false,
           "params": [
             {
               "name": "targetDir",
               "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "name": "ensureManagedCodexCLI",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
             }
           ],
           "returns": [
@@ -81716,6 +81980,27 @@
           ]
         },
         {
+          "name": "extractCodexWheelWithLimits",
+          "exported": false,
+          "params": [
+            {
+              "name": "wheelPath",
+              "type": "string"
+            },
+            {
+              "name": "targetDir",
+              "type": "string"
+            },
+            {
+              "name": "limits",
+              "type": "codexExtractLimits"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "extractCodexWheel",
           "exported": false,
           "params": [
@@ -81747,6 +82032,10 @@
             {
               "name": "total",
               "type": "*int64"
+            },
+            {
+              "name": "limits",
+              "type": "codexExtractLimits"
             }
           ],
           "returns": [
@@ -82016,6 +82305,19 @@
           ]
         },
         {
+          "name": "hasCodexTokenUsage",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "hasMethod",
           "exported": false,
           "params": [
@@ -82187,93 +82489,6 @@
           ]
         },
         {
-          "name": "installCodexAsset",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "asset",
-              "type": "codexGitHubAsset"
-            },
-            {
-              "name": "checksum",
-              "type": "string"
-            },
-            {
-              "name": "workDir",
-              "type": "string"
-            },
-            {
-              "name": "target",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "name": "installCodexTarGz",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "downloadURL",
-              "type": "string"
-            },
-            {
-              "name": "checksum",
-              "type": "string"
-            },
-            {
-              "name": "workDir",
-              "type": "string"
-            },
-            {
-              "name": "target",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "name": "installCodexWheel",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "downloadURL",
-              "type": "string"
-            },
-            {
-              "name": "checksum",
-              "type": "string"
-            },
-            {
-              "name": "workDir",
-              "type": "string"
-            },
-            {
-              "name": "target",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
           "name": "installCodexWrapper",
           "exported": false,
           "params": [
@@ -82287,28 +82502,6 @@
             }
           ],
           "returns": [
-            "error"
-          ]
-        },
-        {
-          "name": "installManagedCodexCLI",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "root",
-              "type": "string"
-            },
-            {
-              "name": "checksum",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string",
             "error"
           ]
         },
@@ -82397,6 +82590,32 @@
             {
               "name": "item",
               "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isCodexAgentLaunchedEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isCodexAgentStoppedEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
             }
           ],
           "returns": [
@@ -82500,6 +82719,19 @@
           "params": [
             {
               "name": "state",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isKnownNoisyCodexEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
               "type": "string"
             }
           ],
@@ -82635,6 +82867,10 @@
             {
               "name": "payload",
               "type": "map[string]any"
+            },
+            {
+              "name": "retryProgressPattern",
+              "type": "*regexp.Regexp"
             }
           ],
           "returns": [
@@ -82910,6 +83146,28 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "logCodexTurnDelta",
+          "exported": false,
+          "params": [
+            {
+              "name": "sampler",
+              "type": "*pkglogger.Sampler"
+            },
+            {
+              "name": "stream",
+              "type": "string"
+            },
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
           ]
         },
         {
@@ -83210,6 +83468,26 @@
           ]
         },
         {
+          "name": "newCodexEventTranslator",
+          "exported": false,
+          "params": [
+            {
+              "name": "hooks",
+              "type": "providershared.RuntimeHooks"
+            }
+          ],
+          "returns": [
+            "*codexEventTranslator"
+          ]
+        },
+        {
+          "name": "newCodexInstaller",
+          "exported": false,
+          "returns": [
+            "*codexInstaller"
+          ]
+        },
+        {
           "name": "newCodexModelResolver",
           "exported": false,
           "params": [
@@ -83247,6 +83525,10 @@
           "name": "newDriver",
           "exported": false,
           "params": [
+            {
+              "name": "logRuntime",
+              "type": "*pkglogger.Runtime"
+            },
             {
               "name": "logger",
               "type": "*slog.Logger"
@@ -83480,8 +83762,8 @@
               "type": "context.Context"
             },
             {
-              "name": "logger",
-              "type": "*slog.Logger"
+              "name": "logRuntime",
+              "type": "*pkglogger.Runtime"
             },
             {
               "name": "serverURL",
@@ -84488,7 +84770,8 @@
             }
           ],
           "returns": [
-            "*ServerPool"
+            "*ServerPool",
+            "error"
           ]
         },
         {
@@ -84697,6 +84980,31 @@
           ]
         },
         {
+          "name": "registerPoolProcess",
+          "exported": false,
+          "params": [
+            {
+              "name": "t",
+              "type": "*transport"
+            },
+            {
+              "name": "registry",
+              "type": "*pidregistry.Registry"
+            },
+            {
+              "name": "home",
+              "type": "string"
+            },
+            {
+              "name": "workDir",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "registerTranslatorsWithRuntimeHooks",
           "exported": false,
           "params": [
@@ -84708,6 +85016,9 @@
               "name": "hooks",
               "type": "providershared.RuntimeHooks"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -85124,6 +85435,13 @@
           ]
         },
         {
+          "name": "rolloutSystemNoiseTagPairs",
+          "exported": false,
+          "returns": [
+            "[]rolloutSystemNoiseTagPair"
+          ]
+        },
+        {
           "name": "runPoolSpawn",
           "exported": false,
           "params": [
@@ -85146,6 +85464,10 @@
             {
               "name": "logger",
               "type": "*slog.Logger"
+            },
+            {
+              "name": "installer",
+              "type": "*codexInstaller"
             }
           ],
           "returns": [
@@ -85163,7 +85485,8 @@
             }
           ],
           "returns": [
-            "providershared.RuntimeHooks"
+            "providershared.RuntimeHooks",
+            "error"
           ]
         },
         {
@@ -85463,6 +85786,10 @@
             {
               "name": "payload",
               "type": "map[string]any"
+            },
+            {
+              "name": "retryProgressPattern",
+              "type": "*regexp.Regexp"
             }
           ],
           "returns": [
@@ -86016,6 +86343,9 @@
               "name": "configuredHooks",
               "type": "...providershared.RuntimeHooks"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -86034,6 +86364,9 @@
               "name": "configuredHooks",
               "type": "...providershared.RuntimeHooks"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -86143,8 +86476,38 @@
               "type": "map[string]any"
             },
             {
-              "name": "configuredHooks",
-              "type": "...providershared.RuntimeHooks"
+              "name": "hooks",
+              "type": "providershared.RuntimeHooks"
+            }
+          ],
+          "returns": [
+            "any",
+            "bool"
+          ]
+        },
+        {
+          "name": "translateTurnEventWithRuntimeHooksAndSampler",
+          "exported": false,
+          "params": [
+            {
+              "name": "hooks",
+              "type": "providershared.RuntimeHooks"
+            },
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "sampler",
+              "type": "*pkglogger.Sampler"
+            },
+            {
+              "name": "terminals",
+              "type": "...*dto.TerminalOutcome"
             }
           ],
           "returns": [
@@ -86825,6 +87188,24 @@
           ]
         },
         {
+          "name": "waitSupervisorCompletion",
+          "exported": false,
+          "params": [
+            {
+              "name": "completed",
+              "type": "\u003c-chan time.Time"
+            },
+            {
+              "name": "deadline",
+              "type": "time.Time"
+            }
+          ],
+          "returns": [
+            "time.Time",
+            "bool"
+          ]
+        },
+        {
           "name": "withApprovalScopeReader",
           "exported": false,
           "params": [
@@ -86896,6 +87277,19 @@
           ],
           "returns": [
             "sessionRuntimeOption"
+          ]
+        },
+        {
+          "name": "withLogRuntime",
+          "exported": false,
+          "params": [
+            {
+              "name": "runtime",
+              "type": "*pkglogger.Runtime"
+            }
+          ],
+          "returns": [
+            "sessionOption"
           ]
         },
         {
@@ -87149,6 +87543,10 @@
             {
               "name": "target",
               "type": "string"
+            },
+            {
+              "name": "maxFileBytes",
+              "type": "int64"
             }
           ],
           "returns": [
@@ -87206,6 +87604,17 @@
             {
               "name": "fn",
               "type": "func(context.Context) ([]codexprotocol.DynamicToolSchema, error)"
+            }
+          ]
+        },
+        {
+          "receiver": "*DriverFactory",
+          "name": "SetLogRuntime",
+          "exported": true,
+          "params": [
+            {
+              "name": "runtime",
+              "type": "*pkglogger.Runtime"
             }
           ]
         },
@@ -87629,8 +88038,8 @@
               "type": "*sync.WaitGroup"
             },
             {
-              "name": "done",
-              "type": "chan\u003c- struct{}"
+              "name": "completed",
+              "type": "chan\u003c- time.Time"
             }
           ]
         },
@@ -88115,6 +88524,232 @@
             }
           ],
           "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexEventTranslator",
+          "name": "handleUntranslatedEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ]
+        },
+        {
+          "receiver": "*codexEventTranslator",
+          "name": "translateAdapterEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "publish",
+              "type": "func(ev any)"
+            }
+          ]
+        },
+        {
+          "receiver": "*codexEventTranslator",
+          "name": "translateEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "publish",
+              "type": "func(ev any)"
+            }
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "ensureCLIAvailable",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "ensureManagedCodexCLI",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "extractCodexTarGz",
+          "exported": false,
+          "params": [
+            {
+              "name": "archivePath",
+              "type": "string"
+            },
+            {
+              "name": "targetDir",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "extractCodexWheel",
+          "exported": false,
+          "params": [
+            {
+              "name": "wheelPath",
+              "type": "string"
+            },
+            {
+              "name": "targetDir",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "installCodexAsset",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "asset",
+              "type": "codexGitHubAsset"
+            },
+            {
+              "name": "checksum",
+              "type": "string"
+            },
+            {
+              "name": "workDir",
+              "type": "string"
+            },
+            {
+              "name": "target",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "installCodexTarGz",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "downloadURL",
+              "type": "string"
+            },
+            {
+              "name": "checksum",
+              "type": "string"
+            },
+            {
+              "name": "workDir",
+              "type": "string"
+            },
+            {
+              "name": "target",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "installCodexWheel",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "downloadURL",
+              "type": "string"
+            },
+            {
+              "name": "checksum",
+              "type": "string"
+            },
+            {
+              "name": "workDir",
+              "type": "string"
+            },
+            {
+              "name": "target",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*codexInstaller",
+          "name": "installManagedCodexCLI",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "root",
+              "type": "string"
+            },
+            {
+              "name": "checksum",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
             "error"
           ]
         },
@@ -91989,6 +92624,24 @@
         },
         {
           "receiver": "*transport",
+          "name": "connectOnceWithReadLimit",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "readLimit",
+              "type": "int64"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*transport",
           "name": "connectOnce",
           "exported": false,
           "params": [
@@ -93007,6 +93660,14 @@
           "exported": false
         },
         {
+          "name": "codexEventTranslator",
+          "exported": false
+        },
+        {
+          "name": "codexExtractLimits",
+          "exported": false
+        },
+        {
           "name": "codexGitHubAsset",
           "exported": false
         },
@@ -93016,6 +93677,10 @@
         },
         {
           "name": "codexInstallState",
+          "exported": false
+        },
+        {
+          "name": "codexInstaller",
           "exported": false
         },
         {
@@ -93192,6 +93857,10 @@
         },
         {
           "name": "rolloutReader",
+          "exported": false
+        },
+        {
+          "name": "rolloutSystemNoiseTagPair",
           "exported": false
         },
         {

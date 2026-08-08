@@ -25,11 +25,14 @@ type ExecutorStep struct {
 }
 
 const (
-	executorNormalGoFlagsResourceBound    = "GOFLAGS=-p=4"
-	executorNormalGoMaxProcsResourceBound = "GOMAXPROCS=4"
-	executorRaceGoFlagsResourceBound      = "GOFLAGS=-p=4"
-	executorRaceGoMaxProcsResourceBound   = "GOMAXPROCS=4"
-	executorGoMemoryLimitResourceBound    = "GOMEMLIMIT=6GiB"
+	executorNormalGoFlagsResourceBound        = "GOFLAGS=-p=4"
+	executorNormalGoMaxProcsResourceBound     = "GOMAXPROCS=4"
+	executorRaceGoFlagsResourceBound          = "GOFLAGS=-p=4"
+	executorRaceGoMaxProcsResourceBound       = "GOMAXPROCS=4"
+	executorGoMemoryLimitResourceBound        = "GOMEMLIMIT=6GiB"
+	executorNilnessGoFlagsResourceBound       = "GOFLAGS=-p=2"
+	executorNilnessGoMaxProcsResourceBound    = "GOMAXPROCS=2"
+	executorNilnessGoMemoryLimitResourceBound = "GOMEMLIMIT=3GiB"
 )
 
 var raceSensitiveSurfaces = []struct {
@@ -45,6 +48,7 @@ var raceSensitiveSurfaces = []struct {
 	{packagePattern: "./internal/app/...", pathPrefix: "internal/app/"},
 	{packagePattern: "./internal/archtest/...", pathPrefix: "internal/archtest/"},
 	{packagePattern: "./internal/contract/...", pathPrefix: "internal/contract/"},
+	{packagePattern: "./internal/devtools/alicloud/...", pathPrefix: "internal/devtools/alicloud/"},
 	{packagePattern: "./internal/devtools/coordinatoradmission/...", pathPrefix: "internal/devtools/coordinatoradmission/"},
 	{packagePattern: "./internal/devtools/acpnode", pathPrefix: "internal/devtools/acpnode/"},
 	{packagePattern: "./internal/devtools/gate/...", pathPrefix: "internal/devtools/gate/"},
@@ -109,8 +113,8 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		[]string{"npm", "run", "test:e2e:business"},
 		[]string{"npm", "run", "test:e2e:desktop-wide"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json",
-		"frontend-app/"+playwrightBusinessFlowsSpec, "frontend-app/playwright.business-flows.config.js",
-		"frontend-app/"+playwrightDesktopWideSpec, "frontend-app/playwright.desktop-wide.config.js")),
+		"frontend-app/tests/e2e/business-flows.spec.js", "frontend-app/playwright.business-flows.config.js",
+		"frontend-app/tests/e2e/desktop-wide.spec.js", "frontend-app/playwright.desktop-wide.config.js")),
 	GateIDFrontendFullTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "test"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
@@ -127,12 +131,6 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		},
 	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))),
 	GateIDBackendTestGuardWithRace: backendRaceExecutorProgram(),
-	GateIDBackendNilness: withGoSeed(requirePaths(ExecutorProgram{
-		Strategy: ExecutorStrategyCommands,
-		Steps: []ExecutorStep{
-			normalGoExecutorStep([]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./..."}),
-		},
-	}, "scripts/nilness_guard.go")),
 	GateIDSQLCVerify: requireExecutables(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategySQLCVerify,
 	}, "sqlc.yaml", "cmd/mcp-orch/sqlc.yaml", "scripts/sqlc_postprocess.sh"), ExecutorSQLCBinaryPath, ExecutorBashBinaryPath),
@@ -140,7 +138,7 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		[]string{"make", "codemap-check"},
 	), "Makefile", "scripts/codemap_index.go", "scripts/archtestmap/main.go")),
 	GateIDProjectMapCheck: requirePaths(commandProgram(
-		[]string{"super-dolphin-gate", "project-map", "check", "--tree-from-index"},
+		[]string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-index"},
 	), ".git", "scripts/codemap_policy.txt", "docs/doc/codemap/project-map"),
 	GateIDCapabilityContractCheck: withGoSeed(requirePaths(commandProgram(
 		[]string{"make", "capcontract-check"},
@@ -184,27 +182,41 @@ func executorProgramForWorkload(id GateID) (GateID, ExecutorProgram, error) {
 		return "", ExecutorProgram{}, err
 	}
 	if !targeted {
-		return "", ExecutorProgram{}, fmt.Errorf("unknown workload id %q", id)
+		return "", ExecutorProgram{}, unexpandedWorkloadError(id, parent)
 	}
+	program, err := executorProgramForTarget(parent, WorkloadTargetKind(targetKind), target)
+	return parent, program, err
+}
+
+// unexpandedWorkloadError 将 expansion-only gate 与未知 workload 的失败原因分开。
+func unexpandedWorkloadError(id, parent GateID) error {
+	if isExpansionOnlyGate(parent) {
+		return fmt.Errorf("gate %q requires expanded workload targets", parent)
+	}
+	return fmt.Errorf("unknown workload id %q", id)
+}
+
+// executorProgramForTarget 按受控 target kind 选择固定执行程序。
+func executorProgramForTarget(parent GateID, targetKind WorkloadTargetKind, target string) (ExecutorProgram, error) {
 	switch targetKind {
 	case workloadTargetGoGuard:
 		program, err := goGuardExecutorProgram(parent, target)
-		return parent, program, err
+		return program, err
 	case workloadTargetGoPackage:
-		return parent, goPackageExecutorProgram(parent, target), nil
+		return goPackageExecutorProgram(parent, target), nil
 	case workloadTargetGoTest:
 		program, err := goTestExecutorProgram(parent, target)
-		return parent, program, err
+		return program, err
 	case workloadTargetGoBenchmark:
 		program, err := goBenchmarkExecutorProgram(target)
-		return parent, program, err
+		return program, err
 	case workloadTargetVitest:
-		return parent, vitestExecutorProgram(target), nil
+		return vitestExecutorProgram(target), nil
 	case workloadTargetPlaywright:
 		program, err := playwrightE2EExecutorProgram(target)
-		return parent, program, err
+		return program, err
 	default:
-		return "", ExecutorProgram{}, fmt.Errorf("unsupported workload target kind %q", targetKind)
+		return ExecutorProgram{}, fmt.Errorf("unsupported workload target kind %q", targetKind)
 	}
 }
 
@@ -254,9 +266,6 @@ func splitSourceGoGuardExecutorProgram(target string) (ExecutorProgram, bool) {
 	case GoGuardTargetSourceRawGoTest:
 		argv = []string{"./scripts/forbid_raw_go_test.sh"}
 		requiredPath = "scripts/forbid_raw_go_test.sh"
-	case GoGuardTargetSourceCodeSize:
-		argv = []string{"go", "run", "./scripts/code_size_guard.go"}
-		requiredPath = "scripts/code_size_guard.go"
 	default:
 		return ExecutorProgram{}, false
 	}
@@ -284,9 +293,22 @@ func aiMaintenanceGuardExecutorProgram(target string) (ExecutorProgram, error) {
 
 // goPackageExecutorProgram 为一个 Go 包选择普通或 race 执行语义。
 func goPackageExecutorProgram(parent GateID, target string) ExecutorProgram {
+	if parent == GateIDBackendNilness {
+		return nilnessExecutorProgram(target)
+	}
 	normal := []string{"./scripts/test_with_guard.sh", "--ci-package", target}
 	race := []string{"./scripts/test_with_guard.sh", "--ci-race-package", target}
 	return goTargetExecutorProgramForParent(parent, normal, race)
+}
+
+// nilnessExecutorProgram 为一个精确 Go 包建立独立 nilness analyzer 调用。
+func nilnessExecutorProgram(target string) ExecutorProgram {
+	return withGoSeed(requirePaths(ExecutorProgram{
+		Strategy: ExecutorStrategyCommands,
+		Steps: []ExecutorStep{
+			nilnessGoExecutorStep([]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", target}),
+		},
+	}, "scripts/nilness_guard.go"))
 }
 
 // goTestExecutorProgram 解析顶层测试并选择普通或 race 执行语义。
@@ -334,23 +356,30 @@ func vitestExecutorProgram(target string) ExecutorProgram {
 }
 
 const (
-	playwrightBusinessFlowsSpec = "tests/e2e/business-flows.spec.js"
-	playwrightDesktopWideSpec   = "tests/e2e/desktop-wide.spec.js"
+	playwrightBusinessReadSurfacesTarget = "tests/e2e/business-flows.spec.js#business-read-surfaces"
+	playwrightBusinessChatBridgeTarget   = "tests/e2e/business-flows.spec.js#business-chat-bridge"
+	playwrightDesktopShellTarget         = "tests/e2e/desktop-wide.spec.js#desktop-shell"
+	playwrightDesktopBusinessPagesTarget = "tests/e2e/desktop-wide.spec.js#desktop-business-pages"
+	playwrightDesktopReadSettingsTarget  = "tests/e2e/desktop-wide.spec.js#desktop-read-settings"
 )
 
-// playwrightE2EExecutorProgram 为每个现有 Playwright 专项配置建立独立远程 workload。
+// playwrightE2EExecutorProgram 为每个 Playwright describe 建立独立远程 workload。
 func playwrightE2EExecutorProgram(spec string) (ExecutorProgram, error) {
+	specPath, grep, err := ParsePlaywrightE2ETarget(spec)
+	if err != nil {
+		return ExecutorProgram{}, err
+	}
 	var script, config string
-	switch spec {
-	case playwrightBusinessFlowsSpec:
+	switch specPath {
+	case "tests/e2e/business-flows.spec.js":
 		script, config = "test:e2e:business", "playwright.business-flows.config.js"
-	case playwrightDesktopWideSpec:
+	case "tests/e2e/desktop-wide.spec.js":
 		script, config = "test:e2e:desktop-wide", "playwright.desktop-wide.config.js"
 	default:
-		return ExecutorProgram{}, fmt.Errorf("unsupported Playwright E2E spec %q", spec)
+		return ExecutorProgram{}, fmt.Errorf("unsupported Playwright E2E spec %q", specPath)
 	}
-	return withFrontendSeed(requirePaths(commandProgramIn("frontend-app", []string{"npm", "run", script}),
-		"frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+spec, "frontend-app/"+config)), nil
+	return withFrontendSeed(requirePaths(commandProgramIn("frontend-app", []string{"npm", "run", script, "--", "--grep", grep}),
+		"frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+specPath, "frontend-app/"+config)), nil
 }
 
 // goTargetExecutorProgramForParent 根据父 gate 选择普通或 race argv。
@@ -436,6 +465,14 @@ func normalGoExecutorStep(argv []string) ExecutorStep {
 	})
 }
 
+func nilnessGoExecutorStep(argv []string) ExecutorStep {
+	return goExecutorStep(argv, []string{
+		executorNilnessGoFlagsResourceBound,
+		executorNilnessGoMaxProcsResourceBound,
+		executorNilnessGoMemoryLimitResourceBound,
+	})
+}
+
 func raceGoExecutorStep(argv []string) ExecutorStep {
 	return goExecutorStep(argv, []string{
 		executorRaceGoFlagsResourceBound,
@@ -461,6 +498,10 @@ func isAllowedExecutorStepEnvironment(environment []string) bool {
 		executorRaceGoFlagsResourceBound,
 		executorRaceGoMaxProcsResourceBound,
 		executorGoMemoryLimitResourceBound,
+	}) || slices.Equal(environment, []string{
+		executorNilnessGoFlagsResourceBound,
+		executorNilnessGoMaxProcsResourceBound,
+		executorNilnessGoMemoryLimitResourceBound,
 	})
 }
 

@@ -225,7 +225,7 @@ function Invoke-RawGoTestGuard {
     $script:LastStatus = 0
 }
 
-$QuickArchtestSkip = '^(TestCodeSizeGuard/size_and_freeze|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
+$QuickArchtestSkip = '^(TestCodeSizeGuard/(size_and_freeze|repository_rules)|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
 $QuickArchtestRun = '^(TestDependencyDirection|TestValidateDefaultBackendBoundaryGovernance|TestBackendBoundaryRuleFactsHaveOneSource)$'
 
 function Invoke-Guard {

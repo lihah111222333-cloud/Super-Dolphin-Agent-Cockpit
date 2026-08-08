@@ -141,103 +141,138 @@ func TestRuntimeDurableGoplsRootCohortIdleDrainCompletionAndAdmissionCancel(t *t
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
 	}
 	t.Run("completion receipt", func(t *testing.T) {
-		cacheRoot := t.TempDir()
-		if err := os.Chmod(cacheRoot, 0o700); err != nil {
-			t.Fatalf("secure test cache root: %v", err)
-		}
-		t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
-		controllerValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(10 * time.Millisecond)
-		if err != nil {
-			t.Fatalf("new durable controller: %v", err)
-		}
-		controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
-		config := runtimeDurableGoplsRootCohortTestConfig("drain-complete")
-		lease, err := controller.AcquireLease(config)
-		if err != nil {
-			t.Fatalf("AcquireLease: %v", err)
-		}
-		closed := make(chan struct{}, 1)
-		if err := lease.ReleaseWithOwner(func() error {
-			closed <- struct{}{}
-			return nil
-		}); err != nil {
-			t.Fatalf("ReleaseWithOwner: %v", err)
-		}
-		select {
-		case <-closed:
-		case <-time.After(time.Second):
-			t.Fatal("idle drain owner did not execute")
-		}
-		dir := runtimeServerGoplsRootCohortDir(controller.root, config)
-		var state *runtimeServerDurableGoplsRootCohortState
-		deadline := time.Now().Add(time.Second)
-		for time.Now().Before(deadline) {
-			state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
-			if err == nil && state.DrainStatus == runtimeGoplsRootCohortDrainCompleted {
-				break
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
-		if err != nil {
-			t.Fatalf("read completed state: %v", err)
-		}
-		if state.DrainStatus != runtimeGoplsRootCohortDrainCompleted || state.CompletionReceipt == "" || state.CompletionUnixNano == 0 {
-			t.Fatalf("completed drain state = %+v, want completion receipt", state)
-		}
-		if state.IdleDeadlineUnixNano != 0 {
-			t.Fatalf("completed drain retained idle deadline %d", state.IdleDeadlineUnixNano)
-		}
-		next, err := controller.AcquireLease(config)
-		if err != nil {
-			t.Fatalf("subsequent admission after drain completion: %v", err)
-		}
-		if next.Fence().Epoch <= lease.Fence().Epoch {
-			t.Fatalf("subsequent admission epoch = %d, want > completed epoch %d", next.Fence().Epoch, lease.Fence().Epoch)
-		}
-		if err := next.ReleaseWithOwner(func() error { return nil }); err != nil {
-			t.Fatalf("release subsequent lease: %v", err)
-		}
+		runDurableGoplsRootCohortCompletionReceipt(t)
 	})
-
 	t.Run("new admission cancels pending drain", func(t *testing.T) {
-		cacheRoot := t.TempDir()
-		if err := os.Chmod(cacheRoot, 0o700); err != nil {
-			t.Fatalf("secure test cache root: %v", err)
-		}
-		t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
-		controllerValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(time.Second)
-		if err != nil {
-			t.Fatalf("new durable controller: %v", err)
-		}
-		controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
-		config := runtimeDurableGoplsRootCohortTestConfig("drain-cancel")
-		first, err := controller.AcquireLease(config)
-		if err != nil {
-			t.Fatalf("first AcquireLease: %v", err)
-		}
-		closed := make(chan struct{}, 1)
-		if err := first.ReleaseWithOwner(func() error {
-			closed <- struct{}{}
-			return nil
-		}); err != nil {
-			t.Fatalf("first ReleaseWithOwner: %v", err)
-		}
-		second, err := controller.AcquireLease(config)
-		if err != nil {
-			t.Fatalf("new admission: %v", err)
-		}
-		if second.Fence().Epoch <= first.Fence().Epoch {
-			t.Fatalf("new admission fence epoch = %d, want > %d after drain cancellation", second.Fence().Epoch, first.Fence().Epoch)
-		}
-		select {
-		case <-closed:
-		case <-time.After(time.Second):
-			t.Fatal("new admission did not synchronously drain the prior owner")
-		}
-		if err := second.ReleaseWithOwner(func() error { return nil }); err != nil {
-			t.Fatalf("second ReleaseWithOwner: %v", err)
-		}
+		runDurableGoplsRootCohortAdmissionCancel(t)
 	})
+}
+
+// runDurableGoplsRootCohortCompletionReceipt 覆盖 idle drain 完成与 completion receipt 持久化。
+func runDurableGoplsRootCohortCompletionReceipt(t *testing.T) {
+	t.Helper()
+	cacheRoot := t.TempDir()
+	if err := os.Chmod(cacheRoot, 0o700); err != nil {
+		t.Fatalf("secure test cache root: %v", err)
+	}
+	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
+	drainWindow := time.Hour
+	controllerValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(drainWindow)
+	if err != nil {
+		t.Fatalf("new durable controller: %v", err)
+	}
+	controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, controller) })
+	config := runtimeDurableGoplsRootCohortTestConfig("drain-complete")
+	lease, err := controller.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("AcquireLease: %v", err)
+	}
+	closed := make(chan struct{}, 1)
+	releaseStarted := time.Now()
+	if err := lease.ReleaseWithOwner(func() error {
+		closed <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatalf("ReleaseWithOwner: %v", err)
+	}
+	dir := runtimeServerGoplsRootCohortDir(controller.root, config)
+	state, err := runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("read draining state: %v", err)
+	}
+	if state.DrainStatus != runtimeGoplsRootCohortDrainDraining || state.IdleDeadlineUnixNano < releaseStarted.Add(drainWindow).UnixNano() {
+		t.Fatalf("draining state = %+v, want durable deadline from release start", state)
+	}
+	select {
+	case <-closed:
+		t.Fatal("idle drain owner ran before explicit admission cancellation")
+	default:
+	}
+	if err := controller.cancelPendingDrainForAdmission(config); err != nil {
+		t.Fatalf("explicit idle drain completion: %v", err)
+	}
+	select {
+	case <-closed:
+	default:
+		t.Fatal("explicit idle drain completion did not execute owner")
+	}
+	state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("read completed state: %v", err)
+	}
+	if state.DrainStatus != runtimeGoplsRootCohortDrainCompleted || state.CompletionReceipt == "" || state.CompletionUnixNano == 0 {
+		t.Fatalf("completed drain state = %+v, want completion receipt", state)
+	}
+	if state.IdleDeadlineUnixNano != 0 {
+		t.Fatalf("completed drain retained idle deadline %d", state.IdleDeadlineUnixNano)
+	}
+	next, err := controller.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("subsequent admission after drain completion: %v", err)
+	}
+	if next.Fence().Epoch <= lease.Fence().Epoch {
+		t.Fatalf("subsequent admission epoch = %d, want > completed epoch %d", next.Fence().Epoch, lease.Fence().Epoch)
+	}
+	if err := next.Release(); err != nil {
+		t.Fatalf("release subsequent lease: %v", err)
+	}
+}
+
+// runDurableGoplsRootCohortAdmissionCancel 覆盖新 admission 对 pending drain 的显式取消。
+func runDurableGoplsRootCohortAdmissionCancel(t *testing.T) {
+	t.Helper()
+	cacheRoot := t.TempDir()
+	if err := os.Chmod(cacheRoot, 0o700); err != nil {
+		t.Fatalf("secure test cache root: %v", err)
+	}
+	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
+	drainWindow := time.Hour
+	controllerValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(drainWindow)
+	if err != nil {
+		t.Fatalf("new durable controller: %v", err)
+	}
+	controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, controller) })
+	config := runtimeDurableGoplsRootCohortTestConfig("drain-cancel")
+	first, err := controller.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("first AcquireLease: %v", err)
+	}
+	closed := make(chan struct{}, 1)
+	releaseStarted := time.Now()
+	if err := first.ReleaseWithOwner(func() error {
+		closed <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatalf("first ReleaseWithOwner: %v", err)
+	}
+	dir := runtimeServerGoplsRootCohortDir(controller.root, config)
+	second, err := controller.AcquireLease(config)
+	if err != nil {
+		t.Fatalf("new admission: %v", err)
+	}
+	if second.Fence().Epoch <= first.Fence().Epoch {
+		t.Fatalf("new admission fence epoch = %d, want > %d after drain cancellation", second.Fence().Epoch, first.Fence().Epoch)
+	}
+	select {
+	case <-closed:
+	default:
+		t.Fatal("new admission did not synchronously drain the prior owner")
+	}
+	state, err := runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("read admission-cancel state: %v", err)
+	}
+	if state.DrainStatus != runtimeGoplsRootCohortDrainActive || state.IdleDeadlineUnixNano != 0 || len(state.PendingCleanups) != 0 || state.CompletionReceipt == "" {
+		t.Fatalf("admission-cancel state = %+v, want active epoch with completion receipt", state)
+	}
+	if state.CompletionUnixNano < releaseStarted.UnixNano() {
+		t.Fatalf("completion timestamp = %d, before release start %d", state.CompletionUnixNano, releaseStarted.UnixNano())
+	}
+	if err := second.Release(); err != nil {
+		t.Fatalf("second Release: %v", err)
+	}
 }
 
 func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *testing.T) {
@@ -307,22 +342,29 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t
 		t.Fatalf("secure test cache root: %v", err)
 	}
 	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
-	firstValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(40 * time.Millisecond)
+	drainWindow := time.Hour
+	// keep scheduler asleep while the test inspects durable evidence
+	firstValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(drainWindow)
 	if err != nil {
 		t.Fatalf("new first durable controller: %v", err)
 	}
-	secondValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(40 * time.Millisecond)
+	secondValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(drainWindow)
 	if err != nil {
 		t.Fatalf("new second durable controller: %v", err)
 	}
 	first := firstValue.(*runtimeServerDurableGoplsRootCohortController)
 	second := secondValue.(*runtimeServerDurableGoplsRootCohortController)
 	config := runtimeDurableGoplsRootCohortTestConfig("cross-owner")
+	t.Cleanup(func() {
+		closeDurableGoplsRootCohortController(t, first)
+		closeDurableGoplsRootCohortController(t, second)
+	})
 	lease, err := first.AcquireLease(config)
 	if err != nil {
 		t.Fatalf("first AcquireLease: %v", err)
 	}
 	oldClosed := make(chan struct{}, 1)
+	releaseStarted := time.Now()
 	if err := lease.ReleaseWithOwner(func() error {
 		oldClosed <- struct{}{}
 		return nil
@@ -344,6 +386,9 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t
 	if state.DrainStatus != runtimeGoplsRootCohortDrainActive || len(state.PendingCleanups) != 1 {
 		t.Fatalf("fenced state = %+v, want active new epoch with one old cleanup evidence", state)
 	}
+	if state.PendingCleanups[0].IdleDeadlineUnixNano < releaseStarted.Add(drainWindow).UnixNano() {
+		t.Fatalf("old cleanup deadline = %d, want deadline from release start %d", state.PendingCleanups[0].IdleDeadlineUnixNano, releaseStarted.Add(drainWindow).UnixNano())
+	}
 	if state.PendingCleanups[0].Fence.toValue() != lease.Fence() {
 		t.Fatalf("old cleanup fence = %+v, want %v", state.PendingCleanups[0].Fence, lease.Fence())
 	}
@@ -352,24 +397,28 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t
 	}
 	select {
 	case <-oldClosed:
-	case <-time.After(time.Second):
-		t.Fatal("old owner did not clean its own forwarder at persisted deadline")
+		t.Fatal("old owner ran before explicit admission cancellation")
+	default:
 	}
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
-		if err == nil && len(state.PendingCleanups) == 0 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	if err := first.cancelPendingDrainForAdmission(config); err != nil {
+		t.Fatalf("explicit old-owner drain completion: %v", err)
 	}
+	select {
+	case <-oldClosed:
+	default:
+		t.Fatal("explicit old-owner drain completion did not execute callback")
+	}
+	state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
 	if err != nil {
 		t.Fatalf("read post-cleanup state: %v", err)
 	}
 	if len(state.PendingCleanups) != 0 {
 		t.Fatalf("old cleanup evidence remained after owner callback: %+v", state.PendingCleanups)
 	}
-	if err := next.ReleaseWithOwner(func() error { return nil }); err != nil {
+	if state.DrainStatus != runtimeGoplsRootCohortDrainActive || state.CompletionReceipt == "" {
+		t.Fatalf("post-cleanup state = %+v, want active new epoch with completion receipt", state)
+	}
+	if err := next.Release(); err != nil {
 		t.Fatalf("release new epoch: %v", err)
 	}
 }
@@ -383,22 +432,28 @@ func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(
 		t.Fatalf("secure test cache root: %v", err)
 	}
 	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
-	firstValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(25 * time.Millisecond)
+	drainWindow := time.Hour
+	firstValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(drainWindow)
 	if err != nil {
 		t.Fatalf("new first durable controller: %v", err)
 	}
-	secondValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(25 * time.Millisecond)
+	secondValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(drainWindow)
 	if err != nil {
 		t.Fatalf("new second durable controller: %v", err)
 	}
 	first := firstValue.(*runtimeServerDurableGoplsRootCohortController)
 	second := secondValue.(*runtimeServerDurableGoplsRootCohortController)
 	config := runtimeDurableGoplsRootCohortTestConfig("cross-owner-unreachable")
+	t.Cleanup(func() {
+		closeDurableGoplsRootCohortController(t, first)
+		closeDurableGoplsRootCohortController(t, second)
+	})
 	lease, err := first.AcquireLease(config)
 	if err != nil {
 		t.Fatalf("first AcquireLease: %v", err)
 	}
 	oldClosed := make(chan struct{}, 1)
+	releaseStarted := time.Now()
 	if err := lease.ReleaseWithOwner(func() error {
 		oldClosed <- struct{}{}
 		return nil
@@ -419,20 +474,15 @@ func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(
 		t.Fatalf("new epoch = %d, want > old epoch %d", next.Fence().Epoch, lease.Fence().Epoch)
 	}
 	dir := runtimeServerGoplsRootCohortDir(second.root, config)
-	deadline := time.Now().Add(time.Second)
-	var state *runtimeServerDurableGoplsRootCohortState
-	for time.Now().Before(deadline) {
-		state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
-		if err == nil && len(state.PendingCleanups) == 1 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	state, err := runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
 	if err != nil {
 		t.Fatalf("read retained cleanup state: %v", err)
 	}
 	if state.DrainStatus != runtimeGoplsRootCohortDrainActive || len(state.PendingCleanups) != 1 {
 		t.Fatalf("unreachable-owner state = %+v, want active new epoch plus pending evidence", state)
+	}
+	if state.PendingCleanups[0].IdleDeadlineUnixNano < releaseStarted.Add(drainWindow).UnixNano() {
+		t.Fatalf("unreachable-owner deadline = %d, want deadline from release start %d", state.PendingCleanups[0].IdleDeadlineUnixNano, releaseStarted.Add(drainWindow).UnixNano())
 	}
 	if state.PendingCleanups[0].Status != runtimeGoplsRootCohortDrainCleanupPending {
 		t.Fatalf("unreachable-owner cleanup status = %q, want cleanup_pending evidence", state.PendingCleanups[0].Status)
@@ -443,9 +493,9 @@ func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(
 	select {
 	case <-oldClosed:
 		t.Fatal("new sidecar or stale worker invoked unreachable old owner callback")
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
-	if err := next.ReleaseWithOwner(func() error { return nil }); err != nil {
+	if err := next.Release(); err != nil {
 		t.Fatalf("release new epoch: %v", err)
 	}
 }
@@ -459,18 +509,21 @@ func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t 
 		t.Fatalf("secure test cache root: %v", err)
 	}
 	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
-	controllerValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(25 * time.Millisecond)
+	drainWindow := time.Hour
+	controllerValue, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(drainWindow)
 	if err != nil {
 		t.Fatalf("new durable controller: %v", err)
 	}
 	controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
 	config := runtimeDurableGoplsRootCohortTestConfig("forwarder-close")
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, controller) })
 	lease, err := controller.AcquireLease(config)
 	if err != nil {
 		t.Fatalf("AcquireLease: %v", err)
 	}
 	forwarder := &durableForwarderCloseProbe{closed: make(chan struct{}, 1)}
 	client := &goplsRootCohortClient{Client: forwarder, lease: &lease}
+	releaseStarted := time.Now()
 	if err := client.Close(); err != nil {
 		t.Fatalf("goplsRootCohortClient.Close: %v", err)
 	}
@@ -482,25 +535,26 @@ func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t 
 	if err != nil {
 		t.Fatalf("read draining state: %v", err)
 	}
-	if state.IdleDeadlineUnixNano <= time.Now().UnixNano() {
-		t.Fatalf("idle deadline = %d, want future persisted deadline", state.IdleDeadlineUnixNano)
+	if state.DrainStatus != runtimeGoplsRootCohortDrainDraining || state.IdleDeadlineUnixNano < releaseStarted.Add(drainWindow).UnixNano() {
+		t.Fatalf("draining state = %+v, want durable deadline from release start", state)
 	}
 	select {
 	case <-forwarder.closed:
-	case <-time.After(time.Second):
-		t.Fatal("forwarder Close did not run at persisted deadline")
+		t.Fatal("forwarder Close ran before explicit admission cancellation")
+	default:
+	}
+	if err := controller.cancelPendingDrainForAdmission(config); err != nil {
+		t.Fatalf("explicit forwarder drain completion: %v", err)
+	}
+	select {
+	case <-forwarder.closed:
+	default:
+		t.Fatal("explicit forwarder drain completion did not close forwarder")
 	}
 	if got := forwarder.closes.Load(); got != 1 {
-		t.Fatalf("forwarder Close calls after deadline = %d, want exactly one", got)
+		t.Fatalf("forwarder Close calls after explicit completion = %d, want exactly one", got)
 	}
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
-		if err == nil && state.DrainStatus == runtimeGoplsRootCohortDrainCompleted && state.CompletionReceipt != "" {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	state, err = runtimeServerReadGoplsRootCohortState(filepath.Join(dir, "state.json"))
 	if err != nil {
 		t.Fatalf("read completion receipt: %v", err)
 	}
@@ -514,8 +568,19 @@ func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t 
 	if next.Fence().Epoch <= lease.Fence().Epoch {
 		t.Fatalf("restart admission epoch = %d, want > %d", next.Fence().Epoch, lease.Fence().Epoch)
 	}
-	if err := next.ReleaseWithOwner(func() error { return nil }); err != nil {
+	if err := next.Release(); err != nil {
 		t.Fatalf("release restart admission: %v", err)
+	}
+}
+
+// closeDurableGoplsRootCohortController 通过生产 Close 完成测试 teardown，并暴露任何 pending owner 错误。
+func closeDurableGoplsRootCohortController(t testing.TB, c *runtimeServerDurableGoplsRootCohortController) {
+	t.Helper()
+	if c == nil {
+		return
+	}
+	if err := c.Close(); err != nil {
+		t.Errorf("close durable gopls root cohort controller: %v", err)
 	}
 }
 

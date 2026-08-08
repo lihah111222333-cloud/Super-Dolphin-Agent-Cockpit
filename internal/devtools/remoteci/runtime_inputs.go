@@ -17,17 +17,42 @@ import (
 )
 
 // RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
-const RuntimeDependencySchemaVersion = "15"
+const RuntimeDependencySchemaVersion = "16"
 
-// runtimeDependencyRecipePaths 返回须审计但不标识可复用运行时依赖内容的 seed 控制面输入。
-func runtimeDependencyRecipePaths() []string {
-	return []string{
-		"build/gate/runtime-deps.Dockerfile",
-		"internal/devtools/gate/executor_seed.go",
+type runtimeDependencyRecipeGroup struct {
+	field string
+	paths []string
+}
+
+// runtimeDependencyRecipeGroups 是 runtime_seed_worker_sha256 的唯一 recipe 闭包定义。
+func runtimeDependencyRecipeGroups() []runtimeDependencyRecipeGroup {
+	return []runtimeDependencyRecipeGroup{
+		{field: "dockerfile_sha256", paths: []string{"build/gate/runtime-deps.Dockerfile"}},
+		{field: "runtime_seed_worker_sha256", paths: []string{
+			"internal/devtools/gate/executor_seed.go",
+			"internal/devtools/gate/executor_frontend_vite_cache.go",
+		}},
 	}
 }
 
-// runtimeDependencyPaths 返回当前 schema 15 OCI runtime 的实际内容依赖；Dockerfile 与 seed worker 仅作配方审计。
+// runtimeDependencyRecipePaths 返回须审计但不标识可复用运行时依赖内容的 seed 控制面输入。
+func runtimeDependencyRecipePaths() []string {
+	paths := make([]string, 0)
+	for _, group := range runtimeDependencyRecipeGroups() {
+		paths = append(paths, group.paths...)
+	}
+	return paths
+}
+
+func runtimeDependencyRecipeFields() []string {
+	fields := make([]string, 0, len(runtimeDependencyRecipeGroups()))
+	for _, group := range runtimeDependencyRecipeGroups() {
+		fields = append(fields, group.field)
+	}
+	return fields
+}
+
+// runtimeDependencyPaths 返回当前 schema 16 OCI runtime 的实际内容依赖；Dockerfile 与 seed worker 仅作配方审计。
 func runtimeDependencyPaths() []string {
 	return []string{
 		"build/gate/toolchain.lock",
@@ -154,7 +179,7 @@ func loadRuntimeDependencyLock(byPath map[string][]byte) (runtimeDependencyLock,
 		return runtimeDependencyLock{}, err
 	}
 	if lock.SchemaVersion != RuntimeDependencySchemaVersion || len(lock.Inputs) != len(runtimeDependencyPaths()) ||
-		len(lock.RecipeInputs) != len(runtimeDependencyRecipePaths()) {
+		len(lock.RecipeInputs) != len(runtimeDependencyRecipeFields()) {
 		return runtimeDependencyLock{}, errors.New("runtime dependency lock shape is invalid")
 	}
 	if err := verifyRuntimeDependencyRecipeInputs(byPath, lock); err != nil {
@@ -199,14 +224,28 @@ func verifyRuntimeDependencyInputs(byPath map[string][]byte, lock runtimeDepende
 
 // verifyRuntimeDependencyRecipeInputs 保持 seed 配方可审计，同时不让协调器控制面改动使不可变依赖缓存失效。
 func verifyRuntimeDependencyRecipeInputs(byPath map[string][]byte, lock runtimeDependencyLock) error {
-	for _, path := range runtimeDependencyRecipePaths() {
-		data, exists := byPath[path]
-		if !exists {
-			return fmt.Errorf("runtime dependency recipe input %s is missing from Git tree", path)
+	for _, group := range runtimeDependencyRecipeGroups() {
+		var wanted string
+		if len(group.paths) == 1 {
+			path := group.paths[0]
+			data, exists := byPath[path]
+			if !exists {
+				return fmt.Errorf("runtime dependency recipe input %s is missing from Git tree", path)
+			}
+			wanted = remoteBytesDigest(data)
+		} else {
+			records := make([]string, 0, len(group.paths))
+			for _, path := range group.paths {
+				data, exists := byPath[path]
+				if !exists {
+					return fmt.Errorf("runtime dependency recipe input %s is missing from Git tree", path)
+				}
+				records = append(records, path+"="+remoteBytesDigest(data))
+			}
+			wanted = remoteBytesDigest([]byte(strings.Join(records, "\n") + "\n"))
 		}
-		field := runtimeDependencyRecipeLockField(path)
-		if field == "" || lock.RecipeInputs[field] != remoteBytesDigest(data) {
-			return fmt.Errorf("runtime dependency recipe input %s drifted from lock", path)
+		if lock.RecipeInputs[group.field] != wanted {
+			return fmt.Errorf("runtime dependency recipe closure %s drifted from lock", group.field)
 		}
 	}
 	return nil
@@ -368,6 +407,7 @@ func boolCount(value bool) int {
 	return 0
 }
 
+// runtimeDependencyLockField 返回 schema 对应的运行时依赖锁字段。
 func runtimeDependencyLockField(schemaVersion, path string) string {
 	if schemaVersion == "4" {
 		switch path {
@@ -403,10 +443,12 @@ func runtimeDependencyLockField(schemaVersion, path string) string {
 }
 
 func runtimeDependencyRecipeLockField(path string) string {
-	return map[string]string{
-		"build/gate/runtime-deps.Dockerfile":      "dockerfile_sha256",
-		"internal/devtools/gate/executor_seed.go": "runtime_seed_worker_sha256",
-	}[path]
+	for _, group := range runtimeDependencyRecipeGroups() {
+		if slices.Contains(group.paths, path) {
+			return group.field
+		}
+	}
+	return ""
 }
 
 func decodeRemoteStrictJSON(data []byte, target any) error {

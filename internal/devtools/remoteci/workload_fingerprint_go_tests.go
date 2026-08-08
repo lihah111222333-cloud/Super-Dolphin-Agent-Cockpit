@@ -374,7 +374,8 @@ func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, s
 	}
 	selectedDeclarations, reflectUsed := remoteGoTestSelectedDeclarations(targetDeclaration[0], files, declarations)
 	if reflectUsed {
-		return snapshot.allGoTestSources(files, directory, selected)
+		// 无法从 AST 闭合反射调用的目标可能观察候选 tree 任意位置，必须直接全树绑定。
+		return nil, true, nil
 	}
 	return snapshot.goTestDeclarationSources(directory, selectedDeclarations, selected, profile)
 }
@@ -385,6 +386,7 @@ func remoteGoTestSelectedDeclarations(target remoteGoTestDeclaration, files []re
 	queue = append(queue, declarations["TestMain"]...)
 	queue = append(queue, declarations["init"]...)
 	queue = append(queue, remoteGoTestPackageVariableDeclarations(files)...)
+	reflectValues := remoteGoTestPackageReflectValueNames(files)
 	selectedDeclarations := make(map[ast.Decl]remoteGoTestDeclaration)
 	for len(queue) > 0 {
 		declaration := queue[0]
@@ -394,7 +396,7 @@ func remoteGoTestSelectedDeclarations(target remoteGoTestDeclaration, files []re
 		}
 		selectedDeclarations[declaration.declaration] = declaration
 		dependencies := remoteGoTestDeclarationDependencies(declaration.declaration)
-		if remoteGoTestUsesReflect(declaration.file) {
+		if remoteGoTestUsesUnresolvedReflection(declaration.declaration, declaration.file, reflectValues) {
 			return nil, true
 		}
 		for dependency := range dependencies {
@@ -465,15 +467,6 @@ func remoteGoTestPackageVariableDeclarations(
 	return declarations
 }
 
-func remoteGoTestUsesReflect(file *ast.File) bool {
-	for _, importPath := range remoteGoTestImports(file) {
-		if importPath == "reflect" {
-			return true
-		}
-	}
-	return false
-}
-
 func (snapshot *remoteGitTreeSnapshot) allGoTestSources(files []remoteGoTestFile, directory string, selected map[string]remoteGitTreeEntry) ([]remoteGoTestSource, bool, error) {
 	result := make([]remoteGoTestSource, 0, len(files))
 	for _, file := range files {
@@ -502,7 +495,7 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 	wholeTree := false
 	var visitErr error
 	ast.Inspect(observed, func(node ast.Node) bool {
-		if wholeTree || visitErr != nil {
+		if visitErr != nil {
 			return false
 		}
 		call, ok := node.(*ast.CallExpr)
@@ -515,7 +508,8 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 		}
 		if dynamic {
 			wholeTree = true
-			return false
+			// exact-test 仍需将动态观察收敛到整树；整包指纹则必须继续扫描同一源码文件中的后续静态观察。
+			return true
 		}
 		observedPath, ok := remoteGoTestRelativePath(directory, staticPath)
 		if !ok {
@@ -529,6 +523,11 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 			snapshot.addRemoteGitDirectoryEntries(observedPath, selected)
 		default:
 			if _, exists := snapshot.byPath[observedPath]; !exists {
+				if wholeTree {
+					// exact-test 动态观察已经绑定整树；未知 CWD 下解析出的后续路径
+					// 不能再派生更严格的缺失文件错误。
+					return true
+				}
 				visitErr = fmt.Errorf("static Go test file observation %q is absent from Git tree", observedPath)
 				return false
 			}
@@ -701,7 +700,7 @@ func remoteGoTestFSObservationPath(call *ast.CallExpr, file *ast.File, imports m
 }
 
 func remoteGoTestObservationKind(method string) string {
-	if method == "Walk" || method == "WalkDir" {
+	if method == "ReadDir" || method == "Walk" || method == "WalkDir" {
 		return "tree"
 	}
 	if method == "Glob" {

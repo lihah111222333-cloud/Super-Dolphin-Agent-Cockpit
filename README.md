@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer declaration: 100% AI-written original code and project-authored documentation, human-directed, repository-guarded.** Product code, test code, and project-owned documentation are written or refactored by AI agents. Humans retain ownership of product intent, architecture decisions, credentials, and releases. Authorship does not imply infallibility: every accepted change remains subject to repository-owned evidence and gates. Upstream legal and community texts retain their original attribution.
 
-**Truth-image delivery enforcement.** Versioned [Git hooks](.githooks/README.md), manual `make ci-l0`, `make ci-l1`, and `make ci-l2-claude`, release, and GitHub Actions use the fail-closed remote ECI gate. `pre-commit` and the manual L0-L2 commands check the exact staged tree; release and GitHub Actions check the exact commit. Missing remote configuration, provenance, result authority, cleanup evidence, or a failed gate rejects the action. `commit-msg` continues to require Chinese commit text and fix-test evidence.
+**Truth-image delivery enforcement.** Versioned [Git hooks](.githooks/README.md), manual `make ci-l0`, `make ci-l1`, and release validation use the fail-closed remote ECI gate. GitHub is only the Git remote; it does not provide a CI runner. `pre-commit` and the manual L0-L1 commands check the exact staged tree or ref update, while release checks the exact commit. Missing remote configuration, provenance, result authority, cleanup evidence, or a failed gate rejects the action. `commit-msg` continues to require Chinese commit text and fix-test evidence.
 
 Super Dolphin Agent is a **production-grade, AI-native vibe-coding engineering system and multi-agent development control plane**. It combines a local desktop runtime, MCP orchestration, multi-language LSP navigation, provider integrations, persistent workflows, and machine-enforced engineering boundaries in one working reference implementation.
 
@@ -260,10 +260,10 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 426 runnable `Test*` functions across 146 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 461 runnable `Test*` functions across 160 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
-| CI | [GitHub Actions](.github/workflows/ci.yml) |
+| CI | [Alibaba Cloud ECI contract](docs/契约/remote-ci-eci-imagecache-contract.md) |
 
 <!-- sd:security -->
 ## Security

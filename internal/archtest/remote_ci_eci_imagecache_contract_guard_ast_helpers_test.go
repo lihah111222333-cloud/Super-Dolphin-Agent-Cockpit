@@ -6,8 +6,35 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+)
+
+// remoteCIProductionSnapshotEntry 串行化候选根目录的首次快照加载。
+// archtest 在一个进程内运行大量源码守卫，必须共享不可变解析视图，不能
+// 让每个守卫竞争执行自己的 WalkDir/parser 扫描。
+type remoteCIProductionSnapshotEntry struct {
+	once     sync.Once
+	snapshot *remoteCIProductionSnapshot
+	err      error
+}
+
+// remoteCIProductionSnapshot 保存候选生产源码的只读字节和 AST 集合。
+type remoteCIProductionSnapshot struct {
+	root  string
+	files []productionSourceFile
+}
+
+var (
+	// archguard:ignore global_vars -- immutable snapshot registries are shared by parallel guards
+	remoteCIProductionSnapshots sync.Map // map[string]*remoteCIProductionSnapshotEntry
+	// archguard:ignore global_vars -- immutable snapshot registries are shared by parallel guards
+	remoteCIProductionFileIndex sync.Map // map[string]*productionSourceFile
+	// archguard:ignore global_vars -- immutable snapshot registries are shared by parallel guards
+	remoteCIProductionSnapshotBuilds atomic.Int64
 )
 
 // remoteCIProductionFiles and the following helpers are shared by the
@@ -15,27 +42,29 @@ import (
 // file focused on one contract surface.
 func remoteCIProductionFiles(t *testing.T, root string) []string {
 	t.Helper()
-	return remoteCICollectProductionFiles(t, root, []string{
-		"cmd/super-dolphin-gate",
-		"internal/devtools/remoteci",
-		"internal/devtools/alicloud/eci",
-		"internal/devtools/gate",
-	}, func(relative string) bool {
-		base := filepath.Base(relative)
-		return !strings.HasPrefix(relative, "cmd/") || strings.HasPrefix(base, "remote_")
-	})
+	snapshot := loadRemoteCIProductionSnapshot(t, root)
+	paths := make([]string, 0, len(snapshot.files))
+	for _, file := range snapshot.files {
+		paths = append(paths, filepath.Join(snapshot.root, filepath.FromSlash(file.relPath)))
+	}
+	return paths
 }
 
 func remoteCIContractConsumerFiles(t *testing.T, root string) []string {
 	t.Helper()
-	return remoteCICollectProductionFiles(t, root, []string{
-		"cmd/super-dolphin-gate",
-		"internal/devtools/gate",
-		"internal/devtools/remoteci",
-	}, func(relative string) bool {
-		base := filepath.Base(relative)
-		return !strings.HasPrefix(relative, "cmd/") || strings.HasPrefix(base, "remote_")
-	})
+	snapshot := loadRemoteCIProductionSnapshot(t, root)
+	paths := make([]string, 0, len(snapshot.files))
+	for _, file := range snapshot.files {
+		if !productionSourcePathInRoots(file.relPath, []string{
+			"cmd/super-dolphin-gate",
+			"internal/devtools/gate",
+			"internal/devtools/remoteci",
+		}) {
+			continue
+		}
+		paths = append(paths, filepath.Join(snapshot.root, filepath.FromSlash(file.relPath)))
+	}
+	return paths
 }
 
 func remoteCICollectProductionFiles(t *testing.T, root string, directories []string, include func(string) bool) []string {
@@ -62,13 +91,132 @@ func remoteCICollectProductionFiles(t *testing.T, root string, directories []str
 	return files
 }
 
+// loadRemoteCIProductionSnapshot 为每个候选根目录只读一次并解析可执行
+// remote-CI 源文件；返回的 AST 和字节按约定不可变，可供守卫并发读取。
+func loadRemoteCIProductionSnapshot(t *testing.T, root string) *remoteCIProductionSnapshot {
+	t.Helper()
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatalf("resolve remote CI production root %q: %v", root, err)
+	}
+	entry := &remoteCIProductionSnapshotEntry{}
+	actual, _ := remoteCIProductionSnapshots.LoadOrStore(filepath.Clean(absoluteRoot), entry)
+	entry = actual.(*remoteCIProductionSnapshotEntry)
+	entry.once.Do(func() {
+		remoteCIProductionSnapshotBuilds.Add(1)
+		files := make([]productionSourceFile, 0)
+		for _, scanRoot := range []string{
+			"cmd/super-dolphin-gate",
+			"internal/devtools/remoteci",
+			"internal/devtools/alicloud/eci",
+			"internal/devtools/gate",
+		} {
+			if err := appendProductionSourceRoot(absoluteRoot, scanRoot, DefaultSkipDirs(), &files); err != nil {
+				entry.err = err
+				return
+			}
+		}
+		sort.Slice(files, func(left, right int) bool { return files[left].relPath < files[right].relPath })
+		entry.snapshot = &remoteCIProductionSnapshot{root: filepath.Clean(absoluteRoot), files: files}
+		for index := range files {
+			filePath := filepath.Clean(filepath.Join(absoluteRoot, filepath.FromSlash(files[index].relPath)))
+			remoteCIProductionFileIndex.Store(filePath, &entry.snapshot.files[index])
+		}
+	})
+	if entry.err != nil {
+		t.Fatalf("load remote CI production source snapshot: %v", entry.err)
+	}
+	if entry.snapshot == nil {
+		t.Fatal("load remote CI production source snapshot returned no snapshot")
+	}
+	return entry.snapshot
+}
+
 func parseRemoteCIContractGuardFile(t *testing.T, path string) *ast.File {
 	t.Helper()
+	if cached, ok := remoteCIProductionSourceFile(path); ok && cached.syntax != nil {
+		return cached.syntax
+	}
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 	return parsed
+}
+
+// remoteCIProductionSourceFile 从已注册的不可变快照索引返回源码文件。
+func remoteCIProductionSourceFile(path string) (*productionSourceFile, bool) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, false
+	}
+	value, ok := remoteCIProductionFileIndex.Load(filepath.Clean(absolutePath))
+	if !ok {
+		return nil, false
+	}
+	file, ok := value.(*productionSourceFile)
+	return file, ok && file != nil
+}
+
+// TestRemoteCIProductionSnapshotCachesOneParsePerRoot 验证同一根目录的
+// 并发守卫只构建一次快照，并复用同一个 AST 指针。
+func TestRemoteCIProductionSnapshotCachesOneParsePerRoot(t *testing.T) {
+	root := newRemoteCIProductionSnapshotFixture(t)
+	before := remoteCIProductionSnapshotBuilds.Load()
+	const concurrentLoads = 8
+	snapshots := make([]*remoteCIProductionSnapshot, concurrentLoads)
+	t.Run("parallel-loads", func(t *testing.T) {
+		for index := range snapshots {
+			index := index
+			t.Run("load", func(t *testing.T) {
+				t.Parallel()
+				snapshots[index] = loadRemoteCIProductionSnapshot(t, root)
+			})
+		}
+	})
+	var first *remoteCIProductionSnapshot
+	for _, snapshot := range snapshots {
+		if first == nil {
+			first = snapshot
+			continue
+		}
+		if first != snapshot {
+			t.Fatal("remote CI production snapshot was rebuilt for the same root")
+		}
+	}
+	if got := remoteCIProductionSnapshotBuilds.Load() - before; got != 1 {
+		t.Fatalf("remote CI production snapshot builds = %d, want 1", got)
+	}
+	paths := remoteCIProductionFiles(t, root)
+	if len(paths) != 1 {
+		t.Fatalf("snapshot production paths = %#v, want one fixture", paths)
+	}
+	if firstFile := parseRemoteCIContractGuardFile(t, paths[0]); firstFile != parseRemoteCIContractGuardFile(t, paths[0]) {
+		t.Fatal("remote CI production AST was reparsed instead of reused")
+	}
+}
+
+// newRemoteCIProductionSnapshotFixture 建立只含一个 Go 源文件的快照测试根目录。
+func newRemoteCIProductionSnapshotFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	productionPath := filepath.Join(root, "internal", "devtools", "gate", "snapshot_fixture.go")
+	if err := os.MkdirAll(filepath.Dir(productionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(productionPath, []byte("package gate\nfunc SnapshotFixture() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{
+		"cmd/super-dolphin-gate",
+		"internal/devtools/remoteci",
+		"internal/devtools/alicloud/eci",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
 }
 
 func remoteCIForbiddenIdentifiers(file *ast.File) map[string]bool {

@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
 func TestRemoteShardDurationSamplesIncludeStructuredGoTestTargets(t *testing.T) {
@@ -30,11 +32,14 @@ func TestRemoteShardDurationSamplesIncludeStructuredGoTestTargets(t *testing.T) 
 	input := RunInput{
 		Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1",
 	}
+	inputDigests := map[string]string{workload.ID: "sha256:" + strings.Repeat("a", 64)}
 	samples, err := remoteShardDurationSamples(
 		map[string]gate.Workload{workload.ID: workload},
 		map[gate.GateID]struct{}{workloadID: {}},
 		[]gate.PlanGateExecution{execution},
 		input,
+		inputDigests,
+		ShardResult{ResourceClass: "small", Resources: eci.Resources{CPU: 2, MemoryGiB: 4}},
 	)
 	if err != nil {
 		t.Fatalf("remoteShardDurationSamples() error = %v", err)
@@ -95,6 +100,11 @@ func TestRemoteAtomicGoTestDurationUsesPackageParentIdentity(t *testing.T) {
 		RunInput{
 			Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1",
 		},
+		map[string]string{workload.ID: "sha256:" + strings.Repeat("b", 64)},
+		gate.DurationBucket{
+			InputDigest: "sha256:" + strings.Repeat("b", 64), ExecutionMode: gate.DurationExecutionModeNormal,
+			ResourceClassID: "small", ResourceCPU: 2, ResourceMemoryGiB: 4,
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -114,17 +124,28 @@ func TestRemoteCalibrationParentDurationSamplesAggregateAtomicGoTests(t *testing
 		first.ID:  {GateID: gate.GateID(first.ID), Status: gate.ResultStatusPassed, StartedAt: startedAt, CompletedAt: startedAt.Add(40 * time.Millisecond)},
 		second.ID: {GateID: gate.GateID(second.ID), Status: gate.ResultStatusPassed, StartedAt: startedAt, CompletedAt: startedAt.Add(60 * time.Millisecond)},
 	}
-	input := RunInput{Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1"}
+	input := RunInput{Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1", CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}}
+	inputDigests := map[string]string{
+		first.ID:  "sha256:" + strings.Repeat("c", 64),
+		second.ID: "sha256:" + strings.Repeat("d", 64),
+	}
 	samples, err := remoteCalibrationParentDurationSamples(
-		gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}, observed, input,
+		gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}, observed, input, inputDigests,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertRemoteCalibrationParentSample(t, samples, parent)
+	delete(observed, second.ID)
+	partial, err := remoteCalibrationParentDurationSamples(
+		gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}, observed, input, inputDigests,
+	)
+	if err != nil || len(partial) != 0 {
+		t.Fatalf("partial fresh calibration parent samples = %#v, error = %v", partial, err)
+	}
 	input.Calibration = false
 	if samples, err := remoteCalibrationParentDurationSamples(
-		gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}, observed, input,
+		gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}, observed, input, inputDigests,
 	); err != nil || len(samples) != 0 {
 		t.Fatalf("non-calibration parent samples = %#v, error = %v", samples, err)
 	}
@@ -177,7 +198,8 @@ func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarn
 		ShardIdentity: shardIdentity, ContainerStatus: "Succeeded",
 		ExecutedWorkloads: []gate.GateID{gate.GateID(first.ID), gate.GateID(second.ID)},
 		Report:            gate.PlanExecutionReport{Gates: []gate.PlanGateExecution{firstExecution, secondExecution}},
-		ECIWaitStartedAt:  startedAt.Add(-10 * time.Millisecond), ECIWaitCompletedAt: startedAt.Add(-8 * time.Millisecond),
+		ResourceClass:     "calibration", Resources: eci.Resources{CPU: 4, MemoryGiB: 8},
+		ECIWaitStartedAt: startedAt.Add(-10 * time.Millisecond), ECIWaitCompletedAt: startedAt.Add(-8 * time.Millisecond),
 		ECITerminalAt: firstExecution.CompletedAt,
 		MaterializationTiming: gate.ShardMaterializationTiming{
 			Measurement: gate.MaterializationMeasurementMeasured, ShardIdentity: shardIdentity,
@@ -187,7 +209,13 @@ func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarn
 	}}
 	result, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).completeRemoteRun(
 		catalog,
-		RunInput{Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1"},
+		RunInput{
+			Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1",
+			CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8},
+			WorkloadInputDigests: map[string]string{
+				first.ID: "sha256:" + strings.Repeat("e", 64), second.ID: "sha256:" + strings.Repeat("f", 64),
+			},
+		},
 		shards,
 		observed,
 		RunResult{JobID: "job-structured-workload-warning", AgentTokenDigest: testRemoteAgentTokenDigest, AcceptedGeneration: 1},
@@ -209,5 +237,77 @@ func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarn
 	}
 	if len(result.DurationSamples) != 3 {
 		t.Fatalf("duration samples = %#v, want two actual workloads plus one calibration parent aggregate", result.DurationSamples)
+	}
+}
+
+func TestRemoteDurationResourceIdentityUsesThreeNormalReceiptTiers(t *testing.T) {
+	input := RunInput{
+		Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1",
+		// A normal run must not accidentally read this calibration selection.
+		CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8},
+	}
+	tests := []struct {
+		name        string
+		class       string
+		cpu, memory float64
+	}{
+		{name: "small", class: "small", cpu: 2, memory: 4},
+		{name: "medium", class: "medium", cpu: 4, memory: 8},
+		{name: "maximum", class: "maximum", cpu: 8, memory: 16},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resource, err := remoteDurationResourceIdentity(input, ShardResult{
+				ResourceClass: test.class,
+				Resources:     eci.Resources{CPU: test.cpu, MemoryGiB: test.memory},
+			})
+			if err != nil {
+				t.Fatalf("remoteDurationResourceIdentity() error = %v", err)
+			}
+			if resource.ExecutionMode != gate.DurationExecutionModeNormal ||
+				resource.ResourceClassID != test.class || resource.ResourceCPU != test.cpu || resource.ResourceMemoryGiB != test.memory {
+				t.Fatalf("normal duration resource = %#v, want %s %.gC/%.gGiB", resource, test.class, test.cpu, test.memory)
+			}
+		})
+	}
+}
+
+func TestRemoteDurationResourceIdentityRejectsCalibrationManifestOrPartialReceiptDrift(t *testing.T) {
+	input := RunInput{
+		Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1",
+		CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8},
+	}
+	valid, err := remoteDurationResourceIdentity(input, ShardResult{
+		ResourceClass: "calibration", Resources: eci.Resources{CPU: 4, MemoryGiB: 8},
+	})
+	if err != nil {
+		t.Fatalf("valid calibration resource rejected: %v", err)
+	}
+	if valid.ExecutionMode != gate.DurationExecutionModeCalibration || valid.ResourceClassID != "calibration" ||
+		valid.ResourceCPU != 4 || valid.ResourceMemoryGiB != 8 {
+		t.Fatalf("valid calibration resource = %#v", valid)
+	}
+	for name, shard := range map[string]ShardResult{
+		"normal compile tier leaked into shard class": {
+			ResourceClass: "medium", Resources: eci.Resources{CPU: 4, MemoryGiB: 8},
+		},
+		"partial zero provider receipt": {
+			ResourceClass: "calibration", Resources: eci.Resources{CPU: 0, MemoryGiB: 0},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertCalibrationDurationReceiptDrift(t, input, shard)
+		})
+	}
+}
+
+func assertCalibrationDurationReceiptDrift(t *testing.T, input RunInput, shard ShardResult) {
+	t.Helper()
+	_, err := remoteDurationResourceIdentity(input, shard)
+	if err == nil || !strings.Contains(err.Error(), "remote CI calibration duration resource receipt drifted") {
+		t.Fatalf("remoteDurationResourceIdentity() error = %v, want detailed calibration receipt drift", err)
+	}
+	if !strings.Contains(err.Error(), "observed") || !strings.Contains(err.Error(), "expected") {
+		t.Fatalf("calibration drift error = %v, want observed and expected identities", err)
 	}
 }

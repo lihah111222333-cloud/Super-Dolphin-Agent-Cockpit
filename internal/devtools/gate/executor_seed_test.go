@@ -15,88 +15,16 @@ import (
 
 const runtimeProxyFixtureSum = "github.com/kelindar/event v1.5.2 h1:qtgssZqMh/QQMCIxlbx4wU3DoMHOrJXKdiZhphJ4YbY=\n"
 
-func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndRejectsUnavailableRoot(t *testing.T) {
-	missingRoot := filepath.Join(realTempDir(t), "cache-seeds")
-	if _, err := discoverExecutorGoBuildCacheSeedRoots(missingRoot); err == nil {
-		t.Fatal("discoverExecutorGoBuildCacheSeedRoots accepted missing generation root")
-	}
-
-	emptyRoot := filepath.Join(realTempDir(t), "cache-seeds")
-	if err := os.Mkdir(emptyRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := discoverExecutorGoBuildCacheSeedRoots(emptyRoot); err == nil {
-		t.Fatal("discoverExecutorGoBuildCacheSeedRoots accepted empty generation root")
-	}
-
-	generationsRoot := filepath.Join(realTempDir(t), "cache-seeds")
-	for _, name := range []string{"00000000000020260728", "00000000000020260729"} {
-		if err := os.MkdirAll(filepath.Join(generationsRoot, name), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(generationsRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{filepath.Join(generationsRoot, "00000000000020260729"), filepath.Join(generationsRoot, "00000000000020260728")}
-	if !slices.Equal(seedRoots, want) {
-		t.Fatalf("generation seed roots = %v, want %v", seedRoots, want)
-	}
-}
-
-func TestDiscoverExecutorGoBuildCacheSeedRootsRejectsInvalidGenerations(t *testing.T) {
-	for name, prepare := range map[string]func(t *testing.T, root string){
-		"symlink": func(t *testing.T, root string) {
-			t.Helper()
-			if err := os.Symlink(root, filepath.Join(root, "00000000000020260729")); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"file": func(t *testing.T, root string) {
-			t.Helper()
-			writeTestFile(t, filepath.Join(root, "00000000000020260729"), "not a directory", 0o600)
-		},
-		"too many": func(t *testing.T, root string) {
-			t.Helper()
-			for _, generation := range []string{"00000000000000000001", "00000000000000000002", "00000000000000000003", "00000000000000000004", "00000000000000000005", "00000000000000000006"} {
-				if err := os.Mkdir(filepath.Join(root, generation), 0o700); err != nil {
-					t.Fatal(err)
-				}
-			}
-		},
-		"non canonical generation": func(t *testing.T, root string) {
-			t.Helper()
-			if err := os.Mkdir(filepath.Join(root, "20260729"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			root := filepath.Join(realTempDir(t), "cache-seeds")
-			if err := os.Mkdir(root, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			prepare(t, root)
-			if _, err := discoverExecutorGoBuildCacheSeedRoots(root); err == nil {
-				t.Fatal("discoverExecutorGoBuildCacheSeedRoots unexpectedly accepted invalid generations")
-			}
-		})
-	}
-}
-
-func TestSeedExecutorGoBuildCacheSeedsValidatesLayersWithoutCopying(t *testing.T) {
-	newest := realTempDir(t)
-	oldest := realTempDir(t)
+func TestSeedExecutorGoBuildCacheValidatesLayerWithoutCopying(t *testing.T) {
+	seedRoot := realTempDir(t)
 	privateRoot := realTempDir(t)
-	writeTestFile(t, filepath.Join(newest, "newest"), "new", 0o600)
-	writeTestFile(t, filepath.Join(oldest, "oldest"), "old", 0o600)
-	if err := seedExecutorGoBuildCacheSeeds([]string{newest, oldest}, privateRoot); err != nil {
-		t.Fatalf("validate multi-layer Go build cache seed: %v", err)
+	writeTestFile(t, filepath.Join(seedRoot, "seed"), "seed", 0o600)
+	if err := seedExecutorGoBuildCache(seedRoot, privateRoot); err != nil {
+		t.Fatalf("validate Go build cache seed: %v", err)
 	}
 	assertDirectoryEmpty(t, privateRoot)
-	if err := seedExecutorGoBuildCacheSeeds([]string{newest, filepath.Join(newest, "nested")}, privateRoot); err == nil {
-		t.Fatal("seed validation accepted overlapping layers")
+	if err := seedExecutorGoBuildCache(seedRoot, filepath.Join(seedRoot, "nested")); err == nil {
+		t.Fatal("seed validation accepted an overlapping private layer")
 	}
 }
 
@@ -152,8 +80,9 @@ func TestInstallRuntimeSeedsCreatesFrontendOverlayWithoutCopyingDependencies(t *
 	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
 	config := executorConfig{runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: manifestPath}
 	npmCache := filepath.Join(realTempDir(t), "npm-cache")
+	privateTmp := realTempDir(t)
 	requireRuntimeSeedTestNoError(t, "create npm cache", os.Mkdir(npmCache, 0o700))
-	layout := executorLayout{sourceCopy: source, npmCache: npmCache}
+	layout := executorLayout{sourceCopy: source, tmp: privateTmp, npmCache: npmCache}
 	program := ExecutorProgram{NeedsGoSeed: true, NeedsFrontendSeed: true}
 	requireRuntimeSeedTestNoError(t, "install runtime seeds", installRuntimeSeeds(config, layout, program))
 	assertRuntimeSeedPathMissing(t, filepath.Join(source, "vendor"))
@@ -165,8 +94,19 @@ func TestInstallRuntimeSeedsCreatesFrontendOverlayWithoutCopyingDependencies(t *
 		filepath.Join(runtimeRoot, "frontend", "node_modules", "tool"),
 	)
 	assertRuntimeSeedSymlink(t, filepath.Join(nodeModules, ".vite"), filepath.Join(runtimeRoot, "frontend", "vite-cache"))
-	assertRuntimeSeedPhysicalDirectory(t, filepath.Join(nodeModules, ".vite-temp"))
+	assertRuntimeSeedPathMissing(t, filepath.Join(nodeModules, ".vite-temp"))
+	privateViteCache := filepath.Join(privateTmp, ".vite-temp")
+	assertRuntimeSeedPhysicalDirectory(t, privateViteCache)
+	assertRuntimeSeedSymlink(t, filepath.Join(privateViteCache, "deps"), filepath.Join(runtimeRoot, "frontend", "vite-cache", "deps"))
 	requireRuntimeSeedTestNoError(t, "read shared Vite cache", runtimeSeedPathExists(filepath.Join(nodeModules, ".vite", "deps", "_metadata.json")))
+	seedViteDigest := mustRuntimeSeedTreeDigest(t, filepath.Join(runtimeRoot, "frontend", "vite-cache"))
+	requireRuntimeSeedTestNoError(t, "remove stale private Vite cache link", os.Remove(filepath.Join(privateViteCache, "deps")))
+	requireRuntimeSeedTestNoError(t, "create private Vite deps directory", os.Mkdir(filepath.Join(privateViteCache, "deps"), 0o700))
+	writeTestFile(t, filepath.Join(privateViteCache, "deps", "_metadata.json"), "{\"hash\":\"private\"}\n", 0o600)
+	if after := mustRuntimeSeedTreeDigest(t, filepath.Join(runtimeRoot, "frontend", "vite-cache")); after != seedViteDigest {
+		t.Fatalf("Vite image seed changed after stale private link replacement: got %s, want %s", after, seedViteDigest)
+	}
+	requireRuntimeSeedTestNoError(t, "read replaced private Vite cache", runtimeSeedPathExists(filepath.Join(privateViteCache, "deps", "_metadata.json")))
 	requireRuntimeSeedTestNoError(t, "read shared frontend seed", runtimeSeedPathExists(filepath.Join(nodeModules, "tool", "index.js")))
 	assertDirectoryEmpty(t, npmCache)
 	if err := installRuntimeSeeds(config, layout, program); err == nil {
@@ -185,7 +125,7 @@ func TestInstallRuntimeSeedsRejectsUnavailableViteCacheWithoutFallback(t *testin
 	config := executorConfig{runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: manifestPath}
 	program := ExecutorProgram{NeedsGoSeed: true, NeedsFrontendSeed: true}
 	err := installRuntimeSeeds(config, executorLayout{sourceCopy: source}, program)
-	if err == nil || !strings.Contains(err.Error(), "digest Vite cache") {
+	if err == nil || !strings.Contains(err.Error(), "vite-cache") {
 		t.Fatalf("installRuntimeSeeds error = %v, want unavailable Vite cache failure", err)
 	}
 	assertRuntimeSeedPathMissing(t, filepath.Join(source, "frontend-app", "node_modules"))
@@ -521,84 +461,49 @@ func TestRuntimeSeedManifestPublicAPIRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPrepareExecutorRuntimeSeedsBindsInstalledNPMCacheForPreviousSchema(t *testing.T) {
+func TestPrepareExecutorRuntimeSeedsUsesAcceptedManifestWithoutRescanningTrees(t *testing.T) {
 	source := realTempDir(t)
 	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
 	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
 	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
-	current, err := LoadRuntimeSeedManifest(manifestPath)
+	writeTestFile(t, filepath.Join(runtimeRoot, "frontend", "node_modules", "post-acceptance-tamper"), "tampered\n", 0o600)
+	prepared, err := prepareExecutorRuntimeSeeds(runtimeRoot, manifestPath, true, true)
+	if err != nil {
+		t.Fatalf("prepare accepted runtime seed roots: %v", err)
+	}
+	if !prepared.goRootsVerified || !prepared.frontendRootsVerified {
+		t.Fatalf("prepared runtime roots = %+v", prepared)
+	}
+	manifest, err := LoadRuntimeSeedManifest(manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writePreviousRuntimeSeedManifest(t, manifestPath, current)
-
-	prepared, err := prepareExecutorRuntimeSeeds(runtimeRoot, manifestPath, false, true)
-	if err != nil {
-		t.Fatalf("prepare previous runtime seed schema: %v", err)
-	}
-	if prepared.manifest.SchemaVersion != RuntimeSeedSchemaVersion ||
-		prepared.manifest.NPMCacheTreeSHA256 != current.NPMCacheTreeSHA256 ||
-		!prepared.frontendTreeVerified {
-		t.Fatalf("prepared previous runtime seed = %+v", prepared)
+	if err := manifest.Validate(source, runtimeRoot); err == nil {
+		t.Fatal("full image acceptance validation unexpectedly accepted a tampered dependency tree")
 	}
 }
 
-func TestPreviousRuntimeSeedSchemaFailsClosedWithoutInstalledNPMCache(t *testing.T) {
-	source := realTempDir(t)
-	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
-	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
-	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
-	current, err := LoadRuntimeSeedManifest(manifestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writePreviousRuntimeSeedManifest(t, manifestPath, current)
-	if err := os.RemoveAll(filepath.Join(runtimeRoot, "frontend", "npm-cache")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := prepareExecutorRuntimeSeeds(runtimeRoot, manifestPath, false, true); err == nil || !strings.Contains(err.Error(), "legacy frontend npm cache") {
-		t.Fatalf("prepare previous runtime seed without npm cache error = %v", err)
-	}
-}
-
-func TestRuntimeSeedManifestRejectsOlderOrSpoofedPreviousSchema(t *testing.T) {
+func TestRuntimeSeedManifestRejectsPreviousSchema(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	manifest := RuntimeSeedManifest{
-		SchemaVersion:         runtimeSeedLegacySchemaVersion,
+		SchemaVersion:         RuntimeSeedSchemaVersion - 1,
 		GoSumSHA256:           digest,
 		ModuleProxyLockSHA256: digest,
 		ModuleProxyTreeSHA256: digest,
 		GoModCacheTreeSHA256:  digest,
 		PackageLockSHA256:     digest,
 		NodeModulesTreeSHA256: digest,
+		NPMCacheTreeSHA256:    digest,
+		ViteCacheTreeSHA256:   digest,
 		RipgrepSHA256:         digest,
 		SqruffSHA256:          digest,
 	}
-	older := manifest
-	older.SchemaVersion--
-	spoofed := manifest
-	spoofed.NPMCacheTreeSHA256 = digest
-	for name, candidate := range map[string]RuntimeSeedManifest{"older": older, "spoofed": spoofed} {
-		encoded, err := json.Marshal(candidate)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := DecodeRuntimeSeedManifest(bytes.NewReader(encoded)); err == nil {
-			t.Fatalf("DecodeRuntimeSeedManifest unexpectedly accepted %s schema", name)
-		}
-	}
-}
-
-func writePreviousRuntimeSeedManifest(t *testing.T, path string, current RuntimeSeedManifest) {
-	t.Helper()
-	current.SchemaVersion = runtimeSeedLegacySchemaVersion
-	current.NPMCacheTreeSHA256 = ""
-	encoded, err := json.Marshal(current)
+	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
-		t.Fatal(err)
+	if _, err := DecodeRuntimeSeedManifest(bytes.NewReader(encoded)); err == nil {
+		t.Fatal("DecodeRuntimeSeedManifest unexpectedly accepted the previous schema")
 	}
 }
 

@@ -2,15 +2,14 @@
 
 ## Step 12：CI/CD、部署、回滚流程
 
-### GitHub Actions
+### 远程 CI 与发布边界
 
-`.github/workflows/ci.yml` 和 `.github/workflows/sqlite-release-gates.yml` 是权威 CI workflow。两者都只在 host 上启动固定 digest 的 bootstrap image，并将只读 candidate checkout 交给 `workflow-host` coordinator；CI workflow 不得在 host 直接执行 candidate 的 `go run`、`go test`、`make`、`npm` 或脚本门禁。`.github/workflows/release.yml` 是仅允许 `workflow_dispatch` 的受保护原生发布 rollout，不签发 CI 结论，由独立 release workflow 守卫约束；真实发布仍必须消费 release profile 的 coordinator 授权。
+远程 CI 没有 GitHub runner。候选编译、测试、cache-prime、镜像构建、分片执行和权威耗时观测全部由阿里云 ECI container group 完成，唯一规范见 `docs/契约/remote-ci-eci-imagecache-contract.md`。`.github/workflows/release.yml` 仅用于手动原生发布 rollout，不签发远程 CI 结论，也不属于远程 CI 执行路径；真实发布仍必须消费 release profile 的 coordinator 授权。
 
 | Workflow | 权威入口 | 目的 |
 | --- | --- | --- |
-| `ci.yml` | immutable bootstrap image -> `workflow-host` | 主 CI 的 truth-image 门禁 |
-| `sqlite-release-gates.yml` | immutable bootstrap image -> `workflow-host` | SQLite/release 相关门禁也由同一 coordinator 执行 |
-| `release.yml` | manual native rollout + release ActionGrant | 受保护的 macOS/Windows 原生发布证据，不作为 CI receipt |
+| 阿里云 ECI API | accepted ImageCache -> 并发 ECI shards | 唯一远程 CI、缓存镜像与耗时账本执行面 |
+| `release.yml` | manual native rollout + authoritative ECI release scenario | 受保护的 macOS/Windows 原生发布证据，不作为 CI receipt |
 
 ### 本地打包
 
@@ -43,7 +42,7 @@ bash ./scripts/publish_github_release.sh --dry-run
 3. 更新签名 key、manifest、checksum 完整。
 4. `gh auth status` 有目标仓库 Release 权限。
 5. `--dry-run` 无错误后再执行真实发布。
-6. 真实发布脚本会在 `gh release create` 或 `gh release edit` 前执行 `./scripts/ci_truth_image_gate.sh release`；它必须以当前 HEAD 的 release profile 获得 coordinator 的通过结果，缺少受信 CLI、真相镜像证据或 gate 结果都会立即失败。
+6. 真实发布脚本会在 `gh release create` 前执行 `./scripts/ci_truth_image_gate.sh release`；该入口只能调用当前 `super-dolphin-gate remote run --scenario full --entrypoint release`，并以当前 HEAD 的 release profile 获得真实 ECI 通过结果。缺少受信 CLI、真相镜像证据或 gate 结果都会立即失败。
 
 ### 回滚策略
 

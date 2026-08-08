@@ -17,13 +17,12 @@ func TestRemoteCICurrentReportSchemaContract(t *testing.T) {
 		"report":     parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/executor_plan_report.go")),
 		"header":     parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/executor_plan_report_agent_token.go")),
 		"profile":    parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/executor_plan_report_profile.go")),
-		"timing":     parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/executor_plan_report_timing.go")),
+		"packed":     parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/executor_plan_report_packed.go")),
 		"worker":     parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/executor_execution_result.go")),
 		"projection": parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/remoteci/workload_projection.go")),
 		"aggregate":  parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator_execution_profile.go")),
 		"results":    parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator_results.go")),
 		"query":      parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/ci_query_store_remote.go")),
-		"receipt":    parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/gate/validation.go")),
 	}
 	forbidden := []string{
 		"executorPlanReportSchemaVersion", "executorPlanTimingSchemaVersion",
@@ -31,7 +30,6 @@ func TestRemoteCICurrentReportSchemaContract(t *testing.T) {
 		"decodePlanTimingRecords", "decodePlanTimingRecord", "validatePlanTimingRecordSequence",
 		"normalizeRemoteWorkloadExecutionProfile", "legacyNotMeasuredExecutionProfile",
 		"unmeasuredExecutionProfile",
-		"legacyResultReceiptSchemaVersion",
 	}
 	for name, file := range files {
 		if identifier := currentReportForbiddenIdentifier(file, forbidden); identifier != "" {
@@ -61,17 +59,24 @@ func assertCurrentReportSchemaConsumers(t *testing.T, files map[string]*ast.File
 	}{
 		{file: "header", function: "validatePlanExecutionReportSchema", target: "ExecutorPlanReportSchemaVersion"},
 		{file: "header", function: "decodePlanReportHeader", target: "validatePlanExecutionReportSchema"},
+		{file: "header", function: "encodePlanReportHeader", target: "ExecutionOutcome"},
+		{file: "header", function: "decodePlanReportHeader", target: "parsePlanReportExecutionOutcome"},
 		{file: "report", function: "validatePlanExecutionReportHeader", target: "validatePlanExecutionReportSchema"},
-		{file: "timing", function: "encodePlanTimingReportRecords", target: "ExecutorPlanReportSchemaVersion"},
-		{file: "timing", function: "decodePlanTimingReportRecords", target: "ExecutorPlanReportSchemaVersion"},
-		{file: "projection", function: "remoteFreshWorkloadExecutions", target: "ExecutorPlanReportSchemaVersion"},
+		{file: "report", function: "validatePlanExecutionReportHeader", target: "ExecutionOutcome"},
+		{file: "report", function: "digestPlanExecutionReport", target: "ExecutionOutcome"},
+		{file: "report", function: "encodePlanGateReportRecords", target: "ExecutorPlanReportSchemaVersion"},
+		{file: "report", function: "decodePlanReportGate", target: "ExecutorPlanReportSchemaVersion"},
+		{file: "projection", function: "projectRemoteFreshWorkloadResult", target: "ExecutorPlanReportSchemaVersion"},
+		{file: "projection", function: "projectRemoteFreshWorkloadResult", target: "ExecutionOutcome"},
 		{file: "results", function: "aggregateWorkloadGate", target: "aggregateWorkloadExecutionProfile"},
 		{file: "aggregate", function: "aggregateWorkloadExecutionProfile", target: "shardWorkloadIntervals"},
 		{file: "aggregate", function: "aggregateWorkloadExecutionProfile", target: "ValidateAggregate"},
-		{file: "receipt", function: "validateIdentity", target: "ResultReceiptSchemaVersion"},
 	}
 	if !currentReportHasIdentifier(files["plan"], "ExecutorPlanReportSchemaVersion") {
 		t.Error("executor report schema producer is missing")
+	}
+	if !currentReportFunctionReferences(files["header"], "WorkerExecutionOutcomeForError", "ExecutorExitCode") {
+		t.Error("worker execution outcome must retain the executor exit code")
 	}
 	for _, check := range checks {
 		if !currentReportFunctionReferences(files[check.file], check.function, check.target) {

@@ -1,6 +1,6 @@
 package remoteci
 
-const remoteWorkerSupervisorPython = "/opt/super-dolphin-gate/runtime/python/bin/python3"
+const remoteWorkerSupervisorPython = "/usr/bin/python3"
 
 const (
 	remoteWorkerCommandElementLimit = 256

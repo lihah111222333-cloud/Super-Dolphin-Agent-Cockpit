@@ -1,6 +1,9 @@
 package eci
 
-import "strings"
+import (
+	"strings"
+	"testing"
+)
 
 type invalidCreateRequestCase struct {
 	name   string
@@ -25,5 +28,37 @@ func invalidCreateRequestCases() []invalidCreateRequestCase {
 		{"noncanonical temp volume", func(request *CreateRequest) { request.TempVolume.Name = "scratch-data" }},
 		{"missing task mount", func(request *CreateRequest) { request.MainVolumeMounts = request.MainVolumeMounts[:1] }},
 		{"unknown task volume", func(request *CreateRequest) { request.MainVolumeMounts[0].Name = "other-data" }},
+		{"overlapping init mounts", func(request *CreateRequest) { request.InitVolumeMounts[1].MountPath = "/input/source/nested" }},
+	}
+}
+
+func TestValidateResourcesAcceptsOnlyTheThreeNormalClasses(t *testing.T) {
+	for _, resource := range []Resources{{CPU: 2, MemoryGiB: 4}, {CPU: 4, MemoryGiB: 8}, {CPU: 8, MemoryGiB: 16}} {
+		if err := validateResources(resource.CPU, resource.MemoryGiB); err != nil {
+			t.Fatalf("validateResources(%g, %g) failed: %v", resource.CPU, resource.MemoryGiB, err)
+		}
+	}
+	if err := validateResources(6, 12); err == nil {
+		t.Fatal("validateResources(6, 12) unexpectedly passed")
+	}
+}
+
+func TestValidateResourcesRejectsRetiredNormalMemoryTiers(t *testing.T) {
+	for _, resource := range []struct {
+		cpu    float64
+		memory float64
+	}{
+		{cpu: 2, memory: 2},
+		{cpu: 2, memory: 8},
+		{cpu: 2, memory: 16},
+		{cpu: 4, memory: 4},
+		{cpu: 4, memory: 16},
+		{cpu: 4, memory: 32},
+		{cpu: 8, memory: 8},
+		{cpu: 8, memory: 32},
+	} {
+		if err := validateResources(resource.cpu, resource.memory); err == nil {
+			t.Fatalf("validateResources(%g, %g) unexpectedly accepted a retired resource tier", resource.cpu, resource.memory)
+		}
 	}
 }

@@ -145,6 +145,14 @@ func CheckPrioritySSAWithBaseline(opts CheckOptions, baseline PrioritySSABaselin
 	return comparePrioritySSABaseline(baseline, current), nil
 }
 
+func checkPrioritySSAWithBaselinePackages(pkgs []*prioritySSAPackage, baseline PrioritySSABaseline) (PrioritySSABaselineResult, error) {
+	current, err := collectPrioritySSAViolationsFromPackages(pkgs)
+	if err != nil {
+		return PrioritySSABaselineResult{}, err
+	}
+	return comparePrioritySSABaseline(baseline, current), nil
+}
+
 // PrioritySSABaselineFromCurrent 返回结果中的当前违规集合，供统一冻结收缩写回。
 func PrioritySSABaselineFromCurrent(result PrioritySSABaselineResult) PrioritySSABaseline {
 	return prioritySSABaselineFromViolations(result.Current)

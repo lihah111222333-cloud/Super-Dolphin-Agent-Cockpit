@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	capcontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
@@ -38,6 +39,13 @@ func TestCapabilityRootsFlagDefaultsAndAllowsExplicitOverride(t *testing.T) {
 	wantExplicitRoots := []string{"internal/contract", "cmd/mcp-orch/tools"}
 	if got := selectedCapabilityRoots(pathRules, *rootsFlag, flagWasSet(flags, "roots")); !sameRoots(got, wantExplicitRoots) {
 		t.Fatalf("selected explicit roots = %#v, want %#v", got, wantExplicitRoots)
+	}
+}
+
+func TestCapabilityGeneratedAtUsesUTC(t *testing.T) {
+	got := capabilityGeneratedAt(time.Date(2026, time.August, 1, 0, 30, 0, 0, time.FixedZone("UTC+14", 14*60*60)))
+	if got != "2026-07-31" {
+		t.Fatalf("capabilityGeneratedAt() = %q, want UTC date", got)
 	}
 }
 

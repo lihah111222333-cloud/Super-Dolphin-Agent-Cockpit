@@ -43,7 +43,8 @@ func TestExecuteExecutorRoutesShardToPlanExecutor(t *testing.T) {
 	var output bytes.Buffer
 	err := ExecuteExecutor(context.Background(), []string{
 		"run-shard", "--profile", "invalid", "--plan-digest", "sha256:" + strings.Repeat("a", 64),
-		"--gates", string(GateIDWhitespaceCheck),
+		"--manifest-path", ExecutorShardExecutionManifestPath,
+		"--manifest-digest", "sha256:" + strings.Repeat("b", 64),
 	}, &output, &output)
 	if err == nil || !strings.Contains(err.Error(), "unsupported gate profile") {
 		t.Fatalf("run-shard dispatch error = %v", err)
@@ -52,8 +53,11 @@ func TestExecuteExecutorRoutesShardToPlanExecutor(t *testing.T) {
 
 func TestExecutorNonGoProgramDoesNotRequireGoBuildCacheSeed(t *testing.T) {
 	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
+	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
+	runGit(t, source, "-c", "user.name=executor-test", "-c", "user.email=executor@example.invalid", "commit", "-q", "--allow-empty", "-m", "transport candidate")
+	runGit(t, source, "update-ref", materializedSourceRef, "HEAD")
 	config := newTestExecutorConfig(t, source)
-	config.goBuildCacheSeedRoots = nil
+	config.goBuildCacheSeedRoot = ""
 
 	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
 		t.Fatalf("execute non-Go gate without Go build cache seed: %v", err)
@@ -61,12 +65,12 @@ func TestExecutorNonGoProgramDoesNotRequireGoBuildCacheSeed(t *testing.T) {
 	assertDirectoryEmpty(t, config.workRoot)
 }
 
-func TestExecutorGoBuildCacheProxyCommandPreservesSeedOrder(t *testing.T) {
-	command, err := executorGoBuildCacheProxyCommand("proxy", []string{"/seed/newest", "/seed/oldest"}, "/private")
+func TestExecutorGoBuildCacheProxyCommandUsesSingleSeed(t *testing.T) {
+	command, err := executorGoBuildCacheProxyCommand("proxy", "/seed", "/private")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "proxy --seed \"/seed/newest\" --seed \"/seed/oldest\" --private \"/private\"" {
+	if command != "proxy --seed \"/seed\" --private \"/private\"" {
 		t.Fatalf("Go build cache proxy command = %q", command)
 	}
 }
@@ -91,15 +95,15 @@ func TestWhitespaceGateIgnoresUnchangedLegacyWhitespace(t *testing.T) {
 	assertDirectoryEmpty(t, config.workRoot)
 }
 
-func TestWhitespaceGateMissingBaseScansWholeTree(t *testing.T) {
+func TestWhitespaceGateMissingBaseFailsFast(t *testing.T) {
 	source := newExecutorGitSnapshot(t, map[string]string{"legacy.txt": "trailing  \n"})
-	assertWhitespaceGateFails(t, source, "trusted-range whitespace check")
+	assertWhitespaceGateFails(t, source, "materialized source base ref is required")
 }
 
 func TestWhitespaceGateRejectsNonCommitBase(t *testing.T) {
 	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
 	runGit(t, source, "update-ref", baseSourceRef, "HEAD^{tree}")
-	assertWhitespaceGateFails(t, source, "resolve trusted whitespace base commit")
+	assertWhitespaceGateFails(t, source, "resolve trusted source base ref")
 }
 
 func assertWhitespaceGateFails(t *testing.T, source string, want string) {
@@ -220,7 +224,7 @@ func TestExecutorSequentialGatesDoNotRetainPriorCache(t *testing.T) {
 	}
 	commitExecutorSnapshot(t, source, "sequential cache fixture")
 	config := newTestExecutorConfig(t, source)
-	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoots[0], "prewarmed"), "runner-cache\n", 0o600)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
 	program := ExecutorProgram{
 		Strategy:      ExecutorStrategyCommands,
 		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
@@ -250,7 +254,7 @@ func TestExecutorUsesSharedGoBuildCacheWithoutCopyingSeed(t *testing.T) {
 	config.runtimeSeedRoot = runtimeRoot
 	config.runtimeSeedManifest = manifestPath
 	config.goBuildCacheRoot = realTempDir(t)
-	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoots[0], "prewarmed"), "runner-cache\n", 0o600)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
 	program := ExecutorProgram{
 		Strategy:      ExecutorStrategyCommands,
 		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
@@ -260,7 +264,7 @@ func TestExecutorUsesSharedGoBuildCacheWithoutCopyingSeed(t *testing.T) {
 	if err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program); err != nil {
 		t.Fatalf("execute seeded cache fixture: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoots[0], "current-run")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoot, "current-run")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runner cache seed was mutated: %v", err)
 	}
 	if content, err := os.ReadFile(filepath.Join(config.goBuildCacheRoot, "current-run")); err != nil || string(content) != "updated" {
@@ -523,6 +527,7 @@ func TestExecutorStepPassesOnlyAllowedResourceBounds(t *testing.T) {
 	}{
 		{name: "normal backend", step: normalGoExecutorStep, goFlags: "-p=4", goMaxProc: "4", goMemLimit: "6GiB"},
 		{name: "release race", step: raceGoExecutorStep, goFlags: "-p=4", goMaxProc: "4", goMemLimit: "6GiB"},
+		{name: "nilness package", step: nilnessGoExecutorStep, goFlags: "-p=2", goMaxProc: "2", goMemLimit: "3GiB"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -594,109 +599,6 @@ func TestExecutorRunsCommandFromWritableSourceCopy(t *testing.T) {
 	assertDirectoryEmpty(t, config.workRoot)
 }
 
-func TestTrustedChangedDiagnosticsUsesSnapshotBaseAndFiltersUnsupportedFiles(t *testing.T) {
-	source := newExecutorGitSnapshot(t, map[string]string{"base.go": "package base\n"})
-	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
-	writeTestFile(t, filepath.Join(source, "internal", "changed.go"), "package changed\n", 0o600)
-	writeTestFile(t, filepath.Join(source, "internal", "notes.md"), "notes\n", 0o600)
-	writeTestFile(t, filepath.Join(source, "frontend-app", "asset.png"), "png\n", 0o600)
-	commitExecutorSnapshot(t, source, "changed")
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is required")
-	}
-	selection, err := trustedChangedDiagnostics(context.Background(), gitPath, source, os.Environ())
-	if err != nil {
-		t.Fatalf("trustedChangedDiagnostics: %v", err)
-	}
-	if !slices.Equal(selection.files, []string{"internal/changed.go"}) {
-		t.Fatalf("changed files = %v, want [internal/changed.go]", selection.files)
-	}
-	if selection.unsupported != 2 {
-		t.Fatalf("unsupported files = %d, want 2", selection.unsupported)
-	}
-}
-
-func TestTrustedChangedDiagnosticsDeletionOnlyIsLegalSkip(t *testing.T) {
-	source := newExecutorGitSnapshot(t, map[string]string{"internal/deleted.go": "package deleted\n"})
-	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
-	if err := os.Remove(filepath.Join(source, "internal", "deleted.go")); err != nil {
-		t.Fatal(err)
-	}
-	commitExecutorSnapshot(t, source, "delete")
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is required")
-	}
-	selection, err := trustedChangedDiagnostics(context.Background(), gitPath, source, os.Environ())
-	if err != nil {
-		t.Fatalf("trustedChangedDiagnostics: %v", err)
-	}
-	if len(selection.files) != 0 || selection.deleted != 1 {
-		t.Fatalf("deletion selection = %+v, want one deleted and no live files", selection)
-	}
-}
-
-func TestRunChangedDiagnosticsDeletionOnlySkipsBeforeToolResolution(t *testing.T) {
-	source := newExecutorGitSnapshot(t, map[string]string{"internal/deleted.go": "package deleted\n"})
-	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
-	if err := os.Remove(filepath.Join(source, "internal", "deleted.go")); err != nil {
-		t.Fatal(err)
-	}
-	commitExecutorSnapshot(t, source, "delete")
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is required")
-	}
-	var stderr bytes.Buffer
-	err = runChangedDiagnostics(context.Background(), gitPath, source, os.Environ(), filepath.Join(source, "missing-bin"), ioDiscard{}, &stderr)
-	if err != nil {
-		t.Fatalf("runChangedDiagnostics deletion-only skip: %v", err)
-	}
-	if !strings.Contains(stderr.String(), "deleted=1") {
-		t.Fatalf("skip audit = %q, want deleted=1", stderr.String())
-	}
-}
-
-func TestRunChangedDiagnosticsEmptyTrustedRangeIsLegalSkip(t *testing.T) {
-	source := newExecutorGitSnapshot(t, map[string]string{"internal/unchanged.go": "package unchanged\n"})
-	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is required")
-	}
-	var stderr bytes.Buffer
-	err = runChangedDiagnostics(context.Background(), gitPath, source, os.Environ(), filepath.Join(source, "missing-bin"), ioDiscard{}, &stderr)
-	if err != nil {
-		t.Fatalf("runChangedDiagnostics empty trusted range: %v", err)
-	}
-	if !strings.Contains(stderr.String(), "candidates=0") {
-		t.Fatalf("skip audit = %q, want candidates=0", stderr.String())
-	}
-}
-
-func TestTrustedChangedDiagnosticsInitialCommitFiltersFullTree(t *testing.T) {
-	source := newExecutorGitSnapshot(t, map[string]string{
-		"internal/kept.go":  "package kept\n",
-		"internal/notes.md": "notes\n",
-		"config.json":       "{}\n",
-	})
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is required")
-	}
-	selection, err := trustedChangedDiagnostics(context.Background(), gitPath, source, os.Environ())
-	if err != nil {
-		t.Fatalf("trustedChangedDiagnostics initial commit: %v", err)
-	}
-	if !slices.Equal(selection.files, []string{"internal/kept.go"}) {
-		t.Fatalf("initial diagnostic files = %v, want [internal/kept.go]", selection.files)
-	}
-	if selection.unsupported != 2 {
-		t.Fatalf("initial unsupported = %d, want 2", selection.unsupported)
-	}
-}
-
 func TestLSPDiagnosticsEligibilityMatchesMaintenanceSourceBoundary(t *testing.T) {
 	for _, path := range []string{
 		"cmd/tool/main.go", "internal/tool/main.ts", "pkg/tool/main.js", "frontend-app/src/App.tsx",
@@ -720,8 +622,8 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 	root := realTempDir(t)
 	workRoot := filepath.Join(root, "work")
 	runtimeRoot := filepath.Join(root, "runtime")
-	goBuildCacheSeedGenerationRoot := filepath.Join(root, "go-build-cache-seed-generation")
-	for _, directory := range []string{workRoot, runtimeRoot, goBuildCacheSeedGenerationRoot} {
+	goBuildCacheSeedRoot := filepath.Join(root, "go-build-cache-seed")
+	for _, directory := range []string{workRoot, runtimeRoot, goBuildCacheSeedRoot} {
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -731,10 +633,10 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 		sourcePath: source, workRoot: workRoot, searchPath: executorSearchPath,
 		expectedUID: os.Geteuid(), requireReadOnlySource: false,
 		runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: filepath.Join(runtimeRoot, "manifest.json"),
-		goRoot:                testGoRoot(t),
-		goBuildCacheSeedRoots: []string{goBuildCacheSeedGenerationRoot},
-		goBuildCacheProxy:     testGoBuildCacheProxyLauncher(),
-		stdout:                ioDiscard{}, stderr: ioDiscard{},
+		goRoot:               testGoRoot(t),
+		goBuildCacheSeedRoot: goBuildCacheSeedRoot,
+		goBuildCacheProxy:    testGoBuildCacheProxyLauncher(),
+		stdout:               ioDiscard{}, stderr: ioDiscard{},
 	})
 }
 

@@ -61,14 +61,106 @@ func collectPrioritySSAViolationsFromPackages(pkgs []*prioritySSAPackage) ([]Pri
 	return dedupePrioritySSAViolations(violations), nil
 }
 
+// seedPrioritySSAMetricCache 复用 priority SSA 加载阶段已解析的生产 AST。
+func seedPrioritySSAMetricCache(cache *BaselineMetricCache, pkgs []*prioritySSAPackage, files map[string]string) error {
+	if cache == nil {
+		return fmt.Errorf("baseline metric cache is required")
+	}
+	if len(pkgs) == 0 || len(files) == 0 {
+		return nil
+	}
+	allowed := make(map[string]struct{}, len(files))
+	for _, path := range files {
+		allowed[baselineMetricCacheKey(path)] = struct{}{}
+	}
+	for _, pkg := range pkgs {
+		if err := seedPrioritySSAPackageMetricCache(cache, pkg, allowed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedPrioritySSAPackageMetricCache(cache *BaselineMetricCache, pkg *prioritySSAPackage, allowed map[string]struct{}) error {
+	if pkg == nil || pkg.fset == nil {
+		return fmt.Errorf("priority SSA package has no file set")
+	}
+	for _, node := range pkg.syntax {
+		if err := seedPrioritySSANodeMetricCache(cache, pkg.fset, node, allowed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedPrioritySSANodeMetricCache(cache *BaselineMetricCache, fset *token.FileSet, node *ast.File, allowed map[string]struct{}) error {
+	if node == nil {
+		return fmt.Errorf("priority SSA package has nil syntax")
+	}
+	path := fset.Position(node.Pos()).Filename
+	if _, ok := allowed[baselineMetricCacheKey(path)]; !ok {
+		return nil
+	}
+	if err := cache.StoreParsedFile(path, fset, node); err != nil {
+		return fmt.Errorf("seed baseline metrics from priority SSA AST: %w", err)
+	}
+	return nil
+}
+
 func loadPrioritySSAPackages(repoRoot string) ([]*prioritySSAPackage, error) {
-	loaded, err := ssaload.Load(ssaload.Options{RepoRoot: repoRoot, Patterns: []string{"./cmd/...", "./internal/..."}, Tests: false, Overlay: prioritySSAOverlay(repoRoot), Include: func(pkg *packages.Package) bool {
-		return pkg != nil && prioritySSAProductionPackagePath(pkg.PkgPath) && len(pkg.GoFiles) > 0
-	}})
+	return loadPrioritySSAPackagesWithDiscovery(repoRoot, discoverPrioritySSACandidatePaths)
+}
+
+func loadPrioritySSAPackagesWithDiscovery(
+	repoRoot string,
+	discover func(string) ([]string, error),
+) ([]*prioritySSAPackage, error) {
+	if discover == nil {
+		return nil, fmt.Errorf("priority SSA candidate discovery is required")
+	}
+	candidatePaths, err := discover(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("discover priority SSA candidate paths: %w", err)
+	}
+	loaded, err := ssaload.Load(ssaload.Options{
+		RepoRoot: repoRoot,
+		Patterns: candidatePaths,
+		Tests:    false,
+		Overlay:  prioritySSAOverlay(repoRoot),
+		Include: func(pkg *packages.Package) bool {
+			return pkg != nil && prioritySSAProductionPackagePath(pkg.PkgPath) && len(pkg.GoFiles) > 0
+		},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("load priority SSA packages: %w", err)
 	}
 	return prioritySSACheckedPackages(repoRoot, loaded), nil
+}
+
+// discoverPrioritySSACandidatePaths 只提取候选包身份，避免候选 parity 测试触发完整语法和类型解析。
+func discoverPrioritySSACandidatePaths(repoRoot string) ([]string, error) {
+	loaded, err := ssaload.Load(ssaload.Options{
+		RepoRoot: repoRoot,
+		Patterns: []string{"./cmd/...", "./internal/..."},
+		Tests:    false,
+		Overlay:  prioritySSAOverlay(repoRoot),
+		LoadMode: packages.LoadFiles,
+		Include: func(pkg *packages.Package) bool {
+			return pkg != nil && prioritySSAProductionPackagePath(pkg.PkgPath) && len(pkg.GoFiles) > 0
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("load priority SSA candidate packages: %w", err)
+	}
+	paths := make([]string, 0, len(loaded))
+	for _, pkg := range loaded {
+		if pkg == nil || !prioritySSAProductionPackagePath(pkg.PkgPath) || len(pkg.GoFiles) == 0 {
+			continue
+		}
+		paths = append(paths, pkg.PkgPath)
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func prioritySSAOverlay(repoRoot string) map[string][]byte {
@@ -173,21 +265,23 @@ func collectPrioritySSAPackageViolations(
 	ssaPkg *ssa.Package,
 	targets []*types.TypeName,
 ) []PrioritySSAViolation {
+	// SSA 函数构成包级图；这里只收集并排序一次，再供全部规则和宽端口目标复用。
+	functions := prioritySSAFunctions(ssaPkg)
 	var violations []PrioritySSAViolation
 	for _, target := range targets {
 		if target.Pkg().Path() == pkg.pkgPath || !prioritySSAPackageMayCarryTarget(pkg, target) {
 			continue
 		}
-		violations = append(violations, collectPrioritySSAWidePortViolations(pkg, ssaPkg, target)...)
+		violations = append(violations, collectPrioritySSAWidePortViolations(pkg, ssaPkg, target, functions)...)
 	}
-	for _, fn := range prioritySSAFunctions(ssaPkg) {
+	for _, fn := range functions {
 		violations = append(violations, collectPrioritySSAIgnoredReturnViolations(pkg, fn)...)
 		violations = append(violations, collectPrioritySSAContextCancelViolations(pkg, fn)...)
 		violations = append(violations, collectPrioritySSARawSQLViolations(pkg, fn)...)
 		violations = append(violations, collectPrioritySSAErrorStringViolations(pkg, fn)...)
 		violations = append(violations, collectPrioritySSAFXInvokeViolations(pkg, fn)...)
 	}
-	return append(violations, collectPrioritySSAOnStartViolations(pkg, ssaPkg)...)
+	return append(violations, collectPrioritySSAOnStartViolations(pkg, ssaPkg, functions)...)
 }
 
 func prioritySSAViolation(pkg *prioritySSAPackage, pos token.Pos, rule PrioritySSARule, detail string) PrioritySSAViolation {

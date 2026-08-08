@@ -128,7 +128,7 @@ func runCapabilityManifest(repoRoot string, roots []string, outFlag string, chec
 // buildCapabilityManifest 扫描源码并返回 manifest 及其稳定 JSON 表示。
 // 已有 manifest 的 generated_at 会被复用，避免 check 模式因为日期漂移失败。
 func buildCapabilityManifest(repoRoot string, roots []string, outPath string) (*capcontract.Manifest, []byte, error) {
-	generatedAt := time.Now().Format("2006-01-02")
+	generatedAt := capabilityGeneratedAt(time.Now())
 	if existing, ok := existingCapabilityGeneratedAt(filepath.Join(repoRoot, filepath.FromSlash(outPath))); ok {
 		generatedAt = existing
 	}
@@ -141,6 +141,11 @@ func buildCapabilityManifest(repoRoot string, roots []string, outPath string) (*
 		return nil, nil, err
 	}
 	return manifest, data, nil
+}
+
+// capabilityGeneratedAt 以 UTC 日期生成 manifest 时间戳，避免跨时区设备产出不同内容。
+func capabilityGeneratedAt(now time.Time) string {
+	return now.UTC().Format("2006-01-02")
 }
 
 // checkCapabilityManifest 对比磁盘文件和新生成内容，不匹配时提示调用生成命令。

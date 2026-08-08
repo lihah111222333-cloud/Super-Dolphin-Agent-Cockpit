@@ -3,6 +3,7 @@ package gate
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -17,12 +18,12 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	var (
 		record                                          RemoteCIRunRecord
 		entrypoint, profile, status, acceptedGeneration string
-		authoritative, cleanupComplete                  int
+		force, authoritative, cleanupComplete           int
 		startedAtMS, completedAtMS                      int64
 	)
 	err := database.QueryRow(`
 		SELECT runs.job_id, identities.agent_token_digest,
-			runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest, runs.accepted_generation, runs.image_cache_snapshot_id,
+			runs.force, runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest, runs.accepted_generation, runs.image_cache_snapshot_id,
 			runs.source_tree_sha, runs.candidate_gate_source_sha256, runs.candidate_gate_toolchain_sha256,
 			runs.runner_image, runs.status, runs.authoritative,
 			runs.started_at_unix_ms, runs.completed_at_unix_ms,
@@ -33,6 +34,7 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	`, jobID).Scan(
 		&record.JobID,
 		&record.AgentTokenDigest,
+		&force,
 		&entrypoint,
 		&profile,
 		&record.PlanDigest,
@@ -61,7 +63,11 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	if record.AcceptedGeneration, err = strconv.ParseUint(acceptedGeneration, 10, 64); err != nil || record.AcceptedGeneration == 0 {
 		return RemoteCIRunRecord{}, errors.New("stored remote CI accepted generation is invalid")
 	}
+	if force != 0 && force != 1 {
+		return RemoteCIRunRecord{}, errors.New("stored remote CI force identity is invalid")
+	}
 	record.Status = ResultStatus(status)
+	record.Force = force == 1
 	if err := cicontract.ValidateAgentTokenDigest(record.AgentTokenDigest); err != nil {
 		return RemoteCIRunRecord{}, fmt.Errorf("stored remote CI agent token digest: %w", err)
 	}
@@ -75,7 +81,7 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 // loadRemoteCIRunDetails 在同一个只读事务中补全 run 的关联投影。
 func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIRunRecord) error {
 	var err error
-	record.Shards, err = loadRemoteCIShardRows(transaction, jobID)
+	record.Shards, err = loadRemoteCIShardRows(transaction, jobID, record.Status, record.Authoritative)
 	if err != nil {
 		return err
 	}
@@ -103,38 +109,29 @@ func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIR
 	if err != nil {
 		return err
 	}
+	record.CompileTimingObservations, err = loadSQLiteCompileTimingObservations(transaction, jobID)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 // loadTimingObservations 从同一 SQLite 快照还原真实阶段观测，保留结构化时长和缓存证据而不从日志推断。
 func loadTimingObservations(database sqliteRowQueryer, jobID string) ([]TimingObservation, error) {
-	rows, err := database.Query(`SELECT scope, shard_identity, workload_id, phase, started_at_unix_ms, completed_at_unix_ms, duration_ms, measurement, reason, aggregation, cache_evidence_json FROM ci_timing_observations WHERE job_id = ? ORDER BY scope, shard_identity, workload_id, phase`, jobID)
+	rows, err := database.Query(`SELECT scope, shard_identity, workload_id, phase, started_at_unix_ms, completed_at_unix_ms, duration_ms, measurement, reason, aggregation, cache_evidence_json,
+		compile_group_id, compile_artifact_key, compile_package_target, compile_workload_ids_json, compile_artifact_sha256, compile_artifact_size,
+		compile_cache_hits, compile_cache_misses, compile_cache_puts, compile_cache_status, compile_status, compile_exit_code, compile_error_text,
+		compile_command_digest, compile_profile_digest, compile_resource_class_id, compile_resource_cpu, compile_resource_memory_gib, compile_execution_mode
+		FROM ci_timing_observations WHERE job_id = ? ORDER BY scope, shard_identity, workload_id, phase, compile_group_id, compile_artifact_key`, jobID)
 	if err != nil {
 		return nil, mapDurationLedgerSQLiteError("query timing observations", err)
 	}
 	defer rows.Close()
 	var observations []TimingObservation
 	for rows.Next() {
-		var scope, workloadID, phase, measurement, aggregation string
-		var startedMS, completedMS int64
-		observation := TimingObservation{JobID: jobID}
-		var cacheEvidenceJSON string
-		if err := rows.Scan(&scope, &observation.ShardIdentity, &workloadID, &phase, &startedMS, &completedMS, &observation.DurationMS, &measurement, &observation.Reason, &aggregation, &cacheEvidenceJSON); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan timing observation", err)
-		}
-		observation.Scope, observation.WorkloadID, observation.Phase = cicontract.TimingScope(scope), GateID(workloadID), cicontract.TimingPhase(phase)
-		observation.Measurement, observation.Aggregation = cicontract.ObservationState(measurement), cicontract.TimingAggregation(aggregation)
-		if err := DecodeStrictJSON([]byte(cacheEvidenceJSON), &observation.CacheEvidence); err != nil {
-			return nil, fmt.Errorf("decode stored timing cache evidence: %w", err)
-		}
-		if startedMS != 0 {
-			observation.StartedAt = time.UnixMilli(startedMS).UTC()
-		}
-		if completedMS != 0 {
-			observation.CompletedAt = time.UnixMilli(completedMS).UTC()
-		}
-		if err := observation.Validate(); err != nil {
-			return nil, errors.New("stored timing observation is invalid")
+		observation, err := scanTimingObservation(rows, jobID)
+		if err != nil {
+			return nil, err
 		}
 		observations = append(observations, observation)
 	}
@@ -142,6 +139,78 @@ func loadTimingObservations(database sqliteRowQueryer, jobID string) ([]TimingOb
 		return nil, mapDurationLedgerSQLiteError("iterate timing observations", err)
 	}
 	return observations, nil
+}
+
+type timingObservationRowScanner interface {
+	Scan(...any) error
+}
+
+// scanTimingObservation 从 SQLite 行严格恢复阶段、缓存和编译计数，并执行完整观测校验。
+func scanTimingObservation(scanner timingObservationRowScanner, jobID string) (TimingObservation, error) {
+	var scope, workloadID, phase, measurement, aggregation string
+	var startedMS, completedMS int64
+	observation := TimingObservation{JobID: jobID}
+	var cacheEvidenceJSON, compileWorkloadIDsJSON string
+	var compileCacheHits, compileCacheMisses, compileCachePuts int64
+	if err := scanner.Scan(&scope, &observation.ShardIdentity, &workloadID, &phase, &startedMS, &completedMS, &observation.DurationMS, &measurement, &observation.Reason, &aggregation, &cacheEvidenceJSON,
+		&observation.CompileGroupID, &observation.CompileArtifactKey, &observation.CompilePackageTarget, &compileWorkloadIDsJSON, &observation.CompileArtifactSHA256, &observation.CompileArtifactSize,
+		&compileCacheHits, &compileCacheMisses, &compileCachePuts, &observation.CompileCacheStatus, &observation.CompileStatus, &observation.CompileExitCode, &observation.CompileErrorText,
+		&observation.CompileCommandDigest, &observation.CompileProfileDigest, &observation.CompileResourceClassID, &observation.CompileResourceCPU, &observation.CompileResourceMemoryGiB, &observation.CompileExecutionMode); err != nil {
+		return TimingObservation{}, mapDurationLedgerSQLiteError("scan timing observation", err)
+	}
+	if compileCacheHits < 0 || compileCacheMisses < 0 || compileCachePuts < 0 {
+		return TimingObservation{}, errors.New("stored compile group cache counter is negative")
+	}
+	observation.CompileCacheHits, observation.CompileCacheMisses, observation.CompileCachePuts = uint64(compileCacheHits), uint64(compileCacheMisses), uint64(compileCachePuts)
+	observation.Scope, observation.WorkloadID, observation.Phase = cicontract.TimingScope(scope), GateID(workloadID), cicontract.TimingPhase(phase)
+	if observation.Scope == cicontract.TimingScopeCompileGroup {
+		if err := decodeCompileGroupWorkloadIDs([]byte(compileWorkloadIDsJSON), &observation.CompileWorkloadIDs); err != nil {
+			return TimingObservation{}, fmt.Errorf("decode stored compile group workload IDs: %w", err)
+		}
+	}
+	observation.Measurement, observation.Aggregation = cicontract.ObservationState(measurement), cicontract.TimingAggregation(aggregation)
+	if err := DecodeStrictJSON([]byte(cacheEvidenceJSON), &observation.CacheEvidence); err != nil {
+		return TimingObservation{}, fmt.Errorf("decode stored timing cache evidence: %w", err)
+	}
+	observation.StartedAt, observation.CompletedAt = timingObservationTimes(startedMS, completedMS)
+	if err := observation.Validate(); err != nil {
+		return TimingObservation{}, errors.New("stored timing observation is invalid")
+	}
+	return observation, nil
+}
+
+func timingObservationTimes(startedMS, completedMS int64) (time.Time, time.Time) {
+	var startedAt, completedAt time.Time
+	if startedMS != 0 {
+		startedAt = time.UnixMilli(startedMS).UTC()
+	}
+	if completedMS != 0 {
+		completedAt = time.UnixMilli(completedMS).UTC()
+	}
+	return startedAt, completedAt
+}
+
+// decodeCompileGroupWorkloadIDs 严格解码编译组 workload 列表并拒绝空值或重复身份。
+func decodeCompileGroupWorkloadIDs(data []byte, target *[]GateID) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if len(*target) == 0 {
+		return errors.New("compile group workload IDs are empty")
+	}
+	seen := make(map[GateID]struct{}, len(*target))
+	for _, workloadID := range *target {
+		if workloadID == "" {
+			return errors.New("compile group workload ID is empty")
+		}
+		if _, duplicate := seen[workloadID]; duplicate {
+			return fmt.Errorf("compile group workload ID %q is duplicated", workloadID)
+		}
+		seen[workloadID] = struct{}{}
+	}
+	return nil
 }
 
 // loadRemoteCIWorkloadExecutionRows 读取每个计划 workload 的实际执行结果，供回执验证其未被历史 PASS 跳过。
@@ -189,6 +258,8 @@ func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) 
 func loadRemoteCIShardRows(
 	database sqliteRowQueryer,
 	jobID string,
+	status ResultStatus,
+	authoritative bool,
 ) ([]RemoteCIShardRecord, error) {
 	rows, err := database.Query(`
 		SELECT shards.shard_identity, shards.container_group_id, shards.container_status, shards.materialization_timing_json, shards.resources_json,
@@ -225,7 +296,7 @@ func loadRemoteCIShardRows(
 		); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan remote CI shard", err)
 		}
-		if err := decodeStoredRemoteCIShardEvidence(&shard, timingJSON, resourcesJSON); err != nil {
+		if err := decodeStoredRemoteCIShardEvidence(&shard, timingJSON, resourcesJSON, status, authoritative); err != nil {
 			return nil, err
 		}
 		index, exists := shardIndex[shard.ShardIdentity]
@@ -244,19 +315,47 @@ func loadRemoteCIShardRows(
 	if err := rows.Err(); err != nil {
 		return nil, mapDurationLedgerSQLiteError("iterate remote CI shards", err)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("close remote CI shards", err)
+	}
+	return loadRemoteCIShardTerminalEvidenceIntoShards(database, jobID, shards, shardIndex)
+}
+
+// loadRemoteCIShardTerminalEvidenceIntoShards 严格加载并绑定分片终态证据，拒绝未知分片身份。
+func loadRemoteCIShardTerminalEvidenceIntoShards(
+	database sqliteRowQueryer,
+	jobID string,
+	shards []RemoteCIShardRecord,
+	shardIndex map[string]int,
+) ([]RemoteCIShardRecord, error) {
+	terminalEvidence, err := loadRemoteCIShardTerminalEvidence(database, jobID)
+	if err != nil {
+		return nil, err
+	}
+	for shardIdentity, evidence := range terminalEvidence {
+		index, exists := shardIndex[shardIdentity]
+		if !exists {
+			return nil, fmt.Errorf("stored remote CI terminal evidence references unknown shard %q", shardIdentity)
+		}
+		shards[index].TerminalEvidence = evidence
+	}
 	return shards, nil
 }
 
 // decodeStoredRemoteCIShardEvidence 严格解码并校验 SQLite 分片的资源和物化时序证据。
-func decodeStoredRemoteCIShardEvidence(shard *RemoteCIShardRecord, timingJSON, resourcesJSON string) error {
-	if resourcesJSON == "" {
-		return errors.New("stored remote CI shard resources are required")
+// 未创建分片没有 ECI 资源可记录；其空 resources_json 只有在完整的
+// Unknown/not_measured placeholder 形状下才可回读，不能被解释为零资源。
+func decodeStoredRemoteCIShardEvidence(shard *RemoteCIShardRecord, timingJSON, resourcesJSON string, status ResultStatus, authoritative bool) error {
+	if shard == nil {
+		return errors.New("stored remote CI shard is required")
 	}
-	if err := DecodeStrictJSON([]byte(resourcesJSON), &shard.Resources); err != nil {
-		return fmt.Errorf("decode stored remote CI shard resources: %w", err)
-	}
-	if err := shard.Resources.Validate(); err != nil {
-		return fmt.Errorf("validate stored remote CI shard resources: %w", err)
+	if resourcesJSON != "" {
+		if err := DecodeStrictJSON([]byte(resourcesJSON), &shard.Resources); err != nil {
+			return fmt.Errorf("decode stored remote CI shard resources: %w", err)
+		}
+		if err := shard.Resources.Validate(); err != nil {
+			return fmt.Errorf("validate stored remote CI shard resources: %w", err)
+		}
 	}
 	if timingJSON == "" {
 		return errors.New("stored remote CI shard materialization timing is required")
@@ -264,8 +363,11 @@ func decodeStoredRemoteCIShardEvidence(shard *RemoteCIShardRecord, timingJSON, r
 	if err := DecodeStrictJSON([]byte(timingJSON), &shard.MaterializationTiming); err != nil {
 		return fmt.Errorf("decode stored remote CI shard materialization timing: %w", err)
 	}
-	if err := validateRemoteCIShardMaterializationTiming(*shard); err != nil {
+	if err := validateRemoteCIShardMaterializationTiming(status, authoritative, *shard); err != nil {
 		return fmt.Errorf("validate stored remote CI shard materialization timing: %w", err)
+	}
+	if resourcesJSON == "" && !remoteCIShardResourcesMissingAllowed(status, authoritative, *shard) {
+		return errors.New("stored remote CI shard resources are required")
 	}
 	return nil
 }
@@ -314,7 +416,7 @@ func loadRemoteCIExecutionRows(
 		if execution.TestTimings, err = decodeStoredRemoteCIExecutionTestTimings(testTimingsJSON); err != nil {
 			return nil, err
 		}
-		execution.ExecutionProfile, err = decodeStoredRemoteCIExecutionProfile(profileJSON)
+		execution.ExecutionProfile, err = decodeStoredRemoteCIAggregateExecutionProfile(profileJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -348,6 +450,26 @@ func decodeStoredRemoteCIExecutionProfile(encoded string) (ExecutionProfile, err
 		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
 	}
 	return profile, nil
+}
+
+// storedRemoteCIAggregateExecutionProfile 让 strict decoder 使用 parent gate 的区间并集语义。
+type storedRemoteCIAggregateExecutionProfile ExecutionProfile
+
+// Validate 拒绝旧结构和无效关键路径，同时允许 startup/test-body 区间重叠。
+func (profile storedRemoteCIAggregateExecutionProfile) Validate() error {
+	return ExecutionProfile(profile).ValidateAggregate()
+}
+
+// decodeStoredRemoteCIAggregateExecutionProfile 严格读取协调器生成的 parent gate 聚合画像。
+func decodeStoredRemoteCIAggregateExecutionProfile(encoded string) (ExecutionProfile, error) {
+	if strings.TrimSpace(encoded) == "" {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is required")
+	}
+	var profile storedRemoteCIAggregateExecutionProfile
+	if err := DecodeStrictJSON([]byte(encoded), &profile); err != nil {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
+	}
+	return ExecutionProfile(profile), nil
 }
 
 // validateRemoteCIAggregateExecution 校验 parent gate 的区间并集/关键路径 profile 未与执行时间戳漂移。
@@ -417,8 +539,8 @@ func validateSQLiteRemoteCIRunCatalogCoverage(transaction *sql.Tx, record Remote
 	if err != nil {
 		return fmt.Errorf("load remote CI workload catalog: %w", err)
 	}
-	if record.Status == ResultStatusPassed && record.Authoritative && !catalog.Catalog.Authoritative {
-		return errors.New("passed remote CI run requires an authoritative workload catalog")
+	if err := validateSQLiteAuthoritativeRemoteCIRunCatalog(transaction, record, catalog.Catalog); err != nil {
+		return err
 	}
 	index, err := newRemoteCIRunCatalogIndex(catalog.Catalog)
 	if err != nil {
@@ -431,6 +553,42 @@ func validateSQLiteRemoteCIRunCatalogCoverage(transaction *sql.Tx, record Remote
 		return nil
 	}
 	return index.validatePassed(record)
+}
+
+// validateSQLiteAuthoritativeRemoteCIRunCatalog 校验权威成功 run 的目录及观测权威性。
+func validateSQLiteAuthoritativeRemoteCIRunCatalog(transaction *sql.Tx, record RemoteCIRunRecord, catalog WorkloadCatalog) error {
+	if record.Status != ResultStatusPassed || !record.Authoritative {
+		return nil
+	}
+	if !catalog.Authoritative {
+		return errors.New("passed remote CI run requires an authoritative workload catalog")
+	}
+	return validateSQLiteRemoteCIRunCatalogObservation(transaction, record)
+}
+
+// validateSQLiteRemoteCIRunCatalogObservation 确认权威 run 的目录观测与 run identity 完全一致。
+func validateSQLiteRemoteCIRunCatalogObservation(transaction *sql.Tx, record RemoteCIRunRecord) error {
+	var authoritative int
+	err := transaction.QueryRow(`
+		SELECT catalogs.authoritative
+		FROM ci_catalog_observations AS observations
+		INNER JOIN ci_workload_catalogs AS catalogs ON catalogs.catalog_digest = observations.catalog_digest
+		WHERE observations.catalog_digest = ?
+			AND observations.source_tree_sha = ?
+			AND observations.entrypoint = ?
+			AND observations.profile = ?
+			AND observations.accepted_generation = ?
+	`, record.CatalogDigest, record.SourceTreeSHA, string(record.Entrypoint), string(record.Profile), strconv.FormatUint(record.AcceptedGeneration, 10)).Scan(&authoritative)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("authoritative remote CI run requires a matching workload catalog observation")
+	}
+	if err != nil {
+		return mapDurationLedgerSQLiteError("load remote CI workload observation", err)
+	}
+	if authoritative != 1 {
+		return errors.New("authoritative remote CI run requires an authoritative workload catalog observation")
+	}
+	return nil
 }
 
 type remoteCIRunCatalogIndex struct {
@@ -461,6 +619,11 @@ func newRemoteCIRunCatalogIndex(catalog WorkloadCatalog) (remoteCIRunCatalogInde
 		id := GateID(workload.ID)
 		index.workloads[id] = struct{}{}
 		if !workload.Shardable {
+			if id != GateIDReleaseLayeredCheck {
+				return remoteCIRunCatalogIndex{}, fmt.Errorf("remote CI non-shardable catalog workload %q is not the release owner", id)
+			}
+			// Owner-only entry 生成直接的 GateExecution，而不是 shard coverage。
+			index.executions[id] = struct{}{}
 			continue
 		}
 		parent, err := WorkloadParentGateID(workload.ID)

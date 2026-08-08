@@ -20,6 +20,7 @@ var ErrRemoteCIRunNotFound = errors.New("remote CI run not found")
 type RemoteCIRunRecord struct {
 	JobID                        string
 	AgentTokenDigest             string
+	Force                        bool
 	Entrypoint                   CIEntrypointID
 	Profile                      Profile
 	PlanDigest                   string
@@ -43,6 +44,8 @@ type RemoteCIRunRecord struct {
 	Warnings                     []string
 	TimingWarnings               []RemoteCITimingWarning
 	TimingObservations           []TimingObservation
+	CompileTimingObservations    []CompileTimingObservation
+	DurationSamples              []DurationSample
 }
 
 // RemoteCIShardRecord 保存一个远程分片的稳定云资源身份和终态。
@@ -53,6 +56,7 @@ type RemoteCIShardRecord struct {
 	Workloads             []GateID
 	MaterializationTiming ShardMaterializationTiming
 	Resources             RemoteCIShardResources
+	TerminalEvidence      *RemoteCITerminalEvidence
 }
 
 // RemoteCIShardResources is the scheduled CPU/memory evidence for one ECI shard.
@@ -87,29 +91,67 @@ func (store *DurationLedgerStore) RecordProvisionalRemoteCIRun(record RemoteCIRu
 	if err := validateRemoteCIRunRecord(record); err != nil {
 		return err
 	}
+	acceptedSamples, err := validateProvisionalRemoteCIRunSamples(record.DurationSamples)
+	if err != nil {
+		return err
+	}
 	database, err := store.openSQLiteAuthority(false)
 	if err != nil {
 		return err
 	}
 	defer database.Close()
 	return withSQLiteWriteTransaction(database, "remote CI run", func(transaction *sql.Tx) error {
-		if err := requireHistoricallyAcceptedGeneration(transaction, record.AcceptedGeneration); err != nil {
-			return err
-		}
-		if err := storeSQLiteRemoteCIRunProjection(transaction, record, store.nowFunc); err != nil {
-			return err
-		}
-		if err := store.appendDurationLedgerObservationEvent(
-			transaction,
-			durationLedgerObservationEventRemoteRunPersist,
-			record.JobID,
-			strconv.FormatUint(record.AcceptedGeneration, 10),
-			record,
-		); err != nil {
-			return err
-		}
-		return compactDurationLedgerAuthority(transaction)
+		return store.recordProvisionalRemoteCIRunTransaction(transaction, record, acceptedSamples)
 	})
+}
+
+// recordProvisionalRemoteCIRunTransaction 写入 provisional run、观察事件与成功样本并压缩账本。
+func (store *DurationLedgerStore) recordProvisionalRemoteCIRunTransaction(
+	transaction *sql.Tx,
+	record RemoteCIRunRecord,
+	acceptedSamples []DurationSample,
+) error {
+	if err := requireHistoricallyAcceptedGeneration(transaction, record.AcceptedGeneration); err != nil {
+		return err
+	}
+	if err := storeSQLiteRemoteCIRunProjection(transaction, record, store.nowFunc); err != nil {
+		return err
+	}
+	if err := promoteSQLiteRemoteCIProvisionalWorkloadPassEvidence(transaction, record); err != nil {
+		return err
+	}
+	if err := store.appendDurationLedgerObservationEvent(
+		transaction,
+		durationLedgerObservationEventRemoteRunPersist,
+		record.JobID,
+		strconv.FormatUint(record.AcceptedGeneration, 10),
+		record,
+	); err != nil {
+		return err
+	}
+	if len(acceptedSamples) != 0 {
+		if _, err := appendSQLiteDurationSamplesInTransaction(transaction, record.AcceptedGeneration, acceptedSamples); err != nil {
+			return fmt.Errorf("append provisional remote CI duration samples: %w", err)
+		}
+	}
+	return compactDurationLedgerAuthority(transaction)
+}
+
+// validateProvisionalRemoteCIRunSamples 丢弃失败样本，仅接受通过完整账本校验的成功样本。
+func validateProvisionalRemoteCIRunSamples(samples []DurationSample) ([]DurationSample, error) {
+	accepted := make([]DurationSample, 0, len(samples))
+	for _, sample := range samples {
+		if sample.Succeeded {
+			accepted = append(accepted, sample)
+		}
+	}
+	if len(accepted) == 0 {
+		return nil, nil
+	}
+	if err := ValidateDurationLedger(DurationLedger{Version: durationLedgerVersion, Samples: accepted}); err != nil {
+		return nil, fmt.Errorf("validate provisional remote CI duration samples: %w", err)
+	}
+	return accepted, nil
 }
 
 // LoadRemoteCIRun 按 job ID 从 SQLite 恢复 run、shard 和 gate 终态。
@@ -143,19 +185,31 @@ func (store *DurationLedgerStore) LoadRemoteCIRun(jobID string) (RemoteCIRunReco
 	return record, nil
 }
 
-// verifySQLiteRemoteCIRunIdentity 校验已存在 run 与写入请求的不可变字段一致。
+// verifySQLiteRemoteCIRunIdentity 拒绝权威 run 重写，并校验已存在 run 的不可变字段一致。
 func verifySQLiteRemoteCIRunIdentity(transaction *sql.Tx, record RemoteCIRunRecord) error {
 	if err := cicontract.ValidateAgentTokenDigest(record.AgentTokenDigest); err != nil {
 		return fmt.Errorf("remote CI agent token digest: %w", err)
 	}
 	var stored sqliteRemoteCIRunIdentity
-	err := transaction.QueryRow(`SELECT entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, started_at_unix_ms FROM ci_runs WHERE job_id = ?`, record.JobID).Scan(&stored.Entrypoint, &stored.Profile, &stored.PlanDigest, &stored.CatalogDigest, &stored.AcceptedGeneration, &stored.ImageCacheSnapshotID, &stored.SourceTreeSHA, &stored.CandidateGateSourceSHA256, &stored.CandidateGateToolchainSHA256, &stored.RunnerImage, &stored.StartedAtUnixMS)
+	var force int
+	var authoritative int
+	err := transaction.QueryRow(`SELECT force, authoritative, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, started_at_unix_ms FROM ci_runs WHERE job_id = ?`, record.JobID).Scan(&force, &authoritative, &stored.Entrypoint, &stored.Profile, &stored.PlanDigest, &stored.CatalogDigest, &stored.AcceptedGeneration, &stored.ImageCacheSnapshotID, &stored.SourceTreeSHA, &stored.CandidateGateSourceSHA256, &stored.CandidateGateToolchainSHA256, &stored.RunnerImage, &stored.StartedAtUnixMS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return mapDurationLedgerSQLiteError("load existing remote CI run identity", err)
 	}
+	if force != 0 && force != 1 {
+		return errors.New("stored remote CI force identity is invalid")
+	}
+	if authoritative != 0 && authoritative != 1 {
+		return errors.New("stored remote CI authority identity is invalid")
+	}
+	if authoritative == 1 {
+		return fmt.Errorf("remote CI job %q is already authoritative and cannot be rewritten provisionally", record.JobID)
+	}
+	stored.Force = force == 1
 	if stored != newSQLiteRemoteCIRunIdentity(record) {
 		return fmt.Errorf("remote CI job %q conflicts with immutable run identity", record.JobID)
 	}
@@ -164,6 +218,7 @@ func verifySQLiteRemoteCIRunIdentity(transaction *sql.Tx, record RemoteCIRunReco
 
 // sqliteRemoteCIRunIdentity 保存 SQLite 中不可变的运行身份投影。
 type sqliteRemoteCIRunIdentity struct {
+	Force                        bool
 	Entrypoint                   string
 	Profile                      string
 	PlanDigest                   string
@@ -180,6 +235,7 @@ type sqliteRemoteCIRunIdentity struct {
 // newSQLiteRemoteCIRunIdentity 将写入请求转换为可直接比较的 SQLite 身份投影。
 func newSQLiteRemoteCIRunIdentity(record RemoteCIRunRecord) sqliteRemoteCIRunIdentity {
 	return sqliteRemoteCIRunIdentity{
+		Force:                        record.Force,
 		Entrypoint:                   string(record.Entrypoint),
 		Profile:                      string(record.Profile),
 		PlanDigest:                   record.PlanDigest,

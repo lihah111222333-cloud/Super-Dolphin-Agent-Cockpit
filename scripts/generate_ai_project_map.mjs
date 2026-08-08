@@ -892,7 +892,7 @@ function renderDrift(entries, drift) {
 
 function renderTSV(items) {
   const lines = ['path\tmodule\tdomain\ttype\tsize_bytes\tpurpose\tsearch_keys'];
-  for (const entry of items.sort((a, b) => a.path.localeCompare(b.path))) {
+  for (const entry of items.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
     lines.push([entry.path, entry.module, entry.domain, entry.type, entry.size, entry.purpose, entry.searchKeys].map(tsvCell).join('\t'));
   }
   return `${lines.join('\n')}\n`;

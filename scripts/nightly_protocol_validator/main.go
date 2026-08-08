@@ -54,18 +54,6 @@ type protocolExpectation struct {
 	MarkdownLinks   []string
 }
 
-type ciWorkflow struct {
-	Jobs map[string]ciJob `yaml:"jobs"`
-}
-
-type ciJob struct {
-	Steps []ciStep `yaml:"steps"`
-}
-
-type ciStep struct {
-	Run string `yaml:"run"`
-}
-
 // protocolExpectations 创建 nightly 协议校验的独立期望集，避免调用间共享可变集合。
 func protocolExpectations() []protocolExpectation {
 	return []protocolExpectation{
@@ -117,39 +105,7 @@ func validateNightlyProtocols(repoRoot string) error {
 			return err
 		}
 	}
-	return validateCIWorkflowOwner(repoRoot)
-}
-
-// validateCIWorkflowOwner 解析 CI YAML 并验证 nightly 协议由不可变 truth-image coordinator 接管。
-func validateCIWorkflowOwner(repoRoot string) error {
-	workflow, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))
-	if err != nil {
-		return fmt.Errorf("read CI owner: %w", err)
-	}
-	var document ciWorkflow
-	if err := yaml.Unmarshal(workflow, &document); err != nil {
-		return fmt.Errorf("parse CI owner: %w", err)
-	}
-	job, ok := document.Jobs["truth-image-gates"]
-	if !ok {
-		return errors.New("CI must define truth-image-gates")
-	}
-	for _, step := range job.Steps {
-		var active strings.Builder
-		for line := range strings.SplitSeq(step.Run, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			active.WriteString(line)
-			active.WriteByte('\n')
-		}
-		if strings.Contains(active.String(), "docker run --rm") &&
-			strings.Contains(active.String(), "workflow-host") {
-			return nil
-		}
-	}
-	return errors.New("CI truth-image-gates must execute the immutable workflow-host coordinator")
+	return nil
 }
 
 // validateProtocol 解析一个规范文件并验证身份、引用、正文链接和不可变引导契约。
@@ -243,24 +199,6 @@ func validateImmutableBootstrap(frontmatter protocolFrontmatter, expectation pro
 		return fmt.Errorf("%s: immutable bootstrap must bind %s %s through external locator %s", expectation.Path, bootstrapContractID, bootstrapVersion, externalPromptLocator)
 	}
 	return nil
-}
-
-// workflowRunsCommand 解析工作流 jobs.steps.run，并按独立 shell 行匹配规范命令。
-func workflowRunsCommand(data []byte, command string) (bool, error) {
-	var workflow ciWorkflow
-	if err := yaml.Unmarshal(data, &workflow); err != nil {
-		return false, err
-	}
-	for _, job := range workflow.Jobs {
-		for _, step := range job.Steps {
-			for line := range strings.SplitSeq(step.Run, "\n") {
-				if strings.TrimSpace(line) == command {
-					return true, nil
-				}
-			}
-		}
-	}
-	return false, nil
 }
 
 // splitFrontmatter 分离规范文件开头的 YAML frontmatter 与 Markdown 正文。

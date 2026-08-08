@@ -34,6 +34,11 @@ if [[ -z "$staged_tree" ]]; then
   printf '%s\n' 'pre-commit blocked: cannot capture the authoritative staged tree.' >&2
   exit 1
 fi
+launcher_tree=$staged_tree
+if ! gate_bin=$(trusted_gate_launcher_for_tree "$repo_root" "$launcher_tree"); then
+  printf '%s\n' 'pre-commit blocked: trusted launcher receipt does not match the staged tree; run make install-hooks, then retry.' >&2
+  exit 1
+fi
 
 # The launcher owns the closure renderer. A stale launcher can still read the
 # correct tree but write outputs using retired renderer semantics, so compare
@@ -201,38 +206,6 @@ if [[ "$frontend_code_size_dependency_migrated" -eq 0 ]] && ! "$gate_bin" fronte
 	staged_tree=$refreshed_tree
 fi
 
-project_map_output=docs/doc/codemap/project-map
-project_map_needs_refresh=0
-if ! git -C "$repo_root" diff --quiet -- "$project_map_output"; then
-  project_map_needs_refresh=1
-fi
-if git -C "$repo_root" ls-files --others --exclude-standard -- "$project_map_output" | grep -q .; then
-  project_map_needs_refresh=1
-fi
-if ! "$gate_bin" project-map check --tree "$staged_tree"; then
-  project_map_needs_refresh=1
-fi
-if [[ "$project_map_needs_refresh" -eq 1 ]]; then
-  printf '%s\n' 'pre-commit: project-map drift detected; refreshing managed outputs once.' >&2
-  if ! "$gate_bin" project-map refresh --tree "$staged_tree"; then
-    printf '%s\n' 'pre-commit blocked: project-map refresh failed.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -A -- "$project_map_output"; then
-    printf '%s\n' 'pre-commit blocked: refreshed project-map outputs could not be staged.' >&2
-    exit 1
-  fi
-  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after project-map refresh.' >&2
-    exit 1
-  fi
-  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" project-map check --tree "$refreshed_tree"; then
-    printf '%s\n' 'pre-commit blocked: project-map still drifted after one automatic refresh.' >&2
-    exit 1
-  fi
-	staged_tree=$refreshed_tree
-fi
-
 codemap_outputs=(
   README.md
   docs/doc/codemap/13-archtest-boundaries.md
@@ -268,7 +241,80 @@ if [[ "$codemap_needs_refresh" -eq 1 ]]; then
     printf '%s\n' 'pre-commit blocked: codemap still drifted after one automatic refresh.' >&2
     exit 1
   fi
-  staged_tree=$refreshed_tree
+	staged_tree=$refreshed_tree
+fi
+
+capability_contract_output=docs/doc/codemap/capability-contract/capability_manifest.json
+capability_contract_needs_refresh=0
+if ! git -C "$repo_root" diff --quiet -- "$capability_contract_output"; then
+  capability_contract_needs_refresh=1
+fi
+if git -C "$repo_root" ls-files --others --exclude-standard -- "$capability_contract_output" | grep -q .; then
+  capability_contract_needs_refresh=1
+fi
+if ! "$gate_bin" capability-contract check --tree "$staged_tree"; then
+  capability_contract_needs_refresh=1
+fi
+if [[ "$capability_contract_needs_refresh" -eq 1 ]]; then
+  printf '%s\n' 'pre-commit: capability-contract drift detected; refreshing managed output once.' >&2
+  if ! "$gate_bin" capability-contract refresh --tree "$staged_tree"; then
+    printf '%s\n' 'pre-commit blocked: capability-contract refresh failed.' >&2
+    exit 1
+  fi
+  if ! git -C "$repo_root" add -A -- "$capability_contract_output"; then
+    printf '%s\n' 'pre-commit blocked: refreshed capability-contract output could not be staged.' >&2
+    exit 1
+  fi
+  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
+    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after capability-contract refresh.' >&2
+    exit 1
+  fi
+  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" capability-contract check --tree "$refreshed_tree"; then
+    printf '%s\n' 'pre-commit blocked: capability-contract still drifted after one automatic refresh.' >&2
+    exit 1
+  fi
+	staged_tree=$refreshed_tree
+fi
+
+project_map_output=docs/doc/codemap/project-map
+project_map_needs_refresh=0
+if ! git -C "$repo_root" diff --quiet -- "$project_map_output"; then
+  project_map_needs_refresh=1
+fi
+if git -C "$repo_root" ls-files --others --exclude-standard -- "$project_map_output" | grep -q .; then
+  project_map_needs_refresh=1
+fi
+if ! "$gate_bin" project-map check --tree "$staged_tree"; then
+  project_map_needs_refresh=1
+fi
+if [[ "$project_map_needs_refresh" -eq 1 ]]; then
+  printf '%s\n' 'pre-commit: project-map drift detected; refreshing managed outputs once.' >&2
+  if ! "$gate_bin" project-map refresh --tree "$staged_tree"; then
+    printf '%s\n' 'pre-commit blocked: project-map refresh failed.' >&2
+    exit 1
+  fi
+  if ! git -C "$repo_root" add -A -- "$project_map_output"; then
+    printf '%s\n' 'pre-commit blocked: refreshed project-map outputs could not be staged.' >&2
+    exit 1
+  fi
+  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
+    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after project-map refresh.' >&2
+    exit 1
+  fi
+  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" project-map check --tree "$refreshed_tree"; then
+    printf '%s\n' 'pre-commit blocked: project-map still drifted after one automatic refresh.' >&2
+    exit 1
+  fi
+	staged_tree=$refreshed_tree
+fi
+
+if [[ "$staged_tree" != "$launcher_tree" ]]; then
+  printf '%s\n' 'pre-commit blocked: managed outputs changed the staged tree; run make install-hooks, then retry the commit.' >&2
+  exit 1
+fi
+if ! gate_bin=$(trusted_gate_launcher_for_tree "$repo_root" "$staged_tree"); then
+  printf '%s\n' 'pre-commit blocked: trusted launcher receipt drifted before remote execution.' >&2
+  exit 1
 fi
 
 umask 077

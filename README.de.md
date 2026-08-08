@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Erklärung der Maintainer: Originalcode und projekteigene Dokumentation sind zu 100% KI-geschrieben, von Menschen gesteuert und durch das Repository geschützt.** Produktcode, Testcode und projekteigene Dokumentation werden von KI-Agenten geschrieben oder refaktoriert. Menschen bleiben für Produktabsicht, Architekturentscheidungen, Zugangsdaten und Veröffentlichungen verantwortlich. KI-Autorschaft bedeutet keine Unfehlbarkeit: Jede akzeptierte Änderung unterliegt weiterhin den repository-eigenen Nachweisen und Gates. Rechtliche und Community-Texte aus Upstream-Quellen behalten ihre ursprüngliche Namensnennung.
 
-**Local-first-Auslieferungskontrolle.** Die reguläre Annahme von Commits und Pushes wird durch versionierte [Git Hooks](.githooks/README.md) erzwungen und hängt nicht von kostenpflichtiger, auf GitHub gehosteter CI ab. `pre-commit` prüft den Staging-Snapshot, KI-Wartungsregeln, den vollständigen Repository-Guard und betroffenen Code; `commit-msg` verlangt Regressionsevidenz für Fix-Commits; `pre-push` validiert den Push-Bereich des aktuellen `HEAD`, prüft betroffene Pakete und Contracts, führt Nilness-Analyse für betroffene Go-Pakete und Race-Tests für registrierte Nebenläufigkeitsflächen aus. Zurückgestellte Provider-E2E-Tests, `gosec`/Sicherheitsscans und Release-Prüfungen bleiben separate Gates.
+**Truth-Image-Lieferungsprüfung.** Versionierte [Git Hooks](.githooks/README.md), manuelle `make ci-l0`- und `make ci-l1`-Aufrufe sowie die Release-Prüfung verwenden das ausfallgeschlossene Remote-ECI-Gate. GitHub ist nur das Git-Remote und stellt keinen CI-Runner bereit. `pre-commit` und die manuellen L0-L1-Aufrufe prüfen den exakt gestagten Baum oder die Ref-Aktualisierung; die Release-Prüfung prüft den exakten Commit. Fehlende Remote-Konfiguration, Provenienz, Ergebnisautorität oder Aufräumnachweise sowie ein fehlgeschlagenes Gate weisen die Aktion zurück. `commit-msg` verlangt weiterhin chinesischen Commit-Text und Fix-Test-Nachweise.
 
 Super Dolphin Agent ist ein **produktionstaugliches, KI-natives Vibe-Coding-Engineering-System und eine Kontrollplattform für Multi-Agenten-Entwicklung**. Es verbindet eine lokale Desktop-Runtime, MCP-Orchestrierung, mehrsprachige LSP-Navigation, Provider-Integrationen, persistente Workflows und maschinell erzwungene Engineering-Grenzen in einer funktionsfähigen Referenzimplementierung.
 
@@ -260,10 +260,10 @@ Diese Befehle prüfen Architekturregeln, Guard-Verhalten, generierte Navigation,
 
 | Metrik | Aktuelle Wahrheitsquelle |
 |---|---|
-| Architekturtests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 329 runnable `Test*` functions across 127 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architekturtests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 426 runnable `Test*` functions across 148 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architekturregeln | [Generierte Backend-Boundary-Map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Testabdeckung | Aus einem aktuellen Testlauf neu berechnen; es wird kein statischer Prozentsatz behauptet |
-| CI | [GitHub Actions](.github/workflows/ci.yml) |
+| CI | [Alibaba Cloud ECI contract](docs/契约/remote-ci-eci-imagecache-contract.md) |
 
 <!-- sd:security -->
 ## Sicherheit

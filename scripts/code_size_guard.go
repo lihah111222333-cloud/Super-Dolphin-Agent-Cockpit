@@ -272,14 +272,6 @@ func runCheck(opts archtest.CheckOptions, freezePath string) {
 	printPassSummary()
 }
 
-// resolveRoot 返回检查使用的仓库根目录，空值时回退当前目录。
-func resolveRoot(opts archtest.CheckOptions) string {
-	if opts.RepoRoot != "" {
-		return opts.RepoRoot
-	}
-	return "."
-}
-
 // reportAndExit 输出违规列表并以 1 退出，保持守卫 fail-fast。
 func reportAndExit(label string, vs []archtest.Violation) {
 	fmt.Fprintf(os.Stderr, "\n❌  %s违规 (%d):\n\n", label, len(vs))
@@ -303,123 +295,24 @@ func reportPrioritySSAViolationsAndExit(label string, vs []archtest.PrioritySSAV
 
 // runUnifiedFreezePhase 对统一冻结文件执行新增拦截和自动毕业。
 func runUnifiedFreezePhase(freezePath string, opts archtest.CheckOptions) {
-	info, err := archtest.LoadGuardFreeze(freezePath)
+	result, err := archtest.CheckAndShrinkGuardFreeze(opts, freezePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  加载统一冻结失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "❌  统一冻结检查失败: %v\n", err)
 		os.Exit(1)
 	}
-	snapshot, err := archtest.NewBaselineFileSnapshot(opts)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  收集冻结文件快照失败: %v\n", err)
+	if err := archtest.WriteGuardFreezeCheckSummary(os.Stdout, result); err != nil {
+		fmt.Fprintf(os.Stderr, "❌  输出统一冻结摘要失败: %v\n", err)
 		os.Exit(1)
 	}
-	metrics := archtest.NewBaselineMetricCache()
-	freeze := info.Data
-	changed := false
-	freeze.Metrics.Production, changed = runMetricFreezePhase("生产", freeze.Metrics.Production, opts, false, changed, snapshot, metrics)
-	freeze.Metrics.Tests, changed = runMetricFreezePhase("测试", freeze.Metrics.Tests, opts, true, changed, snapshot, metrics)
-	priorityChanged := runPrioritySSAFreezePhase(&freeze, opts)
-	if changed || priorityChanged {
-		if err := archtest.SaveGuardFreeze(freezePath, freeze); err != nil {
-			fmt.Fprintf(os.Stderr, "❌  保存统一冻结收缩失败: %v\n", err)
-			os.Exit(1)
-		}
-	}
-}
-
-// checkRatchetResult 比对当前度量与 baseline，发现恶化立即退出。
-func checkRatchetResult(label string, result archtest.CheckResult) {
-	if result.OK() {
-		return
-	}
-	total := len(result.Violations) + len(result.NewFileViolations)
-	fmt.Fprintf(os.Stderr, "\n❌  %s棘轮恶化 (%d):\n\n", label, total)
-	for _, v := range result.Violations {
-		fmt.Fprintln(os.Stderr, "  •", v.String())
-	}
-	for _, v := range result.NewFileViolations {
-		fmt.Fprintln(os.Stderr, "  •", v.String())
-	}
-	fmt.Fprintln(os.Stderr)
-	os.Exit(1)
-}
-
-// runMetricFreezePhase 对统一冻结里的一个 metrics 分区做棘轮校验和自动收缩。
-func runMetricFreezePhase(
-	label string,
-	bl archtest.Baseline,
-	opts archtest.CheckOptions,
-	testsOnly bool,
-	changed bool,
-	snapshot *archtest.BaselineFileSnapshot,
-	metrics *archtest.BaselineMetricCache,
-) (archtest.Baseline, bool) {
-	phaseOpts := opts
-	phaseOpts.BaselineTestsOnly = testsOnly
-	result, err := archtest.CheckWithBaselineCachedFiles(phaseOpts, bl, metrics, snapshot.Files(testsOnly))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  %s 棘轮检查失败: %v\n", label, err)
-		os.Exit(1)
-	}
-	if !result.OK() {
-		checkRatchetResult(label, result)
-	}
-	newBL, stats, err := snapshot.Shrink(bl, testsOnly, metrics)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  %s 冻结收缩失败: %v\n", label, err)
-		os.Exit(1)
-	}
-	if stats.Changed() {
-		changed = true
-		fmt.Printf("🧹  %s 冻结收缩 — 收紧 %d, 毕业 %d, 清理 %d\n",
-			label, stats.Shrunk, stats.Graduated, stats.Removed)
-	}
-	fmt.Printf("📊  %s 冻结棘轮通过 — %d 个文件冻结中\n", label, len(newBL))
-	return newBL, changed
-}
-
-// runPrioritySSAFreezePhase 对 priority SSA 分区做新增拦截和自动毕业。
-func runPrioritySSAFreezePhase(freeze *archtest.GuardFreeze, opts archtest.CheckOptions) bool {
-	result, err := archtest.CheckPrioritySSAWithBaseline(opts, freeze.PrioritySSA)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  扫描 priority SSA 违规失败: %v\n", err)
-		os.Exit(1)
-	}
-	if len(result.New) > 0 {
-		reportPrioritySSAViolationsAndExit("priority SSA 新增违规", result.New)
-	}
-	if len(result.Stale) == 0 {
-		fmt.Printf("📊  priority SSA 冻结检查通过 — %d 条违规冻结中\n", len(result.Current))
-		return false
-	}
-	freeze.PrioritySSA = archtest.PrioritySSABaselineFromCurrent(result)
-	fmt.Printf("🧹  priority SSA 冻结收缩 — 清理 %d\n", len(result.Stale))
-	fmt.Printf("📊  priority SSA 冻结检查通过 — %d 条违规冻结中\n", len(result.Current))
-	return true
 }
 
 // failIfGuardGeneratedFilesDrifted 让 hook/CI 守卫在自动修复 baseline 或 freeze 后失败。
-// 开发者需要显式运行 freeze/shrink 修复命令并人工审查这些生成文件，而不是让 hook 静默改写。
+// SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 时，开发者需要显式运行 freeze/shrink 修复命令并人工审查生成文件。
 func failIfGuardGeneratedFilesDrifted(opts archtest.CheckOptions) {
-	if os.Getenv("SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT") != "1" {
+	if err := archtest.CheckGuardGeneratedFilesDrift(opts); err == nil {
 		return
-	}
-	repoRoot := resolveRoot(opts)
-	paths := []string{
-		"internal/archtest/freeze_baseline.json",
-	}
-	args := append([]string{"-C", repoRoot, "diff", "--exit-code", "--"}, paths...)
-	cmd := exec.Command("git", args...)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		return
-	}
-	fmt.Fprintln(os.Stderr, "❌  guard generated-file drift detected; run explicit baseline/freeze repair and review the diff.")
-	for _, path := range paths {
-		fmt.Fprintf(os.Stderr, "  • %s\n", path)
-	}
-	if len(out) > 0 {
-		fmt.Fprintln(os.Stderr, string(out))
+	} else {
+		fmt.Fprintln(os.Stderr, err)
 	}
 	os.Exit(1)
 }

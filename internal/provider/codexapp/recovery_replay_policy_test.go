@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 type activeTurnRecoveryRecorder struct {
@@ -320,12 +321,24 @@ func TestTurnStartWriteTimeoutTriggersRecoveryWithoutReplay(t *testing.T) {
 	s.setThreadID("thread-1")
 	s.setRuntimeConfigValue("model", "gpt-5")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	_, err := s.StartTurn(ctx, dto.TurnRequest{
-		ThreadID: "thread-1",
-		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	resultCh := make(chan error, 1)
+	safego.Go(ctx, nil, "codexapp.test.turn-start-write-timeout", func(context.Context) {
+		_, err := s.StartTurn(ctx, dto.TurnRequest{
+			ThreadID: "thread-1",
+			Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+		})
+		resultCh <- err
 	})
+	waitForRecordedMethod(t, recorder, "turn/start")
 	cancel()
+	var err error
+	select {
+	case err = <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for StartTurn() after turn/start write")
+	}
 	if err == nil {
 		t.Fatal("StartTurn() error = nil, want uncertain write outcome error")
 	}

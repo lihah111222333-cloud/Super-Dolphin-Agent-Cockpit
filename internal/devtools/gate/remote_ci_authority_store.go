@@ -34,7 +34,11 @@ func (store *DurationLedgerStore) LoadCheckReceipts(jobID string) ([]CheckReceip
 	if err != nil {
 		return nil, err
 	}
-	if err := validateCompletePassingCheckReceipts(receipts); err != nil {
+	var catalogDigest string
+	if err := transaction.QueryRow(`SELECT catalog_digest FROM ci_runs WHERE job_id = ?`, jobID).Scan(&catalogDigest); err != nil {
+		return nil, mapDurationLedgerSQLiteError("load check receipt workload catalog identity", err)
+	}
+	if err := validateSQLiteWorkloadCatalogPassingCheckReceipts(transaction, catalogDigest, receipts); err != nil {
 		return nil, fmt.Errorf("stored check receipts: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
@@ -46,7 +50,7 @@ func (store *DurationLedgerStore) LoadCheckReceipts(jobID string) ([]CheckReceip
 // loadSQLiteCheckReceiptRecords 在同一 SQLite 快照读取 canonical 顺序的回执，拒绝不完整或漂移字段。
 func loadSQLiteCheckReceiptRecords(transaction *sql.Tx, jobID string) ([]CheckReceiptRecord, error) {
 	query := fmt.Sprintf(`SELECT run_id, job_id, candidate_tree_sha, agent_token_digest, accepted_generation, accepted_snapshot_id,
-		required_check, executed, reused, reuse_proof_sha256, passed, started_at_unix_ms, completed_at_unix_ms, duration_ms, receipt_sha256
+		required_check, executed, reused, reuse_proof_sha256, passed, force, started_at_unix_ms, completed_at_unix_ms, duration_ms, receipt_sha256
 		FROM %s WHERE job_id = ?
 		ORDER BY CASE required_check
 			WHEN 'gate' THEN 1 WHEN 'normal' THEN 2 WHEN 'e2e' THEN 3
@@ -74,11 +78,11 @@ func loadSQLiteCheckReceiptRecords(transaction *sql.Tx, jobID string) ([]CheckRe
 // scanSQLiteCheckReceipt 将单行回执转换为完整记录，禁止无效 generation 或布尔编码进入验证层。
 func scanSQLiteCheckReceipt(rows *sql.Rows) (CheckReceiptRecord, error) {
 	var check, acceptedGenerationText string
-	var executed, reused, passed int
+	var executed, reused, passed, force int
 	var startedAtMS, completedAtMS, durationMS int64
 	var receipt CheckReceiptRecord
 	if err := rows.Scan(&receipt.RunID, &receipt.JobID, &receipt.CandidateTreeSHA, &receipt.AgentTokenDigest, &acceptedGenerationText,
-		&receipt.AcceptedSnapshotID, &check, &executed, &reused, &receipt.ReuseProofSHA256, &passed, &startedAtMS, &completedAtMS, &durationMS, &receipt.ReceiptSHA256); err != nil {
+		&receipt.AcceptedSnapshotID, &check, &executed, &reused, &receipt.ReuseProofSHA256, &passed, &force, &startedAtMS, &completedAtMS, &durationMS, &receipt.ReceiptSHA256); err != nil {
 		return CheckReceiptRecord{}, mapDurationLedgerSQLiteError("scan check receipt", err)
 	}
 	generation, err := strconv.ParseUint(acceptedGenerationText, 10, 64)
@@ -88,6 +92,10 @@ func scanSQLiteCheckReceipt(rows *sql.Rows) (CheckReceiptRecord, error) {
 	receipt.AcceptedGeneration = generation
 	receipt.RequiredCheck = cicontract.RequiredCheck(check)
 	receipt.Executed, receipt.Reused, receipt.Passed = executed == 1, reused == 1, passed == 1
+	if force != 0 && force != 1 {
+		return CheckReceiptRecord{}, errors.New("stored check receipt force identity is invalid")
+	}
+	receipt.Force = force == 1
 	receipt.StartedAt, receipt.CompletedAt = unixMilliUTC(startedAtMS), unixMilliUTC(completedAtMS)
 	receipt.Duration = time.Duration(durationMS) * time.Millisecond
 	return receipt, nil
@@ -96,7 +104,8 @@ func scanSQLiteCheckReceipt(rows *sql.Rows) (CheckReceiptRecord, error) {
 func verifySQLiteCheckReceiptAuthority(transaction *sql.Tx, receipts []CheckReceiptRecord) error {
 	first := receipts[0]
 	var tree, imageCacheSnapshotID, agentTokenDigest string
-	if err := transaction.QueryRow(`SELECT runs.source_tree_sha, runs.image_cache_snapshot_id, identities.agent_token_digest FROM ci_runs AS runs INNER JOIN ci_run_agent_identities AS identities ON identities.job_id = runs.job_id WHERE runs.job_id = ?`, first.JobID).Scan(&tree, &imageCacheSnapshotID, &agentTokenDigest); err != nil {
+	var force int
+	if err := transaction.QueryRow(`SELECT runs.source_tree_sha, runs.image_cache_snapshot_id, runs.force, identities.agent_token_digest FROM ci_runs AS runs INNER JOIN ci_run_agent_identities AS identities ON identities.job_id = runs.job_id WHERE runs.job_id = ?`, first.JobID).Scan(&tree, &imageCacheSnapshotID, &force, &agentTokenDigest); err != nil {
 		return mapDurationLedgerSQLiteError("load check receipt run authority", err)
 	}
 	if tree != first.CandidateTreeSHA {
@@ -104,6 +113,12 @@ func verifySQLiteCheckReceiptAuthority(transaction *sql.Tx, receipts []CheckRece
 	}
 	if imageCacheSnapshotID != first.AcceptedSnapshotID {
 		return errors.New("check receipt accepted snapshot does not match run authority")
+	}
+	if force != 0 && force != 1 {
+		return errors.New("check receipt run force identity is invalid")
+	}
+	if (force == 1) != first.Force {
+		return errors.New("check receipt force mode does not match run authority")
 	}
 	return verifySQLiteCheckReceiptAgentIdentity(agentTokenDigest, first.AgentTokenDigest)
 }

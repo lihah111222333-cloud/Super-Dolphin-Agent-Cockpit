@@ -25,33 +25,42 @@ const BUSINESS_PAGES = Object.freeze([
     label: '自动化',
     route: /\/dags$/u,
     navTestId: 'sidebar-nav',
-    assert: async (page) => expect(page.getByRole('heading', { name: '自动化', exact: true })).toBeVisible(),
+    assert: async (page) => {
+      const overview = page.getByRole('region', { name: '自动化资产', exact: true });
+      await expect(overview).toBeVisible();
+      await expect(overview.getByRole('heading', { name: '自动化和运行状态', exact: true })).toBeVisible();
+    },
   },
   {
     label: '提示词',
     route: /\/prompts$/u,
     navTestId: 'sidebar-nav',
-    assert: async (page) => expect(page.getByRole('heading', { name: '个性化' })).toBeVisible(),
+    assert: async (page) => {
+      const overview = page.getByRole('region', { name: '个性化概览', exact: true });
+      await expect(overview).toBeVisible();
+      await expect(overview.getByRole('heading', { name: '定制角色、知识和记忆', exact: true })).toBeVisible();
+    },
   },
   {
     label: '共享文件',
     route: /\/files$/u,
     navTestId: 'sidebar-nav',
     assert: async (page) => {
-      await expect(page.getByRole('heading', { name: '文件产物', exact: true })).toBeVisible();
-      await expect(page.getByRole('region', { name: '共享文件状态' })).toBeVisible();
+      const overview = page.getByRole('region', { name: '共享文件状态', exact: true });
+      await expect(overview).toBeVisible();
+      await expect(overview.getByRole('heading', { name: '共享文件和最终产物', exact: true })).toBeVisible();
     },
   },
   {
     label: '记忆中心',
     route: /\/memory$/u,
-    navTestId: 'sidebar-secondary-nav',
+    navTestId: 'sidebar-nav',
     assert: async (page) => expect(page.getByRole('heading', { name: '记忆中心', exact: true })).toBeVisible(),
   },
   {
     label: '链路追踪',
     route: /\/observability$/u,
-    navTestId: 'sidebar-secondary-nav',
+    navTestId: 'sidebar-nav',
     assert: async (page) => expect(page.getByTestId('observability-page')).toBeVisible(),
   },
 ]);
@@ -70,6 +79,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await writeDesktopWideBugReport(page, testInfo);
 });
 
+test.describe('desktop-shell', () => {
 test('workbench shell keeps critical desktop regions visible and reachable', async ({ page }) => {
   await page.goto('/');
 
@@ -81,10 +91,12 @@ test('workbench shell keeps critical desktop regions visible and reachable', asy
   await expectNoDocumentHorizontalOverflow(page);
 
   await expectCenterPointClickable(page.getByRole('button', { name: SETTINGS_BUTTON_NAME }));
-  await expectCenterPointClickable(page.getByTestId('sidebar-secondary-nav').getByRole('button', { name: '链路追踪' }));
+  await expectCenterPointClickable(page.getByTestId('sidebar-nav').getByRole('button', { name: '链路追踪' }));
   await expectCenterPointClickable(page.getByRole('button', { name: '发送消息' }));
 });
+});
 
+test.describe('desktop-business-pages', () => {
 test('business pages keep their desktop first screens healthy', async ({ page }) => {
   await page.goto('/');
   await expectLocatorInViewport(page.getByTestId('frontend-app'));
@@ -104,11 +116,13 @@ test('business pages keep their desktop first screens healthy', async ({ page })
   await expect(page.getByTestId('settings-video-card')).toBeVisible();
   await expectNoDocumentHorizontalOverflow(page);
 });
+});
 
+test.describe('desktop-read-settings', () => {
 test('risk-controlled read and settings probes stay inside mock Wails', async ({ page }) => {
   await page.goto('/');
 
-  await page.getByTestId('sidebar-secondary-nav').getByRole('button', { name: '链路追踪' }).click();
+  await page.getByTestId('sidebar-nav').getByRole('button', { name: '链路追踪' }).click();
   await expect(page).toHaveURL(/\/observability$/u);
   await page.getByRole('button', { name: '查询最新日志' }).click();
   await expect(page.getByTestId('observability-recent-logs')).toBeVisible();
@@ -124,6 +138,7 @@ test('risk-controlled read and settings probes stay inside mock Wails', async ({
   expect(mock.settingsWrites).toEqual([
     expect.objectContaining({ method: 'ui/video/setApiKey', apiKeyLength: 'desktop-wide-video-key'.length }),
   ]);
+});
 });
 
 async function expectNoDocumentHorizontalOverflow(page, tolerance = 2) {

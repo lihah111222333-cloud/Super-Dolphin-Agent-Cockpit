@@ -35,7 +35,38 @@ func TestPrioritySSAErrorStringRuleHonorsArchguardIgnore(t *testing.T) {
 	}
 }
 
-func prioritySSAErrorStringFixturePackage(t *testing.T) (*prioritySSAPackage, *ssa.Package) {
+func TestPrioritySSAFunctionIndexesReuseCollectedFunctions(t *testing.T) {
+	_, ssaPkg := prioritySSAErrorStringFixturePackage(t)
+	functions := prioritySSAFunctions(ssaPkg)
+	if len(functions) == 0 {
+		t.Fatal("priority SSA fixture produced no functions")
+	}
+	byName := prioritySSAFunctionsByName(functions)
+	byPos := prioritySSAFunctionsByPos(functions)
+	for _, name := range []string{"tagged", "untagged"} {
+		want := ssaPkg.Func(name)
+		if got := byName[name]; got != want {
+			t.Fatalf("function index %q = %p, want %p", name, got, want)
+		}
+		if got := byPos[want.Pos()]; got != want {
+			t.Fatalf("position index %q = %p, want %p", name, got, want)
+		}
+	}
+}
+
+// BenchmarkPrioritySSAFunctionIndexReuse 衡量包扫描器复用已收集 SSA 函数图时的索引构建成本。
+func BenchmarkPrioritySSAFunctionIndexReuse(b *testing.B) {
+	_, ssaPkg := prioritySSAErrorStringFixturePackage(b)
+	functions := prioritySSAFunctions(ssaPkg)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = prioritySSAFunctionsByName(functions)
+		_ = prioritySSAFunctionsByPos(functions)
+	}
+}
+
+func prioritySSAErrorStringFixturePackage(t testing.TB) (*prioritySSAPackage, *ssa.Package) {
 	t.Helper()
 
 	const source = `package priorityfixture

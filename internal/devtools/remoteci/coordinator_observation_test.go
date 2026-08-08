@@ -30,6 +30,7 @@ func (runtime observationRuntime) DescribeContainerGroups(ctx context.Context, i
 	return []eci.ContainerGroup{{
 		ID: ids[0], Status: runtime.status, CreationTime: createdAt, SucceededTime: createdAt.Add(time.Second),
 		InitContainers: []eci.ContainerStatus{{Name: "materializer", CurrentState: eci.ContainerState{StartTime: createdAt.Add(time.Millisecond)}}},
+		Containers:     []eci.ContainerStatus{{Name: "worker", CurrentState: eci.ContainerState{FinishTime: createdAt.Add(time.Second)}}},
 	}}, nil
 }
 

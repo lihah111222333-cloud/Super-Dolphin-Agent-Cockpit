@@ -3,6 +3,7 @@ package gate
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -102,7 +103,7 @@ func TestLiveRemoteCITimingWarningsAreConcurrentAndShardScoped(t *testing.T) {
 	record.Shards = append(record.Shards, RemoteCIShardRecord{
 		ShardIdentity: warnings[1].ShardIdentity, ContainerStatus: "Unknown",
 		MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementNotMeasured},
-		Resources:             RemoteCIShardResources{ClassID: "normal", CPU: 4, MemoryGiB: 16},
+		Resources:             RemoteCIShardResources{ClassID: "normal", CPU: 4, MemoryGiB: 8},
 	})
 	record.Warnings = []string{warnings[0].WarningText, warnings[1].WarningText}
 	record.TimingWarnings = warnings
@@ -179,6 +180,100 @@ func TestRemoteCITimingWarningValidationRejectsSemanticDrift(t *testing.T) {
 			warning.WarningText = CanonicalRemoteCITimingWarningText(warning)
 			if err := warning.Validate(); err == nil {
 				t.Fatal("expected timing warning semantic drift to be rejected")
+			}
+		})
+	}
+}
+
+// TestFailedRemoteCITimingWarningValidationIgnoresOrphanPartialObservation 确保失败运行的原始耗时可完整留账，
+// 但只有具备完整 execution 回执的 workload 才参与告警闭合；PASS 路径仍严格拒绝孤立观测。
+func TestFailedRemoteCITimingWarningValidationIgnoresOrphanPartialObservation(t *testing.T) {
+	startedAt := time.Date(2026, time.August, 5, 3, 0, 0, 0, time.UTC)
+	profile := ExecutionProfile{
+		CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "measured",
+		StartupMS: 10, TestBodyMS: 20, TotalMS: 50,
+	}
+	execution := PlanGateExecution{
+		GateID: "guard:complete", ShardIdentity: "shard-a", Status: ResultStatusPassed,
+		StartedAt: startedAt, CompletedAt: startedAt.Add(50 * time.Millisecond), ExecutionProfile: profile,
+	}
+	cancelled := PlanGateExecution{
+		GateID: "guard:cancelled", ShardIdentity: "shard-a", Status: ResultStatusCancelled,
+		StartedAt: startedAt.Add(50 * time.Millisecond), CompletedAt: startedAt.Add(50 * time.Millisecond),
+		ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "measured"},
+	}
+	orphanExecution := PlanGateExecution{
+		GateID: "guard:orphan", ShardIdentity: "shard-a",
+		ExecutionProfile: ExecutionProfile{
+			CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "measured",
+			TestBodyMS: 150_000, TotalMS: 150_000,
+		},
+	}
+	orphanObservation := measuredWorkloadWarningObservation(
+		"job-failed-orphan-observation", orphanExecution, cicontract.TimingTotal,
+		startedAt, startedAt.Add(150*time.Second),
+	)
+	orphanWarning := workloadTimingWarningFromObservation(
+		"job-failed-orphan-observation", testRemoteCITimingWarningAgentDigest, 1,
+		orphanObservation, cicontract.TimingWarningEvidenceTotal,
+	)
+	record := RemoteCIRunRecord{
+		JobID: "job-failed-orphan-observation", AgentTokenDigest: testRemoteCITimingWarningAgentDigest,
+		AcceptedGeneration: 1, Status: ResultStatusFailed,
+		Shards:             []RemoteCIShardRecord{{ShardIdentity: "shard-a"}},
+		WorkloadExecutions: []PlanGateExecution{execution, cancelled},
+		TimingObservations: []TimingObservation{
+			measuredWorkloadWarningObservation("job-failed-orphan-observation", execution, cicontract.TimingTestBody, startedAt.Add(30*time.Millisecond), startedAt.Add(50*time.Millisecond)),
+			measuredWorkloadWarningObservation("job-failed-orphan-observation", execution, cicontract.TimingTotal, startedAt, startedAt.Add(50*time.Millisecond)),
+			orphanObservation,
+		},
+		TimingWarnings: []RemoteCITimingWarning{orphanWarning}, Warnings: []string{orphanWarning.WarningText},
+	}
+	if err := validateRemoteCIRunTimingWarnings(record); err != nil {
+		t.Fatalf("failed provisional warning validation rejected orphan raw timing: %v", err)
+	}
+	record.Status = ResultStatusPassed
+	record.WorkloadExecutions = []PlanGateExecution{execution}
+	if err := validateRemoteCIRunTimingWarnings(record); err == nil || !strings.Contains(err.Error(), "has no execution") {
+		t.Fatalf("PASS warning validation error = %v, want orphan observation rejection", err)
+	}
+}
+
+func measuredWorkloadWarningObservation(jobID string, execution PlanGateExecution, phase cicontract.TimingPhase, startedAt, completedAt time.Time) TimingObservation {
+	return TimingObservation{
+		JobID: jobID, Scope: cicontract.TimingScopeWorkload,
+		ShardIdentity: execution.ShardIdentity, WorkloadID: execution.GateID, Phase: phase,
+		StartedAt: startedAt, CompletedAt: completedAt, DurationMS: completedAt.Sub(startedAt).Milliseconds(),
+		Measurement: cicontract.ObservationMeasured, Aggregation: cicontract.TimingAggregationRaw,
+		CacheEvidence: NewTimingCacheEvidenceFromProfile(execution.ExecutionProfile),
+	}
+}
+
+func TestRemoteCITimingWarningValidationRejectsSQLiteTimestampRange(t *testing.T) {
+	maxEvidenceStartedAtMS := int64(math.MaxInt64) - cicontract.ShardTargetDuration.Milliseconds()
+	for name, testCase := range map[string]struct {
+		startedAtMS int64
+		wantError   string
+	}{
+		"epoch": {
+			startedAtMS: 0,
+			wantError:   "evidence_started_at Unix milliseconds must be > 0",
+		},
+		"pre-epoch": {
+			startedAtMS: -1,
+			wantError:   "evidence_started_at Unix milliseconds must be > 0",
+		},
+		"sqlite addition overflow": {
+			startedAtMS: maxEvidenceStartedAtMS + 1,
+			wantError:   fmt.Sprintf("evidence_started_at Unix milliseconds must be <= %d", maxEvidenceStartedAtMS),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			warning := validRemoteCITimingWarning("job-validation-"+name, "shard-a", 1)
+			warning.EvidenceStartedAt = time.UnixMilli(testCase.startedAtMS).UTC()
+			warning.WarningText = CanonicalRemoteCITimingWarningText(warning)
+			if err := warning.Validate(); err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("Validate() error = %v, want %q", err, testCase.wantError)
 			}
 		})
 	}
@@ -270,7 +365,7 @@ func remoteCITimingWarningRunRecord(warning RemoteCITimingWarning) RemoteCIRunRe
 		Shards: []RemoteCIShardRecord{{
 			ShardIdentity: warning.ShardIdentity, ContainerStatus: "Unknown",
 			MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementNotMeasured},
-			Resources:             RemoteCIShardResources{ClassID: "normal", CPU: 4, MemoryGiB: 16},
+			Resources:             RemoteCIShardResources{ClassID: "normal", CPU: 4, MemoryGiB: 8},
 		}},
 		Warnings: []string{warning.WarningText}, TimingWarnings: []RemoteCITimingWarning{warning},
 	}

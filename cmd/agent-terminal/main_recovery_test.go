@@ -20,19 +20,30 @@ import (
 )
 
 const agentTerminalFilesystemHelperExecutableEnv = "SUPER_DOLPHIN_RELEASE_FS_HELPER_EXECUTABLE"
+const agentTerminalRollbackArtifactExecutableEnv = "SUPER_DOLPHIN_TEST_ROLLBACK_ARTIFACT"
+const agentTerminalReleaseFilesystemHelperModeEnv = "SUPER_DOLPHIN_RELEASE_FS_HELPER"
 
 func TestMain(m *testing.M) {
+	if os.Getenv(agentTerminalReleaseFilesystemHelperModeEnv) == "1" {
+		os.Exit(runAgentTerminalProcess())
+	}
 	os.Exit(runAgentTerminalTests(m))
 }
 
 func runAgentTerminalTests(m *testing.M) int {
-	cleanup, err := prepareAgentTerminalProductionTestHelper()
+	productionCleanup, err := prepareAgentTerminalProductionTestHelper()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "prepare production agent-terminal helper: %v\n", err)
 		return 1
 	}
+	rollbackCleanup, err := prepareAgentTerminalRollbackArtifact()
+	if err != nil {
+		err = errors.Join(err, productionCleanup())
+		fmt.Fprintf(os.Stderr, "prepare rollback agent-terminal helper: %v\n", err)
+		return 1
+	}
 	exitCode := m.Run()
-	if err := cleanup(); err != nil {
+	if err := errors.Join(rollbackCleanup(), productionCleanup()); err != nil {
 		fmt.Fprintf(os.Stderr, "cleanup production agent-terminal helper: %v\n", err)
 		if exitCode == 0 {
 			return 1
@@ -41,33 +52,31 @@ func runAgentTerminalTests(m *testing.M) int {
 	return exitCode
 }
 
-func prepareAgentTerminalProductionTestHelper() (func() error, error) {
-	dir, err := os.MkdirTemp("", "agent-terminal-production-helper-")
+func prepareAgentTerminalRollbackArtifact() (func() error, error) {
+	dir, err := os.MkdirTemp("", "agent-terminal-rollback-artifact-")
 	if err != nil {
 		return nil, err
 	}
-	helper := filepath.Join(dir, "agent-terminal")
-	output, err := exec.Command("go", "build", "-trimpath", "-o", helper, ".").CombinedOutput()
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("build helper: %w: %s", err, output), os.RemoveAll(dir))
+	cleanup := func() error { return os.RemoveAll(dir) }
+	source := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(source, []byte(agentTerminalRollbackArtifactSource), 0o600); err != nil {
+		return nil, errors.Join(err, cleanup())
 	}
-	previous, hadPrevious := os.LookupEnv(agentTerminalFilesystemHelperExecutableEnv)
-	if err := os.Setenv(agentTerminalFilesystemHelperExecutableEnv, helper); err != nil {
-		return nil, errors.Join(err, os.RemoveAll(dir))
+	artifact := filepath.Join(dir, "rollback-artifact")
+	output, err := exec.Command("go", "build", "-trimpath", "-o", artifact, source).CombinedOutput()
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("build rollback artifact: %w: %s", err, output), cleanup())
+	}
+	previous, hadPrevious := os.LookupEnv(agentTerminalRollbackArtifactExecutableEnv)
+	if err := os.Setenv(agentTerminalRollbackArtifactExecutableEnv, artifact); err != nil {
+		return nil, errors.Join(err, cleanup())
 	}
 	return func() error {
 		return errors.Join(
-			restoreAgentTerminalTestEnv(agentTerminalFilesystemHelperExecutableEnv, previous, hadPrevious),
-			os.RemoveAll(dir),
+			restoreAgentTerminalTestEnv(agentTerminalRollbackArtifactExecutableEnv, previous, hadPrevious),
+			cleanup(),
 		)
 	}, nil
-}
-
-func restoreAgentTerminalTestEnv(key, value string, present bool) error {
-	if present {
-		return os.Setenv(key, value)
-	}
-	return os.Unsetenv(key)
 }
 
 func TestUseHeadlessDesktopBackendOnlyForRemoteWorker(t *testing.T) {
@@ -98,15 +107,17 @@ func agentTerminalRollbackLaunchDir(launch runtimeenv.RecoveryLaunch) string {
 
 func buildAgentTerminalRollbackArtifact(t *testing.T) string {
 	t.Helper()
-	sourceDir := t.TempDir()
-	source := filepath.Join(sourceDir, "main.go")
-	if err := os.WriteFile(source, []byte(agentTerminalRollbackArtifactSource), 0o600); err != nil {
-		t.Fatal(err)
+	cachedArtifact := os.Getenv(agentTerminalRollbackArtifactExecutableEnv)
+	if cachedArtifact == "" {
+		t.Fatal("rollback artifact helper environment is required")
 	}
-	artifact := filepath.Join(sourceDir, "rollback-artifact")
-	output, err := exec.Command("go", "build", "-trimpath", "-o", artifact, source).CombinedOutput()
+	raw, err := os.ReadFile(cachedArtifact)
 	if err != nil {
-		t.Fatalf("build rollback artifact: %v\n%s", err, output)
+		t.Fatalf("read cached rollback artifact: %v", err)
+	}
+	artifact := filepath.Join(t.TempDir(), "rollback-artifact")
+	if err := os.WriteFile(artifact, raw, 0o700); err != nil {
+		t.Fatalf("copy cached rollback artifact: %v", err)
 	}
 	return artifact
 }

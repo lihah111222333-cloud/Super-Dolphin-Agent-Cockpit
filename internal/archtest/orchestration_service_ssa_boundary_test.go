@@ -29,14 +29,15 @@ type orchestrationServiceSSAAllowance struct {
 	reason   string
 }
 
-func TestOrchestrationServiceSSAConsumersDoNotPropagateFullService(t *testing.T) {
-	t.Parallel()
+func runOrchestrationServiceSSAConsumersCheck(t *testing.T, pkgs []*orchestrationServiceCheckedPackage) {
+	t.Helper()
 
-	root := repoRoot(t)
-	pkgs := loadWideOrchestrationTypeGuardPackages(t, root)
 	allowances := orchestrationServiceSSAAllowances()
 	var violations []string
 	for _, pkg := range pkgs {
+		if !orchestrationServiceCheckedPackageMayCarryWideType(pkg) {
+			continue
+		}
 		for _, use := range collectOrchestrationServiceSSAUses(t, pkg, nil) {
 			if isAllowedOrchestrationServiceSSAUse(use, allowances) {
 				continue
@@ -46,6 +47,41 @@ func TestOrchestrationServiceSSAConsumersDoNotPropagateFullService(t *testing.T)
 	}
 	sort.Strings(violations)
 	failIfViolations(t, violations)
+}
+
+// orchestrationServiceCheckedPackageMayCarryWideType 在逐包构建 SSA 前执行廉价的类型信息预筛选。
+// 完整服务的 SSA 使用必然来自已加载包信息中的类型、对象或选择器；不含宽服务类型的包不会产生违规。
+func orchestrationServiceCheckedPackageMayCarryWideType(pkg *orchestrationServiceCheckedPackage) bool {
+	if pkg == nil || pkg.typesInfo == nil {
+		return false
+	}
+	return orchestrationServiceObjectMapMayCarryWideType(pkg.typesInfo.Defs) ||
+		orchestrationServiceObjectMapMayCarryWideType(pkg.typesInfo.Uses) ||
+		orchestrationServiceTypeValueMapMayCarryTarget(pkg.typesInfo.Types, nil) ||
+		orchestrationServiceSelectionMapMayCarryWideType(pkg.typesInfo.Selections)
+}
+
+// orchestrationServiceObjectMapMayCarryWideType 检查对象表中是否存在宽服务类型。
+func orchestrationServiceObjectMapMayCarryWideType(objects map[*ast.Ident]types.Object) bool {
+	for _, object := range objects {
+		if object != nil && wideOrchestrationType(object.Type()) {
+			return true
+		}
+	}
+	return false
+}
+
+// orchestrationServiceSelectionMapMayCarryWideType 检查选择器接收者和方法签名中的宽服务类型。
+func orchestrationServiceSelectionMapMayCarryWideType(selections map[*ast.SelectorExpr]*types.Selection) bool {
+	for _, selection := range selections {
+		if selection == nil {
+			continue
+		}
+		if wideOrchestrationType(selection.Recv()) || selection.Obj() != nil && wideOrchestrationType(selection.Obj().Type()) {
+			return true
+		}
+	}
+	return false
 }
 
 func collectOrchestrationServiceSSAUses(

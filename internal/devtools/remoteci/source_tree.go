@@ -22,9 +22,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
-// verifyObjectClosure 要求导入仓中的指定 commits 具备完整且严格有效的对象闭包。
+// verifyObjectClosure 要求导入仓中的指定 commits 具备完整且严格有效的对象闭包；
+// 与候选不可达的悬空对象不属于本次增量传输的校验边界。
 func verifyObjectClosure(ctx context.Context, bareRoot string, commits ...string) error {
-	args := []string{"fsck", "--full", "--strict", "--no-reflogs", "--"}
+	args := []string{"fsck", "--full", "--strict", "--no-reflogs", "--no-dangling", "--"}
 	output, err := runGitOutput(ctx, bareRoot, nil, append(args, commits...)...)
 	return rejectGitOutput(output, err, "verify source object closure")
 }
@@ -96,10 +97,17 @@ func expectedBundleRefs(manifest SourceMaterializationManifest) string {
 	return fmt.Sprintf("%s %s\n", manifest.TransportCommitSHA, sourceBundleRef)
 }
 
-// verifyImportedSource 复核 deterministic transport commit 的 tree 与唯一
-// accepted baseline parent，并验证其候选 tree 闭包。原始 SourceSpec commit /
+// verifyImportedSource 复核 synthetic base 与 deterministic transport commit
+// 的 tree、parent 和身份，并验证候选 tree 闭包。原始 SourceSpec commit /
 // range / tree identity 仅由 manifest.Source 保存，绝不被 transport ref 替代。
 func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceMaterializationManifest, baseline SourceBaseline) error {
+	baseObject, err := readSourceObject(ctx, bareRoot, manifest.SyntheticBaseCommitSHA)
+	if err != nil {
+		return err
+	}
+	if err := verifySyntheticBaseCommit(baseObject, manifest, baseline); err != nil {
+		return err
+	}
 	object, err := readSourceObject(ctx, bareRoot, manifest.TransportCommitSHA)
 	if err != nil {
 		return err
@@ -108,14 +116,30 @@ func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceM
 	if err != nil {
 		return err
 	}
-	if len(parents) != 1 || parents[0] != baseline.CommitSHA {
-		return errors.New("transport commit parent does not match accepted image baseline")
+	if len(parents) != 1 || parents[0] != manifest.SyntheticBaseCommitSHA {
+		return errors.New("transport commit parent does not match candidate synthetic base")
 	}
-	expected, err := DeterministicSourceTransportCommitSHA(manifest.SourceTreeSHA, baseline.CommitSHA, manifest.ObjectFormat)
+	expected, err := DeterministicSourceTransportCommitSHA(manifest.SourceTreeSHA, manifest.SyntheticBaseCommitSHA, manifest.ObjectFormat)
 	if err != nil || manifest.TransportCommitSHA != expected {
 		return errors.New("transport commit identity is not deterministic")
 	}
 	return verifyObjectClosure(ctx, bareRoot, manifest.TransportCommitSHA)
+}
+
+// verifySyntheticBaseCommit 复核 candidate synthetic base 的 tree、parent 与确定性身份。
+func verifySyntheticBaseCommit(object sourceObject, manifest SourceMaterializationManifest, baseline SourceBaseline) error {
+	baseTree, baseParents, err := parseCommitObject(object, manifest.SyntheticBaseTreeSHA)
+	if err != nil {
+		return err
+	}
+	if baseTree != manifest.SyntheticBaseTreeSHA || len(baseParents) != 1 || baseParents[0] != baseline.CommitSHA {
+		return errors.New("synthetic base commit does not match accepted image baseline")
+	}
+	expectedBase, err := DeterministicSourceSyntheticBaseCommitSHA(manifest.SyntheticBaseTreeSHA, baseline.CommitSHA, manifest.ObjectFormat)
+	if err != nil || manifest.SyntheticBaseCommitSHA != expectedBase {
+		return errors.New("synthetic base commit identity is not deterministic")
+	}
+	return nil
 }
 
 // verifyBundlePrerequisites 验证 bundle 头部只包含 accepted baseline 前置条件和候选 ref。
@@ -515,7 +539,7 @@ func LoadReadOnlyGitTree(ctx context.Context, repoRoot string, spec gate.SourceS
 	if err := verifyRepositoryIdentity(ctx, repoRoot, spec.ObjectFormat); err != nil {
 		return ReadOnlyGitTree{}, err
 	}
-	plan, err := inspectSourcePlan(ctx, repoRoot, spec)
+	plan, err := inspectSourcePlan(ctx, repoRoot, spec, nil)
 	if err != nil {
 		return ReadOnlyGitTree{}, err
 	}

@@ -323,10 +323,10 @@ func TestCommitTitleGuardRejectsInvalidEnforcementBaseline(t *testing.T) {
 
 func TestCommitTitleGuardGrandfathersOnlyBaselineAncestors(t *testing.T) {
 	t.Run("allows mixed grandfathered and enforced history", func(t *testing.T) {
-		root, eventBase := prepareCommitTitleBaselineRepo(t)
+		root, base := prepareCommitTitleBaselineRepo(t)
 		head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: 更新当前说明")
 
-		out, err := runCommitTitleGuard(t, root, "--range", eventBase+".."+head)
+		out, err := runCommitTitleGuard(t, root, "--range", base+".."+head)
 		if err != nil {
 			t.Fatalf("commit title guard rejected grandfathered history: %v\n%s", err, out)
 		}
@@ -335,11 +335,11 @@ func TestCommitTitleGuardGrandfathersOnlyBaselineAncestors(t *testing.T) {
 	})
 
 	t.Run("rejects a new English title without blaming the baseline", func(t *testing.T) {
-		root, eventBase := prepareCommitTitleBaselineRepo(t)
+		root, base := prepareCommitTitleBaselineRepo(t)
 		head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: update current guide")
 		shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", head))
 
-		out, err := runCommitTitleGuard(t, root, "--range", eventBase+".."+head)
+		out, err := runCommitTitleGuard(t, root, "--range", base+".."+head)
 		if err == nil {
 			t.Fatalf("commit title guard accepted a new English title\n%s", out)
 		}
@@ -348,53 +348,33 @@ func TestCommitTitleGuardGrandfathersOnlyBaselineAncestors(t *testing.T) {
 	})
 }
 
-func TestCICommitGuardHonorsTitleBaselineAcrossEventBoundaries(t *testing.T) {
-	for _, eventName := range []string{"pull_request", "push"} {
-		t.Run(eventName+" allows grandfathered history", func(t *testing.T) {
-			root, eventBase := prepareCommitTitleBaselineRepo(t)
-			copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-			head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: 更新当前说明")
+func TestCICommitGuardHonorsTitleBaselineForExplicitRange(t *testing.T) {
+	root, base := prepareCommitTitleBaselineRepo(t)
+	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: 更新当前说明")
 
-			out, err := runCICommitGuard(t, root, commitGuardEventEnv(eventName, eventBase, head))
-			if err != nil {
-				t.Fatalf("ci commit guard rejected %s grandfathered history: %v\n%s", eventName, err, out)
-			}
-			assertOutputContainsAll(t, out, "Chinese commit message guard OK", "fix-test guard OK")
-			assertOutputOmitsAll(t, out, "chore: legacy English title")
-		})
+	out, err := runCICommitGuard(t, root, "--range", base+".."+head)
+	if err != nil {
+		t.Fatalf("ci commit guard rejected grandfathered history: %v\n%s", err, out)
 	}
+	assertOutputContainsAll(t, out, "Chinese commit message guard OK", "fix-test guard OK")
+	assertOutputOmitsAll(t, out, "chore: legacy English title")
 
 	t.Run("new fix without a test still fails", func(t *testing.T) {
-		root, eventBase := prepareCommitTitleBaselineRepo(t)
+		root, base := prepareCommitTitleBaselineRepo(t)
 		copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
 		head := commitCommitGuardFixture(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n", "fix: 修复 parser panic")
 
-		out, err := runCICommitGuard(t, root, commitGuardEventEnv("pull_request", eventBase, head))
+		out, err := runCICommitGuard(t, root, "--range", base+".."+head)
 		if err == nil {
 			t.Fatalf("ci commit guard accepted a new fix without a test\n%s", out)
 		}
 		assertOutputContainsAll(t, out, "Chinese commit message guard OK", "[ci-commit-guard] fix-test guard", "fix commit 缺少锁定 bug 的测试")
 		assertOutputOmitsAll(t, out, "chore: legacy English title")
 	})
-
-	t.Run("push zero SHA remains fail fast", func(t *testing.T) {
-		root, _ := prepareCommitTitleBaselineRepo(t)
-		copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-		head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
-		out, err := runCICommitGuard(t, root, map[string]string{
-			"GITHUB_EVENT_NAME":   "push",
-			"GITHUB_EVENT_BEFORE": strings.Repeat("0", 40),
-			"GITHUB_SHA":          head,
-		})
-		if err == nil {
-			t.Fatalf("ci commit guard accepted a zero push base\n%s", out)
-		}
-		assertOutputContainsAll(t, out, "GITHUB_EVENT_BEFORE is the zero SHA")
-		assertOutputOmitsAll(t, out, "[ci-commit-guard] Chinese commit message guard")
-	})
 }
 
-func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
+func TestCICommitGuardRunsFixTestGuardForExplicitRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
 	copyCommitTitleGuard(t, root, "")
@@ -405,18 +385,14 @@ func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
 	runFixTestGuardGit(t, root, "commit", "-m", "fix: 修复 parser panic")
 	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
-	out, err := runCICommitGuard(t, root, map[string]string{
-		"GITHUB_EVENT_NAME": "pull_request",
-		"GITHUB_BASE_SHA":   base,
-		"GITHUB_HEAD_SHA":   head,
-	})
+	out, err := runCICommitGuard(t, root, "--range", base+".."+head)
 	if err == nil {
 		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
 	}
 	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit message guard: "+base+".."+head, "Chinese commit message guard OK", "[ci-commit-guard] fix-test guard: "+base+".."+head, "fix commit 缺少锁定 bug 的测试", "fix: 修复 parser panic")
 }
 
-func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
+func TestCICommitGuardRunsFixTestGuardForExplicitPassingRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
 	copyCommitTitleGuard(t, root, "")
@@ -428,11 +404,7 @@ func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
 	runFixTestGuardGit(t, root, "commit", "-m", "fix: 修复 parser panic")
 	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
-	out, err := runCICommitGuard(t, root, map[string]string{
-		"GITHUB_EVENT_NAME":   "push",
-		"GITHUB_EVENT_BEFORE": base,
-		"GITHUB_SHA":          head,
-	})
+	out, err := runCICommitGuard(t, root, "--range", base+".."+head)
 	if err != nil {
 		t.Fatalf("ci commit guard failed: %v\n%s", err, out)
 	}
@@ -451,11 +423,7 @@ func TestCICommitGuardRejectsTitleWithoutChinese(t *testing.T) {
 	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 	shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", "HEAD"))
 
-	out, err := runCICommitGuard(t, root, map[string]string{
-		"GITHUB_EVENT_NAME":   "push",
-		"GITHUB_EVENT_BEFORE": base,
-		"GITHUB_SHA":          head,
-	})
+	out, err := runCICommitGuard(t, root, "--range", base+".."+head)
 	if err == nil {
 		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
 	}
@@ -475,48 +443,10 @@ func TestCICommitGuardRejectsBodyWithoutChinese(t *testing.T) {
 	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 	shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", "HEAD"))
 
-	out, err := runCICommitGuard(t, root, map[string]string{
-		"GITHUB_EVENT_NAME":   "push",
-		"GITHUB_EVENT_BEFORE": base,
-		"GITHUB_SHA":          head,
-	})
+	out, err := runCICommitGuard(t, root, "--range", base+".."+head)
 	if err == nil {
 		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
 	}
 	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit message guard: "+base+".."+head, "commit "+shortHead+" body must contain Chinese text when present", "body: English body only")
 	assertOutputOmitsAll(t, out, "[ci-commit-guard] fix-test guard")
-}
-
-func TestCIWorkflowRunsTruthImageCoordinator(t *testing.T) {
-	workflow := locateFixTestGuardRepoFile(t, ".github/workflows/ci.yml")
-	data, err := os.ReadFile(workflow)
-	if err != nil {
-		t.Fatalf("read ci workflow: %v", err)
-	}
-
-	content := string(data)
-	assertOutputContainsAll(t, content,
-		"truth-image-gates:",
-		"pull_request_target:",
-		"fetch-depth: 1",
-		"persist-credentials: false",
-		"SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE",
-		"SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64",
-		"workflow-host",
-	)
-	assertOutputOmitsAll(t, content, "./scripts/ci_commit_guard.sh", "make ", "go test", "npm ")
-}
-
-func TestCIWorkflowDoesNotExcludeProductionPackages(t *testing.T) {
-	workflow := locateFixTestGuardRepoFile(t, ".github/workflows/ci.yml")
-	data, err := os.ReadFile(workflow)
-	if err != nil {
-		t.Fatalf("read ci workflow: %v", err)
-	}
-	content := string(data)
-	for _, forbidden := range []string{"grep -v", "/internal/provider/dreamexec"} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("ci workflow contains production package exclusion %q:\n%s", forbidden, content)
-		}
-	}
 }

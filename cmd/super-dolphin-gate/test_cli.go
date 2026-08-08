@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -8,13 +9,14 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 const mcpLSPDefault15mWorkloadID = "mcp-lsp-default-15m"
 
 // runTestInvocation 固定 test 场景，并把所有工作负载交给权威远程 ECI 协调器。
-func runTestInvocation(args []string, stdout io.Writer) error {
+func runTestInvocation(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
 	if err := requireRemoteCIAgentToken([]string{"test"}, args, stdout); err != nil {
 		return err
 	}
@@ -22,7 +24,13 @@ func runTestInvocation(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	progress, err := newRemoteProgressObserver(progressWriters...)
+	if err != nil {
+		return err
+	}
+	options.ProgressObserver = progress
 	result, input, runErr := executeRemoteRun(options)
+	runErr = errors.Join(runErr, remoteci.ProgressError(progress))
 	if runErr == nil && options.WorkloadID != "" && options.CompletionReceiptPath != "" {
 		runErr = fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", options.WorkloadID)
 	}

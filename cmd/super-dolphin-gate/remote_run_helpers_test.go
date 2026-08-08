@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -71,15 +72,15 @@ func remoteRunTestAcceptedBaselineState(generation uint64) remoteci.BaselineStat
 
 func validRemoteRunConfigJSON() string {
 	return `{
-	  "schema_version": 8,
+	  "schema_version": 10,
   "aliyun_cli": "aliyun",
   "credential_profile": "super-dolphin-ci",
   "region_id": "cn-shenzhen",
-  "vswitch_id": "vsw-test",
+	  "vswitches": [{"id":"vsw-zone-a","zone_id":"cn-test-a"},{"id":"vsw-zone-b","zone_id":"cn-test-b"}],
   "security_group_id": "sg-test",
   "worker_role_name": "super-dolphin-ci-worker",
   "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-bundles/"},
-  "capacity": {"resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "calibration_class": "maximum", "headroom_percent": 25, "min_samples_to_downsize": 5}}
+  "capacity": {"resource_policy": {"normal_classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "medium", "vcpu": 4, "memory_gib": 8}, {"id": "maximum", "vcpu": 8, "memory_gib": 16}], "bootstrap": {"guard": "small", "node_test": "small", "go_test": "small"}, "calibration_resource": {"id": "calibration", "vcpu": 4, "memory_gib": 8}, "fast_workload_max_duration_ms": 5000, "medium_workload_max_duration_ms": 70000, "headroom_percent": 25, "min_samples_to_downsize": 5}}
 }`
 }
 
@@ -100,7 +101,7 @@ func remoteRunBaselineState(t *testing.T, repository string) remoteci.BaselineSt
 }
 
 func remoteRunRunnerIdentityState() remoteci.BaselineState {
-	return remoteci.BaselineState{Platform: "linux/amd64", PolicyDigest: testRemoteBaselineDigest("remote baseline policy"), ToolchainDigest: testRemoteBaselineDigest("remote baseline toolchain"), RuntimeImage: "registry.example/runtime@" + testRemoteBaselineDigest("remote baseline runtime image"), GateBinarySHA256: testRemoteBaselineDigest("remote baseline gate binary"), RuntimeSeedSHA256: testRemoteBaselineDigest("remote baseline runtime seed"), BaselineManifestDigest: testRemoteBaselineDigest("remote baseline manifest")}
+	return remoteci.BaselineState{ExecutionProvider: cicontract.ExecutionProviderID, RegionID: "cn-shenzhen", Platform: "linux/amd64", PolicyDigest: testRemoteBaselineDigest("remote baseline policy"), ToolchainDigest: testRemoteBaselineDigest("remote baseline toolchain"), RuntimeImage: "registry.example/runtime@" + testRemoteBaselineDigest("remote baseline runtime image"), GateBinarySHA256: testRemoteBaselineDigest("remote baseline gate binary"), RuntimeSeedSHA256: testRemoteBaselineDigest("remote baseline runtime seed"), BaselineManifestDigest: testRemoteBaselineDigest("remote baseline manifest")}
 }
 
 // testRemoteBaselineDigest keeps baseline fixtures bound to deterministic SHA-256 values.
@@ -110,6 +111,51 @@ func testRemoteBaselineDigest(value string) string {
 
 func remoteRunRunnerIdentity(state remoteci.BaselineState) string {
 	return remoteRunnerIdentityDigest(state, "sha256:"+strings.Repeat("f", 64))
+}
+
+// seedRemoteRunShardOverheadFixture 写入物理持久化的 overhead 样本，
+// 使 normal planning fixture 满足与生产相同的 accepted authority 契约。
+func seedRemoteRunShardOverheadFixture(t *testing.T, store *gatecontract.DurationLedgerStore, runner, snapshotID string) {
+	t.Helper()
+	jobID := "fixture-shard-overhead"
+	now := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
+	digest := "sha256:" + strings.Repeat("d", 64)
+	database, err := sql.Open("sqlite", store.AuthorityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`INSERT INTO ci_runs (
+		job_id, force, entrypoint, profile, plan_digest, catalog_digest,
+		accepted_generation, image_cache_snapshot_id, source_tree_sha,
+		candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image,
+		status, authoritative, started_at_unix_ms, completed_at_unix_ms,
+		cleanup_complete, error_text
+	) VALUES (?, 0, 'manual-cli', 'local-fast', ?, ?, '1', ?, ?, ?, ?, ?, 'passed', 0, ?, ?, 1, '')`,
+		jobID, digest, digest, snapshotID, strings.Repeat("f", 40), digest, digest, "runner@"+runner,
+		now.UnixMilli(), now.Add(time.Millisecond).UnixMilli()); err != nil {
+		t.Fatalf("seed shard overhead run fixture: %v", err)
+	}
+	overhead := gatecontract.ShardOrchestrationOverhead{
+		SchemaVersion: gatecontract.ShardOrchestrationOverheadSchemaVersion,
+		PolicyVersion: gatecontract.ShardOverheadPolicyVersion,
+		Platform:      "linux/amd64", Runner: runner, Toolchain: remoteRunRunnerIdentityState().ToolchainDigest,
+		CalibrationResourceClassID: "calibration", CalibrationResourceCPU: 4, CalibrationResourceMemoryGiB: 8,
+		P95MS: 1000, SampleCount: 1, ProvenanceDigest: digest, AcceptedGeneration: 1, AcceptedSnapshotID: snapshotID,
+	}
+	sample := gatecontract.ShardOrchestrationOverheadSample{
+		AcceptedGeneration: 1, ProvenanceDigest: digest, JobID: jobID, ShardIdentity: "fixture-shard",
+		TotalStartedAt: now, TotalCompletedAt: now.Add(2 * time.Second),
+		WorkloadEnvelopeStart: now.Add(500 * time.Millisecond), WorkloadEnvelopeEnd: now.Add(1500 * time.Millisecond),
+		AccountedDurationMS: 1000, AccountedIntervalCount: 1, OverheadMS: 1000,
+	}
+	snapshot, err := store.Load()
+	if err != nil {
+		t.Fatalf("load current ledger generation before seeding shard overhead: %v", err)
+	}
+	if _, err := store.CompareAndSwapShardOverhead(snapshot.Generation, overhead, []gatecontract.ShardOrchestrationOverheadSample{sample}); err != nil {
+		t.Fatalf("seed shard overhead fixture: %v", err)
+	}
 }
 
 func writeRemoteRunConfigFixture(t *testing.T, document string) string {

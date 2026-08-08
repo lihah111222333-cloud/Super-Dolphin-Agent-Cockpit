@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -32,14 +34,29 @@ func newRemoteDurationCalibrationFixture(t *testing.T) remoteDurationCalibration
 	commitCatalog, commitDigest := mustRemoteCalibrationCatalog(t, remoteci.RunInput{Profile: gatecontract.ProfileLocalFast, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, ObjectFormat: gatecontract.GitObjectFormatSHA1, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: base}, SourceTreeSHA: tree}, Inventory: inventory})
 	pushCatalog, pushDigest := mustRemoteCalibrationCatalog(t, remoteci.RunInput{Profile: gatecontract.ProfilePush, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindRange, ObjectFormat: gatecontract.GitObjectFormatSHA1, Range: &gatecontract.RangeSource{BaseKind: gatecontract.BaseKindCommit, BaseSHA: base, HeadSHA: commit, LocalRef: "refs/heads/main", RemoteRef: "refs/heads/main", ObservedRemoteSHA: base, UpdateKind: gatecontract.UpdateKindFastForward}, SourceTreeSHA: tree}, Inventory: inventory})
 	releaseCatalog, releaseDigest := mustRemoteCalibrationCatalog(t, remoteci.RunInput{Profile: gatecontract.ProfileRelease, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1, Commit: &gatecontract.CommitSource{SHA: commit}, SourceTreeSHA: tree}, Inventory: inventory})
-	calibration := gatecontract.DurationCalibration{SchemaVersion: gatecontract.DurationCalibrationSchemaVersion, Commit: commit, Tree: tree, Platform: "linux/amd64", Runner: "sha256:" + strings.Repeat("4", 64), Toolchain: "sha256:" + strings.Repeat("5", 64), CommitEntrypoint: gatecontract.CIEntrypointGitPreCommit, PushEntrypoint: gatecontract.CIEntrypointGitPrePush, ReleaseEntrypoint: gatecontract.CIEntrypointRelease, CommitCatalogDigest: commitDigest, PushCatalogDigest: pushDigest, ReleaseCatalogDigest: releaseDigest, CompletedAt: time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC)}
+	calibration := gatecontract.DurationCalibration{SchemaVersion: gatecontract.DurationCalibrationSchemaVersion, Commit: commit, Tree: tree, Platform: "linux/amd64", Runner: "sha256:" + strings.Repeat("4", 64), Toolchain: remoteRunRunnerIdentityState().ToolchainDigest, CommitEntrypoint: gatecontract.CIEntrypointGitPreCommit, PushEntrypoint: gatecontract.CIEntrypointGitPrePush, ReleaseEntrypoint: gatecontract.CIEntrypointRelease, CommitCatalogDigest: commitDigest, PushCatalogDigest: pushDigest, ReleaseCatalogDigest: releaseDigest, CalibrationResourceClassID: "calibration", CalibrationResourceCPU: 4, CalibrationResourceMemoryGiB: 8, AcceptedSnapshotID: "snapshot-test", CompletedAt: time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC)}
 	expected := remoteCalibrationExpectedWorkloads(commitCatalog, pushCatalog, releaseCatalog)
 	return remoteDurationCalibrationFixture{store: store, acceptedGeneration: 1, calibration: calibration, commitCatalog: commitCatalog, pushCatalog: pushCatalog, releaseCatalog: releaseCatalog, expected: expected, inventory: inventory}
 }
 
+func seedRemoteDurationCalibrationFixtureOverhead(t *testing.T, fixture remoteDurationCalibrationFixture) {
+	t.Helper()
+	seedRemoteRunShardOverheadFixture(t, fixture.store, fixture.calibration.Runner, fixture.calibration.AcceptedSnapshotID)
+}
+
 func mustRemoteCalibrationCatalog(t *testing.T, input remoteci.RunInput) (gatecontract.WorkloadCatalog, string) {
 	t.Helper()
-	catalog, digest, err := remoteCalibrationCatalog(input)
+	catalog, _, err := remoteCalibrationCatalog(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range catalog.Workloads {
+		// 直接目录构造器把生产输入绑定留给协调器；测试 fixture 仍须模拟校准证据
+		// 实际读取的持久化精确目录，因此每个 bucket 都绑定有效摘要。
+		seed := sha256.Sum256([]byte("remote-calibration-fixture-input\x00" + catalog.Workloads[index].ID))
+		catalog.Workloads[index].InputDigest = "sha256:" + hex.EncodeToString(seed[:])
+	}
+	digest, err := gatecontract.WorkloadCatalogDigest(catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +67,7 @@ func remoteCalibrationExpectedWorkloads(catalogs ...gatecontract.WorkloadCatalog
 	expected := make(map[string]gatecontract.Workload)
 	for _, catalog := range catalogs {
 		for _, workload := range catalog.Workloads {
-			expected[workload.ID+"\x00"+workload.CommandDigest] = workload
+			expected[remoteCalibrationWorkloadKey(workload)] = workload
 		}
 	}
 	return expected
@@ -61,7 +78,7 @@ func (fixture remoteDurationCalibrationFixture) samplesExceptRequiredWorkloads(t
 	var samples []gatecontract.DurationSample
 	var missingWorkload, missingRace gatecontract.DurationSample
 	for _, workload := range fixture.expected {
-		sample := gatecontract.DurationSample{Bucket: gatecontract.DurationBucket{WorkloadID: workload.ID, CommandDigest: workload.CommandDigest, Platform: fixture.calibration.Platform, Runner: fixture.calibration.Runner, Toolchain: fixture.calibration.Toolchain}, Succeeded: true, DurationMS: 1_000}
+		sample := gatecontract.DurationSample{Bucket: gatecontract.DurationBucket{WorkloadID: workload.ID, CommandDigest: workload.CommandDigest, InputDigest: workload.InputDigest, Platform: fixture.calibration.Platform, Runner: fixture.calibration.Runner, Toolchain: fixture.calibration.Toolchain, ExecutionMode: gatecontract.DurationExecutionModeCalibration, ResourceClassID: fixture.calibration.CalibrationResourceClassID, ResourceCPU: fixture.calibration.CalibrationResourceCPU, ResourceMemoryGiB: fixture.calibration.CalibrationResourceMemoryGiB}, Succeeded: true, DurationMS: 1_000}
 		parent, err := gatecontract.WorkloadParentGateID(workload.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -159,7 +176,7 @@ func assertRemoteRunInputGitIdentity(t *testing.T, input remoteci.RunInput) {
 
 func assertRemoteRunInputAuthority(t *testing.T, input remoteci.RunInput, state remoteci.BaselineState) {
 	t.Helper()
-	if input.LedgerSnapshot.Generation != 1 {
+	if input.LedgerSnapshot.Generation == 0 || input.LedgerSnapshot.Ledger.ShardOverhead != nil {
 		t.Fatalf("resolveRemoteRunInput() = %#v", input)
 	}
 	if input.BaselineManifestDigest != state.BaselineManifestDigest {

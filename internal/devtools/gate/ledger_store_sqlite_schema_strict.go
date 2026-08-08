@@ -26,13 +26,22 @@ func newDurationLedgerSQLiteSchemaValidator() *durationLedgerSQLiteSchemaValidat
 // durationLedgerSQLiteCurrentSchemaStatements returns the sole physical schema
 // definition used by both empty-authority initialization and exact comparison.
 func durationLedgerSQLiteCurrentSchemaStatements() []string {
+	statements := durationLedgerSQLiteV12SchemaStatements()
+	return append(statements, strictWorkloadPassEvidenceAliasSQLiteSchema)
+}
+
+// durationLedgerSQLiteV12SchemaStatements 返回 alias relation 引入前的精确 v12 schema。
+// v12 作为显式升级输入保留，避免把关系表 DDL 误当作旧 authority 的既有结构。
+func durationLedgerSQLiteV12SchemaStatements() []string {
 	statements := durationLedgerSQLiteLegacySchemaStatements()
-	return append(statements,
+	statements = append(statements,
 		durationLedgerRawObservationEventsTableSchema,
 		durationLedgerRawObservationEventsIndexSchema,
 		durationLedgerRawObservationEventsUpdateTriggerSchema,
 		durationLedgerRawObservationEventsDeleteTriggerSchema,
 	)
+	statements = append(statements, durationLedgerCompileTimingSchemaStatements()...)
+	return append(statements, durationLedgerRemoteCITerminalEvidenceSchemaStatements()...)
 }
 
 func durationLedgerSQLiteLegacySchemaStatements() []string {

@@ -130,6 +130,45 @@ func (b *durableBackend) record(ctx context.Context, snapshot processprobe.Snaps
 	return result, err
 }
 
+// recordBatch 在单个可信根锁内批量持久化快照并复用已加载记录。
+func (b *durableBackend) recordBatch(ctx context.Context, snapshots []processprobe.Snapshot, failOnce *bool) ([]Decision, error) {
+	decisions := make([]Decision, 0, len(snapshots))
+	err := b.withLockedRoot(ctx, func(root *secureRoot) error {
+		loaded, err := root.readDurableRecords()
+		if err != nil {
+			return err
+		}
+		for _, snapshot := range snapshots {
+			if err := validateContext(ctx); err != nil {
+				return err
+			}
+			if !isNoSignalSnapshot(snapshot) {
+				return errors.New("process observation snapshot has signal authority")
+			}
+			key, decision, record, err := prepareDurableRecord(loaded, snapshot)
+			if err != nil {
+				return err
+			}
+			if err := writeDurableRecordWithCapacity(root, loaded, key, record); err != nil {
+				return err
+			}
+			if consumeDurableFailure(failOnce) {
+				return errors.New("injected durable projection fan-out failure")
+			}
+			if err := fanoutDurableRecord(root, loaded, key, &record); err != nil {
+				return err
+			}
+			decision, err = record.toDecision()
+			if err != nil {
+				return err
+			}
+			decisions = append(decisions, decision)
+		}
+		return nil
+	})
+	return decisions, err
+}
+
 func recordDurableLocked(root *secureRoot, snapshot processprobe.Snapshot, failOnce *bool) (Decision, error) {
 	loaded, err := root.readDurableRecords()
 	if err != nil {

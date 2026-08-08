@@ -142,6 +142,9 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigest(ctx context
 		fragments:      make(map[string]workerExecutionFragment),
 		scannedScripts: make(map[string]struct{}),
 	}
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		return "", err
+	}
 	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
 		return "", err
 	}

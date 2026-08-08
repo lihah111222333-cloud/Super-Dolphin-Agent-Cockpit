@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -16,7 +17,13 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const ShardRequestSchemaVersion uint32 = 13
+const (
+	ShardRequestSchemaVersion uint32 = 14
+	// ShardRequestMaxBytes 复用 cicontract 对完整 canonical JSON 请求（含有序
+	// compile-group manifest）的唯一上限；它取代 gate 数量启发式，确保超大请求
+	// 在 OSS/ECI side effect 前 fail-fast。
+	ShardRequestMaxBytes = cicontract.RemoteShardRequestMaxBytes
+)
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -49,6 +56,8 @@ type ShardRequest struct {
 	CandidateGateSourceSHA256    string                   `json:"candidate_gate_source_sha256"`
 	CandidateGateToolchainSHA256 string                   `json:"candidate_gate_toolchain_sha256"`
 	GateIDs                      []gate.GateID            `json:"gate_ids"`
+	CompileGroups                []gate.CompileGroup      `json:"compile_groups"`
+	ShardExecutionManifestDigest string                   `json:"shard_execution_manifest_digest"`
 	Calibration                  bool                     `json:"calibration"`
 	ResourceClass                shardresource.Class      `json:"resource_class"`
 	CalibrationResource          *shardresource.Class     `json:"calibration_resource,omitempty"`
@@ -74,7 +83,10 @@ func (request ShardRequest) Validate() error {
 	if err := request.validateResourceClass(); err != nil {
 		return err
 	}
-	return validateGateIDs(request.GateIDs)
+	if err := validateGateIDs(request.GateIDs); err != nil {
+		return err
+	}
+	return request.validateShardExecutionManifest()
 }
 
 func (request ShardRequest) validateResourceClass() error {
@@ -99,10 +111,6 @@ func (request ShardRequest) validateCalibrationResource() error {
 		return errors.New("calibration remote shard request requires calibration_resource")
 	}
 	class := *request.CalibrationResource
-	policy := shardresource.Policy{Classes: []shardresource.Class{class}, Bootstrap: shardresource.BootstrapClasses{Guard: class.ID, NodeTest: class.ID, GoTest: class.ID}, CalibrationClass: class.ID, HeadroomPercent: 1, MinSamplesToDownsize: 1}
-	if err := policy.Validate(); err != nil {
-		return fmt.Errorf("calibration remote shard resource: %w", err)
-	}
 	return cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB)
 }
 
@@ -195,7 +203,7 @@ func (request ShardRequest) sourceObjectPrefix() (string, error) {
 
 // validateGateIDs 校验 worker 分片中的 gate 集合非空且不重复。
 func validateGateIDs(ids []gate.GateID) error {
-	if len(ids) == 0 || len(ids) > 64 {
+	if len(ids) == 0 {
 		return errors.New("remote shard request gate_ids count is invalid")
 	}
 	seen := make(map[gate.GateID]struct{}, len(ids))
@@ -211,8 +219,56 @@ func validateGateIDs(ids []gate.GateID) error {
 	return nil
 }
 
+// validateShardExecutionManifest 将完整有序 compile-group manifest 绑定到精确分片请求；
+// worker 从固定 work-data 路径接收同一份 manifest，不得从 GateIDs 重建分组。
+func (request ShardRequest) validateShardExecutionManifest() error {
+	if err := request.validateCompileGroupResourceBinding(); err != nil {
+		return err
+	}
+	digest, err := request.ComputeShardExecutionManifestDigest()
+	if err != nil {
+		return fmt.Errorf("remote shard compile-group manifest: %w", err)
+	}
+	if request.ShardExecutionManifestDigest != digest {
+		return errors.New("remote shard compile-group manifest digest drifted")
+	}
+	return nil
+}
+
+// validateCompileGroupResourceBinding 要求编译组与实际 ECI 请求使用同一资源策略 ID。
+func (request ShardRequest) validateCompileGroupResourceBinding() error {
+	for _, group := range request.CompileGroups {
+		if group.ResourceClassID != request.ResourceClass.ID {
+			return fmt.Errorf("remote shard compile group %q resource class %q does not match request class %q", group.GroupID, group.ResourceClassID, request.ResourceClass.ID)
+		}
+	}
+	return nil
+}
+
+// ShardExecutionManifest 返回 request 对应的 gate-owned 固定 worker manifest。
+func (request ShardRequest) ShardExecutionManifest() gate.ShardExecutionManifest {
+	return gate.ShardExecutionManifest{
+		SchemaVersion: gate.ShardExecutionManifestSchemaVersion,
+		Profile:       request.Profile,
+		PlanDigest:    request.PlanDigest,
+		ShardIdentity: request.ShardIdentity,
+		SourceTreeSHA: request.SourceTreeSHA,
+		GateIDs:       slices.Clone(request.GateIDs),
+		CompileGroups: slices.Clone(request.CompileGroups),
+	}
+}
+
+// ComputeShardExecutionManifestDigest 计算 request 所绑定 manifest 的 canonical 摘要。
+func (request ShardRequest) ComputeShardExecutionManifestDigest() (string, error) {
+	_, digest, err := gate.EncodeShardExecutionManifest(request.ShardExecutionManifest())
+	return digest, err
+}
+
 // DecodeShardRequest 严格解码并校验 worker 请求。
 func DecodeShardRequest(data []byte) (ShardRequest, error) {
+	if len(data) == 0 || len(data) > ShardRequestMaxBytes {
+		return ShardRequest{}, errors.New("remote shard request exceeds canonical byte limit")
+	}
 	var request ShardRequest
 	if err := gate.DecodeStrictJSON(data, &request); err != nil {
 		return ShardRequest{}, fmt.Errorf("decode remote shard request: %w", err)
@@ -231,6 +287,9 @@ func EncodeShardRequest(request ShardRequest) ([]byte, string, error) {
 	data, err := json.Marshal(request)
 	if err != nil {
 		return nil, "", fmt.Errorf("encode remote shard request: %w", err)
+	}
+	if len(data) > ShardRequestMaxBytes {
+		return nil, "", errors.New("remote shard request exceeds canonical byte limit")
 	}
 	sum := sha256.Sum256(data)
 	return data, hex.EncodeToString(sum[:]), nil

@@ -163,7 +163,6 @@ func TestCanonicalContractsStrictRoundTrip(t *testing.T) {
 		validImageIdentity(),
 		validTrustedRunnerIdentity(),
 		validGrantRequest(now),
-		validResultReceipt(t, now),
 		validActionGrant(now),
 		validAcceptedImageRecord(now),
 		validPromotionRecord(now),
@@ -199,9 +198,7 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 		{producer: reflect.TypeFor[SourceSpec](), registration: sourceSpecConsumerRegistration()},
 		{producer: reflect.TypeFor[GrantRequest](), registration: grantRequestConsumerRegistration()},
 		{producer: reflect.TypeFor[ReleaseAsset](), registration: releaseAssetConsumerRegistration()},
-		{producer: reflect.TypeFor[ResultReceipt](), registration: resultReceiptConsumerRegistration()},
 		{producer: reflect.TypeFor[WorkloadExecutionPlan](), registration: workloadExecutionPlanConsumerRegistration()},
-		{producer: reflect.TypeFor[ContainerShardReceipt](), registration: containerShardReceiptConsumerRegistration()},
 		{producer: reflect.TypeFor[ActionGrant](), registration: actionGrantConsumerRegistration()},
 		{producer: reflect.TypeFor[AcceptedImageRecord](), registration: acceptedImageRecordConsumerRegistration()},
 		{producer: reflect.TypeFor[PromotionRecord](), registration: promotionRecordConsumerRegistration()},
@@ -223,67 +220,6 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 	}
 	if len(stale) != 1 || stale[0] != "stale_field" {
 		t.Fatalf("stale = %v, want stale_field", stale)
-	}
-}
-
-func TestResultReceiptCanonicalEd25519VerificationRejectsTampering(t *testing.T) {
-	t.Parallel()
-	receipt := validResultReceipt(t, time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC))
-	publicKey, privateKey, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, err := ResultReceiptSigningPayload(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	again, err := ResultReceiptSigningPayload(receipt)
-	if err != nil || !reflect.DeepEqual(payload, again) {
-		t.Fatalf("canonical payload drifted: error=%v", err)
-	}
-	receipt.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
-	if err := VerifyResultReceipt(receipt, publicKey); err != nil {
-		t.Fatalf("VerifyResultReceipt() error = %v", err)
-	}
-	digest, err := ResultReceiptDigest(receipt)
-	if err != nil || !strings.HasPrefix(digest, "sha256:") {
-		t.Fatalf("ResultReceiptDigest() digest=%q error=%v", digest, err)
-	}
-
-	tests := []struct {
-		name   string
-		mutate func(*ResultReceipt)
-	}{
-		{name: "source", mutate: func(value *ResultReceipt) {
-			value.Source.SourceTreeSHA = strings.Repeat("9", 40)
-		}},
-		{name: "generation", mutate: func(value *ResultReceipt) { value.Generation++ }},
-		{name: "gate_result", mutate: func(value *ResultReceipt) {
-			value.GateResults[0].ExitCode = 1
-		}},
-		{name: "evidence", mutate: func(value *ResultReceipt) {
-			value.Evidence[0].Digest = "sha256:" + strings.Repeat("b", 64)
-		}},
-		{name: "container", mutate: func(value *ResultReceipt) {
-			value.Container.HostConfigDigest = "sha256:" + strings.Repeat("c", 64)
-		}},
-		{name: "resource_witness", mutate: func(value *ResultReceipt) {
-			value.Container.ResourceWitness.MemoryBytes++
-		}},
-		{name: "resource_witness_digest", mutate: func(value *ResultReceipt) {
-			value.Container.ResourceWitnessDigest = "sha256:" + strings.Repeat("d", 64)
-		}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			tampered := receipt
-			tampered.GateResults = append([]GateResult(nil), receipt.GateResults...)
-			tampered.Evidence = append([]Evidence(nil), receipt.Evidence...)
-			test.mutate(&tampered)
-			if err := VerifyResultReceipt(tampered, publicKey); err == nil {
-				t.Fatal("VerifyResultReceipt() accepted tampered receipt")
-			}
-		})
 	}
 }
 
@@ -392,59 +328,14 @@ func releaseAssetConsumerRegistration() fieldConsumerRegistration {
 	}
 }
 
-func resultReceiptConsumerRegistration() fieldConsumerRegistration {
-	return fieldConsumerRegistration{
-		Fields: []string{
-			"authority_attestation",
-			"authority_owner",
-			"completed_at",
-			"container",
-			"deadline",
-			"evidence",
-			"entrypoint",
-			"gate_results",
-			"generation",
-			"image",
-			"invocation_id",
-			"plan_digest",
-			"policy_digest",
-			"receipt_id",
-			"repo_id",
-			"runner",
-			"schema_version",
-			"shard_receipts",
-			"signature",
-			"signer",
-			"source",
-			"started_at",
-			"status",
-			"workload_plan",
-		},
-		Owner:    "internal/devtools/gate ResultReceipt signing boundary",
-		Evidence: "strict JSON roundtrip, frozen workload-plan binding, and Validate before signing or verification",
-	}
-}
-
 func workloadExecutionPlanConsumerRegistration() fieldConsumerRegistration {
 	return fieldConsumerRegistration{
 		Fields: []string{
-			"catalog", "catalog_digest", "context", "execution_workload_digest", "execution_workload_ids",
+			"catalog", "catalog_digest", "compile_groups", "context", "execution_workload_digest", "execution_workload_ids",
 			"gate_plan_digest", "ledger_generation", "owner_estimated_duration_ms", "plan_digest", "schema_version", "shards",
 		},
-		Owner:    "internal/devtools/gate ResultReceipt workload-plan binding boundary",
+		Owner:    "internal/devtools/gate workload-plan binding boundary",
 		Evidence: "producer-derived WorkloadExecutionPlan strict decode, digest validation, and canonical shard projection",
-	}
-}
-
-func containerShardReceiptConsumerRegistration() fieldConsumerRegistration {
-	return fieldConsumerRegistration{
-		Fields: []string{
-			"completed_at", "container", "container_id", "deadline", "exited_at", "gate_executions",
-			"removal_proof_digest", "removed", "resource_witness", "resource_witness_digest",
-			"shard", "started_at", "status",
-		},
-		Owner:    "internal/devtools/gate ResultReceipt shard signing boundary",
-		Evidence: "stable JSON fields, canonical shard validation, aggregation, and Ed25519 tamper rejection",
 	}
 }
 
@@ -598,103 +489,6 @@ func validGrantRequest(now time.Time) GrantRequest {
 		RequestedAt:          now,
 		ExpiresAt:            now.Add(time.Minute),
 	}
-}
-
-func validResultReceipt(t *testing.T, now time.Time) ResultReceipt {
-	t.Helper()
-	return validResultReceiptForProfile(t, now, ProfileLocalFast)
-}
-
-func validResultReceiptForProfile(t *testing.T, now time.Time, profile Profile) ResultReceipt {
-	t.Helper()
-	plan, err := BuildGatePlan(profile, registryTestSource())
-	if err != nil {
-		t.Fatal(err)
-	}
-	image := validImageIdentity()
-	image.PlatformManifestDigest = shardTestDigest('a')
-	image.ConfigDigest = shardTestDigest('b')
-	set, err := BuildContainerShardSetFromWorkloadPlan(plan, testWorkloadExecutionPlan(t, plan), image.PlatformManifestDigest, image.ConfigDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return validResultReceiptFromShardSet(t, now, plan, set)
-}
-
-func validResultReceiptFromShardSet(t *testing.T, now time.Time, plan GatePlan, set ContainerShardSet) ResultReceipt {
-	t.Helper()
-	image := validImageIdentity()
-	image.PlatformManifestDigest = set.AcceptedManifestDigest
-	image.ConfigDigest = set.AcceptedConfigDigest
-	shards := successfulShardReceipts(t, set)
-	retimeSuccessfulShardReceipts(shards, now)
-	aggregated, err := aggregateFixtureShardResults(set, shards, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	container, err := aggregateResultReceiptContainer(shards)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ResultReceipt{
-		SchemaVersion:  ResultReceiptSchemaVersion,
-		ReceiptID:      "receipt-1",
-		RepoID:         "repo-1",
-		InvocationID:   "invocation-1",
-		Entrypoint:     CIEntrypointManualCLI,
-		AuthorityOwner: CIEntrypointOwnerManualCLI,
-		Source:         plan.Source,
-		PlanDigest:     plan.PlanDigest,
-		PolicyDigest:   plan.PolicyDigest,
-		Runner:         validTrustedRunnerIdentity(),
-		Image:          image,
-		Generation:     1,
-		StartedAt:      now,
-		CompletedAt:    now.Add(time.Minute),
-		Deadline:       now.Add(10 * time.Minute),
-		Status:         ResultStatusPassed,
-		GateResults:    fixtureGateResults(aggregated),
-		WorkloadPlan:   set.WorkloadPlan,
-		ShardReceipts:  shards,
-		Evidence:       []Evidence{{Kind: EvidenceKindProcess, Digest: testDigest}},
-		Container:      container,
-		Signer:         validTrustedRunnerIdentity().Signer,
-		Signature:      "signature",
-	}
-}
-
-func retimeSuccessfulShardReceipts(receipts []ContainerShardReceipt, now time.Time) {
-	for shardIndex := range receipts {
-		receipts[shardIndex].StartedAt = now
-		receipts[shardIndex].ExitedAt = now.Add(30 * time.Second)
-		receipts[shardIndex].CompletedAt = now.Add(time.Minute)
-		receipts[shardIndex].Deadline = now.Add(10 * time.Minute)
-		for gateIndex := range receipts[shardIndex].GateExecutions {
-			receipts[shardIndex].GateExecutions[gateIndex].StartedAt = now
-			receipts[shardIndex].GateExecutions[gateIndex].CompletedAt = now.Add(time.Second)
-		}
-	}
-}
-
-func aggregateFixtureShardResults(set ContainerShardSet, receipts []ContainerShardReceipt, now time.Time) ([]PlanGateExecution, error) {
-	calls := 0
-	clock := func() time.Time {
-		calls++
-		return now.Add(2*time.Minute + time.Duration(calls-1)*time.Nanosecond)
-	}
-	return aggregateContainerShardsWithClock(set, receipts, clock)
-}
-
-func fixtureGateResults(executions []PlanGateExecution) []GateResult {
-	results := make([]GateResult, len(executions))
-	for index, execution := range executions {
-		results[index] = GateResult{
-			GateID: string(execution.GateID), Status: GateStatusPassed, ExitCode: execution.ExitCode,
-			StartedAt: execution.StartedAt, CompletedAt: execution.CompletedAt,
-			ArgvDigest: execution.ArgvDigest, LogDigest: execution.LogDigest,
-		}
-	}
-	return results
 }
 
 func validActionGrant(now time.Time) ActionGrant {

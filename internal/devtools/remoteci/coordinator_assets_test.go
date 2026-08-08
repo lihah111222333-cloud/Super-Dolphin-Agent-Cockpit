@@ -58,7 +58,15 @@ func mustDeterministicBaselineCommitSHA(t *testing.T, input RunInput) string {
 
 func mustDeterministicTransportCommitSHA(t *testing.T, input RunInput, baselineCommitSHA string) string {
 	t.Helper()
-	commitSHA, err := DeterministicSourceTransportCommitSHA(input.Source.SourceTreeSHA, baselineCommitSHA, input.Source.ObjectFormat)
+	plan, err := inspectSourcePlan(context.Background(), input.RepositoryRoot, input.Source, nil)
+	if err != nil {
+		t.Fatalf("inspectSourcePlan() error = %v", err)
+	}
+	syntheticBase, err := DeterministicSourceSyntheticBaseCommitSHA(plan.baseTree, baselineCommitSHA, input.Source.ObjectFormat)
+	if err != nil {
+		t.Fatalf("DeterministicSourceSyntheticBaseCommitSHA() error = %v", err)
+	}
+	commitSHA, err := DeterministicSourceTransportCommitSHA(input.Source.SourceTreeSHA, syntheticBase, input.Source.ObjectFormat)
 	if err != nil {
 		t.Fatalf("DeterministicSourceTransportCommitSHA() error = %v", err)
 	}

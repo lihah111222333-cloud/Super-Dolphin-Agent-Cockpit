@@ -8,11 +8,15 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 type fakeCommandRunner struct {
+	mu        sync.Mutex
 	calls     [][]string
 	responses [][]byte
 	runErrors []error
@@ -39,6 +43,8 @@ func (runner *blockingCommandRunner) Run(ctx context.Context, _ string, _ ...str
 }
 
 func (f *fakeCommandRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, append([]string{name}, args...))
 	if len(f.runErrors) > 0 {
 		runErr := f.runErrors[0]
@@ -83,22 +89,39 @@ func TestClient_ECIOperations(t *testing.T) {
 	if err := client.DeleteContainerGroup(context.Background(), "eci-created"); err != nil {
 		t.Fatalf("DeleteContainerGroup() error = %v", err)
 	}
+	assertECIOperationRequest(t, runner.calls[0], request, acceptedImageCacheID)
+}
+
+// assertECIOperationRequest 检查 ECI 创建请求没有恢复已退役字段且保留显式资源参数。
+func assertECIOperationRequest(t *testing.T, call []string, request CreateRequest, acceptedImageCacheID string) {
+	t.Helper()
 	for _, legacy := range []string{"--DataCacheBucket", "HostPathVolume", "base-data"} {
-		if slices.Contains(runner.calls[0], legacy) {
-			t.Fatalf("CreateContainerGroup encoded legacy DataCache input %q: %#v", legacy, runner.calls[0])
+		if slices.Contains(call, legacy) {
+			t.Fatalf("CreateContainerGroup encoded legacy DataCache input %q: %#v", legacy, call)
 		}
 	}
 	for _, pair := range [][]string{
+		{"--VSwitchId", "vsw-zone-a,vsw-zone-b"},
+		{"--ScheduleStrategy", "VSwitchRandom"},
 		{"--ImageSnapshotId", request.ImageCacheSnapshotID},
+		{"--EphemeralStorage", "100"},
 		{"--Container.1.Image", request.MainImage},
 		{"--InitContainer.1.Image", request.InitImage},
 	} {
-		if !containsArgumentPair(runner.calls[0], pair[0], pair[1]) {
-			t.Fatalf("CreateContainerGroup call missing explicit image %v: %#v", pair, runner.calls[0])
+		if !containsArgumentPair(call, pair[0], pair[1]) {
+			t.Fatalf("CreateContainerGroup call missing explicit image %v: %#v", pair, call)
 		}
 	}
-	if slices.Contains(runner.calls[0], acceptedImageCacheID) {
-		t.Fatalf("CreateContainerGroup passed ImageCacheID to the CLI: %#v", runner.calls[0])
+	if slices.Contains(call, acceptedImageCacheID) {
+		t.Fatalf("CreateContainerGroup passed ImageCacheID to the CLI: %#v", call)
+	}
+}
+
+func TestNewRejectsNonOfficialProductionBinary(t *testing.T) {
+	config := testConfig()
+	config.Binary = "docker"
+	if _, err := New(config); err == nil || !strings.Contains(err.Error(), "official aliyun CLI") {
+		t.Fatalf("New() error = %v, want official aliyun CLI rejection", err)
 	}
 }
 
@@ -146,7 +169,13 @@ func TestClientCreateContainerGroupAcceptsECIImageCacheIdentity(t *testing.T) {
 	request := validCreateRequest()
 	image := "ac2-registry.cn-hangzhou.cr.aliyuncs.com/ac2/base@sha256:" + strings.Repeat("a", 64)
 	request.MainImage, request.InitImage = image, image
-	if _, err := newTestClient(t, runner).CreateContainerGroup(context.Background(), request); err != nil {
+	config := testConfig()
+	config.RegistryCredential.Server = "ac2-registry.cn-hangzhou.cr.aliyuncs.com"
+	client, err := NewWithRunner(config, runner)
+	if err != nil {
+		t.Fatalf("NewWithRunner() error = %v", err)
+	}
+	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
 		t.Fatalf("CreateContainerGroup() rejected ECI ImageCache identity: %v", err)
 	}
 }
@@ -171,7 +200,7 @@ func TestClientCreateContainerGroupEncodesOnlyThreeShardLocalEmptyDirs(t *testin
 
 func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{
-		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Failed","CreationTime":"2026-07-27T07:59:00Z","FailedTime":"2026-07-27T08:00:00Z","Containers":[{"Name":"worker","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:10Z","FinishTime":"2026-07-27T08:00:00Z","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"InitContainers":[{"Name":"materializer","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:01Z","FinishTime":"2026-07-27T07:59:09Z"}}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","RegionId":"cn-shenzhen","Status":"Failed","CreationTime":"2026-07-27T07:59:00Z","FailedTime":"2026-07-27T08:00:00Z","Containers":[{"Name":"worker","Image":"registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:10Z","FinishTime":"2026-07-27T08:00:00Z","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"InitContainers":[{"Name":"materializer","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:01Z","FinishTime":"2026-07-27T07:59:09Z"}}],"Tags":[{"Key":"super-dolphin-ci-provider","Value":"aliyun-eci/v1"}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
 	}}
 	client := newTestClient(t, runner)
 	groups, err := client.DescribeContainerGroups(context.Background(), "eci-created")
@@ -182,11 +211,13 @@ func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) 
 	want := []ContainerGroup{{
 		ID:           "eci-created",
 		Name:         "shard-1",
+		RegionID:     "cn-shenzhen",
 		Status:       "Failed",
 		CreationTime: time.Date(2026, 7, 27, 7, 59, 0, 0, time.UTC),
 		FailedTime:   time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC),
 		Containers: []ContainerStatus{{
-			Name: "worker",
+			Name:  "worker",
+			Image: "registry.example/runtime@sha256:" + strings.Repeat("a", 64),
 			CurrentState: ContainerState{
 				State:      "Terminated",
 				StartTime:  time.Date(2026, 7, 27, 7, 59, 10, 0, time.UTC),
@@ -197,6 +228,7 @@ func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) 
 			},
 		}},
 		InitContainers: []ContainerStatus{{Name: "materializer", CurrentState: ContainerState{State: "Terminated", StartTime: time.Date(2026, 7, 27, 7, 59, 1, 0, time.UTC), FinishTime: time.Date(2026, 7, 27, 7, 59, 9, 0, time.UTC)}}},
+		Tags:           []ContainerGroupTag{{Key: "super-dolphin-ci-provider", Value: "aliyun-eci/v1"}},
 		Events: []ContainerGroupEvent{{
 			Type:          "Warning",
 			Reason:        "BackOff",
@@ -563,9 +595,15 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 		mutate func(*Config)
 	}{
 		{"missing profile", func(config *Config) { config.Profile = "" }},
+		{"one vSwitch", func(config *Config) { config.VSwitches = config.VSwitches[:1] }},
+		{"same zone vSwitches", func(config *Config) { config.VSwitches[1].ZoneID = config.VSwitches[0].ZoneID }},
+		{"duplicate vSwitch", func(config *Config) { config.VSwitches[1] = config.VSwitches[0] }},
 		{"unsupported strategy", func(config *Config) { config.SpotStrategy = "unknown" }},
 		{"wrong spot duration", func(config *Config) { config.SpotDurationHours = 0 }},
 		{"pay-as-you-go spot duration", func(config *Config) { config.SpotStrategy, config.SpotDurationHours = SpotStrategyNoSpot, 1 }},
+		{"static and deferred credential", func(config *Config) {
+			config.RegistryCredentialLoader = func() (RegistryCredential, error) { return RegistryCredential{}, nil }
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -598,25 +636,30 @@ func TestNewWithRunner_AcceptsExplicitPayAsYouGo(t *testing.T) {
 
 func TestConfig_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[Config](), []string{
-		"Binary", "RegionID", "VSwitchID", "SecurityGroupID", "WorkerRoleName", "Profile", "Deadline", "SpotStrategy", "SpotDurationHours",
+		"Binary", "RegionID", "VSwitches", "SecurityGroupID", "WorkerRoleName", "Profile", "Deadline", "SpotStrategy", "SpotDurationHours", "RegistryCredential", "RegistryCredentialLoader",
 	})
+	assertStructFields(t, reflect.TypeFor[RegistryCredential](), []string{"Server", "UserName", "Password"})
 }
 
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
 		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
 		"InitContainer", "SourceVolume", "WorkVolume", "TempVolume",
+		"ConfigFileVolumes",
 		"MainVolumeMounts", "InitVolumeMounts",
 	})
 	assertStructFields(t, reflect.TypeFor[Resources](), []string{"CPU", "MemoryGiB"})
 	assertStructFields(t, reflect.TypeFor[InitContainer](), []string{"Name", "Command", "Args", "Environment"})
 	assertStructFields(t, reflect.TypeFor[EmptyDirVolume](), []string{"Name"})
+	assertStructFields(t, reflect.TypeFor[ConfigFileVolume](), []string{"Name", "DefaultMode", "ConfigFileToPath"})
+	assertStructFields(t, reflect.TypeFor[ConfigFileToPath](), []string{"Path", "Content", "Mode"})
 	assertStructFields(t, reflect.TypeFor[VolumeMount](), []string{"Name", "MountPath", "ReadOnly"})
 }
 
 func TestContainerGroup_FieldRegistry(t *testing.T) {
-	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "CreationTime", "SucceededTime", "FailedTime", "Containers", "InitContainers", "Events"})
-	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "CurrentState"})
+	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "RegionID", "CPU", "MemoryGiB", "Status", "CreationTime", "SucceededTime", "FailedTime", "Containers", "InitContainers", "Tags", "Events"})
+	assertStructFields(t, reflect.TypeFor[ContainerGroupTag](), []string{"Key", "Value"})
+	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "Image", "CurrentState"})
 	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "StartTime", "FinishTime", "ExitCode", "Reason", "Message"})
 	assertStructFields(t, reflect.TypeFor[ContainerGroupEvent](), []string{"Type", "Reason", "Message", "Count", "LastTimestamp"})
 }
@@ -659,6 +702,18 @@ func TestExecRunner_CapturesStderrAndWrapsExitError(t *testing.T) {
 	}
 }
 
+// TestExecRunnerBoundsInheritedOutputPipeWait 验证 CLI 后代持有输出管道时仍会按看门狗有界返回。
+func TestExecRunnerBoundsInheritedOutputPipeWait(t *testing.T) {
+	startedAt := time.Now()
+	_, err := (execRunner{}).Run(context.Background(), "sh", "-c", "sleep 5 &")
+	if err == nil || !errors.Is(err, exec.ErrWaitDelay) {
+		t.Fatalf("Run() error = %v, want exec.ErrWaitDelay", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 2*cliProcessWaitDelay {
+		t.Fatalf("Run() elapsed = %s, want bounded inherited-pipe wait", elapsed)
+	}
+}
+
 func newTestClient(t *testing.T, runner CommandRunner) *Client {
 	t.Helper()
 	client, err := NewWithRunner(testConfig(), runner)
@@ -672,10 +727,11 @@ func newTestClient(t *testing.T, runner CommandRunner) *Client {
 
 func testConfig() Config {
 	return Config{
-		Binary: "aliyun", RegionID: "cn-hangzhou", VSwitchID: "vsw-1", SecurityGroupID: "sg-1",
+		Binary: "aliyun", RegionID: "cn-hangzhou", VSwitches: []cicontract.ECIVSwitch{{ID: "vsw-zone-a", ZoneID: "cn-test-a"}, {ID: "vsw-zone-b", ZoneID: "cn-test-b"}}, SecurityGroupID: "sg-1",
 		WorkerRoleName: "worker-role", Profile: "ci",
 		Deadline:     time.Hour,
 		SpotStrategy: SpotStrategyAsPriceGo, SpotDurationHours: 1,
+		RegistryCredential: RegistryCredential{Server: "registry.example", UserName: "test-user", Password: "test-token"},
 	}
 }
 

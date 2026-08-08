@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getPromptHistory } from '../../../shared/api/backendApi.js';
 import { createPromptHistoryController } from '../model/promptHistoryController.js';
@@ -20,21 +20,33 @@ export function usePromptHistory({
   if (typeof sendMessage !== 'function') throw new Error('sendMessage is required');
   if (typeof setDraft !== 'function') throw new Error('setDraft is required');
 
+  const lifecycleSignalRef = useRef(threadLifecycleSignal);
   const controller = useMemo(() => {
-    // The thread-list identity is a loss-only invalidation signal, not a copied state source.
-    void threadLifecycleSignal;
+    // 线程身份变化在下方按仅丢失失效处理，确保 EventBridge 更新后
+    // 可见重试仍调用实时 controller。
     return createPromptHistoryController({
       fetchPage,
       cwd,
       activeThreadId,
     });
-  }, [activeThreadId, cwd, fetchPage, threadLifecycleSignal]);
+  }, [activeThreadId, cwd, fetchPage]);
 
   useEffect(() => {
     controller.captureDraft(draft);
   }, [controller, draft]);
 
-  useEffect(() => () => controller.dispose(), [controller]);
+  useEffect(() => {
+    controller.activate();
+    return () => {
+      controller.dispose();
+    };
+  }, [controller]);
+
+  useEffect(() => {
+    if (lifecycleSignalRef.current === threadLifecycleSignal) return;
+    lifecycleSignalRef.current = threadLifecycleSignal;
+    controller.invalidate({ deferPending: true });
+  }, [controller, threadLifecycleSignal]);
 
   const previous = useCallback(async () => {
     const selected = await controller.previous();

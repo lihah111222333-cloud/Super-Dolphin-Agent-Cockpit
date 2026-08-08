@@ -139,9 +139,9 @@ export async function runActionProductionRuntime(options = {}) {
       const mutationRoot = path.join(tempRoot, anchor.actionId.replace(/[^a-z0-9.-]+/giu, '-'));
       try {
         await requireSuccess('git', ['worktree', 'add', '--detach', mutationRoot, subjectSha], repoRoot, managedOptions);
-        await symlink(path.join(appRoot, 'node_modules'), path.join(mutationRoot, 'frontend-app', 'node_modules'), 'dir');
+        await symlink(path.join(appRoot, 'node_modules'), path.join(mutationRoot, 'frontend-app', 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
         const testArgv = [
-          vitestCommand ?? path.join('node_modules', '.bin', 'vitest'), 'run', anchor.testFile,
+          vitestCommand ?? process.execPath, ...(vitestCommand ? [] : [path.join(mutationRoot, 'frontend-app', 'node_modules', 'vitest', 'vitest.mjs')]), 'run', '--configLoader', 'runner', anchor.testFile,
           '-t', anchor.testName, '--no-file-parallelism', '--maxWorkers=1',
         ];
         const detachedAppRoot = path.join(mutationRoot, 'frontend-app');
@@ -195,7 +195,7 @@ export async function runActionProductionRuntime(options = {}) {
     const testFile = 'src/shared/ui/productionActionFailureMatrix.test.js';
     const testSource = await readFile(path.join(appRoot, testFile));
     const argv = [
-      vitestCommand ?? path.join('node_modules', '.bin', 'vitest'), 'run', testFile,
+      vitestCommand ?? process.execPath, ...(vitestCommand ? [] : [path.join(appRoot, 'node_modules', 'vitest', 'vitest.mjs')]), 'run', '--configLoader', 'runner', testFile,
       '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',
     ];
     const green = await capture(argv[0], argv.slice(1), appRoot, managedOptions);

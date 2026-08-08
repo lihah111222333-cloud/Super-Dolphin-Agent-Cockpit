@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, isAbsolute, join, normalize, sep } from 'node:path';
 import process from 'node:process';
 import vitestSuitePolicyDefinition from './config/vitest-suite-policy.json';
 
@@ -11,6 +11,9 @@ export const ATH_HEALTH_PATH = '/__ath_health';
 export const ATH_NONCE_HEADER = 'x-agentic-testing-harness-nonce';
 export const ATH_SOURCE_ROOT_HEADER = 'x-super-dolphin-source-root';
 export const ATH_BUILD_IDENTITY_HEADER = 'x-super-dolphin-build-identity';
+export const FRONTEND_VITE_CACHE_DIR_ENV = 'SUPER_DOLPHIN_VITE_CACHE_DIR';
+const FRONTEND_VITE_CACHE_DIR_NAME = '.vite-temp';
+const FRONTEND_LOCAL_VITE_CACHE_DIR = join(process.cwd(), '..', '.tmp', 'frontend-vite', FRONTEND_VITE_CACHE_DIR_NAME);
 
 export function validateVitestSuitePolicy(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -31,6 +34,28 @@ export function validateVitestSuitePolicy(value) {
 export const VITEST_SUITE_POLICY = validateVitestSuitePolicy(
   vitestSuitePolicyDefinition,
 );
+
+function validateFrontendViteCacheDir(value) {
+  if (typeof value !== 'string' || value !== value.trim() || value === '' || /[\r\n]/u.test(value)) {
+    throw new Error(`${FRONTEND_VITE_CACHE_DIR_ENV} must be an absolute .vite-temp path without whitespace padding or CR/LF`);
+  }
+  if (!isAbsolute(value) || normalize(value) !== value || basename(value) !== FRONTEND_VITE_CACHE_DIR_NAME) {
+    throw new Error(`${FRONTEND_VITE_CACHE_DIR_ENV} must be a normalized absolute .vite-temp path`);
+  }
+  const nodeModulesDir = normalize(join(process.cwd(), 'node_modules'));
+  if ((process.platform === 'win32' ? value.toLowerCase() : value) === (process.platform === 'win32' ? nodeModulesDir.toLowerCase() : nodeModulesDir) || (process.platform === 'win32' ? value.toLowerCase() : value).startsWith(`${process.platform === 'win32' ? nodeModulesDir.toLowerCase() : nodeModulesDir}${sep}`)) {
+    throw new Error(`${FRONTEND_VITE_CACHE_DIR_ENV} must not point into the read-only node_modules dependency image`);
+  }
+  return value;
+}
+
+export function resolveFrontendViteCacheDir(env = process.env) {
+  const configured = env[FRONTEND_VITE_CACHE_DIR_ENV];
+  if (configured === undefined) {
+    return FRONTEND_LOCAL_VITE_CACHE_DIR;
+  }
+  return validateFrontendViteCacheDir(configured);
+}
 
 function requiredAthValue(env, name) {
   const value = env[name];
@@ -194,6 +219,7 @@ export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
   const harnessIdentity = agenticHarnessIdentityPlugin(env, viteEnv);
 
   return defineConfig({
+    cacheDir: resolveFrontendViteCacheDir(env),
     plugins: [
       serveDevelopmentWailsRuntimePlugin(),
       ...(harnessIdentity === undefined ? [] : [harnessIdentity]),

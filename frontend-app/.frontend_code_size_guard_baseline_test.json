@@ -3,21 +3,6 @@
     "updatedAt": "2026-08-07T08:43:13Z"
   },
   "files": {
-    "src/App.test.jsx": {
-      "lines": 7279,
-      "maxFuncLen": 81,
-      "maxNesting": 5,
-      "maxParams": 4,
-      "exportCount": 0,
-      "consoleLogs": 0,
-      "anyCount": 0,
-      "emptyFuncs": 0,
-      "todoCount": 0,
-      "longLineCount": 0,
-      "frozenViolations": [
-        "file-length\u0000文件有效代码 7276 行，超过上限 800 行"
-      ]
-    },
     "src/entities/client/model/useClientStore.test.js": {
       "lines": 8771,
       "maxFuncLen": 41,
@@ -124,7 +109,7 @@
       ]
     },
     "scripts/agentic-e2e.test.mjs": {
-      "lines": 1266,
+      "lines": 1247,
       "maxFuncLen": 13,
       "maxNesting": 6,
       "maxParams": 3,
@@ -136,22 +121,6 @@
       "longLineCount": 0,
       "frozenViolations": [
         "file-length\u0000文件有效代码 1266 行，超过上限 800 行"
-      ]
-    },
-    "scripts/frontend-maintainability-score.test.mjs": {
-      "lines": 2821,
-      "maxFuncLen": 235,
-      "maxNesting": 8,
-      "maxParams": 4,
-      "exportCount": 0,
-      "consoleLogs": 0,
-      "anyCount": 0,
-      "emptyFuncs": 0,
-      "todoCount": 0,
-      "longLineCount": 0,
-      "frozenViolations": [
-        "file-length\u0000文件有效代码 2794 行，超过上限 800 行",
-        "func-length\u0000函数 performanceEvidence 共 235 行，超过上限 150 行"
       ]
     },
     "scripts/performance-budget-runner.test.mjs": {

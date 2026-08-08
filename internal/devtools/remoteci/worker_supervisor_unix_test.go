@@ -8,13 +8,18 @@ import (
 	"testing"
 )
 
+func TestRemoteWorkerSupervisorUsesRuntimeDependencyPython(t *testing.T) {
+	if remoteWorkerSupervisorPython != "/usr/bin/python3" {
+		t.Fatalf("remote worker supervisor Python = %q, want runtime dependency image path", remoteWorkerSupervisorPython)
+	}
+}
+
 func TestRemoteWorkerSupervisorPropagatesWorkerExitStatus(t *testing.T) {
-	python, err := exec.LookPath("python3")
+	_, err := exec.LookPath(remoteWorkerSupervisorPython)
 	if err != nil {
-		t.Skip("python3 is required")
+		t.Skipf("runtime dependency Python is required: %v", err)
 	}
 	arguments := remoteWorkerSupervisorCommand("/bin/sh")
-	arguments[0] = python
 	for index, argument := range arguments {
 		if len(argument) > remoteWorkerCommandElementLimit {
 			t.Fatalf("command element %d length = %d, want <= %d", index, len(argument), remoteWorkerCommandElementLimit)

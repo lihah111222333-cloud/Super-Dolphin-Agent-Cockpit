@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,20 +20,21 @@ import (
 )
 
 const (
-	ExecutorPlanReportSchemaVersion    = 6
+	ExecutorPlanReportSchemaVersion    = 10
 	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
 	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
-	// ExecutorAgentTokenDigestEnvironment binds a remote worker report to the admitted agent identity.
-	ExecutorAgentTokenDigestEnvironment = "SUPER_DOLPHIN_REMOTE_AGENT_TOKEN_DIGEST"
-	executorPlanReportChunkBytes        = 768
-	executorPlanReportMaxLineBytes      = 1024
-	executorPlanMaxTransportRecords     = 2000
-	executorPlanReportMaxOutputBytes    = 1 << 20
-	executorPlanMaxLogBytes             = 32 << 10
-	executorPlanMaxLogLines             = 2000
-	executorPlanMaxTimingRecords        = 2000
-	executorPlanMaxLogRecords           = (executorPlanMaxLogBytes*2 + executorPlanReportChunkBytes - 1) / executorPlanReportChunkBytes
-	executorPlanLaneCount               = 2
+	// ExecutorAgentTokenDigestEnvironment 将远程 worker 报告绑定到已准入的 agent 身份。
+	ExecutorAgentTokenDigestEnvironment    = "SUPER_DOLPHIN_REMOTE_AGENT_TOKEN_DIGEST"
+	executorPlanReportChunkBytes           = 768
+	executorPlanReportMaxLineBytes         = 1024
+	executorPlanMaxTransportRecords        = 2000
+	executorPlanReportMaxOutputBytes       = 1 << 20
+	executorPlanMaxLogBytes                = 32 << 10
+	executorPlanSuccessfulSelectorLogBytes = 512
+	executorPlanMaxLogLines                = 2000
+	executorPlanMaxTimingRecords           = 2000
+	executorPlanMaxLogRecords              = (executorPlanMaxLogBytes*2 + executorPlanReportChunkBytes - 1) / executorPlanReportChunkBytes
+	executorPlanLaneCount                  = 2
 )
 
 // ValidateExecutorWorkloadTimeout 只接受普通与 release 的固定安全上限；100 秒仅用于优化告警。
@@ -74,28 +74,27 @@ type PlanGateExecution struct {
 	ExecutionProfile ExecutionProfile `json:"execution_profile"`
 }
 
-// ExecutionProfile is the bounded, receipt-bound execution evidence for one gate.
-// A v6 report never infers a cache hit or a remote phase from an omitted field.
+// ExecutionProfile 保存单个门禁有界且与回执绑定的执行证据。
+// v10 报告不会从缺失字段推断缓存命中或远程阶段。
 type ExecutionProfile struct {
-	Frontend                *FrontendExecutionProfile `json:"frontend,omitempty"`
-	CacheSource             string                    `json:"cache_source"`
-	CacheStatus             CacheObservationStatus    `json:"cache_status"`
-	CacheMeasurement        string                    `json:"cache_measurement"`
-	PrivateHitCount         uint64                    `json:"private_hit_count"`
-	BaselineHitCount        uint64                    `json:"baseline_hit_count"`
-	BaselineHitByGeneration map[string]uint64         `json:"baseline_hit_by_generation,omitempty"`
-	CacheMissCount          uint64                    `json:"cache_miss_count"`
-	CachePutCount           uint64                    `json:"cache_put_count"`
-	MaterializeMS           int64                     `json:"materialize_ms"`
-	DownloadMS              int64                     `json:"download_ms"`
-	VerifyMS                int64                     `json:"verify_ms"`
-	StartupMS               int64                     `json:"startup_ms"`
-	TestBodyMS              int64                     `json:"test_body_ms"`
-	TotalMS                 int64                     `json:"total_ms"`
+	Frontend         *FrontendExecutionProfile `json:"frontend,omitempty"`
+	CacheSource      string                    `json:"cache_source"`
+	CacheStatus      CacheObservationStatus    `json:"cache_status"`
+	CacheMeasurement string                    `json:"cache_measurement"`
+	PrivateHitCount  uint64                    `json:"private_hit_count"`
+	BaselineHitCount uint64                    `json:"baseline_hit_count"`
+	CacheMissCount   uint64                    `json:"cache_miss_count"`
+	CachePutCount    uint64                    `json:"cache_put_count"`
+	MaterializeMS    int64                     `json:"materialize_ms"`
+	DownloadMS       int64                     `json:"download_ms"`
+	VerifyMS         int64                     `json:"verify_ms"`
+	StartupMS        int64                     `json:"startup_ms"`
+	TestBodyMS       int64                     `json:"test_body_ms"`
+	TotalMS          int64                     `json:"total_ms"`
 }
 
-// FrontendExecutionProfile records only cache evidence proven by the executor.
-// Browser and Vite caches remain explicitly inapplicable until their individual lookups are observed.
+// FrontendExecutionProfile 只记录 executor 已证明的缓存证据。
+// Browser 与 Vite 缓存必须在各自 lookup 被观察前显式标记为不适用。
 type FrontendExecutionProfile struct {
 	NodeModulesSeedHit                   bool   `json:"node_modules_seed_hit"`
 	NodeModulesSeedNotApplicableReason   string `json:"node_modules_seed_not_applicable_reason,omitempty"`
@@ -112,18 +111,27 @@ type FrontendExecutionProfile struct {
 
 // PlanExecutionReport 绑定 plan digest，并按 canonical plan 顺序汇总所有已观察 gate。
 type PlanExecutionReport struct {
-	SchemaVersion    uint32              `json:"schema_version"`
-	Profile          Profile             `json:"profile"`
-	PlanDigest       string              `json:"plan_digest"`
-	AgentTokenDigest string              `json:"agent_token_digest,omitempty"`
-	Gates            []PlanGateExecution `json:"gates"`
+	SchemaVersion    uint32                 `json:"schema_version"`
+	Profile          Profile                `json:"profile"`
+	PlanDigest       string                 `json:"plan_digest"`
+	AgentTokenDigest string                 `json:"agent_token_digest,omitempty"`
+	ExecutionOutcome WorkerExecutionOutcome `json:"execution_outcome"`
+	Gates            []PlanGateExecution    `json:"gates"`
+	// CompileGroupExecutions 记录 shard-local test-binary 编译账本；它与 selector
+	// 范围的 gate 结果分离，使一条编译观察可被多个独立 GateID 引用。
+	CompileGroupExecutions []CompileGroupExecution `json:"compile_group_executions,omitempty"`
 }
 
 type executorPlanRequest struct {
-	profile    Profile
-	planDigest string
-	gateIDs    []GateID
-	shard      bool
+	profile        Profile
+	planDigest     string
+	gateIDs        []GateID
+	shard          bool
+	manifestPath   string
+	manifestDigest string
+	// compileGroups 来自 shard execution manifest；exact Go selector 缺组是协议错误，
+	// 非 Go workload 继续走普通 executor 映射。
+	compileGroups []CompileGroup
 }
 
 type releaseAttestationPayload struct {
@@ -140,80 +148,102 @@ type releaseAttestationGateProof struct {
 	LogDigest string       `json:"log_digest"`
 }
 
-// PlanExecutorArgv 从已验证计划生成唯一容器 argv。
-func PlanExecutorArgv(plan GatePlan) ([]string, error) {
-	if err := plan.Validate(); err != nil {
-		return nil, err
-	}
-	gateIDs := make([]string, len(plan.Gates))
-	for index, spec := range plan.Gates {
-		gateIDs[index] = string(spec.ID)
-	}
-	return []string{containerGateBinary, containerWorkerNamespace, "run-plan", "--profile", string(plan.Profile),
-		"--plan-digest", plan.PlanDigest, "--gates", strings.Join(gateIDs, ",")}, nil
-}
-
-// ContainerShardExecutorArgv 将一次 disposable container 绑定到精确 canonical shard。
-func ContainerShardExecutorArgv(plan GatePlan, gateIDs []GateID) ([]string, error) {
-	if err := plan.Validate(); err != nil {
-		return nil, err
-	}
-	if err := validateContainerShardGateIDs(plan.Profile, gateIDs); err != nil {
-		return nil, err
-	}
-	values := make([]string, len(gateIDs))
-	for index, id := range gateIDs {
-		values[index] = string(id)
-	}
-	return []string{containerGateBinary, containerWorkerNamespace, "run-shard", "--profile", string(plan.Profile),
-		"--plan-digest", plan.PlanDigest, "--gates", strings.Join(values, ",")}, nil
-}
-
-// ExecutePlanExecutor 严格解析 plan argv，在两个隔离 lane 中执行完整 required gate 集。
+// ExecutePlanExecutor 严格解析 shard manifest argv，在两个隔离 lane 中执行当前分片。
 func ExecutePlanExecutor(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
 	request, err := parseExecutorPlanCommand(args)
 	if err != nil {
 		return err
 	}
-	report, executionErr := executeGatePlan(ctx, request)
-	if err := writePlanExecutionReport(stdout, report); err != nil {
-		return errors.Join(executionErr, err)
+	if request.shard {
+		if err := loadExecutorShardManifest(&request); err != nil {
+			return err
+		}
 	}
-	return executionErr
+	report, executionErr := executeGatePlan(ctx, request)
+	return writeExecutorPlanReportWithCompileGroups(request, report, executionErr, stdout)
 }
 
-// parseExecutorPlanCommand 严格解析 profile、计划摘要与 canonical gate 集合。
+// parseExecutorPlanCommand 严格解析 profile、计划摘要与 shard manifest 身份。
 func parseExecutorPlanCommand(args []string) (executorPlanRequest, error) {
-	if len(args) != 7 || !isPlanExecutorCommand(args[0]) || args[1] != "--profile" ||
-		args[3] != "--plan-digest" || args[5] != "--gates" {
-		return executorPlanRequest{}, errors.New("usage: run-plan --profile <profile> --plan-digest <sha256> --gates <canonical-list>")
+	if !isShardExecutorCommand(firstArg(args)) {
+		return executorPlanRequest{}, executorPlanUsageError()
 	}
-	request := executorPlanRequest{profile: Profile(args[2]), planDigest: args[4]}
+	request, err := parseShardExecutorHeader(args)
+	if err != nil {
+		return executorPlanRequest{}, err
+	}
 	if err := request.profile.Validate(); err != nil {
 		return executorPlanRequest{}, err
 	}
 	if !digestPattern.MatchString(request.planDigest) {
 		return executorPlanRequest{}, errors.New("plan digest is invalid")
 	}
-	for raw := range strings.SplitSeq(args[6], ",") {
-		request.gateIDs = append(request.gateIDs, GateID(raw))
+	return request, nil
+}
+
+// firstArg 在长度不足时返回空字符串，保证 usage 检查不越界。
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
 	}
-	request.shard = args[0] == "run-shard"
-	if err := validateExecutorGateIDs(request.profile, request.gateIDs, request.shard); err != nil {
-		return executorPlanRequest{}, err
+	return args[0]
+}
+
+// executorPlanUsageError 返回 shard manifest 入口的严格参数说明。
+func executorPlanUsageError() error {
+	return errors.New("usage: run-shard --profile <profile> --plan-digest <sha256> --manifest-path /workspace/work/shard-execution-manifest.json --manifest-digest <sha256>")
+}
+
+// parseShardExecutorHeader 解析固定位置的 profile、plan 和 manifest 参数。
+func parseShardExecutorHeader(args []string) (executorPlanRequest, error) {
+	if len(args) != 9 || args[1] != "--profile" || args[3] != "--plan-digest" ||
+		args[5] != "--manifest-path" || args[6] != ExecutorShardExecutionManifestPath || args[7] != "--manifest-digest" {
+		return executorPlanRequest{}, executorPlanUsageError()
+	}
+	request := executorPlanRequest{
+		profile: Profile(args[2]), planDigest: args[4], shard: true,
+		manifestPath: args[6], manifestDigest: args[8],
+	}
+	if !digestPattern.MatchString(request.manifestDigest) {
+		return executorPlanRequest{}, errors.New("shard execution manifest digest is invalid")
 	}
 	return request, nil
 }
 
-func isPlanExecutorCommand(command string) bool {
-	return command == "run-plan" || command == "run-shard"
+// loadExecutorShardManifest 将固定 manifest 的 gate/group 投影到已解析请求。
+func loadExecutorShardManifest(request *executorPlanRequest) error {
+	if request == nil || request.manifestPath != ExecutorShardExecutionManifestPath {
+		return errors.New("shard execution manifest path is not gate-owned")
+	}
+	manifest, err := LoadShardExecutionManifestFile()
+	if err != nil {
+		return err
+	}
+	if manifest.ManifestDigest != request.manifestDigest {
+		return errors.New("shard execution manifest digest does not match argv")
+	}
+	if err := manifest.ValidateBinding(request.profile, request.planDigest); err != nil {
+		return fmt.Errorf("validate shard execution manifest binding: %w", err)
+	}
+	request.gateIDs = slices.Clone(manifest.GateIDs)
+	request.compileGroups = slices.Clone(manifest.CompileGroups)
+	return validateShardGateIDs(request.profile, request.gateIDs)
 }
 
-func validateExecutorGateIDs(profile Profile, gateIDs []GateID, shard bool) error {
-	if shard {
-		return validateContainerShardGateIDs(profile, gateIDs)
+func isShardExecutorCommand(command string) bool {
+	return command == "run-shard"
+}
+
+func validateShardGateIDs(profile Profile, gateIDs []GateID) error {
+	return validateContainerShardGateIDs(profile, gateIDs)
+}
+
+func validateCanonicalPlanGateIDs(profile Profile, gateIDs []GateID) error {
+	want := requiredGateIDs(profile)
+	if !slices.Equal(gateIDs, want) {
+		return errors.New("canonical plan gate list does not match the required profile")
 	}
-	return validatePlanGateIDs(profile, gateIDs)
+	return nil
 }
 
 // validateContainerShardGateIDs 校验 worker 只执行当前 profile 的唯一 required-gate 子集。
@@ -252,14 +282,6 @@ func requiredContainerShardGateIDs(profile Profile) []GateID {
 	return ids
 }
 
-func validatePlanGateIDs(profile Profile, gateIDs []GateID) error {
-	want := requiredGateIDs(profile)
-	if !slices.Equal(gateIDs, want) {
-		return errors.New("plan gate list does not match the canonical required profile")
-	}
-	return nil
-}
-
 func requiredGateIDs(profile Profile) []GateID {
 	var ids []GateID
 	for _, spec := range GateRegistry() {
@@ -270,12 +292,39 @@ func requiredGateIDs(profile Profile) []GateID {
 	return ids
 }
 
+// executeGatePlan 根据请求选择普通 gate 或 manifest compile-group 执行路径。
 func executeGatePlan(ctx context.Context, request executorPlanRequest) (PlanExecutionReport, error) {
+	if err := validateCompileGroupRequest(request); err != nil {
+		return PlanExecutionReport{}, err
+	}
+	if len(request.compileGroups) != 0 {
+		return executeGatePlanWithCompileGroups(ctx, request)
+	}
+	return executeOrdinaryGatePlan(ctx, request)
+}
+
+// validateCompileGroupRequest 校验 compile-group 只能在带分片身份的执行请求中使用，并拒绝缺失分组的精确 selector。
+func validateCompileGroupRequest(request executorPlanRequest) error {
+	if len(request.compileGroups) != 0 && !request.shard {
+		return errors.New("compile groups require shard execution")
+	}
+	if !request.shard || len(request.compileGroups) != 0 {
+		return nil
+	}
+	for _, id := range request.gateIDs {
+		if isCompileGroupSelector(id) {
+			return fmt.Errorf("compile-group selector %q has no compile group", id)
+		}
+	}
+	return nil
+}
+
+func executeOrdinaryGatePlan(ctx context.Context, request executorPlanRequest) (PlanExecutionReport, error) {
 	preparedRuntimeSeeds, err := prepareExecutorPlanRuntimeSeeds(request.gateIDs)
 	if err != nil {
 		return PlanExecutionReport{}, err
 	}
-	goBuildCacheRoot, goBuildCacheSeedRoots, err := prepareExecutorPlanGoBuildCache(request.gateIDs)
+	goBuildCacheRoot, goBuildCacheSeedRoot, err := prepareExecutorPlanGoBuildCache(request.gateIDs)
 	if err != nil {
 		return PlanExecutionReport{}, err
 	}
@@ -288,7 +337,7 @@ func executeGatePlan(ctx context.Context, request executorPlanRequest) (PlanExec
 			id,
 			preparedRuntimeSeeds,
 			goBuildCacheRoot,
-			goBuildCacheSeedRoots,
+			goBuildCacheSeedRoot,
 			time.Now,
 		)
 	}
@@ -319,43 +368,39 @@ func prepareExecutorPlanRuntimeSeeds(gateIDs []GateID) (*executorPreparedRuntime
 }
 
 // prepareExecutorPlanGoBuildCache 为包含 Go workload 的分片创建一次私有构建缓存写层。
-func prepareExecutorPlanGoBuildCache(gateIDs []GateID) (string, []string, error) {
+func prepareExecutorPlanGoBuildCache(gateIDs []GateID) (string, string, error) {
 	return prepareExecutorPlanGoBuildCacheAt(
 		gateIDs,
 		ExecutorWorkRoot,
-		ExecutorGoBuildCacheSeedsRoot,
+		ExecutorOCIProjectGoBuildCacheSeedRoot,
 	)
 }
 
-// prepareExecutorPlanGoBuildCacheAt 只为含 Go workload 的分片发现共享 seed 并创建私有写层。
+// prepareExecutorPlanGoBuildCacheAt 只为含 Go workload 的分片绑定镜像层 seed 并创建私有写层。
 func prepareExecutorPlanGoBuildCacheAt(
 	gateIDs []GateID,
 	workRoot string,
-	seedGenerationsRoot string,
-) (string, []string, error) {
+	seedRoot string,
+) (string, string, error) {
 	needsGoCache := false
 	for _, id := range gateIDs {
 		_, program, err := executorProgramForWorkload(id)
 		if err != nil {
-			return "", nil, err
+			return "", "", err
 		}
 		needsGoCache = needsGoCache || program.NeedsGoSeed
 	}
 	if !needsGoCache {
-		return "", nil, nil
-	}
-	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(seedGenerationsRoot)
-	if err != nil {
-		return "", nil, err
+		return "", "", nil
 	}
 	cacheRoot := filepath.Join(workRoot, "plan-go-cache")
 	if err := os.Mkdir(cacheRoot, 0o700); err != nil {
-		return "", nil, fmt.Errorf("create plan Go build cache: %w", err)
+		return "", "", fmt.Errorf("create plan Go build cache: %w", err)
 	}
-	if err := seedExecutorGoBuildCacheSeeds(seedRoots, cacheRoot); err != nil {
-		return "", nil, errors.Join(err, removeExecutorWorkspacePath(cacheRoot))
+	if err := seedExecutorGoBuildCache(seedRoot, cacheRoot); err != nil {
+		return "", "", errors.Join(err, removeExecutorWorkspacePath(cacheRoot))
 	}
-	return cacheRoot, seedRoots, nil
+	return cacheRoot, seedRoot, nil
 }
 
 type executorPlanGateRunner func(context.Context, int, GateID) (PlanGateExecution, error)
@@ -367,7 +412,13 @@ func executeGatePlanWithRunner(
 	runGate executorPlanGateRunner,
 	now func() time.Time,
 ) (PlanExecutionReport, error) {
-	report := PlanExecutionReport{SchemaVersion: ExecutorPlanReportSchemaVersion, Profile: request.profile, PlanDigest: request.planDigest, AgentTokenDigest: os.Getenv(ExecutorAgentTokenDigestEnvironment)}
+	report := PlanExecutionReport{
+		SchemaVersion:    ExecutorPlanReportSchemaVersion,
+		Profile:          request.profile,
+		PlanDigest:       request.planDigest,
+		AgentTokenDigest: os.Getenv(ExecutorAgentTokenDigestEnvironment),
+		ExecutionOutcome: SuccessfulWorkerExecutionOutcome(),
+	}
 	if now == nil {
 		return report, errors.New("plan clock is required")
 	}
@@ -409,6 +460,7 @@ func executeGatePlanWithRunner(
 			ExecutionProfile: measuredNonCacheExecutionProfile(),
 		})
 	}
+	report.ExecutionOutcome = WorkerExecutionOutcomeForError(executionErr)
 	return report, executionErr
 }
 
@@ -420,11 +472,14 @@ func planExecutionPrerequisites(request executorPlanRequest) ([]GateID, bool, er
 	if !digestPattern.MatchString(request.planDigest) {
 		return nil, false, errors.New("plan digest is invalid")
 	}
-	if err := validateExecutorGateIDs(request.profile, request.gateIDs, request.shard); err != nil {
-		return nil, false, err
-	}
 	if request.shard {
+		if err := validateShardGateIDs(request.profile, request.gateIDs); err != nil {
+			return nil, false, err
+		}
 		return slices.Clone(request.gateIDs), false, nil
+	}
+	if err := validateCanonicalPlanGateIDs(request.profile, request.gateIDs); err != nil {
+		return nil, false, err
 	}
 	gateIDs := slices.Clone(request.gateIDs)
 	if request.profile != ProfileRelease {
@@ -434,6 +489,47 @@ func planExecutionPrerequisites(request executorPlanRequest) ([]GateID, bool, er
 		return nil, false, errors.New("release attestation must be the final canonical gate")
 	}
 	return gateIDs[:len(gateIDs)-1], true, nil
+}
+
+const (
+	releaseAttestationStartupMS      int64 = 1
+	releaseAttestationTestBodyMS     int64 = 1
+	releaseAttestationMinimumTotalMS       = releaseAttestationStartupMS + releaseAttestationTestBodyMS
+)
+
+// canonicalReleaseAttestationTiming 将 owner 证明规范化为普通报告与 aggregate store 都可验证的毫秒区间。
+func canonicalReleaseAttestationTiming(startedAt, completedAt time.Time) (time.Time, time.Time, ExecutionProfile, error) {
+	if startedAt.IsZero() || completedAt.IsZero() {
+		return time.Time{}, time.Time{}, ExecutionProfile{}, errors.New("release attestation timestamps are required")
+	}
+	startedAt = startedAt.UTC()
+	completedAt = completedAt.UTC()
+	minimumCompletedAt := startedAt.Add(time.Duration(releaseAttestationMinimumTotalMS) * time.Millisecond)
+	if completedAt.Before(minimumCompletedAt) {
+		completedAt = minimumCompletedAt
+	}
+	startedAt, completedAt, totalMS, err := CanonicalExecutionInterval(startedAt, completedAt)
+	if err != nil {
+		return time.Time{}, time.Time{}, ExecutionProfile{}, fmt.Errorf("release attestation timing: %w", err)
+	}
+	if totalMS < releaseAttestationMinimumTotalMS {
+		completedAt = startedAt.Add(time.Duration(releaseAttestationMinimumTotalMS) * time.Millisecond)
+		startedAt, completedAt, totalMS, err = CanonicalExecutionInterval(startedAt, completedAt)
+		if err != nil {
+			return time.Time{}, time.Time{}, ExecutionProfile{}, fmt.Errorf("release attestation minimum timing: %w", err)
+		}
+	}
+	profile := measuredNonCacheExecutionProfile()
+	profile.StartupMS = releaseAttestationStartupMS
+	profile.TestBodyMS = releaseAttestationTestBodyMS
+	profile.TotalMS = totalMS
+	if err := profile.Validate(); err != nil {
+		return time.Time{}, time.Time{}, ExecutionProfile{}, fmt.Errorf("release attestation execution profile: %w", err)
+	}
+	if err := profile.ValidateAggregate(); err != nil {
+		return time.Time{}, time.Time{}, ExecutionProfile{}, fmt.Errorf("release attestation aggregate profile: %w", err)
+	}
+	return startedAt, completedAt, profile, nil
 }
 
 // executeReleaseLayerAttestation 在两个 lane 汇合后验证同进程内的 canonical 前序结果并生成增量证明。
@@ -451,12 +547,10 @@ func executeReleaseLayerAttestation(
 	if err != nil {
 		return failedReleaseAttestation(startedAt, "release command identity is invalid", err)
 	}
-	completedAt := now().UTC()
-	if !completedAt.After(startedAt) {
-		completedAt = startedAt.Add(time.Nanosecond)
+	startedAt, completedAt, profile, err := canonicalReleaseAttestationTiming(startedAt, now().UTC())
+	if err != nil {
+		return failedReleaseAttestation(startedAt, "attestation timing is invalid", err)
 	}
-	profile := measuredNonCacheExecutionProfile()
-	profile.TotalMS = completedAt.Sub(startedAt).Milliseconds()
 	result := PlanGateExecution{
 		GateID: GateIDReleaseLayeredCheck, Status: ResultStatusPassed, ExitCode: 0,
 		StartedAt: startedAt, CompletedAt: completedAt, ArgvDigest: argvDigest, Log: log, LogDigest: digestPlanLog(log),
@@ -466,6 +560,20 @@ func executeReleaseLayerAttestation(
 		return failedReleaseAttestation(startedAt, "generated attestation is invalid", err)
 	}
 	return result, nil
+}
+
+// ExecuteReleaseLayerAttestation 由受信任 owner 在全部前序结果汇合后生成 release 最终证明。
+func ExecuteReleaseLayerAttestation(profile Profile, planDigest string, observed map[GateID]PlanGateExecution, now func() time.Time) (PlanGateExecution, error) {
+	return executeReleaseLayerAttestation(executorPlanRequest{
+		profile: profile, planDigest: planDigest, gateIDs: requiredGateIDs(profile),
+	}, observed, now)
+}
+
+// ValidateReleaseLayerAttestation 校验 owner 生成的 release 证明与全部 canonical 前序结果一致。
+func ValidateReleaseLayerAttestation(profile Profile, planDigest string, observed map[GateID]PlanGateExecution, result PlanGateExecution) error {
+	return validateReleaseLayerAttestation(executorPlanRequest{
+		profile: profile, planDigest: planDigest, gateIDs: requiredGateIDs(profile),
+	}, observed, result)
 }
 
 // canonicalGateArgvDigest 返回 profile 内指定 gate 的规范命令摘要。
@@ -550,12 +658,16 @@ func validateReleaseLayerAttestation(
 
 func failedReleaseAttestation(startedAt time.Time, reason string, cause error) (PlanGateExecution, error) {
 	log := fmt.Appendf(nil, "[release-layer-attestation] %s\n", reason)
-	completedAt := startedAt.Add(time.Nanosecond)
-	profile := measuredNonCacheExecutionProfile()
-	profile.TotalMS = completedAt.Sub(startedAt).Milliseconds()
+	canonicalStartedAt, completedAt, profile, timingErr := canonicalReleaseAttestationTiming(
+		startedAt,
+		startedAt.Add(time.Duration(releaseAttestationMinimumTotalMS)*time.Millisecond),
+	)
+	if timingErr != nil {
+		return PlanGateExecution{}, errors.Join(cause, timingErr)
+	}
 	return PlanGateExecution{
 		GateID: GateIDReleaseLayeredCheck, Status: ResultStatusFailed, ExitCode: 1,
-		StartedAt: startedAt, CompletedAt: completedAt, Log: log, LogDigest: digestPlanLog(log),
+		StartedAt: canonicalStartedAt, CompletedAt: completedAt, Log: log, LogDigest: digestPlanLog(log),
 		ExecutionProfile: profile,
 	}, cause
 }
@@ -598,12 +710,14 @@ func runExecutorPlanLane(
 			return ctx.Err()
 		}
 		result, err := runGate(ctx, laneIndex, id)
-		if profileErr := result.ExecutionProfile.Validate(); profileErr != nil {
-			return errors.Join(err, fmt.Errorf("plan gate %q execution profile: %w", id, profileErr))
-		}
+		// 先保存 runner 返回的完整结果，再校验执行画像；否则校验错误
+		// 会把该 gate 伪装成未启动的 pending 结果，后续 merge 可能覆盖真实失败证据。
 		resultsMu.Lock()
 		results[id] = result
 		resultsMu.Unlock()
+		if profileErr := result.ExecutionProfile.Validate(); profileErr != nil {
+			return errors.Join(err, fmt.Errorf("plan gate %q execution profile: %w", id, profileErr))
+		}
 		if err != nil {
 			return err
 		}
@@ -618,7 +732,7 @@ func executePlanGate(
 	id GateID,
 	preparedRuntimeSeeds *executorPreparedRuntimeSeeds,
 	goBuildCacheRoot string,
-	goBuildCacheSeedRoots []string,
+	goBuildCacheSeedRoot string,
 	now func() time.Time,
 ) (PlanGateExecution, error) {
 	if now == nil {
@@ -631,9 +745,10 @@ func executePlanGate(
 	config, log, timingWriter, metricsPath, err := preparePlanGateExecution(
 		laneIndex,
 		id,
+		program,
 		preparedRuntimeSeeds,
 		goBuildCacheRoot,
-		goBuildCacheSeedRoots,
+		goBuildCacheSeedRoot,
 		now,
 	)
 	if err != nil {
@@ -646,9 +761,15 @@ func executePlanGate(
 		result.TestTimings = timingWriter.Timings()
 	}
 	result.CompletedAt = now().UTC()
-	result.ExecutionProfile, err = executionProfileForGate(id, program, result.TestTimings, result.StartedAt, result.CompletedAt, config.executionTiming)
+	result.CompletedAt = canonicalExactGoTestProcessCompletionOr(result.CompletedAt, id, result.TestTimings, result.StartedAt, config.executionTiming)
+	profile, profileErr := executionProfileOrFailedStartup(id, program, result.TestTimings, result.StartedAt, result.CompletedAt, config.executionTiming)
+	result.ExecutionProfile = profile
+	err = errors.Join(err, profileErr)
+	result.CompletedAt = normalizedExecutionCompletedAt(result.StartedAt, result.CompletedAt, result.ExecutionProfile)
+	result, timingErr := CanonicalizePlanGateExecutionTiming(result)
+	err = errors.Join(err, timingErr)
 	if metricsPath != "" {
-		if metricsErr := applyPlanGateCacheMetrics(&result, goBuildCacheRoot, metricsPath, goBuildCacheSeedRoots); metricsErr != nil {
+		if metricsErr := applyPlanGateCacheMetrics(&result, goBuildCacheRoot, metricsPath, goBuildCacheSeedRoot); metricsErr != nil {
 			err = errors.Join(err, metricsErr)
 		}
 	}
@@ -665,69 +786,42 @@ func executePlanGate(
 	return result, err
 }
 
-// preparePlanGateExecution 准备 lane 私有执行配置以及与日志绑定的测试时序证据。
-func preparePlanGateExecution(
-	laneIndex int,
-	id GateID,
-	preparedRuntimeSeeds *executorPreparedRuntimeSeeds,
-	goBuildCacheRoot string,
-	goBuildCacheSeedRoots []string,
-	now func() time.Time,
-) (executorConfig, *boundedPlanLog, *testtiming.EventWriter, string, error) {
-	workRoot := executorPlanLaneRoot(ExecutorWorkRoot, laneIndex)
-	if err := os.MkdirAll(workRoot, 0o700); err != nil {
-		return executorConfig{}, nil, nil, "", err
-	}
-	cacheProxy, err := executorGoBuildCacheProxyLauncher()
-	if err != nil {
-		return executorConfig{}, nil, nil, "", err
-	}
-	log := newBoundedPlanLog(executorPlanMaxLogBytes)
-	stdout := io.Writer(log)
-	var timingWriter *testtiming.EventWriter
-	if isGoPackageTestWorkload(id) {
-		timingWriter = testtiming.NewEventWriter(log)
-		stdout = timingWriter
-	}
-	metricsPath := ""
-	if isGoPackageTestWorkload(id) {
-		metricsPath, err = GoBuildCacheProxyMetricsPathForInvocation(goBuildCacheRoot, fmt.Sprintf("lane-%d-%x", laneIndex, sha256.Sum256([]byte(string(id)))))
-		if err != nil {
-			return executorConfig{}, nil, nil, "", err
-		}
-	}
-	config := executorConfig{
-		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
-		expectedUID: executorUID, requireReadOnlySource: true,
-		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
-		goRoot:                  ExecutorGoRoot,
-		preparedRuntimeSeeds:    preparedRuntimeSeeds,
-		goBuildCacheSeedRoots:   append([]string(nil), goBuildCacheSeedRoots...),
-		goBuildCacheRoot:        goBuildCacheRoot,
-		goBuildCacheProxy:       cacheProxy,
-		goBuildCacheMetricsPath: metricsPath,
-		frontendEmbedSeedRoot:   ExecutorFrontendEmbedSeedRoot,
-		stdout:                  stdout, stderr: log,
-		nowFunc:         now,
-		executionTiming: &executorExecutionTiming{},
-	}
-	return config, log, timingWriter, metricsPath, nil
-}
-
 // applyPlanGateCacheMetrics 将已落盘的 Go 构建缓存指标写回 gate 的执行画像。
+// metrics 与 started marker 都不存在表示 workload 虽继承 Go seed 能力，但没有启动 GOCACHEPROG；
+// 已启动却缺失最终指标、已有但损坏或身份不匹配的指标仍然 fail-fast。
 func applyPlanGateCacheMetrics(
 	result *PlanGateExecution,
 	goBuildCacheRoot string,
 	metricsPath string,
-	goBuildCacheSeedRoots []string,
+	goBuildCacheSeedRoot string,
 ) error {
-	metrics, err := LoadGoBuildCacheProxyMetricsAt(goBuildCacheRoot, metricsPath, goBuildCacheSeedRoots)
+	metrics, err := LoadGoBuildCacheProxyMetricsAt(goBuildCacheRoot, metricsPath, goBuildCacheSeedRoot)
+	markers, markerErr := goBuildCacheProxyStartedMarkers(metricsPath)
+	if markerErr != nil {
+		return markerErr
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		if len(markers) != 0 {
+			return errors.New("Go build cache proxy started but final metrics are missing")
+		}
+		contributions, contributionErr := goBuildCacheProxyContributionPaths(metricsPath)
+		if contributionErr != nil {
+			return contributionErr
+		}
+		if len(contributions) != 0 {
+			return errors.New("Go build cache proxy helper contributions exist without final metrics")
+		}
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("load Go build cache metrics: %w", err)
 	}
+	if len(markers) != 0 {
+		return errors.New("Go build cache proxy final metrics retained the started marker")
+	}
 	result.ExecutionProfile.CacheSource, result.ExecutionProfile.CacheMeasurement = "go_build_cache", "measured"
 	result.ExecutionProfile.PrivateHitCount, result.ExecutionProfile.BaselineHitCount = metrics.PrivateHitCount, metrics.BaselineHitCount
-	result.ExecutionProfile.BaselineHitByGeneration, result.ExecutionProfile.CacheMissCount, result.ExecutionProfile.CachePutCount = metrics.BaselineHitByGeneration, metrics.MissCount, metrics.PutCount
+	result.ExecutionProfile.CacheMissCount, result.ExecutionProfile.CachePutCount = metrics.MissCount, metrics.PutCount
 	result.ExecutionProfile.CacheStatus = cacheStatusFromMetrics(metrics)
 	return nil
 }

@@ -23,12 +23,15 @@ import (
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -60,6 +63,13 @@ type promptHistoryParams struct {
 	Cursor         string `json:"cursor,omitempty"`
 	Nonce          string `json:"nonce,omitempty"`
 	Limit          int    `json:"limit"`
+}
+
+type failureSmokeRuntimeConfig struct{}
+
+// ReadRuntimeConfig 为 failure smoke 宿主返回空运行时配置。
+func (failureSmokeRuntimeConfig) ReadRuntimeConfig(context.Context, string) (map[string]any, error) {
+	return map[string]any{}, nil
 }
 
 // main 启动只服务于真实 DOM failure smoke 的 Wails WebSocket 测试宿主。
@@ -137,8 +147,20 @@ func (r *productionWailsRuntime) stop() {
 func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*productionWailsRuntime, error) {
 	config := &platformconfig.Config{RPCAddr: "127.0.0.1:0"}
 	backend := platformrpc.NewServer(platformrpc.Params{Config: config})
-	providerDispatch := providerDispatchers(dispatcher)
-	projection, _, err := uistate.NewService(nil, nil, nil, nil, nil, nil)
+	providerDispatch, err := providerDispatchers(dispatcher)
+	if err != nil {
+		return nil, fmt.Errorf("create failure smoke provider adapters: %w", err)
+	}
+	terminalOutputReady := make(chan struct{}, 1)
+	projection, _, err := uistate.NewService(
+		pkglogger.NewRuntime(pkglogger.RuntimeConfig{}),
+		slog.Default(),
+		nil,
+		nil,
+		nil,
+		nil,
+		failureSmokeRuntimeConfig{},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create production uistate projection: %w", err)
 	}
@@ -146,7 +168,7 @@ func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*p
 	if projectionCancel == nil {
 		return nil, fmt.Errorf("register production uistate projection")
 	}
-	backendHandlers := fixtureHandlers(dispatcher, project, providerDispatch)
+	backendHandlers := fixtureHandlers(dispatcher, project, providerDispatch, terminalOutputReady)
 	backend.Register(backendHandlers)
 
 	applicationTransport := platformrpc.NewServer(platformrpc.Params{Config: config})
@@ -175,7 +197,7 @@ func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*p
 		return nil, fmt.Errorf("create production Wails application: %w", err)
 	}
 	browserTransport.Register(bindingHandlers(binding, backendHandlers))
-	eventUnsubs := adaptWailsEventsToBrowser(wailsApp, browserTransport, pushBridge)
+	eventUnsubs := adaptWailsEventsToBrowser(wailsApp, browserTransport, pushBridge, terminalOutputReady)
 
 	bridge := uiwails.NewEventBridge(dispatcher, lifecycle, slog.Default())
 	bridge.Start()
@@ -186,12 +208,26 @@ func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*p
 
 // providerDispatchers keeps each provider's real adapter isolated: registering both
 // adapters on one dispatcher would translate every raw event twice.
-func providerDispatchers(dispatcher *event.Dispatcher) map[string]*unified.EventDispatcher {
+func providerDispatchers(dispatcher *event.Dispatcher) (map[string]*unified.EventDispatcher, error) {
+	hooks, err := providershared.ConfigureRuntimeHooks(providershared.RuntimeHooks{
+		Capture: func(_ providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+			return providershared.ToolResultRecord{
+				Preview:      providershared.SafeToolArgumentsPreviewString(raw),
+				OriginalSize: len(raw),
+			}, nil
+		},
+		Reset: func(string, string) error { return nil },
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure failure smoke provider hooks: %w", err)
+	}
 	claude := unified.NewEventDispatcher(dispatcher, slog.Default())
-	claudecli.RegisterTranslators(claude)
+	claudecli.RegisterTranslators(claude, hooks)
 	codex := unified.NewEventDispatcher(dispatcher, slog.Default())
-	codexapp.RegisterTranslators(codex)
-	return map[string]*unified.EventDispatcher{"claude": claude, "codex": codex}
+	if err := codexapp.RegisterTranslators(codex, hooks); err != nil {
+		return nil, fmt.Errorf("register failure smoke codex translators: %w", err)
+	}
+	return map[string]*unified.EventDispatcher{"claude": claude, "codex": codex}, nil
 }
 
 // adaptWailsEventsToBrowser 是 fixture adapter：只转发已由 production Wails EventManager 发出的事件。
@@ -199,6 +235,7 @@ func adaptWailsEventsToBrowser(
 	wailsApp *application.App,
 	transport *platformrpc.Server,
 	pushBridge *platformrpc.PushBridge,
+	terminalOutputReady chan<- struct{},
 ) []func() {
 	eventNames := []string{"bridge-event", "agent-event"}
 	unsubs := make([]func(), 0, len(eventNames))
@@ -206,9 +243,25 @@ func adaptWailsEventsToBrowser(
 		eventName := eventName
 		unsubs = append(unsubs, wailsApp.Event.On(eventName, func(wailsEvent *application.CustomEvent) {
 			transport.NotifyAll(context.Background(), pushBridge, eventName, wailsEvent.Data)
+			signalTerminalOutputReady(terminalOutputReady, eventName, wailsEvent.Data)
 		}))
 	}
 	return unsubs
+}
+
+// signalTerminalOutputReady 在 Claude 部分响应通过 production EventBridge/Wails emitter 后释放终态发布屏障。
+func signalTerminalOutputReady(ready chan<- struct{}, eventName string, data any) {
+	if eventName != "bridge-event" {
+		return
+	}
+	payload, ok := data.(map[string]any)
+	if !ok || payload["type"] != eventsurface.MethodAgentMessageDelta {
+		return
+	}
+	select {
+	case ready <- struct{}{}:
+	default:
+	}
 }
 
 func bindingHandlers(binding *uiwails.App, methods handler.Map) handler.Map {
@@ -223,7 +276,7 @@ func bindingHandlers(binding *uiwails.App, methods handler.Map) handler.Map {
 }
 
 // fixtureHandlers 组装启动快照和失败终态触发器的严格 RPC 契约。
-func fixtureHandlers(dispatcher *event.Dispatcher, project string, providers map[string]*unified.EventDispatcher) handler.Map {
+func fixtureHandlers(dispatcher *event.Dispatcher, project string, providers map[string]*unified.EventDispatcher, terminalOutputReady <-chan struct{}) handler.Map {
 	handlers := handler.Map{}
 	for method, response := range fixtureResponses(project) {
 		current := response
@@ -257,7 +310,7 @@ func fixtureHandlers(dispatcher *event.Dispatcher, project string, providers map
 		if params.CaseID != "terminal-failed" {
 			return nil, fmt.Errorf("unsupported failure smoke case %q", params.CaseID)
 		}
-		if err := publishTerminalFailure(providers); err != nil {
+		if err := publishTerminalFailureAfterOutput(providers, terminalOutputReady); err != nil {
 			return nil, err
 		}
 		return map[string]any{"ok": true, "caseId": params.CaseID}, nil
@@ -396,6 +449,25 @@ func publishPromptHistoryHop(dispatcher *event.Dispatcher) {
 // publishTerminalFailure injects sensitive raw provider failures into both production
 // adapters. Only their typed DTO output reaches EventBridge and the browser.
 func publishTerminalFailure(providers map[string]*unified.EventDispatcher) error {
+	return publishTerminalFailureWithWait(providers, func() error { return nil })
+}
+
+// publishTerminalFailureAfterOutput 等待 Claude 部分响应穿过真实事件桥后再发布失败终态。
+func publishTerminalFailureAfterOutput(providers map[string]*unified.EventDispatcher, terminalOutputReady <-chan struct{}) error {
+	return publishTerminalFailureWithWait(providers, func() error {
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-terminalOutputReady:
+			return nil
+		case <-timer.C:
+			return fmt.Errorf("failure smoke Claude output did not cross the Wails event bridge")
+		}
+	})
+}
+
+// publishTerminalFailureWithWait 发布 Claude 部分响应，并在调用方指定的屏障后发布失败终态。
+func publishTerminalFailureWithWait(providers map[string]*unified.EventDispatcher, wait func() error) error {
 	now := time.Now().UTC()
 	claude := providers["claude"]
 	codex := providers["codex"]
@@ -406,6 +478,9 @@ func publishTerminalFailure(providers map[string]*unified.EventDispatcher) error
 		"timestamp": now.Format(time.RFC3339Nano), "thread_id": smokeThreadID, "agent_id": smokeThreadID,
 		"turn_id": smokeTurnID, "stream": "message", "delta": "桌面 smoke 部分响应", "error": rawProviderSecret,
 	}})
+	if err := wait(); err != nil {
+		return err
+	}
 	codex.Dispatch(dto.RawProviderEvent{EventType: "turn/failed", Data: map[string]any{
 		"timestamp": now.Format(time.RFC3339Nano), "thread_id": smokeThreadID, "agent_id": smokeThreadID,
 		"turn_id": smokeTurnID, "error": rawProviderSecret, "reason": "provider_failure",

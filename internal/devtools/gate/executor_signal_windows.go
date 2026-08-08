@@ -3,22 +3,12 @@
 package gate
 
 import (
-	"errors"
 	"io/fs"
-	"os"
 	"os/exec"
 	"time"
 )
 
-var errDurationLedgerPlatformUnsupported = errors.New("duration ledger locking is unsupported on windows")
-
 func fileOwnerUID(fs.FileInfo) (int, bool) { return 0, false }
-
-func lockDurationLedgerFile(*os.File) error { return errDurationLedgerPlatformUnsupported }
-
-func unlockDurationLedgerFile(*os.File) error { return errDurationLedgerPlatformUnsupported }
-
-func syncDurationLedgerDirectory(string) error { return errDurationLedgerPlatformUnsupported }
 
 func configureCommandCancellation(command *exec.Cmd) {
 	command.Cancel = func() error {
@@ -28,5 +18,16 @@ func configureCommandCancellation(command *exec.Cmd) {
 }
 
 func runConfiguredCommand(command *exec.Cmd) error {
-	return command.Run()
+	return runConfiguredCommandWithStart(command, nil)
+}
+
+// runConfiguredCommandWithStart 仅暴露成功的进程启动边界供计时生产者使用，同时保留命令等待契约。
+func runConfiguredCommandWithStart(command *exec.Cmd, onStart func()) error {
+	if err := command.Start(); err != nil {
+		return err
+	}
+	if onStart != nil {
+		onStart()
+	}
+	return command.Wait()
 }

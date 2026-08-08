@@ -8,18 +8,12 @@ import (
 	"testing"
 )
 
-func TestBackendBoundaryGuardsCoverProductionTree(t *testing.T) {
-	t.Parallel()
-
-	registry := DefaultBackendBoundaryRegistry()
-	evaluation, err := EvaluateBackendBoundary(repoRootForGuardTests(t), registry)
-	if err != nil {
-		t.Fatalf("evaluate production backend boundaries: %v", err)
-	}
+func runBackendBoundaryProductionTreeCoverage(t *testing.T, evaluation BoundaryEvaluation) {
+	t.Helper()
 	if evaluation.CandidateFiles == 0 {
 		t.Fatal("backend boundary registry matched zero production Go candidates")
 	}
-	for _, rule := range registry.Rules {
+	for _, rule := range DefaultBackendBoundaryRegistry().Rules {
 		if evaluation.ByRule[rule.ID] == 0 {
 			t.Fatalf("backend boundary rule %q matched zero production files", rule.ID)
 		}

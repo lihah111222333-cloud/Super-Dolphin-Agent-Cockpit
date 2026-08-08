@@ -205,7 +205,7 @@ orch DAG key：`mcp_orch_dag_current_fixes_20260605`
 - task commit: `2033213cc` (`修复：收紧 DAG 创建入口契约`).
 - integration merge commit: `c541f50b9` (`合并：接入 DAG 创建入口契约修复`).
 - integration merge conflict resolved in DAG designer prompt assets; controller preserved both T10 runtime recovery guidance and T01 create-only/trusted-scope contract.
-- merge-time guard blocker in `cmd/mcp-orch/orchestration/nodeexec/ops.go` was fixed by removing the direct `strings.Contains(err.Error(), ...)` pattern required by `TestErrorStringMatchGuard`.
+- merge-time guard blocker in `cmd/mcp-orch/orchestration/nodeexec/ops.go` was fixed by removing the direct `strings.Contains(err.Error(), ...)` pattern required by `TestSafeGoUsageCentralized/error-string-match`.
 
 ## Final integration summary
 

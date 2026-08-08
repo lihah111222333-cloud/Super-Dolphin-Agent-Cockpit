@@ -138,6 +138,9 @@ func (snapshot *remoteGitTreeSnapshot) gateCLICompileLocalImports(files []string
 				return nil, fmt.Errorf("parse gate CLI compile import in %q: %w", filePath, err)
 			}
 			if local, ok := snapshot.resolveLocalGoImport(importPath); ok {
+				if snapshot.isRepositoryLocalReplacementDirectory(local) {
+					return nil, fmt.Errorf("gate CLI compile import %q uses a repository-local replacement module", importPath)
+				}
 				imports[local] = struct{}{}
 			}
 		}
@@ -148,6 +151,19 @@ func (snapshot *remoteGitTreeSnapshot) gateCLICompileLocalImports(files []string
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// isRepositoryLocalReplacementDirectory 识别根模块之外的本地 replace 目录，保持基准 materializer 的稳定闭包协议。
+func (snapshot *remoteGitTreeSnapshot) isRepositoryLocalReplacementDirectory(directory string) bool {
+	for _, mapping := range snapshot.moduleMappings {
+		if mapping.directory == "." {
+			continue
+		}
+		if directory == mapping.directory || strings.HasPrefix(directory, mapping.directory+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // verifyReadOnlyTreeObject 确认调用方指定的是可读取的 tree object，而不是 ref 或其他对象。

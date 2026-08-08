@@ -193,65 +193,7 @@ type ReleaseAsset struct {
 	Size   int64  `json:"size"`
 }
 
-// GateStatus identifies an individual gate outcome.
-type GateStatus string
-
-const (
-	GateStatusPassed    GateStatus = "passed"
-	GateStatusFailed    GateStatus = "failed"
-	GateStatusCancelled GateStatus = "cancelled"
-	GateStatusTimeout   GateStatus = "timeout"
-)
-
-// GateResult records directly observed process evidence for one gate.
-type GateResult struct {
-	GateID      string     `json:"gate_id"`
-	Status      GateStatus `json:"status"`
-	ExitCode    int        `json:"exit_code"`
-	StartedAt   time.Time  `json:"started_at"`
-	CompletedAt time.Time  `json:"completed_at"`
-	ArgvDigest  string     `json:"argv_digest"`
-	LogDigest   string     `json:"log_digest"`
-}
-
-// EvidenceKind identifies a directly observed evidence class.
-type EvidenceKind string
-
-const (
-	EvidenceKindProcess EvidenceKind = "process"
-	EvidenceKindDocker  EvidenceKind = "docker_inspect"
-	EvidenceKindLog     EvidenceKind = "log"
-)
-
-// Evidence binds an evidence kind to its immutable digest.
-type Evidence struct {
-	Kind   EvidenceKind `json:"kind"`
-	Digest string       `json:"digest"`
-}
-
-// ContainerResourceWitness records the bounded resource fields observed before container start.
-type ContainerResourceWitness struct {
-	SchemaVersion uint32 `json:"schema_version"`
-	NanoCPUs      int64  `json:"nano_cpus"`
-	MemoryBytes   int64  `json:"memory_bytes"`
-	PidsLimit     int64  `json:"pids_limit"`
-}
-
-const ContainerResourceWitnessSchemaVersion uint32 = 1
-
-// ContainerEvidence records the isolated execution and removal proof.
-type ContainerEvidence struct {
-	ContainerID           string                   `json:"container_id"`
-	NetworkID             string                   `json:"network_id"`
-	HostConfigDigest      string                   `json:"host_config_digest"`
-	ResourceWitness       ContainerResourceWitness `json:"resource_witness"`
-	ResourceWitnessDigest string                   `json:"resource_witness_digest"`
-	NetworkPolicyDigest   string                   `json:"network_policy_digest"`
-	Removed               bool                     `json:"removed"`
-	NetworkRemoved        bool                     `json:"network_removed"`
-}
-
-// ResultStatus identifies the terminal authority of a result receipt.
+// ResultStatus identifies the terminal state of a remote or local execution result.
 type ResultStatus string
 
 const (
@@ -262,39 +204,6 @@ const (
 	ResultStatusInfraFailed       ResultStatus = "infra_failed"
 	ResultStatusPassedStalePolicy ResultStatus = "passed_stale_policy"
 )
-
-// ResultReceiptSchemaVersion binds dynamically sized canonical shard receipts and their frozen workload plan.
-const (
-	ResultReceiptSchemaVersion uint32 = 4
-)
-
-// ResultReceipt is the canonical signed audit result. It never authorizes an action by itself.
-type ResultReceipt struct {
-	SchemaVersion        uint32                  `json:"schema_version"`
-	ReceiptID            string                  `json:"receipt_id"`
-	RepoID               string                  `json:"repo_id"`
-	InvocationID         string                  `json:"invocation_id"`
-	Entrypoint           CIEntrypointID          `json:"entrypoint"`
-	AuthorityOwner       CIEntrypointOwner       `json:"authority_owner"`
-	AuthorityAttestation string                  `json:"authority_attestation"`
-	Source               SourceSpec              `json:"source"`
-	PlanDigest           string                  `json:"plan_digest"`
-	PolicyDigest         string                  `json:"policy_digest"`
-	Runner               TrustedRunnerIdentity   `json:"runner"`
-	Image                ImageIdentity           `json:"image"`
-	Generation           uint64                  `json:"generation"`
-	StartedAt            time.Time               `json:"started_at"`
-	CompletedAt          time.Time               `json:"completed_at"`
-	Deadline             time.Time               `json:"deadline"`
-	Status               ResultStatus            `json:"status"`
-	GateResults          []GateResult            `json:"gate_results"`
-	WorkloadPlan         WorkloadExecutionPlan   `json:"workload_plan"`
-	ShardReceipts        []ContainerShardReceipt `json:"shard_receipts"`
-	Evidence             []Evidence              `json:"evidence"`
-	Container            ContainerEvidence       `json:"container"`
-	Signer               SignerIdentity          `json:"signer"`
-	Signature            string                  `json:"signature"`
-}
 
 // ActionGrantState identifies the durable two-phase lifecycle of an action grant.
 type ActionGrantState string

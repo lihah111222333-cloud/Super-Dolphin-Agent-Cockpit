@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
@@ -15,31 +17,7 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	runInventoryGit(t, repository, "init", "--quiet")
 	runInventoryGit(t, repository, "config", "user.name", "CI Inventory")
 	runInventoryGit(t, repository, "config", "user.email", "ci@example.invalid")
-	writeInventoryFile(t, repository, "go.mod", "module example.test/root\n\ngo 1.25\n")
-	writeInventoryFile(t, repository, "build/gate/closure_test.go", "package gate_test\n")
-	writeInventoryFile(t, repository, "build/gate/closure/runtime_deps_test.go", "package gateclosure\n")
-	writeInventoryFile(t, repository, "build/gate/runtime-tools/go.mod", "module example.test/runtime-tools\n\ngo 1.25\n")
-	writeInventoryFile(t, repository, "build/gate/runtime-tools/tools.go", "package tools\n")
-	writeInventoryFile(t, repository, "internal/alpha/alpha.go", "package alpha\n")
-	writeInventoryFile(t, repository, "internal/ignored/tool.go", "//go:build ignore\n\npackage main\n")
-	writeInventoryFile(t, repository, "internal/archtest/common_test.go", "package archtest\n\nimport \"testing\"\n\nfunc TestCommon(t *testing.T) {}\n")
-	writeInventoryFile(t, repository, "internal/archtest/normal_test.go", "//go:build !race\n\npackage archtest\n\nimport \"testing\"\n\nfunc TestNormal(t *testing.T) {}\n")
-	writeInventoryFile(t, repository, "internal/archtest/race_test.go", "//go:build race\n\npackage archtest\n\nimport \"testing\"\n\nfunc TestRace(t *testing.T) {}\n")
-	writeInventoryFile(t, repository, "internal/provider/codexapp/common_test.go", "package codexapp\n\nimport \"testing\"\n\nfunc TestTransportCommon(t *testing.T) {}\n")
-	writeInventoryFile(t, repository, "internal/provider/codexapp/normal_test.go", "//go:build !race\n\npackage codexapp\n\nimport \"testing\"\n\nfunc TestTransportNormal(t *testing.T) {}\n")
-	writeInventoryFile(t, repository, "internal/provider/codexapp/race_test.go", "//go:build race\n\npackage codexapp\n\nimport \"testing\"\n\nfunc TestTransportRace(t *testing.T) {}\n")
-	writeInventoryFile(t, repository, "new-root/tool/tool.go", "package tool\n")
-	writeInventoryFile(t, repository, "tools/custom-check/go.mod", "module example.test/custom-check\n\ngo 1.25\n")
-	writeInventoryFile(t, repository, "tools/custom-check/check.go", "package check\n")
-	writeInventoryFile(t, repository, "frontend-app/src/widget.ts", "export const widget = 1\n")
-	writeInventoryFile(t, repository, "frontend-app/src/widget.test.ts", "test('widget', () => {})\n")
-	writeInventoryFile(t, repository, "frontend-app/scripts/runtime.test.mjs", "test('runtime', () => {})\n")
-	writeInventoryFile(t, repository, inventoryVitestSuitePolicyPath, `{
-  "schemaVersion": 1,
-  "defaultExcludes": ["**/scripts/**/*benchmark.test.*", "**/scripts/**/performance-*.test.*"]
-}`)
-	writeInventoryFile(t, repository, "frontend-app/scripts/chat-history-benchmark.test.mjs", "test('benchmark', () => {})\n")
-	writeInventoryFile(t, repository, "frontend-app/scripts/performance-budget.test.mjs", "test('performance', () => {})\n")
+	writeInventoryFixture(t, repository)
 	runInventoryGit(t, repository, "add", ".")
 	runInventoryGit(t, repository, "commit", "--quiet", "-m", "基础")
 	base := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
@@ -55,30 +33,125 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildWorkloadInventory() error = %v", err)
 	}
-	if !slices.Equal(inventory.GoPackages, []string{"./build/gate", "./build/gate/closure", "./internal/alpha", "./internal/archtest", "./internal/beta", "./internal/provider/codexapp", "./new-root/tool"}) ||
+	if !slices.Equal(inventory.GoPackages, []string{"./build/gate", "./build/gate/closure", "./cmd/agent-runtime", "./cmd/agent-terminal", "./cmd/mcp-orch/store/taskdag", "./cmd/super-dolphin-updater", "./internal/alpha", "./internal/app", "./internal/archtest", "./internal/beta", "./internal/devtools/gate", "./internal/devtools/remoteci", "./internal/platform/db/sqlite", "./internal/provider/codexapp", "./new-root/tool"}) ||
 		!slices.Equal(inventory.NestedGoModules, []string{"build/gate/runtime-tools", "tools/custom-check"}) ||
 		!slices.Equal(inventory.FrontendChangedTests, []string{"src/widget.test.ts"}) ||
 		!slices.Equal(inventory.FrontendFullTests, []string{"scripts/runtime.test.mjs", "src/widget.test.ts"}) {
 		t.Fatalf("inventory = %#v", inventory)
 	}
-	normalNames := make([]string, len(inventory.GoTests))
-	for index, target := range inventory.GoTests {
-		normalNames[index] = target.Package + "#" + target.Name
+	assertAtomicInventoryTestNames(t, inventory.GoTests, inventory.GoRaceTests)
+}
+
+func writeInventoryFixture(t *testing.T, repository string) {
+	t.Helper()
+	files := map[string]string{
+		"go.mod":                     "module example.test/root\n\ngo 1.25\n",
+		"build/gate/closure_test.go": "package gate_test\n",
+		"build/gate/closure/runtime_deps_test.go":    "package gateclosure\n",
+		"build/gate/runtime-tools/go.mod":            "module example.test/runtime-tools\n\ngo 1.25\n",
+		"build/gate/runtime-tools/tools.go":          "package tools\n",
+		"internal/alpha/alpha.go":                    "package alpha\n",
+		"internal/ignored/tool.go":                   "//go:build ignore\n\npackage main\n",
+		"internal/archtest/common_test.go":           "package archtest\n\nimport \"testing\"\n\nfunc TestCommon(t *testing.T) {}\n",
+		"internal/archtest/normal_test.go":           "//go:build !race\n\npackage archtest\n\nimport \"testing\"\n\nfunc TestNormal(t *testing.T) {}\n",
+		"internal/archtest/race_test.go":             "//go:build race\n\npackage archtest\n\nimport \"testing\"\n\nfunc TestRace(t *testing.T) {}\n",
+		"internal/provider/codexapp/common_test.go":  "package codexapp\n\nimport \"testing\"\n\nfunc TestTransportCommon(t *testing.T) {}\n",
+		"internal/provider/codexapp/normal_test.go":  "//go:build !race\n\npackage codexapp\n\nimport \"testing\"\n\nfunc TestTransportNormal(t *testing.T) {}\n",
+		"internal/provider/codexapp/race_test.go":    "//go:build race\n\npackage codexapp\n\nimport \"testing\"\n\nfunc TestTransportRace(t *testing.T) {}\n",
+		"cmd/agent-runtime/main.go":                  "package main\n",
+		"cmd/agent-runtime/main_test.go":             "package main\n\nimport \"testing\"\n\nfunc TestAgentRuntimeMain(t *testing.T) {}\nfunc TestAgentRuntimeRace(t *testing.T) {}\n",
+		"cmd/agent-terminal/main.go":                 "package main\n",
+		"cmd/agent-terminal/main_test.go":            "package main\n\nimport \"testing\"\n\nfunc TestAgentTerminalMain(t *testing.T) {}\nfunc TestAgentTerminalRecovery(t *testing.T) {}\n",
+		"cmd/mcp-orch/store/taskdag/store.go":        "package taskdag\n",
+		"cmd/mcp-orch/store/taskdag/store_test.go":   "package taskdag\n\nimport \"testing\"\n\nfunc TestTaskDAGStore(t *testing.T) {}\nfunc TestTaskDAGWakeup(t *testing.T) {}\n\n// super-dolphin-ci: helper\nfunc TestTaskDAGChildProcess(t *testing.T) {}\n",
+		"cmd/super-dolphin-updater/main.go":          "package main\n",
+		"cmd/super-dolphin-updater/updater_test.go":  "package main\n\nimport \"testing\"\n\nfunc TestUpdaterCandidateCleanup(t *testing.T) {}\nfunc TestUpdaterRollbackEntries(t *testing.T) {}\n\n// super-dolphin-ci: helper\nfunc TestUpdaterCandidateProcess(t *testing.T) {}\n",
+		"internal/app/app.go":                        "package app\n",
+		"internal/app/app_test.go":                   "package app\n\nimport \"testing\"\n\nfunc TestAppModuleGraphIsClosed(t *testing.T) {}\nfunc TestRunDesktopPreDrain(t *testing.T) {}\nfunc TestRecoveryRestoreAndGuardConvergeOneTokenBoundLaunch(t *testing.T) {}\n",
+		"internal/platform/db/sqlite/sqlite.go":      "package sqlite\n",
+		"internal/platform/db/sqlite/common_test.go": "package sqlite\n\nimport \"testing\"\n\nfunc TestSQLiteCommon(t *testing.T) {}\n",
+		"internal/platform/db/sqlite/normal_test.go": "//go:build !race\n\npackage sqlite\n\nimport \"testing\"\n\nfunc TestSQLiteNormal(t *testing.T) {}\n",
+		"internal/platform/db/sqlite/race_test.go":   "//go:build race\n\npackage sqlite\n\nimport \"testing\"\n\nfunc TestSQLiteRace(t *testing.T) {}\n",
+		"internal/devtools/gate/gate.go":             "package gate\n",
+		"internal/devtools/gate/common_test.go":      "package gate\n\nimport \"testing\"\n\nfunc TestGateAtomicCommon(t *testing.T) {}\n",
+		"internal/devtools/gate/normal_test.go":      "//go:build !race\n\npackage gate\n\nimport \"testing\"\n\nfunc TestGateAtomicNormal(t *testing.T) {}\n",
+		"internal/devtools/gate/race_test.go":        "//go:build race\n\npackage gate\n\nimport \"testing\"\n\nfunc TestGateAtomicRace(t *testing.T) {}\n",
+		"internal/devtools/remoteci/remoteci.go":     "package remoteci\n",
+		"internal/devtools/remoteci/common_test.go":  "package remoteci\n\nimport \"testing\"\n\nfunc TestRemoteCIAtomicCommon(t *testing.T) {}\n",
+		"internal/devtools/remoteci/normal_test.go":  "//go:build !race\n\npackage remoteci\n\nimport \"testing\"\n\nfunc TestRemoteCIAtomicNormal(t *testing.T) {}\n",
+		"internal/devtools/remoteci/race_test.go":    "//go:build race\n\npackage remoteci\n\nimport \"testing\"\n\nfunc TestRemoteCIAtomicRace(t *testing.T) {}\n",
+		"new-root/tool/tool.go":                      "package tool\n",
+		"tools/custom-check/go.mod":                  "module example.test/custom-check\n\ngo 1.25\n",
+		"tools/custom-check/check.go":                "package check\n",
+		"frontend-app/src/widget.ts":                 "export const widget = 1\n",
+		"frontend-app/src/widget.test.ts":            "test('widget', () => {})\n",
+		"frontend-app/scripts/runtime.test.mjs":      "test('runtime', () => {})\n",
+		inventoryVitestSuitePolicyPath: `{
+  "schemaVersion": 1,
+  "defaultExcludes": ["**/scripts/**/*benchmark.test.*", "**/scripts/**/performance-*.test.*"]
+}`,
+		"frontend-app/scripts/chat-history-benchmark.test.mjs": "test('benchmark', () => {})\n",
+		"frontend-app/scripts/performance-budget.test.mjs":     "test('performance', () => {})\n",
 	}
-	raceNames := make([]string, len(inventory.GoRaceTests))
-	for index, target := range inventory.GoRaceTests {
-		raceNames[index] = target.Package + "#" + target.Name
+	for filePath, body := range files {
+		writeInventoryFile(t, repository, filePath, body)
 	}
+}
+
+func assertAtomicInventoryTestNames(t *testing.T, normal, race []gate.GoTestTarget) {
+	t.Helper()
+	toNames := func(targets []gate.GoTestTarget) []string {
+		names := make([]string, len(targets))
+		for index, target := range targets {
+			names[index] = target.Package + "#" + target.Name
+		}
+		return names
+	}
+	normalNames, raceNames := toNames(normal), toNames(race)
 	if !slices.Equal(normalNames, []string{
 		"./internal/archtest#TestCommon",
 		"./internal/archtest#TestNormal",
 		"./internal/provider/codexapp#TestTransportCommon",
 		"./internal/provider/codexapp#TestTransportNormal",
+		"./cmd/agent-runtime#TestAgentRuntimeMain",
+		"./cmd/agent-runtime#TestAgentRuntimeRace",
+		"./cmd/agent-terminal#TestAgentTerminalMain",
+		"./cmd/agent-terminal#TestAgentTerminalRecovery",
+		"./internal/app#TestAppModuleGraphIsClosed",
+		"./internal/app#TestRecoveryRestoreAndGuardConvergeOneTokenBoundLaunch",
+		"./internal/app#TestRunDesktopPreDrain",
+		"./cmd/super-dolphin-updater#TestUpdaterCandidateCleanup",
+		"./cmd/super-dolphin-updater#TestUpdaterRollbackEntries",
+		"./cmd/mcp-orch/store/taskdag#TestTaskDAGStore",
+		"./cmd/mcp-orch/store/taskdag#TestTaskDAGWakeup",
+		"./internal/platform/db/sqlite#TestSQLiteCommon",
+		"./internal/platform/db/sqlite#TestSQLiteNormal",
+		"./internal/devtools/gate#TestGateAtomicCommon",
+		"./internal/devtools/gate#TestGateAtomicNormal",
+		"./internal/devtools/remoteci#TestRemoteCIAtomicCommon",
+		"./internal/devtools/remoteci#TestRemoteCIAtomicNormal",
 	}) || !slices.Equal(raceNames, []string{
 		"./internal/archtest#TestCommon",
 		"./internal/archtest#TestRace",
 		"./internal/provider/codexapp#TestTransportCommon",
 		"./internal/provider/codexapp#TestTransportRace",
+		"./cmd/agent-runtime#TestAgentRuntimeMain",
+		"./cmd/agent-runtime#TestAgentRuntimeRace",
+		"./cmd/agent-terminal#TestAgentTerminalMain",
+		"./cmd/agent-terminal#TestAgentTerminalRecovery",
+		"./internal/app#TestAppModuleGraphIsClosed",
+		"./internal/app#TestRecoveryRestoreAndGuardConvergeOneTokenBoundLaunch",
+		"./internal/app#TestRunDesktopPreDrain",
+		"./cmd/super-dolphin-updater#TestUpdaterCandidateCleanup",
+		"./cmd/super-dolphin-updater#TestUpdaterRollbackEntries",
+		"./cmd/mcp-orch/store/taskdag#TestTaskDAGStore",
+		"./cmd/mcp-orch/store/taskdag#TestTaskDAGWakeup",
+		"./internal/platform/db/sqlite#TestSQLiteCommon",
+		"./internal/platform/db/sqlite#TestSQLiteRace",
+		"./internal/devtools/gate#TestGateAtomicCommon",
+		"./internal/devtools/gate#TestGateAtomicRace",
+		"./internal/devtools/remoteci#TestRemoteCIAtomicCommon",
+		"./internal/devtools/remoteci#TestRemoteCIAtomicRace",
 	}) {
 		t.Fatalf("atomic Go tests normal=%v race=%v", normalNames, raceNames)
 	}

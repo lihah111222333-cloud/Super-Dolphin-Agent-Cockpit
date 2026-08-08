@@ -35,6 +35,28 @@ CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_origin_job
 
 CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_retention
 	ON ci_workload_pass_evidence (accepted_generation, identity_digest);
+
+-- Historical migration matches the requested workload execution/environment
+-- tuple inside the retained generation window.  Keep workload first so each
+-- bounded request probes only its requested tuples instead of scanning the
+-- evidence table or relying on the origin-job projection.
+CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_migration
+	ON ci_workload_pass_evidence (workload_id, execution_digest, environment_digest, accepted_generation, origin_job_id, identity_digest);
+`
+
+const strictWorkloadPassEvidenceAliasSQLiteSchema = `
+CREATE TABLE IF NOT EXISTS ci_workload_pass_evidence_aliases (
+	alias_identity_digest TEXT NOT NULL,
+	alias_accepted_generation TEXT NOT NULL CHECK (alias_accepted_generation <> '' AND alias_accepted_generation NOT GLOB '0*' AND alias_accepted_generation NOT GLOB '*[^0-9]*' AND (length(alias_accepted_generation) < 20 OR (length(alias_accepted_generation) = 20 AND alias_accepted_generation <= '18446744073709551615'))),
+	source_identity_digest TEXT NOT NULL,
+	source_accepted_generation TEXT NOT NULL CHECK (source_accepted_generation <> '' AND source_accepted_generation NOT GLOB '0*' AND source_accepted_generation NOT GLOB '*[^0-9]*' AND (length(source_accepted_generation) < 20 OR (length(source_accepted_generation) = 20 AND source_accepted_generation <= '18446744073709551615'))),
+	PRIMARY KEY (alias_identity_digest, alias_accepted_generation),
+	FOREIGN KEY (alias_identity_digest, alias_accepted_generation) REFERENCES ci_workload_pass_evidence(identity_digest, accepted_generation) ON DELETE CASCADE,
+	FOREIGN KEY (source_identity_digest, source_accepted_generation) REFERENCES ci_workload_pass_evidence(identity_digest, accepted_generation) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_alias_source
+	ON ci_workload_pass_evidence_aliases (source_identity_digest, source_accepted_generation);
 `
 
 const strictCheckReceiptReuseSQLiteSchema = `CREATE TABLE IF NOT EXISTS ci_check_receipts (
@@ -42,6 +64,7 @@ const strictCheckReceiptReuseSQLiteSchema = `CREATE TABLE IF NOT EXISTS ci_check
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
 	candidate_tree_sha TEXT NOT NULL,
 	agent_token_digest TEXT NOT NULL,
+	force INTEGER NOT NULL DEFAULT 0 CHECK (force IN (0, 1)),
 	accepted_generation TEXT NOT NULL,
 	accepted_snapshot_id TEXT NOT NULL,
 	required_check TEXT NOT NULL,

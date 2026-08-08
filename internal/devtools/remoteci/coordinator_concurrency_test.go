@@ -15,15 +15,23 @@ import (
 )
 
 type coordinatorOverlapBarrier struct {
-	mu           sync.Mutex
-	expectedCall int
-	expectedJobs int
-	calls        int
-	jobs         map[string]struct{}
-	started      chan struct{}
-	release      chan struct{}
-	startOnce    sync.Once
-	releaseOnce  sync.Once
+	mu             sync.Mutex
+	expectedCall   int
+	expectedJobs   int
+	releaseOnStart bool
+	calls          int
+	jobs           map[string]struct{}
+	started        chan struct{}
+	release        chan struct{}
+	startOnce      sync.Once
+	releaseOnce    sync.Once
+}
+
+// newCoordinatorOverlapBarrierReleaseOnStart 创建只记录跨 job 到达、不会阻塞清理上下文的测试屏障。
+func newCoordinatorOverlapBarrierReleaseOnStart(expectedCall int, expectedJobs int) *coordinatorOverlapBarrier {
+	barrier := newCoordinatorOverlapBarrier(expectedCall, expectedJobs)
+	barrier.releaseOnStart = true
+	return barrier
 }
 
 func newCoordinatorOverlapBarrier(expectedCall int, expectedJobs int) *coordinatorOverlapBarrier {
@@ -38,9 +46,19 @@ func (barrier *coordinatorOverlapBarrier) wait(ctx context.Context, jobID string
 	barrier.calls++
 	barrier.jobs[jobID] = struct{}{}
 	if barrier.calls >= barrier.expectedCall && len(barrier.jobs) >= barrier.expectedJobs {
-		barrier.startOnce.Do(func() { close(barrier.started) })
+		barrier.startOnce.Do(func() {
+			close(barrier.started)
+			if barrier.releaseOnStart {
+				barrier.releaseOnce.Do(func() { close(barrier.release) })
+			}
+		})
 	}
 	barrier.mu.Unlock()
+	if barrier.releaseOnStart {
+		// 该屏障只观测跨 job 的并发到达；不得让一个 job 的有界清理
+		// 上下文等待另一个 job，否则调度延迟会被误化为 ECI 删除失败。
+		return nil
+	}
 	select {
 	case <-barrier.release:
 		return nil
@@ -115,7 +133,7 @@ func TestCoordinatorCleanupStartsAllECIDeletesWithoutCPUBatchLimit(t *testing.T)
 func TestCoordinatorRunConcurrentlyUploadsAndCreatesCacheMissShards(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
-	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
+	plannedSet := mustBuildAllMissRemoteExecutionShardSet(t, input)
 	if len(plannedSet.Shards) <= 1 {
 		t.Fatalf("planned shards=%d, want concurrent shards", len(plannedSet.Shards))
 	}
@@ -175,7 +193,9 @@ func TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped(t *testing
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
 	store := &coordinatorStore{}
-	cleanupBarrier := newCoordinatorOverlapBarrier(2, 2)
+	// 清理拥有真实的有界上下文；两个 job 进入屏障后立即放行测试会合，避免
+	// 测试调度延迟耗尽该上下文，把 fixture 误化为合成的清理超时。
+	cleanupBarrier := newCoordinatorOverlapBarrierReleaseOnStart(2, 2)
 	runtime := &jobScopedCleanupRuntime{coordinatorRuntime: &coordinatorRuntime{}, barrier: cleanupBarrier}
 	defer cleanupBarrier.unblock()
 	first := newTestCoordinator(t, store, runtime)
@@ -186,13 +206,23 @@ func TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped(t *testing
 	secondInput := input
 	firstInput.AgentTokenDigest = "sha256:" + strings.Repeat("a", 64)
 	secondInput.AgentTokenDigest = "sha256:" + strings.Repeat("b", 64)
+	// 准备阶段无副作用，但包含源码指纹和账本工作，在 -race 下可能超过短屏障的等待时间。
+	// 先冻结两份计划，再启动有副作用的执行，使屏障只观测本测试关注的并发阶段。
+	firstPrepared, err := first.Prepare(context.Background(), firstInput)
+	if err != nil {
+		t.Fatalf("first Prepare() error = %v", err)
+	}
+	secondPrepared, err := second.Prepare(context.Background(), secondInput)
+	if err != nil {
+		t.Fatalf("second Prepare() error = %v", err)
+	}
 	var runs errgroup.Group
 	runs.Go(func() error {
-		_, err := first.Run(context.Background(), firstInput)
+		_, err := first.RunPrepared(context.Background(), firstPrepared)
 		return err
 	})
 	runs.Go(func() error {
-		_, err := second.Run(context.Background(), secondInput)
+		_, err := second.RunPrepared(context.Background(), secondPrepared)
 		return err
 	})
 	assertCoordinatorBarrierReached(t, cleanupBarrier, "cross-job ECI cleanup")
@@ -200,6 +230,7 @@ func TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped(t *testing
 	if err := runs.Wait(); err != nil {
 		t.Fatalf("concurrent Run() error = %v", err)
 	}
+	assertCoordinatorBarrierCoverage(t, cleanupBarrier, "cross-job ECI cleanup")
 	wantPrefixes := map[string]bool{
 		"baseline-artifacts/source-bundles/job-0123456789abcdef0123456a/": false,
 		"baseline-artifacts/source-bundles/job-0123456789abcdef0123456b/": false,
@@ -227,13 +258,32 @@ func TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped(t *testing
 	}
 }
 
+func assertCoordinatorBarrierCoverage(t *testing.T, barrier *coordinatorOverlapBarrier, operation string) {
+	t.Helper()
+	barrier.mu.Lock()
+	defer barrier.mu.Unlock()
+	if barrier.calls < barrier.expectedCall || len(barrier.jobs) < barrier.expectedJobs {
+		t.Fatalf("%s observed calls=%d jobs=%d, want at least calls=%d jobs=%d", operation, barrier.calls, len(barrier.jobs), barrier.expectedCall, barrier.expectedJobs)
+	}
+}
+
 func assertCoordinatorBarrierReached(t *testing.T, barrier *coordinatorOverlapBarrier, operation string) {
 	t.Helper()
-	select {
-	case <-barrier.started:
-	case <-time.After(time.Second):
-		t.Fatalf("%s did not overlap", operation)
+	if deadline, ok := t.Deadline(); ok {
+		wait := time.Until(deadline)
+		if wait <= 0 {
+			t.Fatalf("%s did not overlap before the test deadline", operation)
+		}
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-barrier.started:
+			return
+		case <-timer.C:
+			t.Fatalf("%s did not overlap before the test deadline", operation)
+		}
 	}
+	<-barrier.started
 }
 
 func assertIndependentCoordinatorObjectPrefixes(t *testing.T, uploads []string, creates []eci.CreateRequest) {

@@ -1,6 +1,10 @@
 # 项目级 Git hooks
 
-执行 `make install-hooks` 安装版本化 hooks。安装器要求一个受信、绝对路径的 `super-dolphin-gate` launcher，并在每次运行时复验其 owner、类型、可执行权限及非 group/world 可写 mode。
+执行 `make install-hooks` 安装版本化 hooks。安装器默认从当前精确 staged tree 物化、编译并原子安装内容寻址的 `super-dolphin-gate` launcher；receipt 绑定 tree、实际 Go 导入闭包、工具链、编译器、构建参数、闭包生成器和二进制摘要。每次 hook 都重新计算 tree 身份并复验 receipt、owner、类型、可执行权限及非 group/world 可写 mode。
+
+builder 也必须从 staged tree 通过 Git plumbing 读取后执行；安装器不接受环境变量或任意外部路径覆盖 launcher，不从调用方 `PATH` 解析候选 Gate。
+
+如果 pre-commit 自动刷新受管生成物导致 staged tree 改变，本次提交会 fail closed；重新执行 `make install-hooks` 后再提交。受管 codemap、capability-contract 清单和 project-map 的自动刷新固定按 `codemap → capcontract → project-map` 顺序执行，各自仍由自己的 owner 生成器负责；`scripts/refresh_generated_artifacts.sh all` 是工作树维护时的统一入口，hook 则使用同一顺序的受信 exact-tree 入口，绝不执行候选工作树 generator。不同 linked worktree 的 tree launcher 可在受限安装根中并存，执行阶段按当前 tree 从安装根选择并完整复验，不依赖最近一次安装路径。
 
 所有提交和推送只使用 remote ECI 门禁；不存在本地 scheduler、Docker 容器执行或本地回退分支。两个 hook 都要求本地 Git 配置或环境提供 `SUPER_DOLPHIN_GATE_REMOTE_CONFIG` 和 `SUPER_DOLPHIN_GATE_LEDGER`，缺失即 fail closed。
 

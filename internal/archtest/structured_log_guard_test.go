@@ -30,9 +30,9 @@ import (
 func TestStructuredLogGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
+	snapshot := loadProductionSourceSnapshot(t, root)
 	scanRoots := []string{"internal", "cmd"}
-	skipDirs := DefaultSkipDirs()
-	violations := collectStructuredLogViolations(t, root, scanRoots, skipDirs)
+	violations := collectStructuredLogViolationsFromSnapshot(t, snapshot, scanRoots)
 
 	if len(violations) > 0 {
 		t.Fatalf("Structured log guard violations (%d):\n  %s",
@@ -107,19 +107,17 @@ func unsafe(raw json.RawMessage, cwd, home string) {
 	}
 }
 
-func collectStructuredLogViolations(t *testing.T, root string, scanRoots []string, skipDirs map[string]bool) []string {
+func collectStructuredLogViolationsFromSnapshot(t *testing.T, snapshot *productionSourceSnapshot, scanRoots []string) []string {
 	t.Helper()
 	var violations []string
-	for _, sr := range scanRoots {
-		abs := filepath.Join(root, sr)
-		err := filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
-			fileViolations, err := structuredLogPathViolations(root, path, info, walkErr, skipDirs)
-			violations = append(violations, fileViolations...)
-			return err
-		})
-		if err != nil {
-			t.Fatalf("walk %s: %v", sr, err)
+	for _, file := range snapshot.files {
+		if !productionSourcePathInRoots(file.relPath, scanRoots) || !isStructuredLogGuardTarget(file.relPath) {
+			continue
 		}
+		if structuredLogPathAllowed(file.relPath) {
+			continue
+		}
+		violations = append(violations, structuredLogFileViolationsFromSource(file)...)
 	}
 	return violations
 }
@@ -179,6 +177,13 @@ func structuredLogFileViolations(path, relSlash string) ([]string, error) {
 	violations = append(violations, structuredLogStderrViolations(relSlash, data)...)
 	violations = append(violations, structuredLogRuntimeFieldViolations(relSlash, fset, node)...)
 	return violations, nil
+}
+
+func structuredLogFileViolationsFromSource(file productionSourceFile) []string {
+	violations := structuredLogImportViolations(file.relPath, file.syntax)
+	violations = append(violations, structuredLogStderrViolations(file.relPath, file.data)...)
+	violations = append(violations, structuredLogRuntimeFieldViolations(file.relPath, file.fset, file.syntax)...)
+	return violations
 }
 
 func structuredLogImportViolations(relSlash string, node *ast.File) []string {

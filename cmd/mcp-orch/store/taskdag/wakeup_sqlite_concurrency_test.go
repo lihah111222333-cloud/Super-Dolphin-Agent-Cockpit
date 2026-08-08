@@ -20,6 +20,7 @@ import (
 
 const wakeupClaimChildEnv = "TASK12_WAKEUP_CLAIM_CHILD"
 
+// super-dolphin-ci: helper
 func TestWakeupSQLiteClaimChildProcess(t *testing.T) {
 	if os.Getenv(wakeupClaimChildEnv) == "" {
 		return

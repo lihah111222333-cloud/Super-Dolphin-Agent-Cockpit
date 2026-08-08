@@ -258,6 +258,7 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/agent-runtime", "agent runtime process assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/agent-terminal", "agent terminal process assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/codex-worktree-setup", "Codex worktree LSP bootstrap command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/build-trusted-gate-launcher", "trusted gate launcher build command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
@@ -306,6 +307,7 @@ type backendBoundaryPatterns struct {
 	agentRuntime    []string
 	agentTerminal   []string
 	codexWorktree   []string
+	trustedLauncher []string
 	gateCLI         []string
 	releaseManifest []string
 	guard           []string
@@ -341,6 +343,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		agentRuntime:    []string{"cmd/agent-runtime/**/*.go"},
 		agentTerminal:   []string{"cmd/agent-terminal/**/*.go"},
 		codexWorktree:   []string{"cmd/codex-worktree-setup/**/*.go"},
+		trustedLauncher: []string{"cmd/build-trusted-gate-launcher/**/*.go"},
 		gateCLI:         []string{"cmd/super-dolphin-gate/**/*.go"},
 		releaseManifest: []string{"cmd/super-dolphin-release-manifest/**/*.go"},
 		guard:           []string{"cmd/super-dolphin-guard/**/*.go"},
@@ -801,11 +804,13 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 }
 
 func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.gateCLI, patterns.releaseManifest, patterns.guard, patterns.updater, patterns.schemaHelper, patterns.acpNode)
+	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.trustedLauncher, patterns.gateCLI, patterns.releaseManifest, patterns.guard, patterns.updater, patterns.schemaHelper, patterns.acpNode)
 }
 
 func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.devtools, []string{"internal/devtools/archtestmap/**/*.go"}, patterns.dto, patterns.testutil, patterns.util)
+	return combineBoundaryPatterns(patterns.devtools, []string{
+		"internal/devtools/archtestmap/**/*.go",
+	}, patterns.dto, patterns.testutil, patterns.util)
 }
 
 // commandNarrowAllowPolicies 为每个 standalone command 绑定精确内部依赖白名单。
@@ -828,9 +833,13 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/platform/config",
 		"internal/util/pathutil",
 	}, "Codex worktree setup runtime primitive")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.trustedLauncher, []string{
+		"internal/devtools/trustedlauncher",
+	}, "trusted gate launcher build primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
 		"internal/devtools/alicloud/eci",
 		"internal/devtools/alicloud/oss",
+		"internal/devtools/capcontract",
 		"internal/devtools/cicontract",
 		"internal/devtools/codemapindex",
 		"internal/devtools/coordinatoradmission",
@@ -842,6 +851,7 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/devtools/remoteci",
 		"internal/devtools/shardresource",
 		"internal/devtools/sourceexport",
+		"internal/devtools/trustedlauncher",
 	}, "standalone gate coordinator, worker, hook, persistence, and remote CI runtime")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",

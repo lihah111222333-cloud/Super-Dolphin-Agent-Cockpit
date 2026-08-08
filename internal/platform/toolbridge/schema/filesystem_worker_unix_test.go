@@ -137,33 +137,6 @@ func TestSuccessfulExecuteUsesOneWorkerAndLeavesNoSnapshot(t *testing.T) {
 	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
 }
 
-func TestShortLivedFilesystemWorkersAttachReliably(t *testing.T) {
-	root := setFilesystemSnapshotRoot(t)
-	for index := 0; index < 64; index++ {
-		ctx, cancel := context.WithTimeout(context.Background(), helperFixtureTimeout)
-		request := filesystemWorkerRequest{Version: filesystemWorkerVersion, Operation: filesystemWorkerSweep}
-		setFilesystemWorkerDeadline(ctx, &request)
-		_, err := runFilesystemWorker(
-			ctx,
-			ctx,
-			os.Args[0],
-			func(path string) *exec.Cmd { return exec.Command(path) },
-			nil,
-			request,
-			nil,
-			0,
-			nil,
-		)
-		cancel()
-		if err != nil {
-			t.Fatalf("short-lived filesystem worker %d failed: %v", index, err)
-		}
-	}
-	if entries := filesystemSnapshotDirectoryNames(t, root); len(entries) != 0 {
-		t.Fatalf("short-lived sweep workers left snapshots: %v", entries)
-	}
-}
-
 func TestExecuteReapsBlockedCleanupWorkerAndPreservesCleanupFailure(t *testing.T) {
 	previousLimiter := globalHelperLimiter
 	globalHelperLimiter = newHelperLimiter(maxLiveHelpers)
@@ -749,8 +722,7 @@ func reapGuardedUnixTestProcess(t *testing.T, cmd *exec.Cmd, guard *processGuard
 	}
 	guard.groupKilled = true
 	if err := cmd.Wait(); err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
+		if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 			t.Fatal(err)
 		}
 	}

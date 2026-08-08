@@ -139,6 +139,14 @@ func (s *Store) RecordGhostBatch(ctx context.Context, snapshots []processprobe.S
 		return nil, err
 	}
 	if s.durable != nil {
+		if len(snapshots) == 0 {
+			return []Decision{}, nil
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.closed {
+			return nil, ErrDurableStoreClosed
+		}
 		return s.recordDurableBatch(ctx, snapshots)
 	}
 	s.mu.Lock()
@@ -150,15 +158,10 @@ func (s *Store) RecordGhostBatch(ctx context.Context, snapshots []processprobe.S
 }
 
 func (s *Store) recordDurableBatch(ctx context.Context, snapshots []processprobe.Snapshot) ([]Decision, error) {
-	decisions := make([]Decision, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		decision, err := s.RecordGhost(ctx, snapshot)
-		if err != nil {
-			return decisions, err
-		}
-		decisions = append(decisions, decision)
+	if len(snapshots) == 0 {
+		return []Decision{}, nil
 	}
-	return decisions, nil
+	return s.durable.recordBatch(ctx, snapshots, &s.projectionFailureOnce)
 }
 
 func (s *Store) recordMemoryBatchLocked(snapshots []processprobe.Snapshot) ([]Decision, error) {

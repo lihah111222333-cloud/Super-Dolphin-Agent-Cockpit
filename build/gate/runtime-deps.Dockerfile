@@ -164,9 +164,11 @@ COPY build/gate/runtime-proxy/go.sum /tmp/runtime-manifest-source/build/gate/run
 COPY frontend-app/package-lock.json /tmp/runtime-manifest-source/frontend-app/package-lock.json
 RUN --network=none mkdir -p /opt/super-dolphin-gate/runtime/frontend/vite-cache && \
     /tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime && \
+    test -s /opt/super-dolphin-gate/runtime/manifest.json && \
+    rm /opt/super-dolphin-gate/runtime/manifest.json && \
     rm /tmp/super-dolphin-gate && \
     rm -rf /tmp/runtime-manifest-source && \
-    test -s /opt/super-dolphin-gate/runtime/manifest.json && \
+    test ! -e /opt/super-dolphin-gate/runtime/manifest.json && \
     /opt/super-dolphin-gate/runtime/bin/sqlc version >/dev/null
 RUN --network=none mkdir -p /opt/super-dolphin/cache/go-build && \
     chmod 0555 /opt/super-dolphin/cache /opt/super-dolphin/cache/go-build

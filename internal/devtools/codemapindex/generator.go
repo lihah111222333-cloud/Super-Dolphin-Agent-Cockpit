@@ -123,14 +123,14 @@ func Generate(root string, check bool) error {
 	return nil
 }
 
-// generatedAtForMode 在检查模式复用既有日期，刷新模式使用当天日期。
+// generatedAtForMode 在检查模式复用既有日期，刷新模式使用 UTC 当天日期。
 func generatedAtForMode(check bool, outPath string, nowFunc func() time.Time) string {
 	if check {
 		if existing, ok := existingGeneratedAt(outPath); ok {
 			return existing
 		}
 	}
-	return nowFunc().Format("2006-01-02")
+	return nowFunc().UTC().Format("2006-01-02")
 }
 
 // buildGeneratedCodemapArtifacts 一次性构建索引、README 输入和锚点身份生成物。

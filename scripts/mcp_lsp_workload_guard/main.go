@@ -14,22 +14,9 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
-var canonicalIDs = []string{
-	"mcp-lsp-idle-quick",
-	"mcp-lsp-native-process-tree",
-	"mcp-lsp-default-15m",
-	"mcp-lsp-100-workspace-soak",
-	"mcp-lsp-release-artifact",
-}
-
 var workloadIDPattern = regexp.MustCompile(`mcp-lsp-[a-z0-9-]+`)
 
 var testSelectorNamePattern = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-
-var legacyConsumerAliases = map[string]bool{
-	"mcp-lsp-resource-cohort":        true,
-	"mcp-lsp-workload-catalog-check": true,
-}
 
 const legacyResourceCohortCommand = "$(TEST_WITH_GUARD) --quick-guard -tags=e2e ./cmd/mcp-lsp -run '^TestMcpLSPBinary(LinkedWorktreesResourceCohortRecycleAndRecover|ResourceCohortMalformedReportQuarantine)_E2E$$' -v -timeout 240s -count=1"
 
@@ -120,6 +107,13 @@ func findRepoRoot() (string, error) {
 }
 
 func validateCanonicalIDs(document catalog.Catalog) error {
+	canonicalIDs := []string{
+		"mcp-lsp-idle-quick",
+		"mcp-lsp-native-process-tree",
+		"mcp-lsp-default-15m",
+		"mcp-lsp-100-workspace-soak",
+		"mcp-lsp-release-artifact",
+	}
 	if len(document.Workloads) != len(canonicalIDs) {
 		return fmt.Errorf("catalog workload count=%d, want exactly %d canonical IDs", len(document.Workloads), len(canonicalIDs))
 	}
@@ -312,11 +306,20 @@ func validateConsumerFile(repoRoot, relative string, document catalog.Catalog) e
 		return fmt.Errorf("catalog consumer %q copies mcp-lsp command truth", relative)
 	}
 	for _, id := range workloadIDPattern.FindAllString(text, -1) {
-		if !containsID(document, id) && !legacyConsumerAliases[id] {
+		if !containsID(document, id) && !isLegacyConsumerAlias(id) {
 			return fmt.Errorf("catalog consumer %q references unknown workload ID %q", relative, id)
 		}
 	}
 	return nil
+}
+
+func isLegacyConsumerAlias(id string) bool {
+	switch id {
+	case "mcp-lsp-resource-cohort", "mcp-lsp-workload-catalog-check":
+		return true
+	default:
+		return false
+	}
 }
 
 // hasCopiedMcpLSPCommand 仅允许既有 resource-cohort 独立门禁保留原命令。

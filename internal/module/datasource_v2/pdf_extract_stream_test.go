@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"errors"
 	"fmt"
+	"hash/adler32"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ func TestExtractPDFStreamsPreservesFlateBinaryTail(t *testing.T) {
 	for _, separator := range []string{"\r", "\n", "\r\n"} {
 		for _, tail := range []byte{'\r', '\n', 0x7f} {
 			decoded, compressed := compressedPDFPayloadWithTail(t, tail)
-			content := []byte(fmt.Sprintf("%%PDF-1.7\n1 0 obj\n<< /Length %d /Filter /FlateDecode >>\nstream%s", len(compressed), separator))
+			content := fmt.Appendf(nil, "%%PDF-1.7\n1 0 obj\n<< /Length %d /Filter /FlateDecode >>\nstream%s", len(compressed), separator)
 			content = append(content, compressed...)
 			content = append(content, []byte(separator+"endstream\nendobj\n")...)
 			streams, err := extractPDFStreams(content)
@@ -40,7 +41,7 @@ func TestExtractPDFStreamBodyRejectsInvalidDirectLength(t *testing.T) {
 		}
 	})
 	t.Run("limit", func(t *testing.T) {
-		_, _, err := extractPDFStreamBody(nil, 0, []byte(fmt.Sprintf("<< /Length %d >>", datasourceV2MaxImportBytes+1)))
+		_, _, err := extractPDFStreamBody(nil, 0, fmt.Appendf(nil, "<< /Length %d >>", datasourceV2MaxImportBytes+1))
 		if !errors.Is(err, errDatasourceV2TextTooLarge) {
 			t.Fatalf("extractPDFStreamBody() error = %v, want %v", err, errDatasourceV2TextTooLarge)
 		}
@@ -79,9 +80,17 @@ func TestExtractPDFStreamBodySupportsMarkerForMissingOrIndirectLength(t *testing
 
 func compressedPDFPayloadWithTail(t *testing.T, want byte) ([]byte, []byte) {
 	t.Helper()
-	for first := 0; first < 256; first++ {
-		for second := 0; second < 256; second++ {
-			decoded := []byte(fmt.Sprintf("BT (tail-safe) Tj ET\n%%%c%c", byte(first), byte(second)))
+	// zlib 流末尾四个字节是 Adler-32 校验和，最低有效字节就是流的最后一个字节。
+	// 先按校验和搜索两字节 fixture 后缀，再只压缩命中的候选，避免每个候选都启动
+	// zlib writer；原实现让 race workload 在测试准备阶段耗时数分钟。
+	decoded := append([]byte("BT (tail-safe) Tj ET\n%"), 0, 0)
+	for first := range 256 {
+		for second := range 256 {
+			decoded[len(decoded)-2] = byte(first)
+			decoded[len(decoded)-1] = byte(second)
+			if byte(adler32.Checksum(decoded)) != want {
+				continue
+			}
 			var buffer bytes.Buffer
 			writer := zlib.NewWriter(&buffer)
 			if _, err := writer.Write(decoded); err != nil {
@@ -92,7 +101,7 @@ func compressedPDFPayloadWithTail(t *testing.T, want byte) ([]byte, []byte) {
 			}
 			compressed := buffer.Bytes()
 			if compressed[len(compressed)-1] == want {
-				return decoded, append([]byte(nil), compressed...)
+				return append([]byte(nil), decoded...), append([]byte(nil), compressed...)
 			}
 		}
 	}

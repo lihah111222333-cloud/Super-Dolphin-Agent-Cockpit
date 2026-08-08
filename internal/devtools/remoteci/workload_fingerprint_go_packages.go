@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"maps"
 	"path"
 	"sort"
 	"strconv"
@@ -117,6 +118,9 @@ func (snapshot *remoteGitTreeSnapshot) productionGoPackageEntries(
 			return false, nil, fmt.Errorf("remote worker production source %q is not a Git blob", filePath)
 		}
 		selected[filePath] = entry
+		if err := snapshot.addGoEmbedEntries(path.Dir(filePath), source, selected); err != nil {
+			return false, nil, err
+		}
 		found = true
 		file, err := parser.ParseFile(token.NewFileSet(), filePath, source, parser.ImportsOnly)
 		if err != nil {
@@ -140,6 +144,20 @@ func remoteProductionGoSourceInDirectory(filePath string, source []byte, directo
 		!strings.HasSuffix(filePath, "_test.go") && remoteGoSourceAppliesLinuxAMD64WithProfile(filePath, source, profile)
 }
 
+// addGoEmbedEntries 将 Go 编译源码的实际 embed asset 加入 workload 输入集合。
+func (snapshot *remoteGitTreeSnapshot) addGoEmbedEntries(
+	directory string,
+	source []byte,
+	selected map[string]remoteGitTreeEntry,
+) error {
+	entries, err := snapshot.resolveGoEmbedAssets(directory, source)
+	if err != nil {
+		return fmt.Errorf("Go workload fingerprint %w", err)
+	}
+	maps.Copy(selected, entries)
+	return nil
+}
+
 func sortedRemoteStringSet(values map[string]struct{}) []string {
 	result := make([]string, 0, len(values))
 	for value := range values {
@@ -158,12 +176,16 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestPackageCompileEntries(directory 
 	if err := snapshot.addGoTestProductionCompileEntries(directory, selected, profile); err != nil {
 		return nil, err
 	}
+	if !snapshot.hasProductionGoPackage(directory, profile) {
+		// 仅测试包即使没有适用于 worker 平台的生产源码，仍会编译并运行包内资产。
+		snapshot.addGoPackageBuildAssets(directory, selected)
+	}
 	if !snapshot.hasProductionGoPackage(directory, profile) && len(files) == 0 {
 		return nil, fmt.Errorf("remote worker Go test package directory %q has no linux/amd64 source files", directory)
 	}
 	for _, file := range files {
-		wholeTree, err := snapshot.addGoTestCompileFileEntries(directory, file, selected, profile)
-		if err != nil || wholeTree {
+		_, err := snapshot.addGoTestCompileFileEntries(directory, file, selected, profile)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -207,12 +229,12 @@ func (snapshot *remoteGitTreeSnapshot) addGoExactTestCompileFileEntries(
 		return false, fmt.Errorf("Go test compile input %q is absent from Git tree", file.path)
 	}
 	selected[file.path] = entry
-	if remoteGoSourceHasEmbedDirective(file.source) {
-		return true, nil
+	if err := snapshot.addGoEmbedEntries(path.Dir(file.path), file.source, selected); err != nil {
+		return false, err
 	}
 	for _, importPath := range remoteGoTestImports(file.file) {
 		if localDirectory, local := snapshot.resolveLocalGoImport(importPath); local {
-			if err := snapshot.addProductionGoPackageEntriesWithAssets(localDirectory, selected, false, profile); err != nil {
+			if err := snapshot.addProductionGoPackageEntriesWithAssets(localDirectory, selected, true, profile); err != nil {
 				return false, err
 			}
 		}
@@ -220,98 +242,12 @@ func (snapshot *remoteGitTreeSnapshot) addGoExactTestCompileFileEntries(
 	return false, nil
 }
 
-// addGoExactTestProductionCompileEntries 只加入实际 Go 编译闭包；运行时资产由观察分析单独加入。
+// addGoExactTestProductionCompileEntries 加入实际 Go 编译闭包及包内非 Go 资产；目标测试运行时观察由 goTestSources 单独处理。
 func (snapshot *remoteGitTreeSnapshot) addGoExactTestProductionCompileEntries(directory string, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile) error {
 	if !snapshot.hasProductionGoPackage(directory, profile) {
 		return nil
 	}
-	return snapshot.addProductionGoPackageEntriesWithAssets(directory, selected, false, profile)
-}
-
-// addGoExactTestProductionObservedEntries 收集测试二进制生产导入闭包的仓库读取。
-// 静态路径只加入被观察文件；任一动态路径都让 exact 指纹收敛到完整 Git tree。
-func (snapshot *remoteGitTreeSnapshot) addGoExactTestProductionObservedEntries(
-	targetDirectory string,
-	selected map[string]remoteGitTreeEntry,
-	profile remoteGoBuildProfile,
-) (bool, error) {
-	visited := make(map[string]struct{})
-	queue := []string{targetDirectory}
-	files, _, fallback := snapshot.remoteGoTestDeclarations(targetDirectory, profile)
-	if fallback {
-		return false, errors.New("parse exact Go test production observation inputs")
-	}
-	queue = append(queue, snapshot.goExactTestImportedLocalDirectories(files)...)
-	for len(queue) > 0 {
-		directory := queue[0]
-		queue = queue[1:]
-		if _, alreadyVisited := visited[directory]; alreadyVisited {
-			continue
-		}
-		visited[directory] = struct{}{}
-		found, imports, err := snapshot.productionGoPackageEntries(directory, selected, profile)
-		if err != nil {
-			return false, err
-		}
-		if !found {
-			// 纯测试包没有生产闭包；其运行时观察仍由测试源码路径处理。
-			continue
-		}
-		observesWholeTree, err := snapshot.addGoExactTestProductionDirectoryObservedEntries(targetDirectory, directory, selected, profile)
-		if err != nil || observesWholeTree {
-			return observesWholeTree, err
-		}
-		queue = append(queue, imports...)
-	}
-	return false, nil
-}
-
-// goExactTestImportedLocalDirectories 返回测试文件直接导入的本地包目录。
-func (snapshot *remoteGitTreeSnapshot) goExactTestImportedLocalDirectories(files []remoteGoTestFile) []string {
-	directories := make([]string, 0)
-	for _, file := range files {
-		for _, importPath := range remoteGoTestImports(file.file) {
-			if directory, local := snapshot.resolveLocalGoImport(importPath); local {
-				directories = append(directories, directory)
-			}
-		}
-	}
-	return directories
-}
-
-// addGoExactTestProductionDirectoryObservedEntries 收集单个生产目录的运行时文件观察。
-func (snapshot *remoteGitTreeSnapshot) addGoExactTestProductionDirectoryObservedEntries(
-	targetDirectory string,
-	directory string,
-	selected map[string]remoteGitTreeEntry,
-	profile remoteGoBuildProfile,
-) (bool, error) {
-	for filePath, source := range snapshot.goSources {
-		if !remoteProductionGoSourceInDirectory(filePath, source, directory, profile) {
-			continue
-		}
-		if remoteGoSourceHasEmbedDirective(source) {
-			return true, nil
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), filePath, source, 0)
-		if err != nil {
-			return false, fmt.Errorf("parse remote worker production source %q: %w", filePath, err)
-		}
-		observesWholeTree, err := snapshot.addGoTestFileObservedEntries(targetDirectory, file, file, selected)
-		if err != nil || observesWholeTree {
-			return observesWholeTree, err
-		}
-	}
-	return false, nil
-}
-
-func remoteGoSourceHasEmbedDirective(source []byte) bool {
-	for line := range strings.SplitSeq(string(source), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "//go:embed ") {
-			return true
-		}
-	}
-	return false
+	return snapshot.addProductionGoPackageEntriesWithAssets(directory, selected, true, profile)
 }
 
 // addGoTestCompileFileEntries 收集单个测试文件的导入和可静态观察输入。
@@ -321,6 +257,9 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestCompileFileEntries(directory str
 		return false, fmt.Errorf("Go test compile input %q is absent from Git tree", file.path)
 	}
 	selected[file.path] = entry
+	if err := snapshot.addGoEmbedEntries(path.Dir(file.path), file.source, selected); err != nil {
+		return false, err
+	}
 	for _, importPath := range remoteGoTestImports(file.file) {
 		if localDirectory, local := snapshot.resolveLocalGoImport(importPath); local {
 			if err := snapshot.addProductionGoPackageEntriesWithAssets(localDirectory, selected, true, profile); err != nil {

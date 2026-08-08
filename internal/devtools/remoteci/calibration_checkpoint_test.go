@@ -106,6 +106,25 @@ func TestCalibrationCheckpointDoesNotPersistExecutionPayload(t *testing.T) {
 	}
 }
 
+func TestCalibrationCheckpointRetainsForceAuditIdentity(t *testing.T) {
+	checkpoint, err := NewCalibrationCheckpoint(calibrationCheckpointStore(t), "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testCalibrationCheckpointInput()
+	input.Force = true
+	result := testCalibrationCheckpointResult(input)
+	result.Force = true
+	result.DurationSamples = []gatecontract.DurationSample{{DurationMS: 1}}
+	if err := checkpoint.Observe("commit", input, result, true); err != nil {
+		t.Fatal(err)
+	}
+	resumedInput, resumedResult, completed := checkpoint.Completed("commit")
+	if !completed || !resumedInput.Force || !resumedResult.Force {
+		t.Fatalf("checkpoint force audit identity = input=%#v result=%#v completed=%t", resumedInput.Force, resumedResult.Force, completed)
+	}
+}
+
 func TestCalibrationCheckpointRejectsIncompleteCompletedIdentity(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -325,9 +344,9 @@ func seedRemoteCITestAcceptedGeneration(t *testing.T, store *gatecontract.Durati
 
 func testCalibrationCheckpointInput() RunInput {
 	tree := strings.Repeat("1", 40)
-	return RunInput{AgentTokenDigest: calibrationCheckpointAgentTokenDigest, AcceptedGeneration: 7, ImageCacheSnapshotID: "snap-accepted-baseline", Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: strings.Repeat("2", 40)}, SourceTreeSHA: tree}, Profile: gatecontract.ProfileLocalFast, Entrypoint: gatecontract.CIEntrypointGitPreCommit, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("3", 64), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("5", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("6", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("4", 64), RunnerImage: "ubuntu:22.04", CalibrationResource: shardresource.Class{ID: "maximum", VCPU: 8, MemoryGiB: 32}}
+	return RunInput{AgentTokenDigest: calibrationCheckpointAgentTokenDigest, AcceptedGeneration: 7, ImageCacheSnapshotID: "snap-accepted-baseline", Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: strings.Repeat("2", 40)}, SourceTreeSHA: tree}, Profile: gatecontract.ProfileLocalFast, Entrypoint: gatecontract.CIEntrypointGitPreCommit, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("3", 64), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("5", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("6", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("4", 64), RunnerImage: "ubuntu:22.04", CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}}
 }
 
 func testCalibrationCheckpointResult(input RunInput) RunResult {
-	return RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("7", 64), CatalogDigest: "sha256:" + strings.Repeat("8", 64), SourceTreeSHA: input.Tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
+	return RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("7", 64), CatalogDigest: "sha256:" + strings.Repeat("8", 64), SourceTreeSHA: input.Tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, CalibrationResourceClassID: input.CalibrationResource.ID, CalibrationResourceCPU: input.CalibrationResource.VCPU, CalibrationResourceMemoryGiB: input.CalibrationResource.MemoryGiB, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
 }

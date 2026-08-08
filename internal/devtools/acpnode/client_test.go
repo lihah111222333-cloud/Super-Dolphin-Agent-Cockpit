@@ -149,6 +149,34 @@ func testClient(t *testing.T, reverse ReverseRequestHandler) (*Client, *fakeProc
 	return client, p
 }
 
+func TestClientJoinTrackedOwnersUsesInjectedClock(t *testing.T) {
+	base := time.Unix(123, 0)
+	clockValues := []time.Time{base, base, base.Add(time.Second)}
+	clockCalls := 0
+	client := &Client{
+		owners: make(map[trackedOwner]struct{}),
+		now: func() time.Time {
+			if clockCalls >= len(clockValues) {
+				t.Fatalf("client clock called %d times; want no more than %d", clockCalls+1, len(clockValues))
+			}
+			value := clockValues[clockCalls]
+			clockCalls++
+			return value
+		},
+	}
+	owner := newStreamOwner("clock")
+	owner.finish(nil)
+	client.owners[owner] = struct{}{}
+
+	err := client.joinTrackedOwners(time.Second)
+	if !errors.Is(err, ErrShutdownTimeout) {
+		t.Fatalf("joinTrackedOwners() error = %v, want %v", err, ErrShutdownTimeout)
+	}
+	if clockCalls != len(clockValues) {
+		t.Fatalf("client clock calls = %d, want %d", clockCalls, len(clockValues))
+	}
+}
+
 func testClientWithMaxMessage(t *testing.T, max int) (*Client, *fakeProcess) {
 	t.Helper()
 	p := newFakeProcess()
@@ -686,13 +714,12 @@ func TestClientJoinTrackedOwnersRequiresClock(t *testing.T) {
 	client, _ := testClient(t, nil)
 	client.now = nil
 	defer func() {
-		recovered := recover()
 		client.now = time.Now
-		if recovered == nil {
-			t.Fatal("joinTrackedOwners() did not reject a nil clock")
-		}
 	}()
-	_ = client.joinTrackedOwners(time.Second)
+	err := client.joinTrackedOwners(time.Second)
+	if err == nil || !strings.Contains(err.Error(), "client clock is required") {
+		t.Fatalf("joinTrackedOwners() error = %v, want explicit client clock error", err)
+	}
 }
 
 func TestClientStartupTimeoutBoundsInitializeHandshake(t *testing.T) {

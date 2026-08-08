@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -74,6 +75,9 @@ func workerExecutionLooksLikeCommand(command []string) bool {
 	if workerExecutionRepositoryPath(first) {
 		return workerExecutionRepositoryCommand(first)
 	}
+	if strings.Contains(first, "/") && validRemoteGitTreePath(first) {
+		return workerExecutionRepositoryCommand(first)
+	}
 	switch path.Base(first) {
 	case "bash", "go", "make", "node", "sh", "super-dolphin-gate":
 		return true
@@ -96,12 +100,7 @@ func workerExecutionRepositoryCommand(value string) bool {
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 func workerExecutionCommandExtension(extension string) bool {
-	for _, supported := range []string{".bash", ".go", ".js", ".mjs", ".sh"} {
-		if extension == supported {
-			return true
-		}
-	}
-	return false
+	return slices.Contains([]string{".bash", ".go", ".js", ".mjs", ".sh"}, extension)
 }
 
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
@@ -125,7 +124,6 @@ func (assets *workerExecutionAssets) addCommand(ctx context.Context, command []s
 	default:
 		return nil
 	}
-	return nil
 }
 
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。

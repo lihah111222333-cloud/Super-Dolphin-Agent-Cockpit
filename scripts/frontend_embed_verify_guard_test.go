@@ -313,13 +313,7 @@ func TestCICommitGuardFallsBackToOriginMainForLocalRun(t *testing.T) {
 	runFixTestGuardGit(t, root, "commit", "-m", "docs: 更新 local guard")
 	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
-	out, err := runCICommitGuard(t, root, map[string]string{
-		"GITHUB_EVENT_NAME":   "",
-		"GITHUB_BASE_SHA":     "",
-		"GITHUB_HEAD_SHA":     "",
-		"GITHUB_EVENT_BEFORE": "",
-		"GITHUB_SHA":          "",
-	})
+	out, err := runCICommitGuard(t, root)
 	if err != nil {
 		t.Fatalf("local ci commit guard failed: %v\n%s", err, out)
 	}

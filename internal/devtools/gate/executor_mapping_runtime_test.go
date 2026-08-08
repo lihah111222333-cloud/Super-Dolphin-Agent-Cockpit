@@ -38,15 +38,20 @@ func TestVitestProgramMountsOriginalImageRuntimeSeeds(t *testing.T) {
 
 func TestPlaywrightShardProgramsMountPinnedFrontendSeed(t *testing.T) {
 	for _, test := range []struct {
+		target string
 		spec   string
+		grep   string
 		script string
 		config string
 	}{
-		{playwrightBusinessFlowsSpec, "test:e2e:business", "playwright.business-flows.config.js"},
-		{playwrightDesktopWideSpec, "test:e2e:desktop-wide", "playwright.desktop-wide.config.js"},
+		{playwrightBusinessReadSurfacesTarget, "tests/e2e/business-flows.spec.js", "business-read-surfaces", "test:e2e:business", "playwright.business-flows.config.js"},
+		{playwrightBusinessChatBridgeTarget, "tests/e2e/business-flows.spec.js", "business-chat-bridge", "test:e2e:business", "playwright.business-flows.config.js"},
+		{playwrightDesktopShellTarget, "tests/e2e/desktop-wide.spec.js", "desktop-shell", "test:e2e:desktop-wide", "playwright.desktop-wide.config.js"},
+		{playwrightDesktopBusinessPagesTarget, "tests/e2e/desktop-wide.spec.js", "desktop-business-pages", "test:e2e:desktop-wide", "playwright.desktop-wide.config.js"},
+		{playwrightDesktopReadSettingsTarget, "tests/e2e/desktop-wide.spec.js", "desktop-read-settings", "test:e2e:desktop-wide", "playwright.desktop-wide.config.js"},
 	} {
-		t.Run(test.spec, func(t *testing.T) {
-			id, err := targetWorkloadID(GateIDFrontendE2E, workloadTargetPlaywright, test.spec)
+		t.Run(test.target, func(t *testing.T) {
+			id, err := targetWorkloadID(GateIDFrontendE2E, workloadTargetPlaywright, test.target)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +62,7 @@ func TestPlaywrightShardProgramsMountPinnedFrontendSeed(t *testing.T) {
 			if parent != GateIDFrontendE2E || !program.NeedsFrontendSeed || program.NeedsGoSeed {
 				t.Fatalf("Playwright shard contract = parent:%q go:%t frontend:%t", parent, program.NeedsGoSeed, program.NeedsFrontendSeed)
 			}
-			assertFrontendProgramCommand(t, parent, program, []string{"npm", "run", test.script})
+			assertFrontendProgramCommand(t, parent, program, []string{"npm", "run", test.script, "--", "--grep", test.grep})
 			for _, path := range []string{"frontend-app/" + test.spec, "frontend-app/" + test.config} {
 				if !slices.Contains(program.RequiredPaths, path) {
 					t.Errorf("Playwright required paths = %v, want %q", program.RequiredPaths, path)

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	runtimeDepsSchemaVersion = "15"
+	runtimeDepsSchemaVersion = "16"
 	runtimeDepsBuildMode     = "node-local"
 	runtimeDepsCacheScope    = "node"
 )
@@ -57,6 +57,11 @@ type runtimeDepsRecipeInputs struct {
 	Dockerfile        string `json:"dockerfile_sha256"`
 	RuntimeSeedWorker string `json:"runtime_seed_worker_sha256"`
 }
+
+const (
+	runtimeSeedWorkerRecipePath   = "internal/devtools/gate/executor_seed.go"
+	runtimeSeedFrontendRecipePath = "internal/devtools/gate/executor_frontend_vite_cache.go"
+)
 
 type runtimeDepsPaths struct {
 	Manifest            string `json:"manifest"`
@@ -142,7 +147,7 @@ func runtimeDepsInputFields(inputs runtimeDepsInputs, recipeInputs runtimeDepsRe
 	}
 }
 
-// validateAgainstSource binds the node-local cache inputs to the exact source tree.
+// validateAgainstSource 将节点本地缓存输入绑定到精确 source tree。
 func (lock runtimeDepsLock) validateAgainstSource(sourceRoot string, toolchain toolchainLock) error {
 	if err := lock.validateShape(); err != nil {
 		return err
@@ -182,7 +187,13 @@ func digestRuntimeDepsInputs(root string) (runtimeDepsInputs, error) {
 func digestRuntimeDepsRecipeInputs(root string) (runtimeDepsRecipeInputs, error) {
 	var result runtimeDepsRecipeInputs
 	for _, field := range runtimeDepsRecipeDigestTargets(&result) {
-		value, err := digestRuntimeDepsFile(root, field.path)
+		var value string
+		var err error
+		if len(field.paths) == 1 {
+			value, err = digestRuntimeDepsFile(root, field.paths[0])
+		} else {
+			value, err = digestRuntimeDepsFiles(root, field.paths)
+		}
 		if err != nil {
 			return runtimeDepsRecipeInputs{}, err
 		}
@@ -191,9 +202,30 @@ func digestRuntimeDepsRecipeInputs(root string) (runtimeDepsRecipeInputs, error)
 	return result, nil
 }
 
+// digestRuntimeDepsFiles 按有序路径 framing 计算 recipe 闭包摘要，避免拼接碰撞并让缺失文件立即失败。
+func digestRuntimeDepsFiles(root string, names []string) (string, error) {
+	if len(names) == 0 {
+		return "", errors.New("runtime dependency recipe closure is empty")
+	}
+	records := make([]string, 0, len(names))
+	for _, name := range names {
+		digest, err := digestRuntimeDepsFile(root, name)
+		if err != nil {
+			return "", err
+		}
+		records = append(records, name+"="+digest)
+	}
+	return digestBytes([]byte(strings.Join(records, "\n") + "\n")), nil
+}
+
 type runtimeDepsDigestTarget struct {
 	path string
 	out  *string
+}
+
+type runtimeDepsRecipeDigestTarget struct {
+	paths []string
+	out   *string
 }
 
 func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarget {
@@ -205,10 +237,10 @@ func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarg
 	}
 }
 
-func runtimeDepsRecipeDigestTargets(inputs *runtimeDepsRecipeInputs) []runtimeDepsDigestTarget {
-	return []runtimeDepsDigestTarget{
-		{gateRuntimeDepsDocker, &inputs.Dockerfile},
-		{"internal/devtools/gate/executor_seed.go", &inputs.RuntimeSeedWorker},
+func runtimeDepsRecipeDigestTargets(inputs *runtimeDepsRecipeInputs) []runtimeDepsRecipeDigestTarget {
+	return []runtimeDepsRecipeDigestTarget{
+		{paths: []string{gateRuntimeDepsDocker}, out: &inputs.Dockerfile},
+		{paths: []string{runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath}, out: &inputs.RuntimeSeedWorker},
 	}
 }
 

@@ -13,22 +13,24 @@ import (
 
 const (
 	// GenerationOneProvisionReceiptSchemaVersion is the only receipt schema for
-	// the explicit external generation-one ImageCache provision ceremony.
-	GenerationOneProvisionReceiptSchemaVersion uint32 = 3
+	// normal run/hook 消费的 configured strict generation-one receipt。
+	GenerationOneProvisionReceiptSchemaVersion uint32 = 5
 	// GenerationOneBaselineStateSchemaVersion identifies the current OCI-only
 	// BaselineState wire schema without making cicontract import remoteci.
-	GenerationOneBaselineStateSchemaVersion uint32 = 12
-	// GenerationOneProvisionAuthority distinguishes release/cloud provision from
-	// the accepted-generation refresh writer.
-	GenerationOneProvisionAuthority = "external-eci-imagecache-generation-one/v1"
+	GenerationOneBaselineStateSchemaVersion uint32 = 13
+	// GenerationOneProvisionAuthority 区分 external cloud evidence 与仓库的
+	// normal run/hook bootstrap consumer（仓库侧消费者）。
+	GenerationOneProvisionAuthority = "external-aliyun-eci-imagecache-generation-one/v1"
 )
 
 // GenerationOneProvisionReceipt is the strict, secret-free proof emitted by
-// an external ECI operator. The embedded state is protocol data; SQLite remains
-// the only accepted-baseline authority after the receipt is consumed.
+// external ECI operator 生成并由 remote run config 携带。内嵌 state 是 protocol data；
+// receipt 消费后 SQLite 仍是唯一的 accepted-baseline authority。
 type GenerationOneProvisionReceipt struct {
 	SchemaVersion          uint32                      `json:"schema_version"`
 	Authority              string                      `json:"authority"`
+	ExecutionProvider      string                      `json:"execution_provider"`
+	RegionID               string                      `json:"region_id"`
 	Generation             uint64                      `json:"generation"`
 	StateJSON              json.RawMessage             `json:"state_json"`
 	StateSHA256            string                      `json:"state_sha256"`
@@ -102,16 +104,35 @@ func ValidateGenerationOneProvisionChecks(receipt GenerationOneProvisionReceipt)
 	if len(receipt.ProvisionChecks) != len(required) {
 		return fmt.Errorf("generation-one provision checks = %d, want %d", len(receipt.ProvisionChecks), len(required))
 	}
+	seen, err := validateUniqueGenerationOneProvisionChecks(receipt)
+	if err != nil {
+		return err
+	}
+	return validateCompleteGenerationOneProvisionChecks(required, seen)
+}
+
+// validateUniqueGenerationOneProvisionChecks 校验每项检查和容器组身份均唯一。
+func validateUniqueGenerationOneProvisionChecks(receipt GenerationOneProvisionReceipt) (map[ProvisionCheck]struct{}, error) {
 	seen := make(map[ProvisionCheck]struct{}, len(receipt.ProvisionChecks))
+	seenGroups := make(map[string]struct{}, len(receipt.ProvisionChecks))
 	for _, observation := range receipt.ProvisionChecks {
 		if err := validateGenerationOneProvisionCheckObservation(receipt, observation); err != nil {
-			return err
+			return nil, err
 		}
 		if _, duplicate := seen[observation.Check]; duplicate {
-			return fmt.Errorf("generation-one provision check %q is duplicated", observation.Check)
+			return nil, fmt.Errorf("generation-one provision check %q is duplicated", observation.Check)
 		}
 		seen[observation.Check] = struct{}{}
+		if _, duplicate := seenGroups[observation.ContainerGroupID]; duplicate {
+			return nil, fmt.Errorf("generation-one ECI container group %q is reused by multiple checks", observation.ContainerGroupID)
+		}
+		seenGroups[observation.ContainerGroupID] = struct{}{}
 	}
+	return seen, nil
+}
+
+// validateCompleteGenerationOneProvisionChecks 确认规范目录没有缺项。
+func validateCompleteGenerationOneProvisionChecks(required []ProvisionCheck, seen map[ProvisionCheck]struct{}) error {
 	for _, check := range required {
 		if _, found := seen[check]; !found {
 			return fmt.Errorf("generation-one provision check %q is missing", check)
@@ -127,6 +148,12 @@ func validateGenerationOneProvisionCheckObservation(receipt GenerationOneProvisi
 	if err := validateGenerationOneProvisionCheckIdentity(receipt, observation); err != nil {
 		return err
 	}
+	if err := ValidateNormalResources(observation.ResourceCPU, observation.ResourceMemoryGiB); err != nil {
+		return fmt.Errorf("generation-one provision check %q resources: %w", observation.Check, err)
+	}
+	if observation.ResourceClassID == "" || observation.ResourceClassID != strings.TrimSpace(observation.ResourceClassID) {
+		return fmt.Errorf("generation-one provision check %q resource class is required", observation.Check)
+	}
 	if err := validateGenerationOneProvisionCheckTiming(observation); err != nil {
 		return err
 	}
@@ -137,14 +164,28 @@ func validateGenerationOneProvisionCheckObservation(receipt GenerationOneProvisi
 }
 
 func validateGenerationOneProvisionCheckIdentity(receipt GenerationOneProvisionReceipt, observation ProvisionCheckObservation) error {
+	if err := validateGenerationOneProvisionCheckECIIdentity(receipt, observation); err != nil {
+		return err
+	}
 	if observation.SourceTree != receipt.MainTree || observation.ProvisionSnapshotID != receipt.ImageCacheSnapshotID || !isCanonicalSHA256(observation.PlanDigest) {
 		return fmt.Errorf("generation-one provision check %q identity is not bound to receipt", observation.Check)
 	}
 	return nil
 }
 
+// validateGenerationOneProvisionCheckECIIdentity 校验 provider、region、group 和 container 身份。
+func validateGenerationOneProvisionCheckECIIdentity(receipt GenerationOneProvisionReceipt, observation ProvisionCheckObservation) error {
+	if observation.ExecutionProvider != ExecutionProviderID || observation.ExecutionProvider != receipt.ExecutionProvider ||
+		observation.RegionID == "" || observation.RegionID != receipt.RegionID ||
+		observation.ContainerGroupID != strings.TrimSpace(observation.ContainerGroupID) || len(observation.ContainerGroupID) <= len("eci-") || !strings.HasPrefix(observation.ContainerGroupID, "eci-") ||
+		observation.ContainerName == "" || observation.ContainerName != strings.TrimSpace(observation.ContainerName) {
+		return fmt.Errorf("generation-one provision check %q identity is not bound to receipt", observation.Check)
+	}
+	return nil
+}
+
 func validateGenerationOneProvisionCheckTiming(observation ProvisionCheckObservation) error {
-	if observation.StartedAtUnixMS <= 0 || observation.CompletedAtUnixMS < observation.StartedAtUnixMS || observation.DurationMS != observation.CompletedAtUnixMS-observation.StartedAtUnixMS {
+	if observation.StartedAtUnixMS <= 0 || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS || observation.DurationMS <= 0 || observation.DurationMS != observation.CompletedAtUnixMS-observation.StartedAtUnixMS {
 		return fmt.Errorf("generation-one provision check %q timing is invalid", observation.Check)
 	}
 	return nil
@@ -198,6 +239,9 @@ func validateGenerationOneProvisionHeader(receipt GenerationOneProvisionReceipt)
 	}
 	if len(receipt.StateJSON) == 0 || !isCanonicalSHA256(receipt.StateSHA256) || !isCanonicalSHA256(receipt.ReceiptSHA256) {
 		return errors.New("generation-one provision receipt state or receipt digest is invalid")
+	}
+	if receipt.ExecutionProvider != ExecutionProviderID || strings.TrimSpace(receipt.RegionID) == "" || receipt.RegionID != strings.TrimSpace(receipt.RegionID) {
+		return errors.New("generation-one provision receipt must be executed by Alibaba Cloud ECI in one explicit region")
 	}
 	return nil
 }

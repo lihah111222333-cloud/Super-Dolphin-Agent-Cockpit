@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Declaración de los mantenedores: el código original y la documentación propia del proyecto están escritos al 100% por IA, dirigidos por personas y protegidos por el repositorio.** El código de producto, el código de tests y la documentación propia del proyecto son escritos o refactorizados por agentes de IA. Las personas conservan la responsabilidad sobre la intención del producto, las decisiones de arquitectura, las credenciales y las publicaciones. Que la autoría sea de IA no implica infalibilidad: todo cambio aceptado sigue sujeto a la evidencia y los gates que pertenecen al repositorio. Los textos legales y comunitarios procedentes de terceros conservan su atribución original.
 
-**Aplicación local-first de la entrega.** La aceptación cotidiana de commits y pushes es impuesta por [Git hooks](.githooks/README.md) versionados, sin depender de CI alojada y de pago en GitHub. `pre-commit` comprueba el snapshot en staging, las reglas de mantenimiento por IA, el guard completo del repositorio y el código afectado; `commit-msg` exige evidencia de regresión en los commits de corrección; `pre-push` valida el rango del `HEAD`, ejecuta los checks afectados, analiza nilness en los paquetes Go afectados y corre Race tests para las superficies concurrentes registradas. Los E2E diferidos de Providers, `gosec`/seguridad y release siguen siendo gates separados.
+**Verificación de entrega de la imagen de verdad.** Los [Git hooks](.githooks/README.md) versionados, las ejecuciones manuales de `make ci-l0` y `make ci-l1`, y la validación de release usan el gate ECI remoto con rechazo ante fallos. GitHub solo es el remoto de Git; no proporciona un runner de CI. `pre-commit` y los comandos manuales L0-L1 comprueban el árbol staged exacto o la actualización de la referencia, mientras que release comprueba el commit exacto. La falta de configuración remota, procedencia, autoridad del resultado o evidencia de limpieza, así como cualquier gate fallido, rechaza la acción. `commit-msg` sigue exigiendo texto de commit en chino y evidencia de fix-test.
 
 Super Dolphin Agent es un **sistema de ingeniería de vibe coding nativo de IA y de nivel productivo, además de un plano de control para desarrollo multiagente**. Reúne un runtime de escritorio local, orquestación MCP, navegación LSP multilenguaje, integraciones con Providers, workflows persistentes y límites de ingeniería aplicados por máquina en una implementación de referencia funcional.
 
@@ -260,10 +260,10 @@ Estos comandos validan las reglas de arquitectura, el comportamiento de los guar
 
 | Métrica | Fuente de verdad actual |
 |---|---|
-| Tests de arquitectura | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 329 runnable `Test*` functions across 127 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Tests de arquitectura | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 426 runnable `Test*` functions across 148 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Reglas de arquitectura | [Mapa generado de límites del backend](docs/doc/codemap/13-archtest-boundaries.md) |
 | Cobertura de tests | Se recalcula a partir de una ejecución actual; no se declara un porcentaje estático |
-| CI | [GitHub Actions](.github/workflows/ci.yml) |
+| CI | [Alibaba Cloud ECI contract](docs/契约/remote-ci-eci-imagecache-contract.md) |
 
 <!-- sd:security -->
 ## Seguridad

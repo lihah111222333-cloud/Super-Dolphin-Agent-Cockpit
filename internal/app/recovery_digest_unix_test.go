@@ -17,6 +17,11 @@ import (
 )
 
 const releaseFilesystemHelperExecutableEnv = "SUPER_DOLPHIN_RELEASE_FS_HELPER_EXECUTABLE"
+const (
+	// blockedDigestTestTimeout 缩短真实 helper 取消测试；生产仍使用 StartupDigestTimeout。
+	blockedDigestTestTimeout = time.Second
+	blockedDigestTestGrace   = 2 * time.Second
+)
 
 type startupBlockingFilesystemHelperFixture struct {
 	started  string
@@ -28,7 +33,7 @@ func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnRealTimerDeadline(t *t
 	store, transaction, process := createStartupProbation(t)
 	fixture := installStartupBlockingFilesystemHelper(t, transaction.Paths.Target)
 	watchdogCause := errors.New("startup digest deadline test watchdog expired")
-	watchdogCtx, watchdogCancel := context.WithTimeoutCause(context.Background(), 30*time.Second, watchdogCause)
+	watchdogCtx, watchdogCancel := context.WithTimeoutCause(context.Background(), blockedDigestTestTimeout+blockedDigestTestGrace, watchdogCause)
 	defer watchdogCancel()
 	var selection StartupSelection
 	var group errgroup.Group
@@ -38,7 +43,7 @@ func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnRealTimerDeadline(t *t
 		var err error
 		selection, err = SelectStartup(watchdogCtx, StartupSelectorInput{
 			Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
-			LeaseWait: time.Second, DigestTimeout: StartupDigestTimeout,
+			LeaseWait: time.Second, DigestTimeout: blockedDigestTestTimeout,
 		})
 		returned <- struct{}{}
 		return err
@@ -60,7 +65,7 @@ func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnRealTimerDeadline(t *t
 	if selection.Mode != StartupModeRecovery {
 		t.Fatalf("SelectStartup() mode = %q, want Recovery", selection.Mode)
 	}
-	if elapsed := time.Since(started); elapsed > StartupDigestTimeout+6*time.Second {
+	if elapsed := time.Since(started); elapsed > blockedDigestTestTimeout+blockedDigestTestGrace {
 		t.Fatalf("blocked startup selector deadline elapsed %s", elapsed)
 	}
 	assertStartupFilesystemHelperReaped(t, fixture)
@@ -77,7 +82,7 @@ func TestRecoveryCheckBlockedReleaseDigestReturnsAtDeadline(t *testing.T) {
 		t.Fatalf("NewRecoveryRuntime() error = %v", err)
 	}
 	fixture := installStartupBlockingFilesystemHelper(t, transaction.Paths.Target)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), blockedDigestTestTimeout)
 	defer cancel()
 	var group errgroup.Group
 	group.Go(func() error { return runtime.Check.Check(ctx) })
@@ -87,7 +92,7 @@ func TestRecoveryCheckBlockedReleaseDigestReturnsAtDeadline(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("RecoveryCheckService.Check() error = %v, want deadline exceeded", err)
 	}
-	if elapsed := time.Since(started); elapsed > 6*time.Second {
+	if elapsed := time.Since(started); elapsed > blockedDigestTestTimeout+blockedDigestTestGrace {
 		t.Fatalf("blocked RecoveryCheck deadline elapsed %s", elapsed)
 	}
 	assertStartupFilesystemHelperReaped(t, fixture)

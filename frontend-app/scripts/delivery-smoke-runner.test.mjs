@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import process, { cwd, execPath } from 'node:process';
@@ -21,7 +28,7 @@ import {
 
 const MAKEFILE = 'frontend-embed-verify-after-build:\n\t./scripts/frontend_embed_verify.sh\n';
 const COMPLETE_SCRIPTS = {
-  build: 'vite build && node scripts/sync-frontend-dist.mjs',
+  build: 'vite build --configLoader runner && node scripts/sync-frontend-dist.mjs',
   'smoke:desktop:rpc': 'node scripts/desktop-smoke.mjs',
   'smoke:desktop:failure': 'node scripts/desktop-failure-smoke.mjs',
 };
@@ -33,6 +40,28 @@ const temporaryDirectories = [];
 
 function runGit(repositoryRoot, args) {
   return execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' });
+}
+
+function syncSubjectFrontendFixture(sourceFrontendRoot, subjectRepositoryRoot) {
+  const fixturePaths = ['frontend-app/package.json', 'frontend-app/scripts/delivery-smoke-runner.mjs'];
+  for (const relativePath of ['package.json', 'scripts/delivery-smoke-runner.mjs']) {
+    writeFileSync(
+      join(subjectRepositoryRoot, 'frontend-app', relativePath),
+      readFileSync(join(sourceFrontendRoot, relativePath)),
+    );
+  }
+  runGit(subjectRepositoryRoot, ['add', ...fixturePaths]);
+  try {
+    runGit(subjectRepositoryRoot, ['diff', '--cached', '--quiet', '--', ...fixturePaths]);
+    return;
+  } catch (error) {
+    if (error?.status !== 1) throw error;
+  }
+  runGit(subjectRepositoryRoot, [
+    '-c', 'user.name=Codex',
+    '-c', 'user.email=codex@example.invalid',
+    'commit', '--quiet', '-m', 'fixture frontend package',
+  ]);
 }
 
 function createDeliveryRepositoryFixture() {
@@ -416,14 +445,46 @@ describe('delivery smoke runner', () => {
     });
   });
 
+  // This test deliberately clones the real subject tree and commits a fixture; cold ECI Git I/O can exceed Vitest's 5s default.
+  it('only commits the subject fixture when staged content changes', () => {
+    const repositoryRoot = mkdtempSync(join(tmpdir(), 'delivery-smoke-runner-subject-'));
+    temporaryDirectories.push(repositoryRoot);
+    runGit(resolve(cwd(), '..'), ['clone', '--no-local', '--quiet', resolve(cwd(), '..'), repositoryRoot]);
+    const originalHead = runGit(repositoryRoot, ['rev-parse', 'HEAD']).trim();
+
+    syncSubjectFrontendFixture(join(repositoryRoot, 'frontend-app'), repositoryRoot);
+    expect(runGit(repositoryRoot, ['rev-parse', 'HEAD']).trim()).toBe(originalHead);
+
+    const sourceFrontendRoot = mkdtempSync(join(tmpdir(), 'delivery-smoke-runner-source-'));
+    temporaryDirectories.push(sourceFrontendRoot);
+    mkdirSync(join(sourceFrontendRoot, 'scripts'), { recursive: true });
+    for (const relativePath of ['package.json', 'scripts/delivery-smoke-runner.mjs']) {
+      writeFileSync(
+        join(sourceFrontendRoot, relativePath),
+        readFileSync(join(repositoryRoot, 'frontend-app', relativePath)),
+        'utf8',
+      );
+    }
+    const packagePath = join(sourceFrontendRoot, 'package.json');
+    writeFileSync(packagePath, `${readFileSync(packagePath, 'utf8')}\n`, 'utf8');
+
+    syncSubjectFrontendFixture(sourceFrontendRoot, repositoryRoot);
+    expect(runGit(repositoryRoot, ['rev-parse', 'HEAD']).trim()).not.toBe(originalHead);
+    expect(runGit(repositoryRoot, ['show', '-s', '--format=%s', 'HEAD']).trim())
+      .toBe('fixture frontend package');
+    expect(runGit(repositoryRoot, ['status', '--porcelain'])).toBe('');
+  }, 30_000);
+
   it('keeps T05 verification independently invocable from a clean subject clone while checking its hashed runner contract', async () => {
     const repositoryRoot = mkdtempSync(join(tmpdir(), 'delivery-smoke-runner-subject-'));
     temporaryDirectories.push(repositoryRoot);
     runGit(resolve(cwd(), '..'), ['clone', '--no-local', '--quiet', resolve(cwd(), '..'), repositoryRoot]);
+    syncSubjectFrontendFixture(cwd(), repositoryRoot);
     const result = await runManagedCommand(execPath, [
-      join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--inspect', '--repo', join(repositoryRoot, 'frontend-app'),
+      realpathSync(join(repositoryRoot, 'frontend-app/scripts/delivery-smoke-runner.mjs')),
+      '--inspect', '--repo', join(repositoryRoot, 'frontend-app'),
     ], {
-      cwd: cwd(),
+      cwd: join(repositoryRoot, 'frontend-app'),
       timeoutMs: 30_000,
       killGraceMs: 1_000,
     });

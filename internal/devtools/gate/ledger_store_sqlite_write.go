@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
@@ -15,6 +16,9 @@ func replaceSQLiteLedger(
 	generation uint64,
 	ledger DurationLedger,
 ) error {
+	if ledger.ShardOverhead != nil {
+		return errors.New("shard overhead requires CompareAndSwapShardOverhead with evidence samples")
+	}
 	if _, err := transaction.Exec(`DELETE FROM duration_samples`); err != nil {
 		return mapDurationLedgerSQLiteError("clear duration ledger SQLite samples", err)
 	}
@@ -44,32 +48,72 @@ func replaceSQLiteLedger(
 	return nil
 }
 
-const insertSQLiteDurationSampleSQL = `
-	INSERT INTO duration_samples (
-		accepted_generation,
-		workload_id, command_digest, platform, runner, toolchain,
-		succeeded, duration_ms, target_kind, parent_workload_id,
-		parent_command_digest, target_name, target_status
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`
+const (
+	// sqliteDurationSampleBatchRows 留出余量以兼容 SQLite 默认的 999 变量上限。
+	sqliteDurationSampleBatchRows = 32
+	sqliteDurationSampleColumns   = 18
+)
 
+// insertSQLiteDurationSamples 在一个调用方事务中按变量上限分块批量写入样本。
 func insertSQLiteDurationSamples(transaction *sql.Tx, acceptedGeneration uint64, samples []DurationSample) error {
 	if len(samples) == 0 {
 		return nil
 	}
-	statement, err := transaction.Prepare(insertSQLiteDurationSampleSQL)
-	if err != nil {
-		return mapDurationLedgerSQLiteError("prepare duration ledger SQLite sample insert", err)
+	if err := ValidateDurationLedger(DurationLedger{Version: durationLedgerVersion, Samples: samples}); err != nil {
+		return fmt.Errorf("validate duration samples before SQLite insert: %w", err)
 	}
-	for _, sample := range samples {
-		if err := execSQLiteDurationSample(statement, acceptedGeneration, sample); err != nil {
+	for offset := 0; offset < len(samples); offset += sqliteDurationSampleBatchRows {
+		end := offset + sqliteDurationSampleBatchRows
+		if end > len(samples) {
+			end = len(samples)
+		}
+		statementSQL, err := sqliteDurationSampleBatchSQL(end - offset)
+		if err != nil {
+			return err
+		}
+		statement, err := transaction.Prepare(statementSQL)
+		if err != nil {
+			return mapDurationLedgerSQLiteError("prepare duration ledger SQLite sample batch insert", err)
+		}
+		arguments := make([]any, 0, (end-offset)*sqliteDurationSampleColumns)
+		for _, sample := range samples[offset:end] {
+			arguments = append(arguments, sqliteDurationSampleArguments(acceptedGeneration, sample)...)
+		}
+		if _, err := statement.Exec(arguments...); err != nil {
 			return errors.Join(
-				err,
-				closeSQLiteStatement(statement, "close duration ledger SQLite sample insert"),
+				mapDurationLedgerSQLiteError("insert duration ledger SQLite sample batch", err),
+				closeSQLiteStatement(statement, "close duration ledger SQLite sample batch insert"),
 			)
 		}
+		if err := closeSQLiteStatement(statement, "close duration ledger SQLite sample batch insert"); err != nil {
+			return err
+		}
 	}
-	return closeSQLiteStatement(statement, "close duration ledger SQLite sample insert")
+	return nil
+}
+
+// sqliteDurationSampleBatchSQL 为每个批次生成固定列数的多值 INSERT。
+func sqliteDurationSampleBatchSQL(rowCount int) (string, error) {
+	if rowCount <= 0 || rowCount > sqliteDurationSampleBatchRows {
+		return "", fmt.Errorf("duration sample batch row count %d is outside 1..%d", rowCount, sqliteDurationSampleBatchRows)
+	}
+	var values strings.Builder
+	values.Grow(rowCount * (sqliteDurationSampleColumns*2 + 4))
+	values.WriteString(`
+		INSERT INTO duration_samples (
+			accepted_generation,
+			workload_id, command_digest, input_digest, platform, runner, toolchain,
+			execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
+			succeeded, duration_ms, target_kind, parent_workload_id,
+			parent_command_digest, target_name, target_status
+		) VALUES `)
+	for row := 0; row < rowCount; row++ {
+		if row > 0 {
+			values.WriteString(",")
+		}
+		values.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+	}
+	return values.String(), nil
 }
 
 func closeSQLiteStatement(statement *sql.Stmt, operation string) error {
@@ -78,15 +122,6 @@ func closeSQLiteStatement(statement *sql.Stmt, operation string) error {
 	}
 	return nil
 }
-
-func execSQLiteDurationSample(statement *sql.Stmt, acceptedGeneration uint64, sample DurationSample) error {
-	_, err := statement.Exec(sqliteDurationSampleArguments(acceptedGeneration, sample)...)
-	if err != nil {
-		return mapDurationLedgerSQLiteError("insert duration ledger SQLite sample", err)
-	}
-	return nil
-}
-
 func sqliteDurationSampleArguments(acceptedGeneration uint64, sample DurationSample) []any {
 	succeeded := 0
 	if sample.Succeeded {
@@ -96,9 +131,14 @@ func sqliteDurationSampleArguments(acceptedGeneration uint64, sample DurationSam
 		strconv.FormatUint(acceptedGeneration, 10),
 		sample.Bucket.WorkloadID,
 		sample.Bucket.CommandDigest,
+		sample.Bucket.InputDigest,
 		sample.Bucket.Platform,
 		sample.Bucket.Runner,
 		sample.Bucket.Toolchain,
+		sample.Bucket.ExecutionMode,
+		sample.Bucket.ResourceClassID,
+		sample.Bucket.ResourceCPU,
+		sample.Bucket.ResourceMemoryGiB,
 		succeeded,
 		sample.DurationMS,
 		string(sample.TargetKind),
@@ -109,6 +149,7 @@ func sqliteDurationSampleArguments(acceptedGeneration uint64, sample DurationSam
 	}
 }
 
+// sqliteCurrentGeneration 读取并校验 SQLite 权威账本当前修订代。
 func sqliteCurrentGeneration(transaction *sql.Tx) (uint64, bool, error) {
 	var generationText, authorityID string
 	err := transaction.QueryRow(`
@@ -147,8 +188,9 @@ func replaceSQLiteCalibration(transaction *sql.Tx, calibration *DurationCalibrat
 			singleton, schema_version, commit_sha, tree_sha, platform, runner, toolchain,
 			commit_entrypoint, push_entrypoint, release_entrypoint,
 			commit_catalog_digest, push_catalog_digest, release_catalog_digest,
-			workload_count, race_package_count, completed_at_unix_ms
-		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			calibration_resource_class_id, calibration_resource_cpu, calibration_resource_memory_gib,
+			workload_count, race_package_count, accepted_snapshot_id, completed_at_unix_ms
+		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(singleton) DO UPDATE SET
 			schema_version = excluded.schema_version,
 			commit_sha = excluded.commit_sha,
@@ -162,8 +204,12 @@ func replaceSQLiteCalibration(transaction *sql.Tx, calibration *DurationCalibrat
 			commit_catalog_digest = excluded.commit_catalog_digest,
 			push_catalog_digest = excluded.push_catalog_digest,
 			release_catalog_digest = excluded.release_catalog_digest,
+			calibration_resource_class_id = excluded.calibration_resource_class_id,
+			calibration_resource_cpu = excluded.calibration_resource_cpu,
+			calibration_resource_memory_gib = excluded.calibration_resource_memory_gib,
 			workload_count = excluded.workload_count,
 			race_package_count = excluded.race_package_count,
+			accepted_snapshot_id = excluded.accepted_snapshot_id,
 			completed_at_unix_ms = excluded.completed_at_unix_ms
 	`,
 		calibration.SchemaVersion,
@@ -178,8 +224,12 @@ func replaceSQLiteCalibration(transaction *sql.Tx, calibration *DurationCalibrat
 		calibration.CommitCatalogDigest,
 		calibration.PushCatalogDigest,
 		calibration.ReleaseCatalogDigest,
+		calibration.CalibrationResourceClassID,
+		calibration.CalibrationResourceCPU,
+		calibration.CalibrationResourceMemoryGiB,
 		calibration.WorkloadCount,
 		calibration.RacePackageCount,
+		calibration.AcceptedSnapshotID,
 		calibration.CompletedAt.UTC().UnixMilli(),
 	); err != nil {
 		return mapDurationLedgerSQLiteError("store duration calibration", err)

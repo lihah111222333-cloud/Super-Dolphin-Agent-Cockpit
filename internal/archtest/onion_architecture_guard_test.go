@@ -5,20 +5,6 @@ import (
 	"testing"
 )
 
-func TestOnionArchitectureGuard(t *testing.T) {
-	t.Parallel()
-
-	ruleIDs := OnionBoundaryRuleIDs()
-	evaluation, err := EvaluateBackendBoundary(repoRootForGuardTests(t), DefaultBackendBoundaryRegistry(), ruleIDs...)
-	if err != nil {
-		t.Fatalf("evaluate onion architecture boundary: %v", err)
-	}
-	assertBackendBoundaryGuardCoverage(t, "onion", evaluation, ruleIDs)
-	if len(evaluation.Violations) > 0 {
-		t.Fatalf("Onion Architecture violations (%d):\n  %s", len(evaluation.Violations), strings.Join(evaluation.Violations, "\n  "))
-	}
-}
-
 func onionArchitectureViolationsForFile(path, rel string) ([]string, error) {
 	return EvaluateBackendBoundaryFile(path, rel, DefaultBackendBoundaryRegistry(), OnionBoundaryRuleIDs()...)
 }

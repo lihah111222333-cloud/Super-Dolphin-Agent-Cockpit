@@ -168,8 +168,9 @@ func collectPrioritySSAWidePortViolations(
 	pkg *prioritySSAPackage,
 	ssaPkg *ssa.Package,
 	target *types.TypeName,
+	functions []*ssa.Function,
 ) []PrioritySSAViolation {
-	uses := collectPrioritySSAWidePortUses(pkg, ssaPkg, target)
+	uses := collectPrioritySSAWidePortUses(pkg, ssaPkg, target, functions)
 	label := prioritySSATargetLabel(target)
 	violations := make([]PrioritySSAViolation, 0, len(uses))
 	for _, use := range uses {
@@ -205,13 +206,14 @@ func collectPrioritySSAWidePortUses(
 	pkg *prioritySSAPackage,
 	ssaPkg *ssa.Package,
 	target *types.TypeName,
+	functions []*ssa.Function,
 ) []prioritySSAWideUse {
 	if pkg == nil || ssaPkg == nil || target == nil {
 		return nil
 	}
 	var uses []prioritySSAWideUse
 	uses = append(uses, collectPrioritySSAWideMemberUses(pkg, ssaPkg, target)...)
-	for _, fn := range prioritySSAFunctions(ssaPkg) {
+	for _, fn := range functions {
 		uses = append(uses, collectPrioritySSAWideFunctionUses(pkg, fn, target)...)
 	}
 	sortPrioritySSAWideUses(uses)

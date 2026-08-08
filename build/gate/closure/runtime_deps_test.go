@@ -48,7 +48,7 @@ func TestRuntimeDepsLockRejectsInputAndShapeDrift(t *testing.T) {
 	}
 }
 
-func TestRuntimeDepsLockRejectsRuntimeSeedWorkerDrift(t *testing.T) {
+func TestRuntimeDepsLockRejectsRuntimeSeedWorkerRecipeClosureDrift(t *testing.T) {
 	root := t.TempDir()
 	writeRuntimeDepsInputs(t, root)
 	inputs, err := digestRuntimeDepsInputs(root)
@@ -59,13 +59,46 @@ func TestRuntimeDepsLockRejectsRuntimeSeedWorkerDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "internal/devtools/gate/executor_seed.go"), []byte("drift\n"), 0o600); err != nil {
+	for _, path := range []string{runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath} {
+		t.Run(path, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), []byte("drift\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			lock := validRuntimeDepsLock(inputs)
+			lock.RecipeInputs = recipeInputs
+			if err := lock.validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
+				t.Fatalf("runtime seed worker recipe drift error = %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), []byte(path+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRuntimeDepsLockRejectsMissingRuntimeSeedWorkerRecipeClosureFile(t *testing.T) {
+	root := t.TempDir()
+	writeRuntimeDepsInputs(t, root)
+	inputs, err := digestRuntimeDepsInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeInputs, err := digestRuntimeDepsRecipeInputs(root)
+	if err != nil {
 		t.Fatal(err)
 	}
 	lock := validRuntimeDepsLock(inputs)
 	lock.RecipeInputs = recipeInputs
-	if err := lock.validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
-		t.Fatalf("runtime seed worker drift error = %v", err)
+	for _, path := range []string{runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath} {
+		t.Run(path, func(t *testing.T) {
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(path))); err != nil {
+				t.Fatal(err)
+			}
+			if err := lock.validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); err == nil {
+				t.Fatal("missing runtime seed worker recipe closure file unexpectedly passed")
+			}
+			writeTestRuntimeDepsInput(t, root, path)
+		})
 	}
 }
 
@@ -149,6 +182,12 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 			t.Fatalf("runtime dependencies Dockerfile still depends on job source %q", unwanted)
 		}
 	}
+	write := strings.Index(dockerfile, "/tmp/super-dolphin-gate worker runtime-seed write")
+	remove := strings.Index(dockerfile, "rm /opt/super-dolphin-gate/runtime/manifest.json")
+	absent := strings.Index(dockerfile, "test ! -e /opt/super-dolphin-gate/runtime/manifest.json")
+	if write < 0 || remove <= write || absent <= remove {
+		t.Fatal("runtime dependency image must validate then remove its temporary manifest before generation-one takes ownership")
+	}
 }
 
 const testDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -159,13 +198,18 @@ func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {
 	t.Helper()
-	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/godistribution/go-distribution.lock", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go"} {
-		path := filepath.Join(root, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(name+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/godistribution/go-distribution.lock", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath} {
+		writeTestRuntimeDepsInput(t, root, name)
+	}
+}
+
+func writeTestRuntimeDepsInput(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(name+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

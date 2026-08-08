@@ -46,6 +46,55 @@ func TestPreparedTreeRunsTrustedGeneratorWithoutGitMetadata(t *testing.T) {
 	}
 }
 
+func TestMaterializeExactTreeRejectsRelativeTMPDIRWithoutRepositoryLeak(t *testing.T) {
+	repository := newTrustedProjectMapRepository(t)
+	tree := trustedProjectMapGit(t, repository, "write-tree")
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(repository); err != nil {
+		t.Fatalf("enter fixture repository: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	t.Setenv("TMPDIR", "var/project-map-relative-temp")
+	if _, err := MaterializeExactTree(repository, tree, "relative-tmpdir-"); err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("MaterializeExactTree() error = %v, want absolute TMPDIR rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(repository, "var")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("relative TMPDIR leaked into repository: %v", err)
+	}
+}
+
+func TestExtractGitTreeDrainsArchivePaddingBeforeWait(t *testing.T) {
+	repository := newTrustedProjectMapRepository(t)
+	tree := trustedProjectMapGit(t, repository, "write-tree")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("locate real git: %v", err)
+	}
+	fakeBin := t.TempDir()
+	fakeGit := filepath.Join(fakeBin, "git")
+	script := "#!/bin/sh\n\"$PROJECT_MAP_REAL_GIT\" \"$@\"\nstatus=$?\nif [ \"$status\" -ne 0 ]; then exit \"$status\"; fi\n/bin/dd if=/dev/zero bs=1024 count=128 2>/dev/null\n"
+	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+	t.Setenv("PROJECT_MAP_REAL_GIT", realGit)
+
+	destination := filepath.Join(t.TempDir(), "source")
+	if err := extractGitTree(repository, tree, destination); err != nil {
+		t.Fatalf("extractGitTree() with trailing archive padding: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "README.md")); err != nil {
+		t.Fatalf("extractGitTree() did not materialize archive: %v", err)
+	}
+}
+
 func TestRefreshTreeOverwritesDirtyManagedOutputsOnly(t *testing.T) {
 	repository := newTrustedProjectMapRepository(t)
 	tree := trustedProjectMapGit(t, repository, "write-tree")

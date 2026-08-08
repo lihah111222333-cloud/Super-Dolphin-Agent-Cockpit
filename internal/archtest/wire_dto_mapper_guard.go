@@ -127,6 +127,18 @@ func AssertWireDTOMapperConsumesProducerFieldsFrom[T any](
 		t.Fatalf("%v", err)
 	}
 
+	assertWireDTOMapperFields(t, baselineValue, mapper, fields, exemptions, projections)
+}
+
+// assertWireDTOMapperFields 逐字段注入哨兵并校验 mapper 的精确输出差集。
+func assertWireDTOMapperFields[T any](
+	t wireDTOMapperTestingT,
+	baselineValue T,
+	mapper func(T) map[string]any,
+	fields []wireDTOJSONField,
+	exemptions map[string]WireDTOMapperExemption,
+	projections map[string]map[string]WireDTOMapperProjection,
+) {
 	baseline := mapper(baselineValue)
 	for _, descriptor := range fields {
 		value := reflect.New(reflect.TypeFor[T]()).Elem()
@@ -227,12 +239,7 @@ func validateWireDTOMapperCoverage(
 		sort.Strings(missing)
 		return fmt.Errorf("producer JSON fields missing from mapper projection registry: %v", missing)
 	}
-	stale := staleWireDTOMapperRegistryFields(producer, exemptions, projections)
-	if len(stale) != 0 {
-		sort.Strings(stale)
-		return fmt.Errorf("mapper registry references fields that no longer exist: %v", stale)
-	}
-	return nil
+	return validateWireDTOMapperRegistryStaleness(producer, exemptions, projections)
 }
 
 // wireDTOMapperProducerCoverage 计算 producer 字段及未覆盖字段。
@@ -257,12 +264,12 @@ func wireDTOMapperProducerCoverage(
 	return producer, missing, nil
 }
 
-// staleWireDTOMapperRegistryFields 收集已不存在的 exemption 和 projection。
-func staleWireDTOMapperRegistryFields(
+// validateWireDTOMapperRegistryStaleness 拒绝豁免或 projection 引用已不存在的 producer 字段。
+func validateWireDTOMapperRegistryStaleness(
 	producer map[string]bool,
 	exemptions map[string]WireDTOMapperExemption,
 	projections map[string]map[string]WireDTOMapperProjection,
-) []string {
+) error {
 	var stale []string
 	for field := range exemptions {
 		if !producer[field] {
@@ -274,7 +281,11 @@ func staleWireDTOMapperRegistryFields(
 			stale = append(stale, "projection:"+field)
 		}
 	}
-	return stale
+	if len(stale) == 0 {
+		return nil
+	}
+	sort.Strings(stale)
+	return fmt.Errorf("mapper registry references fields that no longer exist: %v", stale)
 }
 
 // assertWireDTOMapperExactDelta 拒绝错误键、错误值、漏项和任何未登记的额外 delta。
@@ -314,6 +325,7 @@ func assertWireDTOMapperExactDelta(
 	return nil
 }
 
+// wireDTOMapperDelta 计算 mapper 基线与当前输出之间的键值变化。
 func wireDTOMapperDelta(baseline, got map[string]any) map[string]any {
 	delta := make(map[string]any)
 	for key, value := range got {

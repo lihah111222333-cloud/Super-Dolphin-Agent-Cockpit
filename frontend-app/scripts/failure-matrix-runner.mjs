@@ -122,7 +122,7 @@ export function validateFailureMatrixEvidence(cases, fixtures, evidence) {
     status: blockedCases.length === 0 ? 'covered' : 'partial',
     blockedCases,
     evidence: [...evidence].sort((left, right) => (
-      left.caseId.localeCompare(right.caseId) || left.layer.localeCompare(right.layer)
+    (left.caseId < right.caseId ? -1 : left.caseId > right.caseId ? 1 : 0) || (left.layer < right.layer ? -1 : left.layer > right.layer ? 1 : 0)
     )),
   };
 }
@@ -198,8 +198,8 @@ function caseCommand(evidence, vitestCommand) {
   if (evidence.layer === 'frontend') {
     if (!evidence.file) throw new Error(`${evidence.caseId}: Vitest evidence file is missing`);
     return {
-      command: vitestCommand ?? path.join('node_modules', '.bin', 'vitest'),
-      args: ['run', evidence.file, '-t', evidence.test, '--no-file-parallelism', '--maxWorkers=1'],
+      command: vitestCommand ?? process.execPath,
+      args: [...(vitestCommand ? [] : [path.join('node_modules', 'vitest', 'vitest.mjs')]), 'run', '--configLoader', 'runner', evidence.file, '-t', evidence.test, '--no-file-parallelism', '--maxWorkers=1'],
       cwd: 'frontend-app',
     };
   }
@@ -234,7 +234,7 @@ async function runMutationEvidence({
     try {
       await runCommand('git', ['worktree', 'add', '--detach', mutationRoot, subjectSha], repoRoot, managedOptions);
       const targetNodeModules = path.join(mutationRoot, 'frontend-app', 'node_modules');
-      if (mutation.layer === 'frontend') await symlink(path.join(frontendRoot, 'node_modules'), targetNodeModules, 'dir');
+      if (mutation.layer === 'frontend') await symlink(path.join(frontendRoot, 'node_modules'), targetNodeModules, process.platform === 'win32' ? 'junction' : 'dir');
       const sourceFile = path.join(mutationRoot, mutation.sourcePath);
       const original = await readFile(sourceFile, 'utf8');
       if (countOccurrences(original, mutation.search) !== 1) {
@@ -304,7 +304,7 @@ async function runMutationEvidence({
     }
   }
   assertExactUniqueSet('failure matrix RED/GREEN caseIds', results.map(({ caseId }) => caseId), REQUIRED_CASE_IDS);
-  return results.sort((left, right) => left.caseId.localeCompare(right.caseId));
+  return results.sort((left, right) => left.caseId < right.caseId ? -1 : left.caseId > right.caseId ? 1 : 0);
 }
 
 export async function runFailureMatrix(options = {}) {
@@ -329,11 +329,11 @@ export async function runFailureMatrix(options = {}) {
     try {
       await runCommand('git', ['worktree', 'add', '--detach', greenRoot, subjectSha], repoRoot, managedOptions);
       const greenFrontendRoot = path.join(greenRoot, 'frontend-app');
-      await symlink(path.join(frontendRoot, 'node_modules'), path.join(greenFrontendRoot, 'node_modules'), 'dir');
+      await symlink(path.join(frontendRoot, 'node_modules'), path.join(greenFrontendRoot, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
       await runCommand(
-        vitestCommand ?? path.join(greenFrontendRoot, 'node_modules', '.bin', 'vitest'),
+        vitestCommand ?? process.execPath,
         [
-          'run',
+          ...(vitestCommand ? [] : [path.join(greenFrontendRoot, 'node_modules', 'vitest', 'vitest.mjs')]), 'run', '--configLoader', 'runner',
           'src/entities/client/model/failureMatrix.test.js',
           'src/entities/client/model/runtimeSlice.test.js',
           'src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',

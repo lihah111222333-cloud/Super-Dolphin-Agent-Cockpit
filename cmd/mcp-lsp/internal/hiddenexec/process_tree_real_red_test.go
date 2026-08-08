@@ -14,7 +14,11 @@ import (
 
 // TestDynamicOrphanProcessTreeUnknownMemberBlocksSignal 锁定根退出后未入册同组成员的 zero-signal 结论。
 func TestDynamicOrphanProcessTreeUnknownMemberBlocksSignal(t *testing.T) {
-	cmd := Command("/bin/sh", "-c", "sleep 2 & exit 0")
+	cmd := Command("/bin/sh", "-c", "sleep 2 & read _ || :")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe() error = %v", err)
+	}
 	tree, err := StartProcessTree(cmd)
 	if err != nil {
 		t.Fatalf("StartProcessTree() error = %v", err)
@@ -22,6 +26,9 @@ func TestDynamicOrphanProcessTreeUnknownMemberBlocksSignal(t *testing.T) {
 	identity, err := tree.Identity()
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
+	}
+	if err := stdin.Close(); err != nil {
+		t.Fatalf("release root shell gate: %v", err)
 	}
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("root shell Wait() error = %v", err)

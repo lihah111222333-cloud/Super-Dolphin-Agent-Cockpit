@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const (
@@ -19,8 +21,11 @@ func validateConfig(config Config) error {
 		name  string
 		value string
 	}{
-		{"CLI binary", config.Binary}, {"region ID", config.RegionID}, {"vSwitch ID", config.VSwitchID}, {"security group ID", config.SecurityGroupID},
+		{"CLI binary", config.Binary}, {"region ID", config.RegionID}, {"security group ID", config.SecurityGroupID},
 		{"worker role name", config.WorkerRoleName}, {"profile", config.Profile},
+	}
+	if err := cicontract.ValidateECIMultiZoneScheduling(cicontract.ECIMultiZoneScheduleStrategy, config.VSwitches); err != nil {
+		return err
 	}
 	for _, field := range fields {
 		if strings.TrimSpace(field.value) == "" {
@@ -42,17 +47,76 @@ func validateConfig(config Config) error {
 	if config.Deadline <= 0 || config.Deadline%time.Second != 0 {
 		return errors.New("ECI deadline must be a positive whole number of seconds")
 	}
+	return validateRegistryCredentialConfig(config)
+}
+
+// validateRegistryCredentialConfig 校验静态凭据与延迟 loader 的互斥边界。
+func validateRegistryCredentialConfig(config Config) error {
+	if err := validateOptionalRegistryCredential(config.RegistryCredential); err != nil {
+		return err
+	}
+	if config.RegistryCredentialLoader != nil && hasRegistryCredentialValues(config.RegistryCredential) {
+		return errors.New("ECI registry credential must use either a static credential or a deferred loader")
+	}
 	return nil
+}
+
+// hasRegistryCredentialValues 判断静态凭据是否带入任一字段。
+func hasRegistryCredentialValues(credential RegistryCredential) bool {
+	return credential.Server != "" || credential.UserName != "" || credential.Password != ""
+}
+
+// validateOptionalRegistryCredential 只允许构造客户端时完全不带凭据或完整带入三个凭据字段。
+func validateOptionalRegistryCredential(credential RegistryCredential) error {
+	values := []string{credential.Server, credential.UserName, credential.Password}
+	populated := 0
+	for _, value := range values {
+		if value != "" {
+			populated++
+		}
+	}
+	if populated != 0 && populated != len(values) {
+		return errors.New("ECI registry credential must be either absent or complete")
+	}
+	return nil
+}
+
+// validateRegistryCredential 要求创建分片时提供完整凭据并绑定两个不可变镜像的同一 registry。
+func validateRegistryCredential(credential RegistryCredential, request CreateRequest) error {
+	if credential.Server == "" || credential.UserName == "" || credential.Password == "" {
+		return errors.New("ECI private registry credential is required for container creation")
+	}
+	if strings.Contains(credential.Server, "://") || strings.ContainsAny(credential.Server, "/ ") || len(credential.Server) > 256 {
+		return errors.New("ECI registry credential server is invalid")
+	}
+	if len(credential.UserName) > 256 || len(credential.Password) > 256 {
+		return errors.New("ECI registry credential exceeds 256 characters")
+	}
+	if !imagesUseRegistry(credential.Server, request.MainImage, request.InitImage) {
+		return errors.New("ECI registry credential server does not match the immutable container images")
+	}
+	return nil
+}
+
+// imagesUseRegistry 要求主容器和物料容器都绑定同一个显式 registry 域名。
+func imagesUseRegistry(server string, images ...string) bool {
+	for _, image := range images {
+		imageServer, _, found := strings.Cut(image, "/")
+		if !found || imageServer != server {
+			return false
+		}
+	}
+	return true
 }
 
 func validateResources(cpu float64, memoryGiB float64) error {
 	allowed := map[float64]map[float64]bool{
-		2: {2: true, 4: true, 8: true, 16: true},
-		4: {4: true, 8: true, 16: true, 32: true},
-		8: {8: true, 16: true, 32: true},
+		2: {4: true},
+		4: {8: true},
+		8: {16: true},
 	}
-	if cpu > 8 || memoryGiB > 32 || !allowed[cpu][memoryGiB] {
-		return errors.New("ECI resources must use an exact spot tier within 8 vCPU and 32 GiB")
+	if cpu > 8 || memoryGiB > 16 || !allowed[cpu][memoryGiB] {
+		return errors.New("ECI resources must use exactly 2C/4GiB, 4C/8GiB, or 8C/16GiB")
 	}
 	return nil
 }
@@ -69,6 +133,11 @@ func validateCreateRequest(request CreateRequest) error {
 		if err := check(request); err != nil {
 			return err
 		}
+	}
+	if err := validateConfigFileProjectionValues(request.ConfigFileVolumes,
+		append(sensitiveEnvironmentValues(request.Environment), sensitiveEnvironmentValues(request.InitContainer.Environment)...)...,
+	); err != nil {
+		return err
 	}
 	return nil
 }
@@ -102,9 +171,13 @@ func validateRequestContainers(request CreateRequest) error {
 	return validateContainerInput("init container", request.InitContainer.Command, request.InitContainer.Args, request.InitContainer.Environment)
 }
 
-// validateRequestVolumes 校验三个 shard-local EmptyDir 卷名唯一性。
+// validateRequestVolumes 校验三个 shard-local EmptyDir 以及额外只读 ConfigFileVolume 投影。
 func validateRequestVolumes(request CreateRequest) error {
-	return validateRequestVolumeNames([]string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name})
+	emptyDirNames := []string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
+	if err := validateRequestVolumeNames(emptyDirNames); err != nil {
+		return err
+	}
+	return validateConfigFileVolumes(request.ConfigFileVolumes, emptyDirNames)
 }
 
 // validateRequestVolumeNames 校验固定 EmptyDir 卷名集合。
@@ -129,7 +202,7 @@ func validateRequestMounts(request CreateRequest) error {
 	}
 	initAllowed := createInitMountNames(request)
 	initRequired := createRequiredInitMountNames(request)
-	return validateVolumeMounts("init container", request.InitVolumeMounts, initAllowed, initRequired, nil)
+	return validateVolumeMounts("init container", request.InitVolumeMounts, initAllowed, initRequired, createConfigFileVolumeNames(request))
 }
 
 func validateRequestTags(request CreateRequest) error {

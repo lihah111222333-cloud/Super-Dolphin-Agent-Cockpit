@@ -1,15 +1,379 @@
 package gate
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
+
+type shardOverheadObservationKey struct {
+	jobID string
+	shard string
+}
+
+// DeriveShardOrchestrationOverhead 从权威 timing observation 派生每分片
+// total interval 减 accounted interval union，并按 nearest-rank P95 聚合。
+// accounted union 只接受 workload total、shard eci_wait/source/candidate_compile
+// 以及 compile-group test_binary_compile 的 measured raw interval；重叠只计一次，
+// 间隙保留为 orchestration overhead。
+func DeriveShardOrchestrationOverhead(observations []TimingObservation) (int64, int, string, []ShardOrchestrationOverheadSample, error) {
+	groups, err := collectShardOverheadObservationGroups(observations)
+	if err != nil {
+		return 0, 0, "", nil, err
+	}
+	samples, err := deriveShardOverheadSamples(groups)
+	if err != nil {
+		return 0, 0, "", nil, err
+	}
+	digest, err := shardOverheadSamplesDigest(samples)
+	if err != nil {
+		return 0, 0, "", nil, err
+	}
+	bindShardOverheadSampleDigests(samples, digest)
+	return shardOverheadP95(samples), len(samples), digest, samples, nil
+}
+
+// deriveShardOverheadSamples 校验每个分片具备 total、workload 和三段 shard
+// accounted phase，并生成可审计样本。
+func deriveShardOverheadSamples(groups map[shardOverheadObservationKey]*shardOverheadObservationGroup) ([]ShardOrchestrationOverheadSample, error) {
+	if len(groups) == 0 {
+		return nil, errors.New("no measured shard/workload total timing samples")
+	}
+	samples := make([]ShardOrchestrationOverheadSample, 0, len(groups))
+	for key, group := range groups {
+		if err := validateShardOverheadGroup(key, group); err != nil {
+			return nil, err
+		}
+		sample, err := shardOverheadSampleFromTiming(key, *group.total, group.workloads, group.accounted)
+		if err != nil {
+			return nil, err
+		}
+		samples = append(samples, sample)
+	}
+	sort.Slice(samples, func(left, right int) bool {
+		if samples[left].JobID != samples[right].JobID {
+			return samples[left].JobID < samples[right].JobID
+		}
+		return samples[left].ShardIdentity < samples[right].ShardIdentity
+	})
+	return samples, nil
+}
+
+// validateShardOverheadGroup 拒绝缺少 workload total 或 shard 级三段 accounted
+// phase 的样本组，避免以不完整账本计算 overhead。
+func validateShardOverheadGroup(key shardOverheadObservationKey, group *shardOverheadObservationGroup) error {
+	if group.total == nil || len(group.workloads) == 0 {
+		return fmt.Errorf("incomplete shard overhead timing coverage for %s/%s", key.jobID, key.shard)
+	}
+	for _, phase := range []cicontract.TimingPhase{cicontract.TimingECIWait, cicontract.TimingSourceMaterialize, cicontract.TimingCandidateCompile} {
+		if _, exists := group.shardPhases[phase]; !exists {
+			return fmt.Errorf("incomplete shard accounted timing coverage for %s/%s phase=%s", key.jobID, key.shard, phase)
+		}
+	}
+	return nil
+}
+
+// bindShardOverheadSampleDigests 将同一批样本绑定同一 provenance digest。
+func bindShardOverheadSampleDigests(samples []ShardOrchestrationOverheadSample, digest string) {
+	for index := range samples {
+		samples[index].ProvenanceDigest = digest
+	}
+}
+
+// shardOverheadP95 从已排序样本提取 overhead 值并计算 nearest-rank P95。
+func shardOverheadP95(samples []ShardOrchestrationOverheadSample) int64 {
+	durations := make([]int64, len(samples))
+	for index, sample := range samples {
+		durations[index] = sample.OverheadMS
+	}
+	return nearestRankP95(durations)
+}
+
+// collectShardOverheadObservationGroups 按 job/shard 聚合权威 measured interval。
+func collectShardOverheadObservationGroups(observations []TimingObservation) (map[shardOverheadObservationKey]*shardOverheadObservationGroup, error) {
+	groups := make(map[shardOverheadObservationKey]*shardOverheadObservationGroup)
+	for _, observation := range observations {
+		if err := observation.Validate(); err != nil {
+			return nil, fmt.Errorf("validate shard overhead timing observation: %w", err)
+		}
+		if observation.Measurement != cicontract.ObservationMeasured || !isShardOverheadAccountedObservation(observation) {
+			continue
+		}
+		key := shardOverheadObservationKey{jobID: observation.JobID, shard: observation.ShardIdentity}
+		group := groups[key]
+		if group == nil {
+			group = &shardOverheadObservationGroup{
+				shardPhases:   make(map[cicontract.TimingPhase]struct{}),
+				workloadIDs:   make(map[GateID]struct{}),
+				compileGroups: make(map[shardOverheadCompileGroupKey]struct{}),
+			}
+			groups[key] = group
+		}
+		if err := appendShardOverheadObservation(group, observation); err != nil {
+			return nil, err
+		}
+	}
+	return groups, nil
+}
+
+// appendShardOverheadObservation 将一个 measured raw observation 放入对应
+// shard 账本类别，并保持每个可计入身份唯一。
+func appendShardOverheadObservation(group *shardOverheadObservationGroup, observation TimingObservation) error {
+	switch observation.Scope {
+	case cicontract.TimingScopeShard:
+		return appendShardScopedOverheadObservation(group, observation)
+	case cicontract.TimingScopeWorkload:
+		return appendWorkloadOverheadObservation(group, observation)
+	case cicontract.TimingScopeCompileGroup:
+		return appendCompileGroupOverheadObservation(group, observation)
+	}
+	return nil
+}
+
+// appendShardScopedOverheadObservation 保存 shard total 或三段 raw accounted phase。
+func appendShardScopedOverheadObservation(group *shardOverheadObservationGroup, observation TimingObservation) error {
+	if observation.Phase == cicontract.TimingTotal {
+		if observation.Aggregation != cicontract.TimingAggregationCriticalPath || group.total != nil {
+			return fmt.Errorf("duplicate or invalid shard total timing for %s/%s", observation.JobID, observation.ShardIdentity)
+		}
+		copy := observation
+		group.total = &copy
+		return nil
+	}
+	if observation.Aggregation != cicontract.TimingAggregationRaw {
+		return fmt.Errorf("invalid shard accounted timing aggregation for %s/%s phase=%s", observation.JobID, observation.ShardIdentity, observation.Phase)
+	}
+	if _, duplicate := group.shardPhases[observation.Phase]; duplicate {
+		return fmt.Errorf("duplicate shard accounted timing for %s/%s phase=%s", observation.JobID, observation.ShardIdentity, observation.Phase)
+	}
+	group.shardPhases[observation.Phase] = struct{}{}
+	group.accounted = append(group.accounted, observation)
+	return nil
+}
+
+// appendWorkloadOverheadObservation 保存唯一 workload total raw interval。
+func appendWorkloadOverheadObservation(group *shardOverheadObservationGroup, observation TimingObservation) error {
+	if observation.Phase != cicontract.TimingTotal || observation.Aggregation != cicontract.TimingAggregationRaw || observation.WorkloadID == "" {
+		return fmt.Errorf("invalid workload total timing for %s/%s", observation.JobID, observation.ShardIdentity)
+	}
+	if _, duplicate := group.workloadIDs[observation.WorkloadID]; duplicate {
+		return fmt.Errorf("duplicate workload total timing for %s/%s workload=%s", observation.JobID, observation.ShardIdentity, observation.WorkloadID)
+	}
+	group.workloadIDs[observation.WorkloadID] = struct{}{}
+	group.workloads = append(group.workloads, observation)
+	group.accounted = append(group.accounted, observation)
+	return nil
+}
+
+// appendCompileGroupOverheadObservation 保存唯一 compile-group test binary raw interval。
+func appendCompileGroupOverheadObservation(group *shardOverheadObservationGroup, observation TimingObservation) error {
+	if observation.Phase != cicontract.TimingTestBinaryCompile || observation.Aggregation != cicontract.TimingAggregationRaw {
+		return fmt.Errorf("invalid compile-group accounted timing for %s/%s", observation.JobID, observation.ShardIdentity)
+	}
+	compileKey := shardOverheadCompileGroupKey{group: observation.CompileGroupID, artifact: observation.CompileArtifactKey}
+	if _, duplicate := group.compileGroups[compileKey]; duplicate {
+		return fmt.Errorf("duplicate compile-group accounted timing for %s/%s group=%s artifact=%s", observation.JobID, observation.ShardIdentity, observation.CompileGroupID, observation.CompileArtifactKey)
+	}
+	group.compileGroups[compileKey] = struct{}{}
+	group.accounted = append(group.accounted, observation)
+	return nil
+}
+
+type shardOverheadObservationGroup struct {
+	total         *TimingObservation
+	workloads     []TimingObservation
+	accounted     []TimingObservation
+	shardPhases   map[cicontract.TimingPhase]struct{}
+	workloadIDs   map[GateID]struct{}
+	compileGroups map[shardOverheadCompileGroupKey]struct{}
+}
+
+type shardOverheadCompileGroupKey struct {
+	group    string
+	artifact string
+}
+
+// isShardOverheadAccountedObservation 判断 observation 是否属于 v2 accounted union。
+func isShardOverheadAccountedObservation(observation TimingObservation) bool {
+	switch observation.Scope {
+	case cicontract.TimingScopeShard:
+		return observation.Phase == cicontract.TimingTotal ||
+			observation.Phase == cicontract.TimingECIWait ||
+			observation.Phase == cicontract.TimingSourceMaterialize ||
+			observation.Phase == cicontract.TimingCandidateCompile
+	case cicontract.TimingScopeWorkload:
+		return observation.Phase == cicontract.TimingTotal
+	case cicontract.TimingScopeCompileGroup:
+		return observation.Phase == cicontract.TimingTestBinaryCompile
+	default:
+		return false
+	}
+}
+
+// shardOverheadSampleFromTiming 保存 workload envelope，并由 union 计算 v2 overhead。
+func shardOverheadSampleFromTiming(key shardOverheadObservationKey, total TimingObservation, workloads, accounted []TimingObservation) (ShardOrchestrationOverheadSample, error) {
+	start, end := workloads[0].StartedAt, workloads[0].CompletedAt
+	for _, workload := range workloads[1:] {
+		if workload.StartedAt.Before(start) {
+			start = workload.StartedAt
+		}
+		if workload.CompletedAt.After(end) {
+			end = workload.CompletedAt
+		}
+	}
+	sample := ShardOrchestrationOverheadSample{
+		JobID: key.jobID, ShardIdentity: key.shard,
+		TotalStartedAt: total.StartedAt, TotalCompletedAt: total.CompletedAt,
+		WorkloadEnvelopeStart: start, WorkloadEnvelopeEnd: end,
+	}
+	accountedDurationMS, err := shardOverheadAccountedIntervalDuration(total, accounted)
+	if err != nil {
+		return ShardOrchestrationOverheadSample{}, fmt.Errorf("derive shard overhead sample %s/%s: %w", key.jobID, key.shard, err)
+	}
+	sample.AccountedDurationMS = accountedDurationMS
+	sample.AccountedIntervalCount = len(accounted)
+	sample.OverheadMS = total.DurationMS - accountedDurationMS
+	if err := ValidateShardOrchestrationOverheadSampleIntervals(sample); err != nil {
+		return ShardOrchestrationOverheadSample{}, fmt.Errorf("derive shard overhead sample %s/%s: %w", key.jobID, key.shard, err)
+	}
+	return sample, nil
+}
+
+// shardOverheadAccountedIntervalDuration 计算 measured accounted interval 的精确 union。
+func shardOverheadAccountedIntervalDuration(total TimingObservation, observations []TimingObservation) (int64, error) {
+	if len(observations) == 0 {
+		return 0, errors.New("shard overhead accounted interval union is empty")
+	}
+	intervals := append([]TimingObservation(nil), observations...)
+	sort.Slice(intervals, func(left, right int) bool {
+		if intervals[left].StartedAt.Equal(intervals[right].StartedAt) {
+			return intervals[left].CompletedAt.Before(intervals[right].CompletedAt)
+		}
+		return intervals[left].StartedAt.Before(intervals[right].StartedAt)
+	})
+	if err := validateShardOverheadAccountedIntervals(total, intervals); err != nil {
+		return 0, err
+	}
+	return mergeShardOverheadIntervals(intervals), nil
+}
+
+// validateShardOverheadAccountedIntervals 确保每个被计入 union 的 interval
+// 完整落在 shard total 内。
+func validateShardOverheadAccountedIntervals(total TimingObservation, intervals []TimingObservation) error {
+	for _, interval := range intervals {
+		if interval.StartedAt.Before(total.StartedAt) || interval.CompletedAt.After(total.CompletedAt) {
+			return errors.New("shard overhead accounted interval is outside shard total")
+		}
+	}
+	return nil
+}
+
+// mergeShardOverheadIntervals 合并排序后的重叠或相邻区间并返回 union 毫秒数。
+func mergeShardOverheadIntervals(intervals []TimingObservation) int64 {
+	var unionStart, unionEnd time.Time
+	var unionMS int64
+	for _, interval := range intervals {
+		if unionStart.IsZero() {
+			unionStart, unionEnd = interval.StartedAt, interval.CompletedAt
+			continue
+		}
+		if interval.StartedAt.After(unionEnd) {
+			unionMS += unionEnd.Sub(unionStart).Milliseconds()
+			unionStart, unionEnd = interval.StartedAt, interval.CompletedAt
+			continue
+		}
+		if interval.CompletedAt.After(unionEnd) {
+			unionEnd = interval.CompletedAt
+		}
+	}
+	unionMS += unionEnd.Sub(unionStart).Milliseconds()
+	return unionMS
+}
+
+// ValidateShardOrchestrationOverheadSampleIntervals 校验尚未绑定 generation/digest 的计时样本。
+func ValidateShardOrchestrationOverheadSampleIntervals(sample ShardOrchestrationOverheadSample) error {
+	if err := validateShardOverheadSampleIdentity(sample); err != nil {
+		return err
+	}
+	if err := validateShardOverheadWorkloadEnvelope(sample); err != nil {
+		return err
+	}
+	if err := validateShardOverheadAccountedSummary(sample); err != nil {
+		return err
+	}
+	return validateShardOverheadFormula(sample)
+}
+
+// validateShardOverheadSampleIdentity 校验样本主键及 total interval。
+func validateShardOverheadSampleIdentity(sample ShardOrchestrationOverheadSample) error {
+	if strings.TrimSpace(sample.JobID) == "" || strings.TrimSpace(sample.ShardIdentity) == "" || sample.TotalStartedAt.IsZero() || !sample.TotalCompletedAt.After(sample.TotalStartedAt) {
+		return errors.New("shard overhead timing intervals are invalid")
+	}
+	if err := validateUTCTimingInterval(sample.TotalStartedAt, sample.TotalCompletedAt, "shard overhead total"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateShardOverheadWorkloadEnvelope 保留并校验 workload 的真实 envelope，
+// 但不再用 envelope 替代 accounted interval union。
+func validateShardOverheadWorkloadEnvelope(sample ShardOrchestrationOverheadSample) error {
+	if sample.WorkloadEnvelopeStart.IsZero() || !sample.WorkloadEnvelopeEnd.After(sample.WorkloadEnvelopeStart) || sample.WorkloadEnvelopeStart.Before(sample.TotalStartedAt) || sample.WorkloadEnvelopeEnd.After(sample.TotalCompletedAt) {
+		return errors.New("shard overhead workload envelope is invalid")
+	}
+	if err := validateUTCTimingInterval(sample.WorkloadEnvelopeStart, sample.WorkloadEnvelopeEnd, "shard overhead workload envelope"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateShardOverheadAccountedSummary 校验 union 的可审计时长、计数和总时长边界。
+func validateShardOverheadAccountedSummary(sample ShardOrchestrationOverheadSample) error {
+	if sample.AccountedDurationMS <= 0 || sample.AccountedIntervalCount <= 0 {
+		return errors.New("shard overhead accounted interval summary is invalid")
+	}
+	if sample.AccountedDurationMS > sample.TotalCompletedAt.Sub(sample.TotalStartedAt).Milliseconds() {
+		return errors.New("shard overhead accounted interval union exceeds total interval")
+	}
+	return nil
+}
+
+// validateShardOverheadFormula 锁定 total 减 accounted union 的唯一公式。
+func validateShardOverheadFormula(sample ShardOrchestrationOverheadSample) error {
+	want := sample.TotalCompletedAt.Sub(sample.TotalStartedAt).Milliseconds() - sample.AccountedDurationMS
+	if sample.OverheadMS != want {
+		return errors.New("shard overhead timing does not equal total minus accounted interval union")
+	}
+	return nil
+}
+
+func shardOverheadSamplesDigest(samples []ShardOrchestrationOverheadSample) (string, error) {
+	payload := struct {
+		Policy  string                             `json:"policy"`
+		Samples []ShardOrchestrationOverheadSample `json:"samples"`
+	}{Policy: ShardOverheadPolicyVersion, Samples: samples}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode shard overhead provenance: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", digest), nil
+}
+
+func nearestRankP95(values []int64) int64 {
+	sorted := append([]int64(nil), values...)
+	slices.Sort(sorted)
+	rank := (len(sorted)*95 + 99) / 100
+	return sorted[rank-1]
+}
 
 // CacheObservationStatus 是单个缓存输入的已观察状态。
 type CacheObservationStatus string
@@ -84,6 +448,24 @@ func NewTimingCacheEvidenceFromProfile(profile ExecutionProfile) CacheEvidence {
 	return evidence
 }
 
+// NewCompileGroupCacheEvidence 将 worker 聚合 Go cache 计数投影为与 workload
+// 相同的结构化证据；计数是权威事实，Status 仅是规范摘要。
+func NewCompileGroupCacheEvidence(execution CompileGroupExecution) CacheEvidence {
+	status := CacheObservationNotApplicable
+	switch {
+	case execution.CacheMisses > 0:
+		status = CacheObservationMiss
+	case execution.CachePuts > 0:
+		status = CacheObservationPut
+	case execution.CacheHits > 0:
+		status = CacheObservationHit
+	}
+	return CacheEvidence{
+		Go:       GoCacheEvidence{Source: "go_build_cache", Status: status, Measurement: cicontract.ObservationMeasured, PrivateHits: execution.CacheHits, Misses: execution.CacheMisses, Puts: execution.CachePuts},
+		Frontend: NewNotApplicableCacheEvidence("compile_group_not_frontend").Frontend,
+	}
+}
+
 func frontendCacheObservationFromProfile(hit bool, notApplicableReason string) FrontendCacheObservation {
 	if hit {
 		return FrontendCacheObservation{Status: CacheObservationHit}
@@ -149,13 +531,42 @@ type TimingObservation struct {
 	Reason        string                       `json:"reason,omitempty"`
 	Aggregation   cicontract.TimingAggregation `json:"aggregation"`
 	CacheEvidence CacheEvidence                `json:"cache_evidence"`
+	// CompileGroup* 字段仅用于 scope=compile_group；保留在同一行可维持单一 SQLite 权威账本。
+	CompileGroupID           string   `json:"compile_group_id,omitempty"`
+	CompileArtifactKey       string   `json:"compile_artifact_key,omitempty"`
+	CompilePackageTarget     string   `json:"compile_package_target,omitempty"`
+	CompileWorkloadIDs       []GateID `json:"compile_workload_ids,omitempty"`
+	CompileArtifactSHA256    string   `json:"compile_artifact_sha256,omitempty"`
+	CompileArtifactSize      int64    `json:"compile_artifact_size,omitempty"`
+	CompileCacheHits         uint64   `json:"compile_cache_hits,omitempty"`
+	CompileCacheMisses       uint64   `json:"compile_cache_misses,omitempty"`
+	CompileCachePuts         uint64   `json:"compile_cache_puts,omitempty"`
+	CompileCacheStatus       string   `json:"compile_cache_status,omitempty"`
+	CompileStatus            string   `json:"compile_status,omitempty"`
+	CompileExitCode          int      `json:"compile_exit_code,omitempty"`
+	CompileErrorText         string   `json:"compile_error_text,omitempty"`
+	CompileCommandDigest     string   `json:"compile_command_digest,omitempty"`
+	CompileProfileDigest     string   `json:"compile_profile_digest,omitempty"`
+	CompileResourceClassID   string   `json:"compile_resource_class_id,omitempty"`
+	CompileResourceCPU       float64  `json:"compile_resource_cpu,omitempty"`
+	CompileResourceMemoryGiB float64  `json:"compile_resource_memory_gib,omitempty"`
+	CompileExecutionMode     string   `json:"compile_execution_mode,omitempty"`
 }
 
 type observationKey struct {
-	scope    cicontract.TimingScope
-	shard    string
-	workload GateID
-	phase    cicontract.TimingPhase
+	scope           cicontract.TimingScope
+	shard           string
+	workload        GateID
+	phase           cicontract.TimingPhase
+	compileGroup    string
+	compileArtifact string
+}
+
+func validateUTCTimingInterval(startedAt, completedAt time.Time, label string) error {
+	if startedAt.Location() != time.UTC || completedAt.Location() != time.UTC {
+		return fmt.Errorf("%s timestamps must use UTC", label)
+	}
+	return nil
 }
 
 // Validate rejects missing authority evidence and unreasoned non-applicability.
@@ -169,21 +580,8 @@ func (observation TimingObservation) Validate() error {
 	if observation.Measurement == "not_measured" || observation.Measurement == "" {
 		return errors.New("timing observation must not claim not_measured authority")
 	}
-	switch observation.Scope {
-	case cicontract.TimingScopeRun:
-		if observation.ShardIdentity != "" || observation.WorkloadID != "" {
-			return errors.New("run timing observation has subject binding")
-		}
-	case cicontract.TimingScopeShard:
-		if observation.ShardIdentity == "" || observation.WorkloadID != "" {
-			return errors.New("shard timing observation binding is invalid")
-		}
-	case cicontract.TimingScopeWorkload:
-		if observation.ShardIdentity == "" || observation.WorkloadID == "" {
-			return errors.New("workload timing observation binding is invalid")
-		}
-	default:
-		return errors.New("timing observation scope is invalid")
+	if err := observation.validateScopeBinding(); err != nil {
+		return err
 	}
 	switch observation.Aggregation {
 	case cicontract.TimingAggregationRaw, cicontract.TimingAggregationIntervalUnion, cicontract.TimingAggregationCriticalPath:
@@ -198,6 +596,9 @@ func (observation TimingObservation) Validate() error {
 	}
 	if observation.Measurement != cicontract.ObservationMeasured || strings.TrimSpace(observation.Reason) != "" || observation.StartedAt.IsZero() || !observation.CompletedAt.After(observation.StartedAt) {
 		return fmt.Errorf("measured timing observation interval is invalid")
+	}
+	if err := validateUTCTimingInterval(observation.StartedAt, observation.CompletedAt, "timing observation"); err != nil {
+		return err
 	}
 	envelopeMS := observation.CompletedAt.Sub(observation.StartedAt).Milliseconds()
 	if observation.DurationMS <= 0 {
@@ -221,7 +622,9 @@ func (observation TimingObservation) Validate() error {
 func ValidateAuthoritativeTimingObservations(jobID string, observations []TimingObservation, executions []PlanGateExecution, shards []RemoteCIShardRecord) error {
 	expected := map[observationKey]struct{}{{scope: cicontract.TimingScopeRun, phase: cicontract.TimingTotal}: {}}
 	shardByWorkload := make(map[GateID]string)
+	shardSet := make(map[string]struct{}, len(shards))
 	for _, shard := range shards {
+		shardSet[shard.ShardIdentity] = struct{}{}
 		for _, phase := range cicontract.TimingPhases() {
 			expected[observationKey{scope: cicontract.TimingScopeShard, shard: shard.ShardIdentity, phase: phase}] = struct{}{}
 		}
@@ -247,15 +650,9 @@ func ValidateAuthoritativeTimingObservations(jobID string, observations []Timing
 	}
 	observed := make(map[observationKey]TimingObservation, len(observations))
 	for _, observation := range observations {
-		if observation.JobID != jobID {
-			return errors.New("authoritative timing observation job binding is invalid")
-		}
-		if err := observation.Validate(); err != nil {
+		key, err := validateAuthoritativeTimingObservation(jobID, observation, expected, shardSet, shardByWorkload)
+		if err != nil {
 			return err
-		}
-		key := observationKey{scope: observation.Scope, shard: observation.ShardIdentity, workload: observation.WorkloadID, phase: observation.Phase}
-		if _, exists := expected[key]; !exists {
-			return fmt.Errorf("authoritative timing has extra scope=%q shard=%q workload=%q phase=%q", observation.Scope, observation.ShardIdentity, observation.WorkloadID, observation.Phase)
 		}
 		if _, duplicate := observed[key]; duplicate {
 			return fmt.Errorf("authoritative timing phase is duplicated for scope=%q shard=%q workload=%q phase=%q", observation.Scope, observation.ShardIdentity, observation.WorkloadID, observation.Phase)

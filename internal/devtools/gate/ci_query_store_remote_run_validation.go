@@ -226,6 +226,9 @@ func validateRemoteCIRunWorkloadExecutions(executions []PlanGateExecution) error
 		if err := execution.ExecutionProfile.Validate(); err != nil {
 			return fmt.Errorf("remote CI workload execution %q profile: %w", execution.GateID, err)
 		}
+		if err := ValidatePlanGateTimingEvidence(execution); err != nil {
+			return fmt.Errorf("remote CI workload execution %q timing evidence: %w", execution.GateID, err)
+		}
 	}
 	return nil
 }
@@ -233,56 +236,168 @@ func validateRemoteCIRunWorkloadExecutions(executions []PlanGateExecution) error
 // validateRemoteCIRunShards 校验分片归属、资源规格和终态与运行计划一致，避免无证据分片进入权威投影。
 func validateRemoteCIRunShards(record RemoteCIRunRecord) error {
 	seenWorkloads := make(map[GateID]string)
+	uncreatedWorkloads := make(map[GateID]string)
 	for _, shard := range record.Shards {
-		if strings.TrimSpace(shard.ShardIdentity) == "" || strings.TrimSpace(shard.ContainerStatus) == "" {
-			return errors.New("remote CI shard identity and status are required")
+		if err := validateRemoteCIShardEvidence(record.Status, record.Authoritative, shard, uncreatedWorkloads); err != nil {
+			return err
 		}
-		if err := validateRemoteCIShardMaterializationTiming(shard); err != nil {
-			return errors.New("remote CI shard materialization timing is invalid")
+		if err := validateRemoteCIShardWorkloads(shard, seenWorkloads); err != nil {
+			return err
 		}
-		shardWorkloads := make(map[GateID]struct{}, len(shard.Workloads))
-		for _, workloadID := range shard.Workloads {
-			if strings.TrimSpace(string(workloadID)) == "" {
-				return errors.New("remote CI shard workload ID is required")
+	}
+	return rejectRemoteCIUncreatedExecutions(record, uncreatedWorkloads)
+}
+
+// validateRemoteCIShardEvidence 校验分片身份、物化证据及失败终态允许的未创建占位。
+func validateRemoteCIShardEvidence(status ResultStatus, authoritative bool, shard RemoteCIShardRecord, uncreatedWorkloads map[GateID]string) error {
+	if strings.TrimSpace(shard.ShardIdentity) == "" || strings.TrimSpace(shard.ContainerStatus) == "" {
+		return errors.New("remote CI shard identity and status are required")
+	}
+	if err := validateRemoteCIShardMaterializationTiming(status, authoritative, shard); err != nil {
+		return errors.New("remote CI shard materialization timing is invalid")
+	}
+	if !remoteCIShardWasNotCreated(shard) {
+		return validateRemoteCIShardResources(status, authoritative, shard)
+	}
+	if status == ResultStatusPassed || status == ResultStatusPassedStalePolicy {
+		return fmt.Errorf("remote CI %s run cannot contain uncreated shard %q", status, shard.ShardIdentity)
+	}
+	for _, workloadID := range shard.Workloads {
+		uncreatedWorkloads[workloadID] = shard.ShardIdentity
+	}
+	return nil
+}
+
+// validateRemoteCIShardResources 校验实际资源规格；失败 provisional 可保留未观察到的空资源证据。
+func validateRemoteCIShardResources(status ResultStatus, authoritative bool, shard RemoteCIShardRecord) error {
+	if remoteCIShardResourcesMissingAllowed(status, authoritative, shard) {
+		return nil
+	}
+	if err := shard.Resources.Validate(); err != nil {
+		return fmt.Errorf("remote CI shard resources are invalid: %w", err)
+	}
+	return nil
+}
+
+// remoteCIShardResourcesMissingAllowed 只允许失败 provisional 显式缺失资源，不把零值解释为规格。
+func remoteCIShardResourcesMissingAllowed(status ResultStatus, authoritative bool, shard RemoteCIShardRecord) bool {
+	if authoritative || !remoteCIProvisionalFailureStatus(status) {
+		return false
+	}
+	if remoteCIShardWasNotCreated(shard) {
+		return true
+	}
+	return shard.ContainerGroup != "" && shard.Resources == (RemoteCIShardResources{})
+}
+
+func validateRemoteCIShardWorkloads(shard RemoteCIShardRecord, seenWorkloads map[GateID]string) error {
+	shardWorkloads := make(map[GateID]struct{}, len(shard.Workloads))
+	for _, workloadID := range shard.Workloads {
+		if strings.TrimSpace(string(workloadID)) == "" {
+			return errors.New("remote CI shard workload ID is required")
+		}
+		if _, duplicate := shardWorkloads[workloadID]; duplicate {
+			return fmt.Errorf("remote CI shard workload %q is duplicated", workloadID)
+		}
+		if previousShard, duplicate := seenWorkloads[workloadID]; duplicate {
+			return fmt.Errorf(
+				"remote CI shard workload %q is duplicated across shards %q and %q",
+				workloadID, previousShard, shard.ShardIdentity,
+			)
+		}
+		shardWorkloads[workloadID] = struct{}{}
+		seenWorkloads[workloadID] = shard.ShardIdentity
+	}
+	return nil
+}
+
+// rejectRemoteCIUncreatedExecutions 禁止将未创建分片的 workload 伪装为已执行证据。
+func rejectRemoteCIUncreatedExecutions(record RemoteCIRunRecord, uncreatedWorkloads map[GateID]string) error {
+	for _, executions := range [][]PlanGateExecution{record.Executions, record.WorkloadExecutions} {
+		for _, execution := range executions {
+			if shardIdentity, ok := uncreatedWorkloads[execution.GateID]; ok {
+				return fmt.Errorf("remote CI execution %q is bound to uncreated shard %q", execution.GateID, shardIdentity)
 			}
-			if _, duplicate := shardWorkloads[workloadID]; duplicate {
-				return fmt.Errorf("remote CI shard workload %q is duplicated", workloadID)
-			}
-			if previousShard, duplicate := seenWorkloads[workloadID]; duplicate {
-				return fmt.Errorf(
-					"remote CI shard workload %q is duplicated across shards %q and %q",
-					workloadID, previousShard, shard.ShardIdentity,
-				)
-			}
-			shardWorkloads[workloadID] = struct{}{}
-			seenWorkloads[workloadID] = shard.ShardIdentity
 		}
 	}
 	return nil
 }
 
-// validateRemoteCIShardMaterializationTiming 校验物化阶段的真实区间和缓存证据；不适用阶段必须显式声明原因。
-func validateRemoteCIShardMaterializationTiming(shard RemoteCIShardRecord) error {
+// remoteCIShardWasNotCreated 标识唯一允许省略 resource evidence 的 placeholder
+// 形态：没有 provider group、Unknown status 且没有 timing。
+func remoteCIShardWasNotCreated(shard RemoteCIShardRecord) bool {
+	return shard.ContainerGroup == "" && shard.ContainerStatus == "Unknown" &&
+		shard.MaterializationTiming.Measurement == MaterializationMeasurementNotMeasured
+}
+
+// validateRemoteCIShardMaterializationTiming 校验物化阶段的真实区间和缓存证据。
+// 失败 provisional 可以诚实保留已创建但未观察到的分片；PASS 或 authoritative 仍必须有 measured 证据。
+func validateRemoteCIShardMaterializationTiming(status ResultStatus, authoritative bool, shard RemoteCIShardRecord) error {
 	timing := shard.MaterializationTiming
 	if err := timing.Validate(); err != nil {
 		return err
 	}
 	if shard.ContainerGroup == "" {
-		if shard.ContainerStatus != "Unknown" || timing.Measurement != MaterializationMeasurementNotMeasured {
-			return errors.New("uncreated remote CI shard timing is invalid")
-		}
+		return validateUncreatedRemoteCIShardTiming(shard)
+	}
+	return validateCreatedRemoteCIShardTiming(status, authoritative, shard)
+}
+
+// validateUncreatedRemoteCIShardTiming 只允许没有云资源的 Unknown/not_measured 占位形态。
+func validateUncreatedRemoteCIShardTiming(shard RemoteCIShardRecord) error {
+	if remoteCIShardWasNotCreated(shard) {
 		return nil
 	}
-	if timing.Measurement == MaterializationMeasurementMeasured && timing.ShardIdentity != shard.ShardIdentity {
-		return errors.New("measured remote CI shard timing identity does not match shard")
-	}
-	if timing.Measurement != MaterializationMeasurementMeasured {
+	return errors.New("uncreated remote CI shard timing is invalid")
+}
+
+// validateCreatedRemoteCIShardTiming 分派 measured 与失败 provisional 的 unavailable 证据校验。
+func validateCreatedRemoteCIShardTiming(status ResultStatus, authoritative bool, shard RemoteCIShardRecord) error {
+	switch shard.MaterializationTiming.Measurement {
+	case MaterializationMeasurementMeasured:
+		return validateMeasuredRemoteCIShardTiming(shard)
+	case MaterializationMeasurementUnavailable:
+		return validateUnavailableRemoteCIShardTiming(status, authoritative)
+	default:
 		return errors.New("created remote CI shard materialization timing evidence is required")
+	}
+}
+
+// validateMeasuredRemoteCIShardTiming 校验 measured 证据绑定分片，并要求终态有候选编译区间。
+func validateMeasuredRemoteCIShardTiming(shard RemoteCIShardRecord) error {
+	timing := shard.MaterializationTiming
+	if timing.ShardIdentity != shard.ShardIdentity {
+		return errors.New("measured remote CI shard timing identity does not match shard")
 	}
 	if remoteCIShardTerminalStatus(shard.ContainerStatus) && timing.CandidateCompile.MaterializeMS <= 0 {
 		return errors.New("terminal remote CI shard candidate compile timing evidence is required")
 	}
 	return nil
+}
+
+// validateUnavailableRemoteCIShardTiming 仅在失败 provisional 中保留诚实的未观察证据。
+func validateUnavailableRemoteCIShardTiming(status ResultStatus, authoritative bool) error {
+	if remoteCIStatusRequiresMeasuredTiming(status, authoritative) {
+		return errors.New("passed remote CI run requires measured shard materialization timing evidence")
+	}
+	if !remoteCIProvisionalFailureStatus(status) {
+		return errors.New("remote CI shard unavailable timing requires a failure provisional status")
+	}
+	return nil
+}
+
+// remoteCIStatusRequiresMeasuredTiming 判断 PASS 或 authoritative 投影是否必须具备 measured 证据。
+func remoteCIStatusRequiresMeasuredTiming(status ResultStatus, authoritative bool) bool {
+	return authoritative || status == ResultStatusPassed || status == ResultStatusPassedStalePolicy
+}
+
+func remoteCIProvisionalFailureStatus(status ResultStatus) bool {
+	switch status {
+	case ResultStatusFailed, ResultStatusCancelled, ResultStatusTimeout, ResultStatusInfraFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func remoteCIShardTerminalStatus(status string) bool {

@@ -47,13 +47,23 @@ type ssaBoundaryTraversal struct {
 	unresolved map[string]bool
 }
 
+// backendBoundarySSACompileRootMode 只为选中的 external archtest variant 请求带类型语法；
+// 依赖使用 export data，因此 loader 不会在把单个目标包转换为 SSA 前解析并类型检查整个依赖图。
+const backendBoundarySSACompileRootMode = packages.LoadSyntax &^ packages.NeedDeps
+
+// 文件查询只选择一个 package root，同时 Tests=true 仍暴露完整 external test variant；
+// 目录模式会在 Include 丢弃前先让 go/packages 物化 production、internal-test、external-test
+// 和 synthetic test-main 的所有 root。
+const backendBoundarySSAEntryFile = "internal/archtest/backend_boundary_single_source_ssa_analyzer_test.go"
+
 // backendBoundaryProductionSSAConnectivityViolations 只加载唯一 external archtest test variant 并分析 consumer files。
 func backendBoundaryProductionSSAConnectivityViolations(t *testing.T, root string, consumerFiles []string) []string {
 	t.Helper()
 	pkgs, err := ssaload.Load(ssaload.Options{
 		RepoRoot: root,
-		Patterns: []string{"./internal/archtest"},
+		Patterns: []string{"file=" + filepath.Join(root, filepath.FromSlash(backendBoundarySSAEntryFile))},
 		Tests:    true,
+		LoadMode: backendBoundarySSACompileRootMode,
 		Include:  includeBackendBoundaryArchtestVariant,
 	})
 	if err != nil {

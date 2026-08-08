@@ -32,9 +32,8 @@ func TestCodeSizeGuardWiresPrioritySSABaselineIntoFreezeCheckAndStrict(t *testin
 		"runStrict(opts)",
 		"archtest.CollectPrioritySSAViolations(opts)",
 		"archtest.FreezeGuardState(opts, acceptance)",
-		"runPrioritySSAFreezePhase(&freeze, opts)",
-		"reportPrioritySSAViolationsAndExit(\"priority SSA 新增违规\", result.New)",
-		"PrioritySSABaselineFromCurrent(result)",
+		"archtest.CheckAndShrinkGuardFreeze(opts, freezePath)",
+		"archtest.WriteGuardFreezeCheckSummary(os.Stdout, result)",
 	} {
 		assertScriptContains(t, guard, want)
 	}

@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 )
 
 func TestLoadGateCLICompileClosureTracksOnlyGateCompileInputs(t *testing.T) {
@@ -92,6 +95,129 @@ func TestLoadGateCLICompileClosureRejectsMissingAndMaliciousInputs(t *testing.T)
 			t.Fatalf("manifest-only change altered compile closure: %q != %q", got, baseSource)
 		}
 	})
+}
+
+func TestLoadGateCLICompileClosureRejectsExternalLocalGoReplacements(t *testing.T) {
+	tests := []struct {
+		name        string
+		replacement string
+	}{
+		{name: "absolute", replacement: "/tmp/super-dolphin-external"},
+		{name: "home relative", replacement: "~/super-dolphin-external"},
+		{name: "parent relative", replacement: "../super-dolphin-external"},
+		{name: "nested parent relative", replacement: "./../../super-dolphin-external"},
+		{name: "windows absolute", replacement: `C:\\super-dolphin-external`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newGateCLICompileClosureRepository(t)
+			writeGateCLICompileClosureFile(t, repo, "go.mod", "module example.invalid/gate\n\ngo 1.24.0\n\nreplace example.invalid/replaced => "+test.replacement+"\n")
+			tree := commitGateCLICompileClosureTree(t, repo, "external local replacement")
+			_, _, _, err := LoadGateCLICompileClosure(context.Background(), repo, tree)
+			if err == nil {
+				t.Fatalf("external replacement %q was accepted", test.replacement)
+			}
+		})
+	}
+}
+
+func TestLocalRemoteGoModuleMappingRejectsExternalFilesystemPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "absolute", path: "/tmp/super-dolphin-external"},
+		{name: "home relative", path: "~/super-dolphin-external"},
+		{name: "parent relative", path: "../super-dolphin-external"},
+		{name: "nested parent relative", path: "./../../super-dolphin-external"},
+		{name: "windows absolute", path: `C:\\super-dolphin-external`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mapping, ok, err := localRemoteGoModuleMapping(&modfile.Replace{
+				Old: module.Version{Path: "example.invalid/replaced"},
+				New: module.Version{Path: test.path},
+			})
+			if err == nil || ok || mapping != (remoteGoModuleMapping{}) {
+				t.Fatalf("localRemoteGoModuleMapping(%q) = (%#v, %t, %v), want fail-fast", test.path, mapping, ok, err)
+			}
+		})
+	}
+}
+
+func TestLocalRemoteGoModuleMappingRetainsVersionedModuleReplacement(t *testing.T) {
+	mapping, ok, err := localRemoteGoModuleMapping(&modfile.Replace{
+		Old: module.Version{Path: "example.invalid/replaced"},
+		New: module.Version{Path: "example.invalid/new", Version: "v1.2.3"},
+	})
+	if err != nil || ok || mapping != (remoteGoModuleMapping{}) {
+		t.Fatalf("versioned module replacement = (%#v, %t, %v), want ignored without error", mapping, ok, err)
+	}
+}
+
+func TestLocalRemoteGoModuleMappingCanonicalizesRepositoryRelativePath(t *testing.T) {
+	mapping, ok, err := localRemoteGoModuleMapping(&modfile.Replace{
+		Old: module.Version{Path: "example.invalid/replaced"},
+		New: module.Version{Path: `..\\internal\\replaced`},
+	})
+	if err == nil || ok || mapping != (remoteGoModuleMapping{}) {
+		t.Fatalf("escaping repository-relative path = (%#v, %t, %v), want fail-fast", mapping, ok, err)
+	}
+	mapping, ok, err = localRemoteGoModuleMapping(&modfile.Replace{
+		Old: module.Version{Path: "example.invalid/replaced"},
+		New: module.Version{Path: `.\\internal\\replaced`},
+	})
+	if err != nil || !ok || mapping.directory != "internal/replaced" {
+		t.Fatalf("repository-relative path = (%#v, %t, %v), want internal/replaced mapping", mapping, ok, err)
+	}
+}
+
+func TestLoadGateCLICompileClosureRetainsVersionedModuleReplacement(t *testing.T) {
+	repo := newGateCLICompileClosureRepository(t)
+	writeGateCLICompileClosureFile(t, repo, "go.mod", "module example.invalid/gate\n\ngo 1.24.0\n\nreplace example.invalid/replaced => example.invalid/new v1.2.3\n")
+	tree := commitGateCLICompileClosureTree(t, repo, "versioned module replacement")
+	_, _, entries, err := LoadGateCLICompileClosure(context.Background(), repo, tree)
+	if err != nil {
+		t.Fatalf("versioned module replacement was rejected: %v", err)
+	}
+	if len(entries) != 5 {
+		t.Fatalf("versioned module replacement changed compile closure entries = %d, want 5", len(entries))
+	}
+}
+
+func TestLoadGateCLICompileClosureRejectsImportedRepositoryLocalReplacement(t *testing.T) {
+	repo := newGateCLICompileClosureRepository(t)
+	writeGateCLICompileClosureFile(t, repo, "go.mod", "module example.invalid/gate\n\ngo 1.24.0\n\nreplace example.invalid/replaced => ./internal/replaced\n")
+	writeGateCLICompileClosureFile(t, repo, "cmd/super-dolphin-gate/main.go", "package main\n\nimport \"example.invalid/replaced/sub\"\n\nfunc main() { sub.Run() }\n")
+	writeGateCLICompileClosureFile(t, repo, "internal/replaced/go.mod", "module example.invalid/replaced\n\ngo 1.24.0\n")
+	writeGateCLICompileClosureFile(t, repo, "internal/replaced/go.sum", "example.invalid/dependency v1.0.0 h1:abc\n")
+	writeGateCLICompileClosureFile(t, repo, "internal/replaced/sub/sub.go", "package sub\n\nfunc Run() {}\n")
+	tree := commitGateCLICompileClosureTree(t, repo, "repository local replacement")
+	_, _, _, err := LoadGateCLICompileClosure(context.Background(), repo, tree)
+	if err == nil || !strings.Contains(err.Error(), "repository-local replacement module") {
+		t.Fatalf("imported repository local replacement error = %v, want fail-fast", err)
+	}
+}
+
+func TestLoadGateCLICompileClosureKeepsUnreachableLocalReplacementMetadataOutsideStableProtocol(t *testing.T) {
+	repo := newGateCLICompileClosureRepository(t)
+	writeGateCLICompileClosureFile(t, repo, "go.mod", "module example.invalid/gate\n\ngo 1.24.0\n\nreplace example.invalid/replaced => ./internal/replaced\n")
+	writeGateCLICompileClosureFile(t, repo, "internal/replaced/go.mod", "module example.invalid/replaced\n\ngo 1.24.0\n")
+	writeGateCLICompileClosureFile(t, repo, "internal/replaced/go.sum", "example.invalid/dependency v1.0.0 h1:abc\n")
+	baseTree := commitGateCLICompileClosureTree(t, repo, "unreachable repository local replacement")
+	baseSource, _, _, err := LoadGateCLICompileClosure(context.Background(), repo, baseTree)
+	if err != nil {
+		t.Fatalf("load gate closure with unreachable local replacement: %v", err)
+	}
+	writeGateCLICompileClosureFile(t, repo, "internal/replaced/go.mod", "module example.invalid/replaced\n\ngo 1.25.0\n")
+	changedTree := commitGateCLICompileClosureTree(t, repo, "unreachable local replacement metadata change")
+	changedSource, _, _, err := LoadGateCLICompileClosure(context.Background(), repo, changedTree)
+	if err != nil {
+		t.Fatalf("load changed gate closure with unreachable local replacement: %v", err)
+	}
+	if changedSource != baseSource {
+		t.Fatalf("unreachable local replacement metadata altered stable gate closure: %q != %q", changedSource, baseSource)
+	}
 }
 
 func newGateCLICompileClosureRepository(t *testing.T) string {

@@ -8,6 +8,16 @@ func TestWorkerExecutionRootsAreCanonical(t *testing.T) {
 	}
 }
 
+// TestWorkerExecutionCommandClassifierSeparatesPackagePath 拒绝把 Go 包路径误判为 Gate 自执行命令。
+func TestWorkerExecutionCommandClassifierSeparatesPackagePath(t *testing.T) {
+	if workerExecutionLooksLikeCommand([]string{"cmd/super-dolphin-gate"}) {
+		t.Fatal("Go package path was classified as a super-dolphin-gate self-command")
+	}
+	if !workerExecutionLooksLikeCommand([]string{"super-dolphin-gate", "worker"}) {
+		t.Fatal("actual super-dolphin-gate self-command was not classified")
+	}
+}
+
 func TestWorkerExecutionMakefileSelectsOnlyTargetClosure(t *testing.T) {
 	makefile := parseWorkerExecutionMakefile([]byte(`TOOL := ./scripts/worker.sh
 
@@ -83,5 +93,41 @@ func TestWorkerExecutionClosureSkipsAbsentOptionalFunctionNodes(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestWorkerExecutionDigestIncludesLocalReplacementModuleMetadata(t *testing.T) {
+	snapshot := &remoteGitTreeSnapshot{
+		moduleMappings: []remoteGoModuleMapping{{importPath: "example.invalid/replaced", directory: "internal/replaced"}},
+		byPath: map[string]remoteGitTreeEntry{
+			"internal/replaced/go.mod": {mode: "100644", kind: "blob", objectID: "go-mod-v1", path: "internal/replaced/go.mod"},
+			"internal/replaced/go.sum": {mode: "100644", kind: "blob", objectID: "go-sum-v1", path: "internal/replaced/go.sum"},
+		},
+	}
+	assets := &workerExecutionAssets{snapshot: snapshot, entries: make(map[string]remoteGitTreeEntry)}
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"internal/replaced/go.mod", "internal/replaced/go.sum"} {
+		if _, ok := assets.entries[path]; !ok {
+			t.Fatalf("worker execution assets omitted local module metadata %q: %#v", path, assets.entries)
+		}
+	}
+	closure := &workerExecutionGoClosure{selected: map[string]*workerExecutionGoUnit{}, usedImports: map[string]map[string]struct{}{}}
+	first, err := digestWorkerExecutionClosure(closure, assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.byPath["internal/replaced/go.mod"] = remoteGitTreeEntry{mode: "100644", kind: "blob", objectID: "go-mod-v2", path: "internal/replaced/go.mod"}
+	assets.entries = make(map[string]remoteGitTreeEntry)
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := digestWorkerExecutionClosure(closure, assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("local replacement go.mod metadata change did not change worker execution digest: %q", first)
 	}
 }

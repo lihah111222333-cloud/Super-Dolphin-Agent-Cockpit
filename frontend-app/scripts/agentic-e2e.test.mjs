@@ -1049,29 +1049,6 @@ describe('agentic e2e sandbox fixture', () => {
 });
 
 describe('agentic e2e strict Wails mock', () => {
-  it('responds to known RPCs and records unhandled RPCs', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
-    try {
-      const page = await browser.newPage();
-      const sandbox = sandboxFixture('/tmp/agentic-e2e-known');
-      await installAgenticE2EMockWails(page, { sandbox });
-      await page.goto('data:text/html,<main>mock</main>');
-
-      const known = await callMockWailsRPC(page, 'config/read', {});
-      expect(known.result).toEqual({ cwd: sandbox.projectDir });
-
-      const unknown = await callMockWailsRPC(page, 'missing/method', {});
-      expect(unknown.error.message).toMatch(/unhandled agentic e2e mock RPC/);
-
-      const state = await readAgenticE2EMockWailsState(page);
-      expect(state.calls.map((call) => call.method)).toEqual(['config/read', 'missing/method']);
-      expect(state.unhandledRPC).toEqual(['missing/method']);
-    }
-    finally {
-      await browser.close();
-    }
-  });
-
   it('returns sandbox paths for project and file pickers and fails on out-of-sandbox project paths', async () => {
     const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
     try {

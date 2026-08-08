@@ -24,9 +24,10 @@ var (
 
 // DurationLedgerSnapshot 将已校验账本与持久化 generation 绑定。
 type DurationLedgerSnapshot struct {
-	Generation  uint64
-	Ledger      DurationLedger
-	SampleIndex *DurationSampleIndex
+	Generation         uint64
+	Ledger             DurationLedger
+	SampleIndex        *DurationSampleIndex
+	CompileTimingIndex *CompileTimingIndex
 }
 
 // GoTestDurationWorkloadID 返回测试级样本在账本中的稳定目标身份。
@@ -135,6 +136,7 @@ const (
 	durationLedgerFinalizeStepAppendReceipts durationLedgerFinalizeStep = "append_receipts"
 	durationLedgerFinalizeStepReloadReceipts durationLedgerFinalizeStep = "reload_receipts"
 	durationLedgerFinalizeStepCAS            durationLedgerFinalizeStep = "cas"
+	durationLedgerFinalizeStepShardOverhead  durationLedgerFinalizeStep = "shard_overhead"
 	durationLedgerFinalizeStepPromotion      durationLedgerFinalizeStep = "promotion"
 )
 
@@ -207,7 +209,7 @@ func (store *DurationLedgerStore) LoadPlanning(context PlanningContext) (Duratio
 	if store == nil {
 		return DurationLedgerSnapshot{}, errors.New("duration ledger store is nil")
 	}
-	if err := validatePlanningContext(context); err != nil {
+	if err := validatePlanningContextBase(context); err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
 	return store.loadSQLiteSnapshot(false, context)
@@ -242,4 +244,45 @@ func (store *DurationLedgerStore) CompareAndSwapCalibration(
 		}
 	}
 	return store.compareAndSwapSQLiteCalibration(expectedGeneration, calibration)
+}
+
+// CompareAndSwapShardOverhead 原子接受由权威分片 timing 派生的 overhead
+// aggregate 与其逐分片样本；它独立于完整 workload calibration CAS。
+func (store *DurationLedgerStore) CompareAndSwapShardOverhead(
+	expectedGeneration uint64,
+	overhead ShardOrchestrationOverhead,
+	samples []ShardOrchestrationOverheadSample,
+) (DurationLedgerSnapshot, error) {
+	if store == nil {
+		return DurationLedgerSnapshot{}, errors.New("duration ledger store is nil")
+	}
+	if err := validateShardOverheadEvidence(overhead, samples); err != nil {
+		return DurationLedgerSnapshot{}, err
+	}
+	return store.compareAndSwapSQLiteShardOverhead(expectedGeneration, overhead, samples)
+}
+
+// validateShardOverheadEvidence 在最终化前校验 aggregate、样本身份和物理证据闭包。
+func validateShardOverheadEvidence(overhead ShardOrchestrationOverhead, samples []ShardOrchestrationOverheadSample) error {
+	if err := ValidateShardOrchestrationOverhead(overhead); err != nil {
+		return err
+	}
+	if len(samples) != overhead.SampleCount {
+		return fmt.Errorf("shard orchestration overhead sample count %d does not match %d evidence samples", overhead.SampleCount, len(samples))
+	}
+	seen := make(map[string]struct{}, len(samples))
+	for index, sample := range samples {
+		if err := ValidateShardOrchestrationOverheadSample(sample); err != nil {
+			return fmt.Errorf("shard orchestration overhead samples[%d]: %w", index, err)
+		}
+		if sample.AcceptedGeneration != overhead.AcceptedGeneration || sample.ProvenanceDigest != overhead.ProvenanceDigest {
+			return fmt.Errorf("shard orchestration overhead samples[%d] identity does not match aggregate", index)
+		}
+		key := sample.JobID + "\x00" + sample.ShardIdentity
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("shard orchestration overhead sample %q is duplicated", key)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }

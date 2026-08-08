@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -52,11 +53,11 @@ func TestLoadRemoteMaterializeConfigRejectsMissingAgentTokenDigest(t *testing.T)
 	}
 }
 
-func TestLoadRemoteShardRequestRequiresMatchingAgentTokenDigest(t *testing.T) {
-	request := validRemoteMaterializeShardRequest()
-	data, requestSHA256, err := remoteci.EncodeShardRequest(request)
+func TestLoadRemoteBootstrapShardRequestRequiresMatchingAgentTokenDigest(t *testing.T) {
+	request := validRemoteMaterializeShardRequest(t)
+	data, requestSHA256, err := remoteci.EncodeBootstrapShardRequest(request)
 	if err != nil {
-		t.Fatalf("EncodeShardRequest() error = %v", err)
+		t.Fatalf("EncodeBootstrapShardRequest() error = %v", err)
 	}
 	for name, agentTokenDigest := range map[string]string{
 		"matching canonical digest":   request.AgentTokenDigest,
@@ -68,7 +69,7 @@ func TestLoadRemoteShardRequestRequiresMatchingAgentTokenDigest(t *testing.T) {
 				RequestSHA256:    requestSHA256,
 				AgentTokenDigest: agentTokenDigest,
 			}
-			got, loadErr := loadRemoteShardRequest(context.Background(), config, func(_ context.Context, key string, _ int64, destination io.Writer) (int64, error) {
+			got, loadErr := loadRemoteBootstrapShardRequest(context.Background(), config, func(_ context.Context, key string, _ int64, destination io.Writer) (int64, error) {
 				if key != config.RequestKey {
 					t.Fatalf("request key = %q, want %q", key, config.RequestKey)
 				}
@@ -77,7 +78,7 @@ func TestLoadRemoteShardRequestRequiresMatchingAgentTokenDigest(t *testing.T) {
 			})
 			if agentTokenDigest == request.AgentTokenDigest {
 				if loadErr != nil {
-					t.Fatalf("loadRemoteShardRequest() error = %v", loadErr)
+					t.Fatalf("loadRemoteBootstrapShardRequest() error = %v", loadErr)
 				}
 				if got.AgentTokenDigest != config.AgentTokenDigest {
 					t.Fatalf("request agent token digest = %q, want %q", got.AgentTokenDigest, config.AgentTokenDigest)
@@ -85,9 +86,63 @@ func TestLoadRemoteShardRequestRequiresMatchingAgentTokenDigest(t *testing.T) {
 				return
 			}
 			if loadErr == nil || !strings.Contains(loadErr.Error(), "agent token digest does not match init environment") {
-				t.Fatalf("loadRemoteShardRequest() error = %v", loadErr)
+				t.Fatalf("loadRemoteBootstrapShardRequest() error = %v", loadErr)
 			}
 		})
+	}
+}
+
+func TestLoadRemoteBootstrapShardRequestRejectsObjectDirectoryDrift(t *testing.T) {
+	request := validRemoteMaterializeShardRequest(t)
+	data, requestSHA256, err := remoteci.EncodeBootstrapShardRequest(request)
+	if err != nil {
+		t.Fatalf("EncodeBootstrapShardRequest() error = %v", err)
+	}
+	config := remoteMaterializeConfig{
+		RequestKey:       "source-bundles/other-job/request.request.json",
+		RequestSHA256:    requestSHA256,
+		AgentTokenDigest: request.AgentTokenDigest,
+	}
+	_, err = loadRemoteBootstrapShardRequest(context.Background(), config, func(_ context.Context, _ string, _ int64, destination io.Writer) (int64, error) {
+		written, writeErr := destination.Write(data)
+		return int64(written), writeErr
+	})
+	if err == nil || !strings.Contains(err.Error(), "object directory does not match") {
+		t.Fatalf("loadRemoteBootstrapShardRequest() error = %v", err)
+	}
+}
+
+func TestLoadRemoteBootstrapShardRequestRejectsCurrentV2NestedCompileGroup(t *testing.T) {
+	request := validRemoteMaterializeShardRequest(t)
+	data, _, err := remoteci.EncodeShardRequest(request)
+	if err != nil {
+		t.Fatalf("EncodeShardRequest() error = %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["compile_groups"] = []any{map[string]any{
+		"group_id": "sha256:" + strings.Repeat("a", 64), "package_target": "./internal/archtest",
+		"semantic_key": gate.CompileGroupSemanticGoTestNormal, "shared_input_digest": "sha256:" + strings.Repeat("b", 64),
+		"profile_digest": "sha256:" + strings.Repeat("c", 64), "resource_class_id": "small",
+		"workload_ids": []any{string(gate.GateIDBackendTestWithGuard)}, "selector_estimates": []any{},
+		"compile_estimate_ms": 1, "body_estimate_ms": 1, "estimated_duration_ms": 2,
+	}}
+	data, err = json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := remoteMaterializeConfig{
+		RequestKey:       "source-bundles/job-123/request.request.json",
+		RequestSHA256:    digestBytes(data),
+		AgentTokenDigest: request.AgentTokenDigest,
+	}
+	if _, err := loadRemoteBootstrapShardRequest(context.Background(), config, func(_ context.Context, _ string, _ int64, destination io.Writer) (int64, error) {
+		written, writeErr := destination.Write(data)
+		return int64(written), writeErr
+	}); err == nil || !strings.Contains(err.Error(), "decode accepted bootstrap shard request") {
+		t.Fatalf("loadRemoteBootstrapShardRequest() error = %v", err)
 	}
 }
 
@@ -102,13 +157,14 @@ func validRemoteMaterializeEnvironment() map[string]string {
 	}
 }
 
-func validRemoteMaterializeShardRequest() remoteci.ShardRequest {
+func validRemoteMaterializeShardRequest(t *testing.T) remoteci.ShardRequest {
+	t.Helper()
 	const jobID = "job-123"
 	tree := strings.Repeat("a", 40)
 	toolchain := "sha256:" + strings.Repeat("b", sha256.Size*2)
 	image := "registry.example/runtime@sha256:" + strings.Repeat("c", sha256.Size*2)
 	prefix := "source-bundles/" + jobID + "/"
-	return remoteci.ShardRequest{
+	request := remoteci.ShardRequest{
 		SchemaVersion:           remoteci.ShardRequestSchemaVersion,
 		AgentTokenDigest:        "sha256:" + strings.Repeat("d", sha256.Size*2),
 		JobID:                   jobID,
@@ -132,13 +188,19 @@ func validRemoteMaterializeShardRequest() remoteci.ShardRequest {
 		ManifestSHA256:               strings.Repeat("2", sha256.Size*2),
 		CandidateGateSourceSHA256:    "sha256:" + strings.Repeat("3", sha256.Size*2),
 		CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("4", sha256.Size*2),
-		GateIDs:                      []gate.GateID{"guard"},
-		ResourceClass:                shardresource.Class{ID: "small", VCPU: 2, MemoryGiB: 8},
+		GateIDs:                      []gate.GateID{gate.GateIDBackendTestWithGuard},
+		ResourceClass:                shardresource.Class{ID: "small", VCPU: 2, MemoryGiB: 4},
 		OCIProjectCache: &remoteci.BaselineOCIProjectCache{
 			Image: image, ContentManifestSHA256: "sha256:" + strings.Repeat("5", sha256.Size*2),
 			MainTree: tree, ToolchainDigest: toolchain, Platform: "linux/amd64", CachePath: remoteci.OCIProjectGoBuildCachePath,
 		},
 	}
+	digest, err := request.ComputeShardExecutionManifestDigest()
+	if err != nil {
+		t.Fatalf("compute remote materialize shard manifest digest: %v", err)
+	}
+	request.ShardExecutionManifestDigest = digest
+	return request
 }
 
 func TestHandoffRemoteWorkRoot(t *testing.T) {
@@ -173,6 +235,55 @@ func TestHandoffRemoteWorkRootRejectsNonEmptyDirectory(t *testing.T) {
 	}
 	if err := handoffRemoteWorkRoot(root, os.Chmod, os.Chown); err == nil {
 		t.Fatal("handoffRemoteWorkRoot() unexpectedly passed")
+	}
+}
+
+func TestInstallAcceptedBootstrapManifestPublishesV1BeforeHandoff(t *testing.T) {
+	bootstrap := acceptedBootstrapManifestFixture(t)
+	root := t.TempDir()
+	var chmodPaths []string
+	var chownPaths []string
+	if err := installAcceptedBootstrapManifestWithOwnership(root, bootstrap,
+		func(path string, _ os.FileMode) error {
+			chmodPaths = append(chmodPaths, path)
+			return nil
+		},
+		func(path string, _, _ int) error {
+			chownPaths = append(chownPaths, path)
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("installAcceptedBootstrapManifestWithOwnership() error = %v", err)
+	}
+	assertAcceptedBootstrapManifestFixture(t, root, bootstrap, chmodPaths, chownPaths)
+}
+
+func acceptedBootstrapManifestFixture(t *testing.T) remoteci.BootstrapShardRequest {
+	t.Helper()
+	request := validRemoteMaterializeShardRequest(t)
+	data, _, err := remoteci.EncodeBootstrapShardRequest(request)
+	if err != nil {
+		t.Fatalf("EncodeBootstrapShardRequest() error = %v", err)
+	}
+	bootstrap, err := remoteci.DecodeBootstrapShardRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeBootstrapShardRequest() error = %v", err)
+	}
+	return bootstrap
+}
+
+func assertAcceptedBootstrapManifestFixture(t *testing.T, root string, bootstrap remoteci.BootstrapShardRequest, chmodPaths, chownPaths []string) {
+	t.Helper()
+	manifestPath := filepath.Join(root, filepath.Base(gate.ExecutorShardExecutionManifestPath))
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteci.ValidateAcceptedBootstrapManifestBytes(manifestData, bootstrap.ShardExecutionManifestDigest); err != nil {
+		t.Fatalf("ValidateAcceptedBootstrapManifestBytes() error = %v", err)
+	}
+	if len(chmodPaths) != 2 || len(chownPaths) != 2 || chmodPaths[0] != manifestPath || chmodPaths[1] != root || chownPaths[0] != manifestPath || chownPaths[1] != root {
+		t.Fatalf("handoff ownership calls chmod=%v chown=%v", chmodPaths, chownPaths)
 	}
 }
 
@@ -250,9 +361,10 @@ func TestVerifyRemoteMaterializedSourceUsesAcceptedBaselineAndChecksTransportTre
 	if got := strings.TrimSpace(runRemoteMaterializeGit(t, fixture.sourceRoot, "rev-parse", "HEAD^{tree}")); got != fixture.request.SourceTreeSHA {
 		t.Fatalf("materialized source tree = %s, want %s", got, fixture.request.SourceTreeSHA)
 	}
+	syntheticBase := strings.TrimSpace(runRemoteMaterializeGit(t, fixture.sourceRoot, "rev-parse", "refs/source/base^{commit}"))
 	expectedTransport, err := remoteci.DeterministicSourceTransportCommitSHA(
 		fixture.request.SourceTreeSHA,
-		fixture.baseline.CommitSHA,
+		syntheticBase,
 		fixture.request.Source.ObjectFormat,
 	)
 	if err != nil {
@@ -260,6 +372,48 @@ func TestVerifyRemoteMaterializedSourceUsesAcceptedBaselineAndChecksTransportTre
 	}
 	if got := strings.TrimSpace(runRemoteMaterializeGit(t, fixture.sourceRoot, "rev-parse", "HEAD")); got != expectedTransport {
 		t.Fatalf("materialized source commit = %s, want %s", got, expectedTransport)
+	}
+}
+
+func TestVerifyRemoteSourceManifestCommitBindingRejectsCommitDrift(t *testing.T) {
+	fixture := newRemoteSourceBaselineFixture(t)
+	syntheticBase, err := remoteci.DeterministicSourceSyntheticBaseCommitSHA(
+		fixture.baseline.TreeSHA,
+		fixture.baseline.CommitSHA,
+		fixture.baseline.ObjectFormat,
+	)
+	if err != nil {
+		t.Fatalf("derive synthetic base commit: %v", err)
+	}
+	for _, test := range []struct {
+		name     string
+		manifest remoteci.SourceMaterializationManifest
+		wantErr  string
+	}{
+		{
+			name: "synthetic base",
+			manifest: remoteci.SourceMaterializationManifest{
+				SyntheticBaseTreeSHA:   fixture.baseline.TreeSHA,
+				SyntheticBaseCommitSHA: strings.Repeat("0", 40),
+			},
+			wantErr: "synthetic base commit",
+		},
+		{
+			name: "transport",
+			manifest: remoteci.SourceMaterializationManifest{
+				SyntheticBaseTreeSHA:   fixture.baseline.TreeSHA,
+				SyntheticBaseCommitSHA: syntheticBase,
+				TransportCommitSHA:     strings.Repeat("0", 40),
+			},
+			wantErr: "transport commit",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := verifyRemoteSourceManifestCommitBinding(fixture.request, test.manifest, fixture.baseline)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("verifyRemoteSourceManifestCommitBinding() error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
 
@@ -321,7 +475,7 @@ type remoteSourceBaselineFixture struct {
 func newRemoteSourceBaselineFixture(t *testing.T) remoteSourceBaselineFixture {
 	t.Helper()
 	repository := canonicalRemoteMaterializeDir(t)
-	runRemoteMaterializeGit(t, repository, "init", "--quiet")
+	runRemoteMaterializeGit(t, repository, "init", "--quiet", "--initial-branch=main")
 	runRemoteMaterializeGit(t, repository, "config", "user.email", "remote-materialize@example.invalid")
 	runRemoteMaterializeGit(t, repository, "config", "user.name", "Remote Materialize Fixture")
 	for name, source := range map[string]string{
@@ -367,7 +521,7 @@ func newRemoteSourceBaselineFixture(t *testing.T) remoteSourceBaselineFixture {
 	if _, err := remoteci.MaterializeSource(context.Background(), repository, spec, artifactRoot, baseline); err != nil {
 		t.Fatalf("MaterializeSource() error = %v", err)
 	}
-	request := validRemoteMaterializeShardRequest()
+	request := validRemoteMaterializeShardRequest(t)
 	request.RunnerBaseTree = baselineTree
 	request.Source = spec
 	request.SourceTreeSHA = sourceTree

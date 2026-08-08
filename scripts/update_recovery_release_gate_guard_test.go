@@ -187,23 +187,6 @@ func TestUpdateRecoveryReleaseGateIsExposedByMake(t *testing.T) {
 	}
 }
 
-func TestUpdateRecoveryCIUsesTruthImageCoordinator(t *testing.T) {
-	root := updateRecoveryReleaseGateRepoRoot(t)
-	for _, name := range []string{"ci.yml", "sqlite-release-gates.yml"} {
-		workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", name))
-		for _, required := range []string{"truth-image-gates:", "Trusted bootstrap coordinator", "workflow-host", "target=/workspace/super-dolphin-checkout,readonly"} {
-			if !strings.Contains(workflow, required) {
-				t.Fatalf("%s missing truth-image coordinator requirement %q", name, required)
-			}
-		}
-		for _, forbidden := range []string{"make release-update-gate", "test_with_guard.sh", "go test"} {
-			if strings.Contains(workflow, forbidden) {
-				t.Fatalf("%s runs update recovery CI on the workflow host: %q", name, forbidden)
-			}
-		}
-	}
-}
-
 func TestUpdateRecoveryNativeReleaseEvidenceRemainsManualOnly(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
 	workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", "release.yml"))
@@ -226,21 +209,6 @@ func TestUpdateRecoveryWorkflowCommentsCannotFakeGateEvidence(t *testing.T) {
 	job := updateRecoveryRequireWorkflowJob(t, workflow, "native-gate")
 	if updateRecoveryJobRuns(job, "make release-update-gate") {
 		t.Fatal("workflow comments must not count as executable release gate evidence")
-	}
-}
-
-func TestSQLiteReleaseWorkflowDelegatesNativeGateSelectionToCoordinator(t *testing.T) {
-	root := updateRecoveryReleaseGateRepoRoot(t)
-	workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
-	for _, required := range []string{"truth-image-gates:", "docker pull --platform=linux/amd64", "docker run --rm", "workflow-host"} {
-		if !strings.Contains(workflow, required) {
-			t.Fatalf("SQLite release workflow missing coordinator delegation %q", required)
-		}
-	}
-	for _, obsoleteJob := range []string{"update-recovery-release-gate-macos:", "update-recovery-release-gate-windows:", "sqlite-packaging-smoke:"} {
-		if strings.Contains(workflow, obsoleteJob) {
-			t.Fatalf("SQLite release workflow retained host gate job %q", obsoleteJob)
-		}
 	}
 }
 
@@ -391,21 +359,6 @@ func updateRecoveryJobRuns(job updateRecoveryWorkflowJob, required string) bool 
 		}
 	}
 	return false
-}
-
-func updateRecoveryJobNeeds(t *testing.T, job updateRecoveryWorkflowJob) []string {
-	t.Helper()
-	if job.Needs.Kind == yaml.ScalarNode {
-		return []string{job.Needs.Value}
-	}
-	if job.Needs.Kind != yaml.SequenceNode {
-		t.Fatalf("workflow job needs must be a scalar or sequence, got YAML node kind %d", job.Needs.Kind)
-	}
-	needs := make([]string, 0, len(job.Needs.Content))
-	for _, node := range job.Needs.Content {
-		needs = append(needs, node.Value)
-	}
-	return needs
 }
 
 func updateRecoveryFindFunction(file *ast.File, name string) *ast.FuncDecl {

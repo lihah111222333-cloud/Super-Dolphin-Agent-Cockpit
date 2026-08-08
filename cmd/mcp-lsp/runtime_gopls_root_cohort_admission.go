@@ -88,6 +88,12 @@ func runtimeServerPrepareGoplsRootCohortState(dir string, config multilsp.GoplsR
 		runtimeServerInitializeGoplsRootCohortState(state, config)
 		return nil
 	}
+	return runtimeServerPrepareExistingGoplsRootCohortState(dir, config, state)
+}
+
+// runtimeServerPrepareExistingGoplsRootCohortState 读取并校验已有状态，
+// 在同一持久锁内完成失效租约清理和配置代际决策。
+func runtimeServerPrepareExistingGoplsRootCohortState(dir string, config multilsp.GoplsRootCohortConfig, state *runtimeServerDurableGoplsRootCohortState) error {
 	stored, err := state.configValue()
 	if err != nil {
 		return err
@@ -101,12 +107,18 @@ func runtimeServerPrepareGoplsRootCohortState(dir string, config multilsp.GoplsR
 		return err
 	}
 	if !storedEqualGoplsRootCohortConfig(stored, config) {
-		if active != 0 || !runtimeServerGoplsRootCohortConfigRotationAllowed(state) {
-			return runtimeServerGoplsRootCohortConfigConflict(config)
-		}
-		return runtimeServerRotateGoplsRootCohortConfig(state, config)
+		return runtimeServerResolveGoplsRootCohortConfigChange(state, config, active)
 	}
 	return runtimeServerAdvanceGoplsRootCohortEpoch(state, active)
+}
+
+// runtimeServerResolveGoplsRootCohortConfigChange 依据活跃租约和状态证明，
+// 只在安全的空闲边界切换配置代际，否则返回不可变配置冲突。
+func runtimeServerResolveGoplsRootCohortConfigChange(state *runtimeServerDurableGoplsRootCohortState, config multilsp.GoplsRootCohortConfig, active int) error {
+	if active != 0 || !runtimeServerGoplsRootCohortConfigRotationAllowed(state) {
+		return runtimeServerGoplsRootCohortConfigConflict(config)
+	}
+	return runtimeServerRotateGoplsRootCohortConfig(state, config)
 }
 
 func runtimeServerInitializeGoplsRootCohortState(state *runtimeServerDurableGoplsRootCohortState, config multilsp.GoplsRootCohortConfig) {
@@ -132,6 +144,12 @@ func runtimeServerGoplsRootCohortConfigRotationAllowed(state *runtimeServerDurab
 	if state.DrainStatus != runtimeGoplsRootCohortDrainActive && state.DrainStatus != runtimeGoplsRootCohortDrainCompleted {
 		return false
 	}
+	return runtimeServerGoplsRootCohortRotationFieldsClear(state)
+}
+
+// runtimeServerGoplsRootCohortRotationFieldsClear 确认当前状态没有残留
+// 排空所有者、截止时间或错误记录，满足配置代际切换的空闲证明。
+func runtimeServerGoplsRootCohortRotationFieldsClear(state *runtimeServerDurableGoplsRootCohortState) bool {
 	return state.IdleDeadlineUnixNano == 0 &&
 		state.DrainEpoch == 0 &&
 		state.OwnerPID == 0 &&

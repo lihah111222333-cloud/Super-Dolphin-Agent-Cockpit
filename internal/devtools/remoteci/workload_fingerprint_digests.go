@@ -36,7 +36,7 @@ func (snapshot *remoteGitTreeSnapshot) workloadInputDigest(ctx context.Context, 
 	case gate.WorkloadTargetVitest:
 		return snapshot.vitestInputDigest(target)
 	case gate.WorkloadTargetPlaywright:
-		return snapshot.playwrightInputDigest(target)
+		return snapshot.frontendPlaywrightInputDigest(ctx, target)
 	default:
 		return "", fmt.Errorf("workload target kind %q has no source fingerprint policy", targetKind)
 	}
@@ -80,20 +80,18 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	if observesWholeTree {
 		return snapshot.digestEntries(snapshot.entries)
 	}
-	return digestGoTestEntries(sortedRemoteGitTreeEntries(selected), testSources)
+	entries := sortedRemoteGitTreeEntries(selected)
+	snapshot.captureInputClosure(entries)
+	return digestGoTestEntries(entries, testSources)
 }
 
-// addGoExactTestEntries 汇总编译和生产运行时观察；任何动态观察都要求完整 Git tree。
+// addGoExactTestEntries 汇总 Go test 编译闭包；目标测试运行时观察由 goTestSources 单独处理。
 func (snapshot *remoteGitTreeSnapshot) addGoExactTestEntries(
 	directory string,
 	selected map[string]remoteGitTreeEntry,
 	profile remoteGoBuildProfile,
 ) (bool, error) {
-	observesWholeTree, err := snapshot.addGoExactTestCompileEntries(directory, selected, profile)
-	if err != nil || observesWholeTree {
-		return observesWholeTree, err
-	}
-	return snapshot.addGoExactTestProductionObservedEntries(directory, selected, profile)
+	return snapshot.addGoExactTestCompileEntries(directory, selected, profile)
 }
 
 func (snapshot *remoteGitTreeSnapshot) goBenchmarkInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
@@ -111,8 +109,6 @@ func (snapshot *remoteGitTreeSnapshot) goGuardInputDigest(ctx context.Context, t
 		gate.GoGuardTargetSource,
 		gate.GoGuardTargetSourceRawGoTest:
 		return snapshot.digestEntries(snapshot.entries)
-	case gate.GoGuardTargetSourceCodeSize:
-		return snapshot.sourceCodeSizeInputDigest()
 	case gate.GoGuardTargetAIMaintenanceUnit, gate.GoGuardTargetAIMaintenanceGate:
 		return snapshot.canonicalGateInputDigest(gate.GateIDAIMaintenanceSelfTest)
 	case gate.GoGuardTargetCopylocksProvider:
@@ -128,24 +124,6 @@ func (snapshot *remoteGitTreeSnapshot) goGuardInputDigest(ctx context.Context, t
 		}
 		return snapshot.nestedGoModuleInputDigest(ctx, module)
 	}
-}
-
-func (snapshot *remoteGitTreeSnapshot) sourceCodeSizeInputDigest() (string, error) {
-	return snapshot.digestDomainMatching("go-guard/source-code-size-v2", func(entry remoteGitTreeEntry) bool {
-		switch entry.path {
-		case "go.mod", "go.sum", "internal/archtest/freeze_baseline.json":
-			return true
-		}
-		if !strings.HasSuffix(entry.path, ".go") {
-			return false
-		}
-		for _, root := range []string{"cmd/", "internal/", "pkg/", "scripts/"} {
-			if strings.HasPrefix(entry.path, root) {
-				return true
-			}
-		}
-		return false
-	})
 }
 
 // goPackageTreeInputDigest 计算一个注册目录树及其本地 Go 依赖闭包。
@@ -208,10 +186,18 @@ func (snapshot *remoteGitTreeSnapshot) nestedGoModuleInputDigest(ctx context.Con
 // canonicalGateInputDigest 按父门禁语义选择精确 Git tree 输入集合。
 func (snapshot *remoteGitTreeSnapshot) canonicalGateInputDigest(parent gate.GateID) (string, error) {
 	switch parent {
-	case gate.GateIDFrontendLint, gate.GateIDFrontendTest, gate.GateIDFrontendE2E, gate.GateIDFrontendFullTest, gate.GateIDFrontendBuild:
+	case gate.GateIDFrontendLint:
 		return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
 			return strings.HasPrefix(entry.path, "frontend-app/")
 		})
+	case gate.GateIDFrontendPreflight, gate.GateIDFrontendTest, gate.GateIDFrontendFullTest:
+		return snapshot.frontendNonE2EInputDigest()
+	case gate.GateIDFrontendE2E:
+		return snapshot.frontendPlaywrightParentInputDigest(context.Background())
+	case gate.GateIDFrontendBuild:
+		return snapshot.frontendBuildInputDigest()
+	case gate.GateIDProjectMapCheck:
+		return snapshot.projectMapInputDigest()
 	case gate.GateIDFrontendEmbedVerify:
 		return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
 			return strings.HasPrefix(entry.path, "frontend-app/") ||
@@ -228,48 +214,82 @@ func (snapshot *remoteGitTreeSnapshot) vitestInputDigest(target string) (string,
 	if _, ok := snapshot.byPath[targetPath]; !ok {
 		return "", fmt.Errorf("Vitest target %q is absent from the exact Git tree", target)
 	}
-	return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
-		return strings.HasPrefix(entry.path, "frontend-app/")
-	})
+	if strings.HasPrefix(targetPath, "frontend-app/tests/e2e/") {
+		return "", fmt.Errorf("Vitest target %q overlaps Playwright e2e tests", target)
+	}
+	return snapshot.frontendNonE2EInputDigest()
 }
 
 // playwrightInputDigest 将 e2e spec、Playwright 配置和可观察前端源码闭包绑定到精确 Git tree。
-// 目前 Playwright 配置允许动态导入，因此保守摘要整个 frontend-app，避免漏掉可执行依赖。
 func (snapshot *remoteGitTreeSnapshot) playwrightInputDigest(target string) (string, error) {
-	targetPath := "frontend-app/" + target
-	if _, ok := snapshot.byPath[targetPath]; !ok {
-		return "", fmt.Errorf("Playwright target %q is absent from the exact Git tree", target)
-	}
-	return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
-		return strings.HasPrefix(entry.path, "frontend-app/")
-	})
+	return snapshot.frontendPlaywrightInputDigest(context.Background(), target)
 }
 
 // goPackageInputDigest 为 Go 包测试的共享编译输入建立摘要。
 func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
-	if err := snapshot.prepareGoSources(ctx); err != nil {
+	key := remoteGoPackageInputDigestKey{target: target, race: profile.race}
+	snapshot.cacheMu.Lock()
+	if cached, ok := snapshot.goPackageInputDigestCache[key]; ok {
+		entries := snapshot.goPackageInputEntriesCache[key]
+		snapshot.cacheMu.Unlock()
+		snapshot.captureInputClosure(entries)
+		return cached, nil
+	}
+	snapshot.cacheMu.Unlock()
+	entries, err := snapshot.computeGoPackageInputEntries(ctx, target, profile)
+	if err != nil {
 		return "", err
+	}
+	digest, err := snapshot.digestEntries(entries)
+	if err != nil {
+		return "", err
+	}
+	snapshot.cacheMu.Lock()
+	if snapshot.goPackageInputDigestCache == nil {
+		snapshot.goPackageInputDigestCache = make(map[remoteGoPackageInputDigestKey]string)
+	}
+	if snapshot.goPackageInputEntriesCache == nil {
+		snapshot.goPackageInputEntriesCache = make(map[remoteGoPackageInputDigestKey][]remoteGitTreeEntry)
+	}
+	if cached, ok := snapshot.goPackageInputDigestCache[key]; ok {
+		digest = cached
+	} else {
+		snapshot.goPackageInputDigestCache[key] = digest
+		snapshot.goPackageInputEntriesCache[key] = append([]remoteGitTreeEntry(nil), entries...)
+	}
+	snapshot.cacheMu.Unlock()
+	return digest, nil
+}
+
+// computeGoPackageInputDigest 汇总整包测试的编译闭包、包内资产与测试运行时观察输入。
+func (snapshot *remoteGitTreeSnapshot) computeGoPackageInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
+	entries, err := snapshot.computeGoPackageInputEntries(ctx, target, profile)
+	if err != nil {
+		return "", err
+	}
+	return snapshot.digestEntries(entries)
+}
+
+func (snapshot *remoteGitTreeSnapshot) computeGoPackageInputEntries(ctx context.Context, target string, profile remoteGoBuildProfile) ([]remoteGitTreeEntry, error) {
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return nil, err
 	}
 	targetDirectory, err := remoteGoPackageDirectory(target)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	selected, err := snapshot.requiredGoPackageEntries()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
-		return "", err
+		return nil, err
 	}
-	files, err := snapshot.addGoTestPackageCompileEntries(targetDirectory, selected, profile)
-	if err != nil {
-		return "", err
-	}
-	if files == nil {
-		return snapshot.digestEntries(snapshot.entries)
+	if _, err := snapshot.addGoTestPackageCompileEntries(targetDirectory, selected, profile); err != nil {
+		return nil, err
 	}
 	entries := sortedRemoteGitTreeEntries(selected)
-	return snapshot.digestEntries(entries)
+	return entries, nil
 }
 
 const (

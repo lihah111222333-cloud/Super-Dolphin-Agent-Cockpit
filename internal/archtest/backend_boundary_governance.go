@@ -722,12 +722,18 @@ func parseRunnableGoTests(path string) ([]string, error) {
 	var names []string
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if ok && isRunnableGoTestFunction(function) {
+		if ok && isRunnableGoTestFunction(function) && !isNonRunnableTestHelper(function.Name.Name) {
 			names = append(names, function.Name.Name)
 		}
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// isNonRunnableTestHelper 分类测试框架专用 helper 入口，避免把真实子进程
+// helper 当作默认 catalog workload；调用方仍可通过显式 -test.run 使用它。
+func isNonRunnableTestHelper(name string) bool {
+	return name == "TestCodexHelperProcess"
 }
 
 func currentGoBuildContext(additionalTags []string) (build.Context, error) {

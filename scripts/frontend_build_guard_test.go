@@ -57,7 +57,7 @@ func TestMakefileBuildsCurrentFrontendAppByDefault(t *testing.T) {
 	assertScriptDoesNotContain(t, makefile, "frontend-legacy-build")
 	assertScriptDoesNotContain(t, makefile, "LEGACY_FRONTEND_DIR")
 	assertScriptContains(t, makefile, "build-agent-terminal-plain: frontend-build build-peer-binaries")
-	assertScriptContains(t, packageJSON, `"build": "vite build && node scripts/sync-frontend-dist.mjs"`)
+	assertScriptContains(t, packageJSON, `"build": "vite build --configLoader runner && node scripts/sync-frontend-dist.mjs"`)
 }
 
 func TestDesktopBuildAndRunTargetsBuildCurrentPeerArtifacts(t *testing.T) {
@@ -79,7 +79,6 @@ func TestDesktopBuildAndRunTargetsBuildCurrentPeerArtifacts(t *testing.T) {
 
 func TestMakefileGuardRunsFullArchtestAndFrontendEmbedVerify(t *testing.T) {
 	makefile := readRepoFile(t, "../Makefile")
-	workflow := readRepoFile(t, "../.github/workflows/ci.yml")
 
 	assertScriptContains(t, makefile, "frontend-embed-verify: frontend-app-build")
 	assertScriptContains(t, makefile, "./scripts/frontend_embed_verify.sh")
@@ -88,8 +87,4 @@ func TestMakefileGuardRunsFullArchtestAndFrontendEmbedVerify(t *testing.T) {
 	assertScriptContains(t, makefile, "./scripts/test_with_guard.sh ./scripts -run 'Frontend'")
 	assertScriptContains(t, makefile, "guard:\n\t$(TEST_WITH_GUARD) --guard-only")
 	assertScriptContains(t, makefile, "code-size-guard:\n\t$(TEST_WITH_GUARD) --guard-only")
-
-	assertScriptContains(t, workflow, "Trusted bootstrap coordinator")
-	assertScriptContains(t, workflow, "workflow-host")
-	assertScriptDoesNotContain(t, workflow, "make frontend-embed-verify")
 }

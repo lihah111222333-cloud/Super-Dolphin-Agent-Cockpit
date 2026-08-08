@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -75,7 +76,6 @@ func preparePreCommitGateFixture(t *testing.T) string {
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFixtureGateCLI(t, root)
-	runFixTestGuardGit(t, root, "config", "--local", "superdolphin.gateLauncher", filepath.Join(root, ".pre-commit-fixture-bin", "super-dolphin-gate"))
 	remoteConfig := filepath.Join(root, ".pre-commit-fixture-remote", "config.yaml")
 	remoteLedger := filepath.Join(root, ".pre-commit-fixture-remote", "duration-ledger.sqlite")
 	writeFixTestGuardFile(t, root, ".pre-commit-fixture-remote/config.yaml", "fixture: remote-config\n")
@@ -89,6 +89,7 @@ func preparePreCommitGateFixture(t *testing.T) string {
 	writeFixTestGuardFile(t, root, ".gitignore", ".build-cache/\n")
 	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", ".githooks/trusted-gate-launcher.sh", ".gitignore", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/main.go", "go.mod", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
+	installPreCommitFixtureLauncher(t, root)
 	return root
 }
 
@@ -156,7 +157,22 @@ trap 'finish_cleanup 143; exit $?' TERM
 trap 'finish_cleanup 129; exit $?' HUP
 
 case "${1:-}" in
+  launcher)
+    if [ "$#" -eq 8 ] && [ "$2" = "verify" ] && [ "$3" = "--repository" ] && [ "$5" = "--tree" ] && [ "$7" = "--receipt" ]; then
+      exit 0
+    fi
+    printf '%s\n' 'fixture gate: launcher requires verify arguments' >&2
+    exit 64
+    ;;
   closure)
+	if [ "$#" -eq 4 ] && [ "$2" = "provenance" ] && [ "$3" = "--tree" ]; then
+	  tree=$4
+	  if ! require_current_staged_tree closure "$tree"; then
+		exit 1
+	  fi
+	  printf '%s %s\n' 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+	  exit 0
+	fi
     if [ "$#" -ne 4 ] || [ "$3" != "--tree" ] || [[ "$2" != "check" && "$2" != "refresh" && "$2" != "refresh-dependencies" ]]; then
       printf 'fixture gate: closure requires check, refresh, or refresh-dependencies --tree <tree>\n' >&2
       exit 64
@@ -192,6 +208,21 @@ case "${1:-}" in
       exit 1
     fi
     printf 'fixture codemap %s verified staged tree %s\n' "$2" "$tree"
+    ;;
+  capability-contract)
+    if [ "$#" -ne 4 ] || [ "$3" != "--tree" ] || [[ "$2" != "check" && "$2" != "refresh" ]]; then
+      printf 'fixture gate: capability-contract requires check or refresh --tree <tree>\n' >&2
+      exit 64
+    fi
+    tree=$4
+    if ! require_current_staged_tree capability-contract "$tree"; then
+      exit 1
+    fi
+    if [ "$2" = "refresh" ]; then
+      mkdir -p "$repository_root/docs/doc/codemap/capability-contract"
+      printf '{"capability":"refreshed"}\n' >"$repository_root/docs/doc/codemap/capability-contract/capability_manifest.json"
+    fi
+    printf 'fixture capability-contract %s verified staged tree %s\n' "$2" "$tree"
     ;;
   frontend-code-size)
     if [ "$#" -ne 6 ] || [ "$2" != "check" ] || [ "$3" != "--tree" ] || [ "$5" != "--accepted-tree" ]; then
@@ -288,6 +319,28 @@ func writePreCommitFixtureGateCLI(t *testing.T, root string) {
 	if err := os.WriteFile(path, []byte(preCommitFixtureGateCLIScript), 0o755); err != nil {
 		t.Fatalf("write fixture gate CLI: %v", err)
 	}
+}
+
+func installPreCommitFixtureLauncher(t *testing.T, root string) string {
+	t.Helper()
+	source := filepath.Join(root, ".pre-commit-fixture-bin", "super-dolphin-gate")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read fixture gate CLI: %v", err)
+	}
+	digest := sha256.Sum256(data)
+	tree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
+	installRoot := secureTrustedLauncherTestRoot(t)
+	launcher := filepath.Join(installRoot, "v1", tree, fmt.Sprintf("%x", digest[:]), "super-dolphin-gate")
+	if err := os.MkdirAll(filepath.Dir(launcher), 0o700); err != nil {
+		t.Fatalf("create fixture launcher directory: %v", err)
+	}
+	if err := os.WriteFile(launcher, data, 0o500); err != nil {
+		t.Fatalf("write fixture launcher: %v", err)
+	}
+	runFixTestGuardGit(t, root, "config", "--local", "superdolphin.gateLauncher", launcher)
+	runFixTestGuardGit(t, root, "config", "--local", "superdolphin.gateLauncherRoot", installRoot)
+	return launcher
 }
 
 func writeFakeAIMaintenanceGateScript(t *testing.T, root string) {
@@ -463,12 +516,40 @@ func runPreCommitHookWithEnv(t *testing.T, root string, extra map[string]string)
 
 func preCommitCommand(t *testing.T, root string, extra map[string]string) *exec.Cmd {
 	t.Helper()
+	installPreCommitFixtureLauncher(t, root)
 	cmd := exec.Command("bash", bashPath(".githooks", "pre-commit"))
 	cmd.Dir = root
+	cmd.Env = preCommitFixtureEnvironment(t, root, extra)
+	return cmd
+}
+
+func preCommitFixtureEnvironment(t *testing.T, root string, extra map[string]string) []string {
+	t.Helper()
+	env, pathValue := preCommitBaseEnvironment(extra)
+	fixtureBin := filepath.Join(root, ".pre-commit-fixture-bin")
+	if info, err := os.Stat(filepath.Join(fixtureBin, "super-dolphin-gate")); err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		t.Fatalf("pre-commit fixture gate CLI is unavailable: %v", err)
+	}
+	env = append(env, "PATH="+bashArg("", fixtureBin)+":"+pathValue)
+	keys := []string{"PATH"}
+	if _, explicit := extra["SUPER_DOLPHIN_CI_AGENT_TOKEN"]; !explicit {
+		env = append(env, "SUPER_DOLPHIN_CI_AGENT_TOKEN=fixture-agent-token")
+		keys = append(keys, "SUPER_DOLPHIN_CI_AGENT_TOKEN")
+	}
+	for key, value := range extra {
+		if key != "PATH" {
+			env = append(env, key+"="+value)
+			keys = append(keys, key)
+		}
+	}
+	return appendWSLEnvKeysWithGitPath(t, env, keys...)
+}
+
+func preCommitBaseEnvironment(extra map[string]string) ([]string, string) {
 	env := make([]string, 0, len(os.Environ())+len(extra))
 	for _, item := range os.Environ() {
 		key, _, _ := strings.Cut(item, "=")
-		if key == "PATH" {
+		if key == "PATH" || key == "SUPER_DOLPHIN_CI_AGENT_TOKEN" {
 			continue
 		}
 		if _, replaced := extra[key]; !replaced {
@@ -479,21 +560,7 @@ func preCommitCommand(t *testing.T, root string, extra map[string]string) *exec.
 	if value, ok := extra["PATH"]; ok {
 		pathValue = value
 	}
-	fixtureBin := filepath.Join(root, ".pre-commit-fixture-bin")
-	if info, err := os.Stat(filepath.Join(fixtureBin, "super-dolphin-gate")); err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		t.Fatalf("pre-commit fixture gate CLI is unavailable: %v", err)
-	}
-	env = append(env, "PATH="+bashArg("", fixtureBin)+":"+pathValue)
-	keys := []string{"PATH"}
-	for key, value := range extra {
-		if key == "PATH" {
-			continue
-		}
-		env = append(env, key+"="+value)
-		keys = append(keys, key)
-	}
-	cmd.Env = appendWSLEnvKeysWithGitPath(t, env, keys...)
-	return cmd
+	return env, pathValue
 }
 
 func assertPreCommitFixtureClean(t *testing.T, root, tmpRoot string) {
@@ -555,28 +622,12 @@ func assertPreCommitRepositoryState(t *testing.T, root string, want preCommitRep
 	}
 }
 
-func runCICommitGuard(t *testing.T, root string, env map[string]string, args ...string) (string, error) {
+func runCICommitGuard(t *testing.T, root string, args ...string) (string, error) {
 	t.Helper()
-	keys := make([]string, 0, len(env))
-	for key := range env {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
 	cmdArgs := append([]string{bashPath("scripts", "ci_commit_guard.sh")}, bashArgs(root, args)...)
 	cmd := exec.Command("bash", cmdArgs...)
 	cmd.Dir = root
 	cmd.Env = os.Environ()
-	if len(keys) > 0 {
-		wslEnv := strings.Join(keys, ":")
-		if existing := os.Getenv("WSLENV"); existing != "" {
-			wslEnv = existing + ":" + wslEnv
-		}
-		cmd.Env = append(cmd.Env, "WSLENV="+wslEnv)
-	}
-	for _, key := range keys {
-		cmd.Env = append(cmd.Env, key+"="+env[key])
-	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -608,12 +659,12 @@ func copyFixTestGuardRepoFile(t *testing.T, root, path string, mode os.FileMode)
 func prepareCommitTitleBaselineRepo(t *testing.T) (string, string) {
 	t.Helper()
 	root := prepareFixTestGuardRepo(t)
-	eventBase := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 	baseline := commitCommitGuardFixture(t, root, "docs/legacy.md", "legacy\n", "chore: legacy English title")
 	copyCommitTitleGuard(t, root, baseline)
 	runFixTestGuardGit(t, root, "add", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath)
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装提交标题门禁")
-	return root, eventBase
+	return root, base
 }
 
 func copyCommitTitleGuard(t *testing.T, root, baseline string) {
@@ -640,21 +691,6 @@ func runCommitTitleGuard(t *testing.T, root string, args ...string) (string, err
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err
-}
-
-func commitGuardEventEnv(eventName, base, head string) map[string]string {
-	if eventName == "pull_request" {
-		return map[string]string{
-			"GITHUB_EVENT_NAME": "pull_request",
-			"GITHUB_BASE_SHA":   base,
-			"GITHUB_HEAD_SHA":   head,
-		}
-	}
-	return map[string]string{
-		"GITHUB_EVENT_NAME":   "push",
-		"GITHUB_EVENT_BEFORE": base,
-		"GITHUB_SHA":          head,
-	}
 }
 
 func locateFixTestGuardScript(t *testing.T) string {

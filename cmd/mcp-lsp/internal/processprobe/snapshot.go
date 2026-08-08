@@ -194,7 +194,7 @@ func newSnapshot(
 	missingFields []string,
 	redactedError string,
 ) Snapshot {
-	associationMissing := lifecycleAssociationFields()
+	associationMissing := append([]string(nil), lifecycleAssociationFields()...)
 	normalizedMissing := normalizeMissingFields(append(missingFields, associationMissing...))
 	snapshot := Snapshot{
 		snapshotCore: snapshotCore{

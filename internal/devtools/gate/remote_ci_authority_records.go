@@ -18,6 +18,7 @@ type CheckReceiptRecord struct {
 	JobID              string
 	CandidateTreeSHA   string
 	AgentTokenDigest   string
+	Force              bool
 	AcceptedGeneration uint64
 	AcceptedSnapshotID string
 	RequiredCheck      cicontract.RequiredCheck
@@ -36,6 +37,7 @@ type checkReceiptHashPayload struct {
 	JobID                string                   `json:"job_id"`
 	CandidateTreeSHA     string                   `json:"candidate_tree_sha"`
 	AgentTokenDigest     string                   `json:"agent_token_digest"`
+	Force                bool                     `json:"force"`
 	AcceptedGeneration   uint64                   `json:"accepted_generation"`
 	AcceptedSnapshotID   string                   `json:"accepted_snapshot_id"`
 	RequiredCheck        cicontract.RequiredCheck `json:"required_check"`
@@ -52,7 +54,7 @@ type checkReceiptHashPayload struct {
 func CheckReceiptSHA256(record CheckReceiptRecord) (string, error) {
 	payload, err := json.Marshal(checkReceiptHashPayload{
 		RunID: record.RunID, JobID: record.JobID, CandidateTreeSHA: record.CandidateTreeSHA, AgentTokenDigest: record.AgentTokenDigest,
-		AcceptedGeneration: record.AcceptedGeneration, AcceptedSnapshotID: record.AcceptedSnapshotID,
+		Force: record.Force, AcceptedGeneration: record.AcceptedGeneration, AcceptedSnapshotID: record.AcceptedSnapshotID,
 		RequiredCheck: record.RequiredCheck, Executed: record.Executed, Reused: record.Reused, ReuseProofSHA256: record.ReuseProofSHA256, Passed: record.Passed,
 		StartedAtUnixMilli: record.StartedAt.UTC().UnixMilli(), CompletedAtUnixMilli: record.CompletedAt.UTC().UnixMilli(),
 		DurationMillis: record.Duration.Milliseconds(),
@@ -148,18 +150,23 @@ func validateCheckReceiptIdentity(record CheckReceiptRecord) error {
 	return nil
 }
 
-// validateCompletePassingCheckReceipts 要求同一运行的全部 canonical 检查均真实执行并通过，缺项或跨身份混入即失败。
-func validateCompletePassingCheckReceipts(receipts []CheckReceiptRecord) error {
-	required := cicontract.RequiredChecks()
+// validateWorkloadCatalogPassingCheckReceipts 要求回执精确覆盖持久化 workload catalog 的检查范围。
+func validateWorkloadCatalogPassingCheckReceipts(catalog WorkloadCatalog, receipts []CheckReceiptRecord) error {
+	required, err := RequiredChecksForWorkloadCatalog(catalog)
+	if err != nil {
+		return err
+	}
+	return validatePassingCheckReceiptsFor(required, receipts)
+}
+
+// validatePassingCheckReceiptsFor 校验同一运行回执并要求它精确覆盖给定 canonical 范围。
+func validatePassingCheckReceiptsFor(required []cicontract.RequiredCheck, receipts []CheckReceiptRecord) error {
 	if len(receipts) != len(required) {
 		return fmt.Errorf("check receipts count = %d, want %d required checks", len(receipts), len(required))
 	}
-	seen := make(map[cicontract.RequiredCheck]struct{}, len(receipts))
-	var binding checkReceiptAuthorityBinding
-	for index, receipt := range receipts {
-		if err := binding.accept(receipt, index, seen); err != nil {
-			return err
-		}
+	seen, err := validatePassingCheckReceiptCollection(receipts)
+	if err != nil {
+		return err
 	}
 	for _, check := range required {
 		if _, found := seen[check]; !found {
@@ -169,9 +176,25 @@ func validateCompletePassingCheckReceipts(receipts []CheckReceiptRecord) error {
 	return nil
 }
 
+// validatePassingCheckReceiptCollection 校验非空回执集合的单条内容、PASS 与共享身份。
+func validatePassingCheckReceiptCollection(receipts []CheckReceiptRecord) (map[cicontract.RequiredCheck]struct{}, error) {
+	if len(receipts) == 0 {
+		return nil, errors.New("check receipts are empty")
+	}
+	seen := make(map[cicontract.RequiredCheck]struct{}, len(receipts))
+	var binding checkReceiptAuthorityBinding
+	for index, receipt := range receipts {
+		if err := binding.accept(receipt, index, seen); err != nil {
+			return nil, err
+		}
+	}
+	return seen, nil
+}
+
 // checkReceiptAuthorityBinding 保存同一 job 回执集合必须共享的 canonical SQLite 身份。
 type checkReceiptAuthorityBinding struct {
 	runID, jobID, tree, snapshot, agentTokenDigest string
+	force                                          bool
 	generation                                     uint64
 }
 
@@ -189,18 +212,18 @@ func (binding *checkReceiptAuthorityBinding) accept(receipt CheckReceiptRecord, 
 	seen[receipt.RequiredCheck] = struct{}{}
 	if index == 0 {
 		binding.runID, binding.jobID, binding.tree = receipt.RunID, receipt.JobID, receipt.CandidateTreeSHA
-		binding.generation, binding.snapshot, binding.agentTokenDigest = receipt.AcceptedGeneration, receipt.AcceptedSnapshotID, receipt.AgentTokenDigest
+		binding.generation, binding.snapshot, binding.agentTokenDigest, binding.force = receipt.AcceptedGeneration, receipt.AcceptedSnapshotID, receipt.AgentTokenDigest, receipt.Force
 		return nil
 	}
 	if binding.matches(receipt) {
 		return nil
 	}
-	return errors.New("check receipts do not bind one run, job, agent, tree, generation, and snapshot")
+	return errors.New("check receipts do not bind one run, job, agent, tree, force mode, generation, and snapshot")
 }
 
 // matches 判断回执是否仍绑定到首条回执固定的 run、tree、generation、snapshot 与 agent digest。
 func (binding checkReceiptAuthorityBinding) matches(receipt CheckReceiptRecord) bool {
 	return receipt.RunID == binding.runID && receipt.JobID == binding.jobID && receipt.CandidateTreeSHA == binding.tree &&
-		receipt.AgentTokenDigest == binding.agentTokenDigest && receipt.AcceptedGeneration == binding.generation &&
+		receipt.AgentTokenDigest == binding.agentTokenDigest && receipt.Force == binding.force && receipt.AcceptedGeneration == binding.generation &&
 		receipt.AcceptedSnapshotID == binding.snapshot
 }

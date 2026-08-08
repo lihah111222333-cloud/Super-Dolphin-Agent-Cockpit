@@ -34,7 +34,7 @@ var trustedRuntimeAssets embed.FS
 type Operation string
 
 const (
-	// Check 仅校验候选树的 production 和 test 基线。
+	// Check 重放 accepted 基线，并校验候选声明与 production/test 规范结果一致。
 	Check Operation = "check"
 	// Refresh 在候选树刷新两个基线并校验后原子替换仓库基线。
 	Refresh Operation = "refresh"
@@ -116,8 +116,8 @@ func runWithAssetsReceipt(
 		return Receipt{}, err
 	}
 	defer os.RemoveAll(candidate)
-	appRoot := filepath.Join(candidate, "frontend-app")
-	if err := installAcceptedBaselines(ctx, root, acceptedTree, appRoot); err != nil {
+	appRoot, candidateBaselines, err := prepareBaselineWorkspace(ctx, root, candidate, acceptedTree)
+	if err != nil {
 		return Receipt{}, err
 	}
 	candidateLock, lockErr := os.ReadFile(filepath.Join(appRoot, "package-lock.json"))
@@ -159,10 +159,8 @@ func runWithAssetsReceipt(
 	if err != nil {
 		return Receipt{}, classified(ErrorInfrastructure, "build execution receipt", err)
 	}
-	if operation == Refresh || operation == Migrate {
-		if err := runScopes(ctx, node, runtimeRoot, appRoot, "--update"); err != nil {
-			return Receipt{}, err
-		}
+	if err := prepareCanonicalBaselines(ctx, node, runtimeRoot, appRoot, operation, candidateBaselines); err != nil {
+		return Receipt{}, err
 	}
 	if err := runScopes(ctx, node, runtimeRoot, appRoot, "--check"); err != nil {
 		return Receipt{}, err
@@ -180,6 +178,60 @@ func runWithAssetsReceipt(
 		}
 	}
 	return before, nil
+}
+
+type baselinePair struct {
+	production string
+	test       string
+}
+
+// prepareBaselineWorkspace 保存候选声明，并为规范重放安装 accepted 基线。
+func prepareBaselineWorkspace(ctx context.Context, root, candidate, acceptedTree string) (string, baselinePair, error) {
+	appRoot := filepath.Join(candidate, "frontend-app")
+	pair, err := readBaselinePair(appRoot)
+	if err != nil {
+		return "", baselinePair{}, classified(ErrorInfrastructure, "read candidate baselines", err)
+	}
+	if err := installAcceptedBaselines(ctx, root, acceptedTree, appRoot); err != nil {
+		return "", baselinePair{}, err
+	}
+	return appRoot, pair, nil
+}
+
+// readBaselinePair 读取成对基线，用于比较候选声明与 accepted-baseline 重放结果。
+func readBaselinePair(appRoot string) (baselinePair, error) {
+	production, err := os.ReadFile(filepath.Join(appRoot, productionBaseline))
+	if err != nil {
+		return baselinePair{}, err
+	}
+	test, err := os.ReadFile(filepath.Join(appRoot, testBaseline))
+	if err != nil {
+		return baselinePair{}, err
+	}
+	return baselinePair{production: string(production), test: string(test)}, nil
+}
+
+// prepareCanonicalBaselines 从 accepted 基线重放规范结果，并要求 check 候选精确声明同一结果。
+func prepareCanonicalBaselines(
+	ctx context.Context,
+	node, runtimeRoot, appRoot string,
+	operation Operation,
+	candidate baselinePair,
+) error {
+	if err := runScopes(ctx, node, runtimeRoot, appRoot, "--update"); err != nil {
+		return err
+	}
+	if operation != Check {
+		return nil
+	}
+	canonical, err := readBaselinePair(appRoot)
+	if err != nil {
+		return classified(ErrorInfrastructure, "read replayed canonical baselines", err)
+	}
+	if candidate != canonical {
+		return classified(ErrorViolation, "candidate baselines do not match canonical accepted-baseline replay", nil)
+	}
+	return nil
 }
 
 func installAcceptedBaselines(ctx context.Context, root, accepted, appRoot string) error {

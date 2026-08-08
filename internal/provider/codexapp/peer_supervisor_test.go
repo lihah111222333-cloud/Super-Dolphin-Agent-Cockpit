@@ -49,7 +49,7 @@ func (f *fakePeerLauncher) Launch(_ context.Context, name string) (peerHandle, e
 		return nil, err
 	}
 	f.pidSeed++
-	h := &fakePeerHandle{name: name, pid: f.pidSeed, done: make(chan struct{})}
+	h := &fakePeerHandle{name: name, pid: f.pidSeed, done: make(chan struct{}), waitReturned: make(chan struct{})}
 	f.handles[name] = append(f.handles[name], h)
 	select {
 	case f.launchCh <- name:
@@ -89,11 +89,13 @@ type fakePeerHandle struct {
 	name string
 	pid  int
 
-	mu      sync.Mutex
-	done    chan struct{}
-	closed  bool
-	exitErr error
-	signals []processSig
+	mu           sync.Mutex
+	done         chan struct{}
+	waitReturned chan struct{}
+	waitOnce     sync.Once
+	closed       bool
+	exitErr      error
+	signals      []processSig
 }
 
 func (h *fakePeerHandle) Name() string { return h.name }
@@ -101,6 +103,7 @@ func (h *fakePeerHandle) PID() int     { return h.pid }
 
 func (h *fakePeerHandle) Wait() error {
 	<-h.done
+	h.waitOnce.Do(func() { close(h.waitReturned) })
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.exitErr
@@ -559,9 +562,16 @@ func TestPeerSupervisorBackoffCancelledByStop(t *testing.T) {
 	done := runSupervisorForTest(t, ctx, s)
 	launcher.waitLaunch(t, "test-peer", time.Second)
 
-	launcher.snapshotHandles("test-peer")[0].triggerExit(errors.New("boom"))
-
-	time.Sleep(50 * time.Millisecond)
+	first := launcher.snapshotHandles("test-peer")[0]
+	first.triggerExit(errors.New("boom"))
+	waitUntil(t, time.Second, func() bool {
+		select {
+		case <-first.waitReturned:
+			return true
+		default:
+			return false
+		}
+	}, "peer Wait did not return after simulated exit")
 	start := time.Now()
 	cancel()
 

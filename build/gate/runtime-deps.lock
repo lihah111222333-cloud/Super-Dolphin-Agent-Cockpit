@@ -1,5 +1,5 @@
 {
-  "schema_version": "15",
+  "schema_version": "16",
   "build_mode": "node-local",
   "cache_scope": "node",
   "inputs": {
@@ -17,8 +17,8 @@
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f"
   },
   "recipe_inputs": {
-    "dockerfile_sha256": "sha256:827048850351860df4b938218e458c97a6dc78a62a25afe4dd872abbb4aa9c71",
-    "runtime_seed_worker_sha256": "sha256:b4de90c79879cb50a09850665a4262c2791ff3385ce26fe73b11cd158348ad9a"
+    "dockerfile_sha256": "sha256:c8a16f8d1c2a88e3069d24b573fd328dbec97a3f47342a98bcc3b48abac19fb5",
+    "runtime_seed_worker_sha256": "sha256:223428b5089efb1af5e260359ee5d2e37ad7b1131e8d83abfc412ade5d4e94f6"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

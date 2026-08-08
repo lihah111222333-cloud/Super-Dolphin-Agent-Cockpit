@@ -58,6 +58,26 @@ func TestDurationLedgerSQLiteCompactsLargeRetentionScopeWithoutVariableOverflow(
 	if generation != 2 {
 		t.Fatalf("generation = %d, want 2", generation)
 	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var retainedRows int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM duration_samples WHERE accepted_generation = ?`, "1").Scan(&retainedRows); err != nil {
+		t.Fatal(err)
+	}
+	if retainedRows != sampleCount+1 {
+		t.Fatalf("retained duration sample rows = %d, want %d", retainedRows, sampleCount+1)
+	}
+	assertSQLiteQueryPlan(
+		t,
+		database,
+		`SELECT accepted_generation FROM duration_samples WHERE accepted_generation = ?`,
+		[]string{"USING COVERING INDEX idx_duration_samples_retention"},
+		[]string{"duration_samples"},
+		"1",
+	)
 }
 
 func TestDurationLedgerSQLiteCatalogProjectionPreservesOrderAndObservations(t *testing.T) {
@@ -136,6 +156,103 @@ func TestCompareAndSwapCalibrationPreservesSQLiteSamples(t *testing.T) {
 		loaded.Ledger.Samples[0].DurationMS != 101 ||
 		!reflect.DeepEqual(loaded.Ledger.Calibration, calibrationAtMillisecond(&calibration)) {
 		t.Fatalf("loaded ledger = %#v", loaded.Ledger)
+	}
+}
+
+func TestDurationLedgerSQLiteShardOverheadRoundTripPreservesAccountedIntervals(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedAcceptedGenerationForTest(t, store, 1)
+	sample := durationLedgerSQLiteShardOverheadRoundTripSample()
+	overhead := durationLedgerSQLiteShardOverheadRoundTripValue(sample.ProvenanceDigest)
+	durationLedgerSQLiteRecordShardOverheadRoundTrip(t, store, sample, overhead)
+	durationLedgerSQLiteAssertShardOverheadRoundTrip(t, store, sample, overhead)
+}
+
+// durationLedgerSQLiteShardOverheadRoundTripSample 构造保留间隔往返测试样本。
+func durationLedgerSQLiteShardOverheadRoundTripSample() ShardOrchestrationOverheadSample {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	start := time.UnixMilli(1_000).UTC()
+	return ShardOrchestrationOverheadSample{
+		AcceptedGeneration:     1,
+		ProvenanceDigest:       digest,
+		JobID:                  "overhead-roundtrip-job",
+		ShardIdentity:          "overhead-roundtrip-shard",
+		TotalStartedAt:         start,
+		TotalCompletedAt:       start.Add(2 * time.Second),
+		WorkloadEnvelopeStart:  start.Add(500 * time.Millisecond),
+		WorkloadEnvelopeEnd:    start.Add(1500 * time.Millisecond),
+		AccountedDurationMS:    1_000,
+		AccountedIntervalCount: 1,
+		OverheadMS:             1_000,
+	}
+}
+
+// durationLedgerSQLiteShardOverheadRoundTripValue 构造与样本绑定的账本开销值。
+func durationLedgerSQLiteShardOverheadRoundTripValue(digest string) ShardOrchestrationOverhead {
+	return ShardOrchestrationOverhead{
+		SchemaVersion:                ShardOrchestrationOverheadSchemaVersion,
+		PolicyVersion:                ShardOverheadPolicyVersion,
+		Platform:                     "linux/amd64",
+		Runner:                       "eci",
+		Toolchain:                    "go",
+		CalibrationResourceClassID:   "calibration",
+		CalibrationResourceCPU:       4,
+		CalibrationResourceMemoryGiB: 8,
+		P95MS:                        1_000,
+		SampleCount:                  1,
+		ProvenanceDigest:             digest,
+		AcceptedGeneration:           1,
+		AcceptedSnapshotID:           "snapshot-1",
+	}
+}
+
+// durationLedgerSQLiteRecordShardOverheadRoundTrip 写入开销样本并保留同一事务语义。
+func durationLedgerSQLiteRecordShardOverheadRoundTrip(t *testing.T, store *DurationLedgerStore, sample ShardOrchestrationOverheadSample, overhead ShardOrchestrationOverhead) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertGenerationOneRunForTest(t, database, sample.JobID)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwapShardOverhead(1, overhead, []ShardOrchestrationOverheadSample{sample}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// durationLedgerSQLiteAssertShardOverheadRoundTrip 校验开销值和原始样本均可恢复。
+func durationLedgerSQLiteAssertShardOverheadRoundTrip(t *testing.T, store *DurationLedgerStore, sample ShardOrchestrationOverheadSample, overhead ShardOrchestrationOverhead) {
+	t.Helper()
+	planning := PlanningContext{
+		Platform:           overhead.Platform,
+		Runner:             overhead.Runner,
+		Toolchain:          overhead.Toolchain,
+		TargetDurationMS:   FullCITargetDurationMS,
+		AcceptedSnapshotID: overhead.AcceptedSnapshotID,
+	}
+	loaded, err := store.LoadPlanning(planning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Ledger.ShardOverhead == nil || !reflect.DeepEqual(*loaded.Ledger.ShardOverhead, overhead) {
+		t.Fatalf("loaded shard overhead = %#v, want %#v", loaded.Ledger.ShardOverhead, overhead)
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	gotSamples, err := loadSQLiteShardOverheadSamples(database, "1", sample.ProvenanceDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotSamples, []ShardOrchestrationOverheadSample{sample}) {
+		t.Fatalf("loaded shard overhead samples = %#v, want %#v", gotSamples, []ShardOrchestrationOverheadSample{sample})
 	}
 }
 
@@ -249,6 +366,16 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 	}
 	seedAcceptedGenerationForTest(t, store, 1)
 	now := time.Now().UTC().Truncate(time.Millisecond)
+	digest := durationLedgerSQLiteRecordManualSelectionCatalog(t, store, now)
+	record := durationLedgerSQLiteManualSelectionRecord(now, digest)
+	execution := durationLedgerSQLitePopulateManualSelectionRecord(t, &record, now)
+	durationLedgerSQLiteAssertManualSelectionRecord(t, store, record)
+	durationLedgerSQLiteAssertManualSelectionAuthorityRejections(t, store, record, execution)
+}
+
+// durationLedgerSQLiteRecordManualSelectionCatalog 写入手工选择目录并返回其摘要。
+func durationLedgerSQLiteRecordManualSelectionCatalog(t *testing.T, store *DurationLedgerStore, observedAt time.Time) string {
+	t.Helper()
 	catalog := WorkloadCatalog{
 		Version: durationLedgerVersion, Authoritative: false,
 		Workloads: []Workload{{
@@ -263,11 +390,16 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 	}
 	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{
 		SourceTreeSHA: strings.Repeat("d", 40), Entrypoint: CIEntrypointManualCLI,
-		Profile: ProfileLocalFast, AcceptedGeneration: 1, ObservedAt: now,
+		Profile: ProfileLocalFast, AcceptedGeneration: 1, ObservedAt: observedAt,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	record := RemoteCIRunRecord{
+	return digest
+}
+
+// durationLedgerSQLiteManualSelectionRecord 构造手工选择目录对应的远程运行记录。
+func durationLedgerSQLiteManualSelectionRecord(now time.Time, digest string) RemoteCIRunRecord {
+	return RemoteCIRunRecord{
 		JobID: "manual-selection", AgentTokenDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Entrypoint: CIEntrypointManualCLI, Profile: ProfileLocalFast,
 		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("d", 40),
@@ -279,13 +411,24 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 			ShardIdentity: "sha256:" + strings.Repeat("7", 64), ContainerGroup: "eci-manual", ContainerStatus: "Succeeded",
 			Workloads:             []GateID{GateIDWhitespaceCheck},
 			MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("7", 64)),
-			Resources:             RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 16},
+			Resources:             RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8},
 		}},
 	}
+}
+
+// durationLedgerSQLitePopulateManualSelectionRecord 补齐运行记录的执行结果和计时证据。
+func durationLedgerSQLitePopulateManualSelectionRecord(t *testing.T, record *RemoteCIRunRecord, now time.Time) PlanGateExecution {
+	t.Helper()
 	execution := PlanGateExecution{ShardIdentity: record.Shards[0].ShardIdentity, GateID: GateIDWhitespaceCheck, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
 	record.WorkloadExecutions = []PlanGateExecution{execution}
 	record.WorkloadResults = []RemoteCIWorkloadResult{executedWorkloadResultForCatalogTest(t, GateIDWhitespaceCheck, record.JobID)}
 	record.TimingObservations = authoritativeTimingObservationsForTest(record.JobID, execution)
+	return execution
+}
+
+// durationLedgerSQLiteAssertManualSelectionRecord 校验手工选择目录记录可写入并保留资源。
+func durationLedgerSQLiteAssertManualSelectionRecord(t *testing.T, store *DurationLedgerStore, record RemoteCIRunRecord) {
+	t.Helper()
 	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
 		t.Fatalf("record passed manual selection: %v", err)
 	}
@@ -296,6 +439,11 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 	if got, want := loaded.Shards[0].Resources, record.Shards[0].Resources; got != want {
 		t.Fatalf("loaded normal resources = %#v, want %#v", got, want)
 	}
+}
+
+// durationLedgerSQLiteAssertManualSelectionAuthorityRejections 保留两类权威性拒绝断言。
+func durationLedgerSQLiteAssertManualSelectionAuthorityRejections(t *testing.T, store *DurationLedgerStore, record RemoteCIRunRecord, execution PlanGateExecution) {
+	t.Helper()
 	record.TimingObservations = authoritativeTimingObservationsForTest(record.JobID, execution)
 	record.JobID = "authoritative-selection"
 	record.Entrypoint = CIEntrypointGitPreCommit
@@ -360,7 +508,7 @@ func TestRecordRemoteCIRunRejectsPassedShardCoverageDrift(t *testing.T) {
 		ShardIdentity: "sha256:" + strings.Repeat("9", 64), ContainerGroup: "eci-executed",
 		ContainerStatus: "Succeeded", Workloads: []GateID{GateIDWhitespaceCheck},
 		MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("9", 64)),
-		Resources:             RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 16},
+		Resources:             RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8},
 	}}
 	execution := PlanGateExecution{ShardIdentity: record.Shards[0].ShardIdentity, GateID: GateIDWhitespaceCheck, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
 	record.WorkloadExecutions = []PlanGateExecution{execution}
@@ -377,7 +525,7 @@ func TestRecordRemoteCIRunRejectsPassedShardCoverageDrift(t *testing.T) {
 }
 
 func authoritativeRunTimingObservation(jobID string) TimingObservation {
-	startedAt := time.UnixMilli(100)
+	startedAt := time.UnixMilli(100).UTC()
 	return TimingObservation{JobID: jobID, Scope: cicontract.TimingScopeRun, Phase: cicontract.TimingTotal, StartedAt: startedAt, CompletedAt: startedAt.Add(time.Millisecond), DurationMS: 1, Measurement: cicontract.ObservationMeasured, Aggregation: cicontract.TimingAggregationCriticalPath, CacheEvidence: NewNotApplicableCacheEvidence("run_has_no_workload_cache")}
 }
 
@@ -416,20 +564,22 @@ func measuredShardMaterializationTiming(shardIdentity string) ShardMaterializati
 
 func testSQLiteDurationCalibration() DurationCalibration {
 	return DurationCalibration{
-		SchemaVersion:        DurationCalibrationSchemaVersion,
-		Commit:               strings.Repeat("1", 40),
-		Tree:                 strings.Repeat("2", 40),
-		Platform:             "linux/amd64",
-		Runner:               "runner-v1",
-		Toolchain:            RequiredGoToolchain,
-		CommitEntrypoint:     CIEntrypointGitPreCommit,
-		PushEntrypoint:       CIEntrypointGitPrePush,
-		ReleaseEntrypoint:    CIEntrypointRelease,
-		CommitCatalogDigest:  "sha256:" + strings.Repeat("3", 64),
-		PushCatalogDigest:    "sha256:" + strings.Repeat("4", 64),
-		ReleaseCatalogDigest: "sha256:" + strings.Repeat("5", 64),
-		WorkloadCount:        1,
-		RacePackageCount:     1,
-		CompletedAt:          time.Now().UTC(),
+		SchemaVersion:              DurationCalibrationSchemaVersion,
+		Commit:                     strings.Repeat("1", 40),
+		Tree:                       strings.Repeat("2", 40),
+		Platform:                   "linux/amd64",
+		Runner:                     "runner-v1",
+		Toolchain:                  RequiredGoToolchain,
+		CommitEntrypoint:           CIEntrypointGitPreCommit,
+		PushEntrypoint:             CIEntrypointGitPrePush,
+		ReleaseEntrypoint:          CIEntrypointRelease,
+		CommitCatalogDigest:        "sha256:" + strings.Repeat("3", 64),
+		PushCatalogDigest:          "sha256:" + strings.Repeat("4", 64),
+		ReleaseCatalogDigest:       "sha256:" + strings.Repeat("5", 64),
+		CalibrationResourceClassID: "calibration", CalibrationResourceCPU: 4, CalibrationResourceMemoryGiB: 8,
+		WorkloadCount:      1,
+		RacePackageCount:   1,
+		AcceptedSnapshotID: "snapshot-test",
+		CompletedAt:        time.Now().UTC(),
 	}
 }

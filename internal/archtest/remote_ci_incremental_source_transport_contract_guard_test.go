@@ -16,6 +16,7 @@ var sourceMaterializerGuardFiles = []string{
 	"source_materializer_baseline.go",
 	"source_materializer_helpers.go",
 	"source_materializer_manifest.go",
+	"source_worktree_materializer.go",
 }
 
 func TestRemoteCIIncrementalSourceTransportContract(t *testing.T) {
@@ -60,13 +61,19 @@ func assertRequiredSourceMaterializerMarkers(t *testing.T, materializer string) 
 	for _, required := range []string{
 		`sourceBundleName            = "source.bundle"`,
 		`sourceManifestName          = "source-manifest.json"`,
-		`sourceManifestVersion       = 2`,
+		`sourceManifestVersion       = cicontract.SourceManifestSchemaVersion`,
 		`sourceTransportKind         = "git-bundle-thin"`,
 		"SourceBaseline",
 		"BuildSourceBaseline",
 		"DeterministicSourceBaselineCommitSHA",
 		"DeterministicSourceTransportCommitSHA",
+		"DeterministicSourceSyntheticBaseCommitSHA",
+		"SyntheticBaseTreeSHA",
+		"SyntheticBaseCommitSHA",
+		`json:"synthetic_base_tree_sha"`,
+		`json:"synthetic_base_commit_sha"`,
 		"TransportCommitSHA",
+		"cicontract.SourceBaseRef",
 		"MaterializeSource(ctx context.Context, repoRoot string, spec gate.SourceSpec, outputRoot string, baseline SourceBaseline)",
 	} {
 		if !strings.Contains(materializer, required) {

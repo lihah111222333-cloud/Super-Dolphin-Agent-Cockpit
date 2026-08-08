@@ -49,22 +49,23 @@ func prepareExecutorWorkspace(config executorConfig) (executorLayout, error) {
 	return layout, nil
 }
 
-// seedExecutorGoBuildCache 保留单根调用方兼容，实际字节由缓存代理按需读取。
+// seedExecutorGoBuildCache 只验证镜像层 seed 与私有写层，实际字节由缓存代理按需读取。
 func seedExecutorGoBuildCache(seedRoot string, targetRoot string) error {
-	return seedExecutorGoBuildCacheSeeds([]string{seedRoot}, targetRoot)
-}
-
-// seedExecutorGoBuildCacheSeeds 只验证有序共享 seed 与私有写层，不复制任何缓存字节。
-func seedExecutorGoBuildCacheSeeds(seedRoots []string, targetRoot string) error {
-	if len(seedRoots) == 0 || len(seedRoots) > goBuildCacheProxyMaxSeedRoots {
-		return errors.New("Go build cache seed count is invalid")
-	}
 	targetPath, err := trustedDirectory(targetRoot, true, os.Geteuid())
 	if err != nil {
 		return fmt.Errorf("Go build cache target: %w", err)
 	}
-	if _, err := trustedExecutorGoBuildCacheSeeds(seedRoots, targetPath); err != nil {
-		return err
+	seedPath, err := trustedDirectory(seedRoot, false, -1)
+	if err != nil {
+		return fmt.Errorf("Go build cache seed: %w", err)
+	}
+	if rootsOverlap(seedPath, targetPath) {
+		return errors.New("Go build cache seed and private write layer must be disjoint")
+	}
+	if seedPath == ExecutorOCIProjectGoBuildCacheSeedRoot {
+		if err := validateExecutorOCIProjectGoBuildCacheSeed(seedPath); err != nil {
+			return err
+		}
 	}
 	entries, err := os.ReadDir(targetPath)
 	if err != nil {
@@ -76,128 +77,24 @@ func seedExecutorGoBuildCacheSeeds(seedRoots []string, targetRoot string) error 
 	return nil
 }
 
-// trustedExecutorGoBuildCacheSeeds 验证每个 seed 目录与私有写层及彼此互不重叠。
-func trustedExecutorGoBuildCacheSeeds(seedRoots []string, targetPath string) ([]string, error) {
-	trustedSeeds := make([]string, 0, len(seedRoots))
-	for index, seedRoot := range seedRoots {
-		seedPath, err := trustedDirectory(seedRoot, false, -1)
-		if err != nil {
-			return nil, fmt.Errorf("Go build cache seed %d: %w", index+1, err)
-		}
-		if rootsOverlap(seedPath, targetPath) {
-			return nil, errors.New("Go build cache seed and private write layer must be disjoint")
-		}
-		if executorGoBuildCacheSeedOverlaps(seedPath, trustedSeeds) {
-			return nil, errors.New("Go build cache seed roots must be unique and disjoint")
-		}
-		if seedPath == ExecutorOCIProjectGoBuildCacheSeedRoot {
-			if err := validateExecutorOCIProjectGoBuildCacheSeed(seedPath); err != nil {
-				return nil, err
-			}
-		}
-		trustedSeeds = append(trustedSeeds, seedPath)
-	}
-	return trustedSeeds, nil
-}
-
-// validateExecutorOCIProjectGoBuildCacheSeed requires the image-owned seed to be
-// an actual read-only mount and rejects mutable or linked entries before it can
-// participate in GOCACHEPROG reads.
+// validateExecutorOCIProjectGoBuildCacheSeed 验证固定 seed 直接来自只读 OCI 镜像层。
+// 完整物理树只在镜像构建验收时扫描；normal shard 不得重复遍历不可变缓存树。
 func validateExecutorOCIProjectGoBuildCacheSeed(root string) error {
-	if err := validateReadOnlyMount(root); err != nil {
+	if err := validateReadOnlyOCIImagePath(root); err != nil {
 		return fmt.Errorf("OCI Go build cache seed mount: %w", err)
 	}
-	return filepath.WalkDir(root, func(entryPath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o222 != 0 {
-			return errors.New("OCI Go build cache seed contains a symlink or writable entry")
-		}
-		return nil
-	})
-}
-
-// executorGoBuildCacheSeedOverlaps 报告候选 seed 是否与已经接受的根重叠。
-func executorGoBuildCacheSeedOverlaps(candidate string, accepted []string) bool {
-	for _, existing := range accepted {
-		if rootsOverlap(candidate, existing) {
-			return true
-		}
-	}
-	return false
-}
-
-// discoverExecutorGoBuildCacheSeedRoots 按新到旧发现可信 ImageCache generation。
-// 缺失、空或非法 generation 根必须拒绝，不能退回旧 build-cache seed。
-func discoverExecutorGoBuildCacheSeedRoots(generationsRoot string) ([]string, error) {
-	info, err := os.Lstat(generationsRoot)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("Go build cache seed generations root must be a real directory")
-	}
-	return trustedExecutorGoBuildCacheGenerationRoots(generationsRoot)
-}
-
-// trustedExecutorGoBuildCacheGenerationRoots 读取并验证一组有序 generation 目录。
-func trustedExecutorGoBuildCacheGenerationRoots(generationsRoot string) ([]string, error) {
-	if _, err := trustedDirectory(generationsRoot, false, -1); err != nil {
-		return nil, fmt.Errorf("Go build cache seed generations root: %w", err)
-	}
-	entries, err := os.ReadDir(generationsRoot)
-	if err != nil {
-		return nil, fmt.Errorf("read Go build cache seed generations: %w", err)
-	}
-	if len(entries) == 0 || len(entries) > goBuildCacheProxyMaxSeedRoots {
-		return nil, errors.New("Go build cache seed generation count is invalid")
-	}
-	seedRoots := make([]string, 0, len(entries))
-	for _, entry := range slices.Backward(entries) {
-		seedRoot, err := trustedExecutorGoBuildCacheGenerationRoot(generationsRoot, entry)
-		if err != nil {
-			return nil, err
-		}
-		seedRoots = append(seedRoots, seedRoot)
-	}
-	return seedRoots, nil
-}
-
-// trustedExecutorGoBuildCacheGenerationRoot 验证一个 generation 条目并返回其真实目录。
-func trustedExecutorGoBuildCacheGenerationRoot(generationsRoot string, entry os.DirEntry) (string, error) {
-	if !validExecutorGoBuildCacheGeneration(entry.Name()) || entry.Type()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("Go build cache seed generation %q must be a real directory", entry.Name())
-	}
-	info, err := entry.Info()
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("Go build cache seed generation %q must be a real directory", entry.Name())
-	}
-	root, err := trustedDirectory(filepath.Join(generationsRoot, entry.Name()), false, -1)
-	if err != nil {
-		return "", fmt.Errorf("Go build cache seed generation %q: %w", entry.Name(), err)
-	}
-	return root, nil
-}
-
-func validExecutorGoBuildCacheGeneration(value string) bool {
-	if len(value) != 20 || strings.Trim(value, "0123456789") != "" {
-		return false
-	}
-	generation, err := strconv.ParseUint(value, 10, 64)
-	return err == nil && generation != 0 && fmt.Sprintf("%020d", generation) == value
+	return nil
 }
 
 const (
 	goBuildCacheProxyMaxRequestBytes = 16 << 10
 	goBuildCacheProxyMaxBodyBytes    = int64(2 << 30)
 	goBuildCacheHashBytes            = 32
-	goBuildCacheProxyMaxSeedRoots    = 5
 )
 
 type goBuildCacheProxyConfig struct {
-	seedRoots   []string
+	seedRoot    string
+	seedSeen    bool
 	privateRoot string
 	metricsPath string
 	metrics     *GoBuildCacheProxyMetrics
@@ -239,49 +136,79 @@ func ExecuteGoBuildCacheProxy(args []string, input io.Reader, output io.Writer) 
 	if err != nil {
 		return err
 	}
-	err = serveGoBuildCacheProxy(config, input, output)
-	if config.metricsPath == "" {
-		return err
-	}
-	return errors.Join(err, writeGoBuildCacheProxyMetrics(config.metricsPath, *config.metrics))
+	return executeObservedGoBuildCacheProxy(config, input, output)
 }
 
-// parseGoBuildCacheProxyConfig 严格解析并验证有序只读 seed 链与唯一私有写层。
+// parseGoBuildCacheProxyConfig 严格解析并验证唯一只读 seed 与唯一私有写层。
 func parseGoBuildCacheProxyConfig(args []string) (goBuildCacheProxyConfig, error) {
 	config := goBuildCacheProxyConfig{now: time.Now}
 	if len(args) < 4 || len(args)%2 != 0 {
-		return config, errors.New("Go build cache proxy requires one or more --seed values and one --private value")
+		return config, errors.New("Go build cache proxy requires exactly one --seed value and one --private value")
 	}
 	if err := parseGoBuildCacheProxyOptions(args, &config); err != nil {
 		return config, err
 	}
-	if len(config.seedRoots) == 0 || len(config.seedRoots) > goBuildCacheProxyMaxSeedRoots ||
-		config.privateRoot == "" {
-		return config, errors.New("Go build cache proxy seed or private layer count is invalid")
+	if err := validateGoBuildCacheProxyConfigFields(config); err != nil {
+		return config, err
 	}
-	privateRoot, err := trustedDirectory(config.privateRoot, false, os.Geteuid())
+	privateRoot, seedRoot, err := trustedGoBuildCacheProxyRoots(config)
 	if err != nil {
-		return config, fmt.Errorf("Go build cache proxy private root: %w", err)
+		return config, err
 	}
-	seedRoots, err := trustedExecutorGoBuildCacheSeeds(config.seedRoots, privateRoot)
-	if err != nil {
+	if err := validateGoBuildCacheProxyRoots(seedRoot, privateRoot); err != nil {
 		return config, err
 	}
 	if config.metricsPath != "" && !validGoBuildCacheProxyMetricsPath(privateRoot, config.metricsPath) {
 		return config, errors.New("Go build cache proxy metrics path must belong to the private layer")
 	}
-	config.seedRoots, config.privateRoot = seedRoots, privateRoot
-	metrics := newGoBuildCacheProxyMetrics(seedRoots)
+	config.seedRoot, config.privateRoot = seedRoot, privateRoot
+	metrics := newGoBuildCacheProxyMetrics(seedRoot)
 	config.metrics = &metrics
 	return config, nil
 }
 
-// parseGoBuildCacheProxyOptions 解析重复 seed 与唯一 private 选项，而不访问文件系统。
+// validateGoBuildCacheProxyConfigFields 校验唯一 seed 与私有层字段已显式提供。
+func validateGoBuildCacheProxyConfigFields(config goBuildCacheProxyConfig) error {
+	if !config.seedSeen || config.seedRoot == "" || config.privateRoot == "" {
+		return errors.New("Go build cache proxy seed or private layer is missing")
+	}
+	return nil
+}
+
+// trustedGoBuildCacheProxyRoots 解析并规范化 proxy 的私有层和镜像层路径。
+func trustedGoBuildCacheProxyRoots(config goBuildCacheProxyConfig) (string, string, error) {
+	privateRoot, err := trustedDirectory(config.privateRoot, false, os.Geteuid())
+	if err != nil {
+		return "", "", fmt.Errorf("Go build cache proxy private root: %w", err)
+	}
+	seedRoot, err := trustedDirectory(config.seedRoot, false, -1)
+	if err != nil {
+		return "", "", fmt.Errorf("Go build cache proxy seed root: %w", err)
+	}
+	return privateRoot, seedRoot, nil
+}
+
+// validateGoBuildCacheProxyRoots 拒绝重叠目录并校验固定 OCI seed。
+func validateGoBuildCacheProxyRoots(seedRoot string, privateRoot string) error {
+	if rootsOverlap(seedRoot, privateRoot) {
+		return errors.New("Go build cache seed and private write layer must be disjoint")
+	}
+	if seedRoot == ExecutorOCIProjectGoBuildCacheSeedRoot {
+		return validateExecutorOCIProjectGoBuildCacheSeed(seedRoot)
+	}
+	return nil
+}
+
+// parseGoBuildCacheProxyOptions 解析唯一 seed 与唯一 private 选项，而不访问文件系统。
 func parseGoBuildCacheProxyOptions(args []string, config *goBuildCacheProxyConfig) error {
 	for index := 0; index < len(args); index += 2 {
 		switch args[index] {
 		case "--seed":
-			config.seedRoots = append(config.seedRoots, args[index+1])
+			if config.seedSeen {
+				return errors.New("Go build cache proxy requires exactly one --seed value")
+			}
+			config.seedSeen = true
+			config.seedRoot = args[index+1]
 		case "--private":
 			if config.privateRoot != "" {
 				return errors.New("Go build cache proxy requires exactly one --private value")
@@ -301,36 +228,6 @@ func parseGoBuildCacheProxyOptions(args []string, config *goBuildCacheProxyConfi
 
 func rootsOverlap(left string, right string) bool {
 	return left == right || pathContains(left, right) || pathContains(right, left)
-}
-
-// serveGoBuildCacheProxy 顺序处理官方 GOCACHEPROG 请求并逐条返回关联响应。
-func serveGoBuildCacheProxy(config goBuildCacheProxyConfig, input io.Reader, output io.Writer) error {
-	reader := bufio.NewReader(input)
-	encoder := json.NewEncoder(output)
-	if err := encoder.Encode(goBuildCacheProxyResponse{
-		ID: 0, KnownCommands: []string{"get", "put", "close"},
-	}); err != nil {
-		return err
-	}
-	for {
-		request, err := readGoBuildCacheProxyRequest(reader)
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		response, stop, err := handleGoBuildCacheProxyRequest(config, reader, request)
-		if err != nil {
-			response = goBuildCacheProxyResponse{ID: request.ID, Err: err.Error()}
-		}
-		if err := encoder.Encode(response); err != nil {
-			return err
-		}
-		if stop {
-			return nil
-		}
-	}
 }
 
 // readGoBuildCacheProxyRequest 跳过协议空白分隔并限制单条 JSON 请求体积。
@@ -376,7 +273,7 @@ func handleGoBuildCacheProxyRequest(
 	}
 }
 
-// getGoBuildCacheProxyEntry 优先读取私有层，再按顺序只读查询各代 seed。
+// getGoBuildCacheProxyEntry 优先读取私有层，再读取唯一镜像层 seed。
 func getGoBuildCacheProxyEntry(
 	config goBuildCacheProxyConfig,
 	request goBuildCacheProxyRequest,
@@ -501,6 +398,7 @@ func writeGoBuildCacheIndexIfAbsent(
 	return writeAtomicGoBuildCacheFileIfAbsent(indexPath, content)
 }
 
+// writeAtomicGoBuildCacheFileIfAbsent 以不覆盖链接原子发布缓存索引。
 func writeAtomicGoBuildCacheFileIfAbsent(path string, content []byte) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false, err
@@ -533,10 +431,7 @@ func findGoBuildCacheEntry(config goBuildCacheProxyConfig, actionID []byte) (goB
 }
 
 func findGoBuildCacheEntryWithLayer(config goBuildCacheProxyConfig, actionID []byte) (goBuildCacheProxyEntry, int, error) {
-	roots := make([]string, 0, len(config.seedRoots)+1)
-	roots = append(roots, config.privateRoot)
-	roots = append(roots, config.seedRoots...)
-	for layer, root := range roots {
+	for layer, root := range []string{config.privateRoot, config.seedRoot} {
 		entry, err := readGoBuildCacheEntry(root, actionID)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -942,7 +837,8 @@ func validateGoRuntimeSeedLocks(layout executorLayout, manifest RuntimeSeedManif
 	return nil
 }
 
-// validateGoRuntimeSeedTrees 校验分片共享的完整 Go proxy 与模块缓存。
+// validateGoRuntimeSeedTrees 为非计划 standalone 执行校验完整 Go proxy 与模块缓存。
+// ECI normal shard 使用 plan 级 accepted image proof，不进入此慢路径。
 func validateGoRuntimeSeedTrees(runtimeSeedRoot string, manifest RuntimeSeedManifest) error {
 	if err := validateRuntimeSeedTree(
 		filepath.Join(runtimeSeedRoot, "go-proxy"), manifest.ModuleProxyTreeSHA256,

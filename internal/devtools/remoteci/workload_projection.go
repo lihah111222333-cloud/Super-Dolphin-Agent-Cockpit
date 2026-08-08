@@ -36,32 +36,86 @@ func remoteExecutionWorkloads(plan gate.WorkloadExecutionPlan) []gate.Workload {
 	return remoteExecutionCatalog(plan).Workloads
 }
 
-// remoteFreshWorkloadExecutions 汇总新分片结果并拒绝重复执行同一 workload。
+// remoteFreshWorkloadExecutions 汇总新分片结果并拒绝重复执行同一 workload；返回错误时保留此前已严格解码的结果。
 func remoteFreshWorkloadExecutions(workloads []gate.Workload, results []ShardResult) (map[string]gate.PlanGateExecution, error) {
 	catalog := make(map[string]gate.Workload, len(workloads))
 	for _, workload := range workloads {
 		catalog[workload.ID] = workload
 	}
 	executions := make(map[string]gate.PlanGateExecution)
+	var workerExecutionErr error
 	for _, result := range results {
-		if result.ShardIdentity == "" {
-			return nil, errors.New("remote workload result shard identity is required")
+		projected, resultWorkerErr, err := projectRemoteFreshWorkloadResult(catalog, result)
+		if err != nil {
+			return executions, err
 		}
-		if result.Report.SchemaVersion != gate.ExecutorPlanReportSchemaVersion {
-			return nil, errors.New("remote workload result report schema is unsupported")
+		if resultWorkerErr != nil && workerExecutionErr == nil {
+			workerExecutionErr = resultWorkerErr
 		}
-		for _, execution := range result.Report.Gates {
-			workloadID, execution, err := projectRemoteFreshWorkloadExecution(catalog, result.ShardIdentity, execution)
-			if err != nil {
-				return nil, err
+		for _, item := range projected {
+			if _, duplicate := executions[item.workloadID]; duplicate {
+				return executions, fmt.Errorf("remote workload %q was executed more than once", item.workloadID)
 			}
-			if _, duplicate := executions[workloadID]; duplicate {
-				return nil, fmt.Errorf("remote workload %q was executed more than once", workloadID)
-			}
-			executions[workloadID] = execution
+			executions[item.workloadID] = item.execution
 		}
 	}
-	return executions, nil
+	return executions, workerExecutionErr
+}
+
+type remoteProjectedWorkloadExecution struct {
+	workloadID string
+	execution  gate.PlanGateExecution
+}
+
+// projectRemoteFreshWorkloadResult 返回已投影 gate、worker 终态错误和阻断性校验错误；终态错误不丢弃合法 gate。
+func projectRemoteFreshWorkloadResult(
+	catalog map[string]gate.Workload,
+	result ShardResult,
+) ([]remoteProjectedWorkloadExecution, error, error) {
+	if result.ShardIdentity == "" {
+		return nil, nil, errors.New("remote workload result shard identity is required")
+	}
+	skip, err := skipRemoteWorkloadReport(result)
+	if err != nil {
+		return nil, nil, err
+	}
+	if skip {
+		return nil, nil, nil
+	}
+	if result.Report.SchemaVersion != gate.ExecutorPlanReportSchemaVersion {
+		return nil, nil, errors.New("remote workload result report schema is unsupported")
+	}
+	if err := result.Report.ExecutionOutcome.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("remote workload result execution outcome is invalid: %w", err)
+	}
+	var workerExecutionErr error
+	if result.Report.ExecutionOutcome.Status == gate.WorkerExecutionStatusFailed {
+		workerExecutionErr = fmt.Errorf(
+			"remote worker execution failed (exit_code=%d reason_code=%s)",
+			result.Report.ExecutionOutcome.ExitCode,
+			result.Report.ExecutionOutcome.ReasonCode,
+		)
+	}
+	projected := make([]remoteProjectedWorkloadExecution, 0, len(result.Report.Gates))
+	for _, execution := range result.Report.Gates {
+		workloadID, execution, err := projectRemoteFreshWorkloadExecution(catalog, result.ShardIdentity, execution)
+		if err != nil {
+			return nil, nil, err
+		}
+		projected = append(projected, remoteProjectedWorkloadExecution{workloadID: workloadID, execution: execution})
+	}
+	return projected, workerExecutionErr, nil
+}
+
+// skipRemoteWorkloadReport 仅跳过未创建或失败分片的零值报告，成功分片缺报立即阻断。
+func skipRemoteWorkloadReport(result ShardResult) (bool, error) {
+	if result.Report.SchemaVersion != 0 {
+		return false, nil
+	}
+	if result.ContainerGroup == "" || result.ContainerStatus != "Succeeded" {
+		return true, nil
+	}
+	return false, fmt.Errorf("remote workload result report is missing for shard %s", result.ShardIdentity)
 }
 
 // projectRemoteFreshWorkloadExecution 绑定分片身份并校验目录成员及当前结构化 profile。

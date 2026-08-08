@@ -107,13 +107,21 @@ describe('desktop failure smoke contract', () => {
       { PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/browser/chrome' },
       (candidate) => candidate === '/browser/chrome',
     )).toBe('/browser/chrome');
+    expect(() => resolveChromiumExecutable(
+      { PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/browser/missing' },
+      () => false,
+    )).toThrow(/invalid/);
+    expect(() => resolveChromiumExecutable(
+      { PLAYWRIGHT_CHROMIUM_EXECUTABLE: '  ' },
+      () => true,
+    )).toThrow(/invalid/);
     expect(() => resolveChromiumExecutable({}, () => false)).toThrow(/required/);
     await expect(packageScriptIncludesFailureSmoke()).resolves.toBe(true);
   });
 
   it('builds isolated default ports and evidence path', () => {
     const config = desktopFailureSmokeConfig({
-      PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/browser/chrome',
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE: process.execPath,
     }, '/repo/app');
     expect(config).toEqual(expect.objectContaining({
       backendAddr: '127.0.0.1:4514',

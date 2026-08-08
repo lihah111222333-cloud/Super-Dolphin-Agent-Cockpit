@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	calibrationCheckpointSchemaVersion uint32 = 2
+	calibrationCheckpointSchemaVersion uint32 = 3
 )
 
 type calibrationCheckpointDocument struct {
@@ -45,6 +45,7 @@ type calibrationCheckpointInput struct {
 	CandidateGateToolchainSHA256 string                         `json:"candidate_gate_toolchain_sha256"`
 	Inventory                    gatecontract.WorkloadInventory `json:"inventory"`
 	Calibration                  bool                           `json:"calibration"`
+	Force                        bool                           `json:"force"`
 	RunnerIdentityDigest         string                         `json:"runner_identity_digest"`
 	RunnerImage                  string                         `json:"runner_image"`
 	CalibrationResource          shardresource.Class            `json:"calibration_resource"`
@@ -70,9 +71,13 @@ type calibrationCheckpointResult struct {
 	CandidateGateToolchainSHA256 string                      `json:"candidate_gate_toolchain_sha256"`
 	Entrypoint                   gatecontract.CIEntrypointID `json:"entrypoint"`
 	Profile                      gatecontract.Profile        `json:"profile"`
+	Force                        bool                        `json:"force"`
 	Status                       gatecontract.ResultStatus   `json:"status"`
 	Authoritative                bool                        `json:"authoritative"`
 	CleanupComplete              bool                        `json:"cleanup_complete"`
+	CalibrationResourceClassID   string                      `json:"calibration_resource_class_id"`
+	CalibrationResourceCPU       float64                     `json:"calibration_resource_cpu"`
+	CalibrationResourceMemoryGiB float64                     `json:"calibration_resource_memory_gib"`
 	CompletedAt                  time.Time                   `json:"completed_at"`
 }
 
@@ -326,19 +331,19 @@ func (checkpoint *CalibrationCheckpoint) Remove() error {
 }
 
 func compactCalibrationCheckpointInput(input RunInput) *calibrationCheckpointInput {
-	return &calibrationCheckpointInput{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage, CalibrationResource: input.CalibrationResource}
+	return &calibrationCheckpointInput{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Inventory: input.Inventory, Calibration: input.Calibration, Force: input.Force, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage, CalibrationResource: input.CalibrationResource}
 }
 
 func (input calibrationCheckpointInput) expand() RunInput {
-	return RunInput{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage, CalibrationResource: input.CalibrationResource}
+	return RunInput{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Inventory: input.Inventory, Calibration: input.Calibration, Force: input.Force, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage, CalibrationResource: input.CalibrationResource}
 }
 
 func compactCalibrationCheckpointResult(result RunResult) *calibrationCheckpointResult {
-	return &calibrationCheckpointResult{AgentTokenDigest: result.AgentTokenDigest, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+	return &calibrationCheckpointResult{AgentTokenDigest: result.AgentTokenDigest, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Entrypoint: result.Entrypoint, Profile: result.Profile, Force: result.Force, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CalibrationResourceClassID: result.CalibrationResourceClassID, CalibrationResourceCPU: result.CalibrationResourceCPU, CalibrationResourceMemoryGiB: result.CalibrationResourceMemoryGiB, CompletedAt: result.CompletedAt}
 }
 
 func (result calibrationCheckpointResult) expand() RunResult {
-	return RunResult{AgentTokenDigest: result.AgentTokenDigest, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+	return RunResult{AgentTokenDigest: result.AgentTokenDigest, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Entrypoint: result.Entrypoint, Profile: result.Profile, Force: result.Force, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CalibrationResourceClassID: result.CalibrationResourceClassID, CalibrationResourceCPU: result.CalibrationResourceCPU, CalibrationResourceMemoryGiB: result.CalibrationResourceMemoryGiB, CompletedAt: result.CompletedAt}
 }
 
 // validateCalibrationCheckpointDocument 验证所有场景的持久化状态和完整身份。
@@ -402,6 +407,9 @@ func validateCompletedCalibrationCheckpointResult(result calibrationCheckpointRe
 	if result.Entrypoint == "" || result.Profile == "" || result.Status != gatecontract.ResultStatusPassed || !result.Authoritative || !result.CleanupComplete || result.CompletedAt.IsZero() {
 		return errors.New("completed calibration checkpoint result identity is incomplete")
 	}
+	if cicontract.ValidateCalibrationResources(result.CalibrationResourceClassID, result.CalibrationResourceCPU, result.CalibrationResourceMemoryGiB) != nil {
+		return errors.New("completed calibration checkpoint result calibration resource identity is incomplete")
+	}
 	return nil
 }
 
@@ -440,9 +448,18 @@ func calibrationCheckpointResultMatchesInput(input calibrationCheckpointInput, r
 	return result.AgentTokenDigest == input.AgentTokenDigest &&
 		result.AcceptedGeneration == input.AcceptedGeneration &&
 		result.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
+		result.Force == input.Force &&
 		result.SourceTreeSHA == input.Tree &&
 		result.CandidateGateSourceSHA256 == input.CandidateGateSourceSHA256 &&
 		result.CandidateGateToolchainSHA256 == input.CandidateGateToolchainSHA256 &&
+		calibrationCheckpointResultMatchesResourceIdentity(input, result) &&
 		result.Entrypoint == input.Entrypoint &&
 		result.Profile == input.Profile
+}
+
+// calibrationCheckpointResultMatchesResourceIdentity 比对校准资源等级和规格。
+func calibrationCheckpointResultMatchesResourceIdentity(input calibrationCheckpointInput, result calibrationCheckpointResult) bool {
+	return result.CalibrationResourceClassID == input.CalibrationResource.ID &&
+		result.CalibrationResourceCPU == input.CalibrationResource.VCPU &&
+		result.CalibrationResourceMemoryGiB == input.CalibrationResource.MemoryGiB
 }

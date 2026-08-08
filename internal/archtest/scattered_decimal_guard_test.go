@@ -5,57 +5,21 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
-	"strings"
-	"testing"
+	"slices"
 )
 
-func TestScatteredDecimalGuard(t *testing.T) {
-	t.Parallel()
-	root := repoRootForGuardTests(t)
-	scanRoots := []string{"cmd", "internal", "pkg"}
-	skipDirs := DefaultSkipDirs()
-
+func collectScatteredDecimalViolationsFromSnapshot(snapshot *productionSourceSnapshot, scanRoots []string) []string {
 	var violations []string
-
-	for _, sr := range scanRoots {
-		if err := collectScatteredDecimalViolations(root, sr, skipDirs, &violations); err != nil {
-			t.Fatalf("walk %s: %v", sr, err)
+	for _, file := range snapshot.files {
+		if !productionSourcePathInRoots(file.relPath, scanRoots) {
+			continue
+		}
+		for _, decl := range file.syntax.Decls {
+			violations = append(violations, scatteredDecimalViolationsForDecl(file.fset, file.relPath, decl)...)
 		}
 	}
-
-	if len(violations) > 0 {
-		t.Fatalf("Scattered Decimal violations (%d):\n  %s", len(violations), strings.Join(violations, "\n  "))
-	}
-}
-
-func collectScatteredDecimalViolations(root, scanRoot string, skipDirs map[string]bool, violations *[]string) error {
-	abs := filepath.Join(root, scanRoot)
-	return filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if shouldSkipScatteredDecimalWalkEntry(info, skipDirs) {
-			return filepath.SkipDir
-		}
-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		fileViolations, err := scatteredDecimalViolationsForFile(root, path)
-		if err != nil {
-			return err
-		}
-		*violations = append(*violations, fileViolations...)
-		return nil
-	})
-}
-
-func shouldSkipScatteredDecimalWalkEntry(info os.FileInfo, skipDirs map[string]bool) bool {
-	if !info.IsDir() {
-		return false
-	}
-	return skipDirs[info.Name()]
+	return violations
 }
 
 func scatteredDecimalViolationsForFile(root, path string) ([]string, error) {
@@ -106,12 +70,7 @@ func isDecimalValueSpec(vspec *ast.ValueSpec) bool {
 	if isDecimalSelector(vspec.Type, "Decimal") {
 		return true
 	}
-	for _, val := range vspec.Values {
-		if isDecimalInitializer(val) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(vspec.Values, isDecimalInitializer)
 }
 
 func isDecimalInitializer(expr ast.Expr) bool {

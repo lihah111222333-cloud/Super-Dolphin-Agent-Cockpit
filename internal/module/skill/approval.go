@@ -198,7 +198,6 @@ func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
 // 未备案或 hash mismatch 会计入 miss；nil receiver 表示审批缓存未配置，不写入 miss 指标。
 func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool) {
 	if c == nil {
-		c.metrics.IncArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	c.mu.RLock()

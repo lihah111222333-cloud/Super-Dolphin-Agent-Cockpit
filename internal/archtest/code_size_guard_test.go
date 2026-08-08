@@ -2,6 +2,9 @@ package archtest_test
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,11 +21,48 @@ func TestCodeSizeGuard(t *testing.T) {
 	t.Run("size and freeze", func(t *testing.T) {
 		runCodeSizeGuard(t, opts, root)
 	})
+	t.Run("repository rules", func(t *testing.T) {
+		runCodeSizeGuardRepositoryRules(t, opts)
+	})
 }
 
-func TestCodeSizeGuardRepositoryRules(t *testing.T) {
+func TestCodeSizeGuardScansDoNotRunInParallel(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "internal/archtest/code_size_guard_test.go"))
+	if err != nil {
+		t.Fatalf("read code-size guard test source: %v", err)
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), "code_size_guard_test.go", raw, 0)
+	if err != nil {
+		t.Fatalf("parse code-size guard test source: %v", err)
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "TestCodeSizeGuard" {
+			continue
+		}
+		parallelCalls := 0
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == "Parallel" {
+				parallelCalls++
+			}
+			return true
+		})
+		if parallelCalls != 0 {
+			t.Fatalf("TestCodeSizeGuard contains %d Parallel calls; scans must stay serial", parallelCalls)
+		}
+		return
+	}
+	t.Fatal("TestCodeSizeGuard declaration not found")
+}
+
+func runCodeSizeGuardRepositoryRules(t *testing.T, opts archtest.CheckOptions) {
+	t.Helper()
 	cache := &archtest.RepositoryGuardScanCache{}
-	opts := codeSizeGuardOptions(repoRoot(t))
 
 	t.Run("identifier", func(t *testing.T) {
 		runIdentifierGuard(t, cache, opts)
@@ -142,6 +182,7 @@ func runUnifiedFreezeCheck(
 		t.Fatalf("load unified freeze failed: %v", err)
 	}
 	freeze := info.Data
+	validatePrioritySSAFrozenMetadata(t, freeze.PrioritySSA)
 	checkBaselineRatchetAndFreshness(t, "prod", freeze.Metrics.Production, opts, root, false, metrics)
 	checkBaselineRatchetAndFreshness(t, "test", freeze.Metrics.Tests, opts, root, true, metrics)
 	checkPrioritySSABaselineFreshness(t, freeze.PrioritySSA, opts)

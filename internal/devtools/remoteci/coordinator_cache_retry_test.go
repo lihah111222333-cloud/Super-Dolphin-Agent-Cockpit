@@ -8,7 +8,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-func TestCoordinatorRunReexecutesEveryWorkloadAfterPreviousFailure(t *testing.T) {
+func TestCoordinatorRunReexecutesOnlyFailedWorkloadsAfterPreviousFailure(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
 	store := &coordinatorStore{}
@@ -20,13 +20,13 @@ func TestCoordinatorRunReexecutesEveryWorkloadAfterPreviousFailure(t *testing.T)
 	if !errors.Is(err, ErrGateFailed) {
 		t.Fatalf("first Run() error = %v", err)
 	}
-	_, totalWorkloads := failedCoordinatorWorkloads(t, first)
+	failedWorkloads, totalWorkloads := failedCoordinatorWorkloads(t, first)
 	retry, err := newTestCoordinator(t, store, &coordinatorRuntime{}).Run(context.Background(), input)
 	if err != nil {
 		t.Fatalf("retry Run() error = %v", err)
 	}
 	executedWorkloads, executed := executedCoordinatorWorkloads(retry)
-	assertCoordinatorRetryReexecutesAllWorkloads(t, executedWorkloads, executed, totalWorkloads)
+	assertCoordinatorRetryReexecutesOnlyFailures(t, retry, failedWorkloads, executedWorkloads, executed, totalWorkloads)
 }
 
 func failedCoordinatorWorkloads(t *testing.T, result RunResult) (map[gate.GateID]struct{}, int) {
@@ -59,14 +59,18 @@ func executedCoordinatorWorkloads(result RunResult) (map[gate.GateID]struct{}, i
 	return workloads, executed
 }
 
-func assertCoordinatorRetryReexecutesAllWorkloads(
-	t *testing.T,
-	executed map[gate.GateID]struct{},
-	executedCount int,
-	total int,
-) {
+func assertCoordinatorRetryReexecutesOnlyFailures(t *testing.T, result RunResult, failed, executed map[gate.GateID]struct{}, executedCount, total int) {
 	t.Helper()
-	if executedCount != total || len(executed) != total {
-		t.Fatalf("retry executed=%d unique=%d, want every planned workload=%d", executedCount, len(executed), total)
+	if executedCount != len(failed) || len(executed) != len(failed) {
+		t.Fatalf("retry executed=%d unique=%d, want failed workload count=%d", executedCount, len(executed), len(failed))
 	}
+	for workloadID := range failed {
+		if _, ok := executed[workloadID]; !ok {
+			t.Fatalf("failed workload %q was not re-executed", workloadID)
+		}
+	}
+	if len(result.ReusedWorkloads) != total-len(failed) || len(result.CacheMissWorkloads) != len(failed) {
+		t.Fatalf("retry reuse/miss counts = reused=%d misses=%d, want reused=%d misses=%d", len(result.ReusedWorkloads), len(result.CacheMissWorkloads), total-len(failed), len(failed))
+	}
+	assertCoordinatorShardsContainOnlyMisses(t, result)
 }

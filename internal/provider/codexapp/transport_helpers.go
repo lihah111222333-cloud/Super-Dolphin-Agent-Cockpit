@@ -124,6 +124,15 @@ func jsonRPCIDKey(raw json.RawMessage) string {
 }
 
 func (t *transport) connectOnce(ctx context.Context) error {
+	return t.connectOnceWithReadLimit(ctx, transportInboundFrameMaxBytes)
+}
+
+// connectOnceWithReadLimit 建立一次 WebSocket 连接并安装指定入站帧上限。
+// 生产路径只能由 connectOnce 传入固定 transportInboundFrameMaxBytes；测试可注入更小上限验证边界语义。
+func (t *transport) connectOnceWithReadLimit(ctx context.Context, readLimit int64) error {
+	if readLimit <= 0 {
+		return errors.New("codexapp: inbound frame read limit must be positive")
+	}
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 5 * time.Second,
 		// 本地 WebSocket 必须绕过 HTTP 代理，否则 localhost 连接会被代理环境变量劫持。
@@ -133,7 +142,7 @@ func (t *transport) connectOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	conn.SetReadLimit(transportInboundFrameMaxBytes)
+	conn.SetReadLimit(readLimit)
 	t.setWS(conn)
 	return nil
 }

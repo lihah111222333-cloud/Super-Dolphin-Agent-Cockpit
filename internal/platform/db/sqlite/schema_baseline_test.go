@@ -273,14 +273,14 @@ func requiredBaselineTablesFromModule(t *testing.T) []string {
 	if err != nil {
 		t.Fatalf("read db module: %v", err)
 	}
-	re := regexp.MustCompile(`(?s)var requiredBaselineTables = \[]string\{(.*?)\}`)
+	re := regexp.MustCompile(`(?s)(var requiredBaselineTables = \[]string\{|func requiredBaselineTables\(\) \[]string \{\s*return \[]string\{)(.*?)\}`)
 	match := re.FindStringSubmatch(string(body))
-	if len(match) != 2 {
+	if len(match) != 3 {
 		t.Fatal("requiredBaselineTables declaration not found")
 	}
 	itemRE := regexp.MustCompile(`"([^"]+)"`)
 	var tables []string
-	for _, item := range itemRE.FindAllStringSubmatch(match[1], -1) {
+	for _, item := range itemRE.FindAllStringSubmatch(match[2], -1) {
 		tables = append(tables, item[1])
 	}
 	if len(tables) == 0 {

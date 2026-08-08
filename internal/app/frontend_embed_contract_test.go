@@ -28,7 +28,7 @@ func TestFrontendAppBuildFeedsAgentTerminalEmbedBundle(t *testing.T) {
 	if strings.Contains(makefile, "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs") {
 		t.Fatal("Makefile must not duplicate the npm build frontend embed sync")
 	}
-	if !strings.Contains(packageJSON, `"build": "vite build && node scripts/sync-frontend-dist.mjs"`) {
+	if !strings.Contains(packageJSON, `"build": "vite build --configLoader runner && node scripts/sync-frontend-dist.mjs"`) {
 		t.Fatal("frontend-app npm build must own the frontend embed sync")
 	}
 	assertFrontendEmbedContractTextOrder(t, makefile, "cd $(FRONTEND_APP_DIR) && $(NPM) run build", "test -f $(EMBEDDED_FRONTEND_DIR)/index.html")

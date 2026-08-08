@@ -68,7 +68,7 @@ func appendConcurrentJobReceipts(store *DurationLedgerStore, jobs []concurrentRe
 }
 
 func concurrentJobReceipts(job concurrentReceiptJob, now time.Time) ([]CheckReceiptRecord, error) {
-	receipts := testCompleteCheckReceipts(job.jobID, job.treeSHA, now)
+	receipts := completeWorkloadPassReceiptsForTime(job.record, now)
 	for index := range receipts {
 		receipts[index].AgentTokenDigest = job.tokenDigest
 		digest, err := CheckReceiptSHA256(receipts[index])
@@ -122,7 +122,7 @@ func testCheckReceiptIdentityValidation(t *testing.T, receipts []CheckReceiptRec
 	t.Helper()
 	failed := append([]CheckReceiptRecord(nil), receipts...)
 	failed[0].Passed = false
-	if err := validateCompletePassingCheckReceipts(failed); err == nil || !strings.Contains(err.Error(), "does not match") {
+	if err := validatePassingCheckReceiptsFor([]cicontract.RequiredCheck{cicontract.RequiredCheckNormal}, failed); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("failed check validation error = %v", err)
 	}
 	zeroGeneration := receipts[0]
@@ -195,7 +195,7 @@ func TestLoadCheckReceiptsRejectsStoredFailureAndSchemaRejectsMissingTables(t *t
 
 func testLoadCheckReceiptsRejectsStoredFailure(t *testing.T, store *DurationLedgerStore, database *sql.DB, jobID string) {
 	t.Helper()
-	if _, err := database.Exec(fmt.Sprintf("UPDATE %s SET passed = 0 WHERE job_id = ? AND required_check = ?", cicontract.CheckReceiptsTable), jobID, cicontract.RequiredCheckGate); err != nil {
+	if _, err := database.Exec(fmt.Sprintf("UPDATE %s SET passed = 0 WHERE job_id = ? AND required_check = ?", cicontract.CheckReceiptsTable), jobID, cicontract.RequiredCheckNormal); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.LoadCheckReceipts(jobID); err == nil || !strings.Contains(err.Error(), "does not match") {

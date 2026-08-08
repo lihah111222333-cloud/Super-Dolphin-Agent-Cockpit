@@ -3,6 +3,7 @@ package gate
 import (
 	"bytes"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -126,6 +127,38 @@ func TestPlanExecutionReportChunksAcceptOnlyCoordinatorFrozenDynamicGateSet(t *t
 	}
 	if _, err := DecodePlanExecutionReportChunksForGateSet(chunks, slices.Clone(expected[:1])); err == nil {
 		t.Fatal("dynamic shard decoder accepted a different expected gate set")
+	}
+}
+
+func TestWorkerExecutionOutcomeRoundTripRetainsNonzeroFailureWithPassingGates(t *testing.T) {
+	request := testExecutorPlanRequest(t)
+	report, err := executeGatePlanWithRunner(context.Background(), request, func(_ context.Context, _ int, id GateID) (PlanGateExecution, error) {
+		return successfulPlanGateResult(id), nil
+	}, executorPlanTestNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	workerErr := errors.New("worker failed at /private/secret/path")
+	if err := writeExecutorPlanReportWithCompileGroups(request, report, workerErr, &stdout); err == nil {
+		t.Fatal("worker report writer returned nil for nonzero execution error")
+	}
+	wire := stdout.String()
+	if strings.Contains(wire, "private/secret/path") || strings.Contains(wire, "worker failed") {
+		t.Fatalf("worker report wire leaked raw execution error: %q", wire)
+	}
+	decoded, err := DecodePlanExecutionReport(wire)
+	if err != nil {
+		t.Fatalf("decode worker failure report: %v", err)
+	}
+	want := WorkerExecutionOutcome{Status: WorkerExecutionStatusFailed, ExitCode: 1, ReasonCode: WorkerExecutionReasonExecutionError}
+	if decoded.ExecutionOutcome != want {
+		t.Fatalf("decoded execution outcome = %#v, want %#v", decoded.ExecutionOutcome, want)
+	}
+	for _, gate := range decoded.Gates {
+		if gate.Status != ResultStatusPassed || gate.ExitCode != 0 {
+			t.Fatalf("worker failure should preserve passing gate evidence: %#v", gate)
+		}
 	}
 }
 

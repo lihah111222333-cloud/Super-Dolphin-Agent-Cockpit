@@ -66,6 +66,7 @@ export function repoRootFromScript(metaURL = import.meta.url) {
 }
 
 export function resolveChromiumExecutable(env = process.env, exists = existsSync) {
+  if (env.PLAYWRIGHT_CHROMIUM_EXECUTABLE !== undefined && (typeof env.PLAYWRIGHT_CHROMIUM_EXECUTABLE !== 'string' || env.PLAYWRIGHT_CHROMIUM_EXECUTABLE.trim() === '' || !exists(env.PLAYWRIGHT_CHROMIUM_EXECUTABLE))) throw new Error('PLAYWRIGHT_CHROMIUM_EXECUTABLE invalid: missing or empty');
   const candidates = [
     env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
     chromium.executablePath(),
@@ -74,10 +75,8 @@ export function resolveChromiumExecutable(env = process.env, exists = existsSync
     '/usr/bin/google-chrome',
   ].filter(Boolean);
   const executable = candidates.find((candidate) => exists(candidate));
-  if (!executable) throw new Error(`PLAYWRIGHT_CHROMIUM_EXECUTABLE is required; checked ${candidates.join(', ')}`);
-  return executable;
+  if (!executable) throw new Error(`PLAYWRIGHT_CHROMIUM_EXECUTABLE is required; checked ${candidates.join(', ')}`); return executable;
 }
-
 export function desktopFailureSmokeConfig(env = process.env, repoRoot = repoRootFromScript()) {
   return {
     repoRoot,
@@ -91,7 +90,6 @@ export function desktopFailureSmokeConfig(env = process.env, repoRoot = repoRoot
       || path.join(repoRoot, '.tmp', 'desktop-failure-smoke', 'report.json'),
   };
 }
-
 export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(), deps = {}) {
   validateDesktopFailureCases();
   await assertPortsFree([config.backendAddr, new URL(config.viteURL).host]);
@@ -113,7 +111,7 @@ export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(
       `--addr=${config.backendAddr}`,
       `--project=${config.repoRoot}`,
     ], config.repoRoot, process.env, spawnImpl);
-    vite = startTrackedProcess('npm', ['run', 'dev', '--', '--port', new URL(config.viteURL).port, '--strictPort'], config.frontendRoot, {
+    vite = startTrackedProcess(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev', '--', '--port', new URL(config.viteURL).port, '--strictPort'], config.frontendRoot, {
       ...process.env,
       SUPER_DOLPHIN_HTTP_ADDR: config.backendAddr,
     }, spawnImpl);
@@ -121,9 +119,9 @@ export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(
       waitForHTTP(`http://${config.backendAddr}/healthz`, config.timeoutMs, backend.child),
       waitForHTTP(config.viteURL, config.timeoutMs, vite.child),
     ]);
-    const playwright = path.join(config.frontendRoot, 'node_modules', '.bin', 'playwright');
-    if (!existsSync(playwright)) throw new Error(`missing Playwright binary: ${playwright}`);
-    playwrightRun = await runCommand(playwright, ['test', '--config', 'playwright.failure.config.js', '--reporter=json'], config.frontendRoot, {
+    const playwright = process.execPath; const playwrightEntry = path.join(config.frontendRoot, 'node_modules', '@playwright', 'test', 'cli.js');
+    if (!existsSync(playwrightEntry)) throw new Error(`missing Playwright entry: ${playwrightEntry}`);
+    playwrightRun = await runCommand(playwright, [playwrightEntry, 'test', '--config', 'playwright.failure.config.js', '--reporter=json'], config.frontendRoot, {
       ...process.env,
       DEBUG: mergeDebugNamespace(process.env.DEBUG, 'pw:browser*'), PLAYWRIGHT_CHROMIUM_EXECUTABLE: config.chromeExecutable,
       SUPER_DOLPHIN_FAILURE_SMOKE_BASE_URL: config.viteURL,
@@ -145,7 +143,6 @@ export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(
     return report;
   }
 }
-
 async function buildDesktopFailureReport(config, gitImpl, executions) {
   const git = gitImpl || ((args) => captureCommand('git', args, config.repoRoot));
   const sourceHashes = Object.fromEntries(await Promise.all(DESKTOP_FAILURE_SOURCE_PATHS.map(async (sourcePath) => {

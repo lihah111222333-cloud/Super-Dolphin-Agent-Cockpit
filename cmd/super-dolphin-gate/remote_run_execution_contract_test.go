@@ -44,7 +44,7 @@ func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *tes
 	if ensure.condition != "" || refresh.condition != "" {
 		t.Fatalf("miss-only helper must call calibration and planning refresh only after its early return: ensure=%q refresh=%q", ensure.condition, refresh.condition)
 	}
-	requireRemoteRunEarlyReturnGuard(t, refreshFunction.Body, "prepared.AllReused() || input.Calibration || input.SelectedTests")
+	requireRemoteRunEarlyReturnGuard(t, refreshFunction.Body, "prepared.AllReused() || input.Calibration")
 }
 
 type remoteRunCall struct {

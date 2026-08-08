@@ -1,0 +1,7 @@
+source_head: 1a56122f1fde88c551230082db1b32102c16f164
+reviewed_at: 2026-08-06T18:08:37Z
+snapshot_sha256: 0920d5aec6ae3228e7ab474de7b6199eb2878fbe0c6030148eb92c1ec64586bd
+working_directory: .
+command: go run ./scripts/code_size_guard.go
+expected_exit: 1
+observed_failure: extracting the accepted-baseline replay and workspace preparation helpers shrank the guarded production function metric; refresh only the immutable debt snapshot after the new replay and tamper tests pass, without accepting any larger metric.

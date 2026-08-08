@@ -23,22 +23,22 @@ func remoteBaselineSQLiteAuthorityPath(configPath string) string {
 // normalizeRemoteSQLiteAuthority 仅接受远程基准与时长账本共享的 SQLite 真相源。
 func normalizeRemoteSQLiteAuthority(configPath string, ledgerPath *string) error {
 	authorityPath := remoteBaselineSQLiteAuthorityPath(configPath)
+	want, err := filepath.Abs(authorityPath)
+	if err != nil {
+		return protocolError("resolve remote SQLite authority: %v", err)
+	}
 	if strings.TrimSpace(*ledgerPath) == "" {
-		*ledgerPath = authorityPath
+		*ledgerPath = want
 		return nil
 	}
 	given, err := filepath.Abs(*ledgerPath)
 	if err != nil {
 		return protocolError("resolve remote SQLite authority: %v", err)
 	}
-	want, err := filepath.Abs(authorityPath)
-	if err != nil {
-		return protocolError("resolve remote SQLite authority: %v", err)
-	}
 	if filepath.Clean(given) != filepath.Clean(want) {
 		return protocolError("remote baseline and duration ledger must use the SQLite authority %q", want)
 	}
-	*ledgerPath = authorityPath
+	*ledgerPath = want
 	return nil
 }
 
@@ -55,7 +55,7 @@ func loadStoredRemoteBaselineState(path string) (remoteBaselineStoredState, erro
 		return remoteBaselineStoredState{}, err
 	}
 	digest := sha256.Sum256(record.StateJSON)
-	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(digest[:])), []byte(record.StateSHA256)) != 1 {
+	if subtle.ConstantTimeCompare([]byte("sha256:"+hex.EncodeToString(digest[:])), []byte(record.StateSHA256)) != 1 {
 		return remoteBaselineStoredState{}, errors.New("remote baseline SQLite state digest is invalid")
 	}
 	var state remoteci.BaselineState

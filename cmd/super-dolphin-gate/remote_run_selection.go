@@ -196,6 +196,19 @@ func validateRemoteTestSelectorOverlap(
 	return nil
 }
 
+const remoteCalibrationWorkerTimeout = 10 * time.Minute
+
+// remoteWorkerTimeout 为 worker 选择执行时限；校准三场景共用 canonical 10 分钟，normal 仍按 profile 保留安全上限。
+func remoteWorkerTimeout(profile gatecontract.Profile, calibration bool) (time.Duration, error) {
+	if err := profile.Validate(); err != nil {
+		return 0, err
+	}
+	if calibration {
+		return remoteCalibrationWorkerTimeout, nil
+	}
+	return remoteProfileDeadline(profile)
+}
+
 // remoteProfileDeadline 返回 worker 的安全上限；100 秒只作为分片优化目标。
 func remoteProfileDeadline(profile gatecontract.Profile) (time.Duration, error) {
 	if err := profile.Validate(); err != nil {

@@ -26,68 +26,72 @@ type parsedFile struct {
 
 func TestDependencyDirection(t *testing.T) {
 	root := repoRoot(t)
-	assertCoreDependencyRules(t, root)
-	assertStoreAndToolDependencyRules(t, root)
-	assertMCPServerDependencyRules(t, root)
-	assertPlatformIsolationRules(t, root)
-	assertModuleSiblingDependencyRules(t, root)
-	assertModuleDBIsolationRules(t, root)
+	evaluation, err := archtest.EvaluateBackendBoundary(root, archtest.DefaultBackendBoundaryRegistry())
+	if err != nil {
+		t.Fatalf("EvaluateBackendBoundary(all dependency rules): %v", err)
+	}
+	assertCoreDependencyRules(t, evaluation)
+	assertStoreAndToolDependencyRules(t, evaluation, root)
+	assertMCPServerDependencyRules(t, evaluation)
+	assertPlatformIsolationRules(t, evaluation)
+	assertModuleSiblingDependencyRules(t, evaluation)
+	assertModuleDBIsolationRules(t, evaluation, root)
 }
 
-func assertCoreDependencyRules(t *testing.T, root string) {
+func assertCoreDependencyRules(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
 	t.Run("rule1_contract_dto_no_framework_imports", func(t *testing.T) {
-		assertNoFrameworkImportsInContractDTO(t, root)
+		assertNoFrameworkImportsInContractDTO(t, evaluation)
 	})
 
 	t.Run("rule2_module_impls_no_fx", func(t *testing.T) {
-		assertModuleImplsNoFX(t, root)
+		assertModuleImplsNoFX(t, evaluation)
 	})
 
 	t.Run("rule3_provider_cannot_import_store", func(t *testing.T) {
-		assertProviderCannotImportStore(t, root)
+		assertProviderCannotImportStore(t, evaluation)
 	})
 
 	t.Run("rule3a_provider_cannot_import_platform_db", func(t *testing.T) {
-		assertProviderCannotImportPlatformDB(t, root)
+		assertProviderCannotImportPlatformDB(t, evaluation)
 	})
 
 	t.Run("rule3b_provider_external_whitelist", func(t *testing.T) {
-		assertProviderExternalWhitelist(t, root)
+		assertProviderExternalWhitelist(t, evaluation)
 	})
 
 	t.Run("rule4_platform_cannot_import_module", func(t *testing.T) {
-		assertPlatformCannotImportModule(t, root)
+		assertPlatformCannotImportModule(t, evaluation)
 	})
 
 	t.Run("rule4b_platform_cannot_import_store_without_audited_allowlist", func(t *testing.T) {
-		assertPlatformCannotImportStore(t, root)
+		assertPlatformCannotImportStore(t, evaluation)
 	})
 }
 
-func assertNoFrameworkImportsInContractDTO(t *testing.T, root string) {
+func assertNoFrameworkImportsInContractDTO(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "contract_dto_no_framework_imports")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "contract_dto_no_framework_imports")
 }
 
-func assertModuleImplsNoFX(t *testing.T, root string) {
+func assertModuleImplsNoFX(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "fx_assembly_scope")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "fx_assembly_scope")
 }
 
-func assertProviderCannotImportStore(t *testing.T, root string) {
+func assertProviderCannotImportStore(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "provider_no_store")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "provider_no_store")
 }
 
-func assertProviderCannotImportPlatformDB(t *testing.T, root string) {
+func assertProviderCannotImportPlatformDB(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "provider_no_platform_db")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "provider_no_platform_db")
 }
 
-func assertProviderExternalWhitelist(t *testing.T, root string) {
+func assertProviderExternalWhitelist(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "provider_external_import_surface")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "provider_external_import_surface")
 }
 
 func TestProviderExternalWhitelistEnforcesFXAssemblyScope(t *testing.T) {
@@ -153,14 +157,14 @@ func TestProviderExternalWhitelistCoversNewProductionSubtree(t *testing.T) {
 	}
 }
 
-func assertPlatformCannotImportModule(t *testing.T, root string) {
+func assertPlatformCannotImportModule(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "platform_no_module")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "platform_no_module")
 }
 
-func assertPlatformCannotImportStore(t *testing.T, root string) {
+func assertPlatformCannotImportStore(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "platform_no_store")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "platform_no_store")
 }
 
 func assertCanonicalBoundaryRule(t *testing.T, root string, ruleID archtest.BoundaryRuleID) {
@@ -172,14 +176,26 @@ func assertCanonicalBoundaryRule(t *testing.T, root string, ruleID archtest.Boun
 	failIfViolations(t, evaluation.Violations)
 }
 
-func assertModuleSiblingDependencyRules(t *testing.T, root string) {
+func assertCanonicalBoundaryRuleFromEvaluation(t *testing.T, evaluation archtest.BoundaryEvaluation, ruleID archtest.BoundaryRuleID) {
+	t.Helper()
+	marker := "(rule=" + string(ruleID) + " "
+	var violations []string
+	for _, violation := range evaluation.Violations {
+		if strings.Contains(violation, marker) {
+			violations = append(violations, violation)
+		}
+	}
+	failIfViolations(t, violations)
+}
+
+func assertModuleSiblingDependencyRules(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
 	t.Run("rule16_module_siblings_no_concrete_imports", func(t *testing.T) {
-		assertCanonicalBoundaryRule(t, root, "module_horizontal_deep_import")
+		assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "module_horizontal_deep_import")
 	})
 }
 
-func assertModuleDBIsolationRules(t *testing.T, root string) {
+func assertModuleDBIsolationRules(t *testing.T, evaluation archtest.BoundaryEvaluation, root string) {
 	t.Helper()
 	t.Run("rule17_module_cannot_import_sql", func(t *testing.T) {
 		if !dirExists(root, "internal/module") {
@@ -189,7 +205,7 @@ func assertModuleDBIsolationRules(t *testing.T, root string) {
 	})
 
 	t.Run("rule17b_module_non_assembly_cannot_import_store", func(t *testing.T) {
-		assertCanonicalBoundaryRule(t, root, "module_no_store_imports")
+		assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "module_no_store_imports")
 	})
 }
 
@@ -213,10 +229,10 @@ func assertModuleNoDirectDBImports(t *testing.T, files []parsedFile, _ []string)
 	failIfViolations(t, violations)
 }
 
-func assertStoreAndToolDependencyRules(t *testing.T, root string) {
+func assertStoreAndToolDependencyRules(t *testing.T, evaluation archtest.BoundaryEvaluation, root string) {
 	t.Helper()
 	t.Run("rule5_store_subpackages_boundary", func(t *testing.T) {
-		assertStoreSubpackagesBoundary(t, root)
+		assertStoreSubpackagesBoundary(t, evaluation)
 	})
 
 	t.Run("rule6_tooling_runtime_cannot_import_ui_state_directly", func(t *testing.T) {
@@ -224,13 +240,13 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 	})
 
 	t.Run("rule10_fx_import_scope", func(t *testing.T) {
-		assertFXImportScope(t, root)
+		assertFXImportScope(t, evaluation)
 	})
 }
 
-func assertStoreSubpackagesBoundary(t *testing.T, root string) {
+func assertStoreSubpackagesBoundary(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "store_dependency_surface")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "store_dependency_surface")
 }
 
 func assertToolingRuntimeCannotImportUIStateDirectly(t *testing.T, root string) {
@@ -247,31 +263,31 @@ func assertToolingRuntimeCannotImportUIStateDirectly(t *testing.T, root string) 
 	})
 }
 
-func assertFXImportScope(t *testing.T, root string) {
+func assertFXImportScope(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
-	assertCanonicalBoundaryRule(t, root, "fx_assembly_scope")
+	assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "fx_assembly_scope")
 }
 
-func assertMCPServerDependencyRules(t *testing.T, root string) {
+func assertMCPServerDependencyRules(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
 	t.Run("rule8_mcpserver_orch_family", func(t *testing.T) {
-		assertCanonicalBoundaryRule(t, root, "mcpserver_orch_family")
+		assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "mcpserver_orch_family")
 	})
 
 	t.Run("rule9_mcpserver_ida_family", func(t *testing.T) {
-		assertCanonicalBoundaryRule(t, root, "mcpserver_ida_family")
+		assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "mcpserver_ida_family")
 	})
 }
-func assertPlatformIsolationRules(t *testing.T, root string) {
+func assertPlatformIsolationRules(t *testing.T, evaluation archtest.BoundaryEvaluation) {
 	t.Helper()
 	t.Run("rule13_hooks_no_mcpcontrol", func(t *testing.T) {
-		assertCanonicalBoundaryRule(t, root, "hooks_no_mcpcontrol")
+		assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "hooks_no_mcpcontrol")
 	})
 	t.Run("rule14_mcpcontrol_no_hooks", func(t *testing.T) {
-		assertCanonicalBoundaryRule(t, root, "mcpcontrol_no_hooks")
+		assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "mcpcontrol_no_hooks")
 	})
 	t.Run("rule15_hooks_no_platform_db", func(t *testing.T) {
-		assertCanonicalBoundaryRule(t, root, "hooks_no_platform_db")
+		assertCanonicalBoundaryRuleFromEvaluation(t, evaluation, "hooks_no_platform_db")
 	})
 }
 

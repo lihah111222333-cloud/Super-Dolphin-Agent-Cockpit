@@ -102,7 +102,7 @@ func MaterializeExactTree(repository, tree, temporaryPrefix string) (ExactTree, 
 	if err != nil {
 		return ExactTree{}, err
 	}
-	tempRoot, err := os.MkdirTemp("", temporaryPrefix)
+	tempRoot, err := makeExactTreeTempRoot(temporaryPrefix)
 	if err != nil {
 		return ExactTree{}, fmt.Errorf("create exact-tree temporary root: %w", err)
 	}
@@ -120,6 +120,19 @@ func MaterializeExactTree(repository, tree, temporaryPrefix string) (ExactTree, 
 		return ExactTree{}, errors.Join(err, cleanup())
 	}
 	return ExactTree{RepositoryRoot: root, SourceRoot: sourceRoot, Cleanup: cleanup}, nil
+}
+
+// makeExactTreeTempRoot 只接受绝对临时根，避免相对 TMPDIR 随进程 cwd 泄漏到仓库。
+func makeExactTreeTempRoot(prefix string) (string, error) {
+	temporaryRoot := os.TempDir()
+	if !filepath.IsAbs(temporaryRoot) {
+		return "", fmt.Errorf("exact-tree temporary directory must be absolute: %q", temporaryRoot)
+	}
+	tempRoot, err := os.MkdirTemp(temporaryRoot, prefix)
+	if err != nil {
+		return "", err
+	}
+	return tempRoot, nil
 }
 
 // CheckTree 在临时目录中校验精确 Git tree，不读取或执行候选工作树入口。
@@ -240,18 +253,29 @@ func extractGitTree(repository, tree, destination string) error {
 		return fmt.Errorf("start Git tree archive: %w", err)
 	}
 	if err := extractArchive(archive, destination); err != nil {
-		if killErr := command.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
-			err = errors.Join(err, fmt.Errorf("stop rejected Git archive: %w", killErr))
-		}
-		if waitErr := command.Wait(); waitErr != nil {
-			err = errors.Join(err, fmt.Errorf("wait for rejected Git archive: %w", waitErr))
-		}
+		err = errors.Join(err, stopGitArchive(command, "rejected"))
 		return &CandidateError{Err: err}
+	}
+	if _, err := io.Copy(io.Discard, archive); err != nil {
+		err = errors.Join(err, stopGitArchive(command, "undrainable"))
+		return &CandidateError{Err: fmt.Errorf("drain Git tree archive: %w", err)}
 	}
 	if err := command.Wait(); err != nil {
 		return &TreeError{Tree: tree, Err: commandFailure(command, stderr.Bytes(), err)}
 	}
 	return nil
+}
+
+// stopGitArchive 终止无法继续消费的 archive 进程，并始终回收子进程。
+func stopGitArchive(command *exec.Cmd, reason string) error {
+	var stopErr error
+	if killErr := command.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+		stopErr = fmt.Errorf("stop %s Git archive: %w", reason, killErr)
+	}
+	if waitErr := command.Wait(); waitErr != nil {
+		stopErr = errors.Join(stopErr, fmt.Errorf("wait for %s Git archive: %w", reason, waitErr))
+	}
+	return stopErr
 }
 
 // extractArchive 安全解包 Git archive 流，拒绝越界和链接条目。

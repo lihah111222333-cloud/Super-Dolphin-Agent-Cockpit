@@ -45,8 +45,7 @@ func (policy gatePlanPolicy) archtestNonGoInputRelevant(file string) bool {
 func (policy gatePlanPolicy) nightlyProtocolRelevant(file string) bool {
 	return policy.nightlyProtocolFiles[file] ||
 		strings.HasPrefix(file, "scripts/nightly_protocol_validator/") ||
-		file == "Makefile" ||
-		file == ".github/workflows/ci.yml"
+		file == "Makefile"
 }
 
 // applyOwnedGateRules 将各门禁所有者输入路由到不可跳过的语义验证。

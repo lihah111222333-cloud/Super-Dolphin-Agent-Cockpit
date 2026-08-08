@@ -48,6 +48,7 @@ type linuxStat struct {
 	startTime      string
 }
 
+// readLinuxStat 读取 Linux /proc stat，并将已终止进程排除出活动 owner。
 func readLinuxStat(pid int) (linuxStat, error) {
 	payload, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
@@ -61,6 +62,9 @@ func readLinuxStat(pid int) (linuxStat, error) {
 	// fields: state=0, ppid=1, pgrp=2, session=3, ..., starttime=19.
 	if len(fields) <= 19 {
 		return linuxStat{}, fmt.Errorf("unexpected stat fields for pid %d", pid)
+	}
+	if isLinuxProcessTerminal(fields[0]) {
+		return linuxStat{}, syscall.ESRCH
 	}
 	parentPID, err := strconv.Atoi(fields[1])
 	if err != nil {
@@ -80,6 +84,12 @@ func readLinuxStat(pid int) (linuxStat, error) {
 	return linuxStat{parentPID: parentPID, processGroupID: processGroupID, sessionID: sessionID, startTime: fields[19]}, nil
 }
 
+// isLinuxProcessTerminal 报告 /proc stat 中不可再视为活动进程的终止状态。
+func isLinuxProcessTerminal(state string) bool {
+	return state == "Z" || state == "X"
+}
+
+// linuxProcessUID 读取 Linux 进程的有效 UID，供身份快照绑定权限边界。
 func linuxProcessUID(pid int) (uint32, error) {
 	payload, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
@@ -102,6 +112,7 @@ func linuxProcessUID(pid int) (uint32, error) {
 	return 0, fmt.Errorf("UID is missing for pid %d", pid)
 }
 
+// processTable 枚举当前可读取身份的 Linux 进程，忽略并发退出的条目。
 func processTable() (map[int]ProcessIdentity, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {

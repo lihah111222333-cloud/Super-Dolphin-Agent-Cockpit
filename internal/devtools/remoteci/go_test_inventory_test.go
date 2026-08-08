@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -97,6 +98,24 @@ func TestRegular(t *testing.T) {}
 	names, err := goTestNamesFromFiles([]*ast.File{functions}, "linux")
 	if err != nil || !slices.Equal(names, []string{"TestRegular"}) {
 		t.Fatalf("helper-filtered inventory = %v, %v", names, err)
+	}
+}
+
+// TestCodexHelperProcessIsExcludedFromProductionInventory 锁定真实 helper 源码的默认清单边界。
+func TestCodexHelperProcessIsExcludedFromProductionInventory(t *testing.T) {
+	filePath := filepath.Join("..", "..", "provider", "codexapp", "transport_local_test.go")
+	file, err := parser.ParseFile(
+		token.NewFileSet(), filePath, nil, parser.ParseComments|parser.SkipObjectResolution,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := goTestNamesFromFiles([]*ast.File{file}, "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(names, "TestCodexHelperProcess") {
+		t.Fatal("TestCodexHelperProcess entered the default remote CI inventory")
 	}
 }
 

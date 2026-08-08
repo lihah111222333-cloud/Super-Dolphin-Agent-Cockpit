@@ -13,6 +13,14 @@ mkdir -p "$bin_dir" "$capture_dir"
 cat >"$bin_dir/super-dolphin-gate" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "launcher" && "${2:-}" == "verify" ]]; then
+  [[ "$#" -eq 8 && "$3" == --repository && "$5" == --tree && "$7" == --receipt ]] || exit 65
+  # Linked worktrees have a .git file, so query Git instead of checking .git as a directory.
+  [[ "$(git -C "$4" rev-parse --is-inside-work-tree 2>/dev/null)" == true && "$6" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || exit 65
+  [[ "$8" == "$(dirname "$0")/receipt.json" && -f "$8" ]] || exit 65
+  [[ "$(cat "$8")" == "fixture-tree=$6" ]] || exit 65
+  exit 0
+fi
 if [[ "${1:-}" == "closure" && "${2:-}" == "provenance" ]]; then
   [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
   printf '%s' "${4:-}" >"$GATE_HOOK_CAPTURE_DIR/closure-provenance-tree"
@@ -75,6 +83,29 @@ if [[ "${1:-}" == "codemap" && "${2:-}" == "refresh" ]]; then
   [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
   exit 0
 fi
+if [[ "${1:-}" == "capability-contract" && "${2:-}" == "check" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
+  if [[ ! -e "$GATE_HOOK_CAPTURE_DIR/capability-contract-initial-check-tree" ]]; then
+    printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/capability-contract-initial-check-tree"
+  fi
+  printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/capability-contract-check-tree"
+  if [[ "${GATE_HOOK_CAPABILITY_CONTRACT_ALWAYS_DRIFT:-0}" == 1 ]]; then
+    exit 12
+  fi
+  if [[ "${GATE_HOOK_CAPABILITY_CONTRACT_DRIFT_ONCE:-0}" == 1 && ! -f "$GATE_HOOK_CAPTURE_DIR/capability-contract-refreshed" ]]; then
+    exit 12
+  fi
+  exit 0
+fi
+if [[ "${1:-}" == "capability-contract" && "${2:-}" == "refresh" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
+  repository=$(git rev-parse --show-toplevel)
+  mkdir -p "$repository/docs/doc/codemap/capability-contract"
+  printf '%s\n' 'generated capability manifest' >"$repository/docs/doc/codemap/capability-contract/capability_manifest.json"
+  printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/capability-contract-refresh-tree"
+  : >"$GATE_HOOK_CAPTURE_DIR/capability-contract-refreshed"
+  exit 0
+fi
 if [[ "${1:-}" == "project-map" && "${2:-}" == "check" ]]; then
   [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
   if [[ ! -e "$GATE_HOOK_CAPTURE_DIR/project-map-initial-check-tree" ]]; then
@@ -100,6 +131,7 @@ if [[ "${1:-}" == "project-map" && "${2:-}" == "refresh" ]]; then
   exit 0
 fi
 : "${GATE_HOOK_CAPTURE_DIR:?}"
+printf '%s' "$0" >"$GATE_HOOK_CAPTURE_DIR/launcher"
 printf '%s' "$#" >"$GATE_HOOK_CAPTURE_DIR/argc"
 index=0
 for argument in "$@"; do
@@ -156,11 +188,55 @@ reset_capture() {
 run_with_status() {
   local status_file=$1
   shift
+  provision_fixture_launchers
   set +e
   "$@"
   local status=$?
   set -e
   printf '%s' "$status" >"$status_file"
+}
+
+fixture_launcher_for_tree() {
+  local repository=$1 tree=$2 common_dir install_root digest launcher receipt
+  common_dir=$(git -C "$repository" rev-parse --path-format=absolute --git-common-dir)
+  install_root="$common_dir/super-dolphin-gate-launchers"
+  digest=$(shasum -a 256 "$bin_dir/super-dolphin-gate" | awk '{print $1}')
+  launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
+  receipt="$(dirname "$launcher")/receipt.json"
+  mkdir -p "$(dirname "$launcher")"
+  if [[ ! -e "$launcher" ]]; then
+    cp "$bin_dir/super-dolphin-gate" "$launcher"
+    chmod 0500 "$launcher"
+  fi
+  if [[ ! -e "$receipt" ]]; then
+    printf 'fixture-tree=%s\n' "$tree" >"$receipt"
+    chmod 0400 "$receipt"
+  fi
+  git -C "$repository" config superdolphin.gateLauncherRoot "$install_root"
+  printf '%s\n' "$launcher"
+}
+
+install_fixture_launcher_for_current_tree() {
+  local repository=$1 tree launcher
+  tree=$(git -C "$repository" write-tree)
+  launcher=$(fixture_launcher_for_tree "$repository" "$tree")
+  git -C "$repository" config superdolphin.gateLauncher "$launcher"
+}
+
+provision_fixture_launchers() {
+  local repository tree commit launcher
+  repository=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  [[ -n "$repository" ]] || return 0
+  tree=$(git -C "$repository" write-tree 2>/dev/null || true)
+  if [[ -n "$tree" ]]; then
+    launcher=$(fixture_launcher_for_tree "$repository" "$tree")
+    git -C "$repository" config superdolphin.gateLauncher "$launcher"
+  fi
+  while IFS= read -r commit; do
+    [[ -n "$commit" ]] || continue
+    tree=$(git -C "$repository" rev-parse --verify "${commit}^{tree}")
+    fixture_launcher_for_tree "$repository" "$tree" >/dev/null
+  done < <(git -C "$repository" for-each-ref --format='%(objectname)' refs/heads)
 }
 
 export PATH="$bin_dir:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -172,7 +248,6 @@ mkdir -p "$git_repo"
 git -C "$git_repo" init -q
 git -C "$git_repo" config user.name 'Hook Fixture'
 git -C "$git_repo" config user.email 'hook-fixture@example.invalid'
-git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
 remote_config="$fixture_root/remote-ci.json"
 remote_ledger="$fixture_root/ci-duration-ledger.sqlite"
 git -C "$git_repo" config super-dolphin.remote.config "$remote_config"
@@ -181,6 +256,7 @@ git -C "$git_repo" config super-dolphin.remote.maxShards 1
 mkdir -p "$git_repo/.githooks"
 mkdir -p "$git_repo/build/gate"
 mkdir -p "$git_repo/frontend-app" "$git_repo/scripts" "$git_repo/docs/doc/codemap/project-map"
+mkdir -p "$git_repo/docs/doc/codemap/capability-contract"
 cp "$repo_root/.githooks/trusted-gate-launcher.sh" "$git_repo/.githooks/trusted-gate-launcher.sh"
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
 printf '%s\n' 'stale Dockerfile' >"$git_repo/build/gate/Dockerfile"
@@ -190,9 +266,31 @@ printf '%s\n' '{"scope":"production","generated":false}' >"$git_repo/frontend-ap
 printf '%s\n' '{"scope":"test","generated":false}' >"$git_repo/frontend-app/.frontend_code_size_guard_baseline_test.json"
 printf '%s\n' 'trusted generator' >"$git_repo/scripts/generate_ai_project_map.mjs"
 printf '%s\n' 'stale project map' >"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
-git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md
+printf '%s\n' 'stale capability manifest' >"$git_repo/docs/doc/codemap/capability-contract/capability_manifest.json"
+git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md docs/doc/codemap/capability-contract/capability_manifest.json
 git -C "$git_repo" commit -qm 'fixture base'
 mkdir -p "$git_repo/nested"
+source "$git_repo/.githooks/trusted-gate-launcher.sh"
+fixture_launcher=$(fixture_launcher_for_tree "$git_repo" "$(git -C "$git_repo" write-tree)")
+git -C "$git_repo" config superdolphin.gateLauncher "$fixture_launcher"
+if trusted_gate_launcher "$git_repo" >/dev/null 2>&1; then
+  :
+else
+  fail 'valid fixture launcher receipt was rejected'
+fi
+chmod 0600 "$(dirname "$fixture_launcher")/receipt.json"
+printf '%s\n' 'fixture-tree=tampered' >"$(dirname "$fixture_launcher")/receipt.json"
+chmod 0400 "$(dirname "$fixture_launcher")/receipt.json"
+if trusted_gate_launcher "$git_repo" >/dev/null 2>&1; then
+  fail 'tampered fixture launcher receipt passed verification'
+fi
+chmod 0600 "$(dirname "$fixture_launcher")/receipt.json"
+printf 'fixture-tree=%s\n' "$(git -C "$git_repo" write-tree)" >"$(dirname "$fixture_launcher")/receipt.json"
+chmod 0400 "$(dirname "$fixture_launcher")/receipt.json"
+missing_fixture_tree=$(printf '%040d' 1)
+if trusted_gate_launcher_for_tree "$git_repo" "$missing_fixture_tree" >/dev/null 2>&1; then
+  fail 'missing exact-tree fixture launcher passed verification'
+fi
 cli_error="$fixture_root/cli-error.expected"
 printf '%s\n' 'fixture coordinator failure; job=job-23; status: super-dolphin-gate status --job job-23' >"$cli_error"
 
@@ -277,9 +375,11 @@ reset_capture
 (
   cd "$git_repo/nested"
   GATE_HOOK_CLOSURE_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/closure-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+    "$fixture_root/closure-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
+    2>"$fixture_root/closure-refresh-pre-commit.err"
 )
-assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 0 "closure refresh pre-commit exit code"
+assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 1 "closure refresh pre-commit requires exact-tree launcher reinstall"
+grep -Fq 'managed outputs changed the staged tree' "$fixture_root/closure-refresh-pre-commit.err" || fail "closure refresh did not require exact-tree launcher reinstall"
 assert_file_equals "$capture_dir/closure-provenance-tree" "$closure_drift_tree" "matching closure launcher provenance source tree"
 assert_file_equals "$capture_dir/closure-dependency-refresh-tree" "$closure_drift_tree" "closure dependency refresh source tree"
 dependency_refreshed_tree=$(cat "$capture_dir/closure-refresh-tree")
@@ -288,46 +388,72 @@ refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not update the staged tree"
 [[ "$refreshed_tree" != "$dependency_refreshed_tree" ]] || fail "closure output refresh did not update the dependency-refreshed tree"
 assert_file_equals "$capture_dir/closure-check-tree" "$refreshed_tree" "closure refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$refreshed_tree" "gate received refreshed staged tree"
+[[ ! -e "$capture_dir/staged-tree" ]] || fail "closure refresh executed the remote gate before launcher reinstall"
 assert_file_equals "$git_repo/build/gate/Dockerfile" 'generated Dockerfile' "closure refreshed Dockerfile"
 assert_file_equals "$git_repo/build/gate/inputs.json" '{"schema_version":"test"}' "closure refreshed input manifest"
 assert_file_equals "$git_repo/build/gate/runtime-deps.lock" '{"schema_version":"generated-runtime-deps"}' "closure refreshed runtime dependency lock"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "closure refresh discarded the unstaged worktree change"
+install_fixture_launcher_for_current_tree "$git_repo"
 
 frontend_code_size_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture
 (
   cd "$git_repo/nested"
   GATE_HOOK_FRONTEND_CODE_SIZE_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/frontend-code-size-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+    "$fixture_root/frontend-code-size-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
+    2>"$fixture_root/frontend-code-size-refresh-pre-commit.err"
 )
-assert_file_equals "$fixture_root/frontend-code-size-refresh-pre-commit.status" 0 "frontend code-size refresh pre-commit exit code"
+assert_file_equals "$fixture_root/frontend-code-size-refresh-pre-commit.status" 1 "frontend code-size refresh requires exact-tree launcher reinstall"
+grep -Fq 'managed outputs changed the staged tree' "$fixture_root/frontend-code-size-refresh-pre-commit.err" || fail "frontend code-size refresh did not require exact-tree launcher reinstall"
 assert_file_equals "$capture_dir/frontend-code-size-initial-check-tree" "$frontend_code_size_drift_tree" "frontend code-size initial check tree"
 assert_file_equals "$capture_dir/frontend-code-size-refresh-tree" "$frontend_code_size_drift_tree" "frontend code-size refresh source tree"
 frontend_code_size_refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$frontend_code_size_refreshed_tree" != "$frontend_code_size_drift_tree" ]] || fail "frontend code-size refresh did not update the staged tree"
 assert_file_equals "$capture_dir/frontend-code-size-check-tree" "$frontend_code_size_refreshed_tree" "frontend code-size refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$frontend_code_size_refreshed_tree" "gate received frontend code-size refreshed staged tree"
+[[ ! -e "$capture_dir/staged-tree" ]] || fail "frontend code-size refresh executed the remote gate before launcher reinstall"
 assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline.json" '{"scope":"production","generated":true}' "frontend production baseline refresh"
 assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline_test.json" '{"scope":"test","generated":true}' "frontend test baseline refresh"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "frontend code-size refresh discarded the unstaged worktree change"
+install_fixture_launcher_for_current_tree "$git_repo"
+
+capability_contract_drift_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_CAPABILITY_CONTRACT_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/capability-contract-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
+    2>"$fixture_root/capability-contract-refresh-pre-commit.err"
+)
+assert_file_equals "$fixture_root/capability-contract-refresh-pre-commit.status" 1 "capability-contract refresh pre-commit requires exact-tree launcher reinstall"
+grep -Fq 'managed outputs changed the staged tree' "$fixture_root/capability-contract-refresh-pre-commit.err" || fail "capability-contract refresh did not require exact-tree launcher reinstall"
+assert_file_equals "$capture_dir/capability-contract-initial-check-tree" "$capability_contract_drift_tree" "capability-contract initial check tree"
+assert_file_equals "$capture_dir/capability-contract-refresh-tree" "$capability_contract_drift_tree" "capability-contract refresh source tree"
+capability_contract_refreshed_tree=$(git -C "$git_repo" write-tree)
+[[ "$capability_contract_refreshed_tree" != "$capability_contract_drift_tree" ]] || fail "capability-contract refresh did not update the staged tree"
+assert_file_equals "$capture_dir/capability-contract-check-tree" "$capability_contract_refreshed_tree" "capability-contract refreshed check tree"
+[[ ! -e "$capture_dir/staged-tree" ]] || fail "capability-contract refresh executed the remote gate before launcher reinstall"
+assert_file_equals "$git_repo/docs/doc/codemap/capability-contract/capability_manifest.json" 'generated capability manifest' "capability-contract refreshed output"
+install_fixture_launcher_for_current_tree "$git_repo"
 
 project_map_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture
 (
   cd "$git_repo/nested"
   GATE_HOOK_PROJECT_MAP_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/project-map-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+    "$fixture_root/project-map-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
+    2>"$fixture_root/project-map-refresh-pre-commit.err"
 )
-assert_file_equals "$fixture_root/project-map-refresh-pre-commit.status" 0 "project-map refresh pre-commit exit code"
+assert_file_equals "$fixture_root/project-map-refresh-pre-commit.status" 1 "project-map refresh requires exact-tree launcher reinstall"
+grep -Fq 'managed outputs changed the staged tree' "$fixture_root/project-map-refresh-pre-commit.err" || fail "project-map refresh did not require exact-tree launcher reinstall"
 assert_file_equals "$capture_dir/project-map-initial-check-tree" "$project_map_drift_tree" "project-map initial check tree"
 assert_file_equals "$capture_dir/project-map-refresh-tree" "$project_map_drift_tree" "project-map refresh source tree"
 project_map_refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$project_map_refreshed_tree" != "$project_map_drift_tree" ]] || fail "project-map refresh did not update the staged tree"
 assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_refreshed_tree" "project-map refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$project_map_refreshed_tree" "gate received project-map refreshed staged tree"
+[[ ! -e "$capture_dir/staged-tree" ]] || fail "project-map refresh executed the remote gate before launcher reinstall"
 assert_file_equals "$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md" 'generated project map' "project-map refreshed output"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "project-map refresh discarded the unstaged worktree change"
+install_fixture_launcher_for_current_tree "$git_repo"
 
 dirty_project_map_tree=$(git -C "$git_repo" write-tree)
 tracked_index_before=$(git -C "$git_repo" show :tracked.txt)
@@ -418,9 +544,18 @@ assert_file_equals "$capture_dir/project-map-check-tree" "$linked_tree" "linked 
 
 reset_capture
 push_input="$fixture_root/pre-push.stdin"
-printf '%s\n' \
-  'refs/heads/main 1111111111111111111111111111111111111111 refs/heads/main 2222222222222222222222222222222222222222' \
-  'refs/heads/topic 3333333333333333333333333333333333333333 refs/heads/topic 0000000000000000000000000000000000000000' >"$push_input"
+push_parent=$(git -C "$linked_repo" rev-parse --verify HEAD)
+printf '%s\n' 'non-HEAD push candidate' >"$linked_repo/push-candidate.txt"
+git -C "$linked_repo" add push-candidate.txt
+push_candidate_tree=$(git -C "$linked_repo" write-tree)
+push_candidate_commit=$(printf '%s\n\n' 'non-HEAD push candidate' | git -C "$linked_repo" commit-tree "$push_candidate_tree" -p "$push_parent")
+git -C "$linked_repo" restore --staged --worktree -- push-candidate.txt
+git -C "$linked_repo" update-ref refs/heads/push-candidate "$push_candidate_commit"
+zero_oid=$(printf '%*s' "${#push_candidate_commit}" '' | tr ' ' '0')
+expected_push_launcher=$(fixture_launcher_for_tree "$linked_repo" "$push_candidate_tree")
+printf '%s\n%s' \
+  "refs/heads/push-candidate $push_candidate_commit refs/heads/main $zero_oid" \
+  "refs/heads/push-candidate $push_candidate_commit refs/heads/topic $zero_oid" >"$push_input"
 (
   cd "$linked_repo/nested"
   GATE_HOOK_STDERR_FILE="$cli_error" GATE_HOOK_EXIT_CODE=29 run_with_status "$fixture_root/pre-push.status" \
@@ -441,8 +576,44 @@ assert_file_equals "$capture_dir/arg.8" "$linked_repo" "pre-push repository"
 assert_file_equals "$capture_dir/arg.9" upstream "pre-push remote name"
 assert_file_equals "$capture_dir/arg.10" 'ssh://git@example.invalid/team/repo.git' "pre-push remote URL"
 assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "pre-push cwd"
+assert_file_equals "$capture_dir/launcher" "$expected_push_launcher" "pre-push launcher for non-HEAD pushed tree"
 cmp -s "$push_input" "$capture_dir/stdin" || fail "pre-push stdin was not forwarded byte-for-byte"
 cmp -s "$cli_error" "$fixture_root/pre-push.err" || fail "pre-push did not return readable CLI stderr"
+
+different_push_input="$fixture_root/pre-push-different-trees.stdin"
+printf '%s\n' 'second non-HEAD push candidate' >"$linked_repo/second-push-candidate.txt"
+git -C "$linked_repo" add second-push-candidate.txt
+second_push_candidate_tree=$(git -C "$linked_repo" write-tree)
+second_push_candidate_commit=$(printf '%s\n\n' 'second non-HEAD push candidate' | git -C "$linked_repo" commit-tree "$second_push_candidate_tree" -p "$push_parent")
+git -C "$linked_repo" restore --staged --worktree -- second-push-candidate.txt
+git -C "$linked_repo" update-ref refs/heads/second-push-candidate "$second_push_candidate_commit"
+second_zero_oid=$(printf '%*s' "${#second_push_candidate_commit}" '' | tr ' ' '0')
+printf '%s\n' \
+  "refs/heads/push-candidate $push_candidate_commit refs/heads/main $zero_oid" \
+  "refs/heads/second-push-candidate $second_push_candidate_commit refs/heads/topic $second_zero_oid" >"$different_push_input"
+reset_capture
+(
+  cd "$linked_repo/nested"
+  run_with_status "$fixture_root/pre-push-different-trees.status" \
+    bash "$repo_root/.githooks/pre-push" 'upstream' 'ssh://git@example.invalid/team/repo.git' \
+    <"$different_push_input" 2>"$fixture_root/pre-push-different-trees.err"
+)
+assert_file_equals "$fixture_root/pre-push-different-trees.status" 1 "pre-push different trees fail-fast exit code"
+grep -Fq 'multiple pushed trees require separate trusted gate invocations' "$fixture_root/pre-push-different-trees.err" || fail "pre-push different trees did not fail fast"
+[[ ! -e "$capture_dir/argc" ]] || fail "pre-push different trees invoked the gate"
+
+invalid_push_input="$fixture_root/pre-push-invalid.stdin"
+printf '%s\n' "refs/heads/push-candidate $push_candidate_commit refs/heads/main $zero_oid extra" >"$invalid_push_input"
+reset_capture
+(
+  cd "$linked_repo/nested"
+  run_with_status "$fixture_root/pre-push-invalid.status" \
+    bash "$repo_root/.githooks/pre-push" 'upstream' 'ssh://git@example.invalid/team/repo.git' \
+    <"$invalid_push_input" 2>"$fixture_root/pre-push-invalid.err"
+)
+assert_file_equals "$fixture_root/pre-push-invalid.status" 1 "pre-push invalid input exit code"
+grep -Fq 'must contain exactly four fields' "$fixture_root/pre-push-invalid.err" || fail "pre-push invalid input did not fail closed"
+[[ ! -e "$capture_dir/argc" ]] || fail "pre-push invalid input invoked the gate"
 
 no_repo="$fixture_root/not-a-repository"
 mkdir -p "$no_repo"
@@ -474,7 +645,8 @@ missing_commit_status=$?
 ) </dev/null >/dev/null 2>"$fixture_root/missing-pre-push.err"
 missing_push_status=$?
 set -e
-git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
+fixture_launcher=$(fixture_launcher_for_tree "$git_repo" "$(git -C "$git_repo" write-tree)")
+git -C "$git_repo" config superdolphin.gateLauncher "$fixture_launcher"
 [[ $missing_commit_status -ne 0 ]] || fail "pre-commit accepted a missing CLI"
 [[ $missing_push_status -ne 0 ]] || fail "pre-push accepted a missing CLI"
 for entrypoint in \

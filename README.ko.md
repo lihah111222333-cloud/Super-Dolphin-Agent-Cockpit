@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer 선언: 독창적 코드와 프로젝트 자체 문서는 100% AI가 작성하며, 인간이 방향을 정하고 저장소가 보호합니다.** Product code, test code, 프로젝트 자체 문서는 모두 AI 에이전트가 작성하거나 리팩토링합니다. Product intent, architecture decision, credential, release의 책임은 인간에게 있습니다. AI가 작성했다는 사실이 무결성을 뜻하지는 않습니다. 수용되는 모든 변경은 저장소가 소유한 evidence와 gate를 통과해야 합니다. 외부에서 가져온 법률 및 커뮤니티 표준 문서는 원래의 저작자 표시를 유지합니다.
 
-**Local-first delivery enforcement.** 일상적인 commit과 push의 수용 여부는 version control에 포함된 [Git hooks](.githooks/README.md)가 강제하며, 유료 GitHub-hosted CI에 의존하지 않습니다. `pre-commit`은 staged snapshot, AI maintenance rule, 전체 repository guard, 영향받는 code를 검사합니다. `commit-msg`는 fix commit에 regression evidence를 요구하고, `pre-push`는 현재 `HEAD`의 push range, 영향받는 package와 contract, Go package nilness, 등록된 concurrent surface의 Race test를 검사합니다. Deferred Provider E2E, `gosec`/security scan, release check는 별도의 명시적 gate로 유지합니다.
+**Truth-image 전달 검증.** 버전 관리되는 [Git hooks](.githooks/README.md), 수동 `make ci-l0`·`make ci-l1` 실행 및 release 검증은 fail-closed 원격 ECI gate를 사용합니다. GitHub는 Git remote일 뿐 CI runner를 제공하지 않습니다. `pre-commit`과 수동 L0-L1 명령은 정확한 staged tree 또는 ref update를 검사하고, release는 정확한 commit을 검사합니다. 원격 구성, provenance, result authority, cleanup evidence가 없거나 gate가 실패하면 작업을 거부합니다. `commit-msg`는 계속해서 중국어 commit text와 fix-test evidence를 요구합니다.
 
 Super Dolphin Agent는 **production-grade AI-native vibe-coding engineering system 및 multi-agent development control plane**입니다. 로컬 데스크톱 runtime, MCP orchestration, 다국어 LSP navigation, Provider integration, 영속 workflow, 기계적으로 강제되는 engineering boundary를 하나의 동작하는 참조 구현에 통합합니다.
 
@@ -260,10 +260,10 @@ make capcontract-check
 
 | Metric | 현재 진실 공급원 |
 |---|---|
-| Architecture test | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 329 runnable `Test*` functions across 127 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture test | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 426 runnable `Test*` functions across 148 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rule | [생성된 backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | 현재 test run에서 다시 계산하며 고정 percentage를 주장하지 않음 |
-| CI | [GitHub Actions](.github/workflows/ci.yml) |
+| CI | [Alibaba Cloud ECI contract](docs/契约/remote-ci-eci-imagecache-contract.md) |
 
 <!-- sd:security -->
 ## 보안

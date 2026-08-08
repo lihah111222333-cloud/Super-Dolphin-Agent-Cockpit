@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -30,12 +31,14 @@ type orchestrationServiceTypeGuardFixture struct {
 	wantContains []string
 }
 
-func TestOrchestrationServiceTypeConsumersUseNarrowPorts(t *testing.T) {
-	t.Parallel()
+func runOrchestrationServiceTypeConsumersCheck(t *testing.T, pkgs []*orchestrationServiceCheckedPackage) {
+	t.Helper()
 
-	root := repoRoot(t)
 	var violations []string
-	for _, pkg := range loadWideOrchestrationTypeGuardPackages(t, root) {
+	for _, pkg := range pkgs {
+		if !orchestrationServiceCheckedPackageMayCarryWideType(pkg) {
+			continue
+		}
 		for _, use := range collectOrchestrationServiceTypeUses(pkg, nil) {
 			if isAllowedOrchestrationServiceTypeUse(use) {
 				continue
@@ -447,8 +450,8 @@ func nearestOrchestrationServiceValueSpec(ctx orchestrationServiceIdentContext) 
 
 func nearestOrchestrationServiceParent[T ast.Node](ctx orchestrationServiceIdentContext) (T, bool) {
 	var zero T
-	for i := len(ctx.parents) - 1; i >= 0; i-- {
-		if typed, ok := ctx.parents[i].(T); ok {
+	for _, parent := range slices.Backward(ctx.parents) {
+		if typed, ok := parent.(T); ok {
 			return typed, true
 		}
 	}

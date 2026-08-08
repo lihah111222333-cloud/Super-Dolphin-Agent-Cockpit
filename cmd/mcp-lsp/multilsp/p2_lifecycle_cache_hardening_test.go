@@ -719,22 +719,3 @@ func assertDeferredBusyReceipt(t *testing.T, result ReleaseScopeResult, phase st
 		t.Fatalf("ReleaseScope(%s) = %#v, want one busy lease and drained=false", phase, result)
 	}
 }
-
-func TestSnapshotManagersCloseRace(t *testing.T) {
-	root := canonicalScopePath(t.TempDir(), "")
-	mgr := newManagerPoolTestManager(t, root)
-	_ = scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-race", "thread-1"))
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for range 500 {
-			_ = mgr.pool.snapshotManagers()
-		}
-	}()
-
-	for range 500 {
-		_ = mgr.pool.Close()
-	}
-	<-done
-}

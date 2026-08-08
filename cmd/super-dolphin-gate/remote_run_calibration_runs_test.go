@@ -18,6 +18,64 @@ import (
 
 const calibrationRunsAgentTokenDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+func TestRemoteCalibrationCheckpointIdentitySeparatesForceModes(t *testing.T) {
+	source := remoteCalibrationIdentity{
+		commit: strings.Repeat("c", 40),
+		tree:   strings.Repeat("t", 40),
+		base:   strings.Repeat("b", 40),
+	}
+	state := remoteci.BaselineState{
+		Generation:      7,
+		Platform:        "linux/amd64",
+		ToolchainDigest: "sha256:" + strings.Repeat("d", 64),
+	}
+	resource := shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}
+	nonForce := remoteCalibrationCheckpointIdentity(source, state, "sha256:"+strings.Repeat("r", 64), resource, false, calibrationRunsAgentTokenDigest)
+	force := remoteCalibrationCheckpointIdentity(source, state, "sha256:"+strings.Repeat("r", 64), resource, true, calibrationRunsAgentTokenDigest)
+	if nonForce == force {
+		t.Fatal("force and non-force calibration checkpoint identities must be distinct")
+	}
+}
+
+func TestExecuteRemoteCalibrationRunsForceDoesNotReuseNonForceCheckpoint(t *testing.T) {
+	store := newRemoteCalibrationRunsStore(t, 1)
+	checkpoint := newRemoteCalibrationRunsCheckpoint(t, store, "checkpoint-force-isolation", 1)
+	input, result := calibrationRunsInputResult("commit", 1)
+	result = calibrationRunsRecord(t, store, input, result)
+	if err := checkpoint.Observe("commit", input, result, true); err != nil {
+		t.Fatal(err)
+	}
+
+	options := calibrationRunsOptions()
+	options.Force = true
+	identity := remoteCalibrationIdentity{commit: strings.Repeat("c", 40), tree: strings.Repeat("t", 40), base: strings.Repeat("b", 40)}
+	var calls []string
+	_, _, err := executeRemoteCalibrationRunsWithExecutor(options, identity, store, checkpoint, io.Discard, func(options remoteRunOptions) (remoteci.RunResult, remoteci.RunInput, error) {
+		calls = append(calls, options.Scenario)
+		input, result := calibrationRunsInputResult(options.Scenario, 1)
+		input.Force, result.Force = options.Force, options.Force
+		result.JobID += "-force"
+		if options.Scenario == "push" {
+			return result, input, errors.New("remote run failed")
+		}
+		result = calibrationRunsRecord(t, store, input, result)
+		return result, input, nil
+	})
+	if err == nil {
+		t.Fatal("force executeRemoteCalibrationRunsWithExecutor() error = nil, want force identity mismatch")
+	}
+	if !strings.Contains(err.Error(), "force identity does not match current run") {
+		t.Fatalf("force executeRemoteCalibrationRunsWithExecutor() error = %v, want force identity mismatch", err)
+	}
+	if got := strings.Join(calls, ","); got != "" {
+		t.Fatalf("force executor calls = %q, want no execution after identity mismatch", got)
+	}
+	resumedInput, resumedResult, completed := checkpoint.Completed("commit")
+	if !completed || resumedInput.Force || resumedResult.Force {
+		t.Fatalf("non-force checkpoint after force mismatch = input=%#v result=%#v completed=%t, want unchanged completed non-force state", resumedInput.Force, resumedResult.Force, completed)
+	}
+}
+
 func TestExecuteRemoteCalibrationRunsReexecutesUnfinalizedScenario(t *testing.T) {
 	store := newRemoteCalibrationRunsStore(t, 1)
 	checkpoint := newRemoteCalibrationRunsCheckpoint(t, store, "checkpoint-resume", 1)
@@ -220,8 +278,8 @@ func calibrationRunsInputResult(scenario string, generation uint64) (remoteci.Ru
 		entrypoint, profile = gatecontract.CIEntrypointRelease, gatecontract.ProfileRelease
 	}
 	tree := strings.Repeat("a", 40)
-	input := remoteci.RunInput{AgentTokenDigest: calibrationRunsAgentTokenDigest, AcceptedGeneration: generation, ImageCacheSnapshotID: "snapshot-test-" + strconv.FormatUint(generation, 10), Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1, Commit: &gatecontract.CommitSource{SHA: strings.Repeat("b", 40)}, SourceTreeSHA: tree}, Profile: profile, Entrypoint: entrypoint, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("c", 64), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("d", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("e", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("f", 64), RunnerImage: "registry.example/runner@sha256:" + strings.Repeat("0", 64), CalibrationResource: shardresource.Class{ID: "maximum", VCPU: 8, MemoryGiB: 32}}
-	result := remoteci.RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: generation, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-" + scenario, Entrypoint: entrypoint, Profile: profile, SourceTreeSHA: tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, time.August, 3, 0, 0, 0, 0, time.UTC), DurationSamples: []gatecontract.DurationSample{{Bucket: gatecontract.DurationBucket{WorkloadID: "guard:test", CommandDigest: strings.Repeat("1", 64), Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest}, Succeeded: true, DurationMS: 1}}}
+	input := remoteci.RunInput{AgentTokenDigest: calibrationRunsAgentTokenDigest, AcceptedGeneration: generation, ImageCacheSnapshotID: "snapshot-test-" + strconv.FormatUint(generation, 10), Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1, Commit: &gatecontract.CommitSource{SHA: strings.Repeat("b", 40)}, SourceTreeSHA: tree}, Profile: profile, Entrypoint: entrypoint, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("c", 64), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("d", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("e", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("f", 64), RunnerImage: "registry.example/runner@sha256:" + strings.Repeat("0", 64), CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}}
+	result := remoteci.RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: generation, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-" + scenario, Entrypoint: entrypoint, Profile: profile, SourceTreeSHA: tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, CalibrationResourceClassID: input.CalibrationResource.ID, CalibrationResourceCPU: input.CalibrationResource.VCPU, CalibrationResourceMemoryGiB: input.CalibrationResource.MemoryGiB, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, time.August, 3, 0, 0, 0, 0, time.UTC), DurationSamples: []gatecontract.DurationSample{{Bucket: gatecontract.DurationBucket{WorkloadID: "guard:test", CommandDigest: strings.Repeat("1", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration, ResourceClassID: input.CalibrationResource.ID, ResourceCPU: input.CalibrationResource.VCPU, ResourceMemoryGiB: input.CalibrationResource.MemoryGiB}, Succeeded: true, DurationMS: 1}}}
 	return input, result
 }
 
@@ -272,7 +330,7 @@ func calibrationRunsRecord(t *testing.T, store *gatecontract.DurationLedgerStore
 			}
 		}
 	}
-	record := gatecontract.RemoteCIRunRecord{JobID: result.JobID, AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, Entrypoint: result.Entrypoint, Profile: result.Profile, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Status: result.Status, Authoritative: false, CleanupComplete: result.CleanupComplete, RunnerImage: input.RunnerImage, StartedAt: startedAt, CompletedAt: result.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, WorkloadExecutions: executions, WorkloadResults: workloadResults, TimingObservations: timings}
+	record := gatecontract.RemoteCIRunRecord{JobID: result.JobID, AgentTokenDigest: input.AgentTokenDigest, Force: result.Force, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, Entrypoint: result.Entrypoint, Profile: result.Profile, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Status: result.Status, Authoritative: false, CleanupComplete: result.CleanupComplete, RunnerImage: input.RunnerImage, StartedAt: startedAt, CompletedAt: result.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, WorkloadExecutions: executions, WorkloadResults: workloadResults, TimingObservations: timings}
 	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
 		t.Fatal(err)
 	}

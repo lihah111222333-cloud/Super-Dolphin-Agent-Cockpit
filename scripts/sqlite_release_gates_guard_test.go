@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlitereleasegate"
-	"gopkg.in/yaml.v3"
 )
 
 func TestSQLiteReleaseGateDefinitionsAreRunnableFromRepoRoot(t *testing.T) {
@@ -136,129 +135,6 @@ func TestSQLiteReleaseGateDocsAndWorkflowArePresent(t *testing.T) {
 		}
 	}
 
-	workflow := readRequiredFile(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
-	for _, want := range []string{
-		"ubuntu-latest",
-		"id-token: write",
-		"truth-image-gates:",
-		"Trusted bootstrap coordinator",
-		"workflow-host",
-		"SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE",
-		"target=/workspace/super-dolphin-checkout,readonly",
-	} {
-		if !strings.Contains(workflow, want) {
-			t.Fatalf("sqlite release gate workflow missing %q", want)
-		}
-	}
-	for _, forbidden := range []string{
-		"actions/setup-go",
-		"actions/upload-artifact",
-		"go run ./scripts/sqlite_release_gates",
-		"go test",
-	} {
-		if strings.Contains(workflow, forbidden) {
-			t.Fatalf("sqlite release gate workflow bypasses the truth-image coordinator with %q", forbidden)
-		}
-	}
-}
-
-func TestSQLiteReleaseGateWorkflowUsesOnlyTheTruthImageCoordinator(t *testing.T) {
-	root := scriptRepoRoot(t)
-	workflow := readRequiredFile(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
-	if strings.Count(workflow, "docker pull ") != 1 || strings.Count(workflow, "docker run --rm") != 1 {
-		t.Fatalf("sqlite release workflow must have one immutable coordinator bootstrap: %q", workflow)
-	}
-}
-
-func TestSQLiteReleaseGateWorkflowDelegatesDesktopRuntimeToTruthImage(t *testing.T) {
-	root := scriptRepoRoot(t)
-	workflow := parseSQLiteReleaseGateWorkflow(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
-	job := requireSQLiteReleaseGateWorkflowJob(t, workflow, "truth-image-gates")
-	if len(job.Steps) != 2 {
-		t.Fatalf("truth-image workflow steps = %d, want checkout plus immutable coordinator", len(job.Steps))
-	}
-	for _, step := range job.Steps {
-		if strings.Contains(step.Uses, "actions/setup-node") ||
-			strings.Contains(step.Run, "npm ci") ||
-			strings.Contains(step.Run, "go run ./scripts/sqlite_release_gates") {
-			t.Fatalf("host workflow reintroduced a mutable desktop runtime step: %+v", step)
-		}
-	}
-	assertSQLiteWorkflowRun(t, job, "", "docker run --rm")
-}
-
-type sqliteReleaseGateWorkflow struct {
-	Jobs map[string]sqliteReleaseGateWorkflowJob `yaml:"jobs"`
-}
-
-type sqliteReleaseGateWorkflowJob struct {
-	Steps []sqliteReleaseGateWorkflowStep `yaml:"steps"`
-}
-
-type sqliteReleaseGateWorkflowStep struct {
-	If               string `yaml:"if"`
-	Run              string `yaml:"run"`
-	Uses             string `yaml:"uses"`
-	WorkingDirectory string `yaml:"working-directory"`
-}
-
-func parseSQLiteReleaseGateWorkflow(t *testing.T, path string) sqliteReleaseGateWorkflow {
-	t.Helper()
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read SQLite release workflow: %v", err)
-	}
-	var workflow sqliteReleaseGateWorkflow
-	if err := yaml.Unmarshal(body, &workflow); err != nil {
-		t.Fatalf("parse SQLite release workflow: %v", err)
-	}
-	return workflow
-}
-
-func requireSQLiteReleaseGateWorkflowJob(t *testing.T, workflow sqliteReleaseGateWorkflow, name string) sqliteReleaseGateWorkflowJob {
-	t.Helper()
-	job, ok := workflow.Jobs[name]
-	if !ok {
-		t.Fatalf("SQLite release workflow missing job %q", name)
-	}
-	return job
-}
-
-func assertSQLiteWorkflowRun(t *testing.T, job sqliteReleaseGateWorkflowJob, condition, command string) {
-	t.Helper()
-	for _, step := range job.Steps {
-		if strings.TrimSpace(step.If) == condition && strings.Contains(step.Run, command) {
-			return
-		}
-	}
-	t.Fatalf("SQLite release workflow job missing run %q with if=%q", command, condition)
-}
-
-func assertSQLiteWorkflowUse(t *testing.T, job sqliteReleaseGateWorkflowJob, action string) {
-	t.Helper()
-	for _, step := range job.Steps {
-		if step.Uses == action {
-			return
-		}
-	}
-	t.Fatalf("SQLite release workflow job missing action %q", action)
-}
-
-func assertSQLiteWorkflowWorkingRun(t *testing.T, job sqliteReleaseGateWorkflowJob, directory string, commands ...string) {
-	t.Helper()
-	for _, step := range job.Steps {
-		if step.WorkingDirectory != directory {
-			continue
-		}
-		matches := true
-		for _, command := range commands {
-			matches = matches && strings.Contains(step.Run, command)
-		}
-		if matches {
-			return
-		}
-	}
-	t.Fatalf("SQLite release workflow job missing commands %v under %q", commands, directory)
 }
 
 func findSQLiteGate(t *testing.T, id string) sqlitereleasegate.Gate {

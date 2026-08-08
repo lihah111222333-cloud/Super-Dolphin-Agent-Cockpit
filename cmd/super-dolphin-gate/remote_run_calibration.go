@@ -14,7 +14,7 @@ import (
 )
 
 // runRemoteCalibration 执行首代 commit、push 与 release 权威运行并接受完整时长校准。
-func runRemoteCalibration(args []string, stdout io.Writer) error {
+func runRemoteCalibration(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
 	if err := requireRemoteCIAgentToken([]string{"remote", "calibrate"}, args, stdout); err != nil {
 		return err
 	}
@@ -22,7 +22,12 @@ func runRemoteCalibration(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return executeRemoteCalibration(options, stdout)
+	progress, err := newRemoteProgressObserver(progressWriters...)
+	if err != nil {
+		return err
+	}
+	options.ProgressObserver = progress
+	return errors.Join(executeRemoteCalibration(options, stdout), remoteci.ProgressError(progress))
 }
 
 // executeRemoteCalibration 在 SQLite checkpoint/CAS 边界内执行或恢复一次完整校准。
@@ -80,7 +85,7 @@ func newRemoteCalibrationCheckpoint(
 	if err != nil {
 		return nil, err
 	}
-	identity := remoteCalibrationCheckpointIdentity(source, state, runnerIdentity, resource, options.AgentTokenDigest)
+	identity := remoteCalibrationCheckpointIdentity(source, state, runnerIdentity, resource, options.Force, options.AgentTokenDigest)
 	return remoteci.NewCalibrationCheckpoint(
 		ledgerStore,
 		identity,
@@ -89,18 +94,19 @@ func newRemoteCalibrationCheckpoint(
 	)
 }
 
-// remoteCalibrationCheckpointIdentity 隔离不同候选、平台、runner 与工具链的断点。
+// remoteCalibrationCheckpointIdentity 隔离不同候选、平台、runner、工具链与 force 审计语义的断点。
 func remoteCalibrationCheckpointIdentity(
 	source remoteCalibrationIdentity,
 	state remoteci.BaselineState,
 	runnerIdentity string,
 	resource shardresource.Class,
+	force bool,
 	agentTokenDigest string,
 ) string {
 	material := strings.Join([]string{
-		"super-dolphin-remote-calibration-checkpoint-v3",
+		"super-dolphin-remote-calibration-checkpoint-v4",
 		source.commit, source.tree, source.base, strconv.FormatUint(state.Generation, 10), state.Platform,
-		runnerIdentity, state.ToolchainDigest, resource.ID,
+		runnerIdentity, state.ToolchainDigest, resource.ID, strconv.FormatBool(force),
 		agentTokenDigest,
 		strconv.FormatFloat(resource.VCPU, 'f', -1, 64), strconv.FormatFloat(resource.MemoryGiB, 'f', -1, 64),
 	}, "\x00")

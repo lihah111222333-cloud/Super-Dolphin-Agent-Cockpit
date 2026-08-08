@@ -15,9 +15,12 @@ import (
 )
 
 const (
-	durationLedgerSQLiteSchemaVersion       = 6
-	durationLedgerSQLiteLegacySchemaVersion = 5
-	durationLedgerSQLiteBusyTimeoutMS       = 5_000
+	durationLedgerSQLiteSchemaVersion         = 13
+	durationLedgerSQLitePreviousSchemaVersion = 12
+	durationLedgerSQLiteV11SchemaVersion      = 11
+	durationLedgerSQLiteCompileTimingVersion  = 10
+	durationLedgerSQLiteLegacySchemaVersion   = 5
+	durationLedgerSQLiteBusyTimeoutMS         = 5_000
 )
 
 // loadSQLiteSnapshot 在单个只读事务中加载账本快照及其请求的数据投影。
@@ -52,6 +55,11 @@ func loadSQLiteSnapshotPayload(transaction *sql.Tx, includeSamples bool, plannin
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
+	compileTimingIndex, err := loadSQLiteCompileTimingIndex(transaction)
+	if err != nil {
+		return DurationLedgerSnapshot{}, err
+	}
+	snapshot.CompileTimingIndex = &compileTimingIndex
 	if includeSamples {
 		snapshot.Ledger.Samples, err = loadSQLiteDurationSamples(transaction)
 		if err != nil {
@@ -65,10 +73,20 @@ func loadSQLiteSnapshotPayload(transaction *sql.Tx, includeSamples bool, plannin
 	if planning.Platform == "" {
 		return snapshot, nil
 	}
+	overhead, err := loadSQLiteShardOverhead(transaction, planning)
+	if err != nil {
+		return DurationLedgerSnapshot{}, err
+	}
+	snapshot.Ledger.ShardOverhead = overhead
+	planning, err = ResolvePlanningContext(planning, snapshot.Ledger)
+	if err != nil {
+		return DurationLedgerSnapshot{}, err
+	}
 	index, err := loadSQLiteDurationSampleIndex(transaction, planning)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
+	index.CompileTimingIndex = compileTimingIndex
 	snapshot.SampleIndex = &index
 	return snapshot, nil
 }
@@ -198,6 +216,98 @@ func (store *DurationLedgerStore) advanceSQLiteCalibrationGeneration(transaction
 		map[string]any{"expected_generation": expectedGeneration, "calibration": calibration},
 	); err != nil {
 		return err
+	}
+	return nil
+}
+
+// compareAndSwapSQLiteShardOverhead 在单一 SQLite 事务中提交 overhead、代数和 retention。
+func (store *DurationLedgerStore) compareAndSwapSQLiteShardOverhead(
+	expectedGeneration uint64,
+	overhead ShardOrchestrationOverhead,
+	samples []ShardOrchestrationOverheadSample,
+) (DurationLedgerSnapshot, error) {
+	if expectedGeneration == math.MaxUint64 {
+		return DurationLedgerSnapshot{}, errors.New("duration ledger generation overflow")
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		return DurationLedgerSnapshot{}, err
+	}
+	defer database.Close()
+	transaction, err := database.BeginTx(context.Background(), nil)
+	if err != nil {
+		return DurationLedgerSnapshot{}, mapDurationLedgerSQLiteError("begin shard overhead CAS", err)
+	}
+	defer transaction.Rollback()
+	if err := writeSQLiteShardOverheadCAS(transaction, expectedGeneration, overhead, samples); err != nil {
+		return DurationLedgerSnapshot{}, err
+	}
+	nextGeneration := expectedGeneration + 1
+	if err := compactDurationLedgerAuthority(transaction); err != nil {
+		return DurationLedgerSnapshot{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return DurationLedgerSnapshot{}, mapDurationLedgerSQLiteError("commit shard overhead CAS", err)
+	}
+	return DurationLedgerSnapshot{Generation: nextGeneration, Ledger: DurationLedger{Version: durationLedgerVersion, ShardOverhead: &overhead}}, nil
+}
+
+// writeSQLiteShardOverheadCAS 校验 accepted generation 并原子写入 overhead 证据。
+func writeSQLiteShardOverheadCAS(transaction *sql.Tx, expectedGeneration uint64, overhead ShardOrchestrationOverhead, samples []ShardOrchestrationOverheadSample) error {
+	if err := validateSQLiteLedgerGeneration(transaction, expectedGeneration, false); err != nil {
+		return err
+	}
+	if err := requireHistoricallyAcceptedGeneration(transaction, overhead.AcceptedGeneration); err != nil {
+		return err
+	}
+	if err := insertSQLiteShardOverhead(transaction, overhead, samples); err != nil {
+		return err
+	}
+	nextGeneration := expectedGeneration + 1
+	result, err := transaction.Exec(`
+		UPDATE duration_ledger_meta
+		SET generation = ?
+		WHERE singleton = 1 AND generation = ? AND authority_id = ?
+	`,
+		strconv.FormatUint(nextGeneration, 10),
+		strconv.FormatUint(expectedGeneration, 10),
+		cicontract.SQLAuthorityID,
+	)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("update shard overhead generation", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read shard overhead update count: %w", err)
+	}
+	if affected != 1 {
+		return durationLedgerConflict(expectedGeneration, expectedGeneration)
+	}
+	return nil
+}
+
+func insertSQLiteShardOverhead(transaction *sql.Tx, overhead ShardOrchestrationOverhead, samples []ShardOrchestrationOverheadSample) error {
+	_, err := transaction.Exec(`
+		INSERT INTO duration_shard_overheads (
+			accepted_generation, schema_version, policy_version, platform, runner, toolchain,
+			calibration_resource_class_id, calibration_resource_cpu, calibration_resource_memory_gib,
+			p95_ms, sample_count, provenance_digest, accepted_snapshot_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, strconv.FormatUint(overhead.AcceptedGeneration, 10), overhead.SchemaVersion, overhead.PolicyVersion, overhead.Platform, overhead.Runner, overhead.Toolchain, overhead.CalibrationResourceClassID, overhead.CalibrationResourceCPU, overhead.CalibrationResourceMemoryGiB, overhead.P95MS, overhead.SampleCount, overhead.ProvenanceDigest, overhead.AcceptedSnapshotID)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("store shard orchestration overhead aggregate", err)
+	}
+	for _, sample := range samples {
+		if _, err := transaction.Exec(`
+			INSERT INTO duration_shard_overhead_samples (
+				accepted_generation, provenance_digest, job_id, shard_identity,
+				total_started_at_unix_ms, total_completed_at_unix_ms,
+				workload_envelope_start_unix_ms, workload_envelope_end_unix_ms,
+				accounted_duration_ms, accounted_interval_count, overhead_ms
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, strconv.FormatUint(sample.AcceptedGeneration, 10), sample.ProvenanceDigest, sample.JobID, sample.ShardIdentity, sample.TotalStartedAt.UTC().UnixMilli(), sample.TotalCompletedAt.UTC().UnixMilli(), sample.WorkloadEnvelopeStart.UTC().UnixMilli(), sample.WorkloadEnvelopeEnd.UTC().UnixMilli(), sample.AccountedDurationMS, sample.AccountedIntervalCount, sample.OverheadMS); err != nil {
+			return mapDurationLedgerSQLiteError("store shard orchestration overhead sample", err)
+		}
 	}
 	return nil
 }

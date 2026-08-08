@@ -23,6 +23,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// race 测试子进程自身启动约 1s；3s 保留死锁检测上界而不把 race 启动算作失败。
+const generationChildProcessTimeout = 3 * time.Second
+
 func TestManagedRegisterWrongClaimsDoNotConsumeToken(t *testing.T) {
 	store := NewMemoryGenerationStore()
 	registry := newStrictManagedTestRegistry(store)
@@ -192,7 +195,7 @@ func TestManagedGenerationSurvivesEvictAndRegistryRestart(t *testing.T) {
 
 func TestSQLiteGenerationStoreSerializesTwoProcesses(t *testing.T) {
 	dbPath, markerPath := prepareSQLiteGenerationStore(t)
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), generationChildProcessTimeout)
 	defer cancel()
 	type childResult struct {
 		output string
@@ -550,11 +553,11 @@ func runGenerationChildCommand(dbPath, markerPath, mode string) (string, error) 
 
 func parseChildGeneration(t *testing.T, output string) int {
 	t.Helper()
-	start := strings.Index(output, "GEN=")
-	if start < 0 {
+	_, generationText, found := strings.Cut(output, "GEN=")
+	if !found {
 		t.Fatalf("child output missing generation: %q", output)
 	}
-	value := strings.Fields(output[start+len("GEN="):])[0]
+	value := strings.Fields(generationText)[0]
 	generation, err := strconv.Atoi(value)
 	if err != nil {
 		t.Fatalf("parse child generation %q: %v", value, err)

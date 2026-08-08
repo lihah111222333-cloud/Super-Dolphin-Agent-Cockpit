@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,12 +12,11 @@ import (
 
 func TestInstallHooksMakeTargetUsesWorktreeSafeRelativePath(t *testing.T) {
 	root := prepareInstallHooksRepo(t)
-	commitInstallHooksFixture(t, root)
+	launcher := commitInstallHooksFixture(t, root)
 
 	runInstallHooksGit(t, root, "config", "core.hooksPath", ".githooks")
 
-	launcher := writeInstallHooksLauncher(t, root, 0o700)
-	output, err := runInstallHooksMake(t, root, "SUPER_DOLPHIN_GATE_LAUNCHER="+launcher)
+	output, err := runInstallHooksMake(t, root)
 	if err != nil {
 		t.Fatalf("make install-hooks failed: %v\n%s", err, output)
 	}
@@ -37,13 +38,34 @@ func TestInstallHooksMakeTargetUsesWorktreeSafeRelativePath(t *testing.T) {
 	}
 }
 
+func TestInstallHooksMakeTargetBuildsExactTreeLauncherByDefault(t *testing.T) {
+	root := prepareInstallHooksRepo(t)
+	launcher := commitInstallHooksFixture(t, root)
+	output, err := runInstallHooksMake(t, root)
+	if err != nil {
+		t.Fatalf("make install-hooks failed: %v\n%s", err, output)
+	}
+
+	if got := installHooksGitOutput(t, root, "config", "--local", "--get", "superdolphin.gateLauncher"); got != launcher {
+		t.Fatalf("superdolphin.gateLauncher = %q, want exact-tree builder output %q", got, launcher)
+	}
+}
+
+func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T) {
+	guard := readRequiredFile(t, filepath.Join(scriptRepoRoot(t), "scripts", "build-trusted-gate-launcher.sh"))
+	assertScriptContains(t, guard, `git -C "$repo_root" cat-file blob "${tree}:${file_path}"`)
+	assertScriptDoesNotContain(t, guard, `git -C "$repo_root" cat-file "${tree}:${file_path}"`)
+	assertScriptDoesNotContain(t, guard, "--install-root")
+	assertScriptDoesNotContain(t, guard, "super-dolphin-gate-launchers")
+}
+
 func TestInstallHooksMakeTargetRefusesConflictingHooksPath(t *testing.T) {
 	root := prepareInstallHooksRepo(t)
+	_ = commitInstallHooksFixture(t, root)
 	conflictingHooksPath := filepath.Join(t.TempDir(), ".githooks")
 	runInstallHooksGit(t, root, "config", "core.hooksPath", conflictingHooksPath)
 
-	launcher := writeInstallHooksLauncher(t, root, 0o700)
-	output, err := runInstallHooksMake(t, root, "SUPER_DOLPHIN_GATE_LAUNCHER="+launcher)
+	output, err := runInstallHooksMake(t, root)
 	if err == nil {
 		t.Fatalf("make install-hooks unexpectedly succeeded with conflicting core.hooksPath\n%s", output)
 	}
@@ -55,13 +77,13 @@ func TestInstallHooksMakeTargetRefusesConflictingHooksPath(t *testing.T) {
 	}
 }
 
-func TestInstallHooksMakeTargetRejectsUnprovisionedLauncher(t *testing.T) {
+func TestInstallHooksMakeTargetRejectsMissingExactTreeBuilder(t *testing.T) {
 	root := prepareInstallHooksRepo(t)
 	writeInstallHooksPreCommit(t, root)
 
 	output, err := runInstallHooksMake(t, root)
-	if err == nil || !strings.Contains(string(output), "launcher is not provisioned") {
-		t.Fatalf("unprovisioned launcher result error=%v output=%s", err, output)
+	if err == nil || !strings.Contains(string(output), "builder is missing from the exact staged tree") {
+		t.Fatalf("missing builder result error=%v output=%s", err, output)
 	}
 	check := exec.Command("git", "config", "--local", "--get", "core.hooksPath")
 	check.Dir = root
@@ -70,14 +92,35 @@ func TestInstallHooksMakeTargetRejectsUnprovisionedLauncher(t *testing.T) {
 	}
 }
 
+func writeInstallHooksBuilder(t *testing.T, root string, launcherMode os.FileMode) string {
+	t.Helper()
+	installRoot := secureTrustedLauncherTestRoot(t)
+	runInstallHooksGit(t, root, "config", "--local", "superdolphin.testLauncherRoot", installRoot)
+	path := filepath.Join(root, "scripts", "build-trusted-gate-launcher.sh")
+	body := `#!/usr/bin/env bash
+set -euo pipefail
+repo_root=$(git rev-parse --show-toplevel)
+repo_root=$(cd "$repo_root" && pwd -P)
+tree=${1:?tree is required}
+install_root=$(git config --local --get superdolphin.testLauncherRoot)
+launcher="$install_root/v1/$tree/` + installHooksStubDigest() + `/super-dolphin-gate"
+mkdir -p "$(dirname "$launcher")"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$launcher"
+chmod ` + fmt.Sprintf("%#o", launcherMode.Perm()) + ` "$launcher"
+printf '%s\n' "$launcher"
+`
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("write exact-tree launcher builder: %v", err)
+	}
+	return installRoot
+}
+
 func TestInstallHooksMakeTargetRejectsGroupWritableLauncher(t *testing.T) {
 	root := prepareInstallHooksRepo(t)
-	launcher := writeInstallHooksLauncher(t, root, 0o700)
-	if err := os.Chmod(launcher, 0o770); err != nil {
-		t.Fatalf("make launcher group-writable: %v", err)
-	}
+	_ = writeInstallHooksBuilder(t, root, 0o770)
+	runInstallHooksGit(t, root, "add", "scripts/build-trusted-gate-launcher.sh")
 
-	output, err := runInstallHooksMake(t, root, "SUPER_DOLPHIN_GATE_LAUNCHER="+launcher)
+	output, err := runInstallHooksMake(t, root)
 	if err == nil || !strings.Contains(string(output), "permit group or world writes") {
 		t.Fatalf("group-writable launcher result error=%v output=%s", err, output)
 	}
@@ -97,7 +140,7 @@ func prepareInstallHooksRepo(t *testing.T) string {
 	return root
 }
 
-func commitInstallHooksFixture(t *testing.T, root string) {
+func commitInstallHooksFixture(t *testing.T, root string) string {
 	t.Helper()
 	runInstallHooksGit(t, root, "config", "user.email", "hooks@example.test")
 	runInstallHooksGit(t, root, "config", "user.name", "Hooks Test")
@@ -105,8 +148,11 @@ func commitInstallHooksFixture(t *testing.T, root string) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hooks fixture\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
-	runInstallHooksGit(t, root, "add", ".githooks/pre-commit", "README.md")
+	installRoot := writeInstallHooksBuilder(t, root, 0o700)
+	runInstallHooksGit(t, root, "add", ".githooks/pre-commit", "README.md", "scripts/build-trusted-gate-launcher.sh")
 	runInstallHooksGit(t, root, "commit", "-m", "chore: 初始化 hooks fixture")
+	tree := installHooksGitOutput(t, root, "rev-parse", "HEAD^{tree}")
+	return installHooksLauncherPath(installRoot, tree)
 }
 
 func writeInstallHooksPreCommit(t *testing.T, root string) {
@@ -119,13 +165,13 @@ func writeInstallHooksPreCommit(t *testing.T, root string) {
 	}
 }
 
-func writeInstallHooksLauncher(t *testing.T, root string, mode os.FileMode) string {
-	t.Helper()
-	launcher := filepath.Join(root, "super-dolphin-gate")
-	if err := os.WriteFile(launcher, []byte("#!/usr/bin/env bash\nexit 0\n"), mode); err != nil {
-		t.Fatalf("write launcher: %v", err)
-	}
-	return launcher
+func installHooksLauncherPath(installRoot, tree string) string {
+	return filepath.Join(installRoot, "v1", tree, installHooksStubDigest(), "super-dolphin-gate")
+}
+
+func installHooksStubDigest() string {
+	digest := sha256.Sum256([]byte("#!/usr/bin/env bash\nexit 0\n"))
+	return fmt.Sprintf("%x", digest[:])
 }
 
 func runInstallHooksMake(t *testing.T, root string, env ...string) ([]byte, error) {

@@ -5,12 +5,12 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4656,
+  "files": 4818,
   "domains": {
-    "docs-agent": 92,
-    "other": 1154,
-    "app-ui": 743,
-    "platform-provider": 1281,
+    "docs-agent": 96,
+    "other": 1292,
+    "app-ui": 757,
+    "platform-provider": 1287,
     "orchestration": 411,
     "modules": 765,
     "store-sql": 210
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 743,
-        "size_kb": 151.7,
+        "file_count": 757,
+        "size_kb": 154.2,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1281,
-        "size_kb": 238.5,
+        "file_count": 1287,
+        "size_kb": 239.8,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -57,27 +57,27 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 92,
-        "size_kb": 13.2,
+        "file_count": 96,
+        "size_kb": 14,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1154,
-        "size_kb": 230,
+        "file_count": 1292,
+        "size_kb": 259.7,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 837,
-    "docs": 84,
-    "frontend-app": 736,
-    "internal": 2725,
+    "cmd": 855,
+    "docs": 88,
+    "frontend-app": 749,
+    "internal": 2850,
     "pkg": 30,
-    "scripts": 184,
+    "scripts": 186,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -233,14 +233,14 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0129,
-    "unknown_files": 60,
+    "unknown_ratio": 0.0156,
+    "unknown_files": 75,
     "thresholds": {
       "max_unknown_ratio": 0.05
     },
     "warnings": [],
     "top_unknown_modules": {
-      "cmd": 58,
+      "cmd": 73,
       "internal": 2
     }
   }

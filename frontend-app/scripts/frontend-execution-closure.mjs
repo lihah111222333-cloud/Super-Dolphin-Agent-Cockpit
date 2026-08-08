@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const FRONTEND_RUNTIME_SEED_ENV = 'SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED';
-const WRITABLE_OVERLAY_ENTRIES = new Set(['.vite', '.vite-temp']);
+const IMAGE_CACHE_OVERLAY_ENTRIES = new Set(['.vite']);
+const RESERVED_OVERLAY_ENTRIES = IMAGE_CACHE_OVERLAY_ENTRIES;
+const FORBIDDEN_SEED_ENTRIES = new Set(['.vite', '.vite-temp']);
 
 export const FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS = Object.freeze([
   '.githooks/pre-commit',
@@ -68,6 +70,36 @@ function fail(message) {
   throw new Error(message);
 }
 
+function dependencyLinkType(target) {
+  const directory = fs.lstatSync(target).isDirectory();
+  return process.platform === 'win32' && directory ? 'junction' : directory ? 'dir' : 'file';
+}
+
+function describeOverlayEntryMismatch(actualEntries, expectedEntries, sourceLabel) {
+  const countEntries = (entries) => entries.reduce((counts, entry) => (
+    counts.set(entry, (counts.get(entry) || 0) + 1), counts
+  ), new Map());
+  const actual = countEntries(actualEntries);
+  const expected = countEntries(expectedEntries);
+  const names = new Set([...actual.keys(), ...expected.keys()]);
+  const extra = [...names].filter((entry) => (actual.get(entry) || 0) > (expected.get(entry) || 0)).sort();
+  const missing = [...names].filter((entry) => (expected.get(entry) || 0) > (actual.get(entry) || 0)).sort();
+  const details = [];
+  if (extra.length > 0) details.push(`extra=${extra.join(',')}`);
+  if (missing.length > 0) details.push(`missing=${missing.join(',')}`);
+  const suffix = details.length > 0 ? ` (${details.join('; ')})` : '';
+  return `immutable dependency overlay entries do not match ${sourceLabel}${suffix}`;
+}
+
+function validateImmutableDependencySeedEntries(seedRoot) {
+  const forbidden = fs.readdirSync(seedRoot)
+    .filter((entry) => FORBIDDEN_SEED_ENTRIES.has(entry))
+    .sort();
+  if (forbidden.length > 0) {
+    fail(`immutable dependency seed contains reserved overlay entries: ${forbidden.join(',')}`);
+  }
+}
+
 export function nodeModulesPath(root, packagePath = '') {
   const relativePath = packagePath.replace(/^node_modules\/?/u, '');
   return path.join(root, relativePath);
@@ -82,15 +114,17 @@ export function materializeImmutableDependencyOverlay(appRoot, configuredSeed) {
   if (!seedStat.isDirectory() || seedStat.isSymbolicLink()) {
     fail(`immutable dependency seed must be a physical directory: ${seedRoot}`);
   }
+  validateImmutableDependencySeedEntries(seedRoot);
   const overlayRoot = path.join(appRoot, 'node_modules');
   if (fs.existsSync(overlayRoot)) {
     fail(`immutable dependency overlay already exists: ${overlayRoot}`);
   }
   fs.mkdirSync(overlayRoot);
   for (const entry of fs.readdirSync(seedRoot).sort()) {
-    fs.symlinkSync(path.join(seedRoot, entry), path.join(overlayRoot, entry));
+    const target = path.join(seedRoot, entry);
+    fs.symlinkSync(target, path.join(overlayRoot, entry), dependencyLinkType(target));
   }
-  for (const entry of WRITABLE_OVERLAY_ENTRIES) {
+  for (const entry of RESERVED_OVERLAY_ENTRIES) {
     fs.mkdirSync(path.join(overlayRoot, entry));
   }
   return overlayRoot;
@@ -104,6 +138,7 @@ export function resolveImmutableDependencySeed(appRoot) {
     if (!seedStat.isDirectory() || seedStat.isSymbolicLink()) {
       fail(`immutable dependency seed must be a physical directory: ${seedRoot}`);
     }
+    validateImmutableDependencySeedEntries(seedRoot);
     return seedRoot;
   }
 
@@ -112,7 +147,7 @@ export function resolveImmutableDependencySeed(appRoot) {
   const overlayStat = fs.lstatSync(overlayRoot);
   if (!overlayStat.isDirectory() || overlayStat.isSymbolicLink()) return undefined;
   const overlayEntries = fs.readdirSync(overlayRoot).sort();
-  const immutableEntries = overlayEntries.filter((entry) => !WRITABLE_OVERLAY_ENTRIES.has(entry));
+  const immutableEntries = overlayEntries.filter((entry) => !RESERVED_OVERLAY_ENTRIES.has(entry));
   if (immutableEntries.length === 0) return undefined;
 
   let seedRoot;
@@ -131,9 +166,10 @@ export function resolveImmutableDependencySeed(appRoot) {
   if (!seedStat.isDirectory() || seedStat.isSymbolicLink()) {
     fail(`immutable dependency seed must be a physical directory: ${seedRoot}`);
   }
-  const expectedEntries = [...fs.readdirSync(seedRoot), ...WRITABLE_OVERLAY_ENTRIES].sort();
+  validateImmutableDependencySeedEntries(seedRoot);
+  const expectedEntries = [...fs.readdirSync(seedRoot), ...RESERVED_OVERLAY_ENTRIES].sort();
   if (JSON.stringify(overlayEntries) !== JSON.stringify(expectedEntries)) {
-    fail('immutable dependency overlay entries do not match the inferred seed');
+    fail(describeOverlayEntryMismatch(overlayEntries, expectedEntries, 'the inferred seed'));
   }
   return seedRoot;
 }
@@ -144,7 +180,7 @@ export function installSubjectFrontendDependencies(appRoot, sourceAppRoot = appR
     materializeImmutableDependencyOverlay(appRoot, runtimeDependencySeed);
     return;
   }
-  execFileSync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], {
+  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], {
     cwd: appRoot,
     stdio: 'ignore',
     timeout: 180_000,
@@ -161,9 +197,9 @@ export function immutableDependencyRoot(appRoot) {
   if (!seedRoot) return overlayRoot;
   const seedEntries = fs.readdirSync(seedRoot).sort();
   const overlayEntries = fs.readdirSync(overlayRoot).sort();
-  const expectedEntries = [...seedEntries, ...WRITABLE_OVERLAY_ENTRIES].sort();
+  const expectedEntries = [...seedEntries, ...RESERVED_OVERLAY_ENTRIES].sort();
   if (JSON.stringify(overlayEntries) !== JSON.stringify(expectedEntries)) {
-    fail('immutable dependency overlay entries do not match the configured seed');
+    fail(describeOverlayEntryMismatch(overlayEntries, expectedEntries, 'the configured seed'));
   }
   for (const entry of seedEntries) {
     const overlayEntry = path.join(overlayRoot, entry);
@@ -172,10 +208,17 @@ export function immutableDependencyRoot(appRoot) {
       fail(`immutable dependency overlay link mismatch: ${entry}`);
     }
   }
-  for (const entry of WRITABLE_OVERLAY_ENTRIES) {
-    const stat = fs.lstatSync(path.join(overlayRoot, entry));
-    if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      fail(`immutable dependency overlay is not writable: ${entry}`);
+  for (const entry of IMAGE_CACHE_OVERLAY_ENTRIES) {
+    const overlayEntry = path.join(overlayRoot, entry);
+    const stat = fs.lstatSync(overlayEntry);
+    if (stat.isSymbolicLink()) {
+      const target = path.resolve(path.dirname(overlayEntry), fs.readlinkSync(overlayEntry));
+      const targetStat = fs.lstatSync(target);
+      if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) {
+        fail(`immutable dependency image-cache overlay target is invalid: ${entry}`);
+      }
+    } else if (!stat.isDirectory()) {
+      fail(`immutable dependency image-cache overlay is invalid: ${entry}`);
     }
   }
   return seedRoot;

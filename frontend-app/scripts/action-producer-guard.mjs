@@ -719,8 +719,8 @@ export function runActionProducerGuard({ root = ROOT, registry = loadRegistry(),
     discovered: discovery.counts.size,
     exempted: registry.exemptions.length,
     bindings: bindings.sort((left, right) => (
-      left.actionId.localeCompare(right.actionId)
-      || left.sourcePath.localeCompare(right.sourcePath)
+      (left.actionId < right.actionId ? -1 : left.actionId > right.actionId ? 1 : 0)
+      || (left.sourcePath < right.sourcePath ? -1 : left.sourcePath > right.sourcePath ? 1 : 0)
       || left.line - right.line
       || left.column - right.column
     )),

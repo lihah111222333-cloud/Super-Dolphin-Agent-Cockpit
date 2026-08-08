@@ -3,7 +3,10 @@
 package multilsp
 
 import (
+	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -24,15 +27,11 @@ func TestProcessRSSBytesIncludesLanguageServerDescendants(t *testing.T) {
 	childPIDPath := dir + "/child.pid"
 	readyPath := dir + "/ready"
 	cmd, processTree, stdin, stdout, _, err := startTransport(transportOptions{
-		Binary: "/bin/sh",
-		Args: []string{
-			"-c",
-			`"$MCP_LSP_TEST_BINARY" -test.run '^TestLanguageServerRSSChildHelper$' & child=$!; printf '%s' "$child" > "$MCP_LSP_TEST_CHILD_PID"; wait`,
-		},
+		Binary: binary,
+		Args:   []string{"-test.run=^TestLanguageServerRSSParentHelper$", "-test.count=1"},
 		Env: []string{
-			"MCP_LSP_TEST_BINARY=" + binary,
+			"MCP_LSP_RSS_PARENT=1",
 			"MCP_LSP_TEST_CHILD_PID=" + childPIDPath,
-			"MCP_LSP_RSS_CHILD=1",
 			"MCP_LSP_RSS_READY=" + readyPath,
 		},
 	})
@@ -63,6 +62,55 @@ func TestProcessRSSBytesIncludesLanguageServerDescendants(t *testing.T) {
 	}
 	if treeRSS < directRSS+(recyclerTreeChildBytes/2) {
 		t.Fatalf("processTreeRSSBytes() = %d, direct parent RSS = %d; descendant allocation was not counted", treeRSS, directRSS)
+	}
+}
+
+func TestLanguageServerRSSParentHelper(t *testing.T) {
+	if os.Getenv("MCP_LSP_RSS_PARENT") != "1" {
+		t.Skip("helper process")
+	}
+	child := exec.Command(os.Args[0], "-test.run=^TestLanguageServerRSSChildHelper$", "-test.count=1")
+	child.Env = append(os.Environ(), "MCP_LSP_RSS_CHILD=1")
+	child.Stdout = io.Discard
+	child.Stderr = io.Discard
+	if err := child.Start(); err != nil {
+		t.Fatalf("start RSS child helper: %v", err)
+	}
+	if err := os.WriteFile(os.Getenv("MCP_LSP_TEST_CHILD_PID"), []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+		t.Fatalf("write RSS child PID marker: %v", err)
+	}
+	waitForRSSFixtureShutdown(t, child)
+}
+
+func waitForRSSFixtureShutdown(t *testing.T, child *exec.Cmd) {
+	t.Helper()
+	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+		t.Fatalf("wait for RSS fixture shutdown: %v", err)
+	}
+	stopRSSChildHelper(t, child)
+}
+
+func stopRSSChildHelper(t *testing.T, child *exec.Cmd) {
+	t.Helper()
+	if err := child.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("stop RSS child helper: %v", err)
+	}
+	if err := child.Wait(); err != nil {
+		assertRSSChildTerminated(t, err)
+	}
+}
+
+func assertRSSChildTerminated(t *testing.T, err error) {
+	t.Helper()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("RSS child helper exited: %v", err)
+	}
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() {
+		t.Fatalf("RSS child helper exited: %v", err)
 	}
 }
 

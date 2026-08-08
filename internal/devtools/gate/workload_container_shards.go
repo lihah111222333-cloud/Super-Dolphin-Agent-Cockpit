@@ -201,30 +201,6 @@ func workloadContainerShardIdentityDigest(shard ContainerShard) (string, error) 
 	return fmt.Sprintf("sha256:%x", sum), nil
 }
 
-// equalContainerShardCore 比较所有 schema 共用的稳定 shard 身份字段。
-func equalContainerShardCore(left, right ContainerShard) bool {
-	return left.SchemaVersion == right.SchemaVersion && left.Index == right.Index &&
-		left.IdentityDigest == right.IdentityDigest && left.Profile == right.Profile &&
-		left.PlanDigest == right.PlanDigest && left.SourceTreeSHA == right.SourceTreeSHA &&
-		left.AcceptedManifestDigest == right.AcceptedManifestDigest &&
-		left.AcceptedConfigDigest == right.AcceptedConfigDigest &&
-		left.ShardsPerJob == right.ShardsPerJob
-}
-
-func equalContainerShardWorkloadBinding(left, right ContainerShard) bool {
-	return left.WorkloadPlanDigest == right.WorkloadPlanDigest &&
-		left.CatalogDigest == right.CatalogDigest &&
-		left.LedgerGeneration == right.LedgerGeneration &&
-		left.EstimatedDurationMS == right.EstimatedDurationMS
-}
-
-// equalContainerShard 比较回执中的完整 canonical shard 绑定，而非只信任 digest 字段。
-func equalContainerShard(left, right ContainerShard) bool {
-	return equalContainerShardCore(left, right) &&
-		equalContainerShardWorkloadBinding(left, right) &&
-		slices.Equal(left.GateIDs, right.GateIDs)
-}
-
 func cloneWorkloadExecutionPlan(plan WorkloadExecutionPlan) (WorkloadExecutionPlan, error) {
 	encoded, err := json.Marshal(plan)
 	if err != nil {

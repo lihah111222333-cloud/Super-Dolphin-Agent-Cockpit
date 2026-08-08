@@ -264,6 +264,7 @@ func assertSemanticSurfaceMappings(t *testing.T, registry archtest.BackendBounda
 		"cmd/agent-runtime":                  "command_narrow_import_surface",
 		"cmd/agent-terminal":                 "command_narrow_import_surface",
 		"cmd/codex-worktree-setup":           "command_narrow_import_surface",
+		"cmd/build-trusted-gate-launcher":    "command_narrow_import_surface",
 		"cmd/mcp-schema-compiler-helper":     "command_narrow_import_surface",
 		"cmd/super-dolphin-gate":             "command_narrow_import_surface",
 		"cmd/super-dolphin-release-manifest": "command_narrow_import_surface",
@@ -294,14 +295,16 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 	t.Helper()
 	wantPolicies := map[archtest.BoundaryRuleID]map[string][]string{
 		"command_narrow_import_surface": {
-			"cmd/acp-node/**/*.go":                   {"internal/devtools/acpnode"},
-			"cmd/agent-runtime/**/*.go":              {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
-			"cmd/agent-terminal/**/*.go":             {"internal/app", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/rlimit", "internal/platform/runner", "internal/platform/runtimeenv"},
-			"cmd/codex-worktree-setup/**/*.go":       {"internal/platform/config", "internal/util/pathutil"},
-			"cmd/mcp-schema-compiler-helper/**/*.go": {"internal/platform/toolbridge/schema"},
+			"cmd/acp-node/**/*.go":                    {"internal/devtools/acpnode"},
+			"cmd/agent-runtime/**/*.go":               {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
+			"cmd/agent-terminal/**/*.go":              {"internal/app", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/rlimit", "internal/platform/runner", "internal/platform/runtimeenv"},
+			"cmd/codex-worktree-setup/**/*.go":        {"internal/platform/config", "internal/util/pathutil"},
+			"cmd/build-trusted-gate-launcher/**/*.go": {"internal/devtools/trustedlauncher"},
+			"cmd/mcp-schema-compiler-helper/**/*.go":  {"internal/platform/toolbridge/schema"},
 			"cmd/super-dolphin-gate/**/*.go": {
 				"internal/devtools/alicloud/eci",
 				"internal/devtools/alicloud/oss",
+				"internal/devtools/capcontract",
 				"internal/devtools/cicontract",
 				"internal/devtools/codemapindex",
 				"internal/devtools/coordinatoradmission",
@@ -312,6 +315,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 				"internal/devtools/projectmaptrusted",
 				"internal/devtools/remoteci",
 				"internal/devtools/shardresource",
+				"internal/devtools/trustedlauncher",
 				"internal/devtools/sourceexport",
 			},
 			"cmd/super-dolphin-release-manifest/**/*.go": {"internal/module/appupdate"},
@@ -650,6 +654,7 @@ type T = testing.T
 func Test(t *testing.T) {}
 func TestAlias(t *T) {}
 func TestEmptyResults(t *testing.T) () {}
+func TestCodexHelperProcess(t *testing.T) {}
 func TestGeneric[P any](t *testing.T) {}
 func TestReturns(t *testing.T) error { return nil }
 `

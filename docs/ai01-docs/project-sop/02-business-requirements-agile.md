@@ -20,7 +20,7 @@
 | Agent 使用者 | 发起任务、查看上下文、处理审批 | Chat、Workflow、Files、Observability 页面 |
 | Prompt/Skill 维护者 | 管理 prompt 模板、section、skill 文件和候选建议 | Prompt、Skills 页面和对应 RPC |
 | 编排维护者 | 创建 DAG、调度节点、处理 cron 和 agent lifecycle | `cmd/mcp-orch`、Workflow 页面 |
-| 质量和发布负责人 | 运行 guard、测试、打包、发布、回滚 | `Makefile`、`.github/workflows/ci.yml`、`scripts/package_*` |
+| 质量和发布负责人 | 运行 guard、测试、打包、发布、回滚 | `Makefile`、`docs/契约/remote-ci-eci-imagecache-contract.md`、`scripts/package_*` |
 | 故障处理负责人 | 查看日志、指标、慢请求、错误和 ELK | `/metrics`、Observability 页面、`deploy/elk` |
 
 ### 核心业务流程

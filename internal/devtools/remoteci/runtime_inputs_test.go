@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -151,6 +152,26 @@ func TestResolveRuntimeDependencyBuildRejectsRuntimeSeedWorkerRecipeDrift(t *tes
 	}
 }
 
+func TestResolveRuntimeDependencyBuildRejectsMissingRuntimeSeedWorkerRecipeClosureFile(t *testing.T) {
+	entries := loadRuntimeDependencyEntries(t)
+	for _, missing := range []string{
+		"internal/devtools/gate/executor_seed.go",
+		"internal/devtools/gate/executor_frontend_vite_cache.go",
+	} {
+		t.Run(missing, func(t *testing.T) {
+			filtered := make([]sourceexport.TreeEntry, 0, len(entries)-1)
+			for _, entry := range entries {
+				if entry.Path != missing {
+					filtered = append(filtered, entry)
+				}
+			}
+			if _, _, err := ResolveRuntimeDependencyBuild(filtered, "linux/amd64"); err == nil {
+				t.Fatal("ResolveRuntimeDependencyBuild() unexpectedly accepted missing runtime seed recipe closure file")
+			}
+		})
+	}
+}
+
 func TestResolveRuntimeDependencyBuildRejectsDockerfileRecipeDrift(t *testing.T) {
 	entries := loadRuntimeDependencyEntries(t)
 	for index := range entries {
@@ -164,11 +185,12 @@ func TestResolveRuntimeDependencyBuildRejectsDockerfileRecipeDrift(t *testing.T)
 }
 
 func TestResolveRuntimeDependencyBuildKeepsRecipeChangesAuditableWithoutChangingRuntimeIdentity(t *testing.T) {
-	for _, testCase := range []struct{ path, field, suffix string }{
-		{"build/gate/runtime-deps.Dockerfile", "dockerfile_sha256", "\n# audited recipe change\n"},
-		{"internal/devtools/gate/executor_seed.go", "runtime_seed_worker_sha256", "\n// audited recipe change\n"},
+	for _, testCase := range []struct{ path, suffix string }{
+		{"build/gate/runtime-deps.Dockerfile", "\n# audited recipe change\n"},
+		{"internal/devtools/gate/executor_seed.go", "\n// audited recipe change\n"},
+		{"internal/devtools/gate/executor_frontend_vite_cache.go", "\n// audited recipe change\n"},
 	} {
-		t.Run(testCase.field, func(t *testing.T) {
+		t.Run(testCase.path, func(t *testing.T) {
 			entries := loadRuntimeDependencyEntries(t)
 			baseline, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
 			if err != nil {
@@ -182,9 +204,9 @@ func TestResolveRuntimeDependencyBuildKeepsRecipeChangesAuditableWithoutChanging
 			for index := range entries {
 				if entries[index].Path == testCase.path {
 					entries[index].Data = append(entries[index].Data, []byte(testCase.suffix)...)
-					recipeInputs[testCase.field] = remoteBytesDigest(entries[index].Data)
 				}
 			}
+			updateRuntimeDependencyRecipeInputForTest(entries, recipeInputs, testCase.path)
 			updateRuntimeDependencyLock(t, entries, lockIndex, document)
 			changed, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
 			if err != nil {
@@ -194,6 +216,24 @@ func TestResolveRuntimeDependencyBuildKeepsRecipeChangesAuditableWithoutChanging
 				t.Fatal("audited recipe change invalidated reusable runtime dependency identity")
 			}
 		})
+	}
+}
+
+func updateRuntimeDependencyRecipeInputForTest(entries []sourceexport.TreeEntry, recipeInputs map[string]any, changedPath string) {
+	byPath := runtimeTreeByPath(entries)
+	for _, group := range runtimeDependencyRecipeGroups() {
+		if !slices.Contains(group.paths, changedPath) {
+			continue
+		}
+		if len(group.paths) == 1 {
+			recipeInputs[group.field] = remoteBytesDigest(byPath[group.paths[0]])
+			continue
+		}
+		records := make([]string, 0, len(group.paths))
+		for _, path := range group.paths {
+			records = append(records, path+"="+remoteBytesDigest(byPath[path]))
+		}
+		recipeInputs[group.field] = remoteBytesDigest([]byte(strings.Join(records, "\n") + "\n"))
 	}
 }
 

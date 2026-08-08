@@ -67,7 +67,6 @@ func TestBuildGatePlanRoutesReleaseWorkflowAndArchtestInputsToOwners(t *testing.
 		file  string
 		gates []string
 	}{
-		{".github/workflows/ci.yml", []string{"workflow:actionlint", "release:semantic-guards", "backend:archtest"}},
 		{".github/workflows/release.yml", []string{"workflow:actionlint", "release:semantic-guards", "backend:archtest"}},
 		{"scripts/package_linux.sh", []string{"release:semantic-guards"}},
 		{"scripts/package_windows.ps1", []string{"release:semantic-guards"}},
@@ -98,7 +97,6 @@ func TestBuildGatePlanRoutesReleaseWorkflowAndArchtestInputsToOwners(t *testing.
 		{".githooks/pre-commit", []string{"backend:archtest", "ai-maintenance:self-test"}},
 		{"internal/module/thread/session_test.go", []string{"backend:test-integrity"}},
 		{"docs/automation/全仓夜间门禁健康巡检协议.md", []string{"nightly-protocol:check"}},
-		{".github/workflows/ci.yml", []string{"nightly-protocol:check"}},
 	}
 	for _, test := range tests {
 		t.Run(test.file, func(t *testing.T) {

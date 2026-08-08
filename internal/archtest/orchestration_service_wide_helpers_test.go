@@ -17,7 +17,8 @@ const wideOrchestrationFamilyThreshold = 2
 func loadWideOrchestrationTypeGuardPackages(t *testing.T, root string) []*orchestrationServiceCheckedPackage {
 	t.Helper()
 
-	loaded, err := ssaload.Load(ssaload.Options{RepoRoot: root, Patterns: []string{"./cmd/...", "./internal/..."}, Tests: false, Overlay: wideOrchestrationGuardOverlay(root), Include: func(pkg *packages.Package) bool {
+	paths := discoverWideOrchestrationTypeGuardPackagePaths(t, root)
+	loaded, err := ssaload.Load(ssaload.Options{RepoRoot: root, Patterns: paths, Tests: false, Overlay: wideOrchestrationGuardOverlay(root), Include: func(pkg *packages.Package) bool {
 		return pkg != nil && isOrchestrationServiceTypeGuardProductionPackagePath(pkg.PkgPath) && len(pkg.GoFiles) > 0
 	}})
 	if err != nil {
@@ -192,12 +193,6 @@ func wideOrchestrationMethodFamily(method string) string {
 	default:
 		return ""
 	}
-}
-
-func collectWideOrchestrationProductionViolationMessages(t *testing.T, root string) []string {
-	t.Helper()
-
-	return collectWideOrchestrationProductionViolationMessagesFromPackages(loadWideOrchestrationTypeGuardPackages(t, root))
 }
 
 func collectWideOrchestrationProductionViolationMessagesFromPackages(pkgs []*orchestrationServiceCheckedPackage) []string {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 
@@ -15,10 +16,16 @@ import (
 
 const (
 	durationLedgerVersion              = 1
-	workloadExecutionPlanSchemaVersion = 5
+	workloadExecutionPlanSchemaVersion = 8
 	// FullCITargetDuration 是分片优化目标；超时只告警，不是 worker 终止时限。
 	FullCITargetDuration         = cicontract.ShardTargetDuration
 	FullCITargetDurationMS int64 = int64(FullCITargetDuration / time.Millisecond)
+	// DurationExecutionModeNormal 标记由 normal 2C/4C/8C resource tier 采集的 sample。
+	// 它与 fixed-size calibration 有意保持区分。
+	DurationExecutionModeNormal = "normal"
+	// DurationExecutionModeCalibration 标记由固定 4C/8GiB calibration resource 采集的
+	// sample。Calibration sample 绝不能进入 normal LPT。
+	DurationExecutionModeCalibration = "calibration"
 )
 
 // WorkloadKind 标识由 gate 支持的确定性执行种类。
@@ -42,6 +49,7 @@ type Workload struct {
 	ID                  string       `json:"id"`
 	Kind                WorkloadKind `json:"kind"`
 	CommandDigest       string       `json:"command_digest"`
+	InputDigest         string       `json:"input_digest,omitempty"`
 	BootstrapEstimateMS int64        `json:"bootstrap_estimate_ms"`
 	Shardable           bool         `json:"shardable"`
 }
@@ -52,6 +60,7 @@ func (workload *Workload) UnmarshalJSON(data []byte) error {
 		ID                  string       `json:"id"`
 		Kind                WorkloadKind `json:"kind"`
 		CommandDigest       string       `json:"command_digest"`
+		InputDigest         string       `json:"input_digest,omitempty"`
 		BootstrapEstimateMS int64        `json:"bootstrap_estimate_ms"`
 		Shardable           *bool        `json:"shardable"`
 	}
@@ -64,37 +73,43 @@ func (workload *Workload) UnmarshalJSON(data []byte) error {
 	}
 	*workload = Workload{
 		ID: document.ID, Kind: document.Kind, CommandDigest: document.CommandDigest,
-		BootstrapEstimateMS: document.BootstrapEstimateMS, Shardable: *document.Shardable,
+		InputDigest: document.InputDigest, BootstrapEstimateMS: document.BootstrapEstimateMS, Shardable: *document.Shardable,
 	}
 	return nil
 }
 
 // DurationLedger 保存按可复现执行环境分桶的观测时长样本。
 type DurationLedger struct {
-	Version     int                  `json:"version"`
-	Calibration *DurationCalibration `json:"calibration,omitempty"`
-	Samples     []DurationSample     `json:"samples"`
+	Version       int                         `json:"version"`
+	Calibration   *DurationCalibration        `json:"calibration,omitempty"`
+	ShardOverhead *ShardOrchestrationOverhead `json:"shard_overhead,omitempty"`
+	Samples       []DurationSample            `json:"samples"`
 }
 
-const DurationCalibrationSchemaVersion uint32 = 2
+const DurationCalibrationSchemaVersion uint32 = 3
 
 // DurationCalibration 绑定首代完整 commit/push/release 校准和精确 runner 环境。
 type DurationCalibration struct {
-	SchemaVersion        uint32         `json:"schema_version"`
-	Commit               string         `json:"commit"`
-	Tree                 string         `json:"tree"`
-	Platform             string         `json:"platform"`
-	Runner               string         `json:"runner"`
-	Toolchain            string         `json:"toolchain"`
-	CommitEntrypoint     CIEntrypointID `json:"commit_entrypoint"`
-	PushEntrypoint       CIEntrypointID `json:"push_entrypoint"`
-	ReleaseEntrypoint    CIEntrypointID `json:"release_entrypoint"`
-	CommitCatalogDigest  string         `json:"commit_catalog_digest"`
-	PushCatalogDigest    string         `json:"push_catalog_digest"`
-	ReleaseCatalogDigest string         `json:"release_catalog_digest"`
-	WorkloadCount        int            `json:"workload_count"`
-	RacePackageCount     int            `json:"race_package_count"`
-	CompletedAt          time.Time      `json:"completed_at"`
+	SchemaVersion                uint32         `json:"schema_version"`
+	Commit                       string         `json:"commit"`
+	Tree                         string         `json:"tree"`
+	Platform                     string         `json:"platform"`
+	Runner                       string         `json:"runner"`
+	Toolchain                    string         `json:"toolchain"`
+	CommitEntrypoint             CIEntrypointID `json:"commit_entrypoint"`
+	PushEntrypoint               CIEntrypointID `json:"push_entrypoint"`
+	ReleaseEntrypoint            CIEntrypointID `json:"release_entrypoint"`
+	CommitCatalogDigest          string         `json:"commit_catalog_digest"`
+	PushCatalogDigest            string         `json:"push_catalog_digest"`
+	ReleaseCatalogDigest         string         `json:"release_catalog_digest"`
+	CalibrationResourceClassID   string         `json:"calibration_resource_class_id"`
+	CalibrationResourceCPU       float64        `json:"calibration_resource_cpu"`
+	CalibrationResourceMemoryGiB float64        `json:"calibration_resource_memory_gib"`
+	WorkloadCount                int            `json:"workload_count"`
+	// RacePackageCount 是校准目录中过滤后仍可执行的去重 race 包数；normal-only 静态目标不计入。
+	RacePackageCount   int       `json:"race_package_count"`
+	AcceptedSnapshotID string    `json:"accepted_snapshot_id"`
+	CompletedAt        time.Time `json:"completed_at"`
 }
 
 // DurationSample 记录一个 workload 的单次执行结果和耗时。
@@ -111,42 +126,39 @@ type DurationSample struct {
 
 // DurationBucket 将观测绑定到 workload、命令和执行环境，避免不可比样本混用。
 type DurationBucket struct {
-	WorkloadID    string `json:"workload_id"`
-	CommandDigest string `json:"command_digest"`
-	Platform      string `json:"platform"`
-	Runner        string `json:"runner"`
-	Toolchain     string `json:"toolchain"`
+	WorkloadID        string  `json:"workload_id"`
+	CommandDigest     string  `json:"command_digest"`
+	InputDigest       string  `json:"input_digest"`
+	Platform          string  `json:"platform"`
+	Runner            string  `json:"runner"`
+	Toolchain         string  `json:"toolchain"`
+	ExecutionMode     string  `json:"execution_mode"`
+	ResourceClassID   string  `json:"resource_class_id"`
+	ResourceCPU       float64 `json:"resource_cpu"`
+	ResourceMemoryGiB float64 `json:"resource_memory_gib"`
 }
 
-// PlanningContext 是 LPT 规划的目标执行环境；它不接受瞬时 slot 状态。
+// PlanningContext 是 LPT 规划的目标执行环境；它不接受瞬时 slot 状态。Calibration=true 时所有时长档位共享固定校准资源。
 type PlanningContext struct {
-	Platform         string `json:"platform"`
-	Runner           string `json:"runner"`
-	Toolchain        string `json:"toolchain"`
-	TargetDurationMS int64  `json:"target_duration_ms"`
-}
-
-type durationSampleIndexKey struct {
-	workloadID    string
-	commandDigest string
-}
-
-type durationSampleAggregate struct {
-	successTotalMS     int64
-	successCount       int64
-	maxFailureDuration int64
-}
-
-// DurationSampleIndex 是单个账本 generation 和执行环境的只读时长索引。
-type DurationSampleIndex struct {
-	context PlanningContext
-	buckets map[durationSampleIndexKey]durationSampleAggregate
+	Platform                      string  `json:"platform"`
+	Runner                        string  `json:"runner"`
+	Toolchain                     string  `json:"toolchain"`
+	Calibration                   bool    `json:"calibration,omitempty"`
+	CalibrationResourceClassID    string  `json:"calibration_resource_class_id,omitempty"`
+	CalibrationResourceCPU        float64 `json:"calibration_resource_cpu,omitempty"`
+	CalibrationResourceMemoryGiB  float64 `json:"calibration_resource_memory_gib,omitempty"`
+	TargetDurationMS              int64   `json:"target_duration_ms"`
+	AcceptedSnapshotID            string  `json:"accepted_snapshot_id"`
+	ShardOverheadP95MS            int64   `json:"shard_overhead_p95_ms"`
+	ShardOverheadSampleCount      int     `json:"shard_overhead_sample_count"`
+	ShardOverheadProvenanceDigest string  `json:"shard_overhead_provenance_digest"`
 }
 
 // ShardPlan 是单个计划分片及其确定性 workload 顺序。
 type ShardPlan struct {
 	Index               int               `json:"index"`
 	Workloads           []PlannedWorkload `json:"workloads"`
+	CompileGroupIDs     []string          `json:"compile_group_ids,omitempty"`
 	EstimatedDurationMS int64             `json:"estimated_duration_ms"`
 }
 
@@ -154,6 +166,8 @@ type ShardPlan struct {
 type PlannedWorkload struct {
 	Workload            Workload `json:"workload"`
 	EstimatedDurationMS int64    `json:"estimated_duration_ms"`
+	ResourceCPU         float64  `json:"resource_cpu"`
+	ResourceMemoryGiB   float64  `json:"resource_memory_gib"`
 }
 
 // WorkloadExecutionPlan 将一次确定性分片绑定到 GatePlan、目录和账本 generation。
@@ -166,6 +180,7 @@ type WorkloadExecutionPlan struct {
 	Catalog                  WorkloadCatalog `json:"catalog"`
 	ExecutionWorkloadIDs     []GateID        `json:"execution_workload_ids"`
 	ExecutionWorkloadDigest  string          `json:"execution_workload_digest"`
+	CompileGroups            []CompileGroup  `json:"compile_groups"`
 	Shards                   []ShardPlan     `json:"shards"`
 	OwnerEstimatedDurationMS int64           `json:"owner_estimated_duration_ms"`
 	PlanDigest               string          `json:"plan_digest"`
@@ -226,6 +241,11 @@ func ValidateDurationLedger(ledger DurationLedger) error {
 			return fmt.Errorf("duration ledger calibration: %w", err)
 		}
 	}
+	if ledger.ShardOverhead != nil {
+		if err := ValidateShardOrchestrationOverhead(*ledger.ShardOverhead); err != nil {
+			return fmt.Errorf("duration ledger shard overhead: %w", err)
+		}
+	}
 	for index, sample := range ledger.Samples {
 		if err := validateDurationBucket(sample.Bucket); err != nil {
 			return fmt.Errorf("samples[%d].bucket: %w", index, err)
@@ -250,9 +270,13 @@ func ValidateDurationCalibration(calibration DurationCalibration) error {
 	if err := validateCalibrationIdentity(calibration); err != nil {
 		return err
 	}
+	if err := cicontract.ValidateCalibrationResources(calibration.CalibrationResourceClassID, calibration.CalibrationResourceCPU, calibration.CalibrationResourceMemoryGiB); err != nil {
+		return fmt.Errorf("duration calibration resource: %w", err)
+	}
 	if err := validateDurationBucket(DurationBucket{
-		WorkloadID: "calibration", CommandDigest: strings.Repeat("0", 64),
+		WorkloadID: "calibration", CommandDigest: strings.Repeat("0", 64), InputDigest: "sha256:" + strings.Repeat("0", 64),
 		Platform: calibration.Platform, Runner: calibration.Runner, Toolchain: calibration.Toolchain,
+		ExecutionMode: DurationExecutionModeCalibration, ResourceClassID: calibration.CalibrationResourceClassID, ResourceCPU: calibration.CalibrationResourceCPU, ResourceMemoryGiB: calibration.CalibrationResourceMemoryGiB,
 	}); err != nil {
 		return err
 	}
@@ -262,11 +286,21 @@ func ValidateDurationCalibration(calibration DurationCalibration) error {
 	if err := validateCalibrationEntrypoints(calibration); err != nil {
 		return err
 	}
-	if calibration.WorkloadCount <= 0 || calibration.RacePackageCount <= 0 {
-		return errors.New("duration calibration workload counts must be positive")
+	if err := validateCalibrationWorkloadCounts(calibration); err != nil {
+		return err
+	}
+	if strings.TrimSpace(calibration.AcceptedSnapshotID) == "" {
+		return errors.New("duration calibration accepted snapshot identity is required")
 	}
 	if calibration.CompletedAt.IsZero() || calibration.CompletedAt.Location() != time.UTC {
 		return errors.New("duration calibration completion time must be UTC")
+	}
+	return nil
+}
+
+func validateCalibrationWorkloadCounts(calibration DurationCalibration) error {
+	if calibration.WorkloadCount <= 0 || calibration.RacePackageCount <= 0 {
+		return errors.New("duration calibration workload counts must be positive")
 	}
 	return nil
 }
@@ -318,6 +352,7 @@ func decodeStrictJSON(reader io.Reader, target any) error {
 	return nil
 }
 
+// validateWorkload 校验单个 workload 的稳定身份和 bootstrap 时长。
 func validateWorkload(workload Workload) error {
 	if strings.TrimSpace(workload.ID) == "" {
 		return errors.New("id must not be empty")
@@ -327,6 +362,9 @@ func validateWorkload(workload Workload) error {
 	}
 	if !isSHA256Digest(workload.CommandDigest) {
 		return errors.New("command_digest must be a lowercase SHA-256 hex digest")
+	}
+	if workload.InputDigest != "" && !isPrefixedSHA256Digest(workload.InputDigest) {
+		return errors.New("input_digest must be a prefixed SHA-256 digest when present")
 	}
 	if workload.BootstrapEstimateMS <= 0 {
 		return errors.New("bootstrap_estimate_ms must be positive")
@@ -348,35 +386,89 @@ func isSHA256Digest(value string) bool {
 }
 
 func validateDurationBucket(bucket DurationBucket) error {
+	if err := validateDurationBucketIdentity(bucket); err != nil {
+		return err
+	}
+	if err := validateDurationBucketResourceNumbers(bucket); err != nil {
+		return err
+	}
+	return validateDurationBucketResourceClass(bucket)
+}
+
+// validateDurationBucketIdentity 校验 workload、命令、输入和环境身份。
+func validateDurationBucketIdentity(bucket DurationBucket) error {
 	if strings.TrimSpace(bucket.WorkloadID) == "" {
 		return errors.New("workload_id must not be empty")
 	}
 	if !isSHA256Digest(bucket.CommandDigest) {
 		return errors.New("command_digest must be a lowercase SHA-256 hex digest")
 	}
-	for field, value := range map[string]string{
-		"platform":  bucket.Platform,
-		"runner":    bucket.Runner,
-		"toolchain": bucket.Toolchain,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("%s must not be empty", field)
+	if !isPrefixedSHA256Digest(bucket.InputDigest) {
+		return errors.New("input_digest must be a prefixed SHA-256 digest")
+	}
+	if err := validateDurationEnvironment(bucket.Platform, bucket.Runner, bucket.Toolchain); err != nil {
+		return err
+	}
+	if bucket.ExecutionMode != DurationExecutionModeNormal && bucket.ExecutionMode != DurationExecutionModeCalibration {
+		return fmt.Errorf("execution_mode %q is unsupported", bucket.ExecutionMode)
+	}
+	if strings.TrimSpace(bucket.ResourceClassID) == "" || bucket.ResourceClassID != strings.TrimSpace(bucket.ResourceClassID) {
+		return errors.New("resource_class_id must not be empty or padded")
+	}
+	return nil
+}
+
+func validateDurationBucketResourceNumbers(bucket DurationBucket) error {
+	if math.IsNaN(bucket.ResourceCPU) || math.IsInf(bucket.ResourceCPU, 0) || math.IsNaN(bucket.ResourceMemoryGiB) || math.IsInf(bucket.ResourceMemoryGiB, 0) {
+		return errors.New("resource CPU and memory must be finite")
+	}
+	return nil
+}
+
+func validateDurationBucketResourceClass(bucket DurationBucket) error {
+	if bucket.ExecutionMode == DurationExecutionModeCalibration {
+		if err := cicontract.ValidateCalibrationResources(bucket.ResourceClassID, bucket.ResourceCPU, bucket.ResourceMemoryGiB); err != nil {
+			return fmt.Errorf("calibration resource: %w", err)
+		}
+		return nil
+	}
+	if !isNormalResourceIdentity(bucket.ResourceCPU, bucket.ResourceMemoryGiB) {
+		return errors.New("normal resource must be exactly 2C/4GiB, 4C/8GiB, or 8C/16GiB")
+	}
+	return nil
+}
+
+func validateDurationEnvironment(platform, runner, toolchain string) error {
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{name: "platform", value: platform},
+		{name: "runner", value: runner},
+		{name: "toolchain", value: toolchain},
+	}
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field.value)
+		if trimmed == "" {
+			return fmt.Errorf("%s must not be empty", field.name)
+		}
+		if trimmed != field.value {
+			return fmt.Errorf("%s must not contain leading or trailing whitespace", field.name)
 		}
 	}
 	return nil
 }
 
-func validatePlanningContext(context PlanningContext) error {
-	if err := cicontract.ValidateShardTargetDuration(time.Duration(context.TargetDurationMS) * time.Millisecond); err != nil {
-		return fmt.Errorf("target_duration_ms: %w", err)
-	}
-	return validateDurationBucket(DurationBucket{
-		WorkloadID:    "planning-context",
-		CommandDigest: strings.Repeat("0", 64),
-		Platform:      context.Platform,
-		Runner:        context.Runner,
-		Toolchain:     context.Toolchain,
-	})
+// ValidateDurationBucket 向远程 producer 暴露严格的 duration identity 守卫。
+func ValidateDurationBucket(bucket DurationBucket) error {
+	return validateDurationBucket(bucket)
+}
+
+// isNormalResourceIdentity 判断资源是否属于 normal 的三个固定规格。
+func isNormalResourceIdentity(cpu, memoryGiB float64) bool {
+	return (cpu == 2 && memoryGiB == 4) ||
+		(cpu == 4 && memoryGiB == 8) ||
+		(cpu == 8 && memoryGiB == 16)
 }
 
 func estimateOwnerWorkloadDurationMS(catalog WorkloadCatalog, index DurationSampleIndex) (int64, error) {
@@ -395,169 +487,6 @@ func estimateOwnerWorkloadDurationMS(catalog WorkloadCatalog, index DurationSamp
 		total += estimate
 	}
 	return total, nil
-}
-
-// BuildDurationSampleIndex 对当前 generation 只扫描一次账本，并隔离不同比较环境。
-func BuildDurationSampleIndex(ledger DurationLedger, context PlanningContext) (DurationSampleIndex, error) {
-	if context.TargetDurationMS <= 0 {
-		return DurationSampleIndex{}, errors.New("duration sample index target must be positive")
-	}
-	if err := validateDurationBucket(DurationBucket{
-		WorkloadID:    "duration-sample-index",
-		CommandDigest: strings.Repeat("0", 64),
-		Platform:      context.Platform,
-		Runner:        context.Runner,
-		Toolchain:     context.Toolchain,
-	}); err != nil {
-		return DurationSampleIndex{}, err
-	}
-	index := DurationSampleIndex{
-		context: context,
-		buckets: make(map[durationSampleIndexKey]durationSampleAggregate),
-	}
-	const maximumInt64 = int64(^uint64(0) >> 1)
-	for _, sample := range ledger.Samples {
-		if err := index.addSample(sample, maximumInt64); err != nil {
-			return DurationSampleIndex{}, err
-		}
-	}
-	return index, nil
-}
-
-// addSample 按当前比较环境把一条样本合并到确定性的 workload 聚合中。
-func (index DurationSampleIndex) addSample(sample DurationSample, maximumInt64 int64) error {
-	if sample.Bucket.Platform != index.context.Platform || sample.Bucket.Runner != index.context.Runner || sample.Bucket.Toolchain != index.context.Toolchain {
-		return nil
-	}
-	if sample.DurationMS <= 0 {
-		return fmt.Errorf("duration sample for workload %q must be positive", sample.Bucket.WorkloadID)
-	}
-	key := durationSampleIndexKey{workloadID: sample.Bucket.WorkloadID, commandDigest: sample.Bucket.CommandDigest}
-	aggregate := index.buckets[key]
-	if !sample.Succeeded {
-		if sample.DurationMS > aggregate.maxFailureDuration {
-			aggregate.maxFailureDuration = sample.DurationMS
-		}
-		index.buckets[key] = aggregate
-		return nil
-	}
-	if sample.DurationMS > maximumInt64-aggregate.successTotalMS {
-		return fmt.Errorf("duration estimate overflows for workload %q", sample.Bucket.WorkloadID)
-	}
-	aggregate.successTotalMS += sample.DurationMS
-	aggregate.successCount++
-	index.buckets[key] = aggregate
-	return nil
-}
-
-// DurationSampleIndexFromSnapshot 优先复用 SQLite 聚合索引，并拒绝环境不一致的快照。
-func DurationSampleIndexFromSnapshot(
-	snapshot DurationLedgerSnapshot,
-	context PlanningContext,
-) (DurationSampleIndex, error) {
-	if err := validatePlanningContext(context); err != nil {
-		return DurationSampleIndex{}, err
-	}
-	if snapshot.SampleIndex == nil {
-		return BuildDurationSampleIndex(snapshot.Ledger, context)
-	}
-	index := *snapshot.SampleIndex
-	if index.context != context {
-		return DurationSampleIndex{}, errors.New("duration sample index planning context does not match")
-	}
-	if index.buckets == nil {
-		return DurationSampleIndex{}, errors.New("duration sample index buckets are missing")
-	}
-	return index, nil
-}
-
-// HasComparableSuccessfulDurationSample 判断索引中是否已有同命令成功样本。
-func (index DurationSampleIndex) HasComparableSuccessfulDurationSample(workload Workload) bool {
-	aggregate := index.buckets[durationSampleIndexKey{
-		workloadID: workload.ID, commandDigest: workload.CommandDigest,
-	}]
-	return aggregate.successCount > 0
-}
-
-// HasFailureExceedingDuration 判断索引中是否有超过阈值的同命令失败样本。
-func (index DurationSampleIndex) HasFailureExceedingDuration(workload Workload, durationMS int64) bool {
-	aggregate := index.buckets[durationSampleIndexKey{
-		workloadID: workload.ID, commandDigest: workload.CommandDigest,
-	}]
-	return aggregate.maxFailureDuration > durationMS
-}
-
-// EstimateWorkloadDurationMS 使用预聚合成功样本估算单个 workload。
-func (index DurationSampleIndex) EstimateWorkloadDurationMS(workload Workload) (int64, error) {
-	aggregate := index.buckets[durationSampleIndexKey{
-		workloadID: workload.ID, commandDigest: workload.CommandDigest,
-	}]
-	if aggregate.successCount == 0 {
-		return workload.BootstrapEstimateMS, nil
-	}
-	estimate := aggregate.successTotalMS / aggregate.successCount
-	if estimate > index.context.TargetDurationMS &&
-		exactGoTestBootstrapFitsBudget(workload, index.context.TargetDurationMS) {
-		return workload.BootstrapEstimateMS, nil
-	}
-	return estimate, nil
-}
-
-// GoTestDurationMS 返回同父 workload、同顶层测试和同环境的成功耗时均值。
-func (index DurationSampleIndex) GoTestDurationMS(
-	parent Workload,
-	testName string,
-) (int64, bool) {
-	aggregate := index.buckets[durationSampleIndexKey{
-		workloadID:    GoTestDurationWorkloadID(parent.ID, testName),
-		commandDigest: GoTestDurationCommandDigest(parent.CommandDigest, testName),
-	}]
-	if aggregate.successCount == 0 {
-		return 0, false
-	}
-	return aggregate.successTotalMS / aggregate.successCount, true
-}
-
-// EstimateWorkloadDurationMS 只聚合完全匹配环境桶的成功样本；失败样本绝不会改变成功估算。
-func EstimateWorkloadDurationMS(workload Workload, ledger DurationLedger, context PlanningContext) (int64, error) {
-	var successTotal int64
-	var successCount int64
-	for _, sample := range ledger.Samples {
-		if !sample.Succeeded || !matchesPlanningBucket(sample.Bucket, workload, context) {
-			continue
-		}
-		if sample.DurationMS > (int64(^uint64(0)>>1) - successTotal) {
-			return 0, fmt.Errorf("duration estimate overflows for workload %q", workload.ID)
-		}
-		successTotal += sample.DurationMS
-		successCount++
-	}
-	if successCount == 0 {
-		return workload.BootstrapEstimateMS, nil
-	}
-	estimate := successTotal / successCount
-	if estimate > context.TargetDurationMS && exactGoTestBootstrapFitsBudget(workload, context.TargetDurationMS) {
-		return workload.BootstrapEstimateMS, nil
-	}
-	return estimate, nil
-}
-
-// HasComparableSuccessfulDurationSample 判断账本是否包含同命令与执行环境的成功样本。
-func HasComparableSuccessfulDurationSample(workload Workload, ledger DurationLedger, context PlanningContext) bool {
-	for _, sample := range ledger.Samples {
-		if sample.Succeeded && matchesPlanningBucket(sample.Bucket, workload, context) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchesPlanningBucket(bucket DurationBucket, workload Workload, context PlanningContext) bool {
-	return bucket.WorkloadID == workload.ID &&
-		bucket.CommandDigest == workload.CommandDigest &&
-		bucket.Platform == context.Platform &&
-		bucket.Runner == context.Runner &&
-		bucket.Toolchain == context.Toolchain
 }
 
 func leastLoadedShard(shards []ShardPlan) int {

@@ -12,7 +12,7 @@ func TestExtractPDFStreamsPreservesFlateBinaryTail(t *testing.T) {
 	for _, separator := range []string{"\r", "\n", "\r\n"} {
 		for _, tail := range []byte{'\r', '\n', 0x7f} {
 			decoded, compressed := compressedPDFPayloadWithTail(t, tail)
-			content := []byte(fmt.Sprintf("%%PDF-1.7\n1 0 obj\n<< /Length %d /Filter /FlateDecode >>\nstream%s", len(compressed), separator))
+			content := fmt.Appendf(nil, "%%PDF-1.7\n1 0 obj\n<< /Length %d /Filter /FlateDecode >>\nstream%s", len(compressed), separator)
 			content = append(content, compressed...)
 			content = append(content, []byte(separator+"endstream\nendobj\n")...)
 			streams, err := extractPDFStreams(content)
@@ -40,7 +40,7 @@ func TestExtractPDFStreamBodyRejectsInvalidDirectLength(t *testing.T) {
 		}
 	})
 	t.Run("limit", func(t *testing.T) {
-		_, _, err := extractPDFStreamBody(nil, 0, []byte(fmt.Sprintf("<< /Length %d >>", datasourceMaxImportBytes+1)))
+		_, _, err := extractPDFStreamBody(nil, 0, fmt.Appendf(nil, "<< /Length %d >>", datasourceMaxImportBytes+1))
 		if !errors.Is(err, errDatasourceTextTooLarge) {
 			t.Fatalf("extractPDFStreamBody() error = %v, want %v", err, errDatasourceTextTooLarge)
 		}
@@ -79,21 +79,21 @@ func TestExtractPDFStreamBodySupportsMarkerForMissingOrIndirectLength(t *testing
 
 func compressedPDFPayloadWithTail(t *testing.T, want byte) ([]byte, []byte) {
 	t.Helper()
-	for first := 0; first < 256; first++ {
-		for second := 0; second < 256; second++ {
-			decoded := []byte(fmt.Sprintf("BT (tail-safe) Tj ET\n%%%c%c", byte(first), byte(second)))
-			var buffer bytes.Buffer
-			writer := zlib.NewWriter(&buffer)
-			if _, err := writer.Write(decoded); err != nil {
-				t.Fatalf("compress PDF fixture: %v", err)
-			}
-			if err := writer.Close(); err != nil {
-				t.Fatalf("close PDF fixture compressor: %v", err)
-			}
-			compressed := buffer.Bytes()
-			if compressed[len(compressed)-1] == want {
-				return decoded, append([]byte(nil), compressed...)
-			}
+	for second := range 256 {
+		// zlib trailer 的最后一个字节是 Adler-32 的低字节。将第一个 tail 字节固定为零，
+		// 仍可覆盖所有可能的 trailer 字节，同时避免每个 fixture 之前的 65,536 次压缩尝试。
+		decoded := append([]byte("BT (tail-safe) Tj ET\n%"), 0, byte(second))
+		var buffer bytes.Buffer
+		writer := zlib.NewWriter(&buffer)
+		if _, err := writer.Write(decoded); err != nil {
+			t.Fatalf("compress PDF fixture: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close PDF fixture compressor: %v", err)
+		}
+		compressed := buffer.Bytes()
+		if compressed[len(compressed)-1] == want {
+			return decoded, append([]byte(nil), compressed...)
 		}
 	}
 	t.Fatalf("could not build compressed PDF fixture ending in %#x", want)

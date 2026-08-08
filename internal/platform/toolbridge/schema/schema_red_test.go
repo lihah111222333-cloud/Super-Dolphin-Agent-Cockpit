@@ -544,6 +544,7 @@ func TestSchemaCompilerRejectsMaliciousHelperOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Canonicalize() error = %v", err)
 	}
+	client := newSchemaTestClient(t, os.Args[0])
 	tests := []struct {
 		mode string
 		code Code
@@ -557,16 +558,20 @@ func TestSchemaCompilerRejectsMaliciousHelperOutputs(t *testing.T) {
 		{mode: "trailing", code: CodeProtocolViolation},
 		{mode: "timeout", code: CodeTimeout},
 	}
+	semaphore := make(chan struct{}, maxLiveHelpers)
 	for _, tc := range tests {
 		t.Run(tc.mode, func(t *testing.T) {
-			client := newSchemaTestClient(t, os.Args[0])
+			t.Parallel()
+			clientCopy := *client
 			if tc.mode != "timeout" {
-				client.operationTimeout = helperFixtureTimeout
+				clientCopy.operationTimeout = helperFixtureTimeout
 			}
-			client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=" + tc.mode}
-			_, err = client.Execute(context.Background(), testInvocation(canonical), allowFence)
-			if ErrorCode(err) != tc.code {
-				t.Fatalf("Execute(%s) code = %q, want %q; error=%v", tc.mode, ErrorCode(err), tc.code, err)
+			clientCopy.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=" + tc.mode}
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			_, executeErr := clientCopy.Execute(context.Background(), testInvocation(canonical), allowFence)
+			if ErrorCode(executeErr) != tc.code {
+				t.Fatalf("Execute(%s) code = %q, want %q; error=%v", tc.mode, ErrorCode(executeErr), tc.code, executeErr)
 			}
 		})
 	}

@@ -76,11 +76,7 @@ func assertProviderContractEventTranslatorLocal(t *testing.T, provider string, f
 		if len(call.Args) < 4 {
 			t.Fatalf("CaptureProviderEventTranslation has %d args, want provider-local translator arg", len(call.Args))
 		}
-		translator, ok := call.Args[3].(*ast.Ident)
-		if !ok || strings.TrimSpace(translator.Name) == "" || translator.Name == "nil" {
-			t.Fatalf("CaptureProviderEventTranslation translator = %T, want provider-local function identifier", call.Args[3])
-		}
-		translators = append(translators, translator.Name)
+		translators = append(translators, providerContractTranslatorNamesFromCall(t, call)...)
 		return true
 	})
 	if len(translators) == 0 {

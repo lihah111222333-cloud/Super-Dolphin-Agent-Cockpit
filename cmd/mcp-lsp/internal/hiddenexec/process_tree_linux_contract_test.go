@@ -48,8 +48,41 @@ func TestLinuxPidfdUnavailableLeavesProcessTreePendingWithoutSignal(t *testing.T
 	if err := tree.Force(ctx); err != nil {
 		t.Fatalf("authorized cleanup Force() error = %v", err)
 	}
-	if err := cmd.Wait(); err != nil && !errors.Is(err, syscall.EINTR) {
-		t.Fatalf("Wait() error = %v", err)
+	requireLinuxSIGKILLExit(t, cmd)
+}
+
+// requireLinuxSIGKILLExit 断言 pidfd 授权后的强制清理确实以 SIGKILL 退出。
+func requireLinuxSIGKILLExit(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	waitErr := cmd.Wait()
+	var exitErr *exec.ExitError
+	if waitErr == nil || !errors.As(waitErr, &exitErr) {
+		t.Fatalf("Wait() error = %v, want SIGKILL exit", waitErr)
+	}
+	status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("Wait() status = %v, want SIGKILL exit", exitErr.ProcessState)
+	}
+}
+
+// TestLinuxProcessTerminalStates 覆盖 Linux stat 的终止态与活动态判定。
+func TestLinuxProcessTerminalStates(t *testing.T) {
+	tests := []struct {
+		name  string
+		state string
+		want  bool
+	}{
+		{name: "zombie", state: "Z", want: true},
+		{name: "dead", state: "X", want: true},
+		{name: "running", state: "R", want: false},
+		{name: "sleeping", state: "S", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isLinuxProcessTerminal(tc.state); got != tc.want {
+				t.Fatalf("isLinuxProcessTerminal(%q) = %v, want %v", tc.state, got, tc.want)
+			}
+		})
 	}
 }
 

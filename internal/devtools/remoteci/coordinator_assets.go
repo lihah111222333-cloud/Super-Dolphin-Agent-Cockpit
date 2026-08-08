@@ -33,14 +33,24 @@ func remoteCIShardRecords(shardResults []ShardResult) []gate.RemoteCIShardRecord
 			containerStatus = "Unknown"
 		}
 		resources := gate.RemoteCIShardResources{ClassID: shard.ResourceClass, CPU: shard.Resources.CPU, MemoryGiB: shard.Resources.MemoryGiB}
-		shards = append(shards, gate.RemoteCIShardRecord{ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus, Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...), MaterializationTiming: shard.MaterializationTiming, Resources: resources})
+		shards = append(shards, gate.RemoteCIShardRecord{
+			ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus,
+			Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...), MaterializationTiming: shard.MaterializationTiming,
+			Resources: resources, TerminalEvidence: shard.TerminalEvidence.Clone(),
+		})
 	}
 	return shards
 }
 
 // remotePlanningContext 统一缓存投影与最终 LPT 使用的环境和时限身份。
 func remotePlanningContext(input RunInput) gate.PlanningContext {
-	return gate.PlanningContext{Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, TargetDurationMS: gate.FullCITargetDurationMS}
+	context := gate.PlanningContext{Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, Calibration: input.Calibration, TargetDurationMS: gate.FullCITargetDurationMS, AcceptedSnapshotID: input.ImageCacheSnapshotID}
+	if input.Calibration {
+		context.CalibrationResourceClassID = input.CalibrationResource.ID
+		context.CalibrationResourceCPU = input.CalibrationResource.VCPU
+		context.CalibrationResourceMemoryGiB = input.CalibrationResource.MemoryGiB
+	}
+	return context
 }
 
 // prepareRemoteAssets 构建由远端 init 与执行分片共同消费的 canonical source bundle 资产。
@@ -191,7 +201,17 @@ func validateRemoteSourceCommits(input RunInput, baseline SourceBaseline, manife
 	if baseline.CommitSHA != expectedBaselineCommit || manifest.BaselineCommitSHA != expectedBaselineCommit {
 		return fmt.Errorf("remote CI source manifest baseline commit %q does not match deterministic input baseline %q", manifest.BaselineCommitSHA, expectedBaselineCommit)
 	}
-	expectedTransportCommit, err := DeterministicSourceTransportCommitSHA(input.Source.SourceTreeSHA, expectedBaselineCommit, input.Source.ObjectFormat)
+	if !validOID(manifest.SyntheticBaseTreeSHA, input.Source.ObjectFormat) || !validOID(manifest.SyntheticBaseCommitSHA, input.Source.ObjectFormat) {
+		return errors.New("remote CI source manifest synthetic base identity is invalid")
+	}
+	expectedSyntheticBaseCommit, err := DeterministicSourceSyntheticBaseCommitSHA(manifest.SyntheticBaseTreeSHA, expectedBaselineCommit, input.Source.ObjectFormat)
+	if err != nil {
+		return fmt.Errorf("derive deterministic remote CI source synthetic base commit: %w", err)
+	}
+	if manifest.SyntheticBaseCommitSHA != expectedSyntheticBaseCommit {
+		return fmt.Errorf("remote CI source manifest synthetic base commit %q does not match deterministic input synthetic base %q", manifest.SyntheticBaseCommitSHA, expectedSyntheticBaseCommit)
+	}
+	expectedTransportCommit, err := DeterministicSourceTransportCommitSHA(input.Source.SourceTreeSHA, expectedSyntheticBaseCommit, input.Source.ObjectFormat)
 	if err != nil {
 		return fmt.Errorf("derive deterministic remote CI source transport commit: %w", err)
 	}

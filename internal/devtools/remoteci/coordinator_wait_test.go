@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ func (recorder *flakyTimingWarningRecorder) RecordLiveRemoteCITimingWarning(
 func TestCoordinatorBatchesPollingCloudCalls(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
-	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
+	plannedSet := mustBuildAllMissRemoteExecutionShardSet(t, input)
 	if len(plannedSet.Shards) <= 1 {
 		t.Fatalf("planned shards=%d, want a batch", len(plannedSet.Shards))
 	}
@@ -43,6 +44,27 @@ func TestCoordinatorBatchesPollingCloudCalls(t *testing.T) {
 	defer runtime.mu.Unlock()
 	if len(runtime.describes) != 1 || len(runtime.describes[0]) != len(plannedSet.Shards) {
 		t.Fatalf("DescribeContainerGroups calls = %#v, want one complete batch", runtime.describes)
+	}
+}
+
+func TestInitializeRemoteShardResultsDoesNotMarkUncreatedShardWorkloadsExecuted(t *testing.T) {
+	shards := []gate.ContainerShard{
+		{IdentityDigest: "shard-uncreated", GateIDs: []gate.GateID{"guard:cache-miss"}},
+		{IdentityDigest: "shard-created", GateIDs: []gate.GateID{"guard:cache-hit"}},
+	}
+	results, pending := initializeRemoteShardResults(shards, []string{"", "eci-created"})
+
+	if len(pending) != 1 || pending[0] != (pendingRemoteShard{index: 1, groupID: "eci-created"}) {
+		t.Fatalf("pending shards = %#v, want only the created shard", pending)
+	}
+	if len(results[0].ExecutedWorkloads) != 0 {
+		t.Fatalf("uncreated placeholder executed workloads = %#v, want none", results[0].ExecutedWorkloads)
+	}
+	if got, want := results[1].ExecutedWorkloads, shards[1].GateIDs; len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("created shard executed workloads = %#v, want %#v", got, want)
+	}
+	if len(shards[0].GateIDs) != 1 || shards[0].GateIDs[0] != "guard:cache-miss" {
+		t.Fatalf("planned cache-miss workload was mutated: %#v", shards[0].GateIDs)
 	}
 }
 
@@ -129,6 +151,39 @@ func TestObservedECIWorkerStartTimeRejectsMissingAndDuplicateEvidence(t *testing
 		t.Run(name, func(t *testing.T) {
 			if _, err := observedECIWorkerStartTime(group); err == nil {
 				t.Fatal("expected invalid provider worker StartTime evidence to be rejected")
+			}
+		})
+	}
+}
+
+func TestObservedECIWorkerStartTimeRejectsSQLiteTimestampRange(t *testing.T) {
+	maxEvidenceStartedAtMS := int64(math.MaxInt64) - cicontract.ShardTargetDuration.Milliseconds()
+	for name, testCase := range map[string]struct {
+		startedAtMS int64
+		wantError   string
+	}{
+		"epoch": {
+			startedAtMS: 0,
+			wantError:   "evidence_started_at Unix milliseconds must be > 0",
+		},
+		"pre-epoch": {
+			startedAtMS: -1,
+			wantError:   "evidence_started_at Unix milliseconds must be > 0",
+		},
+		"sqlite addition overflow": {
+			startedAtMS: maxEvidenceStartedAtMS + 1,
+			wantError:   fmt.Sprintf("evidence_started_at Unix milliseconds must be <= %d", maxEvidenceStartedAtMS),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			group := eci.ContainerGroup{
+				Containers: []eci.ContainerStatus{{
+					Name:         "worker",
+					CurrentState: eci.ContainerState{StartTime: time.UnixMilli(testCase.startedAtMS).UTC()},
+				}},
+			}
+			if _, err := observedECIWorkerStartTime(group); err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("observedECIWorkerStartTime() error = %v, want %q", err, testCase.wantError)
 			}
 		})
 	}

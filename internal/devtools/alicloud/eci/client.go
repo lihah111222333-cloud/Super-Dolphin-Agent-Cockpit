@@ -18,35 +18,51 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
-	SpotStrategyAsPriceGo   = "SpotAsPriceGo"
-	SpotStrategyNoSpot      = "NoSpot"
-	maxContainerLogBytes    = 1 << 20
-	maxContainerLogTail     = 2000
-	maxCLIAttempts          = 12
-	cliAttemptTimeout       = 15 * time.Second
-	initialCLIRetryDelay    = 500 * time.Millisecond
-	maxCLIRetryDelay        = 8 * time.Second
-	clientTokenEntropyBytes = 32
+	SpotStrategyAsPriceGo = "SpotAsPriceGo"
+	SpotStrategyNoSpot    = "NoSpot"
+	// maxDescribeContainerGroupIDs 是 provider 单请求协议上限，不是分片并发上限。
+	maxDescribeContainerGroupIDs = 20
+	maxContainerLogBytes         = 1 << 20
+	maxContainerLogTail          = 2000
+	maxCLIAttempts               = 12
+	cliAttemptTimeout            = 15 * time.Second
+	cliProcessWaitDelay          = time.Second
+	initialCLIRetryDelay         = 500 * time.Millisecond
+	maxCLIRetryDelay             = 8 * time.Second
+	clientTokenEntropyBytes      = 32
 )
 
 // Config describes the fixed infrastructure used by every ECI shard.
 // Profile is the name of an already configured Aliyun CLI profile; it is never read or persisted here.
 type Config struct {
-	Binary            string
-	RegionID          string
-	VSwitchID         string
-	SecurityGroupID   string
-	WorkerRoleName    string
-	Profile           string
-	Deadline          time.Duration
-	SpotStrategy      string
-	SpotDurationHours int64
+	Binary             string
+	RegionID           string
+	VSwitches          []cicontract.ECIVSwitch
+	SecurityGroupID    string
+	WorkerRoleName     string
+	Profile            string
+	Deadline           time.Duration
+	SpotStrategy       string
+	SpotDurationHours  int64
+	RegistryCredential RegistryCredential
+	// RegistryCredentialLoader 在未配置静态凭据时，仅于首次真实创建容器组前调用一次。
+	RegistryCredentialLoader func() (RegistryCredential, error)
+}
+
+// RegistryCredential 仅在进程内存中携带一份短期 private registry credential。
+type RegistryCredential struct {
+	Server   string `cli:"Server"`
+	UserName string `cli:"UserName"`
+	Password string `cli:"Password"`
 }
 
 // CreateRequest describes the caller-controlled identity of one ECI shard.
@@ -65,6 +81,7 @@ type CreateRequest struct {
 	SourceVolume         EmptyDirVolume
 	WorkVolume           EmptyDirVolume
 	TempVolume           EmptyDirVolume
+	ConfigFileVolumes    []ConfigFileVolume
 	MainVolumeMounts     []VolumeMount
 	InitVolumeMounts     []VolumeMount
 }
@@ -99,18 +116,29 @@ type VolumeMount struct {
 type ContainerGroup struct {
 	ID             string                `json:"ContainerGroupId"`
 	Name           string                `json:"ContainerGroupName"`
+	RegionID       string                `json:"RegionId"`
+	CPU            float64               `json:"Cpu"`
+	MemoryGiB      float64               `json:"Memory"`
 	Status         string                `json:"Status"`
 	CreationTime   time.Time             `json:"CreationTime"`
 	SucceededTime  time.Time             `json:"SucceededTime"`
 	FailedTime     time.Time             `json:"FailedTime"`
 	Containers     []ContainerStatus     `json:"Containers,omitempty"`
 	InitContainers []ContainerStatus     `json:"InitContainers,omitempty"`
+	Tags           []ContainerGroupTag   `json:"Tags,omitempty"`
 	Events         []ContainerGroupEvent `json:"Events,omitempty"`
+}
+
+// ContainerGroupTag 保留 ECI 返回的 immutable identity label。
+type ContainerGroupTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
 }
 
 // ContainerStatus captures the terminal state reported for one ECI container.
 type ContainerStatus struct {
 	Name         string         `json:"Name"`
+	Image        string         `json:"Image"`
 	CurrentState ContainerState `json:"CurrentState"`
 }
 
@@ -136,6 +164,7 @@ type ContainerGroupEvent struct {
 // ImageCache 保存容器组固定引用前必须确认的 ECI 缓存生命周期证据。
 type ImageCache struct {
 	ID         string                `json:"ImageCacheId"`
+	RegionID   string                `json:"RegionId"`
 	SnapshotID string                `json:"SnapshotId"`
 	Name       string                `json:"ImageCacheName"`
 	Status     string                `json:"Status"`
@@ -156,10 +185,15 @@ type Client struct {
 	wait           func(context.Context, time.Duration) error
 	attemptTimeout time.Duration
 	newClientToken func() (string, error)
+	credentialOnce sync.Once
+	credentialErr  error
 }
 
 // New 使用本机已安装的 aliyun CLI 创建客户端，凭据始终由指定 profile 管理。
 func New(config Config) (*Client, error) {
+	if path.Base(strings.TrimSpace(config.Binary)) != "aliyun" {
+		return nil, errors.New("production ECI client requires the official aliyun CLI binary")
+	}
 	return NewWithRunner(config, execRunner{})
 }
 
@@ -185,17 +219,47 @@ func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest
 	if err := validateCreateRequest(request); err != nil {
 		return ContainerGroup{}, err
 	}
+	if err := c.loadRegistryCredential(); err != nil {
+		return ContainerGroup{}, fmt.Errorf("load ECI registry credential: %w", err)
+	}
+	if err := validateRegistryCredential(c.config.RegistryCredential, request); err != nil {
+		return ContainerGroup{}, err
+	}
+	if err := validateConfigFileProjectionValues(request.ConfigFileVolumes,
+		c.config.RegistryCredential.UserName,
+		c.config.RegistryCredential.Password,
+	); err != nil {
+		return ContainerGroup{}, err
+	}
 	return c.createContainerGroup(ctx, request, c.config.SpotStrategy)
+}
+
+// loadRegistryCredential 在首次真实 ECI 创建边界解析延迟凭据且只执行一次；全命中复用不会到达此处。
+func (c *Client) loadRegistryCredential() error {
+	c.credentialOnce.Do(func() {
+		if c.config.RegistryCredentialLoader == nil {
+			return
+		}
+		credential, err := c.config.RegistryCredentialLoader()
+		if err != nil {
+			c.credentialErr = err
+			return
+		}
+		c.config.RegistryCredential = credential
+	})
+	return c.credentialErr
 }
 
 // createContainerGroup 使用单一计费策略执行一次可幂等重试并协调不确定响应。
 func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest, spotStrategy string) (ContainerGroup, error) {
 	args := []string{
-		"--VSwitchId", c.config.VSwitchID,
+		"--VSwitchId", joinedVSwitchIDs(c.config.VSwitches),
+		"--ScheduleStrategy", cicontract.ECIMultiZoneScheduleStrategy,
 		"--SecurityGroupId", c.config.SecurityGroupID,
 		"--RamRoleName", c.config.WorkerRoleName,
 		"--Cpu", formatResource(request.Resources.CPU),
 		"--Memory", formatResource(request.Resources.MemoryGiB),
+		"--EphemeralStorage", strconv.Itoa(cicontract.ECIEphemeralStorageGiB),
 		"--SpotStrategy", spotStrategy,
 		"--RestartPolicy", "Never",
 		"--ActiveDeadlineSeconds", strconv.FormatInt(int64(c.config.Deadline/time.Second), 10),
@@ -206,6 +270,9 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--Container.1.Cpu", formatResource(request.Resources.CPU),
 		"--Container.1.Memory", formatResource(request.Resources.MemoryGiB),
 		"--Container.1.ImagePullPolicy", "IfNotPresent",
+		"--ImageRegistryCredential.1.Server", c.config.RegistryCredential.Server,
+		"--ImageRegistryCredential.1.UserName", c.config.RegistryCredential.UserName,
+		"--ImageRegistryCredential.1.Password", c.config.RegistryCredential.Password,
 		"--Container.1.SecurityContext.ReadOnlyRootFilesystem", "true",
 		"--Container.1.SecurityContext.RunAsUser", "65532",
 		"--Container.1.SecurityContextRunAsGroup", "65532",
@@ -221,6 +288,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	volumeArgs := make([]string, 0)
 	emptyDirs := createEmptyDirVolumes(request)
 	volumeArgs = appendEmptyDirVolumes(volumeArgs, 1, emptyDirs)
+	volumeArgs = appendConfigFileVolumes(volumeArgs, len(emptyDirs)+1, request.ConfigFileVolumes)
 	initIndex := slices.Index(args, "--InitContainer.1.Name")
 	args = append(args[:initIndex], append(volumeArgs, args[initIndex:]...)...)
 	args = appendIndexedValues(args, "--Container.1.Command", request.Command)
@@ -240,7 +308,14 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	args = appendIndexedMap(args, "--Tag", request.Tags)
 	output, err := c.run(ctx, "CreateContainerGroup", args...)
 	if err != nil {
-		createErr := fmt.Errorf("create ECI container group: %w", redactEnvironmentValues(err, request.Environment, request.InitContainer.Environment))
+		registrySecrets := map[string]string{"registry_username": c.config.RegistryCredential.UserName, "registry_password": c.config.RegistryCredential.Password}
+		createErr := fmt.Errorf("create ECI container group: %w", redactEnvironmentValues(
+			err,
+			request.Environment,
+			request.InitContainer.Environment,
+			registrySecrets,
+			configFileProjectionRedactionValues(request.ConfigFileVolumes),
+		))
 		if !isTransientCLIError(createErr) {
 			return ContainerGroup{}, createErr
 		}
@@ -253,13 +328,54 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	return group, nil
 }
 
-// DescribeContainerGroups 查询指定容器组，缺少任何关键状态都不能被当作有效结果。
-func (c *Client) DescribeContainerGroups(ctx context.Context, ids ...string) ([]ContainerGroup, error) {
-	return c.describeContainerGroups(ctx, false, ids...)
+func joinedVSwitchIDs(vSwitches []cicontract.ECIVSwitch) string {
+	ids := make([]string, len(vSwitches))
+	for index, vSwitch := range vSwitches {
+		ids[index] = vSwitch.ID
+	}
+	return strings.Join(ids, ",")
 }
 
-// describeContainerGroups 按传入 ID 查询容器组，并严格校验返回集合是否允许为空。
-func (c *Client) describeContainerGroups(ctx context.Context, allowEmpty bool, ids ...string) ([]ContainerGroup, error) {
+// DescribeContainerGroups 查询指定容器组，缺少任何关键状态都不能被当作有效结果。
+func (c *Client) DescribeContainerGroups(ctx context.Context, ids ...string) ([]ContainerGroup, error) {
+	if err := validateContainerGroupIDs(ids); err != nil {
+		return nil, fmt.Errorf("encode ECI container group IDs: %w", err)
+	}
+	return c.describeContainerGroupBatches(ctx, ids)
+}
+
+// describeContainerGroupBatches 并行 fanout provider 的 20-ID 请求批次，并按输入批次顺序合并结果。
+// 每个批次仍受阿里云单请求上限约束；这里没有仓库级并发 cap，避免慢批次串行拖住整轮协调器轮询。
+func (c *Client) describeContainerGroupBatches(ctx context.Context, ids []string) ([]ContainerGroup, error) {
+	batchCount := (len(ids) + maxDescribeContainerGroupIDs - 1) / maxDescribeContainerGroupIDs
+	batches := make([][]ContainerGroup, batchCount)
+	failures := make([]error, batchCount)
+	var workers errgroup.Group
+	for batchIndex := range batches {
+		start := batchIndex * maxDescribeContainerGroupIDs
+		end := min(start+maxDescribeContainerGroupIDs, len(ids))
+		workers.Go(func() error {
+			batch, err := c.describeContainerGroupBatch(ctx, ids[start:end])
+			if err != nil {
+				failures[batchIndex] = err
+				return err
+			}
+			batches[batchIndex] = batch
+			return nil
+		})
+	}
+	if err := workers.Wait(); err != nil {
+		return nil, errors.Join(failures...)
+	}
+	groups := make([]ContainerGroup, 0, len(ids))
+	for _, batch := range batches {
+		groups = append(groups, batch...)
+	}
+	return groups, nil
+}
+
+// describeContainerGroupBatch 按阿里云单次最多二十个 ID 的限制查询一个批次。
+func (c *Client) describeContainerGroupBatch(ctx context.Context, ids []string) ([]ContainerGroup, error) {
 	encodedIDs, err := encodeContainerGroupIDs(ids)
 	if err != nil {
 		return nil, fmt.Errorf("encode ECI container group IDs: %w", err)
@@ -274,9 +390,6 @@ func (c *Client) describeContainerGroups(ctx context.Context, allowEmpty bool, i
 	if err := decodeJSON(output, &response); err != nil {
 		return nil, fmt.Errorf("decode DescribeContainerGroups response: %w", err)
 	}
-	if allowEmpty && len(response.ContainerGroups) == 0 {
-		return []ContainerGroup{}, nil
-	}
 	if err := validateContainerGroups(response.ContainerGroups); err != nil {
 		return nil, err
 	}
@@ -284,15 +397,22 @@ func (c *Client) describeContainerGroups(ctx context.Context, allowEmpty bool, i
 }
 
 func encodeContainerGroupIDs(ids []string) ([]byte, error) {
+	if err := validateContainerGroupIDs(ids); err != nil {
+		return nil, err
+	}
+	return json.Marshal(ids)
+}
+
+func validateContainerGroupIDs(ids []string) error {
 	if len(ids) == 0 {
-		return nil, errors.New("at least one ECI container group ID is required")
+		return errors.New("at least one ECI container group ID is required")
 	}
 	for index, id := range ids {
 		if strings.TrimSpace(id) == "" {
-			return nil, fmt.Errorf("ECI container group ID %d is required", index+1)
+			return fmt.Errorf("ECI container group ID %d is required", index+1)
 		}
 	}
-	return json.Marshal(ids)
+	return nil
 }
 
 func validateContainerGroups(groups []ContainerGroup) error {
@@ -482,11 +602,21 @@ func createMainMountNames(request CreateRequest) []string {
 }
 
 func createInitMountNames(request CreateRequest) []string {
-	return []string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
+	names := []string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
+	return append(names, createConfigFileVolumeNames(request)...)
 }
 
 func createRequiredInitMountNames(request CreateRequest) []string {
-	return []string{request.SourceVolume.Name, request.WorkVolume.Name}
+	names := []string{request.SourceVolume.Name, request.WorkVolume.Name}
+	return append(names, createConfigFileVolumeNames(request)...)
+}
+
+func createConfigFileVolumeNames(request CreateRequest) []string {
+	names := make([]string, len(request.ConfigFileVolumes))
+	for index, volume := range request.ConfigFileVolumes {
+		names[index] = volume.Name
+	}
+	return names
 }
 
 func appendEmptyDirVolumes(args []string, start int, volumes []EmptyDirVolume) []string {
@@ -514,12 +644,18 @@ func validateMountSet(owner string, mounts []VolumeMount, names ...string) error
 		if err := validateMountPath(mount.MountPath); err != nil {
 			return fmt.Errorf("ECI %s volume mount %q: %w", owner, mount.Name, err)
 		}
-		if _, exists := seenPaths[mount.MountPath]; exists {
-			return fmt.Errorf("ECI %s mount path %q is duplicated", owner, mount.MountPath)
+		for existing := range seenPaths {
+			if mountPathsOverlap(existing, mount.MountPath) {
+				return fmt.Errorf("ECI %s mount paths %q and %q overlap", owner, existing, mount.MountPath)
+			}
 		}
 		seenMounts[mount.Name], seenPaths[mount.MountPath] = struct{}{}, struct{}{}
 	}
 	return nil
+}
+
+func mountPathsOverlap(left string, right string) bool {
+	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
 }
 
 // validateMountPath 拒绝根路径、非规范绝对路径和危险控制字符。
@@ -696,9 +832,13 @@ func formatResource(value float64) string {
 
 type execRunner struct{}
 
-// Run 在受调用方 context 控制的子进程中执行 CLI，且不捕获或持久化 profile 凭据。
+// Run 在受调用方 context 控制的有界子进程中执行 CLI，且不捕获或持久化 profile 凭据。
 func (execRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	output, err := exec.CommandContext(ctx, name, args...).Output()
+	command := exec.CommandContext(ctx, name, args...)
+	// CLI 后代若在父进程退出后仍持有 stdout/stderr 管道，CommandContext 默认的
+	// Wait 会越过 context 无界等待。固定 WaitDelay 使每次 ECI 控制面调用真正受到看门狗约束。
+	command.WaitDelay = cliProcessWaitDelay
+	output, err := command.Output()
 	if err == nil {
 		return output, nil
 	}

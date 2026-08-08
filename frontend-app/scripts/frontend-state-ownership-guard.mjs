@@ -126,7 +126,7 @@ export function discoverStateWriterRecordsFromSources(
 ) {
   const guardedProperties = new Set(properties);
   const writers = [];
-  for (const [relativePath, source] of [...sources].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [relativePath, source] of [...sources].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
     writers.push(...analyzeSourceCached({
       analysisCache,
       analysisKind: 'writers',
@@ -151,7 +151,7 @@ export function discoverStateWriterRecordsFromSources(
     }));
   }
   assertUniqueRecords('discovered state writer', writers);
-  return writers.sort((left, right) => left.key.localeCompare(right.key));
+  return writers.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
 }
 
 export function discoverStateConsumersFromSources(
@@ -162,7 +162,7 @@ export function discoverStateConsumersFromSources(
 ) {
   const guardedProperties = new Set(properties);
   const consumers = new Map();
-  for (const [relativePath, source] of [...sources].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [relativePath, source] of [...sources].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
     const records = analyzeSourceCached({
       analysisCache,
       analysisKind: 'consumers',
@@ -185,7 +185,7 @@ export function discoverStateConsumersFromSources(
     });
     for (const record of records) consumers.set(record.key, record);
   }
-  return [...consumers.values()].sort((left, right) => left.key.localeCompare(right.key));
+  return [...consumers.values()].sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
 }
 
 function analyzeSourceCached({

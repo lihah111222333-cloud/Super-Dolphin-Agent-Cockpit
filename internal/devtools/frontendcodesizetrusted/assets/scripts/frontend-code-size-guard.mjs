@@ -266,7 +266,7 @@ function extractFunctionsFromAst(ast) {
       params: Array.isArray(node.params) ? node.params.length : 0,
     });
   });
-  return functions.sort((left, right) => left.start - right.start || left.name.localeCompare(right.name));
+  return functions.sort((left, right) => left.start - right.start || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 }
 
 function astFunctionName(node, parent) {

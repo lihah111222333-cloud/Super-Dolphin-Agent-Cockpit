@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -25,14 +26,14 @@ func acceptAndEmitRemoteCalibration(
 	if err := validateRemoteCalibrationRuns(inputs, results); err != nil {
 		return err
 	}
-	catalogs, digests, err := remoteCalibrationCatalogs(inputs)
+	catalogs, digests, err := remoteCalibrationCatalogs(inputs, results)
 	if err != nil {
 		return err
 	}
 	calibration := remoteDurationCalibration(commit, inputs, results[2], digests)
 	passedWorkloads, err := remoteCalibrationPassedWorkloadSet(inputs, catalogs, results)
 	if err != nil {
-		return infrastructureError("verify remote calibration PASS coverage: %v", err)
+		return infrastructureError("verify remote calibration PASS coverage: %w", err)
 	}
 	snapshot, err := acceptRemoteDurationCalibrationWithPasses(
 		ledgerStore,
@@ -41,7 +42,7 @@ func acceptAndEmitRemoteCalibration(
 		catalogs[:]...,
 	)
 	if err != nil {
-		return infrastructureError("accept remote duration calibration: %v", err)
+		return infrastructureError("accept remote duration calibration: %w", err)
 	}
 	return emitRemoteCalibrationResult(stdout, snapshot, results)
 }
@@ -88,6 +89,10 @@ func remoteCalibrationPassedCatalogWorkloadSet(
 	}
 	passed := make(map[string]struct{})
 	for _, workload := range catalog.Workloads {
+		if calibrationIdentityPassed(result.WorkloadPassIdentities, workload) {
+			passed[remoteCalibrationWorkloadKey(workload)] = struct{}{}
+			continue
+		}
 		if calibrationExecutionPassed(executions[workload.ID], workload.ID) {
 			passed[remoteCalibrationWorkloadKey(workload)] = struct{}{}
 			continue
@@ -105,6 +110,27 @@ func remoteCalibrationPassedCatalogWorkloadSet(
 		}
 	}
 	return passed, nil
+}
+
+// calibrationIdentityPassed 只把已由权威运行持久化的完整 workload PASS 身份投影为正确性覆盖。
+func calibrationIdentityPassed(identities []gatecontract.WorkloadPassIdentity, workload gatecontract.Workload) bool {
+	if !workload.Shardable || strings.TrimSpace(workload.InputDigest) == "" {
+		return false
+	}
+	executionDigest := gatecontract.WorkloadPassExecutionDigest(workload)
+	matched := false
+	for _, identity := range identities {
+		if identity.WorkloadID != gatecontract.GateID(workload.ID) {
+			continue
+		}
+		// Identity.Validate 同时要求 InputDigest、EnvironmentDigest 和 content digest
+		// 均为完整规范摘要；输入摘要还必须逐字匹配当前持久化 catalog。
+		if matched || identity.Validate() != nil || identity.ExecutionDigest != executionDigest || identity.InputDigest != workload.InputDigest {
+			return false
+		}
+		matched = true
+	}
+	return matched
 }
 
 // calibrationPackageCoveredByTests 判断包级 workload 是否被其所有精确测试成功覆盖。
@@ -156,21 +182,85 @@ func calibrationExecutionPassed(
 }
 
 func remoteCalibrationWorkloadKey(workload gatecontract.Workload) string {
-	return workload.ID + "\x00" + workload.CommandDigest
+	return workload.ID + "\x00" + workload.CommandDigest + "\x00" + workload.InputDigest
 }
 
 // validateRemoteCalibrationRuns 拒绝三种 source、运行时或权威性在首代校准中发生漂移。
 func validateRemoteCalibrationRuns(inputs [3]remoteci.RunInput, results [3]remoteci.RunResult) error {
 	commitInput, pushInput, releaseInput := inputs[0], inputs[1], inputs[2]
-	if !remoteCalibrationSourcesMatch(commitInput, pushInput, releaseInput) ||
-		!remoteCalibrationRuntimeMatches(commitInput, pushInput, releaseInput) ||
-		!results[0].Authoritative || !results[1].Authoritative || !results[2].Authoritative ||
-		results[0].Status != gatecontract.ResultStatusPassed ||
-		results[1].Status != gatecontract.ResultStatusPassed ||
-		results[2].Status != gatecontract.ResultStatusPassed {
+	if !remoteCalibrationInputSetMatches(commitInput, pushInput, releaseInput) {
+		return infrastructureError("remote calibration commit, push, and release identities drifted")
+	}
+	if !remoteCalibrationForceMatches(inputs, results) || !remoteCalibrationResultsMatchInputs(inputs, results) {
+		return infrastructureError("remote calibration commit, push, and release identities drifted")
+	}
+	if !remoteCalibrationResultsAuthoritativePassed(results) {
 		return infrastructureError("remote calibration commit, push, and release identities drifted")
 	}
 	return nil
+}
+
+// remoteCalibrationInputSetMatches 核对三种入口是否共享同一 source 与运行时身份。
+func remoteCalibrationInputSetMatches(commitInput remoteci.RunInput, pushInput remoteci.RunInput, releaseInput remoteci.RunInput) bool {
+	return remoteCalibrationSourcesMatch(commitInput, pushInput, releaseInput) &&
+		remoteCalibrationRuntimeMatches(commitInput, pushInput, releaseInput)
+}
+
+// remoteCalibrationResultsAuthoritativePassed 要求三次结果均为权威 PASS。
+func remoteCalibrationResultsAuthoritativePassed(results [3]remoteci.RunResult) bool {
+	for _, result := range results {
+		if !result.Authoritative || result.Status != gatecontract.ResultStatusPassed {
+			return false
+		}
+	}
+	return true
+}
+
+// remoteCalibrationResultsMatchInputs 要求每次权威结果精确回显其运行输入身份。
+func remoteCalibrationResultsMatchInputs(inputs [3]remoteci.RunInput, results [3]remoteci.RunResult) bool {
+	for index, input := range inputs {
+		if !remoteCalibrationResultMatchesInput(input, results[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+// remoteCalibrationResultMatchesInput 核对单次结果的 source 和运行时回显。
+func remoteCalibrationResultMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
+	return remoteCalibrationResultSourceMatchesInput(input, result) &&
+		remoteCalibrationResultRuntimeMatchesInput(input, result)
+}
+
+// remoteCalibrationResultSourceMatchesInput 核对入口、profile 与 exact source 身份。
+func remoteCalibrationResultSourceMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
+	return result.AgentTokenDigest == input.AgentTokenDigest &&
+		result.Entrypoint == input.Entrypoint &&
+		result.Profile == input.Profile &&
+		result.SourceTreeSHA == input.Tree &&
+		result.SourceTreeSHA == input.Source.SourceTreeSHA
+}
+
+// remoteCalibrationResultRuntimeMatchesInput 核对 accepted generation、snapshot 与 runner 身份。
+func remoteCalibrationResultRuntimeMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
+	return result.AcceptedGeneration == input.AcceptedGeneration &&
+		result.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
+		result.CandidateGateSourceSHA256 == input.CandidateGateSourceSHA256 &&
+		result.CandidateGateToolchainSHA256 == input.CandidateGateToolchainSHA256 &&
+		result.RunnerImage == input.RunnerImage
+}
+
+// remoteCalibrationForceMatches 要求三次校准运行和各自输入保持同一显式 force 语义。
+func remoteCalibrationForceMatches(inputs [3]remoteci.RunInput, results [3]remoteci.RunResult) bool {
+	for index := range inputs {
+		if results[index].Force != inputs[index].Force {
+			return false
+		}
+		if index > 0 && (inputs[index].Force != inputs[0].Force || results[index].Force != results[0].Force) {
+			return false
+		}
+	}
+	return true
 }
 
 // remoteCalibrationSourcesMatch 核对首代三次运行分别使用树、范围和提交 source。
@@ -187,21 +277,47 @@ func remoteCalibrationRuntimeMatches(commitInput remoteci.RunInput, pushInput re
 		commitInput.RunnerIdentityDigest == pushInput.RunnerIdentityDigest &&
 		commitInput.RunnerIdentityDigest == releaseInput.RunnerIdentityDigest &&
 		commitInput.ToolchainDigest == pushInput.ToolchainDigest &&
-		commitInput.ToolchainDigest == releaseInput.ToolchainDigest
+		commitInput.ToolchainDigest == releaseInput.ToolchainDigest &&
+		commitInput.ImageCacheSnapshotID != "" && commitInput.ImageCacheSnapshotID == pushInput.ImageCacheSnapshotID &&
+		commitInput.ImageCacheSnapshotID == releaseInput.ImageCacheSnapshotID &&
+		remoteCalibrationResourcesMatch(commitInput, pushInput, releaseInput)
 }
 
-// remoteCalibrationCatalogs 构造并返回 commit、push、release 三份独立 catalog digest。
-func remoteCalibrationCatalogs(inputs [3]remoteci.RunInput) ([3]gatecontract.WorkloadCatalog, [3]string, error) {
+// remoteCalibrationResourcesMatch 严格核对三次校准运行的完整资源身份。
+func remoteCalibrationResourcesMatch(commitInput remoteci.RunInput, pushInput remoteci.RunInput, releaseInput remoteci.RunInput) bool {
+	return commitInput.CalibrationResource == pushInput.CalibrationResource &&
+		commitInput.CalibrationResource == releaseInput.CalibrationResource
+}
+
+// remoteCalibrationCatalogs 从 SQLite 回读三次运行实际使用且已绑定精确输入摘要的 catalog。
+func remoteCalibrationCatalogs(inputs [3]remoteci.RunInput, results [3]remoteci.RunResult) ([3]gatecontract.WorkloadCatalog, [3]string, error) {
 	var catalogs [3]gatecontract.WorkloadCatalog
 	var digests [3]string
 	for index, input := range inputs {
-		catalog, digest, err := remoteCalibrationCatalog(input)
+		result := results[index]
+		plan, catalog, err := remoteRunContractPlanAndCatalog(input, result)
 		if err != nil {
-			return catalogs, digests, infrastructureError("build remote calibration catalog: %v", err)
+			return catalogs, digests, infrastructureError("load exact remote calibration catalog: %v", err)
 		}
-		catalogs[index], digests[index] = catalog, digest
+		if err := validateRemoteRunResultPlanBinding(plan, catalog, result); err != nil {
+			return catalogs, digests, infrastructureError("validate exact remote calibration result binding: %w", err)
+		}
+		if err := validateRemoteCalibrationCatalogInputDigests(catalog); err != nil {
+			return catalogs, digests, err
+		}
+		catalogs[index], digests[index] = catalog, results[index].CatalogDigest
 	}
 	return catalogs, digests, nil
+}
+
+// validateRemoteCalibrationCatalogInputDigests 禁止用空摘要 wildcard 接受其它源码或测试输入的耗时样本。
+func validateRemoteCalibrationCatalogInputDigests(catalog gatecontract.WorkloadCatalog) error {
+	for _, workload := range catalog.Workloads {
+		if workload.Shardable && strings.TrimSpace(workload.InputDigest) == "" {
+			return fmt.Errorf("%w: workload %q has no exact production input digest", errRemoteCalibrationSamplesIncomplete, workload.ID)
+		}
+	}
+	return nil
 }
 
 // remoteDurationCalibration 汇集已验证的三份 catalog digest 和共享运行身份。
@@ -229,10 +345,13 @@ func remoteDurationCalibrationFromInputs(
 		SchemaVersion: gatecontract.DurationCalibrationSchemaVersion,
 		Commit:        commit, Tree: inputs[0].Tree, Platform: inputs[0].Platform,
 		Runner: inputs[0].RunnerIdentityDigest, Toolchain: inputs[0].ToolchainDigest,
+		CalibrationResourceClassID: inputs[0].CalibrationResource.ID,
+		CalibrationResourceCPU:     float64(inputs[0].CalibrationResource.VCPU), CalibrationResourceMemoryGiB: float64(inputs[0].CalibrationResource.MemoryGiB),
 		CommitEntrypoint: inputs[0].Entrypoint, PushEntrypoint: inputs[1].Entrypoint,
 		ReleaseEntrypoint: inputs[2].Entrypoint, CommitCatalogDigest: digests[0],
 		PushCatalogDigest: digests[1], ReleaseCatalogDigest: digests[2],
-		CompletedAt: completedAt.UTC(),
+		AcceptedSnapshotID: inputs[0].ImageCacheSnapshotID,
+		CompletedAt:        completedAt.UTC(),
 	}
 }
 
@@ -244,11 +363,14 @@ func emitRemoteCalibrationResult(
 ) error {
 	accepted := snapshot.Ledger.Calibration
 	result := remoteCalibrationResult{
-		SchemaVersion: remoteCalibrationResultSchemaVersion, Commit: accepted.Commit, Tree: accepted.Tree,
+		SchemaVersion: remoteCalibrationResultSchemaVersion, Force: results[0].Force, Commit: accepted.Commit, Tree: accepted.Tree,
 		RunnerManifestDigest: accepted.Runner, CommitJobID: results[0].JobID, PushJobID: results[1].JobID,
 		ReleaseJobID: results[2].JobID, LedgerGeneration: snapshot.Generation, WorkloadCount: accepted.WorkloadCount,
 		RacePackageCount: accepted.RacePackageCount, CompletedAt: accepted.CompletedAt,
 	}
+	result.CalibrationResourceClassID = accepted.CalibrationResourceClassID
+	result.CalibrationResourceCPU = accepted.CalibrationResourceCPU
+	result.CalibrationResourceMemoryGiB = accepted.CalibrationResourceMemoryGiB
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(result); err != nil {
@@ -342,7 +464,9 @@ func acceptRemoteDurationCalibrationWithPasses(
 		if err != nil {
 			return gatecontract.DurationLedgerSnapshot{}, err
 		}
-		workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(
+		// 三次运行 acceptance 必须从 SQLite 证明可比较的 calibration sample 与 accepted shard overhead；
+		// correctness PASS 本身不是耗时证据。
+		workloadCount, racePackageCount, err := verifyRemoteCalibrationAcceptanceEvidence(
 			snapshot,
 			calibration,
 			passedWorkloads,
@@ -373,6 +497,49 @@ func acceptRemoteDurationCalibrationWithPasses(
 	return gatecontract.DurationLedgerSnapshot{}, errors.New("accept duration calibration exceeded retry limit")
 }
 
+// verifyRemoteCalibrationAcceptanceEvidence 在三次运行 acceptance 中只接受
+// SQLite 的 calibration-mode 样本；同时要求 normal planning 所需的 accepted overhead。
+func verifyRemoteCalibrationAcceptanceEvidence(
+	snapshot gatecontract.DurationLedgerSnapshot,
+	calibration gatecontract.DurationCalibration,
+	passedWorkloads map[string]struct{},
+	catalogs ...gatecontract.WorkloadCatalog,
+) (int, int, error) {
+	for _, catalog := range catalogs {
+		if err := validateRemoteCalibrationCatalogInputDigests(catalog); err != nil {
+			return 0, 0, err
+		}
+	}
+	if passedWorkloads != nil {
+		if workloadID := remoteCalibrationMissingPassedWorkload(passedWorkloads, catalogs...); workloadID != "" {
+			return 0, 0, fmt.Errorf("%w: workload %q has no successful calibration run coverage", errRemoteCalibrationSamplesIncomplete, workloadID)
+		}
+	}
+	workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(snapshot, calibration, nil, catalogs...)
+	if err != nil {
+		return 0, 0, err
+	}
+	if snapshot.Ledger.ShardOverhead == nil {
+		return 0, 0, fmt.Errorf("%w: accepted shard overhead is incomplete", errRemoteCalibrationSamplesIncomplete)
+	}
+	return workloadCount, racePackageCount, nil
+}
+
+// remoteCalibrationMissingPassedWorkload 返回当前 calibration catalog 中缺少运行覆盖的 workload。
+func remoteCalibrationMissingPassedWorkload(passed map[string]struct{}, catalogs ...gatecontract.WorkloadCatalog) string {
+	for _, catalog := range catalogs {
+		for _, workload := range catalog.Workloads {
+			if !workload.Shardable {
+				continue
+			}
+			if _, ok := passed[remoteCalibrationWorkloadKey(workload)]; !ok {
+				return workload.ID
+			}
+		}
+	}
+	return ""
+}
+
 // equivalentRemoteDurationCalibration 要求全部验收字段相同；完成时间有意排除，因为等价 agent
 // 可能在不同时间完成却生成同一已接受校准快照。
 func equivalentRemoteDurationCalibration(accepted, candidate gatecontract.DurationCalibration) bool {
@@ -400,9 +567,9 @@ func verifyRemoteCalibrationIndexedEvidence(
 
 // verifyRemoteCalibrationEvidence 验证每个 catalog workload 都有可比较的成功样本。
 type remoteCalibrationWorkloadIdentity struct {
-	id, digest string
-	kind       gatecontract.WorkloadKind
-	shardable  bool
+	id, digest, inputDigest string
+	kind                    gatecontract.WorkloadKind
+	shardable               bool
 }
 
 // verifyRemoteCalibrationEvidence 验证每个 catalog workload 都有可比较的成功样本。
@@ -413,20 +580,26 @@ func verifyRemoteCalibrationEvidence(
 ) (int, int, error) {
 	expected := make(map[string]remoteCalibrationWorkloadIdentity)
 	for _, catalog := range catalogs {
+		if err := validateRemoteCalibrationCatalogInputDigests(catalog); err != nil {
+			return 0, 0, err
+		}
 		for _, workload := range catalog.Workloads {
-			expected[workload.ID+"\x00"+workload.CommandDigest] = remoteCalibrationWorkloadIdentity{
-				id: workload.ID, digest: workload.CommandDigest, kind: workload.Kind, shardable: workload.Shardable,
+			key := remoteCalibrationWorkloadKey(workload)
+			identity := remoteCalibrationWorkloadIdentity{
+				id: workload.ID, digest: workload.CommandDigest, inputDigest: workload.InputDigest,
+				kind: workload.Kind, shardable: workload.Shardable,
 			}
+			expected[key] = identity
 		}
 	}
-	racePackages := 0
+	runnableRacePackages := make(map[string]struct{})
 	for key, workload := range expected {
-		parent, err := gatecontract.WorkloadParentGateID(workload.id)
+		packageTarget, runnable, err := remoteCalibrationRunnableRacePackageTarget(workload)
 		if err != nil {
 			return 0, 0, err
 		}
-		if remoteCalibrationRacePackage(parent, workload.kind) {
-			racePackages++
+		if runnable {
+			runnableRacePackages[packageTarget] = struct{}{}
 		}
 		if !workload.shardable {
 			continue
@@ -439,10 +612,34 @@ func verifyRemoteCalibrationEvidence(
 			)
 		}
 	}
-	if remoteCalibrationCatalogIncomplete(expected, racePackages) {
+	if remoteCalibrationCatalogIncomplete(expected, len(runnableRacePackages)) {
 		return 0, 0, fmt.Errorf("%w: workload catalog is incomplete", errRemoteCalibrationSamplesIncomplete)
 	}
-	return len(expected), racePackages, nil
+	return len(expected), len(runnableRacePackages), nil
+}
+
+// remoteCalibrationRunnableRacePackageTarget 返回 catalog 中仍有可执行 race selector 的唯一包目标。
+// race catalog 已在 gate 层过滤 normal-only 静态目标；此处只从实际 workload 重新计算去重后的 runnable 包数。
+func remoteCalibrationRunnableRacePackageTarget(workload remoteCalibrationWorkloadIdentity) (string, bool, error) {
+	parent, kind, target, targeted, err := gatecontract.ParseWorkloadID(workload.id)
+	if err != nil {
+		return "", false, err
+	}
+	if parent != gatecontract.GateIDBackendTestGuardWithRace || !targeted {
+		return "", false, nil
+	}
+	switch kind {
+	case gatecontract.WorkloadTargetGoPackage:
+		return target, true, nil
+	case gatecontract.WorkloadTargetGoTest:
+		testTarget, err := gatecontract.ParseGoTestTarget(target)
+		if err != nil {
+			return "", false, err
+		}
+		return testTarget.Package, true, nil
+	default:
+		return "", false, nil
+	}
 }
 
 // remoteCalibrationRacePackage 识别必须拥有独立证据的 Go race workload。
@@ -455,31 +652,44 @@ func remoteCalibrationWorkloadHasPass(index gatecontract.DurationSampleIndex, pa
 	if _, ok := passed[key]; ok {
 		return true
 	}
-	return index.HasComparableSuccessfulDurationSample(gatecontract.Workload{ID: workload.id, Kind: workload.kind, CommandDigest: workload.digest})
+	return index.HasComparableSuccessfulDurationSample(gatecontract.Workload{
+		ID: workload.id, Kind: workload.kind, CommandDigest: workload.digest, InputDigest: workload.inputDigest,
+	})
 }
 
-// remoteCalibrationCatalogIncomplete 拒绝空 catalog 或缺少 race 包的校准范围。
-func remoteCalibrationCatalogIncomplete(expected map[string]remoteCalibrationWorkloadIdentity, racePackages int) bool {
-	return len(expected) == 0 || racePackages == 0
+// remoteCalibrationCatalogIncomplete 拒绝空 catalog 或缺少 runnable race 包的校准范围。
+func remoteCalibrationCatalogIncomplete(expected map[string]remoteCalibrationWorkloadIdentity, runnableRacePackages int) bool {
+	return len(expected) == 0 || runnableRacePackages == 0
 }
 
 func remoteCalibrationPlanningContext(
 	calibration gatecontract.DurationCalibration,
 ) gatecontract.PlanningContext {
 	return gatecontract.PlanningContext{
-		Platform:         calibration.Platform,
-		Runner:           calibration.Runner,
-		Toolchain:        calibration.Toolchain,
-		TargetDurationMS: gatecontract.FullCITargetDurationMS,
+		Platform:                     calibration.Platform,
+		Runner:                       calibration.Runner,
+		Toolchain:                    calibration.Toolchain,
+		Calibration:                  true,
+		CalibrationResourceClassID:   calibration.CalibrationResourceClassID,
+		CalibrationResourceCPU:       calibration.CalibrationResourceCPU,
+		CalibrationResourceMemoryGiB: calibration.CalibrationResourceMemoryGiB,
+		TargetDurationMS:             gatecontract.FullCITargetDurationMS,
+		AcceptedSnapshotID:           calibration.AcceptedSnapshotID,
 	}
 }
 
 // validateRemoteCloudIdentity 校验执行远程 ECI 所需的账号和网络字段。
 func validateRemoteCloudIdentity(config remoteRunConfig) error {
-	for _, value := range []string{config.AliyunCLI, config.CredentialProfile, config.RegionID, config.VSwitchID, config.SecurityGroupID, config.WorkerRoleName} {
+	for _, value := range []string{config.AliyunCLI, config.CredentialProfile, config.RegionID, config.SecurityGroupID, config.WorkerRoleName} {
 		if strings.TrimSpace(value) == "" {
 			return errors.New("remote CI Aliyun identity and network settings are incomplete")
 		}
+	}
+	if err := cicontract.ValidateECIMultiZoneScheduling(cicontract.ECIMultiZoneScheduleStrategy, config.VSwitches); err != nil {
+		return err
+	}
+	if path.Base(config.AliyunCLI) != "aliyun" {
+		return errors.New("remote CI cloud client must be the Alibaba Cloud aliyun CLI")
 	}
 	return nil
 }

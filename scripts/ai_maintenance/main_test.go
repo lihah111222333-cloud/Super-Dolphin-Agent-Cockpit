@@ -588,7 +588,7 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"docs/doc/codemap/ai-index.json"},
 		{"internal/provider/codexapp/session.go"},
 		{"internal/dto/turn/terminal.go"},
-		{".github/workflows/ci.yml"},
+		{".github/workflows/release.yml"},
 		{"scripts/package_linux.sh"},
 		{"frontend-app/tests/e2e/business-flows.spec.js"},
 		{"internal/module/thread/session_test.go"},

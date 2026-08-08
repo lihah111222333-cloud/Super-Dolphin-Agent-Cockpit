@@ -506,6 +506,7 @@ func assertUpdaterRollbackRestart(t *testing.T, h *rollbackRaceHarness, token st
 	}
 }
 
+// super-dolphin-ci: helper
 func TestProbationCandidateProcess(t *testing.T) {
 	mode := os.Getenv("SUPER_DOLPHIN_TEST_PROBATION_CANDIDATE")
 	if mode == "" {

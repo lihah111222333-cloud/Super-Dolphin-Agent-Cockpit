@@ -1,0 +1,7 @@
+source_head: 1a56122f1fde88c551230082db1b32102c16f164
+reviewed_at: 2026-08-06T14:58:01Z
+snapshot_sha256: 2cb730887ee94d1ff9f55ef7e00f61da02e0c81c68f4f961b9696db50a13f43d
+working_directory: .
+command: go run ./scripts/code_size_guard.go
+expected_exit: 1
+observed_failure: staged tree 44a40c6ac02596f12b53fc7da0a0bffcc340fe1b exposes 176 historical global_vars debts after metric semantics commit 2a3820e2a; 166 unchanged files and 9 changed files were reviewed as pre-existing mutable composite globals, while all 12 candidate-introduced regressions (1 ratchet, 4 new-file, and 7 changed-file global or complexity violations) were fixed before migration.

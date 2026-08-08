@@ -22,7 +22,7 @@ func executorPlanTestNow() time.Time {
 
 func TestPrepareExecutorPlanGoBuildCacheSkipsNonGoShard(t *testing.T) {
 	workRoot := realTempDir(t)
-	cacheRoot, seedRoots, err := prepareExecutorPlanGoBuildCacheAt(
+	cacheRoot, seedRoot, err := prepareExecutorPlanGoBuildCacheAt(
 		[]GateID{GateIDWhitespaceCheck, GateIDFrontendLint},
 		workRoot,
 		filepath.Join(workRoot, "missing-generations"),
@@ -33,29 +33,22 @@ func TestPrepareExecutorPlanGoBuildCacheSkipsNonGoShard(t *testing.T) {
 	if cacheRoot != "" {
 		t.Fatalf("non-Go shard cache root = %q, want empty", cacheRoot)
 	}
-	if len(seedRoots) != 0 {
-		t.Fatalf("non-Go shard seed roots = %q, want empty", seedRoots)
+	if seedRoot != "" {
+		t.Fatalf("non-Go shard seed root = %q, want empty", seedRoot)
 	}
 	if _, err := os.Stat(filepath.Join(workRoot, "plan-go-cache")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("non-Go shard unexpectedly prepared a Go cache: %v", err)
 	}
 }
 
-func TestPrepareExecutorPlanGoBuildCacheUsesGenerationSeeds(t *testing.T) {
+func TestPrepareExecutorPlanGoBuildCacheUsesSingleImageLayerSeed(t *testing.T) {
 	workRoot := realTempDir(t)
-	seedGenerationsRoot := realTempDir(t)
-	oldest := filepath.Join(seedGenerationsRoot, "00000000000000000034")
-	newest := filepath.Join(seedGenerationsRoot, "00000000000000000035")
-	for _, root := range []string{oldest, newest} {
-		if err := os.Mkdir(root, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		writeTestFile(t, filepath.Join(root, "prewarmed"), "runner-cache\n", 0o600)
-	}
-	cacheRoot, seedRoots, err := prepareExecutorPlanGoBuildCacheAt(
+	imageSeedRoot := realTempDir(t)
+	writeTestFile(t, filepath.Join(imageSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
+	cacheRoot, seedRoot, err := prepareExecutorPlanGoBuildCacheAt(
 		[]GateID{GateIDBackendTestWithGuard, GateIDWhitespaceCheck},
 		workRoot,
-		seedGenerationsRoot,
+		imageSeedRoot,
 	)
 	if err != nil {
 		t.Fatalf("prepare Go shard cache: %v", err)
@@ -63,8 +56,8 @@ func TestPrepareExecutorPlanGoBuildCacheUsesGenerationSeeds(t *testing.T) {
 	if cacheRoot != filepath.Join(workRoot, "plan-go-cache") {
 		t.Fatalf("Go shard cache root = %q", cacheRoot)
 	}
-	if !slices.Equal(seedRoots, []string{newest, oldest}) {
-		t.Fatalf("Go shard seed roots = %q, want newest-to-oldest", seedRoots)
+	if seedRoot != imageSeedRoot {
+		t.Fatalf("Go shard seed root = %q, want immutable image layer", seedRoot)
 	}
 	entries, err := os.ReadDir(cacheRoot)
 	if err != nil {
@@ -75,15 +68,58 @@ func TestPrepareExecutorPlanGoBuildCacheUsesGenerationSeeds(t *testing.T) {
 	}
 }
 
-func TestPrepareExecutorPlanGoBuildCacheRejectsMissingGenerationSeeds(t *testing.T) {
+func TestPrepareExecutorPlanGoBuildCacheRejectsMissingImageLayerSeed(t *testing.T) {
 	workRoot := realTempDir(t)
 	_, _, err := prepareExecutorPlanGoBuildCacheAt(
 		[]GateID{GateIDBackendTestWithGuard},
 		workRoot,
-		filepath.Join(workRoot, "missing-generations"),
+		filepath.Join(workRoot, "missing-image-seed"),
 	)
-	if err == nil || !strings.Contains(err.Error(), "generations root") {
-		t.Fatalf("prepare Go shard cache error = %v, want missing generation root", err)
+	if err == nil || !strings.Contains(err.Error(), "Go build cache seed") {
+		t.Fatalf("prepare Go shard cache error = %v, want missing image seed", err)
+	}
+}
+
+func TestPreparePlanGateExecutionMetricsFollowGoSeedContract(t *testing.T) {
+	vitestID, err := targetWorkloadID(GateIDFrontendTest, workloadTargetVitest, "src/features/prompt-history/model/promptHistoryController.test.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		id        GateID
+		wantCache bool
+	}{
+		{name: "Vitest selector may invoke Go", id: GateID(vitestID), wantCache: true},
+		{name: "frontend lint", id: GateIDFrontendLint, wantCache: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, program, err := executorProgramForWorkload(test.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			workRoot := t.TempDir()
+			cacheRoot := t.TempDir()
+			_, _, _, metricsPath, err := preparePlanGateExecutionAt(
+				workRoot,
+				0,
+				test.id,
+				program,
+				nil,
+				cacheRoot,
+				ExecutorOCIProjectGoBuildCacheSeedRoot,
+				executorPlanTestNow,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (metricsPath != "") != test.wantCache {
+				t.Fatalf("metrics path = %q, want cache observation=%t", metricsPath, test.wantCache)
+			}
+			if test.wantCache && filepath.Dir(metricsPath) != cacheRoot {
+				t.Fatalf("metrics path = %q, want private cache root %q", metricsPath, cacheRoot)
+			}
+		})
 	}
 }
 
@@ -128,31 +164,29 @@ func TestPlanExecutionReportJSONFieldCoverage(t *testing.T) {
 	}
 }
 
-func TestPlanExecutorCommandRequiresCanonicalProfileGateSet(t *testing.T) {
+func TestShardExecutorCommandRequiresCanonicalManifestArguments(t *testing.T) {
 	plan := mustBuildPlan(t, ProfileLocalFast)
-	argv, err := PlanExecutorArgv(plan)
+	workloadPlan := testWorkloadExecutionPlan(t, plan)
+	shards, err := BuildContainerShardSetFromWorkloadPlan(plan, workloadPlan, shardTestDigest('a'), shardTestDigest('b'))
 	if err != nil {
 		t.Fatal(err)
 	}
+	argv := testShardManifestArgv(t, plan, shards.Shards[0], workloadPlan)
 	assertStandaloneWorkerArgvPrefix(t, argv)
 	request, err := parseExecutorPlanCommand(argv[2:])
 	if err != nil {
-		t.Fatalf("parse canonical plan command: %v", err)
+		t.Fatalf("parse canonical shard command: %v", err)
 	}
 	if request.profile != plan.Profile || request.planDigest != plan.PlanDigest {
-		t.Fatalf("parsed plan identity = %#v, want profile=%q digest=%q", request, plan.Profile, plan.PlanDigest)
+		t.Fatalf("parsed shard identity = %#v, want profile=%q digest=%q", request, plan.Profile, plan.PlanDigest)
 	}
-	want := make([]GateID, len(plan.Gates))
-	for index, spec := range plan.Gates {
-		want[index] = spec.ID
-	}
-	if !slices.Equal(request.gateIDs, want) {
-		t.Fatalf("parsed gate IDs = %v, want %v", request.gateIDs, want)
+	if request.manifestPath != ExecutorShardExecutionManifestPath || request.manifestDigest == "" {
+		t.Fatalf("解析的 manifest 身份 = %#v", request)
 	}
 	bad := slices.Clone(argv[2:])
-	bad[6] = string(GateIDWhitespaceCheck)
+	bad[6] = "/tmp/shard-execution-manifest.json"
 	if _, err := parseExecutorPlanCommand(bad); err == nil {
-		t.Fatal("plan command accepted incomplete gate set")
+		t.Fatal("shard command accepted a non-gate-owned manifest path")
 	}
 }
 
@@ -190,6 +224,24 @@ func TestExecutorPlanUsesTwoIsolatedLanesAndCanonicalResults(t *testing.T) {
 	}
 }
 
+func TestRunExecutorPlanLaneStoresResultBeforeProfileValidation(t *testing.T) {
+	id := GateID("backend:test_with_guard_and_race::go-test::invalid-profile")
+	result := successfulPlanGateResult(id)
+	result.ExecutionProfile.CacheSource = "invalid"
+	results := make(map[GateID]PlanGateExecution)
+	var resultsMu sync.Mutex
+	err := runExecutorPlanLane(context.Background(), 0, []GateID{id}, results, &resultsMu, func(context.Context, int, GateID) (PlanGateExecution, error) {
+		return result, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "execution profile") {
+		t.Fatalf("invalid profile error = %v", err)
+	}
+	stored, ok := results[id]
+	if !ok || stored.GateID != id || stored.ExecutionProfile.CacheSource != "invalid" {
+		t.Fatalf("runner result was lost before profile validation: %#v", results)
+	}
+}
+
 func TestExecutorPlanDAGSchedulesCanonicalGatesWithoutDuplicates(t *testing.T) {
 	assertExecutorPlanSchedule(t, ProfileLocalFast, localFastExecutorPlanLanes())
 	assertExecutorPlanSchedule(t, ProfileRelease, releaseExecutorPlanLanes())
@@ -223,6 +275,7 @@ func TestReleaseAttestationRunsAfterCanonicalPrerequisitesWithoutCommandRunner(t
 		!strings.Contains(string(attestation.Log), "plan_digest="+request.planDigest) {
 		t.Fatalf("release attestation result = %#v", attestation)
 	}
+	assertReleaseAttestationExecutionProfile(t, attestation)
 	if err := validatePlanExecutionReportGates(report, nil); err != nil {
 		t.Fatalf("release report is not canonical: %v", err)
 	}
@@ -302,6 +355,25 @@ func assertReleaseAttestationRejected(
 	}
 	if attestation.LogDigest != digestPlanLog(attestation.Log) {
 		t.Fatalf("rejected attestation log digest = %q", attestation.LogDigest)
+	}
+	assertReleaseAttestationExecutionProfile(t, attestation)
+}
+
+func assertReleaseAttestationExecutionProfile(t *testing.T, result PlanGateExecution) {
+	t.Helper()
+	if err := result.ExecutionProfile.Validate(); err != nil {
+		t.Fatalf("release attestation execution profile is invalid: %v", err)
+	}
+	if err := result.ExecutionProfile.ValidateAggregate(); err != nil {
+		t.Fatalf("release attestation aggregate profile is invalid: %v", err)
+	}
+	if result.ExecutionProfile.StartupMS != releaseAttestationStartupMS ||
+		result.ExecutionProfile.TestBodyMS != releaseAttestationTestBodyMS {
+		t.Fatalf("release attestation phases = startup:%d body:%d, want 1ms each", result.ExecutionProfile.StartupMS, result.ExecutionProfile.TestBodyMS)
+	}
+	wantTotalMS := result.CompletedAt.Sub(result.StartedAt).Milliseconds()
+	if result.ExecutionProfile.TotalMS != wantTotalMS {
+		t.Fatalf("release attestation total_ms = %d, want timestamp interval %d", result.ExecutionProfile.TotalMS, wantTotalMS)
 	}
 }
 
@@ -537,10 +609,11 @@ func TestPlanExecutionReportPacksTwentyFiveWorkloadsWithinRemoteRecordBudget(t *
 	)
 	now := executorPlanTestNow()
 	report := PlanExecutionReport{
-		SchemaVersion: ExecutorPlanReportSchemaVersion,
-		Profile:       ProfileLocalFast,
-		PlanDigest:    testExecutorPlanRequest(t).planDigest,
-		Gates:         make([]PlanGateExecution, 0, workloadCount),
+		SchemaVersion:    ExecutorPlanReportSchemaVersion,
+		Profile:          ProfileLocalFast,
+		PlanDigest:       testExecutorPlanRequest(t).planDigest,
+		ExecutionOutcome: SuccessfulWorkerExecutionOutcome(),
+		Gates:            make([]PlanGateExecution, 0, workloadCount),
 	}
 	expected := make([]GateID, 0, workloadCount)
 	for workloadIndex := range workloadCount {
@@ -646,64 +719,6 @@ func successfulPlanGateResult(id GateID) PlanGateExecution {
 		StartedAt: now, CompletedAt: now.Add(time.Millisecond),
 		LogDigest:        digestPlanLog(nil),
 		ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "measured", TestBodyMS: 1, TotalMS: 1},
-	}
-}
-
-func TestExecutionProfileUsesMeasuredGoCommandBodyAndChecksExactTestEvidence(t *testing.T) {
-	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	started := executorPlanTestNow()
-	completed := started.Add(1500 * time.Millisecond)
-	timing := &executorExecutionTiming{setupMS: 500, bodyMS: 1_000, totalMS: 1_500}
-	profile, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed, timing)
-	if err != nil || profile.TestBodyMS != 1_000 || profile.StartupMS != 500 {
-		t.Fatalf("profile=%#v err=%v", profile, err)
-	}
-	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed, timing); err == nil {
-		t.Fatal("duplicate top-level timing was accepted")
-	}
-	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1001}}, started, completed, timing); err == nil {
-		t.Fatal("overlong top-level timing was accepted")
-	}
-}
-
-func TestExecutionProfileRecordsMeasuredBodyForGoPackageWorkload(t *testing.T) {
-	workload, err := NewGoPackageWorkload(GateIDBackendTestWithGuard, "./internal/example", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	started := executorPlanTestNow()
-	profile, err := executionProfileForGate(
-		GateID(workload.ID), ExecutorProgram{}, nil, started, started.Add(1_500*time.Millisecond),
-		&executorExecutionTiming{setupMS: 500, bodyMS: 1_000, totalMS: 1_500},
-	)
-	if err != nil || profile.TestBodyMS != 1_000 || profile.StartupMS != 500 {
-		t.Fatalf("profile=%#v err=%v", profile, err)
-	}
-}
-
-func TestFrontendExecutionProfileDoesNotInferNPMCacheHit(t *testing.T) {
-	started := executorPlanTestNow()
-	completed := started.Add(1500 * time.Millisecond)
-	profile, err := executionProfileForGate(
-		GateIDFrontendLint,
-		ExecutorProgram{NeedsFrontendSeed: true},
-		nil,
-		started,
-		completed,
-		&executorExecutionTiming{setupMS: 500, bodyMS: 1000, totalMS: 1500, viteCacheSeedHit: true},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if profile.Frontend == nil || profile.Frontend.NPMCacheHit ||
-		profile.Frontend.NPMCacheNotApplicableReason != "npm_cache_lookup_not_observed" {
-		t.Fatalf("frontend npm cache evidence = %#v", profile.Frontend)
-	}
-	if !profile.Frontend.ViteCacheHit {
-		t.Fatalf("frontend Vite cache evidence = %#v", profile.Frontend)
 	}
 }
 

@@ -459,38 +459,65 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 // drainOrEscalate 等待 peer 优雅退出，超时后依次升级 SIGTERM 和 SIGKILL。
 // 三段等待后仍未汇合会返回 timeout，调用方据此保留 PID registry 供下次启动清理。
 func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) error {
-	done := make(chan struct{})
-	s.waitSupervisorsAsync(wg, done)
-	select {
-	case <-done:
+	completed := make(chan time.Time, 1)
+	s.waitSupervisorsAsync(wg, completed)
+	shutdownStarted := time.Now()
+	stopDeadline := shutdownStarted.Add(s.stopGrace)
+	completedAt, completedOK := waitSupervisorCompletion(completed, stopDeadline)
+	if completedOK && !completedAt.After(stopDeadline) {
 		return nil
-	case <-time.After(s.stopGrace):
 	}
 	s.signalAllPeers(peers, sigTerminate)
-	select {
-	case <-done:
+
+	termDeadline := stopDeadline.Add(s.killGrace)
+	if !completedOK {
+		completedAt, completedOK = waitSupervisorCompletion(completed, termDeadline)
+	}
+	if completedOK && !completedAt.After(termDeadline) {
 		return nil
-	case <-time.After(s.killGrace):
 	}
 	s.signalAllPeers(peers, sigForceKill)
-	select {
-	case <-done:
+
+	finalDeadline := termDeadline.Add(s.killGrace)
+	if !completedOK {
+		completedAt, completedOK = waitSupervisorCompletion(completed, finalDeadline)
+	}
+	if completedOK && !completedAt.After(finalDeadline) {
 		return nil
-	case <-time.After(s.killGrace):
-		return fmt.Errorf("peer_supervisor shutdown timeout: %d peer(s) did not exit after EOF, SIGTERM, and SIGKILL", len(peers))
+	}
+	return fmt.Errorf("peer_supervisor shutdown timeout: %d peer(s) did not exit after EOF, SIGTERM, and SIGKILL", len(peers))
+}
+
+// waitSupervisorCompletion 按绝对 deadline 等待 supervisor group 汇合。
+// 调用方必须把完成时间与 deadline 比较，避免调度器饥饿把迟到汇合误判为成功关闭。
+func waitSupervisorCompletion(completed <-chan time.Time, deadline time.Time) (time.Time, bool) {
+	remaining := time.Until(deadline)
+	if remaining > 0 {
+		timer := time.NewTimer(remaining)
+		defer timer.Stop()
+		select {
+		case completedAt := <-completed:
+			return completedAt, true
+		case <-timer.C:
+		}
+	}
+	select {
+	case completedAt := <-completed:
+		return completedAt, true
+	default:
+		return time.Time{}, false
 	}
 }
 
-func (s *PeerSupervisor) waitSupervisorsAsync(wg *sync.WaitGroup, done chan<- struct{}) {
+func (s *PeerSupervisor) waitSupervisorsAsync(wg *sync.WaitGroup, completed chan<- time.Time) {
 	safego.Go(context.Background(), nil, "codexapp.peerSupervisor.drain", func(context.Context) {
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.Error("peer_supervisor: panic in drainOrEscalate goroutine", "panic", r)
-				close(done)
 			}
 		}()
 		wg.Wait()
-		close(done)
+		completed <- time.Now()
 	})
 }
 

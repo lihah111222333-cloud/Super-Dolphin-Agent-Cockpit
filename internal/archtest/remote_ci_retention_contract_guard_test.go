@@ -1,7 +1,11 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,6 +76,27 @@ func TestRemoteCIRetentionRootsShareOneAcceptedGenerationWindow(t *testing.T) {
 	remoteCIRetentionAssertRetiredCapsAbsent(t, root)
 }
 
+// TestRemoteCIGenerationOneDerivesEveryAuthorityHistoryTableFromContract
+// 防止首代 bootstrap 重新维护一份会漏根的静态表清单。
+func TestRemoteCIGenerationOneDerivesEveryAuthorityHistoryTableFromContract(t *testing.T) {
+	root := findRepoRoot(t)
+	source := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "remote_baseline_generation_one.go"))
+	for _, required := range []string{
+		"cicontract.RetentionRootBindings()",
+		"cicontract.GenerationOneAuthoritySupportingTables()",
+		"SELECT EXISTS(SELECT 1 FROM %s LIMIT 1)",
+	} {
+		if !strings.Contains(source, required) {
+			t.Errorf("generation-one authority history check lacks %q", required)
+		}
+	}
+	for _, binding := range cicontract.RetentionRootBindings() {
+		if strings.Contains(source, `"`+binding.Table+`"`) {
+			t.Errorf("generation-one authority history check duplicated retention root %q", binding.Table)
+		}
+	}
+}
+
 // TestRemoteCITimingWarningLifecycleIsTransientAndAtomic 锁定 live 事实不成为第六根，
 // 且只在最终 run 写事务中移动到 cascade 子表。
 func TestRemoteCITimingWarningLifecycleIsTransientAndAtomic(t *testing.T) {
@@ -114,12 +139,12 @@ func remoteCIRetentionSchemaSources(t *testing.T, root string) string {
 	return schema.String()
 }
 
-// remoteCIRetentionAssertRootGenerationConstraints 锁定五个历史根的 generation 文本约束。
+// remoteCIRetentionAssertRootGenerationConstraints 锁定七个历史根的 generation 文本约束。
 func remoteCIRetentionAssertRootGenerationConstraints(t *testing.T, schema string) {
 	t.Helper()
 	bindings := cicontract.RetentionRootBindings()
-	if len(bindings) != 5 {
-		t.Fatalf("retention root count = %d, want 5", len(bindings))
+	if len(bindings) != 7 {
+		t.Fatalf("retention root count = %d, want 7", len(bindings))
 	}
 	for _, binding := range bindings {
 		block := remoteCIRetentionCreateTableBlock(t, schema, binding.Table)
@@ -185,12 +210,14 @@ func TestRemoteCIRetentionRootWritersProveAcceptedGeneration(t *testing.T) {
 	root := findRepoRoot(t)
 	directory := filepath.Join(root, "internal", "devtools", "gate")
 	expectedCallers := map[string]bool{
-		"calibration_checkpoint_store.go.CreateCalibrationCheckpointIfAbsent":         false,
-		"calibration_checkpoint_store.go.CompareAndSwapCalibrationCheckpointScenario": false,
-		"ci_catalog_store.go.RecordWorkloadCatalog":                                   false,
-		"ci_query_store.go.RecordProvisionalRemoteCIRun":                              false,
-		"ledger_store_sqlite.go.appendSQLiteDurationSamplesInTransaction":             false,
-		"remote_ci_timing_warning.go.RecordLiveRemoteCITimingWarning":                 false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "CreateCalibrationCheckpointIfAbsent"):         false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "CompareAndSwapCalibrationCheckpointScenario"): false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordWorkloadCatalog"):                       false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordProvisionalRemoteCIRun"):                false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordMigratedWorkloadPassEvidence"):          false,
+		remoteCIRetentionFunctionKey("", "appendSQLiteDurationSamplesInTransaction"):                        false,
+		remoteCIRetentionFunctionKey("", "writeSQLiteShardOverheadCAS"):                                     false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarning"):             false,
 	}
 	remoteCIRetentionAssertAcceptedGenerationProofs(t, directory, expectedCallers)
 	for caller, guarded := range expectedCallers {
@@ -200,24 +227,213 @@ func TestRemoteCIRetentionRootWritersProveAcceptedGeneration(t *testing.T) {
 	}
 }
 
-// remoteCIRetentionAssertAcceptedGenerationProofs 检查所有 production writer 的来源证明调用。
-func remoteCIRetentionAssertAcceptedGenerationProofs(t *testing.T, directory string, expectedCallers map[string]bool) {
+type remoteCIRetentionSourceFile struct {
+	name string
+	file *ast.File
+}
+
+type remoteCIRetentionFunctionSymbol struct {
+	receiver string
+	name     string
+}
+
+func remoteCIRetentionFunctionKey(receiver, name string) string {
+	if receiver == "" {
+		return name
+	}
+	return receiver + "." + name
+}
+
+func (symbol remoteCIRetentionFunctionSymbol) key() string {
+	return remoteCIRetentionFunctionKey(symbol.receiver, symbol.name)
+}
+
+func remoteCIRetentionFunctionSymbolOf(function *ast.FuncDecl) remoteCIRetentionFunctionSymbol {
+	receiver := ""
+	if function.Recv != nil && len(function.Recv.List) != 0 {
+		receiver = types.ExprString(function.Recv.List[0].Type)
+	}
+	return remoteCIRetentionFunctionSymbol{receiver: receiver, name: function.Name.Name}
+}
+
+func remoteCIRetentionLoadSourceFiles(t *testing.T, directory string) []remoteCIRetentionSourceFile {
 	t.Helper()
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
+	files := make([]remoteCIRetentionSourceFile, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
-		file := parseRemoteCIContractGuardFile(t, filepath.Join(directory, entry.Name()))
-		remoteCIRetentionAssertFileAcceptedGenerationProofs(t, entry.Name(), file, expectedCallers)
+		files = append(files, remoteCIRetentionSourceFile{
+			name: entry.Name(),
+			file: parseRemoteCIContractGuardFile(t, filepath.Join(directory, entry.Name())),
+		})
+	}
+	return files
+}
+
+// remoteCIRetentionAssertAcceptedGenerationProofs 检查所有 production writer 的来源证明调用。
+func remoteCIRetentionAssertAcceptedGenerationProofs(t *testing.T, directory string, expectedCallers map[string]bool) {
+	t.Helper()
+	files := remoteCIRetentionLoadSourceFiles(t, directory)
+	remoteCIRetentionAssertUniqueExpectedSymbols(t, files, expectedCallers)
+	delegation, delegated := remoteCIRetentionResolveHelperDelegation(t, files)
+	for _, source := range files {
+		remoteCIRetentionAssertFileAcceptedGenerationProofs(t, source.file, delegation, delegated, expectedCallers)
 	}
 }
 
+// remoteCIRetentionHelperDelegation 记录唯一允许跨函数追踪的 retention helper。
+// 只允许 provisional run writer 的精确 receiver、writer 和 helper 三元组；
+// 其他 helper 不得借此跳过来源证明或事务尾部检查。
+type remoteCIRetentionHelperDelegation struct {
+	writer remoteCIRetentionFunctionSymbol
+	helper remoteCIRetentionFunctionSymbol
+}
+
+type remoteCIRetentionFunctionLocation struct {
+	fileName string
+	function *ast.FuncDecl
+}
+
+func remoteCIRetentionAllowedHelperDelegation() remoteCIRetentionHelperDelegation {
+	return remoteCIRetentionHelperDelegation{
+		writer: remoteCIRetentionFunctionSymbol{receiver: "*DurationLedgerStore", name: "RecordProvisionalRemoteCIRun"},
+		helper: remoteCIRetentionFunctionSymbol{receiver: "*DurationLedgerStore", name: "recordProvisionalRemoteCIRunTransaction"},
+	}
+}
+
+// remoteCIRetentionHelperDelegationIssues 返回 helper delegation 的结构和调用链违规。
+func remoteCIRetentionHelperDelegationIssues(files []remoteCIRetentionSourceFile, delegation remoteCIRetentionHelperDelegation) (writers, helpers []remoteCIRetentionFunctionLocation, issues []string) {
+	writers, helpers = remoteCIRetentionCollectHelperLocations(files, delegation)
+	if len(writers) == 0 && len(helpers) == 0 {
+		return writers, helpers, nil
+	}
+	if len(writers) != 1 {
+		issues = append(issues, fmt.Sprintf("retention writer %s must have one declaration, got %d", delegation.writer.key(), len(writers)))
+	}
+	if len(helpers) != 1 {
+		issues = append(issues, fmt.Sprintf("retention helper %s must have one declaration, got %d", delegation.helper.key(), len(helpers)))
+	}
+	if len(issues) != 0 {
+		return writers, helpers, issues
+	}
+	writerCalls, totalCalls, callIssues := remoteCIRetentionHelperCallIssues(files, delegation, writers[0])
+	issues = append(issues, callIssues...)
+	if writerCalls != 1 || totalCalls != 1 {
+		issues = append(issues, fmt.Sprintf("retention helper %s must have one unique delegation from %s, writer_calls=%d total_calls=%d", delegation.helper.key(), delegation.writer.key(), writerCalls, totalCalls))
+	}
+	return writers, helpers, issues
+}
+
+func remoteCIRetentionCollectHelperLocations(files []remoteCIRetentionSourceFile, delegation remoteCIRetentionHelperDelegation) (writers, helpers []remoteCIRetentionFunctionLocation) {
+	for _, source := range files {
+		for _, declaration := range source.file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			symbol := remoteCIRetentionFunctionSymbolOf(function)
+			if symbol == delegation.writer {
+				writers = append(writers, remoteCIRetentionFunctionLocation{fileName: source.name, function: function})
+			}
+			if symbol == delegation.helper {
+				helpers = append(helpers, remoteCIRetentionFunctionLocation{fileName: source.name, function: function})
+			}
+		}
+	}
+	return writers, helpers
+}
+
+func remoteCIRetentionHelperCallIssues(files []remoteCIRetentionSourceFile, delegation remoteCIRetentionHelperDelegation, writer remoteCIRetentionFunctionLocation) (writerCalls, totalCalls int, issues []string) {
+	receiverName := remoteCIRetentionReceiverName(writer.function)
+	for _, source := range files {
+		for _, declaration := range source.file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			functionSymbol := remoteCIRetentionFunctionSymbolOf(function)
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok || remoteCIRetentionCallName(call) != delegation.helper.name {
+					return true
+				}
+				totalCalls++
+				if functionSymbol == delegation.writer && remoteCIRetentionIsExactHelperCall(call, delegation.helper.name, receiverName) {
+					writerCalls++
+					return true
+				}
+				issues = append(issues, fmt.Sprintf("retention helper %s has unexpected caller/receiver %s in %s", delegation.helper.key(), functionSymbol.key(), source.name))
+				return true
+			})
+		}
+	}
+	return writerCalls, totalCalls, issues
+}
+
+// remoteCIRetentionResolveHelperDelegation 验证唯一 helper delegation 的 AST 形状与全包调用链。
+func remoteCIRetentionResolveHelperDelegation(t *testing.T, files []remoteCIRetentionSourceFile) (remoteCIRetentionHelperDelegation, bool) {
+	t.Helper()
+	delegation := remoteCIRetentionAllowedHelperDelegation()
+	writers, helpers, issues := remoteCIRetentionHelperDelegationIssues(files, delegation)
+	if len(writers) == 0 && len(helpers) == 0 {
+		return delegation, false
+	}
+	for _, issue := range issues {
+		t.Errorf("%s", issue)
+	}
+	return delegation, len(issues) == 0
+}
+
+func remoteCIRetentionIsExactHelperCall(call *ast.CallExpr, helperName, receiverName string) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != helperName {
+		return false
+	}
+	receiver, ok := selector.X.(*ast.Ident)
+	return ok && receiver.Name == receiverName
+}
+
+func remoteCIRetentionReceiverName(function *ast.FuncDecl) string {
+	if function.Recv == nil || len(function.Recv.List) == 0 || len(function.Recv.List[0].Names) == 0 {
+		return ""
+	}
+	return function.Recv.List[0].Names[0].Name
+}
+
+func remoteCIRetentionAssertUniqueExpectedSymbols(t *testing.T, files []remoteCIRetentionSourceFile, expectedCallers map[string]bool) {
+	t.Helper()
+	locations := remoteCIRetentionExpectedSymbolLocations(files, expectedCallers)
+	for symbol, sourceNames := range locations {
+		if len(sourceNames) > 1 {
+			t.Errorf("retention writer %s has duplicate declarations in %s", symbol, strings.Join(sourceNames, ", "))
+		}
+	}
+}
+
+func remoteCIRetentionExpectedSymbolLocations(files []remoteCIRetentionSourceFile, expectedCallers map[string]bool) map[string][]string {
+	locations := make(map[string][]string)
+	for _, source := range files {
+		for _, declaration := range source.file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			symbol := remoteCIRetentionFunctionSymbolOf(function).key()
+			if _, expected := expectedCallers[symbol]; expected {
+				locations[symbol] = append(locations[symbol], source.name)
+			}
+		}
+	}
+	return locations
+}
+
 // remoteCIRetentionAssertFileAcceptedGenerationProofs 登记单个 production 文件中的 guard 调用。
-func remoteCIRetentionAssertFileAcceptedGenerationProofs(t *testing.T, fileName string, file *ast.File, expectedCallers map[string]bool) {
+func remoteCIRetentionAssertFileAcceptedGenerationProofs(t *testing.T, file *ast.File, delegation remoteCIRetentionHelperDelegation, delegated bool, expectedCallers map[string]bool) {
 	t.Helper()
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
@@ -229,19 +445,19 @@ func remoteCIRetentionAssertFileAcceptedGenerationProofs(t *testing.T, fileName 
 			if !ok {
 				return true
 			}
-			remoteCIRetentionRegisterAcceptedGenerationProof(t, fileName, function, call, expectedCallers)
+			remoteCIRetentionRegisterAcceptedGenerationProof(t, function, call, delegation, delegated, expectedCallers)
 			return true
 		})
 	}
 }
 
 // remoteCIRetentionRegisterAcceptedGenerationProof 保留每个 writer 恰好一次来源证明的 allowlist。
-func remoteCIRetentionRegisterAcceptedGenerationProof(t *testing.T, fileName string, function *ast.FuncDecl, call *ast.CallExpr, expectedCallers map[string]bool) {
+func remoteCIRetentionRegisterAcceptedGenerationProof(t *testing.T, function *ast.FuncDecl, call *ast.CallExpr, delegation remoteCIRetentionHelperDelegation, delegated bool, expectedCallers map[string]bool) {
 	t.Helper()
 	if remoteCIRetentionCallName(call) != "requireHistoricallyAcceptedGeneration" {
 		return
 	}
-	caller := fileName + "." + function.Name.Name
+	caller := remoteCIRetentionDelegatedCaller(function, delegation, delegated)
 	if _, expected := expectedCallers[caller]; !expected {
 		t.Errorf("unexpected accepted-generation proof caller %s", caller)
 	} else if expectedCallers[caller] {
@@ -251,20 +467,30 @@ func remoteCIRetentionRegisterAcceptedGenerationProof(t *testing.T, fileName str
 	}
 }
 
+func remoteCIRetentionDelegatedCaller(function *ast.FuncDecl, delegation remoteCIRetentionHelperDelegation, delegated bool) string {
+	symbol := remoteCIRetentionFunctionSymbolOf(function)
+	if delegated && symbol == delegation.helper {
+		return delegation.writer.key()
+	}
+	return symbol.key()
+}
+
 // TestRemoteCIRetentionIsTheLastDatabaseOperationInEveryWriter 用结构守卫锁定
 // 同步事务边界，而不是依赖注释约定。
 func TestRemoteCIRetentionIsTheLastDatabaseOperationInEveryWriter(t *testing.T) {
 	root := findRepoRoot(t)
 	directory := filepath.Join(root, "internal", "devtools", "gate")
 	expectedCallers := map[string]bool{
-		"calibration_checkpoint_store.go.CreateCalibrationCheckpointIfAbsent":         false,
-		"calibration_checkpoint_store.go.CompareAndSwapCalibrationCheckpointScenario": false,
-		"calibration_checkpoint_store.go.DeleteCalibrationCheckpoint":                 false,
-		"ci_catalog_store.go.RecordWorkloadCatalog":                                   false,
-		"ci_query_store.go.RecordProvisionalRemoteCIRun":                              false,
-		"ledger_store_sqlite.go.appendSQLiteSamplesOnce":                              false,
-		"remote_ci_timing_warning.go.RecordLiveRemoteCITimingWarning":                 false,
-		"workload_pass_evidence.go.finalizeSQLiteRemoteCIRunAuthority":                false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "CreateCalibrationCheckpointIfAbsent"):         false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "CompareAndSwapCalibrationCheckpointScenario"): false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "DeleteCalibrationCheckpoint"):                 false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordWorkloadCatalog"):                       false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordProvisionalRemoteCIRun"):                false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordMigratedWorkloadPassEvidence"):          false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "appendSQLiteSamplesOnce"):                     false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "compareAndSwapSQLiteShardOverhead"):           false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarning"):             false,
+		remoteCIRetentionFunctionKey("", "finalizeSQLiteRemoteCIRunAuthority"):                              false,
 	}
 	remoteCIRetentionAssertFinalDatabaseOperations(t, directory, expectedCallers)
 	for caller, called := range expectedCallers {
@@ -274,38 +500,108 @@ func TestRemoteCIRetentionIsTheLastDatabaseOperationInEveryWriter(t *testing.T) 
 	}
 }
 
+// TestRemoteCIRetentionGuardNegativeFixtures 锁定文件移动、重复 symbol、其他 helper caller
+// 和 compactor 后数据库访问的 fail-first 行为，避免守卫退化为路径白名单。
+func TestRemoteCIRetentionGuardNegativeFixtures(t *testing.T) {
+	t.Run("moved file keeps function symbol", func(t *testing.T) {
+		file := remoteCIRetentionParseSourceFile(t, "moved_remote_ci_authority_finalize.go", `package gate
+func finalizeSQLiteRemoteCIRunAuthority() {}`)
+		function := file.file.Decls[0].(*ast.FuncDecl)
+		if got, want := remoteCIRetentionFunctionSymbolOf(function).key(), "finalizeSQLiteRemoteCIRunAuthority"; got != want {
+			t.Fatalf("moved writer symbol = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("duplicate writer symbol is visible", func(t *testing.T) {
+		expected := map[string]bool{remoteCIRetentionFunctionKey("", "finalizeSQLiteRemoteCIRunAuthority"): false}
+		files := []remoteCIRetentionSourceFile{
+			remoteCIRetentionParseSourceFile(t, "remote_ci_authority_finalize.go", `package gate
+func finalizeSQLiteRemoteCIRunAuthority() {}`),
+			remoteCIRetentionParseSourceFile(t, "legacy_workload_pass_evidence.go", `package gate
+func finalizeSQLiteRemoteCIRunAuthority() {}`),
+		}
+		locations := remoteCIRetentionExpectedSymbolLocations(files, expected)
+		if got := len(locations["finalizeSQLiteRemoteCIRunAuthority"]); got != 2 {
+			t.Fatalf("duplicate writer locations = %d, want 2", got)
+		}
+	})
+
+	t.Run("other helper caller is rejected", func(t *testing.T) {
+		files := []remoteCIRetentionSourceFile{remoteCIRetentionParseSourceFile(t, "ci_query_store.go", `package gate
+type DurationLedgerStore struct{}
+func (store *DurationLedgerStore) RecordProvisionalRemoteCIRun() { store.recordProvisionalRemoteCIRunTransaction() }
+func (store *DurationLedgerStore) recordProvisionalRemoteCIRunTransaction() {}
+func (other *DurationLedgerStore) unrelatedWriter() { other.recordProvisionalRemoteCIRunTransaction() }`)}
+		delegation := remoteCIRetentionAllowedHelperDelegation()
+		_, _, issues := remoteCIRetentionHelperDelegationIssues(files, delegation)
+		if len(issues) == 0 || !strings.Contains(strings.Join(issues, "\n"), "unexpected caller/receiver") {
+			t.Fatalf("other helper caller was not rejected: %v", issues)
+		}
+	})
+
+	t.Run("database operation after compactor is rejected", func(t *testing.T) {
+		file := remoteCIRetentionParseSourceFile(t, "retention_negative.go", `package gate
+type Tx struct{}
+func (tx *Tx) Exec(string) {}
+func compactDurationLedgerAuthority(*Tx) error { return nil }
+func writer(tx *Tx) error {
+    if err := compactDurationLedgerAuthority(tx); err != nil { return err }
+    tx.Exec("after")
+    return nil
+}`)
+		writer := file.file.Decls[3].(*ast.FuncDecl)
+		var compactPosition int
+		ast.Inspect(writer.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if ok && remoteCIRetentionCallName(call) == "compactDurationLedgerAuthority" {
+				compactPosition = int(call.Pos())
+			}
+			return true
+		})
+		operations := remoteCIRetentionDatabaseOperationsAfter(writer, compactPosition)
+		if len(operations) != 1 || operations[0] != "Exec" {
+			t.Fatalf("database operations after compactor = %v, want [Exec]", operations)
+		}
+	})
+}
+
+func remoteCIRetentionParseSourceFile(t *testing.T, name, source string) remoteCIRetentionSourceFile {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), name, source, 0)
+	if err != nil {
+		t.Fatalf("parse retention fixture %s: %v", name, err)
+	}
+	return remoteCIRetentionSourceFile{name: name, file: file}
+}
+
 // remoteCIRetentionAssertFinalDatabaseOperations 检查每个 production writer 的同步 compactor 边界。
 func remoteCIRetentionAssertFinalDatabaseOperations(t *testing.T, directory string, expectedCallers map[string]bool) {
 	t.Helper()
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		file := parseRemoteCIContractGuardFile(t, filepath.Join(directory, entry.Name()))
-		remoteCIRetentionAssertFileFinalDatabaseOperations(t, entry.Name(), file, expectedCallers)
+	files := remoteCIRetentionLoadSourceFiles(t, directory)
+	remoteCIRetentionAssertUniqueExpectedSymbols(t, files, expectedCallers)
+	delegation, delegated := remoteCIRetentionResolveHelperDelegation(t, files)
+	for _, source := range files {
+		remoteCIRetentionAssertFileFinalDatabaseOperations(t, source.name, source.file, delegation, delegated, expectedCallers)
 	}
 }
 
 // remoteCIRetentionAssertFileFinalDatabaseOperations 分别检查调用位置、后续数据库访问和异步调用。
-func remoteCIRetentionAssertFileFinalDatabaseOperations(t *testing.T, fileName string, file *ast.File, expectedCallers map[string]bool) {
+func remoteCIRetentionAssertFileFinalDatabaseOperations(t *testing.T, fileName string, file *ast.File, delegation remoteCIRetentionHelperDelegation, delegated bool, expectedCallers map[string]bool) {
 	t.Helper()
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Body == nil {
 			continue
 		}
-		positions := remoteCIRetentionCompactionPositions(t, fileName, function, expectedCallers)
+		positions := remoteCIRetentionCompactionPositions(t, fileName, function, delegation, delegated, expectedCallers)
 		remoteCIRetentionAssertNoDatabaseAfterCompaction(t, fileName, function, positions)
 		remoteCIRetentionAssertNoAsyncCompaction(t, fileName, function)
 	}
+	remoteCIRetentionAssertNoDatabaseAfterDelegatedHelper(t, fileName, file, delegation, delegated)
 }
 
 // remoteCIRetentionCompactionPositions 登记唯一允许的同步 compactor 调用。
-func remoteCIRetentionCompactionPositions(t *testing.T, fileName string, function *ast.FuncDecl, expectedCallers map[string]bool) []int {
+func remoteCIRetentionCompactionPositions(t *testing.T, fileName string, function *ast.FuncDecl, delegation remoteCIRetentionHelperDelegation, delegated bool, expectedCallers map[string]bool) []int {
 	t.Helper()
 	positions := make([]int, 0, 1)
 	ast.Inspect(function.Body, func(node ast.Node) bool {
@@ -313,7 +609,7 @@ func remoteCIRetentionCompactionPositions(t *testing.T, fileName string, functio
 		if !ok || remoteCIRetentionCallName(call) != "compactDurationLedgerAuthority" {
 			return true
 		}
-		caller := fileName + "." + function.Name.Name
+		caller := remoteCIRetentionDelegatedCaller(function, delegation, delegated)
 		if _, expected := expectedCallers[caller]; !expected {
 			t.Errorf("unexpected retention authority caller %s", caller)
 		} else if expectedCallers[caller] {
@@ -327,19 +623,61 @@ func remoteCIRetentionCompactionPositions(t *testing.T, fileName string, functio
 	return positions
 }
 
+// remoteCIRetentionAssertNoDatabaseAfterDelegatedHelper 保证 wrapper 委托后没有
+// 新的数据库 selector；helper 自身的 compactor 尾部由同一遍 AST 检查锁定。
+func remoteCIRetentionAssertNoDatabaseAfterDelegatedHelper(t *testing.T, fileName string, file *ast.File, delegation remoteCIRetentionHelperDelegation, delegated bool) {
+	t.Helper()
+	if !delegated {
+		return
+	}
+	for _, declaration := range file.Decls {
+		writer, ok := declaration.(*ast.FuncDecl)
+		if !ok || remoteCIRetentionFunctionSymbolOf(writer) != delegation.writer || writer.Body == nil {
+			continue
+		}
+		ast.Inspect(writer.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || !remoteCIRetentionIsExactHelperCall(call, delegation.helper.name, remoteCIRetentionReceiverName(writer)) {
+				return true
+			}
+			delegatedPosition := int(call.Pos())
+			ast.Inspect(writer.Body, func(after ast.Node) bool {
+				databaseCall, ok := after.(*ast.CallExpr)
+				if !ok || int(databaseCall.Pos()) <= delegatedPosition {
+					return true
+				}
+				remoteCIRetentionReportDatabaseOperationAfterCompaction(t, fileName, writer, databaseCall)
+				return true
+			})
+			return true
+		})
+	}
+}
+
 // remoteCIRetentionAssertNoDatabaseAfterCompaction 防止 compactor 之后出现新的数据库操作。
 func remoteCIRetentionAssertNoDatabaseAfterCompaction(t *testing.T, fileName string, function *ast.FuncDecl, positions []int) {
 	t.Helper()
 	for _, compactPosition := range positions {
-		ast.Inspect(function.Body, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok || int(call.Pos()) <= compactPosition {
-				return true
-			}
-			remoteCIRetentionReportDatabaseOperationAfterCompaction(t, fileName, function, call)
-			return true
-		})
+		for _, databaseOperation := range remoteCIRetentionDatabaseOperationsAfter(function, compactPosition) {
+			t.Errorf("%s.%s performs database operation %s after retention compaction", fileName, function.Name.Name, databaseOperation)
+		}
 	}
+}
+
+func remoteCIRetentionDatabaseOperationsAfter(function *ast.FuncDecl, compactPosition int) []string {
+	operations := make([]string, 0)
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || int(call.Pos()) <= compactPosition {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if ok && remoteCIRetentionIsDatabaseOperation(selector.Sel.Name) {
+			operations = append(operations, selector.Sel.Name)
+		}
+		return true
+	})
+	return operations
 }
 
 // remoteCIRetentionReportDatabaseOperationAfterCompaction 只报告 compactor 后的数据库 selector。

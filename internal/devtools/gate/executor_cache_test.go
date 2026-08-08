@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/build"
@@ -19,6 +20,12 @@ import (
 	"time"
 )
 
+type failingGoCacheProxyWriter struct{}
+
+func (failingGoCacheProxyWriter) Write([]byte) (int, error) {
+	return 0, errors.New("fixture output failure")
+}
+
 func TestExecutorReusesPreparedCachesWithinShard(t *testing.T) {
 	config, program, sharedCacheRoot := newPreparedShardCacheFixture(t)
 	for run := range 2 {
@@ -32,7 +39,7 @@ func TestExecutorReusesPreparedCachesWithinShard(t *testing.T) {
 			t.Fatalf("shared shard cache marker %q: %v", name, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoots[0], "first-gate")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoot, "first-gate")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runner cache seed was mutated: %v", err)
 	}
 	standaloneConfig := config
@@ -58,10 +65,8 @@ func TestExecutorGoBuildCacheSeedIsPortableAcrossWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	materializeGoBuildCacheFixture(t, firstSource, canonicalSource)
-	runGoBuildCacheFixture(t, canonicalSource, seedRoot, nil, false)
+	runGoBuildCacheFixture(t, canonicalSource, seedRoot, "", false)
 	seedDigest := mustRuntimeSeedTreeDigest(t, seedRoot)
-	newestSeedRoot := realTempDir(t)
-
 	privateRoot := realTempDir(t)
 	if err := os.Chmod(privateRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -73,11 +78,11 @@ func TestExecutorGoBuildCacheSeedIsPortableAcrossWorktrees(t *testing.T) {
 		t.Fatalf("remove first materialized worktree: %v", err)
 	}
 	materializeGoBuildCacheFixture(t, secondSource, canonicalSource)
-	trace := runGoBuildCacheFixture(t, canonicalSource, privateRoot, []string{newestSeedRoot, seedRoot}, true)
+	trace := runGoBuildCacheFixture(t, canonicalSource, privateRoot, seedRoot, true)
 	if strings.Contains(trace, "/compile ") || strings.Contains(trace, `\compile.exe `) {
 		t.Fatalf("second worktree recompiled despite the canonical worker source path:\n%s", trace)
 	}
-	trace = runGoBuildCacheFixture(t, canonicalSource, privateRoot, []string{newestSeedRoot, seedRoot}, true)
+	trace = runGoBuildCacheFixture(t, canonicalSource, privateRoot, seedRoot, true)
 	if strings.Contains(trace, "/compile ") || strings.Contains(trace, `\compile.exe `) {
 		t.Fatalf("reused private write layer recompiled the unchanged worktree:\n%s", trace)
 	}
@@ -123,34 +128,216 @@ func TestGoBuildCacheProxyHelper(_ *testing.T) {
 	os.Exit(0)
 }
 
+func TestExecuteGoBuildCacheProxyFinalizesStartedMarker(t *testing.T) {
+	seedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	metricsPath, err := GoBuildCacheProxyMetricsPathForInvocation(privateRoot, "marker-lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := ExecuteGoBuildCacheProxy([]string{
+		"--seed", seedRoot,
+		"--private", privateRoot,
+		"--metrics", metricsPath,
+	}, strings.NewReader(""), &output); err != nil {
+		t.Fatalf("ExecuteGoBuildCacheProxy() error = %v", err)
+	}
+	if _, err := LoadGoBuildCacheProxyMetricsAt(privateRoot, metricsPath, seedRoot); err != nil {
+		t.Fatalf("load finalized metrics: %v", err)
+	}
+	markers, err := goBuildCacheProxyStartedMarkers(metricsPath)
+	if err != nil {
+		t.Fatalf("list finalized proxy started markers: %v", err)
+	}
+	if len(markers) != 0 {
+		t.Fatalf("finalized proxy retained started markers: %v", markers)
+	}
+}
+
+func TestExecuteGoBuildCacheProxyAggregatesConcurrentHelpers(t *testing.T) {
+	seedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	metricsPath, err := GoBuildCacheProxyMetricsPathForInvocation(privateRoot, "concurrent-helpers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionID := bytes.Repeat([]byte{0x27}, goBuildCacheHashBytes)
+	getRequest, err := json.Marshal(goBuildCacheProxyRequest{ID: 1, Command: "get", ActionID: actionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := string(getRequest) + "\n{\"ID\":2,\"Command\":\"close\"}\n"
+	const helperCount = 8
+	runConcurrentGoBuildCacheProxyHelpers(t, seedRoot, privateRoot, metricsPath, input, helperCount)
+	requireGoBuildCacheProxyContributionCount(t, metricsPath, helperCount, "before finalization")
+	metrics, err := LoadGoBuildCacheProxyMetricsAt(privateRoot, metricsPath, seedRoot)
+	if err != nil {
+		t.Fatalf("load aggregated helper metrics: %v", err)
+	}
+	if metrics.MissCount != helperCount || metrics.PrivateHitCount != 0 || metrics.BaselineHitCount != 0 || metrics.PutCount != 0 {
+		t.Fatalf("aggregated helper metrics = %#v, want %d misses only", metrics, helperCount)
+	}
+	requireNoGoBuildCacheProxyStartedMarkers(t, metricsPath)
+	requireGoBuildCacheProxyContributionCount(t, metricsPath, 0, "after finalization")
+	if _, err := os.Stat(goBuildCacheProxyStartedPath(metricsPath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy shared started marker exists after concurrent helpers: %v", err)
+	}
+}
+
+func runConcurrentGoBuildCacheProxyHelpers(t *testing.T, seedRoot, privateRoot, metricsPath, input string, count int) {
+	t.Helper()
+	args := []string{"--seed", seedRoot, "--private", privateRoot, "--metrics", metricsPath}
+	errorsByHelper := make(chan error, count)
+	var group sync.WaitGroup
+	for range count {
+		group.Go(func() {
+			var output bytes.Buffer
+			errorsByHelper <- ExecuteGoBuildCacheProxy(args, strings.NewReader(input), &output)
+		})
+	}
+	group.Wait()
+	close(errorsByHelper)
+	for err := range errorsByHelper {
+		if err != nil {
+			t.Fatalf("concurrent Go build cache proxy helper: %v", err)
+		}
+	}
+}
+
+func requireGoBuildCacheProxyContributionCount(t *testing.T, metricsPath string, want int, phase string) {
+	t.Helper()
+	contributions, err := goBuildCacheProxyContributionPaths(metricsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contributions) != want {
+		t.Fatalf("helper contribution count %s = %d, want %d", phase, len(contributions), want)
+	}
+}
+
+func requireNoGoBuildCacheProxyStartedMarkers(t *testing.T, metricsPath string) {
+	t.Helper()
+	markers, err := goBuildCacheProxyStartedMarkers(metricsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(markers) != 0 {
+		t.Fatalf("Go build cache proxy retained started markers: %v", markers)
+	}
+}
+
+func TestLoadGoBuildCacheProxyMetricsSumsAllHelperCounters(t *testing.T) {
+	seedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	metricsPath, err := GoBuildCacheProxyMetricsPathForInvocation(privateRoot, "sum-all-counters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := []GoBuildCacheProxyMetrics{
+		{SchemaVersion: goBuildCacheProxyMetricsSchemaVersion, PrivateHitCount: 2, MissCount: 3, SeedRoots: []string{seedRoot}},
+		{SchemaVersion: goBuildCacheProxyMetricsSchemaVersion, BaselineHitCount: 5, PutCount: 7, SeedRoots: []string{seedRoot}},
+	}
+	for index, part := range parts {
+		path := filepath.Join(privateRoot, fmt.Sprintf("%s.helper-%d.json", filepath.Base(metricsPath), index))
+		if err := writeGoBuildCacheProxyMetrics(path, part); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metrics, err := LoadGoBuildCacheProxyMetricsAt(privateRoot, metricsPath, seedRoot)
+	if err != nil {
+		t.Fatalf("load summed helper metrics: %v", err)
+	}
+	if metrics.PrivateHitCount != 2 || metrics.BaselineHitCount != 5 || metrics.MissCount != 3 || metrics.PutCount != 7 {
+		t.Fatalf("summed helper metrics = %#v", metrics)
+	}
+}
+
+func TestExecuteGoBuildCacheProxyRetainsStartedMarkerAfterServeFailure(t *testing.T) {
+	seedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	metricsPath, err := GoBuildCacheProxyMetricsPathForInvocation(privateRoot, "failed-marker-lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ExecuteGoBuildCacheProxy([]string{
+		"--seed", seedRoot,
+		"--private", privateRoot,
+		"--metrics", metricsPath,
+	}, strings.NewReader(""), failingGoCacheProxyWriter{})
+	if err == nil || !strings.Contains(err.Error(), "fixture output failure") {
+		t.Fatalf("ExecuteGoBuildCacheProxy() error = %v", err)
+	}
+	markers, markerErr := goBuildCacheProxyStartedMarkers(metricsPath)
+	if markerErr != nil {
+		t.Fatalf("list failed proxy started markers: %v", markerErr)
+	}
+	if len(markers) != 1 {
+		t.Fatalf("failed proxy retained %d started markers, want one: %v", len(markers), markers)
+	}
+	if _, err := os.Stat(metricsPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed proxy published final metrics: %v", err)
+	}
+}
+
+func TestExecuteGoBuildCacheProxyRetainsStartedMarkerAfterRequestFailure(t *testing.T) {
+	seedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	metricsPath, err := GoBuildCacheProxyMetricsPathForInvocation(privateRoot, "failed-request-lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := strings.NewReader("{\"ID\":1,\"Command\":\"get\"}\n{\"ID\":2,\"Command\":\"close\"}\n")
+	var output bytes.Buffer
+	err = ExecuteGoBuildCacheProxy([]string{
+		"--seed", seedRoot,
+		"--private", privateRoot,
+		"--metrics", metricsPath,
+	}, input, &output)
+	if err == nil || !strings.Contains(err.Error(), "Go build cache get request is malformed") {
+		t.Fatalf("ExecuteGoBuildCacheProxy() error = %v", err)
+	}
+	if !strings.Contains(output.String(), "Go build cache get request is malformed") {
+		t.Fatalf("proxy response did not report request failure: %s", output.String())
+	}
+	markers, markerErr := goBuildCacheProxyStartedMarkers(metricsPath)
+	if markerErr != nil {
+		t.Fatalf("list failed request started markers: %v", markerErr)
+	}
+	if len(markers) != 1 {
+		t.Fatalf("failed request retained %d started markers, want one: %v", len(markers), markers)
+	}
+	if _, err := os.Stat(metricsPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed request published final metrics: %v", err)
+	}
+}
+
 func testGoBuildCacheProxyLauncher() string {
 	return strconv.Quote(os.Args[0]) + " -test.run=^TestGoBuildCacheProxyHelper$ --"
 }
 
-func TestGoBuildCacheProxyConfigAcceptsOrderedSeedChain(t *testing.T) {
-	newest := realTempDir(t)
-	oldest := realTempDir(t)
+func TestGoBuildCacheProxyConfigAcceptsSingleSeed(t *testing.T) {
+	seedRoot := realTempDir(t)
 	privateRoot := realTempDir(t)
 	config, err := parseGoBuildCacheProxyConfig([]string{
-		"--seed", newest,
-		"--seed", oldest,
+		"--seed", seedRoot,
 		"--private", privateRoot,
 	})
 	if err != nil {
-		t.Fatalf("parse ordered Go build cache seed chain: %v", err)
+		t.Fatalf("parse single Go build cache seed: %v", err)
 	}
-	if !slices.Equal(config.seedRoots, []string{newest, oldest}) || config.privateRoot != privateRoot {
+	if config.seedRoot != seedRoot || config.privateRoot != privateRoot {
 		t.Fatalf("Go build cache proxy config = %#v", config)
 	}
 	for name, args := range map[string][]string{
 		"duplicate seed": {
-			"--seed", newest, "--seed", newest, "--private", privateRoot,
+			"--seed", seedRoot, "--seed", seedRoot, "--private", privateRoot,
 		},
 		"duplicate private": {
-			"--seed", newest, "--private", privateRoot, "--private", oldest,
+			"--seed", seedRoot, "--private", privateRoot, "--private", seedRoot,
 		},
 		"missing seed": {
-			"--private", privateRoot, "--private", oldest,
+			"--private", privateRoot, "--private", seedRoot,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -161,14 +348,13 @@ func TestGoBuildCacheProxyConfigAcceptsOrderedSeedChain(t *testing.T) {
 	}
 }
 
-func TestExecutorRemoteGoBuildCacheSeedRootsUsesOnlyFixedOCIImageRoot(t *testing.T) {
-	roots, err := ExecutorRemoteGoBuildCacheSeedRoots()
+func TestExecutorRemoteGoBuildCacheSeedRootUsesOnlyFixedOCIImageRoot(t *testing.T) {
+	seedRoot, err := ExecutorRemoteGoBuildCacheSeedRoot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{ExecutorOCIProjectGoBuildCacheSeedRoot}
-	if !slices.Equal(roots, want) {
-		t.Fatalf("direct seed roots = %v", roots)
+	if seedRoot != ExecutorOCIProjectGoBuildCacheSeedRoot {
+		t.Fatalf("direct seed root = %v", seedRoot)
 	}
 }
 
@@ -200,16 +386,13 @@ func TestGoBuildCacheIndexUsesInjectedTimestamp(t *testing.T) {
 	}
 }
 
-func TestGoBuildCacheProxyReadsPrivateThenNewestSeed(t *testing.T) {
+func TestGoBuildCacheProxyReadsPrivateThenImageLayerSeed(t *testing.T) {
 	actionID := bytes.Repeat([]byte{0x7a}, goBuildCacheHashBytes)
-	newest := realTempDir(t)
-	oldest := realTempDir(t)
+	seedRoot := realTempDir(t)
 	privateRoot := realTempDir(t)
-	writeGoBuildCacheEntryFixture(t, oldest, actionID, "oldest")
-	writeGoBuildCacheEntryFixture(t, newest, actionID, "newest")
+	writeGoBuildCacheEntryFixture(t, seedRoot, actionID, "seed")
 	config, err := parseGoBuildCacheProxyConfig([]string{
-		"--seed", newest,
-		"--seed", oldest,
+		"--seed", seedRoot,
 		"--private", privateRoot,
 	})
 	if err != nil {
@@ -219,8 +402,8 @@ func TestGoBuildCacheProxyReadsPrivateThenNewestSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if content, err := os.ReadFile(entry.path); err != nil || string(content) != "newest" {
-		t.Fatalf("newest seed content = %q, %v", content, err)
+	if content, err := os.ReadFile(entry.path); err != nil || string(content) != "seed" {
+		t.Fatalf("image seed content = %q, %v", content, err)
 	}
 	writeGoBuildCacheEntryFixture(t, privateRoot, actionID, "private")
 	entry, err = findGoBuildCacheEntry(config, actionID)
@@ -232,12 +415,9 @@ func TestGoBuildCacheProxyReadsPrivateThenNewestSeed(t *testing.T) {
 	}
 }
 
-func TestGoBuildCacheProxyMetricsAttributePrivateAndGenerationHits(t *testing.T) {
+func TestGoBuildCacheProxyMetricsAttributePrivateAndImageLayerHits(t *testing.T) {
 	actionID := bytes.Repeat([]byte{0x4a}, goBuildCacheHashBytes)
-	seedRoot := filepath.Join(realTempDir(t), "00000000000000000042")
-	if err := os.Mkdir(seedRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	seedRoot := realTempDir(t)
 	privateRoot := realTempDir(t)
 	writeGoBuildCacheEntryFixture(t, seedRoot, actionID, "seed")
 	config, err := parseGoBuildCacheProxyConfig([]string{"--seed", seedRoot, "--private", privateRoot})
@@ -258,8 +438,7 @@ func TestGoBuildCacheProxyMetricsAttributePrivateAndGenerationHits(t *testing.T)
 	if _, _, err := handleGoBuildCacheProxyRequest(config, bufio.NewReader(strings.NewReader("")), request); err != nil {
 		t.Fatal(err)
 	}
-	if config.metrics.BaselineHitCount != 1 || config.metrics.BaselineHitByGeneration["00000000000000000042"] != 1 ||
-		config.metrics.PrivateHitCount != 1 || config.metrics.MissCount != 1 {
+	if config.metrics.BaselineHitCount != 1 || config.metrics.PrivateHitCount != 1 || config.metrics.MissCount != 1 {
 		t.Fatalf("cache metrics = %#v", config.metrics)
 	}
 }
@@ -342,14 +521,23 @@ func TestLoadGoBuildCacheProxyMetricsRejectsForgedSeedIdentity(t *testing.T) {
 	if err := os.Mkdir(seedRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	metrics := newGoBuildCacheProxyMetrics([]string{seedRoot})
+	metrics := newGoBuildCacheProxyMetrics(seedRoot)
 	metrics.BaselineHitCount = 1
-	metrics.BaselineHitByGeneration["00000000000000000042"] = 1
 	if err := writeGoBuildCacheProxyMetrics(GoBuildCacheProxyMetricsPath(privateRoot), metrics); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadGoBuildCacheProxyMetrics(privateRoot, []string{filepath.Join(realTempDir(t), "00000000000000000042")}); err == nil {
+	if _, err := LoadGoBuildCacheProxyMetrics(privateRoot, filepath.Join(realTempDir(t), "00000000000000000042")); err == nil {
 		t.Fatal("LoadGoBuildCacheProxyMetrics accepted forged seed identity")
+	}
+}
+
+func TestGoBuildCacheProxyMetricsRejectsMultipleSeedRoots(t *testing.T) {
+	metrics := GoBuildCacheProxyMetrics{
+		SchemaVersion: goBuildCacheProxyMetricsSchemaVersion,
+		SeedRoots:     []string{"/seed/one", "/seed/two"},
+	}
+	if err := validateGoBuildCacheProxyMetrics(metrics); err == nil {
+		t.Fatal("Go build cache proxy metrics accepted multiple seed roots")
 	}
 }
 
@@ -398,7 +586,7 @@ func runGoBuildCacheFixture(
 	t *testing.T,
 	source string,
 	cacheRoot string,
-	seedRoots []string,
+	seedRoot string,
 	trace bool,
 ) string {
 	t.Helper()
@@ -425,11 +613,9 @@ func runGoBuildCacheFixture(
 		"GOFLAGS=-p=1",
 		"GOCACHE="+cacheRoot,
 	)
-	if len(seedRoots) != 0 {
+	if seedRoot != "" {
 		proxyCommand := testGoBuildCacheProxyLauncher()
-		for _, seedRoot := range seedRoots {
-			proxyCommand += " --seed " + strconv.Quote(seedRoot)
-		}
+		proxyCommand += " --seed " + strconv.Quote(seedRoot)
 		command.Env = append(command.Env, "GOCACHEPROG="+proxyCommand+" --private "+strconv.Quote(cacheRoot))
 	}
 	output, err := command.CombinedOutput()
@@ -466,12 +652,12 @@ func newPreparedShardCacheFixture(t *testing.T) (executorConfig, ExecutorProgram
 		"{\"accepted_tree_is_now_immutable\":false}\n",
 		0o600,
 	)
-	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoots[0], "prewarmed"), "runner-cache\n", 0o600)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
 	sharedCacheRoot := realTempDir(t)
 	if err := os.Chmod(sharedCacheRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := seedExecutorGoBuildCache(config.goBuildCacheSeedRoots[0], sharedCacheRoot); err != nil {
+	if err := seedExecutorGoBuildCache(config.goBuildCacheSeedRoot, sharedCacheRoot); err != nil {
 		t.Fatalf("prepare shard Go build cache write layer: %v", err)
 	}
 	config.goBuildCacheRoot = sharedCacheRoot
@@ -522,6 +708,7 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 		"\nnpm_config_logs_dir=/workspace/work/npm-cache/_logs\n",
 		"\nPLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright\n",
 		"\nSUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED=/opt/super-dolphin-gate/runtime/frontend/node_modules\n",
+		"\nSUPER_DOLPHIN_VITE_CACHE_DIR=/workspace/work/tmp/.vite-temp\n",
 		"\nSUPER_DOLPHIN_TEST_BACKEND=remote-worker\n",
 	} {
 		if !strings.Contains(joined, want) {
@@ -539,6 +726,52 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 	keys := environmentKeys(environment)
 	if compacted := slices.Compact(slices.Clone(keys)); len(compacted) != len(keys) {
 		t.Fatal("executor environment contains duplicate keys")
+	}
+}
+
+func TestExecutorEnvironmentCarriesValidatedWorkloadTimeout(t *testing.T) {
+	base := []string{"CI=true"}
+	withoutTimeout, err := appendExecutorWorkloadTimeout(context.Background(), base)
+	if err != nil {
+		t.Fatalf("appendExecutorWorkloadTimeout() without timeout: %v", err)
+	}
+	if !slices.Equal(withoutTimeout, base) {
+		t.Fatalf("environment without timeout = %v, want %v", withoutTimeout, base)
+	}
+	workloadContext, err := WithExecutorWorkloadTimeout(context.Background(), 10*time.Minute)
+	if err != nil {
+		t.Fatalf("WithExecutorWorkloadTimeout() error = %v", err)
+	}
+	withTimeout, err := appendExecutorWorkloadTimeout(workloadContext, base)
+	if err != nil {
+		t.Fatalf("appendExecutorWorkloadTimeout() error = %v", err)
+	}
+	want := []string{"CI=true", ExecutorWorkloadTimeoutEnvironment + "=10m0s"}
+	if !slices.Equal(withTimeout, want) {
+		t.Fatalf("environment with timeout = %v, want %v", withTimeout, want)
+	}
+}
+
+func TestExecutorEnvironmentUsesDistinctPrivateViteCachePerShard(t *testing.T) {
+	readCacheDir := func(environment []string) string {
+		for _, variable := range environment {
+			if value, ok := strings.CutPrefix(variable, "SUPER_DOLPHIN_VITE_CACHE_DIR="); ok {
+				return value
+			}
+		}
+		return ""
+	}
+	first := executorEnvironment(newExecutorLayout("/workspace/work/s184"), executorSearchPath, "/workspace/work/s184/go-mod-cache", ExecutorGoRoot, ExecutorRuntimeSeedRoot+"/frontend/node_modules", "")
+	second := executorEnvironment(newExecutorLayout("/workspace/work/s185"), executorSearchPath, "/workspace/work/s185/go-mod-cache", ExecutorGoRoot, ExecutorRuntimeSeedRoot+"/frontend/node_modules", "")
+	firstDir := readCacheDir(first)
+	secondDir := readCacheDir(second)
+	if firstDir == "" || secondDir == "" || firstDir == secondDir {
+		t.Fatalf("per-shard Vite cache dirs = %q, %q; want distinct non-empty paths", firstDir, secondDir)
+	}
+	for name, dir := range map[string]string{"first": firstDir, "second": secondDir} {
+		if filepath.Base(dir) != ".vite-temp" || strings.Contains(dir, string(filepath.Separator)+"node_modules"+string(filepath.Separator)+".vite") {
+			t.Fatalf("%s Vite cache dir = %q; want private .vite-temp outside image .vite", name, dir)
+		}
 	}
 }
 
