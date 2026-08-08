@@ -59,14 +59,22 @@ func insertGenerationOneState(store *DurationLedgerStore, database *sql.DB, rece
 
 // insertGenerationOneStateTransaction 检查空表前置条件并执行唯一 INSERT。
 func insertGenerationOneStateTransaction(store *DurationLedgerStore, transaction *sql.Tx, receipt cicontract.GenerationOneProvisionReceipt, record *RemoteBaselineStateRecord) error {
-	if err := ensureGenerationOneStateTableEmpty(transaction); err != nil {
+	existing, err := loadGenerationOneExistingState(transaction, receipt)
+	if err != nil {
 		return err
+	}
+	if existing != nil {
+		if err := validateGenerationOneDurationLedgerMetadata(transaction, receipt.Generation); err != nil {
+			return err
+		}
+		*record = *existing
+		return nil
 	}
 	if err := ensureGenerationOneDurationLedgerMetadata(transaction, receipt.Generation); err != nil {
 		return err
 	}
 	stateSHA256 := receipt.StateSHA256
-	_, err := transaction.Exec(`INSERT INTO ci_remote_baseline_state(singleton,schema_version,generation,state_json,state_sha256,updated_at_unix_ms) VALUES(1,3,?,?,?,?)`,
+	_, err = transaction.Exec(`INSERT INTO ci_remote_baseline_state(singleton,schema_version,generation,state_json,state_sha256,updated_at_unix_ms) VALUES(1,3,?,?,?,?)`,
 		strconv.FormatUint(receipt.Generation, 10), string(receipt.StateJSON), stateSHA256, store.nowFunc().UTC().UnixMilli())
 	if err != nil {
 		return fmt.Errorf("insert remote baseline generation one: %w", err)
@@ -105,6 +113,29 @@ func ensureGenerationOneDurationLedgerMetadata(transaction *sql.Tx, generation u
 	return nil
 }
 
+// validateGenerationOneDurationLedgerMetadata 严格重读已存在的首代元数据，不要求历史根仍为空。
+func validateGenerationOneDurationLedgerMetadata(transaction *sql.Tx, generation uint64) error {
+	currentGeneration, found, err := sqliteCurrentGeneration(transaction)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrDurationLedgerMetadataMissing
+	}
+	if currentGeneration < generation {
+		return errors.New("generation-one duration ledger metadata generation predates the receipt")
+	}
+	var authorityID string
+	var schemaVersion, ledgerVersion int
+	if err := transaction.QueryRow(`SELECT authority_id, schema_version, ledger_version FROM duration_ledger_meta WHERE singleton=1`).Scan(&authorityID, &schemaVersion, &ledgerVersion); err != nil {
+		return fmt.Errorf("validate generation-one duration ledger metadata: %w", err)
+	}
+	if authorityID != cicontract.SQLAuthorityID || schemaVersion != 1 || ledgerVersion != durationLedgerVersion {
+		return errors.New("generation-one duration ledger metadata schema is invalid")
+	}
+	return nil
+}
+
 // ensureGenerationOneAuthorityHistoryEmpty 只允许 schema-only 空库建立首代元数据。
 func ensureGenerationOneAuthorityHistoryEmpty(transaction *sql.Tx) error {
 	for _, table := range generationOneAuthorityEmptyTableNames() {
@@ -131,20 +162,34 @@ func generationOneAuthorityEmptyTableNames() []string {
 	return append(tables, cicontract.GenerationOneAuthoritySupportingTables()...)
 }
 
-// ensureGenerationOneStateTableEmpty 拒绝已有 accepted singleton 或损坏的 singleton 行。
-func ensureGenerationOneStateTableEmpty(transaction *sql.Tx) error {
-	var singleton int
-	err := transaction.QueryRow(`SELECT singleton FROM ci_remote_baseline_state WHERE singleton=1`).Scan(&singleton)
+// loadGenerationOneExistingState 严格重读已有 singleton；同一 state digest 幂等返回，异态继续阻断。
+func loadGenerationOneExistingState(transaction *sql.Tx, receipt cicontract.GenerationOneProvisionReceipt) (*RemoteBaselineStateRecord, error) {
+	var (
+		singleton, schemaVersion           int
+		generation, stateJSON, stateSHA256 string
+	)
+	err := transaction.QueryRow(`SELECT singleton, schema_version, generation, state_json, state_sha256 FROM ci_remote_baseline_state WHERE singleton=1`).Scan(&singleton, &schemaVersion, &generation, &stateJSON, &stateSHA256)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("check remote baseline generation one empty precondition: %w", err)
+		return nil, fmt.Errorf("read remote baseline generation one existing state: %w", err)
 	}
-	if singleton != 1 {
-		return errors.New("remote baseline generation one singleton is invalid")
+	if singleton != 1 || schemaVersion != 3 {
+		return nil, errors.New("remote baseline generation one singleton is invalid")
 	}
-	return ErrRemoteBaselineGenerationOneAlreadyInitialized
+	parsedGeneration, parseErr := strconv.ParseUint(generation, 10, 64)
+	if parseErr != nil || parsedGeneration == 0 {
+		return nil, errors.New("remote baseline generation one stored generation is invalid")
+	}
+	if parsedGeneration != receipt.Generation || stateSHA256 != receipt.StateSHA256 || !bytes.Equal([]byte(stateJSON), receipt.StateJSON) {
+		return nil, fmt.Errorf("%w: stored accepted state differs from receipt", ErrRemoteBaselineGenerationOneAlreadyInitialized)
+	}
+	return &RemoteBaselineStateRecord{
+		Generation:  parsedGeneration,
+		StateJSON:   []byte(stateJSON),
+		StateSHA256: stateSHA256,
+	}, nil
 }
 
 type generationOneStateProjection struct {

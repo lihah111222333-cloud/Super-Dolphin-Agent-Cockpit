@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -73,45 +72,9 @@ func runWorkerBuiltinCommand(args []string, stdout, stderr io.Writer) (bool, int
 		return true, int(gatecontract.ExitOK)
 	case "go-cache-proxy":
 		return true, runWorkerGoCacheProxy(args[1:], stdout, stderr)
-	case "race-package-patterns":
-		if err := writeRacePackagePatterns(args[1:], stdout); err != nil {
-			_ = writeCLIError(stderr, err)
-			return true, int(gatecontract.ExitCodeOf(err))
-		}
-		return true, int(gatecontract.ExitOK)
-	case "validate-go-distribution":
-		if err := validateRemoteGoDistribution(args[1:]); err != nil {
-			_ = writeCLIError(stderr, err)
-			return true, int(gatecontract.ExitCodeOf(err))
-		}
-		return true, int(gatecontract.ExitOK)
 	default:
 		return false, 0
 	}
-}
-
-// validateRemoteGoDistribution 将镜像内实际平台绑定到仓库锁定的官方 Go 归档。
-func validateRemoteGoDistribution(args []string) error {
-	if len(args) != 0 {
-		return gatecontract.WithExitCode(gatecontract.ExitProtocol, errors.New("validate-go-distribution does not accept arguments"))
-	}
-	if err := gatecontract.ValidateRemoteGoDistributionPlatform(runtime.GOOS, runtime.GOARCH); err != nil {
-		return gatecontract.WithExitCode(gatecontract.ExitProtocol, err)
-	}
-	return nil
-}
-
-// writeRacePackagePatterns 输出 cache seed 与实际 race gate 共用的包注册表。
-func writeRacePackagePatterns(args []string, output io.Writer) error {
-	if len(args) != 0 {
-		return gatecontract.WithExitCode(gatecontract.ExitProtocol, errors.New("race-package-patterns does not accept arguments"))
-	}
-	for _, pattern := range gatecontract.RaceSensitivePackagePatterns() {
-		if _, err := fmt.Fprintln(output, pattern); err != nil {
-			return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, fmt.Errorf("write race package patterns: %w", err))
-		}
-	}
-	return nil
 }
 
 // runWorkerGoCacheProxy 透传构建缓存代理的退出语义。

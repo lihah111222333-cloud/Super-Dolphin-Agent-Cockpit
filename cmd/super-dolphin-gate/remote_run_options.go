@@ -22,7 +22,6 @@ func parseRemoteRunOptions(args []string) (remoteRunOptions, error) {
 	flags.StringVar(&options.Tree, "tree", "", "explicit Git tree revision")
 	flags.StringVar(&options.ParentCommit, "parent", "", "parent commit for an explicit tree")
 	flags.StringVar(&options.Base, "base", "", "base commit revision")
-	flags.StringVar(&options.Profile, "profile", "", "legacy gate profile override")
 	flags.StringVar(&options.Scenario, "scenario", "", "remote CI scenario: commit, push, full, or test")
 	flags.StringVar(&options.Entrypoint, "entrypoint", "", "canonical CI entrypoint ID")
 	var tests remoteStringListFlag

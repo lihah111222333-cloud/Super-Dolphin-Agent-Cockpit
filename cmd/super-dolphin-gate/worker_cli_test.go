@@ -19,6 +19,8 @@ func TestWorkerCLIRejectsNonCanonicalInvocation(t *testing.T) {
 		{"run", "--gate"},
 		{"run", "--gate", "unknown:gate"},
 		{"run", "--gate", string(gate.GateIDCodemapCheck), "extra"},
+		{"race-package-patterns"},
+		{"validate-go-distribution"},
 	} {
 		stderr := &bytes.Buffer{}
 		if code := runWorkerCLI(args, &bytes.Buffer{}, stderr); code == 0 {
@@ -76,39 +78,6 @@ func TestWorkerCLIIdentityRequiresLinkedCompileIdentity(t *testing.T) {
 	}
 	if code := runWorkerCLI([]string{"cli-identity", "extra"}, &bytes.Buffer{}, &bytes.Buffer{}); code != int(gate.ExitProtocol) {
 		t.Fatalf("identity accepted extra arguments with code %d", code)
-	}
-}
-
-func TestWorkerRacePackagePatternsExposeCanonicalRegistry(t *testing.T) {
-	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-	if code := runWorkerCLI([]string{"race-package-patterns"}, stdout, stderr); code != int(gate.ExitOK) {
-		t.Fatalf("race-package-patterns code=%d stderr=%q", code, stderr.String())
-	}
-	want := strings.Join(gate.RaceSensitivePackagePatterns(), "\n") + "\n"
-	if stdout.String() != want {
-		t.Fatalf("race package patterns = %q, want %q", stdout.String(), want)
-	}
-	if code := runWorkerCLI([]string{"race-package-patterns", "extra"}, &bytes.Buffer{}, &bytes.Buffer{}); code != int(gate.ExitProtocol) {
-		t.Fatalf("race-package-patterns accepted extra arguments with code %d", code)
-	}
-	stderr.Reset()
-	if code := runWorkerCLI([]string{"race-package-patterns"}, failingWriter{err: errors.New("closed")}, stderr); code != int(gate.ExitInfrastructure) || !strings.Contains(stderr.String(), "write race package patterns") {
-		t.Fatalf("race-package-patterns write failure code=%d stderr=%q", code, stderr.String())
-	}
-}
-
-func TestWorkerValidateGoDistributionBindsLockedRemotePlatform(t *testing.T) {
-	stderr := &bytes.Buffer{}
-	code := runWorkerCLI([]string{"validate-go-distribution"}, &bytes.Buffer{}, stderr)
-	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
-		if code != int(gate.ExitOK) || stderr.Len() != 0 {
-			t.Fatalf("validate-go-distribution code=%d stderr=%q", code, stderr.String())
-		}
-	} else if code != int(gate.ExitProtocol) || !strings.Contains(stderr.String(), "running binary is") {
-		t.Fatalf("validate-go-distribution local platform code=%d stderr=%q", code, stderr.String())
-	}
-	if code := runWorkerCLI([]string{"validate-go-distribution", "extra"}, &bytes.Buffer{}, &bytes.Buffer{}); code != int(gate.ExitProtocol) {
-		t.Fatalf("validate-go-distribution accepted extra arguments with code %d", code)
 	}
 }
 

@@ -13,8 +13,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// TestInitializeRemoteBaselineGenerationOneRejectsDuplicate 覆盖空表首写和重复初始化门禁。
-func TestInitializeRemoteBaselineGenerationOneRejectsDuplicate(t *testing.T) {
+// TestInitializeRemoteBaselineGenerationOneConvergesOnIdenticalState 覆盖空表首写和同态重复初始化。
+func TestInitializeRemoteBaselineGenerationOneConvergesOnIdenticalState(t *testing.T) {
 	store := newGenerationOneTestStore(t)
 	receipt := generationOneGateReceipt(t)
 	first, err := store.InitializeRemoteBaselineGenerationOne(receipt)
@@ -24,10 +24,38 @@ func TestInitializeRemoteBaselineGenerationOneRejectsDuplicate(t *testing.T) {
 	if first.Generation != 1 || first.StateSHA256 == "" {
 		t.Fatalf("unexpected first record: %#v", first)
 	}
-	if _, err := store.InitializeRemoteBaselineGenerationOne(receipt); !errors.Is(err, ErrRemoteBaselineGenerationOneAlreadyInitialized) {
-		t.Fatalf("duplicate initialize error = %v, want ErrRemoteBaselineGenerationOneAlreadyInitialized", err)
+	second, err := store.InitializeRemoteBaselineGenerationOne(receipt)
+	if err != nil {
+		t.Fatalf("identical duplicate initialize error = %v, want idempotent success", err)
 	}
+	assertGenerationOneRecordsEqual(t, first, second, "identical duplicate")
 	assertGenerationOneInitializedAuthority(t, store, first)
+	if third, err := store.InitializeRemoteBaselineGenerationOne(receipt); err != nil {
+		t.Fatalf("identical duplicate after retained history error = %v", err)
+	} else {
+		assertGenerationOneRecordsEqual(t, first, third, "identical duplicate after retained history")
+	}
+}
+
+// assertGenerationOneRecordsEqual 验证幂等初始化返回完全相同的 accepted state。
+func assertGenerationOneRecordsEqual(t *testing.T, want, got RemoteBaselineStateRecord, operation string) {
+	t.Helper()
+	if got.Generation != want.Generation || got.StateSHA256 != want.StateSHA256 || string(got.StateJSON) != string(want.StateJSON) {
+		t.Fatalf("%s returned drifted state: want=%#v got=%#v", operation, want, got)
+	}
+}
+
+// TestInitializeRemoteBaselineGenerationOneRejectsDivergentState 保证已有 singleton 与异态回执不能静默收敛。
+func TestInitializeRemoteBaselineGenerationOneRejectsDivergentState(t *testing.T) {
+	store := newGenerationOneTestStore(t)
+	receipt := generationOneGateReceipt(t)
+	if _, err := store.InitializeRemoteBaselineGenerationOne(receipt); err != nil {
+		t.Fatalf("initialize first generation-one state: %v", err)
+	}
+	divergent := divergentGenerationOneGateReceipt(t, receipt)
+	if _, err := store.InitializeRemoteBaselineGenerationOne(divergent); !errors.Is(err, ErrRemoteBaselineGenerationOneAlreadyInitialized) {
+		t.Fatalf("divergent initialize error = %v, want ErrRemoteBaselineGenerationOneAlreadyInitialized", err)
+	}
 }
 
 func assertGenerationOneInitializedAuthority(t *testing.T, store *DurationLedgerStore, first RemoteBaselineStateRecord) {
@@ -184,8 +212,8 @@ func TestInitializeRemoteBaselineGenerationOneRejectsHistoryWithExistingMetadata
 	}
 }
 
-// TestInitializeRemoteBaselineGenerationOneConcurrentWinner 确认并发首写只有一个成功者。
-func TestInitializeRemoteBaselineGenerationOneConcurrentWinner(t *testing.T) {
+// TestInitializeRemoteBaselineGenerationOneConcurrentConvergence 确认同态并发首写都收敛到同一 state。
+func TestInitializeRemoteBaselineGenerationOneConcurrentConvergence(t *testing.T) {
 	store := newGenerationOneTestStore(t)
 	receipt := generationOneGateReceipt(t)
 	results := make(chan error, 2)
@@ -202,7 +230,7 @@ func TestInitializeRemoteBaselineGenerationOneConcurrentWinner(t *testing.T) {
 	}
 	close(results)
 	success, duplicate := countGenerationOneInitializationResults(t, results)
-	if success != 1 || duplicate != 1 {
+	if success != 2 || duplicate != 0 {
 		t.Fatalf("concurrent initializer results: success=%d duplicate=%d", success, duplicate)
 	}
 }
@@ -266,6 +294,32 @@ func generationOneGateReceipt(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func divergentGenerationOneGateReceipt(t *testing.T, encoded []byte) []byte {
+	t.Helper()
+	receipt, err := cicontract.DecodeGenerationOneProvisionReceipt(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeGenerationOneStateProjection(receipt.StateJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.PolicyDigest = "sha256:" + strings.Repeat("9", 64)
+	receipt.PolicyDigest = state.PolicyDigest
+	receipt.StateJSON, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDigest := sha256.Sum256(receipt.StateJSON)
+	receipt.StateSHA256 = fmt.Sprintf("sha256:%x", stateDigest)
+	receipt.ReceiptSHA256 = ""
+	divergent, _, err := cicontract.EncodeGenerationOneProvisionReceipt(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return divergent
 }
 
 func generationOneProvisionChecks(t *testing.T, sourceTree, snapshotID string) []cicontract.ProvisionCheckObservation {

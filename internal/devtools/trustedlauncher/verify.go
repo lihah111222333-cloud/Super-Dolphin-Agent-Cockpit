@@ -54,47 +54,6 @@ func Verify(ctx context.Context, options VerifyOptions) error {
 	return nil
 }
 
-// VerifyArtifact 在不读取仓库树的情况下校验已安装二进制和回执。
-func VerifyArtifact(ctx context.Context, receiptPath string, linked LinkedIdentity) error {
-	if ctx == nil {
-		return errors.New("trusted launcher artifact context is required")
-	}
-	executable, canonicalReceipt, err := canonicalVerificationPaths(receiptPath)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(canonicalReceipt)
-	if err != nil {
-		return fmt.Errorf("read launcher receipt: %w", err)
-	}
-	receipt, err := DecodeReceipt(data)
-	if err != nil {
-		return err
-	}
-	if err := verifyArtifactReceipt(receipt, linked); err != nil {
-		return err
-	}
-	return verifyArtifactDigest(executable, receipt)
-}
-
-func verifyArtifactReceipt(receipt Receipt, linked LinkedIdentity) error {
-	if linkedIdentityFromReceipt(receipt) != linked {
-		return errors.New("trusted launcher artifact receipt does not match linked identity")
-	}
-	if receipt.GoVersion != runtime.Version() || receipt.GOOS != runtime.GOOS || receipt.GOARCH != runtime.GOARCH {
-		return errors.New("trusted launcher artifact runtime identity does not match its receipt")
-	}
-	return nil
-}
-
-func verifyArtifactDigest(executable string, receipt Receipt) error {
-	binaryDigest, err := digestFile(executable)
-	if err != nil || binaryDigest != receipt.BinarySHA256 {
-		return errors.Join(errors.New("trusted launcher artifact digest does not match its receipt"), err)
-	}
-	return nil
-}
-
 func verifyReceiptIdentity(ctx context.Context, options VerifyOptions, receipt Receipt) error {
 	if err := verifyReceiptLinkedIdentity(options, receipt); err != nil {
 		return err

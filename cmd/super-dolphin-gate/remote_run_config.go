@@ -71,7 +71,6 @@ type remoteRunOptions struct {
 	Tree                  string
 	ParentCommit          string
 	Base                  string
-	Profile               string
 	Scenario              string
 	Entrypoint            string
 	Tests                 []string

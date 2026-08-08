@@ -35,7 +35,7 @@ func TestRegistryCredentialFieldsMapExactlyOnceToCLI(t *testing.T) {
 // TestRegistryCredentialFailsFastWithoutCredential 覆盖分片缺少短期 registry 凭据时的 fail-fast。
 func TestRegistryCredentialFailsFastWithoutCredential(t *testing.T) {
 	config := testConfig()
-	config.RegistryCredential = RegistryCredential{}
+	config.RegistryCredentialLoader = func() (RegistryCredential, error) { return RegistryCredential{}, nil }
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{}`)}}
 	client, err := NewWithRunner(config, runner)
 	if err != nil {
@@ -49,7 +49,11 @@ func TestRegistryCredentialFailsFastWithoutCredential(t *testing.T) {
 // TestRegistryCredentialFailsFastOnRegistryMismatch 覆盖凭据域名与不可变镜像域名错配。
 func TestRegistryCredentialFailsFastOnRegistryMismatch(t *testing.T) {
 	config := testConfig()
-	config.RegistryCredential.Server = "other.example"
+	config.RegistryCredentialLoader = func() (RegistryCredential, error) {
+		credential := testRegistryCredential()
+		credential.Server = "other.example"
+		return credential, nil
+	}
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{}`)}}
 	client, err := NewWithRunner(config, runner)
 	if err != nil {
@@ -64,8 +68,16 @@ func TestRegistryCredentialRejectsWhitespaceAndControlValues(t *testing.T) {
 	for _, value := range []string{" test-user", "test-user ", "test\tuser", "test\nuser", "test\x00user"} {
 		t.Run("credential", func(t *testing.T) {
 			config := testConfig()
-			config.RegistryCredential.UserName = value
-			_, err := NewWithRunner(config, &fakeCommandRunner{})
+			config.RegistryCredentialLoader = func() (RegistryCredential, error) {
+				credential := testRegistryCredential()
+				credential.UserName = value
+				return credential, nil
+			}
+			client, err := NewWithRunner(config, &fakeCommandRunner{})
+			if err != nil {
+				t.Fatalf("NewWithRunner() error = %v", err)
+			}
+			_, err = client.CreateContainerGroup(t.Context(), validCreateRequest())
 			if err == nil || strings.Contains(err.Error(), value) {
 				t.Fatalf("NewWithRunner() error = %v, value=%q", err, value)
 			}
@@ -87,13 +99,12 @@ func TestRegistryCredentialRedactsSecrets(t *testing.T) {
 	}
 }
 
-// TestRegistryCredentialConfigRejectsStaticAndDeferred 明确拒绝静态凭据与延迟 loader 同时存在。
-func TestRegistryCredentialConfigRejectsStaticAndDeferred(t *testing.T) {
+// TestRegistryCredentialRequiresLoader 覆盖客户端构造时缺少 loader 的 fail-fast。
+func TestRegistryCredentialRequiresLoader(t *testing.T) {
 	config := testConfig()
-	config.RegistryCredentialLoader = func() (RegistryCredential, error) { return RegistryCredential{}, nil }
-	err := validateRegistryCredentialConfig(config)
-	if err == nil || !strings.Contains(err.Error(), "either a static credential or a deferred loader") {
-		t.Fatalf("validateRegistryCredentialConfig() error = %v", err)
+	config.RegistryCredentialLoader = nil
+	if _, err := NewWithRunner(config, &fakeCommandRunner{}); err == nil || !strings.Contains(err.Error(), "loader is required") {
+		t.Fatalf("NewWithRunner() error = %v, want missing loader", err)
 	}
 }
 
@@ -101,7 +112,6 @@ func TestRegistryCredentialConfigRejectsStaticAndDeferred(t *testing.T) {
 func TestRegistryCredentialLoaderDefersEnvironmentReadUntilCreate(t *testing.T) {
 	loadCalls := 0
 	config := testConfig()
-	config.RegistryCredential = RegistryCredential{}
 	config.RegistryCredentialLoader = func() (RegistryCredential, error) {
 		loadCalls++
 		return RegistryCredential{}, errors.New("GHCR credential is missing")
@@ -131,8 +141,7 @@ func TestRegistryCredentialLoaderDefersEnvironmentReadUntilCreate(t *testing.T) 
 func TestRegistryCredentialLoaderSuppliesCredentialAtCreate(t *testing.T) {
 	loadCalls := 0
 	config := testConfig()
-	want := config.RegistryCredential
-	config.RegistryCredential = RegistryCredential{}
+	want := testRegistryCredential()
 	config.RegistryCredentialLoader = func() (RegistryCredential, error) {
 		loadCalls++
 		return want, nil

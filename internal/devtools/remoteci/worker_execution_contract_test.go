@@ -1,6 +1,10 @@
 package remoteci
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+)
 
 func TestWorkerExecutionRootsAreCanonical(t *testing.T) {
 	if err := validateWorkerExecutionRoots(workerExecutionRoots); err != nil {
@@ -101,5 +105,47 @@ func TestWorkerExecutionDigestIncludesLocalReplacementModuleMetadata(t *testing.
 	}
 	if first == second {
 		t.Fatalf("local replacement go.mod metadata change did not change worker execution digest: %q", first)
+	}
+}
+
+func TestWorkerExecutionDigestBindsSemanticEnvironmentProvenance(t *testing.T) {
+	closure := &workerExecutionGoClosure{selected: map[string]*workerExecutionGoUnit{}, usedImports: map[string]map[string]struct{}{}}
+	assets := &workerExecutionAssets{entries: make(map[string]remoteGitTreeEntry), fragments: make(map[string]workerExecutionFragment)}
+	base, err := digestWorkerExecutionClosure(closure, assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []struct {
+		name string
+		fn   func(string, string, []string) (string, string, []string)
+	}{
+		{name: "schema", fn: func(schema, provenance string, environment []string) (string, string, []string) {
+			return schema + "/bump", provenance, environment
+		}},
+		{name: "provenance", fn: func(schema, provenance string, environment []string) (string, string, []string) {
+			return schema, provenance + "/bump", environment
+		}},
+		{name: "assignment", fn: func(schema, provenance string, environment []string) (string, string, []string) {
+			return schema, provenance, append(environment, "LANG=C")
+		}},
+		{name: "assignment removal", fn: func(schema, provenance string, environment []string) (string, string, []string) {
+			return schema, provenance, environment[1:]
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			schema, provenance, environment := mutation.fn(
+				cicontract.WorkerExecutionEnvironmentSchemaVersion,
+				cicontract.WorkerExecutionProvenanceID,
+				cicontract.CanonicalWorkerExecutionEnvironment(),
+			)
+			changed, err := digestWorkerExecutionClosureWithSemanticEnvironment(closure, assets, schema, provenance, environment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if changed == base {
+				t.Fatalf("semantic environment %s mutation did not change digest %q", mutation.name, changed)
+			}
+		})
 	}
 }

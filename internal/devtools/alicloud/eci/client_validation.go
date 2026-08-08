@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	sourceVolumeName = "source-data"
-	workVolumeName   = "work-data"
-	tempVolumeName   = "temp-data"
+	sourceVolumeName      = "source-data"
+	workVolumeName        = "work-data"
+	tempVolumeName        = "temp-data"
+	privateRegistryServer = "ghcr.io"
 )
 
 // validateConfig 在启动 CLI 前阻断不完整基础设施配置和不可表示的资源值。
@@ -33,6 +34,20 @@ func validateConfig(config Config) error {
 			return fmt.Errorf("ECI %s is required", field.name)
 		}
 	}
+	if err := validateRegistryCredentialLoader(config); err != nil {
+		return err
+	}
+	if err := validateSpotStrategy(config); err != nil {
+		return err
+	}
+	if config.Deadline <= 0 || config.Deadline%time.Second != 0 {
+		return errors.New("ECI deadline must be a positive whole number of seconds")
+	}
+	return nil
+}
+
+// validateSpotStrategy 校验 ECI 计费策略与其专属时长。
+func validateSpotStrategy(config Config) error {
 	switch config.SpotStrategy {
 	case SpotStrategyAsPriceGo:
 		if config.SpotDurationHours != 1 {
@@ -45,63 +60,38 @@ func validateConfig(config Config) error {
 	default:
 		return fmt.Errorf("ECI spot strategy must be %q or %q", SpotStrategyAsPriceGo, SpotStrategyNoSpot)
 	}
-	if config.Deadline <= 0 || config.Deadline%time.Second != 0 {
-		return errors.New("ECI deadline must be a positive whole number of seconds")
-	}
-	return validateRegistryCredentialConfig(config)
-}
-
-// validateRegistryCredentialConfig 校验静态凭据与延迟 loader 的互斥边界。
-func validateRegistryCredentialConfig(config Config) error {
-	if err := validateOptionalRegistryCredential(config.RegistryCredential); err != nil {
-		return err
-	}
-	if config.RegistryCredentialLoader != nil && hasRegistryCredentialValues(config.RegistryCredential) {
-		return errors.New("ECI registry credential must use either a static credential or a deferred loader")
-	}
 	return nil
 }
 
-// hasRegistryCredentialValues 判断静态凭据是否带入任一字段。
-func hasRegistryCredentialValues(credential RegistryCredential) bool {
-	return credential.Server != "" || credential.UserName != "" || credential.Password != ""
-}
-
-// validateOptionalRegistryCredential 只允许构造客户端时完全不带凭据或完整带入三个凭据字段。
-func validateOptionalRegistryCredential(credential RegistryCredential) error {
-	values := []string{credential.Server, credential.UserName, credential.Password}
-	populated := 0
-	for _, value := range values {
-		if value != "" {
-			populated++
-		}
-	}
-	if populated != 0 && populated != len(values) {
-		return errors.New("ECI registry credential must be either absent or complete")
-	}
-	if populated != 0 {
-		for _, value := range values {
-			if !validRegistryCredentialValue(value) {
-				return errors.New("ECI registry credential contains leading, trailing, or control whitespace")
-			}
-		}
+// validateRegistryCredentialLoader 要求 ECI 创建路径显式注入延迟凭据加载器。
+func validateRegistryCredentialLoader(config Config) error {
+	if config.RegistryCredentialLoader == nil {
+		return errors.New("ECI registry credential loader is required")
 	}
 	return nil
 }
 
 // validateRegistryCredential 要求创建分片时提供完整凭据并绑定两个不可变镜像的同一 registry。
 func validateRegistryCredential(credential RegistryCredential, request CreateRequest) error {
-	if !validRegistryCredentialValue(credential.Server) || !validRegistryCredentialValue(credential.UserName) || !validRegistryCredentialValue(credential.Password) {
-		return errors.New("ECI private registry credential is required for container creation")
-	}
-	if strings.Contains(credential.Server, "://") || strings.ContainsAny(credential.Server, "/ ") || len(credential.Server) > 256 {
-		return errors.New("ECI registry credential server is invalid")
-	}
-	if len(credential.UserName) > 256 || len(credential.Password) > 256 {
-		return errors.New("ECI registry credential exceeds 256 characters")
+	if err := validateRegistryCredentialShape(credential); err != nil {
+		return err
 	}
 	if !imagesUseRegistry(credential.Server, request.MainImage, request.InitImage) {
 		return errors.New("ECI registry credential server does not match the immutable container images")
+	}
+	return nil
+}
+
+// validateRegistryCredentialShape 校验凭据字段完整、无控制字符且固定为 GHCR。
+func validateRegistryCredentialShape(credential RegistryCredential) error {
+	if !validRegistryCredentialValue(credential.Server) || !validRegistryCredentialValue(credential.UserName) || !validRegistryCredentialValue(credential.Password) {
+		return errors.New("ECI private registry credential is required for container creation")
+	}
+	if credential.Server != privateRegistryServer {
+		return fmt.Errorf("ECI registry credential server must be %q", privateRegistryServer)
+	}
+	if len(credential.UserName) > 256 || len(credential.Password) > 256 {
+		return errors.New("ECI registry credential exceeds 256 characters")
 	}
 	return nil
 }

@@ -26,10 +26,7 @@ func (snapshot *remoteGitTreeSnapshot) goEmbedResolutionStats() (computations ui
 // BenchmarkRemoteWorkloadFingerprintsCandidate 测量真实 Git tree 上同包精确 selector 的 Prepare 指纹阶段。
 func BenchmarkRemoteWorkloadFingerprintsCandidate(b *testing.B) {
 	repositoryRoot := fingerprintBenchmarkRepositoryRoot(b)
-	tree := os.Getenv("REMOTE_CI_FINGERPRINT_TREE")
-	if tree == "" {
-		tree = "HEAD"
-	}
+	tree := fingerprintBenchmarkTree(b, repositoryRoot)
 	testNames := fingerprintBenchmarkTestNames(b, repositoryRoot)
 	workloads := fingerprintBenchmarkWorkloads(b, testNames)
 	ctx := context.Background()
@@ -44,35 +41,27 @@ func BenchmarkRemoteWorkloadFingerprintsCandidate(b *testing.B) {
 	}
 }
 
-// BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture measures the
-// current MISS-only closure resolver; normal Prepare deliberately uses the
-// benchmark above and captures closures only after an identity MISS.
-func BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture(b *testing.B) {
-	repositoryRoot := fingerprintBenchmarkRepositoryRoot(b)
-	tree := os.Getenv("REMOTE_CI_FINGERPRINT_TREE")
-	if tree == "" {
-		tree = "HEAD"
-	}
-	testNames := fingerprintBenchmarkTestNames(b, repositoryRoot)
-	workloads := fingerprintBenchmarkWorkloads(b, testNames)
-	ctx := context.Background()
-	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, tree)
-	if err != nil {
-		b.Fatalf("loadRemoteGitTreeSnapshot() warm-up: %v", err)
-	}
-	b.ResetTimer()
-	for b.Loop() {
-		resolver := newRemoteHistoricalInputDigestResolver(RunInput{
-			RepositoryRoot:        repositoryRoot,
-			Tree:                  tree,
-			workloadInputSnapshot: snapshot,
-		})
-		for _, workload := range workloads {
-			if _, err := resolver.currentClosure(ctx, snapshot, gate.GateID(workload.ID)); err != nil {
-				b.Fatalf("currentClosure(%q): %v", workload.ID, err)
-			}
+// fingerprintBenchmarkTree resolves the default to an exact Git tree object;
+// symbolic refs are rejected by the production fingerprint loader.
+func fingerprintBenchmarkTree(b *testing.B, repositoryRoot string) string {
+	b.Helper()
+	if tree := strings.TrimSpace(os.Getenv("REMOTE_CI_FINGERPRINT_TREE")); tree != "" {
+		if !remoteOIDPattern.MatchString(tree) {
+			b.Fatalf("REMOTE_CI_FINGERPRINT_TREE %q is not an exact object ID", tree)
 		}
+		return tree
 	}
+	command := exec.Command("git", "rev-parse", "HEAD^{tree}")
+	command.Dir = repositoryRoot
+	output, err := command.Output()
+	if err != nil {
+		b.Fatalf("resolve exact fingerprint benchmark tree: %v", err)
+	}
+	tree := strings.TrimSpace(string(output))
+	if !remoteOIDPattern.MatchString(tree) {
+		b.Fatalf("resolved fingerprint benchmark tree %q is not an exact object ID", tree)
+	}
+	return tree
 }
 
 // BenchmarkGoEmbedResolutionCache measures repeated selector resolution after one
@@ -116,8 +105,8 @@ func fingerprintBenchmarkTestNames(b *testing.B, repositoryRoot string) []string
 		"TestExactGoTestDigestIncludesUnselectedPackageTestCompileInputs",
 		"TestExactGoTestDigestFailsClosedForDynamicRepositoryObservations",
 		"TestExactGoTestDigestFailsClosedForProcessAndCWDObservations",
-		"TestExactGoTestDigestBindsProductionHelperDynamicSource",
-		"TestExactGoTestDigestBindsProductionHelperProcessSource",
+		"TestExactGoTestDigestFailsClosedForProductionHelperDynamicSource",
+		"TestExactGoTestDigestFailsClosedForProductionHelperProcessSource",
 		"TestExactGoTestDigestBindsImportedProductionPackageAssets",
 	}
 	if os.Getenv("REMOTE_CI_FINGERPRINT_BENCH_ALL") == "" {

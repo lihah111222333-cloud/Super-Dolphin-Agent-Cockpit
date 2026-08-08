@@ -46,6 +46,9 @@ func runRemoteInvocation(args []string, stdout io.Writer, progressWriters ...io.
 	if err != nil {
 		return err
 	}
+	if options.Scenario == "" {
+		return protocolError("remote run requires --scenario")
+	}
 	if options.WorkloadID != "" || options.CompletionReceiptPath != "" {
 		return protocolError("--workload and --completion-receipt are only valid with the test command")
 	}
@@ -167,7 +170,7 @@ func refreshRemotePlanningAfterCalibration(
 	return nil
 }
 
-// newRemoteRunCoordinator 以 worker 时限和额外初始化租约构造单次远程协调器。
+// newRemoteRunCoordinator 创建 OSS/ECI 客户端与协调器，并绑定本次运行的截止时间、进度观察器和 accepted snapshot。
 func newRemoteRunCoordinator(
 	config remoteRunConfig,
 	input remoteci.RunInput,

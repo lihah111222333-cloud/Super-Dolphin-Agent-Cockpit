@@ -66,7 +66,7 @@ func TestCITruthImageScriptBindsReleaseToCurrentCommit(t *testing.T) {
 		t.Fatalf("CI script release delegation error=%v output=%s", err, output)
 	}
 	want := "remote run --config " + remoteConfig + " --ledger " + remoteLedger +
-		" --repository " + repositoryRoot + " --scenario full --profile release --entrypoint release --commit " + commitSHA
+		" --repository " + repositoryRoot + " --scenario full --entrypoint release --commit " + commitSHA
 	if got := coordinatorLogLines(t, logPath); !slices.Equal(got, []string{want}) {
 		t.Fatalf("CI script release coordinator argv = %#v, want %q", got, want)
 	}
@@ -83,6 +83,44 @@ func TestCITruthImageScriptContainsOnlyLiveRemoteEntrypoints(t *testing.T) {
 		if strings.Contains(script, forbidden) {
 			t.Fatalf("CI truth-image adapter retains retired entrypoint %q", forbidden)
 		}
+	}
+}
+
+func TestRemoteRunCLIRequiresExplicitScenarioWithoutLegacyProfile(t *testing.T) {
+	root := findRepoRoot(t)
+	options, err := os.ReadFile(filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_options.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := os.ReadFile(filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_config.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := os.ReadFile(filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_selection.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := os.ReadFile(filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, source := range map[string]string{
+		"remote run options": string(options),
+		"remote run config":  string(config),
+		"remote scenario":    string(selection),
+		"remote run command": string(run),
+	} {
+		for _, forbidden := range []string{"options.Profile", "Profile               string", "resolveRemoteScenarioName", "scenario and profile disagree"} {
+			if strings.Contains(source, forbidden) {
+				t.Errorf("%s retains retired remote profile compatibility marker %q", name, forbidden)
+			}
+		}
+	}
+	if !strings.Contains(string(selection), `errors.New("remote CI scenario is required")`) {
+		t.Fatal("remote scenario resolver must fail fast when --scenario is omitted")
+	}
+	if !strings.Contains(string(run), `protocolError("remote run requires --scenario")`) {
+		t.Fatal("remote run command must reject an omitted --scenario before execution")
 	}
 }
 

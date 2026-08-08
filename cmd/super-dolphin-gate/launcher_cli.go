@@ -26,20 +26,17 @@ func runLauncherCLI(args []string) error {
 	if err != nil {
 		return infrastructureError("trusted launcher build identity is not linked: %v", err)
 	}
-	if command.action == "verify-artifact" {
-		return verifyLauncherArtifact(command, linked)
-	}
 	return verifyLauncherRepository(command, linked)
 }
 
-// parseLauncherCommand 严格解析 launcher 的两个固定子命令。
+// parseLauncherCommand 严格解析 launcher 的固定子命令。
 func parseLauncherCommand(args []string) (launcherCommand, error) {
 	if len(args) == 0 {
-		return launcherCommand{}, protocolError("launcher requires the verify or verify-artifact subcommand")
+		return launcherCommand{}, protocolError("launcher requires the verify subcommand")
 	}
 	action := args[0]
-	if action != "verify" && action != "verify-artifact" {
-		return launcherCommand{}, protocolError("launcher requires the verify or verify-artifact subcommand")
+	if action != "verify" {
+		return launcherCommand{}, protocolError("launcher requires the verify subcommand")
 	}
 	command, err := parseLauncherFlags(action, args[1:])
 	if err != nil {
@@ -72,9 +69,6 @@ func validateLauncherCommand(command launcherCommand) error {
 	if command.action == "verify" && (command.repository == "" || command.tree == "") {
 		return protocolError("launcher verify requires --repository, --tree, and --receipt")
 	}
-	if command.action == "verify-artifact" && (command.repository != "" || command.tree != "") {
-		return protocolError("launcher verify-artifact accepts only --receipt")
-	}
 	return nil
 }
 
@@ -93,14 +87,6 @@ func linkedGateCLIIdentity() (string, string, error) {
 // linkedLauncherIdentity 解码 linker payload 并绑定独立的参数摘要。
 func linkedLauncherIdentity() (trustedlauncher.LinkedIdentity, error) {
 	return trustedlauncher.DecodeLinkedIdentity(gateSourceDigest, gateToolchainDigest)
-}
-
-// verifyLauncherArtifact 校验已安装 launcher 及其回执。
-func verifyLauncherArtifact(command launcherCommand, linked trustedlauncher.LinkedIdentity) error {
-	if err := trustedlauncher.VerifyArtifact(context.Background(), command.receipt, linked); err != nil {
-		return infrastructureError("verify trusted launcher artifact: %v", err)
-	}
-	return nil
 }
 
 // verifyLauncherRepository 校验仓库精确树和 launcher 回执。

@@ -199,45 +199,12 @@ func (snapshot *remoteGitTreeSnapshot) addGoExactTestCompileEntries(
 	selected map[string]remoteGitTreeEntry,
 	profile remoteGoBuildProfile,
 ) (bool, error) {
-	files, _, fallback := snapshot.remoteGoTestDeclarations(directory, profile)
-	if fallback {
-		return false, errors.New("parse exact Go test compile inputs")
-	}
-	if err := snapshot.addGoExactTestProductionCompileEntries(directory, selected, profile); err != nil {
+	entries, err := snapshot.exactCompileRootEntries(directory, profile)
+	if err != nil {
 		return false, err
 	}
-	if !snapshot.hasProductionGoPackage(directory, profile) && len(files) == 0 {
-		return false, fmt.Errorf("remote worker exact Go test package directory %q has no linux/amd64 source files", directory)
-	}
-	for _, file := range files {
-		observesWholeTree, err := snapshot.addGoExactTestCompileFileEntries(file, selected, profile)
-		if err != nil || observesWholeTree {
-			return observesWholeTree, err
-		}
-	}
-	return false, nil
-}
-
-// addGoExactTestCompileFileEntries 加入单个测试文件和其静态本地导入的编译输入。
-func (snapshot *remoteGitTreeSnapshot) addGoExactTestCompileFileEntries(
-	file remoteGoTestFile,
-	selected map[string]remoteGitTreeEntry,
-	profile remoteGoBuildProfile,
-) (bool, error) {
-	entry, ok := snapshot.byPath[file.path]
-	if !ok {
-		return false, fmt.Errorf("Go test compile input %q is absent from Git tree", file.path)
-	}
-	selected[file.path] = entry
-	if err := snapshot.addGoEmbedEntries(path.Dir(file.path), file.source, selected); err != nil {
-		return false, err
-	}
-	for _, importPath := range remoteGoTestImports(file.file) {
-		if localDirectory, local := snapshot.resolveLocalGoImport(importPath); local {
-			if err := snapshot.addProductionGoPackageEntriesWithAssets(localDirectory, selected, true, profile); err != nil {
-				return false, err
-			}
-		}
+	for _, entry := range entries {
+		selected[entry.path] = entry
 	}
 	return false, nil
 }

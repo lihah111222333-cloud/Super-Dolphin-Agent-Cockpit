@@ -34,26 +34,20 @@ type remoteGitTreeSnapshot struct {
 	goSourcesMu     sync.Mutex
 
 	cacheMu                       sync.Mutex
+	exactCompileRootMu            sync.Mutex
+	productionIndexMu             sync.Mutex
 	productionClosureCache        map[string]remoteProductionClosureCache
 	goTestDeclarationCache        map[string]remoteGoTestDeclarationCache
+	exactCompileRootCache         map[remoteExactCompileRootKey]remoteExactCompileRootCacheEntry
+	productionIndexCache          map[string]remoteGoProductionIndexCacheEntry
 	goWorkloadSharedScript        *remoteGitTreeEntry
 	goPackageInputDigestCache     map[remoteGoPackageInputDigestKey]string
-	goPackageInputEntriesCache    map[remoteGoPackageInputDigestKey][]remoteGitTreeEntry
 	goEmbedResolutionCache        map[remoteGoEmbedResolutionKey]remoteGoEmbedResolutionCache
 	workerExecutionDigestCache    string
-	closureCaptureCalls           uint64
 	goEmbedResolutionComputations uint64
 	goEmbedResolutionCacheHits    uint64
-	closureCapture                *remoteInputClosureCapture
-	closureCaptureMu              sync.Mutex
-	closureCaptureStateMu         sync.RWMutex
-}
-
-// remoteInputClosureCapture 收集一次 workload 指纹实际写入摘要的 Git tree 条目。
-// 它只用于迁移候选的保守负路径，不改变生产指纹本身。
-type remoteInputClosureCapture struct {
-	mu      sync.Mutex
-	entries []remoteGitTreeEntry
+	exactCompileRootComputations  uint64
+	productionIndexComputations   uint64
 }
 
 type remoteGoPackageInputDigestKey struct {
@@ -147,91 +141,4 @@ func (snapshot *remoteGitTreeSnapshot) remoteWorkloadInputDigests(
 		digests[workload.ID] = digest
 	}
 	return digests, nil
-}
-
-// workloadInputDigestWithClosure 在同一次 exact-tree 指纹计算中返回摘要实际
-// 观察的条目集合，避免 Prepare 完成后迁移 resolver 再次解析 AST/blob。
-func (snapshot *remoteGitTreeSnapshot) workloadInputDigestWithClosure(
-	ctx context.Context,
-	workload gate.Workload,
-) (string, []remoteGitTreeEntry, error) {
-	if snapshot == nil {
-		return "", nil, fmt.Errorf("remote workload fingerprint snapshot is required")
-	}
-	snapshot.cacheMu.Lock()
-	snapshot.closureCaptureCalls++
-	snapshot.cacheMu.Unlock()
-	if remoteWorkloadClosureNeedsGoSources(workload) {
-		if err := snapshot.prepareGoSources(ctx); err != nil {
-			return "", nil, err
-		}
-	}
-	snapshot.closureCaptureMu.Lock()
-	defer snapshot.closureCaptureMu.Unlock()
-	capture := &remoteInputClosureCapture{}
-	snapshot.closureCaptureStateMu.Lock()
-	snapshot.closureCapture = capture
-	snapshot.closureCaptureStateMu.Unlock()
-	defer func() {
-		snapshot.closureCaptureStateMu.Lock()
-		snapshot.closureCapture = nil
-		snapshot.closureCaptureStateMu.Unlock()
-	}()
-	digest, err := snapshot.workloadInputDigest(ctx, workload)
-	if err != nil {
-		return "", nil, err
-	}
-	capture.mu.Lock()
-	entries := capture.entries
-	capture.mu.Unlock()
-	if len(entries) == 0 {
-		return "", nil, fmt.Errorf("remote workload %q observed input closure is empty", workload.ID)
-	}
-	return digest, entries, nil
-}
-
-func (snapshot *remoteGitTreeSnapshot) closureCaptureCount() uint64 {
-	if snapshot == nil {
-		return 0
-	}
-	snapshot.cacheMu.Lock()
-	defer snapshot.cacheMu.Unlock()
-	return snapshot.closureCaptureCalls
-}
-
-// workloadInputClosureEntries 返回当前 fingerprint 算法实际观察的条目集合。
-// 捕获窗口由独立互斥锁串行化，并复用 snapshot 已建立的解析缓存；捕获结束
-// 后立即清空状态，不改变正常指纹结果。
-func (snapshot *remoteGitTreeSnapshot) workloadInputClosureEntries(ctx context.Context, workload gate.Workload) ([]remoteGitTreeEntry, error) {
-	_, closure, err := snapshot.workloadInputDigestWithClosure(ctx, workload)
-	return closure, err
-}
-
-// remoteWorkloadClosureNeedsGoSources 判断迁移 closure 捕获是否需要预加载 Go 源码。
-func remoteWorkloadClosureNeedsGoSources(workload gate.Workload) bool {
-	_, targetKind, target, targeted, err := gate.ParseWorkloadID(workload.ID)
-	if err != nil || !targeted {
-		return false
-	}
-	switch targetKind {
-	case gate.WorkloadTargetGoPackage, gate.WorkloadTargetGoTest, gate.WorkloadTargetGoBenchmark:
-		return true
-	case gate.WorkloadTargetGoGuard:
-		return target != gate.GoGuardTargetCanonical && target != gate.GoGuardTargetSource && target != gate.GoGuardTargetSourceRawGoTest && target != gate.GoGuardTargetAIMaintenanceUnit && target != gate.GoGuardTargetAIMaintenanceGate
-	default:
-		return false
-	}
-}
-
-// captureInputClosure records the final digest input selected by the current algorithm.
-func (snapshot *remoteGitTreeSnapshot) captureInputClosure(entries []remoteGitTreeEntry) {
-	snapshot.closureCaptureStateMu.RLock()
-	capture := snapshot.closureCapture
-	snapshot.closureCaptureStateMu.RUnlock()
-	if capture == nil {
-		return
-	}
-	capture.mu.Lock()
-	capture.entries = entries
-	capture.mu.Unlock()
 }

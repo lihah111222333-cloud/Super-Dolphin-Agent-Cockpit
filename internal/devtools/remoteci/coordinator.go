@@ -100,10 +100,6 @@ type RunInput struct {
 	WorkloadCompileGroupInputs map[string]gate.CompileGroupInput
 	OCIProjectCache            *BaselineOCIProjectCache
 	CalibrationResource        shardresource.Class
-	// workloadInputSnapshot/workloadInputClosures 只在当前进程的 Prepare→reuse
-	// 生命周期内复用同一 exact-tree 指纹快照；不进入 RunInput 的协议或持久化身份。
-	workloadInputSnapshot *remoteGitTreeSnapshot
-	workloadInputClosures map[string][]remoteGitTreeEntry
 }
 
 // ShardResult records directly observed ECI identity, terminal state, and worker report.
@@ -232,7 +228,6 @@ func validCoordinatorObjectConfig(config CoordinatorConfig) bool {
 		strings.TrimSpace(config.WorkerRoleName) != ""
 }
 
-
 // validateCoordinatorRunInput 在生成 job 标识前校验调用上下文、SQLite 权威账本与已接受镜像绑定。
 func validateCoordinatorRunInput(ctx context.Context, config CoordinatorConfig, input RunInput) error {
 	if ctx == nil {
@@ -303,7 +298,7 @@ func (coordinator *Coordinator) prepareRemoteWorkloadMissInputs(
 	if err != nil {
 		return remoteWorkloadMissInputs{set: set}, err
 	}
-	assets, err := coordinator.prepareRemoteAssets(ctx, input, jobID, tempRoot)
+	assets, err := buildRemoteAssets(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
 	if err != nil {
 		return remoteWorkloadMissInputs{set: set, resources: resources}, err
 	}

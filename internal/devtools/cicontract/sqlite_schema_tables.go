@@ -49,8 +49,8 @@ func SQLAuthoritySchemaTables() []string {
 	return result
 }
 
-// ValidateSQLAuthoritySchemaTable 拒绝未登记的 SQLite schema 表，防止额外表成为第二 authority。
-func ValidateSQLAuthoritySchemaTable(table string) error {
+// validateSQLAuthoritySchemaTable 拒绝未登记的 SQLite schema 表，防止额外表成为第二 authority。
+func validateSQLAuthoritySchemaTable(table string) error {
 	if !slices.Contains(SQLAuthoritySchemaTables(), table) {
 		return fmt.Errorf("remote CI SQLite schema table %q is not registered by cicontract", table)
 	}

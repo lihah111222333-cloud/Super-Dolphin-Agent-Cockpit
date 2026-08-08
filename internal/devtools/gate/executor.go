@@ -164,8 +164,6 @@ func executeExecutorSubcommand(ctx context.Context, args []string, stdout io.Wri
 	switch args[0] {
 	case "runtime-seed":
 		return true, executeRuntimeSeedCommand(args[1:])
-	case "runtime-seed-inspect":
-		return true, executeRuntimeSeedInspectCommand(args[1:], stdout)
 	case "go-module-overlay":
 		return true, executeGoModuleOverlayCommand(args[1:])
 	default:
@@ -722,29 +720,14 @@ func executorEnvironment(
 		npmCacheRoot = filepath.Join(filepath.Dir(frontendSeedRoot), "npm-cache")
 	}
 	environment := []string{
-		"CI=true", "GIT_CONFIG_NOSYSTEM=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0",
-		"GIT_AUTHOR_NAME=Super Dolphin Gate Executor", "GIT_AUTHOR_EMAIL=gate-executor@super-dolphin.invalid",
-		"GIT_AUTHOR_DATE=946684800 +0000", "GIT_COMMITTER_NAME=Super Dolphin Gate Executor",
-		"GIT_COMMITTER_EMAIL=gate-executor@super-dolphin.invalid", "GIT_COMMITTER_DATE=946684800 +0000",
-		"GOCACHE=" + layout.goCache, "GOENV=off", "GOMODCACHE=" + goModCacheRoot,
-		"GOPROXY=" + executorGoProxyMode, "GOSUMDB=off", "GOTOOLCHAIN=local",
+		"GOCACHE=" + layout.goCache, "GOMODCACHE=" + goModCacheRoot,
 		"GOROOT=" + goRoot, "GOTMPDIR=" + layout.tmp,
-		"HOME=" + layout.home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8",
-		"LD_LIBRARY_PATH=" + ExecutorSystemLibraryPath,
-		"FONTCONFIG_FILE=fonts.conf",
-		"FONTCONFIG_PATH=/etc/fonts",
-		"XDG_DATA_DIRS=/usr/local/share:/usr/share",
-		"GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas",
-		"NPM_CONFIG_AUDIT=false", "NPM_CONFIG_FUND=false", "NPM_CONFIG_UPDATE_NOTIFIER=false",
+		"HOME=" + layout.home,
 		"npm_config_cache=" + npmCacheRoot, "npm_config_logs_dir=" + filepath.Join(layout.npmCache, "_logs"),
-		"npm_config_offline=true", "npm_config_userconfig=/dev/null",
 		"PLAYWRIGHT_BROWSERS_PATH=" + executorPlaywrightBrowsersPath,
-		"SUPER_DOLPHIN_GATE_GIT=" + ExecutorGitBinaryPath,
-		"SUPER_DOLPHIN_GATE_NODE=" + ExecutorNodeBinaryPath,
-		"SUPER_DOLPHIN_GATE_XVFB_RUN=" + ExecutorXvfbRunBinaryPath,
-		"SUPER_DOLPHIN_TEST_BACKEND=remote-worker",
-		"PATH=" + searchPath, "TMPDIR=" + layout.tmp, "TZ=UTC", "XDG_CACHE_HOME=" + layout.xdgCache,
+		"PATH=" + searchPath, "TMPDIR=" + layout.tmp, "XDG_CACHE_HOME=" + layout.xdgCache,
 	}
+	environment = append(environment, cicontract.CanonicalWorkerExecutionEnvironment()...)
 	if frontendSeedRoot != "" {
 		environment = append(environment, "SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED="+frontendSeedRoot)
 		environment = append(environment, "SUPER_DOLPHIN_VITE_CACHE_DIR="+filepath.Join(layout.tmp, ".vite-temp"))
