@@ -81,6 +81,8 @@
 
 ## 三、强制工作流
 
+- 创建 Git 工作树时，必须放在仓库根目录 `super-agent-v3/.worktrees/` 下，不得创建到仓库外部或其他目录。
+
 审查类：grep(text_search|ast_search) 定位 → inspect(definition|hover|type_definition) 理解 → xref(references|call_hierarchy) 影响面 → file(read_file) 精读 → 输出判定
 
 修复类：grep(text_search|ast_search) 定位 → xref(references|call_hierarchy) 影响面 → file(read_file) 读取 → patch_edit(replace_range|rename|code_action|format) 修改 → file(diagnostics) 检查 → build/test 验证
