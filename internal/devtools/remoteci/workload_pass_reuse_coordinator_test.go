@@ -135,12 +135,6 @@ func TestCoordinatorPrepareFreezesAllReuseWithoutRemoteSideEffects(t *testing.T)
 	if err != nil || !prepared.AllReused() {
 		t.Fatalf("Prepare() prepared=%#v error=%v", prepared, err)
 	}
-	if prepared.input.workloadInputSnapshot == nil || prepared.input.workloadInputSnapshot.closureCaptureCount() != 0 {
-		t.Fatalf("all-hit Prepare captured migration closures = %d, want 0", prepared.input.workloadInputSnapshot.closureCaptureCount())
-	}
-	if len(prepared.input.workloadInputClosures) != 0 {
-		t.Fatalf("all-hit Prepare retained %d migration closures, want none", len(prepared.input.workloadInputClosures))
-	}
 	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
 
 	// RunPrepared 消费 Prepare 冻结的复用决策；同一权威证据必须持续到最终化。

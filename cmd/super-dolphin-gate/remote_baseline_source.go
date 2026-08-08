@@ -140,7 +140,6 @@ func validateRemotePreCommitOptions(options remoteRunOptions) error {
 		options.ParentCommit == "",
 		options.Commit != "",
 		options.Base != "",
-		options.Profile != "",
 		options.Scenario != "",
 		options.Entrypoint != "",
 		len(options.Tests) != 0,

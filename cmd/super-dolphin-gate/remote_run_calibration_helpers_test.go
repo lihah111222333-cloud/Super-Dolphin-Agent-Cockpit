@@ -149,9 +149,6 @@ func assertParsedRemoteRunOptions(t *testing.T, options remoteRunOptions, agentT
 	if options.Base != "main^" {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
-	if options.Profile != string(gatecontract.ProfileRelease) {
-		t.Fatalf("parseRemoteRunOptions() = %#v", options)
-	}
 	if options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}

@@ -45,17 +45,16 @@ const (
 // Config describes the fixed infrastructure used by every ECI shard.
 // Profile is the name of an already configured Aliyun CLI profile; it is never read or persisted here.
 type Config struct {
-	Binary             string
-	RegionID           string
-	VSwitches          []cicontract.ECIVSwitch
-	SecurityGroupID    string
-	WorkerRoleName     string
-	Profile            string
-	Deadline           time.Duration
-	SpotStrategy       string
-	SpotDurationHours  int64
-	RegistryCredential RegistryCredential
-	// RegistryCredentialLoader 在未配置静态凭据时，仅于首次真实创建容器组前调用一次。
+	Binary            string
+	RegionID          string
+	VSwitches         []cicontract.ECIVSwitch
+	SecurityGroupID   string
+	WorkerRoleName    string
+	Profile           string
+	Deadline          time.Duration
+	SpotStrategy      string
+	SpotDurationHours int64
+	// RegistryCredentialLoader 仅于首次真实创建容器组前调用一次。
 	RegistryCredentialLoader func() (RegistryCredential, error)
 }
 
@@ -181,13 +180,14 @@ type CommandRunner interface {
 
 // Client invokes the installed Aliyun CLI using a named profile.
 type Client struct {
-	config         Config
-	runner         CommandRunner
-	wait           func(context.Context, time.Duration) error
-	attemptTimeout time.Duration
-	newClientToken func() (string, error)
-	credentialOnce sync.Once
-	credentialErr  error
+	config             Config
+	runner             CommandRunner
+	wait               func(context.Context, time.Duration) error
+	attemptTimeout     time.Duration
+	newClientToken     func() (string, error)
+	credentialOnce     sync.Once
+	credentialErr      error
+	registryCredential RegistryCredential
 }
 
 // New 使用本机已安装的 aliyun CLI 创建客户端，凭据始终由指定 profile 管理。
@@ -248,12 +248,12 @@ func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest
 	if err := c.loadRegistryCredential(); err != nil {
 		return ContainerGroup{}, fmt.Errorf("load ECI registry credential: %w", err)
 	}
-	if err := validateRegistryCredential(c.config.RegistryCredential, request); err != nil {
+	if err := validateRegistryCredential(c.registryCredential, request); err != nil {
 		return ContainerGroup{}, err
 	}
 	if err := validateConfigFileProjectionValues(request.ConfigFileVolumes,
-		c.config.RegistryCredential.UserName,
-		c.config.RegistryCredential.Password,
+		c.registryCredential.UserName,
+		c.registryCredential.Password,
 	); err != nil {
 		return ContainerGroup{}, err
 	}
@@ -264,6 +264,7 @@ func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest
 func (c *Client) loadRegistryCredential() error {
 	c.credentialOnce.Do(func() {
 		if c.config.RegistryCredentialLoader == nil {
+			c.credentialErr = errors.New("ECI registry credential loader is required for container creation")
 			return
 		}
 		credential, err := c.config.RegistryCredentialLoader()
@@ -271,7 +272,7 @@ func (c *Client) loadRegistryCredential() error {
 			c.credentialErr = err
 			return
 		}
-		c.config.RegistryCredential = credential
+		c.registryCredential = credential
 	})
 	return c.credentialErr
 }
@@ -296,9 +297,9 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--Container.1.Cpu", formatResource(request.Resources.CPU),
 		"--Container.1.Memory", formatResource(request.Resources.MemoryGiB),
 		"--Container.1.ImagePullPolicy", "IfNotPresent",
-		"--ImageRegistryCredential.1.Server", c.config.RegistryCredential.Server,
-		"--ImageRegistryCredential.1.UserName", c.config.RegistryCredential.UserName,
-		"--ImageRegistryCredential.1.Password", c.config.RegistryCredential.Password,
+		"--ImageRegistryCredential.1.Server", c.registryCredential.Server,
+		"--ImageRegistryCredential.1.UserName", c.registryCredential.UserName,
+		"--ImageRegistryCredential.1.Password", c.registryCredential.Password,
 		"--Container.1.SecurityContext.ReadOnlyRootFilesystem", "true",
 		"--Container.1.SecurityContext.RunAsUser", "65532",
 		"--Container.1.SecurityContextRunAsGroup", "65532",
@@ -334,7 +335,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	args = appendIndexedMap(args, "--Tag", request.Tags)
 	output, err := c.run(ctx, "CreateContainerGroup", args...)
 	if err != nil {
-		registrySecrets := map[string]string{"registry_username": c.config.RegistryCredential.UserName, "registry_password": c.config.RegistryCredential.Password}
+		registrySecrets := map[string]string{"registry_username": c.registryCredential.UserName, "registry_password": c.registryCredential.Password}
 		createErr := fmt.Errorf("create ECI container group: %w", redactEnvironmentValues(
 			err,
 			request.Environment,

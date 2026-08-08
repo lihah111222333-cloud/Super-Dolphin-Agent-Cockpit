@@ -22,7 +22,7 @@ func TestRemoteCIMissOnlyPlanningAndShardManifestContract(t *testing.T) {
 func assertRemoteCIMissPlannerBoundary(t *testing.T, root string) {
 	t.Helper()
 	prepared := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"))
-	assertRemoteCIMarkerOrder(t, prepared, "remoteWorkloadFingerprints(", "prepareRemoteWorkloadReuse(")
+	assertRemoteCIMarkerOrder(t, prepared, "remoteWorkloadFingerprintsWithSnapshot(", "prepareRemoteWorkloadReuse(")
 	missPath := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"), "executePreparedWorkloadMisses")
 	assertRemoteCIMarkerOrder(t, missPath, "if prepared.allReused", "createRemoteTempRoot(", "runRemoteWorkloadMisses(")
 	if !strings.Contains(missPath, "prepared.reuse.cacheMisses") {

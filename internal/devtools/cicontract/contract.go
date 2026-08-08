@@ -446,22 +446,6 @@ var requirements = [...]Requirement{
 	{ID: "7.8", Section: 7, Summary: "阿里云 ECI 终态生命周期字段允许沿同一 Describe 路径按 PollInterval 每分片最多重读 3 次；不得伪造时间、提前消费报告、移出 pending、取消兄弟或跳过清理，窗口耗尽仍 fail-fast", Enforcement: "bounded terminal evidence reread + fanout drain tests + timing guard"},
 }
 
-var forbiddenLegacyCapabilities = [...]string{
-	"DataCache/Anchor/Delta/direct-cache/zstd bundle",
-	"local Docker/Docker Desktop/buildx/localci",
-	"Docker/BuildKit outside ECI, GitHub Actions remote-CI runner, Kubernetes, other-cloud, or local-container CI/material executor and authoritative receipt",
-	"generic provider abstraction or non-Aliyun-ECI execution fallback",
-	"ACR-specific auth/role/registry access/repository",
-	"JSON baseline or ledger truth source and compatibility dual-read",
-	"candidate CLI artifact builder outside the accepted ECI materializer, cross-shard test-binary CAS, or second executor",
-	"workload PASS result cache、JSON/OSS/.pass/ci_workload_fingerprints 旧 reuse schema 或未绑定 canonical proof 的 test skip",
-	"spot or remote-to-local implicit fallback",
-	"global hook lock/active-job lock/admission cap/shared raw token/fixed shard count or coordinator concurrency cap",
-	"automatic full rebuild without an accepted Ready ImageCache",
-	"repository successor refresh executor, BuildKit publish, output_repository, CreateImageCache writer, candidate reservation, or CAS promotion",
-	"expanded-data/DataCache/cache volume/subPath mount or per-shard dependency/cache extraction",
-}
-
 var sqlAuthorityBindings = [...]SQLAuthorityBinding{
 	{Domain: SQLDomainAcceptedBaseline, Table: AcceptedBaselineTable},
 	{Domain: SQLDomainDurationHistory, Table: DurationSamplesTable},
@@ -496,20 +480,6 @@ var retentionRootBindings = [...]RetentionRootBinding{
 	{Table: RemoteRunsTable, GenerationColumn: AcceptedGenerationColumn},
 	{Table: WorkloadPassEvidenceTable, GenerationColumn: AcceptedGenerationColumn},
 	{Table: CalibrationCheckpointsTable, GenerationColumn: AcceptedGenerationColumn},
-}
-
-// Requirements 返回文档设计目标的只读副本。
-func Requirements() []Requirement {
-	result := make([]Requirement, len(requirements))
-	copy(result, requirements[:])
-	return result
-}
-
-// ForbiddenLegacyCapabilities 返回必须由删除和架构守卫共同拒绝的旧能力。
-func ForbiddenLegacyCapabilities() []string {
-	result := make([]string, len(forbiddenLegacyCapabilities))
-	copy(result, forbiddenLegacyCapabilities[:])
-	return result
 }
 
 // SQLAuthorityBindings 返回所有远程 CI 持久化事实的唯一 SQL 表绑定。

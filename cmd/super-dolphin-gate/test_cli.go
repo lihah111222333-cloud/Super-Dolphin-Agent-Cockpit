@@ -55,10 +55,10 @@ func parseAutoTestRunOptions(args []string) (remoteRunOptions, error) {
 
 // validateAutoTestFlags 拒绝 test 命令接管的场景、推送和非绝对回执参数。
 func validateAutoTestFlags(options remoteRunOptions) error {
-	if options.Scenario != "" || options.Profile != "" || options.Entrypoint != "" ||
+	if options.Scenario != "" || options.Entrypoint != "" ||
 		options.LocalRef != "" || options.RemoteRef != "" || options.ObservedRemote != "" ||
 		options.UpdateKind != "" {
-		return protocolError("test command does not accept scenario, profile, entrypoint, or push flags")
+		return protocolError("test command does not accept scenario, entrypoint, or push flags")
 	}
 	if options.CompletionReceiptPath != "" && !filepath.IsAbs(options.CompletionReceiptPath) {
 		return protocolError("--completion-receipt must be an absolute path")

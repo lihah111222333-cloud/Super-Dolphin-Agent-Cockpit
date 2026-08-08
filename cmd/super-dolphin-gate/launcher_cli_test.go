@@ -48,11 +48,10 @@ func TestLauncherBuildArgumentsDigestRejectsDrift(t *testing.T) {
 // TestParseLauncherCommandFailFast 验证 launcher 命令面拒绝缺失和多余参数。
 func TestParseLauncherCommandFailFast(t *testing.T) {
 	tests := map[string][]string{
-		"missing action":               nil,
-		"unknown action":               {"unknown"},
-		"verify missing repository":    {"verify", "--tree", "tree", "--receipt", "receipt"},
-		"artifact with repository":     {"verify-artifact", "--repository", "repo", "--receipt", "receipt"},
-		"artifact positional argument": {"verify-artifact", "--receipt", "receipt", "extra"},
+		"missing action":            nil,
+		"unknown action":            {"unknown"},
+		"verify missing repository": {"verify", "--tree", "tree", "--receipt", "receipt"},
+		"retired artifact command":  {"verify-artifact", "--receipt", "receipt"},
 	}
 	for name, args := range tests {
 		t.Run(name, func(t *testing.T) {

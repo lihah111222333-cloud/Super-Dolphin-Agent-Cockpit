@@ -13,7 +13,7 @@ func TestValidateAcceptedContract(t *testing.T) {
 	if err := Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(Requirements()); got < 9 {
+	if got := len(requirements); got < 9 {
 		t.Fatalf("requirement count = %d, want at least one per section", got)
 	}
 }
@@ -332,7 +332,7 @@ func TestCanonicalMarkdownCoversEverySection(t *testing.T) {
 
 func TestCompileGroupBatchEnvironmentContractLocksTempRoot(t *testing.T) {
 	var compileGroup Requirement
-	for _, requirement := range Requirements() {
+	for _, requirement := range requirements {
 		if requirement.ID == "5.4" {
 			compileGroup = requirement
 			break
@@ -393,16 +393,6 @@ func assertDocumentBlock(t *testing.T, document, name, begin, end, want string) 
 }
 
 func TestReturnedContractSlicesCannotMutateOwner(t *testing.T) {
-	rules := Requirements()
-	rules[0].ID = "mutated"
-	if Requirements()[0].ID == "mutated" {
-		t.Fatal("requirements returned a mutable owner slice")
-	}
-	legacy := ForbiddenLegacyCapabilities()
-	legacy[0] = "mutated"
-	if ForbiddenLegacyCapabilities()[0] == "mutated" {
-		t.Fatal("forbidden capabilities returned a mutable owner slice")
-	}
 	bindings := SQLAuthorityBindings()
 	bindings[0].Table = "mutated"
 	if SQLAuthorityBindings()[0].Table == "mutated" {
@@ -434,11 +424,11 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 		t.Fatalf("validate canonical SQL schema table registry: %v", err)
 	}
 	for _, table := range SQLAuthoritySchemaTables() {
-		if err := ValidateSQLAuthoritySchemaTable(table); err != nil {
+		if err := validateSQLAuthoritySchemaTable(table); err != nil {
 			t.Fatalf("validate canonical SQLite schema table %q: %v", table, err)
 		}
 	}
-	if err := ValidateSQLAuthoritySchemaTable("ci_unregistered_second_authority"); err == nil {
+	if err := validateSQLAuthoritySchemaTable("ci_unregistered_second_authority"); err == nil {
 		t.Fatal("unregistered SQLite schema table was accepted")
 	}
 }

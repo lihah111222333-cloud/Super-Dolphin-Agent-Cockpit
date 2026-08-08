@@ -202,10 +202,9 @@ func TestClientCreateContainerGroupEncodesOCIMaterializerTempVolume(t *testing.T
 func TestClientCreateContainerGroupAcceptsECIImageCacheIdentity(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
 	request := validCreateRequest()
-	image := "ac2-registry.cn-hangzhou.cr.aliyuncs.com/ac2/base@sha256:" + strings.Repeat("a", 64)
+	image := "ghcr.io/ac2/base@sha256:" + strings.Repeat("a", 64)
 	request.MainImage, request.InitImage = image, image
 	config := testConfig()
-	config.RegistryCredential.Server = "ac2-registry.cn-hangzhou.cr.aliyuncs.com"
 	client, err := NewWithRunner(config, runner)
 	if err != nil {
 		t.Fatalf("NewWithRunner() error = %v", err)
@@ -650,9 +649,6 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 		{"unsupported strategy", func(config *Config) { config.SpotStrategy = "unknown" }},
 		{"wrong spot duration", func(config *Config) { config.SpotDurationHours = 0 }},
 		{"pay-as-you-go spot duration", func(config *Config) { config.SpotStrategy, config.SpotDurationHours = SpotStrategyNoSpot, 1 }},
-		{"static and deferred credential", func(config *Config) {
-			config.RegistryCredentialLoader = func() (RegistryCredential, error) { return RegistryCredential{}, nil }
-		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -685,7 +681,7 @@ func TestNewWithRunner_AcceptsExplicitPayAsYouGo(t *testing.T) {
 
 func TestConfig_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[Config](), []string{
-		"Binary", "RegionID", "VSwitches", "SecurityGroupID", "WorkerRoleName", "Profile", "Deadline", "SpotStrategy", "SpotDurationHours", "RegistryCredential", "RegistryCredentialLoader",
+		"Binary", "RegionID", "VSwitches", "SecurityGroupID", "WorkerRoleName", "Profile", "Deadline", "SpotStrategy", "SpotDurationHours", "RegistryCredentialLoader",
 	})
 	assertStructFields(t, reflect.TypeFor[RegistryCredential](), []string{"Server", "UserName", "Password"})
 }
@@ -780,7 +776,9 @@ func testConfig() Config {
 		WorkerRoleName: "worker-role", Profile: "ci",
 		Deadline:     time.Hour,
 		SpotStrategy: SpotStrategyAsPriceGo, SpotDurationHours: 1,
-		RegistryCredential: RegistryCredential{Server: "registry.example", UserName: "test-user", Password: "test-token"},
+		RegistryCredentialLoader: func() (RegistryCredential, error) {
+			return testRegistryCredential(), nil
+		},
 	}
 }
 
@@ -829,7 +827,11 @@ func assertStructFields(t *testing.T, structType reflect.Type, expected []string
 }
 
 const (
-	testMainImageDigest = "registry.example/remote-builder@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	testInitImageDigest = "registry.example/accepted-gate@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	testMainImageDigest = "ghcr.io/remote-builder@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testInitImageDigest = "ghcr.io/accepted-gate@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 	testClientToken     = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 )
+
+func testRegistryCredential() RegistryCredential {
+	return RegistryCredential{Server: privateRegistryServer, UserName: "test-user", Password: "test-token"}
+}

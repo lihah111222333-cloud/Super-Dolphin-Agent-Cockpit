@@ -170,14 +170,20 @@ func TestConfigFileVolumeProjectionRejectsEnvironmentAndRegistryValues(t *testin
 			request.ConfigFileVolumes[0].ConfigFileToPath[0].Content = "#!/bin/sh\necho u\n"
 		}},
 		{"registry password", func(request *CreateRequest, config *Config) {
-			request.ConfigFileVolumes[0].ConfigFileToPath[0].Content = "#!/bin/sh\necho " + config.RegistryCredential.Password + "\n"
+			credential := testRegistryCredential()
+			config.RegistryCredentialLoader = func() (RegistryCredential, error) { return credential, nil }
+			request.ConfigFileVolumes[0].ConfigFileToPath[0].Content = "#!/bin/sh\necho " + credential.Password + "\n"
 		}},
 		{"encoded registry password", func(request *CreateRequest, config *Config) {
-			encoded := base64.RawURLEncoding.EncodeToString([]byte(config.RegistryCredential.Password))
+			credential := testRegistryCredential()
+			config.RegistryCredentialLoader = func() (RegistryCredential, error) { return credential, nil }
+			encoded := base64.RawURLEncoding.EncodeToString([]byte(credential.Password))
 			request.ConfigFileVolumes[0].ConfigFileToPath[0].Content = "#!/bin/sh\necho " + encoded + " | base64 -d\n"
 		}},
 		{"short registry username", func(request *CreateRequest, config *Config) {
-			config.RegistryCredential.UserName = "u"
+			credential := testRegistryCredential()
+			credential.UserName = "u"
+			config.RegistryCredentialLoader = func() (RegistryCredential, error) { return credential, nil }
 			request.ConfigFileVolumes[0].ConfigFileToPath[0].Content = "#!/bin/sh\necho u\n"
 		}},
 	}

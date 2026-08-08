@@ -388,7 +388,6 @@ func (snapshot *remoteGitTreeSnapshot) digestMatching(match func(remoteGitTreeEn
 }
 
 func (snapshot *remoteGitTreeSnapshot) digestEntries(entries []remoteGitTreeEntry) (string, error) {
-	snapshot.captureInputClosure(entries)
 	if len(entries) == 0 {
 		return "", errors.New("remote workload production input set is empty")
 	}

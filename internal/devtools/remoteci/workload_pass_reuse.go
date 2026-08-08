@@ -269,7 +269,7 @@ func prepareRemoteWorkloadReuse(
 	}
 	reused := make(map[string]gate.WorkloadPassEvidence)
 	if !input.Force {
-		reused, err = lookupRemoteWorkloadPassesForInput(ctx, input, identities)
+		reused, err = lookupRemoteWorkloadPasses(input.LedgerStore, identities)
 		if err != nil {
 			return remoteWorkloadReusePreparation{}, err
 		}

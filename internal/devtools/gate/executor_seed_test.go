@@ -620,28 +620,6 @@ func TestRuntimeSeedDigestRejectsEscapingSymlinkChain(t *testing.T) {
 	}
 }
 
-func TestRuntimeSeedInspectOutputsRecomputedManifest(t *testing.T) {
-	source := realTempDir(t)
-	writeTestFile(t, filepath.Join(source, "go.sum"), "fixture sum\n", 0o600)
-	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{}\n", 0o600)
-	runtimeRoot, _ := writeRuntimeSeedFixture(t, source)
-	want, err := BuildRuntimeSeedManifest(source, runtimeRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var output bytes.Buffer
-	if err := executeRuntimeSeedInspectCommand([]string{source, runtimeRoot}, &output); err != nil {
-		t.Fatal(err)
-	}
-	got, err := DecodeRuntimeSeedManifest(&output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Fatalf("runtime seed inspect manifest = %#v, want %#v", got, want)
-	}
-}
-
 func TestRuntimeSeedManifestDriftFieldsReportsOnlyChangedIdentities(t *testing.T) {
 	tracked := RuntimeSeedManifest{SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: "sha256:tracked", NPMCacheTreeSHA256: "sha256:npm"}
 	actual := tracked

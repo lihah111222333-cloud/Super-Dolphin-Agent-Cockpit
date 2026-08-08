@@ -81,7 +81,6 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 		return snapshot.digestEntries(snapshot.entries)
 	}
 	entries := sortedRemoteGitTreeEntries(selected)
-	snapshot.captureInputClosure(entries)
 	return digestGoTestEntries(entries, testSources)
 }
 
@@ -216,9 +215,7 @@ func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context,
 	key := remoteGoPackageInputDigestKey{target: target, race: profile.race}
 	snapshot.cacheMu.Lock()
 	if cached, ok := snapshot.goPackageInputDigestCache[key]; ok {
-		entries := snapshot.goPackageInputEntriesCache[key]
 		snapshot.cacheMu.Unlock()
-		snapshot.captureInputClosure(entries)
 		return cached, nil
 	}
 	snapshot.cacheMu.Unlock()
@@ -234,14 +231,10 @@ func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context,
 	if snapshot.goPackageInputDigestCache == nil {
 		snapshot.goPackageInputDigestCache = make(map[remoteGoPackageInputDigestKey]string)
 	}
-	if snapshot.goPackageInputEntriesCache == nil {
-		snapshot.goPackageInputEntriesCache = make(map[remoteGoPackageInputDigestKey][]remoteGitTreeEntry)
-	}
 	if cached, ok := snapshot.goPackageInputDigestCache[key]; ok {
 		digest = cached
 	} else {
 		snapshot.goPackageInputDigestCache[key] = digest
-		snapshot.goPackageInputEntriesCache[key] = append([]remoteGitTreeEntry(nil), entries...)
 	}
 	snapshot.cacheMu.Unlock()
 	return digest, nil

@@ -41,34 +41,6 @@ func BenchmarkRemoteWorkloadFingerprintsCandidate(b *testing.B) {
 	}
 }
 
-// BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture measures the
-// current MISS-only closure resolver; normal Prepare deliberately uses the
-// benchmark above and captures closures only after an identity MISS.
-func BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture(b *testing.B) {
-	repositoryRoot := fingerprintBenchmarkRepositoryRoot(b)
-	tree := fingerprintBenchmarkTree(b, repositoryRoot)
-	testNames := fingerprintBenchmarkTestNames(b, repositoryRoot)
-	workloads := fingerprintBenchmarkWorkloads(b, testNames)
-	ctx := context.Background()
-	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, tree)
-	if err != nil {
-		b.Fatalf("loadRemoteGitTreeSnapshot() warm-up: %v", err)
-	}
-	b.ResetTimer()
-	for b.Loop() {
-		resolver := newRemoteHistoricalInputDigestResolver(RunInput{
-			RepositoryRoot:        repositoryRoot,
-			Tree:                  tree,
-			workloadInputSnapshot: snapshot,
-		})
-		for _, workload := range workloads {
-			if _, err := resolver.currentClosure(ctx, snapshot, gate.GateID(workload.ID)); err != nil {
-				b.Fatalf("currentClosure(%q): %v", workload.ID, err)
-			}
-		}
-	}
-}
-
 // fingerprintBenchmarkTree resolves the default to an exact Git tree object;
 // symbolic refs are rejected by the production fingerprint loader.
 func fingerprintBenchmarkTree(b *testing.B, repositoryRoot string) string {

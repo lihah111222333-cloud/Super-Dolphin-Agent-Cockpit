@@ -38,9 +38,8 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	if err != nil {
 		return nil, err
 	}
-	// remoteWorkloadFingerprints( 先冻结 exact-tree digest/compile 输入；observed
-	// closure 仅在 identity MISS 后由迁移 resolver 按需捕获。
-	inputDigests, compileInputs, snapshot, err := remoteWorkloadFingerprintsWithSnapshot(ctx, input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
+	// 先冻结 exact-tree digest/compile 输入。
+	inputDigests, compileInputs, _, err := remoteWorkloadFingerprintsWithSnapshot(ctx, input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +48,6 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 		return nil, err
 	}
 	input.WorkloadInputDigests = cloneRemoteWorkloadInputDigests(inputDigests)
-	input.workloadInputSnapshot = snapshot
-	input.workloadInputClosures = nil
 	if err := validateRemoteCompileGroupInputs(catalog, compileInputs); err != nil {
 		return nil, err
 	}
@@ -69,9 +66,6 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	if err != nil {
 		return nil, err
 	}
-	// Resolver 已经完成 MISS-only closure 捕获；PreparedRun 不再持有 Go/AST/blob
-	// cache，只保留负路径需要的 immutable exact-tree entries/index。
-	input.workloadInputSnapshot = remoteMigrationSnapshot(snapshot)
 	prepared := &PreparedRun{
 		allReused:     reuse.allReused(),
 		owner:         coordinator,

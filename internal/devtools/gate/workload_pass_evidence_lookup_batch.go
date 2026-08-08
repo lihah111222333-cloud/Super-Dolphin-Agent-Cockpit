@@ -28,8 +28,6 @@ type workloadPassEvidenceOriginContext struct {
 	receiptDigest string
 	canonical     map[GateID]Workload
 	executionByID map[GateID]PlanGateExecution
-	aliasSource   *WorkloadPassEvidence
-	aliasOrigin   *workloadPassEvidenceOriginContext
 }
 
 // loadWorkloadPassEvidenceForIdentities 批量读取身份的最新证据，并按 origin_job_id
@@ -114,12 +112,10 @@ func validateAndOrderWorkloadPassEvidence(
 		if !ok {
 			continue
 		}
-		originKey, err := workloadPassEvidenceOriginCacheKey(tx, evidence)
-		if err != nil {
-			return nil, err
-		}
+		originKey := evidence.OriginJobID
 		origin, ok := origins[originKey]
 		if !ok {
+			var err error
 			origin, err = loadWorkloadPassEvidenceOriginContext(tx, evidence, stats)
 			if err != nil {
 				return nil, err
@@ -132,19 +128,6 @@ func validateAndOrderWorkloadPassEvidence(
 		result = append(result, evidence)
 	}
 	return result, nil
-}
-
-// workloadPassEvidenceOriginCacheKey 让同一来源 run 的 base evidence 共享上下文，
-// 同时按 source identity 隔离 alias 上下文，避免一个 workload 的 relation 污染另一个。
-func workloadPassEvidenceOriginCacheKey(tx *sql.Tx, evidence WorkloadPassEvidence) (string, error) {
-	source, found, err := loadWorkloadPassEvidenceAliasSource(tx, evidence)
-	if err != nil {
-		return "", err
-	}
-	if !found {
-		return evidence.OriginJobID, nil
-	}
-	return evidence.OriginJobID + "\x00alias:" + source.Identity.IdentityDigest + "\x00" + strconv.FormatUint(source.OriginAcceptedGeneration, 10), nil
 }
 
 // loadWorkloadPassEvidenceBatch 按 identity_digest 分块查询，每个身份只保留
@@ -185,6 +168,11 @@ func workloadPassEvidenceBatchQuery(identities []WorkloadPassIdentity, retainedG
 			AND runs.accepted_generation = evidence.accepted_generation
 			AND runs.source_tree_sha = evidence.origin_source_tree_sha
 		WHERE evidence.identity_digest IN (` + placeholders + `)
+			AND NOT EXISTS (
+				SELECT 1 FROM ci_workload_pass_evidence_aliases AS aliases
+				WHERE aliases.alias_identity_digest = evidence.identity_digest
+				AND aliases.alias_accepted_generation = evidence.accepted_generation
+			)
 			AND evidence.accepted_generation IN (?, ?, ?)
 			AND (
 				(runs.status = 'passed' AND runs.authoritative = 1 AND runs.cleanup_complete = 1)
@@ -272,45 +260,7 @@ func loadWorkloadPassEvidenceOriginContext(
 	evidence WorkloadPassEvidence,
 	stats *workloadPassEvidenceLookupStats,
 ) (workloadPassEvidenceOriginContext, error) {
-	return loadWorkloadPassEvidenceOriginContextWithSeen(tx, evidence, stats, map[string]struct{}{})
-}
-
-func loadWorkloadPassEvidenceOriginContextWithSeen(
-	tx *sql.Tx,
-	evidence WorkloadPassEvidence,
-	stats *workloadPassEvidenceLookupStats,
-	seen map[string]struct{},
-) (workloadPassEvidenceOriginContext, error) {
-	key := evidence.Identity.IdentityDigest + "\x00" + strconv.FormatUint(evidence.OriginAcceptedGeneration, 10)
-	if _, exists := seen[key]; exists {
-		return workloadPassEvidenceOriginContext{}, errors.New("workload pass evidence alias relation contains a cycle")
-	}
-	seen[key] = struct{}{}
-	defer delete(seen, key)
-	source, found, err := loadWorkloadPassEvidenceAliasSource(tx, evidence)
-	if err != nil {
-		return workloadPassEvidenceOriginContext{}, err
-	}
-	if found {
-		sourceOrigin, err := loadWorkloadPassEvidenceOriginContextWithSeen(tx, source, stats, seen)
-		if err != nil {
-			return workloadPassEvidenceOriginContext{}, err
-		}
-		return workloadPassEvidenceAliasOriginContext(source, sourceOrigin), nil
-	}
 	return loadWorkloadPassEvidenceBaseOriginContext(tx, evidence, stats)
-}
-
-// workloadPassEvidenceAliasOriginContext 用 source 的 origin 上下文构造投影上下文。
-func workloadPassEvidenceAliasOriginContext(source WorkloadPassEvidence, sourceOrigin workloadPassEvidenceOriginContext) workloadPassEvidenceOriginContext {
-	return workloadPassEvidenceOriginContext{
-		record:        sourceOrigin.record,
-		receiptDigest: sourceOrigin.receiptDigest,
-		canonical:     sourceOrigin.canonical,
-		executionByID: sourceOrigin.executionByID,
-		aliasSource:   &source,
-		aliasOrigin:   &sourceOrigin,
-	}
 }
 
 // loadWorkloadPassEvidenceBaseOriginContext 加载非 alias 证据的来源 run、receipt 和 provisional 索引。
@@ -348,26 +298,6 @@ func loadWorkloadPassEvidenceBaseOriginContext(
 	return origin, nil
 }
 
-// loadWorkloadPassEvidenceAliasSource 按 alias identity/gen 精确加载其来源证据行，拒绝按 origin tuple 猜测。
-func loadWorkloadPassEvidenceAliasSource(tx *sql.Tx, evidence WorkloadPassEvidence) (WorkloadPassEvidence, bool, error) {
-	sourceIdentityDigest, sourceGeneration, err := loadWorkloadPassEvidenceAliasRelation(tx, evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration)
-	if errors.Is(err, sql.ErrNoRows) {
-		return WorkloadPassEvidence{}, false, nil
-	}
-	if err != nil {
-		return WorkloadPassEvidence{}, false, mapDurationLedgerSQLiteError("load workload pass evidence alias relation", err)
-	}
-	parsedGeneration, err := strconv.ParseUint(sourceGeneration, 10, 64)
-	if err != nil || parsedGeneration == 0 {
-		return WorkloadPassEvidence{}, false, errors.New("stored workload pass evidence alias source generation is invalid")
-	}
-	source, err := loadWorkloadPassEvidenceMigrationRow(tx, sourceIdentityDigest, parsedGeneration)
-	if err != nil {
-		return WorkloadPassEvidence{}, false, fmt.Errorf("load workload pass evidence alias source row: %w", err)
-	}
-	return source, true, nil
-}
-
 // validateStoredWorkloadPassEvidenceWithOriginContext 逐项验证 identity/evidence，并复用
 // 已加载的来源 run、receipt digest 和 provisional 索引。
 func validateStoredWorkloadPassEvidenceWithOriginContext(
@@ -377,24 +307,7 @@ func validateStoredWorkloadPassEvidenceWithOriginContext(
 	if err := validateWorkloadPassEvidence(evidence); err != nil {
 		return fmt.Errorf("stored workload pass evidence: %w", err)
 	}
-	if origin.aliasSource != nil {
-		return validateStoredWorkloadPassEvidenceAlias(origin, evidence)
-	}
 	return validateStoredWorkloadPassEvidenceBase(origin, evidence)
-}
-
-// validateStoredWorkloadPassEvidenceAlias 沿 relation 验证 source，再验证安全投影差异。
-func validateStoredWorkloadPassEvidenceAlias(origin workloadPassEvidenceOriginContext, evidence WorkloadPassEvidence) error {
-	if origin.aliasOrigin == nil {
-		return errors.New("stored workload pass evidence alias origin is missing")
-	}
-	if err := validateStoredWorkloadPassEvidenceWithOriginContext(*origin.aliasOrigin, *origin.aliasSource); err != nil {
-		return fmt.Errorf("stored workload pass evidence alias source: %w", err)
-	}
-	if err := validateMigratedWorkloadPassEvidencePair(*origin.aliasSource, evidence); err != nil {
-		return fmt.Errorf("stored workload pass evidence alias projection: %w", err)
-	}
-	return nil
 }
 
 // validateStoredWorkloadPassEvidenceBase 验证非 alias 证据的 origin、运行终态、provisional 执行和 receipt。

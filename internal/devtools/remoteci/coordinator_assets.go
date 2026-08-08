@@ -53,19 +53,6 @@ func remotePlanningContext(input RunInput) gate.PlanningContext {
 	return context
 }
 
-// prepareRemoteAssets 构建由远端 init 与执行分片共同消费的 canonical source bundle 资产。
-func (coordinator *Coordinator) prepareRemoteAssets(
-	ctx context.Context,
-	input RunInput,
-	jobID, tempRoot string,
-) (remoteAssets, error) {
-	assets, err := buildRemoteAssets(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
-	if err != nil {
-		return remoteAssets{}, err
-	}
-	return assets, nil
-}
-
 // buildRemoteAssets 从唯一 SourceSpec 构建可复核 source.bundle 及其绑定对象键。
 func buildRemoteAssets(ctx context.Context, input RunInput, jobID string, tempRoot string, sourcePrefix string) (remoteAssets, error) {
 	baselineRoot, artifactRoot, err := prepareRemoteSourceRoots(tempRoot)

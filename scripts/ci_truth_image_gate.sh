@@ -119,7 +119,6 @@ case "$profile" in
       --ledger "$remote_ledger" \
       --repository "$repo_root" \
       --scenario full \
-      --profile release \
       --entrypoint release \
       --commit "$commit_sha"
     ;;

@@ -12,7 +12,11 @@ import (
 // and the coordinator's workload-ID projection.  The projection must not
 // re-run execution or EvidenceSHA validation after the gate API returns.
 func TestValidateRemoteWorkloadPassEvidenceKeepsOnlyLookupBoundaryGuards(t *testing.T) {
-	identity, _ := migrationIdentityPair(t, "backend:reuse-boundary", "a", "b")
+	workload := gate.Workload{ID: "backend:reuse-boundary", CommandDigest: strings.Repeat("d", 64), InputDigest: "sha256:" + strings.Repeat("a", 64), Shardable: true}
+	identity, err := remoteWorkloadPassIdentity(workload, nil, "sha256:"+strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatalf("remoteWorkloadPassIdentity() error = %v", err)
+	}
 	wanted := remoteWorkloadPassIdentityIndex([]gate.WorkloadPassIdentity{identity})
 
 	// Deliberately omit OriginExecution and EvidenceSHA256.  Such a value can

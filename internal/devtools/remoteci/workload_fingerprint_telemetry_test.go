@@ -40,12 +40,12 @@ func collectRemoteFingerprintTelemetry(t testing.TB, snapshot *remoteGitTreeSnap
 	unique := make(map[string]struct{})
 	telemetry := remoteFingerprintTelemetry{workloads: len(workloads), treeEntries: len(snapshot.entries)}
 	for _, workload := range workloads {
-		_, closure, err := snapshot.workloadInputDigestWithClosure(context.Background(), workload)
+		closure, err := telemetryWorkloadInputClosure(context.Background(), snapshot, workload)
 		if err != nil {
-			t.Fatalf("workloadInputDigestWithClosure(%q): %v", workload.ID, err)
+			t.Fatalf("telemetryWorkloadInputClosure(%q): %v", workload.ID, err)
 		}
 		telemetry.closureEntries += len(closure)
-		if remoteInputClosureCoversTree(snapshot, closure) {
+		if telemetryClosureCoversTree(snapshot, closure) {
 			telemetry.wholeTreeWorkloads++
 		}
 		for _, entry := range closure {
@@ -61,6 +61,79 @@ func collectRemoteFingerprintTelemetry(t testing.TB, snapshot *remoteGitTreeSnap
 		telemetry.singleFixtureAmplifier = float64(telemetry.closureEntries) / float64(telemetry.uniqueClosureEntries)
 	}
 	return telemetry
+}
+
+// telemetryWorkloadInputClosure mirrors the exact Go-test selector for metrics
+// without restoring the removed production migration capture state.
+func telemetryWorkloadInputClosure(ctx context.Context, snapshot *remoteGitTreeSnapshot, workload gate.Workload) ([]remoteGitTreeEntry, error) {
+	testTarget, targetDirectory, profile, selected, err := telemetryGoTestSelection(ctx, snapshot, workload)
+	if err != nil {
+		return nil, err
+	}
+	observesWholeTree, err := snapshot.addGoExactTestCompileEntries(targetDirectory, selected, profile)
+	if err != nil {
+		return nil, err
+	}
+	if observesWholeTree {
+		return snapshot.entries, nil
+	}
+	_, observesWholeTree, err = snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile)
+	if err != nil {
+		return nil, err
+	}
+	if observesWholeTree {
+		return snapshot.entries, nil
+	}
+	return sortedRemoteGitTreeEntries(selected), nil
+}
+
+func telemetryGoTestSelection(
+	ctx context.Context,
+	snapshot *remoteGitTreeSnapshot,
+	workload gate.Workload,
+) (gate.GoTestTarget, string, remoteGoBuildProfile, map[string]remoteGitTreeEntry, error) {
+	var empty gate.GoTestTarget
+	parent, targetKind, target, targeted, err := gate.ParseWorkloadID(workload.ID)
+	if err != nil {
+		return empty, "", remoteGoBuildProfile{}, nil, err
+	}
+	if !targeted || targetKind != gate.WorkloadTargetGoTest {
+		return empty, "", remoteGoBuildProfile{}, nil, fmt.Errorf("telemetry workload %q is not an exact Go test", workload.ID)
+	}
+	testTarget, err := gate.ParseGoTestTarget(target)
+	if err != nil {
+		return empty, "", remoteGoBuildProfile{}, nil, err
+	}
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return empty, "", remoteGoBuildProfile{}, nil, err
+	}
+	targetDirectory, err := remoteGoPackageDirectory(testTarget.Package)
+	if err != nil {
+		return empty, "", remoteGoBuildProfile{}, nil, err
+	}
+	selected, err := snapshot.requiredGoPackageEntries()
+	if err != nil {
+		return empty, "", remoteGoBuildProfile{}, nil, err
+	}
+	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
+		return empty, "", remoteGoBuildProfile{}, nil, err
+	}
+	profile := remoteGoBuildProfile{race: parent == gate.GateIDBackendTestGuardWithRace}
+	return testTarget, targetDirectory, profile, selected, nil
+}
+
+// telemetryClosureCoversTree keeps the whole-tree metric test-local. Production
+// reuse no longer owns a migration closure classifier.
+func telemetryClosureCoversTree(snapshot *remoteGitTreeSnapshot, closure []remoteGitTreeEntry) bool {
+	if snapshot == nil || len(snapshot.entries) != len(closure) {
+		return false
+	}
+	for index := range snapshot.entries {
+		if snapshot.entries[index] != closure[index] {
+			return false
+		}
+	}
+	return true
 }
 
 // newRemoteFingerprintTelemetryFixture creates a deterministic in-memory exact-tree

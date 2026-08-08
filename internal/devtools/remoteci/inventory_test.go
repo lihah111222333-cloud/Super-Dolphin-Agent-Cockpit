@@ -12,6 +12,35 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
+func inventoryExpectedSelectors() ([]string, []gate.GoTestTarget, []gate.GoTestTarget) {
+	packages := []string{"./build/gate", "./build/gate/closure", "./cmd/agent-runtime", "./cmd/agent-terminal", "./cmd/mcp-orch/store/taskdag", "./cmd/super-dolphin-updater", "./internal/alpha", "./internal/app", "./internal/archtest", "./internal/devtools/gate", "./internal/devtools/remoteci", "./internal/platform/db/sqlite", "./internal/provider/codexapp", "./new-root/tool"}
+	tests := []gate.GoTestTarget{
+		{Package: "./internal/archtest", Name: "TestCommon"}, {Package: "./internal/archtest", Name: "TestNormal"},
+		{Package: "./internal/provider/codexapp", Name: "TestTransportCommon"}, {Package: "./internal/provider/codexapp", Name: "TestTransportNormal"},
+		{Package: "./cmd/agent-runtime", Name: "TestAgentRuntimeMain"}, {Package: "./cmd/agent-runtime", Name: "TestAgentRuntimeRace"},
+		{Package: "./cmd/agent-terminal", Name: "TestAgentTerminalMain"}, {Package: "./cmd/agent-terminal", Name: "TestAgentTerminalRecovery"},
+		{Package: "./internal/app", Name: "TestAppModuleGraphIsClosed"}, {Package: "./internal/app", Name: "TestRecoveryRestoreAndGuardConvergeOneTokenBoundLaunch"}, {Package: "./internal/app", Name: "TestRunDesktopPreDrain"},
+		{Package: "./cmd/super-dolphin-updater", Name: "TestUpdaterCandidateCleanup"}, {Package: "./cmd/super-dolphin-updater", Name: "TestUpdaterRollbackEntries"},
+		{Package: "./cmd/mcp-orch/store/taskdag", Name: "TestTaskDAGStore"}, {Package: "./cmd/mcp-orch/store/taskdag", Name: "TestTaskDAGWakeup"},
+		{Package: "./internal/platform/db/sqlite", Name: "TestSQLiteCommon"}, {Package: "./internal/platform/db/sqlite", Name: "TestSQLiteNormal"},
+		{Package: "./internal/devtools/gate", Name: "TestGateAtomicCommon"}, {Package: "./internal/devtools/gate", Name: "TestGateAtomicNormal"},
+		{Package: "./internal/devtools/remoteci", Name: "TestRemoteCIAtomicCommon"}, {Package: "./internal/devtools/remoteci", Name: "TestRemoteCIAtomicNormal"},
+	}
+	raceTests := []gate.GoTestTarget{
+		{Package: "./internal/archtest", Name: "TestCommon"}, {Package: "./internal/archtest", Name: "TestRace"},
+		{Package: "./internal/provider/codexapp", Name: "TestTransportCommon"}, {Package: "./internal/provider/codexapp", Name: "TestTransportRace"},
+		{Package: "./cmd/agent-runtime", Name: "TestAgentRuntimeMain"}, {Package: "./cmd/agent-runtime", Name: "TestAgentRuntimeRace"},
+		{Package: "./cmd/agent-terminal", Name: "TestAgentTerminalMain"}, {Package: "./cmd/agent-terminal", Name: "TestAgentTerminalRecovery"},
+		{Package: "./internal/app", Name: "TestAppModuleGraphIsClosed"}, {Package: "./internal/app", Name: "TestRecoveryRestoreAndGuardConvergeOneTokenBoundLaunch"}, {Package: "./internal/app", Name: "TestRunDesktopPreDrain"},
+		{Package: "./cmd/super-dolphin-updater", Name: "TestUpdaterCandidateCleanup"}, {Package: "./cmd/super-dolphin-updater", Name: "TestUpdaterRollbackEntries"},
+		{Package: "./cmd/mcp-orch/store/taskdag", Name: "TestTaskDAGStore"}, {Package: "./cmd/mcp-orch/store/taskdag", Name: "TestTaskDAGWakeup"},
+		{Package: "./internal/platform/db/sqlite", Name: "TestSQLiteCommon"}, {Package: "./internal/platform/db/sqlite", Name: "TestSQLiteRace"},
+		{Package: "./internal/devtools/gate", Name: "TestGateAtomicCommon"}, {Package: "./internal/devtools/gate", Name: "TestGateAtomicRace"},
+		{Package: "./internal/devtools/remoteci", Name: "TestRemoteCIAtomicCommon"}, {Package: "./internal/devtools/remoteci", Name: "TestRemoteCIAtomicRace"},
+	}
+	return packages, tests, raceTests
+}
+
 func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	repository := t.TempDir()
 	runInventoryGit(t, repository, "init", "--quiet")
@@ -52,51 +81,21 @@ func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
 	runInventoryGit(t, repository, "commit", "--quiet", "-m", "基础")
 	commit := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
 
-	legacyPackages, legacyTests, legacyRaceTests := inventoryLegacySelectors(t, repository, commit)
-
 	tracePath := installInventoryGitCounter(t)
 	inventory, err := BuildWorkloadInventory(context.Background(), repository, commit, "", "linux/amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(inventory.GoPackages, legacyPackages) ||
-		!slices.Equal(inventory.GoTests, legacyTests) ||
-		!slices.Equal(inventory.GoRaceTests, legacyRaceTests) {
-		t.Fatalf("shared snapshot changed selectors: shared=%#v legacyPackages=%v legacyTests=%v legacyRaceTests=%v", inventory, legacyPackages, legacyTests, legacyRaceTests)
+	expectedPackages, expectedTests, expectedRaceTests := inventoryExpectedSelectors()
+	if !slices.Equal(inventory.GoPackages, expectedPackages) ||
+		!slices.Equal(inventory.GoTests, expectedTests) ||
+		!slices.Equal(inventory.GoRaceTests, expectedRaceTests) {
+		t.Fatalf("inventory selectors changed: got=%#v wantPackages=%v wantTests=%v wantRaceTests=%v", inventory, expectedPackages, expectedTests, expectedRaceTests)
 	}
 	counts := readInventoryGitCounterCounts(t, tracePath)
 	if counts.snapshotTree != 1 || counts.blobBatch != 1 {
 		t.Fatalf("shared snapshot git calls = %#v, want one snapshot tree and one blob batch", counts)
 	}
-}
-
-func inventoryLegacySelectors(t *testing.T, repository string, commit string) ([]string, []gate.GoTestTarget, []gate.GoTestTarget) {
-	t.Helper()
-	files, err := inventoryGitLines(context.Background(), repository, "ls-tree", "-r", "--name-only", commit, "--")
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy, err := loadInventoryVitestSuitePolicy(context.Background(), repository, commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fullTargets, err := inventoryFullTargets(files, policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := loadRemoteGitTreeSnapshot(context.Background(), repository, commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	packages, err := inventoryPlatformGoPackagesWithSnapshot(context.Background(), snapshot, "linux/amd64", fullTargets.goPackages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests, raceTests, err := inventoryAtomicGoTestsWithSnapshot(context.Background(), snapshot, "linux/amd64", packages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return packages, tests, raceTests
 }
 
 func writeInventoryFixture(t *testing.T, repository string) {

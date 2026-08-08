@@ -10,9 +10,9 @@ import (
 )
 
 func resolveRemoteScenario(options remoteRunOptions) (string, gatecontract.Profile, error) {
-	scenario, err := resolveRemoteScenarioName(options.Scenario, options.Profile)
-	if err != nil {
-		return "", "", err
+	scenario := options.Scenario
+	if scenario == "" {
+		return "", "", errors.New("remote CI scenario is required")
 	}
 	profiles := map[string]gatecontract.Profile{
 		"commit": gatecontract.ProfileLocalFast,
@@ -24,38 +24,17 @@ func resolveRemoteScenario(options remoteRunOptions) (string, gatecontract.Profi
 	if !ok {
 		return "", "", fmt.Errorf("unsupported remote CI scenario %q", scenario)
 	}
-	if err := validateRemoteScenarioOptions(options, scenario, profile); err != nil {
+	if err := validateRemoteScenarioOptions(options, scenario); err != nil {
 		return "", "", err
 	}
 	return scenario, profile, nil
 }
 
-// resolveRemoteScenarioName 将未显式给出的场景从 profile 映射为固定入口。
-func resolveRemoteScenarioName(scenario string, profileName string) (string, error) {
-	if scenario != "" {
-		return scenario, nil
-	}
-	switch gatecontract.Profile(profileName) {
-	case "", gatecontract.ProfileLocalFast:
-		return "commit", nil
-	case gatecontract.ProfilePush:
-		return "push", nil
-	case gatecontract.ProfileRelease:
-		return "full", nil
-	default:
-		return "", fmt.Errorf("profile %q does not map to a remote CI scenario", profileName)
-	}
-}
-
-// validateRemoteScenarioOptions 校验显式 profile 和测试选择器与场景一致。
+// validateRemoteScenarioOptions 校验测试选择器与显式场景一致。
 func validateRemoteScenarioOptions(
 	options remoteRunOptions,
 	scenario string,
-	profile gatecontract.Profile,
 ) error {
-	if options.Profile != "" && gatecontract.Profile(options.Profile) != profile {
-		return errors.New("remote CI scenario and profile disagree")
-	}
 	if scenario == "test" && len(options.Tests) == 0 {
 		return errors.New("remote CI test scenario requires at least one --test selector")
 	}

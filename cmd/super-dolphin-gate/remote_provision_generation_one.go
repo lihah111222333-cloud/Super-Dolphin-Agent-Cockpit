@@ -345,7 +345,8 @@ func newRemoteGenerationOneVerifier(config remoteRunConfig) (*eci.Client, error)
 		Binary: config.AliyunCLI, RegionID: config.RegionID, VSwitches: slices.Clone(config.VSwitches),
 		SecurityGroupID: config.SecurityGroupID, WorkerRoleName: config.WorkerRoleName,
 		Profile: config.CredentialProfile, Deadline: 30 * time.Minute,
-		SpotStrategy: eci.SpotStrategyNoSpot,
+		SpotStrategy:             eci.SpotStrategyNoSpot,
+		RegistryCredentialLoader: loadRemoteRegistryCredential,
 	})
 }
 

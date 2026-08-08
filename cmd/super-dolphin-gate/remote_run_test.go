@@ -29,7 +29,6 @@ func TestParseRemoteRunOptions(t *testing.T) {
 		"--repository", "/tmp/repository",
 		"--commit", "main",
 		"--base", "main^",
-		"--profile", string(gatecontract.ProfileRelease),
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
 		"--force",
 	})
@@ -126,6 +125,12 @@ func TestParseRemoteRunOptionsRejectsRemovedShardFlag(t *testing.T) {
 	}
 }
 
+func TestParseRemoteRunOptionsRejectsLegacyProfileFlag(t *testing.T) {
+	if _, err := parseRemoteRunOptions([]string{"--config", "/tmp/config.json", "--profile", "release"}); err == nil {
+		t.Fatal("parseRemoteRunOptions() accepted retired --profile flag")
+	}
+}
+
 func TestLoadRemoteRunConfig(t *testing.T) {
 	document := strings.Replace(
 		validRemoteRunConfigJSON(),
@@ -200,7 +205,7 @@ func TestResolveRemoteRunInputAcceptsRefreshedRuntimeImageFromSQLiteAuthority(t 
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
-		Profile:        string(gatecontract.ProfileLocalFast),
+		Scenario:       "commit",
 		LedgerPath:     writeRemoteRunLedgerFixture(t, remoteRunRunnerIdentity(state), state.ImageCacheSnapshotID),
 	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
@@ -224,7 +229,7 @@ func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
-		Profile:        string(gatecontract.ProfileLocalFast),
+		Scenario:       "commit",
 		LedgerPath:     ledgerPath,
 	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
@@ -303,7 +308,7 @@ func TestResolveRemoteRunInputBindsPushRange(t *testing.T) {
 		RemoteURL:      "ssh://git@example.invalid/repository.git",
 		Commit:         "HEAD",
 		Base:           base,
-		Profile:        string(gatecontract.ProfilePush),
+		Scenario:       "push",
 		LocalRef:       "refs/heads/main",
 		RemoteRef:      "refs/heads/main",
 		ObservedRemote: base,
@@ -323,7 +328,7 @@ func TestResolveRemoteRunInputRejectsPushWithoutRangeIdentity(t *testing.T) {
 	_, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
-		Profile:        string(gatecontract.ProfilePush),
+		Scenario:       "push",
 		LedgerPath:     ledgerPath,
 	}, state, remoteRunRunnerIdentity(state))
 	if err == nil {
@@ -646,6 +651,12 @@ func TestResolveRemoteScenarioCoversFourEntrypoints(t *testing.T) {
 		if gotScenario != scenario || gotProfile != wantProfile {
 			t.Fatalf("resolveRemoteScenario(%q) = %q, %q", scenario, gotScenario, gotProfile)
 		}
+	}
+}
+
+func TestResolveRemoteScenarioRequiresExplicitScenario(t *testing.T) {
+	if _, _, err := resolveRemoteScenario(remoteRunOptions{}); err == nil {
+		t.Fatal("resolveRemoteScenario() accepted an omitted scenario")
 	}
 }
 
