@@ -166,20 +166,6 @@ func assertStoredPromptTemplateUpdate(t *testing.T, db *sql.DB, promptKey string
 	}
 }
 
-func assertEmptyPromptMatchWhen(t *testing.T, raw json.RawMessage) {
-	t.Helper()
-	if !json.Valid(raw) {
-		t.Fatalf("match_when = %q, want valid JSON", raw)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("match_when = %q, want object JSON: %v", raw, err)
-	}
-	if len(decoded) != 0 {
-		t.Fatalf("match_when = %s, want empty object", raw)
-	}
-}
-
 func assertNilPromptMatchWhen(t *testing.T, raw json.RawMessage) {
 	t.Helper()
 	if len(raw) != 0 {

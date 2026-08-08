@@ -718,21 +718,3 @@ func cleanupGeneratedTemps(root *os.Root, artifacts []stagedGeneratedArtifact) {
 		}
 	}
 }
-
-// repositoryRoot 沿当前目录向上查找唯一仓库 go.mod。
-func repositoryRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		if info, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil && !info.IsDir() {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("go.mod not found from working directory")
-		}
-		dir = parent
-	}
-}

@@ -156,12 +156,6 @@ func tomlString(value string) string {
 	return strconv.Quote(strings.TrimSpace(value))
 }
 
-// extractCodexWheel 解压 Python wheel 形态的 Codex release。
-// 只接受 codex_cli_bin/ 前缀内的文件并统计总解压字节，防止归档逃逸或超量写入。
-func extractCodexWheel(wheelPath, targetDir string) error {
-	return extractCodexWheelWithLimits(wheelPath, targetDir, defaultCodexExtractLimits())
-}
-
 func extractCodexWheelWithLimits(wheelPath, targetDir string, limits codexExtractLimits) error {
 	reader, err := zip.OpenReader(wheelPath)
 	if err != nil {

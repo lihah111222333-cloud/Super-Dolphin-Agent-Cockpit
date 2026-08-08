@@ -15,7 +15,6 @@ import (
 // EventBus 是 orchestration 状态事件发布边界的本包别名。
 type EventBus = *event.Dispatcher
 type agentState = agentRuntime
-type eventPublisher func(EventBus, *agentState, []any)
 
 type activeTurnFinalizationKind struct {
 	trigger    agentdto.AgentTrigger

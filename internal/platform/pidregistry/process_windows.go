@@ -57,10 +57,6 @@ func sendSIGTERM(pid int) error {
 	return terminateByPID(pid)
 }
 
-func sendExactSIGKILL(pid int) error {
-	return terminateByPID(pid)
-}
-
 // isNoSuchProcessErr 判断 Windows 错误是否表示进程已经不存在。
 func isNoSuchProcessErr(err error) bool {
 	return errors.Is(err, windows.ERROR_INVALID_PARAMETER) ||

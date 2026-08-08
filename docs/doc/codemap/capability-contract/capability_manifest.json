@@ -2065,7 +2065,6 @@
         "cmd/mcp-orch/tools.looksLikePosixAbsolutePath",
         "cmd/mcp-orch/tools.makeHandler",
         "cmd/mcp-orch/tools.mapCommandCards",
-        "cmd/mcp-orch/tools.mapPromptTemplates",
         "cmd/mcp-orch/tools.mapWorkspaceRuns",
         "cmd/mcp-orch/tools.markModelProviderAvailability",
         "cmd/mcp-orch/tools.marshalMapToJSON",
@@ -4158,7 +4157,6 @@
         "internal/provider/codexapp.extractCodexTarEntry",
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
-        "internal/provider/codexapp.extractCodexWheel",
         "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
@@ -7118,7 +7116,6 @@
         "cmd/mcp-orch/tools.looksLikePosixAbsolutePath",
         "cmd/mcp-orch/tools.makeHandler",
         "cmd/mcp-orch/tools.mapCommandCards",
-        "cmd/mcp-orch/tools.mapPromptTemplates",
         "cmd/mcp-orch/tools.mapWorkspaceRuns",
         "cmd/mcp-orch/tools.markModelProviderAvailability",
         "cmd/mcp-orch/tools.marshalMapToJSON",
@@ -9211,7 +9208,6 @@
         "internal/provider/codexapp.extractCodexTarEntry",
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
-        "internal/provider/codexapp.extractCodexWheel",
         "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
@@ -12171,7 +12167,6 @@
         "cmd/mcp-orch/tools.looksLikePosixAbsolutePath",
         "cmd/mcp-orch/tools.makeHandler",
         "cmd/mcp-orch/tools.mapCommandCards",
-        "cmd/mcp-orch/tools.mapPromptTemplates",
         "cmd/mcp-orch/tools.mapWorkspaceRuns",
         "cmd/mcp-orch/tools.markModelProviderAvailability",
         "cmd/mcp-orch/tools.marshalMapToJSON",
@@ -14264,7 +14259,6 @@
         "internal/provider/codexapp.extractCodexTarEntry",
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
-        "internal/provider/codexapp.extractCodexWheel",
         "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
@@ -17224,7 +17218,6 @@
         "cmd/mcp-orch/tools.looksLikePosixAbsolutePath",
         "cmd/mcp-orch/tools.makeHandler",
         "cmd/mcp-orch/tools.mapCommandCards",
-        "cmd/mcp-orch/tools.mapPromptTemplates",
         "cmd/mcp-orch/tools.mapWorkspaceRuns",
         "cmd/mcp-orch/tools.markModelProviderAvailability",
         "cmd/mcp-orch/tools.marshalMapToJSON",
@@ -19317,7 +19310,6 @@
         "internal/provider/codexapp.extractCodexTarEntry",
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
-        "internal/provider/codexapp.extractCodexWheel",
         "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
@@ -22280,7 +22272,6 @@
         "cmd/mcp-orch/tools.looksLikePosixAbsolutePath",
         "cmd/mcp-orch/tools.makeHandler",
         "cmd/mcp-orch/tools.mapCommandCards",
-        "cmd/mcp-orch/tools.mapPromptTemplates",
         "cmd/mcp-orch/tools.mapWorkspaceRuns",
         "cmd/mcp-orch/tools.markModelProviderAvailability",
         "cmd/mcp-orch/tools.marshalMapToJSON",
@@ -24376,7 +24367,6 @@
         "internal/provider/codexapp.extractCodexTarEntry",
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
-        "internal/provider/codexapp.extractCodexWheel",
         "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
@@ -27341,7 +27331,6 @@
         "cmd/mcp-orch/tools.looksLikePosixAbsolutePath",
         "cmd/mcp-orch/tools.makeHandler",
         "cmd/mcp-orch/tools.mapCommandCards",
-        "cmd/mcp-orch/tools.mapPromptTemplates",
         "cmd/mcp-orch/tools.mapWorkspaceRuns",
         "cmd/mcp-orch/tools.markModelProviderAvailability",
         "cmd/mcp-orch/tools.marshalMapToJSON",
@@ -29437,7 +29426,6 @@
         "internal/provider/codexapp.extractCodexTarEntry",
         "internal/provider/codexapp.extractCodexTarGz",
         "internal/provider/codexapp.extractCodexTarStream",
-        "internal/provider/codexapp.extractCodexWheel",
         "internal/provider/codexapp.extractCodexWheelWithLimits",
         "internal/provider/codexapp.extractCodexZipFile",
         "internal/provider/codexapp.extractRolloutMetadata",
@@ -30353,12 +30341,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2492,
+    "total_functions": 2490,
     "total_methods": 1301,
     "total_interfaces": 192,
     "total_interface_methods": 381,
     "total_exported": 1334,
-    "total_unexported": 3293,
+    "total_unexported": 3291,
     "total_structs": 642
   },
   "packages": [
@@ -60222,19 +60210,6 @@
           ]
         },
         {
-          "name": "mapPromptTemplates",
-          "exported": false,
-          "params": [
-            {
-              "name": "templates",
-              "type": "[]promptstore.PromptTemplate"
-            }
-          ],
-          "returns": [
-            "[]promptTemplateDTO"
-          ]
-        },
-        {
           "name": "mapWorkspaceRuns",
           "exported": false,
           "params": [
@@ -81994,23 +81969,6 @@
             {
               "name": "limits",
               "type": "codexExtractLimits"
-            }
-          ],
-          "returns": [
-            "error"
-          ]
-        },
-        {
-          "name": "extractCodexWheel",
-          "exported": false,
-          "params": [
-            {
-              "name": "wheelPath",
-              "type": "string"
-            },
-            {
-              "name": "targetDir",
-              "type": "string"
             }
           ],
           "returns": [

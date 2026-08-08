@@ -41,7 +41,7 @@ cmd/mcp-orch/orchestration/dag_delete_test.go	cmd	orchestration	go-test	1975	age
 cmd/mcp-orch/orchestration/dag_dispatch.go	cmd	orchestration	go-source	16895	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,dispatch,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/dag_dispatch_test.go	cmd	orchestration	go-test	12988	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,dispatch,test,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
 cmd/mcp-orch/orchestration/dag_node_dto_test.go	cmd	orchestration	go-test	1622	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,node,dto,test,agent,生命周期,turn,队列,DAG,wakeup,report,与
-cmd/mcp-orch/orchestration/dag_ops_add_node_test.go	cmd	orchestration	go-test	21946	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,ops,add,node,test,agent,生命周期,turn,队列,DAG,wakeup,report
+cmd/mcp-orch/orchestration/dag_ops_add_node_test.go	cmd	orchestration	go-test	21854	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,ops,add,node,test,agent,生命周期,turn,队列,DAG,wakeup,report
 cmd/mcp-orch/orchestration/dag_ops_remove_node_test.go	cmd	orchestration	go-test	7502	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,ops,remove,node,test,agent,生命周期,turn,队列,DAG,wakeup,report
 cmd/mcp-orch/orchestration/dag_ops_running_invariants_test.go	cmd	orchestration	go-test	8710	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,ops,running,invariants,test,agent,生命周期,turn,队列,DAG,wakeup,report
 cmd/mcp-orch/orchestration/dag_ops_sqlite_task11_test.go	cmd	orchestration	go-test	7804	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,dag,ops,sqlite,task11,test,agent,生命周期,turn,队列,DAG,wakeup,report
@@ -67,7 +67,7 @@ cmd/mcp-orch/orchestration/execution_test.go	cmd	orchestration	go-test	9364	agen
 cmd/mcp-orch/orchestration/exit_monitor_test.go	cmd	orchestration	go-test	13765	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,exit,monitor,test,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
 cmd/mcp-orch/orchestration/exitmonitor/monitor.go	cmd	orchestration	go-source	5564	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,exitmonitor,monitor,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/factory.go	cmd	orchestration	go-source	14313	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,factory,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
-cmd/mcp-orch/orchestration/factory_events.go	cmd	orchestration	go-source	9428	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,factory,events,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
+cmd/mcp-orch/orchestration/factory_events.go	cmd	orchestration	go-source	9373	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,factory,events,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/handle_thread_stopped_dag_test.go	cmd	orchestration	go-test	13330	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,handle,thread,stopped,dag,test,agent,生命周期,turn,队列,DAG,wakeup,report
 cmd/mcp-orch/orchestration/helpers.go	cmd	orchestration	go-source	27353	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,helpers,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/hook_consumer.go	cmd	orchestration	go-source	29458	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,hook,consumer,agent,生命周期,turn,队列,DAG,wakeup,report,与,消费
@@ -94,7 +94,7 @@ cmd/mcp-orch/orchestration/metrics/dispatch_retry.go	cmd	orchestration	go-source
 cmd/mcp-orch/orchestration/node_executor_dispatch.go	cmd	orchestration	go-source	16858	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,node,executor,dispatch,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
 cmd/mcp-orch/orchestration/node_router.go	cmd	orchestration	go-source	29783	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,node,router,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/node_router_shard18_test.go	cmd	orchestration	go-test	23961	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,node,router,shard18,test,agent,生命周期,turn,队列,DAG,wakeup,report,与
-cmd/mcp-orch/orchestration/node_router_test.go	cmd	orchestration	go-test	20546	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,node,router,test,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
+cmd/mcp-orch/orchestration/node_router_test.go	cmd	orchestration	go-test	20171	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,node,router,test,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
 cmd/mcp-orch/orchestration/nodeevents/events.go	cmd	orchestration	go-source	2567	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,nodeevents,events,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/nodeevents/events_test.go	cmd	orchestration	go-test	1998	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,nodeevents,events,test,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
 cmd/mcp-orch/orchestration/nodeexec/artifact_config_test.go	cmd	orchestration	go-test	5052	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,artifact,config,test,DAG,节点执行器,typed,ops,输入输出与自动化执行
@@ -277,7 +277,7 @@ cmd/mcp-orch/store/sqlc/workspace_run.sql.go	cmd	orchestration	go-source	13534	m
 cmd/mcp-orch/store/sqlctx/db.go	cmd	orchestration	go-source	7225	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,sqlctx,db,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/sqlctx/db_test.go	cmd	orchestration	go-test	1178	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,sqlctx,db,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/taskdag/contract.go	cmd	orchestration	go-source	30807	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,contract,DAG,node,wakeup,worker,lease,持久化
-cmd/mcp-orch/store/taskdag/factory.go	cmd	orchestration	go-source	6708	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,factory,DAG,node,wakeup,worker,lease,持久化
+cmd/mcp-orch/store/taskdag/factory.go	cmd	orchestration	go-source	5205	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,factory,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/module.go	cmd	orchestration	go-source	3948	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,module,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/row_mappers.go	cmd	orchestration	go-source	6519	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,row,mappers,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/run_event_sqlite_golden_test.go	cmd	orchestration	go-test	6583	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,event,sqlite,golden,test,DAG,node,wakeup,worker,lease,持久化
@@ -297,7 +297,7 @@ cmd/mcp-orch/store/taskdag/store_lease.go	cmd	orchestration	go-source	3399	DAG/n
 cmd/mcp-orch/store/taskdag/store_node_spawn.go	cmd	orchestration	go-source	7953	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,node,spawn,DAG,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_reads_writes_test.go	cmd	orchestration	go-test	4930	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,reads,writes,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_root_wakeup.go	cmd	orchestration	go-source	3429	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,root,wakeup,DAG,node,worker,lease,持久化
-cmd/mcp-orch/store/taskdag/store_run.go	cmd	orchestration	go-source	18352	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,DAG,node,wakeup,worker,lease,持久化
+cmd/mcp-orch/store/taskdag/store_run.go	cmd	orchestration	go-source	17579	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_run_events.go	cmd	orchestration	go-source	3059	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,events,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_sqlite_semantics_test.go	cmd	orchestration	go-test	4218	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,sqlite,semantics,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_sqlite_task11_test.go	cmd	orchestration	go-test	33914	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,sqlite,task11,test,DAG,node,wakeup,worker,lease,持久化
@@ -307,7 +307,7 @@ cmd/mcp-orch/store/taskdag/store_wakeup.go	cmd	orchestration	go-source	20124	DAG
 cmd/mcp-orch/store/taskdag/wakeup_lease.go	cmd	orchestration	go-source	3835	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,wakeup,lease,DAG,node,worker,持久化
 cmd/mcp-orch/store/taskdag/wakeup_lease_test.go	cmd	orchestration	go-test	454	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,wakeup,lease,test,DAG,node,worker,持久化
 cmd/mcp-orch/store/taskdag/wakeup_sqlite_concurrency_test.go	cmd	orchestration	go-test	22317	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,wakeup,sqlite,concurrency,test,DAG,node,worker,lease,持久化
-cmd/mcp-orch/store/terminaloutcome/field_guard_test.go	cmd	orchestration	go-test	14124	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,terminaloutcome,field,guard,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
+cmd/mcp-orch/store/terminaloutcome/field_guard_test.go	cmd	orchestration	go-test	13683	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,terminaloutcome,field,guard,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/terminaloutcome/repair_characterization_test.go	cmd	orchestration	go-test	12728	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,terminaloutcome,repair,characterization,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/terminaloutcome/store.go	cmd	orchestration	go-source	32165	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,terminaloutcome,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/terminaloutcome/store_test.go	cmd	orchestration	go-test	16335	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,terminaloutcome,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
@@ -358,7 +358,7 @@ cmd/mcp-orch/tools/parity_v2_test.go	cmd	orchestration	go-test	24205	mcp-orch MC
 cmd/mcp-orch/tools/pos.go	cmd	orchestration	go-source	11032	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,pos,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/pos_test.go	cmd	orchestration	go-test	18846	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,pos,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/prompt_builtin_test.go	cmd	orchestration	go-test	13449	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,prompt,builtin,test,mcp-orch,MCP,tool,schema,registry,与,handler
-cmd/mcp-orch/tools/prompt_tools.go	cmd	orchestration	go-source	17925	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,prompt,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/prompt_tools.go	cmd	orchestration	go-source	17663	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,prompt,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/recall_tools.go	cmd	orchestration	go-source	6350	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,recall,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/recall_tools_test.go	cmd	orchestration	go-test	10327	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,recall,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/registry.go	cmd	orchestration	go-source	6714	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,registry,mcp-orch,MCP,tool,schema,与,handler
@@ -373,7 +373,7 @@ cmd/mcp-orch/tools/task_create_dag_launch_validation_test.go	cmd	orchestration	g
 cmd/mcp-orch/tools/task_diagnostics.go	cmd	orchestration	go-source	15232	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,diagnostics,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_diagnostics_test.go	cmd	orchestration	go-test	4099	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,diagnostics,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_e2e_diagnostics_stateful_test.go	cmd	orchestration	go-test	8105	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,e2e,diagnostics,stateful,test,mcp-orch,MCP,tool,schema,registry,与,handler
-cmd/mcp-orch/tools/task_e2e_diagnostics_test.go	cmd	orchestration	go-test	19349	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,e2e,diagnostics,test,mcp-orch,MCP,tool,schema,registry,与,handler
+cmd/mcp-orch/tools/task_e2e_diagnostics_test.go	cmd	orchestration	go-test	18324	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,e2e,diagnostics,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_lifecycle_helpers.go	cmd	orchestration	go-source	3380	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,lifecycle,helpers,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_runtime_inputs.go	cmd	orchestration	go-source	2281	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,runtime,inputs,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/task_schemas.go	cmd	orchestration	go-source	27809	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,task,schemas,mcp-orch,MCP,tool,schema,registry,与,handler

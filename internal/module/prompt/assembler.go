@@ -370,36 +370,6 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 	return sections
 }
 
-// fallbackStartAssembly 在 section 解析失败时用原始 BaseInstructions 构建降级 assembly。
-// fallbackStartAssembly 在组装失败后保留原始 BaseInstructions 并补齐结构化上下文。
-// 该路径仍写 snapshot，保证后续 resume/fork/recover 能拿到一致的降级结果。
-func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) (StartAssembly, error) {
-	displayName := strings.TrimSpace(in.Name)
-	base := strings.TrimSpace(in.BaseInstructions)
-	buildCtx := buildStartCtx(in)
-	suppressedTools, err := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
-	if err != nil {
-		return StartAssembly{}, err
-	}
-	buildCtx.SuppressedTools = suppressedTools
-	userMeta := s.buildStartUserMeta(buildCtx, nil)
-	systemCtx := s.buildSystemContext(ctx, buildCtx)
-	if hint := s.resolvePromptHint(ctx, buildCtx.CWD); hint != "" {
-		base = joinBlocks(base, hint)
-	}
-	dev := strings.TrimSpace(in.DeveloperInstructions)
-	return StartAssembly{
-		DisplayName:           displayName,
-		BaseInstructions:      base,
-		DeveloperInstructions: dev,
-		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
-		SuppressedTools:       append([]string(nil), suppressedTools...),
-		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
-		UserContextText:       contract.FormatUserContextText(userMeta),
-		SystemContext:         systemCtx,
-	}, nil
-}
-
 // buildStartUserMeta 构建每次 start 都可能变化的结构化 user meta。
 // currentDate 与 runtimeExtras 不进入 BaseInstructions，避免日期等动态内容破坏 provider 缓存前缀。
 func (s *service) buildStartUserMeta(_ BuildCtx, resolved []ResolvedPromptSection) userContextPayload {
@@ -495,11 +465,6 @@ func (s *service) notifyInvalidationProviders(reason InvalidateReason) {
 	if aware, ok := s.claudeMdProvider.(InvalidationAwareProvider); ok {
 		aware.OnPromptInvalidate(reason)
 	}
-}
-
-// buildStartSectionContext 从 StartInput 构建 section 上下文。
-func buildStartSectionContext(in StartInput) SectionContext {
-	return SectionContext{BuildCtx: buildStartCtx(in), Start: &in}
 }
 
 // buildTurnSectionContext 从 TurnInput 构建 section 上下文。

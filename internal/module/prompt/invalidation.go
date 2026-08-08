@@ -78,21 +78,6 @@ func compactSectionNames(names []string) []string {
 	return out
 }
 
-// invalidateAvailableExperts 清空专家推荐动态 section 缓存。
-func (s *promptService) invalidateAvailableExperts() {
-	s.invalidatePromptSections(contract.DynamicSectionAvailableExperts)
-}
-
-// invalidateRecallCatalog 清空 recall catalog 动态 section 缓存。
-func (s *promptService) invalidateRecallCatalog() {
-	s.invalidatePromptSections(contract.DynamicSectionRecallCatalog)
-}
-
-// invalidateProjectDefaultRules 清空项目默认规则动态 section 缓存。
-func (s *promptService) invalidateProjectDefaultRules() {
-	s.invalidatePromptSections(contract.DynamicSectionProjectDefaultRules)
-}
-
 // invalidateSectionAssetCatalogs 清空依赖 prompt sections 的资产 catalog 缓存。
 func (s *promptService) invalidateSectionAssetCatalogs() {
 	s.invalidatePromptSections(contract.DynamicSectionRecallCatalog, contract.DynamicSectionProjectDefaultRules)

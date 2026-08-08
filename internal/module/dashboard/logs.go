@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
@@ -73,19 +72,6 @@ func matchKeyword(keyword string, entry LogEntry) bool {
 // containsFold 执行大小写不敏感的子串匹配。
 func containsFold(value, needle string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(needle))
-}
-
-// sortLogEntries 按时间倒序稳定排序，并用 source/id 打破同时间戳并列。
-func sortLogEntries(entries []LogEntry) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		if !entries[i].Timestamp.Equal(entries[j].Timestamp) {
-			return entries[i].Timestamp.After(entries[j].Timestamp)
-		}
-		if entries[i].Source != entries[j].Source {
-			return entries[i].Source < entries[j].Source
-		}
-		return entries[i].ID > entries[j].ID
-	})
 }
 
 // GetAuditLogs 读取审计日志并规整过滤条件。

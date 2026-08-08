@@ -289,20 +289,6 @@ func promptIntentTemplateVisibleForCWD(template PromptTemplate, cwd string) bool
 	return true
 }
 
-// promptIntentTemplateHasCurrentProjectScope 判断模板是否具有当前 cwd 的项目 scope tag。
-func promptIntentTemplateHasCurrentProjectScope(template PromptTemplate, cwd string) bool {
-	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
-	if want == promptScopeTagPrefix {
-		return false
-	}
-	for _, tag := range promptTags(template.Tags) {
-		if strings.TrimSpace(tag) == want {
-			return true
-		}
-	}
-	return false
-}
-
 // promptIntentRecallDuplicateConflicts 判断 recall topic 重复是否会与目标 scope 冲突。
 // global 与项目级独占模板互不阻断，避免不同可见范围的资料误报重复。
 func promptIntentRecallDuplicateConflicts(targetGlobal bool, template PromptTemplate, cwd string) bool {

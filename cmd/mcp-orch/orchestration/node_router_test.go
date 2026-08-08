@@ -551,22 +551,6 @@ func (h recordingLifecycleOutcomeHook) Handle(_ context.Context, point nodeexec.
 	return nil
 }
 
-type slowLifecycleHook struct {
-	completed chan<- struct{}
-	canceled  chan<- struct{}
-}
-
-func (h slowLifecycleHook) Handle(ctx context.Context, _ nodeexec.HookPoint, _ nodeexec.Node, _ nodeexec.NodeOutcome) error {
-	select {
-	case <-time.After(lifecycleHookDispatchWait * 2):
-		close(h.completed)
-		return nil
-	case <-ctx.Done():
-		close(h.canceled)
-		return ctx.Err()
-	}
-}
-
 type blockingLifecycleHook struct {
 	canceled chan<- struct{}
 }

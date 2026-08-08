@@ -171,23 +171,6 @@ func assertExactFieldSet(t *testing.T, name string, producer map[string]bool, re
 	}
 }
 
-func selectorNames(t *testing.T, source []byte) map[string]bool {
-	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), "store.go", source, 0)
-	if err != nil {
-		t.Fatalf("parse terminal outcome store: %v", err)
-	}
-	selectors := make(map[string]bool)
-	ast.Inspect(file, func(node ast.Node) bool {
-		selector, ok := node.(*ast.SelectorExpr)
-		if ok {
-			selectors[selector.Sel.Name] = true
-		}
-		return true
-	})
-	return selectors
-}
-
 func selectorNamesInFunctions(t *testing.T, source []byte, names string) map[string]bool {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), "store.go", source, 0)

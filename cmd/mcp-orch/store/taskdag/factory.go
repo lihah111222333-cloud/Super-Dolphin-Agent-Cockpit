@@ -45,25 +45,6 @@ func queryMany[Row any, Out any](
 	return mapRows(rows, mapper), nil
 }
 
-// queryManyWrite 带写重试地调用 call 取多行并批量转换，适用于 SQLite busy 场景。
-func queryManyWrite[Row any, Out any](
-	ctx context.Context,
-	call func() ([]Row, error),
-	operation, entity string,
-	mapper func(Row) Out,
-) ([]Out, error) {
-	var mapped []Out
-	err := sqlctx.WithWriteRetry(ctx, func() error {
-		rows, err := call()
-		if err != nil {
-			return wrapTaskDAGError(err, operation, entity)
-		}
-		mapped = mapRows(rows, mapper)
-		return nil
-	})
-	return mapped, err
-}
-
 // queryValue 调用 call 取单个标量值，错误时包装域错误。
 func queryValue[T any](call func() (T, error), operation, entity string) (T, error) {
 	value, err := call()
@@ -121,16 +102,6 @@ func mapRows[In any, Out any](rows []In, mapper func(In) Out) []Out {
 	return out
 }
 
-// updateNodeStatus 是节点状态更新的只读路径统一封装，无写重试。
-func updateNodeStatus[Row any](call func() (Row, error), operation string, mapper func(Row) Node) (*Node, error) {
-	return queryOne(call, operation, "task_dag_node", mapper)
-}
-
-// updateNodeStatusWrite 是节点状态更新的写路径统一封装，带 SQLite busy 重试。
-func updateNodeStatusWrite[Row any](ctx context.Context, call func() (Row, error), operation string, mapper func(Row) Node) (*Node, error) {
-	return queryOneWrite(ctx, call, operation, "task_dag_node", mapper)
-}
-
 // parseLeaseDuration 解析 lease interval 字符串并包装解析错误为域错误。
 func parseLeaseDuration(value, operation, entity string) (sqlc.Interval, error) {
 	interval, err := intervalValue(value)
@@ -172,18 +143,6 @@ func bindWakeupTurnTx(
 		return 0, wrapTaskDAGError(errors.New("wakeup turn binding conflict"), "bind_turn", "task_dag_wakeup")
 	}
 	return count, nil
-}
-
-// fencedWakeupMutation 统一包装 wakeup 变更操作的错误，不含写重试（调用方管事务）。
-// rows=0 表示 claim fence miss，由调用方决定语义，不在此转换为错误。
-func fencedWakeupMutation(
-	operation string,
-	fence wakeupFence,
-	call func(wakeupFence) (int64, error),
-) (int64, error) {
-	return queryValue(func() (int64, error) {
-		return call(fence)
-	}, operation, "task_dag_wakeup")
 }
 
 // fencedWakeupMutationWrite 带写重试地执行 wakeup 变更，适用于直接写路径（非事务内）。

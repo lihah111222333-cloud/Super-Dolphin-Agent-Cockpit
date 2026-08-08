@@ -5,14 +5,14 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4817,
+  "files": 4815,
   "domains": {
     "docs-agent": 96,
     "other": 1291,
     "app-ui": 757,
     "platform-provider": 1287,
     "orchestration": 411,
-    "modules": 765,
+    "modules": 763,
     "store-sql": 210
   },
   "index_files": {
@@ -36,8 +36,8 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 765,
-        "size_kb": 149.1,
+        "file_count": 763,
+        "size_kb": 148.7,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -75,7 +75,7 @@
     "cmd": 857,
     "docs": 88,
     "frontend-app": 749,
-    "internal": 2846,
+    "internal": 2844,
     "pkg": 30,
     "scripts": 187,
     "sql": 29,

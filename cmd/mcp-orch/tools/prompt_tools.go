@@ -270,14 +270,6 @@ func promptTagsContainScope(raw json.RawMessage, cwd string) bool {
 	return false
 }
 
-func mapPromptTemplates(templates []promptstore.PromptTemplate) []promptTemplateDTO {
-	mapped := make([]promptTemplateDTO, 0, len(templates))
-	for _, template := range templates {
-		mapped = append(mapped, promptTemplateFromStore(template))
-	}
-	return mapped
-}
-
 // builtinPromptTemplateDTOs 返回 keyword 命中的内置候选，同时返回所有可见内置 key 用于隐藏 DB 同 key。
 func builtinPromptTemplateDTOs(
 	builtin contract.BuiltinPromptRegistry,

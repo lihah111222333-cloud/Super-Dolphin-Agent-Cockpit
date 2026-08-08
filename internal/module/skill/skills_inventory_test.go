@@ -72,19 +72,6 @@ func TestServiceListSkillsStillFailsClosedForUnresolvedSameNameConflict(t *testi
 	}
 }
 
-func firstSameNameResolutionItem(t *testing.T, superDolphinHome, project string) skillResolutionItem {
-	t.Helper()
-	records, err := newCanonicalStore(superDolphinHome).scan(project)
-	if err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	items := canonicalResolutionItems(canonicalSameNameConflicts(records))
-	if len(items) == 0 {
-		t.Fatalf("same-name resolution items empty for records %+v", records)
-	}
-	return items[0]
-}
-
 func testInventoryService(project, superDolphinHome string) *service {
 	return &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
 }

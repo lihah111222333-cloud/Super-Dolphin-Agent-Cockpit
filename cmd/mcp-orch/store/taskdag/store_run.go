@@ -346,19 +346,6 @@ func cancelTaskDagRunRow(ctx context.Context, db sqlc.DBTX, input TerminateRunIn
 	return db.QueryRowContext(ctx, cancelTaskDagRunSQL, nextEvents, input.DagKey, input.RunID, input.RunKey).Scan(&id)
 }
 
-// scanTaskDagRunRows 迭代 sql.Rows 扫描多行 taskDagRunRow，遇错立即返回。
-func scanTaskDagRunRows(rows *sql.Rows) ([]taskDagRunRow, error) {
-	out := make([]taskDagRunRow, 0)
-	for rows.Next() {
-		row, err := scanTaskDagRunRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
 // scanTaskDagRunListRows 迭代 sql.Rows 扫描多行 taskDagRunListRow（轻量投影）。
 func scanTaskDagRunListRows(rows *sql.Rows) ([]taskDagRunListRow, error) {
 	out := make([]taskDagRunListRow, 0)
@@ -405,12 +392,6 @@ func scanTaskDagRunRow(scanner taskDagRunScanner) (taskDagRunRow, error) {
 		&row.UpdatedAt,
 	)
 	return row, err
-}
-
-// fromTaskDagRun 把 sqlc 生成的行结构体转成 contract 层 Run。
-// SQLite epoch 毫秒会统一转为 time.Time，可空列保持 nil。
-func fromTaskDagRun(row sqlc.TaskDagRun) Run {
-	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
 }
 
 // fromTaskDagRunRow 把手写扫描结构体转成 contract Run；Events 可能为 nil（list 路径）。

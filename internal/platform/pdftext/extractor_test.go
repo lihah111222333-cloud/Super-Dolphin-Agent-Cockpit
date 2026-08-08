@@ -2,6 +2,7 @@ package pdftext
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"errors"
 	"fmt"
@@ -52,6 +53,14 @@ func TestExtractFileEnforcesAggregateOutputBudget(t *testing.T) {
 	_, err := ExtractFile(context.Background(), path, Limits{MaxInputBytes: 1 << 20, MaxOutputBytes: 3})
 	if !errors.Is(err, ErrOutputTooLarge) {
 		t.Fatalf("error = %v, want output budget", err)
+	}
+}
+
+func TestExtractFileRejectsCompressedStreamOutputBudget(t *testing.T) {
+	path := writeFixture(t, compressedPDFFixture(t, strings.Repeat("x", 32*1024)))
+	_, err := ExtractFile(context.Background(), path, Limits{MaxInputBytes: 1 << 20, MaxOutputBytes: 128})
+	if !errors.Is(err, ErrOutputTooLarge) {
+		t.Fatalf("error = %v, want compressed stream output budget rejection", err)
 	}
 }
 
@@ -156,4 +165,38 @@ func pdfFixture(pageOperators []string, withToUnicode bool, decoy string) []byte
 
 func streamObject(content string) string {
 	return fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content)
+}
+
+func compressedPDFFixture(t *testing.T, text string) []byte {
+	t.Helper()
+	body := "BT /F1 12 Tf 72 720 Td (" + text + ") Tj ET"
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write([]byte(body)); err != nil {
+		t.Fatalf("compress PDF fixture: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close PDF fixture compressor: %v", err)
+	}
+	objects := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream", compressed.Len(), compressed.String()),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	}
+	var output bytes.Buffer
+	output.WriteString("%PDF-1.4\n")
+	offsets := make([]int, len(objects)+1)
+	for index, object := range objects {
+		offsets[index+1] = output.Len()
+		fmt.Fprintf(&output, "%d 0 obj\n%s\nendobj\n", index+1, object)
+	}
+	xref := output.Len()
+	fmt.Fprintf(&output, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
+	for _, offset := range offsets[1:] {
+		fmt.Fprintf(&output, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&output, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
+	return output.Bytes()
 }

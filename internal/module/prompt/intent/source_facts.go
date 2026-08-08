@@ -266,20 +266,6 @@ func promptIntentBusinessRuleSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
-// promptIntentLooksLikeExternalCodingPrompt 判断原文是否像外部编码助手提示词。
-// 该结果只参与来源分类，不直接决定安全问题级别。
-func promptIntentLooksLikeExternalCodingPrompt(rawText string) bool {
-	return containsAnyPromptIntentTerm(rawText, []string{
-		"coding assistant",
-		"codebase",
-		"pair programming",
-		"making code changes",
-		"code changes",
-		"debugging",
-		"modify code",
-	})
-}
-
 // promptIntentLooksLikeAPIDoc 判断原文是否像 API 文档或接口说明。
 func promptIntentLooksLikeAPIDoc(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{

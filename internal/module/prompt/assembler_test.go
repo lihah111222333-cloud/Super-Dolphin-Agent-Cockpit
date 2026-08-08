@@ -16,8 +16,7 @@ import (
 //
 // Root cause (2026-04-24): assembler.go used
 //   shared.FirstNonEmpty(in.Name, in.Prompt)
-// for DisplayName in all 3 paths (AssembleStart, simpleStartAssembly,
-// fallbackStartAssembly). This caused the user's first message to become
+// for all start assembly paths. This caused the user's first message to become
 // the thread name (e.g. "嗨" or a pasted JSON blob).
 //
 // If you are reading this because a test broke: the naming policy is

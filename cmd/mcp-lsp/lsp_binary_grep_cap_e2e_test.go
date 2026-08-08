@@ -78,15 +78,3 @@ func lspBinaryGrepRowsForFile(
 	t.Fatalf("grep payload missing %s; structured files=%#v", wantRel, payload.Data)
 	return lspBinaryGrepFileRows{}
 }
-
-func lspBinaryGrepRowText(t *testing.T, row []any) string {
-	t.Helper()
-	if len(row) < 3 {
-		t.Fatalf("grep row has %d cells, want at least 3: %#v", len(row), row)
-	}
-	text, ok := row[2].(string)
-	if !ok {
-		t.Fatalf("grep row text cell = %T %[1]v, want string", row[2])
-	}
-	return text
-}

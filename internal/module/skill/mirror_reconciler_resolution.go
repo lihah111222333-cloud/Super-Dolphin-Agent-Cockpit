@@ -593,22 +593,6 @@ func validateRootResolutionPreview(item skillResolutionItem, preview skillResolu
 	return nil
 }
 
-func writeTakeoverManifest(target SkillMirrorTarget, name, mirrorHash string) error {
-	manifest, err := readTargetManifest(target)
-	if err != nil {
-		return err
-	}
-	manifest.Skills[name] = SkillMirrorEntry{
-		CanonicalID:   target.Scope + "/" + name,
-		CanonicalHash: mirrorHash,
-		MirrorHash:    mirrorHash,
-		SourceType:    target.Scope,
-		Owned:         true,
-	}
-	manifest.GeneratedAt = time.Now().UTC()
-	return writeSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), manifest)
-}
-
 func updateOwnedMirrorManifest(target SkillMirrorTarget, record canonicalSkillRecord, mirrorHash string) error {
 	manifest, err := readTargetManifest(target)
 	if err != nil {

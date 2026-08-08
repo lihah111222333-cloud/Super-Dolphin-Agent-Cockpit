@@ -13,7 +13,6 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
-	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 )
 
@@ -279,8 +278,6 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	}
 }
 
-type persistentFlowSharedFiles struct{}
-
 type persistentFlowPromptAssembly struct{}
 
 func (*persistentFlowPromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
@@ -297,20 +294,4 @@ func (*persistentFlowPromptAssembly) AssembleAgent(context.Context, contract.Age
 
 func (*persistentFlowPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
-}
-
-func (persistentFlowSharedFiles) Get(context.Context, string) (*sharedfilestore.SharedFile, error) {
-	return nil, platformdb.ErrNotFound
-}
-
-func (persistentFlowSharedFiles) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
-	return nil, nil
-}
-
-func (persistentFlowSharedFiles) Upsert(_ context.Context, params sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
-	return &sharedfilestore.SharedFile{Path: params.Path, Content: params.Content, UpdatedBy: params.UpdatedBy}, nil
-}
-
-func (persistentFlowSharedFiles) Delete(context.Context, string) (int64, error) {
-	return 1, nil
 }

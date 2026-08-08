@@ -148,27 +148,6 @@ func validSHA256Identity(value string) bool {
 	return true
 }
 
-// validateToken 校验进入状态提示的 token，阻断换行与命令字符注入。
-func validateToken(name, value string) error {
-	if strings.TrimSpace(value) == "" || len(value) > 256 {
-		return fmt.Errorf("%s is required and must not exceed 256 bytes", name)
-	}
-	for _, character := range value {
-		if !isTokenCharacter(character) {
-			return fmt.Errorf("%s contains unsupported character %q", name, character)
-		}
-	}
-	return nil
-}
-
 func isLowerHex(character rune) bool {
 	return character >= '0' && character <= '9' || character >= 'a' && character <= 'f'
-}
-
-// isTokenCharacter 仅允许状态提示中无控制语义的 ASCII token 字符。
-func isTokenCharacter(character rune) bool {
-	return character >= 'a' && character <= 'z' ||
-		character >= 'A' && character <= 'Z' ||
-		character >= '0' && character <= '9' ||
-		strings.ContainsRune("._:-", character)
 }

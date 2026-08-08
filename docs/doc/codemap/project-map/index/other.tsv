@@ -511,7 +511,7 @@ internal/devtools/alicloud/eci/image_cache.go	internal	other	go-source	4223	开�
 internal/devtools/alicloud/eci/image_cache_test.go	internal	other	go-test	2659	开发工具与生成器辅助包	internal,devtools,alicloud,eci,image,cache,test,开发工具与生成器辅助包
 internal/devtools/alicloud/oss/client.go	internal	other	go-source	10347	开发工具与生成器辅助包	internal,devtools,alicloud,oss,client,开发工具与生成器辅助包
 internal/devtools/alicloud/oss/client_test.go	internal	other	go-test	10179	开发工具与生成器辅助包	internal,devtools,alicloud,oss,client,test,开发工具与生成器辅助包
-internal/devtools/archtestmap/generator.go	internal	other	go-source	26847	开发工具与生成器辅助包	internal,devtools,archtestmap,generator,开发工具与生成器辅助包
+internal/devtools/archtestmap/generator.go	internal	other	go-source	26409	开发工具与生成器辅助包	internal,devtools,archtestmap,generator,开发工具与生成器辅助包
 internal/devtools/archtestmap/generator_test.go	internal	other	go-test	13603	开发工具与生成器辅助包	internal,devtools,archtestmap,generator,test,开发工具与生成器辅助包
 internal/devtools/capcontract/manifest.go	internal	other	go-source	9611	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,开发工具与生成器辅助包
 internal/devtools/capcontract/manifest_test.go	internal	other	go-test	4034	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
@@ -754,7 +754,7 @@ internal/devtools/gatehook/testdata/codex/missing-cwd.json	internal	other	json	1
 internal/devtools/gatehook/testdata/codex/stop.json	internal	other	json	298	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,codex,stop,开发工具与生成器辅助包
 internal/devtools/gatehook/testdata/codex/subagent-stop.json	internal	other	json	420	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,codex,subagent,stop,开发工具与生成器辅助包
 internal/devtools/gatehook/testdata/git/pre-push.txt	internal	other	txt	50	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,git,pre,push,开发工具与生成器辅助包
-internal/devtools/gatehook/types.go	internal	other	go-source	5281	开发工具与生成器辅助包	internal,devtools,gatehook,types,开发工具与生成器辅助包
+internal/devtools/gatehook/types.go	internal	other	go-source	4532	开发工具与生成器辅助包	internal,devtools,gatehook,types,开发工具与生成器辅助包
 internal/devtools/gateprivate/command_cancel_unix.go	internal	other	go-source	545	开发工具与生成器辅助包	internal,devtools,gateprivate,command,cancel,unix,开发工具与生成器辅助包
 internal/devtools/gateprivate/command_cancel_windows.go	internal	other	go-source	285	开发工具与生成器辅助包	internal,devtools,gateprivate,command,cancel,windows,开发工具与生成器辅助包
 internal/devtools/gateprivate/exclusive_lock.go	internal	other	go-source	3746	开发工具与生成器辅助包	internal,devtools,gateprivate,exclusive,lock,开发工具与生成器辅助包

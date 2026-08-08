@@ -2595,7 +2595,6 @@
     "internal/module/datasource/extract.go",
     "internal/module/datasource/module.go",
     "internal/module/datasource/pdf_extract.go",
-    "internal/module/datasource/pdf_extract_stream_test.go",
     "internal/module/datasource/prompt_provider.go",
     "internal/module/datasource/prompt_provider_test.go",
     "internal/module/datasource/rpc.go",
@@ -2607,7 +2606,6 @@
     "internal/module/datasource_v2/embedding.go",
     "internal/module/datasource_v2/module.go",
     "internal/module/datasource_v2/pdf_extract.go",
-    "internal/module/datasource_v2/pdf_extract_stream_test.go",
     "internal/module/datasource_v2/prompt_provider.go",
     "internal/module/datasource_v2/prompt_provider_test.go",
     "internal/module/datasource_v2/rpc.go",
@@ -4866,6 +4864,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6519,
-  "source_snapshot_paths_sha256": "sha256:bd340f574edfc4bc7e40712f01aa8c4e381a0234a19a4653196c6f56c83b0908"
+  "source_snapshot_input_count": 6517,
+  "source_snapshot_paths_sha256": "sha256:b1c94e07fe915e28e23423c5110f288c82997488fdc872cb16df1c2595311c94"
 }

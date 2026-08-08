@@ -611,17 +611,6 @@ func firstPromptIntentBlockIssue(issues []Issue) (Issue, bool) {
 	return Issue{}, false
 }
 
-// requirePromptIntentExamples 校验 hit_examples 和 miss_examples 各至少含一条非空项。
-func requirePromptIntentExamples(hit, miss []string) error {
-	if len(trimmedPromptIntentExamples(hit)) == 0 {
-		return platformrpc.ErrInvalidParams("prompt intent hit_examples is required")
-	}
-	if len(trimmedPromptIntentExamples(miss)) == 0 {
-		return platformrpc.ErrInvalidParams("prompt intent miss_examples is required")
-	}
-	return nil
-}
-
 // requireNonEmptyPromptIntentFields 检查指定字段是否均非空，任一为空返回 invalid_params 错误。
 func requireNonEmptyPromptIntentFields(fields map[string]string) error {
 	for name, value := range fields {

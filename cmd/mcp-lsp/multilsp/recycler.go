@@ -683,14 +683,6 @@ func shutdownResourceCohortWorkspace(mgr *manager, workspace workspaceClient) (b
 	return true, errors.Join(shutdownErr, closeErr)
 }
 
-// detachAndShutdownWorkspaceClient 串行化摘除与进程关闭；Close 失败时恢复 cleanup owner。
-func detachAndShutdownWorkspaceClient(
-	mgr *manager,
-	workspace workspaceClient,
-) (*workspaceClient, error, error) {
-	return detachAndShutdownWorkspaceClientWith(mgr, workspace, shutdownWorkspaceClient)
-}
-
 func detachAndShutdownWorkspaceClientForIdle(
 	mgr *manager,
 	workspace workspaceClient,

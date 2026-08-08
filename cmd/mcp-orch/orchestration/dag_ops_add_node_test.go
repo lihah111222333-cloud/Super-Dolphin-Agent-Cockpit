@@ -48,7 +48,6 @@ type stubDAGOpsStore struct {
 
 	// 调用观测
 	getVersionCalls     int // 调用 GetDAGVersionForUpdate 次数（事务内、带 FOR UPDATE）
-	getVersionLockCalls int // = getVersionCalls 别名，错误消息里表达「锁」意图
 	getVersionReadCalls int // 调用 GetDAGVersion 次数（事务外、不加锁）
 	listCalls           int
 	dagPatchCalls       []taskdag.UpdateDAGPatchInput

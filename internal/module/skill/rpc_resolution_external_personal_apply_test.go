@@ -161,22 +161,6 @@ func dispatchExternalPersonalProjectApply(t *testing.T, server *platformrpc.Serv
 	return got
 }
 
-func assertResolutionNameAbsent(t *testing.T, items []skillResolutionItem, name string) {
-	t.Helper()
-	for _, item := range items {
-		if item.Name == name {
-			t.Fatalf("resolution item for %q = %+v, want absent", name, item)
-		}
-	}
-}
-
-func assertResolutionSameNameVisible(t *testing.T, items []skillResolutionItem, name string) {
-	t.Helper()
-	item := findResolutionItem(t, items, skillConflictSameName, name, "")
-	assertResolutionSource(t, item, skillScopeProject, "", "project/"+name)
-	assertResolutionSource(t, item, skillScopePersonal, personalSkillTypeUser, "personal/user/"+name)
-}
-
 func assertRuntimeSelectedSkill(t *testing.T, svc *service, project, name, dir string) {
 	t.Helper()
 	infos, err := svc.ListSkills(skillTestContext(project))

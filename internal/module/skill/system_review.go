@@ -2,8 +2,6 @@ package skill
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/skillhash"
@@ -25,34 +23,3 @@ func RequireSkillSystemReview(scope, slug, contentHash, repoFingerprint, approve
 func skillContentHash(content string) string { return skillhash.Content(content) }
 
 func skillDirContentHash(root string) (string, error) { return skillhash.Dir(root) }
-
-// resolveSymlinkPath 在安全上限内解析 symlink 链。
-// EvalSymlinks 失败时退化为逐段解析，最多 16 层，避免循环链接卡住调用方。
-func resolveSymlinkPath(path string) string {
-	if realPath, err := filepath.EvalSymlinks(path); err == nil {
-		return realPath
-	}
-	for i := 0; i < 16; i++ {
-		info, err := os.Lstat(path)
-		if err != nil || info.Mode()&os.ModeSymlink == 0 {
-			break
-		}
-		target, err := os.Readlink(path)
-		if err != nil {
-			break
-		}
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(path), target)
-		}
-		path = filepath.Clean(target)
-	}
-	return path
-}
-
-func resolveValidMirrorRootSymlink(root string) string {
-	resolved := resolveSymlinkPath(root)
-	if filepath.Base(resolved) == "skills" {
-		return resolved
-	}
-	return root
-}

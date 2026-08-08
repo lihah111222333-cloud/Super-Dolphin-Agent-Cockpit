@@ -82,18 +82,6 @@ func TestProxyToolsListBackfillsPeerDiscoveryFromBindingCWD(t *testing.T) {
 	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindLSP, "grep")
 }
 
-type recordingMCPToolLifecycleBackfiller struct {
-	requests []MCPToolLifecycleBackfillRequest
-	err      error
-}
-
-func (b *recordingMCPToolLifecycleBackfiller) BackfillMCPTools(_ context.Context, req MCPToolLifecycleBackfillRequest) error {
-	cloned := req
-	cloned.Tools = append([]contract.MCPToolLifecycleObservedTool(nil), req.Tools...)
-	b.requests = append(b.requests, cloned)
-	return b.err
-}
-
 func assertMCPToolLifecycleBackfill(t *testing.T, requests []MCPToolLifecycleBackfillRequest, workspaceRoot, serverName, toolName string) {
 	t.Helper()
 	for _, req := range requests {

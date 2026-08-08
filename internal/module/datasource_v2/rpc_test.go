@@ -2,7 +2,6 @@ package datasourcev2
 
 import (
 	"bytes"
-	"compress/zlib"
 	"context"
 	"encoding/json"
 	"errors"
@@ -297,18 +296,6 @@ func TestImportTextRPCRejectsSymlinkEscapingWorkspace(t *testing.T) {
 
 	if _, err := server.Dispatch(context.Background(), "datasourceV2/importText", payload); err == nil || !strings.Contains(err.Error(), "outside workspace") {
 		t.Fatalf("Dispatch error = %v, want symlink outside workspace rejection", err)
-	}
-}
-
-func TestExtractPDFTextRejectsOversizedFlateStream(t *testing.T) {
-	source := filepath.Join(t.TempDir(), "large.pdf")
-	if err := os.WriteFile(source, compressedPDFWithText(t, strings.Repeat("x", 10*1024*1024+1)), 0o600); err != nil {
-		t.Fatalf("write compressed pdf: %v", err)
-	}
-
-	_, err := extractPDFText(context.Background(), source)
-	if err == nil || !strings.Contains(err.Error(), "too large") {
-		t.Fatalf("extractPDFText() error = %v, want decompressed size rejection", err)
 	}
 }
 
@@ -641,23 +628,6 @@ func minimalPDFWithText(text string) []byte {
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
 		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(body), body),
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-	})
-}
-
-func compressedPDFWithText(t *testing.T, text string) []byte {
-	t.Helper()
-	var compressed bytes.Buffer
-	writer := zlib.NewWriter(&compressed)
-	if _, err := writer.Write([]byte("BT (" + text + ") Tj ET")); err != nil {
-		t.Fatalf("compress pdf stream: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close zlib writer: %v", err)
-	}
-	return buildDatasourceV2TestPDF([]string{
-		"<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-		"<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
-		fmt.Sprintf("<< /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream", compressed.Len(), compressed.String()),
 	})
 }
 

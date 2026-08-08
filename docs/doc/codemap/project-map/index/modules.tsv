@@ -1,7 +1,7 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 internal/module/appupdate/github_release.go	internal	modules	go-source	10006	业务模块层	internal,module,appupdate,github,release,业务模块层
 internal/module/appupdate/github_release_test.go	internal	modules	go-test	11171	业务模块层	internal,module,appupdate,github,release,test,业务模块层
-internal/module/appupdate/manifest.go	internal	modules	go-source	9708	业务模块层	internal,module,appupdate,manifest,业务模块层
+internal/module/appupdate/manifest.go	internal	modules	go-source	9032	业务模块层	internal,module,appupdate,manifest,业务模块层
 internal/module/appupdate/manifest_test.go	internal	modules	go-test	8176	业务模块层	internal,module,appupdate,manifest,test,业务模块层
 internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块层	internal,module,appupdate,业务模块层
 internal/module/appupdate/package_trust.go	internal	modules	go-source	6821	业务模块层	internal,module,appupdate,package,trust,业务模块层
@@ -67,7 +67,7 @@ internal/module/dashboard/insights_rpc.go	internal	modules	go-source	3464	dashbo
 internal/module/dashboard/insights_rpc_test.go	internal	modules	go-test	2651	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,insights,rpc,test,读模型与,UI,RPC,服务
 internal/module/dashboard/log_detail_rpc.go	internal	modules	go-source	5471	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,log,detail,rpc,读模型与,UI,RPC,服务
 internal/module/dashboard/log_detail_rpc_test.go	internal	modules	go-test	3362	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,log,detail,rpc,test,读模型与,UI,RPC,服务
-internal/module/dashboard/logs.go	internal	modules	go-source	4499	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,logs,读模型与,UI,RPC,服务
+internal/module/dashboard/logs.go	internal	modules	go-source	4043	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,logs,读模型与,UI,RPC,服务
 internal/module/dashboard/module.go	internal	modules	go-source	1888	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,读模型与,UI,RPC,服务
 internal/module/dashboard/query_test.go	internal	modules	go-test	24980	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,query,test,读模型与,UI,RPC,服务
 internal/module/dashboard/rpc.go	internal	modules	go-source	25475	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,rpc,读模型与,UI,RPC,服务
@@ -84,8 +84,7 @@ internal/module/dashboard/wire_dto_contract_test.go	internal	modules	go-test	440
 internal/module/dashboard/workflow_material.go	internal	modules	go-source	1438	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,workflow,material,读模型与,UI,RPC,服务
 internal/module/datasource/extract.go	internal	modules	go-source	4514	业务模块层	internal,module,datasource,extract,业务模块层
 internal/module/datasource/module.go	internal	modules	go-source	1162	业务模块层	internal,module,datasource,业务模块层
-internal/module/datasource/pdf_extract.go	internal	modules	go-source	12937	业务模块层	internal,module,datasource,pdf,extract,业务模块层
-internal/module/datasource/pdf_extract_stream_test.go	internal	modules	go-test	3758	业务模块层	internal,module,datasource,pdf,extract,stream,test,业务模块层
+internal/module/datasource/pdf_extract.go	internal	modules	go-source	940	业务模块层	internal,module,datasource,pdf,extract,业务模块层
 internal/module/datasource/prompt_provider.go	internal	modules	go-source	5670	业务模块层	internal,module,datasource,prompt,provider,业务模块层
 internal/module/datasource/prompt_provider_test.go	internal	modules	go-test	7017	业务模块层	internal,module,datasource,prompt,provider,test,业务模块层
 internal/module/datasource/rpc.go	internal	modules	go-source	3193	业务模块层	internal,module,datasource,rpc,业务模块层
@@ -93,15 +92,14 @@ internal/module/datasource/rpc_test.go	internal	modules	go-test	5615	业务模�
 internal/module/datasource/service.go	internal	modules	go-source	17061	业务模块层	internal,module,datasource,service,业务模块层
 internal/module/datasource/service_test.go	internal	modules	go-test	16910	业务模块层	internal,module,datasource,service,test,业务模块层
 internal/module/datasource/store.go	internal	modules	go-source	974	业务模块层	internal,module,datasource,store,业务模块层
-internal/module/datasource_v2/chunks.go	internal	modules	go-source	8403	业务模块层	internal,module,datasource,v2,chunks,业务模块层
+internal/module/datasource_v2/chunks.go	internal	modules	go-source	6755	业务模块层	internal,module,datasource,v2,chunks,业务模块层
 internal/module/datasource_v2/embedding.go	internal	modules	go-source	4177	业务模块层	internal,module,datasource,v2,embedding,业务模块层
 internal/module/datasource_v2/module.go	internal	modules	go-source	1102	业务模块层	internal,module,datasource,v2,业务模块层
-internal/module/datasource_v2/pdf_extract.go	internal	modules	go-source	13036	业务模块层	internal,module,datasource,v2,pdf,extract,业务模块层
-internal/module/datasource_v2/pdf_extract_stream_test.go	internal	modules	go-test	4068	业务模块层	internal,module,datasource,v2,pdf,extract,stream,test,业务模块层
+internal/module/datasource_v2/pdf_extract.go	internal	modules	go-source	240	业务模块层	internal,module,datasource,v2,pdf,extract,业务模块层
 internal/module/datasource_v2/prompt_provider.go	internal	modules	go-source	4866	业务模块层	internal,module,datasource,v2,prompt,provider,业务模块层
 internal/module/datasource_v2/prompt_provider_test.go	internal	modules	go-test	10082	业务模块层	internal,module,datasource,v2,prompt,provider,test,业务模块层
 internal/module/datasource_v2/rpc.go	internal	modules	go-source	8376	业务模块层	internal,module,datasource,v2,rpc,业务模块层
-internal/module/datasource_v2/rpc_test.go	internal	modules	go-test	23271	业务模块层	internal,module,datasource,v2,rpc,test,业务模块层
+internal/module/datasource_v2/rpc_test.go	internal	modules	go-test	22111	业务模块层	internal,module,datasource,v2,rpc,test,业务模块层
 internal/module/datasource_v2/service.go	internal	modules	go-source	31359	业务模块层	internal,module,datasource,v2,service,业务模块层
 internal/module/datasource_v2/service_test.go	internal	modules	go-test	4356	业务模块层	internal,module,datasource,v2,service,test,业务模块层
 internal/module/datasource_v2/store_port.go	internal	modules	go-source	4455	业务模块层	internal,module,datasource,v2,store,port,业务模块层
@@ -311,10 +309,10 @@ internal/module/personalization/service.go	internal	modules	go-source	4002	业�
 internal/module/personalization/service_test.go	internal	modules	go-test	4781	业务模块层	internal,module,personalization,service,test,业务模块层
 internal/module/prompt/agent_assembler.go	internal	modules	go-source	3871	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,agent,assembler,模板,启用条件,system,组装
 internal/module/prompt/agent_assembler_test.go	internal	modules	go-test	4621	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,agent,assembler,test,模板,启用条件,system,组装
-internal/module/prompt/assembler.go	internal	modules	go-source	20715	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,模板,启用条件,system,组装
+internal/module/prompt/assembler.go	internal	modules	go-source	19056	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,模板,启用条件,system,组装
 internal/module/prompt/assembler_shard11_helpers_test.go	internal	modules	go-test	8220	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,shard11,helpers,test,模板,启用条件,system,组装
 internal/module/prompt/assembler_support.go	internal	modules	go-source	7597	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,support,模板,启用条件,system,组装
-internal/module/prompt/assembler_test.go	internal	modules	go-test	21520	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,test,模板,启用条件,system,组装
+internal/module/prompt/assembler_test.go	internal	modules	go-test	21455	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,test,模板,启用条件,system,组装
 internal/module/prompt/boundary_invariants_test.go	internal	modules	go-test	4442	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,boundary,invariants,test,模板,启用条件,system,组装
 internal/module/prompt/brief_provider.go	internal	modules	go-source	4587	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,brief,provider,模板,启用条件,system,组装
 internal/module/prompt/buildctx_test.go	internal	modules	go-test	5094	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,buildctx,test,模板,启用条件,system,组装
@@ -339,13 +337,13 @@ internal/module/prompt/env_provider_test.go	internal	modules	go-test	2306	prompt
 internal/module/prompt/frc_provider.go	internal	modules	go-source	819	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,frc,provider,模板,启用条件,system,组装
 internal/module/prompt/golden_test.go	internal	modules	go-test	1747	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,golden,test,模板,启用条件,system,组装
 internal/module/prompt/intent/authoring.go	internal	modules	go-source	27400	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,模板,启用条件,system,组装
-internal/module/prompt/intent/commit.go	internal	modules	go-source	24561	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,commit,模板,启用条件,system,组装
-internal/module/prompt/intent/dedup.go	internal	modules	go-source	13938	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,dedup,模板,启用条件,system,组装
+internal/module/prompt/intent/commit.go	internal	modules	go-source	24119	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,commit,模板,启用条件,system,组装
+internal/module/prompt/intent/dedup.go	internal	modules	go-source	13508	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,dedup,模板,启用条件,system,组装
 internal/module/prompt/intent/draftdream/execute.go	internal	modules	go-source	1811	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,draftdream,execute,模板,启用条件,system,组装
 internal/module/prompt/intent/normalization.go	internal	modules	go-source	6752	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,normalization,模板,启用条件,system,组装
 internal/module/prompt/intent/repair.go	internal	modules	go-source	7350	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,repair,模板,启用条件,system,组装
 internal/module/prompt/intent/safety.go	internal	modules	go-source	7164	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,safety,模板,启用条件,system,组装
-internal/module/prompt/intent/source_facts.go	internal	modules	go-source	25607	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,source,facts,模板,启用条件,system,组装
+internal/module/prompt/intent/source_facts.go	internal	modules	go-source	25172	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,source,facts,模板,启用条件,system,组装
 internal/module/prompt/intent/types.go	internal	modules	go-source	9717	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,types,模板,启用条件,system,组装
 internal/module/prompt/intent_authoring_builtin_test.go	internal	modules	go-test	2165	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,builtin,test,模板,启用条件,system,组装
 internal/module/prompt/intent_authoring_dream_options_test.go	internal	modules	go-test	2200	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,dream,options,test,模板,启用条件,system,组装
@@ -356,7 +354,7 @@ internal/module/prompt/intent_authoring_test.go	internal	modules	go-test	25158	p
 internal/module/prompt/intent_authoring_timeout_test.go	internal	modules	go-test	3123	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,timeout,test,模板,启用条件,system,组装
 internal/module/prompt/intent_commit_test.go	internal	modules	go-test	23897	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,commit,test,模板,启用条件,system,组装
 internal/module/prompt/intent_safety_test.go	internal	modules	go-test	2309	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,safety,test,模板,启用条件,system,组装
-internal/module/prompt/invalidation.go	internal	modules	go-source	9178	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,invalidation,模板,启用条件,system,组装
+internal/module/prompt/invalidation.go	internal	modules	go-source	8568	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,invalidation,模板,启用条件,system,组装
 internal/module/prompt/invalidation_test.go	internal	modules	go-test	1249	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,invalidation,test,模板,启用条件,system,组装
 internal/module/prompt/language_provider_test.go	internal	modules	go-test	3371	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,language,provider,test,模板,启用条件,system,组装
 internal/module/prompt/match_when_support.go	internal	modules	go-source	11751	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,match,when,support,模板,启用条件,system,组装
@@ -428,7 +426,7 @@ internal/module/skill/events.go	internal	modules	go-source	9901	skill canonical 
 internal/module/skill/events_test.go	internal	modules	go-test	16380	skill canonical 管理与 provider-native mirror	internal,module,skill,events,test,canonical,管理与,provider-native,mirror
 internal/module/skill/exec.go	internal	modules	go-source	10822	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_test.go	internal	modules	go-test	9199	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,test,canonical,管理与,provider-native,mirror
-internal/module/skill/exec_tokenizer.go	internal	modules	go-source	7819	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,tokenizer,canonical,管理与,provider-native,mirror
+internal/module/skill/exec_tokenizer.go	internal	modules	go-source	1334	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,tokenizer,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_tokenizer_safety.go	internal	modules	go-source	5340	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,tokenizer,safety,canonical,管理与,provider-native,mirror
 internal/module/skill/identity/identity.go	internal	modules	go-source	7848	skill canonical 管理与 provider-native mirror	internal,module,skill,identity,canonical,管理与,provider-native,mirror
 internal/module/skill/mirror_hash_test.go	internal	modules	go-test	5340	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,hash,test,canonical,管理与,provider-native
@@ -449,7 +447,7 @@ internal/module/skill/mirror_reconciler_failfast_test.go	internal	modules	go-tes
 internal/module/skill/mirror_reconciler_manifest_repair_test.go	internal	modules	go-test	9279	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,manifest,repair,test,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler_preview_paths.go	internal	modules	go-source	3501	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,preview,paths,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler_publish_test.go	internal	modules	go-test	4887	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,publish,test,canonical,管理与,provider-native
-internal/module/skill/mirror_reconciler_resolution.go	internal	modules	go-source	25622	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,resolution,canonical,管理与,provider-native
+internal/module/skill/mirror_reconciler_resolution.go	internal	modules	go-source	25116	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,resolution,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler_root_actions.go	internal	modules	go-source	4502	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,root,actions,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler_test.go	internal	modules	go-test	34525	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,test,canonical,管理与,provider-native
 internal/module/skill/mirrorpath/path.go	internal	modules	go-source	4725	skill canonical 管理与 provider-native mirror	internal,module,skill,mirrorpath,path,canonical,管理与,provider-native,mirror
@@ -462,7 +460,7 @@ internal/module/skill/personal_mutation_test.go	internal	modules	go-test	28021	s
 internal/module/skill/rpc.go	internal	modules	go-source	18154	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_apply_test.go	internal	modules	go-test	24497	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,apply,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_drift_test.go	internal	modules	go-test	3225	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,drift,test,canonical,管理与,provider-native,mirror
-internal/module/skill/rpc_resolution_external_personal_apply_test.go	internal	modules	go-test	10030	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,external,personal,apply,test,canonical,管理与,provider-native,mirror
+internal/module/skill/rpc_resolution_external_personal_apply_test.go	internal	modules	go-test	9441	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,external,personal,apply,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_external_personal_test.go	internal	modules	go-test	2016	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,external,personal,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_helpers_test.go	internal	modules	go-test	18550	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,helpers,test,canonical,管理与,provider-native,mirror
 internal/module/skill/rpc_resolution_inventory_test.go	internal	modules	go-test	2200	skill canonical 管理与 provider-native mirror	internal,module,skill,rpc,resolution,inventory,test,canonical,管理与,provider-native,mirror
@@ -485,14 +483,14 @@ internal/module/skill/skills_fs.go	internal	modules	go-source	18132	skill canoni
 internal/module/skill/skills_fs_test.go	internal	modules	go-test	29579	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_import.go	internal	modules	go-source	16743	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_import_test.go	internal	modules	go-test	24683	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,test,canonical,管理与,provider-native,mirror
-internal/module/skill/skills_inventory_test.go	internal	modules	go-test	4256	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,inventory,test,canonical,管理与,provider-native,mirror
+internal/module/skill/skills_inventory_test.go	internal	modules	go-test	3837	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,inventory,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_match.go	internal	modules	go-source	6759	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,match,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_match_test.go	internal	modules	go-test	6404	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,match,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_meta.go	internal	modules	go-source	19320	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_meta_test.go	internal	modules	go-test	14767	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,meta,test,canonical,管理与,provider-native,mirror
 internal/module/skill/summarysuggest/execute.go	internal	modules	go-source	2163	skill canonical 管理与 provider-native mirror	internal,module,skill,summarysuggest,execute,canonical,管理与,provider-native,mirror
 internal/module/skill/summarysuggest/execute_test.go	internal	modules	go-test	572	skill canonical 管理与 provider-native mirror	internal,module,skill,summarysuggest,execute,test,canonical,管理与,provider-native,mirror
-internal/module/skill/system_review.go	internal	modules	go-source	1930	skill canonical 管理与 provider-native mirror	internal,module,skill,system,review,canonical,管理与,provider-native,mirror
+internal/module/skill/system_review.go	internal	modules	go-source	1110	skill canonical 管理与 provider-native mirror	internal,module,skill,system,review,canonical,管理与,provider-native,mirror
 internal/module/skill/test_json_test.go	internal	modules	go-test	230	skill canonical 管理与 provider-native mirror	internal,module,skill,test,json,canonical,管理与,provider-native,mirror
 internal/module/skill/test_permissions_unix_test.go	internal	modules	go-test	229	skill canonical 管理与 provider-native mirror	internal,module,skill,test,permissions,unix,canonical,管理与,provider-native,mirror
 internal/module/skill/test_permissions_windows_test.go	internal	modules	go-test	260	skill canonical 管理与 provider-native mirror	internal,module,skill,test,permissions,windows,canonical,管理与,provider-native,mirror
@@ -515,7 +513,7 @@ internal/module/thread/binding_registration_test.go	internal	modules	go-test	243
 internal/module/thread/bus_runner_test.go	internal	modules	go-test	3950	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,bus,runner,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/codex_identity_canonical.go	internal	modules	go-source	6552	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,codex,identity,canonical,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/codex_identity_persist_test.go	internal	modules	go-test	14476	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,codex,identity,persist,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/codex_identity_resume_test.go	internal	modules	go-test	17187	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,codex,identity,resume,test,start,fork,stop,生命周期与绑定真相源
+internal/module/thread/codex_identity_resume_test.go	internal	modules	go-test	16847	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,codex,identity,resume,test,start,fork,stop,生命周期与绑定真相源
 internal/module/thread/codex_identity_start_test.go	internal	modules	go-test	7387	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,codex,identity,start,test,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/codex_identity_test_helpers_test.go	internal	modules	go-test	1609	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,codex,identity,test,helpers,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/command.go	internal	modules	go-source	15923	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,command,start,resume,fork,stop,生命周期与绑定真相源
@@ -684,7 +682,7 @@ internal/module/turn/service_skill_hydrate_test.go	internal	modules	go-test	1086
 internal/module/turn/service_test.go	internal	modules	go-test	25035	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,test,启动,执行,审批与,provider,调度
 internal/module/turn/skill_evaluator.go	internal	modules	go-source	3109	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,evaluator,启动,执行,审批与,provider,调度
 internal/module/turn/skill_evaluator_test.go	internal	modules	go-test	7514	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,evaluator,test,启动,执行,审批与,provider,调度
-internal/module/turn/skill_extractor.go	internal	modules	go-source	11950	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,extractor,启动,执行,审批与,provider,调度
+internal/module/turn/skill_extractor.go	internal	modules	go-source	11685	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,extractor,启动,执行,审批与,provider,调度
 internal/module/turn/skill_extractor_test.go	internal	modules	go-test	9026	turn 启动、执行、审批与 provider 调度	internal,module,turn,skill,extractor,test,启动,执行,审批与,provider,调度
 internal/module/turn/skills.go	internal	modules	go-source	14684	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,启动,执行,审批与,provider,调度
 internal/module/turn/skills_test.go	internal	modules	go-test	12420	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,test,启动,执行,审批与,provider,调度

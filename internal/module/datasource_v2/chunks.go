@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -29,58 +28,6 @@ func writeSourceChunks(
 	}
 	writer := newChunkWriter(documentID, store)
 	reader := bufio.NewReaderSize(strings.NewReader(source.content.text), datasourceV2ChunkMaxBytes)
-	if err := writeReaderRunes(ctx, reader, writer); err != nil {
-		return chunkWriteSummary{}, err
-	}
-	if err := writer.flush(ctx); err != nil {
-		return chunkWriteSummary{}, err
-	}
-	return writer.summary()
-}
-
-// writeTextChunks 打开源文件并把 UTF-8 正文流式写成数据库分块。
-// 文件关闭错误也会返回给调用方，确保导入成功只代表读取链路完整结束。
-func writeTextChunks(
-	ctx context.Context,
-	sourcePath string,
-	documentID int64,
-	store Store,
-) (summary chunkWriteSummary, err error) {
-	file, err := os.Open(sourcePath)
-	if err != nil {
-		return chunkWriteSummary{}, fmt.Errorf("open source file: %w", err)
-	}
-	defer func() {
-		if closeErr := file.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close source file: %w", closeErr)
-		}
-	}()
-
-	writer := newChunkWriter(documentID, store)
-	reader := bufio.NewReaderSize(file, datasourceV2ChunkMaxBytes)
-	if err := writeReaderRunes(ctx, reader, writer); err != nil {
-		return chunkWriteSummary{}, err
-	}
-	if err := writer.flush(ctx); err != nil {
-		return chunkWriteSummary{}, err
-	}
-	return writer.summary()
-}
-
-// writePDFChunks 先抽取 PDF 文本，再复用分块写入器入库。
-// PDF 没有可抽取文本时直接返回错误，避免把空数据源标记为 ready。
-func writePDFChunks(
-	ctx context.Context,
-	sourcePath string,
-	documentID int64,
-	store Store,
-) (chunkWriteSummary, error) {
-	text, err := extractPDFText(ctx, sourcePath)
-	if err != nil {
-		return chunkWriteSummary{}, err
-	}
-	writer := newChunkWriter(documentID, store)
-	reader := bufio.NewReaderSize(strings.NewReader(text), datasourceV2ChunkMaxBytes)
 	if err := writeReaderRunes(ctx, reader, writer); err != nil {
 		return chunkWriteSummary{}, err
 	}

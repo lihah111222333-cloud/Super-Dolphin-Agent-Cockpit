@@ -36,10 +36,6 @@ func sendSIGTERM(pid int) error {
 	return syscall.Kill(pid, syscall.SIGTERM)
 }
 
-func sendExactSIGKILL(pid int) error {
-	return syscall.Kill(pid, syscall.SIGKILL)
-}
-
 // isNoSuchProcessErr 判断系统错误是否表示进程已经不存在。
 func isNoSuchProcessErr(err error) bool {
 	return errors.Is(err, syscall.ESRCH)

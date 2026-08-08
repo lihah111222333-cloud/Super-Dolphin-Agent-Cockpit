@@ -485,18 +485,3 @@ func assertResumeConfigCodexIdentity(t *testing.T, config map[string]any, home s
 			"openai")
 	}
 }
-
-type launchHookThreadOrchestration struct {
-	stubThreadOrchestration
-	onLaunch func()
-}
-
-func (s *launchHookThreadOrchestration) LaunchAgent(ctx context.Context, req LaunchAgentRequest) error {
-	if err := s.stubThreadOrchestration.LaunchAgent(ctx, req); err != nil {
-		return err
-	}
-	if s.onLaunch != nil {
-		s.onLaunch()
-	}
-	return nil
-}

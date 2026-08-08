@@ -256,15 +256,6 @@ func assertUserRequestOmitsInternalFields(t *testing.T, request string) {
 	}
 }
 
-func assertCreatedAutomationDAGFields(t *testing.T, req contract.CreateDAGRequest, promptKey, provider, model string) {
-	t.Helper()
-	if req.DagKey != "daily-hot-news-brief" || len(req.Nodes) != 1 {
-		t.Fatalf("created DAG request = %+v", req)
-	}
-	assertCreatedDAGFinalNode(t, req.Metadata)
-	assertCreatedDAGNodeExec(t, req.Nodes[0], promptKey, provider, model)
-}
-
 func assertPersistedScheduledAutomationDAG(t *testing.T, detail contract.DAGDetail, promptKey, provider, model string) {
 	t.Helper()
 	if detail.DAG.DagKey != "daily-hot-news-brief" || detail.DAG.Version != 2 {
@@ -307,20 +298,6 @@ func assertPersistedDAGNodeExec(t *testing.T, node contract.DAGNode, promptKey, 
 	}
 	if config.CWD != "/repo/a" || config.CodexHome == "" || config.CodexInstanceKey == "" || config.CodexModelProvider == "" {
 		t.Fatalf("persisted node exec runtime identity incomplete = %+v", config)
-	}
-}
-
-func assertCreatedDAGNodeExec(t *testing.T, node contract.CreateDAGNodeRequest, promptKey, provider, model string) {
-	t.Helper()
-	if node.AssignedTo != "daily-hot-news-brief-runner" {
-		t.Fatalf("assigned_to = %q, want runner", node.AssignedTo)
-	}
-	config := decodeCreatedNodeExec(t, node.Config)
-	if config.PromptKey != promptKey || config.Provider != provider || config.Model != model {
-		t.Fatalf("exec discovery fields = %+v, want prompt/provider/model", config)
-	}
-	if config.CWD != "/repo/a" || config.CodexHome == "" || config.CodexInstanceKey == "" || config.CodexModelProvider == "" {
-		t.Fatalf("exec runtime identity incomplete = %+v", config)
 	}
 }
 
