@@ -238,19 +238,45 @@ func updateRuntimeDependencyRecipeInputForTest(entries []sourceexport.TreeEntry,
 }
 
 func TestResolveRuntimeDependencyBuildRejectsRemovedSeedLockShape(t *testing.T) {
-	entries := loadRuntimeDependencyEntries(t)
-	lockIndex, document, inputs := runtimeDependencyLockDocument(t, entries)
-	inputs["runtime_seed_script_tail_sha256"] = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	updateRuntimeDependencyLock(t, entries, lockIndex, document)
-	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
-		t.Fatal("current runtime dependency resolver accepted removed seed input")
+	t.Run("removed_seed_input", func(t *testing.T) {
+		entries := loadRuntimeDependencyEntries(t)
+		lockIndex, document, inputs := runtimeDependencyLockDocument(t, entries)
+		inputs["runtime_seed_script_tail_sha256"] = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		updateRuntimeDependencyLock(t, entries, lockIndex, document)
+		if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
+			t.Fatal("current runtime dependency resolver accepted removed seed input")
+		}
+	})
+
+	for _, schema := range []string{"4", "11", "12"} {
+		t.Run("schema_"+schema, func(t *testing.T) {
+			entries := loadRuntimeDependencyEntries(t)
+			lockIndex, document, _ := runtimeDependencyLockDocument(t, entries)
+			document["schema_version"] = schema
+			updateRuntimeDependencyLock(t, entries, lockIndex, document)
+			if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
+				t.Fatalf("current runtime dependency resolver accepted retired schema %s", schema)
+			}
+		})
 	}
-	entries = loadRuntimeDependencyEntries(t)
-	lockIndex, document, _ = runtimeDependencyLockDocument(t, entries)
-	document["schema_version"] = "12"
-	updateRuntimeDependencyLock(t, entries, lockIndex, document)
-	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
-		t.Fatal("current runtime dependency resolver accepted schema v12")
+}
+
+func TestRuntimeDependencyLockFieldOnlyAcceptsSchema16Fields(t *testing.T) {
+	for _, testCase := range []struct {
+		name, schema, path, want string
+	}{
+		{name: "schema4_legacy_manifest_builder", schema: "4", path: "build/gate/cmd/runtime-seed-manifest/main.go"},
+		{name: "schema4_legacy_manifest_api", schema: "4", path: "internal/devtools/gate/executor_seed.go"},
+		{name: "schema11_runtime_seed_worker", schema: "11", path: "internal/devtools/gate/executor_seed.go"},
+		{name: "schema16_legacy_manifest", schema: RuntimeDependencySchemaVersion, path: "build/gate/cmd/runtime-seed-manifest/main.go"},
+		{name: "schema16_runtime_seed_worker", schema: RuntimeDependencySchemaVersion, path: "internal/devtools/gate/executor_seed.go", want: "runtime_seed_worker_sha256"},
+		{name: "schema16_dockerfile", schema: RuntimeDependencySchemaVersion, path: "build/gate/runtime-deps.Dockerfile", want: "dockerfile_sha256"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := runtimeDependencyLockField(testCase.schema, testCase.path); got != testCase.want {
+				t.Fatalf("runtimeDependencyLockField(%q, %q) = %q, want %q", testCase.schema, testCase.path, got, testCase.want)
+			}
+		})
 	}
 }
 

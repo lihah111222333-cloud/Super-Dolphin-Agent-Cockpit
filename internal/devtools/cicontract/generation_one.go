@@ -15,9 +15,6 @@ const (
 	// GenerationOneProvisionReceiptSchemaVersion is the only receipt schema for
 	// normal run/hook 消费的 configured strict generation-one receipt。
 	GenerationOneProvisionReceiptSchemaVersion uint32 = 5
-	// GenerationOneBaselineStateSchemaVersion identifies the current OCI-only
-	// BaselineState wire schema without making cicontract import remoteci.
-	GenerationOneBaselineStateSchemaVersion uint32 = 13
 	// GenerationOneProvisionAuthority 区分 external cloud evidence 与仓库的
 	// normal run/hook bootstrap consumer（仓库侧消费者）。
 	GenerationOneProvisionAuthority = "external-aliyun-eci-imagecache-generation-one/v1"

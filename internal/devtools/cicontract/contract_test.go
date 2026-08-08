@@ -429,6 +429,20 @@ func TestSQLAuthorityBindingsRejectSecondTruthSource(t *testing.T) {
 	}
 }
 
+func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
+	if err := Validate(); err != nil {
+		t.Fatalf("validate canonical SQL schema table registry: %v", err)
+	}
+	for _, table := range SQLAuthoritySchemaTables() {
+		if err := ValidateSQLAuthoritySchemaTable(table); err != nil {
+			t.Fatalf("validate canonical SQLite schema table %q: %v", table, err)
+		}
+	}
+	if err := ValidateSQLAuthoritySchemaTable("ci_unregistered_second_authority"); err == nil {
+		t.Fatal("unregistered SQLite schema table was accepted")
+	}
+}
+
 func TestRetentionRootsBindExactlyThreeAcceptedGenerations(t *testing.T) {
 	if err := ValidateRetentionGenerations(); err != nil {
 		t.Fatal(err)

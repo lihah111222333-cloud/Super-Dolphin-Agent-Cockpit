@@ -44,7 +44,7 @@ func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	return r.stdout, r.stderr, r.err
 }
 
-func TestClient_TransportCreateDownloadDelete(t *testing.T) {
+func TestClient_TransportCreateDeletePrefix(t *testing.T) {
 	runner := &fakeRunner{}
 	client := newTestClient(t, runner)
 	ctx := context.Background()
@@ -52,20 +52,12 @@ func TestClient_TransportCreateDownloadDelete(t *testing.T) {
 	if err := client.Create(ctx, "/tmp/input.tar", "source-bundles/input.tar"); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if err := client.Download(ctx, "source-bundles/input.tar", "/tmp/output.tar"); err != nil {
-		t.Fatalf("Download() error = %v", err)
-	}
-	if err := client.Delete(ctx, "source-bundles/input.tar"); err != nil {
-		t.Fatalf("Delete() error = %v", err)
-	}
 	if err := client.DeletePrefix(ctx, "source-bundles/generation-1/"); err != nil {
 		t.Fatalf("DeletePrefix() error = %v", err)
 	}
 
 	want := []runCall{
 		{name: "aliyun", args: []string{"oss", "cp", "/tmp/input.tar", "oss://ci-bucket/source-bundles/input.tar", "--meta", "x-oss-forbid-overwrite:true", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
-		{name: "aliyun", args: []string{"oss", "cp", "oss://ci-bucket/source-bundles/input.tar", "/tmp/output.tar", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
-		{name: "aliyun", args: []string{"oss", "rm", "oss://ci-bucket/source-bundles/input.tar", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 		{name: "aliyun", args: []string{"oss", "rm", "oss://ci-bucket/source-bundles/generation-1/", "--recursive", "--force", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
@@ -166,13 +158,13 @@ func TestNew_RejectsInvalidConfig(t *testing.T) {
 func TestClient_CommandFailureIncludesStderr(t *testing.T) {
 	runner := &fakeRunner{stderr: []byte("AccessDenied: forbidden\n"), err: errors.New("exit status 1")}
 	client := newTestClient(t, runner)
-	err := client.Delete(context.Background(), "source-bundles/input.tar")
+	err := client.DeletePrefix(context.Background(), "source-bundles/generation-1/")
 	if err == nil {
-		t.Fatal("Delete() error = nil")
+		t.Fatal("DeletePrefix() error = nil")
 	}
 	var commandErr *CommandError
 	if !errors.As(err, &commandErr) {
-		t.Fatalf("Delete() error = %T, want *CommandError", err)
+		t.Fatalf("DeletePrefix() error = %T, want *CommandError", err)
 	}
 	if commandErr.Stderr != "AccessDenied: forbidden" {
 		t.Fatalf("CommandError.Stderr = %q", commandErr.Stderr)
@@ -192,9 +184,9 @@ func TestClient_RetriesTransientFailureWithBoundedBackoffAndStableArgs(t *testin
 		waits = append(waits, delay)
 		return nil
 	}
-	err := client.Delete(context.Background(), "source-bundles/input.tar")
+	err := client.DeletePrefix(context.Background(), "source-bundles/generation-1/")
 	if err == nil || strings.Contains(err.Error(), sensitive) || !strings.Contains(err.Error(), "AccessKeyId=<redacted>") {
-		t.Fatalf("redacted Delete() error = %v", err)
+		t.Fatalf("redacted DeletePrefix() error = %v", err)
 	}
 	wantWaits := []time.Duration{
 		500 * time.Millisecond,
@@ -230,8 +222,8 @@ func TestClient_PermanentFailuresDoNotRetry(t *testing.T) {
 				return nil
 			}
 
-			if err := client.Delete(context.Background(), "source-bundles/input.tar"); err == nil {
-				t.Fatal("Delete() error = nil")
+			if err := client.DeletePrefix(context.Background(), "source-bundles/generation-1/"); err == nil {
+				t.Fatal("DeletePrefix() error = nil")
 			}
 			if len(runner.calls) != 1 || len(waits) != 0 {
 				t.Fatalf("calls = %d, waits = %v", len(runner.calls), waits)
@@ -246,12 +238,12 @@ func TestClient_RetryWaitHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := client.Delete(ctx, "source-bundles/input.tar")
+	err := client.DeletePrefix(ctx, "source-bundles/generation-1/")
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("Delete() error = %v, want context canceled", err)
+		t.Fatalf("DeletePrefix() error = %v, want context canceled", err)
 	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("calls = %d, want 1", len(runner.calls))
+	if len(runner.calls) != 0 {
+		t.Fatalf("calls = %d, want 0", len(runner.calls))
 	}
 }
 
@@ -266,11 +258,51 @@ func TestClient_RetriesSTSUserThrottling(t *testing.T) {
 		waits = append(waits, delay)
 		return nil
 	}
-	if err := client.Delete(context.Background(), "source-bundles/input.tar"); err != nil {
-		t.Fatalf("Delete() error = %v", err)
+	if err := client.DeletePrefix(context.Background(), "source-bundles/generation-1/"); err != nil {
+		t.Fatalf("DeletePrefix() error = %v", err)
 	}
 	if len(runner.calls) != 2 || !reflect.DeepEqual(waits, []time.Duration{initialRetryDelay}) {
 		t.Fatalf("calls = %d, waits = %v", len(runner.calls), waits)
+	}
+}
+
+type blockingRunner struct {
+	calls int
+}
+
+func (runner *blockingRunner) Run(ctx context.Context, _ string, _ ...string) ([]byte, []byte, error) {
+	runner.calls++
+	<-ctx.Done()
+	return nil, nil, ctx.Err()
+}
+
+func TestClient_BoundsEveryTransientCLIAttempt(t *testing.T) {
+	runner := &blockingRunner{}
+	client := newTestClient(t, runner)
+	client.attemptTimeout = time.Millisecond
+	client.wait = func(context.Context, time.Duration) error { return nil }
+
+	err := client.DeletePrefix(context.Background(), "source-bundles/generation-1/")
+	if err == nil || runner.calls != maxCLIAttempts {
+		t.Fatalf("DeletePrefix() calls=%d error=%v, want %d bounded attempts", runner.calls, err, maxCLIAttempts)
+	}
+}
+
+func TestPreserveCommandContextErrorMakesAttemptTimeoutRetryable(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	err := preserveCommandContextError(ctx, errors.New("signal: killed"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("preserved error = %v, want deadline cause", err)
+	}
+	if !strings.Contains(err.Error(), "signal: killed") {
+		t.Fatalf("preserved error = %v, want process exit evidence", err)
+	}
+	if !isTransientCLIError(err, "") {
+		t.Fatalf("attempt timeout = %v, want transient retry classification", err)
+	}
+	if isTransientCLIError(errors.New("signal: killed"), "") {
+		t.Fatal("unbound signal kill must not be retried")
 	}
 }
 

@@ -666,13 +666,7 @@ func assertSQLiteSchemaTableRegistry(t *testing.T, database *sql.DB) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	expected := []string{
-		"ci_catalog_observations", "ci_catalog_workloads", "ci_check_receipts", cicontract.CompileTimingObservationsTable, "ci_gate_executions",
-		"ci_live_timing_warnings", "ci_query_meta", "ci_remote_baseline_state", "ci_run_agent_identities", "ci_run_timing_warnings", "ci_run_warnings", "ci_run_workload_results", "ci_runs", "ci_schema_migrations",
-		"ci_shard_terminal_containers", "ci_shard_terminal_events", "ci_shard_workloads", "ci_shards", "ci_timing_observations", "ci_workload_catalogs",
-		"ci_workload_executions", "ci_workload_pass_evidence", "ci_workload_pass_evidence_aliases",
-		"duration_calibrations", "duration_ledger_meta", "duration_ledger_raw_events", "duration_samples", "duration_shard_overhead_samples", "duration_shard_overheads", "remote_ci_calibration_checkpoint_scenarios", "remote_ci_calibration_checkpoints",
-	}
+	expected := cicontract.SQLAuthoritySchemaTables()
 	if !slices.Equal(actual, expected) {
 		t.Fatalf("SQLite tables = %v, want %v", actual, expected)
 	}

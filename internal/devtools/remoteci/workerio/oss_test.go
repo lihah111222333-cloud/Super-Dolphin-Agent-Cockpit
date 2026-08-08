@@ -31,48 +31,6 @@ func TestDownloadUsesIMDSv2CredentialsAndOSSV1Signature(t *testing.T) {
 	assertDownloadedObject(t, size, destination.String(), "bundle-data")
 }
 
-func TestUploadUsesCreateOnlyHeaderAndTreatsCollisionAsFailure(t *testing.T) {
-	now := workerIOTestNow()
-	metadataServer := httptest.NewServer(imdsV2Handler{t: t})
-	t.Cleanup(metadataServer.Close)
-	for name, status := range map[string]int{
-		"success":             http.StatusOK,
-		"conflict":            http.StatusConflict,
-		"precondition failed": http.StatusPreconditionFailed,
-	} {
-		t.Run(name, func(t *testing.T) {
-			attempts := 0
-			objectServer := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				attempts++
-				if request.Method != http.MethodPut || request.Header.Get("x-oss-forbid-overwrite") != "true" {
-					t.Fatalf("request=%s headers=%v", request.Method, request.Header)
-				}
-				credentials := temporaryCredentials{AccessKeyID: "test-access-key", AccessKeySecret: "test-secret", SecurityToken: "test-session-token"}
-				want := ossAuthorizationWithHeaders(http.MethodPut, now.UTC().Format(http.TimeFormat), "/bucket-name/object", credentials, "x-oss-forbid-overwrite:true\n")
-				if request.Header.Get("Authorization") != want {
-					t.Fatalf("authorization=%q want=%q", request.Header.Get("Authorization"), want)
-				}
-				writer.WriteHeader(status)
-			}))
-			t.Cleanup(objectServer.Close)
-			client := newTestClient(t, Config{RoleName: "worker-role", Endpoint: objectServer.URL, Bucket: "bucket-name", Key: "object", MaxBytes: 1024}, Dependencies{HTTPClient: objectServer.Client(), MetadataBaseURL: metadataServer.URL, Clock: func() time.Time { return now }})
-			client.wait = noWait
-			_, err := client.Upload(context.Background(), strings.NewReader("bundle"))
-			if status == http.StatusOK && err != nil {
-				t.Fatalf("Upload() error=%v", err)
-			}
-			if status != http.StatusOK {
-				if err == nil {
-					t.Fatal("Upload() collision unexpectedly succeeded")
-				}
-				if attempts != 1 {
-					t.Fatalf("Upload() attempts=%d, want 1 for status %d", attempts, status)
-				}
-			}
-		})
-	}
-}
-
 func TestDownloadRejectsExpiredCredentialsWithoutRequestingOSS(t *testing.T) {
 	metadataServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/latest/api/token" {

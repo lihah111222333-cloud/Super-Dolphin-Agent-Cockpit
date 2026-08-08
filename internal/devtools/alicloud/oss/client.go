@@ -16,12 +16,16 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 const (
-	maxCLIAttempts    = 12
-	initialRetryDelay = 500 * time.Millisecond
-	maxRetryDelay     = 8 * time.Second
+	maxCLIAttempts      = 12
+	cliAttemptTimeout   = 15 * time.Second
+	cliProcessWaitDelay = time.Second
+	initialRetryDelay   = 500 * time.Millisecond
+	maxRetryDelay       = 8 * time.Second
 )
 
 var (
@@ -64,9 +68,10 @@ func (e *CommandError) Error() string {
 func (e *CommandError) Unwrap() error { return e.Err }
 
 type client struct {
-	config Config
-	runner CommandRunner
-	wait   func(context.Context, time.Duration) error
+	config         Config
+	runner         CommandRunner
+	wait           func(context.Context, time.Duration) error
+	attemptTimeout time.Duration
 }
 
 // New 严格校验配置并创建仅使用指定 profile 和 endpoint 的客户端。
@@ -77,7 +82,7 @@ func New(config Config, runner CommandRunner) (*client, error) {
 	if runner == nil {
 		return nil, errors.New("oss command runner must not be nil")
 	}
-	return &client{config: config, runner: runner, wait: waitForRetry}, nil
+	return &client{config: config, runner: runner, wait: waitForRetry, attemptTimeout: cliAttemptTimeout}, nil
 }
 
 // NewCLI 使用系统 aliyun CLI；它不读取或保存 AccessKey。
@@ -96,28 +101,6 @@ func (c *client) Create(ctx context.Context, localPath string, key string) error
 		return err
 	}
 	return c.copy(ctx, "create", localPath, objectURL, "--meta", "x-oss-forbid-overwrite:true")
-}
-
-// Download 将已限定前缀内的对象下载到本地文件路径。
-func (c *client) Download(ctx context.Context, key string, localPath string) error {
-	if strings.TrimSpace(localPath) == "" {
-		return errors.New("oss download destination path must not be empty")
-	}
-	objectURL, err := c.objectURL(key)
-	if err != nil {
-		return err
-	}
-	return c.copy(ctx, "download", objectURL, localPath)
-}
-
-// Delete 删除已限定前缀内的对象。
-func (c *client) Delete(ctx context.Context, key string) error {
-	objectURL, err := c.objectURL(key)
-	if err != nil {
-		return err
-	}
-	_, err = c.run(ctx, "delete", "oss", "rm", objectURL)
-	return err
 }
 
 // DeletePrefix 递归删除一个完整 generation，禁止删除客户端配置的根前缀。
@@ -169,8 +152,13 @@ func (c *client) prefixURL(prefix string) (string, error) {
 func (c *client) run(ctx context.Context, operation string, args ...string) ([]byte, error) {
 	commandArgs := append(append([]string(nil), args...), "--profile", c.config.Profile, "--endpoint", c.config.Endpoint)
 	for attempt := 1; attempt <= maxCLIAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, &CommandError{Operation: operation, Err: err}
+		}
 		attemptArgs := append([]string(nil), commandArgs...)
-		stdout, stderr, err := c.runner.Run(ctx, c.config.Binary, attemptArgs...)
+		attemptContext, cancel := gateprivate.WithTimeout(ctx, c.attemptTimeout)
+		stdout, stderr, err := c.runner.Run(attemptContext, c.config.Binary, attemptArgs...)
+		cancel()
 		if err == nil {
 			return stdout, nil
 		}
@@ -299,10 +287,25 @@ type execRunner struct{}
 // Run 在调用方提供的 context 内执行 CLI，并分别捕获 stdout 和 stderr。
 func (execRunner) Run(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 	command := exec.CommandContext(ctx, name, args...)
+	// CLI 后代若在父进程退出后仍持有 stdout/stderr 管道，CommandContext 默认的
+	// Wait 会越过 context 无界等待。固定 WaitDelay 使每次 OSS 控制面调用真正受到看门狗约束。
+	command.WaitDelay = cliProcessWaitDelay
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	err := command.Run()
+	err = preserveCommandContextError(ctx, err)
 	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+// preserveCommandContextError 保留 CommandContext 杀进程时被退出状态遮蔽的超时或取消原因。
+func preserveCommandContextError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if contextErr := ctx.Err(); contextErr != nil {
+		return errors.Join(err, contextErr)
+	}
+	return err
 }

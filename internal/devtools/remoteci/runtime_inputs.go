@@ -268,9 +268,6 @@ func loadRuntimeToolchainLock(byPath map[string][]byte) (runtimeToolchainLock, e
 func runtimeLockDigest(lock runtimeDependencyLock) string {
 	ordered := make([]string, 0, len(lock.Inputs))
 	for name, digest := range lock.Inputs {
-		if lock.SchemaVersion == "11" && name == "runtime_seed_worker_sha256" {
-			continue
-		}
 		switch name {
 		case "runtime_seed_recipe_sha256",
 			"go_mod_sha256", "go_sum_sha256", "proxy_go_mod_sha256", "proxy_go_sum_sha256",
@@ -407,15 +404,10 @@ func boolCount(value bool) int {
 	return 0
 }
 
-// runtimeDependencyLockField 返回 schema 对应的运行时依赖锁字段。
+// runtimeDependencyLockField 仅返回当前 schema 16 的运行时依赖锁字段；其他 schema fail-fast。
 func runtimeDependencyLockField(schemaVersion, path string) string {
-	if schemaVersion == "4" {
-		switch path {
-		case "build/gate/cmd/runtime-seed-manifest/main.go":
-			return "manifest_builder_sha256"
-		case "internal/devtools/gate/executor_seed.go":
-			return "manifest_api_sha256"
-		}
+	if schemaVersion != RuntimeDependencySchemaVersion {
+		return ""
 	}
 	fields := map[string]string{
 		"build/gate/runtime-deps.Dockerfile": "dockerfile_sha256",
@@ -435,18 +427,6 @@ func runtimeDependencyLockField(schemaVersion, path string) string {
 	}
 	if field := fields[path]; field != "" {
 		return field
-	}
-	if schemaVersion != RuntimeDependencySchemaVersion {
-		return runtimeDependencyRecipeLockField(path)
-	}
-	return ""
-}
-
-func runtimeDependencyRecipeLockField(path string) string {
-	for _, group := range runtimeDependencyRecipeGroups() {
-		if slices.Contains(group.paths, path) {
-			return group.field
-		}
 	}
 	return ""
 }

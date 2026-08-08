@@ -196,14 +196,6 @@ func ValidateAgentTokenDigest(digest string) error {
 	return nil
 }
 
-// ParseAgentTokenDigest 解析生产链中的规范摘要。
-func ParseAgentTokenDigest(digest string) (string, error) {
-	if err := ValidateAgentTokenDigest(digest); err != nil {
-		return "", err
-	}
-	return digest, nil
-}
-
 // ValidateAgentTokenContinuation 验证后续请求提供了持久化摘要所代表的原始令牌。
 // 摘要不匹配时立即拒绝。
 func ValidateAgentTokenContinuation(token, digest string) error {

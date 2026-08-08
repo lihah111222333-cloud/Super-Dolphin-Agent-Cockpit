@@ -239,7 +239,7 @@ func generationOneGateReceipt(t *testing.T) []byte {
 	image := "registry.example/runtime@sha256:" + strings.Repeat("a", 64)
 	digest := func(letter string) string { return "sha256:" + strings.Repeat(letter, 64) }
 	state := generationOneStateProjection{
-		SchemaVersion: cicontract.GenerationOneBaselineStateSchemaVersion, Generation: 1, ExecutionProvider: cicontract.ExecutionProviderID, RegionID: "cn-shenzhen", MainCommit: strings.Repeat("b", 40), MainTree: strings.Repeat("c", 40),
+		SchemaVersion: cicontract.BaselineStateSchemaVersion, Generation: 1, ExecutionProvider: cicontract.ExecutionProviderID, RegionID: "cn-shenzhen", MainCommit: strings.Repeat("b", 40), MainTree: strings.Repeat("c", 40),
 		Platform: cicontract.TargetPlatform, PolicyDigest: digest("d"), ToolchainDigest: digest("e"), RuntimeImage: image,
 		ImageCacheID: "imc-generation-one", ImageCacheSnapshotID: "snapshot-generation-one", ImageCacheReady: true, ImageDigest: digest("a"),
 		OCIProjectCache:  &generationOneOCIProjectCache{Image: image, ContentManifestSHA256: digest("5"), MainTree: strings.Repeat("c", 40), ToolchainDigest: digest("e"), Platform: cicontract.TargetPlatform, CachePath: "/opt/super-dolphin/cache/go-build"},

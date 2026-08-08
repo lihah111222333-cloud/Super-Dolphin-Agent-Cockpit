@@ -222,7 +222,7 @@ func decodeGenerationOneStateProjection(data []byte) (generationOneStateProjecti
 
 // validateGenerationOneStateCache 校验 generation、Ready cache 和 runtime digest 绑定。
 func validateGenerationOneStateCache(state generationOneStateProjection, receipt cicontract.GenerationOneProvisionReceipt) error {
-	if state.SchemaVersion != cicontract.GenerationOneBaselineStateSchemaVersion || state.Generation != 1 || state.ExecutionProvider != receipt.ExecutionProvider || state.RegionID != receipt.RegionID || !state.ImageCacheReady || state.ImageCacheID != receipt.ImageCacheID || state.ImageCacheSnapshotID != receipt.ImageCacheSnapshotID || state.RuntimeImage != receipt.RuntimeImage || state.ImageDigest != imageDigestFromReference(state.RuntimeImage) {
+	if state.SchemaVersion != cicontract.BaselineStateSchemaVersion || state.Generation != 1 || state.ExecutionProvider != receipt.ExecutionProvider || state.RegionID != receipt.RegionID || !state.ImageCacheReady || state.ImageCacheID != receipt.ImageCacheID || state.ImageCacheSnapshotID != receipt.ImageCacheSnapshotID || state.RuntimeImage != receipt.RuntimeImage || state.ImageDigest != imageDigestFromReference(state.RuntimeImage) {
 		return errors.New("generation-one state projection does not match the provision receipt")
 	}
 	return nil

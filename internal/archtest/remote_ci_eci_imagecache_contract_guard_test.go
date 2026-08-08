@@ -176,17 +176,17 @@ func TestRemoteCISQLAuthorityBindingsAreCreatedByGateSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	var schema strings.Builder
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "ledger_store_sqlite_schema") || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
+	for _, entry := range remoteCISQLSchemaSourceEntries(entries) {
 		schema.WriteString(readRemoteCIContractGuardFile(t, filepath.Join(schemaDirectory, entry.Name())))
 	}
-	for _, binding := range cicontract.SQLAuthorityBindings() {
-		statement := "CREATE TABLE IF NOT EXISTS " + binding.Table
+	for _, table := range cicontract.SQLAuthoritySchemaTables() {
+		statement := "CREATE TABLE IF NOT EXISTS " + table
 		if !strings.Contains(schema.String(), statement) {
-			t.Errorf("gate SQLite schema does not create cicontract authority table %q for domain %q", binding.Table, binding.Domain)
+			t.Errorf("gate SQLite schema does not create cicontract-registered table %q", table)
 		}
+	}
+	if extras := remoteCIUnregisteredSQLSchemaTables(schema.String()); len(extras) != 0 {
+		t.Fatalf("gate SQLite schema creates unregistered cicontract tables: %v", extras)
 	}
 }
 

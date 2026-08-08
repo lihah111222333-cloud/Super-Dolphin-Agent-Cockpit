@@ -2535,20 +2535,6 @@
         "empty_funcs": 0,
         "todo_count": 0
       },
-      "internal/devtools/remoteci/go_toolchain.go": {
-        "lines": 44,
-        "max_func_len": 36,
-        "max_nesting": 2,
-        "max_complexity": 12,
-        "max_params": 1,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
       "internal/devtools/remoteci/materialization_timing.go": {
         "lines": 94,
         "max_func_len": 52,
@@ -2577,22 +2563,6 @@
         "empty_funcs": 0,
         "todo_count": 0,
         "max_struct_fields": 16
-      },
-      "internal/devtools/remoteci/workerio/oss.go": {
-        "lines": 613,
-        "max_func_len": 50,
-        "max_nesting": 3,
-        "max_complexity": 18,
-        "max_params": 5,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 6,
-        "max_struct_methods": 2
       },
       "internal/devtools/sqlitereleasegate/gates.go": {
         "lines": 347,

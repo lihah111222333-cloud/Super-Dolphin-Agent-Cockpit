@@ -31,9 +31,6 @@ func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTes
 	profile.TotalMS = max(profile.TotalMS, timing.totalMS)
 	// 执行器在实际 workload 进程两侧记录区间，协调器回执必须保留实测值。
 	profile.StartupMS, profile.TestBodyMS = timing.setupMS, timing.bodyMS
-	if isGoPackageTestWorkload(id) {
-		// Go 测试事件可能并行重叠，不能将其相加推断 workload 的墙钟耗时。
-	}
 	if isExactGoTestWorkload(id) {
 		if err := validateExactGoTestExecutionProfile(id, timings, profile); err != nil {
 			return profile, err

@@ -6,11 +6,14 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // remoteCIProductionSnapshotEntry 串行化候选根目录的首次快照加载。
@@ -59,6 +62,7 @@ func remoteCIContractConsumerFiles(t *testing.T, root string) []string {
 			"cmd/super-dolphin-gate",
 			"internal/devtools/gate",
 			"internal/devtools/remoteci",
+			"internal/devtools/alicloud/eci",
 			"internal/devtools/alicloud/oss",
 		}) {
 			continue
@@ -264,6 +268,39 @@ func remoteCIContractDuration(node ast.Node) bool {
 	}
 	contractUnit := (literal.Value == "2" && selector.Sel.Name == "Hour") || (literal.Value == "100" && selector.Sel.Name == "Second")
 	return remoteCIAll(remoteCIExpressionName(selector.X) == "time", contractUnit)
+}
+
+const remoteCISQLCreateTablePattern = `(?i)\bCREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)`
+
+// remoteCISQLSchemaTableNames 提取 gate schema 中所有 CREATE TABLE 的物理表名。
+func remoteCISQLSchemaTableNames(source string) []string {
+	seen := make(map[string]struct{})
+	for _, match := range regexp.MustCompile(remoteCISQLCreateTablePattern).FindAllStringSubmatch(source, -1) {
+		if len(match) == 2 {
+			seen[match[1]] = struct{}{}
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// remoteCIUnregisteredSQLSchemaTables 返回 schema 中未被 cicontract 登记的额外表。
+func remoteCIUnregisteredSQLSchemaTables(source string) []string {
+	registered := make(map[string]struct{}, len(cicontract.SQLAuthoritySchemaTables()))
+	for _, table := range cicontract.SQLAuthoritySchemaTables() {
+		registered[table] = struct{}{}
+	}
+	var violations []string
+	for _, table := range remoteCISQLSchemaTableNames(source) {
+		if _, ok := registered[table]; !ok {
+			violations = append(violations, table)
+		}
+	}
+	return violations
 }
 
 func remoteCIAll(values ...bool) bool {

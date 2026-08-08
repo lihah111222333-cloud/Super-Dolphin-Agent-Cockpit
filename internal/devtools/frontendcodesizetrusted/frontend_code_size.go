@@ -74,12 +74,6 @@ func Run(ctx context.Context, repository, tree string, operation Operation) erro
 	return classified(ErrorInput, "accepted baseline tree must be explicit", nil)
 }
 
-// RunWithAcceptedBaseline runs an exact candidate against an explicitly named accepted tree.
-func RunWithAcceptedBaseline(ctx context.Context, repository, tree, acceptedTree string, operation Operation) error {
-	_, err := RunWithAcceptedBaselineReceipt(ctx, repository, tree, acceptedTree, operation)
-	return err
-}
-
 // RunWithAcceptedBaselineReceipt runs the guard and returns its immutable execution identity.
 func RunWithAcceptedBaselineReceipt(ctx context.Context, repository, tree, acceptedTree string, operation Operation) (Receipt, error) {
 	return runWithAssetsReceipt(ctx, repository, tree, acceptedTree, operation, trustedRuntimeAssets)

@@ -1,12 +1,5 @@
 package archtest
 
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"time"
-)
-
 // SizeMetrics 聚合文件级大小指标。
 type SizeMetrics struct {
 	Lines      int `json:"lines"`
@@ -62,46 +55,3 @@ type FileMetrics struct {
 
 // Baseline 是 per-file metrics 的 JSON 映射表。key 是相对于仓库根的文件路径。
 type Baseline map[string]FileMetrics
-
-// BaselineInfo 封装基线数据及其元信息。
-type BaselineInfo struct {
-	Data    Baseline
-	ModTime time.Time
-}
-
-const baselineFileMode = 0o644
-
-// LoadBaseline 从 path 读取 baseline JSON。文件不存在时直接报错，避免守卫基线缺失被静默忽略。
-func LoadBaseline(path string) (BaselineInfo, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return BaselineInfo{}, fmt.Errorf("stat baseline: %w", err)
-		}
-		return BaselineInfo{}, fmt.Errorf("stat baseline: %w", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return BaselineInfo{}, fmt.Errorf("read baseline: %w", err)
-	}
-	var bl Baseline
-	if err := json.Unmarshal(data, &bl); err != nil {
-		return BaselineInfo{}, fmt.Errorf("parse baseline: %w", err)
-	}
-	if bl == nil {
-		return BaselineInfo{}, fmt.Errorf("baseline %s is null", path)
-	}
-	return BaselineInfo{Data: bl, ModTime: info.ModTime()}, nil
-}
-
-// SaveBaseline 将 baseline 写入 path（覆盖式）。
-func SaveBaseline(path string, bl Baseline) error {
-	data, err := json.MarshalIndent(bl, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal baseline: %w", err)
-	}
-	if err := os.WriteFile(path, data, baselineFileMode); err != nil {
-		return fmt.Errorf("write baseline: %w", err)
-	}
-	return nil
-}

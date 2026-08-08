@@ -219,18 +219,6 @@ func ValidateWorkloadCatalog(catalog WorkloadCatalog) error {
 	return nil
 }
 
-// LoadDurationLedger 严格解析并校验 JSON duration ledger。
-func LoadDurationLedger(reader io.Reader) (DurationLedger, error) {
-	var ledger DurationLedger
-	if err := decodeStrictJSON(reader, &ledger); err != nil {
-		return DurationLedger{}, fmt.Errorf("decode duration ledger: %w", err)
-	}
-	if err := ValidateDurationLedger(ledger); err != nil {
-		return DurationLedger{}, err
-	}
-	return ledger, nil
-}
-
 // ValidateDurationLedger 拒绝不可分桶或无效时长的样本。
 func ValidateDurationLedger(ledger DurationLedger) error {
 	if ledger.Version != durationLedgerVersion {

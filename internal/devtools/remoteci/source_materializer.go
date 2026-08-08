@@ -40,27 +40,6 @@ type sourcePlan struct {
 	transportCommit     string
 }
 
-// sourceBundleImporter is implemented by the sourceexport owner; materializers must not duplicate Git tree or bundle parsing.
-// 依赖 sourceexport owner：需公开 commit 与 dangling synthetic-commit bundle 的 ImportAndVerify。
-type sourceBundleImporter interface {
-	ImportAndVerify(ctx context.Context, bundlePath string, expectedObject string, expectedTree string) (verifiedRepository string, err error)
-}
-
-// importSource 只编排 sourceexport owner 的 bundle 导入与对象复验。
-func importSource(ctx context.Context, importer sourceBundleImporter, bundlePath string, expectedObject string, expectedTree string) (string, error) {
-	if importer == nil || !filepath.IsAbs(bundlePath) || expectedObject == "" || expectedTree == "" {
-		return "", errors.New("source importer and absolute bundle/object/tree inputs are required")
-	}
-	repository, err := importer.ImportAndVerify(ctx, bundlePath, expectedObject, expectedTree)
-	if err != nil {
-		return "", fmt.Errorf("import and verify source bundle: %w", err)
-	}
-	if !filepath.IsAbs(repository) {
-		return "", errors.New("source importer returned a non-absolute verified repository")
-	}
-	return repository, nil
-}
-
 // MaterializeSource 将已验证 SourceSpec 物化为相对 accepted image baseline
 // 的 Git prerequisite/thin bundle。baseline 是强制参数；不存在自包含或
 // 全量 fallback。

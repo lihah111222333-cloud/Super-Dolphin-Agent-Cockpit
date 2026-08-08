@@ -939,7 +939,7 @@ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_
 
 // Validate 校验代码契约自身不存在重复 ID、章节缺口或无效不变量。
 func Validate() error {
-	for _, validate := range []func() error{validateContractIdentity, validateContractConstants, validateContractObservations, validateRequirements, validateSQLAuthorityBindings} {
+	for _, validate := range []func() error{validateContractIdentity, validateContractConstants, validateContractObservations, validateRequirements, validateSQLAuthorityBindings, validateSQLAuthoritySchemaTables} {
 		if err := validate(); err != nil {
 			return err
 		}

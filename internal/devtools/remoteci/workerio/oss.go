@@ -71,36 +71,6 @@ type temporaryCredentials struct {
 	LastUpdated     string `json:"LastUpdated"`
 }
 
-// RAMCredentials is an unexported-lifetime ECI RAM role credential set.
-// Callers must never log or persist any field in this value.
-type RAMCredentials struct {
-	AccessKeyID     string
-	AccessKeySecret string
-	SecurityToken   string
-	Expiration      time.Time
-}
-
-// ReadRAMCredentials reads one currently valid ECI RAM-role credential set
-// through IMDSv2. It does not consult environment variables or local CLIs.
-func ReadRAMCredentials(ctx context.Context, roleName string, dependencies Dependencies) (RAMCredentials, error) {
-	if !validRoleName(roleName) {
-		return RAMCredentials{}, errors.New("RAM role name is invalid")
-	}
-	metadataURL, err := parseMetadataBaseURL(dependencies.MetadataBaseURL)
-	if err != nil {
-		return RAMCredentials{}, err
-	}
-	credentials, err := readCurrentCredentials(ctx, roleName, noRedirectClient(dependencies.HTTPClient, remoteHTTPTimeout), metadataURL, clientClock(dependencies.Clock))
-	if err != nil {
-		return RAMCredentials{}, err
-	}
-	expiration, err := time.Parse(time.RFC3339, credentials.Expiration)
-	if err != nil {
-		return RAMCredentials{}, errors.New("RAM credentials are expired or invalid")
-	}
-	return RAMCredentials{AccessKeyID: credentials.AccessKeyID, AccessKeySecret: credentials.AccessKeySecret, SecurityToken: credentials.SecurityToken, Expiration: expiration}, nil
-}
-
 // NewClient 校验显式对象配置并创建使用 RAM 角色的 OSS 客户端。
 func NewClient(config Config, dependencies Dependencies) (*Client, error) {
 	if err := validateConfig(config); err != nil {
@@ -223,59 +193,6 @@ func (client *Client) Download(ctx context.Context, destination io.Writer) (int6
 		}
 	}
 	return 0, fmt.Errorf("OSS download failed after %d attempt(s): %w", attempts, lastErr)
-}
-
-// Upload writes one explicitly configured, bounded object with the ECI RAM role.
-// The source is staged first so a transient retry never observes a partially read stream.
-func (client *Client) Upload(ctx context.Context, source io.Reader) (int64, error) {
-	if source == nil {
-		return 0, errors.New("upload source must not be nil")
-	}
-	staged, err := os.CreateTemp("", ".super-dolphin-oss-upload-")
-	if err != nil {
-		return 0, fmt.Errorf("create OSS upload staging file: %w", err)
-	}
-	stagedPath := staged.Name()
-	defer func() { _ = os.Remove(stagedPath) }()
-	if err := staged.Chmod(0o600); err != nil {
-		_ = staged.Close()
-		return 0, fmt.Errorf("secure OSS upload staging file: %w", err)
-	}
-	size, err := io.Copy(staged, io.LimitReader(source, client.config.MaxBytes+1))
-	if closeErr := staged.Close(); err != nil || closeErr != nil {
-		return 0, fmt.Errorf("stage OSS upload object: %w", errors.Join(err, closeErr))
-	}
-	if size <= 0 || size > client.config.MaxBytes {
-		return 0, errors.New("OSS upload object size is invalid")
-	}
-	var lastErr error
-	for attempt := 1; attempt <= maxDownloadAttempts; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return 0, fmt.Errorf("OSS upload canceled before attempt %d: %w", attempt, err)
-		}
-		credentials, credentialErr := client.currentCredentials(ctx)
-		if credentialErr == nil {
-			file, openErr := os.Open(stagedPath)
-			if openErr == nil {
-				credentialErr = client.uploadObject(ctx, credentials, file, size)
-				credentialErr = errors.Join(credentialErr, file.Close())
-			}
-			if openErr != nil {
-				credentialErr = openErr
-			}
-		}
-		if credentialErr == nil {
-			return size, nil
-		}
-		if ctx.Err() != nil || !retryableDownloadError(ctx, credentialErr) || attempt == maxDownloadAttempts {
-			return 0, fmt.Errorf("OSS upload failed after %d attempt(s): %w", attempt, credentialErr)
-		}
-		lastErr = credentialErr
-		if err := client.wait(ctx, retryDelay(attempt)); err != nil {
-			return 0, fmt.Errorf("OSS upload retry wait after attempt %d: %w", attempt, err)
-		}
-	}
-	return 0, fmt.Errorf("OSS upload failed: %w", lastErr)
 }
 
 // downloadAttempt 在暴露字节前暂存对象，避免重试追加部分对象。
@@ -502,44 +419,6 @@ func (client *Client) downloadObject(ctx context.Context, credentials temporaryC
 		return limited.written, fmt.Errorf("download OSS object: %w", err)
 	}
 	return limited.written, nil
-}
-
-func (client *Client) uploadObject(ctx context.Context, credentials temporaryCredentials, source io.Reader, size int64) error {
-	endpoint, _ := url.Parse(client.config.Endpoint)
-	objectURL := *endpoint
-	if strings.HasSuffix(endpoint.Hostname(), ".aliyuncs.com") {
-		objectURL.Host, objectURL.Path = client.config.Bucket+"."+endpoint.Host, "/"+client.config.Key
-	} else {
-		objectURL.Path = "/" + client.config.Bucket + "/" + client.config.Key
-	}
-	objectURL.RawPath = ""
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, objectURL.String(), io.LimitReader(source, size))
-	if err != nil {
-		return fmt.Errorf("create OSS upload request: %w", err)
-	}
-	request.ContentLength = size
-	date := client.clock().UTC().Format(http.TimeFormat)
-	request.Header.Set("Date", date)
-	request.Header.Set("x-oss-security-token", credentials.SecurityToken)
-	// Builder artifacts are immutable content-addressed evidence. A collision
-	// must fail rather than replace a result another worker may be reporting.
-	request.Header.Set("x-oss-forbid-overwrite", "true")
-	resource := request.URL.EscapedPath()
-	if strings.HasSuffix(endpoint.Hostname(), ".aliyuncs.com") {
-		resource = "/" + client.config.Bucket + resource
-	}
-	request.Header.Set("Authorization", ossAuthorizationWithHeaders(request.Method, date, resource, credentials, "x-oss-forbid-overwrite:true\n"))
-	response, err := client.ossHTTPClient.Do(request)
-	if err != nil {
-		return fmt.Errorf("upload OSS object: %w", err)
-	}
-	defer response.Body.Close()
-	if !isSuccess(response.StatusCode) {
-		discardResponse(response.Body, errorBodyLimit)
-		return fmt.Errorf("OSS upload returned: %w", &retryableHTTPStatusError{status: response.StatusCode})
-	}
-	discardResponse(response.Body, errorBodyLimit)
-	return nil
 }
 
 // validateConfig 校验 RAM 角色、OSS 端点和对象下载容量边界。

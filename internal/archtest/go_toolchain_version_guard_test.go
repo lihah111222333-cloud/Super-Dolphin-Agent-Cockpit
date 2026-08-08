@@ -276,13 +276,12 @@ func recordOwnedGoModule(path, repository, want string, stale *[]string) error {
 func assertDerivedGoToolchainConsumers(t *testing.T, repository string) {
 	t.Helper()
 	checks := map[string][]string{
-		".github/workflows/release.yml":              {"actions/setup-go@", "go-version-file: go.mod"},
-		"Makefile":                                   {"go env GOVERSION"},
-		"build/gate/Dockerfile":                      {"GOTOOLCHAIN=local", `COPY ["go.mod","go.sum"`},
-		"build/gate/runtime-deps.lock":               {`"go_mod_sha256"`},
-		"build/gate/toolchain.lock":                  {`"name": "GO_IMAGE"`, `"reference": "mirror.gcr.io/library/golang@sha256:`},
-		"internal/devtools/remoteci/go_toolchain.go": {"modfile.Parse", "parsed.Go.Version"},
-		"scripts/package_windows.ps1":                {"go env GOVERSION"},
+		".github/workflows/release.yml": {"actions/setup-go@", "go-version-file: go.mod"},
+		"Makefile":                      {"go env GOVERSION"},
+		"build/gate/Dockerfile":         {"GOTOOLCHAIN=local", `COPY ["go.mod","go.sum"`},
+		"build/gate/runtime-deps.lock":  {`"go_mod_sha256"`},
+		"build/gate/toolchain.lock":     {`"name": "GO_IMAGE"`, `"reference": "mirror.gcr.io/library/golang@sha256:`},
+		"scripts/package_windows.ps1":   {"go env GOVERSION"},
 	}
 	for path, required := range checks {
 		data, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(path)))
