@@ -177,7 +177,6 @@ func TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation(t *test
 	results := make(chan result, 2)
 	var workers errgroup.Group
 	for _, config := range []multilsp.GoplsRootCohortConfig{firstConfig, secondConfig} {
-		config := config
 		workers.Go(func() error {
 			<-start
 			lease, err := controller.AcquireLease(config)

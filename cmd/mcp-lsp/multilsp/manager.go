@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,6 +73,12 @@ type ClientFactoryWithEnv interface {
 	NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error)
 }
 
+// ClientFactoryWithOptions 在创建客户端时接收已解析 scope 的环境与初始化选项。
+type ClientFactoryWithOptions interface {
+	ClientFactory
+	NewClientWithOptions(rootDir string, env []string, initOptions map[string]any, handler protocol.NotificationHandler) (Client, error)
+}
+
 // ClientFactoryFunc 将普通函数适配为 ClientFactory，便于测试和轻量 wiring。
 type ClientFactoryFunc func(rootDir string, handler protocol.NotificationHandler) (Client, error)
 
@@ -86,6 +93,24 @@ type ClientFactoryWithEnvFunc func(rootDir string, env []string, handler protoco
 // NewClient 用空环境变量调用带 env 的工厂，保持 ClientFactory 兼容。
 func (fn ClientFactoryWithEnvFunc) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
 	return fn(rootDir, nil, handler)
+}
+
+// ClientFactoryWithOptionsFunc 将支持 resolved init options 的函数适配为客户端工厂。
+type ClientFactoryWithOptionsFunc func(rootDir string, env []string, initOptions map[string]any, handler protocol.NotificationHandler) (Client, error)
+
+// NewClient 使用空环境和空初始化选项调用工厂，保持基础 ClientFactory 兼容。
+func (fn ClientFactoryWithOptionsFunc) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
+	return fn(rootDir, nil, nil, handler)
+}
+
+// NewClientWithEnv 保留仅环境覆盖的创建路径。
+func (fn ClientFactoryWithOptionsFunc) NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error) {
+	return fn(rootDir, env, nil, handler)
+}
+
+// NewClientWithOptions 传递 resolved 环境与初始化选项。
+func (fn ClientFactoryWithOptionsFunc) NewClientWithOptions(rootDir string, env []string, initOptions map[string]any, handler protocol.NotificationHandler) (Client, error) {
+	return fn(rootDir, env, initOptions, handler)
 }
 
 // NewClientWithEnv 用调用方提供的 env 创建客户端。
@@ -178,6 +203,7 @@ type workspaceClient struct {
 	rootURI          string                     // root 的 file URI。
 	languageID       string                     // 该客户端服务的语言 ID。
 	env              []string                   // 创建客户端时使用的环境变量。
+	initOptions      map[string]any             // resolved scope 对应的客户端初始化选项。
 	workspaceFolders []protocol.WorkspaceFolder // 发送给语言服务器的 workspace folders。
 	client           Client                     // 实际 LSP 客户端。
 	lastActivity     time.Time                  // recycler 判断闲置的依据。
@@ -223,6 +249,7 @@ type workspaceConfig struct {
 	projectRoot      string                     // 语言适配器识别出的项目根。
 	languageSpecific map[string]string          // 语言适配器附加的 root 元数据。
 	env              []string                   // 创建客户端时注入的环境。
+	initOptions      map[string]any             // resolved scope 对应的初始化选项覆盖。
 	workspaceFolders []protocol.WorkspaceFolder // 初始化请求中的 workspace folders。
 }
 
@@ -544,6 +571,10 @@ func workspaceConfigForLanguageScope(scope ResolvedLanguageScope, adapter Langua
 	if len(folders) == 0 {
 		folders = workspaceFoldersFromRootURI(rootURI)
 	}
+	initOptions := adapter.InitOptions(scope)
+	if reflect.DeepEqual(initOptions, adapter.InitOptions(ResolvedLanguageScope{})) {
+		initOptions = nil
+	}
 	return workspaceConfig{
 		key:              key,
 		rootPath:         scope.WorkspaceRoot,
@@ -552,6 +583,7 @@ func workspaceConfigForLanguageScope(scope ResolvedLanguageScope, adapter Langua
 		projectRoot:      scope.ProjectRoot,
 		languageSpecific: copyLanguageSpecific(scope.LanguageSpecific),
 		env:              adapter.EnvPolicy(scope),
+		initOptions:      cloneAnyMap(initOptions),
 		workspaceFolders: cloneWorkspaceFolders(folders),
 	}, nil
 }

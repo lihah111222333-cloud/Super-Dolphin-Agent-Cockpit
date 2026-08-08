@@ -1968,7 +1968,7 @@
       "codemap_line": 227,
       "target_path": "cmd/mcp-lsp/multilsp/manager.go",
       "line_spec": "151",
-      "content_sha256": "2bc551cdff2953dc254f8223e56384e2e75b5db1be90d93e3bddaa44ab4c0f6e",
+      "content_sha256": "eabdee726b2deeb5d25cbac86dea0de7062dc783d9f6d3b32849598883a07066",
       "symbol": "manager"
     },
     {
@@ -1984,7 +1984,7 @@
       "codemap_line": 228,
       "target_path": "cmd/mcp-lsp/multilsp/manager.go",
       "line_spec": "36",
-      "content_sha256": "952e91749e381f21c8545bee0fb9d9b598b4e80a9a2acdcde123bafab2217191"
+      "content_sha256": "06eaf4aa1a6860a7e83f9cf9f5c3700ae18bcad9b2f90b2af958f51367efca4f"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",

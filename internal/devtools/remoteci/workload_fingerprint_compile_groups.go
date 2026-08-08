@@ -10,6 +10,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"golang.org/x/sync/errgroup"
 )
 
 // remoteWorkloadFingerprintsWithSnapshot 保留首次 Prepare 的 exact-tree
@@ -35,15 +36,13 @@ func (snapshot *remoteGitTreeSnapshot) remoteWorkloadFingerprints(
 	ctx context.Context,
 	workloads []gate.Workload,
 ) (map[string]string, map[string]gate.CompileGroupInput, error) {
-	inputDigests := make(map[string]string, len(workloads))
+	inputDigests, err := snapshot.concurrentRemoteWorkloadInputDigests(ctx, workloads)
+	if err != nil {
+		return nil, nil, err
+	}
 	compileInputs := make(map[string]gate.CompileGroupInput)
 	profileDigests := make(map[bool]string, 2)
 	for _, workload := range workloads {
-		inputDigest, err := snapshot.workloadInputDigest(ctx, workload)
-		if err != nil {
-			return nil, nil, fmt.Errorf("fingerprint workload %q: %w", workload.ID, err)
-		}
-		inputDigests[workload.ID] = inputDigest
 		compileInput, ok, err := snapshot.compileGroupInputForWorkload(ctx, workload, profileDigests)
 		if err != nil {
 			return nil, nil, fmt.Errorf("fingerprint compile input for workload %q: %w", workload.ID, err)
@@ -53,6 +52,63 @@ func (snapshot *remoteGitTreeSnapshot) remoteWorkloadFingerprints(
 		}
 	}
 	return inputDigests, compileInputs, nil
+}
+
+type remoteWorkloadInputDigestResult struct {
+	digest string
+	err    error
+}
+
+// concurrentRemoteWorkloadInputDigests 并行计算 exact Go selector；其他 workload
+// 保持串行，避免前端 blob 读取等非共享路径制造无界子进程。结果仍按 catalog 顺序
+// 检查并返回最早错误，因此并发不改变 fail-fast 的可观察语义。
+func (snapshot *remoteGitTreeSnapshot) concurrentRemoteWorkloadInputDigests(
+	ctx context.Context,
+	workloads []gate.Workload,
+) (map[string]string, error) {
+	results := make([]remoteWorkloadInputDigestResult, len(workloads))
+	parallel := make([]int, 0, len(workloads))
+	for index, workload := range workloads {
+		if remoteExactGoSelectorWorkload(workload) {
+			parallel = append(parallel, index)
+			continue
+		}
+		results[index].digest, results[index].err = snapshot.workloadInputDigest(ctx, workload)
+	}
+	snapshot.runRemoteWorkloadInputDigestWorkers(ctx, workloads, parallel, results)
+	digests := make(map[string]string, len(workloads))
+	for index, workload := range workloads {
+		if results[index].err != nil {
+			return nil, fmt.Errorf("fingerprint workload %q: %w", workload.ID, results[index].err)
+		}
+		digests[workload.ID] = results[index].digest
+	}
+	return digests, nil
+}
+
+// runRemoteWorkloadInputDigestWorkers 并行执行全部 exact selector；任务数量由冻结
+// catalog 唯一决定，不引入产品并发阈值，也不影响远程 ECI fanout 语义。
+func (snapshot *remoteGitTreeSnapshot) runRemoteWorkloadInputDigestWorkers(
+	ctx context.Context,
+	workloads []gate.Workload,
+	indexes []int,
+	results []remoteWorkloadInputDigestResult,
+) {
+	var group errgroup.Group
+	for _, index := range indexes {
+		group.Go(func() error {
+			results[index].digest, results[index].err = snapshot.workloadInputDigest(ctx, workloads[index])
+			return nil
+		})
+	}
+	_ = group.Wait()
+}
+
+// remoteExactGoSelectorWorkload 只选择共享 snapshot cache 已具备并发保护的
+// exact Go test/benchmark，其他 target 保持原执行顺序。
+func remoteExactGoSelectorWorkload(workload gate.Workload) bool {
+	_, kind, _, targeted, err := gate.ParseWorkloadID(workload.ID)
+	return err == nil && targeted && (kind == gate.WorkloadTargetGoTest || kind == gate.WorkloadTargetGoBenchmark)
 }
 
 func validateRemoteCompileGroupInputs(catalog gate.WorkloadCatalog, inputs map[string]gate.CompileGroupInput) error {

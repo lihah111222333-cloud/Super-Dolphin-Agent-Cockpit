@@ -380,6 +380,7 @@ func workspaceConfigFromClient(workspace workspaceClient) workspaceConfig {
 		rootURI:          workspace.rootURI,
 		languageID:       workspace.languageID,
 		env:              append([]string(nil), workspace.env...),
+		initOptions:      cloneAnyMap(workspace.initOptions),
 		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
 	}
 }

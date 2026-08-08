@@ -64,6 +64,38 @@ func fingerprintBenchmarkTree(b *testing.B, repositoryRoot string) string {
 	return tree
 }
 
+// TestConcurrentRemoteWorkloadInputDigestsMatchesSequential 锁定并行 exact selector
+// 与原顺序算法生成完全相同的 workload 摘要。
+func TestConcurrentRemoteWorkloadInputDigestsMatchesSequential(t *testing.T) {
+	workloads := make([]gate.Workload, 0, 3)
+	for _, name := range []string{"TestX", "TestUnselected"} {
+		workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./fixture", name, 100)
+		if err != nil {
+			t.Fatalf("NewGoTestWorkload(%q): %v", name, err)
+		}
+		workloads = append(workloads, workload)
+	}
+	benchmark, err := gate.NewGoBenchmarkWorkload(gate.GateIDBackendTestWithGuard, "./fixture", "BenchmarkX", 100)
+	if err != nil {
+		t.Fatalf("NewGoBenchmarkWorkload(): %v", err)
+	}
+	workloads = append(workloads, benchmark)
+	sequentialSnapshot := testExactGoTestDigestSnapshot("")
+	want := make(map[string]string, len(workloads))
+	for _, workload := range workloads {
+		want[workload.ID] = testWorkloadInputDigest(t, sequentialSnapshot, workload)
+	}
+	got, err := testExactGoTestDigestSnapshot("").concurrentRemoteWorkloadInputDigests(context.Background(), workloads)
+	if err != nil {
+		t.Fatalf("concurrentRemoteWorkloadInputDigests(): %v", err)
+	}
+	for _, workload := range workloads {
+		if got[workload.ID] != want[workload.ID] {
+			t.Fatalf("workload %q digest = %q, want %q", workload.ID, got[workload.ID], want[workload.ID])
+		}
+	}
+}
+
 // BenchmarkGoEmbedResolutionCache measures repeated selector resolution after one
 // parser/path-match pass; the final metric proves all later iterations hit cache.
 func BenchmarkGoEmbedResolutionCache(b *testing.B) {

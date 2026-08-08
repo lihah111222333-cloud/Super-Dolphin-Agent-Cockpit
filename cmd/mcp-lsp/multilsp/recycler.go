@@ -292,17 +292,6 @@ func (r *poolRecycler) memoryDecision(workspace workspaceClient, rssBytes uint64
 	}
 }
 
-func (d recyclerMemoryDecision) exceeded() bool {
-	return d.processExceeded || d.cohort.EvictSelf
-}
-
-func (d recyclerMemoryDecision) reasonAndLimit() (string, uint64) {
-	if d.cohort.EvictSelf {
-		return "cohort_rss_limit", d.cohort.HardLimit
-	}
-	return "process_tree_rss_limit", d.processLimit
-}
-
 // logResourceCohortHealth 记录跨 worktree RSS 报告的陈旧或异常状态。
 func logResourceCohortHealth(
 	mgr *manager,
@@ -658,6 +647,7 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 		rootURI:          workspace.rootURI,
 		languageID:       languageID,
 		env:              append([]string(nil), workspace.env...),
+		initOptions:      cloneAnyMap(workspace.initOptions),
 		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
 	}
 	restoreCtx := recycleRestoreContext(scope, cfg)

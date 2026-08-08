@@ -175,6 +175,18 @@ func TestRuntimeServerArgsIgnoresUnrelatedGOPrefixedEnvironment(t *testing.T) {
 	}
 }
 
+func TestRuntimeServerArgsBindsAmbientGOFLAGSGlobally(t *testing.T) {
+	goplsBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"}}
+	t.Setenv("GOFLAGS", "-mod=readonly")
+	first := mustRuntimeServerArgs(t, command, goplsBinary, []string{"GOOS=darwin", "GOARCH=arm64"})
+	t.Setenv("GOFLAGS", "-mod=mod")
+	second := mustRuntimeServerArgs(t, command, goplsBinary, []string{"GOOS=darwin", "GOARCH=arm64"})
+	if runtimeServerGoplsRemoteID(first) == runtimeServerGoplsRemoteID(second) {
+		t.Fatalf("different ambient GOFLAGS reused one cohort: first=%v second=%v", first, second)
+	}
+}
+
 func TestRuntimeServerCommandExecutable(t *testing.T) {
 	tests := []struct {
 		name    string

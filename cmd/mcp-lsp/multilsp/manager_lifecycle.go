@@ -434,17 +434,6 @@ func shutdownWorkspaceClientForIdle(client Client) (error, error) {
 	return shutdownErr, client.Close()
 }
 
-func newClientFromFactory(factory ClientFactory, cfg workspaceConfig, handler protocol.NotificationHandler) (Client, error) {
-	if len(cfg.env) > 0 {
-		envFactory, ok := factory.(ClientFactoryWithEnv)
-		if !ok {
-			return nil, fmt.Errorf("client factory does not support environment overrides for %s", cfg.key)
-		}
-		return envFactory.NewClientWithEnv(cfg.rootPath, append([]string(nil), cfg.env...), handler)
-	}
-	return factory.NewClient(cfg.rootPath, handler)
-}
-
 func configureClientWorkspace(client Client, cfg workspaceConfig) {
 	if setter, ok := client.(interface {
 		setWorkspaceFolders([]protocol.WorkspaceFolder)

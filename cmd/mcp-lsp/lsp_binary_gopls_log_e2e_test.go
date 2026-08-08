@@ -440,9 +440,6 @@ func fakeGoplsInitializePolicyError(req fakeLSPRequest) string {
 }
 
 func fakeGoplsInitializeHasBuildTag(raw json.RawMessage, tag string) bool {
-	if buildFlagsContainTag(strings.Fields(os.Getenv("GOFLAGS")), tag) {
-		return true
-	}
 	var params struct {
 		InitializationOptions struct {
 			BuildFlags []string `json:"buildFlags"`

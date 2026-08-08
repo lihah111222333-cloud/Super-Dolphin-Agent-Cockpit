@@ -20,6 +20,7 @@ func createRuntimeLSPClient(
 	binary *runtimeBinaryOverride,
 	rootDir string,
 	env []string,
+	initOptions map[string]any,
 	goplsRootController multilsp.GoplsRootCohortController,
 	handler protocol.NotificationHandler,
 ) (multilsp.Client, error) {
@@ -29,7 +30,7 @@ func createRuntimeLSPClient(
 	if err != nil {
 		return nil, err
 	}
-	preparation, err := runtimeServerPrepareLSPClient(adapter, command, serverBinary, dir, env, packagedLSP, handler)
+	preparation, err := runtimeServerPrepareLSPClient(adapter, command, serverBinary, dir, env, initOptions, packagedLSP, handler)
 	if err != nil {
 		return nil, errors.Join(err, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
 	}
@@ -85,7 +86,7 @@ func runtimeServerAcquireGoplsRootLease(command multilsp.ServerCommand, serverBi
 }
 
 // runtimeServerPrepareLSPClient 计算 server args/env/init options，并建立 SQL 通知包装。
-func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command multilsp.ServerCommand, serverBinary, dir string, env []string, packagedLSP bool, handler protocol.NotificationHandler) (runtimeServerLSPClientPreparation, error) {
+func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command multilsp.ServerCommand, serverBinary, dir string, env []string, initOptions map[string]any, packagedLSP bool, handler protocol.NotificationHandler) (runtimeServerLSPClientPreparation, error) {
 	preparation := runtimeServerLSPClientPreparation{}
 	serverArgs, err := runtimeServerArgsForOS(command, serverBinary, env, runtime.GOOS, dir)
 	if err != nil {
@@ -106,7 +107,7 @@ func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command mul
 	if preparation.sqliteWorkspace {
 		preparation.notificationHandler = &sqlDiagnosticNotificationHandler{root: dir, next: handler}
 	}
-	preparation.initOptions, err = runtimeServerInitOptions(adapter, packagedLSP, serverBinary, preparation.serverEnv)
+	preparation.initOptions, err = runtimeServerInitOptions(adapter, initOptions, packagedLSP, serverBinary, preparation.serverEnv)
 	return preparation, err
 }
 
@@ -291,11 +292,12 @@ func runtimeServerPositiveMiB(env []string, key string) (int, bool, error) {
 // runtimeServerInitOptions 让会自行派生 tsserver 的 Node adapter 与当前主次堆预算保持一致。
 func runtimeServerInitOptions(
 	adapter multilsp.LanguageAdapter,
+	resolvedInitOptions map[string]any,
 	packagedLSP bool,
 	serverBinary string,
 	serverEnv []string,
 ) (map[string]any, error) {
-	options := runtimeAdapterInitOptionsWithBinary(adapter, packagedLSP, serverBinary)
+	options := runtimeResolvedAdapterInitOptionsWithBinary(adapter, resolvedInitOptions, packagedLSP, serverBinary)
 	if _, configured := options["maxTsServerMemory"]; !configured {
 		return options, nil
 	}

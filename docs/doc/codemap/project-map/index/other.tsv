@@ -697,8 +697,8 @@ internal/devtools/sqlitepackagesmoke/main.go	internal	other	go-source	9362	开�
 internal/devtools/sqlitereleasegate/gates.go	internal	other	go-source	15657	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,开发工具与生成器辅助包
 internal/devtools/sqlitereleasegate/gates_test.go	internal	other	go-test	6501	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,test,开发工具与生成器辅助包
 internal/devtools/sqlitereleasegate/runner.go	internal	other	go-source	8302	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,runner,开发工具与生成器辅助包
-internal/devtools/trustedlauncher/build.go	internal	other	go-source	18106	开发工具与生成器辅助包	internal,devtools,trustedlauncher,build,开发工具与生成器辅助包
-internal/devtools/trustedlauncher/build_test.go	internal	other	go-test	2848	开发工具与生成器辅助包	internal,devtools,trustedlauncher,build,test,开发工具与生成器辅助包
+internal/devtools/trustedlauncher/build.go	internal	other	go-source	19475	开发工具与生成器辅助包	internal,devtools,trustedlauncher,build,开发工具与生成器辅助包
+internal/devtools/trustedlauncher/build_test.go	internal	other	go-test	6341	开发工具与生成器辅助包	internal,devtools,trustedlauncher,build,test,开发工具与生成器辅助包
 internal/devtools/trustedlauncher/file_owner_other.go	internal	other	go-source	199	开发工具与生成器辅助包	internal,devtools,trustedlauncher,file,owner,other,开发工具与生成器辅助包
 internal/devtools/trustedlauncher/file_owner_unix.go	internal	other	go-source	319	开发工具与生成器辅助包	internal,devtools,trustedlauncher,file,owner,unix,开发工具与生成器辅助包
 internal/devtools/trustedlauncher/receipt.go	internal	other	go-source	16748	开发工具与生成器辅助包	internal,devtools,trustedlauncher,receipt,开发工具与生成器辅助包

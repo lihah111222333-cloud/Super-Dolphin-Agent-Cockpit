@@ -205,7 +205,7 @@ func assertGoAdapterPolicies(t *testing.T, ctx context.Context, registry *Langua
 	}
 }
 
-func TestGoAdapterUsesTargetBuildTagsInEnvAndInitOptions(t *testing.T) {
+func TestGoAdapterUsesTargetBuildTagsOnlyInInitOptions(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/e2e\n\ngo 1.25.0\n")
@@ -238,7 +238,7 @@ func TestGoAdapterUsesTargetBuildTagsInEnvAndInitOptions(t *testing.T) {
 	if got := scope.LanguageSpecific[goBuildTagsLanguageSpecificKey]; got != "e2e" {
 		t.Fatalf("go build tags = %q, want e2e", got)
 	}
-	if got, want := goAdapter.EnvPolicy(scope), hostGoEnv("GOFLAGS=-mod=mod -tags=e2e"); !reflect.DeepEqual(got, want) {
+	if got, want := goAdapter.EnvPolicy(scope), hostGoEnv(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("go EnvPolicy = %#v, want %#v", got, want)
 	}
 	initOptions := goAdapter.InitOptions(scope)
@@ -688,56 +688,6 @@ func (a hashOnlyAdapter) CacheKeyParts(ResolvedLanguageScope) map[string]string 
 }
 func (a hashOnlyAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{RequiresLSPClient: true}
-}
-
-type genericMatrixClientFactory struct {
-	mu      sync.Mutex
-	calls   []genericMatrixFactoryCall
-	clients []*genericMatrixClient
-}
-
-type genericMatrixFactoryCall struct {
-	rootDir string
-	env     []string
-}
-
-func (f *genericMatrixClientFactory) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
-	return f.NewClientWithEnv(rootDir, nil, handler)
-}
-
-func (f *genericMatrixClientFactory) NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	client := &genericMatrixClient{handler: handler, documents: map[string]string{}}
-	f.calls = append(f.calls, genericMatrixFactoryCall{rootDir: rootDir, env: append([]string(nil), env...)})
-	f.clients = append(f.clients, client)
-	return client, nil
-}
-
-func (f *genericMatrixClientFactory) callCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.calls)
-}
-
-func (f *genericMatrixClientFactory) callAt(t *testing.T, index int) genericMatrixFactoryCall {
-	t.Helper()
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if index < 0 || index >= len(f.calls) {
-		t.Fatalf("factory call %d out of range; calls=%d", index, len(f.calls))
-	}
-	return f.calls[index]
-}
-
-func (f *genericMatrixClientFactory) clientAt(t *testing.T, index int) *genericMatrixClient {
-	t.Helper()
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if index < 0 || index >= len(f.clients) {
-		t.Fatalf("factory client %d out of range; clients=%d", index, len(f.clients))
-	}
-	return f.clients[index]
 }
 
 type genericOpenEvent struct {

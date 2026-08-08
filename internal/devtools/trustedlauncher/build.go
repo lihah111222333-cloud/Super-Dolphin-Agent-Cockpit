@@ -85,7 +85,11 @@ func buildStagedLauncher(ctx context.Context, installRoot, repositoryRoot, tree,
 		return "", Receipt{}, fmt.Errorf("create launcher staging root: %w", err)
 	}
 	staging := BuildResult{BinaryPath: filepath.Join(stagingRoot, BinaryName), ReceiptPath: filepath.Join(stagingRoot, ReceiptName)}
-	receipt, err := compileLauncher(ctx, sourceRoot, repositoryRoot, compilerPath, staging.BinaryPath, identity)
+	cacheRoot, err := launcherBuildCacheRoot(installRoot, identity)
+	if err != nil {
+		return stagingRoot, Receipt{}, err
+	}
+	receipt, err := compileLauncher(ctx, sourceRoot, repositoryRoot, compilerPath, staging.BinaryPath, cacheRoot, identity)
 	if err != nil {
 		return stagingRoot, Receipt{}, err
 	}
@@ -187,7 +191,7 @@ func resolveBuildIdentity(ctx context.Context, repositoryRoot, tree string) (Lin
 }
 
 // compileLauncher 在物化的精确树中编译 linker 绑定的 launcher 和回执。
-func compileLauncher(ctx context.Context, sourceRoot, repositoryRoot, compilerPath, binaryPath string, identity LinkedIdentity) (Receipt, error) {
+func compileLauncher(ctx context.Context, sourceRoot, repositoryRoot, compilerPath, binaryPath, cacheRoot string, identity LinkedIdentity) (Receipt, error) {
 	arguments, err := expectedBuildArguments(identity)
 	if err != nil {
 		return Receipt{}, err
@@ -196,7 +200,7 @@ func compileLauncher(ctx context.Context, sourceRoot, repositoryRoot, compilerPa
 	commandArguments = append(commandArguments[:len(commandArguments)-1], "-o", binaryPath, commandArguments[len(commandArguments)-1])
 	command := exec.CommandContext(ctx, compilerPath, commandArguments...)
 	command.Dir = sourceRoot
-	environment, err := launcherBuildEnvironment(filepath.Dir(binaryPath))
+	environment, err := launcherBuildEnvironment(filepath.Dir(binaryPath), cacheRoot)
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -244,9 +248,35 @@ func expectedBuildArguments(identity LinkedIdentity) ([]string, error) {
 	return launcherBuildArguments(linkedPayload, identity.BuildArgumentsSHA256), nil
 }
 
-func launcherBuildEnvironment(cacheRoot string) ([]string, error) {
+// launcherBuildCacheRoot 将 Go package 编译缓存绑定到受信编译器闭包而非 exact tree。
+// 最终 launcher 仍逐 tree 链接并生成严格回执；只有内容寻址的中间编译产物可跨
+// repository、worktree 和 agent 复用。
+func launcherBuildCacheRoot(installRoot string, identity LinkedIdentity) (string, error) {
+	if err := validateDigestField("compiler_sha256", identity.CompilerSHA256); err != nil {
+		return "", err
+	}
+	if err := validateDigestField("compiler_closure_sha256", identity.CompilerClosureSHA256); err != nil {
+		return "", err
+	}
+	cacheRoot := filepath.Join(
+		installRoot,
+		".go-build-cache-v1",
+		runtime.GOOS+"-"+runtime.GOARCH,
+		strings.TrimPrefix(identity.CompilerSHA256, "sha256:"),
+		strings.TrimPrefix(identity.CompilerClosureSHA256, "sha256:"),
+	)
+	if err := ensureSecureDirectory(cacheRoot, installRoot); err != nil {
+		return "", fmt.Errorf("prepare trusted launcher Go build cache: %w", err)
+	}
+	return cacheRoot, nil
+}
+
+func launcherBuildEnvironment(tempRoot, cacheRoot string) ([]string, error) {
+	if !filepath.IsAbs(tempRoot) {
+		return nil, errors.New("launcher build temporary root must be absolute")
+	}
 	if !filepath.IsAbs(cacheRoot) {
-		return nil, errors.New("launcher build cache root must be absolute")
+		return nil, errors.New("launcher Go build cache root must be absolute")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || !filepath.IsAbs(home) {
@@ -255,8 +285,8 @@ func launcherBuildEnvironment(cacheRoot string) ([]string, error) {
 	return []string{
 		"HOME=" + home,
 		"PATH=/usr/bin:/bin",
-		"TMPDIR=" + cacheRoot,
-		"GOCACHE=" + filepath.Join(cacheRoot, "go-build-cache"),
+		"TMPDIR=" + tempRoot,
+		"GOCACHE=" + cacheRoot,
 		"GOMODCACHE=" + filepath.Join(home, "go", "pkg", "mod"),
 		"CGO_ENABLED=0",
 		"GOARCH=" + runtime.GOARCH,
@@ -273,7 +303,7 @@ func launcherBuildEnvironment(cacheRoot string) ([]string, error) {
 // verifyCompilerIdentity 拒绝未锁定的 Go 版本或目标平台。
 func verifyCompilerIdentity(ctx context.Context, compilerPath, version, goos, goarch string) error {
 	command := exec.CommandContext(ctx, compilerPath, "env", "GOVERSION", "GOOS", "GOARCH")
-	environment, err := launcherBuildEnvironment(os.TempDir())
+	environment, err := launcherBuildEnvironment(os.TempDir(), filepath.Join(os.TempDir(), "super-dolphin-launcher-go-build-cache"))
 	if err != nil {
 		return err
 	}
@@ -422,7 +452,7 @@ func validateSecureDirectory(path string) error {
 
 func compilerClosureDigest(ctx context.Context, compilerPath string) (string, error) {
 	command := exec.CommandContext(ctx, compilerPath, "env", "GOROOT")
-	environment, err := launcherBuildEnvironment(os.TempDir())
+	environment, err := launcherBuildEnvironment(os.TempDir(), filepath.Join(os.TempDir(), "super-dolphin-launcher-go-build-cache"))
 	if err != nil {
 		return "", err
 	}

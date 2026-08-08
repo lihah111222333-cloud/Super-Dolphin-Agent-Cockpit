@@ -19,6 +19,17 @@ func TestNewClientFromFactoryRejectsEnvWithLegacyFactory(t *testing.T) {
 	}
 }
 
+func TestNewClientFromFactoryRejectsResolvedInitOptionsWithLegacyFactory(t *testing.T) {
+	_, err := newClientFromFactory(legacyClientFactory{}, workspaceConfig{
+		key:         "go\x00tagged",
+		rootPath:    t.TempDir(),
+		initOptions: map[string]any{"buildFlags": []string{"-tags=e2e"}},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "init options") {
+		t.Fatalf("newClientFromFactory() error = %v, want init options unsupported", err)
+	}
+}
+
 func TestEffectiveLSPLogMessageTypeDowngradesGoplsWarningText(t *testing.T) {
 	for _, tc := range []struct {
 		name string

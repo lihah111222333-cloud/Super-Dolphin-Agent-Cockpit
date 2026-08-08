@@ -502,10 +502,11 @@ func replaceFileWithDirectoryForRollbackTest(path string) (lastErr error) {
 type editBlockingSyncManager struct {
 	structureTestManager
 	started chan struct{}
+	once    sync.Once
 }
 
 func (m *editBlockingSyncManager) DidChange(ctx context.Context, _ string, _ int, _ []protocol.TextDocumentContentChangeEvent) error {
-	close(m.started)
+	m.once.Do(func() { close(m.started) })
 	<-ctx.Done()
 	return ctx.Err()
 }

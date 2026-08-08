@@ -166,6 +166,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		rootURI:          cfg.rootURI,
 		languageID:       cfg.languageID,
 		env:              append([]string(nil), cfg.env...),
+		initOptions:      cloneAnyMap(cfg.initOptions),
 		workspaceFolders: cloneWorkspaceFolders(cfg.workspaceFolders),
 		client:           client,
 		generation:       generation,

@@ -9,7 +9,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -451,18 +450,7 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	if pathEnv := scope.LanguageSpecific["goToolchainPathEnv"]; pathEnv != "" {
 		env = append(env, "PATH="+pathEnv, "GOTOOLCHAIN=local")
 	}
-	if buildFlags := goBuildFlagsForScope(scope); len(buildFlags) > 0 {
-		env = append(env, "GOFLAGS="+goGOFlagsEnvValue(buildFlags))
-	}
 	return env
-}
-
-func goGOFlagsEnvValue(buildFlags []string) string {
-	current := strings.TrimSpace(os.Getenv("GOFLAGS"))
-	if current == "" {
-		return strings.Join(buildFlags, " ")
-	}
-	return current + " " + strings.Join(buildFlags, " ")
 }
 
 // BootstrapPolicy 声明 Go LSP 启动后需要打开目标文档。
@@ -921,15 +909,6 @@ func copyStringSet(input map[string]struct{}) map[string]struct{} {
 	for key := range input {
 		output[key] = struct{}{}
 	}
-	return output
-}
-
-func cloneAnyMap(input map[string]any) map[string]any {
-	if len(input) == 0 {
-		return nil
-	}
-	output := make(map[string]any, len(input))
-	maps.Copy(output, input)
 	return output
 }
 

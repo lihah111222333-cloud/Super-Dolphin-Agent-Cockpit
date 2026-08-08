@@ -540,7 +540,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		IdleTimeout:                      idleTimeout,
 		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
 		DisableInitialWorkspaceBootstrap: true,
-		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
+		ClientFactory: multilsp.ClientFactoryWithOptionsFunc(func(rootDir string, env []string, initOptions map[string]any, h protocol.NotificationHandler) (multilsp.Client, error) {
 			return createRuntimeLSPClient(
 				adapter,
 				command,
@@ -549,6 +549,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 				binary,
 				rootDir,
 				env,
+				initOptions,
 				goplsRootController,
 				h,
 			)
@@ -580,12 +581,7 @@ func runtimeAdapterUsesNode(adapter multilsp.LanguageAdapter) bool {
 	if adapter == nil {
 		return false
 	}
-	for _, languageID := range adapter.LanguageIDs() {
-		if runtimeLanguageUsesNode(languageID) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(adapter.LanguageIDs(), runtimeLanguageUsesNode)
 }
 
 // runtimeLanguageUsesNode 判断标准化后的语言标识是否由 Node 驱动的 LSP 处理。
@@ -609,7 +605,15 @@ func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP boo
 
 // runtimeAdapterInitOptionsWithBinary 在客户端创建时使用安装器最终解析出的服务路径补齐运行选项。
 func runtimeAdapterInitOptionsWithBinary(adapter multilsp.LanguageAdapter, packagedLSP bool, serverBinary string) map[string]any {
-	initOptions := adapter.InitOptions(multilsp.ResolvedLanguageScope{})
+	return runtimeResolvedAdapterInitOptionsWithBinary(adapter, nil, packagedLSP, serverBinary)
+}
+
+func runtimeResolvedAdapterInitOptionsWithBinary(adapter multilsp.LanguageAdapter, resolved map[string]any, packagedLSP bool, serverBinary string) map[string]any {
+	initOptions := multilsp.CloneInitOptions(resolved)
+	if len(initOptions) == 0 {
+		initOptions = adapter.InitOptions(multilsp.ResolvedLanguageScope{})
+	}
+	initOptions = multilsp.CloneInitOptions(initOptions)
 	initOptions = runtimeJSTSInitOptions(adapter, initOptions, serverBinary)
 	if !packagedLSP || !adapterSupportsLanguage(adapter, "python") {
 		return initOptions

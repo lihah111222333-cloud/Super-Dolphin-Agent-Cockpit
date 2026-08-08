@@ -26,6 +26,22 @@ func TestClassifyRemoteWorkloadPassesMixedSamePackageIsAtomicMiss(t *testing.T) 
 	}
 }
 
+func TestStrictRemoteWorkloadPassIndexExcludesAtomicPackageMisses(t *testing.T) {
+	hit := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/shared", "TestHit")
+	miss := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/shared", "TestMiss")
+	classified, misses := classifyRemoteWorkloadPasses(
+		[]gate.WorkloadPassIdentity{hit, miss},
+		map[string]gate.WorkloadPassEvidence{string(hit.WorkloadID): {Identity: hit}},
+	)
+	indexed, err := indexRemoteWorkloadPassEvidence(classified)
+	if err != nil {
+		t.Fatalf("index strict reuse evidence: %v", err)
+	}
+	if err := validateRemoteWorkloadMissIDs(misses, indexed); err != nil {
+		t.Fatalf("strict reuse/miss partition overlaps: %v", err)
+	}
+}
+
 func TestClassifyRemoteWorkloadPassesMixedDifferentPackagesKeepsPartialReuse(t *testing.T) {
 	hit := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/one", "TestHit")
 	miss := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/two", "TestMiss")

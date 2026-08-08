@@ -171,11 +171,13 @@
     "cmd/mcp-lsp/multilsp/cache_failfast_test.go",
     "cmd/mcp-lsp/multilsp/cache_no_loop_test.go",
     "cmd/mcp-lsp/multilsp/client.go",
+    "cmd/mcp-lsp/multilsp/client_factory.go",
     "cmd/mcp-lsp/multilsp/client_test.go",
     "cmd/mcp-lsp/multilsp/configuration_request.go",
     "cmd/mcp-lsp/multilsp/descriptors_test.go",
     "cmd/mcp-lsp/multilsp/document_bootstrap_test.go",
     "cmd/mcp-lsp/multilsp/factory.go",
+    "cmd/mcp-lsp/multilsp/generic_language_service_build_flags_test.go",
     "cmd/mcp-lsp/multilsp/generic_language_service_test.go",
     "cmd/mcp-lsp/multilsp/go_root_resolver.go",
     "cmd/mcp-lsp/multilsp/go_root_resolver_test.go",
@@ -191,6 +193,7 @@
     "cmd/mcp-lsp/multilsp/idle_timeout_adapter_test.go",
     "cmd/mcp-lsp/multilsp/idle_timeout_test_helpers_test.go",
     "cmd/mcp-lsp/multilsp/idle_timeout_wiring_test.go",
+    "cmd/mcp-lsp/multilsp/init_options.go",
     "cmd/mcp-lsp/multilsp/jsts_dependency_prepare.go",
     "cmd/mcp-lsp/multilsp/jsts_dependency_prepare_test.go",
     "cmd/mcp-lsp/multilsp/language_service_config.go",
@@ -232,6 +235,7 @@
     "cmd/mcp-lsp/multilsp/pool_scope_test.go",
     "cmd/mcp-lsp/multilsp/python_fallback_test.go",
     "cmd/mcp-lsp/multilsp/recycler.go",
+    "cmd/mcp-lsp/multilsp/recycler_decision.go",
     "cmd/mcp-lsp/multilsp/recycler_lifecycle.go",
     "cmd/mcp-lsp/multilsp/recycler_observability_test.go",
     "cmd/mcp-lsp/multilsp/recycler_process_tree_unix_test.go",
@@ -283,6 +287,7 @@
     "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_storage.go",
     "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_test.go",
     "cmd/mcp-lsp/runtime_gopls_root_cohort_generation_test.go",
+    "cmd/mcp-lsp/runtime_gopls_root_cohort_multi_agent_test.go",
     "cmd/mcp-lsp/runtime_gopls_semantic_environment_test.go",
     "cmd/mcp-lsp/runtime_lifecycle.go",
     "cmd/mcp-lsp/runtime_packaged_test.go",
@@ -4847,6 +4852,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6511,
-  "source_snapshot_paths_sha256": "sha256:7cc6c61253b3371f4fcb2ba8e5b9555e514bdb5c8fbad881f44e686468dda3e7"
+  "source_snapshot_input_count": 6516,
+  "source_snapshot_paths_sha256": "sha256:11247cee101f387b6ae1666bd6a3c1c6d356c9d4e4c267082d08f14350014e04"
 }
