@@ -167,28 +167,6 @@ func (index DurationSampleIndex) hasComparableNormalSample(workload Workload) bo
 	return err == nil && found && aggregate.successCount > 0
 }
 
-// HasFailureExceedingDuration 判断索引中是否有超过阈值的同命令失败样本。
-func (index DurationSampleIndex) HasFailureExceedingDuration(workload Workload, durationMS int64) bool {
-	if index.context.Calibration {
-		cpu, memoryGiB, err := index.calibrationResource()
-		if err != nil {
-			return false
-		}
-		aggregate, _, found, err := index.aggregateForResource(workload, DurationExecutionModeCalibration, cpu, memoryGiB)
-		return err == nil && found && aggregate.maxFailureDuration > durationMS
-	}
-	tier, err := cicontract.ClassifyWorkloadResourceDuration(workload.BootstrapEstimateMS)
-	if err != nil {
-		return false
-	}
-	cpu, memory, err := normalResourceForTier(tier)
-	if err != nil {
-		return false
-	}
-	aggregate, _, found, err := index.aggregateForResource(workload, DurationExecutionModeNormal, cpu, memory)
-	return err == nil && found && aggregate.maxFailureDuration > durationMS
-}
-
 // EstimateWorkloadDurationMS 使用预聚合成功样本估算单个 workload。
 func (index DurationSampleIndex) EstimateWorkloadDurationMS(workload Workload) (int64, error) {
 	estimate, _, err := index.estimateWorkloadDuration(workload)
@@ -443,10 +421,4 @@ func goTestDurationWorkload(parent Workload, testName, inputDigest string) Workl
 		InputDigest:         inputDigest,
 		BootstrapEstimateMS: 1,
 	}
-}
-
-// HasComparableSuccessfulDurationSample 判断账本是否包含同命令与执行环境的成功样本。
-func HasComparableSuccessfulDurationSample(workload Workload, ledger DurationLedger, context PlanningContext) bool {
-	index, err := BuildDurationSampleIndex(ledger, context)
-	return err == nil && index.HasComparableSuccessfulDurationSample(workload)
 }

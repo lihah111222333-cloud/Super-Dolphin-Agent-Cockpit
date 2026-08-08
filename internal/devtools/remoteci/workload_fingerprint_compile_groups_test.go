@@ -23,20 +23,20 @@ func BenchmarkRemoteWorkloadFingerprintsCandidate(b *testing.B) {
 	testNames := fingerprintBenchmarkTestNames(b, repositoryRoot)
 	workloads := fingerprintBenchmarkWorkloads(b, testNames)
 	ctx := context.Background()
-	if _, _, err := remoteWorkloadFingerprints(ctx, repositoryRoot, tree, workloads); err != nil {
-		b.Fatalf("remoteWorkloadFingerprints() warm-up: %v", err)
+	if _, _, _, err := remoteWorkloadFingerprintsWithSnapshot(ctx, repositoryRoot, tree, workloads); err != nil {
+		b.Fatalf("remoteWorkloadFingerprintsWithSnapshot() warm-up: %v", err)
 	}
 	b.ResetTimer()
 	for b.Loop() {
-		if _, _, err := remoteWorkloadFingerprints(ctx, repositoryRoot, tree, workloads); err != nil {
-			b.Fatalf("remoteWorkloadFingerprints(): %v", err)
+		if _, _, _, err := remoteWorkloadFingerprintsWithSnapshot(ctx, repositoryRoot, tree, workloads); err != nil {
+			b.Fatalf("remoteWorkloadFingerprintsWithSnapshot(): %v", err)
 		}
 	}
 }
 
-// BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture keeps the
-// old miss-path cost measurable; normal Prepare deliberately uses the benchmark
-// above and captures closures only after an identity MISS.
+// BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture measures the
+// current MISS-only closure resolver; normal Prepare deliberately uses the
+// benchmark above and captures closures only after an identity MISS.
 func BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture(b *testing.B) {
 	repositoryRoot := fingerprintBenchmarkRepositoryRoot(b)
 	tree := os.Getenv("REMOTE_CI_FINGERPRINT_TREE")
@@ -46,13 +46,21 @@ func BenchmarkRemoteWorkloadFingerprintsCandidateWithMigrationCapture(b *testing
 	testNames := fingerprintBenchmarkTestNames(b, repositoryRoot)
 	workloads := fingerprintBenchmarkWorkloads(b, testNames)
 	ctx := context.Background()
-	if _, _, _, _, err := remoteWorkloadFingerprintsWithClosures(ctx, repositoryRoot, tree, workloads); err != nil {
-		b.Fatalf("remoteWorkloadFingerprintsWithClosures() warm-up: %v", err)
+	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, tree)
+	if err != nil {
+		b.Fatalf("loadRemoteGitTreeSnapshot() warm-up: %v", err)
 	}
 	b.ResetTimer()
 	for b.Loop() {
-		if _, _, _, _, err := remoteWorkloadFingerprintsWithClosures(ctx, repositoryRoot, tree, workloads); err != nil {
-			b.Fatalf("remoteWorkloadFingerprintsWithClosures(): %v", err)
+		resolver := newRemoteHistoricalInputDigestResolver(RunInput{
+			RepositoryRoot:        repositoryRoot,
+			Tree:                  tree,
+			workloadInputSnapshot: snapshot,
+		})
+		for _, workload := range workloads {
+			if _, err := resolver.currentClosure(ctx, snapshot, gate.GateID(workload.ID)); err != nil {
+				b.Fatalf("currentClosure(%q): %v", workload.ID, err)
+			}
 		}
 	}
 }

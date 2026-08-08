@@ -40,8 +40,6 @@ CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_retention
 -- tuple inside the retained generation window.  Keep workload first so each
 -- bounded request probes only its requested tuples instead of scanning the
 -- evidence table or relying on the origin-job projection.
-CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_migration
-	ON ci_workload_pass_evidence (workload_id, execution_digest, environment_digest, accepted_generation, origin_job_id, identity_digest);
 `
 
 const strictWorkloadPassEvidenceAliasSQLiteSchema = `

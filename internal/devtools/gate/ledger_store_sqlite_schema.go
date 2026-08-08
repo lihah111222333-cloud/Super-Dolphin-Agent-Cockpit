@@ -14,6 +14,41 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
+// durationLedgerSQLiteCanonicalIndexDefinition 是 current schema 与 repair migration
+// 共用的不可变索引定义；repair 只能消费这里声明的 canonical DDL。
+type durationLedgerSQLiteCanonicalIndexDefinition struct {
+	name   string
+	create string
+}
+
+const durationLedgerSQLiteReusablePassIndexName = "index:idx_ci_runs_reusable_pass"
+const durationLedgerSQLiteMigrationPassIndexName = "index:idx_ci_workload_pass_evidence_migration"
+
+const durationLedgerSQLiteReusablePassIndexSchema = `
+CREATE INDEX IF NOT EXISTS idx_ci_runs_reusable_pass
+	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC)
+	WHERE authoritative = 1 AND status = 'passed' AND cleanup_complete = 1;`
+
+const durationLedgerSQLiteMigrationPassIndexSchema = `
+CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_migration
+	ON ci_workload_pass_evidence (workload_id, execution_digest, environment_digest, accepted_generation, origin_job_id, identity_digest);`
+
+func durationLedgerSQLiteCanonicalPassIndexDefinitions() []durationLedgerSQLiteCanonicalIndexDefinition {
+	return []durationLedgerSQLiteCanonicalIndexDefinition{
+		{name: durationLedgerSQLiteReusablePassIndexName, create: durationLedgerSQLiteReusablePassIndexSchema},
+		{name: durationLedgerSQLiteMigrationPassIndexName, create: durationLedgerSQLiteMigrationPassIndexSchema},
+	}
+}
+
+func durationLedgerSQLiteCanonicalPassIndexStatements() []string {
+	definitions := durationLedgerSQLiteCanonicalPassIndexDefinitions()
+	statements := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		statements = append(statements, definition.create)
+	}
+	return statements
+}
+
 const durationLedgerSQLiteSchema = `
 CREATE TABLE IF NOT EXISTS duration_ledger_meta (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -271,10 +306,6 @@ CREATE INDEX IF NOT EXISTS idx_ci_runs_catalog_status
 CREATE INDEX IF NOT EXISTS idx_ci_runs_accepted_generation
 	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC);
 
-CREATE INDEX IF NOT EXISTS idx_ci_runs_reusable_pass
-	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC)
-	WHERE authoritative = 1 AND status = 'passed' AND cleanup_complete = 1;
-
 CREATE TABLE IF NOT EXISTS ci_run_agent_identities (
 	job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE,
 	agent_token_digest TEXT NOT NULL,
@@ -436,19 +467,6 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, validator *du
 	default:
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
-}
-
-// preflightDurationLedgerSQLiteSchema performs the complete compatibility read
-// before any DDL. Legacy state is never an input to a partial reconstruction.
-func preflightDurationLedgerSQLiteSchema(
-	database *sql.DB,
-	schemaVersion int,
-	validator *durationLedgerSQLiteSchemaValidator,
-) error {
-	if schemaVersion != 0 && schemaVersion != durationLedgerSQLiteSchemaVersion {
-		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
-	}
-	return validator.preflight(database, schemaVersion)
 }
 
 func migrateDurationLedgerSQLiteLegacySchema(

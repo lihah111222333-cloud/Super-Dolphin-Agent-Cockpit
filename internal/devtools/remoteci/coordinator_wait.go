@@ -106,19 +106,6 @@ func consumeTerminalEvidenceRetry(retries map[int]int, index int) bool {
 	return true
 }
 
-// retryTerminalEvidence 等待提供方终态字段在有限窗口内收敛；窗口耗尽后保留原始失败。
-func retryTerminalEvidence(ctx context.Context, timer *time.Ticker, retries map[int]int, index int, status string, err error) (bool, error) {
-	if !errors.Is(err, errECITerminalEvidencePending) || !consumeTerminalEvidenceRetry(retries, index) {
-		return false, nil
-	}
-	select {
-	case <-ctx.Done():
-		return true, remoteCloudShardPendingError(status, ctx.Err())
-	case <-timer.C:
-		return true, nil
-	}
-}
-
 // updateTerminalTimingWarningRetries 重试 SQLite busy 的终态告警写入并清理已收敛分片。
 func updateTerminalTimingWarningRetries(
 	observed []pendingRemoteShard,
@@ -449,62 +436,6 @@ func (coordinator *Coordinator) collectTerminalShardReports(
 	_ = workers.Wait()
 }
 
-// bindTerminalShardWithRetry 绑定终态证据；仅对字段最终一致性窗口重读，其他错误立即返回。
-func (coordinator *Coordinator) bindTerminalShardWithRetry(ctx context.Context, shard gate.ContainerShard, groupID string, group eci.ContainerGroup, expectedDigest string, result *ShardResult, timer *time.Ticker, retries map[int]int) error {
-	for {
-		err := coordinator.bindTerminalShardResult(ctx, shard, groupID, group, expectedDigest, result)
-		if err == nil {
-			return nil
-		}
-		retry, retryErr := retryTerminalEvidence(ctx, timer, retries, 0, result.ContainerStatus, err)
-		if retryErr != nil {
-			return retryErr
-		}
-		if !retry {
-			return err
-		}
-	}
-}
-
-// waitShard 保留单分片观察入口，供定点诊断和契约测试使用。
-func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.ContainerShard, groupID string, expectedAgentTokenDigest ...string) (ShardResult, error) {
-	var expectedDigest string
-	if len(expectedAgentTokenDigest) > 1 {
-		return ShardResult{}, errors.New("remote CI shard accepts at most one expected agent token digest")
-	}
-	if len(expectedAgentTokenDigest) == 1 {
-		expectedDigest = expectedAgentTokenDigest[0]
-	}
-	result := ShardResult{
-		ShardIdentity: shard.IdentityDigest, ContainerGroup: groupID,
-		ExecutedWorkloads: slices.Clone(shard.GateIDs),
-	}
-	terminalEvidenceRetries := make(map[int]int, 1)
-	timer := time.NewTicker(coordinator.config.PollInterval)
-	defer timer.Stop()
-	for {
-		group, err := coordinator.observeShardStatus(ctx, groupID, result.ContainerStatus)
-		if err != nil {
-			return result, remoteShardExecutionError(shard, err)
-		}
-		result.ContainerStatus = group.Status
-		if err := bindObservedECIShardResources(&result, group); err != nil {
-			return result, remoteShardExecutionError(shard, err)
-		}
-		if terminalECIStatus(result.ContainerStatus) {
-			if err := coordinator.bindTerminalShardWithRetry(ctx, shard, groupID, group, expectedDigest, &result, timer, terminalEvidenceRetries); err != nil {
-				return result, err
-			}
-			return result, nil
-		}
-		select {
-		case <-ctx.Done():
-			return result, remoteCloudShardPendingError(result.ContainerStatus, ctx.Err())
-		case <-timer.C:
-		}
-	}
-}
-
 // bindObservedECIShardResources 记录 Describe 返回的实际规格；缺失的一半规格不允许伪造完整 identity。
 func bindObservedECIShardResources(result *ShardResult, group eci.ContainerGroup) error {
 	if (group.CPU == 0) != (group.MemoryGiB == 0) || group.CPU < 0 || group.MemoryGiB < 0 {
@@ -514,45 +445,6 @@ func bindObservedECIShardResources(result *ShardResult, group eci.ContainerGroup
 		return nil
 	}
 	result.Resources = eci.Resources{CPU: group.CPU, MemoryGiB: group.MemoryGiB}
-	return nil
-}
-
-// bindTerminalShardResult 绑定终态报告、材料化耗时与诊断；任一缺失或不匹配都会立即阻断该分片。
-func (coordinator *Coordinator) bindTerminalShardResult(
-	ctx context.Context,
-	shard gate.ContainerShard,
-	groupID string,
-	group eci.ContainerGroup,
-	expectedAgentTokenDigest string,
-	result *ShardResult,
-) error {
-	if err := bindObservedECIShardTiming(result, group); err != nil {
-		return remoteShardExecutionError(shard, err)
-	}
-	terminalEvidence, err := remoteECITerminalEvidence(group)
-	if err != nil {
-		return remoteShardExecutionError(shard, fmt.Errorf("collect ECI terminal evidence: %w", err))
-	}
-	result.TerminalEvidence = terminalEvidence
-	report, workerLog, err := coordinator.observeShardReport(ctx, shard, groupID, group, expectedAgentTokenDigest)
-	if err != nil {
-		return remoteShardExecutionError(shard, err)
-	}
-	result.Report = report
-	materializerLog, err := coordinator.runtime.DescribeContainerLog(ctx, groupID, "materializer")
-	if err != nil {
-		return remoteShardExecutionError(shard, fmt.Errorf("describe remote CI materializer log: %w", err))
-	}
-	timing, err := decodeShardMaterializationTimingLog(materializerLog, shard.IdentityDigest)
-	if err != nil {
-		return remoteShardExecutionError(shard, fmt.Errorf("decode remote CI materializer timing: %w", err))
-	}
-	timing, err = bindShardCandidateCompileTimingLog(materializerLog, timing)
-	if err != nil {
-		return remoteShardExecutionError(shard, fmt.Errorf("decode remote CI candidate compile timing: %w", err))
-	}
-	result.MaterializationTiming = timing
-	result.workerDiagnostic = remoteShardLogTail(workerLog)
 	return nil
 }
 
@@ -661,15 +553,6 @@ func (coordinator *Coordinator) shardStatuses(ctx context.Context, groupIDs []st
 		return nil, errors.New("remote CI shard container group identity is missing")
 	}
 	return groups, nil
-}
-
-// shardStatus 读取并校验指定 ECI container group 的唯一身份与状态。
-func (coordinator *Coordinator) shardStatus(ctx context.Context, groupID string) (eci.ContainerGroup, error) {
-	groups, err := coordinator.shardStatuses(ctx, []string{groupID})
-	if err != nil {
-		return eci.ContainerGroup{}, err
-	}
-	return groups[0], nil
 }
 
 // shardReport 下载、解码并校验终态 worker 报告与原分片的一致性。

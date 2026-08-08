@@ -4,7 +4,6 @@ package oss
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,8 +14,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -30,7 +27,6 @@ const (
 var (
 	bucketPattern                  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 	profilePattern                 = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	objectNotFoundPattern          = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])(NoSuchKey|ObjectNotExist)(?:[^A-Za-z0-9]|$)`)
 	objectConflictPattern          = regexp.MustCompile(`(?i)(?:FileAlreadyExists|PreconditionFailed|(?:HTTP|status)[ :=]+(?:409|412)|\b(?:409|412)\b)`)
 	sensitiveQueryParameterPattern = regexp.MustCompile(`(?i)((?:AccessKeyId|AccessKeySecret|Signature|SecurityToken)=)[^&#\s"'<>]+`)
 )
@@ -42,11 +38,6 @@ type Config struct {
 	Endpoint string
 	Profile  string
 	Prefix   string
-}
-
-// Metadata 是 OSS 对象的最小只读元数据。
-type Metadata struct {
-	ETag string
 }
 
 // CommandRunner 执行一个命令；stderr 必须与 stdout 分开返回。
@@ -107,74 +98,6 @@ func (c *client) Create(ctx context.Context, localPath string, key string) error
 	return c.copy(ctx, "create", localPath, objectURL, "--meta", "x-oss-forbid-overwrite:true")
 }
 
-// UploadDirectory 用单个 OSS 进程并行上传目录中的全部普通文件。
-func (c *client) UploadDirectory(
-	ctx context.Context,
-	localPath string,
-	prefix string,
-	jobs int,
-) (returnErr error) {
-	if jobs <= 0 || jobs > 10000 {
-		return errors.New("oss upload directory jobs must be between 1 and 10000")
-	}
-	if err := validateUploadDirectorySource(localPath); err != nil {
-		return err
-	}
-	prefixURL, err := c.prefixURL(prefix)
-	if err != nil {
-		return err
-	}
-	checkpointRoot, err := os.MkdirTemp("", "super-dolphin-oss-checkpoint-*")
-	if err != nil {
-		return fmt.Errorf("create OSS checkpoint root: %w", err)
-	}
-	defer func() {
-		returnErr = errors.Join(returnErr, os.RemoveAll(checkpointRoot))
-	}()
-	source := filepath.Clean(localPath) + string(filepath.Separator)
-	_, returnErr = c.run(
-		ctx,
-		"upload directory",
-		"oss",
-		"cp",
-		source,
-		prefixURL,
-		"--recursive",
-		"--force",
-		"--disable-ignore-error",
-		"--disable-dir-object",
-		"--disable-all-symlink",
-		"--jobs",
-		strconv.Itoa(jobs),
-		"--checkpoint-dir",
-		filepath.Join(checkpointRoot, "checkpoint"),
-	)
-	return returnErr
-}
-
-func validateUploadDirectorySource(localPath string) error {
-	info, err := os.Lstat(localPath)
-	if err != nil {
-		return fmt.Errorf("inspect OSS upload directory: %w", err)
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("oss upload directory source must be a real directory")
-	}
-	entries, err := os.ReadDir(localPath)
-	if err != nil {
-		return fmt.Errorf("read OSS upload directory: %w", err)
-	}
-	if len(entries) == 0 {
-		return errors.New("oss upload directory must contain at least one file")
-	}
-	for _, entry := range entries {
-		if !entry.Type().IsRegular() {
-			return fmt.Errorf("oss upload directory entry %q is not a regular file", entry.Name())
-		}
-	}
-	return nil
-}
-
 // Download 将已限定前缀内的对象下载到本地文件路径。
 func (c *client) Download(ctx context.Context, key string, localPath string) error {
 	if strings.TrimSpace(localPath) == "" {
@@ -187,102 +110,6 @@ func (c *client) Download(ctx context.Context, key string, localPath string) err
 	return c.copy(ctx, "download", objectURL, localPath)
 }
 
-// DownloadIfExists 下载对象；只有 OSS 的精确不存在错误被转换为 cache miss。
-func (c *client) DownloadIfExists(ctx context.Context, key string, localPath string) (bool, error) {
-	err := c.Download(ctx, key, localPath)
-	if err == nil {
-		return true, nil
-	}
-	if objectNotFoundPattern.MatchString(err.Error()) {
-		return false, nil
-	}
-	return false, err
-}
-
-// List 返回受限子前缀内的全部对象 key；短格式之外的输出一律拒绝。
-func (c *client) List(ctx context.Context, prefix string) ([]string, error) {
-	prefixURL, err := c.prefixURL(prefix)
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := c.run(ctx, "list", "oss", "ls", prefixURL, "--short-format", "--encoding-type", "url")
-	if err != nil {
-		return nil, err
-	}
-	return parseListOutput(stdout, c.config.Bucket, prefix)
-}
-
-// parseListOutput 严格解析 OSS 短格式列表并拒绝越界或重复对象。
-func parseListOutput(stdout []byte, bucket string, prefix string) ([]string, error) {
-	const maxListingBytes = 64 << 20
-	if len(stdout) > maxListingBytes {
-		return nil, errors.New("oss list response exceeds size limit")
-	}
-	objectPrefix := "oss://" + bucket + "/"
-	seen := make(map[string]struct{})
-	var keys []string
-	for rawLine := range strings.SplitSeq(string(stdout), "\n") {
-		key, skip, err := parseListLine(rawLine, objectPrefix, prefix)
-		if err != nil {
-			return nil, err
-		}
-		if skip {
-			continue
-		}
-		if _, duplicate := seen[key]; duplicate {
-			return nil, fmt.Errorf("oss list returned duplicate object key %q", key)
-		}
-		seen[key] = struct{}{}
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys, nil
-}
-
-func parseListLine(rawLine string, objectPrefix string, prefix string) (string, bool, error) {
-	line := strings.TrimSpace(rawLine)
-	if isListSummaryLine(line) {
-		return "", true, nil
-	}
-	if !strings.HasPrefix(line, objectPrefix) {
-		return "", false, fmt.Errorf("oss list returned an unsupported line %q", line)
-	}
-	key, err := url.PathUnescape(strings.TrimPrefix(line, objectPrefix))
-	if err != nil {
-		return "", false, errors.New("oss list returned an invalid object key")
-	}
-	if err := validateKey(prefix, key); err != nil {
-		return "", false, errors.New("oss list returned an invalid object key")
-	}
-	return key, false, nil
-}
-
-func isListSummaryLine(line string) bool {
-	return line == "" || strings.HasPrefix(line, "Object Number is:") || strings.HasSuffix(line, " elapsed")
-}
-
-// Metadata 读取对象 metadata 并返回 ETag。
-func (c *client) Metadata(ctx context.Context, key string) (Metadata, error) {
-	objectURL, err := c.objectURL(key)
-	if err != nil {
-		return Metadata{}, err
-	}
-	stdout, err := c.run(ctx, "stat", "oss", "stat", objectURL)
-	if err != nil {
-		return Metadata{}, err
-	}
-	var payload struct {
-		ETag string `json:"ETag"`
-	}
-	if err := json.Unmarshal(stdout, &payload); err != nil {
-		return Metadata{}, fmt.Errorf("decode oss metadata: %w", err)
-	}
-	if strings.TrimSpace(payload.ETag) == "" {
-		return Metadata{}, errors.New("oss metadata response has no ETag")
-	}
-	return Metadata{ETag: payload.ETag}, nil
-}
-
 // Delete 删除已限定前缀内的对象。
 func (c *client) Delete(ctx context.Context, key string) error {
 	objectURL, err := c.objectURL(key)
@@ -290,16 +117,6 @@ func (c *client) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	_, err = c.run(ctx, "delete", "oss", "rm", objectURL)
-	return err
-}
-
-// EnsurePrefix 创建 OSSFS 挂载空子目录所需的目录标记。
-func (c *client) EnsurePrefix(ctx context.Context, prefix string) error {
-	prefixURL, err := c.prefixURL(prefix)
-	if err != nil {
-		return err
-	}
-	_, err = c.run(ctx, "create prefix", "oss", "mkdir", prefixURL)
 	return err
 }
 

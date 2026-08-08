@@ -12,18 +12,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-// remoteWorkloadFingerprints 在同一 accepted source snapshot 上一次性计算
-// selector correctness input 与 selector-independent compile input。
-func remoteWorkloadFingerprints(
-	ctx context.Context,
-	repositoryRoot string,
-	tree string,
-	workloads []gate.Workload,
-) (map[string]string, map[string]gate.CompileGroupInput, error) {
-	inputDigests, compileInputs, _, err := remoteWorkloadFingerprintsWithSnapshot(ctx, repositoryRoot, tree, workloads)
-	return inputDigests, compileInputs, err
-}
-
 // remoteWorkloadFingerprintsWithSnapshot 保留首次 Prepare 的 exact-tree
 // snapshot；closure 只在确认 MISS 后按需捕获，all-hit 不承担迁移材料成本。
 func remoteWorkloadFingerprintsWithSnapshot(
@@ -41,51 +29,6 @@ func remoteWorkloadFingerprintsWithSnapshot(
 		return nil, nil, nil, err
 	}
 	return inputDigests, compileInputs, snapshot, nil
-}
-
-// remoteWorkloadFingerprintsWithClosures 与 Prepare 共享同一 snapshot；闭包
-// 只作为进程内迁移优化材料返回，不改变 workload digest 或 compile identity。
-func remoteWorkloadFingerprintsWithClosures(
-	ctx context.Context,
-	repositoryRoot string,
-	tree string,
-	workloads []gate.Workload,
-) (map[string]string, map[string]gate.CompileGroupInput, *remoteGitTreeSnapshot, map[string][]remoteGitTreeEntry, error) {
-	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, tree)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	inputDigests, compileInputs, closures, err := snapshot.remoteWorkloadFingerprintsWithClosures(ctx, workloads)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	return inputDigests, compileInputs, snapshot, closures, nil
-}
-
-func (snapshot *remoteGitTreeSnapshot) remoteWorkloadFingerprintsWithClosures(
-	ctx context.Context,
-	workloads []gate.Workload,
-) (map[string]string, map[string]gate.CompileGroupInput, map[string][]remoteGitTreeEntry, error) {
-	inputDigests := make(map[string]string, len(workloads))
-	compileInputs := make(map[string]gate.CompileGroupInput)
-	closures := make(map[string][]remoteGitTreeEntry, len(workloads))
-	profileDigests := make(map[bool]string, 2)
-	for _, workload := range workloads {
-		inputDigest, closure, err := snapshot.workloadInputDigestWithClosure(ctx, workload)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("fingerprint workload %q: %w", workload.ID, err)
-		}
-		inputDigests[workload.ID] = inputDigest
-		closures[workload.ID] = closure
-		compileInput, ok, err := snapshot.compileGroupInputForWorkload(ctx, workload, profileDigests)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("fingerprint compile input for workload %q: %w", workload.ID, err)
-		}
-		if ok {
-			compileInputs[workload.ID] = compileInput
-		}
-	}
-	return inputDigests, compileInputs, closures, nil
 }
 
 func (snapshot *remoteGitTreeSnapshot) remoteWorkloadFingerprints(

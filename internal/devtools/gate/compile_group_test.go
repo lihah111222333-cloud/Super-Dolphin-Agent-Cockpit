@@ -152,16 +152,15 @@ func TestCompileGroupBatchWaveRejectsGapsAndNonZeroStart(t *testing.T) {
 }
 
 func TestCompileGroupResourceClassIsExplicit(t *testing.T) {
-	for class, want := range map[string]int{"small": 2, "medium": 4, "maximum": 8, "calibration": 4} {
-		got, err := compileGroupResourceVCPUs(class)
-		if err != nil || got != want {
-			t.Fatalf("compileGroupResourceVCPUs(%q) = %d, %v; want %d", class, got, err, want)
+	for _, class := range []string{"small", "medium", "maximum", "calibration"} {
+		if err := validateCompileGroupResourceClass(class); err != nil {
+			t.Fatalf("validateCompileGroupResourceClass(%q) = %v", class, err)
+		}
+		if got, err := compileGroupBatchCapacity("./internal/example", class, 3); err != nil || got != 3 {
+			t.Fatalf("compileGroupBatchCapacity(%q) = %d, %v; want selector-driven capacity 3", class, got, err)
 		}
 	}
 	for _, class := range []string{"", "normal-medium", "future"} {
-		if _, err := compileGroupResourceVCPUs(class); err == nil {
-			t.Fatalf("unknown compile group resource class %q was accepted", class)
-		}
 		if err := validateCompileGroupResourceClass(class); err == nil {
 			t.Fatalf("unknown compile group resource class %q passed identity validation", class)
 		}

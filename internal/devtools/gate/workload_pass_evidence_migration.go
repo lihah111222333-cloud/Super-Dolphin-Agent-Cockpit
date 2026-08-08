@@ -17,6 +17,10 @@ import (
 // workloadPassEvidenceMigrationBatchSize 限制每次索引历史探测的规模；大目录拆分为只读批次。
 const workloadPassEvidenceMigrationBatchSize = 1024
 
+const workloadPassEvidenceAliasSourceSelect = `SELECT source_identity_digest, source_accepted_generation
+	FROM ci_workload_pass_evidence_aliases
+	WHERE alias_identity_digest = ? AND alias_accepted_generation = ?`
+
 // WorkloadPassEvidenceMigration 将来源行绑定到严格重算的当前身份别名；来源仍是 origin 校验权威。
 type WorkloadPassEvidenceMigration struct {
 	Source    WorkloadPassEvidence
@@ -109,14 +113,26 @@ func persistMigratedWorkloadPassEvidenceAlias(tx *sql.Tx, source, projected Work
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO ci_workload_pass_evidence_aliases (alias_identity_digest, alias_accepted_generation, source_identity_digest, source_accepted_generation) VALUES (?, ?, ?, ?)`, projected.Identity.IdentityDigest, strconv.FormatUint(projected.OriginAcceptedGeneration, 10), source.Identity.IdentityDigest, strconv.FormatUint(source.OriginAcceptedGeneration, 10)); err != nil {
 		return mapDurationLedgerSQLiteError("insert migrated workload pass evidence alias", err)
 	}
-	var storedSourceIdentity, storedSourceGeneration string
-	if err := tx.QueryRow(`SELECT source_identity_digest, source_accepted_generation FROM ci_workload_pass_evidence_aliases WHERE alias_identity_digest = ? AND alias_accepted_generation = ?`, projected.Identity.IdentityDigest, strconv.FormatUint(projected.OriginAcceptedGeneration, 10)).Scan(&storedSourceIdentity, &storedSourceGeneration); err != nil {
+	storedSourceIdentity, storedSourceGeneration, err := loadWorkloadPassEvidenceAliasRelation(tx, projected.Identity.IdentityDigest, projected.OriginAcceptedGeneration)
+	if err != nil {
 		return mapDurationLedgerSQLiteError("reload migrated workload pass evidence alias", err)
 	}
 	if storedSourceIdentity != source.Identity.IdentityDigest || storedSourceGeneration != strconv.FormatUint(source.OriginAcceptedGeneration, 10) {
 		return errors.New("migrated evidence alias conflicts with persisted relation")
 	}
 	return nil
+}
+
+// loadWorkloadPassEvidenceAliasRelation 是 alias source SELECT 的唯一 SQL owner；调用方
+// 保留各自的 ErrNoRows/错误上下文语义。
+func loadWorkloadPassEvidenceAliasRelation(tx *sql.Tx, aliasIdentityDigest string, aliasGeneration uint64) (string, string, error) {
+	var sourceIdentityDigest, sourceGeneration string
+	err := tx.QueryRow(
+		workloadPassEvidenceAliasSourceSelect,
+		aliasIdentityDigest,
+		strconv.FormatUint(aliasGeneration, 10),
+	).Scan(&sourceIdentityDigest, &sourceGeneration)
+	return sourceIdentityDigest, sourceGeneration, err
 }
 
 // validateMigratedWorkloadPassEvidencePair 证明投影仅改变重算的 identity/input 与 evidence 摘要；执行、环境和 origin 绑定逐字节保持一致。
@@ -239,7 +255,7 @@ func loadWorkloadPassEvidenceMigrationCandidates(
 	identities []WorkloadPassIdentity,
 	requested map[string]WorkloadPassIdentity,
 ) ([]WorkloadPassEvidence, error) {
-	currentGeneration, err := loadCurrentAcceptedGenerationForWorkloadEvidence(tx)
+	currentGeneration, err := currentAcceptedBaselineGeneration(tx)
 	if err != nil {
 		return nil, err
 	}

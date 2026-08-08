@@ -665,15 +665,12 @@ done
 
 production_e2e="$repo_root/scripts/tests/test_gate_hook_production_e2e.sh"
 [[ -x "$production_e2e" ]] || fail "production hook E2E driver is not executable"
-# These assertions match literal shell source.
-# shellcheck disable=SC2016
-grep -Fq 'git -C "$git_e2e_worktree/nested" commit' "$production_e2e" || fail "production E2E does not invoke Git commit"
-# shellcheck disable=SC2016
-grep -Fq 'git -C "$git_e2e_worktree/nested" push "$git_e2e_remote_name"' "$production_e2e" || fail "production E2E does not invoke Git push"
-# shellcheck disable=SC2016
-grep -Fq 'branch -D "$branch"' "$production_e2e" || fail "production E2E leaks its temporary branch"
-# shellcheck disable=SC2016
-grep -Fq 'remote remove "$remote_name"' "$production_e2e" || fail "production E2E leaks its temporary remote"
+# The retired top-level git mode and its old hook/status evidence must stay absent.
+if grep -Eq '^[[:space:]]*git\)[[:space:]]|hook pre-commit|gate hook passed:|source_tree=|status --job|wait --job' "$production_e2e"; then
+  fail "production hook E2E contains retired git-mode or stale hook evidence"
+fi
+grep -Fq '_cleanup-contract)' "$production_e2e" || fail "production hook E2E lost the cleanup contract mode"
+grep -Fq 'run_cleanup_contract' "$production_e2e" || fail "production hook E2E lost the cleanup contract implementation"
 if grep -Eq 'fake|mock|recordingHookCoordinator|provision production' "$production_e2e"; then
   fail "production hook E2E contains a fixture or provisioning bypass"
 fi

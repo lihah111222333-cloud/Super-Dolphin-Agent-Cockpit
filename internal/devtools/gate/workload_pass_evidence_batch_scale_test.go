@@ -28,7 +28,7 @@ func TestWorkloadPassEvidenceBatchLookupSharesOriginValidationAtScale(t *testing
 		t.Fatal(err)
 	}
 	defer transaction.Rollback()
-	currentGeneration, err := loadCurrentAcceptedGenerationForWorkloadEvidence(transaction)
+	currentGeneration, err := currentAcceptedBaselineGeneration(transaction)
 	if err != nil {
 		t.Fatal(err)
 	}

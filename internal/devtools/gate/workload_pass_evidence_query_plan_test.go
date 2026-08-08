@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -49,9 +50,8 @@ func TestLookupWorkloadPassEvidenceInitializesMissingAuthorityButRejectsMissingB
 		EnvironmentDigest: digestForWorkloadPass("missing-authority-environment"),
 	}
 	identity.IdentityDigest = workloadPassIdentityDigest(t, identity)
-	if _, err := store.LookupWorkloadPassEvidence([]WorkloadPassIdentity{identity}); !errors.Is(err, ErrRemoteBaselineStateNotFound) {
-		t.Fatalf("LookupWorkloadPassEvidence() error = %v, want ErrRemoteBaselineStateNotFound", err)
-	}
+	_, err = store.LookupWorkloadPassEvidence([]WorkloadPassIdentity{identity})
+	assertMissingWorkloadPassBaselineError(t, err)
 	if info, err := os.Stat(path); err != nil {
 		t.Fatalf("missing authority path was not initialized: %v", err)
 	} else if info.IsDir() {
@@ -74,5 +74,15 @@ func TestLookupWorkloadPassEvidenceInitializesMissingAuthorityButRejectsMissingB
 	}
 	if baselines != 0 {
 		t.Fatalf("missing-baseline lookup created %d accepted baseline rows", baselines)
+	}
+}
+
+func assertMissingWorkloadPassBaselineError(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrRemoteBaselineStateNotFound) {
+		t.Fatalf("LookupWorkloadPassEvidence() error = %v, want ErrRemoteBaselineStateNotFound", err)
+	}
+	if !strings.Contains(err.Error(), "load workload evidence accepted baseline generation") {
+		t.Fatalf("LookupWorkloadPassEvidence() error = %v, want workload evidence context", err)
 	}
 }

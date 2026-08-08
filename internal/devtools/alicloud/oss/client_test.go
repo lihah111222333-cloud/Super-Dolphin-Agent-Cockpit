@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -25,12 +23,6 @@ type fakeRunner struct {
 	errors         []error
 	mutateArgs     bool
 	checkpointDirs []string
-}
-
-type concurrentCheckpointRunner struct {
-	mu    sync.Mutex
-	dirs  []string
-	ready chan struct{}
 }
 
 func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, []byte, error) {
@@ -52,24 +44,8 @@ func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	return r.stdout, r.stderr, r.err
 }
 
-func (r *concurrentCheckpointRunner) Run(ctx context.Context, _ string, args ...string) ([]byte, []byte, error) {
-	directory := checkpointDirectoryArgument(args)
-	r.mu.Lock()
-	r.dirs = append(r.dirs, directory)
-	if len(r.dirs) == 2 {
-		close(r.ready)
-	}
-	r.mu.Unlock()
-	select {
-	case <-ctx.Done():
-		return nil, nil, ctx.Err()
-	case <-r.ready:
-		return nil, nil, nil
-	}
-}
-
-func TestClient_TransfersAndMetadata(t *testing.T) {
-	runner := &fakeRunner{stdout: []byte(`{"ETag":"\"abc123\""}`)}
+func TestClient_TransportCreateDownloadDelete(t *testing.T) {
+	runner := &fakeRunner{}
 	client := newTestClient(t, runner)
 	ctx := context.Background()
 
@@ -79,18 +55,8 @@ func TestClient_TransfersAndMetadata(t *testing.T) {
 	if err := client.Download(ctx, "source-bundles/input.tar", "/tmp/output.tar"); err != nil {
 		t.Fatalf("Download() error = %v", err)
 	}
-	metadata, err := client.Metadata(ctx, "source-bundles/input.tar")
-	if err != nil {
-		t.Fatalf("Metadata() error = %v", err)
-	}
-	if metadata.ETag != `"abc123"` {
-		t.Fatalf("Metadata().ETag = %q, want %q", metadata.ETag, `"abc123"`)
-	}
 	if err := client.Delete(ctx, "source-bundles/input.tar"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
-	}
-	if err := client.EnsurePrefix(ctx, "source-bundles/generation-1/output/"); err != nil {
-		t.Fatalf("EnsurePrefix() error = %v", err)
 	}
 	if err := client.DeletePrefix(ctx, "source-bundles/generation-1/"); err != nil {
 		t.Fatalf("DeletePrefix() error = %v", err)
@@ -99,73 +65,9 @@ func TestClient_TransfersAndMetadata(t *testing.T) {
 	want := []runCall{
 		{name: "aliyun", args: []string{"oss", "cp", "/tmp/input.tar", "oss://ci-bucket/source-bundles/input.tar", "--meta", "x-oss-forbid-overwrite:true", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 		{name: "aliyun", args: []string{"oss", "cp", "oss://ci-bucket/source-bundles/input.tar", "/tmp/output.tar", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
-		{name: "aliyun", args: []string{"oss", "stat", "oss://ci-bucket/source-bundles/input.tar", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 		{name: "aliyun", args: []string{"oss", "rm", "oss://ci-bucket/source-bundles/input.tar", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
-		{name: "aliyun", args: []string{"oss", "mkdir", "oss://ci-bucket/source-bundles/generation-1/output/", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 		{name: "aliyun", args: []string{"oss", "rm", "oss://ci-bucket/source-bundles/generation-1/", "--recursive", "--force", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 	}
-	if !reflect.DeepEqual(runner.calls, want) {
-		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
-	}
-	assertIsolatedCheckpointDirectories(t, runner.checkpointDirs)
-	assertCheckpointDirectoriesClean(t, runner.checkpointDirs)
-}
-
-func TestClient_ConcurrentCopiesUseIsolatedCheckpointDirectories(t *testing.T) {
-	runner := &concurrentCheckpointRunner{ready: make(chan struct{})}
-	client := newTestClient(t, runner)
-	results := make(chan error, 2)
-	var workers sync.WaitGroup
-	for _, destination := range []string{"/tmp/first.pass", "/tmp/second.pass"} {
-		workers.Go(func() {
-			_, err := client.DownloadIfExists(
-				context.Background(), "source-bundles/input.tar", destination,
-			)
-			results <- err
-		})
-	}
-	workers.Wait()
-	close(results)
-	for range 2 {
-		if err := <-results; err != nil {
-			t.Fatal(err)
-		}
-	}
-	runner.mu.Lock()
-	directories := append([]string(nil), runner.dirs...)
-	runner.mu.Unlock()
-	assertIsolatedCheckpointDirectories(t, directories)
-	assertCheckpointDirectoriesClean(t, directories)
-}
-
-func TestClient_UploadDirectoryUsesOneFailFastRecursiveCommand(t *testing.T) {
-	runner := &fakeRunner{}
-	client := newTestClient(t, runner)
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "first.pass"), []byte("first"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(source, "second.pass"), []byte("second"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := client.UploadDirectory(
-		context.Background(),
-		source,
-		"source-bundles/passed-workloads/environment/",
-		2,
-	); err != nil {
-		t.Fatalf("UploadDirectory() error = %v", err)
-	}
-	want := []runCall{{
-		name: "aliyun",
-		args: []string{
-			"oss", "cp", filepath.Clean(source) + string(filepath.Separator),
-			"oss://ci-bucket/source-bundles/passed-workloads/environment/",
-			"--recursive", "--force", "--disable-ignore-error", "--disable-dir-object",
-			"--disable-all-symlink", "--jobs", "2", "--checkpoint-dir", "<checkpoint-dir>",
-			"--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
-		},
-	}}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
 	}
@@ -189,19 +91,6 @@ func assertCheckpointDirectoriesClean(t *testing.T, directories []string) {
 		if _, err := os.Stat(directory); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("checkpoint directory %q was not cleaned: %v", directory, err)
 		}
-	}
-}
-
-func assertIsolatedCheckpointDirectories(t *testing.T, directories []string) {
-	t.Helper()
-	if len(directories) != 2 {
-		t.Fatalf("checkpoint directories = %v, want two paths", directories)
-	}
-	if directories[0] == "" || directories[1] == "" {
-		t.Fatalf("checkpoint directories = %v, want non-empty paths", directories)
-	}
-	if directories[0] == directories[1] {
-		t.Fatalf("checkpoint directories = %v, want isolated paths", directories)
 	}
 }
 
@@ -230,9 +119,6 @@ func TestClient_RejectsEscapingOrOutOfPrefixKeys(t *testing.T) {
 		"results/generation-1/",
 	} {
 		t.Run("prefix "+prefix, func(t *testing.T) {
-			if err := client.EnsurePrefix(context.Background(), prefix); err == nil {
-				t.Fatalf("EnsurePrefix(%q) error = nil", prefix)
-			}
 			if err := client.DeletePrefix(context.Background(), prefix); err == nil {
 				t.Fatalf("DeletePrefix(%q) error = nil", prefix)
 			}
@@ -290,88 +176,6 @@ func TestClient_CommandFailureIncludesStderr(t *testing.T) {
 	}
 	if commandErr.Stderr != "AccessDenied: forbidden" {
 		t.Fatalf("CommandError.Stderr = %q", commandErr.Stderr)
-	}
-}
-
-func TestClient_DownloadIfExistsOnlyAcceptsExactObjectMiss(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		stderr  string
-		present bool
-		wantErr bool
-	}{
-		{name: "present", present: true},
-		{name: "NoSuchKey", stderr: "ErrorCode=NoSuchKey", present: false},
-		{name: "ObjectNotExist", stderr: "Code: ObjectNotExist", present: false},
-		{name: "access denied", stderr: "AccessDenied: forbidden", wantErr: true},
-		{name: "transport", stderr: "connection reset by peer", wantErr: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			runner := &fakeRunner{}
-			if test.stderr != "" {
-				runner.stderr = []byte(test.stderr)
-				runner.err = errors.New("exit status 1")
-			}
-			client := newTestClient(t, runner)
-			client.wait = func(context.Context, time.Duration) error { return nil }
-			present, err := client.DownloadIfExists(
-				context.Background(),
-				"source-bundles/cache.report",
-				"/tmp/cache.report",
-			)
-			if present != test.present || (err != nil) != test.wantErr {
-				t.Fatalf("DownloadIfExists() = (%t, %v), want present=%t error=%t", present, err, test.present, test.wantErr)
-			}
-		})
-	}
-}
-
-func TestClient_ListParsesShortFormatKeys(t *testing.T) {
-	runner := &fakeRunner{stdout: []byte(strings.Join([]string{
-		"oss://ci-bucket/source-bundles/passed/b.pass",
-		"oss://ci-bucket/source-bundles/passed/a.pass",
-		"Object Number is: 2",
-		"",
-		"0.123(s) elapsed",
-	}, "\n"))}
-	client := newTestClient(t, runner)
-	keys, err := client.List(context.Background(), "source-bundles/passed/")
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
-	want := []string{
-		"source-bundles/passed/a.pass",
-		"source-bundles/passed/b.pass",
-	}
-	if !reflect.DeepEqual(keys, want) {
-		t.Fatalf("List() = %v, want %v", keys, want)
-	}
-	wantArgs := []string{
-		"oss", "ls", "oss://ci-bucket/source-bundles/passed/",
-		"--short-format", "--encoding-type", "url",
-		"--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
-	}
-	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].args, wantArgs) {
-		t.Fatalf("List() calls = %#v", runner.calls)
-	}
-}
-
-func TestClient_ListRejectsUnexpectedOutput(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		stdout string
-	}{
-		{name: "unexpected line", stdout: "warning: output format changed\n"},
-		{name: "duplicate key", stdout: "oss://ci-bucket/source-bundles/passed/a.pass\noss://ci-bucket/source-bundles/passed/a.pass\n"},
-		{name: "invalid escape", stdout: "oss://ci-bucket/source-bundles/passed/%zz\n"},
-		{name: "decoded path escapes prefix", stdout: "oss://ci-bucket/source-bundles/passed/%2e%2e/other.pass\n"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			runner := &fakeRunner{stdout: []byte(test.stdout)}
-			if _, err := newTestClient(t, runner).List(context.Background(), "source-bundles/passed/"); err == nil {
-				t.Fatal("List() error = nil")
-			}
-		})
 	}
 }
 

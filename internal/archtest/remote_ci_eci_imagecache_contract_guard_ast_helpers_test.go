@@ -59,6 +59,7 @@ func remoteCIContractConsumerFiles(t *testing.T, root string) []string {
 			"cmd/super-dolphin-gate",
 			"internal/devtools/gate",
 			"internal/devtools/remoteci",
+			"internal/devtools/alicloud/oss",
 		}) {
 			continue
 		}
@@ -109,6 +110,7 @@ func loadRemoteCIProductionSnapshot(t *testing.T, root string) *remoteCIProducti
 			"cmd/super-dolphin-gate",
 			"internal/devtools/remoteci",
 			"internal/devtools/alicloud/eci",
+			"internal/devtools/alicloud/oss",
 			"internal/devtools/gate",
 		} {
 			if err := appendProductionSourceRoot(absoluteRoot, scanRoot, DefaultSkipDirs(), &files); err != nil {
@@ -211,6 +213,7 @@ func newRemoteCIProductionSnapshotFixture(t *testing.T) string {
 		"cmd/super-dolphin-gate",
 		"internal/devtools/remoteci",
 		"internal/devtools/alicloud/eci",
+		"internal/devtools/alicloud/oss",
 	} {
 		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(directory)), 0o755); err != nil {
 			t.Fatal(err)

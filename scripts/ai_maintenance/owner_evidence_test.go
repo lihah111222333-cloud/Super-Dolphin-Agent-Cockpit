@@ -237,6 +237,23 @@ COMMANDS_RUN:
 	}
 }
 
+func TestGateImageClosureEvidenceAcceptsActualRunnerAndRejectsRetiredAction(t *testing.T) {
+	plan := gatePlan{RequiredGates: []string{"gate-image-closure:check"}}
+	actual := evidenceDoc{CommandsRun: []evidenceCommand{{Cmd: "go run ./cmd/super-dolphin-gate closure check --tree deadbeef", Exit: intPointer(0)}}}
+	if problems := gateCommandProblems(actual, plan); len(problems) != 0 {
+		t.Fatalf("actual closure runner evidence rejected: %v", problems)
+	}
+
+	retired := evidenceDoc{CommandsRun: []evidenceCommand{{Cmd: "go run ./cmd/super-dolphin-gate verify-closure", Exit: intPointer(0)}}}
+	if problems := gateCommandProblems(retired, plan); len(problems) == 0 {
+		t.Fatal("retired verify-closure evidence was accepted")
+	}
+}
+
+func intPointer(value int) *int {
+	return &value
+}
+
 func TestValidateEvidenceAcceptsBlockedReportWithoutGreenEvidence(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
 	path := writeEvidence(t, `

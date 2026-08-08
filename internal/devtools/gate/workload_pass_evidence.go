@@ -310,9 +310,9 @@ func (store *DurationLedgerStore) LookupWorkloadPassEvidence(identities []Worklo
 		return nil, mapDurationLedgerSQLiteError("begin workload pass evidence lookup", err)
 	}
 	defer tx.Rollback()
-	currentGeneration, err := loadCurrentAcceptedGenerationForWorkloadEvidence(tx)
+	currentGeneration, err := currentAcceptedBaselineGeneration(tx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load workload evidence accepted baseline generation: %w", err)
 	}
 	result, err := loadWorkloadPassEvidenceForIdentities(tx, identities, currentGeneration)
 	if err != nil {
@@ -332,27 +332,6 @@ func validateWorkloadPassIdentities(identities []WorkloadPassIdentity) error {
 		}
 	}
 	return nil
-}
-
-// loadCurrentAcceptedGenerationForWorkloadEvidence 在同一只读事务内读取并验证 accepted 基线代。
-func loadCurrentAcceptedGenerationForWorkloadEvidence(tx *sql.Tx) (uint64, error) {
-	var schemaVersion uint32
-	var storedGeneration, stateJSON, stateSHA256 string
-	err := tx.QueryRow(`SELECT schema_version, generation, state_json, state_sha256 FROM ci_remote_baseline_state WHERE singleton = 1`).Scan(&schemaVersion, &storedGeneration, &stateJSON, &stateSHA256)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrRemoteBaselineStateNotFound
-	}
-	if err != nil {
-		return 0, mapDurationLedgerSQLiteError("load workload evidence accepted baseline generation", err)
-	}
-	current, parseErr := strconv.ParseUint(storedGeneration, 10, 64)
-	if parseErr != nil || current == 0 || storedGeneration != strconv.FormatUint(current, 10) || schemaVersion != 3 {
-		return 0, errors.New("accepted baseline generation authority is invalid")
-	}
-	if _, err := validateAcceptedBaselineStateProjection(stateJSON, stateSHA256, current); err != nil {
-		return 0, err
-	}
-	return current, nil
 }
 
 // retainedWorkloadPassGenerations 返回当前 accepted 代及最多两个连续前代的规范存储值。

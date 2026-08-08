@@ -218,18 +218,26 @@ func TestHasComparableSuccessfulDurationSampleRequiresSuccessAndExactEnvironment
 	}
 	context := testCalibrationPlanningContext()
 	context.AcceptedSnapshotID = "snapshot-test"
+	comparable := func(samples []DurationSample) bool {
+		t.Helper()
+		index, err := BuildDurationSampleIndex(DurationLedger{Version: durationLedgerVersion, Samples: samples}, context)
+		if err != nil {
+			t.Fatalf("BuildDurationSampleIndex() error = %v", err)
+		}
+		return index.HasComparableSuccessfulDurationSample(workload)
+	}
 	failed := testCalibrationDurationSample(workload.ID, workload.CommandDigest, false, 900)
-	if HasComparableSuccessfulDurationSample(workload, DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{failed}}, context) {
+	if comparable([]DurationSample{failed}) {
 		t.Fatal("failed duration sample was accepted as comparable success")
 	}
 	succeeded := failed
 	succeeded.Succeeded = true
 	succeeded.Bucket.Runner = "other-runner"
-	if HasComparableSuccessfulDurationSample(workload, DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{succeeded}}, context) {
+	if comparable([]DurationSample{succeeded}) {
 		t.Fatal("different runner duration sample was accepted as comparable success")
 	}
 	succeeded.Bucket.Runner = context.Runner
-	if !HasComparableSuccessfulDurationSample(workload, DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{succeeded}}, context) {
+	if !comparable([]DurationSample{succeeded}) {
 		t.Fatal("exact successful duration sample was not recognized")
 	}
 }

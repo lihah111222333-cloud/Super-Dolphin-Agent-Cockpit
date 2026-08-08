@@ -33,8 +33,6 @@ var ErrGateFailed = errors.New("remote CI gate execution failed")
 // never use it as an overwrite operation.
 type ObjectStore interface {
 	Create(context.Context, string, string) error
-	DownloadIfExists(context.Context, string, string) (bool, error)
-	List(context.Context, string) ([]string, error)
 	DeletePrefix(context.Context, string) error
 }
 

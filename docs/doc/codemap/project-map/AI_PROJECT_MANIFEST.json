@@ -5,10 +5,10 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4818,
+  "files": 4817,
   "domains": {
     "docs-agent": 96,
-    "other": 1292,
+    "other": 1291,
     "app-ui": 757,
     "platform-provider": 1287,
     "orchestration": 411,
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1292,
-        "size_kb": 259.7,
+        "file_count": 1291,
+        "size_kb": 259.6,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -75,7 +75,7 @@
     "cmd": 855,
     "docs": 88,
     "frontend-app": 749,
-    "internal": 2850,
+    "internal": 2849,
     "pkg": 30,
     "scripts": 186,
     "sql": 29,

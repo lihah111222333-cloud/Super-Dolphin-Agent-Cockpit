@@ -286,7 +286,7 @@ func remoteCIAuthorityWriterStatePaths(call *ast.CallExpr) []string {
 			continue
 		}
 		path := strings.ToLower(strings.Trim(literal.Value, "\""))
-		if remoteCIContainsAny(path, []string{".json", ".sqlite", ".db"}) {
+		if remoteCIContainsAny(path, []string{".json", ".sqlite", ".db", ".pass"}) {
 			paths = append(paths, path)
 		}
 	}

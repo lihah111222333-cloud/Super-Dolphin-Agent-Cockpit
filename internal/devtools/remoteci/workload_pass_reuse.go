@@ -172,7 +172,9 @@ func remoteWorkloadPassIdentityIndex(identities []gate.WorkloadPassIdentity) map
 	return wanted
 }
 
-// validateRemoteWorkloadPassEvidence 确认证据身份、执行结果及摘要均可审计。
+// validateRemoteWorkloadPassEvidence 只确认查询结果仍属于请求身份且没有重叠。
+// LookupWorkloadPassEvidence 已在同一 SQLite 事务内完成 evidence 的完整
+// Validate、来源 run、receipt、alias 与代际校验；这里不重复重算执行或摘要。
 func validateRemoteWorkloadPassEvidence(
 	evidence gate.WorkloadPassEvidence,
 	wanted map[string]gate.WorkloadPassIdentity,
@@ -186,30 +188,7 @@ func validateRemoteWorkloadPassEvidence(
 	if _, duplicate := reused[workloadID]; duplicate {
 		return fmt.Errorf("remote workload PASS evidence %q is duplicated", evidence.Identity.WorkloadID)
 	}
-	if err := validateRemoteWorkloadPassExecution(evidence); err != nil {
-		return err
-	}
-	expected, err := gate.WorkloadPassEvidenceSHA256(evidence)
-	if err != nil {
-		return err
-	}
-	if evidence.EvidenceSHA256 != expected {
-		return fmt.Errorf("remote workload PASS evidence %q digest mismatch", evidence.Identity.WorkloadID)
-	}
 	return nil
-}
-
-// validateRemoteWorkloadPassExecution 拒绝缺失终态或非 PASS 的原始 workload 执行。
-func validateRemoteWorkloadPassExecution(evidence gate.WorkloadPassEvidence) error {
-	execution := evidence.OriginExecution
-	if execution.GateID == evidence.Identity.WorkloadID &&
-		execution.Status == gate.ResultStatusPassed &&
-		execution.ExitCode == 0 &&
-		!execution.StartedAt.IsZero() &&
-		execution.CompletedAt.After(execution.StartedAt) {
-		return nil
-	}
-	return fmt.Errorf("remote workload PASS evidence %q execution is not an auditable PASS", evidence.Identity.WorkloadID)
 }
 
 // remoteWorkloadReusePreparation 保留本次复用决策与严格 miss 标识投影。

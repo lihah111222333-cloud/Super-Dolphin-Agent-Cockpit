@@ -85,36 +85,6 @@ func (store *coordinatorStore) lookupShardRequest(manifestDigest string) (ShardR
 	return request, ok
 }
 
-func (store *coordinatorStore) DownloadIfExists(ctx context.Context, key string, localPath string) (bool, error) {
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	store.mu.Lock()
-	data, ok := store.objects[key]
-	data = append([]byte(nil), data...)
-	store.mu.Unlock()
-	if !ok {
-		return false, nil
-	}
-	if err := os.WriteFile(localPath, data, 0o600); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func (store *coordinatorStore) List(_ context.Context, prefix string) ([]string, error) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	var keys []string
-	for key := range store.objects {
-		if strings.HasPrefix(key, prefix) {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
-	return keys, nil
-}
-
 func (store *coordinatorStore) DeletePrefix(_ context.Context, prefix string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -352,27 +322,6 @@ func TestCoordinatorRunCompletesAndCleansRemoteShards(t *testing.T) {
 	}
 	assertRemoteDurationSampleCoverage(t, result, plannedSet)
 	assertCoordinatorRunSideEffects(t, store, runtime, plannedSet)
-}
-
-func TestCoordinatorRunExecutesEveryPlannedWorkloadDespiteLegacyPassedWorkloadObject(t *testing.T) {
-	repository, input := remoteRunFixture(t)
-	store := &coordinatorStore{objects: map[string][]byte{
-		"baseline-artifacts/source-deltas/passed-workloads/v1/legacy.pass": []byte("PASS"),
-	}}
-	runtime := &coordinatorRuntime{}
-	coordinator := newTestCoordinator(t, store, runtime)
-	input.RepositoryRoot = repository
-	plannedSet := mustBuildAllMissRemoteExecutionShardSet(t, input)
-	result, err := coordinator.Run(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if result.Status != gate.ResultStatusPassed {
-		t.Fatalf("Run() status = %s, want %s", result.Status, gate.ResultStatusPassed)
-	}
-	if len(runtime.creates) != len(plannedSet.Shards) {
-		t.Fatalf("legacy passed object skipped ECI execution: creates=%d want=%d", len(runtime.creates), len(plannedSet.Shards))
-	}
 }
 
 func mustBuildAllMissRemoteExecutionShardSet(t *testing.T, input RunInput) gate.ContainerShardSet {

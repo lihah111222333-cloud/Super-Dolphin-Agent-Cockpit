@@ -27,11 +27,17 @@ func (runtime observationRuntime) DescribeContainerGroups(ctx context.Context, i
 		return nil, ctx.Err()
 	}
 	createdAt := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
-	return []eci.ContainerGroup{{
-		ID: ids[0], Status: runtime.status, CreationTime: createdAt, SucceededTime: createdAt.Add(time.Second),
-		InitContainers: []eci.ContainerStatus{{Name: "materializer", CurrentState: eci.ContainerState{StartTime: createdAt.Add(time.Millisecond)}}},
-		Containers:     []eci.ContainerStatus{{Name: "worker", CurrentState: eci.ContainerState{FinishTime: createdAt.Add(time.Second)}}},
-	}}, nil
+	groups := make([]eci.ContainerGroup, len(ids))
+	for index, id := range ids {
+		groups[index] = eci.ContainerGroup{
+			ID: id, Status: runtime.status, CreationTime: createdAt, SucceededTime: createdAt.Add(time.Second),
+			InitContainers: []eci.ContainerStatus{{Name: "materializer", CurrentState: eci.ContainerState{StartTime: createdAt.Add(time.Millisecond)}}},
+			Containers: []eci.ContainerStatus{{Name: "worker", CurrentState: eci.ContainerState{
+				StartTime: createdAt.Add(2 * time.Millisecond), FinishTime: createdAt.Add(time.Second),
+			}}},
+		}
+	}
+	return groups, nil
 }
 
 func (runtime observationRuntime) DescribeContainerLog(ctx context.Context, _ string, _ string) (string, error) {
@@ -46,36 +52,36 @@ func (observationRuntime) DeleteContainerGroup(context.Context, string) error {
 	return errors.New("unexpected delete")
 }
 
-func TestWaitShardClassifiesCoordinatorObservationStall(t *testing.T) {
+func TestWaitShardsClassifiesCoordinatorObservationStall(t *testing.T) {
 	coordinator := observationTestCoordinator(observationRuntime{blockStatus: true}, 20*time.Millisecond)
-	_, err := coordinator.waitShard(context.Background(), observationTestShard(), "eci-stalled")
+	_, _, err := coordinator.waitShards(context.Background(), []gate.ContainerShard{observationTestShard()}, []string{"eci-stalled"}, remoteTimingWarningRun{})
 	if err == nil || !strings.Contains(err.Error(), "coordinator observation stalled") ||
 		!strings.Contains(err.Error(), "phase=status observation") {
-		t.Fatalf("waitShard() error = %v", err)
+		t.Fatalf("waitShards() error = %v", err)
 	}
 }
 
-func TestWaitShardClassifiesCloudShardStillRunning(t *testing.T) {
+func TestWaitShardsClassifiesCloudShardStillRunning(t *testing.T) {
 	coordinator := observationTestCoordinator(observationRuntime{status: "Running"}, time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	_, err := coordinator.waitShard(ctx, observationTestShard(), "eci-running")
+	_, _, err := coordinator.waitShards(ctx, []gate.ContainerShard{observationTestShard()}, []string{"eci-running"}, remoteTimingWarningRun{})
 	if err == nil || !strings.Contains(err.Error(), "cloud shard has not reached terminal state") ||
 		strings.Contains(err.Error(), "coordinator observation stalled") {
-		t.Fatalf("waitShard() error = %v", err)
+		t.Fatalf("waitShards() error = %v", err)
 	}
 }
 
-func TestWaitShardClassifiesTerminalReportAggregationStall(t *testing.T) {
+func TestWaitShardsClassifiesTerminalReportAggregationStall(t *testing.T) {
 	coordinator := observationTestCoordinator(
 		observationRuntime{status: "Succeeded", blockLog: true},
 		20*time.Millisecond,
 	)
-	_, err := coordinator.waitShard(context.Background(), observationTestShard(), "eci-terminal")
+	_, _, err := coordinator.waitShards(context.Background(), []gate.ContainerShard{observationTestShard()}, []string{"eci-terminal"}, remoteTimingWarningRun{})
 	if err == nil || !strings.Contains(err.Error(), "coordinator observation stalled") ||
 		!strings.Contains(err.Error(), "phase=terminal report aggregation") ||
 		!strings.Contains(err.Error(), `last_status="Succeeded"`) {
-		t.Fatalf("waitShard() error = %v", err)
+		t.Fatalf("waitShards() error = %v", err)
 	}
 }
 
@@ -96,6 +102,7 @@ func observationTestCoordinator(runtime Runtime, timeout time.Duration) *Coordin
 	return &Coordinator{
 		config:  CoordinatorConfig{PollInterval: time.Millisecond},
 		runtime: runtime, observationTimeout: timeout,
+		now: func() time.Time { return time.Date(2026, 8, 3, 0, 0, 2, 0, time.UTC) },
 	}
 }
 

@@ -1,7 +1,6 @@
 package gatehook
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -92,73 +91,29 @@ func (r SubmitRequest) Validate() error {
 	return nil
 }
 
-// StatusRequest 是 hook adapter 交给统一 status 边界的查询。
-type StatusRequest struct {
-	Repository            RepositoryIdentity `json:"repository"`
-	Invocation            InvocationIdentity `json:"invocation"`
-	ExpectedSourceTreeSHA string             `json:"expected_source_tree_sha"`
-	ParentInvocationOnly  bool               `json:"parent_invocation_only"`
-}
-
-// Validate 校验 status 查询完整绑定 invocation 与当前 tree。
-func (r StatusRequest) Validate() error {
-	if err := r.Repository.Validate(); err != nil {
-		return err
-	}
-	if err := r.Invocation.Validate(); err != nil {
-		return err
-	}
-	if strings.TrimSpace(r.ExpectedSourceTreeSHA) == "" {
-		return errors.New("expected source tree sha is required")
-	}
-	return nil
-}
-
-// WaitRequest 是 hook adapter 交给统一 wait 边界的短等待请求。
-type WaitRequest struct {
-	Repository RepositoryIdentity `json:"repository"`
-	Invocation InvocationIdentity `json:"invocation"`
-	JobID      string             `json:"job_id"`
-}
-
-// Validate 校验 wait 请求不接受可注入命令提示的 job id。
-func (r WaitRequest) Validate() error {
-	if err := r.Repository.Validate(); err != nil {
-		return err
-	}
-	if err := r.Invocation.Validate(); err != nil {
-		return err
-	}
-	return validateToken("job_id", r.JobID)
-}
-
-// RequestKind 标识统一 hook request tagged union 的活动分支。
+// RequestKind 标识统一 hook request 的活动分支。
 type RequestKind string
 
 const (
 	RequestKindSubmit RequestKind = "submit"
-	RequestKindStatus RequestKind = "status"
-	RequestKindWait   RequestKind = "wait"
 )
 
-// Request 只允许携带一个 submit、status 或 wait 请求。
+// Request 只允许携带一个 submit 请求。
 type Request struct {
 	Kind   RequestKind    `json:"kind"`
 	Submit *SubmitRequest `json:"submit,omitempty"`
-	Status *StatusRequest `json:"status,omitempty"`
-	Wait   *WaitRequest   `json:"wait,omitempty"`
 }
 
 // Validate 校验 request tagged union 严格互斥。
 func (r Request) Validate() error {
 	count := 0
-	for _, present := range []bool{r.Submit != nil, r.Status != nil, r.Wait != nil} {
+	for _, present := range []bool{r.Submit != nil} {
 		if present {
 			count++
 		}
 	}
 	if count != 1 {
-		return errors.New("exactly one submit, status, or wait request is required")
+		return errors.New("exactly one submit request is required")
 	}
 	switch r.Kind {
 	case RequestKindSubmit:
@@ -166,26 +121,9 @@ func (r Request) Validate() error {
 			return errors.New("submit request is required for kind submit")
 		}
 		return r.Submit.Validate()
-	case RequestKindStatus:
-		if r.Status == nil {
-			return errors.New("status request is required for kind status")
-		}
-		return r.Status.Validate()
-	case RequestKindWait:
-		if r.Wait == nil {
-			return errors.New("wait request is required for kind wait")
-		}
-		return r.Wait.Validate()
 	default:
 		return fmt.Errorf("unsupported request kind %q", r.Kind)
 	}
-}
-
-// Coordinator 是后续 CLI 或 hook launcher 接线所需的最薄调用面。
-type Coordinator interface {
-	Submit(context.Context, SubmitRequest) (JobStatus, error)
-	Status(context.Context, StatusRequest) (JobStatus, error)
-	Wait(context.Context, WaitRequest) (JobStatus, error)
 }
 
 func canonicalEntrypoint(id gatecontract.CIEntrypointID) (gatecontract.CIEntrypoint, error) {

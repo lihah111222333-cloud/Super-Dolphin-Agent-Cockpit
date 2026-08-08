@@ -152,7 +152,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"codemap:check":                {"make codemap-check"},
 		"project-map:check":            {"make project-map-check"},
 		"sqlc:verify":                  {"make sqlc-verify-worktree", "make sqlc-verify"},
-		"gate-image-closure:check":     {"go run ./cmd/super-dolphin-gate verify-closure"},
+		"gate-image-closure:check":     {"go run ./cmd/super-dolphin-gate closure check --tree"},
 	}
 }
 

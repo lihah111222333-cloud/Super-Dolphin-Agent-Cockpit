@@ -746,23 +746,6 @@ func isCodexExclusiveTestName(name string) bool {
 	}
 }
 
-// compileGroupResourceVCPUs 返回冻结的 resource class vCPU 身份；它不参与 batch 数量规划。
-func compileGroupResourceVCPUs(resourceClassID string) (int, error) {
-	switch resourceClassID {
-	case "small":
-		return 2, nil
-	case "medium":
-		return 4, nil
-	case "maximum":
-		return 8, nil
-	case "calibration":
-		// 校准档位由 provider 持有，但 selector 批次容量冻结为 4C/8GiB。
-		return 4, nil
-	default:
-		return 0, fmt.Errorf("compile group resource class %q is unsupported", resourceClassID)
-	}
-}
-
 func (group CompileGroup) validateIdentityFields() error {
 	if err := (CompileGroupInput{
 		PackageTarget:     group.PackageTarget,

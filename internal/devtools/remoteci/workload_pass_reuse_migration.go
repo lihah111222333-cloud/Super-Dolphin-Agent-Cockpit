@@ -356,19 +356,10 @@ func remoteMigrationSnapshot(snapshot *remoteGitTreeSnapshot) *remoteGitTreeSnap
 
 // remoteInputClosureCoversTree identifies the exact full-tree fingerprint path.
 func remoteInputClosureCoversTree(snapshot *remoteGitTreeSnapshot, closure []remoteGitTreeEntry) bool {
-	if snapshot == nil || len(snapshot.entries) != len(closure) {
+	if snapshot == nil {
 		return false
 	}
-	byPath := make(map[string]remoteGitTreeEntry, len(closure))
-	for _, entry := range closure {
-		byPath[entry.path] = entry
-	}
-	for _, entry := range snapshot.entries {
-		if candidate, ok := byPath[entry.path]; !ok || candidate != entry {
-			return false
-		}
-	}
-	return true
+	return remoteGitTreeEntriesEqual(snapshot.entries, closure)
 }
 
 func (snapshot *remoteGitTreeSnapshot) observedClosureEntry(ctx context.Context, filePath string) (remoteGitTreeEntry, bool, error) {

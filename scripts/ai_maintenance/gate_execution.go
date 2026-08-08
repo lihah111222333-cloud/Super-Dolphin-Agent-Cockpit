@@ -280,7 +280,7 @@ func resolveGateImageClosureTree(directory string) (string, error) {
 }
 
 func gateImageClosureCheckArgs(tree string) []string {
-	return []string{"run", "./build/gate/cmd/generate-closure", "-tree", tree, "-check"}
+	return []string{"run", "./cmd/super-dolphin-gate", "closure", "check", "--tree", tree}
 }
 
 func backendTestWithGuardArgs(plan gatePlan) ([]string, error) {

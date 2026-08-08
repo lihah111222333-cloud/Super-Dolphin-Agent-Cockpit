@@ -6,28 +6,10 @@ import (
 	"fmt"
 )
 
-const durationLedgerSQLiteReusablePassIndexName = "index:idx_ci_runs_reusable_pass"
-const durationLedgerSQLiteMigrationPassIndexName = "index:idx_ci_workload_pass_evidence_migration"
-
-const durationLedgerSQLiteReusablePassIndexMigrationSchema = `
-CREATE INDEX IF NOT EXISTS idx_ci_runs_reusable_pass
-	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC)
-	WHERE authoritative = 1 AND status = 'passed' AND cleanup_complete = 1;`
-
-const durationLedgerSQLiteMigrationPassIndexMigrationSchema = `
-CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_migration
-	ON ci_workload_pass_evidence (workload_id, execution_digest, environment_digest, accepted_generation, origin_job_id, identity_digest);`
-
-type durationLedgerSQLiteIndexMigration struct {
-	name   string
-	create string
-}
+type durationLedgerSQLiteIndexMigration = durationLedgerSQLiteCanonicalIndexDefinition
 
 func durationLedgerSQLitePassIndexMigrations() []durationLedgerSQLiteIndexMigration {
-	return []durationLedgerSQLiteIndexMigration{
-		{name: durationLedgerSQLiteReusablePassIndexName, create: durationLedgerSQLiteReusablePassIndexMigrationSchema},
-		{name: durationLedgerSQLiteMigrationPassIndexName, create: durationLedgerSQLiteMigrationPassIndexMigrationSchema},
-	}
+	return durationLedgerSQLiteCanonicalPassIndexDefinitions()
 }
 
 // migrateDurationLedgerSQLiteReusablePassIndex 在 current schema 仅缺新索引时

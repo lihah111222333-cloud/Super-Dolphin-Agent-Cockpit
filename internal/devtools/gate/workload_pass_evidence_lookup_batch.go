@@ -350,8 +350,7 @@ func loadWorkloadPassEvidenceBaseOriginContext(
 
 // loadWorkloadPassEvidenceAliasSource 按 alias identity/gen 精确加载其来源证据行，拒绝按 origin tuple 猜测。
 func loadWorkloadPassEvidenceAliasSource(tx *sql.Tx, evidence WorkloadPassEvidence) (WorkloadPassEvidence, bool, error) {
-	var sourceIdentityDigest, sourceGeneration string
-	err := tx.QueryRow(`SELECT source_identity_digest, source_accepted_generation FROM ci_workload_pass_evidence_aliases WHERE alias_identity_digest = ? AND alias_accepted_generation = ?`, evidence.Identity.IdentityDigest, strconv.FormatUint(evidence.OriginAcceptedGeneration, 10)).Scan(&sourceIdentityDigest, &sourceGeneration)
+	sourceIdentityDigest, sourceGeneration, err := loadWorkloadPassEvidenceAliasRelation(tx, evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
 		return WorkloadPassEvidence{}, false, nil
 	}

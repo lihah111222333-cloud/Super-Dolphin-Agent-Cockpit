@@ -349,19 +349,6 @@ func mustBuildPlan(t *testing.T, profile Profile) GatePlan {
 	return plan
 }
 
-func assertStrictGateSubset(t *testing.T, subset, superset GatePlan) {
-	t.Helper()
-	want := gateIDSet(superset.Gates)
-	if len(subset.Gates) >= len(superset.Gates) {
-		t.Fatalf("%s gate count %d is not a strict subset of %s count %d", subset.Profile, len(subset.Gates), superset.Profile, len(superset.Gates))
-	}
-	for _, spec := range subset.Gates {
-		if !want[spec.ID] {
-			t.Fatalf("%s gate %q is missing from %s", subset.Profile, spec.ID, superset.Profile)
-		}
-	}
-}
-
 func assertGatePlanIDSetEqual(t *testing.T, left, right GatePlan) {
 	t.Helper()
 	if !reflect.DeepEqual(gateIDSet(left.Gates), gateIDSet(right.Gates)) {

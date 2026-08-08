@@ -11,23 +11,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
-// observeShardStatus 为一次 ECI 状态探测设置独立看门狗，避免协调器无期限卡在控制面调用。
-func (coordinator *Coordinator) observeShardStatus(
-	parent context.Context,
-	groupID string,
-	lastStatus string,
-) (eci.ContainerGroup, error) {
-	observation, cancel := gateprivate.WithTimeout(parent, coordinator.observationTimeout)
-	defer cancel()
-	group, err := coordinator.shardStatus(observation, groupID)
-	if err != nil {
-		return eci.ContainerGroup{}, classifyShardObservationError(
-			parent, observation, "status observation", lastStatus, coordinator.observationTimeout, err,
-		)
-	}
-	return group, nil
-}
-
 // observeShardReport 为终态日志汇总设置独立看门狗，和仍在运行的云端分片作出明确区分。
 func (coordinator *Coordinator) observeShardReport(
 	parent context.Context,

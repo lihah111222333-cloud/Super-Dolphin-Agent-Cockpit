@@ -45,7 +45,7 @@ func durationLedgerSQLiteV12SchemaStatements() []string {
 }
 
 func durationLedgerSQLiteLegacySchemaStatements() []string {
-	return []string{
+	statements := []string{
 		durationLedgerSQLiteSchema,
 		strictWorkloadPassReuseSQLiteSchema,
 		strictCheckReceiptReuseSQLiteSchema,
@@ -54,6 +54,7 @@ func durationLedgerSQLiteLegacySchemaStatements() []string {
 		durationLedgerLiveTimingWarningIndexSchema,
 		durationLedgerRunTimingWarningIndexSchema,
 	}
+	return append(statements, durationLedgerSQLiteCanonicalPassIndexStatements()...)
 }
 
 // preflightDurationLedgerSQLiteExactSchema 只允许全新空库或完整 current schema。

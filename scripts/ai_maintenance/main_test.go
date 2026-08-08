@@ -359,7 +359,7 @@ func TestGateImageClosureCheckBindsStagedIndexTree(t *testing.T) {
 	if gotTree != wantTree {
 		t.Fatalf("resolved tree = %q, want staged index tree %q", gotTree, wantTree)
 	}
-	wantArgs := []string{"run", "./build/gate/cmd/generate-closure", "-tree", wantTree, "-check"}
+	wantArgs := []string{"run", "./cmd/super-dolphin-gate", "closure", "check", "--tree", wantTree}
 	if gotArgs := gateImageClosureCheckArgs(gotTree); !slices.Equal(gotArgs, wantArgs) {
 		t.Fatalf("closure check args = %q, want %q", gotArgs, wantArgs)
 	}

@@ -569,7 +569,7 @@ func verifyClosureOutputs(sourceRoot, treeSHA string, outputs map[string][]byte,
 			return fmt.Errorf("read generated file %s from Git tree %s: %w", name, treeSHA, err)
 		}
 		if !bytes.Equal(tracked, wanted) {
-			return fmt.Errorf("generated file %s drifted from Git tree %s; run go run ./build/gate/cmd/generate-closure -tree <tree>", name, treeSHA)
+			return fmt.Errorf("generated file %s drifted from Git tree %s; run go run ./cmd/super-dolphin-gate closure refresh --tree <tree>", name, treeSHA)
 		}
 	}
 	fmt.Printf("verified gate image closure in Git tree %s (%d source files)\n", treeSHA, sourceCount)

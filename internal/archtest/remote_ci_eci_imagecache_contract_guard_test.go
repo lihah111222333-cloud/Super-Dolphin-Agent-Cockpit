@@ -670,7 +670,7 @@ func TestRemoteCILegacyRefreshWritersAreAbsent(t *testing.T) {
 	}
 }
 
-// TestRemoteCIProductionHasOneAuthorityWriter rejects filesystem JSON/SQLite
+// TestRemoteCIProductionHasOneAuthorityWriter rejects filesystem JSON/SQLite/.pass
 // authorities. SQL table spelling is not itself a second authority: the
 // cicontract domains are enforced by the schema and promotion-path guards.
 func TestRemoteCIProductionHasOneAuthorityWriter(t *testing.T) {
@@ -679,8 +679,33 @@ func TestRemoteCIProductionHasOneAuthorityWriter(t *testing.T) {
 		parsed := parseRemoteCIContractGuardFile(t, file)
 		relative := relativeRemoteCIContractPath(t, root, file)
 		for _, violation := range remoteCIAuthorityWriterViolations(parsed) {
-			t.Errorf("%s retains second filesystem JSON/SQLite authority writer %s", relative, violation)
+			t.Errorf("%s retains second filesystem JSON/SQLite/.pass authority writer %s", relative, violation)
 		}
+	}
+}
+
+// TestRemoteCIAuthorityWriterCounterexamples keeps the filesystem-authority
+// guard focused: a local .pass writer is forbidden, while the current
+// create-only OSS transport is merely a protocol call and must remain allowed.
+func TestRemoteCIAuthorityWriterCounterexamples(t *testing.T) {
+	legacyPassWriter := remoteCIParseGuardFixture(t, `package fixture
+import "os"
+func writeLegacyPass() error {
+		return os.WriteFile("workload.pass", []byte("PASS"), 0o600)
+}
+`)
+	if violations := remoteCIAuthorityWriterViolations(legacyPassWriter); len(violations) == 0 {
+		t.Fatal("filesystem .pass authority writer was not rejected")
+	}
+
+	createOnlyTransport := remoteCIParseGuardFixture(t, `package fixture
+type objectCreator interface { Create(string, string) error }
+func uploadCreateOnly(client objectCreator) error {
+		return client.Create("request.json", "requests/sha256.pass")
+}
+`)
+	if violations := remoteCIAuthorityWriterViolations(createOnlyTransport); len(violations) != 0 {
+		t.Fatalf("create-only transport was mistaken for a filesystem authority writer: %v", violations)
 	}
 }
 

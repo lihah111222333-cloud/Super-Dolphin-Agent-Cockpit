@@ -23,6 +23,9 @@ func TestNormalizePreCommitUsesActiveLinkedWorktreeIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizePreCommit: %v", err)
 	}
+	if request.Kind != RequestKindSubmit || request.Submit == nil {
+		t.Fatalf("normalized pre-commit request = %#v, want submit request", request)
+	}
 	canonicalLinked, err := filepath.EvalSymlinks(linked)
 	if err != nil {
 		t.Fatalf("EvalSymlinks linked worktree: %v", err)
@@ -246,29 +249,6 @@ func TestSanitizedGitEnvironmentBindsRepositoryToCWD(t *testing.T) {
 	}
 	if source.Tree.ParentCommitSHA == hostileHead {
 		t.Fatal("hostile Git environment replaced cwd repository HEAD")
-	}
-}
-
-func TestPassedDecisionBlocksAfterWorktreeTreeDrift(t *testing.T) {
-	repository := newTestRepository(t)
-	_, source, err := CurrentWorktreeSource(context.Background(), repository)
-	if err != nil {
-		t.Fatalf("CurrentWorktreeSource initial: %v", err)
-	}
-	status := JobStatus{
-		JobID: "job-drift", State: JobStatePassed, SourceTreeSHA: source.SourceTreeSHA, ReceiptID: "receipt-drift",
-	}
-	writeTestFile(t, repository, "tracked.txt", "changed after pass\n")
-	_, currentSource, err := CurrentWorktreeSource(context.Background(), repository)
-	if err != nil {
-		t.Fatalf("CurrentWorktreeSource current: %v", err)
-	}
-	decision, err := DecisionForStatus(status, currentSource.SourceTreeSHA)
-	if err != nil {
-		t.Fatalf("DecisionForStatus: %v", err)
-	}
-	if decision.Decision != "block" || !strings.Contains(decision.Reason, "tree changed") {
-		t.Fatalf("decision = %#v", decision)
 	}
 }
 

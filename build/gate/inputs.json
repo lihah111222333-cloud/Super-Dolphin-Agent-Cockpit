@@ -9,7 +9,6 @@
     "build/gate/closure/runtime_deps.go",
     "build/gate/closure/runtime_deps_test.go",
     "build/gate/closure_test.go",
-    "build/gate/cmd/generate-closure/main.go",
     "build/gate/inputs.json",
     "build/gate/runtime-deps.Dockerfile",
     "build/gate/runtime-deps.lock",
@@ -2255,8 +2254,7 @@
     "internal/devtools/gatehook/git.go",
     "internal/devtools/gatehook/git_adapter.go",
     "internal/devtools/gatehook/git_adapter_test.go",
-    "internal/devtools/gatehook/status.go",
-    "internal/devtools/gatehook/status_test.go",
+    "internal/devtools/gatehook/request_protocol_test.go",
     "internal/devtools/gatehook/test_helpers_test.go",
     "internal/devtools/gatehook/types.go",
     "internal/devtools/gateprivate/command_cancel_unix.go",
@@ -2391,6 +2389,7 @@
     "internal/devtools/remoteci/workload_pass_reuse_migration.go",
     "internal/devtools/remoteci/workload_pass_reuse_migration_test.go",
     "internal/devtools/remoteci/workload_pass_reuse_shard_plan_test.go",
+    "internal/devtools/remoteci/workload_pass_reuse_validation_test.go",
     "internal/devtools/remoteci/workload_projection.go",
     "internal/devtools/shardresource/planner.go",
     "internal/devtools/shardresource/planner_test.go",
@@ -4757,7 +4756,6 @@
     "internal/devtools/gatehook/doc.go",
     "internal/devtools/gatehook/git.go",
     "internal/devtools/gatehook/git_adapter.go",
-    "internal/devtools/gatehook/status.go",
     "internal/devtools/gatehook/types.go",
     "internal/devtools/gateprivate/command_cancel_unix.go",
     "internal/devtools/gateprivate/command_cancel_windows.go",
@@ -4870,6 +4868,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6518,
-  "source_snapshot_paths_sha256": "sha256:4e2b064a6d9a63bf2ff81655809bc0570718e33c51216b70d98cc33ab75b12f7"
+  "source_snapshot_input_count": 6516,
+  "source_snapshot_paths_sha256": "sha256:9a87c9401155eae86b3ec329e2d8c21ab6f6d92230c4cf169074678e1c033de4"
 }
