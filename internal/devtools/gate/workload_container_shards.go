@@ -59,7 +59,7 @@ func appendWorkloadContainerShards(set *ContainerShardSet) error {
 			CatalogDigest: set.CatalogDigest, LedgerGeneration: set.LedgerGeneration,
 			EstimatedDurationMS: workloadShard.EstimatedDurationMS, GateIDs: gateIDs,
 		}
-		identity, err := containerShardIdentityDigest(shard)
+		identity, err := workloadContainerShardIdentityDigest(shard)
 		if err != nil {
 			return err
 		}
@@ -132,10 +132,6 @@ func validateWorkloadContainerShardBinding(set ContainerShardSet, shard Containe
 		return errors.New("container shard workload plan binding drifted")
 	}
 	return nil
-}
-
-func containerShardIdentityDigest(shard ContainerShard) (string, error) {
-	return workloadContainerShardIdentityDigest(shard)
 }
 
 // workloadContainerShardIdentityDigest 将 v3 shard 绑定到冻结 LPT 快照和估时。

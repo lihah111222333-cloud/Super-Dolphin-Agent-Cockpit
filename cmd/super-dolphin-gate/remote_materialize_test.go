@@ -11,11 +11,47 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
+
+func TestQuantizeRemoteMaterializationPhaseKeepsPositiveSubMillisecondTiming(t *testing.T) {
+	started := time.Unix(0, int64(123*time.Microsecond))
+	completed := started.Add(400 * time.Microsecond)
+
+	phase := quantizeRemoteMaterializationPhase(started, completed)
+	if phase.MaterializeMS != 1 {
+		t.Fatalf("sub-millisecond phase duration = %dms, want 1ms", phase.MaterializeMS)
+	}
+	if phase.CompletedAtUnixMS-phase.StartedAtUnixMS != phase.MaterializeMS {
+		t.Fatalf("phase interval = %dms, want duration %dms", phase.CompletedAtUnixMS-phase.StartedAtUnixMS, phase.MaterializeMS)
+	}
+}
+
+func TestQuantizeRemoteMaterializationPhaseCoversQuantizedChildren(t *testing.T) {
+	started := time.Unix(10, 900*int64(time.Microsecond))
+	completed := started.Add(2 * time.Millisecond)
+	children := []gate.MaterializationPhaseTiming{
+		quantizeRemoteMaterializationPhase(started, started.Add(400*time.Microsecond)),
+		quantizeRemoteMaterializationPhase(started.Add(400*time.Microsecond), started.Add(800*time.Microsecond)),
+		quantizeRemoteMaterializationPhase(started.Add(800*time.Microsecond), started.Add(1200*time.Microsecond)),
+	}
+
+	phase := quantizeRemoteMaterializationPhase(started, completed, children...)
+	childTotal := int64(0)
+	for _, child := range children {
+		childTotal += child.MaterializeMS
+	}
+	if phase.MaterializeMS < childTotal {
+		t.Fatalf("parent duration = %dms, want at least child total %dms", phase.MaterializeMS, childTotal)
+	}
+	if phase.CompletedAtUnixMS-phase.StartedAtUnixMS != phase.MaterializeMS {
+		t.Fatalf("parent interval = %dms, want duration %dms", phase.CompletedAtUnixMS-phase.StartedAtUnixMS, phase.MaterializeMS)
+	}
+}
 
 func TestLoadRemoteMaterializeConfigAcceptsNestedRequestKey(t *testing.T) {
 	values := map[string]string{

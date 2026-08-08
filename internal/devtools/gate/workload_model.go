@@ -186,18 +186,6 @@ type WorkloadExecutionPlan struct {
 	PlanDigest               string          `json:"plan_digest"`
 }
 
-// LoadWorkloadCatalog 严格解析并校验 workload catalog JSON。
-func LoadWorkloadCatalog(reader io.Reader) (WorkloadCatalog, error) {
-	var catalog WorkloadCatalog
-	if err := decodeStrictJSON(reader, &catalog); err != nil {
-		return WorkloadCatalog{}, fmt.Errorf("decode workload catalog: %w", err)
-	}
-	if err := ValidateWorkloadCatalog(catalog); err != nil {
-		return WorkloadCatalog{}, err
-	}
-	return catalog, nil
-}
-
 // ValidateWorkloadCatalog 拒绝缺失、重复和不受支持的 workload 定义。
 func ValidateWorkloadCatalog(catalog WorkloadCatalog) error {
 	if catalog.Version != durationLedgerVersion {

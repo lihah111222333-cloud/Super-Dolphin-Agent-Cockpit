@@ -199,16 +199,6 @@ func (snapshot *remoteGitTreeSnapshot) closureCaptureCount() uint64 {
 	return snapshot.closureCaptureCalls
 }
 
-// goEmbedResolutionStats 返回当前 snapshot 的 go:embed 解析与缓存命中计数。
-func (snapshot *remoteGitTreeSnapshot) goEmbedResolutionStats() (computations uint64, cacheHits uint64) {
-	if snapshot == nil {
-		return 0, 0
-	}
-	snapshot.cacheMu.Lock()
-	defer snapshot.cacheMu.Unlock()
-	return snapshot.goEmbedResolutionComputations, snapshot.goEmbedResolutionCacheHits
-}
-
 // workloadInputClosureEntries 返回当前 fingerprint 算法实际观察的条目集合。
 // 捕获窗口由独立互斥锁串行化，并复用 snapshot 已建立的解析缓存；捕获结束
 // 后立即清空状态，不改变正常指纹结果。

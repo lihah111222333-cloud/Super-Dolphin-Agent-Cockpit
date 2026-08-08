@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # The hook and CI entrypoints share this fail-closed launcher contract. The
-# launcher and its canonical user-private root are provisioned into the
-# repository's local Git config by install-hooks.
+# launcher path may be selected by repository-local config, but the install
+# root is always derived from the operating-system account and cannot be
+# redirected by Git config.
 
 trusted_launcher_stat() {
   local format=$1 target_path=$2
@@ -30,12 +31,13 @@ trusted_launcher_sha256() {
 }
 
 trusted_launcher_root() {
-  local repo_root=${1:?repository root is required} root physical_root
-  root=$(git -C "$repo_root" config --local --get superdolphin.gateLauncherRoot 2>/dev/null || true)
-  if [[ -z "$root" || "$root" != /* || ! -d "$root" ]]; then
+  local repo_root=${1:?repository root is required} root physical_root os_home
+  os_home=$(trusted_launcher_os_home) || return 1
+  root="$os_home/.super-dolphin-gate-launchers"
+  [[ -d "$root" ]] || {
     printf '%s\n' 'super-dolphin gate blocked: no canonical launcher install root is provisioned; run make install-hooks.' >&2
     return 1
-  fi
+  }
   physical_root=$(cd "$root" && pwd -P) || return 1
   if [[ "$physical_root" != "$root" ]]; then
     printf '%s\n' 'super-dolphin gate blocked: configured launcher install root is not canonical.' >&2
@@ -44,9 +46,27 @@ trusted_launcher_root() {
   printf '%s\n' "$root"
 }
 
-trusted_launcher_root_from_path() {
-  local launcher=${1:?launcher is required}
-  dirname "$(dirname "$(dirname "$(dirname "$launcher")")")"
+trusted_launcher_os_home() {
+  local uid username home physical_home
+  uid=$(id -u) || return 1
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    username=$(id -un) || return 1
+    home=$(dscl . -read "/Users/$username" NFSHomeDirectory 2>/dev/null | awk '$1 ~ /^NFSHomeDirectory/ { print $2; exit }')
+  elif command -v getent >/dev/null 2>&1; then
+    home=$(getent passwd "$uid" | awk -F: 'NF >= 6 { print $6; exit }')
+  else
+    home=
+  fi
+  if [[ -z "$home" || "$home" != /* || ! -d "$home" ]]; then
+    printf '%s\n' 'super-dolphin gate blocked: operating-system home directory is unavailable.' >&2
+    return 1
+  fi
+  physical_home=$(cd "$home" && pwd -P) || return 1
+  if [[ "$physical_home" != "$home" ]]; then
+    printf '%s\n' 'super-dolphin gate blocked: operating-system home directory is not canonical.' >&2
+    return 1
+  fi
+  printf '%s\n' "$home"
 }
 
 validate_trusted_launcher_directory() {
@@ -98,7 +118,7 @@ validate_trusted_gate_launcher() {
   if [[ $# -eq 1 ]]; then
     repo_root=$(git rev-parse --show-toplevel) || return 1
     launcher=$1
-    root=$(trusted_launcher_root_from_path "$launcher") || return 1
+    root=$(trusted_launcher_root "$repo_root") || return 1
   else
     repo_root=${1:?repository root is required}
     launcher=${2:-}

@@ -66,7 +66,7 @@ func TestWorkloadContainerShardSetRejectsSelfConsistentShardDrift(t *testing.T) 
 	tampered := set
 	tampered.Shards = append([]ContainerShard(nil), set.Shards...)
 	tampered.Shards[0].EstimatedDurationMS++
-	identity, err := containerShardIdentityDigest(tampered.Shards[0])
+	identity, err := workloadContainerShardIdentityDigest(tampered.Shards[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func testWorkloadExecutionPlan(t *testing.T, gatePlan GatePlan) WorkloadExecutio
 		catalog,
 		DurationLedgerSnapshot{Generation: 11, Ledger: fastDurationLedger(catalog)},
 		testLinuxPlanningContext(),
-		allShardableWorkloadIDs(catalog),
+		allShardableWorkloadIDsForTest(catalog),
 	)
 	if err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v", err)

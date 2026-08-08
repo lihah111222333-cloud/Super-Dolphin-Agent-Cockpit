@@ -356,16 +356,6 @@ func workloadExecutionIDSet(executionIDs []GateID) (map[GateID]struct{}, error) 
 	return selected, nil
 }
 
-func allShardableWorkloadIDs(catalog WorkloadCatalog) []GateID {
-	ids := make([]GateID, 0, shardableWorkloadCount(catalog))
-	for _, workload := range catalog.Workloads {
-		if workload.Shardable {
-			ids = append(ids, GateID(workload.ID))
-		}
-	}
-	return ids
-}
-
 func workloadExecutionDigest(executionIDs []GateID) (string, error) {
 	if len(executionIDs) == 0 {
 		return "", errors.New("workload execution projection is empty")

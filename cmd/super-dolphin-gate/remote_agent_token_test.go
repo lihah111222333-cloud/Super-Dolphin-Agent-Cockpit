@@ -214,14 +214,7 @@ func TestRemoteHookConcurrentProcessHelper(t *testing.T) {
 	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
 		t.Fatal(err)
 	}
-	if err := requireRemoteCIAgentToken([]string{"remote", "hook", "pre-push"}, nil, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	token, err := resolveRemoteCIAgentToken("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest, err := cicontract.AgentTokenDigest(token)
+	digest, err := requireRemoteCIAgentTokenDigest([]string{"remote", "hook", "pre-push"}, nil, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -332,6 +332,11 @@ func installPreCommitFixtureLauncher(t *testing.T, root string) string {
 	tree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
 	installRoot := secureTrustedLauncherTestRoot(t)
 	launcher := filepath.Join(installRoot, "v1", tree, fmt.Sprintf("%x", digest[:]), "super-dolphin-gate")
+	if _, err := os.Lstat(launcher); err == nil {
+		t.Fatalf("refusing to overwrite existing launcher fixture: %s", launcher)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("inspect launcher fixture path: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(launcher), 0o700); err != nil {
 		t.Fatalf("create fixture launcher directory: %v", err)
 	}

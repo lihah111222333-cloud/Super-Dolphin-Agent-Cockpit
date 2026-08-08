@@ -488,8 +488,3 @@ func WorkloadExecutionDigest(id string) (string, error) {
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
 }
-
-// workloadProgramDigest 计算 canonical 或原子 workload 的确定性执行身份摘要。
-func workloadProgramDigest(id string) (string, error) {
-	return WorkloadExecutionDigest(id)
-}

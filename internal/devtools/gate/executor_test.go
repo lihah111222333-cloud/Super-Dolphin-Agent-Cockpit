@@ -30,7 +30,7 @@ func TestStandaloneReleaseAttestationFailsBeforeWorkspaceExecution(t *testing.T)
 		expectedUID: os.Geteuid(), stdout: &output, stderr: &output,
 	})
 	err := executeProgram(context.Background(), config, GateIDReleaseLayeredCheck,
-		ExecutorPrograms()[GateIDReleaseLayeredCheck])
+		testExecutorPrograms()[GateIDReleaseLayeredCheck])
 	if err == nil || !strings.Contains(err.Error(), "requires canonical prerequisites from the plan executor") {
 		t.Fatalf("standalone release attestation error = %v", err)
 	}
@@ -59,7 +59,7 @@ func TestExecutorNonGoProgramDoesNotRequireGoBuildCacheSeed(t *testing.T) {
 	config := newTestExecutorConfig(t, source)
 	config.goBuildCacheSeedRoot = ""
 
-	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
+	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, testExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
 		t.Fatalf("execute non-Go gate without Go build cache seed: %v", err)
 	}
 	assertDirectoryEmpty(t, config.workRoot)
@@ -89,7 +89,7 @@ func TestWhitespaceGateIgnoresUnchangedLegacyWhitespace(t *testing.T) {
 	writeTestFile(t, filepath.Join(source, "changed.txt"), "clean\n", 0o600)
 	commitExecutorSnapshot(t, source, "clean change")
 	config := newTestExecutorConfig(t, source)
-	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
+	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, testExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
 		t.Fatalf("execute trusted-range whitespace gate: %v", err)
 	}
 	assertDirectoryEmpty(t, config.workRoot)
@@ -109,7 +109,7 @@ func TestWhitespaceGateRejectsNonCommitBase(t *testing.T) {
 func assertWhitespaceGateFails(t *testing.T, source string, want string) {
 	t.Helper()
 	config := newTestExecutorConfig(t, source)
-	err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck])
+	err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, testExecutorPrograms()[GateIDWhitespaceCheck])
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("whitespace gate error = %v, want containing %q", err, want)
 	}
@@ -287,7 +287,7 @@ func TestRaceProgramRunsBoundedBackendOnlyInEachFreshExecutorWorkspace(t *testin
 	}
 	commitExecutorSnapshot(t, source, "race backend workspace fixture")
 
-	program := ExecutorPrograms()[GateIDBackendTestGuardWithRace]
+	program := testExecutorPrograms()[GateIDBackendTestGuardWithRace]
 	program.NeedsGoSeed = false
 
 	config := newTestExecutorConfig(t, source)
@@ -378,7 +378,7 @@ func TestExecutorRejectsGitSnapshotTamper(t *testing.T) {
 			source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
 			test.tamper(t, source)
 			config := newTestExecutorConfig(t, source)
-			if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err == nil {
+			if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, testExecutorPrograms()[GateIDWhitespaceCheck]); err == nil {
 				t.Fatal("executor unexpectedly accepted a tampered Git snapshot")
 			}
 			assertDirectoryEmpty(t, config.workRoot)

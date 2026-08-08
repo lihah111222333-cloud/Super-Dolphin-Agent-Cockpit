@@ -13,6 +13,8 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		`git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`,
 		`"$gate_bin" closure refresh --tree "$staged_tree"`,
 		`git -C "$repo_root" add -u -- "${closure_outputs[@]}"`,
+		`bind_trusted_gate_launcher_for_tree "$launcher_tree"`,
+		`bind_trusted_gate_launcher_for_tree "$staged_tree"`,
 		`remote hook pre-commit`,
 		`--config "$remote_config"`,
 		`--ledger "$remote_ledger"`,
@@ -62,6 +64,8 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`)
 	assertScriptContains(t, preCommit, `"$gate_bin" closure refresh --tree "$staged_tree"`)
 	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- "${closure_outputs[@]}"`)
+	assertScriptContains(t, preCommit, `bind_trusted_gate_launcher_for_tree "$launcher_tree"`)
+	assertScriptContains(t, preCommit, `bind_trusted_gate_launcher_for_tree "$staged_tree"`)
 	assertScriptContains(t, preCommit, `remote hook pre-commit`)
 	assertScriptContains(t, preCommit, `--config "$remote_config"`)
 	assertScriptContains(t, preCommit, `--ledger "$remote_ledger"`)

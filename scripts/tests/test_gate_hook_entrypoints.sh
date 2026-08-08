@@ -4,7 +4,25 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 fixture_root=$(mktemp -d -t gate-hook-contract.XXXXXX)
 fixture_root=$(cd "$fixture_root" && pwd -P)
-trap 'rm -rf "$fixture_root"' EXIT
+source "$repo_root/.githooks/trusted-gate-launcher.sh"
+real_os_home=$(trusted_launcher_os_home) || {
+  printf 'FAIL: operating-system home directory could not be resolved\n' >&2
+  exit 1
+}
+test_home=$(mktemp -d "$real_os_home/.gate-hook-contract-home.XXXXXX")
+chmod 0700 "$test_home"
+fake_os_bin="$fixture_root/os-bin"
+mkdir -m 0700 "$fake_os_bin"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  printf '#!/usr/bin/env bash\nprintf '\''NFSHomeDirectory: %s\\n'\''\n' "$test_home" >"$fake_os_bin/dscl"
+else
+  printf '#!/usr/bin/env bash\nif [[ "${1:-}" == passwd ]]; then printf '\''fixture:x:0:0::%s:/bin/sh\\n'\''; fi\n' "$test_home" >"$fake_os_bin/getent"
+fi
+chmod 0700 "$fake_os_bin"/*
+export PATH="$fake_os_bin:$PATH"
+install_root="$test_home/.super-dolphin-gate-launchers"
+mkdir -m 0700 "$install_root"
+trap 'rm -rf -- "$test_home" "$fixture_root"' EXIT
 
 bin_dir="$fixture_root/bin"
 capture_dir="$fixture_root/capture"
@@ -197,9 +215,7 @@ run_with_status() {
 }
 
 fixture_launcher_for_tree() {
-  local repository=$1 tree=$2 common_dir install_root digest launcher receipt
-  common_dir=$(git -C "$repository" rev-parse --path-format=absolute --git-common-dir)
-  install_root="$common_dir/super-dolphin-gate-launchers"
+  local repository=$1 tree=$2 digest launcher receipt
   digest=$(shasum -a 256 "$bin_dir/super-dolphin-gate" | awk '{print $1}')
   launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
   receipt="$(dirname "$launcher")/receipt.json"
@@ -232,7 +248,7 @@ provision_fixture_launchers() {
   done < <(git -C "$repository" for-each-ref --format='%(objectname)' refs/heads)
 }
 
-export PATH="$bin_dir:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$bin_dir:$fake_os_bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export GATE_HOOK_CAPTURE_DIR="$capture_dir"
 export GATE_HOOK_FIXTURE_GATE_BIN="$bin_dir/super-dolphin-gate"
 export SUPER_DOLPHIN_CI_AGENT_TOKEN=fixture-agent-token
@@ -301,6 +317,27 @@ missing_fixture_tree=$(printf '%040d' 1)
 if trusted_gate_launcher_for_tree "$git_repo" "$missing_fixture_tree" >/dev/null 2>&1; then
   fail 'missing exact-tree fixture launcher passed verification'
 fi
+
+printf '%s\n' 'initial exact-tree bind' >>"$git_repo/tracked.txt"
+git -C "$git_repo" add tracked.txt
+initial_bind_tree=$(git -C "$git_repo" write-tree)
+rm -rf -- "$install_root/v1/$initial_bind_tree"
+reset_capture
+set +e
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_CAPTURE_SOURCE=1 bash "$repo_root/.githooks/pre-commit" \
+    >"$fixture_root/initial-bind-pre-commit.out" 2>"$fixture_root/initial-bind-pre-commit.err"
+)
+initial_bind_status=$?
+set -e
+[[ "$initial_bind_status" -eq 0 ]] || fail "initial exact-tree launcher bind failed with status $initial_bind_status"
+grep -Fq 'staged tree has no exact launcher; binding trusted launcher automatically' "$fixture_root/initial-bind-pre-commit.err" \
+  || fail 'initial exact-tree launcher bind was not automatic'
+trusted_gate_launcher_for_tree "$git_repo" "$initial_bind_tree" >/dev/null \
+  || fail 'automatic initial bind did not install a verified exact-tree launcher'
+assert_file_equals "$capture_dir/staged-tree" "$initial_bind_tree" "initial exact-tree bind remote gate tree"
+git -C "$git_repo" restore --staged --worktree -- tracked.txt
 cli_error="$fixture_root/cli-error.expected"
 printf '%s\n' 'fixture coordinator failure; job=job-23; status: super-dolphin-gate status --job job-23' >"$cli_error"
 

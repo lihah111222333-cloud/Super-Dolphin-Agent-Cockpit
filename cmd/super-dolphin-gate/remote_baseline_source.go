@@ -71,10 +71,11 @@ func runRemotePreCommitHook(args []string, stdout io.Writer, progressWriters ...
 
 // runRemotePrePushHook 为每个规范化 ref update 运行并验证独立远程门禁。
 func runRemotePrePushHook(args []string, input io.Reader, stdout io.Writer, progressWriters ...io.Writer) error {
-	if err := requireRemoteCIAgentToken([]string{"remote", "hook", "pre-push"}, args, stdout); err != nil {
+	agentTokenDigest, err := requireRemoteCIAgentTokenDigest([]string{"remote", "hook", "pre-push"}, args, stdout)
+	if err != nil {
 		return err
 	}
-	options, remoteName, remoteURL, err := parseRemotePrePushOptions(args)
+	options, remoteName, remoteURL, err := parseRemotePrePushOptions(args, agentTokenDigest)
 	if err != nil {
 		return err
 	}
@@ -169,16 +170,17 @@ func validateRemotePrePushRequest(request gatehook.Request, index int) (gatehook
 	return *request.Submit, nil
 }
 
-// parseRemotePrePushOptions 仅接收 pre-push 所需的存储参数。
-func parseRemotePrePushOptions(args []string) (remoteRunOptions, string, string, error) {
+// parseRemotePrePushOptions 仅接收 pre-push 所需的存储参数和前置验证摘要。
+func parseRemotePrePushOptions(args []string, agentTokenDigest string) (remoteRunOptions, string, string, error) {
 	var options remoteRunOptions
-	var agentToken string
+	if err := cicontract.ValidateAgentTokenDigest(agentTokenDigest); err != nil {
+		return options, "", "", protocolError("validate CI agent token digest: %v", err)
+	}
 	flags := flag.NewFlagSet("remote hook pre-push", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.ConfigPath, "config", "", "remote CI config path")
 	flags.StringVar(&options.RepositoryRoot, "repository", ".", "Git repository root")
 	flags.StringVar(&options.LedgerPath, "ledger", "", "remote baseline and duration ledger SQLite authority path")
-	flags.StringVar(&agentToken, "agent-token", "", "remote CI agent token")
 	flags.BoolVar(&options.Force, "force", false, "force execution of every shardable workload and bypass PASS reuse")
 	if err := flags.Parse(args); err != nil {
 		return options, "", "", protocolError("parse remote pre-push flags: %v", err)
@@ -189,14 +191,7 @@ func parseRemotePrePushOptions(args []string) (remoteRunOptions, string, string,
 	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.LedgerPath); err != nil {
 		return options, "", "", err
 	}
-	token, err := resolveRemoteCIAgentToken(agentToken)
-	if err != nil {
-		return options, "", "", protocolError("resolve CI agent token: %v", err)
-	}
-	options.AgentTokenDigest, err = cicontract.AgentTokenDigest(token)
-	if err != nil {
-		return options, "", "", protocolError("digest CI agent token: %v", err)
-	}
+	options.AgentTokenDigest = agentTokenDigest
 	return options, flags.Arg(0), flags.Arg(1), nil
 }
 

@@ -250,11 +250,6 @@ func writeGoBuildCacheProxyMetrics(path string, metrics GoBuildCacheProxyMetrics
 	return writeAtomicGoBuildCacheFile(path, append(encoded, '\n'))
 }
 
-// LoadGoBuildCacheProxyMetrics 只接受由当前私有 GOCACHE 根生成的、严格结构化的 proxy 观察文件。
-func LoadGoBuildCacheProxyMetrics(privateRoot string, seedRoot string) (GoBuildCacheProxyMetrics, error) {
-	return LoadGoBuildCacheProxyMetricsAt(privateRoot, GoBuildCacheProxyMetricsPath(privateRoot), seedRoot)
-}
-
 // LoadGoBuildCacheProxyMetricsAt 在 helper 生命周期结束后聚合并消费 gate 专属 proxy 观察贡献。
 func LoadGoBuildCacheProxyMetricsAt(privateRoot string, path string, seedRoot string) (GoBuildCacheProxyMetrics, error) {
 	if !validGoBuildCacheProxyMetricsPath(privateRoot, path) {

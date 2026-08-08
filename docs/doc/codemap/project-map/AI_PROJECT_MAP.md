@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**4827**
+> 已索引文件：**4825**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/plans/**, docs/superpowers/**, docs/archive/**, docs/before/**, docs/迁移/**, docs/ai01-docs/**, docs/cc/**, docs/li/**, docs/pians/**, docs/调研/**, docs/healthy-check/**, docs/decisions/**, docs/reviews/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -26,7 +26,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/modules.tsv` | 763 | 148.7 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1289 | 240.2 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 210 | 30.9 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 206 | 55.5 KB | 远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker |
+| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 204 | 54.9 KB | 远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 96 | 14.0 KB | 代码地图、ADR、契约与 docs 项目知识 |
 | `docs/doc/codemap/project-map/index/other.tsv` | 1095 | 217.6 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
@@ -47,10 +47,10 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2843 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 2842 | 应用内部模块、平台、provider、store 与守卫 |
 | `cmd` | 859 | 可执行入口与 MCP peer |
 | `frontend-app` | 749 | 当前 React/Vite 新 UI |
-| `scripts` | 189 | 工程自动化脚本 |
+| `scripts` | 188 | 工程自动化脚本 |
 | `docs` | 89 | 当前文档、生成索引、开发中材料与历史证据 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
@@ -168,7 +168,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
 | `cmd/super-dolphin-gate` | 60 | remote run/hook/materializer/manifest installer/worker CLI |
-| `internal/devtools/remoteci` | 109 | coordinator、source transport、workload identity 与 timing |
+| `internal/devtools/remoteci` | 107 | coordinator、source transport、workload identity 与 timing |
 | `internal/devtools/cicontract` | 8 | ECI/ImageCache/SQLite canonical contract owner |
 | `internal/devtools/alicloud/eci` | 13 | 阿里云 ECI 生命周期与 ImageCache 只读验证 |
 | `internal/devtools/alicloud/oss` | 3 | OSS 内容寻址传输 |

@@ -6,6 +6,40 @@ repo_root=$(git rev-parse --show-toplevel) || {
   exit 1
 }
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
+
+bind_trusted_gate_launcher_for_tree() {
+  local target_tree=${1:?target tree is required}
+  local launcher_builder rebound_launcher rebound_tree
+
+  launcher_builder=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit-launcher.XXXXXX")
+  if ! git -C "$repo_root" cat-file blob "$target_tree:scripts/build-trusted-gate-launcher.sh" >"$launcher_builder"; then
+    rm -f -- "$launcher_builder"
+    printf '%s\n' 'pre-commit blocked: staged tree has no trusted launcher builder.' >&2
+    return 1
+  fi
+  chmod 0500 "$launcher_builder"
+  if ! rebound_launcher=$("$launcher_builder" "$target_tree"); then
+    rm -f -- "$launcher_builder"
+    printf '%s\n' 'pre-commit blocked: could not bind a trusted launcher to the staged tree.' >&2
+    return 1
+  fi
+  rm -f -- "$launcher_builder"
+  if ! validate_trusted_gate_launcher "$repo_root" "$rebound_launcher" \
+    || ! verify_trusted_gate_launcher_tree "$repo_root" "$rebound_launcher" "$target_tree"; then
+    printf '%s\n' 'pre-commit blocked: staged tree launcher verification failed.' >&2
+    return 1
+  fi
+  rebound_tree=$(git -C "$repo_root" write-tree) || {
+    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after trusted launcher bind.' >&2
+    return 1
+  }
+  if [[ "$rebound_tree" != "$target_tree" ]]; then
+    printf '%s\n' 'pre-commit blocked: trusted launcher bind changed the staged tree.' >&2
+    return 1
+  fi
+  printf '%s\n' "$rebound_launcher"
+}
+
 if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
   printf '%s\n' 'pre-commit blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the commit.' >&2
   exit 1
@@ -36,8 +70,10 @@ if [[ -z "$staged_tree" ]]; then
 fi
 launcher_tree=$staged_tree
 if ! gate_bin=$(trusted_gate_launcher_for_tree "$repo_root" "$launcher_tree"); then
-  printf '%s\n' 'pre-commit blocked: trusted launcher receipt does not match the staged tree; run make install-hooks, then retry.' >&2
-  exit 1
+  printf '%s\n' 'pre-commit: staged tree has no exact launcher; binding trusted launcher automatically.' >&2
+  if ! gate_bin=$(bind_trusted_gate_launcher_for_tree "$launcher_tree"); then
+    exit 1
+  fi
 fi
 
 # The launcher owns the closure renderer. A stale launcher can still read the
@@ -310,33 +346,10 @@ fi
 
 if [[ "$staged_tree" != "$launcher_tree" ]]; then
   printf '%s\n' 'pre-commit: managed outputs changed the staged tree; rebinding trusted launcher once.' >&2
-  launcher_builder=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit-launcher.XXXXXX")
-  if ! git -C "$repo_root" cat-file blob "$staged_tree:scripts/build-trusted-gate-launcher.sh" >"$launcher_builder"; then
-    rm -f -- "$launcher_builder"
-    printf '%s\n' 'pre-commit blocked: refreshed staged tree has no trusted launcher builder.' >&2
+  if ! gate_bin=$(bind_trusted_gate_launcher_for_tree "$staged_tree"); then
     exit 1
   fi
-  chmod 0500 "$launcher_builder"
-  if ! rebound_launcher=$("$launcher_builder" "$staged_tree"); then
-    rm -f -- "$launcher_builder"
-    printf '%s\n' 'pre-commit blocked: could not bind a trusted launcher to refreshed managed outputs.' >&2
-    exit 1
-  fi
-  rm -f -- "$launcher_builder"
-  if ! validate_trusted_gate_launcher "$repo_root" "$rebound_launcher" \
-    || ! verify_trusted_gate_launcher_tree "$repo_root" "$rebound_launcher" "$staged_tree"; then
-    printf '%s\n' 'pre-commit blocked: refreshed staged tree launcher verification failed.' >&2
-    exit 1
-  fi
-  rebound_tree=$(git -C "$repo_root" write-tree) || {
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after trusted launcher rebind.' >&2
-    exit 1
-  }
-  if [[ "$rebound_tree" != "$staged_tree" ]]; then
-    printf '%s\n' 'pre-commit blocked: trusted launcher rebind changed the staged tree.' >&2
-    exit 1
-  fi
-  launcher_tree=$rebound_tree
+  launcher_tree=$staged_tree
 fi
 if ! gate_bin=$(trusted_gate_launcher_for_tree "$repo_root" "$staged_tree"); then
   printf '%s\n' 'pre-commit blocked: trusted launcher receipt drifted before remote execution.' >&2

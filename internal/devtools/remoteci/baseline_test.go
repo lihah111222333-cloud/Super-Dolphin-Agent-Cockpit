@@ -23,8 +23,9 @@ func TestBaselineStateOCIOnlyRoundTrip(t *testing.T) {
 	if err := loaded.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if !loaded.Matches(loaded.identity()) {
-		t.Fatal("loaded OCI state does not match its identity")
+	wantIdentity := baselineIdentity{loaded.MainCommit, loaded.MainTree, loaded.Platform, loaded.PolicyDigest, loaded.ToolchainDigest, loaded.RuntimeImage}
+	if got := loaded.identity(); got != wantIdentity {
+		t.Fatalf("loaded OCI identity = %+v, want %+v", got, wantIdentity)
 	}
 }
 

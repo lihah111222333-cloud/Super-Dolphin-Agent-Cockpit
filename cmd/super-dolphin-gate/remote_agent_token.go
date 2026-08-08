@@ -51,23 +51,48 @@ func requireRemoteCIAgentToken(
 	args []string,
 	stdout io.Writer,
 ) error {
+	_, err := requireRemoteCIAgentTokenDigest(command, args, stdout)
+	return err
+}
+
+// requireRemoteCIAgentTokenDigest 在握手成功后返回已验证的摘要，供 hook 直接传递给解析器。
+func requireRemoteCIAgentTokenDigest(
+	command []string,
+	args []string,
+	stdout io.Writer,
+) (string, error) {
 	if err := validateRetiredRequesterFingerprint(args); err != nil {
-		return err
+		return "", err
 	}
 	remoteHook := isRemoteHookCommand(command)
 	explicit, explicitPresent, err := remoteCIAgentTokenArgument(args)
 	if err != nil {
-		return protocolError("parse CI agent token flag: %v", err)
+		return "", protocolError("parse CI agent token flag: %v", err)
 	}
 	inherited, inheritedPresent := os.LookupEnv(cicontract.AgentTokenEnvironment)
 	if err := validateRemoteHookTokenBoundary(remoteHook, args, inherited, inheritedPresent); err != nil {
-		return err
+		return "", err
 	}
 	if explicitPresent && inheritedPresent {
 		_ = os.Unsetenv(cicontract.AgentTokenEnvironment)
-		return protocolError("CI agent token must be supplied by exactly one source")
+		return "", protocolError("CI agent token must be supplied by exactly one source")
 	}
-	return executeRemoteCIAgentTokenPhase(command, args, stdout, explicit, explicitPresent, inherited, inheritedPresent)
+	if err := executeRemoteCIAgentTokenPhase(command, args, stdout, explicit, explicitPresent, inherited, inheritedPresent); err != nil {
+		return "", err
+	}
+	token := explicit
+	if inheritedPresent {
+		token = inherited
+	}
+	parsed, err := cicontract.ParseAgentToken(token)
+	if err != nil {
+		return "", protocolError("invalid CI agent token: %v", err)
+	}
+	digest, err := cicontract.AgentTokenDigest(parsed)
+	if err != nil {
+		return "", protocolError("digest CI agent token: %v", err)
+	}
+	return digest, nil
 }
 
 // validateRetiredRequesterFingerprint 拒绝已经退役的请求者身份入口。

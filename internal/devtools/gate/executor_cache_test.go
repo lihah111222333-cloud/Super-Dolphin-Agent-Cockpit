@@ -490,8 +490,8 @@ func TestLoadGoBuildCacheProxyMetricsRejectsForgedSeedIdentity(t *testing.T) {
 	if err := writeGoBuildCacheProxyMetrics(GoBuildCacheProxyMetricsPath(privateRoot), metrics); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadGoBuildCacheProxyMetrics(privateRoot, filepath.Join(realTempDir(t), "00000000000000000042")); err == nil {
-		t.Fatal("LoadGoBuildCacheProxyMetrics accepted forged seed identity")
+	if _, err := LoadGoBuildCacheProxyMetricsAt(privateRoot, GoBuildCacheProxyMetricsPath(privateRoot), filepath.Join(realTempDir(t), "00000000000000000042")); err == nil {
+		t.Fatal("LoadGoBuildCacheProxyMetricsAt accepted forged seed identity")
 	}
 }
 

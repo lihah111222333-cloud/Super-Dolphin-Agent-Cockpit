@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -298,27 +299,46 @@ func writeCITruthImageLauncher(t *testing.T, root string, script []byte) string 
 
 func secureCITruthImageLauncherRoot(t *testing.T) string {
 	t.Helper()
-	homeDir, err := os.UserHomeDir()
+	parentHome, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("resolve current user home for launcher fixture: %v", err)
 	}
-	if !filepath.IsAbs(homeDir) || filepath.Clean(homeDir) != homeDir {
-		t.Fatalf("current user home for launcher fixture is not a canonical absolute path: %q", homeDir)
+	if !filepath.IsAbs(parentHome) || filepath.Clean(parentHome) != parentHome {
+		t.Fatalf("current user home for launcher fixture is not a canonical absolute path: %q", parentHome)
 	}
-	homeDir, err = filepath.EvalSymlinks(homeDir)
+	parentHome, err = filepath.EvalSymlinks(parentHome)
 	if err != nil {
 		t.Fatalf("resolve canonical current user home for launcher fixture: %v", err)
 	}
-	launcherRoot, err := os.MkdirTemp(homeDir, ".super-dolphin-ci-truth-launcher-test-")
+	fixtureHome, err := os.MkdirTemp(parentHome, ".super-dolphin-ci-truth-home-")
 	if err != nil {
+		t.Fatalf("create private CI truth-image home: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(fixtureHome) })
+	installCITruthImageOSHomeResolver(t, fixtureHome)
+	launcherRoot := filepath.Join(fixtureHome, ".super-dolphin-gate-launchers")
+	if err := os.Mkdir(launcherRoot, 0o700); err != nil {
 		t.Fatalf("create private CI truth-image launcher root: %v", err)
 	}
-	if err := os.Chmod(launcherRoot, 0o700); err != nil {
-		_ = os.RemoveAll(launcherRoot)
-		t.Fatalf("restrict private CI truth-image launcher root: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(launcherRoot) })
 	return launcherRoot
+}
+
+func installCITruthImageOSHomeResolver(t *testing.T, fixtureHome string) {
+	t.Helper()
+	fakeBin := filepath.Join(t.TempDir(), "bin")
+	if err := os.Mkdir(fakeBin, 0o700); err != nil {
+		t.Fatalf("create CI truth-image resolver bin: %v", err)
+	}
+	name := "getent"
+	body := "#!/bin/sh\nprintf 'fixture:x:0:0::" + fixtureHome + ":/bin/sh\\n'\n"
+	if runtime.GOOS == "darwin" {
+		name = "dscl"
+		body = "#!/bin/sh\nprintf 'NFSHomeDirectory: " + fixtureHome + "\\n'\n"
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(body), 0o700); err != nil {
+		t.Fatalf("write CI truth-image resolver %s: %v", name, err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func configureCITruthImageLauncher(t *testing.T, root, launcher string) {

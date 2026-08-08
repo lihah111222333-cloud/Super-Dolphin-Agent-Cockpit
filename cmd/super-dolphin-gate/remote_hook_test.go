@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,11 +18,11 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := cicontract.AgentTokenDigest(token)
+	t.Setenv(cicontract.AgentTokenEnvironment, token)
+	digest, err := requireRemoteCIAgentTokenDigest([]string{"remote", "hook", "pre-push"}, nil, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(cicontract.AgentTokenEnvironment, token)
 	options, remoteName, remoteURL, err := parseRemotePrePushOptions([]string{
 		"--config", "/tmp/remote-ci.json",
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
@@ -29,7 +30,7 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		"--force",
 		"origin",
 		"ssh://git@example.invalid/repository.git",
-	})
+	}, digest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,15 +57,37 @@ func TestParseRemotePrePushOptionsDefaultsToPassReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(cicontract.AgentTokenEnvironment, token)
+	digest, err := cicontract.AgentTokenDigest(token)
+	if err != nil {
+		t.Fatal(err)
+	}
 	options, _, _, err := parseRemotePrePushOptions([]string{
 		"--config", "/tmp/remote-ci.json", "origin", "ssh://git@example.invalid/repository.git",
-	})
+	}, digest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if options.Force {
 		t.Fatal("pre-push hook without --force disabled default PASS reuse")
+	}
+}
+
+func TestParseRemotePrePushOptionsRejectsAgentTokenFlagAndMissingDigest(t *testing.T) {
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := cicontract.AgentTokenDigest(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseArgs := []string{"--config", "/tmp/remote-ci.json", "origin", "ssh://git@example.invalid/repository.git"}
+	flagArgs := []string{"--config", "/tmp/remote-ci.json", cicontract.AgentTokenFlag, token, "origin", "ssh://git@example.invalid/repository.git"}
+	if _, _, _, err := parseRemotePrePushOptions(flagArgs, digest); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("pre-push parser accepted unreachable agent-token flag: %v", err)
+	}
+	if _, _, _, err := parseRemotePrePushOptions(baseArgs, ""); err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("pre-push parser accepted missing validated digest: %v", err)
 	}
 }
 

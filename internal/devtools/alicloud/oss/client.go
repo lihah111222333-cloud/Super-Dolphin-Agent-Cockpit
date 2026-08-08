@@ -87,6 +87,9 @@ func New(config Config, runner CommandRunner) (*client, error) {
 
 // NewCLI 使用系统 aliyun CLI；它不读取或保存 AccessKey。
 func NewCLI(config Config) (*client, error) {
+	if err := validateOfficialAliyunCLI(config.Binary); err != nil {
+		return nil, err
+	}
 	return New(config, execRunner{})
 }
 
@@ -241,6 +244,14 @@ func validateConfig(config Config) error {
 	}
 	if err := validatePrefix(config.Prefix); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateOfficialAliyunCLI 只允许官方 aliyun CLI 的 basename，避免 NewCLI 运行任意替代程序。
+func validateOfficialAliyunCLI(binary string) error {
+	if path.Base(strings.TrimSpace(binary)) != "aliyun" {
+		return errors.New("production OSS client requires the official aliyun CLI binary")
 	}
 	return nil
 }

@@ -184,56 +184,6 @@ func addGoTestFunction(seen map[string]struct{}, function *ast.FuncDecl, goos st
 	return addRemoteGoTestName(seen, name)
 }
 
-// goBenchmarkNamesFromFiles 收集可执行顶层基准测试的名称。
-func goBenchmarkNamesFromFiles(files []*ast.File, goos string) ([]string, error) {
-	if strings.TrimSpace(goos) == "" {
-		return nil, errors.New("remote Go benchmark inventory GOOS is required")
-	}
-	seen := make(map[string]struct{})
-	for _, file := range files {
-		if err := addGoBenchmarkFileNames(seen, file, goos); err != nil {
-			return nil, err
-		}
-	}
-	return sortedRemoteGoTestNames(seen), nil
-}
-
-// addGoBenchmarkFileNames 收集一个平台适用测试文件中的顶层基准名称。
-func addGoBenchmarkFileNames(seen map[string]struct{}, file *ast.File, goos string) error {
-	included, err := remoteGoTestDirectiveAllows(file.Doc, goos)
-	if err != nil {
-		return fmt.Errorf("Go benchmark file directive: %w", err)
-	}
-	if !included {
-		return nil
-	}
-	for _, declaration := range file.Decls {
-		if err := addGoBenchmarkDeclaration(seen, declaration, goos); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// addGoBenchmarkDeclaration 校验并记录单个顶层基准声明。
-func addGoBenchmarkDeclaration(seen map[string]struct{}, declaration ast.Decl, goos string) error {
-	function, ok := declaration.(*ast.FuncDecl)
-	if !ok || function.Recv != nil || !goTestNameMatches(function.Name.Name, "Benchmark") {
-		return nil
-	}
-	if err := validateGoTestFunction(function, "B"); err != nil {
-		return err
-	}
-	included, err := remoteGoTestDirectiveAllows(function.Doc, goos)
-	if err != nil {
-		return fmt.Errorf("Go benchmark %q directive: %w", function.Name.Name, err)
-	}
-	if !included {
-		return nil
-	}
-	return addRemoteGoTestName(seen, function.Name.Name)
-}
-
 // remoteGoTestDirectiveAllows 应用源码就地声明的平台或 helper 盘点边界。
 func remoteGoTestDirectiveAllows(comments *ast.CommentGroup, goos string) (bool, error) {
 	const prefix = "super-dolphin-ci:"

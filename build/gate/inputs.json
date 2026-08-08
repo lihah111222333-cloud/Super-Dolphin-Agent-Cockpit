@@ -2221,6 +2221,7 @@
     "internal/devtools/gate/timing_observation_compile_group.go",
     "internal/devtools/gate/timing_observation_test.go",
     "internal/devtools/gate/validation.go",
+    "internal/devtools/gate/validation_test.go",
     "internal/devtools/gate/workload_catalog.go",
     "internal/devtools/gate/workload_catalog_race_scope.go",
     "internal/devtools/gate/workload_catalog_race_scope_test.go",
@@ -2347,8 +2348,6 @@
     "internal/devtools/remoteci/protocol.go",
     "internal/devtools/remoteci/protocol_shard_request.go",
     "internal/devtools/remoteci/protocol_shard_request_test.go",
-    "internal/devtools/remoteci/runtime_inputs.go",
-    "internal/devtools/remoteci/runtime_inputs_test.go",
     "internal/devtools/remoteci/source_materializer.go",
     "internal/devtools/remoteci/source_materializer_baseline.go",
     "internal/devtools/remoteci/source_materializer_helpers.go",
@@ -4798,7 +4797,6 @@
     "internal/devtools/remoteci/progress.go",
     "internal/devtools/remoteci/protocol.go",
     "internal/devtools/remoteci/protocol_shard_request.go",
-    "internal/devtools/remoteci/runtime_inputs.go",
     "internal/devtools/remoteci/source_materializer.go",
     "internal/devtools/remoteci/source_materializer_baseline.go",
     "internal/devtools/remoteci/source_materializer_helpers.go",
@@ -4862,6 +4860,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6522,
-  "source_snapshot_paths_sha256": "sha256:8f18dae7a5a9c3e9363aa51f53a4438bcd852ab1fcf5c0885a5274fdf9c09a89"
+  "source_snapshot_input_count": 6520,
+  "source_snapshot_paths_sha256": "sha256:41f62f6c5f2d86160267a68ff0a2906a26c9e1a36645980e35ab3ac79aaec56b"
 }

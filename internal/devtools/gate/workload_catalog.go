@@ -242,7 +242,7 @@ func selectedTargetWorkload(gateID GateID, targetKind, target string, kind Workl
 	if err != nil {
 		return Workload{}, err
 	}
-	digest, err := workloadProgramDigest(id)
+	digest, err := WorkloadExecutionDigest(id)
 	if err != nil {
 		return Workload{}, err
 	}
@@ -281,7 +281,7 @@ func validateSelectedWorkload(index int, workload Workload, required map[GateID]
 	if _, ok := required[parent]; !ok {
 		return fmt.Errorf("selected workload gate %q is not required by profile %q", parent, profile)
 	}
-	digest, err := workloadProgramDigest(workload.ID)
+	digest, err := WorkloadExecutionDigest(workload.ID)
 	if err != nil {
 		return err
 	}
@@ -750,7 +750,7 @@ func validateAuthoritativeWorkloadIdentity(index int, workload Workload, parent 
 		}
 		return nil
 	}
-	digest, err := workloadProgramDigest(workload.ID)
+	digest, err := WorkloadExecutionDigest(workload.ID)
 	if err != nil {
 		return err
 	}

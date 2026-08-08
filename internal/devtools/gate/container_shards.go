@@ -113,7 +113,7 @@ func (set ContainerShardSet) ValidateStored(plan GatePlan) error {
 func validateStoredContainerShardIdentities(set ContainerShardSet) (map[GateID]struct{}, error) {
 	seen := make(map[GateID]struct{})
 	for index, shard := range set.Shards {
-		if err := validateStoredContainerShard(set, shard, index); err != nil {
+		if err := validateContainerShard(set, shard, index); err != nil {
 			return nil, err
 		}
 		if err := claimContainerShardGates(seen, shard.GateIDs); err != nil {
@@ -193,7 +193,7 @@ func validateContainerShard(set ContainerShardSet, shard ContainerShard, index i
 	if err := validateContainerShardBinding(set, shard); err != nil {
 		return err
 	}
-	identity, err := containerShardIdentityDigest(shard)
+	identity, err := workloadContainerShardIdentityDigest(shard)
 	if err != nil || shard.IdentityDigest != identity {
 		return errors.New("container shard identity digest mismatch")
 	}
@@ -201,11 +201,6 @@ func validateContainerShard(set ContainerShardSet, shard ContainerShard, index i
 		return errors.New("container shard gate set is invalid")
 	}
 	return nil
-}
-
-// validateStoredContainerShard 校验当前分片的版本、身份与 gate 边界。
-func validateStoredContainerShard(set ContainerShardSet, shard ContainerShard, index int) error {
-	return validateContainerShard(set, shard, index)
 }
 
 // validateContainerShardBinding 将 shard 的 profile、plan、source 和 image identity 绑定回 invocation。

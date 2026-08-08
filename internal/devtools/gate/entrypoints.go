@@ -2,7 +2,6 @@ package gate
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -207,20 +206,6 @@ func CIEntrypointRegistry() []CIEntrypoint {
 	return cloneCIEntrypoints(canonicalCIEntrypoints())
 }
 
-// CIEntrypointRegistryDigest 将固定顺序和完整能力声明绑定到稳定摘要。
-func CIEntrypointRegistryDigest() (string, error) {
-	registry := CIEntrypointRegistry()
-	if err := validateCIEntrypointRegistry(registry); err != nil {
-		return "", err
-	}
-	encoded, err := json.Marshal(registry)
-	if err != nil {
-		return "", fmt.Errorf("marshal CI entrypoint registry: %w", err)
-	}
-	digest := sha256.Sum256(encoded)
-	return fmt.Sprintf("sha256:%x", digest), nil
-}
-
 // ResolveCIEntrypoint 返回与 source/profile 精确兼容的 canonical 入口声明。
 func ResolveCIEntrypoint(
 	id CIEntrypointID,
@@ -317,39 +302,4 @@ func cloneCIEntrypoints(entrypoints []CIEntrypoint) []CIEntrypoint {
 		cloned[index].AllowedProfiles = append([]Profile(nil), entrypoint.AllowedProfiles...)
 	}
 	return cloned
-}
-
-// validateCIEntrypointRegistry 校验固定清单的完整顺序和 owner/adapter 全局唯一性。
-func validateCIEntrypointRegistry(registry []CIEntrypoint) error {
-	canonical := canonicalCIEntrypoints()
-	if len(registry) == 0 {
-		return errors.New("CI entrypoint registry is empty")
-	}
-	if len(registry) != len(canonical) {
-		return fmt.Errorf("CI entrypoint registry has %d entries, want %d", len(registry), len(canonical))
-	}
-	seenIDs := make(map[CIEntrypointID]struct{}, len(registry))
-	seenOwners := make(map[CIEntrypointOwner]struct{}, len(registry))
-	seenAdapters := make(map[CIEntrypointAdapter]struct{}, len(registry))
-	for index, entrypoint := range registry {
-		if _, duplicate := seenIDs[entrypoint.ID]; duplicate {
-			return fmt.Errorf("CI entrypoint registry repeats id %q", entrypoint.ID)
-		}
-		if entrypoint.ID != canonical[index].ID {
-			return fmt.Errorf("CI entrypoint registry is not canonically ordered at index %d", index)
-		}
-		if _, duplicate := seenOwners[entrypoint.Owner]; duplicate {
-			return fmt.Errorf("CI entrypoint registry repeats owner %q", entrypoint.Owner)
-		}
-		if _, duplicate := seenAdapters[entrypoint.Adapter]; duplicate {
-			return fmt.Errorf("CI entrypoint registry repeats adapter %q", entrypoint.Adapter)
-		}
-		if err := entrypoint.Validate(); err != nil {
-			return fmt.Errorf("CI entrypoint registry entry %d: %w", index, err)
-		}
-		seenIDs[entrypoint.ID] = struct{}{}
-		seenOwners[entrypoint.Owner] = struct{}{}
-		seenAdapters[entrypoint.Adapter] = struct{}{}
-	}
-	return nil
 }

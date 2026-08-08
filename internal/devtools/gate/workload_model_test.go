@@ -1,6 +1,8 @@
 package gate
 
 import (
+	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +10,27 @@ import (
 )
 
 const testWorkloadDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func loadWorkloadCatalogForTest(reader io.Reader) (WorkloadCatalog, error) {
+	var catalog WorkloadCatalog
+	if err := decodeStrictJSON(reader, &catalog); err != nil {
+		return WorkloadCatalog{}, fmt.Errorf("decode workload catalog: %w", err)
+	}
+	if err := ValidateWorkloadCatalog(catalog); err != nil {
+		return WorkloadCatalog{}, err
+	}
+	return catalog, nil
+}
+
+func allShardableWorkloadIDsForTest(catalog WorkloadCatalog) []GateID {
+	ids := make([]GateID, 0, shardableWorkloadCount(catalog))
+	for _, workload := range catalog.Workloads {
+		if workload.Shardable {
+			ids = append(ids, GateID(workload.ID))
+		}
+	}
+	return ids
+}
 
 func TestValidateDurationEnvironmentRejectsPaddedIdentity(t *testing.T) {
 	tests := []struct {
@@ -173,8 +196,8 @@ func TestLoadWorkloadCatalogRejectsMissingRequiredFieldsAndUnknownJSON(t *testin
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := LoadWorkloadCatalog(strings.NewReader(test.json)); err == nil {
-				t.Fatal("LoadWorkloadCatalog() error = nil, want fail-fast error")
+			if _, err := loadWorkloadCatalogForTest(strings.NewReader(test.json)); err == nil {
+				t.Fatal("loadWorkloadCatalogForTest() error = nil, want fail-fast error")
 			}
 		})
 	}
@@ -440,7 +463,7 @@ func TestBuildWorkloadExecutionPlanForWorkloadsBindsCatalogLedgerAndPlanner(t *t
 		Ledger:     fastDurationLedger(catalog),
 	}
 	context := testLinuxPlanningContext()
-	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, allShardableWorkloadIDs(catalog))
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, allShardableWorkloadIDsForTest(catalog))
 	if err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v", err)
 	}
@@ -468,7 +491,7 @@ func TestPlanningRejectsExpansionOnlyNilnessDescriptor(t *testing.T) {
 	if _, err := planCurrentWorkloads(catalog, fastDurationLedger(catalog), testLinuxPlanningContext()); err == nil || !strings.Contains(err.Error(), "expansion descriptor") {
 		t.Fatalf("planCurrentWorkloads() error = %v, want expansion descriptor rejection", err)
 	}
-	if _, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, DurationLedgerSnapshot{Generation: 1, Ledger: fastDurationLedger(catalog)}, testLinuxPlanningContext(), allShardableWorkloadIDs(catalog)); err == nil || !strings.Contains(err.Error(), "expansion descriptor") {
+	if _, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, DurationLedgerSnapshot{Generation: 1, Ledger: fastDurationLedger(catalog)}, testLinuxPlanningContext(), allShardableWorkloadIDsForTest(catalog)); err == nil || !strings.Contains(err.Error(), "expansion descriptor") {
 		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v, want expansion descriptor rejection", err)
 	}
 }
@@ -483,7 +506,7 @@ func TestPlanningAcceptsExpandedNilnessPackageWorkloads(t *testing.T) {
 	}
 	assertExpandedCatalogHasNoNilnessDescriptor(t, catalog)
 	snapshot := DurationLedgerSnapshot{Generation: 1, Ledger: fastDurationLedger(catalog)}
-	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, testLinuxPlanningContext(), allShardableWorkloadIDs(catalog))
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, testLinuxPlanningContext(), allShardableWorkloadIDsForTest(catalog))
 	if err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v", err)
 	}
@@ -531,7 +554,7 @@ func TestWorkloadExecutionPlanRejectsTamperingAndLedgerDrift(t *testing.T) {
 	}
 	snapshot := DurationLedgerSnapshot{Generation: 3, Ledger: fastDurationLedger(catalog)}
 	context := testLinuxPlanningContext()
-	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, allShardableWorkloadIDs(catalog))
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, allShardableWorkloadIDsForTest(catalog))
 	if err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v", err)
 	}
@@ -581,7 +604,7 @@ func TestBuildWorkloadExecutionPlanForWorkloadsRejectsAbsentLedgerGeneration(t *
 		catalog,
 		DurationLedgerSnapshot{Ledger: DurationLedger{Version: durationLedgerVersion}},
 		context,
-		allShardableWorkloadIDs(catalog),
+		allShardableWorkloadIDsForTest(catalog),
 	); err == nil {
 		t.Fatal("BuildWorkloadExecutionPlanForWorkloads() error = nil for generation zero")
 	}

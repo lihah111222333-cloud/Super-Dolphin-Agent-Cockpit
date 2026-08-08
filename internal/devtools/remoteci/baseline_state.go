@@ -42,8 +42,8 @@ type BaselineState struct {
 	RenewedAt              time.Time                `json:"renewed_at"`
 }
 
-// BaselineIdentity contains all inputs whose change requires a new baseline generation.
-type BaselineIdentity struct{ MainCommit, MainTree, Platform, PolicyDigest, ToolchainDigest, RuntimeImage string }
+// baselineIdentity contains all inputs whose change requires a new baseline generation.
+type baselineIdentity struct{ MainCommit, MainTree, Platform, PolicyDigest, ToolchainDigest, RuntimeImage string }
 
 // UnmarshalJSON strictly decodes only the OCI-only state schema. Older state
 // must never be silently reinterpreted as a current cache authority.
@@ -124,13 +124,8 @@ func validateBaselineExecutionLocation(provider, regionID string) error {
 	return nil
 }
 
-func (state BaselineState) identity() BaselineIdentity {
-	return BaselineIdentity{state.MainCommit, state.MainTree, state.Platform, state.PolicyDigest, state.ToolchainDigest, state.RuntimeImage}
-}
-
-// Matches checks the immutable identity of a valid OCI-only state.
-func (state BaselineState) Matches(identity BaselineIdentity) bool {
-	return state.Validate() == nil && validateBaselineIdentity(identity) == nil && state.identity() == identity
+func (state BaselineState) identity() baselineIdentity {
+	return baselineIdentity{state.MainCommit, state.MainTree, state.Platform, state.PolicyDigest, state.ToolchainDigest, state.RuntimeImage}
 }
 
 // validateImageCacheAuthority rejects a state whose ECI image cache cannot be
@@ -164,7 +159,7 @@ func validBaselineTimes(createdAt, acceptedAt, renewedAt time.Time) bool {
 		!acceptedAt.Before(createdAt) && !renewedAt.Before(acceptedAt)
 }
 
-func validateBaselineIdentity(identity BaselineIdentity) error {
+func validateBaselineIdentity(identity baselineIdentity) error {
 	if !baselineOIDPattern.MatchString(identity.MainCommit) || !baselineOIDPattern.MatchString(identity.MainTree) {
 		return errors.New("remote baseline Git identity is invalid")
 	}

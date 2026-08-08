@@ -105,7 +105,6 @@ func registeredGoToolchainConsumers() map[string]goToolchainConsumer {
 		"build/gate/toolchain.lock":                    {Path: "build/gate/toolchain.lock", Reason: "远程门禁工具链锁定"},
 		"docs/契约/jrpc2-convention.md":                  {Path: "docs/契约/jrpc2-convention.md", Reason: "当前 Go 契约版本"},
 		"internal/devtools/gate/go_distribution.go":    {Path: "internal/devtools/gate/go_distribution.go", Reason: "远程 Go 分发锁定"},
-		"internal/devtools/remoteci/runtime_inputs.go": {Path: "internal/devtools/remoteci/runtime_inputs.go", Reason: "远程运行时输入锁定"},
 		"scripts/go_distribution_lock.sh":              {Path: "scripts/go_distribution_lock.sh", Reason: "Go 官方分发锁校验"},
 		"scripts/verify_packaged_app_macos.sh":         {Path: "scripts/verify_packaged_app_macos.sh", Reason: "macOS 发布包验证模块"},
 	}

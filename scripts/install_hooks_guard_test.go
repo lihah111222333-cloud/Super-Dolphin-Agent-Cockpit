@@ -103,7 +103,13 @@ repo_root=$(git rev-parse --show-toplevel)
 repo_root=$(cd "$repo_root" && pwd -P)
 tree=${1:?tree is required}
 install_root=$(git config --local --get superdolphin.testLauncherRoot)
+# Keep each fixture tree distinct from any user-installed launcher.
+# fixture-root: ` + root + `
 launcher="$install_root/v1/$tree/` + installHooksStubDigest() + `/super-dolphin-gate"
+if [[ -e "$launcher" ]]; then
+  printf 'fixture refuses to overwrite existing launcher: %s\n' "$launcher" >&2
+  exit 1
+fi
 mkdir -p "$(dirname "$launcher")"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$launcher"
 chmod ` + fmt.Sprintf("%#o", launcherMode.Perm()) + ` "$launcher"
@@ -117,7 +123,7 @@ printf '%s\n' "$launcher"
 
 func TestInstallHooksMakeTargetRejectsGroupWritableLauncher(t *testing.T) {
 	root := prepareInstallHooksRepo(t)
-	_ = writeInstallHooksBuilder(t, root, 0o770)
+	writeInstallHooksBuilder(t, root, 0o770)
 	runInstallHooksGit(t, root, "add", "scripts/build-trusted-gate-launcher.sh")
 
 	output, err := runInstallHooksMake(t, root)

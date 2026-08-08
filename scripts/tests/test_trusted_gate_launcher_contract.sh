@@ -23,11 +23,10 @@ git_repo="$fixture_root/repository"
 git init -q "$git_repo"
 git -C "$git_repo" config user.name 'Trusted Launcher Fixture'
 git -C "$git_repo" config user.email 'trusted-launcher@example.invalid'
-printf '%s\n' fixture >"$git_repo/tracked.txt"
+printf 'fixture-%s\n' "$$-$RANDOM" >"$git_repo/tracked.txt"
 git -C "$git_repo" add tracked.txt
 git -C "$git_repo" commit -qm 'fixture base'
 tree=$(git -C "$git_repo" write-tree)
-install_root="$fixture_root/launcher-root"
 
 candidate_source="$fixture_root/super-dolphin-gate"
 cat >"$candidate_source" <<'EOF'
@@ -42,6 +41,36 @@ set -euo pipefail
 EOF
 chmod 500 "$candidate_source"
 digest=$(sha256_file "$candidate_source")
+source "$repo_root/.githooks/trusted-gate-launcher.sh"
+real_os_home=$(trusted_launcher_os_home) || fail 'operating-system home directory could not be resolved'
+test_home=$(mktemp -d "$real_os_home/.trusted-launcher-contract-home.XXXXXX")
+chmod 700 "$test_home"
+fake_bin="$fixture_root/bin"
+mkdir -m 700 "$fake_bin"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  printf '#!/usr/bin/env bash\nprintf '\''NFSHomeDirectory: %s\\n'\''\n' "$test_home" >"$fake_bin/dscl"
+else
+  printf '#!/usr/bin/env bash\nif [[ "${1:-}" == passwd ]]; then printf '\''fixture:x:0:0::%s:/bin/sh\\n'\''\nfi\n' "$test_home" >"$fake_bin/getent"
+fi
+chmod 700 "$fake_bin"/*
+export PATH="$fake_bin:$PATH"
+install_root="$test_home/.super-dolphin-gate-launchers"
+root_created=0
+if [[ ! -d "$install_root" ]]; then
+  mkdir -m 700 "$install_root"
+  root_created=1
+fi
+cleanup_contract() {
+  if [[ -n ${install_root:-} && -n ${tree:-} ]]; then
+    rm -rf -- "$install_root/v1/$tree"
+  fi
+  if [[ ${root_created:-0} -eq 1 ]]; then
+    rmdir "$install_root" 2>/dev/null || true
+  fi
+  rm -rf -- "$test_home"
+  rm -rf -- "$fixture_root"
+}
+trap cleanup_contract EXIT
 launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
 mkdir -p "$(dirname "$launcher")"
 chmod 700 "$install_root" "$install_root/v1" "$install_root/v1/$tree" "$(dirname "$launcher")"
@@ -50,9 +79,8 @@ chmod 500 "$launcher"
 printf '%s\n' '{"fixture":"valid"}' >"$(dirname "$launcher")/receipt.json"
 chmod 400 "$(dirname "$launcher")/receipt.json"
 
-source "$repo_root/.githooks/trusted-gate-launcher.sh"
 git -C "$git_repo" config --local superdolphin.gateLauncher "$launcher"
-git -C "$git_repo" config --local superdolphin.gateLauncherRoot "$install_root"
+git -C "$git_repo" config --local superdolphin.gateLauncherRoot "$fixture_root/wrong-launcher-root"
 
 run_direct_source_tree_test() {
   local shell_name=$1
@@ -134,9 +162,11 @@ validate_trusted_gate_launcher "$git_repo" "$launcher" || {
 chmod "$original_repo_mode" "$git_repo"
 
 git -C "$git_repo" config --local superdolphin.gateLauncherRoot "$fixture_root/wrong-launcher-root"
-if validate_trusted_gate_launcher "$git_repo" "$launcher" >/dev/null 2>&1; then
-  fail 'launcher outside the configured canonical root was accepted'
-fi
-git -C "$git_repo" config --local superdolphin.gateLauncherRoot "$install_root"
+validate_trusted_gate_launcher "$git_repo" "$launcher" || fail 'Git local launcher root override changed the OS-derived trust root'
+(
+  cd "$git_repo"
+  validate_trusted_gate_launcher "$launcher"
+) || fail 'single-argument launcher validation accepted a Git local root override'
+[[ "$(trusted_launcher_root "$git_repo")" == "$install_root" ]] || fail 'trusted launcher root did not remain OS-derived'
 
 printf '%s\n' 'trusted launcher shell contract: PASS'

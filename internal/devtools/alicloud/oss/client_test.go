@@ -155,6 +155,34 @@ func TestNew_RejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNewCLI_RequiresOfficialAliyunBasename(t *testing.T) {
+	baseConfig := Config{
+		Binary:   "aliyun",
+		Bucket:   "ci-bucket",
+		Endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+		Profile:  "ci",
+		Prefix:   "source-bundles/",
+	}
+	for _, binary := range []string{"", "fake-aliyun", "/tmp/aliyun-wrapper", "/tmp/aliyun.bin"} {
+		t.Run(binary, func(t *testing.T) {
+			config := baseConfig
+			config.Binary = binary
+			if _, err := NewCLI(config); err == nil || !strings.Contains(err.Error(), "official aliyun CLI") {
+				t.Fatalf("NewCLI(%q) error = %v, want official aliyun CLI rejection", binary, err)
+			}
+		})
+	}
+	for _, binary := range []string{"aliyun", "/usr/local/bin/aliyun"} {
+		t.Run("accept "+binary, func(t *testing.T) {
+			config := baseConfig
+			config.Binary = binary
+			if _, err := NewCLI(config); err != nil {
+				t.Fatalf("NewCLI(%q) error = %v, want basename acceptance", binary, err)
+			}
+		})
+	}
+}
+
 func TestClient_CommandFailureIncludesStderr(t *testing.T) {
 	runner := &fakeRunner{stderr: []byte("AccessDenied: forbidden\n"), err: errors.New("exit status 1")}
 	client := newTestClient(t, runner)

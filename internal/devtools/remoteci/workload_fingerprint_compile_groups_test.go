@@ -13,6 +13,16 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// goEmbedResolutionStats 返回测试 snapshot 的 go:embed 解析与缓存命中计数。
+func (snapshot *remoteGitTreeSnapshot) goEmbedResolutionStats() (computations uint64, cacheHits uint64) {
+	if snapshot == nil {
+		return 0, 0
+	}
+	snapshot.cacheMu.Lock()
+	defer snapshot.cacheMu.Unlock()
+	return snapshot.goEmbedResolutionComputations, snapshot.goEmbedResolutionCacheHits
+}
+
 // BenchmarkRemoteWorkloadFingerprintsCandidate 测量真实 Git tree 上同包精确 selector 的 Prepare 指纹阶段。
 func BenchmarkRemoteWorkloadFingerprintsCandidate(b *testing.B) {
 	repositoryRoot := fingerprintBenchmarkRepositoryRoot(b)

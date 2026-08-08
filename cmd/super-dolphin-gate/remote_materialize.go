@@ -187,6 +187,46 @@ func validRemoteRequestObjectKey(key string) bool {
 		strings.HasSuffix(key, ".request.json")
 }
 
+// quantizeRemoteMaterializationPhase 按账本 1ms 分辨率记录真实正区间；亚毫秒起止向外量化，保持区间与 duration 一致，避免把实际工作抹成 0ms。
+func quantizeRemoteMaterializationPhase(
+	started time.Time,
+	completed time.Time,
+	children ...gatecontract.MaterializationPhaseTiming,
+) gatecontract.MaterializationPhaseTiming {
+	if !completed.After(started) {
+		return gatecontract.MaterializationPhaseTiming{}
+	}
+	elapsed := completed.Sub(started)
+	durationMS := int64(elapsed / cicontract.TimingResolution)
+	if elapsed%cicontract.TimingResolution != 0 {
+		durationMS++
+	}
+	if durationMS == 0 {
+		durationMS = 1
+	}
+	startedMS := started.UnixMilli()
+	completedMS := completed.UnixMilli()
+	completedMS = max(completedMS, startedMS+durationMS)
+	childDurationMS := int64(0)
+	for _, child := range children {
+		if child.StartedAtUnixMS > 0 && child.StartedAtUnixMS < startedMS {
+			startedMS = child.StartedAtUnixMS
+		}
+		if child.CompletedAtUnixMS > completedMS {
+			completedMS = child.CompletedAtUnixMS
+		}
+		childDurationMS += child.MaterializeMS
+	}
+	if completedMS < startedMS+childDurationMS {
+		completedMS = startedMS + childDurationMS
+	}
+	return gatecontract.MaterializationPhaseTiming{
+		StartedAtUnixMS:   startedMS,
+		CompletedAtUnixMS: completedMS,
+		MaterializeMS:     completedMS - startedMS,
+	}
+}
+
 // materializeRemoteSourceWithTiming 校验、暂存并安装远程分片源码，同时记录基线缓存和源码物化阶段的耗时。
 func materializeRemoteSourceWithTiming(
 	ctx context.Context,
@@ -205,40 +245,41 @@ func materializeRemoteSourceWithTiming(
 	}
 	request := bootstrap.AsShardRequest()
 	timing.ShardIdentity = bootstrap.ShardIdentity
-	baselineStarted := time.Now().UTC().UnixMilli()
+	baselineStarted := time.Now().UTC()
 	if err := verifyRemoteOCIProjectCache(request); err != nil {
 		return remoteci.BootstrapShardRequest{}, timing, err
 	}
-	baselineCompleted := time.Now().UTC().UnixMilli()
-	if baselineCompleted > baselineStarted {
-		timing.Baseline = gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: baselineStarted, CompletedAtUnixMS: baselineCompleted, MaterializeMS: baselineCompleted - baselineStarted}
-	}
-	sourceStarted := time.Now().UTC().UnixMilli()
-	downloadStarted := time.Now()
+	baselineCompleted := time.Now().UTC()
+	timing.Baseline = quantizeRemoteMaterializationPhase(baselineStarted, baselineCompleted)
+	sourceStarted := time.Now().UTC()
+	downloadStarted := time.Now().UTC()
 	tempRoot, _, _, err := stageRemoteSourceObjects(ctx, workRoot, request, download)
 	if err != nil {
 		return remoteci.BootstrapShardRequest{}, timing, err
 	}
-	timing.Source.DownloadMS = time.Since(downloadStarted).Milliseconds()
+	downloadCompleted := time.Now().UTC()
+	downloadTiming := quantizeRemoteMaterializationPhase(downloadStarted, downloadCompleted)
 	defer os.RemoveAll(tempRoot)
-	verifyStarted := time.Now()
+	verifyStarted := time.Now().UTC()
 	if err := verifyRemoteMaterializedSource(ctx, sourceRoot, tempRoot, request); err != nil {
 		return remoteci.BootstrapShardRequest{}, timing, err
 	}
-	timing.Source.VerifyMS = time.Since(verifyStarted).Milliseconds()
+	verifyCompleted := time.Now().UTC()
+	verifyTiming := quantizeRemoteMaterializationPhase(verifyStarted, verifyCompleted)
 	if err := os.RemoveAll(tempRoot); err != nil {
 		return remoteci.BootstrapShardRequest{}, timing, fmt.Errorf("remove remote materialize staging root: %w", err)
 	}
 	tempRoot = ""
-	installStarted := time.Now()
+	installStarted := time.Now().UTC()
 	if err := installAcceptedBootstrapManifest(workRoot, bootstrap); err != nil {
 		return remoteci.BootstrapShardRequest{}, timing, err
 	}
-	timing.Source.InstallMS = time.Since(installStarted).Milliseconds()
-	sourceCompleted := time.Now().UTC().UnixMilli()
-	timing.Source.MaterializeMS = sourceCompleted - sourceStarted
-	timing.Source.StartedAtUnixMS = sourceStarted
-	timing.Source.CompletedAtUnixMS = sourceCompleted
+	installCompleted := time.Now().UTC()
+	installTiming := quantizeRemoteMaterializationPhase(installStarted, installCompleted)
+	timing.Source = quantizeRemoteMaterializationPhase(sourceStarted, installCompleted, downloadTiming, verifyTiming, installTiming)
+	timing.Source.DownloadMS = downloadTiming.MaterializeMS
+	timing.Source.VerifyMS = verifyTiming.MaterializeMS
+	timing.Source.InstallMS = installTiming.MaterializeMS
 	if err := timing.Validate(); err != nil {
 		return remoteci.BootstrapShardRequest{}, timing, fmt.Errorf("validate remote materialization timing: %w", err)
 	}

@@ -163,15 +163,6 @@ func ParseExecutorCommand(args []string) (GateID, ExecutorProgram, error) {
 	return id, cloneExecutorProgram(program), nil
 }
 
-// ExecutorPrograms 返回覆盖完整 registry 的防御性门禁映射副本。
-func ExecutorPrograms() map[GateID]ExecutorProgram {
-	programs := make(map[GateID]ExecutorProgram, len(executorPrograms))
-	for id, program := range executorPrograms {
-		programs[id] = cloneExecutorProgram(program)
-	}
-	return programs
-}
-
 // executorProgramForWorkload 将 canonical gate 或受控测试目标映射为固定 argv。
 func executorProgramForWorkload(id GateID) (GateID, ExecutorProgram, error) {
 	if program, ok := executorPrograms[id]; ok {

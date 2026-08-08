@@ -10,8 +10,16 @@ import (
 	"testing"
 )
 
-func TestExecutorProgramsCoverCanonicalGateRegistry(t *testing.T) {
-	programs := ExecutorPrograms()
+func testExecutorPrograms() map[GateID]ExecutorProgram {
+	programs := make(map[GateID]ExecutorProgram, len(executorPrograms))
+	for id, program := range executorPrograms {
+		programs[id] = cloneExecutorProgram(program)
+	}
+	return programs
+}
+
+func TestCanonicalExecutorProgramsCoverGateRegistry(t *testing.T) {
+	programs := testExecutorPrograms()
 	registry := GateRegistry()
 	if len(programs) != len(registry)-1 {
 		t.Fatalf("executor programs = %d, registry gates = %d (one expansion-only gate)", len(programs), len(registry))
@@ -84,7 +92,7 @@ func TestParseExecutorCommandReturnsDefensiveProgramCopy(t *testing.T) {
 }
 
 func TestReleaseExecutorUsesSameProcessAttestationWithoutCommands(t *testing.T) {
-	program := ExecutorPrograms()[GateIDReleaseLayeredCheck]
+	program := testExecutorPrograms()[GateIDReleaseLayeredCheck]
 	if program.Strategy != ExecutorStrategyReleaseAttestation || len(program.Steps) != 0 ||
 		program.NeedsGoSeed || program.NeedsFrontendSeed || len(program.RequiredPaths) != 0 {
 		t.Fatalf("release attestation must be a command-free plan-executor strategy: %#v", program)
@@ -92,7 +100,7 @@ func TestReleaseExecutorUsesSameProcessAttestationWithoutCommands(t *testing.T) 
 }
 
 func TestSQLCExecutorUsesPinnedRuntimeBinary(t *testing.T) {
-	program := ExecutorPrograms()[GateIDSQLCVerify]
+	program := testExecutorPrograms()[GateIDSQLCVerify]
 	if program.Strategy != ExecutorStrategySQLCVerify {
 		t.Fatalf("sqlc executor strategy = %q, want %q", program.Strategy, ExecutorStrategySQLCVerify)
 	}
@@ -108,7 +116,7 @@ func TestSQLCExecutorUsesPinnedRuntimeBinary(t *testing.T) {
 }
 
 func TestAIMaintenanceExecutorRunsPinnedActionlintInsideContainer(t *testing.T) {
-	program := ExecutorPrograms()[GateIDAIMaintenanceSelfTest]
+	program := testExecutorPrograms()[GateIDAIMaintenanceSelfTest]
 	if len(program.Steps) < 1 || !slices.Equal(program.Steps[0].Argv, []string{"actionlint"}) {
 		t.Fatalf("AI maintenance executor does not run actionlint first: %#v", program.Steps)
 	}
@@ -118,7 +126,7 @@ func TestAIMaintenanceExecutorRunsPinnedActionlintInsideContainer(t *testing.T) 
 }
 
 func TestProjectMapExecutorUsesTrustedCLIWithoutRepositoryGenerator(t *testing.T) {
-	program := ExecutorPrograms()[GateIDProjectMapCheck]
+	program := testExecutorPrograms()[GateIDProjectMapCheck]
 	want := []string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-index"}
 	if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, want) {
 		t.Fatalf("project map executor steps = %#v, want trusted compiled CLI check", program.Steps)
@@ -159,7 +167,7 @@ func assertImageSystemToolsAreAddressable(t *testing.T, searchPath []string) {
 }
 
 func TestBackendProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
-	backend := ExecutorPrograms()[GateIDBackendTestWithGuard]
+	backend := testExecutorPrograms()[GateIDBackendTestWithGuard]
 	if !backend.NeedsGoSeed || backend.NeedsFrontendSeed || !backend.NeedsFrontendEmbedSeed {
 		t.Fatalf("backend gate seed contract = go:%t frontend:%t frontend_embed:%t", backend.NeedsGoSeed, backend.NeedsFrontendSeed, backend.NeedsFrontendEmbedSeed)
 	}
@@ -176,7 +184,7 @@ func TestBackendProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 }
 
 func TestRaceProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
-	programs := ExecutorPrograms()
+	programs := testExecutorPrograms()
 	race := programs[GateIDBackendTestGuardWithRace]
 	if !race.NeedsGoSeed || race.NeedsFrontendSeed || !race.NeedsFrontendEmbedSeed {
 		t.Fatalf("race gate seed contract = go:%t frontend:%t frontend_embed:%t", race.NeedsGoSeed, race.NeedsFrontendSeed, race.NeedsFrontendEmbedSeed)
@@ -195,7 +203,7 @@ func TestRaceProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 }
 
 func TestNilnessProgramUsesBoundedGoResources(t *testing.T) {
-	if _, ok := ExecutorPrograms()[GateIDBackendNilness]; ok {
+	if _, ok := testExecutorPrograms()[GateIDBackendNilness]; ok {
 		t.Fatal("nilness gate unexpectedly retained a canonical executor")
 	}
 	if _, _, err := executorProgramForWorkload(GateIDBackendNilness); err == nil || !strings.Contains(err.Error(), "expanded workload") {
@@ -231,12 +239,12 @@ func TestNilnessPackageProgramUsesTheAnalyzerForOnePackage(t *testing.T) {
 }
 
 func TestFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
-	programs := ExecutorPrograms()
+	programs := testExecutorPrograms()
 	assertFrontendProgramsUsePinnedRuntimeInputs(t, programs)
 }
 
 func TestFrontendPreflightProgramRunsPreflightAndDependencyIntegrityOnly(t *testing.T) {
-	program := ExecutorPrograms()[GateIDFrontendPreflight]
+	program := testExecutorPrograms()[GateIDFrontendPreflight]
 	want := [][]string{
 		{"npm", "run", "test:hook:preflight"},
 		{"npm", "run", "test:hook:dependency-integrity"},
@@ -255,7 +263,7 @@ func TestFrontendPreflightProgramRunsPreflightAndDependencyIntegrityOnly(t *test
 }
 
 func TestBackendRaceExecutorCombinesCanonicalAndRegisteredPackages(t *testing.T) {
-	race := ExecutorPrograms()[GateIDBackendTestGuardWithRace]
+	race := testExecutorPrograms()[GateIDBackendTestGuardWithRace]
 	if len(race.Steps) != 1 {
 		t.Fatalf("race executor steps = %d, want only race test", len(race.Steps))
 	}
@@ -284,7 +292,7 @@ func TestExecutorProgramRepositoryEntrypointsExist(t *testing.T) {
 		t.Fatal("runtime.Caller did not return the test file")
 	}
 	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(testFile), "..", "..", ".."))
-	for id, program := range ExecutorPrograms() {
+	for id, program := range testExecutorPrograms() {
 		assertExecutorProgramEntrypoints(t, repositoryRoot, id, program)
 	}
 }

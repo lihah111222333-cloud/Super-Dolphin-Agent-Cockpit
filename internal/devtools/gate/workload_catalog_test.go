@@ -253,7 +253,7 @@ func assertExactCodeSizeGuardWorkload(t *testing.T, catalog WorkloadCatalog, pro
 	if got, err := RequiredCheckForWorkloadID(matches[0].ID); err != nil || got != "normal" {
 		t.Fatalf("profile %q code-size guard required-check = %q, error = %v", profile, got, err)
 	}
-	digest, err := workloadProgramDigest(matches[0].ID)
+	digest, err := WorkloadExecutionDigest(matches[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,7 +699,7 @@ func TestCalibrationBootstrapPlansRepositoryScaleWithinTarget(t *testing.T) {
 		catalog,
 		DurationLedgerSnapshot{Generation: 1, Ledger: NewDurationLedger()},
 		context,
-		allShardableWorkloadIDs(catalog),
+		allShardableWorkloadIDsForTest(catalog),
 	)
 	if err != nil {
 		t.Fatalf("repository-scale calibration plan: %v", err)
@@ -723,7 +723,7 @@ func TestBuildSelectedTestWorkloadCatalogIsNonAuthoritative(t *testing.T) {
 	}
 	context := PlanningContext{Platform: "linux/arm64", Runner: "runner", Toolchain: "toolchain", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-selected"}
 	snapshot := DurationLedgerSnapshot{Generation: 1, Ledger: testPlanningLedger(context, nil)}
-	if _, err := BuildWorkloadExecutionPlanForWorkloads(plan, catalog, snapshot, context, allShardableWorkloadIDs(catalog)); err != nil {
+	if _, err := BuildWorkloadExecutionPlanForWorkloads(plan, catalog, snapshot, context, allShardableWorkloadIDsForTest(catalog)); err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads(selected) error = %v", err)
 	}
 }
