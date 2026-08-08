@@ -27,23 +27,6 @@ type gitResult struct {
 	exitCode int
 }
 
-// CurrentWorktreeSource 从指定 cwd 固定完整 worktree tree，不读取其他 worktree 的 HEAD。
-func CurrentWorktreeSource(ctx context.Context, cwd string) (RepositoryIdentity, gatecontract.SourceSpec, error) {
-	repository, err := resolveGitRepository(ctx, cwd)
-	if err != nil {
-		return RepositoryIdentity{}, gatecontract.SourceSpec{}, err
-	}
-	treeSHA, parentSHA, err := repository.snapshotStableWorktreeTree(ctx)
-	if err != nil {
-		return RepositoryIdentity{}, gatecontract.SourceSpec{}, err
-	}
-	source := treeSource(repository.identity.ObjectFormat, treeSHA, parentSHA)
-	if err := source.Validate(); err != nil {
-		return RepositoryIdentity{}, gatecontract.SourceSpec{}, fmt.Errorf("validate worktree source: %w", err)
-	}
-	return repository.identity, source, nil
-}
-
 // resolveGitRepository 只按清理过 Git 环境的 cwd 解析活动 worktree。
 func resolveGitRepository(ctx context.Context, cwd string) (gitRepository, error) {
 	canonicalCWD, err := canonicalDirectory(cwd)
@@ -179,74 +162,6 @@ func decodeWorktreePath(candidate string) (string, error) {
 	return filepath.Clean(candidate), nil
 }
 
-func (r gitRepository) headCommit(ctx context.Context) (string, error) {
-	result, err := runGitRaw(ctx, r.identity.WorktreeRoot, nil, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
-	if err != nil {
-		return "", err
-	}
-	switch result.exitCode {
-	case 0:
-		sha := strings.TrimSpace(result.stdout)
-		if err := r.verifyObject(ctx, sha, "commit"); err != nil {
-			return "", err
-		}
-		return sha, nil
-	case 1:
-		return "", nil
-	default:
-		return "", gitExitError([]string{"rev-parse", "--verify", "--quiet", "HEAD^{commit}"}, result)
-	}
-}
-
-func (r gitRepository) snapshotStableWorktreeTree(ctx context.Context) (string, string, error) {
-	parentSHA, err := r.headCommit(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	first, err := r.snapshotWorktreeTree(ctx, parentSHA)
-	if err != nil {
-		return "", "", err
-	}
-	second, err := r.snapshotWorktreeTree(ctx, parentSHA)
-	if err != nil {
-		return "", "", err
-	}
-	if first != second {
-		return "", "", fmt.Errorf("worktree tree changed while taking hook snapshot: %s -> %s", first, second)
-	}
-	return first, parentSHA, nil
-}
-
-// snapshotWorktreeTree 使用隔离临时 index 捕获完整 tracked/untracked worktree tree。
-func (r gitRepository) snapshotWorktreeTree(ctx context.Context, parentSHA string) (string, error) {
-	tempDir, err := os.MkdirTemp("", "super-dolphin-gatehook-index-")
-	if err != nil {
-		return "", fmt.Errorf("create temporary Git index directory: %w", err)
-	}
-	defer os.RemoveAll(tempDir)
-	indexPath := filepath.Join(tempDir, "index")
-	environment := []string{"GIT_INDEX_FILE=" + indexPath}
-	if parentSHA == "" {
-		if _, err := runGit(ctx, r.identity.WorktreeRoot, environment, "read-tree", "--empty"); err != nil {
-			return "", err
-		}
-	} else if _, err := runGit(ctx, r.identity.WorktreeRoot, environment, "read-tree", parentSHA); err != nil {
-		return "", err
-	}
-	if _, err := runGit(ctx, r.identity.WorktreeRoot, environment, "add", "-A", "--", "."); err != nil {
-		return "", err
-	}
-	treeSHA, err := runGit(ctx, r.identity.WorktreeRoot, environment, "write-tree")
-	if err != nil {
-		return "", err
-	}
-	treeSHA = strings.TrimSpace(treeSHA)
-	if err := r.verifyObject(ctx, treeSHA, "tree"); err != nil {
-		return "", err
-	}
-	return treeSHA, nil
-}
-
 func (r gitRepository) verifyObject(ctx context.Context, oid, expectedType string) error {
 	objectType, err := runGit(ctx, r.identity.WorktreeRoot, nil, "cat-file", "-t", oid)
 	if err != nil {
@@ -294,15 +209,6 @@ func (r gitRepository) isAncestor(ctx context.Context, baseSHA, headSHA string) 
 		return false, nil
 	default:
 		return false, gitExitError([]string{"merge-base", "--is-ancestor", baseSHA, headSHA}, result)
-	}
-}
-
-func treeSource(objectFormat gatecontract.GitObjectFormat, treeSHA, parentSHA string) gatecontract.SourceSpec {
-	return gatecontract.SourceSpec{
-		Kind:          gatecontract.SourceKindTree,
-		ObjectFormat:  objectFormat,
-		Tree:          &gatecontract.TreeSource{SHA: treeSHA, ParentCommitSHA: parentSHA},
-		SourceTreeSHA: treeSHA,
 	}
 }
 
@@ -358,8 +264,7 @@ func runGitRaw(ctx context.Context, cwd string, extraEnvironment []string, argum
 	if err == nil {
 		return result, nil
 	}
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
+	if exitError, ok := errors.AsType[*exec.ExitError](err); ok {
 		result.exitCode = exitError.ExitCode()
 		return result, nil
 	}

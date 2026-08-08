@@ -5,16 +5,16 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4825,
+  "files": 4816,
   "domains": {
-    "other": 1095,
+    "other": 1086,
     "remote-ci": 204,
     "docs-agent": 96,
     "app-ui": 757,
-    "platform-provider": 1289,
+    "platform-provider": 1268,
     "orchestration": 411,
     "modules": 763,
-    "store-sql": 210
+    "store-sql": 231
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -44,15 +44,15 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1289,
-        "size_kb": 240.2,
+        "file_count": 1268,
+        "size_kb": 235.8,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 210,
-        "size_kb": 30.9,
+        "file_count": 231,
+        "size_kb": 36.1,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -66,14 +66,14 @@
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
         "file_count": 96,
-        "size_kb": 14,
+        "size_kb": 14.3,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1095,
-        "size_kb": 217.6,
+        "file_count": 1086,
+        "size_kb": 215.9,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -85,9 +85,9 @@
     "config": 3,
     "docs": 89,
     "frontend-app": 749,
-    "internal": 2842,
+    "internal": 2837,
     "pkg": 30,
-    "scripts": 188,
+    "scripts": 184,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -163,8 +163,14 @@
     {
       "goal": "修改持久化/SQL",
       "primary": "internal/store/",
-      "secondary": "sql/queries/",
+      "secondary": "internal/platform/db/sqlite/migrations/",
       "keywords": "store sqlc migration queries"
+    },
+    {
+      "goal": "修改 SQLite migrations",
+      "primary": "internal/platform/db/sqlite/migrations/",
+      "secondary": "internal/platform/db/",
+      "keywords": "sqlite migration schema version"
     },
     {
       "goal": "修改远程 CI/ECI/ImageCache",

@@ -75,8 +75,8 @@ func TestDecodePlanExecutionReportRejectsOversizeResponse(t *testing.T) {
 	if totalBytes <= executorPlanReportMaxOutputBytes {
 		t.Fatalf("oversize fixture bytes = %d, want > %d", totalBytes, executorPlanReportMaxOutputBytes)
 	}
-	if _, err := DecodePlanExecutionReportChunks(chunks); err == nil || !strings.Contains(err.Error(), "remote log response limit") {
-		t.Fatalf("DecodePlanExecutionReportChunks() error = %v, want response-limit rejection", err)
+	if _, err := DecodePlanExecutionReportChunksForGateSet(chunks, []GateID{"oversize"}); err == nil || !strings.Contains(err.Error(), "remote log response limit") {
+		t.Fatalf("DecodePlanExecutionReportChunksForGateSet() error = %v, want response-limit rejection", err)
 	}
 }
 

@@ -127,8 +127,8 @@ type DurationLedgerDerivedInterval struct {
 	CompletedAt time.Time
 }
 
-// LoadDerivedObservationReport通过现有只读完整性路径加载原始历史并计算独立派生报告。
-func (store *DurationLedgerStore) LoadDerivedObservationReport() (DurationLedgerDerivedReport, error) {
+// loadDerivedObservationReport通过现有只读完整性路径加载原始历史并计算独立派生报告。
+func (store *DurationLedgerStore) loadDerivedObservationReport() (DurationLedgerDerivedReport, error) {
 	if store == nil {
 		return DurationLedgerDerivedReport{}, errors.New("duration ledger store is nil")
 	}
@@ -136,11 +136,11 @@ func (store *DurationLedgerStore) LoadDerivedObservationReport() (DurationLedger
 	if err != nil {
 		return DurationLedgerDerivedReport{}, err
 	}
-	return AggregateDurationLedgerDerivedObservations(events)
+	return aggregateDurationLedgerDerivedObservations(events)
 }
 
-// AggregateDurationLedgerDerivedObservations确定性消费精确原始事件，不写原始账本、历史、投影或事实。
-func AggregateDurationLedgerDerivedObservations(events []DurationLedgerRawObservationEvent) (DurationLedgerDerivedReport, error) {
+// aggregateDurationLedgerDerivedObservations确定性消费精确原始事件，不写原始账本、历史、投影或事实。
+func aggregateDurationLedgerDerivedObservations(events []DurationLedgerRawObservationEvent) (DurationLedgerDerivedReport, error) {
 	ordered := durationLedgerDerivedOrderedEvents(events)
 	provenance, err := durationLedgerDerivedProvenance(ordered)
 	if err != nil {

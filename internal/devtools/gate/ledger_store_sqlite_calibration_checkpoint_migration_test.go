@@ -11,7 +11,7 @@ func TestCalibrationCheckpointSchemaV1RejectsEmptyLegacyTablesWithoutMutation(t 
 	defer database.Close()
 	beforeMaster := durationLedgerSQLiteMasterForTest(t, database)
 	beforeVersion := durationLedgerSQLiteUserVersionForTest(t, database)
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 		t.Fatal("empty legacy calibration checkpoint schema was accepted")
 	}
 	if got := durationLedgerSQLiteMasterForTest(t, database); got != beforeMaster {
@@ -30,7 +30,7 @@ func TestCalibrationCheckpointSchemaV1RejectsNonemptyLegacyDataWithoutMutation(t
 	defer database.Close()
 	beforeMaster := durationLedgerSQLiteMasterForTest(t, database)
 	beforeVersion := durationLedgerSQLiteUserVersionForTest(t, database)
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 		t.Fatal("nonempty legacy calibration checkpoint schema was accepted")
 	}
 	var schemaVersion, rows int

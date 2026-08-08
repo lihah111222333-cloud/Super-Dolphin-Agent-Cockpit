@@ -1,12 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -102,51 +99,6 @@ func TestCodeSizeGuardDefaultAndStrictEnableFunctionCommentGuard(t *testing.T) {
 	assertScriptOrder(t, guard, "EnforceFuncComments: true", "switch cfg.mode")
 	assertScriptContains(t, guard, "runStrict(opts)")
 	assertScriptContains(t, guard, "runCheck(opts, freezePath)")
-}
-
-func TestValidateRiskEvidenceRejectsMissingExtraAndMisfiledIDs(t *testing.T) {
-	plan := filepath.Join("..", "docs", "pians", "2026-06-29-production-risk-remediation-plan.md")
-	activeIDs := activeRiskIDsForFixture(t, plan)
-	commit := currentShortCommitForTest(t)
-	goodEvidence := buildRiskEvidenceFixture(activeIDs, map[string][]string{
-		"Adjusted Readiness Dispositions": {"P1-07"},
-		"Guard-Only Dispositions":         {"P1-32", "P2-01", "P2-24", "P2-27", "P2-28", "P3-04"},
-		"Evidence-Only Dispositions":      {"P3-07"},
-	}, commit)
-
-	goodPath := writeTempEvidence(t, goodEvidence)
-	output, err := runValidateRiskEvidence(t, plan, goodPath)
-	if err != nil {
-		t.Fatalf("good evidence rejected: %v\n%s", err, output)
-	}
-
-	missingPath := writeTempEvidence(t, strings.Replace(goodEvidence, "| P1-01 |", "| P9-99 |", 1))
-	output, err = runValidateRiskEvidence(t, plan, missingPath)
-	if err == nil {
-		t.Fatalf("missing/extra evidence accepted:\n%s", output)
-	}
-	assertOutputContainsAll(t, output, "missing active evidence rows", "extra active evidence rows")
-
-	misfiledPath := writeTempEvidence(t, strings.Replace(goodEvidence, "## Adjusted Readiness Dispositions", "| P2-24 | lane | red | green | commit | risk |\n\n## Adjusted Readiness Dispositions", 1))
-	output, err = runValidateRiskEvidence(t, plan, misfiledPath)
-	if err == nil {
-		t.Fatalf("misfiled guard-only evidence accepted:\n%s", output)
-	}
-	assertOutputContainsAll(t, output, "reserved disposition IDs must not appear in active evidence")
-
-	placeholderPath := writeTempEvidence(t, strings.Replace(goodEvidence, "| "+commit+" |", "| working-tree |", 1))
-	output, err = runValidateRiskEvidence(t, plan, placeholderPath)
-	if err == nil {
-		t.Fatalf("placeholder commit evidence accepted:\n%s", output)
-	}
-	assertOutputContainsAll(t, output, "Commit must be a concrete git SHA")
-
-	unresolvedPath := writeTempEvidence(t, strings.Replace(goodEvidence, "| "+commit+" |", "| ffffffffffffffffffffffffffffffffffffffff |", 1))
-	output, err = runValidateRiskEvidence(t, plan, unresolvedPath)
-	if err == nil {
-		t.Fatalf("unresolved commit evidence accepted:\n%s", output)
-	}
-	assertOutputContainsAll(t, output, "does not resolve in git")
 }
 
 func TestValidateSuperAgentSkillsMirrorComparisonNormalizesLineEndings(t *testing.T) {
@@ -323,82 +275,4 @@ func TestCICommitGuardFallsBackToOriginMainForLocalRun(t *testing.T) {
 		"[ci-commit-guard] fix-test guard: "+base+".."+head,
 		"fix-test guard OK",
 	)
-}
-
-func activeRiskIDsForFixture(t *testing.T, plan string) []string {
-	t.Helper()
-	text := readScript(t, plan)
-	idRe := regexp.MustCompile(`^\|\s*(P[0-9]-[0-9]{2})\s*\|`)
-	reserved := map[string]bool{
-		"P1-07": true,
-		"P1-32": true,
-		"P2-01": true,
-		"P2-24": true,
-		"P2-27": true,
-		"P2-28": true,
-		"P3-04": true,
-		"P3-07": true,
-	}
-	seen := map[string]bool{}
-	for line := range strings.SplitSeq(text, "\n") {
-		match := idRe.FindStringSubmatch(line)
-		if len(match) != 2 || reserved[match[1]] {
-			continue
-		}
-		seen[match[1]] = true
-	}
-	ids := make([]string, 0, len(seen))
-	for id := range seen {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-func buildRiskEvidenceFixture(activeIDs []string, disposition map[string][]string, commit string) string {
-	var b strings.Builder
-	b.WriteString("# Risk Evidence\n\n")
-	b.WriteString("## Active Evidence\n\n")
-	b.WriteString("| ID | Lane | RED | GREEN | Commit | Residual Risk |\n")
-	b.WriteString("|---|---|---|---|---|---|\n")
-	for _, id := range activeIDs {
-		fmt.Fprintf(&b, "| %s | lane | red | green | %s | none |\n", id, commit)
-	}
-	for _, section := range []string{"Adjusted Readiness Dispositions", "Guard-Only Dispositions", "Evidence-Only Dispositions"} {
-		fmt.Fprintf(&b, "\n## %s\n\n", section)
-		b.WriteString("| ID | Disposition | Evidence |\n")
-		b.WriteString("|---|---|---|\n")
-		for _, id := range disposition[section] {
-			fmt.Fprintf(&b, "| %s | recorded | command |\n", id)
-		}
-	}
-	return b.String()
-}
-
-func currentShortCommitForTest(t *testing.T) string {
-	t.Helper()
-	cmd := exec.Command("git", "rev-parse", "--short=8", "HEAD")
-	cmd.Dir = ".."
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("rev-parse HEAD: %v\n%s", err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func writeTempEvidence(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "evidence.md")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write evidence: %v", err)
-	}
-	return path
-}
-
-func runValidateRiskEvidence(t *testing.T, plan, evidence string) (string, error) {
-	t.Helper()
-	cmd := exec.Command("python3", "validate_risk_evidence.py", "--plan", plan, "--evidence", evidence)
-	cmd.Dir = "."
-	out, err := cmd.CombinedOutput()
-	return string(out), err
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
@@ -78,12 +79,19 @@ func validateOptionalRegistryCredential(credential RegistryCredential) error {
 	if populated != 0 && populated != len(values) {
 		return errors.New("ECI registry credential must be either absent or complete")
 	}
+	if populated != 0 {
+		for _, value := range values {
+			if !validRegistryCredentialValue(value) {
+				return errors.New("ECI registry credential contains leading, trailing, or control whitespace")
+			}
+		}
+	}
 	return nil
 }
 
 // validateRegistryCredential 要求创建分片时提供完整凭据并绑定两个不可变镜像的同一 registry。
 func validateRegistryCredential(credential RegistryCredential, request CreateRequest) error {
-	if credential.Server == "" || credential.UserName == "" || credential.Password == "" {
+	if !validRegistryCredentialValue(credential.Server) || !validRegistryCredentialValue(credential.UserName) || !validRegistryCredentialValue(credential.Password) {
 		return errors.New("ECI private registry credential is required for container creation")
 	}
 	if strings.Contains(credential.Server, "://") || strings.ContainsAny(credential.Server, "/ ") || len(credential.Server) > 256 {
@@ -96,6 +104,14 @@ func validateRegistryCredential(credential RegistryCredential, request CreateReq
 		return errors.New("ECI registry credential server does not match the immutable container images")
 	}
 	return nil
+}
+
+// validRegistryCredentialValue rejects empty values and any whitespace/control
+// rune so credentials cannot be split across CLI arguments or error output.
+func validRegistryCredentialValue(value string) bool {
+	return value != "" && strings.TrimSpace(value) == value && strings.IndexFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}) < 0
 }
 
 // imagesUseRegistry 要求主容器和物料容器都绑定同一个显式 registry 域名。

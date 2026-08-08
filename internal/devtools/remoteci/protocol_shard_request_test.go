@@ -32,6 +32,26 @@ func TestShardRequestRequiresCanonicalSourceBundleFields(t *testing.T) {
 	}
 }
 
+func TestShardRequestBindsSourceObjectBasenamesToTheirDigests(t *testing.T) {
+	valid := testSourceBundleShardRequest(t)
+	for name, mutate := range map[string]func(*ShardRequest){
+		"bundle digest mismatch": func(request *ShardRequest) {
+			request.SourceBundleKey = "source-bundles/" + request.JobID + "/" + strings.Repeat("f", 64) + ".bundle"
+		},
+		"manifest digest mismatch": func(request *ShardRequest) {
+			request.ManifestKey = "source-bundles/" + request.JobID + "/" + strings.Repeat("f", 64) + ".manifest.json"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := valid
+			mutate(&request)
+			if err := request.Validate(); err == nil {
+				t.Fatal("source object key digest mismatch unexpectedly passed")
+			}
+		})
+	}
+}
+
 func TestShardRequestRoundTripsFourHundredElevenLongSelectorIDsWithinByteLimit(t *testing.T) {
 	request := buildLongSelectorShardRequest(t, 411)
 	manifestDigest, err := request.ComputeShardExecutionManifestDigest()

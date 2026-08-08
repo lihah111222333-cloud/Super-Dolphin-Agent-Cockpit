@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -381,9 +382,73 @@ func decodeRemoteCIAgentTokenJSON(t *testing.T, output []byte, kind string, targ
 	if bytes.Count(output, []byte("\n")) != 1 {
 		t.Fatalf("%s output must contain exactly one JSON line, got %q", kind, output)
 	}
-	if err := json.Unmarshal(output, target); err != nil {
+	if err := decodeRemoteCIAgentTokenJSONStrict(output, target); err != nil {
 		t.Fatalf("decode %s JSON: %v", kind, err)
 	}
+}
+
+func decodeRemoteCIAgentTokenJSONStrict(input []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(input))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err == nil {
+		return fmt.Errorf("multiple JSON values")
+	} else if err != io.EOF {
+		return fmt.Errorf("trailing JSON: %w", err)
+	}
+	return nil
+}
+
+// TestRemoteCIAgentTokenWireAdapterGuards 动态枚举 CLI wire 字段并锁定未知字段 fail-fast。
+func TestRemoteCIAgentTokenWireAdapterGuards(t *testing.T) {
+	for name, typ := range map[string]reflect.Type{
+		"guidance":  reflect.TypeFor[remoteCIAgentTokenGuidance](),
+		"bootstrap": reflect.TypeFor[remoteCIAgentTokenBootstrap](),
+	} {
+		fields, err := remoteCIAgentTokenWireJSONFields(typ)
+		if err != nil {
+			t.Fatalf("%s wire fields: %v", name, err)
+		}
+		if len(fields) == 0 {
+			t.Fatalf("%s wire fields are empty", name)
+		}
+		for field, jsonName := range fields {
+			if field == "" || jsonName == "" {
+				t.Fatalf("%s wire field has empty identity: %q=%q", name, field, jsonName)
+			}
+		}
+	}
+
+	valid := []byte(`{"schema_version":1,"kind":"remote_ci_agent_token_guidance","retry_required":true,"execute_ci":false,"guidance":"g","issue_flag":"--agent-token=issue","issue_environment_name":"SUPER_DOLPHIN_CI_AGENT_TOKEN","issue_environment_value":"issue","use_flag":"--agent-token=<token>","use_environment_name":"SUPER_DOLPHIN_CI_AGENT_TOKEN","use_environment_value":"<token>","issue_argv":["gate","remote","run","--agent-token=issue"]}`)
+	var guidance remoteCIAgentTokenGuidance
+	if err := decodeRemoteCIAgentTokenJSONStrict(valid, &guidance); err != nil {
+		t.Fatalf("valid guidance wire rejected: %v", err)
+	}
+	unknown := append(append([]byte(nil), valid[:len(valid)-1]...), []byte(`,"unknown":true}`)...)
+	if err := decodeRemoteCIAgentTokenJSONStrict(unknown, &guidance); err == nil {
+		t.Fatal("unknown guidance wire field must fail closed")
+	}
+}
+
+func remoteCIAgentTokenWireJSONFields(typ reflect.Type) (map[string]string, error) {
+	if typ.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("wire type %s is not a struct", typ)
+	}
+	fields := make(map[string]string, typ.NumField())
+	for field := range typ.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			return nil, fmt.Errorf("wire field %s has no JSON name", field.Name)
+		}
+		if previous, exists := fields[name]; exists {
+			return nil, fmt.Errorf("wire JSON field %q duplicates %s and %s", name, previous, field.Name)
+		}
+		fields[name] = field.Name
+	}
+	return fields, nil
 }
 
 // assertRemoteCIAgentTokenGuidanceDoesNotIssue 确保阶段一没有泄露 token 或摘要。

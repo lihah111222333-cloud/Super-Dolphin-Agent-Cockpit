@@ -562,16 +562,16 @@ func TestDecodePlanExecutionReportRejectsGateSetAndEvidenceDrift(t *testing.T) {
 			mutate(&changed)
 			chunks, encodeErr := EncodePlanExecutionReportChunks(changed)
 			if encodeErr == nil {
-				if _, err := DecodePlanExecutionReport(strings.Join(chunks, "\n")); err == nil {
+				if _, err := DecodePlanExecutionReportChunksForGateSet(chunks, planReportGateIDs(report)); err == nil {
 					t.Fatal("decoder accepted drifted plan report")
 				}
 			}
 		})
 	}
-	if _, err := DecodePlanExecutionReport(encodePlanReportForTest(t, report) + "\ntrailing"); err == nil {
+	if _, err := DecodePlanExecutionReportChunksForGateSet(strings.Split(encodePlanReportForTest(t, report)+"\ntrailing", "\n"), planReportGateIDs(report)); err == nil {
 		t.Fatal("decoder accepted trailing text")
 	}
-	if decoded, err := DecodePlanExecutionReport(encodePlanReportForTest(t, report)); err != nil {
+	if decoded, err := DecodePlanExecutionReportChunksForGateSet(strings.Split(encodePlanReportForTest(t, report), "\n"), planReportGateIDs(report)); err != nil {
 		t.Fatalf("decode canonical report: %v", err)
 	} else if !slices.EqualFunc(decoded.Gates, report.Gates, func(left, right PlanGateExecution) bool {
 		return left.GateID == right.GateID
@@ -593,7 +593,7 @@ func TestPlanExecutionReportRoundTripsCurrentTestTimings(t *testing.T) {
 		{Name: "TestFast", Status: GoTestStatusPass, DurationMS: 125},
 		{Name: "TestSlow/subcase", Status: GoTestStatusFail, DurationMS: 1500},
 	}
-	decoded, err := DecodePlanExecutionReport(encodePlanReportForTest(t, report))
+	decoded, err := DecodePlanExecutionReportChunksForGateSet(strings.Split(encodePlanReportForTest(t, report), "\n"), planReportGateIDs(report))
 	if err != nil {
 		t.Fatalf("decode report with test timings: %v", err)
 	}
@@ -724,7 +724,7 @@ func successfulPlanGateResult(id GateID) PlanGateExecution {
 
 func clonePlanReport(t *testing.T, report PlanExecutionReport) PlanExecutionReport {
 	t.Helper()
-	cloned, err := DecodePlanExecutionReport(encodePlanReportForTest(t, report))
+	cloned, err := DecodePlanExecutionReportChunksForGateSet(strings.Split(encodePlanReportForTest(t, report), "\n"), planReportGateIDs(report))
 	if err != nil {
 		t.Fatal(err)
 	}

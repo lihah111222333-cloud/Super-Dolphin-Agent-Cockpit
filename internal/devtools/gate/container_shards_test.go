@@ -19,9 +19,6 @@ func TestBuildContainerShardSetFromWorkloadPlanBindsFrozenLPTIdentity(t *testing
 		t.Fatalf("BuildContainerShardSetFromWorkloadPlan() error = %v", err)
 	}
 	assertWorkloadContainerShardSetIdentity(t, set, workloadPlan)
-	if err := set.ValidateStored(gatePlan); err != nil {
-		t.Fatalf("ValidateStored() error = %v", err)
-	}
 
 	workloadPlan.Catalog.Workloads[0].CommandDigest = strings.Repeat("f", 64)
 	if err := set.Validate(); err != nil {

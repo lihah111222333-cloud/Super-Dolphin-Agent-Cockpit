@@ -303,6 +303,9 @@ func validateObjectBinding(key string, digest string, suffix string, prefix stri
 	if !validObjectDigest(digest) {
 		return errors.New("object SHA-256 is invalid")
 	}
+	if path.Base(key) != digest+suffix {
+		return errors.New("object key basename does not match object SHA-256")
+	}
 	return nil
 }
 

@@ -422,11 +422,6 @@ func durationLedgerSQLiteDSN(path string) string {
 	return path + "?" + query.Encode()
 }
 
-// ensureDurationLedgerSQLiteSchema 初始化或协调SQLite schema。
-func ensureDurationLedgerSQLiteSchema(database *sql.DB, now func() time.Time) error {
-	return ensureDurationLedgerSQLiteSchemaWithValidator(database, now, newDurationLedgerSQLiteSchemaValidator())
-}
-
 // ensureDurationLedgerSQLiteSchemaWithValidator 在唯一 current DDL 写入器上执行严格 schema 协调。
 func ensureDurationLedgerSQLiteSchemaWithValidator(
 	database *sql.DB,

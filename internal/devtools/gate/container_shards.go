@@ -88,67 +88,6 @@ func (set ContainerShardSet) Validate() error {
 	return nil
 }
 
-// ValidateStored 校验历史终态分片的摘要与计划覆盖，不把旧分组当成当前可执行策略。
-func (set ContainerShardSet) ValidateStored(plan GatePlan) error {
-	if err := plan.ValidateStored(); err != nil {
-		return err
-	}
-	if err := set.WorkloadPlan.ValidateStored(plan); err != nil {
-		return err
-	}
-	if err := validateContainerShardSetHeader(set); err != nil {
-		return err
-	}
-	if set.Profile != plan.Profile || set.PlanDigest != plan.PlanDigest || set.SourceTreeSHA != plan.Source.SourceTreeSHA {
-		return errors.New("stored container shard set drifted from its plan")
-	}
-	seen, err := validateStoredContainerShardIdentities(set)
-	if err != nil {
-		return err
-	}
-	return validateStoredContainerShardCoverage(seen, set)
-}
-
-// validateStoredContainerShardIdentities 校验历史分片身份并拒绝重复 gate 归属。
-func validateStoredContainerShardIdentities(set ContainerShardSet) (map[GateID]struct{}, error) {
-	seen := make(map[GateID]struct{})
-	for index, shard := range set.Shards {
-		if err := validateContainerShard(set, shard, index); err != nil {
-			return nil, err
-		}
-		if err := claimContainerShardGates(seen, shard.GateIDs); err != nil {
-			return nil, err
-		}
-	}
-	return seen, nil
-}
-
-// validateStoredContainerShardCoverage 校验历史分片恰好覆盖计划内非 release gate。
-func validateStoredContainerShardCoverage(seen map[GateID]struct{}, set ContainerShardSet) error {
-	return validateContainerShardCoverage(seen, gateIDsFromWorkloadExecutionPlan(set.WorkloadPlan), "workload")
-}
-
-func gateIDsFromWorkloadExecutionPlan(plan WorkloadExecutionPlan) map[GateID]struct{} {
-	ids := make(map[GateID]struct{}, len(plan.ExecutionWorkloadIDs))
-	for _, id := range plan.ExecutionWorkloadIDs {
-		ids[id] = struct{}{}
-	}
-	return ids
-}
-
-// validateContainerShardCoverage 校验已观察集合精确覆盖期望集合。
-func validateContainerShardCoverage(seen map[GateID]struct{}, expected map[GateID]struct{}, kind string) error {
-	if len(seen) != len(expected) {
-		return errors.New("stored container shard set does not exactly cover its workload plan")
-	}
-	for id := range expected {
-		if _, ok := seen[id]; !ok {
-			return fmt.Errorf("stored container shard set omits %s %q", kind, id)
-		}
-	}
-	return nil
-}
-
 // validateCanonicalContainerShardGroups 拒绝遗漏、重排或把 gate 塞进错误 worker 的自洽伪造集合。
 func validateCanonicalContainerShardGroups(set ContainerShardSet) error {
 	expected := workloadContainerShardGroups(set.WorkloadPlan)

@@ -13,6 +13,7 @@ import (
 	"net"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -191,10 +192,35 @@ type Client struct {
 
 // New 使用本机已安装的 aliyun CLI 创建客户端，凭据始终由指定 profile 管理。
 func New(config Config) (*Client, error) {
-	if path.Base(strings.TrimSpace(config.Binary)) != "aliyun" {
-		return nil, errors.New("production ECI client requires the official aliyun CLI binary")
+	canonical, err := canonicalOfficialAliyunCLI(config.Binary)
+	if err != nil {
+		return nil, err
 	}
+	config.Binary = canonical
 	return NewWithRunner(config, execRunner{})
+}
+
+// canonicalOfficialAliyunCLI resolves PATH once and then enforces the trusted
+// executable ownership, permissions, and realpath boundary used by production.
+func canonicalOfficialAliyunCLI(binary string) (string, error) {
+	if binary == "" || binary != strings.TrimSpace(binary) {
+		return "", errors.New("production ECI client requires the official aliyun CLI binary")
+	}
+	if !filepath.IsAbs(binary) {
+		resolved, err := exec.LookPath(binary)
+		if err != nil {
+			return "", fmt.Errorf("production ECI client requires the official aliyun CLI binary: resolve %q: %w", binary, err)
+		}
+		binary = resolved
+	}
+	canonical, err := gateprivate.CanonicalCurrentOrRootExecutable("official aliyun CLI", binary)
+	if err != nil {
+		return "", fmt.Errorf("production ECI client requires the official aliyun CLI binary: %w", err)
+	}
+	if filepath.Base(canonical) != "aliyun" {
+		return "", errors.New("production ECI client requires the official aliyun CLI binary")
+	}
+	return canonical, nil
 }
 
 // NewWithRunner 注入命令执行边界，供调用方隔离进程执行并让测试精确验证请求。

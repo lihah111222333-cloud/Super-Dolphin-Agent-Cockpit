@@ -21,7 +21,7 @@ func TestDurationLedgerSchemaInitializationReleasesSQLiteConnection(t *testing.T
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	if err := ensureDurationLedgerSQLiteSchema(db, store.nowFunc); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(db, store.nowFunc, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

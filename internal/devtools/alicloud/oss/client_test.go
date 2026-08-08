@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -155,7 +156,7 @@ func TestNew_RejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestNewCLI_RequiresOfficialAliyunBasename(t *testing.T) {
+func TestNewCLI_RequiresTrustedAliyunRealpath(t *testing.T) {
 	baseConfig := Config{
 		Binary:   "aliyun",
 		Bucket:   "ci-bucket",
@@ -172,12 +173,27 @@ func TestNewCLI_RequiresOfficialAliyunBasename(t *testing.T) {
 			}
 		})
 	}
-	for _, binary := range []string{"aliyun", "/usr/local/bin/aliyun"} {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("resolve test home: %v", err)
+	}
+	t.Setenv("TMPDIR", home)
+	root := t.TempDir()
+	trusted := filepath.Join(root, "aliyun")
+	if err := os.WriteFile(trusted, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write trusted CLI: %v", err)
+	}
+	for _, binary := range []string{trusted, filepath.Join(root, "aliyun-link")} {
+		if binary != trusted {
+			if err := os.Symlink(trusted, binary); err != nil {
+				t.Fatalf("symlink trusted CLI: %v", err)
+			}
+		}
 		t.Run("accept "+binary, func(t *testing.T) {
 			config := baseConfig
 			config.Binary = binary
 			if _, err := NewCLI(config); err != nil {
-				t.Fatalf("NewCLI(%q) error = %v, want basename acceptance", binary, err)
+				t.Fatalf("NewCLI(%q) error = %v, want trusted realpath acceptance", binary, err)
 			}
 		})
 	}

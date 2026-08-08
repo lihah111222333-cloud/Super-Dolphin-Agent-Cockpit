@@ -45,7 +45,7 @@ func roundTripCompileGroupReport(t *testing.T, report PlanExecutionReport) PlanE
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := DecodePlanExecutionReportChunks(chunks)
+	decoded, err := DecodePlanExecutionReportChunksForGateSet(chunks, planReportGateIDs(report))
 	if err != nil {
 		t.Fatal(err)
 	}

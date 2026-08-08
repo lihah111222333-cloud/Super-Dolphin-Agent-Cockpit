@@ -168,7 +168,7 @@ func loadRequiredRemoteMaterializeValues(getenv func(string) (string, bool)) (ma
 
 // validateRemoteMaterializeConfig 校验远程请求和引导信任材料的固定身份。
 func validateRemoteMaterializeConfig(config remoteMaterializeConfig) error {
-	if !validRemoteRequestObjectKey(config.RequestKey) || len(config.RequestSHA256) != sha256.Size*2 {
+	if !validRemoteBootstrapRequestObjectKey(config.RequestKey) || len(config.RequestSHA256) != sha256.Size*2 {
 		return errors.New("remote request object identity is invalid")
 	}
 	if _, err := hex.DecodeString(config.RequestSHA256); err != nil || strings.ToLower(config.RequestSHA256) != config.RequestSHA256 {
@@ -185,6 +185,10 @@ func validRemoteRequestObjectKey(key string) bool {
 	return key != "" && len(key) <= 1023 && !strings.HasPrefix(key, "/") &&
 		!strings.ContainsAny(key, "\\\x00\r\n?#") && path.Clean(key) == key &&
 		strings.HasSuffix(key, ".request.json")
+}
+
+func validRemoteBootstrapRequestObjectKey(key string) bool {
+	return validRemoteRequestObjectKey(key) && strings.HasSuffix(key, ".bootstrap.request.json")
 }
 
 // quantizeRemoteMaterializationPhase 按账本 1ms 分辨率记录真实正区间；亚毫秒起止向外量化，保持区间与 duration 一致，避免把实际工作抹成 0ms。
@@ -488,6 +492,12 @@ func verifyRemoteMaterializedGateCLICompileClosure(ctx context.Context, sourceRo
 // loadRemoteBootstrapShardRequest 下载并严格校验 accepted schema-14/v1
 // bootstrap 请求对象；current v2 请求不得进入 materializer。
 func loadRemoteBootstrapShardRequest(ctx context.Context, config remoteMaterializeConfig, download remoteObjectDownload) (remoteci.BootstrapShardRequest, error) {
+	if !validRemoteBootstrapRequestObjectKey(config.RequestKey) {
+		return remoteci.BootstrapShardRequest{}, errors.New("remote bootstrap request object key is invalid")
+	}
+	if err := validateRemoteBootstrapRequestKeyDigest(config.RequestKey, config.RequestSHA256); err != nil {
+		return remoteci.BootstrapShardRequest{}, err
+	}
 	var requestData bytes.Buffer
 	if _, err := download(ctx, config.RequestKey, remoteRequestMaxBytes, &requestData); err != nil {
 		return remoteci.BootstrapShardRequest{}, fmt.Errorf("download remote bootstrap shard request: %w", err)
@@ -499,6 +509,9 @@ func loadRemoteBootstrapShardRequest(ctx context.Context, config remoteMateriali
 	if err != nil {
 		return remoteci.BootstrapShardRequest{}, err
 	}
+	if err := validateRemoteBootstrapRequestKey(request.JobID, config.RequestKey, config.RequestSHA256); err != nil {
+		return remoteci.BootstrapShardRequest{}, err
+	}
 	objectDirectory := path.Dir(request.SourceBundleKey)
 	if path.Dir(config.RequestKey) != objectDirectory || path.Dir(request.ManifestKey) != objectDirectory {
 		return remoteci.BootstrapShardRequest{}, errors.New("remote bootstrap request object directory does not match source objects")
@@ -507,6 +520,20 @@ func loadRemoteBootstrapShardRequest(ctx context.Context, config remoteMateriali
 		return remoteci.BootstrapShardRequest{}, errors.New("remote bootstrap shard request agent token digest does not match init environment")
 	}
 	return request, nil
+}
+
+func validateRemoteBootstrapRequestKey(jobID, key, digest string) error {
+	if path.Base(path.Dir(key)) != jobID {
+		return fmt.Errorf("remote bootstrap request key %q is not content addressed for job %q", key, jobID)
+	}
+	return validateRemoteBootstrapRequestKeyDigest(key, digest)
+}
+
+func validateRemoteBootstrapRequestKeyDigest(key, digest string) error {
+	if path.Base(key) != digest+".bootstrap.request.json" {
+		return fmt.Errorf("remote bootstrap request key %q is not content addressed for request SHA-256", key)
+	}
+	return nil
 }
 
 // stageRemoteSourceObjects 独占创建暂存目录并下载经摘要校验的 manifest 与 source bundle。

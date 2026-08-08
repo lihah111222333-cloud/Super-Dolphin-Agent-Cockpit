@@ -145,15 +145,48 @@ func validateAcceptedBootstrapRequestCore(request ShardRequest, gateIDs []gate.G
 	return nil
 }
 
-// ProjectAcceptedCompileGroups 按 accepted schema-1 算法投影 current v2 groups。
+// ProjectAcceptedCompileGroups 按 accepted schema-1 算法投影 current v2 groups；
+// expansion-only nilness groups 不属于 accepted 编译闭包，投影时过滤，current
+// request 本身仍保留精确 workload IDs。
 func ProjectAcceptedCompileGroups(groups []gate.CompileGroup) ([]acceptedCompileGroup, error) {
 	projected := make([]acceptedCompileGroup, 0, len(groups))
 	for index, group := range groups {
+		if len(group.WorkloadIDs) == 0 {
+			return nil, fmt.Errorf("compile_groups[%d] accepted workload projection: workload IDs must not be empty", index)
+		}
+		workloadIDs, err := projectAcceptedCompileGroupWorkloadIDs(group.WorkloadIDs)
+		if err != nil {
+			return nil, fmt.Errorf("compile_groups[%d] accepted workload projection: %w", index, err)
+		}
+		if len(workloadIDs) == 0 {
+			continue
+		}
+		group.WorkloadIDs = workloadIDs
 		item, err := projectAcceptedCompileGroup(group)
 		if err != nil {
 			return nil, fmt.Errorf("compile_groups[%d] accepted projection: %w", index, err)
 		}
 		projected = append(projected, item)
+	}
+	return projected, nil
+}
+
+func projectAcceptedCompileGroupWorkloadIDs(ids []gate.GateID) ([]gate.GateID, error) {
+	projected := make([]gate.GateID, 0, len(ids))
+	filteredNilness := false
+	for index, id := range ids {
+		parent, _, _, targeted, err := gate.ParseWorkloadID(string(id))
+		if err != nil {
+			return nil, fmt.Errorf("workload_ids[%d]: %w", index, err)
+		}
+		if targeted && parent == gate.GateIDBackendNilness {
+			filteredNilness = true
+			continue
+		}
+		projected = append(projected, id)
+	}
+	if filteredNilness && len(projected) != 0 {
+		return nil, errors.New("expansion-only nilness workload is mixed with accepted compile workload")
 	}
 	return projected, nil
 }

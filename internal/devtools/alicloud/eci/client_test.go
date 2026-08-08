@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -122,6 +124,39 @@ func TestNewRejectsNonOfficialProductionBinary(t *testing.T) {
 	config.Binary = "docker"
 	if _, err := New(config); err == nil || !strings.Contains(err.Error(), "official aliyun CLI") {
 		t.Fatalf("New() error = %v, want official aliyun CLI rejection", err)
+	}
+}
+
+func TestNewRequiresTrustedAliyunRealpath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("resolve test home: %v", err)
+	}
+	t.Setenv("TMPDIR", home)
+	root := t.TempDir()
+	trusted := filepath.Join(root, "aliyun")
+	if err := os.WriteFile(trusted, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write trusted CLI: %v", err)
+	}
+	config := testConfig()
+	config.Binary = trusted
+	if _, err := New(config); err != nil {
+		t.Fatalf("New(%q) error = %v, want trusted realpath acceptance", trusted, err)
+	}
+	link := filepath.Join(root, "aliyun-link")
+	if err := os.Symlink(trusted, link); err != nil {
+		t.Fatalf("symlink trusted CLI: %v", err)
+	}
+	config.Binary = link
+	if _, err := New(config); err != nil {
+		t.Fatalf("New(%q) error = %v, want symlink resolution to trusted realpath", link, err)
+	}
+	config.Binary = filepath.Join(root, "aliyun-wrapper")
+	if err := os.WriteFile(config.Binary, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write wrapper CLI: %v", err)
+	}
+	if _, err := New(config); err == nil || !strings.Contains(err.Error(), "official aliyun CLI") {
+		t.Fatalf("New(wrapper) error = %v, want official CLI rejection", err)
 	}
 }
 
@@ -436,7 +471,7 @@ func TestClient_CreateDoesNotFallBackForNonSpotCapacityErrors(t *testing.T) {
 func TestClient_CreateReconcilesAfterUncertainResponse(t *testing.T) {
 	transient := errors.New("net/http: TLS handshake timeout")
 	runner := &fakeCommandRunner{
-		responses: [][]byte{[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Running"}]}`)},
+		responses: [][]byte{[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Running","Tags":[{"Key":"workload","Value":"test"}]}]}`)},
 		runErrors: repeatCommandErrors(transient, maxCLIAttempts),
 	}
 	client := newTestClient(t, runner)
@@ -466,12 +501,26 @@ func repeatCommandErrors(err error, count int) []error {
 func TestClient_CreateReconcilesMalformedSuccessResponse(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{
 		[]byte(`not-json`),
-		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Pending"}]}`),
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Pending","Tags":[{"Key":"workload","Value":"test"}]}]}`),
 	}}
 	client := newTestClient(t, runner)
 	group, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
 	if err != nil || group.ID != "eci-recovered" || len(runner.calls) != 2 {
 		t.Fatalf("CreateContainerGroup() = %#v, %v, calls = %d", group, err, len(runner.calls))
+	}
+}
+
+func TestClient_CreateReconcileRequiresExactTags(t *testing.T) {
+	for _, response := range []string{
+		`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Running","Tags":[]}]}`,
+		`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Running","Tags":[{"Key":"workload","Value":"test"},{"Key":"unexpected","Value":"tag"}]}]}`,
+		`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Running","Tags":[{"Key":"workload","Value":"other"}]}]}`,
+	} {
+		runner := &fakeCommandRunner{responses: [][]byte{[]byte(response)}}
+		client := newTestClient(t, runner)
+		if _, err := client.reconcileCreatedContainerGroup(t.Context(), "shard-1", map[string]string{"workload": "test"}, errors.New("create uncertain")); err == nil {
+			t.Fatalf("reconcile accepted non-exact tags response %s", response)
+		}
 	}
 }
 

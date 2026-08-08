@@ -20,7 +20,6 @@ const INDEXED_TOP_LEVEL_DIRS = new Set([
   'docs',
   'frontend-app',
   'internal',
-  'migrations',
   'pkg',
   'scripts',
   'sql',
@@ -189,7 +188,6 @@ const MODULE_DESCRIPTIONS = {
   pkg: '可复用公共库',
   scripts: '工程自动化脚本',
   sql: 'SQL query 源文件',
-  migrations: '数据库 migration',
   test: '测试夹具和辅助资源',
   tests: '跨包测试资源',
   '(root)': '仓库根级配置和说明',
@@ -219,7 +217,6 @@ const PURPOSE_RULES = [
   ['frontend-app/tests/e2e/', 'React 前端 Playwright E2E 与视觉回归测试'],
   ['frontend-app/scripts/', 'React 前端构建与校验脚本'],
   ['frontend-app/', '当前 React/Vite 前端包'],
-  ['cmd/agent-terminal/web-dist/', 'frontend-app 构建同步出的 Go embed 静态资源目录'],
   ['cmd/agent-terminal/', 'Wails 桌面 UI、HTTP server、app host 与前端嵌入入口'],
 
   ['cmd/mcp-orch/orchestration/nodeexec/', 'DAG 节点执行器、typed ops、输入输出与自动化执行'],
@@ -266,6 +263,7 @@ const PURPOSE_RULES = [
   ['internal/platform/shared/', '共享基础工具'],
   ['internal/platform/sharedfilefs/', 'shared file 磁盘落盘工具'],
   ['internal/platform/sharedfilepath/', 'shared file 路径安全策略'],
+  ['internal/platform/db/sqlite/migrations/', 'SQLite schema migrations 与版本演进脚本'],
   ['internal/platform/', '基础设施层'],
   ['internal/provider/claudecli/', 'Claude CLI provider 集成'],
   ['internal/provider/codexapp/', 'Codex app/server provider 集成'],
@@ -279,7 +277,6 @@ const PURPOSE_RULES = [
   ['internal/store/', '应用级持久化 store'],
 
   ['sql/queries/', '仓库级 SQL query 源文件'],
-  ['migrations/', '数据库 migration'],
   ['pkg/logger/', '统一日志、采样、relay、watchdog 与 trace context'],
   ['pkg/dagmetrics/', 'DAG 指标公共库'],
   ['pkg/dreammetrics/', 'dream pipeline 指标公共库'],
@@ -288,6 +285,8 @@ const PURPOSE_RULES = [
   ['scripts/', '工程自动化、测试守卫、代码地图与开发脚本'],
   ['docs/doc/codemap/', '手写代码地图卷与自动 ai-index'],
   ['docs/adr/', '架构决策记录'],
+  ['docs/automation/', '当前自动化协议、门禁巡检与问题接管流程'],
+  ['docs/scripts/', '当前文档维护、发布 smoke 与验证脚本'],
   ['docs/internal-notes/', '内部提示词与工程方法记录'],
   ['docs/', '项目文档体系'],
 ];
@@ -304,7 +303,8 @@ const QUICK_ROUTES = [
   ['理解 root Fx 装配顺序', 'internal/app/modules.go', 'internal/app/modules_graph_test.go', 'app module fx graph modules runtime order toolbridge provider'],
   ['修改 App adapter 分包', 'internal/app/storeadapter/', 'internal/app/runtimeadapter/', 'store runtime adapter'],
   ['修改控制面/bootstrap', 'internal/platform/mcpcontrol/', 'internal/mcpserver/common/bootstrap/', 'peer register bootstrap hooks'],
-  ['修改持久化/SQL', 'internal/store/', 'sql/queries/', 'store sqlc migration queries'],
+  ['修改持久化/SQL', 'internal/store/', 'internal/platform/db/sqlite/migrations/', 'store sqlc migration queries'],
+  ['修改 SQLite migrations', 'internal/platform/db/sqlite/migrations/', 'internal/platform/db/', 'sqlite migration schema version'],
   ['修改远程 CI/ECI/ImageCache', 'internal/devtools/remoteci/', 'cmd/super-dolphin-gate/', 'remote ci eci imagecache sqlite workload shard receipt'],
   ['修改代码地图', 'docs/doc/codemap/', 'scripts/codemap_index.go', 'codemap ai-index make codemap-refresh'],
   ['修改架构守卫', 'internal/archtest/', 'internal/archtest/freeze_baseline.json', 'guard baseline ratchet freeze'],
@@ -393,6 +393,7 @@ function main() {
   GIT_BLOB_SIZES = FILESYSTEM_SCAN ? null : loadGitTrackedBlobSizes();
   const files = scanFiles();
   const entries = files.map(buildEntry);
+  validatePurposeRulePrefixes();
   validateLifecycleEntries(entries);
   validateCurrentDocumentationNavigation();
   const grouped = groupByDomain(entries);
@@ -443,6 +444,20 @@ function validateLifecycleEntries(entries) {
   }
 }
 
+function validatePurposeRulePrefixes() {
+  const deadRules = runtime.purposeRules.filter(([prefix]) => {
+    if (typeof prefix !== 'string' || prefix.length === 0) {
+      throw new Error('project-map: purpose rule prefix must be a non-empty string');
+    }
+    const probe = prefix.endsWith('/') ? `${prefix}__project_map_probe__` : prefix;
+    return shouldSkipPath(probe);
+  });
+  if (deadRules.length > 0) {
+    const prefixes = deadRules.map(([prefix]) => prefix).join(', ');
+    throw new Error(`project-map: purpose rules match excluded paths and are dead: ${prefixes}`);
+  }
+}
+
 function validateCurrentDocumentationNavigation() {
   const docsReadme = path.join(ROOT, 'docs', 'README.md');
   if (!fs.existsSync(docsReadme)) {
@@ -456,6 +471,7 @@ function validateCurrentDocumentationNavigation() {
   }
   const checks = [
     ['AGENTS.md', ['docs/adr/*.md'], ['docs/decisions/*.md']],
+    ['docs/README.md', ['[自动化协议](automation/)', '[文档脚本](scripts/)'], []],
     ['docs/契约/README.md', ['docs/adr'], ['docs/decisions']],
     [
       'docs/契约/fix-workflow-convention.md',
@@ -697,8 +713,9 @@ function classifyDomain(file) {
   if (file.startsWith('cmd/agent-terminal/')) return 'app-ui';
   if (file.startsWith('cmd/mcp-orch/')) return 'orchestration';
   if (file.startsWith('internal/module/')) return 'modules';
+  if (file.startsWith('internal/platform/db/sqlite/migrations/')) return 'store-sql';
   if (file.startsWith('internal/platform/') || file.startsWith('internal/provider/') || file.startsWith('internal/mcpserver/') || file.startsWith('cmd/mcp-lsp/') || file.startsWith('cmd/mcp-ida/')) return 'platform-provider';
-  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
+  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
   if (file.startsWith('docs/') || file === 'CLAUDE.md' || file === 'AGENTS.md' || file === 'README.md' || (file.startsWith('README.') && file.endsWith('.md'))) return 'docs-agent';
   return 'other';
 }
@@ -923,7 +940,7 @@ function renderMap(entries, drift, stats) {
   const appAssemblyRows = renderAppAssemblyRows();
   const subsystemSections = renderSubsystemSections(entries);
 
-  return `# AI 项目地图（Super-Dolphin）\n\n> 已索引文件：**${entries.length}**\n>\n> 扫描规则：${scanPolicySummary()}\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host、HTTP/RPC 桥，\`frontend-app\` 提供 React/Vite 前端。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 大小 | 覆盖范围 |\n|---|---:|---:|---|\n${domainRows}\n\n**检索示例：**\n\n\`\`\`bash\n# 1) 先读此 MAP.md 确定目标域\n# 2) 搜索对应 TSV 分片\nrg "thread.*resume|fork" docs/doc/codemap/project-map/index/modules.tsv\nrg "provider.*manifest|toolbridge" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "lsp.*diagnostics|grep" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "ChatPage|composer|timeline" docs/doc/codemap/project-map/index/app-ui.tsv\n# 3) 打开目标源码和同包测试\nrg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'\n\`\`\`\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 运行入口地图\n\n| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |\n|---|---|---|---|\n${runtimeEntryRows}\n\n## 5. Root Fx 装配阅读顺序\n\n\`internal/app/modules.go\` 是根装配清单，不是严格的业务执行时序。阅读时先按下面的依赖层理解，再用 Fx graph tests 确认供给点是否闭合。\n\n| 步骤 | 层 | 锚点 | AI 阅读提示 |\n|---:|---|---|---|\n${appAssemblyRows}\n\n## 6. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 7. 重点子系统地图\n\n${subsystemSections}\n\n## 8. 文档与知识地图\n\n- 当前事实（L1）：\`README.md\`、\`docs/README.md\`、\`docs/adr/*\`、\`docs/契约/*\`、\`docs/架构/*\`、\`docs/reference/*\`、\`docs/运维/*\`\n- 开发中材料（L2）：\`docs/work/proposals/*\`、\`docs/work/plans/*\`、\`docs/internal-notes/*\`\n- 历史归档（L3）：\`${runtime.archivePrefixes.join('`、`')}\`，以及待迁移的 \`docs/plans/*\`、\`docs/superpowers/plans/*\`（默认不递归索引）\n- Agent 体系：\`.agents/skills/*/SKILL.md\` 是 repo-local skill 指令入口；不要把 \`.agents\` 当作普通项目源码递归扫描。\n\n## 9. 索引字段说明\n\n| 字段 | 含义 |\n|---|---|\n| \`path\` | 相对路径 |\n| \`module\` | 顶层模块 |\n| \`domain\` | project-map 分片域 |\n| \`type\` | 文件类型 |\n| \`size_bytes\` | 文件大小（字节） |\n| \`purpose\` | 文件职责说明 |\n| \`search_keys\` | 建议检索关键词 |\n\n## 10. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs\nnode scripts/generate_ai_project_map.mjs --check\nnode scripts/generate_ai_project_map.mjs --strict-drift\nnode scripts/generate_ai_project_map.mjs --rules path/to/overrides.json\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
+  return `# AI 项目地图（Super-Dolphin）\n\n> 已索引文件：**${entries.length}**\n>\n> 扫描规则：${scanPolicySummary()}\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host、HTTP/RPC 桥，\`frontend-app\` 提供 React/Vite 前端。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`internal/platform/db/sqlite/migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 大小 | 覆盖范围 |\n|---|---:|---:|---|\n${domainRows}\n\n**检索示例：**\n\n\`\`\`bash\n# 1) 先读此 MAP.md 确定目标域\n# 2) 搜索对应 TSV 分片\nrg "thread.*resume|fork" docs/doc/codemap/project-map/index/modules.tsv\nrg "provider.*manifest|toolbridge" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "lsp.*diagnostics|grep" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "ChatPage|composer|timeline" docs/doc/codemap/project-map/index/app-ui.tsv\n# 3) 打开目标源码和同包测试\nrg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'\n\`\`\`\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 运行入口地图\n\n| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |\n|---|---|---|---|\n${runtimeEntryRows}\n\n## 5. Root Fx 装配阅读顺序\n\n\`internal/app/modules.go\` 是根装配清单，不是严格的业务执行时序。阅读时先按下面的依赖层理解，再用 Fx graph tests 确认供给点是否闭合。\n\n| 步骤 | 层 | 锚点 | AI 阅读提示 |\n|---:|---|---|---|\n${appAssemblyRows}\n\n## 6. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 7. 重点子系统地图\n\n${subsystemSections}\n\n## 8. 文档与知识地图\n\n- 当前事实（L1）：\`README.md\`、\`docs/README.md\`、\`docs/adr/*\`、\`docs/契约/*\`、\`docs/架构/*\`、\`docs/reference/*\`、\`docs/运维/*\`、\`docs/automation/*\`、\`docs/scripts/*\`\n- 开发中材料（L2）：\`docs/work/proposals/*\`、\`docs/work/plans/*\`、\`docs/internal-notes/*\`\n- 历史归档（L3）：\`${runtime.archivePrefixes.join('`、`')}\`，以及待迁移的 \`docs/plans/*\`、\`docs/superpowers/plans/*\`（默认不递归索引）\n- Agent 体系：\`.agents/skills/*/SKILL.md\` 是 repo-local skill 指令入口；不要把 \`.agents\` 当作普通项目源码递归扫描。\n\n## 9. 索引字段说明\n\n| 字段 | 含义 |\n|---|---|\n| \`path\` | 相对路径 |\n| \`module\` | 顶层模块 |\n| \`domain\` | project-map 分片域 |\n| \`type\` | 文件类型 |\n| \`size_bytes\` | 文件大小（字节） |\n| \`purpose\` | 文件职责说明 |\n| \`search_keys\` | 建议检索关键词 |\n\n## 10. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs\nnode scripts/generate_ai_project_map.mjs --check\nnode scripts/generate_ai_project_map.mjs --strict-drift\nnode scripts/generate_ai_project_map.mjs --rules path/to/overrides.json\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
 }
 
 function renderDrift(entries, drift) {

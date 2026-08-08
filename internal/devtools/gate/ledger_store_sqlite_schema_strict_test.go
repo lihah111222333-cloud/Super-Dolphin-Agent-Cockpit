@@ -18,7 +18,7 @@ type durationLedgerSQLiteLegacyShapeFixture struct {
 func TestDurationLedgerSQLiteCurrentSchemaOpenIsReadOnly(t *testing.T) {
 	database := openStrictSchemaTestDatabase(t, "current-read-only.sqlite")
 	defer database.Close()
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatal(err)
 	}
 	validator := newDurationLedgerSQLiteSchemaValidator()
@@ -84,7 +84,7 @@ func TestDurationLedgerSQLiteConcurrentEmptyInitializationConverges(t *testing.T
 	for index, database := range databases {
 		group.Go(func() error {
 			<-start
-			errorsByInitializer[index] = ensureDurationLedgerSQLiteSchema(database, time.Now)
+			errorsByInitializer[index] = ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator())
 			return errorsByInitializer[index]
 		})
 	}
@@ -100,7 +100,7 @@ func TestDurationLedgerSQLiteConcurrentEmptyInitializationConverges(t *testing.T
 	if got := durationLedgerSQLiteUserVersionForTest(t, databases[0]); got != durationLedgerSQLiteSchemaVersion {
 		t.Fatalf("concurrent initializer user_version = %d, want %d", got, durationLedgerSQLiteSchemaVersion)
 	}
-	if err := preflightDurationLedgerSQLiteExactSchema(databases[0], durationLedgerSQLiteSchemaVersion); err != nil {
+	if err := newDurationLedgerSQLiteSchemaValidator().preflight(databases[0], durationLedgerSQLiteSchemaVersion); err != nil {
 		t.Fatalf("concurrent initializer final shape: %v", err)
 	}
 }
@@ -123,7 +123,7 @@ func assertRogueSchemaRefusal(t *testing.T, name, rogueDDL string) {
 	t.Helper()
 	database := openStrictSchemaTestDatabase(t, name+".sqlite")
 	defer database.Close()
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`INSERT INTO ci_schema_migrations(name, applied_at_unix_ms) VALUES ('preserve-me', 1)`); err != nil {
@@ -134,7 +134,7 @@ func assertRogueSchemaRefusal(t *testing.T, name, rogueDDL string) {
 	}
 	beforeMaster := durationLedgerSQLiteMasterForTest(t, database)
 	beforeVersion := durationLedgerSQLiteUserVersionForTest(t, database)
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil || !strings.Contains(err.Error(), "not canonical") {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil || !strings.Contains(err.Error(), "not canonical") {
 		t.Fatalf("rogue %s schema error = %v, want exact-schema refusal", name, err)
 	}
 	if got := durationLedgerSQLiteMasterForTest(t, database); got != beforeMaster {
@@ -162,7 +162,7 @@ func assertRetiredSchemaVersionRefusal(t *testing.T, retiredVersion int) {
 	t.Helper()
 	database := openStrictSchemaTestDatabase(t, fmt.Sprintf("v%d.sqlite", retiredVersion))
 	defer database.Close()
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`INSERT INTO ci_schema_migrations(name, applied_at_unix_ms) VALUES ('preserve-me', 1)`); err != nil {
@@ -172,7 +172,7 @@ func assertRetiredSchemaVersionRefusal(t *testing.T, retiredVersion int) {
 		t.Fatal(err)
 	}
 	beforeMaster := durationLedgerSQLiteMasterForTest(t, database)
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil || !strings.Contains(err.Error(), "unsupported") {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("retired schema version %d error = %v", retiredVersion, err)
 	}
 	if got := durationLedgerSQLiteMasterForTest(t, database); got != beforeMaster {
@@ -255,7 +255,7 @@ func assertDurationLedgerSQLiteRejectsLegacyShape(t *testing.T, fixture duration
 	t.Helper()
 	database := openStrictSchemaTestDatabase(t, strings.ReplaceAll(fixture.name, " ", "-")+".sqlite")
 	defer database.Close()
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatal(err)
 	}
 	replaceDurationLedgerSQLiteTableForTest(t, database, fixture)
@@ -265,7 +265,7 @@ func assertDurationLedgerSQLiteRejectsLegacyShape(t *testing.T, fixture duration
 	if err := database.QueryRow(fixture.dataQuery).Scan(&beforeData); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 		t.Fatal("retired compatibility shape was accepted")
 	}
 	if got := durationLedgerSQLiteMasterForTest(t, database); got != beforeMaster {

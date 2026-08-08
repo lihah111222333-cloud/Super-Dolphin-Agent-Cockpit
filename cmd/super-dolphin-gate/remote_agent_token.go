@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -73,11 +74,14 @@ func requireRemoteCIAgentTokenDigest(
 	if err := validateRemoteHookTokenBoundary(remoteHook, args, inherited, inheritedPresent); err != nil {
 		return "", err
 	}
-	if explicitPresent && inheritedPresent {
-		_ = os.Unsetenv(cicontract.AgentTokenEnvironment)
-		return "", protocolError("CI agent token must be supplied by exactly one source")
+	if err := validateRemoteCIAgentTokenInputs(explicit, explicitPresent, inherited, inheritedPresent); err != nil {
+		return "", err
 	}
-	if err := executeRemoteCIAgentTokenPhase(command, args, stdout, explicit, explicitPresent, inherited, inheritedPresent); err != nil {
+	phase, err := cicontract.ClassifyAgentTokenRequest(explicit, inherited)
+	if err != nil {
+		return "", protocolError("classify CI agent token request: %v", err)
+	}
+	if err := executeRemoteCIAgentTokenPhase(command, args, stdout, phase, explicitPresent, inheritedPresent); err != nil {
 		return "", err
 	}
 	token := explicit
@@ -93,6 +97,16 @@ func requireRemoteCIAgentTokenDigest(
 		return "", protocolError("digest CI agent token: %v", err)
 	}
 	return digest, nil
+}
+
+func validateRemoteCIAgentTokenInputs(explicit string, explicitPresent bool, inherited string, inheritedPresent bool) error {
+	if explicitPresent && explicit == "" {
+		return protocolError("%s requires a non-empty value", cicontract.AgentTokenFlag)
+	}
+	if inheritedPresent && inherited == "" {
+		return protocolError("%s requires a non-empty value", cicontract.AgentTokenEnvironment)
+	}
+	return nil
 }
 
 // validateRetiredRequesterFingerprint 拒绝已经退役的请求者身份入口。
@@ -114,8 +128,10 @@ func validateRemoteHookTokenBoundary(remoteHook bool, args []string, inherited s
 	if hasRemoteCIAgentTokenArgument(args) {
 		return protocolError("remote hook must inherit %s; --agent-token is not allowed", cicontract.AgentTokenEnvironment)
 	}
-	if inheritedPresent && inherited == cicontract.AgentTokenIssueValue {
-		return protocolError("remote hook must inherit an actual %s; issue is not allowed", cicontract.AgentTokenEnvironment)
+	if inheritedPresent {
+		if err := cicontract.ValidateGitHookAgentToken(inherited); err != nil {
+			return protocolError("remote hook token boundary: issue is not allowed: %v", err)
+		}
 	}
 	return nil
 }
@@ -125,36 +141,48 @@ func executeRemoteCIAgentTokenPhase(
 	command []string,
 	args []string,
 	stdout io.Writer,
-	explicit string,
+	phase cicontract.AgentTokenPhase,
 	explicitPresent bool,
-	inherited string,
 	inheritedPresent bool,
 ) error {
-	if !explicitPresent && !inheritedPresent {
+	switch phase {
+	case cicontract.AgentTokenPhaseApplication:
 		return writeRemoteCIAgentTokenGuidance(command, args, stdout)
-	}
-	issueRequested := explicitPresent && explicit == cicontract.AgentTokenIssueValue || inheritedPresent && inherited == cicontract.AgentTokenIssueValue
-	if !issueRequested {
+	case cicontract.AgentTokenPhaseIssued:
+		return issueRemoteCIAgentToken(command, args, stdout, explicitPresent, inheritedPresent)
+	case cicontract.AgentTokenPhaseAuthenticated:
 		return nil
+	default:
+		return protocolError("unknown CI agent token phase %q", phase)
 	}
-	return issueRemoteCIAgentToken(command, args, stdout, explicitPresent, inheritedPresent)
 }
 
 // writeRemoteCIAgentTokenGuidance 返回不执行 CI 的阶段一结构化指引。
 func writeRemoteCIAgentTokenGuidance(command []string, args []string, stdout io.Writer) error {
+	application := cicontract.AgentTokenApplicationResponse()
+	issueEnvName, issueEnvValue, err := splitAgentTokenAssignment(application.Guidance.IssueEnvironment)
+	if err != nil {
+		return protocolError("canonical agent token guidance: %v", err)
+	}
+	if issueEnvValue != cicontract.AgentTokenIssueValue {
+		return protocolError("canonical agent token guidance issue value = %q, want %q", issueEnvValue, cicontract.AgentTokenIssueValue)
+	}
 	result := remoteCIAgentTokenGuidance{
 		SchemaVersion: remoteCIAgentTokenBootstrapSchemaVersion,
 		Kind:          "remote_ci_agent_token_guidance",
 		RetryRequired: true,
 		ExecuteCI:     false,
 		Guidance:      "request a remote CI agent token with the provided issue flag or issue environment; this request did not run CI",
-		IssueFlag:     cicontract.AgentTokenFlag + "=" + cicontract.AgentTokenIssueValue,
-		IssueEnvName:  cicontract.AgentTokenEnvironment,
-		IssueEnvValue: cicontract.AgentTokenIssueValue,
-		UseFlag:       cicontract.AgentTokenFlag + "=<token>",
-		UseEnvName:    cicontract.AgentTokenEnvironment,
+		IssueFlag:     application.Guidance.IssueArgument,
+		IssueEnvName:  issueEnvName,
+		IssueEnvValue: issueEnvValue,
+		UseFlag:       application.Guidance.ReuseFlag + "=<token>",
+		UseEnvName:    application.Guidance.ReuseEnvironment,
 		UseEnvValue:   "<token>",
 		IssueArgv:     remoteCIAgentTokenIssueArgv(command, args),
+	}
+	if err := validateRemoteCIAgentTokenGuidanceWire(result); err != nil {
+		return protocolError("canonical agent token guidance wire: %v", err)
 	}
 	if err := json.NewEncoder(stdout).Encode(result); err != nil {
 		return infrastructureError("write remote CI agent token guidance: %v", err)
@@ -165,11 +193,17 @@ func writeRemoteCIAgentTokenGuidance(command []string, args []string, stdout io.
 // issueRemoteCIAgentToken 签发阶段二 token，且不读取配置或执行 CI。
 func issueRemoteCIAgentToken(command []string, args []string, stdout io.Writer, explicitPresent bool, inheritedPresent bool) error {
 	if inheritedPresent {
-		_ = os.Unsetenv(cicontract.AgentTokenEnvironment)
+		if err := os.Unsetenv(cicontract.AgentTokenEnvironment); err != nil {
+			return infrastructureError("clear issued CI agent token environment: %v", err)
+		}
 	}
-	token, err := cicontract.GenerateAgentToken()
+	bootstrap, err := cicontract.IssueAgentTokenBootstrap()
 	if err != nil {
-		return infrastructureError("generate remote CI agent token: %v", err)
+		return infrastructureError("issue remote CI agent token bootstrap: %v", err)
+	}
+	token := bootstrap.AgentToken
+	if bootstrap.Phase != cicontract.AgentTokenPhaseIssued || bootstrap.ExecuteCI {
+		return protocolError("canonical agent token bootstrap has invalid phase %q or execute_ci=%t", bootstrap.Phase, bootstrap.ExecuteCI)
 	}
 	retryArgv := append([]string{os.Args[0]}, command...)
 	if explicitPresent {
@@ -178,15 +212,11 @@ func issueRemoteCIAgentToken(command []string, args []string, stdout io.Writer, 
 		retryArgv = append(retryArgv, args...)
 	}
 	retryArgv = append(retryArgv, cicontract.AgentTokenFlag, token)
-	digest, err := cicontract.AgentTokenDigest(token)
-	if err != nil {
-		return infrastructureError("digest generated remote CI agent token: %v", err)
-	}
 	result := remoteCIAgentTokenBootstrap{
 		SchemaVersion:    remoteCIAgentTokenBootstrapSchemaVersion,
 		Kind:             "remote_ci_agent_token_bootstrap",
 		AgentToken:       token,
-		AgentTokenDigest: digest,
+		AgentTokenDigest: bootstrap.AgentTokenDigest,
 		Issued:           true,
 		RetryRequired:    true,
 		ExecuteCI:        false,
@@ -195,10 +225,66 @@ func issueRemoteCIAgentToken(command []string, args []string, stdout io.Writer, 
 		ReuseEnvValue:    token,
 		RetryArgv:        retryArgv,
 	}
+	if err := validateRemoteCIAgentTokenBootstrapWire(result); err != nil {
+		return protocolError("canonical agent token bootstrap wire: %v", err)
+	}
 	if err := json.NewEncoder(stdout).Encode(result); err != nil {
 		return infrastructureError("write remote CI agent token bootstrap: %v", err)
 	}
 	return protocolError("remote CI agent token bootstrap issued; retry required")
+}
+
+// splitAgentTokenAssignment 将 cicontract 的 canonical NAME=value 指引映射为 CLI wire 的 name/value 字段。
+func splitAgentTokenAssignment(assignment string) (string, string, error) {
+	name, value, ok := strings.Cut(assignment, "=")
+	if !ok || name == "" || value == "" || strings.Contains(value, "=") {
+		return "", "", errors.New("canonical agent token guidance assignment is malformed")
+	}
+	return name, value, nil
+}
+
+// validateRemoteCIAgentTokenGuidanceWire 检查 CLI 专属 wire adapter 的关键映射不为空。
+func validateRemoteCIAgentTokenGuidanceWire(result remoteCIAgentTokenGuidance) error {
+	if result.SchemaVersion == 0 {
+		return errors.New("guidance wire schema_version is required")
+	}
+	if result.Kind == "" || !result.RetryRequired || result.ExecuteCI {
+		return errors.New("guidance wire identity or phase is invalid")
+	}
+	if err := validateAgentTokenWireStrings(result.Guidance, result.IssueFlag, result.IssueEnvName, result.IssueEnvValue, result.UseFlag, result.UseEnvName, result.UseEnvValue); err != nil {
+		return fmt.Errorf("guidance wire: %w", err)
+	}
+	if len(result.IssueArgv) == 0 {
+		return errors.New("guidance wire issue_argv is required")
+	}
+	return nil
+}
+
+// validateRemoteCIAgentTokenBootstrapWire 检查 CLI 专属 bootstrap wire 的关键映射不为空。
+func validateRemoteCIAgentTokenBootstrapWire(result remoteCIAgentTokenBootstrap) error {
+	if result.SchemaVersion == 0 {
+		return errors.New("bootstrap wire schema_version is required")
+	}
+	if result.Kind == "" || !result.Issued || !result.RetryRequired || result.ExecuteCI {
+		return errors.New("bootstrap wire identity or phase is invalid")
+	}
+	if err := validateAgentTokenWireStrings(result.AgentToken, result.AgentTokenDigest, result.Guidance, result.ReuseEnvName, result.ReuseEnvValue); err != nil {
+		return fmt.Errorf("bootstrap wire: %w", err)
+	}
+	if len(result.RetryArgv) == 0 {
+		return errors.New("bootstrap wire retry_argv is required")
+	}
+	if err := cicontract.ValidateAgentTokenDigest(result.AgentTokenDigest); err != nil {
+		return err
+	}
+	return cicontract.ValidateAgentTokenContinuation(result.AgentToken, result.AgentTokenDigest)
+}
+
+func validateAgentTokenWireStrings(fields ...string) error {
+	if slices.Contains(fields, "") {
+		return errors.New("required field is empty")
+	}
+	return nil
 }
 
 // isRemoteHookCommand 判断调用是否处于无状态 Git hook 边界。
@@ -283,21 +369,47 @@ func resolveRemoteCIAgentToken(explicit string) (string, error) {
 	}
 	inherited, inheritedPresent := os.LookupEnv(cicontract.AgentTokenEnvironment)
 	if inheritedPresent {
-		defer os.Unsetenv(cicontract.AgentTokenEnvironment)
+		if err := clearInheritedRemoteCIAgentToken(); err != nil {
+			return "", err
+		}
 	}
-	if explicit != "" && inheritedPresent {
-		return "", errors.New("CI agent token must be supplied by exactly one source")
+	value, err := selectRemoteCIAgentTokenInput(explicit, inherited, inheritedPresent)
+	if err != nil {
+		return "", err
 	}
-	value := explicit
-	if inheritedPresent {
-		value = inherited
+	phase, err := cicontract.ClassifyAgentTokenRequest(explicit, inherited)
+	if err != nil {
+		return "", err
 	}
-	if value == "" {
-		return "", nil
+	if phase != cicontract.AgentTokenPhaseAuthenticated {
+		return "", fmt.Errorf("CI agent token phase %q cannot continue remote run", phase)
 	}
 	token, err := cicontract.ParseAgentToken(value)
 	if err != nil {
 		return "", fmt.Errorf("invalid CI agent token: %w", err)
 	}
 	return token, nil
+}
+
+func clearInheritedRemoteCIAgentToken() error {
+	if err := os.Unsetenv(cicontract.AgentTokenEnvironment); err != nil {
+		return fmt.Errorf("clear inherited CI agent token environment: %w", err)
+	}
+	return nil
+}
+
+func selectRemoteCIAgentTokenInput(explicit, inherited string, inheritedPresent bool) (string, error) {
+	if explicit == "" {
+		if !inheritedPresent {
+			return "", nil
+		}
+		if inherited == "" {
+			return "", errors.New("CI agent token environment requires a non-empty value")
+		}
+		return inherited, nil
+	}
+	if inheritedPresent {
+		return "", errors.New("CI agent token must be supplied by exactly one source")
+	}
+	return explicit, nil
 }

@@ -149,6 +149,9 @@ func TestAcceptedBootstrapProjectionCollapsesNilnessPackagesAndPreservesRace(t *
 	}
 	ids = append(ids, gate.GateID(raceWorkload.ID))
 	request.GateIDs = ids
+	if request.GateIDs[0] == gate.GateIDBackendNilness {
+		t.Fatal("current v2 request unexpectedly collapsed nilness workload identity")
+	}
 	request.ShardExecutionManifestDigest, err = request.ComputeShardExecutionManifestDigest()
 	if err != nil {
 		t.Fatal(err)
@@ -167,5 +170,45 @@ func TestAcceptedBootstrapProjectionCollapsesNilnessPackagesAndPreservesRace(t *
 	}
 	if err := ValidateBootstrapIdentity(decoded, request); err != nil {
 		t.Fatalf("projected bootstrap identity rejected: %v", err)
+	}
+}
+
+func TestAcceptedBootstrapProjectionFiltersExpansionOnlyNilnessCompileGroups(t *testing.T) {
+	workload, err := gate.NewGoPackageWorkload(gate.GateIDBackendNilness, "./internal/alpha", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := gate.CompileGroup{
+		PackageTarget: "./internal/alpha", SemanticKey: gate.CompileGroupSemanticGoTestNormal,
+		SharedInputDigest: "sha256:" + strings.Repeat("a", 64), ProfileDigest: "sha256:" + strings.Repeat("b", 64),
+		ResourceClassID: "small", WorkloadIDs: []gate.GateID{gate.GateID(workload.ID)},
+		CompileEstimateMS: 1, BodyEstimateMS: 1, EstimatedDurationMS: 2,
+	}
+	projected, err := ProjectAcceptedCompileGroups([]gate.CompileGroup{group})
+	if err != nil {
+		t.Fatalf("ProjectAcceptedCompileGroups() error = %v", err)
+	}
+	if len(projected) != 0 {
+		t.Fatalf("accepted projection retained expansion-only nilness group: %#v", projected)
+	}
+}
+
+func TestAcceptedBootstrapProjectionRejectsMixedNilnessCompileGroup(t *testing.T) {
+	nilness, err := gate.NewGoPackageWorkload(gate.GateIDBackendNilness, "./internal/alpha", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goTest, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ProjectAcceptedCompileGroups([]gate.CompileGroup{{
+		PackageTarget: "./internal/archtest", SemanticKey: gate.CompileGroupSemanticGoTestNormal,
+		SharedInputDigest: "sha256:" + strings.Repeat("a", 64), ProfileDigest: "sha256:" + strings.Repeat("b", 64),
+		ResourceClassID: "small", WorkloadIDs: []gate.GateID{gate.GateID(nilness.ID), gate.GateID(goTest.ID)},
+		CompileEstimateMS: 1, BodyEstimateMS: 1, EstimatedDurationMS: 2,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "mixed with accepted compile workload") {
+		t.Fatalf("mixed nilness compile group error = %v", err)
 	}
 }

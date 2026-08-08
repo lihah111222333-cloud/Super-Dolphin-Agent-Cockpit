@@ -7,16 +7,16 @@ README.ja.md	(root)	docs-agent	doc	33020	仓库根级配置、入口或说明文
 README.ko.md	(root)	docs-agent	doc	31618	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
 README.md	(root)	docs-agent	doc	29000	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
 README.zh-CN.md	(root)	docs-agent	doc	25383	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
-docs/README.md	docs	docs-agent	doc	4245	项目文档体系	docs,README,项目文档体系
+docs/README.md	docs	docs-agent	doc	4423	项目文档体系	docs,README,项目文档体系
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
 docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11828	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
 docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16954	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
 docs/adr/README.md	docs	docs-agent	doc	964	架构决策记录	docs,adr,README,架构决策记录
-docs/automation/代码仓库腐化守卫巡检协议.md	docs	docs-agent	doc	27410	项目文档体系	docs,automation,代码仓库腐化守卫巡检协议,项目文档体系
-docs/automation/全仓夜间门禁健康巡检协议.md	docs	docs-agent	doc	20186	项目文档体系	docs,automation,全仓夜间门禁健康巡检协议,项目文档体系
-docs/automation/授权问题修复与验证协议.md	docs	docs-agent	doc	8402	项目文档体系	docs,automation,授权问题修复与验证协议,项目文档体系
-docs/automation/门禁问题台账接管协议.md	docs	docs-agent	doc	9032	项目文档体系	docs,automation,门禁问题台账接管协议,项目文档体系
+docs/automation/代码仓库腐化守卫巡检协议.md	docs	docs-agent	doc	27410	当前自动化协议、门禁巡检与问题接管流程	docs,automation,代码仓库腐化守卫巡检协议,当前自动化协议,门禁巡检与问题接管流程
+docs/automation/全仓夜间门禁健康巡检协议.md	docs	docs-agent	doc	20186	当前自动化协议、门禁巡检与问题接管流程	docs,automation,全仓夜间门禁健康巡检协议,当前自动化协议,门禁巡检与问题接管流程
+docs/automation/授权问题修复与验证协议.md	docs	docs-agent	doc	8402	当前自动化协议、门禁巡检与问题接管流程	docs,automation,授权问题修复与验证协议,当前自动化协议,门禁巡检与问题接管流程
+docs/automation/门禁问题台账接管协议.md	docs	docs-agent	doc	9032	当前自动化协议、门禁巡检与问题接管流程	docs,automation,门禁问题台账接管协议,当前自动化协议,门禁巡检与问题接管流程
 docs/dev-agentic-e2e-harness.md	docs	docs-agent	doc	3050	项目文档体系	docs,dev,agentic,e2e,harness,项目文档体系
 docs/dev-ui-test-mcp.md	docs	docs-agent	doc	8519	项目文档体系	docs,dev,ui,test,mcp,项目文档体系
 docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25067	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
@@ -48,7 +48,7 @@ docs/guards/code-size-freeze-v3-fail-first.txt	docs	docs-agent	txt	466	项目文
 docs/guards/frontend-code-size-replay-helper-freeze-fail-first.txt	docs	docs-agent	txt	514	项目文档体系	docs,guards,frontend,code,size,replay,helper,freeze,fail,first,项目文档体系
 docs/guards/global-var-metric-v2-baseline-migration.txt	docs	docs-agent	txt	654	项目文档体系	docs,guards,global,var,metric,v2,baseline,migration,项目文档体系
 docs/guards/orchestration-service-boundary-candidate-freeze-fail-first.txt	docs	docs-agent	txt	511	项目文档体系	docs,guards,orchestration,service,boundary,candidate,freeze,fail,first,项目文档体系
-docs/guards/remote-ci-production-freeze-fail-first.txt	docs	docs-agent	txt	476	项目文档体系	docs,guards,remote,ci,production,freeze,fail,first,项目文档体系
+docs/guards/remote-ci-production-freeze-fail-first.txt	docs	docs-agent	txt	510	项目文档体系	docs,guards,remote,ci,production,freeze,fail,first,项目文档体系
 docs/guards/remote-ci-resource-plan-field-fail-first.txt	docs	docs-agent	txt	490	项目文档体系	docs,guards,remote,ci,resource,plan,field,fail,first,项目文档体系
 docs/guards/remote-ci-test-metrics-fail-first.txt	docs	docs-agent	txt	511	项目文档体系	docs,guards,remote,ci,test,metrics,fail,first,项目文档体系
 docs/guards/sd-go-1265-code-size-freeze-fail-first.txt	docs	docs-agent	txt	552	项目文档体系	docs,guards,sd,go,1265,code,size,freeze,fail,first,项目文档体系
@@ -62,7 +62,7 @@ docs/open-source/README.md	docs	docs-agent	doc	634	项目文档体系	docs,open,
 docs/open-source/RELEASE_CHECKLIST.md	docs	docs-agent	doc	5049	项目文档体系	docs,open,source,RELEASE,CHECKLIST,项目文档体系
 docs/open-source/ROADMAP.md	docs	docs-agent	doc	3152	项目文档体系	docs,open,source,ROADMAP,项目文档体系
 docs/reference/README.md	docs	docs-agent	doc	430	项目文档体系	docs,reference,README,项目文档体系
-docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
+docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	当前文档维护、发布 smoke 与验证脚本	docs,scripts,macos,release,smoke,当前文档维护,发布,与验证脚本
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
 docs/work/README.md	docs	docs-agent	doc	698	项目文档体系	docs,work,README,项目文档体系

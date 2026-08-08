@@ -60,6 +60,19 @@ func TestRegistryCredentialFailsFastOnRegistryMismatch(t *testing.T) {
 	}
 }
 
+func TestRegistryCredentialRejectsWhitespaceAndControlValues(t *testing.T) {
+	for _, value := range []string{" test-user", "test-user ", "test\tuser", "test\nuser", "test\x00user"} {
+		t.Run("credential", func(t *testing.T) {
+			config := testConfig()
+			config.RegistryCredential.UserName = value
+			_, err := NewWithRunner(config, &fakeCommandRunner{})
+			if err == nil || strings.Contains(err.Error(), value) {
+				t.Fatalf("NewWithRunner() error = %v, value=%q", err, value)
+			}
+		})
+	}
+}
+
 // TestRegistryCredentialRedactsSecrets 覆盖 ECI CLI 错误不得回显 registry 用户名或令牌。
 func TestRegistryCredentialRedactsSecrets(t *testing.T) {
 	config := testConfig()

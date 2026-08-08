@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -26,13 +29,26 @@ func TestLoadRemoteRegistryCredentialRequiresBothEnvironmentValues(t *testing.T)
 	}
 }
 
+func TestLoadRemoteRegistryCredentialRejectsWhitespaceWithoutEchoingSecret(t *testing.T) {
+	for _, secret := range []string{" token", "token ", "to\tken", "to\nken", "to\rken"} {
+		t.Run("token", func(t *testing.T) {
+			t.Setenv(remoteRegistryUsernameEnvironment, "ci-user")
+			t.Setenv(remoteRegistryTokenEnvironment, secret)
+			_, err := loadRemoteRegistryCredential()
+			if err == nil || strings.Contains(err.Error(), secret) {
+				t.Fatalf("loadRemoteRegistryCredential() error = %v, secret=%q", err, secret)
+			}
+		})
+	}
+}
+
 // TestNewRemoteRunCoordinatorDefersRegistryCredentialReadUntilActualCreate 验证实际创建前延迟读取 registry 凭据。
 // 验证全命中准备可在无 GHCR 环境变量时构造运行时。
 func TestNewRemoteRunCoordinatorDefersRegistryCredentialReadUntilActualCreate(t *testing.T) {
 	t.Setenv(remoteRegistryUsernameEnvironment, "")
 	t.Setenv(remoteRegistryTokenEnvironment, "")
 	config := remoteRunConfig{
-		AliyunCLI:         "aliyun",
+		AliyunCLI:         trustedAliyunTestBinary(t),
 		CredentialProfile: "ci-profile",
 		RegionID:          "cn-shenzhen",
 		VSwitches: []cicontract.ECIVSwitch{
@@ -58,6 +74,28 @@ func TestNewRemoteRunCoordinatorDefersRegistryCredentialReadUntilActualCreate(t 
 	if coordinator == nil {
 		t.Fatal("newRemoteRunCoordinator() returned nil coordinator")
 	}
+}
+
+func trustedAliyunTestBinary(t *testing.T) string {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("resolve current user home: %v", err)
+	}
+	directory, err := os.MkdirTemp(home, ".super-dolphin-aliyun-test-")
+	if err != nil {
+		t.Fatalf("create trusted aliyun test directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(directory); err != nil {
+			t.Errorf("remove trusted aliyun test directory: %v", err)
+		}
+	})
+	binary := filepath.Join(directory, "aliyun")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write trusted aliyun test binary: %v", err)
+	}
+	return binary
 }
 
 func deferredCredentialTestResourcePolicy() shardresource.Policy {

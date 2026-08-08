@@ -11,41 +11,6 @@ import (
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-func TestNormalizePreCommitUsesActiveLinkedWorktreeIndex(t *testing.T) {
-	repository := newTestRepository(t)
-	linked := filepath.Join(t.TempDir(), "linked")
-	runTestGit(t, repository, "worktree", "add", "-b", "linked", linked, "HEAD")
-	writeTestFile(t, linked, "tracked.txt", "staged linked worktree\n")
-	runTestGit(t, linked, "add", "tracked.txt")
-
-	expectedTree := strings.TrimSpace(runTestGit(t, linked, "write-tree"))
-	request, err := NormalizePreCommit(context.Background(), linked, "hook-commit-1", expectedTree)
-	if err != nil {
-		t.Fatalf("NormalizePreCommit: %v", err)
-	}
-	if request.Kind != RequestKindSubmit || request.Submit == nil {
-		t.Fatalf("normalized pre-commit request = %#v, want submit request", request)
-	}
-	canonicalLinked, err := filepath.EvalSymlinks(linked)
-	if err != nil {
-		t.Fatalf("EvalSymlinks linked worktree: %v", err)
-	}
-	expectedParent := strings.TrimSpace(runTestGit(t, linked, "rev-parse", "HEAD"))
-	if request.Submit.Repository.WorktreeRoot != canonicalLinked {
-		t.Fatalf("worktree root = %q, want %q", request.Submit.Repository.WorktreeRoot, canonicalLinked)
-	}
-	if request.Submit.Source.Tree.SHA != expectedTree || request.Submit.Source.Tree.ParentCommitSHA != expectedParent {
-		t.Fatalf("source = %#v, want tree %s parent %s", request.Submit.Source, expectedTree, expectedParent)
-	}
-	replay, err := NormalizePreCommit(context.Background(), linked, "hook-commit-1", expectedTree)
-	if err != nil {
-		t.Fatalf("NormalizePreCommit replay: %v", err)
-	}
-	if replay.Submit.Invocation != request.Submit.Invocation {
-		t.Fatalf("replay identity changed: %#v -> %#v", request.Submit.Invocation, replay.Submit.Invocation)
-	}
-}
-
 func TestNormalizePrePushClassifiesExactUpdates(t *testing.T) {
 	repository := newTestRepository(t)
 	baseSHA := strings.TrimSpace(runTestGit(t, repository, "rev-parse", "HEAD"))
@@ -195,8 +160,8 @@ func TestVerifyActiveWorktreeIgnoresMissingUnrelatedWorktree(t *testing.T) {
 	if !strings.Contains(inventory, missing) {
 		t.Fatalf("fixture no longer contains missing worktree:\n%s", inventory)
 	}
-	if _, _, err := CurrentWorktreeSource(context.Background(), repository); err != nil {
-		t.Fatalf("CurrentWorktreeSource rejected valid worktree: %v", err)
+	if _, err := resolveGitRepository(context.Background(), repository); err != nil {
+		t.Fatalf("resolveGitRepository rejected valid worktree: %v", err)
 	}
 }
 
@@ -231,24 +196,22 @@ func TestCountTargetWorktreeDecodesQuotedPath(t *testing.T) {
 func TestSanitizedGitEnvironmentBindsRepositoryToCWD(t *testing.T) {
 	cwdRepository := newTestRepository(t)
 	hostileRepository := newTestRepository(t)
-	cwdHead := commitTestFile(t, cwdRepository, "cwd repository\n", "当前仓库提交")
-	hostileHead := commitTestFile(t, hostileRepository, "hostile repository\n", "污染仓库提交")
 	t.Setenv("GIT_DIR", filepath.Join(hostileRepository, ".git"))
 	t.Setenv("GIT_WORK_TREE", hostileRepository)
 	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(hostileRepository, ".git", "objects"))
-	identity, source, err := CurrentWorktreeSource(context.Background(), cwdRepository)
+	repository, err := resolveGitRepository(context.Background(), cwdRepository)
 	if err != nil {
-		t.Fatalf("CurrentWorktreeSource: %v", err)
+		t.Fatalf("resolveGitRepository: %v", err)
 	}
 	canonicalCWD, err := filepath.EvalSymlinks(cwdRepository)
 	if err != nil {
 		t.Fatalf("EvalSymlinks cwd repository: %v", err)
 	}
-	if identity.WorktreeRoot != canonicalCWD || source.Tree.ParentCommitSHA != cwdHead {
-		t.Fatalf("resolved hostile repository: identity=%#v source=%#v", identity, source)
+	if repository.identity.WorktreeRoot != canonicalCWD {
+		t.Fatalf("resolved hostile repository: identity=%#v", repository.identity)
 	}
-	if source.Tree.ParentCommitSHA == hostileHead {
-		t.Fatal("hostile Git environment replaced cwd repository HEAD")
+	if repository.identity.WorktreeRoot == hostileRepository {
+		t.Fatal("hostile Git environment replaced cwd repository")
 	}
 }
 

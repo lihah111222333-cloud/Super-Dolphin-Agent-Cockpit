@@ -1,7 +1,7 @@
-source_head: f4913629d099ea3f9840b20914d17601a251d2b3
-reviewed_at: 2026-08-02T05:00:00Z
-snapshot_sha256: d8f9a3d01c24f692551fef64f3736b3fa55bf5c992285eb9185821d090b78754
+source_head: bcc856eaa31230048b2363b1c8c4e4f0126c6f4b
+reviewed_at: 2026-08-08T18:30:00Z
+snapshot_sha256: f9ef1dfa6b804b56a1274ec6ebf9501526ba7e7c8d48eaa6d5d048564c1c8756
 working_directory: .
 command: go run ./scripts/code_size_guard.go
 expected_exit: 1
-observed_failure: the ECI ImageCache convergence candidate has bounded production and test size, complexity, and documentation debt recorded in the immutable snapshot; preserve fail-closed ratchets for every future change.
+observed_failure: the third remote CI cleanup candidate removed orphan lock, worktree snapshot, stored-shard, decoder, schema, and report seams; the pre-refresh size_and_freeze check failed closed with removed=1 until the approved snapshot was regenerated.

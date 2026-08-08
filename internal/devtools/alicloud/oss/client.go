@@ -87,9 +87,11 @@ func New(config Config, runner CommandRunner) (*client, error) {
 
 // NewCLI 使用系统 aliyun CLI；它不读取或保存 AccessKey。
 func NewCLI(config Config) (*client, error) {
-	if err := validateOfficialAliyunCLI(config.Binary); err != nil {
+	canonical, err := validateOfficialAliyunCLI(config.Binary)
+	if err != nil {
 		return nil, err
 	}
+	config.Binary = canonical
 	return New(config, execRunner{})
 }
 
@@ -248,12 +250,26 @@ func validateConfig(config Config) error {
 	return nil
 }
 
-// validateOfficialAliyunCLI 只允许官方 aliyun CLI 的 basename，避免 NewCLI 运行任意替代程序。
-func validateOfficialAliyunCLI(binary string) error {
-	if path.Base(strings.TrimSpace(binary)) != "aliyun" {
-		return errors.New("production OSS client requires the official aliyun CLI binary")
+// validateOfficialAliyunCLI 解析 PATH 后校验官方 aliyun CLI 的绝对 realpath、所有权和权限。
+func validateOfficialAliyunCLI(binary string) (string, error) {
+	if binary == "" || binary != strings.TrimSpace(binary) {
+		return "", errors.New("production OSS client requires the official aliyun CLI binary")
 	}
-	return nil
+	if !filepath.IsAbs(binary) {
+		resolved, err := exec.LookPath(binary)
+		if err != nil {
+			return "", fmt.Errorf("production OSS client requires the official aliyun CLI binary: resolve %q: %w", binary, err)
+		}
+		binary = resolved
+	}
+	canonical, err := gateprivate.CanonicalCurrentOrRootExecutable("official aliyun CLI", binary)
+	if err != nil {
+		return "", fmt.Errorf("production OSS client requires the official aliyun CLI binary: %w", err)
+	}
+	if filepath.Base(canonical) != "aliyun" {
+		return "", errors.New("production OSS client requires the official aliyun CLI binary")
+	}
+	return canonical, nil
 }
 
 // validateEndpoint 仅允许无附加路径和身份信息的 HTTPS OSS API 端点。

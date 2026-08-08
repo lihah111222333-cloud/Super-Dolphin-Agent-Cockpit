@@ -58,7 +58,7 @@ func TestLoadRemoteMaterializeConfigAcceptsNestedRequestKey(t *testing.T) {
 		remoteWorkerRoleEnv:       "worker-role",
 		remoteOSSEndpointEnv:      "oss-cn-shenzhen-internal.aliyuncs.com",
 		remoteOSSBucketEnv:        "ci-bucket",
-		remoteRequestKeyEnv:       "baseline-artifacts/source-bundles/job-1234/shard-00.request.json",
+		remoteRequestKeyEnv:       "baseline-artifacts/source-bundles/job-1234/" + strings.Repeat("a", sha256.Size*2) + ".bootstrap.request.json",
 		remoteRequestSHA256Env:    strings.Repeat("a", sha256.Size*2),
 		remoteAgentTokenDigestEnv: "sha256:" + strings.Repeat("b", sha256.Size*2),
 	}
@@ -101,7 +101,7 @@ func TestLoadRemoteBootstrapShardRequestRequiresMatchingAgentTokenDigest(t *test
 	} {
 		t.Run(name, func(t *testing.T) {
 			config := remoteMaterializeConfig{
-				RequestKey:       "source-bundles/job-123/request.request.json",
+				RequestKey:       "source-bundles/job-123/" + requestSHA256 + ".bootstrap.request.json",
 				RequestSHA256:    requestSHA256,
 				AgentTokenDigest: agentTokenDigest,
 			}
@@ -135,7 +135,7 @@ func TestLoadRemoteBootstrapShardRequestRejectsObjectDirectoryDrift(t *testing.T
 		t.Fatalf("EncodeBootstrapShardRequest() error = %v", err)
 	}
 	config := remoteMaterializeConfig{
-		RequestKey:       "source-bundles/other-job/request.request.json",
+		RequestKey:       "source-bundles/other-job/" + requestSHA256 + ".bootstrap.request.json",
 		RequestSHA256:    requestSHA256,
 		AgentTokenDigest: request.AgentTokenDigest,
 	}
@@ -143,8 +143,32 @@ func TestLoadRemoteBootstrapShardRequestRejectsObjectDirectoryDrift(t *testing.T
 		written, writeErr := destination.Write(data)
 		return int64(written), writeErr
 	})
-	if err == nil || !strings.Contains(err.Error(), "object directory does not match") {
+	if err == nil || !strings.Contains(err.Error(), "not content addressed for job") {
 		t.Fatalf("loadRemoteBootstrapShardRequest() error = %v", err)
+	}
+}
+
+func TestLoadRemoteBootstrapShardRequestBindsRequestKeyToDigestAndJob(t *testing.T) {
+	request := validRemoteMaterializeShardRequest(t)
+	data, requestSHA256, err := remoteci.EncodeBootstrapShardRequest(request)
+	if err != nil {
+		t.Fatalf("EncodeBootstrapShardRequest() error = %v", err)
+	}
+	for name, key := range map[string]string{
+		"digest mismatch": "source-bundles/" + request.JobID + "/" + strings.Repeat("a", sha256.Size*2) + ".bootstrap.request.json",
+		"suffix mismatch": "source-bundles/" + request.JobID + "/" + requestSHA256 + ".request.json",
+		"job mismatch":    "source-bundles/other-job/" + requestSHA256 + ".bootstrap.request.json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := remoteMaterializeConfig{RequestKey: key, RequestSHA256: requestSHA256, AgentTokenDigest: request.AgentTokenDigest}
+			_, loadErr := loadRemoteBootstrapShardRequest(context.Background(), config, func(_ context.Context, _ string, _ int64, destination io.Writer) (int64, error) {
+				written, writeErr := destination.Write(data)
+				return int64(written), writeErr
+			})
+			if loadErr == nil {
+				t.Fatal("loadRemoteBootstrapShardRequest() unexpectedly accepted mismatched request key")
+			}
+		})
 	}
 }
 
@@ -170,7 +194,7 @@ func TestLoadRemoteBootstrapShardRequestRejectsCurrentV2NestedCompileGroup(t *te
 		t.Fatal(err)
 	}
 	config := remoteMaterializeConfig{
-		RequestKey:       "source-bundles/job-123/request.request.json",
+		RequestKey:       "source-bundles/job-123/" + digestBytes(data) + ".bootstrap.request.json",
 		RequestSHA256:    digestBytes(data),
 		AgentTokenDigest: request.AgentTokenDigest,
 	}
@@ -187,7 +211,7 @@ func validRemoteMaterializeEnvironment() map[string]string {
 		remoteWorkerRoleEnv:       "worker-role",
 		remoteOSSEndpointEnv:      "oss-cn-shenzhen-internal.aliyuncs.com",
 		remoteOSSBucketEnv:        "ci-bucket",
-		remoteRequestKeyEnv:       "source-bundles/job-123/request.request.json",
+		remoteRequestKeyEnv:       "source-bundles/job-123/" + strings.Repeat("a", sha256.Size*2) + ".bootstrap.request.json",
 		remoteRequestSHA256Env:    strings.Repeat("a", sha256.Size*2),
 		remoteAgentTokenDigestEnv: "sha256:" + strings.Repeat("b", sha256.Size*2),
 	}
@@ -217,11 +241,11 @@ func validRemoteMaterializeShardRequest(t *testing.T) remoteci.ShardRequest {
 			Commit: &gate.CommitSource{SHA: strings.Repeat("9", 40)}, SourceTreeSHA: tree,
 		},
 		SourceTreeSHA:                tree,
-		SourceBundleKey:              prefix + "source.bundle",
 		SourceBundleSHA256:           strings.Repeat("1", sha256.Size*2),
+		SourceBundleKey:              prefix + strings.Repeat("1", sha256.Size*2) + ".bundle",
 		SourceBundleSize:             1,
-		ManifestKey:                  prefix + "source.manifest.json",
 		ManifestSHA256:               strings.Repeat("2", sha256.Size*2),
+		ManifestKey:                  prefix + strings.Repeat("2", sha256.Size*2) + ".manifest.json",
 		CandidateGateSourceSHA256:    "sha256:" + strings.Repeat("3", sha256.Size*2),
 		CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("4", sha256.Size*2),
 		GateIDs:                      []gate.GateID{gate.GateIDBackendTestWithGuard},

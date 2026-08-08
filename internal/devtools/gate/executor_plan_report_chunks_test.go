@@ -12,7 +12,7 @@ import (
 // TestPlanExecutionReportChunksRejectIncompleteOrForgedFrames 保证分片报告拒绝不完整和伪造帧。
 func TestPlanExecutionReportChunksRejectIncompleteOrForgedFrames(t *testing.T) {
 	report, chunks := multiChunkPlanReport(t)
-	if decoded, err := DecodePlanExecutionReportChunks(chunks); err != nil || decoded.PlanDigest != report.PlanDigest {
+	if decoded, err := DecodePlanExecutionReportChunksForGateSet(chunks, planReportGateIDs(report)); err != nil || decoded.PlanDigest != report.PlanDigest {
 		t.Fatalf("decode canonical chunks: report=%#v err=%v", decoded, err)
 	}
 	other := clonePlanReport(t, report)
@@ -47,7 +47,7 @@ func TestPlanExecutionReportChunksRejectIncompleteOrForgedFrames(t *testing.T) {
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
-			if _, err := DecodePlanExecutionReportChunks(mutate(slices.Clone(chunks))); err == nil {
+			if _, err := DecodePlanExecutionReportChunksForGateSet(mutate(slices.Clone(chunks)), planReportGateIDs(report)); err == nil {
 				t.Fatal("decoder accepted forged report chunks")
 			}
 		})
@@ -101,7 +101,7 @@ func TestPlanExecutionReportUsesPlainTextLogRecords(t *testing.T) {
 	if strings.Contains(wire, `"schema_version"`) || strings.Contains(wire, `"log"`) {
 		t.Fatalf("wire report unexpectedly contains JSON fields: %q", wire)
 	}
-	decoded, err := DecodePlanExecutionReportChunks(chunks)
+	decoded, err := DecodePlanExecutionReportChunksForGateSet(chunks, planReportGateIDs(report))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,14 +113,15 @@ func TestPlanExecutionReportUsesPlainTextLogRecords(t *testing.T) {
 // TestPlanExecutionReportChunksAcceptOnlyCoordinatorFrozenDynamicGateSet 保证动态 gate 集合必须与协调器冻结结果相同。
 func TestPlanExecutionReportChunksAcceptOnlyCoordinatorFrozenDynamicGateSet(t *testing.T) {
 	report, _ := multiChunkPlanReport(t)
+	frozenExpected := planReportGateIDs(report)
 	report.Gates = []PlanGateExecution{report.Gates[0], report.Gates[len(report.Gates)-1]}
 	chunks, err := EncodePlanExecutionReportChunks(report)
 	if err != nil {
 		t.Fatal(err)
 	}
 	expected := []GateID{report.Gates[0].GateID, report.Gates[1].GateID}
-	if _, err := DecodePlanExecutionReportChunks(chunks); err == nil {
-		t.Fatal("legacy decoder accepted a non-canonical dynamic shard")
+	if _, err := DecodePlanExecutionReportChunksForGateSet(chunks, frozenExpected); err == nil {
+		t.Fatal("decoder accepted a report outside the coordinator frozen gate set")
 	}
 	if _, err := DecodePlanExecutionReportChunksForGateSet(chunks, expected); err != nil {
 		t.Fatalf("dynamic shard decoder error = %v", err)
@@ -147,7 +148,7 @@ func TestWorkerExecutionOutcomeRoundTripRetainsNonzeroFailureWithPassingGates(t 
 	if strings.Contains(wire, "private/secret/path") || strings.Contains(wire, "worker failed") {
 		t.Fatalf("worker report wire leaked raw execution error: %q", wire)
 	}
-	decoded, err := DecodePlanExecutionReport(wire)
+	decoded, err := DecodePlanExecutionReportChunksForGateSet(strings.Split(strings.TrimSuffix(wire, "\n"), "\n"), planReportGateIDs(report))
 	if err != nil {
 		t.Fatalf("decode worker failure report: %v", err)
 	}
@@ -186,4 +187,12 @@ func multiChunkPlanReport(t *testing.T) (PlanExecutionReport, []string) {
 		t.Fatalf("plan report chunks = %d, want at least 3", len(chunks))
 	}
 	return report, chunks
+}
+
+func planReportGateIDs(report PlanExecutionReport) []GateID {
+	ids := make([]GateID, len(report.Gates))
+	for index, gate := range report.Gates {
+		ids[index] = gate.GateID
+	}
+	return ids
 }

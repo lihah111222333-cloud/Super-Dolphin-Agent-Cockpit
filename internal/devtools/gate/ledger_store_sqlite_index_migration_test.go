@@ -62,7 +62,7 @@ func TestDurationLedgerSQLiteRejectsLegacyMetadataWithoutAuthorityID(t *testing.
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 		t.Fatalf("legacy metadata schema error = %v, want fail-fast refusal", err)
 	}
 	columns := sqliteTableColumns(t, database, "duration_ledger_meta")
@@ -96,7 +96,7 @@ func TestDurationLedgerSQLiteRejectsLegacyAuthorityBeforeAnyWrite(t *testing.T) 
 			}
 			beforeMaster := durationLedgerSQLiteMasterForTest(t, database)
 			beforeVersion := durationLedgerSQLiteUserVersionForTest(t, database)
-			if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+			if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 				t.Fatalf("legacy authority schema error = %v, want fail-before-write refusal", err)
 			}
 			if afterMaster := durationLedgerSQLiteMasterForTest(t, database); afterMaster != beforeMaster {
@@ -127,7 +127,7 @@ func TestDurationLedgerSQLiteInitializesTrulyEmptyZeroVersionDatabase(t *testing
 	if version := durationLedgerSQLiteUserVersionForTest(t, database); version != 0 {
 		t.Fatalf("initial user_version = %d, want 0", version)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatalf("initialize empty zero-version authority: %v", err)
 	}
 	if version := durationLedgerSQLiteUserVersionForTest(t, database); version != durationLedgerSQLiteSchemaVersion {
@@ -170,7 +170,7 @@ func TestDurationLedgerSQLitePreflightRejectsNonemptyMigrationRequiredShapesBefo
 			if err := database.QueryRow(test.dataQuery).Scan(&beforeData); err != nil {
 				t.Fatal(err)
 			}
-			if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+			if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 				t.Fatal("legacy migration-required shape was accepted")
 			}
 			if afterMaster := durationLedgerSQLiteMasterForTest(t, database); afterMaster != beforeMaster {

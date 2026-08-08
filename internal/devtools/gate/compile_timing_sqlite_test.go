@@ -22,13 +22,13 @@ func TestDurationLedgerSQLiteMigratesV10CompileTimingSchema(t *testing.T) {
 	if _, err := database.Exec("PRAGMA user_version = 10"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatalf("migrate v10 schema: %v", err)
 	}
 	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != durationLedgerSQLiteSchemaVersion {
 		t.Fatalf("migrated schema version = %d, want %d", got, durationLedgerSQLiteSchemaVersion)
 	}
-	if err := preflightDurationLedgerSQLiteExactSchema(database, durationLedgerSQLiteSchemaVersion); err != nil {
+	if err := newDurationLedgerSQLiteSchemaValidator().preflight(database, durationLedgerSQLiteSchemaVersion); err != nil {
 		t.Fatalf("migrated schema preflight: %v", err)
 	}
 	columns := sqliteTableColumns(t, database, cicontract.CompileTimingObservationsTable)

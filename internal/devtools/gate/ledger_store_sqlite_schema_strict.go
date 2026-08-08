@@ -57,12 +57,6 @@ func durationLedgerSQLiteLegacySchemaStatements() []string {
 	return append(statements, durationLedgerSQLiteCanonicalPassIndexStatements()...)
 }
 
-// preflightDurationLedgerSQLiteExactSchema 只允许全新空库或完整 current schema。
-// 参考 schema 在独立内存数据库中构造；authority 本身在比较完成前不会执行任何 DDL。
-func preflightDurationLedgerSQLiteExactSchema(queryer durationLedgerSQLiteSchemaQueryer, schemaVersion int) error {
-	return newDurationLedgerSQLiteSchemaValidator().preflight(queryer, schemaVersion)
-}
-
 func (validator *durationLedgerSQLiteSchemaValidator) preflight(queryer durationLedgerSQLiteSchemaQueryer, schemaVersion int) error {
 	actual, err := loadDurationLedgerSQLiteSchemaObjects(queryer)
 	if err != nil {

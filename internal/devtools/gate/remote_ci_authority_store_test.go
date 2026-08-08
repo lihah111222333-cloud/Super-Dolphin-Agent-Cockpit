@@ -208,7 +208,7 @@ func testRemoteCIAuthoritySchemaRejectsMissingTables(t *testing.T, database *sql
 	if _, err := database.Exec(fmt.Sprintf("DROP TABLE %s", cicontract.CheckReceiptsTable)); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 		t.Fatal("partial authority schema was accepted by the sole canonical schema writer")
 	}
 }
@@ -226,7 +226,7 @@ func TestDurationLedgerSQLiteRejectsEmptyLegacyWorkloadReuseTables(t *testing.T)
 	if _, err := database.Exec(`CREATE TABLE ci_run_workloads (job_id TEXT NOT NULL, workload_id TEXT NOT NULL, disposition TEXT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 		t.Fatalf("empty legacy workload reuse schema error = %v, want fail-fast refusal", err)
 	}
 	var count int
@@ -254,7 +254,7 @@ func TestDurationLedgerSQLiteRefusesNonEmptyLegacyWorkloadReuseTables(t *testing
 	if _, err := database.Exec(`INSERT INTO ci_workload_pass_proofs(identity_digest) VALUES ('historical-pass')`); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err == nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err == nil {
 		t.Fatalf("non-empty legacy workload reuse schema error = %v", err)
 	}
 }

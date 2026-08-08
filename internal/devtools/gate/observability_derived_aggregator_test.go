@@ -110,7 +110,7 @@ func TestDurationLedgerDerivedReportRejectsRecursiveDuplicateJSONKeys(t *testing
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := derivedRawEventFromPayload(t, 1, "", durationLedgerObservationEventRemoteRunPersist, record.JobID, "1", tt.payload(t))
-			if _, err := AggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{event}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			if _, err := aggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{event}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 				t.Fatalf("duplicate JSON key error = %v", err)
 			}
 		})
@@ -183,7 +183,7 @@ func TestDurationLedgerDerivedReportRejectsMeasurementDuplicateJSONKeys(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := AggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{event}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate json object key") {
+			if _, err := aggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{event}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate json object key") {
 				t.Fatalf("measurement duplicate JSON key error = %v", err)
 			}
 		})
@@ -292,7 +292,7 @@ func TestDurationLedgerDerivedReportRejectsMalformedConflictingAndTamperedFacts(
 			t.Fatal(err)
 		}
 		malformed := derivedRawEventFromPayload(t, 1, "", events[0].EventKind, events[0].RunID, events[0].AcceptedGeneration, encoded)
-		if _, err := AggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{malformed}); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		if _, err := aggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{malformed}); err == nil || !strings.Contains(err.Error(), "unknown field") {
 			t.Fatalf("strict payload error = %v", err)
 		}
 	})
@@ -301,7 +301,7 @@ func TestDurationLedgerDerivedReportRejectsMalformedConflictingAndTamperedFacts(
 		conflict := record
 		conflict.Status = ResultStatusFailed
 		second := derivedRawEventFromRecord(t, 2, events[0].EventSHA256, conflict)
-		if _, err := AggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{events[0], second}); err == nil || !strings.Contains(err.Error(), "conflicting") {
+		if _, err := aggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{events[0], second}); err == nil || !strings.Contains(err.Error(), "conflicting") {
 			t.Fatalf("conflicting snapshot error = %v", err)
 		}
 	})
@@ -309,7 +309,7 @@ func TestDurationLedgerDerivedReportRejectsMalformedConflictingAndTamperedFacts(
 	t.Run("tampered event", func(t *testing.T) {
 		tampered := events[0]
 		tampered.PayloadJSON = strings.TrimSuffix(tampered.PayloadJSON, "}") + " }"
-		if _, err := AggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{tampered}); err == nil || !strings.Contains(err.Error(), "payload sha256 mismatch") {
+		if _, err := aggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{tampered}); err == nil || !strings.Contains(err.Error(), "payload sha256 mismatch") {
 			t.Fatalf("tamper error = %v", err)
 		}
 	})
@@ -386,8 +386,8 @@ func TestDurationLedgerDerivedStoreDoesNotMutateRawHistory(t *testing.T) {
 	prepareDerivedStore(t, store, &record)
 	before := mustLoadDerivedRawEvents(t, store)
 	legacyBefore := mustLoadDerivedLegacyReport(t, store)
-	if _, err := store.LoadDerivedObservationReport(); err != nil {
-		t.Fatalf("LoadDerivedObservationReport() error = %v", err)
+	if _, err := store.loadDerivedObservationReport(); err != nil {
+		t.Fatalf("loadDerivedObservationReport() error = %v", err)
 	}
 	after := mustLoadDerivedRawEvents(t, store)
 	legacyAfter := mustLoadDerivedLegacyReport(t, store)
@@ -425,7 +425,7 @@ func mustLoadDerivedRawEvents(t *testing.T, store *DurationLedgerStore) []Durati
 
 func mustLoadDerivedLegacyReport(t *testing.T, store *DurationLedgerStore) DurationLedgerObservationReport {
 	t.Helper()
-	report, err := store.LoadObservationReport()
+	report, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,9 +434,9 @@ func mustLoadDerivedLegacyReport(t *testing.T, store *DurationLedgerStore) Durat
 
 func mustAggregateDerivedReport(t *testing.T, events []DurationLedgerRawObservationEvent) DurationLedgerDerivedReport {
 	t.Helper()
-	report, err := AggregateDurationLedgerDerivedObservations(events)
+	report, err := aggregateDurationLedgerDerivedObservations(events)
 	if err != nil {
-		t.Fatalf("AggregateDurationLedgerDerivedObservations() error = %v", err)
+		t.Fatalf("aggregateDurationLedgerDerivedObservations() error = %v", err)
 	}
 	return report
 }

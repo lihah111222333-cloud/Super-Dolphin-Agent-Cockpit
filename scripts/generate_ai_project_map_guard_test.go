@@ -30,6 +30,7 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 
 	generated := readProjectMapOutputs(t, root)
 	assertOutputContainsAll(t, generated, "internal/app/app.go", "docs/guide.md")
+	assertProjectMapPurpose(t, generated, "internal/platform/db/sqlite/migrations/001_fixture.sql", "SQLite schema migrations 与版本演进脚本")
 	assertRemoteCIProjectMapRoutes(t, generated)
 	assertAppAdapterProjectMapRoutes(t, generated)
 	assertOutputContainsAll(t, generated, "docs/guide.md\tdocs\tdocs-agent\tdoc\t13\t")
@@ -68,6 +69,10 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	assertOutputContainsAll(t, generated,
 		"## 8. 文档与知识地图",
 		"`.agents/skills/*/SKILL.md` 是 repo-local skill 指令入口",
+		"docs/automation/*",
+		"docs/scripts/*",
+		"internal/platform/db/sqlite/migrations/",
+		"修改 SQLite migrations",
 		"## 9. 索引字段说明",
 		"| `search_keys` | 建议检索关键词 |",
 	)
@@ -105,6 +110,24 @@ func TestProjectMapGeneratorOmitsTrackedFilesDeletedFromWorktree(t *testing.T) {
 	assertOutputOmitsAll(t, string(shard), "internal/app/app.go")
 }
 
+// TestProjectMapGeneratorRejectsDeadPurposeRule 锁定 purpose rule 不能指向被扫描策略永久排除的目录。
+func TestProjectMapGeneratorRejectsDeadPurposeRule(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	writeFixTestGuardFile(t, root, ".ai-project-map.overrides.json", `{
+  "purpose_rules_append": [
+    ["cmd/agent-terminal/web-dist/", "dead embed output"]
+  ]
+}
+`)
+
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("project map accepted purpose rule for excluded web-dist path\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "purpose rules match excluded paths and are dead", "cmd/agent-terminal/web-dist/")
+}
+
 func prepareTrackedProjectMapFixtures(t *testing.T, root string) {
 	t.Helper()
 	writeFixTestGuardFile(t, root, ".agent/report/noise.md", "agent report\n")
@@ -118,6 +141,7 @@ func prepareTrackedProjectMapFixtures(t *testing.T, root string) {
 	writeFixTestGuardFile(t, root, "internal/app/storeadapter/prompt/adapter.go", "package promptadapter\n")
 	writeFixTestGuardFile(t, root, "internal/app/runtimeadapter/toolbridge/adapter.go", "package toolbridgeadapter\n")
 	writeFixTestGuardFile(t, root, "internal/app/internal/storeguard/nil.go", "package storeguard\n")
+	writeFixTestGuardFile(t, root, "internal/platform/db/sqlite/migrations/001_fixture.sql", "CREATE TABLE fixture (id INTEGER PRIMARY KEY);\n")
 	writeFixTestGuardFile(t, root, "internal/module/thread/thread.go", "package thread\n")
 	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
 	writeFixTestGuardFile(t, root, "cmd/super-dolphin-gate/main.go", "package main\n")
@@ -143,6 +167,7 @@ func prepareTrackedProjectMapFixtures(t *testing.T, root string) {
 		"internal/app/storeadapter/prompt/adapter.go",
 		"internal/app/runtimeadapter/toolbridge/adapter.go",
 		"internal/app/internal/storeguard/nil.go",
+		"internal/platform/db/sqlite/migrations/001_fixture.sql",
 		"internal/module/thread/thread.go",
 		"internal/provider/codexapp/provider.go",
 		"cmd/super-dolphin-gate/main.go",
@@ -333,6 +358,18 @@ func TestProjectMapGeneratorRejectsMissingCurrentDocumentationRoot(t *testing.T)
 	assertOutputContainsAll(t, out, "canonical current documentation path is missing: docs/adr")
 }
 
+func TestProjectMapGeneratorRequiresActiveDocumentationNavigation(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	writeFixTestGuardFile(t, root, "docs/README.md", "# Docs\n")
+
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("project map accepted docs README without active navigation\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "current documentation docs/README.md is missing [自动化协议](automation/)")
+}
+
 func TestProjectMapGeneratorAppliesRuleOverrides(t *testing.T) {
 	requireNodeForProjectMap(t)
 	root := prepareProjectMapFixture(t, true)
@@ -451,7 +488,7 @@ func prepareProjectMapFixture(t *testing.T, initGit bool) string {
 	writeFixTestGuardFile(t, root, "CLAUDE.md", "fixture\n")
 	writeFixTestGuardFile(t, root, "README.md", "fixture\n")
 	writeFixTestGuardFile(t, root, "AGENTS.md", "Use `docs/adr/*.md`.\n")
-	writeFixTestGuardFile(t, root, "docs/README.md", "# Docs\n")
+	writeFixTestGuardFile(t, root, "docs/README.md", "# Docs\n\n[自动化协议](automation/)\n[文档脚本](scripts/)\n")
 	writeFixTestGuardFile(t, root, "docs/adr/README.md", "# ADR\n")
 	writeFixTestGuardFile(t, root, "docs/work/plans/README.md", "# Plans\n")
 	writeFixTestGuardFile(t, root, "docs/archive/reviews/README.md", "# Archived reviews\n")
@@ -539,6 +576,7 @@ func readProjectMapOutputs(t *testing.T, root string) string {
 		"docs/doc/codemap/project-map/index/app-ui.tsv",
 		"docs/doc/codemap/project-map/index/modules.tsv",
 		"docs/doc/codemap/project-map/index/platform-provider.tsv",
+		"docs/doc/codemap/project-map/index/store-sql.tsv",
 		"docs/doc/codemap/project-map/index/remote-ci.tsv",
 		"docs/doc/codemap/project-map/index/other.tsv",
 	} {

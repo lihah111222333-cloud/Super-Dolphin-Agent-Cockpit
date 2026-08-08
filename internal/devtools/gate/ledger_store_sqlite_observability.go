@@ -246,21 +246,8 @@ func (store *DurationLedgerStore) LoadRawObservationEvents() ([]DurationLedgerRa
 	return events, nil
 }
 
-// VerifyRawObservationIntegrity 检查追加链和每个内容摘要。
-func (store *DurationLedgerStore) VerifyRawObservationIntegrity() error {
-	if store == nil {
-		return errors.New("duration ledger store is nil")
-	}
-	database, err := store.openSQLiteAuthority(false)
-	if err != nil {
-		return err
-	}
-	defer database.Close()
-	return verifyDurationLedgerRawObservationIntegrity(database)
-}
-
-// LoadObservationReport 确定性聚合原始历史与只读文件系统事实。
-func (store *DurationLedgerStore) LoadObservationReport() (DurationLedgerObservationReport, error) {
+// loadObservationReport 确定性聚合原始历史与只读文件系统事实。
+func (store *DurationLedgerStore) loadObservationReport() (DurationLedgerObservationReport, error) {
 	if store == nil {
 		return DurationLedgerObservationReport{}, errors.New("duration ledger store is nil")
 	}

@@ -33,7 +33,7 @@ func createObservationLedgerAndAssert(t *testing.T, store *DurationLedgerStore) 
 	}
 	assertInitialObservationEvent(t, events)
 	assertUnknownRawFacts(t, events[0])
-	report, err := store.LoadObservationReport()
+	report, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,9 +69,6 @@ func appendObservationSampleAndAssert(t *testing.T, store *DurationLedgerStore) 
 	if _, err := store.AppendSamplesFast(1, []DurationSample{testDurationSample("observed", testWorkloadDigest, true, 17)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.VerifyRawObservationIntegrity(); err != nil {
-		t.Fatal(err)
-	}
 	events, err := store.LoadRawObservationEvents()
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +76,7 @@ func appendObservationSampleAndAssert(t *testing.T, store *DurationLedgerStore) 
 	if len(events) != 2 || events[1].PreviousEventSHA256 != events[0].EventSHA256 {
 		t.Fatalf("raw event chain = %#v, want two linked events", events)
 	}
-	report, err := store.LoadObservationReport()
+	report, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +121,7 @@ func TestDurationLedgerObservationIsAppendOnlyAndDetectsTamper(t *testing.T) {
 	if _, err := database.Exec(`DELETE FROM duration_ledger_raw_events`); err == nil {
 		t.Fatal("raw event delete unexpectedly succeeded")
 	}
-	if err := store.VerifyRawObservationIntegrity(); err != nil {
+	if err := verifyDurationLedgerRawObservationIntegrity(database); err != nil {
 		t.Fatalf("verify untampered raw history: %v", err)
 	}
 
@@ -179,7 +176,7 @@ func TestDurationLedgerObservationUnknownCapacityIsWarningOnly(t *testing.T) {
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatalf("unknown capacity must not fail ledger persist: %v", err)
 	}
-	report, err := store.LoadObservationReport()
+	report, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +208,7 @@ func TestDurationLedgerObservationUsesCanonicalUTF8BytesForPendingAndReplay(t *t
 	store.nowFunc = func() time.Time { return time.Unix(321, 654).UTC() }
 	_, err := store.CompareAndSwap(0, NewDurationLedger())
 	requireObservationNoError(t, err)
-	before, err := store.LoadObservationReport()
+	before, err := store.loadObservationReport()
 	requireObservationNoError(t, err)
 	database, err := store.openSQLiteAuthority(false)
 	requireObservationNoError(t, err)
@@ -234,7 +231,7 @@ func TestDurationLedgerObservationUsesCanonicalUTF8BytesForPendingAndReplay(t *t
 	requireObservationNoError(t, completeDurationLedgerRawObservationPending(&pending, pendingReport))
 	requireObservationNoError(t, insertDurationLedgerRawObservationEvent(transaction, pending))
 	requireObservationNoError(t, transaction.Commit())
-	replay, err := store.LoadObservationReport()
+	replay, err := store.loadObservationReport()
 	requireObservationNoError(t, err)
 	if !reflect.DeepEqual(pendingReport, replay) {
 		t.Fatalf("pending report = %#v, replay report = %#v, want exact canonical UTF-8 byte aggregation", pendingReport, replay)
@@ -371,7 +368,7 @@ func TestDurationLedgerObservationSchemaMigrationPreservesProjectionAndAddsRawHi
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, time.Now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatalf("migrate legacy schema: %v", err)
 	}
 	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != durationLedgerSQLiteSchemaVersion {
@@ -411,7 +408,7 @@ func TestDurationLedgerObservationReportUsesExactMetricNames(t *testing.T) {
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
-	report, err := store.LoadObservationReport()
+	report, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,11 +554,11 @@ func TestDurationLedgerObservationDeterministicAggregationAcrossColdAndWarmReads
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
-	warm, err := store.LoadObservationReport()
+	warm, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cold, err := store.LoadObservationReport()
+	cold, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +615,7 @@ func assertObservationTerminalStatuses(t *testing.T, store *DurationLedgerStore)
 			t.Fatalf("status %s was not preserved in raw history", status)
 		}
 	}
-	report, err := store.LoadObservationReport()
+	report, err := store.loadObservationReport()
 	if err != nil {
 		t.Fatal(err)
 	}

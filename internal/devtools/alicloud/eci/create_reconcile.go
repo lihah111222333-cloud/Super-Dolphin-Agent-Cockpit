@@ -41,7 +41,7 @@ func (c *Client) reconcileCreatedContainerGroup(
 	}
 	matches := make([]ContainerGroup, 0, len(response.ContainerGroups))
 	for _, group := range response.ContainerGroups {
-		if group.Name == name && group.ID != "" {
+		if group.Name == name && group.ID != "" && exactContainerGroupTags(group.Tags, tags) {
 			matches = append(matches, group)
 		}
 	}
@@ -49,4 +49,24 @@ func (c *Client) reconcileCreatedContainerGroup(
 		return ContainerGroup{}, errors.Join(cause, fmt.Errorf("reconcile ECI container group %s: found %d matches", name, len(matches)))
 	}
 	return matches[0], nil
+}
+
+// exactContainerGroupTags 要求控制面返回的标签集合与创建请求逐项相等，
+// 包括数量、键唯一性和值，避免仅按名称误认其他容器组。
+func exactContainerGroupTags(actual []ContainerGroupTag, expected map[string]string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(actual))
+	for _, tag := range actual {
+		want, ok := expected[tag.Key]
+		if !ok || want != tag.Value {
+			return false
+		}
+		if _, duplicate := seen[tag.Key]; duplicate {
+			return false
+		}
+		seen[tag.Key] = struct{}{}
+	}
+	return len(seen) == len(expected)
 }

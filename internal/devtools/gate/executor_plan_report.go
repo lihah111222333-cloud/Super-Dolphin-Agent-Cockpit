@@ -230,19 +230,6 @@ func splitPlanLogText(data []byte) []string {
 	return fragments
 }
 
-// DecodePlanExecutionReportChunks 严格重组同一 digest-bound report 的连续普通文本记录。
-func DecodePlanExecutionReportChunks(chunks []string) (PlanExecutionReport, error) {
-	return decodePlanExecutionReportChunks(chunks, nil)
-}
-
-// DecodePlanExecutionReport 解码由换行分隔的普通文本报告记录。
-func DecodePlanExecutionReport(text string) (PlanExecutionReport, error) {
-	if text == "" {
-		return PlanExecutionReport{}, errors.New("plan report text is empty")
-	}
-	return DecodePlanExecutionReportChunks(strings.Split(strings.TrimSuffix(text, "\n"), "\n"))
-}
-
 // DecodePlanExecutionReportChunksForGateSet 将 worker 报告绑定到 coordinator 冻结的 gate 集合。
 func DecodePlanExecutionReportChunksForGateSet(chunks []string, expected []GateID) (PlanExecutionReport, error) {
 	if len(expected) == 0 {

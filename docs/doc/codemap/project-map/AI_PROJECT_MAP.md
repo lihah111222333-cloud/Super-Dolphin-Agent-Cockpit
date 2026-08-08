@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**4825**
+> 已索引文件：**4816**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/plans/**, docs/superpowers/**, docs/archive/**, docs/before/**, docs/迁移/**, docs/ai01-docs/**, docs/cc/**, docs/li/**, docs/pians/**, docs/调研/**, docs/healthy-check/**, docs/decisions/**, docs/reviews/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -15,7 +15,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 - **代码智能 peer**：`cmd/mcp-lsp` 提供多语言 LSP、文件搜索、结构和诊断工具。
 - **业务模块层**：`internal/module` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。
 - **基础设施与 provider**：`internal/platform`、`internal/provider` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。
-- **持久化与治理**：`internal/store`、`sql`、`migrations`、`internal/archtest`、`docs/doc/codemap` 提供数据访问、schema、架构守卫和代码地图。
+- **持久化与治理**：`internal/store`、`sql`、`internal/platform/db/sqlite/migrations`、`internal/archtest`、`docs/doc/codemap` 提供数据访问、schema、架构守卫和代码地图。
 
 ## 2. 索引路由表
 
@@ -24,11 +24,11 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/app-ui.tsv` | 757 | 154.2 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 411 | 93.1 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
 | `docs/doc/codemap/project-map/index/modules.tsv` | 763 | 148.7 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1289 | 240.2 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
-| `docs/doc/codemap/project-map/index/store-sql.tsv` | 210 | 30.9 KB | 持久化层：store、sqlc、SQL queries、migrations |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1268 | 235.8 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/store-sql.tsv` | 231 | 36.1 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/remote-ci.tsv` | 204 | 54.9 KB | 远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 96 | 14.0 KB | 代码地图、ADR、契约与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 1095 | 217.6 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 96 | 14.3 KB | 代码地图、ADR、契约与 docs 项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 1086 | 215.9 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -47,10 +47,10 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2842 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 2837 | 应用内部模块、平台、provider、store 与守卫 |
 | `cmd` | 859 | 可执行入口与 MCP peer |
 | `frontend-app` | 749 | 当前 React/Vite 新 UI |
-| `scripts` | 188 | 工程自动化脚本 |
+| `scripts` | 184 | 工程自动化脚本 |
 | `docs` | 89 | 当前文档、生成索引、开发中材料与历史证据 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
@@ -104,7 +104,8 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 理解 root Fx 装配顺序 | `internal/app/modules.go` | `internal/app/modules_graph_test.go` | `app module fx graph modules runtime order toolbridge provider` |
 | 修改 App adapter 分包 | `internal/app/storeadapter/` | `internal/app/runtimeadapter/` | `store runtime adapter` |
 | 修改控制面/bootstrap | `internal/platform/mcpcontrol/` | `internal/mcpserver/common/bootstrap/` | `peer register bootstrap hooks` |
-| 修改持久化/SQL | `internal/store/` | `sql/queries/` | `store sqlc migration queries` |
+| 修改持久化/SQL | `internal/store/` | `internal/platform/db/sqlite/migrations/` | `store sqlc migration queries` |
+| 修改 SQLite migrations | `internal/platform/db/sqlite/migrations/` | `internal/platform/db/` | `sqlite migration schema version` |
 | 修改远程 CI/ECI/ImageCache | `internal/devtools/remoteci/` | `cmd/super-dolphin-gate/` | `remote ci eci imagecache sqlite workload shard receipt` |
 | 修改代码地图 | `docs/doc/codemap/` | `scripts/codemap_index.go` | `codemap ai-index make codemap-refresh` |
 | 修改架构守卫 | `internal/archtest/` | `internal/archtest/freeze_baseline.json` | `guard baseline ratchet freeze` |
@@ -175,7 +176,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 ## 8. 文档与知识地图
 
-- 当前事实（L1）：`README.md`、`docs/README.md`、`docs/adr/*`、`docs/契约/*`、`docs/架构/*`、`docs/reference/*`、`docs/运维/*`
+- 当前事实（L1）：`README.md`、`docs/README.md`、`docs/adr/*`、`docs/契约/*`、`docs/架构/*`、`docs/reference/*`、`docs/运维/*`、`docs/automation/*`、`docs/scripts/*`
 - 开发中材料（L2）：`docs/work/proposals/*`、`docs/work/plans/*`、`docs/internal-notes/*`
 - 历史归档（L3）：`docs/plans/*`、`docs/superpowers/*`、`docs/archive/*`、`docs/before/*`、`docs/迁移/*`、`docs/ai01-docs/*`、`docs/cc/*`、`docs/li/*`、`docs/pians/*`、`docs/调研/*`、`docs/healthy-check/*`、`docs/decisions/*`、`docs/reviews/*`（默认不递归索引）
 - Agent 体系：`.agents/skills/*/SKILL.md` 是 repo-local skill 指令入口；不要把 `.agents` 当作普通项目源码递归扫描。

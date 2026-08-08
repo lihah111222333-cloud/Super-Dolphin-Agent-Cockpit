@@ -19,11 +19,36 @@ import (
 func TestRemoteCIAgentTokenContractHasOneOwner(t *testing.T) {
 	root := findRepoRoot(t)
 	assertRemoteCIAgentTokenGateHasNoOwner(t, root)
+	assertRemoteCIAgentTokenCanonicalHelpers(t, root)
 	document := readRemoteCIAgentTokenContract(t, root)
 	assertRemoteCIAgentTokenContractDocumentsBoundary(t, document)
 	assertRemoteCIAgentTokenDigestBoundary(t)
 	assertRemoteCIAgentTokenRequestPhases(t)
 	assertRemoteCIAgentTokenApplicationGuidance(t)
+}
+
+// assertRemoteCIAgentTokenCanonicalHelpers 确保 CLI 只拥有 wire adapter，阶段语义仍由 cicontract 产生。
+func assertRemoteCIAgentTokenCanonicalHelpers(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_agent_token.go")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(contents)
+	for _, required := range []string{
+		"cicontract.ClassifyAgentTokenRequest(",
+		"cicontract.IssueAgentTokenBootstrap()",
+		"cicontract.AgentTokenApplicationResponse()",
+		"cicontract.ValidateGitHookAgentToken(",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("CLI token handshake must consume canonical helper %q", required)
+		}
+	}
+	if strings.Contains(text, "cicontract.GenerateAgentToken()") {
+		t.Error("CLI token handshake must not generate a second token owner")
+	}
 }
 
 // assertRemoteCIAgentTokenGateHasNoOwner 确认 gate 不持有第二个 token owner。

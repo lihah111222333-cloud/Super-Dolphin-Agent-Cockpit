@@ -1873,6 +1873,7 @@
     "internal/archtest/remote_ci_image_layer_direct_read_guard_test.go",
     "internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go",
     "internal/archtest/remote_ci_miss_only_contract_guard_test.go",
+    "internal/archtest/remote_ci_plan_report_decoder_binding_guard_test.go",
     "internal/archtest/remote_ci_resource_tier_behavior_guard_test.go",
     "internal/archtest/remote_ci_resource_tiers_guard_test.go",
     "internal/archtest/remote_ci_retention_contract_guard_test.go",
@@ -2261,12 +2262,6 @@
     "internal/devtools/gatehook/request_protocol_test.go",
     "internal/devtools/gatehook/test_helpers_test.go",
     "internal/devtools/gatehook/types.go",
-    "internal/devtools/gateprivate/exclusive_lock.go",
-    "internal/devtools/gateprivate/exclusive_lock_test.go",
-    "internal/devtools/gateprivate/exclusive_lock_unix.go",
-    "internal/devtools/gateprivate/exclusive_lock_windows.go",
-    "internal/devtools/gateprivate/storage.go",
-    "internal/devtools/gateprivate/storage_test.go",
     "internal/devtools/gateprivate/timeouts.go",
     "internal/devtools/gateprivate/timeouts_test.go",
     "internal/devtools/gateprivate/trusted_executable.go",
@@ -4753,10 +4748,6 @@
     "internal/devtools/gatehook/git.go",
     "internal/devtools/gatehook/git_adapter.go",
     "internal/devtools/gatehook/types.go",
-    "internal/devtools/gateprivate/exclusive_lock.go",
-    "internal/devtools/gateprivate/exclusive_lock_unix.go",
-    "internal/devtools/gateprivate/exclusive_lock_windows.go",
-    "internal/devtools/gateprivate/storage.go",
     "internal/devtools/gateprivate/timeouts.go",
     "internal/devtools/gateprivate/trusted_executable.go",
     "internal/devtools/gateprivate/trusted_executable_mount_linux.go",
@@ -4860,6 +4851,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6520,
-  "source_snapshot_paths_sha256": "sha256:41f62f6c5f2d86160267a68ff0a2906a26c9e1a36645980e35ab3ac79aaec56b"
+  "source_snapshot_input_count": 6511,
+  "source_snapshot_paths_sha256": "sha256:1ab9b39574715d7badb13601482747d8fe189aa47ab9f8a3057f45f240f7079c"
 }
