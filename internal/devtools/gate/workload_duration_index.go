@@ -391,15 +391,6 @@ func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier c
 	return estimate, resource, nextTier, false, nil
 }
 
-// GoTestDurationMS 返回同父 workload、同顶层测试和同环境的成功耗时均值。
-func (index DurationSampleIndex) GoTestDurationMS(parent Workload, testName string) (int64, bool) {
-	_, parentResource, err := index.estimateWorkloadDuration(parent)
-	if err != nil {
-		return 0, false
-	}
-	return index.GoTestDurationMSAtResource(parent, testName, parentResource.cpu, parentResource.memoryGiB)
-}
-
 // GoTestDurationMSAtResource 返回指定父 workload 资源档位的精确测试体均值。
 //
 // 资源档位由调用方（通常是已持久化的 owner resource）显式提供；这里
@@ -452,15 +443,6 @@ func goTestDurationWorkload(parent Workload, testName, inputDigest string) Workl
 		InputDigest:         inputDigest,
 		BootstrapEstimateMS: 1,
 	}
-}
-
-// EstimateWorkloadDurationMS 只聚合完全匹配环境桶的成功样本；失败样本绝不会改变成功估算。
-func EstimateWorkloadDurationMS(workload Workload, ledger DurationLedger, context PlanningContext) (int64, error) {
-	index, err := BuildDurationSampleIndex(ledger, context)
-	if err != nil {
-		return 0, err
-	}
-	return index.EstimateWorkloadDurationMS(workload)
 }
 
 // HasComparableSuccessfulDurationSample 判断账本是否包含同命令与执行环境的成功样本。

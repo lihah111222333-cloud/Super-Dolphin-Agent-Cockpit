@@ -220,11 +220,6 @@ func (snapshot *remoteGitTreeSnapshot) vitestInputDigest(target string) (string,
 	return snapshot.frontendNonE2EInputDigest()
 }
 
-// playwrightInputDigest 将 e2e spec、Playwright 配置和可观察前端源码闭包绑定到精确 Git tree。
-func (snapshot *remoteGitTreeSnapshot) playwrightInputDigest(target string) (string, error) {
-	return snapshot.frontendPlaywrightInputDigest(context.Background(), target)
-}
-
 // goPackageInputDigest 为 Go 包测试的共享编译输入建立摘要。
 func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
 	key := remoteGoPackageInputDigestKey{target: target, race: profile.race}
@@ -259,15 +254,6 @@ func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context,
 	}
 	snapshot.cacheMu.Unlock()
 	return digest, nil
-}
-
-// computeGoPackageInputDigest 汇总整包测试的编译闭包、包内资产与测试运行时观察输入。
-func (snapshot *remoteGitTreeSnapshot) computeGoPackageInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
-	entries, err := snapshot.computeGoPackageInputEntries(ctx, target, profile)
-	if err != nil {
-		return "", err
-	}
-	return snapshot.digestEntries(entries)
 }
 
 func (snapshot *remoteGitTreeSnapshot) computeGoPackageInputEntries(ctx context.Context, target string, profile remoteGoBuildProfile) ([]remoteGitTreeEntry, error) {

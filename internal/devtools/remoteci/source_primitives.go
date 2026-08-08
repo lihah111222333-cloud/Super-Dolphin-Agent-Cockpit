@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
-	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
@@ -47,8 +46,4 @@ func parseReadOnlyTreeEntry(record []byte) (sourceexport.TreeEntry, error) {
 func bytesDigest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func validOIDForAnyFormat(value string) bool {
-	return gitObjectPattern.MatchString(value) && strings.Trim(value, "0") != ""
 }

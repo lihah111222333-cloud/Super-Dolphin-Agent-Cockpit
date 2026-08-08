@@ -207,8 +207,8 @@ func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarn
 			CandidateCompile: gate.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(-5 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(-4 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
 		},
 	}}
-	result, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).completeRemoteRun(
-		catalog,
+	result, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).completeRemoteRunWithExecutionCatalog(
+		catalog, catalog,
 		RunInput{
 			Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1",
 			CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8},
@@ -217,7 +217,7 @@ func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarn
 			},
 		},
 		shards,
-		observed,
+		observed, observed,
 		RunResult{JobID: "job-structured-workload-warning", AgentTokenDigest: testRemoteAgentTokenDigest, AcceptedGeneration: 1},
 	)
 	if err != nil {

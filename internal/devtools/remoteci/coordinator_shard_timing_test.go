@@ -233,14 +233,14 @@ func TestCompleteRemoteRunRetainsFailedWorkloadWarningsBeforeGateError(t *testin
 		InputDigest: "sha256:" + strings.Repeat("b", 64), BootstrapEstimateMS: 1_000, Shardable: true,
 	}}}
 	coordinator := &Coordinator{now: func() time.Time { return started }}
-	result, err := coordinator.completeRemoteRun(
-		catalog,
+	result, err := coordinator.completeRemoteRunWithExecutionCatalog(
+		catalog, catalog,
 		RunInput{
 			Platform: "linux/amd64", RunnerIdentityDigest: "runner", ToolchainDigest: "toolchain",
 			WorkloadInputDigests: map[string]string{string(workloadID): catalog.Workloads[0].InputDigest},
 		},
 		[]ShardResult{shard},
-		map[string]gate.PlanGateExecution{string(workloadID): execution},
+		map[string]gate.PlanGateExecution{string(workloadID): execution}, map[string]gate.PlanGateExecution{string(workloadID): execution},
 		RunResult{JobID: "job-failed-complete-warning", AgentTokenDigest: testRemoteAgentTokenDigest, AcceptedGeneration: 1},
 	)
 	if err == nil || !strings.Contains(err.Error(), "gate execution failed") {
@@ -281,11 +281,11 @@ func TestCompleteRemoteRunKeepsFailedGuardBeforeCancelledTimingGap(t *testing.T)
 		string(cancelledID): catalog.Workloads[1].InputDigest,
 	}
 	coordinator := &Coordinator{now: func() time.Time { return started }}
-	result, err := coordinator.completeRemoteRun(
-		catalog,
+	result, err := coordinator.completeRemoteRunWithExecutionCatalog(
+		catalog, catalog,
 		RunInput{Platform: "linux/amd64", RunnerIdentityDigest: "runner", ToolchainDigest: "toolchain", WorkloadInputDigests: inputDigests},
 		[]ShardResult{shard},
-		map[string]gate.PlanGateExecution{string(failedID): failed, string(cancelledID): cancelled},
+		map[string]gate.PlanGateExecution{string(failedID): failed, string(cancelledID): cancelled}, map[string]gate.PlanGateExecution{string(failedID): failed, string(cancelledID): cancelled},
 		RunResult{JobID: "job-failed-before-cancelled-gap", AgentTokenDigest: testRemoteAgentTokenDigest, AcceptedGeneration: 1},
 	)
 	wantPrefix := ErrGateFailed.Error() + `; gate="guard:code-size" status="failed" exit_code=1 log_tail="max_complexity got=12 limit=10"`
@@ -340,14 +340,14 @@ func TestCompleteRemoteRunStillRejectsPassedWorkloadWithoutMeasuredTiming(t *tes
 	shard.ContainerStatus = "Succeeded"
 	catalog := completeFailedCatalogFixture(workloadID)
 	coordinator := &Coordinator{now: func() time.Time { return started }}
-	_, err := coordinator.completeRemoteRun(
-		catalog,
+	_, err := coordinator.completeRemoteRunWithExecutionCatalog(
+		catalog, catalog,
 		RunInput{
 			Platform: "linux/amd64", RunnerIdentityDigest: "runner", ToolchainDigest: "toolchain",
 			WorkloadInputDigests: map[string]string{string(workloadID): catalog.Workloads[0].InputDigest},
 		},
 		[]ShardResult{shard},
-		map[string]gate.PlanGateExecution{string(workloadID): execution},
+		map[string]gate.PlanGateExecution{string(workloadID): execution}, map[string]gate.PlanGateExecution{string(workloadID): execution},
 		RunResult{JobID: "job-passed-without-measured-timing", AgentTokenDigest: testRemoteAgentTokenDigest, AcceptedGeneration: 1},
 	)
 	if err == nil || !strings.Contains(err.Error(), "timing") {

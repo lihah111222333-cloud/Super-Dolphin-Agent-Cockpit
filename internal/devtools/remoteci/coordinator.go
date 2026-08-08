@@ -510,17 +510,6 @@ func validateRemoteWorkloadMissIDs(executionIDs []gate.GateID, reused map[string
 	return nil
 }
 
-// completeRemoteRun 保留本次实际执行样本并汇总 ECI 的完整 workload 结果。
-func (coordinator *Coordinator) completeRemoteRun(
-	catalog gate.WorkloadCatalog,
-	input RunInput,
-	shards []ShardResult,
-	observed map[string]gate.PlanGateExecution,
-	result RunResult,
-) (RunResult, error) {
-	return coordinator.completeRemoteRunWithExecutionCatalog(catalog, catalog, input, shards, observed, observed, result)
-}
-
 // completeRemoteRunWithExecutionCatalog 合并完整 catalog 与 miss 执行分片，保留 fresh 与复用边界。
 func (coordinator *Coordinator) completeRemoteRunWithExecutionCatalog(
 	catalog gate.WorkloadCatalog,

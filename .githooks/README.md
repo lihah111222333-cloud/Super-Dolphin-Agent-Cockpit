@@ -4,7 +4,7 @@
 
 builder 也必须从 staged tree 通过 Git plumbing 读取后执行；安装器不接受环境变量或任意外部路径覆盖 launcher，不从调用方 `PATH` 解析候选 Gate。
 
-如果 pre-commit 自动刷新受管生成物导致 staged tree 改变，本次提交会 fail closed；重新执行 `make install-hooks` 后再提交。受管 codemap、capability-contract 清单和 project-map 的自动刷新固定按 `codemap → capcontract → project-map` 顺序执行，各自仍由自己的 owner 生成器负责；`scripts/refresh_generated_artifacts.sh all` 是工作树维护时的统一入口，hook 则使用同一顺序的受信 exact-tree 入口，绝不执行候选工作树 generator。不同 linked worktree 的 tree launcher 可在受限安装根中并存，执行阶段按当前 tree 从安装根选择并完整复验，不依赖最近一次安装路径。
+如果 pre-commit 自动刷新受管生成物导致 staged tree 改变，hook 会从刷新后的 exact staged tree 提取受信 builder，重建并复验一次内容寻址 launcher，然后继续同一次提交；不会执行候选工作树中的 Makefile 或安装脚本。受管 codemap、capability-contract 清单和 project-map 的自动刷新固定按 `codemap → capcontract → project-map` 顺序执行，各自仍由自己的 owner 生成器负责；`scripts/refresh_generated_artifacts.sh all` 是工作树维护时的统一入口，hook 则使用同一顺序的受信 exact-tree 入口，绝不执行候选工作树 generator。不同 linked worktree 的 tree launcher 可在受限安装根中并存，执行阶段按当前 tree 从安装根选择并完整复验，不依赖最近一次安装路径。
 
 所有提交和推送只使用 remote ECI 门禁；不存在本地 scheduler、Docker 容器执行或本地回退分支。两个 hook 都要求本地 Git 配置或环境提供 `SUPER_DOLPHIN_GATE_REMOTE_CONFIG` 和 `SUPER_DOLPHIN_GATE_LEDGER`，缺失即 fail closed。
 

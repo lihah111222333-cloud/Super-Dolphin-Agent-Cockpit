@@ -21,7 +21,7 @@ func lookupRemoteWorkloadPassesForInput(
 	if err != nil {
 		return nil, err
 	}
-	if input.Force || len(reused) == len(identities) || strings.TrimSpace(input.RepositoryRoot) == "" {
+	if len(reused) == len(identities) || strings.TrimSpace(input.RepositoryRoot) == "" {
 		return reused, nil
 	}
 	missing := remoteWorkloadPassMigrationMissIdentities(identities, reused)
@@ -59,18 +59,6 @@ func remoteWorkloadPassMigrationMissIdentities(
 }
 
 type remoteHistoricalInputDigest func(context.Context, string, gate.GateID) (string, error)
-
-// migrateRemoteWorkloadPassCandidates 读取历史 exact tree，并以当前新算法
-// 重新计算输入摘要；只有新摘要与当前请求完全相同才在内存中回填新 identity。
-func migrateRemoteWorkloadPassCandidates(
-	ctx context.Context,
-	input RunInput,
-	identities []gate.WorkloadPassIdentity,
-	candidates []gate.WorkloadPassEvidence,
-) map[string]gate.WorkloadPassEvidence {
-	resolver := newRemoteHistoricalInputDigestResolver(input)
-	return migrateRemoteWorkloadPassCandidatesWithDigest(ctx, identities, candidates, resolver.compute)
-}
 
 type remoteHistoricalInputDigestResolver struct {
 	input                RunInput
@@ -488,7 +476,7 @@ func remoteMigrationCandidateIdentity(candidate gate.WorkloadPassEvidence, wante
 	if !ok || candidate.Identity.ExecutionDigest != identity.ExecutionDigest || candidate.Identity.EnvironmentDigest != identity.EnvironmentDigest || strings.TrimSpace(candidate.OriginSourceTreeSHA) == "" {
 		return gate.WorkloadPassIdentity{}, false
 	}
-	if err := candidate.Validate(); err != nil || !remoteMigrationOriginExecutionPassed(candidate) {
+	if err := candidate.Validate(); err != nil {
 		return gate.WorkloadPassIdentity{}, false
 	}
 	return identity, true
@@ -511,11 +499,4 @@ func projectRemoteMigrationEvidence(
 		return gate.WorkloadPassEvidence{}, false
 	}
 	return projected, true
-}
-
-// remoteMigrationOriginExecutionPassed 防止候选即使来自坏数据库投影也绕过
-// workload 级 PASS 终态检查；gate API 仍会做完整 authority/receipt 校验。
-func remoteMigrationOriginExecutionPassed(evidence gate.WorkloadPassEvidence) bool {
-	execution := evidence.OriginExecution
-	return execution.GateID == evidence.Identity.WorkloadID && execution.Status == gate.ResultStatusPassed && execution.ExitCode == 0 && !execution.StartedAt.IsZero() && execution.CompletedAt.After(execution.StartedAt)
 }

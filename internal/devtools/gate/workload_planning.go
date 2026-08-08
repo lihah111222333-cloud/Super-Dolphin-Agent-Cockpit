@@ -117,18 +117,6 @@ func BuildWorkloadExecutionPlan(
 	return BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, allShardableWorkloadIDs(catalog))
 }
 
-// BuildWorkloadExecutionPlanWithCompileInputs 构建严格的 compile-aware 全执行计划。
-// 生产 Prepare 必须提供每个 exact Go selector 的独立 package 输入；缺失输入不回退旧 LPT。
-func BuildWorkloadExecutionPlanWithCompileInputs(
-	gatePlan GatePlan,
-	catalog WorkloadCatalog,
-	snapshot DurationLedgerSnapshot,
-	context PlanningContext,
-	compileInputs map[GateID]CompileGroupInput,
-) (WorkloadExecutionPlan, error) {
-	return BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs(gatePlan, catalog, snapshot, context, allShardableWorkloadIDs(catalog), compileInputs)
-}
-
 // BuildWorkloadExecutionPlanForWorkloads 将完整权威 catalog 与严格 execution 投影一同绑定。
 // 投影只能包含当前 catalog 中可分片的 workload，且保持其 canonical 顺序；它不是另一个 catalog。
 func BuildWorkloadExecutionPlanForWorkloads(

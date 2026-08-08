@@ -216,13 +216,6 @@ fixture_launcher_for_tree() {
   printf '%s\n' "$launcher"
 }
 
-install_fixture_launcher_for_current_tree() {
-  local repository=$1 tree launcher
-  tree=$(git -C "$repository" write-tree)
-  launcher=$(fixture_launcher_for_tree "$repository" "$tree")
-  git -C "$repository" config superdolphin.gateLauncher "$launcher"
-}
-
 provision_fixture_launchers() {
   local repository tree commit launcher
   repository=$(git rev-parse --show-toplevel 2>/dev/null || true)
@@ -241,6 +234,7 @@ provision_fixture_launchers() {
 
 export PATH="$bin_dir:/usr/bin:/bin:/usr/sbin:/sbin"
 export GATE_HOOK_CAPTURE_DIR="$capture_dir"
+export GATE_HOOK_FIXTURE_GATE_BIN="$bin_dir/super-dolphin-gate"
 export SUPER_DOLPHIN_CI_AGENT_TOKEN=fixture-agent-token
 
 git_repo="$fixture_root/repository"
@@ -258,6 +252,22 @@ mkdir -p "$git_repo/build/gate"
 mkdir -p "$git_repo/frontend-app" "$git_repo/scripts" "$git_repo/docs/doc/codemap/project-map"
 mkdir -p "$git_repo/docs/doc/codemap/capability-contract"
 cp "$repo_root/.githooks/trusted-gate-launcher.sh" "$git_repo/.githooks/trusted-gate-launcher.sh"
+cat >"$git_repo/scripts/build-trusted-gate-launcher.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+tree=${1:?exact tree is required}
+repository=$(git rev-parse --show-toplevel)
+install_root=$(git -C "$repository" config --local --get superdolphin.gateLauncherRoot)
+digest=$(shasum -a 256 "$GATE_HOOK_FIXTURE_GATE_BIN" | awk '{print $1}')
+launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
+mkdir -p "$(dirname "$launcher")"
+cp "$GATE_HOOK_FIXTURE_GATE_BIN" "$launcher"
+chmod 0500 "$launcher"
+printf 'fixture-tree=%s\n' "$tree" >"$(dirname "$launcher")/receipt.json"
+chmod 0400 "$(dirname "$launcher")/receipt.json"
+printf '%s\n' "$launcher"
+EOF
+chmod 0755 "$git_repo/scripts/build-trusted-gate-launcher.sh"
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
 printf '%s\n' 'stale Dockerfile' >"$git_repo/build/gate/Dockerfile"
 printf '%s\n' '{"schema_version":"stale"}' >"$git_repo/build/gate/inputs.json"
@@ -267,7 +277,7 @@ printf '%s\n' '{"scope":"test","generated":false}' >"$git_repo/frontend-app/.fro
 printf '%s\n' 'trusted generator' >"$git_repo/scripts/generate_ai_project_map.mjs"
 printf '%s\n' 'stale project map' >"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
 printf '%s\n' 'stale capability manifest' >"$git_repo/docs/doc/codemap/capability-contract/capability_manifest.json"
-git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md docs/doc/codemap/capability-contract/capability_manifest.json
+git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/build-trusted-gate-launcher.sh scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md docs/doc/codemap/capability-contract/capability_manifest.json
 git -C "$git_repo" commit -qm 'fixture base'
 mkdir -p "$git_repo/nested"
 source "$git_repo/.githooks/trusted-gate-launcher.sh"
@@ -378,8 +388,8 @@ reset_capture
     "$fixture_root/closure-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
     2>"$fixture_root/closure-refresh-pre-commit.err"
 )
-assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 1 "closure refresh pre-commit requires exact-tree launcher reinstall"
-grep -Fq 'managed outputs changed the staged tree' "$fixture_root/closure-refresh-pre-commit.err" || fail "closure refresh did not require exact-tree launcher reinstall"
+assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 0 "closure refresh pre-commit continues after exact-tree launcher rebind"
+grep -Fq 'rebinding trusted launcher once' "$fixture_root/closure-refresh-pre-commit.err" || fail "closure refresh did not rebind the exact-tree launcher"
 assert_file_equals "$capture_dir/closure-provenance-tree" "$closure_drift_tree" "matching closure launcher provenance source tree"
 assert_file_equals "$capture_dir/closure-dependency-refresh-tree" "$closure_drift_tree" "closure dependency refresh source tree"
 dependency_refreshed_tree=$(cat "$capture_dir/closure-refresh-tree")
@@ -388,12 +398,11 @@ refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not update the staged tree"
 [[ "$refreshed_tree" != "$dependency_refreshed_tree" ]] || fail "closure output refresh did not update the dependency-refreshed tree"
 assert_file_equals "$capture_dir/closure-check-tree" "$refreshed_tree" "closure refreshed verification tree"
-[[ ! -e "$capture_dir/staged-tree" ]] || fail "closure refresh executed the remote gate before launcher reinstall"
+assert_file_equals "$capture_dir/staged-tree" "$refreshed_tree" "closure refresh remote gate tree"
 assert_file_equals "$git_repo/build/gate/Dockerfile" 'generated Dockerfile' "closure refreshed Dockerfile"
 assert_file_equals "$git_repo/build/gate/inputs.json" '{"schema_version":"test"}' "closure refreshed input manifest"
 assert_file_equals "$git_repo/build/gate/runtime-deps.lock" '{"schema_version":"generated-runtime-deps"}' "closure refreshed runtime dependency lock"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "closure refresh discarded the unstaged worktree change"
-install_fixture_launcher_for_current_tree "$git_repo"
 
 frontend_code_size_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture
@@ -403,18 +412,17 @@ reset_capture
     "$fixture_root/frontend-code-size-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
     2>"$fixture_root/frontend-code-size-refresh-pre-commit.err"
 )
-assert_file_equals "$fixture_root/frontend-code-size-refresh-pre-commit.status" 1 "frontend code-size refresh requires exact-tree launcher reinstall"
-grep -Fq 'managed outputs changed the staged tree' "$fixture_root/frontend-code-size-refresh-pre-commit.err" || fail "frontend code-size refresh did not require exact-tree launcher reinstall"
+assert_file_equals "$fixture_root/frontend-code-size-refresh-pre-commit.status" 0 "frontend code-size refresh continues after exact-tree launcher rebind"
+grep -Fq 'rebinding trusted launcher once' "$fixture_root/frontend-code-size-refresh-pre-commit.err" || fail "frontend code-size refresh did not rebind the exact-tree launcher"
 assert_file_equals "$capture_dir/frontend-code-size-initial-check-tree" "$frontend_code_size_drift_tree" "frontend code-size initial check tree"
 assert_file_equals "$capture_dir/frontend-code-size-refresh-tree" "$frontend_code_size_drift_tree" "frontend code-size refresh source tree"
 frontend_code_size_refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$frontend_code_size_refreshed_tree" != "$frontend_code_size_drift_tree" ]] || fail "frontend code-size refresh did not update the staged tree"
 assert_file_equals "$capture_dir/frontend-code-size-check-tree" "$frontend_code_size_refreshed_tree" "frontend code-size refreshed verification tree"
-[[ ! -e "$capture_dir/staged-tree" ]] || fail "frontend code-size refresh executed the remote gate before launcher reinstall"
+assert_file_equals "$capture_dir/staged-tree" "$frontend_code_size_refreshed_tree" "frontend code-size refresh remote gate tree"
 assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline.json" '{"scope":"production","generated":true}' "frontend production baseline refresh"
 assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline_test.json" '{"scope":"test","generated":true}' "frontend test baseline refresh"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "frontend code-size refresh discarded the unstaged worktree change"
-install_fixture_launcher_for_current_tree "$git_repo"
 
 capability_contract_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture
@@ -424,16 +432,15 @@ reset_capture
     "$fixture_root/capability-contract-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
     2>"$fixture_root/capability-contract-refresh-pre-commit.err"
 )
-assert_file_equals "$fixture_root/capability-contract-refresh-pre-commit.status" 1 "capability-contract refresh pre-commit requires exact-tree launcher reinstall"
-grep -Fq 'managed outputs changed the staged tree' "$fixture_root/capability-contract-refresh-pre-commit.err" || fail "capability-contract refresh did not require exact-tree launcher reinstall"
+assert_file_equals "$fixture_root/capability-contract-refresh-pre-commit.status" 0 "capability-contract refresh continues after exact-tree launcher rebind"
+grep -Fq 'rebinding trusted launcher once' "$fixture_root/capability-contract-refresh-pre-commit.err" || fail "capability-contract refresh did not rebind the exact-tree launcher"
 assert_file_equals "$capture_dir/capability-contract-initial-check-tree" "$capability_contract_drift_tree" "capability-contract initial check tree"
 assert_file_equals "$capture_dir/capability-contract-refresh-tree" "$capability_contract_drift_tree" "capability-contract refresh source tree"
 capability_contract_refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$capability_contract_refreshed_tree" != "$capability_contract_drift_tree" ]] || fail "capability-contract refresh did not update the staged tree"
 assert_file_equals "$capture_dir/capability-contract-check-tree" "$capability_contract_refreshed_tree" "capability-contract refreshed check tree"
-[[ ! -e "$capture_dir/staged-tree" ]] || fail "capability-contract refresh executed the remote gate before launcher reinstall"
+assert_file_equals "$capture_dir/staged-tree" "$capability_contract_refreshed_tree" "capability-contract refresh remote gate tree"
 assert_file_equals "$git_repo/docs/doc/codemap/capability-contract/capability_manifest.json" 'generated capability manifest' "capability-contract refreshed output"
-install_fixture_launcher_for_current_tree "$git_repo"
 
 project_map_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture
@@ -443,17 +450,16 @@ reset_capture
     "$fixture_root/project-map-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
     2>"$fixture_root/project-map-refresh-pre-commit.err"
 )
-assert_file_equals "$fixture_root/project-map-refresh-pre-commit.status" 1 "project-map refresh requires exact-tree launcher reinstall"
-grep -Fq 'managed outputs changed the staged tree' "$fixture_root/project-map-refresh-pre-commit.err" || fail "project-map refresh did not require exact-tree launcher reinstall"
+assert_file_equals "$fixture_root/project-map-refresh-pre-commit.status" 0 "project-map refresh continues after exact-tree launcher rebind"
+grep -Fq 'rebinding trusted launcher once' "$fixture_root/project-map-refresh-pre-commit.err" || fail "project-map refresh did not rebind the exact-tree launcher"
 assert_file_equals "$capture_dir/project-map-initial-check-tree" "$project_map_drift_tree" "project-map initial check tree"
 assert_file_equals "$capture_dir/project-map-refresh-tree" "$project_map_drift_tree" "project-map refresh source tree"
 project_map_refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$project_map_refreshed_tree" != "$project_map_drift_tree" ]] || fail "project-map refresh did not update the staged tree"
 assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_refreshed_tree" "project-map refreshed verification tree"
-[[ ! -e "$capture_dir/staged-tree" ]] || fail "project-map refresh executed the remote gate before launcher reinstall"
+assert_file_equals "$capture_dir/staged-tree" "$project_map_refreshed_tree" "project-map refresh remote gate tree"
 assert_file_equals "$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md" 'generated project map' "project-map refreshed output"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "project-map refresh discarded the unstaged worktree change"
-install_fixture_launcher_for_current_tree "$git_repo"
 
 dirty_project_map_tree=$(git -C "$git_repo" write-tree)
 tracked_index_before=$(git -C "$git_repo" show :tracked.txt)

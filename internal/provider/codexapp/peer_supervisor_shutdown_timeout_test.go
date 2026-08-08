@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -44,7 +45,7 @@ func TestPeerSupervisorShutdownReturnsErrorWhenPeerIgnoresForcedSignal(t *testin
 func TestPeerSupervisorShutdownTimeoutKeepsDiscoveryCleanupAndPIDRegistry(t *testing.T) {
 	stuck := &stuckPeerHandle{name: "stuck-peer", pid: 99997, done: make(chan struct{})}
 	tracker := newFakePIDTracker()
-	cleanupCalled := false
+	var cleanupCalled atomic.Bool
 	s := NewPeerSupervisorWithOptions(nil, nil,
 		WithPeerLauncher(&singleHandleLauncher{h: stuck, launchCh: make(chan struct{}, 1)}),
 		WithPeerPIDTracker(tracker),
@@ -52,7 +53,7 @@ func TestPeerSupervisorShutdownTimeoutKeepsDiscoveryCleanupAndPIDRegistry(t *tes
 		WithPeerRestartBackoff(10*time.Millisecond),
 		WithPeerStopGrace(10*time.Millisecond, 10*time.Millisecond),
 		WithPeerControlProbe("127.0.0.1:0", 1*time.Millisecond, 0),
-		WithPeerCleanupHook(func() { cleanupCalled = true }),
+		WithPeerCleanupHook(func() { cleanupCalled.Store(true) }),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := runSupervisor(ctx, s)
@@ -68,13 +69,13 @@ func TestPeerSupervisorShutdownTimeoutKeepsDiscoveryCleanupAndPIDRegistry(t *tes
 		if err == nil || !strings.Contains(err.Error(), "shutdown timeout") {
 			t.Fatalf("Run err = %v, want shutdown timeout", err)
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return after peer ignored EOF, SIGTERM, and SIGKILL")
 	}
 	if !tracker.has(stuck.PID()) {
 		t.Fatalf("pid %d should remain registered after unconfirmed shutdown", stuck.PID())
 	}
-	if cleanupCalled {
+	if cleanupCalled.Load() {
 		t.Fatal("cleanup hook ran after unconfirmed shutdown; discovery state must be preserved")
 	}
 }

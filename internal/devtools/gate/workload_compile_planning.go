@@ -11,20 +11,6 @@ import (
 
 const compileParentBootstrapEstimateMS int64 = 15_000
 
-// PlanLPTWithCompileInputs 依据 Prepare 冻结的 package 编译输入规划 exact Go selector。
-// compileInputs 缺少任何可分组 selector 的输入时立即失败；普通 workload 仍沿用旧 LPT。
-func PlanLPTWithCompileInputs(catalog WorkloadCatalog, ledger DurationLedger, context PlanningContext, compileInputs map[GateID]CompileGroupInput) ([]ShardPlan, error) {
-	if err := validateLPTInputs(catalog, ledger, context); err != nil {
-		return nil, err
-	}
-	index, err := BuildDurationSampleIndex(ledger, context)
-	if err != nil {
-		return nil, err
-	}
-	shards, _, err := planLPTWithCompileInputs(catalog, index, compileInputs)
-	return shards, err
-}
-
 // planLPTWithCompileInputs 返回 compile-aware shard 与其严格绑定的 compile groups。
 func planLPTWithCompileInputs(catalog WorkloadCatalog, index DurationSampleIndex, compileInputs map[GateID]CompileGroupInput) ([]ShardPlan, []CompileGroup, error) {
 	if err := ValidateWorkloadCatalog(catalog); err != nil {

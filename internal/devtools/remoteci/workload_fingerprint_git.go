@@ -387,27 +387,6 @@ func (snapshot *remoteGitTreeSnapshot) digestMatching(match func(remoteGitTreeEn
 	return snapshot.digestEntries(selected)
 }
 
-func (snapshot *remoteGitTreeSnapshot) digestDomainMatching(
-	domain string,
-	match func(remoteGitTreeEntry) bool,
-) (string, error) {
-	var selected []remoteGitTreeEntry
-	for _, entry := range snapshot.entries {
-		if match(entry) {
-			selected = append(selected, entry)
-		}
-	}
-	if len(selected) == 0 {
-		return "", errors.New("remote workload production input set is empty")
-	}
-	hasher := sha256.New()
-	fmt.Fprintf(hasher, "schema %d\ndomain %s\n", remoteWorkloadInputSchemaVersion, domain)
-	for _, entry := range selected {
-		fmt.Fprintf(hasher, "%s %s %s\t%s\n", entry.mode, entry.kind, entry.objectID, entry.path)
-	}
-	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
-}
-
 func (snapshot *remoteGitTreeSnapshot) digestEntries(entries []remoteGitTreeEntry) (string, error) {
 	snapshot.captureInputClosure(entries)
 	if len(entries) == 0 {
