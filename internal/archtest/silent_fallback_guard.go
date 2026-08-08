@@ -121,11 +121,6 @@ func (g *silentFallbackReturnGuard) scanBlock(fset *token.FileSet, rel string, b
 	})
 }
 
-func funcReturnsError(fn *ast.FuncType) bool {
-	_, ok := funcErrorResultCount(fn)
-	return ok
-}
-
 // funcErrorResultCount 返回函数结果数量，并标记最后一个返回值是否为 error。
 // silent fallback guard 用它判断 return 语句末尾 nil 是否会吞掉原始错误。
 func funcErrorResultCount(fn *ast.FuncType) (int, bool) {

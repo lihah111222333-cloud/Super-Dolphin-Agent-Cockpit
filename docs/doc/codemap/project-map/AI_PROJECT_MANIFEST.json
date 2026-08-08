@@ -65,19 +65,19 @@
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
         "file_count": 1291,
-        "size_kb": 259.6,
+        "size_kb": 259.7,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 855,
+    "cmd": 857,
     "docs": 88,
     "frontend-app": 749,
-    "internal": 2849,
+    "internal": 2846,
     "pkg": 30,
-    "scripts": 186,
+    "scripts": 187,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -233,14 +233,14 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0156,
-    "unknown_files": 75,
+    "unknown_ratio": 0.016,
+    "unknown_files": 77,
     "thresholds": {
       "max_unknown_ratio": 0.05
     },
     "warnings": [],
     "top_unknown_modules": {
-      "cmd": 73,
+      "cmd": 75,
       "internal": 2
     }
   }

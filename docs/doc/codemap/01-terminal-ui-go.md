@@ -313,7 +313,7 @@ sequenceDiagram
 
 | 包 | 测试文件 | 核心 Test* | freeze |
 |---|---|---|---|
-| `wails` | `internal/ui/wails/code_preview_test.go`（另见 `rpc_test.go` / `bridge_test.go` / `binding_test.go`） | `internal/ui/wails/code_preview_test.go:13` `TestSaveScopedFileWritesWithinScope` | —（`internal/archtest/freeze_registry.go:19-28` 当前无 wails 专项 freeze；接口隔离预算另见 `internal/archtest/interface_isolation_guard_test.go`） |
+| `wails` | `internal/ui/wails/code_preview_test.go`（另见 `rpc_test.go` / `bridge_test.go` / `binding_test.go`） | `internal/ui/wails/code_preview_test.go:13` `TestSaveScopedFileWritesWithinScope` | 统一由 `internal/archtest/freeze_baseline.json` 管理；接口隔离预算另见 `internal/archtest/interface_isolation_guard_test.go` |
 
 ## 8. Go / Wails 变更 how-to
 

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"path"
 	"sort"
 	"strings"
@@ -135,18 +134,6 @@ func CompileGroupSemanticKeyForWorkloadID(id GateID) (string, error) {
 		return "", fmt.Errorf("workload %q is not an exact selector", id)
 	}
 	return CompileGroupSemanticKey(kind, parent == GateIDBackendTestGuardWithRace)
-}
-
-// LoadCompileGroupInput 严格解析单一 Prepare 编译输入。
-func LoadCompileGroupInput(reader io.Reader) (CompileGroupInput, error) {
-	var input CompileGroupInput
-	if err := decodeStrictJSON(reader, &input); err != nil {
-		return CompileGroupInput{}, fmt.Errorf("decode compile group input: %w", err)
-	}
-	if err := input.Validate(); err != nil {
-		return CompileGroupInput{}, err
-	}
-	return input, nil
 }
 
 // compileGroupIdentityMaterial 是 GroupID 的 selector-independent canonical material。
@@ -797,40 +784,6 @@ func isPrefixedSHA256Digest(value string) bool {
 		}
 	}
 	return true
-}
-
-// LoadCompileGroup 严格解析单一 compile group JSON。
-func LoadCompileGroup(reader io.Reader) (CompileGroup, error) {
-	var group CompileGroup
-	if err := decodeStrictJSON(reader, &group); err != nil {
-		return CompileGroup{}, fmt.Errorf("decode compile group: %w", err)
-	}
-	if err := group.Validate(); err != nil {
-		return CompileGroup{}, err
-	}
-	return group, nil
-}
-
-// LoadCompileGroups 严格解析有序 compile group JSON 数组，并拒绝重复身份。
-func LoadCompileGroups(reader io.Reader) ([]CompileGroup, error) {
-	var groups []CompileGroup
-	if err := decodeStrictJSON(reader, &groups); err != nil {
-		return nil, fmt.Errorf("decode compile groups: %w", err)
-	}
-	if len(groups) == 0 {
-		return nil, errors.New("compile groups must not be empty")
-	}
-	seen := make(map[string]struct{}, len(groups))
-	for index, group := range groups {
-		if err := group.Validate(); err != nil {
-			return nil, fmt.Errorf("compile_groups[%d]: %w", index, err)
-		}
-		if _, duplicate := seen[group.GroupID]; duplicate {
-			return nil, fmt.Errorf("compile_groups[%d]: duplicate group ID %q", index, group.GroupID)
-		}
-		seen[group.GroupID] = struct{}{}
-	}
-	return groups, nil
 }
 
 // CompileGroupWorkloadIDs 返回 group 内 workload IDs 的稳定副本，避免调用方修改身份输入。

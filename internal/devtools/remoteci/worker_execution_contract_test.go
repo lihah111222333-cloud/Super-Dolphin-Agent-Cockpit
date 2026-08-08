@@ -18,34 +18,6 @@ func TestWorkerExecutionCommandClassifierSeparatesPackagePath(t *testing.T) {
 	}
 }
 
-func TestWorkerExecutionMakefileSelectsOnlyTargetClosure(t *testing.T) {
-	makefile := parseWorkerExecutionMakefile([]byte(`TOOL := ./scripts/worker.sh
-
-worker: prerequisite
-	$(TOOL)
-
-prerequisite:
-	go run ./scripts/helper.go
-
-unrelated:
-	echo unrelated
-`))
-	target, ok := makefile.targets["worker"]
-	if !ok {
-		t.Fatal("worker target was not parsed")
-	}
-	if len(target.dependencies) != 1 || target.dependencies[0] != "prerequisite" {
-		t.Fatalf("worker dependencies = %v", target.dependencies)
-	}
-	if _, ok := makefile.targets["unrelated"]; !ok {
-		t.Fatal("unrelated target was not parsed independently")
-	}
-	variable, ok := makefile.variables["TOOL"]
-	if !ok || variable.value != "./scripts/worker.sh" {
-		t.Fatalf("TOOL variable = %#v, found=%t", variable, ok)
-	}
-}
-
 func TestWorkerExecutionClosureSkipsAbsentOptionalFunctionNodes(t *testing.T) {
 	tests := []struct {
 		name             string

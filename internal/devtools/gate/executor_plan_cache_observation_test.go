@@ -45,7 +45,7 @@ func TestApplyPlanGateCacheMetricsRejectsStartedProxyWithoutFinalMetrics(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(goBuildCacheProxyStartedPath(metricsPath), []byte("started\n"), 0o600); err != nil {
+	if err := os.WriteFile(metricsPath+goBuildCacheProxyStartedFileSuffix, []byte("started\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	result := PlanGateExecution{ExecutionProfile: measuredNonCacheExecutionProfile()}
@@ -64,7 +64,7 @@ func TestApplyPlanGateCacheMetricsRejectsFinalMetricsWithRetainedMarker(t *testi
 	if err := writeGoBuildCacheProxyMetrics(metricsPath, newGoBuildCacheProxyMetrics(ExecutorOCIProjectGoBuildCacheSeedRoot)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(goBuildCacheProxyStartedPath(metricsPath), []byte("started\n"), 0o600); err != nil {
+	if err := os.WriteFile(metricsPath+goBuildCacheProxyStartedFileSuffix, []byte("started\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	result := PlanGateExecution{ExecutionProfile: measuredNonCacheExecutionProfile()}

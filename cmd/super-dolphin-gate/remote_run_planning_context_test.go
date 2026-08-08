@@ -47,7 +47,11 @@ func TestLoadRemoteRunLedgerAllowsGenerationOneBeforeCalibration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load normal preparation ledger without calibration: %v", err)
 	}
-	if snapshot.Generation != 1 || snapshot.Ledger.Calibration != nil || snapshot.Ledger.ShardOverhead != nil || store.AuthorityPath() != ledgerPath {
+	expectedAuthority, err := filepath.EvalSymlinks(ledgerPath)
+	if err != nil {
+		t.Fatalf("resolve expected ledger authority: %v", err)
+	}
+	if snapshot.Generation != 1 || snapshot.Ledger.Calibration != nil || snapshot.Ledger.ShardOverhead != nil || store.AuthorityPath() != expectedAuthority {
 		t.Fatalf("normal preparation snapshot = %#v, authority = %q", snapshot, store.AuthorityPath())
 	}
 }

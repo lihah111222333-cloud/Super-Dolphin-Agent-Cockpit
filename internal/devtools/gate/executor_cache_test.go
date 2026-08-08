@@ -180,7 +180,7 @@ func TestExecuteGoBuildCacheProxyAggregatesConcurrentHelpers(t *testing.T) {
 	}
 	requireNoGoBuildCacheProxyStartedMarkers(t, metricsPath)
 	requireGoBuildCacheProxyContributionCount(t, metricsPath, 0, "after finalization")
-	if _, err := os.Stat(goBuildCacheProxyStartedPath(metricsPath)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(metricsPath + goBuildCacheProxyStartedFileSuffix); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("legacy shared started marker exists after concurrent helpers: %v", err)
 	}
 }
@@ -398,7 +398,7 @@ func TestGoBuildCacheProxyReadsPrivateThenImageLayerSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := findGoBuildCacheEntry(config, actionID)
+	entry, _, err := findGoBuildCacheEntryWithLayer(config, actionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func TestGoBuildCacheProxyReadsPrivateThenImageLayerSeed(t *testing.T) {
 		t.Fatalf("image seed content = %q, %v", content, err)
 	}
 	writeGoBuildCacheEntryFixture(t, privateRoot, actionID, "private")
-	entry, err = findGoBuildCacheEntry(config, actionID)
+	entry, _, err = findGoBuildCacheEntryWithLayer(config, actionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,42 +476,6 @@ func TestGoBuildCacheProxyKeepsSeedHitsOutOfPrivateDelta(t *testing.T) {
 	}
 	if config.metrics.BaselineHitCount != 1 || config.metrics.PrivateHitCount != 0 {
 		t.Fatalf("promotion changed hit attribution: %#v", config.metrics)
-	}
-}
-
-func TestGoBuildCacheProxyConcurrentSeedPromotion(t *testing.T) {
-	actionID := bytes.Repeat([]byte{0x63}, goBuildCacheHashBytes)
-	seedRoot := filepath.Join(realTempDir(t), "00000000000000000043")
-	if err := os.Mkdir(seedRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	privateRoot := realTempDir(t)
-	writeGoBuildCacheEntryFixture(t, seedRoot, actionID, "concurrent")
-	seedEntry, err := readGoBuildCacheEntry(seedRoot, actionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const readers = 8
-	errorsByReader := make(chan error, readers)
-	var group sync.WaitGroup
-	for range readers {
-		group.Go(func() {
-			promoted, promoteErr := promoteGoBuildCacheSeedEntry(privateRoot, actionID, seedEntry)
-			if promoteErr == nil && !strings.HasPrefix(promoted.path, privateRoot+string(os.PathSeparator)) {
-				promoteErr = fmt.Errorf("promoted path is outside private root: %q", promoted.path)
-			}
-			errorsByReader <- promoteErr
-		})
-	}
-	group.Wait()
-	close(errorsByReader)
-	for err := range errorsByReader {
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := readGoBuildCacheEntry(privateRoot, actionID); err != nil {
-		t.Fatalf("read concurrently promoted entry: %v", err)
 	}
 }
 

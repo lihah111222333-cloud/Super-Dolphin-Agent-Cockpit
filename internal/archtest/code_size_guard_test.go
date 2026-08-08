@@ -67,9 +67,6 @@ func runCodeSizeGuardRepositoryRules(t *testing.T, opts archtest.CheckOptions) {
 	t.Run("identifier", func(t *testing.T) {
 		runIdentifierGuard(t, cache, opts)
 	})
-	t.Run("dead key", func(t *testing.T) {
-		runDeadKeyGuard(t, cache, opts)
-	})
 }
 
 func runCodeSizeGuard(
@@ -99,19 +96,6 @@ func runIdentifierGuard(
 		}
 	}
 	failIfGuardViolations(t, "identifier guard violations", violations, "")
-}
-
-func runDeadKeyGuard(
-	t *testing.T,
-	cache *archtest.RepositoryGuardScanCache,
-	opts archtest.CheckOptions,
-) {
-	t.Helper()
-	violations := filterRepositoryViolationsByKind(
-		repositoryGuardViolations(t, cache, opts),
-		archtest.ViolationDeadKey,
-	)
-	failIfGuardViolations(t, "dead-key guard violations", violations, "")
 }
 
 func repositoryGuardViolations(

@@ -14,11 +14,6 @@ assert_file() {
   [ -f "$path" ] || fail "missing file: $path"
 }
 
-assert_executable() {
-  local path="$1"
-  [ -x "$path" ] || fail "file is not executable: $path"
-}
-
 assert_contains() {
   local path="$1"
   local needle="$2"

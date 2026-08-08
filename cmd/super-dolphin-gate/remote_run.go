@@ -22,17 +22,19 @@ import (
 // runRemote 分派远程 CLI 子命令并保持各入口的独立协议边界。
 func runRemote(args []string, input io.Reader, stdout io.Writer, progressWriters ...io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("remote subcommand is required (run, hook, calibrate)")
+		return protocolError("remote subcommand is required (run, hook, calibrate, init-ledger)")
 	}
 	switch args[0] {
 	case "calibrate":
 		return runRemoteCalibration(args[1:], stdout, progressWriters...)
+	case "init-ledger":
+		return runRemoteLedgerInit(args[1:])
 	case "hook":
 		return runRemoteHook(args[1:], input, stdout, progressWriters...)
 	case "run":
 		return runRemoteInvocation(args[1:], stdout, progressWriters...)
 	default:
-		return protocolError("remote subcommand must be run, hook, or calibrate")
+		return protocolError("remote subcommand must be run, hook, calibrate, or init-ledger")
 	}
 }
 

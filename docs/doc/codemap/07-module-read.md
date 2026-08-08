@@ -27,7 +27,7 @@ flowchart LR
 
 ### 1.1 跨卷一致性备忘
 
-- 当前 `internal/archtest/freeze_registry.go` 没有 prompt 数字 freeze；`internal/module/prompt/` 的生产文件数由下面的机器计数声明直接锁定为 30。
+- prompt 不再维护独立数字 freeze；`internal/module/prompt/` 的生产文件数由下面的机器计数声明直接锁定为 30。统一冻结真值位于 `internal/archtest/freeze_baseline.json`。
   <!-- codemap-count path="internal/module/prompt" kind="go-files" expected="30" -->
 - 旧 prompt skill-catalog 注入链已退出生产路径；prompt 不再读取 skill catalog 或 canonical skill 来生成正文、目录发现或 native suppression hints，正文/目录发现交给 provider-native mirror。
 - 旧 lspgui 模块当前在仓内不存在；旧文档若仍把它写成真实包，需要按代码真值纠偏。

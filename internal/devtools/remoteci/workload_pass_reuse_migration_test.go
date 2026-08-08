@@ -14,7 +14,7 @@ func TestMigrateRemoteWorkloadPassCandidatesUnchangedInputProjectsCurrentIdentit
 	current, historical := migrationIdentityPair(t, "frontend:e2e::playwright::business", "a", "b")
 	candidate := migrationEvidenceFixture(t, historical, gate.ResultStatusPassed)
 	computeCalls := 0
-	projected := migrateRemoteWorkloadPassCandidatesWithDigest(
+	projected := projectedRemoteWorkloadPassCandidatesForTest(
 		context.Background(),
 		[]gate.WorkloadPassIdentity{current},
 		[]gate.WorkloadPassEvidence{candidate},
@@ -51,7 +51,7 @@ func TestMigrateRemoteWorkloadPassCandidatesFailedOriginRunKeepsPassingWorkload(
 	if err != nil {
 		t.Fatalf("failed-origin evidence digest: %v", err)
 	}
-	projected := migrateRemoteWorkloadPassCandidatesWithDigest(
+	projected := projectedRemoteWorkloadPassCandidatesForTest(
 		context.Background(),
 		[]gate.WorkloadPassIdentity{current},
 		[]gate.WorkloadPassEvidence{candidate},
@@ -65,7 +65,7 @@ func TestMigrateRemoteWorkloadPassCandidatesFailedOriginRunKeepsPassingWorkload(
 func TestMigrateRemoteWorkloadPassCandidatesChangedInputMisses(t *testing.T) {
 	current, historical := migrationIdentityPair(t, "frontend:e2e::playwright::business", "a", "b")
 	candidate := migrationEvidenceFixture(t, historical, gate.ResultStatusPassed)
-	projected := migrateRemoteWorkloadPassCandidatesWithDigest(
+	projected := projectedRemoteWorkloadPassCandidatesForTest(
 		context.Background(),
 		[]gate.WorkloadPassIdentity{current},
 		[]gate.WorkloadPassEvidence{candidate},
@@ -247,7 +247,7 @@ func TestMigrateRemoteWorkloadPassCandidatesChoosesNewestEquivalentProjection(t 
 		}
 	}
 	computeCalls := 0
-	projected := migrateRemoteWorkloadPassCandidatesWithDigest(
+	projected := projectedRemoteWorkloadPassCandidatesForTest(
 		context.Background(),
 		[]gate.WorkloadPassIdentity{current},
 		[]gate.WorkloadPassEvidence{older, newer},
@@ -273,7 +273,7 @@ func TestMigrateRemoteWorkloadPassCandidatesChoosesNewestEquivalentProjection(t 
 func TestMigrateRemoteWorkloadPassCandidatesFailedEvidenceMisses(t *testing.T) {
 	current, historical := migrationIdentityPair(t, "frontend:e2e::playwright::business", "a", "b")
 	candidate := migrationEvidenceFixture(t, historical, gate.ResultStatusFailed)
-	projected := migrateRemoteWorkloadPassCandidatesWithDigest(
+	projected := projectedRemoteWorkloadPassCandidatesForTest(
 		context.Background(),
 		[]gate.WorkloadPassIdentity{current},
 		[]gate.WorkloadPassEvidence{candidate},
@@ -282,6 +282,22 @@ func TestMigrateRemoteWorkloadPassCandidatesFailedEvidenceMisses(t *testing.T) {
 	if len(projected) != 0 {
 		t.Fatalf("failed historical evidence projected = %#v, want MISS", projected)
 	}
+}
+
+// projectedRemoteWorkloadPassCandidatesForTest keeps map-shaped assertions in tests;
+// production migration consumes the source/projected pairs directly.
+func projectedRemoteWorkloadPassCandidatesForTest(
+	ctx context.Context,
+	identities []gate.WorkloadPassIdentity,
+	candidates []gate.WorkloadPassEvidence,
+	compute remoteHistoricalInputDigest,
+) map[string]gate.WorkloadPassEvidence {
+	migrations := migrateRemoteWorkloadPassCandidatesWithDigestPairs(ctx, identities, candidates, compute)
+	projected := make(map[string]gate.WorkloadPassEvidence, len(migrations))
+	for _, migration := range migrations {
+		projected[string(migration.projected.Identity.WorkloadID)] = migration.projected
+	}
+	return projected
 }
 
 func migrationIdentityPair(t *testing.T, workloadID, oldSeed, currentSeed string) (gate.WorkloadPassIdentity, gate.WorkloadPassIdentity) {

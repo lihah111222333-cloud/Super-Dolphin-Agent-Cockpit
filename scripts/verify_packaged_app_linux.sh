@@ -47,19 +47,6 @@ lsp_server_specs=(
   "go|bin/go"
 )
 
-phase_start() {
-  phase_label="$1"
-  phase_started_at="$(date +%s)"
-  echo "==> [$phase_label] start $(date '+%H:%M:%S')" >&2
-}
-
-phase_end() {
-  local finished_at elapsed
-  finished_at="$(date +%s)"
-  elapsed=$((finished_at - phase_started_at))
-  echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
-}
-
 verify_packaged_node_version() {
   local node_path="$package_root/lsp/node/bin/node"
   local version_output version line_count major minor patch

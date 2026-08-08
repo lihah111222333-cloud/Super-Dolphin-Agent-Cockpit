@@ -4,14 +4,14 @@
 >
 > 已索引文件：4817
 >
-> 未细分职责文件：75
+> 未细分职责文件：77
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 75 |
-| 未细分职责占比 | 1.56% |
+| 未细分职责文件数 | 77 |
+| 未细分职责占比 | 1.60% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 73 |
+| `cmd` | 75 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -62,6 +62,8 @@
 - `cmd/super-dolphin-gate/remote_baseline_state_store.go`
 - `cmd/super-dolphin-gate/remote_hook_test.go`
 - `cmd/super-dolphin-gate/remote_hook_test_helpers_test.go`
+- `cmd/super-dolphin-gate/remote_ledger_init.go`
+- `cmd/super-dolphin-gate/remote_ledger_init_test.go`
 - `cmd/super-dolphin-gate/remote_manifest_install.go`
 - `cmd/super-dolphin-gate/remote_manifest_install_dispatch_test.go`
 - `cmd/super-dolphin-gate/remote_manifest_install_test.go`
@@ -75,8 +77,6 @@
 - `cmd/super-dolphin-gate/remote_registry_credential_test.go`
 - `cmd/super-dolphin-gate/remote_run.go`
 - `cmd/super-dolphin-gate/remote_run_automation_test.go`
-- `cmd/super-dolphin-gate/remote_run_calibration.go`
-- `cmd/super-dolphin-gate/remote_run_calibration_automation.go`
 
 ## 5. 修复方式
 

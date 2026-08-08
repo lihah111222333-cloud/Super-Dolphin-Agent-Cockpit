@@ -1634,17 +1634,6 @@ verify_packaged_git() {
     "$resources/bin/git" --version
 }
 
-verify_no_broken_symlinks() {
-  local root_dir="$1"
-  local broken
-  broken="$(find -L "$root_dir" -type l -print 2>/dev/null || true)"
-  if [[ -n "$broken" ]]; then
-    echo "packaged app contains broken symlinks:" >&2
-    printf '%s\n' "$broken" >&2
-    exit 1
-  fi
-}
-
 sign_macho_tree() {
   local identity="$1"
   shift

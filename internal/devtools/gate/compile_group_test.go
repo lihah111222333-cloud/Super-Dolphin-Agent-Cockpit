@@ -55,16 +55,16 @@ func TestCompileGroupIdentityBindsOrderedWorkloads(t *testing.T) {
 	}
 }
 
-func TestCompileGroupStrictLoaderRejectsUnknownField(t *testing.T) {
-	group := newTestCompileGroup(t, CompileGroupInput{
-		PackageTarget:     "./internal/devtools/gate",
-		SemanticKey:       CompileGroupSemanticGoTestNormal,
-		SharedInputDigest: "sha256:" + strings.Repeat("e", 64),
-		ProfileDigest:     "sha256:" + strings.Repeat("f", 64),
-	}, []GateID{"gate:test"})
-	encoded := `{"group_id":"` + group.GroupID + `","package_target":"./internal/devtools/gate","semantic_key":"` + CompileGroupSemanticGoTestNormal + `","shared_input_digest":"sha256:` + strings.Repeat("e", 64) + `","profile_digest":"sha256:` + strings.Repeat("f", 64) + `","resource_class_id":"medium","workload_ids":["gate:test"],"compile_estimate_ms":10,"body_estimate_ms":20,"estimated_duration_ms":30,"unknown":true}`
-	if _, err := LoadCompileGroup(strings.NewReader(encoded)); err == nil {
-		t.Fatal("strict compile group loader accepted unknown field")
+func TestCanonicalShardManifestLoaderRejectsUnknownField(t *testing.T) {
+	workload := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary")
+	group := manifestTestCompileGroup(t, []GateID{GateID(workload.ID)})
+	encoded, _, err := EncodeShardExecutionManifest(manifestTestInput([]GateID{GateID(workload.ID)}, group))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded = append([]byte(strings.TrimSuffix(string(encoded), "}")), []byte(`,"unknown":true}`)...)
+	if _, err := LoadShardExecutionManifest(strings.NewReader(string(encoded))); err == nil {
+		t.Fatal("strict shard execution manifest loader accepted unknown field")
 	}
 }
 

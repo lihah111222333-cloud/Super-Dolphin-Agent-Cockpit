@@ -415,13 +415,6 @@ lsp_manifest_value() {
   json_value_at_path "$manifest" "servers.$server.$field" string
 }
 
-lsp_manifest_json_value() {
-  local manifest="$1"
-  local server="$2"
-  local field="$3"
-  json_value_at_path "$manifest" "servers.$server.$field" json
-}
-
 lsp_server_version_args() {
   local server_id="$1"
   case "$server_id" in
@@ -706,40 +699,6 @@ verify_packaged_python_shadow_smoke() {
   fi
   echo "packaged Python shadow executable unexpectedly succeeded: $resources/lsp/bin/python3" >&2
   exit 1
-}
-
-dotenv_value() {
-  local file="$1"
-  local key="$2"
-  awk -v key="$key" '
-    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" {
-      sub("^[[:space:]]*(export[[:space:]]+)?", "")
-      sub("^[^=]*=", "")
-      gsub("^[[:space:]]+|[[:space:]]+$", "")
-      gsub("^\"|\"$", "")
-      gsub("^\047|\047$", "")
-      print
-      found = 1
-      exit
-    }
-    END { if (!found) exit 1 }
-  ' "$file"
-}
-
-require_dotenv_value() {
-  local file="$1"
-  local key="$2"
-  local value
-  if ! value="$(dotenv_value "$file" "$key")" || [[ -z "${value//[[:space:]]/}" ]]; then
-    echo "packaged update .env missing non-empty $key" >&2
-    exit 1
-  fi
-  printf '%s\n' "$value"
-}
-
-is_placeholder_update_repo() {
-  local repo="$1"
-  [[ "$repo" == "xiaoxiaotest9527-bit/-" ]]
 }
 
 verify_package_update_trust() {

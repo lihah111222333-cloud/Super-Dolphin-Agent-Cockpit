@@ -1067,13 +1067,6 @@
     {
       "codemap_file": "01-terminal-ui-go.md",
       "codemap_line": 316,
-      "target_path": "internal/archtest/freeze_registry.go",
-      "line_spec": "19-28",
-      "content_sha256": "637d5a69382bf2f36991905ff24bee9f0a0f6c418c5721cf9e861e298ef13da4"
-    },
-    {
-      "codemap_file": "01-terminal-ui-go.md",
-      "codemap_line": 316,
       "target_path": "internal/ui/wails/code_preview_test.go",
       "line_spec": "13",
       "content_sha256": "30b5f122110760c9ff744f13c97ab02fe5ccef70df454bf1e89c6d24327c064c"
@@ -2732,13 +2725,6 @@
       "line_spec": "14-74",
       "content_sha256": "2ff878e8777241173449a76c3c9ea37aad9d24ef35709c9abb77b9768d9b1a3d",
       "symbol": "ToolNameMemoryRead"
-    },
-    {
-      "codemap_file": "04-app-contract.md",
-      "codemap_line": 945,
-      "target_path": "internal/archtest/freeze_registry.go",
-      "line_spec": "19-28",
-      "content_sha256": "637d5a69382bf2f36991905ff24bee9f0a0f6c418c5721cf9e861e298ef13da4"
     },
     {
       "codemap_file": "04-app-contract.md",
@@ -11816,13 +11802,6 @@
       "symbol": "Handler"
     },
     {
-      "codemap_file": "11-memory.md",
-      "codemap_line": 341,
-      "target_path": "internal/archtest/freeze_registry.go",
-      "line_spec": "19",
-      "content_sha256": "d97cfd9a177c66a9c9c4f45bbd55117551ab1ee39135ddbb737f8229b658085f"
-    },
-    {
       "codemap_file": "11-prompt-thread.md",
       "codemap_line": 22,
       "target_path": "internal/module/thread/start_session_helpers.go",
@@ -11865,13 +11844,6 @@
       "target_path": "internal/store/prompt/contract.go",
       "line_spec": "15-22",
       "content_sha256": "597e943a09733c0a82a9af736e05044c1bb724c895bfbc72ef53c6d43f6bc696"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 29,
-      "target_path": "internal/archtest/freeze_registry.go",
-      "line_spec": "19",
-      "content_sha256": "d97cfd9a177c66a9c9c4f45bbd55117551ab1ee39135ddbb737f8229b658085f"
     },
     {
       "codemap_file": "11-prompt-thread.md",
@@ -12079,13 +12051,6 @@
       "line_spec": "317-341",
       "content_sha256": "559c1722cf531aad59ec250e8ee12e51ecd49b878dcc5c0747502c0166b6dd0a",
       "symbol": "*promptService.DeletePrompt"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 437,
-      "target_path": "internal/archtest/freeze_registry.go",
-      "line_spec": "19",
-      "content_sha256": "d97cfd9a177c66a9c9c4f45bbd55117551ab1ee39135ddbb737f8229b658085f"
     },
     {
       "codemap_file": "11-prompt-thread.md",

@@ -42,6 +42,59 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	assertAtomicInventoryTestNames(t, inventory.GoTests, inventory.GoRaceTests)
 }
 
+func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
+	repository := t.TempDir()
+	runInventoryGit(t, repository, "init", "--quiet")
+	runInventoryGit(t, repository, "config", "user.name", "CI Inventory")
+	runInventoryGit(t, repository, "config", "user.email", "ci@example.invalid")
+	writeInventoryFixture(t, repository)
+	runInventoryGit(t, repository, "add", ".")
+	runInventoryGit(t, repository, "commit", "--quiet", "-m", "基础")
+	commit := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
+
+	legacyPackages, legacyTests, legacyRaceTests := inventoryLegacySelectors(t, repository, commit)
+
+	tracePath := installInventoryGitCounter(t)
+	inventory, err := BuildWorkloadInventory(context.Background(), repository, commit, "", "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(inventory.GoPackages, legacyPackages) ||
+		!slices.Equal(inventory.GoTests, legacyTests) ||
+		!slices.Equal(inventory.GoRaceTests, legacyRaceTests) {
+		t.Fatalf("shared snapshot changed selectors: shared=%#v legacyPackages=%v legacyTests=%v legacyRaceTests=%v", inventory, legacyPackages, legacyTests, legacyRaceTests)
+	}
+	counts := readInventoryGitCounterCounts(t, tracePath)
+	if counts.snapshotTree != 1 || counts.blobBatch != 1 {
+		t.Fatalf("shared snapshot git calls = %#v, want one snapshot tree and one blob batch", counts)
+	}
+}
+
+func inventoryLegacySelectors(t *testing.T, repository string, commit string) ([]string, []gate.GoTestTarget, []gate.GoTestTarget) {
+	t.Helper()
+	files, err := inventoryGitLines(context.Background(), repository, "ls-tree", "-r", "--name-only", commit, "--")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := loadInventoryVitestSuitePolicy(context.Background(), repository, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullTargets, err := inventoryFullTargets(files, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages, err := inventoryPlatformGoPackages(context.Background(), repository, commit, "linux/amd64", fullTargets.goPackages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests, raceTests, err := inventoryAtomicGoTests(context.Background(), repository, commit, "linux/amd64", packages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return packages, tests, raceTests
+}
+
 func writeInventoryFixture(t *testing.T, repository string) {
 	t.Helper()
 	files := map[string]string{
@@ -231,4 +284,47 @@ func writeInventoryFile(t *testing.T, repository string, relative string, conten
 	if err := os.WriteFile(target, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type inventoryGitCounterCounts struct {
+	snapshotTree int
+	blobBatch    int
+}
+
+func installInventoryGitCounter(t *testing.T) string {
+	t.Helper()
+	binDir := t.TempDir()
+	tracePath := filepath.Join(binDir, "git.trace")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote := func(value string) string {
+		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	}
+	gitShim := filepath.Join(binDir, "git")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + quote(tracePath) + "\nexec " + quote(realGit) + " \"$@\"\n"
+	if err := os.WriteFile(gitShim, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return tracePath
+}
+
+func readInventoryGitCounterCounts(t *testing.T, tracePath string) inventoryGitCounterCounts {
+	t.Helper()
+	contents, err := os.ReadFile(tracePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var counts inventoryGitCounterCounts
+	for _, line := range strings.Split(strings.TrimSpace(string(contents)), "\n") {
+		switch {
+		case strings.HasPrefix(line, "ls-tree -r -z --full-tree"):
+			counts.snapshotTree++
+		case strings.HasPrefix(line, "cat-file --batch"):
+			counts.blobBatch++
+		}
+	}
+	return counts
 }

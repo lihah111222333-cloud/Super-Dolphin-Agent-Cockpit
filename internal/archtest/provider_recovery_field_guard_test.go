@@ -527,61 +527,6 @@ func isProviderRecoveryRequestType(typ types.Type) bool {
 		named.Obj().Name() == "Request"
 }
 
-// providerRecoverySkipDir 排除依赖、构建和历史生成目录。
-func providerRecoverySkipDir(name string) bool {
-	switch name {
-	case ".git", ".build-cache", "bin", "node_modules", "dist", ".worktrees", ".workspace",
-		".claude", ".agent", ".agnet", "vendor":
-		return true
-	default:
-		return false
-	}
-}
-
-// providerRecoveryConstructionsInFile 解析单文件内所有 Request composite literal。
-func providerRecoveryConstructionsInFile(path, relative string) (map[string]providerRecoveryConstruction, error) {
-	fileSet := token.NewFileSet()
-	file, err := parser.ParseFile(fileSet, path, nil, 0)
-	if err != nil {
-		return nil, fmt.Errorf("parse provider recovery source %s: %w", relative, err)
-	}
-	alias, imported, err := providerRecoveryImportAlias(file)
-	if err != nil || !imported {
-		return map[string]providerRecoveryConstruction{}, err
-	}
-	inventory := map[string]providerRecoveryConstruction{}
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Body == nil {
-			continue
-		}
-		found := 0
-		ast.Inspect(function.Body, func(node ast.Node) bool {
-			literal, ok := node.(*ast.CompositeLit)
-			if !ok || providerRecoveryRequestExprName(literal.Type) != alias+".Request" {
-				return true
-			}
-			found++
-			id := relative + ":" + function.Name.Name
-			if found > 1 {
-				err = fmt.Errorf("%s contains multiple providerrecovery.Request constructions", id)
-				return false
-			}
-			fields, fieldErr := providerRecoveryLiteralFields(fileSet, literal)
-			if fieldErr != nil {
-				err = fmt.Errorf("%s: %w", id, fieldErr)
-				return false
-			}
-			inventory[id] = providerRecoveryConstruction{fields: fields}
-			return false
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return inventory, nil
-}
-
 // providerRecoveryImportAlias 返回 providerrecovery import 的文件内别名。
 func providerRecoveryImportAlias(file *ast.File) (string, bool, error) {
 	for _, imported := range file.Imports {
@@ -703,19 +648,6 @@ func providerRecoveryRequestFields() map[string]bool {
 		fields[typ.Field(i).Name] = true
 	}
 	return fields
-}
-
-// providerRecoveryRequestExprName 返回 composite literal 的限定类型名。
-func providerRecoveryRequestExprName(expression ast.Expr) string {
-	selector, ok := expression.(*ast.SelectorExpr)
-	if !ok {
-		return ""
-	}
-	prefix, ok := selector.X.(*ast.Ident)
-	if !ok {
-		return ""
-	}
-	return prefix.Name + "." + selector.Sel.Name
 }
 
 // stringSetDifference 返回 left 中不存在于 right 的稳定差集。

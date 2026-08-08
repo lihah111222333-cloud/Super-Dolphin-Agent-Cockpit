@@ -338,4 +338,4 @@ flowchart LR
 - host-direct memory tool：`internal/platform/toolbridge/memory_read_tool.go`、`internal/platform/toolbridge/memory_write_tool.go`
 - memory contract 提供：`internal/module/memory/module.go:456-465`（`provideAgentMemoryReader` / `provideAgentMemoryWriter`）
 - tool 路由：`internal/platform/toolbridge/handler.go:83-89,107-112`（`routeToolCall` switch + `routeHostOnlyToolCall`）
-- freeze registry：`internal/archtest/freeze_registry.go:19` 当前为空，本卷不再引用历史 package-count 豁免。
+- freeze：统一真值为 `internal/archtest/freeze_baseline.json`，本卷不再引用历史 package-count 豁免。

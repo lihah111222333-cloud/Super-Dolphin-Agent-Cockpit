@@ -19,27 +19,27 @@ docs/automation/授权问题修复与验证协议.md	docs	docs-agent	doc	8402	�
 docs/automation/门禁问题台账接管协议.md	docs	docs-agent	doc	9032	项目文档体系	docs,automation,门禁问题台账接管协议,项目文档体系
 docs/dev-agentic-e2e-harness.md	docs	docs-agent	doc	3050	项目文档体系	docs,dev,agentic,e2e,harness,项目文档体系
 docs/dev-ui-test-mcp.md	docs	docs-agent	doc	8519	项目文档体系	docs,dev,ui,test,mcp,项目文档体系
-docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25093	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25067	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	5748	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	4021	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
-docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68327	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
+docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68263	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
 docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25415	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
-docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	70543	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
+docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	70525	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
 docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67590	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
 docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	42376	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
-docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27895	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
+docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27928	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	38304	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module.md	docs	docs-agent	doc	6088	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,手写代码地图卷与自动,ai-index
 docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54631	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
 docs/doc/codemap/09-provider.md	docs	docs-agent	doc	82630	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
-docs/doc/codemap/10-store.md	docs	docs-agent	doc	61869	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
+docs/doc/codemap/10-store.md	docs	docs-agent	doc	61888	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3192	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,prompt,thread,手写代码地图卷与自动,ai-index
-docs/doc/codemap/11-memory.md	docs	docs-agent	doc	28339	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
-docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59498	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
+docs/doc/codemap/11-memory.md	docs	docs-agent	doc	28332	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
+docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59499	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11793	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
 docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	22096	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
-docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	468105	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
+docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	466797	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	3513787	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系

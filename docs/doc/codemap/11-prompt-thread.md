@@ -26,7 +26,7 @@
 5. **skill 不再经 prompt catalog 注入**：V1 生产路径是 canonical skills -> provider-native mirrors；prompt 不从 skill store 读取 native replacement，native/tool suppression hints 只来自用户禁用工具配置。
 6. **prompt config 不再承载旧 skill 列表开关**：`internal/module/prompt/config.go` 只保留 registry / assembly / system-context cache breaker 等 prompt 开关。
 7. **prompt store 不是只读**：`internal/store/prompt/contract.go:15-22` 已暴露 `WithTx / Get / Delete / InsertVersion / Upsert`；写路径在 `internal/module/prompt/service.go:290-340,382-488`。
-8. **prompt/thread 不再有 package-count freeze**：`internal/archtest/freeze_registry.go:19` 的 registry 当前为空；本卷改用上方 `codemap-count` 声明校验真实文件数。
+8. **prompt/thread 不再有独立 package-count freeze**：本卷使用上方 `codemap-count` 声明校验真实文件数；统一冻结真值位于 `internal/archtest/freeze_baseline.json`。
 9. **resume 没有独立 `resume.go`**：resume 主链分散在 `thread/lifecycle.go`、`start_session.go`、`prompt_snapshot.go`、`rpc.go`；文件树里只有 `resume_test.go`、`resume_session_uuid_test.go`。
 10. **memory 与 prompt 的交点不是共用一个 snapshot 结构**：prompt snapshot 单独存 `agent_thread_prompt_snapshot`；memory 侧读的是 thread `ConfigOverride.Runtime`，由 `MemoryLifecycleHooks.resolveThreadRuntimeMetadata()` 解释。
 11. **provider bridge 的主干是 bus，不是 thread 直接监听 driver**：driver session 只 dispatch raw event；统一翻译发生在 `internal/provider/unified/event_map.go:71-124`；thread 只订阅 bus 上的 typed event。
@@ -434,7 +434,7 @@ prompt store 保存的是 dashboard / prompts 页面可编辑模板。
 
 - prompt：30 个生产 Go 文件、51 个测试 Go 文件。
 - thread：31 个生产 Go 文件、75 个测试 Go 文件。
-- 四个值由卷首 `codemap-count` 实时校验；`internal/archtest/freeze_registry.go:19` 当前为空，不再保留旧 `27*` 豁免口径。
+- 四个值由卷首 `codemap-count` 实时校验；不再保留旧 `27*` 豁免口径。
 
 ### 5.8 计数与测试入口的对应关系
 
@@ -1295,7 +1295,7 @@ flowchart LR
 ### 11.3 计数阅读口径
 
 - prompt/thread 的生产与测试文件数以卷首四个 marker 为准。
-- `freeze_registry.go` 当前为空；如未来确需新增豁免，必须走架构守卫的显式治理流程，不能在本卷先写预期数。
+- 如未来确需新增冻结债务，必须更新唯一的 `internal/archtest/freeze_baseline.json` 并走架构守卫的显式治理流程，不能在本卷先写预期数或新增第二 registry。
 
 ## 12. How-to
 

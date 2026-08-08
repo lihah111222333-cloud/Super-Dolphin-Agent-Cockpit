@@ -68,30 +68,6 @@ func remoteCIContractConsumerFiles(t *testing.T, root string) []string {
 	return paths
 }
 
-func remoteCICollectProductionFiles(t *testing.T, root string, directories []string, include func(string) bool) []string {
-	t.Helper()
-	var files []string
-	for _, directory := range directories {
-		absolute := filepath.Join(root, filepath.FromSlash(directory))
-		if err := filepath.WalkDir(absolute, func(path string, entry os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-				return nil
-			}
-			relative := relativeRemoteCIContractPath(t, root, path)
-			if include(relative) {
-				files = append(files, path)
-			}
-			return nil
-		}); err != nil {
-			t.Fatalf("walk remote CI production directory %s: %v", directory, err)
-		}
-	}
-	return files
-}
-
 // loadRemoteCIProductionSnapshot 为每个候选根目录只读一次并解析可执行
 // remote-CI 源文件；返回的 AST 和字节按约定不可变，可供守卫并发读取。
 func loadRemoteCIProductionSnapshot(t *testing.T, root string) *remoteCIProductionSnapshot {

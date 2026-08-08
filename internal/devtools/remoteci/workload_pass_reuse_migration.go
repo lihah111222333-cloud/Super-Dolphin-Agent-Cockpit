@@ -375,22 +375,6 @@ func (snapshot *remoteGitTreeSnapshot) observedClosureEntry(ctx context.Context,
 	return entry, ok, nil
 }
 
-// migrateRemoteWorkloadPassCandidatesWithDigest 将历史候选与摘要计算器解耦，
-// 供回归测试证明 unchanged/changed/failed 三类边界；生产计算器仍只调用新算法。
-func migrateRemoteWorkloadPassCandidatesWithDigest(
-	ctx context.Context,
-	identities []gate.WorkloadPassIdentity,
-	candidates []gate.WorkloadPassEvidence,
-	compute remoteHistoricalInputDigest,
-) map[string]gate.WorkloadPassEvidence {
-	migrations := migrateRemoteWorkloadPassCandidatesWithDigestPairs(ctx, identities, candidates, compute)
-	result := make(map[string]gate.WorkloadPassEvidence, len(migrations))
-	for _, migration := range migrations {
-		result[string(migration.projected.Identity.WorkloadID)] = migration.projected
-	}
-	return result
-}
-
 func migrateRemoteWorkloadPassCandidatesWithDigestPairs(
 	ctx context.Context,
 	identities []gate.WorkloadPassIdentity,

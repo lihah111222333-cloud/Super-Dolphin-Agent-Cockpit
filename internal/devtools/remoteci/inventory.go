@@ -43,17 +43,23 @@ func BuildWorkloadInventory(
 	if err != nil {
 		return gate.WorkloadInventory{}, err
 	}
-	fullTargets.goPackages, err = inventoryPlatformGoPackages(
+	if _, _, err := remoteGoTestPlatform(platform); err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, commit)
+	if err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	fullTargets.goPackages, err = inventoryPlatformGoPackagesWithSnapshot(
 		ctx,
-		repositoryRoot,
-		commit,
+		snapshot,
 		platform,
 		fullTargets.goPackages,
 	)
 	if err != nil {
 		return gate.WorkloadInventory{}, err
 	}
-	goTests, goRaceTests, err := inventoryAtomicGoTests(ctx, repositoryRoot, commit, platform, fullTargets.goPackages)
+	goTests, goRaceTests, err := inventoryAtomicGoTestsWithSnapshot(ctx, snapshot, platform, fullTargets.goPackages)
 	if err != nil {
 		return gate.WorkloadInventory{}, err
 	}
@@ -76,11 +82,27 @@ func inventoryPlatformGoPackages(
 	platform string,
 	packages []string,
 ) ([]string, error) {
-	goos, goarch, err := remoteGoTestPlatform(platform)
-	if err != nil {
+	if _, _, err := remoteGoTestPlatform(platform); err != nil {
 		return nil, err
 	}
 	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, revision)
+	if err != nil {
+		return nil, err
+	}
+	return inventoryPlatformGoPackagesWithSnapshot(ctx, snapshot, platform, packages)
+}
+
+// inventoryPlatformGoPackagesWithSnapshot 在已加载的精确 tree snapshot 上过滤目标平台 Go 包。
+func inventoryPlatformGoPackagesWithSnapshot(
+	ctx context.Context,
+	snapshot *remoteGitTreeSnapshot,
+	platform string,
+	packages []string,
+) ([]string, error) {
+	if snapshot == nil {
+		return nil, errors.New("remote Go package inventory snapshot is required")
+	}
+	goos, goarch, err := remoteGoTestPlatform(platform)
 	if err != nil {
 		return nil, err
 	}
@@ -112,27 +134,46 @@ func inventoryAtomicGoTests(
 	platform string,
 	packages []string,
 ) ([]gate.GoTestTarget, []gate.GoTestTarget, error) {
-	goos, goarch, err := remoteGoTestPlatform(platform)
-	if err != nil {
+	if _, _, err := remoteGoTestPlatform(platform); err != nil {
 		return nil, nil, err
 	}
 	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, revision)
 	if err != nil {
 		return nil, nil, err
 	}
+	return inventoryAtomicGoTestsWithSnapshot(ctx, snapshot, platform, packages)
+}
+
+// inventoryAtomicGoTestsWithSnapshot 在共享 tree snapshot 上枚举普通与 race 顶层测试。
+func inventoryAtomicGoTestsWithSnapshot(
+	ctx context.Context,
+	snapshot *remoteGitTreeSnapshot,
+	platform string,
+	packages []string,
+) ([]gate.GoTestTarget, []gate.GoTestTarget, error) {
+	if snapshot == nil {
+		return nil, nil, errors.New("remote Go test inventory snapshot is required")
+	}
+	goos, goarch, err := remoteGoTestPlatform(platform)
+	if err != nil {
+		return nil, nil, err
+	}
+	reusePreparedSources := snapshot.goSources != nil
 	var normalTargets, raceTargets []gate.GoTestTarget
 	for _, packageTarget := range gate.AtomicGoPackageTargets() {
 		if !slices.Contains(packages, packageTarget) {
 			continue
 		}
 		directory := strings.TrimPrefix(packageTarget, "./")
-		paths := atomicGoTestSourcePaths(snapshot, directory)
-		if len(paths) == 0 {
-			continue
-		}
-		snapshot.goSources, err = snapshot.readGitBlobs(ctx, paths)
-		if err != nil {
-			return nil, nil, err
+		if !reusePreparedSources {
+			paths := atomicGoTestSourcePaths(snapshot, directory)
+			if len(paths) == 0 {
+				continue
+			}
+			snapshot.goSources, err = snapshot.readGitBlobs(ctx, paths)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		normal, err := snapshot.remoteGoPackageTestInventory(directory, goos, goarch, false)
 		if err != nil {

@@ -871,7 +871,7 @@ var Module = fx.Module("store",
 
 ### 7.1 核心 store 测试入口
 
-> `internal/archtest/freeze_registry.go` 当前 registry 为空，没有 `internal/store/` freeze；因此下表 freeze 一列统一记为 `—`。
+> 冻结债务统一由 `internal/archtest/freeze_baseline.json` 管理；下表没有额外的 store 专项 freeze 入口，因此 freeze 一列统一记为 `—`。
 
 | 子包 | 入口测试文件 | 代表性 Test* | freeze |
 | --- | --- | --- | --- |

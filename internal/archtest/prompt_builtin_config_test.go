@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -271,21 +270,6 @@ func TestPromptBuiltinMigrationBodyDetectorAllowsUserPromptBodies(t *testing.T) 
 	if migrationAddsBuiltinPromptBody(sql) {
 		t.Fatalf("user-owned prompt body migration was rejected: %s", sql)
 	}
-}
-
-func isNewPromptBuiltinMigration(name string) bool {
-	match := regexp.MustCompile(`^(\d+)_.*\.sql$`).FindStringSubmatch(name)
-	if match == nil {
-		return false
-	}
-	n, err := strconv.Atoi(match[1])
-	if err != nil {
-		return false
-	}
-	// Migrations before the cutover are historical DB-backed seeds. 0104 disables
-	// the registry-backed rows; after that point, builtin bodies must stay in
-	// builtinprompts/assets instead of returning to SQL migrations.
-	return n >= builtinRegistryCutoverMigration
 }
 
 func migrationAddsBuiltinPromptBody(sql string) bool {

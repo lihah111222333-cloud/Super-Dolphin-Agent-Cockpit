@@ -2410,21 +2410,6 @@
         "todo_count": 0,
         "max_struct_fields": 7
       },
-      "internal/devtools/gate/executor_workspace.go": {
-        "lines": 842,
-        "max_func_len": 41,
-        "max_nesting": 3,
-        "max_complexity": 13,
-        "max_params": 3,
-        "max_returns": 4,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 8
-      },
       "internal/devtools/gate/remote_baseline_state_store.go": {
         "lines": 45,
         "max_func_len": 24,

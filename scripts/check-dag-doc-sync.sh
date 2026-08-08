@@ -16,9 +16,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BLUEPRINT="$ROOT/docs/plans/dag改造蓝图v2.md"
 PLAN="$ROOT/docs/plans/dag改造实施计划.md"
-ADR="$ROOT/docs/adr/0001-dag-v2-contracts.md"
 
 ERRORS=0
 err() { echo "❌ $*" >&2; ERRORS=$((ERRORS + 1)); }
@@ -42,12 +40,6 @@ echo "=== Check 2: ADR 常量数 vs 代码 grep ==="
 
 types_go="$ROOT/cmd/mcp-orch/orchestration/nodeexec/types.go"
 ops_go="$ROOT/cmd/mcp-orch/orchestration/nodeexec/ops.go"
-
-count_const() {
-    local prefix="$1"
-    local file="$2"
-    grep -E "^[[:space:]]+${prefix}[A-Z][a-zA-Z]*[[:space:]]+${prefix%[A-Z]}" "$file" 2>/dev/null | wc -l | tr -d ' '
-}
 
 ns=$(grep -cE "^[[:space:]]+NodeStatus[A-Z][a-zA-Z]*[[:space:]]+NodeStatus" "$types_go" || echo 0)
 [ "$ns" = "9" ] && ok "NodeStatus 常量 9 个" || err "NodeStatus 常量 $ns 个，期望 9"

@@ -749,7 +749,7 @@ flowchart LR
 
 ## 8. 测试入口 + archtest freeze 映射
 
-本卷涉及的 `cmd/mcp-orch` 子树当前有明确测试入口；`freeze` 列统一写 `—`，因为 `internal/archtest/freeze_registry.go` 当前只对 `internal/module/{memory,prompt}` 维护显式 freeze。
+本卷涉及的 `cmd/mcp-orch` 子树当前有明确测试入口；冻结债务统一以 `internal/archtest/freeze_baseline.json` 为唯一真值。
 
 | 包 | 测试文件 | 核心 Test* | freeze |
 |---|---|---|---|

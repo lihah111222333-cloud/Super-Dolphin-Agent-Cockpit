@@ -74,10 +74,6 @@ func validGoBuildCacheProxyMetricsPath(privateRoot string, metricsPath string) b
 		strings.HasSuffix(base, ".json") && base != goBuildCacheProxyMetricsFilePrefix+".json"
 }
 
-func goBuildCacheProxyStartedPath(metricsPath string) string {
-	return metricsPath + goBuildCacheProxyStartedFileSuffix
-}
-
 // executeObservedGoBuildCacheProxy 为每个 helper 保留独立生命周期，并合并不可变贡献。
 func executeObservedGoBuildCacheProxy(config goBuildCacheProxyConfig, input io.Reader, output io.Writer) error {
 	if config.metricsPath == "" {

@@ -88,23 +88,6 @@ type workerExecutionAssets struct {
 	scriptQueue    []string
 }
 
-type workerExecutionMakeTarget struct {
-	name         string
-	dependencies []string
-	content      []byte
-}
-
-type workerExecutionMakeVariable struct {
-	name    string
-	value   string
-	content []byte
-}
-
-type workerExecutionMakefile struct {
-	targets   map[string]workerExecutionMakeTarget
-	variables map[string]workerExecutionMakeVariable
-}
-
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 func validateWorkerExecutionRoots(roots []workerExecutionRoot) error {
 	if len(roots) == 0 {

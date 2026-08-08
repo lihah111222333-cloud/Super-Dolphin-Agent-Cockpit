@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
@@ -371,96 +370,6 @@ func sqlStringLiterals(sql string) []string {
 		literals = append(literals, strings.ReplaceAll(strings.Trim(raw, "'"), "''", "'"))
 	}
 	return literals
-}
-
-func requireSQLTupleForPromptKey(t *testing.T, sql, promptKey string) string {
-	t.Helper()
-
-	tuple, ok := sqlTupleForPromptKey(sql, promptKey)
-	if !ok {
-		t.Fatalf("missing SQL tuple for prompt_key %q", promptKey)
-	}
-	return tuple
-}
-
-func sqlTupleForPromptKey(sql, promptKey string) (string, bool) {
-	needle := "'" + promptKey + "'"
-	for offset := 0; offset < len(sql); {
-		relative := strings.Index(sql[offset:], needle)
-		if relative < 0 {
-			return "", false
-		}
-		index := offset + relative
-		start := sqlTupleStartBefore(sql, index)
-		if start >= 0 {
-			end := matchingSQLParen(sql, start)
-			if end > start {
-				return sql[start : end+1], true
-			}
-		}
-		offset = index + len(needle)
-	}
-	return "", false
-}
-
-func sqlTupleStartBefore(sql string, index int) int {
-	for i := index - 1; i >= 0; i-- {
-		if sql[i] != '(' {
-			continue
-		}
-		if strings.TrimSpace(sql[i+1:index]) == "" {
-			return i
-		}
-	}
-	return -1
-}
-
-func matchingSQLParen(sql string, start int) int {
-	depth := 0
-	for i := start; i < len(sql); i++ {
-		switch sql[i] {
-		case '\'':
-			i = skipSingleQuotedSQLLiteral(sql, i)
-		case '$':
-			i = skipDollarQuotedSQLLiteral(sql, i)
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-func skipSingleQuotedSQLLiteral(sql string, start int) int {
-	for i := start + 1; i < len(sql); i++ {
-		if sql[i] != '\'' {
-			continue
-		}
-		if i+1 < len(sql) && sql[i+1] == '\'' {
-			i++
-			continue
-		}
-		return i
-	}
-	return len(sql) - 1
-}
-
-func skipDollarQuotedSQLLiteral(sql string, start int) int {
-	tagEnd := strings.IndexByte(sql[start+1:], '$')
-	if tagEnd < 0 {
-		return start
-	}
-	tagEnd += start + 2
-	tag := sql[start:tagEnd]
-	closeIndex := strings.Index(sql[tagEnd:], tag)
-	if closeIndex < 0 {
-		return start
-	}
-	return tagEnd + closeIndex + len(tag) - 1
 }
 
 func stripDollarQuote(raw string) string {
