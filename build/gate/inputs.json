@@ -2232,6 +2232,7 @@
     "internal/devtools/gate/workload_compile_planning_test.go",
     "internal/devtools/gate/workload_compile_selector_planning.go",
     "internal/devtools/gate/workload_container_shards.go",
+    "internal/devtools/gate/workload_container_shards_api_guard_test.go",
     "internal/devtools/gate/workload_duration_index.go",
     "internal/devtools/gate/workload_duration_index_test.go",
     "internal/devtools/gate/workload_model.go",
@@ -4863,6 +4864,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6519,
-  "source_snapshot_paths_sha256": "sha256:bbb14212b59078ff31bf6385ecaecd29de74cae5ee3ba7d48a4950822d8a4623"
+  "source_snapshot_input_count": 6520,
+  "source_snapshot_paths_sha256": "sha256:977d0d0facb9e3868255f81bafb5b41e7565311a9b2bcb96c15491a54ff70ec6"
 }

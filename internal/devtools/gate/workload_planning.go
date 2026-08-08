@@ -12,18 +12,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-// PlanLPT 使用当前比较环境的账本样本生成最长处理时间优先的分片。
-func PlanLPT(catalog WorkloadCatalog, ledger DurationLedger, context PlanningContext) ([]ShardPlan, error) {
-	if err := validateLPTInputs(catalog, ledger, context); err != nil {
-		return nil, err
-	}
-	index, err := BuildDurationSampleIndex(ledger, context)
-	if err != nil {
-		return nil, err
-	}
-	return planLPTWithIndex(catalog, index)
-}
-
 func planLPTWithIndex(catalog WorkloadCatalog, index DurationSampleIndex) ([]ShardPlan, error) {
 	if err := ValidateWorkloadCatalog(catalog); err != nil {
 		return nil, err
@@ -83,17 +71,6 @@ func lptShardsMeetTarget(shards []ShardPlan, targetDurationMS int64) bool {
 	return true
 }
 
-// validateLPTInputs 校验 LPT 计算的目录、账本和固定 100 秒规划上下文。
-func validateLPTInputs(catalog WorkloadCatalog, ledger DurationLedger, context PlanningContext) error {
-	if err := ValidateWorkloadCatalog(catalog); err != nil {
-		return err
-	}
-	if err := ValidateDurationLedger(ledger); err != nil {
-		return err
-	}
-	return validatePlanningContextBase(context)
-}
-
 func distributeLPT(planned []PlannedWorkload, shardCount int) []ShardPlan {
 	shards := make([]ShardPlan, shardCount)
 	for index := range shards {
@@ -105,16 +82,6 @@ func distributeLPT(planned []PlannedWorkload, shardCount int) []ShardPlan {
 		shards[shardIndex].EstimatedDurationMS += workload.EstimatedDurationMS
 	}
 	return shards
-}
-
-// BuildWorkloadExecutionPlan 使用完整权威 catalog 构建全执行 LPT 计划。
-func BuildWorkloadExecutionPlan(
-	gatePlan GatePlan,
-	catalog WorkloadCatalog,
-	snapshot DurationLedgerSnapshot,
-	context PlanningContext,
-) (WorkloadExecutionPlan, error) {
-	return BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, allShardableWorkloadIDs(catalog))
 }
 
 // BuildWorkloadExecutionPlanForWorkloads 将完整权威 catalog 与严格 execution 投影一同绑定。

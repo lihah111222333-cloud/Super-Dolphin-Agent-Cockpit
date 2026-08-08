@@ -313,7 +313,7 @@ func TestCoordinatorRunCompletesAndCleansRemoteShards(t *testing.T) {
 	coordinator := newTestCoordinator(t, store, runtime)
 	input.RepositoryRoot = repository
 	plannedSet := mustBuildAllMissRemoteExecutionShardSet(t, input)
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -520,7 +520,7 @@ func TestCoordinatorRunRejectsMissingOrMismatchedImageCacheSnapshotID(t *testing
 			repository, input := remoteRunFixture(t)
 			input.RepositoryRoot = repository
 			input.ImageCacheSnapshotID = snapshotID
-			_, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).Run(context.Background(), input)
+			_, err := runCoordinatorTest(t, newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}), context.Background(), input)
 			if err == nil || !strings.Contains(err.Error(), "ImageCacheSnapshotID") {
 				t.Fatalf("Run() error = %v, want image snapshot binding rejection", err)
 			}
@@ -746,7 +746,7 @@ func TestCoordinatorRunPersistsCanonicalPreCommitTreeAsProvisional(t *testing.T)
 	}
 	input.Entrypoint = gate.CIEntrypointGitPreCommit
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -756,7 +756,7 @@ func TestCoordinatorRunPersistsCanonicalPreCommitTreeAsProvisional(t *testing.T)
 
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456a", nil }
 	input.Entrypoint = gate.CIEntrypointManualCLI
-	result, err = coordinator.Run(context.Background(), input)
+	result, err = runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run(manual) error = %v", err)
 	}
@@ -771,7 +771,7 @@ func TestCoordinatorRunCleansCreatedStateAfterPartialCreateFailure(t *testing.T)
 	runtime := &coordinatorRuntime{failAt: 2}
 	coordinator := newTestCoordinator(t, store, runtime)
 	input.RepositoryRoot = repository
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err == nil || !strings.Contains(err.Error(), "create remote CI shard") {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -786,7 +786,7 @@ func TestCoordinatorRunReturnsFailedWorkerDiagnostic(t *testing.T) {
 	runtime := &coordinatorRuntime{failReport: true, failureLog: failureLog}
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, runtime)
 	input.RepositoryRoot = repository
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if !errors.Is(err, ErrGateFailed) || !strings.Contains(err.Error(), strings.TrimSpace(failureLog)) {
 		t.Fatalf("Run() result=%+v error=%v", result, err)
 	}

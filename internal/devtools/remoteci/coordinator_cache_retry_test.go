@@ -12,16 +12,17 @@ func TestCoordinatorRunReexecutesOnlyFailedWorkloadsAfterPreviousFailure(t *test
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
 	store := &coordinatorStore{}
-	first, err := newTestCoordinator(
+	firstCoordinator := newTestCoordinator(
 		t,
 		store,
 		&coordinatorRuntime{failReport: true, failureLog: "injected failure\n"},
-	).Run(context.Background(), input)
+	)
+	first, err := runCoordinatorTest(t, firstCoordinator, context.Background(), input)
 	if !errors.Is(err, ErrGateFailed) {
 		t.Fatalf("first Run() error = %v", err)
 	}
 	failedWorkloads, totalWorkloads := failedCoordinatorWorkloads(t, first)
-	retry, err := newTestCoordinator(t, store, &coordinatorRuntime{}).Run(context.Background(), input)
+	retry, err := runCoordinatorTest(t, newTestCoordinator(t, store, &coordinatorRuntime{}), context.Background(), input)
 	if err != nil {
 		t.Fatalf("retry Run() error = %v", err)
 	}

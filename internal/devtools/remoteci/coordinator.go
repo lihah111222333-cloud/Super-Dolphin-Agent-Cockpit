@@ -232,14 +232,6 @@ func validCoordinatorObjectConfig(config CoordinatorConfig) bool {
 		strings.TrimSpace(config.WorkerRoleName) != ""
 }
 
-// Run 保持单一执行路径：先无副作用地准备，再消费冻结结果执行。
-func (coordinator *Coordinator) Run(ctx context.Context, input RunInput) (RunResult, error) {
-	prepared, err := coordinator.Prepare(ctx, input)
-	if err != nil {
-		return RunResult{}, err
-	}
-	return coordinator.RunPrepared(ctx, prepared)
-}
 
 // validateCoordinatorRunInput 在生成 job 标识前校验调用上下文、SQLite 权威账本与已接受镜像绑定。
 func validateCoordinatorRunInput(ctx context.Context, config CoordinatorConfig, input RunInput) error {

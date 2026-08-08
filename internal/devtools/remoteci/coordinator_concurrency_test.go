@@ -146,7 +146,7 @@ func TestCoordinatorRunConcurrentlyUploadsAndCreatesCacheMissShards(t *testing.T
 	coordinator := newTestCoordinator(t, store, runtime)
 	var runs errgroup.Group
 	runs.Go(func() error {
-		_, err := coordinator.Run(context.Background(), input)
+		_, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 		return err
 	})
 	assertCoordinatorBarrierReached(t, uploadBarrier, "shard request uploads")
@@ -172,7 +172,7 @@ func TestIndependentCoordinatorRunsOverlapAndKeepJobObjectPrefixesSeparate(t *te
 	var runs errgroup.Group
 	for _, coordinator := range []*Coordinator{first, second} {
 		runs.Go(func() error {
-			_, err := coordinator.Run(context.Background(), input)
+			_, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 			return err
 		})
 	}

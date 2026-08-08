@@ -288,10 +288,10 @@ func newSourceUploadOrderHarness(plannedSet gate.ContainerShardSet) sourceUpload
 }
 
 // startSourceUploadOrderRun 在指定 context 下启动一次 coordinator.Run，并缓冲最终结果。
-func startSourceUploadOrderRun(runs *errgroup.Group, coordinator *Coordinator, ctx context.Context, input RunInput) <-chan sourceUploadOrderOutcome {
+func startSourceUploadOrderRun(t *testing.T, runs *errgroup.Group, coordinator *Coordinator, ctx context.Context, input RunInput) <-chan sourceUploadOrderOutcome {
 	outcomes := make(chan sourceUploadOrderOutcome, 1)
 	runs.Go(func() error {
-		result, err := coordinator.Run(ctx, input)
+		result, err := runCoordinatorTest(t, coordinator, ctx, input)
 		outcomes <- sourceUploadOrderOutcome{result: result, err: err}
 		return nil
 	})
@@ -398,7 +398,7 @@ func TestCoordinatorUploadsCompleteSourceAssetsBeforeAnyShardAdmission(t *testin
 	runContext, cancel := sourceUploadOrderRunContext(t)
 	defer cancel()
 	var runs errgroup.Group
-	outcomes := startSourceUploadOrderRun(&runs, coordinator, runContext, input)
+	outcomes := startSourceUploadOrderRun(t, &runs, coordinator, runContext, input)
 	t.Cleanup(func() { _ = runs.Wait() })
 	defer harness.requestBarrier.unblock()
 	defer harness.createBarrier.unblock()

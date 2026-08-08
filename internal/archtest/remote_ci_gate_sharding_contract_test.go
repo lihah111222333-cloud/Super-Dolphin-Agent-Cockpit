@@ -1,6 +1,11 @@
 package archtest
 
 import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,16 +90,8 @@ func assertExpandedCatalogPlannerBoundary(t *testing.T, root string) {
 	t.Helper()
 	planningPath := filepath.Join(root, "internal/devtools/gate/workload_planning.go")
 	planning := readRemoteCIContractGuardFile(t, planningPath)
-	for _, marker := range []string{
-		"BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs(",
-		"executionIDs []GateID",
-		"workloadExecutionCatalog(",
-		"PlanLPT(",
-	} {
-		if !strings.Contains(planning, marker) {
-			t.Fatalf("workload planner is missing canonical MISS/expanded marker %q", marker)
-		}
-	}
+	assertPlannerCanonicalMarkersPresent(t, planning)
+	assertRetiredRemoteCIEntrypointsAbsent(t, root)
 	if strings.Contains(remoteCIFunctionSource(t, planningPath, "BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs"), "allShardableWorkloadIDs(catalog)") {
 		t.Fatal("MISS-specific workload planner silently expands back to the full catalog")
 	}
@@ -129,6 +126,103 @@ func assertExpandedCatalogPlannerBoundary(t *testing.T, root string) {
 	assertRemoteCIMarkerOrder(t, missPath, "if prepared.allReused", "createRemoteTempRoot(", "runRemoteWorkloadMisses(")
 	if !strings.Contains(missPath, "prepared.reuse.cacheMisses") {
 		t.Fatal("remote shard planner input is not the frozen MISS set")
+	}
+}
+
+func assertPlannerCanonicalMarkersPresent(t *testing.T, planning string) {
+	t.Helper()
+	for _, marker := range []string{
+		"BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs(",
+		"executionIDs []GateID",
+		"workloadExecutionCatalog(",
+		"planLPTWithIndex(",
+	} {
+		if !strings.Contains(planning, marker) {
+			t.Fatalf("workload planner is missing canonical MISS/expanded marker %q", marker)
+		}
+	}
+}
+
+type retiredRemoteCIEntrypoint struct {
+	packagePath string
+	receiver    string
+	name        string
+}
+
+// assertRetiredRemoteCIEntrypointsAbsent 扫描对应包的全部生产 Go 文件，禁止旧入口换文件复活。
+func assertRetiredRemoteCIEntrypointsAbsent(t *testing.T, root string) {
+	t.Helper()
+	for _, retired := range []retiredRemoteCIEntrypoint{
+		{packagePath: "internal/devtools/gate", name: "PlanLPT"},
+		{packagePath: "internal/devtools/gate", name: "BuildWorkloadExecutionPlan"},
+		{packagePath: "internal/devtools/remoteci", receiver: "Coordinator", name: "Run"},
+	} {
+		matches, err := findRetiredRemoteCIEntrypoints(root, retired)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range matches {
+			t.Errorf("retired remote CI entrypoint %s revived at %s", retired.name, match)
+		}
+	}
+}
+
+func findRetiredRemoteCIEntrypoints(root string, retired retiredRemoteCIEntrypoint) ([]string, error) {
+	directory := filepath.Join(root, filepath.FromSlash(retired.packagePath))
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, fmt.Errorf("read remote CI package %s: %w", retired.packagePath, err)
+	}
+	var matches []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(directory, name)
+		fileSet := token.NewFileSet()
+		file, parseErr := parser.ParseFile(fileSet, path, nil, parser.SkipObjectResolution)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse remote CI production file %s: %w", path, parseErr)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && isRetiredRemoteCIEntrypoint(function, retired) {
+				position := fileSet.Position(function.Pos())
+				matches = append(matches, fmt.Sprintf("%s:%d", filepath.ToSlash(position.Filename), position.Line))
+			}
+		}
+	}
+	return matches, nil
+}
+
+func isRetiredRemoteCIEntrypoint(function *ast.FuncDecl, retired retiredRemoteCIEntrypoint) bool {
+	if function.Name.Name != retired.name {
+		return false
+	}
+	if retired.receiver == "" {
+		return function.Recv == nil
+	}
+	if function.Recv == nil || len(function.Recv.List) != 1 {
+		return false
+	}
+	return remoteCIReceiverTypeName(function.Recv.List[0].Type) == retired.receiver
+}
+
+func remoteCIReceiverTypeName(expression ast.Expr) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.StarExpr:
+		return remoteCIReceiverTypeName(typed.X)
+	case *ast.IndexExpr:
+		return remoteCIReceiverTypeName(typed.X)
+	case *ast.IndexListExpr:
+		return remoteCIReceiverTypeName(typed.X)
+	case *ast.ParenExpr:
+		return remoteCIReceiverTypeName(typed.X)
+	default:
+		return ""
 	}
 }
 

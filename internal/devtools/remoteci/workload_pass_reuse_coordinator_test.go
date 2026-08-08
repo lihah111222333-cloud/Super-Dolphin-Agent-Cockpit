@@ -60,7 +60,7 @@ func TestCoordinatorRunReusesAcceptedWorkloadPassesWithoutRemoteSideEffects(t *t
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456a", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertCoordinatorFullReuse(t, result, err, store, runtime)
 }
 
@@ -80,7 +80,7 @@ func TestCoordinatorAllHitWithMissingRegistryCredentialReusesWithoutECICreate(t 
 	runtime := newDeferredCredentialECIClient(t, runner)
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456c", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("all-hit Run() error = %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCoordinatorMissWithMissingRegistryCredentialFailsBeforeECICreate(t *tes
 	runtime := newDeferredCredentialECIClient(t, runner)
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456d", nil }
-	_, err := coordinator.Run(context.Background(), input)
+	_, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err == nil || !strings.Contains(err.Error(), "GHCR credential") {
 		t.Fatalf("miss Run() error = %v, want missing GHCR credential", err)
 	}
@@ -118,7 +118,7 @@ func TestCoordinatorRunExecutesOnlyWorkloadPassMissesAndMergesResults(t *testing
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456b", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertCoordinatorPartialReuse(t, result, err, runtime)
 }
 
@@ -369,7 +369,7 @@ func TestCoordinatorRunReusesPassesWhenWorkerTimeoutChanges(t *testing.T) {
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.config.WorkerTimeout = 30 * time.Minute
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456d", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run() with changed worker timeout error = %v", err)
 	}
@@ -386,7 +386,7 @@ func TestCoordinatorRunReusesPassesWhenResourcePolicyChanges(t *testing.T) {
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.config.ResourcePolicy.HeadroomPercent++
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456e", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run() with changed resource policy error = %v", err)
 	}
@@ -641,12 +641,12 @@ func TestCoordinatorRunSharesAcceptedPassesAcrossAgentsWithIndependentJobs(t *te
 	var runs errgroup.Group
 	runs.Go(func() error {
 		var runErr error
-		results[0], runErr = first.Run(context.Background(), firstInput)
+		results[0], runErr = runCoordinatorTest(t, first, context.Background(), firstInput)
 		return runErr
 	})
 	runs.Go(func() error {
 		var runErr error
-		results[1], runErr = second.Run(context.Background(), secondInput)
+		results[1], runErr = runCoordinatorTest(t, second, context.Background(), secondInput)
 		return runErr
 	})
 	if err := runs.Wait(); err != nil {
@@ -702,7 +702,7 @@ func runCoordinatorFreshWorkloads(t *testing.T, input RunInput) RunResult {
 	t.Helper()
 	authorityInput := input
 	authorityInput.Entrypoint = gate.CIEntrypointGitPreCommit
-	result, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).Run(context.Background(), authorityInput)
+	result, err := runCoordinatorTest(t, newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}), context.Background(), authorityInput)
 	if err != nil || result.Status != gate.ResultStatusPassed || len(result.FreshWorkloadExecutions) == 0 {
 		t.Fatalf("fresh Run() result=%#v error=%v", result, err)
 	}

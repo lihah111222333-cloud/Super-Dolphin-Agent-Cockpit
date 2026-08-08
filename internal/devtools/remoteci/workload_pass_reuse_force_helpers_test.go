@@ -43,7 +43,7 @@ func prepareForceExecutionCase(t *testing.T) forceExecutionCase {
 
 func runForceExecutionCase(t *testing.T, testCase forceExecutionCase) RunResult {
 	t.Helper()
-	result, err := testCase.coordinator.Run(context.Background(), testCase.input)
+	result, err := runCoordinatorTest(t, testCase.coordinator, context.Background(), testCase.input)
 	if err != nil {
 		t.Fatalf("force Run() error = %v", err)
 	}

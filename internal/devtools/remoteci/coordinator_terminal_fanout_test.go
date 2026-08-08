@@ -126,7 +126,7 @@ func TestCoordinatorRereadsTerminalWorkerFinishTimeBeforeSuccess(t *testing.T) {
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, runtime)
 
 	planned := mustBuildAllMissRemoteExecutionShardSet(t, input)
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -156,7 +156,7 @@ func TestCoordinatorDrainsSiblingTerminalEvidenceAfterMissingWorkerFinishTime(t 
 	if len(planned.Shards) < 2 {
 		t.Fatalf("planned shards = %d, want siblings", len(planned.Shards))
 	}
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertMalformedFanoutRunError(t, err)
 	assertMalformedFanoutCleanup(t, result, runtime, len(planned.Shards))
 	assertMalformedFanoutPolling(t, runtime)

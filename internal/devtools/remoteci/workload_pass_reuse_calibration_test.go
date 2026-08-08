@@ -19,7 +19,7 @@ func TestCoordinatorRunReusesCalibrationWorkloadPassesWithoutRemoteSideEffects(t
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456c", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertCoordinatorFullReuse(t, result, err, store, runtime)
 }
 
@@ -50,7 +50,7 @@ func releaseCalibrationInput(t *testing.T) (RunInput, gate.WorkloadCatalog) {
 func seedReleaseCalibrationPasses(t *testing.T, input RunInput) {
 	t.Helper()
 	seedCoordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
-	seed, err := seedCoordinator.Run(context.Background(), input)
+	seed, err := runCoordinatorTest(t, seedCoordinator, context.Background(), input)
 	if err != nil || seed.Status != gate.ResultStatusPassed || len(seed.FreshWorkloadExecutions) == 0 {
 		t.Fatalf("fresh release calibration result=%#v error=%v", seed, err)
 	}
@@ -63,7 +63,7 @@ func runReleaseCalibrationAllHit(t *testing.T, input RunInput) (RunResult, *coor
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef01234571", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("release calibration all-hit Run() error = %v", err)
 	}
@@ -116,7 +116,7 @@ func TestCoordinatorRunReusesCalibrationPassesAcrossProfilesWithCanonicalTimeout
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef01234570", nil }
-	result, err := coordinator.Run(context.Background(), releaseInput)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), releaseInput)
 	if err != nil {
 		t.Fatalf("release calibration Run() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestCoordinatorRunReusesCalibrationPassesForNormal(t *testing.T) {
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456e", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("normal Run() after calibration PASS error = %v", err)
 	}
@@ -167,6 +167,6 @@ func TestCoordinatorRunExecutesOnlyCalibrationWorkloadPassMisses(t *testing.T) {
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456d", nil }
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertCoordinatorPartialReuse(t, result, err, runtime)
 }

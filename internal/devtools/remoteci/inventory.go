@@ -73,25 +73,6 @@ func BuildWorkloadInventory(
 	}, nil
 }
 
-// inventoryPlatformGoPackages 依据精确 commit tree 和目标平台过滤可编译的 Go 包，
-// 使后续测试清单不受当前工作区或其他平台文件影响。
-func inventoryPlatformGoPackages(
-	ctx context.Context,
-	repositoryRoot string,
-	revision string,
-	platform string,
-	packages []string,
-) ([]string, error) {
-	if _, _, err := remoteGoTestPlatform(platform); err != nil {
-		return nil, err
-	}
-	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, revision)
-	if err != nil {
-		return nil, err
-	}
-	return inventoryPlatformGoPackagesWithSnapshot(ctx, snapshot, platform, packages)
-}
-
 // inventoryPlatformGoPackagesWithSnapshot 在已加载的精确 tree snapshot 上过滤目标平台 Go 包。
 func inventoryPlatformGoPackagesWithSnapshot(
 	ctx context.Context,
@@ -124,24 +105,6 @@ func inventoryPlatformGoPackagesWithSnapshot(
 		}
 	}
 	return filtered, nil
-}
-
-// inventoryAtomicGoTests 从候选 tree 枚举已知超时包在目标平台的普通与 race 顶层测试。
-func inventoryAtomicGoTests(
-	ctx context.Context,
-	repositoryRoot string,
-	revision string,
-	platform string,
-	packages []string,
-) ([]gate.GoTestTarget, []gate.GoTestTarget, error) {
-	if _, _, err := remoteGoTestPlatform(platform); err != nil {
-		return nil, nil, err
-	}
-	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, revision)
-	if err != nil {
-		return nil, nil, err
-	}
-	return inventoryAtomicGoTestsWithSnapshot(ctx, snapshot, platform, packages)
 }
 
 // inventoryAtomicGoTestsWithSnapshot 在共享 tree snapshot 上枚举普通与 race 顶层测试。

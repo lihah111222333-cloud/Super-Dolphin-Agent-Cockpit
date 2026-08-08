@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 )
 
 // BuildContainerShardSetFromWorkloadPlan 从已冻结 LPT 计划投影 schema v3 容器分片。
@@ -82,38 +81,6 @@ func workloadShardGateIDs(shard ShardPlan) ([]GateID, error) {
 		ids[index] = GateID(workload.Workload.ID)
 	}
 	return ids, nil
-}
-
-// NarrowContainerShard 为未命中的 workload 派生一次执行身份，同时保留 canonical 计划绑定。
-func NarrowContainerShard(shard ContainerShard, gateIDs []GateID) (ContainerShard, error) {
-	if len(gateIDs) == 0 {
-		return ContainerShard{}, errors.New("narrowed container shard must contain at least one workload")
-	}
-	allowed := make(map[GateID]int, len(shard.GateIDs))
-	for index, id := range shard.GateIDs {
-		allowed[id] = index
-	}
-	last := -1
-	seen := make(map[GateID]struct{}, len(gateIDs))
-	for _, id := range gateIDs {
-		index, ok := allowed[id]
-		if !ok || index <= last {
-			return ContainerShard{}, errors.New("narrowed container shard workloads must preserve canonical order")
-		}
-		if _, duplicate := seen[id]; duplicate {
-			return ContainerShard{}, errors.New("narrowed container shard contains a duplicate workload")
-		}
-		seen[id], last = struct{}{}, index
-	}
-	narrowed := shard
-	narrowed.GateIDs = slices.Clone(gateIDs)
-	narrowed.IdentityDigest = ""
-	identity, err := containerShardIdentityDigest(narrowed)
-	if err != nil {
-		return ContainerShard{}, err
-	}
-	narrowed.IdentityDigest = identity
-	return narrowed, nil
 }
 
 func workloadContainerShardGroups(plan WorkloadExecutionPlan) [][]GateID {

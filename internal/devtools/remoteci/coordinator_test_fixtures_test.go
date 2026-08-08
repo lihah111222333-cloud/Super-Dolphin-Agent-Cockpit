@@ -42,6 +42,17 @@ func newTestCoordinator(t *testing.T, store ObjectStore, runtime Runtime) *Coord
 	return coordinator
 }
 
+// runCoordinatorTest explicitly separates the side-effect-free preparation phase
+// from execution so tests cannot reintroduce the removed Coordinator.Run wrapper.
+func runCoordinatorTest(t *testing.T, coordinator *Coordinator, ctx context.Context, input RunInput) (RunResult, error) {
+	t.Helper()
+	prepared, err := coordinator.Prepare(ctx, input)
+	if err != nil {
+		return RunResult{}, err
+	}
+	return coordinator.RunPrepared(ctx, prepared)
+}
+
 func testRemoteResourcePolicy() shardresource.Policy {
 	return shardresource.Policy{
 		Classes: []shardresource.Class{

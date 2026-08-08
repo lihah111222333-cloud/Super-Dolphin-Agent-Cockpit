@@ -84,11 +84,15 @@ func inventoryLegacySelectors(t *testing.T, repository string, commit string) ([
 	if err != nil {
 		t.Fatal(err)
 	}
-	packages, err := inventoryPlatformGoPackages(context.Background(), repository, commit, "linux/amd64", fullTargets.goPackages)
+	snapshot, err := loadRemoteGitTreeSnapshot(context.Background(), repository, commit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tests, raceTests, err := inventoryAtomicGoTests(context.Background(), repository, commit, "linux/amd64", packages)
+	packages, err := inventoryPlatformGoPackagesWithSnapshot(context.Background(), snapshot, "linux/amd64", fullTargets.goPackages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests, raceTests, err := inventoryAtomicGoTestsWithSnapshot(context.Background(), snapshot, "linux/amd64", packages)
 	if err != nil {
 		t.Fatal(err)
 	}

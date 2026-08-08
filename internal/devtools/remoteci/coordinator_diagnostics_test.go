@@ -255,7 +255,7 @@ func TestCoordinatorRunRejectsMissingWorkerReport(t *testing.T) {
 	}
 	coordinator := newTestCoordinator(t, store, runtime)
 	input.RepositoryRoot = repository
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	if err == nil || result.Status == gate.ResultStatusPassed || !result.CleanupComplete {
 		t.Fatalf("Run() result=%+v error=%v", result, err)
 	}
@@ -281,7 +281,7 @@ func TestCoordinatorRunKeepsProviderFailedCauseWithValidPassingReport(t *testing
 	}
 	coordinator := newTestCoordinator(t, store, runtime)
 	input.RepositoryRoot = repository
-	result, err := coordinator.Run(context.Background(), input)
+	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertProviderFailedRunResult(t, result, err)
 	loaded := persistAndLoadProviderFailedRun(t, input, result, err)
 	assertPersistedProviderFailure(t, loaded)

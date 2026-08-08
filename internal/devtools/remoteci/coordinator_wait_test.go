@@ -37,7 +37,7 @@ func TestCoordinatorBatchesPollingCloudCalls(t *testing.T) {
 	}
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, runtime)
-	if _, err := coordinator.Run(context.Background(), input); err != nil {
+	if _, err := runCoordinatorTest(t, coordinator, context.Background(), input); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	runtime.mu.Lock()

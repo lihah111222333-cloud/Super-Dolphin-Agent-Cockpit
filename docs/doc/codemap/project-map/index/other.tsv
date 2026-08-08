@@ -354,7 +354,7 @@ internal/archtest/remote_ci_eci_imagecache_contract_guard_reservation_test.go	in
 internal/archtest/remote_ci_eci_imagecache_contract_guard_test.go	internal	other	go-test	41988	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_eci_imagecache_schema_owner_guard_test.go	internal	other	go-test	4076	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,schema,owner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_exact_timing_guard_test.go	internal	other	go-test	9904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,exact,timing,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/remote_ci_gate_sharding_contract_test.go	internal	other	go-test	11690	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,gate,sharding,contract,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_gate_sharding_contract_test.go	internal	other	go-test	14683	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,gate,sharding,contract,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_go_build_cache_contract_guard_test.go	internal	other	go-test	5603	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,go,build,cache,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_host_docker_wrapper_guard_test.go	internal	other	go-test	891	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,host,docker,wrapper,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_image_layer_direct_read_guard_test.go	internal	other	go-test	7674	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,image,layer,direct,read,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -580,7 +580,7 @@ internal/devtools/gate/compile_timing_sqlite_read.go	internal	other	go-source	63
 internal/devtools/gate/compile_timing_sqlite_test.go	internal	other	go-test	8938	开发工具与生成器辅助包	internal,devtools,gate,compile,timing,sqlite,test,开发工具与生成器辅助包
 internal/devtools/gate/compile_timing_sqlite_write.go	internal	other	go-source	4233	开发工具与生成器辅助包	internal,devtools,gate,compile,timing,sqlite,write,开发工具与生成器辅助包
 internal/devtools/gate/container_shards.go	internal	other	go-source	8763	开发工具与生成器辅助包	internal,devtools,gate,container,shards,开发工具与生成器辅助包
-internal/devtools/gate/container_shards_test.go	internal	other	go-test	3632	开发工具与生成器辅助包	internal,devtools,gate,container,shards,test,开发工具与生成器辅助包
+internal/devtools/gate/container_shards_test.go	internal	other	go-test	3692	开发工具与生成器辅助包	internal,devtools,gate,container,shards,test,开发工具与生成器辅助包
 internal/devtools/gate/contracts.go	internal	other	go-source	10236	开发工具与生成器辅助包	internal,devtools,gate,contracts,开发工具与生成器辅助包
 internal/devtools/gate/contracts_test.go	internal	other	go-test	19440	开发工具与生成器辅助包	internal,devtools,gate,contracts,test,开发工具与生成器辅助包
 internal/devtools/gate/contracts_validation_release.go	internal	other	go-source	2100	开发工具与生成器辅助包	internal,devtools,gate,contracts,validation,release,开发工具与生成器辅助包
@@ -717,18 +717,19 @@ internal/devtools/gate/validation.go	internal	other	go-source	19065	开发工具
 internal/devtools/gate/workload_catalog.go	internal	other	go-source	29544	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,开发工具与生成器辅助包
 internal/devtools/gate/workload_catalog_race_scope.go	internal	other	go-source	2890	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,race,scope,开发工具与生成器辅助包
 internal/devtools/gate/workload_catalog_race_scope_test.go	internal	other	go-test	7965	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,race,scope,test,开发工具与生成器辅助包
-internal/devtools/gate/workload_catalog_test.go	internal	other	go-test	29003	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_catalog_test.go	internal	other	go-test	29109	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_group_planning_test.go	internal	other	go-test	28980	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,group,planning,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_owner_planning.go	internal	other	go-source	13275	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,owner,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_owner_planning_test.go	internal	other	go-test	7823	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,owner,planning,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_planning.go	internal	other	go-source	28800	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_planning_test.go	internal	other	go-test	17872	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,planning,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_selector_planning.go	internal	other	go-source	12941	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,selector,planning,开发工具与生成器辅助包
-internal/devtools/gate/workload_container_shards.go	internal	other	go-source	7779	开发工具与生成器辅助包	internal,devtools,gate,workload,container,shards,开发工具与生成器辅助包
+internal/devtools/gate/workload_container_shards.go	internal	other	go-source	6615	开发工具与生成器辅助包	internal,devtools,gate,workload,container,shards,开发工具与生成器辅助包
+internal/devtools/gate/workload_container_shards_api_guard_test.go	internal	other	go-test	1173	开发工具与生成器辅助包	internal,devtools,gate,workload,container,shards,api,guard,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_duration_index.go	internal	other	go-source	17147	开发工具与生成器辅助包	internal,devtools,gate,workload,duration,index,开发工具与生成器辅助包
 internal/devtools/gate/workload_duration_index_test.go	internal	other	go-test	8257	开发工具与生成器辅助包	internal,devtools,gate,workload,duration,index,test,开发工具与生成器辅助包
-internal/devtools/gate/workload_model.go	internal	other	go-source	20002	开发工具与生成器辅助包	internal,devtools,gate,workload,model,开发工具与生成器辅助包
-internal/devtools/gate/workload_model_test.go	internal	other	go-test	29694	开发工具与生成器辅助包	internal,devtools,gate,workload,model,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_model.go	internal	other	go-source	19891	开发工具与生成器辅助包	internal,devtools,gate,workload,model,开发工具与生成器辅助包
+internal/devtools/gate/workload_model_test.go	internal	other	go-test	30899	开发工具与生成器辅助包	internal,devtools,gate,workload,model,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_overhead.go	internal	other	go-source	12348	开发工具与生成器辅助包	internal,devtools,gate,workload,overhead,开发工具与生成器辅助包
 internal/devtools/gate/workload_pass_evidence.go	internal	other	go-source	31245	开发工具与生成器辅助包	internal,devtools,gate,workload,pass,evidence,开发工具与生成器辅助包
 internal/devtools/gate/workload_pass_evidence_batch_scale_test.go	internal	other	go-test	4614	开发工具与生成器辅助包	internal,devtools,gate,workload,pass,evidence,batch,scale,test,开发工具与生成器辅助包
@@ -741,7 +742,7 @@ internal/devtools/gate/workload_pass_evidence_provisional_test.go	internal	other
 internal/devtools/gate/workload_pass_evidence_query_plan_test.go	internal	other	go-test	3773	开发工具与生成器辅助包	internal,devtools,gate,workload,pass,evidence,query,plan,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_pass_evidence_test.go	internal	other	go-test	44661	开发工具与生成器辅助包	internal,devtools,gate,workload,pass,evidence,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_pass_identity_authority.go	internal	other	go-source	3524	开发工具与生成器辅助包	internal,devtools,gate,workload,pass,identity,authority,开发工具与生成器辅助包
-internal/devtools/gate/workload_planning.go	internal	other	go-source	31268	开发工具与生成器辅助包	internal,devtools,gate,workload,planning,开发工具与生成器辅助包
+internal/devtools/gate/workload_planning.go	internal	other	go-source	30064	开发工具与生成器辅助包	internal,devtools,gate,workload,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_resource_planning.go	internal	other	go-source	1706	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_targets.go	internal	other	go-source	17910	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,开发工具与生成器辅助包
 internal/devtools/gate/workload_targets_test.go	internal	other	go-test	11206	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,test,开发工具与生成器辅助包
@@ -787,20 +788,20 @@ internal/devtools/remoteci/baseline_test.go	internal	other	go-test	4837	开发�
 internal/devtools/remoteci/calibration_checkpoint.go	internal	other	go-source	17	开发工具与生成器辅助包	internal,devtools,remoteci,calibration,checkpoint,开发工具与生成器辅助包
 internal/devtools/remoteci/calibration_checkpoint_store.go	internal	other	go-source	24085	开发工具与生成器辅助包	internal,devtools,remoteci,calibration,checkpoint,store,开发工具与生成器辅助包
 internal/devtools/remoteci/calibration_checkpoint_test.go	internal	other	go-test	15290	开发工具与生成器辅助包	internal,devtools,remoteci,calibration,checkpoint,test,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator.go	internal	other	go-source	37019	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator.go	internal	other	go-source	36688	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_assets.go	internal	other	go-source	12142	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,assets,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_assets_test.go	internal	other	go-test	6087	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,assets,test,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_cache_retry_test.go	internal	other	go-test	2768	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,cache,retry,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_cache_retry_test.go	internal	other	go-test	2844	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,cache,retry,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_cleanup.go	internal	other	go-source	1792	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,cleanup,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_compile_group_binding_test.go	internal	other	go-test	9842	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,compile,group,binding,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_compile_group_timing.go	internal	other	go-source	13526	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,compile,group,timing,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_compile_group_timing_test.go	internal	other	go-test	13193	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,compile,group,timing,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_compile_group_warnings.go	internal	other	go-source	1124	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,compile,group,warnings,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_compile_group_warnings_test.go	internal	other	go-test	1283	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,compile,group,warnings,test,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_concurrency_test.go	internal	other	go-test	11655	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,concurrency,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_concurrency_test.go	internal	other	go-test	11693	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,concurrency,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_create_fanout_test.go	internal	other	go-test	10020	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,create,fanout,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_diagnostics.go	internal	other	go-source	14264	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,diagnostics,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_diagnostics_test.go	internal	other	go-test	12533	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,diagnostics,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_diagnostics_test.go	internal	other	go-test	12571	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,diagnostics,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_eci_timing_test.go	internal	other	go-test	4316	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,eci,timing,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_execution_profile.go	internal	other	go-source	7154	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,execution,profile,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_execution_profile_test.go	internal	other	go-test	10764	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,execution,profile,test,开发工具与生成器辅助包
@@ -817,24 +818,24 @@ internal/devtools/remoteci/coordinator_results.go	internal	other	go-source	24245
 internal/devtools/remoteci/coordinator_results_partial_test.go	internal	other	go-test	33014	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,partial,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_results_test.go	internal	other	go-test	14014	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_shard_timing_test.go	internal	other	go-test	29896	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,shard,timing,test,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_source_upload_order_test.go	internal	other	go-test	20798	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,source,upload,order,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_source_upload_order_test.go	internal	other	go-test	20834	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,source,upload,order,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_source_upload_order_wait_test.go	internal	other	go-test	5059	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,source,upload,order,wait,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_target_warnings.go	internal	other	go-source	5354	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,target,warnings,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_terminal_fanout_test.go	internal	other	go-test	8937	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,terminal,fanout,test,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_test.go	internal	other	go-test	32824	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_test_fixtures_test.go	internal	other	go-test	19916	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,fixtures,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_terminal_fanout_test.go	internal	other	go-test	8975	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,terminal,fanout,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_test.go	internal	other	go-test	32938	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_test_fixtures_test.go	internal	other	go-test	20361	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,fixtures,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_timing.go	internal	other	go-source	41353	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,timing,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_timing_integrity_test.go	internal	other	go-test	1491	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,timing,integrity,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_wait.go	internal	other	go-source	24608	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_wait_test.go	internal	other	go-test	11484	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_wait_test.go	internal	other	go-test	11503	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,test,开发工具与生成器辅助包
 internal/devtools/remoteci/gate_cli_compile_closure.go	internal	other	go-source	8418	开发工具与生成器辅助包	internal,devtools,remoteci,gate,cli,compile,closure,开发工具与生成器辅助包
 internal/devtools/remoteci/gate_cli_compile_closure_test.go	internal	other	go-test	13183	开发工具与生成器辅助包	internal,devtools,remoteci,gate,cli,compile,closure,test,开发工具与生成器辅助包
 internal/devtools/remoteci/go_test_inventory.go	internal	other	go-source	10533	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,inventory,开发工具与生成器辅助包
 internal/devtools/remoteci/go_test_inventory_test.go	internal	other	go-test	4917	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,inventory,开发工具与生成器辅助包
 internal/devtools/remoteci/human_timing_ledger.go	internal	other	go-source	5198	开发工具与生成器辅助包	internal,devtools,remoteci,human,timing,ledger,开发工具与生成器辅助包
 internal/devtools/remoteci/human_timing_ledger_test.go	internal	other	go-test	2491	开发工具与生成器辅助包	internal,devtools,remoteci,human,timing,ledger,test,开发工具与生成器辅助包
-internal/devtools/remoteci/inventory.go	internal	other	go-source	17542	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,开发工具与生成器辅助包
-internal/devtools/remoteci/inventory_test.go	internal	other	go-test	16839	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,test,开发工具与生成器辅助包
+internal/devtools/remoteci/inventory.go	internal	other	go-source	16343	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,开发工具与生成器辅助包
+internal/devtools/remoteci/inventory_test.go	internal	other	go-test	16964	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,test,开发工具与生成器辅助包
 internal/devtools/remoteci/materialization_timing.go	internal	other	go-source	4447	开发工具与生成器辅助包	internal,devtools,remoteci,materialization,timing,开发工具与生成器辅助包
 internal/devtools/remoteci/materialization_timing_test.go	internal	other	go-test	3032	开发工具与生成器辅助包	internal,devtools,remoteci,materialization,timing,test,开发工具与生成器辅助包
 internal/devtools/remoteci/oci_project_cache.go	internal	other	go-source	2015	开发工具与生成器辅助包	internal,devtools,remoteci,oci,project,cache,开发工具与生成器辅助包
@@ -852,7 +853,7 @@ internal/devtools/remoteci/source_materializer_helpers.go	internal	other	go-sour
 internal/devtools/remoteci/source_materializer_manifest.go	internal	other	go-source	7539	开发工具与生成器辅助包	internal,devtools,remoteci,source,materializer,manifest,开发工具与生成器辅助包
 internal/devtools/remoteci/source_materializer_test.go	internal	other	go-test	20387	开发工具与生成器辅助包	internal,devtools,remoteci,source,materializer,test,开发工具与生成器辅助包
 internal/devtools/remoteci/source_primitives.go	internal	other	go-source	1348	开发工具与生成器辅助包	internal,devtools,remoteci,source,primitives,开发工具与生成器辅助包
-internal/devtools/remoteci/source_tree.go	internal	other	go-source	23674	开发工具与生成器辅助包	internal,devtools,remoteci,source,tree,开发工具与生成器辅助包
+internal/devtools/remoteci/source_tree.go	internal	other	go-source	17098	开发工具与生成器辅助包	internal,devtools,remoteci,source,tree,开发工具与生成器辅助包
 internal/devtools/remoteci/source_tree_test.go	internal	other	go-test	3179	开发工具与生成器辅助包	internal,devtools,remoteci,source,tree,test,开发工具与生成器辅助包
 internal/devtools/remoteci/source_worktree_materializer.go	internal	other	go-source	4894	开发工具与生成器辅助包	internal,devtools,remoteci,source,worktree,materializer,开发工具与生成器辅助包
 internal/devtools/remoteci/worker_execution_contract.go	internal	other	go-source	4560	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,开发工具与生成器辅助包
@@ -880,9 +881,9 @@ internal/devtools/remoteci/workload_fingerprint_go_packages.go	internal	other	go
 internal/devtools/remoteci/workload_fingerprint_go_reflection.go	internal	other	go-source	5809	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,go,reflection,开发工具与生成器辅助包
 internal/devtools/remoteci/workload_fingerprint_go_tests.go	internal	other	go-source	26971	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,go,tests,开发工具与生成器辅助包
 internal/devtools/remoteci/workload_pass_reuse.go	internal	other	go-source	12697	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,开发工具与生成器辅助包
-internal/devtools/remoteci/workload_pass_reuse_calibration_test.go	internal	other	go-test	7459	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,calibration,test,开发工具与生成器辅助包
-internal/devtools/remoteci/workload_pass_reuse_coordinator_test.go	internal	other	go-test	37365	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,coordinator,test,开发工具与生成器辅助包
-internal/devtools/remoteci/workload_pass_reuse_force_helpers_test.go	internal	other	go-test	2970	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,force,helpers,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_pass_reuse_calibration_test.go	internal	other	go-test	7573	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,calibration,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_pass_reuse_coordinator_test.go	internal	other	go-test	37536	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,coordinator,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_pass_reuse_force_helpers_test.go	internal	other	go-test	2989	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,force,helpers,test,开发工具与生成器辅助包
 internal/devtools/remoteci/workload_pass_reuse_migration.go	internal	other	go-source	18733	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,migration,开发工具与生成器辅助包
 internal/devtools/remoteci/workload_pass_reuse_migration_test.go	internal	other	go-test	16059	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,migration,test,开发工具与生成器辅助包
 internal/devtools/remoteci/workload_pass_reuse_shard_plan_test.go	internal	other	go-test	12334	开发工具与生成器辅助包	internal,devtools,remoteci,workload,pass,reuse,shard,plan,test,开发工具与生成器辅助包

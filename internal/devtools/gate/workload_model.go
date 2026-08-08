@@ -327,7 +327,6 @@ func validCalibrationOID(value string) bool {
 	return strings.Trim(value, "0123456789abcdef") == ""
 }
 
-// PlanLPT 使用成功样本估算并按稳定 LPT 规则将所有 workload 分配到固定数量的分片。
 func decodeStrictJSON(reader io.Reader, target any) error {
 	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()

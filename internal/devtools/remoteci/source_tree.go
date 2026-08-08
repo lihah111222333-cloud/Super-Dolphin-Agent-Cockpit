@@ -3,7 +3,6 @@ package remoteci
 import (
 	"archive/tar"
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha1" // #nosec G505 -- Git SHA-1 object IDs require SHA-1 compatibility verification.
 	"crypto/sha256"
@@ -339,123 +338,6 @@ func appendManifestField(manifest []byte, value string) []byte {
 	return append(manifest, 0)
 }
 
-type gitTreeNode struct {
-	files map[string]sourceexport.TreeEntry
-	dirs  map[string]*gitTreeNode
-}
-
-type gitTreeItem struct {
-	name      string
-	mode      string
-	oid       []byte
-	directory bool
-}
-
-// calculateGitTreeOID 从扁平 blob 条目重建 Git tree 对象并计算根 OID。
-func calculateGitTreeOID(format gate.GitObjectFormat, entries []sourceexport.TreeEntry) (string, error) {
-	root := newGitTreeNode()
-	seenPaths := make(map[string]string, len(entries))
-	expectedLength, err := gitOIDHexLength(format)
-	if err != nil {
-		return "", err
-	}
-	for _, entry := range entries {
-		if err := validateGitTreeEntry(entry, expectedLength, seenPaths); err != nil {
-			return "", err
-		}
-		if err := root.insert(entry); err != nil {
-			return "", err
-		}
-	}
-	oid, err := hashGitTreeNode(format, root)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(oid), nil
-}
-
-func validateGitTreeEntry(entry sourceexport.TreeEntry, expectedLength int, seenPaths map[string]string) error {
-	if err := validateContextEntry(entry, seenPaths); err != nil {
-		return err
-	}
-	if len(entry.Hash) != expectedLength || strings.ToLower(entry.Hash) != entry.Hash {
-		return fmt.Errorf("source entry %q has an object ID incompatible with the SourceSpec object format", entry.Path)
-	}
-	if _, err := hex.DecodeString(entry.Hash); err != nil {
-		return fmt.Errorf("source entry %q has an invalid Git object ID: %w", entry.Path, err)
-	}
-	return nil
-}
-
-func newGitTreeNode() *gitTreeNode {
-	return &gitTreeNode{files: make(map[string]sourceexport.TreeEntry), dirs: make(map[string]*gitTreeNode)}
-}
-
-// insert 将规范文件路径插入 tree，不允许文件与目录互相遮蔽。
-func (node *gitTreeNode) insert(entry sourceexport.TreeEntry) error {
-	parts := strings.Split(entry.Path, "/")
-	current := node
-	for _, directory := range parts[:len(parts)-1] {
-		if _, exists := current.files[directory]; exists {
-			return fmt.Errorf("source path %q crosses file %q", entry.Path, directory)
-		}
-		next, exists := current.dirs[directory]
-		if !exists {
-			next = newGitTreeNode()
-			current.dirs[directory] = next
-		}
-		current = next
-	}
-	name := parts[len(parts)-1]
-	if _, exists := current.dirs[name]; exists {
-		return fmt.Errorf("source path %q conflicts with a directory", entry.Path)
-	}
-	if _, exists := current.files[name]; exists {
-		return fmt.Errorf("source path %q is duplicated", entry.Path)
-	}
-	current.files[name] = entry
-	return nil
-}
-
-// hashGitTreeNode 按 Git tree 排序和二进制编码递归计算节点 OID。
-func hashGitTreeNode(format gate.GitObjectFormat, node *gitTreeNode) ([]byte, error) {
-	items := make([]gitTreeItem, 0, len(node.files)+len(node.dirs))
-	for name, entry := range node.files {
-		oid, err := hex.DecodeString(entry.Hash)
-		if err != nil {
-			return nil, fmt.Errorf("decode blob object %q: %w", entry.Path, err)
-		}
-		items = append(items, gitTreeItem{name: name, mode: entry.Mode, oid: oid})
-	}
-	for name, child := range node.dirs {
-		oid, err := hashGitTreeNode(format, child)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, gitTreeItem{name: name, mode: "40000", oid: oid, directory: true})
-	}
-	sort.Slice(items, func(left int, right int) bool { return gitTreeItemLess(items[left], items[right]) })
-	var body bytes.Buffer
-	for _, item := range items {
-		fmt.Fprintf(&body, "%s %s", item.mode, item.name)
-		body.WriteByte(0)
-		body.Write(item.oid)
-	}
-	return hashGitObject(format, "tree", body.Bytes())
-}
-
-func gitTreeItemLess(left gitTreeItem, right gitTreeItem) bool {
-	leftSuffix := byte(0)
-	if left.directory {
-		leftSuffix = '/'
-	}
-	rightSuffix := byte(0)
-	if right.directory {
-		rightSuffix = '/'
-	}
-	return bytes.Compare(append([]byte(left.name), leftSuffix), append([]byte(right.name), rightSuffix)) < 0
-}
-
 func hashGitObject(format gate.GitObjectFormat, objectType string, body []byte) ([]byte, error) {
 	payload := fmt.Appendf(nil, "%s %d\x00", objectType, len(body))
 	payload = append(payload, body...)
@@ -469,23 +351,6 @@ func hashGitObject(format gate.GitObjectFormat, objectType string, body []byte) 
 	default:
 		return nil, fmt.Errorf("unsupported Git object format %q", format)
 	}
-}
-
-func gitOIDHexLength(format gate.GitObjectFormat) (int, error) {
-	switch format {
-	case gate.GitObjectFormatSHA1:
-		return sha1.Size * 2, nil
-	case gate.GitObjectFormatSHA256:
-		return sha256.Size * 2, nil
-	default:
-		return 0, fmt.Errorf("unsupported Git object format %q", format)
-	}
-}
-
-// ReadOnlyGitTree 携带从 SourceSpec 对应 Git tree 取得的只读源码，不读取进程工作目录。
-type ReadOnlyGitTree struct {
-	Source  gate.SourceSpec
-	Entries []sourceexport.TreeEntry
 }
 
 // GateImageInputs 是一个 job tree 经校验后的确定性镜像输入视图。
@@ -503,23 +368,6 @@ type GateImageInputs struct {
 	GateSourceDigest    string
 }
 
-func verifyReadOnlyGitTree(tree ReadOnlyGitTree) error {
-	if err := tree.Source.Validate(); err != nil {
-		return fmt.Errorf("validate image source spec: %w", err)
-	}
-	if len(tree.Entries) == 0 {
-		return errors.New("read-only Git tree entries are required")
-	}
-	calculated, err := calculateGitTreeOID(tree.Source.ObjectFormat, tree.Entries)
-	if err != nil {
-		return fmt.Errorf("verify read-only Git tree: %w", err)
-	}
-	if calculated != tree.Source.SourceTreeSHA {
-		return fmt.Errorf("read-only Git tree drift: calculated %s, expected %s", calculated, tree.Source.SourceTreeSHA)
-	}
-	return nil
-}
-
 func cloneTreeEntries(entries []sourceexport.TreeEntry) []sourceexport.TreeEntry {
 	cloned := make([]sourceexport.TreeEntry, len(entries))
 	for index, entry := range entries {
@@ -528,50 +376,6 @@ func cloneTreeEntries(entries []sourceexport.TreeEntry) []sourceexport.TreeEntry
 		cloned[index].Path = path.Clean(entry.Path)
 	}
 	return cloned
-}
-
-// LoadReadOnlyGitTree reads a verified SourceSpec tree without consulting a
-// worktree. Remote ECI uses this as its only source-tree boundary.
-func LoadReadOnlyGitTree(ctx context.Context, repoRoot string, spec gate.SourceSpec) (ReadOnlyGitTree, error) {
-	if err := errors.Join(validateContext(ctx), spec.Validate(), validateCanonicalDirectory(repoRoot, false)); err != nil {
-		return ReadOnlyGitTree{}, fmt.Errorf("validate read-only Git tree input: %w", err)
-	}
-	if err := verifyRepositoryIdentity(ctx, repoRoot, spec.ObjectFormat); err != nil {
-		return ReadOnlyGitTree{}, err
-	}
-	plan, err := inspectSourcePlan(ctx, repoRoot, spec, nil)
-	if err != nil {
-		return ReadOnlyGitTree{}, err
-	}
-	entries, err := loadReadOnlyTreeEntries(ctx, repoRoot, plan.tree)
-	if err != nil {
-		return ReadOnlyGitTree{}, err
-	}
-	tree := ReadOnlyGitTree{Source: cloneSourceSpec(spec), Entries: entries}
-	if err := verifyReadOnlyGitTree(tree); err != nil {
-		return ReadOnlyGitTree{}, fmt.Errorf("verify read-only Git tree: %w", err)
-	}
-	return tree, nil
-}
-
-func loadReadOnlyTreeEntries(ctx context.Context, repoRoot string, treeOID string) ([]sourceexport.TreeEntry, error) {
-	output, err := runGitOutput(ctx, repoRoot, nil, "ls-tree", "-rz", "--full-tree", treeOID)
-	if err != nil {
-		return nil, fmt.Errorf("list read-only Git tree: %w", err)
-	}
-	records := bytes.Split(output, []byte{0})
-	entries := make([]sourceexport.TreeEntry, 0, len(records))
-	for _, record := range records {
-		if len(record) == 0 {
-			continue
-		}
-		entry, parseErr := parseReadOnlyTreeEntry(record)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		entries = append(entries, entry)
-	}
-	return loadReadOnlyTreeBlobs(ctx, repoRoot, entries)
 }
 
 func loadReadOnlyTreeBlobs(ctx context.Context, repoRoot string, entries []sourceexport.TreeEntry) ([]sourceexport.TreeEntry, error) {

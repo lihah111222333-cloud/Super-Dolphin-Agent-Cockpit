@@ -91,14 +91,15 @@ func testWorkloadExecutionPlan(t *testing.T, gatePlan GatePlan) WorkloadExecutio
 	if err != nil {
 		t.Fatalf("workload catalog: %v", err)
 	}
-	plan, err := BuildWorkloadExecutionPlan(
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(
 		gatePlan,
 		catalog,
 		DurationLedgerSnapshot{Generation: 11, Ledger: fastDurationLedger(catalog)},
 		testLinuxPlanningContext(),
+		allShardableWorkloadIDs(catalog),
 	)
 	if err != nil {
-		t.Fatalf("BuildWorkloadExecutionPlan() error = %v", err)
+		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v", err)
 	}
 	return plan
 }
