@@ -42,6 +42,8 @@ fi
 
 git config --local super-dolphin.remote.config "$runtime_config"
 git config --local super-dolphin.remote.ledger "$ledger_path"
+git config --local alias.remote-ci '!./scripts/git_with_remote_ci_credentials.sh --repository . --'
 
 printf 'remote CI local config: %s\n' "$runtime_config"
 printf 'remote CI local SQLite authority: %s\n' "$ledger_path"
+printf '%s\n' 'remote CI credential-aware Git: git remote-ci <commit|push|...>'

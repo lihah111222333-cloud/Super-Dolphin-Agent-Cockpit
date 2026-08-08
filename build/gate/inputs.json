@@ -4520,6 +4520,7 @@
     "scripts/refactor/rename_codexsdk_to_agentsdk_side_effect_guard_test.go",
     "scripts/release_packaging_integrity_guard_test.go",
     "scripts/release_rollout_workflow_guard_test.go",
+    "scripts/remote_ci_git_credentials_test.go",
     "scripts/rpc_e2e_coverage_guard_test.go",
     "scripts/sqlc_verify_worktree_guard_test.go",
     "scripts/sqlite_release_gate_package_smoke_runtime_test.go",
@@ -4864,6 +4865,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6517,
-  "source_snapshot_paths_sha256": "sha256:b1c94e07fe915e28e23423c5110f288c82997488fdc872cb16df1c2595311c94"
+  "source_snapshot_input_count": 6519,
+  "source_snapshot_paths_sha256": "sha256:d005bf648dc952f3a0f66c6ef17ac2a98aec09121f5f832466a92b74c108dbd1"
 }

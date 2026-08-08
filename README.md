@@ -207,11 +207,14 @@ The clone command below targets the canonical public repository and will work af
 git clone https://github.com/lihah111222333-cloud/super-dolphin-agent.git
 cd super-dolphin-agent
 make install-hooks
+make remote-ci-init
 
 go install golang.org/x/tools/gopls@latest
 npm install -g typescript-language-server typescript@5.9.3
 ( cd frontend-app && npm ci )
 ```
+
+For maintainers running the private remote ECI gate, authenticate GitHub CLI once and use `git remote-ci commit ...` / `git remote-ci push`. The repository-owned launcher reads GHCR credentials from the operating-system credential store and keeps both GHCR and agent tokens in the current Git process chain only. It can target another initialized trusted checkout with `./scripts/git_with_remote_ci_credentials.sh --repository /absolute/path -- <git arguments>`; no raw credential is stored in Git or repository files.
 
 Run the current desktop development flow:
 

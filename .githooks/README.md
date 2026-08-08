@@ -14,6 +14,8 @@ builder 也必须从 staged tree 通过 Git plumbing 读取后执行；安装器
 
 持有实际 token 时，`pre-commit` 才固定 staged tree，验证并在允许时单次刷新受管 closure 输出，然后以该精确 tree 和 parent commit 调用 `remote hook pre-commit`。`pre-push` 才将 Git stdin 的每条精确 ref update 交给 `remote hook pre-push`。远端结果必须绑定同一 source tree、入口和清理证据；任何身份、权威性或状态缺失均拒绝 Git 动作。
 
+`make remote-ci-init` 会安装仓库本地 `git remote-ci` 别名。该别名调用版本化 `scripts/git_with_remote_ci_credentials.sh`，从 GitHub CLI 的系统凭据存储读取 GHCR 凭据，并在 hook 外通过受信 Gate 签发当前进程链的 agent token；随后只通过环境 `exec git`。原始凭据不进入 Git 配置、文件、SQLite、日志或 argv。启动器接受 `--repository`，因此同一版本化实现可服务其他已经安装 exact-tree Gate 的受信仓库；目标仓库不受信或任一凭据不完整时立即拒绝。
+
 `commit-msg` 仍要求中文提交信息和 fix-test evidence。hooks 不从调用方 PATH 解析 gate CLI，也不执行候选工作树中的脚本。
 
 mcp-lsp 本地门禁只消费版本化 workload ID：`mcp-lsp-idle-quick`、`mcp-lsp-native-process-tree`、`mcp-lsp-default-15m`。本地 runner 生成的 `local-runner` receipt 只证明本地执行；catalog 的 `producer_implementation_status=missing` 表示尚无 CI/release artifact producer，不能把本地 receipt 冒充发布权威，且必须保持 `release_blocking=true`，直到真实 producer 落地并通过 workflow/artifact 校验。其中 default-15m source-E2E 当前缺实现，必须保持 N/V；100-workspace soak 与 release artifact 同样保持 N/V，并阻断 T6/release。

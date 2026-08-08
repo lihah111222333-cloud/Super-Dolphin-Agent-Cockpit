@@ -5,7 +5,7 @@ README.de.md	(root)	docs-agent	doc	31687	仓库根级配置、入口或说明文
 README.es.md	(root)	docs-agent	doc	32272	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
 README.ja.md	(root)	docs-agent	doc	33020	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
 README.ko.md	(root)	docs-agent	doc	31618	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	28460	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	29000	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
 README.zh-CN.md	(root)	docs-agent	doc	25383	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
 docs/README.md	docs	docs-agent	doc	4245	项目文档体系	docs,README,项目文档体系
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
@@ -79,7 +79,7 @@ docs/契约/mcp-service-convention.md	docs	docs-agent	doc	16169	项目文档体�
 docs/契约/modularity-convention.md	docs	docs-agent	doc	47932	项目文档体系	docs,契约,modularity,convention,项目文档体系
 docs/契约/onion-architecture-convention.md	docs	docs-agent	doc	4227	项目文档体系	docs,契约,onion,architecture,convention,项目文档体系
 docs/契约/recall-topic-naming.md	docs	docs-agent	doc	1328	项目文档体系	docs,契约,recall,topic,naming,项目文档体系
-docs/契约/remote-ci-eci-imagecache-contract.md	docs	docs-agent	doc	66381	项目文档体系	docs,契约,remote,ci,eci,imagecache,contract,项目文档体系
+docs/契约/remote-ci-eci-imagecache-contract.md	docs	docs-agent	doc	66879	项目文档体系	docs,契约,remote,ci,eci,imagecache,contract,项目文档体系
 docs/契约/rungroup-convention.md	docs	docs-agent	doc	3717	项目文档体系	docs,契约,rungroup,convention,项目文档体系
 docs/契约/sqlc-convention.md	docs	docs-agent	doc	3949	项目文档体系	docs,契约,sqlc,convention,项目文档体系
 docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文档体系	docs,契约,statemachine,event,convention,项目文档体系

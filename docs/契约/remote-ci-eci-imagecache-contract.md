@@ -91,6 +91,7 @@ Git hook / remote run
 - 创建 ECI container group 必须传 accepted `ImageCacheSnapshotID`；不接受自动匹配、tag 或最近创建缓存作为选择依据。
 - 主容器与 init 容器必须使用不可变 digest 镜像，且显式绑定同一个已接受 snapshot。
 - 私有 GHCR 镜像的每个 normal shard 必须从当前 Gate 进程的 `SUPER_DOLPHIN_CI_GHCR_USERNAME` 与 `SUPER_DOLPHIN_CI_GHCR_TOKEN` 读取完整短期凭据，并映射到 ECI `ImageRegistryCredential`；server 固定为 `ghcr.io` 且必须与主/init 不可变镜像域名一致。缺失、空值、超长、域名错配必须在创建 group 前 fail-fast。原始用户名和 token 只能存在于当前进程内存和 ECI API 密文参数，不得进入 remote run config、SQLite、receipt、日志、tag、OSS、Git、命令投影或 ConfigFileVolume。
+- 仓库可提供 hook 外的版本化 Git 启动器，从 GitHub CLI 的系统凭据存储取得上述 GHCR 短期凭据，并从目标仓库已验证的受信 Gate 签发当前 Git 进程链的 agent token。启动器只能通过环境 `exec git`，不得把原始凭据写入 Git 配置、文件、SQLite、日志或 argv；Git hook 与 Gate 仍不得自行签发、缓存或静默补齐凭据。目标仓库、GitHub CLI 身份、凭据对或 bootstrap 任一不可验证时必须 fail-fast。
 - 禁止 `AutoMatchImageCache` 参与正常 shard 选择。
 - 候选 Gate 必须在 shard 内从 exact candidate tree 增量编译；不得复用未绑定候选树的预编译二进制。
 - 候选源码 transport 必须使用唯一标准 v2 `git-bundle-thin`：每次 CI 生成一个 tree 等于 SourceSpec parent/base tree、唯一 parent 等于 accepted baseline 的确定性 candidate-parent synthetic commit，再生成 tree 等于候选且唯一 parent 等于该 synthetic base 的确定性 transport commit，并以相对 baseline 的 bundle 传输；bundle header 必须恰好广告一个 baseline prerequisite 和唯一 `refs/source/materialized`。物化工作树必须同时发布只读 `refs/source/base` 指向 synthetic base commit，所有 diff/LSP changed-files 门禁只能比较该 base 到候选，禁止因 ref 缺失退化为整树扫描。禁止自包含 bundle、full fallback、raw whole repo、候选原始历史或第二 bundle/manifest 形态。
