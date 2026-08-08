@@ -282,6 +282,7 @@
     "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_storage.go",
     "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_test.go",
     "cmd/mcp-lsp/runtime_gopls_root_cohort_generation_test.go",
+    "cmd/mcp-lsp/runtime_gopls_semantic_environment_test.go",
     "cmd/mcp-lsp/runtime_lifecycle.go",
     "cmd/mcp-lsp/runtime_packaged_test.go",
     "cmd/mcp-lsp/runtime_server_cache.go",
@@ -4862,6 +4863,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6518,
-  "source_snapshot_paths_sha256": "sha256:946dbf75b0e45729725e260d936e951b4433b20b4a7bb19149ba7f4180a154fd"
+  "source_snapshot_input_count": 6519,
+  "source_snapshot_paths_sha256": "sha256:bbb14212b59078ff31bf6385ecaecd29de74cae5ee3ba7d48a4950822d8a4623"
 }

@@ -747,7 +747,7 @@ func runtimeServerBinaryIdentity(binary string, env []string) (string, string, e
 	return resolvedBinary, binaryDigest, nil
 }
 
-// runtimeServerBinaryDigest 缓存真实二进制内容指纹，使不同 worktree 中的同版本副本共用 cohort。
+// runtimeServerBinaryDigest 缓存真实二进制内容指纹；是否同时绑定实路径由上层 cohort 契约决定。
 func runtimeServerBinaryDigest(path string, info os.FileInfo) (string, error) {
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("language-server binary is not a regular file: %s", path)

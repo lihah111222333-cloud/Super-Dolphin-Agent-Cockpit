@@ -8,7 +8,7 @@
 
 生产 controller 使用共享 LSP cache root 下的私有 `state.json`、member lease 记录和 flock；每个 admission/release/drain/config-generation transition 都在同一把跨进程锁内完成，并在记录写入/删除后同步父目录。owner lease 保存 PID 与启动身份，新的 admission 必须先按旧状态的 config digest 回收已退出或 PID 已复用的 stale member，再判断同代复用、活成员冲突或安全配置轮换，避免 sidecar 崩溃或宿主环境更新永久阻断该 root。
 
-`EffectiveConfigDigest` 只记录会改变 gopls/Go 构建语义的稳定身份。gopls 和 `go` 使用解析后的真实路径与二进制内容摘要；原始继承 `PATH` 不得直接进入 digest。Codex arg0 临时目录、重复 PATH 目录或不改变最终工具链解析结果的 PATH 顺序变化不得拆分 cohort；若 PATH 确实解析到不同的 gopls 或 Go 工具链，则必须产生不同配置并服从上述代际准入规则。
+`EffectiveConfigDigest` 只记录会改变 gopls/Go 构建语义的稳定身份。gopls 和 `go` 使用解析后的真实路径与二进制内容摘要；显式 `CC`、`CXX`、`FC`、`AR`、`GCCGO`、`GOCACHEPROG`、`PKG_CONFIG` 同时绑定原命令与解析后工具的真实路径、内容摘要。`GOCACHE`、`GOMODCACHE`、`GOPATH`、`GOROOT` 未设置与显式设置为同一 `go` 二进制报告的默认值属于同一语义身份；真正偏离默认值的配置仍必须进入 digest。原始继承 `PATH` 不得直接进入 digest，未列入 Go 构建语义白名单的同前缀变量（例如 `GOOGLE_*`）也不得进入。Codex arg0 临时目录、重复 PATH 目录或不改变最终工具链解析结果的 PATH 顺序变化不得拆分 cohort；若 PATH 确实解析到不同的 gopls、Go 或显式辅助工具，则必须产生不同配置并服从上述代际准入规则。
 
 最后一个 member 释放时，state 记录 15 分钟 `IdleDeadline`、`DrainEpoch` 和 owner evidence。唯一 owner callback 负责关闭该 member 的 gopls forwarder；deadline 到达后先以 epoch/fence 二次复核，再执行 callback，成功写入 completion receipt。新的 admission 会在同一把锁内原子提升 epoch；跨 sidecar 不得被旧 owner 的 15 分钟 drain 阻断，而是把旧 fence 转入独立的 typed `PendingCleanups` journal。旧 sidecar 仍是该 fence 的唯一 cleanup owner，新 epoch 绝不执行旧 callback。callback 失败保留对应 fence 的 owner evidence、`cleanup_pending` 和 retry deadline；owner callback 不可达时继续保留该 pending 证据，绝不越权关闭旧 forwarder。不使用 RSS/ps 进程扫描或 kill 兜底。
 

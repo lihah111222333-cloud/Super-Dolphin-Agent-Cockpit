@@ -178,7 +178,7 @@ func TestRuntimeServerResourceCohortDirIsolatesGoplsDaemons(t *testing.T) {
 	}
 }
 
-func TestRuntimeGoplsRemoteIDAndResourceDirShareCanonicalIdentity(t *testing.T) {
+func TestRuntimeGoplsRemoteIDBindsRealpathAndResourceDirUsesRemoteID(t *testing.T) {
 	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
 	firstBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
 	secondBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
@@ -189,8 +189,8 @@ func TestRuntimeGoplsRemoteIDAndResourceDirShareCanonicalIdentity(t *testing.T) 
 	firstArgs := mustRuntimeServerArgs(t, command, firstBinary, []string{"GOOS=darwin"})
 	secondArgs := mustRuntimeServerArgs(t, command, secondBinary, []string{"GOOS=darwin"})
 	firstID := runtimeServerGoplsRemoteID(firstArgs)
-	if firstID == "" || firstID != runtimeServerGoplsRemoteID(secondArgs) {
-		t.Fatalf("same gopls content did not reuse canonical remote ID: first=%v second=%v", firstArgs, secondArgs)
+	if firstID == "" || firstID == runtimeServerGoplsRemoteID(secondArgs) {
+		t.Fatalf("different gopls realpaths reused one remote ID: first=%v second=%v", firstArgs, secondArgs)
 	}
 	resourceCommand := command
 	resourceCommand.Args = firstArgs
