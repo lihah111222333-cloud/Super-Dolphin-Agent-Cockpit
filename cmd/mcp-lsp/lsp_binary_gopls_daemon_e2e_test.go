@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -120,6 +122,101 @@ func TestMcpLSPBinaryCodexHostIgnoresUnrelatedGOEnvironmentForRootCohort_E2E(t *
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, second, secondResult, "Codex host sidecar B document_symbol with unrelated GO environment drift")
+}
+
+// TestMcpLSPBinaryNewGenerationReplacesResidualGoplsDaemonSameRoot_E2E 复现同一
+// canonical cwd 的上一代 sidecar 异常退出、daemon 仍存活且 active 状态保留上一代
+// completion receipt；新一代必须在旧 daemon 被精确终止后完成配置轮换并重新提供 LSP。
+func TestMcpLSPBinaryNewGenerationReplacesResidualGoplsDaemonSameRoot_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping residual gopls generation replacement E2E in short mode")
+	}
+	if gostdruntime.GOOS == "windows" {
+		t.Skip("gopls auto daemon IDs are unsupported on Windows")
+	}
+	goplsPath, err := exec.LookPath("gopls")
+	if err != nil {
+		t.Fatalf("gopls is required for residual generation E2E: %v", err)
+	}
+
+	roots, targets := writeRealGoplsLinkedWorktreeFixtures(t)
+	root, target := roots[0], targets[0]
+	binary := buildMcpLSPBinaryForTest(t)
+	runtimeDir, err := os.MkdirTemp("/tmp", "mcp-lsp-gopls-replace-")
+	if err != nil {
+		t.Fatalf("create residual gopls runtime dir: %v", err)
+	}
+	t.Cleanup(func() {
+		killAllGoplsDaemonProcessesForE2E(t, goplsPath, runtimeDir)
+		if err := os.RemoveAll(runtimeDir); err != nil {
+			t.Errorf("remove residual gopls runtime dir: %v", err)
+		}
+	})
+	baseEnv := []string{
+		"XDG_RUNTIME_DIR=" + runtimeDir,
+		"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(runtimeDir, "lsp-resource"),
+		"AGENT_LSP_GO_RSS_LIMIT_MB=384",
+		"GOWORK=off",
+		"MCP_LSP_IDLE_TIMEOUT=" + realGoplsRemoteListenTimeout.String(),
+	}
+	oldEnv := append(slices.Clone(baseEnv), "GOFLAGS=-tags=old_gopls_generation")
+	newEnv := append(slices.Clone(baseEnv), "GOFLAGS=-tags=new_gopls_generation")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	first := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, filepath.Dir(goplsPath), oldEnv)
+	t.Cleanup(func() { first.close(t) })
+	first.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	firstResult := first.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, first, firstResult, "old generation document_symbol")
+	oldDaemon := requireSingleGoplsDaemonProcess(t, goplsPath, runtimeDir)
+
+	first.close(t)
+	second := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, filepath.Dir(goplsPath), oldEnv)
+	t.Cleanup(func() { second.close(t) })
+	second.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	secondResult := second.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, second, secondResult, "old generation re-admission before crash")
+	if got := requireSingleGoplsDaemonProcess(t, goplsPath, runtimeDir).PID; got != oldDaemon.PID {
+		t.Fatalf("old generation daemon PID changed before crash: got=%d want=%d", got, oldDaemon.PID)
+	}
+	next := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, filepath.Dir(goplsPath), newEnv)
+	t.Cleanup(func() { next.close(t) })
+	next.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	conflict := next.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireGoplsRootCohortConflict(t, next, conflict)
+	killGoplsDaemonProcessForE2E(t, goplsPath, runtimeDir, oldDaemon)
+	if processes := requireGoplsDaemonProcesses(t, goplsPath, runtimeDir); len(processes) != 0 {
+		t.Fatalf("old generation daemon remained after exact-PID termination: %#v", processes)
+	}
+	killMcpLSPBinaryClientAbruptly(t, second)
+	nextResult := next.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, next, nextResult, "new generation document_symbol after residual daemon termination")
+	newDaemon := requireSingleGoplsDaemonProcess(t, goplsPath, runtimeDir)
+	if newDaemon.PID == oldDaemon.PID {
+		t.Fatalf("new generation reused terminated daemon PID %d", newDaemon.PID)
+	}
+	t.Logf("new gopls generation replaced residual daemon: old_pid=%d new_pid=%d", oldDaemon.PID, newDaemon.PID)
+}
+
+func requireGoplsRootCohortConflict(t *testing.T, client *mcpLSPBinaryClient, response mcpLSPBinaryResponse) {
+	t.Helper()
+	if !response.Result.IsError || !strings.Contains(response.Result.ContentText(), multilsp.ErrGoplsRootCohortConfigConflict.Error()) {
+		t.Fatalf("new generation did not reproduce immutable-config conflict before exact cleanup: text=%q structured=%s stderr=%s",
+			response.Result.ContentText(), response.Result.StructuredContent, client.stderrString())
+	}
 }
 
 func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
@@ -380,13 +477,124 @@ func listGoplsDaemonProcesses(goplsPath, runtimeDir string) ([]goplsDaemonProces
 			continue
 		}
 		command := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
-		if !strings.Contains(command, goplsPath) || !strings.Contains(command, " serve ") ||
-			!strings.Contains(command, "-listen") || !strings.Contains(command, runtimeDir) {
+		if !goplsDaemonCommandOwnsRuntime(command, goplsPath, runtimeDir) {
 			continue
 		}
 		processes = append(processes, goplsDaemonProcess{PID: pid, Command: command})
 	}
 	return processes, nil
+}
+
+func goplsDaemonCommandOwnsRuntime(command, goplsPath, runtimeDir string) bool {
+	fields := strings.Fields(command)
+	if len(fields) < 3 || filepath.Clean(fields[0]) != filepath.Clean(goplsPath) || fields[1] != "serve" {
+		return false
+	}
+	listen, ok := goplsDaemonListenAddress(fields[2:])
+	if !ok || !strings.HasPrefix(listen, "unix;") {
+		return false
+	}
+	return pathIsWithinDirectory(strings.TrimPrefix(listen, "unix;"), runtimeDir)
+}
+
+func TestGoplsDaemonCommandOwnsRuntimeRequiresExactBinaryAndSocketRoot(t *testing.T) {
+	goplsPath := "/opt/tools/gopls"
+	runtimeDir := "/tmp/mcp-lsp-owned"
+	tests := []struct {
+		name    string
+		command string
+		want    bool
+	}{
+		{name: "separate listen argument", command: goplsPath + " serve -listen unix;" + runtimeDir + "/daemon.sock", want: true},
+		{name: "equals listen argument", command: goplsPath + " serve -listen=unix;" + runtimeDir + "/daemon.sock", want: true},
+		{name: "different binary", command: "/opt/tools/other-gopls serve -listen unix;" + runtimeDir + "/daemon.sock"},
+		{name: "sibling runtime prefix", command: goplsPath + " serve -listen unix;" + runtimeDir + "-other/daemon.sock"},
+		{name: "non daemon command", command: goplsPath + " remote -listen unix;" + runtimeDir + "/daemon.sock"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := goplsDaemonCommandOwnsRuntime(test.command, goplsPath, runtimeDir); got != test.want {
+				t.Fatalf("goplsDaemonCommandOwnsRuntime(%q) = %v, want %v", test.command, got, test.want)
+			}
+		})
+	}
+}
+
+func goplsDaemonListenAddress(arguments []string) (string, bool) {
+	for index, argument := range arguments {
+		if strings.HasPrefix(argument, "-listen=") {
+			return strings.TrimPrefix(argument, "-listen="), true
+		}
+		if argument == "-listen" && index+1 < len(arguments) {
+			return arguments[index+1], true
+		}
+	}
+	return "", false
+}
+
+func pathIsWithinDirectory(path, directory string) bool {
+	relative, err := filepath.Rel(directory, path)
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
+}
+
+func killMcpLSPBinaryClientAbruptly(t *testing.T, client *mcpLSPBinaryClient) {
+	t.Helper()
+	if client == nil || client.cmd == nil || client.cmd.Process == nil {
+		t.Fatal("mcp-lsp client process is unavailable for abrupt termination")
+	}
+	cmd := client.cmd
+	client.cmd = nil
+	_ = client.stdin.Close()
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("kill old mcp-lsp sidecar: %v", err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("abruptly terminated mcp-lsp sidecar exited successfully")
+	}
+}
+
+func killGoplsDaemonProcessForE2E(t *testing.T, goplsPath, runtimeDir string, expected goplsDaemonProcess) {
+	t.Helper()
+	processes := requireGoplsDaemonProcesses(t, goplsPath, runtimeDir)
+	if len(processes) != 1 || processes[0] != expected {
+		t.Fatalf("refuse ambiguous gopls kill: got=%#v want exact runtime-owned process=%#v", processes, expected)
+	}
+	if err := syscall.Kill(expected.PID, 0); err != nil {
+		t.Fatalf("exact residual gopls PID %d is not live before kill: %v", expected.PID, err)
+	}
+	process, err := os.FindProcess(expected.PID)
+	if err != nil {
+		t.Fatalf("find residual gopls daemon %d: %v", expected.PID, err)
+	}
+	if err := process.Kill(); err != nil {
+		t.Fatalf("kill residual gopls daemon %d: %v", expected.PID, err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		remaining := requireGoplsDaemonProcesses(t, goplsPath, runtimeDir)
+		if !slices.ContainsFunc(remaining, func(process goplsDaemonProcess) bool { return process.PID == expected.PID }) {
+			if err := syscall.Kill(expected.PID, 0); !errors.Is(err, syscall.ESRCH) {
+				t.Fatalf("exact residual gopls PID %d was not proven exited: %v", expected.PID, err)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("residual gopls daemon PID %d remained after kill: %#v", expected.PID, remaining)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func killAllGoplsDaemonProcessesForE2E(t *testing.T, goplsPath, runtimeDir string) {
+	t.Helper()
+	processes, err := listGoplsDaemonProcesses(goplsPath, runtimeDir)
+	if err != nil {
+		t.Errorf("list residual gopls daemons during cleanup: %v", err)
+		return
+	}
+	for _, process := range processes {
+		killGoplsDaemonProcessForE2E(t, goplsPath, runtimeDir, process)
+	}
 }
 
 func assertGoplsDaemonCommandTimeout(t *testing.T, daemon goplsDaemonProcess) {

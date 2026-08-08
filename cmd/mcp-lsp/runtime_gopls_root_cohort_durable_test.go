@@ -219,6 +219,8 @@ func TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix(t *testing
 	cleanCompleted.DrainStatus = runtimeGoplsRootCohortDrainCompleted
 	cleanCompleted.CompletionReceipt = "completion-receipt"
 	cleanCompleted.CompletionUnixNano = 1
+	activeAfterCompletedDrain := cleanCompleted
+	activeAfterCompletedDrain.DrainStatus = runtimeGoplsRootCohortDrainActive
 
 	tests := []struct {
 		name  string
@@ -227,6 +229,7 @@ func TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix(t *testing
 	}{
 		{name: "nil", state: nil},
 		{name: "clean active", state: &cleanActive, want: true},
+		{name: "active after completed drain", state: &activeAfterCompletedDrain, want: true},
 		{name: "clean completed with receipt", state: &cleanCompleted, want: true},
 	}
 	dirtyCases := []struct {

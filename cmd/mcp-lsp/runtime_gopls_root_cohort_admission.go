@@ -148,7 +148,8 @@ func runtimeServerGoplsRootCohortConfigRotationAllowed(state *runtimeServerDurab
 func runtimeServerGoplsRootCohortCompletionEvidenceValid(state *runtimeServerDurableGoplsRootCohortState) bool {
 	switch state.DrainStatus {
 	case runtimeGoplsRootCohortDrainActive:
-		return state.CompletionReceipt == "" && state.CompletionUnixNano == 0
+		return (state.CompletionReceipt == "" && state.CompletionUnixNano == 0) ||
+			(state.CompletionReceipt != "" && state.CompletionUnixNano > 0)
 	case runtimeGoplsRootCohortDrainCompleted:
 		return state.CompletionReceipt != "" && state.CompletionUnixNano > 0
 	default:
