@@ -5,37 +5,27 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-func TestDurationLedgerSQLiteMigratesV10CompileTimingSchema(t *testing.T) {
+func TestDurationLedgerSQLiteRejectsRetiredV10CompileTimingSchema(t *testing.T) {
 	database := openStrictSchemaTestDatabase(t, "compile-timing-v10.sqlite")
 	defer database.Close()
-	for _, statement := range durationLedgerSQLiteV10SchemaStatements() {
+	for _, statement := range durationLedgerSQLiteCurrentSchemaStatements() {
 		if _, err := database.Exec(statement); err != nil {
-			t.Fatalf("create v10 schema: %v", err)
+			t.Fatalf("create retired-version fixture: %v", err)
 		}
 	}
 	if _, err := database.Exec("PRAGMA user_version = 10"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
-		t.Fatalf("migrate v10 schema: %v", err)
-	}
-	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != durationLedgerSQLiteSchemaVersion {
-		t.Fatalf("migrated schema version = %d, want %d", got, durationLedgerSQLiteSchemaVersion)
-	}
-	if err := newDurationLedgerSQLiteSchemaValidator().preflight(database, durationLedgerSQLiteSchemaVersion); err != nil {
-		t.Fatalf("migrated schema preflight: %v", err)
-	}
-	columns := sqliteTableColumns(t, database, cicontract.CompileTimingObservationsTable)
-	for _, retiredColumn := range []string{"accepted_generation", "status", "authoritative", "cleanup_complete"} {
-		if slices.Contains(columns, retiredColumn) {
-			t.Fatalf("compile timing table repeats ci_runs authority column %q: %v", retiredColumn, columns)
-		}
+	err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator())
+	if err == nil || !strings.Contains(err.Error(), "schema version 10 is unsupported") {
+		t.Fatalf("retired v10 schema error = %v, want unsupported", err)
 	}
 }
 

@@ -168,11 +168,6 @@ func workloadPassEvidenceBatchQuery(identities []WorkloadPassIdentity, retainedG
 			AND runs.accepted_generation = evidence.accepted_generation
 			AND runs.source_tree_sha = evidence.origin_source_tree_sha
 		WHERE evidence.identity_digest IN (` + placeholders + `)
-			AND NOT EXISTS (
-				SELECT 1 FROM ci_workload_pass_evidence_aliases AS aliases
-				WHERE aliases.alias_identity_digest = evidence.identity_digest
-				AND aliases.alias_accepted_generation = evidence.accepted_generation
-			)
 			AND evidence.accepted_generation IN (?, ?, ?)
 			AND (
 				(runs.status = 'passed' AND runs.authoritative = 1 AND runs.cleanup_complete = 1)
@@ -263,7 +258,7 @@ func loadWorkloadPassEvidenceOriginContext(
 	return loadWorkloadPassEvidenceBaseOriginContext(tx, evidence, stats)
 }
 
-// loadWorkloadPassEvidenceBaseOriginContext 加载非 alias 证据的来源 run、receipt 和 provisional 索引。
+// loadWorkloadPassEvidenceBaseOriginContext 加载基础证据的来源 run、receipt 和 provisional 索引。
 func loadWorkloadPassEvidenceBaseOriginContext(
 	tx *sql.Tx,
 	evidence WorkloadPassEvidence,
@@ -310,7 +305,7 @@ func validateStoredWorkloadPassEvidenceWithOriginContext(
 	return validateStoredWorkloadPassEvidenceBase(origin, evidence)
 }
 
-// validateStoredWorkloadPassEvidenceBase 验证非 alias 证据的 origin、运行终态、provisional 执行和 receipt。
+// validateStoredWorkloadPassEvidenceBase 验证基础证据的 origin、运行终态、provisional 执行和 receipt。
 func validateStoredWorkloadPassEvidenceBase(
 	origin workloadPassEvidenceOriginContext,
 	evidence WorkloadPassEvidence,

@@ -205,9 +205,10 @@ func (client *Client) downloadAttempt(ctx context.Context, destination io.Writer
 	defer func() {
 		closeErr := temporary.Close()
 		removeErr := os.Remove(temporaryPath)
-		if returnErr == nil && (closeErr != nil || removeErr != nil) {
+		cleanupErr := errors.Join(closeErr, removeErr)
+		if cleanupErr != nil {
 			returnSize = 0
-			returnErr = fmt.Errorf("clean OSS download staging file: %w", errors.Join(closeErr, removeErr))
+			returnErr = errors.Join(returnErr, fmt.Errorf("clean OSS download staging file: %w", cleanupErr))
 		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {

@@ -604,7 +604,7 @@ func distributeCompileUnits(units []compilePlanningUnit, count int) ([]ShardPlan
 		affinities[index] = make(map[string]struct{})
 	}
 	for _, unit := range units {
-		index, ok := compileUnitShardIndex(shards, affinities, unit.affinityKey)
+		index, ok := compileUnitShardIndexForCompileGroup(shards, affinities, unit.affinityKey, unit.group != nil)
 		if !ok {
 			return nil, false
 		}
@@ -615,14 +615,30 @@ func distributeCompileUnits(units []compilePlanningUnit, count int) ([]ShardPlan
 		shards[index].EstimatedDurationMS += unit.costMS
 		affinities[index][unit.affinityKey] = struct{}{}
 	}
+	for _, shard := range shards {
+		if len(shard.CompileGroupIDs) > 1 {
+			return nil, false
+		}
+	}
 	return shards, true
 }
 
-// compileUnitShardIndex 选择尚未占用同一编译 artifact 且当前负载最小的分片。
+// compileUnitShardIndex 保留普通 workload 的旧 helper 形状；compile-group
+// planner 使用下面带不变量参数的专用实现。
 func compileUnitShardIndex(shards []ShardPlan, affinities []map[string]struct{}, affinityKey string) (int, bool) {
+	return compileUnitShardIndexForCompileGroup(shards, affinities, affinityKey, false)
+}
+
+// compileUnitShardIndexForCompileGroup 选择尚未占用同一编译 artifact 且当前负载最小的分片。
+// compile group 是 ECI shard 的唯一 test-binary batch；带 group 的 unit
+// 不得落入已经承载另一个 group 的 shard，即使 artifact 不同也不能合并。
+func compileUnitShardIndexForCompileGroup(shards []ShardPlan, affinities []map[string]struct{}, affinityKey string, compileGroup bool) (int, bool) {
 	least := -1
 	for index := range shards {
 		if _, duplicate := affinities[index][affinityKey]; duplicate {
+			continue
+		}
+		if compileGroup && len(shards[index].CompileGroupIDs) != 0 {
 			continue
 		}
 		if least < 0 || shards[index].EstimatedDurationMS < shards[least].EstimatedDurationMS {
@@ -688,7 +704,8 @@ func compileInputsFromPlan(plan WorkloadExecutionPlan) (map[GateID]CompileGroupI
 	return inputs, nil
 }
 
-// compileGroupAffinityFromShardIDs 校验单个 shard 不重复引用编译组或 artifact。
+// compileGroupAffinityFromShardIDs 校验单个 shard 只引用一个 compile group，
+// 并拒绝重复引用 compile group 或 artifact。
 func compileGroupAffinityFromShardIDs(groups map[string]CompileGroup, shard ShardPlan) error {
 	seen := make(map[string]string, len(shard.CompileGroupIDs))
 	for _, groupID := range shard.CompileGroupIDs {
@@ -709,6 +726,9 @@ func compileGroupAffinityFromShardIDs(groups map[string]CompileGroup, shard Shar
 			}
 		}
 		seen[groupID] = artifactKey
+	}
+	if len(shard.CompileGroupIDs) > 1 {
+		return fmt.Errorf("shard %d must contain exactly one compile group (found %d)", shard.Index, len(shard.CompileGroupIDs))
 	}
 	return nil
 }

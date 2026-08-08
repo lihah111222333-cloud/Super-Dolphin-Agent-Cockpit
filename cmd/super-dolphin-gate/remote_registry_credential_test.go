@@ -20,7 +20,7 @@ func TestLoadRemoteRegistryCredentialRequiresBothEnvironmentValues(t *testing.T)
 	if err != nil {
 		t.Fatalf("loadRemoteRegistryCredential() error = %v", err)
 	}
-	if credential.Server != remoteRuntimeRegistryServer || credential.UserName != "ci-user" || credential.Password != "ci-token" {
+	if credential.Server != cicontract.RemoteRegistryServer || credential.UserName != "ci-user" || credential.Password != "ci-token" {
 		t.Fatalf("loadRemoteRegistryCredential() = %#v", credential)
 	}
 	t.Setenv(remoteRegistryTokenEnvironment, "")

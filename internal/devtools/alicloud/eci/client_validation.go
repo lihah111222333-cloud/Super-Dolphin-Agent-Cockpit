@@ -5,16 +5,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const (
-	sourceVolumeName      = "source-data"
-	workVolumeName        = "work-data"
-	tempVolumeName        = "temp-data"
-	privateRegistryServer = "ghcr.io"
+	sourceVolumeName = "source-data"
+	workVolumeName   = "work-data"
+	tempVolumeName   = "temp-data"
 )
 
 // validateConfig 在启动 CLI 前阻断不完整基础设施配置和不可表示的资源值。
@@ -84,24 +82,10 @@ func validateRegistryCredential(credential RegistryCredential, request CreateReq
 
 // validateRegistryCredentialShape 校验凭据字段完整、无控制字符且固定为 GHCR。
 func validateRegistryCredentialShape(credential RegistryCredential) error {
-	if !validRegistryCredentialValue(credential.Server) || !validRegistryCredentialValue(credential.UserName) || !validRegistryCredentialValue(credential.Password) {
-		return errors.New("ECI private registry credential is required for container creation")
-	}
-	if credential.Server != privateRegistryServer {
-		return fmt.Errorf("ECI registry credential server must be %q", privateRegistryServer)
-	}
-	if len(credential.UserName) > 256 || len(credential.Password) > 256 {
-		return errors.New("ECI registry credential exceeds 256 characters")
+	if err := cicontract.ValidateRemoteRegistryCredential(credential.Server, credential.UserName, credential.Password); err != nil {
+		return fmt.Errorf("ECI private registry credential: %w", err)
 	}
 	return nil
-}
-
-// validRegistryCredentialValue rejects empty values and any whitespace/control
-// rune so credentials cannot be split across CLI arguments or error output.
-func validRegistryCredentialValue(value string) bool {
-	return value != "" && strings.TrimSpace(value) == value && strings.IndexFunc(value, func(r rune) bool {
-		return unicode.IsSpace(r) || unicode.IsControl(r)
-	}) < 0
 }
 
 // imagesUseRegistry 要求主容器和物料容器都绑定同一个显式 registry 域名。

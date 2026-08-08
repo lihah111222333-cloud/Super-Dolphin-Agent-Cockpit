@@ -275,6 +275,47 @@ func TestStoredCompilePlanRejectsDuplicateArtifactResourceBinding(t *testing.T) 
 	}
 }
 
+func TestStoredCompilePlanRejectsDifferentArtifactsInOneShard(t *testing.T) {
+	firstInput := compileTestInput("./internal/archtest", "sha256:"+strings.Repeat("2", 64))
+	secondInput := compileTestInput("./internal/devtools/gate", "sha256:"+strings.Repeat("3", 64))
+	first, firstInputs := compileTestWorkloads(t, firstInput.PackageTarget, []string{"TestStoredArtifactFirst"}, 1_000, firstInput)
+	second, secondInputs := compileTestWorkloads(t, secondInput.PackageTarget, []string{"TestStoredArtifactSecond"}, 1_000, secondInput)
+	workloads := append(first, second...)
+	inputs := mergeCompileInputs(firstInputs, secondInputs)
+	context := testPlanningContext()
+	index, err := BuildDurationSampleIndex(testPlanningLedger(context, nil), context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, groups, err := planLPTWithCompileInputs(testWorkloadCatalog(workloads...), index, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("groups=%#v, want two artifact groups", groups)
+	}
+	firstArtifact, err := CompileArtifactKey(groups[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondArtifact, err := CompileArtifactKey(groups[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstArtifact == secondArtifact {
+		t.Fatal("fixture groups unexpectedly share an artifact")
+	}
+	executionIDs := []GateID{GateID(workloads[0].ID), GateID(workloads[1].ID)}
+	plan := WorkloadExecutionPlan{
+		ExecutionWorkloadIDs: executionIDs,
+		CompileGroups:        groups,
+		Shards:               []ShardPlan{{Index: 0, Workloads: []PlannedWorkload{{Workload: workloads[0], EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}, {Workload: workloads[1], EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}}, CompileGroupIDs: []string{groups[0].GroupID, groups[1].GroupID}, EstimatedDurationMS: groups[0].EstimatedDurationMS + groups[1].EstimatedDurationMS}},
+	}
+	if _, _, err := validateStoredCompileGroups(plan, testWorkloadCatalog(workloads...)); err == nil || !strings.Contains(err.Error(), "exactly one compile group") {
+		t.Fatalf("different-artifact shard validation error = %v", err)
+	}
+}
+
 func splitCompileGroupFixture(t *testing.T, source CompileGroup, workloadIDs []GateID, bodyEstimate int64) CompileGroup {
 	t.Helper()
 	group := source
@@ -340,6 +381,30 @@ func TestCompileAwarePlannerSeparatesPackageAffinity(t *testing.T) {
 	}
 	if firstKey == secondKey {
 		t.Fatal("different packages shared one compile artifact key")
+	}
+}
+
+func TestCompileAwarePlannerKeepsDifferentArtifactsInSeparateShards(t *testing.T) {
+	firstInput := compileTestInput("./internal/archtest", "sha256:"+strings.Repeat("e", 64))
+	secondInput := compileTestInput("./internal/devtools/gate", "sha256:"+strings.Repeat("f", 64))
+	first, firstInputs := compileTestWorkloads(t, firstInput.PackageTarget, []string{"TestArtifactFirst"}, 1_000, firstInput)
+	second, secondInputs := compileTestWorkloads(t, secondInput.PackageTarget, []string{"TestArtifactSecond"}, 1_000, secondInput)
+	inputs := mergeCompileInputs(firstInputs, secondInputs)
+	index, err := BuildDurationSampleIndex(testPlanningLedger(testPlanningContext(), nil), testPlanningContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	shards, groups, err := planLPTWithCompileInputs(testWorkloadCatalog(append(first, second...)...), index, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 2 || len(shards) != 2 {
+		t.Fatalf("groups=%d shards=%d, want each artifact in its own shard", len(groups), len(shards))
+	}
+	for _, shard := range shards {
+		if len(shard.CompileGroupIDs) != 1 {
+			t.Fatalf("shard %d compile groups=%v, want exactly one compile group", shard.Index, shard.CompileGroupIDs)
+		}
 	}
 }
 

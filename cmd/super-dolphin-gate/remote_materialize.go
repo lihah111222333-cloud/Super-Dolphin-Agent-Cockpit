@@ -34,9 +34,6 @@ const (
 	remoteRequestMaxBytes     = cicontract.RemoteShardRequestMaxBytes
 	remoteManifestMaxBytes    = 1 << 20
 	remoteSourceBundleMaxSize = 1 << 30
-	remoteSourceBaselineRoot  = "/opt/super-dolphin-gate/source-baseline.git"
-	remoteExecutorUID         = 65532
-	remoteExecutorGID         = 65532
 	remoteMaterializeTimeout  = 45 * time.Minute
 )
 
@@ -385,7 +382,7 @@ func syncRemoteManifestDirectory(workRoot string) error {
 
 // verifyRemoteMaterializedSource 复核 source bundle/manifest 并安装精确 detached sourceRoot。
 func verifyRemoteMaterializedSource(ctx context.Context, sourceRoot string, artifactRoot string, request remoteci.ShardRequest) error {
-	return verifyRemoteMaterializedSourceAtBaselineRoot(ctx, sourceRoot, artifactRoot, request, remoteSourceBaselineRoot)
+	return verifyRemoteMaterializedSourceAtBaselineRoot(ctx, sourceRoot, artifactRoot, request, cicontract.SourceBaselineRepositoryPath)
 }
 
 // verifyRemoteMaterializedSourceAtBaselineRoot 允许测试注入 baseline root，生产入口仍固定使用 accepted image 路径。
@@ -626,13 +623,13 @@ func applyRemoteManifestOwnership(workRoot, manifestPath string, chmod func(stri
 	if err := chmod(manifestPath, 0o400); err != nil {
 		return fmt.Errorf("protect remote shard execution manifest: %w", err)
 	}
-	if err := chown(manifestPath, remoteExecutorUID, remoteExecutorGID); err != nil {
+	if err := chown(manifestPath, cicontract.RemoteWorkerUID, cicontract.RemoteWorkerGID); err != nil {
 		return fmt.Errorf("assign remote shard execution manifest: %w", err)
 	}
 	if err := chmod(workRoot, 0o700); err != nil {
 		return fmt.Errorf("protect remote work root: %w", err)
 	}
-	if err := chown(workRoot, remoteExecutorUID, remoteExecutorGID); err != nil {
+	if err := chown(workRoot, cicontract.RemoteWorkerUID, cicontract.RemoteWorkerGID); err != nil {
 		return fmt.Errorf("assign remote work root to executor: %w", err)
 	}
 	return nil

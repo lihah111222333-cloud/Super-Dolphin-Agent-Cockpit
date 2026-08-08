@@ -105,7 +105,7 @@ func (store *DurationLedgerStore) RecordProvisionalRemoteCIRun(record RemoteCIRu
 	})
 }
 
-// recordProvisionalRemoteCIRunTransaction 写入 provisional run、观察事件与成功样本并压缩账本。
+// recordProvisionalRemoteCIRunTransaction 写入 provisional run、成功样本并压缩账本。
 func (store *DurationLedgerStore) recordProvisionalRemoteCIRunTransaction(
 	transaction *sql.Tx,
 	record RemoteCIRunRecord,
@@ -118,15 +118,6 @@ func (store *DurationLedgerStore) recordProvisionalRemoteCIRunTransaction(
 		return err
 	}
 	if err := promoteSQLiteRemoteCIProvisionalWorkloadPassEvidence(transaction, record); err != nil {
-		return err
-	}
-	if err := store.appendDurationLedgerObservationEvent(
-		transaction,
-		durationLedgerObservationEventRemoteRunPersist,
-		record.JobID,
-		strconv.FormatUint(record.AcceptedGeneration, 10),
-		record,
-	); err != nil {
 		return err
 	}
 	if len(acceptedSamples) != 0 {

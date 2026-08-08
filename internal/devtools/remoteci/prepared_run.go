@@ -96,8 +96,8 @@ func (prepared *PreparedRun) AllReused() bool {
 	return prepared.allReused
 }
 
-// RefreshPlanningSnapshot 仅在同步校准后，按冻结的 SQLite 权威和计划上下文重新加载耗时计划快照。
-func (prepared *PreparedRun) RefreshPlanningSnapshot(store *gate.DurationLedgerStore) error {
+// ReloadPlanningSnapshot 仅在同步校准后，按冻结的 SQLite 权威和计划上下文重新加载耗时计划快照。
+func (prepared *PreparedRun) ReloadPlanningSnapshot(store *gate.DurationLedgerStore) error {
 	if prepared == nil {
 		return errors.New("prepared remote CI run is required")
 	}
@@ -175,7 +175,7 @@ func (prepared *PreparedRun) bindPlanningOverheadDigest(snapshot gate.DurationLe
 		return fmt.Errorf("derive remote CI shard overhead identity: %w", err)
 	}
 	if prepared.planningOverheadDigest != "" && prepared.planningOverheadDigest != digest {
-		return errors.New("remote CI planning shard overhead identity drifted between refresh and execution")
+		return errors.New("remote CI planning shard overhead identity drifted between reload and execution")
 	}
 	prepared.planningOverheadDigest = digest
 	return nil

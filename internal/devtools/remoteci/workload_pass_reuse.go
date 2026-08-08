@@ -38,29 +38,24 @@ func remoteWorkloadPassIdentities(ctx context.Context, input RunInput, catalog g
 	return identities, nil
 }
 
-// remoteWorkloadPassInputDigests 复用 catalog 已绑定的输入摘要；缺失时才读取 exact tree 计算。
-func remoteWorkloadPassInputDigests(ctx context.Context, input RunInput, workloads []gate.Workload) (map[string]string, error) {
+// remoteWorkloadPassInputDigests 只读取 Prepare 已绑定的生产输入摘要；缺失摘要直接阻断，禁止回退到 exact tree 重算。
+func remoteWorkloadPassInputDigests(_ context.Context, input RunInput, workloads []gate.Workload) (map[string]string, error) {
 	inputDigests := cloneRemoteWorkloadInputDigests(input.WorkloadInputDigests)
-	missing := false
 	for _, workload := range workloads {
-		if strings.TrimSpace(workload.InputDigest) == "" && strings.TrimSpace(inputDigests[workload.ID]) == "" {
-			missing = true
-			break
+		catalogDigest := strings.TrimSpace(workload.InputDigest)
+		boundDigest := strings.TrimSpace(inputDigests[workload.ID])
+		if catalogDigest != "" && boundDigest != "" && catalogDigest != boundDigest {
+			return nil, fmt.Errorf("remote workload %q input digest drifted between catalog and run input", workload.ID)
 		}
-	}
-	if !missing {
-		return inputDigests, nil
-	}
-	computed, err := remoteWorkloadInputDigests(ctx, input.RepositoryRoot, input.Tree, workloads)
-	if err != nil {
-		return nil, err
-	}
-	if inputDigests == nil {
-		inputDigests = make(map[string]string, len(computed))
-	}
-	for workloadID, digest := range computed {
-		if inputDigests[workloadID] == "" {
-			inputDigests[workloadID] = digest
+		if catalogDigest != "" {
+			if inputDigests == nil {
+				inputDigests = make(map[string]string, len(workloads))
+			}
+			inputDigests[workload.ID] = catalogDigest
+			continue
+		}
+		if boundDigest == "" {
+			return nil, fmt.Errorf("remote workload %q input digest is missing from bound catalog", workload.ID)
 		}
 	}
 	return inputDigests, nil
@@ -429,7 +424,7 @@ func completeRemoteReuse(catalog gate.WorkloadCatalog, reused map[string]gate.Wo
 	return result, nil
 }
 
-func remoteCIWorkloadResults(result RunResult) []gate.RemoteCIWorkloadResult {
+func remoteCIWorkloadResults(result RunResult) ([]gate.RemoteCIWorkloadResult, error) {
 	results := make([]gate.RemoteCIWorkloadResult, 0, len(result.ReusedWorkloads)+len(result.FreshWorkloadExecutions))
 	identities := make(map[gate.GateID]gate.WorkloadPassIdentity, len(result.WorkloadPassIdentities))
 	for _, identity := range result.WorkloadPassIdentities {
@@ -438,12 +433,14 @@ func remoteCIWorkloadResults(result RunResult) []gate.RemoteCIWorkloadResult {
 	for _, evidence := range result.ReusedWorkloads {
 		results = append(results, gate.RemoteCIWorkloadResult{Identity: evidence.Identity, Disposition: gate.WorkloadDispositionReused, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration, EvidenceSHA256: evidence.EvidenceSHA256})
 	}
+	var identityErr error
 	for _, execution := range result.FreshWorkloadExecutions {
 		identity, ok := identities[execution.GateID]
 		if !ok {
+			identityErr = errors.Join(identityErr, fmt.Errorf("fresh workload execution %q is missing WorkloadPassIdentity", execution.GateID))
 			continue
 		}
 		results = append(results, gate.RemoteCIWorkloadResult{Identity: identity, Disposition: gate.WorkloadDispositionExecuted, OriginJobID: result.JobID, OriginAcceptedGeneration: result.AcceptedGeneration})
 	}
-	return results
+	return results, identityErr
 }

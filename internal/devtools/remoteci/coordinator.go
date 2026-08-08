@@ -29,8 +29,9 @@ const remoteShardDiagnosticMaxBytes = 4 << 10
 // ErrGateFailed marks a valid remote report whose gate outcome is not green.
 var ErrGateFailed = errors.New("remote CI gate execution failed")
 
-// ObjectStore owns remote objects. Create is atomic create-only; callers must
-// never use it as an overwrite operation.
+// ObjectStore owns remote objects. Create is atomic create-only and must return
+// only after the real object's metadata, size, digest and read-back have been
+// verified; callers must never use it as an overwrite operation.
 type ObjectStore interface {
 	Create(context.Context, string, string) error
 	DeletePrefix(context.Context, string) error
@@ -667,14 +668,16 @@ func (coordinator *Coordinator) uploadAndCreateRemoteGroup(ctx context.Context, 
 		return "", nil, fmt.Errorf("write remote shard request: %w", err)
 	}
 	uploadedKeys := make([]string, 0, 2)
+	// create-only 上传的错误不等于远端未落对象（例如 ACK/409 不确定成功）。
+	// 在每次调用前登记键，确保后续受限 job prefix cleanup 不遗漏可能副作用。
+	uploadedKeys = append(uploadedKeys, bootstrapRequestKey)
 	if err := coordinator.store.Create(ctx, bootstrapPath, bootstrapRequestKey); err != nil {
 		return "", uploadedKeys, fmt.Errorf("upload remote bootstrap shard request: %w", err)
 	}
-	uploadedKeys = append(uploadedKeys, bootstrapRequestKey)
+	uploadedKeys = append(uploadedKeys, requestKey)
 	if err := coordinator.store.Create(ctx, fullPath, requestKey); err != nil {
 		return "", uploadedKeys, fmt.Errorf("upload remote shard request: %w", err)
 	}
-	uploadedKeys = append(uploadedKeys, requestKey)
 	group, err := coordinator.runtime.CreateContainerGroup(ctx, coordinator.createRequest(jobID, shard, resources, bootstrapRequestKey, bootstrapDigest, requestKey, fullDigest, request.ShardExecutionManifestDigest, input))
 	if err != nil {
 		return "", uploadedKeys, fmt.Errorf("create remote CI shard %d: %w", index, err)

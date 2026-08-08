@@ -123,7 +123,6 @@ func remoteCIWorkflowExtension(name string) bool {
 func assertRemoteCIScriptsDoNotHostGitHub(t *testing.T, root string) {
 	t.Helper()
 	for relative, forbidden := range map[string][]string{
-		"scripts/ci_commit_guard.sh":     {"GITHUB_EVENT_NAME", "GITHUB_BASE_SHA", "GITHUB_HEAD_SHA", "GITHUB_EVENT_BEFORE", "GITHUB_SHA", "resolve_github_range"},
 		"scripts/ci_truth_image_gate.sh": {"workflow-host", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"},
 	} {
 		source := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(relative)))
@@ -452,17 +451,6 @@ func run() { ApplySourceSnapshotDelta(BuildSourceSnapshotDelta()); _ = ".source-
 		if !strings.Contains(violations, required) {
 			t.Fatalf("source snapshot delta fixture violations = %q, missing %q", violations, required)
 		}
-	}
-}
-
-// TestRemoteCIWorkloadProjectionRejectsOnlyLegacyReusePaths 允许严格 SQLite 证据路径，
-// 同时阻止已退役缓存或 schema 名称成为第二权威。
-func TestRemoteCIWorkloadProjectionRejectsOnlyLegacyReusePaths(t *testing.T) {
-	root := findRepoRoot(t)
-	path := filepath.Join(root, "internal", "devtools", "remoteci", "workload_projection.go")
-	parsed := parseRemoteCIContractGuardFile(t, path)
-	for _, violation := range remoteCIWorkloadPassReuseViolations(parsed) {
-		t.Errorf("workload projection retains forbidden legacy reuse path %s", violation)
 	}
 }
 

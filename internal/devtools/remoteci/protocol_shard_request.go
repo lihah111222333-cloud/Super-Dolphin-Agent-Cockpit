@@ -222,6 +222,9 @@ func validateGateIDs(ids []gate.GateID) error {
 // validateShardExecutionManifest 将完整有序 compile-group manifest 绑定到精确分片请求；
 // worker 从固定 work-data 路径接收同一份 manifest，不得从 GateIDs 重建分组。
 func (request ShardRequest) validateShardExecutionManifest() error {
+	if len(request.CompileGroups) > 1 {
+		return fmt.Errorf("remote shard request must contain exactly one compile group (found %d)", len(request.CompileGroups))
+	}
 	if err := request.validateCompileGroupResourceBinding(); err != nil {
 		return err
 	}

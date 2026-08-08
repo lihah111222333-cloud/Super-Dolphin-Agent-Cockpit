@@ -252,27 +252,3 @@ if not any("forbidden RunGroup contract pattern" in item for item in failures):
 		t.Fatalf("backend skill semantic guard rejected expected contract: %v\n%s", err, out)
 	}
 }
-
-func TestCICommitGuardFallsBackToOriginMainForLocalRun(t *testing.T) {
-	root := prepareFixTestGuardRepo(t)
-	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-	copyCommitTitleGuard(t, root, "")
-	runFixTestGuardGit(t, root, "update-ref", "refs/remotes/origin/main", "HEAD")
-	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "refs/remotes/origin/main"))
-
-	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
-	runFixTestGuardGit(t, root, "add", "docs/readme.md")
-	runFixTestGuardGit(t, root, "commit", "-m", "docs: 更新 local guard")
-	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
-
-	out, err := runCICommitGuard(t, root)
-	if err != nil {
-		t.Fatalf("local ci commit guard failed: %v\n%s", err, out)
-	}
-	assertOutputContainsAll(t, out,
-		"[ci-commit-guard] Chinese commit message guard: "+base+".."+head,
-		"Chinese commit message guard OK",
-		"[ci-commit-guard] fix-test guard: "+base+".."+head,
-		"fix-test guard OK",
-	)
-}

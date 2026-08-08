@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -408,7 +409,7 @@ func prepareCurrentRemoteManifestTemp(
 	if err := chmod(workRoot, 0o700); err != nil {
 		return "", fmt.Errorf("protect current manifest work root: %w", err)
 	}
-	if err := chown(workRoot, remoteExecutorUID, remoteExecutorGID); err != nil {
+	if err := chown(workRoot, cicontract.RemoteWorkerUID, cicontract.RemoteWorkerGID); err != nil {
 		return "", fmt.Errorf("assign current manifest work root: %w", err)
 	}
 	temporary, err := os.CreateTemp(workRoot, ".shard-execution-manifest-current-*")
@@ -421,7 +422,7 @@ func prepareCurrentRemoteManifestTemp(
 		_ = os.Remove(temporaryPath)
 		return "", err
 	}
-	if err := chown(temporaryPath, remoteExecutorUID, remoteExecutorGID); err != nil {
+	if err := chown(temporaryPath, cicontract.RemoteWorkerUID, cicontract.RemoteWorkerGID); err != nil {
 		_ = temporary.Close()
 		_ = os.Remove(temporaryPath)
 		return "", fmt.Errorf("assign current shard execution manifest temporary file: %w", err)

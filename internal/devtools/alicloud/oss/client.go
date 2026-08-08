@@ -4,6 +4,8 @@ package oss
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,7 +108,209 @@ func (c *client) Create(ctx context.Context, localPath string, key string) error
 	if err != nil {
 		return err
 	}
-	return c.copy(ctx, "create", localPath, objectURL, "--meta", "x-oss-forbid-overwrite:true")
+	digest, size, err := localFileDigestAndSize(localPath)
+	if err != nil {
+		return fmt.Errorf("inspect OSS create source: %w", err)
+	}
+	if err := c.copy(ctx, "create", localPath, objectURL,
+		"--meta", strings.Join([]string{
+			"x-oss-forbid-overwrite:true",
+			"x-oss-meta-sha256:" + digest,
+			"x-oss-meta-size:" + strconv.FormatInt(size, 10),
+		}, "#"),
+	); err != nil {
+		return err
+	}
+	if err := c.verifyCreatedObject(ctx, objectURL, key, digest, size); err != nil {
+		return fmt.Errorf("verify OSS object %s after create: %w", key, err)
+	}
+	return nil
+}
+
+// verifyCreatedObject 在 Create 返回成功前复核远端 metadata、大小与读回摘要。
+// 这样 ACK/409 等不确定成功不会把未验证对象当作可供 ECI 使用的资产。
+func (c *client) verifyCreatedObject(ctx context.Context, objectURL string, key string, expectedDigest string, expectedSize int64) (returnErr error) {
+	statOutput, err := c.run(ctx, "verify metadata", "oss", "stat", objectURL)
+	if err != nil {
+		return err
+	}
+	if err := validateCreatedObjectMetadata(statOutput, key, expectedDigest, expectedSize); err != nil {
+		return err
+	}
+	readbackPath, readbackDirectory, err := createReadbackPath()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, os.RemoveAll(readbackDirectory))
+	}()
+	if err := c.copy(ctx, "verify read-back", objectURL, readbackPath); err != nil {
+		return err
+	}
+	return verifyReadbackIdentity(readbackPath, expectedDigest, expectedSize)
+}
+
+func validateCreatedObjectMetadata(statOutput []byte, key string, expectedDigest string, expectedSize int64) error {
+	actualSize, actualDigest, err := parseObjectStat(statOutput, key)
+	if err != nil {
+		return err
+	}
+	if actualSize != expectedSize {
+		return fmt.Errorf("remote object size %d does not match local size %d", actualSize, expectedSize)
+	}
+	if actualDigest != expectedDigest {
+		return fmt.Errorf("remote object metadata digest %q does not match local digest %q", actualDigest, expectedDigest)
+	}
+	return nil
+}
+
+func createReadbackPath() (string, string, error) {
+	readbackDirectory, err := os.MkdirTemp("", ".super-dolphin-oss-readback-*")
+	if err != nil {
+		return "", "", fmt.Errorf("create OSS read-back directory: %w", err)
+	}
+	return filepath.Join(readbackDirectory, "object"), readbackDirectory, nil
+}
+
+func verifyReadbackIdentity(readbackPath string, expectedDigest string, expectedSize int64) error {
+	readbackDigest, readbackSize, err := localFileDigestAndSize(readbackPath)
+	if err != nil {
+		return fmt.Errorf("inspect OSS read-back: %w", err)
+	}
+	if readbackSize != expectedSize || readbackDigest != expectedDigest {
+		return fmt.Errorf("OSS read-back identity drifted: size=%d digest=%q", readbackSize, readbackDigest)
+	}
+	return nil
+}
+
+type objectStatFields struct {
+	sizeText         string
+	metadataSizeText string
+	digest           string
+	objectName       string
+}
+
+// parseObjectStat 解析 aliyun OSS stat 的受限 metadata 行，不接受缺字段或重复字段。
+func parseObjectStat(output []byte, key string) (int64, string, error) {
+	fields, err := collectObjectStatFields(output)
+	if err != nil {
+		return 0, "", err
+	}
+	size, err := parseObjectStatSize(fields.sizeText)
+	if err != nil {
+		return 0, "", err
+	}
+	digest, err := parseObjectStatDigest(fields.digest)
+	if err != nil {
+		return 0, "", err
+	}
+	if err := validateObjectStatMetadataSize(fields.metadataSizeText, size); err != nil {
+		return 0, "", err
+	}
+	if err := validateObjectStatName(fields.objectName, key); err != nil {
+		return 0, "", err
+	}
+	return size, digest, nil
+}
+
+func collectObjectStatFields(output []byte) (objectStatFields, error) {
+	var fields objectStatFields
+	for line := range strings.SplitSeq(string(output), "\n") {
+		name, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		if err := fields.assign(strings.TrimSpace(strings.ToLower(name)), strings.TrimSpace(value)); err != nil {
+			return objectStatFields{}, err
+		}
+	}
+	return fields, nil
+}
+
+func (fields *objectStatFields) assign(name string, value string) error {
+	switch name {
+	case "content-length":
+		return assignUniqueStatField(&fields.sizeText, value, "Content-Length")
+	case "x-oss-meta-sha256":
+		return assignUniqueStatField(&fields.digest, value, "digest metadata")
+	case "x-oss-meta-size":
+		return assignUniqueStatField(&fields.metadataSizeText, value, "size metadata")
+	case "object-name", "object name", "objectname", "key":
+		if fields.objectName != "" {
+			return errors.New("OSS stat contains duplicate object name")
+		}
+		fields.objectName = strings.TrimPrefix(value, "oss://")
+	}
+	return nil
+}
+
+func assignUniqueStatField(target *string, value string, label string) error {
+	if *target != "" {
+		return fmt.Errorf("OSS stat contains duplicate %s", label)
+	}
+	*target = value
+	return nil
+}
+
+func parseObjectStatSize(sizeText string) (int64, error) {
+	if sizeText == "" {
+		return 0, errors.New("OSS stat is missing Content-Length")
+	}
+	size, err := strconv.ParseInt(sizeText, 10, 64)
+	if err != nil || size < 0 {
+		return 0, errors.New("OSS stat Content-Length is invalid")
+	}
+	return size, nil
+}
+
+func parseObjectStatDigest(digest string) (string, error) {
+	if len(digest) != sha256.Size*2 {
+		return "", errors.New("OSS stat digest metadata is invalid")
+	}
+	if _, err := hex.DecodeString(digest); err != nil || strings.ToLower(digest) != digest {
+		return "", errors.New("OSS stat digest metadata is invalid")
+	}
+	return digest, nil
+}
+
+func validateObjectStatMetadataSize(metadataSizeText string, size int64) error {
+	if metadataSizeText == "" {
+		return nil
+	}
+	metadataSize, err := strconv.ParseInt(metadataSizeText, 10, 64)
+	if err != nil || metadataSize != size {
+		return errors.New("OSS stat size metadata does not match Content-Length")
+	}
+	return nil
+}
+
+func validateObjectStatName(objectName string, key string) error {
+	if objectName != "" && objectName != key && !strings.HasSuffix(objectName, "/"+key) {
+		return fmt.Errorf("OSS stat object name %q does not match key %q", objectName, key)
+	}
+	return nil
+}
+
+func localFileDigestAndSize(filePath string) (digest string, size int64, returnErr error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, file.Close())
+	}()
+	info, err := file.Stat()
+	if err != nil {
+		return "", 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return "", 0, errors.New("OSS create source must be a regular file")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), info.Size(), nil
 }
 
 // DeletePrefix 递归删除一个完整 generation，禁止删除客户端配置的根前缀。

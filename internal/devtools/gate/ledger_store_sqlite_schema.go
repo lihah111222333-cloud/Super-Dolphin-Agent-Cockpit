@@ -14,41 +14,6 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-// durationLedgerSQLiteCanonicalIndexDefinition 是 current schema 与 repair migration
-// 共用的不可变索引定义；repair 只能消费这里声明的 canonical DDL。
-type durationLedgerSQLiteCanonicalIndexDefinition struct {
-	name   string
-	create string
-}
-
-const durationLedgerSQLiteReusablePassIndexName = "index:idx_ci_runs_reusable_pass"
-const durationLedgerSQLiteMigrationPassIndexName = "index:idx_ci_workload_pass_evidence_migration"
-
-const durationLedgerSQLiteReusablePassIndexSchema = `
-CREATE INDEX IF NOT EXISTS idx_ci_runs_reusable_pass
-	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC)
-	WHERE authoritative = 1 AND status = 'passed' AND cleanup_complete = 1;`
-
-const durationLedgerSQLiteMigrationPassIndexSchema = `
-CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_migration
-	ON ci_workload_pass_evidence (workload_id, execution_digest, environment_digest, accepted_generation, origin_job_id, identity_digest);`
-
-func durationLedgerSQLiteCanonicalPassIndexDefinitions() []durationLedgerSQLiteCanonicalIndexDefinition {
-	return []durationLedgerSQLiteCanonicalIndexDefinition{
-		{name: durationLedgerSQLiteReusablePassIndexName, create: durationLedgerSQLiteReusablePassIndexSchema},
-		{name: durationLedgerSQLiteMigrationPassIndexName, create: durationLedgerSQLiteMigrationPassIndexSchema},
-	}
-}
-
-func durationLedgerSQLiteCanonicalPassIndexStatements() []string {
-	definitions := durationLedgerSQLiteCanonicalPassIndexDefinitions()
-	statements := make([]string, 0, len(definitions))
-	for _, definition := range definitions {
-		statements = append(statements, definition.create)
-	}
-	return statements
-}
-
 const durationLedgerSQLiteSchema = `
 CREATE TABLE IF NOT EXISTS duration_ledger_meta (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -216,11 +181,6 @@ CREATE TABLE IF NOT EXISTS ci_query_meta (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 	revision TEXT NOT NULL,
 	updated_at_unix_ms INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS ci_schema_migrations (
-	name TEXT PRIMARY KEY,
-	applied_at_unix_ms INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS ci_workload_catalogs (
@@ -413,6 +373,7 @@ CREATE TABLE IF NOT EXISTS ci_run_warnings (
 
 func durationLedgerSQLiteDSN(path string) string {
 	query := url.Values{}
+	query.Add("_pragma", "auto_vacuum=FULL")
 	query.Add("_pragma", fmt.Sprintf("busy_timeout=%d", durationLedgerSQLiteBusyTimeoutMS))
 	query.Add("_pragma", "foreign_keys=ON")
 	query.Add("_pragma", "journal_mode=WAL")
@@ -441,118 +402,34 @@ func ensureDurationLedgerSQLiteSchemaWithValidator(
 	if err := coordinateDurationLedgerSQLiteSchemaVersion(database, validator, schemaVersion); err != nil {
 		return err
 	}
+	if err := verifyDurationLedgerSQLiteAutoVacuum(database); err != nil {
+		return err
+	}
 	return verifyDurationLedgerSQLiteCurrentAuthority(database)
 }
 
-// coordinateDurationLedgerSQLiteSchemaVersion 根据当前 user_version 严格选择初始化、迁移或预检路径。
+// verifyDurationLedgerSQLiteAutoVacuum 保证历史淘汰提交时同步归还空页。
+func verifyDurationLedgerSQLiteAutoVacuum(database *sql.DB) error {
+	var mode int
+	if err := database.QueryRow(`PRAGMA auto_vacuum`).Scan(&mode); err != nil {
+		return mapDurationLedgerSQLiteError("read duration ledger SQLite auto vacuum mode", err)
+	}
+	if mode != 1 {
+		return fmt.Errorf("duration ledger SQLite auto_vacuum mode %d must equal FULL(1); explicit VACUUM migration is required", mode)
+	}
+	return nil
+}
+
+// coordinateDurationLedgerSQLiteSchemaVersion 只接受空库初始化或当前版本；退役版本必须显式清理。
 func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, validator *durationLedgerSQLiteSchemaValidator, schemaVersion int) error {
 	switch schemaVersion {
 	case 0:
 		return validator.initializeAuthority(database, validator)
-	case durationLedgerSQLiteLegacySchemaVersion:
-		return migrateDurationLedgerSQLiteLegacySchema(database, validator)
-	case durationLedgerSQLiteCompileTimingVersion:
-		return migrateDurationLedgerSQLiteV10Schema(database, validator)
-	case durationLedgerSQLiteV11SchemaVersion:
-		return migrateDurationLedgerSQLiteV11Schema(database, validator)
-	case durationLedgerSQLitePreviousSchemaVersion:
-		return migrateDurationLedgerSQLiteWorkloadPassEvidenceAliasSchema(database, validator)
 	case durationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteReusablePassIndex(database, validator)
+		return validator.preflight(database, schemaVersion)
 	default:
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
-}
-
-func migrateDurationLedgerSQLiteLegacySchema(
-	database *sql.DB,
-	validator *durationLedgerSQLiteSchemaValidator,
-) error {
-	connection, err := database.Conn(context.Background())
-	if err != nil {
-		return mapDurationLedgerSQLiteError("open duration ledger SQLite migration connection", err)
-	}
-	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
-		return closeDurationLedgerSQLiteInitializerConnection(connection,
-			mapDurationLedgerSQLiteError("begin duration ledger SQLite migration", err))
-	}
-	if err := migrateDurationLedgerSQLiteLegacySchemaOnConnection(connection, validator); err != nil {
-		return closeDurationLedgerSQLiteInitializerConnection(connection,
-			rollbackDurationLedgerSQLiteInitializer(connection, err))
-	}
-	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
-		return closeDurationLedgerSQLiteInitializerConnection(connection,
-			rollbackDurationLedgerSQLiteInitializer(connection,
-				mapDurationLedgerSQLiteError("commit duration ledger SQLite migration", err)))
-	}
-	return closeDurationLedgerSQLiteInitializerConnection(connection, nil)
-}
-
-// migrateDurationLedgerSQLiteLegacySchemaOnConnection 在既有事务内补齐原始事件结构。
-func migrateDurationLedgerSQLiteLegacySchemaOnConnection(
-	connection *sql.Conn,
-	validator *durationLedgerSQLiteSchemaValidator,
-) error {
-	schemaVersion, err := readDurationLedgerSQLiteSchemaVersion(connection)
-	if err != nil {
-		return err
-	}
-	switch schemaVersion {
-	case durationLedgerSQLiteSchemaVersion:
-		return validator.preflight(connection, schemaVersion)
-	case durationLedgerSQLiteV11SchemaVersion:
-		return migrateDurationLedgerSQLiteV11SchemaOnConnection(connection, validator)
-	case durationLedgerSQLiteCompileTimingVersion:
-		return migrateDurationLedgerSQLiteV10SchemaOnConnection(connection, validator)
-	case durationLedgerSQLiteLegacySchemaVersion:
-		if err := preflightDurationLedgerSQLiteLegacySchema(connection, schemaVersion); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
-	}
-	return migrateDurationLedgerSQLiteLegacyV5OnConnection(connection, validator)
-}
-
-// migrateDurationLedgerSQLiteLegacyV5OnConnection 在预检通过后补齐 v5 的
-// 原始事件和 compile timing 结构，再补齐当前终态证据结构。
-func migrateDurationLedgerSQLiteLegacyV5OnConnection(
-	connection *sql.Conn,
-	validator *durationLedgerSQLiteSchemaValidator,
-) error {
-	for _, statement := range []string{
-		durationLedgerRawObservationEventsTableSchema,
-		durationLedgerRawObservationEventsIndexSchema,
-		durationLedgerRawObservationEventsUpdateTriggerSchema,
-		durationLedgerRawObservationEventsDeleteTriggerSchema,
-	} {
-		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
-			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite raw observation schema", err)
-		}
-	}
-	for _, statement := range durationLedgerCompileTimingSchemaStatements() {
-		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
-			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite compile timing schema", err)
-		}
-	}
-	if _, err := connection.ExecContext(
-		context.Background(),
-		fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteV11SchemaVersion),
-	); err != nil {
-		return mapDurationLedgerSQLiteError("write duration ledger SQLite migrated schema version", err)
-	}
-	actual, err := loadDurationLedgerSQLiteSchemaObjects(connection)
-	if err != nil {
-		return err
-	}
-	expected, err := buildDurationLedgerSQLiteReferenceSchemaForStatements(durationLedgerSQLiteV11SchemaStatements())
-	if err != nil {
-		return err
-	}
-	if err := compareDurationLedgerSQLiteSchemaObjects(actual, expected); err != nil {
-		return fmt.Errorf("preflight duration ledger SQLite schema version %d: %w", durationLedgerSQLiteV11SchemaVersion, err)
-	}
-	return migrateDurationLedgerSQLiteV11SchemaOnConnection(connection, validator)
 }
 
 type durationLedgerSQLiteSchemaVersionReader interface {
@@ -655,18 +532,6 @@ func initializeDurationLedgerSQLiteCurrentSchemaOnConnection(
 	}
 	if schemaVersion == durationLedgerSQLiteSchemaVersion {
 		return validator.preflight(connection, schemaVersion)
-	}
-	if schemaVersion == durationLedgerSQLiteV11SchemaVersion {
-		return migrateDurationLedgerSQLiteV11SchemaOnConnection(connection, validator)
-	}
-	if schemaVersion == durationLedgerSQLitePreviousSchemaVersion {
-		return migrateDurationLedgerSQLiteWorkloadPassEvidenceAliasSchemaOnConnection(connection, validator)
-	}
-	if schemaVersion == durationLedgerSQLiteCompileTimingVersion {
-		return migrateDurationLedgerSQLiteV10SchemaOnConnection(connection, validator)
-	}
-	if schemaVersion == durationLedgerSQLiteLegacySchemaVersion {
-		return migrateDurationLedgerSQLiteLegacySchemaOnConnection(connection, validator)
 	}
 	if schemaVersion != 0 {
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)

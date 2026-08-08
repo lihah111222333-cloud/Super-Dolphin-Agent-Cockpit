@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate/testtiming"
 )
 
@@ -63,8 +64,9 @@ func preparePlanGateExecutionAt(
 		}
 	}
 	config := executorConfig{
+		// cicontract owns the remote worker identity.
 		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
-		expectedUID: executorUID, requireReadOnlySource: true,
+		expectedUID: cicontract.RemoteWorkerUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
 		goRoot:                  ExecutorGoRoot,
 		preparedRuntimeSeeds:    preparedRuntimeSeeds,

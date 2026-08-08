@@ -68,6 +68,26 @@ func TestInitializeRemoteShardResultsDoesNotMarkUncreatedShardWorkloadsExecuted(
 	}
 }
 
+func TestWaitShardsRejectsMismatchedGroupIDsWithoutDroppingShardPlaceholders(t *testing.T) {
+	coordinator := &Coordinator{}
+	shards := []gate.ContainerShard{
+		{IdentityDigest: "shard-one", GateIDs: []gate.GateID{"guard:one"}},
+		{IdentityDigest: "shard-two", GateIDs: []gate.GateID{"guard:two"}},
+	}
+	results, _, err := coordinator.waitShards(context.Background(), shards, []string{"eci-one"}, remoteTimingWarningRun{})
+	if err == nil || !strings.Contains(err.Error(), "group IDs") || !strings.Contains(err.Error(), "shards") {
+		t.Fatalf("waitShards() error = %v, want group ID/shard length mismatch", err)
+	}
+	if len(results) != len(shards) {
+		t.Fatalf("waitShards() results=%d, want %d placeholders", len(results), len(shards))
+	}
+	for index, result := range results {
+		if result.ContainerGroup != "" || len(result.ExecutedWorkloads) != 0 || result.ShardIdentity != shards[index].IdentityDigest {
+			t.Fatalf("placeholder[%d] = %#v, want uncreated shard identity without execution evidence", index, result)
+		}
+	}
+}
+
 func TestShardTargetWarningIsNonTerminatingAndEmittedOnce(t *testing.T) {
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	now := time.Date(2026, time.August, 3, 1, 0, 0, 0, time.UTC)

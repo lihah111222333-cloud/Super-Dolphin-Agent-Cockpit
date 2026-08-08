@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"runtime"
 	"strings"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 )
 
 func TestWorkerCLIRejectsNonCanonicalInvocation(t *testing.T) {
+	t.Setenv(gate.ExecutorWorkloadTimeoutEnvironment, (10 * time.Minute).String())
 	for _, args := range [][]string{
 		nil,
 		{"run", "--gate"},
@@ -33,6 +35,7 @@ func TestWorkerCLIRejectsNonCanonicalInvocation(t *testing.T) {
 }
 
 func TestWorkerCanonicalInvocationEntersProductionPreflight(t *testing.T) {
+	t.Setenv(gate.ExecutorWorkloadTimeoutEnvironment, (10 * time.Minute).String())
 	stderr := &bytes.Buffer{}
 	code := runWorkerCLI(
 		[]string{"run", "--gate", string(gate.GateIDWhitespaceCheck)},
@@ -48,6 +51,7 @@ func TestWorkerCanonicalInvocationEntersProductionPreflight(t *testing.T) {
 }
 
 func TestRunCLIDispatchesWorkerNamespace(t *testing.T) {
+	t.Setenv(gate.ExecutorWorkloadTimeoutEnvironment, (10 * time.Minute).String())
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	code := runCLI([]string{"worker", "run", "--gate"}, stdout, stderr)
 	if code == 0 || !strings.Contains(stderr.String(), "usage:") {
@@ -112,5 +116,17 @@ func TestWorkerExecutionContextRejectsUnregisteredTimeout(t *testing.T) {
 	defer cancel()
 	if err == nil || !errors.Is(ctx.Err(), context.Canceled) {
 		t.Fatalf("workerExecutionContext() context=%v error=%v", ctx.Err(), err)
+	}
+}
+
+func TestWorkerExecutionContextRejectsMissingTimeout(t *testing.T) {
+	t.Setenv(gate.ExecutorWorkloadTimeoutEnvironment, "")
+	if err := os.Unsetenv(gate.ExecutorWorkloadTimeoutEnvironment); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel, err := workerExecutionContext(context.Background())
+	defer cancel()
+	if err == nil || !errors.Is(ctx.Err(), context.Canceled) || !strings.Contains(err.Error(), gate.ExecutorWorkloadTimeoutEnvironment) {
+		t.Fatalf("workerExecutionContext() context=%v error=%v, want canceled context and missing-timeout error", ctx.Err(), err)
 	}
 }

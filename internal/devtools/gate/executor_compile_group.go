@@ -233,7 +233,7 @@ func newCompileGroupConfig(group CompileGroup, groupIndex int, prepared *executo
 	}
 	config := executorConfig{
 		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
-		expectedUID: executorUID, requireReadOnlySource: true,
+		expectedUID: cicontract.RemoteWorkerUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
 		goRoot: ExecutorGoRoot, preparedRuntimeSeeds: prepared,
 		goBuildCacheSeedRoot: seedRoot, goBuildCacheRoot: cacheRoot,

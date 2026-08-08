@@ -833,5 +833,5 @@ const (
 )
 
 func testRegistryCredential() RegistryCredential {
-	return RegistryCredential{Server: privateRegistryServer, UserName: "test-user", Password: "test-token"}
+	return RegistryCredential{Server: cicontract.RemoteRegistryServer, UserName: "test-user", Password: "test-token"}
 }

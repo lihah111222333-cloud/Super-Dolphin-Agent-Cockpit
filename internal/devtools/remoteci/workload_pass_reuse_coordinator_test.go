@@ -142,7 +142,7 @@ func TestCoordinatorPrepareFreezesAllReuseWithoutRemoteSideEffects(t *testing.T)
 	assertCoordinatorFullReuse(t, result, err, store, runtime)
 }
 
-func TestCoordinatorRunPreparedRefreshesOnlyPlanningSnapshotForMisses(t *testing.T) {
+func TestCoordinatorRunPreparedReloadsOnlyPlanningSnapshotForMisses(t *testing.T) {
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, func(index int) bool { return index%2 == 0 })
@@ -155,8 +155,8 @@ func TestCoordinatorRunPreparedRefreshesOnlyPlanningSnapshotForMisses(t *testing
 	if err != nil || prepared.AllReused() || len(prepared.reuse.cacheMisses) == 0 {
 		t.Fatalf("Prepare() prepared=%#v error=%v", prepared, err)
 	}
-	if err := prepared.RefreshPlanningSnapshot(input.LedgerStore); err != nil {
-		t.Fatalf("RefreshPlanningSnapshot() error = %v", err)
+	if err := prepared.ReloadPlanningSnapshot(input.LedgerStore); err != nil {
+		t.Fatalf("ReloadPlanningSnapshot() error = %v", err)
 	}
 	result, err := coordinator.RunPrepared(context.Background(), prepared)
 	assertCoordinatorPartialReuse(t, result, err, runtime)
@@ -177,8 +177,8 @@ func TestCoordinatorRunPreparedRejectsPlanningOverheadIdentityDrift(t *testing.T
 	if err != nil || prepared.AllReused() {
 		t.Fatalf("Prepare() prepared=%#v error=%v, want normal miss", prepared, err)
 	}
-	if err := prepared.RefreshPlanningSnapshot(input.LedgerStore); err != nil {
-		t.Fatalf("RefreshPlanningSnapshot() error = %v", err)
+	if err := prepared.ReloadPlanningSnapshot(input.LedgerStore); err != nil {
+		t.Fatalf("ReloadPlanningSnapshot() error = %v", err)
 	}
 
 	replaceCoordinatorPlanningOverhead(t, input)
@@ -227,8 +227,8 @@ func TestPreparedRunRejectsInvalidPlanningSnapshotWithoutSideEffects(t *testing.
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
-	if err := prepared.RefreshPlanningSnapshot(nil); err == nil {
-		t.Fatal("RefreshPlanningSnapshot() accepted a nil authority")
+	if err := prepared.ReloadPlanningSnapshot(nil); err == nil {
+		t.Fatal("ReloadPlanningSnapshot() accepted a nil authority")
 	}
 	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
 }
@@ -311,6 +311,7 @@ func TestRemoteWorkloadPassIdentityBindsOnlyExecutionSemantics(t *testing.T) {
 	input.RepositoryRoot = repository
 	_, catalog, _, err := buildRemotePlan(input)
 	assertCoordinatorCatalog(t, catalog, err)
+	catalog = bindCoordinatorCatalogInputDigests(t, input, catalog)
 	baseline, err := remoteWorkloadPassIdentities(context.Background(), input, catalog, 10*time.Minute, testRemoteResourcePolicy())
 	if err != nil {
 		t.Fatalf("remoteWorkloadPassIdentities() error = %v", err)
@@ -328,6 +329,7 @@ func TestRemoteWorkloadPassIdentitySharesAcrossCalibrationModeAndResource(t *tes
 	input.RepositoryRoot = repository
 	_, catalog, _, err := buildRemotePlan(input)
 	assertCoordinatorCatalog(t, catalog, err)
+	catalog = bindCoordinatorCatalogInputDigests(t, input, catalog)
 	policy := testRemoteResourcePolicy()
 	normal, err := remoteWorkloadPassIdentities(context.Background(), input, catalog, 10*time.Minute, policy)
 	if err != nil {
@@ -616,7 +618,12 @@ func assertCoordinatorCommandAndInputMiss(t *testing.T, repository string, input
 	changedInput.Source.Commit.SHA = changedInput.Commit
 	changedInput.Source.SourceTreeSHA = changedInput.Tree
 	changedInput.WorkloadInputDigests = nil
-	assertCoordinatorIdentityChanged(t, changedInput, catalog, baseline, func(*RunInput) {})
+	_, changedInputCatalog, _, err := buildRemotePlan(changedInput)
+	if err != nil {
+		t.Fatalf("build changed-input catalog: %v", err)
+	}
+	changedInputCatalog = bindCoordinatorCatalogInputDigests(t, changedInput, changedInputCatalog)
+	assertCoordinatorIdentityChanged(t, changedInput, changedInputCatalog, baseline, func(*RunInput) {})
 }
 
 func TestCoordinatorRunSharesAcceptedPassesAcrossAgentsWithIndependentJobs(t *testing.T) {
@@ -792,6 +799,21 @@ func mustCoordinatorCatalog(t *testing.T, input RunInput) gate.WorkloadCatalog {
 	_, catalog, _, err := buildRemotePlan(input)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return bindCoordinatorCatalogInputDigests(t, input, catalog)
+}
+
+func bindCoordinatorCatalogInputDigests(t *testing.T, input RunInput, catalog gate.WorkloadCatalog) gate.WorkloadCatalog {
+	t.Helper()
+	// Prepare 生产路径先计算并绑定 exact-tree 输入摘要；测试直接构造 catalog
+	// 时也必须走同一绑定边界，不能依赖已删除的 PASS identity fallback。
+	inputDigests, err := remoteWorkloadInputDigests(context.Background(), input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
+	if err != nil {
+		t.Fatalf("derive coordinator catalog workload input digests: %v", err)
+	}
+	catalog, err = bindRemoteWorkloadInputDigests(catalog, inputDigests)
+	if err != nil {
+		t.Fatalf("bind coordinator catalog workload input digests: %v", err)
 	}
 	return catalog
 }

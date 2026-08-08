@@ -1,11 +1,36 @@
 package remoteci
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
+
+func TestRemoteWorkloadPassInputDigestsRejectsUnboundCatalogWithoutExactTreeFallback(t *testing.T) {
+	input := RunInput{RepositoryRoot: "/path/that/must/not/be/read", Tree: "tree-unbound"}
+	workloads := []gate.Workload{{ID: "backend:unbound", Shardable: true}}
+	_, err := remoteWorkloadPassInputDigests(context.Background(), input, workloads)
+	if err == nil || !strings.Contains(err.Error(), "input digest") {
+		t.Fatalf("remoteWorkloadPassInputDigests() error = %v, want missing bound input digest", err)
+	}
+}
+
+func TestRemoteCIWorkloadResultsRejectsFreshExecutionWithoutIdentity(t *testing.T) {
+	result := RunResult{
+		JobID: "job-fresh-identity", AcceptedGeneration: 1,
+		WorkloadPassIdentities:  []gate.WorkloadPassIdentity{{WorkloadID: "guard:present"}},
+		FreshWorkloadExecutions: []gate.PlanGateExecution{{GateID: "guard:present"}, {GateID: "guard:missing-identity"}},
+	}
+	workloadResults, err := remoteCIWorkloadResults(result)
+	if err == nil || !strings.Contains(err.Error(), "missing WorkloadPassIdentity") {
+		t.Fatalf("remoteCIWorkloadResults() error = %v, want missing identity observation", err)
+	}
+	if len(workloadResults) != 1 || workloadResults[0].Identity.WorkloadID != "guard:present" {
+		t.Fatalf("remoteCIWorkloadResults() = %#v, want preserved verifiable execution", workloadResults)
+	}
+}
 
 // TestValidateRemoteWorkloadPassEvidenceKeepsOnlyLookupBoundaryGuards locks the
 // split between gate.LookupWorkloadPassEvidence's complete evidence validation

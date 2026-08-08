@@ -15,12 +15,11 @@ import (
 )
 
 const (
-	durationLedgerSQLiteSchemaVersion         = 13
-	durationLedgerSQLitePreviousSchemaVersion = 12
-	durationLedgerSQLiteV11SchemaVersion      = 11
-	durationLedgerSQLiteCompileTimingVersion  = 10
-	durationLedgerSQLiteLegacySchemaVersion   = 5
-	durationLedgerSQLiteBusyTimeoutMS         = 5_000
+	durationLedgerSQLiteSchemaVersion        = 13
+	durationLedgerSQLiteV11SchemaVersion     = 11
+	durationLedgerSQLiteCompileTimingVersion = 10
+	durationLedgerSQLiteLegacySchemaVersion  = 5
+	durationLedgerSQLiteBusyTimeoutMS        = 5_000
 )
 
 // loadSQLiteSnapshot 在单个只读事务中加载账本快照及其请求的数据投影。
@@ -119,15 +118,6 @@ func (store *DurationLedgerStore) compareAndSwapSQLite(
 	if err := replaceSQLiteLedger(transaction, nextGeneration, ledger); err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
-	if err := store.appendDurationLedgerObservationEvent(
-		transaction,
-		durationLedgerObservationEventLedgerReplace,
-		"",
-		strconv.FormatUint(nextGeneration, 10),
-		map[string]any{"expected_generation": expectedGeneration, "ledger": ledger},
-	); err != nil {
-		return DurationLedgerSnapshot{}, err
-	}
 	if err := transaction.Commit(); err != nil {
 		return DurationLedgerSnapshot{}, mapDurationLedgerSQLiteError("commit duration ledger CAS", err)
 	}
@@ -181,7 +171,7 @@ func (store *DurationLedgerStore) compareAndSwapSQLiteCalibration(
 	}, nil
 }
 
-// advanceSQLiteCalibrationGeneration 在校准 CAS 内推进 generation 并发布观测事件。
+// advanceSQLiteCalibrationGeneration 在校准 CAS 内推进 generation。
 func (store *DurationLedgerStore) advanceSQLiteCalibrationGeneration(transaction *sql.Tx, expectedGeneration, nextGeneration uint64, calibration *DurationCalibration) error {
 	result, err := transaction.Exec(`
 		UPDATE duration_ledger_meta
@@ -207,15 +197,6 @@ func (store *DurationLedgerStore) advanceSQLiteCalibrationGeneration(transaction
 	}
 	if affected != 1 {
 		return durationLedgerConflict(expectedGeneration, expectedGeneration)
-	}
-	if err := store.appendDurationLedgerObservationEvent(
-		transaction,
-		durationLedgerObservationEventCalibrationReplace,
-		"",
-		strconv.FormatUint(nextGeneration, 10),
-		map[string]any{"expected_generation": expectedGeneration, "calibration": calibration},
-	); err != nil {
-		return err
 	}
 	return nil
 }
@@ -353,15 +334,6 @@ func (store *DurationLedgerStore) appendSQLiteSamplesOnce(acceptedGeneration uin
 
 	nextGeneration, err := appendSQLiteDurationSamplesInTransaction(transaction, acceptedGeneration, samples)
 	if err != nil {
-		return 0, err
-	}
-	if err := store.appendDurationLedgerObservationEvent(
-		transaction,
-		durationLedgerObservationEventSamplesAppend,
-		"",
-		strconv.FormatUint(nextGeneration, 10),
-		map[string]any{"accepted_generation": acceptedGeneration, "samples": samples},
-	); err != nil {
 		return 0, err
 	}
 	if err := compactDurationLedgerAuthority(transaction); err != nil {

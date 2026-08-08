@@ -107,7 +107,7 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	if err != nil {
 		return result, input, err
 	}
-	if err := refreshRemotePlanningAfterCalibration(options, state, runnerIdentity, input, prepared); err != nil {
+	if err := reloadRemotePlanningAfterCalibration(options, state, runnerIdentity, input, prepared); err != nil {
 		return result, input, err
 	}
 	result, runErr := coordinator.RunPrepared(runCtx, prepared)
@@ -143,8 +143,8 @@ func loadRunnableRemoteRunState(options remoteRunOptions) (remoteRunConfig, remo
 	return config, state, nil
 }
 
-// refreshRemotePlanningAfterCalibration 只在普通运行出现 miss 时校准并刷新既有计划快照。
-func refreshRemotePlanningAfterCalibration(
+// reloadRemotePlanningAfterCalibration 只在普通运行出现 miss 时校准并重载既有计划快照。
+func reloadRemotePlanningAfterCalibration(
 	options remoteRunOptions,
 	state remoteci.BaselineState,
 	runnerIdentity string,
@@ -157,15 +157,15 @@ func refreshRemotePlanningAfterCalibration(
 	if err := ensureRemoteDurationCalibration(options, state, runnerIdentity); err != nil {
 		return err
 	}
-	refreshed, _, err := loadRemoteRunLedger(options, state, runnerIdentity)
+	reloaded, _, err := loadRemoteRunLedger(options, state, runnerIdentity)
 	if err != nil {
 		return infrastructureError("reload remote CI planning snapshot after calibration: %v", err)
 	}
-	if err := validateRemoteDurationCalibration(options, state, runnerIdentity, refreshed.Ledger); err != nil {
+	if err := validateRemoteDurationCalibration(options, state, runnerIdentity, reloaded.Ledger); err != nil {
 		return protocolError("validate remote CI duration calibration after automatic calibration: %v", err)
 	}
-	if err := prepared.RefreshPlanningSnapshot(input.LedgerStore); err != nil {
-		return infrastructureError("refresh prepared remote CI planning snapshot after calibration: %v", err)
+	if err := prepared.ReloadPlanningSnapshot(input.LedgerStore); err != nil {
+		return infrastructureError("reload prepared remote CI planning snapshot after calibration: %v", err)
 	}
 	return nil
 }

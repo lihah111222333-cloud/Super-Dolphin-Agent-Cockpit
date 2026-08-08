@@ -396,6 +396,14 @@ func (manifest ShardExecutionManifest) validateGroups(gateSet map[GateID]struct{
 			grouped[workloadID] = struct{}{}
 		}
 	}
+	return validateSingleCompileGroupPerShard(grouped, manifest.CompileGroups)
+}
+
+// validateSingleCompileGroupPerShard 保证一个 ECI shard 只启动一个 test binary。
+func validateSingleCompileGroupPerShard(grouped map[GateID]struct{}, groups []CompileGroup) (map[GateID]struct{}, error) {
+	if len(groups) > 1 {
+		return nil, fmt.Errorf("shard execution manifest must contain exactly one compile group (found %d)", len(groups))
+	}
 	return grouped, nil
 }
 

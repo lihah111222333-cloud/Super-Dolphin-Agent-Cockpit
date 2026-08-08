@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -76,7 +77,7 @@ func assertRemoteManifestOwnershipCalls(t *testing.T, chmodCalls, chownCalls []s
 		t.Fatalf("ownership modes = %v", chmodCalls)
 	}
 	for _, call := range chownCalls {
-		if !strings.HasSuffix(call, ":65532:65532") {
+		if !strings.HasSuffix(call, fmt.Sprintf(":%d:%d", cicontract.RemoteWorkerUID, cicontract.RemoteWorkerGID)) {
 			t.Fatalf("ownership identity = %v", chownCalls)
 		}
 	}

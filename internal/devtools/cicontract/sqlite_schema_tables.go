@@ -11,16 +11,10 @@ const (
 	DurationLedgerMetaTable = "duration_ledger_meta"
 	// DurationQueryMetaTable 是 SQLite schema 查询元数据表，不承载远程 CI 事实。
 	DurationQueryMetaTable = "ci_query_meta"
-	// DurationSchemaMigrationsTable 是当前 schema 版本校验表，不承载远程 CI 事实。
-	DurationSchemaMigrationsTable = "ci_schema_migrations"
-	// DurationLedgerRawEventsTable 是由权威回执派生的观测原始事件表。
-	DurationLedgerRawEventsTable = "duration_ledger_raw_events"
 	// ShardTerminalContainersTable 是 ECI 终态容器证据表。
 	ShardTerminalContainersTable = "ci_shard_terminal_containers"
 	// ShardTerminalEventsTable 是 ECI 终态事件证据表。
 	ShardTerminalEventsTable = "ci_shard_terminal_events"
-	// WorkloadPassEvidenceAliasesTable 是 strict PASS evidence 的关系投影表。
-	WorkloadPassEvidenceAliasesTable = "ci_workload_pass_evidence_aliases"
 )
 
 // SQLAuthorityAuxiliaryTables 返回不属于事实域绑定但仍受唯一 SQLite authority 管理的表。
@@ -29,11 +23,8 @@ func SQLAuthorityAuxiliaryTables() []string {
 		DurationLedgerMetaTable,
 		DurationCalibrationsTable,
 		DurationQueryMetaTable,
-		DurationSchemaMigrationsTable,
-		DurationLedgerRawEventsTable,
 		ShardTerminalContainersTable,
 		ShardTerminalEventsTable,
-		WorkloadPassEvidenceAliasesTable,
 	}
 }
 

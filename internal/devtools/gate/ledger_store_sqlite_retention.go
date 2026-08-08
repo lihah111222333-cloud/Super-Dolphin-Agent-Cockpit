@@ -88,7 +88,7 @@ type retentionGeneration struct {
 	text  string
 }
 
-// retentionGenerationQuery 构造唯一一次跨五个历史根的 generation 枚举。
+// retentionGenerationQuery 构造唯一一次跨七个历史根的 generation 枚举。
 func retentionGenerationQuery(bindings []cicontract.RetentionRootBinding) string {
 	var union strings.Builder
 	for index, binding := range bindings {
@@ -110,7 +110,7 @@ func retentionDeleteQuery(binding cicontract.RetentionRootBinding) string {
 	)
 }
 
-// loadRetentionGenerations 只从五个历史根读取一次并按 uint64 代数排序。
+// loadRetentionGenerations 只从七个历史根读取一次并按 uint64 代数排序。
 func loadRetentionGenerations(transaction *sql.Tx, bindings []cicontract.RetentionRootBinding) ([]retentionGeneration, error) {
 	rows, err := transaction.Query(retentionGenerationQuery(bindings))
 	if err != nil {
@@ -166,7 +166,7 @@ func dropRetentionStaleGenerations(transaction *sql.Tx) error {
 	return nil
 }
 
-// deleteStaleRetentionGenerations 对五个历史根执行正向 IN 删除。
+// deleteStaleRetentionGenerations 对七个历史根执行正向 IN 删除。
 func deleteStaleRetentionGenerations(transaction *sql.Tx, bindings []cicontract.RetentionRootBinding) error {
 	for _, binding := range bindings {
 		if _, err := transaction.Exec(retentionDeleteQuery(binding)); err != nil {

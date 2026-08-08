@@ -31,6 +31,8 @@ func recordRemoteCIRun(store *gate.DurationLedgerStore, result RunResult, runErr
 		return sampleErr
 	}
 	projectionErr := errors.Join(runErr, timingErr, compileErr, sampleErr)
+	workloadResults, workloadResultsErr := remoteCIWorkloadResults(result)
+	projectionErr = errors.Join(projectionErr, workloadResultsErr)
 	shardRecords := remoteCIShardRecords(result.Shards)
 	record := gate.RemoteCIRunRecord{
 		JobID: result.JobID, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, AgentTokenDigest: result.AgentTokenDigest, Force: result.Force,
@@ -40,7 +42,7 @@ func recordRemoteCIRun(store *gate.DurationLedgerStore, result RunResult, runErr
 		Status: result.Status, Authoritative: false, StartedAt: result.StartedAt, CompletedAt: result.CompletedAt,
 		CleanupComplete: result.CleanupComplete, ErrorText: boundedRemoteRunErrorText(projectionErr),
 		Shards: shardRecords, Executions: result.GateExecutions,
-		WorkloadExecutions: result.FreshWorkloadExecutions, WorkloadResults: remoteCIWorkloadResults(result),
+		WorkloadExecutions: result.FreshWorkloadExecutions, WorkloadResults: workloadResults,
 		Warnings: append([]string(nil), result.OptimizationWarnings...), TimingWarnings: append([]gate.RemoteCITimingWarning(nil), result.TimingWarnings...), TimingObservations: timingObservations,
 		CompileTimingObservations: compileTimingObservations, DurationSamples: durationSamples,
 	}

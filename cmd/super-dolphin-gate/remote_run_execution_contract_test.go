@@ -9,24 +9,24 @@ import (
 
 // TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun 守卫正常运行接线：
 // 全命中跳过自动校准和计划刷新后仍须到达 RunPrepared 与最终化；未命中只能在唯一 Prepare
-// 决策后经 miss-only helper 校准、刷新计划，再回到同一个 finalized run。
+// 决策后经 miss-only helper 校准、重载计划，再回到同一个 finalized run。
 func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *testing.T) {
 	executeCalls := remoteRunCalls(parseExecuteRemoteRun(t).Body)
-	refreshFunction := parseRemoteRunFunction(t, "refreshRemotePlanningAfterCalibration")
-	refreshCalls := remoteRunCalls(refreshFunction.Body)
+	reloadFunction := parseRemoteRunFunction(t, "reloadRemotePlanningAfterCalibration")
+	reloadCalls := remoteRunCalls(reloadFunction.Body)
 
 	prepare := requireSingleRemoteRunCall(t, executeCalls, "Prepare")
-	calibration := requireSingleRemoteRunCall(t, executeCalls, "refreshRemotePlanningAfterCalibration")
+	calibration := requireSingleRemoteRunCall(t, executeCalls, "reloadRemotePlanningAfterCalibration")
 	run := requireSingleRemoteRunCall(t, executeCalls, "RunPrepared")
 	finalize := requireSingleRemoteRunCall(t, executeCalls, "finalizeRemoteRunEvidence")
-	ensure := requireSingleRemoteRunCall(t, refreshCalls, "ensureRemoteDurationCalibration")
-	refresh := requireSingleRemoteRunCall(t, refreshCalls, "RefreshPlanningSnapshot")
+	ensure := requireSingleRemoteRunCall(t, reloadCalls, "ensureRemoteDurationCalibration")
+	reload := requireSingleRemoteRunCall(t, reloadCalls, "ReloadPlanningSnapshot")
 
 	if calibration.order <= prepare.order {
 		t.Fatalf("miss-only calibration helper order = %d, Prepare order = %d; calibration must follow Prepare", calibration.order, prepare.order)
 	}
-	if refresh.order <= ensure.order {
-		t.Fatalf("planning refresh order = %d, calibration order = %d; planning refresh must follow calibration", refresh.order, ensure.order)
+	if reload.order <= ensure.order {
+		t.Fatalf("planning reload order = %d, calibration order = %d; planning reload must follow calibration", reload.order, ensure.order)
 	}
 	if run.order <= calibration.order {
 		t.Fatalf("RunPrepared order = %d, calibration helper order = %d; both all-hit and miss paths must converge on RunPrepared", run.order, calibration.order)
@@ -41,10 +41,10 @@ func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *tes
 	if calibration.condition != "" || run.condition != "" || finalize.condition != "" {
 		t.Fatalf("calibration helper, RunPrepared, and finalizer must be unconditional after Prepare: helper=%q run=%q finalize=%q", calibration.condition, run.condition, finalize.condition)
 	}
-	if ensure.condition != "" || refresh.condition != "" {
-		t.Fatalf("miss-only helper must call calibration and planning refresh only after its early return: ensure=%q refresh=%q", ensure.condition, refresh.condition)
+	if ensure.condition != "" || reload.condition != "" {
+		t.Fatalf("miss-only helper must call calibration and planning reload only after its early return: ensure=%q reload=%q", ensure.condition, reload.condition)
 	}
-	requireRemoteRunEarlyReturnGuard(t, refreshFunction.Body, "prepared.AllReused() || input.Calibration")
+	requireRemoteRunEarlyReturnGuard(t, reloadFunction.Body, "prepared.AllReused() || input.Calibration")
 }
 
 type remoteRunCall struct {

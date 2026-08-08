@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"time"
 )
 
@@ -108,15 +107,6 @@ func finalizeSQLiteRemoteCIRunAuthority(tx *sql.Tx, store *DurationLedgerStore, 
 		return err
 	}
 	if err := promoteSQLiteRemoteCIRunFreshEvidence(tx, identity.JobID, promoteFresh, verifiedIdentities, fault); err != nil {
-		return err
-	}
-	if err := store.appendDurationLedgerObservationEvent(
-		tx,
-		durationLedgerObservationEventRemoteRunFinalize,
-		identity.JobID,
-		strconv.FormatUint(identity.AcceptedGeneration, 10),
-		map[string]any{"identity": identity, "receipts": receipts, "samples": samples, "promote_fresh": promoteFresh},
-	); err != nil {
 		return err
 	}
 	return compactDurationLedgerAuthority(tx)

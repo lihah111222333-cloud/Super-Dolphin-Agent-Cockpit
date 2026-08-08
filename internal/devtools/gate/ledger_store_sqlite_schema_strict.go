@@ -26,20 +26,7 @@ func newDurationLedgerSQLiteSchemaValidator() *durationLedgerSQLiteSchemaValidat
 // durationLedgerSQLiteCurrentSchemaStatements returns the sole physical schema
 // definition used by both empty-authority initialization and exact comparison.
 func durationLedgerSQLiteCurrentSchemaStatements() []string {
-	statements := durationLedgerSQLiteV12SchemaStatements()
-	return append(statements, strictWorkloadPassEvidenceAliasSQLiteSchema)
-}
-
-// durationLedgerSQLiteV12SchemaStatements 返回 alias relation 引入前的精确 v12 schema。
-// v12 作为显式升级输入保留，避免把关系表 DDL 误当作旧 authority 的既有结构。
-func durationLedgerSQLiteV12SchemaStatements() []string {
 	statements := durationLedgerSQLiteLegacySchemaStatements()
-	statements = append(statements,
-		durationLedgerRawObservationEventsTableSchema,
-		durationLedgerRawObservationEventsIndexSchema,
-		durationLedgerRawObservationEventsUpdateTriggerSchema,
-		durationLedgerRawObservationEventsDeleteTriggerSchema,
-	)
 	statements = append(statements, durationLedgerCompileTimingSchemaStatements()...)
 	return append(statements, durationLedgerRemoteCITerminalEvidenceSchemaStatements()...)
 }
@@ -54,7 +41,7 @@ func durationLedgerSQLiteLegacySchemaStatements() []string {
 		durationLedgerLiveTimingWarningIndexSchema,
 		durationLedgerRunTimingWarningIndexSchema,
 	}
-	return append(statements, durationLedgerSQLiteCanonicalPassIndexStatements()...)
+	return statements
 }
 
 func (validator *durationLedgerSQLiteSchemaValidator) preflight(queryer durationLedgerSQLiteSchemaQueryer, schemaVersion int) error {
@@ -72,21 +59,6 @@ func (validator *durationLedgerSQLiteSchemaValidator) preflight(queryer duration
 		return fmt.Errorf("duration ledger SQLite schema version %d is incompatible; refuse migration", schemaVersion)
 	}
 	expected, err := validator.expectedSchema()
-	if err != nil {
-		return err
-	}
-	return compareDurationLedgerSQLiteSchemaObjects(actual, expected)
-}
-
-func preflightDurationLedgerSQLiteLegacySchema(queryer durationLedgerSQLiteSchemaQueryer, schemaVersion int) error {
-	actual, err := loadDurationLedgerSQLiteSchemaObjects(queryer)
-	if err != nil {
-		return err
-	}
-	if schemaVersion != durationLedgerSQLiteLegacySchemaVersion {
-		return fmt.Errorf("duration ledger SQLite legacy schema version %d is unsupported", schemaVersion)
-	}
-	expected, err := buildDurationLedgerSQLiteReferenceSchemaForStatements(durationLedgerSQLiteLegacySchemaStatements())
 	if err != nil {
 		return err
 	}

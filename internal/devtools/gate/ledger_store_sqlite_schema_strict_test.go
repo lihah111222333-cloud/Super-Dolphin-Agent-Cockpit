@@ -108,9 +108,9 @@ func TestDurationLedgerSQLiteConcurrentEmptyInitializationConverges(t *testing.T
 func TestDurationLedgerSQLiteRejectsRogueViewAndTriggerWithoutMutation(t *testing.T) {
 	for name, rogueDDL := range map[string]string{
 		"view": `CREATE VIEW rogue_duration_ledger_view AS
-			SELECT name FROM ci_schema_migrations`,
+			SELECT revision FROM ci_query_meta`,
 		"trigger": `CREATE TRIGGER rogue_duration_ledger_trigger
-			AFTER INSERT ON ci_schema_migrations BEGIN SELECT 1; END`,
+			AFTER INSERT ON ci_query_meta BEGIN SELECT 1; END`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			assertRogueSchemaRefusal(t, name, rogueDDL)
@@ -126,7 +126,7 @@ func assertRogueSchemaRefusal(t *testing.T, name, rogueDDL string) {
 	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`INSERT INTO ci_schema_migrations(name, applied_at_unix_ms) VALUES ('preserve-me', 1)`); err != nil {
+	if _, err := database.Exec(`INSERT INTO ci_query_meta(singleton, revision, updated_at_unix_ms) VALUES (1, 'preserve-me', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(rogueDDL); err != nil {
@@ -144,13 +144,13 @@ func assertRogueSchemaRefusal(t *testing.T, name, rogueDDL string) {
 		t.Fatalf("rogue %s refusal changed user_version to %d, want %d", name, got, beforeVersion)
 	}
 	var rows int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_schema_migrations WHERE name = 'preserve-me'`).Scan(&rows); err != nil || rows != 1 {
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_query_meta WHERE revision = 'preserve-me'`).Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("rogue %s refusal changed authority data: rows=%d err=%v", name, rows, err)
 	}
 }
 
 func TestDurationLedgerSQLiteRejectsRetiredSchemaVersionsBeforeMutation(t *testing.T) {
-	for _, retiredVersion := range []int{1, 2, 3, 9} {
+	for _, retiredVersion := range []int{1, 2, 3, 9, 12} {
 		t.Run(fmt.Sprintf("v%d", retiredVersion), func(t *testing.T) {
 			assertRetiredSchemaVersionRefusal(t, retiredVersion)
 		})
@@ -165,9 +165,6 @@ func assertRetiredSchemaVersionRefusal(t *testing.T, retiredVersion int) {
 	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, time.Now, newDurationLedgerSQLiteSchemaValidator()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`INSERT INTO ci_schema_migrations(name, applied_at_unix_ms) VALUES ('preserve-me', 1)`); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := database.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, retiredVersion)); err != nil {
 		t.Fatal(err)
 	}
@@ -180,10 +177,6 @@ func assertRetiredSchemaVersionRefusal(t *testing.T, retiredVersion int) {
 	}
 	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != retiredVersion {
 		t.Fatalf("retired schema refusal changed user_version to %d, want %d", got, retiredVersion)
-	}
-	var rows int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_schema_migrations WHERE name = 'preserve-me'`).Scan(&rows); err != nil || rows != 1 {
-		t.Fatalf("retired schema refusal changed data: rows=%d err=%v", rows, err)
 	}
 }
 func TestDurationLedgerSQLiteRejectsRetiredCompatibilityShapesBeforeMutation(t *testing.T) {

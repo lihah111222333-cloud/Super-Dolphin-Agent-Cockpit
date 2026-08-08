@@ -71,7 +71,7 @@ func TestRemoteCIWorkloadPassMigrationGuardCounterexamples(t *testing.T) {
 func lookupRemoteWorkloadPasses() {}
 func migrateDurationLedgerSQLiteV11SchemaOnConnection() {
 	_ = "CREATE TABLE IF NOT EXISTS ci_shard_terminal_containers"
-	_ = "ci_workload_pass_evidence_aliases"
+	_ = "ci_workload_pass_evidence"
 }
 `)
 	if got := remoteCIImplicitWorkloadPassMigrationViolations(safe); len(got) != 0 {
@@ -101,12 +101,10 @@ func run(store interface{ LookupWorkloadPassEvidenceMigrationCandidates(); Recor
 }
 
 // TestRemoteCIWorkloadPassMigrationGuardAllowsStrictSQLiteSchemaMigration
-// 保留 v12→v13 的物理 DDL 与 schema identifier；守卫只禁止 runtime API，
-// 不把严格 schema migration 当成隐式 workload 证据迁移。
+// 只允许仍在支持范围内的严格终态证据迁移；旧 alias migration 已退役。
 func TestRemoteCIWorkloadPassMigrationGuardAllowsStrictSQLiteSchemaMigration(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, relative := range []string{
-		"internal/devtools/gate/ledger_store_sqlite_workload_pass_alias_migration.go",
 		"internal/devtools/gate/ledger_store_sqlite_schema_terminal_evidence.go",
 	} {
 		path := filepath.Join(root, filepath.FromSlash(relative))

@@ -43,6 +43,20 @@ func (coordinator *Coordinator) waitShards(
 	groupIDs []string,
 	warningRun remoteTimingWarningRun,
 ) ([]ShardResult, []gate.RemoteCITimingWarning, error) {
+	if err := validateRemoteShardGroupIDs(shards, groupIDs); err != nil {
+		results, _ := initializeRemoteShardResults(shards, groupIDs)
+		return results, nil, err
+	}
+	return coordinator.waitValidatedShards(ctx, shards, groupIDs, warningRun)
+}
+
+// waitValidatedShards 在入口身份长度校验完成后轮询并汇总所有远程分片。
+func (coordinator *Coordinator) waitValidatedShards(
+	ctx context.Context,
+	shards []gate.ContainerShard,
+	groupIDs []string,
+	warningRun remoteTimingWarningRun,
+) ([]ShardResult, []gate.RemoteCITimingWarning, error) {
 	results, pending := initializeRemoteShardResults(shards, groupIDs)
 	failures := make([]error, len(shards))
 	warningFailures := make([]error, len(shards))
@@ -79,6 +93,14 @@ func (coordinator *Coordinator) waitShards(
 		}
 	}
 	return results, warnings, errors.Join(errors.Join(failures...), errors.Join(warningFailures...))
+}
+
+// validateRemoteShardGroupIDs 在轮询入口拒绝创建结果与计划分片数量漂移；空 ID 仍表示真实 create 失败占位。
+func validateRemoteShardGroupIDs(shards []gate.ContainerShard, groupIDs []string) error {
+	if len(groupIDs) != len(shards) {
+		return fmt.Errorf("remote CI shard group IDs length %d does not match shards length %d", len(groupIDs), len(shards))
+	}
+	return nil
 }
 
 func mergePendingRemoteShards(pending []pendingRemoteShard, retries map[int]pendingRemoteShard) []pendingRemoteShard {
@@ -287,9 +309,14 @@ func initializeRemoteShardResults(
 			},
 		}
 	}
+	if len(groupIDs) != len(shards) {
+		// waitShards rejects this state before polling. Direct test/setup callers still
+		// receive only uncreated placeholders instead of a partially bound execution set.
+		return results, nil
+	}
 	pending := make([]pendingRemoteShard, 0, len(groupIDs))
 	for index, groupID := range groupIDs {
-		if groupID == "" || index >= len(shards) {
+		if groupID == "" {
 			continue
 		}
 		results[index] = ShardResult{

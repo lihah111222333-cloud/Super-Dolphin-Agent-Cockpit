@@ -28,6 +28,22 @@ func TestRemoteCIRetiredLegacyArtifactsDoNotReturn(t *testing.T) {
 	}
 }
 
+// TestRemoteCIRetiredTopLevelPlanCLIStaysAbsent keeps the coordinator's
+// retired standalone plan command from becoming a second plan authority.
+func TestRemoteCIRetiredTopLevelPlanCLIStaysAbsent(t *testing.T) {
+	root := findRepoRoot(t)
+	path := filepath.Join(root, "cmd", "super-dolphin-gate", "main.go")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read gate CLI source: %v", err)
+	}
+	for _, marker := range []string{"case \"plan\":", "runPlan", "parsePlan", "planFlags", "registerPlanFlags"} {
+		if strings.Contains(string(source), marker) {
+			t.Errorf("gate CLI must not restore retired top-level plan marker %q", marker)
+		}
+	}
+}
+
 // TestRemoteCIRejectsRetiredFullBuildContextSymbols keeps the thin bundle as
 // the only transferable source payload; retired full-context and image-input
 // APIs must not return.

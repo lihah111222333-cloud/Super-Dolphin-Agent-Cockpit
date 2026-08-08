@@ -237,10 +237,12 @@ func (coordinator *Coordinator) uploadSourceAssets(ctx context.Context, assets r
 		{assets.materialization.BundlePath, assets.bundleKey, "source bundle"},
 		{assets.materialization.ManifestPath, assets.manifestKey, "source manifest"},
 	} {
+		// Create 是 create-only，但 ACK/409 可能在服务端已经落对象后才返回；
+		// 先登记键，调用失败也必须让 job-prefix cleanup 覆盖这个副作用。
+		*objectKeys = append(*objectKeys, item.key)
 		if err := coordinator.store.Create(ctx, item.path, item.key); err != nil {
 			return fmt.Errorf("upload remote CI %s: %w", item.label, err)
 		}
-		*objectKeys = append(*objectKeys, item.key)
 	}
 	return nil
 }

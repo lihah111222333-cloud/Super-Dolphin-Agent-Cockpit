@@ -75,6 +75,33 @@ func TestShardRequestRoundTripsFourHundredElevenLongSelectorIDsWithinByteLimit(t
 	}
 }
 
+func TestShardRequestRejectsMultipleCompileGroupsPerShard(t *testing.T) {
+	request := testSourceBundleShardRequest(t)
+	first, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/archtest", "TestFirstArtifact", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestSecondArtifact", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID := gate.GateID(second.ID)
+	group := gate.CompileGroup{
+		PackageTarget: "./internal/devtools/gate", SemanticKey: gate.CompileGroupSemanticGoTestNormal,
+		SharedInputDigest: "sha256:" + strings.Repeat("c", 64), ProfileDigest: "sha256:" + strings.Repeat("d", 64),
+		ResourceClassID: "small", WorkloadIDs: []gate.GateID{secondID}, CompileEstimateMS: 10,
+		BodyEstimateMS: 20, EstimatedDurationMS: 30,
+	}
+	finalizeTestCompileGroup(t, &group)
+	firstID := gate.GateID(first.ID)
+	request.GateIDs = []gate.GateID{firstID, secondID}
+	request.CompileGroups = []gate.CompileGroup{compileBindingGroup(t, firstID), group}
+	request.ShardExecutionManifestDigest = "sha256:" + strings.Repeat("0", 64)
+	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "exactly one compile group") {
+		t.Fatalf("request accepted multiple compile groups: %v", err)
+	}
+}
+
 func buildLongSelectorShardRequest(t *testing.T, count int) ShardRequest {
 	t.Helper()
 	request := testSourceBundleShardRequest(t)

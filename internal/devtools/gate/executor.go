@@ -41,8 +41,6 @@ const (
 	ExecutorXvfbRunBinaryPath              = "/usr/bin/xvfb-run"
 	ExecutorSelfCommandName                = "super-dolphin-gate"
 	executorPlaywrightBrowsersPath         = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
-	executorGoProxyMode                    = "off"
-	executorUID                            = 65532
 	executorSearchPath                     = ExecutorSearchPath
 )
 
@@ -138,7 +136,7 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 	}
 	config := executorConfig{
 		sourcePath: ExecutorSourcePath, workRoot: ExecutorWorkRoot, searchPath: executorSearchPath,
-		expectedUID: executorUID, requireReadOnlySource: true,
+		expectedUID: cicontract.RemoteWorkerUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
 		goRoot:                ExecutorGoRoot,
 		goBuildCacheSeedRoot:  seedRoot,

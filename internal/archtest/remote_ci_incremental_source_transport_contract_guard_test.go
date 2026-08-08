@@ -127,7 +127,11 @@ func assertRequiredSourceAssetMarkers(t *testing.T, assetsSource string) {
 
 func assertRemoteMaterializerConsumesCanonicalSource(t *testing.T, materialize string) {
 	t.Helper()
-	if !strings.Contains(materialize, cicontract.SourceBaselineRepositoryPath) ||
+	// Keep the path owned by cicontract rather than freezing its current value
+	// into this guard.  The owner import and selector are the dynamic drift
+	// boundary; cicontract.ValidateSourceTransportContract validates the value.
+	if !strings.Contains(materialize, `"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"`) ||
+		!strings.Contains(materialize, "cicontract.SourceBaselineRepositoryPath") ||
 		!strings.Contains(materialize, cicontract.SourceBundleName) ||
 		!strings.Contains(materialize, cicontract.SourceManifestName) {
 		t.Fatal("remote materializer must consume the accepted baseline and canonical source artifacts")

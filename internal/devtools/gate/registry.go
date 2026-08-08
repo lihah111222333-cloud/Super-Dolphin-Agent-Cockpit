@@ -61,10 +61,6 @@ const (
 	containerGateBinary      = "/super-dolphin-gate"
 	containerWorkerNamespace = "worker"
 	commandIdentityPrefix    = "container-worker/v2/"
-
-	retiredContainerExecutionOwner = "container-executor"
-	retiredContainerGateBinary     = "/usr/local/bin/super-dolphin-gate-executor"
-	retiredCommandIdentityPrefix   = "container-executor/v1/"
 )
 
 // GateSpec is the canonical catalog entry consumed only by the container worker.
@@ -94,12 +90,12 @@ func (s GateSpec) Validate() error {
 	return validateGateSpecProfiles(s)
 }
 
-// validateStored 校验当前 worker 或唯一已退役 executor 身份及 profile 闭包。
+// validateStored 校验当前 worker 身份及 profile 闭包。
 func (s GateSpec) validateStored() error {
 	if strings.TrimSpace(string(s.ID)) == "" {
 		return errors.New("gate id is required")
 	}
-	if !matchesCurrentGateExecution(s) && !matchesRetiredGateExecution(s) {
+	if !matchesCurrentGateExecution(s) {
 		return fmt.Errorf("gate %q has unsupported stored execution identity", s.ID)
 	}
 	return validateGateSpecProfiles(s)
@@ -109,13 +105,6 @@ func matchesCurrentGateExecution(spec GateSpec) bool {
 	return spec.ExecutionOwner == containerExecutionOwner &&
 		spec.CommandIdentity == commandIdentityPrefix+string(spec.ID) &&
 		slices.Equal(spec.Argv, containerGateArgv(spec.ID))
-}
-
-func matchesRetiredGateExecution(spec GateSpec) bool {
-	id := string(spec.ID)
-	return spec.ExecutionOwner == retiredContainerExecutionOwner &&
-		spec.CommandIdentity == retiredCommandIdentityPrefix+id &&
-		slices.Equal(spec.Argv, []string{retiredContainerGateBinary, "run", "--gate", id})
 }
 
 func validateGateSpecProfiles(s GateSpec) error {

@@ -235,7 +235,7 @@ func TestGatePlanValidateStoredAcceptsIntactHistoricalRegistry(t *testing.T) {
 	}
 }
 
-func TestGatePlanValidateStoredAcceptsRetiredExecutorIdentity(t *testing.T) {
+func TestGatePlanValidateStoredRejectsRetiredExecutorIdentity(t *testing.T) {
 	plan := mustBuildPlan(t, ProfileLocalFast)
 	for index := range plan.Gates {
 		id := string(plan.Gates[index].ID)
@@ -249,8 +249,8 @@ func TestGatePlanValidateStoredAcceptsRetiredExecutorIdentity(t *testing.T) {
 	}
 	plan.PlanDigest = digest
 
-	if err := plan.ValidateStored(); err != nil {
-		t.Fatalf("ValidateStored() retired executor error = %v", err)
+	if err := plan.ValidateStored(); err == nil {
+		t.Fatal("ValidateStored() accepted a retired executor plan")
 	}
 	if err := plan.Validate(); err == nil {
 		t.Fatal("Validate() accepted a retired executor plan as current")

@@ -127,6 +127,13 @@ func TestDurationLedgerSQLiteQueryPlansUseRequiredIndexes(t *testing.T) {
 }
 
 func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
+	database := openInitializedDurationLedgerSQLiteForTest(t)
+	assertDurationLedgerSQLiteIndexExpectations(t, database, sqliteRequiredIndexExpectations())
+	assertDurationLedgerSQLiteRetiredIndexes(t, database)
+}
+
+func openInitializedDurationLedgerSQLiteForTest(t *testing.T) *sql.DB {
+	t.Helper()
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
@@ -135,9 +142,12 @@ func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	t.Cleanup(func() { database.Close() })
+	return database
+}
 
-	expectations := []sqliteIndexExpectation{
+func sqliteRequiredIndexExpectations() []sqliteIndexExpectation {
+	return []sqliteIndexExpectation{
 		{
 			table: "ci_catalog_observations", name: "idx_ci_catalog_observations_catalog_order",
 			columns: []sqliteIndexColumnExpectation{
@@ -162,15 +172,6 @@ func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
 			columns: []sqliteIndexColumnExpectation{{name: "accepted_generation"}, {name: "identity_digest"}},
 		},
 		{
-			table: "ci_workload_pass_evidence_aliases", name: "idx_ci_workload_pass_evidence_alias_source",
-			columns: []sqliteIndexColumnExpectation{{name: "source_identity_digest"}, {name: "source_accepted_generation"}},
-		},
-		{
-			table: "ci_runs", name: "idx_ci_runs_reusable_pass",
-			columns: []sqliteIndexColumnExpectation{{name: "accepted_generation"}, {name: "completed_at_unix_ms", descending: true}, {name: "job_id", descending: true}},
-			partial: 1,
-		},
-		{
 			table: "ci_workload_executions", name: "idx_ci_workload_executions_shard_fk",
 			columns: []sqliteIndexColumnExpectation{{name: "job_id"}, {name: "shard_identity"}},
 		},
@@ -187,6 +188,10 @@ func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
 			columns: []sqliteIndexColumnExpectation{{name: "job_id"}, {name: "id"}},
 		},
 	}
+}
+
+func assertDurationLedgerSQLiteIndexExpectations(t *testing.T, database *sql.DB, expectations []sqliteIndexExpectation) {
+	t.Helper()
 	for _, expectation := range expectations {
 		t.Run(expectation.table+"/"+expectation.name, func(t *testing.T) {
 			indexes := sqliteIndexListForTest(t, database, expectation.table)
@@ -203,8 +208,57 @@ func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assertDurationLedgerSQLiteRetiredIndexes(t *testing.T, database *sql.DB) {
+	t.Helper()
 	if indexes := sqliteIndexListForTest(t, database, "ci_workload_pass_evidence"); indexes["idx_ci_workload_pass_evidence_lookup"].name != "" {
 		t.Fatal("retired duplicate workload pass evidence lookup index is present")
+	}
+	for _, retired := range []struct {
+		table string
+		name  string
+	}{
+		{table: "ci_runs", name: "idx_ci_runs_reusable_pass"},
+		{table: "ci_workload_pass_evidence", name: "idx_ci_workload_pass_evidence_migration"},
+	} {
+		if indexes := sqliteIndexListForTest(t, database, retired.table); indexes[retired.name].name != "" {
+			t.Fatalf("retired index %s is present", retired.name)
+		}
+	}
+}
+
+func TestDurationLedgerSQLiteRejectsRetiredObjects(t *testing.T) {
+	database := openInitializedDurationLedgerSQLiteForTest(t)
+	assertDurationLedgerSQLiteObjectsAbsent(t, database, []string{
+		"ci_workload_pass_evidence_aliases",
+		"ci_schema_migrations",
+		"idx_ci_runs_reusable_pass",
+		"idx_ci_workload_pass_evidence_migration",
+		"duration_ledger_raw_events",
+		"idx_duration_ledger_raw_events_recorded_at",
+		"duration_ledger_raw_events_no_update",
+		"duration_ledger_raw_events_no_delete",
+	})
+	var autoVacuum int
+	if err := database.QueryRow(`PRAGMA auto_vacuum`).Scan(&autoVacuum); err != nil {
+		t.Fatal(err)
+	}
+	if autoVacuum != 1 {
+		t.Fatalf("auto_vacuum = %d, want FULL(1)", autoVacuum)
+	}
+}
+
+func assertDurationLedgerSQLiteObjectsAbsent(t *testing.T, database *sql.DB, names []string) {
+	t.Helper()
+	for _, name := range names {
+		var count int
+		if err := database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = ?`, name).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("retired SQLite object %q is present", name)
+		}
 	}
 }
 

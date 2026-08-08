@@ -141,6 +141,9 @@ func projectCompileGroupsForShard(shard gate.ContainerShard, groups []gate.Compi
 	if err := validateProjectedCompileGroupCoverage(shard.GateIDs, grouped); err != nil {
 		return nil, err
 	}
+	if len(projected) > 1 {
+		return nil, fmt.Errorf("shard %d must contain exactly one compile group (found %d)", shard.Index, len(projected))
+	}
 	return projected, nil
 }
 

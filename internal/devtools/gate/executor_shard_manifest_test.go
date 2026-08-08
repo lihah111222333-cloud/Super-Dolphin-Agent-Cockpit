@@ -200,6 +200,37 @@ func TestShardExecutionManifestRejectsDuplicateArtifactResourceBinding(t *testin
 	}
 }
 
+func TestShardExecutionManifestRejectsDifferentArtifactsInOneShard(t *testing.T) {
+	first := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, "./internal/archtest", "TestArtifactFirst")
+	second := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestArtifactSecond")
+	firstGroup := manifestTestCompileGroup(t, []GateID{GateID(first.ID)})
+	secondID := GateID(second.ID)
+	secondGroup := CompileGroup{
+		PackageTarget: "./internal/devtools/gate", SemanticKey: CompileGroupSemanticGoTestNormal,
+		SharedInputDigest: "sha256:" + strings.Repeat("e", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64),
+		ResourceClassID: "medium", WorkloadIDs: []GateID{secondID},
+		SelectorEstimates: []CompileSelectorEstimate{{SelectorID: secondID, BodyEstimateMS: 20}},
+		BatchPlan:         []CompileGroupBatch{{BatchID: "batch-000", Wave: 0, SelectorIDs: []GateID{secondID}, EstimatedBodyMS: 20}},
+		CompileEstimateMS: 10, BodyEstimateMS: 20, EstimatedDurationMS: 30,
+	}
+	var err error
+	secondGroup.BatchPlanDigest, err = CompileGroupBatchPlanDigest(secondGroup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondGroup.GroupID, err = CompileGroupID(secondGroup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secondGroup.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	manifest := manifestTestInput([]GateID{GateID(first.ID), secondID}, firstGroup, secondGroup)
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "exactly one compile group") {
+		t.Fatalf("manifest accepted different artifacts in one shard: %v", err)
+	}
+}
+
 func TestWorkerCompileGroupReportRejectsMissingOrReorderedExecutions(t *testing.T) {
 	first := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary")
 	second := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, "./internal/archtest", "TestAnotherBoundary")

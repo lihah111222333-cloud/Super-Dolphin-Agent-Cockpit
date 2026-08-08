@@ -3,6 +3,7 @@ package oss
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,6 +21,7 @@ type fakeRunner struct {
 	stdout         []byte
 	stderr         []byte
 	err            error
+	readbackData   []byte
 	calls          []runCall
 	errors         []error
 	mutateArgs     bool
@@ -27,6 +29,9 @@ type fakeRunner struct {
 }
 
 func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, []byte, error) {
+	if err := r.writeReadback(args); err != nil {
+		return nil, nil, err
+	}
 	recordedArgs, checkpointDirectory := normalizeCheckpointArgument(args)
 	if checkpointDirectory != "" {
 		r.checkpointDirs = append(r.checkpointDirs, checkpointDirectory)
@@ -35,36 +40,88 @@ func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	if r.mutateArgs && len(args) > 0 {
 		args[0] = "mutated-by-runner"
 	}
-	if len(r.errors) > 0 {
-		err := r.errors[0]
-		r.errors = r.errors[1:]
-		if err != nil {
-			return r.stdout, r.stderr, err
-		}
+	return r.nextResult()
+}
+
+func (r *fakeRunner) writeReadback(args []string) error {
+	if len(args) < 4 || args[0] != "oss" || args[1] != "cp" || !strings.HasPrefix(args[2], "oss://") || len(r.readbackData) == 0 {
+		return nil
+	}
+	if _, err := os.Lstat(args[3]); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read-back destination must not exist before OSS download: %w", err)
+	}
+	return os.WriteFile(args[3], r.readbackData, 0o600)
+}
+
+func (r *fakeRunner) nextResult() ([]byte, []byte, error) {
+	if len(r.errors) == 0 {
+		return r.stdout, r.stderr, r.err
+	}
+	err := r.errors[0]
+	r.errors = r.errors[1:]
+	if err != nil {
+		return r.stdout, r.stderr, err
 	}
 	return r.stdout, r.stderr, r.err
 }
 
 func TestClient_TransportCreateDeletePrefix(t *testing.T) {
-	runner := &fakeRunner{}
+	source := writeTestSource(t, []byte("bundle"))
+	runner := &fakeRunner{
+		stdout:       []byte("Object-Name: oss://ci-bucket/source-bundles/input.tar\nContent-Length: 6\nx-oss-meta-sha256: 1e6ed65d77d6364eeaed5a745ba5c4985ae2b700dd85d7cf7f027bdf294a33fc\nx-oss-meta-size: 6\n"),
+		readbackData: []byte("bundle"),
+	}
 	client := newTestClient(t, runner)
 	ctx := context.Background()
 
-	if err := client.Create(ctx, "/tmp/input.tar", "source-bundles/input.tar"); err != nil {
+	if err := client.Create(ctx, source, "source-bundles/input.tar"); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if err := client.DeletePrefix(ctx, "source-bundles/generation-1/"); err != nil {
 		t.Fatalf("DeletePrefix() error = %v", err)
 	}
 
-	want := []runCall{
-		{name: "aliyun", args: []string{"oss", "cp", "/tmp/input.tar", "oss://ci-bucket/source-bundles/input.tar", "--meta", "x-oss-forbid-overwrite:true", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
-		{name: "aliyun", args: []string{"oss", "rm", "oss://ci-bucket/source-bundles/generation-1/", "--recursive", "--force", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
-	}
-	if !reflect.DeepEqual(runner.calls, want) {
-		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
-	}
+	assertTransportCalls(t, runner.calls, source)
 	assertCheckpointDirectoriesClean(t, runner.checkpointDirs)
+}
+
+func assertTransportCalls(t *testing.T, calls []runCall, source string) {
+	t.Helper()
+	if len(calls) != 4 {
+		t.Fatalf("calls = %#v, want upload/stat/read-back/delete", calls)
+	}
+	assertUploadCall(t, calls[0], source)
+	assertMetadataCall(t, calls[1])
+	assertReadbackCall(t, calls[2])
+	assertDeleteCall(t, calls[3])
+}
+
+func assertUploadCall(t *testing.T, call runCall, source string) {
+	t.Helper()
+	if len(call.args) < 3 || call.args[0] != "oss" || call.args[1] != "cp" || call.args[2] != source {
+		t.Fatalf("upload call = %#v", call)
+	}
+}
+
+func assertMetadataCall(t *testing.T, call runCall) {
+	t.Helper()
+	if len(call.args) < 3 || call.args[0] != "oss" || call.args[1] != "stat" || call.args[2] != "oss://ci-bucket/source-bundles/input.tar" {
+		t.Fatalf("metadata call = %#v", call)
+	}
+}
+
+func assertReadbackCall(t *testing.T, call runCall) {
+	t.Helper()
+	if len(call.args) < 4 || call.args[0] != "oss" || call.args[1] != "cp" || call.args[2] != "oss://ci-bucket/source-bundles/input.tar" || call.args[3] != "<readback>" {
+		t.Fatalf("read-back call = %#v", call)
+	}
+}
+
+func assertDeleteCall(t *testing.T, call runCall) {
+	t.Helper()
+	if len(call.args) < 2 || call.args[0] != "oss" || call.args[1] != "rm" {
+		t.Fatalf("delete call = %#v", call)
+	}
 }
 
 func normalizeCheckpointArgument(args []string) ([]string, string) {
@@ -74,6 +131,9 @@ func normalizeCheckpointArgument(args []string) ([]string, string) {
 		if argument == "--checkpoint-dir" && index+1 < len(recordedArgs) {
 			recordedArgs[index+1] = "<checkpoint-dir>"
 		}
+	}
+	if len(recordedArgs) >= 4 && recordedArgs[0] == "oss" && recordedArgs[1] == "cp" && strings.HasPrefix(recordedArgs[2], "oss://") {
+		recordedArgs[3] = "<readback>"
 	}
 	return recordedArgs, directory
 }
@@ -120,6 +180,7 @@ func TestClient_RejectsEscapingOrOutOfPrefixKeys(t *testing.T) {
 }
 
 func TestClient_CreateFailsFastOnObjectCollision(t *testing.T) {
+	source := writeTestSource(t, []byte("bundle"))
 	for _, stderr := range []string{"FileAlreadyExists", "HTTP 409 Conflict", "HTTP 412 PreconditionFailed"} {
 		t.Run(stderr, func(t *testing.T) {
 			runner := &fakeRunner{
@@ -129,7 +190,7 @@ func TestClient_CreateFailsFastOnObjectCollision(t *testing.T) {
 			client := newTestClient(t, runner)
 			client.wait = func(context.Context, time.Duration) error { return nil }
 
-			err := client.Create(context.Background(), "/tmp/input.tar", "source-bundles/input.tar")
+			err := client.Create(context.Background(), source, "source-bundles/input.tar")
 			if err == nil {
 				t.Fatal("Create() collision error = nil")
 			}
@@ -141,6 +202,44 @@ func TestClient_CreateFailsFastOnObjectCollision(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClient_CreateRejectsMetadataDriftBeforeReadBack(t *testing.T) {
+	source := writeTestSource(t, []byte("bundle"))
+	runner := &fakeRunner{stdout: []byte("Object-Name: oss://ci-bucket/source-bundles/input.tar\nContent-Length: 7\nx-oss-meta-sha256: 1e6ed65d77d6364eeaed5a745ba5c4985ae2b700dd85d7cf7f027bdf294a33fc\nx-oss-meta-size: 7\n")}
+	client := newTestClient(t, runner)
+	err := client.Create(context.Background(), source, "source-bundles/input.tar")
+	if err == nil || !strings.Contains(err.Error(), "remote object size") {
+		t.Fatalf("Create() error = %v, want metadata size drift", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("verification calls = %d, want upload and metadata only", len(runner.calls))
+	}
+}
+
+func TestClient_CreateRejectsReadBackDigestDrift(t *testing.T) {
+	source := writeTestSource(t, []byte("bundle"))
+	runner := &fakeRunner{
+		stdout:       []byte("Object-Name: oss://ci-bucket/source-bundles/input.tar\nContent-Length: 6\nx-oss-meta-sha256: 1e6ed65d77d6364eeaed5a745ba5c4985ae2b700dd85d7cf7f027bdf294a33fc\nx-oss-meta-size: 6\n"),
+		readbackData: []byte("drifted"),
+	}
+	client := newTestClient(t, runner)
+	err := client.Create(context.Background(), source, "source-bundles/input.tar")
+	if err == nil || !strings.Contains(err.Error(), "read-back identity drifted") {
+		t.Fatalf("Create() error = %v, want read-back identity drift", err)
+	}
+	if len(runner.calls) != 3 {
+		t.Fatalf("verification calls = %d, want upload/metadata/read-back", len(runner.calls))
+	}
+}
+
+func writeTestSource(t *testing.T, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "input.tar")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test source: %v", err)
+	}
+	return path
 }
 
 func TestNew_RejectsInvalidConfig(t *testing.T) {

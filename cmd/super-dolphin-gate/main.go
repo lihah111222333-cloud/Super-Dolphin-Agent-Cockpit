@@ -3,8 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -141,7 +139,9 @@ func writeGateCLIIdentity(args []string, stdout io.Writer) error {
 func workerExecutionContext(parent context.Context) (context.Context, context.CancelFunc, error) {
 	raw, configured := os.LookupEnv(gatecontract.ExecutorWorkloadTimeoutEnvironment)
 	if !configured {
-		return parent, func() {}, nil
+		ctx, cancel := context.WithCancel(parent)
+		cancel()
+		return ctx, func() {}, fmt.Errorf("%s is required", gatecontract.ExecutorWorkloadTimeoutEnvironment)
 	}
 	timeout, err := time.ParseDuration(raw)
 	if err == nil {
@@ -170,10 +170,10 @@ func signalExitCode(caught os.Signal) int {
 	return 128 + int(signalValue)
 }
 
-// dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
+// dispatchCLI 将固定命令面分派到已接线的 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, test, codemap, capability-contract, project-map, worker, remote run)")
+		return protocolError("subcommand is required (test, codemap, capability-contract, project-map, worker, remote run)")
 	}
 	if handled, err := dispatchPrimaryCLI(args, stdout, progressWriters...); handled {
 		return err
@@ -184,8 +184,6 @@ func dispatchCLI(args []string, stdout io.Writer, progressWriters ...io.Writer) 
 // dispatchPrimaryCLI 分派 coordinator 命令空间之外的固定子命令。
 func dispatchPrimaryCLI(args []string, stdout io.Writer, progressWriters ...io.Writer) (bool, error) {
 	switch args[0] {
-	case "plan":
-		return true, runPlan(args[1:], stdout)
 	case "test":
 		return true, runTestInvocation(args[1:], stdout, progressWriters...)
 	case "codemap", "capability-contract", "project-map":
@@ -215,129 +213,6 @@ func runGeneratedMapCLI(command string, args []string, stdout io.Writer) error {
 	}
 	return runProjectMapCLI(args, stdout)
 }
-
-func runPlan(args []string, stdout io.Writer) error {
-	plan, err := parsePlan(args)
-	if err != nil {
-		return err
-	}
-	encoder := json.NewEncoder(stdout)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(plan); err != nil {
-		return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, fmt.Errorf("encode plan JSON: %w", err))
-	}
-	return nil
-}
-
-type planFlags struct {
-	profile        string
-	objectFormat   string
-	sourceTree     string
-	commit         string
-	tree           string
-	parent         string
-	baseKind       string
-	base           string
-	head           string
-	localRef       string
-	remoteRef      string
-	observedRemote string
-	updateKind     string
-}
-
-// parsePlan 严格解析 profile 与唯一 SourceSpec，并生成 canonical plan。
-func parsePlan(args []string) (gatecontract.GatePlan, error) {
-	options := planFlags{}
-	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	registerPlanFlags(flags, &options)
-	if err := flags.Parse(args); err != nil {
-		return gatecontract.GatePlan{}, protocolError("parse plan flags: %v", err)
-	}
-	if flags.NArg() != 0 {
-		return gatecontract.GatePlan{}, protocolError("unexpected positional arguments: %v", flags.Args())
-	}
-	profile := gatecontract.Profile(options.profile)
-	if err := profile.Validate(); err != nil {
-		return gatecontract.GatePlan{}, protocolError("%v", err)
-	}
-	source, err := options.sourceSpec()
-	if err != nil {
-		return gatecontract.GatePlan{}, err
-	}
-	plan, err := gatecontract.BuildGatePlan(profile, source)
-	if err != nil {
-		return gatecontract.GatePlan{}, gatecontract.WithExitCode(gatecontract.ExitRegistryInvariant, err)
-	}
-	return plan, nil
-}
-
-func registerPlanFlags(flags *flag.FlagSet, options *planFlags) {
-	flags.StringVar(&options.profile, "profile", "", "gate profile")
-	flags.StringVar(&options.objectFormat, "object-format", "", "Git object format")
-	flags.StringVar(&options.sourceTree, "source-tree", "", "normalized source tree OID")
-	flags.StringVar(&options.commit, "commit", "", "commit OID")
-	flags.StringVar(&options.tree, "tree", "", "tree OID")
-	flags.StringVar(&options.parent, "parent", "", "optional tree parent commit OID")
-	flags.StringVar(&options.baseKind, "base-kind", "", "range base kind")
-	flags.StringVar(&options.base, "base", "", "range base commit OID")
-	flags.StringVar(&options.head, "head", "", "range head commit OID")
-	flags.StringVar(&options.localRef, "local-ref", "", "range local ref")
-	flags.StringVar(&options.remoteRef, "remote-ref", "", "range remote ref")
-	flags.StringVar(&options.observedRemote, "observed-remote", "", "observed remote OID")
-	flags.StringVar(&options.updateKind, "update-kind", "", "range update kind")
-}
-
-// sourceSpec 将互斥 CLI flags 转为严格 SourceSpec。
-func (o planFlags) sourceSpec() (gatecontract.SourceSpec, error) {
-	commitSet := o.commit != ""
-	treeSet := o.tree != "" || o.parent != ""
-	rangeSet := o.rangeRequested()
-	if boolCount(commitSet, treeSet, rangeSet) != 1 {
-		return gatecontract.SourceSpec{}, sourceError("exactly one commit, tree, or range source is required")
-	}
-	spec := gatecontract.SourceSpec{ObjectFormat: gatecontract.GitObjectFormat(o.objectFormat), SourceTreeSHA: o.sourceTree}
-	switch {
-	case commitSet:
-		spec.Kind = gatecontract.SourceKindCommit
-		spec.Commit = &gatecontract.CommitSource{SHA: o.commit}
-	case treeSet:
-		spec.Kind = gatecontract.SourceKindTree
-		spec.Tree = &gatecontract.TreeSource{SHA: o.tree, ParentCommitSHA: o.parent}
-	case rangeSet:
-		spec.Kind = gatecontract.SourceKindRange
-		spec.Range = &gatecontract.RangeSource{
-			BaseKind: gatecontract.BaseKind(o.baseKind), BaseSHA: o.base, HeadSHA: o.head,
-			LocalRef: o.localRef, RemoteRef: o.remoteRef, ObservedRemoteSHA: o.observedRemote,
-			UpdateKind: gatecontract.UpdateKind(o.updateKind),
-		}
-	}
-	if err := spec.Validate(); err != nil {
-		return gatecontract.SourceSpec{}, sourceError("%v", err)
-	}
-	return spec, nil
-}
-
-func (o planFlags) rangeRequested() bool {
-	values := []string{o.baseKind, o.base, o.head, o.localRef, o.remoteRef, o.observedRemote, o.updateKind}
-	for _, value := range values {
-		if value != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func boolCount(values ...bool) int {
-	count := 0
-	for _, value := range values {
-		if value {
-			count++
-		}
-	}
-	return count
-}
-
 func protocolError(format string, args ...any) error {
 	return gatecontract.WithExitCode(gatecontract.ExitProtocol, fmt.Errorf(format, args...))
 }

@@ -627,16 +627,6 @@ func assertPreCommitRepositoryState(t *testing.T, root string, want preCommitRep
 	}
 }
 
-func runCICommitGuard(t *testing.T, root string, args ...string) (string, error) {
-	t.Helper()
-	cmdArgs := append([]string{bashPath("scripts", "ci_commit_guard.sh")}, bashArgs(root, args)...)
-	cmd := exec.Command("bash", cmdArgs...)
-	cmd.Dir = root
-	cmd.Env = os.Environ()
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
 func runCommitMsgHook(t *testing.T, root, msgFile string) (string, error) {
 	t.Helper()
 	cmd := exec.Command("bash", bashPath(".githooks", "commit-msg"), bashArg(root, msgFile))

@@ -2,17 +2,16 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
-	"strings"
-	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const (
-	remoteRuntimeRegistryServer       = "ghcr.io"
-	remoteRegistryUsernameEnvironment = "SUPER_DOLPHIN_CI_GHCR_USERNAME"
-	remoteRegistryTokenEnvironment    = "SUPER_DOLPHIN_CI_GHCR_TOKEN"
+	remoteRegistryUsernameEnvironment = cicontract.RemoteRegistryUsernameEnvironment
+	remoteRegistryTokenEnvironment    = cicontract.RemoteRegistryTokenEnvironment
 )
 
 // loadRemoteRegistryCredential 从当前进程环境读取短期 GHCR 凭据，禁止缺失或空值进入 ECI 请求。
@@ -22,14 +21,8 @@ func loadRemoteRegistryCredential() (eci.RegistryCredential, error) {
 	if !usernamePresent || !tokenPresent {
 		return eci.RegistryCredential{}, errors.New("remote CI GHCR username and token environment variables are required")
 	}
-	if !validRemoteCredentialValue(username) || !validRemoteCredentialValue(token) {
-		return eci.RegistryCredential{}, errors.New("remote CI GHCR credentials must not contain leading, trailing, or control whitespace")
+	if err := cicontract.ValidateRemoteRegistryCredential(cicontract.RemoteRegistryServer, username, token); err != nil {
+		return eci.RegistryCredential{}, fmt.Errorf("remote CI GHCR credential: %w", err)
 	}
-	return eci.RegistryCredential{Server: remoteRuntimeRegistryServer, UserName: username, Password: token}, nil
-}
-
-func validRemoteCredentialValue(value string) bool {
-	return value != "" && strings.TrimSpace(value) == value && strings.IndexFunc(value, func(r rune) bool {
-		return unicode.IsSpace(r) || unicode.IsControl(r)
-	}) < 0
+	return eci.RegistryCredential{Server: cicontract.RemoteRegistryServer, UserName: username, Password: token}, nil
 }
