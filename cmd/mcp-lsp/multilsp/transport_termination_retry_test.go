@@ -112,6 +112,30 @@ func (o *terminationFailureOwner) Terminate() error {
 	return nil
 }
 
+type convergedTerminationFailureOwner struct {
+	terminationFailureOwner
+}
+
+func (o *convergedTerminationFailureOwner) Remaining() ([]hiddenexec.ProcessIdentity, error) {
+	return nil, nil
+}
+
+// TestTransportCloseReleasesExitedVerifiedTreeAfterBlockedSignal 锁定 Darwin 零信号失败后的自然退出收敛：
+// cmd.Wait 已完成且 exact owner 证明零成员时，不得继续误报 CleanupPending。
+func TestTransportCloseReleasesExitedVerifiedTreeAfterBlockedSignal(t *testing.T) {
+	owner := &convergedTerminationFailureOwner{}
+	tr := newTestTransportWithExitedProcess()
+	tr.processTree = owner
+
+	if err := tr.Close(); err != nil {
+		t.Fatalf("Close() after verified natural exit = %v, want successful convergence", err)
+	}
+	assertTransportOwnerCalls(t, owner, 1, 1)
+	if !tr.closeComplete {
+		t.Fatal("Close() did not latch completion after verified natural exit")
+	}
+}
+
 // TestTransportCloseRetainsOwnerWhenTerminationFails 锁定终止失败时不得提前 Release。
 func TestTransportCloseRetainsOwnerWhenTerminationFails(t *testing.T) {
 	owner := &terminationFailureOwner{}
@@ -221,3 +245,9 @@ func (o *dynamicRemainingProcessTreeOwner) terminateCallCount() int32  { return 
 func (o *dynamicRemainingProcessTreeOwner) releaseCallCount() int32    { return o.releaseCalls.Load() }
 func (o *terminationFailureOwner) terminateCallCount() int32           { return o.terminateCalls.Load() }
 func (o *terminationFailureOwner) releaseCallCount() int32             { return o.releaseCalls.Load() }
+func (o *convergedTerminationFailureOwner) terminateCallCount() int32 {
+	return o.terminateCalls.Load()
+}
+func (o *convergedTerminationFailureOwner) releaseCallCount() int32 {
+	return o.releaseCalls.Load()
+}

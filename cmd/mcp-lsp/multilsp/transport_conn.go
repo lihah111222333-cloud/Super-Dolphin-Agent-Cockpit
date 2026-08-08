@@ -100,12 +100,12 @@ func (t *transport) Close() error {
 	t.logShutdownStageResult("terminate", terminationErr)
 	waitErr := t.waitForExit(defaultShutdownTimeout)
 	t.logShutdownStageResult("wait", waitErr)
-	releaseErr, releaseComplete := t.releaseProcessTreeAfterTermination(terminationErr)
-	result := errors.Join(terminationErr, waitErr, releaseErr, drainErr)
+	effectiveTerminationErr, releaseErr, releaseComplete := t.releaseProcessTreeAfterExit(terminationErr, waitErr)
+	result := errors.Join(effectiveTerminationErr, waitErr, releaseErr, drainErr)
 
 	t.closeMu.Lock()
 	attempt.result = result
-	if terminationErr == nil && drainErr == nil && waitErr == nil && releaseComplete {
+	if effectiveTerminationErr == nil && drainErr == nil && waitErr == nil && releaseComplete {
 		t.closeComplete = true
 		t.closeResult = result
 	}
@@ -124,15 +124,36 @@ func (t *transport) logShutdownStageResult(stage string, stageErr error) {
 	t.logShutdownStage(stage, "completed", nil)
 }
 
-// releaseProcessTreeAfterTermination 仅在终止阶段成功后释放 exact owner。
-func (t *transport) releaseProcessTreeAfterTermination(terminationErr error) (error, bool) {
-	if terminationErr != nil {
+// releaseProcessTreeAfterExit 在进程退出后以 Remaining 证据判定清理是否已经收敛。
+// Darwin 可能因缺少 pidfd 等价物而拒绝破坏性信号，但关闭 stdin 后语言服务器仍会自然退出；
+// 此时 exact owner 报告零成员并成功 Release，先前的零信号错误不应继续冒充 CleanupPending。
+// 没有 Remaining 能力、等待超时或仍有成员时继续保留 owner 与原始终止错误。
+func (t *transport) releaseProcessTreeAfterExit(terminationErr, waitErr error) (error, error, bool) {
+	if waitErr != nil {
+		t.logShutdownStage("release", "skipped", waitErr)
+		return terminationErr, nil, false
+	}
+	if terminationErr != nil && !t.processTreeCanProveRemaining() {
 		t.logShutdownStage("release", "skipped", terminationErr)
-		return nil, false
+		return terminationErr, nil, false
 	}
 	releaseErr, releaseComplete := t.releaseProcessTreeAttempt()
 	t.logShutdownStageResult("release", releaseErr)
-	return releaseErr, releaseComplete
+	if terminationErr != nil && releaseErr == nil && releaseComplete {
+		return nil, nil, true
+	}
+	return terminationErr, releaseErr, releaseComplete
+}
+
+// processTreeCanProveRemaining 要求 owner 提供 action-time 成员闭包，禁止仅凭根进程退出推断整棵树已清空。
+func (t *transport) processTreeCanProveRemaining() bool {
+	if t == nil || t.processTree == nil {
+		return false
+	}
+	_, ok := t.processTree.(interface {
+		Remaining() ([]hiddenexec.ProcessIdentity, error)
+	})
+	return ok
 }
 
 // drainResponders 在 timeout 内等待所有已登记的服务端请求响应 goroutine。

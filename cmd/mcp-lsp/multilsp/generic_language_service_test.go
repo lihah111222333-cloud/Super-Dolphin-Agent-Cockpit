@@ -247,6 +247,52 @@ func TestGoAdapterUsesTargetBuildTagsInEnvAndInitOptions(t *testing.T) {
 	}
 }
 
+func TestGoAdapterDoesNotPromotePlatformConstraintsToCustomBuildTags(t *testing.T) {
+	t.Setenv("GOFLAGS", "-mod=mod")
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/platform\n\ngo 1.25.0\n")
+	ordinaryTarget := filepath.Join(root, "backend", "ordinary.go")
+	writeGenericTestFile(t, ordinaryTarget, "package backend\n\nfunc Ordinary() {}\n")
+	target := filepath.Join(root, "backend", "cmd", "ai_maintenance_candidate_publisher", "main.go")
+	writeGenericTestFile(t, target, "//go:build darwin || linux\n\npackage main\n\nfunc main() {}\n")
+
+	registry := NewDefaultLanguageAdapterRegistry()
+	goAdapter, ok := registry.AdapterForLanguage("go")
+	if !ok {
+		t.Fatal("missing go adapter")
+	}
+	scope, err := goAdapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        root,
+		LanguageID: "go",
+		TargetPath: target,
+	}, target)
+	if err != nil {
+		t.Fatalf("go ResolveRoot: %v", err)
+	}
+	ordinaryScope, err := goAdapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        root,
+		LanguageID: "go",
+		TargetPath: ordinaryTarget,
+	}, ordinaryTarget)
+	if err != nil {
+		t.Fatalf("ordinary go ResolveRoot: %v", err)
+	}
+	if got := scope.LanguageSpecific[goBuildTagsLanguageSpecificKey]; got != "" {
+		t.Fatalf("platform build constraint promoted to custom tags = %q, want empty", got)
+	}
+	if got, want := goAdapter.CacheKeyParts(scope), goAdapter.CacheKeyParts(ordinaryScope); !reflect.DeepEqual(got, want) {
+		t.Fatalf("platform target cache key = %#v, want ordinary same-root key %#v", got, want)
+	}
+	if got, want := goAdapter.EnvPolicy(scope), hostGoEnv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("platform-tag EnvPolicy = %#v, want %#v", got, want)
+	}
+	if _, ok := goAdapter.InitOptions(scope)["buildFlags"]; ok {
+		t.Fatal("platform-tag InitOptions unexpectedly contains buildFlags")
+	}
+}
+
 func TestGoAdapterLeavesStandaloneIgnoreTagToGopls(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	root := canonicalScopePath(t.TempDir(), "")

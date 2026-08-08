@@ -124,6 +124,7 @@
     "cmd/mcp-lsp/lsp_binary_go_worktree_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_gopls_log_e2e_test.go",
+    "cmd/mcp-lsp/lsp_binary_gopls_platform_constraint_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_grep_brace_glob_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_grep_cap_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_grep_code_guard_e2e_test.go",
@@ -4864,6 +4865,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6520,
-  "source_snapshot_paths_sha256": "sha256:977d0d0facb9e3868255f81bafb5b41e7565311a9b2bcb96c15491a54ff70ec6"
+  "source_snapshot_input_count": 6521,
+  "source_snapshot_paths_sha256": "sha256:707bac0962bd6f84e427016f6f375873b9817c1e7fab446bbe286054481abf70"
 }

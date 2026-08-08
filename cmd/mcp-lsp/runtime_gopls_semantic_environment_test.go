@@ -132,6 +132,34 @@ func TestRuntimeServerArgsSeparatesDifferentResolvedAuxiliaryTools(t *testing.T)
 	}
 }
 
+func TestRuntimeServerArgsIgnoresUnusedDefaultGCCGO(t *testing.T) {
+	goplsBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	goBinary := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("gc-with-default-gccgo"))
+	t.Setenv("PATH", filepath.Dir(goBinary))
+	command := multilsp.ServerCommand{
+		Executable: "gopls",
+		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
+	}
+	withoutDefault := mustRuntimeServerArgs(t, command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64", "GCCGO="})
+	withDefault := mustRuntimeServerArgs(t, command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64", "GCCGO=gccgo"})
+	if runtimeServerGoplsRemoteID(withoutDefault) != runtimeServerGoplsRemoteID(withDefault) {
+		t.Fatalf("unused default GCCGO split gc cohort: without=%v with=%v", withoutDefault, withDefault)
+	}
+}
+
+func TestRuntimeServerArgsRequiresSelectedGCCGO(t *testing.T) {
+	goplsBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	goBinary := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("selected-gccgo"))
+	t.Setenv("PATH", filepath.Dir(goBinary))
+	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2"}}
+	_, err := runtimeServerArgs(command, goplsBinary, []string{
+		"GOOS=linux", "GOARCH=amd64", "GOFLAGS=-compiler=gccgo", "GCCGO=gccgo",
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolve GCCGO tool for gopls cohort") {
+		t.Fatalf("runtimeServerArgs() error = %v, want selected GCCGO resolution failure", err)
+	}
+}
+
 func TestRuntimeServerArgsIgnoresUnrelatedGOPrefixedEnvironment(t *testing.T) {
 	goplsBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
 	command := multilsp.ServerCommand{

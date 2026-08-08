@@ -168,7 +168,7 @@ func runtimeServerGoplsEffectiveConfigDigest(command multilsp.ServerCommand, bin
 // 原始 PATH 只用于解析实际 Go 与显式辅助工具；digest 记录解析后的真实路径与内容摘要，
 // 避免 Codex arg0 临时目录、重复目录或等价 PATH 顺序把同一工具链拆成不同 cohort。
 func runtimeServerGoplsSemanticEnvironment(overrides []string) ([]string, error) {
-	relevant := runtimeServerGoplsEnvironment(overrides)
+	relevant := runtimeServerGoplsFilterInactiveGCCGO(runtimeServerGoplsEnvironment(overrides))
 	goBinary, goDigest, err := runtimeServerBinaryIdentity("go", relevant)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Go toolchain for gopls cohort: %w", err)
@@ -221,6 +221,33 @@ func runtimeServerGoplsAuxiliaryToolEnvironment(relevant []string) ([]string, er
 		)
 	}
 	return semantic, nil
+}
+
+// runtimeServerGoplsFilterInactiveGCCGO 移除 gc 构建不会读取的默认 GCCGO 值。
+func runtimeServerGoplsFilterInactiveGCCGO(relevant []string) []string {
+	if runtimeServerGoplsUsesGCCGO(relevant) {
+		return relevant
+	}
+	return slices.DeleteFunc(slices.Clone(relevant), func(entry string) bool {
+		key, _, ok := strings.Cut(entry, "=")
+		return ok && key == "GCCGO"
+	})
+}
+
+// runtimeServerGoplsUsesGCCGO 仅在 Go 构建参数明确选择 gccgo 时启用 GCCGO。
+// go env 会在 gc 工具链上也报告默认 GCCGO=gccgo；无条件解析该值会把一个未使用、
+// 通常也未安装的命令错误地升级为 gopls cohort 的启动依赖。
+func runtimeServerGoplsUsesGCCGO(relevant []string) bool {
+	fields := strings.Fields(runtimeServerEnvValue(relevant, "GOFLAGS"))
+	for index, field := range fields {
+		if field == "-compiler=gccgo" {
+			return true
+		}
+		if field == "-compiler" && index+1 < len(fields) && fields[index+1] == "gccgo" {
+			return true
+		}
+	}
+	return false
 }
 
 // runtimeServerGoplsDefaultEnvironment 查询移除显式覆盖后的 Go 默认环境，

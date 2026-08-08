@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/build"
 	"go/build/constraint"
 	"go/parser"
 	"go/token"
@@ -241,8 +242,9 @@ func (a goLanguageAdapter) InitOptions(scope ResolvedLanguageScope) map[string]a
 	return options
 }
 
-// goBuildTagsForTarget 提取目标 Go 文件头部声明的 build tags。
-// tags 会进入 gopls buildFlags 和 cache key，避免 e2e 等带 tag 文件被诊断成 orphan。
+// goBuildTagsForTarget 提取目标 Go 文件头部声明的自定义 build tags。
+// GOOS/GOARCH、compiler、cgo、release/tool tags 由 Go toolchain 自己求值，绝不能再次写入 -tags；
+// 否则 darwin || linux 会被错误展开成 -tags=darwin,linux，令互斥平台文件同时进入 gopls package。
 func goBuildTagsForTarget(cwd, target string) ([]string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" || filepath.Ext(target) != ".go" {
@@ -356,7 +358,7 @@ func collectGoBuildConstraintTags(line string, tags map[string]struct{}) error {
 func collectPositiveGoBuildTags(expr constraint.Expr, tags map[string]struct{}) {
 	switch typed := expr.(type) {
 	case *constraint.TagExpr:
-		if typed.Tag != "" {
+		if typed.Tag != "" && !isGoToolchainBuildTag(typed.Tag) {
 			tags[typed.Tag] = struct{}{}
 		}
 	case *constraint.AndExpr:
@@ -366,6 +368,38 @@ func collectPositiveGoBuildTags(expr constraint.Expr, tags map[string]struct{}) 
 		collectPositiveGoBuildTags(typed.X, tags)
 		collectPositiveGoBuildTags(typed.Y, tags)
 	}
+}
+
+// isGoToolchainBuildTag 识别由 go/build 隐式提供或由专用编译开关控制的标签。
+// 这些标签不是用户自定义 feature tag，传给 -tags 会破坏平台互斥与编译器语义。
+func isGoToolchainBuildTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	implicitTags := []string{
+		"aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux",
+		"netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos",
+		"gc", "gccgo", "cgo", "unix", "race", "msan", "asan",
+	}
+	if slices.Contains(implicitTags, tag) || strings.HasPrefix(tag, "go1.") {
+		return true
+	}
+	if slices.Contains(build.Default.BuildTags, tag) || slices.Contains(build.Default.ToolTags, tag) ||
+		slices.Contains(build.Default.ReleaseTags, tag) {
+		return true
+	}
+	return isGoArchitectureFeatureTag(tag)
+}
+
+func isGoArchitectureFeatureTag(tag string) bool {
+	architecture, _, ok := strings.Cut(tag, ".")
+	if !ok {
+		return false
+	}
+	return slices.Contains([]string{
+		"386", "amd64", "arm", "arm64", "loong64", "mips", "mipsle", "mips64", "mips64le",
+		"ppc64", "ppc64le", "riscv64", "s390x", "sparc64", "wasm",
+	}, architecture)
 }
 
 func sortedGoBuildTags(tags map[string]struct{}) []string {
