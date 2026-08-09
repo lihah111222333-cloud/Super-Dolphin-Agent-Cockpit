@@ -19,7 +19,7 @@ cat <<EOF_MSG
 ✅ 已进入受守卫保护的 shell 环境
 - 当前 REAL_GO_BIN: $REAL_GO_BIN
 - 裸跑 'go test/build/vet' 将被拦截并给出替代命令
-- 测试必须使用受信 super-dolphin-gate test；非轻量目标自动进入 ECI
+- 中低负载时，轻量/中量精确测试可用 test_with_guard.sh --host-test；重型目标进入 ECI
 EOF_MSG
 
 exec "${SHELL:-/bin/zsh}"

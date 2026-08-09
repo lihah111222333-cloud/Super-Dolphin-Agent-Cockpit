@@ -468,21 +468,28 @@ func listGoplsDaemonProcesses(goplsPath, runtimeDir string) ([]goplsDaemonProces
 	}
 	var processes []goplsDaemonProcess
 	for _, line := range strings.Split(string(output), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
+		if process, ok := parseGoplsDaemonProcessLine(line, goplsPath, runtimeDir); ok {
+			processes = append(processes, process)
 		}
-		pid, parseErr := strconv.Atoi(fields[0])
-		if parseErr != nil || pid <= 1 {
-			continue
-		}
-		command := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
-		if !goplsDaemonCommandOwnsRuntime(command, goplsPath, runtimeDir) {
-			continue
-		}
-		processes = append(processes, goplsDaemonProcess{PID: pid, Command: command})
 	}
 	return processes, nil
+}
+
+func parseGoplsDaemonProcessLine(line, goplsPath, runtimeDir string) (goplsDaemonProcess, bool) {
+	line = strings.TrimSpace(line)
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return goplsDaemonProcess{}, false
+	}
+	pid, err := strconv.Atoi(fields[0])
+	if err != nil || pid <= 1 {
+		return goplsDaemonProcess{}, false
+	}
+	command := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+	if !goplsDaemonCommandOwnsRuntime(command, goplsPath, runtimeDir) {
+		return goplsDaemonProcess{}, false
+	}
+	return goplsDaemonProcess{PID: pid, Command: command}, true
 }
 
 func goplsDaemonCommandOwnsRuntime(command, goplsPath, runtimeDir string) bool {
@@ -517,6 +524,16 @@ func TestGoplsDaemonCommandOwnsRuntimeRequiresExactBinaryAndSocketRoot(t *testin
 				t.Fatalf("goplsDaemonCommandOwnsRuntime(%q) = %v, want %v", test.command, got, test.want)
 			}
 		})
+	}
+}
+
+func TestParseGoplsDaemonProcessLineAcceptsPaddedLowPID(t *testing.T) {
+	goplsPath := "/opt/tools/gopls"
+	runtimeDir := "/tmp/mcp-lsp-owned"
+	line := "  247 " + goplsPath + " serve -listen unix;" + runtimeDir + "/daemon.sock -listen.timeout 15m0s"
+	process, ok := parseGoplsDaemonProcessLine(line, goplsPath, runtimeDir)
+	if !ok || process.PID != 247 || !strings.HasPrefix(process.Command, goplsPath+" serve") {
+		t.Fatalf("padded low-PID process parse = (%+v, %t)", process, ok)
 	}
 }
 

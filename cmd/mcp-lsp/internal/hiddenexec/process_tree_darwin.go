@@ -47,6 +47,47 @@ func captureProcessIdentity(pid int) (ProcessIdentity, error) {
 	}, nil
 }
 
+// processStartIdentityPredatesCurrentBoot 使用 Darwin 的绝对进程启动时间和
+// kern.boottime 建立重启边界；只有严格早于当前 boot 的身份才可退役。
+func processStartIdentityPredatesCurrentBoot(startIdentity string) (bool, error) {
+	seconds, microseconds, err := parseDarwinProcessStartIdentity(startIdentity)
+	if err != nil {
+		return false, err
+	}
+	bootSeconds, bootMicroseconds, err := currentDarwinBootTime()
+	if err != nil {
+		return false, err
+	}
+	return seconds < bootSeconds || (seconds == bootSeconds && microseconds < bootMicroseconds), nil
+}
+
+func parseDarwinProcessStartIdentity(startIdentity string) (int64, int64, error) {
+	parts := strings.Split(startIdentity, ".")
+	if len(parts) != 2 {
+		return 0, 0, errors.New("Darwin process start identity is invalid")
+	}
+	seconds, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || seconds <= 0 {
+		return 0, 0, errors.New("Darwin process start identity seconds are invalid")
+	}
+	microseconds, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || microseconds < 0 || microseconds >= 1_000_000 {
+		return 0, 0, errors.New("Darwin process start identity microseconds are invalid")
+	}
+	return seconds, microseconds, nil
+}
+
+func currentDarwinBootTime() (int64, int64, error) {
+	boot, err := unix.SysctlTimeval("kern.boottime")
+	if err != nil {
+		return 0, 0, fmt.Errorf("read Darwin boot time: %w", err)
+	}
+	if boot.Sec <= 0 || boot.Usec < 0 || boot.Usec >= 1_000_000 {
+		return 0, 0, errors.New("Darwin boot time is invalid")
+	}
+	return boot.Sec, int64(boot.Usec), nil
+}
+
 func processTable() (map[int]ProcessIdentity, error) {
 	entries, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {

@@ -78,14 +78,21 @@ real_go_resolver_probe() {
 }
 
 require_remote_test_execution() {
+	case "${1:-}" in
+		host-light|host-medium) return 0 ;;
+		"") ;;
+		*) echo "❌ 未知宿主测试负载类别: $1" >&2; return 2 ;;
+	esac
   if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then
     return 0
   fi
   cat >&2 <<'EOF_MSG'
 ❌ 禁止在宿主机直接执行仓库测试
 
-所有测试请求必须经过 super-dolphin-gate test，并由远程 ECI coordinator 执行。
-共享依赖与编译缓存只能加速执行；每次测试仍必须由 coordinator 实际执行。
+轻量/中量开发测试必须通过 scripts/test_with_guard.sh --host-test <light|medium>
+并满足精确 selector、资源上限和实时宿主负载门禁。重型门禁、重型测试、
+race、benchmark、fuzz、整包和未知负载仍必须经过 super-dolphin-gate test，
+由远程 ECI coordinator 执行。
 EOF_MSG
   return 2
 }

@@ -18,6 +18,8 @@ accepted baseline JSON schema：`13`
 
 本文冻结远程 CI 的唯一生产架构。后续实现、重构、子代理任务和代码审查必须以本契约为边界；历史计划、旧迁移说明和已删除实现不得覆盖本文。
 
+本契约不禁止非权威的宿主开发红绿测试。宿主入口唯一为 `scripts/test_with_guard.sh --host-test <light|medium>`：只接受一个精确 Go package、一个精确 top-level `Test` selector、`-count=1` 和有界 timeout；light 不接受 build tag 且 timeout 不超过 120 秒，medium 只可额外使用 `-tags=e2e` 且 timeout 不超过 600 秒。入口必须在执行前后读取 1 分钟 load/逻辑 CPU 与可用内存证据：低负载（load/CPU 不超过 0.50 且可用内存不少于 25%）或中负载（load/CPU 不超过 0.80 且可用内存不少于 15%）均可运行 light/medium；无法取证或高负载必须 fail-fast 并转 ECI。宿主执行固定限制 light=`GOMAXPROCS=2,-p=1`、medium=`GOMAXPROCS=4,-p=2`，结果必须标记 `LOCAL_NON_AUTHORITATIVE`，不得写入 SQLite authority、PASS evidence、release receipt 或冒充 ECI。race、benchmark、fuzz、整包/递归包、多 selector、超过 medium 上限、重型代码门禁和未知负载仍只允许 `super-dolphin-gate test` 经 ECI 执行；不得 remote-to-local fallback。
+
 ## 1. 不可变设计目标
 
 1. 基准运行环境由一代已接受的阿里云 ECI ImageCache 提供。其不可变镜像必须包含：

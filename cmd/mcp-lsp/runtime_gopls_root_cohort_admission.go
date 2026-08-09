@@ -98,6 +98,9 @@ func runtimeServerPrepareExistingGoplsRootCohortState(dir string, config multils
 	if err != nil {
 		return err
 	}
+	if err := runtimeServerRetireStaleGoplsRootCohortCleanupEvidence(state); err != nil {
+		return err
+	}
 	storedDigest := state.ConfigDigest
 	if err := runtimeServerCleanupGoplsRootCohortLeases(dir, storedDigest); err != nil {
 		return err
@@ -110,6 +113,79 @@ func runtimeServerPrepareExistingGoplsRootCohortState(dir string, config multils
 		return runtimeServerResolveGoplsRootCohortConfigChange(state, config, active)
 	}
 	return runtimeServerAdvanceGoplsRootCohortEpoch(state, active)
+}
+
+// runtimeServerRetireStaleGoplsRootCohortCleanupEvidence 仅退役被 boot 边界或
+// PID+start identity 复核严格证明已失效的 owner。该路径不发送任何信号；
+// 仍存活或无法证明的 evidence 继续作为配置轮换 blocker。
+func runtimeServerRetireStaleGoplsRootCohortCleanupEvidence(state *runtimeServerDurableGoplsRootCohortState) error {
+	if state == nil {
+		return errors.New("gopls root cohort state is nil")
+	}
+	retireCurrent, err := runtimeServerGoplsRootCohortCurrentOwnerStale(state)
+	if err != nil {
+		return err
+	}
+	remaining, err := runtimeServerFilterLiveGoplsRootCohortCleanups(state.PendingCleanups)
+	if err != nil {
+		return err
+	}
+	runtimeServerApplyGoplsRootCohortCleanupRetirement(state, retireCurrent, remaining)
+	return nil
+}
+
+func runtimeServerGoplsRootCohortCurrentOwnerStale(state *runtimeServerDurableGoplsRootCohortState) (bool, error) {
+	if state.OwnerStartIdentity == "" {
+		return false, nil
+	}
+	stale, err := runtimeServerGoplsRootCohortOwnerStale(state.OwnerPID, state.OwnerStartIdentity)
+	if err != nil {
+		return false, fmt.Errorf("verify current gopls root cohort owner identity: %w", err)
+	}
+	return stale, nil
+}
+
+func runtimeServerFilterLiveGoplsRootCohortCleanups(cleanups []runtimeGoplsRootCohortCleanupEvidence) ([]runtimeGoplsRootCohortCleanupEvidence, error) {
+	remaining := make([]runtimeGoplsRootCohortCleanupEvidence, 0, len(cleanups))
+	for _, evidence := range cleanups {
+		stale, err := runtimeServerGoplsRootCohortOwnerStale(evidence.OwnerPID, evidence.OwnerStartIdentity)
+		if err != nil {
+			return nil, fmt.Errorf("verify pending gopls root cohort owner identity for lease %s: %w", evidence.Fence.LeaseID, err)
+		}
+		if !stale {
+			remaining = append(remaining, evidence)
+		}
+	}
+	return remaining, nil
+}
+
+func runtimeServerGoplsRootCohortOwnerStale(ownerPID int, ownerStartIdentity string) (bool, error) {
+	if ownerPID <= 1 || ownerStartIdentity == "" {
+		return false, errors.New("gopls root cohort cleanup owner evidence is invalid")
+	}
+	preBoot, err := hiddenexec.ProcessStartIdentityPredatesCurrentBoot(ownerStartIdentity)
+	if err != nil || preBoot {
+		return preBoot, err
+	}
+	alive, err := hiddenexec.ProcessAlive(ownerPID)
+	if err != nil || !alive {
+		return !alive, err
+	}
+	currentStart, err := hiddenexec.ProcessStartIdentity(ownerPID)
+	if err != nil {
+		return false, err
+	}
+	return currentStart != ownerStartIdentity, nil
+}
+
+func runtimeServerApplyGoplsRootCohortCleanupRetirement(state *runtimeServerDurableGoplsRootCohortState, retireCurrent bool, remaining []runtimeGoplsRootCohortCleanupEvidence) {
+	if retireCurrent {
+		state.DrainStatus = runtimeGoplsRootCohortDrainActive
+		state.CompletionReceipt = ""
+		state.CompletionUnixNano = 0
+		runtimeServerClearCurrentGoplsRootCohortDrain(state)
+	}
+	state.PendingCleanups = remaining
 }
 
 // runtimeServerResolveGoplsRootCohortConfigChange 依据活跃租约和状态证明，

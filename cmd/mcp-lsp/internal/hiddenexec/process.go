@@ -177,6 +177,12 @@ func ProcessStartIdentity(pid int) (string, error) {
 	return processStartIdentity(pid)
 }
 
+// ProcessStartIdentityPredatesCurrentBoot 报告持久化启动身份是否被平台
+// 启动周期证据严格证明早于本次系统启动；不支持该证明的平台保守返回 false。
+func ProcessStartIdentityPredatesCurrentBoot(startIdentity string) (bool, error) {
+	return processStartIdentityPredatesCurrentBoot(startIdentity)
+}
+
 // KillProcessTree 拒绝没有启动时 owner 的破坏性调用。
 // 语言服务器的树必须通过 StartProcessTree 返回的 exact owner 操作；
 // 不能在 action-time 依据一个裸 PID 重新捕获身份并假设它仍归属原 owner。

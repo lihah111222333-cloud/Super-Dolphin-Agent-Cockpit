@@ -69,6 +69,8 @@
     "cmd/mcp-lsp/installer/installer_test.go",
     "cmd/mcp-lsp/installer/windows_hidden_process_guard_test.go",
     "cmd/mcp-lsp/internal/hiddenexec/process.go",
+    "cmd/mcp-lsp/internal/hiddenexec/process_boot_darwin_test.go",
+    "cmd/mcp-lsp/internal/hiddenexec/process_boot_other.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_default.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_other.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_startup_owner.go",
@@ -129,6 +131,7 @@
     "cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_gopls_log_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_gopls_platform_constraint_e2e_test.go",
+    "cmd/mcp-lsp/lsp_binary_gopls_recovery_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_grep_brace_glob_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_grep_cap_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_grep_code_guard_e2e_test.go",
@@ -296,6 +299,7 @@
     "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_test.go",
     "cmd/mcp-lsp/runtime_gopls_root_cohort_generation_test.go",
     "cmd/mcp-lsp/runtime_gopls_root_cohort_multi_agent_test.go",
+    "cmd/mcp-lsp/runtime_gopls_root_cohort_recovery_darwin_test.go",
     "cmd/mcp-lsp/runtime_gopls_semantic_environment_test.go",
     "cmd/mcp-lsp/runtime_lifecycle.go",
     "cmd/mcp-lsp/runtime_packaged_test.go",
@@ -4856,6 +4860,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6525,
-  "source_snapshot_paths_sha256": "sha256:afd6d74309baf275e92deb3945a2323a9989bec9258f2e12794827a27a12232f"
+  "source_snapshot_input_count": 6529,
+  "source_snapshot_paths_sha256": "sha256:f31eea1b6c22dfab7b676fa55a354e3b172143baa7fad5e7c79083caf6cacd36"
 }
