@@ -8,6 +8,7 @@ readonly crane_sha256='f76db5d7544a3c691a90fea7c87561342b2f03f1090f0299f029eafa1
 readonly accepted_base_digest='502e70fdbbae19d29722810179649e37b4bf38894a7e3d9bcdcd858372435aa7'
 readonly accepted_base_archive_sha256='0387001cad8918d779fb78c5d2e5234ba3725a677c3f5f6ebadb9744a40aeaa5'
 readonly receipt_schema='remote-ci-imagecache-refresh-receipt/v2'
+readonly image_cache_size_gib=30
 
 config='config/remote-ci/aliyun.json'
 source_ref='HEAD'
@@ -445,13 +446,15 @@ start_builder() {
 }
 
 create_image_cache() {
-  local result name
+  local result name client_token
   name="sdci-refresh-${source_tree:0:8}-$(date -u +%Y%m%d%H%M%S)"
-	image_cache_name=$name
+  image_cache_name=$name
+  client_token=$(printf '%s\n' "standard:${image_cache_size_gib}:${source_tree}:${successor_digest}:${base_snapshot}:${retention_days}" | shasum -a 256 | awk '{print $1}')
   result=$(eci_json CreateImageCache --ImageCacheName "$name" \
     --Image.1 "${builder_ip}:5000/sdci/successor@${successor_digest}" \
-    --SecurityGroupId "$security_group" --VSwitchId "$first_vswitch" --ImageCacheSize 100 \
-    --RetentionDays "$retention_days" --AutoMatchImageCache false --PlainHttpRegistry "${builder_ip}:5000")
+    --SecurityGroupId "$security_group" --VSwitchId "$vswitch_csv" --ImageCacheSize "$image_cache_size_gib" \
+    --RetentionDays "$retention_days" --AutoMatchImageCache true --EliminationStrategy LRU \
+    --ClientToken "$client_token" --PlainHttpRegistry "${builder_ip}:5000")
   image_cache_id=$(printf '%s' "$result" | jq -er '.ImageCacheId')
   local deadline=$((SECONDS + timeout_seconds)) status
   while ((SECONDS < deadline)); do
@@ -486,6 +489,9 @@ verify_image_cache() {
   while ((SECONDS < deadline)); do
     status=$(eci_json DescribeContainerGroups --ContainerGroupIds "[\"${verify_group_id}\"]" | jq -r '.ContainerGroups[0].Status // "missing"')
     log=$(eci_json DescribeContainerLog --ContainerGroupId "$verify_group_id" --ContainerName verify 2>/dev/null | jq -r '.Content // empty')
+    if [[ "$log" == *ErrImageNeverPull* || "$log" == *ImagePullBackOff* || "$log" == *InvalidImageName* ]]; then
+      die "ImageCache verification cannot start from the cached image: $(printf '%s' "$log" | tail -5)"
+    fi
     verify_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-verify-ready tree=([^ ]+) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}).*/\1 \2 \3/p' | tail -1)
     if [[ -n "$verify_ready" ]]; then
       read -r verify_tree verify_compile_seconds verify_gate_sha256 <<<"$verify_ready"
@@ -570,7 +576,6 @@ main() {
     vswitches[${#vswitches[@]}]=$vswitch
   done < <(jq -er '.vswitches | select(length >= 2 and length <= 10) | .[].id' "$config")
   ((${#vswitches[@]} >= 2)) || die 'config must contain at least two vSwitches'
-  first_vswitch=${vswitches[0]}
   vswitch_csv=$(IFS=,; printf '%s' "${vswitches[*]}")
 
   create_source_archive

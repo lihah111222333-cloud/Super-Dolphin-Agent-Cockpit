@@ -20,7 +20,7 @@ func TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary(t *test
 		t.Fatal(err)
 	}
 	source := strings.ToLower(string(content))
-	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json"} {
+	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=30"} {
 		if !strings.Contains(source, strings.ToLower(required)) {
 			t.Errorf("refresh script is missing %q", required)
 		}
@@ -29,6 +29,32 @@ func TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary(t *test
 		if strings.Contains(source, forbidden) {
 			t.Errorf("refresh script contains forbidden boundary %q", forbidden)
 		}
+	}
+}
+
+// TestRemoteCIImageCacheRefreshCreationReusesOnlyNonAuthoritativeLayers 锁定候选制作可复用旧缓存层，但正常运行仍只能绑定精确快照。
+func TestRemoteCIImageCacheRefreshCreationReusesOnlyNonAuthoritativeLayers(t *testing.T) {
+	content, err := os.ReadFile("refresh_remote_ci_imagecache.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(content)
+	createStart := strings.Index(source, "create_image_cache() {")
+	verifyStart := strings.Index(source, "verify_image_cache() {")
+	if createStart < 0 || verifyStart <= createStart {
+		t.Fatal("refresh script ImageCache creation boundary is unavailable")
+	}
+	createSource := source[createStart:verifyStart]
+	for _, required := range []string{"--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken \"$client_token\"", "--VSwitchId \"$vswitch_csv\"", "--ImageCacheSize \"$image_cache_size_gib\""} {
+		if !strings.Contains(createSource, required) {
+			t.Errorf("refresh ImageCache creation is missing %q", required)
+		}
+	}
+	if strings.Contains(createSource, "--AutoMatchImageCache false") {
+		t.Fatal("refresh ImageCache creation disables service-side layer reuse")
+	}
+	if strings.Contains(createSource, "--Flash true") {
+		t.Fatal("refresh ImageCache creation uses a zone-local flash snapshot for multi-zone verification")
 	}
 }
 
