@@ -17,7 +17,7 @@ cmd/mcp-lsp/format/display.go	cmd	platform-provider	go-source	11041	代码智能
 cmd/mcp-lsp/format/funcrange.go	cmd	platform-provider	go-source	5010	代码智能/LSP MCP peer	cmd,mcp,lsp,format,funcrange,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/format/render.go	cmd	platform-provider	go-source	8733	代码智能/LSP MCP peer	cmd,mcp,lsp,format,render,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/format/render_test.go	cmd	platform-provider	go-test	4875	代码智能/LSP MCP peer	cmd,mcp,lsp,format,render,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/fx.go	cmd	platform-provider	go-source	17864	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/fx.go	cmd	platform-provider	go-source	17939	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/fx_test.go	cmd	platform-provider	go-test	1711	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/http_runner.go	cmd	platform-provider	go-source	3546	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/http_runner_test.go	cmd	platform-provider	go-test	4220	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,test,代码智能,LSP,MCP,peer
@@ -60,7 +60,7 @@ cmd/mcp-lsp/internal/processobserve/durable_store_partial_ack_unix_test.go	cmd	p
 cmd/mcp-lsp/internal/processobserve/durable_store_security_unix_test.go	cmd	platform-provider	go-test	3469	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,durable,store,security,unix,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/processobserve/durable_store_test.go	cmd	platform-provider	go-test	7519	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,durable,store,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/processobserve/durable_store_unix.go	cmd	platform-provider	go-source	13091	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,durable,store,unix,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/internal/processobserve/durable_store_windows.go	cmd	platform-provider	go-source	795	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,durable,store,windows,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processobserve/durable_store_windows.go	cmd	platform-provider	go-source	785	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,durable,store,windows,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/processobserve/durable_store_windows_test.go	cmd	platform-provider	go-test	512	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,durable,store,windows,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/processobserve/observer.go	cmd	platform-provider	go-source	3175	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,observer,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/processobserve/observer_test.go	cmd	platform-provider	go-test	7952	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,observer,test,代码智能,LSP,MCP,peer
@@ -227,6 +227,10 @@ cmd/mcp-lsp/multilsp/typescript_fallback_test.go	cmd	platform-provider	go-test	7
 cmd/mcp-lsp/multilsp/typescript_navigation_fallback.go	cmd	platform-provider	go-source	12784	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,typescript,navigation,fallback,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/typescript_navigation_fallback_test.go	cmd	platform-provider	go-test	6638	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,typescript,navigation,fallback,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/windows_hidden_process_guard_test.go	cmd	platform-provider	go-test	1231	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,windows,hidden,process,guard,test,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/orphan_watchdog.go	cmd	platform-provider	go-source	2775	代码智能/LSP MCP peer	cmd,mcp,lsp,orphan,watchdog,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/orphan_watchdog_test.go	cmd	platform-provider	go-test	3293	代码智能/LSP MCP peer	cmd,mcp,lsp,orphan,watchdog,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/orphan_watchdog_unix.go	cmd	platform-provider	go-source	319	代码智能/LSP MCP peer	cmd,mcp,lsp,orphan,watchdog,unix,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/orphan_watchdog_windows.go	cmd	platform-provider	go-source	976	代码智能/LSP MCP peer	cmd,mcp,lsp,orphan,watchdog,windows,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/protocol/codec.go	cmd	platform-provider	go-source	7826	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,codec,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/protocol/ext.go	cmd	platform-provider	go-source	11272	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,ext,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/protocol/methods.go	cmd	platform-provider	go-source	1778	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,methods,代码智能,LSP,MCP,peer

@@ -103,6 +103,7 @@ func run(stdout *os.File) error {
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newHTTPRunner, fx.ResultTags(`group:"runners"`)),
+			fx.Annotate(newOrphanWatchdogRunner, fx.ResultTags(`group:"runners"`)),
 			// 每种语言 ManagerPool 的后台 recycler 由根运行组托管，构造函数只负责建模。
 			// flatten 会把 runner 切片拆成独立成员，确保 fx 生命周期统一启动和停止。
 			fx.Annotate(provideLSPBackgroundRunners, fx.ResultTags(`group:"runners,flatten"`)),

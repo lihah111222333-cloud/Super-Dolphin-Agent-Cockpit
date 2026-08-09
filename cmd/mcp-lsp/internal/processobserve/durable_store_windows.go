@@ -4,7 +4,6 @@ package processobserve
 
 import (
 	"context"
-	"errors"
 )
 
 

@@ -271,6 +271,10 @@
     "cmd/mcp-lsp/multilsp/typescript_navigation_fallback.go",
     "cmd/mcp-lsp/multilsp/typescript_navigation_fallback_test.go",
     "cmd/mcp-lsp/multilsp/windows_hidden_process_guard_test.go",
+    "cmd/mcp-lsp/orphan_watchdog.go",
+    "cmd/mcp-lsp/orphan_watchdog_test.go",
+    "cmd/mcp-lsp/orphan_watchdog_unix.go",
+    "cmd/mcp-lsp/orphan_watchdog_windows.go",
     "cmd/mcp-lsp/protocol/codec.go",
     "cmd/mcp-lsp/protocol/ext.go",
     "cmd/mcp-lsp/protocol/methods.go",
@@ -4852,6 +4856,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6516,
-  "source_snapshot_paths_sha256": "sha256:11247cee101f387b6ae1666bd6a3c1c6d356c9d4e4c267082d08f14350014e04"
+  "source_snapshot_input_count": 6520,
+  "source_snapshot_paths_sha256": "sha256:5e64a5b8058b2ae19dfc2354efb8c254dca73979d32a6da13480b7e62490a1ef"
 }

@@ -1,0 +1,110 @@
+// Package main 是 mcp-lsp sidecar 进程的入口，通过 MCP stdio 协议暴露 LSP 工具能力。
+package main
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+	"time"
+)
+
+func TestOrphanWatchdogStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ppid not 1 returns nil", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{}
+		err := runner.checkOrphanStatus(
+			func() int { return 100 },
+			func() (string, error) { return "/valid/path", nil },
+			func(string) (os.FileInfo, error) { return nil, nil },
+		)
+		if err != nil {
+			t.Fatalf("expected nil error when PPID!=1, got: %v", err)
+		}
+	})
+
+	t.Run("ppid 1 with valid cwd returns nil", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{}
+		err := runner.checkOrphanStatus(
+			func() int { return 1 },
+			func() (string, error) { return "/valid/path", nil },
+			func(string) (os.FileInfo, error) { return nil, nil },
+		)
+		if err != nil {
+			t.Fatalf("expected nil error when PPID=1 and CWD valid, got: %v", err)
+		}
+	})
+
+	t.Run("ppid 1 with cwd error triggers self termination", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{}
+		err := runner.checkOrphanStatus(
+			func() int { return 1 },
+			func() (string, error) { return "", errors.New("no such file or directory") },
+			func(string) (os.FileInfo, error) { return nil, nil },
+		)
+		if err == nil {
+			t.Fatal("expected error when CWD get fails, got nil")
+		}
+		if !errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
+		}
+	})
+
+	t.Run("ppid 1 with cwd stat error triggers self termination", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{}
+		err := runner.checkOrphanStatus(
+			func() int { return 1 },
+			func() (string, error) { return "/deleted/path", nil },
+			func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+		)
+		if err == nil {
+			t.Fatal("expected error when CWD stat fails, got nil")
+		}
+		if !errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
+		}
+	})
+}
+
+func TestOrphanWatchdogRunLoop(t *testing.T) {
+	t.Parallel()
+
+	t.Run("context cancel exits run loop", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{
+			interval: 10 * time.Millisecond,
+			getPpid:  func() int { return 100 },
+			getCwd:   func() (string, error) { return "/valid", nil },
+			statPath: func(string) (os.FileInfo, error) { return nil, nil },
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := runner.Run(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got: %v", err)
+		}
+	})
+
+	t.Run("ticker trigger returns orphan error", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{
+			interval: 10 * time.Millisecond,
+			getPpid:  func() int { return 1 },
+			getCwd:   func() (string, error) { return "/deleted", nil },
+			statPath: func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		err := runner.Run(ctx)
+		if err == nil || !errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
+		}
+	})
+}
