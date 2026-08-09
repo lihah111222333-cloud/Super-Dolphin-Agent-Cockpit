@@ -71,8 +71,9 @@ func TestRemoteCIImageCacheRefreshScriptKeepsModuleFilesImmutable(t *testing.T) 
 	for _, required := range []string{
 		`module_root="$temp_root/module-root"`,
 		`tar -xzf "$source_archive" -C "$module_root"`,
-		`cd "$module_root"`,
+		`find "$module_root" -type f -name go.mod`,
 		`GOWORK=off go mod download`,
+		`go mod download -json "github.com/kelindar/event@${event_version}"`,
 		`gzip -n`,
 	} {
 		if !strings.Contains(source, required) {
@@ -93,6 +94,41 @@ func TestRemoteCIImageCacheRefreshScriptDoesNotEmbedCredentials(t *testing.T) {
 	for _, forbidden := range []string{"OSSAccessKeyId=", "security-token=", "Signature=", "SUPER_DOLPHIN_CI_GHCR_TOKEN"} {
 		if strings.Contains(string(content), forbidden) {
 			t.Errorf("refresh script embeds credential marker %q", forbidden)
+		}
+	}
+}
+
+// TestRemoteCIImageCacheRefreshVerificationCannotPullFromBuilder 锁定验收前先移除临时 registry 且禁止回源。
+func TestRemoteCIImageCacheRefreshVerificationCannotPullFromBuilder(t *testing.T) {
+	content, err := os.ReadFile("refresh_remote_ci_imagecache.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(content)
+	retire := strings.Index(source, "  retire_builder\n")
+	verify := strings.Index(source, "  verify_image_cache\n")
+	if retire < 0 || verify < 0 || retire >= verify {
+		t.Fatal("refresh script does not retire the temporary registry before verification")
+	}
+	if !strings.Contains(source, "--Container.1.ImagePullPolicy Never") {
+		t.Fatal("refresh verifier can still pull from the temporary registry")
+	}
+	for _, required := range []string{
+		"cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dist",
+		"chmod -R a-w /tmp/overlay/opt/super-dolphin/cache/go-build /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache",
+		"find /opt/super-dolphin/cache/go-build /opt/super-dolphin-gate/runtime/go-mod-cache -perm /222",
+		"SUPER_DOLPHIN_TEST_BACKEND=remote-worker",
+		"go list -deps github.com/kelindar/event",
+		"third_party/kelindar-event",
+		"GOOS=windows GOARCH=amd64 go list -deps -test ./internal/devtools/gate",
+		"./scripts/test_with_guard.sh --ci-compile-package \"$package\"",
+		"refresh-builder-package-failed package=%s",
+		"/super-dolphin-gate worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache /tmp/gomod",
+		"go list -deps -test ./... >/dev/null",
+		"CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/verified-gate",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("refresh verifier does not preserve the read-only runtime cache contract: missing %q", required)
 		}
 	}
 }

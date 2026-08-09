@@ -62,37 +62,40 @@ type CoordinatorConfig struct {
 
 // RunInput binds one remote run to exact Git objects and one accepted runner identity.
 type RunInput struct {
-	AcceptedGeneration           uint64 `json:"accepted_generation"`
-	RepositoryRoot               string
-	RemoteName                   string
-	RemoteURL                    string
-	AgentTokenDigest             string
-	Commit                       string
-	Tree                         string
-	Base                         string
-	RunnerBaseCommit             string
-	RunnerBaseTree               string
-	Source                       gate.SourceSpec
-	Profile                      gate.Profile
-	Entrypoint                   gate.CIEntrypointID
-	Platform                     string
-	PolicyDigest                 string
-	ToolchainDigest              string
-	LedgerSnapshot               gate.DurationLedgerSnapshot
-	LedgerStore                  *gate.DurationLedgerStore
-	Inventory                    gate.WorkloadInventory
-	SelectedTests                bool
-	Calibration                  bool
-	Force                        bool
-	RunnerImage                  string
-	ImageCacheSnapshotID         string
-	RunnerIdentityDigest         string
-	BaselineManifestDigest       string
-	RunnerConfigDigest           string
-	GateBinarySHA256             string
-	CandidateGateSourceSHA256    string
-	CandidateGateToolchainSHA256 string
-	RuntimeSeedSHA256            string
+	AcceptedGeneration            uint64 `json:"accepted_generation"`
+	RepositoryRoot                string
+	RemoteName                    string
+	RemoteURL                     string
+	AgentTokenDigest              string
+	Commit                        string
+	Tree                          string
+	Base                          string
+	RunnerBaseCommit              string
+	RunnerBaseTree                string
+	Source                        gate.SourceSpec
+	Profile                       gate.Profile
+	Entrypoint                    gate.CIEntrypointID
+	Platform                      string
+	PolicyDigest                  string
+	ToolchainDigest               string
+	LedgerSnapshot                gate.DurationLedgerSnapshot
+	LedgerStore                   *gate.DurationLedgerStore
+	Inventory                     gate.WorkloadInventory
+	SelectedTests                 bool
+	Calibration                   bool
+	Force                         bool
+	RunnerImage                   string
+	ImageCacheSnapshotID          string
+	ExecutionRunnerImage          string
+	ExecutionImageCacheSnapshotID string
+	ImageCacheOnly                bool
+	RunnerIdentityDigest          string
+	BaselineManifestDigest        string
+	RunnerConfigDigest            string
+	GateBinarySHA256              string
+	CandidateGateSourceSHA256     string
+	CandidateGateToolchainSHA256  string
+	RuntimeSeedSHA256             string
 	// WorkloadInputDigests 从 accepted source tree 计算一次，并由 planning 与
 	// duration-sample producer 复用；它不改变 PASS reuse identity 语义。
 	WorkloadInputDigests map[string]string
@@ -240,14 +243,19 @@ func validateCoordinatorRunInput(ctx context.Context, config CoordinatorConfig, 
 	return validateRunImageCacheAuthority(config, input)
 }
 
-// validateRunImageCacheAuthority keeps every shard on the exact accepted ECI
-// image snapshot; OCIProjectCache is evidence for the same immutable runtime image.
+// validateRunImageCacheAuthority 分离 SQLite correctness snapshot 与实时验证的 ECI execution snapshot。
 func validateRunImageCacheAuthority(config CoordinatorConfig, input RunInput) error {
-	if !validImageCacheIdentifier(input.ImageCacheSnapshotID) || input.ImageCacheSnapshotID != config.ImageCacheSnapshotID {
-		return errors.New("remote CI run ImageCacheSnapshotID must equal the accepted coordinator ImageCacheSnapshotID")
+	if !validImageCacheIdentifier(input.ImageCacheSnapshotID) {
+		return errors.New("remote CI accepted ImageCacheSnapshotID is required")
 	}
 	if input.OCIProjectCache == nil {
 		return errors.New("remote CI run OCI project cache is required for image snapshot binding")
+	}
+	if !validImageCacheIdentifier(input.ExecutionImageCacheSnapshotID) || input.ExecutionImageCacheSnapshotID != config.ImageCacheSnapshotID {
+		return errors.New("remote CI execution ImageCacheSnapshotID must equal the live-verified coordinator ImageCacheSnapshotID")
+	}
+	if strings.TrimSpace(input.ExecutionRunnerImage) == "" || !input.ImageCacheOnly {
+		return errors.New("remote CI execution ImageCache runtime is incomplete")
 	}
 	if err := input.OCIProjectCache.ValidateForBaseline(input.RunnerBaseTree, input.ToolchainDigest, input.Platform, input.RunnerImage); err != nil {
 		return fmt.Errorf("remote CI run ImageCache OCI project cache binding: %w", err)

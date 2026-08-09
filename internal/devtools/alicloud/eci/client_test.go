@@ -688,7 +688,7 @@ func TestConfig_FieldRegistry(t *testing.T) {
 
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
-		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
+		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "ImageCacheOnly", "Resources", "Command", "Args", "Environment", "Tags",
 		"InitContainer", "SourceVolume", "WorkVolume", "TempVolume",
 		"ConfigFileVolumes",
 		"MainVolumeMounts", "InitVolumeMounts",

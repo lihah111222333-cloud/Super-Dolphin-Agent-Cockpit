@@ -133,10 +133,10 @@ func runRefreshSchedulingFixture(t *testing.T, receipt map[string]any) ([]byte, 
 func refreshSchedulingReceipt(refreshedAt int64) map[string]any {
 	digest := strings.Repeat("a", 64)
 	return map[string]any{
-		"schema_version": "remote-ci-imagecache-refresh-receipt/v1", "authoritative": false, "action": "candidate_created_not_accepted", "execution_provider": "aliyun-eci/v1",
+		"schema_version": "remote-ci-imagecache-refresh-receipt/v2", "authoritative": false, "action": "candidate_created_not_accepted", "execution_provider": "aliyun-eci/v1", "region_id": "cn-shenzhen",
 		"source_commit": strings.Repeat("b", 40), "source_tree": strings.Repeat("c", 40), "base_image": "registry.invalid/base@sha256:" + digest, "base_snapshot_id": "s-base",
 		"oci_base_image": "registry.invalid/base@sha256:" + digest, "image": "registry.invalid/new@sha256:" + digest, "image_digest": "sha256:" + digest,
-		"image_cache_id": "imc-new", "image_cache_snapshot_id": "s-new", "image_cache_status": "Ready", "gate_binary_sha256": "sha256:" + digest,
+		"image_cache_id": "imc-new", "image_cache_name": "sdci-refresh", "image_cache_snapshot_id": "s-new", "image_cache_status": "Ready", "gate_binary_sha256": "sha256:" + digest,
 		"builder_compile_seconds": 2, "verification_compile_seconds": 1, "retention_days": 7, "refreshed_at_unix_sec": refreshedAt,
 		"refreshed_at_utc": time.Unix(refreshedAt, 0).UTC().Format("2006-01-02T15:04:05Z"), "mutates_sqlite": false,
 	}

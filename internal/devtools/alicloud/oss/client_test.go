@@ -85,6 +85,21 @@ func TestClient_TransportCreateDeletePrefix(t *testing.T) {
 	assertCheckpointDirectoriesClean(t, runner.checkpointDirs)
 }
 
+func TestClientReadBoundsDownloadedReceipt(t *testing.T) {
+	runner := &fakeRunner{readbackData: []byte(`{"schema":"receipt"}`)}
+	client := newTestClient(t, runner)
+	payload, err := client.Read(context.Background(), "source-bundles/receipt.json", 64)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if string(payload) != string(runner.readbackData) {
+		t.Fatalf("Read() = %q", payload)
+	}
+	if _, err := client.Read(context.Background(), "source-bundles/receipt.json", 4); err == nil {
+		t.Fatal("Read() accepted an oversized object")
+	}
+}
+
 func assertTransportCalls(t *testing.T, calls []runCall, source string) {
 	t.Helper()
 	if len(calls) != 4 {

@@ -227,6 +227,7 @@ func collectObjectStatFields(output []byte) (objectStatFields, error) {
 	return fields, nil
 }
 
+// assign 将唯一受支持的 OSS stat 字段投影到严格结构并拒绝歧义。
 func (fields *objectStatFields) assign(name string, value string) error {
 	switch name {
 	case "content-length":
@@ -321,6 +322,38 @@ func (c *client) DeletePrefix(ctx context.Context, prefix string) error {
 	}
 	_, err = c.run(ctx, "delete prefix", "oss", "rm", objectURL, "--recursive", "--force")
 	return err
+}
+
+// Read 读取一个有上限的 OSS 对象，供小型严格回执消费；大对象仍走 workerio 流式下载。
+func (c *client) Read(ctx context.Context, key string, maxBytes int64) (payload []byte, returnErr error) {
+	if maxBytes <= 0 {
+		return nil, errors.New("OSS read maximum bytes must be positive")
+	}
+	objectURL, err := c.objectURL(key)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.MkdirTemp("", "super-dolphin-oss-read-*")
+	if err != nil {
+		return nil, fmt.Errorf("create OSS read root: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(root)) }()
+	path := filepath.Join(root, "object")
+	if err := c.copy(ctx, "read", objectURL, path, "--force"); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat OSS read object: %w", err)
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("OSS read object size %d exceeds maximum %d", info.Size(), maxBytes)
+	}
+	payload, err = os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read downloaded OSS object: %w", err)
+	}
+	return payload, nil
 }
 
 func (c *client) copy(ctx context.Context, operation string, source string, destination string, extraArgs ...string) (returnErr error) {

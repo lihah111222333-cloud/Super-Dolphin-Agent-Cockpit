@@ -90,8 +90,8 @@ func TestCoordinatorAllHitWithMissingRegistryCredentialReusesWithoutECICreate(t 
 	}
 }
 
-// TestCoordinatorMissWithMissingRegistryCredentialFailsBeforeECICreate 验证 miss 在 ECI CLI 创建前因缺少凭据失败。
-func TestCoordinatorMissWithMissingRegistryCredentialFailsBeforeECICreate(t *testing.T) {
+// TestCoordinatorImageCacheOnlyMissDoesNotReadRegistryCredential 验证缓存命中镜像路径不依赖 registry 凭据。
+func TestCoordinatorImageCacheOnlyMissDoesNotReadRegistryCredential(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CI_GHCR_USERNAME", "")
 	t.Setenv("SUPER_DOLPHIN_CI_GHCR_TOKEN", "")
 	_, input := coordinatorReuseFixture(t)
@@ -101,11 +101,14 @@ func TestCoordinatorMissWithMissingRegistryCredentialFailsBeforeECICreate(t *tes
 	coordinator := newTestCoordinator(t, store, runtime)
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456d", nil }
 	_, err := runCoordinatorTest(t, coordinator, context.Background(), input)
-	if err == nil || !strings.Contains(err.Error(), "GHCR credential") {
-		t.Fatalf("miss Run() error = %v, want missing GHCR credential", err)
+	if err == nil {
+		t.Fatal("miss Run() error = nil, want fake ECI response failure")
 	}
-	if runner.calls != 0 {
-		t.Fatalf("miss ECI CLI create calls = %d, want 0", runner.calls)
+	if strings.Contains(err.Error(), "GHCR credential") {
+		t.Fatalf("ImageCache-only miss read registry credential: %v", err)
+	}
+	if runner.calls == 0 {
+		t.Fatal("ImageCache-only miss did not reach ECI CLI")
 	}
 }
 

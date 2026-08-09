@@ -68,8 +68,8 @@ func TestGenerationOneBootstrapIsTheOnlyWritePathIdentity(t *testing.T) {
 	}
 }
 
-func TestImageCacheRefreshOperatorIsCandidateOnly(t *testing.T) {
-	if ImageCacheRefreshOperatorPathID != "script-oss-handoff-aliyun-eci-offline-imagecache-candidate/v1" {
+func TestImageCacheRefreshOperatorProducesRuntimeMaterialOnly(t *testing.T) {
+	if ImageCacheRefreshOperatorPathID != "script-oss-handoff-aliyun-eci-offline-imagecache-runtime/v2" {
 		t.Fatalf("ImageCacheRefreshOperatorPathID = %q", ImageCacheRefreshOperatorPathID)
 	}
 	if ImageCacheRefreshInterval != 24*time.Hour {

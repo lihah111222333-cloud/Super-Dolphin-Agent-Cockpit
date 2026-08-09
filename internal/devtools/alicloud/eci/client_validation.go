@@ -140,6 +140,9 @@ func validateRequestImages(request CreateRequest) error {
 			return fmt.Errorf("ECI image %d must be a repository@sha256:<64 lowercase hex> digest reference", index+1)
 		}
 	}
+	if request.ImageCacheOnly && request.MainImage != request.InitImage {
+		return errors.New("ECI ImageCache-only request must use the same cached immutable image for both containers")
+	}
 	return nil
 }
 

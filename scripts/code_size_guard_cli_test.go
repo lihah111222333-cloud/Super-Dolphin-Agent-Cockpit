@@ -17,6 +17,7 @@ func TestGuardRaceOnlyModeUsesShortTestScope(t *testing.T) {
 func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
 	for _, command := range [][]string{
 		{"scripts/test_with_guard.sh", "--ci-package-test", "./internal/devtools/gate", "TestBoundary"},
+		{"scripts/test_with_guard.sh", "--ci-compile-package", "./internal/devtools/gate"},
 		{"scripts/go_with_guard.sh", "test", "./internal/devtools/gate", "-run", "^TestBoundary$"},
 	} {
 		cmd := exec.Command("bash", command...)
@@ -30,6 +31,21 @@ func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
 		if !strings.Contains(string(output), "super-dolphin-gate test") {
 			t.Fatalf("%s rejection omitted the trusted test entrypoint:\n%s", command[0], output)
 		}
+	}
+}
+
+func TestCICompilePackageModeCompilesWithoutRunning(t *testing.T) {
+	result := runTestWithGuardFakeGoWithListOutput(t, "example.test/scripts", "--ci-compile-package", "./scripts")
+	if result.err != nil {
+		t.Fatalf("compile-only package mode failed: %v: %s", result.err, result.output)
+	}
+	for _, required := range []string{"list ./scripts", "test -c -o ", " ./scripts"} {
+		if !strings.Contains(result.invocations, required) {
+			t.Fatalf("compile-only package mode omitted %q:\n%s", required, result.invocations)
+		}
+	}
+	if strings.Contains(result.invocations, "-run") || strings.Contains(result.invocations, "-json") {
+		t.Fatalf("compile-only package mode executed a test runner:\n%s", result.invocations)
 	}
 }
 
