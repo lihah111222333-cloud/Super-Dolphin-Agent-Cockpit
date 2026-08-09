@@ -72,6 +72,10 @@
     "cmd/mcp-lsp/internal/hiddenexec/process_default.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_other.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_startup_owner.go",
+    "cmd/mcp-lsp/internal/hiddenexec/process_supervisor.go",
+    "cmd/mcp-lsp/internal/hiddenexec/process_supervisor_darwin.go",
+    "cmd/mcp-lsp/internal/hiddenexec/process_supervisor_darwin_test.go",
+    "cmd/mcp-lsp/internal/hiddenexec/process_supervisor_other.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_tree_api_extra.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_tree_contract_test.go",
     "cmd/mcp-lsp/internal/hiddenexec/process_tree_darwin.go",
@@ -4852,6 +4856,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6521,
-  "source_snapshot_paths_sha256": "sha256:d6c0300573a9d07ce375a8419bd7935773caa03170a5a94c3fc5f2b3b45622ec"
+  "source_snapshot_input_count": 6525,
+  "source_snapshot_paths_sha256": "sha256:afd6d74309baf275e92deb3945a2323a9989bec9258f2e12794827a27a12232f"
 }

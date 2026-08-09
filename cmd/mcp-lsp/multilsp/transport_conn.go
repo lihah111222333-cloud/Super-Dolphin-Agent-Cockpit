@@ -30,7 +30,21 @@ const (
 func startTransport(
 	options transportOptions,
 ) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
-	return startTransportWithStarter(options, hiddenexec.StartProcessTree)
+	supervised, err := hiddenexec.NewPlatformSupervisedCommand(options.Binary, options.Args...)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("construct LSP server process owner: %w", err)
+	}
+	return startTransportWithProcessCommand(options, transportProcessCommand{
+		cmd:   supervised.Command(),
+		start: supervised.StartProcessTree,
+		close: supervised.Close,
+	})
+}
+
+type transportProcessCommand struct {
+	cmd   *exec.Cmd
+	start func() (*hiddenexec.ProcessTree, error)
+	close func() error
 }
 
 // startTransportWithStarter 创建 stdio 管道并把启动失败时的 owner 交给清理路径。
@@ -39,22 +53,37 @@ func startTransportWithStarter(
 	starter func(*exec.Cmd) (*hiddenexec.ProcessTree, error),
 ) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
 	cmd := hiddenexec.Command(options.Binary, options.Args...)
+	return startTransportWithProcessCommand(options, transportProcessCommand{
+		cmd:   cmd,
+		start: func() (*hiddenexec.ProcessTree, error) { return starter(cmd) },
+	})
+}
+
+// startTransportWithProcessCommand 配置 stdio 并把平台监管 owner 原子移交给 transport。
+func startTransportWithProcessCommand(
+	options transportOptions,
+	processCommand transportProcessCommand,
+) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
+	cmd := processCommand.cmd
+	if cmd == nil || processCommand.start == nil {
+		return nil, nil, nil, nil, nil, closeTransportProcessCommand(processCommand, errors.New("LSP server process command is incomplete"))
+	}
 	cmd.Dir = options.Dir
 	if len(options.Env) > 0 {
 		cmd.Env = append(os.Environ(), options.Env...)
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("LSP server start stdin pipe: %w", err)
+		return nil, nil, nil, nil, nil, closeTransportProcessCommand(processCommand, fmt.Errorf("LSP server start stdin pipe: %w", err))
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("LSP server start stdout pipe: %w", err)
+		return nil, nil, nil, nil, nil, closeTransportProcessCommand(processCommand, fmt.Errorf("LSP server start stdout pipe: %w", err))
 	}
 	stderr := &limitedBuffer{limit: stderrLimitBytes}
 	cmd.Stderr = stderr
-	processTree, err := starter(cmd)
+	processTree, err := processCommand.start()
 	if err != nil {
 		var closeErr error
 		if stdinErr := stdin.Close(); stdinErr != nil {
@@ -63,9 +92,20 @@ func startTransportWithStarter(
 		if stdoutErr := stdout.Close(); stdoutErr != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("close LSP server stdout after process-tree startup failure: %w", stdoutErr))
 		}
+		if processTree == nil {
+			closeErr = errors.Join(closeErr, closeTransportProcessCommand(processCommand, nil))
+		}
 		return nil, processTree, nil, nil, nil, errors.Join(fmt.Errorf("LSP server start process tree: %w", err), closeErr)
 	}
 	return cmd, processTree, stdin, stdout, stderr, nil
+}
+
+// closeTransportProcessCommand 关闭尚未移交给 ProcessTree 的平台控制资源并保留原始错误。
+func closeTransportProcessCommand(processCommand transportProcessCommand, prior error) error {
+	if processCommand.close == nil {
+		return prior
+	}
+	return errors.Join(prior, processCommand.close())
 }
 
 // Close 关闭 LSP 管理器资源。

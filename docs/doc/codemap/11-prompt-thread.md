@@ -1,13 +1,13 @@
 # 11B Prompt / Thread 代码地图
 
 > 拆卷说明：本卷只覆盖 `internal/module/prompt/`、`internal/module/thread/`、provider bridge、以及 blank-thread 首发链；memory 深水区另见 [`11-memory.md`](11-memory.md)。
-> 当前口径：用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值；文件数由下列机器声明而非日期快照维护。
+> 当前口径：用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值；文件数由下列机器声明生成到 `ai-index.json.counts`，不保留手写数字快照。
 > UI 路径校正（2026-06-28）：当前且唯一的前端源码在 `frontend-app/`，见 [`01-terminal-ui-react.md`](01-terminal-ui-react.md)。旧 Vue/package-embed 前端已删除。
 >
-> <!-- codemap-count path="internal/module/prompt" kind="go-files" expected="30" -->
-> <!-- codemap-count path="internal/module/prompt" kind="go-test-files" expected="51" -->
-> <!-- codemap-count path="internal/module/thread" kind="go-files" expected="31" -->
-> <!-- codemap-count path="internal/module/thread" kind="go-test-files" expected="78" -->
+> <!-- codemap-count path="internal/module/prompt" kind="go-files" -->
+> <!-- codemap-count path="internal/module/prompt" kind="go-test-files" -->
+> <!-- codemap-count path="internal/module/thread" kind="go-files" -->
+> <!-- codemap-count path="internal/module/thread" kind="go-test-files" -->
 
 ## 1. 这卷回答什么
 
@@ -432,9 +432,8 @@ prompt store 保存的是 dashboard / prompts 页面可编辑模板。
 
 ### 5.7 文件数真值
 
-- prompt：30 个生产 Go 文件、51 个测试 Go 文件。
-- thread：31 个生产 Go 文件、75 个测试 Go 文件。
-- 四个值由卷首 `codemap-count` 实时校验；不再保留旧 `27*` 豁免口径。
+- prompt / thread 的根层生产与测试 Go 文件数统一读取 `ai-index.json.counts`。
+- 四个值由卷首 `codemap-count` 声明自动生成；不再保留旧 `27*` 豁免口径或正文数字副本。
 
 ### 5.8 计数与测试入口的对应关系
 

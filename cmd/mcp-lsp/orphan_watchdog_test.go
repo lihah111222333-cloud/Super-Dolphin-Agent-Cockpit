@@ -7,7 +7,17 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 )
+
+// TestMain 让 mcp-lsp 测试二进制复用生产监管入口，进程型测试覆盖真实 Darwin 路径。
+func TestMain(m *testing.M) {
+	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
+		os.Exit(exitCode)
+	}
+	os.Exit(m.Run())
+}
 
 func TestOrphanWatchdogStatus(t *testing.T) {
 	t.Parallel()
@@ -43,7 +53,7 @@ func TestOrphanWatchdogStatus(t *testing.T) {
 		runner := &orphanWatchdogRunner{}
 		err := runner.checkOrphanStatus(
 			func() int { return 1 },
-			func() (string, error) { return "", errors.New("no such file or directory") },
+			func() (string, error) { return "", os.ErrNotExist },
 			func(string) (os.FileInfo, error) { return nil, nil },
 		)
 		if err == nil {
@@ -67,6 +77,22 @@ func TestOrphanWatchdogStatus(t *testing.T) {
 		}
 		if !errors.Is(err, errOrphanProcessSelfTerminated) {
 			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
+		}
+	})
+
+	t.Run("ppid 1 with uncertain cwd probe does not authorize self termination", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{}
+		err := runner.checkOrphanStatus(
+			func() int { return 1 },
+			func() (string, error) { return "/protected/path", nil },
+			func(string) (os.FileInfo, error) { return nil, os.ErrPermission },
+		)
+		if err == nil {
+			t.Fatal("expected an observable probe error, got nil")
+		}
+		if errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("uncertain CWD probe authorized self termination: %v", err)
 		}
 	})
 }
@@ -105,6 +131,26 @@ func TestOrphanWatchdogRunLoop(t *testing.T) {
 		err := runner.Run(ctx)
 		if err == nil || !errors.Is(err, errOrphanProcessSelfTerminated) {
 			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
+		}
+	})
+
+	t.Run("uncertain probe remains observable without self termination", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{
+			interval: 5 * time.Millisecond,
+			getPpid:  func() int { return 1 },
+			getCwd:   func() (string, error) { return "/protected", nil },
+			statPath: func(string) (os.FileInfo, error) { return nil, os.ErrPermission },
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+		defer cancel()
+
+		err := runner.Run(ctx)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("uncertain probe Run() error = %v, want context deadline", err)
+		}
+		if errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("uncertain probe self-terminated: %v", err)
 		}
 	})
 }

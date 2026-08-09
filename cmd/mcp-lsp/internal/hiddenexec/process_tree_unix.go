@@ -23,6 +23,7 @@ type unixProcessTree struct {
 	root          ProcessIdentity
 	known         map[int]ProcessIdentity
 	signalMembers func([]ProcessIdentity, int) error
+	releaseOwner  func() error
 	released      bool
 }
 
@@ -102,20 +103,32 @@ func (p *unixProcessTree) terminate() error {
 	return p.wait(finalCtx)
 }
 
+// release 仅在进程树无存活或身份不确定成员时释放平台稳定 owner 能力。
 func (p *unixProcessTree) release() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.released {
+		p.mu.Unlock()
 		return nil
 	}
 	snapshot, err := p.snapshotLocked()
 	if err != nil {
+		p.mu.Unlock()
 		return errors.Join(ErrProcessTreeCleanupPending, err)
 	}
 	if len(snapshot.Members) != 0 || len(snapshot.Unknown) != 0 {
+		p.mu.Unlock()
 		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("release process-tree owner: %w: %d members, %d unknown", ErrProcessTreeRemaining, len(snapshot.Members), len(snapshot.Unknown)))
 	}
+	releaseOwner := p.releaseOwner
+	p.mu.Unlock()
+	if releaseOwner != nil {
+		if err := releaseOwner(); err != nil {
+			return errors.Join(ErrProcessTreeCleanupPending, err)
+		}
+	}
+	p.mu.Lock()
 	p.released = true
+	p.mu.Unlock()
 	return nil
 }
 

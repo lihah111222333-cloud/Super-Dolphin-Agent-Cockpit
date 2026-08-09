@@ -15,6 +15,7 @@
 
 - [AI_PROJECT_MAP.md](project-map/AI_PROJECT_MAP.md)：全仓文件级 AI 项目地图，按领域输出 TSV 索引和漂移报告。
 - [capability_manifest.json](capability-contract/capability_manifest.json)：核心 Go 领域的符号级能力契约清单。
+- [ai-index.json](ai-index.json)：编号卷的源码引用索引；`counts` 由 `codemap-count` 声明实时生成，编号卷不维护手写计数快照。
 
 | # | 文件 | 覆盖区域 |
 |---|---|---|

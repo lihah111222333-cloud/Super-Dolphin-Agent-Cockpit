@@ -90,8 +90,8 @@ func TestBuildIndexAcceptsValidCodemapSemantics(t *testing.T) {
 		"[heading](linked.md#valid-heading)",
 		"<!-- codemap-absent path=\"internal/example/retired.go\" -->",
 		"<!-- codemap-absent path=\"internal/example.RetiredSymbol\" -->",
-		"<!-- codemap-count path=\"internal/example\" kind=\"go-files\" expected=\"2\" -->",
-		"<!-- codemap-count path=\"internal/wiring/module.go\" kind=\"fx-module-refs\" expected=\"2\" -->",
+		"<!-- codemap-count path=\"internal/example\" kind=\"go-files\" -->",
+		"<!-- codemap-count path=\"internal/wiring/module.go\" kind=\"fx-module-refs\" -->",
 		"```text",
 		"`internal/example/intentionally-missing.go`",
 		"```",
@@ -105,8 +105,21 @@ func TestBuildIndexAcceptsValidCodemapSemantics(t *testing.T) {
 		"",
 	}, "\n"))
 
-	if _, _, err := buildIndex(root, codemapDir, "2026-07-27"); err != nil {
+	index, _, err := buildIndex(root, codemapDir, "2026-07-27")
+	if err != nil {
 		t.Fatalf("buildIndex() error = %v, want valid semantics", err)
+	}
+	wantCounts := []CodemapCount{
+		{Path: "internal/example", Kind: "go-files", Value: 2},
+		{Path: "internal/wiring/module.go", Kind: "fx-module-refs", Value: 2},
+	}
+	if len(index.Counts) != len(wantCounts) {
+		t.Fatalf("buildIndex() counts = %#v, want %#v", index.Counts, wantCounts)
+	}
+	for countIndex, want := range wantCounts {
+		if index.Counts[countIndex] != want {
+			t.Fatalf("buildIndex() counts[%d] = %#v, want %#v", countIndex, index.Counts[countIndex], want)
+		}
 	}
 }
 
@@ -174,7 +187,7 @@ func invalidRepositorySemanticCases() []invalidCodemapSemanticCase {
 		},
 		{
 			name:       "repository path escape",
-			body:       "# Map\n\n<!-- codemap-count path=\"internal/../../outside\" kind=\"go-files\" expected=\"0\" -->\n",
+			body:       "# Map\n\n<!-- codemap-count path=\"internal/../../outside\" kind=\"go-files\" -->\n",
 			wantErrSub: "path escapes repository",
 		},
 	}
@@ -197,13 +210,13 @@ func invalidMarkdownSemanticCases() []invalidCodemapSemanticCase {
 			wantErrSub: "historical document",
 		},
 		{
-			name: "declared count drift",
-			body: "# Map\n\n<!-- codemap-count path=\"internal/example\" kind=\"go-files\" expected=\"2\" -->\n",
+			name: "unsupported count kind",
+			body: "# Map\n\n<!-- codemap-count path=\"internal/example\" kind=\"unknown-files\" -->\n",
 			prepare: func(t *testing.T, root string) {
 				t.Helper()
 				writeCodemapFixtureFile(t, root, "internal/example/example.go", "package example\n")
 			},
-			wantErrSub: "codemap count",
+			wantErrSub: "unsupported kind",
 		},
 		{
 			name:       "unclosed fenced block",
@@ -212,7 +225,7 @@ func invalidMarkdownSemanticCases() []invalidCodemapSemanticCase {
 		},
 		{
 			name:       "malformed count declaration",
-			body:       "# Map\n\n<!-- codemap-count expected=\"1\" path=\"internal/example\" kind=\"go-files\" -->\n",
+			body:       "# Map\n\n<!-- codemap-count path=\"internal/example\" kind=\"go-files\" expected=\"1\" -->\n",
 			wantErrSub: "malformed codemap-count",
 		},
 		{

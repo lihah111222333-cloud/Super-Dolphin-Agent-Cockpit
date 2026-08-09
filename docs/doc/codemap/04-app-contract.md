@@ -16,9 +16,9 @@
   - `thread.OrchestrationFacade`
 - 桌面模式额外叠加 `uiwails.Module`，并通过 `fx.Populate` 取出 `*application.App` 和 `*uiwails.WailsLifecycle`。
 
-当前根层（仅 `internal/app/*.go`，排除测试与子目录）是 **16 个生产 Go 文件**。Store 与运行时消费适配器已经下沉到 `internal/app/storeadapter` 和 `internal/app/runtimeadapter`，不计入这组根层指标。
+当前根层计数只覆盖 `internal/app/*.go`（排除测试与子目录）。Store 与运行时消费适配器已经下沉到 `internal/app/storeadapter` 和 `internal/app/runtimeadapter`，不计入这组根层指标。实时值由下方声明生成到 `ai-index.json.counts`，本卷不保存手写数字快照。
 
-<!-- codemap-count path="internal/app" kind="go-files" expected="16" -->
+<!-- codemap-count path="internal/app" kind="go-files" -->
 
 **关键边界：** `app.Module` 明确 **不内嵌 `cmd/mcp-orch` 的 orchestration option groups**。`cmd/mcp-orch/orchestration` 包本身没有 `Module` 符号；standalone 图由主包的 `buildOrchestrationOptions()` 与 `orchestrationTransportOptions()` 组合。agent orchestration 由独立 `mcp-orch` MCP 服务承载；桌面进程只暴露控制面与适配层，避免桌面二进制被再次拉起成子进程。
 

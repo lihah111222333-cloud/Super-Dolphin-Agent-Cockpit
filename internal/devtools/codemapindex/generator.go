@@ -22,9 +22,17 @@ type Index struct {
 	Generator    string                `json:"generator"`     // 生成器锚点，用于 README 同步识别。
 	GeneratedAt  string                `json:"generated_at"`  // 生成日期；check 模式会复用旧值避免漂移。
 	Description  string                `json:"description"`   // 给 AI/人类读取的索引说明。
+	Counts       []CodemapCount        `json:"counts"`        // 编号卷声明的实时源码计数，禁止在 Markdown 中手写快照。
 	SectionIndex []string              `json:"section_index"` // section ID 到标题的全局映射表。
 	Codemaps     []Codemap             `json:"codemaps"`      // 每份 codemap 的章节摘要。
 	Files        map[string]*FileEntry `json:"files"`         // 源码文件到 codemap 引用的索引。
+}
+
+// CodemapCount 是 codemap-count 声明对应的自动生成计数。
+type CodemapCount struct {
+	Path  string `json:"path"`
+	Kind  string `json:"kind"`
+	Value int    `json:"value"`
 }
 
 // Codemap 描述单个 codemap markdown 文件及其可引用章节。
@@ -110,16 +118,16 @@ func Generate(root string, check bool) error {
 		); err != nil {
 			return err
 		}
-		fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps (up to date)\n",
-			len(artifacts.index.Files), countRefs(artifacts.index.Files), len(artifacts.index.SectionIndex), len(artifacts.index.Codemaps))
+		fmt.Printf("ai-index.json: %d files, %d total refs, %d counts, %d sections, %d codemaps (up to date)\n",
+			len(artifacts.index.Files), countRefs(artifacts.index.Files), len(artifacts.index.Counts), len(artifacts.index.SectionIndex), len(artifacts.index.Codemaps))
 		return nil
 	}
 
 	if err := refreshGeneratedCodemapFiles(outPath, readmePath, anchorManifestPath, artifacts); err != nil {
 		return err
 	}
-	fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps\n",
-		len(artifacts.index.Files), countRefs(artifacts.index.Files), len(artifacts.index.SectionIndex), len(artifacts.index.Codemaps))
+	fmt.Printf("ai-index.json: %d files, %d total refs, %d counts, %d sections, %d codemaps\n",
+		len(artifacts.index.Files), countRefs(artifacts.index.Files), len(artifacts.index.Counts), len(artifacts.index.SectionIndex), len(artifacts.index.Codemaps))
 	return nil
 }
 
@@ -186,6 +194,10 @@ func buildIndex(root, codemapDir, generatedAt string) (Index, []ReadmeCodemap, e
 	if err := validateCodemapSemantics(root, mds); err != nil {
 		return Index{}, nil, err
 	}
+	counts, err := collectCodemapCounts(root, mds)
+	if err != nil {
+		return Index{}, nil, err
+	}
 
 	// raw refs 先保留 section 标题，后续统一压缩成 section ID。
 	rawFilesIndex, err := buildRawFilesIndex(root, mds)
@@ -199,10 +211,11 @@ func buildIndex(root, codemapDir, generatedAt string) (Index, []ReadmeCodemap, e
 	codemaps, readmeCodemaps := buildOutputCodemaps(mds)
 
 	idx := Index{
-		Version:      "1.0",
+		Version:      "1.1",
 		Generator:    GeneratorAnchor,
 		GeneratedAt:  generatedAt,
-		Description:  "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
+		Description:  "代码地图索引：源码实时计数与文件→md段落行范围（自动生成 make codemap-refresh）",
+		Counts:       counts,
 		SectionIndex: secIndex,
 		Codemaps:     codemaps,
 		Files:        filesIndex,

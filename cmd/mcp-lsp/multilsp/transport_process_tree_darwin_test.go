@@ -13,17 +13,40 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
+
+// TestMain 让 multilsp 测试二进制复用生产监管入口，真实 transport 测试无需绕过 Darwin owner。
+func TestMain(m *testing.M) {
+	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
+		os.Exit(exitCode)
+	}
+	os.Exit(m.Run())
+}
 
 func killTransportFixtureForTest(t *testing.T, tr *transport, childPID int) bool {
 	t.Helper()
-	requireDarwinKillPending(t, tr)
 	requireDarwinTransportProcess(t, tr)
-	requireDarwinFixtureKill(t, tr.cmd.Process)
-	requireDarwinChildKill(t, childPID)
-	requireDarwinRootWait(t, tr.cmd)
+	waitDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "mcp-lsp.multilsp.test.darwin-transport-wait", func(context.Context) {
+		waitDone <- tr.cmd.Wait()
+	})
+	if err := tr.killProcess(); err != nil {
+		t.Fatalf("Darwin supervised killProcess() error = %v", err)
+	}
+	select {
+	case waitErr := <-waitDone:
+		if waitErr != nil && !isExitError(waitErr) {
+			t.Fatalf("Darwin supervised root wait: %v", waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Darwin supervised root did not exit within 5s")
+	}
+	if testProcessExists(childPID) {
+		t.Fatalf("Darwin supervised child PID %d survived process-tree termination", childPID)
+	}
 	if err := tr.processTree.Release(); err != nil {
-		t.Fatalf("Darwin test fixture process-tree release: %v", err)
+		t.Fatalf("Darwin supervised process-tree release: %v", err)
 	}
 	return true
 }
@@ -50,20 +73,12 @@ func assertHandedOffOwnerState(t *testing.T, cmd *exec.Cmd, tree *hiddenexec.Pro
 func assertTransportContextTerminationPlatform(t *testing.T, tr *transport) {
 	t.Helper()
 	requireDarwinTransportProcess(t, tr)
-	requireDarwinFixtureKill(t, tr.cmd.Process)
 	requireDarwinTransportDone(t, tr)
 	if err := retryDarwinTransportClose(tr); err != nil {
 		t.Fatalf("Darwin context-cancelled transport retry cleanup: %v", err)
 	}
 	if !processTreeReleaseComplete(tr) {
 		t.Fatal("Darwin context-cancelled transport retry Close() did not complete owner release")
-	}
-}
-
-func requireDarwinKillPending(t *testing.T, tr *transport) {
-	t.Helper()
-	if err := tr.killProcess(); !errors.Is(err, hiddenexec.ErrProcessTreeCleanupPending) {
-		t.Fatalf("Darwin killProcess() error = %v, want CleanupPending", err)
 	}
 }
 

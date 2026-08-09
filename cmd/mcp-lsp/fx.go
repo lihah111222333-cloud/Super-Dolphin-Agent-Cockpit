@@ -50,15 +50,14 @@ type registryToolProvider struct {
 
 // run 组装并启动 mcp-lsp sidecar 自身的 fx 应用。
 // 该进程只暴露 ctl 工具与 manifest 元数据，stdout 必须保留给 MCP stdio 协议通道。
-func run(stdout *os.File) error {
+func run(stdout *os.File, logRuntime *pkglogger.Runtime) error {
 	// MCP stdio 协议把 stdout 当作 JSON-RPC 通道；日志必须固定写 stderr。
 	// 如果这里回到 stdout，客户端会把普通日志当作协议帧解析而失败。
 
 	app := fx.New(
 		fx.NopLogger,
-		fx.Supply(stdout),
+		fx.Supply(stdout, logRuntime),
 		fx.Provide(
-			newSidecarLoggerRuntime,
 			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager, metrics *platformmetrics.BootstrapMetrics) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
@@ -123,13 +122,6 @@ func run(stdout *os.File) error {
 	stopCtx, stopCancel := platformconfig.WithRPCRequestTimeout(context.Background())
 	defer stopCancel()
 	return app.Stop(stopCtx)
-}
-
-func newSidecarLoggerRuntime() *pkglogger.Runtime {
-	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
-	runtime.InitWithConsoleWriter(os.Stderr)
-	runtime.BindDefault()
-	return runtime
 }
 
 // newServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。

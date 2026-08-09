@@ -14,11 +14,11 @@
 
 ## 2. 当前源码结论
 
-1. **memory 已不是单体包**：当前有 9 个直接 Go 子包；root 包主要保留装配、写侧、规则组装和公共桥接。
-   <!-- codemap-count path="internal/module/memory" kind="go-child-dirs" expected="9" -->
-   <!-- codemap-count path="internal/module/memory" kind="go-files" expected="31" -->
-   <!-- codemap-count path="internal/module/memory" kind="go-files-recursive" expected="73" -->
-   <!-- codemap-count path="internal/module/memory" kind="go-test-files-recursive" expected="82" -->
+1. **memory 已不是单体包**：直接 Go 子包及根层/递归生产、测试文件数由下方声明生成到 `ai-index.json.counts`；root 包主要保留装配、写侧、规则组装和公共桥接。
+   <!-- codemap-count path="internal/module/memory" kind="go-child-dirs" -->
+   <!-- codemap-count path="internal/module/memory" kind="go-files" -->
+   <!-- codemap-count path="internal/module/memory" kind="go-files-recursive" -->
+   <!-- codemap-count path="internal/module/memory" kind="go-test-files-recursive" -->
 2. **start 注入的是规则，不是 topic body**：`MemoryRulesProvider.Resolve()` 产出 `## memory` 动态 section（`internal/module/memory/rules_provider.go:289-317`），告诉模型怎么用 memory；不是把所有 memory 文件直接拼进去。
 3. **turn 注入才带 runtime 数据**：`MemoryContextProvider.PrepareTurnContext()` / `PrepareTurnContextWithError()` 负责 relevant attachments + transcript fallback（`internal/module/memory/rules_provider.go:480-525`）。
 4. **相关记忆检索仍是 runtime retrieval，不是 Claude 原生 memory tool**：P18.4 C-4 已在 ADR-001 定案为架构性偏离；当前实现是 `ManifestBuilder + RelevantMemoryFinder + PrefetchManager`。

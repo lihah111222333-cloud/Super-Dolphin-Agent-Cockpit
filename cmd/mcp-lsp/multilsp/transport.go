@@ -97,7 +97,8 @@ type pendingResult struct {
 
 // newTransport 启动 LSP 子进程并初始化 transport，启动 readLoop 和 wait goroutine。
 func newTransport(options transportOptions) (*transport, error) {
-	return newTransportWithStarter(options, hiddenexec.StartProcessTree)
+	cmd, processTree, stdin, stdout, stderr, err := startTransport(options)
+	return newTransportFromStarted(options, cmd, processTree, stdin, stdout, stderr, err)
 }
 
 // newTransportWithStarter 启动并绑定 LSP transport 的 exact process-tree owner。
@@ -106,8 +107,21 @@ func newTransportWithStarter(
 	starter func(*exec.Cmd) (*hiddenexec.ProcessTree, error),
 ) (*transport, error) {
 	cmd, processTree, stdin, stdout, stderr, err := startTransportWithStarter(options, starter)
-	if err != nil {
-		return nil, errors.Join(err, cleanupFailedProcessTree(processTree))
+	return newTransportFromStarted(options, cmd, processTree, stdin, stdout, stderr, err)
+}
+
+// newTransportFromStarted 将已启动的受管进程组装为 transport，并统一接管启动失败清理。
+func newTransportFromStarted(
+	options transportOptions,
+	cmd *exec.Cmd,
+	processTree *hiddenexec.ProcessTree,
+	stdin io.WriteCloser,
+	stdout io.ReadCloser,
+	stderr *limitedBuffer,
+	startErr error,
+) (*transport, error) {
+	if startErr != nil {
+		return nil, errors.Join(startErr, cleanupFailedProcessTree(processTree))
 	}
 	actorCtx, cancelActors := context.WithCancel(context.Background())
 	t := &transport{

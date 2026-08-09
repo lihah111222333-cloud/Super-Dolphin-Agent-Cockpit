@@ -12,8 +12,10 @@
 
 最后一个 member 释放时，state 记录 15 分钟 `IdleDeadline`、`DrainEpoch` 和 owner evidence。唯一 owner callback 负责关闭该 member 的 gopls forwarder；deadline 到达后先以 epoch/fence 二次复核，再执行 callback，成功写入 completion receipt。新的 admission 会在同一把锁内原子提升 epoch；跨 sidecar 不得被旧 owner 的 15 分钟 drain 阻断，而是把旧 fence 转入独立的 typed `PendingCleanups` journal。旧 sidecar 仍是该 fence 的唯一 cleanup owner，新 epoch 绝不执行旧 callback。callback 失败保留对应 fence 的 owner evidence、`cleanup_pending` 和 retry deadline；owner callback 不可达时继续保留该 pending 证据，绝不越权关闭旧 forwarder。不使用 RSS/ps 进程扫描或 kill 兜底。
 
+Darwin 没有可替代 pidfd 的外部稳定进程句柄，因此生产语言服务器必须由当前 `mcp-lsp` 二进制的内部 supervisor 作为独立 session/PGID leader 启动，真实 gopls forwarder 及其后代继承该 owner 组。`ProcessTree` 只能通过启动时创建且不传给真实语言服务器的专用控制管道请求 TERM/KILL；supervisor 只向自己的稳定 PGID 发信号，禁止从持久状态、`ps`、进程名或裸 PID 重建信号权限。父控制管道 EOF 是 exact owner 已消失的稳定证据；此外 supervisor 在 `PPID<=1` 且 CWD 明确返回 `ENOENT` 时必须自行启动 TERM→有界 KILL。权限、I/O 或其他不确定的 CWD 探测错误只记录 probe failure，不得授权信号。真实语言服务器退出后仍有同组后代时，supervisor 必须在自己退出前强制清空该组；外层只有在 `Wait`、`Remaining=0` 和 `Release` 全部收敛后才能完成 cleanup receipt。
+
 进程内 `NewGoplsRootCohortController` 仍只提供测试/本进程冲突与 fence 证据，不能被描述成跨进程 authority；生产 runtime 必须注入 durable controller。Windows 不启用 gopls auto-remote root cohort，并返回明确 unsupported 语义。
 
 manager/recycler 的 Go workspace idle 分支只接受 `multilsp.IdleReleasableClient.ReleaseForIdle`。生产 `goplsRootCohortClient` 同时声明 `IdleReleaseRequiredClient`；若 owner 接口缺失，recycler fail-closed、保留 `CleanupPending`，不回退到裸 `Client.Close`。
 
-生产 gopls 创建链在 durable cache owner 初始化失败时 fail-fast，绝不会回退到裸 `-remote=auto`。gopls 自身仍以 `-remote.listen.timeout=15m` 作为 daemon 的协议级 idle 超时；产品 owner 只关闭其持有的 forwarder transport，不通过 RSS/ps 路径越权终止 gopls daemon。
+生产 gopls 创建链在 durable cache owner 初始化失败时 fail-fast，绝不会回退到裸 `-remote=auto`。gopls 自身仍以 `-remote.listen.timeout=15m` 作为 daemon 的协议级 idle 超时；产品 owner 只通过上述 exact supervisor 关闭其持有的 forwarder transport，不通过 RSS/ps 路径越权终止 gopls daemon。

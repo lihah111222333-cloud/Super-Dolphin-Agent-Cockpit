@@ -144,10 +144,10 @@ sequenceDiagram
 
 ## 2.2 `cmd/mcp-lsp/`
 
-> 当前 `cmd/mcp-lsp/` 下共有 144 个生产 Go 文件：根目录 23 个，后代目录 121 个（测试文件不计入统计）。具体目录分布以同页代码地图索引和项目地图为准，避免手写分布与自动索引产生第二真相源。
+> `cmd/mcp-lsp/` 的根层与递归生产 Go 文件数由下方声明生成到 `ai-index.json.counts`（测试文件不计入统计）。具体目录分布以同页代码地图索引和项目地图为准；本卷不保存手写数字快照。
 
-> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files" expected="23" -->
-> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files-recursive" expected="144" -->
+> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files" -->
+> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files-recursive" -->
 >
 > 迁移补记：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,multilsp,middleware,...}`，旧 internal/mcpserver/lsp 子包已删除。
 

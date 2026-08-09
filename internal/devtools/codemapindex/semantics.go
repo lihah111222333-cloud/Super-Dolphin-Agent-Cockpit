@@ -21,7 +21,7 @@ var (
 	repoFileRefRe           = regexp.MustCompile(`((?:(?:cmd|internal|pkg|scripts|frontend-app|sql|migrations|docs|test|tests)/[^` + "`" + `\s|),;:]+\.(?:jsx|tsx|mjs|cjs|json|yaml|toml|html|proto|txt|css|md|sql|js|ts|go|sh|ps1|yml)|(?:AGENTS\.md|CLAUDE\.md|Makefile|README(?:\.[A-Za-z-]+)?\.md|go\.(?:mod|sum)|package(?:-lock)?\.json|sqlc\.yaml)))(?::([0-9][0-9,*/-]*))?`)
 	repoDirRefRe            = regexp.MustCompile(`((?:cmd|internal|pkg|scripts|frontend-app|sql|migrations|docs|test|tests)/[^` + "`" + `\s|),;:*{}<>]+/)`)
 	repoBarePathRe          = regexp.MustCompile(`^(?:(?:cmd|internal|pkg|scripts|frontend-app|sql|migrations|docs|test|tests)/[^` + "`" + `\s|),;:*{}<>]+|(?:AGENTS\.md|CLAUDE\.md|Makefile|README(?:\.[A-Za-z-]+)?\.md|go\.(?:mod|sum)|package(?:-lock)?\.json|sqlc\.yaml))$`)
-	codemapCountRe          = regexp.MustCompile(`<!--\s*codemap-count\s+path="([^"]+)"\s+kind="([^"]+)"\s+expected="([0-9]+)"\s*-->`)
+	codemapCountRe          = regexp.MustCompile(`<!--\s*codemap-count\s+path="([^"]+)"\s+kind="([^"]+)"\s*-->`)
 	codemapAbsentRe         = regexp.MustCompile(`<!--\s*codemap-absent\s+path="([^"]+)"\s*-->`)
 	policyRootRe            = regexp.MustCompile(`^docs/[^/]+(?:/[^/]+)*$`)
 	policyDomainRe          = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)

@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"strconv"
+	"sort"
 	"strings"
 )
 
@@ -30,27 +30,48 @@ func validateCodemapCounts(root string, doc SemanticMarkdown) []string {
 	return problems
 }
 
-// validateCodemapCount 校验单条计数声明。
+// validateCodemapCount 校验单条自动计数声明可被当前生成器解析。
 func validateCodemapCount(root, codemapFile string, lineNumber int, match []string) string {
-	expected, err := strconv.Atoi(match[3])
-	if err != nil {
-		return fmt.Sprintf("%s:%d invalid codemap count %q", codemapFile, lineNumber, match[3])
-	}
 	countRoot, err := resolveRepoPath(root, match[1])
 	if err != nil {
 		return fmt.Sprintf("%s:%d invalid codemap count path %s: %v", codemapFile, lineNumber, match[1], err)
 	}
-	actual, err := countCodemapFiles(countRoot, match[2])
+	_, err = countCodemapFiles(countRoot, match[2])
 	if err != nil {
 		return fmt.Sprintf("%s:%d codemap count %s: %v", codemapFile, lineNumber, match[1], err)
 	}
-	if actual == expected {
-		return ""
+	return ""
+}
+
+// collectCodemapCounts 计算所有声明的当前值，并按 path/kind 去重、稳定排序。
+func collectCodemapCounts(root string, mds []parsedMD) ([]CodemapCount, error) {
+	countsByKey := make(map[string]CodemapCount)
+	for _, doc := range semanticMarkdownDocs(mds) {
+		for _, lineIndex := range narrativeLineIndexes(doc.Lines) {
+			for _, match := range codemapCountRe.FindAllStringSubmatch(doc.Lines[lineIndex], -1) {
+				countRoot, err := resolveRepoPath(root, match[1])
+				if err != nil {
+					return nil, fmt.Errorf("collect codemap count %s kind=%s: %w", match[1], match[2], err)
+				}
+				value, err := countCodemapFiles(countRoot, match[2])
+				if err != nil {
+					return nil, fmt.Errorf("collect codemap count %s kind=%s: %w", match[1], match[2], err)
+				}
+				key := match[1] + "\x00" + match[2]
+				countsByKey[key] = CodemapCount{Path: match[1], Kind: match[2], Value: value}
+			}
+		}
 	}
-	return fmt.Sprintf(
-		"%s:%d codemap count %s kind=%s actual=%d expected=%d",
-		codemapFile, lineNumber, match[1], match[2], actual, expected,
-	)
+	keys := make([]string, 0, len(countsByKey))
+	for key := range countsByKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	counts := make([]CodemapCount, 0, len(keys))
+	for _, key := range keys {
+		counts = append(counts, countsByKey[key])
+	}
+	return counts, nil
 }
 
 // countCodemapFiles 计算显式支持的源码、SQL、一级 Go 目录或 Fx 子模块数量。

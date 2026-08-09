@@ -67,6 +67,13 @@ func TestInitSidecarFileLoggerFailsClosed(t *testing.T) {
 	}
 }
 
+// TestRunMainRequiresExistingLoggerRuntime 锁定 Fx runtime 必须复用 main 已初始化的私有文件 logger。
+func TestRunMainRequiresExistingLoggerRuntime(t *testing.T) {
+	if exitCode := runMain(nil, nil); exitCode != 1 {
+		t.Fatalf("runMain(nil, nil) exit code = %d, want 1", exitCode)
+	}
+}
+
 func assertPrivateLogPermissions(t *testing.T, logDir, logPath string) {
 	t.Helper()
 	dirInfo, err := os.Stat(logDir)

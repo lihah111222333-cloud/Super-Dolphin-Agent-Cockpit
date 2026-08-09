@@ -1,14 +1,15 @@
 package codemapindex
 
 import (
-	"fmt"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestModuleReadPromptDirectProductionFileCountMatchesNarrativeAndMarker 锁定 prompt 直属生产 Go 文件数与正文、marker 一致。
-func TestModuleReadPromptDirectProductionFileCountMatchesNarrativeAndMarker(t *testing.T) {
+// TestModuleReadPromptDirectProductionFileCountUsesGeneratedMetric 锁定 prompt 计数只来自生成索引。
+func TestModuleReadPromptDirectProductionFileCountUsesGeneratedMetric(t *testing.T) {
 	root := codemapGeneratorRepoRoot(t)
 	actual, err := countDirectGoFiles(filepath.Join(root, "internal", "module", "prompt"), false)
 	if err != nil {
@@ -16,15 +17,28 @@ func TestModuleReadPromptDirectProductionFileCountMatchesNarrativeAndMarker(t *t
 	}
 
 	content := readCodemapSemanticFixture(t, root, "docs/doc/codemap/07-module-read.md")
-	assertSingleCodemapStatement(t, content, fmt.Sprintf(
-		"`internal/module/prompt/` 的生产文件数由下面的机器计数声明直接锁定为 %d。", actual,
-	))
-	assertSingleCodemapStatement(t, content, fmt.Sprintf(
-		"相邻 `prompt` 真值仍以 §1.1 的 `%d` 为准。", actual,
-	))
-	assertSingleCodemapStatement(t, content, fmt.Sprintf(
-		"<!-- codemap-count path=\"internal/module/prompt\" kind=\"go-files\" expected=\"%d\" -->", actual,
-	))
+	assertSingleCodemapStatement(t, content, "<!-- codemap-count path=\"internal/module/prompt\" kind=\"go-files\" -->")
+	if strings.Contains(content, "codemap-count path=\"internal/module/prompt\" kind=\"go-files\" expected=") {
+		t.Fatal("prompt codemap count must not contain a hand-maintained expected value")
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "docs", "doc", "codemap", "ai-index.json"))
+	if err != nil {
+		t.Fatalf("read generated ai-index: %v", err)
+	}
+	var index Index
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatalf("decode generated ai-index: %v", err)
+	}
+	for _, count := range index.Counts {
+		if count.Path == "internal/module/prompt" && count.Kind == "go-files" {
+			if count.Value != actual {
+				t.Fatalf("generated prompt count = %d, want %d", count.Value, actual)
+			}
+			return
+		}
+	}
+	t.Fatal("generated ai-index is missing internal/module/prompt go-files count")
 }
 
 func assertSingleCodemapStatement(t *testing.T, content, want string) {

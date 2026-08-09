@@ -38,11 +38,11 @@
 
 ## 2. 各子 store 详述
 
-> 当前 `internal/store/` 有 26 个直接 Go 子目录，其中 `internal/store/module.go` 注册 25 个 Fx 子模块，另一个是生成层 `sqlc`；两个口径分别由机器声明锁定。
+> `internal/store/` 的直接 Go 子目录、`internal/store/module.go` 的 Fx 子模块引用和 SQL query 文件数由下方声明生成到 `ai-index.json.counts`；`sqlc` 仍是生成层，本卷不保存手写数字快照。
 >
-> <!-- codemap-count path="internal/store" kind="go-child-dirs" expected="26" -->
-> <!-- codemap-count path="internal/store/module.go" kind="fx-module-refs" expected="25" -->
-> <!-- codemap-count path="sql/queries" kind="sql-files" expected="29" -->
+> <!-- codemap-count path="internal/store" kind="go-child-dirs" -->
+> <!-- codemap-count path="internal/store/module.go" kind="fx-module-refs" -->
+> <!-- codemap-count path="sql/queries" kind="sql-files" -->
 
 ### 2.1 `agentstatus`
 - **文件**：`contract.go` / `store.go` / `module.go`

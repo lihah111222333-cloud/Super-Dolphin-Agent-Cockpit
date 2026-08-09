@@ -27,8 +27,8 @@ flowchart LR
 
 ### 1.1 跨卷一致性备忘
 
-- prompt 不再维护独立数字 freeze；`internal/module/prompt/` 的生产文件数由下面的机器计数声明直接锁定为 30。统一冻结真值位于 `internal/archtest/freeze_baseline.json`。
-  <!-- codemap-count path="internal/module/prompt" kind="go-files" expected="30" -->
+- prompt 不再维护独立数字 freeze；`internal/module/prompt/` 的生产文件数由下面的机器计数声明生成到 `ai-index.json.counts`。统一冻结真值位于 `internal/archtest/freeze_baseline.json`。
+  <!-- codemap-count path="internal/module/prompt" kind="go-files" -->
 - 旧 prompt skill-catalog 注入链已退出生产路径；prompt 不再读取 skill catalog 或 canonical skill 来生成正文、目录发现或 native suppression hints，正文/目录发现交给 provider-native mirror。
 - 旧 lspgui 模块当前在仓内不存在；旧文档若仍把它写成真实包，需要按代码真值纠偏。
 
@@ -452,7 +452,7 @@ flowchart LR
 
 ### 6.1 测试入口
 
-> freeze 口径：本卷直接涉及的 `dashboard / skill / uistate` 当前无独立 freeze 项；相邻 `prompt` 真值仍以 §1.1 的 `30` 为准。
+> freeze 口径：本卷直接涉及的 `dashboard / skill / uistate` 当前无独立 freeze 项；相邻 `prompt` 文件计数读取 §1.1 声明对应的 `ai-index.json.counts` 指标。
 
 | 包 | 测试文件 | 核心 Test* | 锁定点 |
 |---|---|---|---|

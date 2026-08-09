@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rlimit"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -21,6 +22,9 @@ const (
 
 // main 初始化 sidecar 运行环境，保护 MCP stdout 通道后启动服务，异常时以非零码退出。
 func main() {
+	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
+		os.Exit(exitCode)
+	}
 	rlimit.Init()
 	stdout := os.Stdout
 	os.Stdout = os.Stderr
@@ -47,7 +51,9 @@ func main() {
 	if runtime.GOMAXPROCS(0) > 2 {
 		runtime.GOMAXPROCS(2)
 	}
-	os.Exit(runMain(stdout))
+	exitCode := runMain(stdout, logRuntime)
+	logRuntime.ShutdownFileHandler()
+	os.Exit(exitCode)
 }
 
 // initSidecarFileLogger 将 mcp-lsp 日志同时写入 stderr 和进程自有的私有文件。
@@ -68,9 +74,13 @@ func initSidecarFileLogger(logRuntime *pkglogger.Runtime, homeDir string, consol
 
 // runMain 启动 LSP sidecar 并把错误转换为进程退出码。
 // 日志写 stderr，stdout 继续留给 MCP JSON-RPC 帧。
-func runMain(stdout *os.File) int {
-	if err := run(stdout); err != nil {
-		pkglogger.Get().Error("mcp-lsp failed", "error", err)
+func runMain(stdout *os.File, logRuntime *pkglogger.Runtime) int {
+	if logRuntime == nil {
+		_, _ = os.Stderr.WriteString("mcp-lsp logger runtime is required\n")
+		return 1
+	}
+	if err := run(stdout, logRuntime); err != nil {
+		logRuntime.Get().Error("mcp-lsp failed", "error", err)
 		return 1
 	}
 	return 0

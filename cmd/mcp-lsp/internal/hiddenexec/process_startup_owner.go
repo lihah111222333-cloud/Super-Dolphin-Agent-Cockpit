@@ -33,6 +33,7 @@ type startupProcessTreeState struct {
 	waitComplete     bool
 	waitErr          error
 	releaseHook      func() error
+	terminateHook    func() error
 	released         bool
 	startupIdentity  ProcessIdentity
 	identityKnown    bool
@@ -105,6 +106,7 @@ func (p *startupProcessTreeState) terminateExact() error {
 	p.mu.Lock()
 	p.startWaitLocked()
 	cmd, identity, identityKnown, identityRequired, captureIdentity := p.cmd, p.startupIdentity, p.identityKnown, p.identityRequired, p.captureIdentity
+	terminateHook := p.terminateHook
 	waitComplete := p.waitComplete
 	p.mu.Unlock()
 	if cmd == nil || cmd.Process == nil {
@@ -112,12 +114,7 @@ func (p *startupProcessTreeState) terminateExact() error {
 	}
 	var killErr error
 	if !waitComplete {
-		if identityRequired {
-			if err := verifyStartupProcessIdentity(cmd.Process.Pid, identity, identityKnown, captureIdentity); err != nil {
-				return errors.Join(ErrProcessTreeCleanupPending, err)
-			}
-		}
-		killErr = terminateStartupProcess(cmd)
+		killErr = terminateOwnedStartupProcess(cmd, identity, identityKnown, identityRequired, captureIdentity, terminateHook)
 	}
 	if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
 		killErr = fmt.Errorf("kill exact startup process %d: %w", cmd.Process.Pid, killErr)
@@ -129,6 +126,26 @@ func (p *startupProcessTreeState) terminateExact() error {
 		return errors.Join(ErrProcessTreeCleanupPending, killErr, waitErr)
 	}
 	return nil
+}
+
+// terminateOwnedStartupProcess 在同一动作边界内完成启动身份复验和平台精确终止。
+func terminateOwnedStartupProcess(
+	cmd *exec.Cmd,
+	identity ProcessIdentity,
+	identityKnown bool,
+	identityRequired bool,
+	captureIdentity func(int) (ProcessIdentity, error),
+	terminateHook func() error,
+) error {
+	if identityRequired {
+		if err := verifyStartupProcessIdentity(cmd.Process.Pid, identity, identityKnown, captureIdentity); err != nil {
+			return errors.Join(ErrProcessTreeCleanupPending, err)
+		}
+	}
+	if terminateHook != nil {
+		return terminateHook()
+	}
+	return terminateStartupProcess(cmd)
 }
 
 func (p *startupProcessTreeState) terminate() error {

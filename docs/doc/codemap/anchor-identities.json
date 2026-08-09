@@ -1388,7 +1388,8 @@
       "codemap_line": 74,
       "target_path": "cmd/mcp-lsp/main.go",
       "line_spec": "20",
-      "content_sha256": "30b5f122110760c9ff744f13c97ab02fe5ccef70df454bf1e89c6d24327c064c"
+      "content_sha256": "0e95e67a97fbd0f99940f6cb46a32b71bcb2cedad4aba0b8714a9a0fcadc41d2",
+      "symbol": "binaryVersion"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1470,7 +1471,8 @@
       "codemap_line": 90,
       "target_path": "cmd/mcp-lsp/main.go",
       "line_spec": "20",
-      "content_sha256": "30b5f122110760c9ff744f13c97ab02fe5ccef70df454bf1e89c6d24327c064c"
+      "content_sha256": "0e95e67a97fbd0f99940f6cb46a32b71bcb2cedad4aba0b8714a9a0fcadc41d2",
+      "symbol": "binaryVersion"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1484,7 +1486,7 @@
       "codemap_line": 92,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "105",
-      "content_sha256": "c9c11c94f96addde7c3ef0c5a803ffcd247f4937e2927dae5d207fd91a52042b",
+      "content_sha256": "8e3cacd24b88649057bcbd70ea42f33cc3c52b161cd5b296a1c57a707581aec2",
       "symbol": "run"
     },
     {
@@ -1499,7 +1501,7 @@
       "codemap_line": 94,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "136",
-      "content_sha256": "618f1959fa6c4dff308df0a0f773935d824aa68b78cc5a2cc66893db46597cb0",
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
       "symbol": "newServer"
     },
     {
@@ -1507,8 +1509,7 @@
       "codemap_line": 94,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "151",
-      "content_sha256": "2fd54c23aa79553808bd315b656af55bdef5c73595e7c5adb00b6c767a5b6d2f",
-      "symbol": "newBootstrapRunner"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1750,7 +1751,7 @@
       "codemap_line": 213,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "136",
-      "content_sha256": "618f1959fa6c4dff308df0a0f773935d824aa68b78cc5a2cc66893db46597cb0",
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
       "symbol": "newServer"
     },
     {
@@ -1774,8 +1775,7 @@
       "codemap_line": 214,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "151",
-      "content_sha256": "2fd54c23aa79553808bd315b656af55bdef5c73595e7c5adb00b6c767a5b6d2f",
-      "symbol": "newBootstrapRunner"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -12054,14 +12054,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 447,
+      "codemap_line": 446,
       "target_path": "internal/module/thread/contract.go",
       "line_spec": "11-33",
       "content_sha256": "3edf3c3c1668bcda51f89c440277877d366c5dd744c70c17398039f69003b10b"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 462,
+      "codemap_line": 461,
       "target_path": "internal/module/thread/rpc.go",
       "line_spec": "94-147",
       "content_sha256": "0415026c861128c1360424601303b922208e5d7c4aa2caa7a6fbcc057e7c8408",
@@ -12069,7 +12069,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 483,
+      "codemap_line": 482,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-124",
       "content_sha256": "4755a1146fd86069d609dffe275303429e9c396a87b8dcc797a7851b250edb70",
@@ -12077,14 +12077,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 497,
+      "codemap_line": 496,
       "target_path": "internal/module/thread/start_prompt_context.go",
       "line_spec": "24-52",
       "content_sha256": "1edbb01be370dfcfd31c7efa9dffd11742db42d08e6506894827e6d4b8574230"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 520,
+      "codemap_line": 519,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "37-72",
       "content_sha256": "9eca40da7ef5b55ba6bddb1a59d919f6bdd180d0587cc4a755c07328bb9f5f41",
@@ -12092,7 +12092,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 540,
+      "codemap_line": 539,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "142-166",
       "content_sha256": "8f2a8a4da591aac0e7243ddaa688c9d6f4734dedd17531a3bc9d39f9d6aca5f5",
@@ -12100,7 +12100,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 567,
+      "codemap_line": 566,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "134-189",
       "content_sha256": "0ec8c79bc5756449cb41a03f70c2eda1b837fa4cb42b9c144161d04f77ec1c3c",
@@ -12108,7 +12108,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 597,
+      "codemap_line": 596,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "166-217",
       "content_sha256": "73f772f43566e502bcf3793e8ea9a46a8c697a266124dc00d1d1873a1758ff44",
@@ -12116,7 +12116,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 613,
+      "codemap_line": 612,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "194-200",
       "content_sha256": "6b667531c78c09b4f032fba71cb655e054ab488a19ccbd7918ee935fe7ee729f",
@@ -12124,7 +12124,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 637,
+      "codemap_line": 636,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "173-181",
       "content_sha256": "f963b2908d786a976d25f0c24b0bfe46ba3f6b9429a660ef44e7e7f3a3b8456c",
@@ -12132,7 +12132,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 644,
+      "codemap_line": 643,
       "target_path": "internal/store/thread/contract.go",
       "line_spec": "17-18",
       "content_sha256": "f77f4a6426fa9c1b84c16f610b985945f3fc2d8b6adf077e9510018969d5dcce",
@@ -12140,7 +12140,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 645,
+      "codemap_line": 644,
       "target_path": "internal/store/thread/store.go",
       "line_spec": "117-156",
       "content_sha256": "c044a74d47d4e05b40ed6a9f7f613febb0e25c8d36d137f45d187ed00d3316aa",
@@ -12148,7 +12148,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 661,
+      "codemap_line": 660,
       "target_path": "internal/module/thread/rpc.go",
       "line_spec": "308-333",
       "content_sha256": "6f8815d543b28b93077ad99d858af534ad8f1d7231e018b288c4d2d374f9f3ac",
@@ -12156,7 +12156,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 671,
+      "codemap_line": 670,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "126-141",
       "content_sha256": "3834349f3d1952fd08ccf881de5948f035d2478ed3c4ec094bcf9bccde9ec3e5",
@@ -12164,7 +12164,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 682,
+      "codemap_line": 681,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "223-250",
       "content_sha256": "65247328babc667f0bfe801db77279980103a82997da2541a8130918ef750549",
@@ -12172,7 +12172,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 697,
+      "codemap_line": 696,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "270-307",
       "content_sha256": "0a116f19fcb8a23068c7ebfbfa62689129e7634c3b8930411ebddbcf1a39bf43",
@@ -12180,7 +12180,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 710,
+      "codemap_line": 709,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "217-237",
       "content_sha256": "04d339b6d05c55db0488000a742dd7d53102754cf59b6c7067a4d76aff1a296d",
@@ -12188,7 +12188,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 721,
+      "codemap_line": 720,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "348-363",
       "content_sha256": "ee893b4d01d5b0c18d3e9384eb6f1f51901d5758af450bbc239a27267665aa46",
@@ -12196,7 +12196,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 734,
+      "codemap_line": 733,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "239-275",
       "content_sha256": "f1484341d6e257c53f4a9f422b177e64f38b723d291b056e7b44481f7ba45f0d",
@@ -12204,7 +12204,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 749,
+      "codemap_line": 748,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "182-193",
       "content_sha256": "c5b1993746781e1c5ac4eba5f36f57aa5aed699b3ec100c816c6f9917b9a57a4",
@@ -12212,7 +12212,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 766,
+      "codemap_line": 765,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-300",
       "content_sha256": "5d732128452e891938b841c11b8b2511883abcb4c26cc655376386e089f5603a",
@@ -12220,14 +12220,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 776,
+      "codemap_line": 775,
       "target_path": "internal/module/thread/lifecycle_fork.go",
       "line_spec": "14-91",
       "content_sha256": "da3cbacd547d294b337fb700ba416457e5dfe899954e29e42cc637032359d9f7"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 790,
+      "codemap_line": 789,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "198-215",
       "content_sha256": "7fa38ecdde920c7f04f2509482ded01841bc4002f9815815e327a5a1006e8247",
@@ -12235,7 +12235,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 803,
+      "codemap_line": 802,
       "target_path": "internal/module/thread/lifecycle_fork.go",
       "line_spec": "93-168",
       "content_sha256": "cc8be81fd40fd83c48ab0940396f06ecaf53ef6073a9682210b17f0b50f9618e",
@@ -12243,7 +12243,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 857,
+      "codemap_line": 856,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "194-200",
       "content_sha256": "6b667531c78c09b4f032fba71cb655e054ab488a19ccbd7918ee935fe7ee729f",
@@ -12251,7 +12251,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 873,
+      "codemap_line": 872,
       "target_path": "internal/module/memory/extract_metadata.go",
       "line_spec": "33-42",
       "content_sha256": "a1cfad337dd87224665636ba4afd6ae2374b2c51eddaf9e95aaa0fdb574c24a9",
@@ -12259,7 +12259,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 907,
+      "codemap_line": 906,
       "target_path": "internal/module/memory/module.go",
       "line_spec": "329-367",
       "content_sha256": "b1c08eb6922c4b05d90522631b8028171186fdb4d25dd4c8a3caafaf8240c6e4",
@@ -12267,35 +12267,35 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 908,
+      "codemap_line": 907,
       "target_path": "internal/module/memory/rules_provider.go",
       "line_spec": "784-809",
       "content_sha256": "8f060eaf1db2c3b6bcbe676bacf527b1c47a2b61ff8a4a7028d8c2788f30edd0"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 916,
+      "codemap_line": 915,
       "target_path": "internal/module/memory/factory.go",
       "line_spec": "297-339",
       "content_sha256": "634c8ec2e26501e75a18390cd87e2412d7441bea6165e0ea4e06acdf0d95e831"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 916,
+      "codemap_line": 915,
       "target_path": "internal/module/memory/module_subscribers.go",
       "line_spec": "53-60",
       "content_sha256": "7520408e9208a785526dace78a41bd379512047961a0b6e84d2dd265203a41b4"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 917,
+      "codemap_line": 916,
       "target_path": "internal/module/memory/module_subscribers.go",
       "line_spec": "85-136",
       "content_sha256": "60763eae623e8100af2c844984af0d9d827138aedbe02d07c01fcf8215af6ccf"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 933,
+      "codemap_line": 932,
       "target_path": "internal/provider/unified/module.go",
       "line_spec": "24-37",
       "content_sha256": "d89786b08bee48bce5804151191a2961d61bd8615406b15da76452a8f4270302",
@@ -12303,7 +12303,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 948,
+      "codemap_line": 947,
       "target_path": "internal/provider/unified/client.go",
       "line_spec": "30-67",
       "content_sha256": "f1cc75c95519ffd9ca76e155e9fb3e2d46bc68f4f444c50ec59583db63125d0f",
@@ -12311,7 +12311,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 960,
+      "codemap_line": 959,
       "target_path": "internal/provider/unified/session.go",
       "line_spec": "39-57",
       "content_sha256": "2355bbd37aece1dd70ccc8114e90de2203927180e92e168d6ad69d5ccef60f19",
@@ -12319,7 +12319,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 977,
+      "codemap_line": 976,
       "target_path": "internal/provider/unified/session_resolver.go",
       "line_spec": "58-74",
       "content_sha256": "6184d10dc30f01308e62eed334a13633b701e2cf0cb57eab2eee687764ec4a9e",
@@ -12327,7 +12327,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 994,
+      "codemap_line": 993,
       "target_path": "internal/provider/unified/event_map.go",
       "line_spec": "103-124",
       "content_sha256": "1dd8010289611c87dfc75e29e69756ca88ff3dfee649a77c7810531a4d12816c",
@@ -12335,14 +12335,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1003,
+      "codemap_line": 1002,
       "target_path": "internal/provider/unified/event_map.go",
       "line_spec": "28-69",
       "content_sha256": "6686b6d4a35adb7b8549bf9887e2fe53660785ed18a254045708e5d8790f8d0d"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1015,
+      "codemap_line": 1014,
       "target_path": "internal/provider/claudecli/module.go",
       "line_spec": "23-31",
       "content_sha256": "ae7453405f50a0237dcfe8bcaaa3a8af8722745879ccfbff5c2cab28de915329",
@@ -12350,28 +12350,28 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1016,
+      "codemap_line": 1015,
       "target_path": "internal/provider/codexapp/module.go",
       "line_spec": "24-36",
       "content_sha256": "1a41f21b7cb86f7d1379232105c2c0efebcd29506c4783115eedf23e8a0eb38d"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1017,
+      "codemap_line": 1016,
       "target_path": "internal/provider/claudecli/event_map.go",
       "line_spec": "18-23",
       "content_sha256": "ae3d56c9138ce29d81a86cac7e35c9164238a57a02fd50eee8dd6e5ab956950c"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1018,
+      "codemap_line": 1017,
       "target_path": "internal/provider/codexapp/event_map.go",
       "line_spec": "20-24",
       "content_sha256": "0cf2cce2f7a39c4e41e9475e0b9635fdb8a2a7ae056d19aa5f46070397647540"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1031,
+      "codemap_line": 1030,
       "target_path": "internal/provider/claudecli/session_events.go",
       "line_spec": "60-64",
       "content_sha256": "e795914750dc7003f33b4e2efe0017bbad5d101343782b6e9da0cf8ca61da3f5",
@@ -12379,7 +12379,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1032,
+      "codemap_line": 1031,
       "target_path": "internal/provider/codexapp/session.go",
       "line_spec": "302-325",
       "content_sha256": "dd90336da111833398ba4dd23674644cb8ebefd00c5c482435b5227c937435c3",
@@ -12387,7 +12387,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1038,
+      "codemap_line": 1037,
       "target_path": "internal/module/thread/module.go",
       "line_spec": "32-57",
       "content_sha256": "8cc4ae32412c9878d71f22207b06594418700db5a692ff69776ff59c3ec87fc1",
@@ -12395,7 +12395,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1043,
+      "codemap_line": 1042,
       "target_path": "internal/module/thread/events.go",
       "line_spec": "25-33",
       "content_sha256": "b625250f5f47f7a1e72b56c1d6508a3bf56e7e8439c8ce3e43914007ba7b9c72",
@@ -12403,7 +12403,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1052,
+      "codemap_line": 1051,
       "target_path": "internal/module/thread/events.go",
       "line_spec": "35-94",
       "content_sha256": "82f96f39c342b5adce932e725706e16f27a4c6abe3d32130751db636c50f65ef",
@@ -12411,7 +12411,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1062,
+      "codemap_line": 1061,
       "target_path": "internal/module/thread/events.go",
       "line_spec": "112-152",
       "content_sha256": "5b7b4ac83c9c27a75123c01d64c3aec2f4c11f44f39b335efb607553bf66a6db",
@@ -12419,7 +12419,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1073,
+      "codemap_line": 1072,
       "target_path": "internal/platform/eventsurface/bind.go",
       "line_spec": "72-87",
       "content_sha256": "c4f1a1ebd3da8d622b35c97d35ee950630137fa51fafea77e8626b226d9f76d8",
@@ -12427,14 +12427,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1309,
+      "codemap_line": 1308,
       "target_path": "internal/module/prompt/dynamic.go",
       "line_spec": "54-78",
       "content_sha256": "29c0646fa2482c68b5f9cd8c8a6b61451c63155be107802833ed31ad667a1a9f"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1416,
+      "codemap_line": 1415,
       "target_path": "internal/module/prompt/assembler_support.go",
       "line_spec": "201-221",
       "content_sha256": "fa0074919b2f8e5743f9b6ee0124cff6982622f0bcf43a81d6e7cd8a6e400c02",
@@ -12442,14 +12442,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1416,
+      "codemap_line": 1415,
       "target_path": "internal/module/prompt/module.go",
       "line_spec": "19-34",
       "content_sha256": "29af12b67733551df428742344007713f8e54c8eea8b1a763fa20731dae7b98f"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1416,
+      "codemap_line": 1415,
       "target_path": "internal/module/skill/module.go",
       "line_spec": "15-34",
       "content_sha256": "b1a48b8866ccfd8edfb2de6b3c848bf2b4a2e323b92b0ac8662bdb0bac537c34"

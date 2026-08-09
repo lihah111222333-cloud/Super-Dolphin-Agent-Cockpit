@@ -42,6 +42,33 @@ func (w *orphanWatchdogRunner) Run(ctx context.Context) error {
 	if w == nil {
 		return nil
 	}
+	interval, getPpid, getCwd, statPath := w.resolveProbes()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := w.checkOrphanStatus(getPpid, getCwd, statPath); err != nil {
+			if errors.Is(err, errOrphanProcessSelfTerminated) {
+				pkglogger.Error("mcp-lsp orphan watchdog triggered", "error", err)
+				return err
+			}
+			pkglogger.Warn("mcp-lsp orphan watchdog probe failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// resolveProbes 补齐 watchdog 的时钟和只读进程探针，便于 Run 聚焦生命周期控制。
+func (w *orphanWatchdogRunner) resolveProbes() (
+	time.Duration,
+	func() int,
+	func() (string, error),
+	func(string) (os.FileInfo, error),
+) {
 	interval := w.interval
 	if interval <= 0 {
 		interval = defaultOrphanCheckInterval
@@ -58,25 +85,11 @@ func (w *orphanWatchdogRunner) Run(ctx context.Context) error {
 	if statPath == nil {
 		statPath = os.Stat
 	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if err := w.checkOrphanStatus(getPpid, getCwd, statPath); err != nil {
-				pkglogger.Error("mcp-lsp orphan watchdog triggered", "error", err)
-				return err
-			}
-		}
-	}
+	return interval, getPpid, getCwd, statPath
 }
 
 // checkOrphanStatus 检测 PPID 和 CWD 状态。
-// 当 PPID=1 且 CWD 获取失败或文件系统 Stat 失败时返回自愈终止错误。
+// 只有 PPID=1 且 CWD 明确返回 ENOENT 时才触发自愈终止；权限或暂态错误不授权破坏性动作。
 func (w *orphanWatchdogRunner) checkOrphanStatus(
 	getPpid func() int,
 	getCwd func() (string, error),
@@ -89,12 +102,18 @@ func (w *orphanWatchdogRunner) checkOrphanStatus(
 
 	cwd, err := getCwd()
 	if err != nil {
-		return fmt.Errorf("%w: cwd error (%v)", errOrphanProcessSelfTerminated, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: cwd no longer exists: %v", errOrphanProcessSelfTerminated, err)
+		}
+		return fmt.Errorf("mcp-lsp orphan watchdog read cwd: %w", err)
 	}
 
 	cleanedCwd := filepath.Clean(cwd)
 	if _, err := statPath(cleanedCwd); err != nil {
-		return fmt.Errorf("%w: cwd stat error (%v)", errOrphanProcessSelfTerminated, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: cwd no longer exists: %v", errOrphanProcessSelfTerminated, err)
+		}
+		return fmt.Errorf("mcp-lsp orphan watchdog stat cwd: %w", err)
 	}
 
 	return nil

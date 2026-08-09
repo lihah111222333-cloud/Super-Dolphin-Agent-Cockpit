@@ -4,11 +4,11 @@
 >
 > 校验方式：`structure` 遍历 11 个子包；`grep` 校对 DTO/锚点；`xref(references)` 核对核心 DTO 的生产/消费两侧；`file` 精读定义。
 >
-> 当前快照：**11 个子包 / 37 个生产 Go 文件 / 15 个 DTO 合约测试**。
+> 子包、生产 Go 文件与 DTO 合约测试的实时计数由下方声明生成到 `ai-index.json.counts`；本卷不保存手写数字快照。
 >
-> <!-- codemap-count path="internal/dto" kind="go-child-dirs" expected="11" -->
-> <!-- codemap-count path="internal/dto" kind="go-files-recursive" expected="37" -->
-> <!-- codemap-count path="internal/dto" kind="go-test-files-recursive" expected="15" -->
+> <!-- codemap-count path="internal/dto" kind="go-child-dirs" -->
+> <!-- codemap-count path="internal/dto" kind="go-files-recursive" -->
+> <!-- codemap-count path="internal/dto" kind="go-test-files-recursive" -->
 >
 > 重要说明：当前代码里**没有**名为 `ThreadEvent` / `TurnEvent` / `SkillEvent` 的总和类型；实际是若干 concrete DTO family。本文按 family 展开。
 
