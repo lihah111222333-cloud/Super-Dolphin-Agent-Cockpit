@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd)"
 source "$ROOT_DIR/scripts/real_go_resolver.sh"
+source "$ROOT_DIR/scripts/local_go_cache.sh"
 
 usage() {
   cat <<'USAGE'
@@ -227,7 +228,7 @@ admit_host_test_load() {
 }
 
 run_host_test() {
-  local real_go="$1" load_class="$2" output_file status=0
+  local real_go="$1" load_class="$2" output_file status=0 cache_values local_cache_root local_temp_root local_cache_identity
   shift 2
   validate_host_test_args "$load_class" "$@"
   admit_host_test_load "$load_class"
@@ -240,11 +241,24 @@ run_host_test() {
     gomaxprocs=4
     build_parallelism=2
   fi
+  cache_values="$(local_go_cache_prepare "$ROOT_DIR" "$real_go")"
+  local_cache_root="${cache_values%%$'\n'*}"
+  cache_values="${cache_values#*$'\n'}"
+  local_temp_root="${cache_values%%$'\n'*}"
+  local_cache_identity="${cache_values#*$'\n'}"
+  if [[ -z "$local_cache_root" || -z "$local_temp_root" || ! "$local_cache_identity" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "local Go cache preparation returned an invalid identity" >&2
+    return 2
+  fi
   output_file="$(mktemp -t super-agent-host-test.XXXXXX)"
   (
     export GOMAXPROCS="$gomaxprocs"
+    export GOCACHE="$local_cache_root"
+    export GOTMPDIR="$local_temp_root"
+    export GOTOOLCHAIN=local
     run_go_test "$real_go" -p="$build_parallelism" "$@"
   ) 2>&1 | tee "$output_file" || status=$?
+  local_go_cache_cleanup_temp "$local_temp_root"
   if [[ "$status" -ne 0 ]]; then
     rm -f -- "$output_file"
     return "$status"

@@ -67,7 +67,7 @@ cmd/super-dolphin-gate/worker_cli_test.go	cmd	remote-ci	go-test	7608	远程 CI/G
 config/remote-ci/.gitignore	config	remote-ci	file	41	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,远程,CI,strict,配置与,generation-one,receipt,输入
 config/remote-ci/README.md	config	remote-ci	doc	1826	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,README,远程,CI,strict,配置与,generation-one,receipt,输入
 config/remote-ci/aliyun.json	config	remote-ci	json	9051	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,aliyun,远程,CI,strict,配置与,generation-one,receipt,输入
-docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	72031	远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,远程,CI,ECI,ImageCache,SQLite,唯一路径,Accepted
+docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	72528	远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,远程,CI,ECI,ImageCache,SQLite,唯一路径,Accepted
 internal/devtools/alicloud/eci/client.go	internal	remote-ci	go-source	32747	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,client,阿里云,ECI,container,group,与,ImageCache,只读客户端
 internal/devtools/alicloud/eci/client_describe_concurrency_test.go	internal	remote-ci	go-test	9536	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,client,describe,concurrency,test,阿里云,ECI,container,group,与,ImageCache,只读客户端
 internal/devtools/alicloud/eci/client_registry_credential_test.go	internal	remote-ci	go-test	7929	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,client,registry,credential,test,阿里云,ECI,container,group,与,ImageCache,只读客户端

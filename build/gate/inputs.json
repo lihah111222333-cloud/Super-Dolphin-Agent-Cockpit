@@ -4505,6 +4505,7 @@
     "scripts/guard_fix_commits_have_tests_recovery_test.go",
     "scripts/hook_node_runtime_guard_test.go",
     "scripts/install_hooks_guard_test.go",
+    "scripts/local_go_cache_test.go",
     "scripts/lsp_diagnostics_gate/main.go",
     "scripts/lsp_diagnostics_gate/main_test.go",
     "scripts/lsp_diagnostics_gate/process_unix.go",
@@ -4890,6 +4891,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6554,
-  "source_snapshot_paths_sha256": "sha256:adc681405668cb781c24ccf492c91b09b56019f48b7b60171d3c7c38453a58db"
+  "source_snapshot_input_count": 6555,
+  "source_snapshot_paths_sha256": "sha256:cb52b6269737c4efb0ea0ddfbffa853b3678be8ba06024a7e133dbe60c65ae01"
 }

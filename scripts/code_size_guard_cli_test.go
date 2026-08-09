@@ -549,16 +549,26 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	t.Helper()
 	root := t.TempDir()
 	fakeGo := filepath.Join(root, "fake-go")
+	fakeToolDir := filepath.Join(root, "go-tools")
 	logPath := filepath.Join(root, "go-invocations.log")
 	script := "#!/usr/bin/env bash\n" +
 		"if [[ \"$1\" == version ]]; then printf 'go version go1.26.5 linux/amd64\\n'; exit 0; fi\n" +
 		"printf '%s ' \"$@\" >> \"$FAKE_GO_LOG\"\n" +
 		"printf '\\n' >> \"$FAKE_GO_LOG\"\n" +
+		"if [[ \"$1\" == env ]]; then case \"$2\" in GOVERSION) printf 'go1.26.5\\n';; GOOS) printf 'linux\\n';; GOARCH) printf 'amd64\\n';; GOTOOLCHAIN) printf 'local\\n';; GOTOOLDIR) printf '%s\\n' \"$FAKE_GO_TOOL_DIR\";; CGO_ENABLED) printf '0\\n';; *) printf '\\n';; esac; exit 0; fi\n" +
 		"if [[ \"$1\" == list ]]; then printf '%s\\n' \"$FAKE_GO_LIST_OUTPUT\"; fi\n" +
 		"if [[ -n \"${FAKE_GO_FAIL_PATTERN:-}\" && \"$*\" == *\"$FAKE_GO_FAIL_PATTERN\"* ]]; then exit 7; fi\n" +
 		"if [[ \"$1\" == test && -n \"${FAKE_GO_TEST_OUTPUT:-}\" ]]; then printf '%s\\n' \"$FAKE_GO_TEST_OUTPUT\"; fi\n"
 	if err := os.WriteFile(fakeGo, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake go: %v", err)
+	}
+	if err := os.Mkdir(fakeToolDir, 0o700); err != nil {
+		t.Fatalf("create fake Go tool directory: %v", err)
+	}
+	for _, tool := range []string{"asm", "cgo", "compile", "link"} {
+		if err := os.WriteFile(filepath.Join(fakeToolDir, tool), []byte(tool+"\n"), 0o700); err != nil {
+			t.Fatalf("write fake Go tool %s: %v", tool, err)
+		}
 	}
 	for name, body := range map[string]string{
 		"sysctl":          "#!/usr/bin/env bash\n[[ \"$*\" == '-n hw.logicalcpu' ]] && { printf '8\\n'; exit 0; }; [[ \"$*\" == '-n vm.loadavg' ]] && { printf '{ %s 0.20 0.30 }\\n' \"${FAKE_HOST_LOAD:-0.10}\"; exit 0; }; exit 1\n",
@@ -576,11 +586,12 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment = upsertEnv(environment, "FAKE_GO_LIST_OUTPUT", listOutput)
 	environment = upsertEnv(environment, "FAKE_GO_FAIL_PATTERN", os.Getenv("FAKE_GO_FAIL_PATTERN"))
 	environment = upsertEnv(environment, "FAKE_GO_TEST_OUTPUT", os.Getenv("FAKE_GO_TEST_OUTPUT"))
+	environment = upsertEnv(environment, "FAKE_GO_TOOL_DIR", bashAbsolutePath(fakeToolDir))
 	environment = upsertEnv(environment, "FAKE_HOST_LOAD", os.Getenv("FAKE_HOST_LOAD"))
 	environment = upsertEnv(environment, "GOFLAGS", "")
 	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
-		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "FAKE_GO_TEST_OUTPUT", "FAKE_HOST_LOAD",
+		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "FAKE_GO_TEST_OUTPUT", "FAKE_GO_TOOL_DIR", "FAKE_HOST_LOAD",
 		"SUPER_DOLPHIN_TEST_BACKEND",
 	)
 	output, runErr := cmd.CombinedOutput()
