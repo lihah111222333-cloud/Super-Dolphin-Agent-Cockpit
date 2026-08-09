@@ -43,7 +43,7 @@ func assertRemoteCIContractDocumentHasCanonicalOwner(t *testing.T, root string) 
 	if !strings.Contains(contract, "internal/devtools/cicontract") {
 		t.Error("accepted remote CI contract must name internal/devtools/cicontract as its code owner")
 	}
-	for _, identity := range []string{cicontract.ID, cicontract.ExecutionPathID, cicontract.ExecutionProviderID, cicontract.CIExecutionBoundary, cicontract.GenerationOneBootstrapPathID, cicontract.SQLAuthorityID, cicontract.CacheMaterialSchemaID, cicontract.CacheMaterialAuthority, cicontract.CompileGroupExecutionPathID} {
+	for _, identity := range []string{cicontract.ID, cicontract.ExecutionPathID, cicontract.ExecutionProviderID, cicontract.CIExecutionBoundary, cicontract.GenerationOneBootstrapPathID, cicontract.ImageCacheRefreshOperatorPathID, cicontract.SQLAuthorityID, cicontract.CacheMaterialSchemaID, cicontract.CacheMaterialAuthority, cicontract.CompileGroupExecutionPathID} {
 		if !strings.Contains(contract, identity) {
 			t.Errorf("accepted remote CI document is missing code contract identity %q", identity)
 		}

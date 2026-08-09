@@ -4523,9 +4523,11 @@
     "scripts/refactor/rename_codexsdk_to_agentsdk_guardrail_extra_test.go",
     "scripts/refactor/rename_codexsdk_to_agentsdk_main_guardrail_test.go",
     "scripts/refactor/rename_codexsdk_to_agentsdk_side_effect_guard_test.go",
+    "scripts/refresh_remote_ci_imagecache_guard_test.go",
     "scripts/release_packaging_integrity_guard_test.go",
     "scripts/release_rollout_workflow_guard_test.go",
     "scripts/remote_ci_git_credentials_test.go",
+    "scripts/remote_ci_imagecache_refresh_dispatch_test.go",
     "scripts/rpc_e2e_coverage_guard_test.go",
     "scripts/sqlc_verify_worktree_guard_test.go",
     "scripts/sqlite_release_gate_package_smoke_runtime_test.go",
@@ -4856,6 +4858,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6520,
-  "source_snapshot_paths_sha256": "sha256:5e64a5b8058b2ae19dfc2354efb8c254dca73979d32a6da13480b7e62490a1ef"
+  "source_snapshot_input_count": 6524,
+  "source_snapshot_paths_sha256": "sha256:e4ae6f07daeff3894910399c5f01128a9d7b92e03618e0f6c2e7d18f3f118298"
 }

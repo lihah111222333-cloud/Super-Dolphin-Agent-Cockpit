@@ -294,7 +294,7 @@ internal/archtest/remote_ci_current_report_schema_guard_test.go	internal	other	g
 internal/archtest/remote_ci_eci_imagecache_contract_guard_ast_helpers_test.go	internal	other	go-test	11730	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,contract,guard,ast,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_eci_imagecache_contract_guard_helpers_test.go	internal	other	go-test	12707	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,contract,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_eci_imagecache_contract_guard_reservation_test.go	internal	other	go-test	2583	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,contract,guard,reservation,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/remote_ci_eci_imagecache_contract_guard_test.go	internal	other	go-test	41255	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_eci_imagecache_contract_guard_test.go	internal	other	go-test	41299	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_eci_imagecache_schema_owner_guard_test.go	internal	other	go-test	4076	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,schema,owner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_exact_timing_guard_test.go	internal	other	go-test	9904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,exact,timing,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_final_cleanup_guard_test.go	internal	other	go-test	7023	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,final,cleanup,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -926,6 +926,7 @@ scripts/commit_title_enforcement_baseline.txt	scripts	other	txt	41	工程自动�
 scripts/configure_hook_node_runtime.sh	scripts	other	script	2306	工程自动化、测试守卫、代码地图与开发脚本	scripts,configure,hook,node,runtime,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood.py	scripts	other	py	29809	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood_test.py	scripts	other	py	20323	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/dispatch_remote_ci_imagecache_refresh.sh	scripts	other	script	2040	工程自动化、测试守卫、代码地图与开发脚本	scripts,dispatch,remote,ci,imagecache,refresh,工程自动化,测试守卫,代码地图与开发脚本
 scripts/docs_navigation_guard_test.go	scripts	other	go-test	1319	工程自动化、测试守卫、代码地图与开发脚本	scripts,docs,navigation,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods_guard_test.go	scripts	other	go-test	663	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,guard,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -1021,6 +1022,8 @@ scripts/refactor/rename_codexsdk_to_agentsdk_guardrail_extra_test.go	scripts	oth
 scripts/refactor/rename_codexsdk_to_agentsdk_main_guardrail_test.go	scripts	other	go-test	7756	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,main,guardrail,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refactor/rename_codexsdk_to_agentsdk_side_effect_guard_test.go	scripts	other	go-test	8401	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,side,effect,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refresh_generated_artifacts.sh	scripts	other	script	4169	工程自动化、测试守卫、代码地图与开发脚本	scripts,refresh,generated,artifacts,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refresh_remote_ci_imagecache.sh	scripts	other	script	28201	工程自动化、测试守卫、代码地图与开发脚本	scripts,refresh,remote,ci,imagecache,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refresh_remote_ci_imagecache_guard_test.go	scripts	other	go-test	3862	工程自动化、测试守卫、代码地图与开发脚本	scripts,refresh,remote,ci,imagecache,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/release_packaging_integrity_guard_test.go	scripts	other	go-test	4737	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,packaging,integrity,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/release_rollout_validate.sh	scripts	other	script	9112	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,rollout,validate,工程自动化,测试守卫,代码地图与开发脚本
 scripts/release_rollout_workflow_guard_test.go	scripts	other	go-test	34224	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,rollout,workflow,guard,test,工程自动化,测试守卫,代码地图与开发脚本

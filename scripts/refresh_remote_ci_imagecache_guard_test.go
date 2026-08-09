@@ -1,0 +1,98 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+// TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary 验证刷新入口不接触 SQLite 或本地镜像构建器。
+func TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary(t *testing.T) {
+	_, current, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve current test path")
+	}
+	path := filepath.Join(filepath.Dir(current), "refresh_remote_ci_imagecache.sh")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.ToLower(string(content))
+	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json"} {
+		if !strings.Contains(source, strings.ToLower(required)) {
+			t.Errorf("refresh script is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"sqlite3", "update ci_remote_baseline_state", "docker build", "docker push", "buildx", "acr"} {
+		if strings.Contains(source, forbidden) {
+			t.Errorf("refresh script contains forbidden boundary %q", forbidden)
+		}
+	}
+}
+
+// TestRemoteCIImageCacheRefreshHookIsNonBlockingAndExactTree 锁定 hook 只后台调度 pushed tree 的候选维护。
+func TestRemoteCIImageCacheRefreshHookIsNonBlockingAndExactTree(t *testing.T) {
+	hook, err := os.ReadFile(filepath.Join("..", ".githooks", "pre-push"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher, err := os.ReadFile("dispatch_remote_ci_imagecache_refresh.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"git -C \"$repo_root\" cat-file blob", "nohup env", "-u SUPER_DOLPHIN_CI_AGENT_TOKEN", "\"$dispatcher\"", "--if-older-than-hours 24", "</dev/null", ">>\"$log_file\" 2>&1 &"} {
+		if !strings.Contains(string(hook), required) {
+			t.Errorf("pre-push hook is missing %q", required)
+		}
+	}
+	for _, required := range []string{"shlock -p $$", "refresh.lock", "--source-ref \"$source_commit\""} {
+		if !strings.Contains(string(dispatcher), required) {
+			t.Errorf("refresh dispatcher is missing %q", required)
+		}
+	}
+	preCommit, err := os.ReadFile(filepath.Join("..", ".githooks", "pre-commit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(preCommit), "dispatch_remote_ci_imagecache_refresh") {
+		t.Error("pre-commit must not refresh an uncommitted or parent tree")
+	}
+}
+
+// TestRemoteCIImageCacheRefreshScriptKeepsModuleFilesImmutable 锁定依赖解析只能在临时源码归档中执行。
+func TestRemoteCIImageCacheRefreshScriptKeepsModuleFilesImmutable(t *testing.T) {
+	content, err := os.ReadFile("refresh_remote_ci_imagecache.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(content)
+	for _, required := range []string{
+		`module_root="$temp_root/module-root"`,
+		`tar -xzf "$source_archive" -C "$module_root"`,
+		`cd "$module_root"`,
+		`GOWORK=off go mod download`,
+		`gzip -n`,
+	} {
+		if !strings.Contains(source, required) {
+			t.Errorf("refresh script does not isolate module resolution with %q", required)
+		}
+	}
+	if strings.Contains(source, "\n  go mod download\n") {
+		t.Error("refresh script resolves modules in the repository worktree")
+	}
+}
+
+// TestRemoteCIImageCacheRefreshScriptDoesNotEmbedCredentials 防止签名 URL 或云密钥进入仓库。
+func TestRemoteCIImageCacheRefreshScriptDoesNotEmbedCredentials(t *testing.T) {
+	content, err := os.ReadFile("refresh_remote_ci_imagecache.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"OSSAccessKeyId=", "security-token=", "Signature=", "SUPER_DOLPHIN_CI_GHCR_TOKEN"} {
+		if strings.Contains(string(content), forbidden) {
+			t.Errorf("refresh script embeds credential marker %q", forbidden)
+		}
+	}
+}

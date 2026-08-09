@@ -1,14 +1,16 @@
 # 远程 CI ECI ImageCache 单路径契约
 
 状态：Accepted
-适用范围：`cmd/super-dolphin-gate`、`internal/devtools/remoteci`、`internal/devtools/gate`、`internal/devtools/alicloud/{eci,oss}`、Git hooks
+适用范围：`cmd/super-dolphin-gate`、`internal/devtools/remoteci`、`internal/devtools/gate`、`internal/devtools/alicloud/{eci,oss}`、`scripts/refresh_remote_ci_imagecache.sh`、Git hooks
 目标平台：`linux/amd64`
 
 代码契约唯一 owner：`internal/devtools/cicontract`
-契约身份：`remote-ci-aliyun-eci-imagecache/v2`
+契约身份：`remote-ci-aliyun-eci-imagecache/v4`
 正常执行路径：`sqlite-generation-one-bootstrap-or-accepted-imagecache-snapshot-aliyun-eci-shards/v2`
 唯一执行与验收提供方：`aliyun-eci/v1`
 首代供给路径：`normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1`
+候选缓存刷新路径：`script-oss-handoff-aliyun-eci-offline-imagecache-candidate/v1`
+候选缓存刷新成功间隔：`24h`
 唯一数据源：`duration-ledger-sqlite/v1`
 accepted baseline JSON schema：`13`
 非权威缓存材料 schema：`remote-ci-cache-material/v1`
@@ -24,7 +26,7 @@ accepted baseline JSON schema：`13`
    - 前端锁定依赖、`node_modules`、Vite dependency optimizer cache 与 Playwright 浏览器；
    - Gate、gopls、sqlc、sqruff、ripgrep、Node、npm、Git、Make 等锁定工具；
    - `/opt/super-dolphin-gate/source-baseline.git`，其中仅含 `RunnerBaseTree` 的完整 tree/blob closure 与一个确定性的无 parent baseline commit。
-2. normal run/hook 仅在 accepted singleton 为空时消费配置中的 strict ECI generation-one receipt，在实时复核阿里云 ECI 事实后原子首写 baseline 与账本元数据；singleton 非空后只读取 SQLite 中已接受代的明确 `ImageCacheId + ImageSnapshotId`。它不构建、刷新、发布或晋级基准，仓库内不存在 successor refresh executor。
+2. normal CI 仅在 accepted singleton 为空时消费配置中的 strict ECI generation-one receipt，在实时复核阿里云 ECI 事实后原子首写 baseline 与账本元数据；singleton 非空后只读取 SQLite 中已接受代的明确 `ImageCacheId + ImageSnapshotId`。它不构建、刷新、发布或晋级基准。`pre-push` 只从 exact pushed tree 提取并非阻塞启动唯一隔离 dispatcher；`scripts/refresh_remote_ci_imagecache.sh` 只创建有限期非权威候选，不读取或改写 SQLite，也不把候选切换为 normal CI 的 accepted snapshot。
 3. 空 accepted singleton 的唯一初始化入口是 normal run/hook 的配置回执 bootstrap；独立 `provision-generation-one` 命令不得存在。仓库只验证并原子写入该 receipt，绝不创建 ImageCache 或候选。
 4. 多个 agent 可以并发触发 Git hook，多个 remote CI job 可以并发运行，且所有可分片的前端、后端、normal、e2e 和 race 工作负载按历史耗时动态规划并无上限并发执行。不得设置全局 hook 锁、active-job lock、semaphore、`errgroup.SetLimit`、`max_shards`、`max_concurrency`、admission cap 或共享原始 token；同一 worktree 的 Git `index.lock` 只是 Git index 一致性边界，绝不是 CI 并发上限。
 5. 所有远程 CI 动作、镜像构建和 cache-prime 的唯一执行环境都是阿里云 ECI container group，并由代码契约身份 `aliyun-eci-only-no-github-runner/v1` 锁定。候选编译、测试、校准、首代内容检查、权威耗时观测、Go/前端缓存层生成和最终 OCI 镜像构建都必须在 ECI 内执行；BuildKit 若被使用，也只能作为 ECI 容器内的构建进程。GitHub-hosted 或 self-hosted Actions runner 不得承载远程 CI、编译、测试、cache-prime 或镜像构建；独立产品发布 workflow 不签发远程 CI 结论，不属于本契约执行面。Docker、Docker Desktop、Kubernetes、其他云及本地容器同样不得加工 CI 镜像物料或作为失败 fallback。ECI 镜像物料若携带 manifest，只允许使用 `schema_version=remote-ci-cache-material/v1`、`authority=non_authoritative_material` 与 `seed_steps`，禁止使用 `checks`、generation-one 或 receipt 命名；物料日志仍不得写入 `provision_checks`、不得生成 authoritative receipt。
@@ -105,7 +107,7 @@ Git hook / remote run
 - worker 实际消费的 `SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT` 只进入本次 run 审计和终止预算观测，不进入 strict workload PASS identity；agent token、job、source key 与 shard identity 仅用于审计或传输，不能阻断跨 agent 等价 PASS 复用。
 ## 4. normal run/hook 首代严格回执 bootstrap 边界
 
-首代 ImageCache 的创建、发布、Ready 等待、运营权限和生命周期完全在仓库边界之外。外部 operator 只能通过阿里云 ECI container group 完成镜像构建、cache-prime 与这些云侧动作，并把无密钥 strict receipt 放入 remote run config 的 `generation_one_provision` 协议字段；不得通过 GitHub runner、本地 Docker、其他云或本仓库的命令、worker、BuildKit publisher、registry 配置、候选 reservation 或 CAS promotion 驱动云侧供给。外部 operator 创建或更新需要从公网私有 registry 拉层的 ImageCache 时，必须显式给临时 ECI 绑定可用 EIP（或已验证 NAT）和该 registry 的短期凭据；凭据只能存在于 operator 当前进程与 ECI API 密文参数中，不得写入仓库、投影、remote config、receipt、SQLite 或日志。ImageCache 进入 Ready 或 Failed 后必须确认 EIP 已解绑，所有占用清理完成后再释放 EIP。
+首代 ImageCache 的创建、发布、Ready 等待、运营权限和生命周期完全在仓库边界之外。外部 operator 只能通过阿里云 ECI container group 完成镜像构建、cache-prime 与这些云侧动作，并把无密钥 strict receipt 放入 remote run config 的 `generation_one_provision` 协议字段。唯一例外是由 `pre-push` 非阻塞调度的 `scripts/refresh_remote_ci_imagecache.sh`：它可以在本地把精确 Git 归档与 Go module download cache 闭包内容寻址上传 OSS，再启动绑定 accepted 或最近有限期候选 snapshot 的 ECI builder；源码编译、OCI 缓存层生成、临时 VPC registry 与 `CreateImageCache` 都必须在阿里云 ECI/ECI API 边界内完成。该脚本只输出无密钥、非权威、有限保留期的候选回执，不得写 SQLite、选择或晋级 accepted、清理 accepted cache，也不得使用 GitHub runner、本地 Docker、其他云、BuildKit publisher、`output_repository`、候选 reservation 或 CAS promotion。外部 operator 创建或更新需要从公网私有 registry 拉层的 ImageCache 时，必须显式给临时 ECI 绑定可用 EIP（或已验证 NAT）和该 registry 的短期凭据；凭据只能存在于 operator 当前进程与 ECI API 密文参数中，不得写入仓库、投影、remote config、receipt、SQLite 或日志。ImageCache 进入 Ready 或 Failed 后必须确认 EIP 已解绑，所有占用清理完成后再释放 EIP。刷新脚本使用 OSS 内网与临时 VPC registry，不依赖 vSwitch 访问国际网络。
 
 ### 4.1 外部 operator 回执内容
 
@@ -117,9 +119,13 @@ Git hook / remote run
 
 normal run/hook 只验证配置 receipt 与上述阿里云 ECI 实时事实，并仅在 `ci_remote_baseline_state` 为空时，把 accepted singleton generation=1 与 `duration_ledger_meta` generation=1 在同一 SQLite 事务中原子 INSERT。相同 state digest 的并发首写 loser 可在严格重读后幂等收敛；不同 state digest、已有不同 singleton、generation 非 1、非 Ready snapshot、缺少任一绑定字段、摘要不匹配、区域漂移、元数据冲突或规格漂移必须 fail-fast 并整笔回滚。accepted state 必须继续保存 `execution_provider=aliyun-eci/v1` 与 region；后续 run/hook/calibrate 只读 accepted，不再消费或等待首代回执。
 
-### 4.3 明确禁止的仓库内 writer
+### 4.3 唯一候选刷新脚本与禁止边界
 
-仓库不得提供独立 `provision-generation-one` 或 refresh command、后台/定时 refresh executor、BuildKit publish、`output_repository`、`CreateImageCache` writer、候选 reservation、lease/heartbeat/takeover、source delta 构建、successor 选择、镜像发布、CAS promotion 或旧代 cleanup。首写完成后 accepted ImageCache 仅由 normal CI 读取；任何后续供给或替换都必须作为新的外部 operator 交接设计，不能复活本仓库 writer。
+`pre-push` 只按第一个非删除 ref 的 exact pushed commit/tree 调度维护：它必须从该 pushed tree 提取 dispatcher 与刷新脚本，清除 agent token、registry 凭据与手工刷新覆盖环境，以 `nohup`、关闭 stdin、独立日志的方式启动后立即继续正常 pre-push gate，不得等待云端结果或因刷新进程存活阻塞 push。dispatcher 可以使用 Git common-dir 下的进程锁去重同时发生的维护刷新；该锁只保护候选维护，不得成为 hook、normal CI job 或 shard admission lock。
+
+仅 `scripts/refresh_remote_ci_imagecache.sh` 可以把 exact committed tree 与本地解析的 Go module download cache 闭包上传到 OSS，由绑定 accepted 或最近有限期候选 snapshot 的 ECI 在 `GOPROXY=off` 下编译一次，并通过临时 VPC registry 生成有限期、非权威、未接受的新 ImageCache。脚本先严格读取固定 OSS scheduling receipt；上次成功刷新不超过 24 小时时必须静默跳过，严格超过 24 小时才可刷新。成功后必须同时写入内容寻址回执和固定 current pointer；回执只含 non-authoritative 候选、exact source、Ready cache/snapshot、摘要与成功时间，不得作为 SQLite/PASS/accepted 权威。脚本必须对源码、依赖、基镜像 tar、工具与编译结果做内容摘要校验，成功后清理临时 ECI，失败时同时清理候选；上一回执的 private image identity 与 snapshot 必须成对接续刷新，OCI 重组仍使用 OSS 中固定且摘要匹配的原始基镜像 tar；不得修改工作树 module 文件、不得依赖公网 registry、不得宣称 CI PASS 或 accepted。
+
+除此以外，仓库不得提供独立 `provision-generation-one` 或 refresh command、第二后台/定时 refresh executor、BuildKit publish、`output_repository`、其他 `CreateImageCache` writer、候选 reservation、lease/heartbeat/takeover、source delta 构建、successor 选择、镜像发布、CAS promotion 或 accepted/旧代 cleanup。首写完成后 accepted ImageCache 仍仅由 normal CI 读取。
 
 ## 5. 动态分片与并发
 
@@ -203,7 +209,7 @@ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_
 - spot 到按量计费、remote 到 local、cache miss 到无缓存执行之外的隐式 fallback；
 - 固定 shard 数、五分片限制、并发上限、全局 hook 锁、active-job lock、semaphore、admission cap 或共享 raw token；Git `index.lock` 除外，它只能作为同一 worktree 的 Git index 一致性边界，不能拿来限制 CI；
 - accepted 缺失时自动全量重建；
-- 任何仓库内 successor refresh executor、refresh command、BuildKit publish、`output_repository`、`CreateImageCache` writer、candidate reservation、lease/CAS promotion 或旧代 cleanup。
+- 除 `scripts/refresh_remote_ci_imagecache.sh` 的有限期非权威候选创建外，任何仓库内 successor refresh executor、refresh command、BuildKit publish、`output_repository`、`CreateImageCache` writer、candidate reservation、lease/CAS promotion 或 accepted/旧代 cleanup。
 
 严格 request/receipt JSON、SQLite 中带摘要的 state JSON 以及阿里云 CLI JSON 响应属于协议编码，不属于被禁止的 JSON truth source。
 
@@ -230,7 +236,7 @@ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_
 | ID | 章节 | 代码约束 | 执行层 |
 | --- | --- | --- | --- |
 | `1.1` | §1 | 基准镜像消费单一 Go 1.26.5 锁，并包含锁定工具、Go module/build cache 与前端依赖/构建 cache | `build closure + runtime manifest + archtest` |
-| `1.2` | §1 | normal run/hook 仅在空 singleton 时消费配置 strict ECI receipt 原子首写；非空后只读 accepted explicit snapshot，且不存在 successor refresh executor | `runtime call graph + archtest` |
+| `1.2` | §1 | normal CI 仅在空 singleton 时消费配置 strict ECI receipt 原子首写，非空后只读 accepted explicit snapshot；pre-push 只按 exact pushed tree 非阻塞调度唯一隔离刷新脚本，脚本只创建有限期非权威候选且不接入 SQLite | `runtime call graph + hook dispatch + script boundary + archtest` |
 | `1.3` | §1 | hook、job 与动态 shards 无仓库并发上限；index.lock 仅保护 Git index | `cicontract concurrency policy + archtest` |
 | `1.5` | §1 | 所有远程 CI 动作、镜像构建与 cache-prime 只能在阿里云 ECI 执行；禁止 GitHub Actions 或其他环境承载远程 CI | `provider identity + ECI request/receipt field guard + remote-CI workflow deletion + archtest` |
 | `1.6` | §1 | 100 秒只触发一次目标超限告警；不得取消、中断、kill 或标失败 | `planner + non-terminating timing warning` |
@@ -242,7 +248,7 @@ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_
 | `2.3` | §2 | 候选源码和 Gate 编译分别绑定 exact Git identity 与根 module 跨代稳定传递编译闭包；Gate 禁止导入 repository-local replace module，嵌套 module metadata 只进 worker execution digest | `materializer + receipt + closure guard` |
 | `2.4` | §2 | 严格 JSON 仅作协议编码，OSS 仅作内容寻址传输，二者均非权威 | `strict decoders + archtest` |
 | `2.5` | §2 | accepted state、check receipts、timing 与 warnings 只写同一个 SQLite authority | `SQLite schema + receipt store` |
-| `2.6` | §2 | generation-one 只能由 normal run/hook 消费配置中的外部严格 ECI receipt；仓库内代码不得创建或晋级 ImageCache | `strict receipt boundary + archtest` |
+| `2.6` | §2 | generation-one 只能由 normal CI 消费配置中的外部严格 ECI receipt；唯一刷新脚本用 OSS strict scheduling receipt 判断 24h 成功间隔并创建非权威 ImageCache 候选，但 receipt 不是 SQLite 权威且不得晋级 accepted | `strict receipt boundary + candidate-only scheduling receipt guard + archtest` |
 | `2.7` | §2 | 无 token 请求只返回 --agent-token=issue 与 env=issue 申请方式和实际 token 的 flag/env 使用方式；仅单一显式 issue 才签发 raw token，前两阶段均不执行 CI/ECI；git hook 无状态且只继承/验证实际 env token，跨 SQLite/OSS/ECI/log/tag/checkpoint/receipt 只传 sha256 digest | `agent-token contract + field guard + archtest` |
 | `2.8` | §2 | 首次读取缺失 SQLite 时原子初始化 schema/index；normal run/hook 仅凭显式 strict ECI receipt 原子首写 baseline 与账本元数据，缺失或漂移仍 fail-fast | `SQLite initializer + generation-one bootstrap test` |
 | `2.9` | §2 | authoritative JobID 的全部 SQLite 投影不可重写；晋级前必须精确回读 aggregate/workload execution 的状态、摘要、时序与执行画像 | `provisional write guard + strict aggregate/workload readback tests` |
@@ -256,7 +262,7 @@ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_
 | `3.7` | §3 | PASS lookup 先于一切规划和副作用，只有 MISS 构造并 create-only 上传同 job 内容寻址的冻结 accepted schema14/CompileGroup-v1 bootstrap request 与完整 current CompileGroup-v2 ShardRequest；accepted bootstrap 的 gate_ids 仅在 accepted encoder/identity 边界把 expansion-only backend:nilness::go-package::<pkg> 投影为 canonical backend:nilness，current request/manifest 保留精确 per-package IDs，禁止把投影扩散到 coordinator/current worker；accepted Gate 发布临时 v1 manifest，候选 Gate 编译后严格交叉校验并原子替换固定 v2 manifest，worker 保持唯一 executor，两个请求各限 1 MiB且禁止宽松解码、协商、fallback 或刷新镜像绕过升级 | `miss-only call-order guard + dual-request rolling manifest guard + request byte-limit tests` |
 | `4.1` | §4 | 唯一写 accepted singleton 的路径是 normal run/hook 空库 bootstrap；首写前必须消费配置 strict receipt 并实时 Describe 阿里云 ECI cache/container groups，绑定 provider、region、唯一 group/container、Ready snapshot、immutable image、tags、零退出、真实时间、逐项 normal CPU/内存、generation=1、state SHA、源码/工具链/策略/seed 与固定规格；外部 operator 仅可用只读 ConfigFileVolume 投影控制文本和小型增量 bundle，禁止投影依赖、缓存、registry 凭据或第二状态源；公网私有 registry 的 ImageCache 临时 ECI 必须绑定 EIP 或已验证 NAT，并只在进程和 API 密文参数传短期凭据，终态后确认 EIP 解绑 | `receipt validation + live ECI API verification + SQLite INSERT + archtest` |
 | `4.2` | §4 | 首写只允许空 singleton 原子 INSERT baseline 与账本元数据；同态并发幂等收敛，异态、非空、缺字段或非首代 receipt 必须 fail-fast | `strict bootstrap boundary` |
-| `4.3` | §4 | 仓库内禁止 refresh command、BuildKit publish、output_repository、CreateImageCache writer、candidate reservation 与 CAS promotion | `deletion + archtest` |
+| `4.3` | §4 | pre-push 从 exact pushed tree 后台静默启动唯一 dispatcher；仅当 OSS strict 成功回执超过 24h 才由刷新脚本上传内容寻址源码与依赖并在 ECI 内创建有限期非权威 ImageCache 候选；维护锁只去重刷新，不限制 hook、job 或 shard | `exact-tree hook dispatch + scheduling receipt + maintenance lock + archtest` |
 | `5.1` | §5 | shard 数只受可分片原子 workload 数量限制 | `LPT planner + archtest` |
 | `5.2` | §5 | 云配额与 API 限流必须显式失败，不得静默降并发或转本地 | `runtime + archtest` |
 | `5.3` | §5 | normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；先分档再在档内 LPT；首次升档无新档 exact sample 时携带上一档权威实测估值规划新档，不伪造样本或回退资源；bootstrap 三类均固定 2C/4GiB，资源策略摘要只进入规划、duration sample 与 shard/run evidence，不进入 PASS identity；禁止额外内存档、混档污染、自动内存抬升、CPU 抬档、按 shard 聚合估时或复用旧策略 PASS，观测或 OOM 在同档没有更大内存必须 fail-fast | `tiered LPT + workload plan projection + resource selector + PASS identity tests` |
@@ -269,7 +275,7 @@ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_
 | `7.3` | §7 | 不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt；orchestration overhead 使用 v2 accounted interval union，扣除 workload、ECI wait、源码物化、候选 Gate 编译和 test-binary 编译的 measured 区间且不重复计数 | `receipt validation + overhead schema/policy guard` |
 | `7.4` | §7 | 100 秒告警固定 warn_and_continue；不得 cancel、kill 或 fail shard | `warning-action validation + archtest` |
 | `8.1` | §8 | DataCache、旧 bundle、本地 Docker、ACR、JSON truth、GitHub remote-CI runner、通用/第二 provider executor、跨 shard CAS 与隐式 fallback 禁止存在；测试二进制编译只能留在既有 ECI shard worker 路径，镜像物料也必须在 ECI 构建 | `deletion + archtest` |
-| `8.2` | §8 | 固定 shard 数、并发上限、自动全量重建及任何仓库内 successor refresh executor 禁止存在 | `deletion + archtest` |
+| `8.2` | §8 | 固定 shard 数、CI 并发上限、accepted 缺失自动重建及接入 SQLite 的 successor refresh executor 禁止存在；唯一 pre-push 后台候选刷新维护不得阻塞 push、等待刷新结果或成为第二 CI executor | `hook non-blocking boundary + script deletion + archtest` |
 | `9.1` | §9 | 变更必须闭合 LSP、字段链、状态矩阵、守卫和变更面测试 | `repository gates` |
 | `9.2` | §9 | 远程验收绑定同一 candidate tree、generation、snapshot、资源与完整账本 | `authoritative receipt` |
 | `9.3` | §9 | 非 authoritative 结果保持 NOT_VERIFIED，warm CI 超过 100 秒继续优化 | `remote acceptance` |

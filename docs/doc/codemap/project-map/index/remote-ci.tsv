@@ -1,6 +1,6 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 .githooks/pre-commit	.githooks	remote-ci	file	18033	精确 staged tree 的远程 CI pre-commit 门禁入口	精确,staged,tree,的远程,CI,pre-commit,门禁入口
-.githooks/pre-push	.githooks	remote-ci	file	5082	精确 ref update 的远程 CI pre-push 门禁入口	精确,ref,update,的远程,CI,pre-push,门禁入口
+.githooks/pre-push	.githooks	remote-ci	file	7668	精确 ref update 的远程 CI pre-push 门禁入口	精确,ref,update,的远程,CI,pre-push,门禁入口
 .githooks/trusted-gate-launcher.sh	.githooks	remote-ci	script	8724	远程 CI trusted gate launcher 验证入口	githooks,trusted,gate,launcher,远程,CI,验证入口
 cmd/super-dolphin-gate/capcontract_cli.go	cmd	remote-ci	go-source	1815	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,capcontract,cli,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker,入口
 cmd/super-dolphin-gate/capcontract_cli_test.go	cmd	remote-ci	go-test	9192	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,capcontract,cli,test,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker
@@ -65,7 +65,7 @@ cmd/super-dolphin-gate/worker_cli_test.go	cmd	remote-ci	go-test	4983	远程 CI/G
 config/remote-ci/.gitignore	config	remote-ci	file	41	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,远程,CI,strict,配置与,generation-one,receipt,输入
 config/remote-ci/README.md	config	remote-ci	doc	1826	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,README,远程,CI,strict,配置与,generation-one,receipt,输入
 config/remote-ci/aliyun.json	config	remote-ci	json	9051	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,aliyun,远程,CI,strict,配置与,generation-one,receipt,输入
-docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	67230	远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,远程,CI,ECI,ImageCache,SQLite,唯一路径,Accepted
+docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	70526	远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,远程,CI,ECI,ImageCache,SQLite,唯一路径,Accepted
 internal/devtools/alicloud/eci/client.go	internal	remote-ci	go-source	32285	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,client,阿里云,ECI,container,group,与,ImageCache,只读客户端
 internal/devtools/alicloud/eci/client_describe_concurrency_test.go	internal	remote-ci	go-test	9536	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,client,describe,concurrency,test,阿里云,ECI,container,group,与,ImageCache,只读客户端
 internal/devtools/alicloud/eci/client_registry_credential_test.go	internal	remote-ci	go-test	6486	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,client,registry,credential,test,阿里云,ECI,container,group,与,ImageCache,只读客户端
@@ -84,8 +84,8 @@ internal/devtools/alicloud/oss/client_test.go	internal	remote-ci	go-test	16018	�
 internal/devtools/alicloud/oss/client_waitdelay_unix_test.go	internal	remote-ci	go-test	1101	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,client,waitdelay,unix,test,远程,CI,OSS,内容寻址传输客户端
 internal/devtools/cicontract/agent_token.go	internal	remote-ci	go-source	7851	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,agent,token,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/agent_token_test.go	internal	remote-ci	go-test	6083	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,agent,token,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
-internal/devtools/cicontract/contract.go	internal	remote-ci	go-source	72503	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
-internal/devtools/cicontract/contract_test.go	internal	remote-ci	go-test	19368	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
+internal/devtools/cicontract/contract.go	internal	remote-ci	go-source	73818	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
+internal/devtools/cicontract/contract_test.go	internal	remote-ci	go-test	19752	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/generation_one.go	internal	remote-ci	go-source	18250	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/generation_one_tables.go	internal	remote-ci	go-source	623	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,tables,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/generation_one_test.go	internal	remote-ci	go-test	11697	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
@@ -213,5 +213,6 @@ scripts/ci_truth_image_gate.sh	scripts	remote-ci	script	4627	远程 CI release/f
 scripts/git_with_remote_ci_credentials.sh	scripts	remote-ci	script	5634	远程 CI 短期凭据与 agent token Git 启动器	scripts,git,with,remote,ci,credentials,远程,CI,短期凭据与,agent,token,Git,启动器
 scripts/init_remote_ci_local.sh	scripts	remote-ci	script	1667	远程 CI 本地配置、SQLite 与 Git alias 初始化脚本	scripts,init,remote,ci,local,远程,CI,本地配置,SQLite,与,Git,alias,初始化脚本
 scripts/remote_ci_git_credentials_test.go	scripts	remote-ci	go-test	11711	远程 CI 脚本守卫与凭据回归测试	scripts,remote,ci,git,credentials,test,远程,CI,脚本守卫与凭据回归测试
-scripts/tests/test_gate_hook_entrypoints.sh	scripts	remote-ci	script	45615	远程 CI Git hook 入口与生产 E2E shell 回归	scripts,tests,test,gate,hook,entrypoints,远程,CI,Git,入口与生产,E2E,shell,回归
+scripts/remote_ci_imagecache_refresh_dispatch_test.go	scripts	remote-ci	go-test	7471	远程 CI 脚本守卫与凭据回归测试	scripts,remote,ci,imagecache,refresh,dispatch,test,远程,CI,脚本守卫与凭据回归测试
+scripts/tests/test_gate_hook_entrypoints.sh	scripts	remote-ci	script	47652	远程 CI Git hook 入口与生产 E2E shell 回归	scripts,tests,test,gate,hook,entrypoints,远程,CI,Git,入口与生产,E2E,shell,回归
 scripts/tests/test_gate_hook_production_e2e.sh	scripts	remote-ci	script	4741	远程 CI Git hook 入口与生产 E2E shell 回归	scripts,tests,test,gate,hook,production,e2e,远程,CI,Git,入口与生产,E2E,shell,回归

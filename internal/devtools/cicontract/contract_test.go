@@ -67,6 +67,15 @@ func TestGenerationOneBootstrapIsTheOnlyWritePathIdentity(t *testing.T) {
 	}
 }
 
+func TestImageCacheRefreshOperatorIsCandidateOnly(t *testing.T) {
+	if ImageCacheRefreshOperatorPathID != "script-oss-handoff-aliyun-eci-offline-imagecache-candidate/v1" {
+		t.Fatalf("ImageCacheRefreshOperatorPathID = %q", ImageCacheRefreshOperatorPathID)
+	}
+	if ImageCacheRefreshInterval != 24*time.Hour {
+		t.Fatalf("ImageCacheRefreshInterval = %s", ImageCacheRefreshInterval)
+	}
+}
+
 func TestCIExecutionBoundaryIsAlibabaECIOnly(t *testing.T) {
 	if CIExecutionBoundary != "aliyun-eci-only-no-github-runner/v1" {
 		t.Fatalf("CIExecutionBoundary = %q", CIExecutionBoundary)

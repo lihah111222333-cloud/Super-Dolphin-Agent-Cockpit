@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 fixture_root=$(mktemp -d -t gate-hook-contract.XXXXXX)
 fixture_root=$(cd "$fixture_root" && pwd -P)
+# 测试从受信仓库根加载固定脚本。
+# shellcheck disable=SC1091
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 real_os_home=$(trusted_launcher_os_home) || {
   printf 'FAIL: operating-system home directory could not be resolved\n' >&2
@@ -16,6 +18,8 @@ mkdir -m 0700 "$fake_os_bin"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   printf '#!/usr/bin/env bash\nprintf '\''NFSHomeDirectory: %s\\n'\''\n' "$test_home" >"$fake_os_bin/dscl"
 else
+  # 生成的 fixture 必须保留运行时位置参数。
+  # shellcheck disable=SC2016
   printf '#!/usr/bin/env bash\nif [[ "${1:-}" == passwd ]]; then printf '\''fixture:x:0:0::%s:/bin/sh\\n'\''; fi\n' "$test_home" >"$fake_os_bin/getent"
 fi
 chmod 0700 "$fake_os_bin"/*
@@ -284,6 +288,22 @@ chmod 0400 "$(dirname "$launcher")/receipt.json"
 printf '%s\n' "$launcher"
 EOF
 chmod 0755 "$git_repo/scripts/build-trusted-gate-launcher.sh"
+cat >"$git_repo/scripts/dispatch_remote_ci_imagecache_refresh.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${GATE_HOOK_CAPTURE_DIR:?}"
+printf '%s' "$#" >"$GATE_HOOK_CAPTURE_DIR/refresh-dispatch-argc"
+index=0
+for argument in "$@"; do
+  printf '%s' "$argument" >"$GATE_HOOK_CAPTURE_DIR/refresh-dispatch-arg.$index"
+  index=$((index + 1))
+done
+EOF
+cat >"$git_repo/scripts/refresh_remote_ci_imagecache.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 97
+EOF
+chmod 0755 "$git_repo/scripts/dispatch_remote_ci_imagecache_refresh.sh" "$git_repo/scripts/refresh_remote_ci_imagecache.sh"
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
 printf '%s\n' 'stale Dockerfile' >"$git_repo/build/gate/Dockerfile"
 printf '%s\n' '{"schema_version":"stale"}' >"$git_repo/build/gate/inputs.json"
@@ -293,9 +313,11 @@ printf '%s\n' '{"scope":"test","generated":false}' >"$git_repo/frontend-app/.fro
 printf '%s\n' 'trusted generator' >"$git_repo/scripts/generate_ai_project_map.mjs"
 printf '%s\n' 'stale project map' >"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
 printf '%s\n' 'stale capability manifest' >"$git_repo/docs/doc/codemap/capability-contract/capability_manifest.json"
-git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/build-trusted-gate-launcher.sh scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md docs/doc/codemap/capability-contract/capability_manifest.json
+git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/build-trusted-gate-launcher.sh scripts/dispatch_remote_ci_imagecache_refresh.sh scripts/refresh_remote_ci_imagecache.sh scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md docs/doc/codemap/capability-contract/capability_manifest.json
 git -C "$git_repo" commit -qm 'fixture base'
 mkdir -p "$git_repo/nested"
+# fixture 脚本在运行时生成。
+# shellcheck disable=SC1091
 source "$git_repo/.githooks/trusted-gate-launcher.sh"
 fixture_launcher=$(fixture_launcher_for_tree "$git_repo" "$(git -C "$git_repo" write-tree)")
 git -C "$git_repo" config superdolphin.gateLauncher "$fixture_launcher"
@@ -622,6 +644,22 @@ assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "pre-push cwd"
 assert_file_equals "$capture_dir/launcher" "$expected_push_launcher" "pre-push launcher for non-HEAD pushed tree"
 cmp -s "$push_input" "$capture_dir/stdin" || fail "pre-push stdin was not forwarded byte-for-byte"
 cmp -s "$cli_error" "$fixture_root/pre-push.err" || fail "pre-push did not return readable CLI stderr"
+refresh_dispatch_waits=0
+while ((refresh_dispatch_waits < 50)); do
+  [[ ! -e "$capture_dir/refresh-dispatch-argc" ]] || break
+  sleep 0.1
+  refresh_dispatch_waits=$((refresh_dispatch_waits + 1))
+done
+assert_file_equals "$capture_dir/refresh-dispatch-argc" 10 "pre-push ImageCache refresh dispatch argc"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.0" --repository "refresh repository flag"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.1" "$linked_repo" "refresh repository"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.2" --source-ref "refresh source flag"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.3" "$push_candidate_commit" "refresh exact pushed commit"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.4" --config "refresh config flag"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.5" "$remote_config" "refresh config"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.6" --refresh-script "refresh script flag"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.8" --if-older-than-hours "refresh age flag"
+assert_file_equals "$capture_dir/refresh-dispatch-arg.9" 24 "refresh age"
 
 different_push_input="$fixture_root/pre-push-different-trees.stdin"
 printf '%s\n' 'second non-HEAD push candidate' >"$linked_repo/second-push-candidate.txt"
