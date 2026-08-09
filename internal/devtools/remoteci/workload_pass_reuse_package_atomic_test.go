@@ -17,6 +17,13 @@ func TestClassifyRemoteWorkloadPassesMixedSamePackageIsAtomicMiss(t *testing.T) 
 	if len(reused) != 0 || !slices.Equal(misses, []gate.GateID{hit.WorkloadID, miss.WorkloadID}) {
 		t.Fatalf("same-package mixed reuse = reused=%#v misses=%#v, want atomic MISS", reused, misses)
 	}
+	effectiveReused, err := indexRemoteWorkloadPassEvidence(reused)
+	if err != nil {
+		t.Fatalf("indexRemoteWorkloadPassEvidence() error = %v", err)
+	}
+	if err := validateRemoteWorkloadMissIDs(misses, effectiveReused); err != nil {
+		t.Fatalf("validateRemoteWorkloadMissIDs() error = %v", err)
+	}
 }
 
 func TestClassifyRemoteWorkloadPassesMixedDifferentPackagesKeepsPartialReuse(t *testing.T) {

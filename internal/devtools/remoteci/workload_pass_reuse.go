@@ -273,11 +273,32 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, fmt.Errorf("classify remote workload PASS reuse: %w", err)
 	}
-	preparation.reused = reused
+	effectiveReused, err := indexRemoteWorkloadPassEvidence(reusedWorkloads)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, fmt.Errorf("index effective remote workload PASS reuse: %w", err)
+	}
+	preparation.reused = effectiveReused
 	preparation.identities = identities
 	preparation.reusedWorkloads = reusedWorkloads
 	preparation.cacheMisses = cacheMisses
 	return preparation, nil
+}
+
+// indexRemoteWorkloadPassEvidence 只索引分类后仍然有效的复用证据。
+// 同包出现 MISS 时，分类器会把该包全部降为 MISS，原始查询命中不得继续进入执行边界。
+func indexRemoteWorkloadPassEvidence(evidences []gate.WorkloadPassEvidence) (map[string]gate.WorkloadPassEvidence, error) {
+	indexed := make(map[string]gate.WorkloadPassEvidence, len(evidences))
+	for _, evidence := range evidences {
+		workloadID := string(evidence.Identity.WorkloadID)
+		if workloadID == "" {
+			return nil, errors.New("effective remote workload PASS identity is required")
+		}
+		if _, duplicate := indexed[workloadID]; duplicate {
+			return nil, fmt.Errorf("effective remote workload PASS identity %q is duplicated", workloadID)
+		}
+		indexed[workloadID] = evidence
+	}
+	return indexed, nil
 }
 
 // remoteWorkloadPassPackageKey 返回同一测试二进制可能共享的包身份。
