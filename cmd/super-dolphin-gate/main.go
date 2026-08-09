@@ -70,6 +70,18 @@ func runWorkerBuiltinCommand(args []string, stdout, stderr io.Writer) (bool, int
 		return true, int(gatecontract.ExitOK)
 	case "go-cache-proxy":
 		return true, runWorkerGoCacheProxy(args[1:], stdout, stderr)
+	case "validate-go-distribution":
+		if err := validateWorkerGoDistribution(args[1:], runtime.GOOS, runtime.GOARCH); err != nil {
+			_ = writeCLIError(stderr, err)
+			return true, int(gatecontract.ExitCodeOf(err))
+		}
+		return true, int(gatecontract.ExitOK)
+	case "race-package-patterns":
+		if err := writeWorkerRacePackagePatterns(args[1:], stdout); err != nil {
+			_ = writeCLIError(stderr, err)
+			return true, int(gatecontract.ExitCodeOf(err))
+		}
+		return true, int(gatecontract.ExitOK)
 	default:
 		return false, 0
 	}
@@ -84,6 +96,30 @@ func runWorkerGoCacheProxy(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// validateWorkerGoDistribution 校验 worker 实际运行平台与锁定的远程 Go 发行版一致。
+func validateWorkerGoDistribution(args []string, goos, goarch string) error {
+	if len(args) != 0 {
+		return protocolError("worker validate-go-distribution does not accept arguments")
+	}
+	if err := gatecontract.ValidateRemoteGoDistributionPlatform(goos, goarch); err != nil {
+		return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, fmt.Errorf("validate remote Go distribution: %w", err))
+	}
+	return nil
+}
+
+// writeWorkerRacePackagePatterns 输出唯一登记表中的并发包模式，供 closure seed 直接消费。
+func writeWorkerRacePackagePatterns(args []string, stdout io.Writer) error {
+	if len(args) != 0 {
+		return protocolError("worker race-package-patterns does not accept arguments")
+	}
+	for _, pattern := range gatecontract.RaceSensitivePackagePatterns() {
+		if _, err := fmt.Fprintln(stdout, pattern); err != nil {
+			return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, fmt.Errorf("write race package patterns: %w", err))
+		}
+	}
+	return nil
 }
 
 // runWorkerExecutor 为普通 worker 命令绑定信号和执行生命周期。

@@ -218,7 +218,10 @@ func classifyMissReuseFixture(t *testing.T, fullPlan gate.WorkloadExecutionPlan,
 			reused[string(id)] = gate.WorkloadPassEvidence{Identity: identity}
 		}
 	}
-	_, misses := classifyRemoteWorkloadPasses(identities, reused)
+	_, misses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
+	if err != nil {
+		t.Fatalf("classifyRemoteWorkloadPassesStrict() error = %v", err)
+	}
 	if len(misses) == 0 || len(misses) == len(allIDs) {
 		t.Fatalf("classified misses = %d, want a non-empty partial reuse set", len(misses))
 	}

@@ -2281,10 +2281,8 @@
     "internal/devtools/projectmaptrusted/project_map_test.go",
     "internal/devtools/remoteci/accepted_bootstrap_request.go",
     "internal/devtools/remoteci/accepted_bootstrap_request_test.go",
-    "internal/devtools/remoteci/baseline.go",
     "internal/devtools/remoteci/baseline_state.go",
     "internal/devtools/remoteci/baseline_test.go",
-    "internal/devtools/remoteci/calibration_checkpoint.go",
     "internal/devtools/remoteci/calibration_checkpoint_store.go",
     "internal/devtools/remoteci/calibration_checkpoint_test.go",
     "internal/devtools/remoteci/coordinator.go",
@@ -2343,7 +2341,6 @@
     "internal/devtools/remoteci/prepared_run.go",
     "internal/devtools/remoteci/progress.go",
     "internal/devtools/remoteci/progress_test.go",
-    "internal/devtools/remoteci/protocol.go",
     "internal/devtools/remoteci/protocol_shard_request.go",
     "internal/devtools/remoteci/protocol_shard_request_test.go",
     "internal/devtools/remoteci/source_materializer.go",
@@ -4765,9 +4762,7 @@
     "internal/devtools/projectmaptrusted/generator_asset.go",
     "internal/devtools/projectmaptrusted/project_map.go",
     "internal/devtools/remoteci/accepted_bootstrap_request.go",
-    "internal/devtools/remoteci/baseline.go",
     "internal/devtools/remoteci/baseline_state.go",
-    "internal/devtools/remoteci/calibration_checkpoint.go",
     "internal/devtools/remoteci/calibration_checkpoint_store.go",
     "internal/devtools/remoteci/coordinator.go",
     "internal/devtools/remoteci/coordinator_assets.go",
@@ -4791,7 +4786,6 @@
     "internal/devtools/remoteci/oci_project_cache.go",
     "internal/devtools/remoteci/prepared_run.go",
     "internal/devtools/remoteci/progress.go",
-    "internal/devtools/remoteci/protocol.go",
     "internal/devtools/remoteci/protocol_shard_request.go",
     "internal/devtools/remoteci/source_materializer.go",
     "internal/devtools/remoteci/source_materializer_baseline.go",
@@ -4858,6 +4852,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6524,
-  "source_snapshot_paths_sha256": "sha256:e4ae6f07daeff3894910399c5f01128a9d7b92e03618e0f6c2e7d18f3f118298"
+  "source_snapshot_input_count": 6521,
+  "source_snapshot_paths_sha256": "sha256:d6c0300573a9d07ce375a8419bd7935773caa03170a5a94c3fc5f2b3b45622ec"
 }

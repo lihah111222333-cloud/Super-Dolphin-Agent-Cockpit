@@ -134,7 +134,7 @@ func remoteRunFixtureLedger(t *testing.T, repository, tree string, plan gate.Gat
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputDigests, err := remoteWorkloadInputDigests(context.Background(), repository, tree, remoteShardableWorkloads(catalog))
+	inputDigests, _, _, err := remoteWorkloadFingerprintsWithSnapshot(context.Background(), repository, tree, remoteShardableWorkloads(catalog))
 	if err != nil {
 		t.Fatalf("derive remote CI fixture workload input digests: %v", err)
 	}

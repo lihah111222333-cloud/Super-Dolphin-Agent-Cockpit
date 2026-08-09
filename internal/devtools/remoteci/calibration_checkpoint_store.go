@@ -138,17 +138,17 @@ func (checkpoint *CalibrationCheckpoint) ensure() error {
 	return nil
 }
 
-// Completed 返回已经权威完成的场景输入与结果。
-func (checkpoint *CalibrationCheckpoint) Completed(scenario string) (RunInput, RunResult, bool) {
+// Completed 返回已经权威完成的场景输入与结果；读取或校验失败直接返回错误。
+func (checkpoint *CalibrationCheckpoint) Completed(scenario string) (RunInput, RunResult, bool, error) {
 	document, err := checkpoint.loadDocument()
 	if err != nil {
-		return RunInput{}, RunResult{}, false
+		return RunInput{}, RunResult{}, false, err
 	}
 	state, ok := document.Scenarios[scenario]
 	if !ok || !state.Completed || state.Input == nil || state.Result == nil {
-		return RunInput{}, RunResult{}, false
+		return RunInput{}, RunResult{}, false, nil
 	}
-	return state.Input.expand(), state.Result.expand(), true
+	return state.Input.expand(), state.Result.expand(), true, nil
 }
 
 // Reopen 清除场景的完成载荷，但保留已开始状态供缓存恢复执行。

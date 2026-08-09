@@ -331,9 +331,9 @@ func mustBuildAllMissRemoteExecutionShardSet(t *testing.T, input RunInput) gate.
 		t.Fatalf("buildRemotePlan() error = %v", err)
 	}
 	if len(input.WorkloadInputDigests) == 0 && input.RepositoryRoot != "" {
-		input.WorkloadInputDigests, err = remoteWorkloadInputDigests(context.Background(), input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
+		input.WorkloadInputDigests, _, _, err = remoteWorkloadFingerprintsWithSnapshot(context.Background(), input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
 		if err != nil {
-			t.Fatalf("remoteWorkloadInputDigests() error = %v", err)
+			t.Fatalf("remoteWorkloadFingerprintsWithSnapshot() error = %v", err)
 		}
 	}
 	if len(input.WorkloadInputDigests) != 0 {

@@ -15,11 +15,8 @@ import (
 )
 
 const (
-	durationLedgerSQLiteSchemaVersion        = 13
-	durationLedgerSQLiteV11SchemaVersion     = 11
-	durationLedgerSQLiteCompileTimingVersion = 10
-	durationLedgerSQLiteLegacySchemaVersion  = 5
-	durationLedgerSQLiteBusyTimeoutMS        = 5_000
+	durationLedgerSQLiteSchemaVersion = 13
+	durationLedgerSQLiteBusyTimeoutMS = 5_000
 )
 
 // loadSQLiteSnapshot 在单个只读事务中加载账本快照及其请求的数据投影。
@@ -153,7 +150,7 @@ func (store *DurationLedgerStore) compareAndSwapSQLiteCalibration(
 		return DurationLedgerSnapshot{}, err
 	}
 	nextGeneration := expectedGeneration + 1
-	if err := store.advanceSQLiteCalibrationGeneration(transaction, expectedGeneration, nextGeneration, calibration); err != nil {
+	if err := store.advanceSQLiteCalibrationGeneration(transaction, expectedGeneration, nextGeneration); err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
 	if err := transaction.Commit(); err != nil {
@@ -172,7 +169,7 @@ func (store *DurationLedgerStore) compareAndSwapSQLiteCalibration(
 }
 
 // advanceSQLiteCalibrationGeneration 在校准 CAS 内推进 generation。
-func (store *DurationLedgerStore) advanceSQLiteCalibrationGeneration(transaction *sql.Tx, expectedGeneration, nextGeneration uint64, calibration *DurationCalibration) error {
+func (store *DurationLedgerStore) advanceSQLiteCalibrationGeneration(transaction *sql.Tx, expectedGeneration, nextGeneration uint64) error {
 	result, err := transaction.Exec(`
 		UPDATE duration_ledger_meta
 		SET generation = ?

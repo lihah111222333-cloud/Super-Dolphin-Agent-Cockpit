@@ -21,8 +21,6 @@ func TestWorkerCLIRejectsNonCanonicalInvocation(t *testing.T) {
 		{"run", "--gate"},
 		{"run", "--gate", "unknown:gate"},
 		{"run", "--gate", string(gate.GateIDCodemapCheck), "extra"},
-		{"race-package-patterns"},
-		{"validate-go-distribution"},
 	} {
 		stderr := &bytes.Buffer{}
 		if code := runWorkerCLI(args, &bytes.Buffer{}, stderr); code == 0 {
@@ -31,6 +29,67 @@ func TestWorkerCLIRejectsNonCanonicalInvocation(t *testing.T) {
 		if !strings.Contains(stderr.String(), "super-dolphin-gate:") {
 			t.Fatalf("worker stderr = %q, want CLI error prefix", stderr.String())
 		}
+	}
+}
+
+func TestWorkerGoDistributionValidationUsesLockedPlatform(t *testing.T) {
+	tests := []struct {
+		name      string
+		goos      string
+		goarch    string
+		wantError string
+	}{
+		{name: "locked remote platform", goos: "linux", goarch: "amd64"},
+		{name: "non-remote platform", goos: "darwin", goarch: "arm64", wantError: "remote CI Go distribution platform"},
+		{name: "wrong architecture", goos: "linux", goarch: "arm64", wantError: "remote CI Go distribution platform"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateWorkerGoDistribution(nil, test.goos, test.goarch)
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatalf("validateWorkerGoDistribution(%s/%s): %v", test.goos, test.goarch, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("validateWorkerGoDistribution(%s/%s) error = %v, want text %q", test.goos, test.goarch, err, test.wantError)
+			}
+			if code := gate.ExitCodeOf(err); code != gate.ExitInfrastructure {
+				t.Fatalf("validateWorkerGoDistribution(%s/%s) exit code = %d, want infrastructure", test.goos, test.goarch, code)
+			}
+		})
+	}
+	if err := validateWorkerGoDistribution([]string{"extra"}, "linux", "amd64"); gate.ExitCodeOf(err) != gate.ExitProtocol {
+		t.Fatalf("validateWorkerGoDistribution accepted extra argument: %v", err)
+	}
+}
+
+func TestWorkerRacePackagePatternsOutputIsCanonicalAndStable(t *testing.T) {
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if code := runWorkerCLI([]string{"race-package-patterns"}, stdout, stderr); code != int(gate.ExitOK) {
+		t.Fatalf("race-package-patterns exit code = %d, stderr=%q", code, stderr.String())
+	}
+	want := strings.Join(gate.RaceSensitivePackagePatterns(), "\n") + "\n"
+	if stdout.String() != want {
+		t.Fatalf("race-package-patterns output = %q, want canonical registry output %q", stdout.String(), want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("race-package-patterns stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestWorkerRacePackagePatternsRejectsArguments(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	if code := runWorkerCLI([]string{"race-package-patterns", "extra"}, &bytes.Buffer{}, stderr); code != int(gate.ExitProtocol) {
+		t.Fatalf("race-package-patterns accepted extra argument with code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestWorkerValidateGoDistributionRejectsArguments(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	if code := runWorkerCLI([]string{"validate-go-distribution", "extra"}, &bytes.Buffer{}, stderr); code != int(gate.ExitProtocol) {
+		t.Fatalf("validate-go-distribution accepted extra argument with code=%d stderr=%q", code, stderr.String())
 	}
 }
 

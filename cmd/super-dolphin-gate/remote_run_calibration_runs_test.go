@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -70,9 +71,71 @@ func TestExecuteRemoteCalibrationRunsForceDoesNotReuseNonForceCheckpoint(t *test
 	if got := strings.Join(calls, ","); got != "" {
 		t.Fatalf("force executor calls = %q, want no execution after identity mismatch", got)
 	}
-	resumedInput, resumedResult, completed := checkpoint.Completed("commit")
+	resumedInput, resumedResult, completed, err := checkpoint.Completed("commit")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !completed || resumedInput.Force || resumedResult.Force {
 		t.Fatalf("non-force checkpoint after force mismatch = input=%#v result=%#v completed=%t, want unchanged completed non-force state", resumedInput.Force, resumedResult.Force, completed)
+	}
+}
+
+func TestExecuteRemoteCalibrationRunsRejectsCorruptCheckpointBeforeExecutor(t *testing.T) {
+	store := newRemoteCalibrationRunsStore(t, 1)
+	checkpoint := newRemoteCalibrationRunsCheckpoint(t, store, "checkpoint-corrupt", 1)
+	input, result := calibrationRunsInputResult("commit", 1)
+	result = calibrationRunsRecord(t, store, input, result)
+	if err := checkpoint.Observe("commit", input, result, true); err != nil {
+		t.Fatal(err)
+	}
+	calibrationRunsUpdateAuthorityRun(t, store, `UPDATE remote_ci_calibration_checkpoint_scenarios SET result_json = ? WHERE identity = ? AND scenario = ?`, "{", "checkpoint-corrupt", "commit")
+
+	var calls []string
+	_, _, err := executeRemoteCalibrationRunsWithExecutor(
+		calibrationRunsOptions(),
+		remoteCalibrationIdentity{commit: strings.Repeat("c", 40), tree: strings.Repeat("t", 40), base: strings.Repeat("b", 40)},
+		store,
+		checkpoint,
+		io.Discard,
+		func(options remoteRunOptions) (remoteci.RunResult, remoteci.RunInput, error) {
+			calls = append(calls, options.Scenario)
+			return remoteci.RunResult{}, remoteci.RunInput{}, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "load remote calibration checkpoint") {
+		t.Fatalf("corrupt checkpoint execution error = %v, want checkpoint load error", err)
+	}
+	if got := strings.Join(calls, ","); got != "" {
+		t.Fatalf("corrupt checkpoint executor calls = %q, want none", got)
+	}
+}
+
+func TestExecuteRemoteCalibrationRunsRejectsCheckpointSQLiteReadFailureBeforeExecutor(t *testing.T) {
+	ledgerDirectory := t.TempDir()
+	store := newRemoteCalibrationRunsStoreAt(t, filepath.Join(ledgerDirectory, "duration-ledger.sqlite"), 1)
+	checkpoint := newRemoteCalibrationRunsCheckpoint(t, store, "checkpoint-sqlite-read-failure", 1)
+	movedDirectory := filepath.Join(t.TempDir(), "moved-ledger")
+	if err := os.Rename(ledgerDirectory, movedDirectory); err != nil {
+		t.Fatalf("move ledger directory to induce read failure: %v", err)
+	}
+
+	var calls []string
+	_, _, err := executeRemoteCalibrationRunsWithExecutor(
+		calibrationRunsOptions(),
+		remoteCalibrationIdentity{commit: strings.Repeat("c", 40), tree: strings.Repeat("t", 40), base: strings.Repeat("b", 40)},
+		store,
+		checkpoint,
+		io.Discard,
+		func(options remoteRunOptions) (remoteci.RunResult, remoteci.RunInput, error) {
+			calls = append(calls, options.Scenario)
+			return remoteci.RunResult{}, remoteci.RunInput{}, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "load remote calibration checkpoint") {
+		t.Fatalf("SQLite read failure execution error = %v, want checkpoint load error", err)
+	}
+	if got := strings.Join(calls, ","); got != "" {
+		t.Fatalf("SQLite read failure executor calls = %q, want none", got)
 	}
 }
 

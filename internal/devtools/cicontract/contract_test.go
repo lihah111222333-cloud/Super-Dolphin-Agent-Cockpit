@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -432,12 +433,7 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 	if err := Validate(); err != nil {
 		t.Fatalf("validate canonical SQL schema table registry: %v", err)
 	}
-	for _, table := range SQLAuthoritySchemaTables() {
-		if err := validateSQLAuthoritySchemaTable(table); err != nil {
-			t.Fatalf("validate canonical SQLite schema table %q: %v", table, err)
-		}
-	}
-	if err := validateSQLAuthoritySchemaTable("ci_unregistered_second_authority"); err == nil {
+	if slices.Contains(SQLAuthoritySchemaTables(), "ci_unregistered_second_authority") {
 		t.Fatal("unregistered SQLite schema table was accepted")
 	}
 }

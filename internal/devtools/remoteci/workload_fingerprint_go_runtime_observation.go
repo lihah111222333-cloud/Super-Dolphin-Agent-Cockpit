@@ -177,7 +177,7 @@ func (snapshot *remoteGitTreeSnapshot) inspectGoProductionCall(
 	selected map[string]remoteGitTreeEntry,
 ) (remoteGoTestScope, []remoteGoProductionCall, error) {
 	if importPath, method, ok := remoteGoTestSelector(call, imports); ok {
-		return snapshot.inspectImportedGoProductionCall(call, callDirectory, targetDirectory, file, imports, index, selected, importPath, method)
+		return snapshot.inspectImportedGoProductionCall(call, targetDirectory, file, imports, index, selected, importPath, method)
 	}
 	if _, ok := call.Fun.(*ast.SelectorExpr); ok {
 		// A selector not rooted at an imported package is a method/interface call.
@@ -193,7 +193,7 @@ func (snapshot *remoteGitTreeSnapshot) inspectGoProductionCall(
 // inspectImportedGoProductionCall 处理导入包调用并递归进入本地生产函数。
 func (snapshot *remoteGitTreeSnapshot) inspectImportedGoProductionCall(
 	call *ast.CallExpr,
-	callDirectory, targetDirectory string,
+	targetDirectory string,
 	file *ast.File,
 	imports map[string]string,
 	index remoteGoProductionIndex,

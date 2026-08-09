@@ -807,7 +807,7 @@ func bindCoordinatorCatalogInputDigests(t *testing.T, input RunInput, catalog ga
 	t.Helper()
 	// Prepare 生产路径先计算并绑定 exact-tree 输入摘要；测试直接构造 catalog
 	// 时也必须走同一绑定边界，不能依赖已删除的 PASS identity fallback。
-	inputDigests, err := remoteWorkloadInputDigests(context.Background(), input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
+	inputDigests, _, _, err := remoteWorkloadFingerprintsWithSnapshot(context.Background(), input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
 	if err != nil {
 		t.Fatalf("derive coordinator catalog workload input digests: %v", err)
 	}

@@ -122,7 +122,10 @@ func assertCompleteFailedProjectionEvidence(t *testing.T, testCase completeFaile
 	if len(reused) != 1 || reused[string(testCase.ids[0])].OriginJobID != testCase.result.JobID {
 		t.Fatalf("reused failed-run PASS evidence = %#v, want only %q", reused, testCase.ids[0])
 	}
-	_, misses := classifyRemoteWorkloadPasses(testCase.identities, reused)
+	_, misses, err := classifyRemoteWorkloadPassesStrict(testCase.identities, reused)
+	if err != nil {
+		t.Fatalf("classifyRemoteWorkloadPassesStrict() error = %v", err)
+	}
 	if len(misses) != 2 || !containsCoordinatorGateID(misses, testCase.ids[1]) || !containsCoordinatorGateID(misses, testCase.ids[2]) {
 		t.Fatalf("same-tree failed-run misses = %v, want %v", misses, testCase.ids[1:])
 	}

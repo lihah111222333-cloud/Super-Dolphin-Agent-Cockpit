@@ -10,10 +10,13 @@ import (
 func TestClassifyRemoteWorkloadPassesMixedSamePackageIsAtomicMiss(t *testing.T) {
 	hit := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/shared", "TestHit")
 	miss := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/shared", "TestMiss")
-	reused, misses := classifyRemoteWorkloadPasses(
+	reused, misses, err := classifyRemoteWorkloadPassesStrict(
 		[]gate.WorkloadPassIdentity{hit, miss},
 		map[string]gate.WorkloadPassEvidence{string(hit.WorkloadID): {Identity: hit}},
 	)
+	if err != nil {
+		t.Fatalf("classifyRemoteWorkloadPassesStrict() error = %v", err)
+	}
 	if len(reused) != 0 || !slices.Equal(misses, []gate.GateID{hit.WorkloadID, miss.WorkloadID}) {
 		t.Fatalf("same-package mixed reuse = reused=%#v misses=%#v, want atomic MISS", reused, misses)
 	}
@@ -29,10 +32,13 @@ func TestClassifyRemoteWorkloadPassesMixedSamePackageIsAtomicMiss(t *testing.T) 
 func TestStrictRemoteWorkloadPassIndexExcludesAtomicPackageMisses(t *testing.T) {
 	hit := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/shared", "TestHit")
 	miss := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/shared", "TestMiss")
-	classified, misses := classifyRemoteWorkloadPasses(
+	classified, misses, err := classifyRemoteWorkloadPassesStrict(
 		[]gate.WorkloadPassIdentity{hit, miss},
 		map[string]gate.WorkloadPassEvidence{string(hit.WorkloadID): {Identity: hit}},
 	)
+	if err != nil {
+		t.Fatalf("classifyRemoteWorkloadPassesStrict() error = %v", err)
+	}
 	indexed, err := indexRemoteWorkloadPassEvidence(classified)
 	if err != nil {
 		t.Fatalf("index strict reuse evidence: %v", err)
@@ -45,10 +51,13 @@ func TestStrictRemoteWorkloadPassIndexExcludesAtomicPackageMisses(t *testing.T) 
 func TestClassifyRemoteWorkloadPassesMixedDifferentPackagesKeepsPartialReuse(t *testing.T) {
 	hit := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/one", "TestHit")
 	miss := reusePackageTestIdentity(t, gate.GateIDBackendTestWithGuard, "./fixture/two", "TestMiss")
-	reused, misses := classifyRemoteWorkloadPasses(
+	reused, misses, err := classifyRemoteWorkloadPassesStrict(
 		[]gate.WorkloadPassIdentity{hit, miss},
 		map[string]gate.WorkloadPassEvidence{string(hit.WorkloadID): {Identity: hit}},
 	)
+	if err != nil {
+		t.Fatalf("classifyRemoteWorkloadPassesStrict() error = %v", err)
+	}
 	if len(reused) != 1 || reused[0].Identity.WorkloadID != hit.WorkloadID || !slices.Equal(misses, []gate.GateID{miss.WorkloadID}) {
 		t.Fatalf("different-package mixed reuse = reused=%#v misses=%#v, want partial reuse", reused, misses)
 	}
@@ -62,13 +71,16 @@ func TestClassifyRemoteWorkloadPassesKeepsBenchmarkAndRaceSemanticsSeparate(t *t
 	}
 	benchmark := gate.WorkloadPassIdentity{WorkloadID: gate.GateID(benchmarkWorkload.ID)}
 	race := reusePackageTestIdentity(t, gate.GateIDBackendTestGuardWithRace, "./fixture/shared", "TestRace")
-	reused, misses := classifyRemoteWorkloadPasses(
+	reused, misses, err := classifyRemoteWorkloadPassesStrict(
 		[]gate.WorkloadPassIdentity{normal, benchmark, race},
 		map[string]gate.WorkloadPassEvidence{
 			string(normal.WorkloadID):    {Identity: normal},
 			string(benchmark.WorkloadID): {Identity: benchmark},
 		},
 	)
+	if err != nil {
+		t.Fatalf("classifyRemoteWorkloadPassesStrict() error = %v", err)
+	}
 	if len(reused) != 2 || !slices.Equal([]gate.GateID{reused[0].Identity.WorkloadID, reused[1].Identity.WorkloadID}, []gate.GateID{normal.WorkloadID, benchmark.WorkloadID}) {
 		t.Fatalf("normal/benchmark reuse = %#v, want both independent hits", reused)
 	}

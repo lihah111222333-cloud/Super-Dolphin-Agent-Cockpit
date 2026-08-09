@@ -109,7 +109,10 @@ func reusableRemoteCalibrationCheckpoint(ledgerStore *gatecontract.DurationLedge
 	if ledgerStore == nil || checkpoint == nil {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, errors.New("remote calibration ledger store and checkpoint are required")
 	}
-	input, result, completed := checkpoint.Completed(scenario)
+	input, result, completed, err := checkpoint.Completed(scenario)
+	if err != nil {
+		return remoteci.RunInput{}, remoteci.RunResult{}, false, fmt.Errorf("load remote calibration checkpoint: %w", err)
+	}
 	if !completed {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
 	}

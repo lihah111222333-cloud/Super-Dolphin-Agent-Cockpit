@@ -623,12 +623,6 @@ func distributeCompileUnits(units []compilePlanningUnit, count int) ([]ShardPlan
 	return shards, true
 }
 
-// compileUnitShardIndex 保留普通 workload 的旧 helper 形状；compile-group
-// planner 使用下面带不变量参数的专用实现。
-func compileUnitShardIndex(shards []ShardPlan, affinities []map[string]struct{}, affinityKey string) (int, bool) {
-	return compileUnitShardIndexForCompileGroup(shards, affinities, affinityKey, false)
-}
-
 // compileUnitShardIndexForCompileGroup 选择尚未占用同一编译 artifact 且当前负载最小的分片。
 // compile group 是 ECI shard 的唯一 test-binary batch；带 group 的 unit
 // 不得落入已经承载另一个 group 的 shard，即使 artifact 不同也不能合并。

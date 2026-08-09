@@ -382,24 +382,6 @@ func classifyRemoteWorkloadPassesStrict(
 	return reusedWorkloads, cacheMisses, nil
 }
 
-// classifyRemoteWorkloadPasses 保持现有测试辅助面的二元投影；生产 Prepare
-// 使用 strict 版本并将解析错误直接返回。解析失败时该兼容投影保守地把所有
-// identity 视为 MISS，绝不返回陈旧 PASS。
-func classifyRemoteWorkloadPasses(
-	identities []gate.WorkloadPassIdentity,
-	reused map[string]gate.WorkloadPassEvidence,
-) ([]gate.WorkloadPassEvidence, []gate.GateID) {
-	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
-	if err == nil {
-		return reusedWorkloads, cacheMisses
-	}
-	cacheMisses = make([]gate.GateID, 0, len(identities))
-	for _, identity := range identities {
-		cacheMisses = append(cacheMisses, identity.WorkloadID)
-	}
-	return nil, cacheMisses
-}
-
 // apply 将复用决策绑定到本次独立 job 的结果投影。
 func (preparation remoteWorkloadReusePreparation) apply(result *RunResult) {
 	result.WorkloadPassIdentities = preparation.identities

@@ -21,6 +21,57 @@ const (
 	runtimeDepsBuildPath = "build/gate/runtime-deps.Dockerfile"
 )
 
+func TestWorkerRecipeCommandsAreRegisteredBuiltinAndNotRejected(t *testing.T) {
+	root := repositoryRoot(t)
+	mainSource := readTestFile(t, filepath.Join(root, "cmd/super-dolphin-gate/main.go"))
+	workerTestSource := readTestFile(t, filepath.Join(root, "cmd/super-dolphin-gate/worker_cli_test.go"))
+	tests := []struct {
+		name          string
+		registryCase  string
+		canonicalCall string
+		recipeLines   map[string]string
+		rejectVector  string
+	}{
+		{
+			name:          "validate-go-distribution",
+			registryCase:  `case "validate-go-distribution":`,
+			canonicalCall: "gatecontract.ValidateRemoteGoDistributionPlatform",
+			recipeLines: map[string]string{
+				runtimeDepsBuildPath: "/tmp/super-dolphin-gate worker validate-go-distribution; " + "\\",
+			},
+			rejectVector: "\t\t{\"validate-go-distribution\"},",
+		},
+		{
+			name:          "race-package-patterns",
+			registryCase:  `case "race-package-patterns":`,
+			canonicalCall: "gatecontract.RaceSensitivePackagePatterns()",
+			recipeLines: map[string]string{
+				"build/gate/closure/closure.go": "set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; " + "\\",
+				dockerfilePath:                  "set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; " + "\\",
+			},
+			rejectVector: "\t\t{\"race-package-patterns\"},",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if count := strings.Count(mainSource, test.registryCase); count != 1 {
+				t.Fatalf("builtin registry marker %q count = %d, want exactly one", test.registryCase, count)
+			}
+			if count := strings.Count(mainSource, test.canonicalCall); count != 1 {
+				t.Fatalf("canonical owner call %q count = %d, want exactly one", test.canonicalCall, count)
+			}
+			if strings.Contains(workerTestSource, test.rejectVector) {
+				t.Fatalf("obsolete rejection vector still contains %s", test.name)
+			}
+			for recipePath, recipeLine := range test.recipeLines {
+				if count := countTrimmedLine(t, filepath.Join(root, recipePath), recipeLine); count != 1 {
+					t.Fatalf("recipe %s line %q count = %d, want exactly one", recipePath, recipeLine, count)
+				}
+			}
+		})
+	}
+}
+
 type manifest struct {
 	SchemaVersion             string   `json:"schema_version"`
 	Dockerfile                string   `json:"dockerfile"`
@@ -254,6 +305,27 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return root
+}
+
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
+}
+
+func countTrimmedLine(t *testing.T, path, want string) int {
+	t.Helper()
+	data := readTestFile(t, path)
+	count := 0
+	for _, line := range strings.Split(data, "\n") {
+		if strings.TrimSpace(line) == want {
+			count++
+		}
+	}
+	return count
 }
 
 func readManifest(t *testing.T, root string) manifest {

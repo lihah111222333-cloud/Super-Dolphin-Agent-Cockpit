@@ -37,7 +37,7 @@ func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotInput, gotResult, ok := loaded.Completed("commit")
+	gotInput, gotResult, ok := requireCalibrationCheckpointCompletion(t, loaded, "commit")
 	if !ok || gotInput.Tree != input.Tree || gotInput.ImageCacheSnapshotID != input.ImageCacheSnapshotID || gotResult.JobID != result.JobID || gotResult.ImageCacheSnapshotID != result.ImageCacheSnapshotID {
 		t.Fatalf("loaded checkpoint = %#v, %#v, %t", gotInput, gotResult, ok)
 	}
@@ -61,14 +61,66 @@ func TestCalibrationCheckpointReopenAndCachedRetryPersist(t *testing.T) {
 	if err := checkpoint.Reopen("full"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok := checkpoint.Completed("full"); ok {
+	if calibrationCheckpointCompleted(t, checkpoint, "full") {
 		t.Fatal("reopened checkpoint remained complete")
 	}
 	if err := checkpoint.Observe("full", input, testCalibrationCheckpointResult(input), true); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok := checkpoint.Completed("full"); !ok {
+	if !calibrationCheckpointCompleted(t, checkpoint, "full") {
 		t.Fatal("cached retry did not restore completed checkpoint")
+	}
+}
+
+func calibrationCheckpointCompleted(t *testing.T, checkpoint *CalibrationCheckpoint, scenario string) bool {
+	t.Helper()
+	_, _, completed := requireCalibrationCheckpointCompletion(t, checkpoint, scenario)
+	return completed
+}
+
+func requireCalibrationCheckpointCompletion(t *testing.T, checkpoint *CalibrationCheckpoint, scenario string) (RunInput, RunResult, bool) {
+	t.Helper()
+	input, result, completed, err := checkpoint.Completed(scenario)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return input, result, completed
+}
+
+func TestCalibrationCheckpointCompletedPropagatesCorruptState(t *testing.T) {
+	store := calibrationCheckpointStore(t)
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testCalibrationCheckpointInput()
+	result := testCalibrationCheckpointResult(input)
+	result.DurationSamples = []gatecontract.DurationSample{{DurationMS: 1}}
+	if err := checkpoint.Observe("commit", input, result, true); err != nil {
+		t.Fatal(err)
+	}
+	corruptCalibrationCheckpointResult(t, store, "sha256:checkpoint", "commit")
+	_, _, completed, err := checkpoint.Completed("commit")
+	if err == nil {
+		t.Fatal("corrupt calibration checkpoint completed without error")
+	}
+	if completed {
+		t.Fatal("corrupt calibration checkpoint was reported as completed")
+	}
+}
+
+func corruptCalibrationCheckpointResult(t *testing.T, store *gatecontract.DurationLedgerStore, identity, scenario string) {
+	t.Helper()
+	database, err := sql.Open("sqlite", store.AuthorityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`UPDATE remote_ci_calibration_checkpoint_scenarios SET result_json = ? WHERE identity = ? AND scenario = ?`, "{", identity, scenario); err != nil {
+		_ = database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -119,7 +171,7 @@ func TestCalibrationCheckpointRetainsForceAuditIdentity(t *testing.T) {
 	if err := checkpoint.Observe("commit", input, result, true); err != nil {
 		t.Fatal(err)
 	}
-	resumedInput, resumedResult, completed := checkpoint.Completed("commit")
+	resumedInput, resumedResult, completed := requireCalibrationCheckpointCompletion(t, checkpoint, "commit")
 	if !completed || !resumedInput.Force || !resumedResult.Force {
 		t.Fatalf("checkpoint force audit identity = input=%#v result=%#v completed=%t", resumedInput.Force, resumedResult.Force, completed)
 	}
