@@ -1,9 +1,57 @@
 package gate
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestExecutionProfileCarriesCanonicalNormalAndRaceGoFlags(t *testing.T) {
+	started := executorPlanTestNow()
+	timing := &executorExecutionTiming{setupMS: 1, bodyMS: 1, totalMS: 2}
+	for _, test := range []struct {
+		name string
+		id   GateID
+		want string
+	}{
+		{name: "normal", id: GateIDBackendTestWithGuard, want: CanonicalGoFlags(false)},
+		{name: "race", id: GateIDBackendTestGuardWithRace, want: CanonicalGoFlags(true)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, program, err := executorProgramForWorkload(test.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile, err := executionProfileForGate(test.id, program, nil, started, started.Add(2*time.Millisecond), timing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if profile.GoFlags != test.want || strings.Count(profile.GoFlags, "-race") != map[bool]int{false: 0, true: 1}[test.name == "race"] {
+				t.Fatalf("profile GoFlags = %q, want %q", profile.GoFlags, test.want)
+			}
+		})
+	}
+}
+
+func TestExecutionProfileGoFlagsMutationAndLegacyFieldFailClosed(t *testing.T) {
+	profile := ExecutionProfile{GoFlags: CanonicalGoFlags(true), CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "measured"}
+	mutated := profile
+	mutated.GoFlags = "-race -race -p=4"
+	if err := mutated.Validate(); err == nil {
+		t.Fatal("duplicate race GoFlags mutation was accepted")
+	}
+	first := appendExecutionProfileDigest(nil, profile)
+	mutated.GoFlags = CanonicalGoFlags(false)
+	second := appendExecutionProfileDigest(nil, mutated)
+	if string(first) == string(second) {
+		t.Fatal("GoFlags profile mutation did not change report digest material")
+	}
+	_, err := decodeStoredRemoteCIExecutionProfile(`{"cache_source":"none","cache_status":"not_applicable","cache_measurement":"measured"}`)
+	if !errors.Is(err, errLegacyRemoteCIExecutionProfile) {
+		t.Fatalf("legacy profile error = %v, want legacy sentinel", err)
+	}
+}
 
 func TestExecutionProfileUsesMeasuredGoCommandBodyAndChecksExactTestEvidence(t *testing.T) {
 	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary", 1)

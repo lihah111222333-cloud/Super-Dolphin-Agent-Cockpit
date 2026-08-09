@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -14,6 +16,8 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   DEPENDENCY_INSTALL_ARGS,
   DEPENDENCY_INSTALL_COMMAND,
+  DEPENDENCY_REQUIRED_TOOL_PATHS,
+  assertHiddenPackageLockClosure,
   currentDependencyEnvironment,
   dependencyEnvironmentProfile,
   dependencyIntegrityForTree,
@@ -22,18 +26,27 @@ import {
 } from './frontend-maintainability-dependency-integrity.mjs';
 import {
   materializeImmutableDependencyOverlay,
+  nodeModulesPath,
   resolveImmutableDependencySeed,
 } from './frontend-execution-closure.mjs';
 
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptRoot, '..');
 const defaultOutputPath = path.join(scriptRoot, 'frontend-maintainability-dependencies.json');
-const runtimeContractFields = Object.freeze([
-  'packageLockSha256',
-  'optionalLockSha256',
-  'binLockSha256',
-  'requiredTools',
-]);
+const runtimeContractFields = Object.freeze(['packageLockSha256', 'optionalLockSha256', 'binLockSha256', 'requiredTools']);
+
+function dependencyRuntimeIntegrity(appRoot, environment) {
+  const packageLockPath = path.join(appRoot, 'package-lock.json');
+  const tree = dependencyTreeIntegrity(appRoot, { environment, runtimeOnly: true });
+  assertHiddenPackageLockClosure(appRoot);
+  const requiredTools = Object.fromEntries(DEPENDENCY_REQUIRED_TOOL_PATHS.map((relativePath) => {
+    const absolutePath = nodeModulesPath(tree.nodeModulesRoot, relativePath);
+    if (!existsSync(absolutePath)) throw new Error(`immutable dependency tool is missing: ${relativePath}`);
+    return [relativePath, createHash('sha256').update(readFileSync(absolutePath)).digest('hex')];
+  }));
+  return { packageLockSha256: createHash('sha256').update(readFileSync(packageLockPath)).digest('hex'),
+    optionalLockSha256: tree.optionalLockSha256, binLockSha256: tree.binLockSha256, requiredTools };
+}
 
 function optionsFromArguments(argv) {
   if (argv.length === 0) return { check: false, outputPath: defaultOutputPath };
@@ -51,8 +64,7 @@ const profileId = dependencyEnvironmentProfile(environment);
 if (check) {
   const expected = JSON.parse(readFileSync(defaultOutputPath, 'utf8'));
   validateDependencyIntegrity(expected);
-  const actual = dependencyIntegrityForTree(appRoot, environment);
-  validateDependencyIntegrity(actual);
+  const actual = dependencyRuntimeIntegrity(appRoot, environment);
   const mismatches = runtimeContractFields.filter((field) => !isDeepStrictEqual(actual[field], expected[field]));
   if (mismatches.length > 0) {
     throw new Error(`immutable runtime dependency contract mismatch (${mismatches.join(', ')}): ${defaultOutputPath}`);

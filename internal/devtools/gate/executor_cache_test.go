@@ -110,6 +110,7 @@ func TestExecutorWorkloadTimeoutStartsAfterPreparation(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: helper
 func TestGoBuildCacheProxyHelper(_ *testing.T) {
 	separator := -1
 	for index, argument := range os.Args {
@@ -574,7 +575,6 @@ func runGoBuildCacheFixture(
 		"GOTOOLCHAIN=local",
 		"GOPROXY=off",
 		"GOSUMDB=off",
-		"GOFLAGS=-p=1",
 		"GOCACHE="+cacheRoot,
 	)
 	if seedRoot != "" {

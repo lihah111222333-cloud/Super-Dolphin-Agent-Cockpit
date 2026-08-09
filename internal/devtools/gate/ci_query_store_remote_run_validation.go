@@ -226,6 +226,13 @@ func validateRemoteCIRunWorkloadExecutions(executions []PlanGateExecution) error
 		if err := execution.ExecutionProfile.Validate(); err != nil {
 			return fmt.Errorf("remote CI workload execution %q profile: %w", execution.GateID, err)
 		}
+		expectedFlags, err := WorkloadExecutionGoFlags(string(execution.GateID))
+		if err != nil {
+			return fmt.Errorf("remote CI workload execution %q expected GoFlags: %w", execution.GateID, err)
+		}
+		if execution.ExecutionProfile.GoFlags != expectedFlags {
+			return fmt.Errorf("remote CI workload execution %q profile GoFlags %q does not match expected %q", execution.GateID, execution.ExecutionProfile.GoFlags, expectedFlags)
+		}
 		if err := ValidatePlanGateTimingEvidence(execution); err != nil {
 			return fmt.Errorf("remote CI workload execution %q timing evidence: %w", execution.GateID, err)
 		}

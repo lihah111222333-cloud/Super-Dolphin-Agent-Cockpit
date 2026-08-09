@@ -415,7 +415,7 @@ export function assertHiddenPackageLockClosure(appRoot) {
 
 export function dependencyTreeIntegrity(appRoot, {
   environment = currentDependencyEnvironment(),
-  expectedOptionalLockSha256,
+  expectedOptionalLockSha256, runtimeOnly = false,
 } = {}) {
   const nodeModulesRoot = immutableDependencyRoot(appRoot);
   const packageLockPath = path.join(appRoot, 'package-lock.json');
@@ -429,6 +429,8 @@ export function dependencyTreeIntegrity(appRoot, {
     }
     bins = assertBinLinkClosure(appRoot, environment);
   }
+  if (runtimeOnly) return { nodeModulesRoot, optionalLockSha256: optional.optionalLockSha256,
+    optionalSelectionSha256: optional.optionalSelectionSha256, binLockSha256: bins.binLockSha256 };
   const excludedRoots = new Set(optional.excludedRoots);
   const excludedBinDirectories = new Set(bins.binDirectories);
   const aggregate = createHash('sha256');
@@ -477,9 +479,7 @@ export function dependencyTreeIntegrity(appRoot, {
     }
   }
   return {
-    nodeModulesRoot,
-    pathCount,
-    sha256: aggregate.digest('hex'),
+    nodeModulesRoot, pathCount, sha256: aggregate.digest('hex'),
     excludedOptionalRoots: optional.excludedRoots,
     optionalLockSha256: optional.optionalLockSha256,
     optionalSelectionSha256: optional.optionalSelectionSha256,

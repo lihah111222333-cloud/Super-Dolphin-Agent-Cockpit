@@ -37,6 +37,7 @@ type sqliteMixedWriteMetrics struct {
 	Failures      []string `json:"failures"`
 }
 
+// super-dolphin-ci: helper
 func TestSQLiteMixedWritePressureChild(t *testing.T) {
 	role := os.Getenv(sqliteMixedWriteChildEnv)
 	if role == "" {

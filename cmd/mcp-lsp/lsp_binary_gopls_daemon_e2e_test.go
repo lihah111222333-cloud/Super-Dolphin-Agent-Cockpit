@@ -25,6 +25,7 @@ const fakeGoplsArgsLogEnv = "MCP_LSP_FAKE_GOPLS_ARGS_LOG"
 
 const realGoplsRemoteListenTimeout = 15 * time.Minute
 
+// super-dolphin-ci: compile-group-exclusive
 func TestMcpLSPBinaryConcurrentAgentsRespectGoplsRootCohortIsolation_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
@@ -127,6 +128,7 @@ func TestMcpLSPBinaryCodexHostIgnoresUnrelatedGOEnvironmentForRootCohort_E2E(t *
 // TestMcpLSPBinaryNewGenerationReplacesResidualGoplsDaemonSameRoot_E2E 复现同一
 // canonical cwd 的上一代 sidecar 异常退出、daemon 仍存活且 active 状态保留上一代
 // completion receipt；新一代必须在旧 daemon 被精确终止后完成配置轮换并重新提供 LSP。
+// super-dolphin-ci: compile-group-exclusive
 func TestMcpLSPBinaryNewGenerationReplacesResidualGoplsDaemonSameRoot_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping residual gopls generation replacement E2E in short mode")
@@ -219,6 +221,7 @@ func requireGoplsRootCohortConflict(t *testing.T, client *mcpLSPBinaryClient, re
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping real gopls daemon lifecycle e2e test in short mode")
@@ -504,6 +507,7 @@ func goplsDaemonCommandOwnsRuntime(command, goplsPath, runtimeDir string) bool {
 	return pathIsWithinDirectory(strings.TrimPrefix(listen, "unix;"), runtimeDir)
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestGoplsDaemonCommandOwnsRuntimeRequiresExactBinaryAndSocketRoot(t *testing.T) {
 	goplsPath := "/opt/tools/gopls"
 	runtimeDir := "/tmp/mcp-lsp-owned"

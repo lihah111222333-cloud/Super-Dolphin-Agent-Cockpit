@@ -130,6 +130,7 @@ func shellDiagnosticsPayloadHasShellcheckSource(payload diagnosticsPayload, targ
 	return false
 }
 
+// super-dolphin-ci: helper
 func TestFakeBashLanguageServerHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_BASHLS") != "1" {
 		return

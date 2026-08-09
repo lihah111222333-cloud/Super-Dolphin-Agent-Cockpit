@@ -142,7 +142,7 @@ func executeCompileGroup(
 			_ = cleanupExecutorWorkspace(layout)
 		}
 	}()
-	binaryPath := filepath.Join(layout.runRoot, "test-binary")
+	binaryPath := compileGroupTestBinaryPath(layout.runRoot)
 	argv := compileGroupCommandArgv(group, binaryPath)
 	started, completed, compileErr := runCompileGroupCommand(ctx, goBinary, argv, layout.sourceCopy, environment, now, log)
 	if !started.IsZero() {
@@ -165,6 +165,11 @@ func executeCompileGroup(
 	}
 	cleanup = false
 	return compiledGroupArtifact{group: group, layout: layout, environment: environment, goBinary: goBinary, binaryPath: binaryPath, packageDir: packageDir, candidateCacheRoot: goBuildCacheRoot, baselineCacheSeedRoot: goBuildCacheSeedRoot}, execution, nil
+}
+
+// compileGroupTestBinaryPath 保留 Go 测试进程的 .test 身份，供运行时测试授权严格识别。
+func compileGroupTestBinaryPath(runRoot string) string {
+	return filepath.Join(runRoot, "test-binary.test")
 }
 
 // compileGroupPackageDirectory 校验 go list 解析的包目录位于受信源码快照内。
@@ -406,7 +411,10 @@ func executeCompiledSelector(ctx context.Context, laneIndex int, id GateID, arti
 	argv := []string{"go", "tool", "test2json", "-t", "-p", selector.packageTarget, artifact.binaryPath}
 	argv = append(argv, selector.testArgs...)
 	observation := runCompiledSelectorProcess(ctx, artifact, argv, now)
-	result := compiledSelectorResult(id, argv, observation)
+	result, profileErr := compiledSelectorResult(id, argv, observation)
+	if profileErr != nil {
+		return PlanGateExecution{}, profileErr
+	}
 	if result.Status == ResultStatusPassed {
 		if profileErr := validateCompiledSelectorTiming(id, result.TestTimings); profileErr != nil {
 			result.Status, result.ExitCode = ResultStatusFailed, ExecutorExitCode(profileErr)
@@ -470,11 +478,14 @@ func trustedCompileGroupPackageDirectory(sourceRoot, packageDir string) (string,
 	return resolved, nil
 }
 
-func compiledSelectorResult(id GateID, argv []string, observation compiledSelectorObservation) PlanGateExecution {
+func compiledSelectorResult(id GateID, argv []string, observation compiledSelectorObservation) (PlanGateExecution, error) {
 	result := PlanGateExecution{GateID: id, StartedAt: observation.started, CompletedAt: observation.completed, ExitCode: -1, TestTimings: observation.timings, ArgvDigest: digestCommandArgv(argv)}
 	result.Log = observation.log.Bytes()
 	result.LogDigest = digestPlanLog(result.Log)
-	profile := measuredNonCacheExecutionProfile()
+	profile, err := measuredExecutionProfileForWorkload(id)
+	if err != nil {
+		return PlanGateExecution{}, err
+	}
 	profile.StartupMS = max(measuredExecutorPhaseMilliseconds(observation.started, observation.bodyStarted), cicontract.TimingResolution.Milliseconds())
 	if !observation.bodyStarted.IsZero() {
 		profile.TestBodyMS = max(measuredExecutorPhaseMilliseconds(observation.bodyStarted, observation.completed), cicontract.TimingResolution.Milliseconds())
@@ -494,9 +505,9 @@ func compiledSelectorResult(id GateID, argv []string, observation compiledSelect
 	}
 	canonical, err := CanonicalizePlanGateExecutionTiming(result)
 	if err != nil {
-		return result
+		return result, err
 	}
-	return canonical
+	return canonical, nil
 }
 
 type compileGroupSelectorSpec struct {
@@ -642,7 +653,11 @@ func setCompileGroupExecutionTiming(execution *CompileGroupExecution, started, c
 }
 
 // failedCompileGroupSelector 为失败组中的每个 selector 生成独立失败结果。
-func failedCompileGroupSelector(id GateID, executions []CompileGroupExecution, now func() time.Time) PlanGateExecution {
+func failedCompileGroupSelector(id GateID, executions []CompileGroupExecution, now func() time.Time) (PlanGateExecution, error) {
+	profile, err := measuredExecutionProfileForWorkload(id)
+	if err != nil {
+		return PlanGateExecution{}, err
+	}
 	started := now().UTC()
 	log := []byte("compile group failed before selector execution\n")
 	for _, execution := range executions {
@@ -653,8 +668,9 @@ func failedCompileGroupSelector(id GateID, executions []CompileGroupExecution, n
 		}
 	}
 	completed := started.Add(time.Millisecond)
-	profile := measuredFailedStartupExecutionProfile(started, completed)
-	return PlanGateExecution{GateID: id, Status: ResultStatusFailed, ExitCode: 1, StartedAt: started, CompletedAt: completed, Log: log, LogDigest: digestPlanLog(log), ExecutionProfile: profile}
+	profile.StartupMS = max(measuredExecutorPhaseMilliseconds(started, completed), 1)
+	profile.TotalMS = profile.StartupMS
+	return PlanGateExecution{GateID: id, Status: ResultStatusFailed, ExitCode: 1, StartedAt: started, CompletedAt: completed, Log: log, LogDigest: digestPlanLog(log), ExecutionProfile: profile}, nil
 }
 
 func compactCompileGroupError(err error) string {

@@ -32,6 +32,11 @@ func aggregateWorkloadExecutionProfile(gateID gate.GateID, workloads []gate.Plan
 		TestBodyMS:       body.durationMS,
 		TotalMS:          totalMS,
 	}
+	goFlags, err := gate.WorkloadExecutionGoFlags(string(gateID))
+	if err != nil {
+		return gate.ExecutionProfile{}, time.Time{}, time.Time{}, fmt.Errorf("remote CI gate %q GoFlags: %w", gateID, err)
+	}
+	profile.GoFlags = goFlags
 	for _, execution := range workloads {
 		if err := mergeAggregateCacheEvidence(&profile, execution.ExecutionProfile); err != nil {
 			return gate.ExecutionProfile{}, time.Time{}, time.Time{}, fmt.Errorf("remote CI gate %q workload %q cache evidence: %w", gateID, execution.GateID, err)

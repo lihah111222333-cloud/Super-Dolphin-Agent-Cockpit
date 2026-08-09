@@ -254,7 +254,7 @@ func TestRemoteGitTreeSnapshotPrepareGoSourcesIsConcurrentSafe(t *testing.T) {
 }
 
 func TestRemoteCompileGroupInputsByGateIDValidatesTransportIdentity(t *testing.T) {
-	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestCompileGroup", 100)
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestCompileGroupSynthetic", 100)
 	if err != nil {
 		t.Fatalf("NewGoTestWorkload() error = %v", err)
 	}
@@ -277,7 +277,7 @@ func TestRemoteCompileGroupInputsByGateIDValidatesTransportIdentity(t *testing.T
 }
 
 func TestRemoteCompileGroupInputsForExecutionRejectsMissingSelectorInput(t *testing.T) {
-	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestCompileGroup", 100)
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestCompileGroupSynthetic", 100)
 	if err != nil {
 		t.Fatalf("NewGoTestWorkload() error = %v", err)
 	}
@@ -366,14 +366,14 @@ func TestCompileGroupTargetUsesIndependentSelectorSemantics(t *testing.T) {
 		{
 			name: "exact test",
 			workload: func() (gate.Workload, error) {
-				return gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestCompileGroup", 100)
+				return gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestCompileGroupSynthetic", 100)
 			},
 			semantic: "go-test-selector/v1/race=false",
 		},
 		{
 			name: "race exact test",
 			workload: func() (gate.Workload, error) {
-				return gate.NewGoTestWorkload(gate.GateIDBackendTestGuardWithRace, "./internal/devtools/gate", "TestCompileGroup", 100)
+				return gate.NewGoTestWorkload(gate.GateIDBackendTestGuardWithRace, "./internal/devtools/gate", "TestCompileGroupSynthetic", 100)
 			},
 			semantic: "go-test-selector/v1/race=true",
 			profile:  remoteGoBuildProfile{race: true},

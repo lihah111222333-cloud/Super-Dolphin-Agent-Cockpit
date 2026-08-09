@@ -351,7 +351,11 @@ func TestRemoteWorkloadPassIdentitySharesAcrossCalibrationModeAndResource(t *tes
 	}
 	changedResource := calibrationInput
 	changedResource.CalibrationResource.ID = calibrationInput.CalibrationResource.ID + "-alternate"
-	changedDigest, err := remoteWorkloadEnvironmentDigest(changedResource, 10*time.Minute, policy)
+	goFlags, err := remoteWorkloadGoFlags(string(calibration[0].WorkloadID))
+	if err != nil {
+		t.Fatalf("derive calibration workload GoFlags: %v", err)
+	}
+	changedDigest, err := remoteWorkloadEnvironmentDigestForGoFlags(changedResource, 10*time.Minute, policy, goFlags)
 	if err != nil {
 		t.Fatalf("changed calibration resource digest error = %v", err)
 	}

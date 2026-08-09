@@ -24,29 +24,73 @@ func cacheStatusFromMetrics(metrics GoBuildCacheProxyMetrics) CacheObservationSt
 // executionProfileForGate 从 worker 实测区间和测试事件构造单个 gate 的执行画像。
 func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTestTiming, started, completed time.Time, timing *executorExecutionTiming) (ExecutionProfile, error) {
 	profile := measuredNonCacheExecutionProfile()
+	goFlags, err := executionGoFlagsForProfile(id, program)
+	if err != nil {
+		return ExecutionProfile{}, err
+	}
+	profile.GoFlags = goFlags
 	profile.TotalMS = measuredExecutorPhaseMilliseconds(started, completed)
-	if timing == nil || timing.setupMS <= 0 || timing.bodyMS <= 0 || timing.totalMS != timing.setupMS+timing.bodyMS {
-		return ExecutionProfile{}, errors.New("workload startup and test-body timing is missing or invalid")
+	if err := validateExecutorExecutionTiming(timing); err != nil {
+		return ExecutionProfile{}, err
 	}
 	profile.TotalMS = max(profile.TotalMS, timing.totalMS)
 	// 执行器在实际 workload 进程两侧记录区间，协调器回执必须保留实测值。
 	profile.StartupMS, profile.TestBodyMS = timing.setupMS, timing.bodyMS
-	if isExactGoTestWorkload(id) {
-		if err := validateExactGoTestExecutionProfile(id, timings, profile); err != nil {
-			return profile, err
-		}
+	if err := validateExactExecutionProfileIfNeeded(id, timings, profile); err != nil {
+		return profile, err
 	}
-	if program.NeedsFrontendSeed {
-		profile.Frontend = &FrontendExecutionProfile{
-			NodeModulesSeedHit: true,
-			// lint/test/build 不触发 npm 的包解析路径；已验证 seed 不是 npm 缓存命中证据。
-			NPMCacheNotApplicableReason:          "npm_cache_lookup_not_observed",
-			PlaywrightBrowserNotApplicableReason: "browser_cache_lookup_not_observed",
-			ViteCacheHit:                         timing.viteCacheSeedHit,
-		}
-		profile.Frontend.SetupMS, profile.Frontend.BodyMS, profile.Frontend.TotalMS = timing.setupMS, timing.bodyMS, timing.totalMS
-	}
+	attachFrontendExecutionProfile(&profile, program, timing)
 	return profile, nil
+}
+
+func executionGoFlagsForProfile(id GateID, program ExecutorProgram) (string, error) {
+	goFlags, err := ExecutorProgramGoFlags(program)
+	if err != nil {
+		return "", fmt.Errorf("derive workload GoFlags: %w", err)
+	}
+	// Tests and report reconstruction may pass an empty program; when the workload
+	// itself is canonical, project the same immutable executor mapping rather than
+	// inventing a second profile source.
+	if goFlags != "" {
+		return goFlags, nil
+	}
+	_, canonical, lookupErr := executorProgramForWorkload(id)
+	if lookupErr != nil {
+		return goFlags, nil
+	}
+	goFlags, err = ExecutorProgramGoFlags(canonical)
+	if err != nil {
+		return "", fmt.Errorf("derive canonical workload GoFlags: %w", err)
+	}
+	return goFlags, nil
+}
+
+func validateExecutorExecutionTiming(timing *executorExecutionTiming) error {
+	if timing == nil || timing.setupMS <= 0 || timing.bodyMS <= 0 || timing.totalMS != timing.setupMS+timing.bodyMS {
+		return errors.New("workload startup and test-body timing is missing or invalid")
+	}
+	return nil
+}
+
+func validateExactExecutionProfileIfNeeded(id GateID, timings []GoTestTiming, profile ExecutionProfile) error {
+	if !isExactGoTestWorkload(id) {
+		return nil
+	}
+	return validateExactGoTestExecutionProfile(id, timings, profile)
+}
+
+func attachFrontendExecutionProfile(profile *ExecutionProfile, program ExecutorProgram, timing *executorExecutionTiming) {
+	if !program.NeedsFrontendSeed {
+		return
+	}
+	profile.Frontend = &FrontendExecutionProfile{
+		NodeModulesSeedHit: true,
+		// lint/test/build 不触发 npm 的包解析路径；已验证 seed 不是 npm 缓存命中证据。
+		NPMCacheNotApplicableReason:          "npm_cache_lookup_not_observed",
+		PlaywrightBrowserNotApplicableReason: "browser_cache_lookup_not_observed",
+		ViteCacheHit:                         timing.viteCacheSeedHit,
+	}
+	profile.Frontend.SetupMS, profile.Frontend.BodyMS, profile.Frontend.TotalMS = timing.setupMS, timing.bodyMS, timing.totalMS
 }
 
 // executionProfileOrFailedStartup 在正文未开始时保留启动失败区间，并传递后续精确计时错误。
@@ -184,6 +228,33 @@ func exactGoTestTimings(timings []GoTestTiming, name string) []GoTestTiming {
 // measuredNonCacheExecutionProfile 构造无需缓存查询但仍具备实测时长的执行画像基线。
 func measuredNonCacheExecutionProfile() ExecutionProfile {
 	return ExecutionProfile{CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "measured"}
+}
+
+// measuredExecutionProfileForWorkload binds compile-group evidence to the
+// canonical workload execution profile; compile selectors must never emit an
+// unbound empty GoFlags value.
+func measuredExecutionProfileForWorkload(id GateID) (ExecutionProfile, error) {
+	profile, err := measuredExecutionProfileForGate(id)
+	if err != nil {
+		return ExecutionProfile{}, err
+	}
+	if profile.GoFlags == "" {
+		return ExecutionProfile{}, fmt.Errorf("workload %q has no canonical GoFlags", id)
+	}
+	return profile, nil
+}
+
+// measuredExecutionProfileForGate binds every pending result to the same
+// canonical workload profile producer; non-Go gates intentionally retain empty
+// GoFlags while Go workloads fail fast if their mapping is unavailable.
+func measuredExecutionProfileForGate(id GateID) (ExecutionProfile, error) {
+	goFlags, err := WorkloadExecutionGoFlags(string(id))
+	if err != nil {
+		return ExecutionProfile{}, fmt.Errorf("derive workload GoFlags: %w", err)
+	}
+	profile := measuredNonCacheExecutionProfile()
+	profile.GoFlags = goFlags
+	return profile, nil
 }
 
 // measuredFailedStartupExecutionProfile 保留 workload 正文尚未开始时的实测启动区间，不把失败伪装成零耗时正文。

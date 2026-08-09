@@ -51,10 +51,12 @@ const (
 	// CompileGroupExecutionPathID 冻结测试二进制编译只能在既有 ECI shard worker
 	// 路径内按 compile group 执行；它不是第二 executor，也不允许跨 shard CAS。
 	CompileGroupExecutionPathID = "same-eci-shard-worker-test-binary-compile-no-cross-shard-cas/v1"
-	// ArchtestMaxSelectorsPerCompileGroup 冻结单个 archtest compile group 的
-	// selector 上限。超过该上限的 exact selector 必须由 planner 拆成独立
-	// CompileGroup/ECI shard，不能在同一个 4 GiB worker 内堆积成一个 test-binary。
-	ArchtestMaxSelectorsPerCompileGroup = 64
+	// CompileGroupMaxSelectors 冻结所有 compile group 的 exact selector 上限；超过该上限必须拆成独立 CompileGroup/ECI shard，
+	// 不能在同一个 4 GiB worker 内堆积成一个 test-binary。
+	CompileGroupMaxSelectors = 64
+	// ArchtestMaxSelectorsPerCompileGroup 保留历史符号作为兼容别名；新的 atomic
+	// package planner 必须统一使用 CompileGroupMaxSelectors owner。
+	ArchtestMaxSelectorsPerCompileGroup = CompileGroupMaxSelectors
 	// RemoteShardRequestMaxBytes 冻结 coordinator、OSS materializer 与 strict
 	// JSON decoder 共用的完整 shard request 上限。该上限约束请求总字节数，
 	// 不再用 gate 数量猜测合法分片大小。

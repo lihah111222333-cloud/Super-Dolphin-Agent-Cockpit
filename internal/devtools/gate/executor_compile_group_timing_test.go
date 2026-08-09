@@ -18,6 +18,9 @@ import (
 func TestRunCompileGroupCommandSuccessfulGoTestCompileProducesValidObservation(t *testing.T) {
 	t.Setenv("GOCACHEPROG", "/definitely-not-an-inherited-go-cache-proxy")
 	goBinary, workDir, binaryPath := compileGroupTestModule(t)
+	if filepath.Base(binaryPath) != "test-binary.test" {
+		t.Fatalf("compiled test binary path = %q", binaryPath)
+	}
 	argv := []string{"go", "test", "-c", "-o", binaryPath, "./sample"}
 	now := incrementingSubmillisecondTestClock(time.UnixMilli(1_000_000))
 	started, completed, runErr := runCompileGroupCommand(context.Background(), goBinary, argv, workDir, compileGroupTestEnvironment(t), now, &bytes.Buffer{})
@@ -50,7 +53,11 @@ func TestCompiledSelectorReadsPackageRelativeFixture(t *testing.T) {
 	if observation.err() != nil {
 		t.Fatal(observation.err())
 	}
-	result := compiledSelectorResult(GateID("selector"), selectorArgv, observation)
+	workload := mustCompileGroupBatchWorkload(t, "TestCompileGroup")
+	result, err := compiledSelectorResult(GateID(workload.ID), selectorArgv, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.Status != ResultStatusPassed {
 		t.Fatalf("compiled selector status = %s, want passed; log=%q", result.Status, result.Log)
 	}
@@ -132,9 +139,14 @@ func TestCompiledSelectorBatchKeepsSharedCompileWallOutOfConcurrentSelectorProfi
 
 func compileGroupBatchTestGroup(t *testing.T) CompileGroup {
 	t.Helper()
-	first := mustCompileGroupBatchWorkload(t, "TestCompileGroup")
-	second := mustCompileGroupBatchWorkload(t, "TestCompileGroupSecond")
-	return CompileGroup{PackageTarget: "./sample", SemanticKey: CompileGroupSemanticGoTestNormal, WorkloadIDs: []GateID{GateID(first.ID), GateID(second.ID)}}
+	return compileGroupBatchTestGroupForPackage(t, "./sample")
+}
+
+func compileGroupBatchTestGroupForPackage(t *testing.T, packageTarget string) CompileGroup {
+	t.Helper()
+	first := mustCompileGroupBatchWorkloadForPackage(t, packageTarget, "TestCompileGroup")
+	second := mustCompileGroupBatchWorkloadForPackage(t, packageTarget, "TestCompileGroupSecond")
+	return CompileGroup{PackageTarget: packageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, WorkloadIDs: []GateID{GateID(first.ID), GateID(second.ID)}}
 }
 
 func mustCompileGroupBatchCommand(t *testing.T, group CompileGroup) ([]string, map[GateID]compiledSelectorBatchSpec) {
@@ -149,18 +161,27 @@ func mustCompileGroupBatchCommand(t *testing.T, group CompileGroup) ([]string, m
 
 func runCompileGroupBatchFixture(t *testing.T) (CompileGroup, map[GateID]PlanGateExecution) {
 	t.Helper()
-	goBinary, workDir, binaryPath := compileGroupTestModule(t)
-	group := compileGroupBatchTestGroup(t)
-	if _, _, err := runCompileGroupCommand(context.Background(), goBinary, []string{"go", "test", "-c", "-o", binaryPath, "./sample"}, workDir, compileGroupTestEnvironment(t), time.Now, &bytes.Buffer{}); err != nil {
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
 		t.Fatal(err)
 	}
-	packageDir, err := filepath.EvalSymlinks(filepath.Join(workDir, "sample"))
+	binaryPath, err := os.Executable()
 	if err != nil {
+		t.Fatal(err)
+	}
+	workDir := canonicalCompileGroupTestTempDir(t)
+	if err := os.WriteFile(filepath.Join(workDir, "fixture.txt"), []byte("compile fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	group := compileGroupBatchTestGroupForPackage(t, "./internal/devtools/gate")
+	environment := append(compileGroupTestEnvironment(t), "GO_WANT_COMPILE_GROUP_BATCH_HELPER=1")
+	if err := os.Chmod(workDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	batch := CompileGroupBatch{BatchID: "batch-000", Wave: 0, SelectorIDs: append([]GateID(nil), group.WorkloadIDs...), EstimatedBodyMS: 1}
 	results, err := executeCompiledSelectorBatchForBatch(context.Background(), compiledGroupArtifact{
-		group: group, layout: executorLayout{sourceCopy: workDir}, goBinary: goBinary, binaryPath: binaryPath, packageDir: packageDir,
+		group: group, layout: executorLayout{sourceCopy: workDir}, environment: environment,
+		goBinary: goBinary, binaryPath: binaryPath, packageDir: workDir,
 	}, group, batch, incrementingTestClock(time.UnixMilli(7_000_000)))
 	if err != nil {
 		t.Fatal(err)
@@ -248,10 +269,23 @@ func TestCompiledSelectorBatchUsesPerSelectorEventIntervals(t *testing.T) {
 		"TestCompileGroup":       {{Name: "TestCompileGroup", Status: GoTestStatusPass, DurationMS: 7}},
 		"TestCompileGroupSecond": {{Name: "TestCompileGroupSecond", Status: GoTestStatusPass, DurationMS: 16}},
 	}
-	first := compiledSelectorResultWithLog(GateID("first"), []string{"go", "tool", "test2json"}, observation, "TestCompileGroup", timings["TestCompileGroup"], observation.selectorIntervals["TestCompileGroup"], nil, false)
-	second := compiledSelectorResultWithLog(GateID("second"), []string{"go", "tool", "test2json"}, observation, "TestCompileGroupSecond", timings["TestCompileGroupSecond"], observation.selectorIntervals["TestCompileGroupSecond"], nil, false)
-	if first.ExecutionProfile.TotalMS != 8 || second.ExecutionProfile.TotalMS != 17 || first.ExecutionProfile.TotalMS == observation.completed.Sub(observation.started).Milliseconds() || second.ExecutionProfile.TotalMS == observation.completed.Sub(observation.started).Milliseconds() {
-		t.Fatalf("per-selector totals = %d/%d, batch total = %d", first.ExecutionProfile.TotalMS, second.ExecutionProfile.TotalMS, observation.completed.Sub(observation.started).Milliseconds())
+	firstWorkload := mustCompileGroupBatchWorkload(t, "TestCompileGroup")
+	secondWorkload := mustCompileGroupBatchWorkload(t, "TestCompileGroupSecond")
+	first, err := compiledSelectorResultWithLog(GateID(firstWorkload.ID), []string{"go", "tool", "test2json"}, observation, "TestCompileGroup", timings["TestCompileGroup"], observation.selectorIntervals["TestCompileGroup"], nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := compiledSelectorResultWithLog(GateID(secondWorkload.ID), []string{"go", "tool", "test2json"}, observation, "TestCompileGroupSecond", timings["TestCompileGroupSecond"], observation.selectorIntervals["TestCompileGroupSecond"], nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPerSelectorExecutionProfiles(t, first, second, observation.completed.Sub(observation.started).Milliseconds())
+}
+
+func assertPerSelectorExecutionProfiles(t *testing.T, first, second PlanGateExecution, batchTotalMS int64) {
+	t.Helper()
+	if first.ExecutionProfile.TotalMS != 8 || second.ExecutionProfile.TotalMS != 17 || first.ExecutionProfile.TotalMS == batchTotalMS || second.ExecutionProfile.TotalMS == batchTotalMS {
+		t.Fatalf("per-selector totals = %d/%d, batch total = %d", first.ExecutionProfile.TotalMS, second.ExecutionProfile.TotalMS, batchTotalMS)
 	}
 	if first.ExecutionProfile.StartupMS != 1 || second.ExecutionProfile.StartupMS != 1 {
 		t.Fatalf("per-selector startups = %d/%d", first.ExecutionProfile.StartupMS, second.ExecutionProfile.StartupMS)
@@ -276,7 +310,10 @@ func TestFailedCompiledSelectorBatchCancelsUnobservedCompanions(t *testing.T) {
 			"TestCompileGroup": {runAt: base.Add(3 * time.Millisecond), completedAt: base.Add(9 * time.Millisecond)},
 		},
 	}
-	results := failedCompiledSelectorBatchResults(group, []string{"go", "tool", "test2json"}, &observation, errors.New("batch process exited"))
+	results, err := failedCompiledSelectorBatchResults(group, []string{"go", "tool", "test2json"}, &observation, errors.New("batch process exited"), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	firstResult := results[group.WorkloadIDs[0]]
 	secondResult := results[group.WorkloadIDs[1]]
 	if firstResult.Status != ResultStatusFailed || firstResult.ExecutionProfile.TotalMS == observation.completed.Sub(observation.started).Milliseconds() {
@@ -315,7 +352,11 @@ func TestCompiledSelectorBatchCanonicalizesTerminalDuration(t *testing.T) {
 	interval := compiledSelectorBatchInterval{runAt: base.Add(time.Millisecond), completedAt: base.Add(11 * time.Millisecond)}
 	observation := compiledSelectorBatchObservation{started: base, log: newBoundedPlanLog(executorPlanMaxLogBytes)}
 	timings := []GoTestTiming{{Name: "TestCompileGroup", Status: GoTestStatusPass, DurationMS: 7}}
-	result := compiledSelectorResultWithLog(GateID("rounded"), []string{"go", "tool", "test2json"}, observation, "TestCompileGroup", timings, interval, nil, false)
+	workload := mustCompileGroupBatchWorkload(t, "TestCompileGroup")
+	result, err := compiledSelectorResultWithLog(GateID(workload.ID), []string{"go", "tool", "test2json"}, observation, "TestCompileGroup", timings, interval, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.Status != ResultStatusPassed || len(result.TestTimings) != 1 || result.TestTimings[0].DurationMS != 7 {
 		t.Fatalf("rounded selector result = status %s timings %#v", result.Status, result.TestTimings)
 	}
@@ -345,6 +386,10 @@ func TestCompileGroupBatchProcessEnvironmentBoundsArchtestHeap(t *testing.T) {
 	archtest := compileGroupBatchProcessEnvironment(append([]string(nil), base...), AtomicArchtestPackageTarget)
 	if got := environmentValue(archtest, "GOMEMLIMIT"); got != "3GiB" {
 		t.Fatalf("archtest GOMEMLIMIT = %q, want 3GiB", got)
+	}
+	superGate := compileGroupBatchProcessEnvironment(append([]string(nil), base...), AtomicSuperDolphinGatePackageTarget)
+	if got := environmentValue(superGate, "GOMEMLIMIT"); got != "3GiB" {
+		t.Fatalf("super-dolphin-gate GOMEMLIMIT = %q, want 3GiB", got)
 	}
 	ordinary := compileGroupBatchProcessEnvironment(append([]string(nil), base...), "./internal/example")
 	if got := environmentValue(ordinary, "GOMEMLIMIT"); got != "off" {
@@ -435,11 +480,51 @@ func writeBatchTestEvent(t *testing.T, writer *compiledSelectorBatchEventWriter,
 
 func mustCompileGroupBatchWorkload(t *testing.T, name string) Workload {
 	t.Helper()
-	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, "./sample", name, 10)
+	return mustCompileGroupBatchWorkloadForPackage(t, "./sample", name)
+}
+
+func mustCompileGroupBatchWorkloadForPackage(t *testing.T, packageTarget, name string) Workload {
+	t.Helper()
+	target := GoTestTarget{Package: packageTarget, Name: name}
+	if IsCanonicalGoTestHelper(target) {
+		encoded, err := encodeGoTestTarget(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := targetWorkloadID(GateIDBackendTestWithGuard, workloadTargetGoTest, encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return Workload{ID: id, Kind: WorkloadKindGoTest, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 10, Shardable: true}
+	}
+	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, packageTarget, name, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return workload
+}
+
+// TestCompileGroup 是批量 selector fixture 的显式 helper 入口。
+// super-dolphin-ci: helper
+func TestCompileGroup(t *testing.T) {
+	if os.Getenv("GO_WANT_COMPILE_GROUP_BATCH_HELPER") != "1" {
+		t.Skip("compile group batch helper is only a subprocess fixture")
+	}
+	data, err := os.ReadFile("fixture.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "compile fixture\n" {
+		t.Fatalf("fixture = %q", data)
+	}
+}
+
+// TestCompileGroupSecond 是批量 selector fixture 的第二个 terminal helper。
+// super-dolphin-ci: helper
+func TestCompileGroupSecond(t *testing.T) {
+	if os.Getenv("GO_WANT_COMPILE_GROUP_BATCH_HELPER") != "1" {
+		t.Skip("compile group batch helper is only a subprocess fixture")
+	}
 }
 
 func TestPrepareCompileGroupWorkRootCreatesTrustedEmptyDirectory(t *testing.T) {
@@ -532,7 +617,7 @@ func compileGroupTestModule(t *testing.T) (string, string, string) {
 	if err := os.WriteFile(filepath.Join(sampleDir, "fixture.txt"), []byte("compile fixture\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return goBinary, workDir, filepath.Join(workDir, "test-binary")
+	return goBinary, workDir, compileGroupTestBinaryPath(workDir)
 }
 
 func compileGroupTestEnvironment(t *testing.T) []string {
@@ -666,7 +751,11 @@ func TestCompiledSelectorBodyStartsOnlyAfterSuccessfulStart(t *testing.T) {
 	if observation.bodyStarted.IsZero() || !observation.bodyStarted.After(observation.started) {
 		t.Fatalf("selector body started before successful process start: %v..%v", observation.started, observation.bodyStarted)
 	}
-	result := compiledSelectorResult(GateID("selector"), observation.argv, observation)
+	workload := mustCompileGroupBatchWorkload(t, "TestCompileGroup")
+	result, err := compiledSelectorResult(GateID(workload.ID), observation.argv, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.ExecutionProfile.StartupMS != 1 || result.ExecutionProfile.TestBodyMS != 1 || result.ExecutionProfile.TotalMS != 2 {
 		t.Fatalf("selector timing = %#v, want startup=1 body=1 total=2", result.ExecutionProfile)
 	}
@@ -687,7 +776,11 @@ func TestCompiledSelectorStartFailureDoesNotInventTestBody(t *testing.T) {
 	if !observation.bodyStarted.IsZero() {
 		t.Fatalf("failed selector start fabricated body start %v", observation.bodyStarted)
 	}
-	result := compiledSelectorResult(GateID("selector"), observation.argv, observation)
+	workload := mustCompileGroupBatchWorkload(t, "TestCompileGroup")
+	result, err := compiledSelectorResult(GateID(workload.ID), observation.argv, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.ExecutionProfile.TestBodyMS != 0 || result.ExecutionProfile.StartupMS != result.ExecutionProfile.TotalMS {
 		t.Fatalf("failed selector timing invented test body: %#v", result.ExecutionProfile)
 	}

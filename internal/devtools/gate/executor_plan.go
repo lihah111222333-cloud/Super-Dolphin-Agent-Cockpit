@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	ExecutorPlanReportSchemaVersion    = 10
+	ExecutorPlanReportSchemaVersion    = 11
 	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
 	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
 	// ExecutorAgentTokenDigestEnvironment 将远程 worker 报告绑定到已准入的 agent 身份。
@@ -75,9 +75,10 @@ type PlanGateExecution struct {
 }
 
 // ExecutionProfile 保存单个门禁有界且与回执绑定的执行证据。
-// v10 报告不会从缺失字段推断缓存命中或远程阶段。
+// v11 将 canonical GoFlags 冻结到报告；不会从缺失字段推断缓存命中或远程阶段。
 type ExecutionProfile struct {
 	Frontend         *FrontendExecutionProfile `json:"frontend,omitempty"`
+	GoFlags          string                    `json:"go_flags"`
 	CacheSource      string                    `json:"cache_source"`
 	CacheStatus      CacheObservationStatus    `json:"cache_status"`
 	CacheMeasurement string                    `json:"cache_measurement"`
@@ -452,12 +453,18 @@ func executeGatePlanWithRunner(
 			report.Gates = append(report.Gates, result)
 			continue
 		}
+		pendingProfile, profileErr := measuredExecutionProfileForGate(id)
+		if profileErr != nil {
+			executionErr = errors.Join(executionErr, fmt.Errorf("pending gate %q execution profile: %w", id, profileErr))
+			report.ExecutionOutcome = WorkerExecutionOutcomeForError(executionErr)
+			return report, executionErr
+		}
 		status, log := pendingPlanGateResult(ctx)
 		report.Gates = append(report.Gates, PlanGateExecution{
 			GateID: id, Status: status, ExitCode: -1,
 			StartedAt: cancelledAt, CompletedAt: cancelledAt,
 			Log: log, LogDigest: digestPlanLog(log),
-			ExecutionProfile: measuredNonCacheExecutionProfile(),
+			ExecutionProfile: pendingProfile,
 		})
 	}
 	report.ExecutionOutcome = WorkerExecutionOutcomeForError(executionErr)

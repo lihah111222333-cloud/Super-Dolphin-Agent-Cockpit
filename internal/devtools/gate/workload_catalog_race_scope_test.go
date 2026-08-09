@@ -26,32 +26,22 @@ func TestRaceCatalogRejectsStaticOnlyInventoryInsteadOfPackageFallback(t *testin
 			{Package: AtomicArchtestPackageTarget, Name: "TestCodeSizeGuard"},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "no runnable tests after normal-only exclusions") {
+	if err == nil || !strings.Contains(err.Error(), "missing exact selectors") || !strings.Contains(err.Error(), AtomicArchtestPackageTarget) {
 		t.Fatalf("static-only race inventory error = %v, want fail-fast exclusion error", err)
 	}
 }
 
-func TestRaceCatalogDropsStaticOnlyAtomicPackageAndKeepsRunnablePackage(t *testing.T) {
+func TestRaceCatalogRejectsAnyAtomicPackageWithIncompleteInventory(t *testing.T) {
 	plan := mustRaceScopePlan(t)
-	catalog, err := BuildCalibrationWorkloadCatalog(plan, DefaultWorkloadBootstrapPolicy(), WorkloadInventory{
+	_, err := BuildCalibrationWorkloadCatalog(plan, DefaultWorkloadBootstrapPolicy(), WorkloadInventory{
 		GoPackages: []string{AtomicArchtestPackageTarget, AtomicCodexAppPackageTarget},
 		GoRaceTests: []GoTestTarget{
 			{Package: AtomicArchtestPackageTarget, Name: "TestCodeSizeGuard"},
 			{Package: AtomicCodexAppPackageTarget, Name: "TestCodexRace"},
 		},
 	})
-	if err != nil {
-		t.Fatalf("BuildCalibrationWorkloadCatalog() error = %v", err)
-	}
-	got := raceCatalogPackageTargets(t, catalog)
-	if !slices.Equal(got, []string{AtomicCodexAppPackageTarget}) {
-		t.Fatalf("runnable race package targets = %v, want only %q", got, AtomicCodexAppPackageTarget)
-	}
-	if _, ok := catalogGoTestWorkload(t, catalog, GateIDBackendTestGuardWithRace, AtomicArchtestPackageTarget, "TestCodeSizeGuard"); ok {
-		t.Fatal("static-only archtest selector remained in race catalog")
-	}
-	if _, ok := catalogGoTestWorkload(t, catalog, GateIDBackendTestGuardWithRace, AtomicCodexAppPackageTarget, "TestCodexRace"); !ok {
-		t.Fatal("runnable codexapp race selector was dropped")
+	if err == nil || !strings.Contains(err.Error(), "missing exact selectors") || !strings.Contains(err.Error(), AtomicArchtestPackageTarget) || !strings.Contains(err.Error(), AtomicCodexAppPackageTarget) {
+		t.Fatalf("incomplete atomic inventory error = %v, want fail-fast package coverage error", err)
 	}
 }
 

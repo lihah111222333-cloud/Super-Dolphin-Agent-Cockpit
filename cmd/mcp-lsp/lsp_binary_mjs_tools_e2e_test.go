@@ -45,6 +45,7 @@ func TestMcpLSPBinaryMJSToolsUseConfiguredTSServerFallback_E2E(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: helper
 func TestFakeJSTSLangserverHelper(t *testing.T) {
 	if os.Getenv(fakeJSTSLangserverEnv) != "1" {
 		return

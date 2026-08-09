@@ -364,7 +364,7 @@ func TestPlanCurrentWorkloadsKeepsIndivisibleWorkloadOver100SecondsRunnable(t *t
 	}
 }
 
-func TestPlanCurrentWorkloadsUsesAtomicEstimateAfterSuccessfulPreparationOverrun(t *testing.T) {
+func TestPlanCurrentWorkloadsKeepsAtomicEstimateAfterSuccessfulPreparationOverrun(t *testing.T) {
 	workload, err := NewGoTestWorkload(
 		GateIDBackendTestWithGuard,
 		"./internal/archtest",
@@ -377,15 +377,12 @@ func TestPlanCurrentWorkloadsUsesAtomicEstimateAfterSuccessfulPreparationOverrun
 	ledger := testPlanningLedger(testPlanningContext(), []DurationSample{
 		testDurationSample(workload.ID, workload.CommandDigest, true, FullCITargetDurationMS+50),
 	})
-	ledger.Samples[0].Bucket.ResourceClassID = "medium"
-	ledger.Samples[0].Bucket.ResourceCPU = 4
-	ledger.Samples[0].Bucket.ResourceMemoryGiB = 8
 	shards, err := planCurrentWorkloads(testWorkloadCatalog(workload), ledger, testPlanningContext())
 	if err != nil {
 		t.Fatalf("planCurrentWorkloads() rejected a passed atomic test with deadline-external preparation: %v", err)
 	}
-	if got := shards[0].Workloads[0].EstimatedDurationMS; got != workload.BootstrapEstimateMS {
-		t.Fatalf("atomic test estimate = %dms, want %dms", got, workload.BootstrapEstimateMS)
+	if got := shards[0].Workloads[0].EstimatedDurationMS; got != FullCITargetDurationMS+50 {
+		t.Fatalf("atomic test estimate = %dms, want authoritative %dms", got, FullCITargetDurationMS+50)
 	}
 }
 

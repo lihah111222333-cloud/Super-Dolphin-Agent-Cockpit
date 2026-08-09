@@ -121,6 +121,7 @@ func javaAndroidClasspathMissingMessage(message string) bool {
 		(strings.Contains(message, "Android classpath missing") && strings.Contains(message, "android.app.Activity"))
 }
 
+// super-dolphin-ci: helper
 func TestFakeJDTLSLangserverHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_JDTLS") != "1" {
 		return

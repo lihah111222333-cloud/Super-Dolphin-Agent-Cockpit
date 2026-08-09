@@ -118,6 +118,11 @@ func validateAndOrderWorkloadPassEvidence(
 			var err error
 			origin, err = loadWorkloadPassEvidenceOriginContext(tx, evidence, stats)
 			if err != nil {
+				if errors.Is(err, errLegacyRemoteCIExecutionProfile) {
+					// The origin predates the current execution semantic identity. It
+					// is a strict MISS, never a compatibility decode or fallback hit.
+					continue
+				}
 				return nil, err
 			}
 			origins[originKey] = origin

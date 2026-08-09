@@ -73,6 +73,81 @@ func TestGoPackageTargetForSourceUsesModuleAgnosticCanonicalPaths(t *testing.T) 
 	}
 }
 
+func TestFrontendPreflightRejectsGoPackageTargets(t *testing.T) {
+	if _, err := targetWorkloadID(GateIDFrontendPreflight, workloadTargetGoPackage, "./internal/alpha"); err == nil {
+		t.Fatal("frontend preflight accepted a Go package target")
+	}
+}
+
+func TestFrontendSuiteCarriersAreProfileSpecificAndFailClosed(t *testing.T) {
+	changed, err := targetWorkloadID(GateIDFrontendTest, workloadTargetVitest, FrontendChangedSuiteCarrierTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := targetWorkloadID(GateIDFrontendFullTest, workloadTargetVitest, FrontendFullSuiteCarrierTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == full {
+		t.Fatal("changed and full frontend suite identities unexpectedly match")
+	}
+	assertFrontendSuiteInvalidTargets(t)
+	assertFrontendSuiteCommandDigestsStable(t, changed, full)
+}
+
+func assertFrontendSuiteInvalidTargets(t *testing.T) {
+	t.Helper()
+	for _, test := range []struct {
+		gateID GateID
+		target string
+	}{
+		{GateIDFrontendTest, FrontendFullSuiteCarrierTarget},
+		{GateIDFrontendFullTest, FrontendChangedSuiteCarrierTarget},
+		{GateIDFrontendTest, "unknown"},
+	} {
+		if _, err := targetWorkloadID(test.gateID, workloadTargetVitest, test.target); err == nil {
+			t.Fatalf("invalid frontend suite carrier accepted: gate=%q target=%q", test.gateID, test.target)
+		}
+	}
+}
+
+func TestFrontendPreflightCarriersRoundTripCanonicalAllowlist(t *testing.T) {
+	for _, target := range FrontendPreflightTargets() {
+		carrier, err := FrontendPreflightCarrierTarget(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, ok := ParseFrontendPreflightCarrierTarget(carrier)
+		if !ok || got != target {
+			t.Fatalf("ParseFrontendPreflightCarrierTarget(%q) = (%q, %t)", carrier, got, ok)
+		}
+	}
+	for _, carrier := range []string{"scripts/remote-preflight-carriers/unknown.test.mjs", "../critical-guards.test.mjs"} {
+		if _, ok := ParseFrontendPreflightCarrierTarget(carrier); ok {
+			t.Fatalf("invalid frontend preflight carrier %q was accepted", carrier)
+		}
+	}
+}
+
+func assertFrontendSuiteCommandDigestsStable(t *testing.T, changed, full string) {
+	t.Helper()
+	changedDigest, err := WorkloadExecutionDigest(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullDigest, err := WorkloadExecutionDigest(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedDigest == fullDigest {
+		t.Fatal("changed and full frontend suite command identities unexpectedly match")
+	}
+	changedAgain, err := WorkloadExecutionDigest(changed)
+	if err != nil || changedAgain != changedDigest {
+		t.Fatalf("changed frontend suite command digest is not stable: %q/%v", changedAgain, err)
+	}
+}
+
 func TestGoTestWorkloadBindsPackageTestAndExecutionSemantics(t *testing.T) {
 	workload := mustGoTestWorkload(t, GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary")
 	parent, kind, target, targeted := mustParseTargetedWorkload(t, workload.ID)

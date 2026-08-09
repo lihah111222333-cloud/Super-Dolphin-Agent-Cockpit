@@ -194,6 +194,21 @@ func normalResourceForTier(tier cicontract.WorkloadResourceTier) (float64, float
 	}
 }
 
+// normalResourceTierForTuple 将计划持久化的固定 CPU/内存 tuple 映射为档位。
+// 任何非协议资源都直接失败，避免 owner hint 静默改变资源身份。
+func normalResourceTierForTuple(cpu, memoryGiB float64) (cicontract.WorkloadResourceTier, error) {
+	switch {
+	case cpu == 2 && memoryGiB == 4:
+		return cicontract.WorkloadResourceTierFast, nil
+	case cpu == 4 && memoryGiB == 8:
+		return cicontract.WorkloadResourceTierMedium, nil
+	case cpu == 8 && memoryGiB == 16:
+		return cicontract.WorkloadResourceTierSlow, nil
+	default:
+		return 0, fmt.Errorf("unsupported resource %.gC/%.gGiB", cpu, memoryGiB)
+	}
+}
+
 // normalResourceTierRank 返回仅用于单次规划收敛的显式策略顺序，
 // 不从枚举值推断顺序。
 func normalResourceTierRank(tier cicontract.WorkloadResourceTier) (int, error) {
@@ -292,11 +307,7 @@ func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, 
 	if !found || aggregate.successCount == 0 {
 		return workload.BootstrapEstimateMS, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
 	}
-	estimate := aggregate.successTotalMS / aggregate.successCount
-	if estimate > targetDurationMS && exactGoTestBootstrapFitsBudget(workload, targetDurationMS) {
-		estimate = workload.BootstrapEstimateMS
-	}
-	return estimate, resource, nil
+	return aggregate.successTotalMS / aggregate.successCount, resource, nil
 }
 
 func (index DurationSampleIndex) calibrationResource() (float64, float64, error) {
@@ -354,9 +365,6 @@ func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier c
 		return carriedEstimateMS, durationSampleResource{cpu: cpu, memoryGiB: memoryGiB}, tier, true, nil
 	}
 	estimate := aggregate.successTotalMS / aggregate.successCount
-	if estimate > targetDurationMS && exactGoTestBootstrapFitsBudget(workload, targetDurationMS) {
-		estimate = workload.BootstrapEstimateMS
-	}
 	nextTier, done, err := normalResourceTierTransition(tier, estimate)
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
@@ -373,21 +381,15 @@ func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier c
 //
 // 资源档位由调用方（通常是已持久化的 owner resource）显式提供；这里
 // 不再根据测试体的 bootstrap 或当前估时重新分类，避免在 compile-group
-// 规划阶段把 selector 体时长偷偷升档。父 workload 的输入 digest 仍从
-// 同一资源桶解析，以确保 selector 与 package 的历史样本属于同一输入。
+// 规划阶段把 selector 体时长偷偷升档。selector body 直接按规范的合成
+// target identity 查询，不读取父 workload 聚合；这样 normal exact selector
+// 不会被 calibration-only 的父样本或缺少 normal 父样本误导。
 func (index DurationSampleIndex) GoTestDurationMSAtResource(parent Workload, testName string, cpu, memoryGiB float64) (int64, bool) {
 	if !validGoTestDurationRequest(parent, testName, cpu, memoryGiB) {
 		return 0, false
 	}
 	mode := index.goTestDurationMode()
-	parentAggregate, parentResource, parentFound, err := index.aggregateForResource(parent, mode, cpu, memoryGiB)
-	if err != nil {
-		return 0, false
-	}
-	if !successfulDurationAggregateFound(parentFound, parentAggregate) {
-		return 0, false
-	}
-	workload := goTestDurationWorkload(parent, testName, parentResource.inputDigest)
+	workload := goTestDurationWorkload(parent, testName, parent.InputDigest)
 	aggregate, _, found, err := index.aggregateForResource(workload, mode, cpu, memoryGiB)
 	if err != nil || !found || aggregate.successCount == 0 {
 		return 0, false
@@ -397,7 +399,8 @@ func (index DurationSampleIndex) GoTestDurationMSAtResource(parent Workload, tes
 
 // validGoTestDurationRequest 校验 selector body 精确资源查询的输入。
 func validGoTestDurationRequest(parent Workload, testName string, cpu, memoryGiB float64) bool {
-	return strings.TrimSpace(parent.ID) != "" && strings.TrimSpace(testName) != "" && cpu > 0 && memoryGiB > 0
+	return strings.TrimSpace(parent.ID) != "" && isSHA256Digest(parent.CommandDigest) &&
+		isPrefixedSHA256Digest(parent.InputDigest) && strings.TrimSpace(testName) != "" && cpu > 0 && memoryGiB > 0
 }
 
 // goTestDurationMode 返回当前规划上下文的 workload 执行模式。
@@ -406,11 +409,6 @@ func (index DurationSampleIndex) goTestDurationMode() string {
 		return DurationExecutionModeCalibration
 	}
 	return DurationExecutionModeNormal
-}
-
-// successfulDurationAggregateFound 判断父 workload 是否有可供 selector 复用的成功样本。
-func successfulDurationAggregateFound(found bool, aggregate durationSampleAggregate) bool {
-	return found && aggregate.successCount > 0
 }
 
 // goTestDurationWorkload 构造带父输入 digest 的 selector body workload。

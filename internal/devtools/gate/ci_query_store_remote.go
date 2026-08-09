@@ -13,6 +13,11 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
+// errLegacyRemoteCIExecutionProfile marks rows written before the current
+// ExecutionProfile semantic surface. PASS lookup treats it as a cache MISS;
+// ordinary authoritative reads remain strict and return the error.
+var errLegacyRemoteCIExecutionProfile = errors.New("legacy remote CI execution profile")
+
 // loadRemoteCIRunRow 从一致性读快照解码远端 CI run 的主记录。
 func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRecord, error) {
 	var (
@@ -246,6 +251,13 @@ func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) 
 		if err := execution.ExecutionProfile.Validate(); err != nil {
 			return nil, errors.New("stored remote CI workload execution profile is invalid")
 		}
+		expectedFlags, err := WorkloadExecutionGoFlags(string(execution.GateID))
+		if err != nil {
+			return nil, fmt.Errorf("stored remote CI workload %q expected GoFlags: %w", execution.GateID, err)
+		}
+		if execution.ExecutionProfile.GoFlags != expectedFlags {
+			return nil, fmt.Errorf("stored remote CI workload %q profile GoFlags %q does not match expected %q", execution.GateID, execution.ExecutionProfile.GoFlags, expectedFlags)
+		}
 		executions = append(executions, execution)
 	}
 	if err := rows.Err(); err != nil {
@@ -445,6 +457,16 @@ func decodeStoredRemoteCIExecutionProfile(encoded string) (ExecutionProfile, err
 	if strings.TrimSpace(encoded) == "" {
 		return ExecutionProfile{}, errors.New("stored remote CI execution profile is required")
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(encoded), &fields); err != nil {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
+	}
+	if fields == nil {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
+	}
+	if err := validateStoredRemoteCIGoFlags(fields); err != nil {
+		return ExecutionProfile{}, err
+	}
 	var profile ExecutionProfile
 	if err := DecodeStrictJSON([]byte(encoded), &profile); err != nil {
 		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
@@ -465,11 +487,38 @@ func decodeStoredRemoteCIAggregateExecutionProfile(encoded string) (ExecutionPro
 	if strings.TrimSpace(encoded) == "" {
 		return ExecutionProfile{}, errors.New("stored remote CI execution profile is required")
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(encoded), &fields); err != nil {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
+	}
+	if fields == nil {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
+	}
+	if err := validateStoredRemoteCIGoFlags(fields); err != nil {
+		return ExecutionProfile{}, err
+	}
 	var profile storedRemoteCIAggregateExecutionProfile
 	if err := DecodeStrictJSON([]byte(encoded), &profile); err != nil {
 		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
 	}
 	return ExecutionProfile(profile), nil
+}
+
+// validateStoredRemoteCIGoFlags requires a concrete JSON string. Presence
+// alone is insufficient because encoding/json silently maps null to "".
+func validateStoredRemoteCIGoFlags(fields map[string]json.RawMessage) error {
+	raw, present := fields["go_flags"]
+	if !present {
+		return fmt.Errorf("%w: stored remote CI execution profile is invalid: go_flags field is missing", errLegacyRemoteCIExecutionProfile)
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return errors.New("stored remote CI execution profile is invalid")
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return errors.New("stored remote CI execution profile is invalid")
+	}
+	return nil
 }
 
 // validateRemoteCIAggregateExecution 校验 parent gate 的区间并集/关键路径 profile 未与执行时间戳漂移。

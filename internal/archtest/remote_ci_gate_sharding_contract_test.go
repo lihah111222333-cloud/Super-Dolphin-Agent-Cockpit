@@ -46,7 +46,9 @@ func assertReleaseParentsHaveShardableWorkloads(t *testing.T) {
 		t.Fatalf("BuildGatePlan(release): %v", err)
 	}
 	catalog, err := gate.BuildExpandedWorkloadCatalog(plan, gate.DefaultWorkloadBootstrapPolicy(), gate.WorkloadInventory{
-		GoPackages: []string{"./internal/archtest"},
+		GoPackages:  []string{"./internal/archtest"},
+		GoTests:     []gate.GoTestTarget{{Package: "./internal/archtest", Name: "TestCommon"}},
+		GoRaceTests: []gate.GoTestTarget{{Package: "./internal/archtest", Name: "TestRace"}},
 	})
 	if err != nil {
 		t.Fatalf("BuildExpandedWorkloadCatalog(release): %v", err)

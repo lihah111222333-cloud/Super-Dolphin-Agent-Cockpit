@@ -246,12 +246,14 @@ func (snapshot *remoteGitTreeSnapshot) compileGroupProfileDigest(ctx context.Con
 		Platform             string `json:"platform"`
 		Toolchain            string `json:"toolchain"`
 		Race                 bool   `json:"race"`
+		GoFlags              string `json:"go_flags"`
 		WorkerContractDigest string `json:"worker_contract_digest"`
 	}{
 		SchemaVersion:        gate.CompileGroupSchemaVersion,
 		Platform:             cicontract.TargetPlatform,
 		Toolchain:            cicontract.GoToolchainVersion,
 		Race:                 profile.race,
+		GoFlags:              gate.CanonicalGoFlags(profile.race),
 		WorkerContractDigest: workerDigest,
 	}
 	encoded, err := json.Marshal(material)

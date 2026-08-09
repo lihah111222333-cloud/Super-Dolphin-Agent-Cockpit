@@ -17,6 +17,8 @@ func TestRemoteCIAtomicGoPackageContract(t *testing.T) {
 	for _, marker := range []string{
 		"AtomicGatePackageTarget",
 		"AtomicRemoteCIPackageTarget",
+		"AtomicMcpLSPPackageTarget",
+		"AtomicSuperDolphinGatePackageTarget",
 		`"./internal/devtools/gate"`,
 		`"./internal/devtools/remoteci"`,
 		"func AtomicGoPackageTargets() []string",

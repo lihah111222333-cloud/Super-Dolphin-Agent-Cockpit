@@ -32,8 +32,11 @@ func TestRemoteCIConcurrencyPolicyHasNoRepositorySerialBoundary(t *testing.T) {
 }
 
 func TestArchtestCompileGroupBudgetIsBoundedPerECIShard(t *testing.T) {
-	if ArchtestMaxSelectorsPerCompileGroup != 64 {
-		t.Fatalf("ArchtestMaxSelectorsPerCompileGroup = %d, want 64", ArchtestMaxSelectorsPerCompileGroup)
+	if CompileGroupMaxSelectors != 64 {
+		t.Fatalf("CompileGroupMaxSelectors = %d, want 64", CompileGroupMaxSelectors)
+	}
+	if ArchtestMaxSelectorsPerCompileGroup != CompileGroupMaxSelectors {
+		t.Fatalf("legacy archtest selector alias = %d, want generic owner %d", ArchtestMaxSelectorsPerCompileGroup, CompileGroupMaxSelectors)
 	}
 }
 

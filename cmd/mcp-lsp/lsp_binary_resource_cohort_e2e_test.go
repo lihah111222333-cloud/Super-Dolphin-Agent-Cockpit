@@ -84,6 +84,7 @@ type resourceCohortE2EOwner struct {
 	lease     resourceCohortE2ELease
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestMcpLSPBinaryLinkedWorktreesResourceCohortRecycleAndRecover_E2E(t *testing.T) {
 	fixture := newResourceCohortE2EFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
@@ -96,6 +97,7 @@ func TestMcpLSPBinaryLinkedWorktreesResourceCohortRecycleAndRecover_E2E(t *testi
 	assertResourceCohortE2ESecondaryRecovery(t, fixture, primary, secondary)
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestMcpLSPBinaryResourceCohortMalformedReportQuarantine_E2E(t *testing.T) {
 	fixture := newResourceCohortE2EFixture(t)
 	badReportPath := writeResourceCohortE2EBadReport(t, fixture.cacheDir)
@@ -255,6 +257,7 @@ func assertResourceCohortE2ESecondaryRecovery(
 	waitForResourceCohortE2EProcessState(t, recoveredPID, true, time.Second)
 }
 
+// super-dolphin-ci: helper
 func TestResourceCohortE2ELanguageServerHelper(t *testing.T) {
 	if os.Getenv(resourceCohortE2EHelperEnv) != "1" {
 		return

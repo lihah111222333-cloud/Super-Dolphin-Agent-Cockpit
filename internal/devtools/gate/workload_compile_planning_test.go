@@ -87,13 +87,13 @@ func TestCompileGroupBatchPlanUsesOneBatchPerBoundedArchtestGroup(t *testing.T) 
 
 func TestSplitArchtestCompilePlanningPartitionsUsesCapacityConstrainedLPT(t *testing.T) {
 	const selectorCount = 423
-	heavyCount := (selectorCount + cicontract.ArchtestMaxSelectorsPerCompileGroup - 1) / cicontract.ArchtestMaxSelectorsPerCompileGroup
+	heavyCount := (selectorCount + cicontract.CompileGroupMaxSelectors - 1) / cicontract.CompileGroupMaxSelectors
 	selectors := archtestLPTTestSelectors(selectorCount, heavyCount)
 	partitions, err := splitCompilePlanningPartitions(compilePlanningBucket{selectors: selectors})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPartitions := (selectorCount + cicontract.ArchtestMaxSelectorsPerCompileGroup - 1) / cicontract.ArchtestMaxSelectorsPerCompileGroup
+	wantPartitions := (selectorCount + cicontract.CompileGroupMaxSelectors - 1) / cicontract.CompileGroupMaxSelectors
 	if len(partitions) != wantPartitions {
 		t.Fatalf("partition count = %d, want %d", len(partitions), wantPartitions)
 	}
@@ -122,8 +122,8 @@ func assertArchtestLPTPartitionShape(t *testing.T, partitions [][]compilePlannin
 	var minimum, maximum int64
 	heavyPartitions := 0
 	for index, partition := range partitions {
-		if len(partition) == 0 || len(partition) > cicontract.ArchtestMaxSelectorsPerCompileGroup {
-			t.Fatalf("partition %d size = %d, want 1..%d", index, len(partition), cicontract.ArchtestMaxSelectorsPerCompileGroup)
+		if len(partition) == 0 || len(partition) > cicontract.CompileGroupMaxSelectors {
+			t.Fatalf("partition %d size = %d, want 1..%d", index, len(partition), cicontract.CompileGroupMaxSelectors)
 		}
 		body, hasHeavySelector := archtestLPTPartitionBody(partition)
 		if hasHeavySelector {
@@ -299,6 +299,28 @@ func TestCompileGroupBatchPlanKeepsAtomicDevtoolsPackagesOnOneBinary(t *testing.
 	}
 }
 
+func TestCompileGroupBatchPlanPlacesMcpLSPProcessCohortSelectorsInExclusiveWaves(t *testing.T) {
+	selectors := append(
+		testCompilePlanningSelectors(t, AtomicMcpLSPPackageTarget, []string{"TestMcpLSPCommon"}, []int64{10}),
+		testCompilePlanningSelectors(t, AtomicMcpLSPPackageTarget, []string{
+			"TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers",
+			"TestMcpLSPBinaryConcurrentAgentsRespectGoplsRootCohortIsolation_E2E",
+		}, []int64{20, 30})...,
+	)
+	_, batches, warning, err := compileGroupBatchPlan(selectors, 1, "medium")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warning != "" || len(batches) != 3 || batches[0].Wave != 0 || batches[0].Exclusive {
+		t.Fatalf("mcp-lsp batch plan = %#v warning=%q", batches, warning)
+	}
+	for index, batch := range batches[1:] {
+		if batch.Wave != index+1 || !batch.Exclusive || len(batch.SelectorIDs) != 1 {
+			t.Fatalf("mcp-lsp batch %d = %#v, want singleton serial wave", index+1, batch)
+		}
+	}
+}
+
 func TestCompileGroupBatchPlanPlacesCodexSelectorsInExclusiveSerialWaves(t *testing.T) {
 	selectors := append(
 		testCompilePlanningSelectors(t, "./internal/archtest", []string{"TestAlpha"}, []int64{10}),
@@ -408,6 +430,38 @@ func testCompilePlanningSelectors(t *testing.T, packageTarget string, names []st
 		}
 	}
 	return selectors
+}
+
+func TestSplitMcpLSPCompilePlanningPartitionsUsesSelectorBound(t *testing.T) {
+	const selectorCount = cicontract.CompileGroupMaxSelectors + 1
+	selectors := make([]compilePlanningSelector, selectorCount)
+	for index := range selectors {
+		selectors[index] = compilePlanningSelector{
+			planned:        PlannedWorkload{Workload: Workload{ID: fmt.Sprintf("mcp-lsp-selector-%03d", index)}},
+			input:          CompileGroupInput{PackageTarget: AtomicMcpLSPPackageTarget},
+			bodyEstimateMS: int64(index + 1), canonicalOrder: index,
+		}
+	}
+	partitions, err := splitCompilePlanningPartitions(compilePlanningBucket{selectors: selectors})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(partitions) != 2 || len(partitions[0]) > cicontract.CompileGroupMaxSelectors || len(partitions[1]) > cicontract.CompileGroupMaxSelectors {
+		t.Fatalf("mcp-lsp partitions = %d sizes=%d,%d, want two bounded groups", len(partitions), len(partitions[0]), len(partitions[1]))
+	}
+	seen := make(map[string]bool, selectorCount)
+	for _, partition := range partitions {
+		for _, selector := range partition {
+			id := selector.planned.Workload.ID
+			if seen[id] {
+				t.Fatalf("selector %q appears in multiple mcp-lsp partitions", id)
+			}
+			seen[id] = true
+		}
+	}
+	if len(seen) != selectorCount {
+		t.Fatalf("mcp-lsp selectors covered=%d, want %d", len(seen), selectorCount)
+	}
 }
 
 func testCompileGroupFromPlanningSelectors(t *testing.T, selectors []compilePlanningSelector, compileEstimate int64, resourceClassID string) CompileGroup {

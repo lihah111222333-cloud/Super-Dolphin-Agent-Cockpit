@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 func TestRemoteWorkerSemanticEnvironmentIsCanonicalAndOneHot(t *testing.T) {
@@ -37,6 +39,25 @@ func TestRemoteWorkerSemanticEnvironmentIsCanonicalAndOneHot(t *testing.T) {
 	}
 }
 
+func TestRemoteWorkloadEnvironmentDigestSeparatesNormalAndRaceGoFlags(t *testing.T) {
+	input := RunInput{Platform: "linux/amd64", PolicyDigest: "sha256:policy", ToolchainDigest: "sha256:toolchain", RuntimeSeedSHA256: "sha256:seed"}
+	policy := testRemoteResourcePolicy()
+	normal, err := remoteWorkloadEnvironmentDigestForGoFlags(input, 10*time.Minute, policy, gate.CanonicalGoFlags(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	race, err := remoteWorkloadEnvironmentDigestForGoFlags(input, 10*time.Minute, policy, gate.CanonicalGoFlags(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normal == race {
+		t.Fatalf("normal and race PASS environment digests are equal: %q", normal)
+	}
+	if _, err := remoteWorkloadEnvironmentDigestForGoFlags(input, 10*time.Minute, policy, "-race -race -p=4"); err == nil {
+		t.Fatal("duplicate race GoFlags were accepted into PASS identity")
+	}
+}
+
 func TestRemoteWorkerSemanticEnvironmentRejectsMalformedOrDuplicate(t *testing.T) {
 	for name, assignments := range map[string][]string{
 		"missing value": {"GOOS="},
@@ -54,7 +75,7 @@ func TestRemoteWorkerSemanticEnvironmentRejectsMalformedOrDuplicate(t *testing.T
 func TestRemoteWorkloadEnvironmentDigestBindsCanonicalMaterialAndWorkerProvenance(t *testing.T) {
 	environment := cicontract.CanonicalWorkerExecutionEnvironment()
 	base := remoteWorkloadEnvironment{
-		SchemaVersion:             "remote-workload-pass-environment/v8",
+		SchemaVersion:             "remote-workload-pass-environment/v9",
 		Platform:                  "linux/amd64",
 		PolicyDigest:              "sha256:policy",
 		ToolchainDigest:           "sha256:toolchain",
@@ -62,6 +83,7 @@ func TestRemoteWorkloadEnvironmentDigestBindsCanonicalMaterialAndWorkerProvenanc
 		CGOEnabled:                "1",
 		GOOS:                      "linux",
 		GOARCH:                    "amd64",
+		GoFlags:                   "-p=4",
 		SemanticEnvironmentSchema: cicontract.WorkerExecutionEnvironmentSchemaVersion,
 		SemanticEnvironment:       environment,
 		WorkerExecutionProvenance: cicontract.WorkerExecutionProvenanceID,

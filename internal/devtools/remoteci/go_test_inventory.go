@@ -205,6 +205,8 @@ func remoteGoTestDirectiveAllows(comments *ast.CommentGroup, goos string) (bool,
 		return true, nil
 	case directive == "helper":
 		return false, nil
+	case directive == "compile-group-exclusive":
+		return true, nil
 	case strings.HasPrefix(directive, "platform="):
 		platform := strings.TrimPrefix(directive, "platform=")
 		switch platform {

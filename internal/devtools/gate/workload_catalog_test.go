@@ -47,8 +47,17 @@ func TestBuildWorkloadCatalogUsesCanonicalPlanAndBareCommandDigest(t *testing.T)
 	if err != nil {
 		t.Fatalf("BuildWorkloadCatalog() error = %v", err)
 	}
-	if len(catalog.Workloads) != len(plan.Gates) {
-		t.Fatalf("catalog workloads = %d, plan gates = %d", len(catalog.Workloads), len(plan.Gates))
+	wantCount := len(plan.Gates)
+	for _, spec := range plan.Gates {
+		if spec.ID == GateIDFrontendPreflight {
+			wantCount += len(FrontendPreflightTargets()) - 1
+		}
+	}
+	if len(catalog.Workloads) != wantCount {
+		t.Fatalf("catalog workloads = %d, want canonical atomic count %d", len(catalog.Workloads), wantCount)
+	}
+	if _, _, _, targeted, err := ParseWorkloadID(string(GateIDFrontendPreflight)); err != nil || targeted {
+		t.Fatalf("frontend preflight parent identity unexpectedly targeted: targeted=%t err=%v", targeted, err)
 	}
 	for _, workload := range catalog.Workloads {
 		assertCanonicalWorkload(t, workload)
@@ -408,6 +417,10 @@ func TestBuildExpandedWorkloadCatalogSplitsAtomicGoTopLevelTests(t *testing.T) {
 	assertAtomicGateCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestGateAtomicCommon", "TestGateAtomicRace"})
 	assertAtomicRemoteCICatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestRemoteCIAtomicCommon", "TestRemoteCIAtomicNormal"})
 	assertAtomicRemoteCICatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestRemoteCIAtomicCommon", "TestRemoteCIAtomicRace"})
+	assertAtomicMcpLSPCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestMcpLSPCommon", "TestMcpLSPProcess"})
+	assertAtomicMcpLSPCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestMcpLSPCommon", "TestMcpLSPRace"})
+	assertAtomicSuperDolphinGateCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"})
+	assertAtomicSuperDolphinGateCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestRemoteCIAgentTokenActualValueContinuesPastHandshake"})
 }
 
 func atomicCatalogInventory() WorkloadInventory {
@@ -434,6 +447,9 @@ func atomicCatalogInventory() WorkloadInventory {
 			{Package: AtomicGatePackageTarget, Name: "TestGateAtomicNormal"},
 			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicCommon"},
 			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicNormal"},
+			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPCommon"},
+			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPProcess"},
+			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"},
 		},
 		GoRaceTests: []GoTestTarget{
 			{Package: AtomicArchtestPackageTarget, Name: "TestAlpha"},
@@ -456,6 +472,9 @@ func atomicCatalogInventory() WorkloadInventory {
 			{Package: AtomicGatePackageTarget, Name: "TestGateAtomicRace"},
 			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicCommon"},
 			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicRace"},
+			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPCommon"},
+			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPRace"},
+			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteCIAgentTokenActualValueContinuesPastHandshake"},
 		},
 	}
 }
@@ -472,6 +491,8 @@ func TestAtomicGoPackageTargetsReturnsStableClone(t *testing.T) {
 		AtomicSQLitePackageTarget,
 		AtomicGatePackageTarget,
 		AtomicRemoteCIPackageTarget,
+		AtomicMcpLSPPackageTarget,
+		AtomicSuperDolphinGatePackageTarget,
 	}
 	first := AtomicGoPackageTargets()
 	if !slices.Equal(first, want) {
@@ -545,6 +566,22 @@ func assertAtomicRemoteCICatalog(t *testing.T, catalog WorkloadCatalog, parent G
 	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicRemoteCIPackageTarget)
 	if !packageFound || !slices.Equal(got, want) {
 		t.Fatalf("parent %q remoteci=%v tests=%v want=%v", parent, packageFound, got, want)
+	}
+}
+
+func assertAtomicMcpLSPCatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
+	t.Helper()
+	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicMcpLSPPackageTarget)
+	if !packageFound || !slices.Equal(got, want) {
+		t.Fatalf("parent %q mcp-lsp=%v tests=%v want=%v", parent, packageFound, got, want)
+	}
+}
+
+func assertAtomicSuperDolphinGateCatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
+	t.Helper()
+	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicSuperDolphinGatePackageTarget)
+	if !packageFound || !slices.Equal(got, want) {
+		t.Fatalf("parent %q super-dolphin-gate=%v tests=%v want=%v", parent, packageFound, got, want)
 	}
 }
 
@@ -634,6 +671,17 @@ func TestBuildExpandedWorkloadCatalogKeepsCanonicalGateWithoutGoInventory(t *tes
 	}
 	if count != 1 {
 		t.Fatalf("empty Go inventory backend workloads = %d, want 1 canonical gate", count)
+	}
+}
+
+func TestBuildExpandedWorkloadCatalogFailsWhenAtomicMcpLSPInventoryIsMissing(t *testing.T) {
+	plan, err := BuildGatePlan(ProfileLocalFast, registryTestSource())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = BuildExpandedWorkloadCatalog(plan, DefaultWorkloadBootstrapPolicy(), WorkloadInventory{GoPackages: []string{AtomicMcpLSPPackageTarget}})
+	if err == nil || !strings.Contains(err.Error(), AtomicMcpLSPPackageTarget) || !strings.Contains(err.Error(), "missing exact selectors") {
+		t.Fatalf("missing mcp-lsp inventory error = %v", err)
 	}
 }
 

@@ -72,6 +72,7 @@ func TestMcpLSPBinaryPythonConstantIdentifierCompletion_E2E(t *testing.T) {
 		target, labels, completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
 }
 
+// super-dolphin-ci: helper
 func TestFakePyrightLangserverHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_PYRIGHT") != "1" {
 		return

@@ -265,6 +265,7 @@ func TestMcpLSPBinaryGoplsDiagnosticsUsesLanguageOverrideForTxtTemplate_E2E(t *t
 	requireMCPToolSuccess(t, client, diagnostics, "go txt template diagnostics")
 }
 
+// super-dolphin-ci: helper
 func TestFakeGoplsShutdownWarningHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_GOPLS_SHUTDOWN_WARNING") != "1" {
 		return

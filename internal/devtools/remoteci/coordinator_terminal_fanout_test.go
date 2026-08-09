@@ -169,6 +169,9 @@ func assertMalformedFanoutRunError(t *testing.T, err error) {
 	if err == nil || !strings.Contains(err.Error(), "missing worker CurrentState.FinishTime") {
 		t.Fatalf("Run() error = %v, want malformed worker terminal evidence", err)
 	}
+	if !strings.Contains(err.Error(), "worker log=") {
+		t.Fatalf("Run() error = %v, want bounded worker diagnostic", err)
+	}
 }
 
 // assertMalformedFanoutCleanup 验证畸形分片不会阻止所有已创建容器清理。

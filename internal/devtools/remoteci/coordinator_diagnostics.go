@@ -1,7 +1,9 @@
 package remoteci
 
 import (
+	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -28,6 +30,29 @@ func remoteShardExecutionError(shard gate.ContainerShard, err error) error {
 		"remote CI shard index=%d identity=%s estimated_duration_ms=%d gates=%q: %w",
 		shard.Index, shard.IdentityDigest, shard.EstimatedDurationMS, diagnosticGateIDs(shard.GateIDs), err,
 	)
+}
+
+// terminalEvidenceDiagnosticError 在 provider 终态证据重读耗尽后附加有界日志，
+// 但不解码或消费 worker report，也不以日志替代缺失的 provider 时间。
+func (coordinator *Coordinator) terminalEvidenceDiagnosticError(
+	ctx context.Context,
+	groupID string,
+	group eci.ContainerGroup,
+	evidenceErr error,
+) error {
+	workerLog, err := coordinator.runtime.DescribeContainerLog(ctx, groupID, "worker")
+	if err != nil {
+		return errors.Join(evidenceErr, fmt.Errorf("describe terminal-evidence worker diagnostic: %w", err))
+	}
+	base := fmt.Errorf("%w; worker log=%q", evidenceErr, remoteShardLogTail(workerLog))
+	if group.Status != "Failed" {
+		return base
+	}
+	materializerLog, err := coordinator.runtime.DescribeContainerLog(ctx, groupID, "materializer")
+	if err != nil {
+		return errors.Join(base, fmt.Errorf("describe terminal-evidence materializer diagnostic: %w", err))
+	}
+	return fmt.Errorf("%w; materializer log=%q", base, remoteShardLogTail(materializerLog))
 }
 
 // diagnosticGateIDs 仅用于协调器错误文本，不参与 worker argv 或请求身份。

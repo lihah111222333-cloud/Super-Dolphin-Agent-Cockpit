@@ -82,6 +82,11 @@ func newMissReuseLPTFixture(t *testing.T) missReuseLPTFixture {
 	if err != nil {
 		t.Fatalf("BuildSelectedTestWorkloadCatalog() error = %v", err)
 	}
+	for index := range catalog.Workloads {
+		// Production Prepare binds every exact selector to its own source-tree
+		// input digest before planning; keep this fixture on that same identity.
+		catalog.Workloads[index].InputDigest = inputDigest
+	}
 	ledger := gate.DurationLedger{Version: 1}
 	durations := []int64{60_000, 60_000, 40_000, 40_000, 40_000, 40_000}
 	for index, workload := range catalog.Workloads {

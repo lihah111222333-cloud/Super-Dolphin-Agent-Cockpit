@@ -17,7 +17,10 @@ func TestCompiledSelectorBatchNormalizesElapsedBeyondEventInterval(t *testing.T)
 	interval := compiledSelectorBatchInterval{runAt: base.Add(time.Millisecond), completedAt: base.Add(11 * time.Millisecond)}
 	observation := compiledSelectorBatchObservation{started: base, log: newBoundedPlanLog(executorPlanMaxLogBytes)}
 	timings := []GoTestTiming{{Name: "TestCompileGroup", Status: GoTestStatusPass, DurationMS: 7}}
-	result := compiledSelectorResultWithLog(GateID(workload.ID), []string{"go", "tool", "test2json"}, observation, "TestCompileGroup", timings, interval, nil, false)
+	result, err := compiledSelectorResultWithLog(GateID(workload.ID), []string{"go", "tool", "test2json"}, observation, "TestCompileGroup", timings, interval, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw := result
 	raw.CompletedAt = base.Add(11 * time.Millisecond)
 	raw.ExecutionProfile.TestBodyMS = 10

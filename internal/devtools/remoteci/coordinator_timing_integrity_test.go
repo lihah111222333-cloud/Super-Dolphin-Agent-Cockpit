@@ -14,12 +14,16 @@ func TestRemoteWorkloadProjectionRejectsExactTimingMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	goFlags, err := gate.WorkloadExecutionGoFlags(workload.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	start := time.UnixMilli(1_700_000_000_000).UTC()
 	execution := gate.PlanGateExecution{
 		GateID: gate.GateID(workload.ID), Status: gate.ResultStatusFailed, ExitCode: 1,
 		StartedAt: start, CompletedAt: start.Add(11_521 * time.Millisecond),
 		TestTimings:      []gate.GoTestTiming{{Name: "TestCompileGroupSelector000", Status: gate.GoTestStatusFail, DurationMS: 229_952}},
-		ExecutionProfile: gate.ExecutionProfile{CacheSource: "none", CacheStatus: gate.CacheObservationNotApplicable, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 11_520, TotalMS: 11_521},
+		ExecutionProfile: gate.ExecutionProfile{GoFlags: goFlags, CacheSource: "none", CacheStatus: gate.CacheObservationNotApplicable, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 11_520, TotalMS: 11_521},
 	}
 	catalog := gate.WorkloadCatalog{Workloads: []gate.Workload{workload}}
 	_, err = remoteWorkloadExecutions(catalog, map[string]gate.PlanGateExecution{workload.ID: execution})

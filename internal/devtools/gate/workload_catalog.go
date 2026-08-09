@@ -20,19 +20,21 @@ const (
 	// AtomicArchtestPackageTarget、AtomicCodexAppPackageTarget、AtomicAgentRuntimePackageTarget、
 	// AtomicAgentTerminalPackageTarget、AtomicAppPackageTarget、AtomicUpdaterPackageTarget、
 	// AtomicTaskDAGPackageTarget、AtomicSQLitePackageTarget、AtomicGatePackageTarget 与
-	// AtomicRemoteCIPackageTarget 必须拆成顶层测试，
+	// AtomicRemoteCIPackageTarget、AtomicMcpLSPPackageTarget、AtomicSuperDolphinGatePackageTarget 必须拆成顶层测试，
 	// 避免大型包形成超时整包 workload。
 	// 这些目标均保留同一 release/race gate 的完整覆盖，并由 compile group 共享一次测试二进制编译。
-	AtomicArchtestPackageTarget      = "./internal/archtest"
-	AtomicCodexAppPackageTarget      = "./internal/provider/codexapp"
-	AtomicAgentRuntimePackageTarget  = "./cmd/agent-runtime"
-	AtomicAgentTerminalPackageTarget = "./cmd/agent-terminal"
-	AtomicAppPackageTarget           = "./internal/app"
-	AtomicUpdaterPackageTarget       = "./cmd/super-dolphin-updater"
-	AtomicTaskDAGPackageTarget       = "./cmd/mcp-orch/store/taskdag"
-	AtomicSQLitePackageTarget        = "./internal/platform/db/sqlite"
-	AtomicGatePackageTarget          = "./internal/devtools/gate"
-	AtomicRemoteCIPackageTarget      = "./internal/devtools/remoteci"
+	AtomicArchtestPackageTarget         = "./internal/archtest"
+	AtomicCodexAppPackageTarget         = "./internal/provider/codexapp"
+	AtomicAgentRuntimePackageTarget     = "./cmd/agent-runtime"
+	AtomicAgentTerminalPackageTarget    = "./cmd/agent-terminal"
+	AtomicAppPackageTarget              = "./internal/app"
+	AtomicUpdaterPackageTarget          = "./cmd/super-dolphin-updater"
+	AtomicTaskDAGPackageTarget          = "./cmd/mcp-orch/store/taskdag"
+	AtomicSQLitePackageTarget           = "./internal/platform/db/sqlite"
+	AtomicGatePackageTarget             = "./internal/devtools/gate"
+	AtomicRemoteCIPackageTarget         = "./internal/devtools/remoteci"
+	AtomicMcpLSPPackageTarget           = "./cmd/mcp-lsp"
+	AtomicSuperDolphinGatePackageTarget = "./cmd/super-dolphin-gate"
 )
 
 // AtomicGoPackageTargets 返回需要按顶层 Go 测试拆分的包目标副本。
@@ -49,8 +51,15 @@ func AtomicGoPackageTargets() []string {
 		AtomicSQLitePackageTarget,
 		AtomicGatePackageTarget,
 		AtomicRemoteCIPackageTarget,
+		AtomicMcpLSPPackageTarget,
+		AtomicSuperDolphinGatePackageTarget,
 	}
 	return slices.Clone(atomicGoPackageTargets)
+}
+
+// isAtomicGoPackageTarget 报告是否由 exact top-level Go selector 路径承载该包。
+func isAtomicGoPackageTarget(packageTarget string) bool {
+	return slices.Contains(AtomicGoPackageTargets(), packageTarget)
 }
 
 // raceExcludedStaticGoTestTargets 返回只需在 normal gate 执行的静态代码规模守卫目标。
@@ -116,11 +125,11 @@ func BuildWorkloadCatalog(plan GatePlan, policy WorkloadBootstrapPolicy) (Worklo
 	}
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Authoritative: true, Workloads: make([]Workload, 0, len(plan.Gates))}
 	for _, spec := range plan.Gates {
-		workload, err := canonicalWorkload(spec, policy[spec.ID])
+		workloads, err := buildCanonicalGateWorkloads(spec, plan.Profile, policy[spec.ID])
 		if err != nil {
 			return WorkloadCatalog{}, err
 		}
-		catalog.Workloads = append(catalog.Workloads, workload)
+		catalog.Workloads = append(catalog.Workloads, workloads...)
 	}
 	if err := ValidateWorkloadCatalog(catalog); err != nil {
 		return WorkloadCatalog{}, err
@@ -315,10 +324,8 @@ func expandedTargetsForGateMode(id GateID, inventory WorkloadInventory, allRaceP
 		return workloadTargetGoPackage, raceWorkloadPackages(inventory.GoPackages)
 	case GateIDBackendNilness:
 		return workloadTargetGoPackage, inventory.GoPackages
-	case GateIDFrontendTest:
-		return workloadTargetVitest, inventory.FrontendChangedTests
-	case GateIDFrontendFullTest:
-		return workloadTargetVitest, inventory.FrontendFullTests
+	case GateIDFrontendTest, GateIDFrontendFullTest:
+		return frontendTestTargetsForGate(id, inventory)
 	case GateIDFrontendE2E:
 		return workloadTargetPlaywright, []string{
 			playwrightBusinessReadSurfacesTarget,
@@ -327,6 +334,8 @@ func expandedTargetsForGateMode(id GateID, inventory WorkloadInventory, allRaceP
 			playwrightDesktopBusinessPagesTarget,
 			playwrightDesktopReadSettingsTarget,
 		}
+	case GateIDFrontendPreflight:
+		return workloadTargetFrontendGuard, FrontendPreflightTargets()
 	default:
 		return "", nil
 	}
@@ -367,7 +376,14 @@ func normalizeWorkloadInventory(inventory WorkloadInventory) (WorkloadInventory,
 }
 
 func normalizeGoTestTargets(values []GoTestTarget) ([]GoTestTarget, error) {
-	return normalizeNamedGoTargets(values, "test", encodeGoTestTarget)
+	filtered := make([]GoTestTarget, 0, len(values))
+	for _, target := range values {
+		if IsCanonicalGoTestHelper(target) {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+	return normalizeNamedGoTargets(filtered, "test", encodeGoTestTarget)
 }
 
 func normalizeGoBenchmarkTargets(values []GoTestTarget) ([]GoTestTarget, error) {
@@ -488,6 +504,13 @@ func buildExpandedWorkloadCatalog(plan GatePlan, policy WorkloadBootstrapPolicy,
 		if err != nil {
 			return WorkloadCatalog{}, err
 		}
+		if spec.ID == GateIDFrontendTest && plan.Profile == ProfileLocalFast {
+			guards, guardErr := frontendPreflightCarrierWorkloads()
+			if guardErr != nil {
+				return WorkloadCatalog{}, guardErr
+			}
+			workloads = append(guards, workloads...)
+		}
 		catalog.Workloads = append(catalog.Workloads, workloads...)
 	}
 	if err := validateWorkloadCatalogForGatePlan(plan, catalog); err != nil {
@@ -570,7 +593,7 @@ func noExpandedGateTargets(targets []string, guards []splitGoGuardWorkloadSpec, 
 	return len(targets) == 0 && len(guards) == 0 && len(tests) == 0
 }
 
-// splitAtomicGoTestTargets 将已知超时包替换为精确顶层测试；缺少清单时保留整包覆盖。
+// splitAtomicGoTestTargets 将已知超时包替换为精确顶层测试；缺少清单时立即失败，禁止回退整包覆盖。
 func splitAtomicGoTestTargets(gateID GateID, packages []string, inventory WorkloadInventory) ([]string, []string, error) {
 	if gateID == GateIDBackendNilness {
 		return packages, nil, nil
@@ -584,6 +607,10 @@ func splitAtomicGoTestTargets(gateID GateID, packages []string, inventory Worklo
 		}
 	}
 	atomicPackages := atomicGoTestPackages(packages, tests)
+	missingAtomicPackages := missingAtomicGoTestPackages(packages, atomicPackages)
+	if len(missingAtomicPackages) != 0 {
+		return nil, nil, fmt.Errorf("atomic Go package test inventory is missing exact selectors for %s", strings.Join(missingAtomicPackages, ", "))
+	}
 	if len(atomicPackages) == 0 {
 		return packages, nil, nil
 	}
@@ -607,6 +634,16 @@ func atomicGoTestPackages(packages []string, tests []GoTestTarget) []string {
 		selected = append(selected, packageTarget)
 	}
 	return selected
+}
+
+func missingAtomicGoTestPackages(packages, selected []string) []string {
+	missing := make([]string, 0)
+	for _, packageTarget := range AtomicGoPackageTargets() {
+		if slices.Contains(packages, packageTarget) && !slices.Contains(selected, packageTarget) {
+			missing = append(missing, packageTarget)
+		}
+	}
+	return missing
 }
 
 func hasAtomicGoTestPackage(tests []GoTestTarget, packageTarget string) bool {
@@ -662,13 +699,9 @@ func expandedTargetWorkload(gateID GateID, targetKind, target string) (Workload,
 
 // expandedTargetWorkloadWithEstimate 构造可覆盖 bootstrap 估时的原子 workload。
 func expandedTargetWorkloadWithEstimate(gateID GateID, targetKind, target string, estimateOverride int64) (Workload, error) {
-	kind, estimate := WorkloadKindGoTest, expandedGoPackageBootstrapEstimateMS
-	if targetKind == workloadTargetVitest {
-		kind, estimate = WorkloadKindNodeTest, 5000
-	} else if targetKind == workloadTargetPlaywright {
-		kind, estimate = WorkloadKindNodeTest, expandedPlaywrightBootstrapEstimateMS
-	} else if gateID == GateIDBackendTestGuardWithRace {
-		estimate = expandedGoRacePackageBootstrapEstimateMS
+	kind, estimate, err := expandedTargetBootstrap(gateID, targetKind, target)
+	if err != nil {
+		return Workload{}, err
 	}
 	if estimateOverride > 0 {
 		estimate = estimateOverride
@@ -700,6 +733,9 @@ func validateWorkloadCatalogForGatePlan(plan GatePlan, catalog WorkloadCatalog) 
 
 // validateAuthoritativeWorkloadCatalog 校验权威目录按 GatePlan 顺序完整覆盖。
 func validateAuthoritativeWorkloadCatalog(plan GatePlan, catalog WorkloadCatalog) error {
+	if err := validateAuthoritativeWorkloadMixes(plan, catalog); err != nil {
+		return err
+	}
 	required := make(map[GateID]int, len(plan.Gates))
 	for index, spec := range plan.Gates {
 		required[spec.ID] = index
@@ -744,6 +780,9 @@ func validateAuthoritativeWorkload(index int, workload Workload, required map[Ga
 
 // validateAuthoritativeWorkloadIdentity 校验展开描述、命令摘要和分片所有权。
 func validateAuthoritativeWorkloadIdentity(index int, workload Workload, parent GateID, targeted bool) error {
+	if parent == GateIDFrontendPreflight && !targeted {
+		return fmt.Errorf("frontend preflight expansion descriptor %q cannot enter execution catalog", parent)
+	}
 	if isExpansionOnlyGate(parent) && !targeted {
 		if workload.Shardable || workload.CommandDigest != expansionOnlyWorkloadDigest(parent) {
 			return fmt.Errorf("workload catalog expansion descriptor %q is executable or drifted", parent)

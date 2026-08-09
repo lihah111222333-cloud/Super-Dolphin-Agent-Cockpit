@@ -208,6 +208,7 @@ func assertConcurrentRemoteHookProcessIsolation(t *testing.T, tokens []string, r
 	}
 }
 
+// super-dolphin-ci: helper
 func TestRemoteHookConcurrentProcessHelper(t *testing.T) {
 	if os.Getenv("SUPER_DOLPHIN_REMOTE_HOOK_PROCESS_HELPER") != "1" {
 		return

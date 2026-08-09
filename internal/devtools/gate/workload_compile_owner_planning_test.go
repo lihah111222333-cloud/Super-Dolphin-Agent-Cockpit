@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 func TestCompileOwnerWithoutHistoryKeepsSmallResourceAndOneBootstrapCost(t *testing.T) {
@@ -154,6 +156,60 @@ func TestCompileOwnerCalibrationNeverReclassifiesResource(t *testing.T) {
 	}
 	if len(groups) != 1 || groups[0].ResourceClassID != context.CalibrationResourceClassID {
 		t.Fatalf("calibration groups = %#v, want fixed resource %q", groups, context.CalibrationResourceClassID)
+	}
+}
+
+func TestPlannedWorkloadsFromEstimatesKeepsHigherBodyOrCompileOwnerTier(t *testing.T) {
+	workload := Workload{ID: "guard:resource-merge", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("e", 64), BootstrapEstimateMS: 1_000, Shardable: true}
+	tests := []struct {
+		name                string
+		bodyCPU, bodyMemory float64
+		hintTier            cicontract.WorkloadResourceTier
+		hintClass           string
+		hintCPU, hintMemory float64
+		wantCPU, wantMemory float64
+	}{
+		{name: "body slow wins", bodyCPU: 8, bodyMemory: 16, hintTier: cicontract.WorkloadResourceTierFast, hintClass: "small", hintCPU: 2, hintMemory: 4, wantCPU: 8, wantMemory: 16},
+		{name: "owner slow wins", bodyCPU: 2, bodyMemory: 4, hintTier: cicontract.WorkloadResourceTierSlow, hintClass: "maximum", hintCPU: 8, hintMemory: 16, wantCPU: 8, wantMemory: 16},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			planned, err := plannedWorkloadsFromEstimates(
+				[]shardableWorkloadEstimate{{
+					workload: workload, estimateMS: workload.BootstrapEstimateMS,
+					resource: durationSampleResource{classID: "body", cpu: test.bodyCPU, memoryGiB: test.bodyMemory},
+				}},
+				CompileOwnerHints{workload.ID: {
+					OwnerKey: workload.ID, SharedCompileEstimateMS: compileParentBootstrapEstimateMS,
+					ResourceTier: test.hintTier, ResourceClassID: test.hintClass,
+					ResourceCPU: test.hintCPU, ResourceMemoryGiB: test.hintMemory,
+				}},
+			)
+			if err != nil {
+				t.Fatalf("plannedWorkloadsFromEstimates() error = %v", err)
+			}
+			if len(planned) != 1 || planned[0].ResourceCPU != test.wantCPU || planned[0].ResourceMemoryGiB != test.wantMemory {
+				t.Fatalf("planned workload = %#v, want %.0fC/%.0fGiB", planned, test.wantCPU, test.wantMemory)
+			}
+		})
+	}
+}
+
+func TestPlannedWorkloadsFromEstimatesRejectsCompileOwnerResourceIdentityDrift(t *testing.T) {
+	workload := Workload{ID: "guard:resource-identity", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("f", 64), BootstrapEstimateMS: 1_000, Shardable: true}
+	_, err := plannedWorkloadsFromEstimates(
+		[]shardableWorkloadEstimate{{
+			workload: workload, estimateMS: workload.BootstrapEstimateMS,
+			resource: durationSampleResource{classID: "body", cpu: 2, memoryGiB: 4},
+		}},
+		CompileOwnerHints{workload.ID: {
+			OwnerKey: workload.ID, SharedCompileEstimateMS: compileParentBootstrapEstimateMS,
+			ResourceTier: cicontract.WorkloadResourceTierSlow, ResourceClassID: "small",
+			ResourceCPU: 8, ResourceMemoryGiB: 16,
+		}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "resource identity") {
+		t.Fatalf("plannedWorkloadsFromEstimates() error = %v, want fail-fast resource identity guard", err)
 	}
 }
 

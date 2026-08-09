@@ -21,8 +21,8 @@ func testExecutorPrograms() map[GateID]ExecutorProgram {
 func TestCanonicalExecutorProgramsCoverGateRegistry(t *testing.T) {
 	programs := testExecutorPrograms()
 	registry := GateRegistry()
-	if len(programs) != len(registry)-1 {
-		t.Fatalf("executor programs = %d, registry gates = %d (one expansion-only gate)", len(programs), len(registry))
+	if len(programs) != len(registry)-2 {
+		t.Fatalf("executor programs = %d, registry gates = %d (two expansion-only gates)", len(programs), len(registry))
 	}
 	for _, spec := range registry {
 		if isExpansionOnlyGate(spec.ID) {
@@ -193,13 +193,33 @@ func TestRaceProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 	wantRaceArgv = append(wantRaceArgv, "--")
 	wantRaceArgv = append(wantRaceArgv, canonicalBackendPackagePatterns()...)
 	wantRaceArgv = append(wantRaceArgv, "-count=1", "-timeout=180s")
-	wantRaceStep := ExecutorStep{Argv: wantRaceArgv, Environment: []string{"GOFLAGS=-p=4", "GOMAXPROCS=4", "GOMEMLIMIT=6GiB"}}
+	wantRaceStep := ExecutorStep{Argv: wantRaceArgv, Environment: []string{"GOFLAGS=-race -p=4", "GOMAXPROCS=4", "GOMEMLIMIT=6GiB"}}
 	if !reflect.DeepEqual(race.Steps, []ExecutorStep{wantRaceStep}) {
 		t.Fatalf("race executor steps = %#v, want only bounded Go race test", race.Steps)
+	}
+	if strings.Count(race.Steps[0].Environment[0], "-race") != 1 {
+		t.Fatalf("race GOFLAGS = %q, want exactly one -race", race.Steps[0].Environment[0])
+	}
+	if strings.Contains(backendGoFlags(t, programs[GateIDBackendTestWithGuard]), "-race") {
+		t.Fatal("normal executor unexpectedly carries -race")
 	}
 	if !slices.Equal(race.RequiredPaths, []string{"scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"}) {
 		t.Fatalf("race executor required paths = %v", race.RequiredPaths)
 	}
+}
+
+func backendGoFlags(t *testing.T, program ExecutorProgram) string {
+	t.Helper()
+	if len(program.Steps) != 1 || len(program.Steps[0].Environment) == 0 {
+		t.Fatalf("backend executor has no canonical GOFLAGS: %#v", program)
+	}
+	for _, assignment := range program.Steps[0].Environment {
+		if strings.HasPrefix(assignment, "GOFLAGS=") {
+			return strings.TrimPrefix(assignment, "GOFLAGS=")
+		}
+	}
+	t.Fatalf("backend executor has no GOFLAGS assignment: %#v", program.Steps[0].Environment)
+	return ""
 }
 
 func TestNilnessProgramUsesBoundedGoResources(t *testing.T) {
@@ -243,22 +263,58 @@ func TestFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
 	assertFrontendProgramsUsePinnedRuntimeInputs(t, programs)
 }
 
-func TestFrontendPreflightProgramRunsPreflightAndDependencyIntegrityOnly(t *testing.T) {
-	program := testExecutorPrograms()[GateIDFrontendPreflight]
-	want := [][]string{
-		{"npm", "run", "test:hook:preflight"},
-		{"npm", "run", "test:hook:dependency-integrity"},
+func TestFrontendPreflightProgramsUseOnlyCanonicalAllowlist(t *testing.T) {
+	wantScripts := map[string]string{
+		FrontendPreflightTargetCriticalGuards:         "test:hook:preflight:critical-guards",
+		FrontendPreflightTargetTurnContractVerify:     "test:hook:preflight:turncontract-verify",
+		FrontendPreflightTargetTurnContractFieldGuard: "test:hook:preflight:turncontract-field-guard",
+		FrontendPreflightTargetCriticalTypecheck:      "test:hook:preflight:critical-typecheck",
+		FrontendPreflightTargetContractsVitest:        "test:hook:preflight:contracts-check",
+		FrontendPreflightTargetRPCAudit:               "test:hook:preflight:rpc-audit",
+		FrontendPreflightTargetDependencyContract:     "test:hook:preflight:dependency-contract",
 	}
-	if len(program.Steps) != len(want) {
-		t.Fatalf("frontend preflight steps = %#v, want %v", program.Steps, want)
+	if len(wantScripts) != len(FrontendPreflightTargets()) {
+		t.Fatalf("frontend preflight allowlist has %d targets, want %d", len(FrontendPreflightTargets()), len(wantScripts))
 	}
-	for index, step := range program.Steps {
-		if !slices.Equal(step.Argv, want[index]) || step.Directory != "frontend-app" {
-			t.Fatalf("frontend preflight step %d = %#v, want frontend-app %v", index, step, want[index])
+	assertFrontendPreflightPrograms(t, wantScripts)
+	if _, _, err := executorProgramForWorkload(GateIDFrontendPreflight); err == nil || !strings.Contains(err.Error(), "expanded workload") {
+		t.Fatalf("frontend preflight aggregate unexpectedly executable: %v", err)
+	}
+}
+
+func assertFrontendPreflightPrograms(t *testing.T, wantScripts map[string]string) {
+	t.Helper()
+	seen := make(map[string]struct{}, len(wantScripts))
+	for _, target := range FrontendPreflightTargets() {
+		if _, duplicate := seen[target]; duplicate {
+			t.Fatalf("frontend preflight target %q is duplicated", target)
 		}
-		if slices.Contains(step.Argv, "playwright") || slices.Contains(step.Argv, "e2e") {
-			t.Fatalf("frontend preflight step %d entered E2E execution: %v", index, step.Argv)
-		}
+		seen[target] = struct{}{}
+		assertFrontendPreflightProgram(t, target, wantScripts[target])
+	}
+	if len(seen) != len(wantScripts) {
+		t.Fatalf("frontend preflight targets = %d, want %d", len(seen), len(wantScripts))
+	}
+}
+
+func assertFrontendPreflightProgram(t *testing.T, target, script string) {
+	t.Helper()
+	id, err := targetWorkloadID(GateIDFrontendPreflight, workloadTargetFrontendGuard, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, program, err := executorProgramForWorkload(GateID(id))
+	if err != nil {
+		t.Fatalf("executorProgramForWorkload(%q): %v", target, err)
+	}
+	if parent != GateIDFrontendPreflight || len(program.Steps) != 1 || program.Steps[0].Directory != "frontend-app" {
+		t.Fatalf("frontend preflight target %q program = %#v", target, program)
+	}
+	if !slices.Equal(program.Steps[0].Argv, []string{"npm", "run", script}) {
+		t.Fatalf("frontend preflight target %q argv = %v", target, program.Steps[0].Argv)
+	}
+	if slices.Contains(program.Steps[0].Argv, "test:hook:preflight") && !slices.Contains(program.Steps[0].Argv, script) {
+		t.Fatalf("frontend preflight target %q recurses into aggregate: %v", target, program.Steps[0].Argv)
 	}
 }
 

@@ -37,6 +37,9 @@ func ValidatePlanGateTimingEvidence(result PlanGateExecution) error {
 
 // Validate 校验执行画像的缓存计数和时长，拒绝无法与报告记录互证的数据。
 func (profile ExecutionProfile) Validate() error {
+	if err := ValidateCanonicalGoFlags(profile.GoFlags); err != nil {
+		return fmt.Errorf("execution profile GoFlags: %w", err)
+	}
 	if err := validateExecutionProfileCache(profile); err != nil {
 		return err
 	}
@@ -53,6 +56,9 @@ func (profile ExecutionProfile) Validate() error {
 
 // ValidateAggregate 校验 coordinator 从多个 workload 区间聚合出的父 gate 执行画像。
 func (profile ExecutionProfile) ValidateAggregate() error {
+	if err := ValidateCanonicalGoFlags(profile.GoFlags); err != nil {
+		return fmt.Errorf("aggregate execution profile GoFlags: %w", err)
+	}
 	if err := validateExecutionProfileCache(profile); err != nil {
 		return err
 	}

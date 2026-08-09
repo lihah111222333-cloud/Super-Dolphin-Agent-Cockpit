@@ -289,7 +289,7 @@ func encodePackedExecutionProfile(profile ExecutionProfile) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	values := []string{profile.CacheSource, string(profile.CacheStatus), profile.CacheMeasurement,
+	values := []string{hex.EncodeToString([]byte(profile.GoFlags)), profile.CacheSource, string(profile.CacheStatus), profile.CacheMeasurement,
 		strconv.FormatUint(profile.PrivateHitCount, 10), strconv.FormatUint(profile.BaselineHitCount, 10),
 		strconv.FormatUint(profile.CacheMissCount, 10), strconv.FormatUint(profile.CachePutCount, 10),
 		strconv.FormatInt(profile.MaterializeMS, 10), strconv.FormatInt(profile.DownloadMS, 10),
@@ -300,10 +300,10 @@ func encodePackedExecutionProfile(profile ExecutionProfile) (string, error) {
 
 func decodePackedExecutionProfile(value string) (ExecutionProfile, error) {
 	fields := strings.Split(value, ",")
-	if len(fields) != 14 || strings.Join(fields, ",") != value {
+	if len(fields) != 15 || strings.Join(fields, ",") != value {
 		return ExecutionProfile{}, errors.New("plan report packed execution profile is invalid")
 	}
-	legacyFields := append([]string{"000001"}, fields...)
+	legacyFields := append([]string{"000001"}, fields[1:]...)
 	durations, err := decodeExecutionProfileDurations(legacyFields)
 	if err != nil {
 		return ExecutionProfile{}, err
@@ -312,7 +312,34 @@ func decodePackedExecutionProfile(value string) (ExecutionProfile, error) {
 	if err != nil {
 		return ExecutionProfile{}, err
 	}
-	return buildExecutionProfile(legacyFields, durations, privateHits, baselineHits, misses, puts)
+	profile, err := buildExecutionProfile(legacyFields, durations, privateHits, baselineHits, misses, puts)
+	if err != nil {
+		return ExecutionProfile{}, err
+	}
+	goFlags, err := decodePackedGoFlags(fields[0])
+	if err != nil {
+		return ExecutionProfile{}, err
+	}
+	profile.GoFlags = goFlags
+	if err := profile.Validate(); err != nil {
+		return ExecutionProfile{}, err
+	}
+	return profile, nil
+}
+
+// decodePackedGoFlags restores the canonical profile from its whitespace-safe
+// wire representation; packed fields are space-delimited, so raw GOFLAGS are
+// never emitted directly.
+func decodePackedGoFlags(value string) (string, error) {
+	decoded, err := hex.DecodeString(value)
+	if err != nil || !utf8.Valid(decoded) {
+		return "", errors.New("plan report packed execution profile GoFlags is invalid")
+	}
+	goFlags := string(decoded)
+	if err := ValidateCanonicalGoFlags(goFlags); err != nil {
+		return "", fmt.Errorf("plan report packed execution profile GoFlags: %w", err)
+	}
+	return goFlags, nil
 }
 
 func encodePackedGateTimings(timings []GoTestTiming) (string, error) {

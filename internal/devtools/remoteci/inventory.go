@@ -166,9 +166,13 @@ func atomicGoTestSourcePaths(snapshot *remoteGitTreeSnapshot, directory string) 
 
 // inventoryGoTestTargets 将排序后的顶层测试名称绑定到精确包目标。
 func inventoryGoTestTargets(packageTarget string, names []string) []gate.GoTestTarget {
-	targets := make([]gate.GoTestTarget, len(names))
-	for index, name := range names {
-		targets[index] = gate.GoTestTarget{Package: packageTarget, Name: name}
+	targets := make([]gate.GoTestTarget, 0, len(names))
+	for _, name := range names {
+		target := gate.GoTestTarget{Package: packageTarget, Name: name}
+		if gate.IsCanonicalGoTestHelper(target) {
+			continue
+		}
+		targets = append(targets, target)
 	}
 	return targets
 }

@@ -397,7 +397,8 @@ func (coordinator *Coordinator) collectObservedRemoteShards(
 				// 提供方生命周期证据只归属于当前分片。畸形终态分片不能进入报告聚合，
 				// 但必须继续排空已经创建的所有兄弟分片，保留它们的终态证据并完成清理，
 				// 不能因一个无效响应丢失其结果。
-				failures[item.index] = errors.Join(failures[item.index], remoteShardExecutionError(shards[item.index], err))
+				diagnosticErr := coordinator.terminalEvidenceDiagnosticError(ctx, item.groupID, group, err)
+				failures[item.index] = errors.Join(failures[item.index], remoteShardExecutionError(shards[item.index], diagnosticErr))
 				continue
 			}
 			terminalEvidence, err := remoteECITerminalEvidence(group)

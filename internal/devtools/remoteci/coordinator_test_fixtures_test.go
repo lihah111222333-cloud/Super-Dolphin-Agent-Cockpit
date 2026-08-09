@@ -100,6 +100,7 @@ func prepareRemoteRunFixtureBase(t *testing.T) (string, string, string) {
 	runCoordinatorGit(t, repository, "config", "user.name", "Remote CI")
 	writeRemoteRunFixtureFiles(t, repository)
 	runCoordinatorGit(t, repository, "add", "fixture.txt", "go.mod", "go.sum", "build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum", "internal/devtools/gate/executor_mapping.go", "scripts/check_nested_go_modules.sh", "scripts/real_go_resolver.sh", "scripts/test_with_guard.sh", "internal/fixture/fixture.go", "internal/provider/provider.go", "internal/platform/platform.go", "internal/module/thread/thread.go", "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/tests/e2e/business-flows.spec.js", "frontend-app/tests/e2e/desktop-wide.spec.js", "frontend-app/playwright.business-flows.config.js", "frontend-app/playwright.desktop-wide.config.js")
+	runCoordinatorGit(t, repository, "add", "frontend-app/scripts/remote-preflight-carriers", "frontend-app/scripts/remote-suite-carriers")
 	runCoordinatorGit(t, repository, "commit", "--quiet", "-m", "base")
 	return repository, coordinatorGitOutput(t, repository, "rev-parse", "HEAD"), coordinatorGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
 }
@@ -126,6 +127,21 @@ func writeRemoteRunFixtureFiles(t *testing.T, repository string) {
 	writeCoordinatorFixture(t, repository, "frontend-app/tests/e2e/desktop-wide.spec.js", "test('desktop wide', async () => {})\n")
 	writeCoordinatorFixture(t, repository, "frontend-app/playwright.business-flows.config.js", "module.exports = {}\n")
 	writeCoordinatorFixture(t, repository, "frontend-app/playwright.desktop-wide.config.js", "module.exports = {}\n")
+	writeRemoteRunFrontendCarrierFixtures(t, repository)
+}
+
+func writeRemoteRunFrontendCarrierFixtures(t *testing.T, repository string) {
+	t.Helper()
+	for _, target := range gate.FrontendPreflightTargets() {
+		carrier, err := gate.FrontendPreflightCarrierTarget(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeCoordinatorFixture(t, repository, "frontend-app/"+carrier, "// protocol carrier\n")
+	}
+	for _, carrier := range []string{gate.FrontendChangedSuiteCarrierTarget, gate.FrontendFullSuiteCarrierTarget} {
+		writeCoordinatorFixture(t, repository, "frontend-app/"+carrier, "// protocol carrier\n")
+	}
 }
 
 func remoteRunFixtureLedger(t *testing.T, repository, tree string, plan gate.GatePlan, digest string) (map[string]string, *gate.DurationLedgerStore, gate.DurationLedgerSnapshot) {
@@ -287,7 +303,9 @@ func reportFromCreateRequest(request eci.CreateRequest, executionStartedAt time.
 	}
 	report := newCoordinatorPlanExecutionReport(request, profile, planDigest)
 	emptyDigest := fmt.Sprintf("sha256:%x", sha256.Sum256(nil))
-	appendCoordinatorGateReports(&report, shardRequest.GateIDs, executionStartedAt, emptyDigest)
+	if err := appendCoordinatorGateReports(&report, shardRequest.GateIDs, executionStartedAt, emptyDigest); err != nil {
+		return gate.PlanExecutionReport{}, err
+	}
 	if err := appendCoordinatorCompileReports(&report, shardRequest.CompileGroups, executionStartedAt, emptyDigest); err != nil {
 		return gate.PlanExecutionReport{}, err
 	}
@@ -321,14 +339,19 @@ func newCoordinatorPlanExecutionReport(request eci.CreateRequest, profile gate.P
 	}
 }
 
-func appendCoordinatorGateReports(report *gate.PlanExecutionReport, gateIDs []gate.GateID, executionStartedAt time.Time, emptyDigest string) {
+func appendCoordinatorGateReports(report *gate.PlanExecutionReport, gateIDs []gate.GateID, executionStartedAt time.Time, emptyDigest string) error {
 	for _, id := range gateIDs {
+		goFlags, err := gate.WorkloadExecutionGoFlags(string(id))
+		if err != nil {
+			return fmt.Errorf("derive coordinator fixture GoFlags for %q: %w", id, err)
+		}
 		report.Gates = append(report.Gates, gate.PlanGateExecution{
 			GateID: id, Status: gate.ResultStatusPassed, ExitCode: 0,
 			StartedAt: executionStartedAt, CompletedAt: executionStartedAt.Add(time.Second), LogDigest: emptyDigest,
-			ExecutionProfile: gate.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 100, TestBodyMS: 900, TotalMS: 1_000},
+			ExecutionProfile: gate.ExecutionProfile{GoFlags: goFlags, CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 100, TestBodyMS: 900, TotalMS: 1_000},
 		})
 	}
+	return nil
 }
 
 func appendCoordinatorCompileReports(report *gate.PlanExecutionReport, groups []gate.CompileGroup, executionStartedAt time.Time, emptyDigest string) error {

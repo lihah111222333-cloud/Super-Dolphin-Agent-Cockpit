@@ -182,18 +182,18 @@ func splitCompilePlanningBucket(bucket compilePlanningBucket, context PlanningCo
 	return units, groups, nil
 }
 
-// splitCompilePlanningPartitions 返回稳定的 selector 分区。只有 archtest
-// 使用有界分区；其他 package 必须保留单一 compile group 的 artifact identity。
+// splitCompilePlanningPartitions 返回稳定的 selector 分区。所有 atomic Go package
+// 使用统一有界分区；普通 package 保留单一 compile group 的 artifact identity。
 func splitCompilePlanningPartitions(bucket compilePlanningBucket) ([][]compilePlanningSelector, error) {
 	if len(bucket.selectors) == 0 {
 		return nil, errors.New("compile planning bucket is empty")
 	}
-	if bucket.selectors[0].input.PackageTarget != AtomicArchtestPackageTarget {
+	if !isAtomicGoPackageTarget(bucket.selectors[0].input.PackageTarget) {
 		return [][]compilePlanningSelector{bucket.selectors}, nil
 	}
-	maxSelectors := cicontract.ArchtestMaxSelectorsPerCompileGroup
+	maxSelectors := cicontract.CompileGroupMaxSelectors
 	if maxSelectors <= 0 {
-		return nil, errors.New("archtest compile-group selector bound must be positive")
+		return nil, errors.New("compile-group selector bound must be positive")
 	}
 	groupCount := (len(bucket.selectors) + maxSelectors - 1) / maxSelectors
 	partitions := make([][]compilePlanningSelector, groupCount)
@@ -347,8 +347,8 @@ func compileGroupBatchPlan(partition []compilePlanningSelector, compileEstimate 
 	if err != nil {
 		return nil, nil, "", err
 	}
-	if partition[0].input.PackageTarget == AtomicArchtestPackageTarget {
-		// 每个有界 archtest compile group 只启动一个 test-binary batch，
+	if partition[0].input.PackageTarget == AtomicArchtestPackageTarget || partition[0].input.PackageTarget == AtomicSuperDolphinGatePackageTarget {
+		// 每个有界 atomic compile group 只启动一个 test-binary batch，
 		// 复用该组的 SSA/扫描状态；不同组由独立 ECI shard 并发执行。
 		chosen, warning := chooseCompileGroupArchtestBatch(safe, compileEstimate)
 		return estimates, appendCompileGroupExclusiveBatches(chosen, exclusive), warning, nil
@@ -411,7 +411,7 @@ func chooseCompileGroupArchtestBatch(selectors []compilePlanningSelector, compil
 	if selectedCritical <= CompileGroupBatchTargetMS {
 		return chosen, ""
 	}
-	warning := fmt.Sprintf("critical_batch_plus_compile_ms=%d exceeds_target_ms=%d archtest_group_batch_limit=1", selectedCritical, CompileGroupBatchTargetMS)
+	warning := fmt.Sprintf("critical_batch_plus_compile_ms=%d exceeds_target_ms=%d atomic_group_batch_limit=1 archtest_group_batch_limit=1", selectedCritical, CompileGroupBatchTargetMS)
 	return chosen, warning
 }
 
@@ -453,9 +453,9 @@ func appendCompileGroupExclusiveBatches(chosen []CompileGroupBatch, exclusive []
 	return chosen
 }
 
-// compilePlanningSelectorExclusive 判断 selector 是否属于 codexapp 独占集合。
+// compilePlanningSelectorExclusive 判断 selector 是否属于 codexapp 或 mcp-lsp 独占集合。
 func compilePlanningSelectorExclusive(selector compilePlanningSelector) bool {
-	return selector.targetKind == WorkloadTargetGoTest && compileGroupSelectorIsCodexExclusive(selector.parent, selector.target)
+	return selector.targetKind == WorkloadTargetGoTest && (compileGroupSelectorIsCodexExclusive(selector.parent, selector.target) || compileGroupSelectorIsMcpLSPExclusive(selector.parent, selector.target))
 }
 
 // lptCompileGroupBatches 按正文估时降序、canonical ID 平局规则进行 LPT 分配。

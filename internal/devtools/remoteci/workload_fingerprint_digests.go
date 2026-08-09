@@ -25,6 +25,23 @@ func (snapshot *remoteGitTreeSnapshot) workloadInputDigest(ctx context.Context, 
 		return snapshot.canonicalGateInputDigest(parent)
 	}
 	switch targetKind {
+	case gate.WorkloadTargetGoGuard, gate.WorkloadTargetGoPackage, gate.WorkloadTargetGoTest,
+		gate.WorkloadTargetGoBenchmark, gate.WorkloadTargetVitest,
+		gate.WorkloadTargetPlaywright, gate.WorkloadTargetFrontendGuard:
+	default:
+		return "", fmt.Errorf("workload target kind %q has no source fingerprint policy", targetKind)
+	}
+	return snapshot.workloadTargetInputDigest(ctx, targetKind, target, profile)
+}
+
+// workloadTargetInputDigest 分派已登记的 atomic target 到其真实观察闭包。
+func (snapshot *remoteGitTreeSnapshot) workloadTargetInputDigest(
+	ctx context.Context,
+	targetKind gate.WorkloadTargetKind,
+	target string,
+	profile remoteGoBuildProfile,
+) (string, error) {
+	switch targetKind {
 	case gate.WorkloadTargetGoGuard:
 		return snapshot.goGuardInputDigest(ctx, target)
 	case gate.WorkloadTargetGoPackage:
@@ -37,6 +54,8 @@ func (snapshot *remoteGitTreeSnapshot) workloadInputDigest(ctx context.Context, 
 		return snapshot.vitestInputDigest(target)
 	case gate.WorkloadTargetPlaywright:
 		return snapshot.frontendPlaywrightInputDigest(ctx, target)
+	case gate.WorkloadTargetFrontendGuard:
+		return snapshot.frontendPreflightInputDigest(target)
 	default:
 		return "", fmt.Errorf("workload target kind %q has no source fingerprint policy", targetKind)
 	}
@@ -177,10 +196,10 @@ func (snapshot *remoteGitTreeSnapshot) nestedGoModuleInputDigest(ctx context.Con
 func (snapshot *remoteGitTreeSnapshot) canonicalGateInputDigest(parent gate.GateID) (string, error) {
 	switch parent {
 	case gate.GateIDFrontendLint:
-		return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
-			return strings.HasPrefix(entry.path, "frontend-app/")
-		})
-	case gate.GateIDFrontendPreflight, gate.GateIDFrontendTest, gate.GateIDFrontendFullTest:
+		return snapshot.digestMatching(frontendLintInputEntry)
+	case gate.GateIDFrontendPreflight:
+		return snapshot.frontendPreflightInputDigest()
+	case gate.GateIDFrontendTest, gate.GateIDFrontendFullTest:
 		return snapshot.frontendNonE2EInputDigest()
 	case gate.GateIDFrontendE2E:
 		return snapshot.frontendPlaywrightParentInputDigest(context.Background())
@@ -189,20 +208,31 @@ func (snapshot *remoteGitTreeSnapshot) canonicalGateInputDigest(parent gate.Gate
 	case gate.GateIDProjectMapCheck:
 		return snapshot.projectMapInputDigest()
 	case gate.GateIDFrontendEmbedVerify:
-		return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
-			return strings.HasPrefix(entry.path, "frontend-app/") ||
-				strings.HasPrefix(entry.path, "cmd/agent-terminal/web-dist/") ||
-				entry.path == "Makefile" || entry.path == "scripts/frontend_embed_verify.sh"
-		})
+		return snapshot.digestMatching(frontendEmbedInputEntry)
 	default:
 		return snapshot.digestEntries(snapshot.entries)
 	}
+}
+
+func frontendLintInputEntry(entry remoteGitTreeEntry) bool {
+	return strings.HasPrefix(entry.path, "frontend-app/")
+}
+
+func frontendEmbedInputEntry(entry remoteGitTreeEntry) bool {
+	return strings.HasPrefix(entry.path, "frontend-app/") || strings.HasPrefix(entry.path, "cmd/agent-terminal/web-dist/") ||
+		entry.path == "Makefile" || entry.path == "scripts/frontend_embed_verify.sh"
 }
 
 func (snapshot *remoteGitTreeSnapshot) vitestInputDigest(target string) (string, error) {
 	targetPath := "frontend-app/" + target
 	if _, ok := snapshot.byPath[targetPath]; !ok {
 		return "", fmt.Errorf("Vitest target %q is absent from the exact Git tree", target)
+	}
+	if preflightTarget, ok := gate.ParseFrontendPreflightCarrierTarget(target); ok {
+		return snapshot.frontendPreflightInputDigest(preflightTarget)
+	}
+	if target == gate.FrontendChangedSuiteCarrierTarget || target == gate.FrontendFullSuiteCarrierTarget {
+		return snapshot.frontendNonE2EInputDigest()
 	}
 	if strings.HasPrefix(targetPath, "frontend-app/tests/e2e/") {
 		return "", fmt.Errorf("Vitest target %q overlaps Playwright e2e tests", target)

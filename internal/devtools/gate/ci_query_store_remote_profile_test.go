@@ -2,6 +2,7 @@ package gate
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,6 +24,8 @@ func TestLoadRemoteCIRunRequiresCurrentExecutionProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	nullGoFlagsProfile := strings.Replace(string(encodedProfile), `"go_flags":""`, `"go_flags":null`, 1)
+	nonStringGoFlagsProfile := strings.Replace(string(encodedProfile), `"go_flags":""`, `"go_flags":1`, 1)
 	tests := []struct {
 		name    string
 		profile string
@@ -30,7 +33,10 @@ func TestLoadRemoteCIRunRequiresCurrentExecutionProfile(t *testing.T) {
 	}{
 		{name: "current structured profile", profile: string(encodedProfile)},
 		{name: "missing profile", wantErr: "execution profile is required"},
+		{name: "whole null profile", profile: "null", wantErr: "stored remote CI execution profile is invalid"},
 		{name: "legacy zero profile", profile: `{}`, wantErr: "stored remote CI execution profile is invalid"},
+		{name: "null go flags", profile: nullGoFlagsProfile, wantErr: "stored remote CI execution profile is invalid"},
+		{name: "non-string go flags", profile: nonStringGoFlagsProfile, wantErr: "stored remote CI execution profile is invalid"},
 		{name: "unknown field", profile: strings.TrimSuffix(string(encodedProfile), "}") + `,"legacy_timing_ms":1}`, wantErr: "execution profile is invalid"},
 	}
 	for _, test := range tests {
@@ -71,6 +77,7 @@ func TestLoadRemoteCIRunAcceptsAggregateExecutionProfileOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	nullGoFlagsProfile := strings.Replace(string(encoded), `"go_flags":""`, `"go_flags":null`, 1)
 	store := newWorkloadPassEvidenceStore(t, 1)
 	record, _, _ := recordWorkloadPassRun(t, store, "aggregate-overlap-profile", 1, string(GateIDWhitespaceCheck))
 	insertRemoteCIGateExecutionProfile(t, store, record, string(encoded))
@@ -81,6 +88,10 @@ func TestLoadRemoteCIRunAcceptsAggregateExecutionProfileOverlap(t *testing.T) {
 	}
 	if len(loaded.Executions) != 1 || !reflect.DeepEqual(loaded.Executions[0].ExecutionProfile, profile) {
 		t.Fatalf("loaded executions = %#v, want aggregate profile %#v", loaded.Executions, profile)
+	}
+	updateRemoteCIGateExecutionProfile(t, store, record.JobID, nullGoFlagsProfile)
+	if _, err := store.LoadRemoteCIRun(record.JobID); err == nil || !strings.Contains(err.Error(), "stored remote CI execution profile is invalid") {
+		t.Fatalf("LoadRemoteCIRun() null aggregate GoFlags error = %v", err)
 	}
 }
 
@@ -144,7 +155,10 @@ func TestLoadRemoteCIRunRequiresCurrentWorkloadExecutionProfile(t *testing.T) {
 		wantErr string
 	}{
 		{name: "missing profile", wantErr: "execution profile is required"},
+		{name: "whole null profile", profile: "null", wantErr: "stored remote CI execution profile is invalid"},
 		{name: "legacy zero profile", profile: `{}`, wantErr: "stored remote CI execution profile is invalid"},
+		{name: "null go flags", profile: `{"go_flags":null,"cache_source":"none","cache_status":"not_applicable","cache_measurement":"measured","startup_ms":1,"test_body_ms":1,"total_ms":2}`, wantErr: "stored remote CI execution profile is invalid"},
+		{name: "non-string go flags", profile: `{"go_flags":1,"cache_source":"none","cache_status":"not_applicable","cache_measurement":"measured","startup_ms":1,"test_body_ms":1,"total_ms":2}`, wantErr: "stored remote CI execution profile is invalid"},
 		{name: "unknown field", profile: `{"legacy_timing_ms":1}`, wantErr: "execution profile is invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -156,6 +170,27 @@ func TestLoadRemoteCIRunRequiresCurrentWorkloadExecutionProfile(t *testing.T) {
 			_, err := store.LoadRemoteCIRun(jobID)
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("LoadRemoteCIRun() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestStoredRemoteCIExecutionProfilesRejectWholeNullWithoutLegacyMiss(t *testing.T) {
+	decoders := []struct {
+		name string
+		fn   func(string) (ExecutionProfile, error)
+	}{
+		{name: "workload", fn: decodeStoredRemoteCIExecutionProfile},
+		{name: "aggregate", fn: decodeStoredRemoteCIAggregateExecutionProfile},
+	}
+	for _, decoder := range decoders {
+		t.Run(decoder.name, func(t *testing.T) {
+			_, err := decoder.fn("null")
+			if err == nil || !strings.Contains(err.Error(), "stored remote CI execution profile is invalid") {
+				t.Fatalf("decode whole null error = %v", err)
+			}
+			if errors.Is(err, errLegacyRemoteCIExecutionProfile) {
+				t.Fatalf("decode whole null was classified as legacy MISS: %v", err)
 			}
 		})
 	}

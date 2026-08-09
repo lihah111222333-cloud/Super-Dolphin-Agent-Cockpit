@@ -219,7 +219,15 @@ func selectorBodyEstimate(item PlannedWorkload, parent GateID, kind WorkloadTarg
 	if err != nil {
 		return 0, fmt.Errorf("construct compile parent for %q: %w", item.Workload.ID, err)
 	}
+	// The synthetic target row is keyed by the exact selector's production
+	// input digest. Do not reconstruct that identity from a parent aggregate:
+	// normal exact selectors may have no normal parent row, and calibration
+	// parent aggregates are intentionally not comparable evidence.
+	parentWorkload.InputDigest = item.Workload.InputDigest
 	if kind == WorkloadTargetGoTest {
+		if !isPrefixedSHA256Digest(item.Workload.InputDigest) {
+			return 0, fmt.Errorf("compile selector %q has no exact production input digest", item.Workload.ID)
+		}
 		if body, ok := index.GoTestDurationMSAtResource(parentWorkload, target.Name, item.ResourceCPU, item.ResourceMemoryGiB); ok && body > 0 {
 			return body, nil
 		}

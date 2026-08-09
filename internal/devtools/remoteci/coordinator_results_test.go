@@ -180,17 +180,19 @@ func assertRemoteCalibrationParentSample(t *testing.T, samples []gate.DurationSa
 func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarnings(t *testing.T) {
 	first := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestSlow")
 	second := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestFast")
+	firstGoFlags := mustRemoteWorkloadGoFlags(t, first.ID)
+	secondGoFlags := mustRemoteWorkloadGoFlags(t, second.ID)
 	startedAt := time.Date(2026, time.July, 28, 3, 0, 0, 0, time.UTC)
 	shardIdentity := "shard-structured-warning"
 	firstExecution := gate.PlanGateExecution{
 		GateID: gate.GateID(first.ID), ShardIdentity: shardIdentity, Status: gate.ResultStatusPassed, ExitCode: 0,
 		StartedAt: startedAt, CompletedAt: startedAt.Add(gate.FullCITargetDuration + time.Millisecond),
-		ExecutionProfile: gate.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: gate.CacheObservationMiss, CacheMeasurement: "measured", CacheMissCount: 1, StartupMS: 1, TestBodyMS: gate.FullCITargetDuration.Milliseconds(), TotalMS: gate.FullCITargetDuration.Milliseconds() + 1},
+		ExecutionProfile: gate.ExecutionProfile{GoFlags: firstGoFlags, CacheSource: "go_build_cache", CacheStatus: gate.CacheObservationMiss, CacheMeasurement: "measured", CacheMissCount: 1, StartupMS: 1, TestBodyMS: gate.FullCITargetDuration.Milliseconds(), TotalMS: gate.FullCITargetDuration.Milliseconds() + 1},
 	}
 	secondExecution := gate.PlanGateExecution{
 		GateID: gate.GateID(second.ID), ShardIdentity: shardIdentity, Status: gate.ResultStatusPassed, ExitCode: 0,
 		StartedAt: startedAt, CompletedAt: startedAt.Add(2 * time.Millisecond),
-		ExecutionProfile: gate.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: gate.CacheObservationMiss, CacheMeasurement: "measured", CacheMissCount: 1, StartupMS: 1, TestBodyMS: 1, TotalMS: 2},
+		ExecutionProfile: gate.ExecutionProfile{GoFlags: secondGoFlags, CacheSource: "go_build_cache", CacheStatus: gate.CacheObservationMiss, CacheMeasurement: "measured", CacheMissCount: 1, StartupMS: 1, TestBodyMS: 1, TotalMS: 2},
 	}
 	catalog := gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}
 	observed := map[string]gate.PlanGateExecution{first.ID: firstExecution, second.ID: secondExecution}
@@ -238,6 +240,15 @@ func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarn
 	if len(result.DurationSamples) != 3 {
 		t.Fatalf("duration samples = %#v, want two actual workloads plus one calibration parent aggregate", result.DurationSamples)
 	}
+}
+
+func mustRemoteWorkloadGoFlags(t *testing.T, workloadID string) string {
+	t.Helper()
+	goFlags, err := gate.WorkloadExecutionGoFlags(workloadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return goFlags
 }
 
 func TestRemoteDurationResourceIdentityUsesThreeNormalReceiptTiers(t *testing.T) {

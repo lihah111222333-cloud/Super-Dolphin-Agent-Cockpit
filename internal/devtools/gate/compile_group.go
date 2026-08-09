@@ -337,11 +337,14 @@ func (group CompileGroup) validateSelectorEstimatesAndBatchPlan() error {
 // shard 内只启动一个 test-binary batch；更大的 selector 集合必须在 planner
 // bucket 层拆成多个 group，不能把全量 MISS 塞回同一个 4 GiB 进程。
 func validateArchtestCompileGroupShape(group CompileGroup, strictExactSelectors bool) error {
-	if group.PackageTarget != AtomicArchtestPackageTarget || !strictExactSelectors {
+	if !isAtomicGoPackageTarget(group.PackageTarget) || !strictExactSelectors {
 		return nil
 	}
-	if len(group.WorkloadIDs) > cicontract.ArchtestMaxSelectorsPerCompileGroup {
-		return fmt.Errorf("archtest compile group exceeds selector bound %d", cicontract.ArchtestMaxSelectorsPerCompileGroup)
+	if len(group.WorkloadIDs) > cicontract.CompileGroupMaxSelectors {
+		return fmt.Errorf("atomic compile group exceeds selector bound %d", cicontract.CompileGroupMaxSelectors)
+	}
+	if group.PackageTarget != AtomicArchtestPackageTarget && group.PackageTarget != AtomicSuperDolphinGatePackageTarget {
+		return nil
 	}
 	if len(group.BatchPlan) != 1 {
 		return errors.New("archtest compile group must contain exactly one batch")
@@ -674,10 +677,10 @@ func compileGroupSelectorSafetyExpectation(id GateID) (bool, error) {
 	if isCompileGroupManualPackage(target.Package) {
 		return false, fmt.Errorf("compile group selector %q belongs to manual/codex_smoketest and is not in the default catalog", id)
 	}
-	if target.Name == "TestCodexHelperProcess" {
-		return false, fmt.Errorf("compile group selector %q is the codex helper process and cannot run ordinarily", id)
+	if IsCanonicalGoTestHelper(target) {
+		return false, fmt.Errorf("compile group selector %q is a canonical subprocess helper process and cannot run ordinarily", id)
 	}
-	isExclusive := compileGroupSelectorIsCodexExclusive(parent, target)
+	isExclusive := compileGroupSelectorIsCodexExclusive(parent, target) || compileGroupSelectorIsMcpLSPExclusive(parent, target)
 	return isExclusive, nil
 }
 
@@ -685,6 +688,16 @@ func compileGroupSelectorSafetyExpectation(id GateID) (bool, error) {
 // 独占语义绑定正常 backend gate；其他 parent 的同名 selector 必须保持普通批次。
 func compileGroupSelectorIsCodexExclusive(parent GateID, target GoTestTarget) bool {
 	return parent == GateIDBackendTestWithGuard && target.Package == AtomicCodexAppPackageTarget && isCodexExclusiveTestName(target.Name)
+}
+
+// compileGroupSelectorIsMcpLSPExclusive 是 planner 与 validator 共用的 mcp-lsp
+// 进程/资源 cohort 独占判定。normal 与 race 均使用独立串行 wave，避免 gopls
+// daemon、resource lease 与 orphan cleanup 在不同 test2json 进程间互相污染。
+func compileGroupSelectorIsMcpLSPExclusive(parent GateID, target GoTestTarget) bool {
+	if target.Package != AtomicMcpLSPPackageTarget || (parent != GateIDBackendTestWithGuard && parent != GateIDBackendTestGuardWithRace) {
+		return false
+	}
+	return isMcpLSPExclusiveTestName(target.Name)
 }
 
 // isCompileGroupManualPackage 判断 selector 是否属于手工或 smoketest 包。
@@ -703,13 +716,13 @@ func validateCompileGroupSafetyBatch(batch CompileGroupBatch, exclusive map[Gate
 			continue
 		}
 		if exclusiveSelector != "" {
-			return fmt.Errorf("compile group batch %q contains multiple codexapp exclusive selectors", batch.BatchID)
+			return fmt.Errorf("compile group batch %q contains multiple exclusive selectors", batch.BatchID)
 		}
 		exclusiveSelector = selectorID
 	}
 	if exclusiveSelector != "" {
 		if !batch.Exclusive || len(batch.SelectorIDs) != 1 {
-			return fmt.Errorf("codexapp selector %q must be an exclusive singleton batch", exclusiveSelector)
+			return fmt.Errorf("exclusive selector %q must be an exclusive singleton batch", exclusiveSelector)
 		}
 		return nil
 	}
@@ -731,6 +744,41 @@ func isCodexExclusiveTestName(name string) bool {
 	default:
 		return false
 	}
+}
+
+func mcpLSPExclusiveTestNames() map[string]struct{} {
+	return map[string]struct{}{
+		"TestRuntimeDurableGoplsRootCohortAllowsTenCompatibleAgentsAcrossTwoRepositories": {},
+		"TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers":                   {},
+		"TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead":       {},
+		"TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation":             {},
+		"TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix":                {},
+		"TestRuntimeDurableGoplsRootCohortIdleDrainCompletionAndAdmissionCancel":          {},
+		"TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries":          {},
+		"TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup":       {},
+		"TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence":      {},
+		"TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline":        {},
+		"TestRuntimeServerResourceCohortDirIsolatesGoplsDaemons":                          {},
+		"TestRuntimeGoplsRemoteIDBindsRealpathAndResourceDirUsesRemoteID":                 {},
+		"TestRuntimeGoplsCohortRehashesSamePathWithRestoredMetadata":                      {},
+		"TestRuntimeServerAcquireResourceLeaseSerializesStalePrimaryElection":             {},
+		"TestRuntimeServerAcquireResourceLeaseWaitsForElectionLock":                       {},
+		"TestRuntimeServerAcquireResourceLeaseRejectsStableCorruptPrimary":                {},
+		"TestRuntimeServerCleanupResourceLeasesRemovesReusedPIDOrphans":                   {},
+		"TestRuntimeServerCleanupResourceLeasesBoundsQuarantine":                          {},
+		"TestRuntimeServerEnvironmentSharesGlobalNonGoplsRSSPoolButIsolatesCaches":        {},
+		"TestMcpLSPBinaryConcurrentAgentsRespectGoplsRootCohortIsolation_E2E":             {},
+		"TestMcpLSPBinaryNewGenerationReplacesResidualGoplsDaemonSameRoot_E2E":            {},
+		"TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E":                      {},
+		"TestMcpLSPBinaryLinkedWorktreesResourceCohortRecycleAndRecover_E2E":              {},
+		"TestMcpLSPBinaryResourceCohortMalformedReportQuarantine_E2E":                     {},
+		"TestGoplsDaemonCommandOwnsRuntimeRequiresExactBinaryAndSocketRoot":               {},
+	}
+}
+
+func isMcpLSPExclusiveTestName(name string) bool {
+	_, ok := mcpLSPExclusiveTestNames()[name]
+	return ok
 }
 
 func (group CompileGroup) validateIdentityFields() error {

@@ -115,6 +115,64 @@ func TestDurationSampleIndexNormalEstimateUpdaterFastToMediumDoesNotDowngrade(t 
 	}
 }
 
+func TestDurationSampleIndexNormalExactGoTestKeepsAuthoritativeOverTargetEstimate(t *testing.T) {
+	workload, err := NewGoTestWorkload(
+		GateIDBackendTestWithGuard,
+		"./internal/archtest",
+		"TestAuthoritativeOverTarget",
+		10_000,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	measured := testDurationSample(workload.ID, workload.CommandDigest, true, FullCITargetDurationMS+1)
+	index, err := BuildDurationSampleIndex(testPlanningLedger(testPlanningContext(), []DurationSample{measured}), testPlanningContext())
+	if err != nil {
+		t.Fatalf("BuildDurationSampleIndex() error = %v", err)
+	}
+	estimate, resource, err := index.estimateNormalWorkload(workload, FullCITargetDurationMS)
+	if err != nil {
+		t.Fatalf("estimateNormalWorkload() error = %v", err)
+	}
+	if estimate != FullCITargetDurationMS+1 || resource.cpu != 8 || resource.memoryGiB != 16 {
+		t.Fatalf("exact Go test estimate = %dms at %.0fC/%.0fGiB, want authoritative %dms at 8C/16GiB", estimate, resource.cpu, resource.memoryGiB, FullCITargetDurationMS+1)
+	}
+}
+
+func TestGoTestDurationMSAtResourceQueriesTargetWithoutParentAggregate(t *testing.T) {
+	parent, err := NewGoPackageWorkload(GateIDBackendTestWithGuard, "./internal/archtest", 1_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const testName = "TestDirectSelectorBody"
+	inputDigest := "sha256:" + strings.Repeat("9", 64)
+	otherInputDigest := "sha256:" + strings.Repeat("8", 64)
+	parent.InputDigest = inputDigest
+	target := DurationSample{
+		Bucket: DurationBucket{
+			WorkloadID:    GoTestDurationWorkloadID(parent.ID, testName),
+			CommandDigest: GoTestDurationCommandDigest(parent.CommandDigest, testName),
+			InputDigest:   inputDigest,
+			Platform:      "darwin", Runner: "local", Toolchain: "go1.25",
+			ExecutionMode: DurationExecutionModeNormal, ResourceClassID: "small", ResourceCPU: 2, ResourceMemoryGiB: 4,
+		},
+		Succeeded: true, DurationMS: 125,
+		TargetKind: WorkloadKindGoTest, ParentWorkloadID: parent.ID,
+		ParentCommandDigest: parent.CommandDigest, TargetName: testName, TargetStatus: GoTestStatusPass,
+	}
+	otherTarget := target
+	otherTarget.Bucket.InputDigest = otherInputDigest
+	otherTarget.DurationMS = 999
+	calibrationParent := testCalibrationDurationSample(parent.ID, parent.CommandDigest, true, 9_000)
+	index, err := BuildDurationSampleIndex(testPlanningLedger(testPlanningContext(), []DurationSample{target, otherTarget, calibrationParent}), testPlanningContext())
+	if err != nil {
+		t.Fatalf("BuildDurationSampleIndex() error = %v", err)
+	}
+	if got, ok := index.GoTestDurationMSAtResource(parent, testName, 2, 4); !ok || got != 125 {
+		t.Fatalf("GoTestDurationMSAtResource() = %d, %t; want direct target body 125ms without normal parent aggregate", got, ok)
+	}
+}
+
 // TestDurationSampleIndexNormalEstimateCarriesMeasuredDurationIntoNewTier 锁定首次升档保留权威实测估值的固定点语义。
 func TestDurationSampleIndexNormalEstimateCarriesMeasuredDurationIntoNewTier(t *testing.T) {
 	workload := Workload{

@@ -437,13 +437,23 @@ func remoteRunReceiptTestEvidence(t *testing.T, workload gatecontract.Workload, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	execution := gatecontract.PlanGateExecution{GateID: identity.WorkloadID, ShardIdentity: "sha256:" + strings.Repeat("4", 64), Status: gatecontract.ResultStatusPassed, ExitCode: 0, StartedAt: start, CompletedAt: start.Add(time.Millisecond), ExecutionProfile: gatecontract.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 1, TotalMS: 2}}
+	execution := gatecontract.PlanGateExecution{GateID: identity.WorkloadID, ShardIdentity: "sha256:" + strings.Repeat("4", 64), Status: gatecontract.ResultStatusPassed, ExitCode: 0, StartedAt: start, CompletedAt: start.Add(time.Millisecond), ExecutionProfile: mustRemoteRunReceiptTestProfile(t, identity.WorkloadID, gatecontract.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 1, TotalMS: 2})}
 	evidence := gatecontract.WorkloadPassEvidence{Identity: identity, OriginJobID: "origin-job", OriginAcceptedGeneration: 6, OriginSourceTreeSHA: strings.Repeat("c", 40), OriginReceiptSetSHA256: "sha256:" + strings.Repeat("5", 64), OriginExecution: execution}
 	evidence.EvidenceSHA256, err = gatecontract.WorkloadPassEvidenceSHA256(evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return evidence
+}
+
+func mustRemoteRunReceiptTestProfile(t *testing.T, workloadID gatecontract.GateID, profile gatecontract.ExecutionProfile) gatecontract.ExecutionProfile {
+	t.Helper()
+	goFlags, err := gatecontract.WorkloadExecutionGoFlags(string(workloadID))
+	if err != nil {
+		t.Fatalf("WorkloadExecutionGoFlags(%q): %v", workloadID, err)
+	}
+	profile.GoFlags = goFlags
+	return profile
 }
 
 func remoteRunReceiptTestInput(plan gatecontract.GatePlan, store *gatecontract.DurationLedgerStore) remoteci.RunInput {
@@ -509,7 +519,7 @@ func remoteRunReceiptTestAuthority(t *testing.T, catalog gatecontract.WorkloadCa
 		execution.ExitCode = 0
 		execution.StartedAt = complete.FreshWorkloadExecutions[0].StartedAt
 		execution.CompletedAt = execution.StartedAt.Add(11 * time.Millisecond)
-		execution.ExecutionProfile = gatecontract.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 10, TotalMS: 11}
+		execution.ExecutionProfile = mustRemoteRunReceiptTestProfile(t, execution.GateID, gatecontract.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 10, TotalMS: 11})
 		workloadExecutions = append(workloadExecutions, execution)
 		workloads = append(workloads, execution.GateID)
 		identity := gatecontract.WorkloadPassIdentity{WorkloadID: execution.GateID, ExecutionDigest: gatecontract.WorkloadPassExecutionDigest(workload), InputDigest: workload.InputDigest, EnvironmentDigest: "sha256:" + strings.Repeat("3", 64)}
@@ -594,7 +604,9 @@ func remoteRunReceiptTestPlanAndCatalog(t *testing.T) (gatecontract.GatePlan, ga
 		t.Fatalf("BuildGatePlan() error = %v", err)
 	}
 	catalog, err := gatecontract.BuildExpandedWorkloadCatalog(plan, gatecontract.DefaultWorkloadBootstrapPolicy(), gatecontract.WorkloadInventory{
-		GoPackages: []string{"./internal/devtools/gate"},
+		GoPackages:  []string{"./internal/devtools/gate"},
+		GoTests:     []gatecontract.GoTestTarget{{Package: gatecontract.AtomicGatePackageTarget, Name: "TestGateAtomicCommon"}},
+		GoRaceTests: []gatecontract.GoTestTarget{{Package: gatecontract.AtomicGatePackageTarget, Name: "TestGateAtomicRace"}},
 	})
 	if err != nil {
 		t.Fatalf("BuildExpandedWorkloadCatalog() error = %v", err)
@@ -625,11 +637,13 @@ func remoteRunReceiptTestResult(t *testing.T, plan gatecontract.GatePlan, catalo
 		if !workload.Shardable {
 			continue
 		}
+		workloadID := gatecontract.GateID(workload.ID)
 		workloadExecutions = append(workloadExecutions, gatecontract.PlanGateExecution{
-			GateID: gatecontract.GateID(workload.ID), Status: gatecontract.ResultStatusPassed,
+			GateID: workloadID, Status: gatecontract.ResultStatusPassed,
 			StartedAt: startedAt, CompletedAt: startedAt.Add(time.Second),
+			ExecutionProfile: mustRemoteRunReceiptTestProfile(t, workloadID, gatecontract.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 1, TotalMS: 1000}),
 		})
-		identity := gatecontract.WorkloadPassIdentity{WorkloadID: gatecontract.GateID(workload.ID), ExecutionDigest: gatecontract.WorkloadPassExecutionDigest(workload), InputDigest: workload.InputDigest, EnvironmentDigest: "sha256:" + strings.Repeat("3", 64)}
+		identity := gatecontract.WorkloadPassIdentity{WorkloadID: workloadID, ExecutionDigest: gatecontract.WorkloadPassExecutionDigest(workload), InputDigest: workload.InputDigest, EnvironmentDigest: "sha256:" + strings.Repeat("3", 64)}
 		identity.IdentityDigest, err = gatecontract.WorkloadPassIdentitySHA256(identity)
 		if err != nil {
 			t.Fatalf("WorkloadPassIdentitySHA256() error = %v", err)
@@ -663,7 +677,7 @@ func remoteRunReceiptTestOwnerExecutions(t *testing.T, plan gatecontract.GatePla
 			continue
 		}
 		started := startedAt.Add(time.Duration(index) * time.Second)
-		observed[spec.ID] = gatecontract.PlanGateExecution{GateID: spec.ID, Status: gatecontract.ResultStatusPassed, ExitCode: 0, StartedAt: started, CompletedAt: started.Add(time.Second), Log: log, LogDigest: logDigest, ExecutionProfile: gatecontract.ExecutionProfile{CacheSource: "none", CacheStatus: gatecontract.CacheObservationNotApplicable, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 1, TotalMS: 1000}}
+		observed[spec.ID] = gatecontract.PlanGateExecution{GateID: spec.ID, Status: gatecontract.ResultStatusPassed, ExitCode: 0, StartedAt: started, CompletedAt: started.Add(time.Second), Log: log, LogDigest: logDigest, ExecutionProfile: mustRemoteRunReceiptTestProfile(t, spec.ID, gatecontract.ExecutionProfile{CacheSource: "none", CacheStatus: gatecontract.CacheObservationNotApplicable, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 1, TotalMS: 1000})}
 	}
 	attestation, err := gatecontract.ExecuteReleaseLayerAttestation(gatecontract.ProfileRelease, plan.PlanDigest, observed, func() time.Time {
 		return startedAt.Add(30 * time.Second)

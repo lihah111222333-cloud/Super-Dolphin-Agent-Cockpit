@@ -113,6 +113,7 @@ func assertPortableNodeCompileCache(t *testing.T, firstEnv, secondEnv map[string
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerEnvironmentSharesGlobalNonGoplsRSSPoolButIsolatesCaches(t *testing.T) {
 	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
 	firstBinary := writeRuntimeServerCacheFixture(t, "language-server", "#!/bin/sh\nexit 0\n")
@@ -156,6 +157,7 @@ func TestRuntimeServerEnvironmentSharesGlobalNonGoplsRSSPoolButIsolatesCaches(t 
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerResourceCohortDirIsolatesGoplsDaemons(t *testing.T) {
 	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
 	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
@@ -178,6 +180,7 @@ func TestRuntimeServerResourceCohortDirIsolatesGoplsDaemons(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeGoplsRemoteIDBindsRealpathAndResourceDirUsesRemoteID(t *testing.T) {
 	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
 	firstBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
@@ -203,6 +206,7 @@ func TestRuntimeGoplsRemoteIDBindsRealpathAndResourceDirUsesRemoteID(t *testing.
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeGoplsCohortRehashesSamePathWithRestoredMetadata(t *testing.T) {
 	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
 	info, err := os.Stat(binary)
@@ -339,6 +343,7 @@ func TestRuntimeServerLookPathRejectsCurrentDirectoryEntries(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerAcquireResourceLeaseSerializesStalePrimaryElection(t *testing.T) {
 	root := runtimeServerSecureCacheRoot(t)
 	cohortID := "repo-concurrent-election"
@@ -387,6 +392,7 @@ func TestRuntimeServerAcquireResourceLeaseSerializesStalePrimaryElection(t *test
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerAcquireResourceLeaseWaitsForElectionLock(t *testing.T) {
 	root := runtimeServerSecureCacheRoot(t)
 	cohortID := "repo-lock-barrier"
@@ -422,6 +428,7 @@ func TestRuntimeServerAcquireResourceLeaseWaitsForElectionLock(t *testing.T) {
 	goroutines.Wait()
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerAcquireResourceLeaseRejectsStableCorruptPrimary(t *testing.T) {
 	root := runtimeServerSecureCacheRoot(t)
 	cohortID := "repo-corrupt-primary"
@@ -521,6 +528,7 @@ func TestRuntimeServerEnvironmentRejectsLimitsBeforeCreatingLease(t *testing.T) 
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerCleanupResourceLeasesRemovesReusedPIDOrphans(t *testing.T) {
 	root := runtimeServerSecureCacheRoot(t)
 	cohortID := "repo-secondary-orphans"
@@ -547,6 +555,7 @@ func TestRuntimeServerCleanupResourceLeasesRemovesReusedPIDOrphans(t *testing.T)
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerCleanupResourceLeasesBoundsQuarantine(t *testing.T) {
 	root := runtimeServerSecureCacheRoot(t)
 	cohortID := "repo-secondary-quarantine"

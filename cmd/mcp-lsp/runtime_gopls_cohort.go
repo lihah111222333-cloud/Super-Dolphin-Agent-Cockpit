@@ -21,7 +21,7 @@ import (
 const runtimeServerGoplsGoEnvTimeout = 5 * time.Second
 
 func runtimeServerGoplsDefaultableEnvironmentKeys() []string {
-	return []string{"GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT"}
+	return []string{"AR", "CC", "CXX", "FC", "GCCGO", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT", "PKG_CONFIG"}
 }
 
 // runtimeServerArgs 按 gopls 二进制内容、Go 构建环境和 daemon 参数派生唯一共享 cohort。
@@ -177,33 +177,44 @@ func runtimeServerGoplsSemanticEnvironment(overrides []string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-	semantic := make([]string, 0, len(relevant)+2)
-	for _, entry := range relevant {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok && key == "PATH" {
-			continue
-		}
-		if defaultValue, defaultableKey := defaultable[key]; defaultableKey && (value == "" || value == defaultValue) {
-			continue
-		}
-		semantic = append(semantic, entry)
-	}
+	semantic, auxiliaryInput := runtimeServerGoplsFilteredEnvironment(relevant, defaultable)
 	semantic = append(semantic,
 		"GO_BINARY_REALPATH="+goBinary,
 		"GO_BINARY_SHA256="+goDigest,
 	)
-	auxiliary, err := runtimeServerGoplsAuxiliaryToolEnvironment(relevant)
+	auxiliary, err := runtimeServerGoplsAuxiliaryToolEnvironment(auxiliaryInput)
 	if err != nil {
 		return nil, err
 	}
 	return append(semantic, auxiliary...), nil
 }
 
+// runtimeServerGoplsFilteredEnvironment 移除 Go 自身报告的默认值，并保留显式辅助工具输入。
+func runtimeServerGoplsFilteredEnvironment(relevant []string, defaultable map[string]string) ([]string, []string) {
+	semantic := make([]string, 0, len(relevant))
+	auxiliaryInput := make([]string, 0, len(relevant))
+	usesGCCGO := runtimeServerGoplsUsesGCCGO(relevant)
+	for _, entry := range relevant {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && key == "PATH" {
+			auxiliaryInput = append(auxiliaryInput, entry)
+			continue
+		}
+		defaultValue, defaultableKey := defaultable[key]
+		if defaultableKey && (value == "" || value == defaultValue) && !(key == "GCCGO" && usesGCCGO) {
+			continue
+		}
+		semantic = append(semantic, entry)
+		auxiliaryInput = append(auxiliaryInput, entry)
+	}
+	return semantic, auxiliaryInput
+}
+
 // runtimeServerGoplsAuxiliaryToolEnvironment 将显式 Go 辅助工具绑定到真实二进制身份。
 func runtimeServerGoplsAuxiliaryToolEnvironment(relevant []string) ([]string, error) {
 	semantic := make([]string, 0, 16)
 	for _, key := range []string{"CC", "CXX", "FC", "AR", "GCCGO", "GOCACHEPROG", "PKG_CONFIG"} {
-		command := strings.TrimSpace(runtimeServerEnvValue(relevant, key))
+		command := runtimeServerGoplsEnvironmentValue(relevant, key)
 		if command == "" {
 			continue
 		}
@@ -221,6 +232,18 @@ func runtimeServerGoplsAuxiliaryToolEnvironment(relevant []string) ([]string, er
 		)
 	}
 	return semantic, nil
+}
+
+// runtimeServerGoplsEnvironmentValue 只读取已经过默认值过滤的环境，不回退到父进程。
+func runtimeServerGoplsEnvironmentValue(environment []string, key string) string {
+	value := ""
+	for _, entry := range environment {
+		entryKey, entryValue, ok := strings.Cut(entry, "=")
+		if ok && entryKey == key {
+			value = strings.TrimSpace(entryValue)
+		}
+	}
+	return value
 }
 
 // runtimeServerGoplsFilterInactiveGCCGO 移除 gc 构建不会读取的默认 GCCGO 值。

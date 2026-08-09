@@ -133,8 +133,8 @@ func projectRemoteFreshWorkloadExecution(
 	if !ok {
 		return "", gate.PlanGateExecution{}, fmt.Errorf("remote workload result %q is outside the current catalog", workloadID)
 	}
-	if err := execution.ExecutionProfile.Validate(); err != nil {
-		return "", gate.PlanGateExecution{}, fmt.Errorf("remote workload %q execution profile: %w", workloadID, err)
+	if err := validateRemoteWorkloadExecutionProfile(workloadID, execution.ExecutionProfile); err != nil {
+		return "", gate.PlanGateExecution{}, err
 	}
 	return workloadID, execution, nil
 }
@@ -150,8 +150,8 @@ func collectFreshRemoteWorkloadExecutions(
 		if !ok || execution.GateID != gate.GateID(workload.ID) {
 			return nil, fmt.Errorf("remote workload %q has no matching result", workload.ID)
 		}
-		if err := execution.ExecutionProfile.Validate(); err != nil {
-			return nil, fmt.Errorf("remote workload %q execution profile: %w", workload.ID, err)
+		if err := validateRemoteWorkloadExecutionProfile(workload.ID, execution.ExecutionProfile); err != nil {
+			return nil, err
 		}
 		observed[workload.ID] = execution
 	}
@@ -159,4 +159,20 @@ func collectFreshRemoteWorkloadExecutions(
 		return nil, fmt.Errorf("remote workload results contain entries outside the current catalog")
 	}
 	return observed, nil
+}
+
+// validateRemoteWorkloadExecutionProfile binds fresh report evidence to the
+// same canonical workload producer used for execution and PASS identity.
+func validateRemoteWorkloadExecutionProfile(workloadID string, profile gate.ExecutionProfile) error {
+	if err := profile.Validate(); err != nil {
+		return fmt.Errorf("remote workload %q execution profile: %w", workloadID, err)
+	}
+	expected, err := gate.WorkloadExecutionGoFlags(workloadID)
+	if err != nil {
+		return fmt.Errorf("remote workload %q expected GoFlags: %w", workloadID, err)
+	}
+	if profile.GoFlags != expected {
+		return fmt.Errorf("remote workload %q execution profile GoFlags %q does not match expected %q", workloadID, profile.GoFlags, expected)
+	}
+	return nil
 }

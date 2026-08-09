@@ -54,7 +54,7 @@ func (scope remoteGoTestScope) widen(other remoteGoTestScope) remoteGoTestScope 
 }
 
 func (profile remoteGoBuildProfile) cacheKey() string {
-	return fmt.Sprintf("race=%t", profile.race)
+	return fmt.Sprintf("go_flags=%s", gate.CanonicalGoFlags(profile.race))
 }
 
 func (snapshot *remoteGitTreeSnapshot) remoteGoTestDeclarations(directory string, profile remoteGoBuildProfile) ([]remoteGoTestFile, map[string][]remoteGoTestDeclaration, bool) {

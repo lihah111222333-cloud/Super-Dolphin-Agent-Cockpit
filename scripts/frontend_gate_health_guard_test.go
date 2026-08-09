@@ -244,8 +244,13 @@ func TestFrontendTurnContractHasSingleOwner(t *testing.T) {
 	if count := strings.Count(manifest.Scripts["guard:critical-skip"], "npm run guard:turn-contract"); count != 0 {
 		t.Fatalf("guard:critical-skip turn-contract owners = %d, want 0 because AI has turncontract:verify", count)
 	}
-	if count := strings.Count(manifest.Scripts["test:hook:preflight"], "npm run guard:turn-contract"); count != 1 {
-		t.Fatalf("preflight turn-contract owners = %d, want 1", count)
+	for _, script := range []string{
+		"test:hook:preflight:turncontract-verify",
+		"test:hook:preflight:turncontract-field-guard",
+	} {
+		if count := strings.Count(manifest.Scripts["test:hook:preflight"], "npm run "+script); count != 1 {
+			t.Fatalf("preflight %s owners = %d, want 1", script, count)
+		}
 	}
 }
 

@@ -113,6 +113,7 @@ func validateCompileGroupReportLogBudget(report PlanExecutionReport) error {
 
 // appendExecutionProfileDigest 将后端执行画像的每个字段加入报告摘要，防止 wire profile 篡改漏检。
 func appendExecutionProfileDigest(destination []byte, profile ExecutionProfile) []byte {
+	destination = appendPlanReportField(destination, "execution-go-flags", profile.GoFlags)
 	destination = appendPlanReportField(destination, "execution-cache-source", profile.CacheSource)
 	destination = appendPlanReportField(destination, "execution-cache-status", string(profile.CacheStatus))
 	destination = appendPlanReportField(destination, "execution-cache-measurement", profile.CacheMeasurement)

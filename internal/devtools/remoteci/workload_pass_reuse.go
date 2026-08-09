@@ -23,12 +23,16 @@ func remoteWorkloadPassIdentities(ctx context.Context, input RunInput, catalog g
 	if err != nil {
 		return nil, err
 	}
-	environmentDigest, err := remoteWorkloadEnvironmentDigest(input, workerTimeout, resourcePolicy)
-	if err != nil {
-		return nil, err
-	}
 	identities := make([]gate.WorkloadPassIdentity, 0, len(workloads))
 	for _, workload := range workloads {
+		goFlags, err := remoteWorkloadGoFlags(workload.ID)
+		if err != nil {
+			return nil, fmt.Errorf("derive remote workload %q GoFlags: %w", workload.ID, err)
+		}
+		environmentDigest, err := remoteWorkloadEnvironmentDigestForGoFlags(input, workerTimeout, resourcePolicy, goFlags)
+		if err != nil {
+			return nil, fmt.Errorf("digest remote workload %q environment: %w", workload.ID, err)
+		}
 		identity, err := remoteWorkloadPassIdentity(workload, inputDigests, environmentDigest)
 		if err != nil {
 			return nil, fmt.Errorf("digest remote workload %q pass identity: %w", workload.ID, err)
@@ -36,6 +40,28 @@ func remoteWorkloadPassIdentities(ctx context.Context, input RunInput, catalog g
 		identities = append(identities, identity)
 	}
 	return identities, nil
+}
+
+// remoteWorkloadGoFlags 从 gate 的 canonical executor 映射投影 PASS 身份所需的 Go profile。
+// 非 Go workload 不携带 GoFlags；未知的未展开 synthetic gate 保留旧的非 Go 语义，
+// 但任何已展开 Go target 都必须由同一 canonical producer 给出 profile。
+func remoteWorkloadGoFlags(id string) (string, error) {
+	_, kind, _, targeted, err := gate.ParseWorkloadID(string(id))
+	if err != nil {
+		return "", err
+	}
+	if targeted {
+		switch kind {
+		case gate.WorkloadTargetGoGuard, gate.WorkloadTargetGoPackage, gate.WorkloadTargetGoTest, gate.WorkloadTargetGoBenchmark:
+			return gate.WorkloadExecutionGoFlags(string(id))
+		default:
+			return "", nil
+		}
+	}
+	if _, _, err := gate.ParseExecutorCommand([]string{"run", "--gate", string(id)}); err == nil {
+		return gate.WorkloadExecutionGoFlags(string(id))
+	}
+	return "", nil
 }
 
 // remoteWorkloadPassInputDigests 只读取 Prepare 已绑定的生产输入摘要；缺失摘要直接阻断，禁止回退到 exact tree 重算。
@@ -124,6 +150,7 @@ type remoteWorkloadEnvironment struct {
 	CGOEnabled                string   `json:"cgo_enabled"`
 	GOOS                      string   `json:"goos"`
 	GOARCH                    string   `json:"goarch"`
+	GoFlags                   string   `json:"go_flags"`
 	SemanticEnvironmentSchema string   `json:"semantic_environment_schema"`
 	SemanticEnvironment       []string `json:"semantic_environment"`
 	WorkerExecutionProvenance string   `json:"worker_execution_provenance"`
@@ -133,11 +160,20 @@ type remoteWorkloadEnvironment struct {
 // contract/provenance 由 canonical cicontract owner 提供，candidate source、job、
 // agent、资源与 cache 路径不进入 PASS identity。
 func remoteWorkloadEnvironmentDigest(input RunInput, workerTimeout time.Duration, resourcePolicy shardresource.Policy) (string, error) {
+	return remoteWorkloadEnvironmentDigestForGoFlags(input, workerTimeout, resourcePolicy, gate.CanonicalGoFlags(false))
+}
+
+// remoteWorkloadEnvironmentDigestForGoFlags 计算绑定 workload 执行 profile 的语义环境摘要。
+// GOFLAGS 与 command digest 使用同一 gate producer；normal/race 因而不会共享旧 PASS。
+func remoteWorkloadEnvironmentDigestForGoFlags(input RunInput, workerTimeout time.Duration, resourcePolicy shardresource.Policy, goFlags string) (string, error) {
 	if err := gate.ValidateExecutorWorkloadTimeout(workerTimeout); err != nil {
 		return "", fmt.Errorf("validate remote workload environment timeout: %w", err)
 	}
 	if err := resourcePolicy.Validate(); err != nil {
 		return "", fmt.Errorf("validate remote workload resource policy: %w", err)
+	}
+	if err := gate.ValidateCanonicalGoFlags(goFlags); err != nil {
+		return "", fmt.Errorf("validate remote workload GoFlags: %w", err)
 	}
 	semanticEnvironment := cicontract.CanonicalWorkerExecutionEnvironment()
 	semanticEnvironment = append([]string(nil), semanticEnvironment...)
@@ -147,7 +183,7 @@ func remoteWorkloadEnvironmentDigest(input RunInput, workerTimeout time.Duration
 		return "", err
 	}
 	payload, err := json.Marshal(remoteWorkloadEnvironment{
-		SchemaVersion:             "remote-workload-pass-environment/v8",
+		SchemaVersion:             "remote-workload-pass-environment/v9",
 		Platform:                  input.Platform,
 		PolicyDigest:              input.PolicyDigest,
 		ToolchainDigest:           input.ToolchainDigest,
@@ -155,6 +191,7 @@ func remoteWorkloadEnvironmentDigest(input RunInput, workerTimeout time.Duration
 		CGOEnabled:                semanticValues["CGO_ENABLED"],
 		GOOS:                      semanticValues["GOOS"],
 		GOARCH:                    semanticValues["GOARCH"],
+		GoFlags:                   goFlags,
 		SemanticEnvironmentSchema: cicontract.WorkerExecutionEnvironmentSchemaVersion,
 		SemanticEnvironment:       semanticEnvironment,
 		WorkerExecutionProvenance: cicontract.WorkerExecutionProvenanceID,

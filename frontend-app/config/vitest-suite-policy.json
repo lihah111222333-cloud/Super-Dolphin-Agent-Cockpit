@@ -6,6 +6,8 @@
     "**/.agents/**",
     "**/tests/e2e/**",
     "**/scripts/**/*benchmark.test.*",
-    "**/scripts/**/performance-*.test.*"
+    "**/scripts/**/performance-*.test.*",
+    "**/scripts/remote-preflight-carriers/*.test.mjs",
+    "**/scripts/remote-suite-carriers/*.test.mjs"
   ]
 }

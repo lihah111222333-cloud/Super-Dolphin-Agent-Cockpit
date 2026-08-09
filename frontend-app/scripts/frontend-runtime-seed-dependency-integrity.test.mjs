@@ -1,9 +1,13 @@
-import { cpSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 
-import { dependencyTreeIntegrity } from './frontend-maintainability-dependency-integrity.mjs';
+import {
+  DEPENDENCY_REQUIRED_TOOL_PATHS,
+  dependencyTreeIntegrity,
+} from './frontend-maintainability-dependency-integrity.mjs';
 import {
   materializeImmutableDependencyOverlay,
   resolveImmutableDependencySeed,
@@ -39,6 +43,37 @@ function createDependencyIntegrityFixture() {
   writeFileSync(join(nodeModulesRoot, '.package-lock.json'), JSON.stringify({ ...packageLock, packages: { 'node_modules/fixture': packageRecord } }));
   return { appRoot, nodeModulesRoot };
 }
+
+function addRequiredToolFixtures(fixture) {
+  for (const relativePath of DEPENDENCY_REQUIRED_TOOL_PATHS) {
+    const absolutePath = join(fixture.nodeModulesRoot, relativePath);
+    mkdirSync(join(absolutePath, '..'), { recursive: true });
+    writeFileSync(absolutePath, `#!/usr/bin/env node\nexport const tool = ${JSON.stringify(relativePath)};\n`);
+  }
+}
+
+function runtimeContract(fixture) {
+  const tree = dependencyTreeIntegrity(fixture.appRoot, { runtimeOnly: true });
+  const requiredTools = Object.fromEntries(DEPENDENCY_REQUIRED_TOOL_PATHS.map((relativePath) => {
+    const digest = createHash('sha256').update(readFileSync(join(tree.nodeModulesRoot, relativePath))).digest('hex');
+    return [relativePath, digest];
+  }));
+  return { packageLockSha256: createHash('sha256').update(readFileSync(join(fixture.appRoot, 'package-lock.json'))).digest('hex'),
+    optionalLockSha256: tree.optionalLockSha256, binLockSha256: tree.binLockSha256, requiredTools };
+}
+
+it('uses only the lock/bin/tool runtime contract during normal dependency checks', () => {
+  const fixture = createDependencyIntegrityFixture();
+  addRequiredToolFixtures(fixture);
+  const before = runtimeContract(fixture);
+  const treeBefore = dependencyTreeIntegrity(fixture.appRoot);
+  writeFileSync(join(fixture.nodeModulesRoot, 'unrelated-runtime-file.js'), 'export const unrelated = true;\n');
+  const after = runtimeContract(fixture);
+  const treeAfter = dependencyTreeIntegrity(fixture.appRoot);
+
+  expect(after).toEqual(before);
+  expect(treeAfter.sha256).not.toBe(treeBefore.sha256);
+});
 
 it('uses a verified read-only seed through physical and image-linked Vite overlays', () => {
   const fixture = createDependencyIntegrityFixture();

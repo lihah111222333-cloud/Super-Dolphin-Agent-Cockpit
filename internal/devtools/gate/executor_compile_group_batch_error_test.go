@@ -23,7 +23,10 @@ func TestFailedCompiledSelectorBatchPropagatesBatchErrorToObservedPass(t *testin
 		},
 	}
 	batchErr := errors.New("compiled selector batch process cleanup failed")
-	results := failedCompiledSelectorBatchResults(group, []string{"go", "tool", "test2json"}, &observation, batchErr)
+	results, err := failedCompiledSelectorBatchResults(group, []string{"go", "tool", "test2json"}, &observation, batchErr, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := results[group.WorkloadIDs[0]]
 	if result.Status == ResultStatusPassed || result.ExitCode == 0 {
 		t.Fatalf("batch error was projected as passing selector: %#v", result)

@@ -608,26 +608,26 @@ func registerStoredCompileGroup(group CompileGroup, groups map[string]CompileGro
 }
 
 // registerCompileArtifactGroupForPlan 校验整份计划的 artifact identity。
-// archtest 的有界 selector 分组可在不同 ECI shard 使用相同 selector-independent
+// atomic package 的有界 selector 分组可在不同 ECI shard 使用相同 selector-independent
 // artifact key；同一 shard 的重复引用仍由 compileGroupAffinityFromShardIDs 拒绝。
 func registerCompileArtifactGroupForPlan(group CompileGroup, artifactGroups map[string]string) error {
 	return registerCompileArtifactGroupWithPolicy(group, artifactGroups, true)
 }
 
 // registerCompileArtifactGroup 校验单个 shard manifest 的 artifact identity。
-// 这里不允许 archtest duplicate，因为一个 shard 必须只运行一个同 key test-binary。
+// 这里不允许 atomic duplicate，因为一个 shard 必须只运行一个同 key test-binary。
 func registerCompileArtifactGroup(group CompileGroup, artifactGroups map[string]string) error {
 	return registerCompileArtifactGroupWithPolicy(group, artifactGroups, false)
 }
 
-func registerCompileArtifactGroupWithPolicy(group CompileGroup, artifactGroups map[string]string, allowArchtestPartitions bool) error {
+func registerCompileArtifactGroupWithPolicy(group CompileGroup, artifactGroups map[string]string, allowAtomicPartitions bool) error {
 	artifactKey, err := CompileArtifactKey(group)
 	if err != nil {
 		return err
 	}
 	binding := artifactKey + "\x00" + group.ResourceClassID
 	if previous, duplicate := artifactGroups[binding]; duplicate {
-		if allowArchtestPartitions && isBoundedArchtestCompileGroup(group) {
+		if allowAtomicPartitions && isBoundedAtomicCompileGroup(group) {
 			return nil
 		}
 		return fmt.Errorf("compile artifact %q resource class %q is duplicated by groups %q and %q", artifactKey, group.ResourceClassID, previous, group.GroupID)
@@ -636,12 +636,12 @@ func registerCompileArtifactGroupWithPolicy(group CompileGroup, artifactGroups m
 	return nil
 }
 
-// isBoundedArchtestCompileGroup 识别只允许跨 shard 共享 selector-independent
-// artifact key 的 archtest 子组。CompileGroup.Validate 已验证完整 selector shape；
+// isBoundedAtomicCompileGroup 识别只允许跨 shard 共享 selector-independent
+// artifact key 的有界 atomic 子组。CompileGroup.Validate 已验证完整 selector shape；
 // 这里再次保留最小谓词，避免未来调用方绕开验证后扩大例外范围。
-func isBoundedArchtestCompileGroup(group CompileGroup) bool {
-	return group.PackageTarget == AtomicArchtestPackageTarget &&
-		len(group.WorkloadIDs) <= cicontract.ArchtestMaxSelectorsPerCompileGroup &&
+func isBoundedAtomicCompileGroup(group CompileGroup) bool {
+	return isAtomicGoPackageTarget(group.PackageTarget) &&
+		len(group.WorkloadIDs) <= cicontract.CompileGroupMaxSelectors &&
 		compileGroupHasExactGoSelectors(group)
 }
 

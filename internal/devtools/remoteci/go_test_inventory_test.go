@@ -171,6 +171,27 @@ func TestCodexHelperProcessIsExcludedFromProductionInventory(t *testing.T) {
 	}
 }
 
+// TestCompileGroupBatchHelpersAreExcludedFromProductionInventory 锁定批量 test2json
+// fixture helper 只作为显式子进程入口，不得进入默认远程 CI workload。
+func TestCompileGroupBatchHelpersAreExcludedFromProductionInventory(t *testing.T) {
+	filePath := filepath.Join("..", "gate", "executor_compile_group_timing_test.go")
+	file, err := parser.ParseFile(
+		token.NewFileSet(), filePath, nil, parser.ParseComments|parser.SkipObjectResolution,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := goTestNamesFromFiles([]*ast.File{file}, "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, helper := range []string{"TestCompileGroup", "TestCompileGroupSecond"} {
+		if slices.Contains(names, helper) {
+			t.Fatalf("%s entered the default remote CI inventory: %v", helper, names)
+		}
+	}
+}
+
 func TestRemoteGoPackageMatchesPlatformRejectsIgnoredOnlyDirectory(t *testing.T) {
 	snapshot := &remoteGitTreeSnapshot{goSources: map[string][]byte{
 		"ignored/check.go":     []byte("//go:build ignore\n\npackage ignored\n"),

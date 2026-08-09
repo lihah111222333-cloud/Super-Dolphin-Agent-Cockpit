@@ -184,6 +184,24 @@ func TestWorkloadPassEvidencePromotesAndLooksUpAuthoritativeRun(t *testing.T) {
 	}
 }
 
+// TestWorkloadPassEvidenceTreatsLegacyExecutionProfileAsMiss verifies that an
+// old origin row cannot be compatibility-decoded into a current PASS hit.
+func TestWorkloadPassEvidenceTreatsLegacyExecutionProfileAsMiss(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, identity, receipts := recordWorkloadPassRun(t, store, "legacy-execution-profile", 1, "legacy-execution-profile")
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
+		t.Fatalf("finalize legacy-profile origin: %v", err)
+	}
+	database := openWorkloadPassDatabase(t, store)
+	_, err := database.Exec(`UPDATE ci_workload_executions SET execution_profile_json = ? WHERE job_id = ?`, `{"cache_source":"go_build_cache","cache_status":"miss","cache_measurement":"measured","cache_miss_count":1,"startup_ms":1,"test_body_ms":6,"total_ms":7}`, record.JobID)
+	if err != nil {
+		database.Close()
+		t.Fatalf("rewrite legacy execution profile: %v", err)
+	}
+	database.Close()
+	assertWorkloadPassLookupMiss(t, store, identity)
+}
+
 // TestWorkloadPassEvidenceLookupRejectsReceiptMutation 拒绝删除或篡改已提升证据依赖的回执。
 func TestWorkloadPassEvidenceLookupRejectsReceiptMutation(t *testing.T) {
 	for _, mutation := range []string{"delete", "tamper"} {
@@ -745,7 +763,7 @@ func recordWorkloadPassRunAt(t *testing.T, store *DurationLedgerStore, jobID str
 	identity := WorkloadPassIdentity{WorkloadID: workloadID, ExecutionDigest: WorkloadPassExecutionDigest(catalogWorkload), InputDigest: catalogWorkload.InputDigest, EnvironmentDigest: digestForWorkloadPass("environment-" + workload)}
 	identity.IdentityDigest = workloadPassIdentityDigest(t, identity)
 	shard := RemoteCIShardRecord{ShardIdentity: digestForWorkloadPass("shard-" + jobID), ContainerGroup: "eci-" + jobID, ContainerStatus: "Succeeded", Workloads: []GateID{workloadID}, MaterializationTiming: measuredShardMaterializationTiming(digestForWorkloadPass("shard-" + jobID)), Resources: RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8}}
-	execution := PlanGateExecution{ShardIdentity: shard.ShardIdentity, GateID: workloadID, Status: ResultStatusPassed, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
+	execution := PlanGateExecution{ShardIdentity: shard.ShardIdentity, GateID: workloadID, Status: ResultStatusPassed, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{GoFlags: CanonicalGoFlags(false), CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
 	record := RemoteCIRunRecord{JobID: jobID, AgentTokenDigest: digestForWorkloadPass("agent-" + jobID), Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, AcceptedGeneration: generation, ImageCacheSnapshotID: fmt.Sprintf("snapshot-%d", generation), PlanDigest: "sha256:plan", CatalogDigest: catalogDigest, SourceTreeSHA: treeSHA, CandidateGateSourceSHA256: digestForWorkloadPass("gate-source-" + jobID), CandidateGateToolchainSHA256: digestForWorkloadPass("gate-toolchain-" + jobID), RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true, Shards: []RemoteCIShardRecord{shard}, WorkloadExecutions: []PlanGateExecution{execution}, WorkloadResults: []RemoteCIWorkloadResult{{Identity: identity, Disposition: WorkloadDispositionExecuted, OriginJobID: jobID, OriginAcceptedGeneration: generation}}, TimingObservations: authoritativeTimingObservationsForTest(jobID, execution)}
 	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
 		t.Fatalf("record workload pass run: %v", err)

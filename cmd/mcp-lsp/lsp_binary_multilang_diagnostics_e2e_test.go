@@ -125,6 +125,7 @@ func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing
 	}
 }
 
+// super-dolphin-ci: helper
 func TestFakeMultilangDiagnosticsLangserverHelper(t *testing.T) {
 	if os.Getenv(fakeMultilangDiagnosticsEnv) != "1" {
 		return

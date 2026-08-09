@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // ExecutorStrategy identifies the fixed execution behavior for a gate.
@@ -27,7 +28,7 @@ type ExecutorStep struct {
 const (
 	executorNormalGoFlagsResourceBound        = "GOFLAGS=-p=4"
 	executorNormalGoMaxProcsResourceBound     = "GOMAXPROCS=4"
-	executorRaceGoFlagsResourceBound          = "GOFLAGS=-p=4"
+	executorRaceGoFlagsResourceBound          = "GOFLAGS=-race -p=4"
 	executorRaceGoMaxProcsResourceBound       = "GOMAXPROCS=4"
 	executorGoMemoryLimitResourceBound        = "GOMEMLIMIT=6GiB"
 	executorNilnessGoFlagsResourceBound       = "GOFLAGS=-p=2"
@@ -102,10 +103,6 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	GateIDFrontendLint: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "lint"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
-	GateIDFrontendPreflight: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
-		[]string{"npm", "run", "test:hook:preflight"},
-		[]string{"npm", "run", "test:hook:dependency-integrity"},
-	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
 	GateIDFrontendTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "test:hook"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
@@ -116,7 +113,7 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		"frontend-app/tests/e2e/business-flows.spec.js", "frontend-app/playwright.business-flows.config.js",
 		"frontend-app/tests/e2e/desktop-wide.spec.js", "frontend-app/playwright.desktop-wide.config.js")),
 	GateIDFrontendFullTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
-		[]string{"npm", "test"},
+		[]string{"npm", "run", "test:full:body"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
 	GateIDFrontendBuild: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "build"},
@@ -202,10 +199,12 @@ func executorProgramForTarget(parent GateID, targetKind WorkloadTargetKind, targ
 		program, err := goBenchmarkExecutorProgram(target)
 		return program, err
 	case workloadTargetVitest:
-		return vitestExecutorProgram(target), nil
+		return vitestExecutorProgram(parent, target)
 	case workloadTargetPlaywright:
 		program, err := playwrightE2EExecutorProgram(target)
 		return program, err
+	case workloadTargetFrontendGuard:
+		return frontendPreflightExecutorProgram(target)
 	default:
 		return ExecutorProgram{}, fmt.Errorf("unsupported workload target kind %q", targetKind)
 	}
@@ -308,6 +307,9 @@ func goTestExecutorProgram(parent GateID, target string) (ExecutorProgram, error
 	if err != nil {
 		return ExecutorProgram{}, err
 	}
+	if IsCanonicalGoTestHelper(testTarget) {
+		return ExecutorProgram{}, fmt.Errorf("Go test target %q is a canonical subprocess helper and cannot run ordinarily", target)
+	}
 	normal := []string{
 		"./scripts/test_with_guard.sh",
 		"--ci-package-test",
@@ -338,12 +340,99 @@ func goBenchmarkExecutorProgram(target string) (ExecutorProgram, error) {
 	return goTargetExecutorProgram(argv, false), nil
 }
 
-// vitestExecutorProgram 将一个前端测试文件绑定到串行 Vitest 命令。
-func vitestExecutorProgram(target string) ExecutorProgram {
+// vitestExecutorProgram 将普通测试文件或旧 materializer 兼容载体映射到固定命令。
+func vitestExecutorProgram(parent GateID, target string) (ExecutorProgram, error) {
+	if parent == GateIDFrontendTest {
+		if preflightTarget, ok := ParseFrontendPreflightCarrierTarget(target); ok {
+			program, err := frontendPreflightExecutorProgram(preflightTarget)
+			if err != nil {
+				return ExecutorProgram{}, err
+			}
+			program.RequiredPaths = append(program.RequiredPaths, "frontend-app/"+target)
+			return program, nil
+		}
+	}
+	if isFrontendSuiteCarrierTarget(parent, target) {
+		return frontendSuiteExecutorProgram(parent, target)
+	}
 	return withGoSeed(withFrontendSeed(requirePaths(commandProgramIn(
 		"frontend-app",
 		[]string{"npx", "vitest", "run", target, "--no-file-parallelism", "--maxWorkers=1"},
-	), "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+target)))
+	), "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+target))), nil
+}
+
+// frontendPreflightExecutorProgram 将 preflight parent 的固定 allowlist 映射为独立 workload。
+func frontendPreflightExecutorProgram(target string) (ExecutorProgram, error) {
+	script, goSeed, required := "", false, []string{
+		"frontend-app/package.json",
+		"frontend-app/package-lock.json",
+	}
+	switch target {
+	case FrontendPreflightTargetCriticalGuards:
+		script = "test:hook:preflight:critical-guards"
+		required = append(required,
+			"frontend-app/scripts/no-critical-skip.mjs",
+			"frontend-app/scripts/no-silent-async-failure.mjs",
+			"frontend-app/scripts/frontend-contract-store-guard.mjs",
+			"frontend-app/scripts/frontend-code-size-guard.mjs",
+			"frontend-app/scripts/frontend-z-index-token-guard.mjs",
+		)
+	case FrontendPreflightTargetTurnContractVerify:
+		script, goSeed = "test:hook:preflight:turncontract-verify", true
+		required = append(required,
+			"scripts/turncontract/main.go",
+			"scripts/turncontract/schema_support.go",
+		)
+	case FrontendPreflightTargetTurnContractFieldGuard:
+		script, goSeed = "test:hook:preflight:turncontract-field-guard", true
+		required = append(required,
+			"internal/dto/turn/contract_field_guard_discovery_test.go",
+			"internal/dto/turn/contract_field_guard_test.go",
+			"frontend-app/scripts/turn-contract-field-guard.mjs",
+		)
+	case FrontendPreflightTargetCriticalTypecheck:
+		script = "test:hook:preflight:critical-typecheck"
+		required = append(required,
+			"frontend-app/scripts/critical-typecheck-guard.mjs",
+			"frontend-app/scripts/critical-typecheck-files.json",
+			"frontend-app/tsconfig.contracts.json",
+		)
+	case FrontendPreflightTargetContractsVitest:
+		script = "test:hook:preflight:contracts-check"
+		required = append(required, "frontend-app/scripts/contracts-typecheck-guard.test.mjs")
+	case FrontendPreflightTargetRPCAudit:
+		script = "test:hook:preflight:rpc-audit"
+		required = append(required, "frontend-app/scripts/rpc-contract-audit.mjs")
+	case FrontendPreflightTargetDependencyContract:
+		script = "test:hook:preflight:dependency-contract"
+		required = append(required,
+			"frontend-app/scripts/refresh-frontend-maintainability-dependencies.mjs",
+			"frontend-app/scripts/frontend-maintainability-dependency-integrity.mjs",
+			"frontend-app/scripts/frontend-execution-closure.mjs",
+			"frontend-app/scripts/frontend-maintainability-dependencies.json",
+		)
+	default:
+		return ExecutorProgram{}, fmt.Errorf("unsupported frontend preflight workload target %q", target)
+	}
+	program := withFrontendSeed(requirePaths(commandProgramIn("frontend-app", []string{"npm", "run", script}), required...))
+	if goSeed {
+		program = withGoSeed(program)
+	}
+	return program, nil
+}
+
+func frontendSuiteExecutorProgram(parent GateID, target string) (ExecutorProgram, error) {
+	var argv []string
+	switch {
+	case parent == GateIDFrontendTest && target == FrontendChangedSuiteCarrierTarget:
+		argv = []string{"npm", "run", "test:hook:core", "--", "--passWithNoTests"}
+	case parent == GateIDFrontendFullTest && target == FrontendFullSuiteCarrierTarget:
+		argv = []string{"npm", "run", "test:full:body"}
+	default:
+		return ExecutorProgram{}, fmt.Errorf("unsupported frontend suite workload %q for gate %q", target, parent)
+	}
+	return withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app", argv),
+		"frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+target))), nil
 }
 
 const (
@@ -454,6 +543,89 @@ func normalGoExecutorStep(argv []string) ExecutorStep {
 		executorNormalGoMaxProcsResourceBound,
 		executorGoMemoryLimitResourceBound,
 	})
+}
+
+// CanonicalGoFlags 返回指定 Go 执行语义的唯一 GOFLAGS 值。
+// race profile 必须将 -race 放入环境，让派生的 go/packages.Load 与顶层测试
+// 二进制共享同一编译 profile；调用方不得自行拼接或重复追加该 flag。
+func CanonicalGoFlags(race bool) string {
+	if race {
+		return strings.TrimPrefix(executorRaceGoFlagsResourceBound, "GOFLAGS=")
+	}
+	return strings.TrimPrefix(executorNormalGoFlagsResourceBound, "GOFLAGS=")
+}
+
+// ValidateCanonicalGoFlags 校验 wire/report/PASS 身份中携带的 GOFLAGS 语义。
+// 空值仅用于非 Go workload 或 parent aggregate；一旦有值就必须是登记的完整 profile。
+func ValidateCanonicalGoFlags(value string) error {
+	if value == "" {
+		return nil
+	}
+	if value != CanonicalGoFlags(false) && value != CanonicalGoFlags(true) && value != strings.TrimPrefix(executorNilnessGoFlagsResourceBound, "GOFLAGS=") {
+		return fmt.Errorf("GOFLAGS profile %q is not canonical", value)
+	}
+	if strings.Count(value, "-race") > 1 {
+		return errors.New("GOFLAGS profile contains duplicate -race")
+	}
+	if strings.Contains(value, "-race") && value != CanonicalGoFlags(true) {
+		return errors.New("race GOFLAGS profile is not canonical")
+	}
+	return nil
+}
+
+// ExecutorProgramGoFlags 从 immutable executor program 投影其唯一 Go profile。
+// 任何重复、未知或混配的 GOFLAGS 都在执行前 fail-fast，避免 report/PASS 取得另一份语义。
+func ExecutorProgramGoFlags(program ExecutorProgram) (string, error) {
+	var (
+		value string
+		seen  bool
+	)
+	for _, step := range program.Steps {
+		for _, assignment := range step.Environment {
+			key, candidate, ok := strings.Cut(assignment, "=")
+			if !ok || strings.TrimSpace(key) == "" {
+				return "", fmt.Errorf("executor step environment assignment %q is malformed", assignment)
+			}
+			if key != "GOFLAGS" {
+				continue
+			}
+			if seen {
+				return "", errors.New("executor program contains duplicate GOFLAGS assignments")
+			}
+			if err := ValidateCanonicalGoFlags(candidate); err != nil {
+				return "", err
+			}
+			value, seen = candidate, true
+		}
+	}
+	return value, nil
+}
+
+// WorkloadExecutionGoFlags 返回 workload 实际 executor program 的 canonical Go profile。
+// 非 Go workload 返回空值；exact Go target 的 profile 仍由 parent race 语义唯一决定。
+func WorkloadExecutionGoFlags(id string) (string, error) {
+	_, program, err := executorProgramForWorkload(GateID(id))
+	if err == nil {
+		return ExecutorProgramGoFlags(program)
+	}
+	parent, targetKind, _, targeted, parseErr := parseTargetWorkloadID(id)
+	if parseErr != nil {
+		return "", parseErr
+	}
+	if targeted {
+		switch targetKind {
+		case workloadTargetGoGuard, workloadTargetGoPackage, workloadTargetGoTest, workloadTargetGoBenchmark:
+			if parent != GateIDBackendTestWithGuard && parent != GateIDBackendTestGuardWithRace && parent != GateIDBackendNilness && parent != GateIDAIMaintenanceSelfTest {
+				return "", err
+			}
+			return CanonicalGoFlags(parent == GateIDBackendTestGuardWithRace), nil
+		default:
+			return "", nil
+		}
+	}
+	// Unknown unexpanded synthetic IDs are not Go commands; callers that need a
+	// canonical executor must still resolve them through ParseExecutorCommand.
+	return "", nil
 }
 
 func nilnessGoExecutorStep(argv []string) ExecutorStep {

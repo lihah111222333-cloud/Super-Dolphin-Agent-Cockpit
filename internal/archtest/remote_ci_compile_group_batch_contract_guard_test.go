@@ -24,10 +24,10 @@ func assertRemoteCICompileGroupBatchSchema(t *testing.T, root string) {
 		"BatchPlanDigest",
 		"BatchPlanWarning",
 		"validateArchtestCompileGroupShape",
-		"ArchtestMaxSelectorsPerCompileGroup",
+		"CompileGroupMaxSelectors",
 		"validateCompileGroupSafetyBatch",
 		"validateCompileGroupSelectorIdentitySafety",
-		"TestCodexHelperProcess",
+		"IsCanonicalGoTestHelper",
 	} {
 		if !strings.Contains(source, marker) {
 			t.Errorf("compile group schema is missing marker %q", marker)
@@ -85,13 +85,13 @@ func assertRemoteCICompileGroupBatchExecution(t *testing.T, root string) {
 			t.Errorf("compile group worker is missing marker %q", marker)
 		}
 	}
-	for _, marker := range []string{"HOME", "GOTMPDIR", "XDG_CACHE_HOME", "AtomicArchtestPackageTarget", "GOMEMLIMIT", "3GiB"} {
+	for _, marker := range []string{"HOME", "GOTMPDIR", "XDG_CACHE_HOME", "isAtomicGoPackageTarget", "GOMEMLIMIT", "3GiB"} {
 		if !strings.Contains(environmentSource, marker) {
 			t.Errorf("compile group batch environment is missing marker %q", marker)
 		}
 	}
-	if !strings.Contains(contractSource, "ArchtestMaxSelectorsPerCompileGroup = 64") {
-		t.Fatal("cicontract archtest selector budget owner drifted")
+	if !strings.Contains(contractSource, "CompileGroupMaxSelectors = 64") {
+		t.Fatal("cicontract compile-group selector budget owner drifted")
 	}
 	if strings.Contains(batchSource, "executeCompiledSelectorBatch(") || strings.Contains(batchSource, "compileGroupBatchCommandArgv(") {
 		t.Fatal("compile group worker retains a retired non-batch compatibility entrypoint")
@@ -133,7 +133,7 @@ func assertCompileGroupCapacityPolicy(t *testing.T, plannerPath string) {
 func assertArchtestCompileGroupPartitionPolicy(t *testing.T, plannerPath, plannerSource string) {
 	t.Helper()
 	partition := remoteCIFunctionSource(t, plannerPath, "splitCompilePlanningPartitions")
-	for _, marker := range []string{"ArchtestMaxSelectorsPerCompileGroup", "PackageTarget != AtomicArchtestPackageTarget", "partitionBodies := make([]int64, groupCount)", "appendArchtestCompilePlanningSelector", "sortArchtestCompilePlanningPartition"} {
+	for _, marker := range []string{"CompileGroupMaxSelectors", "isAtomicGoPackageTarget", "partitionBodies := make([]int64, groupCount)", "appendArchtestCompilePlanningSelector", "sortArchtestCompilePlanningPartition"} {
 		if !strings.Contains(partition, marker) {
 			t.Fatalf("archtest planner is missing bounded-partition marker %q", marker)
 		}
@@ -155,7 +155,7 @@ func assertArchtestCompileGroupPartitionPolicy(t *testing.T, plannerPath, planne
 func assertArchtestCompileGroupValidationPolicy(t *testing.T, root string) {
 	t.Helper()
 	archtestValidation := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/gate/compile_group.go"), "validateArchtestCompileGroupShape")
-	for _, marker := range []string{"ArchtestMaxSelectorsPerCompileGroup", "len(group.BatchPlan) != 1", "batch.Wave != 0", "batch.Exclusive"} {
+	for _, marker := range []string{"CompileGroupMaxSelectors", "len(group.BatchPlan) != 1", "batch.Wave != 0", "batch.Exclusive"} {
 		if !strings.Contains(archtestValidation, marker) {
 			t.Fatalf("compile-group validator is missing archtest shape marker %q", marker)
 		}

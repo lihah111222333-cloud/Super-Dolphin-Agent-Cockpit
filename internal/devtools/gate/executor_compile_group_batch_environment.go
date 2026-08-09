@@ -142,10 +142,10 @@ func setCompileGroupEnvironmentValue(environment []string, key string, value str
 	return append(environment, prefix+value)
 }
 
-// compileGroupBatchProcessEnvironment 让 archtest 单进程在 4 GiB 档内主动
+// compileGroupBatchProcessEnvironment 让 atomic package 单进程在 4 GiB 档内主动
 // 回收 SSA 堆；其他包保持候选环境原样。
 func compileGroupBatchProcessEnvironment(environment []string, packageTarget string) []string {
-	if packageTarget != AtomicArchtestPackageTarget {
+	if !isAtomicGoPackageTarget(packageTarget) {
 		return environment
 	}
 	return setCompileGroupEnvironmentValue(environment, "GOMEMLIMIT", "3GiB")

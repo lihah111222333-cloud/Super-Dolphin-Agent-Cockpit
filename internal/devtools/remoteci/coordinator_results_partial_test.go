@@ -254,8 +254,12 @@ func recordPartialResultsCatalog(t *testing.T, ledgerStore *gate.DurationLedgerS
 func TestAggregateRemoteReportsPreservesExactGoTestWorkloadExecutionProfile(t *testing.T) {
 	started := time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC)
 	workloadID := string(gate.GateIDBackendTestWithGuard)
+	goFlags, err := gate.WorkloadExecutionGoFlags(workloadID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	profile := gate.ExecutionProfile{
-		CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured",
+		GoFlags: goFlags, CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured",
 		CacheMissCount: 1, StartupMS: 10, TestBodyMS: 20, TotalMS: 30,
 	}
 	catalog := gate.WorkloadCatalog{Workloads: []gate.Workload{{
@@ -340,10 +344,15 @@ func releaseRemoteAggregationFixture(t *testing.T) (gate.WorkloadCatalog, string
 			continue
 		}
 		begin := started.Add(time.Duration(index) * time.Second)
+		goFlags, err := gate.WorkloadExecutionGoFlags(workload.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		observed[workload.ID] = gate.PlanGateExecution{
 			GateID: gate.GateID(workload.ID), Status: gate.ResultStatusPassed, ExitCode: 0,
 			StartedAt: begin, CompletedAt: begin.Add(time.Second), Log: log, LogDigest: logDigest,
 			ExecutionProfile: gate.ExecutionProfile{
+				GoFlags:     goFlags,
 				CacheSource: "none", CacheStatus: gate.CacheObservationNotApplicable, CacheMeasurement: "measured",
 				StartupMS: 1, TestBodyMS: 1, TotalMS: 2,
 			},
@@ -361,7 +370,7 @@ func assertAggregateRemoteReportsIdentity(t *testing.T, parents []gate.PlanGateE
 
 func assertRemoteExecutionProfile(t *testing.T, label string, got gate.ExecutionProfile, want gate.ExecutionProfile) {
 	t.Helper()
-	if got.CacheSource != want.CacheSource || got.CacheStatus != want.CacheStatus || got.CacheMeasurement != want.CacheMeasurement ||
+	if got.GoFlags != want.GoFlags || got.CacheSource != want.CacheSource || got.CacheStatus != want.CacheStatus || got.CacheMeasurement != want.CacheMeasurement ||
 		got.StartupMS != want.StartupMS || got.TestBodyMS != want.TestBodyMS || got.TotalMS != want.TotalMS {
 		t.Fatalf("%s execution profile = %#v, want %#v", label, got, want)
 	}

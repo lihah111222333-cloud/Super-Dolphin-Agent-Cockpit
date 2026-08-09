@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
@@ -73,6 +74,7 @@ func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T)
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
@@ -140,6 +142,7 @@ func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
@@ -210,6 +213,7 @@ func TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation(t *test
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix(t *testing.T) {
 	cleanActive := runtimeServerDurableGoplsRootCohortState{
 		DrainStatus: runtimeGoplsRootCohortDrainActive,
@@ -293,6 +297,7 @@ func TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix(t *testing
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortIdleDrainCompletionAndAdmissionCancel(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
@@ -432,6 +437,7 @@ func runDurableGoplsRootCohortAdmissionCancel(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
@@ -490,6 +496,7 @@ func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *t
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
@@ -580,6 +587,7 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
@@ -657,6 +665,7 @@ func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(
 	}
 }
 
+// super-dolphin-ci: compile-group-exclusive
 func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")

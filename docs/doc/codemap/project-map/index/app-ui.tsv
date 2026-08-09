@@ -14,12 +14,12 @@ frontend-app/.gitignore	frontend-app	app-ui	file	30	当前 React/Vite 前端包	
 frontend-app/README.md	frontend-app	app-ui	doc	1427	当前 React/Vite 前端包	frontend,app,README,当前,React,Vite,前端包
 frontend-app/config/action-producer-registry.json	frontend-app	app-ui	json	49754	当前 React/Vite 前端包	frontend,app,config,action,producer,registry,当前,React,Vite,前端包
 frontend-app/config/action-producer-test-matrix.json	frontend-app	app-ui	json	144385	当前 React/Vite 前端包	frontend,app,config,action,producer,test,matrix,当前,React,Vite,前端包
-frontend-app/config/vitest-suite-policy.json	frontend-app	app-ui	json	221	当前 React/Vite 前端包	frontend,app,config,vitest,suite,policy,当前,React,Vite,前端包
+frontend-app/config/vitest-suite-policy.json	frontend-app	app-ui	json	327	当前 React/Vite 前端包	frontend,app,config,vitest,suite,policy,当前,React,Vite,前端包
 frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vite 前端包	frontend,app,eslint,config,当前,React,Vite,前端包
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
 frontend-app/package-lock.json	frontend-app	app-ui	json	276052	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	5519	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	6379	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	652	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
@@ -86,16 +86,16 @@ frontend-app/scripts/frontend-hook-test-runner.mjs	frontend-app	app-ui	js-source
 frontend-app/scripts/frontend-hook-test-runner.test.mjs	frontend-app	app-ui	js-test	2139	React 前端构建与校验脚本	frontend,app,scripts,hook,test,runner,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	json	302269	React 前端构建与校验脚本	frontend,app,scripts,maintainability,baseline,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-dependencies.json	frontend-app	app-ui	json	2202	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependencies,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-dependency-integrity.mjs	frontend-app	app-ui	js-source	21563	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependency,integrity,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-dependency-integrity.mjs	frontend-app	app-ui	js-source	21770	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependency,integrity,React,前端构建与校验脚本
 frontend-app/scripts/frontend-performance-cases.json	frontend-app	app-ui	json	1589	React 前端构建与校验脚本	frontend,app,scripts,performance,cases,React,前端构建与校验脚本
-frontend-app/scripts/frontend-runtime-seed-dependency-integrity.test.mjs	frontend-app	app-ui	js-test	5741	React 前端构建与校验脚本	frontend,app,scripts,runtime,seed,dependency,integrity,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-runtime-seed-dependency-integrity.test.mjs	frontend-app	app-ui	js-test	7400	React 前端构建与校验脚本	frontend,app,scripts,runtime,seed,dependency,integrity,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.mjs	frontend-app	app-ui	js-source	26030	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui	js-test	8805	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-registry.json	frontend-app	app-ui	json	5222	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,registry,React,前端构建与校验脚本
 frontend-app/scripts/frontend-verification-isolation.mjs	frontend-app	app-ui	js-source	4905	React 前端构建与校验脚本	frontend,app,scripts,verification,isolation,React,前端构建与校验脚本
 frontend-app/scripts/frontend-verification-isolation.test.mjs	frontend-app	app-ui	js-test	7273	React 前端构建与校验脚本	frontend,app,scripts,verification,isolation,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-z-index-token-guard.mjs	frontend-app	app-ui	js-source	10459	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,React,前端构建与校验脚本
-frontend-app/scripts/frontend-z-index-token-guard.test.mjs	frontend-app	app-ui	js-test	10948	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-z-index-token-guard.test.mjs	frontend-app	app-ui	js-test	11030	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/lib/agentic-e2e-wails-mock-browser-helper.mjs	frontend-app	app-ui	js-source	3588	React 前端构建与校验脚本	frontend,app,scripts,lib,agentic,e2e,wails,mock,browser,helper,React,前端构建与校验脚本
 frontend-app/scripts/lib/frontend-code-size-baseline-transaction.mjs	frontend-app	app-ui	js-source	34441	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,baseline,transaction,React,前端构建与校验脚本
 frontend-app/scripts/lib/frontend-code-size-baseline.mjs	frontend-app	app-ui	js-source	1539	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,baseline,React,前端构建与校验脚本
@@ -116,7 +116,16 @@ frontend-app/scripts/performance-budget-model.mjs	frontend-app	app-ui	js-source	
 frontend-app/scripts/performance-budget-model.test.mjs	frontend-app	app-ui	js-test	7996	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,model,test,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-runner.mjs	frontend-app	app-ui	js-source	48370	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-runner.test.mjs	frontend-app	app-ui	js-test	46442	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,test,React,前端构建与校验脚本
-frontend-app/scripts/refresh-frontend-maintainability-dependencies.mjs	frontend-app	app-ui	js-source	4084	React 前端构建与校验脚本	frontend,app,scripts,refresh,maintainability,dependencies,React,前端构建与校验脚本
+frontend-app/scripts/refresh-frontend-maintainability-dependencies.mjs	frontend-app	app-ui	js-source	5030	React 前端构建与校验脚本	frontend,app,scripts,refresh,maintainability,dependencies,React,前端构建与校验脚本
+frontend-app/scripts/remote-preflight-carriers/contracts-vitest.test.mjs	frontend-app	app-ui	js-test	105	React 前端构建与校验脚本	frontend,app,scripts,remote,preflight,carriers,contracts,vitest,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-preflight-carriers/critical-guards.test.mjs	frontend-app	app-ui	js-test	104	React 前端构建与校验脚本	frontend,app,scripts,remote,preflight,carriers,critical,guards,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-preflight-carriers/critical-typecheck.test.mjs	frontend-app	app-ui	js-test	107	React 前端构建与校验脚本	frontend,app,scripts,remote,preflight,carriers,critical,typecheck,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-preflight-carriers/dependency-contract.test.mjs	frontend-app	app-ui	js-test	108	React 前端构建与校验脚本	frontend,app,scripts,remote,preflight,carriers,dependency,contract,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-preflight-carriers/rpc-audit.test.mjs	frontend-app	app-ui	js-test	98	React 前端构建与校验脚本	frontend,app,scripts,remote,preflight,carriers,rpc,audit,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-preflight-carriers/turncontract-field-guard.test.mjs	frontend-app	app-ui	js-test	113	React 前端构建与校验脚本	frontend,app,scripts,remote,preflight,carriers,turncontract,field,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-preflight-carriers/turncontract-verify.test.mjs	frontend-app	app-ui	js-test	108	React 前端构建与校验脚本	frontend,app,scripts,remote,preflight,carriers,turncontract,verify,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-suite-carriers/changed.test.mjs	frontend-app	app-ui	js-test	100	React 前端构建与校验脚本	frontend,app,scripts,remote,suite,carriers,changed,test,React,前端构建与校验脚本
+frontend-app/scripts/remote-suite-carriers/full.test.mjs	frontend-app	app-ui	js-test	97	React 前端构建与校验脚本	frontend,app,scripts,remote,suite,carriers,full,test,React,前端构建与校验脚本
 frontend-app/scripts/render-isolation-probe.test.jsx	frontend-app	app-ui	jsx	6182	React 前端构建与校验脚本	frontend,app,scripts,render,isolation,probe,test,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.mjs	frontend-app	app-ui	js-source	7336	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.test.mjs	frontend-app	app-ui	js-test	5065	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,test,React,前端构建与校验脚本

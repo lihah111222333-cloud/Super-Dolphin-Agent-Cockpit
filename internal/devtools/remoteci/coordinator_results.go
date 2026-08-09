@@ -503,8 +503,8 @@ func remoteWorkloadExecutions(
 		if !ok || execution.GateID != gate.GateID(spec.ID) {
 			return nil, fmt.Errorf("remote CI workload %q has no matching observation", spec.ID)
 		}
-		if err := execution.ExecutionProfile.Validate(); err != nil {
-			return nil, fmt.Errorf("remote CI workload %q execution profile: %w", spec.ID, err)
+		if err := validateRemoteWorkloadExecutionProfile(spec.ID, execution.ExecutionProfile); err != nil {
+			return nil, err
 		}
 		if err := gate.ValidatePlanGateTimingEvidence(execution); err != nil {
 			return nil, fmt.Errorf("remote CI workload %q timing evidence: %w", spec.ID, err)

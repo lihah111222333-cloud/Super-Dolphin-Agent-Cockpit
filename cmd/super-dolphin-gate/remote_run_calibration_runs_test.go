@@ -379,8 +379,9 @@ func calibrationRunsRecord(t *testing.T, store *gatecontract.DurationLedgerStore
 			OriginAcceptedGeneration: result.AcceptedGeneration,
 		})
 		startedAt := result.CompletedAt.Add(-997 * time.Millisecond)
-		executions = append(executions, gatecontract.PlanGateExecution{GateID: gatecontract.GateID(workload.ID), ShardIdentity: "sha256:" + strings.Repeat("9", 64), Status: gatecontract.ResultStatusPassed, StartedAt: startedAt, CompletedAt: startedAt.Add(11 * time.Millisecond), ExecutionProfile: gatecontract.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 10, TotalMS: 11}})
-		workloads = append(workloads, gatecontract.GateID(workload.ID))
+		workloadID := gatecontract.GateID(workload.ID)
+		executions = append(executions, gatecontract.PlanGateExecution{GateID: workloadID, ShardIdentity: "sha256:" + strings.Repeat("9", 64), Status: gatecontract.ResultStatusPassed, StartedAt: startedAt, CompletedAt: startedAt.Add(11 * time.Millisecond), ExecutionProfile: mustRemoteRunReceiptTestProfile(t, workloadID, gatecontract.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 10, TotalMS: 11})})
+		workloads = append(workloads, workloadID)
 	}
 	startedAt := result.CompletedAt.Add(-time.Second)
 	shard := gatecontract.RemoteCIShardRecord{ShardIdentity: "sha256:" + strings.Repeat("9", 64), ContainerGroup: "eci-calibration", ContainerStatus: "Succeeded", Workloads: workloads, MaterializationTiming: gatecontract.ShardMaterializationTiming{Measurement: gatecontract.MaterializationMeasurementMeasured, ShardIdentity: "sha256:" + strings.Repeat("9", 64), Source: gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.UnixMilli(), CompletedAtUnixMS: startedAt.Add(time.Millisecond).UnixMilli(), MaterializeMS: 1}, CandidateCompile: gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(2 * time.Millisecond).UnixMilli(), MaterializeMS: 1}}, Resources: gatecontract.RemoteCIShardResources{ClassID: input.CalibrationResource.ID, CPU: float64(input.CalibrationResource.VCPU), MemoryGiB: float64(input.CalibrationResource.MemoryGiB)}}

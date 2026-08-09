@@ -1,6 +1,13 @@
 package gate
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -98,12 +105,11 @@ func TestCompileGroupSafetyRejectsForgedExclusivePlacement(t *testing.T) {
 
 // TestCompileGroupSafetyRejectsHelperWithoutBatchPlan 验证旧 manifest 不能借空计划执行子进程 helper。
 func TestCompileGroupSafetyRejectsHelperWithoutBatchPlan(t *testing.T) {
-	helper, err := NewGoTestWorkload(
-		GateIDBackendTestWithGuard,
-		AtomicCodexAppPackageTarget,
-		"TestCodexHelperProcess",
-		10,
-	)
+	target, err := encodeGoTestTarget(GoTestTarget{Package: AtomicCodexAppPackageTarget, Name: "TestCodexHelperProcess"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperID, err := targetWorkloadID(GateIDBackendTestWithGuard, workloadTargetGoTest, target)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +119,7 @@ func TestCompileGroupSafetyRejectsHelperWithoutBatchPlan(t *testing.T) {
 		SharedInputDigest:   "sha256:" + strings.Repeat("1", 64),
 		ProfileDigest:       "sha256:" + strings.Repeat("2", 64),
 		ResourceClassID:     "medium",
-		WorkloadIDs:         []GateID{GateID(helper.ID)},
+		WorkloadIDs:         []GateID{GateID(helperID)},
 		CompileEstimateMS:   10,
 		BodyEstimateMS:      20,
 		EstimatedDurationMS: 30,
@@ -192,4 +198,73 @@ func newTestCompileGroup(t *testing.T, input CompileGroupInput, workloadIDs []Ga
 		t.Fatal(err)
 	}
 	return group
+}
+
+func TestMcpLSPExclusiveSetMatchesSourceDirectives(t *testing.T) {
+	sourceNames := readMcpLSPExclusiveSourceNames(t)
+	registered := mcpLSPExclusiveTestNames()
+	registeredNames := make([]string, 0, len(registered))
+	for name := range registered {
+		registeredNames = append(registeredNames, name)
+	}
+	sort.Strings(registeredNames)
+	assertMcpLSPExclusiveSetEqual(t, sourceNames, registeredNames)
+}
+
+func readMcpLSPExclusiveSourceNames(t *testing.T) map[string]struct{} {
+	t.Helper()
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../../cmd/mcp-lsp"))
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read mcp-lsp source root: %v", err)
+	}
+	sourceNames := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		readMcpLSPExclusiveSourceFile(t, filepath.Join(root, entry.Name()), sourceNames)
+	}
+	return sourceNames
+}
+
+func readMcpLSPExclusiveSourceFile(t *testing.T, filePath string, sourceNames map[string]struct{}) {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), filePath, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse mcp-lsp test source %q: %v", filePath, err)
+	}
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv != nil || !strings.HasPrefix(function.Name.Name, "Test") || function.Doc == nil {
+			continue
+		}
+		for _, comment := range function.Doc.List {
+			if strings.TrimSpace(comment.Text) == "// super-dolphin-ci: compile-group-exclusive" {
+				sourceNames[function.Name.Name] = struct{}{}
+				break
+			}
+		}
+	}
+}
+
+func assertMcpLSPExclusiveSetEqual(t *testing.T, sourceNames map[string]struct{}, registeredNames []string) {
+	t.Helper()
+	if len(sourceNames) != len(registeredNames) {
+		t.Fatalf("mcp-lsp exclusive directive count=%d registered=%d; source and planner sets diverged", len(sourceNames), len(registeredNames))
+	}
+	for _, name := range registeredNames {
+		if _, ok := sourceNames[name]; !ok {
+			t.Fatalf("mcp-lsp exclusive planner target %q lacks source directive", name)
+		}
+	}
+	for name := range sourceNames {
+		if !isMcpLSPExclusiveTestName(name) {
+			t.Fatalf("mcp-lsp source exclusive target %q is not registered in planner", name)
+		}
+	}
 }

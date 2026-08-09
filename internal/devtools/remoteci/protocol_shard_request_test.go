@@ -108,7 +108,7 @@ func buildLongSelectorShardRequest(t *testing.T, count int) ShardRequest {
 	request.GateIDs = make([]gate.GateID, 0, count)
 	for index := range count {
 		name := "Test" + strings.Repeat("Long", 20) + fmt.Sprintf("%03d", index)
-		workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", name, 1)
+		workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/shardresource", name, 1)
 		if err != nil {
 			t.Fatalf("build long selector %d: %v", index, err)
 		}
@@ -116,7 +116,7 @@ func buildLongSelectorShardRequest(t *testing.T, count int) ShardRequest {
 		request.GateIDs = append(request.GateIDs, workloadID)
 	}
 	group := gate.CompileGroup{
-		PackageTarget: "./internal/devtools/gate", SemanticKey: gate.CompileGroupSemanticGoTestNormal,
+		PackageTarget: "./internal/devtools/shardresource", SemanticKey: gate.CompileGroupSemanticGoTestNormal,
 		SharedInputDigest: "sha256:" + strings.Repeat("a", 64), ProfileDigest: "sha256:" + strings.Repeat("b", 64),
 		ResourceClassID: "small", WorkloadIDs: append([]gate.GateID(nil), request.GateIDs...), CompileEstimateMS: 1, BodyEstimateMS: int64(count), EstimatedDurationMS: int64(count + 1),
 	}

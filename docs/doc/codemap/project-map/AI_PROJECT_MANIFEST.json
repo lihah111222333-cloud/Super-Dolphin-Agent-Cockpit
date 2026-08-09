@@ -5,12 +5,12 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4839,
+  "files": 4859,
   "domains": {
-    "other": 1078,
-    "remote-ci": 218,
+    "other": 1087,
+    "remote-ci": 220,
     "docs-agent": 96,
-    "app-ui": 757,
+    "app-ui": 766,
     "platform-provider": 1285,
     "orchestration": 411,
     "modules": 763,
@@ -23,8 +23,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 757,
-        "size_kb": 154.2,
+        "file_count": 766,
+        "size_kb": 156.3,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -58,8 +58,8 @@
       {
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
-        "file_count": 218,
-        "size_kb": 59,
+        "file_count": 220,
+        "size_kb": 59.6,
         "desc": "远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker"
       },
       {
@@ -72,8 +72,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1078,
-        "size_kb": 214.3,
+        "file_count": 1087,
+        "size_kb": 216.2,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -84,8 +84,8 @@
     "cmd": 878,
     "config": 3,
     "docs": 89,
-    "frontend-app": 749,
-    "internal": 2838,
+    "frontend-app": 758,
+    "internal": 2849,
     "pkg": 30,
     "scripts": 187,
     "sql": 29,

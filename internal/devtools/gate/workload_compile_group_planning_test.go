@@ -36,6 +36,91 @@ func TestCompileAwarePlannerSharesOnePackageCompile(t *testing.T) {
 	}
 }
 
+func TestCompileAwarePlannerExactSelectorBodyUsesSelectorInputWithoutParentAggregate(t *testing.T) {
+	context := testPlanningContext()
+	input := compileTestInput("./internal/archtest", "sha256:"+strings.Repeat("a", 64))
+	workloads, inputs := compileTestWorkloads(t, input.PackageTarget, []string{"TestDirectBody"}, 1_000, input)
+	parent := compileParentWorkload(t, input.PackageTarget, 1_000)
+	selector := workloads[0]
+	target := compileSelectorTarget(t, selector)
+	sample := compileDurationSample(
+		GoTestDurationWorkloadID(parent.ID, target.Name),
+		GoTestDurationCommandDigest(parent.CommandDigest, target.Name),
+		input.SharedInputDigest, 321, "small", 2, 4,
+	)
+	sample.TargetKind = WorkloadKindGoTest
+	sample.ParentWorkloadID = parent.ID
+	sample.ParentCommandDigest = parent.CommandDigest
+	sample.TargetName = target.Name
+	sample.TargetStatus = GoTestStatusPass
+	index, err := BuildDurationSampleIndex(testPlanningLedger(context, []DurationSample{sample}), context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, groups, err := planLPTWithCompileInputs(testWorkloadCatalog(selector), index, inputs)
+	if err != nil {
+		t.Fatalf("planLPTWithCompileInputs() error = %v", err)
+	}
+	if len(groups) != 1 || groups[0].BodyEstimateMS != 321 {
+		t.Fatalf("compile group = %#v, want exact selector body 321ms without parent aggregate", groups)
+	}
+}
+
+func TestCompileSelectorBodyRejectsMissingExactInputDigest(t *testing.T) {
+	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, "./internal/archtest", "TestMissingExactInput", 1_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, kind, payload, targeted, err := ParseWorkloadID(workload.ID)
+	if err != nil || !targeted {
+		t.Fatalf("ParseWorkloadID(%q) = parent=%q kind=%q targeted=%t err=%v", workload.ID, parent, kind, targeted, err)
+	}
+	target, err := ParseGoTestTarget(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := BuildDurationSampleIndex(testPlanningLedger(testPlanningContext(), nil), testPlanningContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = selectorBodyEstimate(PlannedWorkload{Workload: workload, ResourceCPU: 2, ResourceMemoryGiB: 4}, parent, kind, target, index)
+	if err == nil || !strings.Contains(err.Error(), "exact production input digest") {
+		t.Fatalf("selectorBodyEstimate() error = %v, want missing exact input digest guard", err)
+	}
+}
+
+func TestCompileAwarePlannerKeepsHigherBodyTierWhenOwnerIsSmall(t *testing.T) {
+	context := testPlanningContext()
+	input := compileTestInput("./internal/archtest", "sha256:"+strings.Repeat("b", 64))
+	workloads, inputs := compileTestWorkloads(t, input.PackageTarget, []string{"TestBodySlow"}, 1_000, input)
+	parent := compileParentWorkload(t, input.PackageTarget, 1_000)
+	selector := workloads[0]
+	target := compileSelectorTarget(t, selector)
+	workloadSample := compileDurationSample(selector.ID, selector.CommandDigest, input.SharedInputDigest, 80_000, "small", 2, 4)
+	bodySample := compileDurationSample(
+		GoTestDurationWorkloadID(parent.ID, target.Name),
+		GoTestDurationCommandDigest(parent.CommandDigest, target.Name),
+		input.SharedInputDigest, 321, "maximum", 8, 16,
+	)
+	bodySample.TargetKind = WorkloadKindGoTest
+	bodySample.ParentWorkloadID = parent.ID
+	bodySample.ParentCommandDigest = parent.CommandDigest
+	bodySample.TargetName = target.Name
+	bodySample.TargetStatus = GoTestStatusPass
+	index, err := BuildDurationSampleIndex(testPlanningLedger(context, []DurationSample{workloadSample, bodySample}), context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index.CompileTimingIndex = testCompileTimingIndex(t, input, context, "small", 2, 4, 1_000)
+	_, groups, err := planLPTWithCompileInputs(testWorkloadCatalog(selector), index, inputs)
+	if err != nil {
+		t.Fatalf("planLPTWithCompileInputs() error = %v", err)
+	}
+	if len(groups) != 1 || groups[0].ResourceClassID != "maximum" || groups[0].BodyEstimateMS != 321 {
+		t.Fatalf("compile group = %#v, want maximum body tier and 321ms body estimate", groups)
+	}
+}
+
 func TestCompileAwarePlannerDoesNotDuplicateArtifactToMeetTarget(t *testing.T) {
 	context := testPlanningContext()
 	input := compileTestInput("./internal/archtest", "sha256:"+strings.Repeat("b", 64))
@@ -105,7 +190,7 @@ func TestCompileAwarePlannerEmptyLedgerSplitsArchtestIntoBoundedCompileGroups(t 
 
 func assertBoundedArchtestGroups(t *testing.T, groups []CompileGroup, selectorCount, workloadCount int) map[string]CompileGroup {
 	t.Helper()
-	wantGroups := (selectorCount + cicontract.ArchtestMaxSelectorsPerCompileGroup - 1) / cicontract.ArchtestMaxSelectorsPerCompileGroup
+	wantGroups := (selectorCount + cicontract.CompileGroupMaxSelectors - 1) / cicontract.CompileGroupMaxSelectors
 	if len(groups) != wantGroups {
 		t.Fatalf("groups=%d workloads=%d, want %d bounded archtest groups", len(groups), workloadCount, wantGroups)
 	}
@@ -123,8 +208,8 @@ func assertBoundedArchtestGroups(t *testing.T, groups []CompileGroup, selectorCo
 
 func assertBoundedArchtestGroup(t *testing.T, group CompileGroup, seen map[GateID]struct{}) {
 	t.Helper()
-	if len(group.WorkloadIDs) == 0 || len(group.WorkloadIDs) > cicontract.ArchtestMaxSelectorsPerCompileGroup {
-		t.Fatalf("archtest group %q contains %d selectors, want <=%d", group.GroupID, len(group.WorkloadIDs), cicontract.ArchtestMaxSelectorsPerCompileGroup)
+	if len(group.WorkloadIDs) == 0 || len(group.WorkloadIDs) > cicontract.CompileGroupMaxSelectors {
+		t.Fatalf("archtest group %q contains %d selectors, want <=%d", group.GroupID, len(group.WorkloadIDs), cicontract.CompileGroupMaxSelectors)
 	}
 	if len(group.BatchPlan) != 1 || len(group.BatchPlan[0].SelectorIDs) != len(group.WorkloadIDs) {
 		t.Fatalf("archtest group %q batch plan = %#v, want one batch covering the group", group.GroupID, group.BatchPlan)
@@ -169,7 +254,7 @@ func assertStoredBoundedArchtestPlan(t *testing.T, catalog WorkloadCatalog, work
 
 func TestCompileGroupRejectsArchtestSelectorGroupOverBound(t *testing.T) {
 	input := compileTestInput(AtomicArchtestPackageTarget, "sha256:"+strings.Repeat("9", 64))
-	names := archtestPlanningSelectorNames(cicontract.ArchtestMaxSelectorsPerCompileGroup + 1)
+	names := archtestPlanningSelectorNames(cicontract.CompileGroupMaxSelectors + 1)
 	workloads, inputs := compileTestWorkloads(t, input.PackageTarget, names, 1_000, input)
 	context := testCalibrationPlanningContext()
 	index, err := BuildDurationSampleIndex(testPlanningLedger(context, nil), context)

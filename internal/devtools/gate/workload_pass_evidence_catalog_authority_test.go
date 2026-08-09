@@ -165,10 +165,15 @@ func selectedCatalogWorkloadRecords(
 	workloadID := GateID(workload.ID)
 	shardIdentity := digestForWorkloadPass("shard-" + jobID + strings.Repeat("x", index+1))
 	startedAt := now.Add(time.Duration(index+1) * time.Second)
+	goFlags, err := WorkloadExecutionGoFlags(workload.ID)
+	if err != nil {
+		t.Fatalf("derive selected workload GoFlags: %v", err)
+	}
 	execution := PlanGateExecution{
 		ShardIdentity: shardIdentity, GateID: workloadID, Status: ResultStatusPassed,
 		StartedAt: startedAt, CompletedAt: startedAt.Add(7 * time.Millisecond),
 		ExecutionProfile: ExecutionProfile{
+			GoFlags:     goFlags,
 			CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured",
 			StartupMS: 1, TestBodyMS: 6, TotalMS: 7,
 		},

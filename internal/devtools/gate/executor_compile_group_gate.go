@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -11,10 +12,12 @@ func requireCompiledSelectorBatchResult(id GateID, batchedResults map[GateID]Pla
 	result, ok := batchedResults[id]
 	if !ok {
 		err := fmt.Errorf("compile-group selector %q has no batched result", id)
-		return failedCompileGroupSelectorWithDiagnostic(id, executions, err, nil), err
+		result, profileErr := failedCompileGroupSelectorWithDiagnostic(id, executions, err, nil)
+		return result, errors.Join(err, profileErr)
 	}
 	if err := validateCompiledSelectorBatchResult(id, result); err != nil {
-		return failedCompileGroupSelectorWithDiagnostic(id, executions, err, result.Log), err
+		failed, profileErr := failedCompileGroupSelectorWithDiagnostic(id, executions, err, result.Log)
+		return failed, errors.Join(err, profileErr)
 	}
 	return result, nil
 }
@@ -72,12 +75,15 @@ func mustGoTestName(id GateID) string {
 	return targetSpec.Name
 }
 
-func failedCompileGroupSelectorWithDiagnostic(id GateID, executions []CompileGroupExecution, err error, existingLog []byte) PlanGateExecution {
-	result := failedCompileGroupSelector(id, executions, time.Now)
+func failedCompileGroupSelectorWithDiagnostic(id GateID, executions []CompileGroupExecution, err error, existingLog []byte) (PlanGateExecution, error) {
+	result, profileErr := failedCompileGroupSelector(id, executions, time.Now)
+	if profileErr != nil {
+		return PlanGateExecution{}, profileErr
+	}
 	if len(existingLog) != 0 {
 		result.Log = append(append([]byte(nil), existingLog...), '\n')
 	}
 	result.Log = fmt.Appendf(result.Log, "[gate-executor] selector=%s status=failed reason=%s\n", id, compactCompileGroupError(err))
 	result.LogDigest = digestPlanLog(result.Log)
-	return result
+	return result, nil
 }

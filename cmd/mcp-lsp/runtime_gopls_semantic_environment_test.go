@@ -13,7 +13,8 @@ func runtimeServerFakeGoEnvScript(identity string) string {
 	return `#!/bin/sh
 # identity: ` + identity + `
 if [ "$1" = "env" ] && [ "$2" = "-json" ]; then
-	printf '%s\n' '{"GOCACHE":"/go/cache","GOMODCACHE":"/go/path/pkg/mod","GOPATH":"/go/path","GOROOT":"/go/root"}'
+	printf '{"AR":"%s","CC":"%s","CXX":"%s","FC":"%s","GCCGO":"%s","GOCACHE":"/go/cache","GOMODCACHE":"/go/path/pkg/mod","GOPATH":"/go/path","GOROOT":"/go/root","PKG_CONFIG":"%s"}\n' \
+		"${AR:-ar}" "${CC:-gcc}" "${CXX:-g++}" "${FC:-}" "${GCCGO:-gccgo}" "${PKG_CONFIG:-pkg-config}"
 	exit 0
 fi
 exit 0
@@ -144,6 +145,21 @@ func TestRuntimeServerArgsIgnoresUnusedDefaultGCCGO(t *testing.T) {
 	withDefault := mustRuntimeServerArgs(t, command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64", "GCCGO=gccgo"})
 	if runtimeServerGoplsRemoteID(withoutDefault) != runtimeServerGoplsRemoteID(withDefault) {
 		t.Fatalf("unused default GCCGO split gc cohort: without=%v with=%v", withoutDefault, withDefault)
+	}
+}
+
+func TestRuntimeServerArgsIgnoresUnavailableGoDefaultAuxiliaryTools(t *testing.T) {
+	goplsBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	goBinary := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("default-auxiliary-tools"))
+	t.Setenv("PATH", filepath.Dir(goBinary))
+	t.Setenv("CC", "gcc")
+	t.Setenv("CXX", "g++")
+	t.Setenv("GCCGO", "gccgo")
+	t.Setenv("PKG_CONFIG", "pkg-config")
+	t.Setenv("GOFLAGS", "-p=4")
+	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2"}}
+	if _, err := runtimeServerArgs(command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64"}); err != nil {
+		t.Fatalf("runtimeServerArgs() resolved unused Go defaults: %v", err)
 	}
 }
 

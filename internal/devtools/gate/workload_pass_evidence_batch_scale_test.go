@@ -86,6 +86,7 @@ func insertBatchScaleEvidence(t *testing.T, database *sql.DB, origin WorkloadPas
 		}
 		execution := origin.OriginExecution
 		execution.GateID = identity.WorkloadID
+		execution.ExecutionProfile.GoFlags = ""
 		evidence := WorkloadPassEvidence{
 			Identity:                 identity,
 			OriginJobID:              origin.OriginJobID,

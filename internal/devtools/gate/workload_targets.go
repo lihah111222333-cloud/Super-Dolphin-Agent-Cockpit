@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	workloadTargetDelimiter   = "::"
-	workloadTargetGoGuard     = "go-guard"
-	workloadTargetGoPackage   = "go-package"
-	workloadTargetGoTest      = "go-test"
-	workloadTargetGoBenchmark = "go-benchmark"
-	workloadTargetVitest      = "vitest-file"
-	workloadTargetPlaywright  = "playwright-spec"
+	workloadTargetDelimiter     = "::"
+	workloadTargetGoGuard       = "go-guard"
+	workloadTargetGoPackage     = "go-package"
+	workloadTargetGoTest        = "go-test"
+	workloadTargetGoBenchmark   = "go-benchmark"
+	workloadTargetVitest        = "vitest-file"
+	workloadTargetPlaywright    = "playwright-spec"
+	workloadTargetFrontendGuard = "frontend-guard"
 )
 
 const (
@@ -42,13 +43,66 @@ const (
 type WorkloadTargetKind string
 
 const (
-	WorkloadTargetGoGuard     WorkloadTargetKind = workloadTargetGoGuard
-	WorkloadTargetGoPackage   WorkloadTargetKind = workloadTargetGoPackage
-	WorkloadTargetGoTest      WorkloadTargetKind = workloadTargetGoTest
-	WorkloadTargetGoBenchmark WorkloadTargetKind = workloadTargetGoBenchmark
-	WorkloadTargetVitest      WorkloadTargetKind = workloadTargetVitest
-	WorkloadTargetPlaywright  WorkloadTargetKind = workloadTargetPlaywright
+	WorkloadTargetGoGuard       WorkloadTargetKind = workloadTargetGoGuard
+	WorkloadTargetGoPackage     WorkloadTargetKind = workloadTargetGoPackage
+	WorkloadTargetGoTest        WorkloadTargetKind = workloadTargetGoTest
+	WorkloadTargetGoBenchmark   WorkloadTargetKind = workloadTargetGoBenchmark
+	WorkloadTargetVitest        WorkloadTargetKind = workloadTargetVitest
+	WorkloadTargetPlaywright    WorkloadTargetKind = workloadTargetPlaywright
+	WorkloadTargetFrontendGuard WorkloadTargetKind = workloadTargetFrontendGuard
 )
+
+const (
+	FrontendChangedSuiteCarrierTarget = "scripts/remote-suite-carriers/changed.test.mjs"
+	FrontendFullSuiteCarrierTarget    = "scripts/remote-suite-carriers/full.test.mjs"
+	frontendPreflightCarrierPrefix    = "scripts/remote-preflight-carriers/"
+	frontendPreflightCarrierSuffix    = ".test.mjs"
+)
+
+const (
+	FrontendPreflightTargetCriticalGuards         = "critical-guards"
+	FrontendPreflightTargetTurnContractVerify     = "turncontract-verify"
+	FrontendPreflightTargetTurnContractFieldGuard = "turncontract-field-guard"
+	FrontendPreflightTargetCriticalTypecheck      = "critical-typecheck"
+	FrontendPreflightTargetContractsVitest        = "contracts-vitest"
+	FrontendPreflightTargetRPCAudit               = "rpc-audit"
+	FrontendPreflightTargetDependencyContract     = "dependency-contract"
+)
+
+// FrontendPreflightTargets 返回 preflight 的固定 allowlist，调用方不得修改规范顺序。
+func FrontendPreflightTargets() []string {
+	return []string{
+		FrontendPreflightTargetCriticalGuards,
+		FrontendPreflightTargetTurnContractVerify,
+		FrontendPreflightTargetTurnContractFieldGuard,
+		FrontendPreflightTargetCriticalTypecheck,
+		FrontendPreflightTargetContractsVitest,
+		FrontendPreflightTargetRPCAudit,
+		FrontendPreflightTargetDependencyContract,
+	}
+}
+
+// FrontendPreflightCarrierTarget 将新 preflight 原子目标投影到旧 materializer 已支持的 Vitest 文件协议。
+func FrontendPreflightCarrierTarget(target string) (string, error) {
+	if !slices.Contains(FrontendPreflightTargets(), target) {
+		return "", fmt.Errorf("frontend preflight target %q is not in the canonical allowlist", target)
+	}
+	return frontendPreflightCarrierPrefix + target + frontendPreflightCarrierSuffix, nil
+}
+
+// ParseFrontendPreflightCarrierTarget 只识别由规范 allowlist 派生的兼容载体路径。
+func ParseFrontendPreflightCarrierTarget(target string) (string, bool) {
+	name, ok := strings.CutPrefix(target, frontendPreflightCarrierPrefix)
+	if !ok {
+		return "", false
+	}
+	name, ok = strings.CutSuffix(name, frontendPreflightCarrierSuffix)
+	if !ok || !slices.Contains(FrontendPreflightTargets(), name) {
+		return "", false
+	}
+	canonical, err := FrontendPreflightCarrierTarget(name)
+	return name, err == nil && canonical == target
+}
 
 // GoTestTarget 将一个顶层 Go 测试绑定到其精确包。
 type GoTestTarget struct {
@@ -101,12 +155,6 @@ func ParseWorkloadID(id string) (GateID, WorkloadTargetKind, string, bool, error
 	return parent, WorkloadTargetKind(targetKind), target, targeted, err
 }
 
-// exactGoTestBootstrapFitsBudget 防止 deadline 外的准备耗时让已通过原子测试永久不可调度。
-func exactGoTestBootstrapFitsBudget(workload Workload, targetDurationMS int64) bool {
-	_, kind, _, targeted, err := ParseWorkloadID(workload.ID)
-	return err == nil && targeted && kind == WorkloadTargetGoTest && workload.BootstrapEstimateMS <= targetDurationMS
-}
-
 // validateWorkloadTarget 校验 gate、目标类型和目标值的允许组合。
 func validateWorkloadTarget(gateID GateID, targetKind string, target string) error {
 	switch targetKind {
@@ -122,9 +170,19 @@ func validateWorkloadTarget(gateID GateID, targetKind string, target string) err
 		return validateVitestWorkloadTarget(gateID, target)
 	case workloadTargetPlaywright:
 		return validatePlaywrightWorkloadTarget(gateID, target)
+	case workloadTargetFrontendGuard:
+		return validateFrontendPreflightWorkloadTarget(gateID, target)
 	default:
 		return fmt.Errorf("workload target kind %q is unsupported", targetKind)
 	}
+}
+
+// validateFrontendPreflightWorkloadTarget 只允许登记过的 preflight 原子 workload。
+func validateFrontendPreflightWorkloadTarget(gateID GateID, target string) error {
+	if gateID != GateIDFrontendPreflight || !slices.Contains(FrontendPreflightTargets(), target) {
+		return fmt.Errorf("gate %q has an invalid frontend preflight workload", gateID)
+	}
+	return nil
 }
 
 // validateGoGuardWorkloadTarget 保留旧 canonical 身份并约束原子守卫的父 gate。
@@ -223,6 +281,13 @@ func validateGoBenchmarkWorkloadTarget(gateID GateID, target string) error {
 func validateVitestWorkloadTarget(gateID GateID, target string) error {
 	if gateID != GateIDFrontendTest && gateID != GateIDFrontendFullTest {
 		return fmt.Errorf("gate %q does not accept Vitest workloads", gateID)
+	}
+	if _, carrier := ParseFrontendPreflightCarrierTarget(target); carrier && gateID != GateIDFrontendTest {
+		return fmt.Errorf("gate %q does not accept frontend preflight carriers", gateID)
+	}
+	if target == FrontendChangedSuiteCarrierTarget && gateID != GateIDFrontendTest ||
+		target == FrontendFullSuiteCarrierTarget && gateID != GateIDFrontendFullTest {
+		return fmt.Errorf("gate %q does not accept frontend suite carrier %q", gateID, target)
 	}
 	return validateVitestTarget(target)
 }
@@ -380,7 +445,7 @@ func isBackendTestGate(gateID GateID) bool {
 }
 
 func isExpansionOnlyGate(gateID GateID) bool {
-	return gateID == GateIDBackendNilness
+	return gateID == GateIDBackendNilness || gateID == GateIDFrontendPreflight
 }
 
 func expansionOnlyWorkloadDigest(gateID GateID) string {
@@ -389,7 +454,9 @@ func expansionOnlyWorkloadDigest(gateID GateID) string {
 }
 
 func isGoPackageWorkloadGate(gateID GateID) bool {
-	return isBackendTestGate(gateID) || isExpansionOnlyGate(gateID)
+	// Expansion-only gates are not all Go package gates: frontend preflight
+	// expands into its own frontend-guard allowlist and must reject Go targets.
+	return isBackendTestGate(gateID) || gateID == GateIDBackendNilness
 }
 
 // validateGoPackageTarget 只校验无命令注入能力的仓库相对 Go 包目标。

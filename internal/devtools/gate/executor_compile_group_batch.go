@@ -44,7 +44,7 @@ func runCompileGroupGate(
 		return executeCompiledSelector(ctx, laneIndex, id, artifact, time.Now)
 	}
 	if isCompileGroupSelector(id) {
-		return failedCompileGroupSelector(id, executions, time.Now), nil
+		return failedCompileGroupSelector(id, executions, time.Now)
 	}
 	return executePlanGate(ctx, laneIndex, id, preparedRuntimeSeeds, goBuildCacheRoot, goBuildCacheSeedRoot, time.Now)
 }
@@ -132,7 +132,8 @@ func executeCompiledSelectorBatchForBatch(ctx context.Context, artifact compiled
 	argv, specs, err := compileGroupBatchCommandArgvForBatch(group, batch, artifact.binaryPath)
 	if err != nil {
 		batchGroup := compileGroupForBatch(group, batch)
-		return failedCompiledSelectorBatchResults(batchGroup, argv, nil, err), err
+		results, profileErr := failedCompiledSelectorBatchResults(batchGroup, argv, nil, err, now)
+		return results, errors.Join(err, profileErr)
 	}
 	batchGroup := compileGroupForBatch(group, batch)
 	observation := runCompiledSelectorBatchProcess(ctx, artifact, batch, argv, specs, now)
@@ -141,10 +142,12 @@ func executeCompiledSelectorBatchForBatch(ctx context.Context, artifact compiled
 			results, resultErr := compiledSelectorBatchResults(batchGroup, argv, specs, observation)
 			return results, errors.Join(observationErr, resultErr)
 		}
-		return failedCompiledSelectorBatchResults(batchGroup, argv, &observation, observationErr), observationErr
+		results, profileErr := failedCompiledSelectorBatchResults(batchGroup, argv, &observation, observationErr, now)
+		return results, errors.Join(observationErr, profileErr)
 	}
 	if err := observation.validateSelectorResults(specs); err != nil {
-		return failedCompiledSelectorBatchResults(batchGroup, argv, &observation, err), err
+		results, profileErr := failedCompiledSelectorBatchResults(batchGroup, argv, &observation, err, now)
+		return results, errors.Join(err, profileErr)
 	}
 	return compiledSelectorBatchResults(batchGroup, argv, specs, observation)
 }
@@ -713,7 +716,11 @@ func compiledSelectorBatchResults(group CompileGroup, argv []string, specs map[G
 		matched := exactGoTestTimings(timings, spec.name)
 		if len(matched) != 1 {
 			selectorErr := fmt.Errorf("compiled selector batch test %q has no unique terminal result", spec.name)
-			results[id] = cancelledCompiledSelectorResult(id, argv, observation, spec.name, fullFailureLogAvailable)
+			cancelled, profileErr := cancelledCompiledSelectorResult(id, argv, observation, spec.name, fullFailureLogAvailable)
+			if profileErr != nil {
+				return results, errors.Join(resultErr, profileErr)
+			}
+			results[id] = cancelled
 			fullFailureLogAvailable = false
 			resultErr = errors.Join(resultErr, selectorErr)
 			continue
@@ -724,7 +731,10 @@ func compiledSelectorBatchResults(group CompileGroup, argv []string, specs map[G
 			selectorErr = fmt.Errorf("compiled selector %q reported fail", spec.name)
 		}
 		fullFailureLog := selectorErr != nil && fullFailureLogAvailable
-		result := compiledSelectorResultWithLog(id, argv, observation, spec.name, timings, interval, selectorErr, fullFailureLog)
+		result, profileErr := compiledSelectorResultWithLog(id, argv, observation, spec.name, timings, interval, selectorErr, fullFailureLog)
+		if profileErr != nil {
+			return results, errors.Join(resultErr, profileErr)
+		}
 		if fullFailureLog {
 			fullFailureLogAvailable = false
 		}
@@ -740,80 +750,8 @@ func compiledSelectorBatchResults(group CompileGroup, argv []string, specs map[G
 	return results, resultErr
 }
 
-func failedCompiledSelectorBatchResults(group CompileGroup, argv []string, observation *compiledSelectorBatchObservation, err error) map[GateID]PlanGateExecution {
-	results := make(map[GateID]PlanGateExecution, len(group.WorkloadIDs))
-	for _, id := range group.WorkloadIDs {
-		if observation == nil {
-			now := time.Now().UTC()
-			observation = &compiledSelectorBatchObservation{started: now, completed: now.Add(cicontract.TimingResolution), log: newBoundedPlanLog(executorPlanMaxLogBytes)}
-		}
-		selectorName := ""
-		if parsed, parseErr := selectorSpecForWorkload(id, group.PackageTarget); parseErr == nil {
-			selectorName = parsed.testName
-		}
-		results[id] = failedCompiledSelectorBatchResult(id, argv, *observation, selectorName, err, len(results) == 0)
-	}
-	return results
-}
-
-// failedCompiledSelectorBatchResult 保留 test2json 已观测的 selector 终态，
-// 并把没有终态事件的 companion 标记为 cancelled。进程区间只证明 batch，
-// 不能证明每个 companion 都运行了整个进程生命周期。
-func failedCompiledSelectorBatchResult(id GateID, argv []string, observation compiledSelectorBatchObservation, selectorName string, batchErr error, fullDiagnostic bool) PlanGateExecution {
-	timings := observation.selectorTimings[selectorName]
-	matched := exactGoTestTimings(timings, selectorName)
-	interval := observation.selectorIntervals[selectorName]
-	if len(matched) == 1 && !interval.runAt.IsZero() && !interval.completedAt.IsZero() {
-		// 已观测到 PASS 只能证明 selector 的测试终态；batch 进程、解析、
-		// 上下文或清理错误仍使该 selector 的执行证据不可接受，不能把
-		// batchErr 丢在 `_ error` 中后继续投影为 PASS。
-		selectorErr := batchErr
-		if matched[0].Status == GoTestStatusFail {
-			selectorErr = errors.Join(selectorErr, fmt.Errorf("compiled selector %q reported fail", selectorName))
-		}
-		result := compiledSelectorResultWithLog(id, argv, observation, selectorName, timings, interval, selectorErr, fullDiagnostic)
-		if batchErr != nil {
-			result.Log = appendCompiledSelectorBatchError(result.Log, compiledSelectorBatchErrorSummary(observation, batchErr))
-			result.LogDigest = digestPlanLog(result.Log)
-		}
-		return result
-	}
-	return cancelledCompiledSelectorResult(id, argv, observation, selectorName, fullDiagnostic)
-}
-
-// cancelledCompiledSelectorResult 记录没有终态事件的 selector；它在进程
-// 完成时建立零长度投影，不复制进程耗时，也不虚构测试正文耗时。
-func cancelledCompiledSelectorResult(id GateID, argv []string, observation compiledSelectorBatchObservation, selectorName string, fullDiagnostic bool) PlanGateExecution {
-	completed := observation.completed.UTC().Truncate(cicontract.TimingResolution)
-	if completed.IsZero() {
-		completed = time.Now().UTC().Truncate(cicontract.TimingResolution)
-	}
-	log := newBoundedPlanLog(executorPlanMaxLogBytes)
-	data := observation.selectorLogs[selectorName]
-	if len(data) == 0 && fullDiagnostic && observation.log != nil {
-		data = observation.log.Bytes()
-	}
-	if len(data) != 0 {
-		_, _ = log.Write(compiledSelectorDiagnosticLog(data, errors.New("selector not executed"), fullDiagnostic))
-	}
-	_, _ = fmt.Fprintf(log, "[gate-executor] selector=%s status=cancelled reason=no-terminal-test2json-result\n", selectorName)
-	result := PlanGateExecution{
-		GateID:           id,
-		Status:           ResultStatusCancelled,
-		ExitCode:         -1,
-		StartedAt:        completed,
-		CompletedAt:      completed,
-		ArgvDigest:       digestCommandArgv(argv),
-		Log:              log.Bytes(),
-		LogDigest:        digestPlanLog(log.Bytes()),
-		TestTimings:      nil,
-		ExecutionProfile: measuredNonCacheExecutionProfile(),
-	}
-	return result
-}
-
 // compiledSelectorResultWithLog 绑定 selector 专属日志并还原其独立启动、正文和总区间。
-func compiledSelectorResultWithLog(id GateID, argv []string, observation compiledSelectorBatchObservation, selectorName string, timings []GoTestTiming, interval compiledSelectorBatchInterval, selectorErr error, fullDiagnostic bool) PlanGateExecution {
+func compiledSelectorResultWithLog(id GateID, argv []string, observation compiledSelectorBatchObservation, selectorName string, timings []GoTestTiming, interval compiledSelectorBatchInterval, selectorErr error, fullDiagnostic bool) (PlanGateExecution, error) {
 	log := newBoundedPlanLog(executorPlanMaxLogBytes)
 	data := observation.selectorLogs[selectorName]
 	if len(data) == 0 && observation.log != nil {
@@ -836,13 +774,18 @@ func compiledSelectorResultWithLog(id GateID, argv []string, observation compile
 		completed = normalizeCompiledSelectorBatchCompletion(bodyStarted, completed, timings, selectorName)
 		compiledObservation.started, compiledObservation.bodyStarted, compiledObservation.completed = started, bodyStarted, completed
 	}
-	result := compiledSelectorResult(id, argv, compiledObservation)
-	if intervalErr == nil {
-		if canonical, err := CanonicalizePlanGateExecutionTiming(result); err == nil {
-			result = canonical
-		}
+	result, profileErr := compiledSelectorResult(id, argv, compiledObservation)
+	if profileErr != nil {
+		return PlanGateExecution{}, profileErr
 	}
-	return result
+	if intervalErr == nil {
+		canonical, err := CanonicalizePlanGateExecutionTiming(result)
+		if err != nil {
+			return result, err
+		}
+		result = canonical
+	}
+	return result, nil
 }
 
 // normalizeCompiledSelectorBatchCompletion 以 exact top-level test2json timing

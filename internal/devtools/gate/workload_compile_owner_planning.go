@@ -68,14 +68,19 @@ func plannedWorkloadsFromEstimates(base []shardableWorkloadEstimate, hints Compi
 	for _, item := range base {
 		resource := item.resource
 		if hint, ok := hints[compileOwnerHintLookupKey(item.workload.ID)]; ok {
-			if hint.ResourceCPU <= 0 || hint.ResourceMemoryGiB <= 0 {
-				return nil, fmt.Errorf("compile owner hint for %q has invalid resource", item.workload.ID)
+			if err := validateCompileOwnerHintResource(hint); err != nil {
+				return nil, fmt.Errorf("compile owner hint for %q resource identity: %w", item.workload.ID, err)
 			}
-			resource = durationSampleResource{
+			ownerResource := durationSampleResource{
 				classID: hint.ResourceClassID, cpu: hint.ResourceCPU, memoryGiB: hint.ResourceMemoryGiB,
 			}
+			merged, err := higherDurationResource(resource, ownerResource)
+			if err != nil {
+				return nil, fmt.Errorf("merge compile owner resource for %q: %w", item.workload.ID, err)
+			}
+			resource = merged
 		}
-		if resource.cpu <= 0 || resource.memoryGiB <= 0 {
+		if _, err := normalResourceTierForTuple(resource.cpu, resource.memoryGiB); err != nil {
 			return nil, fmt.Errorf("workload %q has invalid planned resource", item.workload.ID)
 		}
 		planned = append(planned, PlannedWorkload{
@@ -84,6 +89,61 @@ func plannedWorkloadsFromEstimates(base []shardableWorkloadEstimate, hints Compi
 		})
 	}
 	return planned, nil
+}
+
+// validateCompileOwnerHintResource 保证 owner hint 的 class、tuple 和 tier
+// 是同一份 identity。calibration 不使用 normal tier，但仍必须是独立的
+// 固定 4C/8GiB 资源，不能伪装成 normal medium。
+func validateCompileOwnerHintResource(hint CompileOwnerHint) error {
+	if strings.TrimSpace(hint.OwnerKey) == "" {
+		return errors.New("owner key is missing")
+	}
+	if hint.SharedCompileEstimateMS <= 0 {
+		return errors.New("shared compile estimate must be positive")
+	}
+	if hint.ResourceTier == 0 {
+		if err := cicontract.ValidateCalibrationResources(hint.ResourceClassID, hint.ResourceCPU, hint.ResourceMemoryGiB); err != nil {
+			return fmt.Errorf("invalid calibration resource: %w", err)
+		}
+		return nil
+	}
+	tier, err := normalResourceTierForTuple(hint.ResourceCPU, hint.ResourceMemoryGiB)
+	if err != nil {
+		return err
+	}
+	if tier != hint.ResourceTier {
+		return fmt.Errorf("tier %d does not match %.gC/%.gGiB", hint.ResourceTier, hint.ResourceCPU, hint.ResourceMemoryGiB)
+	}
+	if classID := normalCompileResourceClass(tier); hint.ResourceClassID != classID {
+		return fmt.Errorf("class %q does not match tier %d class %q", hint.ResourceClassID, tier, classID)
+	}
+	return nil
+}
+
+// higherDurationResource merges body and compile-owner resources by the
+// monotonic protocol order. The compile owner may upgrade a body, but can
+// never downgrade a body that already selected a higher tier.
+func higherDurationResource(body, owner durationSampleResource) (durationSampleResource, error) {
+	bodyTier, err := normalResourceTierForTuple(body.cpu, body.memoryGiB)
+	if err != nil {
+		return durationSampleResource{}, fmt.Errorf("body resource: %w", err)
+	}
+	ownerTier, err := normalResourceTierForTuple(owner.cpu, owner.memoryGiB)
+	if err != nil {
+		return durationSampleResource{}, fmt.Errorf("compile owner resource: %w", err)
+	}
+	bodyRank, err := normalResourceTierRank(bodyTier)
+	if err != nil {
+		return durationSampleResource{}, err
+	}
+	ownerRank, err := normalResourceTierRank(ownerTier)
+	if err != nil {
+		return durationSampleResource{}, err
+	}
+	if ownerRank > bodyRank {
+		return owner, nil
+	}
+	return body, nil
 }
 
 // BuildCompileOwnerHints 为每个 selector 只解析一次 package+semantic owner。

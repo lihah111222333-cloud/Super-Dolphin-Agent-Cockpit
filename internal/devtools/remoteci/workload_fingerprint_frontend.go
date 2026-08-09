@@ -26,6 +26,119 @@ func (snapshot *remoteGitTreeSnapshot) frontendNonE2EInputDigest() (string, erro
 	})
 }
 
+// frontendPreflightInputDigest 覆盖一个 preflight 原子 workload 的最小可观察输入闭包；
+// 不带 target 时返回所有 allowlist 子集的并集，仅供父身份兼容/诊断使用。
+func (snapshot *remoteGitTreeSnapshot) frontendPreflightInputDigest(targets ...string) (string, error) {
+	selected := make(map[string]remoteGitTreeEntry)
+	if len(targets) == 0 {
+		targets = gate.FrontendPreflightTargets()
+	}
+	for _, target := range targets {
+		if !containsString(gate.FrontendPreflightTargets(), target) {
+			return "", fmt.Errorf("frontend preflight target %q is not in the canonical allowlist", target)
+		}
+	}
+	for _, entry := range snapshot.entries {
+		for _, target := range targets {
+			if frontendPreflightInputEntry(entry, target) {
+				selected[entry.path] = entry
+				break
+			}
+		}
+	}
+	if len(selected) == 0 {
+		return "", fmt.Errorf("frontend preflight input closure is empty")
+	}
+	return snapshot.digestEntries(sortedRemoteGitTreeEntries(selected))
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func frontendPreflightInputEntry(entry remoteGitTreeEntry, target string) bool {
+	const packageJSON = "frontend-app/package.json"
+	const packageLock = "frontend-app/package-lock.json"
+	switch target {
+	case gate.FrontendPreflightTargetCriticalGuards:
+		return frontendPreflightCriticalGuardEntry(entry.path, packageJSON)
+	case gate.FrontendPreflightTargetTurnContractVerify:
+		return frontendPreflightTurnVerifyEntry(entry.path, packageJSON)
+	case gate.FrontendPreflightTargetTurnContractFieldGuard:
+		return frontendPreflightTurnFieldEntry(entry.path, packageJSON)
+	case gate.FrontendPreflightTargetCriticalTypecheck:
+		return frontendPreflightCriticalTypecheckEntry(entry, packageLock)
+	case gate.FrontendPreflightTargetContractsVitest:
+		return frontendPreflightContractsEntry(entry, packageLock)
+	case gate.FrontendPreflightTargetRPCAudit:
+		return frontendPreflightRPCAuditEntry(entry.path, packageJSON)
+	case gate.FrontendPreflightTargetDependencyContract:
+		return frontendPreflightDependencyEntry(entry.path, packageJSON, packageLock)
+	default:
+		return false
+	}
+}
+
+func frontendPreflightFrontendSourceEntry(entry remoteGitTreeEntry) bool {
+	frontendPath := strings.TrimPrefix(entry.path, frontendAppInputPrefix)
+	return strings.HasPrefix(entry.path, frontendAppInputPrefix) &&
+		!strings.HasPrefix(entry.path, frontendE2EInputPrefix) && !frontendPlaywrightConfigSourcePath(frontendPath)
+}
+
+func frontendPreflightCriticalGuardEntry(entryPath, packageJSON string) bool {
+	// guard:critical-skip recursively observes the three roots below, including
+	// Playwright specs under tests/e2e. Keep the owner package manifest in the
+	// closure because its command chain determines which guards execute.
+	return entryPath == packageJSON || strings.HasPrefix(entryPath, "frontend-app/src/") ||
+		strings.HasPrefix(entryPath, "frontend-app/scripts/") || strings.HasPrefix(entryPath, "frontend-app/tests/") ||
+		entryPath == "frontend-app/config/action-producer-registry.json" || entryPath == "frontend-app/config/action-producer-test-matrix.json"
+}
+
+func frontendPreflightTurnVerifyEntry(entryPath, packageJSON string) bool {
+	return frontendPreflightTurnContractEntry(entryPath) || entryPath == packageJSON
+}
+
+func frontendPreflightCriticalTypecheckEntry(entry remoteGitTreeEntry, packageLock string) bool {
+	return frontendPreflightNonE2EEntry(entry) && entry.path != packageLock
+}
+
+func frontendPreflightContractsEntry(entry remoteGitTreeEntry, packageLock string) bool {
+	return frontendPreflightNonE2EEntry(entry) && entry.path != packageLock
+}
+
+func frontendPreflightRPCAuditEntry(entryPath, packageJSON string) bool {
+	return strings.HasPrefix(entryPath, "frontend-app/src/") || entryPath == packageJSON ||
+		entryPath == "frontend-app/scripts/rpc-contract-audit.mjs" || strings.HasPrefix(entryPath, "internal/") ||
+		strings.HasPrefix(entryPath, "cmd/")
+}
+
+func frontendPreflightNonE2EEntry(entry remoteGitTreeEntry) bool {
+	return frontendPreflightFrontendSourceEntry(entry)
+}
+
+func frontendPreflightTurnContractEntry(entryPath string) bool {
+	return entryPath == "go.mod" || entryPath == "go.sum" || strings.HasPrefix(entryPath, "scripts/turncontract/") || strings.HasPrefix(entryPath, "internal/dto/turn/")
+}
+
+func frontendPreflightTurnFieldEntry(entryPath, packageJSON string) bool {
+	// immutableRepositoryBaseline/discoverJSValidatorConsumers walks every
+	// production JS/JSX file below frontend-app/src, not only the generated
+	// schema. Include that entire observed root so a newly added consumer cannot
+	// reuse an old PASS.
+	return frontendPreflightTurnContractEntry(entryPath) || entryPath == packageJSON || strings.HasPrefix(entryPath, "frontend-app/src/") ||
+		strings.HasPrefix(entryPath, "frontend-app/scripts/turn-contract-field-guard")
+}
+
+func frontendPreflightDependencyEntry(entryPath, packageJSON, packageLock string) bool {
+	return entryPath == packageJSON || entryPath == packageLock || strings.HasPrefix(entryPath, "frontend-app/scripts/frontend-execution-closure") ||
+		strings.HasPrefix(entryPath, "frontend-app/scripts/frontend-maintainability-dependency") || strings.HasPrefix(entryPath, "frontend-app/scripts/refresh-frontend-maintainability-dependencies")
+}
+
 // frontendPlaywrightConfigSourcePath 判断不属于 Vitest/preflight 执行闭包的 E2E 配置。
 func frontendPlaywrightConfigSourcePath(relative string) bool {
 	return strings.HasPrefix(relative, "playwright.") && strings.HasSuffix(relative, ".config.js")
