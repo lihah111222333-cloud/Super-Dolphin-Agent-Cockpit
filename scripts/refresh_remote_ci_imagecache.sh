@@ -7,7 +7,7 @@ readonly crane_object='source-bundles/baseline-refresh/tools/go-containerregistr
 readonly crane_sha256='f76db5d7544a3c691a90fea7c87561342b2f03f1090f0299f029eafa1da3de41'
 readonly accepted_base_digest='502e70fdbbae19d29722810179649e37b4bf38894a7e3d9bcdcd858372435aa7'
 readonly accepted_base_archive_sha256='0387001cad8918d779fb78c5d2e5234ba3725a677c3f5f6ebadb9744a40aeaa5'
-readonly receipt_schema='remote-ci-imagecache-refresh-receipt/v1'
+readonly receipt_schema='remote-ci-imagecache-refresh-receipt/v2'
 
 config='config/remote-ci/aliyun.json'
 source_ref='HEAD'
@@ -185,6 +185,20 @@ delete_cache() {
   eci_json DeleteImageCache --ImageCacheId "$candidate_id" >/dev/null 2>&1 || true
 }
 
+retire_builder() {
+  local retired_id=$builder_group_id deadline=$((SECONDS + timeout_seconds)) count
+  delete_group "$retired_id"
+  while ((SECONDS < deadline)); do
+    count=$(eci_json DescribeContainerGroups --ContainerGroupIds "[\"${retired_id}\"]" | jq -er '.ContainerGroups | length')
+    if [[ "$count" == 0 ]]; then
+      builder_group_id=
+      return 0
+    fi
+    sleep "$poll_seconds"
+  done
+  die 'temporary builder registry did not disappear before ImageCache verification'
+}
+
 cleanup() {
   local exit_code=$?
   delete_group "${verify_group_id:-}"
@@ -211,10 +225,10 @@ validate_refresh_receipt() {
   local receipt_file=$1
   jq -e --arg schema "$receipt_schema" '
     type == "object" and
-    keys == ["action","authoritative","base_image","base_snapshot_id","builder_compile_seconds","execution_provider","gate_binary_sha256","image","image_cache_id","image_cache_snapshot_id","image_cache_status","image_digest","mutates_sqlite","oci_base_image","refreshed_at_unix_sec","refreshed_at_utc","retention_days","schema_version","source_commit","source_tree","verification_compile_seconds"] and
+    keys == ["action","authoritative","base_image","base_snapshot_id","builder_compile_seconds","execution_provider","gate_binary_sha256","image","image_cache_id","image_cache_name","image_cache_snapshot_id","image_cache_status","image_digest","mutates_sqlite","oci_base_image","refreshed_at_unix_sec","refreshed_at_utc","region_id","retention_days","schema_version","source_commit","source_tree","verification_compile_seconds"] and
     .schema_version == $schema and .authoritative == false and
     .action == "candidate_created_not_accepted" and
-    .execution_provider == "aliyun-eci/v1" and .mutates_sqlite == false and
+    .execution_provider == "aliyun-eci/v1" and (.region_id | type == "string" and length > 0) and .mutates_sqlite == false and
     (.source_commit | type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$")) and
     (.source_tree | type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$")) and
     (.base_image | type == "string" and test("@sha256:[0-9a-f]{64}$")) and
@@ -223,6 +237,7 @@ validate_refresh_receipt() {
     (.image | type == "string" and test("@sha256:[0-9a-f]{64}$")) and
     (.image_digest | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
     (.image_cache_id | type == "string" and length > 0) and
+    (.image_cache_name | type == "string" and length > 0) and
     (.image_cache_snapshot_id | type == "string" and length > 0) and
     .image_cache_status == "Ready" and
     (.gate_binary_sha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
@@ -257,17 +272,30 @@ load_refresh_schedule() {
 }
 
 create_module_download_cache() {
-  local gomodcache manifest module_root
+  local go_mod gomodcache manifest manifest_json module_dir module_root
   gomodcache=$(go env GOMODCACHE)
   module_root="$temp_root/module-root"
   mkdir -p "$module_root"
   tar -xzf "$source_archive" -C "$module_root"
-  (
-    cd "$module_root"
-    GOTOOLCHAIN=local GOWORK=off go mod download
-  )
+  manifest_json="$temp_root/module-downloads.jsonl"
+  : >"$manifest_json"
+  while IFS= read -r go_mod; do
+    module_dir=${go_mod%/go.mod}
+    [[ "$module_dir" == "$module_root" || "$module_dir" == "$module_root"/* ]] || die "nested module escaped source archive: $module_dir"
+    (
+      cd "$module_dir"
+      GOTOOLCHAIN=local GOWORK=off go mod download
+      GOTOOLCHAIN=local GOWORK=off go mod download -json all
+    ) >>"$manifest_json"
+  done < <(find "$module_root" -type f -name go.mod | LC_ALL=C sort)
+  event_version=$(awk '$1 == "github.com/kelindar/event" {print $2; exit}' "$module_root/go.mod")
+  [[ "$event_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'github.com/kelindar/event version is missing from go.mod'
+  event_download_json=$(GOTOOLCHAIN=local GOWORK=off go mod download -json "github.com/kelindar/event@${event_version}")
+  event_sum=$(printf '%s' "$event_download_json" | jq -er '.Sum | select(type == "string" and startswith("h1:"))')
+  event_gomod_sum=$(printf '%s' "$event_download_json" | jq -er '.GoModSum | select(type == "string" and startswith("h1:"))')
+  printf '%s\n' "$event_download_json" >>"$manifest_json"
   manifest="$temp_root/module-download-files.txt"
-  (cd "$module_root" && GOTOOLCHAIN=local GOWORK=off go mod download -json all) |
+  jq -s '.[]' "$manifest_json" |
     jq -r '[.Info, .GoMod, .Zip, (if .Zip then (.Zip + "hash") else empty end)][] | select(. != null)' |
     awk -v prefix="${gomodcache}/" 'index($0,prefix)==1 {print substr($0,length(prefix)+1)}' |
     LC_ALL=C sort -u >"$manifest"
@@ -309,10 +337,32 @@ tar -xzf /tmp/crane.tar.gz -C /tmp/bin crane
 tar -xzf /tmp/source.tar.gz -C /tmp/src
 tar --delay-directory-restore --no-same-permissions -xzf /tmp/module.tar.gz -C /tmp/gomod
 cp -a /opt/super-dolphin/cache/go-build/. /tmp/go-build/
+test -s /opt/super-dolphin-gate/frontend-embed/index.html
+mkdir -p /tmp/src/cmd/agent-terminal
+cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dist
 chmod -R u+w /tmp/go-build
 cd /tmp/src
 started=$(date +%s)
-GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build go build -trimpath -o /tmp/candidate-gate ./cmd/super-dolphin-gate
+mkdir -p /tmp/event-probe
+printf 'module cacheprobe\n\ngo 1.26.5\n\nrequire github.com/kelindar/event %s\n' "$EVENT_VERSION" >/tmp/event-probe/go.mod
+printf 'github.com/kelindar/event %s %s\ngithub.com/kelindar/event %s/go.mod %s\n' "$EVENT_VERSION" "$EVENT_SUM" "$EVENT_VERSION" "$EVENT_GOMOD_SUM" >/tmp/event-probe/go.sum
+(cd /tmp/event-probe && GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build go list -deps github.com/kelindar/event >/dev/null)
+for nested_module in build/gate/runtime-proxy build/gate/runtime-tools third_party/kelindar-event; do
+  (cd "/tmp/src/${nested_module}" && GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build GOOS=linux GOARCH=amd64 go list -deps -test ./... >/dev/null)
+done
+GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go list -deps -test ./internal/devtools/gate >/dev/null
+GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go list -f '{{.Dir}}' ./... >/tmp/package-dirs.txt
+while IFS= read -r package_dir; do
+  case "$package_dir" in
+    "$PWD"/*) package="./${package_dir#"$PWD"/}" ;;
+    *) printf 'refresh-builder-package-directory-invalid directory=%s\n' "$package_dir" >&2; exit 22 ;;
+  esac
+  if ! SUPER_DOLPHIN_TEST_BACKEND=remote-worker GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=1 GOOS=linux GOARCH=amd64 ./scripts/test_with_guard.sh --ci-compile-package "$package"; then
+    printf 'refresh-builder-package-failed package=%s\n' "$package" >&2
+    exit 23
+  fi
+done </tmp/package-dirs.txt
+GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/candidate-gate ./cmd/super-dolphin-gate
 completed=$(date +%s)
 gate_sha=$(sha256sum /tmp/candidate-gate | cut -d ' ' -f1)
 mkdir -p /tmp/overlay/opt/super-dolphin/cache/go-build
@@ -321,6 +371,7 @@ mkdir -p /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache
 : >/tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache/.wh..wh..opq
 cp -a /tmp/go-build/. /tmp/overlay/opt/super-dolphin/cache/go-build/
 cp -a /tmp/gomod/. /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache/
+chmod -R a-w /tmp/overlay/opt/super-dolphin/cache/go-build /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache
 tar -C /tmp/overlay -cf /tmp/cache-layer.tar .
 cat >/tmp/registry.yml <<'REGISTRY'
 version: 0.1
@@ -382,6 +433,9 @@ start_builder() {
     --Container.1.EnvironmentVar.10.Key BASE_ARCHIVE_SHA256 --Container.1.EnvironmentVar.10.Value "$base_archive_sha256" \
     --Container.1.EnvironmentVar.11.Key SOURCE_TREE --Container.1.EnvironmentVar.11.Value "$source_tree" \
     --Container.1.EnvironmentVar.12.Key BASE_TAG --Container.1.EnvironmentVar.12.Value "${oci_base_digest:0:12}" \
+    --Container.1.EnvironmentVar.13.Key EVENT_VERSION --Container.1.EnvironmentVar.13.Value "$event_version" \
+    --Container.1.EnvironmentVar.14.Key EVENT_SUM --Container.1.EnvironmentVar.14.Value "$event_sum" \
+    --Container.1.EnvironmentVar.15.Key EVENT_GOMOD_SUM --Container.1.EnvironmentVar.15.Value "$event_gomod_sum" \
     --ImageSnapshotId "$base_snapshot")
   builder_group_id=$(printf '%s' "$result" | jq -er '.ContainerGroupId')
   wait_for_builder
@@ -393,6 +447,7 @@ start_builder() {
 create_image_cache() {
   local result name
   name="sdci-refresh-${source_tree:0:8}-$(date -u +%Y%m%d%H%M%S)"
+	image_cache_name=$name
   result=$(eci_json CreateImageCache --ImageCacheName "$name" \
     --Image.1 "${builder_ip}:5000/sdci/successor@${successor_digest}" \
     --SecurityGroupId "$security_group" --VSwitchId "$first_vswitch" --ImageCacheSize 100 \
@@ -416,11 +471,11 @@ verify_image_cache() {
   local verify_script result status log deadline
   # 该脚本由远端 ECI shell 展开，本地必须保留其中的环境变量与命令替换。
   # shellcheck disable=SC2016
-  verify_script='set -eu; mkdir -p /tmp/src /tmp/go-build /tmp/gomod; curl -fsSL --retry 3 "$SOURCE_URL" -o /tmp/source.tar.gz; printf "%s  %s\n" "$SOURCE_SHA256" /tmp/source.tar.gz | sha256sum -c -; tar -xzf /tmp/source.tar.gz -C /tmp/src; cp -a /opt/super-dolphin/cache/go-build/. /tmp/go-build/; cp -a /opt/super-dolphin-gate/runtime/go-mod-cache/. /tmp/gomod/; chmod -R u+w /tmp/go-build /tmp/gomod; cd /tmp/src; started=$(date +%s); GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod go build -trimpath -o /tmp/verified-gate ./cmd/super-dolphin-gate; completed=$(date +%s); printf "refresh-verify-ready tree=%s compile_seconds=%s gate_sha256=%s\n" "$SOURCE_TREE" "$((completed-started))" "$(sha256sum /tmp/verified-gate | cut -d " " -f1)"'
+  verify_script='set -eu; test -z "$(find /opt/super-dolphin/cache/go-build /opt/super-dolphin-gate/runtime/go-mod-cache -perm /222 -print -quit)"; mkdir -p /tmp/src /tmp/go-build /tmp/gomod; curl -fsSL --retry 3 "$SOURCE_URL" -o /tmp/source.tar.gz; printf "%s  %s\n" "$SOURCE_SHA256" /tmp/source.tar.gz | sha256sum -c -; tar -xzf /tmp/source.tar.gz -C /tmp/src; test -s /opt/super-dolphin-gate/frontend-embed/index.html; mkdir -p /tmp/src/cmd/agent-terminal; cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dist; cp -a /opt/super-dolphin/cache/go-build/. /tmp/go-build/; chmod -R u+w /tmp/go-build; chmod 0700 /tmp/gomod; /super-dolphin-gate worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache /tmp/gomod; cd /tmp/src; GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go list -deps -test ./... >/dev/null; started=$(date +%s); GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/verified-gate ./cmd/super-dolphin-gate; completed=$(date +%s); printf "refresh-verify-ready tree=%s compile_seconds=%s gate_sha256=%s\n" "$SOURCE_TREE" "$((completed-started))" "$(sha256sum /tmp/verified-gate | cut -d " " -f1)"'
   result=$(eci_json CreateContainerGroup --ContainerGroupName "sdci-imagecache-verify-${source_tree:0:8}-$(date -u +%Y%m%d%H%M%S)" \
     --SecurityGroupId "$security_group" --VSwitchId "$vswitch_csv" --ScheduleStrategy VSwitchRandom \
     --RestartPolicy Never --Cpu 8 --Memory 16 --EphemeralStorage 100 \
-    --Container.1.Name verify --Container.1.Image "${builder_ip}:5000/sdci/successor@${successor_digest}" --Container.1.ImagePullPolicy IfNotPresent \
+    --Container.1.Name verify --Container.1.Image "${builder_ip}:5000/sdci/successor@${successor_digest}" --Container.1.ImagePullPolicy Never \
     --Container.1.Cpu 8 --Container.1.Memory 16 --Container.1.Command.1 /bin/sh --Container.1.Arg.1=-c --Container.1.Arg.2 "$verify_script" \
     --Container.1.EnvironmentVar.1.Key SOURCE_URL --Container.1.EnvironmentVar.1.Value "$(sign_internal_object "$source_object")" \
     --Container.1.EnvironmentVar.2.Key SOURCE_SHA256 --Container.1.EnvironmentVar.2.Value "$source_sha256" \
@@ -446,14 +501,15 @@ verify_image_cache() {
 print_receipt() {
   jq -n \
     --arg schema "$receipt_schema" --arg commit "$source_commit" --arg tree "$source_tree" \
+    --arg region_id "$region" \
     --arg base_image "$base_image" --arg base_snapshot "$base_snapshot" \
     --arg oci_base_image "$oci_base_image" \
     --arg image "${builder_ip}:5000/sdci/successor@${successor_digest}" \
-    --arg image_digest "$successor_digest" --arg cache_id "$image_cache_id" --arg snapshot_id "$image_cache_snapshot" \
+    --arg image_digest "$successor_digest" --arg cache_id "$image_cache_id" --arg cache_name "$image_cache_name" --arg snapshot_id "$image_cache_snapshot" \
     --arg gate_sha256 "sha256:${gate_sha256}" --argjson build_seconds "$compile_seconds" \
     --argjson verify_seconds "$verify_compile_seconds" --argjson retention_days "$retention_days" \
     --arg refreshed_at_utc "$refreshed_at_utc" --argjson refreshed_at_unix_sec "$refreshed_at_unix_sec" \
-    '{schema_version:$schema, authoritative:false, action:"candidate_created_not_accepted", execution_provider:"aliyun-eci/v1", source_commit:$commit, source_tree:$tree, base_image:$base_image, base_snapshot_id:$base_snapshot, oci_base_image:$oci_base_image, image:$image, image_digest:$image_digest, image_cache_id:$cache_id, image_cache_snapshot_id:$snapshot_id, image_cache_status:"Ready", gate_binary_sha256:$gate_sha256, builder_compile_seconds:$build_seconds, verification_compile_seconds:$verify_seconds, retention_days:$retention_days, refreshed_at_unix_sec:$refreshed_at_unix_sec, refreshed_at_utc:$refreshed_at_utc, mutates_sqlite:false}'
+    '{schema_version:$schema, authoritative:false, action:"candidate_created_not_accepted", execution_provider:"aliyun-eci/v1", region_id:$region_id, source_commit:$commit, source_tree:$tree, base_image:$base_image, base_snapshot_id:$base_snapshot, oci_base_image:$oci_base_image, image:$image, image_digest:$image_digest, image_cache_id:$cache_id, image_cache_name:$cache_name, image_cache_snapshot_id:$snapshot_id, image_cache_status:"Ready", gate_binary_sha256:$gate_sha256, builder_compile_seconds:$build_seconds, verification_compile_seconds:$verify_seconds, retention_days:$retention_days, refreshed_at_unix_sec:$refreshed_at_unix_sec, refreshed_at_utc:$refreshed_at_utc, mutates_sqlite:false}'
 }
 
 persist_receipt() {
@@ -476,7 +532,7 @@ main() {
   require_uint if_older_than_hours "$if_older_than_hours"
   ((retention_days >= 1 && retention_days <= 30)) || die 'retention days must be between 1 and 30'
   ((if_older_than_hours <= 8760)) || die 'refresh age must not exceed one year'
-  for command in aliyun awk curl date git go gzip jq sed shasum sort tar; do require_command "$command"; done
+  for command in aliyun awk curl date find git go gzip jq sed shasum sort tar; do require_command "$command"; done
   [[ -f "$config" ]] || die "config is not a regular file: $config"
 
   profile=$(json_required '.credential_profile')
@@ -527,6 +583,7 @@ main() {
   oss_object_exists "$base_archive_object" || die "missing accepted base image archive: $base_archive_object"
   start_builder
   create_image_cache
+  retire_builder
   verify_image_cache
   persist_receipt
 }

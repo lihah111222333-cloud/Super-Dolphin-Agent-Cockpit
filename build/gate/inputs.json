@@ -816,6 +816,8 @@
     "cmd/super-dolphin-gate/remote_baseline_state_store.go",
     "cmd/super-dolphin-gate/remote_hook_test.go",
     "cmd/super-dolphin-gate/remote_hook_test_helpers_test.go",
+    "cmd/super-dolphin-gate/remote_imagecache_refresh_runtime.go",
+    "cmd/super-dolphin-gate/remote_imagecache_refresh_runtime_test.go",
     "cmd/super-dolphin-gate/remote_ledger_init.go",
     "cmd/super-dolphin-gate/remote_ledger_init_test.go",
     "cmd/super-dolphin-gate/remote_manifest_install.go",
@@ -1890,6 +1892,7 @@
     "internal/archtest/remote_ci_go_build_cache_contract_guard_test.go",
     "internal/archtest/remote_ci_host_docker_wrapper_guard_test.go",
     "internal/archtest/remote_ci_image_layer_direct_read_guard_test.go",
+    "internal/archtest/remote_ci_imagecache_refresh_runtime_guard_test.go",
     "internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go",
     "internal/archtest/remote_ci_miss_only_contract_guard_test.go",
     "internal/archtest/remote_ci_plan_report_decoder_binding_guard_test.go",
@@ -2058,6 +2061,8 @@
     "internal/devtools/cicontract/generation_one.go",
     "internal/devtools/cicontract/generation_one_tables.go",
     "internal/devtools/cicontract/generation_one_test.go",
+    "internal/devtools/cicontract/imagecache_refresh_receipt.go",
+    "internal/devtools/cicontract/imagecache_refresh_receipt_test.go",
     "internal/devtools/cicontract/remote_runtime_identity.go",
     "internal/devtools/cicontract/remote_runtime_identity_test.go",
     "internal/devtools/cicontract/sqlite_schema_tables.go",
@@ -4573,6 +4578,7 @@
     "cmd/super-dolphin-gate/remote_agent_token.go",
     "cmd/super-dolphin-gate/remote_baseline_source.go",
     "cmd/super-dolphin-gate/remote_baseline_state_store.go",
+    "cmd/super-dolphin-gate/remote_imagecache_refresh_runtime.go",
     "cmd/super-dolphin-gate/remote_ledger_init.go",
     "cmd/super-dolphin-gate/remote_manifest_install.go",
     "cmd/super-dolphin-gate/remote_materialize.go",
@@ -4637,6 +4643,7 @@
     "internal/devtools/cicontract/contract.go",
     "internal/devtools/cicontract/generation_one.go",
     "internal/devtools/cicontract/generation_one_tables.go",
+    "internal/devtools/cicontract/imagecache_refresh_receipt.go",
     "internal/devtools/cicontract/remote_runtime_identity.go",
     "internal/devtools/cicontract/sqlite_schema_tables.go",
     "internal/devtools/cicontract/worker_execution_environment.go",
@@ -4860,6 +4867,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6529,
-  "source_snapshot_paths_sha256": "sha256:f31eea1b6c22dfab7b676fa55a354e3b172143baa7fad5e7c79083caf6cacd36"
+  "source_snapshot_input_count": 6534,
+  "source_snapshot_paths_sha256": "sha256:bb92c5d4651ea80363dca103332553e04621f49c22d59f175422db41ca9384a8"
 }

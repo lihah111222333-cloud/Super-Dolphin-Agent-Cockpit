@@ -511,7 +511,7 @@ func TestBindRemoteShardResourcesRejectsMissingProviderReceipt(t *testing.T) {
 	}
 }
 
-func TestCoordinatorRunRejectsMissingOrMismatchedImageCacheSnapshotID(t *testing.T) {
+func TestCoordinatorRunRejectsMissingOrMismatchedExecutionImageCacheSnapshotID(t *testing.T) {
 	for name, snapshotID := range map[string]string{
 		"missing":  "",
 		"mismatch": "snap-other-baseline",
@@ -519,7 +519,7 @@ func TestCoordinatorRunRejectsMissingOrMismatchedImageCacheSnapshotID(t *testing
 		t.Run(name, func(t *testing.T) {
 			repository, input := remoteRunFixture(t)
 			input.RepositoryRoot = repository
-			input.ImageCacheSnapshotID = snapshotID
+			input.ExecutionImageCacheSnapshotID = snapshotID
 			_, err := runCoordinatorTest(t, newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}), context.Background(), input)
 			if err == nil || !strings.Contains(err.Error(), "ImageCacheSnapshotID") {
 				t.Fatalf("Run() error = %v, want image snapshot binding rejection", err)
@@ -542,6 +542,14 @@ func TestImageCacheSnapshotFieldRegistry(t *testing.T) {
 				t.Fatalf("%s is missing ImageCacheSnapshotID", name)
 			}
 		})
+	}
+	if _, found := reflect.TypeFor[RunInput]().FieldByName("ImageCacheOnly"); !found {
+		t.Fatal("RunInput is missing the explicit ImageCacheOnly runtime boundary")
+	}
+	for _, fieldName := range []string{"ExecutionRunnerImage", "ExecutionImageCacheSnapshotID"} {
+		if _, found := reflect.TypeFor[RunInput]().FieldByName(fieldName); !found {
+			t.Fatalf("RunInput is missing %s", fieldName)
+		}
 	}
 	for _, value := range []reflect.Type{reflect.TypeFor[ShardRequest](), reflect.TypeFor[RunResult]()} {
 		field, found := value.FieldByName("ImageCacheSnapshotID")

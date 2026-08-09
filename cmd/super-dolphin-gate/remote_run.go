@@ -91,6 +91,13 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	if err != nil {
 		return result, remoteci.RunInput{}, sourceError("%v", err)
 	}
+	runtime, err := loadRemoteImageCacheRuntime(config, state)
+	if err != nil {
+		return result, input, protocolError("load refreshed remote ImageCache runtime: %v", err)
+	}
+	if err := applyRemoteImageCacheRuntime(&input, runtime); err != nil {
+		return result, input, protocolError("apply refreshed remote ImageCache runtime: %v", err)
+	}
 	coordinator, containerDeadline, err := newRemoteRunCoordinator(config, input, options.ProgressObserver)
 	if err != nil {
 		return result, input, err
@@ -213,7 +220,7 @@ func newRemoteRunCoordinator(
 		Bucket: config.OSS.Bucket, SourcePrefix: config.OSS.SourcePrefix,
 		InternalOSSEndpoint: config.OSS.InternalEndpoint,
 		WorkerRoleName:      config.WorkerRoleName, WorkerTimeout: workerTimeout,
-		ImageCacheSnapshotID: input.ImageCacheSnapshotID,
+		ImageCacheSnapshotID: input.ExecutionImageCacheSnapshotID,
 		PollInterval:         2 * time.Second, CleanupTimeout: 2 * time.Minute,
 		ResourcePolicy:   config.Capacity.ResourcePolicy,
 		ProgressObserver: progressObserver,

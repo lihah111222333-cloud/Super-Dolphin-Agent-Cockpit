@@ -64,8 +64,9 @@ func TestNewRemoteRunCoordinatorDefersRegistryCredentialReadUntilActualCreate(t 
 	config.OSS.SourcePrefix = "baseline-artifacts/source-bundles/"
 	config.Capacity.ResourcePolicy = deferredCredentialTestResourcePolicy()
 	input := remoteci.RunInput{
-		Profile:              gatecontract.ProfileLocalFast,
-		ImageCacheSnapshotID: "snap-accepted-baseline",
+		Profile:                       gatecontract.ProfileLocalFast,
+		ImageCacheSnapshotID:          "snap-accepted-baseline",
+		ExecutionImageCacheSnapshotID: "snap-refreshed-runtime",
 	}
 	coordinator, _, err := newRemoteRunCoordinator(config, input)
 	if err != nil {

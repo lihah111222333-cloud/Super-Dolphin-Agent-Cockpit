@@ -290,9 +290,10 @@ func (coordinator *Coordinator) createRequest(
 	}
 	return eci.CreateRequest{
 		ContainerGroupName: groupName, ContainerName: "worker",
-		ImageCacheSnapshotID: input.ImageCacheSnapshotID,
-		MainImage:            input.RunnerImage,
-		InitImage:            input.RunnerImage,
+		ImageCacheSnapshotID: input.ExecutionImageCacheSnapshotID,
+		MainImage:            input.ExecutionRunnerImage,
+		InitImage:            input.ExecutionRunnerImage,
+		ImageCacheOnly:       input.ImageCacheOnly,
 		Resources:            eci.Resources{CPU: resources.VCPU, MemoryGiB: resources.MemoryGiB},
 		Command:              remoteWorkerSupervisorCommand(gate.ExecutorWorkRoot + "/bin/super-dolphin-gate"),
 		Args: []string{

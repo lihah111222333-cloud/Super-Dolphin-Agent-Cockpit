@@ -72,6 +72,7 @@ type CreateRequest struct {
 	ImageCacheSnapshotID string
 	MainImage            string
 	InitImage            string
+	ImageCacheOnly       bool
 	Resources            Resources
 	Command              []string
 	Args                 []string
@@ -200,8 +201,7 @@ func New(config Config) (*Client, error) {
 	return NewWithRunner(config, execRunner{})
 }
 
-// canonicalOfficialAliyunCLI resolves PATH once and then enforces the trusted
-// executable ownership, permissions, and realpath boundary used by production.
+// canonicalOfficialAliyunCLI 解析 PATH 后强制校验生产 aliyun CLI 的所有权、权限和真实路径。
 func canonicalOfficialAliyunCLI(binary string) (string, error) {
 	if binary == "" || binary != strings.TrimSpace(binary) {
 		return "", errors.New("production ECI client requires the official aliyun CLI binary")
@@ -245,17 +245,19 @@ func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest
 	if err := validateCreateRequest(request); err != nil {
 		return ContainerGroup{}, err
 	}
-	if err := c.loadRegistryCredential(); err != nil {
-		return ContainerGroup{}, fmt.Errorf("load ECI registry credential: %w", err)
-	}
-	if err := validateRegistryCredential(c.registryCredential, request); err != nil {
-		return ContainerGroup{}, err
-	}
-	if err := validateConfigFileProjectionValues(request.ConfigFileVolumes,
-		c.registryCredential.UserName,
-		c.registryCredential.Password,
-	); err != nil {
-		return ContainerGroup{}, err
+	if !request.ImageCacheOnly {
+		if err := c.loadRegistryCredential(); err != nil {
+			return ContainerGroup{}, fmt.Errorf("load ECI registry credential: %w", err)
+		}
+		if err := validateRegistryCredential(c.registryCredential, request); err != nil {
+			return ContainerGroup{}, err
+		}
+		if err := validateConfigFileProjectionValues(request.ConfigFileVolumes,
+			c.registryCredential.UserName,
+			c.registryCredential.Password,
+		); err != nil {
+			return ContainerGroup{}, err
+		}
 	}
 	return c.createContainerGroup(ctx, request, c.config.SpotStrategy)
 }
@@ -277,8 +279,12 @@ func (c *Client) loadRegistryCredential() error {
 	return c.credentialErr
 }
 
-// createContainerGroup 使用单一计费策略执行一次可幂等重试并协调不确定响应。
-func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest, spotStrategy string) (ContainerGroup, error) {
+// createContainerGroupBaseArgs 组装不含卷、命令和环境变量的固定 ECI 参数。
+func (c *Client) createContainerGroupBaseArgs(request CreateRequest, spotStrategy string) []string {
+	imagePullPolicy := "IfNotPresent"
+	if request.ImageCacheOnly {
+		imagePullPolicy = "Never"
+	}
 	args := []string{
 		"--VSwitchId", joinedVSwitchIDs(c.config.VSwitches),
 		"--ScheduleStrategy", cicontract.ECIMultiZoneScheduleStrategy,
@@ -296,22 +302,32 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--Container.1.Image", request.MainImage,
 		"--Container.1.Cpu", formatResource(request.Resources.CPU),
 		"--Container.1.Memory", formatResource(request.Resources.MemoryGiB),
-		"--Container.1.ImagePullPolicy", "IfNotPresent",
-		"--ImageRegistryCredential.1.Server", c.registryCredential.Server,
-		"--ImageRegistryCredential.1.UserName", c.registryCredential.UserName,
-		"--ImageRegistryCredential.1.Password", c.registryCredential.Password,
+		"--Container.1.ImagePullPolicy", imagePullPolicy,
 		"--Container.1.SecurityContext.ReadOnlyRootFilesystem", "true",
 		"--Container.1.SecurityContext.RunAsUser", strconv.Itoa(cicontract.RemoteWorkerUID),
 		"--Container.1.SecurityContextRunAsGroup", strconv.Itoa(cicontract.RemoteWorkerGID),
 		"--InitContainer.1.Name", request.InitContainer.Name,
 		"--InitContainer.1.Image", request.InitImage,
-		"--InitContainer.1.ImagePullPolicy", "IfNotPresent",
+		"--InitContainer.1.ImagePullPolicy", imagePullPolicy,
 		"--InitContainer.1.SecurityContext.ReadOnlyRootFilesystem", "true",
 		"--InitContainer.1.SecurityContext.RunAsUser", "0",
+	}
+	if !request.ImageCacheOnly {
+		args = append(args,
+			"--ImageRegistryCredential.1.Server", c.registryCredential.Server,
+			"--ImageRegistryCredential.1.UserName", c.registryCredential.UserName,
+			"--ImageRegistryCredential.1.Password", c.registryCredential.Password,
+		)
 	}
 	if spotStrategy != SpotStrategyNoSpot {
 		args = append(args[:12], append([]string{"--SpotDuration", strconv.FormatInt(c.config.SpotDurationHours, 10)}, args[12:]...)...)
 	}
+	return args
+}
+
+// createContainerGroup 使用单一计费策略执行一次可幂等重试并协调不确定响应。
+func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest, spotStrategy string) (ContainerGroup, error) {
+	args := c.createContainerGroupBaseArgs(request, spotStrategy)
 	volumeArgs := make([]string, 0)
 	emptyDirs := createEmptyDirVolumes(request)
 	volumeArgs = appendEmptyDirVolumes(volumeArgs, 1, emptyDirs)

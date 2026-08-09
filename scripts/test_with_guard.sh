@@ -22,6 +22,7 @@ Usage:
   scripts/test_with_guard.sh --ci-nested-module <exact-tracked-module>
   scripts/test_with_guard.sh --ci-package <exact-package>
   scripts/test_with_guard.sh --ci-package-test <exact-package> <exact-test>
+  scripts/test_with_guard.sh --ci-compile-package <exact-package>
   scripts/test_with_guard.sh --ci-package-benchmark <exact-package> <exact-benchmark>
   scripts/test_with_guard.sh --ci-race-guard
   scripts/test_with_guard.sh --ci-race-package <exact-package>
@@ -509,6 +510,28 @@ run_ci_package_benchmark() {
   run_go_test "$real_go" "$package_name" -json -run '^$' -bench "^${benchmark_name}$" -count=1 -timeout=0
 }
 
+run_ci_compile_package() {
+  local real_go="$1"
+  shift
+  if [ "$#" -ne 1 ] || ! canonical_backend_target_allowed "$1" || [[ "$1" == *...* ]]; then
+    echo "CI compile mode requires one exact canonical backend package" >&2
+    return 2
+  fi
+  local package_name="$1" listed output compile_status=0
+  if ! listed="$(cd "$ROOT_DIR" && "$real_go" list "$package_name")" || [ "$listed" != "${listed//$'\n'/}" ] || [ -z "$listed" ]; then
+    echo "CI compile mode failed to resolve exactly one package" >&2
+    return 2
+  fi
+  output="$(mktemp "${TMPDIR:-/tmp}/super-dolphin-ci-compile.XXXXXX")"
+  if (cd "$ROOT_DIR" && "$real_go" test -c -o "$output" "$package_name"); then
+    :
+  else
+    compile_status=$?
+  fi
+  rm -f -- "$output"
+  return "$compile_status"
+}
+
 run_ci_guard() {
   local real_go="$1"
   local guard_mode="$2"
@@ -715,6 +738,14 @@ main() {
       shift
       [ "$#" -eq 2 ] || { usage; exit 1; }
       run_ci_package "$real_go" normal "$@"
+      ;;
+    --ci-compile-package)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      run_ci_compile_package "$real_go" "$@"
       ;;
     --ci-package-benchmark)
       local real_go

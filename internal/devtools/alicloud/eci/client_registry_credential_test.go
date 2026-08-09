@@ -162,3 +162,38 @@ func TestRegistryCredentialLoaderSuppliesCredentialAtCreate(t *testing.T) {
 		t.Fatalf("credential loader calls = %d, CLI calls = %d; want 1 and 1", loadCalls, len(runner.calls))
 	}
 }
+
+// TestImageCacheOnlyCreateSkipsRegistryCredential 验证 live Ready snapshot 物料不再依赖已删除的临时 registry。
+func TestImageCacheOnlyCreateSkipsRegistryCredential(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
+	config := testConfig()
+	called := false
+	config.RegistryCredentialLoader = func() (RegistryCredential, error) {
+		called = true
+		return RegistryCredential{}, errors.New("must not load")
+	}
+	client, err := NewWithRunner(config, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validCreateRequest()
+	request.MainImage = "172.16.26.240:5000/sdci/successor@sha256:" + strings.Repeat("a", 64)
+	request.InitImage = request.MainImage
+	request.ImageCacheOnly = true
+	if _, err := client.CreateContainerGroup(t.Context(), request); err != nil {
+		t.Fatalf("CreateContainerGroup() error = %v", err)
+	}
+	if called {
+		t.Fatal("ImageCache-only create loaded registry credentials")
+	}
+	for _, value := range runner.calls[0] {
+		if strings.Contains(value, "ImageRegistryCredential") {
+			t.Fatalf("ImageCache-only create encoded registry credential argument: %q", value)
+		}
+	}
+	for _, name := range []string{"--Container.1.ImagePullPolicy", "--InitContainer.1.ImagePullPolicy"} {
+		if !containsArgumentPair(runner.calls[0], name, "Never") {
+			t.Fatalf("ImageCache-only create does not forbid registry pulls for %s: %#v", name, runner.calls[0])
+		}
+	}
+}
