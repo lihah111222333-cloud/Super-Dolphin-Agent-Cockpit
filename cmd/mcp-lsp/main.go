@@ -22,6 +22,10 @@ const (
 
 // main 初始化 sidecar 运行环境，保护 MCP stdout 通道后启动服务，异常时以非零码退出。
 func main() {
+	// 所有模式都先限制调度线程；内部监管路径异常时也不能占满宿主 CPU。
+	if runtime.GOMAXPROCS(0) > 2 {
+		runtime.GOMAXPROCS(2)
+	}
 	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
 		os.Exit(exitCode)
 	}
@@ -46,10 +50,6 @@ func main() {
 	if err := runtimeenv.ConfigureSidecarRuntime(); err != nil {
 		logRuntime.Get().Error("mcp-lsp sidecar runtime env failed", pkglogger.FieldError, err)
 		os.Exit(1)
-	}
-	// sidecar 只处理轻量协议转发，限制调度线程避免和宿主/工具进程抢占 CPU。
-	if runtime.GOMAXPROCS(0) > 2 {
-		runtime.GOMAXPROCS(2)
 	}
 	exitCode := runMain(stdout, logRuntime)
 	logRuntime.ShutdownFileHandler()

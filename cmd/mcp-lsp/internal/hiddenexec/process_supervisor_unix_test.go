@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package hiddenexec
 
@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	darwinSupervisorHelperEnv      = "SUPER_DOLPHIN_TEST_DARWIN_LSP_SUPERVISOR"
-	darwinSupervisorInvalidPipeEnv = "SUPER_DOLPHIN_TEST_DARWIN_LSP_SUPERVISOR_INVALID_PIPE"
+	unixSupervisorHelperEnv      = "SUPER_DOLPHIN_TEST_UNIX_LSP_SUPERVISOR"
+	unixSupervisorInvalidPipeEnv = "SUPER_DOLPHIN_TEST_UNIX_LSP_SUPERVISOR_INVALID_PIPE"
 )
 
 // TestMain 让 hiddenexec 测试二进制复用生产监管入口，覆盖真实 re-exec 路径。
@@ -27,10 +27,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestDarwinSupervisedProcessTreeTerminatesWithoutRawPIDSignal(t *testing.T) {
-	supervised, err := NewDarwinSupervisedCommand("/bin/sh", "-c", "sleep 30 & wait")
+func TestUnixSupervisedProcessTreeTerminatesWithoutRawPIDSignal(t *testing.T) {
+	supervised, err := NewUnixSupervisedCommand("/bin/sh", "-c", "sleep 30 & wait")
 	if err != nil {
-		t.Fatalf("NewDarwinSupervisedCommand() error = %v", err)
+		t.Fatalf("NewUnixSupervisedCommand() error = %v", err)
 	}
 	t.Cleanup(func() { _ = supervised.Close() })
 
@@ -39,33 +39,34 @@ func TestDarwinSupervisedProcessTreeTerminatesWithoutRawPIDSignal(t *testing.T) 
 		t.Fatalf("StartProcessTree() error = %v", err)
 	}
 	cmd := supervised.Command()
-	waitDone := startDarwinSupervisorWait(cmd)
+	waitDone := startUnixSupervisorWait(cmd)
 
 	root, err := tree.Identity()
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
 	}
-	waitForDarwinSupervisorDescendant(t, root)
+	waitForUnixSupervisorDescendant(t, root)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := tree.Terminate(); err != nil {
 		t.Fatalf("Terminate() error = %v, want stable supervisor cleanup", err)
 	}
-	requireDarwinSupervisorWait(t, cmd, waitDone, "supervised root")
+	requireUnixSupervisorWait(t, cmd, waitDone, "supervised root")
 	if err := tree.Wait(ctx); err != nil {
 		t.Fatalf("Wait() error = %v", err)
 	}
 	if err := tree.Release(); err != nil {
 		t.Fatalf("Release() error = %v", err)
 	}
-	assertDarwinSupervisorGroupGone(t, root)
+	assertUnixSupervisorGroupGone(t, root)
 }
 
-func TestDarwinProcessSupervisorControlEOFReapsOwnedGroup(t *testing.T) {
-	if os.Getenv(darwinSupervisorHelperEnv) == "1" {
-		os.Exit(runDarwinProcessSupervisor([]string{
+func TestUnixProcessSupervisorControlEOFReapsOwnedGroup(t *testing.T) {
+	if os.Getenv(unixSupervisorHelperEnv) == "1" {
+		os.Exit(runUnixProcessSupervisor([]string{
 			os.Args[0],
 			processSupervisorModeArgument,
+			string(os.PathSeparator),
 			"/bin/sh",
 			"-c",
 			"sleep 30 & wait",
@@ -81,8 +82,8 @@ func TestDarwinProcessSupervisorControlEOFReapsOwnedGroup(t *testing.T) {
 		_ = controlWrite.Close()
 	})
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDarwinProcessSupervisorControlEOFReapsOwnedGroup$")
-	cmd.Env = append(os.Environ(), darwinSupervisorHelperEnv+"=1")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestUnixProcessSupervisorControlEOFReapsOwnedGroup$")
+	cmd.Env = append(os.Environ(), unixSupervisorHelperEnv+"=1")
 	cmd.ExtraFiles = []*os.File{controlRead}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -96,21 +97,22 @@ func TestDarwinProcessSupervisorControlEOFReapsOwnedGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture supervisor root identity: %v", err)
 	}
-	waitForDarwinSupervisorDescendant(t, root)
+	waitForUnixSupervisorDescendant(t, root)
 	if err := controlWrite.Close(); err != nil {
 		t.Fatalf("close supervisor control writer: %v", err)
 	}
 
-	waitDone := startDarwinSupervisorWait(cmd)
-	requireDarwinSupervisorWait(t, cmd, waitDone, "supervisor helper after parent control EOF")
-	assertDarwinSupervisorGroupGone(t, root)
+	waitDone := startUnixSupervisorWait(cmd)
+	requireUnixSupervisorWait(t, cmd, waitDone, "supervisor helper after parent control EOF")
+	assertUnixSupervisorGroupGone(t, root)
 }
 
-func TestDarwinProcessSupervisorRejectsNonPipeControl(t *testing.T) {
-	if os.Getenv(darwinSupervisorInvalidPipeEnv) == "1" {
-		os.Exit(runDarwinProcessSupervisor([]string{
+func TestUnixProcessSupervisorRejectsNonPipeControl(t *testing.T) {
+	if os.Getenv(unixSupervisorInvalidPipeEnv) == "1" {
+		os.Exit(runUnixProcessSupervisor([]string{
 			os.Args[0],
 			processSupervisorModeArgument,
+			string(os.PathSeparator),
 			"/usr/bin/true",
 		}))
 	}
@@ -120,8 +122,8 @@ func TestDarwinProcessSupervisorRejectsNonPipeControl(t *testing.T) {
 		t.Fatalf("create non-pipe control fixture: %v", err)
 	}
 	defer control.Close()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDarwinProcessSupervisorRejectsNonPipeControl$")
-	cmd.Env = append(os.Environ(), darwinSupervisorInvalidPipeEnv+"=1")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestUnixProcessSupervisorRejectsNonPipeControl$")
+	cmd.Env = append(os.Environ(), unixSupervisorInvalidPipeEnv+"=1")
 	cmd.ExtraFiles = []*os.File{control}
 	err = cmd.Run()
 	var exitErr *exec.ExitError
@@ -130,46 +132,46 @@ func TestDarwinProcessSupervisorRejectsNonPipeControl(t *testing.T) {
 	}
 }
 
-func TestDarwinProcessSupervisorOrphanPredicate(t *testing.T) {
+func TestUnixProcessSupervisorOrphanPredicate(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name    string
 		ppid    int
-		cwdErr  error
+		cwd     string
 		statErr error
 		want    bool
 	}{
-		{name: "live parent", ppid: 42, cwdErr: os.ErrNotExist, want: false},
-		{name: "orphan valid cwd", ppid: 1, want: false},
-		{name: "orphan deleted cwd from getwd", ppid: 1, cwdErr: os.ErrNotExist, want: true},
-		{name: "orphan deleted cwd from stat", ppid: 1, statErr: os.ErrNotExist, want: true},
-		{name: "orphan uncertain stat", ppid: 1, statErr: os.ErrPermission, want: false},
+		{name: "live parent", ppid: 42, cwd: "/workspace", statErr: os.ErrNotExist, want: false},
+		{name: "orphan valid cwd", ppid: 1, cwd: "/workspace", want: false},
+		{name: "orphan relative cwd", ppid: 1, cwd: "workspace", statErr: os.ErrNotExist, want: false},
+		{name: "orphan deleted cwd", ppid: 1, cwd: "/workspace", statErr: os.ErrNotExist, want: true},
+		{name: "orphan uncertain stat", ppid: 1, cwd: "/workspace", statErr: os.ErrPermission, want: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := darwinProcessSupervisorOrphaned(
+			got := unixProcessSupervisorOrphaned(
 				func() int { return tc.ppid },
-				func() (string, error) { return "/workspace", tc.cwdErr },
+				tc.cwd,
 				func(string) (os.FileInfo, error) { return nil, tc.statErr },
 			)
 			if got != tc.want {
-				t.Fatalf("darwinProcessSupervisorOrphaned() = %v, want %v", got, tc.want)
+				t.Fatalf("unixProcessSupervisorOrphaned() = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func startDarwinSupervisorWait(cmd *exec.Cmd) <-chan error {
+func startUnixSupervisorWait(cmd *exec.Cmd) <-chan error {
 	waitDone := make(chan error, 1)
-	safego.Go(context.Background(), nil, "mcp-lsp.hiddenexec.test.darwin-supervisor-wait", func(context.Context) {
+	safego.Go(context.Background(), nil, "mcp-lsp.hiddenexec.test.unix-supervisor-wait", func(context.Context) {
 		waitDone <- cmd.Wait()
 	})
 	return waitDone
 }
 
-func requireDarwinSupervisorWait(t *testing.T, cmd *exec.Cmd, waitDone <-chan error, label string) {
+func requireUnixSupervisorWait(t *testing.T, cmd *exec.Cmd, waitDone <-chan error, label string) {
 	t.Helper()
 	select {
 	case waitErr := <-waitDone:
@@ -185,7 +187,7 @@ func requireDarwinSupervisorWait(t *testing.T, cmd *exec.Cmd, waitDone <-chan er
 	}
 }
 
-func waitForDarwinSupervisorDescendant(t *testing.T, root ProcessIdentity) {
+func waitForUnixSupervisorDescendant(t *testing.T, root ProcessIdentity) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -203,7 +205,7 @@ func waitForDarwinSupervisorDescendant(t *testing.T, root ProcessIdentity) {
 	t.Fatal("supervisor did not start an owned descendant within 3s")
 }
 
-func assertDarwinSupervisorGroupGone(t *testing.T, root ProcessIdentity) {
+func assertUnixSupervisorGroupGone(t *testing.T, root ProcessIdentity) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

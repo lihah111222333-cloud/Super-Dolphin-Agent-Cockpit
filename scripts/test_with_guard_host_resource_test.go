@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestHostTestResourceTierUsesActualCPUPercent 锁定 CPU busy 70% 边界与独立内存阻断。
+// TestHostTestResourceTierUsesActualCPUPercent 锁定 CPU busy 80% 边界与独立内存阻断。
 func TestHostTestResourceTierUsesActualCPUPercent(t *testing.T) {
 	repositoryRoot := gitRevParseRequired(t, "--show-toplevel")
 	scriptPath := filepath.Join(repositoryRoot, "scripts", "test_with_guard.sh")
@@ -17,8 +17,8 @@ func TestHostTestResourceTierUsesActualCPUPercent(t *testing.T) {
 set -euo pipefail
 source "$1"
 host_test_resource_tier 49.9 25
-host_test_resource_tier 69.9 15
-host_test_resource_tier 70.0 90
+host_test_resource_tier 79.9 15
+host_test_resource_tier 80.0 90
 host_test_resource_tier 10.0 14.9
 `, "bash", scriptPath)
 	output, err := command.CombinedOutput()
@@ -43,7 +43,7 @@ func TestHostTestResourceSnapshotRejectsLoadAverageMetric(t *testing.T) {
 			t.Fatalf("host admission still contains retired load metric %q", retired)
 		}
 	}
-	for _, required := range []string{"CPU usage:", "/proc/stat", "cpu_busy_percent"} {
+	for _, required := range []string{"CPU usage:", "/proc/stat", "cpu_busy_percent", "top -l 2 -n 0 -s 5", "sleep 5", "cpu < 80"} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("host admission is missing CPU busy evidence %q", required)
 		}

@@ -210,7 +210,7 @@ host_test_cpu_busy_percent() {
   local kernel_name cpu_line idle_percent first_total first_idle second_total second_idle
   kernel_name="$(uname -s 2>/dev/null || true)"
   if [[ "$kernel_name" == "Darwin" ]] && command -v top >/dev/null 2>&1; then
-    cpu_line="$(LC_ALL=C top -l 2 -n 0 -s 1 2>/dev/null | awk '/^CPU usage:/ {line=$0} END {print line}' || true)"
+    cpu_line="$(LC_ALL=C top -l 2 -n 0 -s 5 2>/dev/null | awk '/^CPU usage:/ {line=$0} END {print line}' || true)"
     idle_percent="$(awk '{for (i=1; i<=NF; i++) if ($i == "idle") {value=$(i-1); gsub(/[% ,]/, "", value); print value; exit}}' <<<"$cpu_line")"
     if [[ "$idle_percent" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
       awk -v idle="$idle_percent" 'BEGIN {printf "%.1f\n", 100-idle}'
@@ -218,7 +218,7 @@ host_test_cpu_busy_percent() {
     fi
   elif [[ "$kernel_name" == "Linux" && -r /proc/stat ]]; then
     read -r first_total first_idle < <(awk '/^cpu / {total=0; for (i=2; i<=NF; i++) total+=$i; print total, $5+$6; exit}' /proc/stat)
-    sleep 1
+    sleep 5
     read -r second_total second_idle < <(awk '/^cpu / {total=0; for (i=2; i<=NF; i++) total+=$i; print total, $5+$6; exit}' /proc/stat)
     if [[ "$first_total" =~ ^[0-9]+$ && "$first_idle" =~ ^[0-9]+$ &&
       "$second_total" =~ ^[0-9]+$ && "$second_idle" =~ ^[0-9]+$ && "$second_total" -gt "$first_total" ]]; then
@@ -235,7 +235,7 @@ host_test_resource_tier() {
   local cpu_busy_percent="$1" memory_free_percent="$2"
   awk -v cpu="$cpu_busy_percent" -v memory="$memory_free_percent" '
     BEGIN {
-      tier = (cpu < 50 && memory >= 25) ? "low" : ((cpu < 70 && memory >= 15) ? "medium" : "high")
+      tier = (cpu < 50 && memory >= 25) ? "low" : ((cpu < 80 && memory >= 15) ? "medium" : "high")
       print tier
     }
   '

@@ -16,6 +16,14 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 )
 
+// TestMain 让 multilsp 测试二进制在 Unix 上复用生产监管入口，真实 transport 测试无需绕过 owner。
+func TestMain(m *testing.M) {
+	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
+		os.Exit(exitCode)
+	}
+	os.Exit(m.Run())
+}
+
 type cleanupOwnerStub struct {
 	terminateErr error
 	waitErr      error

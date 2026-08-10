@@ -16,14 +16,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
-// TestMain 让 multilsp 测试二进制复用生产监管入口，真实 transport 测试无需绕过 Darwin owner。
-func TestMain(m *testing.M) {
-	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
-		os.Exit(exitCode)
-	}
-	os.Exit(m.Run())
-}
-
 func killTransportFixtureForTest(t *testing.T, tr *transport, childPID int) bool {
 	t.Helper()
 	requireDarwinTransportProcess(t, tr)
