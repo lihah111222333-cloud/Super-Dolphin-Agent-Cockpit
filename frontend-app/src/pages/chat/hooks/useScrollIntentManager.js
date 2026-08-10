@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createScrollIntentState,
   reduceScrollIntent,
@@ -22,6 +22,7 @@ function firstTouchY(event) {
 
 export function useScrollIntentManager({ activeThreadId, autoScrollKey, timelineContentBlocked }) {
   const timelineRef = useRef(null);
+  const [timelineNearBottom, setTimelineNearBottom] = useState(true);
   const intentRef = useRef(createScrollIntentState(activeThreadId));
   const touchStartYRef = useRef(null);
   const frameIdRef = useRef(null);
@@ -41,6 +42,7 @@ export function useScrollIntentManager({ activeThreadId, autoScrollKey, timeline
   const scrollIfSticky = useCallback((smooth = false, source = 'streaming') => {
     if (!shouldFollowTimeline(intentRef.current, source)) return false;
     scrollTimelineElementToBottom(timelineRef.current, smooth);
+    setTimelineNearBottom(true);
     return true;
   }, []);
   const requestStickyBottom = useCallback((smooth, source) => {
@@ -54,6 +56,7 @@ export function useScrollIntentManager({ activeThreadId, autoScrollKey, timeline
     transition({ type: 'explicit-bottom' });
     cancelPendingFrame();
     scrollTimelineElementToBottom(timelineRef.current, smooth);
+    setTimelineNearBottom(true);
   }, [cancelPendingFrame, transition]);
   const markMessageSent = useCallback(() => {
     transition({ type: 'message-sent' });
@@ -62,7 +65,9 @@ export function useScrollIntentManager({ activeThreadId, autoScrollKey, timeline
 
   const onTimelineScroll = useCallback((eventOrTimeline) => {
     const timeline = eventOrTimeline?.currentTarget || eventOrTimeline;
-    transition({ type: 'scroll-position', nearBottom: isTimelineNearBottom(timeline) });
+    const nearBottom = isTimelineNearBottom(timeline);
+    transition({ type: 'scroll-position', nearBottom });
+    setTimelineNearBottom(nearBottom);
   }, [transition]);
   const onTimelineWheel = useCallback((event) => {
     transition({
@@ -95,6 +100,7 @@ export function useScrollIntentManager({ activeThreadId, autoScrollKey, timeline
   }, [timelineContentBlocked]);
   useEffect(() => {
     transition({ type: 'thread-changed', threadId: activeThreadId });
+    setTimelineNearBottom(true);
     touchStartYRef.current = null;
     lastAutoScrollKeyRef.current = '';
     initialThreadRenderRef.current = true;
@@ -158,6 +164,7 @@ export function useScrollIntentManager({ activeThreadId, autoScrollKey, timeline
     onTimelineWheel,
     scrollIfSticky,
     scrollToBottom,
+    timelineNearBottom,
     timelineRef,
   };
 }

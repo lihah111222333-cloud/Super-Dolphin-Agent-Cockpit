@@ -151,10 +151,10 @@ function useApprovalComposerFocus({ activeThreadId, composerInputRef, snapshot }
   }, [activeThreadId, composerInputRef, snapshot]);
 }
 
-function ScrollBottomControl({ copy, onScrollToBottom }) {
+function ScrollBottomControl({ copy, onScrollToBottom, visible }) {
   return (
-    <div className="chat-scroll-bottom-zone">
-      <button type="button" className="chat-scroll-bottom-btn" title={copy.scrollBottom} aria-label={copy.scrollBottom} onClick={onScrollToBottom}>
+    <div className={`chat-scroll-bottom-zone${visible ? ' is-visible' : ''}`} aria-hidden={!visible}>
+      <button type="button" className="chat-scroll-bottom-btn" title={copy.scrollBottom} aria-label={copy.scrollBottom} disabled={!visible} onClick={onScrollToBottom}>
         <ChevronDown size={15} aria-hidden="true" />
       </button>
     </div>
@@ -242,6 +242,7 @@ function Conversation(props) {
     onTimelineTouchMove, onTimelineTouchStart,
     onTimelineWheel, scrollIfSticky,
     scrollToBottom,
+    timelineNearBottom,
     timelineRef,
   } = useScrollIntentManager({
     activeThreadId,
@@ -258,7 +259,7 @@ function Conversation(props) {
     return result;
   }, [clearPendingReasoningHint, markMessageSent, sendMessage, startPendingReasoningHint]);
   const scrollTimelineToBottomSmooth = useCallback(() => scrollToBottom(true), [scrollToBottom]);
-  const scrollBottomControl = activeThreadId && !timelineContentBlocked ? <ScrollBottomControl copy={copy} onScrollToBottom={scrollTimelineToBottomSmooth} /> : null;
+  const scrollBottomControl = activeThreadId && !timelineContentBlocked ? <ScrollBottomControl copy={copy} onScrollToBottom={scrollTimelineToBottomSmooth} visible={!timelineNearBottom} /> : null;
   const composer = (
     <ConversationComposer
       {...props}

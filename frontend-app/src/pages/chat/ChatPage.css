@@ -144,8 +144,12 @@
   z-index: var(--z-local-sticky);
   width: 200px;
   height: 96px;
-  pointer-events: auto;
+  pointer-events: none;
   transform: translateX(-50%);
+}
+
+.chat-scroll-bottom-zone.is-visible {
+  pointer-events: auto;
 }
 
 .chat-scroll-bottom-btn {
@@ -169,8 +173,11 @@
   transition: transform var(--motion-overlay), opacity var(--motion-hover), border-color var(--transition), background var(--transition), color var(--transition);
 }
 
-.chat-scroll-bottom-zone:hover .chat-scroll-bottom-btn,
-.chat-scroll-bottom-zone:focus-within .chat-scroll-bottom-btn,
+.composer .chat-scroll-bottom-btn {
+  transition: transform var(--motion-overlay), opacity var(--motion-hover), border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.chat-scroll-bottom-zone.is-visible .chat-scroll-bottom-btn,
 .chat-scroll-bottom-btn:hover,
 .chat-scroll-bottom-btn:focus-visible {
   border-color: color-mix(in srgb, var(--accent-2) 44%, var(--border-strong));
@@ -178,6 +185,11 @@
   color: var(--text-pri);
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+.chat-scroll-bottom-zone:not(.is-visible) .chat-scroll-bottom-btn {
+  opacity: 0;
+  transform: translate(-50%, 48px);
 }
 
 .chat-scroll-bottom-btn:active {

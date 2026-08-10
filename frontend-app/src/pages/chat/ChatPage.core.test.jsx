@@ -745,6 +745,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
 
     fireEvent.wheel(timeline, { deltaX: 0, deltaY: -40 });
     metrics.setScrollTop(600);
+    fireEvent.scroll(timeline);
     fireEvent.click(screen.getByRole('button', { name: '滚动到底部' }));
     expect(metrics.getScrollTop()).toBe(1400);
     requestAnimationFrameSpy.mockRestore();

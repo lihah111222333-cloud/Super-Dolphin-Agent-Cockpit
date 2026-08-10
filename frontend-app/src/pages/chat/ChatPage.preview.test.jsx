@@ -455,7 +455,7 @@ afterEach(async () => {
     expect(screen.queryByTestId('timeline-older-marker')).not.toBeInTheDocument();
   });
 
-  it('keeps the bottom shortcut visible in active conversations', () => {
+  it('shows the bottom shortcut away from the threshold and hides it after returning', () => {
     const messages = [
       { id: 'bottom-msg-1', role: 'user', text: '先看上面的上下文', time: '2026-06-02T08:00:00Z' },
       { id: 'bottom-msg-2', role: 'assistant', text: '最新回复在底部。', time: '2026-06-02T08:01:00Z' },
@@ -465,11 +465,13 @@ afterEach(async () => {
 
     const timeline = screen.getByTestId('chat-timeline');
     Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1200 });
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
     Object.defineProperty(timeline, 'scrollTop', {
       configurable: true,
       value: 180,
       writable: true,
     });
+    fireEvent.scroll(timeline);
 
     const bottomButton = screen.getByRole('button', { name: '滚动到底部' });
     expect(bottomButton).toHaveAttribute('title', '滚动到底部');
@@ -477,7 +479,7 @@ afterEach(async () => {
     fireEvent.click(bottomButton);
 
     expect(timeline.scrollTop).toBe(1200);
-    expect(screen.getByRole('button', { name: '滚动到底部' })).toBe(bottomButton);
+    expect(bottomButton).toBeDisabled();
   });
 
   it('keeps the timeline pinned to the bottom while an active assistant reply grows', () => {

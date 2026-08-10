@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { useScrollIntentManager } from './useScrollIntentManager.js';
 
@@ -33,6 +33,8 @@ function ScrollIntentHarness({ activeThreadId = 'thread-a', autoScrollKey = 'con
     onTimelineTouchStart,
     onTimelineWheel,
     scrollIfSticky,
+    scrollToBottom,
+    timelineNearBottom,
     timelineRef,
   } = useScrollIntentManager({
     activeThreadId,
@@ -40,11 +42,12 @@ function ScrollIntentHarness({ activeThreadId = 'thread-a', autoScrollKey = 'con
     timelineContentBlocked: false,
   });
   useEffect(() => {
-    onManager({ markMessageSent, scrollIfSticky });
-  }, [markMessageSent, onManager, scrollIfSticky]);
+    onManager({ markMessageSent, scrollIfSticky, scrollToBottom });
+  }, [markMessageSent, onManager, scrollIfSticky, scrollToBottom]);
   return (
     <div
       data-testid="intent-timeline"
+      data-near-bottom={timelineNearBottom ? 'true' : 'false'}
       ref={timelineRef}
       onKeyDown={onTimelineKeyDown}
       onScroll={onTimelineScroll}
@@ -60,6 +63,27 @@ function ScrollIntentHarness({ activeThreadId = 'thread-a', autoScrollKey = 'con
 function observedInstance(instances, target) {
   return instances.find((instance) => instance.observe.mock.calls.some(([observed]) => observed === target));
 }
+
+it('uses the existing bottom threshold and hides after an explicit bottom scroll', () => {
+  let manager;
+  render(<ScrollIntentHarness onManager={(value) => { manager = value; }} />);
+  const timeline = screen.getByTestId('intent-timeline');
+  let scrollTop = 451;
+  Object.defineProperties(timeline, {
+    clientHeight: { configurable: true, value: 500 },
+    scrollHeight: { configurable: true, value: 1000 },
+    scrollTop: { configurable: true, get: () => scrollTop, set: (value) => { scrollTop = Number(value); } },
+  });
+  fireEvent.scroll(timeline);
+  expect(timeline).toHaveAttribute('data-near-bottom', 'false');
+  scrollTop = 452;
+  fireEvent.scroll(timeline);
+  expect(timeline).toHaveAttribute('data-near-bottom', 'true');
+  scrollTop = 100;
+  fireEvent.scroll(timeline);
+  act(() => manager.scrollToBottom(true));
+  expect(timeline).toHaveAttribute('data-near-bottom', 'true');
+});
 
 it('cancels its frame, observers, and load listener when the manager unmounts', () => {
   const mutation = installObserverDouble('MutationObserver');

@@ -1134,7 +1134,7 @@ describe('conversation content column styles', () => {
     const composerMeta = declarationsFor('.composer-meta');
     const composerAttach = declarationsFor('.composer-attach');
     const composerSend = declarationsFor('.composer .send');
-    const chatMainColumn = declarationsFor('.chat-main-column'); const scrollZone = declarationsFor('.chat-scroll-bottom-zone'); const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
+    const chatMainColumn = declarationsFor('.chat-main-column'); const scrollZone = declarationsFor('.chat-scroll-bottom-zone'); const scrollButton = declarationsFor('.chat-scroll-bottom-btn'); const scopedScrollButton = declarationsFor('.composer .chat-scroll-bottom-btn');
     const headerTools = declarationsFor('.chat-header-tools');
     const headerTool = declarationsFor('.chat-header-tool');
     const disabledHeaderTool = declarationsFor('.chat-header-tool:disabled');
@@ -1192,7 +1192,7 @@ describe('conversation content column styles', () => {
     expect(composerSend.width).toBe('40px');
     expect(composerSend['min-width']).toBe('40px');
     expect(composerSend.height).toBe('40px');
-    expect(chatMainColumn.position).toBe('relative'); expect(chatMainColumn['grid-template-rows']).toBe('minmax(0, 1fr)'); expect(scrollZone.width).toBe('200px'); expect(scrollZone.height).toBe('96px'); expect(scrollZone.bottom).toBe('100%'); expect(scrollZone['pointer-events']).toBe('auto'); expect(scrollButton.position).toBe('absolute'); expect(scrollButton.left).toBe('50%'); expect(scrollButton.right).toBe('auto'); expect(scrollButton.bottom).toBe('12px'); expect(scrollButton.opacity).toBe('0'); expect(scrollButton.transform).toBe('translate(-50%, 48px)'); expect(scrollButton.width).toBe('32px'); expect(scrollButton.height).toBe('32px');
+    expect(chatMainColumn.position).toBe('relative'); expect(chatMainColumn['grid-template-rows']).toBe('minmax(0, 1fr)'); expect(scrollZone.width).toBe('200px'); expect(scrollZone.height).toBe('96px'); expect(scrollZone.bottom).toBe('100%'); expect(scrollZone['pointer-events']).toBe('none'); expect(scrollButton.position).toBe('absolute'); expect(scrollButton.left).toBe('50%'); expect(scrollButton.right).toBe('auto'); expect(scrollButton.bottom).toBe('12px'); expect(scrollButton.opacity).toBe('0'); expect(scrollButton.transform).toBe('translate(-50%, 48px)'); expect(scrollButton.width).toBe('32px'); expect(scrollButton.height).toBe('32px'); expect(scopedScrollButton.transition).toContain('opacity var(--motion-hover)');
   });
 
   it('keeps the new-chat intro stage positioned and full width', () => {
