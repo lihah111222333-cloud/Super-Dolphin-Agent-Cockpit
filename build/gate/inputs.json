@@ -1085,7 +1085,7 @@
     "frontend-app/src/app/commands/appCommandRuntime.test.js",
     "frontend-app/src/app/commands/useAppCommandDispatcher.js",
     "frontend-app/src/app/commands/useAppCommandDispatcher.test.jsx",
-    "frontend-app/src/app/shell/SuiyuanAppWindow.jsx",
+    "frontend-app/src/app/shell/SuperDolphinAgentAppWindow.jsx",
     "frontend-app/src/app/shell/WorkbenchActivityBar.jsx",
     "frontend-app/src/app/shell/WorkbenchBottomPanel.jsx",
     "frontend-app/src/app/shell/WorkbenchChrome.test.jsx",
@@ -1096,7 +1096,7 @@
     "frontend-app/src/app/shell/model/shellLayoutSchema.test.js",
     "frontend-app/src/app/shell/model/useShellLayoutStore.js",
     "frontend-app/src/app/shell/model/useShellLayoutStore.test.js",
-    "frontend-app/src/assets/suiyuan-brand-icon.png",
+    "frontend-app/src/assets/super-dolphin-agent-brand-icon.png",
     "frontend-app/src/assets/super-dolphin-logo.png",
     "frontend-app/src/devtools/UITestMCPShell.jsx",
     "frontend-app/src/devtools/uiTestContract.js",
@@ -4895,5 +4895,5 @@
     "third_party/kelindar-event/go.sum"
   ],
   "source_snapshot_input_count": 6558,
-  "source_snapshot_paths_sha256": "sha256:2d792e886d48ae876fe206a13ba396e1fa1198bd5df1a7c8a4ef3f9810bca3d3"
+  "source_snapshot_paths_sha256": "sha256:1d0894f8893c5f9aabc89387b9ac2e47526f1b672fa0921ad9475cbe0c689873"
 }
