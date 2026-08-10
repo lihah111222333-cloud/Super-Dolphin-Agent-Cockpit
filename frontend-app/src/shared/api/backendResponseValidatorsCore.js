@@ -38,7 +38,7 @@ const SHARED_FILE_RETENTION_KEYS = new Set(['items', 'protectedCount', 'cleanupC
 const VIDEO_API_KEY_STATUS_RESPONSE_KEYS = new Set(['configured', 'masked']);
 const DASHBOARD_LOGS_RESPONSE_KEYS = new Set(['logs']);
 const DASHBOARD_LOG_ENTRY_KEYS = new Set(['source', 'id', 'timestamp', 'level', 'logger', 'message', 'raw', 'component', 'agent_id', 'thread_id', 'trace_id', 'span_id', 'parent_span_id', 'event_type', 'tool_name', 'duration_ms']);
-const THREAD_CONFIG_RESPONSE_KEYS = new Set(['threadId', 'provider', 'supportsThreadOverride', 'override', 'effective']);
+const THREAD_CONFIG_RESPONSE_KEYS = new Set(['threadId', 'provider', 'supportsThreadOverride', 'availableModels', 'override', 'effective']);
 const THREAD_CONFIG_VALUES_KEYS = new Set(['model', 'effort', 'approvals']);
 const THREAD_COMPACT_RESPONSE_KEYS = new Set(['threadId', 'command', 'beforeTokens', 'afterTokens', 'compacted', 'estimated']);
 const THREAD_RECOVER_RESPONSE_KEYS = new Set(['thread', 'recovered', 'mode']);
@@ -475,6 +475,9 @@ function validateThreadConfigResponse(method, response) {
   validateStringFields(method, value, 'body', ['threadId'], ['provider']);
   if (typeof value.supportsThreadOverride !== 'boolean') {
     throw new TypeError(`${method} response supportsThreadOverride must be a boolean`);
+  }
+  if (!Array.isArray(value.availableModels) || value.availableModels.length === 0 || value.availableModels.some((model) => typeof model !== 'string' || !model.trim())) {
+    throw new TypeError(`${method} response availableModels must be a non-empty string array`);
   }
   validateThreadConfigValues(method, value.override, 'override');
   validateThreadConfigValues(method, value.effective, 'effective');

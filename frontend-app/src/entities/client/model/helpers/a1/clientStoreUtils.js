@@ -220,6 +220,9 @@ function normalizeThreadConfig(raw = {}, fallbackThreadId = '', fallbackProvider
     threadId: normalizeThreadId(source.threadId || source.thread_id || fallbackThreadId),
     provider,
     supportsThreadOverride: Boolean(source.supportsThreadOverride ?? source.supports_thread_override),
+    availableModels: Array.isArray(source.availableModels)
+      ? [...new Set(source.availableModels.map((model) => normalizeProviderConfigValue(model)).filter(Boolean))]
+      : [],
     override: {
       model: normalizeProviderConfigValue(source.override?.model),
       effort: normalizeProviderConfigValue(source.override?.effort),

@@ -2,7 +2,34 @@ import { normalizeConfigText, normalizeProviderKey } from '../../shared/pageShar
 import { MODEL_DEFAULTS_BY_PROVIDER, firstConfigText, isClaudeOpusFamilyModel, modelSelectorDerivedState } from './composerModelSelectorDerived.js';
 
 function activeThreadComposerConfig(store, activeThreadId) {
-  return activeThreadId ? store.threadConfigByThread?.[activeThreadId] : null;
+  const id = normalizeConfigText(activeThreadId);
+  if (!id) return null;
+  const configs = store.threadConfigByThread;
+  if (!configs) return null;
+  if (configs[id]) return configs[id];
+  if (!Array.isArray(store.threads)) return null;
+  const thread = store.threads.find((candidate) => (
+    [candidate?.id, candidate?.agentId, candidate?.providerThreadId, candidate?.sessionId]
+      .map(normalizeConfigText)
+      .includes(id)
+  ));
+  if (!thread) return null;
+  for (const candidate of [thread.id, thread.agentId, thread.providerThreadId, thread.sessionId]) {
+    const key = normalizeConfigText(candidate);
+    if (key && configs[key]) return configs[key];
+  }
+  return null;
+}
+
+function providerCatalogConfig(store, activeThreadConfig) {
+  if (activeThreadConfig) return activeThreadConfig;
+  if (!store.threadConfigByThread) return null;
+  const provider = normalizeProviderKey(firstConfigText(store.providerConfig?.provider, store.provider));
+  return Object.values(store.threadConfigByThread).find((config) => (
+    normalizeProviderKey(config?.provider) === provider
+    && Array.isArray(config?.availableModels)
+    && config.availableModels.length > 0
+  )) || null;
 }
 
 function modelSnapshotValue(canOverrideThread, activeThreadConfig, providerValue, defaultValue, key) {
@@ -13,19 +40,20 @@ function modelSnapshotValue(canOverrideThread, activeThreadConfig, providerValue
 }
 
 function modelSelectorSnapshot(store, activeThreadId) {
-  const activeThreadConfig = activeThreadComposerConfig(store, activeThreadId);
+  const threadConfig = activeThreadComposerConfig(store, activeThreadId);
+  const activeThreadConfig = providerCatalogConfig(store, threadConfig);
   const providerKey = normalizeProviderKey(firstConfigText(activeThreadConfig?.provider, store.providerConfig?.provider, store.provider));
   const providerDefaults = MODEL_DEFAULTS_BY_PROVIDER[providerKey] || MODEL_DEFAULTS_BY_PROVIDER.codex;
-  const canOverrideThread = Boolean(activeThreadId && activeThreadConfig?.supportsThreadOverride);
-  const activeModel = modelSnapshotValue(canOverrideThread, activeThreadConfig, store.providerConfig?.model, providerDefaults.model, 'model');
-  const activeEffort = modelSnapshotValue(canOverrideThread, activeThreadConfig, store.providerConfig?.effort, providerDefaults.effort, 'effort');
+  const canOverrideThread = Boolean(activeThreadId && threadConfig?.supportsThreadOverride);
+  const activeModel = modelSnapshotValue(canOverrideThread, threadConfig, store.providerConfig?.model, providerDefaults.model, 'model');
+  const activeEffort = modelSnapshotValue(canOverrideThread, threadConfig, store.providerConfig?.effort, providerDefaults.effort, 'effort');
   return {
     activeEffort,
     activeModel,
     activeThreadConfig,
     canOverrideThread,
-    draftEffort: canOverrideThread ? normalizeConfigText(activeThreadConfig?.override?.effort) : activeEffort,
-    draftModel: canOverrideThread ? normalizeConfigText(activeThreadConfig?.override?.model) : activeModel,
+    draftEffort: canOverrideThread ? normalizeConfigText(threadConfig?.override?.effort) : activeEffort,
+    draftModel: canOverrideThread ? normalizeConfigText(threadConfig?.override?.model) : activeModel,
     providerKey,
   };
 }

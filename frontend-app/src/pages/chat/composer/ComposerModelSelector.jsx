@@ -39,11 +39,17 @@ function useModelSelectorController({ copy, store, activeThreadId, disabled }) {
     const requestID = loadRequestRef.current + 1;
     loadRequestRef.current = requestID;
     setDraft({ model: draftModel, effort: draftEffort });
-    setOpen(nextOpen);
-    if (!nextOpen || !activeThreadId) return;
+    if (!nextOpen) {
+      setOpen(false);
+      return;
+    }
+    const hasLoadedCatalog = Array.isArray(activeThreadConfig?.availableModels) && activeThreadConfig.availableModels.length > 0;
+    setOpen(hasLoadedCatalog);
+    if (!activeThreadId) return;
     const loaded = await store.loadThreadConfig?.(activeThreadId);
     if (!mountedRef.current || loadRequestRef.current !== requestID || !loaded) return;
     setDraft(loadedModelDraft(loaded, activeModel, activeEffort));
+    setOpen(true);
   };
 
   const saveModelConfig = async (patch) => {

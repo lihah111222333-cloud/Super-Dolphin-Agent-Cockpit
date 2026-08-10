@@ -1594,7 +1594,7 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.compactThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-canonical' });
   });
 
-  it('does not query thread config for codex runtime agent ids during chat switches', async () => {
+  it('loads Provider model catalogs for codex runtime agent ids during chat switches', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -1620,42 +1620,42 @@ function registerBridgeEventHandlersForTest() {
       timelinesByThread: {},
     });
     backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+    backend.getThreadConfig.mockResolvedValueOnce({ threadId: 'agent_1780223999392305000', provider: 'codex', supportsThreadOverride: false, availableModels: ['gpt-5.5', 'provider-only-model'], override: {}, effective: { model: 'gpt-5.5', effort: 'xhigh' } });
 
-    await useClientStore.getState().syncThreadState('agent_1780223999392305000');
+    await useClientStore.getState().syncThreadState('agent_1780223999392305000'); await vi.waitFor(() => expect(backend.getThreadConfig).toHaveBeenCalled());
 
     expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
       threadId: 'agent_1780223999392305000',
       includeDiff: true,
     });
-    expect(backend.getThreadConfig).not.toHaveBeenCalled();
+    expect(backend.getThreadConfig).toHaveBeenCalledWith({ threadId: 'agent_1780223999392305000' });
+    expect(useClientStore.getState().threadConfigByThread.agent_1780223999392305000.availableModels).toEqual(['gpt-5.5', 'provider-only-model']);
     expect(useClientStore.getState().warningEntries).toEqual([]);
   });
 
 
-  it('does not query thread config for agent-only runtime threads', async () => {
+  it('loads Provider models for agent-only runtime threads while saving global preferences', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'agent_1780223389861443000',
       provider: 'codex',
-      threads: [{
-        id: 'agent_1780223389861443000',
-        agentId: 'agent_1780223389861443000',
-        name: 'Runtime codex thread',
-        provider: 'codex',
-        status: 'running',
-      }],
+      threads: [],
     });
+    backend.getThreadConfig.mockResolvedValue({ threadId: 'agent_1780223389861443000', provider: 'codex', supportsThreadOverride: false, availableModels: ['gpt-5.5', 'provider-only-model'], override: {}, effective: { model: 'gpt-5.5', effort: 'xhigh' } });
 
-    await expect(useClientStore.getState().loadThreadConfig('agent_1780223389861443000')).resolves.toBeNull();
+    await expect(useClientStore.getState().loadThreadConfig('agent_1780223389861443000')).resolves.toEqual(expect.objectContaining({
+      availableModels: ['gpt-5.5', 'provider-only-model'],
+      supportsThreadOverride: false,
+    }));
     await expect(useClientStore.getState().saveComposerModelConfig({
       threadId: 'agent_1780223389861443000',
       model: 'gpt-5.5',
       effort: 'xhigh',
     })).resolves.toBe(true);
 
-    expect(backend.getThreadConfig).not.toHaveBeenCalled();
+    expect(backend.getThreadConfig).toHaveBeenCalledWith({ threadId: 'agent_1780223389861443000' });
     expect(backend.setThreadConfig).not.toHaveBeenCalled();
     expect(backend.setPreference).toHaveBeenCalledWith({
       cwd: '/repo/app',

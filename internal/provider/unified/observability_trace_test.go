@@ -16,6 +16,42 @@ type runtimeConfigGenerationSession struct {
 	runtime map[string]any
 }
 
+type configurableRuntimeSession struct {
+	*runtimeConfigGenerationSession
+	config dto.ThreadConfig
+	models []string
+}
+
+func (s *configurableRuntimeSession) ReadConfig(context.Context, string) (dto.ThreadConfig, error) {
+	return s.config, nil
+}
+
+func (s *configurableRuntimeSession) AllowedModels(context.Context) ([]string, error) {
+	return s.models, nil
+}
+
+func TestTracedSessionForwardsProviderConfigCapabilities(t *testing.T) {
+	model := "provider-only-model"
+	base := &configurableRuntimeSession{
+		runtimeConfigGenerationSession: &runtimeConfigGenerationSession{generationTestSession: &generationTestSession{threadID: "thread-config"}},
+		config:                         dto.ThreadConfig{ThreadID: "thread-config", Provider: "codex"},
+		models:                         []string{"gpt-5.5", model},
+	}
+	wrapped := (&Client{tracer: observability.NewDisabledService(observability.Config{})}).wrapSession("codex", base)
+	reader := wrapped.(interface {
+		ReadConfig(context.Context, string) (dto.ThreadConfig, error)
+	})
+	catalog := wrapped.(interface {
+		AllowedModels(context.Context) ([]string, error)
+	})
+	if cfg, err := reader.ReadConfig(context.Background(), "thread-config"); err != nil || cfg.ThreadID != "thread-config" {
+		t.Fatalf("ReadConfig() = %#v, %v", cfg, err)
+	}
+	if models, err := catalog.AllowedModels(context.Background()); err != nil || len(models) != 2 || models[1] != model {
+		t.Fatalf("AllowedModels() = %#v, %v", models, err)
+	}
+}
+
 func (s *runtimeConfigGenerationSession) RuntimeConfigSnapshot() map[string]any {
 	return s.runtime
 }

@@ -434,7 +434,9 @@ function createThreadSyncActions(runtime, deps) {
         publishThreadSyncFailure(runtime, syncOptions, id, new Error('thread message sync failed'));
         return false;
       }
-      if (!activeChanged && shouldAutoLoadThreadConfig(runtime.get(), id)) await runtime.get().loadThreadConfig(id);
+      if (!activeChanged && shouldAutoLoadThreadConfig(runtime.get(), id)) {
+        void runtime.get().loadThreadConfig(id);
+      }
       return true;
     }
     catch (error) {

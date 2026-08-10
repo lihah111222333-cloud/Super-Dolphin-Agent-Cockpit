@@ -1266,8 +1266,8 @@ internal/provider/unified/event_map.go	internal	platform-provider	go-source	1861
 internal/provider/unified/event_map_test.go	internal	platform-provider	go-test	6503	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,test,统一,会话解析与,manifest
 internal/provider/unified/manifest_test.go	internal	platform-provider	go-test	14279	统一 provider 会话解析与 manifest	internal,provider,unified,manifest,test,统一,会话解析与
 internal/provider/unified/module.go	internal	platform-provider	go-source	2764	统一 provider 会话解析与 manifest	internal,provider,unified,module,统一,会话解析与,manifest
-internal/provider/unified/observability_trace.go	internal	platform-provider	go-source	4109	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,统一,会话解析与,manifest
-internal/provider/unified/observability_trace_test.go	internal	platform-provider	go-test	5094	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,test,统一,会话解析与,manifest
+internal/provider/unified/observability_trace.go	internal	platform-provider	go-source	4942	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,统一,会话解析与,manifest
+internal/provider/unified/observability_trace_test.go	internal	platform-provider	go-test	6552	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,test,统一,会话解析与,manifest
 internal/provider/unified/provider_contract_test.go	internal	platform-provider	go-test	26515	统一 provider 会话解析与 manifest	internal,provider,unified,contract,test,统一,会话解析与,manifest
 internal/provider/unified/provider_recovery_error_policy_test.go	internal	platform-provider	go-test	2403	统一 provider 会话解析与 manifest	internal,provider,unified,recovery,error,policy,test,统一,会话解析与,manifest
 internal/provider/unified/provider_recovery_parity_test.go	internal	platform-provider	go-test	1593	统一 provider 会话解析与 manifest	internal,provider,unified,recovery,parity,test,统一,会话解析与,manifest

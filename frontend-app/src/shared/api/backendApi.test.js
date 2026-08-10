@@ -208,7 +208,7 @@ function threadConfigResponse(overrides = {}) {
   return {
     threadId: 'thread-1',
     provider: 'codex',
-    supportsThreadOverride: true,
+    supportsThreadOverride: true, availableModels: ['gpt-5.5', 'gpt-5.4'],
     override: { model: 'gpt-5.5', effort: 'high', approvals: 'on-request' },
     effective: { model: 'gpt-5.5', effort: 'high', approvals: 'on-request' },
     ...overrides,
@@ -2176,11 +2176,11 @@ function guardedBackendResponse(method) {
     ];
     const { threadId: _threadId, ...missingThreadId } = threadConfigResponse();
     const { override: _override, ...missingOverride } = threadConfigResponse();
-    const { effective: _effective, ...missingEffective } = threadConfigResponse();
+    const { effective: _effective, ...missingEffective } = threadConfigResponse(); const { availableModels: _availableModels, ...missingAvailableModels } = threadConfigResponse();
     const configResponses = [
-      missingThreadId,
-      missingOverride,
+      missingThreadId, missingOverride,
       missingEffective,
+      missingAvailableModels, threadConfigResponse({ availableModels: [] }), threadConfigResponse({ availableModels: ['gpt-5.5', ''] }),
       threadConfigResponse({ supportsThreadOverride: 'true' }),
       threadConfigResponse({ override: { model: 7 } }),
       threadConfigResponse({ effective: { surprise: true } }),

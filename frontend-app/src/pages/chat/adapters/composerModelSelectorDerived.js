@@ -1,4 +1,4 @@
-import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey } from '../../shared/pageShared.js';
+import { canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey } from '../../shared/pageShared.js';
 
 const EFFORT_OPTIONS_BY_PROVIDER = Object.freeze({
   codex: Object.freeze([
@@ -81,6 +81,14 @@ function modelSelectorTitle(disabled, canOverrideThread, copy) {
     : copy?.globalModelConfig || '全局模型配置';
 }
 
+function providerModelOptions(activeThreadConfig) {
+  if (!activeThreadConfig) return [];
+  if (!Array.isArray(activeThreadConfig.availableModels)) {
+    throw new Error('thread config availableModels is required');
+  }
+  return activeThreadConfig.availableModels.map((model) => ({ value: model, label: model }));
+}
+
 function modelSelectorDerivedState(options) {
   const { activeEffort, activeModel, activeThreadConfig, canOverrideThread, copy, disabled, draft, providerKey, store, activeThreadId } = options;
   const selectedModel = canonicalizeModelValue(providerKey, draft.model || activeModel);
@@ -96,7 +104,7 @@ function modelSelectorDerivedState(options) {
     inheritModelLabel: inheritedConfigLabel(activeModel, activeModelLabel, copy),
     inherited: canOverrideThread && !activeThreadConfig?.override?.model && !activeThreadConfig?.override?.effort,
     label: composerModelLabel(providerKey, activeModel, activeEffort, copy),
-    modelOptions: appendCurrentModelOption(providerKey, selectedModel),
+    modelOptions: providerModelOptions(activeThreadConfig),
     selectEffortValue: canOverrideThread ? draft.effort : draft.effort || activeEffort,
     selectModelValue: canOverrideThread
       ? canonicalizeModelValue(providerKey, draft.model)

@@ -6,6 +6,7 @@ import { ComposerModelSelector } from './ComposerModelSelector.jsx';
 const THREAD_CONFIG = {
   provider: 'codex',
   supportsThreadOverride: true,
+  availableModels: ['provider-only-model', 'gpt-5.5'],
   effective: { model: 'gpt-5.5', effort: 'xhigh' },
   override: {},
 };
@@ -50,6 +51,56 @@ afterEach(() => {
     await waitFor(() => {
       expect(store.saveComposerModelConfig).toHaveBeenCalledWith({ threadId: 'thread1', model: '', effort: 'high' });
     });
+  });
+
+  it('renders the complete model catalog returned by the Provider', () => {
+    render(<ComposerModelSelector store={createStore()} activeThreadId="thread1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
+
+    expect(screen.getByRole('option', { name: 'provider-only-model' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'GPT-5.4' })).not.toBeInTheDocument();
+  });
+
+  it('opens the Provider model catalog before a new conversation has a thread id', () => {
+    const store = createStore();
+    render(<ComposerModelSelector store={store} activeThreadId="" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
+
+    expect(screen.getByRole('dialog', { name: '模型配置' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'provider-only-model' })).toBeInTheDocument();
+    expect(store.loadThreadConfig).not.toHaveBeenCalled();
+  });
+
+  it('does not expose an empty model selector while the Provider catalog is loading', async () => {
+    const pendingConfig = deferred();
+    const store = createStore({
+      threadConfigByThread: {},
+      loadThreadConfig: vi.fn(() => pendingConfig.promise),
+    });
+    render(<ComposerModelSelector store={store} activeThreadId="thread1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
+    expect(screen.queryByRole('dialog', { name: '模型配置' })).toBeNull();
+    await act(async () => {
+      store.threadConfigByThread.thread1 = THREAD_CONFIG;
+      pendingConfig.resolve(THREAD_CONFIG);
+      await pendingConfig.promise;
+    });
+    expect(await screen.findByRole('option', { name: 'provider-only-model' })).toBeInTheDocument();
+  });
+
+  it('resolves a Provider model catalog across agent and provider thread identities', () => {
+    const store = createStore({
+      threads: [{ id: 'agent-1', agentId: 'agent-1', providerThreadId: 'provider-thread-1', provider: 'codex' }],
+      threadConfigByThread: { 'agent-1': THREAD_CONFIG },
+    });
+    render(<ComposerModelSelector store={store} activeThreadId="provider-thread-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
+
+    expect(screen.getByRole('option', { name: 'provider-only-model' })).toBeInTheDocument();
   });
 
   it('closes with Escape and restores focus to the selector button', async () => {

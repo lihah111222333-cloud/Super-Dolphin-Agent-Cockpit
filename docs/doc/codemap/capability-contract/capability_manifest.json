@@ -4957,6 +4957,8 @@
         "internal/provider/unified.*sessionResolver.resolveThreadSession",
         "internal/provider/unified.*sessionResolver.runAutoResumeSession",
         "internal/provider/unified.*sessionResolver.tryCreateSession",
+        "internal/provider/unified.*tracedSession.AllowedModels",
+        "internal/provider/unified.*tracedSession.ReadConfig",
         "internal/provider/unified.*tracedSession.RuntimeConfigSnapshot",
         "internal/provider/unified.*tracedSession.StartTurn",
         "internal/provider/unified.AgentSessionResolver",
@@ -10008,6 +10010,8 @@
         "internal/provider/unified.*sessionResolver.resolveThreadSession",
         "internal/provider/unified.*sessionResolver.runAutoResumeSession",
         "internal/provider/unified.*sessionResolver.tryCreateSession",
+        "internal/provider/unified.*tracedSession.AllowedModels",
+        "internal/provider/unified.*tracedSession.ReadConfig",
         "internal/provider/unified.*tracedSession.RuntimeConfigSnapshot",
         "internal/provider/unified.*tracedSession.StartTurn",
         "internal/provider/unified.AgentSessionResolver",
@@ -15059,6 +15063,8 @@
         "internal/provider/unified.*sessionResolver.resolveThreadSession",
         "internal/provider/unified.*sessionResolver.runAutoResumeSession",
         "internal/provider/unified.*sessionResolver.tryCreateSession",
+        "internal/provider/unified.*tracedSession.AllowedModels",
+        "internal/provider/unified.*tracedSession.ReadConfig",
         "internal/provider/unified.*tracedSession.RuntimeConfigSnapshot",
         "internal/provider/unified.*tracedSession.StartTurn",
         "internal/provider/unified.AgentSessionResolver",
@@ -20110,6 +20116,8 @@
         "internal/provider/unified.*sessionResolver.resolveThreadSession",
         "internal/provider/unified.*sessionResolver.runAutoResumeSession",
         "internal/provider/unified.*sessionResolver.tryCreateSession",
+        "internal/provider/unified.*tracedSession.AllowedModels",
+        "internal/provider/unified.*tracedSession.ReadConfig",
         "internal/provider/unified.*tracedSession.RuntimeConfigSnapshot",
         "internal/provider/unified.*tracedSession.StartTurn",
         "internal/provider/unified.AgentSessionResolver",
@@ -25169,6 +25177,8 @@
         "internal/provider/unified.*sessionResolver.resolveThreadSession",
         "internal/provider/unified.*sessionResolver.runAutoResumeSession",
         "internal/provider/unified.*sessionResolver.tryCreateSession",
+        "internal/provider/unified.*tracedSession.AllowedModels",
+        "internal/provider/unified.*tracedSession.ReadConfig",
         "internal/provider/unified.*tracedSession.RuntimeConfigSnapshot",
         "internal/provider/unified.*tracedSession.StartTurn",
         "internal/provider/unified.AgentSessionResolver",
@@ -30228,6 +30238,8 @@
         "internal/provider/unified.*sessionResolver.resolveThreadSession",
         "internal/provider/unified.*sessionResolver.runAutoResumeSession",
         "internal/provider/unified.*sessionResolver.tryCreateSession",
+        "internal/provider/unified.*tracedSession.AllowedModels",
+        "internal/provider/unified.*tracedSession.ReadConfig",
         "internal/provider/unified.*tracedSession.RuntimeConfigSnapshot",
         "internal/provider/unified.*tracedSession.StartTurn",
         "internal/provider/unified.AgentSessionResolver",
@@ -30342,10 +30354,10 @@
   "summary": {
     "total_packages": 41,
     "total_functions": 2490,
-    "total_methods": 1301,
+    "total_methods": 1303,
     "total_interfaces": 192,
     "total_interface_methods": 381,
-    "total_exported": 1334,
+    "total_exported": 1336,
     "total_unexported": 3291,
     "total_structs": 642
   },
@@ -100919,6 +100931,40 @@
           "returns": [
             "contract.Session",
             "[]error"
+          ]
+        },
+        {
+          "receiver": "*tracedSession",
+          "name": "AllowedModels",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            }
+          ],
+          "returns": [
+            "[]string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*tracedSession",
+          "name": "ReadConfig",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "threadID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "dto.ThreadConfig",
+            "error"
           ]
         },
         {

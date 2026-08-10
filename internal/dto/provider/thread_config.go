@@ -20,6 +20,7 @@ type ThreadConfig struct {
 	ThreadID               string             `json:"threadId"`
 	Provider               string             `json:"provider,omitempty"`
 	SupportsThreadOverride bool               `json:"supportsThreadOverride"` // 当前 provider 是否支持 thread 级配置覆盖。
+	AvailableModels        []string           `json:"availableModels"`        // 当前 provider session 实时返回的全部可选模型。
 	Override               ThreadConfigValues `json:"override"`               // 用户显式设置的覆盖配置。
 	Effective              ThreadConfigValues `json:"effective"`              // 合并后最终生效的配置。
 }

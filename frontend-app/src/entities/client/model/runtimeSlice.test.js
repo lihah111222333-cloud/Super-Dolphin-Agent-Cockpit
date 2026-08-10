@@ -504,3 +504,28 @@ describe('runtime slice preference validation', () => {
     expect(JSON.stringify(runtime.addWarning.mock.calls)).not.toContain(rawCause);
   });
 });
+
+describe('runtime slice thread sync', () => {
+  it('does not block a successful thread sync on optional model catalog loading', async () => {
+    const catalog = deferred();
+    const loadThreadConfig = vi.fn(() => catalog.promise);
+    const state = { activeThreadId: 'thread-1', loadThreadConfig };
+    const runtime = createRuntime({
+      applySnapshot: vi.fn(),
+      get: vi.fn(() => state),
+      requireCwd: vi.fn(() => '/repo/app'),
+      set: vi.fn((update) => { if (typeof update === 'function') update(state); }),
+      startThreadMessagesLoad: vi.fn().mockResolvedValue(true),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({
+      backendThreadIdForState: vi.fn((_state, id) => id),
+      getThreadState: vi.fn().mockResolvedValue({ activeThreadId: 'thread-1' }),
+      normalizeThreadId: vi.fn((value) => value),
+      shouldAutoLoadThreadConfig: vi.fn(() => true),
+    }));
+
+    await expect(actions.syncThreadState('thread-1')).resolves.toBe(true);
+    await vi.waitFor(() => expect(loadThreadConfig).toHaveBeenCalledWith('thread-1'));
+    catalog.resolve(null);
+  });
+});

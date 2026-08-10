@@ -502,6 +502,7 @@ function mockSettingsAndThreadDefaults() {
     threadId: 'thread-1',
     provider: 'codex',
     supportsThreadOverride: true,
+    availableModels: ['gpt-5.5', 'gpt-5.4'],
     override: {},
     effective: { model: 'gpt-5.4', effort: 'medium' },
   });
@@ -509,6 +510,7 @@ function mockSettingsAndThreadDefaults() {
     threadId: 'thread-1',
     provider: 'codex',
     supportsThreadOverride: true,
+    availableModels: ['gpt-5.5', 'gpt-5.4'],
     override: { model: 'gpt-5.5', effort: '' },
     effective: { model: 'gpt-5.5', effort: 'medium' },
   });

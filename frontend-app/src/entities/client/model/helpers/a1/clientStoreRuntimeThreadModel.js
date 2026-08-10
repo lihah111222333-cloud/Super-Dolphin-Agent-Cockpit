@@ -189,14 +189,15 @@ function shouldAutoLoadThreadConfig(state, value) {
   if (state.threadConfigByThread?.[id]) return false;
   if (state.threadConfigLoadingByThread?.[id]) return false;
   if (state.threadConfigFailedByThread?.[id]) return false;
-  const provider = providerForStateThread(state, id);
-  return !(provider === 'codex' && isAgentRuntimeId(id));
+  return Boolean(providerForStateThread(state, id));
 }
 
 function threadConfigTargetIdForState(state, value) {
+  const requestedId = normalizeThreadId(value);
   const id = backendThreadIdForState(state, value);
-  if (!id || isAgentRuntimeId(id)) return '';
-  return id;
+  if (id) return id;
+  // agent runtime 可能先于 sidebar thread 记录恢复；后端 binding chain 可直接按 agent_id 解析 Provider session。
+  return isAgentRuntimeId(requestedId) ? requestedId : '';
 }
 
 function isFailedThreadStatus(value) {

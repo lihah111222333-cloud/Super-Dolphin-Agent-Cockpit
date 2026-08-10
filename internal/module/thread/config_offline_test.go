@@ -16,7 +16,8 @@ func TestServiceGetConfigPrefersSessionValueOverOfflineOverride(t *testing.T) {
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Effort: "low", Approvals: "never"}),
 	}}
 	session := &stubSession{
-		threadID: "thread-1",
+		threadID:      "thread-1",
+		allowedModels: []string{"gpt-5.5"},
 		readConfigResult: dto.ThreadConfig{
 			ThreadID:               "thread-1",
 			Provider:               "codex",

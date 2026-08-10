@@ -210,7 +210,18 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
-	return s.normalizeThreadConfig(ctx, threadID, threadBindingRecordFromStore(binding), cfg), nil
+	models, err := providerModelCatalog(ctx, session)
+	if err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	cfg = s.normalizeThreadConfig(ctx, threadID, threadBindingRecordFromStore(binding), cfg)
+	// Agent runtime id 只用于读取当前 Provider 的实时配置与模型目录；
+	// 这类会话仍沿用 provider 全局偏好，不能被误判为支持 thread override。
+	if strings.TrimSpace(threadID) == strings.TrimSpace(binding.AgentID) {
+		cfg.SupportsThreadOverride = false
+	}
+	cfg.AvailableModels = models
+	return cfg, nil
 }
 
 func (s *service) offlineConfigForMissingSession(
@@ -422,6 +433,37 @@ func ensureAllowedModel(
 		return errors.New("provider model catalog is empty")
 	}
 	return fmt.Errorf("model %q is not supported by active provider", model)
+}
+
+// providerModelCatalog 读取并规范化当前 Provider 的模型目录。
+// 目录缺失或为空时直接报错，避免 UI 回退到另一份本地硬编码列表。
+func providerModelCatalog(ctx context.Context, session contract.Session) ([]string, error) {
+	catalog, ok := session.(modelCatalogSession)
+	if !ok {
+		return nil, errors.New("provider model catalog is not available")
+	}
+	allowed, err := catalog.AllowedModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list provider models: %w", err)
+	}
+	models := make([]string, 0, len(allowed))
+	seen := make(map[string]struct{}, len(allowed))
+	for _, candidate := range allowed {
+		model := strings.TrimSpace(candidate)
+		key := strings.ToLower(model)
+		if model == "" {
+			return nil, errors.New("provider model catalog contains an empty model")
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return nil, errors.New("provider model catalog is empty")
+	}
+	return models, nil
 }
 
 func modelAllowed(model string, allowed []string) bool {

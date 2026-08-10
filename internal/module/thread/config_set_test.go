@@ -58,6 +58,51 @@ func TestSetConfigConfiguresModelAndEffort(t *testing.T) {
 	if cfg.Effective.Model != model || cfg.Effective.Effort != effort {
 		t.Fatalf("SetConfig() = %#v", cfg)
 	}
+	requireProviderModelCatalog(t, cfg.AvailableModels, model)
+}
+
+// requireProviderModelCatalog 断言线程配置携带的模型目录与 Provider 实时目录逐项一致。
+func requireProviderModelCatalog(t *testing.T, models []string, want ...string) {
+	t.Helper()
+	if len(models) != len(want) {
+		t.Fatalf("AvailableModels = %#v, want %#v", models, want)
+	}
+	for i, model := range want {
+		if models[i] != model {
+			t.Fatalf("AvailableModels = %#v, want %#v", models, want)
+		}
+	}
+}
+
+func TestGetConfigForAgentRuntimeReturnsProviderModelsWithoutThreadOverride(t *testing.T) {
+	t.Parallel()
+
+	session := &stubSession{
+		threadID:      "thread-1",
+		allowedModels: []string{"gpt-5.5", "provider-only-model"},
+		readConfigResult: dto.ThreadConfig{
+			ThreadID:               "thread-1",
+			Provider:               "codex",
+			SupportsThreadOverride: true,
+			Effective:              dto.ThreadConfigValues{Model: "gpt-5.5", Effort: "high"},
+		},
+	}
+	svc := NewService(
+		silentLogger(),
+		newConfigPersistenceThreadStore(),
+		&stubBindingStore{binding: &BindingRecord{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubSessionProvider{session: session},
+		nil, nil, nil, nil,
+	)
+
+	cfg, err := svc.GetConfig(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetConfig(agent runtime) error = %v", err)
+	}
+	if cfg.SupportsThreadOverride {
+		t.Fatal("SupportsThreadOverride = true, want false for provider-global agent runtime config")
+	}
+	requireProviderModelCatalog(t, cfg.AvailableModels, "gpt-5.5", "provider-only-model")
 }
 
 func TestSetConfigInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
@@ -232,7 +277,8 @@ func TestSetConfigClearsModelOverrideWithoutClearingProviderEffectiveModelAndPub
 	model := ""
 	threads := &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1", Model: "o4-mini", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
 	session := &stubSession{
-		threadID: "thread-1",
+		threadID:      "thread-1",
+		allowedModels: []string{"o4-mini"},
 		readConfigResult: dto.ThreadConfig{
 			ThreadID:               "thread-1",
 			Provider:               "codex",
