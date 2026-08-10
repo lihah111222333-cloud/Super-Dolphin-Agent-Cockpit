@@ -219,7 +219,7 @@ func mirrorResolutionItem(conflict SkillMirrorConflict, records map[string]canon
 	if targetPath == "" {
 		targetPath = deletedCanonicalTargetPath(conflict, superHome)
 	}
-	if conflict.Kind == skillConflictMirrorRootSymlink {
+	if conflict.Kind == skillConflictMirrorRootSymlink || conflict.Kind == skillConflictMirrorEntrySymlink {
 		targetPath = filepath.ToSlash(conflict.MirrorPath)
 	}
 	item := skillResolutionItem{
@@ -327,6 +327,8 @@ func mirrorResolutionActions(conflict SkillMirrorConflict) []string {
 		return []string{ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionConfirmDeleteDriftedMirror}
 	case skillConflictMirrorRootSymlink:
 		return []string{ResolutionViewUnmanaged, ResolutionReplaceProviderRootSymlink}
+	case skillConflictMirrorEntrySymlink:
+		return []string{ResolutionViewUnmanaged}
 	default:
 		return driftResolutionActions(conflict.Scope)
 	}

@@ -608,7 +608,7 @@ func validateMirrorResolutionApplyAction(item skillResolutionItem, action string
 
 func mirrorResolutionKind(kind string) bool {
 	switch kind {
-	case skillConflictMirrorDrift, skillConflictMultiMirrorDrift, skillConflictCanonicalDeletedWithDrift, skillConflictMirrorRootSymlink:
+	case skillConflictMirrorDrift, skillConflictMultiMirrorDrift, skillConflictCanonicalDeletedWithDrift, skillConflictMirrorRootSymlink, skillConflictMirrorEntrySymlink:
 		return true
 	default:
 		return false

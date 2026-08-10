@@ -599,7 +599,7 @@ frontend-app/src/pages/skills/SkillToolsTable.jsx	frontend-app	app-ui	jsx	1740	R
 frontend-app/src/pages/skills/SkillsPage.css	frontend-app	app-ui	css	17197	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillsPage.externalProvider.test.jsx	frontend-app	app-ui	jsx	3605	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,externalProvider,test,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx	frontend-app	app-ui	jsx	5057	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,ignoredResultActions,test,React,页面与路由级,UI
-frontend-app/src/pages/skills/SkillsPage.jsx	frontend-app	app-ui	jsx	97462	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,React,页面与路由级,UI
+frontend-app/src/pages/skills/SkillsPage.jsx	frontend-app	app-ui	jsx	97680	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillsPage.test.jsx	frontend-app	app-ui	jsx	56320	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPage,test,React,页面与路由级,UI
 frontend-app/src/pages/skills/SkillsPageHub.css	frontend-app	app-ui	css	15929	React 页面与路由级 UI	frontend,app,src,pages,skills,SkillsPageHub,React,页面与路由级,UI
 frontend-app/src/pages/skills/services/skillsPageService.js	frontend-app	app-ui	js-source	3583	React 页面与路由级 UI	frontend,app,src,pages,skills,services,skillsPageService,React,页面与路由级,UI

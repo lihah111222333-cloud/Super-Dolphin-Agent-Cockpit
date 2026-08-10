@@ -75,7 +75,8 @@ function normalizeResolutionResponse(response) {
   if (Array.isArray(parsed.items)) return parsed.items;
   return parsed.conflicts;
 }
-function resolutionKindLabel(kind) { return ({ mirror_drift: '外部版本有改动', unmanaged_provider_skill: '发现外部技能', unmanaged: '发现外部技能', same_name: '同名技能', same_name_scope_conflict: '同名技能', canonical_deleted_with_drift: '旧版本需要处理', external_personal_project_same_name: '外部 Provider 与项目同名',
+function resolutionKindLabel(kind) { return ({
+  mirror_drift: '外部版本有改动', mirror_entry_symlink: '发现外部技能连接', unmanaged_provider_skill: '发现外部技能', unmanaged: '发现外部技能', same_name: '同名技能', same_name_scope_conflict: '同名技能', canonical_deleted_with_drift: '旧版本需要处理', external_personal_project_same_name: '外部 Provider 与项目同名',
 }[lowerTrimmedText(kind)] || '需要处理'); } function resolutionActionLabel(action) { return ({ view_diff: '查看两个版本', view_unmanaged: '查看外部位置', sync_back_to_canonical: '用外部修改更新本项目', canonical_overwrite_mirror: '用本项目内容覆盖外部版本', save_as_new_skill: '另存为新技能', confirm_delete_drifted_mirror: '删除旧版本',
 sync_back_to_personal: '继续私人使用', personal_overwrite_mirror: '用私人技能覆盖外部版本', save_as_new_personal_skill: '另存为新私人技能', import_to_personal_imported: '导入到私人使用', import_to_project: '导入到项目共享', takeover_provider_skill: '纳入管理', use_project_shared_skill: '使用项目共享版本，删除旧私人版本',
 use_external_provider_skill: '继续私人使用，替换项目共享版本', replace_provider_root_symlink: '接管外部技能目录', rename_personal: '改名保存', keep_selected: '用选中的版本，删除其他版本', }[trimmedText(action)] || '处理'); }
@@ -89,7 +90,7 @@ keep_selected: '保留选中的版本，删除其他同名版本。', }[trimmedT
 function resolutionConflictGuide(conflict) { const kind = lowerTrimmedText(conflict?.kind); if (sameNameResolutionConflict(conflict)) { if (!sameNameHasProjectSource(conflict) && sameNamePersonalSources(conflict).length > 1) { return '发现多个同名的私人技能。请选择保留哪一版，其他同名版本会被删除；也可以改名保存。';
 } return '发现多个同名技能。请选择保留哪一版，其他同名版本会被删除；也可以改名保存。'; } if (kind === 'external_personal_project_same_name') { return 'Claude/Codex 外部目录中的同名版本与项目共享版本发生冲突。请选择使用项目共享版本、将外部版本转为私人使用，或另存为新私人技能。'; } if (kind === 'unmanaged_provider_skill' || kind === 'unmanaged_same_name' || kind === 'unmanaged') {
 return '外部应用里有一个还没纳入管理的技能。可以导入后统一管理，或只保留在外部应用里。'; } if (kind === 'canonical_deleted_with_drift') { if (lowerTrimmedText(conflict?.scope) === 'personal') { return '私人使用里的同名技能已经删除或改成项目共享，但 Claude/Codex 里还保留旧私人版本。请选择继续私人使用、另存为新私人技能，或删除旧私人版本。';
-} return '本项目里的技能已不存在，但外部应用里还有改过的版本。请选择恢复、另存或删除外部版本。'; } if (kind === 'mirror_root_symlink') { return '外部应用的技能目录还是旧连接。接管后会改成由本项目管理的技能目录，并重新同步技能。'; } return '外部应用里的技能和本项目管理的技能不一致。请选择下面一种处理方式。'; }
+} return '本项目里的技能已不存在，但外部应用里还有改过的版本。请选择恢复、另存或删除外部版本。'; } if (kind === 'mirror_root_symlink') { return '外部应用的技能目录还是旧连接。接管后会改成由本项目管理的技能目录，并重新同步技能。'; } if (kind === 'mirror_entry_symlink') { return '外部应用里存在技能符号链接。系统不会跟随或修改该链接，但会继续检查其他技能。'; } return '外部应用里的技能和本项目管理的技能不一致。请选择下面一种处理方式。'; }
 function resolutionPreviewIntro(preview) { const action = trimmedText(preview?.action); if (isResolutionViewAction(action)) return '下面只说明两个版本分别在哪里，不会修改文件。'; return '请先确认将要写入的位置，确认应用后才会修改文件。'; }
 function requiresResolutionNewName(action) { return ( action === 'save_as_new_skill' || action === 'save_as_new_personal_skill' || action === 'rename_personal' ); } function isResolutionViewAction(action) { return action === 'view_diff' || action === 'view_unmanaged'; }
 function resolutionRequiresApply(action) { return !isResolutionViewAction(action); }

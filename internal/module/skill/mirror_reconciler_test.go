@@ -143,7 +143,7 @@ func TestSkillMirrorReconcilerDetectsOrphanUnmanagedProviderSkill(t *testing.T) 
 	assertMirrorConflictActions(t, conflict, "view_unmanaged", "import_to_personal_imported", "import_to_project", "takeover_provider_skill")
 }
 
-func TestSkillMirrorReconcilerRejectsTopLevelSymlinkProviderSkill(t *testing.T) {
+func TestSkillMirrorReconcilerReportsTopLevelSymlinkAndContinuesScanning(t *testing.T) {
 	project := t.TempDir()
 	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
 	outside := filepath.Join(t.TempDir(), "scratch")
@@ -155,12 +155,18 @@ func TestSkillMirrorReconcilerRejectsTopLevelSymlinkProviderSkill(t *testing.T) 
 		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink unmanaged skill: %v", err)
 	}
+	writeSkillWithSupportFiles(t, filepath.Join(target.Root, "notes"), "notes")
 
-	_, err := DetectSkillMirrorConflicts(nil, []SkillMirrorTarget{target})
-
-	if err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("DetectSkillMirrorConflicts symlink error = %v, want symlink rejection", err)
+	conflicts, err := DetectSkillMirrorConflicts(nil, []SkillMirrorTarget{target})
+	if err != nil {
+		t.Fatalf("DetectSkillMirrorConflicts: %v", err)
 	}
+	symlinkConflict := findMirrorConflict(t, conflicts, "mirror_entry_symlink", "scratch", skillScopeProject)
+	if symlinkConflict.MirrorPath != filepath.ToSlash(filepath.Join(target.Root, "scratch")) {
+		t.Fatalf("symlink mirror path = %q", symlinkConflict.MirrorPath)
+	}
+	assertMirrorConflictActions(t, symlinkConflict, "view_unmanaged")
+	findMirrorConflict(t, conflicts, "unmanaged_provider_skill", "notes", skillScopeProject)
 }
 
 func TestSkillMirrorReconcilerDetectsPersonalUnmanagedSameNameAgainstCanonical(t *testing.T) {

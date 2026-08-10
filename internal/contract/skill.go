@@ -189,7 +189,8 @@ func IsBlockingSkillMirrorConflict(item SkillMirrorReportItem) bool {
 		return isActiveProviderMirrorTarget(item)
 	case "publish_error",
 		"publish_targets_unconfigured",
-		"mirror_root_symlink":
+		"mirror_root_symlink",
+		"mirror_entry_symlink":
 		return true
 	default:
 		return true

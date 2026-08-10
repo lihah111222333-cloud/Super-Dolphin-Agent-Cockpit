@@ -22,6 +22,7 @@ const (
 	skillConflictCanonicalDeletedWithDrift       = "canonical_deleted_with_drift"
 	skillConflictMultiMirrorDrift                = "multi_mirror_drift"
 	skillConflictMirrorRootSymlink               = "mirror_root_symlink"
+	skillConflictMirrorEntrySymlink              = "mirror_entry_symlink"
 	skillConflictManualOnlySelfMirror            = "manual_only_self_mirror"
 	defaultSkillMirrorScanEntryBudget            = 512
 	mirrorScanTruncatedCode                      = "mirror_scan_truncated"
@@ -195,11 +196,22 @@ func detectSkillMirrorTargetConflicts(allRecords []canonicalSkillRecord, records
 	if err != nil {
 		return nil, err
 	}
-	names, err := skillMirrorNames(target.Root, budget)
+	names, symlinkNames, err := scanSkillMirrorEntries(target.Root, budget)
 	if err != nil {
 		return nil, err
 	}
-	var conflicts []SkillMirrorConflict
+	conflicts := make([]SkillMirrorConflict, 0, len(names)+len(symlinkNames))
+	for _, name := range symlinkNames {
+		conflicts = append(conflicts, SkillMirrorConflict{
+			Kind:       skillConflictMirrorEntrySymlink,
+			TargetID:   target.TargetID,
+			Provider:   target.Provider,
+			Scope:      target.Scope,
+			Name:       name,
+			MirrorPath: filepath.ToSlash(filepath.Join(target.Root, name)),
+			Actions:    mirrorActions("view_unmanaged"),
+		})
+	}
 	for _, name := range names {
 		conflict, ok, err := detectSkillMirrorNameConflict(records, target, manifest, name, manifestTargetMismatch)
 		if err != nil {
@@ -543,15 +555,28 @@ func readTargetManifest(target SkillMirrorTarget) (SkillMirrorManifest, error) {
 
 // skillMirrorNames 列出 mirror 中已有的 skill 名称。
 func skillMirrorNames(root string, budget SkillMirrorScanBudget) ([]string, error) {
-	budget = normalizeSkillMirrorScanBudget(budget)
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	names, symlinkNames, err := scanSkillMirrorEntries(root, budget)
 	if err != nil {
 		return nil, err
 	}
+	if len(symlinkNames) > 0 {
+		return nil, fmt.Errorf("skill mirror entry is symlink: %s", filepath.Join(root, symlinkNames[0]))
+	}
+	return names, nil
+}
+
+// scanSkillMirrorEntries 列出普通 skill 目录和顶层符号链接，但绝不跟随链接。
+func scanSkillMirrorEntries(root string, budget SkillMirrorScanBudget) ([]string, []string, error) {
+	budget = normalizeSkillMirrorScanBudget(budget)
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
 	names := make([]string, 0, len(entries))
+	symlinkNames := make([]string, 0)
 	count := 0
 	for _, entry := range entries {
 		if entry.Name() == skillMirrorManifestFile {
@@ -559,17 +584,19 @@ func skillMirrorNames(root string, budget SkillMirrorScanBudget) ([]string, erro
 		}
 		count++
 		if count > budget.MaxRootEntries {
-			return nil, &mirrorScanTruncatedError{Root: filepath.ToSlash(root), Limit: budget.MaxRootEntries, Count: count}
+			return nil, nil, &mirrorScanTruncatedError{Root: filepath.ToSlash(root), Limit: budget.MaxRootEntries, Count: count}
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("skill mirror entry is symlink: %s", filepath.Join(root, entry.Name()))
+			symlinkNames = append(symlinkNames, entry.Name())
+			continue
 		}
 		if entry.IsDir() && entry.Name() != skillMirrorBackupDirName {
 			names = append(names, entry.Name())
 		}
 	}
 	sort.Strings(names)
-	return names, nil
+	sort.Strings(symlinkNames)
+	return names, symlinkNames, nil
 }
 
 // driftedManagedMirror 是 reconciler 和 publisher 共用的托管 mirror 漂移判断。

@@ -415,7 +415,7 @@ internal/contract/runtime_state_test.go	internal	other	go-test	1472	跨模块稳
 internal/contract/session.go	internal	other	go-source	9740	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session_ports_test.go	internal	other	go-test	426	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,ports,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session_resume_snapshot_test.go	internal	other	go-test	794	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,resume,snapshot,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/skill.go	internal	other	go-source	8325	跨模块稳定接口、事件和 DTO 边界	internal,contract,skill,跨模块稳定接口,事件和,DTO,边界
+internal/contract/skill.go	internal	other	go-source	8351	跨模块稳定接口、事件和 DTO 边界	internal,contract,skill,跨模块稳定接口,事件和,DTO,边界
 internal/contract/terminal_outcome.go	internal	other	go-source	15458	跨模块稳定接口、事件和 DTO 边界	internal,contract,terminal,outcome,跨模块稳定接口,事件和,DTO,边界
 internal/contract/thread.go	internal	other	go-source	3778	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
 internal/contract/toolbridge.go	internal	other	go-source	4928	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
