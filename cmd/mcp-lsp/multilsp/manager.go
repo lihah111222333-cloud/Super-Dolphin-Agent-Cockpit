@@ -146,17 +146,19 @@ type manager struct {
 	adapters                         *LanguageAdapterRegistry // 语言到 root/能力策略的适配表。
 	logger                           *slog.Logger             // manager 内部诊断日志。
 	idleTimeout                      time.Duration            // manager 的唯一生命周期空闲窗口。
+	bootstrapAttemptWaitTimeout      time.Duration            // Close 等待 bootstrap owner 完成清理的有界窗口；测试可缩短。
 	pool                             *ManagerPool             // 按 scope 分片复用的子 manager 池。
 	disableInitialWorkspaceBootstrap bool                     // 跳过初始化预热的开关。
 	retryBaseDelay                   time.Duration            // transient retry 的基础退避时间。
 
-	mu                  sync.RWMutex                       // 保护 closed、workspaces 与 provisionalCleanups。
-	ensureMu            sync.Mutex                         // 串行化客户端创建，避免同一 workspace 重复启动。
-	processObserverMu   sync.Mutex                         // 串行化只读 processobserve observer 的懒初始化。
-	closed              bool                               // manager 关闭后禁止再创建客户端。
-	retiring            bool                               // release drain 已建立代际栅栏，禁止新增租约。
-	workspaces          map[string]*workspaceClient        // workspace key 到客户端状态。
-	provisionalCleanups map[string][]pendingClientShutdown // 未登记且进程级 Close 尚未成功的 client owner。
+	mu                  sync.RWMutex                            // 保护 closed、workspaces 与 provisionalCleanups。
+	ensureMu            sync.Mutex                              // 串行化客户端创建，避免同一 workspace 重复启动。
+	processObserverMu   sync.Mutex                              // 串行化只读 processobserve observer 的懒初始化。
+	closed              bool                                    // manager 关闭后禁止再创建客户端。
+	retiring            bool                                    // release drain 已建立代际栅栏，禁止新增租约。
+	workspaces          map[string]*workspaceClient             // workspace key 到客户端状态。
+	bootstrapAttempts   map[*workspaceBootstrapAttempt]struct{} // 已登记且尚未 finish 的 bootstrap owner；detach 后仍供 Close 等待。
+	provisionalCleanups map[string][]pendingClientShutdown      // 未登记且进程级 Close 尚未成功的 client owner。
 
 	closeMu          sync.Mutex              // 串行化关闭与失败重试，避免同一 client 并发 Close。
 	closeInitialized bool                    // 是否已经摘除 workspace client 并进入关闭阶段。
@@ -175,11 +177,28 @@ type manager struct {
 	diagMaxWait        time.Duration                 // 诊断稳定等待最大时长。
 	diagnosticReopenMu sync.Mutex                    // 串行化诊断专用 close/open 与版本推进。
 
-	explicitOpenMu sync.RWMutex        // 保护 explicitlyOpen。
-	explicitlyOpen map[string]struct{} // 工具主动打开且尚未关闭的文档 URI。
+	explicitOpenMu               sync.RWMutex                                                     // 保护 explicitDocuments 与 languageBootstrapDocuments。
+	explicitDocuments            map[string]explicitDocumentState                                 // 工具主动打开且尚未关闭的文档 SSOT。
+	languageBootstrapDocs        map[languageBootstrapDocumentKey]*languageBootstrapDocumentState // client 代际内语言启动文档状态。
+	explicitMembershipEpoch      map[string]uint64                                                // 精确 workspace/scope/language 文档成员变更代际。
+	explicitMembershipBusy       map[string]int                                                   // 正在跨 wire 提交的成员新增或迁移数。
+	documentOperationMu          sync.Mutex                                                       // 只保护 URI operation gate registry，不跨磁盘或 LSP 调用。
+	documentOperations           map[string]*documentOperationGate                                // URI 内通知顺序与 bootstrap 取消代际。
+	explicitReservedDocs         int                                                              // 尚未提交的受管文档容量预留。
+	explicitReservedDirty        int                                                              // 尚未提交的 dirty 文档容量预留。
+	explicitReservedBytes        int                                                              // 尚未提交的 dirty 全文字节预留。
+	explicitDocumentLimit        int                                                              // 当前 manager 的受管文档硬上限。
+	dirtyDocumentLimit           int                                                              // 当前 manager 的 dirty 文档硬上限。
+	dirtyDocumentByteLimit       int                                                              // 当前 manager 的 dirty 全文字节硬上限。
+	cleanDocumentByteLimit       int64                                                            // 单个 clean 磁盘文档前台读取硬上限。
+	cleanRefreshByteLimit        int64                                                            // 单次 workspace clean 文档前台读取聚合上限。
+	documentOperationLimit       int                                                              // URI gate 与 close tombstone 的合计硬上限。
+	documentOperationWaiterLimit int                                                              // 单 URI serving 与 waiting token 的合计硬上限。
+	documentOperationReleaseHook func(documentOperationKind)                                      // 测试专用：引用释放进入 registry 临界区前的屏障。
 
-	coordinatorMu sync.Mutex            // 保护启动协调器的懒初始化。
-	coordinator   *bootstrapCoordinator // workspace bootstrap 去重协调器。
+	coordinatorMu                     sync.Mutex            // 保护启动协调器的懒初始化。
+	coordinator                       *bootstrapCoordinator // workspace bootstrap 去重协调器。
+	bootstrapCoordinatorBeforePublish func()                // 测试专用：候选协调器完成磁盘初始化后的发布屏障。
 
 	processObserver         *processobserve.Observer // 仅记录只读 ghost/reclaim_blocked 投影。
 	processObservationStore *processobserve.Store    // 进程内有界观察投影，无持久化能力。
@@ -210,6 +229,7 @@ type workspaceClient struct {
 	generation       uint64                     // workspace client 代际；租约释放必须精确匹配。
 	state            workspaceLifecycleState    // 生命周期 SSOT。
 	activeLeases     int                        // manager-owned authoritative lease count。
+	bootstrapAttempt *workspaceBootstrapAttempt // 未发布语言级 bootstrap 的完成屏障；只由创建代际拥有。
 	publishedAt      time.Time                  // ready publish barrier 时间。
 	idleSince        time.Time                  // 仅最终租约释放或 ready publish 写入。
 	rssProbeFailures int                        // 当前 client 连续 RSS 探测失败次数。
@@ -309,10 +329,23 @@ func newManager(cfg Config) (*manager, error) {
 		adapters:                         cfg.LanguageAdapters,
 		logger:                           cfg.Logger,
 		idleTimeout:                      cfg.IdleTimeout,
+		bootstrapAttemptWaitTimeout:      managerShutdownTimeout,
 		workspaces:                       make(map[string]*workspaceClient),
+		bootstrapAttempts:                make(map[*workspaceBootstrapAttempt]struct{}),
 		diagnostics:                      make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:                 make(map[string]uint64),
-		explicitlyOpen:                   make(map[string]struct{}),
+		explicitDocuments:                make(map[string]explicitDocumentState),
+		languageBootstrapDocs:            make(map[languageBootstrapDocumentKey]*languageBootstrapDocumentState),
+		explicitMembershipEpoch:          make(map[string]uint64),
+		explicitMembershipBusy:           make(map[string]int),
+		documentOperations:               make(map[string]*documentOperationGate),
+		explicitDocumentLimit:            defaultExplicitDocumentLimit,
+		dirtyDocumentLimit:               defaultDirtyDocumentLimit,
+		dirtyDocumentByteLimit:           defaultDirtyDocumentByteLimit,
+		cleanDocumentByteLimit:           defaultCleanDocumentByteLimit,
+		cleanRefreshByteLimit:            defaultCleanRefreshByteLimit,
+		documentOperationLimit:           maxDocumentOperationGates,
+		documentOperationWaiterLimit:     maxDocumentOperationWaiters,
 		processObservationStore:          obsStore,
 		diagInitial:                      chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
 		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
@@ -370,9 +403,14 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		workspaceRoot:           root,
 		instanceID:              instanceID,
 		workspaces:              make(map[string]*workspaceClient),
+		bootstrapAttempts:       make(map[*workspaceBootstrapAttempt]struct{}),
 		diagnostics:             make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:        make(map[string]uint64),
-		explicitlyOpen:          make(map[string]struct{}),
+		explicitDocuments:       make(map[string]explicitDocumentState),
+		languageBootstrapDocs:   make(map[languageBootstrapDocumentKey]*languageBootstrapDocumentState),
+		explicitMembershipEpoch: make(map[string]uint64),
+		explicitMembershipBusy:  make(map[string]int),
+		documentOperations:      make(map[string]*documentOperationGate),
 		processObservationStore: parentObsStore,
 	}
 	if m != nil {
@@ -381,11 +419,26 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		clone.logger = m.logger
 		clone.provisionalEntropy = m.provisionalEntropy
 		clone.idleTimeout = m.idleTimeout
+		clone.bootstrapAttemptWaitTimeout = m.bootstrapAttemptWaitTimeout
 		clone.pool = m.pool
 		clone.diagInitial = m.diagInitial
 		clone.diagPoll = m.diagPoll
 		clone.diagMaxWait = m.diagMaxWait
+		clone.explicitDocumentLimit = m.explicitDocumentLimit
+		clone.dirtyDocumentLimit = m.dirtyDocumentLimit
+		clone.dirtyDocumentByteLimit = m.dirtyDocumentByteLimit
+		clone.cleanDocumentByteLimit = m.cleanDocumentByteLimit
+		clone.cleanRefreshByteLimit = m.cleanRefreshByteLimit
+		clone.documentOperationLimit = m.documentOperationLimit
+		clone.documentOperationWaiterLimit = m.documentOperationWaiterLimit
 	}
+	clone.explicitDocumentLimit = positiveDocumentLimit(clone.explicitDocumentLimit, defaultExplicitDocumentLimit)
+	clone.dirtyDocumentLimit = positiveDocumentLimit(clone.dirtyDocumentLimit, defaultDirtyDocumentLimit)
+	clone.dirtyDocumentByteLimit = positiveDocumentLimit(clone.dirtyDocumentByteLimit, defaultDirtyDocumentByteLimit)
+	clone.cleanDocumentByteLimit = positiveDocumentByteLimit(clone.cleanDocumentByteLimit, defaultCleanDocumentByteLimit)
+	clone.cleanRefreshByteLimit = positiveDocumentByteLimit(clone.cleanRefreshByteLimit, defaultCleanRefreshByteLimit)
+	clone.documentOperationLimit = positiveDocumentLimit(clone.documentOperationLimit, maxDocumentOperationGates)
+	clone.documentOperationWaiterLimit = positiveDocumentLimit(clone.documentOperationWaiterLimit, maxDocumentOperationWaiters)
 	clone.diagGeneration.Store(1)
 	return clone
 }

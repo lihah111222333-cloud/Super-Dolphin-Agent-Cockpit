@@ -1968,7 +1968,7 @@
       "codemap_line": 227,
       "target_path": "cmd/mcp-lsp/multilsp/manager.go",
       "line_spec": "151",
-      "content_sha256": "eabdee726b2deeb5d25cbac86dea0de7062dc783d9f6d3b32849598883a07066",
+      "content_sha256": "78446e169797fc2dc900189de459041b9d43a6074b82d7b8025f829f384e257c",
       "symbol": "manager"
     },
     {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -68,6 +69,7 @@ type bootstrapEntry struct {
 type bootstrapStateStore struct {
 	mu      sync.Mutex
 	entries map[bootstrapKey]*bootstrapEntry
+	closed  atomic.Bool
 }
 
 // newBootstrapStateStore 创建空的启动状态存储。
@@ -79,6 +81,9 @@ func newBootstrapStateStore() *bootstrapStateStore {
 func (s *bootstrapStateStore) restore(workspace string, uris []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return
+	}
 
 	now := time.Now()
 	for _, uri := range uris {
@@ -95,6 +100,9 @@ func (s *bootstrapStateStore) restore(workspace string, uris []string) {
 func (s *bootstrapStateStore) reset(workspace string, uris []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return
+	}
 
 	now := time.Now()
 	for _, uri := range uris {
@@ -114,6 +122,9 @@ func (s *bootstrapStateStore) reset(workspace string, uris []string) {
 func (s *bootstrapStateStore) prepare(workspace, uri, fingerprint string) bootstrapDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return closedBootstrapDecision()
+	}
 
 	key := bootstrapKey{workspace: workspace, uri: uri}
 	entry := s.entryLocked(key)
@@ -141,8 +152,8 @@ func (s *bootstrapStateStore) prepare(workspace, uri, fingerprint string) bootst
 }
 
 // complete 标记文档启动成功，记录指纹和版本。
-func (s *bootstrapStateStore) complete(workspace, uri, fingerprint string, version int) {
-	s.finish(workspace, uri, func(entry *bootstrapEntry) {
+func (s *bootstrapStateStore) complete(workspace, uri, fingerprint string, version int) error {
+	return s.finish(workspace, uri, func(entry *bootstrapEntry) {
 		entry.status = bootstrapReady
 		entry.fingerprint = fingerprint
 		entry.version = version
@@ -153,7 +164,7 @@ func (s *bootstrapStateStore) complete(workspace, uri, fingerprint string, versi
 
 // fail 标记文档启动失败并记录错误。
 func (s *bootstrapStateStore) fail(workspace, uri string, err error) {
-	s.finish(workspace, uri, func(entry *bootstrapEntry) {
+	_ = s.finish(workspace, uri, func(entry *bootstrapEntry) {
 		entry.status = bootstrapError
 		entry.err = err
 		entry.updatedAt = time.Now()
@@ -161,7 +172,7 @@ func (s *bootstrapStateStore) fail(workspace, uri string, err error) {
 }
 
 // waitFor 阻塞直到指定 wait 完成或 ctx 取消。
-func (s *bootstrapStateStore) waitFor(ctx context.Context, workspace, uri string, wait *bootstrapWait) error {
+func (s *bootstrapStateStore) waitFor(ctx context.Context, _, _ string, wait *bootstrapWait) error {
 	if wait == nil {
 		return nil
 	}
@@ -177,6 +188,9 @@ func (s *bootstrapStateStore) waitFor(ctx context.Context, workspace, uri string
 func (s *bootstrapStateStore) status(workspace, uri string) bootstrapStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return bootstrapPending
+	}
 
 	entry := s.entries[bootstrapKey{workspace: workspace, uri: uri}]
 	if entry == nil {
@@ -186,9 +200,12 @@ func (s *bootstrapStateStore) status(workspace, uri string) bootstrapStatus {
 }
 
 // finish 应用 apply 函数更新条目并通知等待方。
-func (s *bootstrapStateStore) finish(workspace, uri string, apply func(*bootstrapEntry)) {
+func (s *bootstrapStateStore) finish(workspace, uri string, apply func(*bootstrapEntry)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return ErrManagerClosed
+	}
 
 	key := bootstrapKey{workspace: workspace, uri: uri}
 	entry := s.entryLocked(key)
@@ -197,6 +214,35 @@ func (s *bootstrapStateStore) finish(workspace, uri string, apply func(*bootstra
 		entry.finishWaitLocked(entry.err)
 		entry.wait = nil
 	}
+	return nil
+}
+
+func (s *bootstrapStateStore) markClosed() {
+	if s != nil {
+		s.closed.Store(true)
+	}
+}
+
+func (s *bootstrapStateStore) waitForMutations() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, entry := range s.entries {
+		if entry.wait != nil {
+			entry.finishWaitLocked(ErrManagerClosed)
+			entry.wait = nil
+		}
+	}
+	clear(s.entries)
+}
+
+func closedBootstrapDecision() bootstrapDecision {
+	wait := newBootstrapWait()
+	wait.result = bootstrapResult{err: ErrManagerClosed}
+	close(wait.done)
+	return bootstrapDecision{action: bootstrapActionWait, wait: wait}
 }
 
 // entryLocked 返回 key 对应的条目，不存在时创建初始 pending 条目。

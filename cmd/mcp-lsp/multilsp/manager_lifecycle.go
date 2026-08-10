@@ -47,9 +47,47 @@ func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string)
 		if err != nil {
 			return nil, err
 		}
-		return m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
+		cfg, err := m.resolveWorkspaceForDocument(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		client, err := m.ensurePublishedClient(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		needsRestore, err := m.managedDocumentNeedsClientRestore(cfg, client, ref.uri)
+		if err != nil || !needsRestore {
+			return client, err
+		}
+		coordinator, err := bootstrapCoordinatorFor(m)
+		if err != nil {
+			return nil, err
+		}
+		if err := coordinator.syncDocument(ctx, m, cfg, ref); err != nil {
+			return nil, err
+		}
+		return client, nil
 	}
 	return m.ensureClientForLanguage(ctx, languageID)
+}
+
+func (m *manager) managedDocumentNeedsClientRestore(
+	cfg workspaceConfig,
+	client Client,
+	uri string,
+) (bool, error) {
+	document, ok := m.explicitDocumentForURI(uri)
+	if !ok {
+		return false, nil
+	}
+	identity, err := m.workspaceClientIdentityForConfig(cfg, client)
+	if err != nil {
+		return false, err
+	}
+	if document.configKey != cfg.key || document.languageID != cfg.languageID {
+		return false, fmt.Errorf("managed document %s belongs to another workspace or language", uri)
+	}
+	return document.clientGeneration != identity.generation || !document.wireOpen, nil
 }
 
 // Close 关闭 LSP 管理器资源。
@@ -80,7 +118,9 @@ func (m *manager) closeWithoutPoolStatus() (done bool, err error) {
 		return true, m.closeResult
 	}
 	if !m.closeInitialized {
-		m.initializeClose()
+		if initErr := m.initializeClose(); initErr != nil {
+			return false, initErr
+		}
 	}
 	prepared, prepareErr := m.preparePendingCleanupAttempts(m.closingClients)
 	if prepareErr != nil {
@@ -104,26 +144,37 @@ func (m *manager) closeWithoutPoolStatus() (done bool, err error) {
 }
 
 // initializeClose 原子封闭新请求，等待正在创建的 client 退出后取得唯一 cleanup owner。
-func (m *manager) initializeClose() {
-	m.mu.Lock()
-	m.closed = true
-	m.retiring = true
-	m.mu.Unlock()
+func (m *manager) initializeClose() error {
+	attempts := m.closeAndCancelLanguageBootstrapAttempts()
 
 	// 等待正在初始化的 client 先看到 closed 状态并完成清理，再统一 shutdown。
-	m.waitForEnsureOperations()
+	if err := m.waitForEnsureOperations(attempts); err != nil {
+		return err
+	}
 	var collectErr error
 	m.closingClients, collectErr = m.collectAndClearClientShutdowns()
 	m.closeWarnings = errors.Join(m.closeWarnings, collectErr)
 	m.AdvanceDiagnosticGeneration()
 	closeBootstrapCoordinator(m)
 	m.closeInitialized = true
+	return nil
 }
 
-func (m *manager) waitForEnsureOperations() {
-	m.ensureMu.Lock()
+func (m *manager) waitForEnsureOperations(attempts []*workspaceBootstrapAttempt) error {
+	timeout := m.bootstrapAttemptTimeout()
+	startedAt := time.Now()
+	if !lockEnsureMutexWithin(&m.ensureMu, timeout) {
+		return fmt.Errorf("wait for client initialization: %w", context.DeadlineExceeded)
+	}
 	defer m.ensureMu.Unlock()
-	_ = m.closed
+	if len(attempts) == 0 {
+		return nil
+	}
+	remaining := timeout - time.Since(startedAt)
+	if remaining <= 0 {
+		return fmt.Errorf("wait for canceled language bootstrap attempt: %w", context.DeadlineExceeded)
+	}
+	return waitForLanguageBootstrapAttempts(attempts, remaining)
 }
 
 // collectAndClearClientShutdowns 取得 registered 与 provisional client 的唯一 cleanup owner。
@@ -185,16 +236,7 @@ func (m *manager) ensureClientForFile(ctx context.Context, filePath, languageID 
 	if err != nil {
 		return nil, err
 	}
-	m.ensureMu.Lock()
-	defer m.ensureMu.Unlock()
-	client, err := m.ensureClientLocked(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := m.publishClient(client); err != nil {
-		return nil, errors.Join(err, m.abortUnpublishedClient(client))
-	}
-	return client, nil
+	return m.ensurePublishedClient(ctx, cfg)
 }
 
 func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string) (Client, error) {
@@ -202,19 +244,15 @@ func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string
 	if err != nil {
 		return nil, err
 	}
-	m.ensureMu.Lock()
-	defer m.ensureMu.Unlock()
-	client, err := m.ensureClientLocked(ctx, cfg)
+	return m.ensureClientForLanguageConfig(ctx, cfg)
+}
+
+func (m *manager) ensureClientForLanguageConfig(ctx context.Context, cfg workspaceConfig) (Client, error) {
+	candidate, err := m.prepareLanguageClientBootstrap(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	if err := m.bootstrapLanguageClient(ctx, client, cfg.rootPath, cfg.languageID); err != nil {
-		return nil, errors.Join(err, m.abortUnpublishedClient(client))
-	}
-	if err := m.publishClient(client); err != nil {
-		return nil, errors.Join(err, m.abortUnpublishedClient(client))
-	}
-	return client, nil
+	return m.completeLanguageClientBootstrap(ctx, cfg, candidate)
 }
 
 // publishClient 查找当前代际并通过 ready barrier 发布 client。
@@ -302,16 +340,7 @@ func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, ro
 	if target == "" {
 		return nil
 	}
-	content, err := os.ReadFile(target)
-	if err != nil {
-		return fmt.Errorf("read bootstrap %s file %s: %w", languageID, target, err)
-	}
-	if err := m.withBootstrapPooledClient(client, func() error {
-		return client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content))
-	}); err != nil {
-		return fmt.Errorf("bootstrap %s DidOpen %s: %w", languageID, target, err)
-	}
-	return nil
+	return m.bootstrapLanguageDocument(ctx, client, target, languageID)
 }
 
 func (m *manager) logBootstrapPolicy(message string, args ...any) {
@@ -321,14 +350,75 @@ func (m *manager) logBootstrapPolicy(message string, args ...any) {
 }
 
 func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
+	return m.ensurePublishedClient(ctx, cfg)
+}
+
+func (m *manager) ensurePublishedClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
 	m.ensureMu.Lock()
-	defer m.ensureMu.Unlock()
+	if candidate, ok, err := m.waitingLanguageBootstrapCandidate(cfg); ok || err != nil {
+		m.ensureMu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := candidate.attempt.wait(ctx); err != nil {
+			return nil, err
+		}
+		return candidate.client, m.revalidateLanguageBootstrapClient(cfg, candidate.client)
+	}
 	client, err := m.ensureClientLocked(ctx, cfg)
 	if err != nil {
+		m.ensureMu.Unlock()
 		return nil, err
 	}
-	if err := m.publishClient(client); err != nil {
-		return nil, errors.Join(err, m.abortUnpublishedClient(client))
+	candidate, candidateErr := m.languageBootstrapCandidateForClient(cfg, client)
+	if candidateErr != nil {
+		m.ensureMu.Unlock()
+		return nil, candidateErr
+	}
+	publishErr := m.publishClient(client)
+	m.ensureMu.Unlock()
+	return m.finishDirectClientPublish(client, candidate, publishErr)
+}
+
+// ensureClientForDocumentMutation 不在 URI gate 内等待语言 bootstrap owner，避免形成 attempt/gate 环。
+func (m *manager) ensureClientForDocumentMutation(ctx context.Context, cfg workspaceConfig) (Client, error) {
+	m.ensureMu.Lock()
+	if _, waiting, err := m.waitingLanguageBootstrapCandidate(cfg); waiting || err != nil {
+		m.ensureMu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return nil, ErrClientNotReady
+	}
+	client, err := m.ensureClientLocked(ctx, cfg)
+	if err != nil {
+		m.ensureMu.Unlock()
+		return nil, err
+	}
+	candidate, candidateErr := m.languageBootstrapCandidateForClient(cfg, client)
+	if candidateErr != nil {
+		m.ensureMu.Unlock()
+		return nil, candidateErr
+	}
+	publishErr := m.publishClient(client)
+	m.ensureMu.Unlock()
+	return m.finishDirectClientPublish(client, candidate, publishErr)
+}
+
+func (m *manager) finishDirectClientPublish(
+	client Client,
+	candidate languageClientBootstrapCandidate,
+	publishErr error,
+) (Client, error) {
+	if publishErr != nil {
+		result := errors.Join(publishErr, m.abortUnpublishedClient(client))
+		if candidate.owner {
+			m.finishLanguageBootstrapAttempt(candidate.attempt, false, result)
+		}
+		return nil, result
+	}
+	if candidate.owner {
+		m.finishLanguageBootstrapAttempt(candidate.attempt, false, nil)
 	}
 	return client, nil
 }
@@ -442,75 +532,6 @@ func configureClientWorkspace(client Client, cfg workspaceConfig) {
 	}
 }
 
-// DidOpen 把文档打开事件转给 LSP。
-func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
-	openedURI := ""
-	err := m.notifyDocument(ctx, uri, languageID, func(ctx context.Context, client Client, ref documentRef) error {
-		openedURI = ref.uri
-		return client.DidOpen(ctx, ref.uri, ref.languageID, version, text)
-	})
-	if err == nil && openedURI != "" {
-		m.markExplicitDocumentOpen(openedURI)
-	}
-	return err
-}
-
-// DidChange 把文档变更事件转给 LSP。
-func (m *manager) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
-	ref, err := m.resolveDocumentRef(ctx, uri, "")
-	if err != nil {
-		return err
-	}
-	if !m.shouldUseClientForLanguage(ref.languageID) {
-		return nil
-	}
-	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
-	if err != nil {
-		return err
-	}
-	err = m.withPooledClient(client, func() error {
-		return client.DidChange(ctx, ref.uri, version, changes)
-	})
-	text, full := fullDocumentChangeText(changes)
-	if err = m.handleDidChangeFailure(ctx, client, ref, version, text, full, err); err != nil {
-		return err
-	}
-	if full && fileExists(ref.absPath) {
-		return m.recordFullDocumentDidChange(ctx, ref, version, text)
-	}
-	return nil
-}
-
-func (m *manager) handleDidChangeFailure(ctx context.Context, client Client, ref documentRef, version int, text string, full bool, err error) error {
-	if err == nil {
-		return nil
-	}
-	if isClientDeadError(err) {
-		return m.nonReplayableDeadClientError(ctx, client, err)
-	}
-	if full && fileExists(ref.absPath) {
-		return m.recoverFullDocumentDidChange(ctx, client, ref, version, text, err)
-	}
-	return err
-}
-
-// DidClose 把文档关闭事件转给 LSP。
-func (m *manager) DidClose(ctx context.Context, uri string) error {
-	if err := m.notifyDocument(ctx, uri, "", func(ctx context.Context, client Client, ref documentRef) error {
-		return client.DidClose(ctx, ref.uri)
-	}); err != nil {
-		return err
-	}
-	ref, _, scope, err := m.resolvedScopeForURI(ctx, uri, "")
-	if err == nil {
-		m.unmarkExplicitDocumentOpen(ref.uri)
-		if coordinator, coordinatorErr := bootstrapCoordinatorFor(m); coordinatorErr == nil {
-			coordinator.states.delete(scope.bootstrapKey(), ref.uri)
-		}
-	}
-	return nil
-}
-
 // ReopenDocumentForDiagnostics 从磁盘读取当前文档，并用同一 client 强制发送 didClose/didOpen。
 // 调用方应先完成正常 bootstrap；失败时保留诊断缺失状态，禁止返回旧快照。
 func (m *manager) ReopenDocumentForDiagnostics(ctx context.Context, uri string) error {
@@ -600,22 +621,21 @@ func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentR
 	if err != nil {
 		return err
 	}
-	if err := coordinator.cache.Upsert(lspCacheValue{
-		Key:             key,
-		Version:         version,
-		Fingerprint:     hashDocument([]byte(text)),
-		ModTimeUnixNano: info.ModTime().UnixNano(),
-		Size:            int64(len([]byte(text))),
-	}); err != nil {
-		return err
-	}
-	m.advanceDocumentDiagnosticEpoch(scope, ref.uri)
-	m.deleteDiagnosticsOlderThanVersion(scope, ref.uri, version)
-	if err := coordinator.cache.RememberDocumentScope(ref.uri, scope, hashDocument([]byte(text))); err != nil {
-		return err
-	}
-	coordinator.states.complete(scope.bootstrapKey(), ref.uri, hashDocument([]byte(text)), version)
-	return nil
+	fingerprint := hashDocument([]byte(text))
+	return coordinator.withMutation(func() error {
+		if err := coordinator.cache.Upsert(lspCacheValue{
+			Key: key, Version: version, Fingerprint: fingerprint,
+			ModTimeUnixNano: info.ModTime().UnixNano(), Size: int64(len([]byte(text))),
+		}); err != nil {
+			return err
+		}
+		m.advanceDocumentDiagnosticEpoch(scope, ref.uri)
+		m.deleteDiagnosticsOlderThanVersion(scope, ref.uri, version)
+		if err := coordinator.cache.RememberDocumentScope(ref.uri, scope, fingerprint); err != nil {
+			return err
+		}
+		return coordinator.states.complete(scope.bootstrapKey(), ref.uri, fingerprint, version)
+	})
 }
 
 // BootstrapDocument 确保文档已打开并完成启动检查。
@@ -696,37 +716,6 @@ func (m *manager) waitDocumentDiagnosticsReady(ctx context.Context, ref document
 		return nil
 	}
 	return m.WaitDiagnosticsStable(ctx, []string{ref.uri})
-}
-
-func (m *manager) markExplicitDocumentOpen(uri string) {
-	if m == nil || strings.TrimSpace(uri) == "" {
-		return
-	}
-	m.explicitOpenMu.Lock()
-	defer m.explicitOpenMu.Unlock()
-	if m.explicitlyOpen == nil {
-		m.explicitlyOpen = make(map[string]struct{})
-	}
-	m.explicitlyOpen[uri] = struct{}{}
-}
-
-func (m *manager) unmarkExplicitDocumentOpen(uri string) {
-	if m == nil || strings.TrimSpace(uri) == "" {
-		return
-	}
-	m.explicitOpenMu.Lock()
-	defer m.explicitOpenMu.Unlock()
-	delete(m.explicitlyOpen, uri)
-}
-
-func (m *manager) isExplicitDocumentOpen(uri string) bool {
-	if m == nil || strings.TrimSpace(uri) == "" {
-		return false
-	}
-	m.explicitOpenMu.RLock()
-	defer m.explicitOpenMu.RUnlock()
-	_, ok := m.explicitlyOpen[uri]
-	return ok
 }
 
 func clientHealthy(client Client) bool {

@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
@@ -22,8 +24,10 @@ const (
 )
 
 type bootstrapCoordinator struct {
-	cache  *lspCacheStore
-	states *bootstrapStateStore
+	lifecycleMu sync.RWMutex
+	closed      atomic.Bool
+	cache       *lspCacheStore
+	states      *bootstrapStateStore
 }
 
 type documentSnapshot struct {
@@ -136,26 +140,92 @@ func restoreBootstrappedWorkspace(ctx context.Context, m *manager, cfg workspace
 	if err != nil {
 		return err
 	}
-	coordinator.states.reset(scope.bootstrapKey(), coordinator.cache.ScopeURIs(scope))
-	coordinator.refreshWorkspace(ctx, m, cfg, "")
+	records := coordinator.cache.ScopeDocuments(scope)
+	coordinator.states.reset(scope.bootstrapKey(), recordsToURIs(records))
+	client, err := m.ensureClient(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if err := restoreLegacyCachedDocuments(ctx, coordinator, m, cfg, records); err != nil {
+		return err
+	}
+	guard, err := m.syncExplicitDocumentsForWorkspaceSymbol(ctx, cfg, client)
+	if err != nil {
+		return err
+	}
+	guard.release()
+	return nil
+}
+
+func restoreLegacyCachedDocuments(
+	ctx context.Context,
+	coordinator *bootstrapCoordinator,
+	m *manager,
+	cfg workspaceConfig,
+	records []lspCacheValue,
+) error {
+	for _, record := range records {
+		if _, managed := m.explicitDocumentForURI(record.Key.URI); managed {
+			continue
+		}
+		ref, err := m.resolveDocumentRef(ctx, record.Key.URI, cacheKeyLanguage(record.Key))
+		if err != nil {
+			return err
+		}
+		if err := coordinator.syncDocument(ctx, m, cfg, ref); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func bootstrapCoordinatorFor(m *manager) (*bootstrapCoordinator, error) {
-	m.coordinatorMu.Lock()
-	defer m.coordinatorMu.Unlock()
-	if m.coordinator != nil {
-		return m.coordinator, nil
+	if m == nil {
+		return nil, ErrManagerClosed
+	}
+	coordinator, err := currentBootstrapCoordinator(m)
+	if err != nil || coordinator != nil {
+		return coordinator, err
 	}
 	cache, err := newLSPCacheStoreFromEnv(m.logger)
 	if err != nil {
 		return nil, err
 	}
-	m.coordinator = &bootstrapCoordinator{
-		cache:  cache,
-		states: newBootstrapStateStore(),
+	candidate := &bootstrapCoordinator{cache: cache, states: newBootstrapStateStore()}
+	if m.bootstrapCoordinatorBeforePublish != nil {
+		m.bootstrapCoordinatorBeforePublish()
 	}
+	return publishBootstrapCoordinator(m, candidate)
+}
+
+func currentBootstrapCoordinator(m *manager) (*bootstrapCoordinator, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed || m.retiring {
+		return nil, ErrManagerClosed
+	}
+	m.coordinatorMu.Lock()
+	defer m.coordinatorMu.Unlock()
 	return m.coordinator, nil
+}
+
+func publishBootstrapCoordinator(m *manager, candidate *bootstrapCoordinator) (*bootstrapCoordinator, error) {
+	m.mu.RLock()
+	m.coordinatorMu.Lock()
+	closed := m.closed || m.retiring
+	if !closed && m.coordinator == nil {
+		m.coordinator = candidate
+	}
+	active := m.coordinator
+	m.coordinatorMu.Unlock()
+	m.mu.RUnlock()
+	if active != candidate {
+		candidate.close()
+	}
+	if closed {
+		return nil, ErrManagerClosed
+	}
+	return active, nil
 }
 
 func closeBootstrapCoordinator(m *manager) {
@@ -167,7 +237,48 @@ func closeBootstrapCoordinator(m *manager) {
 	m.coordinator = nil
 	m.coordinatorMu.Unlock()
 	if c != nil {
-		c.cache.Close()
+		c.close()
+	}
+}
+
+func (c *bootstrapCoordinator) withMutation(commit func() error) error {
+	if c == nil {
+		return ErrManagerClosed
+	}
+	c.lifecycleMu.RLock()
+	defer c.lifecycleMu.RUnlock()
+	if c.closed.Load() {
+		return ErrManagerClosed
+	}
+	if err := commit(); err != nil {
+		return err
+	}
+	if c.closed.Load() {
+		return ErrManagerClosed
+	}
+	return nil
+}
+
+func (c *bootstrapCoordinator) close() {
+	if c == nil || !c.closed.CompareAndSwap(false, true) {
+		return
+	}
+	c.cache.markClosed()
+	c.states.markClosed()
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	c.cache.waitForMutations()
+	c.states.waitForMutations()
+}
+
+func deleteBootstrapStateIfPresent(m *manager, scopeKey, uri string) {
+	if m == nil {
+		return
+	}
+	m.coordinatorMu.Lock()
+	defer m.coordinatorMu.Unlock()
+	if m.coordinator != nil {
+		m.coordinator.states.delete(scopeKey, uri)
 	}
 }
 
@@ -222,6 +333,10 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 	stateKey := scope.bootstrapKey()
 	key := scope.cacheKey(snapshot.ref.languageID, snapshot.ref.uri)
 	decision := c.states.prepare(stateKey, snapshot.ref.uri, snapshot.fingerprint)
+	if decision.action == bootstrapActionSkip && !m.managedBootstrapSnapshotCurrent(cfg, snapshot.ref.uri) {
+		c.states.delete(stateKey, snapshot.ref.uri)
+		decision = c.states.prepare(stateKey, snapshot.ref.uri, snapshot.fingerprint)
+	}
 	switch decision.action {
 	case bootstrapActionSkip:
 		return c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
@@ -248,6 +363,27 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 	return nil
 }
 
+func (m *manager) managedBootstrapSnapshotCurrent(cfg workspaceConfig, uri string) bool {
+	document, ok := m.explicitDocumentForURI(uri)
+	if !ok || document.configKey != cfg.key || !document.wireOpen {
+		return false
+	}
+	m.mu.RLock()
+	workspace := m.workspaces[cfg.key]
+	if workspace == nil {
+		m.mu.RUnlock()
+		return false
+	}
+	client := workspace.client
+	generation := workspace.generation
+	state := workspace.state
+	m.mu.RUnlock()
+	if client == nil || generation != document.clientGeneration || state == workspaceStateBootstrapping {
+		return false
+	}
+	return clientHealthy(client)
+}
+
 // openSnapshotIfNeeded 只在文档尚未 ready/stale/bootstrapping 时打开快照。
 // 这是 hover/definition 等轻量请求的预热路径，不会重复抢占正在进行的 bootstrap。
 func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
@@ -257,7 +393,11 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 	}
 	stateKey := scope.bootstrapKey()
 	status := c.states.status(stateKey, snapshot.ref.uri)
-	if status == bootstrapReady || status == bootstrapStale || status == bootstrapBootstrapping {
+	if status == bootstrapBootstrapping {
+		return nil
+	}
+	if (status == bootstrapReady || status == bootstrapStale) &&
+		m.managedBootstrapSnapshotCurrent(cfg, snapshot.ref.uri) {
 		return nil
 	}
 	key := scope.cacheKey(snapshot.ref.languageID, snapshot.ref.uri)
@@ -318,20 +458,6 @@ func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot doc
 	return version, nil
 }
 
-// applyBootstrapUpdate 按同步模式发送 didOpen、didChange 或诊断专用的 didClose/didOpen。
-// forceReopen 必须优先处理，避免普通缓存判断把显式诊断退回到可能保留旧符号的 didChange。
-func applyBootstrapUpdate(ctx context.Context, client Client, snapshot documentSnapshot, req snapshotSyncRequest) error {
-	if req.forceReopen {
-		return reopenSnapshot(ctx, client, snapshot, req.version)
-	}
-	if req.refreshStaleDiagnostics || req.cached && (req.previous == bootstrapReady || req.previous == bootstrapStale) {
-		return client.DidChange(ctx, snapshot.ref.uri, req.version, []protocol.TextDocumentContentChangeEvent{{
-			Text: snapshot.text,
-		}})
-	}
-	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
-}
-
 // refreshWorkspace 在目标文档同步后刷新同 scope 下的已缓存文档。
 // 刷新数量和并发都有上限，避免一次 bootstrap 扫描拖垮 LSP server。
 func (c *bootstrapCoordinator) refreshWorkspace(ctx context.Context, m *manager, cfg workspaceConfig, excludeURI string) {
@@ -379,6 +505,9 @@ func (s *bootstrapStateStore) delete(workspace, uri string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return
+	}
 
 	key := bootstrapKey{workspace: workspace, uri: uri}
 	entry := s.entries[key]
@@ -411,21 +540,75 @@ func (c *bootstrapCoordinator) bootstrapSiblings(ctx context.Context, m *manager
 }
 
 func readDocumentSnapshot(ref documentRef) (documentSnapshot, error) {
-	info, err := os.Stat(ref.absPath)
+	return readDocumentSnapshotWithLimit(ref, defaultCleanDocumentByteLimit)
+}
+
+func readDocumentSnapshotWithLimit(ref documentRef, byteLimit int64) (documentSnapshot, error) {
+	return readDocumentSnapshotWithLimitAfterOpen(ref, byteLimit, nil)
+}
+
+func readDocumentSnapshotWithLimitAfterOpen(
+	ref documentRef,
+	byteLimit int64,
+	afterOpen func(),
+) (documentSnapshot, error) {
+	before, err := os.Stat(ref.absPath)
 	if err != nil {
 		return documentSnapshot{}, err
 	}
-	payload, err := os.ReadFile(ref.absPath)
+	if !before.Mode().IsRegular() {
+		return documentSnapshot{}, fmt.Errorf("document is not a regular file: %s", ref.absPath)
+	}
+	if before.Size() > byteLimit {
+		return documentSnapshot{}, fmt.Errorf("document exceeds read limit %d: %s", byteLimit, ref.absPath)
+	}
+	file, err := os.Open(ref.absPath)
 	if err != nil {
+		return documentSnapshot{}, err
+	}
+	if afterOpen != nil {
+		afterOpen()
+	}
+	payload, readErr := io.ReadAll(io.LimitReader(file, byteLimit+1))
+	openedAfter, fileStatErr := file.Stat()
+	pathAfter, pathStatErr := os.Stat(ref.absPath)
+	closeErr := file.Close()
+	if err := errors.Join(readErr, fileStatErr, pathStatErr, closeErr); err != nil {
+		return documentSnapshot{}, err
+	}
+	if err := validateDocumentSnapshotRead(ref, before, openedAfter, pathAfter, payload, byteLimit); err != nil {
 		return documentSnapshot{}, err
 	}
 	return documentSnapshot{
 		ref:         ref,
 		text:        string(payload),
-		size:        info.Size(),
-		modTimeNano: info.ModTime().UnixNano(),
+		size:        openedAfter.Size(),
+		modTimeNano: openedAfter.ModTime().UnixNano(),
 		fingerprint: hashDocument(payload),
 	}, nil
+}
+
+func validateDocumentSnapshotRead(
+	ref documentRef,
+	before os.FileInfo,
+	openedAfter os.FileInfo,
+	pathAfter os.FileInfo,
+	payload []byte,
+	byteLimit int64,
+) error {
+	if int64(len(payload)) > byteLimit {
+		return fmt.Errorf("document grew beyond read limit %d: %s", byteLimit, ref.absPath)
+	}
+	if !os.SameFile(before, openedAfter) || !os.SameFile(openedAfter, pathAfter) {
+		return fmt.Errorf("document path was replaced while reading: %s", ref.absPath)
+	}
+	if before.Size() != openedAfter.Size() || openedAfter.Size() != pathAfter.Size() || int64(len(payload)) != openedAfter.Size() {
+		return fmt.Errorf("document changed size while reading: %s", ref.absPath)
+	}
+	if before.ModTime() != openedAfter.ModTime() || openedAfter.ModTime() != pathAfter.ModTime() {
+		return fmt.Errorf("document changed modification time while reading: %s", ref.absPath)
+	}
+	return nil
 }
 
 // siblingDocumentRefs 收集目标文件同目录下可预热的同语言兄弟文档。

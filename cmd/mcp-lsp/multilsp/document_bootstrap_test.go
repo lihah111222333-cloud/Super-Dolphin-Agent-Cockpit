@@ -3,12 +3,15 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
@@ -50,6 +53,259 @@ func TestDocumentRequestBootstrapsFreshSnapshotForJavaScript(t *testing.T) {
 	}
 	if !client.anyDocumentContains("freshName") {
 		t.Fatalf("client snapshot was not refreshed, documents=%#v", client.documentSnapshot())
+	}
+}
+
+func TestDidOpenCommitAndManagerCloseAreAtomicallyOrdered(t *testing.T) {
+	root, target, text := writeWorkspaceSymbolSyncFixture(t, "app.js", "function CloseBarrier() {}\n")
+	openEntered := make(chan struct{})
+	openRelease := make(chan struct{})
+	factory := &strictWorkspaceSymbolFactory{openEntered: openEntered, openRelease: openRelease}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root, ClientFactory: factory, DisableInitialWorkspaceBootstrap: true,
+	}).(*manager)
+	ctx := workspaceSymbolSyncContext(t, root, target, "javascript", true)
+	uri := fileURIFromPath(target)
+	openDone := make(chan error, 1)
+	group := newTestGoroutineGroup(t)
+	group.Go(func() { openDone <- mgr.DidOpen(ctx, uri, "javascript", 1, text) })
+	waitWorkspaceSymbolSignal(t, openEntered, "DidOpen close barrier")
+	client := factory.clientsSnapshot()[0]
+
+	mgr.explicitOpenMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			mgr.explicitOpenMu.Unlock()
+		}
+	}()
+	close(openRelease)
+	waitForClientLeaseRelease(t, mgr, client)
+	waitForRecipientCommitReadLock(t, mgr)
+	closeDone := make(chan error, 1)
+	group.Go(func() { closeDone <- mgr.Close() })
+	assertWorkspaceSymbolOperationBlocked(t, closeDone, "Manager.Close during atomic DidOpen commit")
+	mgr.explicitOpenMu.Unlock()
+	locked = false
+	if err := awaitWorkspaceSymbolError(t, openDone, "atomic DidOpen commit"); err != nil {
+		t.Fatalf("DidOpen won atomic commit ordering: %v", err)
+	}
+	if err := awaitWorkspaceSymbolError(t, closeDone, "Manager.Close after DidOpen commit"); err != nil {
+		t.Fatalf("Manager.Close: %v", err)
+	}
+	if _, ok := mgr.explicitDocumentForURI(uri); !ok {
+		t.Fatal("DidOpen state missing after commit linearized before Manager.Close")
+	}
+}
+
+func TestWorkspaceSymbolBatchSyncDoesNotCommitAfterRecipientReplacement(t *testing.T) {
+	root, first, firstText := writeWorkspaceSymbolSyncFixture(t, "a.js", "function BatchOneOld() {}\n")
+	second := filepath.Join(root, "b.js")
+	secondText := "function BatchTwoOld() {}\n"
+	writeGenericTestFile(t, second, secondText)
+	changeBatchEntered := make(chan struct{})
+	changeBatchRelease := make(chan struct{})
+	factory := &strictWorkspaceSymbolFactory{
+		changeBatchEntered: changeBatchEntered, changeBatchRelease: changeBatchRelease, changeBatchTarget: 2,
+	}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root, ClientFactory: factory, DisableInitialWorkspaceBootstrap: true,
+	}).(*manager)
+	t.Cleanup(func() { closeBootstrapTestManager(t, mgr) })
+	ctx := workspaceSymbolSyncContext(t, root, first, "javascript", true)
+	firstURI := fileURIFromPath(first)
+	secondURI := fileURIFromPath(second)
+	if err := mgr.DidOpen(ctx, firstURI, "javascript", 1, firstText); err != nil {
+		t.Fatalf("DidOpen first batch document: %v", err)
+	}
+	if err := mgr.DidOpen(ctx, secondURI, "javascript", 1, secondText); err != nil {
+		t.Fatalf("DidOpen second batch document: %v", err)
+	}
+	beforeFirst, _ := mgr.explicitDocumentForURI(firstURI)
+	beforeSecond, _ := mgr.explicitDocumentForURI(secondURI)
+	writeGenericTestFile(t, first, "function BatchOneFresh() {}\n")
+	writeGenericTestFile(t, second, "function BatchTwoFresh() {}\n")
+
+	workspaceDone := make(chan error, 1)
+	group := newTestGoroutineGroup(t)
+	group.Go(func() {
+		_, err := mgr.WorkspaceSymbol(ctx, "Batch", "javascript")
+		workspaceDone <- err
+	})
+	waitWorkspaceSymbolSignal(t, changeBatchEntered, "second batch workspace sync DidChange")
+	oldClient := factory.clientsSnapshot()[0]
+	replacement, err := mgr.rebuildClientAfterFailure(ctx, oldClient, false)
+	if err != nil {
+		t.Fatalf("replace batch sync recipient: %v", err)
+	}
+	close(changeBatchRelease)
+	if err := awaitWorkspaceSymbolError(t, workspaceDone, "batch WorkspaceSymbol"); !errors.Is(err, ErrStaleClientLease) {
+		t.Fatalf("batch workspace sync replacement error = %v, want ErrStaleClientLease", err)
+	}
+	afterFirst, _ := mgr.explicitDocumentForURI(firstURI)
+	afterSecond, _ := mgr.explicitDocumentForURI(secondURI)
+	if afterFirst != beforeFirst || afterSecond != beforeSecond {
+		t.Fatalf("stale batch state committed: first=%#v second=%#v", afterFirst, afterSecond)
+	}
+	if got := replacement.(*strictWorkspaceSymbolClient).notificationCount(); got != 0 {
+		t.Fatalf("replacement batch notifications = %d, want zero", got)
+	}
+}
+
+func TestOpenManagedSnapshotKeepsAuthoritativeReadCleanAcrossLaterDiskWrite(t *testing.T) {
+	root, target, _ := writeWorkspaceSymbolSyncFixture(t, "app.js", "function SnapshotOld() {}\n")
+	factory := &strictWorkspaceSymbolFactory{}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root, ClientFactory: factory, DisableInitialWorkspaceBootstrap: true,
+	}).(*manager)
+	t.Cleanup(func() { closeBootstrapTestManager(t, mgr) })
+	ctx := workspaceSymbolSyncContext(t, root, target, "javascript", true)
+	ref, cfg, scope, client, snapshot := prepareAuthoritativeSnapshotFixture(t, mgr, ctx, target)
+	writeGenericTestFile(t, target, "function SnapshotFresh() {}\n")
+	req := snapshotSyncRequest{scope: scope, version: 1}
+	if err := mgr.openManagedSnapshot(ctx, client, cfg, snapshot, &req); err != nil {
+		t.Fatalf("open authoritative old snapshot after disk write: %v", err)
+	}
+	requireAuthoritativeSnapshotState(t, mgr, ref.uri, snapshot.fingerprint)
+	results, err := mgr.WorkspaceSymbol(ctx, "SnapshotFresh", "javascript")
+	if err != nil {
+		t.Fatalf("WorkspaceSymbol refresh after authoritative snapshot: %v", err)
+	}
+	assertStrictWorkspaceSymbolResult(t, results, "SnapshotFresh", ref.uri)
+	if got := factory.clientsSnapshot()[0].changeCount(); got != 1 {
+		t.Fatalf("authoritative snapshot refresh changes = %d, want one", got)
+	}
+}
+
+func TestReadDocumentSnapshotRejectsAtomicPathReplacementAfterOpen(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "atomic.js")
+	replacement := filepath.Join(root, "atomic.next.js")
+	writeBootstrapTestFile(t, target, "function OldAtomic() {}\n")
+	writeBootstrapTestFile(t, replacement, "function NewAtomic() {}\n")
+	ref := documentRef{uri: fileURIFromPath(target), absPath: target, languageID: "javascript"}
+	_, err := readDocumentSnapshotWithLimitAfterOpen(ref, defaultCleanDocumentByteLimit, func() {
+		if renameErr := os.Rename(replacement, target); renameErr != nil {
+			t.Fatalf("atomic replace target: %v", renameErr)
+		}
+	})
+	if err == nil || !strings.Contains(err.Error(), "path was replaced") {
+		t.Fatalf("read snapshot error = %v, want atomic path replacement rejection", err)
+	}
+}
+
+func prepareAuthoritativeSnapshotFixture(
+	t *testing.T,
+	mgr *manager,
+	ctx context.Context,
+	target string,
+) (documentRef, workspaceConfig, ResolvedLSPToolScope, Client, documentSnapshot) {
+	t.Helper()
+	ref, err := mgr.resolveDocumentRef(ctx, target, "javascript")
+	if err != nil {
+		t.Fatalf("resolve authoritative snapshot document: %v", err)
+	}
+	cfg, err := mgr.resolveWorkspaceForDocument(ctx, ref)
+	if err != nil {
+		t.Fatalf("resolve authoritative snapshot workspace: %v", err)
+	}
+	scope, err := mgr.resolvedScopeForConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("resolve authoritative snapshot scope: %v", err)
+	}
+	client, err := mgr.ensurePublishedClient(ctx, cfg)
+	if err != nil {
+		t.Fatalf("ensure authoritative snapshot client: %v", err)
+	}
+	snapshot, err := readDocumentSnapshot(ref)
+	if err != nil {
+		t.Fatalf("read authoritative old snapshot: %v", err)
+	}
+	return ref, cfg, scope, client, snapshot
+}
+
+func requireAuthoritativeSnapshotState(t *testing.T, mgr *manager, uri, fingerprint string) {
+	t.Helper()
+	state, ok := mgr.explicitDocumentForURI(uri)
+	if !ok || !state.diskClean || state.diskFingerprint != fingerprint || state.fullTextKnown {
+		t.Fatalf("authoritative snapshot state = %#v, present=%v", state, ok)
+	}
+}
+
+func waitForClientLeaseRelease(t *testing.T, mgr *manager, client Client) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		mgr.mu.RLock()
+		active := 0
+		for _, workspace := range mgr.workspaces {
+			if workspace != nil && workspace.client == client {
+				active = workspace.activeLeases
+			}
+		}
+		mgr.mu.RUnlock()
+		if active == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("timed out waiting for client lease release")
+}
+
+func waitForRecipientCommitReadLock(t *testing.T, mgr *manager) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if !mgr.mu.TryLock() {
+			return
+		}
+		mgr.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("timed out waiting for exact-recipient commit read lock")
+}
+
+func TestBootstrapDocumentThenLanguageWorkspaceSymbolUsesManagedFreshSnapshot(t *testing.T) {
+	root, target, _ := writeWorkspaceSymbolSyncFixture(t, "app.js", "function LegacyStale() {}\n")
+	factory := &strictWorkspaceSymbolFactory{}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	t.Cleanup(func() { closeBootstrapTestManager(t, mgr) })
+	ctx := workspaceSymbolSyncContext(t, root, target, "javascript", false)
+	uri := fileURIFromPath(target)
+
+	if err := mgr.BootstrapDocument(ctx, target); err != nil {
+		t.Fatalf("BootstrapDocument legacy path: %v", err)
+	}
+	if mgr.isExplicitDocumentOpen(uri) {
+		t.Fatal("internal bootstrap was classified as a user-opened document")
+	}
+	writeBootstrapTestFile(t, target, "function LegacyFresh() {}\n")
+	results, err := mgr.WorkspaceSymbol(ctx, "LegacyFresh", "javascript")
+	if err != nil {
+		t.Fatalf("WorkspaceSymbol after legacy bootstrap rewrite: %v", err)
+	}
+	assertStrictWorkspaceSymbolResult(t, results, "LegacyFresh", uri)
+	stale, err := mgr.WorkspaceSymbol(ctx, "LegacyStale", "javascript")
+	if err != nil {
+		t.Fatalf("stale WorkspaceSymbol query: %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("stale WorkspaceSymbol results = %#v, want empty", stale)
+	}
+	client := factory.clientContainingURI(t, uri)
+	if got, want := client.eventsSnapshot(), []string{
+		"open:" + uri + ":1",
+		"change:" + uri + ":2",
+		"request:LegacyFresh",
+		"request:LegacyStale",
+	}; strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("legacy managed events = %#v, want %#v", got, want)
+	}
+	if err := mgr.DidClose(ctx, uri); err != nil {
+		t.Fatalf("DidClose internally bootstrapped document: %v", err)
+	}
+	if client.hasDocument(uri) {
+		t.Fatalf("DidClose left internally bootstrapped document open; events=%#v", client.eventsSnapshot())
 	}
 }
 
@@ -210,9 +466,7 @@ func (c *recordingClient) documentSnapshot() map[string]string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make(map[string]string, len(c.documents))
-	for uri, text := range c.documents {
-		out[uri] = text
-	}
+	maps.Copy(out, c.documents)
 	return out
 }
 

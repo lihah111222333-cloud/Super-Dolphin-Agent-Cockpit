@@ -207,6 +207,11 @@ func (m *manager) allDiagnosticRefreshCandidates(ctx context.Context, filter dia
 }
 
 func (m *manager) refreshDiagnosticRef(ctx context.Context, ref documentRef) error {
+	if state, managed := m.explicitDocumentForURI(ref.uri); managed && !state.diskClean {
+		if _, bound := m.clientForExplicitDocument(state); bound && state.wireOpen {
+			return nil
+		}
+	}
 	cfg, err := m.resolveWorkspaceForDocument(ctx, ref)
 	if err != nil {
 		return err

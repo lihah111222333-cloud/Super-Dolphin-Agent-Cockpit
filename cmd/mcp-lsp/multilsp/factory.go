@@ -101,51 +101,34 @@ func fallbackDocument[T any](value T) documentMissingFunc[T] {
 	}
 }
 
-func (m *manager) notifyDocument(
-	ctx context.Context,
-	uri string,
-	languageID string,
-	notify func(context.Context, Client, documentRef) error,
-) error {
-	ref, err := m.resolveDocumentRef(ctx, uri, languageID)
-	if err != nil {
-		return err
-	}
-	if !m.shouldUseClientForLanguage(ref.languageID) {
-		return nil
-	}
-	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
-	if err != nil {
-		return err
-	}
-	return m.withPooledClient(client, func() error {
-		return notify(ctx, client, ref)
-	})
-}
-
 // withPooledClient 在回调发送前原子确认 client 绑定并持有租约，回调返回后立即释放。
 // ErrClientNotBound 只允许表示回调尚未执行；回调内部返回该保留值时会转换为普通错误。
 func (m *manager) withPooledClient(client Client, fn func() error) error {
+	callbackErr, releaseErr := m.callWithPooledClient(client, fn)
+	return errors.Join(callbackErr, releaseErr)
+}
+
+// callWithPooledClient 分离 wire 与租约释放错误，供状态提交在确认最终 recipient 后执行。
+func (m *manager) callWithPooledClient(client Client, fn func() error) (error, error) {
 	if client == nil {
 		callbackErr := fn()
 		if errors.Is(callbackErr, ErrClientNotBound) {
-			return fmt.Errorf("LSP client callback returned reserved ErrClientNotBound after dispatch: %v", callbackErr)
+			callbackErr = fmt.Errorf("LSP client callback returned reserved ErrClientNotBound after dispatch: %v", callbackErr)
 		}
-		return callbackErr
+		return callbackErr, nil
 	}
 	leased, ok, err := m.leaseBoundClient(client)
 	if err != nil {
-		return err
+		return err, nil
 	}
 	if !ok {
-		return ErrClientNotBound
+		return ErrClientNotBound, nil
 	}
-	defer leased.Release()
 	callbackErr := fn()
 	if errors.Is(callbackErr, ErrClientNotBound) {
-		return fmt.Errorf("LSP client callback returned reserved ErrClientNotBound after dispatch: %v", callbackErr)
+		callbackErr = fmt.Errorf("LSP client callback returned reserved ErrClientNotBound after dispatch: %v", callbackErr)
 	}
-	return callbackErr
+	return callbackErr, leased.Release()
 }
 
 // queryHierarchy 统一执行 call/type hierarchy 的 prepare 和方向查询。
@@ -284,7 +267,7 @@ func isLSPMethodNotFound(err error) bool {
 }
 
 func unsupportedCapabilityErrorForMethod(err error, method string, client Client) error {
-	if !isLSPMethodNotFound(err) {
+	if hasFatalCapabilitySibling(err) || !isLSPMethodNotFound(err) {
 		return err
 	}
 	meta := capabilityErrorMeta(method, client)
@@ -294,6 +277,33 @@ func unsupportedCapabilityErrorForMethod(err error, method string, client Client
 		Retryable: false,
 		Meta:      meta,
 	}
+}
+
+func hasFatalCapabilitySibling(err error) bool {
+	for err != nil {
+		if joined, ok := err.(interface{ Unwrap() []error }); ok {
+			children := joined.Unwrap()
+			var only error
+			count := 0
+			for _, child := range children {
+				if child != nil {
+					only = child
+					count++
+				}
+			}
+			if count > 1 {
+				return true
+			}
+			err = only
+			continue
+		}
+		wrapped, ok := err.(interface{ Unwrap() error })
+		if !ok {
+			return false
+		}
+		err = wrapped.Unwrap()
+	}
+	return false
 }
 
 func decodeUnionList[T any](raw json.RawMessage, decode unionDecodeFunc[T]) ([]T, error) {
@@ -379,63 +389,39 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	if err != nil {
 		return err
 	}
-	err = m.withPooledClient(client, func() error {
-		return c.applySnapshotUpdate(ctx, m, client, snapshot, req)
-	})
+	operation, err := m.beginDocumentOperation(ctx, snapshot.ref.uri, documentOperationObserveBootstrap)
 	if err != nil {
 		return err
 	}
-	if err := c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version)); err != nil {
+	defer operation.release()
+	if err := c.applySnapshotUpdate(ctx, m, client, cfg, snapshot, &req); err != nil {
 		return err
 	}
-	m.deleteDiagnosticsOlderThanVersion(scope, snapshot.ref.uri, req.version)
-	if err := c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint); err != nil {
-		return err
-	}
-	c.states.complete(scope.bootstrapKey(), snapshot.ref.uri, snapshot.fingerprint, req.version)
-	return nil
+	return c.withMutation(func() error {
+		if err := c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version)); err != nil {
+			return err
+		}
+		m.deleteDiagnosticsOlderThanVersion(scope, snapshot.ref.uri, req.version)
+		if err := c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint); err != nil {
+			return err
+		}
+		return c.states.complete(scope.bootstrapKey(), snapshot.ref.uri, snapshot.fingerprint, req.version)
+	})
 }
 
-// applySnapshotUpdate 根据当前同步模式发送 didOpen/didChange。
-// 已打开文档更新失败时会尝试 close+open，仍失败则重建 client 后再打开。
+// applySnapshotUpdate 根据 manager 持有的文档状态发送 didOpen/didChange。
 func (c *bootstrapCoordinator) applySnapshotUpdate(
 	ctx context.Context,
 	m *manager,
 	client Client,
+	cfg workspaceConfig,
 	snapshot documentSnapshot,
-	req snapshotSyncRequest,
+	req *snapshotSyncRequest,
 ) error {
-	var err error
-	if req.openOnly {
-		err = client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
-	} else {
-		err = applyBootstrapUpdate(ctx, client, snapshot, req)
-	}
-	if err == nil {
-		return nil
-	}
-	if !req.openOnly {
-		if reopenErr := reopenSnapshot(ctx, client, snapshot, req.version); reopenErr == nil {
-			return nil
-		}
-	}
-	replacement, rebuildErr := m.rebuildClientAfterFailure(ctx, client, false)
-	if rebuildErr != nil {
-		return errors.Join(err, rebuildErr)
-	}
-	if replacement == nil {
-		return errors.Join(err, ErrClientClosed)
-	}
-	return m.withPooledClient(replacement, func() error {
-		return replacement.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
-	})
-}
-
-func reopenSnapshot(ctx context.Context, client Client, snapshot documentSnapshot, version int) error {
-	if err := client.DidClose(ctx, snapshot.ref.uri); err != nil {
+	if handled, err := m.applyManagedSnapshotUpdate(ctx, client, snapshot, req); handled {
 		return err
 	}
-	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, version, snapshot.text)
+	return m.openManagedSnapshot(ctx, client, cfg, snapshot, req)
 }
 
 // cacheValueMatchesSnapshot 判断缓存记录是否仍对应当前磁盘快照。

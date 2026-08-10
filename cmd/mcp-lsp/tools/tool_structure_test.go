@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,19 +84,20 @@ type structureTestManager struct {
 	testManagerEditNoop
 	testManagerDiagnosticsNoop
 
-	workspaceSymbols  []protocol.WorkspaceSymbolResult
-	documentSymbols   []protocol.DocumentSymbol
-	completionItems   []protocol.CompletionItem
-	definitions       []protocol.LocationResult
-	references        []protocol.LocationResult
-	callHierarchy     []protocol.CallHierarchyResult
-	documentContext   context.Context
-	gotWorkspaceQuery string
-	gotWorkspaceLang  string
-	didOpenContext    context.Context
-	bootstrapURIs     []string
-	bootstrapErr      error
-	events            []string
+	workspaceSymbols   []protocol.WorkspaceSymbolResult
+	workspaceSymbolErr error
+	documentSymbols    []protocol.DocumentSymbol
+	completionItems    []protocol.CompletionItem
+	definitions        []protocol.LocationResult
+	references         []protocol.LocationResult
+	callHierarchy      []protocol.CallHierarchyResult
+	documentContext    context.Context
+	gotWorkspaceQuery  string
+	gotWorkspaceLang   string
+	didOpenContext     context.Context
+	bootstrapURIs      []string
+	bootstrapErr       error
+	events             []string
 }
 
 type testManagerNavigationNoop struct{}
@@ -215,7 +217,7 @@ func (m *structureTestManager) WorkspaceSymbol(_ context.Context, query string, 
 	m.events = append(m.events, "workspace_symbol")
 	m.gotWorkspaceQuery = query
 	m.gotWorkspaceLang = languageID
-	return m.workspaceSymbols, nil
+	return m.workspaceSymbols, m.workspaceSymbolErr
 }
 
 func (m *structureTestManager) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
@@ -451,21 +453,13 @@ func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestR
 	}
 }
 
-func assertWorkspaceSymbolBootstrapBeforeSearch(t *testing.T, manager *structureTestManager, target string) {
+func assertWorkspaceSymbolSearchWithoutToolBootstrap(t *testing.T, manager *structureTestManager) {
 	t.Helper()
-	wantTarget, err := filepath.EvalSymlinks(target)
-	if err != nil {
-		t.Fatalf("canonicalize target: %v", err)
+	if len(manager.bootstrapURIs) != 0 {
+		t.Fatalf("tool-layer BootstrapDocument calls = %#v, want none before manager capability/dirty checks", manager.bootstrapURIs)
 	}
-	if len(manager.bootstrapURIs) != 1 {
-		t.Fatalf("BootstrapDocument calls = %#v, want one call for requested file", manager.bootstrapURIs)
-	}
-	if manager.bootstrapURIs[0] != wantTarget {
-		t.Fatalf("BootstrapDocument uri = %q, want %q", manager.bootstrapURIs[0], wantTarget)
-	}
-	wantEvents := []string{"bootstrap:" + wantTarget, "workspace_symbol"}
-	if len(manager.events) != 2 || manager.events[0] != wantEvents[0] || manager.events[1] != wantEvents[1] {
-		t.Fatalf("events = %#v, want bootstrap before workspace_symbol: %#v", manager.events, wantEvents)
+	if len(manager.events) != 1 || manager.events[0] != "workspace_symbol" {
+		t.Fatalf("events = %#v, want direct workspace_symbol delegation", manager.events)
 	}
 }
 
@@ -491,7 +485,7 @@ func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
 	}
 }
 
-func TestStructureWorkspaceSymbolBootstrapsRequestedFilePathBeforeSearch(t *testing.T) {
+func TestStructureWorkspaceSymbolDoesNotPrebootstrapRequestedFilePath(t *testing.T) {
 	root := t.TempDir()
 	target := writeStructureTestFile(t, root, "frontend/app.js", "export function greet() {}\n")
 	manager := structureWorkspaceSymbolManager(target, "greet")
@@ -507,12 +501,46 @@ func TestStructureWorkspaceSymbolBootstrapsRequestedFilePathBeforeSearch(t *test
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), input); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertWorkspaceSymbolBootstrapBeforeSearch(t, manager, target)
+	assertWorkspaceSymbolSearchWithoutToolBootstrap(t, manager)
 	if manager.gotWorkspaceQuery != "greet" {
 		t.Fatalf("WorkspaceSymbol query = %q", manager.gotWorkspaceQuery)
 	}
 	if manager.gotWorkspaceLang != "javascript" {
 		t.Fatalf("WorkspaceSymbol language = %q, want javascript inferred from file_path", manager.gotWorkspaceLang)
+	}
+}
+
+func TestStructureWorkspaceSymbolUnsupportedFilePathHasNoBootstrapSideEffects(t *testing.T) {
+	root := t.TempDir()
+	target := writeStructureTestFile(t, root, "frontend/app.js", "export function unsupported() {}\n")
+	manager := structureWorkspaceSymbolManager(target, "unsupported")
+	manager.workspaceSymbolErr = lspmanager.ErrUnsupportedCapability
+	handler := NewStructureHandler(&structureTestRegistry{fileManager: manager})
+	input := marshalStructureParams(t, structureParams{
+		Action: "workspace_symbol", FilePath: "frontend/app.js", Query: "unsupported",
+	})
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err != nil {
+		t.Fatalf("unsupported workspace_symbol handler: %v", err)
+	}
+	assertWorkspaceSymbolSearchWithoutToolBootstrap(t, manager)
+}
+
+func TestStructureWorkspaceSymbolDoesNotSwallowFatalCapabilitySibling(t *testing.T) {
+	root := t.TempDir()
+	target := writeStructureTestFile(t, root, "frontend/app.js", "export function stale() {}\n")
+	manager := structureWorkspaceSymbolManager(target, "stale")
+	manager.workspaceSymbolErr = errors.Join(
+		lspmanager.ErrUnsupportedCapability,
+		multilsp.ErrStaleClientLease,
+	)
+	handler := NewStructureHandler(&structureTestRegistry{fileManager: manager})
+	input := marshalStructureParams(t, structureParams{
+		Action: "workspace_symbol", FilePath: "frontend/app.js", Query: "stale",
+	})
+
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
+	if !errors.Is(err, multilsp.ErrStaleClientLease) {
+		t.Fatalf("fatal capability sibling error = %v, want ErrStaleClientLease", err)
 	}
 }
 

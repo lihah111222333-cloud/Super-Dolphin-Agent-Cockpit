@@ -147,6 +147,9 @@ func TestWorkspaceSymbolUsesResolvedFileScopeForJavaScript(t *testing.T) {
 		t.Fatalf("workspace symbol client root = %q, want resolved nested root %q", got, nestedRoot)
 	}
 	client := factory.clientAt(t)
+	if !client.opened(fileURIFromPath(target), "javascript") {
+		t.Fatalf("opened documents = %#v, want exact resolved file target", client.openEvents())
+	}
 	if client.requestScope.WorkspaceRoot != nestedRoot {
 		t.Fatalf("request scope workspace root = %q, want %q", client.requestScope.WorkspaceRoot, nestedRoot)
 	}

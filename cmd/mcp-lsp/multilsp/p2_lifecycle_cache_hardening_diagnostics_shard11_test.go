@@ -406,7 +406,7 @@ func TestMemoryOnlyDidChangeDoesNotWritePersistentCache(t *testing.T) {
 	assertPersistentCacheDocumentCount(t, cacheDir, 0)
 }
 
-func TestDidChangeFailureFallsBackToReopenThenRestart(t *testing.T) {
+func TestManagedDidChangeFailureIsFailFastWithoutReopenOrRestart(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"fallback"}`)
 	target := filepath.Join(root, "app.js")
@@ -422,18 +422,20 @@ func TestDidChangeFailureFallsBackToReopenThenRestart(t *testing.T) {
 	}
 	nextText := "let value = 2\n"
 	writeGenericTestFile(t, target, nextText)
-	if err := mgr.DidChange(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, 3, []protocol.TextDocumentContentChangeEvent{{Text: nextText}}); err != nil {
-		t.Fatalf("DidChange should reopen/restart after failure: %v", err)
+	err := mgr.DidChange(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, 3, []protocol.TextDocumentContentChangeEvent{{Text: nextText}})
+	if err == nil || !strings.Contains(err.Error(), "change failed") {
+		t.Fatalf("managed DidChange failure = %v, want explicit wire error", err)
 	}
-	if factory.callCount() < 2 {
-		t.Fatalf("factory calls = %d, want restart after close/reopen failure", factory.callCount())
+	if factory.callCount() != 1 {
+		t.Fatalf("factory calls = %d, want no restart", factory.callCount())
 	}
-	if !factory.clientAt(t, 1).opened(fileURIFromPath(target), "javascript") {
-		t.Fatalf("restarted client did not reopen changed document")
+	client := factory.clientAt(t, 0)
+	if client.openCount() != 1 || client.didCloseCount() != 0 {
+		t.Fatalf("managed failure replayed lifecycle notifications: opens=%d closes=%d", client.openCount(), client.didCloseCount())
 	}
 }
 
-func TestDidChangeReconnectRestoresBootstrappedWorkspace(t *testing.T) {
+func TestManagedDidChangeFailureDoesNotReconnectOrReplayWorkspace(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"restore-workspace"}`)
 	changed := filepath.Join(root, "app.js")
@@ -456,18 +458,16 @@ func TestDidChangeReconnectRestoresBootstrappedWorkspace(t *testing.T) {
 
 	nextText := "let value = 2\n"
 	writeGenericTestFile(t, changed, nextText)
-	if err := mgr.DidChange(ctx, changed, 3, []protocol.TextDocumentContentChangeEvent{{Text: nextText}}); err != nil {
-		t.Fatalf("DidChange should restore workspace after reconnect: %v", err)
+	err := mgr.DidChange(ctx, changed, 3, []protocol.TextDocumentContentChangeEvent{{Text: nextText}})
+	if err == nil || !strings.Contains(err.Error(), "change failed") {
+		t.Fatalf("managed workspace DidChange failure = %v, want explicit wire error", err)
 	}
-	if factory.callCount() < 2 {
-		t.Fatalf("factory calls = %d, want restart after close/reopen failure", factory.callCount())
+	if factory.callCount() != 1 {
+		t.Fatalf("factory calls = %d, want no reconnect", factory.callCount())
 	}
-	restarted := factory.clientAt(t, 1)
-	if !restarted.opened(fileURIFromPath(changed), "javascript") {
-		t.Fatalf("restarted client did not restore changed document; opens=%#v", restarted.opens)
-	}
-	if !restarted.opened(fileURIFromPath(peer), "javascript") {
-		t.Fatalf("restarted client did not restore peer bootstrap document; opens=%#v", restarted.opens)
+	client := factory.clientAt(t, 0)
+	if client.openCount() != 2 || client.didCloseCount() != 0 {
+		t.Fatalf("managed workspace failure replayed lifecycle notifications: opens=%d closes=%d", client.openCount(), client.didCloseCount())
 	}
 }
 
