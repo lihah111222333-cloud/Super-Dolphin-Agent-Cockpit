@@ -167,8 +167,8 @@ func TestProviderRecoveryCandidateDiscoveryParity(t *testing.T) {
 	const (
 		wantPackageCount  = 3
 		wantPackageDigest = "8bba5c3271a3a6a4f28807be4128721aa82a8940bc364388e2babafa8c5136db"
-		wantFileCount     = 62
-		wantFileDigest    = "e4ce9c0b7e84f11e70daca881742b28a702e4417d1efa7f6fd7701808e389c78"
+		wantFileCount     = 63
+		wantFileDigest    = "cb05d4a57fa29866f2010614fe177f060baccd93e93b5483dc1e2c53649a5996"
 	)
 	if len(candidates.packagePaths) != wantPackageCount ||
 		providerRecoveryCandidateDigest(candidates.packagePaths) != wantPackageDigest {

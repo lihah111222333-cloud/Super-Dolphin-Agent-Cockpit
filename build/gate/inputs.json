@@ -3118,6 +3118,8 @@
     "internal/module/thread/recovery_rpc_test.go",
     "internal/module/thread/resume_binding_conflict_test.go",
     "internal/module/thread/resume_claude_override_test.go",
+    "internal/module/thread/resume_degrade.go",
+    "internal/module/thread/resume_degrade_test.go",
     "internal/module/thread/resume_session_uuid_test.go",
     "internal/module/thread/resume_shard18_support_test.go",
     "internal/module/thread/resume_shard18_test.go",
@@ -4895,6 +4897,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6559,
-  "source_snapshot_paths_sha256": "sha256:8ed5c5544e579acded04e89f3e65778f140428ee179becaf33d4558b91cf2e8b"
+  "source_snapshot_input_count": 6561,
+  "source_snapshot_paths_sha256": "sha256:7994e7978e51523c4e649d08941e87b01cef37cde81ef53af6b03016912525be"
 }
