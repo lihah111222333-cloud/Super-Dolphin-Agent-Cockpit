@@ -392,8 +392,8 @@ internal/contract/errors.go	internal	other	go-source	8859	跨模块稳定接口�
 internal/contract/frc.go	internal	other	go-source	2223	跨模块稳定接口、事件和 DTO 边界	internal,contract,frc,跨模块稳定接口,事件和,DTO,边界
 internal/contract/hooks.go	internal	other	go-source	3874	跨模块稳定接口、事件和 DTO 边界	internal,contract,hooks,跨模块稳定接口,事件和,DTO,边界
 internal/contract/insight.go	internal	other	go-source	3160	跨模块稳定接口、事件和 DTO 边界	internal,contract,insight,跨模块稳定接口,事件和,DTO,边界
-internal/contract/manifest.go	internal	other	go-source	13054	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
-internal/contract/manifest_test.go	internal	other	go-test	5445	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/manifest.go	internal	other	go-source	13077	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
+internal/contract/manifest_test.go	internal	other	go-test	5692	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/mcp_control.go	internal	other	go-source	23937	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
 internal/contract/mcp_control_test.go	internal	other	go-test	2822	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/memory.go	internal	other	go-source	8165	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界

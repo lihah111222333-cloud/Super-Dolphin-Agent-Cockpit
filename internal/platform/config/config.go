@@ -198,7 +198,7 @@ func parseConfigEnv() (parsedEnvConfig, error) {
 	if cfg.skillTokenBudget, err = envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000); err != nil {
 		return cfg, err
 	}
-	if cfg.persistentSubagentDefault, err = envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", false); err != nil {
+	if cfg.persistentSubagentDefault, err = envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", true); err != nil {
 		return cfg, err
 	}
 	if cfg.notifyAllowPrivateCIDR, err = envBoolOr("NOTIFY_ALLOW_PRIVATE_CIDR", false); err != nil {

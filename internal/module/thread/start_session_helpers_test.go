@@ -313,7 +313,16 @@ func TestBuildStartSessionConfigMergesLaunchToolSurfaceConfig(t *testing.T) {
 }
 
 func TestBuildStartSessionConfigFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t *testing.T) {
+	dynamicRegistry := buildStartSessionConfig(StartRequest{}, contract.StartInput{
+		Provider:     "codex",
+		SessionFlags: map[string]bool{"persistent_subagent_default": true},
+	}, contract.StartAssembly{})
+	if got := dynamicRegistry[contract.RuntimeConfigCodexDisabledNativeTools().Canonical]; !reflect.DeepEqual(got, []string{contract.CodexNativeToolSpawnAgent}) {
+		t.Fatalf("dynamic-registry codexDisabledNativeTools = %#v, want native spawn_agent disabled", got)
+	}
+
 	cfg := buildStartSessionConfig(StartRequest{}, contract.StartInput{
+		Provider:     "codex",
 		EnabledTools: []string{"spawn_agent", "launch_agent", "request_user_input"},
 		SessionFlags: map[string]bool{"persistent_subagent_default": true},
 	}, contract.StartAssembly{})
@@ -321,5 +330,24 @@ func TestBuildStartSessionConfigFiltersSpawnAgentWhenPersistentManagedLaunchEnab
 	got, ok := cfg["enabledTools"].([]string)
 	if !ok || len(got) != 2 || got[0] != "launch_agent" || got[1] != "request_user_input" {
 		t.Fatalf("buildStartSessionConfig() enabledTools = %#v, want managed-only child-agent tools", cfg["enabledTools"])
+	}
+	if got := cfg[contract.RuntimeConfigCodexDisabledNativeTools().Canonical]; !reflect.DeepEqual(got, []string{contract.CodexNativeToolSpawnAgent}) {
+		t.Fatalf("buildStartSessionConfig() codexDisabledNativeTools = %#v, want native spawn_agent disabled", got)
+	}
+	prefiltered := buildStartSessionConfig(StartRequest{}, contract.StartInput{
+		Provider:     "codex",
+		EnabledTools: []string{"launch_agent"},
+		SessionFlags: map[string]bool{"persistent_subagent_default": true},
+	}, contract.StartAssembly{})
+	if got := prefiltered[contract.RuntimeConfigCodexDisabledNativeTools().Canonical]; !reflect.DeepEqual(got, []string{contract.CodexNativeToolSpawnAgent}) {
+		t.Fatalf("prefiltered codexDisabledNativeTools = %#v, want native spawn_agent disabled", got)
+	}
+	nativeOnly := buildStartSessionConfig(StartRequest{}, contract.StartInput{
+		Provider:     "codex",
+		EnabledTools: []string{"spawn_agent"},
+		SessionFlags: map[string]bool{"persistent_subagent_default": true},
+	}, contract.StartAssembly{})
+	if got := nativeOnly[contract.RuntimeConfigCodexDisabledNativeTools().Canonical]; !reflect.DeepEqual(got, []string{contract.CodexNativeToolSpawnAgent}) {
+		t.Fatalf("native-only codexDisabledNativeTools = %#v, want managed mode to fail closed", got)
 	}
 }

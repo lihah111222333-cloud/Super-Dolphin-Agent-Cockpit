@@ -512,20 +512,31 @@ func persistentSubagentDefaultEnabled(flags map[string]bool) bool {
 	return false
 }
 
+// persistentManagedSubagentLaunchEnabled 判断当前会话是否已具备受管子代理入口。
+func persistentManagedSubagentLaunchEnabled(enabledTools []string, flags map[string]bool) bool {
+	if !persistentSubagentDefaultEnabled(flags) {
+		return false
+	}
+	for _, tool := range enabledTools {
+		if managed, _ := subagentToolPolicyFlags(tool); managed {
+			return true
+		}
+	}
+	return false
+}
+
 // applyPersistentSubagentToolPolicy 在 managed 子代理默认开启时隐藏临时 spawn_agent 工具。
 // 只有两个工具同时存在才移除临时入口，避免缺少 managed 工具时把唯一可用入口删掉。
 func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]bool) []string {
-	if !persistentSubagentDefaultEnabled(flags) || len(enabledTools) == 0 {
+	if !persistentManagedSubagentLaunchEnabled(enabledTools, flags) || len(enabledTools) == 0 {
 		return enabledTools
 	}
-	hasManaged := false
 	hasSpawn := false
 	for _, tool := range enabledTools {
-		managed, spawn := subagentToolPolicyFlags(tool)
-		hasManaged = hasManaged || managed
+		_, spawn := subagentToolPolicyFlags(tool)
 		hasSpawn = hasSpawn || spawn
 	}
-	if !hasManaged || !hasSpawn {
+	if !hasSpawn {
 		return enabledTools
 	}
 	filtered := make([]string, 0, len(enabledTools)-1)

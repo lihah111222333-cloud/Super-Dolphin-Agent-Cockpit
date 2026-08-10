@@ -448,7 +448,11 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 		putConfigOutputStyleConfig(cfg, key, input.OutputStyleConfig)
 	}
 	if strings.EqualFold(strings.TrimSpace(input.Provider), "codex") {
-		putConfigStrings(cfg, contract.RuntimeConfigCodexDisabledNativeTools().Canonical, assembly.SuppressedTools)
+		disabledNativeTools := assembly.SuppressedTools
+		if persistentSubagentDefaultEnabled(input.SessionFlags) {
+			disabledNativeTools = appendUniqueConfigStrings(disabledNativeTools, []string{contract.CodexNativeToolSpawnAgent})
+		}
+		putConfigStrings(cfg, contract.RuntimeConfigCodexDisabledNativeTools().Canonical, disabledNativeTools)
 	}
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
 	mergeStartRequestConfig(cfg, req.Config, input.Provider)

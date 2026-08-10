@@ -51,7 +51,9 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	require.Equal(t, "thread-1", got.ThreadID)
 	require.Equal(t, "thread-1", agent.remoteThreadID)
 	require.Equal(t, "Worker UI", started["name"])
-	require.Equal(t, "agent-1", started["agent_id"])
+	require.NotContains(t, started, launcherwire.ParamAgentID)
+	require.Equal(t, "launch_agent-1", started[launcherwire.ParamLaunchIntentID])
+	require.Equal(t, true, started[launcherwire.ParamDeferSpawn])
 	require.Equal(t, "codex", started["provider"])
 	// thread/start must not receive a separate `prompt` key: the server treats
 	// it as a legacy alias for `name` and rejects (-32602) when the two differ.
@@ -233,8 +235,11 @@ func TestRemoteLauncher_LaunchUsesExplicitNameOnly(t *testing.T) {
 	if started["name"] != "dag-runtime-audit" {
 		t.Fatalf("Launch() name = %#v, want explicit name", started["name"])
 	}
-	if started["agent_id"] != "dag-runtime-audit" {
-		t.Fatalf("Launch() agent_id = %#v, want dag-runtime-audit", started["agent_id"])
+	if _, ok := started[launcherwire.ParamAgentID]; ok {
+		t.Fatalf("Launch() must omit agent_id while launch_intent_id is present: %#v", started)
+	}
+	if started[launcherwire.ParamLaunchIntentID] != "launch_dag-runtime-audit" {
+		t.Fatalf("Launch() launch_intent_id = %#v, want stable agent-derived intent", started[launcherwire.ParamLaunchIntentID])
 	}
 	if _, ok := started["prompt"]; ok {
 		t.Fatalf("Launch() started contains prompt=%#v; prompt must be submitted as a turn, not as name input", started["prompt"])

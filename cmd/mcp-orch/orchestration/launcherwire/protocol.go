@@ -23,6 +23,8 @@ const (
 	ParamPromptKey            = "prompt_key"
 	ParamAgentMemoryScope     = "agent_memory_scope"
 	ParamParentAgentID        = "parent_agent_id"
+	ParamLaunchIntentID       = "launch_intent_id"
+	ParamDeferSpawn           = "defer_spawn"
 	ParamBaseInstructions     = "base_instructions"
 	ParamProvider             = "provider"
 	ParamModel                = "model"

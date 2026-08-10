@@ -1968,6 +1968,7 @@
         "cmd/mcp-orch/tools.defineTaskReadTool",
         "cmd/mcp-orch/tools.defineTaskWriteTool",
         "cmd/mcp-orch/tools.defineTool",
+        "cmd/mcp-orch/tools.delegationCallerSnapshotFromList",
         "cmd/mcp-orch/tools.diagnoseAgentPromptIdentityGap",
         "cmd/mcp-orch/tools.diagnoseDAGPromptIdentityGaps",
         "cmd/mcp-orch/tools.diagnoseHybridPromptIdentityGap",
@@ -7021,6 +7022,7 @@
         "cmd/mcp-orch/tools.defineTaskReadTool",
         "cmd/mcp-orch/tools.defineTaskWriteTool",
         "cmd/mcp-orch/tools.defineTool",
+        "cmd/mcp-orch/tools.delegationCallerSnapshotFromList",
         "cmd/mcp-orch/tools.diagnoseAgentPromptIdentityGap",
         "cmd/mcp-orch/tools.diagnoseDAGPromptIdentityGaps",
         "cmd/mcp-orch/tools.diagnoseHybridPromptIdentityGap",
@@ -12074,6 +12076,7 @@
         "cmd/mcp-orch/tools.defineTaskReadTool",
         "cmd/mcp-orch/tools.defineTaskWriteTool",
         "cmd/mcp-orch/tools.defineTool",
+        "cmd/mcp-orch/tools.delegationCallerSnapshotFromList",
         "cmd/mcp-orch/tools.diagnoseAgentPromptIdentityGap",
         "cmd/mcp-orch/tools.diagnoseDAGPromptIdentityGaps",
         "cmd/mcp-orch/tools.diagnoseHybridPromptIdentityGap",
@@ -17127,6 +17130,7 @@
         "cmd/mcp-orch/tools.defineTaskReadTool",
         "cmd/mcp-orch/tools.defineTaskWriteTool",
         "cmd/mcp-orch/tools.defineTool",
+        "cmd/mcp-orch/tools.delegationCallerSnapshotFromList",
         "cmd/mcp-orch/tools.diagnoseAgentPromptIdentityGap",
         "cmd/mcp-orch/tools.diagnoseDAGPromptIdentityGaps",
         "cmd/mcp-orch/tools.diagnoseHybridPromptIdentityGap",
@@ -22183,6 +22187,7 @@
         "cmd/mcp-orch/tools.defineTaskReadTool",
         "cmd/mcp-orch/tools.defineTaskWriteTool",
         "cmd/mcp-orch/tools.defineTool",
+        "cmd/mcp-orch/tools.delegationCallerSnapshotFromList",
         "cmd/mcp-orch/tools.diagnoseAgentPromptIdentityGap",
         "cmd/mcp-orch/tools.diagnoseDAGPromptIdentityGaps",
         "cmd/mcp-orch/tools.diagnoseHybridPromptIdentityGap",
@@ -27244,6 +27249,7 @@
         "cmd/mcp-orch/tools.defineTaskReadTool",
         "cmd/mcp-orch/tools.defineTaskWriteTool",
         "cmd/mcp-orch/tools.defineTool",
+        "cmd/mcp-orch/tools.delegationCallerSnapshotFromList",
         "cmd/mcp-orch/tools.diagnoseAgentPromptIdentityGap",
         "cmd/mcp-orch/tools.diagnoseDAGPromptIdentityGaps",
         "cmd/mcp-orch/tools.diagnoseHybridPromptIdentityGap",
@@ -30353,12 +30359,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2490,
+    "total_functions": 2491,
     "total_methods": 1303,
     "total_interfaces": 192,
     "total_interface_methods": 381,
     "total_exported": 1336,
-    "total_unexported": 3291,
+    "total_unexported": 3292,
     "total_structs": 642
   },
   "packages": [
@@ -58660,6 +58666,32 @@
           ],
           "returns": [
             "ToolDefinition"
+          ]
+        },
+        {
+          "name": "delegationCallerSnapshotFromList",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "svc",
+              "type": "contract.AgentLaunchPort"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "snapshotErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "contract.AgentSnapshot",
+            "error"
           ]
         },
         {

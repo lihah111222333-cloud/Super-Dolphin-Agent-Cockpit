@@ -31,6 +31,7 @@ func TestBuildManifestPassesModelRegistryEnvFromProcessToStdioBinaries(t *testin
 func TestBuildManifestPassesSidecarRuntimeContractToStdioBinaries(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR", "/work/repo")
+	t.Setenv(SuperDolphinHomeEnv, "/tmp/super-dolphin-runtime")
 
 	manifest := BuildManifest(dto.ManifestContext{
 		BinaryDir:     "/bundle/bin",
@@ -46,6 +47,9 @@ func TestBuildManifestPassesSidecarRuntimeContractToStdioBinaries(t *testing.T) 
 		}
 		if got := bin.Env["SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"]; got != "/work/repo" {
 			t.Fatalf("binary %s SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = %q, want /work/repo", bin.Name, got)
+		}
+		if got := bin.Env[SuperDolphinHomeEnv]; got != "/tmp/super-dolphin-runtime" {
+			t.Fatalf("binary %s %s = %q, want /tmp/super-dolphin-runtime", bin.Name, SuperDolphinHomeEnv, got)
 		}
 	}
 }

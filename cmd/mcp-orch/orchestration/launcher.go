@@ -334,7 +334,6 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		"env_has_disabled_tools", envValue(req.Env, "AGENT_DISABLED_TOOLS") != "",
 	)
 	params := map[string]any{
-		launcherwire.ParamAgentID:          strings.TrimSpace(agent.id),
 		launcherwire.ParamCwd:              strings.TrimSpace(req.Cwd),
 		launcherwire.ParamName:             displayName,
 		launcherwire.ParamAgentType:        strings.TrimSpace(req.AgentType),
@@ -342,6 +341,8 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		launcherwire.ParamPromptKey:        strings.TrimSpace(req.PromptKey),
 		launcherwire.ParamAgentMemoryScope: strings.TrimSpace(req.MemoryScope),
 		launcherwire.ParamParentAgentID:    strings.TrimSpace(req.ParentID),
+		launcherwire.ParamLaunchIntentID:   "launch_" + strings.TrimSpace(agent.id),
+		launcherwire.ParamDeferSpawn:       true,
 		launcherwire.ParamBaseInstructions: strings.TrimSpace(req.Instructions),
 		launcherwire.ParamProvider:         launchProvider(req),
 		launcherwire.ParamModel:            model,

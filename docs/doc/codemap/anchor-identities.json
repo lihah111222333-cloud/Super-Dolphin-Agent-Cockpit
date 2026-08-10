@@ -10409,7 +10409,7 @@
       "codemap_line": 578,
       "target_path": "internal/contract/manifest.go",
       "line_spec": "257-269",
-      "content_sha256": "ca9bf8957b1c2a14caa563d5d12c85306577ef5570c24ff15017db21921c8354"
+      "content_sha256": "bf7ca481aea41be519a8a5be2daf4db9d9425c1dc4dae81caae7fa2074c708b2"
     },
     {
       "codemap_file": "09-provider.md",
@@ -10432,7 +10432,8 @@
       "codemap_line": 584,
       "target_path": "internal/contract/manifest.go",
       "line_spec": "336-367",
-      "content_sha256": "18fc31a9d26ffac12e4783575f30bf18b6e3c8f46f4f2a2a29040c999740005b"
+      "content_sha256": "a9d79b25867187881b4643813bddc33dbc5fed424d99f72f3e27b38a1eed0945",
+      "symbol": "mcpLegacyEnvAliases"
     },
     {
       "codemap_file": "09-provider.md",

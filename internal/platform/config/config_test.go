@@ -384,12 +384,12 @@ func TestSharedFileRootFailsFastForPackagedRuntimeWithoutHome(t *testing.T) {
 	}
 }
 
-func TestNew_DefaultsPersistentSubagentDefaultOff(t *testing.T) {
+func TestNew_DefaultsPersistentSubagentDefaultOn(t *testing.T) {
 	isolateConfigTestEnv(t)
 	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "")
 	cfg := mustNewConfig(t)
-	if cfg.Agent.PersistentSubagentDefault {
-		t.Fatalf("Agent.PersistentSubagentDefault = true, want false")
+	if !cfg.Agent.PersistentSubagentDefault {
+		t.Fatalf("Agent.PersistentSubagentDefault = false, want true")
 	}
 }
 
@@ -399,6 +399,15 @@ func TestNew_AllowsEnablingPersistentSubagentDefault(t *testing.T) {
 	cfg := mustNewConfig(t)
 	if !cfg.Agent.PersistentSubagentDefault {
 		t.Fatalf("Agent.PersistentSubagentDefault = false, want true")
+	}
+}
+
+func TestNew_AllowsDisablingPersistentSubagentDefault(t *testing.T) {
+	isolateConfigTestEnv(t)
+	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "false")
+	cfg := mustNewConfig(t)
+	if cfg.Agent.PersistentSubagentDefault {
+		t.Fatalf("Agent.PersistentSubagentDefault = true, want false")
 	}
 }
 

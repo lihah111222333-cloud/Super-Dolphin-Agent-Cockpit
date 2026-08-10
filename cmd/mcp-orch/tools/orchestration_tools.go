@@ -227,6 +227,9 @@ func rejectChildAgentDelegation(ctx context.Context, svc contract.AgentLaunchPor
 	snapshotCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
 	snapshot, err := svc.Snapshot(snapshotCtx, scope.AgentID)
+	if errors.Is(err, contract.ErrAgentNotFound) {
+		snapshot, err = delegationCallerSnapshotFromList(snapshotCtx, svc, scope.AgentID, err)
+	}
 	if err != nil {
 		return fmt.Errorf("verify launch_agent caller %q delegation depth: %w", scope.AgentID, err)
 	}
@@ -234,6 +237,21 @@ func rejectChildAgentDelegation(ctx context.Context, svc contract.AgentLaunchPor
 		return nil
 	}
 	return fmt.Errorf("%s", subAgentDelegationDepthLimitMessage)
+}
+
+// delegationCallerSnapshotFromList 用同源聚合列表补偿单快照暂未装载的根 Agent。
+func delegationCallerSnapshotFromList(ctx context.Context, svc contract.AgentLaunchPort, agentID string, snapshotErr error) (contract.AgentSnapshot, error) {
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		return contract.AgentSnapshot{}, err
+	}
+	agentID = strings.TrimSpace(agentID)
+	for _, snapshot := range agents {
+		if strings.TrimSpace(snapshot.ID) == agentID || strings.TrimSpace(snapshot.AgentID) == agentID || strings.TrimSpace(snapshot.LaunchID) == agentID {
+			return snapshot, nil
+		}
+	}
+	return contract.AgentSnapshot{}, snapshotErr
 }
 
 // matchingAgentID 在已有快照里查找同一逻辑 agent id。

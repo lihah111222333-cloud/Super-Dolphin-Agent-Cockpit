@@ -468,8 +468,8 @@ internal/platform/cachekeepalive/module_test.go	internal	platform-provider	go-te
 internal/platform/cachekeepalive/relay.go	internal	platform-provider	go-source	2290	基础设施层	internal,platform,cachekeepalive,relay,基础设施层
 internal/platform/cachekeepalive/subscribers.go	internal	platform-provider	go-source	1162	基础设施层	internal,platform,cachekeepalive,subscribers,基础设施层
 internal/platform/cachekeepalive/subscribers_test.go	internal	platform-provider	go-test	3900	基础设施层	internal,platform,cachekeepalive,subscribers,test,基础设施层
-internal/platform/config/config.go	internal	platform-provider	go-source	21308	运行配置、env、provider 与超时策略	internal,platform,config,运行配置,env,provider,与超时策略
-internal/platform/config/config_test.go	internal	platform-provider	go-test	24321	运行配置、env、provider 与超时策略	internal,platform,config,test,运行配置,env,provider,与超时策略
+internal/platform/config/config.go	internal	platform-provider	go-source	21307	运行配置、env、provider 与超时策略	internal,platform,config,运行配置,env,provider,与超时策略
+internal/platform/config/config_test.go	internal	platform-provider	go-test	24604	运行配置、env、provider 与超时策略	internal,platform,config,test,运行配置,env,provider,与超时策略
 internal/platform/config/dependency_profile_test.go	internal	platform-provider	go-test	5519	运行配置、env、provider 与超时策略	internal,platform,config,dependency,profile,test,运行配置,env,provider,与超时策略
 internal/platform/config/dev_mode_test.go	internal	platform-provider	go-test	1397	运行配置、env、provider 与超时策略	internal,platform,config,dev,mode,test,运行配置,env,provider,与超时策略
 internal/platform/config/lsp.go	internal	platform-provider	go-source	14935	运行配置、env、provider 与超时策略	internal,platform,config,lsp,运行配置,env,provider,与超时策略

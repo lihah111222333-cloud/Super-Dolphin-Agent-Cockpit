@@ -85,6 +85,28 @@ func TestLaunchHandlerAllowsRootAgentDelegation(t *testing.T) {
 	require.True(t, launched)
 }
 
+func TestLaunchHandlerAllowsPersistedRootWhenDirectSnapshotMisses(t *testing.T) {
+	launched := false
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
+		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+			require.Equal(t, "agent-root", agentID)
+			return contract.AgentSnapshot{}, fmt.Errorf("lookup root: %w", contract.ErrAgentNotFound)
+		},
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{{ID: "agent-root", AgentID: "agent-root"}}, nil
+		},
+		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			launched = true
+			return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "idle"}, nil
+		},
+	}, mockExe())
+
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-root"})
+	_, err := handler(ctx, json.RawMessage(`{"name":"child","cwd":"/tmp/work","provider":"codex"}`))
+	require.NoError(t, err)
+	require.True(t, launched)
+}
+
 func TestLaunchHandlerRejectsChildAgentDelegation(t *testing.T) {
 	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
