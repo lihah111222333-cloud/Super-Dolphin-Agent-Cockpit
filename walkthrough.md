@@ -37,7 +37,7 @@
 
 ### 聊天页（`src/pages/chat/ChatPage.css`、`composer/ComposerDock.css`、`ChatPageWorkbench.css`）— 对应 01/02
 
-- hero：标题 display 字阶 40px/600/52px、`-0.02em`，`燧元` 主色高亮保留；副标题 18/28、`--super-dolphin-agent-on-surface-variant`(#584238)；logo tile 与副标题经 `data-brand` 修复后实际显示。
+- hero：标题 display 字阶 40px/600/52px、`-0.02em`，`Super Dolphin Agent` 主色高亮保留；副标题 18/28、`--super-dolphin-agent-on-surface-variant`(#584238)；logo tile 与副标题经 `data-brand` 修复后实际显示。
 - 建议卡：白底（暗色 `--super-dolphin-agent-surface-low`）、1px `--super-dolphin-agent-outline-variant`、16px 圆角、静止无阴影、hover `--super-dolphin-agent-card-shadow` + `translateY(-2px)`；图标浅色 tile（暗色为纯主色图标）；标题/描述显式颜色。
 - 浮动输入卡：圆角 20→24px（`--super-dolphin-agent-radius-input`），白底 + `--super-dolphin-agent-input-shadow`；工具行保留 添加文件/Add image/项目选择/模型选择/发送 全部真实交互；暗色发送键改为 `--super-dolphin-agent-primary-container`(#c84d05) + 近白箭头（对齐 02 设计）；免责声明修复为 `--super-dolphin-agent-on-surface-variant`（原 `#c6c7c4` 在浅底上约 1.6:1 不可读）。
 - 暂缓：设计稿的方形发送键（保持产品现有圆形）；暗色 hero logo tile 保留。

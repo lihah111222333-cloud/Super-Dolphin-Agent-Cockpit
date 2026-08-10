@@ -372,7 +372,7 @@ describe('agentic e2e business discovery', () => {
   it('discovers sidebar entries and safe query actions from DOM summary', () => {
     const flows = discoverBusinessFlows({
       url: 'http://127.0.0.1:5176/',
-      title: '燧元',
+      title: 'Super Dolphin Agent',
       domSummary: [
         { tag: 'button', role: '', testId: '', ariaLabel: '链路追踪', text: '', disabled: false, sourceTestId: 'sidebar-secondary-nav' },
         { tag: 'button', role: '', testId: '', ariaLabel: 'Settings', text: '', disabled: false, sourceTestId: 'app-sidebar' },
@@ -388,7 +388,7 @@ describe('agentic e2e business discovery', () => {
   it('discovers known navigation entries from baseline DOM summary shape', () => {
     const flows = discoverBusinessFlows({
       url: 'http://127.0.0.1:5176/',
-      title: '燧元',
+      title: 'Super Dolphin Agent',
       domSummary: [
         { tag: 'button', role: '', testId: '', ariaLabel: '链路追踪', text: '', disabled: false },
         { tag: 'button', role: '', testId: '', ariaLabel: 'Settings', text: '', disabled: false },
@@ -405,7 +405,7 @@ describe('agentic e2e business discovery', () => {
   it('discovers Chinese navigation entries from aria labels and visible text', () => {
     const flows = discoverBusinessFlows({
       url: 'http://127.0.0.1:5176/',
-      title: '燧元',
+      title: 'Super Dolphin Agent',
       domSummary: [
         { tag: 'button', role: '', testId: '', ariaLabel: '插件与技能', text: '插件', disabled: false },
         { tag: 'button', role: '', testId: '', ariaLabel: '设置', text: '设置', disabled: false },

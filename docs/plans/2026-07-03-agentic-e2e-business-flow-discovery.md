@@ -47,7 +47,7 @@ describe('agentic e2e business discovery', () => {
   it('discovers sidebar entries and safe query actions from DOM summary', () => {
     const flows = discoverBusinessFlows({
       url: 'http://127.0.0.1:5176/',
-      title: '燧元',
+      title: 'Super Dolphin Agent',
       domSummary: [
         { tag: 'button', role: '', testId: '', ariaLabel: '链路追踪', text: '', disabled: false, sourceTestId: 'sidebar-secondary-nav' },
         { tag: 'button', role: '', testId: '', ariaLabel: 'Settings', text: '', disabled: false, sourceTestId: 'app-sidebar' },

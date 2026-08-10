@@ -10,7 +10,7 @@
     "expand": "Expand sidebar",
     "collapse": "Collapse sidebar",
     "tools": "Workbench tools",
-    "ariaLabel": "燧元 Workbench",
+    "ariaLabel": "Super Dolphin Agent Workbench",
     "mobileNavAriaLabel": "Primary navigation",
     "search": "Search",
     "newChat": "New chat",
@@ -79,7 +79,7 @@
     "dismiss": "Later"
   },
   "chat": {
-    "introTitle": "What should we build in 燧元?",
+    "introTitle": "What should we build in Super Dolphin Agent?",
     "introSubtitle": "Explore the possibilities of AI-driven interfaces. Start a conversation, analyze files, or orchestrate complex tasks.",
     "timelineLabel": "Chat history",
     "introSuggestions": {
@@ -527,7 +527,7 @@
     "autoDreamDescription": "Automatically organize important details after conversations end",
     "enable": "Enable",
     "disable": "Disable",
-    "pendingRestart": "Saved. Restart 燧元 to apply this change.",
+    "pendingRestart": "Saved. Restart Super Dolphin Agent to apply this change.",
     "similarGroupsSuffix": "similar groups",
     "collapse": "Collapse",
     "expand": "Expand",
@@ -681,7 +681,7 @@
   },
   "prompts": {
     "title": "Personalization",
-    "subtitle": "Manage your profile and 燧元 memory",
+    "subtitle": "Manage your profile and Super Dolphin Agent memory",
     "currentProject": "Current project",
     "unknownProject": "Unknown",
     "overviewAria": "Personalization overview",

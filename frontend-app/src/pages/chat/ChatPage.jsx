@@ -59,7 +59,7 @@ const INTRO_SUGGESTION_DEFINITIONS = Object.freeze([
 ]);
 
 function renderIntroTitle(title) {
-  const marker = '燧元';
+  const marker = 'Super Dolphin Agent';
   const markerIndex = title.indexOf(marker);
   if (markerIndex < 0) return title;
 

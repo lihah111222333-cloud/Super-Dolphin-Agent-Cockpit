@@ -1,4 +1,4 @@
-const APP_BRAND_NAME = '燧元';
+const APP_BRAND_NAME = 'Super Dolphin Agent';
 const APP_LANGUAGE_STORAGE_KEY = 'super-dolphin-agent-language';
 
 const APP_LOCALES = Object.freeze({

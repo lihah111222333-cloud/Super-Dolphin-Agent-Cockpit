@@ -419,7 +419,7 @@ describe('MemoryPage editor', () => {
 		// 快照回读的 intent 仍为 null（后端读写路径不一致）时，必须给出明确的未生效反馈，
 		// 不能假装切换成功。
 		expect(await screen.findByText(/自动沉淀切换未生效/)).toBeInTheDocument();
-		expect(screen.queryByText(/重启 燧元 后生效/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/重启 Super Dolphin Agent 后生效/)).not.toBeInTheDocument();
 	});
 
 	it('confirms the auto-dream toggle when the snapshot reflects the new intent', async () => {

@@ -75,9 +75,9 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    const introHeading = screen.getByRole('heading', { name: '我们应该在 燧元 中构建什么？' });
+    const introHeading = screen.getByRole('heading', { name: '我们应该在 Super Dolphin Agent 中构建什么？' });
     expect(introHeading).toBeInTheDocument();
-    expect(within(introHeading).getByText('燧元').tagName).toBe('EM');
+    expect(within(introHeading).getByText('Super Dolphin Agent').tagName).toBe('EM');
     expect(screen.getByText('探索 AI 驱动界面的可能性。开启对话、分析文件或编排复杂任务。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '总结文档 上传 PDF 或文本文件，快速提炼关键要点。' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '代码审查 粘贴代码片段，检查性能、正确性与潜在缺陷。' })).toBeInTheDocument();
@@ -118,7 +118,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
 
     render(<TestChatPageWrapper copy={APP_COPY.en.chat} store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByRole('heading', { name: 'What should we build in 燧元?' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What should we build in Super Dolphin Agent?' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {
       name: 'Summarize Document Upload a PDF or text file and get a concise overview of key points.',
     }));
@@ -133,7 +133,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(addFileButton.querySelector('svg')).toBeInTheDocument();
     expect(screen.getByText('Super Dolphin Agent can make mistakes. Consider verifying critical information.')).toBeInTheDocument();
     expect(screen.queryByText('总结文档')).not.toBeInTheDocument();
-    expect(screen.queryByText('燧元 AI 可能出错，请核对重要信息。')).not.toBeInTheDocument();
+    expect(screen.queryByText('Super Dolphin Agent 可能出错，请核对重要信息。')).not.toBeInTheDocument();
     expect(store.setDraft).toHaveBeenCalledWith('Please summarize this document, highlighting key conclusions, risks, and next steps.');
   });
 
@@ -144,7 +144,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByRole('heading', { name: '我们应该在 燧元 中构建什么？' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '我们应该在 Super Dolphin Agent 中构建什么？' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-action-feedback')).toHaveClass('chat-action-toast');
     expect(screen.getByTestId('chat-action-feedback')).toHaveAttribute('role', 'alert');
@@ -400,7 +400,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
 
     expect(screen.queryByText('连接后端失败：backend unavailable')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新连接后端' })).toBeEnabled();
-    expect(screen.getByText('我们应该在 燧元 中构建什么？')).toBeInTheDocument();
+    expect(screen.getByText('我们应该在 Super Dolphin Agent 中构建什么？')).toBeInTheDocument();
     expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('请修复测试');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();

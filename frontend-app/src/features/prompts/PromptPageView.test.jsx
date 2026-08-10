@@ -254,7 +254,7 @@ describe('PromptPageView module', () => {
     const { notifyAction } = renderPromptPage();
 
     expect(await screen.findByRole('heading', { name: '个性化' })).toBeInTheDocument();
-    expect(screen.getByText('管理您的身份信息以及 燧元 的记忆内容')).toBeInTheDocument();
+    expect(screen.getByText('管理您的身份信息以及 Super Dolphin Agent 的记忆内容')).toBeInTheDocument();
     const overview = screen.getByLabelText('个性化概览');
     const metricValue = (label) => {
       const term = Array.from(overview.querySelectorAll('dt')).find((node) => node.textContent === label);

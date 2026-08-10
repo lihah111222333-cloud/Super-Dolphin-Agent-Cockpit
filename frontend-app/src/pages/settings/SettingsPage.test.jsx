@@ -175,7 +175,7 @@ describe('SettingsPage module', () => {
 
     const panel = screen.getByTestId('settings-mobile-account');
     await screen.findByTestId('settings-update-card');
-    expect(panel).toHaveTextContent('燧元');
+    expect(panel).toHaveTextContent('Super Dolphin Agent');
     expect(panel).toHaveTextContent('app');
     expect(panel).toHaveTextContent('/repo/app');
     expect(panel).toHaveTextContent('Codex');

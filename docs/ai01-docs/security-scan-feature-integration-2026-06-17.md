@@ -159,7 +159,7 @@ npm run build
 
 - `http://127.0.0.1:5175` 返回 HTTP 200。
 - `http://127.0.0.1:4512/metrics` 返回 HTTP 200。
-- 浏览器页面 title 为 `燧元`。
+- 浏览器页面 title 为 `Super Dolphin Agent`。
 - 前端 console error/warning 计数为 0。
 
 运行时说明：

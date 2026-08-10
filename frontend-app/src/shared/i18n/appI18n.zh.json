@@ -10,7 +10,7 @@
     "expand": "展开侧栏",
     "collapse": "折叠侧栏",
     "tools": "工作台工具",
-    "ariaLabel": "燧元 工作台",
+    "ariaLabel": "Super Dolphin Agent 工作台",
     "mobileNavAriaLabel": "主要导航",
     "search": "搜索",
     "newChat": "新对话",
@@ -79,7 +79,7 @@
     "dismiss": "稍后"
   },
   "chat": {
-    "introTitle": "我们应该在 燧元 中构建什么？",
+    "introTitle": "我们应该在 Super Dolphin Agent 中构建什么？",
     "introSubtitle": "探索 AI 驱动界面的可能性。开启对话、分析文件或编排复杂任务。",
     "timelineLabel": "聊天记录",
     "introSuggestions": {
@@ -129,7 +129,7 @@
     "actionFailedTitle": "操作失败",
     "noticeTitle": "通知",
     "approvalFailed": "审批操作失败",
-    "composerDisclaimer": "燧元 AI 可能出错，请核对重要信息。",
+    "composerDisclaimer": "Super Dolphin Agent 可能出错，请核对重要信息。",
     "processComplete": "执行过程",
     "processRunning": "正在执行",
     "processStepSingle": "条",
@@ -527,7 +527,7 @@
     "autoDreamDescription": "对话结束后自动整理重要内容",
     "enable": "开启",
     "disable": "关闭",
-    "pendingRestart": "已保存切换，重启 燧元 后生效",
+    "pendingRestart": "已保存切换，重启 Super Dolphin Agent 后生效",
     "similarGroupsSuffix": "组条目内容相似",
     "collapse": "收起",
     "expand": "展开",
@@ -681,7 +681,7 @@
   },
   "prompts": {
     "title": "个性化",
-    "subtitle": "管理您的身份信息以及 燧元 的记忆内容",
+    "subtitle": "管理您的身份信息以及 Super Dolphin Agent 的记忆内容",
     "currentProject": "当前项目",
     "unknownProject": "未知",
     "overviewAria": "个性化概览",
