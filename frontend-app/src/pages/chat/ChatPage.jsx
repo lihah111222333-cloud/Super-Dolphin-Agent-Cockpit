@@ -294,7 +294,9 @@ function ChatPage(props) {
         <div className="chat-main-column" data-testid="chat-main-column">
           {!rightPanelOpen ? (
             <AgentBoardFloating
+              collapsed={agentBoard.floatingCollapsed}
               compact={agentBoardCompact}
+              onCollapsedChange={agentBoard.setFloatingCollapsed}
               onExpand={agentBoard.expand}
               viewModel={agentBoard.viewModel}
             />

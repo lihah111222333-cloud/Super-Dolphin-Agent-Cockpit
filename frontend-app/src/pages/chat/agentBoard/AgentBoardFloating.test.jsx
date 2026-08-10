@@ -56,6 +56,7 @@ describe('AgentBoardFloating', () => {
     expect(screen.getByTestId('agent-count-waiting')).toHaveTextContent('等待 1');
     expect(screen.getByTestId('agent-count-completed')).toHaveTextContent('完成 0');
     expect(screen.getByTestId('agent-count-failed')).toHaveTextContent('失败 0');
+    expect(screen.getByTestId('agent-board-floating').lastElementChild).toBe(screen.getByRole('button', { name: '收起 Agents 状态' }));
   });
 
   it('只展示 selector 汇总，不重排或复制 Agent 业务状态', () => {
@@ -117,5 +118,15 @@ describe('AgentBoardFloating', () => {
     expect(expand).toHaveFocus();
     fireEvent.click(expand);
     expect(props.onExpand).toHaveBeenCalledWith();
+  });
+
+  it('renders an idle pill and restores the full floating board on demand', () => {
+    const onCollapsedChange = vi.fn();
+    renderFloating(floatingViewModel([agent('root', { status: 'idle' })]), { collapsed: true, onCollapsedChange });
+
+    expect(screen.getByRole('button', { name: 'Agents状态' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('agent-counts')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Agents状态' }));
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
   });
 });

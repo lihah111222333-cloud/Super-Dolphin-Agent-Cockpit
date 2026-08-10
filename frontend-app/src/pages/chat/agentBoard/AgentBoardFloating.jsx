@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Maximize2 } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { hasOnlyRootAgent } from './agentBoardModel.js';
 import { AgentCountsSummary } from './AgentCountsSummary.jsx';
 
@@ -61,7 +61,7 @@ function FloatingBody({ viewModel }) {
  * 常态悬浮 Agent 看板：聊天页面始终可见的紧凑卡片。
  * 数据完全来自 selector view model；点击展开按钮进入 docked 右侧栏。
  */
-function AgentBoardFloating({ viewModel, compact = false, onExpand }) {
+function AgentBoardFloating({ viewModel, collapsed = false, compact = false, onCollapsedChange = () => {}, onExpand }) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const cardRef = useRef(null);
@@ -94,36 +94,58 @@ function AgentBoardFloating({ viewModel, compact = false, onExpand }) {
   return (
     <section
       ref={cardRef}
-      className={`agent-board-floating${compact ? ' agent-board-floating--compact' : ''}${dragging ? ' is-dragging' : ''}`}
+      className={`agent-board-floating${collapsed ? ' agent-board-floating--collapsed' : ''}${compact ? ' agent-board-floating--compact' : ''}${dragging ? ' is-dragging' : ''}`}
       role="region"
       aria-label="Agent 看板"
       aria-grabbed={dragging}
       data-testid="agent-board-floating"
       style={{ '--agent-board-drag-x': `${offset.x}px`, '--agent-board-drag-y': `${offset.y}px` }}
     >
-      <header
-        className="agent-board-floating__header"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={stopDragging}
-        onPointerCancel={stopDragging}
-      >
-        <h2 className="agent-board-floating__title">Agents</h2>
-        <span className="agent-board-floating__total" aria-label={`Agent 总数 ${viewModel.agents.length}`}>
-          {viewModel.agents.length}
-        </span>
+      {collapsed ? (
         <button
           type="button"
-          className="agent-board-floating__expand"
-          aria-label="展开 Agent 看板"
-          title="展开 Agent 看板"
-          data-testid="agent-board-expand"
-          onClick={() => onExpand()}
+          className="agent-board-floating__pill"
+          aria-expanded="false"
+          onClick={() => onCollapsedChange(false)}
         >
-          <Maximize2 size={14} aria-hidden="true" />
+          Agents状态
         </button>
-      </header>
-      <FloatingBody viewModel={viewModel} />
+      ) : (
+        <>
+          <header
+            className="agent-board-floating__header"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={stopDragging}
+            onPointerCancel={stopDragging}
+          >
+            <h2 className="agent-board-floating__title">Agents</h2>
+            <span className="agent-board-floating__total" aria-label={`Agent 总数 ${viewModel.agents.length}`}>
+              {viewModel.agents.length}
+            </span>
+            <button
+              type="button"
+              className="agent-board-floating__expand"
+              aria-label="展开 Agent 看板"
+              title="展开 Agent 看板"
+              data-testid="agent-board-expand"
+              onClick={() => onExpand()}
+            >
+              <Maximize2 size={14} aria-hidden="true" />
+            </button>
+          </header>
+          <FloatingBody viewModel={viewModel} />
+          <button
+            type="button"
+            className="agent-board-floating__collapse"
+            aria-label="收起 Agents 状态"
+            title="收起 Agents 状态"
+            onClick={() => onCollapsedChange(true)}
+          >
+            <Minimize2 size={14} aria-hidden="true" />
+          </button>
+        </>
+      )}
     </section>
   );
 }

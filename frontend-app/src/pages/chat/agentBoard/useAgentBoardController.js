@@ -15,6 +15,8 @@ function useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen }) {
   const docked = rightPanelOpen && rightPanelView === 'agents';
   const agents = store.agents;
   const mainAgentId = store.mainAgentId;
+  const activeThreadId = store.activeThreadId;
+  const threads = store.threads;
   const loading = Boolean(store.activeThreadId && store.threadStateLoadingByThread?.[store.activeThreadId]);
   const error = store.error ? String(store.error) : null;
   const viewModel = useMemo(
@@ -23,9 +25,16 @@ function useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen }) {
       selectedAgentId,
       loading,
       error,
+      activeThreadId,
+      threads,
     }),
-    [agents, mainAgentId, docked, selectedAgentId, loading, error],
+    [agents, mainAgentId, docked, selectedAgentId, loading, error, activeThreadId, threads],
   );
+  const conversationActive = viewModel.counts.running > 0;
+  const [floatingCollapsed, setFloatingCollapsed] = useState(!conversationActive);
+  useEffect(() => {
+    setFloatingCollapsed(!conversationActive);
+  }, [activeThreadId, conversationActive]);
   const resolvedSelectedId = resolveSelectedAgentId(viewModel);
   useEffect(() => {
     if (resolvedSelectedId !== selectedAgentId) setSelectedAgentId(resolvedSelectedId);
@@ -41,7 +50,9 @@ function useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen }) {
   return {
     docked,
     rightPanelView,
+    floatingCollapsed,
     viewModel: { ...viewModel, selectedAgentId: resolvedSelectedId },
+    setFloatingCollapsed,
     selectAgent: setSelectedAgentId,
     expand,
     collapse,

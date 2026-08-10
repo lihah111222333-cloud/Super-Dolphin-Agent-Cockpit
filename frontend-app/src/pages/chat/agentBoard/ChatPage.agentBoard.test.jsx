@@ -57,6 +57,15 @@ it('默认在聊天页面展示常态悬浮看板，不打开右侧栏', () => {
   expect(screen.queryByTestId('runtime-panel')).toBeNull();
 });
 
+it('会话闲置时收起为状态胶囊，恢复运行时自动展开', async () => {
+  const { rerender } = render(<TestChatPageWrapper store={boardStore({ agents: [agent('root', { status: 'idle' })] })} projectPath="/repo/app" />);
+
+  expect(screen.getByRole('button', { name: 'Agents状态' })).toBeInTheDocument();
+  rerender(<TestChatPageWrapper store={boardStore({ agents: [agent('root')] })} projectPath="/repo/app" />);
+  await waitFor(() => expect(screen.getByTestId('agent-board-floating')).toHaveTextContent('Agents'));
+  expect(screen.queryByRole('button', { name: 'Agents状态' })).toBeNull();
+});
+
 it('可拖动悬浮看板并保留新的偏移位置', () => {
   render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" />);
 
@@ -177,10 +186,10 @@ it('悬浮看板展示后端错误，不静默吞掉', () => {
   expect(screen.getByRole('alert')).toHaveTextContent('快照同步失败');
 });
 
-it('没有 Agent 时悬浮看板展示空状态', () => {
+it('没有 Agent 时悬浮看板保持闲置胶囊', () => {
   render(<TestChatPageWrapper store={boardStore({ agents: [], mainAgentId: '' })} projectPath="/repo/app" />);
 
-  expect(screen.getByTestId('agent-board-floating')).toHaveTextContent('暂无 Agent');
+  expect(screen.getByRole('button', { name: 'Agents状态' })).toBeInTheDocument();
 });
 
 it('窄窗口下收敛为紧凑卡片且不遮挡聊天输入区', () => {

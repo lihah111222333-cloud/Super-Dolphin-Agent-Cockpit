@@ -76,6 +76,43 @@ function countAgentStates(agents) {
   return counts;
 }
 
+function agentsForActiveThread(agents, activeThreadId, threads) {
+  if (typeof activeThreadId !== 'string' || !activeThreadId) return agents;
+  if (!Array.isArray(threads)) throw new TypeError('client store threads must be an array');
+  const identities = new Set([activeThreadId]);
+  const identityFields = ['id', 'agentId', 'providerThreadId', 'sessionId'];
+  for (const thread of threads) {
+    const values = identityFields.map((field) => thread?.[field]).filter((value) => typeof value === 'string' && value);
+    if (values.some((value) => identities.has(value))) values.forEach((value) => identities.add(value));
+  }
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const rootIds = new Set();
+  for (const agent of agents) {
+    if (!identities.has(agent.id) && !identities.has(agent.threadId)) continue;
+    let root = agent;
+    const visited = new Set();
+    while (root.parentAgentId && byId.has(root.parentAgentId)) {
+      if (visited.has(root.id)) throw new Error(`agent parent cycle: ${root.id}`);
+      visited.add(root.id);
+      root = byId.get(root.parentAgentId);
+    }
+    rootIds.add(root.id);
+  }
+  if (rootIds.size === 0) return [];
+  const included = new Set(rootIds);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const agent of agents) {
+      if (!included.has(agent.id) && included.has(agent.parentAgentId)) {
+        included.add(agent.id);
+        changed = true;
+      }
+    }
+  }
+  return agents.filter((agent) => included.has(agent.id));
+}
+
 function selectAgentBoardViewModel(state, options) {
   if (!options || (options.mode !== 'floating' && options.mode !== 'docked')) {
     throw new TypeError('agent board mode must be floating or docked');
@@ -84,7 +121,8 @@ function selectAgentBoardViewModel(state, options) {
   if (typeof options.loading !== 'boolean') throw new TypeError('loading must be a boolean');
   if (options.error !== null && typeof options.error !== 'string') throw new TypeError('error must be a string or null');
   if (!Array.isArray(state.agents)) throw new TypeError('client store agents must be an array');
-  const orderedAgents = stableHierarchy(state.agents);
+  const scopedAgents = agentsForActiveThread(state.agents, options.activeThreadId, options.threads);
+  const orderedAgents = stableHierarchy(scopedAgents);
   const agents = orderedAgents.map((agent) => ({ ...agent, statusView: agentStatusView(agent) }));
   const structuredRootAgent = agents.find((agent) => !agent.parentAgentId);
   const structuredRoot = structuredRootAgent === undefined ? '' : structuredRootAgent.id;
@@ -103,6 +141,7 @@ function selectAgentBoardViewModel(state, options) {
 }
 
 export {
+  agentsForActiveThread,
   countAgentStates,
   mergeAgentBoardPatch,
   selectAgentBoardViewModel,

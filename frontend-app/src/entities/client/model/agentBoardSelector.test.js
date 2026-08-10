@@ -57,6 +57,22 @@ describe('agent board data model', () => {
     expect(view.agents.map((agent) => agent.id)).toEqual(['root', 'child-a', 'child-b', 'other']);
   });
 
+  it('scopes the board to the active conversation root and its subagents', () => {
+    const agents = [
+      normalizeBoardView(board('root-a')),
+      normalizeBoardView(board('child-a', 'idle', null, 'root-a')),
+      normalizeBoardView(board('root-b')),
+      normalizeBoardView(board('child-b', 'idle', null, 'root-b')),
+    ];
+    const view = selectAgentBoardViewModel({ agents, mainAgentId: 'root-b' }, {
+      ...selectorOptions,
+      activeThreadId: 'provider-a',
+      threads: [{ id: 'thread-root-a', agentId: 'root-a', providerThreadId: 'provider-a' }],
+    });
+    expect(view.rootAgentId).toBe('root-a');
+    expect(view.agents.map((agent) => agent.id)).toEqual(['root-a', 'child-a']);
+  });
+
   it('counts running, waiting, success, failure, and stopped outcomes structurally', () => {
     const success = { kind: 'success', summary: 'done', recoverable: null, completedAt: at };
     const failure = { kind: 'failure', reason: 'boom', code: 'provider', recoverable: true, completedAt: at };

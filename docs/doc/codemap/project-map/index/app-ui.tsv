@@ -229,7 +229,7 @@ frontend-app/src/devtools/uiTestContract.js	frontend-app	app-ui	js-source	3980	�
 frontend-app/src/devtools/uiTestContract.test.js	frontend-app	app-ui	js-test	5731	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestContract,test,当前,React,Vite,前端包
 frontend-app/src/devtools/uiTestHarness.js	frontend-app	app-ui	js-source	16422	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,当前,React,Vite,前端包
 frontend-app/src/devtools/uiTestHarness.test.js	frontend-app	app-ui	js-test	12492	当前 React/Vite 前端包	frontend,app,src,devtools,uiTestHarness,test,当前,React,Vite,前端包
-frontend-app/src/entities/client/model/agentBoardSelector.test.js	frontend-app	app-ui	js-test	6102	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,agentBoardSelector,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/agentBoardSelector.test.js	frontend-app	app-ui	js-test	6811	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,agentBoardSelector,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/bridgePatchState.js	frontend-app	app-ui	js-source	16744	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgePatchState,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/bridgePatchState.test.js	frontend-app	app-ui	js-test	9099	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgePatchState,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/bridgeRevision.test.js	frontend-app	app-ui	js-test	2168	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,bridgeRevision,test,React,客户端状态,thread,composer,store,模型
@@ -257,7 +257,7 @@ frontend-app/src/entities/client/model/helpers/a2Slice/composerSliceActions.js	f
 frontend-app/src/entities/client/model/helpers/a2Slice/forkSliceActions.js	frontend-app	app-ui	js-source	8336	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a2Slice,forkSliceActions,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a2Slice/projectSliceActions.js	frontend-app	app-ui	js-source	8617	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a2Slice,projectSliceActions,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a2Slice/projectSliceActions.test.js	frontend-app	app-ui	js-test	10422	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a2Slice,projectSliceActions,test,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/helpers/agentBoard/selector.js	frontend-app	app-ui	js-source	4399	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,agentBoard,selector,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/helpers/agentBoard/selector.js	frontend-app	app-ui	js-source	6045	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,agentBoard,selector,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js	frontend-app	app-ui	js-source	28894	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,assistantEventRuntime,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/bridgeRevision.js	frontend-app	app-ui	js-source	3039	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,bridgeRevision,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/providerPreferences.js	frontend-app	app-ui	js-source	1805	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,providerPreferences,React,客户端状态,thread,composer,store,模型
@@ -372,7 +372,7 @@ frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js
 frontend-app/src/pages/chat/ChatMessages.css	frontend-app	app-ui	css	17359	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatMessages,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.core.test.jsx	frontend-app	app-ui	jsx	35697	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,core,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.css	frontend-app	app-ui	css	16636	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
-frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	16630	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	16751	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.preview.test.jsx	frontend-app	app-ui	jsx	23806	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,preview,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.scroll.test.jsx	frontend-app	app-ui	jsx	3519	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,scroll,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.test.jsx	frontend-app	app-ui	jsx	299	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,test,React,页面与路由级,UI
@@ -398,9 +398,9 @@ frontend-app/src/pages/chat/adapters/runtimeToolbarAdapter.js	frontend-app	app-u
 frontend-app/src/pages/chat/adapters/threadIdentityAdapter.js	frontend-app	app-ui	js-source	4037	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,threadIdentityAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/threadStateAdapter.js	frontend-app	app-ui	js-source	453	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,threadStateAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/threadStatusAdapter.js	frontend-app	app-ui	js-source	4693	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,threadStatusAdapter,React,页面与路由级,UI
-frontend-app/src/pages/chat/agentBoard/AgentBoard.css	frontend-app	app-ui	css	8113	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoard,React,页面与路由级,UI
-frontend-app/src/pages/chat/agentBoard/AgentBoardFloating.jsx	frontend-app	app-ui	jsx	4665	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoardFloating,React,页面与路由级,UI
-frontend-app/src/pages/chat/agentBoard/AgentBoardFloating.test.jsx	frontend-app	app-ui	jsx	5303	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoardFloating,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/agentBoard/AgentBoard.css	frontend-app	app-ui	css	8755	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoard,React,页面与路由级,UI
+frontend-app/src/pages/chat/agentBoard/AgentBoardFloating.jsx	frontend-app	app-ui	jsx	5484	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoardFloating,React,页面与路由级,UI
+frontend-app/src/pages/chat/agentBoard/AgentBoardFloating.test.jsx	frontend-app	app-ui	jsx	5993	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoardFloating,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/agentBoard/AgentBoardPanel.jsx	frontend-app	app-ui	jsx	2242	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoardPanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/agentBoard/AgentBoardPanel.test.jsx	frontend-app	app-ui	jsx	8621	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoardPanel,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/agentBoard/AgentBoardPanelSlot.jsx	frontend-app	app-ui	jsx	1353	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentBoardPanelSlot,React,页面与路由级,UI
@@ -408,9 +408,9 @@ frontend-app/src/pages/chat/agentBoard/AgentCountsSummary.jsx	frontend-app	app-u
 frontend-app/src/pages/chat/agentBoard/AgentDetail.jsx	frontend-app	app-ui	jsx	4077	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentDetail,React,页面与路由级,UI
 frontend-app/src/pages/chat/agentBoard/AgentHierarchyList.jsx	frontend-app	app-ui	jsx	1726	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentHierarchyList,React,页面与路由级,UI
 frontend-app/src/pages/chat/agentBoard/AgentStatusBadge.jsx	frontend-app	app-ui	jsx	535	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,AgentStatusBadge,React,页面与路由级,UI
-frontend-app/src/pages/chat/agentBoard/ChatPage.agentBoard.test.jsx	frontend-app	app-ui	jsx	9621	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,ChatPage,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/agentBoard/ChatPage.agentBoard.test.jsx	frontend-app	app-ui	jsx	10234	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,ChatPage,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/agentBoard/agentBoardModel.js	frontend-app	app-ui	js-source	1132	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,agentBoardModel,React,页面与路由级,UI
-frontend-app/src/pages/chat/agentBoard/useAgentBoardController.js	frontend-app	app-ui	js-source	2120	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,useAgentBoardController,React,页面与路由级,UI
+frontend-app/src/pages/chat/agentBoard/useAgentBoardController.js	frontend-app	app-ui	js-source	2564	React 页面与路由级 UI	frontend,app,src,pages,chat,agentBoard,useAgentBoardController,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ChatActionFeedback.js	frontend-app	app-ui	js-source	1083	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ChatActionFeedback,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ChatActionFeedback.test.jsx	frontend-app	app-ui	jsx	1469	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ChatActionFeedback,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ChatPageHeader.jsx	frontend-app	app-ui	jsx	9417	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ChatPageHeader,React,页面与路由级,UI
