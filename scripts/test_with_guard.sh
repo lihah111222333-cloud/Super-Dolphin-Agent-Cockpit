@@ -181,60 +181,116 @@ validate_host_test_args() {
   fi
 }
 
+host_test_remote_guidance() {
+  local package_name="" test_selector="" previous="" arg
+  for arg in "$@"; do
+    if [[ "$previous" == "-run" ]]; then
+      test_selector="$arg"
+      previous=""
+      continue
+    fi
+    case "$arg" in
+      -run) previous="-run" ;;
+      -run=*) test_selector="${arg#-run=}" ;;
+      ./*) package_name="$arg" ;;
+    esac
+  done
+  test_selector="${test_selector#^}"
+  test_selector="${test_selector%$}"
+  if [[ -z "$package_name" || ! "$test_selector" =~ ^Test[[:alnum:]_]+$ ]]; then
+    echo "host test could not derive the exact remote CI selector" >&2
+    return 2
+  fi
+  printf '%s' '[test-with-guard] remote CI exact test: source .githooks/trusted-gate-launcher.sh && "$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}" --ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}" --test ' >&2
+  printf '%q\n' "$package_name#$test_selector" >&2
+  echo '[test-with-guard] remote CI setup: make remote-ci-init; run through the verified trusted launcher installed by make install-hooks' >&2
+}
+
+host_test_cpu_busy_percent() {
+  local kernel_name cpu_line idle_percent first_total first_idle second_total second_idle
+  kernel_name="$(uname -s 2>/dev/null || true)"
+  if [[ "$kernel_name" == "Darwin" ]] && command -v top >/dev/null 2>&1; then
+    cpu_line="$(LC_ALL=C top -l 2 -n 0 -s 1 2>/dev/null | awk '/^CPU usage:/ {line=$0} END {print line}' || true)"
+    idle_percent="$(awk '{for (i=1; i<=NF; i++) if ($i == "idle") {value=$(i-1); gsub(/[% ,]/, "", value); print value; exit}}' <<<"$cpu_line")"
+    if [[ "$idle_percent" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      awk -v idle="$idle_percent" 'BEGIN {printf "%.1f\n", 100-idle}'
+      return
+    fi
+  elif [[ "$kernel_name" == "Linux" && -r /proc/stat ]]; then
+    read -r first_total first_idle < <(awk '/^cpu / {total=0; for (i=2; i<=NF; i++) total+=$i; print total, $5+$6; exit}' /proc/stat)
+    sleep 1
+    read -r second_total second_idle < <(awk '/^cpu / {total=0; for (i=2; i<=NF; i++) total+=$i; print total, $5+$6; exit}' /proc/stat)
+    if [[ "$first_total" =~ ^[0-9]+$ && "$first_idle" =~ ^[0-9]+$ &&
+      "$second_total" =~ ^[0-9]+$ && "$second_idle" =~ ^[0-9]+$ && "$second_total" -gt "$first_total" ]]; then
+      awk -v total_delta="$((second_total-first_total))" -v idle_delta="$((second_idle-first_idle))" \
+        'BEGIN {printf "%.1f\n", 100*(total_delta-idle_delta)/total_delta}'
+      return
+    fi
+  fi
+  echo "host CPU utilization evidence is unavailable; route this test to ECI" >&2
+  return 2
+}
+
+host_test_resource_tier() {
+  local cpu_busy_percent="$1" memory_free_percent="$2"
+  awk -v cpu="$cpu_busy_percent" -v memory="$memory_free_percent" '
+    BEGIN {
+      tier = (cpu < 50 && memory >= 25) ? "low" : ((cpu < 70 && memory >= 15) ? "medium" : "high")
+      print tier
+    }
+  '
+}
+
 host_test_resource_snapshot() {
-  local logical_cpus="" one_minute_load="" memory_free_percent=""
+  local logical_cpus="" cpu_busy_percent="" memory_free_percent="" tier=""
   if command -v sysctl >/dev/null 2>&1; then
     logical_cpus="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
-    one_minute_load="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' || true)"
   fi
   if [[ -z "$logical_cpus" ]] && command -v getconf >/dev/null 2>&1; then
     logical_cpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
   fi
-  if [[ -z "$one_minute_load" && -r /proc/loadavg ]]; then
-    read -r one_minute_load _ </proc/loadavg
-  fi
+  cpu_busy_percent="$(host_test_cpu_busy_percent || true)"
   if command -v memory_pressure >/dev/null 2>&1; then
     memory_free_percent="$(memory_pressure -Q 2>/dev/null | awk -F': ' '/free percentage/ {gsub(/%/, "", $2); print $2; exit}' || true)"
   elif [[ -r /proc/meminfo ]]; then
     memory_free_percent="$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {available=$2} END {if (total > 0) printf "%.0f", available*100/total}' /proc/meminfo)"
   fi
   if [[ ! "$logical_cpus" =~ ^[0-9]+$ ]] || [[ "$logical_cpus" -le 0 ]] ||
-    [[ ! "$one_minute_load" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+    [[ ! "$cpu_busy_percent" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+    ! awk -v cpu="$cpu_busy_percent" 'BEGIN {exit !(cpu >= 0 && cpu <= 100)}' ||
     [[ ! "$memory_free_percent" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    echo "host load evidence is unavailable; route this test to ECI" >&2
+    echo "host resource evidence is unavailable; route this test to ECI" >&2
     return 2
   fi
-  awk -v load="$one_minute_load" -v cpus="$logical_cpus" -v memory="$memory_free_percent" '
-    BEGIN {
-      ratio = load / cpus
-      tier = (ratio <= 0.50 && memory >= 25) ? "low" : ((ratio <= 0.80 && memory >= 15) ? "medium" : "high")
-      printf "%s %.4f %d %.1f\n", tier, ratio, cpus, memory
-    }
-  '
+  tier="$(host_test_resource_tier "$cpu_busy_percent" "$memory_free_percent")"
+  printf '%s %.1f %d %.1f\n' "$tier" "$cpu_busy_percent" "$logical_cpus" "$memory_free_percent"
 }
 
 admit_host_test_load() {
-  local load_class="$1" snapshot tier ratio logical_cpus memory_free_percent
+  local load_class="$1" snapshot tier cpu_busy_percent logical_cpus memory_free_percent
+  shift
   if ! snapshot="$(host_test_resource_snapshot)"; then
+    host_test_remote_guidance "$@"
     return 2
   fi
-  read -r tier ratio logical_cpus memory_free_percent <<<"$snapshot"
+  read -r tier cpu_busy_percent logical_cpus memory_free_percent <<<"$snapshot"
   if [[ "$tier" == "high" ]]; then
-    echo "host test admission rejected: class=$load_class host_tier=$tier load_per_cpu=$ratio memory_free_percent=$memory_free_percent; use ECI" >&2
+    echo "host test admission rejected: class=$load_class host_tier=$tier cpu_busy_percent=$cpu_busy_percent memory_free_percent=$memory_free_percent" >&2
+    host_test_remote_guidance "$@"
     return 2
   fi
-  printf '[test-with-guard] host admission class=%s host_tier=%s load_per_cpu=%s logical_cpus=%s memory_free_percent=%s\n' \
-    "$load_class" "$tier" "$ratio" "$logical_cpus" "$memory_free_percent"
+  printf '[test-with-guard] host admission class=%s host_tier=%s cpu_busy_percent=%s logical_cpus=%s memory_free_percent=%s\n' \
+    "$load_class" "$tier" "$cpu_busy_percent" "$logical_cpus" "$memory_free_percent"
 }
 
 run_host_test() {
   local real_go="$1" load_class="$2" output_file status=0 cache_values local_cache_root local_temp_root local_cache_identity
   shift 2
   validate_host_test_args "$load_class" "$@"
-  admit_host_test_load "$load_class"
+  admit_host_test_load "$load_class" "$@"
   echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE class=$load_class; authoritative PASS still requires ECI"
   run_guard "$real_go" quick
-  admit_host_test_load "$load_class"
+  admit_host_test_load "$load_class" "$@"
   run_copylocks_guard "$real_go" "$@"
   local gomaxprocs=2 build_parallelism=1
   if [[ "$load_class" == "medium" ]]; then
@@ -828,4 +884,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

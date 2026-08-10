@@ -4565,6 +4565,7 @@
     "scripts/sqlite_release_gates/main.go",
     "scripts/sqlite_release_gates/main_test.go",
     "scripts/sqlite_release_gates_guard_test.go",
+    "scripts/test_with_guard_host_resource_test.go",
     "scripts/trusted_launcher_test_helpers_test.go",
     "scripts/turncontract/main.go",
     "scripts/turncontract/schema_support.go",
@@ -4891,6 +4892,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6555,
-  "source_snapshot_paths_sha256": "sha256:cb52b6269737c4efb0ea0ddfbffa853b3678be8ba06024a7e133dbe60c65ae01"
+  "source_snapshot_input_count": 6556,
+  "source_snapshot_paths_sha256": "sha256:31e6bf1fa543045d5c7170d8bcba596f5db734a2422c711bf2f4cee8d4fffae4"
 }

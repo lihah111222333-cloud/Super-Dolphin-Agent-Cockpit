@@ -36,7 +36,7 @@ func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
 
 func TestHostTestModeRunsOneBoundedExactTest(t *testing.T) {
 	t.Setenv("FAKE_GO_TEST_OUTPUT", "ok  example.test/scripts  0.001s")
-	t.Setenv("FAKE_HOST_LOAD", "5.0")
+	t.Setenv("FAKE_HOST_IDLE", "40.0")
 	result := runTestWithGuardFakeGo(
 		t,
 		"--host-test", "medium", "-tags=e2e", "./scripts",
@@ -77,24 +77,20 @@ func TestHostTestModeRejectsEmptySelectionAndHeavyFlag(t *testing.T) {
 		}
 	})
 	t.Run("high host load", func(t *testing.T) {
-		t.Setenv("FAKE_HOST_LOAD", "7.0")
+		t.Setenv("FAKE_HOST_IDLE", "20.0")
 		result := runTestWithGuardFakeGo(
 			t, "--host-test", "light", "./scripts",
 			"-run", "^TestBoundary$", "-timeout=120s", "-count=1",
 		)
-		if result.err == nil || !strings.Contains(result.output, "host_tier=high") {
-			t.Fatalf("high host load was admitted: err=%v output=%q", result.err, result.output)
-		}
+		assertTestWithGuardRemoteRejection(t, result, "host_tier=high")
 	})
 	t.Run("unavailable host load", func(t *testing.T) {
-		t.Setenv("FAKE_HOST_LOAD", "not-a-number")
+		t.Setenv("FAKE_HOST_IDLE", "not-a-number")
 		result := runTestWithGuardFakeGo(
 			t, "--host-test", "light", "./scripts",
-			"-run", "^TestBoundary$", "-timeout=120s", "-count=1",
+			"-run=^TestBoundary$", "-timeout=120s", "-count=1",
 		)
-		if result.err == nil || !strings.Contains(result.output, "host load evidence is unavailable") {
-			t.Fatalf("unavailable host load was admitted: err=%v output=%q", result.err, result.output)
-		}
+		assertTestWithGuardRemoteRejection(t, result, "host resource evidence is unavailable")
 	})
 }
 
@@ -540,6 +536,31 @@ type testWithGuardFakeGoResult struct {
 	err         error
 }
 
+func assertTestWithGuardRejected(t *testing.T, result testWithGuardFakeGoResult, required ...string) {
+	t.Helper()
+	if result.err == nil {
+		t.Fatalf("host test was admitted: output=%q", result.output)
+	}
+	for _, fragment := range required {
+		if !strings.Contains(result.output, fragment) {
+			t.Fatalf("host test rejection omitted %q: output=%q", fragment, result.output)
+		}
+	}
+}
+
+func assertTestWithGuardRemoteRejection(t *testing.T, result testWithGuardFakeGoResult, reason string) {
+	t.Helper()
+	assertTestWithGuardRejected(t, result,
+		reason,
+		"remote CI exact test: source .githooks/trusted-gate-launcher.sh",
+		`"$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test`,
+		`--config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}"`,
+		`--ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}"`,
+		"--test ./scripts#TestBoundary",
+		"remote CI setup: make remote-ci-init",
+	)
+}
+
 func runTestWithGuardFakeGo(t *testing.T, args ...string) testWithGuardFakeGoResult {
 	t.Helper()
 	return runTestWithGuardFakeGoWithListOutput(t, "example.test/internal/archtest", args...)
@@ -571,7 +592,9 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 		}
 	}
 	for name, body := range map[string]string{
-		"sysctl":          "#!/usr/bin/env bash\n[[ \"$*\" == '-n hw.logicalcpu' ]] && { printf '8\\n'; exit 0; }; [[ \"$*\" == '-n vm.loadavg' ]] && { printf '{ %s 0.20 0.30 }\\n' \"${FAKE_HOST_LOAD:-0.10}\"; exit 0; }; exit 1\n",
+		"sysctl":          "#!/usr/bin/env bash\n[[ \"$*\" == '-n hw.logicalcpu' ]] && { printf '8\\n'; exit 0; }; exit 1\n",
+		"top":             "#!/usr/bin/env bash\nprintf 'CPU usage: 0.00%% user, 0.00%% sys, %s%% idle\\n' \"${FAKE_HOST_IDLE:-90}\"\n",
+		"uname":           "#!/usr/bin/env bash\nprintf 'Darwin\\n'\n",
 		"memory_pressure": "#!/usr/bin/env bash\nprintf 'System-wide memory free percentage: 80%%\\n'\n",
 	} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o700); err != nil {
@@ -587,11 +610,11 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment = upsertEnv(environment, "FAKE_GO_FAIL_PATTERN", os.Getenv("FAKE_GO_FAIL_PATTERN"))
 	environment = upsertEnv(environment, "FAKE_GO_TEST_OUTPUT", os.Getenv("FAKE_GO_TEST_OUTPUT"))
 	environment = upsertEnv(environment, "FAKE_GO_TOOL_DIR", bashAbsolutePath(fakeToolDir))
-	environment = upsertEnv(environment, "FAKE_HOST_LOAD", os.Getenv("FAKE_HOST_LOAD"))
+	environment = upsertEnv(environment, "FAKE_HOST_IDLE", os.Getenv("FAKE_HOST_IDLE"))
 	environment = upsertEnv(environment, "GOFLAGS", "")
 	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
-		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "FAKE_GO_TEST_OUTPUT", "FAKE_GO_TOOL_DIR", "FAKE_HOST_LOAD",
+		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "FAKE_GO_TEST_OUTPUT", "FAKE_GO_TOOL_DIR", "FAKE_HOST_IDLE",
 		"SUPER_DOLPHIN_TEST_BACKEND",
 	)
 	output, runErr := cmd.CombinedOutput()
