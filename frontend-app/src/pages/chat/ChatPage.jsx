@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, ChevronLeft, ChevronRight, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
@@ -17,6 +17,7 @@ import { RuntimePanelSlot } from './runtime/RuntimePanelSlot.jsx';
 import { ThreadRail } from './thread/ThreadRail.jsx';
 import { Conversation } from './thread/Conversation.jsx';
 import { firstText, firstTrimmedText, timeLabelFromTimestamp, trimmedText } from './markdown/markdownMessageModel.js';
+import { currentTimestampMillis } from '../shared/pageShared.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from './model/chatUiActions.js';
 import {
@@ -192,16 +193,67 @@ function handleTimelineCitationAction(payload, { store, openFileRef }) {
   appendComposerCitation(store, payload);
 }
 
+const THREAD_SYNC_MAX_RETRIES = 3;
+const THREAD_SYNC_RETRY_BASE_MS = 1000;
+const THREAD_SYNC_RETRY_MAX_MS = 5000;
+
+function threadSyncRetryDelayMs(attempt) {
+  return Math.min(THREAD_SYNC_RETRY_BASE_MS * 2 ** (attempt - 1), THREAD_SYNC_RETRY_MAX_MS);
+}
+
+function threadSyncNowMillis() {
+  return currentTimestampMillis('thread 同步退避');
+}
+
+// 推进一次同步尝试的重试账本：成功时清除记录并返回 null；
+// 失败时累计次数并返回下次重试的等待毫秒数（达到上限返回 null）。
+function advanceThreadSyncRetry(activeThreadId, synced, retryRef) {
+  if (synced === true) {
+    delete retryRef.current[activeThreadId];
+    return null;
+  }
+  const previous = retryRef.current[activeThreadId] || { attempts: 0, cooldownUntil: 0 };
+  const nextAttempt = previous.attempts + 1;
+  const delayMs = threadSyncRetryDelayMs(nextAttempt);
+  retryRef.current[activeThreadId] = { attempts: nextAttempt, cooldownUntil: threadSyncNowMillis() + delayMs };
+  return nextAttempt < THREAD_SYNC_MAX_RETRIES ? delayMs : null;
+}
+
 function useActiveChatThreadSync(store, activeThreadId) {
   const timelineReady = Boolean(activeThreadId && store.threadTimelineReadyByThread?.[activeThreadId]);
   const loading = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
+  // 失败退避状态按线程记录；timelineReady 失败后仍为 false，若不限流 effect 会反复触发，
+  // 在 session 无法恢复时形成 thread/messages 刷屏风暴（SD-BUG-0298）。
+  const threadSyncRetryRef = useRef({});
   useEffect(() => {
-    if (!activeThreadId || timelineReady || loading) return;
-    runUIAction('thread.sync', () => store.syncThreadState?.(activeThreadId, {
-      includeArchived: true,
-      includeDiff: true,
-      preserveActiveThreadId: true,
-    }));
+    if (!activeThreadId || timelineReady || loading) return undefined;
+    const retry = threadSyncRetryRef.current[activeThreadId];
+    if (retry && retry.attempts >= THREAD_SYNC_MAX_RETRIES) return undefined;
+    const waitMs = retry ? Math.max(0, retry.cooldownUntil - threadSyncNowMillis()) : 0;
+    let cancelled = false;
+    let retryTimer = 0;
+    const attemptSync = () => {
+      const result = runUIAction('thread.sync', () => store.syncThreadState?.(activeThreadId, {
+        includeArchived: true,
+        includeDiff: true,
+        preserveActiveThreadId: true,
+      }));
+      if (!result || typeof result.then !== 'function') return;
+      void Promise.resolve(result).then((synced) => {
+        if (cancelled) return;
+        const delayMs = advanceThreadSyncRetry(activeThreadId, synced, threadSyncRetryRef);
+        if (delayMs !== null) retryTimer = window.setTimeout(attemptSync, delayMs);
+      });
+    };
+    if (waitMs > 0) {
+      retryTimer = window.setTimeout(attemptSync, waitMs);
+    } else {
+      attemptSync();
+    }
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
   }, [activeThreadId, loading, store, timelineReady]);
 }
 

@@ -1248,6 +1248,7 @@
     "frontend-app/src/pages/chat/ChatPage.css",
     "frontend-app/src/pages/chat/ChatPage.jsx",
     "frontend-app/src/pages/chat/ChatPage.preview.test.jsx",
+    "frontend-app/src/pages/chat/ChatPage.retry.test.jsx",
     "frontend-app/src/pages/chat/ChatPage.scroll.test.jsx",
     "frontend-app/src/pages/chat/ChatPage.test.jsx",
     "frontend-app/src/pages/chat/ChatPage.timeline.test.jsx",
@@ -4894,6 +4895,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6558,
-  "source_snapshot_paths_sha256": "sha256:1d0894f8893c5f9aabc89387b9ac2e47526f1b672fa0921ad9475cbe0c689873"
+  "source_snapshot_input_count": 6559,
+  "source_snapshot_paths_sha256": "sha256:8ed5c5544e579acded04e89f3e65778f140428ee179becaf33d4558b91cf2e8b"
 }
