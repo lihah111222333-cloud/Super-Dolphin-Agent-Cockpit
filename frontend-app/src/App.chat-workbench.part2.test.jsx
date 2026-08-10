@@ -543,7 +543,7 @@ afterEach(cleanupAppTest);
 
     render(<App />);
 
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
@@ -570,7 +570,7 @@ afterEach(cleanupAppTest);
 
     render(<App />);
 
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();

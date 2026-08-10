@@ -188,7 +188,7 @@ afterEach(cleanupAppTest);
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
 
     render(<App />);
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
 
     expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '选择模型' })).toBeEnabled();
@@ -213,6 +213,7 @@ afterEach(cleanupAppTest);
       threadId: 'thread-failed',
       provider: 'codex',
       supportsThreadOverride: true,
+      availableModels: ['gpt-5.4'],
       override: {},
       effective: { model: 'gpt-5.4', effort: 'medium' },
     });
@@ -243,11 +244,11 @@ afterEach(cleanupAppTest);
     expect(screen.queryByText('unknown')).not.toBeInTheDocument();
   });
 
-  it('keeps project switching controls out of the Suiyuan top app bar while loading the active thread', async () => {
+  it('keeps project switching controls out of the Super Dolphin Agent top app bar while loading the active thread', async () => {
     render(<App />);
 
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
-    const topAppBar = within(screen.getByLabelText('Suiyuan app bar'));
+    const topAppBar = within(screen.getByLabelText('Super Dolphin Agent app bar'));
     expect(topAppBar.queryByRole('button', { name: '选择项目' })).not.toBeInTheDocument();
     expect(topAppBar.queryByText('Overview')).not.toBeInTheDocument();
     expect(topAppBar.queryByText('Usage')).not.toBeInTheDocument();

@@ -159,7 +159,7 @@ afterEach(cleanupAppTest);
     const { container } = render(<App />);
 
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
-    expect(within(screen.getByLabelText('Suiyuan app bar')).queryByRole('button', { name: '选择项目' })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText('Super Dolphin Agent app bar')).queryByRole('button', { name: '选择项目' })).not.toBeInTheDocument();
     expect(container.querySelector('.work-status')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     expect(await within(screen.getByTestId('runtime-panel')).findByRole('button', { name: '折叠 file' })).toBeInTheDocument();
@@ -172,11 +172,11 @@ afterEach(cleanupAppTest);
     });
   });
 
-  it('keeps project selection out of the Suiyuan shell toolbar', async () => {
+  it('keeps project selection out of the Super Dolphin Agent shell toolbar', async () => {
     render(<App />);
 
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
-    const topAppBar = within(screen.getByLabelText('Suiyuan app bar'));
+    const topAppBar = within(screen.getByLabelText('Super Dolphin Agent app bar'));
     expect(topAppBar.queryByRole('button', { name: '选择项目' })).not.toBeInTheDocument();
     expect(topAppBar.queryByLabelText('当前工作目录')).not.toBeInTheDocument();
     const sidebarToggle = screen.getByRole('button', { name: '显示侧边栏' });
@@ -184,7 +184,7 @@ afterEach(cleanupAppTest);
     expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
-  it('exposes an explicit collapse control outside the Suiyuan sidebar', () => {
+  it('exposes an explicit collapse control outside the Super Dolphin Agent sidebar', () => {
     render(<App skipBootstrap />);
 
     const shell = screen.getByTestId('frontend-app');
@@ -200,10 +200,10 @@ afterEach(cleanupAppTest);
     expect(screen.getAllByRole('button', { name: '展开主侧栏' })).toHaveLength(1);
   });
 
-  it('renders the Stitch Suiyuan sidebar primary navigation order', () => {
+  it('renders the Stitch Super Dolphin Agent sidebar primary navigation order', () => {
     render(<App skipBootstrap />);
 
-    const navButtons = Array.from(screen.getByTestId('sidebar-nav').querySelectorAll('.suiyuan-nav-item'));
+    const navButtons = Array.from(screen.getByTestId('sidebar-nav').querySelectorAll('.super-dolphin-agent-nav-item'));
 
     expect(navButtons.map((button) => button.textContent)).toEqual([
       '聊天页面',
@@ -226,7 +226,7 @@ afterEach(cleanupAppTest);
     expect(screen.getByRole('button', { name: '新对话' }).querySelector('svg')).toHaveClass('lucide-plus');
   });
 
-  it('keeps only reachable Suiyuan footer actions outside the primary rail', () => {
+  it('keeps only reachable Super Dolphin Agent footer actions outside the primary rail', () => {
     render(<App skipBootstrap />);
 
     expect(within(screen.getByTestId('app-sidebar')).getAllByRole('button').slice(-1).map((button) => button.getAttribute('aria-label'))).toEqual([

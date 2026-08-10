@@ -259,7 +259,7 @@ afterEach(cleanupAppTest);
 
     render(<App />);
 
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
     fireEvent.change(screen.getByTestId('composer-input'), {
       target: { value: '请真正调用后端聊天' },
     });
@@ -382,9 +382,9 @@ afterEach(cleanupAppTest);
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
     expect(container.querySelector('.traffic-lights')).toBeNull();
     expect(container.querySelectorAll('.titlebar')).toHaveLength(0);
-    expect(within(screen.getByTestId('app-sidebar')).getByText('燧元')).toBeInTheDocument();
-    expect(screen.getByTestId('suiyuan-brand-light-logo')).toBeInTheDocument();
-    expect(screen.getByTestId('suiyuan-brand-dark-logo')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByText('Super Dolphin Agent')).toBeInTheDocument();
+    expect(screen.getByTestId('super-dolphin-agent-brand-light-logo')).toBeInTheDocument();
+    expect(screen.getByTestId('super-dolphin-agent-brand-dark-logo')).toBeInTheDocument();
     expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '新对话' }).querySelector('.lucide-plus')).toBeInTheDocument();
     expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '聊天页面' }).querySelector('.lucide-message-square-text')).toBeInTheDocument();
     expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '自动化' }).querySelector('.lucide-sliders-horizontal')).toBeInTheDocument();
@@ -399,7 +399,7 @@ afterEach(cleanupAppTest);
 
     render(<App />);
 
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
     expect(screen.queryByTestId('composer-project')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('composer-input'), {
@@ -590,7 +590,7 @@ afterEach(cleanupAppTest);
 
     const { container } = render(<App />);
 
-    await screen.findByText('我们应该在 燧元 中构建什么？');
+    await screen.findByText('我们应该在 Super Dolphin Agent 中构建什么？');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer', 'composer--floating');
     expect(screen.getByTestId('chat-timeline')).toContainElement(screen.getByTestId('composer-dock'));
     expect(container.querySelector('.work-status')).toBeNull();
