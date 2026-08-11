@@ -1,8 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 func TestPrepareLSPBundleScriptsInstallAstGrepCLI(t *testing.T) {
@@ -29,6 +34,57 @@ func TestPrepareLSPBundleScriptsInstallBashLanguageServer(t *testing.T) {
 			assertScriptOrder(t, script, "bash-language-server", "write_path_wrapper bash-language-server node_modules/bash-language-server/out/cli.js")
 		})
 	}
+}
+
+func TestPrepareLSPBundleScriptsRegisterBundledClangdForMQL(t *testing.T) {
+	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
+		t.Run(scriptPath, func(t *testing.T) {
+			script := readScript(t, scriptPath)
+
+			assertScriptContains(t, script, "clangd_bin=\"${SUPER_DOLPHIN_CLANGD_BIN:-$(command -v clangd || true)}\"")
+			assertScriptContains(t, script, "missing clangd; set SUPER_DOLPHIN_CLANGD_BIN")
+			assertScriptContains(t, script, "cp \"$clangd_bin\" \"$lsp_dir/bin/clangd\"")
+			assertScriptContains(t, script, "\"$lsp_dir/bin/clangd\" --version")
+			assertScriptContains(t, script, "'clangd|bin/clangd|[\"c\",\"cpp\",\"objective-c\",\"objective-cpp\",\"mql\",\"mql4\",\"mql5\",\"mq4\",\"mq5\",\"mqh\"]'")
+			for _, forbidden := range []string{"/usr/bin/clangd", "/opt/homebrew/opt/llvm/bin/clangd", "/usr/local/opt/llvm/bin/clangd"} {
+				assertScriptDoesNotContain(t, script, forbidden)
+			}
+		})
+	}
+
+	windowsScript := readScript(t, "prepare_lsp_bundle_windows.ps1")
+	assertScriptContains(t, windowsScript, "$ClangdBin = if ($env:SUPER_DOLPHIN_CLANGD_BIN)")
+	assertScriptContains(t, windowsScript, "missing clangd; set SUPER_DOLPHIN_CLANGD_BIN")
+	assertScriptContains(t, windowsScript, "Copy-Item -LiteralPath $ClangdBin -Destination (Join-Path $LspDir 'bin/clangd.exe')")
+	assertScriptContains(t, windowsScript, "bundled clangd failed --version smoke")
+	assertScriptContains(t, windowsScript, "clangd|bin/clangd.exe|[\"c\",\"cpp\",\"objective-c\",\"objective-cpp\",\"mql\",\"mql4\",\"mql5\",\"mq4\",\"mq5\",\"mqh\"]")
+	assertScriptDoesNotContain(t, windowsScript, `C:\Program Files\LLVM\bin\clangd.exe`)
+
+	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh", "prepare_lsp_bundle_windows.ps1"} {
+		t.Run(scriptPath+"_language_contract", func(t *testing.T) {
+			got := clangdManifestLanguageIDs(t, readScript(t, scriptPath))
+			want := contract.ClangdLanguageIDs()
+			if !slices.Equal(got, want) {
+				t.Fatalf("clangd manifest languages = %v, want contract %v", got, want)
+			}
+		})
+	}
+}
+
+func clangdManifestLanguageIDs(t *testing.T, script string) []string {
+	t.Helper()
+	match := regexp.MustCompile(`clangd\|bin/clangd(?:\.exe)?\|(\[[^\]\r\n]+\])`).FindStringSubmatch(script)
+	if len(match) != 2 {
+		t.Fatal("clangd manifest language descriptor not found")
+	}
+	var languages []string
+	if err := json.Unmarshal([]byte(match[1]), &languages); err != nil {
+		t.Fatalf("parse clangd manifest languages: %v", err)
+	}
+	if len(languages) == 0 {
+		t.Fatal("clangd manifest languages are empty")
+	}
+	return languages
 }
 
 func TestPrepareLSPBundleScriptsBundleSqruff(t *testing.T) {

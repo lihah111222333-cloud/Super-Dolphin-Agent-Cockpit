@@ -903,7 +903,7 @@ verify_lsp_checksums_file() {
 resolve_packaged_lsp_bundle() {
   packaged_lsp_bundle_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-}"
   if [[ -z "$packaged_lsp_bundle_dir" ]]; then
-    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, sqruff, shellcheck, sg, and jdtls only for full profile" >&2
+    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, clangd, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, sqruff, shellcheck, sg, and jdtls only for full profile" >&2
     exit 1
   fi
   if [[ ! -d "$packaged_lsp_bundle_dir" ]]; then

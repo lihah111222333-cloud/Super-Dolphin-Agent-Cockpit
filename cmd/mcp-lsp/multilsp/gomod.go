@@ -323,12 +323,10 @@ func lspProjectIgnoredDirSet(service string) map[string]struct{} {
 
 func normalizeLanguageID(languageID string) string {
 	languageID = strings.ToLower(strings.TrimSpace(languageID))
-	switch languageID {
-	case "mq5", "mqh":
+	if contract.IsMQLLanguageID(languageID) {
 		return "cpp"
-	default:
-		return languageID
 	}
+	return languageID
 }
 
 func fileURIFromPath(absPath string) string {

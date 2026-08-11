@@ -206,7 +206,7 @@ func svelteAdapterDefaults() projectLanguageAdapter {
 
 func clangdAdapterDefaults() projectLanguageAdapter {
 	return projectLanguageAdapter{
-		languageIDs: []string{"c", "cpp", "objective-c", "objective-cpp"},
+		languageIDs: contract.ClangdLanguageIDs(),
 		command:     ServerCommand{Executable: "clangd"},
 		rootKind:    "clangd_project",
 	}

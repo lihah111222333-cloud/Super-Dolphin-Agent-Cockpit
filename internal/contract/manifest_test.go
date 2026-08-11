@@ -3,12 +3,32 @@ package contract
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 const testInternalSQLitePathEnvKey = "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"
+
+func TestClangdLanguageContract(t *testing.T) {
+	first := ClangdLanguageIDs()
+	first[0] = "changed"
+	want := []string{"c", "cpp", "objective-c", "objective-cpp", "mql", "mql4", "mql5", "mq4", "mq5", "mqh"}
+	if got := ClangdLanguageIDs(); !slices.Equal(got, want) {
+		t.Fatalf("ClangdLanguageIDs() after caller mutation = %v, want %v", got, want)
+	}
+	for _, languageID := range []string{"mql", "MQL4", "mql5", "mq4", "MQ5", "mqh"} {
+		if !IsMQLLanguageID(languageID) {
+			t.Fatalf("IsMQLLanguageID(%q) = false, want true", languageID)
+		}
+	}
+	for _, languageID := range []string{"c", "cpp", "qml", ""} {
+		if IsMQLLanguageID(languageID) {
+			t.Fatalf("IsMQLLanguageID(%q) = true, want false", languageID)
+		}
+	}
+}
 
 func TestBuildManifestPassesModelRegistryEnvFromProcessToStdioBinaries(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_MODEL_REGISTRY", "/bundle/models.yaml")

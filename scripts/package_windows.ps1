@@ -140,6 +140,7 @@ if ($LSPProfile -notin @('standard', 'full')) {
 
 $LSPServerSpecs = @(
     'gopls|bin/gopls.exe|gopls.exe',
+    'clangd|bin/clangd.exe|clangd.exe',
     'typescript-language-server|bin/typescript-language-server.cmd|typescript-language-server.cmd',
     'vscode-langservers-extracted|bin/vscode-css-language-server.cmd|vscode-css-language-server.cmd',
     'pyright|bin/pyright-langserver.cmd|pyright-langserver.cmd',

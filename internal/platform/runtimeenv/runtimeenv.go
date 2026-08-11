@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 const (
@@ -302,7 +304,7 @@ func resolveLSPBundlePath(bundleDir, relativePath string) (string, error) {
 func defaultLSPLanguageSets() map[string][]string {
 	return map[string][]string{
 		"bash-language-server":         {"shellscript"},
-		"clangd":                       {"c", "cpp", "objective-c", "objective-cpp"},
+		"clangd":                       contract.ClangdLanguageIDs(),
 		"csharp-ls":                    {"csharp"},
 		"dart":                         {"dart"},
 		"docker-langserver":            {"dockerfile"},

@@ -945,7 +945,7 @@ func normalizeMcpLSPBundleManifestForTest(body string) string {
 		return body
 	}
 	for _, path := range []string{
-		"bin/gopls",
+		"bin/gopls", "bin/clangd",
 		"bin/typescript-language-server",
 		"node_modules/.bin/typescript-language-server",
 		"bin/vscode-css-language-server",

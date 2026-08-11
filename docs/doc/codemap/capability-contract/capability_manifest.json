@@ -2483,6 +2483,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -2632,6 +2633,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -7537,6 +7539,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -7686,6 +7689,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -12591,6 +12595,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -12740,6 +12745,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -17645,6 +17651,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -17794,6 +17801,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -22702,6 +22710,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -22851,6 +22860,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -27764,6 +27774,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -27913,6 +27924,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -30359,11 +30371,11 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2491,
+    "total_functions": 2493,
     "total_methods": 1303,
     "total_interfaces": 192,
     "total_interface_methods": 381,
-    "total_exported": 1336,
+    "total_exported": 1338,
     "total_unexported": 3292,
     "total_structs": 642
   },
@@ -65493,6 +65505,13 @@
           ]
         },
         {
+          "name": "ClangdLanguageIDs",
+          "exported": true,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "DefaultRuntimeMCPPolicy",
           "exported": true,
           "returns": [
@@ -65695,6 +65714,19 @@
           "params": [
             {
               "name": "id",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "IsMQLLanguageID",
+          "exported": true,
+          "params": [
+            {
+              "name": "languageID",
               "type": "string"
             }
           ],

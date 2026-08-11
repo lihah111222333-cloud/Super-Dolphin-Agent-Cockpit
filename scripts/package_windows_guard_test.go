@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,6 +76,17 @@ func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh")
 	if err != nil {
 		t.Skip("pwsh not available for package_windows.ps1 -WhatIf validation")
+	}
+	xdgRoot := t.TempDir()
+	for key, directory := range map[string]string{
+		"XDG_CACHE_HOME":  filepath.Join(xdgRoot, "cache"),
+		"XDG_CONFIG_HOME": filepath.Join(xdgRoot, "config"),
+		"XDG_DATA_HOME":   filepath.Join(xdgRoot, "data"),
+	} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatalf("create isolated PowerShell %s: %v", key, err)
+		}
+		t.Setenv(key, directory)
 	}
 
 	cmd := exec.Command(pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "./package_windows.ps1", "-WhatIf")
@@ -358,6 +370,7 @@ func TestPackageWindowsScriptBundlesVerifiedCodexAndLSP(t *testing.T) {
 	assertScriptContains(t, script, "packaged LSP bundle checksum mismatch")
 	for _, want := range []string{
 		"gopls|bin/gopls.exe|gopls.exe",
+		"clangd|bin/clangd.exe|clangd.exe",
 		"typescript-language-server|bin/typescript-language-server.cmd|typescript-language-server.cmd",
 		"vscode-langservers-extracted|bin/vscode-css-language-server.cmd|vscode-css-language-server.cmd",
 		"pyright|bin/pyright-langserver.cmd|pyright-langserver.cmd",

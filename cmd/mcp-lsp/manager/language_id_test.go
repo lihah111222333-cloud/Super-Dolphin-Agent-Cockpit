@@ -24,6 +24,7 @@ func TestDetectLanguageIDProtoExtension(t *testing.T) {
 
 func TestDetectLanguageIDMQLUsesClangdCpp(t *testing.T) {
 	cases := map[string]string{
+		"Experts/legacy.mq4": "cpp",
 		"Experts/robot.mq5":  "cpp",
 		"Include/common.MQH": "cpp",
 	}
@@ -91,6 +92,7 @@ func TestLanguageIDForExtensionResolvesAllCategoriesWithoutRegistryState(t *test
 		".html":      "html",
 		".scss":      "css",
 		".cpp":       "cpp",
+		".mq4":       "cpp",
 		".mq5":       "cpp",
 		".mqh":       "cpp",
 		".swift":     "swift",
