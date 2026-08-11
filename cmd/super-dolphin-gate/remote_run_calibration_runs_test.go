@@ -236,18 +236,20 @@ func calibrationRunsAssertCalls(t *testing.T, calls []string, want string, label
 
 func TestExecuteRemoteCalibrationRunsReopensMissingOrMismatchedAuthorityRun(t *testing.T) {
 	for _, mutate := range []struct {
-		name  string
-		apply func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult)
+		name      string
+		wantCalls string
+		wantError string
+		apply     func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult)
 	}{
-		{name: "missing run", apply: func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult) {
+		{name: "missing run", wantCalls: "commit,push", apply: func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult) {
 			t.Helper()
 			calibrationRunsUpdateAuthorityRun(t, store, "DELETE FROM ci_runs WHERE job_id = ?", result.JobID)
 		}},
-		{name: "generation mismatch", apply: func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult) {
+		{name: "generation mismatch", wantError: "was never accepted", apply: func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult) {
 			t.Helper()
 			calibrationRunsUpdateAuthorityRun(t, store, "UPDATE ci_runs SET accepted_generation = accepted_generation + 1 WHERE job_id = ?", result.JobID)
 		}},
-		{name: "JSON identity mismatch", apply: func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult) {
+		{name: "JSON identity mismatch", wantCalls: "commit,push", apply: func(t *testing.T, store *gatecontract.DurationLedgerStore, result remoteci.RunResult) {
 			t.Helper()
 			calibrationRunsUpdateAuthorityRun(t, store, "UPDATE ci_runs SET candidate_gate_source_sha256 = ? WHERE job_id = ?", "sha256:"+strings.Repeat("g", 64), result.JobID)
 		}},
@@ -267,7 +269,10 @@ func TestExecuteRemoteCalibrationRunsReopensMissingOrMismatchedAuthorityRun(t *t
 			if err == nil {
 				t.Fatal("executeRemoteCalibrationRunsWithExecutor() error = nil")
 			}
-			if got, want := strings.Join(calls, ","), "commit,push"; got != want {
+			if mutate.wantError != "" && !strings.Contains(err.Error(), mutate.wantError) {
+				t.Fatalf("executeRemoteCalibrationRunsWithExecutor() error = %q, want marker %q", err, mutate.wantError)
+			}
+			if got, want := strings.Join(calls, ","), mutate.wantCalls; got != want {
 				t.Fatalf("reopened calls = %q, want %q", got, want)
 			}
 		})

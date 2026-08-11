@@ -218,11 +218,20 @@ func frontendLintInputEntry(entry remoteGitTreeEntry) bool {
 	return strings.HasPrefix(entry.path, "frontend-app/")
 }
 
+// frontendEmbedInputEntry 选择前端 embed 校验实际读取的仓库输入。
 func frontendEmbedInputEntry(entry remoteGitTreeEntry) bool {
+	base := path.Base(entry.path)
+	if base == ".gitignore" || base == ".gitattributes" {
+		return true
+	}
+	if strings.HasPrefix(entry.path, "cmd/agent-terminal/") && path.Ext(entry.path) == ".go" && !strings.HasSuffix(entry.path, "_test.go") {
+		return true
+	}
 	return strings.HasPrefix(entry.path, "frontend-app/") || strings.HasPrefix(entry.path, "cmd/agent-terminal/web-dist/") ||
 		entry.path == "Makefile" || entry.path == "scripts/frontend_embed_verify.sh"
 }
 
+// vitestInputDigest 计算指定 Vitest target 的精确输入摘要。
 func (snapshot *remoteGitTreeSnapshot) vitestInputDigest(target string) (string, error) {
 	targetPath := "frontend-app/" + target
 	if _, ok := snapshot.byPath[targetPath]; !ok {
@@ -270,6 +279,7 @@ func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context,
 	return digest, nil
 }
 
+// computeGoPackageInputEntries 收集整包 Go workload 的编译输入闭包。
 func (snapshot *remoteGitTreeSnapshot) computeGoPackageInputEntries(ctx context.Context, target string, profile remoteGoBuildProfile) ([]remoteGitTreeEntry, error) {
 	if err := snapshot.prepareGoSources(ctx); err != nil {
 		return nil, err

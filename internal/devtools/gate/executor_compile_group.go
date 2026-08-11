@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +45,7 @@ func writeExecutorPlanReportWithCompileGroups(request executorPlanRequest, repor
 
 // executeGatePlanWithCompileGroups 执行 manifest 绑定的 shard；每组只编译一次，
 // artifact 不进入全局缓存，并在 selector 执行后随 shard workspace 一起清理。
-func executeGatePlanWithCompileGroups(ctx context.Context, request executorPlanRequest) (PlanExecutionReport, error) {
+func executeGatePlanWithCompileGroups(ctx context.Context, request executorPlanRequest) (report PlanExecutionReport, executionErr error) {
 	if err := validateExecutorCompileGroups(request.profile, request.gateIDs, request.compileGroups); err != nil {
 		return PlanExecutionReport{}, err
 	}
@@ -57,20 +58,22 @@ func executeGatePlanWithCompileGroups(ctx context.Context, request executorPlanR
 		return PlanExecutionReport{}, err
 	}
 	defer func() {
-		if goBuildCacheRoot != "" {
-			_ = removeExecutorWorkspacePath(goBuildCacheRoot)
-		}
+		executionErr = errors.Join(executionErr, cleanupCompileGroupSharedCache(goBuildCacheRoot))
+		report.ExecutionOutcome = WorkerExecutionOutcomeForError(executionErr)
 	}()
 
 	artifacts, executions, compileErr := executeCompileGroups(ctx, request, preparedRuntimeSeeds, goBuildCacheRoot, goBuildCacheSeedRoot, time.Now)
-	defer cleanupCompiledGroupArtifacts(artifacts)
+	defer func() {
+		executionErr = errors.Join(executionErr, cleanupCompiledGroupArtifacts(artifacts))
+		report.ExecutionOutcome = WorkerExecutionOutcomeForError(executionErr)
+	}()
 	executionCtx, cancelExecution := executorWorkloadContext(ctx)
 	defer cancelExecution()
 	batchedResults, batchedErrors := executeCompileGroupBatches(executionCtx, request.compileGroups, artifacts, time.Now)
 	runGate := func(ctx context.Context, laneIndex int, id GateID) (PlanGateExecution, error) {
 		return runCompileGroupGate(ctx, laneIndex, id, batchedResults, artifacts, executions, preparedRuntimeSeeds, goBuildCacheRoot, goBuildCacheSeedRoot)
 	}
-	report, executionErr := executeGatePlanWithRunner(executionCtx, request, runGate, time.Now)
+	report, executionErr = executeGatePlanWithRunner(executionCtx, request, runGate, time.Now)
 	mergedGates, mergeErr := replaceBatchedGateResults(request.gateIDs, report.Gates, batchedResults)
 	if mergeErr == nil {
 		report.Gates = mergedGates
@@ -86,7 +89,8 @@ func executeGatePlanWithCompileGroups(ctx context.Context, request executorPlanR
 	if err := ValidateCompileGroupExecutions(request.compileGroups, report.CompileGroupExecutions); err != nil {
 		executionErr = errors.Join(executionErr, fmt.Errorf("compile group execution report: %w", err))
 	}
-	return report, errors.Join(compileErr, executionErr)
+	executionErr = errors.Join(compileErr, executionErr)
+	return report, executionErr
 }
 
 func executeCompileGroups(
@@ -126,12 +130,12 @@ func executeCompileGroup(
 	goBuildCacheRoot string,
 	goBuildCacheSeedRoot string,
 	now func() time.Time,
-) (compiledGroupArtifact, CompileGroupExecution, error) {
+) (artifact compiledGroupArtifact, execution CompileGroupExecution, compileErr error) {
 	artifactKey, err := CompileArtifactKey(group)
 	if err != nil {
 		return compiledGroupArtifact{}, failedCompileGroupExecution(group, artifactKey, err), err
 	}
-	execution := newCompileGroupExecution(group, artifactKey)
+	execution = newCompileGroupExecution(group, artifactKey)
 	layout, environment, goBinary, packageDir, log, metricsPath, err := prepareCompileGroupExecution(ctx, group, groupIndex, preparedRuntimeSeeds, goBuildCacheRoot, goBuildCacheSeedRoot, now)
 	if err != nil {
 		return compiledGroupArtifact{}, finishFailedCompileGroupExecution(execution, time.Time{}, time.Time{}, err), err
@@ -139,7 +143,12 @@ func executeCompileGroup(
 	cleanup := true
 	defer func() {
 		if cleanup {
-			_ = cleanupExecutorWorkspace(layout)
+			if cleanupErr := cleanupExecutorWorkspace(layout); cleanupErr != nil {
+				cleanupErr = fmt.Errorf("compile group workspace cleanup: %w", cleanupErr)
+				compileErr = errors.Join(compileErr, cleanupErr)
+				execution.Status, execution.ExitCode = ResultStatusFailed, max(1, ExecutorExitCode(compileErr))
+				execution.ErrorText = compactCompileGroupError(compileErr)
+			}
 		}
 	}()
 	binaryPath := compileGroupTestBinaryPath(layout.runRoot)
@@ -207,8 +216,7 @@ func prepareCompileGroupExecution(ctx context.Context, group CompileGroup, group
 	}
 	environment, goBinary, packageDir, err := prepareCompileGroupProgram(ctx, config, layout, program, group.PackageTarget, log)
 	if err != nil {
-		_ = cleanupExecutorWorkspace(layout)
-		return executorLayout{}, nil, "", "", nil, "", err
+		return executorLayout{}, nil, "", "", nil, "", errors.Join(err, cleanupExecutorWorkspace(layout))
 	}
 	return layout, environment, goBinary, packageDir, log, metricsPath, nil
 }
@@ -400,6 +408,7 @@ func recordCompileGroupArtifact(execution *CompileGroupExecution, compileErr err
 	return compileErr
 }
 
+// executeCompiledSelector 在已编译测试二进制上运行单个 selector，并归一化结果与时序。
 func executeCompiledSelector(ctx context.Context, laneIndex int, id GateID, artifact compiledGroupArtifact, now func() time.Time) (PlanGateExecution, error) {
 	if now == nil {
 		return PlanGateExecution{}, errors.New("compiled selector clock is required")
@@ -478,6 +487,7 @@ func trustedCompileGroupPackageDirectory(sourceRoot, packageDir string) (string,
 	return resolved, nil
 }
 
+// compiledSelectorResult 将 selector 进程观测转换为带日志、时序和执行状态的 gate 结果。
 func compiledSelectorResult(id GateID, argv []string, observation compiledSelectorObservation) (PlanGateExecution, error) {
 	result := PlanGateExecution{GateID: id, StartedAt: observation.started, CompletedAt: observation.completed, ExitCode: -1, TestTimings: observation.timings, ArgvDigest: digestCommandArgv(argv)}
 	result.Log = observation.log.Bytes()
@@ -582,15 +592,33 @@ func isCompileGroupSelector(id GateID) bool {
 // CompileGroupWorkloadSupported 返回唯一允许共享 Go test binary 的 selector owner。
 func CompileGroupWorkloadSupported(id GateID) bool { return isCompileGroupSelector(id) }
 
-func cleanupCompiledGroupArtifacts(artifacts map[GateID]compiledGroupArtifact) {
-	seen := make(map[string]struct{})
-	for _, artifact := range artifacts {
-		if _, ok := seen[artifact.group.GroupID]; ok {
-			continue
-		}
-		seen[artifact.group.GroupID] = struct{}{}
-		_ = cleanupExecutorWorkspace(artifact.layout)
+func cleanupCompileGroupSharedCache(root string) error {
+	if root == "" {
+		return nil
 	}
+	if err := removeExecutorWorkspacePath(root); err != nil {
+		return fmt.Errorf("remove shared Go build cache root: %w", err)
+	}
+	return nil
+}
+
+func cleanupCompiledGroupArtifacts(artifacts map[GateID]compiledGroupArtifact) error {
+	byGroup := make(map[string]compiledGroupArtifact)
+	for _, artifact := range artifacts {
+		byGroup[artifact.group.GroupID] = artifact
+	}
+	groupIDs := make([]string, 0, len(byGroup))
+	for groupID := range byGroup {
+		groupIDs = append(groupIDs, groupID)
+	}
+	sort.Strings(groupIDs)
+	var cleanupErr error
+	for _, groupID := range groupIDs {
+		if err := cleanupExecutorWorkspace(byGroup[groupID].layout); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("compile group %q workspace cleanup: %w", groupID, err))
+		}
+	}
+	return cleanupErr
 }
 
 func groupUsesRace(group CompileGroup) bool {
@@ -658,7 +686,7 @@ func failedCompileGroupSelector(id GateID, executions []CompileGroupExecution, n
 	if err != nil {
 		return PlanGateExecution{}, err
 	}
-	started := now().UTC()
+	observedAt := now().UTC()
 	log := []byte("compile group failed before selector execution\n")
 	for _, execution := range executions {
 		for _, workloadID := range execution.WorkloadIDs {
@@ -667,10 +695,9 @@ func failedCompileGroupSelector(id GateID, executions []CompileGroupExecution, n
 			}
 		}
 	}
-	completed := started.Add(time.Millisecond)
-	profile.StartupMS = max(measuredExecutorPhaseMilliseconds(started, completed), 1)
-	profile.TotalMS = profile.StartupMS
-	return PlanGateExecution{GateID: id, Status: ResultStatusFailed, ExitCode: 1, StartedAt: started, CompletedAt: completed, Log: log, LogDigest: digestPlanLog(log), ExecutionProfile: profile}, nil
+	// 编译失败时 selector 从未启动。报告保留一个相等的观测点以满足 wire
+	// 形状，但阶段时长必须保持为零，让 coordinator 诚实省略 workload timing。
+	return PlanGateExecution{GateID: id, Status: ResultStatusFailed, ExitCode: 1, StartedAt: observedAt, CompletedAt: observedAt, Log: log, LogDigest: digestPlanLog(log), ExecutionProfile: profile}, nil
 }
 
 func compactCompileGroupError(err error) string {

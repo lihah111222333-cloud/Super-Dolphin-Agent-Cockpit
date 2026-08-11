@@ -50,7 +50,24 @@ func runCoordinatorTest(t *testing.T, coordinator *Coordinator, ctx context.Cont
 	if err != nil {
 		return RunResult{}, err
 	}
+	if err := bindPreparedMissExecutionForTest(ctx, coordinator, prepared, input); err != nil {
+		return RunResult{}, err
+	}
 	return coordinator.RunPrepared(ctx, prepared)
+}
+
+// bindPreparedMissExecutionForTest 为必须分离准备与并发执行的夹具复刻生产两阶段边界。
+func bindPreparedMissExecutionForTest(ctx context.Context, coordinator *Coordinator, prepared *PreparedRun, input RunInput) error {
+	if prepared.AllReused() {
+		return nil
+	}
+	return coordinator.BindPreparedMissExecution(ctx, prepared, MissExecutionBinding{
+		CandidateGateSourceSHA256:     input.CandidateGateSourceSHA256,
+		CandidateGateToolchainSHA256:  input.CandidateGateToolchainSHA256,
+		ExecutionRunnerImage:          input.ExecutionRunnerImage,
+		ExecutionImageCacheSnapshotID: input.ExecutionImageCacheSnapshotID,
+		ImageCacheOnly:                input.ImageCacheOnly,
+	})
 }
 
 func testRemoteResourcePolicy() shardresource.Policy {
@@ -99,7 +116,7 @@ func prepareRemoteRunFixtureBase(t *testing.T) (string, string, string) {
 	runCoordinatorGit(t, repository, "config", "user.email", "remote-ci@example.invalid")
 	runCoordinatorGit(t, repository, "config", "user.name", "Remote CI")
 	writeRemoteRunFixtureFiles(t, repository)
-	runCoordinatorGit(t, repository, "add", "fixture.txt", "go.mod", "go.sum", "build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum", "internal/devtools/gate/executor_mapping.go", "scripts/check_nested_go_modules.sh", "scripts/real_go_resolver.sh", "scripts/test_with_guard.sh", "internal/fixture/fixture.go", "internal/provider/provider.go", "internal/platform/platform.go", "internal/module/thread/thread.go", "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/tests/e2e/business-flows.spec.js", "frontend-app/tests/e2e/desktop-wide.spec.js", "frontend-app/playwright.business-flows.config.js", "frontend-app/playwright.desktop-wide.config.js")
+	runCoordinatorGit(t, repository, "add", "fixture.txt", "go.mod", "go.sum", "build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum", "internal/devtools/gate/executor_mapping.go", "scripts/check_nested_go_modules.sh", "scripts/real_go_resolver.sh", "scripts/test_with_guard.sh", "cmd/super-dolphin-gate/main.go", "internal/devtools/remoteci/coordinator_request.go", "internal/fixture/fixture.go", "internal/provider/provider.go", "internal/platform/platform.go", "internal/module/thread/thread.go", "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/tests/e2e/business-flows.spec.js", "frontend-app/tests/e2e/desktop-wide.spec.js", "frontend-app/playwright.business-flows.config.js", "frontend-app/playwright.desktop-wide.config.js")
 	runCoordinatorGit(t, repository, "add", "frontend-app/scripts/remote-preflight-carriers", "frontend-app/scripts/remote-suite-carriers")
 	runCoordinatorGit(t, repository, "commit", "--quiet", "-m", "base")
 	return repository, coordinatorGitOutput(t, repository, "rev-parse", "HEAD"), coordinatorGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
@@ -117,6 +134,8 @@ func writeRemoteRunFixtureFiles(t *testing.T, repository string) {
 	writeCoordinatorFixture(t, repository, "scripts/check_nested_go_modules.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
 	writeCoordinatorFixture(t, repository, "scripts/real_go_resolver.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
 	writeCoordinatorFixture(t, repository, "scripts/test_with_guard.sh", "#!/usr/bin/env bash\nset -euo pipefail\n\n# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_BEGIN\n# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_END\n")
+	writeCoordinatorFixture(t, repository, "cmd/super-dolphin-gate/main.go", "package main\n\nfunc runRemoteMaterialize() error { return nil }\n\nfunc runWorkerCLI() int { return 0 }\n")
+	writeCoordinatorFixture(t, repository, "internal/devtools/remoteci/coordinator_request.go", "package remoteci\n\nfunc createRequest() {}\nfunc remoteShardBootstrapSH() string { return \"\" }\nfunc remoteWorkerEnvironment() {}\nfunc remoteWorkerSupervisorCommand() {}\n")
 	writeCoordinatorFixture(t, repository, "internal/fixture/fixture.go", "package fixture\n\nfunc Value() int { return 1 }\n")
 	writeCoordinatorFixture(t, repository, "internal/provider/provider.go", "package provider\n")
 	writeCoordinatorFixture(t, repository, "internal/platform/platform.go", "package platform\n")
@@ -208,6 +227,7 @@ func remoteRunFixtureInput(repository, base, baseTree, commit, tree, digest stri
 		CandidateGateSourceSHA256:     "sha256:" + strings.Repeat("d", 64),
 		CandidateGateToolchainSHA256:  "sha256:" + strings.Repeat("e", 64),
 		RuntimeSeedSHA256:             digest,
+		WorkerExecutionSemanticDigest: digest,
 		Inventory:                     gate.WorkloadInventory{GoPackages: []string{"./internal/fixture"}},
 		WorkloadInputDigests:          inputDigests,
 		OCIProjectCache:               &BaselineOCIProjectCache{Image: "registry.example/runner@" + digest, ContentManifestSHA256: "sha256:" + strings.Repeat("c", 64), MainTree: baseTree, ToolchainDigest: digest, Platform: "linux/amd64", CachePath: OCIProjectGoBuildCachePath},

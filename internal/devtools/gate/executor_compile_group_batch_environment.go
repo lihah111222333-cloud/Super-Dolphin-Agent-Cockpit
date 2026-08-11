@@ -57,14 +57,13 @@ func cleanupCompileGroupBatchRoots(batchRoot string, shortTempRoot string) error
 
 // createCompileGroupBatchRoot 创建 batch 专属根目录。
 func createCompileGroupBatchRoot(runRoot string, batchID string) (string, error) {
-	batchRoot := filepath.Join(runRoot, "batches", batchID)
-	if runRoot == "" {
-		var err error
-		batchRoot, err = os.MkdirTemp("", "super-dolphin-compile-batch-")
-		if err != nil {
-			return "", fmt.Errorf("create temporary compile group batch root: %w", err)
-		}
+	if strings.TrimSpace(runRoot) == "" || !filepath.IsAbs(runRoot) {
+		return "", errors.New("compile group batch run root must be an absolute path")
 	}
+	if strings.TrimSpace(batchID) == "" || filepath.Base(batchID) != batchID || strings.ContainsAny(batchID, "\\/\x00\r\n") {
+		return "", errors.New("compile group batch ID is required for environment isolation")
+	}
+	batchRoot := filepath.Join(runRoot, "batches", batchID)
 	if err := os.MkdirAll(batchRoot, 0o700); err != nil {
 		return "", fmt.Errorf("create compile group batch root: %w", err)
 	}
@@ -73,22 +72,23 @@ func createCompileGroupBatchRoot(runRoot string, batchID string) (string, error)
 
 // createCompileGroupBatchShortTempRoot 在当前 temp-data 挂载下创建短、唯一的 owner-only 根目录。
 func createCompileGroupBatchShortTempRoot() (string, error) {
-	root, err := os.MkdirTemp(os.TempDir(), "sd-b-")
+	tempDataRoot := os.Getenv("TMPDIR")
+	if strings.TrimSpace(tempDataRoot) == "" || !filepath.IsAbs(tempDataRoot) {
+		return "", errors.New("compile group batch TMPDIR must be an absolute mounted temp-data path")
+	}
+	root, err := os.MkdirTemp(tempDataRoot, "sd-b-")
 	if err != nil {
 		return "", fmt.Errorf("create short compile group batch temp root: %w", err)
 	}
 	if err := os.Chmod(root, 0o700); err != nil {
-		_ = os.RemoveAll(root)
-		return "", fmt.Errorf("secure short compile group batch temp root: %w", err)
+		return "", errors.Join(fmt.Errorf("secure short compile group batch temp root: %w", err), cleanupCompileGroupBatchRoots("", root))
 	}
 	info, err := os.Stat(root)
 	if err != nil {
-		_ = os.RemoveAll(root)
-		return "", fmt.Errorf("stat short compile group batch temp root: %w", err)
+		return "", errors.Join(fmt.Errorf("stat short compile group batch temp root: %w", err), cleanupCompileGroupBatchRoots("", root))
 	}
 	if !info.IsDir() || info.Mode().Perm() != 0o700 {
-		_ = os.RemoveAll(root)
-		return "", errors.New("short compile group batch temp root must be an owner-only directory")
+		return "", errors.Join(errors.New("short compile group batch temp root must be an owner-only directory"), cleanupCompileGroupBatchRoots("", root))
 	}
 	return root, nil
 }
@@ -142,10 +142,10 @@ func setCompileGroupEnvironmentValue(environment []string, key string, value str
 	return append(environment, prefix+value)
 }
 
-// compileGroupBatchProcessEnvironment 让 atomic package 单进程在 4 GiB 档内主动
-// 回收 SSA 堆；其他包保持候选环境原样。
+// compileGroupBatchProcessEnvironment 为 archtest 单 test-binary 设置契约冻结的
+// GOMEMLIMIT=3GiB；其他 compile group 保持候选环境原样。
 func compileGroupBatchProcessEnvironment(environment []string, packageTarget string) []string {
-	if !isAtomicGoPackageTarget(packageTarget) {
+	if packageTarget != AtomicArchtestPackageTarget {
 		return environment
 	}
 	return setCompileGroupEnvironmentValue(environment, "GOMEMLIMIT", "3GiB")

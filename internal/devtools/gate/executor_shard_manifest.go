@@ -15,7 +15,7 @@ import (
 const (
 	// ExecutorShardExecutionManifestPath 是 worker 唯一接受的 gate-owned manifest 路径。
 	ExecutorShardExecutionManifestPath         = ExecutorWorkRoot + "/shard-execution-manifest.json"
-	ShardExecutionManifestSchemaVersion uint32 = 1
+	ShardExecutionManifestSchemaVersion uint32 = cicontract.ShardExecutionManifestSchemaVersion
 	compileGroupErrorTextBytes                 = 4 << 10
 )
 
@@ -368,43 +368,117 @@ func (manifest ShardExecutionManifest) validateGateIDs() (map[GateID]struct{}, e
 func (manifest ShardExecutionManifest) validateGroups(gateSet map[GateID]struct{}) (map[GateID]struct{}, error) {
 	groupSet := make(map[string]struct{}, len(manifest.CompileGroups))
 	artifactGroups := make(map[string]string, len(manifest.CompileGroups))
+	artifactKeys := make(map[string]string, len(manifest.CompileGroups))
 	grouped := make(map[GateID]struct{})
+	var previousGroupID string
+	var resourceClassID string
 	for index, group := range manifest.CompileGroups {
-		if err := group.Validate(); err != nil {
-			return nil, fmt.Errorf("shard execution manifest compile_groups[%d]: %w", index, err)
+		nextResourceClassID, err := validateManifestCompileGroupIdentity(index, group, previousGroupID, resourceClassID, groupSet, artifactGroups, artifactKeys)
+		if err != nil {
+			return nil, err
 		}
-		if err := validateCompileGroupSemantics(group); err != nil {
-			return nil, fmt.Errorf("shard execution manifest compile_groups[%d]: %w", index, err)
-		}
-		if _, duplicate := groupSet[group.GroupID]; duplicate {
-			return nil, fmt.Errorf("shard execution manifest compile group %q is duplicated", group.GroupID)
-		}
-		if err := registerCompileArtifactGroup(group, artifactGroups); err != nil {
-			return nil, fmt.Errorf("shard execution manifest compile_groups[%d]: %w", index, err)
-		}
+		resourceClassID = nextResourceClassID
 		groupSet[group.GroupID] = struct{}{}
-		for _, workloadID := range group.WorkloadIDs {
-			if _, ok := gateSet[workloadID]; !ok {
-				return nil, fmt.Errorf("compile group workload %q is not in shard gate_ids", workloadID)
-			}
-			if _, duplicate := grouped[workloadID]; duplicate {
-				return nil, fmt.Errorf("compile group workload %q is covered more than once", workloadID)
-			}
-			if err := validateCompileGroupSelector(workloadID, group.PackageTarget, group.SemanticKey); err != nil {
-				return nil, err
-			}
-			grouped[workloadID] = struct{}{}
+		previousGroupID = group.GroupID
+		if err := registerManifestCompileGroupWorkloads(group, gateSet, grouped); err != nil {
+			return nil, err
 		}
 	}
-	return validateSingleCompileGroupPerShard(grouped, manifest.CompileGroups)
-}
-
-// validateSingleCompileGroupPerShard 保证一个 ECI shard 只启动一个 test binary。
-func validateSingleCompileGroupPerShard(grouped map[GateID]struct{}, groups []CompileGroup) (map[GateID]struct{}, error) {
-	if len(groups) > 1 {
-		return nil, fmt.Errorf("shard execution manifest must contain exactly one compile group (found %d)", len(groups))
+	if err := validateManifestCompileGroupPacking(manifest.CompileGroups); err != nil {
+		return nil, err
+	}
+	if err := validateManifestCompileGroupCoverage(manifest.CompileGroups, gateSet, grouped); err != nil {
+		return nil, err
 	}
 	return grouped, nil
+}
+
+// validateManifestCompileGroupCoverage 禁止 wire manifest 将 ordinary selector 混入 compile-group shard。
+func validateManifestCompileGroupCoverage(groups []CompileGroup, gateSet, grouped map[GateID]struct{}) error {
+	if len(groups) == 0 {
+		return nil
+	}
+	for gateID := range gateSet {
+		if _, covered := grouped[gateID]; !covered {
+			return fmt.Errorf("shard execution manifest mixes grouped and ordinary workload %q", gateID)
+		}
+	}
+	return nil
+}
+
+// validateManifestCompileGroupIdentity 校验组顺序、资源类别和 artifact 身份。
+func validateManifestCompileGroupIdentity(index int, group CompileGroup, previousGroupID, resourceClassID string, groupSet map[string]struct{}, artifactGroups, artifactKeys map[string]string) (string, error) {
+	if index > 0 && group.GroupID <= previousGroupID {
+		return "", fmt.Errorf("shard execution manifest compile_groups[%d] are not in canonical GroupID order", index)
+	}
+	if err := validateManifestCompileGroupCore(index, group, groupSet); err != nil {
+		return "", err
+	}
+	if index == 0 {
+		resourceClassID = group.ResourceClassID
+	} else if group.ResourceClassID != resourceClassID {
+		return "", fmt.Errorf("shard execution manifest compile group %q resource class differs from %q", group.GroupID, resourceClassID)
+	}
+	if err := validateManifestCompileGroupArtifacts(index, group, artifactGroups, artifactKeys); err != nil {
+		return "", err
+	}
+	return resourceClassID, nil
+}
+
+func validateManifestCompileGroupCore(index int, group CompileGroup, groupSet map[string]struct{}) error {
+	if err := group.Validate(); err != nil {
+		return fmt.Errorf("shard execution manifest compile_groups[%d]: %w", index, err)
+	}
+	if err := validateCompileGroupSemantics(group); err != nil {
+		return fmt.Errorf("shard execution manifest compile_groups[%d]: %w", index, err)
+	}
+	if _, duplicate := groupSet[group.GroupID]; duplicate {
+		return fmt.Errorf("shard execution manifest compile group %q is duplicated", group.GroupID)
+	}
+	return nil
+}
+
+func validateManifestCompileGroupArtifacts(index int, group CompileGroup, artifactGroups, artifactKeys map[string]string) error {
+	artifactKey, err := CompileArtifactKey(group)
+	if err != nil {
+		return fmt.Errorf("shard execution manifest compile_groups[%d] artifact: %w", index, err)
+	}
+	if previous, duplicate := artifactKeys[artifactKey]; duplicate {
+		return fmt.Errorf("compile artifact %q is duplicated by groups %q and %q", artifactKey, previous, group.GroupID)
+	}
+	artifactKeys[artifactKey] = group.GroupID
+	if err := registerCompileArtifactGroup(group, artifactGroups); err != nil {
+		return fmt.Errorf("shard execution manifest compile_groups[%d]: %w", index, err)
+	}
+	return nil
+}
+
+func registerManifestCompileGroupWorkloads(group CompileGroup, gateSet, grouped map[GateID]struct{}) error {
+	for _, workloadID := range group.WorkloadIDs {
+		if _, ok := gateSet[workloadID]; !ok {
+			return fmt.Errorf("compile group workload %q is not in shard gate_ids", workloadID)
+		}
+		if _, duplicate := grouped[workloadID]; duplicate {
+			return fmt.Errorf("compile group workload %q is covered more than once", workloadID)
+		}
+		if err := validateCompileGroupSelector(workloadID, group.PackageTarget, group.SemanticKey); err != nil {
+			return err
+		}
+		grouped[workloadID] = struct{}{}
+	}
+	return nil
+}
+
+func validateManifestCompileGroupPacking(groups []CompileGroup) error {
+	if len(groups) <= 1 {
+		return nil
+	}
+	for _, group := range groups {
+		if !CompileGroupSerialPackingEligible(group) {
+			return fmt.Errorf("shard execution manifest compile group %q is not eligible for same-resource serial packing", group.GroupID)
+		}
+	}
+	return nil
 }
 
 // validateCompileGroupSemantics 校验组内 selector 的包、类型、parent 和语义键完全一致。

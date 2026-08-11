@@ -15,6 +15,14 @@ const (
 	ShardTerminalContainersTable = "ci_shard_terminal_containers"
 	// ShardTerminalEventsTable 是 ECI 终态事件证据表。
 	ShardTerminalEventsTable = "ci_shard_terminal_events"
+	// LocalAuthorityStateTable 是本地 PASS 独立 authority 的 singleton 状态表。
+	LocalAuthorityStateTable = "ci_local_authority_state"
+	// LocalWorkloadOriginsTable 是本地 PASS 执行 origin 审计表。
+	LocalWorkloadOriginsTable = "ci_local_workload_origins"
+	// LocalWorkloadExecutionsTable 是本地 PASS 直接执行投影表。
+	LocalWorkloadExecutionsTable = "ci_local_workload_executions"
+	// LocalWorkloadPassEvidenceTable 是本地 PASS 证据投影表。
+	LocalWorkloadPassEvidenceTable = "ci_local_workload_pass_evidence"
 )
 
 // SQLAuthorityAuxiliaryTables 返回不属于事实域绑定但仍受唯一 SQLite authority 管理的表。
@@ -25,14 +33,32 @@ func SQLAuthorityAuxiliaryTables() []string {
 		DurationQueryMetaTable,
 		ShardTerminalContainersTable,
 		ShardTerminalEventsTable,
+		LocalAuthorityStateTable,
+		LocalWorkloadOriginsTable,
+		LocalWorkloadExecutionsTable,
+		LocalWorkloadPassEvidenceTable,
+		RemoteRunExecutionScopesTable,
+		RetainedWorkloadPassProofsTable,
+	}
+}
+
+// SQLAuthorityAdditiveSchemaIndexes 返回 additive remote-CI side-table 的受管索引。
+// 它们属于唯一 SQLite authority，但不是独立事实域、retention root 或第二 authority。
+func SQLAuthorityAdditiveSchemaIndexes() []string {
+	return []string{
+		"idx_ci_remote_run_execution_scopes_job",
+		"idx_ci_remote_run_execution_scopes_generation",
+		RetainedWorkloadPassProofLookupIndex,
+		RunWorkloadResultsRetentionIndex,
 	}
 }
 
 // SQLAuthoritySchemaTables 返回 gate schema 允许创建的完整表名集合。
 func SQLAuthoritySchemaTables() []string {
 	auxiliary := SQLAuthorityAuxiliaryTables()
-	result := make([]string, 0, len(sqlAuthorityBindings)+len(auxiliary))
-	for _, binding := range sqlAuthorityBindings {
+	bindings := sqlAuthorityBindingList()
+	result := make([]string, 0, len(bindings)+len(auxiliary))
+	for _, binding := range bindings {
 		result = append(result, binding.Table)
 	}
 	result = append(result, auxiliary...)
@@ -51,6 +77,16 @@ func validateSQLAuthoritySchemaTables() error {
 			return fmt.Errorf("remote CI SQLite schema table %q is registered more than once", table)
 		}
 		seen[table] = struct{}{}
+	}
+	seen = make(map[string]struct{}, len(SQLAuthorityAdditiveSchemaIndexes()))
+	for _, index := range SQLAuthorityAdditiveSchemaIndexes() {
+		if index == "" || strings.TrimSpace(index) != index {
+			return fmt.Errorf("remote CI SQLite schema index %q is invalid", index)
+		}
+		if _, exists := seen[index]; exists {
+			return fmt.Errorf("remote CI SQLite schema index %q is registered more than once", index)
+		}
+		seen[index] = struct{}{}
 	}
 	return nil
 }

@@ -63,7 +63,7 @@ func loadSQLiteMetadata(database sqliteRowQueryer) (DurationLedgerSnapshot, erro
 
 func loadSQLiteDurationSamples(database sqliteRowQueryer) ([]DurationSample, error) {
 	rows, err := database.Query(`
-		SELECT workload_id, command_digest, input_digest, platform, runner, toolchain,
+		SELECT accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain,
 			execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
 			succeeded, duration_ms, target_kind, parent_workload_id,
 			parent_command_digest, target_name, target_status
@@ -99,25 +99,27 @@ func loadSQLiteDurationSampleIndex(
 		buckets: make(map[durationSampleIndexKey]durationSampleAggregate),
 	}
 	query := `
-		SELECT workload_id, command_digest, input_digest, execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
-			COALESCE(SUM(CASE WHEN succeeded = 1 THEN duration_ms ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END), 0),
-			COALESCE(MAX(CASE WHEN succeeded = 0 THEN duration_ms ELSE 0 END), 0)
+		SELECT accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain,
+			execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
+			succeeded, duration_ms, target_kind, parent_workload_id, parent_command_digest,
+			target_name, target_status
 		FROM duration_samples
 		WHERE execution_mode = ? AND platform = ? AND runner = ? AND toolchain = ?
-		GROUP BY workload_id, command_digest, input_digest, execution_mode, resource_class_id, resource_cpu, resource_memory_gib
+		ORDER BY accepted_generation DESC, workload_id, command_digest, input_digest,
+			resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms, id
 	`
 	args := []any{DurationExecutionModeNormal, planning.Platform, planning.Runner, planning.Toolchain}
 	if planning.Calibration {
 		query = `
-			SELECT workload_id, command_digest, input_digest, execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
-				COALESCE(SUM(CASE WHEN succeeded = 1 THEN duration_ms ELSE 0 END), 0),
-				COALESCE(SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END), 0),
-				COALESCE(MAX(CASE WHEN succeeded = 0 THEN duration_ms ELSE 0 END), 0)
+			SELECT accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain,
+				execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
+				succeeded, duration_ms, target_kind, parent_workload_id, parent_command_digest,
+				target_name, target_status
 			FROM duration_samples
 			WHERE execution_mode = ? AND resource_class_id = ? AND resource_cpu = ? AND resource_memory_gib = ?
 				AND platform = ? AND runner = ? AND toolchain = ?
-			GROUP BY workload_id, command_digest, input_digest, execution_mode, resource_class_id, resource_cpu, resource_memory_gib
+			ORDER BY accepted_generation DESC, workload_id, command_digest, input_digest,
+				resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms, id
 		`
 		args = []any{DurationExecutionModeCalibration, planning.CalibrationResourceClassID, planning.CalibrationResourceCPU, planning.CalibrationResourceMemoryGiB, planning.Platform, planning.Runner, planning.Toolchain}
 	}
@@ -126,32 +128,36 @@ func loadSQLiteDurationSampleIndex(
 		return DurationSampleIndex{}, mapDurationLedgerSQLiteError("query duration sample planning index", err)
 	}
 	defer rows.Close()
-	for rows.Next() {
-		var (
-			key       durationSampleIndexKey
-			aggregate durationSampleAggregate
-		)
-		if err := rows.Scan(
-			&key.workloadID,
-			&key.commandDigest,
-			&key.inputDigest,
-			&key.executionMode,
-			&key.resourceClassID,
-			&key.resourceCPU,
-			&key.resourceMemoryGiB,
-			&aggregate.successTotalMS,
-			&aggregate.successCount,
-			&aggregate.maxFailureDuration,
-		); err != nil {
-			return DurationSampleIndex{}, mapDurationLedgerSQLiteError("scan duration sample planning index", err)
-		}
-		index.buckets[key] = aggregate
+	if err := appendSQLiteDurationIndexRows(&index, rows, planning); err != nil {
+		return DurationSampleIndex{}, err
 	}
-	if err := rows.Err(); err != nil {
-		return DurationSampleIndex{}, mapDurationLedgerSQLiteError("iterate duration sample planning index", err)
+	if err := index.finalizeGenerationWindow(); err != nil {
+		return DurationSampleIndex{}, err
 	}
 	return index, nil
 }
+
+// appendSQLiteDurationIndexRows 将权威 SQLite 原始行校验后写入时长索引。
+func appendSQLiteDurationIndexRows(index *DurationSampleIndex, rows *sql.Rows, planning PlanningContext) error {
+	for rows.Next() {
+		sample, err := scanSQLiteDurationSample(rows)
+		if err != nil {
+			return err
+		}
+		if sample.Bucket.Platform != planning.Platform || sample.Bucket.Runner != planning.Runner || sample.Bucket.Toolchain != planning.Toolchain {
+			return errors.New("duration sample planning query returned an environment mismatch")
+		}
+		if err := index.addSample(sample, mathMaxInt64); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return mapDurationLedgerSQLiteError("iterate duration sample planning index", err)
+	}
+	return nil
+}
+
+// scanSQLiteDurationSample 读取一行权威样本并严格解析 accepted_generation。
 func scanSQLiteDurationSample(scanner interface{ Scan(...any) error }) (DurationSample, error) {
 	var (
 		sample                         DurationSample
@@ -161,8 +167,10 @@ func scanSQLiteDurationSample(scanner interface{ Scan(...any) error }) (Duration
 		inputDigest                    string
 		targetKind                     string
 		targetStatus                   string
+		acceptedGenerationText         string
 	)
 	if err := scanner.Scan(
+		&acceptedGenerationText,
 		&sample.Bucket.WorkloadID,
 		&sample.Bucket.CommandDigest,
 		&inputDigest,
@@ -183,6 +191,11 @@ func scanSQLiteDurationSample(scanner interface{ Scan(...any) error }) (Duration
 	); err != nil {
 		return DurationSample{}, mapDurationLedgerSQLiteError("scan duration ledger SQLite sample", err)
 	}
+	acceptedGeneration, err := strconv.ParseUint(acceptedGenerationText, 10, 64)
+	if err != nil || acceptedGeneration == 0 {
+		return DurationSample{}, errors.New("stored duration sample accepted generation is invalid")
+	}
+	sample.AcceptedGeneration = acceptedGeneration
 	sample.Succeeded = succeeded == 1
 	sample.Bucket.InputDigest = inputDigest
 	sample.Bucket.ExecutionMode = executionMode
@@ -309,6 +322,7 @@ func loadSQLiteShardOverhead(database sqliteRowQueryer, planning PlanningContext
 	return &overhead, nil
 }
 
+// loadSQLiteShardOverheadSamples 读取并校验指定代次的 overhead 原始样本。
 func loadSQLiteShardOverheadSamples(database sqliteRowQueryer, generation, provenanceDigest string) ([]ShardOrchestrationOverheadSample, error) {
 	rows, err := database.Query(`
 		SELECT accepted_generation, provenance_digest, job_id, shard_identity,

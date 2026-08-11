@@ -99,6 +99,21 @@ func (store *coordinatorStore) DeletePrefix(_ context.Context, prefix string) er
 	return nil
 }
 
+// ConfirmPrefixEmpty simulates a store absence proof.
+func (store *coordinatorStore) ConfirmPrefixEmpty(ctx context.Context, prefix string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for key := range store.objects {
+		if strings.HasPrefix(key, prefix) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 type coordinatorRuntime struct {
 	mu                 sync.Mutex
 	creates            []eci.CreateRequest
@@ -306,6 +321,14 @@ func (runtime *coordinatorRuntime) DeleteContainerGroup(ctx context.Context, gro
 	return nil
 }
 
+// ConfirmContainerGroupAbsent simulates an ECI absence proof.
+func (runtime *coordinatorRuntime) ConfirmContainerGroupAbsent(ctx context.Context, _ string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func TestCoordinatorRunCompletesAndCleansRemoteShards(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	store := &coordinatorStore{}
@@ -511,18 +534,27 @@ func TestBindRemoteShardResourcesRejectsMissingProviderReceipt(t *testing.T) {
 	}
 }
 
-func TestCoordinatorRunRejectsMissingOrMismatchedExecutionImageCacheSnapshotID(t *testing.T) {
-	for name, snapshotID := range map[string]string{
-		"missing":  "",
-		"mismatch": "snap-other-baseline",
+func TestCoordinatorRunBindsLiveExecutionImageCacheSnapshotID(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		snapshotID string
+		wantError  bool
+	}{
+		"missing":   {wantError: true},
+		"refreshed": {snapshotID: "snap-refreshed-runtime-2"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			repository, input := remoteRunFixture(t)
 			input.RepositoryRoot = repository
-			input.ExecutionImageCacheSnapshotID = snapshotID
+			input.ExecutionImageCacheSnapshotID = testCase.snapshotID
 			_, err := runCoordinatorTest(t, newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}), context.Background(), input)
-			if err == nil || !strings.Contains(err.Error(), "ImageCacheSnapshotID") {
-				t.Fatalf("Run() error = %v, want image snapshot binding rejection", err)
+			if testCase.wantError {
+				if err == nil || !strings.Contains(err.Error(), "ImageCacheSnapshotID") {
+					t.Fatalf("Run() error = %v, want image snapshot binding rejection", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Run() refreshed execution snapshot error = %v", err)
 			}
 		})
 	}

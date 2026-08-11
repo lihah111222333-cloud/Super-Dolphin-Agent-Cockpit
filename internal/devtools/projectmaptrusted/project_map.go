@@ -4,6 +4,7 @@ package projectmaptrusted
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 const (
@@ -89,7 +93,158 @@ type preparedTree struct {
 type ExactTree struct {
 	RepositoryRoot string
 	SourceRoot     string
-	Cleanup        func() error
+	SourceTreeSHA  string
+	// Restore resets tracked and untracked source files to SourceTreeSHA before
+	// each independent workload, so one workload cannot leak generated state.
+	Restore func() error
+	// Verify proves that HEAD^{tree} and the worktree still equal SourceTreeSHA.
+	Verify  func() error
+	Cleanup func() error
+}
+
+// MaterializeExactGitTree 将精确 Git tree 解包到隔离仓库，并发布 detached
+// synthetic commit；调用方可在 source root 内执行依赖 .git 的 canonical gate。
+// synthetic commit 的 tree 必须逐字节等于请求 tree，任何物化漂移都 fail-fast。
+func MaterializeExactGitTree(repository, tree, temporaryPrefix string, trustedGit gate.TrustedGitBinary) (ExactTree, error) {
+	root, err := canonicalRepository(repository)
+	if err != nil {
+		return ExactTree{}, err
+	}
+	treeSHA, err := requireExactTreeWithTrustedGit(trustedGit, root, tree)
+	if err != nil {
+		return ExactTree{}, err
+	}
+	tempRoot, err := makeExactTreeTempRoot(temporaryPrefix)
+	if err != nil {
+		return ExactTree{}, fmt.Errorf("create exact-tree temporary root: %w", err)
+	}
+	cleanup := func() error {
+		if err := os.RemoveAll(tempRoot); err != nil {
+			return fmt.Errorf("remove exact-tree temporary root: %w", err)
+		}
+		return nil
+	}
+	sourceRoot := filepath.Join(tempRoot, "source")
+	if err := cloneExactGitRepository(trustedGit, root, sourceRoot); err != nil {
+		return ExactTree{}, errors.Join(err, cleanup())
+	}
+	if err := materializeExactGitTree(trustedGit, sourceRoot, treeSHA); err != nil {
+		return ExactTree{}, errors.Join(err, cleanup())
+	}
+	return ExactTree{
+		RepositoryRoot: root,
+		SourceRoot:     sourceRoot,
+		SourceTreeSHA:  treeSHA,
+		Restore:        func() error { return restoreExactGitTree(trustedGit, sourceRoot, treeSHA) },
+		Verify:         func() error { return verifyExactGitTree(trustedGit, sourceRoot, treeSHA) },
+		Cleanup:        cleanup,
+	}, nil
+}
+
+// cloneExactGitRepository 通过共享对象库创建 no-checkout 隔离仓库，避免从 archive 重哈希 tree。
+func cloneExactGitRepository(trustedGit gate.TrustedGitBinary, repository, destination string) error {
+	gitPath, err := trustedGit.VerifiedPath()
+	if err != nil {
+		return err
+	}
+	command := exec.Command(gitPath, "--no-replace-objects", "clone", "--quiet", "--no-checkout", "--shared", "--no-local", repository, destination)
+	command.Env = gateprivate.TrustedGitEnvironment()
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("clone exact-tree Git repository: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+// materializeExactGitTree 将已有 tree 对象直接读入 index/worktree，再绑定 detached synthetic commit。
+func materializeExactGitTree(trustedGit gate.TrustedGitBinary, sourceRoot, expectedTree string) error {
+	if err := runTrustedGitInDirectory(trustedGit, sourceRoot, "read-tree", "--reset", "-u", expectedTree); err != nil {
+		return fmt.Errorf("read exact-tree Git object: %w", err)
+	}
+	commit, err := trustedGitOutputInDirectoryWithEnv(trustedGit, sourceRoot, []string{
+		"GIT_AUTHOR_NAME=super-dolphin-local",
+		"GIT_AUTHOR_EMAIL=super-dolphin-local@invalid",
+		"GIT_COMMITTER_NAME=super-dolphin-local",
+		"GIT_COMMITTER_EMAIL=super-dolphin-local@invalid",
+	}, "commit-tree", expectedTree, "-m", "exact local workload tree")
+	if err != nil {
+		return fmt.Errorf("publish exact-tree synthetic commit: %w", err)
+	}
+	if err := runTrustedGitInDirectory(trustedGit, sourceRoot, "checkout", "--quiet", "--detach", strings.TrimSpace(commit)); err != nil {
+		return fmt.Errorf("detach exact-tree synthetic commit: %w", err)
+	}
+	resolved, err := trustedGitOutputInDirectory(trustedGit, sourceRoot, "rev-parse", "--verify", "HEAD^{tree}")
+	if err != nil {
+		return fmt.Errorf("verify exact-tree HEAD: %w", err)
+	}
+	if strings.TrimSpace(resolved) != strings.TrimSpace(expectedTree) {
+		return fmt.Errorf("exact-tree HEAD tree mismatch: got %s want %s", strings.TrimSpace(resolved), expectedTree)
+	}
+	return nil
+}
+
+// restoreExactGitTree 清理 workload 生成物并恢复请求 tree；依赖 overlay 由执行器下一项重新安装。
+func restoreExactGitTree(trustedGit gate.TrustedGitBinary, sourceRoot, expectedTree string) error {
+	if err := runTrustedGitInDirectory(trustedGit, sourceRoot, "read-tree", "--reset", "-u", expectedTree); err != nil {
+		return fmt.Errorf("restore exact-tree Git object: %w", err)
+	}
+	if err := runTrustedGitInDirectory(trustedGit, sourceRoot, "clean", "-fdx", "-q"); err != nil {
+		return fmt.Errorf("clean exact-tree workload outputs: %w", err)
+	}
+	return verifyExactGitTree(trustedGit, sourceRoot, expectedTree)
+}
+
+// verifyExactGitTree 拒绝 HEAD tree 漂移及残留 dirty/untracked 文件。
+func verifyExactGitTree(trustedGit gate.TrustedGitBinary, sourceRoot, expectedTree string) error {
+	resolved, err := trustedGitOutputInDirectory(trustedGit, sourceRoot, "rev-parse", "--verify", "HEAD^{tree}")
+	if err != nil {
+		return fmt.Errorf("verify exact-tree HEAD: %w", err)
+	}
+	if strings.TrimSpace(resolved) != strings.TrimSpace(expectedTree) {
+		return fmt.Errorf("exact-tree HEAD tree mismatch: got %s want %s", strings.TrimSpace(resolved), expectedTree)
+	}
+	status, err := trustedGitOutputInDirectory(trustedGit, sourceRoot, "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("verify exact-tree worktree status: %w", err)
+	}
+	if strings.TrimSpace(status) != "" {
+		return fmt.Errorf("exact-tree worktree remains dirty: %s", strings.TrimSpace(status))
+	}
+	return nil
+}
+
+func runTrustedGitInDirectory(trustedGit gate.TrustedGitBinary, directory string, args ...string) error {
+	gitPath, err := trustedGit.VerifiedPath()
+	if err != nil {
+		return err
+	}
+	command := exec.Command(gitPath, append([]string{"--no-replace-objects"}, args...)...)
+	command.Dir = directory
+	command.Env = gateprivate.TrustedGitEnvironment()
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git %s: %s: %w", strings.Join(args, " "), strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+func trustedGitOutputInDirectory(trustedGit gate.TrustedGitBinary, directory string, args ...string) (string, error) {
+	return trustedGitOutputInDirectoryWithEnv(trustedGit, directory, nil, args...)
+}
+
+func trustedGitOutputInDirectoryWithEnv(trustedGit gate.TrustedGitBinary, directory string, extraEnv []string, args ...string) (string, error) {
+	gitPath, err := trustedGit.VerifiedPath()
+	if err != nil {
+		return "", err
+	}
+	command := exec.Command(gitPath, append([]string{"--no-replace-objects"}, args...)...)
+	command.Dir = directory
+	command.Env = append(gateprivate.TrustedGitEnvironment(), extraEnv...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %s: %w", strings.Join(args, " "), strings.TrimSpace(string(output)), err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 // MaterializeExactTree 校验 tree 对象并安全解包，不读取工作区覆盖内容。
@@ -119,7 +274,7 @@ func MaterializeExactTree(repository, tree, temporaryPrefix string) (ExactTree, 
 	if err := extractGitTree(root, treeSHA, sourceRoot); err != nil {
 		return ExactTree{}, errors.Join(err, cleanup())
 	}
-	return ExactTree{RepositoryRoot: root, SourceRoot: sourceRoot, Cleanup: cleanup}, nil
+	return ExactTree{RepositoryRoot: root, SourceRoot: sourceRoot, SourceTreeSHA: treeSHA, Cleanup: cleanup}, nil
 }
 
 // makeExactTreeTempRoot 只接受绝对临时根，避免相对 TMPDIR 随进程 cwd 泄漏到仓库。
@@ -229,7 +384,31 @@ func requireExactTree(repository, tree string) (string, error) {
 	if treeSHA != tree || !exactTreePattern.MatchString(treeSHA) {
 		return "", &TreeError{Tree: tree, Err: errors.New("tree must be one lowercase 40- or 64-hex object ID")}
 	}
-	command := exec.Command("git", "-C", repository, "cat-file", "-t", treeSHA)
+	command, commandErr := gateprivate.TrustedGitCommand(context.Background(), repository, "cat-file", "-t", treeSHA)
+	if commandErr != nil {
+		return "", &TreeError{Tree: treeSHA, Err: commandErr}
+	}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", &TreeError{Tree: treeSHA, Err: commandFailure(command, output, err)}
+	}
+	if strings.TrimSpace(string(output)) != "tree" {
+		return "", &TreeError{Tree: treeSHA, Err: fmt.Errorf("object type is %q, want tree", strings.TrimSpace(string(output)))}
+	}
+	return treeSHA, nil
+}
+
+func requireExactTreeWithTrustedGit(trustedGit gate.TrustedGitBinary, repository, tree string) (string, error) {
+	treeSHA := strings.TrimSpace(tree)
+	if treeSHA != tree || !exactTreePattern.MatchString(treeSHA) {
+		return "", &TreeError{Tree: tree, Err: errors.New("tree must be one lowercase 40- or 64-hex object ID")}
+	}
+	gitPath, err := trustedGit.VerifiedPath()
+	if err != nil {
+		return "", &TreeError{Tree: treeSHA, Err: err}
+	}
+	command := exec.Command(gitPath, "--no-replace-objects", "-C", repository, "cat-file", "-t", treeSHA)
+	command.Env = gateprivate.TrustedGitEnvironment()
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return "", &TreeError{Tree: treeSHA, Err: commandFailure(command, output, err)}
@@ -242,7 +421,10 @@ func requireExactTree(repository, tree string) (string, error) {
 
 // extractGitTree 从指定 tree 导出候选内容，不读取工作区文件。
 func extractGitTree(repository, tree, destination string) error {
-	command := exec.Command("git", "-C", repository, "archive", "--format=tar", tree)
+	command, commandErr := gateprivate.TrustedGitCommand(context.Background(), repository, "archive", "--format=tar", tree)
+	if commandErr != nil {
+		return &TreeError{Tree: tree, Err: commandErr}
+	}
 	archive, err := command.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("open Git tree archive: %w", err)

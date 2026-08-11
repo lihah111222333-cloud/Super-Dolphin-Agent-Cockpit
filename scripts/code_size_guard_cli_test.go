@@ -14,6 +14,18 @@ func TestGuardRaceOnlyModeUsesShortTestScope(t *testing.T) {
 	assertScriptContains(t, body, `run_go_test "$real_go" "$@" -race -short -count=1`)
 }
 
+func TestRemoteECITestGuidanceUsesExplicitAuthorityTarget(t *testing.T) {
+	for file, required := range map[string]string{
+		"test_with_guard.sh":    `test --target=remote --config`,
+		"go":                    `super-dolphin-gate test --target=remote`,
+		"real_go_resolver.sh":   `super-dolphin-gate test --target=remote`,
+		"forbid_raw_go_test.sh": `super-dolphin-gate test --target=remote`,
+		"activate_guard_env.sh": `super-dolphin-gate test --target=remote`,
+	} {
+		assertScriptContains(t, readScript(t, file), required)
+	}
+}
+
 func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
 	for _, command := range [][]string{
 		{"scripts/test_with_guard.sh", "--ci-package-test", "./internal/devtools/gate", "TestBoundary"},
@@ -554,11 +566,15 @@ func assertTestWithGuardRemoteRejection(t *testing.T, result testWithGuardFakeGo
 		reason,
 		"remote CI exact test: source .githooks/trusted-gate-launcher.sh",
 		`"$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test`,
+		"--target=remote",
 		`--config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}"`,
 		`--ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}"`,
 		"--test ./scripts#TestBoundary",
 		"remote CI setup: make remote-ci-init",
 	)
+	if strings.Contains(result.invocations, "super-dolphin-gate") {
+		t.Fatalf("host admission rejection launched ECI instead of only printing guidance:\n%s", result.invocations)
+	}
 }
 
 func runTestWithGuardFakeGo(t *testing.T, args ...string) testWithGuardFakeGoResult {

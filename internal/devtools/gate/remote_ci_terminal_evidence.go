@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -123,6 +124,9 @@ func validateRemoteCIContainerEvidence(values []RemoteCIContainerTerminalEvidenc
 		if err := validateRemoteCITerminalEvidenceFields(value.State, value.Reason, value.Message); err != nil {
 			return fmt.Errorf("container %q: %w", value.Name, err)
 		}
+		if err := validateRemoteCIContainerState(value.State); err != nil {
+			return fmt.Errorf("container %q: %w", value.Name, err)
+		}
 	}
 	return nil
 }
@@ -131,13 +135,37 @@ func validateRemoteCIEventEvidence(value RemoteCIEventEvidence) error {
 	if err := validateRemoteCITerminalEvidenceFields(value.Type, value.Reason, value.Message); err != nil {
 		return err
 	}
+	if err := validateRemoteCIEventType(value.Type); err != nil {
+		return err
+	}
 	if value.Count < 0 {
 		return errors.New("event count must not be negative")
 	}
 	if len(value.LastTimestamp) > remoteCITerminalEvidenceMaxFieldBytes {
 		return errors.New("event timestamp exceeds bounded size")
 	}
+	if value.LastTimestamp != "" {
+		if _, err := time.Parse(time.RFC3339, value.LastTimestamp); err != nil {
+			return errors.New("event timestamp is invalid")
+		}
+	}
 	return nil
+}
+
+// validateRemoteCIContainerState 只接受 ECI CurrentState 的稳定状态枚举。
+func validateRemoteCIContainerState(state string) error {
+	if state == "" || state == "Waiting" || state == "Running" || state == "Terminated" {
+		return nil
+	}
+	return errors.New("container state is invalid")
+}
+
+// validateRemoteCIEventType 只接受 Kubernetes 事件公开的两个类型枚举。
+func validateRemoteCIEventType(eventType string) error {
+	if eventType == "" || eventType == "Normal" || eventType == "Warning" {
+		return nil
+	}
+	return errors.New("event type is invalid")
 }
 
 func validateRemoteCITerminalEvidenceFields(values ...string) error {

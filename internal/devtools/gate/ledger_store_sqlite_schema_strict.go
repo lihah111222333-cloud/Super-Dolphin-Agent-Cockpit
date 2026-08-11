@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type durationLedgerSQLiteSchemaQueryer interface {
@@ -13,7 +14,7 @@ type durationLedgerSQLiteSchemaQueryer interface {
 
 type durationLedgerSQLiteSchemaValidator struct {
 	expectedSchema      func() (map[string]string, error)
-	initializeAuthority func(*sql.DB, *durationLedgerSQLiteSchemaValidator) error
+	initializeAuthority func(*sql.DB, func() time.Time, *durationLedgerSQLiteSchemaValidator) error
 }
 
 func newDurationLedgerSQLiteSchemaValidator() *durationLedgerSQLiteSchemaValidator {
@@ -26,9 +27,17 @@ func newDurationLedgerSQLiteSchemaValidator() *durationLedgerSQLiteSchemaValidat
 // durationLedgerSQLiteCurrentSchemaStatements returns the sole physical schema
 // definition used by both empty-authority initialization and exact comparison.
 func durationLedgerSQLiteCurrentSchemaStatements() []string {
+	statements := durationLedgerSQLiteSchemaStatementsV14()
+	statements = append(statements, durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+	return append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+}
+
+// durationLedgerSQLiteSchemaStatementsV14 is the complete pre-scope schema.
+func durationLedgerSQLiteSchemaStatementsV14() []string {
 	statements := durationLedgerSQLiteLegacySchemaStatements()
 	statements = append(statements, durationLedgerCompileTimingSchemaStatements()...)
-	return append(statements, durationLedgerRemoteCITerminalEvidenceSchemaStatements()...)
+	statements = append(statements, durationLedgerRemoteCITerminalEvidenceSchemaStatements()...)
+	return append(statements, strictLocalWorkloadPassSQLiteSchema)
 }
 
 func durationLedgerSQLiteLegacySchemaStatements() []string {
@@ -42,6 +51,20 @@ func durationLedgerSQLiteLegacySchemaStatements() []string {
 		durationLedgerRunTimingWarningIndexSchema,
 	}
 	return statements
+}
+
+func durationLedgerSQLiteLegacySchemaStatementsV13() []string {
+	statements := []string{
+		durationLedgerSQLiteSchema,
+		frozenWorkloadPassReuseSQLiteSchemaV13,
+		strictCheckReceiptReuseSQLiteSchema,
+		durationLedgerLiveTimingWarningTableSchema,
+		durationLedgerRunTimingWarningTableSchema,
+		durationLedgerLiveTimingWarningIndexSchema,
+		durationLedgerRunTimingWarningIndexSchema,
+	}
+	statements = append(statements, durationLedgerCompileTimingSchemaStatements()...)
+	return append(statements, durationLedgerRemoteCITerminalEvidenceSchemaStatements()...)
 }
 
 func (validator *durationLedgerSQLiteSchemaValidator) preflight(queryer durationLedgerSQLiteSchemaQueryer, schemaVersion int) error {

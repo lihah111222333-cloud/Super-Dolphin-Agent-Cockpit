@@ -64,6 +64,60 @@ func TestDurationLedgerRetentionPlanMaterializesGenerationSetOnce(t *testing.T) 
 	assertRetentionDeletePlans(t, tx, bindings)
 }
 
+// TestDurationLedgerRetentionRejectsFutureGenerationRoot 验证 retention 不会把
+// 尚未进入 accepted baseline 的伪造根纳入窗口或静默删除。
+func TestDurationLedgerRetentionRejectsFutureGenerationRoot(t *testing.T) {
+	db := newRetentionTestSQLiteDB(t)
+	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain, execution_mode, resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms) VALUES ('5', 'future-retention', 'future-retention', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'linux/amd64', 'eci', 'go', 'normal', 'small', 2, 4, 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := compactDurationLedgerAuthority(tx); err == nil || !strings.Contains(err.Error(), "was never accepted") {
+		t.Fatalf("future retention root error = %v, want accepted-generation rejection", err)
+	}
+	var rows int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM duration_samples WHERE accepted_generation = '5'`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("future retention root rows after failed compaction = %d, want 1", rows)
+	}
+}
+
+// TestRetentionRootBindingsRequireRemoteRunsInsteadOfV16ProofProjection keeps
+// ci_runs as a root while rejecting the v16 consumer-proof side table as a substitute.
+func TestRetentionRootBindingsRequireRemoteRunsInsteadOfV16ProofProjection(t *testing.T) {
+	bindings := cicontract.RetentionRootBindings()
+	if err := validateRetentionRootBindings(bindings); err != nil {
+		t.Fatalf("canonical retention roots rejected: %v", err)
+	}
+
+	withoutRemoteRuns := make([]cicontract.RetentionRootBinding, 0, len(bindings)-1)
+	for _, binding := range bindings {
+		if binding.Table != cicontract.RemoteRunsTable {
+			withoutRemoteRuns = append(withoutRemoteRuns, binding)
+		}
+	}
+	if err := validateRetentionRootBindings(withoutRemoteRuns); err == nil || !strings.Contains(err.Error(), cicontract.RemoteRunsTable) {
+		t.Fatalf("retention roots without remote runs error = %v, want missing remote-runs root", err)
+	}
+
+	proofSubstitution := append([]cicontract.RetentionRootBinding(nil), bindings...)
+	for index := range proofSubstitution {
+		if proofSubstitution[index].Table == cicontract.RemoteRunsTable {
+			proofSubstitution[index].Table = cicontract.RetainedWorkloadPassProofsTable
+		}
+	}
+	if err := validateRetentionRootBindings(proofSubstitution); err == nil || !strings.Contains(err.Error(), cicontract.RetainedWorkloadPassProofsTable) {
+		t.Fatalf("retention roots with v16 proof substitution error = %v, want rejected auxiliary proof table", err)
+	}
+}
+
 func assertRetentionGenerationQueryPlan(t *testing.T, tx *sql.Tx, bindings []cicontract.RetentionRootBinding) {
 	t.Helper()
 	generationQuery := retentionGenerationQuery(bindings)
@@ -299,7 +353,7 @@ func testRetentionRollback(t *testing.T, db *sql.DB) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain, execution_mode, resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms) VALUES ('5', 'rollback', 'rollback', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'linux/amd64', 'eci', 'go', 'normal', 'small', 2, 4, 1, 1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO duration_samples (accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain, execution_mode, resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms) VALUES ('1', 'rollback', 'rollback', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'linux/amd64', 'eci', 'go', 'normal', 'small', 2, 4, 1, 1)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := compactDurationLedgerAuthority(tx); err != nil {
@@ -308,7 +362,7 @@ func testRetentionRollback(t *testing.T, db *sql.DB) {
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	assertGenerationCount(t, db, "duration_samples", "5", 0)
+	assertGenerationCount(t, db, "duration_samples", "1", 0)
 	assertGenerationCount(t, db, "duration_samples", "2", 1)
 }
 

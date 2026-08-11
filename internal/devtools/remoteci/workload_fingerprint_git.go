@@ -11,21 +11,29 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
-	"os/exec"
 	"path"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"golang.org/x/mod/modfile"
 )
 
 func loadRemoteGitTreeSnapshot(ctx context.Context, repositoryRoot string, tree string) (*remoteGitTreeSnapshot, error) {
+	return loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx, repositoryRoot, tree, gate.CandidateObjectAuthority{})
+}
+
+func loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx context.Context, repositoryRoot string, tree string, authority gate.CandidateObjectAuthority) (*remoteGitTreeSnapshot, error) {
 	if !validRemoteGitTreeRequest(ctx, repositoryRoot, tree) {
 		return nil, errors.New("remote workload fingerprint Git identity is incomplete")
 	}
-	command := exec.CommandContext(ctx, "git", "ls-tree", "-r", "-z", "--full-tree", tree, "--")
-	command.Dir = repositoryRoot
+	command, err := gateprivate.TrustedGitCommandWithCandidateObjectAuthority(ctx, repositoryRoot, authority, "ls-tree", "-r", "-z", "--full-tree", tree, "--")
+	if err != nil {
+		return nil, fmt.Errorf("resolve trusted Git for remote workload fingerprint tree: %w", err)
+	}
 	output, err := command.Output()
 	if err != nil {
 		return nil, fmt.Errorf("list remote workload fingerprint tree: %w", err)
@@ -35,12 +43,13 @@ func loadRemoteGitTreeSnapshot(ctx context.Context, repositoryRoot string, tree 
 		return nil, err
 	}
 	return &remoteGitTreeSnapshot{
-		repositoryRoot:         repositoryRoot,
-		tree:                   tree,
-		entries:                entries,
-		byPath:                 byPath,
-		productionClosureCache: make(map[string]remoteProductionClosureCache),
-		goTestDeclarationCache: make(map[string]remoteGoTestDeclarationCache),
+		repositoryRoot:           repositoryRoot,
+		tree:                     tree,
+		candidateObjectAuthority: authority,
+		entries:                  entries,
+		byPath:                   byPath,
+		productionClosureCache:   make(map[string]remoteProductionClosureCache),
+		goTestDeclarationCache:   make(map[string]remoteGoTestDeclarationCache),
 	}, nil
 }
 
@@ -112,6 +121,8 @@ func validRemoteGitObjectID(value string) bool {
 	_, err := hex.DecodeString(value)
 	return err == nil
 }
+
+// prepareGoSources 读取精确 Git tree 的 Go 源码、模块元数据和符号链接目标。
 func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) error {
 	snapshot.goSourcesMu.Lock()
 	defer snapshot.goSourcesMu.Unlock()
@@ -122,6 +133,11 @@ func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) err
 	if err != nil {
 		return err
 	}
+	if symlinkPaths := snapshot.gitSymlinkPaths(); len(symlinkPaths) != 0 {
+		if _, err := snapshot.readGitBlobs(ctx, symlinkPaths); err != nil {
+			return fmt.Errorf("read Git symlink targets for Go workload fingerprint: %w", err)
+		}
+	}
 	mappings, err := remoteGoModuleMappings(sources)
 	if err != nil {
 		return err
@@ -129,6 +145,18 @@ func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) err
 	snapshot.goSources = sources
 	snapshot.moduleMappings = mappings
 	return nil
+}
+
+// gitSymlinkPaths 按确定顺序返回已跟踪符号链接，运行时观察只解析精确 Git blob。
+func (snapshot *remoteGitTreeSnapshot) gitSymlinkPaths() []string {
+	paths := make([]string, 0)
+	for _, entry := range snapshot.entries {
+		if entry.kind == "blob" && entry.mode == "120000" {
+			paths = append(paths, entry.path)
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 // goSourcePaths 返回解析本地 Go 依赖闭包所需的源码与模块文件路径。
@@ -301,8 +329,10 @@ func (snapshot *remoteGitTreeSnapshot) resolveLocalGoImport(importPath string) (
 // readGitBlobs 通过一次有界 git cat-file 批处理读取指定 tree blob。
 func (snapshot *remoteGitTreeSnapshot) readGitBlobs(ctx context.Context, paths []string) (map[string][]byte, error) {
 	query := snapshot.gitBlobQuery(paths)
-	command := exec.CommandContext(ctx, "git", "cat-file", "--batch")
-	command.Dir = snapshot.repositoryRoot
+	command, err := gateprivate.TrustedGitCommandWithCandidateObjectAuthority(ctx, snapshot.repositoryRoot, snapshot.candidateObjectAuthority, "cat-file", "--batch")
+	if err != nil {
+		return nil, fmt.Errorf("resolve trusted Git for remote workload blobs: %w", err)
+	}
 	command.Stdin = bytes.NewReader(query)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
@@ -323,6 +353,10 @@ func (snapshot *remoteGitTreeSnapshot) readGitBlobs(ctx context.Context, paths [
 			return nil, err
 		}
 		contents[filePath] = data
+		entry, ok := snapshot.byPath[filePath]
+		if ok && entry.mode == "120000" {
+			snapshot.rememberRemoteGitBlob(entry.objectID, data)
+		}
 		total += size
 	}
 	if err := command.Wait(); err != nil {
@@ -392,6 +426,7 @@ func (snapshot *remoteGitTreeSnapshot) digestEntries(entries []remoteGitTreeEntr
 		return "", errors.New("remote workload production input set is empty")
 	}
 	hasher := sha256.New()
+	fmt.Fprintf(hasher, "domain %s\n", cicontract.WorkloadInputFingerprintDomain)
 	fmt.Fprintf(hasher, "schema %d\n", remoteWorkloadInputSchemaVersion)
 	for _, entry := range entries {
 		fmt.Fprintf(hasher, "%s %s %s\t%s\n", entry.mode, entry.kind, entry.objectID, entry.path)
@@ -404,6 +439,7 @@ func digestGoTestEntries(entries []remoteGitTreeEntry, testSources []remoteGoTes
 		return "", errors.New("remote Go test input set is empty")
 	}
 	hasher := sha256.New()
+	fmt.Fprintf(hasher, "domain %s\n", cicontract.WorkloadInputFingerprintDomain)
 	fmt.Fprintf(hasher, "schema %d\n", remoteWorkloadInputSchemaVersion)
 	for _, entry := range entries {
 		fmt.Fprintf(hasher, "%s %s %s\t%s\n", entry.mode, entry.kind, entry.objectID, entry.path)

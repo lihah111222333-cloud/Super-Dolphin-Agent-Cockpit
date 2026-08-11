@@ -17,14 +17,18 @@ import (
 )
 
 type fakeGoInvocation struct {
-	Args   []string `json:"args"`
-	GOOS   string   `json:"goos"`
-	GOARCH string   `json:"goarch"`
+	Args       []string `json:"args"`
+	GOOS       string   `json:"goos"`
+	GOARCH     string   `json:"goarch"`
+	CGOEnabled string   `json:"cgo_enabled"`
 }
 
 func TestMain(m *testing.M) {
 	if capture := os.Getenv("LSP_DIAGNOSTICS_GATE_FAKE_GO_CAPTURE"); capture != "" {
-		invocation := fakeGoInvocation{Args: os.Args[1:], GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH")}
+		invocation := fakeGoInvocation{
+			Args: os.Args[1:], GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"),
+			CGOEnabled: os.Getenv("CGO_ENABLED"),
+		}
 		data, err := json.Marshal(invocation)
 		if err == nil {
 			err = os.WriteFile(capture, append(data, '\n'), 0o600)
@@ -380,6 +384,39 @@ func TestRegisteredBuildTagsCompileWithTagsAndWriteVersionedEvidence(t *testing.
 			assertBuildTagCompileInvocation(t, readFakeGoInvocation(t, capture), tag)
 			assertBuildTagCoverage(t, readCoverageArtifact(t, output), file, tag)
 		})
+	}
+}
+
+func TestTargetCompileEnvironmentDisablesCGOForCrossTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows source is host-visible on Windows")
+	}
+	root := t.TempDir()
+	file := "only_windows.go"
+	writeTestFile(t, filepath.Join(root, file), "//go:build windows\n\npackage a\n")
+	capture := installFakeGo(t)
+	output := filepath.Join(root, "coverage.json")
+	if err := run(context.Background(), options{root: root, files: []string{file}, output: output, timeout: 2 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	invocation := readFakeGoInvocation(t, capture)
+	if invocation.GOOS != "windows" || invocation.GOARCH != "amd64" {
+		t.Fatalf("cross-target compiler environment = GOOS=%s GOARCH=%s", invocation.GOOS, invocation.GOARCH)
+	}
+	if invocation.CGOEnabled != "0" {
+		t.Fatalf("cross-target compiler CGO_ENABLED = %q, want 0", invocation.CGOEnabled)
+	}
+}
+
+func TestCgoOnlyHostExcludedTargetFailsFast(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows source is host-visible on Windows")
+	}
+	root := t.TempDir()
+	file := "only_windows_cgo.go"
+	writeTestFile(t, filepath.Join(root, file), "//go:build windows && cgo\n\npackage a\n")
+	if _, err := diagnosticTargets(root, options{files: []string{file}}); err == nil {
+		t.Fatal("cgo-only host-excluded target unexpectedly produced compile evidence")
 	}
 }
 

@@ -27,6 +27,12 @@ func main() {
 }
 
 func runCLI(args []string, stdout, stderr io.Writer) int {
+	if topLevelHelpRequested(args) {
+		if err := writeTopLevelUsage(stdout); err != nil {
+			return int(gatecontract.ExitInfrastructure)
+		}
+		return int(gatecontract.ExitOK)
+	}
 	if len(args) > 0 && args[0] == "worker" {
 		return runWorkerCLI(args[1:], stdout, stderr)
 	}
@@ -39,6 +45,28 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 		return int(gatecontract.ExitInfrastructure)
 	}
 	return int(exitCode)
+}
+
+// topLevelHelpRequested 只识别 CLI 根命令帮助，避免进入配置、token 或执行分派。
+func topLevelHelpRequested(args []string) bool {
+	return len(args) > 0 && (args[0] == "--help" || args[0] == "-h")
+}
+
+// writeTopLevelUsage 在执行前给出最小 authority 入口，详细 test 参数由 test --help 说明。
+func writeTopLevelUsage(stdout io.Writer) error {
+	_, err := fmt.Fprint(stdout, `Usage: super-dolphin-gate <command> [flags]
+
+Commands:
+  super-dolphin-gate test --target=remote --config <path> --ledger <path> --test <package#Test>
+      Run an explicit test through the Alibaba Cloud ECI authority.
+  super-dolphin-gate remote run --target=remote --config <path>
+      Run the canonical remote CI authority path.
+
+Use super-dolphin-gate test --help to discover local, auto, hybrid, remote,
+and --gate-workload selection. This help command does not read configuration,
+request an agent token, open a ledger, or create ECI work.
+`)
+	return err
 }
 
 func writeCLIError(stderr io.Writer, commandErr error) error {

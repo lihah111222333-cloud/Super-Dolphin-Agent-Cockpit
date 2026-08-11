@@ -176,3 +176,16 @@ func assertCompileGroupBatchRuntimeRootsCleaned(t *testing.T, batchRootA, shortT
 		}
 	}
 }
+
+func TestCreateCompileGroupBatchRootRejectsMissingRunRoot(t *testing.T) {
+	if _, err := createCompileGroupBatchRoot("", "batch-a"); err == nil {
+		t.Fatal("createCompileGroupBatchRoot accepted an empty run root")
+	}
+}
+
+func TestCreateCompileGroupBatchShortTempRootRejectsMissingTMPDIR(t *testing.T) {
+	t.Setenv("TMPDIR", "")
+	if _, err := createCompileGroupBatchShortTempRoot(); err == nil {
+		t.Fatal("createCompileGroupBatchShortTempRoot accepted a missing TMPDIR")
+	}
+}

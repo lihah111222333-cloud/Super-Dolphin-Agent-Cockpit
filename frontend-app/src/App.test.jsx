@@ -268,7 +268,7 @@ it.each([
     expect(within(sidebar).getByRole('button', { name: '插件与技能' })).toHaveTextContent('插件与技能');
     expect(within(appbar).getByRole('button', { name: '通知' })).toBeInTheDocument();
     expect(within(appbar).getByRole('button', { name: '历史记录' })).toBeInTheDocument();
-    expect(document.querySelector('.suiyuan-appbar-title')).not.toBeInTheDocument();
+    expect(document.querySelector('.super-dolphin-agent-appbar-title')).not.toBeInTheDocument();
     expect(screen.queryByText('Overview')).not.toBeInTheDocument();
     expect(screen.queryByText('Usage')).not.toBeInTheDocument();
     expect(screen.queryByText('Limits')).not.toBeInTheDocument();

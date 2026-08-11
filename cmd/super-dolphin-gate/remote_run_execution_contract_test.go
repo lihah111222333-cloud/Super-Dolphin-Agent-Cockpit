@@ -7,44 +7,53 @@ import (
 	"testing"
 )
 
-// TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun 守卫正常运行接线：
-// 全命中跳过自动校准和计划刷新后仍须到达 RunPrepared 与最终化；未命中只能在唯一 Prepare
-// 决策后经 miss-only helper 校准、重载计划，再回到同一个 finalized run。
+// TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun 守卫两阶段生产接线：
+// executeRemoteRun 只选择 full Prepare，而共享 preparation owner 先完成复用决策再进入
+// prepared executor；all-hit 在 MISS 绑定 helper 内提前返回，MISS 才绑定 execution identity、
+// 校准并重载计划，最终都执行 RunPrepared 与证据最终化。
 func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *testing.T) {
 	executeCalls := remoteRunCalls(parseExecuteRemoteRun(t).Body)
+	prepareFunction := parseRemoteRunSubsetOwner(t, "executeRemoteRunWithPrepare")
+	prepareCalls := remoteRunCalls(prepareFunction.Body)
+	preparedFunction := parseRemoteRunFunction(t, "executePreparedRemoteRun")
+	preparedCalls := remoteRunCalls(preparedFunction.Body)
+	bindFunction := parseRemoteRunFunction(t, "bindRemoteMissExecutionInputs")
 	reloadFunction := parseRemoteRunFunction(t, "reloadRemotePlanningAfterCalibration")
 	reloadCalls := remoteRunCalls(reloadFunction.Body)
 
-	prepare := requireSingleRemoteRunCall(t, executeCalls, "Prepare")
-	calibration := requireSingleRemoteRunCall(t, executeCalls, "reloadRemotePlanningAfterCalibration")
-	run := requireSingleRemoteRunCall(t, executeCalls, "RunPrepared")
-	finalize := requireSingleRemoteRunCall(t, executeCalls, "finalizeRemoteRunEvidence")
+	requireSingleRemoteRunCall(t, executeCalls, "executeRemoteRunWithPrepare")
+	prepare := requireSingleRemoteRunCall(t, prepareCalls, "prepare")
+	executePrepared := requireSingleRemoteRunCall(t, prepareCalls, "executePreparedRemoteRun")
+	bind := requireSingleRemoteRunCall(t, preparedCalls, "bindRemoteMissExecutionInputs")
+	calibration := requireSingleRemoteRunCall(t, preparedCalls, "reloadPlanning")
+	run := requireSingleRemoteRunCall(t, preparedCalls, "runPrepared")
+	finalize := requireSingleRemoteRunCall(t, preparedCalls, "finalizeEvidence")
 	ensure := requireSingleRemoteRunCall(t, reloadCalls, "ensureRemoteDurationCalibration")
 	reload := requireSingleRemoteRunCall(t, reloadCalls, "ReloadPlanningSnapshot")
 
-	if calibration.order <= prepare.order {
-		t.Fatalf("miss-only calibration helper order = %d, Prepare order = %d; calibration must follow Prepare", calibration.order, prepare.order)
+	if executePrepared.order <= prepare.order {
+		t.Fatalf("prepared executor order = %d, Prepare order = %d; executor must follow reuse decision", executePrepared.order, prepare.order)
 	}
+	assertRemotePreparedCallOrder(t, bind, calibration, run, finalize)
 	if reload.order <= ensure.order {
 		t.Fatalf("planning reload order = %d, calibration order = %d; planning reload must follow calibration", reload.order, ensure.order)
-	}
-	if run.order <= calibration.order {
-		t.Fatalf("RunPrepared order = %d, calibration helper order = %d; both all-hit and miss paths must converge on RunPrepared", run.order, calibration.order)
-	}
-	if finalize.order <= run.order {
-		t.Fatalf("finalize order = %d, RunPrepared order = %d; every prepared run must finalize evidence", finalize.order, run.order)
-	}
-	if run.condition != "" || finalize.condition != "" {
-		t.Fatalf("RunPrepared/finalize must be unconditional after the reuse branch: run=%q finalize=%q", run.condition, finalize.condition)
-	}
-
-	if calibration.condition != "" || run.condition != "" || finalize.condition != "" {
-		t.Fatalf("calibration helper, RunPrepared, and finalizer must be unconditional after Prepare: helper=%q run=%q finalize=%q", calibration.condition, run.condition, finalize.condition)
 	}
 	if ensure.condition != "" || reload.condition != "" {
 		t.Fatalf("miss-only helper must call calibration and planning reload only after its early return: ensure=%q reload=%q", ensure.condition, reload.condition)
 	}
+	requireRemoteRunEarlyReturnGuard(t, bindFunction.Body, "dependencies.allReused()")
 	requireRemoteRunEarlyReturnGuard(t, reloadFunction.Body, "prepared.AllReused() || input.Calibration")
+}
+
+// assertRemotePreparedCallOrder 验证统一 prepared executor 的无条件终态链。
+func assertRemotePreparedCallOrder(t *testing.T, bind, calibration, run, finalize remoteRunCall) {
+	t.Helper()
+	if !(bind.order < calibration.order && calibration.order < run.order && run.order < finalize.order) {
+		t.Fatalf("prepared call order = bind:%d calibration:%d run:%d finalize:%d", bind.order, calibration.order, run.order, finalize.order)
+	}
+	if bind.condition != "" || calibration.condition != "" || run.condition != "" || finalize.condition != "" {
+		t.Fatalf("prepared calls must be unconditional: bind=%q calibration=%q run=%q finalize=%q", bind.condition, calibration.condition, run.condition, finalize.condition)
+	}
 }
 
 type remoteRunCall struct {
@@ -58,10 +67,18 @@ func parseExecuteRemoteRun(t *testing.T) *ast.FuncDecl {
 }
 
 func parseRemoteRunFunction(t *testing.T, name string) *ast.FuncDecl {
+	return parseRemoteRunFunctionFromFile(t, "remote_run.go", name)
+}
+
+func parseRemoteRunSubsetOwner(t *testing.T, name string) *ast.FuncDecl {
+	return parseRemoteRunFunctionFromFile(t, "remote_run_subset.go", name)
+}
+
+func parseRemoteRunFunctionFromFile(t *testing.T, fileName, name string) *ast.FuncDecl {
 	t.Helper()
-	parsed, err := parser.ParseFile(token.NewFileSet(), "remote_run.go", nil, 0)
+	parsed, err := parser.ParseFile(token.NewFileSet(), fileName, nil, 0)
 	if err != nil {
-		t.Fatalf("parse remote_run.go: %v", err)
+		t.Fatalf("parse %s: %v", fileName, err)
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
@@ -81,7 +98,7 @@ func requireRemoteRunEarlyReturnGuard(t *testing.T, body *ast.BlockStmt, wantCon
 			continue
 		}
 		if len(guard.Body.List) == 1 {
-			if returned, ok := guard.Body.List[0].(*ast.ReturnStmt); ok && len(returned.Results) == 1 {
+			if _, ok := guard.Body.List[0].(*ast.ReturnStmt); ok {
 				return
 			}
 		}
@@ -99,16 +116,14 @@ func remoteRunCalls(body *ast.BlockStmt) []remoteRunCall {
 			case *ast.ExprStmt:
 				appendRemoteRunCall(&calls, value.X, condition)
 			case *ast.AssignStmt:
-				for _, expression := range value.Rhs {
-					appendRemoteRunCall(&calls, expression, condition)
-				}
+				appendRemoteRunExpressions(&calls, value.Rhs, condition)
+			case *ast.ReturnStmt:
+				appendRemoteRunExpressions(&calls, value.Results, condition)
 			case *ast.DeferStmt:
 				appendRemoteRunCall(&calls, value.Call, condition)
 			case *ast.IfStmt:
 				if initialization, ok := value.Init.(*ast.AssignStmt); ok {
-					for _, expression := range initialization.Rhs {
-						appendRemoteRunCall(&calls, expression, condition)
-					}
+					appendRemoteRunExpressions(&calls, initialization.Rhs, condition)
 				}
 				branchCondition := remoteRunCondition(value.Cond)
 				walkStatements(value.Body.List, branchCondition)
@@ -120,6 +135,13 @@ func remoteRunCalls(body *ast.BlockStmt) []remoteRunCall {
 	}
 	walkStatements(body.List, "")
 	return calls
+}
+
+// appendRemoteRunExpressions 依序登记一个表达式列表中的直接调用。
+func appendRemoteRunExpressions(calls *[]remoteRunCall, expressions []ast.Expr, condition string) {
+	for _, expression := range expressions {
+		appendRemoteRunCall(calls, expression, condition)
+	}
 }
 
 func appendRemoteRunCall(calls *[]remoteRunCall, expression ast.Expr, condition string) {

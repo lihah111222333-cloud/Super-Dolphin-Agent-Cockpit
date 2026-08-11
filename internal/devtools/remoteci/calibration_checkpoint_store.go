@@ -386,7 +386,10 @@ func validateCompletedCalibrationCheckpointInput(input calibrationCheckpointInpu
 	if input.AcceptedGeneration == 0 || !input.Calibration {
 		return errors.New("completed calibration checkpoint input identity is incomplete")
 	}
-	if !validCalibrationCheckpointTokenDigest(input.AgentTokenDigest) || !validImageCacheIdentifier(input.ImageCacheSnapshotID) || hasBlankCalibrationCheckpointIdentity(input.Tree, input.RunnerIdentityDigest, input.RunnerImage, input.CandidateGateSourceSHA256, input.CandidateGateToolchainSHA256) {
+	if !validCalibrationCheckpointTokenDigest(input.AgentTokenDigest) ||
+		!validImageCacheIdentifier(input.ImageCacheSnapshotID) ||
+		hasBlankCalibrationCheckpointIdentity(input.Tree, input.RunnerIdentityDigest, input.RunnerImage) ||
+		!validCalibrationCheckpointCandidateIdentity(input.CandidateGateSourceSHA256, input.CandidateGateToolchainSHA256) {
 		return errors.New("completed calibration checkpoint input identity is incomplete")
 	}
 	if cicontract.ValidateTargetPlatform(input.Platform) != nil {
@@ -422,9 +425,16 @@ func validCompletedCalibrationCheckpointResultIdentity(result calibrationCheckpo
 			result.PlanDigest,
 			result.CatalogDigest,
 			result.SourceTreeSHA,
-			result.CandidateGateSourceSHA256,
-			result.CandidateGateToolchainSHA256,
-		)
+		) &&
+		validCalibrationCheckpointCandidateIdentity(result.CandidateGateSourceSHA256, result.CandidateGateToolchainSHA256)
+}
+
+// validCalibrationCheckpointCandidateIdentity 接受严格成对摘要，或 all-hit 的成对空 MISS 身份。
+func validCalibrationCheckpointCandidateIdentity(sourceSHA256, toolchainSHA256 string) bool {
+	if sourceSHA256 == "" || toolchainSHA256 == "" {
+		return sourceSHA256 == "" && toolchainSHA256 == ""
+	}
+	return remoteDigestPattern.MatchString(sourceSHA256) && remoteDigestPattern.MatchString(toolchainSHA256)
 }
 
 // validCalibrationCheckpointTokenDigest 拒绝空或格式无效的代理令牌摘要。

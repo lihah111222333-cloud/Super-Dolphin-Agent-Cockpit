@@ -181,7 +181,7 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestPackageCompileEntries(directory 
 		snapshot.addGoPackageBuildAssets(directory, selected)
 	}
 	if !snapshot.hasProductionGoPackage(directory, profile) && len(files) == 0 {
-		return nil, fmt.Errorf("remote worker Go test package directory %q has no linux/amd64 source files", directory)
+		return nil, fmt.Errorf("%w: remote worker Go test package directory %q has no linux/amd64 source files", errRemoteWorkloadInputUnavailable, directory)
 	}
 	for _, file := range files {
 		_, err := snapshot.addGoTestCompileFileEntries(directory, file, selected, profile)

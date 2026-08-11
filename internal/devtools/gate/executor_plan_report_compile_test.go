@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,49 @@ func TestCompileGroupReportRoundTripUnstartedFailureHasNoObservation(t *testing.
 	assertValidCompileGroupExecution(t, report.CompileGroupExecutions[0])
 	decoded := roundTripCompileGroupReport(t, report)
 	assertUnstartedFailureHasNoObservation(t, decoded)
+}
+
+func TestCompileGroupReportMultiGroupAggregateOversizeFailsClosed(t *testing.T) {
+	now := executorPlanTestNow()
+	const groupCount = 33
+	report := PlanExecutionReport{Gates: make([]PlanGateExecution, 0, groupCount), CompileGroupExecutions: make([]CompileGroupExecution, 0, groupCount)}
+	for index := range groupCount {
+		gateID, gate := compileGroupSelectorGateForTarget(t, now, "./internal/archtest", "TestAggregate", index)
+		gate.Status, gate.ExitCode = ResultStatusFailed, 1
+		gate.TestTimings[0].Status = GoTestStatusFail
+		gate.Log = PlainTextLog(bytes.Repeat([]byte{'x'}, executorPlanCompileGroupFullFailureLogBytes))
+		gate.LogDigest = digestPlanLog(gate.Log)
+		execution := successfulCompileGroupExecutionFixture()
+		execution.GroupID = digestPlanLog(fmt.Appendf(nil, "aggregate-group-%d", index))
+		execution.WorkloadIDs = []GateID{gateID}
+		report.Gates = append(report.Gates, gate)
+		report.CompileGroupExecutions = append(report.CompileGroupExecutions, execution)
+	}
+	if _, err := normalizeCompileGroupReportLogs(report); err == nil || !strings.Contains(err.Error(), "aggregate logs exceed") {
+		t.Fatalf("multi-group aggregate oversize error = %v, want deterministic aggregate rejection", err)
+	}
+}
+
+func TestCompileGroupReportDigestBindsAggregatePolicyAndGroupOrder(t *testing.T) {
+	firstID := GateID("group-order-first")
+	secondID := GateID("group-order-second")
+	first := successfulCompileGroupExecutionFixture()
+	first.GroupID = digestPlanLog([]byte("order-first"))
+	first.WorkloadIDs = []GateID{firstID}
+	second := successfulCompileGroupExecutionFixture()
+	second.GroupID = digestPlanLog([]byte("order-second"))
+	second.WorkloadIDs = []GateID{secondID}
+	report := PlanExecutionReport{CompileGroupExecutions: []CompileGroupExecution{first, second}}
+	orderedDigest := digestPlanExecutionReport(report)
+	swapped := report
+	swapped.CompileGroupExecutions = []CompileGroupExecution{second, first}
+	if orderedDigest == digestPlanExecutionReport(swapped) {
+		t.Fatal("compile-group report digest ignored canonical group order")
+	}
+	policy := appendCompileGroupLogBudgetDigest(nil, 2)
+	if !bytes.Contains(policy, []byte("compile-group-aggregate-log-bytes")) {
+		t.Fatalf("compile-group policy digest omitted aggregate budget: %q", policy)
+	}
 }
 
 // compileGroupReportFixture 构造带指定编译组记录的计划报告。

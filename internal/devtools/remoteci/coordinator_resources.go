@@ -85,7 +85,7 @@ func selectRemoteShardResources(
 		selection.Workloads = append(selection.Workloads, shardresource.Workload{
 			ID: planned.Workload.ID, Kind: string(planned.Workload.Kind),
 			EstimatedDurationMS: planned.EstimatedDurationMS,
-			ResourceCPU: planned.ResourceCPU, ResourceMemoryGiB: planned.ResourceMemoryGiB,
+			ResourceCPU:         planned.ResourceCPU, ResourceMemoryGiB: planned.ResourceMemoryGiB,
 		})
 	}
 	return shardresource.Select(policy, selection, context, observations)
@@ -120,6 +120,7 @@ func bindRemoteShardResources(results []ShardResult, resources []shardresource.C
 	return errors.Join(bindingErrors...)
 }
 
+// bindRemoteShardCompileGroups 将 worker compile-group 回执绑定到请求 manifest 与资源档身份。
 func bindRemoteShardCompileGroups(index int, result ShardResult, request ShardRequest) error {
 	if request.ShardIdentity == "" || result.ShardIdentity == "" || result.ShardIdentity != request.ShardIdentity {
 		return fmt.Errorf("remote CI shard %d identity does not match request", index)

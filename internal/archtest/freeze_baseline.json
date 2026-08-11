@@ -2414,21 +2414,6 @@
         "max_struct_fields": 31,
         "max_struct_methods": 1
       },
-      "internal/devtools/gate/workload_planning.go": {
-        "lines": 749,
-        "max_func_len": 54,
-        "max_nesting": 3,
-        "max_complexity": 10,
-        "max_params": 7,
-        "max_returns": 4,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 1,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_methods": 2
-      },
       "internal/devtools/godistribution/go_distribution.go": {
         "lines": 99,
         "max_func_len": 31,
@@ -3421,35 +3406,6 @@
         "naked_returns": 0,
         "empty_funcs": 0,
         "todo_count": 0
-      },
-      "cmd/super-dolphin-gate/remote_run_contract_receipt_test.go": {
-        "lines": 634,
-        "max_func_len": 83,
-        "max_nesting": 3,
-        "max_complexity": 17,
-        "max_params": 5,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
-      "cmd/super-dolphin-gate/remote_run_execution_contract_test.go": {
-        "lines": 170,
-        "max_func_len": 33,
-        "max_nesting": 4,
-        "max_complexity": 12,
-        "max_params": 3,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 3
       },
       "internal/app/desktop_shutdown_test.go": {
         "lines": 278,

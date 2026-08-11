@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 // publishSourceArtifacts 原子移动两个只读文件，并在失败时清理局部发布。
@@ -156,8 +156,10 @@ func runGitWithEnvironment(ctx context.Context, repoRoot string, stdin io.Reader
 	if len(args) == 0 {
 		return errors.New("Git plumbing command is required")
 	}
-	commandArgs := append([]string{"--no-replace-objects", "-C", repoRoot}, args...)
-	command := exec.CommandContext(ctx, "git", commandArgs...)
+	command, err := gateprivate.TrustedGitCommand(ctx, repoRoot, args...)
+	if err != nil {
+		return err
+	}
 	command.Stdin = stdin
 	command.Stdout = stdout
 	var stderr bytes.Buffer
@@ -172,19 +174,10 @@ func runGitWithEnvironment(ctx context.Context, repoRoot string, stdin io.Reader
 	return nil
 }
 
-// sourceGitEnvironment 仅继承进程定位变量，清除全部 Git repository-local 重定向环境。
+// sourceGitEnvironment 只添加物化器拥有的提交元数据；基线 Git 环境由 gate-owned
+// policy 提供，不能继承调用进程的 HOME、PATH 或 repository/object 重定向变量。
 func sourceGitEnvironment() []string {
-	environment := make([]string, 0, 16)
-	for _, key := range []string{"HOME", "PATH", "TMPDIR", "SystemRoot"} {
-		if value, present := os.LookupEnv(key); present {
-			environment = append(environment, key+"="+value)
-		}
-	}
-	return append(environment,
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_OPTIONAL_LOCKS=0",
+	return append(gateprivate.TrustedGitEnvironment(),
 		"GIT_AUTHOR_NAME=Super Dolphin Source Materializer",
 		"GIT_AUTHOR_EMAIL=source-materializer.invalid",
 		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z",

@@ -3,17 +3,21 @@ package projectmaptrusted
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 func TestPreparedTreeRunsTrustedGeneratorWithoutGitMetadata(t *testing.T) {
 	repository := newTrustedProjectMapRepository(t)
-	tree := trustedProjectMapGit(t, repository, "write-tree")
+	trustedProjectMapGit(t, repository, "commit", "-qm", "trusted-git-fixture")
+	tree := trustedProjectMapGit(t, repository, "rev-parse", "HEAD^{tree}")
 	prepared, err := prepareTree(repository, tree)
 	if err != nil {
 		t.Fatalf("prepare archived tree: %v", err)
@@ -67,6 +71,36 @@ func TestMaterializeExactTreeRejectsRelativeTMPDIRWithoutRepositoryLeak(t *testi
 	}
 	if _, err := os.Stat(filepath.Join(repository, "var")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("relative TMPDIR leaked into repository: %v", err)
+	}
+}
+
+func TestMaterializeExactGitTreeRejectsPATHGitHijack(t *testing.T) {
+	repository := newTrustedProjectMapRepository(t)
+	trustedProjectMapGit(t, repository, "commit", "-qm", "trusted-git-fixture")
+	tree := trustedProjectMapGit(t, repository, "rev-parse", "HEAD^{tree}")
+	trustedGit, err := gate.ResolveTrustedGitBinary(context.Background())
+	if err != nil {
+		t.Fatalf("resolve trusted Git: %v", err)
+	}
+	fakeBin := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "fake-git-ran")
+	fakeGit := filepath.Join(fakeBin, "git")
+	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\ntouch \"$PROJECT_MAP_FAKE_GIT_MARKER\"\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+	t.Setenv("PROJECT_MAP_FAKE_GIT_MARKER", marker)
+	exact, err := MaterializeExactGitTree(repository, tree, "trusted-git-", trustedGit)
+	if err != nil {
+		t.Fatalf("materialize exact Git tree: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := exact.Cleanup(); err != nil {
+			t.Errorf("clean materialized Git tree: %v", err)
+		}
+	})
+	if _, err := os.Lstat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("exact-tree materializer executed PATH git: %v", err)
 	}
 }
 

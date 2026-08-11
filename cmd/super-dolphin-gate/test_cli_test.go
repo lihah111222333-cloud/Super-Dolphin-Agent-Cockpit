@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,25 @@ import (
 	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
+func TestRunCLITestHelpIsLocalAndDocumentsAuthorityTargets(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if exitCode := runCLI([]string{"test", "--help"}, &stdout, &stderr); exitCode != 0 {
+		t.Fatalf("test --help exit code = %d, stderr=%q", exitCode, stderr.String())
+	}
+	for _, required := range []string{
+		"--target=local|auto|hybrid|remote",
+		"--gate-workload <id>",
+		"--target=remote explicitly",
+	} {
+		if !strings.Contains(stdout.String(), required) {
+			t.Fatalf("test --help omitted %q:\n%s", required, stdout.String())
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("test --help wrote protocol error: %q", stderr.String())
+	}
+}
+
 func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 	token, err := cicontract.GenerateAgentToken()
 	if err != nil {
@@ -22,6 +42,7 @@ func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	options, err := parseAutoTestRunOptions([]string{
+		"--target", "remote",
 		"--config", "/tmp/config.json",
 		"--ledger", "/tmp/config.baseline-state.sqlite",
 		"--agent-token", token,
@@ -30,10 +51,11 @@ func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.Scenario != "test" || options.AgentTokenDigest != wantDigest || len(options.Tests) != 1 {
+	if options.Target != "remote" || options.Scenario != "test" || options.AgentTokenDigest != wantDigest || len(options.Tests) != 1 {
 		t.Fatalf("test options = %#v", options)
 	}
 	if _, err := parseAutoTestRunOptions([]string{
+		"--target", "remote",
 		"--config", "/tmp/config.json",
 		"--ledger", "/tmp/config.baseline-state.sqlite",
 		"--agent-token", token,
@@ -41,6 +63,7 @@ func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 		t.Fatal("test command accepted no selectors")
 	}
 	if _, err := parseAutoTestRunOptions([]string{
+		"--target", "remote",
 		"--config", "/tmp/config.json",
 		"--ledger", "/tmp/config.baseline-state.sqlite",
 		"--agent-token", token,
@@ -57,6 +80,7 @@ func TestParseAutoTestRunOptionsBindsDefaultMcpLSPWorkloadAndKeepsItNV(t *testin
 		t.Fatal(err)
 	}
 	_, err = parseAutoTestRunOptions([]string{
+		"--target", "remote",
 		"--config", "/tmp/config.json",
 		"--ledger", "/tmp/config.baseline-state.sqlite",
 		"--repository", "../..",
@@ -76,6 +100,7 @@ func TestParseAutoTestRunOptionsRejectsLocalMcpLSPWorkloadsForRemoteCLI(t *testi
 	}
 	for _, workloadID := range []string{"mcp-lsp-idle-quick", "mcp-lsp-native-process-tree"} {
 		_, err := parseAutoTestRunOptions([]string{
+			"--target", "remote",
 			"--config", "/tmp/config.json",
 			"--ledger", "/tmp/config.baseline-state.sqlite",
 			"--repository", "../..",

@@ -13,8 +13,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-// CompileGroupSchemaVersion 是 package-affinity 编译组 strict JSON 的版本 owner。
-const CompileGroupSchemaVersion uint32 = 2
+// CompileGroupSchemaVersion 是 cicontract 的 package-affinity 编译组版本 alias。
+const CompileGroupSchemaVersion uint32 = cicontract.CompileGroupSchemaVersion
 
 // CompileGroupBatchTargetMS 是批次关键路径的规划目标；超出时只记录告警，
 // 不转换为执行超时或校验失败。
@@ -134,6 +134,36 @@ func CompileGroupSemanticKeyForWorkloadID(id GateID) (string, error) {
 		return "", fmt.Errorf("workload %q is not an exact selector", id)
 	}
 	return CompileGroupSemanticKey(kind, parent == GateIDBackendTestGuardWithRace)
+}
+
+// CompileGroupSerialPackingEligible 报告一个 compile group 是否属于首期允许
+// 在同资源 ECI shard 内与其他组严格串行共箱的显式安全清单。
+//
+// 该判定默认拒绝：race、benchmark、带 exclusive batch 的组，以及 archtest、
+// super-dolphin-gate、codexapp、mcp-lsp、agent-terminal 等具有单 binary、
+// TestMain、daemon、PID/资源 cohort 或全局状态边界的特殊包。新增 atomic 包不会
+// 自动获得共箱资格；必须在这里经审计后显式加入清单。
+func CompileGroupSerialPackingEligible(group CompileGroup) bool {
+	if group.SemanticKey != CompileGroupSemanticGoTestNormal {
+		return false
+	}
+	for _, batch := range group.BatchPlan {
+		if batch.Exclusive {
+			return false
+		}
+	}
+	switch group.PackageTarget {
+	case AtomicAgentRuntimePackageTarget,
+		AtomicAppPackageTarget,
+		AtomicUpdaterPackageTarget,
+		AtomicTaskDAGPackageTarget,
+		AtomicSQLitePackageTarget,
+		AtomicGatePackageTarget,
+		AtomicRemoteCIPackageTarget:
+		return true
+	default:
+		return false
+	}
 }
 
 // compileGroupIdentityMaterial 是 GroupID 的 selector-independent canonical material。

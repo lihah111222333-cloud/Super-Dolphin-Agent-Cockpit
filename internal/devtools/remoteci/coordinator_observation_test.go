@@ -52,6 +52,11 @@ func (observationRuntime) DeleteContainerGroup(context.Context, string) error {
 	return errors.New("unexpected delete")
 }
 
+// ConfirmContainerGroupAbsent simulates an ECI absence proof.
+func (observationRuntime) ConfirmContainerGroupAbsent(context.Context, string) (bool, error) {
+	return true, nil
+}
+
 func TestWaitShardsClassifiesCoordinatorObservationStall(t *testing.T) {
 	coordinator := observationTestCoordinator(observationRuntime{blockStatus: true}, 20*time.Millisecond)
 	_, _, err := coordinator.waitShards(context.Background(), []gate.ContainerShard{observationTestShard()}, []string{"eci-stalled"}, remoteTimingWarningRun{})

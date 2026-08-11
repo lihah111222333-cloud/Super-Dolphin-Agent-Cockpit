@@ -86,6 +86,10 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 // loadRemoteCIRunDetails 在同一个只读事务中补全 run 的关联投影。
 func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIRunRecord) error {
 	var err error
+	record.Scope, err = loadRemoteCIExecutionScope(transaction, jobID, record.AcceptedGeneration)
+	if err != nil {
+		return err
+	}
 	record.Shards, err = loadRemoteCIShardRows(transaction, jobID, record.Status, record.Authoritative)
 	if err != nil {
 		return err
@@ -150,6 +154,11 @@ type timingObservationRowScanner interface {
 	Scan(...any) error
 }
 
+// timingObservationJobIDProvider 允许批量 reader 在 Scan 后、严格验证前注入行所属 job。
+type timingObservationJobIDProvider interface {
+	timingObservationJobID() string
+}
+
 // scanTimingObservation 从 SQLite 行严格恢复阶段、缓存和编译计数，并执行完整观测校验。
 func scanTimingObservation(scanner timingObservationRowScanner, jobID string) (TimingObservation, error) {
 	var scope, workloadID, phase, measurement, aggregation string
@@ -162,6 +171,9 @@ func scanTimingObservation(scanner timingObservationRowScanner, jobID string) (T
 		&compileCacheHits, &compileCacheMisses, &compileCachePuts, &observation.CompileCacheStatus, &observation.CompileStatus, &observation.CompileExitCode, &observation.CompileErrorText,
 		&observation.CompileCommandDigest, &observation.CompileProfileDigest, &observation.CompileResourceClassID, &observation.CompileResourceCPU, &observation.CompileResourceMemoryGiB, &observation.CompileExecutionMode); err != nil {
 		return TimingObservation{}, mapDurationLedgerSQLiteError("scan timing observation", err)
+	}
+	if provider, ok := scanner.(timingObservationJobIDProvider); ok {
+		observation.JobID = provider.timingObservationJobID()
 	}
 	if compileCacheHits < 0 || compileCacheMisses < 0 || compileCachePuts < 0 {
 		return TimingObservation{}, errors.New("stored compile group cache counter is negative")
@@ -595,13 +607,13 @@ func validateSQLiteRemoteCIRunCatalogCoverage(transaction *sql.Tx, record Remote
 	if err != nil {
 		return err
 	}
+	if err := validateRemoteCIRunScopeRecordCoverage(record, catalog.Catalog, index); err != nil {
+		return err
+	}
 	if err := index.validateRecorded(record, recordedWorkloads); err != nil {
 		return err
 	}
-	if record.Status != ResultStatusPassed {
-		return nil
-	}
-	return index.validatePassed(record)
+	return nil
 }
 
 // validateSQLiteAuthoritativeRemoteCIRunCatalog 校验权威成功 run 的目录及观测权威性。
@@ -700,8 +712,12 @@ func (index remoteCIRunCatalogIndex) validateRecorded(record RemoteCIRunRecord, 
 }
 
 // validatePassed 要求结果覆盖 catalog；fresh 分片和执行仅记录 executed workload。
-func (index remoteCIRunCatalogIndex) validatePassed(record RemoteCIRunRecord) error {
-	results, executedWorkloads, err := index.passedWorkloadResults(record.WorkloadResults)
+func (index remoteCIRunCatalogIndex) validatePassed(record RemoteCIRunRecord, scope RemoteCIExecutionScope) error {
+	expected, err := expectedRemoteCIShardableWorkloads(index.shardable, scope)
+	if err != nil {
+		return err
+	}
+	results, executedWorkloads, err := passedRemoteCIWorkloadResults(record.WorkloadResults, expected)
 	if err != nil {
 		return err
 	}
@@ -717,31 +733,6 @@ func (index remoteCIRunCatalogIndex) validatePassed(record RemoteCIRunRecord) er
 		return err
 	}
 	return validateRemoteCIRunFreshWorkloadSet("execution", executionWorkloads, executedWorkloads)
-}
-
-// passedWorkloadResults 验证结果精确覆盖可分片目录，并提取本次必须 fresh 执行的 workload。
-func (index remoteCIRunCatalogIndex) passedWorkloadResults(workloadResults []RemoteCIWorkloadResult) (map[GateID]string, map[GateID]struct{}, error) {
-	results := make(map[GateID]string, len(workloadResults))
-	executed := make(map[GateID]struct{})
-	for _, result := range workloadResults {
-		workloadID := result.Identity.WorkloadID
-		if _, exists := index.shardable[workloadID]; !exists {
-			return nil, nil, fmt.Errorf("passed remote CI workload result %q is absent from its shardable catalog", workloadID)
-		}
-		if _, duplicate := results[workloadID]; duplicate {
-			return nil, nil, fmt.Errorf("passed remote CI workload result %q is duplicated", workloadID)
-		}
-		results[workloadID] = result.Disposition
-		if result.Disposition == WorkloadDispositionExecuted {
-			executed[workloadID] = struct{}{}
-		}
-	}
-	for workloadID := range index.shardable {
-		if _, exists := results[workloadID]; !exists {
-			return nil, nil, fmt.Errorf("passed remote CI run does not cover shardable workload result %q", workloadID)
-		}
-	}
-	return results, executed, nil
 }
 
 // passedFreshShardWorkloads 仅接受标记 executed 的 workload，并保留其 fresh shard 归属。

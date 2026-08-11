@@ -13,11 +13,12 @@ import (
 )
 
 type remoteResolvedTarget struct {
-	commit     string
-	tree       string
-	revision   string
-	bundleBase string
-	sourceBase string
+	commit                   string
+	tree                     string
+	revision                 string
+	bundleBase               string
+	sourceBase               string
+	candidateObjectAuthority gatecontract.CandidateObjectAuthority
 }
 
 // resolveRemoteRunInput 将已验证的 Git source、基线、账本和 workload 组装为运行输入。
@@ -46,13 +47,6 @@ func resolveRemoteRunInput(
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
-	candidateGateSource, candidateGateToolchain, err := resolveRemoteCandidateGateIdentity(
-		repositoryRoot,
-		target.tree,
-	)
-	if err != nil {
-		return remoteci.RunInput{}, err
-	}
 	return remoteci.RunInput{
 		AcceptedGeneration: state.Generation,
 		RepositoryRoot:     repositoryRoot,
@@ -72,14 +66,12 @@ func resolveRemoteRunInput(
 		CalibrationResource: calibrationResource,
 		Force:               options.Force,
 		RunnerImage:         state.RuntimeImage, RunnerIdentityDigest: runnerIdentity,
-		ImageCacheSnapshotID:         state.ImageCacheSnapshotID,
-		BaselineManifestDigest:       state.BaselineManifestDigest,
-		RunnerConfigDigest:           remoteRuntimeImageDigest(state.RuntimeImage),
-		GateBinarySHA256:             state.GateBinarySHA256,
-		CandidateGateSourceSHA256:    candidateGateSource,
-		CandidateGateToolchainSHA256: candidateGateToolchain,
-		RuntimeSeedSHA256:            state.RuntimeSeedSHA256,
-		OCIProjectCache:              state.OCIProjectCache,
+		ImageCacheSnapshotID:   state.ImageCacheSnapshotID,
+		BaselineManifestDigest: state.BaselineManifestDigest,
+		RunnerConfigDigest:     remoteRuntimeImageDigest(state.RuntimeImage),
+		GateBinarySHA256:       state.GateBinarySHA256,
+		RuntimeSeedSHA256:      state.RuntimeSeedSHA256,
+		OCIProjectCache:        state.OCIProjectCache,
 	}, nil
 }
 
@@ -118,6 +110,10 @@ func resolveRemoteRunSource(options remoteRunOptions) (string, string, gatecontr
 	if err != nil {
 		return "", "", "", remoteResolvedTarget{}, gatecontract.SourceSpec{}, fmt.Errorf("resolve remote CI repository root: %w", err)
 	}
+	candidateObjectAuthority, err := gatecontract.CaptureCandidateObjectAuthority()
+	if err != nil {
+		return "", "", "", remoteResolvedTarget{}, gatecontract.SourceSpec{}, fmt.Errorf("capture candidate Git object authority: %w", err)
+	}
 	scenario, profile, err := resolveRemoteScenario(options)
 	if err != nil {
 		return "", "", "", remoteResolvedTarget{}, gatecontract.SourceSpec{}, err
@@ -126,6 +122,7 @@ func resolveRemoteRunSource(options remoteRunOptions) (string, string, gatecontr
 	if err != nil {
 		return "", "", "", remoteResolvedTarget{}, gatecontract.SourceSpec{}, err
 	}
+	target.candidateObjectAuthority = candidateObjectAuthority
 	objectFormat, err := remoteGitOutput(repositoryRoot, "rev-parse", "--show-object-format")
 	if err != nil {
 		return "", "", "", remoteResolvedTarget{}, gatecontract.SourceSpec{}, err

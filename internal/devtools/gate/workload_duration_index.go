@@ -3,10 +3,15 @@ package gate
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
+
+// DurationEstimatorPolicyID 是 gate-facing alias；估时策略 identity 由 cicontract 持有。
+const DurationEstimatorPolicyID = cicontract.WorkloadEstimatorPolicyID
 
 type durationSampleIndexKey struct {
 	workloadID        string
@@ -22,12 +27,25 @@ type durationSampleAggregate struct {
 	successTotalMS     int64
 	successCount       int64
 	maxFailureDuration int64
+	successSamples     []durationSampleValue
+	failureSamples     []durationSampleValue
+}
+
+type durationSampleValue struct {
+	durationMS         int64
+	acceptedGeneration uint64
+	sample             DurationSample
+	tieKey             string
 }
 
 // DurationSampleIndex 是单个账本 generation 和执行环境的只读时长索引。
 type DurationSampleIndex struct {
 	context PlanningContext
 	buckets map[durationSampleIndexKey]durationSampleAggregate
+	// Samples 保留当前读事务投影的原始样本；AcceptedGenerations 是实际可参与估算的三代窗口。
+	Samples             []DurationSample
+	AcceptedGenerations []uint64
+	Failures            []DurationSample
 	// CompileTimingIndex 是 owner 资源选择使用的只读 compile-group 历史投影。
 	// 它与 workload 索引并列保存，确保 planner snapshot 不会混入不同规划上下文或 generation 的耗时行。
 	CompileTimingIndex CompileTimingIndex
@@ -49,6 +67,7 @@ func BuildDurationSampleIndex(ledger DurationLedger, context PlanningContext) (D
 	index := DurationSampleIndex{
 		context: context,
 		buckets: make(map[durationSampleIndexKey]durationSampleAggregate),
+		Samples: make([]DurationSample, 0, len(ledger.Samples)),
 	}
 	compileTimingIndex, err := BuildCompileTimingIndex(nil)
 	if err != nil {
@@ -61,11 +80,217 @@ func BuildDurationSampleIndex(ledger DurationLedger, context PlanningContext) (D
 			return DurationSampleIndex{}, err
 		}
 	}
+	if err := index.finalizeGenerationWindow(); err != nil {
+		return DurationSampleIndex{}, err
+	}
 	return index, nil
 }
 
+// finalizeGenerationWindow 固定选择数值上最新的三代 accepted generation。
+// generation=0 仅允许非 SQLite 的内存测试投影；权威 SQLite 读取在 scan 阶段拒绝零值。
+func (index *DurationSampleIndex) finalizeGenerationWindow() error {
+	seen := make(map[uint64]struct{})
+	for _, sample := range index.Samples {
+		if sample.AcceptedGeneration != 0 {
+			seen[sample.AcceptedGeneration] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		if len(index.Samples) != 0 {
+			index.AcceptedGenerations = []uint64{0}
+		}
+		return nil
+	}
+	generations := make([]uint64, 0, len(seen))
+	for generation := range seen {
+		generations = append(generations, generation)
+	}
+	sort.Slice(generations, func(left, right int) bool { return generations[left] > generations[right] })
+	if len(generations) > 3 {
+		generations = generations[:3]
+	}
+	index.AcceptedGenerations = generations
+	return nil
+}
+
+func (index DurationSampleIndex) generationRetained(generation uint64) bool {
+	return slices.Contains(index.AcceptedGenerations, generation)
+}
+
+type generationMedian struct {
+	generation uint64
+	value      durationSampleValue
+	weight     int64
+	count      int64
+}
+
+// robustDurationEstimate 先按代取 nearest-rank median，再用 4/2/1 固定权重取 weighted median。
+// n<5 时按整数公式向 prior 收缩；所有乘加均在 int64 上显式检查溢出。
+func robustDurationEstimate(values []durationSampleValue, prior int64) (int64, durationSampleValue, int64, error) {
+	if prior <= 0 {
+		return 0, durationSampleValue{}, 0, errors.New("duration estimator prior must be positive")
+	}
+	if len(values) == 0 {
+		return prior, durationSampleValue{durationMS: prior}, 0, nil
+	}
+	retained, err := validateDurationEstimatorValues(values)
+	if err != nil {
+		return 0, durationSampleValue{}, 0, err
+	}
+	medians := buildGenerationMedians(retained)
+	chosen, err := weightedMedianDuration(medians)
+	if err != nil {
+		return 0, durationSampleValue{}, 0, err
+	}
+	estimate, err := shrinkDurationEstimate(chosen.value.durationMS, chosen.count, prior)
+	if err != nil {
+		return 0, durationSampleValue{}, 0, err
+	}
+	return estimate, chosen.value, int64(len(retained)), nil
+}
+
+func validateDurationEstimatorValues(values []durationSampleValue) ([]durationSampleValue, error) {
+	retained := make([]durationSampleValue, 0, len(values))
+	for _, value := range values {
+		if value.durationMS <= 0 {
+			return nil, errors.New("duration estimator sample must be positive")
+		}
+		retained = append(retained, value)
+	}
+	return retained, nil
+}
+
+// buildGenerationMedians 按代次和规范顺序计算每代 nearest-rank 中位数及权重。
+func buildGenerationMedians(values []durationSampleValue) []generationMedian {
+	byGeneration := make(map[uint64][]durationSampleValue)
+	for _, value := range values {
+		byGeneration[value.acceptedGeneration] = append(byGeneration[value.acceptedGeneration], value)
+	}
+	generations := make([]uint64, 0, len(byGeneration))
+	for generation := range byGeneration {
+		generations = append(generations, generation)
+	}
+	sort.Slice(generations, func(left, right int) bool { return generations[left] > generations[right] })
+	if len(generations) > 3 {
+		generations = generations[:3]
+	}
+	medians := make([]generationMedian, 0, len(generations))
+	for generationIndex, generation := range generations {
+		samples := byGeneration[generation]
+		sort.Slice(samples, func(left, right int) bool {
+			if samples[left].durationMS != samples[right].durationMS {
+				return samples[left].durationMS < samples[right].durationMS
+			}
+			return durationSampleValueLess(samples[left], samples[right])
+		})
+		weight := int64(1)
+		switch generationIndex {
+		case 0:
+			weight = 4
+		case 1:
+			weight = 2
+		}
+		medians = append(medians, generationMedian{generation: generation, value: samples[(len(samples)-1)/2], weight: weight, count: int64(len(samples))})
+	}
+	return medians
+}
+
+// weightedMedianDuration 对最近三代中位数执行固定整数权重的确定性加权中位数。
+func weightedMedianDuration(medians []generationMedian) (generationMedian, error) {
+	if len(medians) == 0 {
+		return generationMedian{}, errors.New("duration estimator has no generation median")
+	}
+	sort.Slice(medians, func(left, right int) bool {
+		if medians[left].value.durationMS != medians[right].value.durationMS {
+			return medians[left].value.durationMS < medians[right].value.durationMS
+		}
+		return medians[left].generation > medians[right].generation
+	})
+	var totalWeight int64
+	for _, median := range medians {
+		if totalWeight > mathMaxInt64-median.weight {
+			return generationMedian{}, errors.New("duration estimator weight overflows int64")
+		}
+		totalWeight += median.weight
+	}
+	threshold := (totalWeight + 1) / 2
+	var cumulative int64
+	for _, median := range medians {
+		cumulative += median.weight
+		if cumulative >= threshold {
+			return median, nil
+		}
+	}
+	return medians[len(medians)-1], nil
+}
+
+func shrinkDurationEstimate(estimate, sampleCount, prior int64) (int64, error) {
+	if sampleCount >= 5 {
+		return estimate, nil
+	}
+	priorWeight := int64(5) - sampleCount
+	if estimate > mathMaxInt64/nSafe(sampleCount) {
+		return 0, errors.New("duration estimator sample multiplication overflows int64")
+	}
+	weightedEstimate := estimate * sampleCount
+	if prior > mathMaxInt64/priorWeight {
+		return 0, errors.New("duration estimator prior multiplication overflows int64")
+	}
+	weightedPrior := prior * priorWeight
+	if weightedEstimate > mathMaxInt64-weightedPrior {
+		return 0, errors.New("duration estimator shrink sum overflows int64")
+	}
+	return (weightedEstimate + weightedPrior) / 5, nil
+}
+
+// estimateDurationValues 保持仅存在于非权威内存 fixture 的 generation=0 样本兼容；
+// SQLite 读链在 scanSQLiteDurationSample 中拒绝 generation=0，权威估算始终走 v2。
+func estimateDurationValues(values []durationSampleValue, prior int64) (int64, durationSampleValue, int64, error) {
+	if len(values) != 0 {
+		legacy := true
+		for _, value := range values {
+			if value.acceptedGeneration != 0 {
+				legacy = false
+				break
+			}
+		}
+		if legacy {
+			var total int64
+			for _, value := range values {
+				if value.durationMS <= 0 || total > mathMaxInt64-value.durationMS {
+					return 0, durationSampleValue{}, 0, errors.New("legacy duration estimate overflows int64")
+				}
+				total += value.durationMS
+			}
+			representative := values[len(values)-1]
+			return total / int64(len(values)), representative, int64(len(values)), nil
+		}
+	}
+	return robustDurationEstimate(values, prior)
+}
+
+const mathMaxInt64 = int64(^uint64(0) >> 1)
+
+func nSafe(n int64) int64 {
+	if n <= 0 {
+		return 1
+	}
+	return n
+}
+
+func durationSampleValueLess(left, right durationSampleValue) bool {
+	if left.acceptedGeneration != right.acceptedGeneration {
+		return left.acceptedGeneration < right.acceptedGeneration
+	}
+	return left.tieKey < right.tieKey
+}
+
+func durationSampleTieKey(sample DurationSample) string {
+	return sample.Bucket.WorkloadID + "\x00" + sample.TargetName + "\x00" + string(sample.TargetStatus)
+}
+
 // addSample 按当前比较环境把一条样本合并到确定性的 workload 聚合中。
-func (index DurationSampleIndex) addSample(sample DurationSample, maximumInt64 int64) error {
+func (index *DurationSampleIndex) addSample(sample DurationSample, maximumInt64 int64) error {
 	if sample.Bucket.Platform != index.context.Platform || sample.Bucket.Runner != index.context.Runner || sample.Bucket.Toolchain != index.context.Toolchain {
 		return nil
 	}
@@ -79,6 +304,8 @@ func (index DurationSampleIndex) addSample(sample DurationSample, maximumInt64 i
 	if sample.DurationMS <= 0 {
 		return fmt.Errorf("duration sample for workload %q must be positive", sample.Bucket.WorkloadID)
 	}
+	index.Samples = append(index.Samples, sample)
+	value := durationSampleValue{durationMS: sample.DurationMS, acceptedGeneration: sample.AcceptedGeneration, sample: sample, tieKey: durationSampleTieKey(sample)}
 	key := durationSampleIndexKey{
 		workloadID:        sample.Bucket.WorkloadID,
 		commandDigest:     sample.Bucket.CommandDigest,
@@ -90,6 +317,8 @@ func (index DurationSampleIndex) addSample(sample DurationSample, maximumInt64 i
 	}
 	aggregate := index.buckets[key]
 	if !sample.Succeeded {
+		index.Failures = append(index.Failures, sample)
+		aggregate.failureSamples = append(aggregate.failureSamples, value)
 		if sample.DurationMS > aggregate.maxFailureDuration {
 			aggregate.maxFailureDuration = sample.DurationMS
 		}
@@ -101,6 +330,7 @@ func (index DurationSampleIndex) addSample(sample DurationSample, maximumInt64 i
 	}
 	aggregate.successTotalMS += sample.DurationMS
 	aggregate.successCount++
+	aggregate.successSamples = append(aggregate.successSamples, value)
 	index.buckets[key] = aggregate
 	return nil
 }
@@ -295,7 +525,7 @@ func (index DurationSampleIndex) estimateWorkloadDuration(workload Workload) (in
 }
 
 // estimateCalibrationWorkload 只使用当前校准 identity 对应的 4C/8GiB 样本。
-func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, targetDurationMS int64) (int64, durationSampleResource, error) {
+func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, _ int64) (int64, durationSampleResource, error) {
 	cpu, memoryGiB, err := index.calibrationResource()
 	if err != nil {
 		return 0, durationSampleResource{}, err
@@ -307,7 +537,11 @@ func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, 
 	if !found || aggregate.successCount == 0 {
 		return workload.BootstrapEstimateMS, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
 	}
-	return aggregate.successTotalMS / aggregate.successCount, resource, nil
+	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), workload.BootstrapEstimateMS)
+	if err != nil {
+		return 0, durationSampleResource{}, err
+	}
+	return estimate, resource, nil
 }
 
 func (index DurationSampleIndex) calibrationResource() (float64, float64, error) {
@@ -347,7 +581,7 @@ func (index DurationSampleIndex) estimateNormalWorkload(workload Workload, targe
 }
 
 // resolveNormalTierStep 读取一个 normal 档位并计算下一档位。
-func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier cicontract.WorkloadResourceTier, targetDurationMS int64, carriedEstimateMS int64) (int64, durationSampleResource, cicontract.WorkloadResourceTier, bool, error) {
+func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier cicontract.WorkloadResourceTier, _ int64, carriedEstimateMS int64) (int64, durationSampleResource, cicontract.WorkloadResourceTier, bool, error) {
 	cpu, memoryGiB, err := normalResourceForTier(tier)
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
@@ -361,10 +595,13 @@ func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier c
 			return 0, durationSampleResource{}, tier, false,
 				fmt.Errorf("normal resource fixed point for workload %q has invalid carried estimate %dms", workload.ID, carriedEstimateMS)
 		}
-		// 首次升档不可能已有新档样本；保留上一档权威实测估值选择新资源，不伪造样本。
+		// 首次升档没有新档原始样本；沿用上一档实测估值，但不把它追加为新档样本。
 		return carriedEstimateMS, durationSampleResource{cpu: cpu, memoryGiB: memoryGiB}, tier, true, nil
 	}
-	estimate := aggregate.successTotalMS / aggregate.successCount
+	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), workload.BootstrapEstimateMS)
+	if err != nil {
+		return 0, durationSampleResource{}, tier, false, err
+	}
 	nextTier, done, err := normalResourceTierTransition(tier, estimate)
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
@@ -375,6 +612,27 @@ func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier c
 		return estimate, resource, tier, true, nil
 	}
 	return estimate, resource, nextTier, false, nil
+}
+
+func (index DurationSampleIndex) retainedSuccessSamples(aggregate durationSampleAggregate) []durationSampleValue {
+	retained := make([]durationSampleValue, 0, len(aggregate.successSamples))
+	for _, value := range aggregate.successSamples {
+		if index.generationRetained(value.acceptedGeneration) {
+			retained = append(retained, value)
+		}
+	}
+	return retained
+}
+
+// FailureDiagnostics 返回同一身份下的失败原始样本，失败绝不计入成功估算。
+func (index DurationSampleIndex) FailureDiagnostics(workload Workload) []DurationSample {
+	result := make([]DurationSample, 0)
+	for _, sample := range index.Failures {
+		if sample.Bucket.WorkloadID == workload.ID && sample.Bucket.CommandDigest == workload.CommandDigest && index.generationRetained(sample.AcceptedGeneration) {
+			result = append(result, sample)
+		}
+	}
+	return result
 }
 
 // GoTestDurationMSAtResource 返回指定父 workload 资源档位的精确测试体均值。
@@ -394,7 +652,11 @@ func (index DurationSampleIndex) GoTestDurationMSAtResource(parent Workload, tes
 	if err != nil || !found || aggregate.successCount == 0 {
 		return 0, false
 	}
-	return aggregate.successTotalMS / aggregate.successCount, true
+	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), compileParentBootstrapEstimateMS)
+	if err != nil {
+		return 0, false
+	}
+	return estimate, true
 }
 
 // validGoTestDurationRequest 校验 selector body 精确资源查询的输入。

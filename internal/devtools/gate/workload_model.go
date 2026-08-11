@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,7 +18,10 @@ import (
 
 const (
 	durationLedgerVersion              = 1
-	workloadExecutionPlanSchemaVersion = 8
+	workloadExecutionPlanSchemaVersion = cicontract.WorkloadExecutionPlanSchemaVersion
+	// WorkloadPlanningAlgorithmID 是 cicontract 的唯一算法 owner alias。
+	WorkloadPlanningAlgorithmID      = cicontract.WorkloadPlanningAlgorithmID
+	workloadPlanningSearchNodeBudget = cicontract.WorkloadPlanningSearchNodeBudget
 	// FullCITargetDuration 是分片优化目标；超时只告警，不是 worker 终止时限。
 	FullCITargetDuration         = cicontract.ShardTargetDuration
 	FullCITargetDurationMS int64 = int64(FullCITargetDuration / time.Millisecond)
@@ -114,6 +119,8 @@ type DurationCalibration struct {
 
 // DurationSample 记录一个 workload 的单次执行结果和耗时。
 type DurationSample struct {
+	// AcceptedGeneration 是读取侧保留的 SQLite accepted generation；写入侧由同一事务提供。
+	AcceptedGeneration  uint64         `json:"accepted_generation,omitempty"`
 	Bucket              DurationBucket `json:"bucket"`
 	Succeeded           bool           `json:"succeeded"`
 	DurationMS          int64          `json:"duration_ms"`
@@ -170,20 +177,297 @@ type PlannedWorkload struct {
 	ResourceMemoryGiB   float64  `json:"resource_memory_gib"`
 }
 
+// WorkloadPackingEvidence 是每个 stable resource tier 的可审计 D-CPAP 见证。
+// lower/planned/gap 均以该 tier 的总 shard 数计，禁止只报告 packable 子集。
+type WorkloadPackingEvidence struct {
+	ResourceTier       cicontract.WorkloadResourceTier `json:"resource_tier"`
+	SolverMode         string                          `json:"solver_mode"`
+	PackableUnitCount  int                             `json:"packable_unit_count"`
+	IsolatedUnitCount  int                             `json:"isolated_unit_count"`
+	LowerBoundShards   int                             `json:"lower_bound_shards"`
+	PlannedShards      int                             `json:"planned_shards"`
+	HeuristicGapShards int                             `json:"heuristic_gap_shards"`
+}
+
 // WorkloadExecutionPlan 将一次确定性分片绑定到 GatePlan、目录和账本 generation。
 type WorkloadExecutionPlan struct {
-	SchemaVersion            uint32          `json:"schema_version"`
-	GatePlanDigest           string          `json:"gate_plan_digest"`
-	CatalogDigest            string          `json:"catalog_digest"`
-	LedgerGeneration         uint64          `json:"ledger_generation"`
-	Context                  PlanningContext `json:"context"`
-	Catalog                  WorkloadCatalog `json:"catalog"`
-	ExecutionWorkloadIDs     []GateID        `json:"execution_workload_ids"`
-	ExecutionWorkloadDigest  string          `json:"execution_workload_digest"`
-	CompileGroups            []CompileGroup  `json:"compile_groups"`
-	Shards                   []ShardPlan     `json:"shards"`
-	OwnerEstimatedDurationMS int64           `json:"owner_estimated_duration_ms"`
-	PlanDigest               string          `json:"plan_digest"`
+	SchemaVersion            uint32                    `json:"schema_version"`
+	AlgorithmID              string                    `json:"algorithm_id"`
+	ObjectiveDigest          string                    `json:"objective_digest"`
+	PlanningPolicyDigest     string                    `json:"planning_policy_digest"`
+	EstimationPolicyDigest   string                    `json:"estimation_policy_digest"`
+	GatePlanDigest           string                    `json:"gate_plan_digest"`
+	CatalogDigest            string                    `json:"catalog_digest"`
+	LedgerGeneration         uint64                    `json:"ledger_generation"`
+	Context                  PlanningContext           `json:"context"`
+	Catalog                  WorkloadCatalog           `json:"catalog"`
+	ExecutionWorkloadIDs     []GateID                  `json:"execution_workload_ids"`
+	ExecutionWorkloadDigest  string                    `json:"execution_workload_digest"`
+	CompileGroups            []CompileGroup            `json:"compile_groups"`
+	Shards                   []ShardPlan               `json:"shards"`
+	PackingEvidence          []WorkloadPackingEvidence `json:"packing_evidence"`
+	OwnerEstimatedDurationMS int64                     `json:"owner_estimated_duration_ms"`
+	PlanDigest               string                    `json:"plan_digest"`
+}
+
+// workloadPlanningObjectiveDigest 返回 cicontract 固定目标顺序的内容摘要。
+func workloadPlanningObjectiveDigest() string {
+	return cicontract.WorkloadPlanningObjectiveDigest()
+}
+
+// workloadEstimationPolicyMaterial 将 gate PlanningContext 的稳定字段交给
+// cicontract canonical owner；不在 gate 中复制序列化或摘要算法。
+func workloadEstimationPolicyMaterial(context PlanningContext) cicontract.WorkloadEstimationPolicyMaterial {
+	return cicontract.WorkloadEstimationPolicyMaterial{
+		PolicyVersion:                 cicontract.WorkloadEstimationPolicyVersion,
+		EstimatorPolicyID:             DurationEstimatorPolicyID,
+		Platform:                      context.Platform,
+		Runner:                        context.Runner,
+		Toolchain:                     context.Toolchain,
+		Calibration:                   context.Calibration,
+		CalibrationResourceClassID:    context.CalibrationResourceClassID,
+		CalibrationResourceCPU:        context.CalibrationResourceCPU,
+		CalibrationResourceMemoryGiB:  context.CalibrationResourceMemoryGiB,
+		TargetDurationMS:              context.TargetDurationMS,
+		AcceptedSnapshotID:            context.AcceptedSnapshotID,
+		ShardOverheadP95MS:            context.ShardOverheadP95MS,
+		ShardOverheadSampleCount:      context.ShardOverheadSampleCount,
+		ShardOverheadProvenanceDigest: context.ShardOverheadProvenanceDigest,
+	}
+}
+
+// workloadEstimationPolicyDigest 返回 cicontract canonical 估时摘要。
+func workloadEstimationPolicyDigest(context PlanningContext) (string, error) {
+	return cicontract.WorkloadEstimationPolicyDigest(workloadEstimationPolicyMaterial(context))
+}
+
+func validateWorkloadPlanningIdentity(plan WorkloadExecutionPlan) error {
+	return cicontract.ValidateWorkloadPlanContract(
+		plan.SchemaVersion, plan.AlgorithmID, plan.ObjectiveDigest, plan.PlanningPolicyDigest, plan.EstimationPolicyDigest,
+		workloadEstimationPolicyMaterial(plan.Context),
+	)
+}
+
+type dcpapItem struct {
+	id         string
+	durationMS int64
+}
+
+type dcpapBin struct {
+	items  []dcpapItem
+	bodyMS int64
+}
+
+// distributeDCPAP 按 exact 阈值分流：小输入穷举完整目标元组，大输入使用有界
+// heuristic 并保留容量下界与 gap 证据。exact 预算耗尽必须 fail-fast。
+func distributeDCPAP(planned []PlannedWorkload, targetDurationMS int64) ([]ShardPlan, error) {
+	if len(planned) == 0 {
+		return nil, errors.New("D-CPAP planner requires at least one workload")
+	}
+	if targetDurationMS <= 0 {
+		return nil, errors.New("D-CPAP planner target must be positive")
+	}
+	items := make([]dcpapItem, len(planned))
+	for index, workload := range planned {
+		if workload.EstimatedDurationMS <= 0 {
+			return nil, fmt.Errorf("workload %q estimate must be positive", workload.Workload.ID)
+		}
+		items[index] = dcpapItem{id: workload.Workload.ID, durationMS: workload.EstimatedDurationMS}
+	}
+	bins, err := dcpapProvenPack(items, targetDurationMS)
+	if err != nil {
+		return nil, fmt.Errorf("D-CPAP packing proof: %w", err)
+	}
+	return dcpapBinsToShardPlans(bins, planned), nil
+}
+
+func dcpapBinsToShardPlans(bins []dcpapBin, planned []PlannedWorkload) []ShardPlan {
+	byID := make(map[string]PlannedWorkload, len(planned))
+	for _, item := range planned {
+		byID[item.Workload.ID] = item
+	}
+	shards := make([]ShardPlan, len(bins))
+	for index, bin := range bins {
+		shards[index].Index = index
+		shards[index].EstimatedDurationMS = bin.bodyMS
+		for _, item := range bin.items {
+			shards[index].Workloads = append(shards[index].Workloads, byID[item.id])
+		}
+		sort.Slice(shards[index].Workloads, func(left, right int) bool {
+			if shards[index].Workloads[left].EstimatedDurationMS != shards[index].Workloads[right].EstimatedDurationMS {
+				return shards[index].Workloads[left].EstimatedDurationMS > shards[index].Workloads[right].EstimatedDurationMS
+			}
+			return shards[index].Workloads[left].Workload.ID < shards[index].Workloads[right].Workload.ID
+		})
+	}
+	return shards
+}
+
+// dcpapBestFitPack 构造确定性 BFD 初解；小输入交给 exact，大输入仅做有界修复并报告 gap。
+func dcpapBestFitPack(items []dcpapItem, target int64) []dcpapBin {
+	ordered := append([]dcpapItem(nil), items...)
+	sort.Slice(ordered, func(left, right int) bool {
+		if ordered[left].durationMS != ordered[right].durationMS {
+			return ordered[left].durationMS > ordered[right].durationMS
+		}
+		return ordered[left].id < ordered[right].id
+	})
+	bins := make([]dcpapBin, 0, len(items))
+	for _, item := range ordered {
+		best := -1
+		bestResidual := int64(^uint64(0) >> 1)
+		for index := range bins {
+			if !dcpapCanPlace(bins[index], item, target) {
+				continue
+			}
+			residual := dcpapResidual(bins[index], item, target)
+			if best < 0 || residual < bestResidual || (residual == bestResidual && dcpapBinKey(bins[index]) < dcpapBinKey(bins[best])) {
+				best, bestResidual = index, residual
+			}
+		}
+		if best < 0 {
+			bins = append(bins, dcpapBin{items: []dcpapItem{item}, bodyMS: item.durationMS})
+			continue
+		}
+		bins[best].items = append(bins[best].items, item)
+		bins[best].bodyMS += item.durationMS
+	}
+	return dcpapCanonicalBins(bins)
+}
+
+// dcpapExactPack 穷举小输入的完整目标元组，并返回 canonical 最小见证。
+func dcpapExactPack(items []dcpapItem, target int64, budget *deterministicPackingSearchBudget) ([]dcpapBin, error) {
+	if err := validateDCPAPDurationArithmetic(items, target); err != nil {
+		return nil, err
+	}
+	ordered := append([]dcpapItem(nil), items...)
+	sortDCPAPItems(ordered)
+	search := dcpapExactSearch{
+		ordered: ordered,
+		target:  target,
+		budget:  budget,
+		best:    dcpapPackingScore{excessMS: int64(^uint64(0) >> 1), shardCount: len(items) + 1},
+	}
+	minimumCount, err := dcpapShardCountLowerBound(items, target)
+	if err != nil {
+		return nil, err
+	}
+	for count := minimumCount; count <= len(items); count++ {
+		search.bins = make([]dcpapBin, count)
+		if err := search.place(0); err != nil {
+			return nil, err
+		}
+		if search.best.excessMS == 0 && search.best.shardCount == count {
+			return search.bestBins, nil
+		}
+	}
+	return search.bestBins, nil
+}
+
+type dcpapPackingScore struct {
+	excessMS     int64
+	shardCount   int
+	makespanMS   int64
+	setupProxyMS int64
+	layout       string
+}
+
+func (score dcpapPackingScore) less(other dcpapPackingScore) bool {
+	if score.excessMS != other.excessMS {
+		return score.excessMS < other.excessMS
+	}
+	if score.shardCount != other.shardCount {
+		return score.shardCount < other.shardCount
+	}
+	if score.makespanMS != other.makespanMS {
+		return score.makespanMS < other.makespanMS
+	}
+	if score.setupProxyMS != other.setupProxyMS {
+		return score.setupProxyMS < other.setupProxyMS
+	}
+	return score.layout < other.layout
+}
+
+// dcpapScore 计算 D-CPAP 的超额、分片数、关键路径和 canonical layout 评分。
+func dcpapScore(bins []dcpapBin, target int64) (dcpapPackingScore, error) {
+	// dcpapItem 已是不可拆的 critical-path 原子；setup proxy 对所有合法布局恒为零，
+	// 仍显式保留在目标比较器中。
+	score := dcpapPackingScore{shardCount: len(bins), setupProxyMS: 0}
+	for _, bin := range bins {
+		cost := bin.bodyMS
+		if cost > target {
+			excess := cost - target
+			if excess > maxDCPAPInt64-score.excessMS {
+				return dcpapPackingScore{}, errDCPAPDurationOverflow
+			}
+			score.excessMS += excess
+		}
+		if cost > score.makespanMS {
+			score.makespanMS = cost
+		}
+	}
+	var layout strings.Builder
+	for _, bin := range bins {
+		layout.WriteString(dcpapBinKey(bin))
+		layout.WriteByte('|')
+	}
+	score.layout = layout.String()
+	return score, nil
+}
+
+func dcpapCanPlace(bin dcpapBin, item dcpapItem, target int64) bool {
+	cost := bin.bodyMS
+	if len(bin.items) == 0 {
+		return true
+	}
+	return cost <= target && item.durationMS+cost <= target
+}
+
+func dcpapResidual(bin dcpapBin, item dcpapItem, target int64) int64 {
+	return target - (bin.bodyMS + item.durationMS)
+}
+
+func dcpapBinKey(bin dcpapBin) string {
+	ids := make([]string, len(bin.items))
+	for index, item := range bin.items {
+		ids[index] = item.id
+	}
+	slices.Sort(ids)
+	return strings.Join(ids, ",")
+}
+
+func dcpapCanonicalBins(bins []dcpapBin) []dcpapBin {
+	result := make([]dcpapBin, 0, len(bins))
+	for _, bin := range bins {
+		if len(bin.items) != 0 {
+			result = append(result, bin)
+		}
+	}
+	result = cloneDCPAPBins(result)
+	for index := range result {
+		sort.Slice(result[index].items, func(left, right int) bool { return result[index].items[left].id < result[index].items[right].id })
+	}
+	sort.Slice(result, func(left, right int) bool { return dcpapBinKey(result[left]) < dcpapBinKey(result[right]) })
+	return result
+}
+
+func cloneDCPAPBins(bins []dcpapBin) []dcpapBin {
+	result := make([]dcpapBin, len(bins))
+	for index, bin := range bins {
+		result[index] = bin
+		result[index].items = append([]dcpapItem(nil), bin.items...)
+	}
+	return result
+}
+
+func leastLoadedDCPAPBin(bins []dcpapBin) int {
+	selected := 0
+	for index := 1; index < len(bins); index++ {
+		if bins[index].bodyMS < bins[selected].bodyMS || (bins[index].bodyMS == bins[selected].bodyMS && dcpapBinKey(bins[index]) < dcpapBinKey(bins[selected])) {
+			selected = index
+		}
+	}
+	return selected
 }
 
 // ValidateWorkloadCatalog 拒绝缺失、重复和不受支持的 workload 定义。
@@ -462,14 +746,4 @@ func estimateOwnerWorkloadDurationMS(catalog WorkloadCatalog, index DurationSamp
 		total += estimate
 	}
 	return total, nil
-}
-
-func leastLoadedShard(shards []ShardPlan) int {
-	selected := 0
-	for index := 1; index < len(shards); index++ {
-		if shards[index].EstimatedDurationMS < shards[selected].EstimatedDurationMS {
-			selected = index
-		}
-	}
-	return selected
 }

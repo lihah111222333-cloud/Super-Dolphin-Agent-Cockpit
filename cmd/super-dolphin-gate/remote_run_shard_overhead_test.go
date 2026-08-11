@@ -76,11 +76,15 @@ func remoteRunAllReuseCalibrationFixture(t *testing.T) (remoteci.RunInput, remot
 	input.RunnerIdentityDigest = "sha256:runner"
 	input.ToolchainDigest = "sha256:toolchain"
 	input.CalibrationResource = calibrationShardOverheadTestClass()
+	input.CandidateGateSourceSHA256 = ""
+	input.CandidateGateToolchainSHA256 = ""
 
 	originRecord, reused := remoteRunPromotedReuseEvidence(t, store, origin.JobID)
 	result := origin
 	result.JobID = "remote-reuse-job"
 	result.Authoritative = false
+	result.CandidateGateSourceSHA256 = ""
+	result.CandidateGateToolchainSHA256 = ""
 	result.FreshWorkloadExecutions = nil
 	result.ReusedWorkloads = reused
 	recordRemoteRunAllReuseFixture(t, store, originRecord, result)
@@ -111,6 +115,8 @@ func recordRemoteRunAllReuseFixture(t *testing.T, store *gatecontract.DurationLe
 	record := originRecord
 	record.JobID = result.JobID
 	record.Authoritative = false
+	record.CandidateGateSourceSHA256 = ""
+	record.CandidateGateToolchainSHA256 = ""
 	record.Executions = append([]gatecontract.PlanGateExecution(nil), result.GateExecutions...)
 	record.Shards = nil
 	record.WorkloadExecutions = nil

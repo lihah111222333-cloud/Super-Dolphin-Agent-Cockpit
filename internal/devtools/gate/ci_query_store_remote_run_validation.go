@@ -82,7 +82,32 @@ func validateAuthoritativeRemoteCIRunTimingObservations(record RemoteCIRunRecord
 
 // remoteCIRunHasOnlyReusedWorkloadResults 识别已声明完整复用且不存在本次 fresh 记录的 PASS 运行。
 func remoteCIRunHasOnlyReusedWorkloadResults(record RemoteCIRunRecord) bool {
-	if record.Status != ResultStatusPassed || len(record.WorkloadResults) == 0 || len(record.Shards) != 0 || len(record.WorkloadExecutions) != 0 {
+	return record.Status == ResultStatusPassed && remoteCIRunAllReuseShape(record)
+}
+
+// remoteCIRunHasOnlyReusedCancelledAudit 识别 job 身份后取消且尚未执行 fresh 的 all-hit 审计投影。
+// 该形态只允许非权威 cancelled/timeout，且必须保留 reuse workload 结果，不放宽权威计时校验。
+func remoteCIRunHasOnlyReusedCancelledAudit(record RemoteCIRunRecord) bool {
+	if record.Authoritative || !remoteCIRunCancelledAuditStatus(record.Status) {
+		return false
+	}
+	if strings.TrimSpace(record.CandidateGateSourceSHA256) != "" || strings.TrimSpace(record.CandidateGateToolchainSHA256) != "" {
+		return false
+	}
+	if record.CleanupComplete || len(record.Executions) != 0 {
+		return false
+	}
+	return remoteCIRunAllReuseShape(record)
+}
+
+func remoteCIRunCancelledAuditStatus(status ResultStatus) bool {
+	return status == ResultStatusCancelled || status == ResultStatusTimeout
+}
+
+func remoteCIRunAllReuseShape(record RemoteCIRunRecord) bool {
+	if len(record.WorkloadResults) == 0 || len(record.Shards) != 0 || len(record.WorkloadExecutions) != 0 ||
+		len(record.TimingObservations) != 0 || len(record.CompileTimingObservations) != 0 ||
+		len(record.DurationSamples) != 0 {
 		return false
 	}
 	for _, result := range record.WorkloadResults {
@@ -127,24 +152,38 @@ func validateRemoteCIRunRequiredFields(record RemoteCIRunRecord) error {
 		return errors.New("remote CI run accepted baseline generation is required")
 	}
 	for field, value := range map[string]string{
-		"agent token digest":              record.AgentTokenDigest,
-		"job ID":                          record.JobID,
-		"entrypoint":                      string(record.Entrypoint),
-		"profile":                         string(record.Profile),
-		"plan digest":                     record.PlanDigest,
-		"catalog digest":                  record.CatalogDigest,
-		"image cache snapshot":            record.ImageCacheSnapshotID,
-		"source tree":                     record.SourceTreeSHA,
-		"candidate gate source digest":    record.CandidateGateSourceSHA256,
-		"candidate gate toolchain digest": record.CandidateGateToolchainSHA256,
-		"runner image":                    record.RunnerImage,
-		"status":                          string(record.Status),
+		"agent token digest":   record.AgentTokenDigest,
+		"job ID":               record.JobID,
+		"entrypoint":           string(record.Entrypoint),
+		"profile":              string(record.Profile),
+		"plan digest":          record.PlanDigest,
+		"catalog digest":       record.CatalogDigest,
+		"image cache snapshot": record.ImageCacheSnapshotID,
+		"source tree":          record.SourceTreeSHA,
+		"runner image":         record.RunnerImage,
+		"status":               string(record.Status),
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("remote CI run %s is required", field)
 		}
 	}
-	if !isPrefixedSHA256Digest(record.CandidateGateSourceSHA256) || !isPrefixedSHA256Digest(record.CandidateGateToolchainSHA256) {
+	if err := validateRemoteCIRunCandidateGateIdentity(record); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateRemoteCIRunCandidateGateIdentity 只允许纯复用 PASS 或取消审计投影省略候选 Gate 编译身份。
+func validateRemoteCIRunCandidateGateIdentity(record RemoteCIRunRecord) error {
+	source := strings.TrimSpace(record.CandidateGateSourceSHA256)
+	toolchain := strings.TrimSpace(record.CandidateGateToolchainSHA256)
+	if remoteCIRunHasOnlyReusedWorkloadResults(record) || remoteCIRunHasOnlyReusedCancelledAudit(record) {
+		if source != "" || toolchain != "" {
+			return errors.New("all-hit remote CI run must omit candidate gate compile identity")
+		}
+		return nil
+	}
+	if !isPrefixedSHA256Digest(source) || !isPrefixedSHA256Digest(toolchain) {
 		return errors.New("remote CI run candidate gate compile identity is invalid")
 	}
 	return nil

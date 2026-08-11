@@ -35,6 +35,7 @@ var (
 	bucketPattern                  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 	profilePattern                 = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	objectConflictPattern          = regexp.MustCompile(`(?i)(?:FileAlreadyExists|PreconditionFailed|(?:HTTP|status)[ :=]+(?:409|412)|\b(?:409|412)\b)`)
+	prefixObjectCountPattern       = regexp.MustCompile(`(?im)^\s*Object Number is\s*:\s*([0-9]+)\s*$`)
 	sensitiveQueryParameterPattern = regexp.MustCompile(`(?i)((?:AccessKeyId|AccessKeySecret|Signature|SecurityToken)=)[^&#\s"'<>]+`)
 )
 
@@ -322,6 +323,36 @@ func (c *client) DeletePrefix(ctx context.Context, prefix string) error {
 	}
 	_, err = c.run(ctx, "delete prefix", "oss", "rm", objectURL, "--recursive", "--force")
 	return err
+}
+
+// ConfirmPrefixEmpty 用一次受限列表查询证明 generation 前缀下没有残留对象。
+// CLI 输出缺少严格对象计数时立即报错，绝不把未知状态当作空前缀。
+func (c *client) ConfirmPrefixEmpty(ctx context.Context, prefix string) (bool, error) {
+	objectURL, err := c.prefixURL(prefix)
+	if err != nil {
+		return false, err
+	}
+	output, err := c.run(ctx, "list prefix", "oss", "ls", objectURL, "--limited-num", "1")
+	if err != nil {
+		return false, fmt.Errorf("confirm OSS prefix empty: %w", err)
+	}
+	count, err := parsePrefixObjectCount(output)
+	if err != nil {
+		return false, fmt.Errorf("confirm OSS prefix empty: %w", err)
+	}
+	return count == 0, nil
+}
+
+func parsePrefixObjectCount(output []byte) (int64, error) {
+	matches := prefixObjectCountPattern.FindAllSubmatch(output, -1)
+	if len(matches) != 1 || len(matches[0]) != 2 {
+		return 0, errors.New("OSS prefix listing is missing a unique Object Number count")
+	}
+	count, err := strconv.ParseInt(string(matches[0][1]), 10, 64)
+	if err != nil || count < 0 {
+		return 0, errors.New("OSS prefix listing Object Number count is invalid")
+	}
+	return count, nil
 }
 
 // Read 读取一个有上限的 OSS 对象，供小型严格回执消费；大对象仍走 workerio 流式下载。

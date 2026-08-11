@@ -63,6 +63,7 @@ func (config remoteRunConfig) Validate() error {
 }
 
 type remoteRunOptions struct {
+	Target                string
 	ConfigPath            string
 	RepositoryRoot        string
 	RemoteName            string
@@ -75,6 +76,8 @@ type remoteRunOptions struct {
 	Entrypoint            string
 	Tests                 []string
 	WorkloadID            string
+	GateWorkloadIDs       []string
+	GateWorkloadManifest  string
 	CompletionReceiptPath string
 	LocalRef              string
 	RemoteRef             string

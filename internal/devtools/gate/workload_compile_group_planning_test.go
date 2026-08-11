@@ -185,7 +185,7 @@ func TestCompileAwarePlannerEmptyLedgerSplitsArchtestIntoBoundedCompileGroups(t 
 	}
 	groupsByID := assertBoundedArchtestGroups(t, groups, len(names), len(workloads))
 	assertBoundedArchtestShards(t, shards, groupsByID)
-	assertStoredBoundedArchtestPlan(t, catalog, workloads, groups, shards)
+	assertStoredBoundedArchtestPlan(t, catalog, workloads, groups, shards, context)
 }
 
 func assertBoundedArchtestGroups(t *testing.T, groups []CompileGroup, selectorCount, workloadCount int) map[string]CompileGroup {
@@ -240,13 +240,13 @@ func assertBoundedArchtestShards(t *testing.T, shards []ShardPlan, groups map[st
 	}
 }
 
-func assertStoredBoundedArchtestPlan(t *testing.T, catalog WorkloadCatalog, workloads []Workload, groups []CompileGroup, shards []ShardPlan) {
+func assertStoredBoundedArchtestPlan(t *testing.T, catalog WorkloadCatalog, workloads []Workload, groups []CompileGroup, shards []ShardPlan, context PlanningContext) {
 	t.Helper()
 	executionIDs := make([]GateID, len(workloads))
 	for index, workload := range workloads {
 		executionIDs[index] = GateID(workload.ID)
 	}
-	stored := WorkloadExecutionPlan{ExecutionWorkloadIDs: executionIDs, CompileGroups: groups, Shards: shards}
+	stored := WorkloadExecutionPlan{ExecutionWorkloadIDs: executionIDs, CompileGroups: groups, Shards: shards, Context: context}
 	if _, _, err := validateStoredCompileGroups(stored, catalog); err != nil {
 		t.Fatalf("bounded archtest groups should validate across independent shards: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestStoredCompilePlanRejectsDifferentArtifactsInOneShard(t *testing.T) {
 		CompileGroups:        groups,
 		Shards:               []ShardPlan{{Index: 0, Workloads: []PlannedWorkload{{Workload: workloads[0], EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}, {Workload: workloads[1], EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}}, CompileGroupIDs: []string{groups[0].GroupID, groups[1].GroupID}, EstimatedDurationMS: groups[0].EstimatedDurationMS + groups[1].EstimatedDurationMS}},
 	}
-	if _, _, err := validateStoredCompileGroups(plan, testWorkloadCatalog(workloads...)); err == nil || !strings.Contains(err.Error(), "exactly one compile group") {
+	if _, _, err := validateStoredCompileGroups(plan, testWorkloadCatalog(workloads...)); err == nil || !strings.Contains(err.Error(), "not eligible for serial packing") {
 		t.Fatalf("different-artifact shard validation error = %v", err)
 	}
 }

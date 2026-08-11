@@ -1,6 +1,7 @@
 package frontendcodesizetrusted
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,7 +12,44 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
+
+// TestExtractGitTreeDrainsArchiveAfterTarEOF 锁定归档生产者在 Wait 前被完整消费。
+func TestExtractGitTreeDrainsArchiveAfterTarEOF(t *testing.T) {
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "tree.tar")
+	var archive bytes.Buffer
+	w := tar.NewWriter(&archive)
+	content := []byte("candidate\n")
+	if err := w.WriteHeader(&tar.Header{Name: "frontend-app/marker.txt", Mode: 0o644, Size: int64(len(content))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archivePath, archive.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "cat " + archivePath + "; dd if=/dev/zero bs=65536 count=128 2>/dev/null"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	destination := filepath.Join(root, "tree")
+	command := exec.CommandContext(ctx, "/bin/sh", "-c", script)
+	if err := extractGitArchive(command, destination); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(destination, "frontend-app", "marker.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Fatalf("marker = %q, want %q", got, content)
+	}
+}
 
 // TestRefreshUsesArchivedTreeAndAtomicallyPublishesBothBaselines 验证刷新不读取工作区前端源码。
 func TestRefreshUsesArchivedTreeAndAtomicallyPublishesBothBaselines(t *testing.T) {

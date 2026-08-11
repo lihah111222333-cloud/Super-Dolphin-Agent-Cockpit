@@ -14,45 +14,39 @@ import (
 
 // PreparedRun 在 job、临时目录、OSS 或 ECI 产生副作用前冻结单个远程 CI 候选的目录与复用决策。
 type PreparedRun struct {
-	allReused              bool
-	mu                     sync.Mutex
-	consumed               bool
-	owner                  *Coordinator
-	frozenDigest           string
-	input                  RunInput
-	plan                   gate.GatePlan
-	catalog                gate.WorkloadCatalog
-	catalogDigest          string
-	entrypoint             gate.CIEntrypoint
-	reuse                  remoteWorkloadReusePreparation
-	planningOverheadDigest string
+	allReused                   bool
+	mu                          sync.Mutex
+	consumed                    bool
+	owner                       *Coordinator
+	frozenDigest                string
+	input                       RunInput
+	plan                        gate.GatePlan
+	catalog                     gate.WorkloadCatalog
+	executionCatalog            gate.WorkloadCatalog
+	catalogDigest               string
+	entrypoint                  gate.CIEntrypoint
+	scope                       *gate.RemoteCIExecutionScope
+	excluded                    []gate.GateID
+	reuse                       remoteWorkloadReusePreparation
+	planningOverheadDigest      string
+	verifiedExecutionSnapshotID string
 }
 
 // Prepare 一次性构造精确候选的计划、目录、摘要与复用决策。
 func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*PreparedRun, error) {
 	coordinator.progress.phase(ProgressPhasePrepare, "started")
-	if err := validateCoordinatorRunInput(ctx, coordinator.config, input); err != nil {
+	if err := validateCoordinatorPrepareInput(ctx, input); err != nil {
 		return nil, err
 	}
 	plan, catalog, entrypoint, err := buildRemotePlan(input)
 	if err != nil {
 		return nil, err
 	}
-	// 先冻结 exact-tree digest/compile 输入。
-	inputDigests, compileInputs, _, err := remoteWorkloadFingerprintsWithSnapshot(ctx, input.RepositoryRoot, input.Tree, remoteShardableWorkloads(catalog))
-	if err != nil {
-		return nil, err
-	}
-	catalog, err = bindRemoteWorkloadInputDigests(catalog, inputDigests)
-	if err != nil {
-		return nil, err
-	}
-	input.WorkloadInputDigests = cloneRemoteWorkloadInputDigests(inputDigests)
-	if err := validateRemoteCompileGroupInputs(catalog, compileInputs); err != nil {
-		return nil, err
-	}
-	input.WorkloadCompileGroupInputs = cloneRemoteCompileGroupInputs(compileInputs)
-	catalogDigest, err := gate.WorkloadCatalogDigest(catalog)
+	input, catalog, catalogDigest, fingerprintSnapshot, err := prepareRemoteWorkloadIdentity(
+		ctx,
+		input,
+		catalog,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -62,19 +56,59 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 		catalog,
 		coordinator.config.WorkerTimeout,
 		coordinator.config.ResourcePolicy,
+		fingerprintSnapshot,
 	)
 	if err != nil {
 		return nil, err
 	}
+	if reuse.allReused() {
+		if err := validateAllHitExecutionIdentity(input); err != nil {
+			return nil, err
+		}
+	}
+	if !reuse.allReused() {
+		compileInputs, compileErr := remoteCompileGroupInputsForMisses(
+			ctx,
+			fingerprintSnapshot,
+			catalog,
+			reuse.cacheMisses,
+		)
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		input.WorkloadCompileGroupInputs = cloneRemoteCompileGroupInputs(compileInputs)
+	}
+	scope, err := gate.NewRemoteCIFullExecutionScope(catalog)
+	if err != nil {
+		return nil, fmt.Errorf("construct full remote CI execution scope: %w", err)
+	}
+	return coordinator.freezePreparedRun(input, plan, catalog, catalog, catalogDigest, entrypoint, &scope, nil, reuse)
+}
+
+// freezePreparedRun 固化已经完成身份和复用决策的远程运行，之后不得改变其执行范围。
+func (coordinator *Coordinator) freezePreparedRun(
+	input RunInput,
+	plan gate.GatePlan,
+	catalog gate.WorkloadCatalog,
+	executionCatalog gate.WorkloadCatalog,
+	catalogDigest string,
+	entrypoint gate.CIEntrypoint,
+	scope *gate.RemoteCIExecutionScope,
+	excluded []gate.GateID,
+	reuse remoteWorkloadReusePreparation,
+) (*PreparedRun, error) {
 	prepared := &PreparedRun{
-		allReused:     reuse.allReused(),
-		owner:         coordinator,
-		input:         input,
-		plan:          plan,
-		catalog:       catalog,
-		catalogDigest: catalogDigest,
-		entrypoint:    entrypoint,
-		reuse:         reuse,
+		allReused:        reuse.allReused(),
+		owner:            coordinator,
+		input:            input,
+		plan:             plan,
+		catalog:          catalog,
+		executionCatalog: executionCatalog,
+		catalogDigest:    catalogDigest,
+		entrypoint:       entrypoint,
+		scope:            scope,
+		excluded:         excluded,
+		reuse:            reuse,
 	}
 	frozenDigest, err := prepared.frozenIdentityDigest()
 	if err != nil {
@@ -86,6 +120,39 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	return prepared, nil
 }
 
+// prepareRemoteWorkloadIdentity 在 PASS lookup 前冻结 exact-tree correctness 输入。
+func prepareRemoteWorkloadIdentity(
+	ctx context.Context,
+	input RunInput,
+	catalog gate.WorkloadCatalog,
+) (RunInput, gate.WorkloadCatalog, string, *remoteGitTreeSnapshot, error) {
+	inputDigests, _, fingerprintSnapshot, err := remoteWorkloadFingerprintsWithSnapshot(
+		ctx,
+		input.RepositoryRoot,
+		input.Tree,
+		remoteShardableWorkloads(catalog),
+	)
+	if err != nil {
+		return RunInput{}, gate.WorkloadCatalog{}, "", nil, err
+	}
+	workerExecutionSemanticDigest, err := fingerprintSnapshot.workerExecutionDigest(ctx)
+	if err != nil {
+		return RunInput{}, gate.WorkloadCatalog{}, "", nil, fmt.Errorf("derive remote worker execution semantic digest: %w", err)
+	}
+	input.WorkerExecutionSemanticDigest = workerExecutionSemanticDigest
+	catalog, err = bindRemoteWorkloadInputDigests(catalog, inputDigests)
+	if err != nil {
+		return RunInput{}, gate.WorkloadCatalog{}, "", nil, err
+	}
+	input.WorkloadInputDigests = cloneRemoteWorkloadInputDigests(inputDigests)
+	input.WorkloadCompileGroupInputs = nil
+	catalogDigest, err := gate.WorkloadCatalogDigest(catalog)
+	if err != nil {
+		return RunInput{}, gate.WorkloadCatalog{}, "", nil, err
+	}
+	return input, catalog, catalogDigest, fingerprintSnapshot, nil
+}
+
 // AllReused 返回 Prepare 已冻结的不可变复用决策。
 func (prepared *PreparedRun) AllReused() bool {
 	if prepared == nil {
@@ -94,6 +161,89 @@ func (prepared *PreparedRun) AllReused() bool {
 	prepared.mu.Lock()
 	defer prepared.mu.Unlock()
 	return prepared.allReused
+}
+
+// WorkloadReuseDecision 返回 Prepare 已冻结的 workload identity 与严格 MISS 副本。
+// 返回值仅用于执行前审计；调用方修改切片或元素不会改变 PreparedRun。
+func (prepared *PreparedRun) WorkloadReuseDecision() ([]gate.WorkloadPassIdentity, []gate.GateID) {
+	if prepared == nil {
+		return nil, nil
+	}
+	prepared.mu.Lock()
+	defer prepared.mu.Unlock()
+	identities := append([]gate.WorkloadPassIdentity(nil), prepared.reuse.identities...)
+	misses := append([]gate.GateID(nil), prepared.reuse.cacheMisses...)
+	return identities, misses
+}
+
+// RemoteExecutionScope returns the frozen execution scope and excluded catalog
+// entries. Both values are safe for callers to retain or modify independently.
+func (prepared *PreparedRun) RemoteExecutionScope() (gate.RemoteCIExecutionScope, []gate.GateID, error) {
+	if prepared == nil {
+		return gate.RemoteCIExecutionScope{}, nil, errors.New("prepared remote CI run is required")
+	}
+	prepared.mu.Lock()
+	defer prepared.mu.Unlock()
+	if err := prepared.validateFrozenLocked(); err != nil {
+		return gate.RemoteCIExecutionScope{}, nil, err
+	}
+	if prepared.scope == nil {
+		return gate.RemoteCIExecutionScope{}, nil, errors.New("prepared remote CI execution scope is required")
+	}
+	return *prepared.scope, append([]gate.GateID(nil), prepared.excluded...), nil
+}
+
+// BindPreparedMissExecution 在严格 MISS 决策后一次性绑定候选 Gate 与实时 ImageCache 身份。
+// 绑定前后都校验 frozen identity；失败不会留下部分字段或可执行配置。
+func (coordinator *Coordinator) BindPreparedMissExecution(
+	ctx context.Context,
+	prepared *PreparedRun,
+	binding MissExecutionBinding,
+) error {
+	if prepared == nil {
+		return errors.New("prepared remote CI run is required")
+	}
+	prepared.mu.Lock()
+	defer prepared.mu.Unlock()
+	if prepared.consumed {
+		return errors.New("prepared remote CI run is already consumed")
+	}
+	if prepared.owner != coordinator {
+		return errors.New("prepared remote CI run belongs to a different coordinator")
+	}
+	if err := prepared.validateFrozenLocked(); err != nil {
+		return err
+	}
+	if err := prepared.validateLocked(); err != nil {
+		return err
+	}
+	if prepared.allReused {
+		return errors.New("all-reused remote CI run cannot bind MISS execution inputs")
+	}
+	if prepared.verifiedExecutionSnapshotID != "" {
+		return errors.New("prepared remote CI MISS execution inputs are already bound")
+	}
+	next := prepared.input
+	next.CandidateGateSourceSHA256 = binding.CandidateGateSourceSHA256
+	next.CandidateGateToolchainSHA256 = binding.CandidateGateToolchainSHA256
+	next.ExecutionRunnerImage = binding.ExecutionRunnerImage
+	next.ExecutionImageCacheSnapshotID = binding.ExecutionImageCacheSnapshotID
+	next.ImageCacheOnly = binding.ImageCacheOnly
+	config := coordinator.config
+	config.ImageCacheSnapshotID = binding.ExecutionImageCacheSnapshotID
+	if err := validateCoordinatorRunInput(ctx, config, next); err != nil {
+		return err
+	}
+	previous := prepared.input
+	prepared.input = next
+	digest, err := prepared.frozenIdentityDigest()
+	if err != nil {
+		prepared.input = previous
+		return err
+	}
+	prepared.verifiedExecutionSnapshotID = binding.ExecutionImageCacheSnapshotID
+	prepared.frozenDigest = digest
+	return nil
 }
 
 // ReloadPlanningSnapshot 仅在同步校准后，按冻结的 SQLite 权威和计划上下文重新加载耗时计划快照。
@@ -189,7 +339,7 @@ func (coordinator *Coordinator) RunPrepared(ctx context.Context, prepared *Prepa
 	if err := prepared.consume(coordinator); err != nil {
 		return result, err
 	}
-	if err := validateCoordinatorRunInput(ctx, coordinator.config, prepared.input); err != nil {
+	if err := validatePreparedRunInput(ctx, prepared); err != nil {
 		return result, err
 	}
 	jobID, err := coordinator.newID()
@@ -197,6 +347,9 @@ func (coordinator *Coordinator) RunPrepared(ctx context.Context, prepared *Prepa
 		return result, fmt.Errorf("create remote CI job identity: %w", err)
 	}
 	result = coordinator.newRunResult(prepared.plan, prepared.catalogDigest, prepared.entrypoint, prepared.input, jobID)
+	result.Scope = prepared.scope
+	// 先绑定 reuse 投影，再检查 job 身份后的取消边界，确保取消 provisional 仍能验证 all-hit。
+	prepared.reuse.apply(&result)
 	coordinator.progress.setJobID(jobID)
 	coordinator.progress.phase(ProgressPhaseRun, "started")
 	defer coordinator.persistPreparedRun(ctx, prepared.input.LedgerStore, &result, &returnErr)
@@ -204,6 +357,34 @@ func (coordinator *Coordinator) RunPrepared(ctx context.Context, prepared *Prepa
 		return result, err
 	}
 	return coordinator.executePreparedWorkloadMisses(ctx, prepared, jobID, result)
+}
+
+// validateAllHitExecutionIdentity 禁止调用方把 MISS-only Gate/ECI 身份带入纯 PASS 复用。
+func validateAllHitExecutionIdentity(input RunInput) error {
+	if input.CandidateGateSourceSHA256 != "" ||
+		input.CandidateGateToolchainSHA256 != "" ||
+		input.ExecutionRunnerImage != "" ||
+		input.ExecutionImageCacheSnapshotID != "" ||
+		input.ImageCacheOnly {
+		return errors.New("remote CI all-hit cannot carry MISS execution identity")
+	}
+	return nil
+}
+
+// validatePreparedRunInput 对 all-hit 保持 correctness-only 校验，对 MISS 强制要求显式实时绑定。
+func validatePreparedRunInput(ctx context.Context, prepared *PreparedRun) error {
+	if prepared.allReused {
+		if err := validateAllHitExecutionIdentity(prepared.input); err != nil {
+			return err
+		}
+		return validateCoordinatorPrepareInput(ctx, prepared.input)
+	}
+	if prepared.verifiedExecutionSnapshotID == "" {
+		return errors.New("prepared remote CI MISS execution inputs are not bound")
+	}
+	config := prepared.owner.config
+	config.ImageCacheSnapshotID = prepared.verifiedExecutionSnapshotID
+	return validateCoordinatorRunInput(ctx, config, prepared.input)
 }
 
 // persistPreparedRun 在所有返回边界记录同一个候选身份及其非权威终态。
@@ -232,26 +413,37 @@ func (coordinator *Coordinator) executePreparedWorkloadMisses(ctx context.Contex
 		coordinator.progress.emitTerminal(nil, "completed")
 		coordinator.progress.beginCleanup(0)
 		coordinator.progress.phase(ProgressPhaseCleanup, "completed")
-		return completeRemoteReuse(prepared.catalog, prepared.reuse.reused, result, coordinator.now)
+		return completeRemoteReuse(prepared.executionCatalog, prepared.reuse.reused, result, coordinator.now)
 	}
 	tempRoot, err := createRemoteTempRoot()
 	if err != nil {
 		return result, err
 	}
-	defer func() {
-		returnErr = errors.Join(returnErr, os.RemoveAll(tempRoot))
-	}()
 	objectKeys := make([]string, 0)
 	createdGroups := make([]string, 0)
 	defer func() {
-		cleanupErr := coordinator.cleanup(jobID, createdGroups, objectKeys)
-		returnResult.CleanupComplete = cleanupErr == nil
+		cleanupComplete, cleanupErr := finalizePreparedCleanup(
+			tempRoot,
+			func() error { return coordinator.cleanup(jobID, createdGroups, objectKeys) },
+		)
+		returnResult.CleanupComplete = cleanupComplete
 		returnErr = errors.Join(returnErr, cleanupErr)
 	}()
 	return coordinator.runRemoteWorkloadMisses(
-		ctx, prepared.input, prepared.plan, prepared.catalog, prepared.reuse.cacheMisses,
+		ctx, prepared.input, prepared.plan, prepared.catalog, prepared.executionCatalog, prepared.reuse.cacheMisses,
 		prepared.reuse.reused, jobID, tempRoot, &objectKeys, &createdGroups, result,
 	)
+}
+
+// finalizePreparedCleanup 原子汇总宿主临时目录和远端对象清理结果。
+// 两个清理动作都会执行，任一失败都会让 CleanupComplete 保持为 false。
+func finalizePreparedCleanup(tempRoot string, remoteCleanup func() error) (bool, error) {
+	if remoteCleanup == nil {
+		return false, errors.New("remote cleanup callback is required")
+	}
+	tempErr := os.RemoveAll(tempRoot)
+	remoteErr := remoteCleanup()
+	return tempErr == nil && remoteErr == nil, errors.Join(tempErr, remoteErr)
 }
 
 // remoteCIRunNotStartedContextError 将无法建立候选身份的调用取消明确标记为未启动。
@@ -326,16 +518,30 @@ func (prepared *PreparedRun) frozenIdentityDigest() (string, error) {
 	input := prepared.input
 	input.LedgerSnapshot = gate.DurationLedgerSnapshot{}
 	input.LedgerStore = nil
+	if prepared.scope == nil {
+		return "", errors.New("prepared remote CI execution scope is required")
+	}
+	scopeDigest, err := prepared.scope.Digest()
+	if err != nil {
+		return "", fmt.Errorf("digest prepared remote CI execution scope: %w", err)
+	}
 	payload, err := json.Marshal(struct {
 		Input              RunInput                    `json:"input"`
 		Plan               gate.GatePlan               `json:"plan"`
 		Catalog            gate.WorkloadCatalog        `json:"catalog"`
 		CatalogDigest      string                      `json:"catalog_digest"`
 		Entrypoint         gate.CIEntrypoint           `json:"entrypoint"`
+		ScopeDigest        string                      `json:"scope_digest"`
+		Excluded           []gate.GateID               `json:"excluded"`
 		ReuseIdentities    []gate.WorkloadPassIdentity `json:"reuse_identities"`
 		ReusedWorkloads    []gate.WorkloadPassEvidence `json:"reused_workloads"`
 		CacheMissWorkloads []gate.GateID               `json:"cache_miss_workloads"`
-	}{input, prepared.plan, prepared.catalog, prepared.catalogDigest, prepared.entrypoint, prepared.reuse.identities, prepared.reuse.reusedWorkloads, prepared.reuse.cacheMisses})
+	}{
+		Input: input, Plan: prepared.plan, Catalog: prepared.catalog, CatalogDigest: prepared.catalogDigest,
+		Entrypoint: prepared.entrypoint, ScopeDigest: scopeDigest,
+		Excluded: prepared.excluded, ReuseIdentities: prepared.reuse.identities,
+		ReusedWorkloads: prepared.reuse.reusedWorkloads, CacheMissWorkloads: prepared.reuse.cacheMisses,
+	})
 	if err != nil {
 		return "", fmt.Errorf("encode prepared remote CI identity: %w", err)
 	}
@@ -361,7 +567,7 @@ func (prepared *PreparedRun) validateLocked() error {
 	if prepared.allReused != prepared.reuse.allReused() {
 		return errors.New("prepared remote CI reuse decision drifted")
 	}
-	return nil
+	return validatePreparedRemoteExecutionScope(prepared)
 }
 
 // validateFinalPlanningSnapshotLocked 在 normal miss 产生任何 OSS、临时目录或 ECI 副作用前，

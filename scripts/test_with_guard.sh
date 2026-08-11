@@ -201,7 +201,7 @@ host_test_remote_guidance() {
     echo "host test could not derive the exact remote CI selector" >&2
     return 2
   fi
-  printf '%s' '[test-with-guard] remote CI exact test: source .githooks/trusted-gate-launcher.sh && "$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}" --ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}" --test ' >&2
+  printf '%s' '[test-with-guard] remote CI exact test: source .githooks/trusted-gate-launcher.sh && "$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --target=remote --config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}" --ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}" --test ' >&2
   printf '%q\n' "$package_name#$test_selector" >&2
   echo '[test-with-guard] remote CI setup: make remote-ci-init; run through the verified trusted launcher installed by make install-hooks' >&2
 }

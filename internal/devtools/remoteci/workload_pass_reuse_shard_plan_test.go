@@ -31,6 +31,7 @@ func TestRemoteWorkloadMissesRejectReuseOverlapBeforeRemoteSideEffects(t *testin
 		RunInput{},
 		gate.GatePlan{},
 		gate.WorkloadCatalog{},
+		gate.WorkloadCatalog{},
 		[]gate.GateID{"workload-a"},
 		map[string]gate.WorkloadPassEvidence{"workload-a": {}},
 		"job-test",
@@ -44,6 +45,43 @@ func TestRemoteWorkloadMissesRejectReuseOverlapBeforeRemoteSideEffects(t *testin
 	}
 	if !slices.Equal(objectKeys, []string{"sentinel-object"}) || !slices.Equal(createdGroups, []string{"sentinel-group"}) {
 		t.Fatalf("overlap rejection changed remote side-effect tracking: objectKeys=%v createdGroups=%v", objectKeys, createdGroups)
+	}
+}
+
+// TestRemoteWorkloadMissesRejectInvalidIDsBeforePlanner 验证空/重复 MISS 在 DCPAP 前 fail-fast。
+func TestRemoteWorkloadMissesRejectInvalidIDsBeforePlanner(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		ids  []gate.GateID
+		want string
+	}{
+		{name: "empty", ids: nil, want: "miss list is required"},
+		{name: "duplicate", ids: []gate.GateID{"workload-a", "workload-a"}, want: "is duplicated"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objectKeys := []string{"sentinel-object"}
+			createdGroups := []string{"sentinel-group"}
+			_, err := (&Coordinator{}).runRemoteWorkloadMisses(
+				context.Background(),
+				RunInput{},
+				gate.GatePlan{},
+				gate.WorkloadCatalog{},
+				gate.WorkloadCatalog{},
+				test.ids,
+				nil,
+				"job-test",
+				"/unused",
+				&objectKeys,
+				&createdGroups,
+				RunResult{},
+			)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("runRemoteWorkloadMisses() error = %v, want %q", err, test.want)
+			}
+			if !slices.Equal(objectKeys, []string{"sentinel-object"}) || !slices.Equal(createdGroups, []string{"sentinel-group"}) {
+				t.Fatalf("invalid MISS changed remote side-effect tracking: objectKeys=%v createdGroups=%v", objectKeys, createdGroups)
+			}
+		})
 	}
 }
 

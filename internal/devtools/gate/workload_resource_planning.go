@@ -17,11 +17,15 @@ func distributeTieredLPTWithinTarget(planned []PlannedWorkload, context Planning
 		tiers[int(tier)-1] = append(tiers[int(tier)-1], workload)
 	}
 	shards := make([]ShardPlan, 0, len(planned))
-	for _, tierWorkloads := range tiers {
+	for tierIndex, tierWorkloads := range tiers {
 		if len(tierWorkloads) == 0 {
 			continue
 		}
-		for _, shard := range distributeLPTWithinTarget(tierWorkloads, context) {
+		tierShards, err := distributeLPTWithinTarget(tierWorkloads, context)
+		if err != nil {
+			return nil, fmt.Errorf("plan resource tier %d: %w", tierIndex+1, err)
+		}
+		for _, shard := range tierShards {
 			shard.Index = len(shards)
 			shards = append(shards, shard)
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,21 +10,79 @@ import (
 	"slices"
 	"strings"
 
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 const mcpLSPDefault15mWorkloadID = "mcp-lsp-default-15m"
 
-// runTestInvocation 固定 test 场景，并把所有工作负载交给权威远程 ECI 协调器。
+// runTestInvocation 先冻结 test target，并保持显式 remote 的 token 握手先于正式选项解析。
 func runTestInvocation(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
-	if err := requireRemoteCIAgentToken([]string{"test"}, args, stdout); err != nil {
+	if testHelpRequested(args) {
+		return writeTestUsage(stdout)
+	}
+	target, err := requestedTestTarget(args)
+	if err != nil {
 		return err
+	}
+	if target == "remote" {
+		// Preserve the established remote token handshake before parsing any
+		// config/ledger or constructing a coordinator.
+		if err := requireRemoteCIAgentToken([]string{"test"}, args, stdout); err != nil {
+			return err
+		}
 	}
 	options, err := parseAutoTestRunOptions(args)
 	if err != nil {
 		return err
 	}
+	return runParsedTestInvocation(args, options, stdout, progressWriters...)
+}
+
+// testHelpRequested 将帮助保留在 CLI 边界，避免被包装成协议错误。
+func testHelpRequested(args []string) bool {
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+// writeTestUsage 在解析配置、token 或选择器前说明 authority 选择。
+func writeTestUsage(stdout io.Writer) error {
+	_, err := fmt.Fprint(stdout, `Usage: super-dolphin-gate test [flags]
+
+Target selection:
+  --target=local|auto|hybrid|remote
+      local executes only explicit local workload selectors; auto is the default.
+      remote sends ordinary --test selectors to the Alibaba Cloud ECI coordinator.
+
+Selectors:
+  --test <package#Test>                 exact standalone remote selector; repeatable
+  --gate-workload <id>                  expanded workload ID for local/auto/hybrid; repeatable
+  --gate-workload-manifest <absolute>   JSON array of expanded workload IDs
+
+Remote test guidance must pass --target=remote explicitly. Use --help only for discovery;
+it does not read configuration, request an agent token, or create ECI work.
+`)
+	return err
+}
+
+// runParsedTestInvocation 按已验证 target 分派本地、显式远程子集或普通远程全量执行。
+func runParsedTestInvocation(args []string, options remoteRunOptions, stdout io.Writer, progressWriters ...io.Writer) error {
+	if options.Target != "remote" {
+		return runLocalTestInvocation(context.Background(), args, options, stdout, newProductionLocalTestCLIAdapter())
+	}
+	if len(options.GateWorkloadIDs) != 0 {
+		return runExplicitRemoteGateWorkloadSubset(options, stdout, progressWriters...)
+	}
+	return runFullRemoteTestInvocation(options, stdout, progressWriters...)
+}
+
+// runFullRemoteTestInvocation 保持普通 remote test 的 progress、错误合并和结果输出顺序。
+func runFullRemoteTestInvocation(options remoteRunOptions, stdout io.Writer, progressWriters ...io.Writer) error {
 	progress, err := newRemoteProgressObserver(progressWriters...)
 	if err != nil {
 		return err
@@ -37,9 +96,91 @@ func runTestInvocation(args []string, stdout io.Writer, progressWriters ...io.Wr
 	return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
 }
 
+// runExplicitRemoteGateWorkloadSubset 仅执行显式 gate workload 的远程子集，并保持普通远程的 progress、错误和结果输出契约。
+func runExplicitRemoteGateWorkloadSubset(options remoteRunOptions, stdout io.Writer, progressWriters ...io.Writer) error {
+	selected, err := localGateWorkloadIDs(options.GateWorkloadIDs)
+	if err != nil {
+		return err
+	}
+	progress, err := newRemoteProgressObserver(progressWriters...)
+	if err != nil {
+		return err
+	}
+	options.ProgressObserver = progress
+	result, input, runErr := executeRemoteRunSubset(options, selected, nil)
+	runErr = errors.Join(runErr, remoteci.ProgressError(progress))
+	if runErr == nil && options.WorkloadID != "" && options.CompletionReceiptPath != "" {
+		runErr = fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", options.WorkloadID)
+	}
+	return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
+}
+
+// executeProductionRemoteWorkloadSubset 将冻结的 remote 分区交给唯一远程执行链并返回既有回执材料。
+func executeProductionRemoteWorkloadSubset(ctx context.Context, options remoteRunOptions, selected []gatecontract.GateID, digest string) (localRemoteSubsetOutcome, error) {
+	if err := ctx.Err(); err != nil {
+		return localRemoteSubsetOutcome{}, err
+	}
+	if strings.TrimSpace(digest) == "" {
+		return localRemoteSubsetOutcome{}, errors.New("remote subset token digest is required")
+	}
+	options.AgentTokenDigest = digest
+	result, input, err := executeRemoteRunSubset(options, selected, excludedGateWorkloadIDs(options.GateWorkloadIDs, selected))
+	return localRemoteSubsetOutcome{Input: input, Result: result}, err
+}
+
+// excludedGateWorkloadIDs 记录原始选择中未进入远程分区的 ID。
+func excludedGateWorkloadIDs(all []string, selected []gatecontract.GateID) []gatecontract.GateID {
+	selectedSet := make(map[gatecontract.GateID]struct{}, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = struct{}{}
+	}
+	excluded := make([]gatecontract.GateID, 0, len(all))
+	for _, value := range all {
+		id := gatecontract.GateID(value)
+		if _, chosen := selectedSet[id]; !chosen {
+			excluded = append(excluded, id)
+		}
+	}
+	return excluded
+}
+
+// requireTestRemoteSubsetToken 将 token handshake 限定在显式 remote subset 阶段。
+func requireTestRemoteSubsetToken(command, args []string, stdout io.Writer) (string, error) {
+	return requireRemoteCIAgentTokenDigest(command, args, stdout)
+}
+
+// requestedTestTarget 仅预读 target，使 remote handshake 先于配置解析；其余 flag 仍由正式 parser 负责。
+func requestedTestTarget(args []string) (string, error) {
+	return requestedWorkloadTarget(args, "auto")
+}
+
+// requestedWorkloadTarget 仅预读 --target，其余语法仍交由严格 parser 处理，避免在握手前构造配置或协调器。
+func requestedWorkloadTarget(args []string, defaultTarget string) (string, error) {
+	target := defaultTarget
+	for index := 0; index < len(args); index++ {
+		value := args[index]
+		if targetValue, ok := strings.CutPrefix(value, "--target="); ok {
+			target = targetValue
+			continue
+		}
+		if value != "--target" {
+			continue
+		}
+		if index+1 >= len(args) {
+			return "", protocolError("--target requires a value")
+		}
+		index++
+		target = args[index]
+	}
+	if err := validateWorkloadAuthorityTarget(target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
 // parseAutoTestRunOptions 只接受测试选择器并固定 test 场景。
 func parseAutoTestRunOptions(args []string) (remoteRunOptions, error) {
-	options, err := parseRemoteRunOptions(args)
+	options, err := parseRunOptions(args, "auto", true)
 	if err != nil {
 		return remoteRunOptions{}, err
 	}
@@ -55,13 +196,37 @@ func parseAutoTestRunOptions(args []string) (remoteRunOptions, error) {
 
 // validateAutoTestFlags 拒绝 test 命令接管的场景、推送和非绝对回执参数。
 func validateAutoTestFlags(options remoteRunOptions) error {
+	if err := rejectAutoTestMutationFlags(options); err != nil {
+		return err
+	}
+	if err := validateAutoTestReceiptPath(options); err != nil {
+		return err
+	}
+	return validateAutoTestSelectorCompatibility(options)
+}
+
+// rejectAutoTestMutationFlags 拒绝 test 命令接管场景、推送和观察参数。
+func rejectAutoTestMutationFlags(options remoteRunOptions) error {
 	if options.Scenario != "" || options.Entrypoint != "" ||
 		options.LocalRef != "" || options.RemoteRef != "" || options.ObservedRemote != "" ||
 		options.UpdateKind != "" {
 		return protocolError("test command does not accept scenario, entrypoint, or push flags")
 	}
+	return nil
+}
+
+// validateAutoTestReceiptPath 要求 completion 回执使用绝对路径。
+func validateAutoTestReceiptPath(options remoteRunOptions) error {
 	if options.CompletionReceiptPath != "" && !filepath.IsAbs(options.CompletionReceiptPath) {
 		return protocolError("--completion-receipt must be an absolute path")
+	}
+	return nil
+}
+
+// validateAutoTestSelectorCompatibility 拒绝 legacy workload 与 gate selector 混用。
+func validateAutoTestSelectorCompatibility(options remoteRunOptions) error {
+	if options.WorkloadID != "" && len(options.GateWorkloadIDs) != 0 {
+		return protocolError("--workload and --gate-workload selectors are mutually exclusive")
 	}
 	return nil
 }
@@ -73,6 +238,15 @@ func bindOrValidateAutoTestSelectors(options *remoteRunOptions) error {
 			return protocolError("bind workload %q: %v", options.WorkloadID, err)
 		}
 		return nil
+	}
+	if len(options.GateWorkloadIDs) != 0 {
+		if options.CompletionReceiptPath != "" {
+			return protocolError("--completion-receipt is only supported with --workload")
+		}
+		return nil
+	}
+	if options.Target != "remote" {
+		return protocolError("non-remote test target requires --gate-workload or --gate-workload-manifest")
 	}
 	return validateStandaloneTestSelectors(*options)
 }

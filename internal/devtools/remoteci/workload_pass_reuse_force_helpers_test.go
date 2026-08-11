@@ -26,6 +26,11 @@ func prepareForceExecutionCase(t *testing.T) forceExecutionCase {
 	t.Helper()
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
+	workerDigest, err := ResolveWorkerExecutionDigest(context.Background(), input.RepositoryRoot, input.Tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.WorkerExecutionSemanticDigest = workerDigest
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
 	identities, err := remoteWorkloadPassIdentities(
 		context.Background(), input, mustCoordinatorCatalog(t, input), 10*time.Minute, testRemoteResourcePolicy(),
@@ -33,6 +38,7 @@ func prepareForceExecutionCase(t *testing.T) forceExecutionCase {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertSeededPassEvidenceMatchesIdentities(t, input.LedgerStore, identities)
 	input.Force = true
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
@@ -79,6 +85,16 @@ func assertForceExecutionPassEvidence(t *testing.T, input RunInput, identities [
 		evidence, lookupErr := input.LedgerStore.LookupWorkloadPassEvidence([]gate.WorkloadPassIdentity{identity})
 		if lookupErr != nil || len(evidence) != 1 {
 			t.Fatalf("force Run() deleted prior PASS evidence for %q: evidence=%#v error=%v", identity.WorkloadID, evidence, lookupErr)
+		}
+	}
+}
+
+func assertSeededPassEvidenceMatchesIdentities(t *testing.T, store *gate.DurationLedgerStore, identities []gate.WorkloadPassIdentity) {
+	t.Helper()
+	for _, identity := range identities {
+		evidence, err := store.LookupWorkloadPassEvidence([]gate.WorkloadPassIdentity{identity})
+		if err != nil || len(evidence) != 1 {
+			t.Fatalf("seeded PASS evidence does not match request identity %q: evidence=%#v error=%v", identity.WorkloadID, evidence, err)
 		}
 	}
 }

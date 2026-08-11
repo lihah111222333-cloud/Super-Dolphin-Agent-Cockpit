@@ -35,6 +35,26 @@ func TestNewDurationLedgerStoreRequiresAbsoluteCanonicalParent(t *testing.T) {
 	}
 }
 
+func TestDurationLedgerSQLiteRejectsZeroAcceptedGenerationForPlanningIndex(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	sample := testDurationSample("zero-generation", testWorkloadDigest, true, 10)
+	statementSQL, err := sqliteDurationSampleBatchSQL(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(statementSQL, sqliteDurationSampleArguments(0, sample)...); err == nil || !strings.Contains(err.Error(), "accepted_generation") {
+		t.Fatalf("zero accepted generation insert error = %v, want schema rejection", err)
+	}
+}
+
 func TestDurationLedgerSQLiteCompactsLargeRetentionScopeWithoutVariableOverflow(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, testDurationLedger(1)); err != nil {

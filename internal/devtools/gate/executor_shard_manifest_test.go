@@ -3,6 +3,7 @@ package gate
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -186,6 +187,16 @@ func TestShardExecutionManifestRejectsGroupOutsideShardOrDuplicate(t *testing.T)
 	}
 }
 
+func TestShardExecutionManifestRejectsOrdinarySelectorBesideSpecialGroup(t *testing.T) {
+	special := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicArchtestPackageTarget, "TestSpecialIsolation")
+	ordinary := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicGatePackageTarget, "TestOrdinaryIsolation")
+	group := manifestTestCompileGroup(t, []GateID{GateID(special.ID)})
+	manifest := manifestTestInput([]GateID{GateID(special.ID), GateID(ordinary.ID)}, group)
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "mixes grouped and ordinary") {
+		t.Fatalf("special group plus ordinary selector error = %v, want isolation failure", err)
+	}
+}
+
 func TestShardExecutionManifestRejectsDuplicateArtifactResourceBinding(t *testing.T) {
 	first := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary")
 	second := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, "./internal/archtest", "TestAnotherBoundary")
@@ -194,7 +205,9 @@ func TestShardExecutionManifestRejectsDuplicateArtifactResourceBinding(t *testin
 	if firstGroup.GroupID == secondGroup.GroupID {
 		t.Fatal("fixture compile groups unexpectedly share group identity")
 	}
-	manifest := manifestTestInput([]GateID{GateID(first.ID), GateID(second.ID)}, firstGroup, secondGroup)
+	groups := []CompileGroup{firstGroup, secondGroup}
+	slices.SortFunc(groups, func(left, right CompileGroup) int { return strings.Compare(left.GroupID, right.GroupID) })
+	manifest := manifestTestInput([]GateID{GateID(first.ID), GateID(second.ID)}, groups...)
 	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "compile artifact") {
 		t.Fatalf("duplicate artifact/resource binding error = %v", err)
 	}
@@ -225,9 +238,116 @@ func TestShardExecutionManifestRejectsDifferentArtifactsInOneShard(t *testing.T)
 	if err := secondGroup.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	manifest := manifestTestInput([]GateID{GateID(first.ID), secondID}, firstGroup, secondGroup)
-	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "exactly one compile group") {
+	groups := []CompileGroup{firstGroup, secondGroup}
+	slices.SortFunc(groups, func(left, right CompileGroup) int { return strings.Compare(left.GroupID, right.GroupID) })
+	manifest := manifestTestInput([]GateID{GateID(first.ID), secondID}, groups...)
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "serial packing") {
 		t.Fatalf("manifest accepted different artifacts in one shard: %v", err)
+	}
+}
+
+func TestShardExecutionManifestAcceptsSameResourceOrdinaryGroups(t *testing.T) {
+	first := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicGatePackageTarget, "TestSerialPackingFirst")
+	second := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicGatePackageTarget, "TestSerialPackingSecond")
+	firstID, secondID := GateID(first.ID), GateID(second.ID)
+	firstGroup := manifestTestSharedBatchCompileGroup(t, AtomicGatePackageTarget, []GateID{firstID})
+	secondGroup := manifestTestSharedBatchCompileGroup(t, AtomicGatePackageTarget, []GateID{secondID})
+	secondGroup.SharedInputDigest = "sha256:" + strings.Repeat("e", 64)
+	var err error
+	secondGroup.BatchPlanDigest, err = CompileGroupBatchPlanDigest(secondGroup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondGroup.GroupID, err = CompileGroupID(secondGroup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secondGroup.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	groups := []CompileGroup{firstGroup, secondGroup}
+	slices.SortFunc(groups, func(left, right CompileGroup) int { return strings.Compare(left.GroupID, right.GroupID) })
+	if err := manifestTestInput([]GateID{firstID, secondID}, groups...).Validate(); err != nil {
+		t.Fatalf("same-resource ordinary groups rejected: %v", err)
+	}
+}
+
+func TestShardExecutionManifestRejectsLegacyAndUnknownSchemaVersions(t *testing.T) {
+	workload := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicGatePackageTarget, "TestManifestSchemaVersion")
+	group := manifestTestSharedBatchCompileGroup(t, AtomicGatePackageTarget, []GateID{GateID(workload.ID)})
+	for _, version := range []uint32{1, ShardExecutionManifestSchemaVersion + 1} {
+		manifest := manifestTestInput([]GateID{GateID(workload.ID)}, group)
+		manifest.SchemaVersion = version
+		if err := manifest.Validate(); err == nil {
+			t.Fatalf("schema version %d unexpectedly accepted", version)
+		}
+	}
+}
+
+func TestShardExecutionManifestRejectsMixedResourceSpecialAndReorderedGroups(t *testing.T) {
+	t.Run("mixed resource", func(t *testing.T) {
+		ids, groups := manifestMixedResourceGroups(t)
+		assertManifestRejected(t, ids, groups, "resource class")
+	})
+	t.Run("reordered", func(t *testing.T) {
+		ids, groups := manifestMixedResourceGroups(t)
+		groups[1] = manifestGroupWithResource(t, groups[1], groups[0].ResourceClassID)
+		slices.SortFunc(groups, func(left, right CompileGroup) int { return strings.Compare(left.GroupID, right.GroupID) })
+		assertManifestRejected(t, ids, []CompileGroup{groups[1], groups[0]}, "canonical GroupID order")
+	})
+	t.Run("special", func(t *testing.T) {
+		first := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicArchtestPackageTarget, "TestSpecialFirst")
+		second := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicArchtestPackageTarget, "TestSpecialSecond")
+		groups := []CompileGroup{
+			manifestTestSharedBatchCompileGroup(t, AtomicArchtestPackageTarget, []GateID{GateID(first.ID)}),
+			manifestTestSharedBatchCompileGroup(t, AtomicArchtestPackageTarget, []GateID{GateID(second.ID)}),
+		}
+		groups[1].SharedInputDigest = "sha256:" + strings.Repeat("a", 64)
+		groups[1] = manifestGroupWithResource(t, groups[1], groups[1].ResourceClassID)
+		slices.SortFunc(groups, func(left, right CompileGroup) int { return strings.Compare(left.GroupID, right.GroupID) })
+		assertManifestRejected(t, []GateID{GateID(first.ID), GateID(second.ID)}, groups, "serial packing")
+	})
+}
+
+// manifestMixedResourceGroups 构造同资源普通组并将第二组改为另一资源档。
+func manifestMixedResourceGroups(t *testing.T) ([]GateID, []CompileGroup) {
+	ordinaryFirst := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicGatePackageTarget, "TestMixedFirst")
+	ordinarySecond := mustManifestTestWorkload(t, GateIDBackendTestWithGuard, AtomicGatePackageTarget, "TestMixedSecond")
+	firstID, secondID := GateID(ordinaryFirst.ID), GateID(ordinarySecond.ID)
+	firstGroup := manifestTestSharedBatchCompileGroup(t, AtomicGatePackageTarget, []GateID{firstID})
+	secondGroup := manifestTestSharedBatchCompileGroup(t, AtomicGatePackageTarget, []GateID{secondID})
+	secondGroup.SharedInputDigest = "sha256:" + strings.Repeat("f", 64)
+	secondGroup = manifestGroupWithResource(t, secondGroup, "small")
+	groups := []CompileGroup{firstGroup, secondGroup}
+	slices.SortFunc(groups, func(left, right CompileGroup) int { return strings.Compare(left.GroupID, right.GroupID) })
+	return []GateID{firstID, secondID}, groups
+}
+
+// manifestGroupWithResource 重算资源变更后的 batch/group 身份。
+func manifestGroupWithResource(t *testing.T, group CompileGroup, resourceClassID string) CompileGroup {
+	t.Helper()
+	group.ResourceClassID = resourceClassID
+	var err error
+	group.BatchPlanDigest, err = CompileGroupBatchPlanDigest(group)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group.GroupID, err = CompileGroupID(group)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := group.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return group
+}
+
+// assertManifestRejected 断言 manifest 验证失败且包含预期边界原因。
+func assertManifestRejected(t *testing.T, ids []GateID, groups []CompileGroup, reason string) {
+	t.Helper()
+	err := manifestTestInput(ids, groups...).Validate()
+	if err == nil || !strings.Contains(err.Error(), reason) {
+		t.Fatalf("manifest rejection error = %v, want %q", err, reason)
 	}
 }
 

@@ -199,9 +199,9 @@ func assertRemoteRunInputAuthority(t *testing.T, input remoteci.RunInput, state 
 	if input.RunnerIdentityDigest == input.BaselineManifestDigest {
 		t.Fatalf("resolveRemoteRunInput() = %#v", input)
 	}
-	if !strings.HasPrefix(input.CandidateGateSourceSHA256, "sha256:") ||
-		!strings.HasPrefix(input.CandidateGateToolchainSHA256, "sha256:") {
-		t.Fatalf("candidate gate identity = %#v", input)
+	if input.CandidateGateSourceSHA256 != "" || input.CandidateGateToolchainSHA256 != "" ||
+		input.ExecutionRunnerImage != "" || input.ExecutionImageCacheSnapshotID != "" || input.ImageCacheOnly {
+		t.Fatalf("resolveRemoteRunInput() eagerly bound MISS-only identity = %#v", input)
 	}
 }
 

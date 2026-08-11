@@ -19,7 +19,7 @@ func recordRemoteCIRun(store *gate.DurationLedgerStore, result RunResult, runErr
 	}
 	provisional := remoteRunStatusRequiresProvisional(result.Status)
 	timingObservations, timingErr := remoteRunTimingProjection(result)
-	if timingErr != nil && !remoteTimingProjectionErrorAllowed(provisional, timingErr, runErr) {
+	if timingErr != nil && !remoteTimingProjectionErrorAllowed(provisional, result.CleanupComplete, timingErr, runErr) {
 		return fmt.Errorf("complete remote CI timing projection: %w", timingErr)
 	}
 	compileTimingObservations, compileErr := remoteCompileTimingObservations(result)
@@ -37,6 +37,7 @@ func recordRemoteCIRun(store *gate.DurationLedgerStore, result RunResult, runErr
 	record := gate.RemoteCIRunRecord{
 		JobID: result.JobID, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, AgentTokenDigest: result.AgentTokenDigest, Force: result.Force,
 		Entrypoint: result.Entrypoint, Profile: result.Profile, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest,
+		Scope:         result.Scope,
 		SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256,
 		CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, RunnerImage: result.RunnerImage,
 		Status: result.Status, Authoritative: false, StartedAt: result.StartedAt, CompletedAt: result.CompletedAt,
@@ -52,15 +53,31 @@ func recordRemoteCIRun(store *gate.DurationLedgerStore, result RunResult, runErr
 	return nil
 }
 
-// remoteTimingProjectionErrorAllowed 只放行失败终态中可审计的 workload 缺失或 create 占位。
-func remoteTimingProjectionErrorAllowed(provisional bool, timingErr, runErr error) bool {
-	if !provisional {
+// remoteTimingProjectionErrorAllowed 在完整清理的失败终态保留真实 timing gap；
+// 结构化身份错误仍 fail-fast，不能把未知或重复输入写成 provisional 证据。
+func remoteTimingProjectionErrorAllowed(provisional, cleanupComplete bool, timingErr, runErr error) bool {
+	if !provisional || !cleanupComplete {
+		return false
+	}
+	if remoteFailedTimingProjectionErrorIsFatal(timingErr) {
 		return false
 	}
 	if remoteFailedTimingProjectionErrorIsWorkloadOmission(timingErr) {
 		return true
 	}
-	return runErr != nil && remoteFailedTimingProjectionErrorIsUncreatedPlaceholderOnly(timingErr)
+	var projectionErr *remoteFailedTimingProjectionError
+	return runErr != nil && errors.As(timingErr, &projectionErr)
+}
+
+// remoteFailedTimingProjectionErrorIsFatal 保持未知、重复或身份漂移的严格拒绝；
+// 单纯缺失 startup/body、分片覆盖或基础设施区间则只保留真实 gap 与错误文本。
+func remoteFailedTimingProjectionErrorIsFatal(err error) bool {
+	var projectionErr *remoteFailedTimingProjectionError
+	if errors.As(err, &projectionErr) && projectionErr.fatal {
+		return true
+	}
+	var fatalErr *remoteFatalTimingProjectionError
+	return errors.As(err, &fatalErr)
 }
 
 // remoteRunTimingProjection 选择当前终态对应的严格耗时投影实现。
@@ -113,12 +130,17 @@ func remoteFailedTimingObservations(result RunResult) ([]gate.TimingObservation,
 		byShard:      make(map[string][]gate.PlanGateExecution, len(result.Shards)),
 		firstErr:     assignmentErr,
 		structural:   assignmentErr != nil,
+		fatal:        assignmentErr != nil,
 	}
 	projection.appendWorkloads(result.JobID, remoteTimingWorkloadExecutions(result), assignments)
 	compileObservations, compileErr := remoteFailedCompileGroupTimingObservations(result)
 	projection.observations = append(projection.observations, compileObservations...)
 	if compileErr != nil {
-		projection.omitStructural(1, compileErr)
+		if remoteFailedTimingProjectionErrorIsFatal(compileErr) {
+			projection.omitFatal(1, compileErr)
+		} else {
+			projection.omitStructural(1, compileErr)
+		}
 	}
 	for _, shard := range result.Shards {
 		if remoteFailedShardWasNotCreated(shard) && len(shard.ExecutedWorkloads) != 0 {
@@ -176,6 +198,7 @@ type failedTimingProjection struct {
 	skipped            int
 	firstErr           error
 	structural         bool
+	fatal              bool
 	structuralReasons  int
 	placeholderReasons int
 }
@@ -184,8 +207,27 @@ type remoteFailedTimingProjectionError struct {
 	omitted            int
 	firstErr           error
 	structural         bool
+	fatal              bool
 	structuralReasons  int
 	placeholderReasons int
+}
+
+type remoteFatalTimingProjectionError struct{ err error }
+
+// Error 返回 unsafe timing projection 的底层诊断。
+func (err *remoteFatalTimingProjectionError) Error() string {
+	if err == nil || err.err == nil {
+		return ""
+	}
+	return err.err.Error()
+}
+
+// Unwrap 暴露 unsafe timing projection 的底层错误。
+func (err *remoteFatalTimingProjectionError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.err
 }
 
 // Error 返回失败投影中被省略的计时区间和首个根因。
@@ -205,16 +247,7 @@ func (err *remoteFailedTimingProjectionError) Unwrap() error { return err.firstE
 // remoteFailedTimingProjectionErrorIsWorkloadOmission 区分可审计的 workload 缺失计时与结构损坏。
 func remoteFailedTimingProjectionErrorIsWorkloadOmission(err error) bool {
 	var projectionErr *remoteFailedTimingProjectionError
-	return errors.As(err, &projectionErr) && !projectionErr.structural
-}
-
-// remoteFailedTimingProjectionErrorIsUncreatedPlaceholderOnly 判断是否只有 create 未返回的分片占位被省略。
-func remoteFailedTimingProjectionErrorIsUncreatedPlaceholderOnly(err error) bool {
-	var projectionErr *remoteFailedTimingProjectionError
-	if !errors.As(err, &projectionErr) || projectionErr.placeholderReasons == 0 {
-		return false
-	}
-	return projectionErr.structuralReasons == projectionErr.placeholderReasons
+	return errors.As(err, &projectionErr) && !projectionErr.structural && !projectionErr.fatal
 }
 
 // appendWorkloads 仅收集同时拥有 shard 归属和完整实测阶段的 workload。
@@ -222,7 +255,7 @@ func (projection *failedTimingProjection) appendWorkloads(jobID string, executio
 	for _, execution := range executions {
 		assigned, err := remoteExecutionShardAssignment(execution, assignments)
 		if err != nil {
-			projection.omitStructural(1, err)
+			projection.omitFatal(1, err)
 			continue
 		}
 		workload, omitted, err := remoteFailedWorkloadTimingObservations(jobID, assigned, execution)
@@ -346,6 +379,9 @@ func (projection *failedWorkloadTimingProjection) omit(err error) {
 func (projection *failedTimingProjection) appendShards(jobID string, shards []ShardResult) {
 	for _, shard := range shards {
 		if strings.TrimSpace(shard.ShardIdentity) == "" {
+			if !remoteFailedShardWasNotCreated(shard) {
+				projection.omitFatal(1, errors.New("remote CI shard timing identity is required"))
+			}
 			continue
 		}
 		infrastructure, omitted, err := remoteFailedShardInfrastructureObservations(jobID, shard)
@@ -353,7 +389,11 @@ func (projection *failedTimingProjection) appendShards(jobID string, shards []Sh
 		projection.omitStructural(omitted, err)
 		executions := projection.byShard[shard.ShardIdentity]
 		if err := validateShardWorkloadCoverage(shard, executions); err != nil {
-			projection.omitStructural(1, err)
+			if remoteFailedTimingProjectionErrorIsFatal(err) {
+				projection.omitFatal(1, err)
+			} else {
+				projection.omitStructural(1, err)
+			}
 			continue
 		}
 		measuredExecutions := measuredRemoteWorkloadExecutions(executions)
@@ -409,6 +449,12 @@ func (projection *failedTimingProjection) omitStructural(count int, err error) {
 	projection.omit(count, err)
 }
 
+// omitFatal 标记未知、重复或身份漂移，并阻断失败运行的 provisional 持久化。
+func (projection *failedTimingProjection) omitFatal(count int, err error) {
+	projection.fatal = true
+	projection.omitStructural(count, err)
+}
+
 // omitUncreatedPlaceholder 记录未创建分片占位，允许 create 失败终态保留其审计行。
 func (projection *failedTimingProjection) omitUncreatedPlaceholder(err error) {
 	projection.placeholderReasons++
@@ -420,7 +466,7 @@ func (projection *failedTimingProjection) result() ([]gate.TimingObservation, er
 	if projection.skipped == 0 && projection.firstErr == nil {
 		return projection.observations, nil
 	}
-	return projection.observations, &remoteFailedTimingProjectionError{omitted: projection.skipped, firstErr: projection.firstErr, structural: projection.structural, structuralReasons: projection.structuralReasons, placeholderReasons: projection.placeholderReasons}
+	return projection.observations, &remoteFailedTimingProjectionError{omitted: projection.skipped, firstErr: projection.firstErr, structural: projection.structural, fatal: projection.fatal, structuralReasons: projection.structuralReasons, placeholderReasons: projection.placeholderReasons}
 }
 
 // remoteFailedWorkloadAssignments 保留唯一且有稳定分片身份的 workload 归属。
@@ -446,6 +492,9 @@ func remoteFailedWorkloadAssignments(shards []ShardResult) (map[gate.GateID]stri
 	for workload := range invalid {
 		delete(assignments, workload)
 	}
+	if firstErr != nil {
+		return assignments, &remoteFatalTimingProjectionError{err: firstErr}
+	}
 	return assignments, firstErr
 }
 
@@ -462,6 +511,13 @@ func remoteFailedShardInfrastructureObservations(jobID string, shard ShardResult
 	for _, item := range items {
 		observation, err := timingObservation(jobID, cicontract.TimingScopeShard, shard.ShardIdentity, "", item.phase, item.started, item.completed, cicontract.TimingAggregationRaw, gate.NewNotApplicableCacheEvidence("not_workload_cache_evidence"))
 		if err != nil {
+			omitted++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if err := validateShardInfrastructureEnvelope(shard, item); err != nil {
 			omitted++
 			if firstErr == nil {
 				firstErr = err
@@ -592,7 +648,7 @@ func remoteNotApplicableWorkloadObservations(jobID, shardIdentity string, worklo
 // validateShardWorkloadCoverage 要求聚合前完整覆盖分片声明的 workload，并验证每个执行的三段区间。
 func validateShardWorkloadCoverage(shard ShardResult, executions []gate.PlanGateExecution) error {
 	if strings.TrimSpace(shard.ShardIdentity) == "" {
-		return errors.New("remote CI shard timing identity is required")
+		return &remoteFatalTimingProjectionError{err: errors.New("remote CI shard timing identity is required")}
 	}
 	expected, err := expectedShardWorkloads(shard)
 	if err != nil {
@@ -608,10 +664,10 @@ func expectedShardWorkloads(shard ShardResult) (map[gate.GateID]struct{}, error)
 	expected := make(map[gate.GateID]struct{}, len(shard.ExecutedWorkloads))
 	for _, workloadID := range shard.ExecutedWorkloads {
 		if strings.TrimSpace(string(workloadID)) == "" {
-			return nil, fmt.Errorf("remote CI shard %q declares an empty workload", shard.ShardIdentity)
+			return nil, &remoteFatalTimingProjectionError{err: fmt.Errorf("remote CI shard %q declares an empty workload", shard.ShardIdentity)}
 		}
 		if _, duplicate := expected[workloadID]; duplicate {
-			return nil, fmt.Errorf("remote CI shard %q declares workload %q more than once", shard.ShardIdentity, workloadID)
+			return nil, &remoteFatalTimingProjectionError{err: fmt.Errorf("remote CI shard %q declares workload %q more than once", shard.ShardIdentity, workloadID)}
 		}
 		expected[workloadID] = struct{}{}
 	}
@@ -622,10 +678,10 @@ func expectedShardWorkloads(shard ShardResult) (map[gate.GateID]struct{}, error)
 func validateShardWorkloadExecutions(shard ShardResult, executions []gate.PlanGateExecution, expected map[gate.GateID]struct{}) error {
 	for _, execution := range executions {
 		if execution.ShardIdentity != shard.ShardIdentity {
-			return fmt.Errorf("remote CI shard %q workload %q has mismatched shard identity", shard.ShardIdentity, execution.GateID)
+			return &remoteFatalTimingProjectionError{err: fmt.Errorf("remote CI shard %q workload %q has mismatched shard identity", shard.ShardIdentity, execution.GateID)}
 		}
 		if _, exists := expected[execution.GateID]; !exists {
-			return fmt.Errorf("remote CI shard %q workload %q is not declared", shard.ShardIdentity, execution.GateID)
+			return &remoteFatalTimingProjectionError{err: fmt.Errorf("remote CI shard %q workload %q is not declared", shard.ShardIdentity, execution.GateID)}
 		}
 		delete(expected, execution.GateID)
 		if _, _, _, _, err := workloadPhaseIntervals(execution); err != nil && !remoteFailedWorkloadTimingOmissionAllowed(execution, err) {
@@ -680,6 +736,9 @@ func remoteShardInfrastructureObservations(jobID string, shard ShardResult) ([]g
 		if err != nil {
 			return nil, err
 		}
+		if err := validateShardInfrastructureEnvelope(shard, item); err != nil {
+			return nil, err
+		}
 		observations = append(observations, observation)
 	}
 	return observations, nil
@@ -694,19 +753,19 @@ func remoteShardWorkloadObservations(jobID string, shard ShardResult, executions
 	return remoteShardSummaryObservations(jobID, shard, startup, body)
 }
 
-// remoteShardSummaryObservations 用已经验证的总时长替换区间端点相减的聚合时长；provider 终态低精度时保留 worker 实测边界。
+// remoteShardSummaryObservations 记录 workload 并集并严格使用 provider 终态作为分片总边界。
 func remoteShardSummaryObservations(jobID string, shard ShardResult, startup, body phaseIntervalUnion) ([]gate.TimingObservation, error) {
 	if shard.ECIWaitStartedAt.IsZero() || shard.ECITerminalAt.IsZero() || !shard.ECITerminalAt.After(shard.ECIWaitStartedAt) {
 		return nil, fmt.Errorf("remote CI shard %q total interval is missing or invalid", shard.ShardIdentity)
 	}
+	if err := validateShardWorkloadEnvelope(shard, startup, body); err != nil {
+		return nil, err
+	}
 	observations := make([]gate.TimingObservation, 0, 3)
+	// The shard total endpoint is provider-owned: bindObservedECIShardTiming
+	// already chose the later group terminal/worker finish boundary. Worker
+	// report timestamps must never extend that provider interval.
 	totalCompletedAt := shard.ECITerminalAt
-	if startup.completedAt.After(totalCompletedAt) {
-		totalCompletedAt = startup.completedAt
-	}
-	if body.completedAt.After(totalCompletedAt) {
-		totalCompletedAt = body.completedAt
-	}
 	for _, item := range []timingSummary{
 		{phase: cicontract.TimingStartup, started: startup.startedAt, completed: startup.completedAt, aggregation: cicontract.TimingAggregationIntervalUnion, durationMS: startup.durationMS},
 		{phase: cicontract.TimingTestBody, started: body.startedAt, completed: body.completedAt, aggregation: cicontract.TimingAggregationIntervalUnion, durationMS: body.durationMS},
@@ -723,6 +782,34 @@ func remoteShardSummaryObservations(jobID string, shard ShardResult, startup, bo
 		observations = append(observations, observation)
 	}
 	return observations, nil
+}
+
+// validateShardWorkloadEnvelope 拒绝 workload 并集越过 provider 证明的分片总区间。
+func validateShardWorkloadEnvelope(shard ShardResult, startup, body phaseIntervalUnion) error {
+	for _, item := range []struct {
+		phase    cicontract.TimingPhase
+		interval phaseIntervalUnion
+	}{
+		{phase: cicontract.TimingStartup, interval: startup},
+		{phase: cicontract.TimingTestBody, interval: body},
+	} {
+		phase, interval := item.phase, item.interval
+		if interval.startedAt.Before(shard.ECIWaitStartedAt) || interval.completedAt.After(shard.ECITerminalAt) {
+			return fmt.Errorf("remote CI shard %q %s interval exceeds provider total", shard.ShardIdentity, phase)
+		}
+	}
+	return nil
+}
+
+// validateShardInfrastructureEnvelope 确保 init 物化与候选编译真实区间均落在 ECI provider 总包络内。
+func validateShardInfrastructureEnvelope(shard ShardResult, interval timingInterval) error {
+	if shard.ECIWaitStartedAt.IsZero() || shard.ECITerminalAt.IsZero() {
+		return nil
+	}
+	if interval.started.Before(shard.ECIWaitStartedAt) || interval.completed.After(shard.ECITerminalAt) {
+		return fmt.Errorf("remote CI shard %q %s interval exceeds provider total", shard.ShardIdentity, interval.phase)
+	}
+	return nil
 }
 
 // remoteRunTimingObservation 以全体分片的最早等待和最晚终态形成运行关键路径。

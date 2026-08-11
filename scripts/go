@@ -18,7 +18,7 @@ main() {
     case "$1" in
       test|build|vet)
         local replacement
-        replacement="super-dolphin-gate test  # 由受信 launcher 补齐配置，并传入精确 --test 选择器"
+        replacement="super-dolphin-gate test --target=remote  # 由受信 launcher 补齐配置，并传入精确 --test 选择器"
         cat >&2 <<EOF_MSG
 ❌ 禁止裸跑 go $1
 

@@ -26,11 +26,15 @@ func validateRemoteRunContract(
 	if err != nil {
 		return nil, nil, err
 	}
+	executionCatalog, err := remoteRunContractExecutionCatalog(catalog, result.Scope)
+	if err != nil {
+		return nil, nil, err
+	}
 	observations, err := remoteRunCheckObservations(plan, catalog, input.ImageCacheSnapshotID, result)
 	if err != nil {
 		return nil, nil, err
 	}
-	requiredChecks, err := gatecontract.RequiredChecksForWorkloadCatalog(catalog)
+	requiredChecks, err := gatecontract.RequiredChecksForWorkloadCatalog(executionCatalog)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -40,7 +44,7 @@ func validateRemoteRunContract(
 	if !remoteRunIsFullAuthoritativeAcceptance(catalog, result) {
 		return nil, nil, errors.New("remote CI run is not a full authoritative acceptance")
 	}
-	if err := validateRemoteRunRecordedAuthority(input, acceptedGeneration, result); err != nil {
+	if err := validateRemoteRunRecordedAuthority(input, acceptedGeneration, catalog, result); err != nil {
 		return nil, nil, err
 	}
 	receipts, err := remoteRunCheckReceipts(result, acceptedGeneration, observations)
@@ -68,7 +72,7 @@ func validateRemoteRunInvocationIdentity(input remoteci.RunInput, acceptedGenera
 }
 
 // validateRemoteRunRecordedAuthority 只接受本次调用精确回读到的 SQLite 权威账本记录。
-func validateRemoteRunRecordedAuthority(input remoteci.RunInput, acceptedGeneration uint64, result remoteci.RunResult) error {
+func validateRemoteRunRecordedAuthority(input remoteci.RunInput, acceptedGeneration uint64, catalog gatecontract.WorkloadCatalog, result remoteci.RunResult) error {
 	if input.LedgerStore == nil {
 		return errors.New("remote CI timing authority store is required")
 	}
@@ -78,6 +82,9 @@ func validateRemoteRunRecordedAuthority(input remoteci.RunInput, acceptedGenerat
 	}
 	if !remoteRunRecordedIdentityMatches(recorded, input, acceptedGeneration, result) {
 		return errors.New("recorded remote CI run identity does not exactly match this invocation")
+	}
+	if err := validateRemoteRunRecordedExecutionScope(catalog, recorded.Scope, result.Scope); err != nil {
+		return err
 	}
 	if err := validateRemoteRunStoredWorkloadResults(recorded, result); err != nil {
 		return err
@@ -339,7 +346,11 @@ func remoteRunCheckObservations(
 	if err := validateRemoteRunObservationInput(plan, catalog, acceptedSnapshotID, result); err != nil {
 		return nil, err
 	}
-	coverage, err := newRemoteRunObservationCoverage(catalog, acceptedSnapshotID, result)
+	executionCatalog, err := remoteRunContractExecutionCatalog(catalog, result.Scope)
+	if err != nil {
+		return nil, err
+	}
+	coverage, err := newRemoteRunObservationCoverage(catalog, executionCatalog, result.Scope, acceptedSnapshotID, result)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +363,7 @@ func remoteRunCheckObservations(
 	if err := validateRemoteRunWorkloadCoverage(coverage); err != nil {
 		return nil, err
 	}
-	return finalizeRemoteRunCheckObservations(coverage, catalog, result)
+	return finalizeRemoteRunCheckObservations(coverage, executionCatalog, result)
 }
 
 // validateRemoteRunObservationInput 校验计划、目录、快照及结果属于同一候选运行。
@@ -420,7 +431,9 @@ func validateRemoteRunSnapshotBinding(acceptedSnapshotID string, result remoteci
 
 // newRemoteRunObservationCoverage 为每个计划工作负载初始化本次运行的检查观测。
 func newRemoteRunObservationCoverage(
+	fullCatalog gatecontract.WorkloadCatalog,
 	catalog gatecontract.WorkloadCatalog,
+	scope *gatecontract.RemoteCIExecutionScope,
 	acceptedSnapshotID string,
 	result remoteci.RunResult,
 ) (remoteRunObservationCoverage, error) {
@@ -442,7 +455,7 @@ func newRemoteRunObservationCoverage(
 			coverage.expected[gatecontract.GateID(workload.ID)] = workload
 		}
 	}
-	if err := coverRemoteRunOwnerObservations(&coverage, catalog, result.GateExecutions); err != nil {
+	if err := coverRemoteRunOwnerObservations(&coverage, fullCatalog, catalog, scope, result.GateExecutions); err != nil {
 		return remoteRunObservationCoverage{}, err
 	}
 	return coverage, nil
@@ -451,9 +464,17 @@ func newRemoteRunObservationCoverage(
 // coverRemoteRunOwnerObservations 只接受 coordinator 生成并绑定 canonical 前序结果的 owner-only release 证明。
 func coverRemoteRunOwnerObservations(
 	coverage *remoteRunObservationCoverage,
+	fullCatalog gatecontract.WorkloadCatalog,
 	catalog gatecontract.WorkloadCatalog,
+	scope *gatecontract.RemoteCIExecutionScope,
 	executions []gatecontract.PlanGateExecution,
 ) error {
+	if err := validateRemoteRunOwnerExecutionSet(fullCatalog, scope, executions); err != nil {
+		return err
+	}
+	if scope != nil && scope.IsSubset() {
+		return nil
+	}
 	byID, ownerObserved, err := indexRemoteRunOwnerExecutions(executions)
 	if err != nil {
 		return err

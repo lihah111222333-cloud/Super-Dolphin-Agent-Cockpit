@@ -14,6 +14,7 @@ func TestCoordinatorRunReusesCalibrationWorkloadPassesWithoutRemoteSideEffects(t
 	reloadRemotePlanningSnapshot(t, &input)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
@@ -59,6 +60,7 @@ func seedReleaseCalibrationPasses(t *testing.T, input RunInput) {
 
 func runReleaseCalibrationAllHit(t *testing.T, input RunInput) (RunResult, *coordinatorStore, *coordinatorRuntime) {
 	t.Helper()
+	clearCoordinatorAllHitExecutionIdentity(&input)
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
@@ -138,6 +140,7 @@ func TestCoordinatorRunReusesCalibrationPassesForNormal(t *testing.T) {
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
 
 	input.Calibration = false
+	clearCoordinatorAllHitExecutionIdentity(&input)
 	reloadRemotePlanningSnapshot(t, &input)
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}

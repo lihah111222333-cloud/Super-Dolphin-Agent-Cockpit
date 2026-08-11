@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	ShardRequestSchemaVersion uint32 = 14
+	ShardRequestSchemaVersion uint32 = cicontract.ShardRequestSchemaVersion
 	// ShardRequestMaxBytes 复用 cicontract 对完整 canonical JSON 请求（含有序
 	// compile-group manifest）的唯一上限；它取代 gate 数量启发式，确保超大请求
 	// 在 OSS/ECI side effect 前 fail-fast。
@@ -89,10 +89,16 @@ func (request ShardRequest) Validate() error {
 	return request.validateShardExecutionManifest()
 }
 
+// validateResourceClass 校验 shard request 的资源类别身份及 calibration 资源绑定。
 func (request ShardRequest) validateResourceClass() error {
 	class := request.ResourceClass
 	if strings.TrimSpace(class.ID) == "" || class.ID != strings.TrimSpace(class.ID) || class.VCPU <= 0 || class.MemoryGiB <= 0 {
 		return errors.New("remote shard request resource_class requires class ID, CPU, and memory")
+	}
+	if !request.Calibration {
+		if err := cicontract.ValidateNormalResources(class.VCPU, class.MemoryGiB); err != nil {
+			return fmt.Errorf("remote shard request normal resource_class: %w", err)
+		}
 	}
 	if request.Calibration && request.CalibrationResource != nil && class != *request.CalibrationResource {
 		return errors.New("calibration remote shard request resource_class drifted")
@@ -222,9 +228,6 @@ func validateGateIDs(ids []gate.GateID) error {
 // validateShardExecutionManifest 将完整有序 compile-group manifest 绑定到精确分片请求；
 // worker 从固定 work-data 路径接收同一份 manifest，不得从 GateIDs 重建分组。
 func (request ShardRequest) validateShardExecutionManifest() error {
-	if len(request.CompileGroups) > 1 {
-		return fmt.Errorf("remote shard request must contain exactly one compile group (found %d)", len(request.CompileGroups))
-	}
 	if err := request.validateCompileGroupResourceBinding(); err != nil {
 		return err
 	}

@@ -459,6 +459,10 @@ func validateExecutorUID(expectedUID int) error {
 }
 
 func resolveExecutorSteps(searchPath string, sourceCopy string, program ExecutorProgram) ([]resolvedStep, error) {
+	return resolveExecutorStepsWithSelf(searchPath, sourceCopy, program, TrustedSelfBinary{})
+}
+
+func resolveExecutorStepsWithSelf(searchPath string, sourceCopy string, program ExecutorProgram, self TrustedSelfBinary) ([]resolvedStep, error) {
 	steps := make([]resolvedStep, len(program.Steps))
 	for index, step := range program.Steps {
 		if len(step.Argv) == 0 {
@@ -468,7 +472,7 @@ func resolveExecutorSteps(searchPath string, sourceCopy string, program Executor
 		if err != nil {
 			return nil, fmt.Errorf("executor step %d: %w", index, err)
 		}
-		binary, err := resolveStepExecutable(sourceCopy, step.Argv[0], searchPath)
+		binary, err := resolveStepExecutableWithSelf(sourceCopy, step.Argv[0], searchPath, self)
 		if err != nil {
 			return nil, fmt.Errorf("executor step %d: %w", index, err)
 		}
@@ -482,7 +486,15 @@ func resolveExecutorSteps(searchPath string, sourceCopy string, program Executor
 
 // resolveStepExecutable 仅解析当前候选 gate、固定 PATH 工具或快照内的规范相对可执行文件。
 func resolveStepExecutable(sourceCopy string, name string, searchPath string) (string, error) {
+	return resolveStepExecutableWithSelf(sourceCopy, name, searchPath, TrustedSelfBinary{})
+}
+
+// resolveStepExecutableWithSelf 在 local receipt 已封存 self proof 时只使用该 proof；其他工具仍按原固定解析策略处理。
+func resolveStepExecutableWithSelf(sourceCopy string, name string, searchPath string, self TrustedSelfBinary) (string, error) {
 	if name == ExecutorSelfCommandName {
+		if self.path != "" {
+			return self.VerifiedPath()
+		}
 		return resolveCurrentExecutorExecutable()
 	}
 	if filepath.Base(name) == name {

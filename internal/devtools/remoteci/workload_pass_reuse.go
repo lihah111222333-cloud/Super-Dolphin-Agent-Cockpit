@@ -3,6 +3,7 @@ package remoteci
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -142,25 +143,19 @@ func cloneRemoteWorkloadInputDigests(inputDigests map[string]string) map[string]
 }
 
 type remoteWorkloadEnvironment struct {
-	SchemaVersion             string   `json:"schema_version"`
-	Platform                  string   `json:"platform"`
-	PolicyDigest              string   `json:"policy_digest"`
-	ToolchainDigest           string   `json:"toolchain_digest"`
-	RuntimeSeedSHA256         string   `json:"runtime_seed_sha256"`
-	CGOEnabled                string   `json:"cgo_enabled"`
-	GOOS                      string   `json:"goos"`
-	GOARCH                    string   `json:"goarch"`
-	GoFlags                   string   `json:"go_flags"`
-	SemanticEnvironmentSchema string   `json:"semantic_environment_schema"`
-	SemanticEnvironment       []string `json:"semantic_environment"`
-	WorkerExecutionProvenance string   `json:"worker_execution_provenance"`
-}
-
-// remoteWorkloadEnvironmentDigest 计算 worker 的稳定语义环境摘要；worker
-// contract/provenance 由 canonical cicontract owner 提供，candidate source、job、
-// agent、资源与 cache 路径不进入 PASS identity。
-func remoteWorkloadEnvironmentDigest(input RunInput, workerTimeout time.Duration, resourcePolicy shardresource.Policy) (string, error) {
-	return remoteWorkloadEnvironmentDigestForGoFlags(input, workerTimeout, resourcePolicy, gate.CanonicalGoFlags(false))
+	SchemaVersion                 string   `json:"schema_version"`
+	Platform                      string   `json:"platform"`
+	PolicyDigest                  string   `json:"policy_digest"`
+	ToolchainDigest               string   `json:"toolchain_digest"`
+	RuntimeSeedSHA256             string   `json:"runtime_seed_sha256"`
+	CGOEnabled                    string   `json:"cgo_enabled"`
+	GOOS                          string   `json:"goos"`
+	GOARCH                        string   `json:"goarch"`
+	GoFlags                       string   `json:"go_flags"`
+	SemanticEnvironmentSchema     string   `json:"semantic_environment_schema"`
+	SemanticEnvironment           []string `json:"semantic_environment"`
+	WorkerExecutionProvenance     string   `json:"worker_execution_provenance"`
+	WorkerExecutionSemanticDigest string   `json:"worker_execution_semantic_digest"`
 }
 
 // remoteWorkloadEnvironmentDigestForGoFlags 计算绑定 workload 执行 profile 的语义环境摘要。
@@ -175,6 +170,16 @@ func remoteWorkloadEnvironmentDigestForGoFlags(input RunInput, workerTimeout tim
 	if err := gate.ValidateCanonicalGoFlags(goFlags); err != nil {
 		return "", fmt.Errorf("validate remote workload GoFlags: %w", err)
 	}
+	acceptedWorkerDigest := strings.TrimSpace(input.WorkerExecutionSemanticDigest)
+	if !strings.HasPrefix(acceptedWorkerDigest, "sha256:") || len(acceptedWorkerDigest) != len("sha256:")+64 {
+		return "", errors.New("remote workload worker execution semantic digest is required and invalid")
+	}
+	if acceptedWorkerDigest != strings.ToLower(acceptedWorkerDigest) {
+		return "", errors.New("remote workload worker execution semantic digest is not canonical")
+	}
+	if _, err := hex.DecodeString(strings.TrimPrefix(acceptedWorkerDigest, "sha256:")); err != nil {
+		return "", errors.New("remote workload worker execution semantic digest is not hexadecimal")
+	}
 	semanticEnvironment := cicontract.CanonicalWorkerExecutionEnvironment()
 	semanticEnvironment = append([]string(nil), semanticEnvironment...)
 	sort.Strings(semanticEnvironment)
@@ -183,18 +188,19 @@ func remoteWorkloadEnvironmentDigestForGoFlags(input RunInput, workerTimeout tim
 		return "", err
 	}
 	payload, err := json.Marshal(remoteWorkloadEnvironment{
-		SchemaVersion:             "remote-workload-pass-environment/v9",
-		Platform:                  input.Platform,
-		PolicyDigest:              input.PolicyDigest,
-		ToolchainDigest:           input.ToolchainDigest,
-		RuntimeSeedSHA256:         input.RuntimeSeedSHA256,
-		CGOEnabled:                semanticValues["CGO_ENABLED"],
-		GOOS:                      semanticValues["GOOS"],
-		GOARCH:                    semanticValues["GOARCH"],
-		GoFlags:                   goFlags,
-		SemanticEnvironmentSchema: cicontract.WorkerExecutionEnvironmentSchemaVersion,
-		SemanticEnvironment:       semanticEnvironment,
-		WorkerExecutionProvenance: cicontract.WorkerExecutionProvenanceID,
+		SchemaVersion:                 cicontract.WorkloadPassEnvironmentSchemaVersion,
+		Platform:                      input.Platform,
+		PolicyDigest:                  input.PolicyDigest,
+		ToolchainDigest:               input.ToolchainDigest,
+		RuntimeSeedSHA256:             input.RuntimeSeedSHA256,
+		CGOEnabled:                    semanticValues["CGO_ENABLED"],
+		GOOS:                          semanticValues["GOOS"],
+		GOARCH:                        semanticValues["GOARCH"],
+		GoFlags:                       goFlags,
+		SemanticEnvironmentSchema:     cicontract.WorkerExecutionEnvironmentSchemaVersion,
+		SemanticEnvironment:           semanticEnvironment,
+		WorkerExecutionProvenance:     cicontract.WorkerExecutionProvenanceID,
+		WorkerExecutionSemanticDigest: acceptedWorkerDigest,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode remote workload environment: %w", err)
@@ -278,10 +284,11 @@ func validateRemoteWorkloadPassEvidence(
 
 // remoteWorkloadReusePreparation 保留本次复用决策与严格 miss 标识投影。
 type remoteWorkloadReusePreparation struct {
-	reused          map[string]gate.WorkloadPassEvidence
-	identities      []gate.WorkloadPassIdentity
-	reusedWorkloads []gate.WorkloadPassEvidence
-	cacheMisses     []gate.GateID
+	reused                  map[string]gate.WorkloadPassEvidence
+	environmentReplayProofs map[string]string
+	identities              []gate.WorkloadPassIdentity
+	reusedWorkloads         []gate.WorkloadPassEvidence
+	cacheMisses             []gate.GateID
 }
 
 // prepareRemoteWorkloadReuse 在临时目录、OSS 或 ECI 操作之前完成 PASS 查询与 miss 投影。
@@ -291,11 +298,17 @@ func prepareRemoteWorkloadReuse(
 	catalog gate.WorkloadCatalog,
 	workerTimeout time.Duration,
 	resourcePolicy shardresource.Policy,
+	fingerprintSnapshot *remoteGitTreeSnapshot,
 ) (remoteWorkloadReusePreparation, error) {
 	preparation := remoteWorkloadReusePreparation{
-		reused: make(map[string]gate.WorkloadPassEvidence),
+		reused:                  make(map[string]gate.WorkloadPassEvidence),
+		environmentReplayProofs: make(map[string]string),
 	}
 	identities, err := remoteWorkloadPassIdentities(ctx, input, catalog, workerTimeout, resourcePolicy)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, err
+	}
+	replayCache, err := newRemoteReplayCache(input.RepositoryRoot, input.Tree, fingerprintSnapshot)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
@@ -304,6 +317,12 @@ func prepareRemoteWorkloadReuse(
 		reused, err = lookupRemoteWorkloadPasses(input.LedgerStore, identities)
 		if err != nil {
 			return remoteWorkloadReusePreparation{}, err
+		}
+		if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache); err != nil {
+			return remoteWorkloadReusePreparation{}, fmt.Errorf("replay remote workload PASS sources: %w", err)
+		}
+		if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, replayCache); err != nil {
+			return remoteWorkloadReusePreparation{}, fmt.Errorf("replay remote workload PASS environments: %w", err)
 		}
 	}
 	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
@@ -424,6 +443,7 @@ func (preparation remoteWorkloadReusePreparation) apply(result *RunResult) {
 	result.WorkloadPassIdentities = preparation.identities
 	result.ReusedWorkloads = preparation.reusedWorkloads
 	result.CacheMissWorkloads = preparation.cacheMisses
+	result.environmentReplayProofs = maps.Clone(preparation.environmentReplayProofs)
 }
 
 // allReused 仅在 workload 全部命中时允许在远程资源创建前结束运行。
@@ -464,6 +484,7 @@ func completeRemoteReuse(catalog gate.WorkloadCatalog, reused map[string]gate.Wo
 	return result, nil
 }
 
+// remoteCIWorkloadResults 将当前四段身份与直接或来源重放的 PASS 证明投影为持久化结果。
 func remoteCIWorkloadResults(result RunResult) ([]gate.RemoteCIWorkloadResult, error) {
 	results := make([]gate.RemoteCIWorkloadResult, 0, len(result.ReusedWorkloads)+len(result.FreshWorkloadExecutions))
 	identities := make(map[gate.GateID]gate.WorkloadPassIdentity, len(result.WorkloadPassIdentities))
@@ -471,7 +492,23 @@ func remoteCIWorkloadResults(result RunResult) ([]gate.RemoteCIWorkloadResult, e
 		identities[identity.WorkloadID] = identity
 	}
 	for _, evidence := range result.ReusedWorkloads {
-		results = append(results, gate.RemoteCIWorkloadResult{Identity: evidence.Identity, Disposition: gate.WorkloadDispositionReused, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration, EvidenceSHA256: evidence.EvidenceSHA256})
+		identity, ok := identities[evidence.Identity.WorkloadID]
+		if !ok {
+			return nil, fmt.Errorf("reused workload %q is missing current WorkloadPassIdentity", evidence.Identity.WorkloadID)
+		}
+		evidenceSHA := evidence.EvidenceSHA256
+		if identity != evidence.Identity {
+			if replayProof := result.environmentReplayProofs[string(identity.WorkloadID)]; replayProof != "" {
+				evidenceSHA = replayProof
+			} else {
+				var err error
+				evidenceSHA, err = gate.WorkloadPassSourceReplaySHA256(identity, evidence)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		results = append(results, gate.RemoteCIWorkloadResult{Identity: identity, Disposition: gate.WorkloadDispositionReused, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration, EvidenceSHA256: evidenceSHA})
 	}
 	var identityErr error
 	for _, execution := range result.FreshWorkloadExecutions {

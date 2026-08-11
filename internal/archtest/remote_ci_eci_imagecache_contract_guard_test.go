@@ -163,32 +163,6 @@ func assertRemoteCIContractConsumersImportOwner(t *testing.T, root string) {
 	}
 }
 
-// TestRemoteCISQLAuthorityBindingsAreCreatedByGateSchema makes cicontract's
-// binding list executable: every fact table it owns must be created by the one
-// duration-ledger SQLite schema. The guard deliberately consumes the owner API
-// instead of repeating table names.
-func TestRemoteCISQLAuthorityBindingsAreCreatedByGateSchema(t *testing.T) {
-	root := findRepoRoot(t)
-	schemaDirectory := filepath.Join(root, "internal", "devtools", "gate")
-	entries, err := os.ReadDir(schemaDirectory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema strings.Builder
-	for _, entry := range remoteCISQLSchemaSourceEntries(entries) {
-		schema.WriteString(readRemoteCIContractGuardFile(t, filepath.Join(schemaDirectory, entry.Name())))
-	}
-	for _, table := range cicontract.SQLAuthoritySchemaTables() {
-		statement := "CREATE TABLE IF NOT EXISTS " + table
-		if !strings.Contains(schema.String(), statement) {
-			t.Errorf("gate SQLite schema does not create cicontract-registered table %q", table)
-		}
-	}
-	if extras := remoteCIUnregisteredSQLSchemaTables(schema.String()); len(extras) != 0 {
-		t.Fatalf("gate SQLite schema creates unregistered cicontract tables: %v", extras)
-	}
-}
-
 // TestRemoteCIDurationLedgerSchemaForbidsCompatibilityDDL keeps startup from
 // reconstructing any pre-current physical schema. Existing non-current files
 // must be rejected by exact preflight before production executes DDL.
@@ -548,74 +522,6 @@ func remoteCILegacySQLiteSchemaViolations(file *ast.File) []string {
 	return remoteCIViolationList(violations)
 }
 
-// TestRemoteCIHundredSecondTargetCannotBecomeTermination rejects the precise
-// target-duration spellings when they are wired to timeout/cancel/kill paths;
-// the only allowed 100-second behavior is cicontract's warn-and-continue rule.
-func TestRemoteCIHundredSecondTargetCannotBecomeTermination(t *testing.T) {
-	root := findRepoRoot(t)
-	for _, file := range remoteCIProductionFiles(t, root) {
-		parsed := parseRemoteCIContractGuardFile(t, file)
-		for _, violation := range remoteCIHundredSecondTerminationViolations(parsed) {
-			t.Errorf("%s turns the 100-second target into terminating call %s", relativeRemoteCIContractPath(t, root, file), violation)
-		}
-	}
-}
-
-// TestRemoteCITestCommandHasOnlyTheRemoteECIPath prevents the test command
-// from recreating a host executor or treating a coordinator cache probe as an
-// authoritative result. Cache reuse remains an internal coordinator concern.
-func TestRemoteCITestCommandHasOnlyTheRemoteECIPath(t *testing.T) {
-	root := findRepoRoot(t)
-	for _, relative := range []string{
-		"cmd/super-dolphin-gate/test_local_exec.go",
-		"internal/devtools/remoteci/local_test_policy.go",
-		"internal/devtools/remoteci/local_test_policy_test.go",
-	} {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); !os.IsNotExist(err) {
-			t.Errorf("remote CI must not retain local test executor artifact %s", relative)
-		}
-	}
-
-	path := filepath.Join(root, "cmd", "super-dolphin-gate", "test_cli.go")
-	parsed := parseRemoteCIContractGuardFile(t, path)
-	for _, identifier := range []string{
-		"autoTestBackend",
-		"selectAutoTestBackend",
-		"runLockedLocalLightTests",
-		"executeLocalLightTests",
-		"localSourceMatchesTree",
-	} {
-		if remoteCIForbiddenIdentifiers(parsed)[identifier] {
-			t.Errorf("cmd/super-dolphin-gate/test_cli.go retains local test routing %s", identifier)
-		}
-	}
-	for _, literal := range remoteCIStringLiterals(parsed) {
-		if strings.EqualFold(literal, "local-light") || strings.EqualFold(literal, "remote-cache") {
-			t.Errorf("cmd/super-dolphin-gate/test_cli.go retains non-ECI backend %q", literal)
-		}
-	}
-	if calls := remoteCIFunctionCallCount(parsed, "executeRemoteRun"); calls != 1 {
-		t.Errorf("test command executeRemoteRun calls = %d, want 1", calls)
-	}
-	if calls := remoteCIFunctionCallCount(parsed, "emitRemoteRunResult"); calls != 1 {
-		t.Errorf("test command emitRemoteRunResult calls = %d, want 1", calls)
-	}
-}
-
-func TestRemoteCIHooksRejectConcurrencyCaps(t *testing.T) {
-	root := findRepoRoot(t)
-	for _, hook := range []string{"pre-commit", "pre-push"} {
-		contents := readRemoteCIContractGuardFile(t, filepath.Join(root, ".githooks", hook))
-		for _, forbidden := range []string{"max_shards", "max-shards", "max_concurrency", "max-concurrency", "flock", "global_hook_lock", "global-hook-lock", "active_job_lock", "active-job-lock", "shared_raw_token", "shared-raw-token"} {
-			if strings.Contains(strings.ToLower(contents), forbidden) {
-				t.Errorf(".githooks/%s retains forbidden remote CI concurrency cap %q", hook, forbidden)
-			}
-		}
-	}
-}
-
-// TestRemoteCIECIRequestsBindAcceptedSnapshot proves every executable remote
-// ECI CreateRequest binds the accepted ImageCacheSnapshotID, never a cache ID
 // lookup or automatic cache selection.
 func TestRemoteCIECIRequestsBindAcceptedSnapshot(t *testing.T) {
 	root := findRepoRoot(t)

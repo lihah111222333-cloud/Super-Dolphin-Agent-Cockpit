@@ -455,6 +455,7 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 			declaration.file,
 			declaration.declaration,
 			selected,
+			profile,
 		)
 		scope = scope.widen(productionScope)
 		observesWholeTree := scope == remoteGoTestScopeTree
@@ -517,51 +518,79 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 	selected map[string]remoteGitTreeEntry,
 ) (bool, error) {
 	imports := remoteGoTestImports(file)
+	if snapshot.remoteGoSensitiveObservedAliasInPackage(directory, remoteGoBuildProfile{}, true) {
+		return true, nil
+	}
 	wholeTree := false
 	var visitErr error
 	ast.Inspect(observed, func(node ast.Node) bool {
 		if visitErr != nil {
 			return false
 		}
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		kind, staticPath, dynamic := remoteGoTestObservation(call, file, imports)
-		if kind == "" {
-			return true
-		}
-		if dynamic {
-			wholeTree = true
-			// exact-test 仍需将动态观察收敛到整树；整包指纹则必须继续扫描同一源码文件中的后续静态观察。
-			return true
-		}
-		observedPath, ok := remoteGoTestRelativePath(directory, staticPath)
-		if !ok {
-			// 非 canonical source 根或越出候选树的路径无法安全闭合，必须整树绑定。
-			wholeTree = true
-			return true
-		}
-		switch kind {
-		case "glob":
-			visitErr = snapshot.addRemoteGitGlobEntries(observedPath, selected)
-		case "tree":
-			snapshot.addRemoteGitDirectoryEntries(observedPath, selected)
-		default:
-			if _, exists := snapshot.byPath[observedPath]; !exists {
-				if wholeTree {
-					// exact-test 动态观察已经绑定整树；未知 CWD 下解析出的后续路径
-					// 不能再派生更严格的缺失文件错误。
-					return true
-				}
-				visitErr = fmt.Errorf("static Go test file observation %q is absent from Git tree", observedPath)
-				return false
-			}
-			snapshot.addRemoteGitPathEntry(observedPath, selected)
-		}
-		return visitErr == nil
+		continueVisit, observedWholeTree, err := snapshot.addGoTestObservedNode(directory, file, imports, node, selected, wholeTree)
+		wholeTree = wholeTree || observedWholeTree
+		visitErr = err
+		return continueVisit && err == nil
 	})
 	return wholeTree, visitErr
+}
+
+// addGoTestObservedNode 处理单个测试 AST 节点并收敛观察作用域。
+func (snapshot *remoteGitTreeSnapshot) addGoTestObservedNode(
+	directory string,
+	file *ast.File,
+	imports map[string]string,
+	node ast.Node,
+	selected map[string]remoteGitTreeEntry,
+	wholeTree bool,
+) (continueVisit bool, observedWholeTree bool, err error) {
+	if remoteGoDotImportWholeTree(imports) {
+		return true, true, nil
+	}
+	if selector, ok := node.(*ast.SelectorExpr); ok && remoteGoProductionEnvironmentSelector(selector, imports) {
+		wholeTree = true
+		return false, wholeTree, nil
+	}
+	call, ok := node.(*ast.CallExpr)
+	if !ok {
+		return true, false, nil
+	}
+	kind, staticPath, dynamic := remoteGoTestObservation(call, file, imports)
+	if kind == "" {
+		return true, false, nil
+	}
+	if dynamic {
+		// exact-test 仍需将动态观察收敛到整树；整包指纹则必须继续扫描同一源码文件中的后续静态观察。
+		return true, true, nil
+	}
+	observedPath, ok := remoteGoTestRelativePath(directory, staticPath)
+	if !ok {
+		// 非 canonical source 根或越出候选树的路径无法安全闭合，必须整树绑定。
+		return true, true, nil
+	}
+	if err := snapshot.addGoTestObservedNodePath(kind, observedPath, selected, wholeTree); err != nil {
+		return false, false, err
+	}
+	return true, false, nil
+}
+
+// addGoTestObservedNodePath 校验并加入测试节点解析出的仓库路径。
+func (snapshot *remoteGitTreeSnapshot) addGoTestObservedNodePath(
+	kind, observedPath string,
+	selected map[string]remoteGitTreeEntry,
+	wholeTree bool,
+) error {
+	if kind != "tree" && kind != "glob" {
+		if _, exists := snapshot.byPath[observedPath]; !exists {
+			if wholeTree {
+				// exact-test 动态观察已经绑定整树；未知 CWD 下解析出的后续路径
+				// 不能再派生更严格的缺失文件错误。
+				return nil
+			}
+			return fmt.Errorf("static Go test file observation %q is absent from Git tree", observedPath)
+		}
+	}
+	return snapshot.addRemoteGitObservedPath(kind, observedPath, selected)
 }
 
 func remoteGoTestImports(file *ast.File) map[string]string {
@@ -714,12 +743,6 @@ func remoteGoTestRelativePath(directory string, value string) (string, bool) {
 	return resolved, true
 }
 
-func (snapshot *remoteGitTreeSnapshot) addRemoteGitPathEntry(filePath string, selected map[string]remoteGitTreeEntry) {
-	if entry, ok := snapshot.byPath[filePath]; ok {
-		selected[filePath] = entry
-	}
-}
-
 func (snapshot *remoteGitTreeSnapshot) addRemoteGitDirectoryEntries(directory string, selected map[string]remoteGitTreeEntry) {
 	for _, entry := range snapshot.entries {
 		if entry.path == directory || strings.HasPrefix(entry.path, directory+"/") {
@@ -728,6 +751,7 @@ func (snapshot *remoteGitTreeSnapshot) addRemoteGitDirectoryEntries(directory st
 	}
 }
 
+// addRemoteGitGlobEntries 将静态 glob 匹配的 Git 条目加入观察集合。
 func (snapshot *remoteGitTreeSnapshot) addRemoteGitGlobEntries(pattern string, selected map[string]remoteGitTreeEntry) error {
 	for _, entry := range snapshot.entries {
 		matched, err := path.Match(pattern, entry.path)
@@ -735,7 +759,9 @@ func (snapshot *remoteGitTreeSnapshot) addRemoteGitGlobEntries(pattern string, s
 			return fmt.Errorf("match static Go test glob %q: %w", pattern, err)
 		}
 		if matched {
-			selected[entry.path] = entry
+			if err := snapshot.addRemoteGitPathEntry(entry.path, selected); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

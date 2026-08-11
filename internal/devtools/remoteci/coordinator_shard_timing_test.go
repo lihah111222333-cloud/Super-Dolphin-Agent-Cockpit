@@ -93,6 +93,8 @@ func TestRunPreparedPersistsCancellationOnlyAfterRunIdentity(t *testing.T) {
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	// all-hit 的取消审计必须沿用生产语义：候选 Gate/ECI MISS 身份保持为空。
+	clearCoordinatorAllHitExecutionIdentity(&input)
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	prepared, err := coordinator.Prepare(context.Background(), input)
 	if err != nil {
@@ -117,6 +119,20 @@ func TestRunPreparedPersistsCancellationOnlyAfterRunIdentity(t *testing.T) {
 	}
 	if recorded.JobID != jobID || recorded.Authoritative || recorded.Status != gate.ResultStatusCancelled {
 		t.Fatalf("persisted cancellation = %#v, want non-authoritative cancelled run", recorded)
+	}
+	if recorded.CandidateGateSourceSHA256 != "" || recorded.CandidateGateToolchainSHA256 != "" {
+		t.Fatalf("all-hit cancellation persisted candidate identity: source=%q toolchain=%q", recorded.CandidateGateSourceSHA256, recorded.CandidateGateToolchainSHA256)
+	}
+	if len(result.ReusedWorkloads) == 0 || len(result.WorkloadPassIdentities) == 0 || len(result.CacheMissWorkloads) != 0 {
+		t.Fatalf("cancelled all-hit result reuse projection = reused=%d identities=%d misses=%v", len(result.ReusedWorkloads), len(result.WorkloadPassIdentities), result.CacheMissWorkloads)
+	}
+	if len(recorded.WorkloadResults) != len(result.ReusedWorkloads) {
+		t.Fatalf("cancelled all-hit persisted workload results = %d, want %d", len(recorded.WorkloadResults), len(result.ReusedWorkloads))
+	}
+	for _, workload := range recorded.WorkloadResults {
+		if workload.Disposition != gate.WorkloadDispositionReused {
+			t.Fatalf("cancelled all-hit persisted non-reused workload result = %#v", workload)
+		}
 	}
 
 	prepared, err = coordinator.Prepare(context.Background(), input)
@@ -413,14 +429,18 @@ func TestMergeWorkloadIntervalsPreservesEnvelopeAndExcludesGaps(t *testing.T) {
 	}
 }
 
-func TestRemoteShardSummaryTimingContainsWorkerPhaseBeyondProviderTerminal(t *testing.T) {
+func TestRemoteShardSummaryTimingUsesProviderTerminalBoundary(t *testing.T) {
 	started := time.Date(2026, 8, 8, 0, 33, 34, 0, time.UTC)
 	providerTerminal := started.Add(170 * time.Second)
-	workerCompleted := providerTerminal.Add(109 * time.Millisecond)
 	shard := ShardResult{ShardIdentity: "sha256:" + strings.Repeat("1", 64), ECIWaitStartedAt: started, ECITerminalAt: providerTerminal}
 	startup := phaseIntervalUnion{startedAt: started.Add(60 * time.Second), completedAt: started.Add(90 * time.Second), durationMS: 30_000}
-	body := phaseIntervalUnion{startedAt: started.Add(62*time.Second + 503*time.Millisecond), completedAt: workerCompleted, durationMS: 107_606}
+	body := phaseIntervalUnion{startedAt: started.Add(62*time.Second + 503*time.Millisecond), completedAt: providerTerminal.Add(109 * time.Millisecond), durationMS: 107_606}
 
+	if _, err := remoteShardSummaryObservations("job-provider-terminal-precision", shard, startup, body); err == nil || !strings.Contains(err.Error(), "exceeds provider total") {
+		t.Fatalf("worker phase beyond provider terminal was accepted: %v", err)
+	}
+	body.completedAt = providerTerminal.Add(-time.Second)
+	body.durationMS = body.completedAt.Sub(body.startedAt).Milliseconds()
 	observations, err := remoteShardSummaryObservations("job-provider-terminal-precision", shard, startup, body)
 	if err != nil {
 		t.Fatalf("remoteShardSummaryObservations() error = %v", err)
@@ -434,11 +454,11 @@ func TestRemoteShardSummaryTimingContainsWorkerPhaseBeyondProviderTerminal(t *te
 		if observation.Phase != cicontract.TimingTotal {
 			continue
 		}
-		if !observation.CompletedAt.Equal(workerCompleted) {
-			t.Fatalf("total completed_at = %s, want worker boundary %s", observation.CompletedAt, workerCompleted)
+		if !observation.CompletedAt.Equal(providerTerminal) {
+			t.Fatalf("total completed_at = %s, want provider boundary %s", observation.CompletedAt, providerTerminal)
 		}
-		if observation.DurationMS != workerCompleted.Sub(started).Milliseconds() {
-			t.Fatalf("total duration_ms = %d, want %d", observation.DurationMS, workerCompleted.Sub(started).Milliseconds())
+		if observation.DurationMS != providerTerminal.Sub(started).Milliseconds() {
+			t.Fatalf("total duration_ms = %d, want %d", observation.DurationMS, providerTerminal.Sub(started).Milliseconds())
 		}
 		return
 	}
@@ -509,6 +529,22 @@ func TestRemoteFailedTimingObservationsKeepsMeasuredStartupAndTotalWithoutBody(t
 	}
 }
 
+func TestRemoteFailedTimingObservationsOmitsCompileBeforeStartWorkloadPhases(t *testing.T) {
+	observedAt := time.Date(2026, 8, 4, 1, 30, 0, 0, time.UTC)
+	execution := gate.PlanGateExecution{
+		GateID: "guard:compile-before-start", Status: gate.ResultStatusFailed,
+		StartedAt: observedAt, CompletedAt: observedAt,
+		ExecutionProfile: gate.ExecutionProfile{CacheSource: "none", CacheStatus: gate.CacheObservationNotApplicable, CacheMeasurement: "measured"},
+	}
+	observations, omitted, err := remoteFailedWorkloadTimingObservations("job-prestart", "sha256:"+strings.Repeat("e", 64), execution)
+	if err == nil || omitted != 3 {
+		t.Fatalf("prestart timing omission = observations=%#v omitted=%d err=%v, want three honest omissions", observations, omitted, err)
+	}
+	if len(observations) != 0 {
+		t.Fatalf("compile-before-start failure fabricated workload timing: %#v", observations)
+	}
+}
+
 func TestRemoteFailedTimingObservationsSkipsPartialShardAggregate(t *testing.T) {
 	started := time.Date(2026, 8, 4, 2, 0, 0, 0, time.UTC)
 	identity := "sha256:" + strings.Repeat("d", 64)
@@ -533,5 +569,33 @@ func TestRemoteFailedTimingObservationsSkipsPartialShardAggregate(t *testing.T) 
 			(observation.Phase == cicontract.TimingStartup || observation.Phase == cicontract.TimingTestBody || observation.Phase == cicontract.TimingTotal) {
 			t.Fatalf("partial shard emitted aggregate phase: %#v", observation)
 		}
+	}
+}
+
+func TestRemoteShardInfrastructureTimingRejectsProviderEnvelopeDrift(t *testing.T) {
+	started := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	identity := "sha256:" + strings.Repeat("e", 64)
+	valid := ShardResult{
+		ShardIdentity: identity, ECIWaitStartedAt: started, ECIWaitCompletedAt: started.Add(2 * time.Millisecond), ECITerminalAt: started.Add(20 * time.Millisecond),
+		MaterializationTiming: gate.ShardMaterializationTiming{Measurement: gate.MaterializationMeasurementMeasured, ShardIdentity: identity,
+			Source:           gate.MaterializationPhaseTiming{StartedAtUnixMS: started.Add(3 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: started.Add(4 * time.Millisecond).UnixMilli()},
+			CandidateCompile: gate.MaterializationPhaseTiming{StartedAtUnixMS: started.Add(5 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: started.Add(6 * time.Millisecond).UnixMilli()},
+		},
+	}
+	for name, mutate := range map[string]func(*ShardResult){
+		"source starts before provider": func(shard *ShardResult) {
+			shard.MaterializationTiming.Source.StartedAtUnixMS = started.Add(-time.Millisecond).UnixMilli()
+		},
+		"candidate finishes after provider": func(shard *ShardResult) {
+			shard.MaterializationTiming.CandidateCompile.CompletedAtUnixMS = started.Add(21 * time.Millisecond).UnixMilli()
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			shard := valid
+			mutate(&shard)
+			if _, err := remoteShardInfrastructureObservations("job-provider-envelope", shard); err == nil || !strings.Contains(err.Error(), "exceeds provider total") {
+				t.Fatalf("infrastructure timing error = %v, want provider envelope rejection", err)
+			}
+		})
 	}
 }

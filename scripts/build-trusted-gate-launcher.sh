@@ -15,7 +15,10 @@ cleanup() {
   rm -rf -- "$temp_root"
 }
 trap cleanup EXIT
-git -C "$repo_root" archive --format=tar "$tree" | tar -x -C "$temp_root"
+archive_path="$temp_root/exact-tree.tar"
+git -C "$repo_root" archive --format=tar -o "$archive_path" "$tree"
+tar -xf "$archive_path" -C "$temp_root"
+rm -f -- "$archive_path"
 
 sha256_file() {
   if command -v shasum >/dev/null 2>&1; then

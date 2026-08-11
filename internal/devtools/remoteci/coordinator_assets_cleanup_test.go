@@ -16,6 +16,11 @@ func (uncertainCreateStore) Create(context.Context, string, string) error {
 
 func (uncertainCreateStore) DeletePrefix(context.Context, string) error { return nil }
 
+// ConfirmPrefixEmpty simulates a store absence proof.
+func (uncertainCreateStore) ConfirmPrefixEmpty(context.Context, string) (bool, error) {
+	return true, nil
+}
+
 func TestUploadSourceAssetsRegistersObjectBeforeUncertainCreate(t *testing.T) {
 	root := t.TempDir()
 	bundlePath := filepath.Join(root, "source.bundle")

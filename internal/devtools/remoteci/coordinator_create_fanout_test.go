@@ -162,6 +162,9 @@ func newCreateFailureFanoutCase(t *testing.T) createFailureFanoutCase {
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
+	if err := bindPreparedMissExecutionForTest(context.Background(), coordinator, prepared, input); err != nil {
+		t.Fatalf("BindPreparedMissExecution() error = %v", err)
+	}
 	planned, err := buildRemoteExecutionShardSetForWorkloads(
 		prepared.plan,
 		prepared.catalog,

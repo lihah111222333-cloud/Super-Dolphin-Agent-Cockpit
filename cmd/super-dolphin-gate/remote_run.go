@@ -6,16 +6,13 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/signal"
 	"slices"
-	"syscall"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/oss"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -38,6 +35,7 @@ func runRemote(args []string, input io.Reader, stdout io.Writer, progressWriters
 	}
 }
 
+// runRemoteInvocation 校验 remote run CLI 参数，执行 PASS-first 运行并输出唯一结果协议。
 func runRemoteInvocation(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
 	if err := requireRemoteCIAgentToken([]string{"remote", "run"}, args, stdout); err != nil {
 		return err
@@ -75,53 +73,116 @@ func newRemoteProgressObserver(progressWriters ...io.Writer) (*remoteci.JSONProg
 
 // executeRemoteRun 构建已接受基线的远程运行，并写入可比较的时长采样。
 func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.RunInput, error) {
+	return executeRemoteRunWithPrepare(options, (*remoteci.Coordinator).Prepare)
+}
+
+type remotePreparedRunDependencies struct {
+	allReused                    func(*remoteci.PreparedRun) bool
+	resolveCandidateGateIdentity func(string, string) (string, string, error)
+	loadImageCacheRuntime        func(remoteRunConfig, remoteci.BaselineState) (remoteImageCacheRuntime, error)
+	bindMissExecution            func(*remoteci.Coordinator, context.Context, *remoteci.PreparedRun, remoteci.MissExecutionBinding) error
+	reloadPlanning               func(remoteRunOptions, remoteci.BaselineState, string, remoteci.RunInput, *remoteci.PreparedRun) error
+	runPrepared                  func(*remoteci.Coordinator, context.Context, *remoteci.PreparedRun) (remoteci.RunResult, error)
+	finalizeEvidence             func(remoteci.RunInput, *remoteci.RunResult, error) error
+}
+
+// defaultRemotePreparedRunDependencies 将生产闭包与云端 runtime 读取显式注入 PASS-first 编排。
+func defaultRemotePreparedRunDependencies() remotePreparedRunDependencies {
+	return remotePreparedRunDependencies{
+		allReused:                    (*remoteci.PreparedRun).AllReused,
+		resolveCandidateGateIdentity: resolveRemoteCandidateGateIdentity,
+		loadImageCacheRuntime:        loadRemoteImageCacheRuntime,
+		bindMissExecution:            (*remoteci.Coordinator).BindPreparedMissExecution,
+		reloadPlanning:               reloadRemotePlanningAfterCalibration,
+		runPrepared:                  (*remoteci.Coordinator).RunPrepared,
+		finalizeEvidence:             finalizeRemoteRunEvidence,
+	}
+}
+
+// executePreparedRemoteRun 先消费复用决策；只有严格 MISS 才解析候选编译闭包和实时云端物料。
+func executePreparedRemoteRun(
+	ctx context.Context,
+	options remoteRunOptions,
+	config remoteRunConfig,
+	state remoteci.BaselineState,
+	runnerIdentity string,
+	input remoteci.RunInput,
+	coordinator *remoteci.Coordinator,
+	prepared *remoteci.PreparedRun,
+	dependencies remotePreparedRunDependencies,
+) (remoteci.RunResult, remoteci.RunInput, error) {
 	var result remoteci.RunResult
-	config, state, err := loadRunnableRemoteRunState(options)
-	if err != nil {
-		return result, remoteci.RunInput{}, err
-	}
-	runnerIdentity, err := resolveRemoteRunnerIdentity(options.RepositoryRoot, state)
-	if err != nil {
-		return result, remoteci.RunInput{}, infrastructureError(
-			"resolve remote worker execution identity: %v",
-			err,
-		)
-	}
-	input, err := resolveRemoteRunInput(options, state, runnerIdentity)
-	if err != nil {
-		return result, remoteci.RunInput{}, sourceError("%v", err)
-	}
-	runtime, err := loadRemoteImageCacheRuntime(config, state)
-	if err != nil {
-		return result, input, protocolError("load refreshed remote ImageCache runtime: %v", err)
-	}
-	if err := applyRemoteImageCacheRuntime(&input, runtime); err != nil {
-		return result, input, protocolError("apply refreshed remote ImageCache runtime: %v", err)
-	}
-	coordinator, containerDeadline, err := newRemoteRunCoordinator(config, input, options.ProgressObserver)
-	if err != nil {
+	if err := validateRemotePreparedRunDependencies(dependencies); err != nil {
 		return result, input, err
 	}
-	signalContext, stopSignals := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
+	boundInput, err := bindRemoteMissExecutionInputs(
+		ctx, config, state, input, coordinator, prepared, dependencies,
 	)
-	defer stopSignals()
-	runCtx, cancel := gateprivate.WithTimeout(signalContext, containerDeadline+10*time.Minute)
-	defer cancel()
-	prepared, err := coordinator.Prepare(runCtx, input)
 	if err != nil {
 		return result, input, err
 	}
-	if err := reloadRemotePlanningAfterCalibration(options, state, runnerIdentity, input, prepared); err != nil {
+	input = boundInput
+	if err := dependencies.reloadPlanning(options, state, runnerIdentity, input, prepared); err != nil {
 		return result, input, err
 	}
-	result, runErr := coordinator.RunPrepared(runCtx, prepared)
-	if err := finalizeRemoteRunEvidence(input, &result, runErr); err != nil {
+	result, runErr := dependencies.runPrepared(coordinator, ctx, prepared)
+	if err := dependencies.finalizeEvidence(input, &result, runErr); err != nil {
 		return result, input, err
 	}
 	return result, input, runErr
+}
+
+// bindRemoteMissExecutionInputs 在 all-hit 时直接返回；MISS 才依次读取 exact Gate closure 与 OSS/ECI runtime。
+func bindRemoteMissExecutionInputs(
+	ctx context.Context,
+	config remoteRunConfig,
+	state remoteci.BaselineState,
+	input remoteci.RunInput,
+	coordinator *remoteci.Coordinator,
+	prepared *remoteci.PreparedRun,
+	dependencies remotePreparedRunDependencies,
+) (remoteci.RunInput, error) {
+	if dependencies.allReused(prepared) {
+		return input, nil
+	}
+	sourceDigest, toolchainDigest, err := dependencies.resolveCandidateGateIdentity(input.RepositoryRoot, input.Tree)
+	if err != nil {
+		return input, sourceError("resolve exact candidate Gate compile identity: %v", err)
+	}
+	runtime, err := dependencies.loadImageCacheRuntime(config, state)
+	if err != nil {
+		return input, protocolError("load refreshed remote ImageCache runtime: %v", err)
+	}
+	input.CandidateGateSourceSHA256 = sourceDigest
+	input.CandidateGateToolchainSHA256 = toolchainDigest
+	if err := applyRemoteImageCacheRuntime(&input, runtime); err != nil {
+		return input, protocolError("apply refreshed remote ImageCache runtime: %v", err)
+	}
+	binding := remoteci.MissExecutionBinding{
+		CandidateGateSourceSHA256:     input.CandidateGateSourceSHA256,
+		CandidateGateToolchainSHA256:  input.CandidateGateToolchainSHA256,
+		ExecutionRunnerImage:          input.ExecutionRunnerImage,
+		ExecutionImageCacheSnapshotID: input.ExecutionImageCacheSnapshotID,
+		ImageCacheOnly:                input.ImageCacheOnly,
+	}
+	if err := dependencies.bindMissExecution(coordinator, ctx, prepared, binding); err != nil {
+		return input, err
+	}
+	return input, nil
+}
+
+// validateRemotePreparedRunDependencies 拒绝不完整的生产编排注入。
+func validateRemotePreparedRunDependencies(dependencies remotePreparedRunDependencies) error {
+	if dependencies.allReused == nil ||
+		dependencies.resolveCandidateGateIdentity == nil ||
+		dependencies.loadImageCacheRuntime == nil ||
+		dependencies.bindMissExecution == nil ||
+		dependencies.reloadPlanning == nil ||
+		dependencies.runPrepared == nil ||
+		dependencies.finalizeEvidence == nil {
+		return errors.New("remote prepared run dependencies are incomplete")
+	}
+	return nil
 }
 
 // loadRunnableRemoteRunState 首代空库时原子导入已由 ECI 实测的严格回执，后续只读取 accepted baseline。
@@ -220,7 +281,7 @@ func newRemoteRunCoordinator(
 		Bucket: config.OSS.Bucket, SourcePrefix: config.OSS.SourcePrefix,
 		InternalOSSEndpoint: config.OSS.InternalEndpoint,
 		WorkerRoleName:      config.WorkerRoleName, WorkerTimeout: workerTimeout,
-		ImageCacheSnapshotID: input.ExecutionImageCacheSnapshotID,
+		ImageCacheSnapshotID: input.ImageCacheSnapshotID,
 		PollInterval:         2 * time.Second, CleanupTimeout: 2 * time.Minute,
 		ResourcePolicy:   config.Capacity.ResourcePolicy,
 		ProgressObserver: progressObserver,
@@ -322,7 +383,7 @@ func finalizeRemoteRunReceiptAuthority(
 		return remoteRunReceiptAuthorityError(runErr, "validate remote CI aggregate execution readback before finalization", err)
 	}
 	identity := remoteRunAuthorityIdentity(result)
-	if err := input.LedgerStore.FinalizeRemoteCIRunAuthorityWithSamples(identity, receipts, samples, len(result.FreshWorkloadExecutions) != 0); err != nil {
+	if err := input.LedgerStore.FinalizeRemoteCIRunAuthorityWithSamples(identity, receipts, samples, shouldPromoteFreshWorkloadPassEvidence(input, result)); err != nil {
 		return remoteRunReceiptAuthorityError(runErr, "finalize remote CI receipt, authority, and fresh workload evidence", err)
 	}
 	return nil
@@ -342,10 +403,15 @@ func finalizeRemoteRunReceiptAuthorityWithShardOverhead(
 		return remoteRunReceiptAuthorityError(runErr, "validate remote CI aggregate execution readback before finalization", err)
 	}
 	identity := remoteRunAuthorityIdentity(result)
-	if err := input.LedgerStore.FinalizeRemoteCIRunAuthorityWithShardOverhead(identity, receipts, samples, len(result.FreshWorkloadExecutions) != 0, evidence); err != nil {
+	if err := input.LedgerStore.FinalizeRemoteCIRunAuthorityWithShardOverhead(identity, receipts, samples, shouldPromoteFreshWorkloadPassEvidence(input, result), evidence); err != nil {
 		return remoteRunReceiptAuthorityError(runErr, "finalize remote CI receipt, shard overhead, authority, and fresh workload evidence", err)
 	}
 	return nil
+}
+
+// shouldPromoteFreshWorkloadPassEvidence 禁止 force 重写同 identity/generation 的既有不可变 PASS proof。
+func shouldPromoteFreshWorkloadPassEvidence(input remoteci.RunInput, result remoteci.RunResult) bool {
+	return !input.Force && len(result.FreshWorkloadExecutions) != 0
 }
 
 // remoteRunAuthorityIdentity 提取 immutable remote run 字段作为 SQLite authority 身份。
@@ -353,7 +419,7 @@ func remoteRunAuthorityIdentity(result remoteci.RunResult) gatecontract.RemoteCI
 	return gatecontract.RemoteCIRunAuthorityIdentity{
 		JobID: result.JobID, AgentTokenDigest: result.AgentTokenDigest, Force: result.Force, Entrypoint: result.Entrypoint,
 		Profile: result.Profile, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest,
-		AcceptedGeneration: result.AcceptedGeneration, SourceTreeSHA: result.SourceTreeSHA,
+		AcceptedGeneration: result.AcceptedGeneration, Scope: result.Scope, SourceTreeSHA: result.SourceTreeSHA,
 		ImageCacheSnapshotID:         result.ImageCacheSnapshotID,
 		CandidateGateSourceSHA256:    result.CandidateGateSourceSHA256,
 		CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256,

@@ -3,6 +3,7 @@ package remoteci
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -140,8 +141,11 @@ func remoteCompileGroupTimingObservation(result RunResult, shard ShardResult, ex
 
 // remoteCompileGroupTimingExecutionEligibility 保留失败终态的真实测量边界并拒绝失真 execution。
 func remoteCompileGroupTimingExecutionEligibility(result RunResult, shard ShardResult, execution gate.CompileGroupExecution) (bool, error) {
+	if strings.TrimSpace(shard.ShardIdentity) == "" {
+		return false, &remoteFatalTimingProjectionError{err: errors.New("compile group report has no shard identity")}
+	}
 	if err := validateCompileGroupExecutionForShard(shard, execution); err != nil {
-		return false, err
+		return false, &remoteFatalTimingProjectionError{err: err}
 	}
 	if execution.HasMeasuredObservation() {
 		return true, nil
@@ -160,7 +164,7 @@ func remoteFailedCompileGroupTimingObservations(result RunResult) ([]gate.Timing
 		return nil, nil
 	}
 	if result.ExecutionMode != gate.DurationExecutionModeNormal && result.ExecutionMode != gate.DurationExecutionModeCalibration {
-		return nil, errors.New("compile group timing execution mode is required")
+		return nil, &remoteFatalTimingProjectionError{err: errors.New("compile group timing execution mode is required")}
 	}
 	observations := make([]gate.TimingObservation, 0)
 	seen := make(map[string]struct{})
@@ -190,7 +194,7 @@ func remoteFailedCompileGroupTimingObservation(result RunResult, shard ShardResu
 	}
 	key := compileGroupExecutionKey(shard, execution)
 	if _, duplicate := seen[key]; duplicate {
-		return gate.TimingObservation{}, false, fmt.Errorf("shard %q compile group %q is duplicated", shard.ShardIdentity, execution.GroupID)
+		return gate.TimingObservation{}, false, &remoteFatalTimingProjectionError{err: fmt.Errorf("shard %q compile group %q is duplicated", shard.ShardIdentity, execution.GroupID)}
 	}
 	seen[key] = struct{}{}
 	observation, err := remoteCompileGroupTimingObservation(result, shard, execution)

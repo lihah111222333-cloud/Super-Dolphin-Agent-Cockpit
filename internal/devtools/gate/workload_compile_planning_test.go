@@ -362,6 +362,158 @@ func TestCompileGroupBatchPlanHandlesExclusiveOnlySelectors(t *testing.T) {
 	}
 }
 
+func TestCompileGroupCriticalPathSumsWaveMaxAndSharedCompileOnce(t *testing.T) {
+	batches := []CompileGroupBatch{
+		{BatchID: "batch-000", Wave: 0, EstimatedBodyMS: 6},
+		{BatchID: "batch-001", Wave: 0, EstimatedBodyMS: 5},
+		{BatchID: "batch-002", Wave: 1, EstimatedBodyMS: 3, Exclusive: true},
+		{BatchID: "batch-003", Wave: 2, EstimatedBodyMS: 2, Exclusive: true},
+		{BatchID: "batch-004", Wave: 3, EstimatedBodyMS: 2, Exclusive: true},
+	}
+	if got, want := compileGroupCriticalPathMS(batches), int64(13); got != want {
+		t.Fatalf("compile group critical path = %d, want wave max sum %d", got, want)
+	}
+	if got := 10 + compileGroupCriticalPathMS(batches); got != 23 {
+		t.Fatalf("shared compile was not counted exactly once: got %d", got)
+	}
+}
+
+func TestCompileGroupCriticalDurationUsesWaveMaxWhileWireKeepsCoverageSum(t *testing.T) {
+	group := CompileGroup{
+		CompileEstimateMS:   10,
+		BodyEstimateMS:      18,
+		EstimatedDurationMS: 28,
+		BatchPlan: []CompileGroupBatch{
+			{BatchID: "batch-000", Wave: 0, EstimatedBodyMS: 6},
+			{BatchID: "batch-001", Wave: 0, EstimatedBodyMS: 5},
+			{BatchID: "batch-002", Wave: 1, EstimatedBodyMS: 3},
+			{BatchID: "batch-003", Wave: 2, EstimatedBodyMS: 2},
+			{BatchID: "batch-004", Wave: 3, EstimatedBodyMS: 2},
+		},
+	}
+	if got, want := compileGroupCriticalDurationMS(group), int64(23); got != want {
+		t.Fatalf("critical planner cost = %d, want %d", got, want)
+	}
+	if group.EstimatedDurationMS != group.CompileEstimateMS+group.BodyEstimateMS {
+		t.Fatalf("wire coverage duration changed: %#v", group)
+	}
+}
+
+func TestCompileGroupCriticalPathIsPermutationDeterministic(t *testing.T) {
+	left := []CompileGroupBatch{{Wave: 0, EstimatedBodyMS: 6}, {Wave: 0, EstimatedBodyMS: 5}, {Wave: 1, EstimatedBodyMS: 3}}
+	right := []CompileGroupBatch{{Wave: 1, EstimatedBodyMS: 3}, {Wave: 0, EstimatedBodyMS: 5}, {Wave: 0, EstimatedBodyMS: 6}}
+	if compileGroupCriticalPathMS(left) != compileGroupCriticalPathMS(right) {
+		t.Fatalf("critical path changed under input permutation")
+	}
+}
+
+func TestCompileGroupAffinityAllowsEligibleSerialMultiGroupShard(t *testing.T) {
+	group := func(suffix string) CompileGroup {
+		return CompileGroup{
+			GroupID:           "group-" + suffix,
+			PackageTarget:     AtomicGatePackageTarget,
+			SemanticKey:       CompileGroupSemanticGoTestNormal,
+			SharedInputDigest: "sha256:" + strings.Repeat(suffix, 64),
+			ProfileDigest:     "sha256:" + strings.Repeat("f", 64),
+			WorkloadIDs:       []GateID{GateID("gate:test-" + suffix)},
+		}
+	}
+	groups := map[string]CompileGroup{"group-a": group("a"), "group-b": group("b")}
+	if err := compileGroupAffinityFromShardIDs(groups, ShardPlan{Index: 0, CompileGroupIDs: []string{"group-a", "group-b"}}); err != nil {
+		t.Fatalf("eligible serial multi-group shard rejected: %v", err)
+	}
+	if err := compileGroupAffinityFromShardIDs(groups, ShardPlan{Index: 0, CompileGroupIDs: []string{"group-b", "group-a"}}); err == nil {
+		t.Fatal("non-canonical multi-group order was accepted")
+	}
+}
+
+func TestCompileGroupAffinityRejectsSpecialMultiGroupShard(t *testing.T) {
+	groups := map[string]CompileGroup{
+		"group-a": {GroupID: "group-a", PackageTarget: AtomicGatePackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat("a", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64), WorkloadIDs: []GateID{GateID("gate:test-a")}},
+		"group-b": {GroupID: "group-b", PackageTarget: AtomicArchtestPackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat("b", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64), WorkloadIDs: []GateID{GateID("gate:test-b")}},
+	}
+	if err := compileGroupAffinityFromShardIDs(groups, ShardPlan{Index: 0, CompileGroupIDs: []string{"group-a", "group-b"}}); err == nil {
+		t.Fatal("special compile group was accepted for serial multi-group packing")
+	}
+}
+
+func TestCompileAwarePackingProvesMinimumShardCountBeyondGreedyTrap(t *testing.T) {
+	durations := map[string]int64{"a": 80_000, "b": 60_000, "c": 30_000, "d": 30_000, "e": 20_000, "f": 20_000, "g": 20_000, "h": 20_000, "i": 20_000}
+	units := make([]compilePlanningUnit, 0, len(durations))
+	for _, workload := range testDCPAPPlannedWorkloads(durations) {
+		units = append(units, compilePlanningUnit{
+			workloads: []PlannedWorkload{workload}, costMS: workload.EstimatedDurationMS,
+			affinityKey: "ordinary:" + workload.Workload.ID, sortID: workload.Workload.ID,
+			tier: cicontract.WorkloadResourceTierFast,
+		})
+	}
+	sortCompilePlanningUnits(units)
+	context := testPlanningContext()
+	context.ShardOverheadSampleCount = 1
+	context.ShardOverheadProvenanceDigest = "sha256:" + strings.Repeat("a", 64)
+	shards, err := distributeCompileUnitsWithinTarget(units, context)
+	if err != nil {
+		t.Fatalf("compile packing proof error = %v", err)
+	}
+	if len(shards) != 3 {
+		t.Fatalf("compile-aware shard count = %d, want proven minimum 3: %#v", len(shards), shards)
+	}
+	for _, shard := range shards {
+		if shard.EstimatedDurationMS != 100_000 {
+			t.Fatalf("compile-aware makespan shard = %#v, want 100000ms", shard)
+		}
+	}
+}
+
+func TestCompilePackingKeepsSpecialGroupIsolatedFromOrdinaryWorkload(t *testing.T) {
+	selectors := testCompilePlanningSelectors(t, AtomicArchtestPackageTarget, []string{"TestSpecialIsolation"}, []int64{40_000})
+	group := testCompileGroupFromPlanningSelectors(t, selectors, 1, "medium")
+	ordinaryWorkload := testDCPAPPlannedWorkloads(map[string]int64{"ordinary": 60_000})[0]
+	ordinary := compilePlanningUnit{workloads: []PlannedWorkload{ordinaryWorkload}, costMS: 60_000, affinityKey: "ordinary:ordinary", sortID: "ordinary", tier: cicontract.WorkloadResourceTierFast}
+	special := compilePlanningUnit{workloads: []PlannedWorkload{selectors[0].planned}, group: &group, costMS: 40_000, affinityKey: group.SharedInputDigest, sortID: group.GroupID, tier: cicontract.WorkloadResourceTierFast}
+	for _, units := range [][]compilePlanningUnit{{ordinary, special}, {special, ordinary}} {
+		sortCompilePlanningUnits(units)
+		shards, err := provenCompileUnitPacking(units, 100_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(shards) != 2 {
+			t.Fatalf("special compile group shared an ordinary shard: %#v", shards)
+		}
+	}
+	mixed := ShardPlan{Index: 0, Workloads: []PlannedWorkload{selectors[0].planned, ordinaryWorkload}, CompileGroupIDs: []string{group.GroupID}}
+	if err := compileGroupAffinityFromShardIDs(map[string]CompileGroup{group.GroupID: group}, mixed); err == nil || !strings.Contains(err.Error(), "mixes grouped and ordinary") {
+		t.Fatalf("stored special+ordinary shard error = %v, want isolation failure", err)
+	}
+}
+
+func TestCompilePackingKeepsDifferentResourceClassesIsolated(t *testing.T) {
+	firstSelectors := testCompilePlanningSelectors(t, AtomicGatePackageTarget, []string{"TestResourceSmall"}, []int64{10_000})
+	secondSelectors := testCompilePlanningSelectors(t, AtomicRemoteCIPackageTarget, []string{"TestResourceMedium"}, []int64{10_000})
+	first := testCompileGroupFromPlanningSelectors(t, firstSelectors, 1_000, "small")
+	second := testCompileGroupFromPlanningSelectors(t, secondSelectors, 1_000, "medium")
+	units := []compilePlanningUnit{
+		{workloads: []PlannedWorkload{firstSelectors[0].planned}, group: &first, costMS: 11_000, affinityKey: "resource:small", sortID: first.GroupID, tier: cicontract.WorkloadResourceTierFast},
+		{workloads: []PlannedWorkload{secondSelectors[0].planned}, group: &second, costMS: 11_000, affinityKey: "resource:medium", sortID: second.GroupID, tier: cicontract.WorkloadResourceTierFast},
+	}
+	sortCompilePlanningUnits(units)
+	if _, ok := distributeCompileUnits(units, 1, 100_000); ok {
+		t.Fatal("different resource classes were packed into one shard")
+	}
+	shards, err := provenCompileUnitPacking(units, 100_000)
+	if err != nil {
+		t.Fatalf("resource-isolated packing proof error = %v", err)
+	}
+	if len(shards) != 2 {
+		t.Fatalf("resource-isolated shard count = %d, want 2: %#v", len(shards), shards)
+	}
+	for index, shard := range shards {
+		if len(shard.CompileGroupIDs) != 1 {
+			t.Fatalf("shard %d compile groups = %#v, want one group", index, shard.CompileGroupIDs)
+		}
+	}
+}
+
 func TestCompileGroupBatchPlanKeepsRaceParentCodexSelectorsNonExclusive(t *testing.T) {
 	input := compileTestInput(AtomicCodexAppPackageTarget, "sha256:"+strings.Repeat("a", 64))
 	input.SemanticKey = CompileGroupSemanticGoTestRace

@@ -102,7 +102,27 @@ func remoteDurationSamples(
 			sampleErr = errors.Join(sampleErr, err)
 		}
 	}
-	return samples, sampleErr
+	return samples, remoteDurationSampleError(shards, sampleErr)
+}
+
+// remoteDurationSampleError 先保留真实 guard execution failure，再附加 provider 区间损坏。
+func remoteDurationSampleError(shards []ShardResult, sampleErr error) error {
+	if sampleErr == nil {
+		return nil
+	}
+	// 取消 workload 的零区间不会遮住更早的失败根因，同时仍保持 provider 错误 fail-fast。
+	return errors.Join(remoteDurationExecutionFailure(shards), sampleErr)
+}
+
+// remoteDurationExecutionFailure 提取耗时投影前已报告的失败或取消 workload 根因。
+func remoteDurationExecutionFailure(shards []ShardResult) error {
+	observed := make(map[string]gate.PlanGateExecution)
+	for _, shard := range shards {
+		for _, execution := range shard.Report.Gates {
+			observed[string(execution.GateID)] = execution
+		}
+	}
+	return failedObservedWorkloadError(observed)
 }
 
 func remoteExecutedWorkloadSet(ids []gate.GateID) (map[gate.GateID]struct{}, error) {
@@ -132,35 +152,70 @@ func remoteShardDurationSamples(
 	if err != nil {
 		return nil, err
 	}
+	return remoteShardDurationSamplesFromExecutions(catalog, executed, executions, input, inputDigests, resource)
+}
+
+// remoteShardDurationSamplesFromExecutions 严格按 provider 起止区间生成分片时长样本。
+func remoteShardDurationSamplesFromExecutions(
+	catalog map[string]gate.Workload,
+	executed map[gate.GateID]struct{},
+	executions []gate.PlanGateExecution,
+	input RunInput,
+	inputDigests map[string]string,
+	resource gate.DurationBucket,
+) ([]gate.DurationSample, error) {
 	samples := make([]gate.DurationSample, 0, len(executed))
 	observed := make(map[gate.GateID]struct{}, len(executed))
 	for _, execution := range executions {
-		if _, wanted := executed[execution.GateID]; !wanted {
-			continue
-		}
-		if _, duplicate := observed[execution.GateID]; duplicate {
-			return nil, fmt.Errorf("remote CI duration workload %q is duplicated", execution.GateID)
-		}
-		workload, ok := catalog[string(execution.GateID)]
-		if !ok {
-			return nil, fmt.Errorf("remote CI duration result %q is absent from catalog", execution.GateID)
-		}
-		observed[execution.GateID] = struct{}{}
-		inputDigest, ok := durationInputDigest(workload, inputDigests)
-		if !ok {
-			return nil, fmt.Errorf("remote CI duration workload %q input digest is missing", workload.ID)
-		}
-		samples = append(samples, remoteDurationSample(workload, execution, input, inputDigest, resource))
-		testSamples, err := remoteGoTestDurationSamples(workload, execution, input, inputDigests, resource)
+		executionSamples, err := remoteDurationSamplesForExecution(catalog, executed, execution, input, inputDigests, resource, observed)
 		if err != nil {
 			return nil, err
 		}
-		samples = append(samples, testSamples...)
+		samples = append(samples, executionSamples...)
 	}
 	if len(observed) != len(executed) {
 		return samples, errors.New("remote CI duration execution coverage is incomplete")
 	}
 	return samples, nil
+}
+
+// remoteDurationSamplesForExecution 投影单个执行；取消且无 provider 区间时诚实省略样本。
+func remoteDurationSamplesForExecution(
+	catalog map[string]gate.Workload,
+	executed map[gate.GateID]struct{},
+	execution gate.PlanGateExecution,
+	input RunInput,
+	inputDigests map[string]string,
+	resource gate.DurationBucket,
+	observed map[gate.GateID]struct{},
+) ([]gate.DurationSample, error) {
+	if _, wanted := executed[execution.GateID]; !wanted {
+		return nil, nil
+	}
+	if _, duplicate := observed[execution.GateID]; duplicate {
+		return nil, fmt.Errorf("remote CI duration workload %q is duplicated", execution.GateID)
+	}
+	workload, ok := catalog[string(execution.GateID)]
+	if !ok {
+		return nil, fmt.Errorf("remote CI duration result %q is absent from catalog", execution.GateID)
+	}
+	observed[execution.GateID] = struct{}{}
+	if execution.Status == gate.ResultStatusCancelled && execution.CompletedAt.Sub(execution.StartedAt).Milliseconds() == 0 {
+		return nil, nil
+	}
+	inputDigest, ok := durationInputDigest(workload, inputDigests)
+	if !ok {
+		return nil, fmt.Errorf("remote CI duration workload %q input digest is missing", workload.ID)
+	}
+	sample, err := remoteDurationSample(workload, execution, input, inputDigest, resource)
+	if err != nil {
+		return nil, err
+	}
+	testSamples, err := remoteGoTestDurationSamples(workload, execution, input, inputDigests, resource)
+	if err != nil {
+		return nil, err
+	}
+	return append([]gate.DurationSample{sample}, testSamples...), nil
 }
 
 // remoteGoTestDurationSamples 将一个 Go workload 的逐测试计时投影成可跨批次复用的独立样本。
@@ -183,6 +238,9 @@ func remoteGoTestDurationSamples(
 	}
 	samples := make([]gate.DurationSample, 0, len(execution.TestTimings))
 	for _, timing := range execution.TestTimings {
+		if timing.DurationMS <= 0 {
+			return nil, fmt.Errorf("remote CI Go test %q provider interval must be positive", timing.Name)
+		}
 		inputDigest, ok := durationInputDigest(workload, inputDigests)
 		if !ok {
 			return nil, fmt.Errorf("remote CI duration workload %q input digest is missing", workload.ID)
@@ -239,10 +297,10 @@ func remoteDurationSample(
 	input RunInput,
 	inputDigest string,
 	resource gate.DurationBucket,
-) gate.DurationSample {
+) (gate.DurationSample, error) {
 	duration := execution.CompletedAt.Sub(execution.StartedAt).Milliseconds()
 	if duration <= 0 {
-		duration = 1
+		return gate.DurationSample{}, fmt.Errorf("remote CI duration workload %q provider interval must be positive", workload.ID)
 	}
 	return gate.DurationSample{
 		Bucket: gate.DurationBucket{
@@ -253,7 +311,7 @@ func remoteDurationSample(
 			ResourceCPU: resource.ResourceCPU, ResourceMemoryGiB: resource.ResourceMemoryGiB,
 		},
 		Succeeded: execution.Status == gate.ResultStatusPassed, DurationMS: duration,
-	}
+	}, nil
 }
 
 type remoteCalibrationParentSample struct {
@@ -332,7 +390,7 @@ func addRemoteCalibrationParentExecution(
 	aggregate.inputDigests[childID] = inputDigest
 	duration := execution.CompletedAt.Sub(execution.StartedAt).Milliseconds()
 	if duration <= 0 {
-		duration = 1
+		return fmt.Errorf("remote CI calibration workload %q provider interval must be positive", childID)
 	}
 	if aggregate.durationMS > math.MaxInt64-duration {
 		return fmt.Errorf("remote CI calibration parent %q duration overflows", parent.ID)
@@ -531,8 +589,9 @@ func remoteContainerStatus(shards []ShardResult) gate.ResultStatus {
 	return gate.ResultStatusPassed
 }
 
-// aggregateCatalogWorkloads 按 catalog 顺序合并 shardable workload 为父 gate 结果。
-func aggregateCatalogWorkloads(
+// AggregateCatalogWorkloads 按 catalog 顺序合并 shardable workload 为父 gate 结果。
+// 它是 parent execution profile 的唯一构造器；调用方不得手工拼装聚合执行。
+func AggregateCatalogWorkloads(
 	catalog gate.WorkloadCatalog,
 	observed map[string]gate.PlanGateExecution,
 ) ([]gate.PlanGateExecution, gate.ResultStatus, error) {
@@ -552,6 +611,14 @@ func aggregateCatalogWorkloads(
 		executions = append(executions, aggregate)
 	}
 	return executions, status, nil
+}
+
+// aggregateCatalogWorkloads 保持 coordinator 内部调用点与唯一公开构造器一致。
+func aggregateCatalogWorkloads(
+	catalog gate.WorkloadCatalog,
+	observed map[string]gate.PlanGateExecution,
+) ([]gate.PlanGateExecution, gate.ResultStatus, error) {
+	return AggregateCatalogWorkloads(catalog, observed)
 }
 
 // groupCatalogWorkloadExecutions 按目录顺序将 workload 结果聚合回父门禁执行。

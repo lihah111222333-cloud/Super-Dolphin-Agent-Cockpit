@@ -250,3 +250,92 @@ func testDurationIndexSample(workload Workload, mode, classID string, cpu, memor
 		Succeeded: true, DurationMS: durationMS,
 	}
 }
+
+func TestDurationEstimatorV2OutlierAndPermutationDeterministic(t *testing.T) {
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	workload := Workload{ID: "guard:robust-outlier", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), InputDigest: "sha256:" + strings.Repeat("b", 64), BootstrapEstimateMS: 100, Shardable: true}
+	makeSample := func(duration int64) DurationSample {
+		sample := testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, duration)
+		sample.AcceptedGeneration = 3
+		return sample
+	}
+	ledger := testPlanningLedger(context, []DurationSample{makeSample(1), makeSample(1), makeSample(1_000)})
+	index, err := BuildDurationSampleIndex(ledger, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := index.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Generation median is 1ms; n=3 shrinks toward the 100ms workload prior: (1*3+100*2)/5.
+	if got != 40 {
+		t.Fatalf("robust outlier estimate = %d, want 40", got)
+	}
+	permuted := testPlanningLedger(context, []DurationSample{makeSample(1_000), makeSample(1), makeSample(1)})
+	permutedIndex, err := BuildDurationSampleIndex(permuted, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permutedGot, err := permutedIndex.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if permutedGot != got {
+		t.Fatalf("permutation changed estimate: got %d want %d", permutedGot, got)
+	}
+}
+
+func TestDurationEstimatorV2WeightsLatestGenerationAndRetainsFailureDiagnostics(t *testing.T) {
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	workload := Workload{ID: "guard:generation-weight", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("c", 64), InputDigest: "sha256:" + strings.Repeat("d", 64), BootstrapEstimateMS: 100, Shardable: true}
+	sample := func(generation uint64, duration int64, succeeded bool) DurationSample {
+		result := testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, duration)
+		result.AcceptedGeneration, result.Succeeded = generation, succeeded
+		return result
+	}
+	index, err := BuildDurationSampleIndex(testPlanningLedger(context, []DurationSample{
+		sample(1, 1, true), sample(2, 10, true), sample(3, 100, true), sample(3, 200, false),
+	}), context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := index.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 100 {
+		t.Fatalf("weighted latest-generation estimate = %d, want 100", got)
+	}
+	if gotFailures := index.FailureDiagnostics(workload); len(gotFailures) != 1 || gotFailures[0].DurationMS != 200 {
+		t.Fatalf("failure diagnostics = %#v, want one 200ms failure", gotFailures)
+	}
+	if len(index.AcceptedGenerations) != 3 || index.AcceptedGenerations[0] != 3 {
+		t.Fatalf("accepted generations = %v, want [3 2 1]", index.AcceptedGenerations)
+	}
+}
+
+func TestDurationEstimatorV2SparseNewestGenerationShrinksSinglePoint(t *testing.T) {
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	workload := Workload{ID: "guard:sparse-newest", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("e", 64), InputDigest: "sha256:" + strings.Repeat("f", 64), BootstrapEstimateMS: 100, Shardable: true}
+	sample := func(generation uint64, durationMS int64) DurationSample {
+		result := testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, durationMS)
+		result.AcceptedGeneration = generation
+		return result
+	}
+	samples := []DurationSample{sample(3, 1_000)}
+	for range 5 {
+		samples = append(samples, sample(2, 100))
+	}
+	index, err := BuildDurationSampleIndex(testPlanningLedger(context, samples), context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := index.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 280 {
+		t.Fatalf("sparse newest estimate = %d, want 280 after confidence shrink", got)
+	}
+}

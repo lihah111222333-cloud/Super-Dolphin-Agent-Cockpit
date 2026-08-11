@@ -239,7 +239,7 @@ func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 	assertRemoteRunBaselineProjection(t, input, state)
 }
 
-func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *testing.T) {
+func TestResolveRemoteCandidateGateIdentityUsesExactCLIClosure(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
 	mainPath := filepath.Join(repository, "cmd", "super-dolphin-gate", "main.go")
 	if err := os.WriteFile(mainPath, []byte("package main\n\nfunc main() { println(\"candidate\") }\n"), 0o600); err != nil {
@@ -248,16 +248,12 @@ func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *test
 	runRemoteRunGit(t, repository, "add", "cmd/super-dolphin-gate/main.go")
 	runRemoteRunGit(t, repository, "commit", "--quiet", "-m", "修改候选 CLI")
 	state := remoteRunBaselineState(t, repository)
-	input, err := resolveRemoteRunInput(remoteRunOptions{
-		RepositoryRoot: repository,
-		Commit:         "HEAD",
-		Scenario:       "commit",
-		LedgerPath:     writeRemoteRunLedgerFixture(t),
-	}, state, remoteRunRunnerIdentity(state))
+	canonicalRepository, err := filepath.EvalSymlinks(repository)
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonicalRepository, err := filepath.EvalSymlinks(repository)
+	candidateTree := remoteRunGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
+	candidateSource, _, err := resolveRemoteCandidateGateIdentity(canonicalRepository, candidateTree)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +261,7 @@ func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if input.CandidateGateSourceSHA256 == baselineSource {
+	if candidateSource == baselineSource {
 		t.Fatal("candidate gate closure change kept the baseline source digest")
 	}
 }

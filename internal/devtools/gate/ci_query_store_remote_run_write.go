@@ -71,6 +71,9 @@ func writeSQLiteRemoteCIRunCoreProjection(transaction *sql.Tx, record RemoteCIRu
 	if err := insertSQLiteRemoteCIRunAgentIdentity(transaction, record); err != nil {
 		return err
 	}
+	if err := insertSQLiteRemoteCIExecutionScope(transaction, record); err != nil {
+		return err
+	}
 	if err := verifySQLiteRemoteCIRunIdentity(transaction, record); err != nil {
 		return fmt.Errorf("read back remote CI agent identity: %w", err)
 	}
