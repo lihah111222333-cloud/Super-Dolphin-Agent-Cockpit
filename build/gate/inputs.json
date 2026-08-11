@@ -149,6 +149,7 @@
     "cmd/mcp-lsp/lsp_binary_resource_cohort_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_shell_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_sql_auto_install_e2e_test.go",
+    "cmd/mcp-lsp/lsp_binary_workspace_symbol_refresh_e2e_test.go",
     "cmd/mcp-lsp/main.go",
     "cmd/mcp-lsp/main_logging_test.go",
     "cmd/mcp-lsp/manager/go_work_e2e_test.go",
@@ -217,6 +218,12 @@
     "cmd/mcp-lsp/multilsp/manager_diagnostics_deadline_test.go",
     "cmd/mcp-lsp/multilsp/manager_diagnostics_readiness.go",
     "cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go",
+    "cmd/mcp-lsp/multilsp/manager_document_lifecycle.go",
+    "cmd/mcp-lsp/multilsp/manager_document_operations.go",
+    "cmd/mcp-lsp/multilsp/manager_exact_recipient_test.go",
+    "cmd/mcp-lsp/multilsp/manager_explicit_capacity.go",
+    "cmd/mcp-lsp/multilsp/manager_explicit_documents.go",
+    "cmd/mcp-lsp/multilsp/manager_language_bootstrap_lifecycle.go",
     "cmd/mcp-lsp/multilsp/manager_lifecycle.go",
     "cmd/mcp-lsp/multilsp/manager_lifecycle_test.go",
     "cmd/mcp-lsp/multilsp/manager_provisional_cleanup.go",
@@ -229,6 +236,7 @@
     "cmd/mcp-lsp/multilsp/manager_symbols_fallback_large_yaml_test.go",
     "cmd/mcp-lsp/multilsp/manager_symbols_references_retry_test.go",
     "cmd/mcp-lsp/multilsp/manager_symbols_retry.go",
+    "cmd/mcp-lsp/multilsp/manager_workspace_symbol_sync_test.go",
     "cmd/mcp-lsp/multilsp/mql_clangd.go",
     "cmd/mcp-lsp/multilsp/mql_clangd_test.go",
     "cmd/mcp-lsp/multilsp/multi_cwd_e2e_assertions_test.go",
@@ -1128,6 +1136,7 @@
     "frontend-app/src/entities/client/model/helpers/a1/clientStoreThreadModel.test.js",
     "frontend-app/src/entities/client/model/helpers/a1/clientStoreUtils.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/composerSliceActions.js",
+    "frontend-app/src/entities/client/model/helpers/a2Slice/composerSliceActions.test.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/forkSliceActions.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/projectSliceActions.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/projectSliceActions.test.js",
@@ -4897,6 +4906,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6561,
-  "source_snapshot_paths_sha256": "sha256:7994e7978e51523c4e649d08941e87b01cef37cde81ef53af6b03016912525be"
+  "source_snapshot_input_count": 6570,
+  "source_snapshot_paths_sha256": "sha256:447a81ba51b9b5d657960c65ddc82b2e60822abf0828297bf7eab4f9678a6099"
 }

@@ -160,6 +160,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		cleanupErr := m.cleanupProvisionalClient(cfg.key, generation, client, true)
 		return existing, joinProvisionalClientError(nil, cleanupErr)
 	}
+	attempt := newWorkspaceBootstrapAttempt(ctx)
 	m.workspaces[cfg.key] = &workspaceClient{
 		key:              cfg.key,
 		rootPath:         cfg.rootPath,
@@ -171,7 +172,12 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		client:           client,
 		generation:       generation,
 		state:            workspaceStateBootstrapping,
+		bootstrapAttempt: attempt,
 	}
+	if m.bootstrapAttempts == nil {
+		m.bootstrapAttempts = make(map[*workspaceBootstrapAttempt]struct{})
+	}
+	m.bootstrapAttempts[attempt] = struct{}{}
 	m.mu.Unlock()
 	return client, nil
 }

@@ -134,6 +134,39 @@ func TestWaitDiagnosticsStableDoesNotApplyStableDeadlineToInitialPullDiagnostics
 	}
 }
 
+func TestInternalBootstrapStillWaitsForDiagnosticsWhileDirectOpenSkips(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"diagnostics-bootstrap-origin"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "export const value = 1\n")
+	factory := &strictWorkspaceSymbolFactory{}
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          time.Millisecond,
+		DiagnosticsMaxWait:               20 * time.Millisecond,
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx, cancel := diagnosticsDeadlineContext(root, 250*time.Millisecond)
+	defer cancel()
+	ref, err := mgr.resolveDocumentRef(ctx, target, "javascript")
+	if err != nil {
+		t.Fatalf("resolve diagnostics origin fixture: %v", err)
+	}
+	if err := mgr.BootstrapDocument(ctx, target); err != nil {
+		t.Fatalf("internal BootstrapDocument: %v", err)
+	}
+	if err := mgr.waitDocumentDiagnosticsReady(ctx, ref); !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+		t.Fatalf("internal bootstrap diagnostics wait error = %v, want ErrDiagnosticsNotReady", err)
+	}
+	if err := mgr.DidOpen(ctx, ref.uri, ref.languageID, 2, "export const value = 2\n"); err != nil {
+		t.Fatalf("direct DidOpen after bootstrap: %v", err)
+	}
+	if err := mgr.waitDocumentDiagnosticsReady(ctx, ref); err != nil {
+		t.Fatalf("direct user-opened document should skip diagnostics wait: %v", err)
+	}
+}
+
 func diagnosticsDeadlineContext(root string, timeout time.Duration) (context.Context, context.CancelFunc) {
 	scope := common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}
 	return context.WithTimeout(common.WithToolScope(context.Background(), scope), timeout)

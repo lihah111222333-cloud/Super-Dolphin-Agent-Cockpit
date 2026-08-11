@@ -56,6 +56,44 @@ func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
 	}
 }
 
+func TestNewManagerPackagedRegistersMQLAliasesWithBundledClangd(t *testing.T) {
+	declareTestDependencyBootstrap(t)
+	root := t.TempDir()
+	bundle := t.TempDir()
+	writeMcpLSPBundleManifest(t, bundle, `{
+  "servers": {
+    "clangd": {"path": "bin/clangd", "languages": ["c", "cpp", "objective-c", "objective-cpp", "mql", "mql4", "mql5", "mq4", "mq5", "mqh"]}
+  }
+}
+`)
+	writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), "clangd")
+	t.Setenv("GO_AGENT_LSP_ROOT", root)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", bundle)
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(bundle, "manifest.json"))
+	t.Setenv("PATH", t.TempDir())
+
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platform config: %v", err)
+	}
+	mgr, err := newManager(cfg)
+	if err != nil {
+		t.Fatalf("newManager() error = %v", err)
+	}
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, Family: "lsp"})
+	for _, languageID := range []string{"c", "cpp", "objective-c", "objective-cpp", "mql", "mql4", "mql5", "mq4", "mq5", "mqh"} {
+		if _, err := mgr.registry.GetManagerForLanguage(ctx, languageID); err != nil {
+			t.Fatalf("bundled %s manager error = %v", languageID, err)
+		}
+	}
+}
+
 func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T) {
 	declareTestDependencyBootstrap(t)
 	root := t.TempDir()
@@ -63,6 +101,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 	writeMcpLSPBundleManifest(t, bundle, `{
   "servers": {
     "gopls": {"path": "bin/gopls", "languages": ["go", "gomod", "gosum", "gowork"]},
+    "clangd": {"path": "bin/clangd", "languages": ["c", "cpp", "objective-c", "objective-cpp", "mql", "mql4", "mql5", "mq4", "mq5", "mqh"]},
     "typescript-language-server": {"path": "bin/typescript-language-server", "languages": ["javascript", "javascriptreact", "typescript", "typescriptreact"]},
     "vscode-langservers-extracted": {"path": "bin/vscode-css-language-server", "languages": ["css"]},
     "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
@@ -74,6 +113,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 `)
 	for _, name := range []string{
 		"gopls",
+		"clangd",
 		"typescript-language-server",
 		"vscode-css-language-server",
 		"pyright-langserver",
@@ -104,19 +144,11 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, Family: "lsp"})
 	for _, languageID := range []string{
-		"go",
-		"gomod",
-		"gosum",
-		"gowork",
-		"javascript",
-		"javascriptreact",
-		"typescript",
-		"typescriptreact",
-		"css",
-		"python",
-		"rust",
-		"shellscript",
-		"sql",
+		"go", "gomod", "gosum", "gowork",
+		"c", "cpp", "objective-c", "objective-cpp",
+		"mql", "mql4", "mql5", "mq4", "mq5", "mqh",
+		"javascript", "javascriptreact", "typescript", "typescriptreact",
+		"css", "python", "rust", "shellscript", "sql",
 	} {
 		if _, err := mgr.registry.GetManagerForLanguage(ctx, languageID); err != nil {
 			t.Fatalf("bundled %s manager error = %v", languageID, err)

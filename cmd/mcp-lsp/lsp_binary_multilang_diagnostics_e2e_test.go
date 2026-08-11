@@ -165,6 +165,7 @@ func binaryColdStartLanguageCases(t *testing.T) []binaryColdStartLanguageCase {
 		{languageID: "objective-cpp", write: writeBinaryColdStartObjectiveCPPFixture},
 		{languageID: "php", write: writeBinaryColdStartPHPFixture},
 		{languageID: "prisma", write: writeBinaryColdStartPrismaFixture},
+		{languageID: "proto", write: writeBinaryColdStartProtoFixture},
 		{languageID: "python", write: writeBinaryColdStartPythonFixture},
 		{languageID: "ruby", write: writeBinaryColdStartRubyFixture},
 		{languageID: "rust", write: writeBinaryColdStartRustFixture},
@@ -220,6 +221,7 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 		" -test.run=TestFakeMultilangDiagnosticsLangserverHelper -- \"$@\"\n"
 	for _, name := range []string{
 		"bash-language-server",
+		"buf",
 		"clangd",
 		"csharp-ls",
 		"dart",
@@ -288,10 +290,12 @@ type fakeMultilangDiagnosticsServer struct {
 	mu     sync.Mutex
 	writer *fakeLSPWriter
 	opened map[string]fakeMultilangOpenedDocument
+	events []string
 }
 
 type fakeMultilangOpenedDocument struct {
 	languageID string
+	version    int
 	text       string
 }
 
@@ -299,6 +303,7 @@ type fakeMultilangDidOpenParams struct {
 	TextDocument struct {
 		URI        string `json:"uri"`
 		LanguageID string `json:"languageId"`
+		Version    int    `json:"version"`
 		Text       string `json:"text"`
 	} `json:"textDocument"`
 }
@@ -307,6 +312,18 @@ type fakeMultilangDidCloseParams struct {
 	TextDocument struct {
 		URI string `json:"uri"`
 	} `json:"textDocument"`
+}
+
+type fakeMultilangDidChangeParams struct {
+	TextDocument struct {
+		URI     string `json:"uri"`
+		Version int    `json:"version"`
+	} `json:"textDocument"`
+	ContentChanges []struct {
+		Range       json.RawMessage `json:"range"`
+		RangeLength *int            `json:"rangeLength"`
+		Text        string          `json:"text"`
+	} `json:"contentChanges"`
 }
 
 type fakeMultilangDiagnosticParams struct {
@@ -319,36 +336,74 @@ func (s *fakeMultilangDiagnosticsServer) handleNotification(req fakeLSPRequest) 
 	if len(bytes.TrimSpace(req.ID)) != 0 {
 		return false
 	}
-	if req.Method == "textDocument/didClose" {
-		var params fakeMultilangDidCloseParams
-		if err := json.Unmarshal(req.Params, &params); err == nil {
-			s.mu.Lock()
-			delete(s.opened, strings.TrimSpace(params.TextDocument.URI))
-			s.mu.Unlock()
-		}
-		return true
+	switch req.Method {
+	case "textDocument/didClose":
+		s.handleDidClose(req.Params)
+	case "textDocument/didChange":
+		s.handleDidChange(req.Params)
+	case "textDocument/didOpen":
+		s.handleDidOpen(req.Params)
 	}
-	if req.Method != "textDocument/didOpen" {
-		return true
+	return true
+}
+
+func (s *fakeMultilangDiagnosticsServer) handleDidClose(raw json.RawMessage) {
+	var params fakeMultilangDidCloseParams
+	if err := json.Unmarshal(raw, &params); err != nil {
+		fakeMultilangProtocolViolation("decode didClose: %v", err)
 	}
+	uri := strings.TrimSpace(params.TextDocument.URI)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.opened, uri)
+	s.events = append(s.events, "close:"+uri)
+}
+
+func (s *fakeMultilangDiagnosticsServer) handleDidChange(raw json.RawMessage) {
+	var params fakeMultilangDidChangeParams
+	if err := json.Unmarshal(raw, &params); err != nil {
+		fakeMultilangProtocolViolation("decode didChange: %v", err)
+	}
+	if len(params.ContentChanges) != 1 || len(bytes.TrimSpace(params.ContentChanges[0].Range)) != 0 || params.ContentChanges[0].RangeLength != nil {
+		fakeMultilangProtocolViolation("didChange must contain one full-document change")
+	}
+	uri := strings.TrimSpace(params.TextDocument.URI)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	document, ok := s.opened[uri]
+	if !ok {
+		fakeMultilangProtocolViolation("didChange for unopened URI %s", uri)
+	}
+	if params.TextDocument.Version <= document.version {
+		fakeMultilangProtocolViolation("non-monotonic didChange for %s: %d <= %d", uri, params.TextDocument.Version, document.version)
+	}
+	document.version = params.TextDocument.Version
+	document.text = params.ContentChanges[0].Text
+	s.opened[uri] = document
+	s.events = append(s.events, fmt.Sprintf("change:%s:%d", uri, document.version))
+}
+
+func (s *fakeMultilangDiagnosticsServer) handleDidOpen(raw json.RawMessage) {
 	var params fakeMultilangDidOpenParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return true
+	if err := json.Unmarshal(raw, &params); err != nil {
+		fakeMultilangProtocolViolation("decode didOpen: %v", err)
 	}
 	uri := strings.TrimSpace(params.TextDocument.URI)
 	languageID := strings.TrimSpace(params.TextDocument.LanguageID)
 	if uri == "" || languageID == "" {
-		return true
+		fakeMultilangProtocolViolation("didOpen requires URI and languageId")
 	}
 	s.mu.Lock()
-	if _, alreadyOpen := s.opened[uri]; !alreadyOpen {
-		s.opened[uri] = fakeMultilangOpenedDocument{
-			languageID: languageID,
-			text:       params.TextDocument.Text,
-		}
+	defer s.mu.Unlock()
+	if document, alreadyOpen := s.opened[uri]; alreadyOpen {
+		fakeMultilangProtocolViolation("duplicate didOpen for %s at version %d; current version %d", uri, params.TextDocument.Version, document.version)
 	}
-	s.mu.Unlock()
-	return true
+	s.opened[uri] = fakeMultilangOpenedDocument{
+		languageID: languageID,
+		version:    params.TextDocument.Version,
+		text:       params.TextDocument.Text,
+	}
+	s.events = append(s.events, fmt.Sprintf("open:%s:%d", uri, params.TextDocument.Version))
 }
 
 func (s *fakeMultilangDiagnosticsServer) result(req fakeLSPRequest) any {
@@ -356,7 +411,8 @@ func (s *fakeMultilangDiagnosticsServer) result(req fakeLSPRequest) any {
 	case "initialize":
 		return map[string]any{
 			"capabilities": map[string]any{
-				"textDocumentSync": 1,
+				"textDocumentSync":        1,
+				"workspaceSymbolProvider": true,
 				"diagnosticProvider": map[string]any{
 					"interFileDependencies": true,
 					"workspaceDiagnostics":  false,
@@ -372,11 +428,49 @@ func (s *fakeMultilangDiagnosticsServer) result(req fakeLSPRequest) any {
 			"kind":  "full",
 			"items": fakeMultilangDiagnostics(uri, document),
 		}
+	case "workspace/symbol":
+		return s.workspaceSymbols(req)
 	case "shutdown":
 		return nil
 	default:
 		return nil
 	}
+}
+
+func (s *fakeMultilangDiagnosticsServer) workspaceSymbols(req fakeLSPRequest) []map[string]any {
+	var params struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		fakeMultilangProtocolViolation("decode workspace/symbol: %v", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, "request:"+params.Query)
+	result := make([]map[string]any, 0, len(s.opened))
+	for uri, document := range s.opened {
+		name := staleWorkspaceSymbolName(document.languageID)
+		if strings.Contains(document.text, freshWorkspaceSymbolName(document.languageID)) {
+			name = freshWorkspaceSymbolName(document.languageID)
+		}
+		if !strings.Contains(name, params.Query) {
+			continue
+		}
+		result = append(result, map[string]any{
+			"name": name,
+			"kind": 13,
+			"location": map[string]any{
+				"uri":   uri,
+				"range": map[string]any{"start": map[string]int{"line": 0, "character": 0}, "end": map[string]int{"line": 0, "character": len(name)}},
+			},
+		})
+	}
+	return result
+}
+
+func fakeMultilangProtocolViolation(format string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stderr, "fake multilang LSP protocol violation: "+format+"\n", args...)
+	os.Exit(3)
 }
 
 func (s *fakeMultilangDiagnosticsServer) diagnosticTarget(req fakeLSPRequest) (string, fakeMultilangOpenedDocument) {
@@ -544,6 +638,11 @@ func writeBinaryColdStartPrismaFixture(t *testing.T, root string) string {
 	t.Helper()
 	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-prisma"}`)
 	return writeBinaryColdStartFile(t, root, "schema.prisma", "datasource db { provider = \"sqlite\" url = \"file:dev.db\" }\n")
+}
+
+func writeBinaryColdStartProtoFixture(t *testing.T, root string) string {
+	t.Helper()
+	return writeBinaryColdStartFile(t, root, "proto/example.proto", "syntax = \"proto3\";\nmessage Example {}\n")
 }
 
 func writeBinaryColdStartGoFixture(t *testing.T, root string) string {

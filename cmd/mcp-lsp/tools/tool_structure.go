@@ -159,7 +159,7 @@ func runDocumentSymbols(
 	return resp, nil
 }
 
-// runWorkspaceSymbols 运行 workspace_symbol；传 file_path 时先 bootstrap 目标文件。
+// runWorkspaceSymbols 直接委托 manager；capability 与 managed-document 同步必须由同一 owner 原子裁决。
 func runWorkspaceSymbols(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -177,9 +177,6 @@ func runWorkspaceSymbols(
 		return nil, errManagerUnavailable
 	}
 	limit := format.WorkspaceSymbolLimit(req.MaxResults, format.VerbosityCompact)
-	if err := bootstrapWorkspaceSymbolTarget(ctx, manager, req.FilePath); err != nil {
-		return nil, err
-	}
 	results, err := manager.WorkspaceSymbol(ctx, query, languageID)
 	if isUnsupportedCapability(err) {
 		return unsupportedCapabilityEmptyResult("workspace symbol", languageID), nil
@@ -201,18 +198,6 @@ func runWorkspaceSymbols(
 		total,
 		"next: increase max_results or narrow query/language",
 	), nil
-}
-
-// bootstrapWorkspaceSymbolTarget 在 workspace_symbol 前打开目标文件，帮助语言服务建立项目上下文。
-func bootstrapWorkspaceSymbolTarget(ctx context.Context, manager lspmanager.Manager, filePath string) error {
-	if strings.TrimSpace(filePath) == "" {
-		return nil
-	}
-	resolved, err := resolveFilePath(ctx, filePath)
-	if err != nil {
-		return err
-	}
-	return manager.BootstrapDocument(ctx, resolved)
 }
 
 // runFoldingRanges 返回文件折叠范围，供调用方理解大文件结构。

@@ -3,6 +3,8 @@ package multilsp
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -63,6 +65,377 @@ type lockProbeShutdownClient struct {
 	lockAvailable chan<- bool
 	hasDeadline   chan<- bool
 	closed        int
+}
+
+func TestManagerCloseWaitsForDetachedBootstrapAbortCleanup(t *testing.T) {
+	root := t.TempDir()
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"abort-barrier"}`)
+	writeGenericTestFile(t, filepath.Join(root, "app.js"), "const value = 1\n")
+	didOpenErr := errors.New("bootstrap didOpen failed")
+	closeErr := errors.New("bootstrap abort close failed")
+	client := &detachedBootstrapAbortClient{
+		didOpenErr: didOpenErr,
+		closeErr:   closeErr,
+		closeStart: make(chan struct{}),
+		closeAllow: make(chan struct{}),
+	}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root,
+		ClientFactory: ClientFactoryFunc(func(string, protocol.NotificationHandler) (Client, error) {
+			return client, nil
+		}),
+	}).(*manager)
+	ctx := ctxWithCWD(root, "agent-abort-barrier", "thread-abort-barrier")
+	ensureDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.detachedBootstrapAbort.ensure", func(context.Context) {
+		_, err := mgr.EnsureClient(ctx, "", "javascript")
+		ensureDone <- err
+	})
+	waitForDetachedBootstrapClose(t, client.closeStart, ensureDone)
+	closeDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.detachedBootstrapAbort.close", func(context.Context) {
+		closeDone <- mgr.Close()
+	})
+	assertManagerCloseBlocked(t, closeDone)
+	close(client.closeAllow)
+	assertDetachedBootstrapAbortResults(t, <-ensureDone, <-closeDone, didOpenErr, closeErr)
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	if len(mgr.workspaces) != 0 || len(mgr.bootstrapAttempts) != 0 {
+		t.Fatalf("closed manager retained workspace=%d attempts=%d", len(mgr.workspaces), len(mgr.bootstrapAttempts))
+	}
+}
+
+func TestManagerCloseCancelsLanguageBootstrapBeforeWaitingForClientClose(t *testing.T) {
+	root := t.TempDir()
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"close-cancels-bootstrap"}`)
+	writeGenericTestFile(t, filepath.Join(root, "app.js"), "const value = 1\n")
+	client := &closeCanceledBootstrapClient{
+		openStarted: make(chan struct{}), contextCanceled: make(chan struct{}), closeCalled: make(chan struct{}),
+	}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root,
+		ClientFactory: ClientFactoryFunc(func(string, protocol.NotificationHandler) (Client, error) {
+			return client, nil
+		}),
+	}).(*manager)
+	ctx := ctxWithCWD(root, "agent-close-cancel", "thread-close-cancel")
+	ensureDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.closeCancelsBootstrap.ensure", func(context.Context) {
+		_, err := mgr.EnsureClient(ctx, "", "javascript")
+		ensureDone <- err
+	})
+	waitForProvisionalSignal(t, client.openStarted, "language bootstrap DidOpen")
+	closeDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.closeCancelsBootstrap.close", func(context.Context) {
+		closeDone <- mgr.Close()
+	})
+	waitForProvisionalSignal(t, client.contextCanceled, "bootstrap lifecycle cancellation")
+	if err := <-ensureDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("EnsureClient error = %v, want context canceled", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("Manager.Close: %v", err)
+	}
+	waitForProvisionalSignal(t, client.closeCalled, "bootstrap client Close")
+}
+
+func TestIncrementalDidChangeRejectsVersionConsumedByWorkspaceSync(t *testing.T) {
+	root, target, initial := writeWorkspaceSymbolSyncFixture(t, "incremental.js", "function InitialSymbol() {}\n")
+	factory := &strictWorkspaceSymbolFactory{}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root, ClientFactory: factory, DisableInitialWorkspaceBootstrap: true,
+	}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	ctx := workspaceSymbolSyncContext(t, root, target, "javascript", true)
+	if err := mgr.DidOpen(ctx, target, "javascript", 1, initial); err != nil {
+		t.Fatalf("DidOpen: %v", err)
+	}
+	writeGenericTestFile(t, target, "function FreshSymbol() {}\n")
+	if _, err := mgr.WorkspaceSymbol(ctx, "FreshSymbol", "javascript"); err != nil {
+		t.Fatalf("WorkspaceSymbol: %v", err)
+	}
+	client := factory.clientContainingURI(t, fileURIFromPath(target))
+	before := client.notificationCount()
+	rng := protocol.Range{End: protocol.Position{Character: 1}}
+	err := mgr.DidChange(ctx, target, 2, []protocol.TextDocumentContentChangeEvent{{Range: &rng, Text: "x"}})
+	if err == nil || !strings.Contains(err.Error(), "incremental change version 2") {
+		t.Fatalf("stale incremental DidChange error = %v", err)
+	}
+	if got := client.notificationCount(); got != before {
+		t.Fatalf("stale incremental DidChange notifications = %d, want unchanged %d", got, before)
+	}
+}
+
+func TestColdFileWorkspaceSymbolPublishesOnlyAfterTargetBootstrap(t *testing.T) {
+	root, target, _ := writeWorkspaceSymbolSyncFixture(t, "target.js", "function TargetSymbol() {}\n")
+	openErr := errors.New("target bootstrap failed")
+	client := &targetBootstrapFailureClient{
+		openStarted: make(chan struct{}), openRelease: make(chan struct{}), openErr: openErr,
+	}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root,
+		ClientFactory: ClientFactoryFunc(func(string, protocol.NotificationHandler) (Client, error) {
+			return client, nil
+		}),
+	}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	ctx := workspaceSymbolSyncContext(t, root, target, "javascript", true)
+	workspaceDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.targetBootstrap.workspaceSymbol", func(context.Context) {
+		_, err := mgr.WorkspaceSymbol(ctx, "TargetSymbol", "javascript")
+		workspaceDone <- err
+	})
+	select {
+	case <-client.openStarted:
+	case <-time.After(time.Second):
+		t.Fatal("workspace symbol did not reach exact target bootstrap")
+	}
+	ensureDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.targetBootstrap.ensure", func(context.Context) {
+		_, err := mgr.EnsureClient(ctx, target, "javascript")
+		ensureDone <- err
+	})
+	assertErrorResultBlocked(t, ensureDone, "EnsureClient returned before exact target bootstrap")
+	close(client.openRelease)
+	assertTargetBootstrapFailure(t, <-workspaceDone, <-ensureDone, openErr, client)
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	if len(mgr.workspaces) != 0 || len(mgr.bootstrapAttempts) != 0 {
+		t.Fatalf("failed target bootstrap retained workspace=%d attempts=%d", len(mgr.workspaces), len(mgr.bootstrapAttempts))
+	}
+}
+
+func TestDidCloseBeforeFileWorkspaceSymbolBootstrapPreventsReopen(t *testing.T) {
+	root, target, _ := writeWorkspaceSymbolSyncFixture(t, "closed-before-bootstrap.js", "function ClosedSymbol() {}\n")
+	client := &blockingSupportedCapabilityClient{entered: make(chan struct{}), release: make(chan struct{})}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root, DisableInitialWorkspaceBootstrap: true,
+		ClientFactory: ClientFactoryFunc(func(string, protocol.NotificationHandler) (Client, error) {
+			return client, nil
+		}),
+	}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	ctx := workspaceSymbolSyncContext(t, root, target, "javascript", true)
+	if _, err := mgr.EnsureClient(ctx, target, "javascript"); err != nil {
+		t.Fatalf("prepare active client: %v", err)
+	}
+	workspaceDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.closeBeforeTargetBootstrap.workspaceSymbol", func(context.Context) {
+		_, err := mgr.WorkspaceSymbol(ctx, "ClosedSymbol", "javascript")
+		workspaceDone <- err
+	})
+	select {
+	case <-client.entered:
+	case <-time.After(time.Second):
+		t.Fatal("workspace symbol did not reach capability barrier")
+	}
+	if err := mgr.DidClose(ctx, target); err != nil {
+		t.Fatalf("DidClose before target bootstrap: %v", err)
+	}
+	close(client.release)
+	if err := <-workspaceDone; err != nil {
+		t.Fatalf("WorkspaceSymbol after prior DidClose: %v", err)
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.didOpenCalls != 0 {
+		t.Fatalf("target resurrected after DidClose: DidOpen calls=%d", client.didOpenCalls)
+	}
+}
+
+func TestManagedDidCloseDuringFileWorkspaceSymbolCapabilityCheckPreventsReopen(t *testing.T) {
+	root, target, text := writeWorkspaceSymbolSyncFixture(t, "managed-close-before-bootstrap.js", "function ManagedClosedSymbol() {}\n")
+	client := &blockingSupportedCapabilityClient{entered: make(chan struct{}), release: make(chan struct{})}
+	mgr := NewManager(Config{
+		WorkspaceRoot: root, DisableInitialWorkspaceBootstrap: true,
+		ClientFactory: ClientFactoryFunc(func(string, protocol.NotificationHandler) (Client, error) {
+			return client, nil
+		}),
+	}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	ctx := workspaceSymbolSyncContext(t, root, target, "javascript", true)
+	uri := fileURIFromPath(target)
+	if err := mgr.DidOpen(ctx, uri, "javascript", 1, text); err != nil {
+		t.Fatalf("DidOpen managed target: %v", err)
+	}
+
+	workspaceDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "multilsp.managedCloseBeforeTargetBootstrap.workspaceSymbol", func(context.Context) {
+		_, err := mgr.WorkspaceSymbol(ctx, "ManagedClosedSymbol", "javascript")
+		workspaceDone <- err
+	})
+	select {
+	case <-client.entered:
+	case <-time.After(time.Second):
+		t.Fatal("workspace symbol did not reach capability barrier")
+	}
+	if err := mgr.DidClose(ctx, uri); err != nil {
+		t.Fatalf("DidClose managed target before bootstrap: %v", err)
+	}
+	close(client.release)
+	if err := <-workspaceDone; err != nil {
+		t.Fatalf("WorkspaceSymbol after managed DidClose: %v", err)
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.didOpenCalls != 1 {
+		t.Fatalf("managed target reopened after DidClose: DidOpen calls=%d, want initial open only", client.didOpenCalls)
+	}
+}
+
+func assertErrorResultBlocked(t *testing.T, done <-chan error, message string) {
+	t.Helper()
+	select {
+	case err := <-done:
+		t.Fatalf("%s: %v", message, err)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func assertTargetBootstrapFailure(t *testing.T, workspaceErr, ensureErr, want error, client *targetBootstrapFailureClient) {
+	t.Helper()
+	if !errors.Is(workspaceErr, want) || !errors.Is(ensureErr, want) {
+		t.Fatalf("target bootstrap errors = workspace(%v) ensure(%v), want %v", workspaceErr, ensureErr, want)
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.closeCalls != 1 {
+		t.Fatalf("target bootstrap abort Close calls = %d, want 1", client.closeCalls)
+	}
+}
+
+type targetBootstrapFailureClient struct {
+	noopClient
+	mu          sync.Mutex
+	openStarted chan struct{}
+	openRelease chan struct{}
+	openErr     error
+	openOnce    sync.Once
+	closeCalls  int
+}
+
+type blockingSupportedCapabilityClient struct {
+	noopClient
+	mu           sync.Mutex
+	entered      chan struct{}
+	release      chan struct{}
+	once         sync.Once
+	didOpenCalls int
+}
+
+func (c *blockingSupportedCapabilityClient) ServerCapabilities() protocol.ServerCapabilities {
+	c.once.Do(func() { close(c.entered) })
+	<-c.release
+	return protocol.ServerCapabilities{WorkspaceSymbolProvider: true}
+}
+
+func (c *blockingSupportedCapabilityClient) DidOpen(context.Context, string, string, int, string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.didOpenCalls++
+	return nil
+}
+
+func (c *targetBootstrapFailureClient) ServerCapabilities() protocol.ServerCapabilities {
+	return protocol.ServerCapabilities{WorkspaceSymbolProvider: true}
+}
+
+func (c *targetBootstrapFailureClient) DidOpen(context.Context, string, string, int, string) error {
+	c.openOnce.Do(func() { close(c.openStarted) })
+	<-c.openRelease
+	return c.openErr
+}
+
+func (c *targetBootstrapFailureClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closeCalls++
+	return nil
+}
+
+func waitForDetachedBootstrapClose(t *testing.T, closeStart <-chan struct{}, ensureDone <-chan error) {
+	t.Helper()
+	select {
+	case <-closeStart:
+	case err := <-ensureDone:
+		t.Fatalf("EnsureClient returned before detached Close: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("bootstrap abort did not reach detached Close")
+	}
+}
+
+func assertManagerCloseBlocked(t *testing.T, closeDone <-chan error) {
+	t.Helper()
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Manager.Close returned before detached bootstrap cleanup finished: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func assertDetachedBootstrapAbortResults(t *testing.T, ensureErr, closeResult, didOpenErr, closeErr error) {
+	t.Helper()
+	if !errors.Is(ensureErr, didOpenErr) || !errors.Is(ensureErr, closeErr) {
+		t.Fatalf("EnsureClient error = %v, want bootstrap and abort Close errors", ensureErr)
+	}
+	if closeResult != nil {
+		t.Fatalf("Manager.Close after cleanup retry: %v", closeResult)
+	}
+}
+
+type detachedBootstrapAbortClient struct {
+	noopClient
+	mu         sync.Mutex
+	didOpenErr error
+	closeErr   error
+	closeStart chan struct{}
+	closeAllow chan struct{}
+	closeCalls int
+	closeOnce  sync.Once
+}
+
+type closeCanceledBootstrapClient struct {
+	noopClient
+	openStarted     chan struct{}
+	contextCanceled chan struct{}
+	closeCalled     chan struct{}
+	openOnce        sync.Once
+	cancelOnce      sync.Once
+	closeOnce       sync.Once
+}
+
+func (c *closeCanceledBootstrapClient) DidOpen(ctx context.Context, _ string, _ string, _ int, _ string) error {
+	c.openOnce.Do(func() { close(c.openStarted) })
+	select {
+	case <-ctx.Done():
+		c.cancelOnce.Do(func() { close(c.contextCanceled) })
+		return ctx.Err()
+	case <-c.closeCalled:
+		return errors.New("client closed before bootstrap context cancellation")
+	}
+}
+
+func (c *closeCanceledBootstrapClient) Close() error {
+	c.closeOnce.Do(func() { close(c.closeCalled) })
+	return nil
+}
+
+func (c *detachedBootstrapAbortClient) DidOpen(context.Context, string, string, int, string) error {
+	return c.didOpenErr
+}
+
+func (c *detachedBootstrapAbortClient) Close() error {
+	c.mu.Lock()
+	c.closeCalls++
+	call := c.closeCalls
+	c.mu.Unlock()
+	if call != 1 {
+		return nil
+	}
+	c.closeOnce.Do(func() { close(c.closeStart) })
+	<-c.closeAllow
+	return c.closeErr
 }
 
 func (c *lockProbeShutdownClient) Shutdown(ctx context.Context) error {
@@ -216,7 +589,7 @@ func TestCreateAndRegisterClientRetainsDiscardedExistingClientCleanup(t *testing
 	}
 	mgr := &manager{
 		instanceID: "test-lifecycle-discard-manager",
-		factory: ClientFactoryFunc(factory.newClient),
+		factory:    ClientFactoryFunc(factory.newClient),
 		workspaces: map[string]*workspaceClient{
 			cfg.key: {key: cfg.key, client: existing, generation: 1, state: workspaceStateActive},
 		},

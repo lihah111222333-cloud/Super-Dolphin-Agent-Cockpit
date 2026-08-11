@@ -2483,6 +2483,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -2632,6 +2633,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -3977,6 +3979,7 @@
         "internal/provider/codexapp.appServerProcessInfo",
         "internal/provider/codexapp.appendDreamRuntimePolicyArgs",
         "internal/provider/codexapp.appendProviderRuntimeError",
+        "internal/provider/codexapp.applyCodexNestedTerminalMetadata",
         "internal/provider/codexapp.applyMcpLSPPeerWorkspaceEnv",
         "internal/provider/codexapp.applyResumeNativeToolRuntimePolicy",
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
@@ -4076,6 +4079,7 @@
         "internal/provider/codexapp.codexNativeToolPolicy.ApplyThreadStartParams",
         "internal/provider/codexapp.codexNativeToolPolicyFromConfig",
         "internal/provider/codexapp.codexNativeToolPolicyFromDisabled",
+        "internal/provider/codexapp.codexNestedTerminalEligible",
         "internal/provider/codexapp.codexPathAvailable",
         "internal/provider/codexapp.codexProviderHomeSelection",
         "internal/provider/codexapp.codexReadOnlySandbox",
@@ -4109,6 +4113,7 @@
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
+        "internal/provider/codexapp.completeCodexTurnHandle",
         "internal/provider/codexapp.configuredPeerWorkspaceRoots",
         "internal/provider/codexapp.copyCodexArchiveFile",
         "internal/provider/codexapp.copyCodexExecutable",
@@ -4291,6 +4296,7 @@
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
         "internal/provider/codexapp.normalizeCodexDisabledToolsConfig",
+        "internal/provider/codexapp.normalizeCodexTurnTerminalNotification",
         "internal/provider/codexapp.normalizePeerWorkspaceRoots",
         "internal/provider/codexapp.normalizePoolIdentity",
         "internal/provider/codexapp.normalizePoolSpawnWorkDir",
@@ -4457,6 +4463,7 @@
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
+        "internal/provider/codexapp.strictCodexUnixSeconds",
         "internal/provider/codexapp.stringInSet",
         "internal/provider/codexapp.stringValue",
         "internal/provider/codexapp.stripAgentsMDBlock",
@@ -7537,6 +7544,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -7686,6 +7694,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -9031,6 +9040,7 @@
         "internal/provider/codexapp.appServerProcessInfo",
         "internal/provider/codexapp.appendDreamRuntimePolicyArgs",
         "internal/provider/codexapp.appendProviderRuntimeError",
+        "internal/provider/codexapp.applyCodexNestedTerminalMetadata",
         "internal/provider/codexapp.applyMcpLSPPeerWorkspaceEnv",
         "internal/provider/codexapp.applyResumeNativeToolRuntimePolicy",
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
@@ -9130,6 +9140,7 @@
         "internal/provider/codexapp.codexNativeToolPolicy.ApplyThreadStartParams",
         "internal/provider/codexapp.codexNativeToolPolicyFromConfig",
         "internal/provider/codexapp.codexNativeToolPolicyFromDisabled",
+        "internal/provider/codexapp.codexNestedTerminalEligible",
         "internal/provider/codexapp.codexPathAvailable",
         "internal/provider/codexapp.codexProviderHomeSelection",
         "internal/provider/codexapp.codexReadOnlySandbox",
@@ -9163,6 +9174,7 @@
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
+        "internal/provider/codexapp.completeCodexTurnHandle",
         "internal/provider/codexapp.configuredPeerWorkspaceRoots",
         "internal/provider/codexapp.copyCodexArchiveFile",
         "internal/provider/codexapp.copyCodexExecutable",
@@ -9345,6 +9357,7 @@
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
         "internal/provider/codexapp.normalizeCodexDisabledToolsConfig",
+        "internal/provider/codexapp.normalizeCodexTurnTerminalNotification",
         "internal/provider/codexapp.normalizePeerWorkspaceRoots",
         "internal/provider/codexapp.normalizePoolIdentity",
         "internal/provider/codexapp.normalizePoolSpawnWorkDir",
@@ -9511,6 +9524,7 @@
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
+        "internal/provider/codexapp.strictCodexUnixSeconds",
         "internal/provider/codexapp.stringInSet",
         "internal/provider/codexapp.stringValue",
         "internal/provider/codexapp.stripAgentsMDBlock",
@@ -12591,6 +12605,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -12740,6 +12755,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -14085,6 +14101,7 @@
         "internal/provider/codexapp.appServerProcessInfo",
         "internal/provider/codexapp.appendDreamRuntimePolicyArgs",
         "internal/provider/codexapp.appendProviderRuntimeError",
+        "internal/provider/codexapp.applyCodexNestedTerminalMetadata",
         "internal/provider/codexapp.applyMcpLSPPeerWorkspaceEnv",
         "internal/provider/codexapp.applyResumeNativeToolRuntimePolicy",
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
@@ -14184,6 +14201,7 @@
         "internal/provider/codexapp.codexNativeToolPolicy.ApplyThreadStartParams",
         "internal/provider/codexapp.codexNativeToolPolicyFromConfig",
         "internal/provider/codexapp.codexNativeToolPolicyFromDisabled",
+        "internal/provider/codexapp.codexNestedTerminalEligible",
         "internal/provider/codexapp.codexPathAvailable",
         "internal/provider/codexapp.codexProviderHomeSelection",
         "internal/provider/codexapp.codexReadOnlySandbox",
@@ -14217,6 +14235,7 @@
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
+        "internal/provider/codexapp.completeCodexTurnHandle",
         "internal/provider/codexapp.configuredPeerWorkspaceRoots",
         "internal/provider/codexapp.copyCodexArchiveFile",
         "internal/provider/codexapp.copyCodexExecutable",
@@ -14399,6 +14418,7 @@
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
         "internal/provider/codexapp.normalizeCodexDisabledToolsConfig",
+        "internal/provider/codexapp.normalizeCodexTurnTerminalNotification",
         "internal/provider/codexapp.normalizePeerWorkspaceRoots",
         "internal/provider/codexapp.normalizePoolIdentity",
         "internal/provider/codexapp.normalizePoolSpawnWorkDir",
@@ -14565,6 +14585,7 @@
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
+        "internal/provider/codexapp.strictCodexUnixSeconds",
         "internal/provider/codexapp.stringInSet",
         "internal/provider/codexapp.stringValue",
         "internal/provider/codexapp.stripAgentsMDBlock",
@@ -17645,6 +17666,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -17794,6 +17816,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -19139,6 +19162,7 @@
         "internal/provider/codexapp.appServerProcessInfo",
         "internal/provider/codexapp.appendDreamRuntimePolicyArgs",
         "internal/provider/codexapp.appendProviderRuntimeError",
+        "internal/provider/codexapp.applyCodexNestedTerminalMetadata",
         "internal/provider/codexapp.applyMcpLSPPeerWorkspaceEnv",
         "internal/provider/codexapp.applyResumeNativeToolRuntimePolicy",
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
@@ -19238,6 +19262,7 @@
         "internal/provider/codexapp.codexNativeToolPolicy.ApplyThreadStartParams",
         "internal/provider/codexapp.codexNativeToolPolicyFromConfig",
         "internal/provider/codexapp.codexNativeToolPolicyFromDisabled",
+        "internal/provider/codexapp.codexNestedTerminalEligible",
         "internal/provider/codexapp.codexPathAvailable",
         "internal/provider/codexapp.codexProviderHomeSelection",
         "internal/provider/codexapp.codexReadOnlySandbox",
@@ -19271,6 +19296,7 @@
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
+        "internal/provider/codexapp.completeCodexTurnHandle",
         "internal/provider/codexapp.configuredPeerWorkspaceRoots",
         "internal/provider/codexapp.copyCodexArchiveFile",
         "internal/provider/codexapp.copyCodexExecutable",
@@ -19453,6 +19479,7 @@
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
         "internal/provider/codexapp.normalizeCodexDisabledToolsConfig",
+        "internal/provider/codexapp.normalizeCodexTurnTerminalNotification",
         "internal/provider/codexapp.normalizePeerWorkspaceRoots",
         "internal/provider/codexapp.normalizePoolIdentity",
         "internal/provider/codexapp.normalizePoolSpawnWorkDir",
@@ -19619,6 +19646,7 @@
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
+        "internal/provider/codexapp.strictCodexUnixSeconds",
         "internal/provider/codexapp.stringInSet",
         "internal/provider/codexapp.stringValue",
         "internal/provider/codexapp.stripAgentsMDBlock",
@@ -22702,6 +22730,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -22851,6 +22880,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -24198,6 +24228,7 @@
         "internal/provider/codexapp.appServerProcessInfo",
         "internal/provider/codexapp.appendDreamRuntimePolicyArgs",
         "internal/provider/codexapp.appendProviderRuntimeError",
+        "internal/provider/codexapp.applyCodexNestedTerminalMetadata",
         "internal/provider/codexapp.applyMcpLSPPeerWorkspaceEnv",
         "internal/provider/codexapp.applyResumeNativeToolRuntimePolicy",
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
@@ -24297,6 +24328,7 @@
         "internal/provider/codexapp.codexNativeToolPolicy.ApplyThreadStartParams",
         "internal/provider/codexapp.codexNativeToolPolicyFromConfig",
         "internal/provider/codexapp.codexNativeToolPolicyFromDisabled",
+        "internal/provider/codexapp.codexNestedTerminalEligible",
         "internal/provider/codexapp.codexPathAvailable",
         "internal/provider/codexapp.codexProviderHomeSelection",
         "internal/provider/codexapp.codexReadOnlySandbox",
@@ -24330,6 +24362,7 @@
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
+        "internal/provider/codexapp.completeCodexTurnHandle",
         "internal/provider/codexapp.configuredPeerWorkspaceRoots",
         "internal/provider/codexapp.copyCodexArchiveFile",
         "internal/provider/codexapp.copyCodexExecutable",
@@ -24515,6 +24548,7 @@
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
         "internal/provider/codexapp.normalizeCodexDisabledToolsConfig",
+        "internal/provider/codexapp.normalizeCodexTurnTerminalNotification",
         "internal/provider/codexapp.normalizePeerWorkspaceRoots",
         "internal/provider/codexapp.normalizePoolIdentity",
         "internal/provider/codexapp.normalizePoolSpawnWorkDir",
@@ -24680,6 +24714,7 @@
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
+        "internal/provider/codexapp.strictCodexUnixSeconds",
         "internal/provider/codexapp.stringInSet",
         "internal/provider/codexapp.stringValue",
         "internal/provider/codexapp.stripAgentsMDBlock",
@@ -27764,6 +27799,7 @@
         "internal/contract.ChangeRequestCommit",
         "internal/contract.ChangeRequestExternalRef",
         "internal/contract.ChangeRequestReviewGate",
+        "internal/contract.ClangdLanguageIDs",
         "internal/contract.ClaudeMdSource",
         "internal/contract.ClaudeMdSourceProvider",
         "internal/contract.ClaudeMdSourceProvider.ResolveClaudeMdSources",
@@ -27913,6 +27949,7 @@
         "internal/contract.IsDependencyModeError",
         "internal/contract.IsForbiddenDatabaseEnvKey",
         "internal/contract.IsKnownCodexNativeTool",
+        "internal/contract.IsMQLLanguageID",
         "internal/contract.IsManagedRuntimeMCPServerName",
         "internal/contract.IsNotFound",
         "internal/contract.IsOrchestrationLaunchTool",
@@ -29260,6 +29297,7 @@
         "internal/provider/codexapp.appServerProcessInfo",
         "internal/provider/codexapp.appendDreamRuntimePolicyArgs",
         "internal/provider/codexapp.appendProviderRuntimeError",
+        "internal/provider/codexapp.applyCodexNestedTerminalMetadata",
         "internal/provider/codexapp.applyMcpLSPPeerWorkspaceEnv",
         "internal/provider/codexapp.applyResumeNativeToolRuntimePolicy",
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
@@ -29359,6 +29397,7 @@
         "internal/provider/codexapp.codexNativeToolPolicy.ApplyThreadStartParams",
         "internal/provider/codexapp.codexNativeToolPolicyFromConfig",
         "internal/provider/codexapp.codexNativeToolPolicyFromDisabled",
+        "internal/provider/codexapp.codexNestedTerminalEligible",
         "internal/provider/codexapp.codexPathAvailable",
         "internal/provider/codexapp.codexProviderHomeSelection",
         "internal/provider/codexapp.codexReadOnlySandbox",
@@ -29392,6 +29431,7 @@
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
+        "internal/provider/codexapp.completeCodexTurnHandle",
         "internal/provider/codexapp.configuredPeerWorkspaceRoots",
         "internal/provider/codexapp.copyCodexArchiveFile",
         "internal/provider/codexapp.copyCodexExecutable",
@@ -29577,6 +29617,7 @@
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
         "internal/provider/codexapp.normalizeCodexDisabledToolsConfig",
+        "internal/provider/codexapp.normalizeCodexTurnTerminalNotification",
         "internal/provider/codexapp.normalizePeerWorkspaceRoots",
         "internal/provider/codexapp.normalizePoolIdentity",
         "internal/provider/codexapp.normalizePoolSpawnWorkDir",
@@ -29742,6 +29783,7 @@
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
+        "internal/provider/codexapp.strictCodexUnixSeconds",
         "internal/provider/codexapp.stringInSet",
         "internal/provider/codexapp.stringValue",
         "internal/provider/codexapp.stripAgentsMDBlock",
@@ -30359,12 +30401,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2491,
+    "total_functions": 2498,
     "total_methods": 1303,
     "total_interfaces": 192,
     "total_interface_methods": 381,
-    "total_exported": 1336,
-    "total_unexported": 3292,
+    "total_exported": 1338,
+    "total_unexported": 3297,
     "total_structs": 642
   },
   "packages": [
@@ -65493,6 +65535,13 @@
           ]
         },
         {
+          "name": "ClangdLanguageIDs",
+          "exported": true,
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "DefaultRuntimeMCPPolicy",
           "exported": true,
           "returns": [
@@ -65695,6 +65744,19 @@
           "params": [
             {
               "name": "id",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "IsMQLLanguageID",
+          "exported": true,
+          "params": [
+            {
+              "name": "languageID",
               "type": "string"
             }
           ],
@@ -79841,6 +79903,20 @@
           ]
         },
         {
+          "name": "applyCodexNestedTerminalMetadata",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "turn",
+              "type": "map[string]any"
+            }
+          ]
+        },
+        {
           "name": "applyMcpLSPPeerWorkspaceEnv",
           "exported": false,
           "params": [
@@ -80985,6 +81061,23 @@
           ]
         },
         {
+          "name": "codexNestedTerminalEligible",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "turn",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "codexPathAvailable",
           "exported": false,
           "params": [
@@ -81362,6 +81455,28 @@
           ],
           "returns": [
             "int"
+          ]
+        },
+        {
+          "name": "completeCodexTurnHandle",
+          "exported": false,
+          "params": [
+            {
+              "name": "s",
+              "type": "*session"
+            },
+            {
+              "name": "h",
+              "type": "*turnHandle"
+            },
+            {
+              "name": "terminal",
+              "type": "*dto.TerminalOutcome"
+            },
+            {
+              "name": "errText",
+              "type": "string"
+            }
           ]
         },
         {
@@ -83972,6 +84087,23 @@
           ]
         },
         {
+          "name": "normalizeCodexTurnTerminalNotification",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "json.RawMessage"
+          ]
+        },
+        {
           "name": "normalizePeerWorkspaceRoots",
           "exported": false,
           "params": [
@@ -85956,6 +86088,20 @@
             {
               "name": "keys",
               "type": "...string"
+            }
+          ],
+          "returns": [
+            "int64",
+            "bool"
+          ]
+        },
+        {
+          "name": "strictCodexUnixSeconds",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "any"
             }
           ],
           "returns": [

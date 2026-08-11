@@ -311,6 +311,7 @@ type p2DiagnosticsClient struct {
 	publishOnOpen  string
 	didChangeError error
 	didCloseError  error
+	didCloses      int
 }
 
 func (c *p2DiagnosticsClient) Healthy() bool {
@@ -356,11 +357,18 @@ func (c *p2DiagnosticsClient) DidChange(_ context.Context, uri string, _ int, ch
 func (c *p2DiagnosticsClient) DidClose(context.Context, string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.didCloses++
 	if c.didCloseError != nil {
 		c.healthy = false
 		return c.didCloseError
 	}
 	return nil
+}
+
+func (c *p2DiagnosticsClient) didCloseCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.didCloses
 }
 
 func (c *p2DiagnosticsClient) Close() error {

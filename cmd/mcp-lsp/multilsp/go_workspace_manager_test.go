@@ -2,11 +2,13 @@ package multilsp
 
 import (
 	"context"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
@@ -50,6 +52,180 @@ func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
 	if caps := clientCapabilities(); caps.Workspace == nil || !caps.Workspace.WorkspaceFolders {
 		t.Fatalf("client capabilities should enable workspaceFolders: %#v", caps.Workspace)
 	}
+}
+
+func TestWorkspaceSymbolColdGoWorkFileScopePreservesWorkspaceFolders(t *testing.T) {
+	assertColdGoWorkspaceSymbolScope(t, false)
+}
+
+func TestWorkspaceSymbolColdGoWorkLanguageScopePreservesWorkspaceFolders(t *testing.T) {
+	assertColdGoWorkspaceSymbolScope(t, true)
+}
+
+func assertColdGoWorkspaceSymbolScope(t *testing.T, languageScope bool) {
+	t.Helper()
+	t.Setenv("GOWORK", "")
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	tools := filepath.Join(repo, "tools")
+	writeGoMod(t, backend, "example.com/backend")
+	writeGoMod(t, tools, "example.com/tools")
+	writeFile(t, filepath.Join(repo, "go.work"), "go 1.25.0\n\nuse (\n\t./backend\n\t./tools\n)\n")
+	backendTarget := writeGoFile(t, backend, "backend.go")
+	toolsTarget := writeGoFile(t, tools, "tools.go")
+	target := backendTarget
+	if languageScope {
+		target = repo
+	}
+	factory := &goWorkspaceClientFactory{workspaceSymbolURIs: []string{
+		fileURIFromPath(backendTarget), fileURIFromPath(toolsTarget),
+	}}
+	mgr := NewManager(Config{WorkspaceRoot: repo, ClientFactory: factory}).(*manager)
+	defer func() { _ = mgr.Close() }()
+
+	results, err := mgr.WorkspaceSymbol(resolvedGoWorkspaceSymbolContext(t, mgr, repo, target), "workspaceSymbol", "go")
+	if err != nil {
+		t.Fatalf("WorkspaceSymbol: %v", err)
+	}
+	client := factory.clientAt(t, 0)
+	assertFolderURIs(t, client.initializedFolders, []string{repo, backend, tools})
+	wantURIs := factory.workspaceSymbolURIs
+	if len(results) != len(wantURIs) {
+		t.Fatalf("workspace symbols = %#v, want %d module symbols", results, len(wantURIs))
+	}
+	for index, result := range results {
+		uri, err := goWorkspaceSymbolResultURI(result)
+		if err != nil || uri != wantURIs[index] {
+			t.Fatalf("workspace symbol %d = %#v URI %q err=%v, want URI %q", index, result, uri, err, wantURIs[index])
+		}
+	}
+}
+
+func TestWorkspaceSymbolWarmGoWorkLanguageScopeRefreshesAcrossFileScopeClone(t *testing.T) {
+	t.Setenv("GOWORK", "")
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	tools := filepath.Join(repo, "tools")
+	writeGoMod(t, backend, "example.com/backend")
+	writeGoMod(t, tools, "example.com/tools")
+	writeFile(t, filepath.Join(repo, "go.work"), "go 1.25.0\n\nuse (\n\t./backend\n\t./tools\n)\n")
+	target := filepath.Join(backend, "backend.go")
+	oldText := "package backend\nfunc StaleGoWorkSymbol() {}\n"
+	freshText := "package backend\nfunc FreshGoWorkSymbol() {}\n"
+	writeFile(t, target, oldText)
+	writeFile(t, filepath.Join(tools, "tools.go"), "package tools\nfunc ToolsGoWorkSymbol() {}\n")
+	taggedTarget := filepath.Join(backend, "zz_isolated.go")
+	writeFile(t, taggedTarget, "//go:build isolated\n\npackage backend\nfunc IsolatedGoWorkSymbol() {}\n")
+
+	factory := &goWorkspaceClientFactory{
+		workspaceSymbolsFromDocuments: true,
+		workspaceSymbolDiskFiles:      []string{target, filepath.Join(tools, "tools.go"), taggedTarget},
+	}
+	mgr := NewManager(Config{WorkspaceRoot: repo, ClientFactory: factory}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	languageCtx := resolvedGoWorkspaceSymbolContext(t, mgr, repo, repo)
+	languageScope, _ := resolvedLSPToolScopeFromContext(languageCtx)
+	languageManager := scopedManagerForTest(t, mgr, languageScope.LSPToolScope)
+	warm, err := languageManager.WorkspaceSymbol(languageCtx, "GoWorkSymbol", "go")
+	if err != nil {
+		t.Fatalf("warm language WorkspaceSymbol: %v", err)
+	}
+	languageClient := factory.clientAt(t, 0)
+	languageOpens, _, _ := languageClient.documentNotificationCounts()
+	if languageOpens != 0 {
+		t.Fatalf("Go language-root client unexpectedly opened a source document: opens=%d", languageOpens)
+	}
+	assertWorkspaceSymbolContainsName(t, warm, "StaleGoWorkSymbol")
+
+	fileCtx := resolvedGoWorkspaceSymbolContext(t, mgr, repo, target)
+	fileScope, _ := resolvedLSPToolScopeFromContext(fileCtx)
+	if fileScope.ManagerKey == languageScope.ManagerKey {
+		t.Fatalf("file and language go.work scopes unexpectedly share manager key %q", fileScope.ManagerKey)
+	}
+	fileManager := scopedManagerForTest(t, mgr, fileScope.LSPToolScope)
+	if fileManager == languageManager {
+		t.Fatal("file and language go.work scopes unexpectedly share manager instance")
+	}
+	if err := fileManager.DidOpen(fileCtx, fileURIFromPath(target), "go", 1, oldText); err != nil {
+		t.Fatalf("file-scope DidOpen: %v", err)
+	}
+	fileClient := factory.clientAt(t, 1)
+	writeFile(t, target, freshText)
+	refreshed, err := languageManager.WorkspaceSymbol(languageCtx, "GoWorkSymbol", "go")
+	if err != nil {
+		t.Fatalf("refreshed language WorkspaceSymbol: %v", err)
+	}
+	assertWorkspaceSymbolContainsName(t, refreshed, "FreshGoWorkSymbol")
+	_, languageChanges, _ := languageClient.documentNotificationCounts()
+	_, fileChanges, _ := fileClient.documentNotificationCounts()
+	if languageChanges != 0 || fileChanges != 0 {
+		t.Fatalf("cross-clone refresh leaked notifications language=%d file=%d, want both zero", languageChanges, fileChanges)
+	}
+
+	assertGoWorkBuildTagCohortIsolated(t, mgr, repo, taggedTarget, fileScope, languageClient, languageChanges)
+}
+
+func assertGoWorkBuildTagCohortIsolated(t *testing.T, mgr *manager, repo, taggedTarget string, fileScope ResolvedLSPToolScope, languageClient *goWorkspaceClient, languageChanges int) {
+	t.Helper()
+	taggedCtx := resolvedGoWorkspaceSymbolContext(t, mgr, repo, taggedTarget)
+	taggedScope, _ := resolvedLSPToolScopeFromContext(taggedCtx)
+	if taggedScope.ManagerKey == fileScope.ManagerKey {
+		t.Fatalf("build-tag scope unexpectedly reused untagged manager key %q", taggedScope.ManagerKey)
+	}
+	taggedManager := scopedManagerForTest(t, mgr, taggedScope.LSPToolScope)
+	if _, err := taggedManager.WorkspaceSymbol(taggedCtx, "IsolatedGoWorkSymbol", "go"); err != nil {
+		t.Fatalf("build-tag WorkspaceSymbol: %v", err)
+	}
+	_, languageChangesAfterTagged, _ := languageClient.documentNotificationCounts()
+	if languageChangesAfterTagged != languageChanges {
+		t.Fatalf("build-tag cohort mutated language-root client: changes=%d, want %d", languageChangesAfterTagged, languageChanges)
+	}
+}
+
+func assertWorkspaceSymbolContainsName(t *testing.T, results []protocol.WorkspaceSymbolResult, want string) {
+	t.Helper()
+	for _, result := range results {
+		if result.SymbolInformation != nil && result.SymbolInformation.Name == want {
+			return
+		}
+		if result.WorkspaceSymbol != nil && result.WorkspaceSymbol.Name == want {
+			return
+		}
+	}
+	t.Fatalf("workspace symbols %#v do not contain %q", results, want)
+}
+
+func resolvedGoWorkspaceSymbolContext(t *testing.T, mgr *manager, root, target string) context.Context {
+	t.Helper()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		AgentID: "agent-go-symbol", ThreadID: "thread-go-symbol", CWD: root,
+		WorkspaceRoots: []string{root}, Family: defaultLSPToolFamily,
+	})
+	base, err := mgr.adapterToolScope(ctx, "go", target, fileURIFromPath(target))
+	if err != nil {
+		t.Fatalf("build Go workspace symbol tool scope: %v", err)
+	}
+	adapter, err := mgr.adapterForLanguage("go")
+	if err != nil {
+		t.Fatalf("resolve Go adapter: %v", err)
+	}
+	languageScope, err := adapter.ResolveRoot(ctx, base, target)
+	if err != nil {
+		t.Fatalf("resolve Go workspace symbol root: %v", err)
+	}
+	languageScope = completeResolvedLanguageScope(languageScope, base)
+	languageScope.LanguageSpecific = mergeLanguageSpecific(languageScope.LanguageSpecific, adapter.CacheKeyParts(languageScope))
+	base.LanguageID = languageScope.LanguageID
+	base.RootKind = languageScope.RootKind
+	base.WorkspaceRoot = languageScope.WorkspaceRoot
+	base.LanguageWorkspaceRoot = languageScope.LanguageWorkspaceRoot
+	base.ProjectRoot = languageScope.ProjectRoot
+	base.LanguageSpecific = copyLanguageSpecific(languageScope.LanguageSpecific)
+	resolved, err := ResolveLSPToolScope(base)
+	if err != nil {
+		t.Fatalf("canonicalize Go workspace symbol scope: %v", err)
+	}
+	return WithResolvedLSPToolScope(ctx, resolved)
 }
 
 func TestGoWorkWorkspaceKeyChangesWhenUseListChanges(t *testing.T) {

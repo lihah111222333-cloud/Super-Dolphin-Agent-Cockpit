@@ -3,12 +3,14 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 type managerNavigation = manager
@@ -260,37 +262,190 @@ func (m *managerStructure) WorkspaceSymbol(ctx context.Context, query string, la
 	if languageID == "" {
 		return nil, fmt.Errorf("workspace symbol language is required when no file path is provided")
 	}
-	client, err := m.workspaceSymbolClient(ctx, languageID)
+	selection, err := m.workspaceSymbolClient(ctx, languageID)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := m.request(ctx, client, protocol.MethodWorkspaceSymbol, protocol.WorkspaceSymbolParams{Query: query})
+	defer selection.releaseTargetReference()
+	supported, err := m.workspaceSymbolCapabilityAvailable(ctx, selection)
 	if err != nil {
+		return nil, err
+	}
+	if !supported {
+		return nil, m.unsupportedWorkspaceSymbolError(selection)
+	}
+	client, err := m.completeWorkspaceSymbolClient(ctx, selection)
+	if err != nil {
+		return nil, err
+	}
+	documentGuard, err := m.syncExplicitDocumentsForWorkspaceSymbol(ctx, selection.cfg, client)
+	if err != nil {
+		return nil, err
+	}
+	defer documentGuard.release()
+	raw, err := m.requestOnce(ctx, client, protocol.MethodWorkspaceSymbol, protocol.WorkspaceSymbolParams{Query: query})
+	if err != nil {
+		if isClientDeadError(err) {
+			documentGuard.release()
+			err = m.nonReplayableDeadClientError(ctx, client, err)
+		}
 		return nil, unsupportedCapabilityErrorForMethod(err, protocol.MethodWorkspaceSymbol, client)
+	}
+	if !documentGuard.mutationsStillCurrent() {
+		return nil, fmt.Errorf("managed document changed during workspace symbol request")
 	}
 	return decodeWorkspaceSymbols(raw)
 }
 
+func (m *manager) unsupportedWorkspaceSymbolError(selection workspaceSymbolClientSelection) error {
+	if err := m.publishLanguageClientWithoutBootstrap(selection.bootstrap); err != nil {
+		return fmt.Errorf("publish unsupported workspace symbol client: %w", err)
+	}
+	if err := m.revalidateLanguageBootstrapClient(selection.cfg, selection.client); err != nil {
+		return fmt.Errorf("revalidate unsupported workspace symbol client: %w", err)
+	}
+	return &common.CodedToolError{
+		Err:       fmt.Errorf("%w: %s", lspmanager.ErrUnsupportedCapability, protocol.MethodWorkspaceSymbol),
+		Code:      "capability_unsupported",
+		Retryable: false,
+		Hint:      "next: use a language server that advertises or dynamically registers workspace/symbol",
+		Meta:      capabilityErrorMeta(protocol.MethodWorkspaceSymbol, selection.client),
+	}
+}
+
+type workspaceSymbolClientSelection struct {
+	client          Client
+	cfg             workspaceConfig
+	bootstrap       languageClientBootstrapCandidate
+	needsBootstrap  bool
+	targetPath      string
+	targetReference *documentOperationReference
+}
+
+func (s workspaceSymbolClientSelection) releaseTargetReference() {
+	s.targetReference.release()
+}
+
+func (m *manager) completeWorkspaceSymbolClient(
+	ctx context.Context,
+	selection workspaceSymbolClientSelection,
+) (Client, error) {
+	if !selection.needsBootstrap {
+		return selection.client, nil
+	}
+	if selection.targetPath != "" {
+		return m.completeWorkspaceSymbolTargetBootstrap(ctx, selection)
+	}
+	return m.completeLanguageClientBootstrap(ctx, selection.cfg, selection.bootstrap)
+}
+
+func (m *manager) completeWorkspaceSymbolTargetBootstrap(
+	ctx context.Context,
+	selection workspaceSymbolClientSelection,
+) (Client, error) {
+	candidate := selection.bootstrap
+	if candidate.wait {
+		if _, err := candidate.attempt.wait(ctx); err != nil {
+			return nil, err
+		}
+		if err := m.revalidateLanguageBootstrapClient(selection.cfg, candidate.client); err != nil {
+			return nil, err
+		}
+	}
+	bootstrapCtx, err := candidate.bootstrapContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bootstrapErr := m.bootstrapLanguageDocument(
+		bootstrapCtx, candidate.client, selection.targetPath, selection.cfg.languageID,
+	)
+	if candidate.owner {
+		return m.finishOwnedLanguageClientBootstrap(candidate, bootstrapErr)
+	}
+	if bootstrapErr != nil {
+		return nil, bootstrapErr
+	}
+	return candidate.client, m.revalidateLanguageBootstrapClient(selection.cfg, candidate.client)
+}
+
 // workspaceSymbolClient 为 workspace/symbol 选择或创建 client。
 // 已解析 scope 会校验语言和 workspace key；缺 scope 时才回退语言级 workspace。
-func (m *manager) workspaceSymbolClient(ctx context.Context, languageID string) (Client, error) {
+func (m *manager) workspaceSymbolClient(ctx context.Context, languageID string) (workspaceSymbolClientSelection, error) {
 	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
-		cfg, err := m.workspaceSymbolConfigFromResolvedScope(resolved, languageID)
+		cfg, err := m.workspaceSymbolConfigFromResolvedScope(ctx, resolved, languageID)
 		if err != nil {
-			return nil, err
-		}
-		client, err := m.ensureClient(ctx, cfg)
-		if err != nil {
-			return nil, err
+			return workspaceSymbolClientSelection{}, err
 		}
 		if workspaceSymbolResolvedScopeNeedsBootstrap(resolved) {
-			if err := m.bootstrapLanguageClient(ctx, client, cfg.rootPath, cfg.languageID); err != nil {
-				return nil, err
-			}
+			return m.prepareWorkspaceSymbolBootstrapSelection(ctx, cfg)
 		}
-		return client, nil
+		targetReference, err := m.retainDocumentOperationReference(fileURIFromPath(resolved.TargetPath))
+		if err != nil {
+			return workspaceSymbolClientSelection{}, err
+		}
+		selection, err := m.prepareWorkspaceSymbolBootstrapSelection(ctx, cfg)
+		if err != nil {
+			targetReference.release()
+			return workspaceSymbolClientSelection{}, err
+		}
+		selection.targetPath = resolved.TargetPath
+		selection.targetReference = targetReference
+		return selection, nil
 	}
-	return m.ensureClientForLanguage(ctx, languageID)
+	cfg, err := m.resolveLanguageWorkspace(ctx, languageID)
+	if err != nil {
+		return workspaceSymbolClientSelection{}, err
+	}
+	return m.prepareWorkspaceSymbolBootstrapSelection(ctx, cfg)
+}
+
+func (m *manager) prepareWorkspaceSymbolBootstrapSelection(
+	ctx context.Context,
+	cfg workspaceConfig,
+) (workspaceSymbolClientSelection, error) {
+	candidate, err := m.prepareLanguageClientBootstrap(ctx, cfg)
+	if err != nil {
+		return workspaceSymbolClientSelection{}, err
+	}
+	return workspaceSymbolClientSelection{
+		client: candidate.client, cfg: cfg, bootstrap: candidate, needsBootstrap: true,
+	}, nil
+}
+
+func (m *manager) workspaceSymbolCapabilityAvailable(
+	ctx context.Context,
+	selection workspaceSymbolClientSelection,
+) (bool, error) {
+	capClient, ok := selection.client.(ServerCapabilitiesClient)
+	if !ok {
+		return true, nil
+	}
+	if !selection.bootstrap.owner || selection.bootstrap.attempt == nil {
+		return serverCapabilityAvailable(capClient.ServerCapabilities().WorkspaceSymbolProvider), nil
+	}
+	result := make(chan bool, 1)
+	safego.Go(context.Background(), nil, "mcp-lsp.workspace-symbol-capability", func(context.Context) {
+		result <- serverCapabilityAvailable(capClient.ServerCapabilities().WorkspaceSymbolProvider)
+	})
+	select {
+	case supported := <-result:
+		return supported, nil
+	case <-ctx.Done():
+		return false, m.abortWorkspaceSymbolCapabilityCheck(selection, ctx.Err())
+	case <-selection.bootstrap.attempt.ctx.Done():
+		return false, m.abortWorkspaceSymbolCapabilityCheck(selection, selection.bootstrap.attempt.ctx.Err())
+	}
+}
+
+func (m *manager) abortWorkspaceSymbolCapabilityCheck(
+	selection workspaceSymbolClientSelection,
+	cause error,
+) error {
+	if err := m.revalidateLanguageBootstrapClient(selection.cfg, selection.client); err != nil {
+		cause = errors.Join(cause, err)
+	}
+	_, err := m.finishOwnedLanguageClientBootstrap(selection.bootstrap, cause)
+	return err
 }
 
 func workspaceSymbolResolvedScopeNeedsBootstrap(resolved ResolvedLSPToolScope) bool {
@@ -304,7 +459,11 @@ func workspaceSymbolResolvedScopeNeedsBootstrap(resolved ResolvedLSPToolScope) b
 
 // workspaceSymbolConfigFromResolvedScope 将已解析 scope 转成 workspace/symbol 可用的 client 配置。
 // 语言或 workspace key 不一致会报错，避免 query 跑到相邻项目或相邻语言的缓存实例。
-func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToolScope, languageID string) (workspaceConfig, error) {
+func (m *manager) workspaceSymbolConfigFromResolvedScope(
+	ctx context.Context,
+	resolved ResolvedLSPToolScope,
+	languageID string,
+) (workspaceConfig, error) {
 	resolvedLanguageID := normalizeLanguageID(resolved.LanguageID)
 	if resolvedLanguageID == "" {
 		return workspaceConfig{}, fmt.Errorf("resolved workspace symbol language is empty")
@@ -319,16 +478,18 @@ func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToo
 	if err != nil {
 		return workspaceConfig{}, err
 	}
-	cfg, err := workspaceConfigForLanguageScope(ResolvedLanguageScope{
-		LanguageID:            resolvedLanguageID,
-		WorkspaceRoot:         resolved.WorkspaceRoot,
-		LanguageWorkspaceRoot: resolved.LanguageWorkspaceRoot,
-		ProjectRoot:           resolved.ProjectRoot,
-		RootKind:              resolved.RootKind,
-		LanguageSpecific:      copyLanguageSpecific(resolved.LanguageSpecific),
-	}, adapter)
+	languageScope, err := adapter.ResolveRoot(ctx, resolved.LSPToolScope, resolved.TargetPath)
 	if err != nil {
 		return workspaceConfig{}, err
+	}
+	languageScope = completeResolvedLanguageScope(languageScope, resolved.LSPToolScope)
+	languageScope.LanguageSpecific = mergeLanguageSpecific(languageScope.LanguageSpecific, adapter.CacheKeyParts(languageScope))
+	cfg, err := workspaceConfigForLanguageScope(languageScope, adapter)
+	if err != nil {
+		return workspaceConfig{}, err
+	}
+	if cfg.rootPath != resolved.WorkspaceRoot {
+		return workspaceConfig{}, fmt.Errorf("resolved workspace symbol root mismatch for %s", resolvedLanguageID)
 	}
 	if resolved.WorkspaceKey != "" && cfg.key != resolved.WorkspaceKey {
 		return workspaceConfig{}, fmt.Errorf("resolved workspace symbol key mismatch for %s", resolvedLanguageID)

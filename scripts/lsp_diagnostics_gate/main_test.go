@@ -339,7 +339,7 @@ func TestRegisteredBuildTagsMatchTrackedPositiveTagInventory(t *testing.T) {
 		fileCount int
 	}{
 		{tag: "codex_smoketest", fileCount: 1},
-		{tag: "e2e", fileCount: 19},
+		{tag: "e2e", fileCount: 20},
 		{tag: "e2e_claude", fileCount: 1},
 		{tag: "e2e_vision", fileCount: 1},
 		{tag: "lsp_integration", fileCount: 1},

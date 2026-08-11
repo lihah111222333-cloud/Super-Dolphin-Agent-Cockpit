@@ -460,7 +460,7 @@ func registerNPMInstallers(inst *installer.Provider) {
 
 func registerNativeToolInstallers(inst *installer.Provider) {
 	registerInstallerSpecs(inst, []runtimeInstallerSpec{
-		{[]string{"c", "cpp", "objective-c", "objective-cpp"}, "clangd", "brew", []string{"install", "llvm"}},
+		{contract.ClangdLanguageIDs(), "clangd", "brew", []string{"install", "llvm"}},
 		{[]string{"swift"}, "sourcekit-lsp", "brew", []string{"install", "swift"}},
 		{[]string{"proto"}, "buf", "brew", []string{"install", "buf"}},
 		{[]string{"csharp"}, "csharp-ls", "dotnet", []string{"tool", "install", "--global", "csharp-ls"}},

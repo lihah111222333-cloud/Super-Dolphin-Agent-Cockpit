@@ -26,6 +26,7 @@ lsp_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-$root/.build-cache/lsp/$lsp_profile/$pl
 default_node_dist="$(node -p 'require("path").dirname(require("path").dirname(process.execPath))' 2>/dev/null || true)"
 node_src="${SUPER_DOLPHIN_NODE_DIST:-$default_node_dist}"
 gopls_bin="${SUPER_DOLPHIN_GOPLS_BIN:-$(command -v gopls || true)}"
+clangd_bin="${SUPER_DOLPHIN_CLANGD_BIN:-$(command -v clangd || true)}"
 sqruff_bin="${SUPER_DOLPHIN_SQRUFF_BIN:-$(command -v sqruff || true)}"
 go_toolchain_src="${SUPER_DOLPHIN_GO_TOOLCHAIN_DIR:-$(go env GOROOT)}"
 jdtls_home="${SUPER_DOLPHIN_JDTLS_HOME:-/opt/homebrew/Cellar/jdtls/1.58.0/libexec}"
@@ -133,12 +134,15 @@ write_path_wrapper shellcheck node_modules/shellcheck/bin/shellcheck
 
 echo "==> copying native LSP servers"
 test -x "$gopls_bin" || { echo "missing gopls: $gopls_bin" >&2; exit 1; }
+test -x "$clangd_bin" || { echo "missing clangd; set SUPER_DOLPHIN_CLANGD_BIN" >&2; exit 1; }
 test -x "$rust_analyzer_bin" || { echo "missing rust-analyzer: $rust_analyzer_bin" >&2; exit 1; }
 test -x "$sqruff_bin" || { echo "missing sqruff; set SUPER_DOLPHIN_SQRUFF_BIN" >&2; exit 1; }
 cp "$gopls_bin" "$lsp_dir/bin/gopls"
+cp "$clangd_bin" "$lsp_dir/bin/clangd"
 cp "$rust_analyzer_bin" "$lsp_dir/bin/rust-analyzer"
 cp "$sqruff_bin" "$lsp_dir/bin/sqruff"
-chmod +x "$lsp_dir/bin/gopls" "$lsp_dir/bin/rust-analyzer" "$lsp_dir/bin/sqruff"
+chmod +x "$lsp_dir/bin/gopls" "$lsp_dir/bin/clangd" "$lsp_dir/bin/rust-analyzer" "$lsp_dir/bin/sqruff"
+"$lsp_dir/bin/clangd" --version >/dev/null
 
 copy_go_toolchain() {
   test -x "$go_toolchain_src/bin/go" || { echo "missing Go toolchain: $go_toolchain_src/bin/go" >&2; exit 1; }
@@ -253,6 +257,7 @@ sha256_file() {
 }
 lsp_specs=(
   'gopls|bin/gopls|["go","gomod","gosum","gowork"]'
+  'clangd|bin/clangd|["c","cpp","objective-c","objective-cpp","mql","mql4","mql5","mq4","mq5","mqh"]'
   'typescript-language-server|bin/typescript-language-server|["javascript","javascriptreact","typescript","typescriptreact"]'
   'vscode-langservers-extracted|bin/vscode-css-language-server|["css"]'
   'pyright|bin/pyright-langserver|["python"]'

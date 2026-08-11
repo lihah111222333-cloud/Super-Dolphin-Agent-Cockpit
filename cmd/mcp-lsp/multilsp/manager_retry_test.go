@@ -294,7 +294,7 @@ func TestUnboundClientNotificationStopsBeforeDispatch(t *testing.T) {
 	}
 }
 
-func TestUnboundIdempotentRequestWithoutDocumentURIFailsFast(t *testing.T) {
+func TestUnboundWorkspaceSymbolNeverUsesGenericReplay(t *testing.T) {
 	root := t.TempDir()
 	writeGenericTestFile(t, filepath.Join(root, "Cargo.toml"), "[package]\nname = \"idle-no-uri\"\nversion = \"0.1.0\"\n")
 	target := filepath.Join(root, "src", "main.rs")
@@ -323,8 +323,8 @@ func TestUnboundIdempotentRequestWithoutDocumentURIFailsFast(t *testing.T) {
 	if !errors.Is(err, ErrClientNotBound) {
 		t.Fatalf("URI-less request error = %v, want ErrClientNotBound", err)
 	}
-	if err == nil || !strings.Contains(err.Error(), "has no document URI") {
-		t.Fatalf("URI-less request error = %v, want fail-fast document URI context", err)
+	if strings.Contains(err.Error(), "has no document URI") {
+		t.Fatalf("workspace symbol entered generic URI replay path: %v", err)
 	}
 	if !strings.Contains(err.Error(), protocol.MethodWorkspaceSymbol+":") {
 		t.Fatalf("URI-less request error = %v, want method context", err)

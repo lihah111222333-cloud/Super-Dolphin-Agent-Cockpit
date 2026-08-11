@@ -68,6 +68,10 @@ $GoplsBin = if ($env:SUPER_DOLPHIN_GOPLS_BIN) { $env:SUPER_DOLPHIN_GOPLS_BIN } e
     $cmd = Get-Command gopls.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($cmd) { $cmd.Source } else { '' }
 }
+$ClangdBin = if ($env:SUPER_DOLPHIN_CLANGD_BIN) { $env:SUPER_DOLPHIN_CLANGD_BIN } else {
+    $cmd = Get-Command clangd.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { $cmd.Source } else { '' }
+}
 $RustAnalyzerBin = if ($env:SUPER_DOLPHIN_RUST_ANALYZER_BIN) { $env:SUPER_DOLPHIN_RUST_ANALYZER_BIN } else {
     $cmd = Get-Command rust-analyzer.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($cmd) { $cmd.Source } else { '' }
@@ -297,6 +301,7 @@ function Assert-LSPBundleNativeArchitecture() {
     param([Parameter(Mandatory)][string]$BundleDir)
     $nativePaths = @(
         'bin/gopls.exe',
+        'bin/clangd.exe',
         'bin/rust-analyzer.exe',
         'bin/sg.exe',
         'bin/ast-grep.exe',
@@ -319,6 +324,7 @@ function Assert-LSPBundleNativeArchitecture() {
 function Write-LSPManifestAndChecksums() {
     $specs = @(
         'gopls|bin/gopls.exe|["go","gomod","gosum","gowork"]',
+        'clangd|bin/clangd.exe|["c","cpp","objective-c","objective-cpp","mql","mql4","mql5","mq4","mq5","mqh"]',
         'typescript-language-server|bin/typescript-language-server.cmd|["javascript","javascriptreact","typescript","typescriptreact"]',
         'vscode-langservers-extracted|bin/vscode-css-language-server.cmd|["css"]',
         'pyright|bin/pyright-langserver.cmd|["python"]',
@@ -446,14 +452,19 @@ if ($LASTEXITCODE -ne 0) { throw 'bundled ast-grep smoke failed; verify sg.exe, 
 
 Write-Host '==> copying native LSP servers'
 Require-File -Path $GoplsBin -Message 'missing gopls; set SUPER_DOLPHIN_GOPLS_BIN'
+Require-File -Path $ClangdBin -Message 'missing clangd; set SUPER_DOLPHIN_CLANGD_BIN'
 Require-File -Path $RustAnalyzerBin -Message 'missing rust-analyzer; set SUPER_DOLPHIN_RUST_ANALYZER_BIN'
 Require-File -Path $SqruffBin -Message 'missing sqruff; set SUPER_DOLPHIN_SQRUFF_BIN'
 Assert-WindowsNativeArchitecture -Path $GoplsBin -ExpectedArch $WindowsPackageArch -Label 'gopls'
+Assert-WindowsNativeArchitecture -Path $ClangdBin -ExpectedArch $WindowsPackageArch -Label 'clangd'
 Assert-WindowsNativeArchitecture -Path $RustAnalyzerBin -ExpectedArch $WindowsPackageArch -Label 'rust-analyzer'
 Assert-WindowsNativeArchitecture -Path $SqruffBin -ExpectedArch $WindowsPackageArch -Label 'sqruff'
 Copy-Item -LiteralPath $GoplsBin -Destination (Join-Path $LspDir 'bin/gopls.exe') -Force
+Copy-Item -LiteralPath $ClangdBin -Destination (Join-Path $LspDir 'bin/clangd.exe') -Force
 Copy-Item -LiteralPath $RustAnalyzerBin -Destination (Join-Path $LspDir 'bin/rust-analyzer.exe') -Force
 Copy-Item -LiteralPath $SqruffBin -Destination (Join-Path $LspDir 'bin/sqruff.exe') -Force
+& (Join-Path $LspDir 'bin/clangd.exe') --version *> $null
+if ($LASTEXITCODE -ne 0) { throw 'bundled clangd failed --version smoke' }
 
 Require-File -Path (Join-Path $GoToolchainSrc 'bin/go.exe') -Message "missing Go toolchain: $(Join-Path $GoToolchainSrc 'bin/go.exe')"
 Assert-WindowsNativeArchitecture -Path (Join-Path $GoToolchainSrc 'bin/go.exe') -ExpectedArch $WindowsPackageArch -Label 'Go toolchain'

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -67,6 +68,8 @@ type lspCacheConfig struct {
 type lspCacheStore struct {
 	mu sync.RWMutex
 
+	closed atomic.Bool
+
 	config lspCacheConfig
 	now    func() time.Time
 
@@ -123,13 +126,25 @@ func newLSPCacheStore(cfg lspCacheConfig) (*lspCacheStore, error) {
 // Enabled 报告缓存实例是否已创建。
 // nil store 会被视为关闭状态，调用方可据此跳过缓存路径。
 func (s *lspCacheStore) Enabled() bool {
-	return s != nil
+	return s.open()
+}
+
+func (s *lspCacheStore) open() bool {
+	return s != nil && !s.closed.Load()
+}
+
+func (s *lspCacheStore) timeWhileOpen() (time.Time, bool) {
+	if !s.open() {
+		return time.Time{}, false
+	}
+	now := s.now()
+	return now, s.open()
 }
 
 // Load 按完整缓存 key 读取未过期文档记录。
 // 命中删除墓碑或 TTL 过期时返回 false，防止旧持久化记录被重新使用。
 func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
-	if s == nil {
+	if !s.open() {
 		return lspCacheValue{}, false
 	}
 	s.maybeCleanup()
@@ -137,6 +152,13 @@ func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 		value lspCacheValue
 		ok    bool
 	} {
+		now, open := s.timeWhileOpen()
+		if !open {
+			return struct {
+				value lspCacheValue
+				ok    bool
+			}{}
+		}
 		value, ok := s.memory[key.String()]
 		if _, tombstoned := s.tombstones[key.String()]; tombstoned {
 			return struct {
@@ -144,7 +166,7 @@ func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 				ok    bool
 			}{}
 		}
-		if !ok || s.expired(value, s.now()) {
+		if !ok || s.expired(value, now) {
 			return struct {
 				value lspCacheValue
 				ok    bool
@@ -164,12 +186,28 @@ func (s *lspCacheMutationStore) Upsert(value lspCacheValue) error {
 	if s == nil {
 		return nil
 	}
+	if s.closed.Load() {
+		return ErrManagerClosed
+	}
 	s.maybeCleanup()
 	return withWriteLock(&s.mu, func() error {
-		value.UpdatedAt = s.now()
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
+		now := s.now()
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
+		value.UpdatedAt = now
 		s.memory[value.Key.String()] = value
 		delete(s.tombstones, value.Key.String())
-		return s.persistOnMutation(true)
+		if err := s.persistOnMutation(true); err != nil {
+			return err
+		}
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
+		return nil
 	})
 }
 
@@ -180,9 +218,18 @@ func (s *lspCacheMutationStore) Delete(key lspCacheKey) error {
 		return nil
 	}
 	return withWriteLock(&s.mu, func() error {
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
 		_, existed := s.memory[key.String()]
 		delete(s.memory, key.String())
-		return s.persistOnMutation(existed)
+		if err := s.persistOnMutation(existed); err != nil {
+			return err
+		}
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
+		return nil
 	})
 }
 
@@ -193,23 +240,39 @@ func (s *lspCacheMutationStore) Tombstone(key lspCacheKey) error {
 		return nil
 	}
 	return withWriteLock(&s.mu, func() error {
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
+		now := s.now()
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
 		_, existed := s.memory[key.String()]
 		delete(s.memory, key.String())
 		_, alreadyTombstoned := s.tombstones[key.String()]
-		s.tombstones[key.String()] = s.now()
-		return s.persistOnMutation(existed || !alreadyTombstoned)
+		s.tombstones[key.String()] = now
+		if err := s.persistOnMutation(existed || !alreadyTombstoned); err != nil {
+			return err
+		}
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
+		return nil
 	})
 }
 
 // WorkspaceDocuments 返回指定 workspace 下未过期的缓存文档。
 // 结果按最近更新时间倒序排列，更新时间相同则按 URI 稳定排序。
 func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
-	if s == nil {
+	if !s.open() {
 		return nil
 	}
 	s.maybeCleanup()
 	return withReadLock(&s.mu, func() []lspCacheValue {
-		now := s.now()
+		now, open := s.timeWhileOpen()
+		if !open {
+			return nil
+		}
 		values := make([]lspCacheValue, 0, len(s.memory))
 		for _, value := range s.memory {
 			if cacheKeyWorkspace(value.Key) != workspace || s.expired(value, now) {
@@ -233,12 +296,15 @@ func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
 // ScopeDocuments 返回指定 resolved scope 下未过期的缓存文档。
 // scope key 与 workspace key 必须同时匹配，避免跨 agent 或跨 worktree 泄漏诊断状态。
 func (s *lspCacheStore) ScopeDocuments(scope ResolvedLSPToolScope) []lspCacheValue {
-	if s == nil {
+	if !s.open() {
 		return nil
 	}
 	s.maybeCleanup()
 	return withReadLock(&s.mu, func() []lspCacheValue {
-		now := s.now()
+		now, open := s.timeWhileOpen()
+		if !open {
+			return nil
+		}
 		values := make([]lspCacheValue, 0, len(s.memory))
 		for _, value := range s.memory {
 			if cacheKeyScope(value.Key) != scope.ScopeKey || cacheKeyWorkspace(value.Key) != scope.WorkspaceKey || s.expired(value, now) {
@@ -285,27 +351,39 @@ func (s *lspCacheMutationStore) RememberDocumentScope(uri string, scope Resolved
 	if s == nil || strings.TrimSpace(uri) == "" {
 		return nil
 	}
-	withWriteLock(&s.mu, func() struct{} {
+	return withWriteLock(&s.mu, func() error {
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
+		now := s.now()
+		if s.closed.Load() {
+			return ErrManagerClosed
+		}
 		s.index[lspDocumentIndexKey{URI: uri}] = lspDocumentIndexValue{
 			LastResolvedScope: scope,
 			LastFingerprint:   fingerprint,
-			LastSeenAt:        s.now(),
+			LastSeenAt:        now,
 		}
-		return struct{}{}
+		return nil
 	})
-	return nil
 }
 
 // LastResolvedScope 查询文档最近一次记录的 resolved scope。
 // 空 URI 或未命中时返回 false，调用方需要重新解析目标作用域。
 func (s *lspCacheStore) LastResolvedScope(uri string) (lspDocumentIndexValue, bool) {
-	if s == nil || strings.TrimSpace(uri) == "" {
+	if !s.open() || strings.TrimSpace(uri) == "" {
 		return lspDocumentIndexValue{}, false
 	}
 	result := withReadLock(&s.mu, func() struct {
 		value lspDocumentIndexValue
 		ok    bool
 	} {
+		if s.closed.Load() {
+			return struct {
+				value lspDocumentIndexValue
+				ok    bool
+			}{}
+		}
 		value, ok := s.index[lspDocumentIndexKey{URI: uri}]
 		return struct {
 			value lspDocumentIndexValue
@@ -330,42 +408,67 @@ func (s *lspCacheStore) cachePath() string {
 	return filepath.Join(dir, lspCacheFileName)
 }
 
-// Close 保留缓存关闭钩子但当前不做额外工作。
-// 清理和持久化都发生在读写路径；保留方法是为了让上层资源释放流程保持统一。
+// Close 封闭新缓存访问，并等待已经进入临界区的访问退出。
+// 它不删除持久化文件；关闭后的旧 coordinator 只能返回 ErrManagerClosed 或空读结果。
 func (s *lspCacheStore) Close() {
 	if s == nil {
 		return
 	}
+	s.markClosed()
+	s.waitForMutations()
+}
+
+func (s *lspCacheStore) markClosed() {
+	if s != nil {
+		s.closed.Store(true)
+	}
+}
+
+func (s *lspCacheStore) waitForMutations() {
+	if s == nil {
+		return
+	}
+	withWriteLock(&s.mu, func() struct{} { return struct{}{} })
 }
 
 // maybeCleanup 摊销清理过期文档和过期墓碑。
 // 持久化开启时，发生变更会立即重写磁盘状态；失败只记录告警，不阻断当前缓存读写。
 func (s *lspCacheStore) maybeCleanup() {
-	if s == nil {
+	if s == nil || s.closed.Load() {
 		return
 	}
 	withWriteLock(&s.mu, func() struct{} {
-		now := s.now()
-		changed := false
-		for key, value := range s.memory {
-			if !s.expired(value, now) {
-				continue
-			}
-			delete(s.memory, key)
-			changed = true
-		}
-		for key, createdAt := range s.tombstones {
-			if s.config.TTL > 0 && now.Sub(createdAt) <= minDuration(time.Minute, s.config.TTL) {
-				continue
-			}
-			delete(s.tombstones, key)
-			changed = true
-		}
-		if err := s.persistOnMutation(changed); err != nil && s.config.Logger != nil {
-			s.config.Logger.Warn("LSP persistent cache cleanup failed", "err", err)
-		}
+		s.cleanupExpiredLocked()
 		return struct{}{}
 	})
+}
+
+func (s *lspCacheStore) cleanupExpiredLocked() {
+	if s.closed.Load() {
+		return
+	}
+	now := s.now()
+	if s.closed.Load() {
+		return
+	}
+	changed := false
+	for key, value := range s.memory {
+		if !s.expired(value, now) {
+			continue
+		}
+		delete(s.memory, key)
+		changed = true
+	}
+	for key, createdAt := range s.tombstones {
+		if s.config.TTL > 0 && now.Sub(createdAt) <= minDuration(time.Minute, s.config.TTL) {
+			continue
+		}
+		delete(s.tombstones, key)
+		changed = true
+	}
+	if err := s.persistOnMutation(changed); err != nil && s.config.Logger != nil {
+		s.config.Logger.Warn("LSP persistent cache cleanup failed", "err", err)
+	}
 }
 
 func (s *lspCacheStore) ensurePersistentReady() error {

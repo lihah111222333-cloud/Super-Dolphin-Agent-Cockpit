@@ -307,6 +307,24 @@ const (
 	LSPServiceSQL       = "sql"
 )
 
+// ClangdLanguageIDs 返回 clangd 在运行时与打包清单中必须共同声明的语言集合。
+func ClangdLanguageIDs() []string {
+	return []string{
+		"c", "cpp", "objective-c", "objective-cpp",
+		"mql", "mql4", "mql5", "mq4", "mq5", "mqh",
+	}
+}
+
+// IsMQLLanguageID 判断 language id 是否应通过 C++ 模式交给 clangd。
+func IsMQLLanguageID(languageID string) bool {
+	switch strings.ToLower(strings.TrimSpace(languageID)) {
+	case "mql", "mql4", "mql5", "mq4", "mq5", "mqh":
+		return true
+	default:
+		return false
+	}
+}
+
 // LSPConfig 保存 language-service 启动、索引和项目适配配置。
 type LSPConfig struct {
 	NoiseDirNames                    []string

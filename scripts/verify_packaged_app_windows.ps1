@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 
 $LSPServerSpecs = @(
     'gopls|bin/gopls.exe',
+    'clangd|bin/clangd.exe',
     'typescript-language-server|bin/typescript-language-server.cmd',
     'vscode-langservers-extracted|bin/vscode-css-language-server.cmd',
     'pyright|bin/pyright-langserver.cmd',
@@ -326,6 +327,7 @@ function LSP-VersionArgs() {
     param([Parameter(Mandatory)][string]$ServerId)
     switch ($ServerId) {
         'gopls' { return @('version') }
+        'clangd' { return @('--version') }
         'go' { return @('version') }
         'rust-analyzer' { return @('--version') }
         'bash-language-server' { return @('--version') }

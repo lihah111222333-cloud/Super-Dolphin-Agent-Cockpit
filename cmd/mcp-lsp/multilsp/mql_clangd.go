@@ -97,7 +97,7 @@ func filterOutMQLExtensions(extensions []string) []string {
 	filtered := make([]string, 0, len(extensions))
 	for _, extension := range extensions {
 		switch strings.ToLower(strings.TrimSpace(extension)) {
-		case ".mq5", ".mqh":
+		case ".mq4", ".mq5", ".mqh":
 			continue
 		default:
 			filtered = append(filtered, extension)
@@ -108,7 +108,7 @@ func filterOutMQLExtensions(extensions []string) []string {
 
 func isMQLPath(path string) bool {
 	switch strings.ToLower(filepath.Ext(strings.TrimSpace(path))) {
-	case ".mq5", ".mqh":
+	case ".mq4", ".mq5", ".mqh":
 		return true
 	default:
 		return false
@@ -335,7 +335,7 @@ func normalizedMQLPath(path string) string {
 
 func isMQLCompileTaskSource(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".mq5", ".c", ".cc", ".cpp", ".cxx", ".m", ".mm":
+	case ".mq4", ".mq5", ".c", ".cc", ".cpp", ".cxx", ".m", ".mm":
 		return true
 	default:
 		return false

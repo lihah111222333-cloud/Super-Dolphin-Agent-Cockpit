@@ -181,8 +181,7 @@ func canAutoRetryDeadClientRequest(method string) bool {
 		protocol.MethodCallHierarchyOutgoing,
 		protocol.MethodPrepareTypeHierarchy,
 		protocol.MethodTypeHierarchySupertypes,
-		protocol.MethodTypeHierarchySubtypes,
-		protocol.MethodWorkspaceSymbol:
+		protocol.MethodTypeHierarchySubtypes:
 		return true
 	default:
 		return false
@@ -391,8 +390,8 @@ func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
 	return m.leaseClient(client, false)
 }
 
-// leaseBootstrappingClient 仅供 ensureMu 持有的 bootstrap 事务使用。
-// 它仍写同一 workspace activeLeases/generation，但普通调用方永远不能租用 Bootstrapping。
+// leaseBootstrappingClient 仅供 publish 前的 bootstrap owner 使用。
+// bootstrap RPC 在 ensureMu 外运行；租约仍绑定同一 workspace generation，普通调用方不能触碰 Bootstrapping。
 func (m *manager) leaseBootstrappingClient(client Client) (leasedClient, bool, error) {
 	return m.leaseClient(client, true)
 }
@@ -459,7 +458,7 @@ func validateLeaseWorkspace(workspace *workspaceClient, allowBootstrapping bool)
 	}
 }
 
-// withBootstrapPooledClient 在 ensureMu 事务内保护 bootstrap DidOpen；不会把 Bootstrapping 暴露给普通租约。
+// withBootstrapPooledClient 在不持 ensureMu 时保护 bootstrap DidOpen；不会把 Bootstrapping 暴露给普通租约。
 func (m *manager) withBootstrapPooledClient(client Client, fn func() error) error {
 	if client == nil {
 		return fn()
@@ -471,8 +470,7 @@ func (m *manager) withBootstrapPooledClient(client Client, fn func() error) erro
 	if !ok {
 		return ErrClientNotBound
 	}
-	defer leased.Release()
-	return fn()
+	return errors.Join(fn(), leased.Release())
 }
 
 // releaseClientLease 在 manager 锁内精确匹配 key/client/generation。
@@ -524,6 +522,9 @@ func (m *manager) publishWorkspaceClient(key string, client Client, generation u
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed || m.retiring {
+		return ErrManagerClosed
+	}
 	workspace := m.workspaces[key]
 	if err := validatePublishWorkspace(workspace, client, generation); err != nil {
 		return err

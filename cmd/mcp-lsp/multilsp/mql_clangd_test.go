@@ -10,9 +10,17 @@ import (
 )
 
 func TestNormalizeLanguageIDMQLAliasesUseCpp(t *testing.T) {
-	for _, languageID := range []string{"mq5", "MQH"} {
+	for _, languageID := range []string{"mql", "mql4", "mql5", "mq4", "mq5", "MQH"} {
 		if got := normalizeLanguageID(languageID); got != "cpp" {
 			t.Fatalf("normalizeLanguageID(%q) = %q, want cpp", languageID, got)
+		}
+	}
+}
+
+func TestMQLPathDetectionCoversMQL4AndMQL5(t *testing.T) {
+	for _, path := range []string{"Experts/legacy.mq4", "Experts/robot.mq5", "Include/common.mqh"} {
+		if !isMQLPath(path) {
+			t.Fatalf("isMQLPath(%q) = false, want true", path)
 		}
 	}
 }

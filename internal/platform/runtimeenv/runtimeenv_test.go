@@ -408,6 +408,7 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 	writeStandardBundledLSPManifest(t, resources)
 	for _, name := range []string{
 		"gopls",
+		"clangd",
 		"typescript-language-server",
 		"pyright-langserver",
 		"vscode-css-language-server",
@@ -431,7 +432,7 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 	if !packaged {
 		t.Fatal("LoadLSPBundleFromEnv() packaged = false, want true")
 	}
-	for _, languageID := range []string{"go", "gomod", "gosum", "gowork", "javascript", "javascriptreact", "typescript", "typescriptreact", "css", "python", "rust", "shellscript", "sql"} {
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork", "c", "cpp", "objective-c", "objective-cpp", "mql", "mql4", "mql5", "mq4", "mq5", "mqh", "javascript", "javascriptreact", "typescript", "typescriptreact", "css", "python", "rust", "shellscript", "sql"} {
 		if _, ok := bundle.ServerForLanguage(languageID); !ok {
 			t.Fatalf("standard LSP bundle missing language %q; languages=%v", languageID, bundle.SemanticLanguages())
 		}
@@ -444,6 +445,7 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 func TestDefaultLSPLanguagesMapsBundledLanguageServers(t *testing.T) {
 	for serverID, want := range map[string][]string{
 		"bash-language-server": {"shellscript"},
+		"clangd":               {"c", "cpp", "objective-c", "objective-cpp", "mql", "mql4", "mql5", "mq4", "mq5", "mqh"},
 		"sqruff":               {"sql"},
 	} {
 		got := defaultLSPLanguages(serverID)
@@ -461,6 +463,36 @@ func TestDefaultLSPLanguagesReturnsIndependentDescriptor(t *testing.T) {
 	}
 }
 
+func TestLoadLSPBundleResolvesClangdRelativeToEachDeviceBundle(t *testing.T) {
+	resolved := make([]string, 0, 2)
+	for range 2 {
+		bundleDir := t.TempDir()
+		executable := executableNameForOS(runtimeGOOS(), "clangd")
+		writeExecutable(t, filepath.Join(bundleDir, "bin"), executable)
+		manifestPath := filepath.Join(bundleDir, "lsp-manifest.json")
+		manifest := fmt.Sprintf(`{"servers":{"clangd":{"path":"bin/%s","languages":["c","cpp","mql4","mql5"]}}}`, executable)
+		if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+			t.Fatalf("write clangd bundle manifest: %v", err)
+		}
+		bundle, err := LoadLSPBundle(bundleDir, manifestPath)
+		if err != nil {
+			t.Fatalf("LoadLSPBundle: %v", err)
+		}
+		server, ok := bundle.ServerForLanguage("mql5")
+		if !ok {
+			t.Fatalf("bundle languages = %v, missing mql5", bundle.SemanticLanguages())
+		}
+		want := filepath.Join(bundleDir, "bin", executable)
+		if server.Path != want {
+			t.Fatalf("clangd path = %q, want device-local bundle path %q", server.Path, want)
+		}
+		resolved = append(resolved, server.Path)
+	}
+	if resolved[0] == resolved[1] {
+		t.Fatalf("distinct device bundle roots resolved the same clangd path: %v", resolved)
+	}
+}
+
 func TestBundledSidecarNamesReturnsIndependentDescriptor(t *testing.T) {
 	first := bundledSidecarNames()
 	first[0] = "changed"
@@ -475,6 +507,7 @@ func writeBundledSidecars(t *testing.T, binDir string) {
 	resources := filepath.Dir(binDir)
 	writeBundledLSPManifest(t, resources)
 	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "gopls"))
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "clangd"))
 	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "typescript-language-server"))
 	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "pyright-langserver"))
 	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"))
@@ -495,6 +528,7 @@ func writeBundledLSPManifest(t *testing.T, resources string) {
   "schema_version": 1,
   "servers": {
     "gopls": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "clangd": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "typescript-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "pyright": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "vscode-langservers-extracted": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
@@ -502,7 +536,7 @@ func writeBundledLSPManifest(t *testing.T, resources string) {
     "jdtls": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
   }
 }
-`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "jdtls"))
+`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "clangd"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "jdtls"))
 	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
@@ -518,6 +552,7 @@ func writeStandardBundledLSPManifest(t *testing.T, resources string) {
   "schema_version": 1,
   "servers": {
     "gopls": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "clangd": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "typescript-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "pyright": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "vscode-langservers-extracted": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
@@ -526,7 +561,7 @@ func writeStandardBundledLSPManifest(t *testing.T, resources string) {
     "sqruff": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
   }
 }
-`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "bash-language-server"), executableNameForOS(runtimeGOOS(), "sqruff"))
+`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "clangd"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "bash-language-server"), executableNameForOS(runtimeGOOS(), "sqruff"))
 	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)

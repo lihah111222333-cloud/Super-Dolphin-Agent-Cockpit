@@ -3,7 +3,12 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
+	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -125,9 +130,12 @@ func assertGOWORKDoesNotAffectWorkspace(t *testing.T, tc nonGoGOWORKPollutionTes
 }
 
 type goWorkspaceClientFactory struct {
-	mu      sync.Mutex
-	calls   []goWorkspaceFactoryCall
-	clients []*goWorkspaceClient
+	mu                            sync.Mutex
+	calls                         []goWorkspaceFactoryCall
+	clients                       []*goWorkspaceClient
+	workspaceSymbolURIs           []string
+	workspaceSymbolsFromDocuments bool
+	workspaceSymbolDiskFiles      []string
 }
 
 type goWorkspaceFactoryCall struct {
@@ -139,10 +147,20 @@ func (f *goWorkspaceClientFactory) NewClient(rootDir string, handler protocol.No
 	return f.NewClientWithEnv(rootDir, nil, handler)
 }
 
-func (f *goWorkspaceClientFactory) NewClientWithEnv(rootDir string, env []string, _ protocol.NotificationHandler) (Client, error) {
+func (f *goWorkspaceClientFactory) NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error) {
+	return f.NewClientWithOptions(rootDir, env, nil, handler)
+}
+
+func (f *goWorkspaceClientFactory) NewClientWithOptions(rootDir string, env []string, _ map[string]any, _ protocol.NotificationHandler) (Client, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	client := &goWorkspaceClient{}
+	client := &goWorkspaceClient{
+		workspaceSymbolURIs:           append([]string(nil), f.workspaceSymbolURIs...),
+		workspaceSymbolsFromDocuments: f.workspaceSymbolsFromDocuments,
+		workspaceSymbolDiskFiles:      append([]string(nil), f.workspaceSymbolDiskFiles...),
+		documents:                     make(map[string]string),
+		versions:                      make(map[string]int),
+	}
 	f.calls = append(f.calls, goWorkspaceFactoryCall{
 		rootDir: rootDir,
 		env:     append([]string(nil), env...),
@@ -178,18 +196,26 @@ func (f *goWorkspaceClientFactory) clientAt(t *testing.T, index int) *goWorkspac
 }
 
 type goWorkspaceClient struct {
-	mu                   sync.Mutex
-	rootURI              string
-	workspaceFolders     []protocol.WorkspaceFolder
-	initializedFolders   []protocol.WorkspaceFolder
-	initScopeKey         string
-	initWorkspaceKey     string
-	initManagerKey       string
-	initLanguageSpecific map[string]string
-	initResolvedOK       bool
-	initToolScope        common.ToolScope
-	initToolScopeOK      bool
-	closed               bool
+	mu                            sync.Mutex
+	rootURI                       string
+	workspaceFolders              []protocol.WorkspaceFolder
+	initializedFolders            []protocol.WorkspaceFolder
+	initScopeKey                  string
+	initWorkspaceKey              string
+	initManagerKey                string
+	initLanguageSpecific          map[string]string
+	initResolvedOK                bool
+	initToolScope                 common.ToolScope
+	initToolScopeOK               bool
+	workspaceSymbolURIs           []string
+	workspaceSymbolsFromDocuments bool
+	workspaceSymbolDiskFiles      []string
+	documents                     map[string]string
+	versions                      map[string]int
+	didOpenCount                  int
+	didChangeCount                int
+	didCloseCount                 int
+	closed                        bool
 }
 
 func (c *goWorkspaceClient) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
@@ -219,21 +245,123 @@ func (c *goWorkspaceClient) Initialize(ctx context.Context, rootURI string) erro
 
 func (c *goWorkspaceClient) Shutdown(context.Context) error { return nil }
 
-func (c *goWorkspaceClient) Request(context.Context, string, any) (json.RawMessage, error) {
-	return json.RawMessage("null"), nil
+func (c *goWorkspaceClient) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
+	if method != protocol.MethodWorkspaceSymbol {
+		return json.RawMessage("null"), nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.workspaceSymbolsFromDocuments {
+		return c.workspaceDocumentSymbolsLocked()
+	}
+	symbols := make([]protocol.SymbolInformation, 0, len(c.workspaceSymbolURIs))
+	for index, uri := range c.workspaceSymbolURIs {
+		symbols = append(symbols, protocol.SymbolInformation{
+			Name: fmt.Sprintf("workspaceSymbol%d", index), Kind: protocol.SymbolKindFunction,
+			Location: protocol.Location{URI: uri},
+		})
+	}
+	return json.Marshal(symbols)
+}
+
+func (c *goWorkspaceClient) workspaceDocumentSymbolsLocked() (json.RawMessage, error) {
+	documents := make(map[string]string, len(c.documents)+len(c.workspaceSymbolDiskFiles))
+	maps.Copy(documents, c.documents)
+	for _, path := range c.workspaceSymbolDiskFiles {
+		uri := fileURIFromPath(path)
+		if _, opened := documents[uri]; opened {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		documents[uri] = string(data)
+	}
+	uris := make([]string, 0, len(documents))
+	for uri := range documents {
+		uris = append(uris, uri)
+	}
+	sort.Strings(uris)
+	symbols := make([]protocol.SymbolInformation, 0, len(uris))
+	for _, uri := range uris {
+		symbols = append(symbols, protocol.SymbolInformation{
+			Name: goWorkspaceFunctionName(documents[uri]), Kind: protocol.SymbolKindFunction,
+			Location: protocol.Location{URI: uri},
+		})
+	}
+	return json.Marshal(symbols)
+}
+
+func goWorkspaceFunctionName(text string) string {
+	fields := strings.Fields(text)
+	for index, field := range fields {
+		if field == "func" && index+1 < len(fields) {
+			return strings.TrimSuffix(strings.SplitN(fields[index+1], "(", 2)[0], "{")
+		}
+	}
+	return "workspaceSymbol"
 }
 
 func (c *goWorkspaceClient) Notify(context.Context, string, any) error { return nil }
 
-func (c *goWorkspaceClient) DidOpen(context.Context, string, string, int, string) error {
+func (c *goWorkspaceClient) DidOpen(_ context.Context, uri, _ string, version int, text string) error {
+	if !c.workspaceSymbolsFromDocuments {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.documents[uri]; exists {
+		return fmt.Errorf("duplicate DidOpen for %s", uri)
+	}
+	c.documents[uri] = text
+	c.versions[uri] = version
+	c.didOpenCount++
 	return nil
 }
 
-func (c *goWorkspaceClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+func (c *goWorkspaceClient) DidChange(_ context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
+	if !c.workspaceSymbolsFromDocuments {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	current, exists := c.versions[uri]
+	if !exists {
+		return fmt.Errorf("DidChange before DidOpen for %s", uri)
+	}
+	if version <= current {
+		return fmt.Errorf("non-monotonic DidChange version %d after %d for %s", version, current, uri)
+	}
+	if len(changes) != 1 || changes[0].Range != nil {
+		return fmt.Errorf("go workspace fake requires one full-document change for %s", uri)
+	}
+	c.documents[uri] = changes[0].Text
+	c.versions[uri] = version
+	c.didChangeCount++
 	return nil
 }
 
-func (c *goWorkspaceClient) DidClose(context.Context, string) error { return nil }
+func (c *goWorkspaceClient) DidClose(_ context.Context, uri string) error {
+	if !c.workspaceSymbolsFromDocuments {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.documents[uri]; !exists {
+		return fmt.Errorf("duplicate DidClose for %s", uri)
+	}
+	delete(c.documents, uri)
+	delete(c.versions, uri)
+	c.didCloseCount++
+	return nil
+}
+
+func (c *goWorkspaceClient) documentNotificationCounts() (int, int, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.didOpenCount, c.didChangeCount, c.didCloseCount
+}
 
 func (c *goWorkspaceClient) Close() error {
 	c.mu.Lock()
@@ -259,4 +387,22 @@ func assertFolderURIs(t *testing.T, folders []protocol.WorkspaceFolder, paths []
 			t.Fatalf("workspace folder %d URI = %q, want %q; folders=%#v", i, folders[i].URI, want, folders)
 		}
 	}
+}
+
+func goWorkspaceSymbolResultURI(result protocol.WorkspaceSymbolResult) (string, error) {
+	if result.SymbolInformation != nil {
+		return result.SymbolInformation.Location.URI, nil
+	}
+	if result.WorkspaceSymbol == nil {
+		return "", fmt.Errorf("workspace symbol result has no union member")
+	}
+	payload, err := json.Marshal(result.WorkspaceSymbol.Location)
+	if err != nil {
+		return "", err
+	}
+	var location protocol.WorkspaceSymbolLocation
+	if err := json.Unmarshal(payload, &location); err != nil {
+		return "", err
+	}
+	return location.URI, nil
 }

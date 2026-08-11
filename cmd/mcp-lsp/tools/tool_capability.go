@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,7 +10,24 @@ import (
 
 // isUnsupportedCapability 判断错误是否为 LSP 能力不支持错误。
 func isUnsupportedCapability(err error) bool {
-	return errors.Is(err, lspmanager.ErrUnsupportedCapability)
+	if err == nil {
+		return false
+	}
+	if coded, ok := err.(*common.CodedToolError); ok && coded.Code == "capability_unsupported" {
+		return true
+	}
+	if err == lspmanager.ErrUnsupportedCapability {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) != 1 {
+			return false
+		}
+		return isUnsupportedCapability(children[0])
+	}
+	wrapped, ok := err.(interface{ Unwrap() error })
+	return ok && isUnsupportedCapability(wrapped.Unwrap())
 }
 
 // unsupportedCapabilityEmptyResult 返回表示不支持能力的空列表响应信封。
