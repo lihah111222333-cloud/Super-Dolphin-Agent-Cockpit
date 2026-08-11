@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { AppearanceSettingsPanel } from './AppearanceSettingsPanel.jsx';
 
 afterEach(() => {
   cleanup();
 });
 
-function Harness({ onState }) {
+function Harness({ copy = APP_COPY.zh.settings.appearance, onState }) {
   const [settings, setSettings] = useState({ themeMode: 'system', uiScale: 100, accent: 'violet' });
   onState(settings);
   const appearance = {
@@ -17,7 +18,7 @@ function Harness({ onState }) {
     setThemeMode: (themeMode) => setSettings((current) => ({ ...current, themeMode })),
     setUiScale: (uiScale) => setSettings((current) => ({ ...current, uiScale })),
   };
-  return <AppearanceSettingsPanel appearance={appearance} />;
+  return <AppearanceSettingsPanel appearance={appearance} copy={copy} />;
 }
 
 function renderPanel() {
@@ -98,5 +99,14 @@ describe('AppearanceSettingsPanel', () => {
     expect(screen.getByRole('complementary', { name: '外观实时预览' })).toBeInTheDocument();
     expect(screen.getByTestId('appearance-responsive-layout')).toHaveClass('appearance-settings__layout');
     expect(screen.getByTestId('appearance-responsive-layout').children).toHaveLength(2);
+  });
+
+  it('renders every appearance surface in English from the shared copy', () => {
+    render(<Harness copy={APP_COPY.en.settings.appearance} onState={() => {}} />);
+    const panel = screen.getByTestId('appearance-settings-panel');
+    expect(within(panel).getByRole('heading', { name: 'Appearance and display' })).toBeInTheDocument();
+    expect(within(panel).getByRole('radio', { name: /System/ })).toBeChecked();
+    expect(within(panel).getByRole('group', { name: 'Accent color' })).toBeInTheDocument();
+    expect(within(panel).queryByText('外观与显示')).not.toBeInTheDocument();
   });
 });

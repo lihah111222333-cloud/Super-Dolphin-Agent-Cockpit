@@ -85,7 +85,7 @@ function SettingsPageView(props) {
       <MobileAccountPanel copy={copy} cwd={cwd} runtime={runtime} />
       <SettingsNotices error={runtime.error} status={runtime.status} />
       <div className="panel-body" data-testid="settings-panel-body">
-        <AppearanceSettingsPanel appearance={appearance} />
+        <AppearanceSettingsPanel appearance={appearance} copy={copy.appearance} />
         <AboutPanel buildInfo={runtime.buildInfo} copy={copy} cwd={cwd} runtime={runtime} updateCurrentVersion={appUpdateCurrentVersionLabel(runtime.buildInfo)} />
         <RuntimeSettingsPanels copy={copy} runtime={runtime} />
         <ProviderSettingsPanel copy={copy} runtime={runtime} viewConfig={providerSettingsViewConfig} />
