@@ -177,7 +177,7 @@ function registerBridgeEventHandlersForTest() {
     backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
     backend.reportFrontendReadiness.mockResolvedValue(1);
     backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
-    backend.openNewWindow.mockResolvedValue({ ok: true });
+    backend.openNewWindow.mockResolvedValue({ turn_id: 'turn-local-test' });
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
     backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
     backend.addProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
@@ -201,13 +201,13 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.claude.model': 'sonnet',
       'settings.provider.claude.effort': 'high',
     }[key] ?? null));
-    backend.archiveThread.mockResolvedValue({ ok: true });
-    backend.unarchiveThread.mockResolvedValue({ ok: true });
+    backend.archiveThread.mockResolvedValue({ turn_id: 'turn-local-test' });
+    backend.unarchiveThread.mockResolvedValue({ turn_id: 'turn-local-test' });
     backend.interruptTurn.mockImplementation((params) => Promise.resolve(interruptSuccessResult(params)));
     backend.forceCompleteTurn.mockResolvedValue({ confirmed: true });
     backend.recoverThread.mockResolvedValue({ recovered: true });
     backend.respondApproval.mockResolvedValue(null);
-    backend.deleteThread.mockResolvedValue({ ok: true });
+    backend.deleteThread.mockResolvedValue({ turn_id: 'turn-local-test' });
     backend.getThreadConfig.mockResolvedValue({
       threadId: 'thread-1',
       provider: 'codex',
@@ -222,7 +222,7 @@ function registerBridgeEventHandlersForTest() {
       override: { model: 'gpt-5.4', effort: 'medium' },
       effective: { model: 'gpt-5.4', effort: 'medium' },
     });
-    backend.setPreference.mockResolvedValue({ ok: true });
+    backend.setPreference.mockResolvedValue({ turn_id: 'turn-local-test' });
     backend.selectProjectDir.mockResolvedValue('/repo/new');
     backend.beginTextClipboardWrite.mockReturnValue(null);
     backend.copyTextToClipboard.mockResolvedValue(true);
@@ -1803,7 +1803,7 @@ function registerBridgeEventHandlersForTest() {
       hasMore: false,
       nextBefore: '',
     });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await expect(useClientStore.getState().openThreadById('agent_child_1', { source: 'dag-node' })).resolves.toBe(true);
     expect(useClientStore.getState().threads).toEqual(expect.arrayContaining([
@@ -2024,7 +2024,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [{ path: '/tmp/a.txt', name: 'a.txt' }],
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-new' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -2074,7 +2074,7 @@ function registerBridgeEventHandlersForTest() {
       },
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-dot' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -2105,7 +2105,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [],
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-agent' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -2136,7 +2136,7 @@ function registerBridgeEventHandlersForTest() {
       backend.startThread.mockClear();
       backend.startTurn.mockClear();
       backend.startThread.mockResolvedValue({ threadId: `thread-trace-${index}` });
-      backend.startTurn.mockResolvedValue({ ok: true });
+      backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
       await useClientStore.getState().sendDraft();
 
@@ -2158,7 +2158,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [],
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-new' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
     backend.getThreadState.mockResolvedValueOnce({
@@ -2325,7 +2325,7 @@ function registerBridgeEventHandlersForTest() {
 
     // Mock first send
     backend.startThread.mockResolvedValueOnce({ threadId: 'thread-1' });
-    backend.startTurn.mockResolvedValueOnce({ ok: true });
+    backend.startTurn.mockResolvedValueOnce({ turn_id: 'turn-local-test' });
 
     // Send first draft
     await useClientStore.getState().sendDraft();
@@ -2338,7 +2338,7 @@ function registerBridgeEventHandlersForTest() {
 
     // Mock second send
     backend.startThread.mockResolvedValueOnce({ threadId: 'thread-2' });
-    backend.startTurn.mockResolvedValueOnce({ ok: true });
+    backend.startTurn.mockResolvedValueOnce({ turn_id: 'turn-local-test' });
 
     // Send second draft
     await useClientStore.getState().sendDraft();
@@ -2385,7 +2385,7 @@ function registerBridgeEventHandlersForTest() {
       resolveStartThread1 = resolve;
     });
     backend.startThread.mockReturnValueOnce(startThreadPromise1);
-    backend.startTurn.mockResolvedValueOnce({ ok: true });
+    backend.startTurn.mockResolvedValueOnce({ turn_id: 'turn-local-test' });
 
     // Send first draft (async, does not await finish yet)
     const sendPromise1 = useClientStore.getState().sendDraft();
@@ -2410,7 +2410,7 @@ function registerBridgeEventHandlersForTest() {
 
     // Mock second send
     backend.startThread.mockResolvedValueOnce({ threadId: 'thread-2' });
-    backend.startTurn.mockResolvedValueOnce({ ok: true });
+    backend.startTurn.mockResolvedValueOnce({ turn_id: 'turn-local-test' });
 
     // Send second draft
     await useClientStore.getState().sendDraft();
@@ -2861,7 +2861,7 @@ function registerBridgeEventHandlersForTest() {
       'settings.activePromptKey': 'main/dag_designer_zh',
     }[key] ?? null));
     backend.startThread.mockResolvedValue({ threadId: 'thread-configured' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -2922,7 +2922,7 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexModelProvider': 'openai',
     }[key] ?? null));
     backend.startThread.mockResolvedValue({ threadId: 'thread-default-codex' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -2963,7 +2963,7 @@ function registerBridgeEventHandlersForTest() {
       }[key] ?? null);
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-global-codex' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3001,7 +3001,7 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexModelProvider': 'openai',
     }[key] ?? null));
     backend.startThread.mockResolvedValue({ threadId: 'thread-expanded-default-codex' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3035,7 +3035,7 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexModelProvider': 'openrouter',
     }[key] ?? null));
     backend.startThread.mockResolvedValue({ threadId: 'thread-default-model' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3191,7 +3191,7 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.effort': 'xhigh',
     }[key] ?? null));
     backend.startThread.mockResolvedValue({ threadId: 'thread-codex' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3240,7 +3240,7 @@ function registerBridgeEventHandlersForTest() {
     });
     backend.startTurn
       .mockRejectedValueOnce(new Error('{"message":"[-32098] resolve session: thread \\"thread-1\\": resolve session: thread \\"thread-1\\" is stopped"}'))
-      .mockResolvedValueOnce({ ok: true });
+      .mockResolvedValueOnce({ turn_id: 'turn-local-test' });
     backend.recoverThread.mockResolvedValue({ recovered: true, mode: 'relaunch_resume' });
 
     await expect(useClientStore.getState().sendDraft()).resolves.toBe(true);
@@ -3267,7 +3267,7 @@ function registerBridgeEventHandlersForTest() {
     });
     backend.startTurn
       .mockRejectedValueOnce(new Error('resolve session: thread "thread-legacy": resolve session: auto-resume failed: codex identity required for resume'))
-      .mockResolvedValueOnce({ ok: true });
+      .mockResolvedValueOnce({ turn_id: 'turn-local-test' });
     backend.startThread.mockResolvedValue({ threadId: 'thread-recovered', agentId: 'agent-recovered' });
 
     await expect(useClientStore.getState().sendDraft()).resolves.toBe(true);
@@ -3339,7 +3339,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [],
     });
     backend.startThread.mockResolvedValue({ thread: { id: 'thread-nested' }, pending_launch: true });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3361,7 +3361,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [],
     });
     backend.startThread.mockResolvedValue({ thread: { id: 'agent_123', thread_id: 'thread-nested', agent_id: 'agent_123' } });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3387,7 +3387,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [],
     });
     backend.startThread.mockResolvedValue({ agent_id: 'essay_agent_16' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3420,7 +3420,7 @@ function registerBridgeEventHandlersForTest() {
       pending_launch: true,
       pendingLaunch: true,
     });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3852,7 +3852,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [],
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-safe' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
 
@@ -3875,7 +3875,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [],
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-new' });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().sendDraft();
     registerBridgeEventHandlersForTest();
@@ -4387,7 +4387,7 @@ function registerBridgeEventHandlersForTest() {
       attachments: [{ path: '/tmp/change.patch', name: 'change.patch' }],
       composerCapabilities: boundCapabilities, threads: [{ id: 'thread-1', name: 'Review thread', provider: 'codex', status: 'running', cwd: '/repo/app' }],
     });
-    backend.startTurn.mockResolvedValueOnce({ ok: true });
+    backend.startTurn.mockResolvedValueOnce({ turn_id: 'turn-local-test' });
 
     await expect(useClientStore.getState().sendDraft()).resolves.toBe(true);
 
@@ -4463,7 +4463,7 @@ function registerBridgeEventHandlersForTest() {
         }],
       });
       backend.startTurn.mockReset();
-      backend.startTurn.mockResolvedValue({ ok: true });
+      backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
       await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
         `composer capability mcp_tool:lsp:grep is ${availability}`,
@@ -4757,7 +4757,7 @@ function registerBridgeEventHandlersForTest() {
       thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
       kickoffState: 'created_only',
     });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
     await expect(useClientStore.getState().submitForkThread()).resolves.toBe('thread-fork');
@@ -4875,7 +4875,7 @@ function registerBridgeEventHandlersForTest() {
       path: 'notes/a.md',
       content: '  indented\n',
     });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     await useClientStore.getState().openForkDraft();
     expect(useClientStore.getState().forkDraft.availableSharedFiles).toEqual([
@@ -8820,7 +8820,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('rejects malformed approval responses without publishing success', async () => {
-    for (const response of [{ ok: false }, { ok: true }, undefined]) {
+    for (const response of [{ ok: false }, { turn_id: 'turn-local-test' }, undefined]) {
       backend.respondApproval.mockResolvedValueOnce(response);
       resetClientStoreForTests({
         cwd: '/repo/app',
@@ -9501,7 +9501,7 @@ function registerBridgeEventHandlersForTest() {
     });
     const rawFailure = new Error('raw delete provider failure');
     backend.deleteThread
-      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ turn_id: 'turn-local-test' })
       .mockRejectedValueOnce(rawFailure);
 
     await expect(useClientStore.getState().deleteStaleThreads(['thread-ok', 'thread-failed']))
@@ -9659,7 +9659,7 @@ function registerBridgeEventHandlersForTest() {
     // A fails, B succeeds.
     backend.archiveThread
       .mockRejectedValueOnce(new Error('Archiving A failed')) // A fails
-      .mockResolvedValueOnce({ ok: true }); // B succeeds
+      .mockResolvedValueOnce({ turn_id: 'turn-local-test' }); // B succeeds
 
     resetClientStoreForTests({
       cwd: '/repo/app',

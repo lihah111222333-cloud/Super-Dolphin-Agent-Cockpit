@@ -290,7 +290,7 @@ afterEach(cleanupAppTest);
     await waitFor(() => expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent(/正在思考 \d+[sm]/));
 
     await act(async () => {
-      startTurnDeferred.resolve({ ok: true });
+      startTurnDeferred.resolve({ turn_id: 'turn-local-test' });
       await Promise.resolve();
     });
   });
@@ -395,7 +395,7 @@ afterEach(cleanupAppTest);
     backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
     backend.startThread.mockResolvedValue({ thread: { id: 'thread-new' } });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     render(<App />);
 
@@ -464,7 +464,7 @@ afterEach(cleanupAppTest);
       thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
       kickoffState: 'created_only',
     });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     render(<App />);
 
@@ -539,7 +539,7 @@ afterEach(cleanupAppTest);
       activeThreadId: 'thread-1',
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
     });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
     render(<App />);
 
     await waitForBackendThreadHeading();
@@ -586,7 +586,7 @@ afterEach(cleanupAppTest);
     backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
     backend.startThread.mockResolvedValue({ thread: { id: 'thread-new' } });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
 
     const { container } = render(<App />);
 
