@@ -150,6 +150,16 @@ function ThreadDisplayCardContent({ thread, store, onBeginRename }) {
   const statusLabel = threadCardStatusLabel(thread, running);
   const statusDotState = threadStatusDotState(thread.status);
   const statusDotTitle = threadStatusDotTitle(thread.status, statusLabel);
+  const selectThread = () => {
+    const selectionSnapshot = store?.captureThreadSelection?.();
+    if (!selectionSnapshot || typeof store?.openThreadById !== 'function') {
+      throw new Error('canonical thread open capability is unavailable');
+    }
+    return store.openThreadById(thread.id, {
+      selectionSnapshot,
+      source: 'chat-thread-list',
+    });
+  };
   return (
     <ThreadDisplayCardContentView
       providerLabel={threadProviderLabel(thread.provider)}
@@ -159,7 +169,7 @@ function ThreadDisplayCardContent({ thread, store, onBeginRename }) {
       statusLabel={statusLabel}
       threadLabel={threadLabel}
       onBeginRename={onBeginRename}
-      onSelect={() => runUIAction('thread.select', () => store.setActiveThread(thread.id))}
+      onSelect={() => runUIAction('thread.select', selectThread, { rejectFalse: true })}
     />
   );
 }

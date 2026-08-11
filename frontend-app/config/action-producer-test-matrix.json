@@ -3601,6 +3601,16 @@
       ]
     },
     {
+      "actionId": "thread.select",
+      "errorSource": "unsuccessful-result",
+      "evidence": [
+        "a.producer.thread.select",
+        "b.wrapper.unsuccessful-result",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
       "actionId": "thread.sync",
       "errorSource": "sync-throw",
       "evidence": [

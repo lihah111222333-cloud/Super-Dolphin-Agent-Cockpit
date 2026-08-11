@@ -15,7 +15,8 @@ function createStore(overrides = {}) {
     pendingActiveThreadId: '',
     pinnedThreadAtById: {},
     renameThread: vi.fn(async () => true),
-    setActiveThread: vi.fn(),
+    captureThreadSelection: vi.fn(() => ({ selectionIntentId: 1, targetThreadId: 't1' })),
+    openThreadById: vi.fn(async () => true),
     threadArchiveLoadingByThread: {},
     threads: [
       { id: 't1', name: 'Active thread', provider: 'codex', status: 'running', updatedAt: 20 },
@@ -38,7 +39,10 @@ describe('ThreadRail', () => {
     fireEvent.click(screen.getByRole('button', { name: copy.newThread }));
     fireEvent.click(screen.getAllByRole('button', { name: copy.pinThread })[0]);
 
-    expect(store.setActiveThread).toHaveBeenCalledWith('t1');
+    expect(store.openThreadById).toHaveBeenCalledWith('t1', {
+      source: 'chat-thread-list',
+      selectionSnapshot: { selectionIntentId: 1, targetThreadId: 't1' },
+    });
     expect(store.newThread).toHaveBeenCalledTimes(1);
     expect(store.toggleThreadPin).toHaveBeenCalledWith('t1');
     expect(screen.getByLabelText('Thread running')).toBeInTheDocument();
