@@ -22,6 +22,19 @@ export function clearVisibleActionFailure() {
   emit();
 }
 
+/** @param {readonly string[]} actionIds */
+export function clearVisibleActionFailureForActions(actionIds) {
+  if (!activeFailure || !actionIds.includes(activeFailure.actionId)) return false;
+  clearVisibleActionFailure();
+  return true;
+}
+
+/** @param {VisibleActionFailure | null} expectedFailure @param {readonly string[]} actionIds */
+export function clearVisibleActionFailureIfCurrent(expectedFailure, actionIds) {
+  if (!expectedFailure || activeFailure !== expectedFailure) return false;
+  return clearVisibleActionFailureForActions(actionIds);
+}
+
 /** @param {() => void} listener */
 export function subscribeVisibleActionFailure(listener) {
   listeners.add(listener);

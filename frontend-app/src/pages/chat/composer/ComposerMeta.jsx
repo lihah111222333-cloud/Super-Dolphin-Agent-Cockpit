@@ -39,7 +39,7 @@ function ComposerMeta({
       runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true });
       return;
     }
-    if (canSend) runUIAction('composer.send', () => sendMessage());
+    if (canSend) runUIAction('composer.send', () => sendMessage(), { supersedesActionIds: ['thread.interrupt'] });
   };
   return (
     <div className="composer-meta">
