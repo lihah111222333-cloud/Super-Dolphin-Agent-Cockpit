@@ -257,7 +257,7 @@ it.each([
 
     const shell = await screen.findByTestId('frontend-app');
     const sidebar = screen.getByTestId('app-sidebar');
-    const appbar = document.querySelector('.suiyuan-top-appbar');
+    const appbar = screen.getByLabelText('Super Dolphin Agent app bar');
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
@@ -319,9 +319,13 @@ it.each([
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    expect(sidebar.querySelector('.suiyuan-brand-block img')?.getAttribute('src')).toContain('suiyuan-brand-icon.png');
+    expect(within(sidebar).getByTestId('super-dolphin-agent-brand-dark-logo')).toHaveAttribute(
+      'src',
+      expect.stringContaining('super-dolphin-agent-brand-icon.png'),
+    );
+    expect(within(sidebar).getByTestId('super-dolphin-agent-brand-light-logo')).toBeInTheDocument();
     expect(sidebar.querySelector('.sidebar-tree-folder img')).toBeNull();
-    expect(sidebar.querySelector('.suiyuan-nav-item svg')).toBeInTheDocument();
+    expect(sidebar.querySelector('.super-dolphin-agent-nav-item svg')).toBeInTheDocument();
   });
 
   it('keeps the workbench sidebar class stable while switching between chat and tools', async () => {
@@ -343,7 +347,7 @@ it.each([
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    const nav = within(sidebar).getByRole('navigation', { name: 'Suiyuan navigation' });
+    const nav = within(sidebar).getByRole('navigation', { name: 'Super Dolphin Agent navigation' });
 
     expect(within(sidebar).getByRole('region', { name: '项目' })).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();
