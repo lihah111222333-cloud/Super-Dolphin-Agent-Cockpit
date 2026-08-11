@@ -151,6 +151,19 @@ function threadActionPayload(params) {
   return cleanObject({ cwd, threadId: target.threadId });
 }
 
+function explicitInterruptTarget(options) {
+  if (!Object.hasOwn(options, 'activeTurnTarget')) return null;
+  const target = options.activeTurnTarget;
+  if (target == null || typeof target !== 'object' || Array.isArray(target)) {
+    throw new TypeError('thread.interrupt: activeTurnTarget must be an object');
+  }
+  const threadId = normalizeOptionalTextField(target.threadId);
+  const turnId = normalizeOptionalTextField(target.turnId);
+  if (!threadId) throw new Error('thread.interrupt: activeTurnTarget.threadId is required');
+  if (!turnId) throw new Error('thread.interrupt: activeTurnTarget.turnId is required');
+  return { threadId, turnId, interruptible: true };
+}
+
 function notifyThreadActionFailure(params) {
   const { action, addWarning, notifyAction, result, threadId } = params;
   if (action === 'thread.interrupt' && result?.ok === false) {
@@ -221,7 +234,8 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
   const runActiveThreadRPC = async (action, rpc, options = {}) => {
     const currentState = get();
     const requiresActiveTurn = threadActionRequiresActiveTurn(action);
-    const activeTurnTarget = requiresActiveTurn ? activeThreadInterruptTarget(currentState) : null;
+    const explicitTarget = action === 'thread.interrupt' ? explicitInterruptTarget(options) : null;
+    const activeTurnTarget = requiresActiveTurn ? explicitTarget || activeThreadInterruptTarget(currentState) : null;
     const threadId = options.threadId
       || activeTurnTarget?.threadId
       || backendThreadIdForState(currentState, currentState.activeThreadId);
@@ -248,21 +262,23 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     }
   };
 
-  const executeActiveThreadRPC = async (action, rpc) => {
-    const outcome = await runActiveThreadRPC(action, rpc);
+  const executeActiveThreadRPC = async (action, rpc, options) => {
+    const outcome = await runActiveThreadRPC(action, rpc, options);
     if (!outcome.ok) return false;
     notifyAction(THREAD_ACTION_SUCCESS_MESSAGES[action] || '线程操作已提交', 'success', { threadId: outcome.threadId });
     return true;
   };
 
-  const activeThreadRPC = (action, rpc) => {
-    if (action !== 'thread.interrupt') return executeActiveThreadRPC(action, rpc);
-    const key = interruptSingleFlightKey(activeThreadInterruptTarget(get()));
-    if (!key) return executeActiveThreadRPC(action, rpc);
+  const activeThreadRPC = (action, rpc, options = {}) => {
+    const explicitTarget = action === 'thread.interrupt' ? explicitInterruptTarget(options) : null;
+    if (action === 'thread.interrupt' && !explicitTarget && runtime.cancelPendingTurnStart?.()) return true;
+    if (action !== 'thread.interrupt') return executeActiveThreadRPC(action, rpc, options);
+    const key = interruptSingleFlightKey(explicitTarget || activeThreadInterruptTarget(get()));
+    if (!key) return executeActiveThreadRPC(action, rpc, options);
     const existing = interruptFlights.get(key);
     if (existing) return existing.actionPromise;
 
-    const actionPromise = executeActiveThreadRPC(action, rpc);
+    const actionPromise = executeActiveThreadRPC(action, rpc, options);
     const flight = { actionPromise };
     interruptFlights.set(key, flight);
     const releaseSettledFlight = () => {

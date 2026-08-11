@@ -83,6 +83,38 @@ describe('thread lifecycle runtime', () => {
     );
   });
 
+  it('interrupts the explicit turn returned by pending start after cancellation was already recorded', async () => {
+    const cancelPendingTurnStart = vi.fn(() => true);
+    const runtime = createRuntime({ cancelPendingTurnStart });
+    const deps = createDeps({
+      activeThreadInterruptTarget: vi.fn(() => ({
+        threadId: 'selected-thread',
+        turnId: 'selected-turn',
+        interruptible: true,
+      })),
+      createRequestId: vi.fn(() => 'pending-stop-request'),
+    });
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult({
+      requestId: 'pending-stop-request',
+      expectedTurnId: 'started-turn',
+      turnId: 'started-turn',
+    }));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc, {
+      activeTurnTarget: { threadId: 'started-thread', turnId: 'started-turn' },
+    })).resolves.toBe(true);
+
+    expect(cancelPendingTurnStart).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'started-thread',
+      expectedTurnId: 'started-turn',
+      requestId: 'pending-stop-request',
+      source: 'ui_stop',
+    });
+  });
+
   it.each([
     ['null', null],
     ['empty object', {}],

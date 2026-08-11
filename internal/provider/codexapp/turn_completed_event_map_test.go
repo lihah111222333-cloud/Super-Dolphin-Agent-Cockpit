@@ -2,7 +2,9 @@ package codexapp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -497,6 +499,79 @@ func TestOnNotification_MalformedTerminalFailsActiveTurnExactlyOnceWithoutPayloa
 				t.Fatal("active turn remained registered after malformed terminal notification")
 			}
 		})
+	}
+}
+
+func TestOnNotification_AppServerV2InterruptedTerminalConfirmsPendingInterrupt(t *testing.T) {
+	bus := event.NewDispatcher()
+	t.Cleanup(func() { _ = bus.Close() })
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
+	terminals := make(chan turndto.TurnCompleted, 1)
+	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
+	t.Cleanup(cancelTerminal)
+
+	h := newTurnHandle("local-v2-interrupt", "turn-v2-interrupt")
+	s := &session{
+		agentID:              "agent-v2-interrupt",
+		dispatcher:           dispatcher,
+		turns:                map[string]*turnHandle{"turn-v2-interrupt": h},
+		activeTurnID:         "turn-v2-interrupt",
+		activeTurnGeneration: 7,
+		interruptRequests: map[string]*interruptRequestClaim{"turn-v2-interrupt": {
+			turnID: "turn-v2-interrupt", requestID: "stop-v2", generation: 7, state: interruptRequestPending,
+		}},
+	}
+	s.setThreadID("thread-v2-interrupt")
+	s.onNotification("turn/completed", json.RawMessage(
+		`{"threadId":"thread-v2-interrupt","turn":{"id":"turn-v2-interrupt","items":[],"status":"interrupted","completedAt":1786450000,"error":null}}`,
+	))
+
+	assertV2InterruptedTerminal(t, terminals)
+	assertV2InterruptedHandle(t, h)
+	assertV2InterruptedOwnershipReleased(t, s)
+}
+
+func assertV2InterruptedTerminal(t *testing.T, terminals <-chan turndto.TurnCompleted) {
+	t.Helper()
+	select {
+	case terminal := <-terminals:
+		if terminal.Success || terminal.Status != "interrupted" || terminal.Reason != "user_request" || terminal.TerminationRequestID != "stop-v2" {
+			t.Fatalf("v2 interrupted terminal = %#v, want accepted user interruption", terminal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for app-server v2 interrupted terminal")
+	}
+}
+
+func assertV2InterruptedHandle(t *testing.T, h *turnHandle) {
+	t.Helper()
+	select {
+	case <-h.Done():
+		if !errors.Is(h.Err(), context.Canceled) {
+			t.Fatalf("v2 interrupted handle error = %v, want context canceled", h.Err())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("app-server v2 interrupted terminal did not settle handle")
+	}
+}
+
+func assertV2InterruptedOwnershipReleased(t *testing.T, s *session) {
+	t.Helper()
+	if s.activeTurnID != "" || s.turns["turn-v2-interrupt"] != nil || s.interruptRequests["turn-v2-interrupt"] != nil {
+		t.Fatal("app-server v2 interrupted terminal retained active ownership")
+	}
+}
+
+func TestNormalizeCodexTurnTerminalNotificationRejectsMissingCompletedAt(t *testing.T) {
+	raw := json.RawMessage(`{"threadId":"thread-v2","turn":{"id":"turn-v2","items":[],"status":"completed","completedAt":null}}`)
+	normalized := normalizeCodexTurnTerminalNotification("turn/completed", raw)
+	payload := decodeEventPayload(normalized)
+	if payload["success"] != true || payload["status"] != "completed" || payloadTurnID(payload) != "turn-v2" {
+		t.Fatalf("normalized v2 terminal = %#v", payload)
+	}
+	if _, exists := payload["timestamp"]; exists {
+		t.Fatalf("missing provider completedAt synthesized timestamp: %#v", payload)
 	}
 }
 

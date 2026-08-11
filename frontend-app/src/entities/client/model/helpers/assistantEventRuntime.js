@@ -197,7 +197,13 @@ function canonicalTurnEventRef(runtime, method, payload) {
     runtime.addWarning('error', 'turn.event.contract_invalid', { eventName: method, reason: 'thread_identity' });
     return null;
   }
-  return { threadId, turnId: parsed.value.turnId };
+  return { threadId, turnId: canonicalTurnIdForEvent(runtime.get(), threadId, parsed.value.turnId) };
+}
+
+function canonicalTurnIdForEvent(state, threadId, observedTurnId) {
+  const active = state.activeTurnByThread?.[threadId];
+  if (active?.providerTurnId === observedTurnId && active?.id) return active.id;
+  return observedTurnId;
 }
 
 function terminalCacheStats(runtime) {
@@ -591,12 +597,13 @@ function applyTurnTerminal(runtime, method, payload, deps) {
     runtime.notifyAction('响应契约错误', 'error', { category: 'turn_terminal_contract' });
     return false;
   }
-  const terminal = parsed.value;
-  const threadId = runtime.bridgeThreadIdForPayload(terminal);
+  const parsedTerminal = parsed.value;
+  const threadId = runtime.bridgeThreadIdForPayload(parsedTerminal);
   if (!threadId) {
-    runtime.addWarning('error', 'turn.terminal.thread_invalid', { eventName: method, threadId: terminal.threadId, turnId: terminal.turnId });
+    runtime.addWarning('error', 'turn.terminal.thread_invalid', { eventName: method, threadId: parsedTerminal.threadId, turnId: parsedTerminal.turnId });
     return false;
   }
+  const terminal = { ...parsedTerminal, turnId: canonicalTurnIdForEvent(runtime.get(), threadId, parsedTerminal.turnId) };
   const key = runtimeTurnRefKey(threadId, terminal.turnId);
   const fingerprint = runtimeTerminalFingerprint(terminal);
   const terminalState = runtime.turnTerminalStates.get(key);

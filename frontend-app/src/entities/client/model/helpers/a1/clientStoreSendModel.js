@@ -100,6 +100,7 @@ const composerActionDeps = {
     setPreference: (payload) => setPreference(payload),
   },
   send: {
+    actionNotice,
     createSendDraftRequest,
     createdThreadIdForSendRollback,
     deleteProvisionalThreadAfterSendFailure,

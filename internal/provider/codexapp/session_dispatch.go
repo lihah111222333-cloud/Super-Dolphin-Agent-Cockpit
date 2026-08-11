@@ -11,7 +11,6 @@ import (
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/supportutil"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -105,17 +104,7 @@ func (s *session) finishTurn(raw dto.RawProviderEvent) {
 		stringValue(payload, "error", "message", "reason"),
 		stringValue(nestedValue(payload, "error"), "message"),
 	))
-	if errText == "" && raw.Terminal.Success {
-		h.complete(nil)
-		return
-	}
-	if errText == "" {
-		errText = "turn failed"
-	}
-	if notice := supportutil.CodexModelUnsupportedNotice(errors.New(errText), s.runtimeConfigString("model")); notice != "" {
-		errText = notice
-	}
-	h.complete(errors.New(errText))
+	completeCodexTurnHandle(s, h, raw.Terminal, errText)
 }
 
 // claimTerminalSeal 只允许仍由 live owner 持有的 turn 领取首个 terminal。
