@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	durationLedgerSQLiteSchemaVersion = 13
+	durationLedgerSQLiteSchemaVersion = cicontract.DurationLedgerSQLiteSchemaVersion
 	durationLedgerSQLiteBusyTimeoutMS = 5_000
 )
 

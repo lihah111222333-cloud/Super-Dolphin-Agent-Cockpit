@@ -1,7 +1,9 @@
 package remoteci
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +18,43 @@ func TestAcceptedBootstrapProjectionFixtureFromSchema14V2Request(t *testing.T) {
 	}
 	assertAcceptedBootstrapProjectionWire(t, data)
 	assertAcceptedBootstrapProjectionDigests(t, decoded, requestDigest)
+}
+
+func TestAcceptedBootstrapVersionMatrixRejectsLegacyFullAndUnknownManifest(t *testing.T) {
+	request, _, _, decoded := acceptedBootstrapProjectionFixture(t)
+	legacyFull := request
+	legacyFull.SchemaVersion = 14
+	if err := ValidateBootstrapIdentity(decoded, legacyFull); err == nil {
+		t.Fatal("legacy full schema-14 request was accepted with bootstrap schema-14")
+	}
+	for _, version := range []uint32{gate.ShardExecutionManifestSchemaVersion, gate.ShardExecutionManifestSchemaVersion + 1} {
+		legacyManifest := acceptedBootstrapManifestFromRequest(decoded)
+		legacyManifest.SchemaVersion = version
+		if _, _, err := encodeAcceptedBootstrapManifest(legacyManifest); err == nil {
+			t.Fatalf("manifest schema-%d was accepted", version)
+		}
+	}
+}
+
+func TestAcceptedBootstrapManifestKeepsFrozenSchemaOneAcrossCurrentUpgrade(t *testing.T) {
+	request, _, _, decoded := acceptedBootstrapProjectionFixture(t)
+	if request.SchemaVersion != ShardRequestSchemaVersion {
+		t.Fatalf("current full request schema = %d, want %d", request.SchemaVersion, ShardRequestSchemaVersion)
+	}
+	manifest := acceptedBootstrapManifestFromRequest(decoded)
+	if manifest.SchemaVersion != acceptedBootstrapManifestSchemaVersion {
+		t.Fatalf("accepted bootstrap manifest schema = %d, want frozen %d", manifest.SchemaVersion, acceptedBootstrapManifestSchemaVersion)
+	}
+	if manifest.SchemaVersion == gate.ShardExecutionManifestSchemaVersion {
+		t.Fatalf("accepted bootstrap manifest followed current schema %d", gate.ShardExecutionManifestSchemaVersion)
+	}
+	_, digest, err := encodeAcceptedBootstrapManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != decoded.ShardExecutionManifestDigest {
+		t.Fatalf("accepted bootstrap manifest digest = %s, request carries %s", digest, decoded.ShardExecutionManifestDigest)
+	}
 }
 
 func acceptedBootstrapProjectionFixture(t *testing.T) (ShardRequest, []byte, string, BootstrapShardRequest) {
@@ -170,6 +209,53 @@ func TestAcceptedBootstrapProjectionCollapsesNilnessPackagesAndPreservesRace(t *
 	}
 	if err := ValidateBootstrapIdentity(decoded, request); err != nil {
 		t.Fatalf("projected bootstrap identity rejected: %v", err)
+	}
+}
+
+func TestAcceptedBootstrapProjectionCollapsesFrontendPreflightAndKeepsCurrentExactID(t *testing.T) {
+	request := testSourceBundleShardRequest(t)
+	request.Profile = gate.ProfileRelease
+	target := base64.RawURLEncoding.EncodeToString([]byte(gate.FrontendPreflightTargetCriticalGuards))
+	frontendID := gate.GateID(fmt.Sprintf("%s::%s::%s", gate.GateIDFrontendPreflight, gate.WorkloadTargetFrontendGuard, target))
+	request.GateIDs = []gate.GateID{frontendID}
+	request.CompileGroups = nil
+	manifestDigest, err := request.ComputeShardExecutionManifestDigest()
+	if err != nil {
+		t.Fatalf("compute current frontend manifest digest: %v", err)
+	}
+	request.ShardExecutionManifestDigest = manifestDigest
+
+	currentData, _, err := EncodeShardRequest(request)
+	if err != nil {
+		t.Fatalf("encode current frontend request: %v", err)
+	}
+	current, err := DecodeShardRequest(currentData)
+	if err != nil {
+		t.Fatalf("decode current frontend request: %v", err)
+	}
+	if !slices.Equal(current.GateIDs, []gate.GateID{frontendID}) {
+		t.Fatalf("current request gate IDs = %v, want exact %q", current.GateIDs, frontendID)
+	}
+
+	bootstrapData, _, err := EncodeBootstrapShardRequest(request)
+	if err != nil {
+		t.Fatalf("encode projected frontend bootstrap: %v", err)
+	}
+	bootstrap, err := DecodeBootstrapShardRequest(bootstrapData)
+	if err != nil {
+		t.Fatalf("decode projected frontend bootstrap: %v", err)
+	}
+	want := []gate.GateID{gate.GateIDFrontendPreflight}
+	if !slices.Equal(bootstrap.GateIDs, want) {
+		t.Fatalf("bootstrap gate IDs = %v, want canonical frontend parent %v", bootstrap.GateIDs, want)
+	}
+	if err := ValidateBootstrapIdentity(bootstrap, request); err != nil {
+		t.Fatalf("projected frontend bootstrap identity rejected: %v", err)
+	}
+
+	unknown := gate.GateID(strings.Replace(string(frontendID), string(gate.WorkloadTargetFrontendGuard), "unknown-kind", 1))
+	if _, err := ProjectAcceptedGateIDs([]gate.GateID{unknown}); err == nil {
+		t.Fatal("accepted projection accepted unknown workload target kind")
 	}
 }
 

@@ -180,13 +180,36 @@ func TestRemoteRunRecordedIdentityMatchesAllBindings(t *testing.T) {
 
 func TestRemoteRunContractUsesPersistedInputBoundCatalog(t *testing.T) {
 	plan, catalog := remoteRunReceiptTestPlanAndCatalog(t)
+	catalog = remoteRunReceiptTestCatalogWithPersistedInputs(catalog)
+	catalogDigest := remoteRunReceiptTestCatalogDigest(t, catalog)
+	store := remoteRunReceiptTestCatalogStore(t, plan, catalog)
+	result := remoteci.RunResult{AcceptedGeneration: 7, CatalogDigest: catalogDigest, SourceTreeSHA: plan.Source.SourceTreeSHA, Entrypoint: gatecontract.CIEntrypointRelease, Profile: plan.Profile}
+	input := remoteci.RunInput{Profile: plan.Profile, Source: plan.Source, LedgerStore: store}
+	assertRemoteRunReceiptTestPersistedCatalog(t, plan, catalog, input, result)
+	assertRemoteRunReceiptTestCatalogDriftRejected(t, input, result)
+}
+
+// remoteRunReceiptTestCatalogWithPersistedInputs 构造带持久化 input digest 的测试 catalog。
+func remoteRunReceiptTestCatalogWithPersistedInputs(catalog gatecontract.WorkloadCatalog) gatecontract.WorkloadCatalog {
 	for index := range catalog.Workloads {
 		catalog.Workloads[index].InputDigest = "sha256:" + strings.Repeat("9", 64)
 	}
-	catalogDigest, err := gatecontract.WorkloadCatalogDigest(catalog)
+	return catalog
+}
+
+// remoteRunReceiptTestCatalogDigest 返回测试 catalog 的 canonical digest。
+func remoteRunReceiptTestCatalogDigest(t *testing.T, catalog gatecontract.WorkloadCatalog) string {
+	t.Helper()
+	digest, err := gatecontract.WorkloadCatalogDigest(catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return digest
+}
+
+// remoteRunReceiptTestCatalogStore 建立并写入 accepted generation 与 catalog observation。
+func remoteRunReceiptTestCatalogStore(t *testing.T, plan gatecontract.GatePlan, catalog gatecontract.WorkloadCatalog) *gatecontract.DurationLedgerStore {
+	t.Helper()
 	store, err := gatecontract.NewDurationLedgerStore(filepath.Join(t.TempDir(), "remote-ci-catalog.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -203,8 +226,12 @@ func TestRemoteRunContractUsesPersistedInputBoundCatalog(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	result := remoteci.RunResult{AcceptedGeneration: 7, CatalogDigest: catalogDigest, SourceTreeSHA: plan.Source.SourceTreeSHA, Entrypoint: gatecontract.CIEntrypointRelease, Profile: plan.Profile}
-	input := remoteci.RunInput{Profile: plan.Profile, Source: plan.Source, LedgerStore: store}
+	return store
+}
+
+// assertRemoteRunReceiptTestPersistedCatalog 验证 authority 回读保留 plan 与 input digest。
+func assertRemoteRunReceiptTestPersistedCatalog(t *testing.T, plan gatecontract.GatePlan, catalog gatecontract.WorkloadCatalog, input remoteci.RunInput, result remoteci.RunResult) {
+	t.Helper()
 	gotPlan, gotCatalog, err := remoteRunContractPlanAndCatalog(input, result)
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +242,11 @@ func TestRemoteRunContractUsesPersistedInputBoundCatalog(t *testing.T) {
 	if gotCatalog.Workloads[0].InputDigest != catalog.Workloads[0].InputDigest {
 		t.Fatalf("loaded catalog lost persisted input digest: got %q want %q", gotCatalog.Workloads[0].InputDigest, catalog.Workloads[0].InputDigest)
 	}
+}
 
+// assertRemoteRunReceiptTestCatalogDriftRejected 锁定 source tree observation 漂移的 fail-fast 边界。
+func assertRemoteRunReceiptTestCatalogDriftRejected(t *testing.T, input remoteci.RunInput, result remoteci.RunResult) {
+	t.Helper()
 	drifted := result
 	drifted.SourceTreeSHA = strings.Repeat("e", 40)
 	if _, _, err := remoteRunContractPlanAndCatalog(input, drifted); err == nil || !strings.Contains(err.Error(), "no matching observation") {
@@ -297,6 +328,65 @@ func TestRemoteRunFinalizerRejectsTamperedAggregateExecution(t *testing.T) {
 	}
 }
 
+func TestRemoteRunForceFinalizerPreservesExistingWorkloadPassProof(t *testing.T) {
+	plan, catalog := remoteRunReceiptTestPlanAndCatalog(t)
+	original := remoteRunReceiptTestResult(t, plan, catalog)
+	store := remoteRunReceiptTestAuthority(t, catalog, original)
+	remoteRunReceiptTestComplete(t, plan, catalog, store, original)
+	before, err := store.LookupWorkloadPassEvidence(original.WorkloadPassIdentities)
+	if err != nil || len(before) == 0 {
+		t.Fatalf("load original workload PASS proof: count=%d error=%v", len(before), err)
+	}
+	forced := original
+	forced.JobID = "remote-force-job"
+	forced.Force = true
+	forced.Authoritative = false
+	record, err := store.LoadRemoteCIRun(original.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareForcedRemoteRunRecord(&record, forced.JobID)
+	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
+		t.Fatalf("record force provisional run: %v", err)
+	}
+	input := remoteRunReceiptTestInput(plan, store)
+	input.Force = true
+	observations := remoteRunReceiptTestObservations(t, plan, catalog, input, forced)
+	receipts := remoteRunReceiptTestReceipts(t, forced, observations)
+	if err := finalizeRemoteRunReceiptAuthority(input, forced, receipts, nil, nil); err != nil {
+		t.Fatalf("force finalizer collided with existing PASS proof: %v", err)
+	}
+	assertRemoteRunForcePassProofUnchanged(t, store, original, before)
+}
+
+// assertRemoteRunForcePassProofUnchanged 验证 force finalizer 不覆盖既有 immutable PASS proof。
+func assertRemoteRunForcePassProofUnchanged(t *testing.T, store *gatecontract.DurationLedgerStore, original remoteci.RunResult, before []gatecontract.WorkloadPassEvidence) {
+	t.Helper()
+	after, err := store.LookupWorkloadPassEvidence(original.WorkloadPassIdentities)
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("reload preserved workload PASS proof: before=%d after=%d error=%v", len(before), len(after), err)
+	}
+	for index := range before {
+		if before[index].EvidenceSHA256 != after[index].EvidenceSHA256 || after[index].OriginJobID != original.JobID {
+			t.Fatalf("force changed immutable PASS proof: before=%#v after=%#v", before[index], after[index])
+		}
+	}
+}
+
+// prepareForcedRemoteRunRecord 将已验证原始记录投影为同 identity 的独立 force provisional job。
+func prepareForcedRemoteRunRecord(record *gatecontract.RemoteCIRunRecord, jobID string) {
+	record.JobID = jobID
+	record.Force = true
+	record.Authoritative = false
+	for index := range record.WorkloadResults {
+		record.WorkloadResults[index].Disposition = gatecontract.WorkloadDispositionExecuted
+		record.WorkloadResults[index].OriginJobID = jobID
+	}
+	for index := range record.TimingObservations {
+		record.TimingObservations[index].JobID = jobID
+	}
+}
+
 // remoteRunReceiptTestObservations 生成并验证完整的当前候选检查观测。
 func remoteRunReceiptTestObservations(t *testing.T, plan gatecontract.GatePlan, catalog gatecontract.WorkloadCatalog, input remoteci.RunInput, complete remoteci.RunResult) []cicontract.CheckObservation {
 	t.Helper()
@@ -365,17 +455,41 @@ func remoteRunReceiptTestAllReuse(t *testing.T, plan gatecontract.GatePlan, cata
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertRemoteRunAllReuseObservations(t, observations, reused)
+	assertRemoteRunAllReuseInvalidResults(t, plan, catalog, reused)
+}
+
+// assertRemoteRunAllReuseObservations 验证 owner 与 workload reuse 的观测区间和 proof。
+func assertRemoteRunAllReuseObservations(t *testing.T, observations []cicontract.CheckObservation, reused remoteci.RunResult) {
+	t.Helper()
 	for _, observation := range observations {
 		if observation.Check == "gate" {
-			if !observation.Executed || !observation.Reused || observation.ReuseProofSHA256 == "" || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS {
-				t.Fatalf("all-reuse owner observation: %#v", observation)
-			}
+			assertRemoteRunAllReuseOwnerObservation(t, observation)
 			continue
 		}
-		if observation.Executed || !observation.Reused || observation.ReuseProofSHA256 == "" || observation.StartedAtUnixMS != reused.StartedAt.UnixMilli() {
-			t.Fatalf("all-reuse observation: %#v", observation)
-		}
+		assertRemoteRunAllReuseWorkloadObservation(t, observation, reused.StartedAt.UnixMilli())
 	}
+}
+
+// assertRemoteRunAllReuseOwnerObservation 验证 release owner 的当前执行与 reuse proof。
+func assertRemoteRunAllReuseOwnerObservation(t *testing.T, observation cicontract.CheckObservation) {
+	t.Helper()
+	if !observation.Executed || !observation.Reused || observation.ReuseProofSHA256 == "" || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS {
+		t.Fatalf("all-reuse owner observation: %#v", observation)
+	}
+}
+
+// assertRemoteRunAllReuseWorkloadObservation 验证复用 workload 没有本次执行且区间来自 origin。
+func assertRemoteRunAllReuseWorkloadObservation(t *testing.T, observation cicontract.CheckObservation, startedAt int64) {
+	t.Helper()
+	if observation.Executed || !observation.Reused || observation.ReuseProofSHA256 == "" || observation.StartedAtUnixMS != startedAt {
+		t.Fatalf("all-reuse observation: %#v", observation)
+	}
+}
+
+// assertRemoteRunAllReuseInvalidResults 验证 tampered、duplicate、missing reuse 均被拒绝。
+func assertRemoteRunAllReuseInvalidResults(t *testing.T, plan gatecontract.GatePlan, catalog gatecontract.WorkloadCatalog, reused remoteci.RunResult) {
+	t.Helper()
 	for _, invalid := range []remoteci.RunResult{remoteRunReceiptTestTamperedReuse(reused), remoteRunReceiptTestDuplicateReuse(reused), remoteRunReceiptTestMissingReuse(reused)} {
 		remoteRunReceiptTestObservationRejected(t, plan, catalog, invalid)
 	}
@@ -482,12 +596,25 @@ func remoteRunReceiptTestAuthority(t *testing.T, catalog gatecontract.WorkloadCa
 	if err != nil {
 		t.Fatalf("NewDurationLedgerStore() error = %v", err)
 	}
+	remoteRunReceiptTestInitializeAuthority(t, store)
+	remoteRunReceiptTestRecordAuthority(t, store, catalog, complete)
+	return store
+}
+
+// remoteRunReceiptTestInitializeAuthority 写入 authority 测试所需的 generation 与 baseline。
+func remoteRunReceiptTestInitializeAuthority(t *testing.T, store *gatecontract.DurationLedgerStore) {
+	t.Helper()
 	for generation := range uint64(7) {
 		if _, err := store.CompareAndSwap(generation, gatecontract.NewDurationLedger()); err != nil {
 			t.Fatalf("initialize authority generation %d: %v", generation+1, err)
 		}
 	}
 	seedRemoteRunTestAcceptedGeneration(t, store, 7)
+}
+
+// remoteRunReceiptTestRecordAuthority 构造并写入 provisional authority 运行记录。
+func remoteRunReceiptTestRecordAuthority(t *testing.T, store *gatecontract.DurationLedgerStore, catalog gatecontract.WorkloadCatalog, complete remoteci.RunResult) {
+	t.Helper()
 	startedAt := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
 	catalogDigest, err := gatecontract.WorkloadCatalogDigest(catalog)
 	if err != nil {
@@ -502,11 +629,42 @@ func remoteRunReceiptTestAuthority(t *testing.T, catalog gatecontract.WorkloadCa
 	}); err != nil {
 		t.Fatalf("RecordWorkloadCatalog() error = %v", err)
 	}
+	shardID := "sha256:" + strings.Repeat("c", 64)
+	workloadExecutions, workloadResults, workloads := remoteRunReceiptTestAuthorityWorkloads(t, catalog, complete, shardID)
+	shard := gatecontract.RemoteCIShardRecord{
+		ShardIdentity: shardID, ContainerGroup: "eci-authority", ContainerStatus: "Succeeded", Workloads: workloads, Resources: gatecontract.RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8},
+		MaterializationTiming: gatecontract.ShardMaterializationTiming{Measurement: gatecontract.MaterializationMeasurementMeasured, ShardIdentity: shardID,
+			Source:           gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(2 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
+			CandidateCompile: gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(2 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(3 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
+		},
+	}
+	record := gatecontract.RemoteCIRunRecord{
+		JobID: complete.JobID, AgentTokenDigest: complete.AgentTokenDigest, Entrypoint: complete.Entrypoint, Profile: gatecontract.ProfileRelease, AcceptedGeneration: 7, ImageCacheSnapshotID: complete.ImageCacheSnapshotID,
+		PlanDigest: complete.PlanDigest, CatalogDigest: catalogDigest, Scope: complete.Scope, SourceTreeSHA: complete.SourceTreeSHA,
+		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("e", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("f", 64),
+		RunnerImage: "ubuntu:22.04", Status: gatecontract.ResultStatusPassed, Authoritative: false, CleanupComplete: true,
+		StartedAt: complete.StartedAt, CompletedAt: complete.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, Executions: append([]gatecontract.PlanGateExecution(nil), complete.GateExecutions...), WorkloadExecutions: workloadExecutions, WorkloadResults: workloadResults,
+	}
+	record.TimingObservations = remoteRunReceiptTestTimingObservations(record.JobID, shard, workloadExecutions[0], workloadExecutions[0].StartedAt.Add(-3*time.Millisecond))
+	for _, execution := range workloadExecutions[1:] {
+		for _, observation := range remoteRunReceiptTestTimingObservations(record.JobID, shard, execution, execution.StartedAt.Add(-3*time.Millisecond)) {
+			if observation.Scope == cicontract.TimingScopeWorkload {
+				record.TimingObservations = append(record.TimingObservations, observation)
+			}
+		}
+	}
+	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
+		t.Fatalf("RecordProvisionalRemoteCIRun() error = %v", err)
+	}
+}
+
+// remoteRunReceiptTestAuthorityWorkloads 生成 shardable execution、identity 与 workload result 投影。
+func remoteRunReceiptTestAuthorityWorkloads(t *testing.T, catalog gatecontract.WorkloadCatalog, complete remoteci.RunResult, shardID string) ([]gatecontract.PlanGateExecution, []gatecontract.RemoteCIWorkloadResult, []gatecontract.GateID) {
+	t.Helper()
 	workloadByID := make(map[gatecontract.GateID]gatecontract.Workload, len(catalog.Workloads))
 	for _, workload := range catalog.Workloads {
 		workloadByID[gatecontract.GateID(workload.ID)] = workload
 	}
-	shardID := "sha256:" + strings.Repeat("c", 64)
 	workloadExecutions := make([]gatecontract.PlanGateExecution, 0, len(complete.FreshWorkloadExecutions))
 	workloadResults := make([]gatecontract.RemoteCIWorkloadResult, 0, len(complete.FreshWorkloadExecutions))
 	workloads := make([]gatecontract.GateID, 0, len(complete.FreshWorkloadExecutions))
@@ -523,41 +681,17 @@ func remoteRunReceiptTestAuthority(t *testing.T, catalog gatecontract.WorkloadCa
 		workloadExecutions = append(workloadExecutions, execution)
 		workloads = append(workloads, execution.GateID)
 		identity := gatecontract.WorkloadPassIdentity{WorkloadID: execution.GateID, ExecutionDigest: gatecontract.WorkloadPassExecutionDigest(workload), InputDigest: workload.InputDigest, EnvironmentDigest: "sha256:" + strings.Repeat("3", 64)}
-		identity.IdentityDigest, err = gatecontract.WorkloadPassIdentitySHA256(identity)
+		identityDigest, err := gatecontract.WorkloadPassIdentitySHA256(identity)
 		if err != nil {
 			t.Fatalf("WorkloadPassIdentitySHA256() error = %v", err)
 		}
+		identity.IdentityDigest = identityDigest
 		workloadResults = append(workloadResults, gatecontract.RemoteCIWorkloadResult{Identity: identity, Disposition: gatecontract.WorkloadDispositionExecuted, OriginJobID: complete.JobID, OriginAcceptedGeneration: complete.AcceptedGeneration})
 	}
 	if len(workloadExecutions) == 0 {
 		t.Fatal("complete result has no shardable workload execution")
 	}
-	shard := gatecontract.RemoteCIShardRecord{
-		ShardIdentity: shardID, ContainerGroup: "eci-authority", ContainerStatus: "Succeeded", Workloads: workloads, Resources: gatecontract.RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8},
-		MaterializationTiming: gatecontract.ShardMaterializationTiming{Measurement: gatecontract.MaterializationMeasurementMeasured, ShardIdentity: shardID,
-			Source:           gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(2 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
-			CandidateCompile: gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(2 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(3 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
-		},
-	}
-	record := gatecontract.RemoteCIRunRecord{
-		JobID: complete.JobID, AgentTokenDigest: complete.AgentTokenDigest, Entrypoint: complete.Entrypoint, Profile: gatecontract.ProfileRelease, AcceptedGeneration: 7, ImageCacheSnapshotID: complete.ImageCacheSnapshotID,
-		PlanDigest: complete.PlanDigest, CatalogDigest: catalogDigest, SourceTreeSHA: complete.SourceTreeSHA,
-		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("e", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("f", 64),
-		RunnerImage: "ubuntu:22.04", Status: gatecontract.ResultStatusPassed, Authoritative: false, CleanupComplete: true,
-		StartedAt: complete.StartedAt, CompletedAt: complete.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, Executions: append([]gatecontract.PlanGateExecution(nil), complete.GateExecutions...), WorkloadExecutions: workloadExecutions, WorkloadResults: workloadResults,
-	}
-	record.TimingObservations = remoteRunReceiptTestTimingObservations(record.JobID, shard, workloadExecutions[0], workloadExecutions[0].StartedAt.Add(-3*time.Millisecond))
-	for _, execution := range workloadExecutions[1:] {
-		for _, observation := range remoteRunReceiptTestTimingObservations(record.JobID, shard, execution, execution.StartedAt.Add(-3*time.Millisecond)) {
-			if observation.Scope == cicontract.TimingScopeWorkload {
-				record.TimingObservations = append(record.TimingObservations, observation)
-			}
-		}
-	}
-	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
-		t.Fatalf("RecordProvisionalRemoteCIRun() error = %v", err)
-	}
-	return store
+	return workloadExecutions, workloadResults, workloads
 }
 
 func remoteRunReceiptTestTimingObservations(jobID string, shard gatecontract.RemoteCIShardRecord, execution gatecontract.PlanGateExecution, startedAt time.Time) []gatecontract.TimingObservation {
@@ -623,7 +757,6 @@ func remoteRunReceiptTestPlanAndCatalog(t *testing.T) (gatecontract.GatePlan, ga
 	}
 	return plan, catalog
 }
-
 func remoteRunReceiptTestResult(t *testing.T, plan gatecontract.GatePlan, catalog gatecontract.WorkloadCatalog) remoteci.RunResult {
 	t.Helper()
 	catalogDigest, err := gatecontract.WorkloadCatalogDigest(catalog)

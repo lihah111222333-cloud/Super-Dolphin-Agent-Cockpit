@@ -1,0 +1,143 @@
+package gate
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"reflect"
+	"strconv"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+)
+
+// validateRetainedWorkloadPassProof 验证 consumer-owned v16 proof；它绝不回退到
+// 已可能被 compaction 删除的 v15 origin evidence 行。
+func validateRetainedWorkloadPassProof(tx *sql.Tx, evidence WorkloadPassEvidence, currentGeneration uint64) error {
+	if tx == nil {
+		return errors.New("retained workload pass proof transaction is nil")
+	}
+	if err := validateWorkloadPassEvidence(evidence); err != nil {
+		return fmt.Errorf("retained workload pass proof evidence: %w", err)
+	}
+	row, err := loadRetainedWorkloadPassProofRow(tx, evidence, currentGeneration)
+	if err != nil {
+		return err
+	}
+	if err := row.validate(evidence, currentGeneration); err != nil {
+		return err
+	}
+	return validateRetainedWorkloadPassProofConsumer(tx, row.consumerID, row.consumerGeneration)
+}
+
+type retainedWorkloadPassProofRow struct{ consumerID, consumerGeneration, workloadID, identityDigest, executionDigest, inputDigest, environmentDigest, disposition, originID, originGeneration, resultDigest, proofOriginID, proofOriginGeneration, sourceTreeSHA, receiptSHA, executionJSON, proofDigest string }
+
+func loadRetainedWorkloadPassProofRow(tx *sql.Tx, evidence WorkloadPassEvidence, currentGeneration uint64) (retainedWorkloadPassProofRow, error) {
+	retained := retainedWorkloadPassGenerations(currentGeneration)
+	rows, err := tx.Query(`SELECT consumer.job_id, consumer.accepted_generation, results.workload_id, results.identity_digest, results.execution_digest, results.input_digest, results.environment_digest, results.disposition, results.origin_job_id, results.origin_accepted_generation, results.evidence_sha256,
+		proof.origin_job_id, proof.origin_accepted_generation, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256, proof.origin_execution_json, proof.evidence_sha256
+		FROM ci_retained_workload_pass_proofs AS proof
+		JOIN ci_run_workload_results AS results ON results.job_id = proof.consumer_job_id AND results.workload_id = proof.workload_id
+		JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id
+		WHERE proof.identity_digest = ? AND proof.origin_job_id = ? AND proof.origin_accepted_generation = ? AND proof.evidence_sha256 = ?
+			AND consumer.accepted_generation IN (?, ?, ?)
+		LIMIT 2`, evidence.Identity.IdentityDigest, evidence.OriginJobID, strconv.FormatUint(evidence.OriginAcceptedGeneration, 10), evidence.EvidenceSHA256,
+		retained[0], retained[1], retained[2])
+	if err != nil {
+		return retainedWorkloadPassProofRow{}, mapDurationLedgerSQLiteError("query retained workload pass proof", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return retainedWorkloadPassProofRow{}, errors.New("retained workload pass proof is missing")
+	}
+	var row retainedWorkloadPassProofRow
+	if err := rows.Scan(&row.consumerID, &row.consumerGeneration, &row.workloadID, &row.identityDigest, &row.executionDigest, &row.inputDigest, &row.environmentDigest, &row.disposition, &row.originID, &row.originGeneration, &row.resultDigest, &row.proofOriginID, &row.proofOriginGeneration, &row.sourceTreeSHA, &row.receiptSHA, &row.executionJSON, &row.proofDigest); err != nil {
+		return retainedWorkloadPassProofRow{}, mapDurationLedgerSQLiteError("scan retained workload pass proof", err)
+	}
+	if rows.Next() {
+		return retainedWorkloadPassProofRow{}, errors.New("retained workload pass proof is ambiguous")
+	}
+	if err := rows.Err(); err != nil {
+		return retainedWorkloadPassProofRow{}, mapDurationLedgerSQLiteError("iterate retained workload pass proof", err)
+	}
+	return row, nil
+}
+
+func (row retainedWorkloadPassProofRow) validate(evidence WorkloadPassEvidence, currentGeneration uint64) error {
+	if err := row.validateConsumerGeneration(currentGeneration); err != nil {
+		return err
+	}
+	if err := validateWorkloadPassEvidence(evidence); err != nil {
+		return fmt.Errorf("retained workload pass proof canonical evidence: %w", err)
+	}
+	if !row.matches(evidence) {
+		return errors.New("retained workload pass proof consumer, origin, identity, result, or canonical digest drifted")
+	}
+	var stored PlanGateExecution
+	if err := decodeStoredWorkloadPassExecutionJSON(row.executionJSON, &stored); err != nil {
+		return fmt.Errorf("retained workload pass proof execution JSON: %w", err)
+	}
+	if !reflect.DeepEqual(stored, evidence.OriginExecution) {
+		return errors.New("retained workload pass proof execution JSON drifted")
+	}
+	return nil
+}
+
+func (row retainedWorkloadPassProofRow) validateConsumerGeneration(current uint64) error {
+	value, err := strconv.ParseUint(row.consumerGeneration, 10, 64)
+	if err != nil || row.consumerGeneration != strconv.FormatUint(value, 10) {
+		return errors.New("retained workload pass proof consumer generation is invalid")
+	}
+	if err := cicontract.ValidateWorkloadPassEvidenceGeneration(current, value); err != nil {
+		return fmt.Errorf("retained workload pass proof consumer generation: %w", err)
+	}
+	return nil
+}
+
+func (row retainedWorkloadPassProofRow) matches(e WorkloadPassEvidence) bool {
+	return row.matchesIdentity(e) && row.matchesOrigin(e) && row.matchesProof(e)
+}
+
+func (row retainedWorkloadPassProofRow) matchesIdentity(e WorkloadPassEvidence) bool {
+	return row.disposition == string(WorkloadDispositionReused) && row.workloadID == string(e.Identity.WorkloadID) && row.identityDigest == e.Identity.IdentityDigest && row.executionDigest == e.Identity.ExecutionDigest && row.inputDigest == e.Identity.InputDigest && row.environmentDigest == e.Identity.EnvironmentDigest
+}
+
+func (row retainedWorkloadPassProofRow) matchesOrigin(e WorkloadPassEvidence) bool {
+	return row.originID == e.OriginJobID && row.originGeneration == strconv.FormatUint(e.OriginAcceptedGeneration, 10) && row.resultDigest == e.EvidenceSHA256
+}
+
+func (row retainedWorkloadPassProofRow) matchesProof(e WorkloadPassEvidence) bool {
+	return row.proofOriginID == e.OriginJobID && row.proofOriginGeneration == row.originGeneration && row.sourceTreeSHA == e.OriginSourceTreeSHA && row.receiptSHA == e.OriginReceiptSetSHA256 && row.executionJSON != "" && row.proofDigest == e.EvidenceSHA256
+}
+func validateRetainedWorkloadPassProofConsumer(tx *sql.Tx, jobID, generation string) error {
+	consumer, err := loadRemoteCIRunRow(tx, jobID)
+	if err != nil {
+		return fmt.Errorf("load retained workload pass proof consumer: %w", err)
+	}
+	if err := loadRemoteCIRunDetails(tx, jobID, &consumer); err != nil {
+		return fmt.Errorf("load retained workload pass proof consumer details: %w", err)
+	}
+	if err := validateRemoteCIRunRecord(consumer); err != nil {
+		return fmt.Errorf("validate retained workload pass proof consumer: %w", err)
+	}
+	if !consumer.Authoritative || consumer.Status != ResultStatusPassed || !consumer.CleanupComplete || generation != strconv.FormatUint(consumer.AcceptedGeneration, 10) {
+		return errors.New("retained workload pass proof consumer is not an authoritative cleaned PASS")
+	}
+	return nil
+}
+
+// validateWorkloadPassReadProof 允许仍在窗口内的直接 executed origin；reused
+// consumer 一律必须走 v16 proof，不能借由旧 evidence 表作为兼容 fallback。
+func validateWorkloadPassReadProof(tx *sql.Tx, evidence WorkloadPassEvidence, currentGeneration uint64, stats *workloadPassEvidenceLookupStats) error {
+	var directCount int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM ci_run_workload_results AS result JOIN ci_runs AS origin ON origin.job_id = result.job_id WHERE result.disposition = 'executed' AND result.job_id = ? AND result.workload_id = ? AND result.identity_digest = ? AND origin.accepted_generation = ?`, evidence.OriginJobID, string(evidence.Identity.WorkloadID), evidence.Identity.IdentityDigest, strconv.FormatUint(evidence.OriginAcceptedGeneration, 10)).Scan(&directCount); err != nil {
+		return mapDurationLedgerSQLiteError("check direct workload pass origin", err)
+	}
+	if directCount == 0 {
+		return validateRetainedWorkloadPassProof(tx, evidence, currentGeneration)
+	}
+	origin, err := loadWorkloadPassEvidenceOriginContext(tx, evidence, currentGeneration, stats)
+	if err != nil {
+		return err
+	}
+	return validateStoredWorkloadPassEvidenceWithOriginContext(tx, origin, evidence)
+}

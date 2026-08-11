@@ -30,19 +30,42 @@ func (store *DurationLedgerStore) LoadCheckReceipts(jobID string) ([]CheckReceip
 		return nil, mapDurationLedgerSQLiteError("begin check receipt read snapshot", err)
 	}
 	defer transaction.Rollback()
+	receipts, err := loadCheckReceiptReadSnapshot(transaction, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("commit check receipt read snapshot", err)
+	}
+	return receipts, nil
+}
+
+// loadCheckReceiptReadSnapshot 在同一只读快照中绑定 run 投影、scope 和回执。
+func loadCheckReceiptReadSnapshot(transaction *sql.Tx, jobID string) ([]CheckReceiptRecord, error) {
+	run, err := loadRemoteCIRunRow(transaction, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if err := loadRemoteCIRunDetails(transaction, jobID, &run); err != nil {
+		return nil, err
+	}
+	catalog, err := loadSQLiteWorkloadCatalog(transaction, run.CatalogDigest)
+	if err != nil {
+		return nil, err
+	}
+	index, err := newRemoteCIRunCatalogIndex(catalog.Catalog)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRemoteCIRunScopeRecordCoverage(run, catalog.Catalog, index); err != nil {
+		return nil, fmt.Errorf("stored check receipt workload coverage: %w", err)
+	}
 	receipts, err := loadSQLiteCheckReceiptRecords(transaction, jobID)
 	if err != nil {
 		return nil, err
 	}
-	var catalogDigest string
-	if err := transaction.QueryRow(`SELECT catalog_digest FROM ci_runs WHERE job_id = ?`, jobID).Scan(&catalogDigest); err != nil {
-		return nil, mapDurationLedgerSQLiteError("load check receipt workload catalog identity", err)
-	}
-	if err := validateSQLiteWorkloadCatalogPassingCheckReceipts(transaction, catalogDigest, receipts); err != nil {
+	if err := validateRemoteCIExecutionScopePassingCheckReceipts(catalog.Catalog, run.Scope, receipts); err != nil {
 		return nil, fmt.Errorf("stored check receipts: %w", err)
-	}
-	if err := transaction.Commit(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("commit check receipt read snapshot", err)
 	}
 	return receipts, nil
 }
@@ -101,6 +124,7 @@ func scanSQLiteCheckReceipt(rows *sql.Rows) (CheckReceiptRecord, error) {
 	return receipt, nil
 }
 
+// verifySQLiteCheckReceiptAuthority 验证回执与持久化 run 身份完全一致。
 func verifySQLiteCheckReceiptAuthority(transaction *sql.Tx, receipts []CheckReceiptRecord) error {
 	first := receipts[0]
 	var tree, imageCacheSnapshotID, agentTokenDigest string

@@ -38,6 +38,9 @@ func runCompileGroupGate(
 	goBuildCacheSeedRoot string,
 ) (PlanGateExecution, error) {
 	if isExactGoTestWorkload(id) {
+		if _, ok := artifacts[id]; !ok {
+			return failedCompileGroupSelector(id, executions, time.Now)
+		}
 		return requireCompiledSelectorBatchResult(id, batchedResults, executions)
 	}
 	if artifact, ok := artifacts[id]; ok {

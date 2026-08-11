@@ -19,7 +19,7 @@ func assertRemoteCICompileGroupBatchSchema(t *testing.T, root string) {
 	t.Helper()
 	source := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/compile_group.go"))
 	for _, marker := range []string{
-		"CompileGroupSchemaVersion uint32 = 2",
+		"CompileGroupSchemaVersion uint32 = cicontract.CompileGroupSchemaVersion",
 		"SelectorEstimates",
 		"BatchPlanDigest",
 		"BatchPlanWarning",
@@ -57,6 +57,7 @@ func assertRemoteCICompileGroupBatchExecution(t *testing.T, root string) {
 	planSource := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/executor_plan.go"))
 	workerSource := strings.Join([]string{compileSource, batchSource, environmentSource, plannerSource, reportSource, planSource, contractSource}, "\n")
 	assertCompileGroupPlannerBatchPolicy(t, root, plannerSource)
+	assertCompileGroupBatchMemoryLimitScope(t, root)
 	for _, marker := range []string{
 		"compiledGroupArtifact",
 		"executeCompileGroupBatchWaves",
@@ -85,7 +86,7 @@ func assertRemoteCICompileGroupBatchExecution(t *testing.T, root string) {
 			t.Errorf("compile group worker is missing marker %q", marker)
 		}
 	}
-	for _, marker := range []string{"HOME", "GOTMPDIR", "XDG_CACHE_HOME", "isAtomicGoPackageTarget", "GOMEMLIMIT", "3GiB"} {
+	for _, marker := range []string{"HOME", "GOTMPDIR", "XDG_CACHE_HOME", "AtomicArchtestPackageTarget", "GOMEMLIMIT", "3GiB"} {
 		if !strings.Contains(environmentSource, marker) {
 			t.Errorf("compile group batch environment is missing marker %q", marker)
 		}
@@ -95,6 +96,21 @@ func assertRemoteCICompileGroupBatchExecution(t *testing.T, root string) {
 	}
 	if strings.Contains(batchSource, "executeCompiledSelectorBatch(") || strings.Contains(batchSource, "compileGroupBatchCommandArgv(") {
 		t.Fatal("compile group worker retains a retired non-batch compatibility entrypoint")
+	}
+}
+
+// assertCompileGroupBatchMemoryLimitScope 锁定 3GiB 只属于 archtest 单 test-binary。
+func assertCompileGroupBatchMemoryLimitScope(t *testing.T, root string) {
+	t.Helper()
+	process := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/gate/executor_compile_group_batch_environment.go"), "compileGroupBatchProcessEnvironment")
+	if !strings.Contains(process, "packageTarget != AtomicArchtestPackageTarget") {
+		t.Fatal("compile group batch GOMEMLIMIT must be scoped to the exact archtest package target")
+	}
+	if strings.Contains(process, "isAtomicGoPackageTarget(packageTarget)") || strings.Contains(process, "AtomicGoPackageTargets()") {
+		t.Fatal("compile group batch GOMEMLIMIT must not apply to every atomic Go package")
+	}
+	if !strings.Contains(process, `setCompileGroupEnvironmentValue(environment, "GOMEMLIMIT", "3GiB")`) {
+		t.Fatal("compile group batch archtest memory bound must remain 3GiB")
 	}
 }
 
@@ -142,7 +158,7 @@ func assertArchtestCompileGroupPartitionPolicy(t *testing.T, plannerPath, planne
 		t.Fatal("compile-group planner retains a retired serial archtest batch path")
 	}
 	archtest := remoteCIFunctionSource(t, plannerPath, "chooseCompileGroupArchtestBatch")
-	for _, marker := range []string{"lptCompileGroupBatches(selectors, 1)", "archtest_group_batch_limit=1"} {
+	for _, marker := range []string{"deterministicCompileGroupBatches(selectors, 1)", "archtest_group_batch_limit=1"} {
 		if !strings.Contains(archtest, marker) {
 			t.Fatalf("archtest planner is missing per-group single-batch marker %q", marker)
 		}

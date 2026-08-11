@@ -257,7 +257,7 @@ it.each([
 
     const shell = await screen.findByTestId('frontend-app');
     const sidebar = screen.getByTestId('app-sidebar');
-    const appbar = document.querySelector('.suiyuan-top-appbar');
+    const appbar = document.querySelector('.super-dolphin-agent-top-appbar');
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
@@ -268,7 +268,7 @@ it.each([
     expect(within(sidebar).getByRole('button', { name: '插件与技能' })).toHaveTextContent('插件与技能');
     expect(within(appbar).getByRole('button', { name: '通知' })).toBeInTheDocument();
     expect(within(appbar).getByRole('button', { name: '历史记录' })).toBeInTheDocument();
-    expect(document.querySelector('.suiyuan-appbar-title')).not.toBeInTheDocument();
+    expect(document.querySelector('.super-dolphin-agent-appbar-title')).not.toBeInTheDocument();
     expect(screen.queryByText('Overview')).not.toBeInTheDocument();
     expect(screen.queryByText('Usage')).not.toBeInTheDocument();
     expect(screen.queryByText('Limits')).not.toBeInTheDocument();
@@ -319,9 +319,9 @@ it.each([
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    expect(sidebar.querySelector('.suiyuan-brand-block img')?.getAttribute('src')).toContain('suiyuan-brand-icon.png');
+    expect(sidebar.querySelector('.super-dolphin-agent-brand-block img')?.getAttribute('src')).toContain('super-dolphin-agent-brand-icon.png');
     expect(sidebar.querySelector('.sidebar-tree-folder img')).toBeNull();
-    expect(sidebar.querySelector('.suiyuan-nav-item svg')).toBeInTheDocument();
+    expect(sidebar.querySelector('.super-dolphin-agent-nav-item svg')).toBeInTheDocument();
   });
 
   it('keeps the workbench sidebar class stable while switching between chat and tools', async () => {
@@ -343,7 +343,7 @@ it.each([
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    const nav = within(sidebar).getByRole('navigation', { name: 'Suiyuan navigation' });
+    const nav = within(sidebar).getByRole('navigation', { name: 'Super Dolphin Agent navigation' });
 
     expect(within(sidebar).getByRole('region', { name: '项目' })).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();

@@ -36,7 +36,7 @@ func remoteExecutionWorkloads(plan gate.WorkloadExecutionPlan) []gate.Workload {
 	return remoteExecutionCatalog(plan).Workloads
 }
 
-// remoteFreshWorkloadExecutions 汇总新分片结果并拒绝重复执行同一 workload；返回错误时保留此前已严格解码的结果。
+// remoteFreshWorkloadExecutions 汇总全部新分片结果；单个分片报告失败时保留其他已严格解码的 workload，并拒绝重复执行。
 func remoteFreshWorkloadExecutions(workloads []gate.Workload, results []ShardResult) (map[string]gate.PlanGateExecution, error) {
 	catalog := make(map[string]gate.Workload, len(workloads))
 	for _, workload := range workloads {
@@ -44,17 +44,23 @@ func remoteFreshWorkloadExecutions(workloads []gate.Workload, results []ShardRes
 	}
 	executions := make(map[string]gate.PlanGateExecution)
 	var workerExecutionErr error
+	invalid := make(map[string]struct{})
 	for _, result := range results {
 		projected, resultWorkerErr, err := projectRemoteFreshWorkloadResult(catalog, result)
 		if err != nil {
-			return executions, err
+			workerExecutionErr = errors.Join(workerExecutionErr, fmt.Errorf("remote shard %q workload projection: %w", result.ShardIdentity, err))
+			continue
 		}
-		if resultWorkerErr != nil && workerExecutionErr == nil {
-			workerExecutionErr = resultWorkerErr
-		}
+		workerExecutionErr = errors.Join(workerExecutionErr, resultWorkerErr)
 		for _, item := range projected {
+			if _, rejected := invalid[item.workloadID]; rejected {
+				continue
+			}
 			if _, duplicate := executions[item.workloadID]; duplicate {
-				return executions, fmt.Errorf("remote workload %q was executed more than once", item.workloadID)
+				delete(executions, item.workloadID)
+				invalid[item.workloadID] = struct{}{}
+				workerExecutionErr = errors.Join(workerExecutionErr, fmt.Errorf("remote workload %q was executed more than once", item.workloadID))
+				continue
 			}
 			executions[item.workloadID] = item.execution
 		}

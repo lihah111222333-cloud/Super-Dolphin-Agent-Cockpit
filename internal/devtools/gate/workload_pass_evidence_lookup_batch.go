@@ -1,10 +1,12 @@
 package gate
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -14,30 +16,54 @@ import (
 // workloadPassEvidenceLookupBatchSize 限制单次 SQLite 身份查询的绑定变量数量。
 const workloadPassEvidenceLookupBatchSize = 400
 
-// workloadPassEvidenceLookupStats 记录规模回归需要的查询与来源加载计数。
+// workloadPassEvidenceLookupStats 记录规模回归需要的查询、来源加载与已验证选择计数。
 // 生产调用传入 nil，不把任何事实缓存到本次 SQLite 事务之外。
 type workloadPassEvidenceLookupStats struct {
-	identityBatchQueries        int
-	originRunLoads              int
-	originReceiptSetValidations int
+	authorityTransactions        int
+	identityBatchQueries         int
+	originRunLoads               int
+	originReceiptSetValidations  int
+	originExecutionBatchQueries  int
+	originResultBatchQueries     int
+	retainedProofBatchQueries    int
+	retainedConsumerBatchQueries int
+	selectedDirectSources        int
+	selectedRetainedSources      int
+	provisionalProjectionReloads int
+	loadedProjectionDigests      int
 }
 
 // workloadPassEvidenceOriginContext 保存一个来源 run 在当前只读事务内的一次加载结果。
 type workloadPassEvidenceOriginContext struct {
-	record        RemoteCIRunRecord
-	receiptDigest string
-	canonical     map[GateID]Workload
-	executionByID map[GateID]PlanGateExecution
+	record            RemoteCIRunRecord
+	receiptDigest     string
+	canonical         map[GateID]Workload
+	executionByID     map[GateID]PlanGateExecution
+	currentGeneration uint64
 }
 
-// loadWorkloadPassEvidenceForIdentities 批量读取身份的最新证据，并按 origin_job_id
-// 一次加载和验证来源 run、回执集合及 provisional 的 catalog/execution 索引。
-func loadWorkloadPassEvidenceForIdentities(
+// loadWorkloadPassReadProofBatches separates the direct origin path from the
+// retained v16 consumer path before validation.  The source-replay reader uses
+// the single-item entry point because it is not an identity batch lookup.
+func loadWorkloadPassReadProofBatches(
 	tx *sql.Tx,
-	identities []WorkloadPassIdentity,
+	found map[string]WorkloadPassEvidence,
 	currentGeneration uint64,
-) ([]WorkloadPassEvidence, error) {
-	return loadWorkloadPassEvidenceForIdentitiesWithStats(tx, identities, currentGeneration, nil)
+	stats *workloadPassEvidenceLookupStats,
+) (map[string]workloadPassEvidenceOriginContext, map[string]retainedWorkloadPassProofRow, error) {
+	origins := make(map[string]workloadPassEvidenceOriginContext, len(found))
+	retained := make(map[string]retainedWorkloadPassProofRow)
+	values := make([]WorkloadPassEvidence, 0, len(found))
+	for _, evidence := range found {
+		values = append(values, evidence)
+	}
+	if err := loadDirectWorkloadPassOriginBatches(tx, values, currentGeneration, origins, stats); err != nil {
+		return nil, nil, err
+	}
+	if err := loadRetainedWorkloadPassProofBatches(tx, values, currentGeneration, retained, stats); err != nil {
+		return nil, nil, err
+	}
+	return origins, retained, nil
 }
 
 // loadWorkloadPassEvidenceForIdentitiesWithStats 执行分块查询并复用来源验证上下文。
@@ -54,11 +80,11 @@ func loadWorkloadPassEvidenceForIdentitiesWithStats(
 		return nil, err
 	}
 	retainedGenerations := retainedWorkloadPassGenerations(currentGeneration)
-	found, err := loadWorkloadPassEvidenceBatches(tx, identities, retainedGenerations, currentGeneration, stats)
+	found, err := loadWorkloadPassEvidenceBatches(tx, identities, retainedGenerations, stats)
 	if err != nil {
 		return nil, err
 	}
-	return validateAndOrderWorkloadPassEvidence(tx, identities, found, stats)
+	return validateAndOrderWorkloadPassEvidence(tx, identities, found, currentGeneration, stats)
 }
 
 // validateUniqueWorkloadPassLookupIdentities 拒绝同一身份在一次查询中的重复请求。
@@ -78,22 +104,16 @@ func loadWorkloadPassEvidenceBatches(
 	tx *sql.Tx,
 	identities []WorkloadPassIdentity,
 	retainedGenerations [3]string,
-	currentGeneration uint64,
 	stats *workloadPassEvidenceLookupStats,
 ) (map[string]WorkloadPassEvidence, error) {
 	found := make(map[string]WorkloadPassEvidence, len(identities))
 	for start := 0; start < len(identities); start += workloadPassEvidenceLookupBatchSize {
-		end := start + workloadPassEvidenceLookupBatchSize
-		if end > len(identities) {
-			end = len(identities)
-		}
-		batch, err := loadWorkloadPassEvidenceBatch(tx, identities[start:end], retainedGenerations, currentGeneration, stats)
+		end := min(start+workloadPassEvidenceLookupBatchSize, len(identities))
+		batch, err := loadWorkloadPassEvidenceBatch(tx, identities[start:end], retainedGenerations, stats)
 		if err != nil {
 			return nil, err
 		}
-		for identityDigest, evidence := range batch {
-			found[identityDigest] = evidence
-		}
+		maps.Copy(found, batch)
 	}
 	return found, nil
 }
@@ -103,32 +123,38 @@ func validateAndOrderWorkloadPassEvidence(
 	tx *sql.Tx,
 	identities []WorkloadPassIdentity,
 	found map[string]WorkloadPassEvidence,
+	currentGeneration uint64,
 	stats *workloadPassEvidenceLookupStats,
 ) ([]WorkloadPassEvidence, error) {
+	// The lookup path must not turn a fixed identity query into one SQLite
+	// origin readback per hit.  Source-replay keeps the single-item validator;
+	// this multi-item path preloads direct origins and v16 consumer proofs.
+	origins, retained, err := loadWorkloadPassReadProofBatches(tx, found, currentGeneration, stats)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]WorkloadPassEvidence, 0, len(found))
-	origins := make(map[string]workloadPassEvidenceOriginContext)
 	for _, identity := range identities {
 		evidence, ok := found[identity.IdentityDigest]
 		if !ok {
 			continue
 		}
-		originKey := evidence.OriginJobID
-		origin, ok := origins[originKey]
-		if !ok {
-			var err error
-			origin, err = loadWorkloadPassEvidenceOriginContext(tx, evidence, stats)
-			if err != nil {
-				if errors.Is(err, errLegacyRemoteCIExecutionProfile) {
-					// The origin predates the current execution semantic identity. It
-					// is a strict MISS, never a compatibility decode or fallback hit.
-					continue
-				}
+		if origin, ok := origins[evidence.OriginJobID]; ok {
+			if err := validateStoredWorkloadPassEvidenceWithOriginContext(tx, origin, evidence); err != nil {
 				return nil, err
 			}
-			origins[originKey] = origin
-		}
-		if err := validateStoredWorkloadPassEvidenceWithOriginContext(origin, evidence); err != nil {
-			return nil, err
+			if stats != nil {
+				stats.selectedDirectSources++
+			}
+		} else if proof, ok := retained[evidence.Identity.IdentityDigest]; ok {
+			if err := proof.validate(evidence, currentGeneration); err != nil {
+				return nil, err
+			}
+			if stats != nil {
+				stats.selectedRetainedSources++
+			}
+		} else {
+			return nil, errors.New("workload pass evidence has neither direct origin nor v16 retained proof")
 		}
 		result = append(result, evidence)
 	}
@@ -141,7 +167,6 @@ func loadWorkloadPassEvidenceBatch(
 	tx *sql.Tx,
 	identities []WorkloadPassIdentity,
 	retainedGenerations [3]string,
-	currentGeneration uint64,
 	stats *workloadPassEvidenceLookupStats,
 ) (map[string]WorkloadPassEvidence, error) {
 	if len(identities) == 0 {
@@ -160,26 +185,31 @@ func loadWorkloadPassEvidenceBatch(
 	for _, identity := range identities {
 		requested[identity.IdentityDigest] = identity
 	}
-	return scanWorkloadPassEvidenceBatchRows(rows, requested, currentGeneration)
+	return scanWorkloadPassEvidenceBatchRows(rows, requested)
 }
 
 // workloadPassEvidenceBatchQuery 构造使用 identity/generation 复合索引的分块 SQL。
 func workloadPassEvidenceBatchQuery(identities []WorkloadPassIdentity, retainedGenerations [3]string) (string, []any) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(identities)), ",")
-	query := `SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256
-		FROM ci_workload_pass_evidence AS evidence
-		INNER JOIN ci_runs AS runs
-			ON runs.job_id = evidence.origin_job_id
-			AND runs.accepted_generation = evidence.accepted_generation
-			AND runs.source_tree_sha = evidence.origin_source_tree_sha
-		WHERE evidence.identity_digest IN (` + placeholders + `)
-			AND evidence.accepted_generation IN (?, ?, ?)
-			AND (
-				(runs.status = 'passed' AND runs.authoritative = 1 AND runs.cleanup_complete = 1)
-				OR (runs.authoritative = 0 AND runs.status IN ('failed', 'cancelled', 'timeout', 'infra_failed') AND runs.cleanup_complete = 1)
-			)
-		ORDER BY evidence.identity_digest, length(evidence.accepted_generation) DESC, evidence.accepted_generation DESC`
-	args := make([]any, 0, len(identities)+len(retainedGenerations))
+	query := `SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256, evidence.accepted_generation, 'direct'
+	FROM ci_workload_pass_evidence AS evidence
+	JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest
+	JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
+	WHERE evidence.identity_digest IN (` + placeholders + `) AND evidence.accepted_generation IN (?, ?, ?) AND direct.disposition = 'executed' AND origin.accepted_generation = evidence.accepted_generation
+	UNION ALL
+	SELECT proof.identity_digest, proof.origin_accepted_generation, proof.workload_id, '', '', '', proof.origin_job_id, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256, proof.origin_execution_json, proof.evidence_sha256, COALESCE(consumer.accepted_generation, ''), 'retained'
+	FROM ci_retained_workload_pass_proofs AS proof
+	LEFT JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id
+	WHERE proof.identity_digest IN (` + placeholders + `)
+		AND (consumer.accepted_generation IN (?, ?, ?) OR consumer.job_id IS NULL)
+	ORDER BY 1, 12 DESC`
+	args := make([]any, 0, 2*(len(identities)+len(retainedGenerations)))
+	for _, identity := range identities {
+		args = append(args, identity.IdentityDigest)
+	}
+	for _, generation := range retainedGenerations {
+		args = append(args, generation)
+	}
 	for _, identity := range identities {
 		args = append(args, identity.IdentityDigest)
 	}
@@ -193,11 +223,10 @@ func workloadPassEvidenceBatchQuery(identities []WorkloadPassIdentity, retainedG
 func scanWorkloadPassEvidenceBatchRows(
 	rows *sql.Rows,
 	requested map[string]WorkloadPassIdentity,
-	currentGeneration uint64,
 ) (map[string]WorkloadPassEvidence, error) {
 	found := make(map[string]WorkloadPassEvidence, len(requested))
 	for rows.Next() {
-		identityDigest, evidence, skip, err := decodeWorkloadPassEvidenceBatchRow(rows, requested, found, currentGeneration)
+		identityDigest, evidence, skip, err := decodeWorkloadPassEvidenceBatchRow(rows, requested, found)
 		if err != nil {
 			return nil, err
 		}
@@ -217,13 +246,12 @@ func decodeWorkloadPassEvidenceBatchRow(
 	rows *sql.Rows,
 	requested map[string]WorkloadPassIdentity,
 	found map[string]WorkloadPassEvidence,
-	currentGeneration uint64,
 ) (string, WorkloadPassEvidence, bool, error) {
 	var (
-		identityDigest, generation, workloadID, executionJSON string
-		evidence                                              WorkloadPassEvidence
+		identityDigest, generation, workloadID, executionJSON, consumerGeneration, source string
+		evidence                                                                          WorkloadPassEvidence
 	)
-	if err := rows.Scan(&identityDigest, &generation, &workloadID, &evidence.Identity.ExecutionDigest, &evidence.Identity.InputDigest, &evidence.Identity.EnvironmentDigest, &evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256, &executionJSON, &evidence.EvidenceSHA256); err != nil {
+	if err := rows.Scan(&identityDigest, &generation, &workloadID, &evidence.Identity.ExecutionDigest, &evidence.Identity.InputDigest, &evidence.Identity.EnvironmentDigest, &evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256, &executionJSON, &evidence.EvidenceSHA256, &consumerGeneration, &source); err != nil {
 		return "", WorkloadPassEvidence{}, false, mapDurationLedgerSQLiteError("scan batch workload pass evidence", err)
 	}
 	identity, ok := requested[identityDigest]
@@ -234,17 +262,15 @@ func decodeWorkloadPassEvidenceBatchRow(
 	if _, alreadyFound := found[identityDigest]; alreadyFound {
 		return identityDigest, WorkloadPassEvidence{}, true, nil
 	}
-	evidence.Identity.IdentityDigest = identityDigest
-	evidence.Identity.WorkloadID = GateID(workloadID)
+	if err := bindBatchWorkloadPassEvidenceIdentity(&evidence, identity, identityDigest, workloadID, consumerGeneration, source); err != nil {
+		return "", WorkloadPassEvidence{}, false, err
+	}
 	parsedGeneration, err := strconv.ParseUint(generation, 10, 64)
 	if err != nil || parsedGeneration == 0 {
 		return "", WorkloadPassEvidence{}, false, errors.New("stored workload pass evidence generation is invalid")
 	}
 	evidence.OriginAcceptedGeneration = parsedGeneration
-	if err := cicontract.ValidateWorkloadPassEvidenceGeneration(currentGeneration, parsedGeneration); err != nil {
-		return "", WorkloadPassEvidence{}, false, err
-	}
-	if err := json.Unmarshal([]byte(executionJSON), &evidence.OriginExecution); err != nil {
+	if err := decodeStoredWorkloadPassExecutionJSON(executionJSON, &evidence.OriginExecution); err != nil {
 		return "", WorkloadPassEvidence{}, false, fmt.Errorf("decode stored workload pass execution: %w", err)
 	}
 	if !workloadPassIdentityMatches(evidence.Identity, identity) {
@@ -253,85 +279,244 @@ func decodeWorkloadPassEvidenceBatchRow(
 	return identityDigest, evidence, false, nil
 }
 
+// bindBatchWorkloadPassEvidenceIdentity keeps retained proof discovery separate
+// from its later strict consumer/result validation.
+func bindBatchWorkloadPassEvidenceIdentity(evidence *WorkloadPassEvidence, requested WorkloadPassIdentity, identityDigest, workloadID, consumerGeneration, source string) error {
+	if source == "retained" {
+		if consumerGeneration == "" {
+			return errors.New("retained workload pass proof consumer is missing")
+		}
+		evidence.Identity = requested
+		if workloadID != string(requested.WorkloadID) {
+			return errors.New("retained workload pass proof workload binding drifted")
+		}
+		return nil
+	}
+	if source == "direct" {
+		evidence.Identity.IdentityDigest = identityDigest
+		evidence.Identity.WorkloadID = GateID(workloadID)
+		return nil
+	}
+	return errors.New("batch workload pass evidence source is invalid")
+}
+
+// decodeStoredWorkloadPassExecutionJSON 严格解码持久化 execution，拒绝未知字段和尾随值。
+func decodeStoredWorkloadPassExecutionJSON(encoded string, target *PlanGateExecution) error {
+	if target == nil {
+		return errors.New("stored workload pass execution target is nil")
+	}
+	decoder := json.NewDecoder(strings.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	return ensureJSONEOF(decoder)
+}
+
 // loadWorkloadPassEvidenceOriginContext 在当前事务内只加载一次来源 run、完整关联投影
 // 和 receipt set；provisional run 的 catalog/execution 索引也只建立一次。
 func loadWorkloadPassEvidenceOriginContext(
 	tx *sql.Tx,
 	evidence WorkloadPassEvidence,
+	currentGeneration uint64,
 	stats *workloadPassEvidenceLookupStats,
 ) (workloadPassEvidenceOriginContext, error) {
-	return loadWorkloadPassEvidenceBaseOriginContext(tx, evidence, stats)
+	return loadWorkloadPassEvidenceBaseOriginContext(tx, evidence, currentGeneration, stats)
 }
 
 // loadWorkloadPassEvidenceBaseOriginContext 加载基础证据的来源 run、receipt 和 provisional 索引。
 func loadWorkloadPassEvidenceBaseOriginContext(
 	tx *sql.Tx,
 	evidence WorkloadPassEvidence,
+	currentGeneration uint64,
 	stats *workloadPassEvidenceLookupStats,
 ) (workloadPassEvidenceOriginContext, error) {
 	record, err := loadRemoteCIRunRow(tx, evidence.OriginJobID)
 	if err != nil {
 		return workloadPassEvidenceOriginContext{}, err
 	}
-	if err := loadRemoteCIRunDetails(tx, evidence.OriginJobID, &record); err != nil {
+	if err := loadWorkloadPassEvidenceOriginDetails(tx, &record); err != nil {
 		return workloadPassEvidenceOriginContext{}, err
 	}
 	if stats != nil {
 		stats.originRunLoads++
 	}
-	receiptDigest, err := workloadReceiptSetSHA256(tx, record)
+	receiptDigest, err := workloadReceiptSetSHA256WithStats(tx, record, stats)
 	if err != nil {
 		return workloadPassEvidenceOriginContext{}, err
 	}
 	if stats != nil {
 		stats.originReceiptSetValidations++
 	}
-	origin := workloadPassEvidenceOriginContext{record: record, receiptDigest: receiptDigest}
-	if !record.Authoritative && remoteCIProvisionalFailureStatus(record.Status) && record.CleanupComplete {
-		catalog, err := loadSQLiteWorkloadCatalog(tx, record.CatalogDigest)
-		if err != nil {
-			return workloadPassEvidenceOriginContext{}, fmt.Errorf("load stored provisional workload catalog: %w", err)
-		}
-		origin.canonical = indexCanonicalWorkloadPassCatalog(catalog.Catalog)
-		origin.executionByID = indexWorkloadExecutions(record.WorkloadExecutions)
+	origin := workloadPassEvidenceOriginContext{record: record, receiptDigest: receiptDigest, currentGeneration: currentGeneration}
+	if err := populateProvisionalWorkloadPassEvidenceOrigin(tx, &origin); err != nil {
+		return workloadPassEvidenceOriginContext{}, err
 	}
 	return origin, nil
+}
+
+// loadWorkloadPassEvidenceOriginDetails 加载 PASS proof 所需的 typed scope 和
+// workload 投影。权威 run 的完整 check receipt 与 cleanup 终态已在同一事务
+// 重验，无需为每个历史 origin 重解码 shard、timing 和 warning。
+func loadWorkloadPassEvidenceOriginDetails(tx *sql.Tx, record *RemoteCIRunRecord) error {
+	if record == nil {
+		return errors.New("workload pass evidence origin record is nil")
+	}
+	var err error
+	record.Scope, err = loadRemoteCIExecutionScope(tx, record.JobID, record.AcceptedGeneration)
+	if err != nil {
+		return err
+	}
+	if !record.Authoritative && remoteCIProvisionalFailureStatus(record.Status) && record.CleanupComplete {
+		return loadRemoteCIRunDetails(tx, record.JobID, record)
+	}
+	record.WorkloadExecutions, err = loadRemoteCIWorkloadExecutionRows(tx, record.JobID)
+	if err != nil {
+		return err
+	}
+	record.WorkloadResults, err = loadRemoteCIWorkloadResults(tx, record.JobID)
+	return err
+}
+
+// populateProvisionalWorkloadPassEvidenceOrigin 只为清理完成的失败 run 加载
+// catalog/execution 索引；权威 run 不引入兼容性 fallback。
+func populateProvisionalWorkloadPassEvidenceOrigin(tx *sql.Tx, origin *workloadPassEvidenceOriginContext) error {
+	if origin.record.Authoritative {
+		return nil
+	}
+	if !remoteCIProvisionalFailureStatus(origin.record.Status) {
+		return nil
+	}
+	if !origin.record.CleanupComplete {
+		return nil
+	}
+	catalog, err := loadSQLiteWorkloadCatalog(tx, origin.record.CatalogDigest)
+	if err != nil {
+		return fmt.Errorf("load stored provisional workload catalog: %w", err)
+	}
+	origin.canonical = indexCanonicalWorkloadPassCatalog(catalog.Catalog)
+	origin.executionByID = indexWorkloadExecutions(origin.record.WorkloadExecutions)
+	return nil
 }
 
 // validateStoredWorkloadPassEvidenceWithOriginContext 逐项验证 identity/evidence，并复用
 // 已加载的来源 run、receipt digest 和 provisional 索引。
 func validateStoredWorkloadPassEvidenceWithOriginContext(
+	tx *sql.Tx,
 	origin workloadPassEvidenceOriginContext,
 	evidence WorkloadPassEvidence,
 ) error {
 	if err := validateWorkloadPassEvidence(evidence); err != nil {
 		return fmt.Errorf("stored workload pass evidence: %w", err)
 	}
-	return validateStoredWorkloadPassEvidenceBase(origin, evidence)
+	return validateStoredWorkloadPassEvidenceBase(tx, origin, evidence)
 }
 
 // validateStoredWorkloadPassEvidenceBase 验证基础证据的 origin、运行终态、provisional 执行和 receipt。
 func validateStoredWorkloadPassEvidenceBase(
+	tx *sql.Tx,
 	origin workloadPassEvidenceOriginContext,
 	evidence WorkloadPassEvidence,
 ) error {
+	if tx == nil {
+		return errors.New("stored workload pass evidence validation transaction is nil")
+	}
+	if err := cicontract.ValidateWorkloadPassEvidenceGeneration(origin.currentGeneration, evidence.OriginAcceptedGeneration); err != nil {
+		return fmt.Errorf("stored workload pass evidence generation is outside retained authority window: %w", err)
+	}
 	if err := validateStoredWorkloadPassEvidenceOrigin(origin.record, evidence); err != nil {
 		return err
 	}
+	if err := validateStoredWorkloadPassEvidenceRunState(origin, evidence); err != nil {
+		return err
+	}
+	if err := validateStoredWorkloadPassEvidenceExecution(origin.record, evidence); err != nil {
+		return err
+	}
+	// A promoted evidence row must terminate at the origin run's direct
+	// executed projection.  Without this check a reused row could form a
+	// reuse chain while retaining an otherwise valid execution JSON proof.
+	if err := validateDirectExecutedWorkloadResult(origin.record, evidence); err != nil {
+		return fmt.Errorf("stored workload pass evidence origin proof: %w", err)
+	}
+	if origin.receiptDigest != evidence.OriginReceiptSetSHA256 {
+		return errors.New("stored workload pass evidence receipt set is missing or tampered")
+	}
+	return nil
+}
+
+// validateDirectExecutedWorkloadResult 在已回读的 origin projection 中确认 workload 是直接 executed 行，避免大批量查询逐条访问 SQLite。
+func validateDirectExecutedWorkloadResult(record RemoteCIRunRecord, evidence WorkloadPassEvidence) error {
+	var matched *RemoteCIWorkloadResult
+	for index := range record.WorkloadResults {
+		candidate := &record.WorkloadResults[index]
+		if candidate.Identity.WorkloadID != evidence.Identity.WorkloadID {
+			continue
+		}
+		if matched != nil {
+			return fmt.Errorf("reused workload result %q origin is duplicated", evidence.Identity.WorkloadID)
+		}
+		matched = candidate
+	}
+	if matched == nil {
+		return fmt.Errorf("reused workload result %q origin executed result is missing", evidence.Identity.WorkloadID)
+	}
+	if matched.Disposition != WorkloadDispositionExecuted {
+		return fmt.Errorf("reused workload result %q origin is not executed", evidence.Identity.WorkloadID)
+	}
+	if matched.OriginJobID != evidence.OriginJobID || matched.OriginAcceptedGeneration != evidence.OriginAcceptedGeneration {
+		return fmt.Errorf("reused workload result %q origin identity is not direct", evidence.Identity.WorkloadID)
+	}
+	if matched.EvidenceSHA256 != "" {
+		return fmt.Errorf("reused workload result %q origin executed row carries evidence", evidence.Identity.WorkloadID)
+	}
+	if matched.Identity != evidence.Identity {
+		return fmt.Errorf("reused workload result %q origin identity digest drifted", evidence.Identity.WorkloadID)
+	}
+	return nil
+}
+
+// validateStoredWorkloadPassEvidenceRunState 严格确认来源 run 的权威终态或清理失败终态。
+func validateStoredWorkloadPassEvidenceRunState(origin workloadPassEvidenceOriginContext, evidence WorkloadPassEvidence) error {
 	if origin.record.Authoritative {
 		if origin.record.Status != ResultStatusPassed || !origin.record.CleanupComplete {
 			return errors.New("stored workload pass evidence authoritative run is not passed and cleaned")
 		}
-	} else {
-		if !remoteCIProvisionalFailureStatus(origin.record.Status) || !origin.record.CleanupComplete {
-			return errors.New("stored workload pass evidence provisional run is not a cleaned failure")
-		}
-		if err := validateProvisionalWorkloadPassEvidenceWithContext(origin.record, evidence, origin.canonical, origin.executionByID); err != nil {
-			return err
-		}
+		return nil
 	}
-	if origin.receiptDigest != evidence.OriginReceiptSetSHA256 {
-		return errors.New("stored workload pass evidence receipt set is missing or tampered")
+	if !remoteCIProvisionalFailureStatus(origin.record.Status) || !origin.record.CleanupComplete {
+		return errors.New("stored workload pass evidence provisional run is not a cleaned failure")
+	}
+	return validateProvisionalWorkloadPassEvidenceWithContext(origin.record, evidence, origin.canonical, origin.executionByID)
+}
+
+// validateStoredWorkloadPassEvidenceExecution 逐 workload 比对来源 execution 的规范 JSON。
+func validateStoredWorkloadPassEvidenceExecution(record RemoteCIRunRecord, evidence WorkloadPassEvidence) error {
+	var originExecution PlanGateExecution
+	matchCount := 0
+	for _, candidate := range record.WorkloadExecutions {
+		if candidate.GateID != evidence.Identity.WorkloadID {
+			continue
+		}
+		matchCount++
+		originExecution = candidate
+	}
+	if matchCount == 0 {
+		return fmt.Errorf("stored workload pass evidence origin execution %q is missing", evidence.Identity.WorkloadID)
+	}
+	if matchCount > 1 {
+		return fmt.Errorf("stored workload pass evidence origin execution %q is duplicated", evidence.Identity.WorkloadID)
+	}
+	storedExecutionJSON, err := json.Marshal(originExecution)
+	if err != nil {
+		return fmt.Errorf("encode stored workload pass origin execution: %w", err)
+	}
+	evidenceExecutionJSON, err := json.Marshal(evidence.OriginExecution)
+	if err != nil {
+		return fmt.Errorf("encode stored workload pass evidence execution: %w", err)
+	}
+	if !bytes.Equal(storedExecutionJSON, evidenceExecutionJSON) {
+		return errors.New("stored workload pass evidence origin execution JSON does not match origin run")
 	}
 	return nil
 }

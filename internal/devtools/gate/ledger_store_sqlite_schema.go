@@ -399,7 +399,7 @@ func ensureDurationLedgerSQLiteSchemaWithValidator(
 	if err != nil {
 		return err
 	}
-	if err := coordinateDurationLedgerSQLiteSchemaVersion(database, validator, schemaVersion); err != nil {
+	if err := coordinateDurationLedgerSQLiteSchemaVersion(database, now, validator, schemaVersion); err != nil {
 		return err
 	}
 	if err := verifyDurationLedgerSQLiteAutoVacuum(database); err != nil {
@@ -421,10 +421,25 @@ func verifyDurationLedgerSQLiteAutoVacuum(database *sql.DB) error {
 }
 
 // coordinateDurationLedgerSQLiteSchemaVersion 只接受空库初始化或当前版本；退役版本必须显式清理。
-func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, validator *durationLedgerSQLiteSchemaValidator, schemaVersion int) error {
+func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() time.Time, validator *durationLedgerSQLiteSchemaValidator, schemaVersion int) error {
 	switch schemaVersion {
 	case 0:
-		return validator.initializeAuthority(database, validator)
+		return validator.initializeAuthority(database, now, validator)
+	case legacyDurationLedgerSQLiteSchemaVersion:
+		if err := migrateDurationLedgerSQLiteSchema13To14(database, now); err != nil {
+			return err
+		}
+		if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
+			return err
+		}
+		return migrateDurationLedgerSQLiteSchema15To16(database)
+	case localDurationLedgerSQLiteSchemaVersion:
+		if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
+			return err
+		}
+		return migrateDurationLedgerSQLiteSchema15To16(database)
+	case executionScopeDurationLedgerSQLiteSchemaVersion:
+		return migrateDurationLedgerSQLiteSchema15To16(database)
 	case durationLedgerSQLiteSchemaVersion:
 		return validator.preflight(database, schemaVersion)
 	default:
@@ -449,10 +464,12 @@ func readDurationLedgerSQLiteSchemaVersion(reader durationLedgerSQLiteSchemaVers
 // and re-read the complete shape while holding that lock.
 func initializeDurationLedgerSQLiteCurrentSchema(
 	database *sql.DB,
+	now func() time.Time,
 	validator *durationLedgerSQLiteSchemaValidator,
 ) error {
 	return initializeDurationLedgerSQLiteCurrentSchemaWithStatements(
 		database,
+		now,
 		validator,
 		durationLedgerSQLiteCurrentSchemaStatements(),
 	)
@@ -460,6 +477,7 @@ func initializeDurationLedgerSQLiteCurrentSchema(
 
 func initializeDurationLedgerSQLiteCurrentSchemaWithStatements(
 	database *sql.DB,
+	now func() time.Time,
 	validator *durationLedgerSQLiteSchemaValidator,
 	statements []string,
 ) error {
@@ -467,7 +485,7 @@ func initializeDurationLedgerSQLiteCurrentSchemaWithStatements(
 		return err
 	}
 	for attempt := range 16 {
-		err := initializeDurationLedgerSQLiteCurrentSchemaOnce(database, validator, statements)
+		err := initializeDurationLedgerSQLiteCurrentSchemaOnce(database, now, validator, statements)
 		if err == nil {
 			return nil
 		}
@@ -481,6 +499,7 @@ func initializeDurationLedgerSQLiteCurrentSchemaWithStatements(
 
 func initializeDurationLedgerSQLiteCurrentSchemaOnce(
 	database *sql.DB,
+	now func() time.Time,
 	validator *durationLedgerSQLiteSchemaValidator,
 	statements []string,
 ) error {
@@ -492,7 +511,7 @@ func initializeDurationLedgerSQLiteCurrentSchemaOnce(
 		return closeDurationLedgerSQLiteInitializerConnection(connection,
 			mapDurationLedgerSQLiteError("begin duration ledger SQLite initializer transaction", err))
 	}
-	if err := initializeDurationLedgerSQLiteCurrentSchemaOnConnection(connection, validator, statements); err != nil {
+	if err := initializeDurationLedgerSQLiteCurrentSchemaOnConnection(connection, now, validator, statements); err != nil {
 		return closeDurationLedgerSQLiteInitializerConnection(connection,
 			rollbackDurationLedgerSQLiteInitializer(connection, err))
 	}
@@ -523,6 +542,7 @@ func closeDurationLedgerSQLiteInitializerConnection(connection *sql.Conn, cause 
 // initializeDurationLedgerSQLiteCurrentSchemaOnConnection 在单个连接事务内完成空库初始化。
 func initializeDurationLedgerSQLiteCurrentSchemaOnConnection(
 	connection *sql.Conn,
+	now func() time.Time,
 	validator *durationLedgerSQLiteSchemaValidator,
 	statements []string,
 ) error {
@@ -536,12 +556,13 @@ func initializeDurationLedgerSQLiteCurrentSchemaOnConnection(
 	if schemaVersion != 0 {
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
-	return initializeDurationLedgerSQLiteEmptySchemaOnConnection(connection, validator, schemaVersion, statements)
+	return initializeDurationLedgerSQLiteEmptySchemaOnConnection(connection, now, validator, schemaVersion, statements)
 }
 
 // initializeDurationLedgerSQLiteEmptySchemaOnConnection 在已验证的空 authority 事务内执行当前 schema DDL、版本写入和最终预检。
 func initializeDurationLedgerSQLiteEmptySchemaOnConnection(
 	connection *sql.Conn,
+	now func() time.Time,
 	validator *durationLedgerSQLiteSchemaValidator,
 	schemaVersion int,
 	statements []string,
@@ -554,6 +575,9 @@ func initializeDurationLedgerSQLiteEmptySchemaOnConnection(
 			return mapDurationLedgerSQLiteError("initialize duration ledger SQLite current schema", err)
 		}
 	}
+	if err := initializeLocalAuthorityStateOnConnection(connection, now); err != nil {
+		return err
+	}
 	if _, err := connection.ExecContext(
 		context.Background(),
 		fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion),
@@ -565,6 +589,9 @@ func initializeDurationLedgerSQLiteEmptySchemaOnConnection(
 
 func verifyDurationLedgerSQLiteCurrentAuthority(database *sql.DB) error {
 	if err := verifyDurationLedgerMetadataAuthorityDatabase(database); err != nil {
+		return err
+	}
+	if err := verifyLocalAuthorityStateDatabase(database); err != nil {
 		return err
 	}
 	return verifyDurationLedgerSQLAuthorityBindings(database)

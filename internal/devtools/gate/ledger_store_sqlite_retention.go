@@ -88,6 +88,51 @@ type retentionGeneration struct {
 	text  string
 }
 
+// validateRetentionRootBindings 约束七个历史根同属一个代际压缩事务，
+// 并拒绝把仅供消费方使用的 v16 proof 辅助投影替代 ci_runs 根。
+func validateRetentionRootBindings(bindings []cicontract.RetentionRootBinding) error {
+	expected := map[string]struct{}{
+		cicontract.DurationSamplesTable:              {},
+		cicontract.DurationShardOverheadsTable:       {},
+		cicontract.DurationShardOverheadSamplesTable: {},
+		cicontract.CatalogObservationsTable:          {},
+		cicontract.RemoteRunsTable:                   {},
+		cicontract.WorkloadPassEvidenceTable:         {},
+		cicontract.CalibrationCheckpointsTable:       {},
+	}
+	seen := make(map[string]struct{}, len(bindings))
+	for _, binding := range bindings {
+		if binding.GenerationColumn != cicontract.AcceptedGenerationColumn {
+			return fmt.Errorf("retention root %q generation column = %q, want %q", binding.Table, binding.GenerationColumn, cicontract.AcceptedGenerationColumn)
+		}
+		switch binding.Table {
+		case cicontract.RemoteRunsTable:
+			// Remote runs own the consumer rows whose v16 proof is auxiliary only.
+		case cicontract.DurationSamplesTable,
+			cicontract.DurationShardOverheadsTable,
+			cicontract.DurationShardOverheadSamplesTable,
+			cicontract.CatalogObservationsTable,
+			cicontract.WorkloadPassEvidenceTable,
+			cicontract.CalibrationCheckpointsTable:
+		default:
+			return fmt.Errorf("unsupported retention root %q", binding.Table)
+		}
+		if _, duplicate := seen[binding.Table]; duplicate {
+			return fmt.Errorf("retention root %q is duplicated", binding.Table)
+		}
+		seen[binding.Table] = struct{}{}
+	}
+	for table := range expected {
+		if _, present := seen[table]; !present {
+			return fmt.Errorf("required retention root %q is missing", table)
+		}
+	}
+	if len(seen) != len(expected) {
+		return fmt.Errorf("retention root count = %d, want %d", len(seen), len(expected))
+	}
+	return nil
+}
+
 // retentionGenerationQuery 构造唯一一次跨七个历史根的 generation 枚举。
 func retentionGenerationQuery(bindings []cicontract.RetentionRootBinding) string {
 	var union strings.Builder
@@ -166,7 +211,52 @@ func dropRetentionStaleGenerations(transaction *sql.Tx) error {
 	return nil
 }
 
-// deleteStaleRetentionGenerations 对七个历史根执行正向 IN 删除。
+type retentionOriginCache struct {
+	key    string
+	origin workloadPassEvidenceOriginContext
+	err    error
+	stats  *workloadPassEvidenceLookupStats
+}
+
+// load 按已排序 origin 复用一次完整 run/receipt 解码，并保留退休 profile 判定。
+func (cache *retentionOriginCache) load(transaction *sql.Tx, evidence WorkloadPassEvidence) (workloadPassEvidenceOriginContext, error) {
+	key := evidence.OriginJobID + "\x00" + strconv.FormatUint(evidence.OriginAcceptedGeneration, 10)
+	if cache.key != key {
+		cache.key = key
+		cache.origin, cache.err = loadWorkloadPassEvidenceBaseOriginContext(transaction, evidence, evidence.OriginAcceptedGeneration, cache.stats)
+	}
+	return cache.origin, cache.err
+}
+
+// validateRetentionReusedProof 复用 origin 上下文验证完整 proof，并拒绝 reuse 链或循环。
+func validateRetentionReusedProof(transaction *sql.Tx, result RemoteCIWorkloadResult, origins *retentionOriginCache) error {
+	_, err := validateRetentionReusedProofEvidence(transaction, result, origins)
+	return err
+}
+
+// validateRetentionReusedProofEvidence 返回 retention 必须保留的直接来源 evidence。
+func validateRetentionReusedProofEvidence(transaction *sql.Tx, result RemoteCIWorkloadResult, origins *retentionOriginCache) (WorkloadPassEvidence, error) {
+	evidence, err := loadSQLiteReusableWorkloadEvidence(transaction, result)
+	if err != nil {
+		return WorkloadPassEvidence{}, err
+	}
+	if err := validateReusableWorkloadEvidenceBinding(evidence, result); err != nil {
+		return WorkloadPassEvidence{}, err
+	}
+	if err := validateWorkloadPassEvidence(evidence); err != nil {
+		return WorkloadPassEvidence{}, fmt.Errorf("reused workload result %q evidence proof: %w", result.Identity.WorkloadID, err)
+	}
+	origin, err := origins.load(transaction, evidence)
+	if err != nil {
+		return WorkloadPassEvidence{}, fmt.Errorf("load reused workload origin %q: %w", result.OriginJobID, err)
+	}
+	if err := validateStoredWorkloadPassEvidenceBase(transaction, origin, evidence); err != nil {
+		return WorkloadPassEvidence{}, fmt.Errorf("reused workload result %q origin proof: %w", result.Identity.WorkloadID, err)
+	}
+	return evidence, nil
+}
+
+// deleteStaleRetentionGenerations 对七个历史根执行同一 stale set 的严格删除。
 func deleteStaleRetentionGenerations(transaction *sql.Tx, bindings []cicontract.RetentionRootBinding) error {
 	for _, binding := range bindings {
 		if _, err := transaction.Exec(retentionDeleteQuery(binding)); err != nil {
@@ -195,19 +285,38 @@ func pruneUnreferencedWorkloadCatalogs(transaction *sql.Tx) error {
 // compactDurationLedgerAuthority 是所有历史写事务的最后一个数据库操作。
 // 它只按 accepted baseline generation 淘汰；保留代内部没有行数上限。
 func compactDurationLedgerAuthority(transaction *sql.Tx) (err error) {
+	currentGeneration, err := currentAcceptedBaselineGeneration(transaction)
+	if err != nil {
+		return fmt.Errorf("load accepted baseline generation before retention: %w", err)
+	}
+	return compactDurationLedgerAuthorityAtAcceptedGeneration(transaction, currentGeneration)
+}
+
+// compactDurationLedgerAuthorityAtAcceptedGeneration 使用已验证的权威代执行唯一七根历史根压缩事务。
+func compactDurationLedgerAuthorityAtAcceptedGeneration(transaction *sql.Tx, currentGeneration uint64) (err error) {
 	bindings := cicontract.RetentionRootBindings()
+	if err := validateRetentionRootBindings(bindings); err != nil {
+		return err
+	}
 	generations, err := loadRetentionGenerations(transaction, bindings)
 	if err != nil {
+		return err
+	}
+	if err := validateRetentionGenerationsAccepted(generations, currentGeneration); err != nil {
 		return err
 	}
 	if err := materializeRetentionStaleGenerations(transaction, generations); err != nil {
 		return err
 	}
 	defer func() {
-		if dropErr := dropRetentionStaleGenerations(transaction); dropErr != nil && err == nil {
-			err = dropErr
+		cleanupErr := cleanupRetentionTempTables(transaction)
+		if cleanupErr != nil && err == nil {
+			err = cleanupErr
 		}
 	}()
+	if err := validateRetainedWorkloadPassProofsBeforeCompaction(transaction, currentGeneration); err != nil {
+		return err
+	}
 	if err := deleteStaleRetentionGenerations(transaction, bindings); err != nil {
 		return err
 	}
@@ -215,4 +324,34 @@ func compactDurationLedgerAuthority(transaction *sql.Tx) (err error) {
 		return err
 	}
 	return pruneUnreferencedWorkloadCatalogs(transaction)
+}
+
+// validateRetainedWorkloadPassProofsBeforeCompaction 要求每个 live reused consumer
+// 在删除旧 direct origin 前都有 consumer-owned v16 proof。
+func validateRetainedWorkloadPassProofsBeforeCompaction(transaction *sql.Tx, currentGeneration uint64) error {
+	retained := retainedWorkloadPassGenerations(currentGeneration)
+	var missing int
+	err := transaction.QueryRow(`SELECT COUNT(*) FROM ci_run_workload_results AS result JOIN ci_runs AS consumer ON consumer.job_id = result.job_id LEFT JOIN ci_retained_workload_pass_proofs AS proof ON proof.consumer_job_id = result.job_id AND proof.workload_id = result.workload_id AND proof.identity_digest = result.identity_digest AND proof.origin_job_id = result.origin_job_id AND proof.origin_accepted_generation = result.origin_accepted_generation AND proof.evidence_sha256 = result.evidence_sha256 LEFT JOIN ci_workload_pass_evidence AS evidence ON evidence.identity_digest = proof.identity_digest AND evidence.accepted_generation = proof.origin_accepted_generation AND evidence.origin_job_id = proof.origin_job_id AND evidence.evidence_sha256 = proof.evidence_sha256 WHERE result.disposition = 'reused' AND consumer.accepted_generation IN (?, ?, ?) AND (proof.consumer_job_id IS NULL OR (evidence.identity_digest IS NULL AND proof.origin_accepted_generation IN (?, ?, ?)))`, retained[0], retained[1], retained[2], retained[0], retained[1], retained[2]).Scan(&missing)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("count missing retained workload pass proofs before compaction", err)
+	}
+	if missing != 0 {
+		return fmt.Errorf("retained workload pass proof has no promoted evidence for %d live reused consumer results", missing)
+	}
+	return nil
+}
+
+// validateRetentionGenerationsAccepted 拒绝尚未进入 baseline authority 的未来根。
+func validateRetentionGenerationsAccepted(generations []retentionGeneration, current uint64) error {
+	for _, generation := range generations {
+		if generation.value > current {
+			return fmt.Errorf("retention generation %d was never accepted; current generation is %d", generation.value, current)
+		}
+	}
+	return nil
+}
+
+// cleanupRetentionTempTables 在事务退出时清理连接级 retention 临时集合。
+func cleanupRetentionTempTables(transaction *sql.Tx) error {
+	return dropRetentionStaleGenerations(transaction)
 }

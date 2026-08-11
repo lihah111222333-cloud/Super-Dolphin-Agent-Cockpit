@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -40,7 +39,7 @@ func TestLocalGoCacheSharesObjectsButIsolatesTemporaryDirectories(t *testing.T) 
 	repository := initializeLocalGoCacheRepository(t)
 	first := addLocalGoCacheWorktree(t, repository, "first")
 	second := addLocalGoCacheWorktree(t, repository, "second")
-	realGo := filepath.Join(runtime.GOROOT(), "bin", "go")
+	realGo := localGoCacheTestGoBinary(t)
 	firstValues := prepareLocalGoCache(t, first, realGo)
 	secondValues := prepareLocalGoCache(t, second, realGo)
 	if firstValues[0] != secondValues[0] || firstValues[2] != secondValues[2] {
@@ -57,7 +56,7 @@ func TestLocalGoCacheSharesObjectsButIsolatesTemporaryDirectories(t *testing.T) 
 
 func TestLocalGoCacheChangesWhenCompilerIdentityChanges(t *testing.T) {
 	repository := initializeLocalGoCacheRepository(t)
-	realGo := filepath.Join(runtime.GOROOT(), "bin", "go")
+	realGo := localGoCacheTestGoBinary(t)
 	first := prepareLocalGoCache(t, repository, realGo)
 	second := prepareLocalGoCacheWithEnv(t, repository, realGo, "GOFLAGS=-trimpath")
 	if first[0] == second[0] || first[2] == second[2] {
@@ -74,14 +73,18 @@ func TestLocalGoCacheCanonicalizesCompilerSymlink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
+	canonicalTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("canonicalize compiler target: %v", err)
+	}
 	command := exec.Command("bash", "-c", "source ./scripts/local_go_cache.sh; local_go_cache_resolve_binary \"$1\"", "cache-test", link)
 	command.Dir = initializeLocalGoCacheRepository(t)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("resolve compiler symlink: %v\n%s", err, output)
 	}
-	if strings.TrimSpace(string(output)) != target {
-		t.Fatalf("resolved compiler = %q, want %q", output, target)
+	if strings.TrimSpace(string(output)) != canonicalTarget {
+		t.Fatalf("resolved compiler = %q, want %q", output, canonicalTarget)
 	}
 }
 
@@ -89,7 +92,7 @@ func TestLocalGoCacheAvoidsRecompileAcrossWorktreesOnOneDevice(t *testing.T) {
 	repository := initializeLocalGoCacheRepository(t)
 	first := addLocalGoCacheWorktree(t, repository, "compile-first")
 	second := addLocalGoCacheWorktree(t, repository, "compile-second")
-	realGo := filepath.Join(runtime.GOROOT(), "bin", "go")
+	realGo := localGoCacheTestGoBinary(t)
 	firstCache := prepareLocalGoCache(t, first, realGo)
 	secondCache := prepareLocalGoCache(t, second, realGo)
 	firstOutput := buildLocalGoCacheFixture(t, realGo, first, firstCache)
@@ -112,6 +115,16 @@ func buildLocalGoCacheFixture(t *testing.T, realGo, worktree string, cache []str
 		t.Fatalf("build local cache fixture: %v\n%s", err, output)
 	}
 	return string(output)
+}
+
+// localGoCacheTestGoBinary 返回当前宿主 PATH 解析出的 Go 工具，使测试与真实入口使用同一编译器。
+func localGoCacheTestGoBinary(t *testing.T) string {
+	t.Helper()
+	binary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("locate Go tool: %v", err)
+	}
+	return binary
 }
 
 func prepareLocalGoCache(t *testing.T, repository, realGo string) []string {

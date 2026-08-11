@@ -54,6 +54,7 @@ func assertRemoteCIResourcePlannerContract(t *testing.T, root string) {
 func assertRemoteCIResourceProjectionContract(t *testing.T, root string) {
 	t.Helper()
 	projection := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator_resources.go"))
+	projection = strings.Join(strings.Fields(projection), " ")
 	if !strings.Contains(projection, "EstimatedDurationMS: planned.EstimatedDurationMS") ||
 		!strings.Contains(projection, "ResourceCPU: planned.ResourceCPU") ||
 		!strings.Contains(projection, "ResourceMemoryGiB: planned.ResourceMemoryGiB") ||
@@ -72,7 +73,7 @@ func assertRemoteCIResourcePassIdentityContract(t *testing.T, root string) {
 		strings.Contains(reuse, `RunnerIdentityDigest`) {
 		t.Error("workload PASS identity must exclude resource, timeout, candidate Gate source, and tree-derived worker fallback identities")
 	}
-	for _, required := range []string{`remote-workload-pass-environment/v9`, `ToolchainDigest`, `RuntimeSeedSHA256`, `PolicyDigest`, `WorkerExecutionProvenance`, `SemanticEnvironment`, `GoFlags`, `go_flags`} {
+	for _, required := range []string{`cicontract.WorkloadPassEnvironmentSchemaVersion`, `ToolchainDigest`, `RuntimeSeedSHA256`, `PolicyDigest`, `WorkerExecutionProvenance`, `SemanticEnvironment`, `GoFlags`, `go_flags`} {
 		if !strings.Contains(reuse, required) {
 			t.Errorf("workload PASS identity is missing correctness marker %q", required)
 		}

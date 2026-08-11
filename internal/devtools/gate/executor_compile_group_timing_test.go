@@ -178,9 +178,13 @@ func runCompileGroupBatchFixture(t *testing.T) (CompileGroup, map[GateID]PlanGat
 	if err := os.Chmod(workDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	runRoot := filepath.Join(workDir, "run")
+	if err := os.Mkdir(runRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	batch := CompileGroupBatch{BatchID: "batch-000", Wave: 0, SelectorIDs: append([]GateID(nil), group.WorkloadIDs...), EstimatedBodyMS: 1}
 	results, err := executeCompiledSelectorBatchForBatch(context.Background(), compiledGroupArtifact{
-		group: group, layout: executorLayout{sourceCopy: workDir}, environment: environment,
+		group: group, layout: executorLayout{sourceCopy: workDir, runRoot: runRoot}, environment: environment,
 		goBinary: goBinary, binaryPath: binaryPath, packageDir: workDir,
 	}, group, batch, incrementingTestClock(time.UnixMilli(7_000_000)))
 	if err != nil {
@@ -383,17 +387,24 @@ func TestCompiledSelectorDiagnosticLogBoundsPassAndPreservesFailure(t *testing.T
 
 func TestCompileGroupBatchProcessEnvironmentBoundsArchtestHeap(t *testing.T) {
 	base := []string{"PATH=/bin", "GOMEMLIMIT=off"}
-	archtest := compileGroupBatchProcessEnvironment(append([]string(nil), base...), AtomicArchtestPackageTarget)
-	if got := environmentValue(archtest, "GOMEMLIMIT"); got != "3GiB" {
-		t.Fatalf("archtest GOMEMLIMIT = %q, want 3GiB", got)
+	cases := []struct {
+		name           string
+		packageTarget  string
+		wantGOMEMLIMIT string
+	}{
+		{name: "archtest", packageTarget: AtomicArchtestPackageTarget, wantGOMEMLIMIT: "3GiB"},
+		{name: "ordinary", packageTarget: "./internal/example", wantGOMEMLIMIT: "off"},
+		{name: "codexapp", packageTarget: AtomicCodexAppPackageTarget, wantGOMEMLIMIT: "off"},
+		{name: "super-dolphin-gate", packageTarget: AtomicSuperDolphinGatePackageTarget, wantGOMEMLIMIT: "off"},
+		{name: "mcp-lsp", packageTarget: AtomicMcpLSPPackageTarget, wantGOMEMLIMIT: "off"},
 	}
-	superGate := compileGroupBatchProcessEnvironment(append([]string(nil), base...), AtomicSuperDolphinGatePackageTarget)
-	if got := environmentValue(superGate, "GOMEMLIMIT"); got != "3GiB" {
-		t.Fatalf("super-dolphin-gate GOMEMLIMIT = %q, want 3GiB", got)
-	}
-	ordinary := compileGroupBatchProcessEnvironment(append([]string(nil), base...), "./internal/example")
-	if got := environmentValue(ordinary, "GOMEMLIMIT"); got != "off" {
-		t.Fatalf("ordinary GOMEMLIMIT = %q, want inherited off", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			environment := compileGroupBatchProcessEnvironment(append([]string(nil), base...), tc.packageTarget)
+			if got := environmentValue(environment, "GOMEMLIMIT"); got != tc.wantGOMEMLIMIT {
+				t.Fatalf("%s GOMEMLIMIT = %q, want %q", tc.packageTarget, got, tc.wantGOMEMLIMIT)
+			}
+		})
 	}
 }
 

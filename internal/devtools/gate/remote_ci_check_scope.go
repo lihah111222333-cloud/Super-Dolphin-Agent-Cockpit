@@ -56,11 +56,30 @@ func RequiredChecksForWorkloadCatalog(catalog WorkloadCatalog) ([]cicontract.Req
 	return required, nil
 }
 
-// validateSQLiteWorkloadCatalogPassingCheckReceipts 回读 exact catalog 后校验回执范围。
-func validateSQLiteWorkloadCatalogPassingCheckReceipts(queryer sqliteRowQueryer, catalogDigest string, receipts []CheckReceiptRecord) error {
-	catalog, err := loadSQLiteWorkloadCatalog(queryer, catalogDigest)
+func validateRemoteCIExecutionScopePassingCheckReceipts(catalog WorkloadCatalog, scope *RemoteCIExecutionScope, receipts []CheckReceiptRecord) error {
+	executionCatalog, err := ProjectRemoteCIExecutionCatalog(catalog, scope)
+	if err != nil {
+		return fmt.Errorf("project stored remote CI execution catalog: %w", err)
+	}
+	return validateWorkloadCatalogPassingCheckReceipts(executionCatalog, receipts)
+}
+
+// validateLegacyRemoteCIRunFullWorkloadCoverage permits a missing scope only
+// when the persisted run itself proves coverage of the complete catalog.
+func validateLegacyRemoteCIRunFullWorkloadCoverage(catalog WorkloadCatalog, run RemoteCIRunRecord) error {
+	if run.Scope != nil {
+		return nil
+	}
+	fullScope, err := NewRemoteCIFullExecutionScope(catalog)
+	if err != nil {
+		return fmt.Errorf("construct full remote CI execution scope: %w", err)
+	}
+	index, err := newRemoteCIRunCatalogIndex(catalog)
 	if err != nil {
 		return err
 	}
-	return validateWorkloadCatalogPassingCheckReceipts(catalog.Catalog, receipts)
+	if err := index.validatePassed(run, fullScope); err != nil {
+		return fmt.Errorf("missing remote CI execution scope does not cover full catalog: %w", err)
+	}
+	return nil
 }

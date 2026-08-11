@@ -7,13 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"path"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 // BuildWorkloadInventory 从精确 commit tree 和 base..commit 变更范围生成确定性测试清单。
@@ -210,8 +210,10 @@ func loadInventoryVitestSuitePolicy(
 	repositoryRoot string,
 	revision string,
 ) (inventoryVitestSuitePolicy, error) {
-	command := exec.CommandContext(ctx, "git", "show", revision+":"+inventoryVitestSuitePolicyPath)
-	command.Dir = repositoryRoot
+	command, err := gateprivate.TrustedGitCommand(ctx, repositoryRoot, "show", revision+":"+inventoryVitestSuitePolicyPath)
+	if err != nil {
+		return inventoryVitestSuitePolicy{}, fmt.Errorf("resolve trusted Git for Vitest suite policy: %w", err)
+	}
 	output, err := command.Output()
 	if err != nil {
 		return inventoryVitestSuitePolicy{}, fmt.Errorf("read Vitest suite policy from Git tree: %w", err)
@@ -392,8 +394,10 @@ func withinNestedGoModule(file string, modules []string) bool {
 
 // inventoryGitLines 执行 Git 路径查询并拒绝不规范的输出行。
 func inventoryGitLines(ctx context.Context, repositoryRoot string, args ...string) ([]string, error) {
-	command := exec.CommandContext(ctx, "git", args...)
-	command.Dir = repositoryRoot
+	command, err := gateprivate.TrustedGitCommand(ctx, repositoryRoot, args...)
+	if err != nil {
+		return nil, fmt.Errorf("resolve trusted Git inventory: %w", err)
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))

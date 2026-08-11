@@ -375,6 +375,7 @@ func TestPrepareAutomaticRemoteCalibrationLedgerPreservesSamples(t *testing.T) {
 	runnerIdentity := remoteRunRunnerIdentity(state)
 	staleRunner := "sha256:" + strings.Repeat("f", 64)
 	sample := gatecontract.DurationSample{
+		AcceptedGeneration: 1,
 		Bucket: gatecontract.DurationBucket{
 			WorkloadID: "guard:fixture", CommandDigest: strings.Repeat("1", 64),
 			InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: state.Platform, Runner: staleRunner, Toolchain: state.ToolchainDigest,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
@@ -101,14 +102,19 @@ func buildShardRequestsWithCompileGroups(
 func validateCompileGroupPlan(groups []gate.CompileGroup) error {
 	seenGroups := make(map[string]struct{}, len(groups))
 	seenWorkloads := make(map[gate.GateID]string)
+	var previousGroupID string
 	for index, group := range groups {
 		if err := group.Validate(); err != nil {
 			return fmt.Errorf("compile_groups[%d]: %w", index, err)
+		}
+		if index > 0 && group.GroupID <= previousGroupID {
+			return fmt.Errorf("compile_groups[%d] are not in canonical GroupID order", index)
 		}
 		if _, duplicate := seenGroups[group.GroupID]; duplicate {
 			return fmt.Errorf("compile_groups[%d] duplicates group %q", index, group.GroupID)
 		}
 		seenGroups[group.GroupID] = struct{}{}
+		previousGroupID = group.GroupID
 		for _, workloadID := range group.WorkloadIDs {
 			if previous, duplicate := seenWorkloads[workloadID]; duplicate {
 				return fmt.Errorf("compile workload %q belongs to groups %q and %q", workloadID, previous, group.GroupID)
@@ -127,7 +133,7 @@ func projectCompileGroupsForShard(shard gate.ContainerShard, groups []gate.Compi
 	}
 	projected := make([]gate.CompileGroup, 0, len(groups))
 	grouped := make(map[gate.GateID]struct{})
-	for _, group := range gate.SortCompileGroupsByID(groups) {
+	for _, group := range groups {
 		projectedGroup, included, err := projectCompileGroupForShard(group, gateSet)
 		if err != nil {
 			return nil, err
@@ -142,7 +148,15 @@ func projectCompileGroupsForShard(shard gate.ContainerShard, groups []gate.Compi
 		return nil, err
 	}
 	if len(projected) > 1 {
-		return nil, fmt.Errorf("shard %d must contain exactly one compile group (found %d)", shard.Index, len(projected))
+		resourceClassID := projected[0].ResourceClassID
+		for _, group := range projected {
+			if group.ResourceClassID != resourceClassID {
+				return nil, fmt.Errorf("shard %d compile groups mix resource classes %q and %q", shard.Index, resourceClassID, group.ResourceClassID)
+			}
+			if !gate.CompileGroupSerialPackingEligible(group) {
+				return nil, fmt.Errorf("shard %d compile group %q is not eligible for same-resource serial packing", shard.Index, group.GroupID)
+			}
+		}
 	}
 	return projected, nil
 }
@@ -328,6 +342,9 @@ func validateShardResourceBinding(resources shardresource.Class, request ShardRe
 		return errors.New("remote shard request resource_class drifted")
 	}
 	if !request.Calibration {
+		if err := cicontract.ValidateNormalResources(resources.VCPU, resources.MemoryGiB); err != nil {
+			return fmt.Errorf("normal shard request resources: %w", err)
+		}
 		if request.CalibrationResource != nil {
 			return errors.New("non-calibration shard request carries calibration resources")
 		}
@@ -337,7 +354,7 @@ func validateShardResourceBinding(resources shardresource.Class, request ShardRe
 		return errors.New("calibration shard request resources are required")
 	}
 	class := *request.CalibrationResource
-	if class.ID == "" || class != resources {
+	if err := cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB); err != nil || class != resources {
 		return errors.New("calibration shard request resources drifted")
 	}
 	return nil

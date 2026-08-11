@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,11 +19,11 @@ import (
 )
 
 type deferredCredentialCommandRunner struct {
-	calls int
+	calls atomic.Int64
 }
 
 func (runner *deferredCredentialCommandRunner) Run(context.Context, string, ...string) ([]byte, error) {
-	runner.calls++
+	runner.calls.Add(1)
 	return []byte(`{}`), nil
 }
 
@@ -55,6 +56,7 @@ func TestCoordinatorRunReusesAcceptedWorkloadPassesWithoutRemoteSideEffects(t *t
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
@@ -71,6 +73,7 @@ func TestCoordinatorAllHitWithMissingRegistryCredentialReusesWithoutECICreate(t 
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 	// 全命中运行不得进入 planner。先写入 PASS 证据，再清空规划快照；若误入
 	// planner 会立即因快照无效失败，而纯复用路径仍应自洽完成。
 	input.LedgerSnapshot = gate.DurationLedgerSnapshot{}
@@ -85,8 +88,8 @@ func TestCoordinatorAllHitWithMissingRegistryCredentialReusesWithoutECICreate(t 
 		t.Fatalf("all-hit Run() error = %v", err)
 	}
 	assertCoordinatorReuseResult(t, result)
-	if len(store.uploads) != 0 || len(store.deletePrefixes) != 0 || runner.calls != 0 {
-		t.Fatalf("all-hit performed remote work: uploads=%v deletes=%v eci_cli_calls=%d", store.uploads, store.deletePrefixes, runner.calls)
+	if len(store.uploads) != 0 || len(store.deletePrefixes) != 0 || runner.calls.Load() != 0 {
+		t.Fatalf("all-hit performed remote work: uploads=%v deletes=%v eci_cli_calls=%d", store.uploads, store.deletePrefixes, runner.calls.Load())
 	}
 }
 
@@ -107,7 +110,7 @@ func TestCoordinatorImageCacheOnlyMissDoesNotReadRegistryCredential(t *testing.T
 	if strings.Contains(err.Error(), "GHCR credential") {
 		t.Fatalf("ImageCache-only miss read registry credential: %v", err)
 	}
-	if runner.calls == 0 {
+	if runner.calls.Load() == 0 {
 		t.Fatal("ImageCache-only miss did not reach ECI CLI")
 	}
 }
@@ -129,6 +132,7 @@ func TestCoordinatorPrepareFreezesAllReuseWithoutRemoteSideEffects(t *testing.T)
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
@@ -157,6 +161,9 @@ func TestCoordinatorRunPreparedReloadsOnlyPlanningSnapshotForMisses(t *testing.T
 	prepared, err := coordinator.Prepare(context.Background(), input)
 	if err != nil || prepared.AllReused() || len(prepared.reuse.cacheMisses) == 0 {
 		t.Fatalf("Prepare() prepared=%#v error=%v", prepared, err)
+	}
+	if err := bindPreparedMissExecutionForTest(context.Background(), coordinator, prepared, input); err != nil {
+		t.Fatalf("BindPreparedMissExecution() error = %v", err)
 	}
 	if err := prepared.ReloadPlanningSnapshot(input.LedgerStore); err != nil {
 		t.Fatalf("ReloadPlanningSnapshot() error = %v", err)
@@ -240,6 +247,7 @@ func TestCoordinatorRunPreparedConsumesOnePreparedRunExactlyOnce(t *testing.T) {
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456c", nil }
@@ -368,6 +376,7 @@ func TestCoordinatorRunReusesPassesWhenWorkerTimeoutChanges(t *testing.T) {
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.config.WorkerTimeout = 30 * time.Minute
@@ -385,6 +394,7 @@ func TestCoordinatorRunReusesPassesWhenResourcePolicyChanges(t *testing.T) {
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.config.ResourcePolicy.HeadroomPercent++
@@ -637,6 +647,7 @@ func TestCoordinatorRunSharesAcceptedPassesAcrossAgentsWithIndependentJobs(t *te
 	_, input := coordinatorReuseFixture(t)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
 	firstInput, secondInput := input, input
 	firstInput.AgentTokenDigest = "sha256:" + strings.Repeat("1", 64)
 	secondInput.AgentTokenDigest = "sha256:" + strings.Repeat("2", 64)
@@ -694,6 +705,12 @@ func TestCoordinatorRunConcurrentSameCandidateMissesDoNotSerialize(t *testing.T)
 	if err != nil {
 		t.Fatalf("second Prepare() error = %v", err)
 	}
+	if err := bindPreparedMissExecutionForTest(context.Background(), first, firstPrepared, input); err != nil {
+		t.Fatalf("first BindPreparedMissExecution() error = %v", err)
+	}
+	if err := bindPreparedMissExecutionForTest(context.Background(), second, secondPrepared, input); err != nil {
+		t.Fatalf("second BindPreparedMissExecution() error = %v", err)
+	}
 	var runs errgroup.Group
 	runs.Go(func() error { _, err := first.RunPrepared(context.Background(), firstPrepared); return err })
 	runs.Go(func() error { _, err := second.RunPrepared(context.Background(), secondPrepared); return err })
@@ -728,8 +745,22 @@ func coordinatorReuseFixture(t *testing.T) (string, RunInput) {
 	return repository, input
 }
 
+// clearCoordinatorAllHitExecutionIdentity 清空 all-hit 不应持久化的 MISS 执行身份字段。
+func clearCoordinatorAllHitExecutionIdentity(input *RunInput) {
+	input.CandidateGateSourceSHA256 = ""
+	input.CandidateGateToolchainSHA256 = ""
+	input.ExecutionRunnerImage = ""
+	input.ExecutionImageCacheSnapshotID = ""
+	input.ImageCacheOnly = false
+}
+
 func seedCoordinatorWorkloadPassEvidence(t *testing.T, input RunInput, result RunResult, keep func(int) bool) {
 	t.Helper()
+	workerDigest, err := ResolveWorkerExecutionDigest(context.Background(), input.RepositoryRoot, input.Tree)
+	if err != nil {
+		t.Fatalf("derive worker execution semantic digest for PASS fixture: %v", err)
+	}
+	input.WorkerExecutionSemanticDigest = workerDigest
 	identities, err := remoteWorkloadPassIdentities(context.Background(), input, mustCoordinatorCatalog(t, input), 10*time.Minute, testRemoteResourcePolicy())
 	if err != nil {
 		t.Fatal(err)

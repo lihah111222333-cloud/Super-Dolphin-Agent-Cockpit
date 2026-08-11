@@ -35,6 +35,8 @@ var ErrGateFailed = errors.New("remote CI gate execution failed")
 type ObjectStore interface {
 	Create(context.Context, string, string) error
 	DeletePrefix(context.Context, string) error
+	// ConfirmPrefixEmpty verifies that no object remains below prefix.
+	ConfirmPrefixEmpty(context.Context, string) (bool, error)
 }
 
 // Runtime owns the complete lifecycle of one ECI container group.
@@ -43,6 +45,8 @@ type Runtime interface {
 	DescribeContainerGroups(context.Context, ...string) ([]eci.ContainerGroup, error)
 	DescribeContainerLog(context.Context, string, string) (string, error)
 	DeleteContainerGroup(context.Context, string) error
+	// ConfirmContainerGroupAbsent verifies that the ECI group no longer exists.
+	ConfirmContainerGroupAbsent(context.Context, string) (bool, error)
 }
 
 // CoordinatorConfig contains only fixed non-secret remote execution settings.
@@ -99,11 +103,25 @@ type RunInput struct {
 	// WorkloadInputDigests 从 accepted source tree 计算一次，并由 planning 与
 	// duration-sample producer 复用；它不改变 PASS reuse identity 语义。
 	WorkloadInputDigests map[string]string
+	// WorkerExecutionSemanticDigest 从同一个 exact-tree snapshot 计算，绑定
+	// worker 实际执行闭包。它进入 correctness environment digest，但不把 job、
+	// branch、资源档或 cache 身份混入 PASS identity。
+	WorkerExecutionSemanticDigest string
 	// WorkloadCompileGroupInputs 从与 WorkloadInputDigests 相同的 accepted source snapshot
 	// 计算，仅由 compile-aware planner 消费。它绝不参与 correctness PASS identity 或 selector runtime input。
 	WorkloadCompileGroupInputs map[string]gate.CompileGroupInput
 	OCIProjectCache            *BaselineOCIProjectCache
 	CalibrationResource        shardresource.Class
+}
+
+// MissExecutionBinding 保存严格 cache MISS 才需要的候选 Gate 编译身份与实时 ImageCache 物料。
+// 这些字段不参与 PASS lookup；它们只能由 Coordinator 在冻结复用决策后一次性绑定。
+type MissExecutionBinding struct {
+	CandidateGateSourceSHA256     string
+	CandidateGateToolchainSHA256  string
+	ExecutionRunnerImage          string
+	ExecutionImageCacheSnapshotID string
+	ImageCacheOnly                bool
 }
 
 // ShardResult records directly observed ECI identity, terminal state, and worker report.
@@ -125,34 +143,35 @@ type ShardResult struct {
 
 // RunResult is an unsigned remote execution observation. Authority receipts are minted separately.
 type RunResult struct {
-	SchemaVersion                uint32              `json:"schema_version"`
-	AcceptedGeneration           uint64              `json:"accepted_generation"`
-	ImageCacheSnapshotID         string              `json:"image_cache_snapshot_id"`
-	JobID                        string              `json:"job_id"`
-	RemoteName                   string              `json:"remote_name,omitempty"`
-	RemoteURL                    string              `json:"remote_url,omitempty"`
-	AgentTokenDigest             string              `json:"agent_token_digest"`
-	Force                        bool                `json:"force"`
-	Entrypoint                   gate.CIEntrypointID `json:"entrypoint"`
-	Profile                      gate.Profile        `json:"profile"`
-	PlanDigest                   string              `json:"plan_digest"`
-	CatalogDigest                string              `json:"catalog_digest"`
-	SourceTreeSHA                string              `json:"source_tree_sha"`
-	CandidateGateSourceSHA256    string              `json:"candidate_gate_source_sha256"`
-	CandidateGateToolchainSHA256 string              `json:"candidate_gate_toolchain_sha256"`
-	RunnerImage                  string              `json:"runner_image"`
-	Platform                     string              `json:"platform"`
-	RunnerIdentityDigest         string              `json:"runner_identity_digest"`
-	ToolchainDigest              string              `json:"toolchain_digest"`
-	CalibrationResourceClassID   string              `json:"calibration_resource_class_id,omitempty"`
-	CalibrationResourceCPU       float64             `json:"calibration_resource_cpu,omitempty"`
-	CalibrationResourceMemoryGiB float64             `json:"calibration_resource_memory_gib,omitempty"`
-	ExecutionMode                string              `json:"execution_mode"`
-	Status                       gate.ResultStatus   `json:"status"`
-	Authoritative                bool                `json:"authoritative"`
-	StartedAt                    time.Time           `json:"started_at"`
-	CompletedAt                  time.Time           `json:"completed_at"`
-	Shards                       []ShardResult       `json:"shards"`
+	SchemaVersion                uint32                       `json:"schema_version"`
+	AcceptedGeneration           uint64                       `json:"accepted_generation"`
+	ImageCacheSnapshotID         string                       `json:"image_cache_snapshot_id"`
+	JobID                        string                       `json:"job_id"`
+	RemoteName                   string                       `json:"remote_name,omitempty"`
+	RemoteURL                    string                       `json:"remote_url,omitempty"`
+	AgentTokenDigest             string                       `json:"agent_token_digest"`
+	Force                        bool                         `json:"force"`
+	Entrypoint                   gate.CIEntrypointID          `json:"entrypoint"`
+	Profile                      gate.Profile                 `json:"profile"`
+	PlanDigest                   string                       `json:"plan_digest"`
+	CatalogDigest                string                       `json:"catalog_digest"`
+	Scope                        *gate.RemoteCIExecutionScope `json:"-"`
+	SourceTreeSHA                string                       `json:"source_tree_sha"`
+	CandidateGateSourceSHA256    string                       `json:"candidate_gate_source_sha256"`
+	CandidateGateToolchainSHA256 string                       `json:"candidate_gate_toolchain_sha256"`
+	RunnerImage                  string                       `json:"runner_image"`
+	Platform                     string                       `json:"platform"`
+	RunnerIdentityDigest         string                       `json:"runner_identity_digest"`
+	ToolchainDigest              string                       `json:"toolchain_digest"`
+	CalibrationResourceClassID   string                       `json:"calibration_resource_class_id,omitempty"`
+	CalibrationResourceCPU       float64                      `json:"calibration_resource_cpu,omitempty"`
+	CalibrationResourceMemoryGiB float64                      `json:"calibration_resource_memory_gib,omitempty"`
+	ExecutionMode                string                       `json:"execution_mode"`
+	Status                       gate.ResultStatus            `json:"status"`
+	Authoritative                bool                         `json:"authoritative"`
+	StartedAt                    time.Time                    `json:"started_at"`
+	CompletedAt                  time.Time                    `json:"completed_at"`
+	Shards                       []ShardResult                `json:"shards"`
 	// CompileGroupExecutions 是 fresh 分片报告的派生平铺副本；报告仍是来源，
 	// 此字段仅用于结果与回执检查。
 	CompileGroupExecutions  []gate.CompileGroupExecution `json:"compile_group_executions,omitempty"`
@@ -162,6 +181,7 @@ type RunResult struct {
 	ReusedWorkloads         []gate.WorkloadPassEvidence  `json:"reused_workloads,omitempty"`
 	CacheMissWorkloads      []gate.GateID                `json:"cache_miss_workloads,omitempty"`
 	WorkloadPassIdentities  []gate.WorkloadPassIdentity  `json:"-"`
+	environmentReplayProofs map[string]string            `json:"-"`
 	DurationSamples         []gate.DurationSample        `json:"duration_samples"`
 	OptimizationWarnings    []string                     `json:"optimization_warnings,omitempty"`
 	TimingWarnings          []gate.RemoteCITimingWarning `json:"timing_warnings,omitempty"`
@@ -232,33 +252,52 @@ func validCoordinatorObjectConfig(config CoordinatorConfig) bool {
 		strings.TrimSpace(config.WorkerRoleName) != ""
 }
 
-// validateCoordinatorRunInput 在生成 job 标识前校验调用上下文、SQLite 权威账本与已接受镜像绑定。
-func validateCoordinatorRunInput(ctx context.Context, config CoordinatorConfig, input RunInput) error {
+// validateCoordinatorPrepareInput 在 PASS lookup 前只校验 correctness authority；
+// 候选 Gate 编译身份与实时 execution ImageCache 必须留到严格 MISS 后绑定。
+func validateCoordinatorPrepareInput(ctx context.Context, input RunInput) error {
 	if ctx == nil {
 		return errors.New("remote CI context is required")
 	}
 	if input.LedgerStore == nil {
 		return errors.New("remote CI duration ledger SQLite authority is required")
 	}
-	return validateRunImageCacheAuthority(config, input)
+	return validateRunAcceptedImageCacheAuthority(input)
 }
 
-// validateRunImageCacheAuthority 分离 SQLite correctness snapshot 与实时验证的 ECI execution snapshot。
-func validateRunImageCacheAuthority(config CoordinatorConfig, input RunInput) error {
+// validateCoordinatorRunInput 在 MISS 执行前强制校验完整的候选编译与实时执行身份。
+func validateCoordinatorRunInput(ctx context.Context, config CoordinatorConfig, input RunInput) error {
+	if err := validateCoordinatorPrepareInput(ctx, input); err != nil {
+		return err
+	}
+	return validateRunMissExecutionAuthority(config.ImageCacheSnapshotID, input)
+}
+
+// validateRunAcceptedImageCacheAuthority 校验 SQLite correctness snapshot 与 OCI 基线。
+func validateRunAcceptedImageCacheAuthority(input RunInput) error {
 	if !validImageCacheIdentifier(input.ImageCacheSnapshotID) {
 		return errors.New("remote CI accepted ImageCacheSnapshotID is required")
 	}
 	if input.OCIProjectCache == nil {
 		return errors.New("remote CI run OCI project cache is required for image snapshot binding")
 	}
-	if !validImageCacheIdentifier(input.ExecutionImageCacheSnapshotID) || input.ExecutionImageCacheSnapshotID != config.ImageCacheSnapshotID {
+	if err := input.OCIProjectCache.ValidateForBaseline(input.RunnerBaseTree, input.ToolchainDigest, input.Platform, input.RunnerImage); err != nil {
+		return fmt.Errorf("remote CI run ImageCache OCI project cache binding: %w", err)
+	}
+	return nil
+}
+
+// validateRunMissExecutionAuthority 校验 MISS 才允许出现的候选 Gate 与实时 ECI ImageCache 绑定。
+func validateRunMissExecutionAuthority(verifiedSnapshotID string, input RunInput) error {
+	if !remoteDigestPattern.MatchString(input.CandidateGateSourceSHA256) ||
+		!remoteDigestPattern.MatchString(input.CandidateGateToolchainSHA256) {
+		return errors.New("remote CI candidate gate identity is invalid")
+	}
+	if !validImageCacheIdentifier(input.ExecutionImageCacheSnapshotID) ||
+		input.ExecutionImageCacheSnapshotID != verifiedSnapshotID {
 		return errors.New("remote CI execution ImageCacheSnapshotID must equal the live-verified coordinator ImageCacheSnapshotID")
 	}
 	if strings.TrimSpace(input.ExecutionRunnerImage) == "" || !input.ImageCacheOnly {
 		return errors.New("remote CI execution ImageCache runtime is incomplete")
-	}
-	if err := input.OCIProjectCache.ValidateForBaseline(input.RunnerBaseTree, input.ToolchainDigest, input.Platform, input.RunnerImage); err != nil {
-		return fmt.Errorf("remote CI run ImageCache OCI project cache binding: %w", err)
 	}
 	return nil
 }
@@ -357,7 +396,10 @@ func (coordinator *Coordinator) mergeRemoteWorkloadMisses(
 	freshObserved, mergeErr := collectFreshRemoteWorkloadExecutions(executedWorkloads, fresh)
 	partialFresh, partialErr := canonicalPartialRemoteWorkloadExecutions(executedWorkloads, fresh)
 	result.FreshWorkloadExecutions = partialFresh
-	result.WorkloadExecutions = append([]gate.PlanGateExecution(nil), partialFresh...)
+	partialWorkloads, reusedProjectionErr := canonicalPartialFreshAndReusedWorkloadExecutions(
+		remoteShardableWorkloads(catalog), partialFresh, reused,
+	)
+	result.WorkloadExecutions = partialWorkloads
 	freshErr = errors.Join(freshErr, partialErr)
 	observed := make(map[string]gate.PlanGateExecution, len(freshObserved)+len(reused))
 	maps.Copy(observed, freshObserved)
@@ -368,6 +410,7 @@ func (coordinator *Coordinator) mergeRemoteWorkloadMisses(
 		}
 		observed[workloadID] = evidence.OriginExecution
 	}
+	mergeErr = errors.Join(mergeErr, reusedProjectionErr)
 	if freshErr == nil && mergeErr == nil {
 		result, mergeErr = coordinator.completeRemoteRunWithExecutionCatalog(
 			catalog,
@@ -394,44 +437,13 @@ func (coordinator *Coordinator) mergeRemoteWorkloadMisses(
 	return result, freshErr, mergeErr
 }
 
-// canonicalPartialRemoteWorkloadExecutions 保留已严格校验的 workload，并把缺失或失真的条目标记为错误。
-func canonicalPartialRemoteWorkloadExecutions(
-	workloads []gate.Workload,
-	fresh map[string]gate.PlanGateExecution,
-) ([]gate.PlanGateExecution, error) {
-	if len(fresh) == 0 {
-		return nil, nil
-	}
-	expected := make(map[string]struct{}, len(workloads))
-	partial := make([]gate.PlanGateExecution, 0, len(fresh))
-	var partialErr error
-	for _, workload := range workloads {
-		expected[workload.ID] = struct{}{}
-		execution, ok := fresh[workload.ID]
-		if !ok {
-			continue
-		}
-		canonical, err := gate.CanonicalizePlanGateExecutionTiming(execution)
-		if err != nil {
-			partialErr = errors.Join(partialErr, fmt.Errorf("remote workload %q timing: %w", workload.ID, err))
-			continue
-		}
-		partial = append(partial, canonical)
-	}
-	for workloadID := range fresh {
-		if _, ok := expected[workloadID]; !ok {
-			partialErr = errors.Join(partialErr, fmt.Errorf("remote workload %q is outside the current catalog", workloadID))
-		}
-	}
-	return partial, partialErr
-}
-
 // runRemoteWorkloadMisses 为当前未命中 workload 规划远程分片，并与严格复用证据聚合。
 func (coordinator *Coordinator) runRemoteWorkloadMisses(
 	ctx context.Context,
 	input RunInput,
 	plan gate.GatePlan,
 	catalog gate.WorkloadCatalog,
+	executionCatalog gate.WorkloadCatalog,
 	executionIDs []gate.GateID,
 	reused map[string]gate.WorkloadPassEvidence,
 	jobID string,
@@ -478,7 +490,7 @@ func (coordinator *Coordinator) runRemoteWorkloadMisses(
 	if bindErr := bindRemoteShardResources(executed, prepared.resources, prepared.requests); bindErr != nil {
 		waitErr = errors.Join(waitErr, bindErr)
 	}
-	result, freshErr, mergeErr := coordinator.mergeRemoteWorkloadMisses(catalog, input, prepared, reused, executed, result)
+	result, freshErr, mergeErr := coordinator.mergeRemoteWorkloadMisses(executionCatalog, input, prepared, reused, executed, result)
 	return result, errors.Join(createErr, waitErr, freshErr, mergeErr)
 }
 
@@ -767,12 +779,8 @@ func validateRemotePlanInput(input RunInput) error {
 	return nil
 }
 
-// validateRemotePlanBindings 校验候选 gate、OCI 基线与源码树均绑定到同一远程运行。
+// validateRemotePlanBindings 校验 OCI 基线与源码树绑定到同一远程运行。
 func validateRemotePlanBindings(input RunInput) error {
-	if !remoteDigestPattern.MatchString(input.CandidateGateSourceSHA256) ||
-		!remoteDigestPattern.MatchString(input.CandidateGateToolchainSHA256) {
-		return errors.New("remote CI candidate gate identity is invalid")
-	}
 	if input.OCIProjectCache == nil {
 		return errors.New("remote CI OCI project cache is required")
 	}
@@ -809,7 +817,7 @@ func completeRemotePlanInput(input RunInput) bool {
 		input.RepositoryRoot, input.Tree, input.Base, input.RunnerBaseCommit, input.RunnerBaseTree,
 		input.RunnerImage, input.Platform, input.PolicyDigest, input.ToolchainDigest,
 		input.RunnerIdentityDigest, input.BaselineManifestDigest, input.RunnerConfigDigest,
-		input.GateBinarySHA256, input.CandidateGateSourceSHA256, input.CandidateGateToolchainSHA256,
+		input.GateBinarySHA256,
 		input.RuntimeSeedSHA256,
 	)
 }

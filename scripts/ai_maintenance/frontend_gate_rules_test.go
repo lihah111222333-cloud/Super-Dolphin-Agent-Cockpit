@@ -2,6 +2,15 @@ package main
 
 import "testing"
 
+// TestFrontendBuildRelevantIncludesRecoveryAndRequiredDistEntries 锁定构建所需恢复页和产物清单。
+func TestFrontendBuildRelevantIncludesRecoveryAndRequiredDistEntries(t *testing.T) {
+	for _, filePath := range []string{"frontend-app/recovery.html", "frontend-app/required-dist-entries.txt"} {
+		if !frontendBuildRelevant(filePath) {
+			t.Fatalf("frontendBuildRelevant(%q) = false, want true", filePath)
+		}
+	}
+}
+
 // TestFrontendStaticGuardCommandUsesReadOnlyCodeSizeGate 锁定 hook/CI 的 canonical 静态门禁入口。
 func TestFrontendStaticGuardCommandUsesReadOnlyCodeSizeGate(t *testing.T) {
 	dir, name, args := frontendStaticGuardCommand()

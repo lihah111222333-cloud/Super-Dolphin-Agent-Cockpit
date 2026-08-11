@@ -118,6 +118,23 @@ func (sample CompileTimingSample) Validate() error {
 	return nil
 }
 
+// CompileTimingEstimate 分离稳健规划估值与一条不可变的原始实测证据。
+type CompileTimingEstimate struct {
+	DurationMS     int64
+	Representative CompileTimingSample
+}
+
+// Validate 校验估值为正并保持代表样本的真实时间区间不变。
+func (estimate CompileTimingEstimate) Validate() error {
+	if estimate.DurationMS <= 0 {
+		return errors.New("compile timing estimate duration_ms must be positive")
+	}
+	if err := estimate.Representative.Validate(); err != nil {
+		return fmt.Errorf("compile timing representative: %w", err)
+	}
+	return nil
+}
+
 // CompileTimingObservation 是写入侧观测行。
 // ci_runs 是 job、generation、状态、authority 和 cleanup 的唯一来源，
 // projection writer 从 RemoteCIRunRecord 上下文提供这些运行事实。
@@ -168,14 +185,22 @@ func validateCompileTimingUTCTimingInterval(startedAt, completedAt time.Time) er
 // CompileTimingIndex 是单次 SQLite 读事务中权威编译时长行的只读聚合。
 type CompileTimingIndex struct {
 	// Samples 保存三代窗口内每一条 accepted 行，并按 generation、身份和区间排序。
-	Samples    []CompileTimingSample
-	aggregates map[CompileTimingIdentity]compileTimingAggregate
+	Samples             []CompileTimingSample
+	AcceptedGenerations []uint64
+	aggregates          map[CompileTimingIdentity]compileTimingAggregate
 }
 
 type compileTimingAggregate struct {
 	totalMS int64
 	count   int64
 	latest  CompileTimingSample
+	samples []compileTimingValue
+}
+
+type compileTimingValue struct {
+	durationMS         int64
+	acceptedGeneration uint64
+	sample             CompileTimingSample
 }
 
 // BuildCompileTimingIndex 校验并聚合样本，不引入第二权威来源。
@@ -191,19 +216,81 @@ func BuildCompileTimingIndex(samples []CompileTimingSample) (CompileTimingIndex,
 			}
 			existing.totalMS += sample.DurationMS
 			existing.count++
+			existing.samples = append(existing.samples, compileTimingValue{durationMS: sample.DurationMS, acceptedGeneration: sample.AcceptedGeneration, sample: sample})
 			if newerCompileTimingSample(sample, existing.latest) {
 				existing.latest = sample
 			}
 			index.aggregates[sample.Identity] = existing
 		} else {
-			index.aggregates[sample.Identity] = compileTimingAggregate{totalMS: sample.DurationMS, count: 1, latest: sample}
+			index.aggregates[sample.Identity] = compileTimingAggregate{totalMS: sample.DurationMS, count: 1, latest: sample, samples: []compileTimingValue{{durationMS: sample.DurationMS, acceptedGeneration: sample.AcceptedGeneration, sample: sample}}}
 		}
 		index.Samples = append(index.Samples, sample)
 	}
 	sort.Slice(index.Samples, func(left, right int) bool {
 		return compileTimingSampleLess(index.Samples[left], index.Samples[right])
 	})
+	if err := index.retainLatestGenerations(); err != nil {
+		return CompileTimingIndex{}, err
+	}
 	return index, nil
+}
+
+// retainLatestGenerations 保留最新三代编译时长并重建对应聚合。
+func (index *CompileTimingIndex) retainLatestGenerations() error {
+	seen := make(map[uint64]struct{})
+	for _, sample := range index.Samples {
+		seen[sample.AcceptedGeneration] = struct{}{}
+	}
+	generations := make([]uint64, 0, len(seen))
+	for generation := range seen {
+		generations = append(generations, generation)
+	}
+	sort.Slice(generations, func(left, right int) bool { return generations[left] > generations[right] })
+	if len(generations) > 3 {
+		generations = generations[:3]
+	}
+	index.AcceptedGenerations = generations
+	if len(generations) == 0 {
+		return nil
+	}
+	keep := make(map[uint64]struct{}, len(generations))
+	for _, generation := range generations {
+		keep[generation] = struct{}{}
+	}
+	filtered := filterCompileTimingSamples(index.Samples, keep)
+	index.Samples = filtered
+	return index.rebuildCompileTimingAggregates(filtered)
+}
+
+func filterCompileTimingSamples(samples []CompileTimingSample, keep map[uint64]struct{}) []CompileTimingSample {
+	filtered := make([]CompileTimingSample, 0, len(samples))
+	for _, sample := range samples {
+		if _, ok := keep[sample.AcceptedGeneration]; ok {
+			filtered = append(filtered, sample)
+		}
+	}
+	return filtered
+}
+
+func (index *CompileTimingIndex) rebuildCompileTimingAggregates(samples []CompileTimingSample) error {
+	index.aggregates = make(map[CompileTimingIdentity]compileTimingAggregate, len(samples))
+	for _, sample := range samples {
+		aggregate := index.aggregates[sample.Identity]
+		if aggregate.count == 0 {
+			aggregate.latest = sample
+		}
+		if sample.DurationMS > mathMaxInt64-aggregate.totalMS {
+			return errors.New("compile timing retained aggregate overflows int64")
+		}
+		aggregate.totalMS += sample.DurationMS
+		aggregate.count++
+		aggregate.samples = append(aggregate.samples, compileTimingValue{durationMS: sample.DurationMS, acceptedGeneration: sample.AcceptedGeneration, sample: sample})
+		if newerCompileTimingSample(sample, aggregate.latest) {
+			aggregate.latest = sample
+		}
+		index.aggregates[sample.Identity] = aggregate
+	}
+	return nil
 }
 
 func newerCompileTimingSample(left, right CompileTimingSample) bool {
@@ -271,18 +358,43 @@ func compareCompileTimingFloats(left, right float64) int {
 	return 0
 }
 
-// EstimateMS 返回精确身份的算术平均值，并携带最新保留行作为证据。
+// EstimateMS 返回精确身份的三代稳健估值，并携带中位数来源行作为证据。
 // 零值索引安全地返回未命中。
-func (index CompileTimingIndex) EstimateMS(identity CompileTimingIdentity) (CompileTimingSample, bool, error) {
+func (index CompileTimingIndex) EstimateMS(identity CompileTimingIdentity) (CompileTimingEstimate, bool, error) {
 	if err := identity.Validate(); err != nil {
-		return CompileTimingSample{}, false, err
+		return CompileTimingEstimate{}, false, err
 	}
 	aggregate, found := index.aggregates[identity]
 	if !found || aggregate.count == 0 {
-		return CompileTimingSample{}, false, nil
+		return CompileTimingEstimate{}, false, nil
 	}
-	aggregate.latest.DurationMS = aggregate.totalMS / aggregate.count
-	return aggregate.latest, true, nil
+	workloadValues := compileTimingDurationValues(aggregate.samples)
+	estimate, representative, _, err := estimateDurationValues(workloadValues, compileParentBootstrapEstimateMS)
+	if err != nil {
+		return CompileTimingEstimate{}, false, err
+	}
+	result := CompileTimingEstimate{DurationMS: estimate, Representative: compileTimingRepresentative(aggregate, representative)}
+	if err := result.Validate(); err != nil {
+		return CompileTimingEstimate{}, false, err
+	}
+	return result, true, nil
+}
+
+func compileTimingDurationValues(samples []compileTimingValue) []durationSampleValue {
+	values := make([]durationSampleValue, 0, len(samples))
+	for _, value := range samples {
+		values = append(values, durationSampleValue{durationMS: value.durationMS, acceptedGeneration: value.acceptedGeneration, tieKey: value.sample.JobID})
+	}
+	return values
+}
+
+func compileTimingRepresentative(aggregate compileTimingAggregate, representative durationSampleValue) CompileTimingSample {
+	for _, value := range aggregate.samples {
+		if value.acceptedGeneration == representative.acceptedGeneration && value.durationMS == representative.durationMS && value.sample.JobID == representative.tieKey {
+			return value.sample
+		}
+	}
+	return aggregate.latest
 }
 
 // IsEmpty 报告本次读事务是否没有产生权威行。

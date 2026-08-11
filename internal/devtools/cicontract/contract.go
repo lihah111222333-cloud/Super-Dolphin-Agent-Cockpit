@@ -41,6 +41,8 @@ const (
 	ImageCacheRefreshOperatorPathID = "script-oss-handoff-aliyun-eci-offline-imagecache-runtime/v2"
 	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
+	// DurationLedgerSQLiteSchemaVersion 是 duration-ledger SQLite 物理 schema 的唯一版本 owner。
+	DurationLedgerSQLiteSchemaVersion = 16
 	// CacheMaterialSchemaID 标识 OCI 构建阶段可生成的非权威缓存材料 manifest。
 	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或首代检查回执。
 	CacheMaterialSchemaID = "remote-ci-cache-material/v1"
@@ -61,6 +63,53 @@ const (
 	// JSON decoder 共用的完整 shard request 上限。该上限约束请求总字节数，
 	// 不再用 gate 数量猜测合法分片大小。
 	RemoteShardRequestMaxBytes = 1 << 20
+	// WorkloadExecutionPlanSchemaVersion 冻结确定性分片计划的唯一 wire schema。
+	WorkloadExecutionPlanSchemaVersion uint32 = 10
+	// WorkloadPlanningAlgorithmID 冻结 normal/calibration 共用的 D-CPAP 算法身份。
+	WorkloadPlanningAlgorithmID = "deterministic-critical-path-aware-packing/v3"
+	// WorkloadPlanningObjective 冻结 planner 比较器的优先级顺序；不得改写为近似或隐式成本。
+	WorkloadPlanningObjective = "hard constraints>target excess>minimum shards>makespan>setup proxy>canonical layout"
+	// WorkloadPlanningSearchNodeBudget 冻结 exact proof 的确定性节点预算；耗尽时必须 fail-fast。
+	WorkloadPlanningSearchNodeBudget = 1_000_000
+	// D-CPAP policy 常量由协议 owner 冻结；planner 实现不得重复声明或漂移。
+	WorkloadPlanningExactPackableUnitThreshold        = 12
+	WorkloadPlanningExactSolverModeID                 = "deterministic-branch-and-bound-exact/v1"
+	WorkloadPlanningHeuristicSolverModeID             = "deterministic-setup-aware-bfd-2move-3cycle-beam/v1"
+	WorkloadPlanningIsolatedSolverModeID              = "isolated-only/v1"
+	WorkloadPlanningHeuristicMaxTwoMoveTransitions    = 64
+	WorkloadPlanningHeuristicMaxThreeCycleTransitions = 64
+	WorkloadPlanningHeuristicBeamWidth                = 8
+	WorkloadPlanningHeuristicBeamDepth                = 3
+	WorkloadPlanningHeuristicMaxBeamTransitions       = 128
+	// WorkloadEstimationPolicyVersion 冻结估时摘要的 schema；估时摘要缺失必须拒绝计划。
+	WorkloadEstimationPolicyVersion = "duration-estimate-overhead-policy/v1"
+	// WorkloadPassIdentityDomain 冻结可复用 PASS identity 的密码学域；无域或其他域材料不得命中。
+	WorkloadPassIdentityDomain = "pass-identity/v2"
+	// WorkloadInputFingerprintDomain 冻结 workload 生产输入摘要的密码学域；旧无域摘要自然 MISS。
+	WorkloadInputFingerprintDomain = "input-fingerprint/v2"
+	// WorkloadInputFingerprintSchemaVersion 保留 fingerprint 内部材料 schema 4，并与密码学域显式分离。
+	WorkloadInputFingerprintSchemaVersion uint32 = 4
+	// WorkloadPassSourceReplayDomain 冻结历史来源树重算证明；它只允许把已验证的直接 PASS 投影到当前精确输入身份。
+	WorkloadPassSourceReplayDomain = "workload-pass-source-replay/v1"
+	// WorkloadPassEnvironmentReplayDomain 冻结 environment 变化时的 origin-tree
+	// 重放证明域；它只绑定已验证来源 PASS 与当前 environment identity，不改变
+	// pass-identity/v2 的 correctness lookup 域。
+	WorkloadPassEnvironmentReplayDomain = "workload-pass-environment-replay/v1"
+	// WorkloadPassEnvironmentSchemaVersion 冻结 correctness PASS 环境为 v10；旧版本严格拒绝。
+	WorkloadPassEnvironmentSchemaVersion = "remote-workload-pass-environment/v10"
+	// AcceptedBootstrapRequestSchemaVersion、AcceptedCompileGroupSchemaVersion 与
+	// AcceptedBootstrapManifestSchemaVersion 冻结 accepted ImageCache 只读
+	// bootstrap 协议；full request/manifest 由下列独立版本承载。
+	AcceptedBootstrapRequestSchemaVersion  uint32 = 14
+	AcceptedCompileGroupSchemaVersion      uint32 = 1
+	AcceptedBootstrapManifestSchemaVersion uint32 = 1
+	ShardRequestSchemaVersion              uint32 = 15
+	ShardExecutionManifestSchemaVersion    uint32 = 2
+	CompileGroupSchemaVersion              uint32 = 2
+	// CompileGroupSerialPackingPolicyID 冻结 ordinary side-effect-safe 同资源串行共箱策略。
+	CompileGroupSerialPackingPolicyID = "same-resource-side-effect-safe-serial-packing/v1"
+	// CriticalPathCostPolicyID 冻结 compile-once 与 wave critical-path 记账公式。
+	CriticalPathCostPolicyID = "compile-once+sum-wave-max-body/v1"
 	// ImageSeedValidationPathID 冻结完整依赖/缓存树只在不可变镜像构建与内容验收时扫描；
 	// normal shard 仅校验当前清单、固定根和只读镜像挂载，禁止每分片或每 workload 全树复验。
 	ImageSeedValidationPathID = "image-build-full-tree-normal-shard-manifest-roots-readonly-mount/v1"
@@ -117,6 +166,15 @@ const (
 	DurationShardOverheadSamplesTable = "duration_shard_overhead_samples"
 	// RemoteRunsTable 是远程 CI run 回执的唯一 SQLite 权威表。
 	RemoteRunsTable = "ci_runs"
+	// RemoteRunExecutionScopesTable 是 subset remote CI run execution scope 的 additive side table。
+	RemoteRunExecutionScopesTable = "ci_remote_run_execution_scopes"
+	// RetainedWorkloadPassProofsTable 是 retained reused PASS 的 consumer-owned immutable 辅助投影。
+	// 它不构成第八个 retention root，也不提供第二 authority。
+	RetainedWorkloadPassProofsTable = "ci_retained_workload_pass_proofs"
+	// RetainedWorkloadPassProofLookupIndex 支撑 retained proof 的 identity/consumer 严格读取。
+	RetainedWorkloadPassProofLookupIndex = "idx_ci_retained_workload_pass_proofs_lookup"
+	// RunWorkloadResultsRetentionIndex 支撑 v16 retained proof 的 direct-origin 验证和 backfill。
+	RunWorkloadResultsRetentionIndex = "idx_ci_run_workload_results_retention"
 	// RemoteShardsTable 是远程 CI shard 回执的唯一 SQLite 权威表。
 	RemoteShardsTable = "ci_shards"
 	// WorkloadExecutionsTable 是 workload 执行与缓存事实的唯一 SQLite 权威表。
@@ -412,7 +470,7 @@ var requirements = [...]Requirement{
 	{ID: "1.6", Section: 1, Summary: "100 秒只触发一次目标超限告警；不得取消、中断、kill 或标失败", Enforcement: "planner + non-terminating timing warning"},
 	{ID: "1.7", Section: 1, Summary: "校准运行使用独立于 normal 的固定 4C/8GiB 规格并被回执绑定；所有 ECI 执行使用 100 GiB 原始临时盘", Enforcement: "request + receipt + SQLite + ECI CLI guard"},
 	{ID: "1.8", Section: 1, Summary: "运行以真实起止和 duration_ms 分别记录物化、编译、启动、测试、总耗时、缓存与等待；并发聚合使用精确 interval union", Enforcement: "receipt + SQLite timing ledger"},
-	{ID: "1.9", Section: 1, Summary: "normal 与 calibration 默认均只复用同一 correctness-bound exact workload identity 的权威 PASS；all-hit 不创建 workload CI ECI、workload shard、workload OSS/temp 或 calibration，且不执行测试；部分命中只执行 miss；只有显式 --force 才绕过 PASS 查询并执行全部 shardable workload；execution mode、资源规格与 force 只绑定本次 run/shard/duration evidence，不阻断或污染等价 PASS", Enforcement: "required-check catalogue + strict reuse receipt validation + force audit + archtest"},
+	{ID: "1.9", Section: 1, Summary: "PASS lookup 必须先读取 canonical WorkloadCatalog、exact correctness fingerprints 与 worker semantic digest；仅 MISS 才允许计算 compile closure、LPT、resource、shard、OSS/temp 和 ECI side effect。normal 与 calibration 默认均只复用同一 SQLite authority 的权威 PASS；all-hit 不创建 workload CI ECI、planner、compile group、资源、shard、OSS/temp 或 calibration，且不执行测试；只有显式 --force 才绕过 PASS 查询并执行全部 shardable workload", Enforcement: "catalog/fingerprint/worker digest + miss-only call-order guard + strict reuse receipt validation + force audit + archtest"},
 	{ID: "2.1", Section: 2, Summary: "accepted baseline、duration history、run/shard receipt 与 calibration checkpoint 只读写同一 SQLite authority", Enforcement: "SQLite schema + store"},
 	{ID: "2.2", Section: 2, Summary: "correctness identity 只来自 accepted SQLite；运行时加速缓存只由 strict OSS current receipt 与实时 Describe 完全一致的 Ready ImageCache ID、name、image 和 snapshot 选择", Enforcement: "SQLite state validation + strict receipt + live ECI validation + request field guard"},
 	{ID: "2.3", Section: 2, Summary: "候选源码和 Gate 编译分别绑定 exact Git identity 与根 module 跨代稳定传递编译闭包；Gate 禁止导入 repository-local replace module，嵌套 module metadata 只进 worker execution digest", Enforcement: "materializer + receipt + closure guard"},
@@ -429,13 +487,13 @@ var requirements = [...]Requirement{
 	{ID: "3.4", Section: 3, Summary: "工具链与依赖 correctness seed 绑定 accepted OCI base，Go/module 编译缓存可来自其有限期 refresh 镜像层；ECI request 数据面仍只有 source/work/temp 三个 EmptyDir 和单个 init-only 无凭据 bootstrap ConfigFileVolume，禁止 DataCache、缓存卷、逐 shard 展开或第二状态源", Enforcement: "accepted-base binding + ECI request shape + image closure + archtest"},
 	{ID: "3.5", Section: 3, Summary: "accepted ImageCache 在 /opt/super-dolphin-gate/source-baseline.git 提供 RunnerBaseTree 的 tree/blob closure 与确定性无 parent baseline commit；每次 CI 只上传标准 v2 git-bundle-thin，bundle 由 tree=SourceSpec parent/base tree 的 candidate-parent synthetic commit（唯一 parent=baseline）再连接 tree=候选的 transport commit，且 header 恰好一个 prerequisite、物化 refs/source/base 指向 synthetic base；严禁自包含/full fallback/raw whole repo，bundle 与 strict manifest 完整上传后才按 SQLite LPT 创建全部并发 shards", Enforcement: "source baseline + deterministic transport commit + strict bundle/manifest verifier + upload barrier + archtest"},
 	{ID: "3.6", Section: 3, Summary: "accepted GHCR 镜像路径仍延迟加载固定 ghcr.io 短期凭据；实时验证的 refresh cache-only 路径要求主/init 为同一 cached immutable image 且不编码 registry 凭据，禁止访问已删除临时 registry 或回退拉取", Enforcement: "explicit cache-only request + credential omission + dynamic field guard + redaction tests"},
-	{ID: "3.7", Section: 3, Summary: "PASS lookup 先于一切规划和副作用，只有 MISS 构造并 create-only 上传同 job 内容寻址的冻结 accepted schema14/CompileGroup-v1 bootstrap request 与完整 current CompileGroup-v2 ShardRequest；accepted bootstrap 的 gate_ids 仅在 accepted encoder/identity 边界把 expansion-only backend:nilness::go-package::<pkg> 投影为 canonical backend:nilness，current request/manifest 保留精确 per-package IDs，禁止把投影扩散到 coordinator/current worker；accepted Gate 发布临时 v1 manifest，候选 Gate 编译后严格交叉校验并原子替换固定 v2 manifest，worker 保持唯一 executor，两个请求各限 1 MiB且禁止宽松解码、协商、fallback 或刷新镜像绕过升级", Enforcement: "miss-only call-order guard + dual-request rolling manifest guard + request byte-limit tests"},
+	{ID: "3.7", Section: 3, Summary: "MISS-only 路径按唯一矩阵构造并 create-only 上传同 job 内容寻址的 accepted schema14/nested CompileGroup1/临时 manifest1 bootstrap request、current ShardRequest15 与 worker manifest2；accepted bootstrap 的 gate_ids 仅在 accepted encoder/identity 边界投影，current request/manifest 保留精确 per-package IDs。两个请求各限 1 MiB，旧版本、unknown fields、schema 协商、兼容 fallback 或刷新镜像绕过升级均严格拒绝", Enforcement: "catalog/fingerprint/worker-digest lookup barrier + protocol matrix guard + dual-request manifest guard + request byte-limit tests"},
 	{ID: "4.1", Section: 4, Summary: "唯一写 accepted singleton 的路径是 normal run/hook 空库 bootstrap；首写前必须消费配置 strict receipt 并实时 Describe 阿里云 ECI cache/container groups，绑定 provider、region、唯一 group/container、Ready snapshot、immutable image、tags、零退出、真实时间、逐项 normal CPU/内存、generation=1、state SHA、源码/工具链/策略/seed 与固定规格；外部 operator 仅可用只读 ConfigFileVolume 投影控制文本和小型增量 bundle，禁止投影依赖、缓存、registry 凭据或第二状态源；公网私有 registry 的 ImageCache 临时 ECI 必须绑定 EIP 或已验证 NAT，并只在进程和 API 密文参数传短期凭据，终态后确认 EIP 解绑", Enforcement: "receipt validation + live ECI API verification + SQLite INSERT + archtest"},
 	{ID: "4.2", Section: 4, Summary: "首写只允许空 singleton 原子 INSERT baseline 与账本元数据；同态并发幂等收敛，异态、非空、缺字段或非首代 receipt 必须 fail-fast", Enforcement: "strict bootstrap boundary"},
 	{ID: "4.3", Section: 4, Summary: "pre-push 从 exact pushed tree 后台静默启动唯一 dispatcher；仅当 OSS strict 成功回执超过 24h 才在 ECI 内创建有限期非权威 ImageCache；normal run 每次 strict 读取并实时复核该物料后显式使用，维护锁只去重刷新", Enforcement: "exact-tree hook dispatch + scheduling receipt + live runtime selection + maintenance lock + archtest"},
 	{ID: "5.1", Section: 5, Summary: "shard 数只受可分片原子 workload 数量限制", Enforcement: "LPT planner + archtest"}, {ID: "5.2", Section: 5, Summary: "云配额与 API 限流必须显式失败，不得静默降并发或转本地", Enforcement: "runtime + archtest"},
 	{ID: "5.3", Section: 5, Summary: "normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；先分档再在档内 LPT；首次升档无新档 exact sample 时携带上一档权威实测估值规划新档，不伪造样本或回退资源；bootstrap 三类均固定 2C/4GiB，资源策略摘要只进入规划、duration sample 与 shard/run evidence，不进入 PASS identity；禁止额外内存档、混档污染、自动内存抬升、CPU 抬档、按 shard 聚合估时或复用旧策略 PASS，观测或 OOM 在同档没有更大内存必须 fail-fast", Enforcement: "tiered LPT + workload plan projection + resource selector + PASS identity tests"},
-	{ID: "5.4", Section: 5, Summary: "CompileGroup schema v2 冻结 selector 估时、batch digest、wave/batch 覆盖与 warning；同一 package-affinity compile group 只执行一次 go test -c；archtest 每个 compile group 最多 64 个 selector、每个 ECI shard 仅一个 test-binary batch/process 并固定 GOMEMLIMIT=3GiB，423 个 selector 按有界组拆成约 7 个独立 CompileGroup/ECI shard 并无上限并发，允许跨 shard 增量编译但禁止跨 shard CAS；同 wave 普通 test2json 并发，codexapp exclusive selector 各占串行 wave；成功 selector 日志最多 512 字节、每个 compile group 首个失败日志保留完整 32KiB 窗口，其余 compile-group selector（包括其他 batch 的失败和 PASS）最多 512 字节；worker plan report framed output 与 strict decoder 累计均不得超过 1 MiB，后端 ExecutionProfile 全字段必须进入 report digest；源码 helper 声明在候选清单阶段排除，旧/伪造 manifest 的 helper/manual selector 由执行协议拒绝；worker supervisor 必须显式将 TMPDIR 绑定现有 temp-data 挂载根 /tmp，禁止依赖镜像默认环境；每个 batch 必须在该挂载根下创建唯一短 0700 运行根并令 TMPDIR/GOTMPDIR 指向其子目录，结束时清理，禁止使用长 lane/batchRoot；batch 的 HOME/XDG 独立、同 shard candidate cache 可写共享、accepted seed 只读共享、metrics 独立，planner warning 必须投影到 RunResult 与 SQLite warnings；compile timing history 只能按 PackageTarget、SemanticKey、Platform、RunnerIdentityDigest、ToolchainDigest、ExecutionMode 与 ResourceClassID/CPU/Memory 九维完整 identity 查询；只允许最近三个 accepted generation 中 authoritative、passed、cleanup-complete、measured/raw observation，source tree、shared input 与 artifact digest 不得跨 identity 混用；normal 无历史固定 small 2C/4GiB，owner fixed-point 必须在 PlannedWorkload 创建前完成，新档无样本时携带上一档实测 compile 值，shared compile cost 每组只计一次且不得写入 selector body；calibration 始终固定 4C/8GiB，不得按 compile duration 重分类", Enforcement: "compile-group schema/batch/helper/warning/history arch guard + worker/planner/coordinator tests"},
+	{ID: "5.4", Section: 5, Summary: "CompileGroup schema v2 冻结 selector 估时、batch digest、wave/batch 覆盖与 warning；普通 compile group 仅允许显式 side-effect-safe allowlist、同 resource、严格串行共箱，archtest/super-dolphin-gate/codexapp/mcp-lsp/agent-terminal/race/benchmark 必须独占；同一 group 只编译一次，critical cost=compile once + Σwave max(body)，BodySum 仅 coverage。archtest 每组最多 64 个 selector、423 个 selector 约 7 组并无上限并发，GOMEMLIMIT=3GiB；旧版本/伪造 manifest/helper/manual selector 由执行协议拒绝；worker supervisor 必须显式将 TMPDIR 绑定现有 temp-data 挂载根 /tmp，禁止依赖镜像默认环境；每个 batch 必须在该挂载根下创建唯一短 0700 运行根并令 TMPDIR/GOTMPDIR 指向其子目录，结束时清理，禁止使用长 lane/batchRoot；normal 无历史固定 2C/4GiB、owner fixed-point 在 PlannedWorkload 前完成、calibration 固定 4C/8GiB", Enforcement: "compile-group schema/batch/packing/critical-path/history arch guard + worker/planner/coordinator tests"},
 	{ID: "5.5", Section: 5, Summary: "除 release owner 外所有重门禁必须作为 canonical shardable workload，在 PASS lookup 后仅 MISS 进入历史耗时 LPT 与无上限 ECI 分片；最终串行 owner 只能对逐 workload 权威证据生成固定大小、版本化且防篡改的 proof root，不得重跑门禁或拼接无界子日志", Enforcement: "workload catalog + miss-only planner + bounded owner proof + archtest"},
 	{ID: "6.1", Section: 6, Summary: "独立于 normal 的固定 4C/8GiB 校准规格贯穿 RunInput、ShardRequest、receipt、SQLite 与 checkpoint identity", Enforcement: "field guard + store"},
 	{ID: "6.2", Section: 6, Summary: "校准规格漂移或缺失必须 fail-fast，固定规格不限制 shard 并发", Enforcement: "validation + archtest"},
@@ -447,151 +505,10 @@ var requirements = [...]Requirement{
 	{ID: "8.2", Section: 8, Summary: "固定 shard 数、CI 并发上限、accepted 缺失自动重建及接入 SQLite 的 successor refresh executor 禁止存在；唯一 pre-push 后台候选刷新维护不得阻塞 push、等待刷新结果或成为第二 CI executor", Enforcement: "hook non-blocking boundary + script deletion + archtest"},
 	{ID: "9.1", Section: 9, Summary: "变更必须闭合 LSP、字段链、状态矩阵、守卫和变更面测试", Enforcement: "repository gates"},
 	{ID: "9.2", Section: 9, Summary: "远程验收绑定同一 candidate tree、generation、snapshot、资源与完整账本", Enforcement: "authoritative receipt"}, {ID: "9.3", Section: 9, Summary: "非 authoritative 结果保持 NOT_VERIFIED，warm CI 超过 100 秒继续优化", Enforcement: "remote acceptance"},
-	{ID: "7.5", Section: 7, Summary: "七个 SQLite 历史根（含 shard overhead aggregate 与逐分片样本）写前证明 generation 已被接受，并共享全库唯一保留集合；每代行数不限，只保留最新 3 个有数据代，第四代写入与第一代全族淘汰同事务；SQLite FULL auto-vacuum 在提交时归还淘汰页，禁止无消费者的全量运行快照事件链", Enforcement: "accepted-generation proof + single write-transaction compactor + FULL auto-vacuum + retired-object archtest"},
+	{ID: "7.5", Section: 7, Summary: "七个 SQLite 历史根写前必须证明 generation 已被同一 authority 接受，并共享全库唯一保留集合；identity collision、retention proof 缺失或悬空 origin 必须 fail-fast，不得以幂等吞错或默认当前代掩盖。ci_retained_workload_pass_proofs 仅是 live reused consumer 的不可变辅助投影，不是第八历史根或第二 authority；只允许 current+prev2 consumer 消费，第四代可删除 gen1 direct root 而不允许 v15 fallback。每代行数不限，只保留最新 3 个有数据代，第四代写入与第一代全族淘汰同事务；SQLite FULL auto-vacuum 在提交时归还淘汰页", Enforcement: "accepted-generation proof + identity-collision guard + consumer proof projection + single write-transaction compactor + FULL auto-vacuum + retired-object archtest"},
 	{ID: "7.6", Section: 7, Summary: "失败终态仍写 non-authoritative provisional run、迁移 live warning 且只保留真实已测区间；缺失阶段不伪造 0ms/not_applicable", Enforcement: "failed-run SQLite projection + receipt authority guard"},
 	{ID: "7.7", Section: 7, Summary: "required-check 精确绑定当前持久化 workload catalog；较小 profile 不伪造 release-only 检查，release 仍覆盖完整六类", Enforcement: "catalog-scoped observation + receipt + SQLite reload validation"},
 	{ID: "7.8", Section: 7, Summary: "阿里云 ECI 终态生命周期字段允许沿同一 Describe 路径按 PollInterval 每分片最多重读 3 次；不得伪造时间、提前消费报告、移出 pending、取消兄弟或跳过清理，窗口耗尽仍 fail-fast", Enforcement: "bounded terminal evidence reread + fanout drain tests + timing guard"},
-}
-
-var sqlAuthorityBindings = [...]SQLAuthorityBinding{
-	{Domain: SQLDomainAcceptedBaseline, Table: AcceptedBaselineTable},
-	{Domain: SQLDomainDurationHistory, Table: DurationSamplesTable},
-	{Domain: SQLDomainShardOverhead, Table: DurationShardOverheadsTable},
-	{Domain: SQLDomainShardOverheadSample, Table: DurationShardOverheadSamplesTable},
-	{Domain: SQLDomainRemoteRun, Table: RemoteRunsTable},
-	{Domain: SQLDomainRemoteShard, Table: RemoteShardsTable},
-	{Domain: SQLDomainWorkloadExecution, Table: WorkloadExecutionsTable},
-	{Domain: SQLDomainRunWarning, Table: RunWarningsTable},
-	{Domain: SQLDomainLiveTimingWarning, Table: LiveTimingWarningsTable},
-	{Domain: SQLDomainRunTimingWarning, Table: RunTimingWarningsTable},
-	{Domain: SQLDomainCalibrationCheckpoint, Table: CalibrationCheckpointsTable},
-	{Domain: SQLDomainCheckReceipt, Table: CheckReceiptsTable},
-	{Domain: SQLDomainTimingObservation, Table: TimingObservationsTable},
-	{Domain: SQLDomainCompileTiming, Table: CompileTimingObservationsTable},
-	{Domain: SQLDomainWorkloadCatalog, Table: WorkloadCatalogsTable},
-	{Domain: SQLDomainCatalogObservation, Table: CatalogObservationsTable},
-	{Domain: SQLDomainCatalogWorkload, Table: CatalogWorkloadsTable},
-	{Domain: SQLDomainRunAgentIdentity, Table: RunAgentIdentitiesTable},
-	{Domain: SQLDomainShardWorkload, Table: ShardWorkloadsTable},
-	{Domain: SQLDomainGateExecution, Table: GateExecutionsTable},
-	{Domain: SQLDomainRunWorkloadResult, Table: RunWorkloadResultsTable},
-	{Domain: SQLDomainWorkloadPassEvidence, Table: WorkloadPassEvidenceTable},
-	{Domain: SQLDomainCalibrationScenario, Table: CalibrationCheckpointScenariosTable},
-}
-
-var retentionRootBindings = [...]RetentionRootBinding{
-	{Table: DurationSamplesTable, GenerationColumn: AcceptedGenerationColumn},
-	{Table: DurationShardOverheadsTable, GenerationColumn: AcceptedGenerationColumn},
-	{Table: DurationShardOverheadSamplesTable, GenerationColumn: AcceptedGenerationColumn},
-	{Table: CatalogObservationsTable, GenerationColumn: AcceptedGenerationColumn},
-	{Table: RemoteRunsTable, GenerationColumn: AcceptedGenerationColumn},
-	{Table: WorkloadPassEvidenceTable, GenerationColumn: AcceptedGenerationColumn},
-	{Table: CalibrationCheckpointsTable, GenerationColumn: AcceptedGenerationColumn},
-}
-
-// SQLAuthorityBindings 返回所有远程 CI 持久化事实的唯一 SQL 表绑定。
-func SQLAuthorityBindings() []SQLAuthorityBinding {
-	result := make([]SQLAuthorityBinding, len(sqlAuthorityBindings))
-	copy(result, sqlAuthorityBindings[:])
-	return result
-}
-
-// RetentionRootBindings 返回必须由统一三代 compactor 管理的历史根副本。
-func RetentionRootBindings() []RetentionRootBinding {
-	result := make([]RetentionRootBinding, len(retentionRootBindings))
-	copy(result, retentionRootBindings[:])
-	return result
-}
-
-// ValidateSQLAuthorityBinding 拒绝把一个事实域写入第二张表或非 SQL 真相源。
-func ValidateSQLAuthorityBinding(domain SQLDomain, table string) error {
-	for _, binding := range sqlAuthorityBindings {
-		if binding.Domain == domain {
-			if table != binding.Table {
-				return fmt.Errorf("remote CI SQL domain %q must use table %q", domain, binding.Table)
-			}
-			return nil
-		}
-	}
-	return fmt.Errorf("remote CI SQL domain %q is unsupported", domain)
-}
-
-// TimingPhases 返回权威耗时契约的稳定顺序。
-func TimingPhases() []TimingPhase {
-	return []TimingPhase{TimingECIWait, TimingSourceMaterialize, TimingCandidateCompile, TimingStartup, TimingTestBody, TimingTotal}
-}
-
-// CompileGroupTimingPhases 返回 compile group 专属的编译阶段；它不属于 workload
-// startup/body/total，也不把 candidate Gate CLI 编译时间混入测试二进制编译。
-func CompileGroupTimingPhases() []TimingPhase {
-	return []TimingPhase{TimingTestBinaryCompile}
-}
-
-// ValidateTimingContract 锁定精确耗时字段、阶段与聚合语义的代码 owner。
-func ValidateTimingContract() error {
-	if TimingDurationColumn != "duration_ms" {
-		return errors.New("remote CI timing duration column must be duration_ms")
-	}
-	wantPhases := [...]TimingPhase{TimingECIWait, TimingSourceMaterialize, TimingCandidateCompile, TimingStartup, TimingTestBody, TimingTotal}
-	phases := TimingPhases()
-	if len(phases) != len(wantPhases) {
-		return errors.New("remote CI timing phases are incomplete")
-	}
-	for index := range wantPhases {
-		if phases[index] != wantPhases[index] {
-			return errors.New("remote CI timing phase order drifted")
-		}
-	}
-	if TimingAggregationRaw != "raw" || TimingAggregationIntervalUnion != "interval_union" || TimingAggregationCriticalPath != "critical_path" {
-		return errors.New("remote CI timing aggregation vocabulary drifted")
-	}
-	if len(CompileGroupTimingPhases()) != 1 || CompileGroupTimingPhases()[0] != TimingTestBinaryCompile {
-		return errors.New("remote CI compile group timing phase drifted")
-	}
-	return nil
-}
-
-// ValidateSourceTransportContract 锁定 accepted baseline、thin bundle、strict
-// manifest 和 shard 创建前的唯一源码传输边界。
-func ValidateSourceTransportContract() error {
-	if !validSourceTransportAssets() || !validSourceTransportProtocol() {
-		return errors.New("remote CI incremental source transport contract drifted")
-	}
-	return nil
-}
-
-// validSourceTransportAssets 锁定 accepted baseline 与候选传输资产的规范路径和名称。
-func validSourceTransportAssets() bool {
-	return SourceBaselineRepositoryPath == "/opt/super-dolphin-gate/source-baseline.git" &&
-		SourceBundleName == "source.bundle" &&
-		SourceManifestName == "source-manifest.json" &&
-		SourceBundleRef == "refs/source/materialized" &&
-		SourceBaseRef == "refs/source/base"
-}
-
-// validSourceTransportProtocol 锁定 thin bundle 协议、单 prerequisite 与上传屏障。
-func validSourceTransportProtocol() bool {
-	return SourceManifestSchemaVersion == 3 &&
-		SourceTransportKind == "git-bundle-thin" &&
-		SourceBundleHeaderVersion == "v2" &&
-		SourceBundlePrerequisiteCount == 1 &&
-		SourceAssetsUploadBarrier == "source-bundle-and-strict-manifest-before-lpt-shards/v1"
-}
-
-// ValidateConcurrencyPolicy 锁定三层正常执行并发且不允许仓库内 admission 边界。
-func ValidateConcurrencyPolicy() error {
-	if GitHookInvocationConcurrencyPolicy != "unbounded_by_repository" || RemoteCIJobConcurrencyPolicy != "unbounded_by_repository" || ShardConcurrencyPolicy != "unbounded_by_repository" {
-		return errors.New("remote CI hook, job, and shard concurrency must be unbounded by repository policy")
-	}
-	if GitIndexLockBoundary != "git_worktree_index_consistency_not_ci_admission" {
-		return errors.New("remote CI Git index lock boundary drifted")
-	}
-	return nil
-}
-
-// RequiredChecks 返回每次远程 CI 都必须有执行 miss 或严格复用 hit 通过证据的稳定检查目录。
-func RequiredChecks() []RequiredCheck {
-	return []RequiredCheck{RequiredCheckGate, RequiredCheckNormal, RequiredCheckE2E, RequiredCheckRace, RequiredCheckFrontend, RequiredCheckDependency}
 }
 
 // ValidateTimingWarningAction 拒绝把 100 秒目标告警转化为取消、终止或失败。
@@ -765,155 +682,6 @@ func ValidateShardTargetDuration(duration time.Duration) error {
 	return nil
 }
 
-// ValidateRetentionGenerations 拒绝偏离统一的三代 SQLite 历史窗口。
-func ValidateRetentionGenerations() error {
-	if RetentionGenerations != 3 {
-		return errors.New("remote CI SQLite retention generation count drifted from the accepted contract")
-	}
-	if AcceptedGenerationColumn != "accepted_generation" {
-		return errors.New("remote CI SQLite retention generation column drifted from the accepted contract")
-	}
-	if len(retentionRootBindings) != 7 {
-		return fmt.Errorf("remote CI SQLite retention must own exactly seven historical roots, got %d", len(retentionRootBindings))
-	}
-	authorityTables := make(map[string]struct{}, len(sqlAuthorityBindings))
-	for _, binding := range sqlAuthorityBindings {
-		authorityTables[binding.Table] = struct{}{}
-	}
-	seenRoots := make(map[string]struct{}, len(retentionRootBindings))
-	for _, binding := range retentionRootBindings {
-		if strings.TrimSpace(binding.Table) == "" || binding.GenerationColumn != AcceptedGenerationColumn {
-			return fmt.Errorf("remote CI SQLite retention root %+v is invalid", binding)
-		}
-		if _, exists := authorityTables[binding.Table]; !exists {
-			return fmt.Errorf("remote CI SQLite retention root %q is not a SQL authority table", binding.Table)
-		}
-		if _, exists := seenRoots[binding.Table]; exists {
-			return fmt.Errorf("remote CI SQLite retention root %q is duplicated", binding.Table)
-		}
-		seenRoots[binding.Table] = struct{}{}
-	}
-	return nil
-}
-
-// ValidateWorkloadPassEvidenceGeneration 校验 WorkloadPassEvidenceFreshnessPolicy 的代际部分。
-// freshness 不使用 wall-clock TTL；调用方还必须核验权威状态、完整 identity 和 canonical receipt proof。
-// future、零值和超过当前 accepted generation 前两代窗口的 evidence 必须视为 miss，而不能降级复用。
-func ValidateWorkloadPassEvidenceGeneration(acceptedGeneration, evidenceGeneration uint64) error {
-	if acceptedGeneration == 0 || evidenceGeneration == 0 {
-		return errors.New("remote CI workload PASS evidence requires accepted and evidence generations")
-	}
-	if evidenceGeneration > acceptedGeneration {
-		return errors.New("remote CI workload PASS evidence generation is in the future")
-	}
-	if acceptedGeneration-evidenceGeneration >= WorkloadPassEvidenceGenerationWindow {
-		return fmt.Errorf("remote CI workload PASS evidence generation %d is outside accepted generation %d reuse window", evidenceGeneration, acceptedGeneration)
-	}
-	return nil
-}
-
-// ValidateNormalResources 拒绝 generation-one 内容检查使用 calibration 或未登记的资源规格。
-func ValidateNormalResources(cpu, memoryGiB float64) error {
-	if cpu <= 0 || memoryGiB <= 0 {
-		return errors.New("remote CI normal resource CPU and memory are required")
-	}
-	if !((cpu == 2 && memoryGiB == 4) || (cpu == 4 && memoryGiB == 8) || (cpu == 8 && memoryGiB == 16)) {
-		return errors.New("remote CI normal resources must use exactly 2 vCPU/4 GiB, 4 vCPU/8 GiB, or 8 vCPU/16 GiB")
-	}
-	return nil
-}
-
-// ValidateCalibrationResources 拒绝缺失或不可被回执精确绑定的固定规格。
-func ValidateCalibrationResources(classID string, cpu, memoryGiB float64) error {
-	if strings.TrimSpace(classID) == "" || classID != strings.TrimSpace(classID) || cpu <= 0 || memoryGiB <= 0 {
-		return errors.New("remote CI calibration class, CPU, and memory are required")
-	}
-	if classID == "medium" {
-		return errors.New("remote CI calibration resource class ID must remain independent from the normal medium class")
-	}
-	if cpu != CalibrationResourceCPU || memoryGiB != CalibrationResourceMemoryGiB {
-		return errors.New("remote CI calibration resources must be exactly 4 vCPU and 8 GiB")
-	}
-	return nil
-}
-
-// ValidateECIMultiZoneScheduling 校验 ECI 请求只能使用两到十个不同 vSwitch 的随机多区调度。
-func ValidateECIMultiZoneScheduling(strategy string, vSwitches []ECIVSwitch) error {
-	if strategy != ECIMultiZoneScheduleStrategy {
-		return errors.New("remote CI ECI schedule strategy must be VSwitchRandom")
-	}
-	if len(vSwitches) < ECIMinVSwitchCount || len(vSwitches) > ECIMaxVSwitchCount {
-		return errors.New("remote CI requires two to ten vSwitch IDs for multi-zone scheduling")
-	}
-	zoneCount, err := validateECIVSwitchBindings(vSwitches)
-	if err != nil {
-		return err
-	}
-	if zoneCount < 2 {
-		return errors.New("remote CI vSwitches must cover at least two zones")
-	}
-	return nil
-}
-
-// validateECIVSwitchBindings 校验 ECI vSwitch 集合的标识、可用区和唯一性。
-func validateECIVSwitchBindings(vSwitches []ECIVSwitch) (int, error) {
-	seenIDs := make(map[string]struct{}, len(vSwitches))
-	seenZones := make(map[string]struct{}, len(vSwitches))
-	for _, vSwitch := range vSwitches {
-		if strings.TrimSpace(vSwitch.ID) != vSwitch.ID || !strings.HasPrefix(vSwitch.ID, "vsw-") || len(vSwitch.ID) <= len("vsw-") {
-			return 0, errors.New("remote CI vSwitch ID is invalid")
-		}
-		if strings.TrimSpace(vSwitch.ZoneID) != vSwitch.ZoneID || !strings.HasPrefix(vSwitch.ZoneID, "cn-") {
-			return 0, errors.New("remote CI vSwitch zone ID is invalid")
-		}
-		if _, duplicate := seenIDs[vSwitch.ID]; duplicate {
-			return 0, errors.New("remote CI vSwitch IDs must be unique")
-		}
-		seenIDs[vSwitch.ID] = struct{}{}
-		seenZones[vSwitch.ZoneID] = struct{}{}
-	}
-	return len(seenZones), nil
-}
-
-// CanonicalMarkdown 返回必须逐字嵌入 Accepted 文档的代码契约映射块。
-func CanonicalMarkdown() string {
-	var builder strings.Builder
-	builder.WriteString("<!-- cicontract:begin -->\n| ID | 章节 | 代码约束 | 执行层 |\n")
-	builder.WriteString("| --- | --- | --- | --- |\n")
-	for _, requirement := range requirements {
-		fmt.Fprintf(&builder, "| `%s` | §%d | %s | `%s` |\n", requirement.ID, requirement.Section, requirement.Summary, requirement.Enforcement)
-	}
-	builder.WriteString("<!-- cicontract:end -->")
-	return builder.String()
-}
-
-// CanonicalRetentionMarkdown 返回 accepted 文档必须逐字嵌入的有界增长策略。
-func CanonicalRetentionMarkdown() string {
-	return fmt.Sprintf(`<!-- cicontract:retention:begin -->
-%[1]s 是唯一 retention 常量 owner。duration samples、shard overhead aggregates、逐分片 overhead samples、catalog observations、runs、strict workload PASS evidence 与 calibration checkpoints 七个历史根都必须绑定已验证的 accepted baseline generation；每个根写事务必须先读取同一 SQLite authority 的 accepted singleton，拒绝零值、无 authority、无效 authority 与晚于当前 accepted generation 的伪造未来代。已启动的旧 accepted generation 运行仍可在完成时写入。七个根的 distinct generation 并集按数值确定全库唯一保留集合，任何根都不得保留该集合之外的数据。每一代可包含任意数量的 workload、sample、shard、timing、receipt 或 scenario，禁止用固定行数限制代码和测试增长。SQLite 只保留最新 %[2]d 个有数据的 generation；第四个有数据代首次成功写入时，必须在同一事务内淘汰最老一代全部历史根及其 cascade 子数据。
-
-100 秒结构化 timing warning 只能沿同一 SQLite authority 的互斥生命周期流转：ci_live_timing_warnings 只暂存仍在运行的 provider StartTime 事实，run finalizer 必须在同一事务精确吸收到 ci_run_timing_warnings 并删除对应 live 行；不得预写或伪造 ci_runs 失败终态，也不得让 live 与 final 行同时存在。live 表不是第八个历史根或第二真相源，不参与七根 generation 并集；唯一 compactor 必须按已校验 accepted singleton 的 current/current-2 数值窗口保留 active 行并清理崩溃残留。
-
-唯一 compactDurationLedgerAuthority 只能在既有成功写事务的 commit 前同步调用，禁止 timer、goroutine、后台 GC 或第二入口。generation 按数值排序，不能用行数、时间戳或插入顺序冒充；无法证明 generation 的旧行必须 fail-fast，不能默认绑定当前代。删除旧 run 依靠 FK cascade 同步删除 requester、shard/workload、execution、timing、warning 与 receipt；删除旧 checkpoint 同步删除任意数量 scenario；catalog 内容只有在不再被保留代 observation/run 引用时才能删除。SQLite authority 必须使用 FULL auto-vacuum，让每次成功淘汰在同一提交边界自动归还空页；无生产读取者且重复保存完整 run payload 的 raw observation event 表、索引、触发器和旧 schema migration 入口均已退役，禁止恢复。accepted baseline 是当前状态 singleton，duration meta/calibration 与 query meta 不是历史代，不参与淘汰。
-<!-- cicontract:retention:end -->`, "`cicontract`", RetentionGenerations)
-}
-
-// CanonicalSchedulingMarkdown 返回 accepted 文档必须逐字嵌入的多可用区调度语义。
-func CanonicalSchedulingMarkdown() string {
-	return `<!-- cicontract:scheduling:begin -->
-所有 normal、校准与首代内容检查 ECI container group 必须使用配置中 2 到 10 个不同 vSwitch，并显式绑定每个 vSwitch 的 zone_id；集合必须覆盖至少两个可用区。CreateContainerGroup 必须把全部 ID 以阿里云原生逗号列表传入 VSwitchId，并固定 ScheduleStrategy=VSwitchRandom。禁止单 vSwitch、多个同区 vSwitch、单区失败重试、串行 fallback 或用并发上限掩盖 NoStock；调度库存等待必须作为 provider eci_wait 记录。
-<!-- cicontract:scheduling:end -->`
-}
-
-// CanonicalTimingMarkdown 返回 accepted 文档必须逐字嵌入的精确耗时语义。
-func CanonicalTimingMarkdown() string {
-	return `<!-- cicontract:timing:begin -->
-每条 measured observation 必须在同一 SQLite authority 保存真实 started_at、completed_at 与 duration_ms；统一账本分辨率是 1ms，实际为正但不足 1ms 的 worker startup/test_body 阶段必须在唯一计时生产者处量化为 1ms，禁止向下截断成表示缺失的 0ms；仅当量化后的两个串行阶段超出真实 workload total 时，生产者才可将 workload completed_at 向上规范化到恰好覆盖二者，禁止改写 started_at 或扩大到额外整数毫秒。并发 selector 的 test_body 必须以 top-level run→pause→cont→terminal 事件中的 cont 时间为起点，run→pause 排队等待不得计入 workload test_body；测试进程仍保持并发，shard/run wall time 继续保留真实起止与关键路径。raw 和 critical_path 的 duration_ms 必须严格等于按该分辨率规范化后的区间长度。interval_union 的 duration_ms 必须是全部原始 workload 子区间的精确并集：重叠只计一次、空隙不计入，禁止用最早开始到最晚结束的 envelope 冒充活跃耗时。
-
-workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_body 是 workload raw 区间的 interval_union，shard/run total 是 critical_path。每个 compile group 另以 test_binary_compile raw observation 记录一次，scope=compile_group，包含 group/artifact identity、真实起止、Go cache hit/miss/put、artifact digest/size/status；该时间不得写入 workload startup/test_body/total，也不得与 candidate Gate CLI 的 candidate_compile 合并或重复计数。每个 calibration-resource shard 的 orchestration overhead 必须按 v2 accounted-interval-union 计算：从 shard total interval 中扣除 workload total、shard eci_wait/source_materialize/candidate_compile 以及 compile-group test_binary_compile 的全部 measured 区间精确并集，重叠只扣一次、间隙保留为真实编排开销；禁止用最早 workload 到最晚 workload 的 envelope 把上述已单独计量阶段重新算作 overhead。aggregate 使用 nearest-rank P95，并把 accounted duration/count、workload envelope、完整样本事实、accepted generation、snapshot 与 4C/8GiB 资源身份写入同一 SQLite authority；缺少任一必需 shard 阶段、区间越过 shard total、重复 workload/compile-group 身份或旧 v1 policy 必须 fail-fast。eci_wait 只能使用 ECI provider 返回的 CreationTime 到 materializer CurrentState.StartTime；shard total 终点必须取同一终态响应中 container-group SucceededTime/FailedTime 与唯一 worker CurrentState.FinishTime 的较晚者，两者都属于 provider lifecycle evidence。阿里云 ECI 已返回终态但 CreationTime、materializer CurrentState.StartTime、SucceededTime/FailedTime 或唯一 worker CurrentState.FinishTime 尚未同步时，只允许沿同一 Describe 路径按 PollInterval 对该分片有界重读最多 3 次；重读期间不得伪造时间、消费报告、移出 pending、取消兄弟分片或跳过清理，窗口耗尽后缺失任一项必须 fail-fast。禁止用 worker 日志、report 端点、本地请求或轮询时间替换 provider 终态；任一真实子阶段仍越过该 provider envelope 时保持 provisional NOT_VERIFIED。本地请求、轮询或日志时间不得写成权威耗时。所有 cache evidence 与阶段观测绑定，人类账本只能读取同一事务已提交的 SQLite observations。compile timing history 只能按 PackageTarget、SemanticKey、Platform、RunnerIdentityDigest、ToolchainDigest、ExecutionMode 与 ResourceClassID/CPU/Memory 完整 identity 查询；只允许最近三个 accepted generation 中 authoritative、passed、cleanup-complete、measured/raw 的真实 compile-group observation，source tree、shared input 与 artifact digest 不得跨 identity 混用。normal 无历史固定 2C/4GiB，owner fixed-point 发生在 PlannedWorkload 创建前，shared compile cost 每组只计一次且不写入 selector body；calibration 固定 4C/8GiB。
-<!-- cicontract:timing:end -->`
-}
-
 // Validate 校验代码契约自身不存在重复 ID、章节缺口或无效不变量。
 func Validate() error {
 	for _, validate := range []func() error{validateContractIdentity, validateContractConstants, ValidateRemoteRuntimeIdentity, validateContractObservations, validateRequirements, validateSQLAuthorityBindings, validateSQLAuthoritySchemaTables} {
@@ -935,15 +703,58 @@ func validateContractIdentity() error {
 
 // validateContractConstants 校验固定平台、时长、保留和并发常量。
 func validateContractConstants() error {
+	for _, validate := range []func() error{validateContractConstantValues, validateContractPolicyRules} {
+		if err := validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateContractConstantValues 校验请求限制、规划身份与 PASS 环境版本。
+func validateContractConstantValues() error {
+	for _, validate := range []func() error{validateCacheMaterialConstants, validateRequestLimits, validatePlanningConstants} {
+		if err := validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateCacheMaterialConstants 校验缓存材料的权威边界。
+func validateCacheMaterialConstants() error {
 	if CacheMaterialSchemaID != "remote-ci-cache-material/v1" || CacheMaterialAuthority != "non_authoritative_material" {
 		return errors.New("remote CI cache material authority contract drifted")
 	}
+	return nil
+}
+
+// validateRequestLimits 校验远程请求大小和刷新时间窗。
+func validateRequestLimits() error {
 	if RemoteShardRequestMaxBytes != 1<<20 {
 		return errors.New("remote CI shard request byte limit must equal 1 MiB")
 	}
 	if ImageCacheRefreshInterval != 24*time.Hour {
 		return errors.New("remote CI ImageCache refresh interval must equal 24 hours")
 	}
+	return nil
+}
+
+// validatePlanningConstants 校验协议矩阵、规划策略和 PASS 环境版本。
+func validatePlanningConstants() error {
+	if err := ValidateRemoteCIProtocolVersions(AcceptedBootstrapRequestSchemaVersion, AcceptedCompileGroupSchemaVersion, AcceptedBootstrapManifestSchemaVersion, ShardRequestSchemaVersion, ShardExecutionManifestSchemaVersion); err != nil {
+		return err
+	}
+	if WorkloadPlanningAlgorithmID == "" || WorkloadPlanningObjective == "" || WorkloadPlanningSearchNodeBudget != 1_000_000 || WorkloadEstimationPolicyVersion == "" || CompileGroupSerialPackingPolicyID == "" || CriticalPathCostPolicyID == "" {
+		return errors.New("remote CI planning and compile-group policy identities are incomplete")
+	}
+	if err := ValidateWorkloadPassEnvironmentSchema(WorkloadPassEnvironmentSchemaVersion); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateContractPolicyRules() error {
 	for _, validate := range []func() error{
 		func() error { return ValidateExecutionProvider(ExecutionProviderID) },
 		func() error { return ValidateTargetPlatform(TargetPlatform) },
@@ -1019,9 +830,10 @@ func validateRequirements() error {
 
 // validateSQLAuthorityBindings 校验每个 SQLite authority domain 和表均为一对一映射。
 func validateSQLAuthorityBindings() error {
-	seenSQLDomains := make(map[SQLDomain]struct{}, len(sqlAuthorityBindings))
-	seenSQLTables := make(map[string]struct{}, len(sqlAuthorityBindings))
-	for _, binding := range sqlAuthorityBindings {
+	authorityBindings := sqlAuthorityBindingList()
+	seenSQLDomains := make(map[SQLDomain]struct{}, len(authorityBindings))
+	seenSQLTables := make(map[string]struct{}, len(authorityBindings))
+	for _, binding := range authorityBindings {
 		if binding.Domain == "" || strings.TrimSpace(binding.Table) == "" {
 			return fmt.Errorf("remote CI SQL authority binding %+v is invalid", binding)
 		}

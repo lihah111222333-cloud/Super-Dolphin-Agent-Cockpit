@@ -181,12 +181,16 @@ func TestCanonicalContractsStrictRoundTrip(t *testing.T) {
 func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 	t.Parallel()
 
+	planRegistration, err := workloadExecutionPlanConsumerRegistration()
+	if err != nil {
+		t.Fatalf("workloadExecutionPlanConsumerRegistration() error = %v", err)
+	}
 	registrations := []struct {
 		producer     reflect.Type
 		registration fieldConsumerRegistration
 	}{
 		{producer: reflect.TypeFor[SourceSpec](), registration: sourceSpecConsumerRegistration()},
-		{producer: reflect.TypeFor[WorkloadExecutionPlan](), registration: workloadExecutionPlanConsumerRegistration()},
+		{producer: reflect.TypeFor[WorkloadExecutionPlan](), registration: planRegistration},
 	}
 	for _, item := range registrations {
 		assertFieldConsumerRegistration(t, item.producer, item.registration)
@@ -236,14 +240,29 @@ func sourceSpecConsumerRegistration() fieldConsumerRegistration {
 	}
 }
 
-func workloadExecutionPlanConsumerRegistration() fieldConsumerRegistration {
+func workloadExecutionPlanConsumerRegistration() (fieldConsumerRegistration, error) {
+	fields, err := JSONFieldNames(reflect.TypeFor[WorkloadExecutionPlan]())
+	if err != nil {
+		return fieldConsumerRegistration{}, err
+	}
 	return fieldConsumerRegistration{
-		Fields: []string{
-			"catalog", "catalog_digest", "compile_groups", "context", "execution_workload_digest", "execution_workload_ids",
-			"gate_plan_digest", "ledger_generation", "owner_estimated_duration_ms", "plan_digest", "schema_version", "shards",
-		},
+		Fields:   fields,
 		Owner:    "internal/devtools/gate workload-plan binding boundary",
 		Evidence: "producer-derived WorkloadExecutionPlan strict decode, digest validation, and canonical shard projection",
+	}, nil
+}
+
+func TestWorkloadPackingEvidenceFieldCoverage(t *testing.T) {
+	producer, err := JSONFieldNames(reflect.TypeFor[WorkloadPackingEvidence]())
+	if err != nil {
+		t.Fatalf("JSONFieldNames(WorkloadPackingEvidence) error = %v", err)
+	}
+	want, err := JSONFieldNames(reflect.TypeFor[WorkloadPackingEvidence]())
+	if err != nil {
+		t.Fatalf("JSONFieldNames(WorkloadPackingEvidence) error = %v", err)
+	}
+	if missing, stale := FieldCoverageDiff(producer, want); len(missing) != 0 || len(stale) != 0 {
+		t.Fatalf("packing evidence field coverage missing=%v stale=%v", missing, stale)
 	}
 }
 

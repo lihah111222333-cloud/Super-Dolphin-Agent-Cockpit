@@ -83,7 +83,7 @@ require_remote_test_execution() {
 		"") ;;
 		*) echo "❌ 未知宿主测试负载类别: $1" >&2; return 2 ;;
 	esac
-  if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then
+  if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" || "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "local-authority" ]]; then
     return 0
   fi
   cat >&2 <<'EOF_MSG'
@@ -91,7 +91,7 @@ require_remote_test_execution() {
 
 轻量/中量开发测试必须通过 scripts/test_with_guard.sh --host-test <light|medium>
 并满足精确 selector、资源上限和实时宿主负载门禁。重型门禁、重型测试、
-race、benchmark、fuzz、整包和未知负载仍必须经过 super-dolphin-gate test，
+race、benchmark、fuzz、整包和未知负载仍必须经过 super-dolphin-gate test --target=remote，
 由远程 ECI coordinator 执行。
 EOF_MSG
   return 2

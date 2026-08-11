@@ -29,10 +29,12 @@ func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T)
 	if err != nil {
 		t.Fatalf("new first durable controller: %v", err)
 	}
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, first) })
 	second, err := runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(10 * time.Millisecond)
 	if err != nil {
 		t.Fatalf("new second durable controller: %v", err)
 	}
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, second) })
 	config := runtimeDurableGoplsRootCohortTestConfig("same")
 	firstLease, err := first.AcquireLease(config)
 	if err != nil {
@@ -89,6 +91,7 @@ func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t
 		t.Fatalf("new durable controller: %v", err)
 	}
 	controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, controller) })
 	oldConfig := runtimeDurableGoplsRootCohortTestConfig("stale-old")
 	oldLease, err := controller.AcquireLease(oldConfig)
 	if err != nil {
@@ -156,6 +159,7 @@ func TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation(t *test
 	if err != nil {
 		t.Fatalf("new durable controller: %v", err)
 	}
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, controller) })
 	oldConfig := runtimeDurableGoplsRootCohortTestConfig("concurrent-old")
 	oldLease, err := controller.AcquireLease(oldConfig)
 	if err != nil {
@@ -452,6 +456,7 @@ func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *t
 		t.Fatalf("new durable controller: %v", err)
 	}
 	controller := controllerValue.(*runtimeServerDurableGoplsRootCohortController)
+	t.Cleanup(func() { closeDurableGoplsRootCohortController(t, controller) })
 	controller.drainRetry = 10 * time.Millisecond
 	config := runtimeDurableGoplsRootCohortTestConfig("drain-retry")
 	lease, err := controller.AcquireLease(config)
@@ -740,7 +745,7 @@ func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t 
 }
 
 // closeDurableGoplsRootCohortController 通过生产 Close 完成测试 teardown，并暴露任何 pending owner 错误。
-func closeDurableGoplsRootCohortController(t testing.TB, c *runtimeServerDurableGoplsRootCohortController) {
+func closeDurableGoplsRootCohortController(t testing.TB, c multilsp.GoplsRootCohortController) {
 	t.Helper()
 	if c == nil {
 		return

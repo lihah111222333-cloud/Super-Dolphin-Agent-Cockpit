@@ -47,6 +47,7 @@ func runtimeGoplsAcquireMultiAgentLeases(t *testing.T, configs []multilsp.GoplsR
 		if err != nil {
 			t.Fatalf("new agent %d controller: %v", agent, err)
 		}
+		t.Cleanup(func() { closeDurableGoplsRootCohortController(t, controller) })
 		lease, err := controller.AcquireLease(configs[repository])
 		if err != nil {
 			t.Fatalf("agent %d AcquireLease for repository %d: %v", agent, repository, err)

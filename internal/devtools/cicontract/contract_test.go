@@ -382,6 +382,7 @@ func TestAcceptedDocumentMatchesCodeContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	document := string(data)
+	assertDocumentBlock(t, document, "SQLite schema", "<!-- cicontract:sqlite-schema:begin -->", "<!-- cicontract:sqlite-schema:end -->", CanonicalSQLiteSchemaMarkdown())
 	assertDocumentBlock(t, document, "code contract", "<!-- cicontract:begin -->", "<!-- cicontract:end -->", CanonicalMarkdown())
 	assertDocumentBlock(t, document, "retention", "<!-- cicontract:retention:begin -->", "<!-- cicontract:retention:end -->", CanonicalRetentionMarkdown())
 	assertDocumentBlock(t, document, "scheduling", "<!-- cicontract:scheduling:begin -->", "<!-- cicontract:scheduling:end -->", CanonicalSchedulingMarkdown())
@@ -439,6 +440,23 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 	if slices.Contains(SQLAuthoritySchemaTables(), "ci_unregistered_second_authority") {
 		t.Fatal("unregistered SQLite schema table was accepted")
 	}
+	if slices.Contains(SQLAuthorityAdditiveSchemaIndexes(), "idx_ci_unregistered_second_authority") {
+		t.Fatal("unregistered SQLite schema index was accepted")
+	}
+}
+
+func TestDurationLedgerSQLiteSchemaV16OwnsRetainedProofObjects(t *testing.T) {
+	if DurationLedgerSQLiteSchemaVersion != 16 {
+		t.Fatalf("duration-ledger SQLite physical schema = %d, want 16", DurationLedgerSQLiteSchemaVersion)
+	}
+	if !slices.Contains(SQLAuthoritySchemaTables(), RetainedWorkloadPassProofsTable) {
+		t.Fatalf("retained proof table %q is not registered", RetainedWorkloadPassProofsTable)
+	}
+	for _, index := range []string{RetainedWorkloadPassProofLookupIndex, RunWorkloadResultsRetentionIndex} {
+		if !slices.Contains(SQLAuthorityAdditiveSchemaIndexes(), index) {
+			t.Fatalf("retained proof schema index %q is not registered", index)
+		}
+	}
 }
 
 func TestRetentionRootsBindExactlyThreeAcceptedGenerations(t *testing.T) {
@@ -495,5 +513,142 @@ func TestGenerationOneAuthoritySupportingTablesAreCanonical(t *testing.T) {
 func TestECIEphemeralStorageIsFixedAtOneHundredGiB(t *testing.T) {
 	if ECIEphemeralStorageGiB != 100 {
 		t.Fatalf("ECIEphemeralStorageGiB = %d, want 100", ECIEphemeralStorageGiB)
+	}
+}
+
+func TestFrozenPlanningAndProtocolIdentityMatrix(t *testing.T) {
+	assertFrozenWorkloadPlanIdentity(t)
+	assertFrozenRemoteCIProtocolMatrix(t)
+}
+
+func assertFrozenWorkloadPlanIdentity(t *testing.T) {
+	t.Helper()
+	if WorkloadExecutionPlanSchemaVersion != 10 || WorkloadPlanningAlgorithmID != "deterministic-critical-path-aware-packing/v3" || WorkloadPlanningSearchNodeBudget != 1_000_000 {
+		t.Fatalf("workload plan identity drifted: schema=%d algorithm=%q", WorkloadExecutionPlanSchemaVersion, WorkloadPlanningAlgorithmID)
+	}
+	objectiveDigest := WorkloadPlanningObjectiveDigest()
+	material := canonicalWorkloadEstimationPolicyMaterial()
+	estimationDigest, err := WorkloadEstimationPolicyDigest(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planningDigest, err := WorkloadPlanningPolicyDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWorkloadPlanContract(10, WorkloadPlanningAlgorithmID, objectiveDigest, planningDigest, estimationDigest, material); err != nil {
+		t.Fatalf("canonical workload plan rejected: %v", err)
+	}
+	for _, version := range []uint32{8, 9, 11} {
+		if err := ValidateWorkloadPlanContract(version, WorkloadPlanningAlgorithmID, objectiveDigest, planningDigest, estimationDigest, material); err == nil {
+			t.Fatalf("retired workload plan schema %d accepted", version)
+		}
+	}
+}
+
+func assertFrozenRemoteCIProtocolMatrix(t *testing.T) {
+	t.Helper()
+	if err := ValidateRemoteCIProtocolVersions(14, 1, 1, 15, 2); err != nil {
+		t.Fatalf("canonical request/manifest matrix rejected: %v", err)
+	}
+	for _, matrix := range [][5]uint32{{13, 1, 1, 15, 2}, {14, 0, 1, 15, 2}, {14, 1, 2, 15, 2}, {14, 1, 1, 14, 2}, {14, 1, 1, 15, 1}} {
+		if err := ValidateRemoteCIProtocolVersions(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4]); err == nil {
+			t.Fatalf("retired protocol matrix accepted: %v", matrix)
+		}
+	}
+}
+
+func canonicalWorkloadEstimationPolicyMaterial() WorkloadEstimationPolicyMaterial {
+	return WorkloadEstimationPolicyMaterial{
+		PolicyVersion:      WorkloadEstimationPolicyVersion,
+		EstimatorPolicyID:  WorkloadEstimatorPolicyID,
+		Platform:           "linux/amd64",
+		Runner:             "runner-digest",
+		Toolchain:          "go1.26.5",
+		TargetDurationMS:   100_000,
+		AcceptedSnapshotID: "snapshot-digest",
+	}
+}
+
+func TestWorkloadPlanContractRejectsArbitraryEstimationDigest(t *testing.T) {
+	material := canonicalWorkloadEstimationPolicyMaterial()
+	expected, err := WorkloadEstimationPolicyDigest(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, digest := range []string{"sha256:" + strings.Repeat("a", 64), "", expected + "tampered"} {
+		if digest == expected {
+			continue
+		}
+		planningDigest, planningErr := WorkloadPlanningPolicyDigest()
+		if planningErr != nil {
+			t.Fatal(planningErr)
+		}
+		if err := ValidateWorkloadPlanContract(10, WorkloadPlanningAlgorithmID, WorkloadPlanningObjectiveDigest(), planningDigest, digest, material); err == nil {
+			t.Fatalf("arbitrary estimation digest %q was accepted", digest)
+		}
+	}
+	tampered := material
+	tampered.TargetDurationMS--
+	planningDigest, err := WorkloadPlanningPolicyDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWorkloadPlanContract(10, WorkloadPlanningAlgorithmID, WorkloadPlanningObjectiveDigest(), planningDigest, expected, tampered); err == nil {
+		t.Fatal("estimation digest accepted a tampered PlanningContext material")
+	}
+}
+
+func TestWorkloadPlanningPolicyDigestRejectsTransitionBoundDrift(t *testing.T) {
+	material := CanonicalWorkloadPlanningPolicyMaterial()
+	if err := material.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	material.HeuristicMaxBeamTransitions++
+	if err := material.Validate(); err == nil {
+		t.Fatal("planning policy accepted a drifted beam transition budget")
+	}
+}
+
+func TestPassEnvironmentSchemaV10IsStrict(t *testing.T) {
+	if err := ValidateWorkloadPassEnvironmentSchema(WorkloadPassEnvironmentSchemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	for _, retired := range []string{"remote-workload-pass-environment/v9", "remote-workload-pass-environment/v8", ""} {
+		if err := ValidateWorkloadPassEnvironmentSchema(retired); err == nil {
+			t.Fatalf("retired PASS environment schema %q accepted", retired)
+		}
+	}
+}
+
+func TestPassEnvironmentReplayDomainIsFrozen(t *testing.T) {
+	if WorkloadPassEnvironmentReplayDomain != "workload-pass-environment-replay/v1" {
+		t.Fatalf("PASS environment replay domain drifted: %q", WorkloadPassEnvironmentReplayDomain)
+	}
+	if WorkloadPassEnvironmentReplayDomain == WorkloadPassIdentityDomain || WorkloadPassEnvironmentReplayDomain == WorkloadPassSourceReplayDomain {
+		t.Fatalf("PASS environment replay domain must remain cryptographically distinct: %q", WorkloadPassEnvironmentReplayDomain)
+	}
+}
+
+func TestCompileGroupPackingAndCriticalPathPoliciesAreFrozen(t *testing.T) {
+	if CompileGroupSerialPackingPolicyID != "same-resource-side-effect-safe-serial-packing/v1" {
+		t.Fatalf("serial packing policy drifted: %q", CompileGroupSerialPackingPolicyID)
+	}
+	if CriticalPathCostPolicyID != "compile-once+sum-wave-max-body/v1" {
+		t.Fatalf("critical path cost policy drifted: %q", CriticalPathCostPolicyID)
+	}
+	for _, requirementID := range []string{"1.9", "3.7", "5.4", "7.5"} {
+		found := false
+		for _, requirement := range requirements {
+			if requirement.ID == requirementID {
+				found = true
+				if (requirementID == "1.9" || requirementID == "3.7") && !strings.Contains(requirement.Summary, "MISS") {
+					t.Fatalf("requirement %s lost MISS-only semantics", requirementID)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("frozen requirement %s is missing", requirementID)
+		}
 	}
 }

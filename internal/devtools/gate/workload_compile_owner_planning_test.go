@@ -1,12 +1,32 @@
 package gate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
+
+func repeatCompileTimingSample(base CompileTimingSample) []CompileTimingSample {
+	samples := make([]CompileTimingSample, 5)
+	for index := range samples {
+		samples[index] = base
+		samples[index].JobID = fmt.Sprintf("%s-%d", base.JobID, index)
+		samples[index].StartedAt = base.StartedAt.Add(time.Duration(index+1) * time.Second)
+		samples[index].CompletedAt = samples[index].StartedAt.Add(base.CompletedAt.Sub(base.StartedAt))
+	}
+	return samples
+}
+
+func repeatCompileTimingSamples(bases []CompileTimingSample) []CompileTimingSample {
+	samples := make([]CompileTimingSample, 0, len(bases)*5)
+	for _, base := range bases {
+		samples = append(samples, repeatCompileTimingSample(base)...)
+	}
+	return samples
+}
 
 func TestCompileOwnerWithoutHistoryKeepsSmallResourceAndOneBootstrapCost(t *testing.T) {
 	context := testPlanningContext()
@@ -47,7 +67,7 @@ func TestCompileOwnerSmallHistory240053UpgradesAndSharesCostOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compileIndex, err := BuildCompileTimingIndex([]CompileTimingSample{{
+	compileIndex, err := BuildCompileTimingIndex(repeatCompileTimingSample(CompileTimingSample{
 		Identity: CompileTimingIdentity{
 			PackageTarget: input.PackageTarget, SemanticKey: input.SemanticKey,
 			Platform: context.Platform, RunnerIdentityDigest: context.Runner,
@@ -56,7 +76,7 @@ func TestCompileOwnerSmallHistory240053UpgradesAndSharesCostOnce(t *testing.T) {
 		},
 		DurationMS: 240_053, AcceptedGeneration: 3, JobID: "compile-history-240053",
 		StartedAt: time.UnixMilli(1_000).UTC(), CompletedAt: time.UnixMilli(241_053).UTC(),
-	}})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +107,7 @@ func TestCompileOwnerUpdaterFastToMediumKeepsMediumOnFasterMediumSample(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	compileIndex, err := BuildCompileTimingIndex([]CompileTimingSample{
+	compileIndex, err := BuildCompileTimingIndex(repeatCompileTimingSamples([]CompileTimingSample{
 		{
 			Identity: CompileTimingIdentity{
 				PackageTarget: input.PackageTarget, SemanticKey: input.SemanticKey,
@@ -108,7 +128,7 @@ func TestCompileOwnerUpdaterFastToMediumKeepsMediumOnFasterMediumSample(t *testi
 			DurationMS: 4_733, AcceptedGeneration: 3, JobID: "compile-updater-medium-4733",
 			StartedAt: time.UnixMilli(10_000).UTC(), CompletedAt: time.UnixMilli(14_733).UTC(),
 		},
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +156,7 @@ func TestCompileOwnerCalibrationNeverReclassifiesResource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compileIndex, err := BuildCompileTimingIndex([]CompileTimingSample{{
+	compileIndex, err := BuildCompileTimingIndex(repeatCompileTimingSample(CompileTimingSample{
 		Identity: CompileTimingIdentity{
 			PackageTarget: input.PackageTarget, SemanticKey: input.SemanticKey,
 			Platform: context.Platform, RunnerIdentityDigest: context.Runner,
@@ -145,7 +165,7 @@ func TestCompileOwnerCalibrationNeverReclassifiesResource(t *testing.T) {
 		},
 		DurationMS: 240_053, AcceptedGeneration: 3, JobID: "compile-history-calibration",
 		StartedAt: time.UnixMilli(2_000).UTC(), CompletedAt: time.UnixMilli(242_053).UTC(),
-	}})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +237,7 @@ func TestPlannedWorkloadsFromEstimatesRejectsCompileOwnerResourceIdentityDrift(t
 func testCompileTimingIndex(t *testing.T, input CompileGroupInput, context PlanningContext, classID string, cpu, memoryGiB float64, durationMS int64) CompileTimingIndex {
 	t.Helper()
 	started := time.UnixMilli(10_000).UTC()
-	index, err := BuildCompileTimingIndex([]CompileTimingSample{{
+	base := CompileTimingSample{
 		Identity: CompileTimingIdentity{
 			PackageTarget: input.PackageTarget, SemanticKey: input.SemanticKey,
 			Platform: context.Platform, RunnerIdentityDigest: context.Runner,
@@ -226,7 +246,15 @@ func testCompileTimingIndex(t *testing.T, input CompileGroupInput, context Plann
 		},
 		DurationMS: durationMS, AcceptedGeneration: 3, JobID: "compile-history-fixture",
 		StartedAt: started, CompletedAt: started.Add(time.Duration(durationMS) * time.Millisecond),
-	}})
+	}
+	samples := make([]CompileTimingSample, 5)
+	for index := range samples {
+		samples[index] = base
+		samples[index].JobID = fmt.Sprintf("compile-history-fixture-%d", index)
+		samples[index].StartedAt = started.Add(time.Duration(index+1) * time.Second)
+		samples[index].CompletedAt = samples[index].StartedAt.Add(time.Duration(durationMS) * time.Millisecond)
+	}
+	index, err := BuildCompileTimingIndex(samples)
 	if err != nil {
 		t.Fatal(err)
 	}

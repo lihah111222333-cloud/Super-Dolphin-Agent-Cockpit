@@ -445,6 +445,11 @@ func extractGitTree(ctx context.Context, root, tree, destination string) error {
 	}
 	command := exec.CommandContext(ctx, git, "-C", root, "archive", "--format=tar", tree)
 	command.Env = trustedGitEnvironment()
+	return extractGitArchive(command, destination)
+}
+
+// extractGitArchive 完整消费归档输出后等待生产者，避免尾部 tar 数据阻塞子进程。
+func extractGitArchive(command *exec.Cmd, destination string) error {
 	archive, err := command.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("open Git tree archive: %w", err)
@@ -462,6 +467,15 @@ func extractGitTree(ctx context.Context, root, tree, destination string) error {
 			err = errors.Join(err, fmt.Errorf("wait for rejected Git archive: %w", waitErr))
 		}
 		return err
+	}
+	if _, err := io.Copy(io.Discard, archive); err != nil {
+		if killErr := command.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+			err = errors.Join(err, fmt.Errorf("stop undrainable Git archive: %w", killErr))
+		}
+		if waitErr := command.Wait(); waitErr != nil {
+			err = errors.Join(err, fmt.Errorf("wait for undrainable Git archive: %w", waitErr))
+		}
+		return fmt.Errorf("drain Git tree archive: %w", err)
 	}
 	if err := command.Wait(); err != nil {
 		return fmt.Errorf("Git archive failed: %w: %s", err, strings.TrimSpace(stderr.String()))

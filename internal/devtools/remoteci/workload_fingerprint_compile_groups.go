@@ -13,45 +13,145 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// remoteWorkloadFingerprintsWithSnapshot 保留首次 Prepare 的 exact-tree
-// snapshot；closure 只在确认 MISS 后按需捕获，all-hit 不承担迁移材料成本。
+// remoteWorkloadFingerprintsWithSnapshot 只计算 correctness-bound production
+// input digest，并保留同一 exact-tree snapshot。compile-group closure/profile
+// 必须在 PASS 分类完成后由 MISS 专用入口按需计算。
 func remoteWorkloadFingerprintsWithSnapshot(
 	ctx context.Context,
 	repositoryRoot string,
 	tree string,
 	workloads []gate.Workload,
 ) (map[string]string, map[string]gate.CompileGroupInput, *remoteGitTreeSnapshot, error) {
-	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, tree)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	inputDigests, compileInputs, err := snapshot.remoteWorkloadFingerprints(ctx, workloads)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return inputDigests, compileInputs, snapshot, nil
+	return remoteWorkloadFingerprintsWithSnapshotWithCandidateObjectAuthority(ctx, repositoryRoot, tree, gate.CandidateObjectAuthority{}, workloads)
 }
 
-func (snapshot *remoteGitTreeSnapshot) remoteWorkloadFingerprints(
+// remoteWorkloadFingerprintsWithSnapshotWithCandidateObjectAuthority retains
+// the sealed private ODB proof while reading a staged exact tree for local PASS
+// lookup. The authority is never identity material.
+func remoteWorkloadFingerprintsWithSnapshotWithCandidateObjectAuthority(ctx context.Context, repositoryRoot, tree string, authority gate.CandidateObjectAuthority, workloads []gate.Workload) (map[string]string, map[string]gate.CompileGroupInput, *remoteGitTreeSnapshot, error) {
+	snapshot, err := loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx, repositoryRoot, tree, authority)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	inputDigests, err := snapshot.remoteWorkloadInputDigests(ctx, workloads)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return inputDigests, nil, snapshot, nil
+}
+
+func (snapshot *remoteGitTreeSnapshot) remoteWorkloadInputDigests(
 	ctx context.Context,
 	workloads []gate.Workload,
-) (map[string]string, map[string]gate.CompileGroupInput, error) {
-	inputDigests, err := snapshot.concurrentRemoteWorkloadInputDigests(ctx, workloads)
-	if err != nil {
-		return nil, nil, err
-	}
+) (map[string]string, error) {
+	return snapshot.concurrentRemoteWorkloadInputDigests(ctx, workloads)
+}
+
+// compileGroupInputs 计算指定 workload 集合的 compile-group closure/profile。
+// 调用方必须已经完成 PASS lookup，并传入严格 MISS（含 package-affinity
+// demotion 后的集合）；该函数不接受全 catalog 的隐式补全。
+func (snapshot *remoteGitTreeSnapshot) compileGroupInputs(
+	ctx context.Context,
+	workloads []gate.Workload,
+) (map[string]gate.CompileGroupInput, error) {
 	compileInputs := make(map[string]gate.CompileGroupInput)
 	profileDigests := make(map[bool]string, 2)
 	for _, workload := range workloads {
 		compileInput, ok, err := snapshot.compileGroupInputForWorkload(ctx, workload, profileDigests)
 		if err != nil {
-			return nil, nil, fmt.Errorf("fingerprint compile input for workload %q: %w", workload.ID, err)
+			return nil, fmt.Errorf("fingerprint compile input for workload %q: %w", workload.ID, err)
 		}
 		if ok {
 			compileInputs[workload.ID] = compileInput
 		}
 	}
-	return inputDigests, compileInputs, nil
+	return compileInputs, nil
+}
+
+// remoteCompileGroupInputsForMisses 将严格 MISS workload 投影为 compile-group 输入。
+// It projects only strict MISS workload IDs into
+// compile-group inputs. Unknown IDs and duplicate catalog entries fail closed.
+func remoteCompileGroupInputsForMisses(
+	ctx context.Context,
+	snapshot *remoteGitTreeSnapshot,
+	catalog gate.WorkloadCatalog,
+	misses []gate.GateID,
+) (map[string]gate.CompileGroupInput, error) {
+	if snapshot == nil {
+		return nil, fmt.Errorf("remote compile-group fingerprint snapshot is required")
+	}
+	if len(misses) == 0 {
+		return nil, nil
+	}
+	missSet, err := validateRemoteMissIDs(misses)
+	if err != nil {
+		return nil, err
+	}
+	missWorkloads, err := projectRemoteMissWorkloads(catalog, missSet)
+	if err != nil {
+		return nil, err
+	}
+	inputs, err := snapshot.compileGroupInputs(ctx, missWorkloads)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRemoteCompileGroupInputsForWorkloads(missWorkloads, inputs); err != nil {
+		return nil, err
+	}
+	return inputs, nil
+}
+
+func validateRemoteMissIDs(misses []gate.GateID) (map[string]struct{}, error) {
+	missSet := make(map[string]struct{}, len(misses))
+	for _, id := range misses {
+		workloadID := string(id)
+		if workloadID == "" {
+			return nil, fmt.Errorf("remote workload MISS ID is empty")
+		}
+		if _, duplicate := missSet[workloadID]; duplicate {
+			return nil, fmt.Errorf("remote workload MISS ID %q is duplicated", workloadID)
+		}
+		missSet[workloadID] = struct{}{}
+	}
+	return missSet, nil
+}
+
+func projectRemoteMissWorkloads(
+	catalog gate.WorkloadCatalog,
+	missSet map[string]struct{},
+) ([]gate.Workload, error) {
+	missWorkloads := make([]gate.Workload, 0, len(missSet))
+	seen := make(map[string]struct{}, len(missSet))
+	for _, workload := range catalog.Workloads {
+		if _, ok := missSet[workload.ID]; !ok {
+			continue
+		}
+		missWorkloads = append(missWorkloads, workload)
+		seen[workload.ID] = struct{}{}
+	}
+	for workloadID := range missSet {
+		if _, ok := seen[workloadID]; !ok {
+			return nil, fmt.Errorf("remote workload MISS %q is not present in catalog", workloadID)
+		}
+	}
+	return missWorkloads, nil
+}
+
+func validateRemoteCompileGroupInputsForWorkloads(
+	workloads []gate.Workload,
+	inputs map[string]gate.CompileGroupInput,
+) error {
+	expected := make(map[string]struct{}, len(workloads))
+	for _, workload := range workloads {
+		selector, err := validateRemoteCompileGroupInput(workload, inputs)
+		if err != nil {
+			return err
+		}
+		if selector {
+			expected[workload.ID] = struct{}{}
+		}
+	}
+	return rejectUnexpectedRemoteCompileGroupInputs(expected, inputs)
 }
 
 type remoteWorkloadInputDigestResult struct {
@@ -111,20 +211,6 @@ func remoteExactGoSelectorWorkload(workload gate.Workload) bool {
 	return err == nil && targeted && (kind == gate.WorkloadTargetGoTest || kind == gate.WorkloadTargetGoBenchmark)
 }
 
-func validateRemoteCompileGroupInputs(catalog gate.WorkloadCatalog, inputs map[string]gate.CompileGroupInput) error {
-	expected := make(map[string]struct{})
-	for _, workload := range catalog.Workloads {
-		selector, err := validateRemoteCompileGroupInput(workload, inputs)
-		if err != nil {
-			return err
-		}
-		if selector {
-			expected[workload.ID] = struct{}{}
-		}
-	}
-	return rejectUnexpectedRemoteCompileGroupInputs(expected, inputs)
-}
-
 // validateRemoteCompileGroupInput 校验一个 catalog workload 的 Prepare 输入。
 func validateRemoteCompileGroupInput(workload gate.Workload, inputs map[string]gate.CompileGroupInput) (bool, error) {
 	parent, targetKind, target, targeted, err := gate.ParseWorkloadID(workload.ID)
@@ -170,6 +256,7 @@ func rejectUnexpectedRemoteCompileGroupInputs(expected map[string]struct{}, inpu
 	return nil
 }
 
+// compileGroupInputForWorkload 为一个 selector workload 计算共享编译输入。
 func (snapshot *remoteGitTreeSnapshot) compileGroupInputForWorkload(
 	ctx context.Context,
 	workload gate.Workload,
@@ -213,6 +300,7 @@ func (snapshot *remoteGitTreeSnapshot) compileGroupInputForWorkload(
 	return input, true, nil
 }
 
+// compileGroupTarget 将 Go target 解析为 package 与 profile 语义键。
 func compileGroupTarget(targetKind gate.WorkloadTargetKind, target string, profile remoteGoBuildProfile) (string, string, error) {
 	semanticKey, err := gate.CompileGroupSemanticKey(targetKind, profile.race)
 	if err != nil {

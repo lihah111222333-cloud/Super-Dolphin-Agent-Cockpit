@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,6 +30,29 @@ func TestShardRequestRequiresCanonicalSourceBundleFields(t *testing.T) {
 				t.Fatalf("mutated source bundle request unexpectedly passed: %#v", request)
 			}
 		})
+	}
+}
+
+func TestDecodeShardRequestRejectsUnknownTopLevelField(t *testing.T) {
+	request := testSourceBundleShardRequest(t)
+	data, _, err := EncodeShardRequest(request)
+	if err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+	unknown := append([]byte(strings.TrimSuffix(string(data), "}")), []byte(`,"unknown_top_level":true}`)...)
+	if _, err := DecodeShardRequest(unknown); err == nil {
+		t.Fatal("DecodeShardRequest accepted an unknown top-level field")
+	}
+}
+
+func TestShardRequestRejectsLegacyAndUnknownSchemaVersions(t *testing.T) {
+	valid := testSourceBundleShardRequest(t)
+	for _, version := range []uint32{14, 16} {
+		request := valid
+		request.SchemaVersion = version
+		if err := request.Validate(); err == nil {
+			t.Fatalf("schema version %d unexpectedly accepted", version)
+		}
 	}
 }
 
@@ -97,8 +121,34 @@ func TestShardRequestRejectsMultipleCompileGroupsPerShard(t *testing.T) {
 	request.GateIDs = []gate.GateID{firstID, secondID}
 	request.CompileGroups = []gate.CompileGroup{compileBindingGroup(t, firstID), group}
 	request.ShardExecutionManifestDigest = "sha256:" + strings.Repeat("0", 64)
-	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "exactly one compile group") {
+	if err := request.Validate(); err == nil {
 		t.Fatalf("request accepted multiple compile groups: %v", err)
+	}
+}
+
+func TestShardRequestAcceptsSameResourceOrdinaryCompileGroups(t *testing.T) {
+	request := testSourceBundleShardRequest(t)
+	first, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, gate.AtomicGatePackageTarget, "TestProtocolOrdinaryFirst", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, gate.AtomicGatePackageTarget, "TestProtocolOrdinarySecond", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, secondID := gate.GateID(first.ID), gate.GateID(second.ID)
+	firstGroup := ordinaryCompileGroup(t, firstID, "e", "f")
+	secondGroup := ordinaryCompileGroup(t, secondID, "a", "b")
+	groups := []gate.CompileGroup{firstGroup, secondGroup}
+	slices.SortFunc(groups, func(left, right gate.CompileGroup) int { return strings.Compare(left.GroupID, right.GroupID) })
+	request.GateIDs = []gate.GateID{firstID, secondID}
+	request.CompileGroups = groups
+	request.ShardExecutionManifestDigest, err = request.ComputeShardExecutionManifestDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("same-resource ordinary compile groups rejected: %v", err)
 	}
 }
 
@@ -174,4 +224,12 @@ func testSourceBundleShardRequest(t *testing.T) ShardRequest {
 	}
 	request.ShardExecutionManifestDigest = digest
 	return request
+}
+
+func TestShardRequestRejectsUnregisteredNormalResourceShape(t *testing.T) {
+	request := testSourceBundleShardRequest(t)
+	request.ResourceClass = shardresource.Class{ID: "custom", VCPU: 3, MemoryGiB: 6}
+	if err := request.Validate(); err == nil {
+		t.Fatal("request accepted a normal resource shape outside the fixed ECI tiers")
+	}
 }

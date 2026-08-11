@@ -254,7 +254,13 @@ func compileTargetConstrainedFiles(parent context.Context, root string, timeout 
 		args = append(args, "-o", filepath.Join(outputRoot, fmt.Sprintf("%d.test", index)), ".")
 		command := exec.CommandContext(ctx, "go", args...)
 		command.Dir = filepath.Join(root, filepath.FromSlash(packageDir))
-		command.Env = append(os.Environ(), "GOOS="+target.GOOS, "GOARCH="+target.GOARCH)
+		// 目标编译只验证 Go 构建约束；目标平台没有可用的 cgo 工具链。
+		command.Env = append(
+			os.Environ(),
+			"GOOS="+target.GOOS,
+			"GOARCH="+target.GOARCH,
+			"CGO_ENABLED=0",
+		)
 		output, runErr := command.CombinedOutput()
 		if runErr != nil {
 			return fmt.Errorf(

@@ -22,7 +22,16 @@ func TestRemoteCIMissOnlyPlanningAndShardManifestContract(t *testing.T) {
 func assertRemoteCIMissPlannerBoundary(t *testing.T, root string) {
 	t.Helper()
 	prepared := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"))
-	assertRemoteCIMarkerOrder(t, prepared, "remoteWorkloadFingerprintsWithSnapshot(", "prepareRemoteWorkloadReuse(")
+	assertRemoteCIMarkerOrder(t, prepared, "prepareRemoteWorkloadIdentity(", "prepareRemoteWorkloadReuse(", "remoteCompileGroupInputsForMisses(")
+	assertRemoteCIMarkerOrder(t, prepared, "prepareRemoteWorkloadReuse(", "validateAllHitExecutionIdentity(", "remoteCompileGroupInputsForMisses(")
+	identityPath := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"), "prepareRemoteWorkloadIdentity")
+	assertRemoteCIMarkerOrder(t, identityPath, "remoteWorkloadFingerprintsWithSnapshot(", "workerExecutionDigest(")
+	allHitIdentity := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"), "validateAllHitExecutionIdentity")
+	for _, marker := range []string{"CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "ExecutionRunnerImage", "ExecutionImageCacheSnapshotID", "ImageCacheOnly"} {
+		if !strings.Contains(allHitIdentity, marker) {
+			t.Fatalf("all-hit identity guard is missing MISS-only field %q", marker)
+		}
+	}
 	missPath := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"), "executePreparedWorkloadMisses")
 	assertRemoteCIMarkerOrder(t, missPath, "if prepared.allReused", "createRemoteTempRoot(", "runRemoteWorkloadMisses(")
 	if !strings.Contains(missPath, "prepared.reuse.cacheMisses") {
@@ -35,6 +44,9 @@ func assertRemoteCIMissPlannerBoundary(t *testing.T, root string) {
 	}
 	coordinator := remoteCIFunctionSource(t, coordinatorPath, "prepareRemoteWorkloadMissInputs")
 	assertRemoteCIMarkerOrder(t, coordinator, "buildRemoteExecutionShardSetForWorkloads(", "remoteExecutionShardResources(", "buildShardRequestsWithCompileGroups(")
+	assertRemoteCIPlannerCallArgument(t, coordinatorPath, "prepareRemoteWorkloadMissInputs", "buildRemoteExecutionShardSetForWorkloads", 2, "executionIDs")
+	assertRemoteCIPlannerCallArgument(t, coordinatorPath, "buildRemoteExecutionShardSetForWorkloads", "BuildWorkloadExecutionPlanForWorkloads", 4, "executionIDs")
+	assertRemoteCIPlannerCallArgument(t, coordinatorPath, "buildRemoteExecutionShardSetForWorkloads", "BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs", 4, "executionIDs")
 	compilePlanner := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/gate/workload_compile_planning.go"), "splitCompilePlanningBucket")
 	if !strings.Contains(compilePlanner, "splitCompilePlanningPartitions(bucket)") || !strings.Contains(compilePlanner, "compileGroupFromPartition(partition") {
 		t.Fatal("compile planner does not bind each deterministic artifact partition to one compile group")
@@ -158,6 +170,40 @@ func assertRemoteCIMarkerOrder(t *testing.T, source string, markers ...string) {
 			t.Fatalf("source marker %q is out of order", marker)
 		}
 		previous = position
+	}
+}
+
+// assertRemoteCIPlannerCallArgument 锁定 DCPAP/LPT 调用只接收调用方冻结的 MISS ID 参数。
+func assertRemoteCIPlannerCallArgument(t *testing.T, path, functionName, calledName string, argumentIndex int, expected string) {
+	t.Helper()
+	source := readRemoteCIContractGuardFile(t, path)
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, path, source, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	function := remoteCIFunctionByName(file, functionName)
+	if function == nil || function.Body == nil {
+		t.Fatalf("%s is missing function %s", path, functionName)
+	}
+	calls := 0
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || remoteCICallName(call) != calledName {
+			return true
+		}
+		calls++
+		if len(call.Args) <= argumentIndex {
+			t.Fatalf("%s.%s call has %d arguments, want argument %d to be %q", path, functionName, len(call.Args), argumentIndex+1, expected)
+		}
+		identifier, ok := call.Args[argumentIndex].(*ast.Ident)
+		if !ok || identifier.Name != expected {
+			t.Fatalf("%s.%s passes a non-%q expression to %s argument %d", path, functionName, expected, calledName, argumentIndex+1)
+		}
+		return true
+	})
+	if calls == 0 {
+		t.Fatalf("%s.%s does not call %s", path, functionName, calledName)
 	}
 }
 

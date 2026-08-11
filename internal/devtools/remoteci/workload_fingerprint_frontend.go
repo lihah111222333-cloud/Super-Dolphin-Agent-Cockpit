@@ -1,9 +1,11 @@
 package remoteci
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -53,14 +55,10 @@ func (snapshot *remoteGitTreeSnapshot) frontendPreflightInputDigest(targets ...s
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
+// frontendPreflightInputEntry 按 preflight target 选择可观察输入。
 func frontendPreflightInputEntry(entry remoteGitTreeEntry, target string) bool {
 	const packageJSON = "frontend-app/package.json"
 	const packageLock = "frontend-app/package-lock.json"
@@ -90,29 +88,31 @@ func frontendPreflightFrontendSourceEntry(entry remoteGitTreeEntry) bool {
 		!strings.HasPrefix(entry.path, frontendE2EInputPrefix) && !frontendPlaywrightConfigSourcePath(frontendPath)
 }
 
+// frontendPreflightCriticalGuardEntry 判断 critical guard 的完整可观察输入。
 func frontendPreflightCriticalGuardEntry(entryPath, packageJSON string) bool {
 	// guard:critical-skip recursively observes the three roots below, including
 	// Playwright specs under tests/e2e. Keep the owner package manifest in the
 	// closure because its command chain determines which guards execute.
-	return entryPath == packageJSON || strings.HasPrefix(entryPath, "frontend-app/src/") ||
+	return frontendPreflightToolchainEntry(entryPath) || entryPath == packageJSON || entryPath == "frontend-app/package-lock.json" || strings.HasPrefix(entryPath, "frontend-app/src/") ||
 		strings.HasPrefix(entryPath, "frontend-app/scripts/") || strings.HasPrefix(entryPath, "frontend-app/tests/") ||
 		entryPath == "frontend-app/config/action-producer-registry.json" || entryPath == "frontend-app/config/action-producer-test-matrix.json"
 }
 
 func frontendPreflightTurnVerifyEntry(entryPath, packageJSON string) bool {
-	return frontendPreflightTurnContractEntry(entryPath) || entryPath == packageJSON
+	return frontendPreflightTurnContractEntry(entryPath) || entryPath == packageJSON || entryPath == "frontend-app/package-lock.json"
 }
 
 func frontendPreflightCriticalTypecheckEntry(entry remoteGitTreeEntry, packageLock string) bool {
-	return frontendPreflightNonE2EEntry(entry) && entry.path != packageLock
+	return frontendPreflightNonE2EEntry(entry) || entry.path == packageLock || frontendPreflightToolchainEntry(entry.path)
 }
 
 func frontendPreflightContractsEntry(entry remoteGitTreeEntry, packageLock string) bool {
-	return frontendPreflightNonE2EEntry(entry) && entry.path != packageLock
+	return frontendPreflightNonE2EEntry(entry) || entry.path == packageLock || frontendPreflightToolchainEntry(entry.path)
 }
 
+// frontendPreflightRPCAuditEntry 选择 RPC audit 的源码、工具链和契约输入。
 func frontendPreflightRPCAuditEntry(entryPath, packageJSON string) bool {
-	return strings.HasPrefix(entryPath, "frontend-app/src/") || entryPath == packageJSON ||
+	return frontendPreflightToolchainEntry(entryPath) || entryPath == "frontend-app/package-lock.json" || strings.HasPrefix(entryPath, "frontend-app/src/") || entryPath == packageJSON ||
 		entryPath == "frontend-app/scripts/rpc-contract-audit.mjs" || strings.HasPrefix(entryPath, "internal/") ||
 		strings.HasPrefix(entryPath, "cmd/")
 }
@@ -122,7 +122,8 @@ func frontendPreflightNonE2EEntry(entry remoteGitTreeEntry) bool {
 }
 
 func frontendPreflightTurnContractEntry(entryPath string) bool {
-	return entryPath == "go.mod" || entryPath == "go.sum" || strings.HasPrefix(entryPath, "scripts/turncontract/") || strings.HasPrefix(entryPath, "internal/dto/turn/")
+	return frontendPreflightToolchainEntry(entryPath) || strings.HasPrefix(entryPath, "scripts/turncontract/") || strings.HasPrefix(entryPath, "internal/dto/turn/") ||
+		entryPath == "frontend-app/src/shared/contracts/turnContracts.generated.js"
 }
 
 func frontendPreflightTurnFieldEntry(entryPath, packageJSON string) bool {
@@ -130,13 +131,26 @@ func frontendPreflightTurnFieldEntry(entryPath, packageJSON string) bool {
 	// production JS/JSX file below frontend-app/src, not only the generated
 	// schema. Include that entire observed root so a newly added consumer cannot
 	// reuse an old PASS.
-	return frontendPreflightTurnContractEntry(entryPath) || entryPath == packageJSON || strings.HasPrefix(entryPath, "frontend-app/src/") ||
+	return frontendPreflightTurnContractEntry(entryPath) || entryPath == packageJSON || entryPath == "frontend-app/package-lock.json" || strings.HasPrefix(entryPath, "frontend-app/src/") ||
 		strings.HasPrefix(entryPath, "frontend-app/scripts/turn-contract-field-guard")
 }
 
 func frontendPreflightDependencyEntry(entryPath, packageJSON, packageLock string) bool {
 	return entryPath == packageJSON || entryPath == packageLock || strings.HasPrefix(entryPath, "frontend-app/scripts/frontend-execution-closure") ||
 		strings.HasPrefix(entryPath, "frontend-app/scripts/frontend-maintainability-dependency") || strings.HasPrefix(entryPath, "frontend-app/scripts/refresh-frontend-maintainability-dependencies")
+}
+
+// frontendPreflightToolchainEntry binds every root Go module descriptor consumed
+// by preflight commands, including an optional workspace file. Missing files are
+// naturally absent from the exact tree; if a workspace is introduced it cannot
+// silently reuse a prior PASS.
+func frontendPreflightToolchainEntry(entryPath string) bool {
+	switch entryPath {
+	case "go.mod", "go.sum", "go.work", "go.work.sum":
+		return true
+	default:
+		return false
+	}
 }
 
 // frontendPlaywrightConfigSourcePath 判断不属于 Vitest/preflight 执行闭包的 E2E 配置。
@@ -146,32 +160,111 @@ func frontendPlaywrightConfigSourcePath(relative string) bool {
 
 // frontendBuildInputDigest 只绑定 Vite build 及其同步脚本的生产输入。
 func (snapshot *remoteGitTreeSnapshot) frontendBuildInputDigest() (string, error) {
-	return snapshot.digestMatching(frontendBuildInputEntry)
+	selected := make(map[string]remoteGitTreeEntry)
+	for _, entry := range snapshot.entries {
+		if frontendBuildInputEntry(entry) {
+			selected[entry.path] = entry
+		}
+	}
+	seeds, observesDynamic, err := snapshot.frontendBuildEntrySeeds(context.Background())
+	if err != nil {
+		return "", err
+	}
+	if observesDynamic {
+		return snapshot.digestEntries(snapshot.entries)
+	}
+	closure, observesDynamic, err := snapshot.frontendStaticImportClosure(context.Background(), seeds)
+	if err != nil {
+		return "", err
+	}
+	if observesDynamic {
+		return snapshot.digestEntries(snapshot.entries)
+	}
+	for filePath := range closure {
+		selected[filePath] = snapshot.byPath[filePath]
+	}
+	return snapshot.digestEntries(sortedRemoteGitTreeEntries(selected))
 }
 
-// frontendBuildInputEntry 判断单个 Git tree 条目是否属于生产构建输入。
+// frontendBuildInputEntry 判断单个 Git tree 条目是否位于前端构建树中。
 func frontendBuildInputEntry(entry remoteGitTreeEntry) bool {
 	if !strings.HasPrefix(entry.path, frontendAppInputPrefix) {
 		return false
 	}
 	relative := strings.TrimPrefix(entry.path, frontendAppInputPrefix)
-	switch {
-	case relative == "package.json", relative == "package-lock.json", relative == "index.html", relative == "vite.config.js":
-		return true
-	case relative == "scripts/sync-frontend-dist.mjs":
-		return true
-	case strings.HasPrefix(relative, "config/"), strings.HasPrefix(relative, "public/"):
-		return true
-	case strings.HasPrefix(relative, "src/"):
-		return !frontendTestSourcePath(relative)
-	default:
-		return false
-	}
+	return slices.Contains([]string{"package.json", "package-lock.json", "index.html", "vite.config.js", "recovery.html", "required-dist-entries.txt", "scripts/sync-frontend-dist.mjs"}, relative) ||
+		strings.HasPrefix(relative, "config/") || strings.HasPrefix(relative, "public/") ||
+		strings.HasPrefix(relative, "src/") && !frontendTestSourcePath(relative)
 }
 
+// frontendBuildEntrySeeds 解析 Vite 与 recovery HTML 的构建入口依赖。
+func (snapshot *remoteGitTreeSnapshot) frontendBuildEntrySeeds(ctx context.Context) ([]string, bool, error) {
+	seeds := []string{frontendAppInputPrefix + "vite.config.js"}
+	htmlPaths := []string{frontendAppInputPrefix + "index.html", frontendAppInputPrefix + "recovery.html"}
+	for _, filePath := range append(append([]string{}, seeds...), htmlPaths...) {
+		if _, ok := snapshot.byPath[filePath]; !ok {
+			return nil, true, nil
+		}
+	}
+	sources, err := snapshot.frontendSourceBlobs(ctx, htmlPaths)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, htmlPath := range htmlPaths {
+		imports, dynamic := frontendHTMLScriptSources(sources[htmlPath])
+		if dynamic {
+			return seeds, true, nil
+		}
+		for _, spec := range imports {
+			resolved, local, err := snapshot.resolveFrontendImport(htmlPath, spec)
+			if err != nil {
+				return nil, false, err
+			}
+			if local {
+				seeds = append(seeds, resolved)
+			}
+		}
+	}
+	return seeds, false, nil
+}
+
+// frontendHTMLScriptSources 解析 HTML module script，并对未知标签形态 fail-close。
+func frontendHTMLScriptSources(source []byte) ([]string, bool) {
+	const marker = `<script type="module" src="`
+	text := strings.ToLower(string(source))
+	if strings.Contains(text, "<script") && !strings.Contains(text, marker) {
+		return nil, true
+	}
+	imports := make([]string, 0, 1)
+	offset := 0
+	for {
+		relative := strings.Index(text[offset:], marker)
+		if relative < 0 {
+			break
+		}
+		value := offset + relative + len(marker)
+		close := strings.IndexByte(text[value:], '"')
+		if close < 0 {
+			return imports, true
+		}
+		imports = append(imports, string(source[value:value+close]))
+		offset = value + close + 1
+	}
+	if strings.Contains(text[offset:], "<script") {
+		return imports, true
+	}
+	return imports, len(imports) == 0
+}
+
+// frontendTestSourcePath 判断路径是否属于前端测试源码而非生产入口。
 func frontendTestSourcePath(relative string) bool {
-	return strings.Contains(relative, ".test.") || strings.Contains(relative, ".spec.") ||
-		strings.HasSuffix(relative, ".test.js") || strings.HasSuffix(relative, ".test.jsx")
+	base := path.Base(relative)
+	stem := strings.TrimSuffix(base, path.Ext(base))
+	dir := "/" + path.Dir(relative) + "/"
+	return strings.HasSuffix(stem, ".test") || strings.HasSuffix(stem, ".spec") ||
+		strings.Contains(dir, "/__tests__/") || strings.Contains(dir, "/__specs__/") ||
+		strings.Contains(dir, "/test/") || strings.Contains(dir, "/tests/") ||
+		strings.Contains(dir, "/spec/") || strings.Contains(dir, "/specs/")
 }
 
 func (snapshot *remoteGitTreeSnapshot) projectMapInputDigest() (string, error) {
@@ -255,25 +348,42 @@ func (snapshot *remoteGitTreeSnapshot) frontendPlaywrightParentInputDigest(ctx c
 			selected[entry.path] = entry
 		}
 	}
-	for _, target := range []string{
-		"tests/e2e/business-flows.spec.js#business-read-surfaces",
-		"tests/e2e/business-flows.spec.js#business-chat-bridge",
-		"tests/e2e/desktop-wide.spec.js#desktop-shell",
-		"tests/e2e/desktop-wide.spec.js#desktop-business-pages",
-		"tests/e2e/desktop-wide.spec.js#desktop-read-settings",
-	} {
-		targetEntries, observesDynamic, err := snapshot.frontendPlaywrightTargetEntries(ctx, target)
-		if err != nil {
-			return "", err
-		}
-		if observesDynamic {
-			return snapshot.digestEntries(snapshot.entries)
-		}
-		for filePath, entry := range targetEntries {
-			selected[filePath] = entry
-		}
+	seeds := snapshot.frontendPlaywrightParentSeeds()
+	if len(seeds) == 0 {
+		return "", fmt.Errorf("Playwright parent input closure has no tracked specs or configs")
+	}
+	closure, observesDynamic, err := snapshot.frontendStaticImportClosure(ctx, seeds)
+	if err != nil {
+		return "", err
+	}
+	if observesDynamic {
+		return snapshot.digestEntries(snapshot.entries)
+	}
+	for filePath := range closure {
+		selected[filePath] = snapshot.byPath[filePath]
 	}
 	return snapshot.digestEntries(sortedRemoteGitTreeEntries(selected))
+}
+
+// frontendPlaywrightParentSeeds derives the parent closure from the tracked
+// Playwright execution roots instead of duplicating a catalog target list here.
+// The gate catalog may add a describe target within an existing spec; that
+// target must observe the same spec/config closure. A newly tracked spec or
+// config is conservatively included, yielding a false miss rather than a hit.
+// frontendPlaywrightParentSeeds 收集所有已跟踪 Playwright spec/config 入口。
+func (snapshot *remoteGitTreeSnapshot) frontendPlaywrightParentSeeds() []string {
+	seeds := make([]string, 0)
+	for _, entry := range snapshot.entries {
+		if strings.HasPrefix(entry.path, "frontend-app/tests/e2e/") && strings.HasSuffix(entry.path, ".spec.js") {
+			seeds = append(seeds, entry.path)
+			continue
+		}
+		relative := strings.TrimPrefix(entry.path, frontendAppInputPrefix)
+		if strings.HasPrefix(entry.path, frontendAppInputPrefix) && frontendPlaywrightConfigSourcePath(relative) {
+			seeds = append(seeds, entry.path)
+		}
+	}
+	return seeds
 }
 
 func (snapshot *remoteGitTreeSnapshot) frontendStaticImportClosure(ctx context.Context, seeds []string) (map[string]struct{}, bool, error) {
@@ -369,8 +479,8 @@ func (snapshot *remoteGitTreeSnapshot) resolveFrontendImport(currentPath, import
 		return "", false, nil
 	}
 	base := frontendImportBase(currentPath, importPath)
-	if base != "frontend-app" && !strings.HasPrefix(base, "frontend-app/") {
-		return "", false, fmt.Errorf("frontend import %q from %q escapes frontend-app", importPath, currentPath)
+	if base == "." || base == ".." || strings.HasPrefix(base, "../") {
+		return "", false, fmt.Errorf("frontend import %q from %q escapes repository root", importPath, currentPath)
 	}
 	for _, candidate := range frontendImportCandidates(base) {
 		if _, ok := snapshot.byPath[candidate]; ok {
@@ -387,8 +497,8 @@ func frontendLocalImport(importPath string) bool {
 
 // frontendImportBase 计算 import 在 frontend-app 内的规范化路径。
 func frontendImportBase(currentPath, importPath string) string {
-	if strings.HasPrefix(importPath, "/") {
-		return path.Clean(path.Join("frontend-app", strings.TrimPrefix(importPath, "/")))
+	if relative, ok := strings.CutPrefix(importPath, "/"); ok {
+		return path.Clean(path.Join("frontend-app", relative))
 	}
 	return path.Clean(path.Join(path.Dir(currentPath), importPath))
 }
@@ -467,6 +577,10 @@ func frontendJavaScriptWord(source []byte, word string, start int) ([]string, bo
 		return frontendExportWord(source, start)
 	case "require":
 		return frontendRequireWord(source, start)
+	case "fs":
+		return frontendFSWord(source, start)
+	case "addInitScript":
+		return frontendAddInitScriptWord(source, start)
 	default:
 		return nil, false, start
 	}
@@ -504,14 +618,190 @@ func frontendExportWord(source []byte, start int) ([]string, bool, int) {
 // frontendRequireWord 解析字符串形式 require，并将变量形式视为动态观察。
 func frontendRequireWord(source []byte, start int) ([]string, bool, int) {
 	next := skipFrontendIgnorable(source, start)
+	resolve := bytes.HasPrefix(source[next:], []byte(".resolve"))
+	if resolve {
+		resolveEnd := next + len(".resolve")
+		if resolveEnd < len(source) && frontendIdentifierContinue(source[resolveEnd]) {
+			return nil, false, start
+		}
+		next = skipFrontendIgnorable(source, resolveEnd)
+	}
 	if next >= len(source) || source[next] != '(' {
-		return nil, false, start
+		return nil, resolve, next
 	}
 	next = skipFrontendIgnorable(source, next+1)
 	if spec, end, ok := frontendStringAt(source, next); ok {
 		return []string{spec}, false, end
 	}
 	return nil, true, next
+}
+
+// frontendFSWord 解析 fs.readFileSync 的静态或动态路径观察。
+func frontendFSWord(source []byte, start int) ([]string, bool, int) {
+	next := skipFrontendIgnorable(source, start)
+	if !bytes.HasPrefix(source[next:], []byte(".readFileSync")) {
+		return nil, false, start
+	}
+	next = skipFrontendIgnorable(source, next+len(".readFileSync"))
+	if next >= len(source) {
+		return nil, true, next
+	}
+	if source[next] != '(' {
+		return nil, true, next
+	}
+	next = skipFrontendIgnorable(source, next+1)
+	if spec, end, ok := frontendStringAt(source, next); ok {
+		return []string{spec}, false, end
+	}
+	if next >= len(source) || !frontendIdentifierStart(source[next]) {
+		return nil, true, next
+	}
+	word, end := frontendIdentifierAt(source, next)
+	if word == "require" {
+		return frontendRequireWord(source, end)
+	}
+	return nil, true, next
+}
+
+// frontendAddInitScriptWord observes Playwright's optional external init script.
+// A direct string path is resolved into the exact frontend tree; computed paths
+// are intentionally dynamic and force the caller to hash the whole observed tree.
+// frontendAddInitScriptWord 解析 Playwright addInitScript 的外部脚本观察。
+func frontendAddInitScriptWord(source []byte, start int) ([]string, bool, int) {
+	callOpen := skipFrontendIgnorable(source, start)
+	if callOpen >= len(source) || source[callOpen] != '(' {
+		return nil, false, start
+	}
+	callEnd, ok := frontendBalancedDelimiter(source, callOpen, '(', ')')
+	if !ok {
+		return nil, true, len(source)
+	}
+	next := skipFrontendIgnorable(source, callOpen+1)
+	if next >= callEnd-1 {
+		return nil, true, callEnd
+	}
+	if spec, _, ok := frontendStringAt(source, next); ok {
+		return []string{spec}, false, callEnd
+	}
+	if frontendStartsInlineCallback(source, next, callEnd) {
+		return nil, frontendCallbackHasExternalRead(source[next : callEnd-1]), callEnd
+	}
+	if source[next] == '{' {
+		imports, observesDynamic, _ := frontendAddInitScriptObject(source, next)
+		return imports, observesDynamic, callEnd
+	}
+	return nil, true, callEnd
+}
+
+// frontendBalancedDelimiter 匹配 JavaScript 分隔符并跳过字符串与注释。
+func frontendBalancedDelimiter(source []byte, start int, open, close byte) (int, bool) {
+	depth := 0
+	for index := start; index < len(source); index++ {
+		next, skipped := frontendSkipLexeme(source, index)
+		if skipped {
+			index = next - 1
+			continue
+		}
+		switch source[index] {
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return index + 1, true
+			}
+		}
+	}
+	return len(source), false
+}
+
+func frontendStartsInlineCallback(source []byte, start, callEnd int) bool {
+	cursor := skipFrontendIgnorable(source, start)
+	if cursor >= callEnd {
+		return false
+	}
+	if bytes.HasPrefix(source[cursor:], []byte("function")) {
+		return true
+	}
+	if bytes.HasPrefix(source[cursor:], []byte("async")) {
+		cursor = skipFrontendIgnorable(source, cursor+len("async"))
+		if bytes.HasPrefix(source[cursor:], []byte("function")) {
+			return true
+		}
+	}
+	return bytes.Contains(source[cursor:callEnd], []byte("=>"))
+}
+
+func frontendCallbackHasExternalRead(source []byte) bool {
+	for index := 0; index < len(source); {
+		next, skipped := frontendSkipLexeme(source, index)
+		if skipped {
+			index = next
+			continue
+		}
+		if !frontendIdentifierStart(source[index]) {
+			index++
+			continue
+		}
+		word, end := frontendIdentifierAt(source, index)
+		if frontendCallbackIdentifierHasExternalRead(source, word, end) {
+			return true
+		}
+		index = end
+	}
+	return false
+}
+
+// frontendCallbackIdentifierHasExternalRead 判断回调是否读取外部运行时输入。
+func frontendCallbackIdentifierHasExternalRead(source []byte, word string, end int) bool {
+	next := skipFrontendIgnorable(source, end)
+	switch word {
+	case "fetch", "WebSocket", "XMLHttpRequest", "EventSource":
+		return next < len(source) && source[next] == '('
+	case "document", "navigator", "location", "localStorage", "sessionStorage", "indexedDB", "performance", "crypto", "process", "runtime":
+		return true
+	case "window", "globalThis", "self":
+		if next >= len(source) || source[next] != '.' {
+			return false
+		}
+		next = skipFrontendIgnorable(source, next+1)
+		if next >= len(source) || !frontendIdentifierStart(source[next]) {
+			return false
+		}
+		property, _ := frontendIdentifierAt(source, next)
+		property = strings.ToLower(property)
+		return strings.Contains(property, "runtime") || containsString([]string{"fetch", "websocket", "xmlhttprequest", "eventsource", "navigator", "document", "location", "localstorage", "sessionstorage", "indexeddb", "performance", "crypto", "process"}, property)
+	default:
+		return false
+	}
+}
+
+// frontendAddInitScriptObject 解析 addInitScript 对象的 path/content 字段。
+func frontendAddInitScriptObject(source []byte, start int) ([]string, bool, int) {
+	end, ok := frontendBalancedDelimiter(source, start, '{', '}')
+	if !ok {
+		return nil, true, len(source)
+	}
+	body := source[start:end]
+	pathAt := bytes.Index(body, []byte("path"))
+	if pathAt >= 0 {
+		value := skipFrontendIgnorable(body, pathAt+len("path"))
+		if value < len(body) && body[value] == ':' {
+			value = skipFrontendIgnorable(body, value+1)
+			if spec, _, ok := frontendStringAt(body, value); ok {
+				return []string{spec}, false, end
+			}
+			return nil, true, end
+		}
+	}
+	imports, dynamic := frontendJavaScriptImports(body)
+	if dynamic || len(imports) > 0 {
+		return imports, dynamic, end
+	}
+	if bytes.Contains(body, []byte("content")) {
+		return nil, true, end
+	}
+	return nil, false, end
 }
 
 func frontendFromSpecifier(source []byte, start int) (string, int, bool) {

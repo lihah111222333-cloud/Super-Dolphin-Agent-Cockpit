@@ -208,13 +208,13 @@ afterEach(cleanupAppTest);
     expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('127.0.0.1');
   });
 
-  it('shows a sanitized initialization failure when successful transport reaches a local bootstrap failure', async () => {
+  it('shows a recovery control when successful transport reaches a local bootstrap failure', async () => {
     const rawCause = 'invalid projects response /Users/private token=secret';
     backend.getProjects.mockRejectedValueOnce(new TypeError(rawCause));
 
     render(<App />);
 
-    expect(await screen.findByText('应用初始化失败，请重试。')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '重新连接后端' })).toBeInTheDocument();
     expect(screen.queryByText(/连接后端失败/)).not.toBeInTheDocument();
     expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionId: 'app.bootstrap.background' }),

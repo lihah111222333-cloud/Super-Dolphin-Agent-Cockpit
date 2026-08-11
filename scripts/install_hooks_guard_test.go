@@ -54,7 +54,10 @@ func TestInstallHooksMakeTargetBuildsExactTreeLauncherByDefault(t *testing.T) {
 func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T) {
 	guard := readRequiredFile(t, filepath.Join(scriptRepoRoot(t), "scripts", "build-trusted-gate-launcher.sh"))
 	assertScriptContains(t, guard, `git -C "$repo_root" cat-file blob "${tree}:${file_path}"`)
+	assertScriptContains(t, guard, `git -C "$repo_root" archive --format=tar -o "$archive_path" "$tree"`)
+	assertScriptContains(t, guard, `tar -xf "$archive_path" -C "$temp_root"`)
 	assertScriptDoesNotContain(t, guard, `git -C "$repo_root" cat-file "${tree}:${file_path}"`)
+	assertScriptDoesNotContain(t, guard, `archive --format=tar "$tree" | tar`)
 	assertScriptDoesNotContain(t, guard, "--install-root")
 	assertScriptDoesNotContain(t, guard, "super-dolphin-gate-launchers")
 }

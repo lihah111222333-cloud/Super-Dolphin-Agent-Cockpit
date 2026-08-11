@@ -20,13 +20,26 @@ type workerExecutionRoot struct {
 	symbol    string
 }
 
-// workerExecutionRoots are process boundaries, not source-file registrations.
-// Every production declaration reachable from these roots is derived from the
-// cicontract.TargetPlatform Git tree below.
+// workerExecutionRoots are worker process boundaries and the small, canonical
+// request helpers that define how that process is started. Coordinator
+// orchestration, resource planning, job identity, and ECI bookkeeping are not
+// roots; their non-semantic edits must not invalidate EnvironmentV10.
 var workerExecutionRoots = []workerExecutionRoot{
 	{directory: "cmd/super-dolphin-gate", symbol: "runRemoteMaterialize"},
 	{directory: "cmd/super-dolphin-gate", symbol: "runWorkerCLI"},
-	{directory: "internal/devtools/remoteci", symbol: "createRequest"},
+	{directory: "internal/devtools/remoteci", symbol: "remoteShardBootstrapSH"},
+	{directory: "internal/devtools/remoteci", symbol: "remoteWorkerEnvironment"},
+	{directory: "internal/devtools/remoteci", symbol: "remoteWorkerSupervisorCommand"},
+}
+
+// workerExecutionLegacyV4Roots freezes the pre-precision v4 contract for
+// migration proof only. It is never used for new PASS identity production.
+func workerExecutionLegacyV4Roots() []workerExecutionRoot {
+	return []workerExecutionRoot{
+		{directory: "cmd/super-dolphin-gate", symbol: "runRemoteMaterialize"},
+		{directory: "cmd/super-dolphin-gate", symbol: "runWorkerCLI"},
+		{directory: "internal/devtools/remoteci", symbol: "createRequest"},
+	}
 }
 
 type workerExecutionGoImport struct {
@@ -64,13 +77,14 @@ type workerExecutionGoIndex struct {
 }
 
 type workerExecutionGoClosure struct {
-	index       *workerExecutionGoIndex
-	selected    map[string]*workerExecutionGoUnit
-	usedImports map[string]map[string]struct{}
-	reached     map[string]struct{}
-	queue       []*workerExecutionGoUnit
-	resolved    int
-	commands    [][]string
+	index                     *workerExecutionGoIndex
+	selected                  map[string]*workerExecutionGoUnit
+	usedImports               map[string]map[string]struct{}
+	reached                   map[string]struct{}
+	queue                     []*workerExecutionGoUnit
+	resolved                  int
+	commands                  [][]string
+	includeAllReceiverMethods bool
 }
 
 type workerExecutionFragment struct {
@@ -131,14 +145,56 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigest(ctx context
 	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
 		return "", err
 	}
+	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
+		return "", err
+	}
+	return digestWorkerExecutionClosure(closure, assets)
+}
+
+// workerExecutionContractDigestLegacyV4 recomputes the broad v4 digest that
+// older PASS evidence recorded. It exists solely for source-tree migration
+// proof; callers must not use it as the current worker identity.
+// 仅用于验证历史来源树的旧环境证据，不参与新的复用身份计算。
+func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestLegacyV4(ctx context.Context) (string, error) {
+	roots := workerExecutionLegacyV4Roots()
+	if err := validateWorkerExecutionRoots(roots); err != nil {
+		return "", err
+	}
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return "", err
+	}
+	closure, err := snapshot.resolveWorkerExecutionClosureWithRoots(roots, true)
+	if err != nil {
+		return "", err
+	}
+	assets := &workerExecutionAssets{
+		snapshot:       snapshot,
+		entries:        make(map[string]remoteGitTreeEntry),
+		fragments:      make(map[string]workerExecutionFragment),
+		scannedScripts: make(map[string]struct{}),
+	}
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		return "", err
+	}
+	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
+		return "", err
+	}
 	return digestWorkerExecutionClosure(closure, assets)
 }
 
 // resolveWorkerExecutionClosure 解析全部受控根的 Go 依赖闭包。
 func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosure() (*workerExecutionGoClosure, error) {
+	return snapshot.resolveWorkerExecutionClosureWithRoots(workerExecutionRoots, false)
+}
+
+func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosureWithRoots(
+	roots []workerExecutionRoot,
+	includeAllReceiverMethods bool,
+) (*workerExecutionGoClosure, error) {
 	index := snapshot.buildWorkerExecutionGoIndex()
 	closure := newWorkerExecutionGoClosure(index)
-	for _, root := range workerExecutionRoots {
+	closure.includeAllReceiverMethods = includeAllReceiverMethods
+	for _, root := range roots {
 		unit, err := index.resolveRoot(root)
 		if err != nil {
 			return nil, err

@@ -17,29 +17,41 @@ import (
 func TestDurationLedgerStoreRoundTripAndCAS(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	first := testDurationLedger(101)
+	setDurationSampleGenerations(first.Samples, 1)
 	snapshot, err := store.CompareAndSwap(0, first)
 	if err != nil {
 		t.Fatalf("CompareAndSwap(create) error = %v", err)
 	}
-	if snapshot.Generation != 1 || !reflect.DeepEqual(snapshot.Ledger, first) {
-		t.Fatalf("CompareAndSwap(create) = %#v, want generation 1 and %#v", snapshot, first)
-	}
+	assertDurationLedgerSnapshot(t, snapshot, 1, first, "CompareAndSwap(create)")
 
 	loaded, err := store.Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if loaded.Generation != snapshot.Generation || !reflect.DeepEqual(loaded.Ledger, snapshot.Ledger) {
-		t.Fatalf("Load() = %#v, want %#v", loaded, snapshot)
-	}
+	assertDurationLedgerSnapshot(t, loaded, snapshot.Generation, snapshot.Ledger, "Load()")
 
 	second := testDurationLedger(202)
+	setDurationSampleGenerations(second.Samples, 2)
 	snapshot, err = store.CompareAndSwap(loaded.Generation, second)
 	if err != nil {
 		t.Fatalf("CompareAndSwap(update) error = %v", err)
 	}
-	if snapshot.Generation != 2 || !reflect.DeepEqual(snapshot.Ledger, second) {
-		t.Fatalf("CompareAndSwap(update) = %#v, want generation 2 and %#v", snapshot, second)
+	assertDurationLedgerSnapshot(t, snapshot, 2, second, "CompareAndSwap(update)")
+}
+
+func setDurationSampleGenerations(samples []DurationSample, generation uint64) {
+	for index := range samples {
+		samples[index].AcceptedGeneration = generation
+	}
+}
+
+func assertDurationLedgerSnapshot(t *testing.T, snapshot DurationLedgerSnapshot, generation uint64, ledger DurationLedger, operation string) {
+	t.Helper()
+	if snapshot.Generation != generation {
+		t.Fatalf("%s generation = %d, want %d", operation, snapshot.Generation, generation)
+	}
+	if !reflect.DeepEqual(snapshot.Ledger, ledger) {
+		t.Fatalf("%s = %#v, want ledger %#v", operation, snapshot.Ledger, ledger)
 	}
 }
 
@@ -129,6 +141,11 @@ func TestDurationLedgerStoreAppendSamplesMergesConcurrentWriters(t *testing.T) {
 	}
 	if len(snapshot.Ledger.Samples) != 4 || snapshot.Generation != 5 {
 		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	for _, sample := range snapshot.Ledger.Samples {
+		if sample.AcceptedGeneration != 1 {
+			t.Fatalf("loaded sample accepted generation = %d, want 1", sample.AcceptedGeneration)
+		}
 	}
 }
 

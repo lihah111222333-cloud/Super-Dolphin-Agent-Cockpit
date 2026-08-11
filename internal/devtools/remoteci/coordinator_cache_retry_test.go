@@ -22,9 +22,14 @@ func TestCoordinatorRunReexecutesOnlyFailedWorkloadsAfterPreviousFailure(t *test
 		t.Fatalf("first Run() error = %v", err)
 	}
 	failedWorkloads, totalWorkloads := failedCoordinatorWorkloads(t, first)
-	retry, err := runCoordinatorTest(t, newTestCoordinator(t, store, &coordinatorRuntime{}), context.Background(), input)
+	retryCoordinator := newTestCoordinator(t, store, &coordinatorRuntime{})
+	retryCoordinator.newID = func() (string, error) { return "job-0123456789abcdef01234568", nil }
+	retry, err := runCoordinatorTest(t, retryCoordinator, context.Background(), input)
 	if err != nil {
 		t.Fatalf("retry Run() error = %v", err)
+	}
+	if retry.JobID == first.JobID {
+		t.Fatalf("retry reused self-origin job ID %q", retry.JobID)
 	}
 	executedWorkloads, executed := executedCoordinatorWorkloads(retry)
 	assertCoordinatorRetryReexecutesOnlyFailures(t, retry, failedWorkloads, executedWorkloads, executed, totalWorkloads)

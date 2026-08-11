@@ -100,6 +100,7 @@ func matchingTargetBuildContext(directory string, name string) (*targetCompileTa
 		context := build.Default
 		context.GOOS = target.GOOS
 		context.GOARCH = target.GOARCH
+		context.CgoEnabled = false
 		matched, err := context.MatchFile(directory, name)
 		if err != nil {
 			return nil, err
@@ -115,6 +116,7 @@ func matchingTargetBuildContext(directory string, name string) (*targetCompileTa
 			context.GOOS = target.GOOS
 			context.GOARCH = target.GOARCH
 			context.BuildTags = append([]string(nil), registered.tags...)
+			context.CgoEnabled = false
 			matched, err := context.MatchFile(directory, name)
 			if err != nil {
 				return nil, err

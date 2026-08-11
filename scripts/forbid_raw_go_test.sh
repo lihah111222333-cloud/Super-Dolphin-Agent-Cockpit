@@ -67,7 +67,7 @@ main() {
     echo >&2
     echo "正确做法:" >&2
     echo "  - 轻量/中量精确 Go 测试使用 scripts/test_with_guard.sh --host-test <light|medium>" >&2
-    echo "  - race、benchmark、fuzz、整包、重型门禁和未知耗时测试使用 super-dolphin-gate test 进入 ECI" >&2
+    echo "  - race、benchmark、fuzz、整包、重型门禁和未知耗时测试使用 super-dolphin-gate test --target=remote 进入 ECI" >&2
     echo "  - 宿主结果固定为 LOCAL_NON_AUTHORITATIVE，不得替代 ECI PASS" >&2
     echo >&2
     echo "违规位置:" >&2

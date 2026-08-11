@@ -216,6 +216,8 @@ npm install -g typescript-language-server typescript@5.9.3
 
 For maintainers running the private remote ECI gate, authenticate GitHub CLI once and use `git remote-ci commit ...` / `git remote-ci push`. The repository-owned launcher reads GHCR credentials from the operating-system credential store and keeps both GHCR and agent tokens in the current Git process chain only. It can target another initialized trusted checkout with `./scripts/git_with_remote_ci_credentials.sh --repository /absolute/path -- <git arguments>`; no raw credential is stored in Git or repository files.
 
+For one exact test that must execute in ECI, use the trusted launcher with an explicit authority target: `"$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --target=remote --config "$SUPER_DOLPHIN_GATE_REMOTE_CONFIG" --ledger "$SUPER_DOLPHIN_GATE_LEDGER" --test './package#TestName'`. `test` otherwise defaults to `auto`; `super-dolphin-gate test --help` documents `local`, `auto`, `hybrid`, `remote`, and `--gate-workload`. A host admission rejection only prints this command and never creates ECI work itself.
+
 Run the current desktop development flow:
 
 ```bash
@@ -263,7 +265,7 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 475 runnable `Test*` functions across 166 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 495 runnable `Test*` functions across 175 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
 | CI | [Alibaba Cloud ECI contract](docs/契约/remote-ci-eci-imagecache-contract.md) |

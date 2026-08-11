@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -34,6 +33,12 @@ func TestFinalizeRemoteCIRunAuthorityAllHitDoesNotPromote(t *testing.T) {
 		t.Fatalf("finalize all-hit origin: %v", err)
 	}
 	original := lookupSingleWorkloadPassEvidence(t, store, identity)
+	invalidFresh := fresh
+	invalidFresh.CandidateGateSourceSHA256 = ""
+	invalidFresh.CandidateGateToolchainSHA256 = ""
+	if err := validateRemoteCIRunRecord(invalidFresh); err == nil || !strings.Contains(err.Error(), "candidate gate compile identity") {
+		t.Fatalf("fresh run without candidate Gate identity error = %v", err)
+	}
 
 	reused := fresh
 	reused.JobID = "finalize-all-hit-consumer"
@@ -43,6 +48,8 @@ func TestFinalizeRemoteCIRunAuthorityAllHitDoesNotPromote(t *testing.T) {
 	reused.Shards = nil
 	reused.WorkloadExecutions = nil
 	reused.TimingObservations = nil
+	reused.CandidateGateSourceSHA256 = ""
+	reused.CandidateGateToolchainSHA256 = ""
 	reused.WorkloadResults = []RemoteCIWorkloadResult{{Identity: identity, Disposition: WorkloadDispositionReused, OriginJobID: fresh.JobID, OriginAcceptedGeneration: fresh.AcceptedGeneration, EvidenceSHA256: original.EvidenceSHA256}}
 	if err := store.RecordProvisionalRemoteCIRun(reused); err != nil {
 		t.Fatalf("record provisional all-hit run: %v", err)
@@ -234,6 +241,10 @@ func TestWorkloadPassEvidenceDoesNotPromoteReusedResult(t *testing.T) {
 	reused.Shards = nil
 	reused.WorkloadExecutions = nil
 	reused.TimingObservations = nil
+	// Pure all-hit runs do not resolve or execute candidate Gate compilation;
+	// the contract therefore requires both candidate compile identity fields empty.
+	reused.CandidateGateSourceSHA256 = ""
+	reused.CandidateGateToolchainSHA256 = ""
 	reused.WorkloadResults[0] = RemoteCIWorkloadResult{Identity: identity, Disposition: WorkloadDispositionReused, OriginJobID: fresh.JobID, OriginAcceptedGeneration: fresh.AcceptedGeneration, EvidenceSHA256: original.EvidenceSHA256}
 	if err := store.RecordProvisionalRemoteCIRun(reused); err != nil {
 		t.Fatalf("record reused run: %v", err)
@@ -253,7 +264,12 @@ func TestWorkloadPassEvidenceDoesNotPromoteReusedResult(t *testing.T) {
 // TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition 拒绝把 reused 混入本次 fresh 分片或执行。
 func TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition(t *testing.T) {
 	workloadID := GateID("workload-partition")
-	index, err := newRemoteCIRunCatalogIndex(WorkloadCatalog{Workloads: []Workload{{ID: string(workloadID), Shardable: true}}})
+	catalog := WorkloadCatalog{Version: durationLedgerVersion, Workloads: []Workload{{ID: string(workloadID), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 1, Shardable: true}}}
+	index, err := newRemoteCIRunCatalogIndex(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := NewRemoteCIFullExecutionScope(catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +292,7 @@ func TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition(t *tes
 		{name: "reused in fresh execution", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{reused}, WorkloadExecutions: []PlanGateExecution{execution}}, want: "is not executed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := index.validatePassed(test.record)
+			err := index.validatePassed(test.record, scope)
 			if test.want == "" && err != nil {
 				t.Fatalf("validate passed run: %v", err)
 			}
@@ -555,6 +571,26 @@ func TestWorkloadPassEvidenceLookupRejectsRecomputedOriginAgentTampering(t *test
 	assertWorkloadPassLookupMiss(t, store, identity)
 }
 
+// TestWorkloadPassEvidenceRejectsSecondReceiptSetDigestTampering 验证仅篡改第二条回执并重算行、集合和 evidence 摘要仍不能通过查询或最终化。
+func TestWorkloadPassEvidenceRejectsSecondReceiptSetDigestTampering(t *testing.T) {
+	fixture := newSecondReceiptTamperFixture(t)
+	second, forgedEvidence := forgeSecondReceiptDigests(t, fixture)
+	persistSecondReceiptTampering(t, fixture, second, forgedEvidence)
+	if _, err := fixture.store.LookupWorkloadPassEvidence([]WorkloadPassIdentity{fixture.freshIdentity}); err == nil {
+		t.Fatal("lookup accepted second-receipt tampering after recomputing digests")
+	}
+	finalizeErr := fixture.store.FinalizeRemoteCIRunAuthorityWithSamples(
+		remoteCIRunAuthorityIdentity(fixture.consumer),
+		completeWorkloadPassReceiptsForCatalog(t, fixture.consumer, fixture.freshCatalog),
+		nil,
+		false,
+	)
+	if finalizeErr == nil {
+		t.Fatal("finalize accepted second-receipt tampering after recomputing digests")
+	}
+	assertRemoteCIRunAuthoritative(t, fixture.store, fixture.consumer.JobID, false)
+}
+
 // TestWorkloadPassEvidenceRetainsThreeLatestGenerations 验证第四个 accepted generation 同事务淘汰最早证据。
 func TestWorkloadPassEvidenceRetainsThreeLatestGenerations(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 4)
@@ -669,7 +705,7 @@ func remoteCIRunAuthorityIdentity(record RemoteCIRunRecord) RemoteCIRunAuthority
 	for _, result := range record.WorkloadResults {
 		identities = append(identities, result.Identity)
 	}
-	return RemoteCIRunAuthorityIdentity{JobID: record.JobID, AgentTokenDigest: record.AgentTokenDigest, Force: record.Force, Entrypoint: record.Entrypoint, Profile: record.Profile, PlanDigest: record.PlanDigest, CatalogDigest: record.CatalogDigest, AcceptedGeneration: record.AcceptedGeneration, ImageCacheSnapshotID: record.ImageCacheSnapshotID, SourceTreeSHA: record.SourceTreeSHA, CandidateGateSourceSHA256: record.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: record.CandidateGateToolchainSHA256, RunnerImage: record.RunnerImage, StartedAt: record.StartedAt, WorkloadPassIdentities: identities}
+	return RemoteCIRunAuthorityIdentity{JobID: record.JobID, AgentTokenDigest: record.AgentTokenDigest, Force: record.Force, Entrypoint: record.Entrypoint, Profile: record.Profile, PlanDigest: record.PlanDigest, CatalogDigest: record.CatalogDigest, AcceptedGeneration: record.AcceptedGeneration, Scope: record.Scope, ImageCacheSnapshotID: record.ImageCacheSnapshotID, SourceTreeSHA: record.SourceTreeSHA, CandidateGateSourceSHA256: record.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: record.CandidateGateToolchainSHA256, RunnerImage: record.RunnerImage, StartedAt: record.StartedAt, WorkloadPassIdentities: identities}
 }
 
 // installFinalizeFailure 在 store 私有最终化 hook 上注入一个精确失败点，不改变 SQLite schema。
@@ -769,121 +805,4 @@ func recordWorkloadPassRunAt(t *testing.T, store *DurationLedgerStore, jobID str
 		t.Fatalf("record workload pass run: %v", err)
 	}
 	return record, identity, completeWorkloadPassReceipts(t, record)
-}
-
-// completeWorkloadPassReceipts 构造与 run 的 tree、generation 和 agent 身份完全绑定的全部回执。
-func completeWorkloadPassReceipts(t *testing.T, record RemoteCIRunRecord) []CheckReceiptRecord {
-	t.Helper()
-	receipts := completeWorkloadPassReceiptsForTime(record, record.StartedAt)
-	for index := range receipts {
-		receipts[index].AcceptedGeneration = record.AcceptedGeneration
-		receipts[index].AcceptedSnapshotID = record.ImageCacheSnapshotID
-		receipts[index].AgentTokenDigest = record.AgentTokenDigest
-		digest, err := CheckReceiptSHA256(receipts[index])
-		if err != nil {
-			t.Fatal(err)
-		}
-		receipts[index].ReceiptSHA256 = digest
-	}
-	return receipts
-}
-
-// completeWorkloadPassReceiptsForTime 构造测试目录实际覆盖的 normal 检查回执。
-func completeWorkloadPassReceiptsForTime(record RemoteCIRunRecord, startedAt time.Time) []CheckReceiptRecord {
-	receipts := testCompleteCheckReceipts(record.JobID, record.SourceTreeSHA, startedAt)[1:2]
-	return append([]CheckReceiptRecord(nil), receipts...)
-}
-
-// lookupSingleWorkloadPassEvidence 查回恰好一条严格匹配的提升证据。
-func lookupSingleWorkloadPassEvidence(t *testing.T, store *DurationLedgerStore, identity WorkloadPassIdentity) WorkloadPassEvidence {
-	t.Helper()
-	evidence, err := store.LookupWorkloadPassEvidence([]WorkloadPassIdentity{identity})
-	if err != nil {
-		t.Fatalf("lookup workload pass evidence: %v", err)
-	}
-	if len(evidence) != 1 {
-		t.Fatalf("lookup workload pass evidence count = %d, want 1", len(evidence))
-	}
-	return evidence[0]
-}
-
-// assertWorkloadPassLookupMiss 确认 SQLite lookup 不返回不可复用的证据。
-func assertWorkloadPassLookupMiss(t *testing.T, store *DurationLedgerStore, identity WorkloadPassIdentity) {
-	t.Helper()
-	evidence, err := store.LookupWorkloadPassEvidence([]WorkloadPassIdentity{identity})
-	if err != nil {
-		return
-	}
-	if len(evidence) != 0 {
-		t.Fatalf("workload pass evidence = %#v, want lookup miss", evidence)
-	}
-}
-
-// mutateWorkloadPassReceipt 直接模拟持久化回执删除或不重算摘要的篡改。
-func mutateWorkloadPassReceipt(t *testing.T, store *DurationLedgerStore, jobID, mutation string) {
-	t.Helper()
-	database := openWorkloadPassDatabase(t, store)
-	defer database.Close()
-	query := `DELETE FROM ci_check_receipts WHERE rowid IN (SELECT rowid FROM ci_check_receipts WHERE job_id = ? LIMIT 1)`
-	if mutation == "tamper" {
-		query = `UPDATE ci_check_receipts SET passed = 0 WHERE job_id = ? AND required_check = ?`
-	}
-	arguments := []any{jobID}
-	if mutation == "tamper" {
-		arguments = append(arguments, cicontract.RequiredCheckNormal)
-	}
-	if _, err := database.Exec(query, arguments...); err != nil {
-		t.Fatalf("%s workload receipt: %v", mutation, err)
-	}
-}
-
-// countWorkloadPassEvidence 返回精确 identity 当前保留的证据代数。
-func countWorkloadPassEvidence(t *testing.T, store *DurationLedgerStore, identity WorkloadPassIdentity) int {
-	t.Helper()
-	database := openWorkloadPassDatabase(t, store)
-	defer database.Close()
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_workload_pass_evidence WHERE identity_digest = ?`, identity.IdentityDigest).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
-// assertWorkloadPassGenerationAbsent 确认 compaction 已删除指定 accepted generation 的 PASS 证据。
-func assertWorkloadPassGenerationAbsent(t *testing.T, store *DurationLedgerStore, generation uint64) {
-	t.Helper()
-	database := openWorkloadPassDatabase(t, store)
-	defer database.Close()
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_workload_pass_evidence WHERE accepted_generation = ?`, fmt.Sprintf("%d", generation)).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("generation %d workload pass evidence count = %d, want 0", generation, count)
-	}
-}
-
-// openWorkloadPassDatabase 打开本测试唯一的 SQLite authority 以验证持久化边界。
-func openWorkloadPassDatabase(t *testing.T, store *DurationLedgerStore) *sql.DB {
-	t.Helper()
-	database, err := store.openSQLiteAuthority(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return database
-}
-
-// workloadPassIdentityDigest 生成内容绑定的 identity 摘要。
-func workloadPassIdentityDigest(t *testing.T, identity WorkloadPassIdentity) string {
-	t.Helper()
-	digest, err := WorkloadPassIdentitySHA256(identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return digest
-}
-
-// digestForWorkloadPass 生成测试专用、格式正确的 SHA-256 文本。
-func digestForWorkloadPass(value string) string {
-	return "sha256:" + fmt.Sprintf("%064x", len(value))
 }

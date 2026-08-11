@@ -8,8 +8,8 @@ import (
 )
 
 // TestRemoteCINormalRuntimeRejectsImplicitWorkloadPassMigration 锁定 normal
-// runtime 与 gate runtime 只能按当前完整 workload identity 查询 PASS；历史
-// identity 的 migration readback/alias projection 不得重新接回执行路径。
+// runtime 先按当前完整 identity 查询；严格来源树重算只产生当前 identity proof，
+// 历史 identity 的 alias/migrated evidence 不得重新接回执行路径。
 func TestRemoteCINormalRuntimeRejectsImplicitWorkloadPassMigration(t *testing.T) {
 	root := findRepoRoot(t)
 	seen := false
@@ -64,11 +64,13 @@ func remoteCIImplicitWorkloadPassMigrationViolations(file *ast.File) []string {
 	return remoteCIViolationList(violations)
 }
 
-// TestRemoteCIWorkloadPassMigrationGuardCounterexamples 验证精确入口会被
-// 拒绝，而正常复用和严格物理 schema migration 不会被通用词误报。
+// TestRemoteCIWorkloadPassMigrationGuardCounterexamples 验证旧 alias 入口会被
+// 拒绝，而正常复用、来源树重算和严格物理 schema migration 不会被误报。
 func TestRemoteCIWorkloadPassMigrationGuardCounterexamples(t *testing.T) {
 	safe := remoteCIParseGuardFixture(t, `package fixture
 func lookupRemoteWorkloadPasses() {}
+func replayRemoteWorkloadPassMisses() {}
+func LookupWorkloadPassSourceReplayCandidates() {}
 func migrateDurationLedgerSQLiteV11SchemaOnConnection() {
 	_ = "CREATE TABLE IF NOT EXISTS ci_shard_terminal_containers"
 	_ = "ci_workload_pass_evidence"

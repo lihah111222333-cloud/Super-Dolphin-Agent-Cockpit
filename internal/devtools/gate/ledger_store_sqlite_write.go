@@ -62,11 +62,16 @@ func insertSQLiteDurationSamples(transaction *sql.Tx, acceptedGeneration uint64,
 	if err := ValidateDurationLedger(DurationLedger{Version: durationLedgerVersion, Samples: samples}); err != nil {
 		return fmt.Errorf("validate duration samples before SQLite insert: %w", err)
 	}
+	if err := validateDurationSampleAcceptedGenerations(samples, acceptedGeneration); err != nil {
+		return err
+	}
+	return insertSQLiteDurationSampleBatches(transaction, acceptedGeneration, samples)
+}
+
+// insertSQLiteDurationSampleBatches 按 SQLite 变量上限分块写入已校验样本。
+func insertSQLiteDurationSampleBatches(transaction *sql.Tx, acceptedGeneration uint64, samples []DurationSample) error {
 	for offset := 0; offset < len(samples); offset += sqliteDurationSampleBatchRows {
-		end := offset + sqliteDurationSampleBatchRows
-		if end > len(samples) {
-			end = len(samples)
-		}
+		end := min(offset+sqliteDurationSampleBatchRows, len(samples))
 		statementSQL, err := sqliteDurationSampleBatchSQL(end - offset)
 		if err != nil {
 			return err
@@ -92,6 +97,15 @@ func insertSQLiteDurationSamples(transaction *sql.Tx, acceptedGeneration uint64,
 	return nil
 }
 
+func validateDurationSampleAcceptedGenerations(samples []DurationSample, acceptedGeneration uint64) error {
+	for _, sample := range samples {
+		if sample.AcceptedGeneration != 0 && sample.AcceptedGeneration != acceptedGeneration {
+			return fmt.Errorf("duration sample accepted generation %d does not match transaction generation %d", sample.AcceptedGeneration, acceptedGeneration)
+		}
+	}
+	return nil
+}
+
 // sqliteDurationSampleBatchSQL 为每个批次生成固定列数的多值 INSERT。
 func sqliteDurationSampleBatchSQL(rowCount int) (string, error) {
 	if rowCount <= 0 || rowCount > sqliteDurationSampleBatchRows {
@@ -107,7 +121,7 @@ func sqliteDurationSampleBatchSQL(rowCount int) (string, error) {
 			succeeded, duration_ms, target_kind, parent_workload_id,
 			parent_command_digest, target_name, target_status
 		) VALUES `)
-	for row := 0; row < rowCount; row++ {
+	for row := range rowCount {
 		if row > 0 {
 			values.WriteString(",")
 		}

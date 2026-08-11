@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const testWorkloadDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -107,7 +109,7 @@ func TestDurationLedgerJSONFieldCoverage(t *testing.T) {
 			name:     "sample",
 			producer: reflect.TypeFor[DurationSample](),
 			fields: []string{
-				"bucket", "duration_ms", "parent_command_digest", "parent_workload_id",
+				"accepted_generation", "bucket", "duration_ms", "parent_command_digest", "parent_workload_id",
 				"succeeded", "target_kind", "target_name", "target_status",
 			},
 		},
@@ -477,6 +479,61 @@ func TestBuildWorkloadExecutionPlanForWorkloadsBindsCatalogLedgerAndPlanner(t *t
 			}
 		}
 	}
+	assertWorkloadExecutionPlanPlannerIdentity(t, plan)
+}
+
+func TestValidateStoredRejectsPackingEvidencePlannedShardTamper(t *testing.T) {
+	gatePlan := mustBuildPlan(t, ProfileRelease)
+	catalog, err := BuildExpandedWorkloadCatalog(gatePlan, DefaultWorkloadBootstrapPolicy(), WorkloadInventory{
+		GoPackages: []string{"./internal/alpha", "./internal/beta"},
+	})
+	if err != nil {
+		t.Fatalf("BuildExpandedWorkloadCatalog() error = %v", err)
+	}
+	snapshot := DurationLedgerSnapshot{Generation: 7, Ledger: fastDurationLedger(catalog)}
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, testLinuxPlanningContext(), allShardableWorkloadIDsForTest(catalog))
+	if err != nil {
+		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v", err)
+	}
+	plan.PackingEvidence = append([]WorkloadPackingEvidence(nil), plan.PackingEvidence...)
+	plan.PackingEvidence[0].PlannedShards++
+	plan.PlanDigest, err = plan.digest()
+	if err != nil {
+		t.Fatalf("digest tampered plan: %v", err)
+	}
+	if err := plan.ValidateStored(gatePlan); err == nil || !strings.Contains(err.Error(), "planned shard count") {
+		t.Fatalf("ValidateStored() error = %v, want planned shard count rejection", err)
+	}
+}
+
+func assertWorkloadExecutionPlanPlannerIdentity(t *testing.T, plan WorkloadExecutionPlan) {
+	t.Helper()
+	if plan.SchemaVersion != 10 {
+		t.Fatalf("planner schema = %d, want 10", plan.SchemaVersion)
+	}
+	if len(plan.PackingEvidence) == 0 {
+		t.Fatal("planner packing evidence is empty")
+	}
+	if plan.AlgorithmID != WorkloadPlanningAlgorithmID {
+		t.Fatalf("planner algorithm = %q", plan.AlgorithmID)
+	}
+	if plan.ObjectiveDigest != workloadPlanningObjectiveDigest() {
+		t.Fatalf("planner objective digest = %q", plan.ObjectiveDigest)
+	}
+	expectedEstimationDigest, err := workloadEstimationPolicyDigest(plan.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.EstimationPolicyDigest != expectedEstimationDigest {
+		t.Fatalf("planner estimation policy digest = %q, want %q", plan.EstimationPolicyDigest, expectedEstimationDigest)
+	}
+	expectedPlanningDigest, err := cicontract.WorkloadPlanningPolicyDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.PlanningPolicyDigest != expectedPlanningDigest {
+		t.Fatalf("planner planning policy digest = %q, want %q", plan.PlanningPolicyDigest, expectedPlanningDigest)
+	}
 }
 
 func TestPlanningRejectsExpansionOnlyNilnessDescriptor(t *testing.T) {
@@ -567,6 +624,18 @@ func TestWorkloadExecutionPlanRejectsTamperingAndLedgerDrift(t *testing.T) {
 	tamperedTarget.Context.TargetDurationMS--
 	if err := tamperedTarget.ValidateStored(gatePlan); err == nil {
 		t.Fatal("ValidateStored() accepted a non-canonical CI target duration")
+	}
+
+	tamperedObjective := plan
+	tamperedObjective.ObjectiveDigest = "sha256:" + strings.Repeat("a", 64)
+	if err := tamperedObjective.ValidateStored(gatePlan); err == nil {
+		t.Fatal("ValidateStored() accepted a tampered planner objective digest")
+	}
+
+	tamperedEstimator := plan
+	tamperedEstimator.EstimationPolicyDigest = "sha256:" + strings.Repeat("b", 64)
+	if err := tamperedEstimator.ValidateStored(gatePlan); err == nil {
+		t.Fatal("ValidateStored() accepted an arbitrary estimation policy digest")
 	}
 
 	tamperedOwnerDuration := plan

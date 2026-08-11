@@ -61,6 +61,9 @@ func validateCanonicalWorkloadPassIdentity(identity WorkloadPassIdentity, catalo
 	if !ok || !workload.Shardable {
 		return fmt.Errorf("remote CI authority workload identity %q is absent from its shardable catalog", identity.WorkloadID)
 	}
+	if err := identity.Validate(); err != nil {
+		return fmt.Errorf("remote CI authority workload identity %q is invalid: %w", identity.WorkloadID, err)
+	}
 	if expected := WorkloadPassExecutionDigest(workload); identity.ExecutionDigest != expected {
 		return fmt.Errorf("remote CI authority workload %q execution digest does not match canonical catalog command", identity.WorkloadID)
 	}

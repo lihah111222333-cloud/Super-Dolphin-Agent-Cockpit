@@ -120,9 +120,7 @@ func validateCompileOwnerHintResource(hint CompileOwnerHint) error {
 	return nil
 }
 
-// higherDurationResource merges body and compile-owner resources by the
-// monotonic protocol order. The compile owner may upgrade a body, but can
-// never downgrade a body that already selected a higher tier.
+// higherDurationResource 按单调协议合并主体与编译 owner 资源，只允许 owner 升档。
 func higherDurationResource(body, owner durationSampleResource) (durationSampleResource, error) {
 	bodyTier, err := normalResourceTierForTuple(body.cpu, body.memoryGiB)
 	if err != nil {

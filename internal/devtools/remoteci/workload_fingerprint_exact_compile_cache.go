@@ -80,7 +80,7 @@ func (snapshot *remoteGitTreeSnapshot) computeExactCompileRoot(directory string,
 		return computed
 	}
 	if !snapshot.hasProductionGoPackage(directory, profile) && len(files) == 0 {
-		computed.err = fmt.Errorf("remote worker exact Go test package directory %q has no linux/amd64 source files", directory)
+		computed.err = fmt.Errorf("%w: remote worker exact Go test package directory %q has no linux/amd64 source files", errRemoteWorkloadInputUnavailable, directory)
 		return computed
 	}
 	if err := snapshot.addExactCompileTestFiles(files, selected, profile); err != nil {

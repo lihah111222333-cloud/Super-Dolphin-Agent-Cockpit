@@ -22,6 +22,28 @@ func TestRunCompileGroupGateFailsMissingBatchWithoutArtifactFallback(t *testing.
 	}
 }
 
+func TestRunCompileGroupGateKeepsSiblingStructuredAfterCompileFailure(t *testing.T) {
+	first := mustCompileGroupBatchWorkload(t, "TestFirstCompileFailure")
+	second := mustCompileGroupBatchWorkload(t, "TestSecondCompileAfterFailure")
+	firstID, secondID := GateID(first.ID), GateID(second.ID)
+	executions := []CompileGroupExecution{
+		{GroupID: digestPlanLog([]byte("failed-group")), WorkloadIDs: []GateID{firstID}, Status: ResultStatusFailed, ExitCode: 1, ErrorText: "compile failed"},
+		{GroupID: digestPlanLog([]byte("sibling-group")), WorkloadIDs: []GateID{secondID}, Status: ResultStatusFailed, ExitCode: 1, ErrorText: "compile failed"},
+	}
+	for _, id := range []GateID{firstID, secondID} {
+		result, err := runCompileGroupGate(context.Background(), 0, id, nil, nil, executions, nil, "", "")
+		if err != nil {
+			t.Fatalf("compile failure for %q cancelled sibling structure: %v", id, err)
+		}
+		if result.Status != ResultStatusFailed || !strings.Contains(string(result.Log), "compile failed") {
+			t.Fatalf("compile failure result for %q = %#v, want structured failure", id, result)
+		}
+		if !result.StartedAt.Equal(result.CompletedAt) || result.ExecutionProfile.StartupMS != 0 || result.ExecutionProfile.TestBodyMS != 0 || result.ExecutionProfile.TotalMS != 0 {
+			t.Fatalf("compile-before-start failure for %q fabricated measured timing: %#v", id, result)
+		}
+	}
+}
+
 func TestRunCompileGroupGateRejectsInvalidBatchIntervalWithoutArtifactFallback(t *testing.T) {
 	workload := mustCompileGroupBatchWorkload(t, "TestStatelessGuard")
 	id := GateID(workload.ID)

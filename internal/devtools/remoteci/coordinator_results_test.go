@@ -151,6 +151,17 @@ func TestRemoteCalibrationParentDurationSamplesAggregateAtomicGoTests(t *testing
 	}
 }
 
+func TestRemoteCalibrationParentDurationSamplesRejectNonPositiveProviderInterval(t *testing.T) {
+	parent := mustRemoteGoPackageWorkload(t, "./internal/module/turn")
+	child := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestZero")
+	observed := map[string]gate.PlanGateExecution{child.ID: {GateID: gate.GateID(child.ID), Status: gate.ResultStatusFailed}}
+	input := RunInput{Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1", CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}}
+	_, err := remoteCalibrationParentDurationSamples(gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{parent, child}}, observed, input, map[string]string{child.ID: "sha256:" + strings.Repeat("a", 64)})
+	if err == nil || !strings.Contains(err.Error(), "provider interval must be positive") {
+		t.Fatalf("remoteCalibrationParentDurationSamples() error = %v, want strict provider interval failure", err)
+	}
+}
+
 func mustRemoteGoPackageWorkload(t *testing.T, packagePath string) gate.Workload {
 	t.Helper()
 	workload, err := gate.NewGoPackageWorkload(gate.GateIDBackendTestWithGuard, packagePath, 1000)

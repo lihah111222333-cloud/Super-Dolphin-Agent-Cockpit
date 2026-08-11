@@ -217,7 +217,7 @@ func Select(policy Policy, shard Shard, context Context, observations []Observat
 		return Class{}, err
 	}
 	targetCPU := shard.Workloads[0].ResourceCPU
-	comparable, err := comparableObservations(policy, shard.Identity, context, observations)
+	comparable, err := comparableObservations(policy, shard.Identity, context, targetCPU, observations)
 	if err != nil {
 		return Class{}, err
 	}
@@ -227,13 +227,17 @@ func Select(policy Policy, shard Shard, context Context, observations []Observat
 	return selectFromComparableObservations(policy, targetCPU, baselineIndex, comparable)
 }
 
+// selectFromComparableObservations 按时间与结果稳定排序观测，并执行 OOM 粘滞及内存档位选择。
 func selectFromComparableObservations(policy Policy, targetCPU float64, baselineIndex int, comparable []Observation) (Class, error) {
-	sort.SliceStable(comparable, func(left, right int) bool {
-		return comparable[left].ObservedAt.Before(comparable[right].ObservedAt)
+	sort.Slice(comparable, func(left, right int) bool {
+		return observationLess(comparable[left], comparable[right])
 	})
 	latest := comparable[len(comparable)-1]
 	if latest.OOMKilled {
 		return selectAfterOOM(policy, targetCPU, baselineIndex, comparable)
+	}
+	if err := validateOOMRecovery(policy, comparable); err != nil {
+		return Class{}, err
 	}
 	successful := successfulObservations(comparable)
 	requiredIndex, err := requiredMemoryClassIndex(policy, targetCPU, successful)
@@ -247,6 +251,57 @@ func selectFromComparableObservations(policy Policy, targetCPU float64, baseline
 		requiredIndex = latestIndex
 	}
 	return policy.Classes[requiredIndex], nil
+}
+
+// validateOOMRecovery 要求最近一次 OOM 后达到稳定成功样本数后才允许降档。
+func validateOOMRecovery(policy Policy, observations []Observation) error {
+	latestOOMIndex := -1
+	for index, observation := range slices.Backward(observations) {
+		if observation.OOMKilled {
+			latestOOMIndex = index
+			break
+		}
+	}
+	if latestOOMIndex < 0 {
+		return nil
+	}
+	successesAfterOOM := 0
+	for _, observation := range observations[latestOOMIndex+1:] {
+		if observation.Succeeded {
+			successesAfterOOM++
+		}
+	}
+	if successesAfterOOM < int(policy.MinSamplesToDownsize) {
+		return fmt.Errorf(
+			"latest OOM observation requires at least %d successful observations after it, got %d",
+			policy.MinSamplesToDownsize,
+			successesAfterOOM,
+		)
+	}
+	return nil
+}
+
+// observationLess 为相同时间戳的观测提供确定性排序，保证 OOM 粘滞决策可复现。
+func observationLess(left, right Observation) bool {
+	if !left.ObservedAt.Equal(right.ObservedAt) {
+		return left.ObservedAt.Before(right.ObservedAt)
+	}
+	if left.OOMKilled != right.OOMKilled {
+		return !left.OOMKilled
+	}
+	if left.Succeeded != right.Succeeded {
+		return !left.Succeeded
+	}
+	if left.ClassID != right.ClassID {
+		return left.ClassID < right.ClassID
+	}
+	if left.PeakCPUNanoCores != right.PeakCPUNanoCores {
+		return left.PeakCPUNanoCores < right.PeakCPUNanoCores
+	}
+	if left.PeakMemoryBytes != right.PeakMemoryBytes {
+		return left.PeakMemoryBytes < right.PeakMemoryBytes
+	}
+	return left.ShardIdentity < right.ShardIdentity
 }
 
 func selectAfterOOM(policy Policy, targetCPU float64, baselineIndex int, observations []Observation) (Class, error) {
@@ -317,6 +372,7 @@ func validateSelectionWorkloads(workloads []Workload) error {
 	return nil
 }
 
+// baselineClassIndex 根据计划 workload 的 CPU 与启动档位计算不可低于的基线资源档。
 func baselineClassIndex(policy Policy, workloads []Workload) (int, error) {
 	if len(workloads) == 0 {
 		return 0, errors.New("resource selection workloads are required")
@@ -386,8 +442,8 @@ func bootstrapClassID(classes BootstrapClasses, kind string) (string, error) {
 	}
 }
 
-// comparableObservations 过滤与当前分片、运行器及工具链完全一致的有效观测。
-func comparableObservations(policy Policy, identity string, context Context, observations []Observation) ([]Observation, error) {
+// comparableObservations 过滤与当前分片、运行器、工具链和 CPU 档完全一致的有效 normal 观测。
+func comparableObservations(policy Policy, identity string, context Context, targetCPU float64, observations []Observation) ([]Observation, error) {
 	comparable := make([]Observation, 0, len(observations))
 	for index, observation := range observations {
 		if err := validateObservation(policy, observation); err != nil {
@@ -395,6 +451,13 @@ func comparableObservations(policy Policy, identity string, context Context, obs
 		}
 		if observation.ShardIdentity == identity && observation.Runner == context.Runner &&
 			observation.Toolchain == context.Toolchain {
+			if observation.ClassID == policy.CalibrationResource.ID {
+				continue
+			}
+			observed := observedClass(policy, observation.ClassID)
+			if observed.VCPU != targetCPU {
+				continue
+			}
 			comparable = append(comparable, observation)
 		}
 	}
@@ -405,7 +468,16 @@ func validateObservation(policy Policy, observation Observation) error {
 	if !validObservationIdentity(policy, observation) {
 		return errors.New("identity, class, and UTC observation time are required")
 	}
-	return validateObservationOutcome(observation)
+	if err := validateObservationOutcome(observation); err != nil {
+		return err
+	}
+	if observation.PeakMemoryBytes < 0 {
+		return errors.New("peak memory must not be negative")
+	}
+	if _, err := withHeadroom(observation.PeakMemoryBytes, policy.HeadroomPercent); err != nil {
+		return fmt.Errorf("validate peak memory headroom: %w", err)
+	}
+	return nil
 }
 
 // validObservationIdentity 判断观测身份、资源档位和 UTC 时间是否完整有效。
@@ -443,7 +515,10 @@ func requiredMemoryClassIndex(policy Policy, targetCPU float64, observations []O
 	for _, observation := range observations {
 		peakMemory = max(peakMemory, observation.PeakMemoryBytes)
 	}
-	requiredMemory := withHeadroom(peakMemory, policy.HeadroomPercent)
+	requiredMemory, err := withHeadroom(peakMemory, policy.HeadroomPercent)
+	if err != nil {
+		return 0, err
+	}
 	return selectMemoryClass(policy, targetCPU, float64(requiredMemory)/float64(gibibyte))
 }
 
@@ -458,8 +533,20 @@ func observedClass(policy Policy, id string) Class {
 	return policy.Classes[classIndex(policy.Classes, id)]
 }
 
-func withHeadroom(value int64, percent uint8) int64 {
-	return value + value*int64(percent)/100
+func withHeadroom(value int64, percent uint8) (int64, error) {
+	if value < 0 {
+		return 0, errors.New("peak memory must not be negative")
+	}
+	if percent > 100 {
+		return 0, errors.New("headroom percent must be within 0..100")
+	}
+	quotient, remainder := value/100, value%100
+	headroom := quotient * int64(percent)
+	headroom += remainder * int64(percent) / 100
+	if headroom > maxInt64-value {
+		return 0, errors.New("peak memory with headroom overflows int64")
+	}
+	return value + headroom, nil
 }
 
 func classIndex(classes []Class, id string) int {
@@ -475,3 +562,5 @@ var (
 	classIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	digestPattern  = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 )
+
+const maxInt64 = int64(1<<63 - 1)

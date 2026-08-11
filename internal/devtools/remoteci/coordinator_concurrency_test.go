@@ -216,6 +216,7 @@ func TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped(t *testing
 	if err != nil {
 		t.Fatalf("second Prepare() error = %v", err)
 	}
+	bindIndependentCoordinatorMisses(t, first, firstPrepared, firstInput, second, secondPrepared, secondInput)
 	var runs errgroup.Group
 	runs.Go(func() error {
 		_, err := first.RunPrepared(context.Background(), firstPrepared)
@@ -255,6 +256,25 @@ func TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped(t *testing
 		if got, want := request.Environment[gate.ExecutorAgentTokenDigestEnvironment], wantTokens[jobID]; got != want {
 			t.Fatalf("job %q agent token digest = %q, want %q", jobID, got, want)
 		}
+	}
+}
+
+// bindIndependentCoordinatorMisses 在并发屏障启动前完成两份独立 MISS 的执行身份绑定。
+func bindIndependentCoordinatorMisses(
+	t *testing.T,
+	first *Coordinator,
+	firstPrepared *PreparedRun,
+	firstInput RunInput,
+	second *Coordinator,
+	secondPrepared *PreparedRun,
+	secondInput RunInput,
+) {
+	t.Helper()
+	if err := bindPreparedMissExecutionForTest(context.Background(), first, firstPrepared, firstInput); err != nil {
+		t.Fatalf("first BindPreparedMissExecution() error = %v", err)
+	}
+	if err := bindPreparedMissExecutionForTest(context.Background(), second, secondPrepared, secondInput); err != nil {
+		t.Fatalf("second BindPreparedMissExecution() error = %v", err)
 	}
 }
 

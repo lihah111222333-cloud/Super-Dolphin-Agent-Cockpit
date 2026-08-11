@@ -23,7 +23,7 @@ func TestDurationLedgerSQLiteCurrentSchemaOpenIsReadOnly(t *testing.T) {
 	}
 	validator := newDurationLedgerSQLiteSchemaValidator()
 	initializerCalled := false
-	validator.initializeAuthority = func(*sql.DB, *durationLedgerSQLiteSchemaValidator) error {
+	validator.initializeAuthority = func(*sql.DB, func() time.Time, *durationLedgerSQLiteSchemaValidator) error {
 		initializerCalled = true
 		return nil
 	}
@@ -51,7 +51,9 @@ func TestDurationLedgerSQLiteInitializationFailureRollsBackEverything(t *testing
 	database := openStrictSchemaTestDatabase(t, "rollback.sqlite")
 	defer database.Close()
 	beforeMaster := durationLedgerSQLiteMasterForTest(t, database)
-	if err := initializeDurationLedgerSQLiteCurrentSchemaWithStatements(database, newDurationLedgerSQLiteSchemaValidator(), []string{
+	if err := initializeDurationLedgerSQLiteCurrentSchemaWithStatements(database, func() time.Time {
+		return time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)
+	}, newDurationLedgerSQLiteSchemaValidator(), []string{
 		`CREATE TABLE partial_authority (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE broken_authority (`,
 	}); err == nil {

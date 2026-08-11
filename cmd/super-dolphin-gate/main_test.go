@@ -21,6 +21,25 @@ func TestRetiredTopLevelCommandsAreStrictlyUnknown(t *testing.T) {
 	}
 }
 
+func TestTopLevelHelpIsLocalAndDocumentsAuthorityEntrypoints(t *testing.T) {
+	code, stdout, stderr := executeCLI([]string{"--help"})
+	if code != int(gatecontract.ExitOK) {
+		t.Fatalf("top-level --help exit code = %d, stderr=%q", code, stderr)
+	}
+	for _, required := range []string{
+		"super-dolphin-gate test",
+		"--target=remote",
+		"super-dolphin-gate remote run",
+	} {
+		if !strings.Contains(stdout, required) {
+			t.Fatalf("top-level --help omitted %q:\n%s", required, stdout)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("top-level --help wrote protocol error: %q", stderr)
+	}
+}
+
 func TestCLIErrorWriterFailureReturnsInfrastructureExit(t *testing.T) {
 	t.Parallel()
 

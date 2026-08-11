@@ -457,9 +457,12 @@ func (runtime *progressRuntime) DescribeContainerLog(ctx context.Context, groupI
 
 // DeleteContainerGroup 观察 Aliyun ECI 清理结果并保留原有错误。
 func (runtime *progressRuntime) DeleteContainerGroup(ctx context.Context, groupID string) error {
-	err := runtime.inner.DeleteContainerGroup(ctx, groupID)
-	runtime.tracker.markCleanup(err == nil)
-	return err
+	return runtime.inner.DeleteContainerGroup(ctx, groupID)
+}
+
+// ConfirmContainerGroupAbsent 转发 ECI 删除后的 provider absence proof。
+func (runtime *progressRuntime) ConfirmContainerGroupAbsent(ctx context.Context, groupID string) (bool, error) {
+	return runtime.inner.ConfirmContainerGroupAbsent(ctx, groupID)
 }
 
 // newProgressRuntime 仅在启用旁路时包装现有 Aliyun ECI runtime。

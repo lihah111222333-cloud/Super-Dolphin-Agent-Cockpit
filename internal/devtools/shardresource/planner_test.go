@@ -1,6 +1,7 @@
 package shardresource
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +113,70 @@ func TestSelectUsesSamePlannedCPUMemoryForPeakHeadroom(t *testing.T) {
 	selected, err := Select(policy, shard, context, []Observation{observation})
 	if err != nil || selected.ID != "small" || selected.VCPU != 2 {
 		t.Fatalf("Select() = %#v, %v, want small at 2C", selected, err)
+	}
+}
+
+func TestSelectFailsOnPeakMemoryHeadroomOverflow(t *testing.T) {
+	policy := testPolicy()
+	shard := Shard{
+		Identity:  "sha256:" + strings.Repeat("a", 64),
+		Workloads: []Workload{{ID: "guard", Kind: "guard", EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}},
+	}
+	context := Context{Runner: "sha256:" + strings.Repeat("b", 64), Toolchain: "sha256:" + strings.Repeat("c", 64)}
+	observation := testObservation(shard.Identity, context, "small", 1, math.MaxInt64, time.Date(2026, 7, 27, 15, 0, 0, 0, time.UTC))
+	if selected, err := Select(policy, shard, context, []Observation{observation}); err == nil {
+		t.Fatalf("Select() = %#v, nil, want fail-fast on MaxInt64 peak memory", selected)
+	}
+}
+
+func TestSelectIgnoresCalibrationAndOtherCPUSamples(t *testing.T) {
+	policy := testPolicy()
+	shard := Shard{
+		Identity:  "sha256:" + strings.Repeat("a", 64),
+		Workloads: []Workload{{ID: "go-test", Kind: "go_test", EstimatedDurationMS: 1_000, ResourceCPU: 4, ResourceMemoryGiB: 8}},
+	}
+	context := Context{Runner: "sha256:" + strings.Repeat("b", 64), Toolchain: "sha256:" + strings.Repeat("c", 64)}
+	now := time.Date(2026, 7, 27, 15, 0, 0, 0, time.UTC)
+	observations := []Observation{
+		testObservation(shard.Identity, context, policy.CalibrationResource.ID, 1, 8<<30, now),
+		testObservation(shard.Identity, context, "maximum", 1, 16<<30, now.Add(time.Minute)),
+	}
+	selected, err := Select(policy, shard, context, observations)
+	if err != nil || selected.ID != "medium" {
+		t.Fatalf("Select() = %#v, %v, want planned medium unaffected by calibration/other CPU samples", selected, err)
+	}
+}
+
+func TestSelectOldOOMRequiresStableSameIdentityRecovery(t *testing.T) {
+	policy := testPolicy()
+	shard := Shard{
+		Identity:  "sha256:" + strings.Repeat("a", 64),
+		Workloads: []Workload{{ID: "guard", Kind: "guard", EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}},
+	}
+	context := Context{Runner: "sha256:" + strings.Repeat("b", 64), Toolchain: "sha256:" + strings.Repeat("c", 64)}
+	now := time.Date(2026, 7, 27, 15, 0, 0, 0, time.UTC)
+	oldOOM := testObservation(shard.Identity, context, "small", 1, 1, now)
+	oldOOM.Succeeded = false
+	oldOOM.OOMKilled = true
+	newSuccess := testObservation(shard.Identity, context, "small", 1, 1<<30, now.Add(time.Minute))
+	for _, observations := range [][]Observation{{oldOOM, newSuccess}, {newSuccess, oldOOM}} {
+		if selected, err := Select(policy, shard, context, observations); err == nil {
+			t.Fatalf("Select() = %#v, nil, want fail-fast after old OOM without stable recovery", selected)
+		}
+	}
+	sameTimestampSuccess := newSuccess
+	sameTimestampSuccess.ObservedAt = now
+	var wantError string
+	for index, observations := range [][]Observation{{oldOOM, sameTimestampSuccess}, {sameTimestampSuccess, oldOOM}} {
+		selected, err := Select(policy, shard, context, observations)
+		if err == nil {
+			t.Fatalf("Select() = %#v, nil, want deterministic fail-fast with equal observation timestamps", selected)
+		}
+		if index == 0 {
+			wantError = err.Error()
+		} else if err.Error() != wantError {
+			t.Fatalf("Select() error = %q after permutation, want deterministic %q", err, wantError)
+		}
 	}
 }
 

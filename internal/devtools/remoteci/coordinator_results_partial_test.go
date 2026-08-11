@@ -67,6 +67,22 @@ func TestRemoteDurationSamplesSkipUncreatedShardPlaceholder(t *testing.T) {
 	}
 }
 
+func TestRemoteDurationSamplesRejectNonPositiveProviderInterval(t *testing.T) {
+	started := time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC)
+	workload := gate.Workload{ID: "guard:zero", Kind: gate.WorkloadKindGuard, CommandDigest: testDurationDigest("z")}
+	shard := ShardResult{
+		ResourceClass: "small", Resources: eci.Resources{CPU: 2, MemoryGiB: 4},
+		ExecutedWorkloads: []gate.GateID{gate.GateID(workload.ID)},
+		Report: gate.PlanExecutionReport{Gates: []gate.PlanGateExecution{{
+			GateID: gate.GateID(workload.ID), Status: gate.ResultStatusFailed, StartedAt: started, CompletedAt: started,
+		}}},
+	}
+	input := RunInput{Platform: "linux/amd64", RunnerIdentityDigest: testDurationDigest("c"), ToolchainDigest: testDurationDigest("d")}
+	if _, err := remoteDurationSamples(gate.WorkloadCatalog{Workloads: []gate.Workload{workload}}, []ShardResult{shard}, input, map[string]string{workload.ID: "sha256:" + strings.Repeat("e", 64)}); err == nil || !strings.Contains(err.Error(), "provider interval must be positive") {
+		t.Fatalf("remoteDurationSamples() error = %v, want strict provider interval failure", err)
+	}
+}
+
 func TestRecordRemoteCIRunPersistsUncreatedShardPlaceholderAudit(t *testing.T) {
 	ledgerStore := newPartialResultsLedgerStore(t)
 	started := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
@@ -556,6 +572,114 @@ func TestRemoteFreshWorkloadExecutionsPreservesPartialBeforeMalformedReport(t *t
 	}
 }
 
+func TestRemoteFreshWorkloadExecutionsPreservesPassingWorkloadsAfterFailedShard(t *testing.T) {
+	started := time.Date(2026, 8, 10, 10, 0, 0, 0, time.UTC)
+	workloads, shards := bulkRemoteFreshWorkloadFixture(started, 10)
+	fresh, err := remoteFreshWorkloadExecutions(workloads, shards)
+	if err == nil || !strings.Contains(err.Error(), "remote worker execution failed") {
+		t.Fatalf("remoteFreshWorkloadExecutions() error = %v, want failed shard error", err)
+	}
+	if len(fresh) != 67 {
+		t.Fatalf("remoteFreshWorkloadExecutions() preserved %d executions, want 67", len(fresh))
+	}
+	if _, ok := fresh["guard:bulk-10"]; ok {
+		t.Fatal("failed workload guard:bulk-10 was retained as a passing execution")
+	}
+	assertBulkRemoteFreshWorkloads(t, fresh)
+}
+
+// TestCanonicalPartialFreshAndReusedWorkloadExecutionsPersistsUnion 锁定 68→67/1
+// 失败边界：67 个 fresh 投影与 1 个严格 PASS origin 必须共同进入持久化投影。
+func TestCanonicalPartialFreshAndReusedWorkloadExecutionsPersistsUnion(t *testing.T) {
+	started := time.Date(2026, time.August, 10, 10, 0, 0, 0, time.UTC)
+	workloads, _ := bulkRemoteFreshWorkloadFixture(started, 10)
+	partialFresh := make([]gate.PlanGateExecution, 0, len(workloads)-1)
+	for index, workload := range workloads {
+		if index == 10 {
+			continue
+		}
+		partialFresh = append(partialFresh, partialRemoteExecution(workload.ID, started.Add(time.Duration(index)*time.Second)))
+	}
+	reusedID := workloads[10].ID
+	reused := map[string]gate.WorkloadPassEvidence{
+		reusedID: {OriginExecution: partialRemoteExecution(reusedID, started.Add(10*time.Second))},
+	}
+
+	projected, err := canonicalPartialFreshAndReusedWorkloadExecutions(workloads, partialFresh, reused)
+	if err != nil {
+		t.Fatalf("canonicalPartialFreshAndReusedWorkloadExecutions() error = %v", err)
+	}
+	if len(projected) != len(workloads) {
+		t.Fatalf("partial fresh+reused projection count = %d, want %d", len(projected), len(workloads))
+	}
+	for index, execution := range projected {
+		if execution.GateID != gate.GateID(workloads[index].ID) {
+			t.Fatalf("projected[%d].GateID = %q, want %q", index, execution.GateID, workloads[index].ID)
+		}
+	}
+}
+
+// TestCanonicalPartialFreshAndReusedWorkloadExecutionsRejectsFreshDrift 锁定 fresh
+// 投影的未知与重复 identity 均 fail-fast，禁止 helper 静默丢失执行证据。
+func TestCanonicalPartialFreshAndReusedWorkloadExecutionsRejectsFreshDrift(t *testing.T) {
+	started := time.Date(2026, time.August, 10, 10, 0, 0, 0, time.UTC)
+	workloads := []gate.Workload{{ID: "guard:known", Kind: gate.WorkloadKindGuard, Shardable: true}}
+	known := partialRemoteExecution("guard:known", started)
+	unknown := partialRemoteExecution("guard:unknown", started)
+	for _, test := range []struct {
+		name  string
+		fresh []gate.PlanGateExecution
+		want  string
+	}{
+		{name: "unknown", fresh: []gate.PlanGateExecution{unknown}, want: "outside the current catalog"},
+		{name: "duplicate", fresh: []gate.PlanGateExecution{known, known}, want: "duplicated in partial fresh projection"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := canonicalPartialFreshAndReusedWorkloadExecutions(workloads, test.fresh, nil); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("canonicalPartialFreshAndReusedWorkloadExecutions() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func bulkRemoteFreshWorkloadFixture(started time.Time, failedIndex int) ([]gate.Workload, []ShardResult) {
+	workloads := make([]gate.Workload, 68)
+	shards := make([]ShardResult, 68)
+	for index := range workloads {
+		workloadID := fmt.Sprintf("guard:bulk-%02d", index)
+		workloads[index] = gate.Workload{ID: workloadID, Kind: gate.WorkloadKindGuard, Shardable: true}
+		shards[index] = bulkRemoteFreshShard(workloadID, started.Add(time.Duration(index)*time.Second), index == failedIndex)
+	}
+	return workloads, shards
+}
+
+func bulkRemoteFreshShard(workloadID string, started time.Time, failed bool) ShardResult {
+	shardIdentity := "shard-" + workloadID
+	if failed {
+		return partialRemoteShardResult(shardIdentity, "eci-failed", "Failed", gate.GateID(workloadID), started, gate.PlanExecutionReport{
+			SchemaVersion:    gate.ExecutorPlanReportSchemaVersion,
+			ExecutionOutcome: gate.WorkerExecutionOutcome{Status: gate.WorkerExecutionStatusFailed, ExitCode: 17, ReasonCode: gate.WorkerExecutionReasonExecutionError},
+		})
+	}
+	execution := partialRemoteExecution(workloadID, started)
+	return partialRemoteShardResult(shardIdentity, "eci-succeeded", "Succeeded", gate.GateID(workloadID), started, gate.PlanExecutionReport{
+		SchemaVersion: gate.ExecutorPlanReportSchemaVersion, ExecutionOutcome: gate.SuccessfulWorkerExecutionOutcome(), Gates: []gate.PlanGateExecution{execution},
+	})
+}
+
+func assertBulkRemoteFreshWorkloads(t *testing.T, fresh map[string]gate.PlanGateExecution) {
+	t.Helper()
+	for index := range 68 {
+		if index == 10 {
+			continue
+		}
+		workloadID := fmt.Sprintf("guard:bulk-%02d", index)
+		if execution, ok := fresh[workloadID]; !ok || execution.Status != gate.ResultStatusPassed {
+			t.Fatalf("passing workload %q missing after failed shard: %#v", workloadID, execution)
+		}
+	}
+}
+
 func TestMergeRemoteWorkloadMissesPersistsPartialFailedRunEvidence(t *testing.T) {
 	t.Helper()
 	runPartialMergePersistenceTest(t)
@@ -582,11 +706,15 @@ func runPartialMergePersistenceTest(t *testing.T) {
 		CleanupComplete:              true,
 	}
 	coordinator := &Coordinator{now: func() time.Time { return started }}
+	reusedID := prepared.set.WorkloadPlan.ExecutionWorkloadIDs[1]
+	reused := map[string]gate.WorkloadPassEvidence{
+		string(reusedID): {OriginExecution: partialRemoteExecution(string(reusedID), started.Add(2*time.Second))},
+	}
 	result, freshErr, mergeErr := coordinator.mergeRemoteWorkloadMisses(
 		catalog,
 		RunInput{Platform: "linux/amd64", RunnerIdentityDigest: testDurationDigest("c"), ToolchainDigest: testDurationDigest("d")},
 		prepared,
-		nil,
+		reused,
 		shards,
 		result,
 	)
@@ -594,11 +722,18 @@ func runPartialMergePersistenceTest(t *testing.T) {
 
 	ledgerStore := newPartialResultsLedgerStore(t)
 	recordPartialResultsCatalog(t, ledgerStore, &result, catalog, started)
-	if err := recordRemoteCIRun(ledgerStore, result, errors.Join(freshErr, mergeErr)); err == nil {
-		t.Fatal("recordRemoteCIRun() accepted incomplete merged failed run")
+	if err := recordRemoteCIRun(ledgerStore, result, errors.Join(freshErr, mergeErr)); err != nil {
+		t.Fatalf("recordRemoteCIRun() rejected cleaned provisional coverage gap: %v", err)
 	}
-	if _, err := ledgerStore.LoadRemoteCIRun(result.JobID); err == nil {
-		t.Fatal("incomplete merged failed run was persisted after fail-fast rejection")
+	stored, err := ledgerStore.LoadRemoteCIRun(result.JobID)
+	if err != nil {
+		t.Fatalf("LoadRemoteCIRun() error = %v", err)
+	}
+	if stored.Authoritative || stored.Status != gate.ResultStatusFailed || !stored.CleanupComplete {
+		t.Fatalf("stored partial run authority = status=%q authoritative=%t cleanup=%t", stored.Status, stored.Authoritative, stored.CleanupComplete)
+	}
+	if !strings.Contains(stored.ErrorText, "has no matching result") {
+		t.Fatalf("stored partial run error = %q, want coverage diagnostic", stored.ErrorText)
 	}
 }
 
@@ -613,8 +748,8 @@ func assertPartialMergeOutcome(t *testing.T, result RunResult, freshErr, mergeEr
 	if result.Status != gate.ResultStatusFailed {
 		t.Fatalf("partial result status = %s, want failed", result.Status)
 	}
-	if len(result.FreshWorkloadExecutions) != 1 || len(result.WorkloadExecutions) != 1 || len(result.DurationSamples) == 0 {
-		t.Fatalf("partial result evidence fresh=%d workload=%d samples=%d, want one execution and samples", len(result.FreshWorkloadExecutions), len(result.WorkloadExecutions), len(result.DurationSamples))
+	if len(result.FreshWorkloadExecutions) != 1 || len(result.WorkloadExecutions) != 2 || len(result.DurationSamples) == 0 {
+		t.Fatalf("partial result evidence fresh=%d workload=%d samples=%d, want fresh+reused executions and samples", len(result.FreshWorkloadExecutions), len(result.WorkloadExecutions), len(result.DurationSamples))
 	}
 }
 

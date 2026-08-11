@@ -13,7 +13,7 @@ import (
 // 该函数必须在 provisional run 投影的同一 SQLite 事务内调用，避免 evidence 脱离
 // 对应的 job、shard、report 和 ECI 终态。
 func promoteSQLiteRemoteCIProvisionalWorkloadPassEvidence(tx *sql.Tx, record RemoteCIRunRecord) error {
-	eligible, err := provisionalWorkloadEvidenceRunEligible(tx, record)
+	eligible, err := provisionalWorkloadEvidenceRunEligible(record)
 	if err != nil {
 		return err
 	}
@@ -33,17 +33,15 @@ func promoteSQLiteRemoteCIProvisionalWorkloadPassEvidence(tx *sql.Tx, record Rem
 	return replaceProvisionalWorkloadPassEvidence(tx, stored, candidates)
 }
 
-// provisionalWorkloadEvidenceRunEligible 检查 provisional evidence 只允许当前 accepted 代的 cleaned failure。
-func provisionalWorkloadEvidenceRunEligible(tx *sql.Tx, record RemoteCIRunRecord) (bool, error) {
+// provisionalWorkloadEvidenceRunEligible 检查 provisional evidence 只允许已被
+// 同一 SQLite authority 接受、且完成清理的 failure。旧 accepted generation
+// 运行可以在收尾时写入；统一 compactor 随后按 current/current-2 窗口淘汰，
+// 不能因为它不是当前代就静默丢失逐 workload 证据。
+func provisionalWorkloadEvidenceRunEligible(record RemoteCIRunRecord) (bool, error) {
 	if record.Authoritative || !record.CleanupComplete || !remoteCIProvisionalFailureStatus(record.Status) {
 		return false, nil
 	}
-	currentGeneration, err := currentAcceptedBaselineGeneration(tx)
-	if err != nil {
-		return false, err
-	}
-	// 旧 accepted 代仍保留审计投影，但不能生成新的可复用 evidence。
-	return record.AcceptedGeneration == currentGeneration && len(record.WorkloadResults) != 0, nil
+	return len(record.WorkloadResults) != 0, nil
 }
 
 // appendProvisionalWorkloadEvidenceDiagnostic 将省略候选的原因写回当前 SQLite run 并重载投影。
@@ -170,6 +168,15 @@ func validateProvisionalWorkloadPassCandidate(record RemoteCIRunRecord, result R
 // 当前事务中的 ci_runs/ci_shards/ci_gate_executions/ci_workload_executions/
 // ci_run_workload_results/ci_timing_observations 行。
 func provisionalWorkloadProjectionSHA256(tx *sql.Tx, record RemoteCIRunRecord) (string, error) {
+	return provisionalWorkloadProjectionSHA256WithStats(tx, record, nil)
+}
+
+// provisionalWorkloadProjectionSHA256WithStats 保留写路径从 SQLite 回读完整
+// projection 的语义，并向定向性能测试暴露二次回读计数。
+func provisionalWorkloadProjectionSHA256WithStats(tx *sql.Tx, record RemoteCIRunRecord, stats *workloadPassEvidenceLookupStats) (string, error) {
+	if stats != nil {
+		stats.provisionalProjectionReloads++
+	}
 	stored, err := loadRemoteCIRunRow(tx, record.JobID)
 	if err != nil {
 		return "", err
@@ -177,10 +184,16 @@ func provisionalWorkloadProjectionSHA256(tx *sql.Tx, record RemoteCIRunRecord) (
 	if err := loadRemoteCIRunDetails(tx, record.JobID, &stored); err != nil {
 		return "", err
 	}
+	return digestProvisionalWorkloadProjection(stored)
+}
+
+// digestProvisionalWorkloadProjection 对调用方已从同一 SQLite 事务完整加载的
+// provisional run 计算规范摘要，不读取跨事务缓存或削弱任一 projection 字段绑定。
+func digestProvisionalWorkloadProjection(record RemoteCIRunRecord) (string, error) {
 	payload, err := json.Marshal(struct {
 		SchemaVersion string            `json:"schema_version"`
 		Run           RemoteCIRunRecord `json:"run"`
-	}{SchemaVersion: "remote-ci-provisional-workload-evidence/v1", Run: stored})
+	}{SchemaVersion: "remote-ci-provisional-workload-evidence/v1", Run: record})
 	if err != nil {
 		return "", fmt.Errorf("encode provisional workload evidence projection: %w", err)
 	}

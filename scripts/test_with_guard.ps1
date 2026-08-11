@@ -42,7 +42,7 @@ function Assert-RemoteTestExecution {
     }
     Write-Stderr @'
 Host test execution is forbidden.
-Every test request must pass through super-dolphin-gate test and run through the remote ECI coordinator.
+Every test request must pass through super-dolphin-gate test --target=remote and run through the remote ECI coordinator.
 Build and dependency caches may accelerate execution but never authorize skipping a test or running it on the host.
 '@
     exit 2

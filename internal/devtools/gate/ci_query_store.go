@@ -18,14 +18,17 @@ var ErrRemoteCIRunNotFound = errors.New("remote CI run not found")
 
 // RemoteCIRunRecord 是一次协调器执行及其分片和 gate 终态的查询投影。
 type RemoteCIRunRecord struct {
-	JobID                        string
-	AgentTokenDigest             string
-	Force                        bool
-	Entrypoint                   CIEntrypointID
-	Profile                      Profile
-	PlanDigest                   string
-	CatalogDigest                string
-	AcceptedGeneration           uint64
+	JobID              string
+	AgentTokenDigest   string
+	Force              bool
+	Entrypoint         CIEntrypointID
+	Profile            Profile
+	PlanDigest         string
+	CatalogDigest      string
+	AcceptedGeneration uint64
+	// Scope is nil for legacy/full runs. Explicit subset scopes are persisted
+	// in the additive side table; JSON and digest are derived by the store.
+	Scope                        *RemoteCIExecutionScope
 	ImageCacheSnapshotID         string
 	SourceTreeSHA                string
 	CandidateGateSourceSHA256    string
@@ -204,7 +207,15 @@ func verifySQLiteRemoteCIRunIdentity(transaction *sql.Tx, record RemoteCIRunReco
 	if stored != newSQLiteRemoteCIRunIdentity(record) {
 		return fmt.Errorf("remote CI job %q conflicts with immutable run identity", record.JobID)
 	}
-	return verifySQLiteRemoteCIAgentIdentity(transaction, record)
+	return verifySQLiteRemoteCIRunDependentIdentities(transaction, record)
+}
+
+// verifySQLiteRemoteCIRunDependentIdentities verifies immutable identity projections stored in side tables.
+func verifySQLiteRemoteCIRunDependentIdentities(transaction *sql.Tx, record RemoteCIRunRecord) error {
+	if err := verifySQLiteRemoteCIAgentIdentity(transaction, record); err != nil {
+		return err
+	}
+	return verifySQLiteRemoteCIExecutionScopeIdentity(transaction, record)
 }
 
 // sqliteRemoteCIRunIdentity 保存 SQLite 中不可变的运行身份投影。

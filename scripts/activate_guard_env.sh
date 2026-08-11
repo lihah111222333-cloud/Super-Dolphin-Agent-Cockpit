@@ -35,7 +35,7 @@ cat <<EOF_MSG
   - go vet ...
 - 正确做法:
   - 轻量/中量精确 Go 测试使用 scripts/test_with_guard.sh --host-test <light|medium>
-  - race、benchmark、fuzz、整包、重型门禁和未知耗时测试使用 super-dolphin-gate test 进入 ECI
+  - race、benchmark、fuzz、整包、重型门禁和未知耗时测试使用 super-dolphin-gate test --target=remote 进入 ECI
   - guarded build / vet 通过受信 CI gate 执行
 - 退出当前 shell 或手动移除 PATH 前缀后，拦截失效
 EOF_MSG

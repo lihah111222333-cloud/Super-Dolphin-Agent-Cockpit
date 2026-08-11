@@ -14,6 +14,7 @@ const (
 	executorPlanCompileGroupLogPolicyVersion    = "compile-group-log-budget/v1"
 	executorPlanCompileGroupFullFailureLogBytes = executorPlanMaxLogBytes
 	executorPlanCompileGroupOtherLogBytes       = executorPlanSuccessfulSelectorLogBytes
+	executorPlanCompileGroupAggregateLogBytes   = executorPlanReportMaxOutputBytes
 )
 
 // compileGroupReportLogLimits 按 compile group 的 canonical workload 顺序分配日志窗口。
@@ -46,6 +47,7 @@ func indexCompileGroupReportGates(gates []PlanGateExecution) (map[GateID]PlanGat
 	return gateResults, nil
 }
 
+// appendCompileGroupReportLogLimits 按组内 selector 顺序分配确定性的日志窗口。
 func appendCompileGroupReportLogLimits(limits map[GateID]int, gateResults map[GateID]PlanGateExecution, execution CompileGroupExecution, groupIndex int) error {
 	seen := make(map[GateID]struct{}, len(execution.WorkloadIDs))
 	fullFailureAssigned := false
@@ -71,8 +73,9 @@ func appendCompileGroupReportLogLimits(limits map[GateID]int, gateResults map[Ga
 	return nil
 }
 
-// normalizeCompileGroupReportLogs 将合法但过宽的 selector 日志收敛到 compile-group 策略。
-// 超过协议硬上限或包含非法文本的日志不做静默修复，继续交由 canonical 校验拒绝。
+// normalizeCompileGroupReportLogs 将单组报告中过宽的合法 selector 日志收敛到
+// compile-group 策略；多组报告使用严格窗口与 aggregate 预算，超限直接拒绝，
+// 禁止跨组日志被静默截断。
 func normalizeCompileGroupReportLogs(report PlanExecutionReport) (PlanExecutionReport, error) {
 	limits, err := compileGroupReportLogLimits(report)
 	if err != nil {
@@ -83,18 +86,36 @@ func normalizeCompileGroupReportLogs(report PlanExecutionReport) (PlanExecutionR
 	}
 	normalized := report
 	normalized.Gates = slices.Clone(report.Gates)
+	multiGroup := len(report.CompileGroupExecutions) > 1
 	for index := range normalized.Gates {
 		result := &normalized.Gates[index]
 		limit, bounded := limits[result.GateID]
-		if !bounded || len(result.Log) <= limit || len(result.Log) > executorPlanMaxLogBytes || !utf8.Valid(result.Log) || bytes.IndexByte(result.Log, 0) >= 0 {
-			continue
+		if err := normalizeCompileGroupLogResult(result, limit, bounded, multiGroup); err != nil {
+			return PlanExecutionReport{}, err
 		}
-		boundedLog := newBoundedPlanLog(limit)
-		_, _ = boundedLog.Write(result.Log)
-		result.Log = PlainTextLog(slices.Clone(boundedLog.Bytes()))
-		result.LogDigest = digestPlanLog(result.Log)
+	}
+	if err := validateCompileGroupAggregateLogBudget(normalized); err != nil {
+		return PlanExecutionReport{}, err
 	}
 	return normalized, nil
+}
+
+// normalizeCompileGroupLogResult 按单组或多组策略校验并收敛 selector 日志窗口。
+func normalizeCompileGroupLogResult(result *PlanGateExecution, limit int, bounded bool, multiGroup bool) error {
+	if !bounded || len(result.Log) <= limit {
+		return nil
+	}
+	if multiGroup {
+		return fmt.Errorf("compile group selector %q log exceeds deterministic multi-group window %d", result.GateID, limit)
+	}
+	if len(result.Log) > executorPlanMaxLogBytes || !utf8.Valid(result.Log) || bytes.IndexByte(result.Log, 0) >= 0 {
+		return nil
+	}
+	boundedLog := newBoundedPlanLog(limit)
+	_, _ = boundedLog.Write(result.Log)
+	result.Log = PlainTextLog(slices.Clone(boundedLog.Bytes()))
+	result.LogDigest = digestPlanLog(result.Log)
+	return nil
 }
 
 // validateCompileGroupReportLogBudget 拒绝绕过编码器直接注入过宽 selector 日志的报告。
@@ -106,6 +127,32 @@ func validateCompileGroupReportLogBudget(report PlanExecutionReport) error {
 	for _, result := range report.Gates {
 		if limit, bounded := limits[result.GateID]; bounded && len(result.Log) > limit {
 			return fmt.Errorf("compile group selector %q log exceeds %d bytes", result.GateID, limit)
+		}
+	}
+	return validateCompileGroupAggregateLogBudget(report)
+}
+
+// validateCompileGroupAggregateLogBudget 保证多组报告的日志聚合按组/selector
+// canonical 顺序有界；超限直接失败，禁止静默丢弃任何一组首失败诊断。
+func validateCompileGroupAggregateLogBudget(report PlanExecutionReport) error {
+	if len(report.CompileGroupExecutions) <= 1 {
+		return nil
+	}
+	gateResults, err := indexCompileGroupReportGates(report.Gates)
+	if err != nil {
+		return err
+	}
+	total := 0
+	for groupIndex, execution := range report.CompileGroupExecutions {
+		for _, workloadID := range execution.WorkloadIDs {
+			result, ok := gateResults[workloadID]
+			if !ok {
+				continue
+			}
+			total += len(result.Log)
+			if total > executorPlanCompileGroupAggregateLogBytes {
+				return fmt.Errorf("compile group aggregate logs exceed %d bytes at group %d workload %q", executorPlanCompileGroupAggregateLogBytes, groupIndex, workloadID)
+			}
 		}
 	}
 	return nil
@@ -138,5 +185,6 @@ func appendCompileGroupLogBudgetDigest(destination []byte, compileGroupCount int
 	}
 	destination = appendPlanReportField(destination, "compile-group-log-policy", executorPlanCompileGroupLogPolicyVersion)
 	destination = appendPlanReportField(destination, "compile-group-full-failure-log-bytes", strconv.Itoa(executorPlanCompileGroupFullFailureLogBytes))
-	return appendPlanReportField(destination, "compile-group-other-selector-log-bytes", strconv.Itoa(executorPlanCompileGroupOtherLogBytes))
+	destination = appendPlanReportField(destination, "compile-group-other-selector-log-bytes", strconv.Itoa(executorPlanCompileGroupOtherLogBytes))
+	return appendPlanReportField(destination, "compile-group-aggregate-log-bytes", strconv.Itoa(executorPlanCompileGroupAggregateLogBytes))
 }

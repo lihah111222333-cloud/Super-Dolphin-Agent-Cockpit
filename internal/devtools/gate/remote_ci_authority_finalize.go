@@ -10,14 +10,17 @@ import (
 
 // RemoteCIRunAuthorityIdentity 将最终化操作绑定到不可变的 CI 运行记录。
 type RemoteCIRunAuthorityIdentity struct {
-	JobID                        string
-	AgentTokenDigest             string
-	Force                        bool
-	Entrypoint                   CIEntrypointID
-	Profile                      Profile
-	PlanDigest                   string
-	CatalogDigest                string
-	AcceptedGeneration           uint64
+	JobID              string
+	AgentTokenDigest   string
+	Force              bool
+	Entrypoint         CIEntrypointID
+	Profile            Profile
+	PlanDigest         string
+	CatalogDigest      string
+	AcceptedGeneration uint64
+	// Scope is the typed execution scope bound to the provisional run. Nil is
+	// legacy/full and never causes a side-table row to be synthesized.
+	Scope                        *RemoteCIExecutionScope
 	ImageCacheSnapshotID         string
 	SourceTreeSHA                string
 	CandidateGateSourceSHA256    string
@@ -118,16 +121,28 @@ func validateSQLiteRemoteCIRunAuthorityInputs(tx *sql.Tx, identity RemoteCIRunAu
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSQLiteWorkloadCatalogPassingCheckReceipts(tx, identity.CatalogDigest, receipts); err != nil {
-		return nil, fmt.Errorf("validate remote CI catalog check receipts: %w", err)
-	}
 	catalog, err := loadSQLiteWorkloadCatalog(tx, identity.CatalogDigest)
 	if err != nil {
 		return nil, fmt.Errorf("load remote CI workload catalog for authority identity: %w", err)
 	}
+	executionCatalog, err := ProjectRemoteCIExecutionCatalog(catalog.Catalog, identity.Scope)
+	if err != nil {
+		return nil, fmt.Errorf("project remote CI authority execution catalog: %w", err)
+	}
+	if err := validateWorkloadCatalogPassingCheckReceipts(executionCatalog, receipts); err != nil {
+		return nil, fmt.Errorf("validate remote CI catalog check receipts: %w", err)
+	}
 	verified, err := validateSQLiteRemoteCIRunWorkloadPassIdentities(catalog.Catalog, stored.WorkloadResults, identity.WorkloadPassIdentities)
 	if err != nil {
 		return nil, err
+	}
+	for _, result := range stored.WorkloadResults {
+		if result.Disposition != WorkloadDispositionReused {
+			continue
+		}
+		if err := verifySQLiteRetainedWorkloadPassProof(tx, stored.JobID, result); err != nil {
+			return nil, fmt.Errorf("validate reused workload %q before authority CAS: %w", result.Identity.WorkloadID, err)
+		}
 	}
 	return verified, nil
 }
@@ -178,7 +193,7 @@ func promoteSQLiteRemoteCIRunFreshEvidence(tx *sql.Tx, jobID string, promoteFres
 
 // verifySQLiteProvisionalRemoteCIRunForAuthority 在提升前于事务内重新验证 provisional 运行记录。
 func verifySQLiteProvisionalRemoteCIRunForAuthority(tx *sql.Tx, identity RemoteCIRunAuthorityIdentity) (RemoteCIRunRecord, error) {
-	record := RemoteCIRunRecord{JobID: identity.JobID, AgentTokenDigest: identity.AgentTokenDigest, Force: identity.Force, Entrypoint: identity.Entrypoint, Profile: identity.Profile, PlanDigest: identity.PlanDigest, CatalogDigest: identity.CatalogDigest, AcceptedGeneration: identity.AcceptedGeneration, ImageCacheSnapshotID: identity.ImageCacheSnapshotID, SourceTreeSHA: identity.SourceTreeSHA, CandidateGateSourceSHA256: identity.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: identity.CandidateGateToolchainSHA256, RunnerImage: identity.RunnerImage, StartedAt: identity.StartedAt}
+	record := RemoteCIRunRecord{JobID: identity.JobID, AgentTokenDigest: identity.AgentTokenDigest, Force: identity.Force, Entrypoint: identity.Entrypoint, Profile: identity.Profile, PlanDigest: identity.PlanDigest, CatalogDigest: identity.CatalogDigest, AcceptedGeneration: identity.AcceptedGeneration, Scope: identity.Scope, ImageCacheSnapshotID: identity.ImageCacheSnapshotID, SourceTreeSHA: identity.SourceTreeSHA, CandidateGateSourceSHA256: identity.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: identity.CandidateGateToolchainSHA256, RunnerImage: identity.RunnerImage, StartedAt: identity.StartedAt}
 	if err := verifySQLiteRemoteCIRunIdentity(tx, record); err != nil {
 		return RemoteCIRunRecord{}, err
 	}

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
@@ -23,12 +24,16 @@ const (
 	FullManifestDigestEnvironment = "SUPER_DOLPHIN_REMOTE_FULL_MANIFEST_DIGEST"
 	// acceptedBootstrapShardRequestSchemaVersion 是 accepted ImageCache
 	// schema-14 顶层请求版本，独立于当前可演进的 ShardRequest 常量。
-	acceptedBootstrapShardRequestSchemaVersion uint32 = 14
+	acceptedBootstrapShardRequestSchemaVersion uint32 = cicontract.AcceptedBootstrapRequestSchemaVersion
 	// acceptedBootstrapCompileGroupSchemaVersion 是 accepted nested schema-1
 	// compile group 的 identity 版本。
-	acceptedBootstrapCompileGroupSchemaVersion uint32 = 1
+	acceptedBootstrapCompileGroupSchemaVersion uint32 = cicontract.AcceptedCompileGroupSchemaVersion
+	// acceptedBootstrapManifestSchemaVersion 冻结 accepted ImageCache 内旧 Gate
+	// 在候选 installer 接管前写出的临时 manifest。它必须保持 v1，不能跟随
+	// candidate Gate 的 ShardExecutionManifest schema 升级。
+	acceptedBootstrapManifestSchemaVersion uint32 = cicontract.AcceptedBootstrapManifestSchemaVersion
 	// acceptedCompileGroupExecutionPath 是 accepted commit 7b11f3 的冻结字面量。
-	acceptedCompileGroupExecutionPath   = "same-eci-shard-worker-test-binary-compile-no-cross-shard-cas/v1"
+	acceptedCompileGroupExecutionPath   = cicontract.CompileGroupExecutionPathID
 	acceptedCompileSemanticGoTestNormal = "go-test-selector/v1/race=false"
 	acceptedCompileSemanticGoTestRace   = "go-test-selector/v1/race=true"
 	acceptedCompileSemanticGoBenchmark  = "go-benchmark-selector/v1/race=false"
@@ -81,7 +86,7 @@ type BootstrapShardRequest struct {
 	CalibrationResource          *shardresource.Class     `json:"calibration_resource,omitempty"`
 }
 
-// acceptedBootstrapManifest 是 accepted 固定路径上暂时存在的 v1 manifest。
+// acceptedBootstrapManifest 是 accepted 固定路径上暂时存在的 schema-1 manifest；
 // 当前 worker 不读取它；候选 installer 只用它做一次稳定 identity 交叉校验。
 type acceptedBootstrapManifest struct {
 	SchemaVersion  uint32                 `json:"schema_version"`
@@ -94,12 +99,12 @@ type acceptedBootstrapManifest struct {
 	ManifestDigest string                 `json:"manifest_digest"`
 }
 
-// Validate 实现 strict JSON 需要的 accepted v1 manifest 校验接口。
+// Validate 实现 strict JSON 需要的 accepted schema-1 manifest 校验接口。
 func (manifest acceptedBootstrapManifest) Validate() error {
 	return validateAcceptedBootstrapManifest(manifest)
 }
 
-// Validate 校验 accepted 顶层 schema-14 与 v1 manifest 摘要绑定。
+// Validate 校验 accepted 顶层 schema-14 与 schema-1 manifest 摘要绑定。
 func (request BootstrapShardRequest) Validate() error {
 	if request.SchemaVersion != acceptedBootstrapShardRequestSchemaVersion {
 		return fmt.Errorf("accepted bootstrap shard request schema_version must equal %d", acceptedBootstrapShardRequestSchemaVersion)
@@ -126,8 +131,9 @@ func (request BootstrapShardRequest) Validate() error {
 	return nil
 }
 
-// validateAcceptedBootstrapRequestCore 校验不含 v1 nested manifest 的顶层闭包。
+// validateAcceptedBootstrapRequestCore 校验不含 accepted manifest 的顶层闭包。
 func validateAcceptedBootstrapRequestCore(request ShardRequest, gateIDs []gate.GateID) error {
+	request.SchemaVersion = ShardRequestSchemaVersion
 	validators := []func() error{
 		request.validateIdentity,
 		request.validateOCIProjectCache,
@@ -171,6 +177,7 @@ func ProjectAcceptedCompileGroups(groups []gate.CompileGroup) ([]acceptedCompile
 	return projected, nil
 }
 
+// projectAcceptedCompileGroupWorkloadIDs 移除 accepted projection 不携带的 expansion-only workload。
 func projectAcceptedCompileGroupWorkloadIDs(ids []gate.GateID) ([]gate.GateID, error) {
 	projected := make([]gate.GateID, 0, len(ids))
 	filteredNilness := false
@@ -192,7 +199,8 @@ func projectAcceptedCompileGroupWorkloadIDs(ids []gate.GateID) ([]gate.GateID, e
 }
 
 // ProjectAcceptedGateIDs 将 current v2 的精确 workload ID 投影为 accepted v1 可解码的 gate 集合。
-// expansion-only nilness workload 仍由 current request 保留；bootstrap 只携带其 canonical parent。
+// expansion-only nilness/frontend-preflight workload 仍由 current request 保留；
+// bootstrap 只携带其 canonical parent。
 func ProjectAcceptedGateIDs(ids []gate.GateID) ([]gate.GateID, error) {
 	projected := make([]gate.GateID, 0, len(ids))
 	seen := make(map[gate.GateID]struct{}, len(ids))
@@ -201,11 +209,11 @@ func ProjectAcceptedGateIDs(ids []gate.GateID) ([]gate.GateID, error) {
 		if err != nil {
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection: %w", index, err)
 		}
-		if targeted && parent == gate.GateIDBackendNilness {
+		if targeted && (parent == gate.GateIDBackendNilness || parent == gate.GateIDFrontendPreflight) {
 			id = parent
 		}
 		if _, duplicate := seen[id]; duplicate {
-			if id == gate.GateIDBackendNilness {
+			if id == gate.GateIDBackendNilness || id == gate.GateIDFrontendPreflight {
 				continue
 			}
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection is duplicated", index)
@@ -307,6 +315,7 @@ func validateAcceptedCompileGroupEstimates(group acceptedCompileGroup) error {
 	return nil
 }
 
+// acceptedCompileGroupPackageTarget 校验 accepted compile group 的 canonical package 路径。
 func acceptedCompileGroupPackageTarget(value string) bool {
 	if value == "" || strings.TrimSpace(value) != value || strings.HasPrefix(value, "/") ||
 		strings.Contains(value, "...") || strings.ContainsAny(value, "\\\x00\r\n,") || !strings.HasPrefix(value, "./") {
@@ -355,10 +364,10 @@ func acceptedCompileGroupID(group acceptedCompileGroup) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// AcceptedBootstrapManifestFromRequest 构造 accepted 临时 v1 manifest。
+// AcceptedBootstrapManifestFromRequest 构造 accepted 临时 schema-1 manifest。
 func acceptedBootstrapManifestFromRequest(request BootstrapShardRequest) acceptedBootstrapManifest {
 	return acceptedBootstrapManifest{
-		SchemaVersion: gate.ShardExecutionManifestSchemaVersion, Profile: request.Profile,
+		SchemaVersion: acceptedBootstrapManifestSchemaVersion, Profile: request.Profile,
 		PlanDigest: request.PlanDigest, ShardIdentity: request.ShardIdentity,
 		SourceTreeSHA: request.SourceTreeSHA, GateIDs: slices.Clone(request.GateIDs),
 		CompileGroups: slices.Clone(request.CompileGroups),
@@ -429,8 +438,9 @@ func validateAcceptedBootstrapManifest(manifest acceptedBootstrapManifest) error
 	return validateAcceptedBootstrapManifestCoverage(manifest.GateIDs, grouped)
 }
 
+// validateAcceptedBootstrapManifestHeader 校验 accepted manifest 的 schema 和顶层身份。
 func validateAcceptedBootstrapManifestHeader(manifest acceptedBootstrapManifest) error {
-	if manifest.SchemaVersion != 1 || !acceptedPrefixedDigest(manifest.PlanDigest) || !acceptedPrefixedDigest(manifest.ShardIdentity) ||
+	if manifest.SchemaVersion != acceptedBootstrapManifestSchemaVersion || !acceptedPrefixedDigest(manifest.PlanDigest) || !acceptedPrefixedDigest(manifest.ShardIdentity) ||
 		!acceptedOID(manifest.SourceTreeSHA) || len(manifest.GateIDs) == 0 {
 		return errors.New("accepted bootstrap manifest identity is invalid")
 	}
@@ -454,12 +464,42 @@ func acceptedBootstrapManifestGateSet(gateIDs []gate.GateID) (map[gate.GateID]st
 func acceptedBootstrapManifestGroups(groups []acceptedCompileGroup, gateSet map[gate.GateID]struct{}) (map[gate.GateID]struct{}, error) {
 	grouped := make(map[gate.GateID]struct{})
 	groupIDs := make(map[string]struct{}, len(groups))
+	artifactKeys := make(map[string]string, len(groups))
+	var previousGroupID string
+	var resourceClassID string
 	for index, group := range groups {
+		nextResourceClassID, err := validateAcceptedBootstrapManifestGroupIdentity(index, group, previousGroupID, resourceClassID, artifactKeys)
+		if err != nil {
+			return nil, err
+		}
+		resourceClassID = nextResourceClassID
 		if err := validateAcceptedBootstrapManifestGroup(index, group, gateSet, groupIDs, grouped); err != nil {
 			return nil, err
 		}
+		previousGroupID = group.GroupID
 	}
 	return grouped, nil
+}
+
+// validateAcceptedBootstrapManifestGroupIdentity 校验 accepted group 顺序、资源和 artifact 身份。
+func validateAcceptedBootstrapManifestGroupIdentity(index int, group acceptedCompileGroup, previousGroupID, resourceClassID string, artifactKeys map[string]string) (string, error) {
+	if index > 0 && group.GroupID <= previousGroupID {
+		return "", fmt.Errorf("accepted bootstrap manifest compile_groups[%d] are not in canonical GroupID order", index)
+	}
+	if index == 0 {
+		resourceClassID = group.ResourceClassID
+	} else if group.ResourceClassID != resourceClassID {
+		return "", fmt.Errorf("accepted bootstrap manifest compile group %q resource class differs from %q", group.GroupID, resourceClassID)
+	}
+	artifactKey, err := acceptedCompileArtifactKey(group)
+	if err != nil {
+		return "", err
+	}
+	if previous, duplicate := artifactKeys[artifactKey]; duplicate {
+		return "", fmt.Errorf("accepted bootstrap manifest artifact %q is duplicated by groups %q and %q", artifactKey, previous, group.GroupID)
+	}
+	artifactKeys[artifactKey] = group.GroupID
+	return resourceClassID, nil
 }
 
 func validateAcceptedBootstrapManifestGroup(index int, group acceptedCompileGroup, gateSet map[gate.GateID]struct{}, groupIDs map[string]struct{}, grouped map[gate.GateID]struct{}) error {
@@ -490,6 +530,7 @@ func registerAcceptedBootstrapManifestWorkloads(group acceptedCompileGroup, gate
 	return nil
 }
 
+// validateAcceptedBootstrapManifestCoverage 校验 accepted manifest 对支持 workload 的精确覆盖。
 func validateAcceptedBootstrapManifestCoverage(gateIDs []gate.GateID, grouped map[gate.GateID]struct{}) error {
 	for _, workloadID := range gateIDs {
 		if gate.CompileGroupWorkloadSupported(workloadID) {
@@ -501,7 +542,7 @@ func validateAcceptedBootstrapManifestCoverage(gateIDs []gate.GateID, grouped ma
 	return nil
 }
 
-// EncodeBootstrapShardRequest 生成 accepted 顶层 schema-14/v1 nested 请求。
+// EncodeBootstrapShardRequest 生成 accepted 顶层 schema-14、nested compile-group schema-1 请求。
 func EncodeBootstrapShardRequest(request ShardRequest) ([]byte, string, error) {
 	if err := request.Validate(); err != nil {
 		return nil, "", err
@@ -586,6 +627,7 @@ func ValidateBootstrapIdentity(bootstrap BootstrapShardRequest, full ShardReques
 	}
 	bootstrapComparable := bootstrap.AsShardRequest()
 	fullComparable := full
+	bootstrapComparable.SchemaVersion = fullComparable.SchemaVersion
 	projectedGateIDs, err := ProjectAcceptedGateIDs(fullComparable.GateIDs)
 	if err != nil {
 		return err
@@ -605,6 +647,9 @@ func ValidateBootstrapIdentity(bootstrap BootstrapShardRequest, full ShardReques
 	if !reflect.DeepEqual(projected, bootstrap.CompileGroups) {
 		return errors.New("accepted bootstrap and full compile-group projection drifted")
 	}
+	if err := validateFullShardExecutionManifestDigest(full); err != nil {
+		return err
+	}
 	manifest := acceptedBootstrapManifestFromRequest(bootstrap)
 	_, digest, err := encodeAcceptedBootstrapManifest(manifest)
 	if err != nil {
@@ -612,6 +657,17 @@ func ValidateBootstrapIdentity(bootstrap BootstrapShardRequest, full ShardReques
 	}
 	if bootstrap.ShardExecutionManifestDigest != digest {
 		return errors.New("accepted bootstrap manifest digest drifted")
+	}
+	return nil
+}
+
+func validateFullShardExecutionManifestDigest(full ShardRequest) error {
+	digest, err := full.ComputeShardExecutionManifestDigest()
+	if err != nil {
+		return err
+	}
+	if full.ShardExecutionManifestDigest != digest {
+		return errors.New("full shard execution manifest digest drifted")
 	}
 	return nil
 }
@@ -624,6 +680,7 @@ func acceptedPrefixedDigest(value string) bool {
 	return err == nil && strings.ToLower(value[len("sha256:"):]) == value[len("sha256:"):]
 }
 
+// acceptedOID 校验 accepted source tree 的 canonical hex object ID。
 func acceptedOID(value string) bool {
 	if len(value) != 40 && len(value) != 64 {
 		return false

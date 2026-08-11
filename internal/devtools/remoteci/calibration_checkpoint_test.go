@@ -177,6 +177,29 @@ func TestCalibrationCheckpointRetainsForceAuditIdentity(t *testing.T) {
 	}
 }
 
+func TestCalibrationCheckpointAcceptsAllHitWithoutMissExecutionIdentity(t *testing.T) {
+	checkpoint, err := NewCalibrationCheckpoint(calibrationCheckpointStore(t), "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testCalibrationCheckpointInput()
+	input.CandidateGateSourceSHA256 = ""
+	input.CandidateGateToolchainSHA256 = ""
+	result := testCalibrationCheckpointResult(input)
+	result.DurationSamples = []gatecontract.DurationSample{{DurationMS: 1}}
+	if err := checkpoint.Observe("push", input, result, true); err != nil {
+		t.Fatalf("observe all-hit checkpoint: %v", err)
+	}
+	resumedInput, resumedResult, completed := requireCalibrationCheckpointCompletion(t, checkpoint, "push")
+	if !completed {
+		t.Fatal("all-hit checkpoint was not completed")
+	}
+	if resumedInput.CandidateGateSourceSHA256 != "" || resumedInput.CandidateGateToolchainSHA256 != "" ||
+		resumedResult.CandidateGateSourceSHA256 != "" || resumedResult.CandidateGateToolchainSHA256 != "" {
+		t.Fatal("all-hit checkpoint synthesized MISS-only candidate identity")
+	}
+}
+
 func TestCalibrationCheckpointRejectsIncompleteCompletedIdentity(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -189,6 +212,10 @@ func TestCalibrationCheckpointRejectsIncompleteCompletedIdentity(t *testing.T) {
 		{name: "missing fixed resource", mutate: func(input *RunInput, _ *RunResult) { input.CalibrationResource.MemoryGiB = 0 }},
 		{name: "missing candidate compile source", mutate: func(input *RunInput, _ *RunResult) { input.CandidateGateSourceSHA256 = "" }},
 		{name: "candidate compile toolchain drift", mutate: func(_ *RunInput, result *RunResult) { result.CandidateGateToolchainSHA256 = "sha256:drift" }},
+		{name: "malformed matching candidate identity", mutate: func(input *RunInput, result *RunResult) {
+			input.CandidateGateSourceSHA256, result.CandidateGateSourceSHA256 = "sha256:drift", "sha256:drift"
+			input.CandidateGateToolchainSHA256, result.CandidateGateToolchainSHA256 = "sha256:drift", "sha256:drift"
+		}},
 		{name: "accepted generation drifts from checkpoint", mutate: func(input *RunInput, result *RunResult) { input.AcceptedGeneration, result.AcceptedGeneration = 8, 8 }},
 	}
 	for _, test := range tests {
