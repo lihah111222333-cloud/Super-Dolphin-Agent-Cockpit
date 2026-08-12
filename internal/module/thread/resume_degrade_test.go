@@ -85,12 +85,17 @@ func TestBackgroundResumeDegradesOnLostHistory(t *testing.T) {
 			return nil, errors.New("rpc error: code = -32600 desc = no rollout found for thread id 11111111-2222-3333-4444-555555555597")
 		},
 	}
-	var stopped []threaddto.Stopped
+	stopped := make(chan threaddto.Stopped, 1)
 	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, resumeDegradeOrchestration{}, nil).(*service)
-	svc.emitStopped = func(evt threaddto.Stopped) { stopped = append(stopped, evt) }
+	svc.emitStopped = func(evt threaddto.Stopped) { stopped <- evt }
 
 	svc.backgroundResumeIfNeeded(context.Background(), "thread-1")
-	waitForDegradeCondition(t, func() bool { return len(bindings.deleteAgentIDs) > 0 })
+	var stoppedEvent threaddto.Stopped
+	select {
+	case stoppedEvent = <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stopped event was not published before timeout")
+	}
 
 	if len(bindings.deleteAgentIDs) != 1 || bindings.deleteAgentIDs[0] != "agent-1" {
 		t.Fatalf("binding delete agents = %v, want [agent-1]", bindings.deleteAgentIDs)
@@ -98,11 +103,8 @@ func TestBackgroundResumeDegradesOnLostHistory(t *testing.T) {
 	if threads.status.Status != statusFailed {
 		t.Fatalf("thread status = %q, want %q", threads.status.Status, statusFailed)
 	}
-	if len(stopped) != 1 {
-		t.Fatalf("stopped events = %d, want 1", len(stopped))
-	}
-	if got := stopped[0]; got.ThreadID != "thread-1" || got.Status != statusFailed || !strings.Contains(got.Reason, "start a new session") {
-		t.Fatalf("stopped event = %#v, want failed with restart hint", got)
+	if stoppedEvent.ThreadID != "thread-1" || stoppedEvent.Status != statusFailed || !strings.Contains(stoppedEvent.Reason, "start a new session") {
+		t.Fatalf("stopped event = %#v, want failed with restart hint", stoppedEvent)
 	}
 	if _, ok := svc.resumeInFlight.Load("agent-1"); ok {
 		t.Fatal("resumeInFlight retained after degrade")
