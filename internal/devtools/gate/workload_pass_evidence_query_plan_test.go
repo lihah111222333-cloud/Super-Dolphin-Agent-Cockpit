@@ -48,16 +48,15 @@ func TestWorkloadPassSourceReplayQueryPlanUsesPartitionIndexes(t *testing.T) {
 	query, args := workloadPassSourceReplayQuery([]WorkloadPassIdentity{identity}, retainedWorkloadPassGenerations(12))
 	details := sqliteQueryPlanDetails(t, database, query, args...)
 	assertSQLiteQueryPlanAccess(t, details, []string{
-		"USING INDEX idx_ci_workload_pass_evidence_source_replay",
-		"USING INDEX idx_ci_retained_workload_pass_proofs_source_replay",
+		"SEARCH evidence USING INDEX idx_ci_workload_pass_evidence_source_replay (workload_id=? AND execution_digest=? AND environment_digest=? AND accepted_generation=?)",
+		"SEARCH proof USING INDEX idx_ci_retained_workload_pass_proofs_source_replay (workload_id=?)",
 	})
 	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_pass_evidence", "ci_retained_workload_pass_proofs"})
 }
 
-// TestWorkloadPassEnvironmentReplayQueryPlanUsesRetentionIndex 锁定 200-term
-// environment replay 批量查询按既有 accepted-generation 入口限界；v15 不得
-// 悄然写入新的 remote PASS 物理对象。
-func TestWorkloadPassEnvironmentReplayQueryPlanUsesRetentionIndex(t *testing.T) {
+// TestWorkloadPassEnvironmentReplayQueryPlanUsesPartitionIndexes 锁定批量请求先按
+// workload/execution 分区索引收窄；不得退回 generation 全分区扫描。
+func TestWorkloadPassEnvironmentReplayQueryPlanUsesPartitionIndexes(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 12)
 	database := openWorkloadPassDatabase(t, store)
 	defer database.Close()
@@ -77,8 +76,11 @@ func TestWorkloadPassEnvironmentReplayQueryPlanUsesRetentionIndex(t *testing.T) 
 		t.Fatalf("environment replay query is not current-generation-only: %s", query)
 	}
 	details := sqliteQueryPlanDetails(t, database, query, args...)
-	assertSQLiteQueryPlanAccess(t, details, []string{"USING INDEX idx_ci_workload_pass_evidence_retention"})
-	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_pass_evidence"})
+	assertSQLiteQueryPlanAccess(t, details, []string{
+		"SEARCH evidence USING INDEX idx_ci_workload_pass_evidence_source_replay (workload_id=? AND execution_digest=?)",
+		"SEARCH proof USING INDEX idx_ci_retained_workload_pass_proofs_source_replay (workload_id=?)",
+	})
+	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_pass_evidence", "ci_retained_workload_pass_proofs"})
 }
 
 // TestLookupWorkloadPassEvidenceInitializesMissingAuthorityButRejectsMissingBaseline

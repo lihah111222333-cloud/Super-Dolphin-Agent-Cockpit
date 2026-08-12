@@ -26,22 +26,26 @@ func replayRemoteWorkloadPassEnvironment(
 	cache *remoteReplayCache,
 	confirmations remoteReuseMissConfirmations,
 	diagnostic *ReuseReplayDiagnostic,
+	observe remoteWorkloadReuseProgress,
 ) error {
 	missing := missingRemoteWorkloadPassIdentities(identities, reused)
 	if len(missing) == 0 {
 		return nil
 	}
+	observe.phase("reuse_environment_hint_query_started")
 	hints, err := input.LedgerStore.LookupWorkloadPassEnvironmentReplayHints(missing)
 	if err != nil {
 		return err
 	}
 	recordRemoteEnvironmentReplayHints(diagnostic, hints)
+	observe.phase("reuse_environment_hint_query_completed")
 	workloads, err := remoteReplayWorkloadIndex(catalog)
 	if err != nil {
 		return err
 	}
 	selectedIdentities := make([]gate.WorkloadPassIdentity, 0, len(missing))
 	selectedHints := make([]gate.WorkloadPassEnvironmentReplayHint, 0, len(missing))
+	observe.phase("reuse_environment_vote_started")
 	for _, identity := range missing {
 		workload := workloads[identity.WorkloadID]
 		hint, ok, err := selectRemoteWorkloadPassEnvironmentReplayHint(
@@ -57,7 +61,11 @@ func replayRemoteWorkloadPassEnvironment(
 		}
 		confirmations.confirm(identity.WorkloadID, remoteReuseEnvironmentMiss)
 	}
-	return authorizeRemoteWorkloadPassEnvironmentHints(input, selectedIdentities, selectedHints, reused, proofs)
+	observe.phase("reuse_environment_vote_completed")
+	observe.phase("reuse_environment_authorization_started")
+	err = authorizeRemoteWorkloadPassEnvironmentHints(input, selectedIdentities, selectedHints, reused, proofs)
+	observe.phase("reuse_environment_authorization_completed")
+	return err
 }
 
 func recordRemoteEnvironmentReplayHints(diagnostic *ReuseReplayDiagnostic, hints map[gate.GateID][]gate.WorkloadPassEnvironmentReplayHint) {
@@ -183,17 +191,17 @@ func verifyRemoteWorkloadPassEnvironmentReplay(
 	workload gate.Workload,
 	diagnostic *ReuseReplayDiagnostic,
 ) (bool, error) {
-	historicalMatches, err := verifyRemoteWorkloadPassHistoricalEnvironment(ctx, input, candidate, source, goFlags, workerTimeout, resourcePolicy, cache)
-	if err != nil || !historicalMatches {
-		if err == nil {
-			diagnostic.EnvironmentHistoricalMismatch++
-		}
-		return false, err
-	}
 	preciseMatches, err := verifyRemoteWorkloadPassPreciseEnvironment(ctx, input, identity, source, target, goFlags, workerTimeout, resourcePolicy, cache)
 	if err != nil || !preciseMatches {
 		if err == nil {
 			diagnostic.EnvironmentCurrentWorkerMismatch++
+		}
+		return false, err
+	}
+	historicalMatches, err := verifyRemoteWorkloadPassHistoricalEnvironment(ctx, input, candidate, source, goFlags, workerTimeout, resourcePolicy, cache)
+	if err != nil || !historicalMatches {
+		if err == nil {
+			diagnostic.EnvironmentHistoricalMismatch++
 		}
 		return false, err
 	}
