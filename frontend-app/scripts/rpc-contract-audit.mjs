@@ -3206,7 +3206,7 @@ async function provesTurnInterruptInjection(auditContext, entry) {
     && call.callee.object.name === 'runtime'
     && call.callee.property.type === 'Identifier'
     && call.callee.property.name === 'activeThreadRPC'
-    && call.arguments.length === 2
+    && (call.arguments.length === 2 || (call.arguments.length === 3 && arrow.params.length === 1 && arrow.params[0].type === 'Identifier' && call.arguments[2].type === 'Identifier' && call.arguments[2].name === arrow.params[0].name))
     && call.arguments[0].type === 'StringLiteral'
     && call.arguments[0].value === 'thread.interrupt'
     && call.arguments[1].type === 'Identifier'

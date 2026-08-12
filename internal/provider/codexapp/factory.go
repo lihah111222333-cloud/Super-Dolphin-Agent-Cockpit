@@ -21,6 +21,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/supportutil"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -367,6 +368,78 @@ func canonicalTurnTerminalOutcome(method string, payload map[string]any) dto.Ter
 		RequestID:     outcome.requestID,
 		ContractError: outcome.contractError,
 	}
+}
+
+// normalizeCodexTurnTerminalNotification 把 app-server v2 的嵌套 Turn 终态收敛为 adapter 的 canonical flat payload。
+// 旧 flat payload 保持原样；嵌套字段缺失、错类型或未知状态继续由既有 terminal contract fail-fast。
+func normalizeCodexTurnTerminalNotification(method string, params json.RawMessage) json.RawMessage {
+	if !isTurnTerminalEvent(method) || !json.Valid(params) {
+		return params
+	}
+	payload := decodeEventPayload(params)
+	turn := nestedValue(payload, "turn")
+	if !codexNestedTerminalEligible(payload, turn) {
+		return params
+	}
+	turnID := strings.TrimSpace(stringValue(turn, "id"))
+	status := strings.ToLower(strings.TrimSpace(stringValue(turn, "status")))
+	if turnID == "" || status == "" {
+		return params
+	}
+	payload["turnId"] = turnID
+	payload["status"] = status
+	payload["success"] = status == "completed"
+	applyCodexNestedTerminalMetadata(payload, turn)
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return params
+	}
+	return encoded
+}
+
+func codexNestedTerminalEligible(payload, turn map[string]any) bool {
+	if turn == nil {
+		return false
+	}
+	_, hasStatus := payload["status"]
+	_, hasSuccess := payload["success"]
+	return !hasStatus && !hasSuccess
+}
+
+func applyCodexNestedTerminalMetadata(payload, turn map[string]any) {
+	if completedAt, ok := strictCodexUnixSeconds(turn["completedAt"]); ok {
+		payload["timestamp"] = time.Unix(completedAt, 0).UTC().Format(time.RFC3339Nano)
+	}
+	if message := strings.TrimSpace(stringValue(nestedValue(turn, "error"), "message")); message != "" {
+		payload["error"] = message
+	}
+}
+
+func strictCodexUnixSeconds(value any) (int64, bool) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	seconds, err := number.Int64()
+	return seconds, err == nil && seconds > 0
+}
+
+func completeCodexTurnHandle(s *session, h *turnHandle, terminal *dto.TerminalOutcome, errText string) {
+	if errText == "" && (terminal.Status == "interrupted" || terminal.Status == "cancelled") {
+		h.complete(context.Canceled)
+		return
+	}
+	if errText == "" && terminal.Success {
+		h.complete(nil)
+		return
+	}
+	if errText == "" {
+		errText = "turn failed"
+	}
+	if notice := supportutil.CodexModelUnsupportedNotice(errors.New(errText), s.runtimeConfigString("model")); notice != "" {
+		errText = notice
+	}
+	h.complete(errors.New(errText))
 }
 
 func resolveExplicitTerminationOutcome(status string, payload map[string]any) turnTerminalOutcome {

@@ -463,6 +463,9 @@ function mockSettingsAndThreadDefaults() {
   backend.onFilesDropped.mockReturnValue(() => {});
   backend.beginTextClipboardWrite.mockReturnValue(null);
   backend.copyTextToClipboard.mockResolvedValue(true);
+  backend.resolveThreadIdentity.mockImplementation(({ threadId }) => Promise.resolve({
+    id: threadId, provider: 'codex', cwd: '/repo/app',
+  }));
   backend.readLspPromptHint.mockResolvedValue({
     hint: 'effective prompt text',
     defaultHint: 'default prompt text',

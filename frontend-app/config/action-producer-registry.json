@@ -1468,7 +1468,8 @@
       "healthSink": "frontendHealthStore",
       "errorSources": [
         "sync-throw",
-        "promise-reject"
+        "promise-reject",
+        "unsuccessful-result"
       ]
     },
     {

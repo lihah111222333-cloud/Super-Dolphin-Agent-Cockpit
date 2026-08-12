@@ -157,6 +157,9 @@ afterEach(cleanupAppTest);
   });
 
   it('isolates right sidebar diff, warnings, and tool stats to the selected agent', async () => {
+    backend.resolveThreadIdentity.mockResolvedValue({
+      id: 'thread-b', agent_id: 'agent-b', name: 'Agent B', provider: 'codex', status: 'running', cwd: '/repo/app',
+    });
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-a',
       threads: [

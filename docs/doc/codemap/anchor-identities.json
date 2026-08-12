@@ -5159,7 +5159,7 @@
       "codemap_line": 688,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "156",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "b22bf21d619a7ee18b3df9910f68b0c01e00e2755b1e7a27616af3bad5d12a7d",
       "symbol": "approvalParamsWithJSONRPCID"
     },
     {
@@ -5174,7 +5174,7 @@
       "codemap_line": 689,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "156",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "b22bf21d619a7ee18b3df9910f68b0c01e00e2755b1e7a27616af3bad5d12a7d",
       "symbol": "approvalParamsWithJSONRPCID"
     },
     {
@@ -5230,7 +5230,8 @@
       "codemap_line": 695,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "41",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "callTargetFunc.Call"
     },
     {
       "codemap_file": "05-dto.md",
@@ -5893,7 +5894,7 @@
       "codemap_line": 143,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "314-344",
-      "content_sha256": "6ad298056c7488c268d8746d714e4b25e6f66ba5d51afcf4916fbb8f5d4af8d7",
+      "content_sha256": "be55a9e82568b50bcc8aa9e39d7981c24da8bd1781299996dc674fb9c6a2bbd0",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -5908,7 +5909,7 @@
       "codemap_line": 144,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-301",
-      "content_sha256": "c17569bc85193687e9b7391ddc5a7d0892a173a0907300078f1514421b5fc90e",
+      "content_sha256": "d0ff4136c99d90a03f3d620021a5099710843a27592df6ce0e41bb56cab81c47",
       "symbol": "*service.establishStartedSession"
     },
     {
@@ -5985,7 +5986,7 @@
       "codemap_line": 210,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "314-344",
-      "content_sha256": "6ad298056c7488c268d8746d714e4b25e6f66ba5d51afcf4916fbb8f5d4af8d7",
+      "content_sha256": "be55a9e82568b50bcc8aa9e39d7981c24da8bd1781299996dc674fb9c6a2bbd0",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -6131,7 +6132,7 @@
       "codemap_line": 246,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "314-344",
-      "content_sha256": "6ad298056c7488c268d8746d714e4b25e6f66ba5d51afcf4916fbb8f5d4af8d7",
+      "content_sha256": "be55a9e82568b50bcc8aa9e39d7981c24da8bd1781299996dc674fb9c6a2bbd0",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -7677,7 +7678,8 @@
       "codemap_line": 131,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "41",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "callTargetFunc.Call"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9784,7 +9786,7 @@
       "codemap_line": 483,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "156-214",
-      "content_sha256": "5b5588e8f9399ad5219f027e081504b38c75f14b426925ed33c45dd0f11ec56c",
+      "content_sha256": "80f833be7a39922cf5d87cd03f5e002393adaab4324d4f98f5dea855d015ec78",
       "symbol": "approvalParamsWithJSONRPCID"
     },
     {
@@ -9792,7 +9794,7 @@
       "codemap_line": 483,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "216-235",
-      "content_sha256": "8171dac7d374d6c733ab261fc32f014ebfced5c5265b1a5103e7920508203222",
+      "content_sha256": "fa0dd1c62380d6dc3ec1d0194908d62debcce91fa52ae8a0ed8413b32f52b9b9",
       "symbol": "decodeTurnStartResult"
     },
     {
@@ -9800,15 +9802,14 @@
       "codemap_line": 483,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "32-55",
-      "content_sha256": "43e710a2e1239cce2ecffb5b84b77ba7baa191e245d2112e880a0c16bdc80ea6",
-      "symbol": "callTargetFunc"
+      "content_sha256": "d241b1f5d98c2b421a0aa1c8adb1b0d8795acba1833eeabc091fcdfd941bd384"
     },
     {
       "codemap_file": "09-provider.md",
       "codemap_line": 483,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "57-61",
-      "content_sha256": "0af6179a6b990d3380dd80efe6aa0ef88a6701a2f6daa88781bb5e7835553cd5",
+      "content_sha256": "c575a7bf326afcc7ec21a176c417b8655f29c55a5807455b2900fd7bed9f88f4",
       "symbol": "approvalBridgeMethods"
     },
     {
@@ -10214,8 +10215,7 @@
       "codemap_line": 536,
       "target_path": "internal/provider/codexapp/factory.go",
       "line_spec": "32-55",
-      "content_sha256": "43e710a2e1239cce2ecffb5b84b77ba7baa191e245d2112e880a0c16bdc80ea6",
-      "symbol": "callTargetFunc"
+      "content_sha256": "d241b1f5d98c2b421a0aa1c8adb1b0d8795acba1833eeabc091fcdfd941bd384"
     },
     {
       "codemap_file": "09-provider.md",
@@ -12216,7 +12216,7 @@
       "codemap_line": 765,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-300",
-      "content_sha256": "5d732128452e891938b841c11b8b2511883abcb4c26cc655376386e089f5603a",
+      "content_sha256": "1f51da4185849377815b8e31ac83e628cdadbb36e9abb7e69e98e58070f22397",
       "symbol": "*service.establishStartedSession"
     },
     {

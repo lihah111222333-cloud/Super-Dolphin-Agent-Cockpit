@@ -1636,8 +1636,8 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
   ])('rejects a real TURN_INTERRUPT injection overridden by %s', async (_label, override) => {
     const repoRoot = await createMutatedRealResultHandledShadow({
       injection: (source) => source.replace(
-        "    interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),",
-        `    interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),\n${override}`,
+        "    interruptActiveThread: (options) => runtime.activeThreadRPC('thread.interrupt', interruptTurn, options),",
+        `    interruptActiveThread: (options) => runtime.activeThreadRPC('thread.interrupt', interruptTurn, options),\n${override}`,
       ),
     })
     const report = await auditRpcContracts({ repoRoot })

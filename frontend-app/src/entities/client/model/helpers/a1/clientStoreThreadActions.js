@@ -163,7 +163,7 @@ function createDashboardCommandActions(runtime) {
 }
 
 function hasInterruptibleThreadAction(runtime) {
-  return activeThreadInterruptTarget(runtime.get()).interruptible;
+  return Boolean(runtime.pendingTurnStart) || activeThreadInterruptTarget(runtime.get()).interruptible;
 }
 
 async function refreshActiveThreadStatusAction(runtime) {
@@ -238,7 +238,7 @@ async function respondApprovalAction(runtime, deps, item, approved) {
 
 function createActiveThreadActions(runtime, deps) {
   return {
-    interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),
+    interruptActiveThread: (options) => runtime.activeThreadRPC('thread.interrupt', interruptTurn, options),
     forceCompleteActiveThread: () => runtime.activeThreadRPC('thread.force_complete', forceCompleteTurn),
     compactActiveThread: () => runtime.activeThreadRPC('thread.compact', compactThread),
     recoverActiveThread: () => runtime.recoverActiveThreadRPC(recoverThread),

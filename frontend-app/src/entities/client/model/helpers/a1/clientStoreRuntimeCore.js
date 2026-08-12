@@ -101,8 +101,15 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     assistantEventScopeEpoch: 0,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
+    pendingTurnStart: null,
   };
   attachComposerDraftRuntime(runtime);
+  runtime.cancelPendingTurnStart = () => {
+    if (!runtime.pendingTurnStart || runtime.pendingTurnStart.cancelled) return false;
+    runtime.pendingTurnStart.cancelled = true;
+    runtime.set({ actionNotice: actionNotice('正在取消启动中的任务', 'info') });
+    return true;
+  };
   attachWarningRuntime(runtime, {
     cleanObject,
     emitFrontendTraceEvent,

@@ -5,6 +5,7 @@ import {
 } from '../diagnostics/frontendHealthStore.js';
 import { registerFrontendDiagnosticCorrelation } from '../diagnostics/frontendDiagnosticCorrelation.js';
 import { runBackgroundAction, runUIAction } from './runUIAction.js';
+import { publishVisibleActionFailure, visibleActionFailureSnapshot, resetVisibleActionFailureForTest } from './actionFailureSink.js';
 
 function diagnosticIds(...ids) {
   let index = 0;
@@ -14,6 +15,7 @@ function diagnosticIds(...ids) {
 beforeEach(() => {
   window.localStorage.clear();
   resetFrontendHealthForTest();
+  resetVisibleActionFailureForTest();
 });
 
 it('routes synchronous failures to visible and persistent sinks without console-only reporting', () => {
@@ -143,6 +145,70 @@ it('projects an explicit false result into visible failure and Health', async ()
   expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
     expect.objectContaining({ actionId: 'fixture.false-result' }),
   ]));
+});
+
+it('clears only a superseded visible action failure after a successful action', async () => {
+  publishVisibleActionFailure({ actionId: 'thread.interrupt', publicError: {} });
+  runUIAction('composer.send', () => Promise.resolve(true), { supersedesActionIds: ['thread.interrupt'] });
+  await Promise.resolve();
+  expect(visibleActionFailureSnapshot()).toBeNull();
+
+  publishVisibleActionFailure({ actionId: 'project.remove', publicError: {} });
+  runUIAction('composer.send', () => Promise.resolve(true), { supersedesActionIds: ['thread.interrupt'] });
+  await Promise.resolve();
+  expect(visibleActionFailureSnapshot()?.actionId).toBe('project.remove');
+});
+
+it('clears the same action previous failure after asynchronous and synchronous success', async () => {
+  runUIAction('composer.send', () => Promise.reject(new Error('first send failed')), {
+    diagnosticIdFactory: diagnosticIds('composer-send-failed'),
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(visibleActionFailureSnapshot()?.actionId).toBe('composer.send');
+
+  runUIAction('composer.send', () => Promise.resolve(true));
+  await Promise.resolve();
+  expect(visibleActionFailureSnapshot()).toBeNull();
+
+  publishVisibleActionFailure({ actionId: 'composer.send', publicError: {} });
+  runUIAction('composer.send', () => true);
+  expect(visibleActionFailureSnapshot()).toBeNull();
+});
+
+it('preserves a newer failure published while an older successful action is pending', async () => {
+  let resolveAction;
+  const pendingAction = new Promise((resolve) => { resolveAction = resolve; });
+  publishVisibleActionFailure({ actionId: 'composer.send', publicError: {} });
+  runUIAction('composer.send', () => pendingAction);
+
+  const newerFailure = { actionId: 'composer.send', publicError: {} };
+  publishVisibleActionFailure(newerFailure);
+  resolveAction(true);
+  await Promise.resolve();
+  expect(visibleActionFailureSnapshot()).toBe(newerFailure);
+});
+
+it('preserves an unrelated failure published while a successful retry is pending', async () => {
+  let resolveRetry;
+  const retryAction = new Promise((resolve) => { resolveRetry = resolve; });
+  const action = vi.fn()
+    .mockRejectedValueOnce(new Error('first attempt failed'))
+    .mockReturnValueOnce(retryAction);
+  runUIAction('composer.send', action, {
+    diagnosticIdFactory: diagnosticIds('composer-send-retry'),
+    retryable: true,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const retry = visibleActionFailureSnapshot()?.retry;
+  const retryPromise = retry();
+  const unrelatedFailure = { actionId: 'project.remove', publicError: {} };
+  publishVisibleActionFailure(unrelatedFailure);
+  resolveRetry(true);
+  await retryPromise;
+  expect(visibleActionFailureSnapshot()).toBe(unrelatedFailure);
 });
 
 it('fails fast when actionId or the retryable action thunk is missing', () => {

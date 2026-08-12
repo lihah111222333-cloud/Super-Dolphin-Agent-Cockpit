@@ -368,7 +368,7 @@ afterEach(cleanupAppTest);
       'threadPins.chat': { 'thread-pin': 1735689600000 },
     });
     backend.getThreadState.mockResolvedValue({ activeThreadId: 'thread-old', timelinesByThread: {} });
-    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
     const { container } = render(<App />);
     await findThreadCardByName('Older chat');
 
@@ -473,6 +473,9 @@ afterEach(cleanupAppTest);
   });
 
   it('opens archived thread content from the archive list without showing the new-chat draft', async () => {
+    backend.resolveThreadIdentity.mockResolvedValue({
+      id: 'thread-archived', name: '归档线程', provider: 'codex', status: 'archived', cwd: '/repo/app',
+    });
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-1',
       threads: [
@@ -508,6 +511,9 @@ afterEach(cleanupAppTest);
   });
 
   it('keeps an empty archived thread selection out of the new-chat intro state', async () => {
+    backend.resolveThreadIdentity.mockResolvedValue({
+      id: 'thread-archived', name: '空归档线程', provider: 'codex', status: 'archived', cwd: '/repo/app',
+    });
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-1',
       threads: [

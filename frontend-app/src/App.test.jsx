@@ -257,7 +257,7 @@ it.each([
 
     const shell = await screen.findByTestId('frontend-app');
     const sidebar = screen.getByTestId('app-sidebar');
-    const appbar = document.querySelector('.super-dolphin-agent-top-appbar');
+    const appbar = screen.getByLabelText('Super Dolphin Agent app bar');
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
@@ -319,7 +319,11 @@ it.each([
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
-    expect(sidebar.querySelector('.super-dolphin-agent-brand-block img')?.getAttribute('src')).toContain('super-dolphin-agent-brand-icon.png');
+    expect(within(sidebar).getByTestId('super-dolphin-agent-brand-dark-logo')).toHaveAttribute(
+      'src',
+      expect.stringContaining('super-dolphin-agent-brand-icon.png'),
+    );
+    expect(within(sidebar).getByTestId('super-dolphin-agent-brand-light-logo')).toBeInTheDocument();
     expect(sidebar.querySelector('.sidebar-tree-folder img')).toBeNull();
     expect(sidebar.querySelector('.super-dolphin-agent-nav-item svg')).toBeInTheDocument();
   });

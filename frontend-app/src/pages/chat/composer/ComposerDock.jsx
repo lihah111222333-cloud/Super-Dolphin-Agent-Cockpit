@@ -49,7 +49,7 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
     if (imeLikely) return;
     event.preventDefault();
     if (!canSend) return;
-    runUIAction('composer.send', () => sendMessage());
+    runUIAction('composer.send', () => sendMessage(), { supersedesActionIds: ['thread.interrupt'] });
   };
 }
 

@@ -1148,6 +1148,7 @@
     "frontend-app/src/entities/client/model/helpers/a1/clientStoreThreadModel.test.js",
     "frontend-app/src/entities/client/model/helpers/a1/clientStoreUtils.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/composerSliceActions.js",
+    "frontend-app/src/entities/client/model/helpers/a2Slice/composerSliceActions.test.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/forkSliceActions.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/projectSliceActions.js",
     "frontend-app/src/entities/client/model/helpers/a2Slice/projectSliceActions.test.js",
@@ -1268,6 +1269,7 @@
     "frontend-app/src/pages/chat/ChatPage.css",
     "frontend-app/src/pages/chat/ChatPage.jsx",
     "frontend-app/src/pages/chat/ChatPage.preview.test.jsx",
+    "frontend-app/src/pages/chat/ChatPage.retry.test.jsx",
     "frontend-app/src/pages/chat/ChatPage.scroll.test.jsx",
     "frontend-app/src/pages/chat/ChatPage.test.jsx",
     "frontend-app/src/pages/chat/ChatPage.timeline.test.jsx",
@@ -3261,6 +3263,8 @@
     "internal/module/thread/recovery_rpc_test.go",
     "internal/module/thread/resume_binding_conflict_test.go",
     "internal/module/thread/resume_claude_override_test.go",
+    "internal/module/thread/resume_degrade.go",
+    "internal/module/thread/resume_degrade_test.go",
     "internal/module/thread/resume_session_uuid_test.go",
     "internal/module/thread/resume_shard18_support_test.go",
     "internal/module/thread/resume_shard18_test.go",
@@ -5108,6 +5112,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6705,
-  "source_snapshot_paths_sha256": "sha256:33a758347f3d6111652522d7df306f4d7253129fdbcbefa7397684ed1338db13"
+  "source_snapshot_input_count": 6709,
+  "source_snapshot_paths_sha256": "sha256:8c7a88bf4e038dc060747501687c9567f23e5d9f240c5738e5cf2e9339f8611d"
 }

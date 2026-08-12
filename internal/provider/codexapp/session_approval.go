@@ -575,6 +575,7 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 	observeCodexTurnLatencyMilestone(method, params, time.Now().UTC())
 	params = observeMissingCodexLifecycleTimestamp(method, params, time.Now().UTC())
 	terminalMethod := strings.TrimSpace(method)
+	params = normalizeCodexTurnTerminalNotification(terminalMethod, params)
 	if eventThread, ok := s.alienThreadEventThread(params); ok {
 		pkglogger.Warn("codexapp: dropped alien thread event",
 			"agent_id", s.agentID,

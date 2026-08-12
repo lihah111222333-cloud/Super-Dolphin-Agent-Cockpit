@@ -630,7 +630,9 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 		}
 		if _, err := s.Resume(ctx, ResumeRequest{ThreadID: threadID}); err != nil {
 			util.LogIgnoredError(s.logger, "thread: background resume failed", err)
-			// 失败时保留 resumeInFlight，阻断后续自动重试。
+			// Resume 内部已对不可恢复的 history-lost 错误执行降级
+			// （清理 binding、标记线程并发布 stopped 事件），这里不再重复。
+			// 暂时性失败时保留 resumeInFlight，阻断后续自动重试。
 			return
 		}
 		// 成功后清除标记，后续 ReadMessages 可重新检查活跃 session。

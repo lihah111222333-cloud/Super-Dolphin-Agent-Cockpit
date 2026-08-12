@@ -230,6 +230,10 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	req.PromptSnapshot = snapshot
 	session, err := s.establishResumedSession(ctx, req, state, displayName)
 	if err != nil {
+		if isUnrecoverableResumeError(err) {
+			s.degradeLostResume(ctx, req.ThreadID, req.AgentID, err)
+			return ResumeResult{}, resumeLostError(err)
+		}
 		return ResumeResult{}, err
 	}
 	return s.persistResumedSession(ctx, req, state, displayName, session)

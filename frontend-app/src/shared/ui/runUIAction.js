@@ -4,7 +4,11 @@ import {
   recordFrontendHealth,
   recordFrontendHealthFailureState,
 } from '../diagnostics/frontendHealthStore.js';
-import { clearVisibleActionFailure, publishVisibleActionFailure } from './actionFailureSink.js';
+import {
+  clearVisibleActionFailureIfCurrent,
+  publishVisibleActionFailure,
+  visibleActionFailureSnapshot,
+} from './actionFailureSink.js';
 import { diagnosticIdFactoryForError, publicErrorForAction, publicErrorForSink } from './publicError.js';
 
 /**
@@ -17,6 +21,7 @@ import { diagnosticIdFactoryForError, publicErrorForAction, publicErrorForSink }
  *   onError?: (error: PublicError) => unknown,
  *   rejectFalse?: boolean,
  *   retryable?: boolean,
+ *   supersedesActionIds?: readonly string[],
  *   visibleFailureSink?: (failure: VisibleFailure) => unknown,
  * }} RunUIActionOptions
  */
@@ -100,7 +105,6 @@ function reportFailure({ action, actionId, cause, options }) {
       actionId,
       action,
       options,
-      visibleFailureSink === publishVisibleActionFailure ? clearVisibleActionFailure : undefined,
     );
   } : undefined;
   try {
@@ -136,30 +140,41 @@ function reportSharedPromiseFailure(promiseResult, args) {
   reportFailure(args);
 }
 
-/** @param {unknown} value @param {{ action: () => unknown, actionId: string, options: RunUIActionOptions, promiseResult: object }} args @param {(() => void) | undefined} onSuccess */
-function handleActionResolution(value, args, onSuccess) {
+/** @param {{ actionId: string, failureAtStart: VisibleFailure | null, options: RunUIActionOptions }} args */
+function handleActionSuccess(args) {
+  const resolvedActionIds = [args.actionId];
+  if (args.options.supersedesActionIds) resolvedActionIds.push(...args.options.supersedesActionIds);
+  clearVisibleActionFailureIfCurrent(
+    args.failureAtStart,
+    resolvedActionIds,
+  );
+}
+
+/** @param {unknown} value @param {{ action: () => unknown, actionId: string, failureAtStart: VisibleFailure | null, options: RunUIActionOptions, promiseResult: object }} args */
+function handleActionResolution(value, args) {
   if (args.options.rejectFalse && value === false) {
     reportSharedPromiseFailure(args.promiseResult, args);
     return;
   }
-  if (onSuccess) onSuccess();
+  handleActionSuccess(args);
 }
 
-/** @param {string} actionId @param {() => unknown} action @param {RunUIActionOptions} options @param {(() => void) | undefined} [onSuccess] */
-function executeAction(actionId, action, options, onSuccess) {
+/** @param {string} actionId @param {() => unknown} action @param {RunUIActionOptions} options */
+function executeAction(actionId, action, options) {
+  const failureAtStart = visibleActionFailureSnapshot();
   try {
     const result = action();
     if (result && typeof /** @type {{ then?: unknown }} */ (result).then === 'function') {
       const promiseResult = /** @type {object} */ (result);
-      const args = { action, actionId, options, promiseResult };
+      const args = { action, actionId, failureAtStart, options, promiseResult };
       void Promise.resolve(result).then(
-        (value) => handleActionResolution(value, args, onSuccess),
+        (value) => handleActionResolution(value, args),
         (cause) => reportSharedPromiseFailure(promiseResult, { ...args, cause }),
       );
     } else if (options.rejectFalse && result === false) {
       reportFailure({ action, actionId, options });
-    } else if (onSuccess) {
-      onSuccess();
+    } else {
+      handleActionSuccess({ actionId, failureAtStart, options });
     }
     return result;
   } catch (cause) {
@@ -190,6 +205,10 @@ export function runUIAction(actionId, action, options = {}) {
       && typeof options[/** @type {'rejectFalse' | 'retryable'} */ (name)] !== 'boolean') {
       throw new TypeError(`runUIAction ${name} must be a boolean`);
     }
+  }
+  if (options.supersedesActionIds !== undefined && (!Array.isArray(options.supersedesActionIds)
+    || options.supersedesActionIds.some((id) => typeof id !== 'string' || !id.trim()))) {
+    throw new TypeError('runUIAction supersedesActionIds must contain non-empty action ids');
   }
   return executeAction(actionId.trim(), action, options);
 }

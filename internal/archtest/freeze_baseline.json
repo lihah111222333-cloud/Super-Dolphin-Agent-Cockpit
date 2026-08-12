@@ -2993,21 +2993,6 @@
         "max_struct_fields": 48,
         "max_struct_methods": 9
       },
-      "internal/provider/codexapp/session_dispatch.go": {
-        "lines": 802,
-        "max_func_len": 51,
-        "max_nesting": 3,
-        "max_complexity": 10,
-        "max_params": 5,
-        "max_returns": 4,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 4
-      },
       "internal/provider/codexapp/session_enrich.go": {
         "lines": 399,
         "max_func_len": 40,

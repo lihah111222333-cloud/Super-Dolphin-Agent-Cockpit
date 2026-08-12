@@ -213,6 +213,7 @@ function createSaveComposerModelProviderAction(runtime, deps) {
 async function promoteNewDraftThread(runtime, request, deps) {
   const started = await deps.startNewDraftThread(request, deps.resolveLaunchPreferences);
   runtime.set((state) => deps.promotedDraftThreadState(state, request, started));
+  if (runtime.pendingTurnStart) runtime.pendingTurnStart.threadId = started.threadId;
   return started.threadId;
 }
 
@@ -225,6 +226,36 @@ function startDraftTurn(deps, request, threadId) {
   });
 }
 
+function canonicalStartedTurn(observed, localTurnId, threadId) {
+  const nextTurn = { id: localTurnId, threadId, status: 'running' };
+  if (!observed || typeof observed !== 'object') return nextTurn;
+  Object.assign(nextTurn, observed);
+  nextTurn.id = localTurnId;
+  nextTurn.threadId = threadId;
+  if (typeof observed.status !== 'string' || observed.status.trim() === '') nextTurn.status = 'running';
+  if (typeof observed.id === 'string' && observed.id !== localTurnId) nextTurn.providerTurnId = observed.id;
+  return nextTurn;
+}
+
+function recordCanonicalStartedTurn(runtime, threadId, result) {
+  const localTurnId = depsNormalizeTurnId(result?.turn_id);
+  if (!localTurnId) throw new Error('turn/start response missing local turn id');
+  runtime.set((state) => {
+    const observed = state.activeTurnByThread?.[threadId];
+    return {
+      activeTurnByThread: {
+        ...state.activeTurnByThread,
+        [threadId]: canonicalStartedTurn(observed, localTurnId, threadId),
+      },
+    };
+  });
+  return localTurnId;
+}
+
+function depsNormalizeTurnId(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 async function retryDraftWithFreshThread(runtime, deps, context, error) {
   const activeRequest = context.activeRequest;
   if (!activeRequest.previousThreadId || !deps.isCodexIdentityAutoResumeError(error)) throw error;
@@ -234,18 +265,34 @@ async function retryDraftWithFreshThread(runtime, deps, context, error) {
   context.threadId = '';
   runtime.set((state) => deps.optimisticSendDraftState(state, retryRequest));
   context.threadId = await promoteNewDraftThread(runtime, retryRequest, deps);
-  await startDraftTurn(deps, retryRequest, context.threadId);
+  const result = await startDraftTurn(deps, retryRequest, context.threadId);
+  context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, result);
+  context.started = true;
   return context;
+}
+
+async function interruptCancelledStartedTurn(runtime, context) {
+  if (!runtime.pendingTurnStart?.cancelled) return;
+  const interruptActiveThread = runtime.get().interruptActiveThread;
+  if (typeof interruptActiveThread !== 'function') throw new Error('canonical thread interrupt capability is unavailable');
+  const interrupted = await interruptActiveThread({
+    activeTurnTarget: { threadId: context.threadId, turnId: context.turnId },
+  });
+  if (!interrupted) throw new Error('pending turn cancellation was not accepted');
+  context.cancelled = true;
 }
 
 async function startDraftTurnWithRecovery(runtime, deps, context) {
   if (!context.threadId) context.threadId = await promoteNewDraftThread(runtime, context.activeRequest, deps);
   try {
-    await startDraftTurn(deps, context.activeRequest, context.threadId);
+    const result = await startDraftTurn(deps, context.activeRequest, context.threadId);
+    context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, result);
+    context.started = true;
   }
   catch (error) {
-    return retryDraftWithFreshThread(runtime, deps, context, error);
+    await retryDraftWithFreshThread(runtime, deps, context, error);
   }
+  await interruptCancelledStartedTurn(runtime, context);
   return context;
 }
 
@@ -265,6 +312,21 @@ async function rollbackFailedSendDraft(runtime, deps, activeRequest, threadId, e
   await deps.deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
   const displayMessage = deps.recoveryActionMessageFromRPCError(error) || 'action failure; see Health diagnostic ID';
   runtime.addWarning('error', 'thread.send.failed', { error: displayMessage });
+}
+
+function finishSendDraft(runtime, deps, sendContext) {
+  if (!sendContext.cancelled) {
+    clearSentDrafts(runtime, sendContext.activeRequest, sendContext.threadId);
+    return true;
+  }
+  runtime.set({
+    sending: false,
+    draft: sendContext.activeRequest.previousDraft,
+    attachments: sendContext.activeRequest.previousAttachments,
+    composerCapabilities: sendContext.activeRequest.previousComposerCapabilities,
+    actionNotice: deps.actionNotice('本轮已取消', 'info'),
+  });
+  return true;
 }
 
 function createSendDraftAction(runtime, deps) {
@@ -288,14 +350,17 @@ function createSendDraftAction(runtime, deps) {
     runtime.set((state) => optimisticSendDraftState(state, request));
 
     const sendContext = { activeRequest: request, threadId: request.previousThreadId };
+    runtime.pendingTurnStart = { cancelled: false, threadId: request.previousThreadId || request.provisionalThreadId };
     try {
       await startDraftTurnWithRecovery(runtime, deps, sendContext);
-      clearSentDrafts(runtime, sendContext.activeRequest, sendContext.threadId);
-      return true;
+      return finishSendDraft(runtime, deps, sendContext);
     }
     catch (error) {
-      await rollbackFailedSendDraft(runtime, deps, sendContext.activeRequest, sendContext.threadId, error);
+      if (sendContext.started) runtime.set({ sending: false });
+      else await rollbackFailedSendDraft(runtime, deps, sendContext.activeRequest, sendContext.threadId, error);
       throw error;
+    } finally {
+      runtime.pendingTurnStart = null;
     }
   };
 }
