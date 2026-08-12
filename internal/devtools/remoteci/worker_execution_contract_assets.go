@@ -554,6 +554,16 @@ func workerExecutionPathWithinDirectory(filePath string, directory string) bool 
 // resolveWorkerExecutionAssets 收集 Worker 进程的构建、模块、资源和脚本输入。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 func (assets *workerExecutionAssets) resolveWorkerExecutionAssets(ctx context.Context, closure *workerExecutionGoClosure) error {
+	return assets.resolveWorkerExecutionAssetsWithContentMode(ctx, closure, false)
+}
+
+// resolveWorkerExecutionAssetsPreviousGroupedDeclaration 重建 ValueSpec 收窄前
+// 的片段级 embed 扫描，仅用于历史 PASS 摘要验证。
+func (assets *workerExecutionAssets) resolveWorkerExecutionAssetsPreviousGroupedDeclaration(ctx context.Context, closure *workerExecutionGoClosure) error {
+	return assets.resolveWorkerExecutionAssetsWithContentMode(ctx, closure, true)
+}
+
+func (assets *workerExecutionAssets) resolveWorkerExecutionAssetsWithContentMode(ctx context.Context, closure *workerExecutionGoClosure, previousGroupedDeclaration bool) error {
 	if err := assets.addPackageBuildInputs(ctx, closure.reached); err != nil {
 		return err
 	}
@@ -561,11 +571,15 @@ func (assets *workerExecutionAssets) resolveWorkerExecutionAssets(ctx context.Co
 		return err
 	}
 	for _, unit := range closure.selected {
-		content, err := workerExecutionUnitContent(unit)
-		if err != nil {
-			return err
+		source := unit.source
+		if previousGroupedDeclaration {
+			var err error
+			source, err = workerExecutionUnitContent(unit)
+			if err != nil {
+				return err
+			}
 		}
-		if err := assets.addGoEmbedAssets(unit.directory, content); err != nil {
+		if err := assets.addGoEmbedAssets(unit.directory, source); err != nil {
 			return err
 		}
 	}

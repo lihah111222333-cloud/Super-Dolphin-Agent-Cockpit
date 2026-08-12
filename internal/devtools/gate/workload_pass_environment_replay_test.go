@@ -82,6 +82,34 @@ func requireValidatedWorkloadPassEnvironmentReplayHint(t *testing.T, store *Dura
 	}
 }
 
+// TestLookupWorkloadPassEnvironmentReplayHintsPreferExactInput 锁定环境迁移先验证
+// 当前 exact input，再尝试语义不同的历史来源，避免 identity-hash 随机顺序。
+func TestLookupWorkloadPassEnvironmentReplayHintsPreferExactInput(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	firstRun, firstIdentity, firstReceipts := recordWorkloadPassRunAtForRetentionID(t, store, "environment-order-first", 1, "environment-order-first", GateIDWhitespaceCheck)
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(firstRun), firstReceipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	secondRun, secondIdentity, secondReceipts := recordWorkloadPassRunAtForRetentionID(t, store, "environment-order-second", 1, "environment-order-second", GateIDWhitespaceCheck)
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(secondRun), secondReceipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if firstIdentity.ExecutionDigest != secondIdentity.ExecutionDigest || firstIdentity.InputDigest == secondIdentity.InputDigest {
+		t.Fatal("environment replay ordering fixture is invalid")
+	}
+	target := secondIdentity
+	target.EnvironmentDigest = digestForWorkloadPass("environment-order-current")
+	target.IdentityDigest = workloadPassIdentityDigest(t, target)
+	hints, err := store.LookupWorkloadPassEnvironmentReplayHints([]WorkloadPassIdentity{target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := hints[target.WorkloadID]
+	if len(got) != 2 || got[0].UntrustedCandidate().Identity.InputDigest != target.InputDigest {
+		t.Fatalf("environment replay hint order = %#v, want exact input first", got)
+	}
+}
+
 func TestValidateWorkloadPassEnvironmentReplayHintRejectsCanonicalDrift(t *testing.T) {
 	store, hint := workloadPassEnvironmentReplayHintFixture(t, "environment-replay-hint-drift")
 	tampered := hint

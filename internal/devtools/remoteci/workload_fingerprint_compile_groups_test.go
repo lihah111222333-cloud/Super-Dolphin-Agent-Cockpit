@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -92,6 +93,38 @@ func TestConcurrentRemoteWorkloadInputDigestsMatchesSequential(t *testing.T) {
 	for _, workload := range workloads {
 		if got[workload.ID] != want[workload.ID] {
 			t.Fatalf("workload %q digest = %q, want %q", workload.ID, got[workload.ID], want[workload.ID])
+		}
+	}
+}
+
+func TestGroupRemoteWorkloadInputDigestIndexesUsesPackageProfilePartitions(t *testing.T) {
+	newTest := func(parent gate.GateID, pkg, name string) gate.Workload {
+		t.Helper()
+		workload, err := gate.NewGoTestWorkload(parent, pkg, name, 100)
+		if err != nil {
+			t.Fatalf("NewGoTestWorkload(%q, %q): %v", pkg, name, err)
+		}
+		return workload
+	}
+	benchmark, err := gate.NewGoBenchmarkWorkload(gate.GateIDBackendTestWithGuard, "./fixture", "BenchmarkX", 100)
+	if err != nil {
+		t.Fatalf("NewGoBenchmarkWorkload(): %v", err)
+	}
+	workloads := []gate.Workload{
+		newTest(gate.GateIDBackendTestWithGuard, "./fixture", "TestX"),
+		benchmark,
+		newTest(gate.GateIDBackendTestGuardWithRace, "./fixture", "TestRace"),
+		newTest(gate.GateIDBackendTestWithGuard, "./other", "TestOther"),
+	}
+	results := make([]remoteWorkloadInputDigestResult, len(workloads))
+	groups := groupRemoteWorkloadInputDigestIndexes(workloads, []int{0, 1, 2, 3}, results)
+	wantGroups := [][]int{{0, 1}, {2}, {3}}
+	if !reflect.DeepEqual(groups, wantGroups) {
+		t.Fatalf("worker groups = %v, want %v package/profile partitions", groups, wantGroups)
+	}
+	for index, result := range results {
+		if result.err != nil {
+			t.Fatalf("group result %d error = %v", index, result.err)
 		}
 	}
 }

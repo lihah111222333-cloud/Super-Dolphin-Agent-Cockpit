@@ -47,36 +47,39 @@ type remoteReplaySemanticDigestResult struct {
 
 // remoteReplayCache 只属于一次串行 Prepare；内容寻址 tree 的成功值和不可用事实可复用，错误始终立即返回。
 type remoteReplayCache struct {
-	snapshots                   map[remoteReplayTreeKey]remoteReplaySnapshotResult
-	inputDigests                map[remoteReplayWorkloadKey]remoteReplayInputDigestResult
-	compileInputDigests         map[remoteReplayCompileKey]remoteReplayCompileDigestResult
-	semanticInputVotes          map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult
-	legacyWorkerDigests         map[remoteReplayTreeKey]string
-	previousWorkerDigests       map[remoteReplayTreeKey]string
-	previousStableWorkerDigests map[remoteReplayTreeKey]string
-	preciseWorkerDigests        map[remoteReplayTreeKey]string
-	snapshotComputations        uint64
-	snapshotLoads               uint64
-	inputComputations           uint64
-	compileComputations         uint64
-	semanticComputations        uint64
-	legacyComputations          uint64
-	previousComputations        uint64
-	previousStableComputations  uint64
-	preciseComputations         uint64
+	snapshots                    map[remoteReplayTreeKey]remoteReplaySnapshotResult
+	inputDigests                 map[remoteReplayWorkloadKey]remoteReplayInputDigestResult
+	compileInputDigests          map[remoteReplayCompileKey]remoteReplayCompileDigestResult
+	semanticInputVotes           map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult
+	previousGroupedWorkerDigests map[remoteReplayTreeKey]string
+	legacyWorkerDigests          map[remoteReplayTreeKey]string
+	previousWorkerDigests        map[remoteReplayTreeKey]string
+	previousStableWorkerDigests  map[remoteReplayTreeKey]string
+	preciseWorkerDigests         map[remoteReplayTreeKey]string
+	snapshotComputations         uint64
+	snapshotLoads                uint64
+	inputComputations            uint64
+	compileComputations          uint64
+	semanticComputations         uint64
+	previousGroupedComputations  uint64
+	legacyComputations           uint64
+	previousComputations         uint64
+	previousStableComputations   uint64
+	preciseComputations          uint64
 }
 
 // newRemoteReplayCache 用已完成 correctness 指纹计算的当前快照预热 replay，拒绝错树绑定。
 func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSnapshot) (*remoteReplayCache, error) {
 	cache := &remoteReplayCache{
-		snapshots:                   make(map[remoteReplayTreeKey]remoteReplaySnapshotResult),
-		inputDigests:                make(map[remoteReplayWorkloadKey]remoteReplayInputDigestResult),
-		compileInputDigests:         make(map[remoteReplayCompileKey]remoteReplayCompileDigestResult),
-		semanticInputVotes:          make(map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult),
-		legacyWorkerDigests:         make(map[remoteReplayTreeKey]string),
-		previousWorkerDigests:       make(map[remoteReplayTreeKey]string),
-		previousStableWorkerDigests: make(map[remoteReplayTreeKey]string),
-		preciseWorkerDigests:        make(map[remoteReplayTreeKey]string),
+		snapshots:                    make(map[remoteReplayTreeKey]remoteReplaySnapshotResult),
+		inputDigests:                 make(map[remoteReplayWorkloadKey]remoteReplayInputDigestResult),
+		compileInputDigests:          make(map[remoteReplayCompileKey]remoteReplayCompileDigestResult),
+		semanticInputVotes:           make(map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult),
+		previousGroupedWorkerDigests: make(map[remoteReplayTreeKey]string),
+		legacyWorkerDigests:          make(map[remoteReplayTreeKey]string),
+		previousWorkerDigests:        make(map[remoteReplayTreeKey]string),
+		previousStableWorkerDigests:  make(map[remoteReplayTreeKey]string),
+		preciseWorkerDigests:         make(map[remoteReplayTreeKey]string),
 	}
 	if current == nil {
 		return cache, nil
@@ -219,6 +222,27 @@ func remoteWorkloadInputVotesAllowReuse(source, target remoteWorkloadInputVoteDi
 	return remoteWorkloadInputVoteDecisionFor(source, target).allowReuse()
 }
 
+// previousGroupedWorkerDigest 对同一来源 tree 只重建一次 ValueSpec
+// 收窄前的精确摘要；该值只用于验证历史环境。
+func (cache *remoteReplayCache) previousGroupedWorkerDigest(ctx context.Context, snapshot *remoteGitTreeSnapshot) (string, error) {
+	if cache == nil {
+		return "", errors.New("remote workload PASS replay cache is required")
+	}
+	key, err := remoteReplaySnapshotKey(snapshot)
+	if err != nil {
+		return "", err
+	}
+	if digest := cache.previousGroupedWorkerDigests[key]; digest != "" {
+		return digest, nil
+	}
+	cache.previousGroupedComputations++
+	digest, err := snapshot.workerExecutionContractDigestPreviousGroupedDeclarationV4(ctx)
+	if err != nil {
+		return "", err
+	}
+	return cache.rememberWorkerDigest(cache.previousGroupedWorkerDigests, key, digest)
+}
+
 // previousStableWorkerDigest 对同一来源 tree 只计算一次收窄根集合前的 stable-key 摘要。
 func (cache *remoteReplayCache) previousStableWorkerDigest(ctx context.Context, snapshot *remoteGitTreeSnapshot) (string, error) {
 	if cache == nil {
@@ -257,6 +281,28 @@ func (cache *remoteReplayCache) previousWorkerDigest(ctx context.Context, snapsh
 		return "", err
 	}
 	return cache.rememberWorkerDigest(cache.previousWorkerDigests, key, digest)
+}
+
+// releaseSnapshotsExcept 释放可由 Git tree 重建的来源快照，只保留当前目标树；
+// 已计算的摘要缓存继续有效，不改变后续候选判定。
+func (cache *remoteReplayCache) releaseSnapshotsExcept(repositoryRoot, retainedTree string) {
+	if cache == nil {
+		return
+	}
+	for key := range cache.snapshots {
+		if key.repositoryRoot != repositoryRoot || key.tree == retainedTree {
+			continue
+		}
+		delete(cache.snapshots, key)
+	}
+}
+
+// releaseSnapshot 在一个来源树分区完成后释放其大对象；目标树始终保留。
+func (cache *remoteReplayCache) releaseSnapshot(repositoryRoot, tree, retainedTree string) {
+	if cache == nil || tree == retainedTree {
+		return
+	}
+	delete(cache.snapshots, remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree})
 }
 
 // snapshot 按 repository/tree 复用精确 Git 快照；对象缺失只缓存为不可用，不伪造内容。
@@ -339,6 +385,87 @@ func (cache *remoteReplayCache) inputDigest(ctx context.Context, repositoryRoot,
 		return "", false, errors.New("remote workload PASS replay produced an empty input digest")
 	}
 	return cache.rememberInputDigest(key, digest, true, nil)
+}
+
+// prewarmInputDigests 将同一来源树的 exact selector 并行计算，并按输入顺序
+// 串行写回 replay cache；非 selector 保持串行，错误顺序不变。
+func (cache *remoteReplayCache) prewarmInputDigests(ctx context.Context, repositoryRoot, tree string, workloads []gate.Workload) error {
+	if cache == nil {
+		return errors.New("remote workload PASS replay cache is required")
+	}
+	snapshot, available, err := cache.snapshot(ctx, repositoryRoot, tree)
+	if err != nil {
+		return err
+	}
+	pending, keys := cache.pendingInputDigests(repositoryRoot, tree, workloads, available)
+	results := computeRemoteWorkloadInputDigests(ctx, snapshot, pending)
+	return cache.rememberPrewarmedInputDigests(pending, keys, results)
+}
+
+// pendingInputDigests 过滤已缓存 workload，并为不可用来源树记录稳定 unavailable 事实。
+func (cache *remoteReplayCache) pendingInputDigests(
+	repositoryRoot string,
+	tree string,
+	workloads []gate.Workload,
+	available bool,
+) ([]gate.Workload, []remoteReplayWorkloadKey) {
+	pending := make([]gate.Workload, 0, len(workloads))
+	keys := make([]remoteReplayWorkloadKey, 0, len(workloads))
+	for _, workload := range workloads {
+		key := remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree}, workloadID: workload.ID}
+		if _, cached := cache.inputDigests[key]; cached {
+			continue
+		}
+		if !available {
+			cache.inputDigests[key] = remoteReplayInputDigestResult{}
+			continue
+		}
+		pending = append(pending, workload)
+		keys = append(keys, key)
+	}
+	return pending, keys
+}
+
+// computeRemoteWorkloadInputDigests 按既有 selector 分组策略计算一批 workload 输入。
+func computeRemoteWorkloadInputDigests(
+	ctx context.Context,
+	snapshot *remoteGitTreeSnapshot,
+	pending []gate.Workload,
+) []remoteWorkloadInputDigestResult {
+	results := make([]remoteWorkloadInputDigestResult, len(pending))
+	parallel := make([]int, 0, len(pending))
+	for index, workload := range pending {
+		if remoteExactGoSelectorWorkload(workload) {
+			parallel = append(parallel, index)
+			continue
+		}
+		results[index].digest, results[index].err = snapshot.workloadInputDigest(ctx, workload)
+	}
+	snapshot.runRemoteWorkloadInputDigestWorkers(ctx, pending, parallel, results)
+	return results
+}
+
+// rememberPrewarmedInputDigests 按输入顺序提交批量结果，保持最早错误和 unavailable 语义。
+func (cache *remoteReplayCache) rememberPrewarmedInputDigests(
+	pending []gate.Workload,
+	keys []remoteReplayWorkloadKey,
+	results []remoteWorkloadInputDigestResult,
+) error {
+	for index, result := range results {
+		cache.inputComputations++
+		if errors.Is(result.err, errRemoteWorkloadInputUnavailable) {
+			cache.inputDigests[keys[index]] = remoteReplayInputDigestResult{}
+			continue
+		}
+		if result.err != nil {
+			return fmt.Errorf("prewarm remote workload PASS input %q: %w", pending[index].ID, result.err)
+		}
+		if result.digest == "" {
+			return fmt.Errorf("prewarm remote workload PASS input %q produced an empty digest", pending[index].ID)
+		}
+		cache.inputDigests[keys[index]] = remoteReplayInputDigestResult{digest: result.digest, available: true}
+	}
+	return nil
 }
 
 // rememberInputDigest 只保存成功或不可用；真实错误不进入缓存。

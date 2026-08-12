@@ -214,31 +214,29 @@ func loadWorkloadPassEvidenceBatch(
 
 // workloadPassEvidenceBatchQuery 构造使用 identity/generation 复合索引的分块 SQL。
 func workloadPassEvidenceBatchQuery(identities []WorkloadPassIdentity, retainedGenerations [3]string) (string, []any) {
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(identities)), ",")
-	query := `SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256, evidence.accepted_generation, 'direct'
-	FROM ci_workload_pass_evidence AS evidence
+	rows := make([]string, 0, len(identities))
+	args := make([]any, 0, len(identities)+len(retainedGenerations)*2)
+	for _, identity := range identities {
+		rows = append(rows, "(?)")
+		args = append(args, identity.IdentityDigest)
+	}
+	query := `WITH requested(identity_digest) AS (VALUES ` + strings.Join(rows, ", ") + `)
+	SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256, evidence.accepted_generation, 'direct'
+	FROM requested JOIN ci_workload_pass_evidence AS evidence ON evidence.identity_digest = requested.identity_digest
 	LEFT JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest
 	LEFT JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
-	WHERE evidence.identity_digest IN (` + placeholders + `) AND evidence.accepted_generation IN (?, ?, ?)
-	UNION ALL
+	WHERE evidence.accepted_generation IN (?, ?, ?)
+	UNION
 	SELECT proof.identity_digest, proof.origin_accepted_generation, proof.workload_id, '', '', '', proof.origin_job_id, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256,
 		CASE WHEN json_type(proof.origin_execution_json, '$.schema_version') IS NOT NULL THEN json_extract(proof.origin_execution_json, '$.execution') ELSE proof.origin_execution_json END,
 		proof.evidence_sha256, COALESCE(consumer.accepted_generation, ''), 'retained'
-	FROM ci_retained_workload_pass_proofs AS proof
+	FROM requested CROSS JOIN ci_retained_workload_pass_proofs AS proof INDEXED BY idx_ci_retained_workload_pass_proofs_lookup ON proof.identity_digest = requested.identity_digest
 	LEFT JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id
-	WHERE proof.identity_digest IN (` + placeholders + `)
-		AND (consumer.accepted_generation IN (?, ?, ?) OR consumer.job_id IS NULL)
+	WHERE (consumer.accepted_generation IN (?, ?, ?) OR consumer.job_id IS NULL)
 		AND (consumer.authoritative = 1 OR EXISTS (SELECT 1 FROM ci_check_receipts AS receipt WHERE receipt.job_id = proof.consumer_job_id))
-	ORDER BY 1, 12 DESC`
-	args := make([]any, 0, 2*(len(identities)+len(retainedGenerations)))
-	for _, identity := range identities {
-		args = append(args, identity.IdentityDigest)
-	}
+	ORDER BY 1, 12 DESC, 13`
 	for _, generation := range retainedGenerations {
 		args = append(args, generation)
-	}
-	for _, identity := range identities {
-		args = append(args, identity.IdentityDigest)
 	}
 	for _, generation := range retainedGenerations {
 		args = append(args, generation)
@@ -338,17 +336,6 @@ func decodeStoredWorkloadPassExecutionJSON(encoded string, target *PlanGateExecu
 		return err
 	}
 	return ensureJSONEOF(decoder)
-}
-
-// loadWorkloadPassEvidenceOriginContext 在当前事务内只加载一次来源 run、完整关联投影
-// 和 receipt set；provisional run 的 catalog/execution 索引也只建立一次。
-func loadWorkloadPassEvidenceOriginContext(
-	tx *sql.Tx,
-	evidence WorkloadPassEvidence,
-	currentGeneration uint64,
-	stats *workloadPassEvidenceLookupStats,
-) (workloadPassEvidenceOriginContext, error) {
-	return loadWorkloadPassEvidenceBaseOriginContext(tx, evidence, currentGeneration, stats)
 }
 
 // loadWorkloadPassEvidenceBaseOriginContext 加载基础证据的来源 run、receipt 和 provisional 索引。

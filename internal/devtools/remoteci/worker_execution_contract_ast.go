@@ -20,15 +20,24 @@ func (snapshot *remoteGitTreeSnapshot) buildWorkerExecutionGoIndex() *workerExec
 
 // buildWorkerExecutionGoIndexWithKeyStrategy 只允许历史回放显式选择旧位置键；生产身份始终使用稳定语义键。
 func (snapshot *remoteGitTreeSnapshot) buildWorkerExecutionGoIndexWithKeyStrategy(strategy workerExecutionUnitKeyStrategy) *workerExecutionGoIndex {
+	return snapshot.buildWorkerExecutionGoIndexWithStrategies(strategy, false)
+}
+
+func (snapshot *remoteGitTreeSnapshot) buildWorkerExecutionGoIndexPreviousGroupedDeclaration() *workerExecutionGoIndex {
+	return snapshot.buildWorkerExecutionGoIndexWithStrategies(workerExecutionStableUnitKeys, true)
+}
+
+func (snapshot *remoteGitTreeSnapshot) buildWorkerExecutionGoIndexWithStrategies(strategy workerExecutionUnitKeyStrategy, previousGroupedDeclaration bool) *workerExecutionGoIndex {
 	index := &workerExecutionGoIndex{
-		symbols:         make(map[string]map[string][]*workerExecutionGoUnit),
-		methods:         make(map[string]map[string][]*workerExecutionGoUnit),
-		receiverMethods: make(map[string]map[string][]*workerExecutionGoUnit),
-		initializers:    make(map[string][]*workerExecutionGoUnit),
-		routes:          make(map[string]map[string][]*workerExecutionGoUnit),
-		parseErrors:     make(map[string][]error),
-		unitKeyStrategy: strategy,
-		unitKeyOrdinals: make(map[string]int),
+		symbols:                    make(map[string]map[string][]*workerExecutionGoUnit),
+		methods:                    make(map[string]map[string][]*workerExecutionGoUnit),
+		receiverMethods:            make(map[string]map[string][]*workerExecutionGoUnit),
+		initializers:               make(map[string][]*workerExecutionGoUnit),
+		routes:                     make(map[string]map[string][]*workerExecutionGoUnit),
+		parseErrors:                make(map[string][]error),
+		unitKeyStrategy:            strategy,
+		previousGroupedDeclaration: previousGroupedDeclaration,
+		unitKeyOrdinals:            make(map[string]int),
 	}
 	paths := make([]string, 0, len(snapshot.goSources))
 	for filePath := range snapshot.goSources {
@@ -182,15 +191,41 @@ func (index *workerExecutionGoIndex) addGeneralSpec(directory, filePath string, 
 	if len(names) == 0 {
 		return
 	}
-	if declaration.Tok == token.CONST {
+	content := ast.Node(spec)
+	if index.previousGroupedDeclaration {
 		dependencies = declaration
+		content = declaration
+	} else if declaration.Tok == token.CONST && workerExecutionConstSpecNeedsDeclarationContext(spec) {
+		dependencies = declaration
+		content = declaration
 	}
-	unit := &workerExecutionGoUnit{directory: directory, filePath: filePath, packageName: packageName, kind: declaration.Tok.String(), names: names, receiver: receiver, source: source, fileSet: fileSet, node: spec, content: declaration, dependencies: dependencies, imports: imports}
+	unit := &workerExecutionGoUnit{directory: directory, filePath: filePath, packageName: packageName, kind: declaration.Tok.String(), names: names, receiver: receiver, source: source, fileSet: fileSet, node: spec, content: content, dependencies: dependencies, imports: imports}
 	unit.key = index.workerExecutionUnitKey(unit)
 	if index.addGeneralNames(directory, names, unit) {
 		return
 	}
 	index.initializers[directory] = append(index.initializers[directory], unit)
+}
+
+// workerExecutionConstSpecNeedsDeclarationContext 对省略表达式或依赖 iota
+// 序号的常量保留完整声明块；普通显式常量只绑定自身 ValueSpec。
+func workerExecutionConstSpecNeedsDeclarationContext(spec ast.Spec) bool {
+	value, ok := spec.(*ast.ValueSpec)
+	if !ok || len(value.Values) == 0 {
+		return true
+	}
+	usesIota := false
+	for _, expression := range value.Values {
+		ast.Inspect(expression, func(node ast.Node) bool {
+			identifier, ok := node.(*ast.Ident)
+			if ok && identifier.Name == "iota" {
+				usesIota = true
+				return false
+			}
+			return !usesIota
+		})
+	}
+	return usesIota
 }
 
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。

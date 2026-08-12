@@ -23,6 +23,7 @@ func TestConfiguredRemotePassPreflight(t *testing.T) {
 	observer := &configuredRemotePassPreflightObserver{}
 	options := configuredRemotePassPreflightOptions(t, observer)
 	prepared, input := prepareConfiguredRemotePassPreflight(t, options)
+	observer.logPrepareDiagnostics(t)
 	hits, misses := observer.completedPrepareCounts(t)
 	wantHits := requiredRemotePassPreflightInt(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_EXPECT_HITS")
 	wantMisses := requiredRemotePassPreflightInt(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_EXPECT_MISSES")
@@ -90,8 +91,9 @@ func prepareConfiguredRemotePassPreflight(t *testing.T, options remoteRunOptions
 }
 
 type configuredRemotePassPreflightObserver struct {
-	mu     sync.Mutex
-	events []remoteci.ProgressEvent
+	mu          sync.Mutex
+	events      []remoteci.ProgressEvent
+	diagnostics []remoteci.ReuseDiagnostic
 }
 
 // ObserveRemoteCIProgress 保留只读 Prepare 事件，供 exact hit/miss 断言使用。
@@ -99,6 +101,31 @@ func (observer *configuredRemotePassPreflightObserver) ObserveRemoteCIProgress(e
 	observer.mu.Lock()
 	defer observer.mu.Unlock()
 	observer.events = append(observer.events, event)
+}
+
+// ObserveRemoteCIReuseDiagnostic 保留聚合复用归因，供只读性能预检输出拒绝原因。
+func (observer *configuredRemotePassPreflightObserver) ObserveRemoteCIReuseDiagnostic(diagnostic remoteci.ReuseDiagnostic) {
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	observer.diagnostics = append(observer.diagnostics, diagnostic)
+}
+
+// logPrepareDiagnostics 输出每个 Prepare 子阶段增量耗时及聚合 replay 计数。
+func (observer *configuredRemotePassPreflightObserver) logPrepareDiagnostics(t *testing.T) {
+	t.Helper()
+	observer.mu.Lock()
+	events := append([]remoteci.ProgressEvent(nil), observer.events...)
+	diagnostics := append([]remoteci.ReuseDiagnostic(nil), observer.diagnostics...)
+	observer.mu.Unlock()
+	var previousElapsedMS int64
+	for _, event := range events {
+		t.Logf("configured PASS preflight stage=%s elapsed_ms=%d delta_ms=%d hits=%d misses=%d", event.State, event.ElapsedMS, event.ElapsedMS-previousElapsedMS, event.CacheHits, event.CacheMisses)
+		previousElapsedMS = event.ElapsedMS
+	}
+	for _, diagnostic := range diagnostics {
+		replay := diagnostic.Replay
+		t.Logf("configured PASS preflight reuse direct=%d source=%d environment=%d exact=%d effective=%d/%d source_candidates=%d trees=%d source_input_unavailable=%d source_input_mismatch=%d environment_hints=%d current_worker_mismatch=%d historical_mismatch=%d input_mismatch=%d calibration_demoted=%d", diagnostic.DirectHits, diagnostic.SourceReplayHits, diagnostic.EnvironmentReplayHits, diagnostic.ExactHits, diagnostic.EffectiveHits, diagnostic.EffectiveMisses, replay.SourceCandidates, replay.SourceCandidateTrees, replay.SourceInputUnavailable, replay.SourceInputMismatch, replay.EnvironmentHints, replay.EnvironmentCurrentWorkerMismatch, replay.EnvironmentHistoricalMismatch, replay.EnvironmentInputMismatch, diagnostic.CalibrationDurationDemoted)
+	}
 }
 
 func (observer *configuredRemotePassPreflightObserver) completedPrepareCounts(t *testing.T) (int, int) {

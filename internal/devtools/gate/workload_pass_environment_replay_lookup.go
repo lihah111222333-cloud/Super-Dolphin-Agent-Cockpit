@@ -125,11 +125,12 @@ func workloadPassEnvironmentReplayRequested(identities []WorkloadPassIdentity) (
 func scanWorkloadPassEnvironmentReplayHint(rows workloadPassEvidenceScanner) (WorkloadPassEvidence, error) {
 	var evidence WorkloadPassEvidence
 	var generation, workloadID, executionJSON string
+	var inputRank int
 	if err := rows.Scan(
 		&evidence.Identity.IdentityDigest, &generation, &workloadID,
 		&evidence.Identity.ExecutionDigest, &evidence.Identity.InputDigest, &evidence.Identity.EnvironmentDigest,
 		&evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256,
-		&executionJSON, &evidence.EvidenceSHA256,
+		&executionJSON, &evidence.EvidenceSHA256, &inputRank,
 	); err != nil {
 		return WorkloadPassEvidence{}, mapDurationLedgerSQLiteError("scan workload PASS environment replay hint", err)
 	}
@@ -269,25 +270,27 @@ func isWorkloadPassReplayLegacyMaterial(err error) bool {
 // workloadPassEnvironmentReplayQuery 只扫描当前代，且故意不把 environment_digest 作为查询键。
 func workloadPassEnvironmentReplayQuery(identities []WorkloadPassIdentity, currentGeneration uint64) (string, []any) {
 	rows := make([]string, 0, len(identities))
-	args := make([]any, 0, len(identities)*2+2)
+	args := make([]any, 0, len(identities)*3+2)
 	for _, identity := range identities {
-		rows = append(rows, "(?, ?)")
-		args = append(args, string(identity.WorkloadID), identity.ExecutionDigest)
+		rows = append(rows, "(?, ?, ?)")
+		args = append(args, string(identity.WorkloadID), identity.ExecutionDigest, identity.InputDigest)
 	}
 	args = append(args, strconv.FormatUint(currentGeneration, 10))
 	args = append(args, strconv.FormatUint(currentGeneration, 10))
-	query := `WITH requested(workload_id, execution_digest) AS (VALUES ` + strings.Join(rows, ", ") + `)
-		SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256
+	query := `WITH requested(workload_id, execution_digest, input_digest) AS (VALUES ` + strings.Join(rows, ", ") + `)
+		SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256,
+			CASE WHEN evidence.input_digest = requested.input_digest THEN 0 ELSE 1 END
 		FROM requested JOIN ci_workload_pass_evidence AS evidence INDEXED BY idx_ci_workload_pass_evidence_source_replay ON evidence.workload_id = requested.workload_id AND evidence.execution_digest = requested.execution_digest JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
 		WHERE evidence.accepted_generation = ? AND direct.disposition = 'executed' AND origin.accepted_generation = evidence.accepted_generation
-		UNION ALL
+		UNION
 		SELECT proof.identity_digest, proof.origin_accepted_generation, proof.workload_id,
 			COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.execution_digest'), result.execution_digest),
 			COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.input_digest'), result.input_digest),
 			COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.environment_digest'), result.environment_digest),
 			proof.origin_job_id, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256,
 			CASE WHEN json_type(proof.origin_execution_json, '$.schema_version') IS NOT NULL THEN json_extract(proof.origin_execution_json, '$.execution') ELSE proof.origin_execution_json END,
-			proof.evidence_sha256
+			proof.evidence_sha256,
+			CASE WHEN COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.input_digest'), result.input_digest) = requested.input_digest THEN 0 ELSE 1 END
 		FROM requested CROSS JOIN ci_retained_workload_pass_proofs AS proof INDEXED BY idx_ci_retained_workload_pass_proofs_source_replay ON proof.workload_id = requested.workload_id
 		CROSS JOIN ci_run_workload_results AS result ON result.job_id = proof.consumer_job_id AND result.workload_id = proof.workload_id
 		CROSS JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id
@@ -295,6 +298,6 @@ func workloadPassEnvironmentReplayQuery(identities []WorkloadPassIdentity, curre
 			AND (consumer.authoritative = 1 OR EXISTS (SELECT 1 FROM ci_check_receipts AS receipt WHERE receipt.job_id = proof.consumer_job_id))
 			AND result.origin_job_id = proof.origin_job_id AND result.origin_accepted_generation = proof.origin_accepted_generation
 			AND COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.execution_digest'), result.execution_digest) = requested.execution_digest
-		ORDER BY 3, 1`
+		ORDER BY 3, 12, 1`
 	return query, args
 }

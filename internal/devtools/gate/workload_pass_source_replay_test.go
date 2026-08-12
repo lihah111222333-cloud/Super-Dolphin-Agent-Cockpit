@@ -138,6 +138,40 @@ func TestRetainedWorkloadPassSourceReplayRoundTripsOriginIdentity(t *testing.T) 
 	assertRetainedSourceReplayProofRoundTrip(t, store, consumer, source)
 }
 
+// TestWorkloadPassReplayQueriesDeduplicateEquivalentConsumers 锁定多个 all-hit
+// consumer 对同一 origin proof 只产生一个 source/environment 候选。
+func TestWorkloadPassReplayQueriesDeduplicateEquivalentConsumers(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	consumer := recordReusedWorkloadPassRun(t, store, "replay-dedup-consumer-one")
+	source := lookupSingleWorkloadPassEvidence(t, store, consumer.WorkloadResults[0].Identity)
+	second := consumer
+	second.JobID = "replay-dedup-consumer-two"
+	second.AgentTokenDigest = digestForWorkloadPass(second.JobID + "-agent")
+	if err := store.RecordProvisionalRemoteCIRun(second); err != nil {
+		t.Fatal(err)
+	}
+	sourceTarget := source.Identity
+	sourceTarget.InputDigest = digestForWorkloadPass("replay-dedup-current-input")
+	sourceTarget.IdentityDigest = workloadPassIdentityDigest(t, sourceTarget)
+	sourceCandidates, err := store.LookupWorkloadPassSourceReplayCandidates([]WorkloadPassIdentity{sourceTarget})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(sourceCandidates[sourceTarget.WorkloadID]); got != 1 {
+		t.Fatalf("source replay candidates = %d, want one canonical origin", got)
+	}
+	environmentTarget := source.Identity
+	environmentTarget.EnvironmentDigest = digestForWorkloadPass("replay-dedup-current-environment")
+	environmentTarget.IdentityDigest = workloadPassIdentityDigest(t, environmentTarget)
+	environmentHints, err := store.LookupWorkloadPassEnvironmentReplayHints([]WorkloadPassIdentity{environmentTarget})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(environmentHints[environmentTarget.WorkloadID]); got != 1 {
+		t.Fatalf("environment replay hints = %d, want one canonical origin", got)
+	}
+}
+
 func assertRetainedSourceReplayProofRoundTrip(t *testing.T, store *DurationLedgerStore, consumer RemoteCIRunRecord, source WorkloadPassEvidence) {
 	t.Helper()
 	database := openWorkloadPassDatabase(t, store)

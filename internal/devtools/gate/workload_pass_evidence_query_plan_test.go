@@ -26,10 +26,10 @@ func TestWorkloadPassEvidenceLookupQueryPlanUsesIdentityIndex(t *testing.T) {
 	query, args := workloadPassEvidenceBatchQuery([]WorkloadPassIdentity{identity}, retained)
 	details := sqliteQueryPlanDetails(t, database, query, args...)
 	assertSQLiteQueryPlanAccess(t, details, []string{
-		"SEARCH evidence USING INDEX",
-		"(identity_digest=? AND accepted_generation=?)",
+		"SEARCH evidence USING INDEX sqlite_autoindex_ci_workload_pass_evidence_1 (identity_digest=? AND accepted_generation=?)",
+		"SEARCH proof USING INDEX idx_ci_retained_workload_pass_proofs_lookup (identity_digest=?)",
 	})
-	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"evidence"})
+	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"evidence", "proof"})
 }
 
 // TestWorkloadPassSourceReplayQueryPlanUsesPartitionIndexes 锁定 direct proof 按

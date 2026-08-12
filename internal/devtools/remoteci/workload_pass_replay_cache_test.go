@@ -144,3 +144,35 @@ func cachedRemoteReplayWorkerDigest(
 	}
 	return digest
 }
+
+func TestRemoteReplayCacheReleasesOnlySelectedRepositorySources(t *testing.T) {
+	const repositoryRoot = "repository"
+	targetKey := remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: "target"}
+	sourceKey := remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: "source"}
+	otherRepositoryKey := remoteReplayTreeKey{repositoryRoot: "other", tree: "source"}
+	cache := &remoteReplayCache{snapshots: map[remoteReplayTreeKey]remoteReplaySnapshotResult{
+		targetKey:          {},
+		sourceKey:          {},
+		otherRepositoryKey: {},
+	}}
+
+	cache.releaseSnapshotsExcept(repositoryRoot, targetKey.tree)
+	if _, ok := cache.snapshots[targetKey]; !ok {
+		t.Fatal("release removed the retained current tree")
+	}
+	if _, ok := cache.snapshots[sourceKey]; ok {
+		t.Fatal("release retained a completed source tree")
+	}
+	if _, ok := cache.snapshots[otherRepositoryKey]; !ok {
+		t.Fatal("release crossed the requested repository boundary")
+	}
+
+	cache.releaseSnapshot("other", otherRepositoryKey.tree, "target")
+	if _, ok := cache.snapshots[otherRepositoryKey]; ok {
+		t.Fatal("single source release retained the selected source tree")
+	}
+	cache.releaseSnapshot(repositoryRoot, targetKey.tree, targetKey.tree)
+	if _, ok := cache.snapshots[targetKey]; !ok {
+		t.Fatal("single source release removed the retained current tree")
+	}
+}

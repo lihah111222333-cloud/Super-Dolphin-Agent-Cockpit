@@ -252,7 +252,7 @@ func workloadPassSourceReplayQuery(identities []WorkloadPassIdentity, retained [
 		SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256
 		FROM requested JOIN ci_workload_pass_evidence AS evidence INDEXED BY idx_ci_workload_pass_evidence_source_replay ON evidence.workload_id = requested.workload_id AND evidence.execution_digest = requested.execution_digest AND evidence.environment_digest = requested.environment_digest JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
 		WHERE evidence.accepted_generation IN (?, ?, ?) AND direct.disposition = 'executed' AND origin.accepted_generation = evidence.accepted_generation
-		UNION ALL
+		UNION
 		SELECT proof.identity_digest, proof.origin_accepted_generation, proof.workload_id,
 			COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.execution_digest'), result.execution_digest),
 			COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.input_digest'), result.input_digest),
