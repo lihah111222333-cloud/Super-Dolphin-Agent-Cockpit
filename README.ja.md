@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **メンテナー宣言：オリジナルコードとプロジェクト固有ドキュメントは 100% AI が記述し、人間が方向を定め、リポジトリが守ります。** Product code、test code、プロジェクト固有ドキュメントは、すべて AI エージェントが記述またはリファクタリングしています。Product intent、architecture decision、credential、release の責任は人間が負います。AI が作者であることは無謬性を意味しません。受け入れられるすべての変更には、リポジトリが所有する evidence と gate が引き続き必要です。上流由来の法的文書およびコミュニティ文書は、元の帰属表示を維持します。
 
-**Truth-image の delivery 検証。** version 管理された [Git hooks](.githooks/README.md)、手動の `make ci-l0` と `make ci-l1`、および release 検証は fail-closed の remote ECI gate を使用します。GitHub は Git remote にすぎず、CI runner は提供しません。`pre-commit` と手動 L0-L1 command は exact staged tree または ref update を検査し、release は exact commit を検査します。remote configuration、provenance、result authority、cleanup evidence の欠落、または gate の失敗は action を拒否します。`commit-msg` は引き続き中国語の commit text と fix-test evidence を要求します。
+**Truth-image の delivery 検証。** version 管理された [Git hooks](.githooks/README.md)、手動の `make ci-l0` と `make ci-l1`、および release 検証は二つの責務を分離します。`pre-commit` は exact staged tree に対して repository code guard だけを実行し、remote CI を開始しません。`pre-push`、手動 L0-L1 command、release 検証は exact pushed tree または commit に対して fail-closed の remote ECI gate を実行します。GitHub は Git remote にすぎず、CI runner は提供しません。remote configuration、provenance、result authority、cleanup evidence の欠落、または push/release gate の失敗は delivery を拒否します。`commit-msg` は引き続き中国語の commit text と fix-test evidence を要求します。
 
 Super Dolphin Agent は、**production-grade で AI-native な vibe-coding engineering system と multi-agent development control plane**です。ローカルデスクトップ runtime、MCP orchestration、多言語 LSP navigation、Provider integration、永続 workflow、機械的に強制される engineering boundary を、一つの動作する参照実装に統合します。
 

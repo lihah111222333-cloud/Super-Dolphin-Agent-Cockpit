@@ -56,6 +56,22 @@ func TestX(t *testing.T) { _, _ = reflect.ValueOf(os.ReadFile).Call([]reflect.Va
 	}
 }
 
+// TestRemoteWorkloadMissVotesTreatProductionTreeScopeAsFallback 验证生产调用闭包
+// 扩大到全树时仍只算 broad 一票；项目地图变化不能让无关 Go selector MISS。
+func TestRemoteWorkloadMissVotesTreatProductionTreeScopeAsFallback(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	baseline := testDynamicProcessGoTestSnapshot("baseline map")
+	mapChanged := testDynamicProcessGoTestSnapshot("refreshed map")
+	baselineVotes := testExactGoTestInputVotes(t, baseline, target)
+	changedVotes := testExactGoTestInputVotes(t, mapChanged, target)
+	if !baselineVotes.runtimeFallback || !changedVotes.runtimeFallback {
+		t.Fatal("production whole-tree observation was not marked as runtime fallback")
+	}
+	if !remoteWorkloadInputVotesAllowReuse(baselineVotes, changedVotes) {
+		t.Fatal("project-map-only change invalidated unrelated Go selector PASS")
+	}
+}
+
 func testExactGoTestInputVotes(t *testing.T, snapshot *remoteGitTreeSnapshot, target gate.GoTestTarget) remoteWorkloadInputVoteDigests {
 	t.Helper()
 	compile, err := snapshot.goPackageInputDigest(context.Background(), target.Package, remoteGoBuildProfile{})

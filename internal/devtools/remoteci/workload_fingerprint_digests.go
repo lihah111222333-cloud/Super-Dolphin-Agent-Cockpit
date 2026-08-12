@@ -88,7 +88,7 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
 		return "", err
 	}
-	testSources, observesWholeTree, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, true)
+	testSources, observesWholeTree, _, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, true)
 	if err != nil {
 		return "", err
 	}
@@ -117,7 +117,7 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestRuntimeInputDigest(ctx context
 		return "", false, err
 	}
 	selected := make(map[string]remoteGitTreeEntry)
-	testSources, observesWholeTree, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, false)
+	testSources, observesWholeTree, runtimeFallback, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, false)
 	if err != nil {
 		return "", false, err
 	}
@@ -126,7 +126,7 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestRuntimeInputDigest(ctx context
 		return digest, true, err
 	}
 	digest, err := digestGoTestRuntimeEntries(sortedRemoteGitTreeEntries(selected), testSources)
-	return digest, false, err
+	return digest, runtimeFallback, err
 }
 
 // digestGoTestRuntimeEntries 对 selector 真实运行时观察和声明源码建立独立摘要。

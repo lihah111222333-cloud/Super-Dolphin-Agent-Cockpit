@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/build"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -477,10 +476,6 @@ func validateLauncherBuildArgumentsDigest(linkedPayload, observed string) error 
 }
 
 func launcherBuildArguments(linkedPayload, buildArgumentsSHA256 string) ([]string, error) {
-	goRoot := build.Default.GOROOT
-	if !filepath.IsAbs(goRoot) || filepath.Clean(goRoot) != goRoot || strings.ContainsAny(goRoot, " \t\r\n") {
-		return nil, errors.New("trusted launcher build Go root is not canonical")
-	}
-	linked := "-X runtime.defaultGOROOT=" + goRoot + " -X main.gateSourceDigest=" + linkedPayload + " -X main.gateToolchainDigest=" + buildArgumentsSHA256
+	linked := "-X main.gateSourceDigest=" + linkedPayload + " -X main.gateToolchainDigest=" + buildArgumentsSHA256
 	return []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", linked, "./cmd/super-dolphin-gate"}, nil
 }

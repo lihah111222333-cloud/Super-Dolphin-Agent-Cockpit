@@ -5,388 +5,105 @@ repo_root=$(git rev-parse --show-toplevel) || {
   printf '%s\n' 'pre-commit blocked: repository root is unavailable.' >&2
   exit 1
 }
-source "$repo_root/.githooks/trusted-gate-launcher.sh"
+active_guard_worktree=
 
-bind_trusted_gate_launcher_for_tree() {
-  local target_tree=${1:?target tree is required}
-  local launcher_builder rebound_launcher rebound_tree
+run_without_hook_env() (
+  local git_var name
+  while IFS= read -r git_var; do
+    [[ -n "$git_var" ]] && unset "$git_var"
+  done < <(git rev-parse --local-env-vars)
+  unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+  while IFS='=' read -r name _; do
+    case "$name" in
+      GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*) unset "$name" ;;
+    esac
+  done < <(env)
+  "$@"
+)
 
-  launcher_builder=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit-launcher.XXXXXX")
-  if ! git -C "$repo_root" cat-file blob "$target_tree:scripts/build-trusted-gate-launcher.sh" >"$launcher_builder"; then
-    rm -f -- "$launcher_builder"
-    printf '%s\n' 'pre-commit blocked: staged tree has no trusted launcher builder.' >&2
+cleanup_staged_code_guard_worktree() {
+  if [[ -z "$active_guard_worktree" ]]; then
+    return 0
+  fi
+  if ! run_without_hook_env git -C "$repo_root" worktree remove --force "$active_guard_worktree"; then
+    printf '%s\n' 'pre-commit blocked: staged code-guard worktree cleanup failed.' >&2
     return 1
   fi
-  chmod 0500 "$launcher_builder"
-  if ! rebound_launcher=$("$launcher_builder" "$target_tree"); then
-    rm -f -- "$launcher_builder"
-    printf '%s\n' 'pre-commit blocked: could not bind a trusted launcher to the staged tree.' >&2
-    return 1
-  fi
-  rm -f -- "$launcher_builder"
-  if ! validate_trusted_gate_launcher "$repo_root" "$rebound_launcher" \
-    || ! verify_trusted_gate_launcher_tree "$repo_root" "$rebound_launcher" "$target_tree"; then
-    printf '%s\n' 'pre-commit blocked: staged tree launcher verification failed.' >&2
-    return 1
-  fi
-  rebound_tree=$(git -C "$repo_root" write-tree) || {
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after trusted launcher bind.' >&2
-    return 1
-  }
-  if [[ "$rebound_tree" != "$target_tree" ]]; then
-    printf '%s\n' 'pre-commit blocked: trusted launcher bind changed the staged tree.' >&2
-    return 1
-  fi
-  printf '%s\n' "$rebound_launcher"
+  active_guard_worktree=
 }
 
-if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
-  printf '%s\n' 'pre-commit blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the commit.' >&2
-  exit 1
-fi
+finish_pre_commit() {
+  local hook_rc=$?
+  trap - EXIT
+  if ! cleanup_staged_code_guard_worktree; then
+    hook_rc=1
+  fi
+  exit "$hook_rc"
+}
 
-# 首次身份协商必须在任何 closure 或代码地图操作之前结束；hook 不签发或保存 token。
-if [[ "${SUPER_DOLPHIN_CI_AGENT_TOKEN-}" == "issue" || -z "${SUPER_DOLPHIN_CI_AGENT_TOKEN+x}" ]]; then
-  exec "$gate_bin" remote hook pre-commit
-fi
+trap finish_pre_commit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
-closure_outputs=(build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock)
-if ! git -C "$repo_root" diff --quiet -- "${closure_outputs[@]}"; then
-  printf '%s\n' 'pre-commit blocked: gate-image closure outputs have unstaged changes; stage or revert them before automatic refresh.' >&2
-  exit 1
-fi
-if git -C "$repo_root" ls-files --others --exclude-standard -- "${closure_outputs[@]}" | grep -q .; then
-  printf '%s\n' 'pre-commit blocked: gate-image closure outputs are untracked; stage or remove them before automatic refresh.' >&2
-  exit 1
-fi
+run_staged_light_code_guard() {
+  local source_tree=${1:?source tree is required}
+  local worktree_root guard_worktree base_commit empty_tree guard_rc=0
 
-if ! staged_tree=$(git write-tree); then
-  printf '%s\n' 'pre-commit blocked: cannot capture the authoritative staged tree.' >&2
+  worktree_root="$repo_root/.worktrees"
+  mkdir -p "$worktree_root"
+  guard_worktree=$(mktemp -d "$worktree_root/pre-commit-code-guard.XXXXXX")
+  rmdir "$guard_worktree"
+  if ! base_commit=$(run_without_hook_env git -C "$repo_root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null); then
+    empty_tree=$(run_without_hook_env git -C "$repo_root" mktree </dev/null)
+    base_commit=$(printf '%s\n' 'pre-commit code guard empty base' | run_without_hook_env git -C "$repo_root" commit-tree "$empty_tree")
+  fi
+  if ! run_without_hook_env git -C "$repo_root" worktree add --quiet --detach --no-checkout "$guard_worktree" "$base_commit"; then
+    printf '%s\n' 'pre-commit blocked: cannot create the staged code-guard worktree.' >&2
+    return 1
+  fi
+  active_guard_worktree=$guard_worktree
+  if ! run_without_hook_env git -C "$guard_worktree" read-tree "$source_tree" \
+    || ! run_without_hook_env git -C "$guard_worktree" checkout-index -a; then
+    printf '%s\n' 'pre-commit blocked: cannot materialize the staged tree for code guard.' >&2
+    guard_rc=1
+  elif [[ ! -x "$guard_worktree/scripts/test_with_guard.sh" ]]; then
+    printf '%s\n' 'pre-commit blocked: staged tree has no executable code-guard entrypoint.' >&2
+    guard_rc=1
+  elif ! (
+    cd "$guard_worktree"
+    unset GOFLAGS
+    export GOFLAGS=
+    export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
+    export SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1
+    printf '%s\n' '[pre-commit] lightweight code guard (exact staged tree)...'
+    run_without_hook_env ./scripts/test_with_guard.sh --light-guard-only
+  ); then
+    printf '%s\n' 'pre-commit blocked: staged lightweight code guard failed.' >&2
+    guard_rc=1
+  fi
+  if ! cleanup_staged_code_guard_worktree; then
+    return 1
+  fi
+  return "$guard_rc"
+}
+
+if ! staged_tree=$(git -C "$repo_root" write-tree); then
+  printf '%s\n' 'pre-commit blocked: cannot capture the staged tree.' >&2
   exit 1
 fi
 if [[ -z "$staged_tree" ]]; then
-  printf '%s\n' 'pre-commit blocked: cannot capture the authoritative staged tree.' >&2
+  printf '%s\n' 'pre-commit blocked: staged tree identity is empty.' >&2
   exit 1
 fi
-launcher_tree=$staged_tree
-if ! gate_bin=$(trusted_gate_launcher_for_tree "$repo_root" "$launcher_tree"); then
-  printf '%s\n' 'pre-commit: staged tree has no exact launcher; binding trusted launcher automatically.' >&2
-  if ! gate_bin=$(bind_trusted_gate_launcher_for_tree "$launcher_tree"); then
-    exit 1
-  fi
-fi
-
-# The launcher owns the closure renderer. A stale launcher can still read the
-# correct tree but write outputs using retired renderer semantics, so compare
-# its embedded provenance with the same generator inputs from the staged tree
-# before any managed output may be rewritten.
-if ! closure_provenance=$("$gate_bin" closure provenance --tree "$staged_tree"); then
-  printf '%s\n' 'pre-commit blocked: cannot obtain trusted closure-generator provenance.' >&2
+if ! run_staged_light_code_guard "$staged_tree"; then
   exit 1
 fi
-read -r compiled_closure_provenance staged_closure_provenance closure_provenance_extra <<<"$closure_provenance"
-if [[ ! "$compiled_closure_provenance" =~ ^sha256:[0-9a-f]{64}$ || ! "$staged_closure_provenance" =~ ^sha256:[0-9a-f]{64}$ || -n "$closure_provenance_extra" || "$compiled_closure_provenance" != "$staged_closure_provenance" ]]; then
-  printf '%s\n' 'pre-commit blocked: trusted launcher closure-generator provenance does not match the staged tree; rebuild and reinstall the candidate launcher.' >&2
-  exit 1
-fi
-
-if ! "$gate_bin" closure check --tree "$staged_tree"; then
-  printf '%s\n' 'pre-commit: gate-image closure drift detected; refreshing managed outputs once.' >&2
-  if ! "$gate_bin" closure refresh-dependencies --tree "$staged_tree"; then
-    printf '%s\n' 'pre-commit blocked: gate-image dependency closure refresh failed.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -u -- build/gate/runtime-deps.lock; then
-    printf '%s\n' 'pre-commit blocked: refreshed gate-image dependency closure could not be staged.' >&2
-    exit 1
-  fi
-  if ! staged_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after gate-image dependency closure refresh.' >&2
-    exit 1
-  fi
-  if ! "$gate_bin" closure refresh --tree "$staged_tree"; then
-    printf '%s\n' 'pre-commit blocked: gate-image closure refresh failed.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -u -- "${closure_outputs[@]}"; then
-    printf '%s\n' 'pre-commit blocked: refreshed gate-image closure outputs could not be staged.' >&2
-    exit 1
-  fi
-  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after gate-image closure refresh.' >&2
-    exit 1
-  fi
-  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" closure check --tree "$refreshed_tree"; then
-    printf '%s\n' 'pre-commit blocked: gate-image closure still drifted after one automatic refresh.' >&2
-    exit 1
-  fi
-  staged_tree=$refreshed_tree
-fi
-
-frontend_code_size_outputs=(
-  frontend-app/.frontend_code_size_guard_baseline.json
-  frontend-app/.frontend_code_size_guard_baseline_test.json
-)
-frontend_code_size_closure=frontend-app/scripts/lib/frontend-code-size-dependency-closure.json
-frontend_code_size_migration_inputs=(
-  frontend-app/package-lock.json
-  frontend-app/scripts/lib/generate-frontend-code-size-dependency-closure.mjs
-)
-if ! accepted_frontend_tree=$(git -C "$repo_root" rev-parse --verify 'HEAD^{tree}'); then
-  printf '%s\n' 'pre-commit blocked: accepted frontend baseline tree is unavailable.' >&2
-  exit 1
-fi
-frontend_code_size_dependency_migrated=0
-frontend_code_size_dependency_migration_requested=0
-if [[ "${SUPER_DOLPHIN_FRONTEND_CODE_SIZE_DEPENDENCY_MIGRATION:-}" == "1" ]] \
-  && ! git -C "$repo_root" diff --quiet --cached -- "${frontend_code_size_migration_inputs[@]}"; then
-  frontend_code_size_dependency_migration_requested=1
-fi
-accepted_frontend_manifest=0
-accepted_frontend_generator=0
-if git -C "$repo_root" cat-file -e "$accepted_frontend_tree:$frontend_code_size_closure" 2>/dev/null; then
-  accepted_frontend_manifest=1
-fi
-if git -C "$repo_root" cat-file -e "$accepted_frontend_tree:${frontend_code_size_migration_inputs[1]}" 2>/dev/null; then
-  accepted_frontend_generator=1
-fi
-if [[ "$accepted_frontend_manifest" -ne "$accepted_frontend_generator" ]]; then
-  printf '%s\n' 'pre-commit blocked: accepted frontend parser closure is incomplete.' >&2
-  exit 1
-fi
-if [[ "$accepted_frontend_manifest" -eq 0 ]] \
-  && git -C "$repo_root" cat-file -e "$staged_tree:$frontend_code_size_closure" 2>/dev/null \
-  && git -C "$repo_root" cat-file -e "$staged_tree:${frontend_code_size_migration_inputs[1]}" 2>/dev/null; then
-  printf '%s\n' 'pre-commit: bootstrapping the first candidate-bound frontend parser closure.' >&2
-  frontend_code_size_dependency_migration_requested=1
-fi
-if [[ "$frontend_code_size_dependency_migration_requested" -eq 1 ]]; then
-  if ! git -C "$repo_root" diff --quiet -- "$frontend_code_size_closure"; then
-    printf '%s\n' 'pre-commit blocked: parser closure manifest has unstaged changes during controlled migration.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" diff --quiet -- frontend-app/scripts/lib/generate-frontend-code-size-dependency-closure.mjs; then
-    printf '%s\n' 'pre-commit blocked: parser closure generator has unstaged drift during controlled migration.' >&2
-    exit 1
-  fi
-  if ! trusted_node=$("$gate_bin" frontend-code-size node-path); then
-    printf '%s\n' 'pre-commit blocked: trusted Node path is unavailable for parser closure migration.' >&2
-    exit 1
-  fi
-  if ! common_dir=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir); then
-    printf '%s\n' 'pre-commit blocked: cannot resolve shared parser closure seed.' >&2
-    exit 1
-  fi
-  dependency_seed="$(dirname "$common_dir")/frontend-app/node_modules"
-  if ! env -i LC_ALL=C SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED="$dependency_seed" "$trusted_node" "$repo_root/frontend-app/scripts/lib/generate-frontend-code-size-dependency-closure.mjs"; then
-    printf '%s\n' 'pre-commit blocked: parser closure manifest refresh failed.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -- "$frontend_code_size_closure"; then
-    printf '%s\n' 'pre-commit blocked: refreshed parser closure manifest could not be staged.' >&2
-    exit 1
-  fi
-  if ! staged_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after parser closure migration refresh.' >&2
-    exit 1
-  fi
-  if ! "$gate_bin" frontend-code-size migrate --tree "$staged_tree" --accepted-tree "$accepted_frontend_tree"; then
-    printf '%s\n' 'pre-commit blocked: staged parser closure migration did not pass trusted validation.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -u -- "${frontend_code_size_outputs[@]}"; then
-    printf '%s\n' 'pre-commit blocked: migrated frontend code-size baselines could not be staged.' >&2
-    exit 1
-  fi
-  if ! staged_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after frontend dependency migration.' >&2
-    exit 1
-  fi
-  if ! "$gate_bin" frontend-code-size migrate --tree "$staged_tree" --accepted-tree "$accepted_frontend_tree"; then
-    printf '%s\n' 'pre-commit blocked: migrated frontend code-size baselines did not reproduce.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" diff --quiet -- "${frontend_code_size_outputs[@]}"; then
-    printf '%s\n' 'pre-commit blocked: frontend code-size migration remained unstable after verification.' >&2
-    exit 1
-  fi
-  frontend_code_size_dependency_migrated=1
-fi
-if ! git -C "$repo_root" diff --quiet -- "${frontend_code_size_outputs[@]}"; then
-  printf '%s\n' 'pre-commit blocked: frontend code-size baselines have unstaged changes; stage or revert them before automatic refresh.' >&2
-  exit 1
-fi
-if git -C "$repo_root" ls-files --others --exclude-standard -- "${frontend_code_size_outputs[@]}" | grep -q .; then
-  printf '%s\n' 'pre-commit blocked: frontend code-size baselines are untracked; stage or remove them before automatic refresh.' >&2
-  exit 1
-fi
-
-if [[ "$frontend_code_size_dependency_migrated" -eq 0 ]] && ! "$gate_bin" frontend-code-size check --tree "$staged_tree" --accepted-tree "$accepted_frontend_tree"; then
-  printf '%s\n' 'pre-commit: frontend code-size baseline drift detected; refreshing managed outputs once.' >&2
-  if ! "$gate_bin" frontend-code-size refresh --tree "$staged_tree" --accepted-tree "$accepted_frontend_tree"; then
-    printf '%s\n' 'pre-commit blocked: frontend code-size baseline refresh failed or candidate growth violated the ratchet.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -u -- "${frontend_code_size_outputs[@]}"; then
-    printf '%s\n' 'pre-commit blocked: refreshed frontend code-size baselines could not be staged.' >&2
-    exit 1
-  fi
-  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after frontend code-size refresh.' >&2
-    exit 1
-  fi
-  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" frontend-code-size check --tree "$refreshed_tree" --accepted-tree "$accepted_frontend_tree"; then
-    printf '%s\n' 'pre-commit blocked: frontend code-size baselines still drifted after one automatic refresh.' >&2
-    exit 1
-  fi
-	staged_tree=$refreshed_tree
-fi
-
-codemap_outputs=(
-  README.md
-  docs/doc/codemap/13-archtest-boundaries.md
-  docs/doc/codemap/README.md
-  docs/doc/codemap/ai-index.json
-  docs/doc/codemap/anchor-identities.json
-)
-codemap_needs_refresh=0
-if ! git -C "$repo_root" diff --quiet -- "${codemap_outputs[@]}"; then
-  codemap_needs_refresh=1
-fi
-if git -C "$repo_root" ls-files --others --exclude-standard -- "${codemap_outputs[@]}" | grep -q .; then
-  codemap_needs_refresh=1
-fi
-if ! "$gate_bin" codemap check --tree "$staged_tree"; then
-  codemap_needs_refresh=1
-fi
-if [[ "$codemap_needs_refresh" -eq 1 ]]; then
-  printf '%s\n' 'pre-commit: codemap drift detected; refreshing managed outputs once.' >&2
-  if ! "$gate_bin" codemap refresh --tree "$staged_tree"; then
-    printf '%s\n' 'pre-commit blocked: codemap refresh failed.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -A -- "${codemap_outputs[@]}"; then
-    printf '%s\n' 'pre-commit blocked: refreshed codemap outputs could not be staged.' >&2
-    exit 1
-  fi
-  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after codemap refresh.' >&2
-    exit 1
-  fi
-  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" codemap check --tree "$refreshed_tree"; then
-    printf '%s\n' 'pre-commit blocked: codemap still drifted after one automatic refresh.' >&2
-    exit 1
-  fi
-	staged_tree=$refreshed_tree
-fi
-
-capability_contract_output=docs/doc/codemap/capability-contract/capability_manifest.json
-capability_contract_needs_refresh=0
-if ! git -C "$repo_root" diff --quiet -- "$capability_contract_output"; then
-  capability_contract_needs_refresh=1
-fi
-if git -C "$repo_root" ls-files --others --exclude-standard -- "$capability_contract_output" | grep -q .; then
-  capability_contract_needs_refresh=1
-fi
-if ! "$gate_bin" capability-contract check --tree "$staged_tree"; then
-  capability_contract_needs_refresh=1
-fi
-if [[ "$capability_contract_needs_refresh" -eq 1 ]]; then
-  printf '%s\n' 'pre-commit: capability-contract drift detected; refreshing managed output once.' >&2
-  if ! "$gate_bin" capability-contract refresh --tree "$staged_tree"; then
-    printf '%s\n' 'pre-commit blocked: capability-contract refresh failed.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -A -- "$capability_contract_output"; then
-    printf '%s\n' 'pre-commit blocked: refreshed capability-contract output could not be staged.' >&2
-    exit 1
-  fi
-  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after capability-contract refresh.' >&2
-    exit 1
-  fi
-  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" capability-contract check --tree "$refreshed_tree"; then
-    printf '%s\n' 'pre-commit blocked: capability-contract still drifted after one automatic refresh.' >&2
-    exit 1
-  fi
-	staged_tree=$refreshed_tree
-fi
-
-project_map_output=docs/doc/codemap/project-map
-project_map_needs_refresh=0
-if ! git -C "$repo_root" diff --quiet -- "$project_map_output"; then
-  project_map_needs_refresh=1
-fi
-if git -C "$repo_root" ls-files --others --exclude-standard -- "$project_map_output" | grep -q .; then
-  project_map_needs_refresh=1
-fi
-if ! "$gate_bin" project-map check --tree "$staged_tree"; then
-  project_map_needs_refresh=1
-fi
-if [[ "$project_map_needs_refresh" -eq 1 ]]; then
-  printf '%s\n' 'pre-commit: project-map drift detected; refreshing managed outputs once.' >&2
-  if ! "$gate_bin" project-map refresh --tree "$staged_tree"; then
-    printf '%s\n' 'pre-commit blocked: project-map refresh failed.' >&2
-    exit 1
-  fi
-  if ! git -C "$repo_root" add -A -- "$project_map_output"; then
-    printf '%s\n' 'pre-commit blocked: refreshed project-map outputs could not be staged.' >&2
-    exit 1
-  fi
-  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after project-map refresh.' >&2
-    exit 1
-  fi
-  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" project-map check --tree "$refreshed_tree"; then
-    printf '%s\n' 'pre-commit blocked: project-map still drifted after one automatic refresh.' >&2
-    exit 1
-  fi
-	staged_tree=$refreshed_tree
-fi
-
-if [[ "$staged_tree" != "$launcher_tree" ]]; then
-  printf '%s\n' 'pre-commit: managed outputs changed the staged tree; rebinding trusted launcher once.' >&2
-  if ! gate_bin=$(bind_trusted_gate_launcher_for_tree "$staged_tree"); then
-    exit 1
-  fi
-  launcher_tree=$staged_tree
-fi
-if ! gate_bin=$(trusted_gate_launcher_for_tree "$repo_root" "$staged_tree"); then
-  printf '%s\n' 'pre-commit blocked: trusted launcher receipt drifted before remote execution.' >&2
-  exit 1
-fi
-
-umask 077
-remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
-remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
-  printf '%s\n' 'pre-commit blocked: remote CI requires remote config and duration ledger paths.' >&2
-  exit 1
-fi
-if ! parent_commit=$(git rev-parse --verify 'HEAD^{commit}'); then
-  printf '%s\n' 'pre-commit blocked: remote CI requires an existing parent commit.' >&2
-  exit 1
-fi
-remote_args=(
-  remote hook pre-commit
-  --config "$remote_config"
-  --ledger "$remote_ledger"
-  --repository "$repo_root"
-  --tree "$staged_tree"
-  --parent "$parent_commit"
-)
-set +e
-"$gate_bin" "${remote_args[@]}" 2>&1
-hook_rc=$?
-set -e
-if [[ "$hook_rc" -ne 0 ]]; then
-  exit "$hook_rc"
-fi
-if ! final_tree=$(git write-tree); then
-  printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after remote gate.' >&2
+if ! final_tree=$(git -C "$repo_root" write-tree); then
+  printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after code guard.' >&2
   exit 1
 fi
 if [[ "$final_tree" != "$staged_tree" ]]; then
-  printf '%s\n' "pre-commit blocked: staged tree changed during remote gate ($staged_tree -> $final_tree)." >&2
+  printf '%s\n' "pre-commit blocked: staged tree changed during code guard ($staged_tree -> $final_tree)." >&2
   exit 1
 fi

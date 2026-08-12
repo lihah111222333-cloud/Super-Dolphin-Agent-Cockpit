@@ -61,7 +61,32 @@ func prepareFixTestGuardRepo(t *testing.T) string {
 
 func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
 	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake code guard %s skip-gosec=%s\\n' \"$*\" \"${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}\"\nif [ \"$*\" != \"--guard-only\" ]; then\n  echo \"unexpected guard args: $*\" >&2\n  exit 1\nfi\n"
+	content := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'fake code guard %s skip-gosec=%s fail-on-drift=%s tree=%s\n' "$*" "${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}" "${SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT:-}" "$(git write-tree)"
+if [ "$*" != "--light-guard-only" ]; then
+  echo "unexpected guard args: $*" >&2
+  exit 1
+fi
+if [ -n "${GATE_ASSERT_RELATIVE_PATH:-}" ]; then
+  if grep -qs 'go:embed all:web-dist' cmd/agent-terminal/*.go 2>/dev/null && [ ! -f cmd/agent-terminal/web-dist/index.html ]; then
+    mkdir -p cmd/agent-terminal/web-dist
+    printf '%s\n' '<!doctype html><title>staged snapshot</title>' >cmd/agent-terminal/web-dist/index.html
+  fi
+  grep -Fq "${GATE_ASSERT_CONTENT:?}" "$GATE_ASSERT_RELATIVE_PATH"
+fi
+if [ -n "${GATE_WAIT_READY_FILE:-}" ]; then
+  : >"$GATE_WAIT_READY_FILE"
+fi
+if [ -n "${GATE_WAIT_FOR_INTERRUPT:-}" ]; then
+  sleep 30
+fi
+if [ -n "${GATE_WAIT_FORCE_FAILURE:-}" ]; then
+  printf '%s\n' 'forced code guard failure' >&2
+  exit 42
+fi
+printf '%s\n' 'pre-commit OK'
+`
 	path := filepath.Join(root, "scripts", "test_with_guard.sh")
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake test_with_guard.sh: %v", err)
@@ -490,10 +515,8 @@ func TestPreCommitCreatesDeterministicEmbedPlaceholderFromStagedSnapshot(t *test
 				t.Fatalf("pre-commit embed placeholder failed: %v\n%s", err, out)
 			}
 			assertOutputContainsAll(t, out,
-				"fixture closure verified staged tree "+stagedTree,
-				"fixture hook queued staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
-				"fixture wait verified staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
-				"go vet (staged snapshot)",
+				"fake code guard --light-guard-only",
+				"tree="+stagedTree,
 				"pre-commit OK",
 			)
 		})

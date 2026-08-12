@@ -13,7 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-// VerifyOptions binds the running executable to one receipt and one Git tree.
+// VerifyOptions 将运行中 executable 绑定到自身回执，并验证它兼容候选 Git tree。
 type VerifyOptions struct {
 	RepositoryRoot string
 	Tree           string
@@ -21,13 +21,13 @@ type VerifyOptions struct {
 	Linked         LinkedIdentity
 }
 
-// Verify 从精确树与当前 executable 重算每一项回执身份。
+// Verify 验证 launcher 自身身份，并从候选树重算版本闭包。
 func Verify(ctx context.Context, options VerifyOptions) error {
 	if ctx == nil {
 		return errors.New("trusted launcher verify context is required")
 	}
-	if !treePattern.MatchString(options.Tree) || options.Linked.Tree != options.Tree {
-		return errors.New("linked launcher tree does not match the requested exact tree")
+	if !treePattern.MatchString(options.Tree) {
+		return errors.New("requested launcher candidate tree is invalid")
 	}
 	executable, receiptPath, err := canonicalVerificationPaths(options.ReceiptPath)
 	if err != nil {
@@ -71,7 +71,7 @@ func verifyReceiptIdentity(ctx context.Context, options VerifyOptions, receipt R
 }
 
 func verifyReceiptLinkedIdentity(options VerifyOptions, receipt Receipt) error {
-	if receipt.Tree != options.Tree || linkedIdentityFromReceipt(receipt) != options.Linked {
+	if receipt.Tree != options.Linked.Tree || linkedIdentityFromReceipt(receipt) != options.Linked {
 		return errors.New("trusted launcher receipt does not match linked build identity")
 	}
 	return nil
@@ -109,7 +109,7 @@ func verifyReceiptCompileClosure(ctx context.Context, options VerifyOptions, rec
 		return fmt.Errorf("recompute trusted launcher compile closure: %w", err)
 	}
 	if sourceDigest != receipt.SourceSHA256 || toolchainDigest != receipt.ToolchainSHA256 {
-		return errors.New("trusted launcher exact-tree compile closure does not match its receipt")
+		return errors.New("trusted launcher version does not match the candidate tree compile closure")
 	}
 	return nil
 }
@@ -121,10 +121,10 @@ func verifyReceiptClosureProvenance(options VerifyOptions, receipt Receipt) erro
 	}
 	treeProvenance, err := gateclosure.GeneratorProvenanceForTree(options.RepositoryRoot, options.Tree)
 	if err != nil {
-		return fmt.Errorf("compute exact-tree launcher closure provenance: %w", err)
+		return fmt.Errorf("compute candidate-tree launcher closure provenance: %w", err)
 	}
 	if compiledProvenance != receipt.ClosureProvenance || treeProvenance != receipt.ClosureProvenance {
-		return errors.New("trusted launcher closure provenance does not match the exact tree")
+		return errors.New("trusted launcher version provenance does not match the candidate tree")
 	}
 	return nil
 }

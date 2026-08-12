@@ -173,65 +173,33 @@ func migrateDurationLedgerSQLiteRetainedProofOnConnection(connection *sql.Conn) 
 // backfillRetainedWorkloadPassProofs snapshots direct proof material for live
 // reused consumers before strict v16 root pruning is allowed.
 func backfillRetainedWorkloadPassProofs(connection *sql.Conn) error {
-	expected, err := validateRetainedWorkloadPassProofBackfillSources(connection)
+	proofs, err := validateRetainedWorkloadPassProofBackfillSources(connection)
 	if err != nil {
 		return err
 	}
-	result, err := connection.ExecContext(context.Background(), `
+	const insertProof = `
 		INSERT INTO ci_retained_workload_pass_proofs (
 			consumer_job_id, workload_id, identity_digest, origin_job_id,
 			origin_accepted_generation, origin_source_tree_sha,
 			origin_receipt_set_sha256, origin_execution_json, evidence_sha256
-		)
-		SELECT results.job_id, results.workload_id, results.identity_digest,
-			evidence.origin_job_id, evidence.accepted_generation,
-			evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256,
-			evidence.origin_execution_json, evidence.evidence_sha256
-		FROM ci_run_workload_results AS results
-		JOIN ci_runs AS consumer ON consumer.job_id = results.job_id
-		JOIN ci_remote_baseline_state AS baseline ON baseline.singleton = 1
-		JOIN ci_run_workload_results AS direct
-			ON direct.job_id = results.origin_job_id
-			AND direct.workload_id = results.workload_id
-			AND direct.identity_digest = results.identity_digest
-			AND direct.disposition = 'executed'
-			AND direct.origin_job_id = direct.job_id
-			AND direct.origin_accepted_generation = results.origin_accepted_generation
-		JOIN ci_runs AS origin ON origin.job_id = direct.job_id
-			AND origin.accepted_generation = results.origin_accepted_generation
-		JOIN ci_workload_pass_evidence AS evidence
-			ON evidence.identity_digest = results.identity_digest
-			AND evidence.accepted_generation = results.origin_accepted_generation
-			AND evidence.origin_job_id = results.origin_job_id
-			AND evidence.workload_id = results.workload_id
-			AND evidence.execution_digest = results.execution_digest
-			AND evidence.input_digest = results.input_digest
-			AND evidence.environment_digest = results.environment_digest
-			AND evidence.evidence_sha256 = results.evidence_sha256
-		WHERE results.disposition = 'reused'
-			AND consumer.accepted_generation IN (
-				baseline.generation,
-				CAST(CAST(baseline.generation AS INTEGER) - 1 AS TEXT),
-				CAST(CAST(baseline.generation AS INTEGER) - 2 AS TEXT)
-			)`)
-	if err != nil {
-		return mapDurationLedgerSQLiteError("backfill retained workload pass proofs", err)
-	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return mapDurationLedgerSQLiteError("count retained workload pass proof backfill", err)
-	}
-	if inserted != expected {
-		return fmt.Errorf("retained workload pass proof backfill row count = %d, want %d", inserted, expected)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	for _, proof := range proofs {
+		arguments, err := proof.insertArguments()
+		if err != nil {
+			return err
+		}
+		if _, err := connection.ExecContext(context.Background(), insertProof, arguments...); err != nil {
+			return mapDurationLedgerSQLiteError("backfill retained workload pass proof", err)
+		}
 	}
 	return nil
 }
 
 // validateRetainedWorkloadPassProofBackfillSources 将 v15 live reused consumer 的
 // 所有 source、direct result、canonical identity 和 strict JSON 在写 v16 前闭合。
-func validateRetainedWorkloadPassProofBackfillSources(connection *sql.Conn) (int64, error) {
+func validateRetainedWorkloadPassProofBackfillSources(connection *sql.Conn) ([]retainedWorkloadPassProof, error) {
 	if connection == nil {
-		return 0, errors.New("retained workload pass proof backfill connection is nil")
+		return nil, errors.New("retained workload pass proof backfill connection is nil")
 	}
 	const liveReused = `
 		FROM ci_run_workload_results AS results
@@ -241,9 +209,9 @@ func validateRetainedWorkloadPassProofBackfillSources(connection *sql.Conn) (int
 			AND consumer.accepted_generation IN (baseline.generation, CAST(CAST(baseline.generation AS INTEGER) - 1 AS TEXT), CAST(CAST(baseline.generation AS INTEGER) - 2 AS TEXT))`
 	var expected int64
 	if err := connection.QueryRowContext(context.Background(), `SELECT COUNT(*) `+liveReused).Scan(&expected); err != nil {
-		return 0, mapDurationLedgerSQLiteError("count live reused consumers for retained proof backfill", err)
+		return nil, mapDurationLedgerSQLiteError("count live reused consumers for retained proof backfill", err)
 	}
-	rows, err := connection.QueryContext(context.Background(), `SELECT results.identity_digest, results.origin_accepted_generation, results.workload_id, results.execution_digest, results.input_digest, results.environment_digest, results.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, results.evidence_sha256
+	rows, err := connection.QueryContext(context.Background(), `SELECT results.job_id, consumer.accepted_generation, results.identity_digest, results.origin_accepted_generation, results.workload_id, results.execution_digest, results.input_digest, results.environment_digest, results.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, results.evidence_sha256
 		FROM ci_run_workload_results AS results
 		JOIN ci_runs AS consumer ON consumer.job_id = results.job_id
 		JOIN ci_remote_baseline_state AS baseline ON baseline.singleton = 1
@@ -252,38 +220,54 @@ func validateRetainedWorkloadPassProofBackfillSources(connection *sql.Conn) (int
 		LEFT JOIN ci_workload_pass_evidence AS evidence ON evidence.identity_digest = results.identity_digest AND evidence.accepted_generation = results.origin_accepted_generation AND evidence.origin_job_id = results.origin_job_id AND evidence.workload_id = results.workload_id AND evidence.execution_digest = results.execution_digest AND evidence.input_digest = results.input_digest AND evidence.environment_digest = results.environment_digest AND evidence.evidence_sha256 = results.evidence_sha256
 		WHERE results.disposition = 'reused' AND consumer.accepted_generation IN (baseline.generation, CAST(CAST(baseline.generation AS INTEGER) - 1 AS TEXT), CAST(CAST(baseline.generation AS INTEGER) - 2 AS TEXT)) AND direct.job_id IS NOT NULL AND origin.job_id IS NOT NULL AND evidence.identity_digest IS NOT NULL`)
 	if err != nil {
-		return 0, mapDurationLedgerSQLiteError("query retained workload pass proof backfill sources", err)
+		return nil, mapDurationLedgerSQLiteError("query retained workload pass proof backfill sources", err)
 	}
 	defer rows.Close()
-	var validated int64
+	proofs := make([]retainedWorkloadPassProof, 0)
+	var scanned int64
 	for rows.Next() {
-		if err := validateRetainedWorkloadPassProofBackfillRow(rows); err != nil {
-			return 0, err
+		proof, retired, err := classifyRetainedWorkloadPassProofBackfillRow(rows)
+		if err != nil {
+			return nil, err
 		}
-		validated++
+		scanned++
+		if !retired {
+			proofs = append(proofs, proof)
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return 0, mapDurationLedgerSQLiteError("iterate retained workload pass proof backfill sources", err)
+		return nil, mapDurationLedgerSQLiteError("iterate retained workload pass proof backfill sources", err)
 	}
-	if validated != expected {
-		return 0, fmt.Errorf("retained workload pass proof backfill verified row count = %d, want %d; source missing, non-direct, or canonical drifted", validated, expected)
+	if scanned != expected {
+		return nil, fmt.Errorf("retained workload pass proof backfill verified row count = %d, want %d; source missing, non-direct, or canonical drifted", scanned, expected)
 	}
-	return expected, nil
+	return proofs, nil
 }
 
-func validateRetainedWorkloadPassProofBackfillRow(rows workloadPassEvidenceScanner) error {
-	var generation, workloadID, executionJSON string
+func classifyRetainedWorkloadPassProofBackfillRow(rows workloadPassEvidenceScanner) (retainedWorkloadPassProof, bool, error) {
+	proof, err := validateRetainedWorkloadPassProofBackfillRow(rows)
+	if err == nil {
+		return proof, false, nil
+	}
+	if errors.Is(err, errLegacyWorkloadPassIdentityDomain) {
+		return retainedWorkloadPassProof{}, true, nil
+	}
+	return retainedWorkloadPassProof{}, false, err
+}
+
+func validateRetainedWorkloadPassProofBackfillRow(rows workloadPassEvidenceScanner) (retainedWorkloadPassProof, error) {
+	var consumerJobID, consumerGeneration, generation, workloadID, executionJSON string
 	var evidence WorkloadPassEvidence
-	if err := rows.Scan(&evidence.Identity.IdentityDigest, &generation, &workloadID, &evidence.Identity.ExecutionDigest, &evidence.Identity.InputDigest, &evidence.Identity.EnvironmentDigest, &evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256, &executionJSON, &evidence.EvidenceSHA256); err != nil {
-		return mapDurationLedgerSQLiteError("scan retained workload pass proof backfill source", err)
+	if err := rows.Scan(&consumerJobID, &consumerGeneration, &evidence.Identity.IdentityDigest, &generation, &workloadID, &evidence.Identity.ExecutionDigest, &evidence.Identity.InputDigest, &evidence.Identity.EnvironmentDigest, &evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256, &executionJSON, &evidence.EvidenceSHA256); err != nil {
+		return retainedWorkloadPassProof{}, mapDurationLedgerSQLiteError("scan retained workload pass proof backfill source", err)
 	}
 	if err := populateRetainedWorkloadPassProofBackfillEvidence(&evidence, generation, workloadID, executionJSON); err != nil {
-		return err
+		return retainedWorkloadPassProof{}, err
 	}
 	if err := validateWorkloadPassEvidence(evidence); err != nil {
-		return fmt.Errorf("retained workload pass proof backfill canonical evidence: %w", err)
+		return retainedWorkloadPassProof{}, fmt.Errorf("retained workload pass proof backfill canonical evidence: %w", err)
 	}
-	return nil
+	return retainedWorkloadPassProof{ConsumerJobID: consumerJobID, ConsumerAcceptedGeneration: consumerGeneration, WorkloadID: workloadID, IdentityDigest: evidence.Identity.IdentityDigest, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: generation, OriginSourceTreeSHA: evidence.OriginSourceTreeSHA, OriginReceiptSetSHA256: evidence.OriginReceiptSetSHA256, OriginExecutionJSON: executionJSON, EvidenceSHA256: evidence.EvidenceSHA256}, nil
 }
 
 func populateRetainedWorkloadPassProofBackfillEvidence(evidence *WorkloadPassEvidence, generation, workloadID, executionJSON string) error {

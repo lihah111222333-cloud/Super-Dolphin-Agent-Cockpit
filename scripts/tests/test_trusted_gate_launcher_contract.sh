@@ -50,6 +50,8 @@ mkdir -m 700 "$fake_bin"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   printf '#!/usr/bin/env bash\nprintf '\''NFSHomeDirectory: %s\\n'\''\n' "$test_home" >"$fake_bin/dscl"
 else
+  # fixture 必须在运行时读取位置参数。
+  # shellcheck disable=SC2016
   printf '#!/usr/bin/env bash\nif [[ "${1:-}" == passwd ]]; then printf '\''fixture:x:0:0::%s:/bin/sh\\n'\''\nfi\n' "$test_home" >"$fake_bin/getent"
 fi
 chmod 700 "$fake_bin"/*
@@ -91,6 +93,8 @@ run_direct_source_tree_test() {
   else
     shell_flags=(--noprofile --norc)
   fi
+  # 子 shell 脚本必须在目标 shell 内展开参数。
+  # shellcheck disable=SC2016
   "$shell_name" "${shell_flags[@]}" -c '
 set -euo pipefail
 repo_root=$1
@@ -121,7 +125,7 @@ if trusted_gate_launcher "$git_repo" >/dev/null 2>&1; then
 fi
 missing_tree=$(printf '%040d' 1)
 if trusted_gate_launcher_for_tree "$git_repo" "$missing_tree" >/dev/null 2>&1; then
-  fail 'missing exact-tree launcher passed verification'
+  fail 'version-incompatible candidate tree passed launcher verification'
 fi
 printf '%s\n' '{"fixture":"valid"}' >"$(dirname "$launcher")/receipt.json"
 chmod 400 "$(dirname "$launcher")/receipt.json"
@@ -168,5 +172,12 @@ validate_trusted_gate_launcher "$git_repo" "$launcher" || fail 'Git local launch
   validate_trusted_gate_launcher "$launcher"
 ) || fail 'single-argument launcher validation accepted a Git local root override'
 [[ "$(trusted_launcher_root "$git_repo")" == "$install_root" ]] || fail 'trusted launcher root did not remain OS-derived'
+
+printf 'version-compatible candidate\n' >>"$git_repo/tracked.txt"
+git -C "$git_repo" add tracked.txt
+candidate_tree=$(git -C "$git_repo" write-tree)
+[[ "$candidate_tree" != "$tree" ]] || fail 'version compatibility fixture did not create a different candidate tree'
+[[ "$(trusted_gate_launcher_for_tree "$git_repo" "$candidate_tree")" == "$launcher" ]] \
+  || fail 'version-compatible launcher was incorrectly bound to its installation tree'
 
 printf '%s\n' 'trusted launcher shell contract: PASS'

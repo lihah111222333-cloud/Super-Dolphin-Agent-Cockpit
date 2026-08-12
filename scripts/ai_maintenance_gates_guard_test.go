@@ -8,29 +8,18 @@ import (
 
 func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) error {
 	for _, required := range []string{
-		`"$gate_bin" closure check --tree "$staged_tree"`,
-		`"$gate_bin" closure refresh-dependencies --tree "$staged_tree"`,
-		`git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`,
-		`"$gate_bin" closure refresh --tree "$staged_tree"`,
-		`git -C "$repo_root" add -u -- "${closure_outputs[@]}"`,
-		`bind_trusted_gate_launcher_for_tree "$launcher_tree"`,
-		`bind_trusted_gate_launcher_for_tree "$staged_tree"`,
-		`remote hook pre-commit`,
-		`--config "$remote_config"`,
-		`--ledger "$remote_ledger"`,
-		`--repository "$repo_root"`,
-		`--tree "$staged_tree"`,
-		`--parent "$parent_commit"`,
-		`"$gate_bin" "${remote_args[@]}" 2>&1`,
-		`hook_rc=$?`,
+		`run_staged_light_code_guard "$staged_tree"`,
+		`./scripts/test_with_guard.sh --light-guard-only`,
+		`SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`,
+		`worktree_root="$repo_root/.worktrees"`,
 	} {
 		if !strings.Contains(preCommit, required) {
-			return fmt.Errorf("pre-commit must route through trusted gate CLI command %q", required)
+			return fmt.Errorf("pre-commit must retain lightweight code-guard contract %q", required)
 		}
 	}
-	for _, forbidden := range []string{"gate_output_file", "tee", `mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit.`} {
+	for _, forbidden := range []string{"gate_output_file", "tee", `remote hook pre-commit`, `remote_config=`, `remote_ledger=`, `SUPER_DOLPHIN_CI_AGENT_TOKEN`, `trusted_gate_launcher`, `closure check`, `codemap check`, `project-map check`, `capability-contract check`} {
 		if strings.Contains(preCommit, forbidden) {
-			return fmt.Errorf("pre-commit must not restore retired gate output spool %q", forbidden)
+			return fmt.Errorf("pre-commit must not contain complete gate operation %q", forbidden)
 		}
 	}
 	for _, required := range []string{
@@ -52,6 +41,7 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 
 func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	script := readScript(t, "ai_maintenance_gates.sh")
+	testWithGuard := readScript(t, "test_with_guard.sh")
 	preCommit := readRepoFile(t, "../.githooks/pre-commit")
 	prePush := readRepoFile(t, "../.githooks/pre-push")
 
@@ -59,25 +49,26 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertScriptContains(t, script, "go run ./scripts/ai_maintenance run \"$@\"")
-	assertScriptContains(t, preCommit, `if ! "$gate_bin" closure check --tree "$staged_tree"; then`)
-	assertScriptContains(t, preCommit, `"$gate_bin" closure refresh-dependencies --tree "$staged_tree"`)
-	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`)
-	assertScriptContains(t, preCommit, `"$gate_bin" closure refresh --tree "$staged_tree"`)
-	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- "${closure_outputs[@]}"`)
-	assertScriptContains(t, preCommit, `bind_trusted_gate_launcher_for_tree "$launcher_tree"`)
-	assertScriptContains(t, preCommit, `bind_trusted_gate_launcher_for_tree "$staged_tree"`)
-	assertScriptContains(t, preCommit, `remote hook pre-commit`)
-	assertScriptContains(t, preCommit, `--config "$remote_config"`)
-	assertScriptContains(t, preCommit, `--ledger "$remote_ledger"`)
-	assertScriptContains(t, preCommit, `--repository "$repo_root"`)
-	assertScriptContains(t, preCommit, `"$gate_bin" "${remote_args[@]}" 2>&1`)
-	assertScriptContains(t, preCommit, `hook_rc=$?`)
+	assertScriptContains(t, preCommit, `run_staged_light_code_guard "$staged_tree"`)
+	assertScriptContains(t, preCommit, `./scripts/test_with_guard.sh --light-guard-only`)
+	assertScriptContains(t, preCommit, `SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`)
+	lightGuardStart := strings.Index(testWithGuard, "run_light_guard() {")
+	archtestStart := strings.Index(testWithGuard, "run_archtest_only() {")
+	if lightGuardStart < 0 || archtestStart <= lightGuardStart {
+		t.Fatal("test_with_guard must expose a bounded light code-guard function")
+	}
+	lightGuard := testWithGuard[lightGuardStart:archtestStart]
+	assertScriptContains(t, lightGuard, `"$real_go" run ./scripts/code_size_guard.go`)
+	assertScriptDoesNotContain(t, lightGuard, `"$real_go" test`)
+	assertScriptContains(t, testWithGuard, `[ "$1" != "--light-guard-only" ]`)
+	assertScriptDoesNotContain(t, preCommit, `remote hook pre-commit`)
+	assertScriptDoesNotContain(t, preCommit, `SUPER_DOLPHIN_CI_AGENT_TOKEN`)
 	assertScriptContains(t, prePush, `remote hook pre-push`)
 	assertScriptContains(t, prePush, `--config "$remote_config"`)
 	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
 	assertScriptContains(t, prePush, `--repository "$repo_root"`)
 	assertScriptContains(t, prePush, `"$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"`)
-	for name, hook := range map[string]string{"pre-commit": preCommit, "pre-push": prePush} {
+	for name, hook := range map[string]string{"pre-push": prePush} {
 		for line := range strings.SplitSeq(hook, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "printf ") {
 				continue
@@ -91,24 +82,24 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	}
 }
 
-func TestAIMaintenanceGateRejectsRetiredPreCommitOutputSpool(t *testing.T) {
+func TestAIMaintenanceGateRejectsRemotePreCommitAndOutputSpool(t *testing.T) {
 	script := readScript(t, "ai_maintenance_gates.sh")
 	preCommit := readRepoFile(t, "../.githooks/pre-commit")
 	prePush := readRepoFile(t, "../.githooks/pre-push")
 
 	mutatedPreCommit := strings.Replace(
 		preCommit,
-		`"$gate_bin" "${remote_args[@]}" 2>&1`,
-		`"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`,
+		`./scripts/test_with_guard.sh --light-guard-only`,
+		`"$gate_bin" remote hook pre-commit 2>&1 | tee "$gate_output_file"`,
 		1,
 	)
 	if err := validateAIMaintenanceHookRoutes(mutatedPreCommit, prePush, script); err == nil {
 		t.Fatal("reintroducing the pre-commit output spool must be rejected")
 	}
 
-	mutatedPreCommit = strings.Replace(preCommit, "hook_rc=$?", "", 1)
+	mutatedPreCommit = strings.Replace(preCommit, `./scripts/test_with_guard.sh --light-guard-only`, "", 1)
 	if err := validateAIMaintenanceHookRoutes(mutatedPreCommit, prePush, script); err == nil {
-		t.Fatal("dropping the direct gate exit-status capture must be rejected")
+		t.Fatal("dropping the staged code guard must be rejected")
 	}
 }
 
@@ -122,15 +113,9 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 		mutate func(*string, *string, *string)
 	}{
 		{
-			name: "pre-commit remote hook command",
+			name: "pre-commit staged code guard",
 			mutate: func(preCommit, _, _ *string) {
-				*preCommit = strings.ReplaceAll(*preCommit, `remote hook pre-commit`, "")
-			},
-		},
-		{
-			name: "pre-commit closure refresh",
-			mutate: func(preCommit, _, _ *string) {
-				*preCommit = strings.Replace(*preCommit, `"$gate_bin" closure refresh --tree "$staged_tree"`, "", 1)
+				*preCommit = strings.ReplaceAll(*preCommit, `./scripts/test_with_guard.sh --light-guard-only`, "")
 			},
 		},
 		{

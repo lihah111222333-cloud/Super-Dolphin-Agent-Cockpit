@@ -200,7 +200,7 @@ const PURPOSE_RULES = [
   ['internal/devtools/alicloud/eci/', '阿里云 ECI container group 与 ImageCache 只读客户端'],
   ['internal/devtools/alicloud/oss/', '远程 CI OSS 内容寻址传输客户端'],
   ['config/remote-ci/', '远程 CI strict 配置与 generation-one receipt 输入'],
-  ['.githooks/pre-commit', '精确 staged tree 的远程 CI pre-commit 门禁入口'],
+  ['.githooks/pre-commit', '精确 staged tree 的本地代码守卫入口'],
   ['.githooks/pre-push', '精确 ref update 的远程 CI pre-push 门禁入口'],
   ['.githooks/trusted-gate-launcher.sh', '远程 CI trusted gate launcher 验证入口'],
   ['scripts/ci_truth_image_gate.sh', '远程 CI release/full gate 启动脚本'],

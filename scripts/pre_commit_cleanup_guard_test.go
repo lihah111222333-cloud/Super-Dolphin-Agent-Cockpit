@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func TestPreCommitCleanupFailureFailsHook(t *testing.T) {
+func TestPreCommitCodeGuardFailureCleansWorktree(t *testing.T) {
 	root := preparePreCommitGateFixture(t)
 	tmpRoot := t.TempDir()
 	t.Cleanup(func() {
@@ -29,17 +29,17 @@ func TestPreCommitCleanupFailureFailsHook(t *testing.T) {
 	writeFixTestGuardFile(t, root, "internal/app/cleanup.go", "package app\n")
 	runFixTestGuardGit(t, root, "add", "internal/app/cleanup.go")
 	stagedTree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
-	out, err := runPreCommitHookWithEnv(t, root, map[string]string{"TMPDIR": tmpRoot, "GATE_FORCE_CLEANUP_FAILURE": "1"})
+	out, err := runPreCommitHookWithEnv(t, root, map[string]string{"TMPDIR": tmpRoot, "GATE_WAIT_FORCE_FAILURE": "1"})
 	if err == nil {
-		t.Fatalf("pre-commit cleanup failure succeeded:\n%s", out)
+		t.Fatalf("pre-commit code guard failure succeeded:\n%s", out)
 	}
 	assertOutputContainsAll(t, out,
-		"fixture closure verified staged tree "+stagedTree,
-		"fixture hook queued staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
-		"fixture wait verified staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
-		"pre-commit cleanup failed",
-		"pre-commit cleanup verification failed",
+		"fake code guard --light-guard-only",
+		"tree="+stagedTree,
+		"forced code guard failure",
+		"staged lightweight code guard failed",
 	)
+	assertPreCommitFixtureClean(t, root, tmpRoot)
 }
 
 func TestPreCommitWaitFailurePreservesRepositoryState(t *testing.T) {
@@ -56,7 +56,7 @@ func TestPreCommitWaitFailurePreservesRepositoryState(t *testing.T) {
 	if err == nil {
 		t.Fatalf("forced wait failure unexpectedly succeeded:\n%s", out)
 	}
-	assertOutputContainsAll(t, out, "forced wait failure")
+	assertOutputContainsAll(t, out, "forced code guard failure", "staged lightweight code guard failed")
 	assertPreCommitRepositoryState(t, root, originalState)
 	assertPreCommitFixtureClean(t, root, tmpRoot)
 }

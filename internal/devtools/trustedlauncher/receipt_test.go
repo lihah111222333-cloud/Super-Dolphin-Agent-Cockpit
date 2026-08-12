@@ -3,8 +3,6 @@ package trustedlauncher
 import (
 	"encoding/base64"
 	"encoding/json"
-	"go/build"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -34,6 +32,17 @@ func TestReceiptFieldGuardFailsWhenProductionFieldHasNoValidator(t *testing.T) {
 
 	if err := validReceiptFixture(t).validateWithValidators(validators); err == nil || !strings.Contains(err.Error(), `field "binary_sha256" has no validator`) {
 		t.Fatalf("missing validator error = %v", err)
+	}
+}
+
+func TestVerifyReceiptLinkedIdentityAllowsDifferentCandidateTree(t *testing.T) {
+	receipt := validReceiptFixture(t)
+	options := VerifyOptions{
+		Tree:   strings.Repeat("c", 40),
+		Linked: linkedIdentityFromReceipt(receipt),
+	}
+	if err := verifyReceiptLinkedIdentity(options, receipt); err != nil {
+		t.Fatalf("version-compatible launcher was bound to its installation tree: %v", err)
 	}
 }
 
@@ -80,16 +89,12 @@ func TestProducerEmitsOnlyConsumerAcceptedLinkedGlobals(t *testing.T) {
 
 func assertLauncherLinkedArguments(t *testing.T, linked, expectedDigest string) (string, string) {
 	t.Helper()
-	goRootPrefix := "-X runtime.defaultGOROOT=" + build.Default.GOROOT + " "
 	const sourcePrefix = "-X main.gateSourceDigest="
 	const digestPrefix = " -X main.gateToolchainDigest="
-	if !filepath.IsAbs(build.Default.GOROOT) || filepath.Clean(build.Default.GOROOT) != build.Default.GOROOT {
-		t.Fatalf("test build Go root is not canonical: %q", build.Default.GOROOT)
+	if strings.Count(linked, "-X ") != 2 || !strings.HasPrefix(linked, sourcePrefix) || !strings.Contains(linked, digestPrefix) {
+		t.Fatalf("linker globals must contain payload and digest only: %q", linked)
 	}
-	if strings.Count(linked, "-X ") != 3 || !strings.HasPrefix(linked, goRootPrefix+sourcePrefix) || !strings.Contains(linked, digestPrefix) {
-		t.Fatalf("linker globals must contain Go root, payload, and digest: %q", linked)
-	}
-	payloadText, observedDigest, ok := strings.Cut(strings.TrimPrefix(linked, goRootPrefix+sourcePrefix), digestPrefix)
+	payloadText, observedDigest, ok := strings.Cut(strings.TrimPrefix(linked, sourcePrefix), digestPrefix)
 	if !ok || observedDigest != expectedDigest {
 		t.Fatalf("linked values = %q", linked)
 	}

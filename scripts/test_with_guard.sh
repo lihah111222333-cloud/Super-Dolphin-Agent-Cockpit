@@ -2,7 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd)"
+# 路径由当前受信仓库根解析。
+# shellcheck disable=SC1091
 source "$ROOT_DIR/scripts/real_go_resolver.sh"
+# shellcheck disable=SC1091
 source "$ROOT_DIR/scripts/local_go_cache.sh"
 
 usage() {
@@ -12,6 +15,7 @@ Usage:
   scripts/test_with_guard.sh <file.go> [more.go...]
   scripts/test_with_guard.sh --host-test <light|medium> [go test args...]
   scripts/test_with_guard.sh --quick-guard [go test args...]
+  scripts/test_with_guard.sh --light-guard-only
   scripts/test_with_guard.sh --guard-only
   scripts/test_with_guard.sh --archtest-only
   scripts/test_with_guard.sh --canonical-backend <package-pattern...>
@@ -58,6 +62,15 @@ run_guard() {
     else
       "$real_go" test ./internal/archtest -count=1
     fi
+  )
+}
+
+run_light_guard() {
+  local real_go="$1"
+  (
+    cd "$ROOT_DIR"
+    ./scripts/forbid_raw_go_test.sh
+    "$real_go" run ./scripts/code_size_guard.go
   )
 }
 
@@ -201,6 +214,8 @@ host_test_remote_guidance() {
     echo "host test could not derive the exact remote CI selector" >&2
     return 2
   fi
+  # 这里故意输出供调用方复制的字面命令，不在当前 shell 展开。
+  # shellcheck disable=SC2016
   printf '%s' '[test-with-guard] remote CI exact test: source .githooks/trusted-gate-launcher.sh && "$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --target=remote --config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}" --ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}" --test ' >&2
   printf '%q\n' "$package_name#$test_selector" >&2
   echo '[test-with-guard] remote CI setup: make remote-ci-init; run through the verified trusted launcher installed by make install-hooks' >&2
@@ -696,7 +711,7 @@ main() {
     exit 1
   fi
 
-  if [ "$1" != "--help" ] && [ "$1" != "-h" ] && ! all_args_are_go_files "$@"; then
+  if [ "$1" != "--help" ] && [ "$1" != "-h" ] && [ "$1" != "--light-guard-only" ] && ! all_args_are_go_files "$@"; then
     if [[ -n "$host_test_class" ]]; then
       require_remote_test_execution "host-$host_test_class"
     else
@@ -717,6 +732,17 @@ main() {
   case "$1" in
     --help|-h)
       usage
+      ;;
+    --light-guard-only)
+      if [[ "$#" -ne 1 ]]; then
+        usage
+        exit 2
+      fi
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      run_light_guard "$real_go"
       ;;
     --guard-only)
       local real_go

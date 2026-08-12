@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer 선언: 독창적 코드와 프로젝트 자체 문서는 100% AI가 작성하며, 인간이 방향을 정하고 저장소가 보호합니다.** Product code, test code, 프로젝트 자체 문서는 모두 AI 에이전트가 작성하거나 리팩토링합니다. Product intent, architecture decision, credential, release의 책임은 인간에게 있습니다. AI가 작성했다는 사실이 무결성을 뜻하지는 않습니다. 수용되는 모든 변경은 저장소가 소유한 evidence와 gate를 통과해야 합니다. 외부에서 가져온 법률 및 커뮤니티 표준 문서는 원래의 저작자 표시를 유지합니다.
 
-**Truth-image 전달 검증.** 버전 관리되는 [Git hooks](.githooks/README.md), 수동 `make ci-l0`·`make ci-l1` 실행 및 release 검증은 fail-closed 원격 ECI gate를 사용합니다. GitHub는 Git remote일 뿐 CI runner를 제공하지 않습니다. `pre-commit`과 수동 L0-L1 명령은 정확한 staged tree 또는 ref update를 검사하고, release는 정확한 commit을 검사합니다. 원격 구성, provenance, result authority, cleanup evidence가 없거나 gate가 실패하면 작업을 거부합니다. `commit-msg`는 계속해서 중국어 commit text와 fix-test evidence를 요구합니다.
+**Truth-image 전달 검증.** 버전 관리되는 [Git hooks](.githooks/README.md), 수동 `make ci-l0`·`make ci-l1` 실행 및 release 검증은 두 경계를 분리합니다. `pre-commit`은 정확한 staged tree에서 저장소 code guard만 실행하고 원격 CI를 시작하지 않습니다. `pre-push`, 수동 L0-L1 명령 및 release 검증은 정확한 pushed tree 또는 commit에 fail-closed 원격 ECI gate를 실행합니다. GitHub는 Git remote일 뿐 CI runner를 제공하지 않습니다. 원격 구성, provenance, result authority, cleanup evidence가 없거나 push/release gate가 실패하면 전달을 거부합니다. `commit-msg`는 계속해서 중국어 commit text와 fix-test evidence를 요구합니다.
 
 Super Dolphin Agent는 **production-grade AI-native vibe-coding engineering system 및 multi-agent development control plane**입니다. 로컬 데스크톱 runtime, MCP orchestration, 다국어 LSP navigation, Provider integration, 영속 workflow, 기계적으로 강제되는 engineering boundary를 하나의 동작하는 참조 구현에 통합합니다.
 

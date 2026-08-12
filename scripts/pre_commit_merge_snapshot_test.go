@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestPreCommitRunsMergeGateFromSyntheticMergeCommit(t *testing.T) {
+func TestPreCommitRunsCodeGuardFromSyntheticMergeCommit(t *testing.T) {
 	root := preparePreCommitGateFixture(t)
 	baseBranch := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "branch", "--show-current"))
 
@@ -27,5 +27,5 @@ func TestPreCommitRunsMergeGateFromSyntheticMergeCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit rejected a clean staged merge snapshot: %v\n%s", err, out)
 	}
-	assertOutputContainsAll(t, out, "fixture closure verified staged tree "+stagedTree, "fixture hook queued staged tree "+stagedTree, "pre-commit OK")
+	assertOutputContainsAll(t, out, "fake code guard --light-guard-only", "tree="+stagedTree, "pre-commit OK")
 }
