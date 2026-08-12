@@ -15,19 +15,11 @@ func remoteCalibrationRacePackage(parent gatecontract.GateID, kind gatecontract.
 	return parent == gatecontract.GateIDBackendTestGuardWithRace && kind == gatecontract.WorkloadKindGoTest
 }
 
-func TestRemoteCalibrationReusedPassRequiresPersistedTimingEvidence(t *testing.T) {
+func TestRemoteCalibrationReusedPassRequiresCoverageAndOverheadNotSyntheticTiming(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
 	fixture.calibration.Toolchain = remoteRunRunnerIdentityState().ToolchainDigest
 	passed := remoteCalibrationFixturePassedWorkloads(fixture)
 
-	if _, err := acceptRemoteDurationCalibrationWithPasses(
-		fixture.store, fixture.calibration, passed,
-		fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog,
-	); err == nil || !strings.Contains(err.Error(), "no successful calibration duration evidence") {
-		t.Fatalf("reused PASS without timing samples error = %v", err)
-	}
-
-	appendCompleteRemoteCalibrationSamples(t, fixture)
 	if _, err := acceptRemoteDurationCalibrationWithPasses(
 		fixture.store, fixture.calibration, passed,
 		fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog,
@@ -40,13 +32,12 @@ func TestRemoteCalibrationReusedPassRequiresPersistedTimingEvidence(t *testing.T
 	seedRemoteRunShardOverheadFixture(
 		t, acceptedFixture.store, acceptedFixture.calibration.Runner, acceptedFixture.calibration.AcceptedSnapshotID,
 	)
-	appendCompleteRemoteCalibrationSamples(t, acceptedFixture)
 	if _, err := acceptRemoteDurationCalibrationWithPasses(
 		acceptedFixture.store, acceptedFixture.calibration,
 		remoteCalibrationFixturePassedWorkloads(acceptedFixture),
 		acceptedFixture.commitCatalog, acceptedFixture.pushCatalog, acceptedFixture.releaseCatalog,
 	); err != nil {
-		t.Fatalf("reused PASS with persisted timing evidence: %v", err)
+		t.Fatalf("reused PASS with canonical coverage and persisted overhead: %v", err)
 	}
 }
 
