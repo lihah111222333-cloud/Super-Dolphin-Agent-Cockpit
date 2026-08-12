@@ -302,7 +302,7 @@ func validateRetainedWorkloadPassProofBackfillEvidence(evidence WorkloadPassEvid
 	if err := validateWorkloadPassEvidenceOrigin(evidence); err != nil {
 		return err
 	}
-	expected, err := retainedWorkloadPassProofLegacyEvidenceSHA256(evidence, executionJSON)
+	expected, err := legacyWorkloadPassEvidenceSHA256(evidence, executionJSON)
 	if err != nil {
 		return err
 	}
@@ -312,9 +312,9 @@ func validateRetainedWorkloadPassProofBackfillEvidence(evidence WorkloadPassEvid
 	return nil
 }
 
-// retainedWorkloadPassProofLegacyEvidenceSHA256 以 v15 持久化的原始 execution
+// legacyWorkloadPassEvidenceSHA256 以 v15 持久化的原始 execution
 // JSON 重放旧 evidence 摘要，避免当前结构编码给历史证据添加新字段。
-func retainedWorkloadPassProofLegacyEvidenceSHA256(evidence WorkloadPassEvidence, executionJSON string) (string, error) {
+func legacyWorkloadPassEvidenceSHA256(evidence WorkloadPassEvidence, executionJSON string) (string, error) {
 	payload, err := json.Marshal(struct {
 		Identity                 WorkloadPassIdentity `json:"identity"`
 		OriginJobID              string               `json:"origin_job_id"`

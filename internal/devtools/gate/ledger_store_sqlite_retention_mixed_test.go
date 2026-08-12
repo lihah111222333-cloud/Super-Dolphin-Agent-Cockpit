@@ -362,15 +362,19 @@ func completeRetentionReceiptsForWorkloadID(t *testing.T, record RemoteCIRunReco
 func rewriteRetentionOriginAsLegacy(t *testing.T, store *DurationLedgerStore, origin RemoteCIRunRecord, evidence WorkloadPassEvidence) {
 	t.Helper()
 	profileJSON, executionJSON := retentionLegacyExecutionJSON(t, origin.WorkloadExecutions[0])
+	legacyEvidenceSHA256, err := legacyWorkloadPassEvidenceSHA256(evidence, string(executionJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
 	database := openWorkloadPassDatabase(t, store)
 	defer database.Close()
 	if _, err := database.Exec(`UPDATE ci_workload_executions SET execution_profile_json = ? WHERE job_id = ? AND workload_id = ?`, string(profileJSON), origin.JobID, string(evidence.Identity.WorkloadID)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`UPDATE ci_workload_pass_evidence SET origin_execution_json = ? WHERE identity_digest = ? AND accepted_generation = ?`, string(executionJSON), evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration); err != nil {
+	if _, err := database.Exec(`UPDATE ci_workload_pass_evidence SET origin_execution_json = ?, evidence_sha256 = ? WHERE identity_digest = ? AND accepted_generation = ?`, string(executionJSON), legacyEvidenceSHA256, evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`UPDATE ci_retained_workload_pass_proofs SET origin_execution_json = ? WHERE identity_digest = ? AND origin_accepted_generation = ?`, string(executionJSON), evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration); err != nil {
+	if _, err := database.Exec(`UPDATE ci_retained_workload_pass_proofs SET origin_execution_json = ?, evidence_sha256 = ? WHERE identity_digest = ? AND origin_accepted_generation = ?`, string(executionJSON), legacyEvidenceSHA256, evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration); err != nil {
 		t.Fatal(err)
 	}
 }

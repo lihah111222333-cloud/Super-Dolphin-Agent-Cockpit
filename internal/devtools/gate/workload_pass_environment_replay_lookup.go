@@ -93,12 +93,12 @@ func appendWorkloadPassEnvironmentReplayHintBatch(
 	}
 	defer rows.Close()
 	for rows.Next() {
-		evidence, err := scanWorkloadPassEnvironmentReplayHint(rows)
+		evidence, legacy, err := scanWorkloadPassEnvironmentReplayHint(rows)
 		if err != nil {
-			if isWorkloadPassReplayLegacyMaterial(err) {
-				continue
-			}
 			return err
+		}
+		if legacy {
+			continue
 		}
 		if err := appendWorkloadPassEnvironmentReplayHint(evidence, requested, result); err != nil {
 			return err
@@ -122,7 +122,7 @@ func workloadPassEnvironmentReplayRequested(identities []WorkloadPassIdentity) (
 }
 
 // scanWorkloadPassEnvironmentReplayHint 严格解码当前代行并验证 identity/evidence 自摘要。
-func scanWorkloadPassEnvironmentReplayHint(rows workloadPassEvidenceScanner) (WorkloadPassEvidence, error) {
+func scanWorkloadPassEnvironmentReplayHint(rows workloadPassEvidenceScanner) (WorkloadPassEvidence, bool, error) {
 	var evidence WorkloadPassEvidence
 	var generation, workloadID, executionJSON string
 	if err := rows.Scan(
@@ -131,32 +131,27 @@ func scanWorkloadPassEnvironmentReplayHint(rows workloadPassEvidenceScanner) (Wo
 		&evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256,
 		&executionJSON, &evidence.EvidenceSHA256,
 	); err != nil {
-		return WorkloadPassEvidence{}, mapDurationLedgerSQLiteError("scan workload PASS environment replay hint", err)
+		return WorkloadPassEvidence{}, false, mapDurationLedgerSQLiteError("scan workload PASS environment replay hint", err)
 	}
 	evidence.Identity.WorkloadID = GateID(workloadID)
 	parsedGeneration, err := strconv.ParseUint(generation, 10, 64)
 	if err != nil || parsedGeneration == 0 || generation != strconv.FormatUint(parsedGeneration, 10) {
-		return WorkloadPassEvidence{}, errors.New("workload PASS environment replay hint origin generation is invalid")
+		return WorkloadPassEvidence{}, false, errors.New("workload PASS environment replay hint origin generation is invalid")
 	}
 	evidence.OriginAcceptedGeneration = parsedGeneration
-	if err := validateWorkloadPassEnvironmentReplayExecutionProfileJSON(executionJSON); err != nil {
-		return WorkloadPassEvidence{}, err
-	}
 	if err := decodeStoredWorkloadPassExecutionJSON(executionJSON, &evidence.OriginExecution); err != nil {
-		return WorkloadPassEvidence{}, fmt.Errorf("decode workload PASS environment replay hint execution: %w", err)
+		return WorkloadPassEvidence{}, false, fmt.Errorf("decode workload PASS environment replay hint execution: %w", err)
 	}
-	if err := validateWorkloadPassEvidence(evidence); err != nil {
-		if isWorkloadPassReplayLegacyMaterial(err) {
-			return WorkloadPassEvidence{}, err
-		}
-		return WorkloadPassEvidence{}, fmt.Errorf("validate workload PASS environment replay hint: %w", err)
+	legacy, err := validateWorkloadPassReplayCandidateMaterial(evidence, executionJSON)
+	if err != nil {
+		return WorkloadPassEvidence{}, false, fmt.Errorf("validate workload PASS environment replay hint: %w", err)
 	}
-	return evidence, nil
+	return evidence, legacy, nil
 }
 
-// validateWorkloadPassEnvironmentReplayExecutionProfileJSON 在不加载 origin run 的前提下，
+// validateWorkloadPassReplayExecutionProfileJSON 在不加载 origin run 的前提下，
 // 把缺少 go_flags 的旧 execution profile 识别为自然 MISS。
-func validateWorkloadPassEnvironmentReplayExecutionProfileJSON(encoded string) error {
+func validateWorkloadPassReplayExecutionProfileJSON(encoded string) error {
 	var executionFields map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(encoded), &executionFields); err != nil {
 		return fmt.Errorf("decode workload PASS environment replay hint execution fields: %w", err)
@@ -260,10 +255,6 @@ func canonicalWorkloadPassEvidenceEqual(left, right WorkloadPassEvidence) (bool,
 		return false, fmt.Errorf("encode workload PASS environment replay authority: %w", err)
 	}
 	return bytes.Equal(leftJSON, rightJSON), nil
-}
-
-func isWorkloadPassReplayLegacyMaterial(err error) bool {
-	return errors.Is(err, errLegacyRemoteCIExecutionProfile) || errors.Is(err, errLegacyWorkloadPassIdentityDomain)
 }
 
 // workloadPassEnvironmentReplayQuery 只扫描当前代，且故意不把 environment_digest 作为查询键。

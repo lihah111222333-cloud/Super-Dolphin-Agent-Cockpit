@@ -30,3 +30,30 @@ func legacyWorkloadPassIdentitySHA256(identity WorkloadPassIdentity) (string, er
 	digest := sha256.Sum256(payload)
 	return fmt.Sprintf("sha256:%x", digest), nil
 }
+
+// validateWorkloadPassReplayCandidateMaterial 只把旧 identity 摘要或旧 profile 可严格识别、
+// 且历史原始 evidence 摘要闭合的候选标为 legacy MISS。其余漂移继续 fail-fast。
+func validateWorkloadPassReplayCandidateMaterial(evidence WorkloadPassEvidence, executionJSON string) (bool, error) {
+	profileErr := validateWorkloadPassReplayExecutionProfileJSON(executionJSON)
+	if profileErr != nil && !errors.Is(profileErr, errLegacyRemoteCIExecutionProfile) {
+		return false, profileErr
+	}
+	identityErr := validateWorkloadPassIdentity(evidence.Identity)
+	if identityErr != nil && !errors.Is(identityErr, errLegacyWorkloadPassIdentityDomain) {
+		return false, identityErr
+	}
+	if profileErr == nil && identityErr == nil {
+		return false, validateWorkloadPassEvidence(evidence)
+	}
+	if err := validateWorkloadPassEvidenceOrigin(evidence); err != nil {
+		return false, err
+	}
+	expected, err := legacyWorkloadPassEvidenceSHA256(evidence, executionJSON)
+	if err != nil {
+		return false, err
+	}
+	if evidence.EvidenceSHA256 != expected {
+		return false, errors.New("workload pass evidence SHA-256 does not match content")
+	}
+	return true, nil
+}

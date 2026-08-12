@@ -170,9 +170,16 @@ func appendWorkloadPassSourceReplayBatch(
 	defer rows.Close()
 	var candidates []WorkloadPassEvidence
 	for rows.Next() {
-		evidence, err := scanWorkloadPassSourceReplayCandidate(rows)
+		evidence, executionJSON, err := scanWorkloadPassSourceReplayCandidateMaterial(rows)
 		if err != nil {
 			return err
+		}
+		legacy, err := validateWorkloadPassReplayCandidateMaterial(evidence, executionJSON)
+		if err != nil {
+			return fmt.Errorf("validate workload PASS source replay candidate: %w", err)
+		}
+		if legacy {
+			continue
 		}
 		eligible, err := validateWorkloadPassSourceReplayCandidateRequest(evidence, requested)
 		if err != nil {
@@ -284,6 +291,13 @@ type workloadPassEvidenceScanner interface {
 
 // scanWorkloadPassSourceReplayCandidate 解码并校验候选代数，内容 proof 留给 origin-aware validator。
 func scanWorkloadPassSourceReplayCandidate(rows workloadPassEvidenceScanner) (WorkloadPassEvidence, error) {
+	evidence, _, err := scanWorkloadPassSourceReplayCandidateMaterial(rows)
+	return evidence, err
+}
+
+// scanWorkloadPassSourceReplayCandidateMaterial 同时保留原始 execution JSON，
+// 供 runtime replay 对旧证据做历史摘要闭合校验。
+func scanWorkloadPassSourceReplayCandidateMaterial(rows workloadPassEvidenceScanner) (WorkloadPassEvidence, string, error) {
 	var evidence WorkloadPassEvidence
 	var generation, workloadID, executionJSON string
 	if err := rows.Scan(
@@ -292,18 +306,18 @@ func scanWorkloadPassSourceReplayCandidate(rows workloadPassEvidenceScanner) (Wo
 		&evidence.OriginJobID, &evidence.OriginSourceTreeSHA, &evidence.OriginReceiptSetSHA256,
 		&executionJSON, &evidence.EvidenceSHA256,
 	); err != nil {
-		return WorkloadPassEvidence{}, mapDurationLedgerSQLiteError("scan workload PASS source replay candidate", err)
+		return WorkloadPassEvidence{}, "", mapDurationLedgerSQLiteError("scan workload PASS source replay candidate", err)
 	}
 	evidence.Identity.WorkloadID = GateID(workloadID)
 	parsedGeneration, err := strconv.ParseUint(generation, 10, 64)
 	if err != nil || parsedGeneration == 0 {
-		return WorkloadPassEvidence{}, errors.New("workload PASS source replay generation is invalid")
+		return WorkloadPassEvidence{}, "", errors.New("workload PASS source replay generation is invalid")
 	}
 	evidence.OriginAcceptedGeneration = parsedGeneration
 	if err := decodeStoredWorkloadPassExecutionJSON(executionJSON, &evidence.OriginExecution); err != nil {
-		return WorkloadPassEvidence{}, fmt.Errorf("decode workload PASS source replay execution: %w", err)
+		return WorkloadPassEvidence{}, "", fmt.Errorf("decode workload PASS source replay execution: %w", err)
 	}
-	return evidence, nil
+	return evidence, executionJSON, nil
 }
 
 // loadSQLiteWorkloadPassReplaySource 按直接 origin run/workload 唯一定位来源证据。
