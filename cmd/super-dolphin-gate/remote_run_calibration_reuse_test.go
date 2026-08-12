@@ -41,6 +41,93 @@ func TestRemoteCalibrationReusedPassRequiresCoverageAndOverheadNotSyntheticTimin
 	}
 }
 
+func TestRemoteDurationCalibrationEvidenceReadyUsesPersistedPassCoverageWithoutSyntheticSamples(t *testing.T) {
+	fixture := newRemoteDurationCalibrationFixture(t)
+	seedRemoteDurationCalibrationFixtureOverhead(t, fixture)
+	recordRemoteDurationCalibrationFixtureCatalogs(t, fixture)
+	catalogs := []gatecontract.WorkloadCatalog{fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog}
+	if _, err := acceptRemoteDurationCalibrationWithPasses(
+		fixture.store,
+		fixture.calibration,
+		remoteCalibrationFixturePassedWorkloads(fixture),
+		catalogs...,
+	); err != nil {
+		t.Fatalf("accept PASS-covered calibration: %v", err)
+	}
+	planning, err := fixture.store.LoadPlanning(remoteCalibrationPlanningContext(fixture.calibration))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planning.Ledger.Samples) != 0 {
+		t.Fatalf("PASS-covered calibration synthesized %d duration samples", len(planning.Ledger.Samples))
+	}
+	ready, err := remoteDurationCalibrationEvidenceReady(
+		remoteCalibrationCoverageFixture(t, fixture), planning, fixture.calibration, catalogs,
+	)
+	if err != nil {
+		t.Fatalf("persisted PASS readiness error = %v", err)
+	}
+	if !ready {
+		t.Fatal("accepted persisted PASS coverage was not ready")
+	}
+}
+
+type remoteCalibrationCoverageFixtureStore struct {
+	tree, snapshot string
+	byCatalog      map[string]remoteCalibrationCoverageFixtureEntry
+}
+
+type remoteCalibrationCoverageFixtureEntry struct {
+	entrypoint gatecontract.CIEntrypointID
+	profile    gatecontract.Profile
+	identities []gatecontract.WorkloadPassIdentity
+}
+
+func (store remoteCalibrationCoverageFixtureStore) LoadAuthoritativeRemoteCIRunWorkloadCoverage(
+	entrypoint gatecontract.CIEntrypointID,
+	profile gatecontract.Profile,
+	catalogDigest string,
+	tree string,
+	snapshot string,
+) ([]gatecontract.WorkloadPassIdentity, bool, error) {
+	entry, found := store.byCatalog[catalogDigest]
+	if !found {
+		return nil, false, nil
+	}
+	if tree != store.tree || snapshot != store.snapshot || entrypoint != entry.entrypoint || profile != entry.profile {
+		return nil, false, errors.New("calibration coverage lookup identity drifted")
+	}
+	return append([]gatecontract.WorkloadPassIdentity(nil), entry.identities...), true, nil
+}
+
+func remoteCalibrationCoverageFixture(t *testing.T, fixture remoteDurationCalibrationFixture) remoteCalibrationCoverageFixtureStore {
+	t.Helper()
+	result := remoteCalibrationCoverageFixtureStore{
+		tree: fixture.calibration.Tree, snapshot: fixture.calibration.AcceptedSnapshotID,
+		byCatalog: make(map[string]remoteCalibrationCoverageFixtureEntry),
+	}
+	entries := []struct {
+		digest     string
+		entrypoint gatecontract.CIEntrypointID
+		profile    gatecontract.Profile
+		catalog    gatecontract.WorkloadCatalog
+	}{
+		{fixture.calibration.CommitCatalogDigest, fixture.calibration.CommitEntrypoint, gatecontract.ProfileLocalFast, fixture.commitCatalog},
+		{fixture.calibration.PushCatalogDigest, fixture.calibration.PushEntrypoint, gatecontract.ProfilePush, fixture.pushCatalog},
+		{fixture.calibration.ReleaseCatalogDigest, fixture.calibration.ReleaseEntrypoint, gatecontract.ProfileRelease, fixture.releaseCatalog},
+	}
+	for _, entry := range entries {
+		coverage := remoteCalibrationCoverageFixtureEntry{entrypoint: entry.entrypoint, profile: entry.profile}
+		for _, workload := range entry.catalog.Workloads {
+			if workload.Shardable {
+				coverage.identities = append(coverage.identities, mustRemoteCalibrationPassIdentity(t, workload))
+			}
+		}
+		result.byCatalog[entry.digest] = coverage
+	}
+	return result
+}
+
 // TestRemoteCalibrationReusedPassAcceptsCrossInputUpperBoundWithCurrentPass
 // 验证保守历史时长只有与当前 input correctness PASS 联合时才可接受。
 func TestRemoteCalibrationReusedPassAcceptsCrossInputUpperBoundWithCurrentPass(t *testing.T) {

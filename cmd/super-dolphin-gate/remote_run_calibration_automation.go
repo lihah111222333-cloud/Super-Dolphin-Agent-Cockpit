@@ -260,13 +260,86 @@ func remoteDurationCalibrationSnapshotReady(
 	if err != nil {
 		return false, err
 	}
-	if _, _, err := verifyRemoteCalibrationAcceptanceEvidence(planning, *calibration, nil, catalogs...); err != nil {
-		if errors.Is(err, errRemoteCalibrationSamplesIncomplete) {
+	return remoteDurationCalibrationEvidenceReady(store, planning, *calibration, catalogs)
+}
+
+type remoteCalibrationCoverageStore interface {
+	LoadAuthoritativeRemoteCIRunWorkloadCoverage(
+		gatecontract.CIEntrypointID,
+		gatecontract.Profile,
+		string,
+		string,
+		string,
+	) ([]gatecontract.WorkloadPassIdentity, bool, error)
+}
+
+// remoteDurationCalibrationEvidenceReady 接受 exact sample 或已持久化的三场景权威 PASS coverage。
+func remoteDurationCalibrationEvidenceReady(
+	store remoteCalibrationCoverageStore,
+	planning gatecontract.DurationLedgerSnapshot,
+	calibration gatecontract.DurationCalibration,
+	catalogs []gatecontract.WorkloadCatalog,
+) (bool, error) {
+	if _, _, err := verifyRemoteCalibrationAcceptanceEvidence(planning, calibration, nil, catalogs...); err != nil {
+		if !errors.Is(err, errRemoteCalibrationSamplesIncomplete) {
+			return false, err
+		}
+		passed, available, coverageErr := loadRemoteCalibrationPersistedPassCoverage(store, calibration, catalogs)
+		if coverageErr != nil {
+			return false, coverageErr
+		}
+		if !available {
 			return false, nil
 		}
-		return false, err
+		if _, _, coverageErr := verifyRemoteCalibrationAcceptanceEvidence(planning, calibration, passed, catalogs...); coverageErr != nil {
+			if errors.Is(coverageErr, errRemoteCalibrationSamplesIncomplete) {
+				return false, nil
+			}
+			return false, coverageErr
+		}
 	}
 	return true, nil
+}
+
+// loadRemoteCalibrationPersistedPassCoverage 从三条已清理权威运行恢复校准接受时的 correctness coverage。
+func loadRemoteCalibrationPersistedPassCoverage(
+	store remoteCalibrationCoverageStore,
+	calibration gatecontract.DurationCalibration,
+	catalogs []gatecontract.WorkloadCatalog,
+) (map[string]struct{}, bool, error) {
+	if len(catalogs) != 3 {
+		return nil, false, errors.New("remote duration calibration requires three persisted catalogs")
+	}
+	scenarios := [...]struct {
+		entrypoint gatecontract.CIEntrypointID
+		profile    gatecontract.Profile
+		digest     string
+	}{
+		{calibration.CommitEntrypoint, gatecontract.ProfileLocalFast, calibration.CommitCatalogDigest},
+		{calibration.PushEntrypoint, gatecontract.ProfilePush, calibration.PushCatalogDigest},
+		{calibration.ReleaseEntrypoint, gatecontract.ProfileRelease, calibration.ReleaseCatalogDigest},
+	}
+	passed := make(map[string]struct{})
+	for index, scenario := range scenarios {
+		identities, found, err := store.LoadAuthoritativeRemoteCIRunWorkloadCoverage(
+			scenario.entrypoint, scenario.profile, scenario.digest, calibration.Tree, calibration.AcceptedSnapshotID,
+		)
+		if err != nil {
+			return nil, false, fmt.Errorf("load remote calibration scenario %d authority coverage: %w", index, err)
+		}
+		if !found {
+			return nil, false, nil
+		}
+		result := remoteci.RunResult{Status: gatecontract.ResultStatusPassed, WorkloadPassIdentities: identities}
+		covered, err := remoteCalibrationPassedCatalogWorkloadSet(remoteci.RunInput{}, catalogs[index], result)
+		if err != nil {
+			return nil, false, fmt.Errorf("project remote calibration scenario %d authority coverage: %w", index, err)
+		}
+		for key := range covered {
+			passed[key] = struct{}{}
+		}
+	}
+	return passed, true, nil
 }
 
 // loadRemoteDurationCalibrationCatalogs 按校准元数据 digest 恢复三个持久化目录及观测。
