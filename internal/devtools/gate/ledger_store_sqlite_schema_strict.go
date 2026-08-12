@@ -29,7 +29,8 @@ func newDurationLedgerSQLiteSchemaValidator() *durationLedgerSQLiteSchemaValidat
 func durationLedgerSQLiteCurrentSchemaStatements() []string {
 	statements := durationLedgerSQLiteSchemaStatementsV14()
 	statements = append(statements, durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
-	return append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+	statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+	return append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
 }
 
 // durationLedgerSQLiteSchemaStatementsV14 is the complete pre-scope schema.

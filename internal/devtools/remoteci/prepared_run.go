@@ -62,6 +62,7 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 		coordinator.config.WorkerTimeout,
 		coordinator.config.ResourcePolicy,
 		fingerprintSnapshot,
+		func(state string) { coordinator.progress.phase(ProgressPhasePrepare, state) },
 	)
 	if err != nil {
 		return nil, err

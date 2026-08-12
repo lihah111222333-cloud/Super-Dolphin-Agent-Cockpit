@@ -18,20 +18,24 @@ func replayRemoteWorkloadPassMisses(
 	cache *remoteReplayCache,
 	confirmations remoteReuseMissConfirmations,
 	diagnostic *ReuseReplayDiagnostic,
+	observe remoteWorkloadReuseProgress,
 ) error {
 	missing := missingRemoteWorkloadPassIdentities(identities, reused)
 	if len(missing) == 0 {
 		return nil
 	}
+	observe.phase("reuse_source_candidate_query_started")
 	candidates, err := input.LedgerStore.LookupWorkloadPassSourceReplayCandidates(missing)
 	if err != nil {
 		return err
 	}
 	recordRemoteSourceReplayCandidates(diagnostic, candidates)
+	observe.phase("reuse_source_candidate_query_completed")
 	workloads, err := remoteReplayWorkloadIndex(catalog)
 	if err != nil {
 		return err
 	}
+	observe.phase("reuse_source_vote_started")
 	for _, identity := range missing {
 		evidence, ok, err := selectRemoteWorkloadPassReplay(ctx, input.RepositoryRoot, input.Tree, identity, workloads, candidates[identity.WorkloadID], cache, diagnostic)
 		if err != nil {
@@ -43,16 +47,22 @@ func replayRemoteWorkloadPassMisses(
 		}
 		confirmations.confirm(identity.WorkloadID, remoteReuseSourceMiss)
 	}
+	observe.phase("reuse_source_vote_completed")
 	return nil
 }
 
 func recordRemoteSourceReplayCandidates(diagnostic *ReuseReplayDiagnostic, candidates map[gate.GateID][]gate.WorkloadPassEvidence) {
+	trees := make(map[string]struct{})
 	for _, workloadCandidates := range candidates {
 		if len(workloadCandidates) > 0 {
 			diagnostic.SourceCandidateWorkloads++
 			diagnostic.SourceCandidates += len(workloadCandidates)
 		}
+		for _, candidate := range workloadCandidates {
+			trees[candidate.OriginSourceTreeSHA] = struct{}{}
+		}
 	}
+	diagnostic.SourceCandidateTrees = len(trees)
 }
 
 func missingRemoteWorkloadPassIdentities(identities []gate.WorkloadPassIdentity, reused map[string]gate.WorkloadPassEvidence) []gate.WorkloadPassIdentity {

@@ -14,7 +14,7 @@
 唯一数据源：`duration-ledger-sqlite/v1`
 accepted baseline JSON schema：`13`
 <!-- cicontract:sqlite-schema:begin -->
-duration-ledger SQLite physical schema：`16`
+duration-ledger SQLite physical schema：`17`
 <!-- cicontract:sqlite-schema:end -->
 非权威缓存材料 schema：`remote-ci-cache-material/v1`
 非权威缓存材料 authority：`non_authoritative_material`
@@ -33,7 +33,7 @@ Git hook 的职责边界固定为：`pre-commit` 只在 exact staged tree 上运
 
 本地主机准入是 fail-fast 的审计事实：命中必须先 lookup、再决定是否采样，不能因 hit 读取或采样主机。默认 `auto` 的冻结规模为最多 `64` 个 MISS、总计 `10min`、单项 `5min`；主机 CPU 采样窗口固定 `30s`，CPU busy 平均值必须 `<=70%`，并且容量/采样证据缺失即拒绝。显式 `local` 超出准入或执行失败时必须失败，不得 remote fallback；`auto`/`hybrid` 只能在执行前按明确 target 选择 remote，不能把 local 失败伪装成 ECI PASS。
 
-本地 PASS 的 SQLite 物理 schema 采用从 remote schema v13 到 additive v14、v15、v16 的单向迁移：v13→v14 只新增 local authority/origin/execution/evidence 表；v14→v15 只新增 remote `ci_remote_run_execution_scopes` side table 及其 job/generation indexes；v15→v16 只新增 consumer-owned immutable `ci_retained_workload_pass_proofs` projection、必要 indexes 与同一事务的严格 backfill。v16 不得 ALTER、重写或复制既有 authority、`ci_runs`、remote PASS/evidence 或 remote receipt；retained proof 仅服务 retained consumer 的严格来源证明，不是第八个 retention root、第二 authority 或 fallback。`RemoteCIRunRecord.Scope` 只由该 side table 消费，legacy/full scope 不留行，只有 catalog-ordered subset 写入 typed scope JSON/digest/count。scope digest 只绑定 domain 与 selected GateIDs，排除 tree/path/commit/token；scope 不得成为 local/remote namespace alias、PASS identity 或 owner attestation。缺失数据库允许 clean init 并立即建立 local authority state；缺失、损坏、摘要漂移、未知字段、旧物理 schema 或不完整状态必须 fail-fast，禁止默认 generation、空证据或静默重建。CLI 继续保留既有 `--workload` catalog 语义；expanded local selectors 通过 `--gate-workload`/manifest 明确传入，不得让新 target 破坏旧 workload 绑定语义。
+本地 PASS 的 SQLite 物理 schema 采用从 remote schema v13 到 additive v14、v15、v16、v17 的单向迁移：v13→v14 只新增 local authority/origin/execution/evidence 表；v14→v15 只新增 remote `ci_remote_run_execution_scopes` side table 及其 job/generation indexes；v15→v16 只新增 consumer-owned immutable `ci_retained_workload_pass_proofs` projection、必要 indexes 与同一事务的严格 backfill；v16→v17 只新增 direct evidence 的 `(workload_id, execution_digest, environment_digest, accepted_generation)` source-replay 分区索引和 retained proof 的 `(workload_id, consumer_job_id)` 分区索引。v17 不得 ALTER、重写或复制既有 authority、`ci_runs`、remote PASS/evidence、retained proof 或 remote receipt；retained proof 仅服务 retained consumer 的严格来源证明，不是第八个 retention root、第二 authority 或 fallback。`RemoteCIRunRecord.Scope` 只由该 side table 消费，legacy/full scope 不留行，只有 catalog-ordered subset 写入 typed scope JSON/digest/count。scope digest 只绑定 domain 与 selected GateIDs，排除 tree/path/commit/token；scope 不得成为 local/remote namespace alias、PASS identity 或 owner attestation。缺失数据库允许 clean init 并立即建立 local authority state；缺失、损坏、摘要漂移、未知字段、旧物理 schema 或不完整状态必须 fail-fast，禁止默认 generation、空证据或静默重建。CLI 继续保留既有 `--workload` catalog 语义；expanded local selectors 通过 `--gate-workload`/manifest 明确传入，不得让新 target 破坏旧 workload 绑定语义。
 
 ## 1. 不可变设计目标
 

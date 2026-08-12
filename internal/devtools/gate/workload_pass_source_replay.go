@@ -258,7 +258,7 @@ func workloadPassSourceReplayQuery(identities []WorkloadPassIdentity, retained [
 		"environment_digest", "COALESCE(json_extract(proof.origin_execution_json, '$.source_identity.environment_digest'), result.environment_digest)",
 	).Replace(strings.Join(terms, " OR "))
 	query := `SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256
-		FROM ci_workload_pass_evidence AS evidence INDEXED BY idx_ci_workload_pass_evidence_retention JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
+		FROM ci_workload_pass_evidence AS evidence INDEXED BY idx_ci_workload_pass_evidence_source_replay JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
 		WHERE evidence.accepted_generation IN (?, ?, ?) AND direct.disposition = 'executed' AND origin.accepted_generation = evidence.accepted_generation AND (` + directTerms + `)
 		UNION ALL
 		SELECT proof.identity_digest, proof.origin_accepted_generation, proof.workload_id,
@@ -268,7 +268,7 @@ func workloadPassSourceReplayQuery(identities []WorkloadPassIdentity, retained [
 			proof.origin_job_id, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256,
 			CASE WHEN json_type(proof.origin_execution_json, '$.schema_version') IS NOT NULL THEN json_extract(proof.origin_execution_json, '$.execution') ELSE proof.origin_execution_json END,
 			proof.evidence_sha256
-		FROM ci_retained_workload_pass_proofs AS proof
+		FROM ci_retained_workload_pass_proofs AS proof INDEXED BY idx_ci_retained_workload_pass_proofs_source_replay
 		JOIN ci_run_workload_results AS result ON result.job_id = proof.consumer_job_id AND result.workload_id = proof.workload_id
 		JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id
 		WHERE consumer.accepted_generation IN (?, ?, ?) AND result.disposition = 'reused'

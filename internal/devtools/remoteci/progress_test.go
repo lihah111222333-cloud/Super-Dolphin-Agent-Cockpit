@@ -62,7 +62,7 @@ func TestJSONProgressObserverWritesReuseDecisionDiagnostic(t *testing.T) {
 	var output bytes.Buffer
 	observer := NewJSONProgressObserver(&output)
 	replay := ReuseReplayDiagnostic{
-		SourceCandidateWorkloads: 11, SourceCandidates: 12,
+		SourceCandidateWorkloads: 11, SourceCandidates: 12, SourceCandidateTrees: 28,
 		SourceInputUnavailable: 13, SourceInputMismatch: 14,
 		SourceSingleVoteRecovered: 23, SourceDeclarationMissVotes: 24,
 		SourceRuntimeMissVotes: 25, SourceCompileMissVotes: 26, SourceConfirmedMisses: 27,
@@ -154,6 +154,18 @@ func TestCoordinatorPrepareReportsInternalStages(t *testing.T) {
 		"identity_started",
 		"identity_completed",
 		"reuse_started",
+		"reuse_direct_lookup_started",
+		"reuse_direct_lookup_completed",
+		"reuse_source_candidate_query_started",
+		"reuse_source_candidate_query_completed",
+		"reuse_source_vote_started",
+		"reuse_source_vote_completed",
+		"reuse_environment_replay_started",
+		"reuse_environment_replay_completed",
+		"reuse_calibration_demotion_started",
+		"reuse_calibration_demotion_completed",
+		"reuse_outcome_projection_started",
+		"reuse_outcome_projection_completed",
 		"reuse_completed",
 		"compile_inputs_started",
 		"compile_inputs_completed",

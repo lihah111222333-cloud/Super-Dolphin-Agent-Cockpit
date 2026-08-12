@@ -179,6 +179,30 @@ func TestCoordinatorRunExecutesOnlyCalibrationWorkloadPassMisses(t *testing.T) {
 	assertCoordinatorPartialReuse(t, result, err, runtime)
 }
 
+// TestCoordinatorCalibrationDemotionRetainsCanonicalProof 验证缺时长样本触发
+// fresh execution 时仍沿用已验证的 correctness proof，禁止同代重铸冲突来源。
+func TestCoordinatorCalibrationDemotionRetainsCanonicalProof(t *testing.T) {
+	_, input := coordinatorReuseFixture(t)
+	input.Calibration = true
+	input.CalibrationResource = testRemoteResourcePolicy().CalibrationResource
+	reloadRemotePlanningSnapshot(t, &input)
+	seed := runCoordinatorFreshWorkloads(t, input)
+	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	clearCoordinatorAllHitExecutionIdentity(&input)
+	prepared, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.reuse.cacheMisses) == 0 || len(prepared.reuse.reexecutedWorkloadResults) != len(prepared.reuse.cacheMisses) {
+		t.Fatalf("calibration demotion proof projection = misses:%d proofs:%d", len(prepared.reuse.cacheMisses), len(prepared.reuse.reexecutedWorkloadResults))
+	}
+	for _, result := range prepared.reuse.reexecutedWorkloadResults {
+		if result.Disposition != gate.WorkloadDispositionReused || result.OriginJobID == "" || result.EvidenceSHA256 == "" {
+			t.Fatalf("calibration demotion lost canonical proof: %#v", result)
+		}
+	}
+}
+
 // TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples 锁定校准
 // 复用还需独立 duration 证据，缺一项时只能重跑该项而不能扩大为整批 MISS。
 func TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples(t *testing.T) {
@@ -209,9 +233,9 @@ func TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples(t *testin
 	}
 }
 
-// TestCoordinatorCalibrationDemotesPassWithOnlyDifferentInputDuration 验证不同
-// input 的历史上界只能参与规划，不能替代当前 input 的可比较校准样本。
-func TestCoordinatorCalibrationDemotesPassWithOnlyDifferentInputDuration(t *testing.T) {
+// TestCoordinatorCalibrationKeepsPassWithDifferentInputDurationUpperBound 验证当前
+// correctness PASS 可与固定资源上的跨 input 保守时长上界联合复用。
+func TestCoordinatorCalibrationKeepsPassWithDifferentInputDurationUpperBound(t *testing.T) {
 	_, input := coordinatorReuseFixture(t)
 	input.Calibration = true
 	input.CalibrationResource = testRemoteResourcePolicy().CalibrationResource
@@ -237,8 +261,8 @@ func TestCoordinatorCalibrationDemotesPassWithOnlyDifferentInputDuration(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if demoted != 1 || len(reused) != 0 {
-		t.Fatalf("different-input calibration demotion = %d reused=%d, want 1/0", demoted, len(reused))
+	if demoted != 0 || len(reused) != 1 {
+		t.Fatalf("different-input calibration demotion = %d reused=%d, want 0/1", demoted, len(reused))
 	}
 }
 

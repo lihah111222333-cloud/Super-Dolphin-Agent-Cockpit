@@ -54,6 +54,7 @@ func (coordinator *Coordinator) PrepareSubset(
 		coordinator.config.WorkerTimeout,
 		coordinator.config.ResourcePolicy,
 		fingerprintSnapshot,
+		func(state string) { coordinator.progress.phase(ProgressPhasePrepare, state) },
 	)
 	if err != nil {
 		return nil, err

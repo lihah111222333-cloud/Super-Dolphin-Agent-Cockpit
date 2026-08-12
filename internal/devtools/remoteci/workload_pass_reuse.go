@@ -305,6 +305,16 @@ type remoteWorkloadReusePreparation struct {
 	diagnosticGroups           []ReuseDiagnosticGroup
 }
 
+// remoteWorkloadReuseProgress 将复用内部阶段投影到 Prepare 的进度旁路。
+type remoteWorkloadReuseProgress func(state string)
+
+// phase 在调用方启用观察时发出稳定阶段名。
+func (observe remoteWorkloadReuseProgress) phase(state string) {
+	if observe != nil {
+		observe(state)
+	}
+}
+
 // prepareRemoteWorkloadReuse 在临时目录、OSS 或 ECI 操作之前完成 PASS 查询与 miss 投影。
 func prepareRemoteWorkloadReuse(
 	ctx context.Context,
@@ -313,6 +323,7 @@ func prepareRemoteWorkloadReuse(
 	workerTimeout time.Duration,
 	resourcePolicy shardresource.Policy,
 	fingerprintSnapshot *remoteGitTreeSnapshot,
+	observe remoteWorkloadReuseProgress,
 ) (remoteWorkloadReusePreparation, error) {
 	preparation := remoteWorkloadReusePreparation{
 		reused:                  make(map[string]gate.WorkloadPassEvidence),
@@ -327,15 +338,19 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
-	reused, err := prepareRemoteWorkloadReuseReplays(ctx, input, catalog, identities, workerTimeout, resourcePolicy, replayCache, &preparation)
+	reused, err := prepareRemoteWorkloadReuseReplays(ctx, input, catalog, identities, workerTimeout, resourcePolicy, replayCache, &preparation, observe)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
+	queried := maps.Clone(reused)
+	queriedEnvironmentProofs := maps.Clone(preparation.environmentReplayProofs)
+	observe.phase("reuse_calibration_demotion_started")
 	preparation.calibrationDurationDemoted, err = demoteCalibrationReuseWithoutDuration(input, catalog, reused, preparation.environmentReplayProofs)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
-	exactHits := len(reused)
+	observe.phase("reuse_calibration_demotion_completed")
+	exactHits := len(queried)
 	directMisses := len(identities) - preparation.directHits
 	replayMisses := len(identities) - exactHits
 	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
@@ -346,10 +361,12 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, fmt.Errorf("index effective remote workload PASS reuse: %w", err)
 	}
-	reexecuted, diagnosticGroups, err := projectRemoteWorkloadReuseOutcome(identities, reused, effectiveReused, preparation.environmentReplayProofs)
+	observe.phase("reuse_outcome_projection_started")
+	reexecuted, diagnosticGroups, err := projectRemoteWorkloadReuseOutcome(identities, queried, effectiveReused, queriedEnvironmentProofs)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
+	observe.phase("reuse_outcome_projection_completed")
 	preparation.reused = effectiveReused
 	preparation.identities = identities
 	preparation.reusedWorkloads = reusedWorkloads
@@ -363,25 +380,29 @@ func prepareRemoteWorkloadReuse(
 }
 
 // prepareRemoteWorkloadReuseReplays 依次运行 direct、source 与 environment 三条独立证明路径。
-func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, catalog gate.WorkloadCatalog, identities []gate.WorkloadPassIdentity, workerTimeout time.Duration, resourcePolicy shardresource.Policy, replayCache *remoteReplayCache, preparation *remoteWorkloadReusePreparation) (map[string]gate.WorkloadPassEvidence, error) {
+func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, catalog gate.WorkloadCatalog, identities []gate.WorkloadPassIdentity, workerTimeout time.Duration, resourcePolicy shardresource.Policy, replayCache *remoteReplayCache, preparation *remoteWorkloadReusePreparation, observe remoteWorkloadReuseProgress) (map[string]gate.WorkloadPassEvidence, error) {
 	reused := make(map[string]gate.WorkloadPassEvidence)
 	if input.Force {
 		return reused, nil
 	}
 	var err error
+	observe.phase("reuse_direct_lookup_started")
 	if reused, err = lookupRemoteWorkloadPasses(input.LedgerStore, identities); err != nil {
 		return nil, err
 	}
+	observe.phase("reuse_direct_lookup_completed")
 	preparation.directHits = len(reused)
 	preparation.missConfirmations = newRemoteReuseMissConfirmations(identities, reused)
-	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic); err != nil {
+	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
 		return nil, fmt.Errorf("replay remote workload PASS sources: %w", err)
 	}
 	preparation.sourceReplayHits = len(reused) - preparation.directHits
 	afterSourceReplay := len(reused)
+	observe.phase("reuse_environment_replay_started")
 	if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic); err != nil {
 		return nil, fmt.Errorf("replay remote workload PASS environments: %w", err)
 	}
+	observe.phase("reuse_environment_replay_completed")
 	preparation.environmentReplayHits = len(reused) - afterSourceReplay
 	return reused, validateRemoteReuseMissConsensus(identities, reused, preparation.missConfirmations)
 }
@@ -450,8 +471,8 @@ func (preparation remoteWorkloadReusePreparation) diagnostic() ReuseDiagnostic {
 	}
 }
 
-// demoteCalibrationReuseWithoutDuration 只在校准运行中把缺可比较耗时样本的
-// correctness PASS 降为 MISS；已有样本的命中继续复用，避免整批重跑。
+// demoteCalibrationReuseWithoutDuration 只在校准运行中把缺失固定资源时长证据的
+// correctness PASS 降为 MISS；跨 input 历史只作为保守上界，当前 correctness 仍由 PASS 独立证明。
 func demoteCalibrationReuseWithoutDuration(input RunInput, catalog gate.WorkloadCatalog, reused map[string]gate.WorkloadPassEvidence, environmentProofs map[string]string) (int, error) {
 	if !input.Calibration || input.Force || len(reused) == 0 {
 		return 0, nil
@@ -469,7 +490,7 @@ func demoteCalibrationReuseWithoutDuration(input RunInput, catalog gate.Workload
 		if !ok {
 			return 0, fmt.Errorf("calibration reused workload %q is absent from catalog", workloadID)
 		}
-		if input.LedgerSnapshot.SampleIndex.HasComparableSuccessfulDurationSample(workload) {
+		if input.LedgerSnapshot.SampleIndex.HasSuccessfulCalibrationDurationEvidence(workload) {
 			continue
 		}
 		delete(reused, workloadID)

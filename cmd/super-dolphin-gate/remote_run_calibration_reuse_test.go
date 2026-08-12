@@ -23,7 +23,7 @@ func TestRemoteCalibrationReusedPassRequiresPersistedTimingEvidence(t *testing.T
 	if _, err := acceptRemoteDurationCalibrationWithPasses(
 		fixture.store, fixture.calibration, passed,
 		fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog,
-	); err == nil || !strings.Contains(err.Error(), "no comparable successful duration sample") {
+	); err == nil || !strings.Contains(err.Error(), "no successful calibration duration evidence") {
 		t.Fatalf("reused PASS without timing samples error = %v", err)
 	}
 
@@ -47,6 +47,34 @@ func TestRemoteCalibrationReusedPassRequiresPersistedTimingEvidence(t *testing.T
 		acceptedFixture.commitCatalog, acceptedFixture.pushCatalog, acceptedFixture.releaseCatalog,
 	); err != nil {
 		t.Fatalf("reused PASS with persisted timing evidence: %v", err)
+	}
+}
+
+// TestRemoteCalibrationReusedPassAcceptsCrossInputUpperBoundWithCurrentPass
+// 验证保守历史时长只有与当前 input correctness PASS 联合时才可接受。
+func TestRemoteCalibrationReusedPassAcceptsCrossInputUpperBoundWithCurrentPass(t *testing.T) {
+	fixture := newRemoteDurationCalibrationFixture(t)
+	fixture.calibration.Toolchain = remoteRunRunnerIdentityState().ToolchainDigest
+	seedRemoteDurationCalibrationFixtureOverhead(t, fixture)
+	samples, missingWorkload, missingRace := fixture.samplesExceptRequiredWorkloads(t)
+	samples = append(samples, missingWorkload, missingRace)
+	for index := range samples {
+		samples[index].Bucket.InputDigest = "sha256:" + strings.Repeat("f", 64)
+	}
+	if _, err := fixture.store.AppendSamples(fixture.acceptedGeneration, samples); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acceptRemoteDurationCalibrationWithPasses(
+		fixture.store, fixture.calibration, nil,
+		fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog,
+	); err == nil || !strings.Contains(err.Error(), "no successful calibration duration evidence") {
+		t.Fatalf("cross-input history without current PASS error = %v", err)
+	}
+	if _, err := acceptRemoteDurationCalibrationWithPasses(
+		fixture.store, fixture.calibration, remoteCalibrationFixturePassedWorkloads(fixture),
+		fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog,
+	); err != nil {
+		t.Fatalf("cross-input upper bounds with current PASS: %v", err)
 	}
 }
 
@@ -136,7 +164,7 @@ func TestRemoteCalibrationEvidenceExpectedKeyIncludesInputDigest(t *testing.T) {
 	drifted.InputDigest = "sha256:" + strings.Repeat("a", 64)
 	passed := map[string]struct{}{remoteCalibrationWorkloadKey(original): {}}
 	catalog := gatecontract.WorkloadCatalog{Version: fixture.commitCatalog.Version, Authoritative: fixture.commitCatalog.Authoritative, Workloads: []gatecontract.Workload{original, drifted}}
-	if _, _, err := verifyRemoteCalibrationEvidence(gatecontract.DurationSampleIndex{}, passed, catalog); err == nil || !strings.Contains(err.Error(), "no comparable successful duration sample") {
+	if _, _, err := verifyRemoteCalibrationEvidence(gatecontract.DurationSampleIndex{}, passed, catalog); err == nil || !strings.Contains(err.Error(), "no successful calibration duration evidence") {
 		t.Fatalf("input-digest drift was not independently required by evidence verifier: %v", err)
 	}
 }

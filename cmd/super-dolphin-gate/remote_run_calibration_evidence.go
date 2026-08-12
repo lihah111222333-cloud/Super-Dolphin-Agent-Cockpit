@@ -526,7 +526,7 @@ func verifyRemoteCalibrationAcceptanceEvidence(
 			return 0, 0, fmt.Errorf("%w: workload %q has no successful calibration run coverage", errRemoteCalibrationSamplesIncomplete, workloadID)
 		}
 	}
-	workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(snapshot, calibration, nil, catalogs...)
+	workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(snapshot, calibration, passedWorkloads, catalogs...)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -583,7 +583,8 @@ type remoteCalibrationWorkloadIdentity struct {
 	shardable               bool
 }
 
-// verifyRemoteCalibrationEvidence 验证每个 catalog workload 都有可比较的成功样本。
+// verifyRemoteCalibrationEvidence 在有本轮 coverage 时要求当前 correctness PASS，
+// 并允许跨 input 保守上界；无本轮 coverage 时仍要求 exact-input 成功样本。
 func verifyRemoteCalibrationEvidence(
 	index gatecontract.DurationSampleIndex,
 	passedWorkloads map[string]struct{},
@@ -617,7 +618,7 @@ func verifyRemoteCalibrationEvidence(
 		}
 		if !remoteCalibrationWorkloadHasPass(index, passedWorkloads, key, workload) {
 			return 0, 0, fmt.Errorf(
-				"%w: workload %q has no comparable successful duration sample",
+				"%w: workload %q has no successful calibration duration evidence",
 				errRemoteCalibrationSamplesIncomplete,
 				workload.id,
 			)
@@ -653,14 +654,19 @@ func remoteCalibrationRunnableRacePackageTarget(workload remoteCalibrationWorklo
 	}
 }
 
-// remoteCalibrationWorkloadHasPass 优先使用本轮通过集合，再回退到可比较账本样本。
+// remoteCalibrationWorkloadHasPass 在有本轮 coverage 时允许跨 input 保守上界；
+// 仅从历史样本恢复校准时仍要求 exact-input 样本，禁止历史上界替代当前 PASS。
 func remoteCalibrationWorkloadHasPass(index gatecontract.DurationSampleIndex, passed map[string]struct{}, key string, workload remoteCalibrationWorkloadIdentity) bool {
-	if _, ok := passed[key]; ok {
-		return true
-	}
-	return index.HasComparableSuccessfulDurationSample(gatecontract.Workload{
+	candidate := gatecontract.Workload{
 		ID: workload.id, Kind: workload.kind, CommandDigest: workload.digest, InputDigest: workload.inputDigest,
-	})
+	}
+	if passed == nil {
+		return index.HasComparableSuccessfulDurationSample(candidate)
+	}
+	if _, ok := passed[key]; !ok {
+		return false
+	}
+	return index.HasSuccessfulCalibrationDurationEvidence(candidate)
 }
 
 // remoteCalibrationCatalogIncomplete 拒绝空 catalog 或缺少 runnable race 包的校准范围。

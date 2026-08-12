@@ -50,6 +50,8 @@ func SQLAuthorityAdditiveSchemaIndexes() []string {
 		"idx_ci_remote_run_execution_scopes_generation",
 		RetainedWorkloadPassProofLookupIndex,
 		RunWorkloadResultsRetentionIndex,
+		WorkloadPassEvidenceSourceReplayIndex,
+		RetainedWorkloadPassProofSourceReplayIndex,
 	}
 }
 

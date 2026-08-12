@@ -32,9 +32,9 @@ func TestWorkloadPassEvidenceLookupQueryPlanUsesIdentityIndex(t *testing.T) {
 	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"evidence"})
 }
 
-// TestWorkloadPassSourceReplayQueryPlanUsesRetainedGenerationIndex 锁定来源候选先由既有保留代索引限界；
-// workload、执行和环境条件再在该代际窗口内过滤，避免为只读升级修改现有 SQLite authority shape。
-func TestWorkloadPassSourceReplayQueryPlanUsesRetainedGenerationIndex(t *testing.T) {
+// TestWorkloadPassSourceReplayQueryPlanUsesPartitionIndexes 锁定 direct proof 按
+// workload/execution/environment 分区、retained proof 按 workload 分区，禁止重复扫整代。
+func TestWorkloadPassSourceReplayQueryPlanUsesPartitionIndexes(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 12)
 	database := openWorkloadPassDatabase(t, store)
 	defer database.Close()
@@ -48,10 +48,10 @@ func TestWorkloadPassSourceReplayQueryPlanUsesRetainedGenerationIndex(t *testing
 	query, args := workloadPassSourceReplayQuery([]WorkloadPassIdentity{identity}, retainedWorkloadPassGenerations(12))
 	details := sqliteQueryPlanDetails(t, database, query, args...)
 	assertSQLiteQueryPlanAccess(t, details, []string{
-		"USING INDEX idx_ci_workload_pass_evidence_retention",
-		"(accepted_generation=?)",
+		"USING INDEX idx_ci_workload_pass_evidence_source_replay",
+		"USING INDEX idx_ci_retained_workload_pass_proofs_source_replay",
 	})
-	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_pass_evidence"})
+	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_pass_evidence", "ci_retained_workload_pass_proofs"})
 }
 
 // TestWorkloadPassEnvironmentReplayQueryPlanUsesRetentionIndex 锁定 200-term
@@ -110,7 +110,7 @@ func TestLookupWorkloadPassEvidenceInitializesMissingAuthorityButRejectsMissingB
 		t.Fatalf("initialized authority bindings: %v", err)
 	}
 	indexes := sqliteIndexListForTest(t, database, "ci_workload_pass_evidence")
-	for _, name := range []string{"idx_ci_workload_pass_evidence_origin_job", "idx_ci_workload_pass_evidence_retention"} {
+	for _, name := range []string{"idx_ci_workload_pass_evidence_origin_job", "idx_ci_workload_pass_evidence_retention", "idx_ci_workload_pass_evidence_source_replay"} {
 		if _, ok := indexes[name]; !ok {
 			t.Fatalf("initialized PASS evidence schema missing index %q", name)
 		}
