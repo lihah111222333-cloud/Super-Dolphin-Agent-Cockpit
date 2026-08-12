@@ -78,6 +78,79 @@ func TestDurationLedgerSQLiteV15ToV16BackfillsEveryLiveReusedConsumer(t *testing
 	}
 }
 
+// TestDurationLedgerSQLiteV15ToV16RetainsLegacyProofAsNaturalMiss 锁定旧无域
+// identity 只按原摘要回填，不能阻断迁移或被当前域查询命中。
+func TestDurationLedgerSQLiteV15ToV16RetainsLegacyProofAsNaturalMiss(t *testing.T) {
+	legacyEvidence, currentIdentity := legacyRetainedProofEvidenceForTest(t)
+	path := migrateLegacyRetainedProofFixtureForTest(t, legacyEvidence)
+	assertLegacyRetainedProofNotRewrittenForTest(t, path, legacyEvidence.Identity.IdentityDigest, currentIdentity.IdentityDigest)
+}
+
+func legacyRetainedProofEvidenceForTest(t *testing.T) (WorkloadPassEvidence, WorkloadPassIdentity) {
+	t.Helper()
+	store := newWorkloadPassEvidenceStore(t, 1)
+	run, currentIdentity, receipts := recordWorkloadPassRun(t, store, "legacy-proof-origin", 1, "legacy-proof")
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(run), receipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	evidence := lookupSingleWorkloadPassEvidence(t, store, currentIdentity)
+	legacyDigest, err := legacyWorkloadPassIdentitySHA256(evidence.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Identity.IdentityDigest = legacyDigest
+	evidence.OriginExecution.ExecutionProfile.GoFlags = ""
+	evidence.EvidenceSHA256, err = WorkloadPassEvidenceSHA256(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return evidence, currentIdentity
+}
+
+func migrateLegacyRetainedProofFixtureForTest(t *testing.T, evidence WorkloadPassEvidence) string {
+	t.Helper()
+	path := t.TempDir() + "/retained-proof-legacy.sqlite"
+	database := openStrictSchemaDatabaseAtPath(t, path)
+	createDurationLedgerSQLiteV14Fixture(t, database)
+	if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`PRAGMA user_version = 15`); err != nil {
+		t.Fatal(err)
+	}
+	insertValidV15RetainedProofBackfillFixture(t, database, []WorkloadPassEvidence{evidence}, []string{"legacy-consumer-one", "legacy-consumer-two", "legacy-consumer-three"})
+	if err := migrateDurationLedgerSQLiteSchema15To16(database); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func assertLegacyRetainedProofNotRewrittenForTest(t *testing.T, path, legacyDigest, currentDigest string) {
+	t.Helper()
+	database := openStrictSchemaDatabaseAtPath(t, path)
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close migrated retained proof database: %v", err)
+		}
+	})
+	var retainedLegacy, rewrittenCurrent, currentEvidence int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_retained_workload_pass_proofs WHERE identity_digest = ?`, legacyDigest).Scan(&retainedLegacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_retained_workload_pass_proofs WHERE identity_digest = ?`, currentDigest).Scan(&rewrittenCurrent); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_workload_pass_evidence WHERE identity_digest = ?`, currentDigest).Scan(&currentEvidence); err != nil {
+		t.Fatal(err)
+	}
+	if retainedLegacy != 3 || rewrittenCurrent != 0 || currentEvidence != 0 {
+		t.Fatalf("retained legacy proofs = %d, rewritten current proofs = %d, current evidence = %d, want 3, 0 and 0", retainedLegacy, rewrittenCurrent, currentEvidence)
+	}
+}
+
 func insertValidV15RetainedProofBackfillFixture(t *testing.T, database *sql.DB, evidence []WorkloadPassEvidence, consumers []string) {
 	t.Helper()
 	if len(evidence) != 1 || len(consumers) != 3 {

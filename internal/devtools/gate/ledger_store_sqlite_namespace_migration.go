@@ -2,7 +2,9 @@ package gate
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -280,10 +282,59 @@ func validateRetainedWorkloadPassProofBackfillRow(rows workloadPassEvidenceScann
 	if err := populateRetainedWorkloadPassProofBackfillEvidence(&evidence, generation, workloadID, executionJSON); err != nil {
 		return err
 	}
-	if err := validateWorkloadPassEvidence(evidence); err != nil {
+	if err := validateRetainedWorkloadPassProofBackfillEvidence(evidence, executionJSON); err != nil {
 		return fmt.Errorf("retained workload pass proof backfill canonical evidence: %w", err)
 	}
 	return nil
+}
+
+// validateRetainedWorkloadPassProofBackfillEvidence 允许 v15 旧无域 identity
+// 原样进入辅助投影；strict JSON、origin 与 evidence 摘要仍须闭合，但旧
+// execution profile 不按当前语义重验，否则自然 MISS 会在迁移前被阻断。
+func validateRetainedWorkloadPassProofBackfillEvidence(evidence WorkloadPassEvidence, executionJSON string) error {
+	err := validateWorkloadPassEvidence(evidence)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, errLegacyWorkloadPassIdentityDomain) {
+		return err
+	}
+	if err := validateWorkloadPassEvidenceOrigin(evidence); err != nil {
+		return err
+	}
+	expected, err := retainedWorkloadPassProofLegacyEvidenceSHA256(evidence, executionJSON)
+	if err != nil {
+		return err
+	}
+	if evidence.EvidenceSHA256 != expected {
+		return errors.New("workload pass evidence SHA-256 does not match content")
+	}
+	return nil
+}
+
+// retainedWorkloadPassProofLegacyEvidenceSHA256 以 v15 持久化的原始 execution
+// JSON 重放旧 evidence 摘要，避免当前结构编码给历史证据添加新字段。
+func retainedWorkloadPassProofLegacyEvidenceSHA256(evidence WorkloadPassEvidence, executionJSON string) (string, error) {
+	payload, err := json.Marshal(struct {
+		Identity                 WorkloadPassIdentity `json:"identity"`
+		OriginJobID              string               `json:"origin_job_id"`
+		OriginAcceptedGeneration uint64               `json:"origin_accepted_generation"`
+		OriginSourceTreeSHA      string               `json:"origin_source_tree_sha"`
+		OriginReceiptSetSHA256   string               `json:"origin_receipt_set_sha256"`
+		OriginExecution          json.RawMessage      `json:"origin_execution"`
+	}{
+		Identity:                 evidence.Identity,
+		OriginJobID:              evidence.OriginJobID,
+		OriginAcceptedGeneration: evidence.OriginAcceptedGeneration,
+		OriginSourceTreeSHA:      evidence.OriginSourceTreeSHA,
+		OriginReceiptSetSHA256:   evidence.OriginReceiptSetSHA256,
+		OriginExecution:          json.RawMessage(executionJSON),
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode retained workload pass proof legacy evidence: %w", err)
+	}
+	digest := sha256.Sum256(payload)
+	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
 func populateRetainedWorkloadPassProofBackfillEvidence(evidence *WorkloadPassEvidence, generation, workloadID, executionJSON string) error {
