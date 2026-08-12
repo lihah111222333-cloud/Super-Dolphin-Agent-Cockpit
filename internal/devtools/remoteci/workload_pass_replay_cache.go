@@ -30,6 +30,16 @@ type remoteReplayInputDigestResult struct {
 	available bool
 }
 
+type remoteReplayCompileKey struct {
+	tree          remoteReplayTreeKey
+	packageTarget string
+	race          bool
+}
+
+type remoteReplayCompileDigestResult struct {
+	digest string
+}
+
 type remoteReplaySemanticDigestResult struct {
 	digests   remoteWorkloadInputVoteDigests
 	supported bool
@@ -39,6 +49,7 @@ type remoteReplaySemanticDigestResult struct {
 type remoteReplayCache struct {
 	snapshots                   map[remoteReplayTreeKey]remoteReplaySnapshotResult
 	inputDigests                map[remoteReplayWorkloadKey]remoteReplayInputDigestResult
+	compileInputDigests         map[remoteReplayCompileKey]remoteReplayCompileDigestResult
 	semanticInputVotes          map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult
 	legacyWorkerDigests         map[remoteReplayTreeKey]string
 	previousWorkerDigests       map[remoteReplayTreeKey]string
@@ -47,6 +58,7 @@ type remoteReplayCache struct {
 	snapshotComputations        uint64
 	snapshotLoads               uint64
 	inputComputations           uint64
+	compileComputations         uint64
 	semanticComputations        uint64
 	legacyComputations          uint64
 	previousComputations        uint64
@@ -59,6 +71,7 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 	cache := &remoteReplayCache{
 		snapshots:                   make(map[remoteReplayTreeKey]remoteReplaySnapshotResult),
 		inputDigests:                make(map[remoteReplayWorkloadKey]remoteReplayInputDigestResult),
+		compileInputDigests:         make(map[remoteReplayCompileKey]remoteReplayCompileDigestResult),
 		semanticInputVotes:          make(map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult),
 		legacyWorkerDigests:         make(map[remoteReplayTreeKey]string),
 		previousWorkerDigests:       make(map[remoteReplayTreeKey]string),
@@ -74,6 +87,51 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 	key := remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree}
 	cache.snapshots[key] = remoteReplaySnapshotResult{snapshot: current, available: true}
 	return cache, nil
+}
+
+// compileInputDigest 按来源树、包和 race profile 分组缓存编译闭包；
+// 同包 selector 共享一次重算，错误不进入缓存。
+func (cache *remoteReplayCache) compileInputDigest(ctx context.Context, snapshot *remoteGitTreeSnapshot, workload gate.Workload) (string, bool, error) {
+	if cache == nil {
+		return "", false, errors.New("remote workload PASS replay cache is required")
+	}
+	parsed, profile, supported, err := remoteGoWorkloadInputTarget(workload)
+	if err != nil || !supported {
+		return "", supported, err
+	}
+	treeKey, err := remoteReplaySnapshotKey(snapshot)
+	if err != nil {
+		return "", false, err
+	}
+	key := remoteReplayCompileKey{tree: treeKey, packageTarget: parsed.Package, race: profile.race}
+	if cached, ok := cache.compileInputDigests[key]; ok {
+		return cached.digest, true, nil
+	}
+	cache.compileComputations++
+	digest, err := snapshot.goPackageInputDigest(ctx, parsed.Package, profile)
+	if err != nil {
+		return "", false, err
+	}
+	cache.compileInputDigests[key] = remoteReplayCompileDigestResult{digest: digest}
+	return digest, true, nil
+}
+
+// compileInputDecision 先比较按包分组的编译闭包；编译变化与 broad 变化足以确认 MISS。
+func (cache *remoteReplayCache) compileInputDecision(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot) (remoteWorkloadInputVoteDecision, bool, error) {
+	sourceDigest, sourceSupported, err := cache.compileInputDigest(ctx, source, workload)
+	if err != nil || !sourceSupported {
+		return remoteWorkloadInputVoteDecision{}, sourceSupported, err
+	}
+	targetDigest, targetSupported, err := cache.compileInputDigest(ctx, target, workload)
+	if err != nil || !targetSupported {
+		return remoteWorkloadInputVoteDecision{}, targetSupported, err
+	}
+	decision := remoteWorkloadInputVoteDecision{missVotes: 1}
+	if sourceDigest != targetDigest {
+		decision.compileMiss = true
+		decision.missVotes++
+	}
+	return decision, true, nil
 }
 
 // semanticInputVoteDigests 缓存 selector 声明和运行时观察投票，避免同一来源树重复解析 AST。
@@ -104,6 +162,13 @@ func (cache *remoteReplayCache) semanticInputMatches(ctx context.Context, worklo
 }
 
 func (cache *remoteReplayCache) semanticInputDecision(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot) (remoteWorkloadInputVoteDecision, error) {
+	compileDecision, compileSupported, err := cache.compileInputDecision(ctx, workload, source, target)
+	if err != nil || !compileSupported {
+		return remoteWorkloadInputVoteDecision{}, err
+	}
+	if compileDecision.compileMiss {
+		return compileDecision, nil
+	}
 	sourceVotes, sourceSupported, err := cache.semanticInputVoteDigests(ctx, source, workload)
 	if err != nil || !sourceSupported {
 		return remoteWorkloadInputVoteDecision{}, err

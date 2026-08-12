@@ -54,6 +54,114 @@ func TestRemoteWorkloadMissVotesRejectSiblingCompileFailure(t *testing.T) {
 	}
 }
 
+// TestRemoteWorkloadCompileMismatchSkipsSemanticDigests 验证编译闭包不一致已经提供两票时，
+// replay 必须在解析 selector 声明和运行时观察前早停。
+func TestRemoteWorkloadCompileMismatchSkipsSemanticDigests(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	source := testExactGoTestDigestSnapshot("")
+	source.repositoryRoot = "repo"
+	source.tree = "source"
+	target := testExactGoTestDigestSnapshot("type Broken doesNotExist\n")
+	target.repositoryRoot = "repo"
+	target.tree = "target"
+	cache, err := newRemoteReplayCache("repo", "target", target)
+	if err != nil {
+		t.Fatalf("newRemoteReplayCache: %v", err)
+	}
+	decision := testRemoteSemanticInputDecision(t, cache, workload, source, target)
+	if decision.allowReuse() || !decision.compileMiss {
+		t.Fatalf("compile mismatch decision = %+v, want compile MISS", decision)
+	}
+	sibling := testRemoteGoWorkload(t, "TestUnselected")
+	decision = testRemoteSemanticInputDecision(t, cache, sibling, source, target)
+	if decision.allowReuse() || !decision.compileMiss {
+		t.Fatalf("sibling compile mismatch decision = %+v, want compile MISS", decision)
+	}
+	if cache.compileComputations != 2 {
+		t.Fatalf("compile computations = %d, want one grouped computation per tree", cache.compileComputations)
+	}
+	if cache.semanticComputations != 0 {
+		t.Fatalf("semantic computations = %d, want 0 after compile-first early stop", cache.semanticComputations)
+	}
+}
+
+// TestRemoteWorkloadCompileMismatchSkipsFullInputDigest 验证真实 candidate 匹配路径
+// 在 compile MISS 后不再计算完整 workload InputDigest。
+func TestRemoteWorkloadCompileMismatchSkipsFullInputDigest(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	source := testExactGoTestDigestSnapshot("")
+	source.repositoryRoot = "repo"
+	source.tree = "source"
+	target := testExactGoTestDigestSnapshot("type Broken doesNotExist\n")
+	target.repositoryRoot = "repo"
+	target.tree = "target"
+	cache, err := newRemoteReplayCache("repo", "target", target)
+	if err != nil {
+		t.Fatalf("newRemoteReplayCache: %v", err)
+	}
+	cache.snapshots[remoteReplayTreeKey{repositoryRoot: "repo", tree: "source"}] = remoteReplaySnapshotResult{snapshot: source, available: true}
+	diagnostic := ReuseReplayDiagnostic{}
+	matches, err := matchesRemoteWorkloadPassSourceCandidate(
+		context.Background(),
+		"repo",
+		gate.WorkloadPassIdentity{WorkloadID: gate.GateID(workload.ID), InputDigest: "target-input"},
+		workload,
+		gate.WorkloadPassEvidence{OriginSourceTreeSHA: "source"},
+		target,
+		cache,
+		&diagnostic,
+	)
+	if err != nil {
+		t.Fatalf("matchesRemoteWorkloadPassSourceCandidate: %v", err)
+	}
+	if matches {
+		t.Fatal("compile mismatch reused source candidate")
+	}
+	if cache.inputComputations != 0 || cache.semanticComputations != 0 {
+		t.Fatalf("expensive computations input=%d semantic=%d, want 0", cache.inputComputations, cache.semanticComputations)
+	}
+	if diagnostic.SourceCompileMissVotes != 1 || diagnostic.SourceConfirmedMisses != 1 {
+		t.Fatalf("compile-first diagnostic = %#v, want one confirmed compile MISS", diagnostic)
+	}
+}
+
+// testRemoteGoWorkload 创建 compile-first 单测使用的规范 Go selector workload。
+func testRemoteGoWorkload(t *testing.T, name string) gate.Workload {
+	t.Helper()
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./fixture", name, 1)
+	if err != nil {
+		t.Fatalf("NewGoTestWorkload(%s): %v", name, err)
+	}
+	return workload
+}
+
+// testRemoteSemanticInputDecision 执行 replay 语义裁决并把错误收敛到调用测试。
+func testRemoteSemanticInputDecision(t *testing.T, cache *remoteReplayCache, workload gate.Workload, source, target *remoteGitTreeSnapshot) remoteWorkloadInputVoteDecision {
+	t.Helper()
+	decision, err := cache.semanticInputDecision(context.Background(), workload, source, target)
+	if err != nil {
+		t.Fatalf("semanticInputDecision(%s): %v", workload.ID, err)
+	}
+	return decision
+}
+
+// TestCanonicalRemoteWorkloadPassSourceCandidates 验证同一来源树只评估一次，
+// 同时保留 SQLite 已确定排序中的首个 provenance。
+func TestCanonicalRemoteWorkloadPassSourceCandidates(t *testing.T) {
+	candidates := []gate.WorkloadPassEvidence{
+		{OriginSourceTreeSHA: "tree-a", OriginJobID: "first"},
+		{OriginSourceTreeSHA: "tree-a", OriginJobID: "duplicate"},
+		{OriginSourceTreeSHA: "tree-b", OriginJobID: "second"},
+	}
+	canonical := canonicalRemoteWorkloadPassSourceCandidates(candidates)
+	if len(canonical) != 2 {
+		t.Fatalf("canonical candidates = %d, want 2", len(canonical))
+	}
+	if canonical[0].OriginJobID != "first" || canonical[1].OriginJobID != "second" {
+		t.Fatalf("canonical provenance = %#v, want first candidate per source tree", canonical)
+	}
+}
+
 // TestRemoteWorkloadMissVotesDoNotDoubleCountWholeTreeFallback 验证 broad 与全树
 // runtime fallback 只算一票；独立包编译闭包也变化时才确认 MISS。
 func TestRemoteWorkloadMissVotesDoNotDoubleCountWholeTreeFallback(t *testing.T) {

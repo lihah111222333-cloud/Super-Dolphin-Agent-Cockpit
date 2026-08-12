@@ -77,6 +77,21 @@ func remoteReplayWorkloadIndex(catalog gate.WorkloadCatalog) (map[gate.GateID]ga
 	return indexed, nil
 }
 
+// canonicalRemoteWorkloadPassSourceCandidates 按来源树去重已验证候选，
+// 保留 SQLite 规范排序中的首个 provenance，避免同树历史证据重复计算。
+func canonicalRemoteWorkloadPassSourceCandidates(candidates []gate.WorkloadPassEvidence) []gate.WorkloadPassEvidence {
+	canonical := make([]gate.WorkloadPassEvidence, 0, len(candidates))
+	seenTrees := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if _, duplicated := seenTrees[candidate.OriginSourceTreeSHA]; duplicated {
+			continue
+		}
+		seenTrees[candidate.OriginSourceTreeSHA] = struct{}{}
+		canonical = append(canonical, candidate)
+	}
+	return canonical
+}
+
 // selectRemoteWorkloadPassReplay 按确定顺序重算来源树，首个精确 input digest 命中才返回直接证据。
 func selectRemoteWorkloadPassReplay(
 	ctx context.Context,
@@ -96,7 +111,7 @@ func selectRemoteWorkloadPassReplay(
 	if err != nil || !available {
 		return gate.WorkloadPassEvidence{}, false, err
 	}
-	for _, candidate := range candidates {
+	for _, candidate := range canonicalRemoteWorkloadPassSourceCandidates(candidates) {
 		matches, err := matchesRemoteWorkloadPassSourceCandidate(ctx, repositoryRoot, identity, workload, candidate, target, cache, diagnostic)
 		if err != nil {
 			return gate.WorkloadPassEvidence{}, false, err
@@ -112,9 +127,38 @@ func selectRemoteWorkloadPassReplay(
 	return gate.WorkloadPassEvidence{}, false, nil
 }
 
+// remoteWorkloadPassSourceCompileMismatch 加载权威来源树并按包比较编译闭包。
+func remoteWorkloadPassSourceCompileMismatch(ctx context.Context, repositoryRoot string, workload gate.Workload, candidate gate.WorkloadPassEvidence, target *remoteGitTreeSnapshot, cache *remoteReplayCache, diagnostic *ReuseReplayDiagnostic) (*remoteGitTreeSnapshot, bool, error) {
+	source, sourceAvailable, err := cache.snapshot(ctx, repositoryRoot, candidate.OriginSourceTreeSHA)
+	if err != nil || !sourceAvailable {
+		return nil, false, err
+	}
+	decision, supported, err := cache.compileInputDecision(ctx, workload, source, target)
+	if err != nil {
+		return nil, false, err
+	}
+	if supported && decision.compileMiss {
+		diagnostic.observeSourceInputVoteDecision(decision)
+		return source, true, nil
+	}
+	return source, false, nil
+}
+
 // matchesRemoteWorkloadPassSourceCandidate 从权威来源树重算当前 broad 摘要并交叉 selector 语义；
 // 历史 evidence 的旧摘要算法不替代当前重算，也不在进入多票裁决前制造假失败。
 func matchesRemoteWorkloadPassSourceCandidate(ctx context.Context, repositoryRoot string, identity gate.WorkloadPassIdentity, workload gate.Workload, candidate gate.WorkloadPassEvidence, target *remoteGitTreeSnapshot, cache *remoteReplayCache, diagnostic *ReuseReplayDiagnostic) (bool, error) {
+	source, compileMismatch, err := remoteWorkloadPassSourceCompileMismatch(ctx, repositoryRoot, workload, candidate, target, cache, diagnostic)
+	if err != nil {
+		return false, err
+	}
+	if source == nil {
+		diagnostic.SourceInputUnavailable++
+		return false, nil
+	}
+	if compileMismatch {
+		diagnostic.SourceInputMismatch++
+		return false, nil
+	}
 	digest, available, err := cache.inputDigest(ctx, repositoryRoot, candidate.OriginSourceTreeSHA, workload)
 	if err != nil {
 		return false, fmt.Errorf("recompute remote workload PASS source %q: %w", identity.WorkloadID, err)
@@ -126,17 +170,9 @@ func matchesRemoteWorkloadPassSourceCandidate(ctx context.Context, repositoryRoo
 	if digest == identity.InputDigest {
 		return true, nil
 	}
-	source, sourceAvailable, err := cache.snapshot(ctx, repositoryRoot, candidate.OriginSourceTreeSHA)
-	if err != nil {
-		return false, err
-	}
-	matches := false
-	if sourceAvailable {
-		decision, decisionErr := cache.semanticInputDecision(ctx, workload, source, target)
-		err = decisionErr
-		matches = decision.allowReuse()
-		diagnostic.observeSourceInputVoteDecision(decision)
-	}
+	decision, err := cache.semanticInputDecision(ctx, workload, source, target)
+	matches := decision.allowReuse()
+	diagnostic.observeSourceInputVoteDecision(decision)
 	if err == nil && !matches {
 		diagnostic.SourceInputMismatch++
 	}

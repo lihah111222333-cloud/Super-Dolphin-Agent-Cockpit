@@ -195,11 +195,11 @@ type remoteWorkloadInputVoteDigests struct {
 	runtimeFallback bool
 }
 
-// workloadInputVoteDigests 独立计算编译、声明与运行时观察三类 selector 输入。
-func (snapshot *remoteGitTreeSnapshot) workloadInputVoteDigests(ctx context.Context, workload gate.Workload) (remoteWorkloadInputVoteDigests, bool, error) {
+// remoteGoWorkloadInputTarget 解析可参与 compile-first replay 的 Go selector 和构建 profile。
+func remoteGoWorkloadInputTarget(workload gate.Workload) (gate.GoTestTarget, remoteGoBuildProfile, bool, error) {
 	parent, targetKind, target, targeted, err := gate.ParseWorkloadID(workload.ID)
 	if err != nil || !targeted {
-		return remoteWorkloadInputVoteDigests{}, false, err
+		return gate.GoTestTarget{}, remoteGoBuildProfile{}, false, err
 	}
 	profile := remoteGoBuildProfile{race: parent == gate.GateIDBackendTestGuardWithRace}
 	var parsed gate.GoTestTarget
@@ -209,10 +209,19 @@ func (snapshot *remoteGitTreeSnapshot) workloadInputVoteDigests(ctx context.Cont
 	case gate.WorkloadTargetGoBenchmark:
 		parsed, err = gate.ParseGoBenchmarkTarget(target)
 	default:
-		return remoteWorkloadInputVoteDigests{}, false, nil
+		return gate.GoTestTarget{}, remoteGoBuildProfile{}, false, nil
 	}
 	if err != nil {
-		return remoteWorkloadInputVoteDigests{}, false, err
+		return gate.GoTestTarget{}, remoteGoBuildProfile{}, false, err
+	}
+	return parsed, profile, true, nil
+}
+
+// workloadInputVoteDigests 独立计算编译、声明与运行时观察三类 selector 输入。
+func (snapshot *remoteGitTreeSnapshot) workloadInputVoteDigests(ctx context.Context, workload gate.Workload) (remoteWorkloadInputVoteDigests, bool, error) {
+	parsed, profile, supported, err := remoteGoWorkloadInputTarget(workload)
+	if err != nil || !supported {
+		return remoteWorkloadInputVoteDigests{}, supported, err
 	}
 	compile, err := snapshot.goPackageInputDigest(ctx, parsed.Package, profile)
 	if err != nil {
