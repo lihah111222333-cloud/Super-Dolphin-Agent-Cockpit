@@ -414,6 +414,79 @@ func projectRemoteWorkloadReuseOutcome(identities []gate.WorkloadPassIdentity, q
 	return reexecuted, groups, nil
 }
 
+// refreshRemoteWorkloadReuseAfterCalibration 只对 Prepare 已确认的 MISS 重读
+// SQLite PASS authority。校准期间新产生的同身份 proof 可以直接收敛，既不重扫
+// source/environment，也不改变已冻结的 workload identity。
+func refreshRemoteWorkloadReuseAfterCalibration(preparation remoteWorkloadReusePreparation, store *gate.DurationLedgerStore) (remoteWorkloadReusePreparation, int, error) {
+	missIdentities, err := remoteWorkloadMissIdentities(preparation.identities, preparation.cacheMisses)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	if len(missIdentities) == 0 {
+		return preparation, 0, nil
+	}
+	recovered, err := lookupRemoteWorkloadPasses(store, missIdentities)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, fmt.Errorf("refresh remote workload PASS after calibration: %w", err)
+	}
+	if len(recovered) == 0 {
+		return preparation, 0, nil
+	}
+	queried := maps.Clone(preparation.reused)
+	for workloadID, evidence := range recovered {
+		if _, duplicate := queried[workloadID]; duplicate {
+			return remoteWorkloadReusePreparation{}, 0, fmt.Errorf("post-calibration workload PASS %q overlaps frozen reuse decision", workloadID)
+		}
+		queried[workloadID] = evidence
+	}
+	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(preparation.identities, queried)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	effective, err := indexRemoteWorkloadPassEvidence(reusedWorkloads)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	reexecuted, groups, err := projectRemoteWorkloadReuseOutcome(preparation.identities, queried, effective, preparation.environmentReplayProofs)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	next := preparation
+	next.reused = effective
+	next.reusedWorkloads = reusedWorkloads
+	next.reexecutedWorkloadResults = reexecuted
+	next.cacheMisses = cacheMisses
+	next.directHits += len(recovered)
+	next.directMisses = len(next.identities) - next.directHits
+	next.exactHits = len(queried)
+	next.replayMisses = len(next.identities) - next.exactHits
+	next.diagnosticGroups = groups
+	return next, len(recovered), nil
+}
+
+// remoteWorkloadMissIdentities 按冻结身份顺序投影 MISS，拒绝遗漏、重复或外来 ID。
+func remoteWorkloadMissIdentities(identities []gate.WorkloadPassIdentity, misses []gate.GateID) ([]gate.WorkloadPassIdentity, error) {
+	missSet := make(map[gate.GateID]struct{}, len(misses))
+	for _, workloadID := range misses {
+		if _, duplicate := missSet[workloadID]; duplicate {
+			return nil, fmt.Errorf("post-calibration workload MISS %q is duplicated", workloadID)
+		}
+		missSet[workloadID] = struct{}{}
+	}
+	result := make([]gate.WorkloadPassIdentity, 0, len(misses))
+	for _, identity := range identities {
+		if _, missed := missSet[identity.WorkloadID]; !missed {
+			continue
+		}
+		result = append(result, identity)
+		delete(missSet, identity.WorkloadID)
+	}
+	if len(missSet) != 0 {
+		return nil, errors.New("post-calibration workload MISS is outside frozen identity set")
+	}
+	return result, nil
+}
+
 // remoteReexecutedWorkloadResults 投影 lookup 命中但因 package 原子边界实际重跑的
 // workload；结果保留旧 proof authority，fresh execution 由独立执行投影记录。
 func remoteReexecutedWorkloadResults(

@@ -11,8 +11,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// TestWorkloadPassEvidenceRejectsConflictingOriginProof 验证重复 identity/generation 只有全部规范 proof 列相等才幂等收敛。
-func TestWorkloadPassEvidenceRejectsConflictingOriginProof(t *testing.T) {
+// TestWorkloadPassEvidenceAcceptsEquivalentSuccessfulOrigin 验证同代重复成功执行
+// 保留首个已验证 canonical proof，同时允许后续独立 run 完成权威提升。
+func TestWorkloadPassEvidenceAcceptsEquivalentSuccessfulOrigin(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 1)
 	first, identity, firstReceipts := recordWorkloadPassRunAt(t, store, "conflict-origin-first", 1, "conflict-origin", time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC))
 	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(first), firstReceipts, nil, true); err != nil {
@@ -22,13 +23,37 @@ func TestWorkloadPassEvidenceRejectsConflictingOriginProof(t *testing.T) {
 	if secondIdentity != identity {
 		t.Fatalf("same workload produced different identity: first=%#v second=%#v", identity, secondIdentity)
 	}
-	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(second), secondReceipts, nil, true); err == nil || !strings.Contains(err.Error(), "conflicting workload pass evidence proof") {
-		t.Fatalf("conflicting origin finalization error = %v", err)
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(second), secondReceipts, nil, true); err != nil {
+		t.Fatalf("equivalent origin finalization error = %v", err)
+	}
+	assertRemoteCIRunAuthoritative(t, store, second.JobID, true)
+	if got := lookupSingleWorkloadPassEvidence(t, store, identity); got.OriginJobID != first.JobID {
+		t.Fatalf("equivalent origin replaced canonical proof with %q, want %q", got.OriginJobID, first.JobID)
+	}
+}
+
+// TestWorkloadPassEvidenceRejectsCorruptCanonicalOrigin 验证重复成功不能把损坏
+// canonical 行当成幂等命中，也不能借后续 run 覆盖它。
+func TestWorkloadPassEvidenceRejectsCorruptCanonicalOrigin(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	first, identity, firstReceipts := recordWorkloadPassRun(t, store, "corrupt-canonical-first", 1, "corrupt-canonical")
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(first), firstReceipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	second, secondIdentity, secondReceipts := recordWorkloadPassRun(t, store, "corrupt-canonical-second", 1, "corrupt-canonical")
+	if secondIdentity != identity {
+		t.Fatalf("same workload produced different identity: first=%#v second=%#v", identity, secondIdentity)
+	}
+	database := openWorkloadPassDatabase(t, store)
+	if _, err := database.Exec(`UPDATE ci_workload_pass_evidence SET evidence_sha256 = ? WHERE identity_digest = ? AND accepted_generation = '1'`, "sha256:"+strings.Repeat("f", 64), identity.IdentityDigest); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	database.Close()
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(second), secondReceipts, nil, true); err == nil || !strings.Contains(err.Error(), "validate canonical current workload pass evidence") {
+		t.Fatalf("corrupt canonical origin finalization error = %v", err)
 	}
 	assertRemoteCIRunAuthoritative(t, store, second.JobID, false)
-	if got := lookupSingleWorkloadPassEvidence(t, store, identity); got.OriginJobID != first.JobID {
-		t.Fatalf("conflicting origin replaced canonical proof with %q, want %q", got.OriginJobID, first.JobID)
-	}
 }
 
 // TestWorkloadPassEvidenceAtomicReexecutionRetainsCanonicalOrigin 验证包原子降级后的
@@ -105,16 +130,18 @@ func TestWorkloadPassEvidenceConstraintClassifierFailsClosed(t *testing.T) {
 	}
 }
 
-// TestWorkloadPassEvidenceConcurrentConflictingOrigins 验证同一 identity 的并发不同来源只有一个完整 proof 能提交。
-func TestWorkloadPassEvidenceConcurrentConflictingOrigins(t *testing.T) {
+// TestWorkloadPassEvidenceConcurrentEquivalentOrigins 验证同一 identity 的并发成功
+// 来源都能提交独立 run，而 canonical proof 仍只有一个且不可覆盖。
+func TestWorkloadPassEvidenceConcurrentEquivalentOrigins(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 1)
 	first, identity, firstReceipts := recordWorkloadPassRunAt(t, store, "concurrent-conflict-first", 1, "concurrent-conflict", time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC))
 	second, secondIdentity, secondReceipts := recordWorkloadPassRunAt(t, store, "concurrent-conflict-second", 1, "concurrent-conflict", time.Date(2026, time.August, 3, 12, 1, 0, 0, time.UTC))
 	if secondIdentity != identity {
 		t.Fatalf("same workload produced different identity: first=%#v second=%#v", identity, secondIdentity)
 	}
-	errs := finalizeConflictingOriginsConcurrently(store, []conflictingOriginRun{{first, firstReceipts}, {second, secondReceipts}})
-	assertConflictingOriginOutcomes(t, errs)
+	runs := []conflictingOriginRun{{first, firstReceipts}, {second, secondReceipts}}
+	errs := finalizeConflictingOriginsConcurrently(store, runs)
+	assertEquivalentOriginOutcomes(t, store, runs, errs)
 	canonical := lookupSingleWorkloadPassEvidence(t, store, identity)
 	if canonical.OriginJobID != first.JobID && canonical.OriginJobID != second.JobID {
 		t.Fatalf("concurrent canonical origin = %q, want one contender", canonical.OriginJobID)
@@ -142,20 +169,13 @@ func finalizeConflictingOriginsConcurrently(store *DurationLedgerStore, runs []c
 	return errs
 }
 
-func assertConflictingOriginOutcomes(t *testing.T, errs []error) {
+func assertEquivalentOriginOutcomes(t *testing.T, store *DurationLedgerStore, runs []conflictingOriginRun, errs []error) {
 	t.Helper()
-	winner, conflicts := 0, 0
-	for _, err := range errs {
-		if err == nil {
-			winner++
-		} else if strings.Contains(err.Error(), "conflicting workload pass evidence proof") {
-			conflicts++
-		} else {
-			t.Fatalf("unexpected concurrent conflicting origin error = %v", err)
+	for index, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent equivalent origin[%d] error = %v", index, err)
 		}
-	}
-	if winner != 1 || conflicts != 1 {
-		t.Fatalf("concurrent conflicting origins outcomes = winner:%d conflicts:%d, want 1/1", winner, conflicts)
+		assertRemoteCIRunAuthoritative(t, store, runs[index].record.JobID, true)
 	}
 }
 
