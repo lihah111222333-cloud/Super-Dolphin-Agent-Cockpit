@@ -303,7 +303,23 @@ cat >"$git_repo/scripts/refresh_remote_ci_imagecache.sh" <<'EOF'
 #!/usr/bin/env bash
 exit 97
 EOF
-chmod 0755 "$git_repo/scripts/dispatch_remote_ci_imagecache_refresh.sh" "$git_repo/scripts/refresh_remote_ci_imagecache.sh"
+cat >"$git_repo/scripts/test_with_guard.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${GATE_HOOK_CAPTURE_DIR:?}"
+[[ "$#" -eq 1 && "$1" == --light-guard-only ]] || exit 65
+[[ "${SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT:-}" == 1 ]] || exit 66
+[[ "${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}" == 1 ]] || exit 67
+printf '%s' "$#" >"$GATE_HOOK_CAPTURE_DIR/code-guard-argc"
+printf '%s' "$1" >"$GATE_HOOK_CAPTURE_DIR/code-guard-arg.0"
+printf '%s' "$PWD" >"$GATE_HOOK_CAPTURE_DIR/code-guard-cwd"
+git write-tree >"$GATE_HOOK_CAPTURE_DIR/staged-tree"
+if [[ "${GATE_HOOK_CODE_GUARD_FAIL:-0}" == 1 ]]; then
+  exit 31
+fi
+printf '%s\n' 'fixture staged code guard passed'
+EOF
+chmod 0755 "$git_repo/scripts/dispatch_remote_ci_imagecache_refresh.sh" "$git_repo/scripts/refresh_remote_ci_imagecache.sh" "$git_repo/scripts/test_with_guard.sh"
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
 printf '%s\n' 'stale Dockerfile' >"$git_repo/build/gate/Dockerfile"
 printf '%s\n' '{"schema_version":"stale"}' >"$git_repo/build/gate/inputs.json"
@@ -313,7 +329,7 @@ printf '%s\n' '{"scope":"test","generated":false}' >"$git_repo/frontend-app/.fro
 printf '%s\n' 'trusted generator' >"$git_repo/scripts/generate_ai_project_map.mjs"
 printf '%s\n' 'stale project map' >"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
 printf '%s\n' 'stale capability manifest' >"$git_repo/docs/doc/codemap/capability-contract/capability_manifest.json"
-git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/build-trusted-gate-launcher.sh scripts/dispatch_remote_ci_imagecache_refresh.sh scripts/refresh_remote_ci_imagecache.sh scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md docs/doc/codemap/capability-contract/capability_manifest.json
+git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/build-trusted-gate-launcher.sh scripts/dispatch_remote_ci_imagecache_refresh.sh scripts/refresh_remote_ci_imagecache.sh scripts/test_with_guard.sh scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md docs/doc/codemap/capability-contract/capability_manifest.json
 git -C "$git_repo" commit -qm 'fixture base'
 mkdir -p "$git_repo/nested"
 # fixture 脚本在运行时生成。
@@ -353,12 +369,9 @@ set +e
 )
 initial_bind_status=$?
 set -e
-[[ "$initial_bind_status" -eq 0 ]] || fail "initial exact-tree launcher bind failed with status $initial_bind_status"
-grep -Fq 'staged tree has no exact launcher; binding trusted launcher automatically' "$fixture_root/initial-bind-pre-commit.err" \
-  || fail 'initial exact-tree launcher bind was not automatic'
-trusted_gate_launcher_for_tree "$git_repo" "$initial_bind_tree" >/dev/null \
-  || fail 'automatic initial bind did not install a verified exact-tree launcher'
-assert_file_equals "$capture_dir/staged-tree" "$initial_bind_tree" "initial exact-tree bind remote gate tree"
+[[ "$initial_bind_status" -eq 0 ]] || fail "initial exact-tree code guard failed with status $initial_bind_status"
+assert_file_equals "$capture_dir/staged-tree" "$initial_bind_tree" "initial exact-tree code-guard tree"
+[[ ! -d "$install_root/v1/$initial_bind_tree" ]] || fail 'pre-commit unexpectedly installed a Gate launcher'
 git -C "$git_repo" restore --staged --worktree -- tracked.txt
 cli_error="$fixture_root/cli-error.expected"
 printf '%s\n' 'fixture coordinator failure; job=job-23; status: super-dolphin-gate status --job job-23' >"$cli_error"
@@ -367,29 +380,16 @@ reset_capture
 clean_tree=$(git -C "$git_repo" write-tree)
 (
   cd "$git_repo/nested"
-  GATE_HOOK_CAPTURE_SOURCE=1 GATE_HOOK_STDERR_FILE="$cli_error" GATE_HOOK_EXIT_CODE=23 run_with_status \
+  GATE_HOOK_STDERR_FILE="$cli_error" GATE_HOOK_EXIT_CODE=23 run_with_status \
     "$fixture_root/pre-commit.status" bash "$repo_root/.githooks/pre-commit" >"$fixture_root/pre-commit.out" 2>"$fixture_root/pre-commit.err"
 )
-assert_file_equals "$fixture_root/pre-commit.status" 23 "pre-commit exit code"
-assert_file_equals "$capture_dir/argc" 13 "pre-commit argc without shard cap"
-assert_file_equals "$capture_dir/arg.0" remote "pre-commit arg 0"
-assert_file_equals "$capture_dir/arg.1" hook "pre-commit arg 1"
-assert_file_equals "$capture_dir/arg.2" pre-commit "pre-commit arg 2"
-assert_file_equals "$capture_dir/arg.3" --config "pre-commit config flag"
-assert_file_equals "$capture_dir/arg.4" "$remote_config" "pre-commit config path"
-assert_file_equals "$capture_dir/arg.5" --ledger "pre-commit ledger flag"
-assert_file_equals "$capture_dir/arg.6" "$remote_ledger" "pre-commit ledger path"
-assert_file_equals "$capture_dir/arg.7" --repository "pre-commit repository flag"
-assert_file_equals "$capture_dir/arg.8" "$git_repo" "pre-commit repository"
-assert_file_equals "$capture_dir/arg.9" --tree "pre-commit tree flag"
-assert_file_equals "$capture_dir/arg.10" "$clean_tree" "pre-commit immutable tree"
-assert_file_equals "$capture_dir/arg.11" --parent "pre-commit parent flag"
-assert_file_equals "$capture_dir/arg.12" "$(git -C "$git_repo" rev-parse HEAD)" "pre-commit parent commit"
-assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "clean pre-commit cwd"
+assert_file_equals "$fixture_root/pre-commit.status" 0 "pre-commit code-guard exit code"
+assert_file_equals "$capture_dir/code-guard-argc" 1 "pre-commit code-guard argc"
+assert_file_equals "$capture_dir/code-guard-arg.0" --light-guard-only "pre-commit code-guard mode"
 assert_file_equals "$capture_dir/staged-tree" "$clean_tree" "clean pre-commit staged tree"
-assert_file_equals "$capture_dir/project-map-check-tree" "$clean_tree" "clean project-map staged tree"
-cmp -s "$cli_error" "$fixture_root/pre-commit.out" || fail "pre-commit did not stream readable CLI output"
-[[ ! -s "$capture_dir/stdin" ]] || fail "pre-commit forwarded unexpected stdin"
+[[ ! -e "$capture_dir/argc" ]] || fail "pre-commit invoked the remote gate"
+grep -Fq 'fixture staged code guard passed' "$fixture_root/pre-commit.out" || fail "pre-commit did not stream code-guard output"
+grep -Fq 'fixture coordinator failure' "$fixture_root/pre-commit.out" && fail "pre-commit streamed remote gate output"
 
 printf '%s\n' 'staged' >"$git_repo/tracked.txt"
 git -C "$git_repo" add tracked.txt
@@ -402,194 +402,13 @@ reset_capture
     "$fixture_root/staged-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
 )
 assert_file_equals "$fixture_root/staged-pre-commit.status" 0 "staged pre-commit exit code"
-assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "staged pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$staged_tree" "staged pre-commit tree"
+case "$(cat "$capture_dir/code-guard-cwd")" in
+  "$git_repo/.worktrees/"pre-commit-code-guard.*) ;;
+  *) fail "staged pre-commit code guard did not run below repository .worktrees" ;;
+esac
+[[ ! -e "$capture_dir/argc" ]] || fail "staged pre-commit invoked the remote gate"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "staged pre-commit discarded the unstaged worktree change"
-
-for closure_output in build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock; do
-  git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock
-  printf '%s\n' 'staged closure output' >"$git_repo/$closure_output"
-  git -C "$git_repo" add -- "$closure_output"
-  printf '%s\n' 'unstaged closure output' >>"$git_repo/$closure_output"
-  reset_capture
-  (
-    cd "$git_repo/nested"
-    run_with_status "$fixture_root/unstaged-${closure_output##*/}.status" bash "$repo_root/.githooks/pre-commit" \
-      2>"$fixture_root/unstaged-${closure_output##*/}.err"
-  )
-  assert_file_equals "$fixture_root/unstaged-${closure_output##*/}.status" 1 "unstaged $closure_output pre-commit exit code"
-  grep -Fq 'gate-image closure outputs have unstaged changes' "$fixture_root/unstaged-${closure_output##*/}.err" || fail "unstaged $closure_output did not fail fast"
-  [[ ! -e "$capture_dir/closure-check-tree" ]] || fail "unstaged $closure_output invoked closure check"
-  [[ ! -e "$capture_dir/argc" ]] || fail "unstaged $closure_output invoked gate execution"
-  git -C "$git_repo" diff --quiet -- "$closure_output" && fail "unstaged $closure_output was overwritten"
-done
-git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock
-
-closure_provenance_tree=$(git -C "$git_repo" write-tree)
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_CLOSURE_PROVENANCE_MISMATCH=1 run_with_status \
-    "$fixture_root/closure-provenance-mismatch.status" bash "$repo_root/.githooks/pre-commit" \
-    2>"$fixture_root/closure-provenance-mismatch.err"
-)
-assert_file_equals "$fixture_root/closure-provenance-mismatch.status" 1 "stale closure launcher pre-commit exit code"
-grep -Fq 'closure-generator provenance does not match the staged tree' "$fixture_root/closure-provenance-mismatch.err" || fail "stale closure launcher did not fail closed"
-assert_file_equals "$capture_dir/closure-provenance-tree" "$closure_provenance_tree" "closure provenance source tree"
-[[ ! -e "$capture_dir/closure-check-tree" ]] || fail "stale closure launcher reached closure check"
-[[ ! -e "$capture_dir/closure-refresh-tree" ]] || fail "stale closure launcher wrote closure outputs"
-
-closure_drift_tree=$(git -C "$git_repo" write-tree)
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_CLOSURE_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/closure-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
-    2>"$fixture_root/closure-refresh-pre-commit.err"
-)
-assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 0 "closure refresh pre-commit continues after exact-tree launcher rebind"
-grep -Fq 'rebinding trusted launcher once' "$fixture_root/closure-refresh-pre-commit.err" || fail "closure refresh did not rebind the exact-tree launcher"
-assert_file_equals "$capture_dir/closure-provenance-tree" "$closure_drift_tree" "matching closure launcher provenance source tree"
-assert_file_equals "$capture_dir/closure-dependency-refresh-tree" "$closure_drift_tree" "closure dependency refresh source tree"
-dependency_refreshed_tree=$(cat "$capture_dir/closure-refresh-tree")
-[[ "$dependency_refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not receive the dependency-refreshed tree"
-refreshed_tree=$(git -C "$git_repo" write-tree)
-[[ "$refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not update the staged tree"
-[[ "$refreshed_tree" != "$dependency_refreshed_tree" ]] || fail "closure output refresh did not update the dependency-refreshed tree"
-assert_file_equals "$capture_dir/closure-check-tree" "$refreshed_tree" "closure refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$refreshed_tree" "closure refresh remote gate tree"
-assert_file_equals "$git_repo/build/gate/Dockerfile" 'generated Dockerfile' "closure refreshed Dockerfile"
-assert_file_equals "$git_repo/build/gate/inputs.json" '{"schema_version":"test"}' "closure refreshed input manifest"
-assert_file_equals "$git_repo/build/gate/runtime-deps.lock" '{"schema_version":"generated-runtime-deps"}' "closure refreshed runtime dependency lock"
-git -C "$git_repo" diff --quiet -- tracked.txt && fail "closure refresh discarded the unstaged worktree change"
-
-frontend_code_size_drift_tree=$(git -C "$git_repo" write-tree)
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_FRONTEND_CODE_SIZE_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/frontend-code-size-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
-    2>"$fixture_root/frontend-code-size-refresh-pre-commit.err"
-)
-assert_file_equals "$fixture_root/frontend-code-size-refresh-pre-commit.status" 0 "frontend code-size refresh continues after exact-tree launcher rebind"
-grep -Fq 'rebinding trusted launcher once' "$fixture_root/frontend-code-size-refresh-pre-commit.err" || fail "frontend code-size refresh did not rebind the exact-tree launcher"
-assert_file_equals "$capture_dir/frontend-code-size-initial-check-tree" "$frontend_code_size_drift_tree" "frontend code-size initial check tree"
-assert_file_equals "$capture_dir/frontend-code-size-refresh-tree" "$frontend_code_size_drift_tree" "frontend code-size refresh source tree"
-frontend_code_size_refreshed_tree=$(git -C "$git_repo" write-tree)
-[[ "$frontend_code_size_refreshed_tree" != "$frontend_code_size_drift_tree" ]] || fail "frontend code-size refresh did not update the staged tree"
-assert_file_equals "$capture_dir/frontend-code-size-check-tree" "$frontend_code_size_refreshed_tree" "frontend code-size refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$frontend_code_size_refreshed_tree" "frontend code-size refresh remote gate tree"
-assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline.json" '{"scope":"production","generated":true}' "frontend production baseline refresh"
-assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline_test.json" '{"scope":"test","generated":true}' "frontend test baseline refresh"
-git -C "$git_repo" diff --quiet -- tracked.txt && fail "frontend code-size refresh discarded the unstaged worktree change"
-
-capability_contract_drift_tree=$(git -C "$git_repo" write-tree)
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_CAPABILITY_CONTRACT_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/capability-contract-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
-    2>"$fixture_root/capability-contract-refresh-pre-commit.err"
-)
-assert_file_equals "$fixture_root/capability-contract-refresh-pre-commit.status" 0 "capability-contract refresh continues after exact-tree launcher rebind"
-grep -Fq 'rebinding trusted launcher once' "$fixture_root/capability-contract-refresh-pre-commit.err" || fail "capability-contract refresh did not rebind the exact-tree launcher"
-assert_file_equals "$capture_dir/capability-contract-initial-check-tree" "$capability_contract_drift_tree" "capability-contract initial check tree"
-assert_file_equals "$capture_dir/capability-contract-refresh-tree" "$capability_contract_drift_tree" "capability-contract refresh source tree"
-capability_contract_refreshed_tree=$(git -C "$git_repo" write-tree)
-[[ "$capability_contract_refreshed_tree" != "$capability_contract_drift_tree" ]] || fail "capability-contract refresh did not update the staged tree"
-assert_file_equals "$capture_dir/capability-contract-check-tree" "$capability_contract_refreshed_tree" "capability-contract refreshed check tree"
-assert_file_equals "$capture_dir/staged-tree" "$capability_contract_refreshed_tree" "capability-contract refresh remote gate tree"
-assert_file_equals "$git_repo/docs/doc/codemap/capability-contract/capability_manifest.json" 'generated capability manifest' "capability-contract refreshed output"
-
-project_map_drift_tree=$(git -C "$git_repo" write-tree)
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_PROJECT_MAP_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/project-map-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
-    2>"$fixture_root/project-map-refresh-pre-commit.err"
-)
-assert_file_equals "$fixture_root/project-map-refresh-pre-commit.status" 0 "project-map refresh continues after exact-tree launcher rebind"
-grep -Fq 'rebinding trusted launcher once' "$fixture_root/project-map-refresh-pre-commit.err" || fail "project-map refresh did not rebind the exact-tree launcher"
-assert_file_equals "$capture_dir/project-map-initial-check-tree" "$project_map_drift_tree" "project-map initial check tree"
-assert_file_equals "$capture_dir/project-map-refresh-tree" "$project_map_drift_tree" "project-map refresh source tree"
-project_map_refreshed_tree=$(git -C "$git_repo" write-tree)
-[[ "$project_map_refreshed_tree" != "$project_map_drift_tree" ]] || fail "project-map refresh did not update the staged tree"
-assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_refreshed_tree" "project-map refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$project_map_refreshed_tree" "project-map refresh remote gate tree"
-assert_file_equals "$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md" 'generated project map' "project-map refreshed output"
-git -C "$git_repo" diff --quiet -- tracked.txt && fail "project-map refresh discarded the unstaged worktree change"
-
-dirty_project_map_tree=$(git -C "$git_repo" write-tree)
-tracked_index_before=$(git -C "$git_repo" show :tracked.txt)
-printf '%s\n' 'unstaged project map output' >>"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
-printf '%s\n' 'untracked user work' >"$git_repo/untracked-user.txt"
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/unstaged-project-map.status" bash "$repo_root/.githooks/pre-commit"
-)
-assert_file_equals "$fixture_root/unstaged-project-map.status" 0 "unstaged project-map output pre-commit exit code"
-assert_file_equals "$capture_dir/project-map-initial-check-tree" "$dirty_project_map_tree" "unstaged project-map initial check tree"
-assert_file_equals "$capture_dir/project-map-refresh-tree" "$dirty_project_map_tree" "unstaged project-map refresh source tree"
-assert_file_equals "$capture_dir/project-map-check-tree" "$dirty_project_map_tree" "unstaged project-map refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$dirty_project_map_tree" "unstaged project-map gate tree"
-assert_file_equals "$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md" 'generated project map' "unstaged project-map refreshed output"
-git -C "$git_repo" diff --quiet -- docs/doc/codemap/project-map || fail "unstaged project-map output remained dirty after refresh"
-git -C "$git_repo" diff --quiet -- tracked.txt && fail "unstaged project-map refresh discarded unrelated worktree changes"
-[[ "$(git -C "$git_repo" show :tracked.txt)" == "$tracked_index_before" ]] || fail "unstaged project-map refresh changed an unrelated staged file"
-assert_file_equals "$git_repo/untracked-user.txt" 'untracked user work' "unstaged project-map refresh preserved unrelated untracked file"
-git -C "$git_repo" ls-files --error-unmatch -- untracked-user.txt >/dev/null 2>&1 && fail "unstaged project-map refresh staged an unrelated untracked file"
-rm "$git_repo/untracked-user.txt"
-
-untracked_project_map_tree=$(git -C "$git_repo" write-tree)
-printf '%s\n' 'untracked project map output' >"$git_repo/docs/doc/codemap/project-map/untracked.md"
-printf '%s\n' 'second untracked user work' >"$git_repo/untracked-user.txt"
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
-    "$fixture_root/untracked-project-map.status" bash "$repo_root/.githooks/pre-commit"
-)
-assert_file_equals "$fixture_root/untracked-project-map.status" 0 "untracked project-map output pre-commit exit code"
-assert_file_equals "$capture_dir/project-map-initial-check-tree" "$untracked_project_map_tree" "untracked project-map initial check tree"
-assert_file_equals "$capture_dir/project-map-refresh-tree" "$untracked_project_map_tree" "untracked project-map refresh source tree"
-assert_file_equals "$capture_dir/project-map-check-tree" "$untracked_project_map_tree" "untracked project-map refreshed verification tree"
-assert_file_equals "$capture_dir/staged-tree" "$untracked_project_map_tree" "untracked project-map gate tree"
-[[ ! -e "$git_repo/docs/doc/codemap/project-map/untracked.md" ]] || fail "untracked project-map output survived trusted refresh"
-git -C "$git_repo" diff --quiet -- docs/doc/codemap/project-map || fail "untracked project-map output remained dirty after refresh"
-assert_file_equals "$git_repo/untracked-user.txt" 'second untracked user work' "untracked project-map refresh preserved unrelated untracked file"
-git -C "$git_repo" ls-files --error-unmatch -- untracked-user.txt >/dev/null 2>&1 && fail "untracked project-map refresh staged an unrelated untracked file"
-rm "$git_repo/untracked-user.txt"
-
-project_map_still_drifted_tree=$(git -C "$git_repo" write-tree)
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_PROJECT_MAP_ALWAYS_DRIFT=1 run_with_status \
-    "$fixture_root/project-map-still-drifted.status" bash "$repo_root/.githooks/pre-commit" \
-    2>"$fixture_root/project-map-still-drifted.err"
-)
-assert_file_equals "$fixture_root/project-map-still-drifted.status" 1 "project-map persistent drift pre-commit exit code"
-assert_file_equals "$capture_dir/project-map-refresh-tree" "$project_map_still_drifted_tree" "project-map persistent drift refresh source tree"
-assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_still_drifted_tree" "project-map persistent drift refreshed verification tree"
-grep -Fq 'project-map still drifted after one automatic refresh' "$fixture_root/project-map-still-drifted.err" || fail "persistent project-map drift did not block after one refresh"
-
-printf '%s\n' 'malicious generator candidate' >>"$git_repo/scripts/generate_ai_project_map.mjs"
-printf '%s\n' 'malicious Makefile candidate' >"$git_repo/Makefile"
-git -C "$git_repo" add -- scripts/generate_ai_project_map.mjs Makefile
-reset_capture
-(
-  cd "$git_repo/nested"
-  GATE_HOOK_CAPTURE_SOURCE=1 run_with_status "$fixture_root/candidate-project-map-generator.status" bash "$repo_root/.githooks/pre-commit"
-)
-assert_file_equals "$fixture_root/candidate-project-map-generator.status" 0 "candidate project-map generator pre-commit exit code"
-[[ ! -e "$capture_dir/node-executed" ]] || fail "candidate project-map generator was executed"
-[[ ! -e "$capture_dir/make-executed" ]] || fail "candidate Makefile was executed"
-assert_file_equals "$capture_dir/staged-tree" "$(git -C "$git_repo" write-tree)" "candidate project-map staged tree"
-git -C "$git_repo" restore --staged --worktree -- scripts/generate_ai_project_map.mjs Makefile
-
 linked_repo="$fixture_root/linked-repository"
 git -C "$git_repo" worktree add -q -b hook-linked "$linked_repo" HEAD
 printf '%s\n' 'linked staged' >"$linked_repo/tracked.txt"
@@ -603,9 +422,7 @@ reset_capture
     "$fixture_root/linked-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
 )
 assert_file_equals "$fixture_root/linked-pre-commit.status" 0 "linked pre-commit exit code"
-assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "linked pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$linked_tree" "linked pre-commit staged tree"
-assert_file_equals "$capture_dir/project-map-check-tree" "$linked_tree" "linked project-map staged tree"
 
 reset_capture
 push_input="$fixture_root/pre-push.stdin"
@@ -728,7 +545,7 @@ missing_push_status=$?
 set -e
 fixture_launcher=$(fixture_launcher_for_tree "$git_repo" "$(git -C "$git_repo" write-tree)")
 git -C "$git_repo" config superdolphin.gateLauncher "$fixture_launcher"
-[[ $missing_commit_status -ne 0 ]] || fail "pre-commit accepted a missing CLI"
+[[ $missing_commit_status -eq 0 ]] || fail "pre-commit incorrectly required the Gate CLI"
 [[ $missing_push_status -ne 0 ]] || fail "pre-push accepted a missing CLI"
 for entrypoint in \
   "$repo_root/.githooks/pre-commit" \

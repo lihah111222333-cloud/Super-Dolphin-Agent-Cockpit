@@ -193,7 +193,7 @@ trusted_gate_launcher() {
 trusted_gate_launcher_for_tree() {
   local repo_root=${1:?repository root is required}
   local tree=${2:?tree is required}
-  local install_root candidate
+  local install_root configured candidate
 
   if [[ ! "$tree" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
     printf '%s\n' 'super-dolphin gate blocked: exact launcher tree is invalid.' >&2
@@ -201,8 +201,18 @@ trusted_gate_launcher_for_tree() {
   fi
   install_root=$(trusted_launcher_root "$repo_root") || return 1
   validate_trusted_launcher_root "$repo_root" || return 1
-  for candidate in "$install_root/v1/$tree"/*/super-dolphin-gate; do
+  configured=$(git -C "$repo_root" config --local --get superdolphin.gateLauncher 2>/dev/null || true)
+  if [[ -n "$configured" ]] \
+    && validate_trusted_gate_launcher "$repo_root" "$configured" \
+    && verify_trusted_gate_launcher_tree "$repo_root" "$configured" "$tree"; then
+    printf '%s\n' "$configured"
+    return 0
+  fi
+  for candidate in "$install_root/v1"/*/*/super-dolphin-gate; do
     if [[ ! -e "$candidate" ]]; then
+      continue
+    fi
+    if [[ "$candidate" == "$configured" ]]; then
       continue
     fi
     if validate_trusted_gate_launcher "$repo_root" "$candidate" \
@@ -211,7 +221,7 @@ trusted_gate_launcher_for_tree() {
       return 0
     fi
   done
-  printf 'super-dolphin gate blocked: no verified launcher is installed for tree %s; run make install-hooks.\n' "$tree" >&2
+  printf 'super-dolphin gate blocked: no verified launcher version matches tree %s; run make install-hooks.\n' "$tree" >&2
   return 1
 }
 

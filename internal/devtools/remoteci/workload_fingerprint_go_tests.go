@@ -395,20 +395,23 @@ func remoteGoTestDeclarationStart(declaration ast.Decl) token.Pos {
 
 // goTestSources returns the selected test declarations and their direct repository observations.
 // Any source we cannot close conservatively binds every test source in the package.
-// goTestSources 计算单个测试声明的源码闭包和直接仓库观察。
-func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile, includeCompileInputs bool) ([]remoteGoTestSource, bool, error) {
+// goTestSources 计算单个测试声明的源码闭包，并分别报告完整 Git tree 与
+// production-tree 保守观察，避免后者在 MISS 投票中冒充独立精确算法。
+func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile, includeCompileInputs bool) ([]remoteGoTestSource, bool, bool, error) {
 	files, declarations, fallback := snapshot.remoteGoTestDeclarations(directory, profile)
 	if fallback {
-		return snapshot.allGoTestSources(files, directory, selected)
+		sources, observesWholeTree, err := snapshot.allGoTestSources(files, directory, selected)
+		return sources, observesWholeTree, observesWholeTree, err
 	}
 	targetDeclaration, ok := declarations[target]
 	if !ok || len(targetDeclaration) != 1 {
-		return snapshot.allGoTestSources(files, directory, selected)
+		sources, observesWholeTree, err := snapshot.allGoTestSources(files, directory, selected)
+		return sources, observesWholeTree, observesWholeTree, err
 	}
 	selectedDeclarations, reflectUsed := remoteGoTestSelectedDeclarations(targetDeclaration[0], files, declarations)
 	if reflectUsed {
 		// 无法从 AST 闭合反射调用的目标可能观察候选 tree 任意位置，必须直接全树绑定。
-		return nil, true, nil
+		return nil, true, true, nil
 	}
 	return snapshot.goTestDeclarationSources(directory, selectedDeclarations, selected, profile, includeCompileInputs)
 }
@@ -440,12 +443,13 @@ func remoteGoTestSelectedDeclarations(target remoteGoTestDeclaration, files []re
 }
 
 // goTestDeclarationSources 将声明闭包转换为源码摘要并收集其观察输入。
-func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string, selectedDeclarations map[ast.Decl]remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile, includeCompileInputs bool) ([]remoteGoTestSource, bool, error) {
+func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string, selectedDeclarations map[ast.Decl]remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile, includeCompileInputs bool) ([]remoteGoTestSource, bool, bool, error) {
 	result := make([]remoteGoTestSource, 0, len(selectedDeclarations))
+	runtimeFallback := false
 	for _, declaration := range selectedDeclarations {
 		declarationText, err := snapshot.goTestDeclarationInputText(declaration, selected, profile, includeCompileInputs)
 		if err != nil {
-			return nil, false, err
+			return nil, false, false, err
 		}
 		scope, err := snapshot.addGoTestFileObservedEntriesScoped(
 			directory,
@@ -456,7 +460,7 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 		)
 		observesWholeTree := scope == remoteGoTestScopeTree
 		if err != nil || observesWholeTree {
-			return nil, observesWholeTree, err
+			return nil, observesWholeTree, observesWholeTree, err
 		}
 		productionScope, productionSources, err := snapshot.goProductionRuntimeInputs(
 			directory,
@@ -465,10 +469,11 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 			profile,
 		)
 		if err != nil {
-			return nil, false, err
+			return nil, false, false, err
 		}
 		if productionScope == remoteGoTestScopeTree {
 			snapshot.addGoProductionRuntimeTreeEntries(directory, selected)
+			runtimeFallback = true
 		}
 		result = append(result, remoteGoTestSource{path: declaration.filePath, text: declarationText})
 		result = append(result, productionSources...)
@@ -479,7 +484,7 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 		}
 		return result[left].path < result[right].path
 	})
-	return result, false, nil
+	return result, false, runtimeFallback, nil
 }
 
 // goTestDeclarationInputText 在 broad 路径保留编译导入，在独立运行时投票中只保留 embed 资产。

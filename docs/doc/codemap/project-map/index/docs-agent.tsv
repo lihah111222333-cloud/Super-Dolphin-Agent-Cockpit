@@ -1,12 +1,12 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 AGENTS.md	(root)	docs-agent	doc	10676	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
 CLAUDE.md	(root)	docs-agent	doc	8545	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
-README.de.md	(root)	docs-agent	doc	31687	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
-README.es.md	(root)	docs-agent	doc	32272	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
-README.ja.md	(root)	docs-agent	doc	33020	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
-README.ko.md	(root)	docs-agent	doc	31618	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	29530	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
-README.zh-CN.md	(root)	docs-agent	doc	25383	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
+README.de.md	(root)	docs-agent	doc	31790	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
+README.es.md	(root)	docs-agent	doc	32365	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
+README.ja.md	(root)	docs-agent	doc	33156	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
+README.ko.md	(root)	docs-agent	doc	31732	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	29653	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.zh-CN.md	(root)	docs-agent	doc	25469	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
 docs/README.md	docs	docs-agent	doc	4423	项目文档体系	docs,README,项目文档体系
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
@@ -38,7 +38,7 @@ docs/doc/codemap/11-memory.md	docs	docs-agent	doc	28349	手写代码地图卷与
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59478	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11793	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
 docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	22096	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
-docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	3635	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
+docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	3717	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3379	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	466836	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	3519940	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
@@ -88,7 +88,7 @@ docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
 docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,README,项目文档体系
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
-docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	12303	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
+docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	12746	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
 docs/架构/skeleton-fx.md	docs	docs-agent	doc	14159	项目文档体系	docs,架构,skeleton,fx,项目文档体系
 docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系

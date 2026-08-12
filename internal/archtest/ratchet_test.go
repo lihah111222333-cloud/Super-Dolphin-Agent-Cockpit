@@ -152,16 +152,14 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"internal/archtest/freeze_baseline.json",
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
-		`trusted_gate_launcher "$repo_root"`,
-		`remote hook pre-commit`,
-		`--tree "$staged_tree"`,
-		`--parent "$parent_commit"`,
+		`run_staged_light_code_guard "$staged_tree"`,
+		`./scripts/test_with_guard.sh --light-guard-only`,
+		`SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`,
 	)
 	assertGuardModeFileExcludes(t, root, ".githooks/pre-commit",
-		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
+		"remote hook pre-commit",
+		"SUPER_DOLPHIN_CI_AGENT_TOKEN",
 		"ai_maintenance",
-		"test_with_guard",
-		"go run",
 		"command -v super-dolphin-gate",
 	)
 	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/gate_execution.go",

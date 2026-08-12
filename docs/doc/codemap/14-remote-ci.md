@@ -9,7 +9,8 @@
 - `cmd/super-dolphin-gate/main.go`：Gate CLI 总入口；远程命令进入 run、hook、materializer、manifest installer 与 worker。
 - `cmd/super-dolphin-gate/remote_run.go`：读取 strict 配置和 SQLite accepted baseline，构造 normal/calibration 运行并输出权威账本。
 - `cmd/super-dolphin-gate/remote_provision_generation_one.go`：仅由 normal run/hook 在空 singleton 时消费外部 generation-one strict receipt；不是独立 provision command。
-- `.githooks/pre-commit`、`.githooks/pre-push`：分别绑定 exact staged tree 与 ref update 的 Git 门禁入口。
+- `.githooks/pre-commit`：绑定 exact staged tree 的本地代码守卫入口，不启动 remote CI。
+- `.githooks/pre-push`：绑定 exact pushed ref update 的唯一 Git remote ECI 门禁入口。
 
 ## Coordinator、传输与 worker
 

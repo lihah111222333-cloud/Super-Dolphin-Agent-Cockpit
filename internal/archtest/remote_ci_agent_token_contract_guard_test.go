@@ -205,14 +205,18 @@ func TestGitHooksKeepAgentTokensCallerOwned(t *testing.T) {
 	}
 }
 
-// TestGitHooksRequestTokenGuidanceBeforeHeavyWork 阻止无身份 hook 刷新生成物、
-// 读取远程配置或启动 CI。
-func TestGitHooksRequestTokenGuidanceBeforeHeavyWork(t *testing.T) {
+// TestRemoteGitHookRequestsTokenGuidanceBeforeHeavyWork 阻止无身份 pre-push
+// 读取远程配置或启动 CI；pre-commit 不进入远程路径，因此不得读取 token。
+func TestRemoteGitHookRequestsTokenGuidanceBeforeHeavyWork(t *testing.T) {
 	root := findRepoRoot(t)
-	for name, firstHeavyOperation := range map[string]string{
-		"pre-commit": "closure_outputs=",
-		"pre-push":   "remote_config=",
-	} {
+	preCommit, err := os.ReadFile(filepath.Join(root, ".githooks", "pre-commit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(preCommit), "SUPER_DOLPHIN_CI_AGENT_TOKEN") {
+		t.Fatal(".githooks/pre-commit must not read the remote CI agent token")
+	}
+	for name, firstHeavyOperation := range map[string]string{"pre-push": "remote_config="} {
 		contents, err := os.ReadFile(filepath.Join(root, ".githooks", name))
 		if err != nil {
 			t.Fatal(err)

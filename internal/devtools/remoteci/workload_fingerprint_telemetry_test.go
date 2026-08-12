@@ -77,7 +77,7 @@ func telemetryWorkloadInputClosure(ctx context.Context, snapshot *remoteGitTreeS
 	if observesWholeTree {
 		return snapshot.entries, nil
 	}
-	_, observesWholeTree, err = snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, true)
+	_, observesWholeTree, _, err = snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, true)
 	if err != nil {
 		return nil, err
 	}

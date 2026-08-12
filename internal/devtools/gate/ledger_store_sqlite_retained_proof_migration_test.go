@@ -78,6 +78,44 @@ func TestDurationLedgerSQLiteV15ToV16BackfillsEveryLiveReusedConsumer(t *testing
 	}
 }
 
+func TestDurationLedgerSQLiteV15ToV16PreservesRetiredDomainHistoryWithoutProofProjection(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	origin, identity, receipts := recordWorkloadPassRun(t, store, "retired-proof-origin", 1, "retired-proof")
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(origin), receipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	evidence := lookupSingleWorkloadPassEvidence(t, store, identity)
+	legacyDigest, err := legacyWorkloadPassIdentitySHA256(evidence.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Identity.IdentityDigest = legacyDigest
+	evidence.EvidenceSHA256, err = WorkloadPassEvidenceSHA256(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := openStrictSchemaTestDatabase(t, "retired-proof-domain.sqlite")
+	defer database.Close()
+	createDurationLedgerSQLiteV14Fixture(t, database)
+	if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
+		t.Fatal(err)
+	}
+	insertValidV15RetainedProofBackfillFixture(t, database, []WorkloadPassEvidence{evidence}, []string{"consumer-one", "consumer-two", "consumer-three"})
+	if err := migrateDurationLedgerSQLiteSchema15To16(database); err != nil {
+		t.Fatal(err)
+	}
+	var proofs, results int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_retained_workload_pass_proofs`).Scan(&proofs); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_run_workload_results`).Scan(&results); err != nil {
+		t.Fatal(err)
+	}
+	if proofs != 0 || results != 4 {
+		t.Fatalf("retired domain migration proofs/results = %d/%d, want 0/4", proofs, results)
+	}
+}
+
 func insertValidV15RetainedProofBackfillFixture(t *testing.T, database *sql.DB, evidence []WorkloadPassEvidence, consumers []string) {
 	t.Helper()
 	if len(evidence) != 1 || len(consumers) != 3 {
