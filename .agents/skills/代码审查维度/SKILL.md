@@ -47,6 +47,17 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 - 简化不得破坏 D01 架构、D02 fail-fast、D10 安全或 D17 字段守卫。
 - Finding 的优先级、修复状态与闭环以 `docs/契约/fix-workflow-convention.md` 为准；返修执行 `Repro -> Root Cause -> RED -> Fix -> GREEN -> Guard -> Residual Retest -> Report`，不得把 `partial` 报成 `fixed`。
 
+## 边界收敛与 AI 治理约束（防过度防御）
+
+- 禁止以“边界收敛/审查补漏”为名进行膨胀式扩建：严禁新建无领域语义的纯转发 Wrapper、冗余中间件或代理节点；必须优先通过 Schema、静态类型与编译门禁做硬性收口。
+- 边界治理 Task 的代码变动控制：收敛任务必须同步履行 D18（实现简化/DRY），优先清理冗余/废弃路径；单任务手写生产代码新增不得超过 300 行，超过必须二次裁决与拆分。
+- 多维度治理拆分门禁：单次治理任务禁止跨 3 个以上维度打包实施；扫描出多维度缺口时，必须按“维度/模块”拆分为独立小 Task 分批实施。
+- 单任务改动文件数上限：单一收敛/治理 Task 修改的生产文件数不得超过 10 个；超过 10 个文件时必须阻断并拆分为小步原子 Task。
+- 无复现证据禁止防守：禁止仅凭推测或假设的边缘场景新增防御代码；所有防守逻辑补全必须先提供能稳定复现风险的红态测试或 LSP 门禁硬证据。
+- 治理任务冻结 DDL/Schema 变更：收敛与重构任务默认禁止新增或修改数据库 Migration SQL 与表结构；持久化 Schema 变更必须单独申请隔离 Task。
+- 模块对外接口契约保全：收敛修改必须完全内聚在模块内部，严禁修改已导出的函数签名（Exported Signature）、Protobuf 或 OpenAPI DTO，防止破坏性联动。
+- 禁止静默更新 Baseline/Snapshot 基线：严禁在收敛任务中修改测试快照（Snapshot）、豁免清单或守卫基线（Baseline）强行使测试通过；基线调整必须独立审批。
+
 ## 验证与输出
 
 验证必须绑定已记录的 review object。提交/推送门禁的当前真值只取版本化的 `.githooks/pre-commit`、`.githooks/pre-push`、`.githooks/README.md` 和 `scripts/ai_maintenance_gates.sh` 生成的 gate plan，不得在技能中复制静态命令清单；按变更面补领域专项验证，并把当前 hook 未覆盖项列为 residual。diagnostics 不是测试，旧 binary、空日志或单次 PASS 不是完成证据。
