@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -127,6 +128,40 @@ func assertShardPlanDiagnostic(t *testing.T, decoded ShardPlanDiagnostic) {
 	want := ShardPlanDiagnostic{SchemaVersion: ShardPlanDiagnosticSchemaVersion, Kind: "remote_ci_shard_plan_diagnostic", Calibration: true, TargetDurationMS: 100_000, TotalShards: 2, TotalWorkloads: 20, MinWorkloadsPerShard: 2, MaxWorkloadsPerShard: 18, MinEstimatedShardDurationMS: 99_000, MaxEstimatedShardDurationMS: 120_000, OverTargetEstimatedShardCount: 1}
 	if !reflect.DeepEqual(decoded, want) {
 		t.Fatalf("decoded shard-plan diagnostic = %#v, want %#v", decoded, want)
+	}
+}
+
+// TestCoordinatorPrepareReportsInternalStages 验证长耗时 Prepare 不再只有首尾日志，
+// 每个安全阶段都携带累计 elapsed_ms 供外部定位瓶颈。
+func TestCoordinatorPrepareReportsInternalStages(t *testing.T) {
+	_, input := coordinatorReuseFixture(t)
+	collector := &progressCollector{}
+	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	coordinator.progress = newProgressTracker(collector, coordinator.now)
+	if _, err := coordinator.Prepare(context.Background(), input); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	states := make([]string, 0)
+	for _, event := range collector.snapshot() {
+		if event.Phase == ProgressPhasePrepare {
+			states = append(states, event.State)
+		}
+	}
+	want := []string{
+		"started",
+		"input_validated",
+		"plan_built",
+		"identity_started",
+		"identity_completed",
+		"reuse_started",
+		"reuse_completed",
+		"compile_inputs_started",
+		"compile_inputs_completed",
+		"scope_built",
+		"completed",
+	}
+	if !reflect.DeepEqual(states, want) {
+		t.Fatalf("prepare progress states = %v, want %v", states, want)
 	}
 }
 

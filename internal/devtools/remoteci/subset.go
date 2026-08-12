@@ -29,18 +29,24 @@ func (coordinator *Coordinator) PrepareSubset(
 	if err := validateCoordinatorPrepareInput(ctx, input); err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "input_validated")
 	plan, catalog, entrypoint, err := buildRemotePlan(input)
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "plan_built")
+	coordinator.progress.phase(ProgressPhasePrepare, "identity_started")
 	input, catalog, catalogDigest, fingerprintSnapshot, err := prepareRemoteWorkloadIdentity(ctx, input, catalog)
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "identity_completed")
 	scope, executionCatalog, excluded, err := newRemoteSubsetScope(catalog, request)
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "scope_built")
+	coordinator.progress.phase(ProgressPhasePrepare, "reuse_started")
 	reuse, err := prepareRemoteWorkloadReuse(
 		ctx,
 		input,
@@ -52,11 +58,15 @@ func (coordinator *Coordinator) PrepareSubset(
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.setCacheCounts(len(reuse.reused), len(reuse.cacheMisses), len(reuse.reused))
+	coordinator.progress.phase(ProgressPhasePrepare, "reuse_completed")
 	if reuse.allReused() {
 		if err := validateAllHitExecutionIdentity(input); err != nil {
 			return nil, err
 		}
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_skipped")
 	} else {
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_started")
 		compileInputs, compileErr := remoteCompileGroupInputsForMisses(
 			ctx,
 			fingerprintSnapshot,
@@ -67,6 +77,7 @@ func (coordinator *Coordinator) PrepareSubset(
 			return nil, compileErr
 		}
 		input.WorkloadCompileGroupInputs = cloneRemoteCompileGroupInputs(compileInputs)
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_completed")
 	}
 	return coordinator.freezePreparedRun(input, plan, catalog, executionCatalog, catalogDigest, entrypoint, scope, excluded, reuse)
 }

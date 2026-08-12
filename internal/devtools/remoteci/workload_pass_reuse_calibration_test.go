@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -205,6 +206,39 @@ func TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples(t *testin
 	}
 	if _, kept := reused[workloads[0].ID]; !kept {
 		t.Fatalf("calibration demoted workload with comparable sample %q", workloads[0].ID)
+	}
+}
+
+// TestCoordinatorCalibrationDemotesPassWithOnlyDifferentInputDuration 验证不同
+// input 的历史上界只能参与规划，不能替代当前 input 的可比较校准样本。
+func TestCoordinatorCalibrationDemotesPassWithOnlyDifferentInputDuration(t *testing.T) {
+	_, input := coordinatorReuseFixture(t)
+	input.Calibration = true
+	input.CalibrationResource = testRemoteResourcePolicy().CalibrationResource
+	catalog := mustCoordinatorCatalog(t, input)
+	workloads := remoteShardableWorkloads(catalog)
+	if len(workloads) == 0 {
+		t.Fatal("calibration fixture requires a shardable workload")
+	}
+	current := workloads[0]
+	historical := current
+	historical.InputDigest = "sha256:" + strings.Repeat("f", 64)
+	input.LedgerSnapshot.Ledger.Samples = []gate.DurationSample{calibrationDurationSample(input, historical)}
+	index, err := gate.BuildDurationSampleIndex(input.LedgerSnapshot.Ledger, remotePlanningContext(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !index.HasSuccessfulCalibrationDurationEvidence(current) || index.HasComparableSuccessfulDurationSample(current) {
+		t.Fatal("fixture must contain only a different-input calibration upper bound")
+	}
+	input.LedgerSnapshot.SampleIndex = &index
+	reused := map[string]gate.WorkloadPassEvidence{current.ID: {}}
+	demoted, err := demoteCalibrationReuseWithoutDuration(input, catalog, reused, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if demoted != 1 || len(reused) != 0 {
+		t.Fatalf("different-input calibration demotion = %d reused=%d, want 1/0", demoted, len(reused))
 	}
 }
 

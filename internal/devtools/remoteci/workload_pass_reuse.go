@@ -469,7 +469,7 @@ func demoteCalibrationReuseWithoutDuration(input RunInput, catalog gate.Workload
 		if !ok {
 			return 0, fmt.Errorf("calibration reused workload %q is absent from catalog", workloadID)
 		}
-		if input.LedgerSnapshot.SampleIndex.HasSuccessfulCalibrationDurationEvidence(workload) {
+		if input.LedgerSnapshot.SampleIndex.HasComparableSuccessfulDurationSample(workload) {
 			continue
 		}
 		delete(reused, workloadID)

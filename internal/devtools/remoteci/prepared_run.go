@@ -38,10 +38,13 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	if err := validateCoordinatorPrepareInput(ctx, input); err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "input_validated")
 	plan, catalog, entrypoint, err := buildRemotePlan(input)
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "plan_built")
+	coordinator.progress.phase(ProgressPhasePrepare, "identity_started")
 	input, catalog, catalogDigest, fingerprintSnapshot, err := prepareRemoteWorkloadIdentity(
 		ctx,
 		input,
@@ -50,6 +53,8 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "identity_completed")
+	coordinator.progress.phase(ProgressPhasePrepare, "reuse_started")
 	reuse, err := prepareRemoteWorkloadReuse(
 		ctx,
 		input,
@@ -61,12 +66,15 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.setCacheCounts(len(reuse.reused), len(reuse.cacheMisses), len(reuse.reused))
+	coordinator.progress.phase(ProgressPhasePrepare, "reuse_completed")
 	if reuse.allReused() {
 		if err := validateAllHitExecutionIdentity(input); err != nil {
 			return nil, err
 		}
 	}
 	if !reuse.allReused() {
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_started")
 		compileInputs, compileErr := remoteCompileGroupInputsForMisses(
 			ctx,
 			fingerprintSnapshot,
@@ -77,11 +85,15 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 			return nil, compileErr
 		}
 		input.WorkloadCompileGroupInputs = cloneRemoteCompileGroupInputs(compileInputs)
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_completed")
+	} else {
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_skipped")
 	}
 	scope, err := gate.NewRemoteCIFullExecutionScope(catalog)
 	if err != nil {
 		return nil, fmt.Errorf("construct full remote CI execution scope: %w", err)
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "scope_built")
 	return coordinator.freezePreparedRun(input, plan, catalog, catalog, catalogDigest, entrypoint, &scope, nil, reuse)
 }
 
