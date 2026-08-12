@@ -39,11 +39,6 @@ function useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen }) {
   useEffect(() => {
     if (resolvedSelectedId !== selectedAgentId) setSelectedAgentId(resolvedSelectedId);
   }, [resolvedSelectedId, selectedAgentId]);
-  const expand = (agentId) => {
-    if (typeof agentId === 'string' && agentId) setSelectedAgentId(agentId);
-    setRightPanelView('agents');
-    setRightPanelOpen(true);
-  };
   const collapse = () => setRightPanelOpen(false);
   const showRuntime = () => setRightPanelView('runtime');
   const showAgents = () => setRightPanelView('agents');
@@ -54,7 +49,6 @@ function useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen }) {
     viewModel: { ...viewModel, selectedAgentId: resolvedSelectedId },
     setFloatingCollapsed,
     selectAgent: setSelectedAgentId,
-    expand,
     collapse,
     showRuntime,
     showAgents,

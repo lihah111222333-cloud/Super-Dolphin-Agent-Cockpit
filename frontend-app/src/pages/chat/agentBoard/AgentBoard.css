@@ -90,8 +90,7 @@
   color: var(--text-sec);
 }
 
-.agent-board-floating__collapse,
-.agent-board-floating__expand {
+.agent-board-floating__collapse {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -103,20 +102,12 @@
   color: var(--text-sec);
   cursor: pointer;
   padding: 0;
-}
-
-.agent-board-floating__collapse {
   position: absolute;
   right: 12px;
   bottom: 10px;
 }
 
-.agent-board-floating__expand {
-  margin-left: auto;
-}
-
-.agent-board-floating__collapse:hover,
-.agent-board-floating__expand:hover {
+.agent-board-floating__collapse:hover {
   background: var(--surface-3);
   color: var(--text);
 }

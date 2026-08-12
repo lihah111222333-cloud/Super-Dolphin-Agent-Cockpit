@@ -33,7 +33,6 @@ function floatingViewModel(agents, options = {}) {
 function renderFloating(viewModel, overrides = {}) {
   const props = {
     viewModel,
-    onExpand: vi.fn(),
     ...overrides,
   };
   return { props, ...render(<AgentBoardFloating {...props} />) };
@@ -74,7 +73,6 @@ describe('AgentBoardFloating', () => {
     expect(screen.queryByTestId('agent-entry-bad')).toBeNull();
     expect(screen.getByLabelText('Agent 总数 3')).toHaveTextContent('3');
     expect(screen.getByTestId('agent-count-failed')).toHaveClass('agent-counts__item--alert');
-    expect(screen.getByTestId('agent-board-expand')).toBeInTheDocument();
   });
 
   it('shows loading, error and empty states without fabricating data', () => {
@@ -105,19 +103,6 @@ describe('AgentBoardFloating', () => {
     expect(card).toHaveClass('agent-board-floating--compact');
     expect(screen.getByTestId('agent-counts')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /在右侧栏查看 Agent/ })).toBeNull();
-    expect(screen.getByTestId('agent-board-expand')).toBeInTheDocument();
-  });
-
-  it('expands via the keyboard-focusable expand button', () => {
-    const viewModel = floatingViewModel([agent('root'), agent('worker', { parentAgentId: 'root' })]);
-    const { props } = renderFloating(viewModel);
-
-    const expand = screen.getByTestId('agent-board-expand');
-    expect(expand).toHaveAttribute('aria-label', '展开 Agent 看板');
-    expand.focus();
-    expect(expand).toHaveFocus();
-    fireEvent.click(expand);
-    expect(props.onExpand).toHaveBeenCalledWith();
   });
 
   it('renders an idle pill and restores the full floating board on demand', () => {

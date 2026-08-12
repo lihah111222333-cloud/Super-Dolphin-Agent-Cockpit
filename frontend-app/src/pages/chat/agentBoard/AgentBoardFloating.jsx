@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Minimize2 } from 'lucide-react';
 import { hasOnlyRootAgent } from './agentBoardModel.js';
 import { AgentCountsSummary } from './AgentCountsSummary.jsx';
 
@@ -59,9 +59,9 @@ function FloatingBody({ viewModel }) {
 
 /*
  * 常态悬浮 Agent 看板：聊天页面始终可见的紧凑卡片。
- * 数据完全来自 selector view model；点击展开按钮进入 docked 右侧栏。
+ * 数据完全来自 selector view model；需要完整看板时使用右侧栏的运行时切换入口。
  */
-function AgentBoardFloating({ viewModel, collapsed = false, compact = false, onCollapsedChange = () => {}, onExpand }) {
+function AgentBoardFloating({ viewModel, collapsed = false, compact = false, onCollapsedChange = () => {} }) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const cardRef = useRef(null);
@@ -123,16 +123,6 @@ function AgentBoardFloating({ viewModel, collapsed = false, compact = false, onC
             <span className="agent-board-floating__total" aria-label={`Agent 总数 ${viewModel.agents.length}`}>
               {viewModel.agents.length}
             </span>
-            <button
-              type="button"
-              className="agent-board-floating__expand"
-              aria-label="展开 Agent 看板"
-              title="展开 Agent 看板"
-              data-testid="agent-board-expand"
-              onClick={() => onExpand()}
-            >
-              <Maximize2 size={14} aria-hidden="true" />
-            </button>
           </header>
           <FloatingBody viewModel={viewModel} />
           <button

@@ -349,7 +349,6 @@ function ChatPage(props) {
               collapsed={agentBoard.floatingCollapsed}
               compact={agentBoardCompact}
               onCollapsedChange={agentBoard.setFloatingCollapsed}
-              onExpand={agentBoard.expand}
               viewModel={agentBoard.viewModel}
             />
           ) : null}
