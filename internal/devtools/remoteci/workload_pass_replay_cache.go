@@ -122,22 +122,22 @@ type remoteWorkloadInputVoteDecision struct {
 	compileMiss     bool
 }
 
-// remoteWorkloadInputVoteDecisionFor 去重同源 fallback 后计算独立 MISS 票型。
+// remoteWorkloadInputVoteDecisionFor 先计 broad MISS，再独立核对声明、包编译与运行时闭包。
+// whole-tree runtime fallback 与 broad 同源，只保留包编译票，禁止重复计票。
 func remoteWorkloadInputVoteDecisionFor(source, target remoteWorkloadInputVoteDigests) remoteWorkloadInputVoteDecision {
 	decision := remoteWorkloadInputVoteDecision{missVotes: 1}
 	if source.declaration != target.declaration {
 		decision.declarationMiss = true
 		decision.missVotes++
 	}
+	if source.compile != target.compile {
+		decision.compileMiss = true
+		decision.missVotes++
+	}
 	if source.runtimeFallback != target.runtimeFallback {
 		decision.runtimeMiss = true
 		decision.missVotes++
-	} else if source.runtimeFallback {
-		if source.compile != target.compile {
-			decision.compileMiss = true
-			decision.missVotes++
-		}
-	} else if source.runtime != target.runtime {
+	} else if !source.runtimeFallback && source.runtime != target.runtime {
 		decision.runtimeMiss = true
 		decision.missVotes++
 	}
@@ -148,7 +148,7 @@ func (decision remoteWorkloadInputVoteDecision) allowReuse() bool {
 	return decision.missVotes > 0 && decision.missVotes < remoteReuseMissConfirmationThreshold
 }
 
-// remoteWorkloadInputVotesAllowReuse 在 broad 摘要已判 MISS 的前提下交叉声明和运行时算法；
+// remoteWorkloadInputVotesAllowReuse 在 broad 摘要已判 MISS 的前提下交叉声明、包编译和运行时算法；
 // 只有至少两种算法判 MISS 才拒绝复用，单个宽泛变化不得扩大远程分片。
 func remoteWorkloadInputVotesAllowReuse(source, target remoteWorkloadInputVoteDigests) bool {
 	return remoteWorkloadInputVoteDecisionFor(source, target).allowReuse()

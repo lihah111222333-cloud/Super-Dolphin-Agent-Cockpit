@@ -12,10 +12,10 @@ import (
 func TestRemoteWorkloadMissVoteConsensus(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
 	baseline := testExactGoTestDigestSnapshot("")
-	siblingChanged := testExactGoTestDigestSnapshot("const siblingCompileMarker = 1\n")
-	singleVote := remoteWorkloadInputVoteDecisionFor(testExactGoTestInputVotes(t, baseline, target), testExactGoTestInputVotes(t, siblingChanged, target))
+	baselineVotes := testExactGoTestInputVotes(t, baseline, target)
+	singleVote := remoteWorkloadInputVoteDecisionFor(baselineVotes, baselineVotes)
 	if !singleVote.allowReuse() {
-		t.Fatal("single broad compile MISS rejected selector PASS reuse")
+		t.Fatal("single broad MISS rejected selector PASS reuse")
 	}
 	selectedChanged := testExactGoTestDigestSnapshot("")
 	testExactGoTestDigestReplaceFile(selectedChanged, "fixture/target_test.go", []byte("package fixture\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { t.Log(\"changed\") }\nfunc BenchmarkX(b *testing.B) {}\n"))
@@ -28,6 +28,29 @@ func TestRemoteWorkloadMissVoteConsensus(t *testing.T) {
 	diagnostic.observeSourceInputVoteDecision(confirmed)
 	if diagnostic.SourceSingleVoteRecovered != 1 || diagnostic.SourceConfirmedMisses != 1 || diagnostic.SourceDeclarationMissVotes != 1 {
 		t.Fatalf("vote diagnostic = %#v", diagnostic)
+	}
+}
+
+// TestRemoteWorkloadMissVotesRejectSiblingCompileFailure 验证同包未选测试的
+// 编译闭包变化必须成为独立 MISS 票，禁止把无法编译的候选复用为 PASS。
+func TestRemoteWorkloadMissVotesRejectSiblingCompileFailure(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	baseline := testExactGoTestDigestSnapshot("")
+	compileFailure := testExactGoTestDigestSnapshot("type Broken doesNotExist\n")
+	decision := remoteWorkloadInputVoteDecisionFor(
+		testExactGoTestInputVotes(t, baseline, target),
+		testExactGoTestInputVotes(t, compileFailure, target),
+	)
+	if decision.allowReuse() {
+		t.Fatal("sibling compile failure reused selector PASS")
+	}
+	if !decision.compileMiss || decision.missVotes < remoteReuseMissConfirmationThreshold {
+		t.Fatalf("sibling compile-failure decision = %+v, want confirmed compile MISS", decision)
+	}
+	diagnostic := ReuseReplayDiagnostic{}
+	diagnostic.observeSourceInputVoteDecision(decision)
+	if diagnostic.SourceConfirmedMisses != 1 || diagnostic.SourceCompileMissVotes != 1 {
+		t.Fatalf("sibling compile-failure diagnostic = %#v, want one confirmed compile MISS", diagnostic)
 	}
 }
 
