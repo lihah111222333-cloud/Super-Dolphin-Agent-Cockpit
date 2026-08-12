@@ -183,6 +183,18 @@ func TestScanLoadModeAvoidsTypeChecking(t *testing.T) {
 	}
 }
 
+func TestScanIgnoresCallerRaceFlagsForCrossPlatformSyntaxLoad(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "internal", "contract")
+	writeScanFixture(t, pkgDir, filepath.Join(root, "go.mod"), "module fixture\n\ngo 1.25\n")
+	writeScanFixture(t, pkgDir, filepath.Join(pkgDir, "contract.go"), "package contract\nfunc Common() {}\n")
+	t.Setenv("GOFLAGS", "-race")
+	t.Setenv("CGO_ENABLED", "0")
+	if _, err := Scan(ScanOptions{RepoRoot: root, Roots: []string{"internal/contract"}}); err != nil {
+		t.Fatalf("Scan inherited caller race flags: %v", err)
+	}
+}
+
 func writeScanFixture(t *testing.T, dir, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

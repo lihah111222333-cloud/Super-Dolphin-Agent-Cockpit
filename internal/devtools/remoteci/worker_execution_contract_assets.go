@@ -12,6 +12,19 @@ import (
 	"strings"
 )
 
+const workerExecutionSourceManifestPath = "internal/devtools/remoteci/source_materializer_manifest.go"
+
+// addWorkerExecutionSourceManifestAsset 绑定 worker 对 source manifest 的严格解码和逐字段校验实现，
+// 同时避免通用 Validatable 接口把无关的 host planner 校验器扩进执行语义闭包。
+func (assets *workerExecutionAssets) addWorkerExecutionSourceManifestAsset() error {
+	entry, ok := assets.snapshot.byPath[workerExecutionSourceManifestPath]
+	if !ok || entry.kind != "blob" {
+		return fmt.Errorf("worker execution source manifest asset is missing")
+	}
+	assets.entries[workerExecutionSourceManifestPath] = entry
+	return nil
+}
+
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。

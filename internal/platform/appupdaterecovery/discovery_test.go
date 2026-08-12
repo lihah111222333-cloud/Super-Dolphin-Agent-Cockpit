@@ -33,6 +33,7 @@ func TestSelectForTargetUsesGenerationAcrossClockRollback(t *testing.T) {
 }
 
 func TestCreateAllocatesMonotonicTargetGeneration(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	first := loadTransaction(t, store, identity)
 	if first.TargetGeneration != 1 {

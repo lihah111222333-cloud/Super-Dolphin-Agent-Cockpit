@@ -136,13 +136,8 @@ func validateSQLiteRemoteCIRunAuthorityInputs(tx *sql.Tx, identity RemoteCIRunAu
 	if err != nil {
 		return nil, err
 	}
-	for _, result := range stored.WorkloadResults {
-		if result.Disposition != WorkloadDispositionReused {
-			continue
-		}
-		if err := verifySQLiteRetainedWorkloadPassProof(tx, stored.JobID, result); err != nil {
-			return nil, fmt.Errorf("validate reused workload %q before authority CAS: %w", result.Identity.WorkloadID, err)
-		}
+	if err := verifySQLiteRetainedWorkloadPassProofs(tx, stored); err != nil {
+		return nil, fmt.Errorf("validate reused workloads before authority CAS: %w", err)
 	}
 	return verified, nil
 }

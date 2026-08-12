@@ -11,8 +11,27 @@ import (
 	"time"
 )
 
+// trustedSelfTestRoot 在非公共可写的包目录下创建严格工具权限可接受的测试根。
+func trustedSelfTestRoot(t *testing.T) string {
+	t.Helper()
+	root, err := os.MkdirTemp(".", ".trusted-self-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove trusted self test root: %v", err)
+		}
+	})
+	return root
+}
+
 func TestTrustedSelfBinaryIgnoresSameNamePATHFakeAndRejectsContentDrift(t *testing.T) {
-	root := t.TempDir()
+	root := trustedSelfTestRoot(t)
 	selfPath := writeTrustedSelfFixture(t, filepath.Join(root, "receipt-self", ExecutorSelfCommandName), "self-v1")
 	fakePath := writeTrustedSelfFixture(t, filepath.Join(root, "global", ExecutorSelfCommandName), "global-fake")
 	t.Setenv("PATH", filepath.Dir(fakePath))
@@ -37,7 +56,7 @@ func TestTrustedSelfBinaryIgnoresSameNamePATHFakeAndRejectsContentDrift(t *testi
 }
 
 func TestTrustedSelfBinaryReceiptIdentityExcludesAbsolutePath(t *testing.T) {
-	root := t.TempDir()
+	root := trustedSelfTestRoot(t)
 	first, err := newTrustedSelfBinary(writeTrustedSelfFixture(t, filepath.Join(root, "one", ExecutorSelfCommandName), "same"), "test-build")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +82,7 @@ func TestTrustedSelfBinaryReceiptIdentityExcludesAbsolutePath(t *testing.T) {
 }
 
 func TestProjectMapTrustedSelfChangesLocalPASSIdentity(t *testing.T) {
-	root := t.TempDir()
+	root := trustedSelfTestRoot(t)
 	selfPath := writeTrustedSelfFixture(t, filepath.Join(root, ExecutorSelfCommandName), "self-v1")
 	host, programs := localReceiptIdentityTestInputs()
 	firstSelf := mustTrustedSelfBinary(t, selfPath, "test-build-v1")
@@ -77,7 +96,7 @@ func TestProjectMapTrustedSelfChangesLocalPASSIdentity(t *testing.T) {
 }
 
 func TestSealedReceiptBaseRunnerAuthorityPromotesSelfAndNonSelf(t *testing.T) {
-	root := t.TempDir()
+	root := trustedSelfTestRoot(t)
 	selfPath := writeTrustedSelfFixture(t, filepath.Join(root, ExecutorSelfCommandName), "self-v1")
 	host, programs := localReceiptIdentityTestInputs()
 	first := mustLocalReceiptEnvironments(t, host, programs, mustTrustedSelfBinary(t, selfPath, "test-build-v1"))
@@ -193,7 +212,7 @@ func sealedReceiptPassBatch(t *testing.T, host LocalWorkloadPassHostContext, env
 }
 
 func TestProjectMapTrustedSelfEnvironmentIdentityExcludesAbsolutePath(t *testing.T) {
-	root := t.TempDir()
+	root := trustedSelfTestRoot(t)
 	first := mustTrustedSelfBinary(t, writeTrustedSelfFixture(t, filepath.Join(root, "one", ExecutorSelfCommandName), "same"), "test-build")
 	second := mustTrustedSelfBinary(t, writeTrustedSelfFixture(t, filepath.Join(root, "two", ExecutorSelfCommandName), "same"), "test-build")
 	programs := map[GateID]ExecutorProgram{GateIDProjectMapCheck: executorPrograms[GateIDProjectMapCheck]}
@@ -204,7 +223,7 @@ func TestProjectMapTrustedSelfEnvironmentIdentityExcludesAbsolutePath(t *testing
 }
 
 func TestProjectMapReceiptRejectsTrustedSelfDriftBeforePASSLookup(t *testing.T) {
-	root := t.TempDir()
+	root := trustedSelfTestRoot(t)
 	selfPath := writeTrustedSelfFixture(t, filepath.Join(root, ExecutorSelfCommandName), "self-v1")
 	receipt := localReceiptWithProjectMapSelf(localPassTestEnvironment(false), mustTrustedSelfBinary(t, selfPath, "test-build"))
 	replaceTrustedSelfFixture(t, selfPath, "self-v2")
@@ -215,7 +234,7 @@ func TestProjectMapReceiptRejectsTrustedSelfDriftBeforePASSLookup(t *testing.T) 
 }
 
 func TestProjectMapReceiptAndProgramUseInjectedTrustedSelf(t *testing.T) {
-	root := t.TempDir()
+	root := trustedSelfTestRoot(t)
 	source := filepath.Join(root, "source")
 	mustProjectMapReceiptInput(t, source)
 	selfPath := writeTrustedSelfFixture(t, filepath.Join(root, "self", ExecutorSelfCommandName), "self")
@@ -240,6 +259,9 @@ func TestProjectMapReceiptAndProgramUseInjectedTrustedSelf(t *testing.T) {
 	names := localReceiptToolNames(map[GateID]ExecutorProgram{GateIDProjectMapCheck: program})
 	if _, found := names[ExecutorSelfCommandName]; found {
 		t.Fatal("ProjectMap self was incorrectly sent to fixed receipt tool directories")
+	}
+	if _, found := names["node"]; !found {
+		t.Fatal("ProjectMap nested Node runtime is absent from the receipt tool closure")
 	}
 }
 

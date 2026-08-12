@@ -521,6 +521,11 @@ func localSandboxProfile(sourceRoot string, layout executorLayout, dependencies 
 		return "", err
 	}
 	readRoots := append([]string(nil), writeRoots...)
+	gitObjectRoots, err := localSandboxGitObjectReadRoots(sourceRoot)
+	if err != nil {
+		return "", err
+	}
+	readRoots = append(readRoots, gitObjectRoots...)
 	dependencyRoots, err := localSandboxDependencyRoots(writeRoots, dependencies)
 	if err != nil {
 		return "", err
@@ -746,19 +751,17 @@ func finishLocalGateExecution(id GateID, program ExecutorProgram, observation lo
 	argvDigest, digestErr := localWorkloadExecutionDigest(string(id))
 	runErr = errors.Join(runErr, digestErr)
 	result := PlanGateExecution{ShardIdentity: "local/" + string(id), GateID: id, Status: status, ExitCode: exitCode, StartedAt: observation.started, CompletedAt: observation.completed, ArgvDigest: argvDigest, Log: observation.log, LogDigest: digestPlanLog(observation.log), TestTimings: observation.testTimings, ExecutionProfile: profile}
+	result.CompletedAt = normalizedExecutionCompletedAt(result.StartedAt, result.CompletedAt, result.ExecutionProfile)
 	result, canonicalErr := CanonicalizePlanGateExecutionTiming(result)
 	return result, errors.Join(runErr, canonicalErr)
 }
 
 func localWorkloadExecutionDigest(id string) (string, error) {
-	digest, err := WorkloadExecutionDigest(id)
+	commandDigest, err := WorkloadExecutionDigest(id)
 	if err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(digest, "sha256:") {
-		return digest, nil
-	}
-	return "sha256:" + digest, nil
+	return WorkloadPassExecutionDigest(Workload{ID: id, CommandDigest: commandDigest}), nil
 }
 
 // configuredLocalExecutorTempRoots 返回默认临时根与可选 GOTMPDIR，保留原始配置供严格校验。

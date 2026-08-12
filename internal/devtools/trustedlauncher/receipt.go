@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/build"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -185,6 +186,7 @@ func (receipt Receipt) Validate() error {
 	return receipt.validateWithValidators(receiptFieldValidators())
 }
 
+// validateWithValidators 将动态生产字段与 validator registry 做双向完整性校验。
 func (receipt Receipt) validateWithValidators(validators map[string]func(Receipt) error) error {
 	fields, err := receiptJSONFields()
 	if err != nil {
@@ -319,7 +321,11 @@ func BuildLinkedIdentityValues(identity LinkedIdentity) (string, string, error) 
 	if err != nil {
 		return "", "", err
 	}
-	digest, err := buildArgumentsDigest(launcherBuildArguments(linkedPayload, ""))
+	arguments, err := launcherBuildArguments(linkedPayload, "")
+	if err != nil {
+		return "", "", err
+	}
+	digest, err := buildArgumentsDigest(arguments)
 	if err != nil {
 		return "", "", err
 	}
@@ -456,7 +462,11 @@ func validateLauncherBuildArgumentsDigest(linkedPayload, observed string) error 
 	if err := validateDigestField("build_arguments_sha256", observed); err != nil {
 		return err
 	}
-	expected, err := buildArgumentsDigest(launcherBuildArguments(linkedPayload, ""))
+	arguments, err := launcherBuildArguments(linkedPayload, "")
+	if err != nil {
+		return err
+	}
+	expected, err := buildArgumentsDigest(arguments)
 	if err != nil {
 		return err
 	}
@@ -466,7 +476,11 @@ func validateLauncherBuildArgumentsDigest(linkedPayload, observed string) error 
 	return nil
 }
 
-func launcherBuildArguments(linkedPayload, buildArgumentsSHA256 string) []string {
-	linked := "-X main.gateSourceDigest=" + linkedPayload + " -X main.gateToolchainDigest=" + buildArgumentsSHA256
-	return []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", linked, "./cmd/super-dolphin-gate"}
+func launcherBuildArguments(linkedPayload, buildArgumentsSHA256 string) ([]string, error) {
+	goRoot := build.Default.GOROOT
+	if !filepath.IsAbs(goRoot) || filepath.Clean(goRoot) != goRoot || strings.ContainsAny(goRoot, " \t\r\n") {
+		return nil, errors.New("trusted launcher build Go root is not canonical")
+	}
+	linked := "-X runtime.defaultGOROOT=" + goRoot + " -X main.gateSourceDigest=" + linkedPayload + " -X main.gateToolchainDigest=" + buildArgumentsSHA256
+	return []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", linked, "./cmd/super-dolphin-gate"}, nil
 }

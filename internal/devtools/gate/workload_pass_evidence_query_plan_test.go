@@ -73,7 +73,7 @@ func TestWorkloadPassEnvironmentReplayQueryPlanUsesRetentionIndex(t *testing.T) 
 		identities[index] = identity
 	}
 	query, args := workloadPassEnvironmentReplayQuery(identities, 12)
-	if !strings.Contains(query, "WHERE accepted_generation = ?") || strings.Contains(query, "accepted_generation IN") {
+	if !strings.Contains(query, "WHERE evidence.accepted_generation = ?") || strings.Contains(query, "accepted_generation IN") {
 		t.Fatalf("environment replay query is not current-generation-only: %s", query)
 	}
 	details := sqliteQueryPlanDetails(t, database, query, args...)

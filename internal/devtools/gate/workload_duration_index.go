@@ -13,6 +13,10 @@ import (
 // DurationEstimatorPolicyID 是 gate-facing alias；估时策略 identity 由 cicontract 持有。
 const DurationEstimatorPolicyID = cicontract.WorkloadEstimatorPolicyID
 
+// unknownNilnessCalibrationFloorMS 是校准模式下全新 nilness 包的单次 analyzer 冷启动下界。
+// 它只影响分片规划，不生成耗时样本，也不参与 PASS authority。
+const unknownNilnessCalibrationFloorMS int64 = 10_000
+
 type durationSampleIndexKey struct {
 	workloadID        string
 	commandDigest     string
@@ -373,6 +377,19 @@ func (index DurationSampleIndex) HasComparableSuccessfulDurationSample(workload 
 	return index.hasComparableNormalSample(workload)
 }
 
+// HasSuccessfulCalibrationDurationEvidence 要求当前校准资源已有精确输入样本，
+// 或同 workload/命令的跨输入成功历史；调用方仍必须独立验证当前 correctness PASS。
+func (index DurationSampleIndex) HasSuccessfulCalibrationDurationEvidence(workload Workload) bool {
+	if !index.context.Calibration {
+		return false
+	}
+	if index.hasComparableCalibrationSample(workload) {
+		return true
+	}
+	cpu, memoryGiB, err := index.calibrationResource()
+	return err == nil && index.calibrationHistoricalUpperBound(workload, cpu, memoryGiB) > 0
+}
+
 // hasComparableCalibrationSample 检查固定校准资源的成功样本。
 func (index DurationSampleIndex) hasComparableCalibrationSample(workload Workload) bool {
 	cpu, memoryGiB, err := index.calibrationResource()
@@ -524,24 +541,59 @@ func (index DurationSampleIndex) estimateWorkloadDuration(workload Workload) (in
 	return index.estimateNormalWorkload(workload, targetDurationMS)
 }
 
-// estimateCalibrationWorkload 只使用当前校准 identity 对应的 4C/8GiB 样本。
+// estimateCalibrationWorkload 交叉使用当前 identity 的稳健估值、同 workload/命令的
+// 跨输入历史上界与 bootstrap 下界；取最大值，避免源码变化后把不确定任务过度装箱。
 func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, _ int64) (int64, durationSampleResource, error) {
 	cpu, memoryGiB, err := index.calibrationResource()
 	if err != nil {
 		return 0, durationSampleResource{}, err
 	}
+	prior, err := calibrationWorkloadPrior(workload)
+	if err != nil {
+		return 0, durationSampleResource{}, err
+	}
+	upperBound := index.calibrationHistoricalUpperBound(workload, cpu, memoryGiB)
 	aggregate, resource, found, err := index.aggregateForResource(workload, DurationExecutionModeCalibration, cpu, memoryGiB)
 	if err != nil {
 		return 0, durationSampleResource{}, err
 	}
 	if !found || aggregate.successCount == 0 {
-		return workload.BootstrapEstimateMS, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
+		return max(prior, upperBound), durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
 	}
-	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), workload.BootstrapEstimateMS)
+	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), prior)
 	if err != nil {
 		return 0, durationSampleResource{}, err
 	}
-	return estimate, resource, nil
+	return max(estimate, upperBound), resource, nil
+}
+
+// calibrationWorkloadPrior 为没有可比样本的校准任务提供保守下界。
+func calibrationWorkloadPrior(workload Workload) (int64, error) {
+	parent, kind, _, targeted, err := ParseWorkloadID(workload.ID)
+	if err != nil {
+		return 0, fmt.Errorf("parse calibration workload %q: %w", workload.ID, err)
+	}
+	if targeted && parent == GateIDBackendNilness && kind == WorkloadTargetGoPackage {
+		return max(workload.BootstrapEstimateMS, unknownNilnessCalibrationFloorMS), nil
+	}
+	return workload.BootstrapEstimateMS, nil
+}
+
+// calibrationHistoricalUpperBound 返回相同 workload/命令/资源在保留 generation 中的成功上界。
+// input digest 可不同，因为该值仅是装箱风险信号，不能替代当前输入的执行或 PASS 证据。
+func (index DurationSampleIndex) calibrationHistoricalUpperBound(workload Workload, cpu, memoryGiB float64) int64 {
+	var upperBound int64
+	for key, aggregate := range index.buckets {
+		if key.workloadID != workload.ID || key.commandDigest != workload.CommandDigest ||
+			key.executionMode != DurationExecutionModeCalibration || key.resourceClassID != index.context.CalibrationResourceClassID ||
+			key.resourceCPU != cpu || key.resourceMemoryGiB != memoryGiB {
+			continue
+		}
+		for _, sample := range index.retainedSuccessSamples(aggregate) {
+			upperBound = max(upperBound, sample.durationMS)
+		}
+	}
+	return upperBound
 }
 
 func (index DurationSampleIndex) calibrationResource() (float64, float64, error) {

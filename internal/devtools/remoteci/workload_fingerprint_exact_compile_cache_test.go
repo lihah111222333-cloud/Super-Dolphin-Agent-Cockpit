@@ -141,7 +141,7 @@ func TestX(t *testing.T) { _ = reflect.DeepEqual(1, 1) }
 	}
 	baselineDigest := testExactGoTestDigest(t, baseline, gate.GoTestTarget{Package: "fixture", Name: "TestX"})
 	changedDigest := testExactGoTestDigest(t, changed, gate.GoTestTarget{Package: "fixture", Name: "TestX"})
-	if baselineDigest == changedDigest {
-		t.Fatal("selector runtime observation was omitted from final digest")
+	if baselineDigest != changedDigest {
+		t.Fatal("pure selector runtime observation included unrelated project-map input")
 	}
 }

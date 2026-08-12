@@ -3,7 +3,9 @@ package main
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -116,6 +118,56 @@ func remoteRunReceiptTestResultFromStoredExecution(t *testing.T, store *gatecont
 	result.WorkloadExecutions = recorded.WorkloadExecutions
 	result.FreshWorkloadExecutions = recorded.WorkloadExecutions
 	return result
+}
+
+func TestRemoteRunExpectedWorkloadResultsPreservesAtomicReexecutionProof(t *testing.T) {
+	identity := gatecontract.WorkloadPassIdentity{WorkloadID: "atomic-reexecuted", ExecutionDigest: "sha256:" + strings.Repeat("a", 64), InputDigest: "sha256:" + strings.Repeat("b", 64), EnvironmentDigest: "sha256:" + strings.Repeat("c", 64)}
+	identityDigest, err := gatecontract.WorkloadPassIdentitySHA256(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.IdentityDigest = identityDigest
+	proofResult := gatecontract.RemoteCIWorkloadResult{Identity: identity, Disposition: gatecontract.WorkloadDispositionReused, OriginJobID: "canonical-origin", OriginAcceptedGeneration: 7, EvidenceSHA256: "sha256:" + strings.Repeat("d", 64)}
+	result := remoteci.RunResult{
+		JobID: "atomic-consumer", AcceptedGeneration: 7,
+		WorkloadPassIdentities:    []gatecontract.WorkloadPassIdentity{identity},
+		ReexecutedWorkloadResults: []gatecontract.RemoteCIWorkloadResult{proofResult},
+	}
+	result.FreshWorkloadExecutions = []gatecontract.PlanGateExecution{{GateID: identity.WorkloadID}}
+	want, err := remoteRunExpectedWorkloadResults(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(want) != 1 || want[identity.WorkloadID] != proofResult {
+		t.Fatalf("atomic reexecution readback = %#v, want %#v", want, proofResult)
+	}
+}
+
+// TestRemoteRunExpectedWorkloadResultsUsesCanonicalSourceReplayProjection 锁定
+// finalizer 与 provisional writer 对跨树 replay 使用同一当前 identity 和 proof 摘要。
+func TestRemoteRunExpectedWorkloadResultsUsesCanonicalSourceReplayProjection(t *testing.T) {
+	workload := gatecontract.Workload{ID: "backend:test_with_guard::go-guard::bmVzdGVkLW1vZHVsZTp0aGlyZF9wYXJ0eS9rZWxpbmRhci1ldmVudA", Shardable: true}
+	source := remoteRunReceiptTestEvidence(t, workload, time.Unix(1, 0).UTC())
+	target := source.Identity
+	target.InputDigest = "sha256:" + strings.Repeat("9", 64)
+	var err error
+	target.IdentityDigest, err = gatecontract.WorkloadPassIdentitySHA256(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := remoteci.RunResult{WorkloadPassIdentities: []gatecontract.WorkloadPassIdentity{target}, ReusedWorkloads: []gatecontract.WorkloadPassEvidence{source}}
+	want, err := remoteRunExpectedWorkloadResults(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedSHA, err := gatecontract.WorkloadPassSourceReplaySHA256(target, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := want[target.WorkloadID]
+	if got.Identity != target || got.EvidenceSHA256 != expectedSHA {
+		t.Fatalf("canonical replay result = %#v, want identity=%#v evidence=%q", got, target, expectedSHA)
+	}
 }
 
 // TestRemoteRunAuthorityIdentityScopeFieldGuard dynamically verifies the

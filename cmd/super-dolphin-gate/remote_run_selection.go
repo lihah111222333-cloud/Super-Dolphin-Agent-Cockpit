@@ -35,8 +35,8 @@ func validateRemoteScenarioOptions(
 	options remoteRunOptions,
 	scenario string,
 ) error {
-	if scenario == "test" && len(options.Tests) == 0 {
-		return errors.New("remote CI test scenario requires at least one --test selector")
+	if scenario == "test" && len(options.Tests) == 0 && len(options.GateWorkloadIDs) == 0 {
+		return errors.New("remote CI test scenario requires at least one --test or --gate-workload selector")
 	}
 	if scenario != "test" && len(options.Tests) != 0 {
 		return errors.New("--test selectors are only valid with scenario test")

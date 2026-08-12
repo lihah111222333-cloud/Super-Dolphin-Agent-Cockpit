@@ -3,6 +3,8 @@ package trustedlauncher
 import (
 	"encoding/base64"
 	"encoding/json"
+	"go/build"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -66,16 +68,7 @@ func TestProducerEmitsOnlyConsumerAcceptedLinkedGlobals(t *testing.T) {
 	if len(arguments) != 7 {
 		t.Fatalf("build argument count = %d, want 7", len(arguments))
 	}
-	linked := arguments[5]
-	const sourcePrefix = "-X main.gateSourceDigest="
-	const digestPrefix = " -X main.gateToolchainDigest="
-	if strings.Count(linked, "-X ") != 2 || !strings.HasPrefix(linked, sourcePrefix) || !strings.Contains(linked, digestPrefix) {
-		t.Fatalf("linker globals must contain only payload and digest: %q", linked)
-	}
-	payloadText, observedDigest, ok := strings.Cut(strings.TrimPrefix(linked, sourcePrefix), digestPrefix)
-	if !ok || observedDigest != identity.BuildArgumentsSHA256 {
-		t.Fatalf("linked values = %q", linked)
-	}
+	payloadText, observedDigest := assertLauncherLinkedArguments(t, arguments[5], identity.BuildArgumentsSHA256)
 	decoded, err := DecodeLinkedIdentity(payloadText, observedDigest)
 	if err != nil {
 		t.Fatalf("decode producer linker values: %v", err)
@@ -83,6 +76,24 @@ func TestProducerEmitsOnlyConsumerAcceptedLinkedGlobals(t *testing.T) {
 	if decoded != identity {
 		t.Fatalf("decoded identity = %+v, want %+v", decoded, identity)
 	}
+}
+
+func assertLauncherLinkedArguments(t *testing.T, linked, expectedDigest string) (string, string) {
+	t.Helper()
+	goRootPrefix := "-X runtime.defaultGOROOT=" + build.Default.GOROOT + " "
+	const sourcePrefix = "-X main.gateSourceDigest="
+	const digestPrefix = " -X main.gateToolchainDigest="
+	if !filepath.IsAbs(build.Default.GOROOT) || filepath.Clean(build.Default.GOROOT) != build.Default.GOROOT {
+		t.Fatalf("test build Go root is not canonical: %q", build.Default.GOROOT)
+	}
+	if strings.Count(linked, "-X ") != 3 || !strings.HasPrefix(linked, goRootPrefix+sourcePrefix) || !strings.Contains(linked, digestPrefix) {
+		t.Fatalf("linker globals must contain Go root, payload, and digest: %q", linked)
+	}
+	payloadText, observedDigest, ok := strings.Cut(strings.TrimPrefix(linked, goRootPrefix+sourcePrefix), digestPrefix)
+	if !ok || observedDigest != expectedDigest {
+		t.Fatalf("linked values = %q", linked)
+	}
+	return payloadText, observedDigest
 }
 
 func TestLinkedIdentityPayloadDynamicFieldCoverage(t *testing.T) {
@@ -101,7 +112,7 @@ func TestLinkedIdentityPayloadDynamicFieldCoverage(t *testing.T) {
 			missing := payload
 			reflect.ValueOf(&missing).Elem().FieldByIndex(field.Index).SetZero()
 			linked := encodeRawLinkedPayloadForTest(t, missing)
-			digest := mustBuildArgumentsDigest(t, launcherBuildArguments(linked, ""))
+			digest := mustBuildArgumentsDigest(t, mustLauncherBuildArguments(t, linked, ""))
 			if _, err := DecodeLinkedIdentity(linked, digest); err == nil {
 				t.Fatalf("missing payload field %s was accepted", field.Name)
 			}
@@ -131,7 +142,7 @@ func TestDecodeLinkedIdentityRejectsMalformedInput(t *testing.T) {
 	for name, data := range tests {
 		t.Run(name, func(t *testing.T) {
 			linked := launcherLinkedPayloadPrefix + base64.RawURLEncoding.EncodeToString(data)
-			digest := mustBuildArgumentsDigest(t, launcherBuildArguments(linked, ""))
+			digest := mustBuildArgumentsDigest(t, mustLauncherBuildArguments(t, linked, ""))
 			if _, err := DecodeLinkedIdentity(linked, digest); err == nil {
 				t.Fatalf("malformed launcher payload %q was accepted", name)
 			}
@@ -143,10 +154,10 @@ func TestBuildArgumentsIdentityDigestExcludesSecondLinkerValue(t *testing.T) {
 	identity := linkedIdentityFromReceipt(validReceiptFixture(t))
 	digest := mustBuildArgumentsIdentityDigest(t, identity)
 	payload := mustLinkedPayload(t, identity)
-	if digest != mustBuildArgumentsDigest(t, launcherBuildArguments(payload, "")) {
+	if digest != mustBuildArgumentsDigest(t, mustLauncherBuildArguments(t, payload, "")) {
 		t.Fatal("build-arguments digest does not bind an empty second linker value")
 	}
-	if digest == mustBuildArgumentsDigest(t, launcherBuildArguments(payload, "sha256:"+strings.Repeat("f", 64))) {
+	if digest == mustBuildArgumentsDigest(t, mustLauncherBuildArguments(t, payload, "sha256:"+strings.Repeat("f", 64))) {
 		t.Fatal("build-arguments digest unexpectedly includes its own linker value")
 	}
 }
@@ -210,6 +221,15 @@ func encodeRawLinkedPayloadForTest(t *testing.T, payload launcherLinkedPayload) 
 		t.Fatalf("marshal linked payload: %v", err)
 	}
 	return launcherLinkedPayloadPrefix + base64.RawURLEncoding.EncodeToString(data)
+}
+
+func mustLauncherBuildArguments(t *testing.T, payload, digest string) []string {
+	t.Helper()
+	arguments, err := launcherBuildArguments(payload, digest)
+	if err != nil {
+		t.Fatalf("launcher build arguments: %v", err)
+	}
+	return arguments
 }
 
 func mustBuildArgumentsDigest(t *testing.T, arguments []string) string {

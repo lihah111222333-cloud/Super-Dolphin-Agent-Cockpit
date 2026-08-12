@@ -249,7 +249,13 @@ func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManife
 		Servers:      make(map[string]LSPServer, len(manifest.Servers)),
 		Languages:    map[string]LSPServer{},
 	}
-	for id, server := range manifest.Servers {
+	serverIDs := make([]string, 0, len(manifest.Servers))
+	for id := range manifest.Servers {
+		serverIDs = append(serverIDs, id)
+	}
+	slices.Sort(serverIDs)
+	for _, id := range serverIDs {
+		server := manifest.Servers[id]
 		serverID := normalizeLSPKey(id)
 		if serverID == "" {
 			return LSPBundle{}, fmt.Errorf("bundled LSP manifest %s has an empty server id", manifestPath)

@@ -14,6 +14,12 @@ import (
 // ProgressEventSchemaVersion 版本化远程运行的旁路进度事件，不属于 RunResult 回执。
 const ProgressEventSchemaVersion uint32 = 1
 
+// ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
+const ReuseDiagnosticSchemaVersion uint32 = 6
+
+// ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
+const ShardPlanDiagnosticSchemaVersion uint32 = 1
+
 // progressHeartbeatInterval 在分片计数不变时限制旁路心跳频率。
 const progressHeartbeatInterval = 10 * time.Second
 
@@ -58,9 +64,86 @@ type ProgressEvent struct {
 	CleanupFailed   int           `json:"cleanup_failed"`
 }
 
+// ReuseDiagnostic 区分严格 identity lookup 与 package 原子降级后的有效复用。
+type ReuseDiagnostic struct {
+	SchemaVersion              uint32                 `json:"schema_version"`
+	Kind                       string                 `json:"kind"`
+	Forced                     bool                   `json:"forced"`
+	MissConfirmationThreshold  int                    `json:"miss_confirmation_threshold"`
+	DirectHits                 int                    `json:"direct_hits"`
+	SourceReplayHits           int                    `json:"source_replay_hits"`
+	EnvironmentReplayHits      int                    `json:"environment_replay_hits"`
+	ExactHits                  int                    `json:"exact_hits"`
+	DirectMisses               int                    `json:"direct_misses"`
+	RecoveredDirectMisses      int                    `json:"recovered_direct_misses"`
+	ReplayMisses               int                    `json:"replay_misses"`
+	AtomicDemoted              int                    `json:"atomic_demoted"`
+	CalibrationDurationDemoted int                    `json:"calibration_duration_demoted"`
+	EffectiveHits              int                    `json:"effective_hits"`
+	EffectiveMisses            int                    `json:"effective_misses"`
+	Replay                     ReuseReplayDiagnostic  `json:"replay"`
+	MissGroups                 []ReuseDiagnosticGroup `json:"miss_groups,omitempty"`
+}
+
+// ReuseReplayDiagnostic 汇总两类 exact-tree replay 的候选与拒绝阶段，不携带 workload 或摘要。
+type ReuseReplayDiagnostic struct {
+	SourceCandidateWorkloads         int `json:"source_candidate_workloads"`
+	SourceCandidates                 int `json:"source_candidates"`
+	SourceInputUnavailable           int `json:"source_input_unavailable"`
+	SourceInputMismatch              int `json:"source_input_mismatch"`
+	SourceSingleVoteRecovered        int `json:"source_single_vote_recovered"`
+	SourceDeclarationMissVotes       int `json:"source_declaration_miss_votes"`
+	SourceRuntimeMissVotes           int `json:"source_runtime_miss_votes"`
+	SourceCompileMissVotes           int `json:"source_compile_miss_votes"`
+	SourceConfirmedMisses            int `json:"source_confirmed_misses"`
+	EnvironmentHintWorkloads         int `json:"environment_hint_workloads"`
+	EnvironmentHints                 int `json:"environment_hints"`
+	EnvironmentGenerationMismatch    int `json:"environment_generation_mismatch"`
+	EnvironmentTargetUnavailable     int `json:"environment_target_unavailable"`
+	EnvironmentSourceUnavailable     int `json:"environment_source_unavailable"`
+	EnvironmentHistoricalMismatch    int `json:"environment_historical_mismatch"`
+	EnvironmentCurrentWorkerMismatch int `json:"environment_current_worker_mismatch"`
+	EnvironmentInputMismatch         int `json:"environment_input_mismatch"`
+}
+
+// ReuseDiagnosticGroup 按 workload 类型与编译单元聚合 MISS 来源；它不携带
+// 单个 selector、身份摘要或凭据，只用于定位过宽失效面。
+type ReuseDiagnosticGroup struct {
+	TargetKind      string `json:"target_kind"`
+	TargetGroup     string `json:"target_group"`
+	ExactHits       int    `json:"exact_hits"`
+	DirectMisses    int    `json:"direct_misses"`
+	AtomicDemoted   int    `json:"atomic_demoted"`
+	EffectiveHits   int    `json:"effective_hits"`
+	EffectiveMisses int    `json:"effective_misses"`
+}
+
+// ShardPlanDiagnostic 汇总一次 MISS-only 计划的装箱形状，不暴露 workload 名称、摘要或凭据。
+type ShardPlanDiagnostic struct {
+	SchemaVersion                 uint32 `json:"schema_version"`
+	Kind                          string `json:"kind"`
+	Calibration                   bool   `json:"calibration"`
+	TargetDurationMS              int64  `json:"target_duration_ms"`
+	TotalShards                   int    `json:"total_shards"`
+	TotalWorkloads                int    `json:"total_workloads"`
+	MinWorkloadsPerShard          int    `json:"min_workloads_per_shard"`
+	MaxWorkloadsPerShard          int    `json:"max_workloads_per_shard"`
+	MinEstimatedShardDurationMS   int64  `json:"min_estimated_shard_duration_ms"`
+	MaxEstimatedShardDurationMS   int64  `json:"max_estimated_shard_duration_ms"`
+	OverTargetEstimatedShardCount int    `json:"over_target_estimated_shard_count"`
+}
+
 // ProgressObserver 接收不具权威性的旁路进度，不改变执行结果。
 type ProgressObserver interface {
 	ObserveRemoteCIProgress(ProgressEvent)
+}
+
+type reuseDiagnosticObserver interface {
+	ObserveRemoteCIReuseDiagnostic(ReuseDiagnostic)
+}
+
+type shardPlanDiagnosticObserver interface {
+	ObserveRemoteCIShardPlanDiagnostic(ShardPlanDiagnostic)
 }
 
 // JSONProgressObserver 将每条进度事件按行写入调用方的旁路。
@@ -92,6 +175,44 @@ func (observer *JSONProgressObserver) ObserveRemoteCIProgress(event ProgressEven
 		event.Kind = "remote_ci_progress"
 	}
 	observer.err = json.NewEncoder(observer.writer).Encode(event)
+}
+
+// ObserveRemoteCIReuseDiagnostic 原子写入不含 workload 名称或身份摘要的聚合归因。
+func (observer *JSONProgressObserver) ObserveRemoteCIReuseDiagnostic(diagnostic ReuseDiagnostic) {
+	if observer == nil || observer.writer == nil {
+		return
+	}
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	if observer.err != nil {
+		return
+	}
+	if diagnostic.SchemaVersion == 0 {
+		diagnostic.SchemaVersion = ReuseDiagnosticSchemaVersion
+	}
+	if diagnostic.Kind == "" {
+		diagnostic.Kind = "remote_ci_reuse_diagnostic"
+	}
+	observer.err = json.NewEncoder(observer.writer).Encode(diagnostic)
+}
+
+// ObserveRemoteCIShardPlanDiagnostic 原子写入不含 workload 身份的装箱摘要。
+func (observer *JSONProgressObserver) ObserveRemoteCIShardPlanDiagnostic(diagnostic ShardPlanDiagnostic) {
+	if observer == nil || observer.writer == nil {
+		return
+	}
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	if observer.err != nil {
+		return
+	}
+	if diagnostic.SchemaVersion == 0 {
+		diagnostic.SchemaVersion = ShardPlanDiagnosticSchemaVersion
+	}
+	if diagnostic.Kind == "" {
+		diagnostic.Kind = "remote_ci_shard_plan_diagnostic"
+	}
+	observer.err = json.NewEncoder(observer.writer).Encode(diagnostic)
 }
 
 // ProgressError 返回旁路写入失败，但不改变远程运行回执。
@@ -162,6 +283,49 @@ func (tracker *progressTracker) setCacheCounts(hits, misses, reused int) {
 	tracker.mu.Lock()
 	tracker.cacheHits, tracker.cacheMisses, tracker.cacheReused = hits, misses, reused
 	tracker.mu.Unlock()
+}
+
+// observeReuseDecision 发出严格 lookup 与 package 原子降级之间的聚合差异。
+func (tracker *progressTracker) observeReuseDecision(diagnostic ReuseDiagnostic) {
+	if !tracker.enabled() {
+		return
+	}
+	observer, ok := tracker.observer.(reuseDiagnosticObserver)
+	if ok {
+		observer.ObserveRemoteCIReuseDiagnostic(diagnostic)
+	}
+}
+
+// observeShardPlan 发出 MISS-only 分片的数量与估时范围，便于识别过度装箱。
+func (tracker *progressTracker) observeShardPlan(plan gate.WorkloadExecutionPlan) {
+	if !tracker.enabled() {
+		return
+	}
+	observer, ok := tracker.observer.(shardPlanDiagnosticObserver)
+	if ok {
+		observer.ObserveRemoteCIShardPlanDiagnostic(newShardPlanDiagnostic(plan))
+	}
+}
+
+// newShardPlanDiagnostic 从冻结计划计算无身份信息的确定性装箱摘要。
+func newShardPlanDiagnostic(plan gate.WorkloadExecutionPlan) ShardPlanDiagnostic {
+	diagnostic := ShardPlanDiagnostic{Calibration: plan.Context.Calibration, TargetDurationMS: plan.Context.TargetDurationMS, TotalShards: len(plan.Shards)}
+	for index, shard := range plan.Shards {
+		workloads := len(shard.Workloads)
+		diagnostic.TotalWorkloads += workloads
+		if index == 0 || workloads < diagnostic.MinWorkloadsPerShard {
+			diagnostic.MinWorkloadsPerShard = workloads
+		}
+		diagnostic.MaxWorkloadsPerShard = max(diagnostic.MaxWorkloadsPerShard, workloads)
+		if index == 0 || shard.EstimatedDurationMS < diagnostic.MinEstimatedShardDurationMS {
+			diagnostic.MinEstimatedShardDurationMS = shard.EstimatedDurationMS
+		}
+		diagnostic.MaxEstimatedShardDurationMS = max(diagnostic.MaxEstimatedShardDurationMS, shard.EstimatedDurationMS)
+		if shard.EstimatedDurationMS > plan.Context.TargetDurationMS {
+			diagnostic.OverTargetEstimatedShardCount++
+		}
+	}
+	return diagnostic
 }
 
 // setJobID 绑定可安全用于关联的远程 job 标识。

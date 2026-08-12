@@ -383,6 +383,11 @@ func materializeLocalReceiptDependencySnapshot(proof localExecutorDependencyProo
 	if err != nil {
 		return "", nil, err
 	}
+	rawParent := parent
+	parent, err = filepath.EvalSymlinks(parent)
+	if err != nil {
+		return "", nil, errors.Join(fmt.Errorf("canonicalize local dependency snapshot root: %w", err), cleanupLocalReceiptDependencySnapshot(rawParent))
+	}
 	cleanup := func() error { return cleanupLocalReceiptDependencySnapshot(parent) }
 	snapshot := filepath.Join(parent, proof.name)
 	if err := copyLocalReceiptDependencySnapshot(proof, snapshot); err != nil {

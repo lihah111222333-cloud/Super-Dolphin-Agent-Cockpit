@@ -150,7 +150,7 @@ func validateRemoteRunStoredWorkloadResults(recorded gatecontract.RemoteCIRunRec
 	if err := validateRemoteRunStoredFreshExecutions(recorded.WorkloadExecutions, fresh); err != nil {
 		return err
 	}
-	want, err := remoteRunExpectedWorkloadResults(result, fresh)
+	want, err := remoteRunExpectedWorkloadResults(result)
 	if err != nil {
 		return err
 	}
@@ -245,29 +245,6 @@ func remoteRunStoredExecutionProjectionMatches(recorded, expected gatecontract.P
 		expected.TestTimings = nil
 	}
 	return reflect.DeepEqual(recorded, expected)
-}
-
-// remoteRunExpectedWorkloadResults 生成本次 fresh/reused 组合应持久化的完整工作负载结果。
-func remoteRunExpectedWorkloadResults(
-	result remoteci.RunResult,
-	fresh map[gatecontract.GateID]gatecontract.PlanGateExecution,
-) (map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, error) {
-	identities := make(map[gatecontract.GateID]gatecontract.WorkloadPassIdentity, len(result.WorkloadPassIdentities))
-	for _, identity := range result.WorkloadPassIdentities {
-		identities[identity.WorkloadID] = identity
-	}
-	want := make(map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, len(result.ReusedWorkloads)+len(fresh))
-	for _, evidence := range result.ReusedWorkloads {
-		want[evidence.Identity.WorkloadID] = gatecontract.RemoteCIWorkloadResult{Identity: evidence.Identity, Disposition: gatecontract.WorkloadDispositionReused, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration, EvidenceSHA256: evidence.EvidenceSHA256}
-	}
-	for workloadID := range fresh {
-		identity, found := identities[workloadID]
-		if !found {
-			return nil, fmt.Errorf("fresh remote CI workload %q lacks identity", workloadID)
-		}
-		want[workloadID] = gatecontract.RemoteCIWorkloadResult{Identity: identity, Disposition: gatecontract.WorkloadDispositionExecuted, OriginJobID: result.JobID, OriginAcceptedGeneration: result.AcceptedGeneration}
-	}
-	return want, nil
 }
 
 // validateRemoteRunStoredWorkloadResultSet 校验账本的 workload result 集合无缺失且逐项一致。

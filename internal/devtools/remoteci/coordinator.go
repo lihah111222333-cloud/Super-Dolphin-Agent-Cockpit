@@ -179,13 +179,16 @@ type RunResult struct {
 	WorkloadExecutions      []gate.PlanGateExecution     `json:"workload_executions,omitempty"`
 	FreshWorkloadExecutions []gate.PlanGateExecution     `json:"-"`
 	ReusedWorkloads         []gate.WorkloadPassEvidence  `json:"reused_workloads,omitempty"`
-	CacheMissWorkloads      []gate.GateID                `json:"cache_miss_workloads,omitempty"`
-	WorkloadPassIdentities  []gate.WorkloadPassIdentity  `json:"-"`
-	environmentReplayProofs map[string]string            `json:"-"`
-	DurationSamples         []gate.DurationSample        `json:"duration_samples"`
-	OptimizationWarnings    []string                     `json:"optimization_warnings,omitempty"`
-	TimingWarnings          []gate.RemoteCITimingWarning `json:"timing_warnings,omitempty"`
-	CleanupComplete         bool                         `json:"cleanup_complete"`
+	// ReexecutedWorkloadResults 记录因 package 原子边界实际重跑、但 PASS
+	// authority 仍消费准备阶段旧 proof 的 workload；该审计字段不进入 wire JSON。
+	ReexecutedWorkloadResults []gate.RemoteCIWorkloadResult `json:"-"`
+	CacheMissWorkloads        []gate.GateID                 `json:"cache_miss_workloads,omitempty"`
+	WorkloadPassIdentities    []gate.WorkloadPassIdentity   `json:"-"`
+	environmentReplayProofs   map[string]string             `json:"-"`
+	DurationSamples           []gate.DurationSample         `json:"duration_samples"`
+	OptimizationWarnings      []string                      `json:"optimization_warnings,omitempty"`
+	TimingWarnings            []gate.RemoteCITimingWarning  `json:"timing_warnings,omitempty"`
+	CleanupComplete           bool                          `json:"cleanup_complete"`
 }
 
 // Coordinator executes exact Git sources with one ECI container per canonical shard.
@@ -333,6 +336,7 @@ func (coordinator *Coordinator) prepareRemoteWorkloadMissInputs(
 		return remoteWorkloadMissInputs{}, err
 	}
 	executionShards := set.Shards
+	coordinator.progress.observeShardPlan(set.WorkloadPlan)
 	coordinator.progress.planUpdated(len(executionShards))
 	*objectKeys = make([]string, 0, 2+len(executionShards))
 	*createdGroups = make([]string, 0, len(executionShards))

@@ -12,7 +12,7 @@ import (
 
 // WorkloadEstimatorPolicyID 是 gate DurationEstimatorPolicyID 的唯一协议 owner。
 // gate 只保留同名 alias 并把它作为参数传入 canonical estimation material。
-const WorkloadEstimatorPolicyID = "deterministic-duration-estimator/v2"
+const WorkloadEstimatorPolicyID = "deterministic-duration-estimator/v3"
 
 // WorkloadEstimationPolicyMaterial 是计划估时摘要的 canonical 输入。
 // 它包含 policy version、gate estimator ID 和 PlanningContext 的全部稳定字段；

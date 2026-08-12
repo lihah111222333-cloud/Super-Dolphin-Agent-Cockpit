@@ -8,6 +8,8 @@ import (
 	"path"
 )
 
+const workerExecutionCLIDirectory = "cmd/super-dolphin-gate"
+
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
@@ -71,14 +73,8 @@ func (closure *workerExecutionGoClosure) resolveSelfCommands() error {
 		if len(command) < 2 {
 			return errors.New("worker execution self-command has no subcommand")
 		}
-		directory := ""
-		for _, root := range workerExecutionRoots {
-			if root.symbol == "runWorkerCLI" {
-				directory = root.directory
-				break
-			}
-		}
-		if directory == "" {
+		directory := workerExecutionCLIDirectory
+		if !validRemoteGitTreePath(directory) {
 			return errors.New("worker execution CLI entry root is missing")
 		}
 		routes := closure.index.routes[directory][command[1]]

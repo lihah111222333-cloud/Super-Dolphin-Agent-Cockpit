@@ -1,8 +1,8 @@
 package remoteci
 
 import (
-	"crypto/sha1"
 	"fmt"
+	"path"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -136,6 +136,33 @@ func TestX(t *testing.T) { readFixture() }
 	}
 }
 
+// TestGoProductionRuntimeObservationAcceptsBoundKernelPaths 验证固定 runner 内核观察不被误判为候选源码越界。
+func TestGoProductionRuntimeObservationAcceptsBoundKernelPaths(t *testing.T) {
+	for _, staticPath := range []string{"/proc/self/mountinfo", "/proc/sys/kernel/random/boot_id"} {
+		t.Run(path.Base(staticPath), func(t *testing.T) {
+			snapshot := testExactGoTestDigestSnapshot("")
+			production := fmt.Sprintf("package fixture\nimport \"os\"\nfunc readFixture() { _, _ = os.ReadFile(%q) }\n", staticPath)
+			testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(production))
+			testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { readFixture() }
+`))
+			root := runtimeObservationTestDeclaration(t, snapshot)
+			selected := make(map[string]remoteGitTreeEntry)
+			scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, selected, remoteGoBuildProfile{})
+			if err != nil {
+				t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+			}
+			if scope != remoteGoTestScopeSelector {
+				t.Fatalf("runtime observation scope = %v, want selector", scope)
+			}
+			if len(selected) != 0 {
+				t.Fatalf("bound kernel observation selected candidate paths: %v", selected)
+			}
+		})
+	}
+}
+
 // TestGoProductionRuntimeObservationUnknownReadFailsClosed 验证未知文件路径绑定整树。
 func TestGoProductionRuntimeObservationUnknownReadFailsClosed(t *testing.T) {
 	snapshot := testExactGoTestDigestSnapshot("")
@@ -171,26 +198,21 @@ func TestGoProductionRuntimeObservationFailsClosedForProcessEnvironmentReflectio
 	cases := map[string]struct {
 		production string
 		call       string
+		wantScope  remoteGoTestScope
 	}{
 		"process": {production: `package fixture
 import "os/exec"
-func run() { _ = exec.Command("sh", "testdata/script.sh").Run() }`, call: "run()"},
-		"environment": {production: `package fixture
-import "os"
-func run() { _ = os.Getenv("FIXTURE_INPUT") }`, call: "run()"},
-		"environment_variable": {production: `package fixture
-import "os"
-func run() { _ = os.Args }`, call: "run()"},
+func run() { _ = exec.Command("sh", "testdata/script.sh").Run() }`, call: "run()", wantScope: remoteGoTestScopeTree},
 		"reflection": {production: `package fixture
 import "reflect"
-func run() { _ = reflect.ValueOf(1) }`, call: "run()"},
+func run() { _ = reflect.ValueOf(1) }`, call: "run()", wantScope: remoteGoTestScopeTree},
 		"external_call": {production: `package fixture
 import "example.com/external"
-func run() { external.Read() }`, call: "run()"},
+func run() { external.Read() }`, call: "run()", wantScope: remoteGoTestScopeTree},
 		"function_value": {production: `package fixture
 var callback = run
 func invoke() { callback() }
-func run() {}`, call: "invoke()"},
+func run() {}`, call: "invoke()", wantScope: remoteGoTestScopeCompileClosure},
 	}
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -206,10 +228,183 @@ func TestX(t *testing.T) { `+test.call+` }
 			if err != nil {
 				t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
 			}
-			if scope != remoteGoTestScopeTree {
-				t.Fatalf("runtime observation scope = %v, want tree", scope)
+			if scope != test.wantScope {
+				t.Fatalf("runtime observation scope = %v, want %v", scope, test.wantScope)
 			}
 		})
+	}
+}
+
+func TestGoProductionRuntimeObservationDoesNotTreatSelectedTestHelperAsDynamic(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { selectedTestHelper() }
+func selectedTestHelper() {}
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("runtime observation scope = %v, want selector", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationAcceptsPureTypeConversions(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+func run() { _ = string([]byte("fixture")); _ = rune('x') }
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("runtime observation scope = %v, want selector", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationKeepsDeclarativeFxOptionsSelectorScoped(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+import "go.uber.org/fx"
+func run() { _ = fx.Module("fixture", fx.Provide(func() string { return "ok" })) }
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("runtime observation scope = %v, want selector", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationKeepsAuditedUUIDGenerationSelectorScoped(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+import "github.com/google/uuid"
+func run() { _ = uuid.NewString() }
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("runtime observation scope = %v, want selector", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationUsesBoundEnvironmentScope(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+import "os"
+func run() { _, _ = os.LookupEnv("FIXTURE_INPUT"); _ = os.Args }
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("runtime observation scope = %v, want selector", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationEnvironmentDerivedFileReadFailsClosed(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+import "os"
+func run() { _, _ = os.ReadFile(os.Getenv("FIXTURE_INPUT")) }
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeTree {
+		t.Fatalf("runtime observation scope = %v, want tree", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationAcceptsBoundConcurrencyMethods(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+import (
+	"encoding/json"
+	"runtime"
+	"strings"
+	"sync"
+)
+type state struct{ mu sync.Mutex }
+func run() {
+	var current state
+	current.mu.Lock()
+	current.mu.Unlock()
+	decoder := json.NewDecoder(strings.NewReader("{}"))
+	decoder.UseNumber()
+	_ = decoder.Decode(&map[string]any{})
+	frames := runtime.CallersFrames(nil)
+	_, _ = frames.Next()
+}
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeCompileClosure {
+		t.Fatalf("runtime observation scope = %v, want compile closure", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationDoesNotHideLocalMethodBehindConcurrencyName(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+import "os"
+type state struct{}
+func (state) Store() { _, _ = os.ReadFile(os.Getenv("FIXTURE_INPUT")) }
+func run() { var current state; current.Store() }
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeTree {
+		t.Fatalf("runtime observation scope = %v, want tree", scope)
 	}
 }
 
@@ -424,18 +619,73 @@ func TestX(t *testing.T) { _, _ = readTestFile("testdata/fixture.txt") }
 	}
 }
 
-func TestGoProductionRuntimeObservationResolvesTrackedSymlinkTarget(t *testing.T) {
+// TestGoTestUnusedSensitiveAliasInSiblingFileStaysSelectorScoped 验证未被目标调用的敏感别名不会污染整包 PASS 身份。
+func TestGoTestUnusedSensitiveAliasInSiblingFileStaysSelectorScoped(t *testing.T) {
 	snapshot := testExactGoTestDigestSnapshot("")
-	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/helper_test.go", []byte(`package fixture
 import "os"
-func readFixture() { _, _ = os.ReadFile("testdata/link.txt") }
+var readTestFile = os.ReadFile
 `))
-	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/target.txt", []byte("v1"))
-	testExactGoTestDigestReplaceSymlink(snapshot, "fixture/testdata/link.txt", "target.txt")
 	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
 import "testing"
-func TestX(t *testing.T) { readFixture() }
+func TestX(t *testing.T) {}
 `))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	selected := make(map[string]remoteGitTreeEntry)
+	scope, err := snapshot.addGoTestFileObservedEntriesScoped("fixture", root.file, root.declaration, selected, remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoTestFileObservedEntriesScoped(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("unused sibling alias scope = %v, want selector", scope)
+	}
+}
+
+func TestGoTestSensitiveAliasNameDoesNotCollideWithLocalReceiver(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/helper_test.go", []byte(`package fixture
+import "os"
+var t = os.ReadFile
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { t.Helper() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoTestFileObservedEntriesScoped("fixture", root.file, root.declaration, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoTestFileObservedEntriesScoped(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("local receiver collision scope = %v, want selector", scope)
+	}
+}
+
+// TestGoProductionUnusedSensitiveAliasInSiblingFileStaysSelectorScoped 验证未被可达生产代码调用的别名不会绑定整树。
+func TestGoProductionUnusedSensitiveAliasInSiblingFileStaysSelectorScoped(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/aliases.go", []byte(`package fixture
+import "os"
+var readTestFile = os.ReadFile
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte("package fixture\nfunc run() {}\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { run() }
+`))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	selected := make(map[string]remoteGitTreeEntry)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, selected, remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("unused production alias scope = %v, want selector", scope)
+	}
+}
+
+func TestGoProductionRuntimeObservationResolvesTrackedSymlinkTarget(t *testing.T) {
+	snapshot := trackedSymlinkRuntimeObservationSnapshot("v1")
 	root := runtimeObservationTestDeclaration(t, snapshot)
 	selected := make(map[string]remoteGitTreeEntry)
 	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, selected, remoteGoBuildProfile{})
@@ -451,12 +701,27 @@ func TestX(t *testing.T) { readFixture() }
 	if _, ok := selected["fixture/testdata/target.txt"]; !ok {
 		t.Fatal("tracked symlink target omitted")
 	}
+	changed := trackedSymlinkRuntimeObservationSnapshot("v2")
 	digestBefore := testExactGoTestDigest(t, snapshot, gate.GoTestTarget{Package: "fixture", Name: "TestX"})
-	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/target.txt", []byte("v2"))
-	digestAfter := testExactGoTestDigest(t, snapshot, gate.GoTestTarget{Package: "fixture", Name: "TestX"})
+	digestAfter := testExactGoTestDigest(t, changed, gate.GoTestTarget{Package: "fixture", Name: "TestX"})
 	if digestBefore == digestAfter {
 		t.Fatal("tracked symlink target mutation did not change exact test digest")
 	}
+}
+
+func trackedSymlinkRuntimeObservationSnapshot(target string) *remoteGitTreeSnapshot {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte(`package fixture
+import "os"
+func readFixture() { _, _ = os.ReadFile("testdata/link.txt") }
+`))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/target.txt", []byte(target))
+	testExactGoTestDigestReplaceSymlink(snapshot, "fixture/testdata/link.txt", "target.txt")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
+import "testing"
+func TestX(t *testing.T) { readFixture() }
+`))
+	return snapshot
 }
 
 func TestGoProductionRuntimeObservationRejectsSymlinkEscapeMissingAndCycle(t *testing.T) {
@@ -524,7 +789,7 @@ func TestX(t *testing.T) { _ = packageInput }
 	}
 }
 
-func TestGoTestDirectEnvironmentObservationFailsClosed(t *testing.T) {
+func TestGoTestDirectEnvironmentObservationUsesBoundEnvironmentScope(t *testing.T) {
 	snapshot := testExactGoTestDigestSnapshot("")
 	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte(`package fixture
 import (
@@ -542,8 +807,8 @@ func TestX(t *testing.T) { _ = os.Getenv("INPUT") }
 	if err != nil {
 		t.Fatalf("addGoTestFileObservedEntries(): %v", err)
 	}
-	if !wholeTree {
-		t.Fatal("direct os.Getenv observation was not bound to whole tree")
+	if wholeTree {
+		t.Fatal("direct os.Getenv observation widened the candidate source scope")
 	}
 }
 
@@ -555,19 +820,4 @@ func runtimeObservationTestDeclaration(t *testing.T, snapshot *remoteGitTreeSnap
 		t.Fatalf("remoteGoTestDeclarations() fallback=%v files=%d declarations=%d", fallback, len(files), len(declarations["TestX"]))
 	}
 	return declarations["TestX"][0]
-}
-
-func testExactGoTestDigestReplaceSymlink(snapshot *remoteGitTreeSnapshot, filePath, target string) {
-	sum := sha1.Sum([]byte(target))
-	entry := remoteGitTreeEntry{mode: "120000", kind: "blob", objectID: fmt.Sprintf("%x", sum), path: filePath}
-	snapshot.byPath[filePath] = entry
-	snapshot.rememberRemoteGitBlob(entry.objectID, []byte(target))
-	for index, candidate := range snapshot.entries {
-		if candidate.path == filePath {
-			snapshot.entries[index] = entry
-			delete(snapshot.goSources, filePath)
-			return
-		}
-	}
-	snapshot.entries = append(snapshot.entries, entry)
 }

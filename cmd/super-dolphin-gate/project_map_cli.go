@@ -22,12 +22,9 @@ func runProjectMapCLI(args []string, stdout io.Writer) error {
 		return infrastructureError("resolve project-map repository root: %v", err)
 	}
 	root := strings.TrimSpace(repository)
-	if args[1] == "--tree-from-index" {
-		tree, err = projectMapGitOutput("-C", root, "write-tree")
-		if err != nil {
-			return infrastructureError("resolve project-map index tree: %v", err)
-		}
-		tree = strings.TrimSpace(tree)
+	tree, err = resolveProjectMapCLITree(root, tree, args)
+	if err != nil {
+		return err
 	}
 
 	switch action {
@@ -44,8 +41,25 @@ func runProjectMapCLI(args []string, stdout io.Writer) error {
 	return classifyProjectMapError(action, err)
 }
 
+// resolveProjectMapCLITree 将外层 index 或已验证 exact clone 的 detached HEAD
+// 投影为只读 tree；Git 解析失败立即阻断，不回退到工作区内容。
+func resolveProjectMapCLITree(root, tree string, args []string) (string, error) {
+	if len(args) != 2 {
+		return tree, nil
+	}
+	gitArgs := []string{"-C", root, "write-tree"}
+	if args[1] == "--tree-from-head" {
+		gitArgs = []string{"-C", root, "rev-parse", "--verify", "HEAD^{tree}"}
+	}
+	resolved, err := projectMapGitOutput(gitArgs...)
+	if err != nil {
+		return "", infrastructureError("resolve project-map exact tree: %v", err)
+	}
+	return strings.TrimSpace(resolved), nil
+}
+
 func parseProjectMapCLI(args []string) (string, string, error) {
-	if len(args) == 2 && args[0] == "check" && args[1] == "--tree-from-index" {
+	if projectMapDynamicTreeArgs(args) {
 		return args[0], "", nil
 	}
 	if len(args) != 3 || args[1] != "--tree" || args[0] != "check" && args[0] != "refresh" {
@@ -58,6 +72,13 @@ func parseProjectMapCLI(args []string) (string, string, error) {
 		return "", "", protocolError("project-map exact tree sha is required")
 	}
 	return args[0], tree, nil
+}
+
+func projectMapDynamicTreeArgs(args []string) bool {
+	if len(args) != 2 {
+		return false
+	}
+	return args[0] == "check" && (args[1] == "--tree-from-index" || args[1] == "--tree-from-head")
 }
 
 func classifyProjectMapError(action string, err error) error {

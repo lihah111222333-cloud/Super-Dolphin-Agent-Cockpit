@@ -45,19 +45,25 @@ type remoteGitTreeSnapshot struct {
 	cacheMu                       sync.Mutex
 	exactCompileRootMu            sync.Mutex
 	productionIndexMu             sync.Mutex
+	productionImportsMu           sync.Mutex
+	productionRuntimeMu           sync.Mutex
 	productionClosureCache        map[string]remoteProductionClosureCache
 	goTestDeclarationCache        map[string]remoteGoTestDeclarationCache
 	exactCompileRootCache         map[remoteExactCompileRootKey]remoteExactCompileRootCacheEntry
 	productionIndexCache          map[string]remoteGoProductionIndexCacheEntry
+	productionImportsCache        map[string]remoteGoProductionImportsCacheEntry
+	productionRuntimeCache        map[string]remoteGoProductionRuntimeCacheEntry
 	goWorkloadSharedScript        *remoteGitTreeEntry
 	goPackageInputDigestCache     map[remoteGoPackageInputDigestKey]string
 	goEmbedResolutionCache        map[remoteGoEmbedResolutionKey]remoteGoEmbedResolutionCache
-	remoteObservedAliasCache      map[string]bool
+	remoteObservedAliasCache      map[string]remoteGoObservedAliasCacheEntry
 	workerExecutionDigestCache    string
 	goEmbedResolutionComputations uint64
 	goEmbedResolutionCacheHits    uint64
 	exactCompileRootComputations  uint64
 	productionIndexComputations   uint64
+	productionImportsComputations uint64
+	productionRuntimeComputations uint64
 }
 
 type remoteGoPackageInputDigestKey struct {

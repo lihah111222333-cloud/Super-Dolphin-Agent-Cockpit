@@ -27,6 +27,7 @@ type probationArtifactSnapshot struct {
 }
 
 func TestProbationFailureRollsBackExactTransaction(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction := loadTransaction(t, store, identity)
 	process := ProcessIdentity{
@@ -66,6 +67,7 @@ func TestProbationFailureRollsBackExactTransaction(t *testing.T) {
 }
 
 func TestSupervisorCommitsOnlyExactACK(t *testing.T) {
+	t.Parallel()
 	store, transaction, process, lease := createLeasedProbation(t, time.Minute)
 	wrong := BuildHealthyACK(transaction, process, time.Now())
 	wrong.AttemptID = "wrong-attempt"
@@ -99,6 +101,7 @@ func TestSupervisorCommitsOnlyExactACK(t *testing.T) {
 }
 
 func TestProbationTimeoutRollsBackAndRestarts(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, lease := createLeasedProbation(t, time.Second)
 	expiresAt, err := time.Parse(time.RFC3339Nano, lease.ExpiresAt)
 	if err != nil {
@@ -125,6 +128,7 @@ func TestProbationTimeoutRollsBackAndRestarts(t *testing.T) {
 }
 
 func TestSupervisorAndDetachedGuardConvergeOneRollbackRestart(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, lease := createLeasedProbation(t, time.Second)
 	expiresAt, err := time.Parse(time.RFC3339Nano, lease.ExpiresAt)
 	if err != nil {
@@ -194,6 +198,7 @@ func TestSupervisorAndDetachedGuardConvergeOneRollbackRestart(t *testing.T) {
 }
 
 func TestSupervisorInterruptionLeavesLeaseForGuard(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, lease := createLeasedProbation(t, time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -217,6 +222,7 @@ func TestSupervisorInterruptionLeavesLeaseForGuard(t *testing.T) {
 }
 
 func TestProbationSupervisorRejectsZeroObservationPeriod(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, lease := createLeasedProbation(t, time.Minute)
 	config := ProbationSupervisorConfig{
 		Store: store, Identity: transaction.Identity, Lease: lease,
@@ -238,6 +244,7 @@ func TestProbationSupervisorRejectsZeroObservationPeriod(t *testing.T) {
 }
 
 func TestWrongLeaseHasNoSideEffects(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, lease := createLeasedProbation(t, time.Second)
 	before, err := os.ReadFile(store.journalPath(transaction.Identity.TransactionID))
 	if err != nil {
@@ -258,6 +265,7 @@ func TestWrongLeaseHasNoSideEffects(t *testing.T) {
 }
 
 func TestRollbackUnclaimedProbationRestoresExactTransaction(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	current := loadTransaction(t, store, identity)
 	before := readProbationArtifactSnapshot(t, store, current)
@@ -283,6 +291,7 @@ func TestRollbackUnclaimedProbationRestoresExactTransaction(t *testing.T) {
 }
 
 func TestGenericRollbackRejectsLeasedProbationWithZeroSideEffects(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, _ := createLeasedProbation(t, time.Minute)
 	before := readProbationArtifactSnapshot(t, store, transaction)
 	if _, err := store.Rollback(context.Background(), transaction.Identity); !errors.Is(err, ErrProbationLeaseMismatch) {
@@ -294,6 +303,7 @@ func TestGenericRollbackRejectsLeasedProbationWithZeroSideEffects(t *testing.T) 
 }
 
 func TestRollbackUnclaimedRejectsLeaseAcquiredFirstWithZeroSideEffects(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, _ := createLeasedProbation(t, time.Minute)
 	before := readProbationArtifactSnapshot(t, store, loadTransaction(t, store, transaction.Identity))
 	if _, err := store.RollbackUnclaimedProbation(context.Background(), transaction.Identity); !errors.Is(err, ErrProbationLeaseMismatch) {
@@ -309,6 +319,7 @@ func TestRollbackUnclaimedRejectsLeaseAcquiredFirstWithZeroSideEffects(t *testin
 }
 
 func TestCommitHealthyLegacyAPIRequiresClaimedLeaseWithZeroSideEffects(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	ackProbationTransaction(t, store, identity)
 	transaction := loadTransaction(t, store, identity)
@@ -339,6 +350,7 @@ func readProbationArtifactSnapshot(t *testing.T, store *Store, transaction Trans
 }
 
 func TestAcquireLeaseAndUnclaimedRollbackHaveSingleWinner(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	process := ProcessIdentity{
 		PID: 42, StartToken: "candidate-start", ExecutableIdentity: "/test/candidate",
@@ -434,6 +446,7 @@ func isProbationRaceLoser(err error, stateError error) bool {
 }
 
 func TestSecondTakeoverHasNoSideEffects(t *testing.T) {
+	t.Parallel()
 	store, transaction, _, lease := createLeasedProbation(t, time.Second)
 	expiresAt, err := time.Parse(time.RFC3339Nano, lease.ExpiresAt)
 	if err != nil {

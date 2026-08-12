@@ -1,6 +1,7 @@
 package remoteci
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"os"
@@ -13,6 +14,14 @@ import (
 func TestWorkerExecutionRootsAreCanonical(t *testing.T) {
 	if err := validateWorkerExecutionRoots(workerExecutionRoots); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkerExecutionMissingRootIsTypedUnavailable(t *testing.T) {
+	index := (&remoteGitTreeSnapshot{goSources: map[string][]byte{"fixture.go": []byte("package fixture\n")}}).buildWorkerExecutionGoIndex()
+	_, err := index.resolveRoot(workerExecutionRoot{directory: ".", symbol: "missing"})
+	if !errors.Is(err, errWorkerExecutionRootUnavailable) {
+		t.Fatalf("missing worker execution root error = %v", err)
 	}
 }
 
@@ -124,7 +133,8 @@ func TestWorkerExecutionPreciseAndLegacyDigestScope(t *testing.T) {
 	base := workerExecutionSyntheticSources("materializeV1", "cliV1", "gate.ExecutorWorkRoot", "resources", "cleanupV1")
 	unrelated := workerExecutionSyntheticSources("materializeV1", "cliV1", "gate.ExecutorWorkRoot", "otherResources", "cleanupV2")
 	semantic := workerExecutionSyntheticSources("materializeV1", "cliV1", "gate.ExecutorSourcePath", "resources", "cleanupV1")
-	workerCLI := workerExecutionSyntheticSources("materializeV1", "cliV2", "gate.ExecutorWorkRoot", "resources", "cleanupV1")
+	workerCLI := workerExecutionSyntheticSources("materializeV1", "cliV1", "gate.ExecutorWorkRoot", "resources", "cleanupV2")
+	executor := workerExecutionSyntheticSources("materializeV1", "cliV2", "gate.ExecutorWorkRoot", "resources", "cleanupV1")
 	materialize := workerExecutionSyntheticSources("materializeV2", "cliV1", "gate.ExecutorWorkRoot", "resources", "cleanupV1")
 
 	precise := func(source map[string][]byte) string {
@@ -140,15 +150,46 @@ func TestWorkerExecutionPreciseAndLegacyDigestScope(t *testing.T) {
 	if legacy(base) == legacy(unrelated) {
 		t.Fatal("legacy v4 digest unexpectedly ignored broad createRequest edits")
 	}
+	if precise(workerCLI) != preciseBase {
+		t.Fatal("worker CLI planning-only change invalidated precise execution digest")
+	}
 	for name, source := range map[string]map[string][]byte{
 		"request semantic fragment": semantic,
-		"worker CLI":                workerCLI,
+		"canonical executor":        executor,
 		"worker materialize":        materialize,
 	} {
 		if precise(source) == preciseBase {
 			t.Fatalf("precise worker digest ignored %s change", name)
 		}
 	}
+}
+
+func TestWorkerExecutionExecutorConfigFragmentSurvivesOwnerExtraction(t *testing.T) {
+	legacy := workerExecutionExecutorConfigFixture(t, `func ExecuteExecutor() { config := executorConfig{sourcePath: "/source"}; _ = config }`)
+	extracted := workerExecutionExecutorConfigFixture(t, `
+func ExecuteExecutor() { executeCanonicalGate() }
+func executeCanonicalGate() { config := executorConfig{sourcePath: "/source"}; _ = config }
+`)
+	changed := workerExecutionExecutorConfigFixture(t, `func executeCanonicalGate() { config := executorConfig{sourcePath: "/other"}; _ = config }`)
+	if legacy != extracted {
+		t.Fatalf("executor config owner extraction changed semantic fragment: %q != %q", legacy, extracted)
+	}
+	if legacy == changed {
+		t.Fatal("executor runtime config change was omitted from semantic fragment")
+	}
+}
+
+func workerExecutionExecutorConfigFixture(t *testing.T, functions string) string {
+	t.Helper()
+	source := []byte("package gate\ntype executorConfig struct { sourcePath string }\n" + functions)
+	assets := &workerExecutionAssets{snapshot: &remoteGitTreeSnapshot{goSources: map[string][]byte{
+		workerExecutionExecutorSourcePath: source,
+	}}}
+	content, err := workerExecutionExecutorConfigContent(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
 }
 
 func TestWorkerExecutionDynamicReceiverFailsClosed(t *testing.T) {
@@ -568,15 +609,30 @@ func workerExecutionSyntheticDigest(
 	return digest
 }
 
-func workerExecutionSyntheticSources(materialize, workerCLI, commandRoot, resourceExpr, cleanup string) map[string][]byte {
+func workerExecutionSyntheticSources(materialize, executor, commandRoot, resourceExpr, cleanup string) map[string][]byte {
 	mainSource := strings.ReplaceAll(`package main
 
 func runRemoteMaterialize() { materializeMarker() }
+func installAcceptedBootstrapManifest() {}
+func stageRemoteSourceObjects() { materializeMarker() }
+func verifyRemoteMaterializedGateCLICompileClosure() {}
+func verifyRemoteOCIProjectCache() {}
+func verifyRemoteSourceManifestBinding() {}
 func materializeMarker() {}
-func runWorkerCLI() { workerCLIMarker() }
-func workerCLIMarker() {}
+func runWorkerCLI() { planningMarker() }
+func planningMarker() {}
 `, "materializeMarker", materialize)
-	mainSource = strings.ReplaceAll(mainSource, "workerCLIMarker", workerCLI)
+	mainSource = strings.ReplaceAll(mainSource, "planningMarker", cleanup)
+	gateSource := strings.ReplaceAll(`package gate
+func ensureJSONEOF() {}
+func executeProgram() { executorMarker() }
+func executorMarker() {}
+func sourceVariantCount() {}
+func validateCommitSource() {}
+func validateOID() {}
+func validateRangeSource() {}
+func validateTreeSource() {}
+`, "executorMarker", executor)
 	requestSource := strings.NewReplacer(
 		"$COMMAND_ROOT$", commandRoot,
 		"$RESOURCE_EXPR$", resourceExpr,
@@ -584,8 +640,19 @@ func workerCLIMarker() {}
 	).Replace(`package remoteci
 
 func remoteShardBootstrapSH() string { return "bootstrap-v1" }
+func checkoutMaterializedSource() {}
+func importSourceWorktreeBundle() {}
+func materializeSourceWorktree() { materializeMarker() }
+func materializeMarker() {}
 func remoteWorkerEnvironment() map[string]string { return map[string]string{"RUNTIME": "v1"} }
 func remoteWorkerSupervisorCommand(binary string) []string { return []string{"python", binary} }
+func validateCanonicalDirectory() {}
+func validateManifestCommitIdentity() {}
+func validateManifestIdentityFields() {}
+func validateManifestSyntheticBase() {}
+func validatePublishedArtifacts() {}
+func validateSourceBaseline() {}
+func verifyPublishedSourceBundle() {}
 func orchestrationCleanup() string { return "$CLEANUP$" }
 
 func createRequest(jobID string) eci.CreateRequest {
@@ -610,9 +677,11 @@ func createRequest(jobID string) eci.CreateRequest {
 	}
 }
 `)
+	requestSource = strings.ReplaceAll(requestSource, "materializeMarker", materialize)
 	return map[string][]byte{
-		"cmd/super-dolphin-gate/main.go": []byte(mainSource),
-		workerExecutionRequestSourcePath: []byte(requestSource),
+		"cmd/super-dolphin-gate/main.go":     []byte(mainSource),
+		"internal/devtools/gate/executor.go": []byte(gateSource),
+		workerExecutionRequestSourcePath:     []byte(requestSource),
 	}
 }
 

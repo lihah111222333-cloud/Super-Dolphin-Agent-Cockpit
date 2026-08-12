@@ -20,17 +20,19 @@ func TestRemoteCIFingerprintScopeContract(t *testing.T) {
 	digestsPath := filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint_digests.go")
 	testsPath := filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint_go_tests.go")
 	runtimePath := filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint_go_runtime_observation.go")
+	runtimeTreePath := filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint_go_runtime_tree.go")
 	packagesPath := filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint_go_packages.go")
 	cachePath := filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint_exact_compile_cache.go")
 
 	digests := readRemoteCIContractGuardFile(t, digestsPath)
 	tests := readRemoteCIContractGuardFile(t, testsPath)
 	runtime := readRemoteCIContractGuardFile(t, runtimePath)
+	runtimeTree := readRemoteCIContractGuardFile(t, runtimeTreePath)
 	packages := readRemoteCIContractGuardFile(t, packagesPath)
 	cache := readRemoteCIContractGuardFile(t, cachePath)
 
 	assertRemoteFingerprintUnknownTargetFailsClosed(t, digestsPath)
-	assertRemoteFingerprintSelectedDynamicFailsClosed(t, digests+"\n"+tests+"\n"+runtime)
+	assertRemoteFingerprintSelectedDynamicFailsClosed(t, digests+"\n"+tests+"\n"+runtime+"\n"+runtimeTree)
 	assertRemoteFingerprintRetainsSiblingTestCompileRoot(t, packages+"\n"+cache)
 	assertRemoteFingerprintCacheHasNoAuthorityWriter(t, cachePath, cache)
 }
@@ -78,9 +80,10 @@ func remoteFingerprintUnknownTargetFacts(fn *ast.FuncDecl) (defaultFound, errorR
 func assertRemoteFingerprintSelectedDynamicFailsClosed(t *testing.T, source string) {
 	t.Helper()
 	for _, marker := range []string{
-		"wholeTree = true",
-		"return \"tree\", \"\", true",
-		"return remoteGoTestObservationKind(method), \"\", true",
+		"return remoteGoTestScopeTree",
+		"return \"tree\", \"\", remoteGoTestScopeTree",
+		"return remoteGoTestObservationKind(method), \"\", remoteGoTestScopeTree",
+		"snapshot.addGoProductionRuntimeTreeEntries(",
 		"snapshot.digestEntries(",
 		"snapshot.entries",
 	} {

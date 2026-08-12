@@ -370,6 +370,9 @@ func rewriteRetentionOriginAsLegacy(t *testing.T, store *DurationLedgerStore, or
 	if _, err := database.Exec(`UPDATE ci_workload_pass_evidence SET origin_execution_json = ? WHERE identity_digest = ? AND accepted_generation = ?`, string(executionJSON), evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.Exec(`UPDATE ci_retained_workload_pass_proofs SET origin_execution_json = ? WHERE identity_digest = ? AND origin_accepted_generation = ?`, string(executionJSON), evidence.Identity.IdentityDigest, evidence.OriginAcceptedGeneration); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // retentionLegacyExecutionJSON 返回缺少 go_flags 的历史 profile 与 execution JSON。

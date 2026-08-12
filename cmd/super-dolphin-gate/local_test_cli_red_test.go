@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +18,14 @@ import (
 	projectmaptrusted "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/projectmaptrusted"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
+
+// requireDarwinLocalReceiptTest 只在具备生产 sandbox-exec 的 Darwin 主机运行真实本地收据测试。
+func requireDarwinLocalReceiptTest(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		t.Skip("production local executor receipt requires Darwin sandbox-exec")
+	}
+}
 
 func TestRequestedTestTargetDefaultsAutoAndRejectsUnknownValues(t *testing.T) {
 	tests := []struct {
@@ -422,6 +431,7 @@ func requireLocalExactTreeCleanup(t *testing.T, materialized projectmaptrusted.E
 // the local PASS lookup can start from a clean authority without loading a
 // remote accepted baseline, runner identity, or ImageCache state.
 func TestProductionLocalPlanCleanAuthorityDoesNotRequireRemoteBaseline(t *testing.T) {
+	requireDarwinLocalReceiptTest(t)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -454,6 +464,7 @@ func TestProductionLocalPlanCleanAuthorityDoesNotRequireRemoteBaseline(t *testin
 // and changed blob exist only in its private object database. The shared
 // repository object database must not be written as part of this setup.
 func TestProductionLocalPlanReadsExactTreeFromVerifiedPrivateCandidateODB(t *testing.T) {
+	requireDarwinLocalReceiptTest(t)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -553,6 +564,7 @@ func setLocalPrivateCandidateEnvironment(t *testing.T, candidate localPrivateCan
 // TestProductionLocalPlanPrivateODBPathDoesNotChangePASSIdentity proves ODB
 // location is a receipt-only proof rather than Local PASS identity material.
 func TestProductionLocalPlanPrivateODBPathDoesNotChangePASSIdentity(t *testing.T) {
+	requireDarwinLocalReceiptTest(t)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -625,6 +637,7 @@ func requireTamperedPrivateCandidateAuthorityFails(t *testing.T, repository stri
 // production producer seals mapped-ineligible environment material without
 // creating an execution-capable local session.
 func TestProductionLocalExecutorReceiptSeparatesBoundAndExecutableIDs(t *testing.T) {
+	requireDarwinLocalReceiptTest(t)
 	repository, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

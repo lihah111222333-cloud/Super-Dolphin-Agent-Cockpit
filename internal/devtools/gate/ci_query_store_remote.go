@@ -717,7 +717,7 @@ func (index remoteCIRunCatalogIndex) validatePassed(record RemoteCIRunRecord, sc
 	if err != nil {
 		return err
 	}
-	results, executedWorkloads, err := passedRemoteCIWorkloadResults(record.WorkloadResults, expected)
+	results, requiredFreshWorkloads, err := passedRemoteCIWorkloadResults(record.WorkloadResults, expected)
 	if err != nil {
 		return err
 	}
@@ -725,24 +725,25 @@ func (index remoteCIRunCatalogIndex) validatePassed(record RemoteCIRunRecord, sc
 	if err != nil {
 		return err
 	}
-	if err := validateRemoteCIRunFreshWorkloadSet("shard", shardWorkloads, executedWorkloads); err != nil {
+	if err := validateRequiredRemoteCIRunFreshWorkloadSet("shard", shardWorkloads, requiredFreshWorkloads); err != nil {
 		return err
 	}
 	executionWorkloads, err := passedFreshExecutionWorkloads(record.WorkloadExecutions, results, shardByWorkload)
 	if err != nil {
 		return err
 	}
-	return validateRemoteCIRunFreshWorkloadSet("execution", executionWorkloads, executedWorkloads)
+	return validateRemoteCIRunFreshWorkloadSet("execution", executionWorkloads, shardWorkloads)
 }
 
-// passedFreshShardWorkloads 仅接受标记 executed 的 workload，并保留其 fresh shard 归属。
+// passedFreshShardWorkloads 仅接受存在权威结果的 workload，并保留其 fresh shard 归属。
+// reused 结果可因 package 原子边界重跑，但其 PASS proof 仍保持原来源。
 func passedFreshShardWorkloads(shards []RemoteCIShardRecord, results map[GateID]string) (map[GateID]struct{}, map[GateID]string, error) {
 	workloads := make(map[GateID]struct{})
 	shardsByWorkload := make(map[GateID]string)
 	for _, shard := range shards {
 		for _, workloadID := range shard.Workloads {
-			if results[workloadID] != WorkloadDispositionExecuted {
-				return nil, nil, fmt.Errorf("passed remote CI fresh shard workload %q is not executed", workloadID)
+			if _, exists := results[workloadID]; !exists {
+				return nil, nil, fmt.Errorf("passed remote CI fresh shard workload %q lacks a workload result", workloadID)
 			}
 			workloads[workloadID] = struct{}{}
 			shardsByWorkload[workloadID] = shard.ShardIdentity
@@ -754,8 +755,8 @@ func passedFreshShardWorkloads(shards []RemoteCIShardRecord, results map[GateID]
 func passedFreshExecutionWorkloads(executions []PlanGateExecution, results map[GateID]string, shardsByWorkload map[GateID]string) (map[GateID]struct{}, error) {
 	workloads := make(map[GateID]struct{}, len(executions))
 	for _, execution := range executions {
-		if results[execution.GateID] != WorkloadDispositionExecuted {
-			return nil, fmt.Errorf("passed remote CI fresh execution workload %q is not executed", execution.GateID)
+		if _, exists := results[execution.GateID]; !exists {
+			return nil, fmt.Errorf("passed remote CI fresh execution workload %q lacks a workload result", execution.GateID)
 		}
 		if execution.ShardIdentity != shardsByWorkload[execution.GateID] {
 			return nil, fmt.Errorf("passed remote CI fresh execution workload %q does not match its shard", execution.GateID)
@@ -763,6 +764,17 @@ func passedFreshExecutionWorkloads(executions []PlanGateExecution, results map[G
 		workloads[execution.GateID] = struct{}{}
 	}
 	return workloads, nil
+}
+
+// validateRequiredRemoteCIRunFreshWorkloadSet 确认所有直接 executed 结果均有
+// fresh 记录；额外 fresh 项仅能是已验证旧 proof 的 package 原子重跑。
+func validateRequiredRemoteCIRunFreshWorkloadSet(kind string, recorded, required map[GateID]struct{}) error {
+	for workloadID := range required {
+		if _, exists := recorded[workloadID]; !exists {
+			return fmt.Errorf("passed remote CI executed workload %q is missing from fresh %s records", workloadID, kind)
+		}
+	}
+	return nil
 }
 
 func validateRemoteCIRunFreshWorkloadSet(kind string, recorded, executed map[GateID]struct{}) error {

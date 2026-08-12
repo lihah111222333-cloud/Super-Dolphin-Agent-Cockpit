@@ -35,13 +35,15 @@ func assertRemoteReplayWorkerDeduplication(t *testing.T, cache *remoteReplayCach
 	t.Helper()
 	firstLegacy := cachedRemoteReplayWorkerDigest(t, cache.legacyWorkerDigest, snapshot)
 	secondLegacy := cachedRemoteReplayWorkerDigest(t, cache.legacyWorkerDigest, snapshot)
+	firstPrevious := cachedRemoteReplayWorkerDigest(t, cache.previousWorkerDigest, snapshot)
+	secondPrevious := cachedRemoteReplayWorkerDigest(t, cache.previousWorkerDigest, snapshot)
 	firstPrecise := cachedRemoteReplayWorkerDigest(t, cache.preciseWorkerDigest, snapshot)
 	secondPrecise := cachedRemoteReplayWorkerDigest(t, cache.preciseWorkerDigest, snapshot)
-	if firstLegacy != secondLegacy || firstPrecise != secondPrecise {
+	if firstLegacy != secondLegacy || firstPrevious != secondPrevious || firstPrecise != secondPrecise {
 		t.Fatal("worker replay cache changed an immutable exact-tree digest")
 	}
-	if cache.legacyComputations != 1 || cache.preciseComputations != 1 {
-		t.Fatalf("worker replay computations legacy=%d precise=%d", cache.legacyComputations, cache.preciseComputations)
+	if cache.legacyComputations != 1 || cache.previousComputations != 1 || cache.preciseComputations != 1 {
+		t.Fatalf("worker replay computations legacy=%d previous=%d precise=%d", cache.legacyComputations, cache.previousComputations, cache.preciseComputations)
 	}
 }
 

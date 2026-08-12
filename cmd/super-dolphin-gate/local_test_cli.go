@@ -100,13 +100,18 @@ func validateLocalWorkloadSelection(ids []string, catalog gatecontract.WorkloadC
 		}
 		known[workload.ID] = struct{}{}
 	}
+	selected := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		if strings.TrimSpace(id) == "" {
 			return errors.New("local workload ID is empty")
 		}
+		if _, duplicate := selected[id]; duplicate {
+			return fmt.Errorf("duplicate workload ID %q", id)
+		}
 		if _, ok := known[id]; !ok {
 			return fmt.Errorf("unknown workload ID %q", id)
 		}
+		selected[id] = struct{}{}
 	}
 	return nil
 }

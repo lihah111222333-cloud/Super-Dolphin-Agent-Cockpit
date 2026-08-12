@@ -1,8 +1,10 @@
 package remoteci
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"sort"
@@ -10,6 +12,8 @@ import (
 )
 
 const workerExecutionRequestSourcePath = "internal/devtools/remoteci/coordinator_request.go"
+
+const workerExecutionExecutorSourcePath = "internal/devtools/gate/executor.go"
 
 // addWorkerExecutionRequestSemanticFragment keeps only the request fields that
 // define the worker runtime boundary. Job/shard/resource/OSS/ECI bookkeeping is
@@ -28,6 +32,91 @@ func (assets *workerExecutionAssets) addWorkerExecutionRequestSemanticFragment()
 		name: "createRequest-canonical", content: content,
 	}
 	return nil
+}
+
+// addWorkerExecutionExecutorConfigFragment 只绑定 executor 的运行时配置，排除 CLI 计划解析与估时策略。
+func (assets *workerExecutionAssets) addWorkerExecutionExecutorConfigFragment() error {
+	content, err := workerExecutionExecutorConfigContent(assets)
+	if err != nil {
+		return err
+	}
+	assets.fragments["executor-config"] = workerExecutionFragment{
+		kind: "executor-config", path: workerExecutionExecutorSourcePath,
+		name: "executorConfig-canonical", content: content,
+	}
+	return nil
+}
+
+func workerExecutionExecutorConfigContent(assets *workerExecutionAssets) ([]byte, error) {
+	if assets == nil || assets.snapshot == nil {
+		return nil, fmt.Errorf("worker execution executor config snapshot is required")
+	}
+	source, ok := assets.snapshot.goSources[workerExecutionExecutorSourcePath]
+	if !ok {
+		return nil, fmt.Errorf("worker execution executor config source is missing")
+	}
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, workerExecutionExecutorSourcePath, source, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("parse worker execution executor config source: %w", err)
+	}
+	literal, err := workerExecutionExecutorConfigLiteral(file)
+	if err != nil {
+		return nil, err
+	}
+	var output bytes.Buffer
+	if err := format.Node(&output, fileSet, literal); err != nil {
+		return nil, fmt.Errorf("format worker execution executor config: %w", err)
+	}
+	return output.Bytes(), nil
+}
+
+func workerExecutionExecutorConfigLiteral(file *ast.File) (*ast.CompositeLit, error) {
+	for _, functionName := range []string{"executeCanonicalGate", "ExecuteExecutor"} {
+		function := workerExecutionNamedFunction(file, functionName)
+		if function == nil {
+			continue
+		}
+		if literal := workerExecutionNamedCompositeLiteral(function.Body, "executorConfig"); literal != nil {
+			return literal, nil
+		}
+	}
+	return nil, fmt.Errorf("worker execution executor config literal is missing")
+}
+
+func workerExecutionNamedFunction(file *ast.File, name string) *ast.FuncDecl {
+	if file == nil {
+		return nil
+	}
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && function.Name != nil && function.Name.Name == name {
+			return function
+		}
+	}
+	return nil
+}
+
+func workerExecutionNamedCompositeLiteral(node ast.Node, name string) *ast.CompositeLit {
+	var found *ast.CompositeLit
+	ast.Inspect(node, func(candidate ast.Node) bool {
+		literal, ok := candidate.(*ast.CompositeLit)
+		identifier, named := literalTypeIdentifier(literal)
+		if ok && named && identifier.Name == name {
+			found = literal
+			return false
+		}
+		return found == nil
+	})
+	return found
+}
+
+func literalTypeIdentifier(literal *ast.CompositeLit) (*ast.Ident, bool) {
+	if literal == nil {
+		return nil, false
+	}
+	identifier, ok := literal.Type.(*ast.Ident)
+	return identifier, ok
 }
 
 // 从精确源码快照定位 createRequest，缺失或语法错误均不静默吞掉。

@@ -15,6 +15,11 @@ import (
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 func (snapshot *remoteGitTreeSnapshot) buildWorkerExecutionGoIndex() *workerExecutionGoIndex {
+	return snapshot.buildWorkerExecutionGoIndexWithKeyStrategy(workerExecutionStableUnitKeys)
+}
+
+// buildWorkerExecutionGoIndexWithKeyStrategy 只允许历史回放显式选择旧位置键；生产身份始终使用稳定语义键。
+func (snapshot *remoteGitTreeSnapshot) buildWorkerExecutionGoIndexWithKeyStrategy(strategy workerExecutionUnitKeyStrategy) *workerExecutionGoIndex {
 	index := &workerExecutionGoIndex{
 		symbols:         make(map[string]map[string][]*workerExecutionGoUnit),
 		methods:         make(map[string]map[string][]*workerExecutionGoUnit),
@@ -22,6 +27,8 @@ func (snapshot *remoteGitTreeSnapshot) buildWorkerExecutionGoIndex() *workerExec
 		initializers:    make(map[string][]*workerExecutionGoUnit),
 		routes:          make(map[string]map[string][]*workerExecutionGoUnit),
 		parseErrors:     make(map[string][]error),
+		unitKeyStrategy: strategy,
+		unitKeyOrdinals: make(map[string]int),
 	}
 	paths := make([]string, 0, len(snapshot.goSources))
 	for filePath := range snapshot.goSources {
@@ -111,6 +118,7 @@ func (index *workerExecutionGoIndex) addFunctionDeclaration(directory, filePath 
 	receiver := workerExecutionReceiverName(function.Recv)
 	localTypes := workerExecutionFunctionLocalTypes(function)
 	unit := workerExecutionFunctionUnit(directory, filePath, source, fileSet, packageName, imports, function, receiver, localTypes)
+	unit.key = index.workerExecutionUnitKey(unit)
 	if function.Name.Name == "init" && receiver == "" {
 		index.initializers[directory] = append(index.initializers[directory], unit)
 		return
@@ -137,7 +145,6 @@ func workerExecutionFunctionUnit(directory, filePath string, source []byte, file
 		localNames:   workerExecutionFunctionLocalNames(function, localTypes),
 		imports:      imports,
 	}
-	unit.key = workerExecutionUnitKey(unit)
 	return unit
 }
 
@@ -179,7 +186,7 @@ func (index *workerExecutionGoIndex) addGeneralSpec(directory, filePath string, 
 		dependencies = declaration
 	}
 	unit := &workerExecutionGoUnit{directory: directory, filePath: filePath, packageName: packageName, kind: declaration.Tok.String(), names: names, receiver: receiver, source: source, fileSet: fileSet, node: spec, content: declaration, dependencies: dependencies, imports: imports}
-	unit.key = workerExecutionUnitKey(unit)
+	unit.key = index.workerExecutionUnitKey(unit)
 	if index.addGeneralNames(directory, names, unit) {
 		return
 	}
@@ -230,7 +237,7 @@ func (index *workerExecutionGoIndex) addCommandRoutes(
 				fileSet: functionUnit.fileSet, node: clause, content: clause, dependencies: clause,
 				localTypes: functionUnit.localTypes, imports: functionUnit.imports,
 			}
-			unit.key = workerExecutionUnitKey(unit)
+			unit.key = index.workerExecutionUnitKey(unit)
 			index.addNamedUnit(index.routes, functionUnit.directory, command, unit)
 		}
 		return true
@@ -342,8 +349,24 @@ func workerExecutionAddAssignedNames(names map[string]struct{}, expressions []as
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
-func workerExecutionUnitKey(unit *workerExecutionGoUnit) string {
-	return fmt.Sprintf("%s:%d:%d:%s", unit.filePath, unit.node.Pos(), unit.node.End(), unit.kind)
+func (index *workerExecutionGoIndex) workerExecutionUnitKey(unit *workerExecutionGoUnit) string {
+	if index.unitKeyStrategy == workerExecutionPositionalUnitKeys {
+		return fmt.Sprintf("%s:%d:%d:%s", unit.filePath, unit.node.Pos(), unit.node.End(), unit.kind)
+	}
+	base := workerExecutionStableUnitKeyBase(unit)
+	ordinal := index.unitKeyOrdinals[base]
+	index.unitKeyOrdinals[base] = ordinal + 1
+	return fmt.Sprintf("%s#%d", base, ordinal)
+}
+
+// workerExecutionStableUnitKeyBase 用声明语义而非源码偏移构造键，避免文件前部窄改让未变闭包整体失效。
+func workerExecutionStableUnitKeyBase(unit *workerExecutionGoUnit) string {
+	parts := []string{unit.filePath, unit.packageName, unit.kind, unit.receiver}
+	parts = append(parts, unit.names...)
+	for index := range parts {
+		parts[index] = strconv.Quote(parts[index])
+	}
+	return strings.Join(parts, "|")
 }
 
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
@@ -370,6 +393,9 @@ func (index *workerExecutionGoIndex) resolveRoot(root workerExecutionRoot) (*wor
 	if len(units) != 1 {
 		if parseErrors := index.parseErrors[root.directory]; len(parseErrors) > 0 {
 			return nil, parseErrors[0]
+		}
+		if len(units) == 0 {
+			return nil, fmt.Errorf("%w: %s.%s", errWorkerExecutionRootUnavailable, root.directory, root.symbol)
 		}
 		return nil, fmt.Errorf("worker execution root %s.%s resolved to %d declarations",
 			root.directory, root.symbol, len(units))

@@ -51,19 +51,43 @@ func loadWorkloadPassReadProofBatches(
 	currentGeneration uint64,
 	stats *workloadPassEvidenceLookupStats,
 ) (map[string]workloadPassEvidenceOriginContext, map[string]retainedWorkloadPassProofRow, error) {
-	origins := make(map[string]workloadPassEvidenceOriginContext, len(found))
-	retained := make(map[string]retainedWorkloadPassProofRow)
 	values := make([]WorkloadPassEvidence, 0, len(found))
 	for _, evidence := range found {
 		values = append(values, evidence)
 	}
+	return loadWorkloadPassReadProofContexts(tx, values, currentGeneration, stats)
+}
+
+// loadWorkloadPassReadProofContexts 为普通 lookup 与 source replay 共用固定批次
+// origin/consumer 校验，禁止调用方退回逐 evidence SQLite readback。
+func loadWorkloadPassReadProofContexts(
+	tx *sql.Tx,
+	values []WorkloadPassEvidence,
+	currentGeneration uint64,
+	stats *workloadPassEvidenceLookupStats,
+) (map[string]workloadPassEvidenceOriginContext, map[string]retainedWorkloadPassProofRow, error) {
+	origins := make(map[string]workloadPassEvidenceOriginContext, len(values))
+	retained := make(map[string]retainedWorkloadPassProofRow)
 	if err := loadDirectWorkloadPassOriginBatches(tx, values, currentGeneration, origins, stats); err != nil {
 		return nil, nil, err
 	}
-	if err := loadRetainedWorkloadPassProofBatches(tx, values, currentGeneration, retained, stats); err != nil {
+	retainedCandidates := workloadPassEvidenceWithoutDirectOrigins(values, origins)
+	if err := loadRetainedWorkloadPassProofBatches(tx, retainedCandidates, currentGeneration, retained, stats); err != nil {
 		return nil, nil, err
 	}
 	return origins, retained, nil
+}
+
+// workloadPassEvidenceWithoutDirectOrigins 只让已不存在直接 origin 的证据进入
+// v16 consumer-proof 路径；provisional consumer 不能遮蔽仍存活的直接来源。
+func workloadPassEvidenceWithoutDirectOrigins(evidence []WorkloadPassEvidence, origins map[string]workloadPassEvidenceOriginContext) []WorkloadPassEvidence {
+	result := make([]WorkloadPassEvidence, 0, len(evidence))
+	for _, item := range evidence {
+		if _, direct := origins[item.OriginJobID]; !direct {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // loadWorkloadPassEvidenceForIdentitiesWithStats 执行分块查询并复用来源验证上下文。
@@ -193,15 +217,18 @@ func workloadPassEvidenceBatchQuery(identities []WorkloadPassIdentity, retainedG
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(identities)), ",")
 	query := `SELECT evidence.identity_digest, evidence.accepted_generation, evidence.workload_id, evidence.execution_digest, evidence.input_digest, evidence.environment_digest, evidence.origin_job_id, evidence.origin_source_tree_sha, evidence.origin_receipt_set_sha256, evidence.origin_execution_json, evidence.evidence_sha256, evidence.accepted_generation, 'direct'
 	FROM ci_workload_pass_evidence AS evidence
-	JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest
-	JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
-	WHERE evidence.identity_digest IN (` + placeholders + `) AND evidence.accepted_generation IN (?, ?, ?) AND direct.disposition = 'executed' AND origin.accepted_generation = evidence.accepted_generation
+	LEFT JOIN ci_run_workload_results AS direct ON direct.job_id = evidence.origin_job_id AND direct.workload_id = evidence.workload_id AND direct.identity_digest = evidence.identity_digest
+	LEFT JOIN ci_runs AS origin ON origin.job_id = evidence.origin_job_id
+	WHERE evidence.identity_digest IN (` + placeholders + `) AND evidence.accepted_generation IN (?, ?, ?)
 	UNION ALL
-	SELECT proof.identity_digest, proof.origin_accepted_generation, proof.workload_id, '', '', '', proof.origin_job_id, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256, proof.origin_execution_json, proof.evidence_sha256, COALESCE(consumer.accepted_generation, ''), 'retained'
+	SELECT proof.identity_digest, proof.origin_accepted_generation, proof.workload_id, '', '', '', proof.origin_job_id, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256,
+		CASE WHEN json_type(proof.origin_execution_json, '$.schema_version') IS NOT NULL THEN json_extract(proof.origin_execution_json, '$.execution') ELSE proof.origin_execution_json END,
+		proof.evidence_sha256, COALESCE(consumer.accepted_generation, ''), 'retained'
 	FROM ci_retained_workload_pass_proofs AS proof
 	LEFT JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id
 	WHERE proof.identity_digest IN (` + placeholders + `)
 		AND (consumer.accepted_generation IN (?, ?, ?) OR consumer.job_id IS NULL)
+		AND (consumer.authoritative = 1 OR EXISTS (SELECT 1 FROM ci_check_receipts AS receipt WHERE receipt.job_id = proof.consumer_job_id))
 	ORDER BY 1, 12 DESC`
 	args := make([]any, 0, 2*(len(identities)+len(retainedGenerations)))
 	for _, identity := range identities {

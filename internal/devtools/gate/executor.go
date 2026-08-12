@@ -126,6 +126,12 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 	if err != nil {
 		return err
 	}
+	return executeCanonicalGate(ctx, id, program, stdout, stderr)
+}
+
+// executeCanonicalGate 从已校验的 canonical workload 身份建立唯一执行环境。
+// CLI/计划解析只决定是否允许调用它；装箱和估时策略不得污染实际 workload PASS 语义。
+func executeCanonicalGate(ctx context.Context, id GateID, program ExecutorProgram, stdout io.Writer, stderr io.Writer) error {
 	cacheProxy, err := executorGoBuildCacheProxyLauncher()
 	if err != nil {
 		return err

@@ -111,6 +111,40 @@ func TestExecutorTimingPreservesPositiveSubMillisecondPhases(t *testing.T) {
 	}
 }
 
+func TestFinishLocalGateExecutionNormalizesQuantizedPhaseInterval(t *testing.T) {
+	_, program, err := executorProgramForWorkload(GateIDProjectMapCheck)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := executorPlanTestNow().Add(900 * time.Microsecond)
+	result, err := finishLocalGateExecution(GateIDProjectMapCheck, program, localExecutorObservation{
+		started:   started,
+		completed: started.Add(time.Millisecond),
+		timing:    &executorExecutionTiming{setupMS: 1, bodyMS: 1, totalMS: 2},
+	}, nil)
+	if err != nil {
+		t.Fatalf("finish local gate execution: %v", err)
+	}
+	if result.ExecutionProfile.TotalMS != 2 || result.CompletedAt.Sub(result.StartedAt) != 2*time.Millisecond {
+		t.Fatalf("canonical local interval = %v / %dms, want 2ms", result.CompletedAt.Sub(result.StartedAt), result.ExecutionProfile.TotalMS)
+	}
+}
+
+func TestLocalWorkloadExecutionDigestMatchesCanonicalPassIdentity(t *testing.T) {
+	rawDigest, err := WorkloadExecutionDigest(string(GateIDCapabilityContractCheck))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := localWorkloadExecutionDigest(string(GateIDCapabilityContractCheck))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := WorkloadPassExecutionDigest(Workload{ID: string(GateIDCapabilityContractCheck), CommandDigest: rawDigest})
+	if got != want {
+		t.Fatalf("local execution digest = %q, want canonical PASS digest %q", got, want)
+	}
+}
+
 func TestFailedStartupProfileKeepsBodyNotStarted(t *testing.T) {
 	started := executorPlanTestNow()
 	profile := measuredFailedStartupExecutionProfile(started, started.Add(400*time.Microsecond))

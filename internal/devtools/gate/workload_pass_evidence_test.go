@@ -261,7 +261,8 @@ func TestWorkloadPassEvidenceDoesNotPromoteReusedResult(t *testing.T) {
 	}
 }
 
-// TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition 拒绝把 reused 混入本次 fresh 分片或执行。
+// TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition 要求 fresh
+// shard/execution 成对；旧 proof 的 package 原子重跑可同时保留 reused authority。
 func TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition(t *testing.T) {
 	workloadID := GateID("workload-partition")
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Workloads: []Workload{{ID: string(workloadID), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 1, Shardable: true}}}
@@ -285,11 +286,12 @@ func TestRemoteCIRunCatalogIndexRequiresExactWorkloadResultFreshPartition(t *tes
 	}{
 		{name: "all reused has no fresh records", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{reused}}},
 		{name: "executed has matching fresh records", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{executed}, Shards: []RemoteCIShardRecord{shard}, WorkloadExecutions: []PlanGateExecution{execution}}},
+		{name: "atomic reexecution has matching fresh records", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{reused}, Shards: []RemoteCIShardRecord{shard}, WorkloadExecutions: []PlanGateExecution{execution}}},
 		{name: "missing result", record: RemoteCIRunRecord{}, want: "does not cover"},
 		{name: "executed missing shard", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{executed}, WorkloadExecutions: []PlanGateExecution{execution}}, want: "missing from fresh shard"},
 		{name: "executed missing execution", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{executed}, Shards: []RemoteCIShardRecord{shard}}, want: "missing from fresh execution"},
-		{name: "reused in fresh shard", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{reused}, Shards: []RemoteCIShardRecord{shard}}, want: "is not executed"},
-		{name: "reused in fresh execution", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{reused}, WorkloadExecutions: []PlanGateExecution{execution}}, want: "is not executed"},
+		{name: "reused fresh shard lacks execution", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{reused}, Shards: []RemoteCIShardRecord{shard}}, want: "missing from fresh execution"},
+		{name: "reused fresh execution lacks shard", record: RemoteCIRunRecord{WorkloadResults: []RemoteCIWorkloadResult{reused}, WorkloadExecutions: []PlanGateExecution{execution}}, want: "fresh execution workload"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := index.validatePassed(test.record, scope)
@@ -367,40 +369,44 @@ func TestWorkloadPassEvidenceConcurrentPromotionKeepsJobsIsolated(t *testing.T) 
 // TestWorkloadPassEvidenceLookupRestrictsAcceptedGeneration 验证 lookup 只复用当前代向前最近三代的真实证据。
 func TestWorkloadPassEvidenceLookupRestrictsAcceptedGeneration(t *testing.T) {
 	t.Run("generation one expires when accepted singleton is four", func(t *testing.T) {
-		store := newWorkloadPassEvidenceStore(t, 4)
+		store := newWorkloadPassEvidenceStore(t, 1)
 		record, identity, receipts := recordWorkloadPassRun(t, store, "expired-generation-one", 1, "workload-expired")
 		if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
 			t.Fatal(err)
 		}
+		seedAcceptedGenerationForTest(t, store, 4)
 		assertWorkloadPassLookupMiss(t, store, identity)
 	})
 	t.Run("generation two remains reusable", func(t *testing.T) {
-		store := newWorkloadPassEvidenceStore(t, 4)
+		store := newWorkloadPassEvidenceStore(t, 2)
 		record, identity, receipts := recordWorkloadPassRun(t, store, "retained-generation-two", 2, "workload-retained")
 		if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
 			t.Fatal(err)
 		}
+		seedAcceptedGenerationForTest(t, store, 4)
 		if evidence := lookupSingleWorkloadPassEvidence(t, store, identity); evidence.OriginAcceptedGeneration != 2 {
 			t.Fatalf("retained evidence generation = %d, want 2", evidence.OriginAcceptedGeneration)
 		}
 	})
 	t.Run("very old completion remains reusable within generation window", func(t *testing.T) {
-		store := newWorkloadPassEvidenceStore(t, 4)
+		store := newWorkloadPassEvidenceStore(t, 2)
 		completedAt := time.Date(2001, time.January, 2, 3, 4, 5, 0, time.UTC)
 		record, identity, receipts := recordWorkloadPassRunAt(t, store, "old-completion-generation-two", 2, "workload-old-completion", completedAt)
 		if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
 			t.Fatal(err)
 		}
+		seedAcceptedGenerationForTest(t, store, 4)
 		if evidence := lookupSingleWorkloadPassEvidence(t, store, identity); evidence.OriginAcceptedGeneration != 2 {
 			t.Fatalf("old retained evidence generation = %d, want 2", evidence.OriginAcceptedGeneration)
 		}
 	})
 	t.Run("future generation is rejected", func(t *testing.T) {
-		store := newWorkloadPassEvidenceStore(t, 4)
+		store := newWorkloadPassEvidenceStore(t, 2)
 		record, identity, receipts := recordWorkloadPassRun(t, store, "forged-future-generation", 2, "workload-future")
 		if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
 			t.Fatal(err)
 		}
+		seedAcceptedGenerationForTest(t, store, 4)
 		forged := lookupSingleWorkloadPassEvidence(t, store, identity)
 		forged.OriginAcceptedGeneration = 5
 		digest, err := WorkloadPassEvidenceSHA256(forged)
@@ -593,9 +599,12 @@ func TestWorkloadPassEvidenceRejectsSecondReceiptSetDigestTampering(t *testing.T
 
 // TestWorkloadPassEvidenceRetainsThreeLatestGenerations 验证第四个 accepted generation 同事务淘汰最早证据。
 func TestWorkloadPassEvidenceRetainsThreeLatestGenerations(t *testing.T) {
-	store := newWorkloadPassEvidenceStore(t, 4)
+	store := newWorkloadPassEvidenceStore(t, 1)
 	identity := WorkloadPassIdentity{}
 	for generation := uint64(1); generation <= 4; generation++ {
+		if generation > 1 {
+			seedAcceptedGenerationForTest(t, store, generation)
+		}
 		record, current, receipts := recordWorkloadPassRun(t, store, fmt.Sprintf("retention-%d", generation), generation, "workload-retention")
 		if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
 			t.Fatalf("finalize generation %d: %v", generation, err)

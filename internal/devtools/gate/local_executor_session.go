@@ -65,11 +65,11 @@ func prepareLocalExecutorSessionWithReceipt(sourceRoot string, nowFunc func() ti
 	if err != nil {
 		return nil, err
 	}
-	sandboxPath, err := localNetworkSandboxPath()
+	trustedGo, trustedSelf, err := receiptTrustedExecutionBinaries(receipt)
 	if err != nil {
 		return nil, err
 	}
-	trustedGo, trustedSelf, err := receiptTrustedExecutionBinaries(receipt)
+	sandboxPath, err := localNetworkSandboxPath()
 	if err != nil {
 		return nil, err
 	}
@@ -136,19 +136,32 @@ func freezeLocalExecutorSession(sourceRoot string, layout executorLayout, search
 	if strings.TrimSpace(dependencies.CGOEnabled) != "" && dependencies.CGOEnabled != cgoEnabled {
 		return nil, "", "", errors.New("local executor dependency CGO_ENABLED drifted from go env")
 	}
-	profile, err := localSandboxProfile(sourceRoot, layout, dependencies, goRoot, sessionSandboxToolPaths(steps, programs))
+	toolPaths, err := sessionSandboxToolPaths(steps, programs, searchPath)
+	if err != nil {
+		return nil, "", "", err
+	}
+	profile, err := localSandboxProfile(sourceRoot, layout, dependencies, goRoot, toolPaths)
 	if err != nil {
 		return nil, "", "", err
 	}
 	return steps, cgoEnabled, profile, nil
 }
 
-func sessionSandboxToolPaths(steps map[GateID][]resolvedStep, programs map[GateID]ExecutorProgram) []string {
+// sessionSandboxToolPaths 汇总直接命令与受信 self 内部的显式运行时；
+// 嵌套 Node 必须来自 receipt 冻结 PATH，缺失时禁止启动 workload。
+func sessionSandboxToolPaths(steps map[GateID][]resolvedStep, programs map[GateID]ExecutorProgram, searchPath string) ([]string, error) {
 	paths := make([]string, 0)
 	for id, workloadSteps := range steps {
 		paths = append(paths, sandboxToolPaths(workloadSteps, programs[id])...)
 	}
-	return paths
+	if _, projectMap := programs[GateIDProjectMapCheck]; projectMap {
+		node, err := resolveExecutable("node", searchPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve receipt-bound project-map Node runtime: %w", err)
+		}
+		paths = append(paths, node)
+	}
+	return paths, nil
 }
 
 // Execute 在共享 session 中执行一个已冻结 workload，执行前只重新挂载轻量覆盖层。
@@ -217,6 +230,60 @@ func (session *LocalExecutorSession) Close() error {
 	}
 	session.closed = true
 	return session.cleanup()
+}
+
+// localSandboxGitObjectReadRoots 冻结 exact clone 的递归 alternates 对象根；
+// 缺失、相对路径或越界根立即失败，sandbox 仅授予这些内容寻址对象只读权限。
+func localSandboxGitObjectReadRoots(sourceRoot string) ([]string, error) {
+	queue := []string{filepath.Join(sourceRoot, ".git", "objects")}
+	seen := make(map[string]struct{}, len(queue))
+	roots := make([]string, 0, 1)
+	for len(queue) != 0 {
+		objectRoot := queue[0]
+		queue = queue[1:]
+		alternates, err := readLocalSandboxGitAlternates(objectRoot)
+		if err != nil {
+			return nil, err
+		}
+		for _, candidate := range alternates {
+			canonical, err := canonicalLocalSandboxPath(candidate, "exact-clone Git object root")
+			if err != nil {
+				return nil, err
+			}
+			if _, duplicate := seen[canonical]; duplicate {
+				continue
+			}
+			seen[canonical] = struct{}{}
+			roots = append(roots, canonical)
+			queue = append(queue, canonical)
+		}
+	}
+	slices.Sort(roots)
+	return roots, nil
+}
+
+// readLocalSandboxGitAlternates 严格解析 Git 自己生成的 alternates 文件，
+// 保留含空格路径但拒绝空行、控制字符和非绝对路由。
+func readLocalSandboxGitAlternates(objectRoot string) ([]string, error) {
+	path := filepath.Join(objectRoot, "info", "alternates")
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read exact-clone Git alternates: %w", err)
+	}
+	value := strings.TrimSuffix(string(content), "\n")
+	if value == "" || strings.ContainsAny(value, "\x00\r") {
+		return nil, errors.New("exact-clone Git alternates are invalid")
+	}
+	alternates := strings.Split(value, "\n")
+	for _, alternate := range alternates {
+		if alternate == "" || !filepath.IsAbs(alternate) || filepath.Clean(alternate) != alternate {
+			return nil, errors.New("exact-clone Git alternate must be an absolute clean path")
+		}
+	}
+	return alternates, nil
 }
 
 // reattachLocalExecutorSessionDependencies 在 exact-tree restore 后只恢复前端轻量覆盖层。

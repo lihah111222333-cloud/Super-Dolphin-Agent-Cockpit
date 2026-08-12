@@ -31,6 +31,32 @@ func TestWorkloadPassEvidenceRejectsConflictingOriginProof(t *testing.T) {
 	}
 }
 
+// TestWorkloadPassEvidenceAtomicReexecutionRetainsCanonicalOrigin 验证包原子降级后的
+// fresh execution 仍消费准备阶段验证过的旧 proof，不把同 identity 重铸为冲突来源。
+func TestWorkloadPassEvidenceAtomicReexecutionRetainsCanonicalOrigin(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	first, identity, firstReceipts := recordWorkloadPassRunAt(t, store, "atomic-origin-first", 1, "atomic-origin", time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC))
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(first), firstReceipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	canonical := lookupSingleWorkloadPassEvidence(t, store, identity)
+	second, secondIdentity, secondReceipts := recordWorkloadPassRunAt(t, store, "atomic-origin-second", 1, "atomic-origin", time.Date(2026, time.August, 3, 12, 1, 0, 0, time.UTC))
+	if secondIdentity != identity {
+		t.Fatalf("atomic reexecution identity = %#v, want %#v", secondIdentity, identity)
+	}
+	second.WorkloadResults[0] = RemoteCIWorkloadResult{Identity: identity, Disposition: WorkloadDispositionReused, OriginJobID: canonical.OriginJobID, OriginAcceptedGeneration: canonical.OriginAcceptedGeneration, EvidenceSHA256: canonical.EvidenceSHA256}
+	if err := store.RecordProvisionalRemoteCIRun(second); err != nil {
+		t.Fatalf("record atomic reexecution: %v", err)
+	}
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(second), secondReceipts, nil, true); err != nil {
+		t.Fatalf("finalize atomic reexecution: %v", err)
+	}
+	assertRemoteCIRunAuthoritative(t, store, second.JobID, true)
+	if got := lookupSingleWorkloadPassEvidence(t, store, identity); got.OriginJobID != first.JobID {
+		t.Fatalf("atomic reexecution proof origin = %q, want canonical %q", got.OriginJobID, first.JobID)
+	}
+}
+
 // TestWorkloadPassEvidenceAcceptsIdempotentFullProof 验证 plain INSERT 的唯一键
 // 冲突只有在全部规范 proof 列逐字节相同时才收敛为幂等成功。
 func TestWorkloadPassEvidenceAcceptsIdempotentFullProof(t *testing.T) {

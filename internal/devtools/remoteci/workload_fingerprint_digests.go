@@ -82,17 +82,13 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	if err != nil {
 		return "", err
 	}
+	if _, err := snapshot.addGoExactTestCompileEntries(targetDirectory, selected, profile); err != nil {
+		return "", err
+	}
 	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
 		return "", err
 	}
-	observesWholeTree, err := snapshot.addGoExactTestCompileEntries(targetDirectory, selected, profile)
-	if err != nil {
-		return "", err
-	}
-	if observesWholeTree {
-		return snapshot.digestEntries(snapshot.entries)
-	}
-	testSources, observesWholeTree, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile)
+	testSources, observesWholeTree, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, true)
 	if err != nil {
 		return "", err
 	}
@@ -101,6 +97,136 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	}
 	entries := sortedRemoteGitTreeEntries(selected)
 	return digestGoTestEntries(entries, testSources)
+}
+
+// goExactTestSemanticInputDigest 只摘要 selector 声明、静态运行时观察和其生产调用闭包。
+// 同包未选测试的编译输入由 broad digest 单独投票，不得凭单票扩大 selector MISS。
+func (snapshot *remoteGitTreeSnapshot) goExactTestSemanticInputDigest(ctx context.Context, testTarget gate.GoTestTarget, profile remoteGoBuildProfile) (string, error) {
+	digest, _, err := snapshot.goExactTestRuntimeInputDigest(ctx, testTarget, profile)
+	return digest, err
+}
+
+// goExactTestRuntimeInputDigest 摘要 selector 的静态运行时观察闭包；
+// 无法精确闭合时明确标记全树 fallback，供投票层避免重复计票。
+func (snapshot *remoteGitTreeSnapshot) goExactTestRuntimeInputDigest(ctx context.Context, testTarget gate.GoTestTarget, profile remoteGoBuildProfile) (string, bool, error) {
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return "", false, err
+	}
+	targetDirectory, err := remoteGoPackageDirectory(testTarget.Package)
+	if err != nil {
+		return "", false, err
+	}
+	selected := make(map[string]remoteGitTreeEntry)
+	testSources, observesWholeTree, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile, false)
+	if err != nil {
+		return "", false, err
+	}
+	if observesWholeTree {
+		digest, err := snapshot.digestEntries(snapshot.entries)
+		return digest, true, err
+	}
+	digest, err := digestGoTestRuntimeEntries(sortedRemoteGitTreeEntries(selected), testSources)
+	return digest, false, err
+}
+
+// digestGoTestRuntimeEntries 对 selector 真实运行时观察和声明源码建立独立摘要。
+func digestGoTestRuntimeEntries(entries []remoteGitTreeEntry, sources []remoteGoTestSource) (string, error) {
+	if len(sources) == 0 {
+		return "", errors.New("selector runtime input set is empty")
+	}
+	hasher := sha256.New()
+	fmt.Fprintln(hasher, "domain remote-go-selector-runtime/v1")
+	for _, entry := range entries {
+		fmt.Fprintf(hasher, "%s %s %s\t%s\n", entry.mode, entry.kind, entry.objectID, entry.path)
+	}
+	for _, source := range sources {
+		fmt.Fprintf(hasher, "test %s\t%x\n", source.path, sha256.Sum256(source.text))
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// goExactTestDeclarationInputDigest 只摘要目标 selector 及其声明依赖，
+// 与同包编译闭包和运行时观察闭包保持独立。
+func (snapshot *remoteGitTreeSnapshot) goExactTestDeclarationInputDigest(ctx context.Context, testTarget gate.GoTestTarget, profile remoteGoBuildProfile) (string, error) {
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return "", err
+	}
+	directory, err := remoteGoPackageDirectory(testTarget.Package)
+	if err != nil {
+		return "", err
+	}
+	files, declarations, fallback := snapshot.remoteGoTestDeclarations(directory, profile)
+	if fallback {
+		return "", fmt.Errorf("parse selector declaration input for %q", testTarget.Name)
+	}
+	targets := declarations[testTarget.Name]
+	if len(targets) != 1 {
+		return "", fmt.Errorf("selector declaration %q count = %d, want 1", testTarget.Name, len(targets))
+	}
+	selected, _ := remoteGoTestSelectedDeclarations(targets[0], files, declarations)
+	sources := make([]remoteGoTestSource, 0, len(selected))
+	if len(selected) == 0 {
+		sources = append(sources, remoteGoTestSource{path: targets[0].filePath, text: remoteGoTestDeclarationText(targets[0])})
+	}
+	for _, declaration := range selected {
+		sources = append(sources, remoteGoTestSource{path: declaration.filePath, text: remoteGoTestDeclarationText(declaration)})
+	}
+	sort.Slice(sources, func(left, right int) bool {
+		if sources[left].path == sources[right].path {
+			return bytes.Compare(sources[left].text, sources[right].text) < 0
+		}
+		return sources[left].path < sources[right].path
+	})
+	if len(sources) == 0 {
+		return "", errors.New("selector declaration input set is empty")
+	}
+	hasher := sha256.New()
+	fmt.Fprintln(hasher, "domain remote-go-selector-declaration/v1")
+	for _, source := range sources {
+		fmt.Fprintf(hasher, "test %s\t%x\n", source.path, sha256.Sum256(source.text))
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+type remoteWorkloadInputVoteDigests struct {
+	compile         string
+	declaration     string
+	runtime         string
+	runtimeFallback bool
+}
+
+// workloadInputVoteDigests 独立计算编译、声明与运行时观察三类 selector 输入。
+func (snapshot *remoteGitTreeSnapshot) workloadInputVoteDigests(ctx context.Context, workload gate.Workload) (remoteWorkloadInputVoteDigests, bool, error) {
+	parent, targetKind, target, targeted, err := gate.ParseWorkloadID(workload.ID)
+	if err != nil || !targeted {
+		return remoteWorkloadInputVoteDigests{}, false, err
+	}
+	profile := remoteGoBuildProfile{race: parent == gate.GateIDBackendTestGuardWithRace}
+	var parsed gate.GoTestTarget
+	switch targetKind {
+	case gate.WorkloadTargetGoTest:
+		parsed, err = gate.ParseGoTestTarget(target)
+	case gate.WorkloadTargetGoBenchmark:
+		parsed, err = gate.ParseGoBenchmarkTarget(target)
+	default:
+		return remoteWorkloadInputVoteDigests{}, false, nil
+	}
+	if err != nil {
+		return remoteWorkloadInputVoteDigests{}, false, err
+	}
+	compile, err := snapshot.goPackageInputDigest(ctx, parsed.Package, profile)
+	if err != nil {
+		return remoteWorkloadInputVoteDigests{}, false, err
+	}
+	declaration, err := snapshot.goExactTestDeclarationInputDigest(ctx, parsed, profile)
+	if err != nil {
+		return remoteWorkloadInputVoteDigests{}, false, err
+	}
+	runtime, fallback, err := snapshot.goExactTestRuntimeInputDigest(ctx, parsed, profile)
+	if err != nil {
+		return remoteWorkloadInputVoteDigests{}, false, err
+	}
+	return remoteWorkloadInputVoteDigests{compile: compile, declaration: declaration, runtime: runtime, runtimeFallback: fallback}, true, nil
 }
 
 func (snapshot *remoteGitTreeSnapshot) goBenchmarkInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {

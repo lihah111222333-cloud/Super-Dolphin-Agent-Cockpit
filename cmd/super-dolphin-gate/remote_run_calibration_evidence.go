@@ -87,9 +87,13 @@ func remoteCalibrationPassedCatalogWorkloadSet(
 		}
 		executions[workloadID] = execution
 	}
+	identities, err := canonicalCalibrationWorkloadIdentities(result)
+	if err != nil {
+		return nil, err
+	}
 	passed := make(map[string]struct{})
 	for _, workload := range catalog.Workloads {
-		if calibrationIdentityPassed(result.WorkloadPassIdentities, workload) {
+		if calibrationIdentityPassed(identities, workload) {
 			passed[remoteCalibrationWorkloadKey(workload)] = struct{}{}
 			continue
 		}
@@ -110,6 +114,30 @@ func remoteCalibrationPassedCatalogWorkloadSet(
 		}
 	}
 	return passed, nil
+}
+
+// canonicalCalibrationWorkloadIdentities 复用唯一 result projector，确保
+// direct/source/environment reuse 都以当前 consumer 身份计入校准正确性覆盖。
+func canonicalCalibrationWorkloadIdentities(result remoteci.RunResult) ([]gatecontract.WorkloadPassIdentity, error) {
+	canonicalResults, err := remoteci.CanonicalRemoteCIWorkloadResults(result)
+	if err != nil {
+		return nil, fmt.Errorf("project canonical calibration workload results: %w", err)
+	}
+	byWorkload := make(map[gatecontract.GateID]gatecontract.WorkloadPassIdentity, len(canonicalResults)+len(result.WorkloadPassIdentities))
+	for _, identity := range result.WorkloadPassIdentities {
+		byWorkload[identity.WorkloadID] = identity
+	}
+	for _, workloadResult := range canonicalResults {
+		if existing, ok := byWorkload[workloadResult.Identity.WorkloadID]; ok && existing != workloadResult.Identity {
+			return nil, fmt.Errorf("canonical calibration workload identity %q drifted", workloadResult.Identity.WorkloadID)
+		}
+		byWorkload[workloadResult.Identity.WorkloadID] = workloadResult.Identity
+	}
+	identities := make([]gatecontract.WorkloadPassIdentity, 0, len(byWorkload))
+	for _, identity := range byWorkload {
+		identities = append(identities, identity)
+	}
+	return identities, nil
 }
 
 // calibrationIdentityPassed 只把已由权威运行持久化的完整 workload PASS 身份投影为正确性覆盖。

@@ -397,6 +397,7 @@ func TestRollbackRestartCleanupReturnsWhenTerminationAndKillDoNotRespond(t *test
 }
 
 func TestRollbackRestartResolverCleanupUsesFrozenExactContract(t *testing.T) {
+	t.Parallel()
 	transaction := newRollbackRuntimeTransaction(t)
 	executable := filepath.Join(transaction.Paths.Target, "Contents", "MacOS", "agent-terminal")
 	stable := pidregistry.StableProcessIdentity{

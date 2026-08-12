@@ -14,6 +14,7 @@ import (
 )
 
 func TestRollbackRestartIntentSurvivesRenameAndConvergesOnce(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(context.Background(), identity)
 	if err != nil {
@@ -87,6 +88,7 @@ func assertRollbackRestartAlreadyACKed(t *testing.T, store *Store, identity Iden
 }
 
 func TestRollbackRestartRecoversLaunchBeforeACKWindowByToken(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(context.Background(), identity)
 	if err != nil {
@@ -117,6 +119,7 @@ func TestRollbackRestartRecoversLaunchBeforeACKWindowByToken(t *testing.T) {
 }
 
 func TestRollbackRestartReplaysActivationAfterDurableACK(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -140,6 +143,7 @@ func TestRollbackRestartReplaysActivationAfterDurableACK(t *testing.T) {
 }
 
 func TestRollbackRestartCrashAfterACKBeforeActivateLaunchesReplacement(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -165,6 +169,7 @@ func TestRollbackRestartCrashAfterACKBeforeActivateLaunchesReplacement(t *testin
 }
 
 func TestRollbackRestartActivationResponseLossThenDeathLaunchesReplacement(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -189,6 +194,7 @@ func TestRollbackRestartActivationResponseLossThenDeathLaunchesReplacement(t *te
 }
 
 func TestRollbackRestartDeadACKReplacementWriteFailureCleansNewHelper(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -235,6 +241,7 @@ func TestRollbackRestartDeadACKReplacementWriteFailureCleansNewHelper(t *testing
 }
 
 func TestRollbackRestartDeadACKResolverErrorDoesNotLaunch(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -262,6 +269,7 @@ func TestRollbackRestartDeadACKResolverErrorDoesNotLaunch(t *testing.T) {
 }
 
 func TestRollbackRestartDeadACKReplacementValidationFailureCleansLaunch(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -290,6 +298,7 @@ func TestRollbackRestartDeadACKReplacementValidationFailureCleansLaunch(t *testi
 }
 
 func TestRollbackRestartACKWriteFailureCleansParkedHelper(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -337,6 +346,7 @@ func TestRollbackRestartACKWriteFailureCleansParkedHelper(t *testing.T) {
 }
 
 func TestRollbackRestartCancellationAfterConfirmCleansBeforeACK(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
@@ -365,6 +375,7 @@ func TestRollbackRestartCancellationAfterConfirmCleansBeforeACK(t *testing.T) {
 }
 
 func TestRollbackRestartExitedHelperWindowsConvergeWithoutDeadACK(t *testing.T) {
+	t.Parallel()
 	for _, window := range []string{"ready", "prepare"} {
 		t.Run(window, func(t *testing.T) {
 			store, identity, _ := createProbationTransaction(t)

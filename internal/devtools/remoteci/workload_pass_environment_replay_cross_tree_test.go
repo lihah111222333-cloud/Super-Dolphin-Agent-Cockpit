@@ -29,9 +29,66 @@ func TestCoordinatorPrepareReplaysLegacyEnvironmentAcrossWorktrees(t *testing.T)
 		t.Fatalf("legacy environment replay Prepare() error = %v", err)
 	}
 	assertLegacyEnvironmentReplayPrepared(t, prepared, originInput.Tree)
+	assertEnvironmentReplayRecoveredDirectMisses(t, prepared)
 	result, err := coordinator.RunPrepared(context.Background(), prepared)
 	if err != nil || result.Status != gate.ResultStatusPassed || !result.CleanupComplete {
 		t.Fatalf("legacy environment replay RunPrepared() result=%#v error=%v", result, err)
+	}
+	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
+}
+
+func assertEnvironmentReplayRecoveredDirectMisses(t *testing.T, prepared *PreparedRun) {
+	t.Helper()
+	diagnostic := prepared.reuse.diagnostic()
+	if diagnostic.DirectHits != 0 || diagnostic.ReplayMisses != 0 ||
+		diagnostic.RecoveredDirectMisses != len(prepared.reuse.identities) ||
+		diagnostic.MissConfirmationThreshold != remoteReuseMissConfirmationThreshold {
+		t.Fatalf("environment replay cross-check diagnostic = %#v", diagnostic)
+	}
+}
+
+func TestCoordinatorPrepareReplaysPreviousPreciseEnvironmentAcrossWorktrees(t *testing.T) {
+	originRoot, originInput := coordinatorReuseFixture(t)
+	originResult := runCoordinatorFreshWorkloads(t, originInput)
+	seedCoordinatorPreviousPreciseEnvironmentEvidence(t, originInput, &originResult)
+
+	candidateRoot := cloneCrossWorktreeCandidate(t, originRoot)
+	runCoordinatorGit(t, candidateRoot, "commit", "--quiet", "--allow-empty", "-m", "stable worker key replay candidate")
+	candidateInput := crossWorktreeCandidateInput(t, originInput, candidateRoot)
+	store := &coordinatorStore{}
+	runtime := &coordinatorRuntime{}
+	coordinator := newTestCoordinator(t, store, runtime)
+	coordinator.newID = func() (string, error) { return "job-abcdef0123456789abcdef01", nil }
+	prepared, err := coordinator.Prepare(context.Background(), candidateInput)
+	if err != nil {
+		t.Fatalf("previous precise environment replay Prepare() error = %v", err)
+	}
+	assertLegacyEnvironmentReplayPrepared(t, prepared, originInput.Tree)
+	result, err := coordinator.RunPrepared(context.Background(), prepared)
+	if err != nil || result.Status != gate.ResultStatusPassed || !result.CleanupComplete {
+		t.Fatalf("previous precise environment replay result=%#v error=%v", result, err)
+	}
+	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
+}
+
+func TestCoordinatorPrepareReplaysPreviousStableEnvironmentAcrossWorktrees(t *testing.T) {
+	originRoot, originInput := coordinatorReuseFixture(t)
+	originResult := runCoordinatorFreshWorkloads(t, originInput)
+	seedCoordinatorPreviousStableEnvironmentEvidence(t, originInput, &originResult)
+	candidateRoot := cloneCrossWorktreeCandidate(t, originRoot)
+	runCoordinatorGit(t, candidateRoot, "commit", "--quiet", "--allow-empty", "-m", "narrow worker execution roots")
+	store := &coordinatorStore{}
+	runtime := &coordinatorRuntime{}
+	coordinator := newTestCoordinator(t, store, runtime)
+	coordinator.newID = func() (string, error) { return "job-13579bdf2468ace013579bdf", nil }
+	prepared, err := coordinator.Prepare(context.Background(), crossWorktreeCandidateInput(t, originInput, candidateRoot))
+	if err != nil {
+		t.Fatalf("previous stable environment replay Prepare() error = %v", err)
+	}
+	assertLegacyEnvironmentReplayPrepared(t, prepared, originInput.Tree)
+	result, err := coordinator.RunPrepared(context.Background(), prepared)
+	if err != nil || result.Status != gate.ResultStatusPassed || !result.CleanupComplete {
+		t.Fatalf("previous stable environment replay result=%#v error=%v", result, err)
 	}
 	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
 }
@@ -82,13 +139,17 @@ func TestCoordinatorPrepareLegacyEnvironmentReplayRejectsWorkerClosureChange(t *
 	seedCoordinatorLegacyEnvironmentEvidence(t, originInput, &originResult)
 
 	candidateRoot := cloneCrossWorktreeCandidate(t, originRoot)
-	writeCoordinatorFixture(t, candidateRoot, "internal/devtools/remoteci/coordinator_request.go", "package remoteci\n\nfunc createRequest() {}\nfunc remoteShardBootstrapSH() string { return \"\" }\nfunc remoteWorkerEnvironment() { return nil }\nfunc remoteWorkerSupervisorCommand() {}\n")
+	writeCoordinatorFixture(t, candidateRoot, "internal/devtools/remoteci/coordinator_request.go", changedWorkerClosureFixtureSource())
 	runCoordinatorGit(t, candidateRoot, "add", "internal/devtools/remoteci/coordinator_request.go")
 	runCoordinatorGit(t, candidateRoot, "commit", "--quiet", "-m", "reject worker closure change")
 	prepared, _, _ := prepareCrossWorktreeCandidate(t, crossWorktreeCandidateInput(t, originInput, candidateRoot))
 	if len(prepared.reuse.environmentReplayProofs) != 0 {
 		t.Fatalf("worker closure change produced %d environment replay proofs", len(prepared.reuse.environmentReplayProofs))
 	}
+}
+
+func changedWorkerClosureFixtureSource() string {
+	return "package remoteci\n\nfunc createRequest() {}\nfunc checkoutMaterializedSource() {}\nfunc importSourceWorktreeBundle() {}\nfunc materializeSourceWorktree() {}\nfunc remoteShardBootstrapSH() string { return \"\" }\nfunc remoteWorkerEnvironment() { return nil }\nfunc remoteWorkerSupervisorCommand() {}\nfunc validateCanonicalDirectory() {}\nfunc validateManifestCommitIdentity() {}\nfunc validateManifestIdentityFields() {}\nfunc validateManifestSyntheticBase() {}\nfunc validatePublishedArtifacts() {}\nfunc validateSourceBaseline() {}\nfunc verifyPublishedSourceBundle() {}\n"
 }
 
 func seedCoordinatorLegacyEnvironmentEvidence(t *testing.T, input RunInput, result *RunResult) {
@@ -101,22 +162,54 @@ func seedCoordinatorLegacyEnvironmentEvidence(t *testing.T, input RunInput, resu
 	if err != nil {
 		t.Fatalf("derive legacy worker execution digest: %v", err)
 	}
+	seedCoordinatorEnvironmentEvidenceWithWorkerDigest(t, input, result, legacyDigest)
+}
+
+func seedCoordinatorPreviousPreciseEnvironmentEvidence(t *testing.T, input RunInput, result *RunResult) {
+	t.Helper()
+	snapshot, err := loadRemoteGitTreeSnapshot(context.Background(), input.RepositoryRoot, input.Tree)
+	if err != nil {
+		t.Fatalf("load previous precise environment source tree: %v", err)
+	}
+	digest, err := snapshot.workerExecutionContractDigestPreviousPreciseV4(context.Background())
+	if err != nil {
+		t.Fatalf("derive previous precise worker execution digest: %v", err)
+	}
+	seedCoordinatorEnvironmentEvidenceWithWorkerDigest(t, input, result, digest)
+}
+
+func seedCoordinatorPreviousStableEnvironmentEvidence(t *testing.T, input RunInput, result *RunResult) {
+	t.Helper()
+	snapshot, err := loadRemoteGitTreeSnapshot(context.Background(), input.RepositoryRoot, input.Tree)
+	if err != nil {
+		t.Fatalf("load previous stable environment source tree: %v", err)
+	}
+	digest, err := snapshot.workerExecutionContractDigestPreviousStableV4(context.Background())
+	if err != nil {
+		t.Fatalf("derive previous stable worker execution digest: %v", err)
+	}
+	seedCoordinatorEnvironmentEvidenceWithWorkerDigest(t, input, result, digest)
+}
+
+func seedCoordinatorEnvironmentEvidenceWithWorkerDigest(t *testing.T, input RunInput, result *RunResult, workerDigest string) {
+	t.Helper()
 	for index := range result.WorkloadPassIdentities {
 		identity := &result.WorkloadPassIdentities[index]
 		goFlags, err := remoteWorkloadGoFlags(string(identity.WorkloadID))
 		if err != nil {
-			t.Fatalf("derive legacy workload %q GoFlags: %v", identity.WorkloadID, err)
+			t.Fatalf("derive historical workload %q GoFlags: %v", identity.WorkloadID, err)
 		}
-		legacyInput := input
-		legacyInput.WorkerExecutionSemanticDigest = legacyDigest
-		environment, err := remoteWorkloadEnvironmentDigestForGoFlags(legacyInput, 10*time.Minute, testRemoteResourcePolicy(), goFlags)
+		historicalInput := input
+		historicalInput.WorkerExecutionSemanticDigest = workerDigest
+		identity.EnvironmentDigest, err = remoteWorkloadEnvironmentDigestForGoFlags(
+			historicalInput, 10*time.Minute, testRemoteResourcePolicy(), goFlags,
+		)
 		if err != nil {
-			t.Fatalf("derive legacy workload %q environment: %v", identity.WorkloadID, err)
+			t.Fatalf("derive historical workload %q environment: %v", identity.WorkloadID, err)
 		}
-		identity.EnvironmentDigest = environment
 		identity.IdentityDigest, err = gate.WorkloadPassIdentitySHA256(*identity)
 		if err != nil {
-			t.Fatalf("derive legacy workload %q identity: %v", identity.WorkloadID, err)
+			t.Fatalf("derive historical workload %q identity: %v", identity.WorkloadID, err)
 		}
 	}
 	promoteCoordinatorFreshWorkloads(t, input, *result)

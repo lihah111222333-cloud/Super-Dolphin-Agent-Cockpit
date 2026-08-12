@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -51,6 +52,81 @@ func TestJSONProgressObserverWritesMachineReadableSideChannel(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "token") || strings.Contains(output.String(), "secret") {
 		t.Fatalf("progress event leaked secret-like text: %q", output.String())
+	}
+}
+
+// TestJSONProgressObserverWritesReuseDecisionDiagnostic 验证直接查询、两类重放、
+// 重放后 MISS 与包原子降级可以独立交叉观测。
+func TestJSONProgressObserverWritesReuseDecisionDiagnostic(t *testing.T) {
+	var output bytes.Buffer
+	observer := NewJSONProgressObserver(&output)
+	replay := ReuseReplayDiagnostic{
+		SourceCandidateWorkloads: 11, SourceCandidates: 12,
+		SourceInputUnavailable: 13, SourceInputMismatch: 14,
+		SourceSingleVoteRecovered: 23, SourceDeclarationMissVotes: 24,
+		SourceRuntimeMissVotes: 25, SourceCompileMissVotes: 26, SourceConfirmedMisses: 27,
+		EnvironmentHintWorkloads: 15, EnvironmentHints: 16,
+		EnvironmentGenerationMismatch: 17, EnvironmentTargetUnavailable: 18,
+		EnvironmentSourceUnavailable: 19, EnvironmentHistoricalMismatch: 20,
+		EnvironmentCurrentWorkerMismatch: 21, EnvironmentInputMismatch: 22,
+	}
+	observer.ObserveRemoteCIReuseDiagnostic(ReuseDiagnostic{
+		MissConfirmationThreshold: 2,
+		DirectHits:                280, SourceReplayHits: 2900, EnvironmentReplayHits: 33,
+		ExactHits: 3213, DirectMisses: 2938, RecoveredDirectMisses: 2933,
+		ReplayMisses: 5, AtomicDemoted: 2927,
+		EffectiveHits: 286, EffectiveMisses: 2932,
+		Replay: replay,
+		MissGroups: []ReuseDiagnosticGroup{{
+			TargetKind: "go-test", TargetGroup: "./internal/devtools/gate",
+			ExactHits: 100, DirectMisses: 2, AtomicDemoted: 98,
+			EffectiveMisses: 100,
+		}},
+	})
+	var decoded ReuseDiagnostic
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &decoded); err != nil {
+		t.Fatalf("reuse diagnostic NDJSON is invalid: %v", err)
+	}
+	expected := ReuseDiagnostic{
+		SchemaVersion: ReuseDiagnosticSchemaVersion, Kind: "remote_ci_reuse_diagnostic",
+		MissConfirmationThreshold: 2,
+		DirectHits:                280, SourceReplayHits: 2900, EnvironmentReplayHits: 33,
+		ExactHits: 3213, DirectMisses: 2938, RecoveredDirectMisses: 2933,
+		ReplayMisses: 5, AtomicDemoted: 2927,
+		EffectiveHits: 286, EffectiveMisses: 2932,
+		Replay: replay,
+		MissGroups: []ReuseDiagnosticGroup{{
+			TargetKind: "go-test", TargetGroup: "./internal/devtools/gate",
+			ExactHits: 100, DirectMisses: 2, AtomicDemoted: 98,
+			EffectiveMisses: 100,
+		}},
+	}
+	if !reflect.DeepEqual(decoded, expected) {
+		t.Fatalf("decoded reuse diagnostic = %#v", decoded)
+	}
+}
+
+// TestJSONProgressObserverWritesShardPlanDiagnostic 验证分片数量、workload 密度与估时范围可交叉观测。
+func TestJSONProgressObserverWritesShardPlanDiagnostic(t *testing.T) {
+	var output bytes.Buffer
+	observer := NewJSONProgressObserver(&output)
+	plan := gate.WorkloadExecutionPlan{Context: gate.PlanningContext{Calibration: true, TargetDurationMS: 100_000}, Shards: []gate.ShardPlan{
+		{Workloads: make([]gate.PlannedWorkload, 18), EstimatedDurationMS: 99_000},
+		{Workloads: make([]gate.PlannedWorkload, 2), EstimatedDurationMS: 120_000},
+	}}
+	observer.ObserveRemoteCIShardPlanDiagnostic(newShardPlanDiagnostic(plan))
+	var decoded ShardPlanDiagnostic
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	assertShardPlanDiagnostic(t, decoded)
+}
+
+func assertShardPlanDiagnostic(t *testing.T, decoded ShardPlanDiagnostic) {
+	t.Helper()
+	want := ShardPlanDiagnostic{SchemaVersion: ShardPlanDiagnosticSchemaVersion, Kind: "remote_ci_shard_plan_diagnostic", Calibration: true, TargetDurationMS: 100_000, TotalShards: 2, TotalWorkloads: 20, MinWorkloadsPerShard: 2, MaxWorkloadsPerShard: 18, MinEstimatedShardDurationMS: 99_000, MaxEstimatedShardDurationMS: 120_000, OverTargetEstimatedShardCount: 1}
+	if !reflect.DeepEqual(decoded, want) {
+		t.Fatalf("decoded shard-plan diagnostic = %#v, want %#v", decoded, want)
 	}
 }
 

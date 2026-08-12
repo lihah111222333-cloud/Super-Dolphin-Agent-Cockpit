@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,6 +24,8 @@ func replayRemoteWorkloadPassEnvironment(
 	reused map[string]gate.WorkloadPassEvidence,
 	proofs map[string]string,
 	cache *remoteReplayCache,
+	confirmations remoteReuseMissConfirmations,
+	diagnostic *ReuseReplayDiagnostic,
 ) error {
 	missing := missingRemoteWorkloadPassIdentities(identities, reused)
 	if len(missing) == 0 {
@@ -32,6 +35,7 @@ func replayRemoteWorkloadPassEnvironment(
 	if err != nil {
 		return err
 	}
+	recordRemoteEnvironmentReplayHints(diagnostic, hints)
 	workloads, err := remoteReplayWorkloadIndex(catalog)
 	if err != nil {
 		return err
@@ -41,7 +45,7 @@ func replayRemoteWorkloadPassEnvironment(
 	for _, identity := range missing {
 		workload := workloads[identity.WorkloadID]
 		hint, ok, err := selectRemoteWorkloadPassEnvironmentReplayHint(
-			ctx, input, identity, workload, hints[identity.WorkloadID], workerTimeout, resourcePolicy, cache,
+			ctx, input, identity, workload, hints[identity.WorkloadID], workerTimeout, resourcePolicy, cache, diagnostic,
 		)
 		if err != nil {
 			return err
@@ -49,9 +53,20 @@ func replayRemoteWorkloadPassEnvironment(
 		if ok {
 			selectedIdentities = append(selectedIdentities, identity)
 			selectedHints = append(selectedHints, hint)
+			continue
 		}
+		confirmations.confirm(identity.WorkloadID, remoteReuseEnvironmentMiss)
 	}
 	return authorizeRemoteWorkloadPassEnvironmentHints(input, selectedIdentities, selectedHints, reused, proofs)
+}
+
+func recordRemoteEnvironmentReplayHints(diagnostic *ReuseReplayDiagnostic, hints map[gate.GateID][]gate.WorkloadPassEnvironmentReplayHint) {
+	for _, workloadHints := range hints {
+		if len(workloadHints) > 0 {
+			diagnostic.EnvironmentHintWorkloads++
+			diagnostic.EnvironmentHints += len(workloadHints)
+		}
+	}
 }
 
 // selectRemoteWorkloadPassEnvironmentReplayHint 按确定顺序选择首个语义匹配的未授权 hint。
@@ -64,12 +79,16 @@ func selectRemoteWorkloadPassEnvironmentReplayHint(
 	workerTimeout time.Duration,
 	resourcePolicy shardresource.Policy,
 	cache *remoteReplayCache,
+	diagnostic *ReuseReplayDiagnostic,
 ) (gate.WorkloadPassEnvironmentReplayHint, bool, error) {
 	if workload.ID == "" {
 		return gate.WorkloadPassEnvironmentReplayHint{}, false, fmt.Errorf("remote workload PASS environment replay %q is absent from current catalog", identity.WorkloadID)
 	}
 	target, available, err := cache.snapshot(ctx, input.RepositoryRoot, input.Tree)
 	if err != nil || !available {
+		if err == nil {
+			diagnostic.EnvironmentTargetUnavailable++
+		}
 		return gate.WorkloadPassEnvironmentReplayHint{}, false, err
 	}
 	goFlags, err := remoteWorkloadGoFlags(string(identity.WorkloadID))
@@ -78,7 +97,7 @@ func selectRemoteWorkloadPassEnvironmentReplayHint(
 	}
 	for _, hint := range hints {
 		candidate := hint.UntrustedCandidate()
-		ok, err := matchesRemoteWorkloadPassEnvironmentCandidate(ctx, input, identity, workload, candidate, target, goFlags, workerTimeout, resourcePolicy, cache)
+		ok, err := matchesRemoteWorkloadPassEnvironmentCandidate(ctx, input, identity, workload, candidate, target, goFlags, workerTimeout, resourcePolicy, cache, diagnostic)
 		if err != nil {
 			return gate.WorkloadPassEnvironmentReplayHint{}, false, err
 		}
@@ -101,15 +120,20 @@ func matchesRemoteWorkloadPassEnvironmentCandidate(
 	workerTimeout time.Duration,
 	resourcePolicy shardresource.Policy,
 	cache *remoteReplayCache,
+	diagnostic *ReuseReplayDiagnostic,
 ) (bool, error) {
 	if candidate.OriginAcceptedGeneration != input.AcceptedGeneration {
+		diagnostic.EnvironmentGenerationMismatch++
 		return false, nil
 	}
 	source, available, err := cache.snapshot(ctx, input.RepositoryRoot, candidate.OriginSourceTreeSHA)
 	if err != nil || !available {
+		if err == nil {
+			diagnostic.EnvironmentSourceUnavailable++
+		}
 		return false, err
 	}
-	valid, err := verifyRemoteWorkloadPassEnvironmentReplay(ctx, input, identity, candidate, source, target, goFlags, workerTimeout, resourcePolicy, cache, workload)
+	valid, err := verifyRemoteWorkloadPassEnvironmentReplay(ctx, input, identity, candidate, source, target, goFlags, workerTimeout, resourcePolicy, cache, workload, diagnostic)
 	return valid, err
 }
 
@@ -144,6 +168,7 @@ func authorizeRemoteWorkloadPassEnvironmentHints(
 	return nil
 }
 
+// verifyRemoteWorkloadPassEnvironmentReplay 逐层核对历史环境、当前 worker 与 workload 输入，任一不一致都拒绝复用。
 func verifyRemoteWorkloadPassEnvironmentReplay(
 	ctx context.Context,
 	input RunInput,
@@ -156,19 +181,31 @@ func verifyRemoteWorkloadPassEnvironmentReplay(
 	resourcePolicy shardresource.Policy,
 	cache *remoteReplayCache,
 	workload gate.Workload,
+	diagnostic *ReuseReplayDiagnostic,
 ) (bool, error) {
-	legacyMatches, err := verifyRemoteWorkloadPassLegacyEnvironment(ctx, input, candidate, source, goFlags, workerTimeout, resourcePolicy, cache)
-	if err != nil || !legacyMatches {
+	historicalMatches, err := verifyRemoteWorkloadPassHistoricalEnvironment(ctx, input, candidate, source, goFlags, workerTimeout, resourcePolicy, cache)
+	if err != nil || !historicalMatches {
+		if err == nil {
+			diagnostic.EnvironmentHistoricalMismatch++
+		}
 		return false, err
 	}
 	preciseMatches, err := verifyRemoteWorkloadPassPreciseEnvironment(ctx, input, identity, source, target, goFlags, workerTimeout, resourcePolicy, cache)
 	if err != nil || !preciseMatches {
+		if err == nil {
+			diagnostic.EnvironmentCurrentWorkerMismatch++
+		}
 		return false, err
 	}
-	return verifyRemoteWorkloadPassSourceInput(ctx, input, identity, candidate, workload, cache)
+	inputMatches, err := verifyRemoteWorkloadPassSourceInput(ctx, input, identity, candidate, workload, source, target, cache)
+	if err == nil && !inputMatches {
+		diagnostic.EnvironmentInputMismatch++
+	}
+	return inputMatches, err
 }
 
-func verifyRemoteWorkloadPassLegacyEnvironment(
+// verifyRemoteWorkloadPassHistoricalEnvironment 只接受能由冻结旧版 worker 摘要重建的历史环境身份。
+func verifyRemoteWorkloadPassHistoricalEnvironment(
 	ctx context.Context,
 	input RunInput,
 	candidate gate.WorkloadPassEvidence,
@@ -182,13 +219,49 @@ func verifyRemoteWorkloadPassLegacyEnvironment(
 	if err != nil {
 		return false, err
 	}
-	legacyInput := input
-	legacyInput.WorkerExecutionSemanticDigest = legacyDigest
-	legacyEnvironment, err := remoteWorkloadEnvironmentDigestForGoFlags(legacyInput, workerTimeout, resourcePolicy, goFlags)
+	legacyMatches, err := remoteWorkloadPassEnvironmentMatches(
+		input, candidate, legacyDigest, goFlags, workerTimeout, resourcePolicy,
+	)
 	if err != nil {
 		return false, err
 	}
-	return candidate.Identity.EnvironmentDigest == legacyEnvironment, nil
+	if legacyMatches {
+		return true, nil
+	}
+	previousDigest, err := cache.previousWorkerDigest(ctx, source)
+	if err != nil {
+		return false, err
+	}
+	previousMatches, err := remoteWorkloadPassEnvironmentMatches(
+		input, candidate, previousDigest, goFlags, workerTimeout, resourcePolicy,
+	)
+	if err != nil || previousMatches {
+		return previousMatches, err
+	}
+	previousStableDigest, err := cache.previousStableWorkerDigest(ctx, source)
+	if err != nil {
+		return false, err
+	}
+	return remoteWorkloadPassEnvironmentMatches(
+		input, candidate, previousStableDigest, goFlags, workerTimeout, resourcePolicy,
+	)
+}
+
+func remoteWorkloadPassEnvironmentMatches(
+	input RunInput,
+	candidate gate.WorkloadPassEvidence,
+	workerDigest string,
+	goFlags string,
+	workerTimeout time.Duration,
+	resourcePolicy shardresource.Policy,
+) (bool, error) {
+	historicalInput := input
+	historicalInput.WorkerExecutionSemanticDigest = workerDigest
+	historicalEnvironment, err := remoteWorkloadEnvironmentDigestForGoFlags(historicalInput, workerTimeout, resourcePolicy, goFlags)
+	if err != nil {
+		return false, err
+	}
+	return candidate.Identity.EnvironmentDigest == historicalEnvironment, nil
 }
 
 // verifyRemoteWorkloadPassPreciseEnvironment 要求来源与目标的精确 Worker 摘要及当前环境完全一致。
@@ -203,8 +276,8 @@ func verifyRemoteWorkloadPassPreciseEnvironment(
 	resourcePolicy shardresource.Policy,
 	cache *remoteReplayCache,
 ) (bool, error) {
-	preciseSourceDigest, err := cache.preciseWorkerDigest(ctx, source)
-	if err != nil {
+	preciseSourceDigest, available, err := remoteReplayPreciseSourceDigest(ctx, cache, source)
+	if err != nil || !available {
 		return false, err
 	}
 	preciseTargetDigest, err := cache.preciseWorkerDigest(ctx, target)
@@ -230,17 +303,40 @@ func verifyRemoteWorkloadPassPreciseEnvironment(
 	return currentTargetEnvironment == identity.EnvironmentDigest, nil
 }
 
+// remoteReplayPreciseSourceDigest 将缺少新精确根的旧来源树视为该条候选不可证明；
+// 当前目标树仍由调用方直接计算并保持 fail-fast。
+func remoteReplayPreciseSourceDigest(ctx context.Context, cache *remoteReplayCache, source *remoteGitTreeSnapshot) (string, bool, error) {
+	digest, err := cache.preciseWorkerDigest(ctx, source)
+	if errors.Is(err, errWorkerExecutionRootUnavailable) {
+		return "", false, nil
+	}
+	return digest, err == nil, err
+}
+
 func verifyRemoteWorkloadPassSourceInput(
 	ctx context.Context,
 	input RunInput,
 	identity gate.WorkloadPassIdentity,
 	candidate gate.WorkloadPassEvidence,
 	workload gate.Workload,
+	source *remoteGitTreeSnapshot,
+	target *remoteGitTreeSnapshot,
 	cache *remoteReplayCache,
 ) (bool, error) {
 	inputDigest, available, err := cache.inputDigest(ctx, input.RepositoryRoot, candidate.OriginSourceTreeSHA, workload)
 	if err != nil {
 		return false, err
 	}
-	return available && inputDigest == identity.InputDigest, nil
+	if !available || inputDigest != candidate.Identity.InputDigest {
+		return false, nil
+	}
+	if inputDigest == identity.InputDigest {
+		return true, nil
+	}
+	return remoteWorkloadSemanticInputMatches(ctx, workload, source, target, cache)
+}
+
+// remoteWorkloadSemanticInputMatches 以 selector 语义闭包交叉 broad 输入；只支持可精确解析的 Go selector。
+func remoteWorkloadSemanticInputMatches(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot, cache *remoteReplayCache) (bool, error) {
+	return cache.semanticInputMatches(ctx, workload, source, target)
 }

@@ -135,6 +135,22 @@ func TestLocalHostAdmissionSamplerAcceptsDarwinTopRoundedPercentages(t *testing.
 	}
 }
 
+func TestParseLocalHostCPUBusyAcceptsDarwinSamplingSkew(t *testing.T) {
+	busy, err := parseLocalHostCPUBusy("CPU usage: 26.8% user, 6.47% sys, 67.43% idle\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(busy-33.27) > 0.000001 {
+		t.Fatalf("CPU busy = %v, want 33.27", busy)
+	}
+}
+
+func TestParseLocalHostCPUBusyRejectsLargeSamplingDrift(t *testing.T) {
+	if _, err := parseLocalHostCPUBusy("CPU usage: 40% user, 30% sys, 31.1% idle\n"); err == nil {
+		t.Fatal("CPU parser accepted percentages drifting by more than one point")
+	}
+}
+
 func TestLocalHostAdmissionSamplerRejectsCancelledContext(t *testing.T) {
 	runner, sampler := newLocalHostSamplerTestDependencies()
 	ctx, cancel := context.WithCancel(context.Background())

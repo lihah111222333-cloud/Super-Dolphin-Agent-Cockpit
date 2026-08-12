@@ -3,6 +3,7 @@ package remoteci
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/token"
 	"strings"
@@ -20,16 +21,49 @@ type workerExecutionRoot struct {
 	symbol    string
 }
 
+var errWorkerExecutionRootUnavailable = errors.New("worker execution root is unavailable in historical tree")
+
 // workerExecutionRoots are worker process boundaries and the small, canonical
 // request helpers that define how that process is started. Coordinator
 // orchestration, resource planning, job identity, and ECI bookkeeping are not
 // roots; their non-semantic edits must not invalidate EnvironmentV10.
 var workerExecutionRoots = []workerExecutionRoot{
-	{directory: "cmd/super-dolphin-gate", symbol: "runRemoteMaterialize"},
-	{directory: "cmd/super-dolphin-gate", symbol: "runWorkerCLI"},
+	{directory: "cmd/super-dolphin-gate", symbol: "stageRemoteSourceObjects"},
+	{directory: "cmd/super-dolphin-gate", symbol: "verifyRemoteMaterializedGateCLICompileClosure"},
+	{directory: "cmd/super-dolphin-gate", symbol: "verifyRemoteOCIProjectCache"},
+	{directory: "cmd/super-dolphin-gate", symbol: "verifyRemoteSourceManifestBinding"},
+	{directory: "internal/devtools/gate", symbol: "ensureJSONEOF"},
+	{directory: "internal/devtools/gate", symbol: "executeProgram"},
+	{directory: "internal/devtools/gate", symbol: "sourceVariantCount"},
+	{directory: "internal/devtools/gate", symbol: "validateCommitSource"},
+	{directory: "internal/devtools/gate", symbol: "validateOID"},
+	{directory: "internal/devtools/gate", symbol: "validateRangeSource"},
+	{directory: "internal/devtools/gate", symbol: "validateTreeSource"},
+	{directory: "internal/devtools/remoteci", symbol: "checkoutMaterializedSource"},
+	{directory: "internal/devtools/remoteci", symbol: "importSourceWorktreeBundle"},
+	{directory: "internal/devtools/remoteci", symbol: "materializeSourceWorktree"},
 	{directory: "internal/devtools/remoteci", symbol: "remoteShardBootstrapSH"},
 	{directory: "internal/devtools/remoteci", symbol: "remoteWorkerEnvironment"},
 	{directory: "internal/devtools/remoteci", symbol: "remoteWorkerSupervisorCommand"},
+	{directory: "internal/devtools/remoteci", symbol: "validateCanonicalDirectory"},
+	{directory: "internal/devtools/remoteci", symbol: "validateManifestCommitIdentity"},
+	{directory: "internal/devtools/remoteci", symbol: "validateManifestIdentityFields"},
+	{directory: "internal/devtools/remoteci", symbol: "validateManifestSyntheticBase"},
+	{directory: "internal/devtools/remoteci", symbol: "validatePublishedArtifacts"},
+	{directory: "internal/devtools/remoteci", symbol: "validateSourceBaseline"},
+	{directory: "internal/devtools/remoteci", symbol: "verifyPublishedSourceBundle"},
+}
+
+// workerExecutionPreviousPreciseV4Roots 冻结收窄执行边界前的 stable-key 根集合。
+// 它只用于验证历史 PASS 的来源环境，不生产新的 worker 身份。
+func workerExecutionPreviousPreciseV4Roots() []workerExecutionRoot {
+	return []workerExecutionRoot{
+		{directory: "cmd/super-dolphin-gate", symbol: "runRemoteMaterialize"},
+		{directory: "cmd/super-dolphin-gate", symbol: "runWorkerCLI"},
+		{directory: "internal/devtools/remoteci", symbol: "remoteShardBootstrapSH"},
+		{directory: "internal/devtools/remoteci", symbol: "remoteWorkerEnvironment"},
+		{directory: "internal/devtools/remoteci", symbol: "remoteWorkerSupervisorCommand"},
+	}
 }
 
 // workerExecutionLegacyV4Roots freezes the pre-precision v4 contract for
@@ -74,7 +108,16 @@ type workerExecutionGoIndex struct {
 	initializers    map[string][]*workerExecutionGoUnit
 	routes          map[string]map[string][]*workerExecutionGoUnit
 	parseErrors     map[string][]error
+	unitKeyStrategy workerExecutionUnitKeyStrategy
+	unitKeyOrdinals map[string]int
 }
+
+type workerExecutionUnitKeyStrategy uint8
+
+const (
+	workerExecutionStableUnitKeys workerExecutionUnitKeyStrategy = iota
+	workerExecutionPositionalUnitKeys
+)
 
 type workerExecutionGoClosure struct {
 	index                     *workerExecutionGoIndex
@@ -121,6 +164,23 @@ func validateWorkerExecutionRoots(roots []workerExecutionRoot) error {
 	return nil
 }
 
+// workerExecutionSourceDiagnostic 只输出 exact-tree 源码覆盖计数，定位 root 缺失而不泄露源码内容。
+func (snapshot *remoteGitTreeSnapshot) workerExecutionSourceDiagnostic() string {
+	if snapshot == nil {
+		return "snapshot=nil"
+	}
+	counts := make(map[string]int)
+	for filePath := range snapshot.goSources {
+		for _, directory := range []string{"cmd/super-dolphin-gate", "internal/devtools/gate", "internal/devtools/remoteci"} {
+			if strings.HasPrefix(filePath, directory+"/") {
+				counts[directory]++
+			}
+		}
+	}
+	return fmt.Sprintf("tree=%s go_sources=%d cmd_sources=%d gate_sources=%d remoteci_sources=%d",
+		snapshot.tree, len(snapshot.goSources), counts["cmd/super-dolphin-gate"], counts["internal/devtools/gate"], counts["internal/devtools/remoteci"])
+}
+
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。
 func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigest(ctx context.Context) (string, error) {
 	if err := validateWorkerExecutionRoots(workerExecutionRoots); err != nil {
@@ -148,6 +208,12 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigest(ctx context
 	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
 		return "", err
 	}
+	if err := assets.addWorkerExecutionExecutorConfigFragment(); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionSourceManifestAsset(); err != nil {
+		return "", err
+	}
 	return digestWorkerExecutionClosure(closure, assets)
 }
 
@@ -163,7 +229,9 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestLegacyV4(ctx
 	if err := snapshot.prepareGoSources(ctx); err != nil {
 		return "", err
 	}
-	closure, err := snapshot.resolveWorkerExecutionClosureWithRoots(roots, true)
+	closure, err := snapshot.resolveWorkerExecutionClosureWithRootsAndKeyStrategy(
+		roots, true, workerExecutionPositionalUnitKeys,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -182,6 +250,69 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestLegacyV4(ctx
 	return digestWorkerExecutionClosure(closure, assets)
 }
 
+// workerExecutionContractDigestPreviousPreciseV4 仅重建稳定语义键修复前的精确 v4 摘要，用于验证已存 PASS 来源环境。
+func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousPreciseV4(ctx context.Context) (string, error) {
+	roots := workerExecutionPreviousPreciseV4Roots()
+	if err := validateWorkerExecutionRoots(roots); err != nil {
+		return "", err
+	}
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return "", err
+	}
+	closure, err := snapshot.resolveWorkerExecutionClosureWithRootsAndKeyStrategy(
+		roots, false, workerExecutionPositionalUnitKeys,
+	)
+	if err != nil {
+		return "", err
+	}
+	assets := &workerExecutionAssets{
+		snapshot:       snapshot,
+		entries:        make(map[string]remoteGitTreeEntry),
+		fragments:      make(map[string]workerExecutionFragment),
+		scannedScripts: make(map[string]struct{}),
+	}
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		return "", err
+	}
+	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
+		return "", err
+	}
+	return digestWorkerExecutionClosure(closure, assets)
+}
+
+// workerExecutionContractDigestPreviousStableV4 重建收窄根集合前的 stable-key 摘要。
+// 该摘要只能证明历史来源环境，不能替代当前精确 worker 执行摘要。
+func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousStableV4(ctx context.Context) (string, error) {
+	roots := workerExecutionPreviousPreciseV4Roots()
+	if err := validateWorkerExecutionRoots(roots); err != nil {
+		return "", err
+	}
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return "", err
+	}
+	closure, err := snapshot.resolveWorkerExecutionClosureWithRoots(roots, false)
+	if err != nil {
+		return "", err
+	}
+	assets := &workerExecutionAssets{
+		snapshot: snapshot, entries: make(map[string]remoteGitTreeEntry),
+		fragments: make(map[string]workerExecutionFragment), scannedScripts: make(map[string]struct{}),
+	}
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		return "", err
+	}
+	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
+		return "", err
+	}
+	return digestWorkerExecutionClosure(closure, assets)
+}
+
 // resolveWorkerExecutionClosure 解析全部受控根的 Go 依赖闭包。
 func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosure() (*workerExecutionGoClosure, error) {
 	return snapshot.resolveWorkerExecutionClosureWithRoots(workerExecutionRoots, false)
@@ -191,7 +322,17 @@ func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosureWithRoots(
 	roots []workerExecutionRoot,
 	includeAllReceiverMethods bool,
 ) (*workerExecutionGoClosure, error) {
-	index := snapshot.buildWorkerExecutionGoIndex()
+	return snapshot.resolveWorkerExecutionClosureWithRootsAndKeyStrategy(
+		roots, includeAllReceiverMethods, workerExecutionStableUnitKeys,
+	)
+}
+
+func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosureWithRootsAndKeyStrategy(
+	roots []workerExecutionRoot,
+	includeAllReceiverMethods bool,
+	strategy workerExecutionUnitKeyStrategy,
+) (*workerExecutionGoClosure, error) {
+	index := snapshot.buildWorkerExecutionGoIndexWithKeyStrategy(strategy)
 	closure := newWorkerExecutionGoClosure(index)
 	closure.includeAllReceiverMethods = includeAllReceiverMethods
 	for _, root := range roots {

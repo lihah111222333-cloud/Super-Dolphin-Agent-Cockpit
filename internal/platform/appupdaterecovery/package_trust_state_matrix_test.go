@@ -13,6 +13,7 @@ import (
 )
 
 func TestResolveTrustPreparedAndBackupIntentWindows(t *testing.T) {
+	t.Parallel()
 	prepared := newTrustStateFixture(t)
 	prepared.assertOld(t)
 	mustAdvanceTrustState(t, prepared, TriggerRetainBackup)
@@ -28,6 +29,7 @@ func TestResolveTrustPreparedAndBackupIntentWindows(t *testing.T) {
 }
 
 func TestResolveTrustBackupRetainedInstallAndProbationWindows(t *testing.T) {
+	t.Parallel()
 	retained := newTrustStateFixture(t)
 	mustRetainTrustBackup(t, retained)
 	assertTrustPathMissing(t, retained.target)
@@ -49,6 +51,7 @@ func TestResolveTrustBackupRetainedInstallAndProbationWindows(t *testing.T) {
 }
 
 func TestResolveTrustRollbackIntentAndTerminalWindows(t *testing.T) {
+	t.Parallel()
 	pending := newTrustStateFixture(t)
 	mustInstallTrustCandidate(t, pending)
 	mustAdvanceTrustState(t, pending, TriggerRollbackRequested)
@@ -72,6 +75,7 @@ func TestResolveTrustRollbackIntentAndTerminalWindows(t *testing.T) {
 }
 
 func TestResolveTrustCommitIntentReturnsOldUntilCommitted(t *testing.T) {
+	t.Parallel()
 	pending := newTrustStateFixture(t)
 	lease := mustClaimHealthyTrustCandidate(t, pending)
 	mustAdvanceTrustState(t, pending, TriggerHealthy)

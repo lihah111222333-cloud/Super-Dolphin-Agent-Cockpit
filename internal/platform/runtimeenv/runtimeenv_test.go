@@ -384,6 +384,7 @@ func TestApplyPackagedEnvFailsWhenBundledLSPServerMissing(t *testing.T) {
 	binDir := filepath.Join(resources, "bin")
 	writeOnlyBundledSidecars(t, binDir)
 	writeBundledLSPManifest(t, resources)
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "clangd")
 	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "typescript-language-server")
 	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "pyright-langserver")
 	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "vscode-css-language-server")

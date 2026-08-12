@@ -150,7 +150,7 @@ func scanTarget(repoRoot string, roots []string, target string) ([]PackageManife
 	}
 	cfg := &packages.Config{
 		Dir:  repoRoot,
-		Env:  append(os.Environ(), "GOOS="+parts[0], "GOARCH="+parts[1], "CGO_ENABLED=0"),
+		Env:  append(os.Environ(), "GOOS="+parts[0], "GOARCH="+parts[1], "CGO_ENABLED=0", "GOFLAGS="),
 		Mode: scanLoadMode,
 	}
 	loaded, err := packages.Load(cfg, patterns...)

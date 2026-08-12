@@ -633,7 +633,7 @@ func TestRemoteCIWorkloadPassForceContract(t *testing.T) {
 		source string
 		marker string
 	}{
-		"workload reuse":              {source: reuse, marker: "if !input.Force"},
+		"workload reuse":              {source: reuse, marker: "if input.Force"},
 		"run options":                 {source: options, marker: `BoolVar(&options.Force, "force", false`},
 		"run result":                  {source: coordinator, marker: "Force                        bool"},
 		"SQLite run":                  {source: schema, marker: "force INTEGER NOT NULL DEFAULT 0 CHECK (force IN (0, 1))"},

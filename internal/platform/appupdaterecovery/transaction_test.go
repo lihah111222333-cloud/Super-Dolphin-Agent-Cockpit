@@ -30,6 +30,7 @@ func TestTransactionTransitionsOwnerReturnsIsolatedSpecs(t *testing.T) {
 }
 
 func TestUpdateTransactionRetainsBackupUntilHealthy(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	assertPathExists(t, paths.Backup)
 	if got := loadTransaction(t, store, identity).Trust.State; got != TrustPending {
@@ -47,6 +48,7 @@ func TestUpdateTransactionRetainsBackupUntilHealthy(t *testing.T) {
 }
 
 func TestTrustGenerationCommitsOnlyAfterHealthy(t *testing.T) {
+	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	if _, err := store.advance(context.Background(), identity, TriggerCommitCompleted); err == nil {
 		t.Fatal("advance(commit_completed) error = nil, want illegal transition")
@@ -65,6 +67,7 @@ func TestTrustGenerationCommitsOnlyAfterHealthy(t *testing.T) {
 }
 
 func TestTerminalCommitCleansRecoveryCapsule(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	if err := os.MkdirAll(paths.RecoveryDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -78,6 +81,7 @@ func TestTerminalCommitCleansRecoveryCapsule(t *testing.T) {
 }
 
 func TestCapsuleBeforeJournalCrashConvergesWithoutUnknownDirectory(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	target := filepath.Join(parent, "Super Dolphin.app")
 	id := TransactionID("11223344556677889900aabbccddeeff")
@@ -103,6 +107,7 @@ func TestCapsuleBeforeJournalCrashConvergesWithoutUnknownDirectory(t *testing.T)
 }
 
 func TestJournalBeforeCapsuleCrashRemainsRecoverable(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	assertPathMissing(t, paths.RecoveryDir)
 	selected, found, err := store.SelectForTarget(context.Background(), paths.Target)
@@ -138,6 +143,7 @@ func TestScannerRejectsUnknownIncompleteTransactionContent(t *testing.T) {
 }
 
 func TestCrashReplayCompletesPersistedIntent(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	store.afterEffect = func(state State) error {
 		if state == StateBackupPending {
@@ -164,6 +170,7 @@ func TestCrashReplayCompletesPersistedIntent(t *testing.T) {
 }
 
 func TestCrashReplayCompletesInstallIntent(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	if _, err := store.RetainBackup(context.Background(), identity); err != nil {
 		t.Fatalf("RetainBackup() error = %v", err)
@@ -182,6 +189,7 @@ func TestCrashReplayCompletesInstallIntent(t *testing.T) {
 }
 
 func TestCrashReplayCompletesCommitIntent(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	lease := ackProbationTransaction(t, store, identity)
 	crashAfterEffect(store, StateCommitPending)
@@ -204,6 +212,7 @@ func TestCrashReplayCompletesCommitIntent(t *testing.T) {
 }
 
 func TestCommitReplayCompletesAfterDiscardIdentityPersistedBeforeRename(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	ackProbationTransaction(t, store, identity)
 	beginCommitPending(t, store, identity)
@@ -288,6 +297,7 @@ func replaceRenamedDiscardWithMatchingRoot(t *testing.T, identity Identity, path
 }
 
 func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createDirectoryProbationTransaction(t)
 	lease := ackProbationTransaction(t, store, identity)
 	crashAfterEffect(store, StateCommitted)
@@ -310,6 +320,7 @@ func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {
 }
 
 func TestCommittedReplayRejectsReplacedDiscardRoot(t *testing.T) {
+	t.Parallel()
 	requireDesktopDiscardIdentitySemantics(t)
 	store, identity, paths := createDirectoryProbationTransaction(t)
 	lease := ackProbationTransaction(t, store, identity)
@@ -353,6 +364,7 @@ func assertCommittedDiscardCrash(t *testing.T, store *Store, identity Identity) 
 }
 
 func TestCommittedReplaySupportsLegacyJournalWithoutDiscardIdentity(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	lease := ackProbationTransaction(t, store, identity)
 	transaction, err := store.commitHealthyClaimed(t.Context(), identity, lease)
@@ -378,6 +390,7 @@ func TestCommittedReplaySupportsLegacyJournalWithoutDiscardIdentity(t *testing.T
 }
 
 func TestCommitRejectsDiscardCollision(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	lease := ackProbationTransaction(t, store, identity)
 	discard := expectedBackupDiscardPath(paths)
@@ -386,6 +399,7 @@ func TestCommitRejectsDiscardCollision(t *testing.T) {
 }
 
 func TestCommitRejectsDiscardSymlink(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	ackProbationTransaction(t, store, identity)
 	beginCommitPending(t, store, identity)
@@ -427,6 +441,7 @@ func assertCommitRejectsDiscard(t *testing.T, store *Store, identity Identity, p
 }
 
 func TestCommitPendingReplayRejectsPartialDiscardAsTrustedBackup(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createDirectoryProbationTransaction(t)
 	ackProbationTransaction(t, store, identity)
 	beginCommitPending(t, store, identity)
@@ -454,6 +469,7 @@ func TestCommitPendingReplayRejectsPartialDiscardAsTrustedBackup(t *testing.T) {
 }
 
 func TestCrashReplayCompletesRollbackIntent(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createProbationTransaction(t)
 	crashAfterEffect(store, StateRollbackPending)
 	if _, err := store.RollbackUnclaimedProbation(context.Background(), identity); !errors.Is(err, errSimulatedCrash) {
@@ -476,6 +492,7 @@ func TestCrashReplayCompletesRollbackIntent(t *testing.T) {
 }
 
 func TestPreparedRollbackTerminatesTransactionWithoutReplacingOldTarget(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	before, err := os.ReadFile(paths.Target)
 	if err != nil {
@@ -500,6 +517,7 @@ func TestPreparedRollbackTerminatesTransactionWithoutReplacingOldTarget(t *testi
 }
 
 func TestPreparedRollbackCrashReplaysPersistedTerminationIntent(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	crashAfterEffect(store, StateRollbackPending)
 	if _, err := store.Rollback(context.Background(), identity); !errors.Is(err, errSimulatedCrash) {
@@ -517,6 +535,7 @@ func TestPreparedRollbackCrashReplaysPersistedTerminationIntent(t *testing.T) {
 }
 
 func TestPreparedRollbackValidationFailureHasZeroSideEffects(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	beforeJournal, err := os.ReadFile(store.journalPath(identity.TransactionID))
 	if err != nil {
@@ -541,6 +560,7 @@ func TestPreparedRollbackValidationFailureHasZeroSideEffects(t *testing.T) {
 }
 
 func TestInstallFailureAfterBackupRollsBackExactTransaction(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	if _, err := store.RetainBackup(context.Background(), identity); err != nil {
 		t.Fatalf("RetainBackup() error = %v", err)
@@ -597,6 +617,7 @@ func TestTransactionStateMatrixRejectsIllegalTransitions(t *testing.T) {
 }
 
 func TestWrongTransactionCannotMutateJournalOrFilesystem(t *testing.T) {
+	t.Parallel()
 	store, identity, paths := createPreparedTransaction(t)
 	before, err := os.ReadFile(store.journalPath(identity.TransactionID))
 	if err != nil {

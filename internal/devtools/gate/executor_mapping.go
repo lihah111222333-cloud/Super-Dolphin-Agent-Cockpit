@@ -135,7 +135,7 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		[]string{"make", "codemap-check"},
 	), "Makefile", "scripts/codemap_index.go", "scripts/archtestmap/main.go")),
 	GateIDProjectMapCheck: requirePaths(commandProgram(
-		[]string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-index"},
+		[]string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-head"},
 	), ".git", "scripts/codemap_policy.txt", "docs/doc/codemap/project-map"),
 	GateIDCapabilityContractCheck: withGoSeed(requirePaths(commandProgram(
 		[]string{"make", "capcontract-check"},

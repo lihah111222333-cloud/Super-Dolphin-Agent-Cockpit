@@ -306,6 +306,7 @@ func loadRetainedConsumerChunk(tx *sql.Tx, jobIDs []string, stats *workloadPassE
 
 // loadRetainedConsumerTimingDetails 批量读取 warning 与两个 timing 投影。
 func loadRetainedConsumerTimingDetails(tx *sql.Tx, jobIDs []string, records map[string]RemoteCIRunRecord, stats *workloadPassEvidenceLookupStats) error {
+	initializeRetainedConsumerTimingDetails(records)
 	loaders := []func(*sql.Tx, []string, map[string]RemoteCIRunRecord, *workloadPassEvidenceLookupStats) error{
 		loadRetainedConsumerWarnings, loadRetainedConsumerTimingWarnings,
 		loadRetainedConsumerTimingObservations, loadRetainedConsumerCompileTimingObservations,
@@ -316,6 +317,16 @@ func loadRetainedConsumerTimingDetails(tx *sql.Tx, jobIDs []string, records map[
 		}
 	}
 	return nil
+}
+
+// initializeRetainedConsumerTimingDetails 对齐单项 SQLite reader 的空集合编码，
+// 避免 nil 与 [] 让同一 provisional projection 产生不同摘要。
+func initializeRetainedConsumerTimingDetails(records map[string]RemoteCIRunRecord) {
+	for jobID, record := range records {
+		record.TimingWarnings = make([]RemoteCITimingWarning, 0)
+		record.CompileTimingObservations = make([]CompileTimingObservation, 0)
+		records[jobID] = record
+	}
 }
 
 // loadRetainedConsumerShards 批量恢复 shard 与 workload 归属投影。

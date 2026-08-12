@@ -66,19 +66,106 @@ func TestRemoteGoProductionIndexCacheStoresErrors(t *testing.T) {
 	}
 }
 
-func TestRemoteGoProductionIndexCacheReturnsIndependentMaps(t *testing.T) {
+func TestRemoteGoProductionIndexCacheReusesImmutableIndexWithoutAllocations(t *testing.T) {
 	snapshot := testExactGoTestDigestSnapshot("")
-	first, err := snapshot.remoteGoProductionIndex(remoteGoBuildProfile{})
+	_, err := snapshot.remoteGoProductionIndex(remoteGoBuildProfile{})
 	if err != nil {
-		t.Fatalf("first production index: %v", err)
+		t.Fatalf("warm production index: %v", err)
 	}
-	first.byPackage["fixture"] = nil
-	second, err := snapshot.remoteGoProductionIndex(remoteGoBuildProfile{})
+	var runErr error
+	allocations := testing.AllocsPerRun(20, func() {
+		_, runErr = snapshot.remoteGoProductionIndex(remoteGoBuildProfile{})
+	})
+	if runErr != nil {
+		t.Fatalf("cached production index: %v", runErr)
+	}
+	if allocations > 2 {
+		t.Fatalf("cached immutable production index allocations = %.1f, want <= 2", allocations)
+	}
+}
+
+func TestRemoteGoProductionImportsCacheIsProfileScopedAndReturnsCopies(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte("package fixture\nimport _ \"example.com/fixture/support\"\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "support/support.go", []byte("package support\n"))
+	index, err := snapshot.remoteGoProductionIndex(remoteGoBuildProfile{})
 	if err != nil {
-		t.Fatalf("second production index: %v", err)
+		t.Fatalf("production index: %v", err)
 	}
-	if second.byPackage["fixture"] == nil {
-		t.Fatal("mutating returned production index changed cached map")
+	first, err := snapshot.remoteGoProductionImportedDirectories("fixture", index, remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("first production imports: %v", err)
+	}
+	first[0] = "mutated"
+	second, err := snapshot.remoteGoProductionImportedDirectories("fixture", index, remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("second production imports: %v", err)
+	}
+	if len(second) != 1 || second[0] != "support" {
+		t.Fatalf("cached production imports = %v, want [support]", second)
+	}
+	if got := snapshot.productionImportsComputations; got != 1 {
+		t.Fatalf("production imports computations = %d, want 1", got)
+	}
+}
+
+func TestRemoteGoProductionRuntimeCacheReplaysObservedEntries(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte("package fixture\nimport \"os\"\nfunc run() { _, _ = os.ReadFile(\"testdata/input.txt\") }\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte("package fixture\nimport \"testing\"\nfunc TestX(t *testing.T) { run() }\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/input.txt", []byte("input"))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	first := make(map[string]remoteGitTreeEntry)
+	second := make(map[string]remoteGitTreeEntry)
+	if _, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, first, remoteGoBuildProfile{}); err != nil {
+		t.Fatalf("first production runtime: %v", err)
+	}
+	if _, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, second, remoteGoBuildProfile{}); err != nil {
+		t.Fatalf("second production runtime: %v", err)
+	}
+	if _, ok := first["fixture/testdata/input.txt"]; !ok {
+		t.Fatal("first runtime observation omitted input")
+	}
+	if _, ok := second["fixture/testdata/input.txt"]; !ok {
+		t.Fatal("cached runtime observation omitted input")
+	}
+	if got := snapshot.productionRuntimeComputations; got != 1 {
+		t.Fatalf("production runtime computations = %d, want 1", got)
+	}
+}
+
+func TestGoProductionRuntimeObservationRecursesGenericImportedLocalCall(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "support/support.go", []byte("package support\nimport \"os\"\nfunc Read[T any]() { _, _ = os.ReadFile(\"testdata/input.txt\") }\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/testdata/input.txt", []byte("input"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte("package fixture\nimport \"example.com/fixture/support\"\nfunc run() { support.Read[string]() }\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte("package fixture\nimport \"testing\"\nfunc TestX(t *testing.T) { run() }\n"))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	selected := make(map[string]remoteGitTreeEntry)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, selected, remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("runtime observation scope = %v, want selector", scope)
+	}
+	if _, ok := selected["fixture/testdata/input.txt"]; !ok {
+		t.Fatal("generic imported helper observation omitted target asset")
+	}
+}
+
+func TestGoProductionRuntimeObservationAcceptsImportedLocalTypeConversion(t *testing.T) {
+	snapshot := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(snapshot, "support/support.go", []byte("package support\ntype ID string\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/main.go", []byte("package fixture\nimport \"example.com/fixture/support\"\nfunc run() { _ = support.ID(\"value\") }\n"))
+	testExactGoTestDigestReplaceFile(snapshot, "fixture/target_test.go", []byte("package fixture\nimport \"testing\"\nfunc TestX(t *testing.T) { run() }\n"))
+	root := runtimeObservationTestDeclaration(t, snapshot)
+	scope, err := snapshot.addGoProductionRuntimeObservedEntries("fixture", root, make(map[string]remoteGitTreeEntry), remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("addGoProductionRuntimeObservedEntries(): %v", err)
+	}
+	if scope != remoteGoTestScopeSelector {
+		t.Fatalf("runtime observation scope = %v, want selector", scope)
 	}
 }
 

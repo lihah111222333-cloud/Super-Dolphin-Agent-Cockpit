@@ -99,27 +99,14 @@ func assertReceiptSessionGoResolution(t *testing.T, trustedGo TrustedGoBinary, b
 }
 
 func TestVerifyLocalReceiptGoDependencyMaterializesCurrentExactTreeLocalReplace(t *testing.T) {
-	root := localReceiptTestRepositoryRoot(t)
-	tree := localReceiptTestTree(t, root)
-	cacheRoot := localReceiptTestGoEnv(t, "GOMODCACHE")
-
-	proof, err := verifyLocalReceiptGoDependency(context.Background(), localReceiptTestTrustedGit(t), localReceiptTestTrustedGo(t), root, tree, cacheRoot)
+	fixture := newLocalReceiptGoReplaceFixture(t, true, true)
+	proof, err := verifyLocalReceiptGoDependency(context.Background(), localReceiptTestTrustedGit(t), localReceiptTestTrustedGo(t), fixture.root, fixture.tree, fixture.cacheRoot)
 	if err != nil {
 		t.Fatalf("verify local receipt Go dependency: %v", err)
 	}
-	if !localReceiptTestHasLockedPath(proof.lockFiles, "third_party/kelindar-event/event.go") {
+	if !localReceiptTestHasLockedPath(proof.lockFiles, "third_party/replaced/replaced.go") {
 		t.Fatalf("local replacement source was not bound into the receipt proof: %#v", proof.lockFiles)
 	}
-}
-
-func localReceiptTestRepositoryRoot(t *testing.T) string {
-	t.Helper()
-	command := exec.Command("git", "rev-parse", "--show-toplevel")
-	output, err := command.Output()
-	if err != nil {
-		t.Fatalf("resolve test repository root: %v", err)
-	}
-	return strings.TrimSpace(string(output))
 }
 
 func localReceiptTestTree(t *testing.T, root string) string {
@@ -129,16 +116,6 @@ func localReceiptTestTree(t *testing.T, root string) string {
 	output, err := command.Output()
 	if err != nil {
 		t.Fatalf("resolve test exact tree: %v", err)
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func localReceiptTestGoEnv(t *testing.T, key string) string {
-	t.Helper()
-	command := exec.Command("go", "env", key)
-	output, err := command.Output()
-	if err != nil {
-		t.Fatalf("read Go environment %s: %v", key, err)
 	}
 	return strings.TrimSpace(string(output))
 }
@@ -338,6 +315,28 @@ func requireLocalReceiptEmbedPrivateSnapshot(t *testing.T, root string, proof lo
 	info, err := os.Stat(filepath.Join(snapshot, "assets", "main.js"))
 	if err != nil || info.Mode().Perm() != 0o400 {
 		t.Fatalf("private embed snapshot is not read-only: mode=%#o err=%v", info.Mode().Perm(), err)
+	}
+}
+
+func TestLocalReceiptDependencySnapshotCanonicalizesTemporaryRootAlias(t *testing.T) {
+	realRoot := t.TempDir()
+	aliasRoot := filepath.Join(t.TempDir(), "tmp-alias")
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", aliasRoot)
+	fixture := newLocalReceiptGoCacheManifestFixture(t)
+	snapshot, cleanup, err := materializeLocalReceiptDependencySnapshot(fixture.proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { requireNoLocalReceiptTestError(t, cleanup()) })
+	canonical, err := filepath.EvalSymlinks(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot != canonical {
+		t.Fatalf("dependency snapshot = %q, want canonical %q", snapshot, canonical)
 	}
 }
 

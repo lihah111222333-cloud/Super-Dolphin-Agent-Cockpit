@@ -245,7 +245,7 @@ func expectedBuildArguments(identity LinkedIdentity) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return launcherBuildArguments(linkedPayload, identity.BuildArgumentsSHA256), nil
+	return launcherBuildArguments(linkedPayload, identity.BuildArgumentsSHA256)
 }
 
 // launcherBuildCacheRoot 将 Go package 编译缓存绑定到受信编译器闭包而非 exact tree。

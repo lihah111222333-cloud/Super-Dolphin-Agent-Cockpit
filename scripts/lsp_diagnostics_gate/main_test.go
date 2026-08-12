@@ -21,13 +21,14 @@ type fakeGoInvocation struct {
 	GOOS       string   `json:"goos"`
 	GOARCH     string   `json:"goarch"`
 	CGOEnabled string   `json:"cgo_enabled"`
+	GOFlags    string   `json:"go_flags"`
 }
 
 func TestMain(m *testing.M) {
 	if capture := os.Getenv("LSP_DIAGNOSTICS_GATE_FAKE_GO_CAPTURE"); capture != "" {
 		invocation := fakeGoInvocation{
 			Args: os.Args[1:], GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"),
-			CGOEnabled: os.Getenv("CGO_ENABLED"),
+			CGOEnabled: os.Getenv("CGO_ENABLED"), GOFlags: os.Getenv("GOFLAGS"),
 		}
 		data, err := json.Marshal(invocation)
 		if err == nil {
@@ -392,6 +393,7 @@ func TestTargetCompileEnvironmentDisablesCGOForCrossTarget(t *testing.T) {
 		t.Skip("Windows source is host-visible on Windows")
 	}
 	root := t.TempDir()
+	t.Setenv("GOFLAGS", "-race")
 	file := "only_windows.go"
 	writeTestFile(t, filepath.Join(root, file), "//go:build windows\n\npackage a\n")
 	capture := installFakeGo(t)
@@ -405,6 +407,9 @@ func TestTargetCompileEnvironmentDisablesCGOForCrossTarget(t *testing.T) {
 	}
 	if invocation.CGOEnabled != "0" {
 		t.Fatalf("cross-target compiler CGO_ENABLED = %q, want 0", invocation.CGOEnabled)
+	}
+	if invocation.GOFlags != "" {
+		t.Fatalf("cross-target compiler GOFLAGS = %q, want empty", invocation.GOFlags)
 	}
 }
 

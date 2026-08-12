@@ -5,17 +5,17 @@ import (
 	"slices"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-// remoteRunContractExecutionCatalog projects the catalog which the receipt must
-// cover. A nil scope retains the legacy/full SQLite representation; an explicit
-// subset must be valid against the complete persisted catalog.
+// remoteRunContractExecutionCatalog 投影回执必须覆盖的目录；nil scope 保留
+// legacy/full SQLite 形态，显式 subset 必须相对完整持久化目录有效。
 func remoteRunContractExecutionCatalog(catalog gatecontract.WorkloadCatalog, scope *gatecontract.RemoteCIExecutionScope) (gatecontract.WorkloadCatalog, error) {
 	return gatecontract.ProjectRemoteCIExecutionCatalog(catalog, scope)
 }
 
-// validateRemoteRunRecordedExecutionScope binds a persisted subset proof to the
-// result. Full scope intentionally has no side-table row.
+// validateRemoteRunRecordedExecutionScope 把持久化 subset proof 绑定到结果；
+// full scope 不得合成 side-table 行。
 func validateRemoteRunRecordedExecutionScope(catalog gatecontract.WorkloadCatalog, recorded, result *gatecontract.RemoteCIExecutionScope) error {
 	if result == nil {
 		if recorded != nil {
@@ -44,9 +44,8 @@ func validateRemoteRunRecordedExecutionScope(catalog gatecontract.WorkloadCatalo
 	return nil
 }
 
-// validateRemoteRunOwnerExecutionSet keeps the legacy release-owner shape for
-// nil/full scopes. A subset instead carries only its shardable workloads'
-// canonical parent aggregates, in full-catalog parent order.
+// validateRemoteRunOwnerExecutionSet 为 nil/full scope 保留 legacy release-owner
+// 形态；subset 仅按完整目录父级顺序携带所选 shardable workload 的规范聚合。
 func validateRemoteRunOwnerExecutionSet(
 	catalog gatecontract.WorkloadCatalog,
 	scope *gatecontract.RemoteCIExecutionScope,
@@ -76,8 +75,7 @@ func validateRemoteRunOwnerExecutionSet(
 	return nil
 }
 
-// remoteRunSubsetParentGateIDs derives the unique parent gates in the complete
-// catalog's canonical order, rather than in request or result order.
+// remoteRunSubsetParentGateIDs 按完整目录规范顺序派生唯一父 gate，拒绝使用请求或结果顺序。
 func remoteRunSubsetParentGateIDs(
 	catalog gatecontract.WorkloadCatalog,
 	scope *gatecontract.RemoteCIExecutionScope,
@@ -109,4 +107,38 @@ func remoteRunSubsetParentGateIDs(
 		return nil, fmt.Errorf("remote CI subset parent aggregate projection is inconsistent")
 	}
 	return parents, nil
+}
+
+// remoteRunExpectedWorkloadResults 生成本次 fresh/reused 组合应持久化的完整工作负载结果。
+func remoteRunExpectedWorkloadResults(result remoteci.RunResult) (map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, error) {
+	canonical, err := remoteci.CanonicalRemoteCIWorkloadResults(result)
+	if err != nil {
+		return nil, err
+	}
+	want := make(map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, len(canonical))
+	for _, workloadResult := range canonical {
+		if _, duplicate := want[workloadResult.Identity.WorkloadID]; duplicate {
+			return nil, fmt.Errorf("canonical remote CI workload result %q is duplicated", workloadResult.Identity.WorkloadID)
+		}
+		want[workloadResult.Identity.WorkloadID] = workloadResult
+	}
+	return want, nil
+}
+
+// remoteRunReexecutedResultMap 校验 package 原子重跑的旧 proof 投影无重复。
+func remoteRunReexecutedResultMap(results []gatecontract.RemoteCIWorkloadResult) (map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, error) {
+	indexed := make(map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, len(results))
+	for _, result := range results {
+		if err := result.Validate(); err != nil {
+			return nil, fmt.Errorf("validate package-atomic remote CI workload %q proof result: %w", result.Identity.WorkloadID, err)
+		}
+		if result.Disposition != gatecontract.WorkloadDispositionReused {
+			return nil, fmt.Errorf("package-atomic remote CI workload %q proof disposition is invalid", result.Identity.WorkloadID)
+		}
+		if _, duplicate := indexed[result.Identity.WorkloadID]; duplicate {
+			return nil, fmt.Errorf("package-atomic remote CI workload %q proof is duplicated", result.Identity.WorkloadID)
+		}
+		indexed[result.Identity.WorkloadID] = result
+	}
+	return indexed, nil
 }

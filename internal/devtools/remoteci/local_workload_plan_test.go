@@ -4,11 +4,20 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
+
+// requireDarwinLocalWorkloadReceiptTest 只在具备生产 sandbox-exec 的 Darwin 主机封存真实本地收据。
+func requireDarwinLocalWorkloadReceiptTest(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		t.Skip("production local executor receipt requires Darwin sandbox-exec")
+	}
+}
 
 func TestLocalWorkloadPlanSelectionRejectsEmptyDuplicateAndUnknown(t *testing.T) {
 	_, catalog, err := canonicalLocalWorkloadCatalog(strings.Repeat("a", 40))
@@ -63,6 +72,7 @@ func TestBuildLocalWorkloadPlanItemEligibleRejectsMissingReceiptCoverage(t *test
 }
 
 func TestBuildLocalWorkloadPlanItemsMixedReceiptOnlyCarriesEligibleIdentity(t *testing.T) {
+	requireDarwinLocalWorkloadReceiptTest(t)
 	repositoryRoot, tree := localWorkloadPlanTestRepositoryRootAndTree(t)
 	eligibleID := gate.GateIDCodemapCheck
 	_, catalog, err := canonicalLocalWorkloadCatalog(tree)
@@ -144,6 +154,7 @@ func TestBuildLocalWorkloadPlanItemKnownUnmappedDoesNotReadReceiptEnvironment(t 
 }
 
 func TestBuildLocalWorkloadPlanItemMappedIneligibleCarriesWorkloadIdentityAndKey(t *testing.T) {
+	requireDarwinLocalWorkloadReceiptTest(t)
 	repositoryRoot, tree := localWorkloadPlanTestRepositoryRootAndTree(t)
 	_, catalog, err := canonicalLocalWorkloadCatalog(tree)
 	if err != nil {
@@ -171,6 +182,7 @@ func TestBuildLocalWorkloadPlanItemMappedIneligibleCarriesWorkloadIdentityAndKey
 }
 
 func TestBuildLocalWorkloadPlanItemEligibleCodemapCarriesHighTierLocalIdentity(t *testing.T) {
+	requireDarwinLocalWorkloadReceiptTest(t)
 	repositoryRoot, tree := localWorkloadPlanTestRepositoryRootAndTree(t)
 	_, catalog, err := canonicalLocalWorkloadCatalog(tree)
 	if err != nil {

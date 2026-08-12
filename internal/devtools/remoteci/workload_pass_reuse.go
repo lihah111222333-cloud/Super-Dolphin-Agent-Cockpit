@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/bits"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -284,11 +286,23 @@ func validateRemoteWorkloadPassEvidence(
 
 // remoteWorkloadReusePreparation 保留本次复用决策与严格 miss 标识投影。
 type remoteWorkloadReusePreparation struct {
-	reused                  map[string]gate.WorkloadPassEvidence
-	environmentReplayProofs map[string]string
-	identities              []gate.WorkloadPassIdentity
-	reusedWorkloads         []gate.WorkloadPassEvidence
-	cacheMisses             []gate.GateID
+	reused                     map[string]gate.WorkloadPassEvidence
+	environmentReplayProofs    map[string]string
+	missConfirmations          remoteReuseMissConfirmations
+	identities                 []gate.WorkloadPassIdentity
+	reusedWorkloads            []gate.WorkloadPassEvidence
+	reexecutedWorkloadResults  []gate.RemoteCIWorkloadResult
+	cacheMisses                []gate.GateID
+	directHits                 int
+	sourceReplayHits           int
+	environmentReplayHits      int
+	exactHits                  int
+	directMisses               int
+	replayMisses               int
+	calibrationDurationDemoted int
+	forced                     bool
+	replayDiagnostic           ReuseReplayDiagnostic
+	diagnosticGroups           []ReuseDiagnosticGroup
 }
 
 // prepareRemoteWorkloadReuse 在临时目录、OSS 或 ECI 操作之前完成 PASS 查询与 miss 投影。
@@ -303,6 +317,7 @@ func prepareRemoteWorkloadReuse(
 	preparation := remoteWorkloadReusePreparation{
 		reused:                  make(map[string]gate.WorkloadPassEvidence),
 		environmentReplayProofs: make(map[string]string),
+		forced:                  input.Force,
 	}
 	identities, err := remoteWorkloadPassIdentities(ctx, input, catalog, workerTimeout, resourcePolicy)
 	if err != nil {
@@ -312,19 +327,17 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
-	reused := make(map[string]gate.WorkloadPassEvidence)
-	if !input.Force {
-		reused, err = lookupRemoteWorkloadPasses(input.LedgerStore, identities)
-		if err != nil {
-			return remoteWorkloadReusePreparation{}, err
-		}
-		if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache); err != nil {
-			return remoteWorkloadReusePreparation{}, fmt.Errorf("replay remote workload PASS sources: %w", err)
-		}
-		if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, replayCache); err != nil {
-			return remoteWorkloadReusePreparation{}, fmt.Errorf("replay remote workload PASS environments: %w", err)
-		}
+	reused, err := prepareRemoteWorkloadReuseReplays(ctx, input, catalog, identities, workerTimeout, resourcePolicy, replayCache, &preparation)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, err
 	}
+	preparation.calibrationDurationDemoted, err = demoteCalibrationReuseWithoutDuration(input, catalog, reused, preparation.environmentReplayProofs)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, err
+	}
+	exactHits := len(reused)
+	directMisses := len(identities) - preparation.directHits
+	replayMisses := len(identities) - exactHits
 	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, fmt.Errorf("classify remote workload PASS reuse: %w", err)
@@ -333,15 +346,266 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, fmt.Errorf("index effective remote workload PASS reuse: %w", err)
 	}
+	reexecuted, diagnosticGroups, err := projectRemoteWorkloadReuseOutcome(identities, reused, effectiveReused, preparation.environmentReplayProofs)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, err
+	}
 	preparation.reused = effectiveReused
 	preparation.identities = identities
 	preparation.reusedWorkloads = reusedWorkloads
+	preparation.reexecutedWorkloadResults = reexecuted
 	preparation.cacheMisses = cacheMisses
+	preparation.exactHits = exactHits
+	preparation.directMisses = directMisses
+	preparation.replayMisses = replayMisses
+	preparation.diagnosticGroups = diagnosticGroups
 	return preparation, nil
 }
 
+// prepareRemoteWorkloadReuseReplays 依次运行 direct、source 与 environment 三条独立证明路径。
+func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, catalog gate.WorkloadCatalog, identities []gate.WorkloadPassIdentity, workerTimeout time.Duration, resourcePolicy shardresource.Policy, replayCache *remoteReplayCache, preparation *remoteWorkloadReusePreparation) (map[string]gate.WorkloadPassEvidence, error) {
+	reused := make(map[string]gate.WorkloadPassEvidence)
+	if input.Force {
+		return reused, nil
+	}
+	var err error
+	if reused, err = lookupRemoteWorkloadPasses(input.LedgerStore, identities); err != nil {
+		return nil, err
+	}
+	preparation.directHits = len(reused)
+	preparation.missConfirmations = newRemoteReuseMissConfirmations(identities, reused)
+	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic); err != nil {
+		return nil, fmt.Errorf("replay remote workload PASS sources: %w", err)
+	}
+	preparation.sourceReplayHits = len(reused) - preparation.directHits
+	afterSourceReplay := len(reused)
+	if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic); err != nil {
+		return nil, fmt.Errorf("replay remote workload PASS environments: %w", err)
+	}
+	preparation.environmentReplayHits = len(reused) - afterSourceReplay
+	return reused, validateRemoteReuseMissConsensus(identities, reused, preparation.missConfirmations)
+}
+
+// projectRemoteWorkloadReuseOutcome 同时冻结 package-atomic 重跑 proof 与对应
+// 聚合诊断，避免两条投影在后续阶段观察到不同分类结果。
+func projectRemoteWorkloadReuseOutcome(identities []gate.WorkloadPassIdentity, queried, effective map[string]gate.WorkloadPassEvidence, replayProofs map[string]string) ([]gate.RemoteCIWorkloadResult, []ReuseDiagnosticGroup, error) {
+	reexecuted, err := remoteReexecutedWorkloadResults(identities, queried, effective, replayProofs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("project package-atomic remote workload PASS consumers: %w", err)
+	}
+	groups, err := remoteReuseDiagnosticGroups(identities, queried, effective)
+	if err != nil {
+		return nil, nil, fmt.Errorf("group remote workload PASS reuse diagnostics: %w", err)
+	}
+	return reexecuted, groups, nil
+}
+
+// remoteReexecutedWorkloadResults 投影 lookup 命中但因 package 原子边界实际重跑的
+// workload；结果保留旧 proof authority，fresh execution 由独立执行投影记录。
+func remoteReexecutedWorkloadResults(
+	identities []gate.WorkloadPassIdentity,
+	queried, effective map[string]gate.WorkloadPassEvidence,
+	environmentReplayProofs map[string]string,
+) ([]gate.RemoteCIWorkloadResult, error) {
+	results := make([]gate.RemoteCIWorkloadResult, 0, len(queried)-len(effective))
+	for _, identity := range identities {
+		workloadID := string(identity.WorkloadID)
+		evidence, queriedHit := queried[workloadID]
+		_, effectiveHit := effective[workloadID]
+		if !queriedHit || effectiveHit {
+			continue
+		}
+		result, err := remoteWorkloadProofResult(identity, evidence, environmentReplayProofs[workloadID])
+		if err != nil {
+			return nil, err
+		}
+		if err := result.Validate(); err != nil {
+			return nil, fmt.Errorf("validate package-atomic workload %q proof result: %w", identity.WorkloadID, err)
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+// diagnostic 返回直接查询、交叉 replay 与最终逐 workload 分类的非权威聚合差异。
+func (preparation remoteWorkloadReusePreparation) diagnostic() ReuseDiagnostic {
+	effectiveHits := len(preparation.reusedWorkloads)
+	effectiveMisses := len(preparation.cacheMisses)
+	confirmationThreshold := remoteReuseMissConfirmationThreshold
+	if preparation.forced {
+		confirmationThreshold = 0
+	}
+	return ReuseDiagnostic{
+		Forced: preparation.forced, MissConfirmationThreshold: confirmationThreshold,
+		DirectHits: preparation.directHits, SourceReplayHits: preparation.sourceReplayHits,
+		EnvironmentReplayHits: preparation.environmentReplayHits,
+		ExactHits:             preparation.exactHits, DirectMisses: preparation.directMisses,
+		RecoveredDirectMisses:      preparation.directMisses - preparation.replayMisses,
+		ReplayMisses:               preparation.replayMisses,
+		AtomicDemoted:              preparation.exactHits - effectiveHits,
+		CalibrationDurationDemoted: preparation.calibrationDurationDemoted,
+		EffectiveHits:              effectiveHits, EffectiveMisses: effectiveMisses,
+		Replay:     preparation.replayDiagnostic,
+		MissGroups: slices.Clone(preparation.diagnosticGroups),
+	}
+}
+
+// demoteCalibrationReuseWithoutDuration 只在校准运行中把缺可比较耗时样本的
+// correctness PASS 降为 MISS；已有样本的命中继续复用，避免整批重跑。
+func demoteCalibrationReuseWithoutDuration(input RunInput, catalog gate.WorkloadCatalog, reused map[string]gate.WorkloadPassEvidence, environmentProofs map[string]string) (int, error) {
+	if !input.Calibration || input.Force || len(reused) == 0 {
+		return 0, nil
+	}
+	if input.LedgerSnapshot.SampleIndex == nil {
+		return 0, errors.New("calibration PASS reuse requires a duration sample index")
+	}
+	workloads := make(map[string]gate.Workload, len(catalog.Workloads))
+	for _, workload := range catalog.Workloads {
+		workloads[workload.ID] = workload
+	}
+	demoted := 0
+	for workloadID := range reused {
+		workload, ok := workloads[workloadID]
+		if !ok {
+			return 0, fmt.Errorf("calibration reused workload %q is absent from catalog", workloadID)
+		}
+		if input.LedgerSnapshot.SampleIndex.HasSuccessfulCalibrationDurationEvidence(workload) {
+			continue
+		}
+		delete(reused, workloadID)
+		delete(environmentProofs, workloadID)
+		demoted++
+	}
+	return demoted, nil
+}
+
+const remoteReuseMissConfirmationThreshold = 2
+
+type remoteReuseMissSignal uint8
+
+const (
+	remoteReuseDirectMiss remoteReuseMissSignal = 1 << iota
+	remoteReuseSourceMiss
+	remoteReuseEnvironmentMiss
+)
+
+type remoteReuseMissConfirmations map[string]remoteReuseMissSignal
+
+func newRemoteReuseMissConfirmations(identities []gate.WorkloadPassIdentity, reused map[string]gate.WorkloadPassEvidence) remoteReuseMissConfirmations {
+	confirmations := make(remoteReuseMissConfirmations)
+	for _, identity := range identities {
+		workloadID := string(identity.WorkloadID)
+		if _, hit := reused[workloadID]; !hit {
+			confirmations[workloadID] = remoteReuseDirectMiss
+		}
+	}
+	return confirmations
+}
+
+func (confirmations remoteReuseMissConfirmations) confirm(workloadID gate.GateID, signal remoteReuseMissSignal) {
+	confirmations[string(workloadID)] |= signal
+}
+
+// validateRemoteReuseMissConsensus 只允许至少两条独立查询路径都未能证明 PASS 的 workload 进入远程分片。
+func validateRemoteReuseMissConsensus(identities []gate.WorkloadPassIdentity, reused map[string]gate.WorkloadPassEvidence, confirmations remoteReuseMissConfirmations) error {
+	for _, identity := range identities {
+		workloadID := string(identity.WorkloadID)
+		if _, hit := reused[workloadID]; hit {
+			continue
+		}
+		count := bits.OnesCount8(uint8(confirmations[workloadID]))
+		if count < remoteReuseMissConfirmationThreshold {
+			return fmt.Errorf("remote workload PASS MISS %q has %d independent confirmations, want at least %d", identity.WorkloadID, count, remoteReuseMissConfirmationThreshold)
+		}
+	}
+	return nil
+}
+
+const remoteReuseDiagnosticGroupLimit = 12
+
+// remoteReuseDiagnosticGroups 以包/目标粒度解释直接与交叉确认后的 MISS；
+// 排序和截断固定，避免数千 selector 污染进度旁路。
+func remoteReuseDiagnosticGroups(identities []gate.WorkloadPassIdentity, queried, effective map[string]gate.WorkloadPassEvidence) ([]ReuseDiagnosticGroup, error) {
+	groups := make(map[string]*ReuseDiagnosticGroup)
+	for _, identity := range identities {
+		kind, target, err := remoteReuseDiagnosticTarget(identity.WorkloadID)
+		if err != nil {
+			return nil, err
+		}
+		key := kind + "\x00" + target
+		group := groups[key]
+		if group == nil {
+			group = &ReuseDiagnosticGroup{TargetKind: kind, TargetGroup: target}
+			groups[key] = group
+		}
+		addRemoteReuseDiagnosticCounts(group, string(identity.WorkloadID), queried, effective)
+	}
+	return topRemoteReuseDiagnosticGroups(groups), nil
+}
+
+func addRemoteReuseDiagnosticCounts(group *ReuseDiagnosticGroup, workloadID string, queried, effective map[string]gate.WorkloadPassEvidence) {
+	_, exactHit := queried[workloadID]
+	_, effectiveHit := effective[workloadID]
+	if exactHit {
+		group.ExactHits++
+	} else {
+		group.DirectMisses++
+	}
+	if effectiveHit {
+		group.EffectiveHits++
+		return
+	}
+	group.EffectiveMisses++
+	if exactHit {
+		group.AtomicDemoted++
+	}
+}
+
+func remoteReuseDiagnosticTarget(workloadID gate.GateID) (string, string, error) {
+	parent, targetKind, target, targeted, err := gate.ParseWorkloadID(string(workloadID))
+	if err != nil {
+		return "", "", err
+	}
+	if !targeted {
+		return "gate", string(parent), nil
+	}
+	switch targetKind {
+	case gate.WorkloadTargetGoTest, gate.WorkloadTargetGoBenchmark:
+		parsed, err := gate.ParseGoTestTarget(target)
+		if err != nil {
+			return "", "", err
+		}
+		return string(targetKind), parsed.Package, nil
+	default:
+		return string(targetKind), target, nil
+	}
+}
+
+// topRemoteReuseDiagnosticGroups 只保留有效 MISS 最大的固定数量分组；完整
+// authoritative workload 集合仍由 RunResult/SQLite 持有，旁路不得变成第二真相源。
+func topRemoteReuseDiagnosticGroups(groups map[string]*ReuseDiagnosticGroup) []ReuseDiagnosticGroup {
+	result := make([]ReuseDiagnosticGroup, 0, len(groups))
+	for _, group := range groups {
+		if group.EffectiveMisses != 0 {
+			result = append(result, *group)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].EffectiveMisses != result[right].EffectiveMisses {
+			return result[left].EffectiveMisses > result[right].EffectiveMisses
+		}
+		if result[left].TargetKind != result[right].TargetKind {
+			return result[left].TargetKind < result[right].TargetKind
+		}
+		return result[left].TargetGroup < result[right].TargetGroup
+	})
+	if len(result) > remoteReuseDiagnosticGroupLimit {
+		result = result[:remoteReuseDiagnosticGroupLimit]
+	}
+	return result
+}
+
 // indexRemoteWorkloadPassEvidence 只索引分类后仍然有效的复用证据。
-// 同包出现 MISS 时，分类器会把该包全部降为 MISS，原始查询命中不得继续进入执行边界。
 func indexRemoteWorkloadPassEvidence(evidences []gate.WorkloadPassEvidence) (map[string]gate.WorkloadPassEvidence, error) {
 	indexed := make(map[string]gate.WorkloadPassEvidence, len(evidences))
 	for _, evidence := range evidences {
@@ -357,79 +621,17 @@ func indexRemoteWorkloadPassEvidence(evidences []gate.WorkloadPassEvidence) (map
 	return indexed, nil
 }
 
-// remoteWorkloadPassPackageKey 返回同一测试二进制可能共享的包身份。
-//
-// 同包 selector 可能通过 TestMain/init、包级变量、fixture 或 t.Parallel
-// 观察到其它 selector 的副作用；只有明确属于不同 parent（例如 normal/race）
-// 或 target kind（例如 test/benchmark）的执行语义时才允许保持独立复用。任何无法由 canonical workload parser
-// 闭合的目标都必须阻断，而不能退化为一个可复用的独立组。
-func remoteWorkloadPassPackageKey(identity gate.WorkloadPassIdentity) (string, error) {
-	parent, targetKind, target, targeted, err := gate.ParseWorkloadID(string(identity.WorkloadID))
-	if err != nil {
-		return "", fmt.Errorf("parse remote workload %q: %w", identity.WorkloadID, err)
-	}
-	if !targeted {
-		return "", nil
-	}
-	var packageTarget string
-	switch targetKind {
-	case gate.WorkloadTargetGoTest:
-		parsed, parseErr := gate.ParseGoTestTarget(target)
-		if parseErr != nil {
-			return "", fmt.Errorf("parse remote Go test workload %q: %w", identity.WorkloadID, parseErr)
-		}
-		packageTarget = parsed.Package
-	case gate.WorkloadTargetGoBenchmark:
-		parsed, parseErr := gate.ParseGoBenchmarkTarget(target)
-		if parseErr != nil {
-			return "", fmt.Errorf("parse remote Go benchmark workload %q: %w", identity.WorkloadID, parseErr)
-		}
-		packageTarget = parsed.Package
-	case gate.WorkloadTargetGoPackage:
-		if _, parseErr := gate.NewGoPackageWorkload(parent, target, 1); parseErr != nil {
-			return "", fmt.Errorf("parse remote Go package workload %q: %w", identity.WorkloadID, parseErr)
-		}
-		packageTarget = target
-	default:
-		return "", nil
-	}
-	return string(parent) + "\x00" + string(targetKind) + "\x00" + packageTarget, nil
-}
-
-// classifyRemoteWorkloadPassesStrict 以身份顺序投影复用证据，并在同包命中/未命中
-// 混合时将整个 package 降为 MISS，避免共享 test binary/batch 的状态副作用。
+// classifyRemoteWorkloadPassesStrict 以身份顺序逐 workload 投影已交叉验证的复用证据。
+// package 编译与测试 batch 仅是执行优化边界，不得把 sibling MISS 传播给独立 PASS 身份。
 func classifyRemoteWorkloadPassesStrict(
 	identities []gate.WorkloadPassIdentity,
 	reused map[string]gate.WorkloadPassEvidence,
 ) ([]gate.WorkloadPassEvidence, []gate.GateID, error) {
 	reusedWorkloads := make([]gate.WorkloadPassEvidence, 0, len(reused))
 	cacheMisses := make([]gate.GateID, 0, len(identities)-len(reused))
-	packageHits := make(map[string]struct{})
-	packageMisses := make(map[string]struct{})
-	packageKeys := make(map[string]string, len(identities))
-	for _, identity := range identities {
-		key, err := remoteWorkloadPassPackageKey(identity)
-		if err != nil {
-			return nil, nil, err
-		}
-		packageKeys[string(identity.WorkloadID)] = key
-		if key == "" {
-			continue
-		}
-		if _, ok := reused[string(identity.WorkloadID)]; ok {
-			packageHits[key] = struct{}{}
-		} else {
-			packageMisses[key] = struct{}{}
-		}
-	}
 	for _, identity := range identities {
 		workloadID := string(identity.WorkloadID)
-		packageKey := packageKeys[workloadID]
-		_, mixedPackage := packageHits[packageKey]
-		if mixedPackage {
-			_, mixedPackage = packageMisses[packageKey]
-		}
-		if evidence, ok := reused[workloadID]; ok && !mixedPackage {
+		if evidence, ok := reused[workloadID]; ok {
 			reusedWorkloads = append(reusedWorkloads, evidence)
 			continue
 		}
@@ -442,6 +644,7 @@ func classifyRemoteWorkloadPassesStrict(
 func (preparation remoteWorkloadReusePreparation) apply(result *RunResult) {
 	result.WorkloadPassIdentities = preparation.identities
 	result.ReusedWorkloads = preparation.reusedWorkloads
+	result.ReexecutedWorkloadResults = slices.Clone(preparation.reexecutedWorkloadResults)
 	result.CacheMissWorkloads = preparation.cacheMisses
 	result.environmentReplayProofs = maps.Clone(preparation.environmentReplayProofs)
 }
@@ -496,20 +699,28 @@ func remoteCIWorkloadResults(result RunResult) ([]gate.RemoteCIWorkloadResult, e
 		if !ok {
 			return nil, fmt.Errorf("reused workload %q is missing current WorkloadPassIdentity", evidence.Identity.WorkloadID)
 		}
-		evidenceSHA := evidence.EvidenceSHA256
-		if identity != evidence.Identity {
-			if replayProof := result.environmentReplayProofs[string(identity.WorkloadID)]; replayProof != "" {
-				evidenceSHA = replayProof
-			} else {
-				var err error
-				evidenceSHA, err = gate.WorkloadPassSourceReplaySHA256(identity, evidence)
-				if err != nil {
-					return nil, err
-				}
-			}
+		workloadResult, err := remoteWorkloadProofResult(identity, evidence, result.environmentReplayProofs[string(identity.WorkloadID)])
+		if err != nil {
+			return nil, err
 		}
-		results = append(results, gate.RemoteCIWorkloadResult{Identity: identity, Disposition: gate.WorkloadDispositionReused, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration, EvidenceSHA256: evidenceSHA})
+		results = append(results, workloadResult)
 	}
+	reexecuted, err := indexRemoteReexecutedWorkloadResults(result.ReexecutedWorkloadResults)
+	if err != nil {
+		return nil, err
+	}
+	return appendRemoteFreshWorkloadResults(results, result, identities, reexecuted)
+}
+
+// CanonicalRemoteCIWorkloadResults 返回 coordinator 用于 provisional 写入的唯一
+// workload result 投影，finalizer 必须复用它而不得重建 replay proof 语义。
+func CanonicalRemoteCIWorkloadResults(result RunResult) ([]gate.RemoteCIWorkloadResult, error) {
+	return remoteCIWorkloadResults(result)
+}
+
+// appendRemoteFreshWorkloadResults 追加普通 MISS 或 package 原子重跑的结果，
+// 并要求每个冻结的旧 proof consumer 都有本次 fresh execution。
+func appendRemoteFreshWorkloadResults(results []gate.RemoteCIWorkloadResult, result RunResult, identities map[gate.GateID]gate.WorkloadPassIdentity, reexecuted map[gate.GateID]gate.RemoteCIWorkloadResult) ([]gate.RemoteCIWorkloadResult, error) {
 	var identityErr error
 	for _, execution := range result.FreshWorkloadExecutions {
 		identity, ok := identities[execution.GateID]
@@ -517,7 +728,54 @@ func remoteCIWorkloadResults(result RunResult) ([]gate.RemoteCIWorkloadResult, e
 			identityErr = errors.Join(identityErr, fmt.Errorf("fresh workload execution %q is missing WorkloadPassIdentity", execution.GateID))
 			continue
 		}
+		if proofResult, ok := reexecuted[execution.GateID]; ok {
+			if proofResult.Identity != identity {
+				identityErr = errors.Join(identityErr, fmt.Errorf("package-atomic workload execution %q proof identity drifted", execution.GateID))
+				continue
+			}
+			results = append(results, proofResult)
+			delete(reexecuted, execution.GateID)
+			continue
+		}
 		results = append(results, gate.RemoteCIWorkloadResult{Identity: identity, Disposition: gate.WorkloadDispositionExecuted, OriginJobID: result.JobID, OriginAcceptedGeneration: result.AcceptedGeneration})
 	}
+	for workloadID := range reexecuted {
+		identityErr = errors.Join(identityErr, fmt.Errorf("package-atomic workload %q lacks fresh execution", workloadID))
+	}
 	return results, identityErr
+}
+
+// remoteWorkloadProofResult 以当前 identity 和已验证 origin evidence 构造规范 consumer 结果。
+func remoteWorkloadProofResult(identity gate.WorkloadPassIdentity, evidence gate.WorkloadPassEvidence, environmentReplayProof string) (gate.RemoteCIWorkloadResult, error) {
+	evidenceSHA := evidence.EvidenceSHA256
+	if identity != evidence.Identity {
+		if environmentReplayProof != "" {
+			evidenceSHA = environmentReplayProof
+		} else {
+			var err error
+			evidenceSHA, err = gate.WorkloadPassSourceReplaySHA256(identity, evidence)
+			if err != nil {
+				return gate.RemoteCIWorkloadResult{}, err
+			}
+		}
+	}
+	return gate.RemoteCIWorkloadResult{Identity: identity, Disposition: gate.WorkloadDispositionReused, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration, EvidenceSHA256: evidenceSHA}, nil
+}
+
+// indexRemoteReexecutedWorkloadResults 校验冻结的 package 原子重跑 proof 投影无重复。
+func indexRemoteReexecutedWorkloadResults(results []gate.RemoteCIWorkloadResult) (map[gate.GateID]gate.RemoteCIWorkloadResult, error) {
+	indexed := make(map[gate.GateID]gate.RemoteCIWorkloadResult, len(results))
+	for _, result := range results {
+		if err := result.Validate(); err != nil {
+			return nil, fmt.Errorf("validate package-atomic workload %q proof result: %w", result.Identity.WorkloadID, err)
+		}
+		if result.Disposition != gate.WorkloadDispositionReused {
+			return nil, fmt.Errorf("package-atomic workload %q must retain reused proof disposition", result.Identity.WorkloadID)
+		}
+		if _, duplicate := indexed[result.Identity.WorkloadID]; duplicate {
+			return nil, fmt.Errorf("package-atomic workload %q is duplicated", result.Identity.WorkloadID)
+		}
+		indexed[result.Identity.WorkloadID] = result
+	}
+	return indexed, nil
 }

@@ -53,6 +53,61 @@ func TestDurationSampleIndexSeparatesCalibrationFromNormalResourceSamples(t *tes
 	}
 }
 
+// TestDurationSampleIndexCalibrationUsesCrossInputUpperBound 验证校准规划不会在源码输入变化后退回偏小 bootstrap，
+// 而是同时参考同 workload/命令的历史上界，避免把大量不确定 workload 塞进一个分片。
+func TestDurationSampleIndexCalibrationUsesCrossInputUpperBound(t *testing.T) {
+	current := calibrationDurationWorkload("guard:calibration-cross-input", "b", 1_000)
+	historical := current
+	historical.InputDigest = "sha256:" + strings.Repeat("a", 64)
+	index := mustBuildCalibrationDurationIndex(t, []DurationSample{
+		testDurationIndexSample(current, DurationExecutionModeCalibration, "calibration", 4, 8, 9_000),
+		testDurationIndexSample(historical, DurationExecutionModeCalibration, "calibration", 4, 8, 40_000),
+	})
+	estimate, err := index.EstimateWorkloadDurationMS(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != 40_000 {
+		t.Fatalf("calibration estimate = %d, want cross-input historical upper bound 40000", estimate)
+	}
+	currentOnlyHistory := mustBuildCalibrationDurationIndex(t, []DurationSample{
+		testDurationIndexSample(historical, DurationExecutionModeCalibration, "calibration", 4, 8, 40_000),
+	})
+	if !currentOnlyHistory.HasSuccessfulCalibrationDurationEvidence(current) || currentOnlyHistory.HasComparableSuccessfulDurationSample(current) {
+		t.Fatal("cross-input history was not distinguished from an exact comparable sample")
+	}
+}
+
+// TestDurationSampleIndexCalibrationFloorsUnknownNilnessPackage 验证全新 nilness 包没有历史时仍保留单次 analyzer 冷启动预算。
+func TestDurationSampleIndexCalibrationFloorsUnknownNilnessPackage(t *testing.T) {
+	workload, err := NewGoPackageWorkload(GateIDBackendNilness, "./internal/newpkg", 625)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workload.InputDigest = "sha256:" + strings.Repeat("c", 64)
+	estimate, err := mustBuildCalibrationDurationIndex(t, nil).EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != 10_000 {
+		t.Fatalf("unknown nilness calibration estimate = %d, want 10000", estimate)
+	}
+}
+
+func calibrationDurationWorkload(id, inputSeed string, bootstrapMS int64) Workload {
+	return Workload{ID: id, Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("1", 64), InputDigest: "sha256:" + strings.Repeat(inputSeed, 64), BootstrapEstimateMS: bootstrapMS, Shardable: true}
+}
+
+func mustBuildCalibrationDurationIndex(t *testing.T, samples []DurationSample) DurationSampleIndex {
+	t.Helper()
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", Calibration: true, CalibrationResourceClassID: "calibration", CalibrationResourceCPU: 4, CalibrationResourceMemoryGiB: 8, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	index, err := BuildDurationSampleIndex(DurationLedger{Version: durationLedgerVersion, ShardOverhead: testDurationIndexOverhead(), Samples: samples}, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return index
+}
+
 func TestDurationSampleIndexNormalEstimateReclassifiesToExactResourceTier(t *testing.T) {
 	workload := Workload{
 		ID: "guard:duration-fixed-point", Kind: WorkloadKindGuard,

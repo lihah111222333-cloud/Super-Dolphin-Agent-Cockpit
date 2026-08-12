@@ -23,9 +23,9 @@ const (
 	localHostMemoryPressurePath = "/usr/bin/memory_pressure"
 	localHostTopPath            = "/usr/bin/top"
 	localHostGiB                = uint64(1024 * 1024 * 1024)
-	// localHostCPUPercentageRoundingTolerance accepts only the error introduced
-	// when Darwin top renders three independently rounded percentages.
-	localHostCPUPercentageRoundingTolerance = 0.1
+	// localHostCPUPercentageRoundingTolerance 接受 Darwin top 三项独立取样与
+	// 显示舍入造成的最多一个百分点偏差；更大偏差仍立即拒绝。
+	localHostCPUPercentageRoundingTolerance = 1.0
 )
 
 var (
@@ -214,10 +214,11 @@ func parseLocalHostCPUBusy(output string) (float64, error) {
 	if err != nil {
 		return 0, errors.New("local host CPU output contains an invalid idle value")
 	}
-	if !validLocalHostPercentage(user) || !validLocalHostPercentage(system) || !validLocalHostPercentage(idle) || math.Abs(user+system+idle-100) > localHostCPUPercentageRoundingTolerance {
+	busy := user + system
+	if !validLocalHostPercentage(user) || !validLocalHostPercentage(system) || !validLocalHostPercentage(idle) || busy > 100 || math.Abs(busy+idle-100) > localHostCPUPercentageRoundingTolerance {
 		return 0, errors.New("local host CPU output percentages are invalid")
 	}
-	return user + system, nil
+	return busy, nil
 }
 
 func exactlyOneLocalHostOutputMatch(output, prefix string, pattern *regexp.Regexp) ([]string, error) {

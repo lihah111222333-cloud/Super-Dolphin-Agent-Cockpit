@@ -15,10 +15,16 @@ import (
 // job-id chunk. It deliberately owns the batch SQL instead of calling the
 // single-origin loader used by source replay.
 func loadDirectWorkloadPassOriginBatches(tx *sql.Tx, evidence []WorkloadPassEvidence, current uint64, out map[string]workloadPassEvidenceOriginContext, stats *workloadPassEvidenceLookupStats) error {
+	return loadDirectWorkloadPassOriginBatchesWithPresence(tx, evidence, current, out, nil, stats)
+}
+
+// loadDirectWorkloadPassOriginBatchesWithPresence 同时返回仍存在的 origin run，
+// 供 authority CAS 区分合法已压缩来源与被篡改成非 direct 的活跃来源。
+func loadDirectWorkloadPassOriginBatchesWithPresence(tx *sql.Tx, evidence []WorkloadPassEvidence, current uint64, out map[string]workloadPassEvidenceOriginContext, present map[string]struct{}, stats *workloadPassEvidenceLookupStats) error {
 	ids := uniqueWorkloadPassOriginIDs(evidence)
 	for start := 0; start < len(ids); start += workloadPassEvidenceLookupBatchSize {
 		end := min(start+workloadPassEvidenceLookupBatchSize, len(ids))
-		if err := loadDirectWorkloadPassOriginBatchChunk(tx, ids[start:end], evidence, current, out, stats); err != nil {
+		if err := loadDirectWorkloadPassOriginBatchChunk(tx, ids[start:end], evidence, current, out, present, stats); err != nil {
 			return err
 		}
 	}
@@ -37,15 +43,20 @@ func uniqueWorkloadPassOriginIDs(evidence []WorkloadPassEvidence) []string {
 	return ids
 }
 
-func loadDirectWorkloadPassOriginBatchChunk(tx *sql.Tx, ids []string, evidence []WorkloadPassEvidence, current uint64, out map[string]workloadPassEvidenceOriginContext, stats *workloadPassEvidenceLookupStats) error {
+// loadDirectWorkloadPassOriginBatchChunk 装载一个 origin 分块的运行、执行、结果与回执投影。
+func loadDirectWorkloadPassOriginBatchChunk(tx *sql.Tx, ids []string, evidence []WorkloadPassEvidence, current uint64, out map[string]workloadPassEvidenceOriginContext, present map[string]struct{}, stats *workloadPassEvidenceLookupStats) error {
 	records, err := queryWorkloadPassOriginRunsBatch(tx, ids, stats)
 	if err != nil {
 		return err
 	}
+	recordWorkloadPassOriginPresence(records, present)
 	if err := queryWorkloadPassOriginExecutionsBatch(tx, ids, records, stats); err != nil {
 		return err
 	}
 	if err := queryWorkloadPassOriginResultsBatch(tx, ids, records, stats); err != nil {
+		return err
+	}
+	if err := loadCompleteProvisionalWorkloadPassOrigins(tx, ids, records, stats); err != nil {
 		return err
 	}
 	receipts, err := queryWorkloadPassOriginReceiptsBatch(tx, ids, stats)
@@ -56,15 +67,72 @@ func loadDirectWorkloadPassOriginBatchChunk(tx *sql.Tx, ids []string, evidence [
 		if !workloadPassOriginIsRequestedDirect(record, evidence) {
 			continue
 		}
-		digest, err := workloadPassOriginReceiptDigest(record, receipts[id])
+		origin, err := newWorkloadPassOriginContext(tx, record, receipts[id], current, stats)
 		if err != nil {
 			return err
 		}
-		out[id] = workloadPassEvidenceOriginContext{record: record, receiptDigest: digest, currentGeneration: current}
+		out[id] = origin
 	}
 	return nil
 }
 
+// recordWorkloadPassOriginPresence 记录仍存在的 origin run，nil 输出表示调用方不关心存在性。
+func recordWorkloadPassOriginPresence(records map[string]RemoteCIRunRecord, present map[string]struct{}) {
+	for id := range records {
+		if present != nil {
+			present[id] = struct{}{}
+		}
+	}
+}
+
+// newWorkloadPassOriginContext 绑定 receipt/projection 摘要，并为 cleaned-failure
+// 来源建立后续逐 workload 校验所需的 catalog 与 execution 索引。
+func newWorkloadPassOriginContext(tx *sql.Tx, record RemoteCIRunRecord, receipts []CheckReceiptRecord, current uint64, stats *workloadPassEvidenceLookupStats) (workloadPassEvidenceOriginContext, error) {
+	digest, err := workloadPassOriginReceiptDigest(record, receipts, stats)
+	if err != nil {
+		return workloadPassEvidenceOriginContext{}, err
+	}
+	origin := workloadPassEvidenceOriginContext{record: record, receiptDigest: digest, currentGeneration: current}
+	if err := populateProvisionalWorkloadPassEvidenceOrigin(tx, &origin); err != nil {
+		return workloadPassEvidenceOriginContext{}, err
+	}
+	return origin, nil
+}
+
+// loadCompleteProvisionalWorkloadPassOrigins 以一个固定批次补齐 cleaned-failure
+// origin 的完整 SQLite projection；摘要校验不得退回逐 origin 查询。
+func loadCompleteProvisionalWorkloadPassOrigins(tx *sql.Tx, ids []string, records map[string]RemoteCIRunRecord, stats *workloadPassEvidenceLookupStats) error {
+	provisionalIDs := provisionalWorkloadPassOriginIDs(ids, records)
+	if len(provisionalIDs) == 0 {
+		return nil
+	}
+	complete, err := loadRetainedConsumerChunk(tx, provisionalIDs, stats)
+	if err != nil {
+		return err
+	}
+	for _, id := range provisionalIDs {
+		record, ok := complete[id]
+		if !ok {
+			return errors.New("batch provisional workload PASS origin projection is incomplete")
+		}
+		records[id] = record
+	}
+	return nil
+}
+
+// provisionalWorkloadPassOriginIDs 保留输入顺序，只选择已清理完成的失败来源。
+func provisionalWorkloadPassOriginIDs(ids []string, records map[string]RemoteCIRunRecord) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		record, ok := records[id]
+		if ok && !record.Authoritative && record.CleanupComplete && remoteCIProvisionalFailureStatus(record.Status) {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// queryWorkloadPassOriginRunsBatch 批量读取 origin run 主行与 agent 身份。
 func queryWorkloadPassOriginRunsBatch(tx *sql.Tx, ids []string, stats *workloadPassEvidenceLookupStats) (map[string]RemoteCIRunRecord, error) {
 	rows, err := tx.Query(`SELECT runs.job_id, identities.agent_token_digest, runs.force, runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest, runs.accepted_generation, runs.image_cache_snapshot_id, runs.source_tree_sha, runs.candidate_gate_source_sha256, runs.candidate_gate_toolchain_sha256, runs.runner_image, runs.status, runs.authoritative, runs.started_at_unix_ms, runs.completed_at_unix_ms, runs.cleanup_complete, runs.error_text FROM ci_runs AS runs JOIN ci_run_agent_identities AS identities ON identities.job_id = runs.job_id WHERE runs.job_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+`)`, stringsToAny(ids)...)
 	if err != nil {
@@ -109,6 +177,7 @@ func scanWorkloadPassOriginRun(rows interface{ Scan(...any) error }) (RemoteCIRu
 	return record, nil
 }
 
+// parseWorkloadPassOriginRunEncoding 严格解析 origin generation 与 SQLite 布尔编码。
 func parseWorkloadPassOriginRunEncoding(generation string, force, authoritative, cleanup int) (uint64, error) {
 	value, err := strconv.ParseUint(generation, 10, 64)
 	if err != nil || value == 0 || force < 0 || force > 1 {
@@ -120,6 +189,7 @@ func parseWorkloadPassOriginRunEncoding(generation string, force, authoritative,
 	return value, nil
 }
 
+// queryWorkloadPassOriginExecutionsBatch 批量恢复 origin workload execution 投影。
 func queryWorkloadPassOriginExecutionsBatch(tx *sql.Tx, ids []string, records map[string]RemoteCIRunRecord, stats *workloadPassEvidenceLookupStats) error {
 	rows, err := tx.Query(`SELECT job_id, shard_identity, workload_id, status, exit_code, started_at_unix_ms, completed_at_unix_ms, argv_digest, log_digest, test_timings_json, execution_profile_json FROM ci_workload_executions WHERE job_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+`) ORDER BY job_id, workload_id`, stringsToAny(ids)...)
 	if err != nil {
@@ -147,6 +217,7 @@ func queryWorkloadPassOriginExecutionsBatch(tx *sql.Tx, ids []string, records ma
 	return nil
 }
 
+// scanWorkloadPassOriginExecution 解码并校验一行 origin execution。
 func scanWorkloadPassOriginExecution(rows interface{ Scan(...any) error }) (string, PlanGateExecution, error) {
 	var jobID string
 	var execution PlanGateExecution
@@ -183,6 +254,7 @@ func validateWorkloadPassOriginExecutionFlags(execution PlanGateExecution) error
 	return nil
 }
 
+// queryWorkloadPassOriginResultsBatch 批量恢复 origin workload result 投影。
 func queryWorkloadPassOriginResultsBatch(tx *sql.Tx, ids []string, records map[string]RemoteCIRunRecord, stats *workloadPassEvidenceLookupStats) error {
 	rows, err := tx.Query(`SELECT job_id, workload_id, identity_digest, execution_digest, input_digest, environment_digest, disposition, origin_job_id, origin_accepted_generation, evidence_sha256 FROM ci_run_workload_results WHERE job_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+`) ORDER BY job_id, workload_id`, stringsToAny(ids)...)
 	if err != nil {
@@ -216,6 +288,7 @@ func queryWorkloadPassOriginResultsBatch(tx *sql.Tx, ids []string, records map[s
 	return nil
 }
 
+// queryWorkloadPassOriginReceiptsBatch 批量恢复 origin check receipts。
 func queryWorkloadPassOriginReceiptsBatch(tx *sql.Tx, ids []string, stats *workloadPassEvidenceLookupStats) (map[string][]CheckReceiptRecord, error) {
 	rows, err := tx.Query(`SELECT run_id, job_id, candidate_tree_sha, agent_token_digest, accepted_generation, accepted_snapshot_id, required_check, executed, reused, reuse_proof_sha256, passed, force, started_at_unix_ms, completed_at_unix_ms, duration_ms, receipt_sha256 FROM ci_check_receipts WHERE job_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+`) ORDER BY job_id, required_check`, stringsToAny(ids)...)
 	if err != nil {
@@ -252,6 +325,7 @@ func workloadPassEvidenceMatchesOrigin(record RemoteCIRunRecord, item WorkloadPa
 	return item.OriginJobID == record.JobID && item.OriginAcceptedGeneration == record.AcceptedGeneration
 }
 
+// workloadPassOriginHasDirectResult 确认请求证据在 origin 中仍有直接 executed 结果。
 func workloadPassOriginHasDirectResult(record RemoteCIRunRecord, item WorkloadPassEvidence) bool {
 	for _, result := range record.WorkloadResults {
 		if result.Identity == item.Identity && result.Disposition == WorkloadDispositionExecuted && result.OriginJobID == record.JobID && result.EvidenceSHA256 == "" {
@@ -261,15 +335,22 @@ func workloadPassOriginHasDirectResult(record RemoteCIRunRecord, item WorkloadPa
 	return false
 }
 
-func workloadPassOriginReceiptDigest(record RemoteCIRunRecord, receipts []CheckReceiptRecord) (string, error) {
+func workloadPassOriginReceiptDigest(record RemoteCIRunRecord, receipts []CheckReceiptRecord, stats *workloadPassEvidenceLookupStats) (string, error) {
+	if !record.Authoritative && record.CleanupComplete && remoteCIProvisionalFailureStatus(record.Status) {
+		if stats != nil {
+			stats.loadedProjectionDigests++
+		}
+		return digestProvisionalWorkloadProjection(record)
+	}
+	return authoritativeWorkloadPassOriginReceiptDigest(record, receipts)
+}
+
+// authoritativeWorkloadPassOriginReceiptDigest 校验权威 origin 的完整回执集合与逐张 run 绑定。
+func authoritativeWorkloadPassOriginReceiptDigest(record RemoteCIRunRecord, receipts []CheckReceiptRecord) (string, error) {
 	if err := validateStoredWorkloadReceiptCollection(receipts); err != nil {
 		return "", err
 	}
-	if len(receipts) == 0 {
-		return "", errors.New("batch workload PASS origin receipts are empty")
-	}
-	first := receipts[0]
-	if first.JobID != record.JobID || first.AgentTokenDigest != record.AgentTokenDigest || first.Force != record.Force || first.CandidateTreeSHA != record.SourceTreeSHA || first.AcceptedGeneration != record.AcceptedGeneration || first.AcceptedSnapshotID != record.ImageCacheSnapshotID {
+	if err := validateCheckReceiptsAgainstRemoteRun(record, receipts); err != nil {
 		return "", errors.New("batch workload PASS receipt set does not bind origin")
 	}
 	return digestWorkloadReceiptSet(receipts)

@@ -25,36 +25,35 @@ type remoteGoProductionIndex struct {
 
 type remoteGoProductionCall struct {
 	directory string
+	filePath  string
 	file      *ast.File
 	decl      ast.Node
+	testRoot  bool
 }
 
-// addGoProductionRuntimeObservedEntries recursively closes runtime observations
-// made by production functions reachable from one selected test declaration.
-// It returns tree scope for unknown file paths, process, environment,
-// reflection, interface, or function-value dispatch.
-// addGoProductionRuntimeObservedEntries 递归收敛精确测试可达的生产函数运行时观察闭包。
-func (snapshot *remoteGitTreeSnapshot) addGoProductionRuntimeObservedEntries(
+// buildGoProductionRuntimeObservedEntries 计算单个声明的生产运行时观察闭包。
+func (snapshot *remoteGitTreeSnapshot) buildGoProductionRuntimeObservedEntries(
 	directory string,
 	root remoteGoTestDeclaration,
 	selected map[string]remoteGitTreeEntry,
 	profile remoteGoBuildProfile,
-) (remoteGoTestScope, error) {
+) (remoteGoTestScope, []remoteGoTestSource, error) {
 	index, err := snapshot.remoteGoProductionIndex(profile)
 	if err != nil {
-		return remoteGoTestScopeTree, err
+		return remoteGoTestScopeTree, nil, err
 	}
-	queue := []remoteGoProductionCall{{directory: directory, file: root.file, decl: root.declaration}}
+	queue := []remoteGoProductionCall{{directory: directory, filePath: root.filePath, file: root.file, decl: root.declaration, testRoot: true}}
 	packageRoots, err := snapshot.remoteGoProductionRuntimeRoots(directory, root.file, index, profile)
 	if err != nil {
-		return remoteGoTestScopeTree, err
+		return remoteGoTestScopeTree, nil, err
 	}
 	for _, packageDirectory := range packageRoots {
 		for _, initializer := range index.byPackage[packageDirectory]["\x00remote-initializer"] {
-			queue = append(queue, remoteGoProductionCall{directory: initializer.directory, file: initializer.file, decl: initializer.decl})
+			queue = append(queue, remoteGoProductionCall{directory: initializer.directory, filePath: initializer.filePath, file: initializer.file, decl: initializer.decl})
 		}
 	}
 	visited := make(map[string]struct{})
+	var sources []remoteGoTestSource
 	scope := remoteGoTestScopeSelector
 	for len(queue) > 0 {
 		call := queue[0]
@@ -64,17 +63,50 @@ func (snapshot *remoteGitTreeSnapshot) addGoProductionRuntimeObservedEntries(
 			continue
 		}
 		visited[key] = struct{}{}
+		sources, err = snapshot.appendRemoteGoProductionCallSource(sources, call, selected)
+		if err != nil {
+			return remoteGoTestScopeTree, nil, err
+		}
 		callScope, targets, err := snapshot.inspectGoProductionRuntimeCalls(call, directory, index, selected, profile)
 		if err != nil {
-			return remoteGoTestScopeTree, err
+			return remoteGoTestScopeTree, nil, err
 		}
 		scope = scope.widen(callScope)
 		if scope == remoteGoTestScopeTree {
-			return scope, nil
+			return scope, nil, nil
 		}
 		queue = append(queue, targets...)
 	}
-	return scope, nil
+	return scope, sources, nil
+}
+
+func (snapshot *remoteGitTreeSnapshot) appendRemoteGoProductionCallSource(sources []remoteGoTestSource, call remoteGoProductionCall, selected map[string]remoteGitTreeEntry) ([]remoteGoTestSource, error) {
+	if call.testRoot {
+		return sources, nil
+	}
+	source, err := snapshot.remoteGoProductionCallSource(call, selected)
+	if err != nil {
+		return nil, err
+	}
+	return append(sources, source), nil
+}
+
+// remoteGoProductionCallSource 把可达生产声明而非整包文件加入 PASS 语义，
+// 同时保留声明所属文件的 go:embed 资产绑定。
+func (snapshot *remoteGitTreeSnapshot) remoteGoProductionCallSource(call remoteGoProductionCall, selected map[string]remoteGitTreeEntry) (remoteGoTestSource, error) {
+	source, ok := snapshot.goSources[call.filePath]
+	if !ok {
+		return remoteGoTestSource{}, fmt.Errorf("remote Go production source %q is absent", call.filePath)
+	}
+	if err := snapshot.addGoEmbedEntries(path.Dir(call.filePath), source, selected); err != nil {
+		return remoteGoTestSource{}, err
+	}
+	declarationNode, ok := call.decl.(ast.Decl)
+	if !ok {
+		return remoteGoTestSource{}, fmt.Errorf("remote Go production source %q has non-declaration semantic root", call.filePath)
+	}
+	declaration := remoteGoTestDeclaration{filePath: call.filePath, source: source, file: call.file, declaration: declarationNode}
+	return remoteGoTestSource{path: call.filePath, text: remoteGoTestDeclarationText(declaration)}, nil
 }
 
 // remoteGoProductionRuntimeRoots 收集测试运行时会执行的全部本地生产包初始化根。
@@ -122,6 +154,29 @@ func (snapshot *remoteGitTreeSnapshot) remoteGoProductionRuntimeRoots(
 
 // remoteGoProductionImportedDirectories 收集一个生产包适用源码中的本地依赖目录。
 func (snapshot *remoteGitTreeSnapshot) remoteGoProductionImportedDirectories(
+	directory string,
+	index remoteGoProductionIndex,
+	profile remoteGoBuildProfile,
+) ([]string, error) {
+	key := profile.cacheKey() + ":" + directory
+	snapshot.productionImportsMu.Lock()
+	defer snapshot.productionImportsMu.Unlock()
+	if snapshot.productionImportsCache == nil {
+		snapshot.productionImportsCache = make(map[string]remoteGoProductionImportsCacheEntry)
+	}
+	if cached, ok := snapshot.productionImportsCache[key]; ok {
+		return append([]string(nil), cached.imports...), cached.err
+	}
+	snapshot.cacheMu.Lock()
+	snapshot.productionImportsComputations++
+	snapshot.cacheMu.Unlock()
+	imports, err := snapshot.buildRemoteGoProductionImportedDirectories(directory, index, profile)
+	snapshot.productionImportsCache[key] = remoteGoProductionImportsCacheEntry{imports: append([]string(nil), imports...), err: err}
+	return imports, err
+}
+
+// buildRemoteGoProductionImportedDirectories 解析单个生产包适用源码的本地导入目录。
+func (snapshot *remoteGitTreeSnapshot) buildRemoteGoProductionImportedDirectories(
 	directory string,
 	index remoteGoProductionIndex,
 	profile remoteGoBuildProfile,
@@ -184,35 +239,6 @@ func (snapshot *remoteGitTreeSnapshot) buildRemoteGoProductionIndex(profile remo
 	return index, nil
 }
 
-func addRemoteGoProductionDeclaration(
-	packageDeclarations map[string][]remoteGoProductionDeclaration,
-	directory, filePath string,
-	file *ast.File,
-	declaration ast.Decl,
-) {
-	entry := remoteGoProductionDeclaration{directory: directory, filePath: filePath, file: file, decl: declaration}
-	if remoteGoProductionInitializer(declaration) {
-		packageDeclarations["\x00remote-initializer"] = append(packageDeclarations["\x00remote-initializer"], entry)
-	}
-	function, ok := declaration.(*ast.FuncDecl)
-	if !ok || function.Name == nil {
-		return
-	}
-	entry.decl = function
-	packageDeclarations[function.Name.Name] = append(packageDeclarations[function.Name.Name], entry)
-}
-
-func remoteGoProductionInitializer(declaration ast.Decl) bool {
-	switch declaration := declaration.(type) {
-	case *ast.GenDecl:
-		return declaration.Tok == token.VAR
-	case *ast.FuncDecl:
-		return declaration.Name != nil && declaration.Name.Name == "init" && declaration.Recv == nil
-	default:
-		return false
-	}
-}
-
 // inspectGoProductionRuntimeCalls 扫描一个生产声明并返回其可达调用目标与观察范围。
 func (snapshot *remoteGitTreeSnapshot) inspectGoProductionRuntimeCalls(
 	call remoteGoProductionCall,
@@ -222,10 +248,8 @@ func (snapshot *remoteGitTreeSnapshot) inspectGoProductionRuntimeCalls(
 	profile remoteGoBuildProfile,
 ) (remoteGoTestScope, []remoteGoProductionCall, error) {
 	imports := remoteGoTestImports(call.file)
+	aliasScope := snapshot.remoteGoObservedAliasScope(call.directory, profile, false, call.decl, imports)
 	if remoteGoDotImportWholeTree(imports) {
-		return remoteGoTestScopeTree, nil, nil
-	}
-	if snapshot.remoteGoSensitiveObservedAliasInPackage(call.directory, profile, false) {
 		return remoteGoTestScopeTree, nil, nil
 	}
 	targets := make([]remoteGoProductionCall, 0)
@@ -235,22 +259,24 @@ func (snapshot *remoteGitTreeSnapshot) inspectGoProductionRuntimeCalls(
 		if visitErr != nil || scope == remoteGoTestScopeTree {
 			return false
 		}
-		if selector, ok := node.(*ast.SelectorExpr); ok && remoteGoProductionEnvironmentSelector(selector, imports) {
-			scope = remoteGoTestScopeTree
-			return false
-		}
 		expression, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
+		if aliasScope.matches(expression) {
+			scope = remoteGoTestScopeTree
+			return false
+		}
 		callScope, observedTargets, err := snapshot.inspectGoProductionCall(
 			expression,
+			call.decl,
 			call.directory,
 			targetDirectory,
 			call.file,
 			imports,
 			index,
 			selected,
+			call.testRoot,
 		)
 		if err != nil {
 			visitErr = err
@@ -261,109 +287,6 @@ func (snapshot *remoteGitTreeSnapshot) inspectGoProductionRuntimeCalls(
 		return scope != remoteGoTestScopeTree
 	})
 	return scope, targets, visitErr
-}
-
-// remoteGoProductionEnvironmentSelector 识别直接读取进程环境或标准输入的 os 变量。
-func remoteGoProductionEnvironmentSelector(selector *ast.SelectorExpr, imports map[string]string) bool {
-	identifier, ok := selector.X.(*ast.Ident)
-	if !ok || imports[identifier.Name] != "os" {
-		return false
-	}
-	switch selector.Sel.Name {
-	case "Args", "Stdin", "Stdout", "Stderr", "Environ":
-		return true
-	default:
-		return false
-	}
-}
-
-// remoteGoSensitiveObservedAliasInPackage 扫描同包文件中的敏感函数别名。
-// 别名可在 helper 文件初始化、在 target 文件调用，故必须提升到包级检查。
-func (snapshot *remoteGitTreeSnapshot) remoteGoSensitiveObservedAliasInPackage(
-	directory string,
-	profile remoteGoBuildProfile,
-	includeTests bool,
-) bool {
-	cacheKey := fmt.Sprintf("%t:%s:%s", includeTests, profile.cacheKey(), directory)
-	snapshot.cacheMu.Lock()
-	if snapshot.remoteObservedAliasCache == nil {
-		snapshot.remoteObservedAliasCache = make(map[string]bool)
-	}
-	if cached, ok := snapshot.remoteObservedAliasCache[cacheKey]; ok {
-		snapshot.cacheMu.Unlock()
-		return cached
-	}
-	snapshot.cacheMu.Unlock()
-	found := snapshot.remoteGoSensitiveObservedAliasInSources(directory, profile, includeTests)
-	snapshot.cacheMu.Lock()
-	snapshot.remoteObservedAliasCache[cacheKey] = found
-	snapshot.cacheMu.Unlock()
-	return found
-}
-
-// remoteGoSensitiveObservedAliasInSources 检查同包适用源码中的敏感别名。
-func (snapshot *remoteGitTreeSnapshot) remoteGoSensitiveObservedAliasInSources(directory string, profile remoteGoBuildProfile, includeTests bool) bool {
-	for filePath, source := range snapshot.goSources {
-		if path.Dir(filePath) != directory || path.Ext(filePath) != ".go" {
-			continue
-		}
-		if !includeTests && strings.HasSuffix(filePath, "_test.go") {
-			continue
-		}
-		if !remoteGoSourceAppliesLinuxAMD64WithProfile(filePath, source, profile) {
-			continue
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), filePath, source, 0)
-		if err != nil || remoteGoSensitiveObservedAliasInFile(file) {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteGoSensitiveObservedAliasInFile(file *ast.File) bool {
-	if file == nil {
-		return true
-	}
-	imports := remoteGoTestImports(file)
-	found := false
-	ast.Inspect(file, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		switch declaration := node.(type) {
-		case *ast.ValueSpec:
-			found = remoteGoSensitiveObservedAliasExpressions(declaration.Values, imports)
-		case *ast.AssignStmt:
-			found = remoteGoSensitiveObservedAliasExpressions(declaration.Rhs, imports)
-		}
-		return !found
-	})
-	return found
-}
-
-func remoteGoSensitiveObservedAliasExpressions(values []ast.Expr, imports map[string]string) bool {
-	for _, value := range values {
-		if remoteGoSensitiveObservedAliasExpression(value, imports) {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteGoSensitiveObservedAliasExpression(expression ast.Expr, imports map[string]string) bool {
-	if expression == nil {
-		return false
-	}
-	// A direct call such as os.ReadFile("fixture.txt") is handled by the
-	// path-aware call scanner and remains selector-scoped. The same selector
-	// used as a function value (including inside a composite literal or a
-	// parenthesized expression) has an unknown invocation/input boundary and
-	// must widen the runtime observation to the whole tree.
-	if selector, ok := expression.(*ast.SelectorExpr); ok && remoteGoSensitiveSelector(selector, imports) {
-		return true
-	}
-	return remoteGoSensitiveAliasSelectorFound(expression, imports)
 }
 
 // remoteGoSensitiveAliasSelectorFound 在复合表达式中识别非直接调用的敏感 selector。
@@ -407,11 +330,63 @@ func remoteGoSensitiveSelector(selector *ast.SelectorExpr, imports map[string]st
 	if !ok {
 		return false
 	}
-	return remoteGoWholeTreeImport(imports[packageName.Name])
+	importPath := imports[packageName.Name]
+	if importPath == "os" && remoteGoBoundEnvironmentMethod(selector.Sel.Name) {
+		return false
+	}
+	return remoteGoWholeTreeImport(importPath)
 }
 
 // inspectGoProductionCall 解析单个调用的静态读取、局部递归或 fail-safe 范围。
 func (snapshot *remoteGitTreeSnapshot) inspectGoProductionCall(
+	call *ast.CallExpr,
+	observed ast.Node,
+	callDirectory string,
+	targetDirectory string,
+	file *ast.File,
+	imports map[string]string,
+	index remoteGoProductionIndex,
+	selected map[string]remoteGitTreeEntry,
+	testRoot bool,
+) (remoteGoTestScope, []remoteGoProductionCall, error) {
+	if importPath, method, ok := remoteGoTestSelector(call, imports); ok {
+		return snapshot.inspectImportedGoProductionCall(call, callDirectory, targetDirectory, file, imports, index, selected, importPath, method, testRoot)
+	}
+	if remoteGoPureTypeConversion(call.Fun) {
+		return remoteGoTestScopeSelector, nil, nil
+	}
+	if remoteGoNamedTypeConversion(call.Fun, callDirectory, index) {
+		return remoteGoTestScopeSelector, nil, nil
+	}
+	if remoteGoImmediatelyInvokedFunctionLiteral(call.Fun) {
+		return remoteGoTestScopeSelector, nil, nil
+	}
+	if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return snapshot.localGoProductionReceiverCall(callDirectory, imports, index, selector.Sel.Name)
+	}
+	identifier, ok := remoteGoCalledIdentifier(call.Fun)
+	if !ok {
+		return remoteGoTestScopeCompileClosure, nil, nil
+	}
+	if targets, resolved := remoteGoRangeFunctionValueCalls(observed, callDirectory, index, identifier.Name); resolved {
+		return remoteGoTestScopeSelector, targets, nil
+	}
+	return inspectLocalGoProductionCall(callDirectory, index, identifier.Name, testRoot)
+}
+
+func remoteGoImmediatelyInvokedFunctionLiteral(expression ast.Expr) bool {
+	for {
+		parenthesized, ok := expression.(*ast.ParenExpr)
+		if !ok {
+			_, literal := expression.(*ast.FuncLit)
+			return literal
+		}
+		expression = parenthesized.X
+	}
+}
+
+// inspectImportedGoProductionCall 处理导入包调用并递归进入本地生产函数。
+func (snapshot *remoteGitTreeSnapshot) inspectImportedGoProductionCall(
 	call *ast.CallExpr,
 	callDirectory string,
 	targetDirectory string,
@@ -419,39 +394,17 @@ func (snapshot *remoteGitTreeSnapshot) inspectGoProductionCall(
 	imports map[string]string,
 	index remoteGoProductionIndex,
 	selected map[string]remoteGitTreeEntry,
-) (remoteGoTestScope, []remoteGoProductionCall, error) {
-	if importPath, method, ok := remoteGoTestSelector(call, imports); ok {
-		return snapshot.inspectImportedGoProductionCall(call, targetDirectory, file, imports, index, selected, importPath, method)
-	}
-	if _, ok := call.Fun.(*ast.SelectorExpr); ok {
-		// A selector not rooted at an imported package is a method/interface call.
-		return remoteGoTestScopeTree, nil, nil
-	}
-	identifier, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return remoteGoTestScopeTree, nil, nil
-	}
-	return inspectLocalGoProductionCall(callDirectory, index, identifier.Name)
-}
-
-// inspectImportedGoProductionCall 处理导入包调用并递归进入本地生产函数。
-func (snapshot *remoteGitTreeSnapshot) inspectImportedGoProductionCall(
-	call *ast.CallExpr,
-	targetDirectory string,
-	file *ast.File,
-	imports map[string]string,
-	index remoteGoProductionIndex,
-	selected map[string]remoteGitTreeEntry,
 	importPath, method string,
+	testRoot bool,
 ) (remoteGoTestScope, []remoteGoProductionCall, error) {
 	if importPath == "" {
 		if remoteGoTestingMethod(method) {
 			return remoteGoTestScopeSelector, nil, nil
 		}
-		return remoteGoTestScopeTree, nil, nil
+		return snapshot.localGoProductionReceiverCall(callDirectory, imports, index, method)
 	}
-	if remoteGoProductionWholeTreeCall(importPath, method) {
-		return remoteGoTestScopeTree, nil, nil
+	if scope, classified := remoteGoClassifiedImportedCallScope(importPath, method); classified {
+		return scope, nil, nil
 	}
 	kind, staticPath, dynamic := remoteGoTestObservation(call, file, imports)
 	if kind != "" {
@@ -465,17 +418,68 @@ func (snapshot *remoteGitTreeSnapshot) inspectImportedGoProductionCall(
 	}
 	localDirectory, local := snapshot.resolveLocalGoImport(importPath)
 	if !local {
-		return remoteGoNonLocalProductionScope(importPath), nil, nil
+		return remoteGoTestRootNonLocalScope(importPath, testRoot), nil, nil
 	}
 	declarations := index.byPackage[localDirectory][method]
 	if len(declarations) == 0 {
-		return remoteGoTestScopeTree, nil, nil
+		return remoteGoMissingImportedProductionCallScope(call.Fun), nil, nil
 	}
 	targets := make([]remoteGoProductionCall, 0, len(declarations))
 	for _, declaration := range declarations {
-		targets = append(targets, remoteGoProductionCall{directory: localDirectory, file: declaration.file, decl: declaration.decl})
+		targets = append(targets, remoteGoProductionCall{directory: localDirectory, filePath: declaration.filePath, file: declaration.file, decl: declaration.decl})
 	}
 	return remoteGoTestScopeSelector, targets, nil
+}
+
+func remoteGoClassifiedImportedCallScope(importPath, method string) (remoteGoTestScope, bool) {
+	if remoteGoAuditedPureExternalCall(importPath, method) {
+		return remoteGoTestScopeSelector, true
+	}
+	if remoteGoProductionWholeTreeCall(importPath, method) {
+		return remoteGoTestScopeTree, true
+	}
+	if remoteGoDeclarativeExternalCall(importPath, method) {
+		return remoteGoTestScopeSelector, true
+	}
+	return remoteGoTestScopeSelector, false
+}
+
+// remoteGoAuditedPureExternalCall 只放行不读取候选源码树的纯标准库反射查询。
+// 动态反射入口仍由 remoteGoProductionWholeTreeCall 绑定整树。
+func remoteGoAuditedPureExternalCall(importPath, method string) bool {
+	if importPath != "reflect" {
+		return false
+	}
+	switch method {
+	case "DeepEqual", "TypeFor", "TypeOf":
+		return true
+	default:
+		return false
+	}
+}
+
+// remoteGoDeclarativeExternalCall 仅允许构造 Fx option 的纯声明调用保持 selector 范围。
+// fx.New 等会真正执行 option/constructor 的入口不在此白名单，仍然 fail-closed。
+func remoteGoDeclarativeExternalCall(importPath, method string) bool {
+	if importPath == "github.com/google/uuid" && method == "NewString" {
+		return true
+	}
+	if importPath != "go.uber.org/fx" {
+		return false
+	}
+	switch method {
+	case "Annotate", "As", "Decorate", "Error", "Invoke", "Module", "Options", "ParamTags", "Populate", "Private", "Provide", "Replace", "ResultTags", "Self", "Supply", "WithLogger":
+		return true
+	default:
+		return false
+	}
+}
+
+func remoteGoTestRootNonLocalScope(importPath string, testRoot bool) remoteGoTestScope {
+	if testRoot {
+		return remoteGoTestScopeSelector
+	}
+	return remoteGoNonLocalProductionScope(importPath)
 }
 
 // inspectLocalGoProductionCall 解析同包函数调用或无法证明的函数值调用。
@@ -483,19 +487,34 @@ func inspectLocalGoProductionCall(
 	directory string,
 	index remoteGoProductionIndex,
 	name string,
+	testRoot bool,
 ) (remoteGoTestScope, []remoteGoProductionCall, error) {
 	if remoteGoBuiltinCall(name) {
 		return remoteGoTestScopeSelector, nil, nil
 	}
 	declarations := index.byPackage[directory][name]
 	if len(declarations) == 0 {
-		return remoteGoTestScopeTree, nil, nil
+		if testRoot {
+			return remoteGoTestScopeSelector, nil, nil
+		}
+		return remoteGoTestScopeCompileClosure, nil, nil
 	}
 	targets := make([]remoteGoProductionCall, 0, len(declarations))
 	for _, declaration := range declarations {
-		targets = append(targets, remoteGoProductionCall{directory: directory, file: declaration.file, decl: declaration.decl})
+		targets = append(targets, remoteGoProductionCall{directory: directory, filePath: declaration.filePath, file: declaration.file, decl: declaration.decl})
 	}
 	return remoteGoTestScopeSelector, targets, nil
+}
+
+func remoteGoPureTypeConversion(expression ast.Expr) bool {
+	switch expression := expression.(type) {
+	case *ast.ArrayType, *ast.ChanType, *ast.FuncType, *ast.InterfaceType, *ast.MapType, *ast.StarExpr, *ast.StructType:
+		return true
+	case *ast.ParenExpr:
+		return remoteGoPureTypeConversion(expression.X)
+	default:
+		return false
+	}
 }
 
 // remoteGoTestingMethod 识别测试句柄方法，避免把测试框架日志误判为动态输入。
@@ -550,7 +569,16 @@ func remoteGoDotImportWholeTree(imports map[string]string) bool {
 
 func remoteGoWholeTreeOSMethod(method string) bool {
 	switch method {
-	case "Chdir", "Getenv", "LookupEnv", "Environ", "ExpandEnv", "Getwd", "Executable", "UserHomeDir", "Hostname", "StartProcess", "Args":
+	case "Chdir", "Getwd", "Executable", "UserHomeDir", "Hostname", "StartProcess":
+		return true
+	default:
+		return false
+	}
+}
+
+func remoteGoBoundEnvironmentMethod(method string) bool {
+	switch method {
+	case "Environ", "ExpandEnv", "Getenv", "LookupEnv":
 		return true
 	default:
 		return false
@@ -561,6 +589,8 @@ func remoteGoWholeTreeOSMethod(method string) bool {
 func remoteGoBuiltinCall(name string) bool {
 	switch name {
 	case "append", "cap", "clear", "close", "complex", "copy", "delete", "imag", "len", "make", "max", "min", "new", "panic", "print", "println", "real", "recover":
+		return true
+	case "bool", "byte", "complex64", "complex128", "float32", "float64", "int", "int8", "int16", "int32", "int64", "rune", "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
 		return true
 	default:
 		return false
@@ -574,6 +604,9 @@ func (snapshot *remoteGitTreeSnapshot) addGoProductionStaticObservation(
 ) error {
 	observedPath, ok := remoteGoTestRelativePath(directory, staticPath)
 	if !ok {
+		if remoteGoBoundRuntimeAbsoluteObservation(staticPath) {
+			return nil
+		}
 		return fmt.Errorf("production runtime observation path %q escapes canonical worker source", staticPath)
 	}
 	if kind != "tree" && kind != "glob" {
@@ -582,6 +615,16 @@ func (snapshot *remoteGitTreeSnapshot) addGoProductionStaticObservation(
 		}
 	}
 	return snapshot.addRemoteGitObservedPath(kind, observedPath, selected)
+}
+
+// remoteGoBoundRuntimeAbsoluteObservation 识别由固定 runner 环境约束、而非候选树拥有的内核观察。
+func remoteGoBoundRuntimeAbsoluteObservation(staticPath string) bool {
+	switch staticPath {
+	case "/proc/self/mountinfo", "/proc/sys/kernel/random/boot_id":
+		return true
+	default:
+		return false
+	}
 }
 
 // addGoTestFileObservedEntriesScoped 收集选中 Go 测试声明的保守运行时观察。
@@ -593,10 +636,8 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntriesScoped(
 	profile remoteGoBuildProfile,
 ) (remoteGoTestScope, error) {
 	imports := remoteGoTestImports(file)
+	aliasScope := snapshot.remoteGoObservedAliasScope(directory, profile, true, observed, imports)
 	if remoteGoDotImportWholeTree(imports) {
-		return remoteGoTestScopeTree, nil
-	}
-	if snapshot.remoteGoSensitiveObservedAliasInPackage(directory, profile, true) {
 		return remoteGoTestScopeTree, nil
 	}
 	scope := remoteGoTestScopeSelector
@@ -605,15 +646,11 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntriesScoped(
 		if visitErr != nil {
 			return false
 		}
-		if selector, ok := node.(*ast.SelectorExpr); ok && remoteGoProductionEnvironmentSelector(selector, imports) {
-			scope = remoteGoTestScopeTree
-			return false
-		}
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		scope, visitErr = snapshot.addGoTestObservedCall(directory, file, call, imports, selected, scope)
+		scope, visitErr = snapshot.addGoTestObservedCall(directory, file, call, imports, selected, aliasScope, scope)
 		return visitErr == nil
 	})
 	return scope, visitErr
@@ -626,8 +663,12 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestObservedCall(
 	call *ast.CallExpr,
 	imports map[string]string,
 	selected map[string]remoteGitTreeEntry,
+	aliasScope remoteGoObservedAliasCallScope,
 	currentScope remoteGoTestScope,
 ) (remoteGoTestScope, error) {
+	if aliasScope.matches(call) {
+		return remoteGoTestScopeTree, nil
+	}
 	kind, observedPath, callScope := remoteGoTestObservationScoped(directory, call, file, imports)
 	currentScope = currentScope.widen(callScope)
 	if kind == "" || currentScope == remoteGoTestScopeTree || observedPath == "" {
@@ -756,84 +797,4 @@ func remoteGoTestStaticObservationValue(
 		}
 	}
 	return remoteGoTestObservationKind(method), value, false
-}
-
-func remoteGoTestSelector(call *ast.CallExpr, imports map[string]string) (string, string, bool) {
-	selector, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return "", "", false
-	}
-	packageName, ok := selector.X.(*ast.Ident)
-	if !ok {
-		return "", "", false
-	}
-	return imports[packageName.Name], selector.Sel.Name, true
-}
-
-// remoteGoTestProcessOrCWDObservation 判断会逃逸静态文件闭包的进程或工作目录调用。
-func remoteGoTestProcessOrCWDObservation(importPath, method string) bool {
-	switch importPath {
-	case "os/exec", "syscall", "golang.org/x/sys/unix":
-		return true
-	case "os":
-		return remoteGoWholeTreeOSMethod(method)
-	default:
-		return false
-	}
-}
-
-// remoteGoTestObservationAlias 识别被赋值为受观察函数的包级或函数级别名。
-func remoteGoTestObservationAlias(call *ast.CallExpr, file *ast.File, imports map[string]string) bool {
-	identifier, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return false
-	}
-	matched := false
-	ast.Inspect(file, func(node ast.Node) bool {
-		if matched {
-			return false
-		}
-		switch value := node.(type) {
-		case *ast.ValueSpec:
-			matched = remoteGoTestObservationAliasValueSpec(identifier.Name, value, imports)
-		case *ast.AssignStmt:
-			matched = remoteGoTestObservationAliasValue(identifier.Name, value.Lhs, value.Rhs, imports)
-		}
-		return !matched
-	})
-	return matched
-}
-
-// remoteGoTestObservationAliasValueSpec 将变量声明统一为表达式列表后判断函数别名。
-func remoteGoTestObservationAliasValueSpec(name string, value *ast.ValueSpec, imports map[string]string) bool {
-	names := make([]ast.Expr, len(value.Names))
-	for index, identifier := range value.Names {
-		names[index] = identifier
-	}
-	return remoteGoTestObservationAliasValue(name, names, value.Values, imports)
-}
-
-// remoteGoTestObservationAliasValue 判断同位置变量是否接收受观察的函数值。
-func remoteGoTestObservationAliasValue(name string, names, values []ast.Expr, imports map[string]string) bool {
-	if len(names) != len(values) {
-		return false
-	}
-	for index, candidate := range names {
-		identifier, ok := candidate.(*ast.Ident)
-		if !ok || identifier.Name != name {
-			continue
-		}
-		selector, ok := values[index].(*ast.SelectorExpr)
-		if !ok {
-			return false
-		}
-		packageName, ok := selector.X.(*ast.Ident)
-		if !ok {
-			return false
-		}
-		importPath := imports[packageName.Name]
-		_, observesPath := remoteGoTestObservationPathIndex(importPath, selector.Sel.Name)
-		return observesPath || remoteGoTestProcessOrCWDObservation(importPath, selector.Sel.Name)
-	}
-	return false
 }

@@ -656,6 +656,17 @@ func TestResolveRemoteScenarioRequiresExplicitScenario(t *testing.T) {
 	}
 }
 
+func TestResolveRemoteScenarioAcceptsGateWorkloadTestSelection(t *testing.T) {
+	options := remoteRunOptions{Scenario: "test", GateWorkloadIDs: []string{"backend:test_with_guard"}}
+	scenario, profile, err := resolveRemoteScenario(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scenario != "test" || profile != gatecontract.ProfileLocalFast {
+		t.Fatalf("resolved gate-workload test scenario = %q, %q", scenario, profile)
+	}
+}
+
 func TestSelectRemoteTestsRequiresExactInventoryTargets(t *testing.T) {
 	inventory := gatecontract.WorkloadInventory{
 		GoPackages:        []string{"./internal/module/skill"},

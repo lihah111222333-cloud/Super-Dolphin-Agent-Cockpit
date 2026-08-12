@@ -127,7 +127,7 @@ func TestAIMaintenanceExecutorRunsPinnedActionlintInsideContainer(t *testing.T) 
 
 func TestProjectMapExecutorUsesTrustedCLIWithoutRepositoryGenerator(t *testing.T) {
 	program := testExecutorPrograms()[GateIDProjectMapCheck]
-	want := []string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-index"}
+	want := []string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-head"}
 	if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, want) {
 		t.Fatalf("project map executor steps = %#v, want trusted compiled CLI check", program.Steps)
 	}

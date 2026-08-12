@@ -14,6 +14,7 @@ func TestCoordinatorRunReusesCalibrationWorkloadPassesWithoutRemoteSideEffects(t
 	reloadRemotePlanningSnapshot(t, &input)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
+	seedCalibrationDurationIndex(t, &input, mustCoordinatorCatalog(t, input))
 	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	store := &coordinatorStore{}
@@ -60,6 +61,7 @@ func seedReleaseCalibrationPasses(t *testing.T, input RunInput) {
 
 func runReleaseCalibrationAllHit(t *testing.T, input RunInput) (RunResult, *coordinatorStore, *coordinatorRuntime) {
 	t.Helper()
+	seedCalibrationDurationIndex(t, &input, mustCoordinatorCatalog(t, input))
 	clearCoordinatorAllHitExecutionIdentity(&input)
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
@@ -100,6 +102,7 @@ func TestCoordinatorRunReusesCalibrationPassesAcrossProfilesWithCanonicalTimeout
 		Commit: &gate.CommitSource{SHA: releaseInput.Commit}, SourceTreeSHA: releaseInput.Tree,
 	}
 	releaseCatalog := mustCoordinatorCatalog(t, releaseInput)
+	seedCalibrationDurationIndex(t, &releaseInput, releaseCatalog)
 	seedIDs := make(map[string]struct{})
 	for _, workload := range remoteShardableWorkloads(seedCatalog) {
 		seedIDs[workload.ID] = struct{}{}
@@ -165,6 +168,7 @@ func TestCoordinatorRunExecutesOnlyCalibrationWorkloadPassMisses(t *testing.T) {
 	reloadRemotePlanningSnapshot(t, &input)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, func(index int) bool { return index%2 == 0 })
+	seedCalibrationDurationIndex(t, &input, mustCoordinatorCatalog(t, input))
 
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
@@ -172,4 +176,58 @@ func TestCoordinatorRunExecutesOnlyCalibrationWorkloadPassMisses(t *testing.T) {
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456d", nil }
 	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertCoordinatorPartialReuse(t, result, err, runtime)
+}
+
+// TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples 锁定校准
+// 复用还需独立 duration 证据，缺一项时只能重跑该项而不能扩大为整批 MISS。
+func TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples(t *testing.T) {
+	_, input := coordinatorReuseFixture(t)
+	input.Calibration = true
+	input.CalibrationResource = testRemoteResourcePolicy().CalibrationResource
+	catalog := mustCoordinatorCatalog(t, input)
+	workloads := remoteShardableWorkloads(catalog)
+	if len(workloads) < 2 {
+		t.Fatal("calibration fixture requires two shardable workloads")
+	}
+	input.LedgerSnapshot.Ledger.Samples = []gate.DurationSample{calibrationDurationSample(input, workloads[0])}
+	index, err := gate.BuildDurationSampleIndex(input.LedgerSnapshot.Ledger, remotePlanningContext(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.LedgerSnapshot.SampleIndex = &index
+	reused := map[string]gate.WorkloadPassEvidence{workloads[0].ID: {}, workloads[1].ID: {}}
+	demoted, err := demoteCalibrationReuseWithoutDuration(input, catalog, reused, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if demoted != 1 || len(reused) != 1 {
+		t.Fatalf("calibration duration demotion = %d reused=%d, want 1/1", demoted, len(reused))
+	}
+	if _, kept := reused[workloads[0].ID]; !kept {
+		t.Fatalf("calibration demoted workload with comparable sample %q", workloads[0].ID)
+	}
+}
+
+func calibrationDurationSample(input RunInput, workload gate.Workload) gate.DurationSample {
+	resource := input.CalibrationResource
+	return gate.DurationSample{Bucket: gate.DurationBucket{
+		WorkloadID: workload.ID, CommandDigest: workload.CommandDigest, InputDigest: workload.InputDigest,
+		Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest,
+		ExecutionMode: gate.DurationExecutionModeCalibration, ResourceClassID: resource.ID,
+		ResourceCPU: float64(resource.VCPU), ResourceMemoryGiB: float64(resource.MemoryGiB),
+	}, Succeeded: true, DurationMS: 1_000}
+}
+
+func seedCalibrationDurationIndex(t *testing.T, input *RunInput, catalog gate.WorkloadCatalog) {
+	t.Helper()
+	samples := make([]gate.DurationSample, 0)
+	for _, workload := range remoteShardableWorkloads(catalog) {
+		samples = append(samples, calibrationDurationSample(*input, workload))
+	}
+	input.LedgerSnapshot.Ledger.Samples = samples
+	index, err := gate.BuildDurationSampleIndex(input.LedgerSnapshot.Ledger, remotePlanningContext(*input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.LedgerSnapshot.SampleIndex = &index
 }

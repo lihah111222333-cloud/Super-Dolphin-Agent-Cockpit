@@ -125,6 +125,31 @@ func TestLocalExecutorSandboxDeniesNetworkAndDependencyWrites(t *testing.T) {
 	}
 }
 
+func TestLocalExecutorSandboxAllowsExactCloneObjectAlternatesReadOnly(t *testing.T) {
+	fixture := newLocalSandboxTestFixture(t)
+	objectRoot := filepath.Join(canonicalLocalSandboxTempDir(t), "objects")
+	if err := os.MkdirAll(filepath.Join(objectRoot, "info"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alternates := filepath.Join(fixture.source, ".git", "objects", "info", "alternates")
+	if err := os.MkdirAll(filepath.Dir(alternates), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(alternates, []byte(objectRoot+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	profile, err := localSandboxProfile(fixture.source, fixture.layout, LocalExecutorDependencyInputs{}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(profile, "(allow file-read* (subpath "+localSandboxString(objectRoot)+"))") {
+		t.Fatalf("sandbox profile does not allow exact-clone object root: %q", profile)
+	}
+	if strings.Contains(profile, "(allow file-write* (subpath "+localSandboxString(objectRoot)+"))") {
+		t.Fatalf("sandbox profile grants exact-clone object root write: %q", profile)
+	}
+}
+
 func TestLocalExecutorSandboxCanonicalizesExistingAliasRoots(t *testing.T) {
 	rawRoot := t.TempDir()
 	source := filepath.Join(rawRoot, "source")

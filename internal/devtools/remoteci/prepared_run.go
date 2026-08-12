@@ -116,6 +116,7 @@ func (coordinator *Coordinator) freezePreparedRun(
 	}
 	prepared.frozenDigest = frozenDigest
 	coordinator.progress.setCacheCounts(len(reuse.reused), len(reuse.cacheMisses), len(reuse.reused))
+	coordinator.progress.observeReuseDecision(reuse.diagnostic())
 	coordinator.progress.phase(ProgressPhasePrepare, "completed")
 	return prepared, nil
 }
@@ -137,7 +138,7 @@ func prepareRemoteWorkloadIdentity(
 	}
 	workerExecutionSemanticDigest, err := fingerprintSnapshot.workerExecutionDigest(ctx)
 	if err != nil {
-		return RunInput{}, gate.WorkloadCatalog{}, "", nil, fmt.Errorf("derive remote worker execution semantic digest: %w", err)
+		return RunInput{}, gate.WorkloadCatalog{}, "", nil, fmt.Errorf("derive remote worker execution semantic digest (%s): %w", fingerprintSnapshot.workerExecutionSourceDiagnostic(), err)
 	}
 	input.WorkerExecutionSemanticDigest = workerExecutionSemanticDigest
 	catalog, err = bindRemoteWorkloadInputDigests(catalog, inputDigests)
@@ -176,8 +177,7 @@ func (prepared *PreparedRun) WorkloadReuseDecision() ([]gate.WorkloadPassIdentit
 	return identities, misses
 }
 
-// RemoteExecutionScope returns the frozen execution scope and excluded catalog
-// entries. Both values are safe for callers to retain or modify independently.
+// RemoteExecutionScope 返回冻结执行范围与排除项副本，并在身份漂移时立即拒绝。
 func (prepared *PreparedRun) RemoteExecutionScope() (gate.RemoteCIExecutionScope, []gate.GateID, error) {
 	if prepared == nil {
 		return gate.RemoteCIExecutionScope{}, nil, errors.New("prepared remote CI run is required")
@@ -514,6 +514,7 @@ func (prepared *PreparedRun) validateFrozenLocked() error {
 	return nil
 }
 
+// frozenIdentityDigest 计算 Prepare 冻结载荷的唯一摘要，禁止执行前字段漂移。
 func (prepared *PreparedRun) frozenIdentityDigest() (string, error) {
 	input := prepared.input
 	input.LedgerSnapshot = gate.DurationLedgerSnapshot{}
@@ -526,21 +527,23 @@ func (prepared *PreparedRun) frozenIdentityDigest() (string, error) {
 		return "", fmt.Errorf("digest prepared remote CI execution scope: %w", err)
 	}
 	payload, err := json.Marshal(struct {
-		Input              RunInput                    `json:"input"`
-		Plan               gate.GatePlan               `json:"plan"`
-		Catalog            gate.WorkloadCatalog        `json:"catalog"`
-		CatalogDigest      string                      `json:"catalog_digest"`
-		Entrypoint         gate.CIEntrypoint           `json:"entrypoint"`
-		ScopeDigest        string                      `json:"scope_digest"`
-		Excluded           []gate.GateID               `json:"excluded"`
-		ReuseIdentities    []gate.WorkloadPassIdentity `json:"reuse_identities"`
-		ReusedWorkloads    []gate.WorkloadPassEvidence `json:"reused_workloads"`
-		CacheMissWorkloads []gate.GateID               `json:"cache_miss_workloads"`
+		Input                     RunInput                      `json:"input"`
+		Plan                      gate.GatePlan                 `json:"plan"`
+		Catalog                   gate.WorkloadCatalog          `json:"catalog"`
+		CatalogDigest             string                        `json:"catalog_digest"`
+		Entrypoint                gate.CIEntrypoint             `json:"entrypoint"`
+		ScopeDigest               string                        `json:"scope_digest"`
+		Excluded                  []gate.GateID                 `json:"excluded"`
+		ReuseIdentities           []gate.WorkloadPassIdentity   `json:"reuse_identities"`
+		ReusedWorkloads           []gate.WorkloadPassEvidence   `json:"reused_workloads"`
+		ReexecutedWorkloadResults []gate.RemoteCIWorkloadResult `json:"reexecuted_workload_results"`
+		CacheMissWorkloads        []gate.GateID                 `json:"cache_miss_workloads"`
 	}{
 		Input: input, Plan: prepared.plan, Catalog: prepared.catalog, CatalogDigest: prepared.catalogDigest,
 		Entrypoint: prepared.entrypoint, ScopeDigest: scopeDigest,
 		Excluded: prepared.excluded, ReuseIdentities: prepared.reuse.identities,
-		ReusedWorkloads: prepared.reuse.reusedWorkloads, CacheMissWorkloads: prepared.reuse.cacheMisses,
+		ReusedWorkloads: prepared.reuse.reusedWorkloads, ReexecutedWorkloadResults: prepared.reuse.reexecutedWorkloadResults,
+		CacheMissWorkloads: prepared.reuse.cacheMisses,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode prepared remote CI identity: %w", err)

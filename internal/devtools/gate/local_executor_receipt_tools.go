@@ -100,6 +100,9 @@ func discoverLocalReceiptTools(ctx context.Context, programs map[GateID]Executor
 // localReceiptToolNames 从程序步骤和显式要求汇总需绑定的工具名称。
 func localReceiptToolNames(programs map[GateID]ExecutorProgram) map[string]struct{} {
 	commands := map[string]struct{}{"git": {}, "go": {}}
+	if _, projectMap := programs[GateIDProjectMapCheck]; projectMap {
+		commands["node"] = struct{}{}
+	}
 	for _, program := range programs {
 		for _, step := range program.Steps {
 			if len(step.Argv) > 0 && filepath.Base(step.Argv[0]) == step.Argv[0] {
@@ -246,11 +249,16 @@ func findTrustedReceiptTool(name string) (string, error) {
 
 // resolveReceiptToolPath 规范化工具路径，并拒绝临时、可写或目录边界外的候选。
 func resolveReceiptToolPath(path string) (string, error) {
+	requested, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	requested = filepath.Clean(requested)
 	resolved, err := canonicalReceiptToolPath(path)
 	if err != nil {
 		return "", err
 	}
-	trusted, err := isTrustedReceiptToolPath(resolved)
+	trusted, err := isTrustedReceiptToolPath(requested, resolved)
 	if err != nil {
 		return "", err
 	}
@@ -286,13 +294,13 @@ func canonicalReceiptToolPath(path string) (string, error) {
 	return resolved, nil
 }
 
-func isTrustedReceiptToolPath(resolved string) (bool, error) {
+func isTrustedReceiptToolPath(requested, resolved string) (bool, error) {
 	directories, err := trustedReceiptToolDirectories()
 	if err != nil {
 		return false, err
 	}
 	for _, root := range directories {
-		if pathContains(root, resolved) {
+		if pathContains(root, requested) || pathContains(root, resolved) {
 			return true, nil
 		}
 	}

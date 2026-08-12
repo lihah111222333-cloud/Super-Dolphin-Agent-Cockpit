@@ -10,7 +10,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-// TestExactGoTestDigestIncludesUnselectedPackageTestCompileInputs 验证精确运行仍绑定整个同包测试编译输入。
+// TestExactGoTestDigestIncludesUnselectedPackageTestCompileInputs 验证同包全部
+// 测试编译输入都进入 selector 身份，避免复用已不对应当前测试二进制的 PASS。
 func TestExactGoTestDigestIncludesUnselectedPackageTestCompileInputs(t *testing.T) {
 	baseline := testExactGoTestDigestSnapshot("")
 	variants := map[string]string{
@@ -29,11 +30,28 @@ func TestExactGoTestDigestIncludesUnselectedPackageTestCompileInputs(t *testing.
 				t.Run(name, func(t *testing.T) {
 					got := testExactGoTestDigest(t, testExactGoTestDigestSnapshot(declaration), target)
 					if got == want {
-						t.Fatalf("%s digest did not include the unselected package test compile input", target.Name)
+						t.Fatalf("%s digest omitted unselected package test compile input", target.Name)
 					}
 				})
 			}
 		})
+	}
+}
+
+func TestExactGoTestSemanticDigestCrossChecksBroadCompileMiss(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	baseline := testExactGoTestDigestSnapshot("")
+	siblingChanged := testExactGoTestDigestSnapshot("const siblingCompileMarker = 1\n")
+	if testExactGoTestDigest(t, baseline, target) == testExactGoTestDigest(t, siblingChanged, target) {
+		t.Fatal("broad digest did not observe sibling compile input")
+	}
+	if testExactGoTestSemanticDigest(t, baseline, target) != testExactGoTestSemanticDigest(t, siblingChanged, target) {
+		t.Fatal("sibling-only compile change widened selector semantic digest")
+	}
+	selectedChanged := testExactGoTestDigestSnapshot("")
+	testExactGoTestDigestReplaceFile(selectedChanged, "fixture/target_test.go", []byte("package fixture\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { t.Log(\"changed\") }\nfunc BenchmarkX(b *testing.B) {}\n"))
+	if testExactGoTestSemanticDigest(t, baseline, target) == testExactGoTestSemanticDigest(t, selectedChanged, target) {
+		t.Fatal("selected test change was omitted from semantic digest")
 	}
 }
 
@@ -744,6 +762,15 @@ func testExactGoTestDigestRaceWorkloadProfiles(t *testing.T, baseline, changed *
 // testExactGoTestDigest 计算测试夹具的精确测试或基准输入摘要。
 func testExactGoTestDigest(t *testing.T, snapshot *remoteGitTreeSnapshot, target gate.GoTestTarget) string {
 	return testExactGoTestDigestWithProfile(t, snapshot, target, remoteGoBuildProfile{})
+}
+
+func testExactGoTestSemanticDigest(t *testing.T, snapshot *remoteGitTreeSnapshot, target gate.GoTestTarget) string {
+	t.Helper()
+	digest, err := snapshot.goExactTestSemanticInputDigest(context.Background(), target, remoteGoBuildProfile{})
+	if err != nil {
+		t.Fatalf("goExactTestSemanticInputDigest(%s): %v", target.Name, err)
+	}
+	return digest
 }
 
 // testGoPackageDigest 计算测试夹具的整包输入摘要。

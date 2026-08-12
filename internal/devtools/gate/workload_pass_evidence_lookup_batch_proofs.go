@@ -28,8 +28,8 @@ func loadRetainedWorkloadPassProofBatches(tx *sql.Tx, evidence []WorkloadPassEvi
 	return validateRetainedBatchConsumers(tx, out, stats)
 }
 
-// validateRetainedBatchConsumers validates the independent consumer aggregate
-// after the proof rows have been selected. A proof is never a second authority.
+// validateRetainedBatchConsumers 在选择 proof 后验证独立 consumer 聚合；
+// proof 不能成为第二权威来源，任一 consumer 漂移都立即失败。
 func validateRetainedBatchConsumers(tx *sql.Tx, proofs map[string]retainedWorkloadPassProofRow, stats *workloadPassEvidenceLookupStats) error {
 	consumerIDs := make([]string, 0, len(proofs))
 	seen := make(map[string]struct{}, len(proofs))
@@ -52,10 +52,12 @@ func validateRetainedBatchConsumers(tx *sql.Tx, proofs map[string]retainedWorklo
 	return nil
 }
 
+// loadRetainedWorkloadPassProofBatchChunk 批量读取一组来源身份的 retained proof，
+// 并拒绝缺 consumer/result、非法代数或重复来源身份。
 func loadRetainedWorkloadPassProofBatchChunk(tx *sql.Tx, identities []string, retained [3]string, current uint64, out map[string]retainedWorkloadPassProofRow, stats *workloadPassEvidenceLookupStats) error {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(identities)), ",")
 	args := append(stringsToAny(identities), retained[0], retained[1], retained[2])
-	rows, err := tx.Query(`SELECT proof.consumer_job_id, COALESCE(consumer.accepted_generation, ''), COALESCE(result.workload_id, ''), COALESCE(result.identity_digest, ''), COALESCE(result.execution_digest, ''), COALESCE(result.input_digest, ''), COALESCE(result.environment_digest, ''), COALESCE(result.disposition, ''), COALESCE(result.origin_job_id, ''), COALESCE(result.origin_accepted_generation, ''), COALESCE(result.evidence_sha256, ''), proof.origin_job_id, proof.origin_accepted_generation, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256, proof.origin_execution_json, proof.evidence_sha256 FROM ci_retained_workload_pass_proofs AS proof LEFT JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id LEFT JOIN ci_run_workload_results AS result ON result.job_id = proof.consumer_job_id AND result.workload_id = proof.workload_id WHERE proof.identity_digest IN (`+placeholders+`) AND (consumer.accepted_generation IN (?, ?, ?) OR consumer.job_id IS NULL) ORDER BY proof.identity_digest, consumer.accepted_generation DESC`, args...)
+	rows, err := tx.Query(`SELECT proof.consumer_job_id, COALESCE(consumer.accepted_generation, ''), COALESCE(result.workload_id, ''), COALESCE(result.identity_digest, ''), COALESCE(result.execution_digest, ''), COALESCE(result.input_digest, ''), COALESCE(result.environment_digest, ''), COALESCE(result.disposition, ''), COALESCE(result.origin_job_id, ''), COALESCE(result.origin_accepted_generation, ''), COALESCE(result.evidence_sha256, ''), proof.identity_digest, proof.origin_job_id, proof.origin_accepted_generation, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256, proof.origin_execution_json, proof.evidence_sha256 FROM ci_retained_workload_pass_proofs AS proof LEFT JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id LEFT JOIN ci_run_workload_results AS result ON result.job_id = proof.consumer_job_id AND result.workload_id = proof.workload_id WHERE proof.identity_digest IN (`+placeholders+`) AND (consumer.accepted_generation IN (?, ?, ?) OR consumer.job_id IS NULL) AND (consumer.authoritative = 1 OR EXISTS (SELECT 1 FROM ci_check_receipts AS receipt WHERE receipt.job_id = proof.consumer_job_id)) ORDER BY proof.identity_digest, consumer.accepted_generation DESC`, args...)
 	if err != nil {
 		return mapDurationLedgerSQLiteError("batch load retained workload PASS proofs", err)
 	}
@@ -65,10 +67,10 @@ func loadRetainedWorkloadPassProofBatchChunk(tx *sql.Tx, identities []string, re
 	}
 	for rows.Next() {
 		var row retainedWorkloadPassProofRow
-		if err := rows.Scan(&row.consumerID, &row.consumerGeneration, &row.workloadID, &row.identityDigest, &row.executionDigest, &row.inputDigest, &row.environmentDigest, &row.disposition, &row.originID, &row.originGeneration, &row.resultDigest, &row.proofOriginID, &row.proofOriginGeneration, &row.sourceTreeSHA, &row.receiptSHA, &row.executionJSON, &row.proofDigest); err != nil {
+		if err := rows.Scan(&row.consumerID, &row.consumerGeneration, &row.workloadID, &row.identityDigest, &row.executionDigest, &row.inputDigest, &row.environmentDigest, &row.disposition, &row.originID, &row.originGeneration, &row.resultDigest, &row.proofIdentityDigest, &row.proofOriginID, &row.proofOriginGeneration, &row.sourceTreeSHA, &row.receiptSHA, &row.executionJSON, &row.proofDigest); err != nil {
 			return mapDurationLedgerSQLiteError("scan batch retained workload PASS proof", err)
 		}
-		if _, already := out[row.identityDigest]; already {
+		if _, already := out[row.proofIdentityDigest]; already {
 			continue
 		}
 		if err := row.validateConsumerGeneration(current); err != nil {
@@ -77,7 +79,7 @@ func loadRetainedWorkloadPassProofBatchChunk(tx *sql.Tx, identities []string, re
 		if _, err := strconv.ParseUint(row.originGeneration, 10, 64); err != nil || row.originGeneration == "0" {
 			return errors.New("batch retained workload PASS proof origin generation is invalid")
 		}
-		out[row.identityDigest] = row
+		out[row.proofIdentityDigest] = row
 	}
 	if err := rows.Err(); err != nil {
 		return mapDurationLedgerSQLiteError("iterate batch retained workload PASS proofs", err)

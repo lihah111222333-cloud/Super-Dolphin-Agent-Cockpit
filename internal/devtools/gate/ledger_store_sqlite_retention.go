@@ -330,15 +330,65 @@ func compactDurationLedgerAuthorityAtAcceptedGeneration(transaction *sql.Tx, cur
 // 在删除旧 direct origin 前都有 consumer-owned v16 proof。
 func validateRetainedWorkloadPassProofsBeforeCompaction(transaction *sql.Tx, currentGeneration uint64) error {
 	retained := retainedWorkloadPassGenerations(currentGeneration)
-	var missing int
-	err := transaction.QueryRow(`SELECT COUNT(*) FROM ci_run_workload_results AS result JOIN ci_runs AS consumer ON consumer.job_id = result.job_id LEFT JOIN ci_retained_workload_pass_proofs AS proof ON proof.consumer_job_id = result.job_id AND proof.workload_id = result.workload_id AND proof.identity_digest = result.identity_digest AND proof.origin_job_id = result.origin_job_id AND proof.origin_accepted_generation = result.origin_accepted_generation AND proof.evidence_sha256 = result.evidence_sha256 LEFT JOIN ci_workload_pass_evidence AS evidence ON evidence.identity_digest = proof.identity_digest AND evidence.accepted_generation = proof.origin_accepted_generation AND evidence.origin_job_id = proof.origin_job_id AND evidence.evidence_sha256 = proof.evidence_sha256 WHERE result.disposition = 'reused' AND consumer.accepted_generation IN (?, ?, ?) AND (proof.consumer_job_id IS NULL OR (evidence.identity_digest IS NULL AND proof.origin_accepted_generation IN (?, ?, ?)))`, retained[0], retained[1], retained[2], retained[0], retained[1], retained[2]).Scan(&missing)
+	rows, err := transaction.Query(`SELECT result.workload_id, result.identity_digest, result.execution_digest, result.input_digest, result.environment_digest
+		FROM ci_run_workload_results AS result
+		JOIN ci_runs AS consumer ON consumer.job_id = result.job_id
+		LEFT JOIN ci_retained_workload_pass_proofs AS proof
+			ON proof.consumer_job_id = result.job_id AND proof.workload_id = result.workload_id
+		LEFT JOIN ci_workload_pass_evidence AS evidence
+			ON evidence.identity_digest = proof.identity_digest
+			AND evidence.accepted_generation = proof.origin_accepted_generation
+			AND evidence.origin_job_id = proof.origin_job_id
+			AND evidence.evidence_sha256 = proof.evidence_sha256
+		WHERE result.disposition = 'reused' AND consumer.accepted_generation IN (?, ?, ?)
+			AND (proof.consumer_job_id IS NULL
+				OR proof.origin_job_id != result.origin_job_id
+				OR proof.origin_accepted_generation != result.origin_accepted_generation
+				OR (proof.origin_accepted_generation IN (?, ?, ?) AND (
+					evidence.identity_digest IS NULL
+					OR proof.origin_source_tree_sha != evidence.origin_source_tree_sha
+					OR proof.origin_receipt_set_sha256 != evidence.origin_receipt_set_sha256
+					OR CASE WHEN json_type(proof.origin_execution_json, '$.schema_version') IS NOT NULL
+						THEN json_extract(proof.origin_execution_json, '$.execution')
+						ELSE proof.origin_execution_json END != evidence.origin_execution_json
+					OR proof.evidence_sha256 != evidence.evidence_sha256)))
+		ORDER BY result.job_id, result.workload_id`, retained[0], retained[1], retained[2], retained[0], retained[1], retained[2])
 	if err != nil {
-		return mapDurationLedgerSQLiteError("count missing retained workload pass proofs before compaction", err)
+		return mapDurationLedgerSQLiteError("query missing retained workload pass proofs before compaction", err)
+	}
+	defer rows.Close()
+	missing, err := countCurrentDomainMissingRetainedProofs(rows)
+	if err != nil {
+		return err
 	}
 	if missing != 0 {
 		return fmt.Errorf("retained workload pass proof has no promoted evidence for %d live reused consumer results", missing)
 	}
 	return nil
+}
+
+// countCurrentDomainMissingRetainedProofs 将旧无域 identity 严格降为 MISS，
+// 但当前域缺 proof 与未知摘要仍阻断 compaction。
+func countCurrentDomainMissingRetainedProofs(rows *sql.Rows) (int, error) {
+	missing := 0
+	for rows.Next() {
+		var identity WorkloadPassIdentity
+		if err := rows.Scan(&identity.WorkloadID, &identity.IdentityDigest, &identity.ExecutionDigest, &identity.InputDigest, &identity.EnvironmentDigest); err != nil {
+			return 0, mapDurationLedgerSQLiteError("scan missing retained workload pass proof", err)
+		}
+		err := validateWorkloadPassIdentity(identity)
+		if errors.Is(err, errLegacyWorkloadPassIdentityDomain) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		missing++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, mapDurationLedgerSQLiteError("iterate missing retained workload pass proofs", err)
+	}
+	return missing, nil
 }
 
 // validateRetentionGenerationsAccepted 拒绝尚未进入 baseline authority 的未来根。

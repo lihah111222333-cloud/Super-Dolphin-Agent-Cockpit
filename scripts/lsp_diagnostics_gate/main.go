@@ -260,6 +260,7 @@ func compileTargetConstrainedFiles(parent context.Context, root string, timeout 
 			"GOOS="+target.GOOS,
 			"GOARCH="+target.GOARCH,
 			"CGO_ENABLED=0",
+			"GOFLAGS=",
 		)
 		output, runErr := command.CombinedOutput()
 		if runErr != nil {

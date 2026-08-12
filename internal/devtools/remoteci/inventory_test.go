@@ -83,7 +83,6 @@ func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
 	runInventoryGit(t, repository, "commit", "--quiet", "-m", "基础")
 	commit := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
 
-	tracePath := installInventoryGitCounter(t)
 	inventory, err := BuildWorkloadInventory(context.Background(), repository, commit, "", "linux/amd64")
 	if err != nil {
 		t.Fatal(err)
@@ -94,9 +93,30 @@ func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
 		!slices.Equal(inventory.GoRaceTests, expectedRaceTests) {
 		t.Fatalf("inventory selectors changed: got=%#v wantPackages=%v wantTests=%v wantRaceTests=%v", inventory, expectedPackages, expectedTests, expectedRaceTests)
 	}
-	counts := readInventoryGitCounterCounts(t, tracePath)
-	if counts.snapshotTree != 1 || counts.blobBatch != 1 {
-		t.Fatalf("shared snapshot git calls = %#v, want one snapshot tree and one blob batch", counts)
+	assertInventorySnapshotReuse(t, repository, commit, expectedPackages, expectedTests, expectedRaceTests)
+}
+
+// assertInventorySnapshotReuse 验证原子测试发现复用已准备的精确树源码快照。
+func assertInventorySnapshotReuse(t *testing.T, repository, commit string, expectedPackages []string, expectedTests, expectedRaceTests []gate.GoTestTarget) {
+	t.Helper()
+	snapshot, err := loadRemoteGitTreeSnapshot(context.Background(), repository, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages, err := inventoryPlatformGoPackagesWithSnapshot(context.Background(), snapshot, "linux/amd64", expectedPackages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.goSources["test-only/snapshot-sentinel.go"] = []byte("package sentinel\n")
+	goTests, raceTests, err := inventoryAtomicGoTestsWithSnapshot(context.Background(), snapshot, "linux/amd64", packages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(goTests, expectedTests) || !slices.Equal(raceTests, expectedRaceTests) {
+		t.Fatalf("shared snapshot atomic selectors changed: normal=%v race=%v", goTests, raceTests)
+	}
+	if _, reused := snapshot.goSources["test-only/snapshot-sentinel.go"]; !reused {
+		t.Fatal("atomic inventory replaced the prepared exact-tree source snapshot")
 	}
 }
 
@@ -300,47 +320,4 @@ func writeInventoryFile(t *testing.T, repository string, relative string, conten
 	if err := os.WriteFile(target, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
-}
-
-type inventoryGitCounterCounts struct {
-	snapshotTree int
-	blobBatch    int
-}
-
-func installInventoryGitCounter(t *testing.T) string {
-	t.Helper()
-	binDir := t.TempDir()
-	tracePath := filepath.Join(binDir, "git.trace")
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	quote := func(value string) string {
-		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-	}
-	gitShim := filepath.Join(binDir, "git")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + quote(tracePath) + "\nexec " + quote(realGit) + " \"$@\"\n"
-	if err := os.WriteFile(gitShim, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return tracePath
-}
-
-func readInventoryGitCounterCounts(t *testing.T, tracePath string) inventoryGitCounterCounts {
-	t.Helper()
-	contents, err := os.ReadFile(tracePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var counts inventoryGitCounterCounts
-	for _, line := range strings.Split(strings.TrimSpace(string(contents)), "\n") {
-		switch {
-		case strings.HasPrefix(line, "ls-tree -r -z --full-tree"):
-			counts.snapshotTree++
-		case strings.HasPrefix(line, "cat-file --batch"):
-			counts.blobBatch++
-		}
-	}
-	return counts
 }

@@ -5,10 +5,10 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5004,
+  "files": 5011,
   "domains": {
-    "other": 1181,
-    "remote-ci": 259,
+    "other": 1182,
+    "remote-ci": 265,
     "docs-agent": 98,
     "app-ui": 766,
     "platform-provider": 1295,
@@ -58,8 +58,8 @@
       {
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
-        "file_count": 259,
-        "size_kb": 70.3,
+        "file_count": 265,
+        "size_kb": 72.2,
         "desc": "远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker"
       },
       {
@@ -72,8 +72,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1181,
-        "size_kb": 236,
+        "file_count": 1182,
+        "size_kb": 236.3,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -85,7 +85,7 @@
     "config": 3,
     "docs": 91,
     "frontend-app": 758,
-    "internal": 2966,
+    "internal": 2973,
     "pkg": 30,
     "scripts": 191,
     "sql": 29,

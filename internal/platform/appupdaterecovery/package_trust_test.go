@@ -178,6 +178,7 @@ func assertPackageTrustRawRejected(t *testing.T, value map[string]any, evidence 
 }
 
 func TestPackageTrustRealMutationIsRejectedByTransactionTerminal(t *testing.T) {
+	t.Parallel()
 	fixture := newTrustStateFixture(t)
 	mustInstallTrustCandidate(t, fixture)
 	path := filepath.Join(fixture.target, "Contents", "Resources", PackageTrustFilename)
@@ -217,6 +218,7 @@ func assertUpdateCapability(t *testing.T, platform string, supported bool) {
 }
 
 func TestPendingTrustGenerationActivatesOnlyAfterHealthyAndRollbackDiscardsIt(t *testing.T) {
+	t.Parallel()
 	fixture := newPendingTrustFixture(t)
 	transaction := installPendingTrustCandidate(t, fixture)
 	assertResolvedTrust(t, fixture.target, fixture.oldTrust, fixture.oldGeneration)

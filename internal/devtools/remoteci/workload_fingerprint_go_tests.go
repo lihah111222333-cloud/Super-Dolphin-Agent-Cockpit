@@ -43,6 +43,7 @@ type remoteGoTestScope uint8
 const (
 	remoteGoTestScopeSelector remoteGoTestScope = iota
 	remoteGoTestScopePackage
+	remoteGoTestScopeCompileClosure
 	remoteGoTestScopeTree
 )
 
@@ -370,16 +371,32 @@ func remoteGoTestDeclarationText(declaration remoteGoTestDeclaration) []byte {
 		text.Write(declaration.source[start:end])
 		text.WriteByte('\n')
 	}
-	start := declaration.declaration.Pos() - 1
+	start := remoteGoTestDeclarationStart(declaration.declaration) - 1
 	end := declaration.declaration.End() - 1
 	text.Write(declaration.source[start:end])
 	return text.Bytes()
 }
 
+// remoteGoTestDeclarationStart 将声明拥有的注释纳入 selector 语义；go:embed
+// 等编译指令不能因移除无关 sibling test blob 而从 PASS 输入中消失。
+func remoteGoTestDeclarationStart(declaration ast.Decl) token.Pos {
+	switch current := declaration.(type) {
+	case *ast.FuncDecl:
+		if current.Doc != nil {
+			return current.Doc.Pos()
+		}
+	case *ast.GenDecl:
+		if current.Doc != nil {
+			return current.Doc.Pos()
+		}
+	}
+	return declaration.Pos()
+}
+
 // goTestSources returns the selected test declarations and their direct repository observations.
 // Any source we cannot close conservatively binds every test source in the package.
 // goTestSources 计算单个测试声明的源码闭包和直接仓库观察。
-func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile) ([]remoteGoTestSource, bool, error) {
+func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile, includeCompileInputs bool) ([]remoteGoTestSource, bool, error) {
 	files, declarations, fallback := snapshot.remoteGoTestDeclarations(directory, profile)
 	if fallback {
 		return snapshot.allGoTestSources(files, directory, selected)
@@ -393,7 +410,7 @@ func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, s
 		// 无法从 AST 闭合反射调用的目标可能观察候选 tree 任意位置，必须直接全树绑定。
 		return nil, true, nil
 	}
-	return snapshot.goTestDeclarationSources(directory, selectedDeclarations, selected, profile)
+	return snapshot.goTestDeclarationSources(directory, selectedDeclarations, selected, profile, includeCompileInputs)
 }
 
 // remoteGoTestSelectedDeclarations 解析入口测试、初始化声明和引用闭包。
@@ -423,30 +440,10 @@ func remoteGoTestSelectedDeclarations(target remoteGoTestDeclaration, files []re
 }
 
 // goTestDeclarationSources 将声明闭包转换为源码摘要并收集其观察输入。
-func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string, selectedDeclarations map[ast.Decl]remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile) ([]remoteGoTestSource, bool, error) {
+func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string, selectedDeclarations map[ast.Decl]remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile, includeCompileInputs bool) ([]remoteGoTestSource, bool, error) {
 	result := make([]remoteGoTestSource, 0, len(selectedDeclarations))
 	for _, declaration := range selectedDeclarations {
-		for _, importPath := range remoteGoTestImports(declaration.file) {
-			localDirectory, local := snapshot.resolveLocalGoImport(importPath)
-			if !local {
-				continue
-			}
-			// 这里只加入编译闭包；运行时读取统一按目标包 CWD 观察。
-			if err := snapshot.addProductionGoPackageEntriesWithAssets(
-				localDirectory,
-				selected,
-				false,
-				profile,
-			); err != nil {
-				return nil, false, err
-			}
-		}
-		productionScope, err := snapshot.addGoProductionRuntimeObservedEntries(
-			directory,
-			declaration,
-			selected,
-			profile,
-		)
+		declarationText, err := snapshot.goTestDeclarationInputText(declaration, selected, profile, includeCompileInputs)
 		if err != nil {
 			return nil, false, err
 		}
@@ -457,12 +454,24 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 			selected,
 			profile,
 		)
-		scope = scope.widen(productionScope)
 		observesWholeTree := scope == remoteGoTestScopeTree
 		if err != nil || observesWholeTree {
 			return nil, observesWholeTree, err
 		}
-		result = append(result, remoteGoTestSource{path: declaration.filePath, text: remoteGoTestDeclarationText(declaration)})
+		productionScope, productionSources, err := snapshot.goProductionRuntimeInputs(
+			directory,
+			declaration,
+			selected,
+			profile,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+		if productionScope == remoteGoTestScopeTree {
+			snapshot.addGoProductionRuntimeTreeEntries(directory, selected)
+		}
+		result = append(result, remoteGoTestSource{path: declaration.filePath, text: declarationText})
+		result = append(result, productionSources...)
 	}
 	sort.Slice(result, func(left, right int) bool {
 		if result[left].path == result[right].path {
@@ -471,6 +480,36 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 		return result[left].path < result[right].path
 	})
 	return result, false, nil
+}
+
+// goTestDeclarationInputText 在 broad 路径保留编译导入，在独立运行时投票中只保留 embed 资产。
+func (snapshot *remoteGitTreeSnapshot) goTestDeclarationInputText(declaration remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile, includeCompileInputs bool) ([]byte, error) {
+	if includeCompileInputs {
+		return snapshot.addGoTestDeclarationCompileInputs(declaration, selected, profile)
+	}
+	if err := snapshot.addGoEmbedEntries(path.Dir(declaration.filePath), declaration.source, selected); err != nil {
+		return nil, err
+	}
+	return remoteGoTestDeclarationText(declaration), nil
+}
+
+// addGoTestDeclarationCompileInputs 收集 selector 声明自身的 embed 与本地导入；
+// 未引用 sibling test 仍由独立 compile-group 构建，但不进入 PASS 语义。
+func (snapshot *remoteGitTreeSnapshot) addGoTestDeclarationCompileInputs(declaration remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile) ([]byte, error) {
+	declarationText := remoteGoTestDeclarationText(declaration)
+	if err := snapshot.addGoEmbedEntries(path.Dir(declaration.filePath), declaration.source, selected); err != nil {
+		return nil, err
+	}
+	for _, importPath := range remoteGoTestImports(declaration.file) {
+		localDirectory, local := snapshot.resolveLocalGoImport(importPath)
+		if !local {
+			continue
+		}
+		if err := snapshot.addProductionGoPackageEntriesWithAssets(localDirectory, selected, false, profile); err != nil {
+			return nil, err
+		}
+	}
+	return declarationText, nil
 }
 
 // remoteGoTestPackageVariableDeclarations 返回测试包初始化可能读取的变量声明。
@@ -518,16 +557,14 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 	selected map[string]remoteGitTreeEntry,
 ) (bool, error) {
 	imports := remoteGoTestImports(file)
-	if snapshot.remoteGoSensitiveObservedAliasInPackage(directory, remoteGoBuildProfile{}, true) {
-		return true, nil
-	}
+	aliasScope := snapshot.remoteGoObservedAliasScope(directory, remoteGoBuildProfile{}, true, observed, imports)
 	wholeTree := false
 	var visitErr error
 	ast.Inspect(observed, func(node ast.Node) bool {
 		if visitErr != nil {
 			return false
 		}
-		continueVisit, observedWholeTree, err := snapshot.addGoTestObservedNode(directory, file, imports, node, selected, wholeTree)
+		continueVisit, observedWholeTree, err := snapshot.addGoTestObservedNode(directory, file, imports, node, selected, aliasScope, wholeTree)
 		wholeTree = wholeTree || observedWholeTree
 		visitErr = err
 		return continueVisit && err == nil
@@ -542,18 +579,18 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestObservedNode(
 	imports map[string]string,
 	node ast.Node,
 	selected map[string]remoteGitTreeEntry,
+	aliasScope remoteGoObservedAliasCallScope,
 	wholeTree bool,
 ) (continueVisit bool, observedWholeTree bool, err error) {
 	if remoteGoDotImportWholeTree(imports) {
 		return true, true, nil
 	}
-	if selector, ok := node.(*ast.SelectorExpr); ok && remoteGoProductionEnvironmentSelector(selector, imports) {
-		wholeTree = true
-		return false, wholeTree, nil
-	}
 	call, ok := node.(*ast.CallExpr)
 	if !ok {
 		return true, false, nil
+	}
+	if aliasScope.matches(call) {
+		return true, true, nil
 	}
 	kind, staticPath, dynamic := remoteGoTestObservation(call, file, imports)
 	if kind == "" {

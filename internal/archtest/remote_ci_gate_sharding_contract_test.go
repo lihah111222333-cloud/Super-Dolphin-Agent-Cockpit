@@ -358,7 +358,7 @@ func assertNoRemoteConcurrencyLimit(t *testing.T, functionName, source string) {
 func assertRemoteParentProofBoundary(t *testing.T, root string) {
 	t.Helper()
 	path := filepath.Join(root, "internal/devtools/remoteci/coordinator_results.go")
-	parent := remoteCIFunctionSource(t, path, "aggregateCatalogWorkloads")
+	parent := remoteCIFunctionSource(t, path, "AggregateCatalogWorkloads")
 	for _, marker := range []string{"len(parents)", "aggregateWorkloadGate(", "executions = append(executions, aggregate)"} {
 		if !strings.Contains(parent, marker) {
 			t.Fatalf("parent aggregation is missing bounded marker %q", marker)

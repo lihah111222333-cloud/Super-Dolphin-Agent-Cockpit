@@ -23,6 +23,8 @@ func TestProjectMapCLIRefreshesAndChecksExactTreeWithCompiledGenerator(t *testin
 	refreshedTree := projectMapTestGit(t, repository, "write-tree")
 	requireProjectMapCLICode(t, gatecontract.ExitOK, "refreshed check", "check", "--tree", refreshedTree)
 	requireProjectMapCLICode(t, gatecontract.ExitOK, "index-tree check", "check", "--tree-from-index")
+	publishProjectMapTestHead(t, repository, refreshedTree)
+	requireProjectMapCLICode(t, gatecontract.ExitOK, "head-tree check", "check", "--tree-from-head")
 
 	mapPath := filepath.Join(repository, "docs", "doc", "codemap", "project-map", "AI_PROJECT_MAP.md")
 	stagedMap, err := os.ReadFile(mapPath)
@@ -170,6 +172,12 @@ func projectMapTestGit(t *testing.T, repository string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func publishProjectMapTestHead(t *testing.T, repository, tree string) {
+	t.Helper()
+	commit := projectMapTestGit(t, repository, "-c", "user.name=project-map-test", "-c", "user.email=project-map-test@invalid", "commit-tree", tree, "-m", "exact fixture tree")
+	projectMapTestGit(t, repository, "update-ref", "HEAD", commit)
 }
 
 func assertProjectMapCandidateEntrypointsNotExecuted(t *testing.T, repository string) {
