@@ -2,7 +2,6 @@ package remoteci
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -15,7 +14,6 @@ func TestCoordinatorRunReusesCalibrationWorkloadPassesWithoutRemoteSideEffects(t
 	reloadRemotePlanningSnapshot(t, &input)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, nil)
-	seedCalibrationDurationIndex(t, &input, mustCoordinatorCatalog(t, input))
 	clearCoordinatorAllHitExecutionIdentity(&input)
 
 	store := &coordinatorStore{}
@@ -169,7 +167,7 @@ func TestCoordinatorRunExecutesOnlyCalibrationWorkloadPassMisses(t *testing.T) {
 	reloadRemotePlanningSnapshot(t, &input)
 	seed := runCoordinatorFreshWorkloads(t, input)
 	seedCoordinatorWorkloadPassEvidence(t, input, seed, func(index int) bool { return index%2 == 0 })
-	seedCalibrationDurationIndex(t, &input, mustCoordinatorCatalog(t, input))
+	wantReused := (len(seed.WorkloadPassIdentities) + 1) / 2
 
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
@@ -177,11 +175,14 @@ func TestCoordinatorRunExecutesOnlyCalibrationWorkloadPassMisses(t *testing.T) {
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456d", nil }
 	result, err := runCoordinatorTest(t, coordinator, context.Background(), input)
 	assertCoordinatorPartialReuse(t, result, err, runtime)
+	if len(result.ReusedWorkloads) != wantReused {
+		t.Fatalf("calibration reused %d exact PASS workloads without duration samples, want %d", len(result.ReusedWorkloads), wantReused)
+	}
 }
 
-// TestCoordinatorCalibrationDemotionRetainsCanonicalProof 验证缺时长样本触发
-// fresh execution 时仍沿用已验证的 correctness proof，禁止同代重铸冲突来源。
-func TestCoordinatorCalibrationDemotionRetainsCanonicalProof(t *testing.T) {
+// TestCoordinatorCalibrationPreservesExactPassesWithoutDurationSamples 锁定固定规格
+// 耗时缺口只能影响 MISS 规划，不能把 correctness PASS 扩大成远端执行成本。
+func TestCoordinatorCalibrationPreservesExactPassesWithoutDurationSamples(t *testing.T) {
 	_, input := coordinatorReuseFixture(t)
 	input.Calibration = true
 	input.CalibrationResource = testRemoteResourcePolicy().CalibrationResource
@@ -193,76 +194,12 @@ func TestCoordinatorCalibrationDemotionRetainsCanonicalProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prepared.reuse.cacheMisses) == 0 || len(prepared.reuse.reexecutedWorkloadResults) != len(prepared.reuse.cacheMisses) {
-		t.Fatalf("calibration demotion proof projection = misses:%d proofs:%d", len(prepared.reuse.cacheMisses), len(prepared.reuse.reexecutedWorkloadResults))
+	diagnostic := prepared.reuse.diagnostic()
+	if len(prepared.reuse.cacheMisses) != 0 || len(prepared.reuse.reexecutedWorkloadResults) != 0 {
+		t.Fatalf("calibration expanded exact PASS into misses: misses=%d reexecuted=%d", len(prepared.reuse.cacheMisses), len(prepared.reuse.reexecutedWorkloadResults))
 	}
-	for _, result := range prepared.reuse.reexecutedWorkloadResults {
-		if result.Disposition != gate.WorkloadDispositionReused || result.OriginJobID == "" || result.EvidenceSHA256 == "" {
-			t.Fatalf("calibration demotion lost canonical proof: %#v", result)
-		}
-	}
-}
-
-// TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples 锁定校准
-// 复用还需独立 duration 证据，缺一项时只能重跑该项而不能扩大为整批 MISS。
-func TestCoordinatorCalibrationDemotesOnlyPassesWithoutDurationSamples(t *testing.T) {
-	_, input := coordinatorReuseFixture(t)
-	input.Calibration = true
-	input.CalibrationResource = testRemoteResourcePolicy().CalibrationResource
-	catalog := mustCoordinatorCatalog(t, input)
-	workloads := remoteShardableWorkloads(catalog)
-	if len(workloads) < 2 {
-		t.Fatal("calibration fixture requires two shardable workloads")
-	}
-	input.LedgerSnapshot.Ledger.Samples = []gate.DurationSample{calibrationDurationSample(input, workloads[0])}
-	index, err := gate.BuildDurationSampleIndex(input.LedgerSnapshot.Ledger, remotePlanningContext(input))
-	if err != nil {
-		t.Fatal(err)
-	}
-	input.LedgerSnapshot.SampleIndex = &index
-	reused := map[string]gate.WorkloadPassEvidence{workloads[0].ID: {}, workloads[1].ID: {}}
-	demoted, err := demoteCalibrationReuseWithoutDuration(input, catalog, reused, map[string]string{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if demoted != 1 || len(reused) != 1 {
-		t.Fatalf("calibration duration demotion = %d reused=%d, want 1/1", demoted, len(reused))
-	}
-	if _, kept := reused[workloads[0].ID]; !kept {
-		t.Fatalf("calibration demoted workload with comparable sample %q", workloads[0].ID)
-	}
-}
-
-// TestCoordinatorCalibrationKeepsPassWithDifferentInputDurationUpperBound 验证当前
-// correctness PASS 可与固定资源上的跨 input 保守时长上界联合复用。
-func TestCoordinatorCalibrationKeepsPassWithDifferentInputDurationUpperBound(t *testing.T) {
-	_, input := coordinatorReuseFixture(t)
-	input.Calibration = true
-	input.CalibrationResource = testRemoteResourcePolicy().CalibrationResource
-	catalog := mustCoordinatorCatalog(t, input)
-	workloads := remoteShardableWorkloads(catalog)
-	if len(workloads) == 0 {
-		t.Fatal("calibration fixture requires a shardable workload")
-	}
-	current := workloads[0]
-	historical := current
-	historical.InputDigest = "sha256:" + strings.Repeat("f", 64)
-	input.LedgerSnapshot.Ledger.Samples = []gate.DurationSample{calibrationDurationSample(input, historical)}
-	index, err := gate.BuildDurationSampleIndex(input.LedgerSnapshot.Ledger, remotePlanningContext(input))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !index.HasSuccessfulCalibrationDurationEvidence(current) || index.HasComparableSuccessfulDurationSample(current) {
-		t.Fatal("fixture must contain only a different-input calibration upper bound")
-	}
-	input.LedgerSnapshot.SampleIndex = &index
-	reused := map[string]gate.WorkloadPassEvidence{current.ID: {}}
-	demoted, err := demoteCalibrationReuseWithoutDuration(input, catalog, reused, map[string]string{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if demoted != 0 || len(reused) != 1 {
-		t.Fatalf("different-input calibration demotion = %d reused=%d, want 0/1", demoted, len(reused))
+	if diagnostic.CalibrationDurationDemoted != 0 || diagnostic.EffectiveHits != diagnostic.ExactHits || diagnostic.EffectiveMisses != 0 {
+		t.Fatalf("calibration PASS preservation diagnostic = %#v", diagnostic)
 	}
 }
 

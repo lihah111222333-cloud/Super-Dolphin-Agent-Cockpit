@@ -174,8 +174,6 @@ func TestCoordinatorPrepareReportsInternalStages(t *testing.T) {
 		"reuse_environment_authorization_started",
 		"reuse_environment_authorization_completed",
 		"reuse_environment_replay_completed",
-		"reuse_calibration_demotion_started",
-		"reuse_calibration_demotion_completed",
 		"reuse_outcome_projection_started",
 		"reuse_outcome_projection_completed",
 		"reuse_completed",

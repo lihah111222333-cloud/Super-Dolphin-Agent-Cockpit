@@ -223,7 +223,7 @@ internal/archtest/legacy_120_compat_guard_test.go	internal	other	go-test	5790	�
 internal/archtest/legacy_orchestration_alias_guard_test.go	internal	other	go-test	10685	架构守卫、baseline ratchet 与冻结规则	internal,archtest,legacy,orchestration,alias,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/lifecycle_onstart_guard_test.go	internal	other	go-test	10245	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lifecycle,onstart,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/local_pass_contract_field_payload_guard_test.go	internal	other	go-test	9633	架构守卫、baseline ratchet 与冻结规则	internal,archtest,local,pass,contract,field,payload,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/local_pass_contract_guard_test.go	internal	other	go-test	34919	架构守卫、baseline ratchet 与冻结规则	internal,archtest,local,pass,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/local_pass_contract_guard_test.go	internal	other	go-test	35068	架构守卫、baseline ratchet 与冻结规则	internal,archtest,local,pass,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/local_pass_contract_migration_guard_test.go	internal	other	go-test	13187	架构守卫、baseline ratchet 与冻结规则	internal,archtest,local,pass,contract,migration,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/local_receipt_prelookup_guard_test.go	internal	other	go-test	1806	架构守卫、baseline ratchet 与冻结规则	internal,archtest,local,receipt,prelookup,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/local_receipt_trusted_git_guard_test.go	internal	other	go-test	3049	架构守卫、baseline ratchet 与冻结规则	internal,archtest,local,receipt,trusted,git,guard,test,架构守卫,baseline,ratchet,与冻结规则
