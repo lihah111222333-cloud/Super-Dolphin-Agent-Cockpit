@@ -810,7 +810,8 @@ func compileGroupAffinityFromShardIDs(groups map[string]CompileGroup, shard Shar
 		return fmt.Errorf("shard %d compile groups are not canonical sorted", shard.Index)
 	}
 	if !compileGroupsCoverShardWorkloads(groups, shard) {
-		return fmt.Errorf("shard %d mixes grouped and ordinary workloads", shard.Index)
+		extra, missing := compileGroupShardCoverageMismatch(groups, shard)
+		return fmt.Errorf("shard %d mixes grouped and ordinary workloads: extra=%v missing=%v", shard.Index, extra, missing)
 	}
 	if len(shard.CompileGroupIDs) > 1 {
 		for _, groupID := range shard.CompileGroupIDs {

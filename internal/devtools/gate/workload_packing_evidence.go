@@ -38,6 +38,33 @@ func deriveWorkloadPackingEvidence(shards []ShardPlan, groups []CompileGroup, co
 	return finalizePackingEvidence(stats, target)
 }
 
+// compileGroupShardCoverageMismatch 返回 shard 相对其 compile groups 的确定性覆盖差集。
+func compileGroupShardCoverageMismatch(groups map[string]CompileGroup, shard ShardPlan) ([]string, []string) {
+	covered, actual := make(map[string]struct{}), make(map[string]struct{})
+	for _, groupID := range shard.CompileGroupIDs {
+		for _, workloadID := range groups[groupID].WorkloadIDs {
+			covered[string(workloadID)] = struct{}{}
+		}
+	}
+	for _, workload := range shard.Workloads {
+		actual[workload.Workload.ID] = struct{}{}
+	}
+	extra, missing := make([]string, 0), make([]string, 0)
+	for workloadID := range actual {
+		if _, ok := covered[workloadID]; !ok {
+			extra = append(extra, workloadID)
+		}
+	}
+	for workloadID := range covered {
+		if _, ok := actual[workloadID]; !ok {
+			missing = append(missing, workloadID)
+		}
+	}
+	slices.Sort(extra)
+	slices.Sort(missing)
+	return extra, missing
+}
+
 // collectPackingEvidenceShards 建立 shard 实际覆盖和资源档计数。
 func collectPackingEvidenceShards(shards []ShardPlan, context PlanningContext) (map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, map[GateID]PlannedWorkload, error) {
 	stats := make(map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats)
