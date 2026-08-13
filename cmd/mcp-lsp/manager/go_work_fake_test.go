@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -229,8 +228,4 @@ func writeGoWorkFakeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
-}
-
-func goWorkFakeFileURI(path string) string {
-	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
 }

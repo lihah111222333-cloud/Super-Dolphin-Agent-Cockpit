@@ -341,5 +341,5 @@ func normalizeLanguageID(languageID string) string {
 }
 
 func fileURIFromPath(absPath string) string {
-	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(absPath)}).String()
+	return (&url.URL{Scheme: "file", Path: platformFileURIPath(absPath)}).String()
 }

@@ -62,7 +62,8 @@ try {
   const requirePaths = [
     projectRoot,
     path.dirname(filePath),
-    bundleDir
+    bundleDir,
+    ...(Array.isArray(input.moduleSearchPaths) ? input.moduleSearchPaths : [])
   ].filter(Boolean);
   const tsPath = require.resolve("typescript", { paths: requirePaths });
   const ts = require(tsPath);
@@ -123,8 +124,9 @@ try {
 `
 
 type typeScriptNavigationInput struct {
-	ProjectRoot string `json:"projectRoot"`
-	FilePath    string `json:"filePath"`
+	ProjectRoot       string   `json:"projectRoot"`
+	FilePath          string   `json:"filePath"`
+	ModuleSearchPaths []string `json:"moduleSearchPaths,omitempty"`
 }
 
 type typeScriptNavigationTree struct {
@@ -166,7 +168,15 @@ func (m *manager) typeScriptNavigationDocumentSymbols(ctx context.Context, ref d
 // runTypeScriptNavigationTree 启动 node 并让项目本地 TypeScript 解析文件导航树。
 // stdout 只接收 JSON 结果；stderr 仅在失败时附带短摘要，避免污染 MCP stdio。
 func runTypeScriptNavigationTree(ctx context.Context, projectRoot, filePath string) (typeScriptNavigationTree, error) {
-	input, err := json.Marshal(typeScriptNavigationInput{ProjectRoot: projectRoot, FilePath: filePath})
+	moduleSearchPaths, err := platformTypeScriptNavigationModuleSearchPaths()
+	if err != nil {
+		return typeScriptNavigationTree{}, fmt.Errorf("resolve typescript navigation module search paths: %w", err)
+	}
+	input, err := json.Marshal(typeScriptNavigationInput{
+		ProjectRoot:       projectRoot,
+		FilePath:          filePath,
+		ModuleSearchPaths: moduleSearchPaths,
+	})
 	if err != nil {
 		return typeScriptNavigationTree{}, fmt.Errorf("marshal typescript navigation input: %w", err)
 	}

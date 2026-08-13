@@ -5,7 +5,6 @@ package manager_test
 import (
 	"context"
 	"fmt"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type langTestCase struct {
@@ -352,7 +352,7 @@ func resolveMultiLanguageManager(t *testing.T, ctx context.Context, log *slog.Lo
 		t.Fatalf("GetManagerForFile failed: %v", err)
 	}
 	t.Log("  ✓ Manager resolved")
-	uri := "file://" + filePath
+	uri := e2eFileURI(filePath)
 	t.Log("Step 2: BootstrapDocument...")
 	if err := resolvedMgr.BootstrapDocument(ctx, uri); err != nil {
 		t.Fatalf("BootstrapDocument failed: %v", err)
@@ -433,11 +433,11 @@ func TestLanguageDetection_E2E(t *testing.T) {
 		expected string
 	}{
 		{"app.js", "javascript"},
-		{"component.jsx", "javascript"},
+		{"component.jsx", "javascriptreact"},
 		{"index.mjs", "javascript"},
 		{"config.cjs", "javascript"},
 		{"service.ts", "typescript"},
-		{"component.tsx", "typescript"},
+		{"component.tsx", "typescriptreact"},
 		{"models.py", "python"},
 		{"stubs.pyi", "python"},
 		{"lib.rs", "rust"},
@@ -498,7 +498,7 @@ func resolveHoverDefinitionManager(t *testing.T, ctx context.Context, log *slog.
 	reg := manager.NewRegistry(nil)
 	mgr := createGenericManager(tc.binary, tc.args, root, log)
 	reg.Register(tc.langID, mgr)
-	uri := "file://" + filePath
+	uri := e2eFileURI(filePath)
 	resolvedMgr, err := reg.GetManagerForFile(ctx, filePath)
 	if err != nil {
 		t.Fatalf("GetManagerForFile: %v", err)
