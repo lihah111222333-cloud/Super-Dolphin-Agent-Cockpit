@@ -85,22 +85,6 @@ func atomicReplaceFile(path string, content []byte, mode os.FileMode, writer fil
 	return nil
 }
 
-// syncParentDirectory fsyncs the directory entry after rename completes.
-func syncParentDirectory(dir string, writer fileWriter) error {
-	dirFile, err := writer.Open(dir)
-	if err != nil {
-		return fmt.Errorf("open parent directory %s: %w", dir, err)
-	}
-	if err := dirFile.Sync(); err != nil {
-		_ = dirFile.Close()
-		return fmt.Errorf("sync parent directory %s: %w", dir, err)
-	}
-	if err := dirFile.Close(); err != nil {
-		return fmt.Errorf("close parent directory %s: %w", dir, err)
-	}
-	return nil
-}
-
 // validateReservedToolWrapperFields 校验 wrapper 保留字段，并删除已被 wrapper 消费的 work_dir。
 func validateReservedToolWrapperFields(fields map[string]json.RawMessage) (bool, error) {
 	changed := false

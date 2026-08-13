@@ -26,6 +26,29 @@ func TestRollbackUsesAtomicWrite(t *testing.T) {
 	assertEditFunctionUsesAtomicWrite(t, "tool_edit_rename.go", "applyWorkspaceEdit")
 }
 
+// TestAtomicReplaceFileReplacesContent verifies atomic replacement on every supported platform.
+func TestAtomicReplaceFileReplacesContent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "source.go")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat fixture: %v", err)
+	}
+
+	if err := atomicReplaceFile(path, []byte("new\n"), info.Mode(), defaultFileWriter); err != nil {
+		t.Fatalf("atomicReplaceFile: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read replaced file: %v", err)
+	}
+	if string(got) != "new\n" {
+		t.Fatalf("replaced content = %q, want %q", got, "new\n")
+	}
+}
+
 // TestAtomicReplaceFilePreservesOriginalModeBits locks atomic replacement to the original file mode.
 func TestAtomicReplaceFilePreservesOriginalModeBits(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "source.go")

@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +13,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -470,7 +468,7 @@ func listGoplsDaemonProcesses(goplsPath, runtimeDir string) ([]goplsDaemonProces
 		return nil, err
 	}
 	var processes []goplsDaemonProcess
-	for _, line := range strings.Split(string(output), "\n") {
+	for line := range strings.SplitSeq(string(output), "\n") {
 		if process, ok := parseGoplsDaemonProcessLine(line, goplsPath, runtimeDir); ok {
 			processes = append(processes, process)
 		}
@@ -543,8 +541,8 @@ func TestParseGoplsDaemonProcessLineAcceptsPaddedLowPID(t *testing.T) {
 
 func goplsDaemonListenAddress(arguments []string) (string, bool) {
 	for index, argument := range arguments {
-		if strings.HasPrefix(argument, "-listen=") {
-			return strings.TrimPrefix(argument, "-listen="), true
+		if listen, ok := strings.CutPrefix(argument, "-listen="); ok {
+			return listen, true
 		}
 		if argument == "-listen" && index+1 < len(arguments) {
 			return arguments[index+1], true
@@ -580,8 +578,12 @@ func killGoplsDaemonProcessForE2E(t *testing.T, goplsPath, runtimeDir string, ex
 	if len(processes) != 1 || processes[0] != expected {
 		t.Fatalf("refuse ambiguous gopls kill: got=%#v want exact runtime-owned process=%#v", processes, expected)
 	}
-	if err := syscall.Kill(expected.PID, 0); err != nil {
+	alive, err := processAliveForE2E(expected.PID)
+	if err != nil {
 		t.Fatalf("exact residual gopls PID %d is not live before kill: %v", expected.PID, err)
+	}
+	if !alive {
+		t.Fatalf("exact residual gopls PID %d is not live before kill", expected.PID)
 	}
 	process, err := os.FindProcess(expected.PID)
 	if err != nil {
@@ -594,8 +596,12 @@ func killGoplsDaemonProcessForE2E(t *testing.T, goplsPath, runtimeDir string, ex
 	for {
 		remaining := requireGoplsDaemonProcesses(t, goplsPath, runtimeDir)
 		if !slices.ContainsFunc(remaining, func(process goplsDaemonProcess) bool { return process.PID == expected.PID }) {
-			if err := syscall.Kill(expected.PID, 0); !errors.Is(err, syscall.ESRCH) {
+			alive, err := processAliveForE2E(expected.PID)
+			if err != nil {
 				t.Fatalf("exact residual gopls PID %d was not proven exited: %v", expected.PID, err)
+			}
+			if alive {
+				t.Fatalf("exact residual gopls PID %d was not proven exited", expected.PID)
 			}
 			return
 		}
