@@ -22,14 +22,18 @@ var (
 )
 
 // Hunk 是 replace_range patch 解析后的内部契约。
-// OldText/NewText 承载实际变更，BeforeContext/AfterContext 用于匹配时消歧。
+// AnchorLines 非空时只定位后续变更，不携带写操作；其余字段承载变更和消歧上下文。
 type Hunk struct {
 	OldText       string
 	NewText       string
 	ChangeContext []string
 	BeforeContext []string
 	AfterContext  []string
+	AnchorLines   []string
 }
+
+// IsSectionAnchor 报告当前 hunk 是否为不产生写入的 section anchor。
+func (h Hunk) IsSectionAnchor() bool { return len(h.AnchorLines) > 0 }
 
 type patchBodyLine struct {
 	kind byte
@@ -55,12 +59,12 @@ func Parse(patch string) (Hunk, error) {
 		if len(headerLines) != 1 {
 			return Hunk{}, fmt.Errorf("%w: single-hunk parser does not accept multiple @@ headers", ErrInvalidPatch)
 		}
-		return parseHunkBody(headerLines[0])
+		return parseChangedHunk(headerLines[0])
 	}
 	if containsPatchHeader(lines[1:]) {
 		return Hunk{}, fmt.Errorf("%w: leading implicit hunk is not allowed before a second @@ header", ErrInvalidPatch)
 	}
-	return parseHunkBody(lines)
+	return parseChangedHunk(lines)
 }
 
 // ParseMulti 解析 replace_range 的多 hunk 输入。
@@ -74,10 +78,23 @@ func ParseMulti(patch string) ([]Hunk, error) {
 	if len(lines) == 0 {
 		return nil, ErrEmptyPatch
 	}
+	var hunks []Hunk
 	if !isPatchHeader(lines[0]) {
-		return parseImplicitHunk(lines)
+		hunks, err = parseImplicitHunk(lines)
+	} else {
+		hunks, err = parseExplicitHunks(lines)
 	}
+	if err != nil {
+		return nil, err
+	}
+	if err := validateMultiHunks(hunks); err != nil {
+		return nil, err
+	}
+	return hunks, nil
+}
 
+// parseExplicitHunks 解析带 @@ header 的多 hunk patch，并集中执行数量与逐块错误标注。
+func parseExplicitHunks(lines []string) ([]Hunk, error) {
 	blocks, err := splitPatchHeaders(lines)
 	if err != nil {
 		return nil, err
@@ -86,14 +103,44 @@ func ParseMulti(patch string) ([]Hunk, error) {
 		return nil, fmt.Errorf("%w: patch exceeds %d hunks", ErrInvalidPatch, maxPatchHunks)
 	}
 	hunks := make([]Hunk, 0, len(blocks))
-	for _, block := range blocks {
-		hunk, err := parseHunkBody(block)
-		if err != nil {
-			return nil, err
+	for idx, block := range blocks {
+		hunk, parseErr := parseHunkBody(block)
+		if parseErr != nil {
+			return nil, fmt.Errorf("hunk %d: %w", idx+1, parseErr)
 		}
 		hunks = append(hunks, hunk)
 	}
 	return hunks, nil
+}
+
+// parseChangedHunk 解析单个真实变更并拒绝没有后续作用域的只读锚点。
+func parseChangedHunk(lines []string) (Hunk, error) {
+	hunk, err := parseHunkBody(lines)
+	if err != nil {
+		return Hunk{}, err
+	}
+	if hunk.IsSectionAnchor() {
+		return Hunk{}, fmt.Errorf("%w: context-only section anchor requires a following changed hunk", ErrInvalidPatch)
+	}
+	return hunk, nil
+}
+
+// validateMultiHunks 确认每个只读锚点后面都有真实变更可供约束。
+func validateMultiHunks(hunks []Hunk) error {
+	hasChangedAfter := false
+	for idx, hunk := range slices.Backward(hunks) {
+		if hunk.IsSectionAnchor() {
+			if !hasChangedAfter {
+				return fmt.Errorf("%w: hunk %d section anchor must precede a changed hunk", ErrInvalidPatch, idx+1)
+			}
+			continue
+		}
+		hasChangedAfter = true
+	}
+	if !hasChangedAfter {
+		return fmt.Errorf("%w: patch must contain at least one changed hunk", ErrInvalidPatch)
+	}
+	return nil
 }
 
 // parseImplicitHunk 解析首段没有 "@@" 头的补丁。
@@ -109,9 +156,9 @@ func parseImplicitHunk(lines []string) ([]Hunk, error) {
 	}
 
 	firstHeader := headerIndex + 1
-	first, err := parseHunkBody(lines[:firstHeader])
+	first, err := parseChangedHunk(lines[:firstHeader])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("hunk 1: %w", err)
 	}
 	blocks, err := splitPatchHeaders(lines[firstHeader:])
 	if err != nil {
@@ -122,10 +169,10 @@ func parseImplicitHunk(lines []string) ([]Hunk, error) {
 	}
 	hunks := make([]Hunk, 0, len(blocks)+1)
 	hunks = append(hunks, first)
-	for _, block := range blocks {
+	for idx, block := range blocks {
 		hunk, err := parseHunkBody(block)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("hunk %d: %w", idx+2, err)
 		}
 		hunks = append(hunks, hunk)
 	}
@@ -236,6 +283,9 @@ func parseHunkBody(lines []string) (Hunk, error) {
 	if err != nil {
 		return Hunk{}, err
 	}
+	if firstChange < 0 {
+		return buildSectionAnchorHunk(parsed)
+	}
 
 	before := takeTexts(parsed[:firstChange])
 	after := takeTexts(parsed[lastChange+1:])
@@ -252,8 +302,17 @@ func parseHunkBody(lines []string) (Hunk, error) {
 	}, nil
 }
 
+// buildSectionAnchorHunk 从纯上下文正文构造只读锚点并拒绝空白定位条件。
+func buildSectionAnchorHunk(parsed []patchBodyLine) (Hunk, error) {
+	anchorLines := takeTexts(parsed)
+	if !hasNonBlankLine(anchorLines) {
+		return Hunk{}, fmt.Errorf("%w: section anchor requires non-blank context", ErrInvalidPatch)
+	}
+	return Hunk{AnchorLines: anchorLines}, nil
+}
+
 // classifyBodyLines 校验并分类 hunk 正文的上下文、删除和新增行。
-// 返回首尾变更位置，供 parseHunkBody 提取 before/after 锚点。
+// 纯上下文正文返回 -1/-1，由调用方建立只读 section anchor。
 func classifyBodyLines(body []string, startOffset int) ([]patchBodyLine, int, int, error) {
 	parsed := make([]patchBodyLine, 0, len(body))
 	firstChange, lastChange := -1, -1
@@ -270,10 +329,14 @@ func classifyBodyLines(body []string, startOffset int) ([]patchBodyLine, int, in
 			lastChange = idx
 		}
 	}
-	if firstChange < 0 {
-		return nil, 0, 0, fmt.Errorf("%w: patch body must contain at least one changed line", ErrInvalidPatch)
-	}
 	return parsed, firstChange, lastChange, nil
+}
+
+// hasNonBlankLine 判断 section anchor 是否包含可安全定位的非空文本。
+func hasNonBlankLine(lines []string) bool {
+	return slices.ContainsFunc(lines, func(line string) bool {
+		return strings.TrimSpace(line) != ""
+	})
 }
 
 func parseHeaderLine(line string) (string, error) {

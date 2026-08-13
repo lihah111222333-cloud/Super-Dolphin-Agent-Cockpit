@@ -200,3 +200,135 @@ func TestMatchContextPureInsertionEditContextKeepsFollowingComment(t *testing.T)
 		t.Fatalf("EditContext missing shifted function declaration after insertion:\n%s", context)
 	}
 }
+
+func TestMatchContextSectionAnchorScopesFollowingHunk(t *testing.T) {
+	content := "value\n## Trusted workspace\n  value\n"
+	hunks, err := ParseMulti("@@ section\n ## Trusted workspace\n@@ change\n-value\n+updated\n")
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	matches, err := MatchContext(content, hunks)
+	if err != nil {
+		t.Fatalf("MatchContext returned error: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("len(matches) = %d, want 2", len(matches))
+	}
+	if !matches[0].SectionAnchor || matches[0].EditContext != "" {
+		t.Fatalf("anchor match = %#v, want read-only marker without edit context", matches[0])
+	}
+	if matches[1].ResolvedLSPLine != 3 {
+		t.Fatalf("changed hunk line = %d, want 3", matches[1].ResolvedLSPLine)
+	}
+}
+
+func TestMatchContextSectionAnchorMustBeUnique(t *testing.T) {
+	content := "## section\nvalue\n## section\nvalue\n"
+	hunks, err := ParseMulti("@@ section\n ## section\n@@ change\n-value\n+updated\n")
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	_, err = MatchContext(content, hunks)
+	if !errors.Is(err, ErrAmbiguousMatch) {
+		t.Fatalf("MatchContext error = %v, want ErrAmbiguousMatch", err)
+	}
+}
+
+func TestMatchContextSectionAnchorMustExist(t *testing.T) {
+	hunks, err := ParseMulti("@@ section\n ## missing\n@@ change\n-value\n+updated\n")
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	_, err = MatchContext("## present\nvalue\n", hunks)
+	if !errors.Is(err, ErrSequenceNotFound) {
+		t.Fatalf("MatchContext error = %v, want ErrSequenceNotFound", err)
+	}
+}
+
+func TestMatchContextSectionAnchorRejectsSubstringOnlyMatch(t *testing.T) {
+	hunks, err := ParseMulti("@@ section\n ## section\n@@ change\n-value\n+updated\n")
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	_, err = MatchContext("prefix ## section\nvalue\n", hunks)
+	if !errors.Is(err, ErrSequenceNotFound) {
+		t.Fatalf("MatchContext error = %v, want ErrSequenceNotFound", err)
+	}
+}
+
+func TestMatchContextSectionAnchorRejectsTrimmedMatch(t *testing.T) {
+	hunks, err := ParseMulti("@@ section\n ## section\n@@ change\n-value\n+updated\n")
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	_, err = MatchContext("  ## section  \nvalue\n", hunks)
+	if !errors.Is(err, ErrSequenceNotFound) {
+		t.Fatalf("MatchContext error = %v, want ErrSequenceNotFound", err)
+	}
+}
+
+func TestMatchContextRejectsMalformedSectionAnchorContract(t *testing.T) {
+	hunks := []Hunk{
+		{AnchorLines: []string{"## section"}, NewText: "unexpected\n"},
+		{OldText: "value\n", NewText: "updated\n"},
+	}
+	_, err := MatchContext("## section\nvalue\n", hunks)
+	if !errors.Is(err, ErrInvalidPatch) {
+		t.Fatalf("MatchContext error = %v, want ErrInvalidPatch", err)
+	}
+}
+
+func TestMatchContextRejectsAnchorOnlySequence(t *testing.T) {
+	_, err := MatchContext("## section\n", []Hunk{{AnchorLines: []string{"## section"}}})
+	if !errors.Is(err, ErrInvalidPatch) {
+		t.Fatalf("MatchContext error = %v, want ErrInvalidPatch", err)
+	}
+}
+
+func TestMatchContextSectionAnchorMustBeUniqueAcrossPriorSections(t *testing.T) {
+	content := "## shared\nbefore\n## first\nold1\n## shared\nold2\n"
+	hunks, err := ParseMulti(strings.Join([]string{
+		"@@ first section",
+		" ## first",
+		"@@ first change",
+		"-old1",
+		"+new1",
+		"@@ shared section",
+		" ## shared",
+		"@@ second change",
+		"-old2",
+		"+new2",
+		"",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	_, err = MatchContext(content, hunks)
+	if !errors.Is(err, ErrAmbiguousMatch) {
+		t.Fatalf("MatchContext error = %v, want ErrAmbiguousMatch", err)
+	}
+}
+
+func TestMatchContextSectionAnchorRejectsBackwardOrder(t *testing.T) {
+	content := "## earlier\nold1\n## later\nold2\n"
+	hunks, err := ParseMulti(strings.Join([]string{
+		"@@ later section",
+		" ## later",
+		"@@ later change",
+		"-old2",
+		"+new2",
+		"@@ earlier section",
+		" ## earlier",
+		"@@ earlier change",
+		"-old1",
+		"+new1",
+		"",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	_, err = MatchContext(content, hunks)
+	if !errors.Is(err, ErrSequenceNotFound) {
+		t.Fatalf("MatchContext error = %v, want ErrSequenceNotFound", err)
+	}
+}

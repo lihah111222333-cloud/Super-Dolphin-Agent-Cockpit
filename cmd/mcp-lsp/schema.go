@@ -144,7 +144,7 @@ func newPatchEditSchema() schema {
 	return NewObjectSchema(map[string]schema{
 		"action":      enumProp("Action.", "replace_range", "rename", "code_action", "format"),
 		"file_path":   stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
-		"patch":       stringProp("Patch body for replace_range. Each non-header line starts with one prefix: ' '=context (use ' ' for blank context lines, never empty), '-'=remove, '+'=add. Pure-insertion: use ' ' context lines to anchor, then '+' lines only (no '-' needed). Example: \" import (\\n+\\t\\\"fmt\\\"\\n )\". Accepted forms: (a) implicit single hunk = body only; (b) one explicit '@@ ...' header + body; (c) multiple '@@ ...' hunks; (d) compatibility form with a leading implicit hunk followed by explicit '@@ ...' hunks."),
+		"patch":       stringProp("Patch body for replace_range. Supports multi-section edits."),
 		"pos":         stringProp("Position as 'file_path:line:column' for rename/code_action (example internal/foo.go:42:9)."),
 		"new_name":    stringProp("New symbol name (rename only)."),
 		"only":        arrayOfStringsProp("Code action kinds filter (code_action only, e.g. [\"quickfix\", \"refactor\"])."),

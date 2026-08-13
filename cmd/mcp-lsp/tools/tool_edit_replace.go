@@ -332,8 +332,7 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 }
 
 func asAmbiguousMatchError(err error) *editpkg.AmbiguousMatchError {
-	var ambig *editpkg.AmbiguousMatchError
-	if errors.As(err, &ambig) {
+	if ambig, ok := errors.AsType[*editpkg.AmbiguousMatchError](err); ok {
 		return ambig
 	}
 	return nil
@@ -429,15 +428,33 @@ func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, e
 	updated := content
 	contexts := make([]string, 0, len(matches))
 	modes := make([]string, 0, len(matches))
+	firstChangedIndex := -1
+	lastChangedIndex := -1
 	for idx := range hunks {
 		match := matches[idx]
 		hunk := hunks[idx]
-		modes = append(modes, resolveMatchMode(updated, hunk, match.MatchedBy))
+		if hunk.IsSectionAnchor() {
+			if !match.SectionAnchor {
+				return replacePlan{}, fmt.Errorf("%w: hunk %d section anchor match contract drift", editpkg.ErrInvalidPatch, idx+1)
+			}
+			continue
+		}
+		if match.SectionAnchor {
+			return replacePlan{}, fmt.Errorf("%w: hunk %d change matched as section anchor", editpkg.ErrInvalidPatch, idx+1)
+		}
+		if firstChangedIndex < 0 {
+			firstChangedIndex = idx
+		}
+		lastChangedIndex = idx
+		modes = append(modes, match.MatchedBy)
 		contexts = append(contexts, match.EditContext)
 		updated = updated[:match.ResolvedStartOffset] + hunk.NewText + updated[match.ResolvedEndOffset:]
 	}
-	first := matches[0]
-	last := matches[len(matches)-1]
+	if firstChangedIndex < 0 {
+		return replacePlan{}, fmt.Errorf("%w: patch must contain at least one changed hunk", editpkg.ErrInvalidPatch)
+	}
+	first := matches[firstChangedIndex]
+	last := matches[lastChangedIndex]
 	return replacePlan{
 		updatedContent:     updated,
 		matchedBy:          strings.Join(uniqueStrings(modes), ","),

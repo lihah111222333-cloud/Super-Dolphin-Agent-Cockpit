@@ -54,20 +54,6 @@ func parsePatchHunks(patch string) ([]editpkg.Hunk, error) {
 	return normalizeHunks(hunks), nil
 }
 
-// resolveMatchMode 判断 hunk 在当前内容中的匹配方式，失败时返回调用方提供的 fallback。
-func resolveMatchMode(content string, hunk editpkg.Hunk, fallback string) string {
-	lines := splitLines(content)
-	pattern := splitLines(hunk.OldText)
-	if len(pattern) == 0 {
-		return fallback
-	}
-	_, mode, err := editpkg.SeekSequence(lines, pattern, 0)
-	if err != nil {
-		return fallback
-	}
-	return string(mode)
-}
-
 // resolveFilePath 把工具路径解析成绝对路径。
 func resolveFilePath(ctx context.Context, path string) (string, error) {
 	pathInfo, err := toolResolvePath(ctx, path)
@@ -306,19 +292,13 @@ func countLines(content string) int {
 	return len(lines)
 }
 
-// splitLines 返回可用于 patch 匹配的行切片，空文本返回 nil。
-func splitLines(content string) []string {
-	lines := splitNormalizedLines(content)
-	if len(lines) == 1 && lines[0] == "" {
-		return nil
-	}
-	return lines
-}
-
 // joinHunkOldText 拼接多个 hunk 的旧文本，供失败提示展示。
 func joinHunkOldText(hunks []editpkg.Hunk) string {
 	items := make([]string, 0, len(hunks))
 	for _, hunk := range hunks {
+		if hunk.IsSectionAnchor() {
+			continue
+		}
 		items = append(items, hunk.OldText)
 	}
 	return strings.Join(items, "\n")
@@ -328,6 +308,9 @@ func joinHunkOldText(hunks []editpkg.Hunk) string {
 func joinHunkNewText(hunks []editpkg.Hunk) string {
 	items := make([]string, 0, len(hunks))
 	for _, hunk := range hunks {
+		if hunk.IsSectionAnchor() {
+			continue
+		}
 		items = append(items, hunk.NewText)
 	}
 	return strings.Join(items, "\n")

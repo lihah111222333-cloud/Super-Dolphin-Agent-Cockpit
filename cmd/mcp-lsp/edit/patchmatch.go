@@ -17,6 +17,7 @@ type Match struct {
 	AffectedStartLine   int
 	AffectedEndLine     int
 	EditContext         string
+	SectionAnchor       bool
 }
 
 type matchCandidate struct {
@@ -80,44 +81,151 @@ func MatchContext(content string, hunks []Hunk) ([]Match, error) {
 	if err := GuardContentAndReplacement(content, ""); err != nil {
 		return nil, err
 	}
+	if err := validateMatchHunks(hunks); err != nil {
+		return nil, err
+	}
 	matches := make([]Match, 0, len(hunks))
 	working := content
+	minimumStartOffset := 0
 	for idx, hunk := range hunks {
-		if err := GuardContentAndReplacement(working, hunk.NewText); err != nil {
-			return nil, err
-		}
-		candidate, err := resolveContextMatch(working, hunk, idx)
+		match, nextWorking, nextMinimum, err := matchContextHunk(working, hunk, idx, minimumStartOffset)
 		if err != nil {
 			return nil, err
 		}
-		editContext, affectedStart, affectedEnd, err := BuildEditContext(working, candidate.startOffset, candidate.endOffset, hunk.NewText)
-		if err != nil {
-			return nil, err
-		}
-		matches = append(matches, Match{
-			MatchedBy:           candidate.matchedBy,
-			ResolvedStartOffset: candidate.startOffset,
-			ResolvedEndOffset:   candidate.endOffset,
-			ResolvedLSPLine:     candidate.startLine,
-			AffectedStartLine:   affectedStart,
-			AffectedEndLine:     affectedEnd,
-			EditContext:         editContext,
-		})
-		working = working[:candidate.startOffset] + hunk.NewText + working[candidate.endOffset:]
+		matches = append(matches, match)
+		working = nextWorking
+		minimumStartOffset = nextMinimum
 	}
 	return matches, nil
 }
 
-func resolveContextMatch(content string, hunk Hunk, hunkIndex int) (matchCandidate, error) {
+// validateMatchHunks 在任何匹配前校验锚点形状与段序列契约。
+func validateMatchHunks(hunks []Hunk) error {
+	for idx, hunk := range hunks {
+		if err := validateHunkContract(hunk); err != nil {
+			return fmt.Errorf("hunk %d: %w", idx+1, err)
+		}
+	}
+	if err := validateMultiHunks(hunks); err != nil {
+		return err
+	}
+	return nil
+}
+
+// matchContextHunk 匹配一个只读锚点或真实变更，并返回下一工作副本与作用域下界。
+func matchContextHunk(working string, hunk Hunk, hunkIndex int, minimumStartOffset int) (Match, string, int, error) {
+	if err := GuardContentAndReplacement(working, hunk.NewText); err != nil {
+		return Match{}, working, minimumStartOffset, err
+	}
+	candidate, err := resolveHunkCandidate(working, hunk, hunkIndex, minimumStartOffset)
+	if err != nil {
+		return Match{}, working, minimumStartOffset, err
+	}
+	if hunk.IsSectionAnchor() {
+		return buildSectionAnchorMatch(candidate), working, candidate.endOffset, nil
+	}
+	match, err := buildChangedHunkMatch(working, hunk, candidate)
+	if err != nil {
+		return Match{}, working, minimumStartOffset, err
+	}
+	updated := working[:candidate.startOffset] + hunk.NewText + working[candidate.endOffset:]
+	return match, updated, minimumStartOffset, nil
+}
+
+// resolveHunkCandidate 按 hunk 类型选择严格锚点或兼容变更匹配器。
+func resolveHunkCandidate(content string, hunk Hunk, hunkIndex int, minimumStartOffset int) (matchCandidate, error) {
+	if hunk.IsSectionAnchor() {
+		return resolveSectionAnchor(content, hunk.AnchorLines, hunkIndex, minimumStartOffset)
+	}
+	return resolveContextMatch(content, hunk, hunkIndex, minimumStartOffset)
+}
+
+// buildSectionAnchorMatch 构造不携带编辑上下文的只读锚点结果。
+func buildSectionAnchorMatch(candidate matchCandidate) Match {
+	return Match{
+		MatchedBy:           candidate.matchedBy,
+		ResolvedStartOffset: candidate.startOffset,
+		ResolvedEndOffset:   candidate.endOffset,
+		ResolvedLSPLine:     candidate.startLine,
+		AffectedStartLine:   candidate.startLine,
+		AffectedEndLine:     candidate.endLine,
+		SectionAnchor:       true,
+	}
+}
+
+// buildChangedHunkMatch 构造真实变更的偏移、行范围与回显上下文。
+func buildChangedHunkMatch(content string, hunk Hunk, candidate matchCandidate) (Match, error) {
+	editContext, affectedStart, affectedEnd, err := BuildEditContext(content, candidate.startOffset, candidate.endOffset, hunk.NewText)
+	if err != nil {
+		return Match{}, err
+	}
+	return Match{
+		MatchedBy:           candidate.matchedBy,
+		ResolvedStartOffset: candidate.startOffset,
+		ResolvedEndOffset:   candidate.endOffset,
+		ResolvedLSPLine:     candidate.startLine,
+		AffectedStartLine:   affectedStart,
+		AffectedEndLine:     affectedEnd,
+		EditContext:         editContext,
+	}, nil
+}
+
+// validateHunkContract 阻断同时携带锚点和写字段的畸形内部输入。
+func validateHunkContract(hunk Hunk) error {
+	if !hunk.IsSectionAnchor() {
+		return nil
+	}
+	if hunk.OldText != "" || hunk.NewText != "" || len(hunk.ChangeContext) > 0 || len(hunk.BeforeContext) > 0 || len(hunk.AfterContext) > 0 {
+		return fmt.Errorf("%w: section anchor cannot carry change fields", ErrInvalidPatch)
+	}
+	if !hasNonBlankLine(hunk.AnchorLines) {
+		return fmt.Errorf("%w: section anchor requires non-blank context", ErrInvalidPatch)
+	}
+	return nil
+}
+
+// resolveSectionAnchor 使用完整行 exact 匹配只读锚点，并要求全文件唯一且顺序向后。
+func resolveSectionAnchor(content string, anchorLines []string, hunkIndex int, minimumStartOffset int) (matchCandidate, error) {
+	index, err := indexContent(content)
+	if err != nil {
+		return matchCandidate{}, err
+	}
+	positions := collectExactSequenceMatches(index.lines, anchorLines, 0)
+	candidates := make([]matchCandidate, 0, len(positions))
+	for _, pos := range positions {
+		endIdx := pos + len(anchorLines)
+		candidates = append(candidates, matchCandidate{
+			startOffset:    index.start[pos],
+			endOffset:      index.end[endIdx-1],
+			startLine:      pos + 1,
+			endLine:        endIdx,
+			startLineIndex: pos,
+			endLineIndex:   endIdx,
+			matchedBy:      "section_anchor_exact",
+		})
+	}
+	if len(candidates) == 0 {
+		return matchCandidate{}, fmt.Errorf("hunk %d: %w: exact section anchor not found", hunkIndex+1, ErrSequenceNotFound)
+	}
+	if len(candidates) > 1 {
+		return matchCandidate{}, newAmbiguousMatchError(hunkIndex, candidates)
+	}
+	if candidates[0].startOffset < minimumStartOffset {
+		return matchCandidate{}, fmt.Errorf("hunk %d: %w: exact section anchor precedes the allowed section", hunkIndex+1, ErrSequenceNotFound)
+	}
+	return candidates[0], nil
+}
+
+func resolveContextMatch(content string, hunk Hunk, hunkIndex int, minimumStartOffset int) (matchCandidate, error) {
 	index, err := indexContent(content)
 	if err != nil {
 		return matchCandidate{}, err
 	}
 	anchors := resolveContextAnchorStarts(index.lines, hunk.BeforeContext)
-	candidates := collectLineSequenceCandidates(index, hunk, anchors)
+	candidates := collectLineSequenceCandidates(index, hunk, anchors, minimumStartOffset)
 	candidates = filterContextCandidates(index.lines, hunk, candidates)
 	if len(candidates) == 0 {
-		candidates = collectRawSubstringCandidates(index, hunk)
+		candidates = collectRawSubstringCandidates(index, hunk, minimumStartOffset)
 		candidates = filterContextCandidates(index.lines, hunk, candidates)
 	}
 	if len(candidates) == 0 {
@@ -151,22 +259,26 @@ func resolveContextAnchorStarts(lines []string, before []string) map[int]struct{
 }
 
 // collectLineSequenceCandidates 用多种宽松匹配模式收集 old_text 候选位置。
-// 如果 before 上下文存在，只保留锚点后的候选，防止跨块替换。
-func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}) []matchCandidate {
+// 如果 before 或 section anchor 下界存在，只保留允许作用域内的候选。
+func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}, minimumStartOffset int) []matchCandidate {
 	oldLines := splitPatchText(hunk.OldText)
 	if len(oldLines) == 0 {
-		return collectPureInsertionCandidates(index, hunk, anchors)
+		return collectPureInsertionCandidates(index, hunk, anchors, minimumStartOffset)
 	}
-	positions, mode := collectSequenceMatches(index.lines, oldLines)
+	minimumStartLine := minimumLineIndex(index.start, minimumStartOffset)
+	positions, mode := collectSequenceMatchesFrom(index.lines, oldLines, minimumStartLine)
 	if len(positions) == 0 && len(oldLines) > 1 && oldLines[len(oldLines)-1] == "" {
 		oldLines = oldLines[:len(oldLines)-1]
-		positions, mode = collectSequenceMatches(index.lines, oldLines)
+		positions, mode = collectSequenceMatchesFrom(index.lines, oldLines, minimumStartLine)
 	}
 	if len(positions) == 0 {
 		return nil
 	}
 	candidates := make([]matchCandidate, 0, len(positions))
 	for _, pos := range positions {
+		if index.start[pos] < minimumStartOffset {
+			continue
+		}
 		if anchors != nil {
 			if _, ok := anchors[pos]; !ok {
 				continue
@@ -187,8 +299,8 @@ func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[in
 }
 
 // collectPureInsertionCandidates 处理 OldText 为空的纯插入 hunk。
-// 纯插入必须依赖 before 或 after 上下文定位，候选位置的 startOffset 与 endOffset 相同。
-func collectPureInsertionCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}) []matchCandidate {
+// 纯插入必须依赖上下文定位，并服从 section anchor 设定的最小偏移量。
+func collectPureInsertionCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}, minimumStartOffset int) []matchCandidate {
 	if len(hunk.BeforeContext) == 0 && len(hunk.AfterContext) == 0 {
 		return nil
 	}
@@ -196,7 +308,7 @@ func collectPureInsertionCandidates(index contentIndex, hunk Hunk, anchors map[i
 	if len(insertLines) == 0 {
 		return nil
 	}
-	return buildInsertionCandidates(index, insertLines)
+	return filterCandidatesAtOrAfter(buildInsertionCandidates(index, insertLines), minimumStartOffset)
 }
 
 func resolveInsertionLines(index contentIndex, hunk Hunk, anchors map[int]struct{}) []int {
@@ -260,12 +372,12 @@ func insertionOffset(index contentIndex, lineIdx int) int {
 	return index.start[lineIdx]
 }
 
-func collectRawSubstringCandidates(index contentIndex, hunk Hunk) []matchCandidate {
+func collectRawSubstringCandidates(index contentIndex, hunk Hunk, minimumStartOffset int) []matchCandidate {
 	if hunk.OldText == "" {
 		return nil
 	}
 	var candidates []matchCandidate
-	for start := 0; ; {
+	for start := max(0, minimumStartOffset); ; {
 		rel := strings.Index(index.raw[start:], hunk.OldText)
 		if rel < 0 {
 			break
@@ -286,6 +398,24 @@ func collectRawSubstringCandidates(index contentIndex, hunk Hunk) []matchCandida
 		start = startOffset + 1
 	}
 	return dedupeCandidates(candidates)
+}
+
+// minimumLineIndex 返回首个起始偏移不小于 section anchor 下界的行。
+func minimumLineIndex(starts []int, minimumStartOffset int) int {
+	return sort.Search(len(starts), func(idx int) bool {
+		return starts[idx] >= minimumStartOffset
+	})
+}
+
+// filterCandidatesAtOrAfter 丢弃 section anchor 之前的插入候选。
+func filterCandidatesAtOrAfter(candidates []matchCandidate, minimumStartOffset int) []matchCandidate {
+	filtered := make([]matchCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.startOffset >= minimumStartOffset {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return dedupeCandidates(filtered)
 }
 
 func filterContextCandidates(lines []string, hunk Hunk, candidates []matchCandidate) []matchCandidate {

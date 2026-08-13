@@ -38,7 +38,7 @@ func newLSPToolManifests() []ToolManifest {
 		toolManifestWithSchema("xref", "Find references, call hierarchy, or type hierarchy. Example: action=references pos=internal/foo.go:42:9.", newLSPXrefSchema()),
 		toolManifestWithOutputSchema("grep", "Search codebase by text or AST pattern. Example: action=text_search query=targetName path=internal glob=*.go.", newLSPGrepSchema(), newLSPGrepOutputSchema()),
 		toolManifestWithSchema("structure", "List document symbols, workspace symbols, folding ranges, or semantic tokens. Examples: action=document_symbol file_path=internal/foo.go; action=workspace_symbol query=Handler language=go.", newLSPStructureSchema()),
-		toolManifestWithSchema("patch_edit", "Apply patch edits, LSP rename, code actions, or format. Pure insertion: context (' ') + add ('+') lines only. Example: action=replace_range file_path=internal/foo.go patch=\" import (\\n+\\t\\\"fmt\\\"\\n )\".", newPatchEditSchema()),
+		toolManifestWithSchema("patch_edit", "Apply patch edits, LSP rename, code actions, or format. replace_range supports multi-section edits; an explicit '@@' block with context lines only is an exact, read-only anchor for later changed sections. Pure insertion uses context (' ') plus added ('+') lines. Example: action=replace_range file_path=internal/foo.go patch=\" import (\\n+\\t\\\"fmt\\\"\\n )\".", newPatchEditSchema()),
 		toolManifestWithSchema("completion", "Context-aware code completions at a cursor position. Example: pos=internal/foo.go:42:9.", newLSPCompletionSchema()),
 	}
 }

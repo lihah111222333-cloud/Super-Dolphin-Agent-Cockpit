@@ -46,6 +46,34 @@ func TestLSPToolManifestDescriptionsSeparateDiagnosticsFromPackageScripts(t *tes
 	}
 }
 
+func TestPatchEditManifestAndSchemaDocumentExactSectionAnchors(t *testing.T) {
+	var manifestDescription string
+	for _, manifest := range newLSPToolManifests() {
+		if manifest.Name == "patch_edit" {
+			manifestDescription = manifest.Description
+			break
+		}
+	}
+	for _, must := range []string{"multi-section edits", "exact", "read-only anchor"} {
+		if !strings.Contains(manifestDescription, must) {
+			t.Fatalf("patch_edit manifest description = %q, want %q", manifestDescription, must)
+		}
+	}
+
+	props, ok := newPatchEditSchema()["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("patch_edit schema properties type = %T", newPatchEditSchema()["properties"])
+	}
+	patch, ok := props["patch"].(map[string]any)
+	if !ok {
+		t.Fatalf("patch_edit patch schema type = %T", props["patch"])
+	}
+	description, _ := patch["description"].(string)
+	if description != "Patch body for replace_range. Supports multi-section edits." {
+		t.Fatalf("patch_edit patch description = %q", description)
+	}
+}
+
 func TestLSPFileSchemaExposesDirectDiagnosticsCallShape(t *testing.T) {
 	props, ok := newLSPFileSchema()["properties"].(map[string]any)
 	if !ok {

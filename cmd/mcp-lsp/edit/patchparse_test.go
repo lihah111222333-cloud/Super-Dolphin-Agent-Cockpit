@@ -220,3 +220,58 @@ func TestParseMultiAcceptsLenientHeaderAfterImplicitHunk(t *testing.T) {
 		t.Fatalf("hunks = %#v", hunks)
 	}
 }
+
+func TestParseMultiAcceptsContextOnlySectionAnchor(t *testing.T) {
+	patch := strings.Join([]string{
+		" first block",
+		"-old1",
+		"+new1",
+		"@@ section anchor",
+		" ## Trusted workspace",
+		"@@ second change",
+		"-old2",
+		"+new2",
+		"",
+	}, "\n")
+	hunks, err := ParseMulti(patch)
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	if len(hunks) != 3 {
+		t.Fatalf("len(hunks) = %d, want 3", len(hunks))
+	}
+	if !hunks[1].IsSectionAnchor() {
+		t.Fatalf("middle hunk = %#v, want section anchor", hunks[1])
+	}
+	if !reflect.DeepEqual(hunks[1].AnchorLines, []string{"## Trusted workspace"}) || hunks[1].OldText != "" || hunks[1].NewText != "" {
+		t.Fatalf("section anchor = %#v", hunks[1])
+	}
+}
+
+func TestParseRejectsContextOnlySingleHunk(t *testing.T) {
+	_, err := Parse("@@ section anchor\n ## Trusted workspace\n")
+	if !errors.Is(err, ErrInvalidPatch) {
+		t.Fatalf("Parse error = %v, want ErrInvalidPatch", err)
+	}
+}
+
+func TestParseMultiRejectsTrailingSectionAnchor(t *testing.T) {
+	_, err := ParseMulti("@@ change\n-old\n+new\n@@ trailing\n ## trailing context\n")
+	if !errors.Is(err, ErrInvalidPatch) {
+		t.Fatalf("ParseMulti error = %v, want ErrInvalidPatch", err)
+	}
+}
+
+func TestParseMultiRejectsBlankSectionAnchor(t *testing.T) {
+	_, err := ParseMulti("@@ blank anchor\n \n@@ change\n-old\n+new\n")
+	if !errors.Is(err, ErrInvalidPatch) {
+		t.Fatalf("ParseMulti error = %v, want ErrInvalidPatch", err)
+	}
+}
+
+func TestParseMultiRejectsImplicitContextOnlySectionAnchor(t *testing.T) {
+	_, err := ParseMulti(" section anchor\n@@ change\n-old\n+new\n")
+	if !errors.Is(err, ErrInvalidPatch) {
+		t.Fatalf("ParseMulti error = %v, want ErrInvalidPatch", err)
+	}
+}

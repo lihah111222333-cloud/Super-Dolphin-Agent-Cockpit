@@ -61,16 +61,22 @@ func seekSequenceMode(lines []string, pattern []string, start int, end int, mode
 	return -1
 }
 
-// collectSequenceMatches 返回同一种匹配模式下的全部候选行。
-// 调用方可据此判断是否需要上下文锚点进一步消歧。
-func collectSequenceMatches(lines []string, pattern []string) ([]int, MatchMode) {
+// collectSequenceMatchesFrom 从指定行开始按匹配强度查找全部候选。
+// section anchor 使用该下界，避免锚点之前的强匹配遮蔽作用域内的候选。
+func collectSequenceMatchesFrom(lines []string, pattern []string, startAt int) ([]int, MatchMode) {
 	if len(pattern) == 0 || len(pattern) > len(lines) {
 		return nil, ""
 	}
+	if startAt < 0 {
+		startAt = 0
+	}
 	limit := len(lines) - len(pattern)
+	if startAt > limit {
+		return nil, ""
+	}
 	for _, mode := range allSeekModes() {
 		matches := make([]int, 0, 4)
-		for idx := 0; idx <= limit; idx++ {
+		for idx := startAt; idx <= limit; idx++ {
 			if sequenceMatchAt(lines, pattern, idx, mode) {
 				matches = append(matches, idx)
 			}
@@ -80,6 +86,25 @@ func collectSequenceMatches(lines []string, pattern []string) ([]int, MatchMode)
 		}
 	}
 	return nil, ""
+}
+
+// collectExactSequenceMatches 返回完整行严格相等的全部候选位置。
+func collectExactSequenceMatches(lines []string, pattern []string, startAt int) []int {
+	if len(pattern) == 0 || len(pattern) > len(lines) {
+		return nil
+	}
+	startAt = max(0, startAt)
+	limit := len(lines) - len(pattern)
+	if startAt > limit {
+		return nil
+	}
+	matches := make([]int, 0, 2)
+	for idx := startAt; idx <= limit; idx++ {
+		if sequenceMatchAt(lines, pattern, idx, seekMatchExact) {
+			matches = append(matches, idx)
+		}
+	}
+	return matches
 }
 
 func sequenceMatchAt(lines []string, pattern []string, start int, mode MatchMode) bool {

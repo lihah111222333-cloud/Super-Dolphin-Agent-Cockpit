@@ -14,8 +14,9 @@ description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio M
 1. 完整读取本技能。
 2. 读取 references/provider-configs.md，掌握三家项目级文件、字段差异和刷新方式。
 3. 确认项目根、Git 状态、已有配置、将启动 MCP 的客户端运行环境、当前操作系统和 CPU；Windows 必须区分原生进程与 WSL 进程。
-4. 检查目标客户端当前版本、CLI help 或官方文档。已有参考与当前客户端冲突时，以当前官方格式和本机可验证行为为准，并同步修订参考。
-5. 读取所有将被修改的配置，建立现有 server 和设置清单后再编辑。
+4. 解析项目根及其上一级目录，按“确认可信 cwd 与 workspace root”向用户提问并等待明确选择；未确认不得写配置。
+5. 检查目标客户端当前版本、CLI help 或官方文档。已有参考与当前客户端冲突时，以当前官方格式和本机可验证行为为准，并同步修订参考。
+6. 读取所有将被修改的配置，建立现有 server 和设置清单后再编辑。
 
 ## 同步客户端规范文件
 
@@ -82,6 +83,25 @@ printf 'is_wsl=%s arch=%s\n' "$is_wsl" "$(uname -m)"
 
 `$isNativeWindows=true` 选择 Windows `.exe`；`$isWSL=true` 或 `is_wsl=1` 选择 Linux/WSL 文件。若当前 shell 只是在编辑另一个环境中运行的 Desktop 客户端配置，仍以目标客户端进程为准，不能用编辑 shell 的结果覆盖它。
 
+## 确认可信 cwd 与 workspace root
+
+写入任何客户端配置前，必须先解析并向用户展示两个真实绝对路径，然后询问本次 LSP 的可信 cwd 选择：
+
+1. **本仓库**：`<repo-root>`。只允许 LSP 工具访问本仓库及其子目录，适合单仓库开发，也是最小权限选项。
+2. **仓库上一级**：`<parent-of-repo-root>`。允许 LSP 工具访问该上级目录及其全部子目录，适合顶层目录下多个相关 Git 微服务需要互相导航的场景。
+
+必须等待用户明确选择“本仓库”或“仓库上一级”；不得根据当前 shell cwd、配置文件位置、聊天截图或多仓库布局自行扩大范围。用户未确认、回答含糊、项目根无法唯一解析或项目根已经是文件系统根时，立即阻断并说明原因。除非用户另行明确指定并授权其他绝对路径，否则只提供上述两个候选。
+
+将用户选中的绝对路径记为 `<trusted-cwd>`，并保持以下绑定：
+
+- 支持 `cwd` 字段的客户端 server 配置必须写 `cwd = <trusted-cwd>`；不支持该字段的客户端不得发明字段。
+- `GO_AGENT_LSP_ROOT=<trusted-cwd>`。
+- `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成，当前选择只写一个元素：`[<trusted-cwd>]`。
+- 项目级配置文件以及 AGENTS.md/CLAUDE.md 仍写在原项目根；选择仓库上一级不等于把配置迁移到上一级。
+- `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` 仍指向已验证的分发包资源根或 source checkout 根，不跟随 `<trusted-cwd>` 扩大。
+
+这里控制的是 mcp-lsp 的 workspace containment。可信目录之外的路径会返回 `path_outside_workspace`；扩大 LSP workspace 不等于自动扩大客户端自身的文件系统沙箱或写权限。
+
 ## 必需 sidecar 启动契约
 
 每一个本地 stdio server 的 `env` 必须显式包含：
@@ -90,8 +110,8 @@ printf 'is_wsl=%s arch=%s\n' "$is_wsl" "$(uname -m)"
 SUPER_DOLPHIN_RUNTIME_MODE=dev
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<分发包资源根；源码构建则为 checkout 根，必须是绝对路径>
 SUPER_DOLPHIN_DEPENDENCY_PROFILE=production
-GO_AGENT_LSP_ROOT=<目标项目根绝对路径>
-GO_AGENT_LSP_ROOTS=<由 JSON encoder 生成的绝对路径数组>
+GO_AGENT_LSP_ROOT=<用户确认的 trusted-cwd 绝对路径>
+GO_AGENT_LSP_ROOTS=<由 JSON encoder 生成、仅含 trusted-cwd 的绝对路径数组>
 ~~~
 
 前三项是 sidecar 启动所需契约，后两项绑定可信 LSP workspace。独立 `mcp-lsp` 使用 `production`；`desktop_host` 只用于桌面 owner 的开发启动器，不能复制到三家独立 MCP 配置。不得依赖 shell 中偶然继承的值，不得在二进制中添加隐式默认值。
@@ -142,7 +162,7 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 3. 写入前严格读取并解析现有 JSON/TOML；未知结构立即阻断。
 4. 逐字段合并，保留其他 server 和非 MCP 设置，不得整份覆盖。
 5. 同名 server 内容不同时先展示差异并判断 owner；不得静默替换。
-6. command 使用已验证的当前平台二进制绝对路径，cwd 和 LSP roots 指向目标项目；Windows 原生与 WSL 路径不得混用。
+6. command 使用已验证的当前平台二进制绝对路径；cwd 和 LSP roots 指向用户明确选择的同一个 `<trusted-cwd>`，Windows 原生与 WSL 路径不得混用。
 7. 不写密钥、令牌、账号、OAuth secret 或其他凭据。
 8. 缺文件、错误架构、解析失败、schema 不明或客户端不受支持时 fail-fast。
 9. 三个 sidecar 必需字段必须显式写在 server env 中；不为一次性差异增加默认值、兼容分支或隐式 fallback。
@@ -161,14 +181,16 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 ## 验证
 
 1. 重新验证 command 指向存在、非空、架构正确的二进制，并确认其 GOOS 与 Windows 原生/WSL 路径体系一致。
-2. 重新读取本次客户端对应的 AGENTS.md、CLAUDE.md 或两者，确认受管规则存在一次且必需语义完整。
-3. 重新解析所有修改后的 JSON/TOML。
-4. Codex：信任项目并重启，用 /mcp 或 codex mcp list 检查。
-5. Claude Code：完成 workspace trust 和项目 MCP 批准，用 /mcp、claude mcp list 或 claude mcp get 检查。
-6. Antigravity：在 MCP Servers 页面 Refresh，或在 CLI 用 /mcp 检查。
-7. 至少实际调用 file、structure、inspect、xref、diagnostics 中的一项；列表显示 enabled 不是运行证据。
-8. 对含中文、空格或字面 `%` 的项目路径，至少用 `file(action=diagnostics)` 验证一次 file URI 能回到 workspace 内本机路径；`path_outside_workspace` 不能记为 PASS。
-9. 对 Go 项目保留并验证用户的 `GOTOOLCHAIN=auto`/`<name>+auto` 策略；版本探测应在已解析的 module 或 go.work 目录执行。
-10. 若配置修改需要第二次复核，重复读取配置，确认没有重复规则、重复 server、stale 路径或旧字段。
+2. 重新解析项目根及其上一级，确认配置中的 cwd、`GO_AGENT_LSP_ROOT` 和解码后的 `GO_AGENT_LSP_ROOTS` 与用户选择的 `<trusted-cwd>` 完全一致；不得只凭字符串看起来相近就通过。
+3. 重新读取本次客户端对应的 AGENTS.md、CLAUDE.md 或两者，确认受管规则存在一次且必需语义完整。
+4. 重新解析所有修改后的 JSON/TOML。
+5. Codex：信任项目并重启，用 /mcp 或 codex mcp list 检查。
+6. Claude Code：完成 workspace trust 和项目 MCP 批准，用 /mcp、claude mcp list 或 claude mcp get 检查。
+7. Antigravity：在 MCP Servers 页面 Refresh，或在 CLI 用 /mcp 检查。
+8. 至少实际调用 file、structure、inspect、xref、diagnostics 中的一项；列表显示 enabled 不是运行证据。
+9. 对含中文、空格或字面 `%` 的项目路径，至少用 `file(action=diagnostics)` 验证一次 file URI 能回到 workspace 内本机路径；`path_outside_workspace` 不能记为 PASS。
+10. 对选择“仓库上一级”的配置，必须实际读取或导航一个位于上一级内、但不在本仓库内的已知文件；若没有可安全验证的相邻文件，明确记为未验证，不得扩大到其他目录取证。
+11. 对 Go 项目保留并验证用户的 `GOTOOLCHAIN=auto`/`<name>+auto` 策略；版本探测应在已解析的 module 或 go.work 目录执行。
+12. 若配置修改需要第二次复核，重复读取配置，确认没有重复规则、重复 server、stale 路径或旧字段。
 
 报告二进制目标、修改的项目级文件、保留的既有设置、解析结果、客户端发现状态和实际工具调用证据。未启动对应客户端时，把在线连接明确标为未验证。
