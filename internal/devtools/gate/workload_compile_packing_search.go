@@ -142,14 +142,16 @@ func minimizeCompilePackingMakespan(units []compilePlanningUnit, initial []Shard
 		return nil, err
 	}
 	high := compilePackingMakespan(initial)
+	best := canonicalCompilePacking(initial)
 	for low < high {
 		mid := low + (high-low)/2
-		_, found, err := searchCompilePackingFixedCount(units, len(initial), mid, target, budget)
+		candidate, found, err := searchCompilePackingFixedCount(units, len(initial), mid, target, budget)
 		if err != nil {
 			return nil, err
 		}
 		if found {
 			high = mid
+			best = candidate
 			continue
 		}
 		low = mid + 1
@@ -157,11 +159,7 @@ func minimizeCompilePackingMakespan(units []compilePlanningUnit, initial []Shard
 	if low != high {
 		return nil, errors.New("compile packing makespan search did not converge")
 	}
-	best, found, err := searchCompilePackingFixedCount(units, len(initial), high, target, budget)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
+	if compilePackingMakespan(best) > high {
 		return nil, errors.New("compile packing optimal capacity has no feasible layout")
 	}
 	return best, nil

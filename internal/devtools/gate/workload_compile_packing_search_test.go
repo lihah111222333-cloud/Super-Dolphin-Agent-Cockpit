@@ -273,6 +273,21 @@ func assertCompileUnitsBoundToGroups(t *testing.T, units []compilePlanningUnit, 
 	}
 }
 
+func TestMinimizeCompilePackingReusesKnownFeasibleInitialAtLowerBound(t *testing.T) {
+	units := []compilePlanningUnit{compilePackingTestUnit("known", 5)}
+	initial := []ShardPlan{{
+		Index: 0, Workloads: units[0].workloads, EstimatedDurationMS: units[0].costMS,
+	}}
+	budget := deterministicPackingSearchBudget{}
+	shards, err := minimizeCompilePackingMakespan(units, initial, 10, &budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shards) != 1 || shards[0].Workloads[0].Workload.ID != "known" {
+		t.Fatalf("known feasible layout = %#v", shards)
+	}
+}
+
 func TestCompilePackingSearchFailsClosedWhenNodeBudgetIsExhausted(t *testing.T) {
 	units := []compilePlanningUnit{compilePackingTestUnit("w0", 1), compilePackingTestUnit("w1", 1)}
 	budget := deterministicPackingSearchBudget{}
