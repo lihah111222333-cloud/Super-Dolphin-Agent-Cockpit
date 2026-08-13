@@ -15,7 +15,7 @@ import (
 const ProgressEventSchemaVersion uint32 = 1
 
 // ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
-const ReuseDiagnosticSchemaVersion uint32 = 12
+const ReuseDiagnosticSchemaVersion uint32 = 13
 
 // ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
 const ShardPlanDiagnosticSchemaVersion uint32 = 1
@@ -88,6 +88,7 @@ type ReuseDiagnostic struct {
 
 // ReuseReplayDiagnostic 汇总两类 exact-tree replay 的候选与拒绝阶段，不携带 workload 或摘要。
 type ReuseReplayDiagnostic struct {
+	DirectSameTreeCompileGroups         int `json:"direct_same_tree_compile_groups"`
 	SourceCandidateWorkloads            int `json:"source_candidate_workloads"`
 	SourceCandidates                    int `json:"source_candidates"`
 	SourceCandidateTrees                int `json:"source_candidate_trees"`

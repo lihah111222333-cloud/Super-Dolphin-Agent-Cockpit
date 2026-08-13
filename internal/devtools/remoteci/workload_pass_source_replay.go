@@ -333,7 +333,38 @@ func recordRemoteSourceSemanticDecision(diagnostic *ReuseReplayDiagnostic, decis
 
 type remoteReplayCompileCoverage map[string]gate.GateID
 
-// covers 判断当前 compile owner 是否已有一个确定 source MISS 将进入 fresh execution。
+// seedRemoteReplayCompileCoverageFromDirectHits 把同一目标树上的权威 direct PASS
+// 投影为包级编译覆盖。跨树 direct PASS 不能证明目标树编译闭包，因此不会参与预置。
+func seedRemoteReplayCompileCoverageFromDirectHits(
+	targetTree string,
+	identities []gate.WorkloadPassIdentity,
+	workloads map[gate.GateID]gate.Workload,
+	reused map[string]gate.WorkloadPassEvidence,
+	coverage remoteReplayCompileCoverage,
+) (int, error) {
+	seeded := 0
+	for _, identity := range identities {
+		evidence, ok := reused[string(identity.WorkloadID)]
+		if !ok || evidence.OriginSourceTreeSHA != targetTree {
+			continue
+		}
+		workload, ok := workloads[identity.WorkloadID]
+		if !ok {
+			return 0, fmt.Errorf("same-tree direct PASS workload %q is absent from current catalog", identity.WorkloadID)
+		}
+		covered, err := coverage.cover(workload)
+		if err != nil {
+			return 0, err
+		}
+		if covered {
+			seeded++
+		}
+	}
+	return seeded, nil
+}
+
+// covers 判断当前 compile owner 是否已有同树 direct PASS 或一个确定 source MISS
+// 覆盖其精确树编译义务。
 func (coverage remoteReplayCompileCoverage) covers(workload gate.Workload) (bool, error) {
 	key, supported, err := remoteReplayCompileCoverageKey(workload)
 	if err != nil || !supported {
@@ -343,7 +374,8 @@ func (coverage remoteReplayCompileCoverage) covers(workload gate.Workload) (bool
 	return covered, nil
 }
 
-// owns 判断 workload 是否是当前 compile owner 的唯一 fresh 执行者。
+// owns 判断 workload 是否是当前 compile owner 的覆盖证明持有者；同树 direct PASS
+// 不会再次进入 MISS 集合，source MISS owner 则必须保持为唯一 fresh 执行者。
 func (coverage remoteReplayCompileCoverage) owns(workload gate.Workload) (bool, error) {
 	key, supported, err := remoteReplayCompileCoverageKey(workload)
 	if err != nil || !supported {
@@ -352,7 +384,7 @@ func (coverage remoteReplayCompileCoverage) owns(workload gate.Workload) (bool, 
 	return coverage[key] == gate.GateID(workload.ID), nil
 }
 
-// cover 用当前确定 MISS 覆盖同 package+semantic 的精确树编译义务。
+// cover 用同树 direct PASS 或当前确定 MISS 覆盖同 package+semantic 的精确树编译义务。
 func (coverage remoteReplayCompileCoverage) cover(workload gate.Workload) (bool, error) {
 	key, supported, err := remoteReplayCompileCoverageKey(workload)
 	if err != nil || !supported {

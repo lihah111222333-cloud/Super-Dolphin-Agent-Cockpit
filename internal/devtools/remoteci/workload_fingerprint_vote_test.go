@@ -192,6 +192,65 @@ func TestRemoteReplayCompileCoverageSeparatesSemanticOwners(t *testing.T) {
 	}
 }
 
+// TestRemoteReplayCompileCoverageSeedsOnlySameTreeDirectPass 验证目标树已有的
+// 权威 direct PASS 可以覆盖同组兄弟 selector，而跨树 PASS 仍必须重新裁决编译闭包。
+func TestRemoteReplayCompileCoverageSeedsOnlySameTreeDirectPass(t *testing.T) {
+	direct := testRemoteGoWorkload(t, "TestDirect")
+	sibling := testRemoteGoWorkload(t, "TestSibling")
+	directIdentity := gate.WorkloadPassIdentity{WorkloadID: gate.GateID(direct.ID)}
+	workloads := map[gate.GateID]gate.Workload{
+		gate.GateID(direct.ID):  direct,
+		gate.GateID(sibling.ID): sibling,
+	}
+	coverage := make(remoteReplayCompileCoverage)
+	seeded, err := seedRemoteReplayCompileCoverageFromDirectHits(
+		"target-tree",
+		[]gate.WorkloadPassIdentity{directIdentity},
+		workloads,
+		map[string]gate.WorkloadPassEvidence{
+			string(direct.ID): {Identity: directIdentity, OriginSourceTreeSHA: "target-tree"},
+		},
+		coverage,
+	)
+	if err != nil || seeded != 1 {
+		t.Fatalf("same-tree direct seed count = %d, err=%v, want 1", seeded, err)
+	}
+	if covered, err := coverage.covers(sibling); err != nil || !covered {
+		t.Fatalf("same-tree sibling coverage = %t, err=%v, want true", covered, err)
+	}
+	if owner, err := coverage.owns(sibling); err != nil || owner {
+		t.Fatalf("same-tree sibling owner = %t, err=%v, want false", owner, err)
+	}
+}
+
+// TestRemoteReplayCompileCoverageDoesNotSeedCrossTreeDirectPass 验证跨树 direct PASS
+// 不会预置当前目标树的编译覆盖。
+func TestRemoteReplayCompileCoverageDoesNotSeedCrossTreeDirectPass(t *testing.T) {
+	direct := testRemoteGoWorkload(t, "TestDirect")
+	sibling := testRemoteGoWorkload(t, "TestSibling")
+	directIdentity := gate.WorkloadPassIdentity{WorkloadID: gate.GateID(direct.ID)}
+	workloads := map[gate.GateID]gate.Workload{
+		gate.GateID(direct.ID):  direct,
+		gate.GateID(sibling.ID): sibling,
+	}
+	crossTreeCoverage := make(remoteReplayCompileCoverage)
+	seeded, err := seedRemoteReplayCompileCoverageFromDirectHits(
+		"target-tree",
+		[]gate.WorkloadPassIdentity{directIdentity},
+		workloads,
+		map[string]gate.WorkloadPassEvidence{
+			string(direct.ID): {Identity: directIdentity, OriginSourceTreeSHA: "older-tree"},
+		},
+		crossTreeCoverage,
+	)
+	if err != nil || seeded != 0 {
+		t.Fatalf("cross-tree direct seed count = %d, err=%v, want 0", seeded, err)
+	}
+	if covered, err := crossTreeCoverage.covers(sibling); err != nil || covered {
+		t.Fatalf("cross-tree sibling coverage = %t, err=%v, want false", covered, err)
+	}
+}
+
 // testRemoteGoWorkload 创建 compile-first 单测使用的规范 Go selector workload。
 func testRemoteGoWorkload(t *testing.T, name string) gate.Workload {
 	t.Helper()

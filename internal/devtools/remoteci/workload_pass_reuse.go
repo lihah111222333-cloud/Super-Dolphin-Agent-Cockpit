@@ -392,6 +392,18 @@ func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, cata
 	preparation.directHits = len(reused)
 	preparation.missConfirmations = newRemoteReuseMissConfirmations(identities, reused)
 	compileCoverage := make(remoteReplayCompileCoverage)
+	workloads, err := remoteReplayWorkloadIndex(catalog)
+	if err != nil {
+		return nil, err
+	}
+	observe.phase("reuse_compile_coverage_seed_started")
+	preparation.replayDiagnostic.DirectSameTreeCompileGroups, err = seedRemoteReplayCompileCoverageFromDirectHits(
+		input.Tree, identities, workloads, reused, compileCoverage,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("seed remote workload direct PASS compile coverage: %w", err)
+	}
+	observe.phase("reuse_compile_coverage_seed_completed")
 	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, compileCoverage, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
 		return nil, fmt.Errorf("replay remote workload PASS sources: %w", err)
 	}
