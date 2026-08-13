@@ -23,6 +23,7 @@ func remoteWorkloadInputAlgorithmRequiredPaths() []string {
 		"internal/devtools/gate/executor_compile_group.go",
 		"internal/devtools/gate/executor_mapping.go",
 		"internal/devtools/gate/local_executor_receipt_git.go",
+		"internal/devtools/gate/workload_pass_source_replay.go",
 		"internal/devtools/gate/registry.go",
 		"internal/devtools/gate/workload_model.go",
 		"internal/devtools/gate/workload_targets.go",

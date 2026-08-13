@@ -409,6 +409,9 @@ func prewarmRemoteWorkloadPassSourceInputs(
 	if err != nil || compatible {
 		return compatible, err
 	}
+	if err := cache.preloadPersistentInputDigests(source, workloads); err != nil {
+		return false, err
+	}
 	return false, cache.prewarmInputDigests(ctx, repositoryRoot, tree, workloads)
 }
 

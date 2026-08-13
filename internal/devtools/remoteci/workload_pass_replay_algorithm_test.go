@@ -2,6 +2,8 @@ package remoteci
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -101,6 +103,58 @@ func TestPrewarmRemoteWorkloadPassSourceInputsSkipsCompatibleAlgorithm(t *testin
 	if cache.inputComputations != 0 {
 		t.Fatalf("compatible prewarm computed %d source inputs", cache.inputComputations)
 	}
+}
+
+func TestPrewarmRemoteWorkloadPassSourceInputsLoadsPersistentDigest(t *testing.T) {
+	cache, source, target, workload, wantDigest := persistentInputReplayTestFixture(t)
+	sourceTree := source.tree
+	compatible, err := prewarmRemoteWorkloadPassSourceInputs(context.Background(), "repo", sourceTree, []gate.Workload{workload}, source, target, cache)
+	if err != nil || compatible {
+		t.Fatalf("persistent incompatible prewarm compatible=%t err=%v", compatible, err)
+	}
+	key := remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: sourceTree}, workloadID: workload.ID}
+	if got := cache.inputDigests[key]; !got.available || got.digest != wantDigest {
+		t.Fatalf("persistent workload input digest = %#v", got)
+	}
+	if cache.inputComputations != 0 || cache.persistentInputHits != 1 {
+		t.Fatalf("persistent cache computations=%d hits=%d", cache.inputComputations, cache.persistentInputHits)
+	}
+	if err := cache.persistComputedInputDigests(); err != nil {
+		t.Fatal(err)
+	}
+	if cache.persistentInputWrites != 0 {
+		t.Fatalf("persistent cache rewrote %d loaded inputs", cache.persistentInputWrites)
+	}
+}
+
+func persistentInputReplayTestFixture(t *testing.T) (*remoteReplayCache, *remoteGitTreeSnapshot, *remoteGitTreeSnapshot, gate.Workload, string) {
+	t.Helper()
+	targetTree := strings.Repeat("a", 40)
+	sourceTree := strings.Repeat("b", 40)
+	target := testRemoteReplayAlgorithmSnapshot(targetTree, "target-algorithm", "target-unrelated")
+	source := testRemoteReplayAlgorithmSnapshot(sourceTree, "source-algorithm", "source-unrelated")
+	cache, err := newRemoteReplayCache("repo", targetTree, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwap(0, gate.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteCITestAcceptedGeneration(t, store, 1)
+	if err := cache.bindPersistentInputReplayCache(store, 1, target); err != nil {
+		t.Fatal(err)
+	}
+	workload := gate.Workload{ID: string(gate.GateIDWhitespaceCheck)}
+	wantDigest := "sha256:" + strings.Repeat("c", 64)
+	if err := store.SaveWorkloadInputReplayCache(1, cache.persistentInputAlgorithm, []gate.WorkloadInputReplayCacheEntry{{SourceTreeSHA: sourceTree, WorkloadID: gate.GateID(workload.ID), InputDigest: wantDigest}}); err != nil {
+		t.Fatal(err)
+	}
+	cache.snapshots[remoteReplayTreeKey{repositoryRoot: "repo", tree: sourceTree}] = remoteReplaySnapshotResult{snapshot: source, available: true}
+	return cache, source, target, workload, wantDigest
 }
 
 func testRemoteReplayAlgorithmSnapshot(tree, algorithmObject, unrelatedObject string) *remoteGitTreeSnapshot {

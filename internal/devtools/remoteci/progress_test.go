@@ -75,6 +75,7 @@ func TestJSONProgressObserverWritesReuseDecisionDiagnostic(t *testing.T) {
 		CacheSnapshotComputations: 31, CacheSnapshotLoads: 32, CacheInputComputations: 33,
 		CacheCompileComputations: 34, CacheSemanticComputations: 35, CacheEnvironmentComputations: 36,
 		CacheWorkerComputations: 37, CacheAlgorithmComputations: 40,
+		CachePersistentInputHits: 43, CachePersistentInputWrites: 44,
 	}
 	observer.ObserveRemoteCIReuseDiagnostic(ReuseDiagnostic{
 		MissConfirmationThreshold: 2,
@@ -163,6 +164,8 @@ func TestCoordinatorPrepareReportsInternalStages(t *testing.T) {
 		"reuse_direct_lookup_completed",
 		"reuse_source_candidate_query_started",
 		"reuse_source_candidate_query_completed",
+		"reuse_source_rank_started",
+		"reuse_source_rank_completed",
 		"reuse_source_vote_started",
 		"reuse_source_vote_completed",
 		"reuse_environment_replay_started",
@@ -179,6 +182,8 @@ func TestCoordinatorPrepareReportsInternalStages(t *testing.T) {
 		"reuse_environment_authorization_started",
 		"reuse_environment_authorization_completed",
 		"reuse_environment_replay_completed",
+		"reuse_input_cache_persist_started",
+		"reuse_input_cache_persist_completed",
 		"reuse_outcome_projection_started",
 		"reuse_outcome_projection_completed",
 		"reuse_completed",

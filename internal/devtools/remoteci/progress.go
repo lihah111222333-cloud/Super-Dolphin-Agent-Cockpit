@@ -15,7 +15,7 @@ import (
 const ProgressEventSchemaVersion uint32 = 1
 
 // ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
-const ReuseDiagnosticSchemaVersion uint32 = 10
+const ReuseDiagnosticSchemaVersion uint32 = 11
 
 // ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
 const ShardPlanDiagnosticSchemaVersion uint32 = 1
@@ -120,6 +120,8 @@ type ReuseReplayDiagnostic struct {
 	CacheEnvironmentComputations        int `json:"cache_environment_computations"`
 	CacheWorkerComputations             int `json:"cache_worker_computations"`
 	CacheAlgorithmComputations          int `json:"cache_algorithm_computations"`
+	CachePersistentInputHits            int `json:"cache_persistent_input_hits"`
+	CachePersistentInputWrites          int `json:"cache_persistent_input_writes"`
 }
 
 // ReuseDiagnosticGroup 按 workload 类型与编译单元聚合 MISS 来源；它不携带

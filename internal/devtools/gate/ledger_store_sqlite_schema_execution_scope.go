@@ -60,3 +60,19 @@ CREATE INDEX IF NOT EXISTS idx_ci_retained_workload_pass_proofs_source_replay
 	ON ci_retained_workload_pass_proofs (workload_id, consumer_job_id);
 `}
 }
+
+// durationLedgerWorkloadInputReplayCacheSchemaStatements 是 additive v18
+// immutable source-tree 输入索引；它不构成 PASS evidence 或 retention root。
+func durationLedgerWorkloadInputReplayCacheSchemaStatements() []string {
+	return []string{`
+CREATE TABLE IF NOT EXISTS ci_workload_input_replay_cache (
+	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
+	source_tree_sha TEXT NOT NULL CHECK ((length(source_tree_sha) = 40 OR length(source_tree_sha) = 64) AND source_tree_sha = lower(source_tree_sha) AND source_tree_sha NOT GLOB '*[^0-9a-f]*'),
+	input_algorithm_digest TEXT NOT NULL CHECK (length(input_algorithm_digest) = 71 AND substr(input_algorithm_digest, 1, 7) = 'sha256:' AND substr(input_algorithm_digest, 8) NOT GLOB '*[^0-9a-f]*'),
+	workload_id TEXT NOT NULL CHECK (length(trim(workload_id)) > 0 AND workload_id = trim(workload_id)),
+	input_digest TEXT NOT NULL CHECK (length(input_digest) = 71 AND substr(input_digest, 1, 7) = 'sha256:' AND substr(input_digest, 8) NOT GLOB '*[^0-9a-f]*'),
+	cache_sha256 TEXT NOT NULL CHECK (length(cache_sha256) = 71 AND substr(cache_sha256, 1, 7) = 'sha256:' AND substr(cache_sha256, 8) NOT GLOB '*[^0-9a-f]*'),
+	PRIMARY KEY (accepted_generation, source_tree_sha, input_algorithm_digest, workload_id)
+) WITHOUT ROWID;
+`}
+}

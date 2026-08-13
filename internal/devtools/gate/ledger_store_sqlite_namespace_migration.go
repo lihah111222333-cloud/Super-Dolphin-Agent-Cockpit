@@ -17,6 +17,8 @@ const executionScopeDurationLedgerSQLiteSchemaVersion = 15
 
 const retainedProofDurationLedgerSQLiteSchemaVersion = 16
 
+const sourceReplayIndexDurationLedgerSQLiteSchemaVersion = 17
+
 // migrateDurationLedgerSQLiteSchema13To14 adds only local-origin projections;
 // the frozen remote PASS table is validated and left untouched.
 func migrateDurationLedgerSQLiteSchema13To14(database *sql.DB, now func() time.Time) error {
@@ -195,6 +197,51 @@ func migrateDurationLedgerSQLiteSchema16To17(database *sql.DB) error {
 	return nil
 }
 
+// migrateDurationLedgerSQLiteSchema17To18 添加内容寻址的 workload input replay
+// 索引；既有 authority、PASS proof 和 timing 行保持逐字不变。
+func migrateDurationLedgerSQLiteSchema17To18(database *sql.DB) error {
+	if database == nil {
+		return errors.New("duration ledger SQLite workload input replay cache migration requires database")
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite workload input replay cache migration connection", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return mapDurationLedgerSQLiteError("begin duration ledger SQLite workload input replay cache migration", err)
+	}
+	if err := migrateDurationLedgerSQLiteWorkloadInputReplayCacheOnConnection(connection); err != nil {
+		return rollbackDurationLedgerSQLiteNamespace(connection, err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return mapDurationLedgerSQLiteError("commit duration ledger SQLite workload input replay cache migration", err)
+	}
+	return nil
+}
+
+func migrateDurationLedgerSQLiteWorkloadInputReplayCacheOnConnection(connection *sql.Conn) error {
+	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	if version != sourceReplayIndexDurationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite workload input replay cache migration expected schema version %d, got %d", sourceReplayIndexDurationLedgerSQLiteSchemaVersion, version)
+	}
+	if err := preflightDurationLedgerSQLiteSchemaVersion(connection, sourceReplayIndexDurationLedgerSQLiteSchemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range durationLedgerWorkloadInputReplayCacheSchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite workload input replay cache", err)
+		}
+	}
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite workload input replay cache schema version", err)
+	}
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
+}
+
 // migrateDurationLedgerSQLiteSourceReplayIndexesOnConnection 在同一写事务内校验 v16、
 // 创建两路分区索引并推进到 v17。
 func migrateDurationLedgerSQLiteSourceReplayIndexesOnConnection(connection *sql.Conn) error {
@@ -213,10 +260,10 @@ func migrateDurationLedgerSQLiteSourceReplayIndexesOnConnection(connection *sql.
 			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite source replay indexes", err)
 		}
 	}
-	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, sourceReplayIndexDurationLedgerSQLiteSchemaVersion)); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite source replay index schema version", err)
 	}
-	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, sourceReplayIndexDurationLedgerSQLiteSchemaVersion)
 }
 
 // backfillRetainedWorkloadPassProofs snapshots direct proof material for live
@@ -348,6 +395,10 @@ func preflightDurationLedgerSQLiteSchemaVersion(queryer durationLedgerSQLiteSche
 	case retainedProofDurationLedgerSQLiteSchemaVersion:
 		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
 		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+	case sourceReplayIndexDurationLedgerSQLiteSchemaVersion:
+		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+		statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
 	case durationLedgerSQLiteSchemaVersion:
 		statements = durationLedgerSQLiteCurrentSchemaStatements()
 	default:

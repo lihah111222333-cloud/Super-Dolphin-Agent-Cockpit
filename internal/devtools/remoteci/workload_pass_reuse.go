@@ -337,6 +337,11 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
+	if !input.Force {
+		if err := replayCache.bindPersistentInputReplayCache(input.LedgerStore, input.AcceptedGeneration, fingerprintSnapshot); err != nil {
+			return remoteWorkloadReusePreparation{}, err
+		}
+	}
 	reused, err := prepareRemoteWorkloadReuseReplays(ctx, input, catalog, identities, workerTimeout, resourcePolicy, replayCache, &preparation, observe)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
@@ -397,8 +402,16 @@ func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, cata
 	}
 	observe.phase("reuse_environment_replay_completed")
 	preparation.environmentReplayHits = len(reused) - afterSourceReplay
+	if err := validateRemoteReuseMissConsensus(identities, reused, preparation.missConfirmations); err != nil {
+		return nil, err
+	}
+	observe.phase("reuse_input_cache_persist_started")
+	if err := replayCache.persistComputedInputDigests(); err != nil {
+		return nil, fmt.Errorf("persist remote workload input replay cache: %w", err)
+	}
+	observe.phase("reuse_input_cache_persist_completed")
 	recordRemoteReplayCacheDiagnostic(&preparation.replayDiagnostic, replayCache)
-	return reused, validateRemoteReuseMissConsensus(identities, reused, preparation.missConfirmations)
+	return reused, nil
 }
 
 // recordRemoteReplayCacheDiagnostic 只投影聚合计算次数，用于区分 SQLite、
@@ -415,6 +428,8 @@ func recordRemoteReplayCacheDiagnostic(diagnostic *ReuseReplayDiagnostic, cache 
 	diagnostic.CacheEnvironmentComputations = int(cache.environmentComputations)
 	diagnostic.CacheWorkerComputations = int(cache.previousGroupedComputations + cache.legacyComputations + cache.previousComputations + cache.previousStableComputations + cache.preciseComputations)
 	diagnostic.CacheAlgorithmComputations = int(cache.algorithmComputations)
+	diagnostic.CachePersistentInputHits = int(cache.persistentInputHits)
+	diagnostic.CachePersistentInputWrites = int(cache.persistentInputWrites)
 }
 
 // projectRemoteWorkloadReuseOutcome 同时冻结 package-atomic 重跑 proof 与对应

@@ -74,6 +74,11 @@ type remoteReplayCache struct {
 	preciseWorkerDigests         map[remoteReplayTreeKey]string
 	environmentDigests           map[remoteReplayEnvironmentKey]string
 	algorithmDigests             map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult
+	currentTree                  remoteReplayTreeKey
+	persistentInputStore         *gate.DurationLedgerStore
+	persistentAcceptedGeneration uint64
+	persistentInputAlgorithm     string
+	persistentLoadedInputs       map[remoteReplayWorkloadKey]struct{}
 	snapshotComputations         uint64
 	snapshotLoads                uint64
 	inputComputations            uint64
@@ -86,6 +91,8 @@ type remoteReplayCache struct {
 	preciseComputations          uint64
 	environmentComputations      uint64
 	algorithmComputations        uint64
+	persistentInputHits          uint64
+	persistentInputWrites        uint64
 }
 
 // newRemoteReplayCache 用已完成 correctness 指纹计算的当前快照预热 replay，拒绝错树绑定。
@@ -102,6 +109,8 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 		preciseWorkerDigests:         make(map[remoteReplayTreeKey]string),
 		environmentDigests:           make(map[remoteReplayEnvironmentKey]string),
 		algorithmDigests:             make(map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult),
+		currentTree:                  remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree},
+		persistentLoadedInputs:       make(map[remoteReplayWorkloadKey]struct{}),
 	}
 	if current == nil {
 		return cache, nil
@@ -112,6 +121,84 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 	key := remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree}
 	cache.snapshots[key] = remoteReplaySnapshotResult{snapshot: current, available: true}
 	return cache, nil
+}
+
+// bindPersistentInputReplayCache 把一次 Prepare 的派生输入索引绑定到同一
+// SQLite authority、accepted generation 与当前 producer 算法摘要。
+func (cache *remoteReplayCache) bindPersistentInputReplayCache(store *gate.DurationLedgerStore, acceptedGeneration uint64, current *remoteGitTreeSnapshot) error {
+	if cache == nil || store == nil || acceptedGeneration == 0 {
+		return errors.New("remote workload input replay persistent cache binding is incomplete")
+	}
+	if current == nil {
+		return nil
+	}
+	digest, supported, err := cache.inputAlgorithmDigest(current)
+	if err != nil {
+		return err
+	}
+	if !supported {
+		return nil
+	}
+	cache.persistentInputStore = store
+	cache.persistentAcceptedGeneration = acceptedGeneration
+	cache.persistentInputAlgorithm = digest
+	return nil
+}
+
+// preloadPersistentInputDigests 对单一 immutable source tree 批量读取 SQLite
+// 派生索引；只填充 exact workload key，缺项仍交给现有重算路径。
+func (cache *remoteReplayCache) preloadPersistentInputDigests(source *remoteGitTreeSnapshot, workloads []gate.Workload) error {
+	if cache == nil || cache.persistentInputStore == nil || len(workloads) == 0 {
+		return nil
+	}
+	treeKey, err := remoteReplaySnapshotKey(source)
+	if err != nil {
+		return err
+	}
+	workloadIDs := make([]gate.GateID, 0, len(workloads))
+	for _, workload := range workloads {
+		key := remoteReplayWorkloadKey{tree: treeKey, workloadID: workload.ID}
+		if _, cached := cache.inputDigests[key]; !cached {
+			workloadIDs = append(workloadIDs, gate.GateID(workload.ID))
+		}
+	}
+	hits, err := cache.persistentInputStore.LookupWorkloadInputReplayCache(cache.persistentAcceptedGeneration, treeKey.tree, cache.persistentInputAlgorithm, workloadIDs)
+	if err != nil {
+		return err
+	}
+	for workloadID, digest := range hits {
+		key := remoteReplayWorkloadKey{tree: treeKey, workloadID: string(workloadID)}
+		cache.inputDigests[key] = remoteReplayInputDigestResult{digest: digest, available: true}
+		cache.persistentLoadedInputs[key] = struct{}{}
+		cache.persistentInputHits++
+	}
+	return nil
+}
+
+// persistComputedInputDigests 一次写回本轮新计算的 source-tree 摘要；目标树、
+// unavailable 结果和已从 SQLite 命中的键均不重复写入。
+func (cache *remoteReplayCache) persistComputedInputDigests() error {
+	if cache == nil || cache.persistentInputStore == nil {
+		return nil
+	}
+	entries := make([]gate.WorkloadInputReplayCacheEntry, 0)
+	for key, result := range cache.inputDigests {
+		if !result.available || key.tree == cache.currentTree {
+			continue
+		}
+		if _, loaded := cache.persistentLoadedInputs[key]; loaded {
+			continue
+		}
+		entries = append(entries, gate.WorkloadInputReplayCacheEntry{SourceTreeSHA: key.tree.tree, WorkloadID: gate.GateID(key.workloadID), InputDigest: result.digest})
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	if err := cache.persistentInputStore.SaveWorkloadInputReplayCache(cache.persistentAcceptedGeneration, cache.persistentInputAlgorithm, entries); err != nil {
+		return err
+	}
+	cache.persistentInputWrites += uint64(len(entries))
+	return nil
 }
 
 func (cache *remoteReplayCache) inputAlgorithmDigest(snapshot *remoteGitTreeSnapshot) (string, bool, error) {

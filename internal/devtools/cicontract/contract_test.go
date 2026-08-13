@@ -446,8 +446,8 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 }
 
 func TestDurationLedgerSQLiteSchemaV17OwnsReplayIndexObjects(t *testing.T) {
-	if DurationLedgerSQLiteSchemaVersion != 17 {
-		t.Fatalf("duration-ledger SQLite physical schema = %d, want 17", DurationLedgerSQLiteSchemaVersion)
+	if DurationLedgerSQLiteSchemaVersion != 18 {
+		t.Fatalf("duration-ledger SQLite physical schema = %d, want 18", DurationLedgerSQLiteSchemaVersion)
 	}
 	if !slices.Contains(SQLAuthoritySchemaTables(), RetainedWorkloadPassProofsTable) {
 		t.Fatalf("retained proof table %q is not registered", RetainedWorkloadPassProofsTable)

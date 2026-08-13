@@ -426,13 +426,15 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() ti
 	case 0:
 		return validator.initializeAuthority(database, now, validator)
 	case legacyDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema13To17(database, now)
+		return migrateDurationLedgerSQLiteSchema13To18(database, now)
 	case localDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema14To17(database)
+		return migrateDurationLedgerSQLiteSchema14To18(database)
 	case executionScopeDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema15To17(database)
+		return migrateDurationLedgerSQLiteSchema15To18(database)
 	case retainedProofDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema16To17(database)
+		return migrateDurationLedgerSQLiteSchema16To18(database)
+	case sourceReplayIndexDurationLedgerSQLiteSchemaVersion:
+		return migrateDurationLedgerSQLiteSchema17To18(database)
 	case durationLedgerSQLiteSchemaVersion:
 		return validator.preflight(database, schemaVersion)
 	default:
@@ -440,28 +442,35 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() ti
 	}
 }
 
-// migrateDurationLedgerSQLiteSchema13To17 串联 legacy authority 的全部单向迁移。
-func migrateDurationLedgerSQLiteSchema13To17(database *sql.DB, now func() time.Time) error {
+// migrateDurationLedgerSQLiteSchema13To18 串联 legacy authority 的全部单向迁移。
+func migrateDurationLedgerSQLiteSchema13To18(database *sql.DB, now func() time.Time) error {
 	if err := migrateDurationLedgerSQLiteSchema13To14(database, now); err != nil {
 		return err
 	}
-	return migrateDurationLedgerSQLiteSchema14To17(database)
+	return migrateDurationLedgerSQLiteSchema14To18(database)
 }
 
-// migrateDurationLedgerSQLiteSchema14To17 从 local namespace 继续迁移到当前索引布局。
-func migrateDurationLedgerSQLiteSchema14To17(database *sql.DB) error {
+// migrateDurationLedgerSQLiteSchema14To18 从 local namespace 继续迁移到当前索引布局。
+func migrateDurationLedgerSQLiteSchema14To18(database *sql.DB) error {
 	if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
 		return err
 	}
-	return migrateDurationLedgerSQLiteSchema15To17(database)
+	return migrateDurationLedgerSQLiteSchema15To18(database)
 }
 
-// migrateDurationLedgerSQLiteSchema15To17 从 execution scope 继续迁移到当前索引布局。
-func migrateDurationLedgerSQLiteSchema15To17(database *sql.DB) error {
+// migrateDurationLedgerSQLiteSchema15To18 从 execution scope 继续迁移到当前索引布局。
+func migrateDurationLedgerSQLiteSchema15To18(database *sql.DB) error {
 	if err := migrateDurationLedgerSQLiteSchema15To16(database); err != nil {
 		return err
 	}
-	return migrateDurationLedgerSQLiteSchema16To17(database)
+	return migrateDurationLedgerSQLiteSchema16To18(database)
+}
+
+func migrateDurationLedgerSQLiteSchema16To18(database *sql.DB) error {
+	if err := migrateDurationLedgerSQLiteSchema16To17(database); err != nil {
+		return err
+	}
+	return migrateDurationLedgerSQLiteSchema17To18(database)
 }
 
 type durationLedgerSQLiteSchemaVersionReader interface {

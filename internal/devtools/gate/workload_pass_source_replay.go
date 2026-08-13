@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -16,6 +18,15 @@ import (
 // workloadPassSourceReplayBatchSize 保证三列 requested identity 加三代参数仍低于
 // SQLite 3.32+ 默认 32766 变量上限，同时让当前约三千 workload 只做一次候选分区。
 const workloadPassSourceReplayBatchSize = 4096
+
+const workloadInputReplayCacheDomain = "remote-workload-input-replay-cache/v1"
+
+// WorkloadInputReplayCacheEntry 是当前算法对 immutable source tree 的输入摘要索引项。
+type WorkloadInputReplayCacheEntry struct {
+	SourceTreeSHA string
+	WorkloadID    GateID
+	InputDigest   string
+}
 
 type workloadPassSourceReplayPayload struct {
 	Domain                   string               `json:"domain"`
@@ -90,6 +101,239 @@ func validateReusableWorkloadEvidenceBinding(source WorkloadPassEvidence, result
 	}
 	if result.EvidenceSHA256 != environmentReplay {
 		return fmt.Errorf("reused workload result %q environment replay digest does not match proof", result.Identity.WorkloadID)
+	}
+	return nil
+}
+
+// LookupWorkloadInputReplayCache 批量读取当前 accepted generation、source tree
+// 与算法摘要下的已验证输入索引；缺项只返回 MISS，不伪造摘要。
+func (store *DurationLedgerStore) LookupWorkloadInputReplayCache(acceptedGeneration uint64, sourceTreeSHA, inputAlgorithmDigest string, workloadIDs []GateID) (map[GateID]string, error) {
+	if store == nil {
+		return nil, errors.New("duration ledger store is nil")
+	}
+	if err := validateWorkloadInputReplayCacheCoordinates(acceptedGeneration, sourceTreeSHA, inputAlgorithmDigest); err != nil {
+		return nil, err
+	}
+	requested, err := validateWorkloadInputReplayCacheWorkloads(workloadIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[GateID]string)
+	if len(workloadIDs) == 0 {
+		return result, nil
+	}
+	database, err := store.openSQLiteAuthority(true)
+	if err != nil {
+		return nil, err
+	}
+	defer database.Close()
+	tx, err := database.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, mapDurationLedgerSQLiteError("begin workload input replay cache lookup", err)
+	}
+	defer tx.Rollback()
+	if err := requireWorkloadInputReplayCacheGeneration(tx, acceptedGeneration); err != nil {
+		return nil, err
+	}
+	if err := loadWorkloadInputReplayCache(tx, acceptedGeneration, sourceTreeSHA, inputAlgorithmDigest, workloadIDs, requested, result); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("commit workload input replay cache lookup", err)
+	}
+	return result, nil
+}
+
+// SaveWorkloadInputReplayCache 原子写入确定性输入索引；同键不同摘要立即阻断，
+// 且写事务以统一三代 compactor 作为最后一个数据库操作。
+func (store *DurationLedgerStore) SaveWorkloadInputReplayCache(acceptedGeneration uint64, inputAlgorithmDigest string, entries []WorkloadInputReplayCacheEntry) error {
+	if store == nil {
+		return errors.New("duration ledger store is nil")
+	}
+	canonical, err := canonicalWorkloadInputReplayCacheEntries(acceptedGeneration, inputAlgorithmDigest, entries)
+	if err != nil || len(canonical) == 0 {
+		return err
+	}
+	database, err := store.openSQLiteAuthority(true)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	return saveWorkloadInputReplayCacheTransaction(database, acceptedGeneration, inputAlgorithmDigest, canonical)
+}
+
+func saveWorkloadInputReplayCacheTransaction(database *sql.DB, acceptedGeneration uint64, inputAlgorithmDigest string, canonical []WorkloadInputReplayCacheEntry) error {
+	tx, err := database.BeginTx(context.Background(), nil)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("begin workload input replay cache write", err)
+	}
+	defer tx.Rollback()
+	if err := requireWorkloadInputReplayCacheGeneration(tx, acceptedGeneration); err != nil {
+		return err
+	}
+	if err := insertWorkloadInputReplayCacheEntries(tx, acceptedGeneration, inputAlgorithmDigest, canonical); err != nil {
+		return err
+	}
+	if err := verifyStoredWorkloadInputReplayCacheEntries(tx, acceptedGeneration, inputAlgorithmDigest, canonical); err != nil {
+		return err
+	}
+	if err := compactDurationLedgerAuthority(tx); err != nil {
+		return fmt.Errorf("compact workload input replay cache authority: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return mapDurationLedgerSQLiteError("commit workload input replay cache write", err)
+	}
+	return nil
+}
+
+func validateWorkloadInputReplayCacheCoordinates(acceptedGeneration uint64, sourceTreeSHA, inputAlgorithmDigest string) error {
+	if acceptedGeneration == 0 {
+		return errors.New("workload input replay cache accepted generation is required")
+	}
+	if !validLocalTreeObjectID(sourceTreeSHA) || sourceTreeSHA != strings.ToLower(sourceTreeSHA) {
+		return errors.New("workload input replay cache source tree is invalid")
+	}
+	if !validSHA256Digest(inputAlgorithmDigest) || inputAlgorithmDigest != strings.ToLower(inputAlgorithmDigest) {
+		return errors.New("workload input replay cache algorithm digest is invalid")
+	}
+	return nil
+}
+
+func validateWorkloadInputReplayCacheWorkloads(workloadIDs []GateID) (map[GateID]struct{}, error) {
+	requested := make(map[GateID]struct{}, len(workloadIDs))
+	for _, workloadID := range workloadIDs {
+		if strings.TrimSpace(string(workloadID)) == "" || string(workloadID) != strings.TrimSpace(string(workloadID)) {
+			return nil, errors.New("workload input replay cache workload ID is invalid")
+		}
+		if _, duplicate := requested[workloadID]; duplicate {
+			return nil, fmt.Errorf("workload input replay cache workload %q is duplicated", workloadID)
+		}
+		requested[workloadID] = struct{}{}
+	}
+	return requested, nil
+}
+
+func requireWorkloadInputReplayCacheGeneration(tx *sql.Tx, acceptedGeneration uint64) error {
+	current, err := currentAcceptedBaselineGeneration(tx)
+	if err != nil {
+		return fmt.Errorf("load workload input replay cache generation: %w", err)
+	}
+	if current != acceptedGeneration {
+		return fmt.Errorf("workload input replay cache generation drifted from %d to %d", acceptedGeneration, current)
+	}
+	return nil
+}
+
+func workloadInputReplayCacheSHA256(acceptedGeneration uint64, inputAlgorithmDigest string, entry WorkloadInputReplayCacheEntry) string {
+	hasher := sha256.New()
+	fmt.Fprintf(hasher, "%s\n%d\n%s\n%s\n%s\n%s\n", workloadInputReplayCacheDomain, acceptedGeneration, entry.SourceTreeSHA, inputAlgorithmDigest, entry.WorkloadID, entry.InputDigest)
+	return fmt.Sprintf("sha256:%x", hasher.Sum(nil))
+}
+
+func loadWorkloadInputReplayCache(tx *sql.Tx, acceptedGeneration uint64, sourceTreeSHA, inputAlgorithmDigest string, workloadIDs []GateID, requested map[GateID]struct{}, result map[GateID]string) error {
+	for start := 0; start < len(workloadIDs); start += workloadPassSourceReplayBatchSize {
+		end := min(start+workloadPassSourceReplayBatchSize, len(workloadIDs))
+		if err := appendWorkloadInputReplayCacheBatch(tx, acceptedGeneration, sourceTreeSHA, inputAlgorithmDigest, workloadIDs[start:end], requested, result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func appendWorkloadInputReplayCacheBatch(tx *sql.Tx, acceptedGeneration uint64, sourceTreeSHA, inputAlgorithmDigest string, workloadIDs []GateID, requested map[GateID]struct{}, result map[GateID]string) error {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(workloadIDs)), ",")
+	args := []any{strconv.FormatUint(acceptedGeneration, 10), sourceTreeSHA, inputAlgorithmDigest}
+	for _, workloadID := range workloadIDs {
+		args = append(args, string(workloadID))
+	}
+	rows, err := tx.Query(`SELECT workload_id, input_digest, cache_sha256 FROM ci_workload_input_replay_cache WHERE accepted_generation = ? AND source_tree_sha = ? AND input_algorithm_digest = ? AND workload_id IN (`+placeholders+`) ORDER BY workload_id`, args...)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("query workload input replay cache", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var workloadIDText, inputDigest, cacheSHA256 string
+		if err := rows.Scan(&workloadIDText, &inputDigest, &cacheSHA256); err != nil {
+			return mapDurationLedgerSQLiteError("scan workload input replay cache", err)
+		}
+		workloadID := GateID(workloadIDText)
+		if _, ok := requested[workloadID]; !ok || !validSHA256Digest(inputDigest) || inputDigest != strings.ToLower(inputDigest) {
+			return errors.New("workload input replay cache row is invalid")
+		}
+		entry := WorkloadInputReplayCacheEntry{SourceTreeSHA: sourceTreeSHA, WorkloadID: workloadID, InputDigest: inputDigest}
+		if cacheSHA256 != workloadInputReplayCacheSHA256(acceptedGeneration, inputAlgorithmDigest, entry) {
+			return fmt.Errorf("workload input replay cache %q integrity digest is invalid", workloadID)
+		}
+		result[workloadID] = inputDigest
+	}
+	return rows.Err()
+}
+
+func canonicalWorkloadInputReplayCacheEntries(acceptedGeneration uint64, inputAlgorithmDigest string, entries []WorkloadInputReplayCacheEntry) ([]WorkloadInputReplayCacheEntry, error) {
+	canonical := append([]WorkloadInputReplayCacheEntry(nil), entries...)
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range canonical {
+		if err := validateWorkloadInputReplayCacheCoordinates(acceptedGeneration, entry.SourceTreeSHA, inputAlgorithmDigest); err != nil {
+			return nil, err
+		}
+		if _, err := validateWorkloadInputReplayCacheWorkloads([]GateID{entry.WorkloadID}); err != nil {
+			return nil, err
+		}
+		if !validSHA256Digest(entry.InputDigest) || entry.InputDigest != strings.ToLower(entry.InputDigest) {
+			return nil, errors.New("workload input replay cache input digest is invalid")
+		}
+		key := entry.SourceTreeSHA + "\x00" + string(entry.WorkloadID)
+		if _, duplicate := seen[key]; duplicate {
+			return nil, fmt.Errorf("workload input replay cache entry %q is duplicated", entry.WorkloadID)
+		}
+		seen[key] = struct{}{}
+	}
+	sort.Slice(canonical, func(left, right int) bool {
+		if canonical[left].SourceTreeSHA != canonical[right].SourceTreeSHA {
+			return canonical[left].SourceTreeSHA < canonical[right].SourceTreeSHA
+		}
+		return canonical[left].WorkloadID < canonical[right].WorkloadID
+	})
+	return canonical, nil
+}
+
+func insertWorkloadInputReplayCacheEntries(tx *sql.Tx, acceptedGeneration uint64, inputAlgorithmDigest string, entries []WorkloadInputReplayCacheEntry) error {
+	statement, err := tx.Prepare(`INSERT INTO ci_workload_input_replay_cache(accepted_generation, source_tree_sha, input_algorithm_digest, workload_id, input_digest, cache_sha256) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(accepted_generation, source_tree_sha, input_algorithm_digest, workload_id) DO UPDATE SET input_digest = excluded.input_digest, cache_sha256 = excluded.cache_sha256 WHERE input_digest = excluded.input_digest AND cache_sha256 = excluded.cache_sha256`)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("prepare workload input replay cache insert", err)
+	}
+	defer statement.Close()
+	generation := strconv.FormatUint(acceptedGeneration, 10)
+	for _, entry := range entries {
+		cacheSHA256 := workloadInputReplayCacheSHA256(acceptedGeneration, inputAlgorithmDigest, entry)
+		if _, err := statement.Exec(generation, entry.SourceTreeSHA, inputAlgorithmDigest, entry.WorkloadID, entry.InputDigest, cacheSHA256); err != nil {
+			return mapDurationLedgerSQLiteError("insert workload input replay cache", err)
+		}
+	}
+	return nil
+}
+
+func verifyStoredWorkloadInputReplayCacheEntries(tx *sql.Tx, acceptedGeneration uint64, inputAlgorithmDigest string, entries []WorkloadInputReplayCacheEntry) error {
+	for start := 0; start < len(entries); {
+		end := start + 1
+		for end < len(entries) && entries[end].SourceTreeSHA == entries[start].SourceTreeSHA {
+			end++
+		}
+		workloadIDs := make([]GateID, 0, end-start)
+		expected := make(map[GateID]string, end-start)
+		for _, entry := range entries[start:end] {
+			workloadIDs = append(workloadIDs, entry.WorkloadID)
+			expected[entry.WorkloadID] = entry.InputDigest
+		}
+		requested, _ := validateWorkloadInputReplayCacheWorkloads(workloadIDs)
+		actual := make(map[GateID]string, len(workloadIDs))
+		if err := loadWorkloadInputReplayCache(tx, acceptedGeneration, entries[start].SourceTreeSHA, inputAlgorithmDigest, workloadIDs, requested, actual); err != nil {
+			return err
+		}
+		if !maps.Equal(actual, expected) {
+			return errors.New("workload input replay cache write verification drifted")
+		}
+		start = end
 	}
 	return nil
 }

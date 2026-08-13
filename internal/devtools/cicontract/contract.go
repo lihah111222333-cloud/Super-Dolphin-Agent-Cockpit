@@ -42,7 +42,7 @@ const (
 	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
 	// DurationLedgerSQLiteSchemaVersion 是 duration-ledger SQLite 物理 schema 的唯一版本 owner。
-	DurationLedgerSQLiteSchemaVersion = 17
+	DurationLedgerSQLiteSchemaVersion = 18
 	// CacheMaterialSchemaID 标识 OCI 构建阶段可生成的非权威缓存材料 manifest。
 	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或首代检查回执。
 	CacheMaterialSchemaID = "remote-ci-cache-material/v1"

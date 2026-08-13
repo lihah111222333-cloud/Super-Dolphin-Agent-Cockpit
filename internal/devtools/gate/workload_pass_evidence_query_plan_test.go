@@ -83,6 +83,16 @@ func TestWorkloadPassEnvironmentReplayQueryPlanUsesPartitionIndexes(t *testing.T
 	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_pass_evidence", "ci_retained_workload_pass_proofs"})
 }
 
+func TestWorkloadInputReplayCacheQueryPlanUsesPrimaryPartition(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 12)
+	database := openWorkloadPassDatabase(t, store)
+	defer database.Close()
+	query := `SELECT workload_id, input_digest, cache_sha256 FROM ci_workload_input_replay_cache WHERE accepted_generation = ? AND source_tree_sha = ? AND input_algorithm_digest = ? AND workload_id IN (?, ?) ORDER BY workload_id`
+	details := sqliteQueryPlanDetails(t, database, query, "12", strings.Repeat("a", 40), digestForWorkloadPass("query-plan-input-algorithm"), GateIDWhitespaceCheck, GateIDProjectMapCheck)
+	assertSQLiteQueryPlanAccess(t, details, []string{"SEARCH ci_workload_input_replay_cache USING PRIMARY KEY (accepted_generation=? AND source_tree_sha=? AND input_algorithm_digest=? AND workload_id=?)"})
+	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_input_replay_cache"})
+}
+
 // TestLookupWorkloadPassEvidenceInitializesMissingAuthorityButRejectsMissingBaseline
 // 验证直接 PASS lookup 在缺失路径上原子初始化 schema/index，但仍因 accepted
 // baseline 缺失而 fail-fast，不生成默认 generation 或 PASS。

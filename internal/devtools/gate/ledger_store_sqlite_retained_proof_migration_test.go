@@ -89,14 +89,7 @@ func TestDurationLedgerSQLiteV16ToV17AddsOnlySourceReplayIndexes(t *testing.T) {
 	_ = lookupSingleWorkloadPassEvidence(t, store, identity)
 	database := openWorkloadPassDatabase(t, store)
 	defer database.Close()
-	for _, index := range []string{"idx_ci_workload_pass_evidence_source_replay", "idx_ci_retained_workload_pass_proofs_source_replay"} {
-		if _, err := database.Exec("DROP INDEX " + index); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := database.Exec(`PRAGMA user_version = 16`); err != nil {
-		t.Fatal(err)
-	}
+	downgradeDurationLedgerSQLiteV18ToV16Fixture(t, database)
 	beforeCount, beforeDigest := sqliteRowsFingerprint(t, database, `SELECT * FROM ci_workload_pass_evidence ORDER BY identity_digest, accepted_generation`)
 	if err := migrateDurationLedgerSQLiteSchema16To17(database); err != nil {
 		t.Fatal(err)
@@ -108,8 +101,54 @@ func TestDurationLedgerSQLiteV16ToV17AddsOnlySourceReplayIndexes(t *testing.T) {
 	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != 17 {
 		t.Fatalf("user_version = %d, want 17", got)
 	}
-	if err := newDurationLedgerSQLiteSchemaValidator().preflight(database, durationLedgerSQLiteSchemaVersion); err != nil {
+	if err := preflightDurationLedgerSQLiteSchemaVersion(database, sourceReplayIndexDurationLedgerSQLiteSchemaVersion); err != nil {
 		t.Fatalf("v17 schema preflight: %v", err)
+	}
+}
+
+func downgradeDurationLedgerSQLiteV18ToV16Fixture(t *testing.T, database *sql.DB) {
+	t.Helper()
+	for _, index := range []string{"idx_ci_workload_pass_evidence_source_replay", "idx_ci_retained_workload_pass_proofs_source_replay"} {
+		if _, err := database.Exec("DROP INDEX " + index); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := database.Exec(`DROP TABLE ci_workload_input_replay_cache`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`PRAGMA user_version = 16`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDurationLedgerSQLiteV17ToV18AddsOnlyWorkloadInputReplayCache(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, identity, receipts := recordWorkloadPassRun(t, store, "input-cache-origin", 1, "input-cache")
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	_ = lookupSingleWorkloadPassEvidence(t, store, identity)
+	database := openWorkloadPassDatabase(t, store)
+	defer database.Close()
+	if _, err := database.Exec(`DROP TABLE ci_workload_input_replay_cache`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`PRAGMA user_version = 17`); err != nil {
+		t.Fatal(err)
+	}
+	beforeCount, beforeDigest := sqliteRowsFingerprint(t, database, `SELECT * FROM ci_workload_pass_evidence ORDER BY identity_digest, accepted_generation`)
+	if err := migrateDurationLedgerSQLiteSchema17To18(database); err != nil {
+		t.Fatal(err)
+	}
+	afterCount, afterDigest := sqliteRowsFingerprint(t, database, `SELECT * FROM ci_workload_pass_evidence ORDER BY identity_digest, accepted_generation`)
+	if beforeCount != afterCount || beforeDigest != afterDigest {
+		t.Fatalf("v17 to v18 rewrote evidence rows: before=%d/%s after=%d/%s", beforeCount, beforeDigest, afterCount, afterDigest)
+	}
+	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != durationLedgerSQLiteSchemaVersion {
+		t.Fatalf("user_version = %d, want %d", got, durationLedgerSQLiteSchemaVersion)
+	}
+	if err := newDurationLedgerSQLiteSchemaValidator().preflight(database, durationLedgerSQLiteSchemaVersion); err != nil {
+		t.Fatalf("v18 schema preflight: %v", err)
 	}
 }
 

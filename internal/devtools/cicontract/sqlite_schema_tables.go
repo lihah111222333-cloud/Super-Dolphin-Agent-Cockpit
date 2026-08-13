@@ -23,6 +23,8 @@ const (
 	LocalWorkloadExecutionsTable = "ci_local_workload_executions"
 	// LocalWorkloadPassEvidenceTable 是本地 PASS 证据投影表。
 	LocalWorkloadPassEvidenceTable = "ci_local_workload_pass_evidence"
+	// WorkloadInputReplayCacheTable 是 immutable source-tree 的派生输入索引表。
+	WorkloadInputReplayCacheTable = "ci_workload_input_replay_cache"
 )
 
 // SQLAuthorityAuxiliaryTables 返回不属于事实域绑定但仍受唯一 SQLite authority 管理的表。
@@ -39,6 +41,7 @@ func SQLAuthorityAuxiliaryTables() []string {
 		LocalWorkloadPassEvidenceTable,
 		RemoteRunExecutionScopesTable,
 		RetainedWorkloadPassProofsTable,
+		WorkloadInputReplayCacheTable,
 	}
 }
 

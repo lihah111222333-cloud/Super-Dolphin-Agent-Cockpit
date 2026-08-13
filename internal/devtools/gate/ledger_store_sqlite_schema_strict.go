@@ -30,7 +30,8 @@ func durationLedgerSQLiteCurrentSchemaStatements() []string {
 	statements := durationLedgerSQLiteSchemaStatementsV14()
 	statements = append(statements, durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
 	statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
-	return append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
+	statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
+	return append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
 }
 
 // durationLedgerSQLiteSchemaStatementsV14 is the complete pre-scope schema.

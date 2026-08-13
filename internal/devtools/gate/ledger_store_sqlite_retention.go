@@ -320,10 +320,27 @@ func compactDurationLedgerAuthorityAtAcceptedGeneration(transaction *sql.Tx, cur
 	if err := deleteStaleRetentionGenerations(transaction, bindings); err != nil {
 		return err
 	}
+	return finishDurationLedgerAuthorityCompaction(transaction, currentGeneration)
+}
+
+func finishDurationLedgerAuthorityCompaction(transaction *sql.Tx, currentGeneration uint64) error {
+	if err := compactWorkloadInputReplayCache(transaction, currentGeneration); err != nil {
+		return err
+	}
 	if err := compactLiveRemoteCITimingWarnings(transaction); err != nil {
 		return err
 	}
 	return pruneUnreferencedWorkloadCatalogs(transaction)
+}
+
+// compactWorkloadInputReplayCache 只保留当前 accepted generation 及前两代的
+// 派生输入索引；它不是第八个历史根，不参与 generation 并集计算。
+func compactWorkloadInputReplayCache(transaction *sql.Tx, currentGeneration uint64) error {
+	retained := retainedWorkloadPassGenerations(currentGeneration)
+	if _, err := transaction.Exec(`DELETE FROM ci_workload_input_replay_cache WHERE accepted_generation NOT IN (?, ?, ?)`, retained[0], retained[1], retained[2]); err != nil {
+		return mapDurationLedgerSQLiteError("compact workload input replay cache", err)
+	}
+	return nil
 }
 
 // validateRetainedWorkloadPassProofsBeforeCompaction 要求每个 live reused consumer
