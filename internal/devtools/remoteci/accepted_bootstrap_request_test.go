@@ -298,3 +298,43 @@ func TestAcceptedBootstrapProjectionRejectsMixedNilnessCompileGroup(t *testing.T
 		t.Fatalf("mixed nilness compile group error = %v", err)
 	}
 }
+
+func TestAcceptedBootstrapProjectionSortsRecomputedGroupIDs(t *testing.T) {
+	firstWorkload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/alpha", "TestAlpha", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondWorkload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/beta", "TestBeta", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := func(target, digest string, workload gate.Workload) gate.CompileGroup {
+		return gate.CompileGroup{
+			PackageTarget: target, SemanticKey: gate.CompileGroupSemanticGoTestNormal,
+			SharedInputDigest: "sha256:" + strings.Repeat(digest, 64), ProfileDigest: "sha256:" + strings.Repeat("c", 64),
+			ResourceClassID: "small", WorkloadIDs: []gate.GateID{gate.GateID(workload.ID)},
+			CompileEstimateMS: 1, BodyEstimateMS: 1, EstimatedDurationMS: 2,
+		}
+	}
+	first := group("./internal/alpha", "a", firstWorkload)
+	second := group("./internal/beta", "b", secondWorkload)
+	firstProjected, err := ProjectAcceptedCompileGroups([]gate.CompileGroup{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondProjected, err := ProjectAcceptedCompileGroups([]gate.CompileGroup{second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := []gate.CompileGroup{first, second}
+	if firstProjected[0].GroupID < secondProjected[0].GroupID {
+		input[0], input[1] = input[1], input[0]
+	}
+	projected, err := ProjectAcceptedCompileGroups(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projected) != 2 || projected[0].GroupID >= projected[1].GroupID {
+		t.Fatalf("accepted projected group order = %#v", projected)
+	}
+}

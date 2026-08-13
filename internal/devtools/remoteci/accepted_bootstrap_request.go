@@ -174,6 +174,9 @@ func ProjectAcceptedCompileGroups(groups []gate.CompileGroup) ([]acceptedCompile
 		}
 		projected = append(projected, item)
 	}
+	slices.SortFunc(projected, func(left, right acceptedCompileGroup) int {
+		return strings.Compare(left.GroupID, right.GroupID)
+	})
 	return projected, nil
 }
 
