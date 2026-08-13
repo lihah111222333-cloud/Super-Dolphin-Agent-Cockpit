@@ -43,6 +43,11 @@ func replayRemoteWorkloadPassMisses(
 		return err
 	}
 	observe.phase("reuse_source_rank_completed")
+	observe.phase("reuse_source_input_cache_started")
+	if err := preloadRemoteWorkloadPassSourceInputs(ctx, input.RepositoryRoot, input.Tree, candidates, workloads, cache); err != nil {
+		return err
+	}
+	observe.phase("reuse_source_input_cache_completed")
 	observe.phase("reuse_source_vote_started")
 	for _, identity := range missing {
 		workload, ok := workloads[identity.WorkloadID]
@@ -55,6 +60,62 @@ func replayRemoteWorkloadPassMisses(
 	}
 	observe.phase("reuse_source_vote_completed")
 	return nil
+}
+
+// preloadRemoteWorkloadPassSourceInputs 按 immutable 来源树批量读取当前 producer
+// 的派生输入索引；缺失键仍由后续 best-first 候选裁决按需重算。
+func preloadRemoteWorkloadPassSourceInputs(ctx context.Context, repositoryRoot, targetTree string, candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload, cache *remoteReplayCache) error {
+	target, available, err := cache.snapshot(ctx, repositoryRoot, targetTree)
+	if err != nil || !available {
+		return err
+	}
+	partitions := remoteWorkloadPassSourceInputPartitions(candidates, workloads)
+	trees := make([]string, 0, len(partitions))
+	for tree := range partitions {
+		trees = append(trees, tree)
+	}
+	sort.Strings(trees)
+	for _, tree := range trees {
+		source, sourceAvailable, err := cache.snapshot(ctx, repositoryRoot, tree)
+		if err != nil {
+			return err
+		}
+		if !sourceAvailable {
+			continue
+		}
+		compatible, err := cache.inputAlgorithmsCompatible(source, target)
+		if err != nil {
+			return err
+		}
+		if !compatible {
+			if err := cache.preloadPersistentInputDigests(source, partitions[tree]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func remoteWorkloadPassSourceInputPartitions(candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload) map[string][]gate.Workload {
+	partitions := make(map[string][]gate.Workload)
+	seen := make(map[string]map[gate.GateID]struct{})
+	for workloadID, workloadCandidates := range candidates {
+		workload, ok := workloads[workloadID]
+		if !ok {
+			continue
+		}
+		for _, candidate := range canonicalRemoteWorkloadPassSourceCandidates(workloadCandidates) {
+			if seen[candidate.OriginSourceTreeSHA] == nil {
+				seen[candidate.OriginSourceTreeSHA] = make(map[gate.GateID]struct{})
+			}
+			if _, duplicate := seen[candidate.OriginSourceTreeSHA][workloadID]; duplicate {
+				continue
+			}
+			seen[candidate.OriginSourceTreeSHA][workloadID] = struct{}{}
+			partitions[candidate.OriginSourceTreeSHA] = append(partitions[candidate.OriginSourceTreeSHA], workload)
+		}
+	}
+	return partitions
 }
 
 // replayRemoteWorkloadPassMiss 裁决一个 direct MISS，并让首个未复用 selector

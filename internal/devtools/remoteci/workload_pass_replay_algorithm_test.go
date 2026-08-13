@@ -127,6 +127,25 @@ func TestPrewarmRemoteWorkloadPassSourceInputsLoadsPersistentDigest(t *testing.T
 	}
 }
 
+func TestPreloadRemoteWorkloadPassSourceInputsLoadsPersistentDigest(t *testing.T) {
+	cache, source, target, workload, wantDigest := persistentInputReplayTestFixture(t)
+	workloadID := gate.GateID(workload.ID)
+	candidates := map[gate.GateID][]gate.WorkloadPassEvidence{
+		workloadID: {{OriginSourceTreeSHA: source.tree}},
+	}
+	workloads := map[gate.GateID]gate.Workload{workloadID: workload}
+	if err := preloadRemoteWorkloadPassSourceInputs(t.Context(), "repo", target.tree, candidates, workloads, cache); err != nil {
+		t.Fatal(err)
+	}
+	key := remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: source.tree}, workloadID: workload.ID}
+	if got := cache.inputDigests[key]; !got.available || got.digest != wantDigest {
+		t.Fatalf("source replay persistent workload input digest = %#v", got)
+	}
+	if cache.inputComputations != 0 || cache.persistentInputHits != 1 {
+		t.Fatalf("source replay persistent cache computations=%d hits=%d", cache.inputComputations, cache.persistentInputHits)
+	}
+}
+
 func persistentInputReplayTestFixture(t *testing.T) (*remoteReplayCache, *remoteGitTreeSnapshot, *remoteGitTreeSnapshot, gate.Workload, string) {
 	t.Helper()
 	targetTree := strings.Repeat("a", 40)
