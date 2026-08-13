@@ -76,7 +76,7 @@ func TestVerifyRemoteWorkloadPassSourceInputReusesCompatibleAuthoritativeDigest(
 	}
 	matched, err := verifyRemoteWorkloadPassSourceInput(
 		context.Background(), RunInput{RepositoryRoot: "repo"}, identity, candidate,
-		gate.Workload{}, source, target, cache,
+		gate.Workload{}, source, target, false, cache, &ReuseReplayDiagnostic{},
 	)
 	if err != nil || !matched {
 		t.Fatalf("compatible authoritative input matched=%t err=%v", matched, err)

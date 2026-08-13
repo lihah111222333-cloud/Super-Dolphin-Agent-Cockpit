@@ -15,7 +15,7 @@ import (
 const ProgressEventSchemaVersion uint32 = 1
 
 // ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
-const ReuseDiagnosticSchemaVersion uint32 = 11
+const ReuseDiagnosticSchemaVersion uint32 = 12
 
 // ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
 const ShardPlanDiagnosticSchemaVersion uint32 = 1
@@ -110,6 +110,13 @@ type ReuseReplayDiagnostic struct {
 	EnvironmentHistoricalMismatch       int `json:"environment_historical_mismatch"`
 	EnvironmentCurrentWorkerMismatch    int `json:"environment_current_worker_mismatch"`
 	EnvironmentInputMismatch            int `json:"environment_input_mismatch"`
+	EnvironmentSingleVoteRecovered      int `json:"environment_single_vote_recovered"`
+	EnvironmentDeclarationMissVotes     int `json:"environment_declaration_miss_votes"`
+	EnvironmentRuntimeMissVotes         int `json:"environment_runtime_miss_votes"`
+	EnvironmentCompileMissVotes         int `json:"environment_compile_miss_votes"`
+	EnvironmentCompileOwners            int `json:"environment_compile_owners"`
+	EnvironmentCompileCoveredRecoveries int `json:"environment_compile_covered_recoveries"`
+	EnvironmentConfirmedMisses          int `json:"environment_confirmed_misses"`
 	EnvironmentAlgorithmCompatibleTrees int `json:"environment_algorithm_compatible_trees"`
 	EnvironmentInputPrewarmSkipped      int `json:"environment_input_prewarm_skipped"`
 	CacheSnapshotComputations           int `json:"cache_snapshot_computations"`

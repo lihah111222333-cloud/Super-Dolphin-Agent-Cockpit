@@ -193,15 +193,15 @@ func assertLocalPassContractValues(t *testing.T, root string) {
 	if !strings.Contains(remoteContract, "BaselineStateSchemaVersion uint32 = 13") {
 		t.Fatal("remote accepted baseline JSON schema owner drifted from v13")
 	}
-	if cicontract.DurationLedgerSQLiteSchemaVersion != 17 {
-		t.Fatalf("cicontract duration-ledger SQLite physical schema = %d, want v17", cicontract.DurationLedgerSQLiteSchemaVersion)
+	if cicontract.DurationLedgerSQLiteSchemaVersion != 18 {
+		t.Fatalf("cicontract duration-ledger SQLite physical schema = %d, want v18", cicontract.DurationLedgerSQLiteSchemaVersion)
 	}
 	ledger := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/ledger_store_sqlite.go")
 	if !strings.Contains(ledger, "durationLedgerSQLiteSchemaVersion = cicontract.DurationLedgerSQLiteSchemaVersion") {
 		t.Fatal("duration-ledger SQLite schema version must consume the cicontract owner")
 	}
 	migration := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/ledger_store_sqlite_namespace_migration.go")
-	for _, marker := range []string{"legacyDurationLedgerSQLiteSchemaVersion = 13", "localDurationLedgerSQLiteSchemaVersion = 14", "retainedProofDurationLedgerSQLiteSchemaVersion = 16", "migrateDurationLedgerSQLiteSchema13To14", "migrateDurationLedgerSQLiteSchema14To15", "migrateDurationLedgerSQLiteSchema15To16", "migrateDurationLedgerSQLiteSchema16To17", "strictLocalWorkloadPassSQLiteSchema", "durationLedgerRemoteCIExecutionScopeSchemaStatements", "durationLedgerRetainedWorkloadPassProofSchemaStatements", "durationLedgerSourceReplayIndexSchemaStatements", "backfillRetainedWorkloadPassProofs"} {
+	for _, marker := range []string{"legacyDurationLedgerSQLiteSchemaVersion = 13", "localDurationLedgerSQLiteSchemaVersion = 14", "retainedProofDurationLedgerSQLiteSchemaVersion = 16", "sourceReplayIndexDurationLedgerSQLiteSchemaVersion = 17", "migrateDurationLedgerSQLiteSchema13To14", "migrateDurationLedgerSQLiteSchema14To15", "migrateDurationLedgerSQLiteSchema15To16", "migrateDurationLedgerSQLiteSchema16To17", "migrateDurationLedgerSQLiteSchema17To18", "strictLocalWorkloadPassSQLiteSchema", "durationLedgerRemoteCIExecutionScopeSchemaStatements", "durationLedgerRetainedWorkloadPassProofSchemaStatements", "durationLedgerSourceReplayIndexSchemaStatements", "durationLedgerWorkloadInputReplayCacheSchemaStatements", "backfillRetainedWorkloadPassProofs"} {
 		if !strings.Contains(migration, marker) {
 			t.Errorf("local migration is missing additive marker %q", marker)
 		}

@@ -391,13 +391,14 @@ func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, cata
 	observe.phase("reuse_direct_lookup_completed")
 	preparation.directHits = len(reused)
 	preparation.missConfirmations = newRemoteReuseMissConfirmations(identities, reused)
-	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
+	compileCoverage := make(remoteReplayCompileCoverage)
+	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, compileCoverage, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
 		return nil, fmt.Errorf("replay remote workload PASS sources: %w", err)
 	}
 	preparation.sourceReplayHits = len(reused) - preparation.directHits
 	afterSourceReplay := len(reused)
 	observe.phase("reuse_environment_replay_started")
-	if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
+	if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, compileCoverage, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
 		return nil, fmt.Errorf("replay remote workload PASS environments: %w", err)
 	}
 	observe.phase("reuse_environment_replay_completed")

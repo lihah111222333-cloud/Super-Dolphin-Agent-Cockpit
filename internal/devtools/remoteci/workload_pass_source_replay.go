@@ -16,6 +16,7 @@ func replayRemoteWorkloadPassMisses(
 	catalog gate.WorkloadCatalog,
 	identities []gate.WorkloadPassIdentity,
 	reused map[string]gate.WorkloadPassEvidence,
+	compileCoverage remoteReplayCompileCoverage,
 	cache *remoteReplayCache,
 	confirmations remoteReuseMissConfirmations,
 	diagnostic *ReuseReplayDiagnostic,
@@ -42,7 +43,6 @@ func replayRemoteWorkloadPassMisses(
 		return err
 	}
 	observe.phase("reuse_source_rank_completed")
-	compileCoverage := make(remoteReplayCompileCoverage)
 	observe.phase("reuse_source_vote_started")
 	for _, identity := range missing {
 		workload, ok := workloads[identity.WorkloadID]
@@ -270,7 +270,7 @@ func recordRemoteSourceSemanticDecision(diagnostic *ReuseReplayDiagnostic, decis
 	}
 }
 
-type remoteReplayCompileCoverage map[string]struct{}
+type remoteReplayCompileCoverage map[string]gate.GateID
 
 // covers 判断当前 compile owner 是否已有一个确定 source MISS 将进入 fresh execution。
 func (coverage remoteReplayCompileCoverage) covers(workload gate.Workload) (bool, error) {
@@ -282,6 +282,15 @@ func (coverage remoteReplayCompileCoverage) covers(workload gate.Workload) (bool
 	return covered, nil
 }
 
+// owns 判断 workload 是否是当前 compile owner 的唯一 fresh 执行者。
+func (coverage remoteReplayCompileCoverage) owns(workload gate.Workload) (bool, error) {
+	key, supported, err := remoteReplayCompileCoverageKey(workload)
+	if err != nil || !supported {
+		return false, err
+	}
+	return coverage[key] == gate.GateID(workload.ID), nil
+}
+
 // cover 用当前确定 MISS 覆盖同 package+semantic 的精确树编译义务。
 func (coverage remoteReplayCompileCoverage) cover(workload gate.Workload) (bool, error) {
 	key, supported, err := remoteReplayCompileCoverageKey(workload)
@@ -291,7 +300,7 @@ func (coverage remoteReplayCompileCoverage) cover(workload gate.Workload) (bool,
 	if _, covered := coverage[key]; covered {
 		return false, nil
 	}
-	coverage[key] = struct{}{}
+	coverage[key] = gate.GateID(workload.ID)
 	return true, nil
 }
 

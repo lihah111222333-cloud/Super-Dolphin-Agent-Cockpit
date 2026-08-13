@@ -147,6 +147,28 @@ func TestRemoteWorkloadCompileCoverageReusesUnchangedSiblingBody(t *testing.T) {
 	}
 }
 
+// TestEnvironmentReplayUsesSharedCompileCoverage 验证 source 阶段已保留 fresh
+// compile owner 后，environment 阶段只恢复未变兄弟 selector，且输出独立诊断。
+func TestEnvironmentReplayUsesSharedCompileCoverage(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	source := testExactGoTestDigestSnapshot("")
+	source.repositoryRoot, source.tree = "repo", "source"
+	target := testExactGoTestDigestSnapshot("type Added int\n")
+	target.repositoryRoot, target.tree = "repo", "target"
+	cache, err := newRemoteReplayCache("repo", "target", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostic := ReuseReplayDiagnostic{}
+	matched, err := remoteWorkloadSemanticInputMatches(t.Context(), workload, source, target, true, cache, &diagnostic)
+	if err != nil || !matched {
+		t.Fatalf("covered environment semantic match=%t err=%v", matched, err)
+	}
+	if diagnostic.EnvironmentCompileMissVotes != 1 || diagnostic.EnvironmentCompileCoveredRecoveries != 1 || diagnostic.EnvironmentSingleVoteRecovered != 1 {
+		t.Fatalf("covered environment diagnostic = %#v", diagnostic)
+	}
+}
+
 // TestRemoteReplayCompileCoverageSeparatesSemanticOwners 验证同包 normal MISS 不会
 // 覆盖 race 或 benchmark 的独立编译义务。
 func TestRemoteReplayCompileCoverageSeparatesSemanticOwners(t *testing.T) {
@@ -161,6 +183,9 @@ func TestRemoteReplayCompileCoverageSeparatesSemanticOwners(t *testing.T) {
 	}
 	if covered, err := coverage.covers(normal); err != nil || !covered {
 		t.Fatalf("normal coverage = %v, err=%v", covered, err)
+	}
+	if owner, err := coverage.owns(normal); err != nil || !owner {
+		t.Fatalf("normal owner = %v, err=%v", owner, err)
 	}
 	if covered, err := coverage.covers(race); err != nil || covered {
 		t.Fatalf("race coverage = %v, err=%v", covered, err)

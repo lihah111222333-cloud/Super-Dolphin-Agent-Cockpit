@@ -488,6 +488,7 @@ func TestRemoteCIRetentionIsTheLastDatabaseOperationInEveryWriter(t *testing.T) 
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "appendSQLiteSamplesOnce"):                     false,
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "compareAndSwapSQLiteShardOverhead"):           false,
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarning"):             false,
+		remoteCIRetentionFunctionKey("", "saveWorkloadInputReplayCacheTransaction"):                         false,
 		remoteCIRetentionFunctionKey("", "finalizeSQLiteRemoteCIRunAuthority"):                              false,
 	}
 	remoteCIRetentionAssertFinalDatabaseOperations(t, directory, expectedCallers)
@@ -591,7 +592,7 @@ func remoteCIRetentionAssertFileFinalDatabaseOperations(t *testing.T, fileName s
 		if !ok || function.Body == nil {
 			continue
 		}
-		positions := remoteCIRetentionCompactionPositions(t, fileName, function, delegation, delegated, expectedCallers)
+		positions := remoteCIRetentionCompactionPositions(t, function, delegation, delegated, expectedCallers)
 		remoteCIRetentionAssertNoDatabaseAfterCompaction(t, fileName, function, positions)
 		remoteCIRetentionAssertNoAsyncCompaction(t, fileName, function)
 	}
@@ -599,7 +600,7 @@ func remoteCIRetentionAssertFileFinalDatabaseOperations(t *testing.T, fileName s
 }
 
 // remoteCIRetentionCompactionPositions 登记唯一允许的同步 compactor 调用。
-func remoteCIRetentionCompactionPositions(t *testing.T, fileName string, function *ast.FuncDecl, delegation remoteCIRetentionHelperDelegation, delegated bool, expectedCallers map[string]bool) []int {
+func remoteCIRetentionCompactionPositions(t *testing.T, function *ast.FuncDecl, delegation remoteCIRetentionHelperDelegation, delegated bool, expectedCallers map[string]bool) []int {
 	t.Helper()
 	positions := make([]int, 0, 1)
 	ast.Inspect(function.Body, func(node ast.Node) bool {

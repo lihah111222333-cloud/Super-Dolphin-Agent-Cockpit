@@ -24,6 +24,7 @@ func replayRemoteWorkloadPassEnvironment(
 	resourcePolicy shardresource.Policy,
 	reused map[string]gate.WorkloadPassEvidence,
 	proofs map[string]string,
+	compileCoverage remoteReplayCompileCoverage,
 	cache *remoteReplayCache,
 	confirmations remoteReuseMissConfirmations,
 	diagnostic *ReuseReplayDiagnostic,
@@ -54,7 +55,7 @@ func replayRemoteWorkloadPassEnvironment(
 	observe.phase("reuse_environment_filter_completed")
 	observe.phase("reuse_environment_tree_partitions_started")
 	selectedIdentities, selectedHints, selected, err := selectRemoteWorkloadPassEnvironmentReplayHints(
-		ctx, input, missing, workloads, candidates, target, cache, diagnostic, observe,
+		ctx, input, missing, workloads, candidates, target, compileCoverage, cache, diagnostic, observe,
 	)
 	if err != nil {
 		return err
@@ -184,6 +185,7 @@ func selectRemoteWorkloadPassEnvironmentReplayHints(
 	workloads map[gate.GateID]gate.Workload,
 	candidates map[gate.GateID][]remoteWorkloadPassEnvironmentCandidate,
 	target *remoteGitTreeSnapshot,
+	compileCoverage remoteReplayCompileCoverage,
 	cache *remoteReplayCache,
 	diagnostic *ReuseReplayDiagnostic,
 	observe remoteWorkloadReuseProgress,
@@ -191,7 +193,7 @@ func selectRemoteWorkloadPassEnvironmentReplayHints(
 	identityByWorkload, firstKeys := preferredRemoteWorkloadPassEnvironmentCandidateKeys(identities, candidates)
 	observe.phase("reuse_environment_preferred_partition_started")
 	matchedCandidates, err := evaluateRemoteWorkloadPassEnvironmentCandidateKeys(
-		ctx, input, identityByWorkload, workloads, candidates, firstKeys, target, cache, diagnostic,
+		ctx, input, identityByWorkload, workloads, candidates, firstKeys, target, compileCoverage, cache, diagnostic,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -200,7 +202,7 @@ func selectRemoteWorkloadPassEnvironmentReplayHints(
 	remainingKeys := remainingRemoteWorkloadPassEnvironmentCandidateKeys(identities, candidates, matchedCandidates)
 	observe.phase("reuse_environment_remaining_partition_started")
 	remainingMatches, err := evaluateRemoteWorkloadPassEnvironmentCandidateKeys(
-		ctx, input, identityByWorkload, workloads, candidates, remainingKeys, target, cache, diagnostic,
+		ctx, input, identityByWorkload, workloads, candidates, remainingKeys, target, compileCoverage, cache, diagnostic,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -291,11 +293,22 @@ func evaluateRemoteWorkloadPassEnvironmentCandidateKeys(
 	candidates map[gate.GateID][]remoteWorkloadPassEnvironmentCandidate,
 	keys []remoteWorkloadPassEnvironmentCandidateKey,
 	target *remoteGitTreeSnapshot,
+	compileCoverage remoteReplayCompileCoverage,
 	cache *remoteReplayCache,
 	diagnostic *ReuseReplayDiagnostic,
 ) (map[remoteWorkloadPassEnvironmentCandidateKey]struct{}, error) {
 	byTree := make(map[string][]remoteWorkloadPassEnvironmentCandidateKey)
 	for _, key := range keys {
+		owner, err := compileCoverage.owns(workloads[key.workloadID])
+		if err != nil {
+			return nil, err
+		}
+		if owner {
+			if key.index == 0 && diagnostic != nil {
+				diagnostic.EnvironmentCompileOwners++
+			}
+			continue
+		}
 		candidate := candidates[key.workloadID][key.index]
 		byTree[candidate.tree] = append(byTree[candidate.tree], key)
 	}
@@ -307,7 +320,8 @@ func evaluateRemoteWorkloadPassEnvironmentCandidateKeys(
 	matchedCandidates := make(map[remoteWorkloadPassEnvironmentCandidateKey]struct{})
 	evaluation := remoteWorkloadPassEnvironmentEvaluation{
 		ctx: ctx, input: input, identities: identities, workloads: workloads,
-		candidates: candidates, target: target, cache: cache, diagnostic: diagnostic,
+		candidates: candidates, target: target, compileCoverage: compileCoverage,
+		cache: cache, diagnostic: diagnostic,
 	}
 	for _, tree := range trees {
 		if err := evaluation.evaluateTree(tree, byTree[tree], matchedCandidates); err != nil {
@@ -318,14 +332,15 @@ func evaluateRemoteWorkloadPassEnvironmentCandidateKeys(
 }
 
 type remoteWorkloadPassEnvironmentEvaluation struct {
-	ctx        context.Context
-	input      RunInput
-	identities map[gate.GateID]gate.WorkloadPassIdentity
-	workloads  map[gate.GateID]gate.Workload
-	candidates map[gate.GateID][]remoteWorkloadPassEnvironmentCandidate
-	target     *remoteGitTreeSnapshot
-	cache      *remoteReplayCache
-	diagnostic *ReuseReplayDiagnostic
+	ctx             context.Context
+	input           RunInput
+	identities      map[gate.GateID]gate.WorkloadPassIdentity
+	workloads       map[gate.GateID]gate.Workload
+	candidates      map[gate.GateID][]remoteWorkloadPassEnvironmentCandidate
+	target          *remoteGitTreeSnapshot
+	compileCoverage remoteReplayCompileCoverage
+	cache           *remoteReplayCache
+	diagnostic      *ReuseReplayDiagnostic
 }
 
 // exactInputPartition 返回当前 identity 与历史 identity 输入相同的去重 workload，
@@ -377,9 +392,14 @@ func (evaluation remoteWorkloadPassEnvironmentEvaluation) evaluateTree(
 	for _, key := range keys {
 		prepared := evaluation.candidates[key.workloadID][key.index]
 		candidate := prepared.hint.UntrustedCandidate()
+		compileCovered, err := evaluation.compileCoverage.covers(evaluation.workloads[key.workloadID])
+		if err != nil {
+			return err
+		}
 		matched, err := verifyRemoteWorkloadPassSourceInput(
 			evaluation.ctx, evaluation.input, evaluation.identities[key.workloadID], candidate,
-			evaluation.workloads[key.workloadID], source, evaluation.target, evaluation.cache,
+			evaluation.workloads[key.workloadID], source, evaluation.target, compileCovered,
+			evaluation.cache, evaluation.diagnostic,
 		)
 		if err != nil {
 			return err
@@ -574,14 +594,16 @@ func verifyRemoteWorkloadPassSourceInput(
 	workload gate.Workload,
 	source *remoteGitTreeSnapshot,
 	target *remoteGitTreeSnapshot,
+	compileCovered bool,
 	cache *remoteReplayCache,
+	diagnostic *ReuseReplayDiagnostic,
 ) (bool, error) {
 	compatible, err := cache.inputAlgorithmsCompatible(source, target)
 	if err != nil {
 		return false, err
 	}
 	if candidate.Identity.InputDigest != identity.InputDigest {
-		semanticMatches, err := remoteWorkloadSemanticInputMatches(ctx, workload, source, target, cache)
+		semanticMatches, err := remoteWorkloadSemanticInputMatches(ctx, workload, source, target, compileCovered, cache, diagnostic)
 		if err != nil || !semanticMatches {
 			return false, err
 		}
@@ -600,6 +622,35 @@ func verifyRemoteWorkloadPassSourceInput(
 }
 
 // remoteWorkloadSemanticInputMatches 以 selector 语义闭包交叉 broad 输入；只支持可精确解析的 Go selector。
-func remoteWorkloadSemanticInputMatches(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot, cache *remoteReplayCache) (bool, error) {
-	return cache.semanticInputMatches(ctx, workload, source, target)
+func remoteWorkloadSemanticInputMatches(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot, compileCovered bool, cache *remoteReplayCache, diagnostic *ReuseReplayDiagnostic) (bool, error) {
+	decision, err := cache.semanticInputDecisionWithCompileCoverage(ctx, workload, source, target, compileCovered)
+	if err == nil {
+		diagnostic.observeEnvironmentInputVoteDecision(decision, compileCovered)
+	}
+	return decision.allowReuse(), err
+}
+
+// observeEnvironmentInputVoteDecision 聚合 environment replay 的 selector 票型，
+// 并显式区分 compile owner 与已被同组 fresh 执行覆盖的恢复量。
+func (diagnostic *ReuseReplayDiagnostic) observeEnvironmentInputVoteDecision(decision remoteWorkloadInputVoteDecision, compileCovered bool) {
+	if diagnostic == nil || decision.missVotes == 0 {
+		return
+	}
+	if decision.allowReuse() {
+		diagnostic.EnvironmentSingleVoteRecovered++
+	} else {
+		diagnostic.EnvironmentConfirmedMisses++
+	}
+	if decision.declarationMiss {
+		diagnostic.EnvironmentDeclarationMissVotes++
+	}
+	if decision.runtimeMiss {
+		diagnostic.EnvironmentRuntimeMissVotes++
+	}
+	if decision.compileMiss {
+		diagnostic.EnvironmentCompileMissVotes++
+		if compileCovered && decision.allowReuse() {
+			diagnostic.EnvironmentCompileCoveredRecoveries++
+		}
+	}
 }
