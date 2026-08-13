@@ -4208,7 +4208,6 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAgentLaunchedEvent",
         "internal/provider/codexapp.isCodexAgentStoppedEvent",
-        "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
@@ -4351,6 +4350,7 @@
         "internal/provider/codexapp.poolSpawnMCPBinaryDirContextKey",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigArgs",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigOverrideArgs",
+        "internal/provider/codexapp.poolSpawnNativeLSPRuntimeOverrides",
         "internal/provider/codexapp.poolSpawnNormalizedWorkDir",
         "internal/provider/codexapp.poolSpawnPolicySignature",
         "internal/provider/codexapp.poolSpawnPolicySignatureContextKey",
@@ -9271,7 +9271,6 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAgentLaunchedEvent",
         "internal/provider/codexapp.isCodexAgentStoppedEvent",
-        "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
@@ -9414,6 +9413,7 @@
         "internal/provider/codexapp.poolSpawnMCPBinaryDirContextKey",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigArgs",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigOverrideArgs",
+        "internal/provider/codexapp.poolSpawnNativeLSPRuntimeOverrides",
         "internal/provider/codexapp.poolSpawnNormalizedWorkDir",
         "internal/provider/codexapp.poolSpawnPolicySignature",
         "internal/provider/codexapp.poolSpawnPolicySignatureContextKey",
@@ -14334,7 +14334,6 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAgentLaunchedEvent",
         "internal/provider/codexapp.isCodexAgentStoppedEvent",
-        "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
@@ -14477,6 +14476,7 @@
         "internal/provider/codexapp.poolSpawnMCPBinaryDirContextKey",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigArgs",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigOverrideArgs",
+        "internal/provider/codexapp.poolSpawnNativeLSPRuntimeOverrides",
         "internal/provider/codexapp.poolSpawnNormalizedWorkDir",
         "internal/provider/codexapp.poolSpawnPolicySignature",
         "internal/provider/codexapp.poolSpawnPolicySignatureContextKey",
@@ -19397,7 +19397,6 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAgentLaunchedEvent",
         "internal/provider/codexapp.isCodexAgentStoppedEvent",
-        "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
@@ -19540,6 +19539,7 @@
         "internal/provider/codexapp.poolSpawnMCPBinaryDirContextKey",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigArgs",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigOverrideArgs",
+        "internal/provider/codexapp.poolSpawnNativeLSPRuntimeOverrides",
         "internal/provider/codexapp.poolSpawnNormalizedWorkDir",
         "internal/provider/codexapp.poolSpawnPolicySignature",
         "internal/provider/codexapp.poolSpawnPolicySignatureContextKey",
@@ -24367,7 +24367,6 @@
         "internal/provider/codexapp.codexTurnLatencyMilestoneFor",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
-        "internal/provider/codexapp.commandLeaf",
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
@@ -24465,7 +24464,6 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAgentLaunchedEvent",
         "internal/provider/codexapp.isCodexAgentStoppedEvent",
-        "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
@@ -24611,6 +24609,7 @@
         "internal/provider/codexapp.poolSpawnMCPBinaryDirContextKey",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigArgs",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigOverrideArgs",
+        "internal/provider/codexapp.poolSpawnNativeLSPRuntimeOverrides",
         "internal/provider/codexapp.poolSpawnNormalizedWorkDir",
         "internal/provider/codexapp.poolSpawnPolicySignature",
         "internal/provider/codexapp.poolSpawnPolicySignatureContextKey",
@@ -29438,7 +29437,6 @@
         "internal/provider/codexapp.codexTurnLatencyMilestoneFor",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
-        "internal/provider/codexapp.commandLeaf",
         "internal/provider/codexapp.comparableCodexHomePath",
         "internal/provider/codexapp.compareCodexInstallNames",
         "internal/provider/codexapp.compareIntParts",
@@ -29536,7 +29534,6 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAgentLaunchedEvent",
         "internal/provider/codexapp.isCodexAgentStoppedEvent",
-        "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
         "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
@@ -29682,6 +29679,7 @@
         "internal/provider/codexapp.poolSpawnMCPBinaryDirContextKey",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigArgs",
         "internal/provider/codexapp.poolSpawnNativeLSPConfigOverrideArgs",
+        "internal/provider/codexapp.poolSpawnNativeLSPRuntimeOverrides",
         "internal/provider/codexapp.poolSpawnNormalizedWorkDir",
         "internal/provider/codexapp.poolSpawnPolicySignature",
         "internal/provider/codexapp.poolSpawnPolicySignatureContextKey",
@@ -82752,19 +82750,6 @@
           ]
         },
         {
-          "name": "isCodexAppServerListenArgs",
-          "exported": false,
-          "params": [
-            {
-              "name": "args",
-              "type": "[]string"
-            }
-          ],
-          "returns": [
-            "bool"
-          ]
-        },
-        {
           "name": "isCodexFunctionCallItem",
           "exported": false,
           "params": [
@@ -84621,10 +84606,15 @@
             {
               "name": "workDir",
               "type": "string"
+            },
+            {
+              "name": "parentEnv",
+              "type": "[]string"
             }
           ],
           "returns": [
-            "[]string"
+            "[]string",
+            "error"
           ]
         },
         {
@@ -84638,6 +84628,20 @@
           ],
           "returns": [
             "[]string"
+          ]
+        },
+        {
+          "name": "poolSpawnNativeLSPRuntimeOverrides",
+          "exported": false,
+          "params": [
+            {
+              "name": "parentEnv",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "[]string",
+            "error"
           ]
         },
         {
