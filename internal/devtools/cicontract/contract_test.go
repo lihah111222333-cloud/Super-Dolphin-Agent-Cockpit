@@ -445,14 +445,14 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 	}
 }
 
-func TestDurationLedgerSQLiteSchemaV16OwnsRetainedProofObjects(t *testing.T) {
-	if DurationLedgerSQLiteSchemaVersion != 16 {
-		t.Fatalf("duration-ledger SQLite physical schema = %d, want 16", DurationLedgerSQLiteSchemaVersion)
+func TestDurationLedgerSQLiteSchemaV17OwnsReplayIndexObjects(t *testing.T) {
+	if DurationLedgerSQLiteSchemaVersion != 17 {
+		t.Fatalf("duration-ledger SQLite physical schema = %d, want 17", DurationLedgerSQLiteSchemaVersion)
 	}
 	if !slices.Contains(SQLAuthoritySchemaTables(), RetainedWorkloadPassProofsTable) {
 		t.Fatalf("retained proof table %q is not registered", RetainedWorkloadPassProofsTable)
 	}
-	for _, index := range []string{RetainedWorkloadPassProofLookupIndex, RunWorkloadResultsRetentionIndex} {
+	for _, index := range []string{RetainedWorkloadPassProofLookupIndex, RunWorkloadResultsRetentionIndex, WorkloadPassEvidenceSourceReplayIndex, RetainedWorkloadPassProofSourceReplayIndex} {
 		if !slices.Contains(SQLAuthorityAdditiveSchemaIndexes(), index) {
 			t.Fatalf("retained proof schema index %q is not registered", index)
 		}

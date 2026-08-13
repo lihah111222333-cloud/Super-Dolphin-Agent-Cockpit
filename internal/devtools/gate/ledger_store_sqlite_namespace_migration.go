@@ -15,6 +15,8 @@ const localDurationLedgerSQLiteSchemaVersion = 14
 
 const executionScopeDurationLedgerSQLiteSchemaVersion = 15
 
+const retainedProofDurationLedgerSQLiteSchemaVersion = 16
+
 // migrateDurationLedgerSQLiteSchema13To14 adds only local-origin projections;
 // the frozen remote PASS table is validated and left untouched.
 func migrateDurationLedgerSQLiteSchema13To14(database *sql.DB, now func() time.Time) error {
@@ -164,8 +166,55 @@ func migrateDurationLedgerSQLiteRetainedProofOnConnection(connection *sql.Conn) 
 	if err := backfillRetainedWorkloadPassProofs(connection); err != nil {
 		return err
 	}
-	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, retainedProofDurationLedgerSQLiteSchemaVersion)); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite retained proof schema version", err)
+	}
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, retainedProofDurationLedgerSQLiteSchemaVersion)
+}
+
+// migrateDurationLedgerSQLiteSchema16To17 只新增 source replay 分区索引；
+// authority、proof 与 retention 行保持逐字不变。
+func migrateDurationLedgerSQLiteSchema16To17(database *sql.DB) error {
+	if database == nil {
+		return errors.New("duration ledger SQLite source replay index migration requires database")
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite source replay index migration connection", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return mapDurationLedgerSQLiteError("begin duration ledger SQLite source replay index migration", err)
+	}
+	if err := migrateDurationLedgerSQLiteSourceReplayIndexesOnConnection(connection); err != nil {
+		return rollbackDurationLedgerSQLiteNamespace(connection, err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return mapDurationLedgerSQLiteError("commit duration ledger SQLite source replay index migration", err)
+	}
+	return nil
+}
+
+// migrateDurationLedgerSQLiteSourceReplayIndexesOnConnection 在同一写事务内校验 v16、
+// 创建两路分区索引并推进到 v17。
+func migrateDurationLedgerSQLiteSourceReplayIndexesOnConnection(connection *sql.Conn) error {
+	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	if version != retainedProofDurationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite source replay index migration expected schema version %d, got %d", retainedProofDurationLedgerSQLiteSchemaVersion, version)
+	}
+	if err := preflightDurationLedgerSQLiteSchemaVersion(connection, retainedProofDurationLedgerSQLiteSchemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range durationLedgerSourceReplayIndexSchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite source replay indexes", err)
+		}
+	}
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite source replay index schema version", err)
 	}
 	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
 }
@@ -296,6 +345,9 @@ func preflightDurationLedgerSQLiteSchemaVersion(queryer durationLedgerSQLiteSche
 		statements = durationLedgerSQLiteSchemaStatementsV14()
 	case executionScopeDurationLedgerSQLiteSchemaVersion:
 		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+	case retainedProofDurationLedgerSQLiteSchemaVersion:
+		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
 	case durationLedgerSQLiteSchemaVersion:
 		statements = durationLedgerSQLiteCurrentSchemaStatements()
 	default:

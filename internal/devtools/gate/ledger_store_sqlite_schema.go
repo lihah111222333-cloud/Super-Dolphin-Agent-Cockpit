@@ -426,25 +426,42 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() ti
 	case 0:
 		return validator.initializeAuthority(database, now, validator)
 	case legacyDurationLedgerSQLiteSchemaVersion:
-		if err := migrateDurationLedgerSQLiteSchema13To14(database, now); err != nil {
-			return err
-		}
-		if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
-			return err
-		}
-		return migrateDurationLedgerSQLiteSchema15To16(database)
+		return migrateDurationLedgerSQLiteSchema13To17(database, now)
 	case localDurationLedgerSQLiteSchemaVersion:
-		if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
-			return err
-		}
-		return migrateDurationLedgerSQLiteSchema15To16(database)
+		return migrateDurationLedgerSQLiteSchema14To17(database)
 	case executionScopeDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema15To16(database)
+		return migrateDurationLedgerSQLiteSchema15To17(database)
+	case retainedProofDurationLedgerSQLiteSchemaVersion:
+		return migrateDurationLedgerSQLiteSchema16To17(database)
 	case durationLedgerSQLiteSchemaVersion:
 		return validator.preflight(database, schemaVersion)
 	default:
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
+}
+
+// migrateDurationLedgerSQLiteSchema13To17 串联 legacy authority 的全部单向迁移。
+func migrateDurationLedgerSQLiteSchema13To17(database *sql.DB, now func() time.Time) error {
+	if err := migrateDurationLedgerSQLiteSchema13To14(database, now); err != nil {
+		return err
+	}
+	return migrateDurationLedgerSQLiteSchema14To17(database)
+}
+
+// migrateDurationLedgerSQLiteSchema14To17 从 local namespace 继续迁移到当前索引布局。
+func migrateDurationLedgerSQLiteSchema14To17(database *sql.DB) error {
+	if err := migrateDurationLedgerSQLiteSchema14To15(database); err != nil {
+		return err
+	}
+	return migrateDurationLedgerSQLiteSchema15To17(database)
+}
+
+// migrateDurationLedgerSQLiteSchema15To17 从 execution scope 继续迁移到当前索引布局。
+func migrateDurationLedgerSQLiteSchema15To17(database *sql.DB) error {
+	if err := migrateDurationLedgerSQLiteSchema15To16(database); err != nil {
+		return err
+	}
+	return migrateDurationLedgerSQLiteSchema16To17(database)
 }
 
 type durationLedgerSQLiteSchemaVersionReader interface {

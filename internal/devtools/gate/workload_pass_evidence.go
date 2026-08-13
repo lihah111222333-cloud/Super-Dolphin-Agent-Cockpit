@@ -263,6 +263,14 @@ func promoteExecutedWorkloadPassEvidence(
 	executions map[GateID]PlanGateExecution,
 	verifiedIdentities map[GateID]WorkloadPassIdentity,
 ) error {
+	executedIdentities, err := verifiedExecutedWorkloadIdentities(record.WorkloadResults, verifiedIdentities)
+	if err != nil {
+		return err
+	}
+	canonical, err := validatedCurrentWorkloadPassEvidence(tx, record.AcceptedGeneration, executedIdentities)
+	if err != nil {
+		return err
+	}
 	for _, result := range record.WorkloadResults {
 		if result.Disposition != WorkloadDispositionExecuted {
 			continue
@@ -271,9 +279,9 @@ func promoteExecutedWorkloadPassEvidence(
 		if !ok {
 			return fmt.Errorf("executed workload result %q lacks execution", result.Identity.WorkloadID)
 		}
-		identity, ok := verifiedIdentities[result.Identity.WorkloadID]
-		if !ok || identity != result.Identity {
-			return fmt.Errorf("executed workload result %q is not in the verified authority identity set", result.Identity.WorkloadID)
+		identity := verifiedIdentities[result.Identity.WorkloadID]
+		if _, exists := canonical[identity.IdentityDigest]; exists {
+			continue
 		}
 		if err := insertWorkloadPassEvidence(tx, record, receiptDigest, identity, execution); err != nil {
 			return err

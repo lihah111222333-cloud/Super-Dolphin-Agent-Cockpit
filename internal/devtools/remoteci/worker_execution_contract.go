@@ -102,14 +102,15 @@ type workerExecutionGoUnit struct {
 }
 
 type workerExecutionGoIndex struct {
-	symbols         map[string]map[string][]*workerExecutionGoUnit
-	methods         map[string]map[string][]*workerExecutionGoUnit
-	receiverMethods map[string]map[string][]*workerExecutionGoUnit
-	initializers    map[string][]*workerExecutionGoUnit
-	routes          map[string]map[string][]*workerExecutionGoUnit
-	parseErrors     map[string][]error
-	unitKeyStrategy workerExecutionUnitKeyStrategy
-	unitKeyOrdinals map[string]int
+	symbols                    map[string]map[string][]*workerExecutionGoUnit
+	methods                    map[string]map[string][]*workerExecutionGoUnit
+	receiverMethods            map[string]map[string][]*workerExecutionGoUnit
+	initializers               map[string][]*workerExecutionGoUnit
+	routes                     map[string]map[string][]*workerExecutionGoUnit
+	parseErrors                map[string][]error
+	unitKeyStrategy            workerExecutionUnitKeyStrategy
+	previousGroupedDeclaration bool
+	unitKeyOrdinals            map[string]int
 }
 
 type workerExecutionUnitKeyStrategy uint8
@@ -203,6 +204,43 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigest(ctx context
 		return "", err
 	}
 	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionExecutorConfigFragment(); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionSourceManifestAsset(); err != nil {
+		return "", err
+	}
+	return digestWorkerExecutionClosure(closure, assets)
+}
+
+// workerExecutionContractDigestPreviousGroupedDeclarationV4 重建 ValueSpec
+// 收窄前的精确 v4 摘要；只用于验证既有 PASS 来源环境。
+func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousGroupedDeclarationV4(ctx context.Context) (string, error) {
+	if err := validateWorkerExecutionRoots(workerExecutionRoots); err != nil {
+		return "", err
+	}
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return "", err
+	}
+	closure, err := snapshot.resolveWorkerExecutionClosurePreviousGroupedDeclaration()
+	if err != nil {
+		return "", err
+	}
+	assets := &workerExecutionAssets{
+		snapshot:       snapshot,
+		entries:        make(map[string]remoteGitTreeEntry),
+		fragments:      make(map[string]workerExecutionFragment),
+		scannedScripts: make(map[string]struct{}),
+	}
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		return "", err
+	}
+	if err := assets.resolveWorkerExecutionAssetsPreviousGroupedDeclaration(ctx, closure); err != nil {
 		return "", err
 	}
 	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
@@ -316,6 +354,25 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousStab
 // resolveWorkerExecutionClosure 解析全部受控根的 Go 依赖闭包。
 func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosure() (*workerExecutionGoClosure, error) {
 	return snapshot.resolveWorkerExecutionClosureWithRoots(workerExecutionRoots, false)
+}
+
+func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosurePreviousGroupedDeclaration() (*workerExecutionGoClosure, error) {
+	index := snapshot.buildWorkerExecutionGoIndexPreviousGroupedDeclaration()
+	closure := newWorkerExecutionGoClosure(index)
+	for _, root := range workerExecutionRoots {
+		unit, err := index.resolveRoot(root)
+		if err != nil {
+			return nil, err
+		}
+		closure.enqueue(unit)
+	}
+	if err := closure.resolve(); err != nil {
+		return nil, err
+	}
+	if err := closure.resolveSelfCommands(); err != nil {
+		return nil, err
+	}
+	return closure, nil
 }
 
 func (snapshot *remoteGitTreeSnapshot) resolveWorkerExecutionClosureWithRoots(

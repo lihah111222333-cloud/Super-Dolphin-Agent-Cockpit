@@ -48,3 +48,15 @@ CREATE INDEX IF NOT EXISTS idx_ci_run_workload_results_retention
 	ON ci_run_workload_results (disposition, job_id, origin_job_id, origin_accepted_generation, identity_digest, evidence_sha256);
 `}
 }
+
+// durationLedgerSourceReplayIndexSchemaStatements 是 additive v17 查询分区。
+// 它只新增 source replay 复合索引，不改写或复制任何 authority/proof 行。
+func durationLedgerSourceReplayIndexSchemaStatements() []string {
+	return []string{`
+CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_evidence_source_replay
+	ON ci_workload_pass_evidence (workload_id, execution_digest, environment_digest, accepted_generation);
+
+CREATE INDEX IF NOT EXISTS idx_ci_retained_workload_pass_proofs_source_replay
+	ON ci_retained_workload_pass_proofs (workload_id, consumer_job_id);
+`}
+}

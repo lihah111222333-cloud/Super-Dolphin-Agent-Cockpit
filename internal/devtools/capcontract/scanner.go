@@ -4,13 +4,10 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
-
-	"golang.org/x/tools/go/packages"
 )
 
 // canonicalTargets 返回独立的固定发布平台矩阵，避免 package 级 slice 被调用方改写。
@@ -24,9 +21,6 @@ func canonicalTargets() []string {
 		"windows/arm64",
 	}
 }
-
-// scanLoadMode 保留 Go 工具链的构建约束筛选和语法树，但不递归类型检查依赖图。
-const scanLoadMode packages.LoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax
 
 // ScanOptions 是能力契约扫描入口参数。
 // RepoRoot 与 Roots 分离，确保报告中保留相对路径而不是本机绝对路径。
@@ -53,9 +47,13 @@ func Scan(opts ScanOptions) (*Manifest, error) {
 		Roots:       normalizeRoots(opts.Roots),
 		Targets:     targets,
 	}
+	packageDirs, err := discoverPackageDirs(repoRoot, manifest.Roots)
+	if err != nil {
+		return nil, err
+	}
 	merged := map[string]PackageManifest{}
 	for _, target := range manifest.Targets {
-		targetPackages, provenance, err := scanTarget(repoRoot, manifest.Roots, target)
+		targetPackages, provenance, err := scanTarget(repoRoot, packageDirs, target)
 		if err != nil {
 			return nil, err
 		}
@@ -138,34 +136,18 @@ func containsStruct(items []StructManifest, name string) bool {
 	return false
 }
 
-// scanTarget 通过 go/packages 在单个固定 GOOS/GOARCH 下加载类型与语法树，失败即阻断生成。
-func scanTarget(repoRoot string, roots []string, target string) ([]PackageManifest, TargetProvenance, error) {
+// scanTarget 在单个固定 GOOS/GOARCH 下筛选已索引目录并解析语法树，失败即阻断生成。
+func scanTarget(repoRoot string, packageDirs []string, target string) ([]PackageManifest, TargetProvenance, error) {
 	parts := strings.Split(target, "/")
 	if len(parts) != 2 {
 		return nil, TargetProvenance{}, fmt.Errorf("invalid capability target %q", target)
 	}
-	patterns := make([]string, 0, len(roots))
-	for _, root := range roots {
-		patterns = append(patterns, "./"+root+"/...")
-	}
-	cfg := &packages.Config{
-		Dir:  repoRoot,
-		Env:  append(os.Environ(), "GOOS="+parts[0], "GOARCH="+parts[1], "CGO_ENABLED=0", "GOFLAGS="),
-		Mode: scanLoadMode,
-	}
-	loaded, err := packages.Load(cfg, patterns...)
-	if err != nil {
-		return nil, TargetProvenance{}, fmt.Errorf("load capability target %s: %w", target, err)
-	}
 	var result []PackageManifest
 	provenance := TargetProvenance{Target: target}
-	for _, loadedPkg := range loaded {
-		if len(loadedPkg.Errors) > 0 {
-			return nil, TargetProvenance{}, fmt.Errorf("load capability target %s package %s: %s", target, loadedPkg.PkgPath, loadedPkg.Errors[0])
-		}
-		pkg, err := scanLoadedPackage(repoRoot, loadedPkg)
+	for _, packageDir := range packageDirs {
+		pkg, err := scanPackageDir(repoRoot, packageDir, parts[0], parts[1])
 		if err != nil {
-			return nil, TargetProvenance{}, err
+			return nil, TargetProvenance{}, fmt.Errorf("scan capability target %s: %w", target, err)
 		}
 		if pkg == nil {
 			continue
@@ -180,36 +162,6 @@ func scanTarget(repoRoot string, roots []string, target string) ([]PackageManife
 	sort.Strings(provenance.Packages)
 	sort.Strings(provenance.Symbols)
 	return result, provenance, nil
-}
-
-// scanLoadedPackage 从 go/packages 已按构建约束筛选和解析的文件中提取单个平台包能力面。
-func scanLoadedPackage(repoRoot string, loaded *packages.Package) (*PackageManifest, error) {
-	if len(loaded.Syntax) == 0 || len(loaded.CompiledGoFiles) == 0 {
-		return nil, nil
-	}
-	dir := filepath.Dir(loaded.CompiledGoFiles[0])
-	relPath, err := filepath.Rel(repoRoot, dir)
-	if err != nil {
-		return nil, err
-	}
-	manifest := &PackageManifest{Path: filepath.ToSlash(relPath), Name: loaded.Name}
-	files := append([]*ast.File(nil), loaded.Syntax...)
-	sort.Slice(files, func(i, j int) bool {
-		return loaded.Fset.Position(files[i].Package).Filename < loaded.Fset.Position(files[j].Package).Filename
-	})
-	for _, file := range files {
-		if manifest.Description == "" && file.Doc != nil {
-			line, _, _ := strings.Cut(file.Doc.Text(), "\n")
-			line = strings.TrimPrefix(line, "Package "+loaded.Name+" ")
-			manifest.Description = strings.TrimSpace(strings.TrimPrefix(line, "Package "+loaded.Name))
-		}
-		extractFile(file, manifest)
-	}
-	sortFunctions(manifest.Functions)
-	sortMethods(manifest.Methods)
-	sortInterfaces(manifest.Interfaces)
-	sortStructs(manifest.Structs)
-	return manifest, nil
 }
 
 // normalizeRoots 规范化、去重并排序扫描根路径列表。

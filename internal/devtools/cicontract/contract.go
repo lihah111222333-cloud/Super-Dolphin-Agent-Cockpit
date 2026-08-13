@@ -42,7 +42,7 @@ const (
 	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
 	// DurationLedgerSQLiteSchemaVersion 是 duration-ledger SQLite 物理 schema 的唯一版本 owner。
-	DurationLedgerSQLiteSchemaVersion = 16
+	DurationLedgerSQLiteSchemaVersion = 17
 	// CacheMaterialSchemaID 标识 OCI 构建阶段可生成的非权威缓存材料 manifest。
 	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或首代检查回执。
 	CacheMaterialSchemaID = "remote-ci-cache-material/v1"
@@ -175,6 +175,10 @@ const (
 	RetainedWorkloadPassProofLookupIndex = "idx_ci_retained_workload_pass_proofs_lookup"
 	// RunWorkloadResultsRetentionIndex 支撑 v16 retained proof 的 direct-origin 验证和 backfill。
 	RunWorkloadResultsRetentionIndex = "idx_ci_run_workload_results_retention"
+	// WorkloadPassEvidenceSourceReplayIndex 按 workload/execution/environment 分区 direct proof 候选。
+	WorkloadPassEvidenceSourceReplayIndex = "idx_ci_workload_pass_evidence_source_replay"
+	// RetainedWorkloadPassProofSourceReplayIndex 按 workload 分区 retained consumer proof 候选。
+	RetainedWorkloadPassProofSourceReplayIndex = "idx_ci_retained_workload_pass_proofs_source_replay"
 	// RemoteShardsTable 是远程 CI shard 回执的唯一 SQLite 权威表。
 	RemoteShardsTable = "ci_shards"
 	// WorkloadExecutionsTable 是 workload 执行与缓存事实的唯一 SQLite 权威表。

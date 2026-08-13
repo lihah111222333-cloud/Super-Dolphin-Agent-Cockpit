@@ -573,7 +573,7 @@ internal/module/thread/recovery_rpc_test.go	internal	modules	go-test	2486	thread
 internal/module/thread/resume_binding_conflict_test.go	internal	modules	go-test	10688	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,binding,conflict,test,start,fork,stop,生命周期与绑定真相源
 internal/module/thread/resume_claude_override_test.go	internal	modules	go-test	4066	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,claude,override,test,start,fork,stop,生命周期与绑定真相源
 internal/module/thread/resume_degrade.go	internal	modules	go-source	3093	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,degrade,start,fork,stop,生命周期与绑定真相源
-internal/module/thread/resume_degrade_test.go	internal	modules	go-test	10204	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,degrade,test,start,fork,stop,生命周期与绑定真相源
+internal/module/thread/resume_degrade_test.go	internal	modules	go-test	10226	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,degrade,test,start,fork,stop,生命周期与绑定真相源
 internal/module/thread/resume_session_uuid_test.go	internal	modules	go-test	11257	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,session,uuid,test,start,fork,stop,生命周期与绑定真相源
 internal/module/thread/resume_shard18_support_test.go	internal	modules	go-test	3133	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,shard18,support,test,start,fork,stop,生命周期与绑定真相源
 internal/module/thread/resume_shard18_test.go	internal	modules	go-test	19822	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,resume,shard18,test,start,fork,stop,生命周期与绑定真相源

@@ -38,10 +38,13 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	if err := validateCoordinatorPrepareInput(ctx, input); err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "input_validated")
 	plan, catalog, entrypoint, err := buildRemotePlan(input)
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "plan_built")
+	coordinator.progress.phase(ProgressPhasePrepare, "identity_started")
 	input, catalog, catalogDigest, fingerprintSnapshot, err := prepareRemoteWorkloadIdentity(
 		ctx,
 		input,
@@ -50,6 +53,8 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "identity_completed")
+	coordinator.progress.phase(ProgressPhasePrepare, "reuse_started")
 	reuse, err := prepareRemoteWorkloadReuse(
 		ctx,
 		input,
@@ -57,16 +62,20 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 		coordinator.config.WorkerTimeout,
 		coordinator.config.ResourcePolicy,
 		fingerprintSnapshot,
+		func(state string) { coordinator.progress.phase(ProgressPhasePrepare, state) },
 	)
 	if err != nil {
 		return nil, err
 	}
+	coordinator.progress.setCacheCounts(len(reuse.reused), len(reuse.cacheMisses), len(reuse.reused))
+	coordinator.progress.phase(ProgressPhasePrepare, "reuse_completed")
 	if reuse.allReused() {
 		if err := validateAllHitExecutionIdentity(input); err != nil {
 			return nil, err
 		}
 	}
 	if !reuse.allReused() {
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_started")
 		compileInputs, compileErr := remoteCompileGroupInputsForMisses(
 			ctx,
 			fingerprintSnapshot,
@@ -77,11 +86,15 @@ func (coordinator *Coordinator) Prepare(ctx context.Context, input RunInput) (*P
 			return nil, compileErr
 		}
 		input.WorkloadCompileGroupInputs = cloneRemoteCompileGroupInputs(compileInputs)
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_completed")
+	} else {
+		coordinator.progress.phase(ProgressPhasePrepare, "compile_inputs_skipped")
 	}
 	scope, err := gate.NewRemoteCIFullExecutionScope(catalog)
 	if err != nil {
 		return nil, fmt.Errorf("construct full remote CI execution scope: %w", err)
 	}
+	coordinator.progress.phase(ProgressPhasePrepare, "scope_built")
 	return coordinator.freezePreparedRun(input, plan, catalog, catalog, catalogDigest, entrypoint, &scope, nil, reuse)
 }
 
@@ -175,6 +188,96 @@ func (prepared *PreparedRun) WorkloadReuseDecision() ([]gate.WorkloadPassIdentit
 	identities := append([]gate.WorkloadPassIdentity(nil), prepared.reuse.identities...)
 	misses := append([]gate.GateID(nil), prepared.reuse.cacheMisses...)
 	return identities, misses
+}
+
+// RefreshWorkloadPassesAfterCalibration 在 MISS-only 云端身份绑定前，只针对冻结
+// MISS 重读同一 SQLite authority。校准新产生的 exact PASS 会原子更新准备结果，
+// 并从编译闭包中移除；候选树、目录、identity 和执行范围保持不变。
+func (prepared *PreparedRun) RefreshWorkloadPassesAfterCalibration(store *gate.DurationLedgerStore) (int, error) {
+	if prepared == nil {
+		return 0, errors.New("prepared remote CI run is required")
+	}
+	prepared.mu.Lock()
+	defer prepared.mu.Unlock()
+	if err := prepared.validateWorkloadPassRefreshLocked(store); err != nil {
+		return 0, err
+	}
+	if prepared.allReused {
+		return 0, nil
+	}
+	prepared.owner.progress.phase(ProgressPhasePrepare, "reuse_post_calibration_started")
+	nextReuse, recovered, err := refreshRemoteWorkloadReuseAfterCalibration(prepared.reuse, store)
+	if err != nil {
+		return 0, err
+	}
+	if recovered == 0 {
+		prepared.owner.progress.phase(ProgressPhasePrepare, "reuse_post_calibration_completed")
+		return 0, nil
+	}
+	return recovered, prepared.applyWorkloadPassRefreshLocked(store, nextReuse)
+}
+
+// validateWorkloadPassRefreshLocked 校验校准后 PASS 重读仍在无副作用冻结边界内。
+func (prepared *PreparedRun) validateWorkloadPassRefreshLocked(store *gate.DurationLedgerStore) error {
+	if prepared.consumed {
+		return errors.New("prepared remote CI run is already consumed")
+	}
+	if err := prepared.validateFrozenLocked(); err != nil {
+		return err
+	}
+	if err := prepared.validateLocked(); err != nil {
+		return err
+	}
+	if prepared.verifiedExecutionSnapshotID != "" || prepared.planningOverheadDigest != "" {
+		return errors.New("post-calibration PASS refresh must precede MISS execution and planning binding")
+	}
+	return validatePlanningSnapshotStore(prepared, store)
+}
+
+// applyWorkloadPassRefreshLocked 提交已经完整验证的 post-calibration 复用决策。
+func (prepared *PreparedRun) applyWorkloadPassRefreshLocked(store *gate.DurationLedgerStore, nextReuse remoteWorkloadReusePreparation) error {
+	nextInput := prepared.input
+	nextInput.LedgerStore = store
+	nextInput.WorkloadCompileGroupInputs = retainRemoteCompileGroupInputsForMisses(nextInput.WorkloadCompileGroupInputs, nextReuse.cacheMisses)
+	nextAllReused := nextReuse.allReused()
+	if nextAllReused {
+		if err := validateAllHitExecutionIdentity(nextInput); err != nil {
+			return err
+		}
+	}
+	previousInput, previousReuse, previousAllReused := prepared.input, prepared.reuse, prepared.allReused
+	prepared.input, prepared.reuse, prepared.allReused = nextInput, nextReuse, nextAllReused
+	digest, err := prepared.frozenIdentityDigest()
+	if err != nil {
+		prepared.input, prepared.reuse, prepared.allReused = previousInput, previousReuse, previousAllReused
+		return err
+	}
+	prepared.frozenDigest = digest
+	prepared.owner.progress.setCacheCounts(len(nextReuse.reused), len(nextReuse.cacheMisses), len(nextReuse.reused))
+	prepared.owner.progress.observeReuseDecision(nextReuse.diagnostic())
+	prepared.owner.progress.phase(ProgressPhasePrepare, "reuse_post_calibration_completed")
+	return nil
+}
+
+// retainRemoteCompileGroupInputsForMisses 只保留校准后仍需执行的编译闭包输入。
+func retainRemoteCompileGroupInputsForMisses(inputs map[string]gate.CompileGroupInput, misses []gate.GateID) map[string]gate.CompileGroupInput {
+	if len(inputs) == 0 || len(misses) == 0 {
+		return nil
+	}
+	missSet := make(map[string]struct{}, len(misses))
+	for _, workloadID := range misses {
+		missSet[string(workloadID)] = struct{}{}
+	}
+	result := make(map[string]gate.CompileGroupInput, len(inputs))
+	for workloadID, input := range inputs {
+		if _, missed := missSet[workloadID]; missed {
+			result[workloadID] = input
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // RemoteExecutionScope 返回冻结执行范围与排除项副本，并在身份漂移时立即拒绝。

@@ -214,3 +214,30 @@ func seedCoordinatorEnvironmentEvidenceWithWorkerDigest(t *testing.T, input RunI
 	}
 	promoteCoordinatorFreshWorkloads(t, input, *result)
 }
+
+func TestRemainingRemoteWorkloadPassEnvironmentCandidateKeysPrunesPreferredHits(t *testing.T) {
+	firstID := gate.GateID("first")
+	secondID := gate.GateID("second")
+	thirdID := gate.GateID("third")
+	identities := []gate.WorkloadPassIdentity{
+		{WorkloadID: firstID},
+		{WorkloadID: secondID},
+		{WorkloadID: thirdID},
+	}
+	candidates := map[gate.GateID][]remoteWorkloadPassEnvironmentCandidate{
+		firstID:  make([]remoteWorkloadPassEnvironmentCandidate, 3),
+		secondID: make([]remoteWorkloadPassEnvironmentCandidate, 3),
+		thirdID:  make([]remoteWorkloadPassEnvironmentCandidate, 1),
+	}
+	preferredMatches := map[remoteWorkloadPassEnvironmentCandidateKey]struct{}{
+		{workloadID: firstID}: {},
+	}
+
+	remaining := remainingRemoteWorkloadPassEnvironmentCandidateKeys(identities, candidates, preferredMatches)
+	if len(remaining) != 2 {
+		t.Fatalf("remaining candidate keys = %v, want only second workload fallbacks", remaining)
+	}
+	if remaining[0].workloadID != secondID || remaining[0].index != 1 || remaining[1].workloadID != secondID || remaining[1].index != 2 {
+		t.Fatalf("remaining candidate order = %v, want second workload indexes [1 2]", remaining)
+	}
+}

@@ -15,7 +15,7 @@ import (
 const ProgressEventSchemaVersion uint32 = 1
 
 // ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
-const ReuseDiagnosticSchemaVersion uint32 = 6
+const ReuseDiagnosticSchemaVersion uint32 = 8
 
 // ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
 const ShardPlanDiagnosticSchemaVersion uint32 = 1
@@ -66,18 +66,19 @@ type ProgressEvent struct {
 
 // ReuseDiagnostic 区分严格 identity lookup 与 package 原子降级后的有效复用。
 type ReuseDiagnostic struct {
-	SchemaVersion              uint32                 `json:"schema_version"`
-	Kind                       string                 `json:"kind"`
-	Forced                     bool                   `json:"forced"`
-	MissConfirmationThreshold  int                    `json:"miss_confirmation_threshold"`
-	DirectHits                 int                    `json:"direct_hits"`
-	SourceReplayHits           int                    `json:"source_replay_hits"`
-	EnvironmentReplayHits      int                    `json:"environment_replay_hits"`
-	ExactHits                  int                    `json:"exact_hits"`
-	DirectMisses               int                    `json:"direct_misses"`
-	RecoveredDirectMisses      int                    `json:"recovered_direct_misses"`
-	ReplayMisses               int                    `json:"replay_misses"`
-	AtomicDemoted              int                    `json:"atomic_demoted"`
+	SchemaVersion             uint32 `json:"schema_version"`
+	Kind                      string `json:"kind"`
+	Forced                    bool   `json:"forced"`
+	MissConfirmationThreshold int    `json:"miss_confirmation_threshold"`
+	DirectHits                int    `json:"direct_hits"`
+	SourceReplayHits          int    `json:"source_replay_hits"`
+	EnvironmentReplayHits     int    `json:"environment_replay_hits"`
+	ExactHits                 int    `json:"exact_hits"`
+	DirectMisses              int    `json:"direct_misses"`
+	RecoveredDirectMisses     int    `json:"recovered_direct_misses"`
+	ReplayMisses              int    `json:"replay_misses"`
+	AtomicDemoted             int    `json:"atomic_demoted"`
+	// CalibrationDurationDemoted 是冻结兼容字段；校准不得改变 correctness PASS，因此必须为零。
 	CalibrationDurationDemoted int                    `json:"calibration_duration_demoted"`
 	EffectiveHits              int                    `json:"effective_hits"`
 	EffectiveMisses            int                    `json:"effective_misses"`
@@ -89,12 +90,15 @@ type ReuseDiagnostic struct {
 type ReuseReplayDiagnostic struct {
 	SourceCandidateWorkloads         int `json:"source_candidate_workloads"`
 	SourceCandidates                 int `json:"source_candidates"`
+	SourceCandidateTrees             int `json:"source_candidate_trees"`
 	SourceInputUnavailable           int `json:"source_input_unavailable"`
 	SourceInputMismatch              int `json:"source_input_mismatch"`
 	SourceSingleVoteRecovered        int `json:"source_single_vote_recovered"`
 	SourceDeclarationMissVotes       int `json:"source_declaration_miss_votes"`
 	SourceRuntimeMissVotes           int `json:"source_runtime_miss_votes"`
 	SourceCompileMissVotes           int `json:"source_compile_miss_votes"`
+	SourceCompileObligations         int `json:"source_compile_obligations"`
+	SourceCompileCoveredRecoveries   int `json:"source_compile_covered_recoveries"`
 	SourceConfirmedMisses            int `json:"source_confirmed_misses"`
 	EnvironmentHintWorkloads         int `json:"environment_hint_workloads"`
 	EnvironmentHints                 int `json:"environment_hints"`

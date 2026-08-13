@@ -9,8 +9,8 @@ import (
 
 // TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun 守卫两阶段生产接线：
 // executeRemoteRun 只选择 full Prepare，而共享 preparation owner 先完成复用决策再进入
-// prepared executor；all-hit 在 MISS 绑定 helper 内提前返回，MISS 才绑定 execution identity、
-// 校准并重载计划，最终都执行 RunPrepared 与证据最终化。
+// prepared executor；初始 MISS 先校准并重读 PASS，剩余 MISS 才绑定 execution identity，
+// 最终都执行 RunPrepared 与证据最终化。
 func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *testing.T) {
 	executeCalls := remoteRunCalls(parseExecuteRemoteRun(t).Body)
 	prepareFunction := parseRemoteRunSubsetOwner(t, "executeRemoteRunWithPrepare")
@@ -29,26 +29,27 @@ func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *tes
 	run := requireSingleRemoteRunCall(t, preparedCalls, "runPrepared")
 	finalize := requireSingleRemoteRunCall(t, preparedCalls, "finalizeEvidence")
 	ensure := requireSingleRemoteRunCall(t, reloadCalls, "ensureRemoteDurationCalibration")
+	refresh := requireSingleRemoteRunCall(t, reloadCalls, "RefreshWorkloadPassesAfterCalibration")
 	reload := requireSingleRemoteRunCall(t, reloadCalls, "ReloadPlanningSnapshot")
 
 	if executePrepared.order <= prepare.order {
 		t.Fatalf("prepared executor order = %d, Prepare order = %d; executor must follow reuse decision", executePrepared.order, prepare.order)
 	}
-	assertRemotePreparedCallOrder(t, bind, calibration, run, finalize)
-	if reload.order <= ensure.order {
-		t.Fatalf("planning reload order = %d, calibration order = %d; planning reload must follow calibration", reload.order, ensure.order)
+	assertRemotePreparedCallOrder(t, calibration, bind, run, finalize)
+	if !(ensure.order < refresh.order && refresh.order < reload.order) {
+		t.Fatalf("post-calibration order = ensure:%d refresh:%d reload:%d", ensure.order, refresh.order, reload.order)
 	}
-	if ensure.condition != "" || reload.condition != "" {
-		t.Fatalf("miss-only helper must call calibration and planning reload only after its early return: ensure=%q reload=%q", ensure.condition, reload.condition)
+	if ensure.condition != "" || refresh.condition != "" || reload.condition != "" {
+		t.Fatalf("miss-only helper calls must follow its early return: ensure=%q refresh=%q reload=%q", ensure.condition, refresh.condition, reload.condition)
 	}
 	requireRemoteRunEarlyReturnGuard(t, bindFunction.Body, "dependencies.allReused()")
 	requireRemoteRunEarlyReturnGuard(t, reloadFunction.Body, "prepared.AllReused() || input.Calibration")
 }
 
 // assertRemotePreparedCallOrder 验证统一 prepared executor 的无条件终态链。
-func assertRemotePreparedCallOrder(t *testing.T, bind, calibration, run, finalize remoteRunCall) {
+func assertRemotePreparedCallOrder(t *testing.T, calibration, bind, run, finalize remoteRunCall) {
 	t.Helper()
-	if !(bind.order < calibration.order && calibration.order < run.order && run.order < finalize.order) {
+	if !(calibration.order < bind.order && bind.order < run.order && run.order < finalize.order) {
 		t.Fatalf("prepared call order = bind:%d calibration:%d run:%d finalize:%d", bind.order, calibration.order, run.order, finalize.order)
 	}
 	if bind.condition != "" || calibration.condition != "" || run.condition != "" || finalize.condition != "" {

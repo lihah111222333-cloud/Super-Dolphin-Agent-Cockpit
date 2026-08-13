@@ -78,6 +78,41 @@ func TestDurationLedgerSQLiteV15ToV16BackfillsEveryLiveReusedConsumer(t *testing
 	}
 }
 
+// TestDurationLedgerSQLiteV16ToV17AddsOnlySourceReplayIndexes 验证索引升级
+// 不改写 direct evidence 或 retained proof 行。
+func TestDurationLedgerSQLiteV16ToV17AddsOnlySourceReplayIndexes(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, identity, receipts := recordWorkloadPassRun(t, store, "source-index-origin", 1, "source-index")
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	_ = lookupSingleWorkloadPassEvidence(t, store, identity)
+	database := openWorkloadPassDatabase(t, store)
+	defer database.Close()
+	for _, index := range []string{"idx_ci_workload_pass_evidence_source_replay", "idx_ci_retained_workload_pass_proofs_source_replay"} {
+		if _, err := database.Exec("DROP INDEX " + index); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := database.Exec(`PRAGMA user_version = 16`); err != nil {
+		t.Fatal(err)
+	}
+	beforeCount, beforeDigest := sqliteRowsFingerprint(t, database, `SELECT * FROM ci_workload_pass_evidence ORDER BY identity_digest, accepted_generation`)
+	if err := migrateDurationLedgerSQLiteSchema16To17(database); err != nil {
+		t.Fatal(err)
+	}
+	afterCount, afterDigest := sqliteRowsFingerprint(t, database, `SELECT * FROM ci_workload_pass_evidence ORDER BY identity_digest, accepted_generation`)
+	if beforeCount != afterCount || beforeDigest != afterDigest {
+		t.Fatalf("v16 to v17 rewrote evidence rows: before=%d/%s after=%d/%s", beforeCount, beforeDigest, afterCount, afterDigest)
+	}
+	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != 17 {
+		t.Fatalf("user_version = %d, want 17", got)
+	}
+	if err := newDurationLedgerSQLiteSchemaValidator().preflight(database, durationLedgerSQLiteSchemaVersion); err != nil {
+		t.Fatalf("v17 schema preflight: %v", err)
+	}
+}
+
 func TestDurationLedgerSQLiteV15ToV16PreservesRetiredDomainHistoryWithoutProofProjection(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 1)
 	origin, identity, receipts := recordWorkloadPassRun(t, store, "retired-proof-origin", 1, "retired-proof")

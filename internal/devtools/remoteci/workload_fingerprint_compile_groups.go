@@ -186,7 +186,13 @@ func (snapshot *remoteGitTreeSnapshot) concurrentRemoteWorkloadInputDigests(
 	return digests, nil
 }
 
-// runRemoteWorkloadInputDigestWorkers 并行执行全部 exact selector；任务数量由冻结
+type remoteWorkloadInputDigestWorkerKey struct {
+	packageTarget string
+	profile       string
+}
+
+// runRemoteWorkloadInputDigestWorkers 按包和构建 profile 分组 exact selector；
+// 组间并行、组内串行，避免同包 selector 同时复制大型编译闭包。分组数由冻结
 // catalog 唯一决定，不引入产品并发阈值，也不影响远程 ECI fanout 语义。
 func (snapshot *remoteGitTreeSnapshot) runRemoteWorkloadInputDigestWorkers(
 	ctx context.Context,
@@ -194,14 +200,47 @@ func (snapshot *remoteGitTreeSnapshot) runRemoteWorkloadInputDigestWorkers(
 	indexes []int,
 	results []remoteWorkloadInputDigestResult,
 ) {
+	groups := groupRemoteWorkloadInputDigestIndexes(workloads, indexes, results)
 	var group errgroup.Group
-	for _, index := range indexes {
+	for _, indexes := range groups {
 		group.Go(func() error {
-			results[index].digest, results[index].err = snapshot.workloadInputDigest(ctx, workloads[index])
+			for _, index := range indexes {
+				results[index].digest, results[index].err = snapshot.workloadInputDigest(ctx, workloads[index])
+			}
 			return nil
 		})
 	}
 	_ = group.Wait()
+}
+
+// groupRemoteWorkloadInputDigestIndexes 保留输入顺序，并把同一编译根的 selector
+// 放入同一个 worker；解析错误写入原结果槽，继续由调用方按 catalog 顺序报告。
+func groupRemoteWorkloadInputDigestIndexes(
+	workloads []gate.Workload,
+	indexes []int,
+	results []remoteWorkloadInputDigestResult,
+) [][]int {
+	positions := make(map[remoteWorkloadInputDigestWorkerKey]int)
+	groups := make([][]int, 0)
+	for _, index := range indexes {
+		parsed, profile, supported, err := remoteGoWorkloadInputTarget(workloads[index])
+		if err != nil || !supported {
+			results[index].err = err
+			if err == nil {
+				results[index].err = fmt.Errorf("workload %q is not an exact Go selector", workloads[index].ID)
+			}
+			continue
+		}
+		key := remoteWorkloadInputDigestWorkerKey{packageTarget: parsed.Package, profile: profile.cacheKey()}
+		position, ok := positions[key]
+		if !ok {
+			position = len(groups)
+			positions[key] = position
+			groups = append(groups, nil)
+		}
+		groups[position] = append(groups[position], index)
+	}
+	return groups
 }
 
 // remoteExactGoSelectorWorkload 只选择共享 snapshot cache 已具备并发保护的

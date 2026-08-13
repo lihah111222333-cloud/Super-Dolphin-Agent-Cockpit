@@ -14,7 +14,7 @@
 唯一数据源：`duration-ledger-sqlite/v1`
 accepted baseline JSON schema：`13`
 <!-- cicontract:sqlite-schema:begin -->
-duration-ledger SQLite physical schema：`16`
+duration-ledger SQLite physical schema：`17`
 <!-- cicontract:sqlite-schema:end -->
 非权威缓存材料 schema：`remote-ci-cache-material/v1`
 非权威缓存材料 authority：`non_authoritative_material`
@@ -33,7 +33,7 @@ Git hook 的职责边界固定为：`pre-commit` 只在 exact staged tree 上运
 
 本地主机准入是 fail-fast 的审计事实：命中必须先 lookup、再决定是否采样，不能因 hit 读取或采样主机。默认 `auto` 的冻结规模为最多 `64` 个 MISS、总计 `10min`、单项 `5min`；主机 CPU 采样窗口固定 `30s`，CPU busy 平均值必须 `<=70%`，并且容量/采样证据缺失即拒绝。显式 `local` 超出准入或执行失败时必须失败，不得 remote fallback；`auto`/`hybrid` 只能在执行前按明确 target 选择 remote，不能把 local 失败伪装成 ECI PASS。
 
-本地 PASS 的 SQLite 物理 schema 采用从 remote schema v13 到 additive v14、v15、v16 的单向迁移：v13→v14 只新增 local authority/origin/execution/evidence 表；v14→v15 只新增 remote `ci_remote_run_execution_scopes` side table 及其 job/generation indexes；v15→v16 只新增 consumer-owned immutable `ci_retained_workload_pass_proofs` projection、必要 indexes 与同一事务的严格 backfill。v16 不得 ALTER、重写或复制既有 authority、`ci_runs`、remote PASS/evidence 或 remote receipt；retained proof 仅服务 retained consumer 的严格来源证明，不是第八个 retention root、第二 authority 或 fallback。`RemoteCIRunRecord.Scope` 只由该 side table 消费，legacy/full scope 不留行，只有 catalog-ordered subset 写入 typed scope JSON/digest/count。scope digest 只绑定 domain 与 selected GateIDs，排除 tree/path/commit/token；scope 不得成为 local/remote namespace alias、PASS identity 或 owner attestation。缺失数据库允许 clean init 并立即建立 local authority state；缺失、损坏、摘要漂移、未知字段、旧物理 schema 或不完整状态必须 fail-fast，禁止默认 generation、空证据或静默重建。CLI 继续保留既有 `--workload` catalog 语义；expanded local selectors 通过 `--gate-workload`/manifest 明确传入，不得让新 target 破坏旧 workload 绑定语义。
+本地 PASS 的 SQLite 物理 schema 采用从 remote schema v13 到 additive v14、v15、v16、v17 的单向迁移：v13→v14 只新增 local authority/origin/execution/evidence 表；v14→v15 只新增 remote `ci_remote_run_execution_scopes` side table 及其 job/generation indexes；v15→v16 只新增 consumer-owned immutable `ci_retained_workload_pass_proofs` projection、必要 indexes 与同一事务的严格 backfill；v16→v17 只新增 direct evidence 的 `(workload_id, execution_digest, environment_digest, accepted_generation)` source-replay 分区索引和 retained proof 的 `(workload_id, consumer_job_id)` 分区索引。v17 不得 ALTER、重写或复制既有 authority、`ci_runs`、remote PASS/evidence、retained proof 或 remote receipt；retained proof 仅服务 retained consumer 的严格来源证明，不是第八个 retention root、第二 authority 或 fallback。`RemoteCIRunRecord.Scope` 只由该 side table 消费，legacy/full scope 不留行，只有 catalog-ordered subset 写入 typed scope JSON/digest/count。scope digest 只绑定 domain 与 selected GateIDs，排除 tree/path/commit/token；scope 不得成为 local/remote namespace alias、PASS identity 或 owner attestation。缺失数据库允许 clean init 并立即建立 local authority state；缺失、损坏、摘要漂移、未知字段、旧物理 schema 或不完整状态必须 fail-fast，禁止默认 generation、空证据或静默重建。CLI 继续保留既有 `--workload` catalog 语义；expanded local selectors 通过 `--gate-workload`/manifest 明确传入，不得让新 target 破坏旧 workload 绑定语义。
 
 ## 1. 不可变设计目标
 
@@ -159,7 +159,7 @@ normal run/hook 只验证配置 receipt 与上述阿里云 ECI 实时事实，�
 - 70 秒阈值来自当前 SQLite 权威账本测算：1243 个 workload 会生成 31 个 2C、68 个 4C、19 个 8C shard，共 118 shard/486 vCPU，最大估时 99972ms；30 秒阈值会产生 710 vCPU，不能作为当前策略。该测算只解释阈值，不冻结 workload 数、shard 数或总 vCPU；代码持续变化后只能通过重新测算、同步修改本文档与代码契约并改变 resource-policy digest 来升级阈值。
 - normal 资源档、bootstrap、两个耗时阈值、headroom、downsize 样本数和独立校准规格必须进入 canonical resource-policy digest；该 digest 只用于 workload plan、duration sample、shard 资源与 run 审计，不进入 workload PASS environment identity。资源语义变化不得让 correctness fingerprint 等价的旧 PASS 全局失效；本次运行仍必须按当前策略重新规划资源。
 - job 的计划 vCPU 是全部 shard 所选 vCPU 之和，仅用于账本和云配额诊断，不得转化为仓库并发上限。
-- 同一 package-affinity compile group 只执行一次 `go test -c`；普通 group 仅在显式 side-effect-safe allowlist、同 resource 且严格串行条件下共箱；archtest/super-dolphin-gate/codexapp/mcp-lsp/agent-terminal/race/benchmark 必须独占。wire manifest 必须冻结每个 selector 的 `body_estimate_ms`、canonical `batch_plan_digest` 及 wave/batch 覆盖。critical cost 固定为 compile once + Σwave max(body)，`BodySum` 只能作为 coverage 账本，不能冒充 makespan。archtest 每个 compile group 最多 64 个 selector、每个 ECI shard 仅一个 test-binary batch/process 并固定 `GOMEMLIMIT=3GiB`，423 个 selector 按有界组拆成约 7 个独立 CompileGroup/ECI shard 并无上限并发；其余执行、日志、history、资源和 calibration 约束保持不变。
+- 同一 package-affinity compile group 只执行一次 `go test -c`；普通 group 仅在显式 side-effect-safe allowlist、同 resource 且严格串行条件下共箱；archtest/super-dolphin-gate/codexapp/mcp-lsp/agent-terminal/race/benchmark 必须独占。wire manifest 必须冻结每个 selector 的 `body_estimate_ms`、canonical `batch_plan_digest` 及 wave/batch 覆盖。critical cost 固定为 compile once + Σwave max(body)，`BodySum` 只能作为 coverage 账本，不能冒充 makespan。同 package+semantic 的编译闭包变化必须保留至少一个 fresh selector MISS 来承担 exact-tree `go test -c` 义务；该义务尚未覆盖时不得复用 compile-mismatch PASS，覆盖后则只按 selector 声明与运行时闭包裁决测试体，禁止把同包未变 selector 全部扩大为 MISS。archtest 每个 compile group 最多 64 个 selector、每个 ECI shard 仅一个 test-binary batch/process 并固定 `GOMEMLIMIT=3GiB`，423 个 selector 按有界组拆成约 7 个独立 CompileGroup/ECI shard 并无上限并发；其余执行、日志、history、资源和 calibration 约束保持不变。
 
 ## 6. 固定规格校准
 

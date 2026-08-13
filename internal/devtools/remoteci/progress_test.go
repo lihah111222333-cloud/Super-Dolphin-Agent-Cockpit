@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -61,10 +62,11 @@ func TestJSONProgressObserverWritesReuseDecisionDiagnostic(t *testing.T) {
 	var output bytes.Buffer
 	observer := NewJSONProgressObserver(&output)
 	replay := ReuseReplayDiagnostic{
-		SourceCandidateWorkloads: 11, SourceCandidates: 12,
+		SourceCandidateWorkloads: 11, SourceCandidates: 12, SourceCandidateTrees: 28,
 		SourceInputUnavailable: 13, SourceInputMismatch: 14,
 		SourceSingleVoteRecovered: 23, SourceDeclarationMissVotes: 24,
-		SourceRuntimeMissVotes: 25, SourceCompileMissVotes: 26, SourceConfirmedMisses: 27,
+		SourceRuntimeMissVotes: 25, SourceCompileMissVotes: 26,
+		SourceCompileObligations: 29, SourceCompileCoveredRecoveries: 30, SourceConfirmedMisses: 27,
 		EnvironmentHintWorkloads: 15, EnvironmentHints: 16,
 		EnvironmentGenerationMismatch: 17, EnvironmentTargetUnavailable: 18,
 		EnvironmentSourceUnavailable: 19, EnvironmentHistoricalMismatch: 20,
@@ -127,6 +129,62 @@ func assertShardPlanDiagnostic(t *testing.T, decoded ShardPlanDiagnostic) {
 	want := ShardPlanDiagnostic{SchemaVersion: ShardPlanDiagnosticSchemaVersion, Kind: "remote_ci_shard_plan_diagnostic", Calibration: true, TargetDurationMS: 100_000, TotalShards: 2, TotalWorkloads: 20, MinWorkloadsPerShard: 2, MaxWorkloadsPerShard: 18, MinEstimatedShardDurationMS: 99_000, MaxEstimatedShardDurationMS: 120_000, OverTargetEstimatedShardCount: 1}
 	if !reflect.DeepEqual(decoded, want) {
 		t.Fatalf("decoded shard-plan diagnostic = %#v, want %#v", decoded, want)
+	}
+}
+
+// TestCoordinatorPrepareReportsInternalStages 验证长耗时 Prepare 不再只有首尾日志，
+// 每个安全阶段都携带累计 elapsed_ms 供外部定位瓶颈。
+func TestCoordinatorPrepareReportsInternalStages(t *testing.T) {
+	_, input := coordinatorReuseFixture(t)
+	collector := &progressCollector{}
+	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	coordinator.progress = newProgressTracker(collector, coordinator.now)
+	if _, err := coordinator.Prepare(context.Background(), input); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	states := make([]string, 0)
+	for _, event := range collector.snapshot() {
+		if event.Phase == ProgressPhasePrepare {
+			states = append(states, event.State)
+		}
+	}
+	want := []string{
+		"started",
+		"input_validated",
+		"plan_built",
+		"identity_started",
+		"identity_completed",
+		"reuse_started",
+		"reuse_direct_lookup_started",
+		"reuse_direct_lookup_completed",
+		"reuse_source_candidate_query_started",
+		"reuse_source_candidate_query_completed",
+		"reuse_source_vote_started",
+		"reuse_source_vote_completed",
+		"reuse_environment_replay_started",
+		"reuse_environment_hint_query_started",
+		"reuse_environment_hint_query_completed",
+		"reuse_environment_filter_started",
+		"reuse_environment_filter_completed",
+		"reuse_environment_tree_partitions_started",
+		"reuse_environment_preferred_partition_started",
+		"reuse_environment_preferred_partition_completed",
+		"reuse_environment_remaining_partition_started",
+		"reuse_environment_remaining_partition_completed",
+		"reuse_environment_tree_partitions_completed",
+		"reuse_environment_authorization_started",
+		"reuse_environment_authorization_completed",
+		"reuse_environment_replay_completed",
+		"reuse_outcome_projection_started",
+		"reuse_outcome_projection_completed",
+		"reuse_completed",
+		"compile_inputs_started",
+		"compile_inputs_completed",
+		"scope_built",
+		"completed",
+	}
+	if !reflect.DeepEqual(states, want) {
+		t.Fatalf("prepare progress states = %v, want %v", states, want)
 	}
 }
 

@@ -454,7 +454,7 @@ func prepareRemoteCalibrationLedger(path string) (*gatecontract.DurationLedgerSt
 	return store, nil
 }
 
-// acceptRemoteDurationCalibration 用 CAS 接受每个 catalog workload 都有成功样本的首代校准。
+// acceptRemoteDurationCalibration 用 CAS 接受每个 catalog workload 都有成功样本的旧式首代校准。
 func acceptRemoteDurationCalibration(
 	store *gatecontract.DurationLedgerStore,
 	calibration gatecontract.DurationCalibration,
@@ -463,7 +463,8 @@ func acceptRemoteDurationCalibration(
 	return acceptRemoteDurationCalibrationWithPasses(store, calibration, nil, catalogs...)
 }
 
-// acceptRemoteDurationCalibrationWithPasses 在比较样本完整时以 CAS 写入校准元数据。
+// acceptRemoteDurationCalibrationWithPasses 在当前 correctness coverage 完整时以 CAS 写入校准元数据；
+// reused PASS 不要求伪造本轮 duration sample，fresh MISS 的样本由权威运行写事务保证。
 func acceptRemoteDurationCalibrationWithPasses(
 	store *gatecontract.DurationLedgerStore,
 	calibration gatecontract.DurationCalibration,
@@ -475,8 +476,8 @@ func acceptRemoteDurationCalibrationWithPasses(
 		if err != nil {
 			return gatecontract.DurationLedgerSnapshot{}, err
 		}
-		// 三次运行 acceptance 必须从 SQLite 证明可比较的 calibration sample 与 accepted shard overhead；
-		// correctness PASS 本身不是耗时证据。
+		// 三次运行 acceptance 必须从 SQLite 证明 accepted shard overhead；未携带
+		// 当前 correctness coverage 的旧入口还必须证明每个 workload 的 exact sample。
 		workloadCount, racePackageCount, err := verifyRemoteCalibrationAcceptanceEvidence(
 			snapshot,
 			calibration,
@@ -508,8 +509,8 @@ func acceptRemoteDurationCalibrationWithPasses(
 	return gatecontract.DurationLedgerSnapshot{}, errors.New("accept duration calibration exceeded retry limit")
 }
 
-// verifyRemoteCalibrationAcceptanceEvidence 在三次运行 acceptance 中只接受
-// SQLite 的 calibration-mode 样本；同时要求 normal planning 所需的 accepted overhead。
+// verifyRemoteCalibrationAcceptanceEvidence 要求三次运行的 correctness coverage 完整，
+// 并保留 normal planning 所需的 accepted overhead；旧入口仍只接受 SQLite exact sample。
 func verifyRemoteCalibrationAcceptanceEvidence(
 	snapshot gatecontract.DurationLedgerSnapshot,
 	calibration gatecontract.DurationCalibration,
@@ -526,7 +527,7 @@ func verifyRemoteCalibrationAcceptanceEvidence(
 			return 0, 0, fmt.Errorf("%w: workload %q has no successful calibration run coverage", errRemoteCalibrationSamplesIncomplete, workloadID)
 		}
 	}
-	workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(snapshot, calibration, nil, catalogs...)
+	workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(snapshot, calibration, passedWorkloads, catalogs...)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -559,7 +560,8 @@ func equivalentRemoteDurationCalibration(accepted, candidate gatecontract.Durati
 	return accepted == candidate
 }
 
-// verifyRemoteCalibrationSamples 要求每个 workload 和每个 Go race 包都有同身份成功样本。
+// verifyRemoteCalibrationIndexedEvidence 用当前 PASS coverage 或旧式 exact sample
+// 覆盖每个 workload，并保留 Go race 包目录完整性检查。
 func verifyRemoteCalibrationIndexedEvidence(
 	snapshot gatecontract.DurationLedgerSnapshot,
 	calibration gatecontract.DurationCalibration,
@@ -576,14 +578,15 @@ func verifyRemoteCalibrationIndexedEvidence(
 	return verifyRemoteCalibrationEvidence(index, passedWorkloads, catalogs...)
 }
 
-// verifyRemoteCalibrationEvidence 验证每个 catalog workload 都有可比较的成功样本。
+// remoteCalibrationWorkloadIdentity 冻结校准目录中的 exact workload 身份。
 type remoteCalibrationWorkloadIdentity struct {
 	id, digest, inputDigest string
 	kind                    gatecontract.WorkloadKind
 	shardable               bool
 }
 
-// verifyRemoteCalibrationEvidence 验证每个 catalog workload 都有可比较的成功样本。
+// verifyRemoteCalibrationEvidence 有本轮 coverage 时只要求当前 correctness PASS；
+// 无本轮 coverage 的旧入口仍要求 exact-input 成功样本。
 func verifyRemoteCalibrationEvidence(
 	index gatecontract.DurationSampleIndex,
 	passedWorkloads map[string]struct{},
@@ -617,7 +620,7 @@ func verifyRemoteCalibrationEvidence(
 		}
 		if !remoteCalibrationWorkloadHasPass(index, passedWorkloads, key, workload) {
 			return 0, 0, fmt.Errorf(
-				"%w: workload %q has no comparable successful duration sample",
+				"%w: workload %q has no successful calibration duration evidence",
 				errRemoteCalibrationSamplesIncomplete,
 				workload.id,
 			)
@@ -653,14 +656,17 @@ func remoteCalibrationRunnableRacePackageTarget(workload remoteCalibrationWorklo
 	}
 }
 
-// remoteCalibrationWorkloadHasPass 优先使用本轮通过集合，再回退到可比较账本样本。
+// remoteCalibrationWorkloadHasPass 在有本轮 coverage 时接受 canonical correctness PASS；
+// 仅从历史样本恢复校准时仍要求 exact-input 样本，禁止历史上界替代当前 PASS。
 func remoteCalibrationWorkloadHasPass(index gatecontract.DurationSampleIndex, passed map[string]struct{}, key string, workload remoteCalibrationWorkloadIdentity) bool {
-	if _, ok := passed[key]; ok {
-		return true
-	}
-	return index.HasComparableSuccessfulDurationSample(gatecontract.Workload{
+	candidate := gatecontract.Workload{
 		ID: workload.id, Kind: workload.kind, CommandDigest: workload.digest, InputDigest: workload.inputDigest,
-	})
+	}
+	if passed == nil {
+		return index.HasComparableSuccessfulDurationSample(candidate)
+	}
+	_, ok := passed[key]
+	return ok
 }
 
 // remoteCalibrationCatalogIncomplete 拒绝空 catalog 或缺少 runnable race 包的校准范围。

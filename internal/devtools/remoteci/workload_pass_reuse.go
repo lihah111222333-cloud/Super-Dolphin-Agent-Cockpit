@@ -286,23 +286,32 @@ func validateRemoteWorkloadPassEvidence(
 
 // remoteWorkloadReusePreparation 保留本次复用决策与严格 miss 标识投影。
 type remoteWorkloadReusePreparation struct {
-	reused                     map[string]gate.WorkloadPassEvidence
-	environmentReplayProofs    map[string]string
-	missConfirmations          remoteReuseMissConfirmations
-	identities                 []gate.WorkloadPassIdentity
-	reusedWorkloads            []gate.WorkloadPassEvidence
-	reexecutedWorkloadResults  []gate.RemoteCIWorkloadResult
-	cacheMisses                []gate.GateID
-	directHits                 int
-	sourceReplayHits           int
-	environmentReplayHits      int
-	exactHits                  int
-	directMisses               int
-	replayMisses               int
-	calibrationDurationDemoted int
-	forced                     bool
-	replayDiagnostic           ReuseReplayDiagnostic
-	diagnosticGroups           []ReuseDiagnosticGroup
+	reused                    map[string]gate.WorkloadPassEvidence
+	environmentReplayProofs   map[string]string
+	missConfirmations         remoteReuseMissConfirmations
+	identities                []gate.WorkloadPassIdentity
+	reusedWorkloads           []gate.WorkloadPassEvidence
+	reexecutedWorkloadResults []gate.RemoteCIWorkloadResult
+	cacheMisses               []gate.GateID
+	directHits                int
+	sourceReplayHits          int
+	environmentReplayHits     int
+	exactHits                 int
+	directMisses              int
+	replayMisses              int
+	forced                    bool
+	replayDiagnostic          ReuseReplayDiagnostic
+	diagnosticGroups          []ReuseDiagnosticGroup
+}
+
+// remoteWorkloadReuseProgress 将复用内部阶段投影到 Prepare 的进度旁路。
+type remoteWorkloadReuseProgress func(state string)
+
+// phase 在调用方启用观察时发出稳定阶段名。
+func (observe remoteWorkloadReuseProgress) phase(state string) {
+	if observe != nil {
+		observe(state)
+	}
 }
 
 // prepareRemoteWorkloadReuse 在临时目录、OSS 或 ECI 操作之前完成 PASS 查询与 miss 投影。
@@ -313,6 +322,7 @@ func prepareRemoteWorkloadReuse(
 	workerTimeout time.Duration,
 	resourcePolicy shardresource.Policy,
 	fingerprintSnapshot *remoteGitTreeSnapshot,
+	observe remoteWorkloadReuseProgress,
 ) (remoteWorkloadReusePreparation, error) {
 	preparation := remoteWorkloadReusePreparation{
 		reused:                  make(map[string]gate.WorkloadPassEvidence),
@@ -327,15 +337,13 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
-	reused, err := prepareRemoteWorkloadReuseReplays(ctx, input, catalog, identities, workerTimeout, resourcePolicy, replayCache, &preparation)
+	reused, err := prepareRemoteWorkloadReuseReplays(ctx, input, catalog, identities, workerTimeout, resourcePolicy, replayCache, &preparation, observe)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
-	preparation.calibrationDurationDemoted, err = demoteCalibrationReuseWithoutDuration(input, catalog, reused, preparation.environmentReplayProofs)
-	if err != nil {
-		return remoteWorkloadReusePreparation{}, err
-	}
-	exactHits := len(reused)
+	queried := maps.Clone(reused)
+	queriedEnvironmentProofs := maps.Clone(preparation.environmentReplayProofs)
+	exactHits := len(queried)
 	directMisses := len(identities) - preparation.directHits
 	replayMisses := len(identities) - exactHits
 	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(identities, reused)
@@ -346,10 +354,12 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, fmt.Errorf("index effective remote workload PASS reuse: %w", err)
 	}
-	reexecuted, diagnosticGroups, err := projectRemoteWorkloadReuseOutcome(identities, reused, effectiveReused, preparation.environmentReplayProofs)
+	observe.phase("reuse_outcome_projection_started")
+	reexecuted, diagnosticGroups, err := projectRemoteWorkloadReuseOutcome(identities, queried, effectiveReused, queriedEnvironmentProofs)
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
+	observe.phase("reuse_outcome_projection_completed")
 	preparation.reused = effectiveReused
 	preparation.identities = identities
 	preparation.reusedWorkloads = reusedWorkloads
@@ -363,25 +373,29 @@ func prepareRemoteWorkloadReuse(
 }
 
 // prepareRemoteWorkloadReuseReplays 依次运行 direct、source 与 environment 三条独立证明路径。
-func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, catalog gate.WorkloadCatalog, identities []gate.WorkloadPassIdentity, workerTimeout time.Duration, resourcePolicy shardresource.Policy, replayCache *remoteReplayCache, preparation *remoteWorkloadReusePreparation) (map[string]gate.WorkloadPassEvidence, error) {
+func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, catalog gate.WorkloadCatalog, identities []gate.WorkloadPassIdentity, workerTimeout time.Duration, resourcePolicy shardresource.Policy, replayCache *remoteReplayCache, preparation *remoteWorkloadReusePreparation, observe remoteWorkloadReuseProgress) (map[string]gate.WorkloadPassEvidence, error) {
 	reused := make(map[string]gate.WorkloadPassEvidence)
 	if input.Force {
 		return reused, nil
 	}
 	var err error
+	observe.phase("reuse_direct_lookup_started")
 	if reused, err = lookupRemoteWorkloadPasses(input.LedgerStore, identities); err != nil {
 		return nil, err
 	}
+	observe.phase("reuse_direct_lookup_completed")
 	preparation.directHits = len(reused)
 	preparation.missConfirmations = newRemoteReuseMissConfirmations(identities, reused)
-	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic); err != nil {
+	if err := replayRemoteWorkloadPassMisses(ctx, input, catalog, identities, reused, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
 		return nil, fmt.Errorf("replay remote workload PASS sources: %w", err)
 	}
 	preparation.sourceReplayHits = len(reused) - preparation.directHits
 	afterSourceReplay := len(reused)
-	if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic); err != nil {
+	observe.phase("reuse_environment_replay_started")
+	if err := replayRemoteWorkloadPassEnvironment(ctx, input, catalog, identities, workerTimeout, resourcePolicy, reused, preparation.environmentReplayProofs, replayCache, preparation.missConfirmations, &preparation.replayDiagnostic, observe); err != nil {
 		return nil, fmt.Errorf("replay remote workload PASS environments: %w", err)
 	}
+	observe.phase("reuse_environment_replay_completed")
 	preparation.environmentReplayHits = len(reused) - afterSourceReplay
 	return reused, validateRemoteReuseMissConsensus(identities, reused, preparation.missConfirmations)
 }
@@ -398,6 +412,79 @@ func projectRemoteWorkloadReuseOutcome(identities []gate.WorkloadPassIdentity, q
 		return nil, nil, fmt.Errorf("group remote workload PASS reuse diagnostics: %w", err)
 	}
 	return reexecuted, groups, nil
+}
+
+// refreshRemoteWorkloadReuseAfterCalibration 只对 Prepare 已确认的 MISS 重读
+// SQLite PASS authority。校准期间新产生的同身份 proof 可以直接收敛，既不重扫
+// source/environment，也不改变已冻结的 workload identity。
+func refreshRemoteWorkloadReuseAfterCalibration(preparation remoteWorkloadReusePreparation, store *gate.DurationLedgerStore) (remoteWorkloadReusePreparation, int, error) {
+	missIdentities, err := remoteWorkloadMissIdentities(preparation.identities, preparation.cacheMisses)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	if len(missIdentities) == 0 {
+		return preparation, 0, nil
+	}
+	recovered, err := lookupRemoteWorkloadPasses(store, missIdentities)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, fmt.Errorf("refresh remote workload PASS after calibration: %w", err)
+	}
+	if len(recovered) == 0 {
+		return preparation, 0, nil
+	}
+	queried := maps.Clone(preparation.reused)
+	for workloadID, evidence := range recovered {
+		if _, duplicate := queried[workloadID]; duplicate {
+			return remoteWorkloadReusePreparation{}, 0, fmt.Errorf("post-calibration workload PASS %q overlaps frozen reuse decision", workloadID)
+		}
+		queried[workloadID] = evidence
+	}
+	reusedWorkloads, cacheMisses, err := classifyRemoteWorkloadPassesStrict(preparation.identities, queried)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	effective, err := indexRemoteWorkloadPassEvidence(reusedWorkloads)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	reexecuted, groups, err := projectRemoteWorkloadReuseOutcome(preparation.identities, queried, effective, preparation.environmentReplayProofs)
+	if err != nil {
+		return remoteWorkloadReusePreparation{}, 0, err
+	}
+	next := preparation
+	next.reused = effective
+	next.reusedWorkloads = reusedWorkloads
+	next.reexecutedWorkloadResults = reexecuted
+	next.cacheMisses = cacheMisses
+	next.directHits += len(recovered)
+	next.directMisses = len(next.identities) - next.directHits
+	next.exactHits = len(queried)
+	next.replayMisses = len(next.identities) - next.exactHits
+	next.diagnosticGroups = groups
+	return next, len(recovered), nil
+}
+
+// remoteWorkloadMissIdentities 按冻结身份顺序投影 MISS，拒绝遗漏、重复或外来 ID。
+func remoteWorkloadMissIdentities(identities []gate.WorkloadPassIdentity, misses []gate.GateID) ([]gate.WorkloadPassIdentity, error) {
+	missSet := make(map[gate.GateID]struct{}, len(misses))
+	for _, workloadID := range misses {
+		if _, duplicate := missSet[workloadID]; duplicate {
+			return nil, fmt.Errorf("post-calibration workload MISS %q is duplicated", workloadID)
+		}
+		missSet[workloadID] = struct{}{}
+	}
+	result := make([]gate.WorkloadPassIdentity, 0, len(misses))
+	for _, identity := range identities {
+		if _, missed := missSet[identity.WorkloadID]; !missed {
+			continue
+		}
+		result = append(result, identity)
+		delete(missSet, identity.WorkloadID)
+	}
+	if len(missSet) != 0 {
+		return nil, errors.New("post-calibration workload MISS is outside frozen identity set")
+	}
+	return result, nil
 }
 
 // remoteReexecutedWorkloadResults 投影 lookup 命中但因 package 原子边界实际重跑的
@@ -440,43 +527,15 @@ func (preparation remoteWorkloadReusePreparation) diagnostic() ReuseDiagnostic {
 		DirectHits: preparation.directHits, SourceReplayHits: preparation.sourceReplayHits,
 		EnvironmentReplayHits: preparation.environmentReplayHits,
 		ExactHits:             preparation.exactHits, DirectMisses: preparation.directMisses,
-		RecoveredDirectMisses:      preparation.directMisses - preparation.replayMisses,
-		ReplayMisses:               preparation.replayMisses,
-		AtomicDemoted:              preparation.exactHits - effectiveHits,
-		CalibrationDurationDemoted: preparation.calibrationDurationDemoted,
+		RecoveredDirectMisses: preparation.directMisses - preparation.replayMisses,
+		ReplayMisses:          preparation.replayMisses,
+		AtomicDemoted:         preparation.exactHits - effectiveHits,
+		// calibration 不得改变 correctness PASS；该冻结字段必须保持零。
+		CalibrationDurationDemoted: 0,
 		EffectiveHits:              effectiveHits, EffectiveMisses: effectiveMisses,
 		Replay:     preparation.replayDiagnostic,
 		MissGroups: slices.Clone(preparation.diagnosticGroups),
 	}
-}
-
-// demoteCalibrationReuseWithoutDuration 只在校准运行中把缺可比较耗时样本的
-// correctness PASS 降为 MISS；已有样本的命中继续复用，避免整批重跑。
-func demoteCalibrationReuseWithoutDuration(input RunInput, catalog gate.WorkloadCatalog, reused map[string]gate.WorkloadPassEvidence, environmentProofs map[string]string) (int, error) {
-	if !input.Calibration || input.Force || len(reused) == 0 {
-		return 0, nil
-	}
-	if input.LedgerSnapshot.SampleIndex == nil {
-		return 0, errors.New("calibration PASS reuse requires a duration sample index")
-	}
-	workloads := make(map[string]gate.Workload, len(catalog.Workloads))
-	for _, workload := range catalog.Workloads {
-		workloads[workload.ID] = workload
-	}
-	demoted := 0
-	for workloadID := range reused {
-		workload, ok := workloads[workloadID]
-		if !ok {
-			return 0, fmt.Errorf("calibration reused workload %q is absent from catalog", workloadID)
-		}
-		if input.LedgerSnapshot.SampleIndex.HasSuccessfulCalibrationDurationEvidence(workload) {
-			continue
-		}
-		delete(reused, workloadID)
-		delete(environmentProofs, workloadID)
-		demoted++
-	}
-	return demoted, nil
 }
 
 const remoteReuseMissConfirmationThreshold = 2

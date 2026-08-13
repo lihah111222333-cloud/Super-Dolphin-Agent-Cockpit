@@ -115,6 +115,9 @@ func executePreparedRemoteRun(
 	if err := validateRemotePreparedRunDependencies(dependencies); err != nil {
 		return result, input, err
 	}
+	if err := dependencies.reloadPlanning(options, state, runnerIdentity, input, prepared); err != nil {
+		return result, input, err
+	}
 	boundInput, err := bindRemoteMissExecutionInputs(
 		ctx, config, state, input, coordinator, prepared, dependencies,
 	)
@@ -122,9 +125,6 @@ func executePreparedRemoteRun(
 		return result, input, err
 	}
 	input = boundInput
-	if err := dependencies.reloadPlanning(options, state, runnerIdentity, input, prepared); err != nil {
-		return result, input, err
-	}
 	result, runErr := dependencies.runPrepared(coordinator, ctx, prepared)
 	if err := dependencies.finalizeEvidence(input, &result, runErr); err != nil {
 		return result, input, err
@@ -231,6 +231,12 @@ func reloadRemotePlanningAfterCalibration(
 	}
 	if err := validateRemoteDurationCalibration(options, state, runnerIdentity, reloaded.Ledger); err != nil {
 		return protocolError("validate remote CI duration calibration after automatic calibration: %v", err)
+	}
+	if _, err := prepared.RefreshWorkloadPassesAfterCalibration(input.LedgerStore); err != nil {
+		return infrastructureError("refresh prepared remote CI PASS reuse after calibration: %v", err)
+	}
+	if prepared.AllReused() {
+		return nil
 	}
 	if err := prepared.ReloadPlanningSnapshot(input.LedgerStore); err != nil {
 		return infrastructureError("reload prepared remote CI planning snapshot after calibration: %v", err)

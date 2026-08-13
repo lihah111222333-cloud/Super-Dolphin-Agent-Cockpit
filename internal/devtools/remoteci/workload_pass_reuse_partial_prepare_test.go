@@ -204,7 +204,7 @@ func mapsClonePartialPrepare(input map[string]string) map[string]string {
 
 func partialPrepareE2EReuse(t *testing.T, input RunInput, catalog gate.WorkloadCatalog) remoteWorkloadReusePreparation {
 	t.Helper()
-	preparation, err := prepareRemoteWorkloadReuse(context.Background(), input, catalog, 10*time.Minute, testRemoteResourcePolicy(), nil)
+	preparation, err := prepareRemoteWorkloadReuse(context.Background(), input, catalog, 10*time.Minute, testRemoteResourcePolicy(), nil, nil)
 	if err != nil {
 		t.Fatalf("prepareRemoteWorkloadReuse: %v", err)
 	}

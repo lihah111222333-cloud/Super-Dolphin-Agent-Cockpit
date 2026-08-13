@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"golang.org/x/tools/go/packages"
 )
 
 func TestScanExtractsCapabilitySurface(t *testing.T) {
@@ -173,14 +171,16 @@ func TestCanonicalTargetsAreIsolatedFromCallerMutation(t *testing.T) {
 	}
 }
 
-func TestScanLoadModeAvoidsTypeChecking(t *testing.T) {
-	if scanLoadMode&packages.NeedTypes != 0 {
-		t.Fatalf("scan load mode must not request type checking: %v", scanLoadMode)
+func TestScanDoesNotLoadDependencyGraph(t *testing.T) {
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "internal", "contract")
+	writeScanFixture(t, pkgDir, filepath.Join(root, "go.mod"), "module fixture\n\ngo 1.25\n")
+	writeScanFixture(t, pkgDir, filepath.Join(pkgDir, "contract.go"), "package contract\nimport _ \"fixture/missing\"\nfunc Common() {}\n")
+	manifest, err := Scan(ScanOptions{RepoRoot: root, Roots: []string{"internal/contract"}})
+	if err != nil {
+		t.Fatalf("Scan loaded dependency graph: %v", err)
 	}
-	needSyntax := packages.NeedName | packages.NeedCompiledGoFiles | packages.NeedSyntax
-	if scanLoadMode&needSyntax != needSyntax {
-		t.Fatalf("scan load mode must retain package identity and syntax: %v", scanLoadMode)
-	}
+	assertFunction(t, manifest.Packages[0].Functions, FunctionManifest{Name: "Common", Exported: true})
 }
 
 func TestScanIgnoresCallerRaceFlagsForCrossPlatformSyntaxLoad(t *testing.T) {

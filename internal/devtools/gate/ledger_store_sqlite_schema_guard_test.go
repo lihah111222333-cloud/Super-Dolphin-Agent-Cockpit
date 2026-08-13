@@ -172,6 +172,14 @@ func sqliteRequiredIndexExpectations() []sqliteIndexExpectation {
 			columns: []sqliteIndexColumnExpectation{{name: "accepted_generation"}, {name: "identity_digest"}},
 		},
 		{
+			table: "ci_workload_pass_evidence", name: "idx_ci_workload_pass_evidence_source_replay",
+			columns: []sqliteIndexColumnExpectation{{name: "workload_id"}, {name: "execution_digest"}, {name: "environment_digest"}, {name: "accepted_generation"}},
+		},
+		{
+			table: "ci_retained_workload_pass_proofs", name: "idx_ci_retained_workload_pass_proofs_source_replay",
+			columns: []sqliteIndexColumnExpectation{{name: "workload_id"}, {name: "consumer_job_id"}},
+		},
+		{
 			table: "ci_workload_executions", name: "idx_ci_workload_executions_shard_fk",
 			columns: []sqliteIndexColumnExpectation{{name: "job_id"}, {name: "shard_identity"}},
 		},

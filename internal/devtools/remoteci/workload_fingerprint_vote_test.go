@@ -12,10 +12,10 @@ import (
 func TestRemoteWorkloadMissVoteConsensus(t *testing.T) {
 	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
 	baseline := testExactGoTestDigestSnapshot("")
-	siblingChanged := testExactGoTestDigestSnapshot("const siblingCompileMarker = 1\n")
-	singleVote := remoteWorkloadInputVoteDecisionFor(testExactGoTestInputVotes(t, baseline, target), testExactGoTestInputVotes(t, siblingChanged, target))
+	baselineVotes := testExactGoTestInputVotes(t, baseline, target)
+	singleVote := remoteWorkloadInputVoteDecisionFor(baselineVotes, baselineVotes)
 	if !singleVote.allowReuse() {
-		t.Fatal("single broad compile MISS rejected selector PASS reuse")
+		t.Fatal("single broad MISS rejected selector PASS reuse")
 	}
 	selectedChanged := testExactGoTestDigestSnapshot("")
 	testExactGoTestDigestReplaceFile(selectedChanged, "fixture/target_test.go", []byte("package fixture\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { t.Log(\"changed\") }\nfunc BenchmarkX(b *testing.B) {}\n"))
@@ -28,6 +28,179 @@ func TestRemoteWorkloadMissVoteConsensus(t *testing.T) {
 	diagnostic.observeSourceInputVoteDecision(confirmed)
 	if diagnostic.SourceSingleVoteRecovered != 1 || diagnostic.SourceConfirmedMisses != 1 || diagnostic.SourceDeclarationMissVotes != 1 {
 		t.Fatalf("vote diagnostic = %#v", diagnostic)
+	}
+}
+
+// TestRemoteWorkloadMissVotesRejectSiblingCompileFailure 验证同包未选测试的
+// 编译闭包变化必须成为独立 MISS 票，禁止把无法编译的候选复用为 PASS。
+func TestRemoteWorkloadMissVotesRejectSiblingCompileFailure(t *testing.T) {
+	target := gate.GoTestTarget{Package: "fixture", Name: "TestX"}
+	baseline := testExactGoTestDigestSnapshot("")
+	compileFailure := testExactGoTestDigestSnapshot("type Broken doesNotExist\n")
+	decision := remoteWorkloadInputVoteDecisionFor(
+		testExactGoTestInputVotes(t, baseline, target),
+		testExactGoTestInputVotes(t, compileFailure, target),
+	)
+	if decision.allowReuse() {
+		t.Fatal("sibling compile failure reused selector PASS")
+	}
+	if !decision.compileMiss || decision.missVotes < remoteReuseMissConfirmationThreshold {
+		t.Fatalf("sibling compile-failure decision = %+v, want confirmed compile MISS", decision)
+	}
+	diagnostic := ReuseReplayDiagnostic{}
+	diagnostic.observeSourceInputVoteDecision(decision)
+	if diagnostic.SourceConfirmedMisses != 1 || diagnostic.SourceCompileMissVotes != 1 {
+		t.Fatalf("sibling compile-failure diagnostic = %#v, want one confirmed compile MISS", diagnostic)
+	}
+}
+
+// TestRemoteWorkloadCompileMismatchSkipsSemanticDigests 验证编译闭包不一致已经提供两票时，
+// replay 必须在解析 selector 声明和运行时观察前早停。
+func TestRemoteWorkloadCompileMismatchSkipsSemanticDigests(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	source := testExactGoTestDigestSnapshot("")
+	source.repositoryRoot = "repo"
+	source.tree = "source"
+	target := testExactGoTestDigestSnapshot("type Broken doesNotExist\n")
+	target.repositoryRoot = "repo"
+	target.tree = "target"
+	cache, err := newRemoteReplayCache("repo", "target", target)
+	if err != nil {
+		t.Fatalf("newRemoteReplayCache: %v", err)
+	}
+	decision := testRemoteSemanticInputDecision(t, cache, workload, source, target)
+	if decision.allowReuse() || !decision.compileMiss {
+		t.Fatalf("compile mismatch decision = %+v, want compile MISS", decision)
+	}
+	sibling := testRemoteGoWorkload(t, "TestUnselected")
+	decision = testRemoteSemanticInputDecision(t, cache, sibling, source, target)
+	if decision.allowReuse() || !decision.compileMiss {
+		t.Fatalf("sibling compile mismatch decision = %+v, want compile MISS", decision)
+	}
+	if cache.compileComputations != 2 {
+		t.Fatalf("compile computations = %d, want one grouped computation per tree", cache.compileComputations)
+	}
+	if cache.semanticComputations != 0 {
+		t.Fatalf("semantic computations = %d, want 0 after compile-first early stop", cache.semanticComputations)
+	}
+}
+
+// TestRemoteWorkloadCompileMismatchSkipsFullInputDigest 验证真实 candidate 匹配路径
+// 在 compile MISS 后不再计算完整 workload InputDigest。
+func TestRemoteWorkloadCompileMismatchSkipsFullInputDigest(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	source := testExactGoTestDigestSnapshot("")
+	source.repositoryRoot = "repo"
+	source.tree = "source"
+	target := testExactGoTestDigestSnapshot("type Broken doesNotExist\n")
+	target.repositoryRoot = "repo"
+	target.tree = "target"
+	cache, err := newRemoteReplayCache("repo", "target", target)
+	if err != nil {
+		t.Fatalf("newRemoteReplayCache: %v", err)
+	}
+	cache.snapshots[remoteReplayTreeKey{repositoryRoot: "repo", tree: "source"}] = remoteReplaySnapshotResult{snapshot: source, available: true}
+	diagnostic := ReuseReplayDiagnostic{}
+	matches, err := matchesRemoteWorkloadPassSourceCandidate(
+		context.Background(),
+		"repo",
+		gate.WorkloadPassIdentity{WorkloadID: gate.GateID(workload.ID), InputDigest: "target-input"},
+		workload,
+		gate.WorkloadPassEvidence{OriginSourceTreeSHA: "source"},
+		target,
+		false,
+		cache,
+		&diagnostic,
+	)
+	if err != nil {
+		t.Fatalf("matchesRemoteWorkloadPassSourceCandidate: %v", err)
+	}
+	if matches {
+		t.Fatal("compile mismatch reused source candidate")
+	}
+	if cache.inputComputations != 0 || cache.semanticComputations != 0 {
+		t.Fatalf("expensive computations input=%d semantic=%d, want 0", cache.inputComputations, cache.semanticComputations)
+	}
+	if diagnostic.SourceCompileMissVotes != 1 || diagnostic.SourceConfirmedMisses != 1 {
+		t.Fatalf("compile-first diagnostic = %#v, want one confirmed compile MISS", diagnostic)
+	}
+}
+
+// TestRemoteWorkloadCompileCoverageReusesUnchangedSiblingBody 验证一个同 owner MISS
+// 已承担精确树编译后，未变 selector 只复用测试体语义，声明或运行时变化仍会阻断。
+func TestRemoteWorkloadCompileCoverageReusesUnchangedSiblingBody(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	source := testExactGoTestDigestSnapshot("")
+	source.repositoryRoot, source.tree = "repo", "source"
+	target := testExactGoTestDigestSnapshot("type Added int\n")
+	target.repositoryRoot, target.tree = "repo", "target"
+	cache, err := newRemoteReplayCache("repo", "target", target)
+	if err != nil {
+		t.Fatalf("newRemoteReplayCache: %v", err)
+	}
+	decision, err := cache.semanticInputDecisionWithCompileCoverage(t.Context(), workload, source, target, true)
+	if err != nil {
+		t.Fatalf("semanticInputDecisionWithCompileCoverage: %v", err)
+	}
+	if !decision.allowReuse() || !decision.compileMiss || decision.declarationMiss || decision.runtimeMiss {
+		t.Fatalf("covered sibling decision = %+v, want compile-only recovered PASS", decision)
+	}
+}
+
+// TestRemoteReplayCompileCoverageSeparatesSemanticOwners 验证同包 normal MISS 不会
+// 覆盖 race 或 benchmark 的独立编译义务。
+func TestRemoteReplayCompileCoverageSeparatesSemanticOwners(t *testing.T) {
+	normal := testRemoteGoWorkload(t, "TestX")
+	race, err := gate.NewGoTestWorkload(gate.GateIDBackendTestGuardWithRace, "./fixture", "TestX", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage := make(remoteReplayCompileCoverage)
+	if covered, err := coverage.cover(normal); err != nil || !covered {
+		t.Fatalf("cover normal = %v, err=%v", covered, err)
+	}
+	if covered, err := coverage.covers(normal); err != nil || !covered {
+		t.Fatalf("normal coverage = %v, err=%v", covered, err)
+	}
+	if covered, err := coverage.covers(race); err != nil || covered {
+		t.Fatalf("race coverage = %v, err=%v", covered, err)
+	}
+}
+
+// testRemoteGoWorkload 创建 compile-first 单测使用的规范 Go selector workload。
+func testRemoteGoWorkload(t *testing.T, name string) gate.Workload {
+	t.Helper()
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./fixture", name, 1)
+	if err != nil {
+		t.Fatalf("NewGoTestWorkload(%s): %v", name, err)
+	}
+	return workload
+}
+
+// testRemoteSemanticInputDecision 执行 replay 语义裁决并把错误收敛到调用测试。
+func testRemoteSemanticInputDecision(t *testing.T, cache *remoteReplayCache, workload gate.Workload, source, target *remoteGitTreeSnapshot) remoteWorkloadInputVoteDecision {
+	t.Helper()
+	decision, err := cache.semanticInputDecision(context.Background(), workload, source, target)
+	if err != nil {
+		t.Fatalf("semanticInputDecision(%s): %v", workload.ID, err)
+	}
+	return decision
+}
+
+// TestCanonicalRemoteWorkloadPassSourceCandidates 验证同一来源树只评估一次，
+// 同时保留 SQLite 已确定排序中的首个 provenance。
+func TestCanonicalRemoteWorkloadPassSourceCandidates(t *testing.T) {
+	candidates := []gate.WorkloadPassEvidence{
+		{OriginSourceTreeSHA: "tree-a", OriginJobID: "first"},
+		{OriginSourceTreeSHA: "tree-a", OriginJobID: "duplicate"},
+		{OriginSourceTreeSHA: "tree-b", OriginJobID: "second"},
+	}
+	canonical := canonicalRemoteWorkloadPassSourceCandidates(candidates)
+	if len(canonical) != 2 {
+		t.Fatalf("canonical candidates = %d, want 2", len(canonical))
+	}
+	if canonical[0].OriginJobID != "first" || canonical[1].OriginJobID != "second" {
+		t.Fatalf("canonical provenance = %#v, want first candidate per source tree", canonical)
 	}
 }
 

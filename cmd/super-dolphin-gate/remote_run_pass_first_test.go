@@ -77,6 +77,39 @@ func TestExecutePreparedRemoteRunAllHitSkipsMissDependencies(t *testing.T) {
 	assertAllHitExecution(t, result, err, probe)
 }
 
+// TestExecutePreparedRemoteRunRefreshesCalibrationBeforeMissDependencies 验证
+// 校准新增 PASS 会在候选 Gate closure、ImageCache 和 ECI runtime 读取前生效。
+func TestExecutePreparedRemoteRunRefreshesCalibrationBeforeMissDependencies(t *testing.T) {
+	recovered := false
+	missDependencyCalls := 0
+	dependencies := remotePreparedRunDependencies{
+		allReused: func(*remoteci.PreparedRun) bool { return recovered },
+		resolveCandidateGateIdentity: func(string, string) (string, string, error) {
+			missDependencyCalls++
+			return "", "", errors.New("candidate closure must be skipped after calibration recovery")
+		},
+		loadImageCacheRuntime: func(remoteRunConfig, remoteci.BaselineState) (remoteImageCacheRuntime, error) {
+			missDependencyCalls++
+			return remoteImageCacheRuntime{}, errors.New("runtime must be skipped after calibration recovery")
+		},
+		bindMissExecution: func(*remoteci.Coordinator, context.Context, *remoteci.PreparedRun, remoteci.MissExecutionBinding) error {
+			missDependencyCalls++
+			return errors.New("binding must be skipped after calibration recovery")
+		},
+		reloadPlanning: func(remoteRunOptions, remoteci.BaselineState, string, remoteci.RunInput, *remoteci.PreparedRun) error {
+			recovered = true
+			return nil
+		},
+		runPrepared: passedRemotePreparedRun, finalizeEvidence: noOpRemoteEvidenceFinalizer,
+	}
+	if _, _, err := executePreparedRemoteRun(context.Background(), remoteRunOptions{}, remoteRunConfig{}, remoteci.BaselineState{}, "runner", remoteci.RunInput{}, nil, nil, dependencies); err != nil {
+		t.Fatalf("executePreparedRemoteRun() error = %v", err)
+	}
+	if missDependencyCalls != 0 {
+		t.Fatalf("post-calibration all-hit invoked %d MISS-only dependencies", missDependencyCalls)
+	}
+}
+
 // assertAllHitExecution 验证 all-hit 只执行终态链。
 func assertAllHitExecution(t *testing.T, result remoteci.RunResult, err error, probe *allHitDependencyProbe) {
 	t.Helper()
