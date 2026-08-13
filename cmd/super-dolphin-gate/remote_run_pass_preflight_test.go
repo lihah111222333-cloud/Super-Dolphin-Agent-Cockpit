@@ -57,7 +57,7 @@ func configuredRemotePassPreflightOptions(t *testing.T, observer remoteci.Progre
 	}
 	scenario := configuredRemotePassPreflightValue(configuredRemotePassPreflightScenario, "full")
 	entrypoint := configuredRemotePassPreflightValue(configuredRemotePassPreflightEntrypoint, string(gatecontract.CIEntrypointRelease))
-	return remoteRunOptions{
+	options := remoteRunOptions{
 		ConfigPath:       requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_CONFIG"),
 		RepositoryRoot:   requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_REPOSITORY"),
 		Commit:           requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_COMMIT"),
@@ -67,6 +67,16 @@ func configuredRemotePassPreflightOptions(t *testing.T, observer remoteci.Progre
 		AgentTokenDigest: agentTokenDigest,
 		ProgressObserver: observer,
 	}
+	if scenario == "push" {
+		options.Base = requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_BASE")
+		options.RemoteName = requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_REMOTE_NAME")
+		options.RemoteURL = requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_REMOTE_URL")
+		options.LocalRef = requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_LOCAL_REF")
+		options.RemoteRef = requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_REMOTE_REF")
+		options.ObservedRemote = requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_OBSERVED_REMOTE")
+		options.UpdateKind = string(gatecontract.UpdateKindFastForward)
+	}
+	return options
 }
 
 func prepareConfiguredRemotePassPreflight(t *testing.T, options remoteRunOptions) (*remoteci.PreparedRun, remoteci.RunInput) {
