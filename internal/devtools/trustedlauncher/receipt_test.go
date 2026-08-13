@@ -61,6 +61,11 @@ func TestDecodeReceiptRejectsUnknownMissingAndStaleFields(t *testing.T) {
 		t.Fatalf("unknown field error = %v", err)
 	}
 
+	legacy := strings.Replace(string(encoded), ReceiptSchemaVersion, "trusted-gate-launcher/v1", 1)
+	if _, err := DecodeReceipt([]byte(legacy)); err == nil || !strings.Contains(err.Error(), ReceiptSchemaVersion) {
+		t.Fatalf("legacy receipt schema error = %v, want %s", err, ReceiptSchemaVersion)
+	}
+
 	for index := range reflect.TypeFor[Receipt]().NumField() {
 		field := reflect.TypeFor[Receipt]().Field(index)
 		mutated := receipt
@@ -141,7 +146,7 @@ func TestDecodeLinkedIdentityRejectsMalformedInput(t *testing.T) {
 	tests := map[string][]byte{
 		"unknown field":    append(validJSON[:len(validJSON)-1], []byte(`,"unexpected":true}`)...),
 		"trailing value":   append(validJSON, []byte(` {}`)...),
-		"wrong version":    []byte(strings.Replace(string(validJSON), launcherLinkedPayloadSchema, "trusted-gate-launcher-linked-identity/v2", 1)),
+		"wrong version":    []byte(strings.Replace(string(validJSON), launcherLinkedPayloadSchema, "trusted-gate-launcher-linked-identity/v1", 1)),
 		"uppercase digest": []byte(strings.Replace(string(validJSON), strings.Repeat("a", 64), strings.Repeat("A", 64), 1)),
 	}
 	for name, data := range tests {

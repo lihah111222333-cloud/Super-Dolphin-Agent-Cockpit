@@ -19,10 +19,7 @@ type runtimeServerLeaseTestResult struct {
 }
 
 func TestRuntimeServerEnvironmentSharesCacheAcrossWorktrees(t *testing.T) {
-	cacheRoot := t.TempDir()
-	if err := os.Chmod(cacheRoot, 0o700); err != nil {
-		t.Fatalf("secure test cache root: %v", err)
-	}
+	cacheRoot := runtimeServerSecureCacheRoot(t)
 	t.Setenv(agentLSPSharedCacheDirEnv, cacheRoot)
 	firstRoot, secondRoot := writeRuntimeLinkedWorktreeFixture(t)
 	firstBinary := writeRuntimeServerCacheFixture(t, "typescript-language-server", "#!/bin/sh\nexit 0\n")
@@ -703,8 +700,11 @@ func assertRuntimeServerLeaseQuarantinesBounded(t *testing.T, cohortDir string) 
 func runtimeServerSecureCacheRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.Chmod(root, 0o700); err != nil {
+	if err := runtimeServerHardenPrivateDirectory(root); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
+	}
+	if err := runtimeServerValidatePrivateDirectory(root); err != nil {
+		t.Fatalf("validate secure test cache root: %v", err)
 	}
 	return root
 }

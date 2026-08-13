@@ -15,7 +15,7 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		`git -C "$repo_root" add -A -- "$project_map_path"`,
 		`config --local --get superdolphin.gateLauncher`,
 		`config --local superdolphin.gateLauncher "$built_gate"`,
-		`"$install_root/v1/$source_tree"/*/super-dolphin-gate`,
+		`"$install_root/v2/$source_tree"/*/super-dolphin-gate`,
 		`./scripts/test_with_guard.sh --light-guard-only`,
 		`SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`,
 		`worktree_root="$repo_root/.worktrees"`,

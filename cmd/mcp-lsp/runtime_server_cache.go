@@ -18,6 +18,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 const (
@@ -366,9 +367,11 @@ func runtimeServerValidateResourceLeaseLock(path string, file *os.File) error {
 	if err != nil {
 		return fmt.Errorf("inspect repository cohort election lock: %w", err)
 	}
-	if linked.Mode()&os.ModeSymlink != 0 || !linked.Mode().IsRegular() || linked.Mode().Perm()&0o077 != 0 ||
-		!os.SameFile(opened, linked) {
+	if linked.Mode()&os.ModeSymlink != 0 || !linked.Mode().IsRegular() || !os.SameFile(opened, linked) {
 		return fmt.Errorf("repository cohort election lock is insecure: %s", path)
+	}
+	if err := securefs.CheckPrivateOwnerOnly(path, linked); err != nil {
+		return fmt.Errorf("repository cohort election lock is insecure: %s: %w", path, err)
 	}
 	return nil
 }
@@ -580,7 +583,7 @@ func runtimeServerCreateResourceLease(path string, lease runtimeServerResourceLe
 	}
 	tempPath := file.Name()
 	defer func() { _ = os.Remove(tempPath) }()
-	if err := file.Chmod(0o600); err != nil {
+	if err := securefs.RestrictPrivateOwnerOnly(tempPath, 0o600); err != nil {
 		return errors.Join(fmt.Errorf("secure repository cohort lease temp file: %w", err), file.Close())
 	}
 	if _, err := file.Write(payload); err != nil {
@@ -643,8 +646,11 @@ func runtimeServerReadResourceLease(path string) (runtimeServerResourceLease, er
 	if err != nil {
 		return runtimeServerResourceLease{}, fmt.Errorf("inspect repository cohort lease: %w", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > 4096 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > 4096 {
 		return runtimeServerResourceLease{}, fmt.Errorf("repository cohort lease is insecure: %s", path)
+	}
+	if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
+		return runtimeServerResourceLease{}, fmt.Errorf("repository cohort lease is insecure: %s: %w", path, err)
 	}
 	payload, err := os.ReadFile(path)
 	if err != nil {

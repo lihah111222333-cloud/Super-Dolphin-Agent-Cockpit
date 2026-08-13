@@ -578,13 +578,7 @@ func killGoplsDaemonProcessForE2E(t *testing.T, goplsPath, runtimeDir string, ex
 	if len(processes) != 1 || processes[0] != expected {
 		t.Fatalf("refuse ambiguous gopls kill: got=%#v want exact runtime-owned process=%#v", processes, expected)
 	}
-	alive, err := processAliveForE2E(expected.PID)
-	if err != nil {
-		t.Fatalf("exact residual gopls PID %d is not live before kill: %v", expected.PID, err)
-	}
-	if !alive {
-		t.Fatalf("exact residual gopls PID %d is not live before kill", expected.PID)
-	}
+	requireGoplsDaemonProcessAliveForE2E(t, expected.PID)
 	process, err := os.FindProcess(expected.PID)
 	if err != nil {
 		t.Fatalf("find residual gopls daemon %d: %v", expected.PID, err)
@@ -592,23 +586,47 @@ func killGoplsDaemonProcessForE2E(t *testing.T, goplsPath, runtimeDir string, ex
 	if err := process.Kill(); err != nil {
 		t.Fatalf("kill residual gopls daemon %d: %v", expected.PID, err)
 	}
+	waitForGoplsDaemonProcessExitForE2E(t, goplsPath, runtimeDir, expected.PID)
+}
+
+// requireGoplsDaemonProcessAliveForE2E 要求目标 PID 在终止前仍然存活。
+func requireGoplsDaemonProcessAliveForE2E(t *testing.T, pid int) {
+	t.Helper()
+	alive, err := processAliveForE2E(pid)
+	if err != nil {
+		t.Fatalf("exact residual gopls PID %d is not live before kill: %v", pid, err)
+	}
+	if !alive {
+		t.Fatalf("exact residual gopls PID %d is not live before kill", pid)
+	}
+}
+
+// waitForGoplsDaemonProcessExitForE2E 等待目标 PID 同时从进程清单和系统存活检查中消失。
+func waitForGoplsDaemonProcessExitForE2E(t *testing.T, goplsPath, runtimeDir string, pid int) {
+	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		remaining := requireGoplsDaemonProcesses(t, goplsPath, runtimeDir)
-		if !slices.ContainsFunc(remaining, func(process goplsDaemonProcess) bool { return process.PID == expected.PID }) {
-			alive, err := processAliveForE2E(expected.PID)
-			if err != nil {
-				t.Fatalf("exact residual gopls PID %d was not proven exited: %v", expected.PID, err)
-			}
-			if alive {
-				t.Fatalf("exact residual gopls PID %d was not proven exited", expected.PID)
-			}
+		if !slices.ContainsFunc(remaining, func(process goplsDaemonProcess) bool { return process.PID == pid }) {
+			requireGoplsDaemonProcessExitedForE2E(t, pid)
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("residual gopls daemon PID %d remained after kill: %#v", expected.PID, remaining)
+			t.Fatalf("residual gopls daemon PID %d remained after kill: %#v", pid, remaining)
 		}
 		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// requireGoplsDaemonProcessExitedForE2E 要求目标 PID 已由系统证明退出。
+func requireGoplsDaemonProcessExitedForE2E(t *testing.T, pid int) {
+	t.Helper()
+	alive, err := processAliveForE2E(pid)
+	if err != nil {
+		t.Fatalf("exact residual gopls PID %d was not proven exited: %v", pid, err)
+	}
+	if alive {
+		t.Fatalf("exact residual gopls PID %d was not proven exited", pid)
 	}
 }
 

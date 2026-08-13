@@ -240,12 +240,33 @@ func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 }
 
 func TestResolveRemoteCandidateGateIdentityUsesExactCLIClosure(t *testing.T) {
-	repository := initRemoteRunGitFixture(t)
-	mainPath := filepath.Join(repository, "cmd", "super-dolphin-gate", "main.go")
-	if err := os.WriteFile(mainPath, []byte("package main\n\nfunc main() { println(\"candidate\") }\n"), 0o600); err != nil {
+	canonicalRepository, candidateTree, state := embeddedRemoteCandidateGateIdentityFixture(t)
+	candidateSource, candidateToolchain, err := resolveRemoteCandidateGateIdentity(canonicalRepository, candidateTree)
+	if err != nil {
 		t.Fatal(err)
 	}
-	runRemoteRunGit(t, repository, "add", "cmd/super-dolphin-gate/main.go")
+	assertRemoteCandidateGateIdentityUsesStableClosure(t, canonicalRepository, candidateTree, candidateSource, candidateToolchain)
+	baselineSource, _, _, err := remoteci.LoadGateCLICompileClosure(context.Background(), canonicalRepository, state.MainTree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidateSource == baselineSource {
+		t.Fatal("candidate gate closure change kept the baseline source digest")
+	}
+}
+
+func embeddedRemoteCandidateGateIdentityFixture(t *testing.T) (string, string, remoteci.BaselineState) {
+	t.Helper()
+	repository := initRemoteRunGitFixture(t)
+	mainPath := filepath.Join(repository, "cmd", "super-dolphin-gate", "main.go")
+	if err := os.WriteFile(mainPath, []byte("package main\n\nimport _ \"embed\"\n\n//go:embed candidate.txt\nvar candidate string\n\nfunc main() { println(candidate) }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assetPath := filepath.Join(repository, "cmd", "super-dolphin-gate", "candidate.txt")
+	if err := os.WriteFile(assetPath, []byte("candidate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runRemoteRunGit(t, repository, "add", "cmd/super-dolphin-gate/main.go", "cmd/super-dolphin-gate/candidate.txt")
 	runRemoteRunGit(t, repository, "commit", "--quiet", "-m", "修改候选 CLI")
 	state := remoteRunBaselineState(t, repository)
 	canonicalRepository, err := filepath.EvalSymlinks(repository)
@@ -253,16 +274,24 @@ func TestResolveRemoteCandidateGateIdentityUsesExactCLIClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidateTree := remoteRunGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
-	candidateSource, _, err := resolveRemoteCandidateGateIdentity(canonicalRepository, candidateTree)
+	return canonicalRepository, candidateTree, state
+}
+
+func assertRemoteCandidateGateIdentityUsesStableClosure(t *testing.T, repository, tree, candidateSource, candidateToolchain string) {
+	t.Helper()
+	stableSource, stableToolchain, _, err := remoteci.LoadGateCLICompileClosure(context.Background(), repository, tree)
 	if err != nil {
 		t.Fatal(err)
 	}
-	baselineSource, _, _, err := remoteci.LoadGateCLICompileClosure(context.Background(), canonicalRepository, state.MainTree)
+	if candidateSource != stableSource || candidateToolchain != stableToolchain {
+		t.Fatalf("candidate identity = (%q, %q), want cross-generation closure (%q, %q)", candidateSource, candidateToolchain, stableSource, stableToolchain)
+	}
+	trustedSource, trustedToolchain, _, err := remoteci.LoadTrustedGateLauncherCompileClosure(context.Background(), repository, tree)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidateSource == baselineSource {
-		t.Fatal("candidate gate closure change kept the baseline source digest")
+	if candidateSource == trustedSource || candidateToolchain != trustedToolchain {
+		t.Fatalf("remote candidate identity used host-only embedded closure: remote=(%q, %q) trusted=(%q, %q)", candidateSource, candidateToolchain, trustedSource, trustedToolchain)
 	}
 }
 

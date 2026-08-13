@@ -64,6 +64,7 @@ if [[ ! -d "$install_root" ]]; then
 fi
 cleanup_contract() {
   if [[ -n ${install_root:-} && -n ${tree:-} ]]; then
+    rm -rf -- "$install_root/v2/$tree"
     rm -rf -- "$install_root/v1/$tree"
   fi
   if [[ ${root_created:-0} -eq 1 ]]; then
@@ -73,9 +74,27 @@ cleanup_contract() {
   rm -rf -- "$fixture_root"
 }
 trap cleanup_contract EXIT
-launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
+launcher="$install_root/v2/$tree/$digest/super-dolphin-gate"
+legacy_launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
+mkdir -p "$(dirname "$legacy_launcher")"
+chmod 700 "$install_root/v1" "$install_root/v1/$tree" "$(dirname "$legacy_launcher")"
+cp "$candidate_source" "$legacy_launcher"
+chmod 500 "$legacy_launcher"
+printf '%s\n' '{"fixture":"valid"}' >"$(dirname "$legacy_launcher")/receipt.json"
+chmod 400 "$(dirname "$legacy_launcher")/receipt.json"
+if validate_trusted_gate_launcher "$git_repo" "$legacy_launcher" >/dev/null 2>&1; then
+  fail 'legacy v1 launcher passed the v2 path contract'
+fi
+git -C "$git_repo" config --local superdolphin.gateLauncher "$legacy_launcher"
+if trusted_gate_launcher "$git_repo" >/dev/null 2>&1; then
+  fail 'legacy v1 configured launcher passed verification'
+fi
+if trusted_gate_launcher_for_tree "$git_repo" "$tree" >/dev/null 2>&1; then
+  fail 'legacy v1 launcher was discovered as a v2 candidate'
+fi
+
 mkdir -p "$(dirname "$launcher")"
-chmod 700 "$install_root" "$install_root/v1" "$install_root/v1/$tree" "$(dirname "$launcher")"
+chmod 700 "$install_root" "$install_root/v2" "$install_root/v2/$tree" "$(dirname "$launcher")"
 cp "$candidate_source" "$launcher"
 chmod 500 "$launcher"
 printf '%s\n' '{"fixture":"valid"}' >"$(dirname "$launcher")/receipt.json"
@@ -138,14 +157,14 @@ fi
 cp "$candidate_source" "$launcher"
 chmod 500 "$launcher"
 
-rm -rf "$install_root/v1/$tree/$digest"
-ln -s "$fixture_root" "$install_root/v1/$tree/$digest"
+rm -rf "$install_root/v2/$tree/$digest"
+ln -s "$fixture_root" "$install_root/v2/$tree/$digest"
 if validate_trusted_gate_launcher "$git_repo" "$launcher" >/dev/null 2>&1; then
   fail 'symlinked content-address directory was accepted'
 fi
-rm "$install_root/v1/$tree/$digest"
-mkdir "$install_root/v1/$tree/$digest"
-chmod 700 "$install_root/v1/$tree/$digest"
+rm "$install_root/v2/$tree/$digest"
+mkdir "$install_root/v2/$tree/$digest"
+chmod 700 "$install_root/v2/$tree/$digest"
 cp "$candidate_source" "$launcher"
 chmod 500 "$launcher"
 printf '%s\n' '{"fixture":"valid"}' >"$(dirname "$launcher")/receipt.json"

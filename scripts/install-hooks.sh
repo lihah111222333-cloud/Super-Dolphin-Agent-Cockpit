@@ -52,7 +52,7 @@ LAUNCHER_VERSION_DIR=$(dirname "$LAUNCHER_TREE_DIR")
 LAUNCHER_ROOT=$(dirname "$LAUNCHER_VERSION_DIR")
 if [[ "$(basename "$LAUNCHER")" != "super-dolphin-gate" \
     || "$(basename "$LAUNCHER_TREE_DIR")" != "$STAGED_TREE" \
-    || "$(basename "$LAUNCHER_VERSION_DIR")" != "v1" \
+    || "$(basename "$LAUNCHER_VERSION_DIR")" != "v2" \
     || ! "$(basename "$LAUNCHER_DIGEST_DIR")" =~ ^[0-9a-f]{64}$ ]]; then
     echo "super-dolphin gate launcher path is not content-addressed by the staged tree" >&2
     exit 1

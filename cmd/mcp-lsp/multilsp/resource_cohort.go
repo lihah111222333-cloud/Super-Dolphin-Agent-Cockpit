@@ -18,6 +18,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 const (
@@ -272,7 +273,7 @@ func writeResourceCohortMemberAtPath(dir, destination string, member resourceCoh
 	defer func() {
 		_ = os.Remove(tempPath)
 	}()
-	if err := temp.Chmod(0o600); err != nil {
+	if err := securefs.RestrictPrivateOwnerOnly(tempPath, 0o600); err != nil {
 		_ = temp.Close()
 		return fmt.Errorf("secure LSP resource cohort member temp file: %w", err)
 	}
@@ -547,8 +548,11 @@ func validateResourceCohortMemberFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("inspect LSP resource cohort member: %w", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return invalidResourceCohortReport(fmt.Errorf("LSP resource cohort member is insecure: %s", path))
+	}
+	if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
+		return invalidResourceCohortReport(fmt.Errorf("LSP resource cohort member is insecure: %s: %w", path, err))
 	}
 	if info.Size() <= 0 || info.Size() > 64*1024 {
 		return invalidResourceCohortReport(fmt.Errorf("LSP resource cohort member has invalid size: %d", info.Size()))
@@ -571,8 +575,8 @@ func validateResourceCohortMemberFields(payload []byte) error {
 		return err
 	}
 	memberType := reflect.TypeFor[resourceCohortMember]()
-	for index := range memberType.NumField() {
-		jsonName, _, _ := strings.Cut(memberType.Field(index).Tag.Get("json"), ",")
+	for field := range memberType.Fields() {
+		jsonName, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if jsonName == "" || jsonName == "-" {
 			continue
 		}

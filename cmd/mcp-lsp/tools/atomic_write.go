@@ -35,11 +35,6 @@ func (osFileWriter) Remove(name string) error {
 	return os.Remove(name)
 }
 
-// Rename 重命名指定路径。
-func (osFileWriter) Rename(oldPath string, newPath string) error {
-	return os.Rename(oldPath, newPath)
-}
-
 var defaultFileWriter fileWriter = osFileWriter{}
 
 // atomicReplaceFile 通过同目录临时文件和 rename 原子替换目标文件。

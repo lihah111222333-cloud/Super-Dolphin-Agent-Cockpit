@@ -15,27 +15,57 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 // ensureResourceCohortDirectory 创建或校验仅当前用户可访问的真实目录。
 func ensureResourceCohortDirectory(path string, create bool) error {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) && create {
-		if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-			return err
-		}
-		info, err = os.Lstat(path)
-	}
+	info, created, err := resourceCohortDirectoryInfo(path, create)
 	if err != nil {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("path is not a real directory: %s", path)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("directory permissions are too broad: %s mode=%#o", path, info.Mode().Perm())
+	if created {
+		if err := securefs.RestrictPrivateOwnerOnly(path, 0o700); err != nil {
+			return fmt.Errorf("restrict resource cohort directory: %w", err)
+		}
+		info, err = os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("inspect restricted resource cohort directory: %w", err)
+		}
+	}
+	if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
+		return fmt.Errorf("resource cohort directory is not private: %w", err)
 	}
 	return nil
+}
+
+// resourceCohortDirectoryInfo 按需创建目录并返回是否由当前调用创建。
+func resourceCohortDirectoryInfo(path string, create bool) (os.FileInfo, bool, error) {
+	info, err := os.Lstat(path)
+	if !errors.Is(err, os.ErrNotExist) || !create {
+		return info, false, err
+	}
+	created, err := createResourceCohortDirectory(path)
+	if err != nil {
+		return nil, false, err
+	}
+	info, err = os.Lstat(path)
+	return info, created, err
+}
+
+// createResourceCohortDirectory 创建目录并把并发创建归类为既有路径。
+func createResourceCohortDirectory(path string) (bool, error) {
+	err := os.Mkdir(path, 0o700)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrExist) {
+		return false, nil
+	}
+	return false, err
 }
 
 // resourceProcessPolicyForClient 读取创建期确定的非 gopls 主次资源策略。
@@ -170,8 +200,11 @@ func validateResourceCohortLeasePath(path, cohortID string) error {
 	if err != nil {
 		return fmt.Errorf("inspect repository cohort lease: %w", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("repository cohort lease is insecure: %s", path)
+	}
+	if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
+		return fmt.Errorf("repository cohort lease is insecure: %s: %w", path, err)
 	}
 	return nil
 }
@@ -225,8 +258,11 @@ func readResourceCohortLease(path string) (resourceCohortLease, error) {
 	if err != nil {
 		return resourceCohortLease{}, fmt.Errorf("inspect repository cohort lease: %w", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return resourceCohortLease{}, fmt.Errorf("repository cohort lease is insecure: %s", path)
+	}
+	if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
+		return resourceCohortLease{}, fmt.Errorf("repository cohort lease is insecure: %s: %w", path, err)
 	}
 	if info.Size() <= 0 || info.Size() > 64*1024 {
 		return resourceCohortLease{}, fmt.Errorf("repository cohort lease has invalid size: %d", info.Size())

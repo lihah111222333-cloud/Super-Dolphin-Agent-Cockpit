@@ -108,7 +108,7 @@ tree=${1:?tree is required}
 install_root=$(git config --local --get superdolphin.testLauncherRoot)
 # Keep each fixture tree distinct from any user-installed launcher.
 # fixture-root: ` + root + `
-launcher="$install_root/v1/$tree/` + installHooksStubDigest() + `/super-dolphin-gate"
+launcher="$install_root/v2/$tree/` + installHooksStubDigest() + `/super-dolphin-gate"
 if [[ -e "$launcher" ]]; then
   printf 'fixture refuses to overwrite existing launcher: %s\n' "$launcher" >&2
   exit 1
@@ -175,7 +175,7 @@ func writeInstallHooksPreCommit(t *testing.T, root string) {
 }
 
 func installHooksLauncherPath(installRoot, tree string) string {
-	return filepath.Join(installRoot, "v1", tree, installHooksStubDigest(), "super-dolphin-gate")
+	return filepath.Join(installRoot, "v2", tree, installHooksStubDigest(), "super-dolphin-gate")
 }
 
 func installHooksStubDigest() string {

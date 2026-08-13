@@ -332,6 +332,36 @@ func TestDownloadVerifiedFileCleansFailedStagingFile(t *testing.T) {
 }
 
 func TestVerifyRemoteMaterializedGateCLICompileClosureRejectsTransitiveSourceDrift(t *testing.T) {
+	repository := newRemoteGateCompileClosureRepository(t)
+	runRemoteMaterializeGit(t, repository, "add", ".")
+	runRemoteMaterializeGit(t, repository, "commit", "-m", "base")
+	baseTree := strings.TrimSpace(runRemoteMaterializeGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	sourceDigest, toolchainDigest, _, err := remoteci.LoadGateCLICompileClosure(context.Background(), repository, baseTree)
+	if err != nil {
+		t.Fatalf("load base compile closure: %v", err)
+	}
+	request := remoteci.ShardRequest{SourceTreeSHA: baseTree, CandidateGateSourceSHA256: sourceDigest, CandidateGateToolchainSHA256: toolchainDigest}
+	if err := verifyRemoteMaterializedGateCLICompileClosure(context.Background(), repository, request); err != nil {
+		t.Fatalf("verify base compile closure: %v", err)
+	}
+	writeRemoteMaterializeFixtureFile(t, repository, "internal/dep/assets/value.txt", "changed\n")
+	runRemoteMaterializeGit(t, repository, "add", ".")
+	runRemoteMaterializeGit(t, repository, "commit", "-m", "embedded asset drift")
+	request.SourceTreeSHA = strings.TrimSpace(runRemoteMaterializeGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	if err := verifyRemoteMaterializedGateCLICompileClosure(context.Background(), repository, request); err != nil {
+		t.Fatalf("cross-generation compile closure rejected embedded asset drift: %v", err)
+	}
+	writeRemoteMaterializeFixtureFile(t, repository, "internal/dep/dep.go", "package dep\n\nimport _ \"embed\"\n\n//go:embed assets/value.txt\nvar value string\n\nfunc Run() { println(\"changed\", value) }\n")
+	runRemoteMaterializeGit(t, repository, "add", ".")
+	runRemoteMaterializeGit(t, repository, "commit", "-m", "imported source drift")
+	request.SourceTreeSHA = strings.TrimSpace(runRemoteMaterializeGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	if err := verifyRemoteMaterializedGateCLICompileClosure(context.Background(), repository, request); err == nil || !strings.Contains(err.Error(), "does not match shard request") {
+		t.Fatalf("transitive source drift error = %v", err)
+	}
+}
+
+func newRemoteGateCompileClosureRepository(t *testing.T) string {
+	t.Helper()
 	repository, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -344,35 +374,22 @@ func TestVerifyRemoteMaterializedGateCLICompileClosureRejectsTransitiveSourceDri
 		"go.sum":                         "example.invalid/dependency v1.0.0 h1:abc\n",
 		"build/gate/toolchain.lock":      "go=1.24.0\n",
 		"cmd/super-dolphin-gate/main.go": "package main\n\nimport \"example.invalid/gate/internal/dep\"\n\nfunc main() { dep.Run() }\n",
-		"internal/dep/dep.go":            "package dep\n\nfunc Run() { println(\"base\") }\n",
+		"internal/dep/dep.go":            "package dep\n\nimport _ \"embed\"\n\n//go:embed assets/value.txt\nvar value string\n\nfunc Run() { println(value) }\n",
+		"internal/dep/assets/value.txt":  "base\n",
 	} {
-		filePath := filepath.Join(repository, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filePath, []byte(source), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeRemoteMaterializeFixtureFile(t, repository, name, source)
 	}
-	runRemoteMaterializeGit(t, repository, "add", ".")
-	runRemoteMaterializeGit(t, repository, "commit", "-m", "base")
-	baseTree := strings.TrimSpace(runRemoteMaterializeGit(t, repository, "rev-parse", "HEAD^{tree}"))
-	sourceDigest, toolchainDigest, _, err := remoteci.LoadGateCLICompileClosure(context.Background(), repository, baseTree)
-	if err != nil {
-		t.Fatalf("load base compile closure: %v", err)
-	}
-	request := remoteci.ShardRequest{SourceTreeSHA: baseTree, CandidateGateSourceSHA256: sourceDigest, CandidateGateToolchainSHA256: toolchainDigest}
-	if err := verifyRemoteMaterializedGateCLICompileClosure(context.Background(), repository, request); err != nil {
-		t.Fatalf("verify base compile closure: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repository, "internal/dep/dep.go"), []byte("package dep\n\nfunc Run() { println(\"changed\") }\n"), 0o644); err != nil {
+	return repository
+}
+
+func writeRemoteMaterializeFixtureFile(t *testing.T, repository, name, source string) {
+	t.Helper()
+	filePath := filepath.Join(repository, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runRemoteMaterializeGit(t, repository, "add", ".")
-	runRemoteMaterializeGit(t, repository, "commit", "-m", "imported source drift")
-	request.SourceTreeSHA = strings.TrimSpace(runRemoteMaterializeGit(t, repository, "rev-parse", "HEAD^{tree}"))
-	if err := verifyRemoteMaterializedGateCLICompileClosure(context.Background(), repository, request); err == nil || !strings.Contains(err.Error(), "does not match shard request") {
-		t.Fatalf("transitive source drift error = %v", err)
+	if err := os.WriteFile(filePath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

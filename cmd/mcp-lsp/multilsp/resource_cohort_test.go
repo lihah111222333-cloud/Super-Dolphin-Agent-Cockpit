@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 func TestResourceCohortQuarantinesOnlyInvalidReports(t *testing.T) {
@@ -21,6 +22,34 @@ func TestResourceCohortQuarantinesOnlyInvalidReports(t *testing.T) {
 	}
 	if !shouldQuarantineResourceCohortReport(invalidResourceCohortReport(errors.New("malformed schema"))) {
 		t.Fatal("invalid report was not classified as quarantineable")
+	}
+}
+
+// TestResourceCohortSecurityUsesPlatformPrivateACL 锁定平台中立代码不得再用 POSIX mode 判断 Windows 私有性。
+func TestResourceCohortSecurityUsesPlatformPrivateACL(t *testing.T) {
+	cases := []struct {
+		path     string
+		required []string
+	}{
+		{"resource_cohort.go", []string{"securefs.RestrictPrivateOwnerOnly", "securefs.CheckPrivateOwnerOnly"}},
+		{"resource_cohort_policy.go", []string{"securefs.RestrictPrivateOwnerOnly", "securefs.CheckPrivateOwnerOnly"}},
+		{"../runtime_server_cache.go", []string{"securefs.RestrictPrivateOwnerOnly", "securefs.CheckPrivateOwnerOnly"}},
+		{"../runtime_gopls_root_cohort_durable_storage.go", []string{"securefs.RestrictPrivateOwnerOnly", "securefs.CheckPrivateOwnerOnly"}},
+	}
+	for _, testCase := range cases {
+		raw, err := os.ReadFile(testCase.path)
+		if err != nil {
+			t.Fatalf("read %s: %v", testCase.path, err)
+		}
+		source := string(raw)
+		if strings.Contains(source, "Mode().Perm()&0o077") {
+			t.Fatalf("%s uses POSIX mode bits in platform-neutral private-path validation", testCase.path)
+		}
+		for _, required := range testCase.required {
+			if !strings.Contains(source, required) {
+				t.Fatalf("%s is missing %s", testCase.path, required)
+			}
+		}
 	}
 }
 
@@ -89,13 +118,13 @@ func newCustomHardLimitResourceCohort(t *testing.T) (*client, workspaceClient, s
 	t.Helper()
 	t.Setenv(ResourceCohortHardLimitMBEnv, "15360")
 	const cohortID = "repo-custom-hard-limit"
-	resourceDir := t.TempDir()
+	resourceDir := resourceCohortPrivateTestDir(t)
 	if err := os.Chmod(resourceDir, 0o700); err != nil {
 		t.Fatalf("secure resource cohort directory: %v", err)
 	}
 	leasePath := writeResourceCohortLeaseFixture(
 		t,
-		filepath.Join(t.TempDir(), cohortID),
+		filepath.Join(resourceCohortPrivateTestDir(t), cohortID),
 		cohortID,
 		ResourceCohortRolePrimary,
 	)
@@ -157,9 +186,12 @@ func assertCustomHardLimitResourceCohort(
 }
 
 func TestResourceCohortUnwrapsDecoratedClient(t *testing.T) {
-	wantDir := filepath.Join(t.TempDir(), "cohort")
+	wantDir := filepath.Join(resourceCohortPrivateTestDir(t), "cohort")
 	if err := os.Mkdir(wantDir, 0o700); err != nil {
 		t.Fatalf("create secure cohort directory: %v", err)
+	}
+	if err := securefs.RestrictPrivateOwnerOnly(wantDir, 0o700); err != nil {
+		t.Fatalf("restrict secure cohort directory: %v", err)
 	}
 	base := &client{transport: &transport{cmd: &exec.Cmd{
 		Env: []string{ResourceCohortDirEnv + "=" + wantDir},
@@ -178,7 +210,7 @@ func TestResourceCohortUnwrapsDecoratedClient(t *testing.T) {
 }
 
 func TestReadResourceCohortMemberRejectsUnknownFields(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "member.json")
+	path := filepath.Join(resourceCohortPrivateTestDir(t), "member.json")
 	payload := `{
 		"schema_version":2,
 		"owner_pid":10,
@@ -208,7 +240,7 @@ func TestReadResourceCohortMemberRejectsUnknownFields(t *testing.T) {
 func TestReadResourceCohortMemberRejectsMissingZeroValuedRequiredField(t *testing.T) {
 	for _, field := range []string{"active_leases", "process_rss_limit_bytes"} {
 		t.Run(field, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "member.json")
+			path := filepath.Join(resourceCohortPrivateTestDir(t), "member.json")
 			payload := resourceCohortMemberPayloadWithoutField(t, field)
 			if err := os.WriteFile(path, payload, 0o600); err != nil {
 				t.Fatalf("write cohort fixture: %v", err)
@@ -249,7 +281,7 @@ func TestValidateResourceCohortMemberRejectsMissingRequiredField(t *testing.T) {
 
 func TestNewResourceCohortMemberRoundTripsCreationPolicyFields(t *testing.T) {
 	const cohortID = "repo-field-guard"
-	cohortDir := filepath.Join(t.TempDir(), cohortID)
+	cohortDir := filepath.Join(resourceCohortPrivateTestDir(t), cohortID)
 	leasePath := writeResourceCohortLeaseFixture(t, cohortDir, cohortID, ResourceCohortRoleSecondary)
 	env := []string{
 		ResourceRepositoryCohortIDEnv + "=" + cohortID,
@@ -287,7 +319,7 @@ func TestNewResourceCohortMemberRoundTripsCreationPolicyFields(t *testing.T) {
 			member.RepositoryCohortID, member.Role, member.ProcessRSSLimitBytes,
 			cohortID, ResourceCohortRoleSecondary, uint64(384*1024*1024))
 	}
-	path := filepath.Join(t.TempDir(), "member.json")
+	path := filepath.Join(resourceCohortPrivateTestDir(t), "member.json")
 	if err := writeResourceCohortMemberAtPath(filepath.Dir(path), path, member); err != nil {
 		t.Fatalf("writeResourceCohortMemberAtPath() error = %v", err)
 	}
@@ -302,9 +334,9 @@ func TestNewResourceCohortMemberRoundTripsCreationPolicyFields(t *testing.T) {
 
 func TestResourceCohortCleanupRetriesOtherFailureAfterLeaseRelease(t *testing.T) {
 	const cohortID = "repo-cleanup-retry"
-	repositoryDir := filepath.Join(t.TempDir(), cohortID)
+	repositoryDir := filepath.Join(resourceCohortPrivateTestDir(t), cohortID)
 	leasePath := writeResourceCohortLeaseFixture(t, repositoryDir, cohortID, ResourceCohortRolePrimary)
-	resourceDir := t.TempDir()
+	resourceDir := resourceCohortPrivateTestDir(t)
 	if err := os.Chmod(resourceDir, 0o700); err != nil {
 		t.Fatalf("secure resource cohort directory: %v", err)
 	}
@@ -346,7 +378,7 @@ func assertResourceCohortCleanupProgress(t *testing.T, current *client, reportsR
 }
 
 func TestLoadResourceCohortMembersQuarantinesSchemaV1(t *testing.T) {
-	dir := t.TempDir()
+	dir := resourceCohortPrivateTestDir(t)
 	member := resourceCohortTestMember(os.Getpid(), os.Getpid(), 1, time.Now(), 0)
 	member.SchemaVersion = 1
 	payload, err := json.Marshal(member)
@@ -378,6 +410,9 @@ func writeResourceCohortLeaseFixture(
 	if err := os.Mkdir(cohortDir, 0o700); err != nil {
 		t.Fatalf("create repository cohort directory: %v", err)
 	}
+	if err := securefs.RestrictPrivateOwnerOnly(cohortDir, 0o700); err != nil {
+		t.Fatalf("restrict repository cohort directory: %v", err)
+	}
 	ownerStart, err := hiddenexec.ProcessStartIdentity(os.Getpid())
 	if err != nil {
 		t.Fatalf("ProcessStartIdentity() error = %v", err)
@@ -398,11 +433,14 @@ func writeResourceCohortLeaseFixture(
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		t.Fatalf("write repository cohort lease: %v", err)
 	}
+	if err := securefs.RestrictPrivateOwnerOnly(path, 0o600); err != nil {
+		t.Fatalf("restrict repository cohort lease: %v", err)
+	}
 	return path
 }
 
 func TestLoadResourceCohortMembersAccountsHardLimitMismatchConservatively(t *testing.T) {
-	dir := t.TempDir()
+	dir := resourceCohortPrivateTestDir(t)
 	pid := os.Getpid()
 	startIdentity, err := hiddenexec.ProcessStartIdentity(pid)
 	if err != nil {
@@ -429,7 +467,7 @@ func TestLoadResourceCohortMembersAccountsHardLimitMismatchConservatively(t *tes
 }
 
 func TestLoadResourceCohortMembersRefreshesStaleLiveOwnerWithoutEvictingIt(t *testing.T) {
-	dir := t.TempDir()
+	dir := resourceCohortPrivateTestDir(t)
 	pid := os.Getpid()
 	startIdentity, err := hiddenexec.ProcessStartIdentity(pid)
 	if err != nil {
@@ -465,7 +503,7 @@ func assertStaleLiveResourceCohortLoad(t *testing.T, loaded resourceCohortLoadRe
 }
 
 func TestLoadResourceCohortMembersAccountsMalformedReportConservatively(t *testing.T) {
-	dir := t.TempDir()
+	dir := resourceCohortPrivateTestDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{"), 0o600); err != nil {
 		t.Fatalf("write malformed cohort report: %v", err)
 	}
@@ -483,7 +521,7 @@ func TestLoadResourceCohortMembersAccountsMalformedReportConservatively(t *testi
 }
 
 func TestLoadResourceCohortMembersBoundsQuarantineGrowth(t *testing.T) {
-	dir := t.TempDir()
+	dir := resourceCohortPrivateTestDir(t)
 	now := time.Now()
 	writeResourceCohortQuarantines(t, dir, now)
 	loaded, err := loadResourceCohortMembers(dir, now, defaultCohortHardLimitBytes)
@@ -536,7 +574,7 @@ func assertResourceCohortQuarantinesBounded(t *testing.T, dir string) {
 }
 
 func TestLoadResourceCohortMembersRejectsFutureTimestampConservatively(t *testing.T) {
-	dir := t.TempDir()
+	dir := resourceCohortPrivateTestDir(t)
 	member := resourceCohortTestMember(101, 201, 1, time.Now(), 0)
 	member.UpdatedAtUnixNano = time.Now().Add(resourceCohortClockSkewTolerance + time.Minute).UnixNano()
 	if err := writeResourceCohortMember(dir, member); err != nil {
@@ -569,6 +607,15 @@ func resourceCohortTestMember(ownerPID, clientPID int, rss uint64, lastActivity 
 		LastActivityUnixNano: lastActivity.UnixNano(),
 		UpdatedAtUnixNano:    time.Now().UnixNano(),
 	}
+}
+
+func resourceCohortPrivateTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := securefs.RestrictPrivateOwnerOnly(dir, 0o700); err != nil {
+		t.Fatalf("restrict resource cohort test directory: %v", err)
+	}
+	return dir
 }
 
 type resourceCohortTestWrappedClient struct {

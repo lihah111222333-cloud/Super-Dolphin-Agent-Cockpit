@@ -21,12 +21,12 @@ import (
 
 const (
 	// ReceiptSchemaVersion identifies the only accepted launcher receipt schema.
-	ReceiptSchemaVersion = "trusted-gate-launcher/v1"
+	ReceiptSchemaVersion = "trusted-gate-launcher/v2"
 	// BinaryName is the fixed executable name inside a content-addressed install.
 	BinaryName = "super-dolphin-gate"
 	// ReceiptName is the fixed receipt name beside the launcher executable.
 	ReceiptName                 = "receipt.json"
-	launcherLinkedPayloadSchema = "trusted-gate-launcher-linked-identity/v1"
+	launcherLinkedPayloadSchema = "trusted-gate-launcher-linked-identity/v2"
 	launcherLinkedPayloadPrefix = launcherLinkedPayloadSchema + ":"
 )
 

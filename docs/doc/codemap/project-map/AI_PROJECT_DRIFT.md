@@ -2,7 +2,7 @@
 
 > 状态：**OK**
 >
-> 已索引文件：5030
+> 已索引文件：5059
 >
 > 未细分职责文件：19
 
@@ -53,5 +53,5 @@
 优先在 `.ai-project-map.overrides.json` 中补充 `purpose_rules_append`，或用 `--rules` 传入显式规则文件，然后重新运行：
 
 ```bash
-node scripts/generate_ai_project_map.mjs
+node scripts/generate_ai_project_map.mjs --full
 ```

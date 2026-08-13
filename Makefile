@@ -243,6 +243,7 @@ project-map-check:
 	node scripts/generate_ai_project_map.mjs --check --strict-drift $(PROJECT_MAP_ARGS)
 	@echo "✅ project map generated files are up to date"
 
+# 默认增量合并当前工作树；首次生成、生成器或规则指纹变化时传 PROJECT_MAP_ARGS=--full。
 project-map-refresh:
 	node scripts/generate_ai_project_map.mjs $(PROJECT_MAP_ARGS)
 	@echo "✅ project map refreshed"

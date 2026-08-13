@@ -33,7 +33,7 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	assertProjectMapPurpose(t, generated, "internal/platform/db/sqlite/migrations/001_fixture.sql", "SQLite schema migrations 与版本演进脚本")
 	assertRemoteCIProjectMapRoutes(t, generated)
 	assertAppAdapterProjectMapRoutes(t, generated)
-	assertOutputContainsAll(t, generated, "docs/guide.md\tdocs\tdocs-agent\tdoc\t13\t")
+	assertOutputContainsAll(t, generated, "docs/guide.md\tdocs\tdocs-agent\tdoc\t27\t")
 	assertOutputOmitsAll(
 		t,
 		generated,
@@ -108,6 +108,172 @@ func TestProjectMapGeneratorOmitsTrackedFilesDeletedFromWorktree(t *testing.T) {
 		t.Fatalf("read project-map other shard: %v", err)
 	}
 	assertOutputOmitsAll(t, string(shard), "internal/app/app.go")
+}
+
+// TestProjectMapGeneratorDefaultsToIncrementalWorktreeRefresh 锁定默认刷新只合并工作树变化，并纳入未暂存的新平台文件。
+func TestProjectMapGeneratorDefaultsToIncrementalWorktreeRefresh(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	if out, err := runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("initial full project map generation failed: %v\n%s", err, out)
+	}
+
+	platformFile := "internal/platform/securefs/private_owner_only_windows.go"
+	writeFixTestGuardFile(t, root, platformFile, "package securefs\n")
+	out, err := runProjectMapGenerator(t, root)
+	if err != nil {
+		t.Fatalf("incremental project map refresh failed: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "mode=incremental")
+	generated := readProjectMapOutputs(t, root)
+	assertOutputContainsAll(t, generated, platformFile+"\tinternal\tplatform-provider\tgo-source")
+
+	out, err = runProjectMapGenerator(t, root, "--full")
+	if err != nil {
+		t.Fatalf("explicit full project map refresh failed: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "mode=full")
+	generated = readProjectMapOutputs(t, root)
+	assertOutputContainsAll(t, generated, platformFile+"\tinternal\tplatform-provider\tgo-source")
+}
+
+// TestProjectMapGeneratorUsesOneWorktreeContentSemantics 锁定增量、全量和检查使用同一工作树文件集与规范化大小。
+func TestProjectMapGeneratorUsesOneWorktreeContentSemantics(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	runFixTestGuardGit(t, root, "add", "run-new-ui-desktop.ps1")
+	runFixTestGuardGit(t, root, "commit", "-m", "test: 添加 CRLF fixture")
+	if out, err := runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("initial full project map generation failed: %v\n%s", err, out)
+	}
+
+	writeFixTestGuardFile(t, root, "run-new-ui-desktop.ps1", "one\r\ntwo\r\nthree\r\n")
+	untracked := "internal/platform/securefs/private_owner_only_windows.go"
+	writeFixTestGuardFile(t, root, untracked, "package securefs\n")
+	if out, err := runProjectMapGenerator(t, root); err != nil {
+		t.Fatalf("incremental worktree refresh failed: %v\n%s", err, out)
+	}
+	generated := readProjectMapOutputs(t, root)
+	assertOutputContainsAll(t, generated,
+		"run-new-ui-desktop.ps1\t(root)\tother\tscript\t14\t",
+		untracked+"\tinternal\tplatform-provider\tgo-source\t17\t",
+	)
+	beforeMap, beforeManifest := readCanonicalProjectMapOutputs(t, root)
+	if out, err := runProjectMapGenerator(t, root, "--check", "--strict-drift"); err != nil {
+		t.Fatalf("worktree project map check failed: %v\n%s", err, out)
+	}
+	if out, err := runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("full worktree refresh failed: %v\n%s", err, out)
+	}
+	afterMap, afterManifest := readCanonicalProjectMapOutputs(t, root)
+	if beforeMap != afterMap || beforeManifest != afterManifest {
+		t.Fatal("incremental and full worktree project-map outputs differ")
+	}
+}
+
+// TestProjectMapGeneratorRejectsDuplicatePreviousRows 锁定增量缓存不能静默覆盖同分片或跨分片重复路径。
+func TestProjectMapGeneratorRejectsDuplicatePreviousRows(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	if out, err := runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("initial full project map generation failed: %v\n%s", err, out)
+	}
+	shard := filepath.Join(root, "docs", "doc", "codemap", "project-map", "index", "other.tsv")
+	body, err := os.ReadFile(shard)
+	if err != nil {
+		t.Fatalf("read project map shard: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("project map shard has no data row: %q", body)
+	}
+	if err := os.WriteFile(shard, []byte(string(body)+lines[1]+"\n"), 0o600); err != nil {
+		t.Fatalf("write duplicate project map row: %v", err)
+	}
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("incremental refresh accepted duplicate project map row\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "duplicate incremental project-map row path", strings.Split(lines[1], "\t")[0], "--full")
+}
+
+// TestProjectMapGeneratorFailsClosedOnRulesFingerprintDrift 锁定规则变化不能复用旧 purpose/search 元数据。
+func TestProjectMapGeneratorFailsClosedOnRulesFingerprintDrift(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	source := "internal/custom/example.go"
+	rules := ".ai-project-map.overrides.json"
+	writeFixTestGuardFile(t, root, source, "package custom\n")
+	writeProjectMapPurposeOverride(t, root, rules, "FIRST PURPOSE")
+	runFixTestGuardGit(t, root, "add", source, rules)
+	runFixTestGuardGit(t, root, "commit", "-m", "test: 添加 project map 规则 fixture")
+	if out, err := runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("initial full project map generation failed: %v\n%s", err, out)
+	}
+	assertProjectMapPurpose(t, readProjectMapOutputs(t, root), source, "FIRST PURPOSE")
+
+	writeProjectMapPurposeOverride(t, root, rules, "SECOND PURPOSE")
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("incremental refresh accepted changed rules fingerprint\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "generator or rules fingerprint mismatch", "--full")
+	if out, err = runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("full refresh after rules change failed: %v\n%s", err, out)
+	}
+	assertProjectMapPurpose(t, readProjectMapOutputs(t, root), source, "SECOND PURPOSE")
+}
+
+// TestProjectMapGeneratorFailsClosedOnCleanTreeSourceDrift 锁定 clean checkout 的旧增量缓存不能继续报告 drift=OK。
+func TestProjectMapGeneratorFailsClosedOnCleanTreeSourceDrift(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	if out, err := runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("initial full project map generation failed: %v\n%s", err, out)
+	}
+	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() { panic(\"changed clean tree\") }\n")
+	runFixTestGuardGit(t, root, "add", "internal/app/app.go")
+	runFixTestGuardGit(t, root, "commit", "-m", "test: 模拟未刷新地图的 clean tree")
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("incremental refresh accepted stale clean-tree source metadata\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "incremental source fingerprint mismatch", "--full")
+}
+
+// TestProjectMapGeneratorRefreshesRestoredCleanWorktree 锁定 dirty 增量后恢复 index 内容时不会永久复用旧行。
+func TestProjectMapGeneratorRefreshesRestoredCleanWorktree(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	if out, err := runProjectMapGenerator(t, root, "--full"); err != nil {
+		t.Fatalf("initial full project map generation failed: %v\n%s", err, out)
+	}
+	original := "package app\n\nfunc App() {}\n"
+	writeFixTestGuardFile(t, root, "internal/app/app.go", original+"// dirty expansion\n")
+	if out, err := runProjectMapGenerator(t, root); err != nil {
+		t.Fatalf("dirty incremental project map generation failed: %v\n%s", err, out)
+	}
+	writeFixTestGuardFile(t, root, "internal/app/app.go", original)
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("incremental refresh accepted restored clean worktree metadata\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "incremental source fingerprint mismatch", "--full")
+}
+
+func writeProjectMapPurposeOverride(t *testing.T, root, relative, purpose string) {
+	t.Helper()
+	body := `{"purpose_rules_append":[["internal/custom/",` + strings.TrimSpace(string(mustJSONMarshal(t, purpose))) + `]]}`
+	writeFixTestGuardFile(t, root, relative, body+"\n")
+}
+
+func mustJSONMarshal(t *testing.T, value string) []byte {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal project map test value: %v", err)
+	}
+	return body
 }
 
 // TestProjectMapGeneratorRejectsDeadPurposeRule 锁定 purpose rule 不能指向被扫描策略永久排除的目录。
@@ -229,12 +395,18 @@ func codemapHistoricalRoots(t *testing.T) []string {
 func TestProjectMapGeneratorOutputsIgnoreWallClockAndDetectTrackedDrift(t *testing.T) {
 	requireNodeForProjectMap(t)
 	root := prepareProjectMapFixture(t, true)
+	runFixTestGuardGit(t, root, "add", "docs/guide.md", "run-new-ui-desktop.ps1")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 添加时间稳定性 fixture")
 	firstInstant := "2026-07-15T23:59:59Z"
 	secondInstant := "2026-07-16T00:00:01Z"
 
 	out, err := runProjectMapGeneratorAt(t, root, firstInstant, "Pacific/Kiritimati")
 	if err != nil {
 		t.Fatalf("initial project map generation failed: %v\n%s", err, out)
+	}
+	out, err = runProjectMapGeneratorAt(t, root, firstInstant, "Pacific/Kiritimati")
+	if err != nil {
+		t.Fatalf("initial incremental project map generation failed: %v\n%s", err, out)
 	}
 	firstMap, firstManifest := readCanonicalProjectMapOutputs(t, root)
 	assertOutputOmitsAll(t, firstMap, "生成时间")
@@ -519,6 +691,9 @@ func requireNodeForProjectMap(t *testing.T) {
 func runProjectMapGenerator(t *testing.T, root string, args ...string) (string, error) {
 	t.Helper()
 	script := filepath.Join(scriptRepoRoot(t), "scripts", "generate_ai_project_map.mjs")
+	if _, err := os.Stat(filepath.Join(root, "docs", "doc", "codemap", "project-map", "index")); os.IsNotExist(err) && !slices.Contains(args, "--filesystem-scan") {
+		args = append(args, "--full")
+	}
 	cmdArgs := append([]string{script}, args...)
 	cmd := exec.Command("node", cmdArgs...)
 	cmd.Dir = root
@@ -545,6 +720,9 @@ global.Date = class extends NativeDate {
 		t.Fatalf("write project map test clock: %v", err)
 	}
 	script := filepath.Join(scriptRepoRoot(t), "scripts", "generate_ai_project_map.mjs")
+	if _, err := os.Stat(filepath.Join(root, "docs", "doc", "codemap", "project-map", "index")); os.IsNotExist(err) && !slices.Contains(args, "--filesystem-scan") {
+		args = append(args, "--full")
+	}
 	cmdArgs := append([]string{"--require", preload, script}, args...)
 	cmd := exec.Command("node", cmdArgs...)
 	cmd.Dir = root

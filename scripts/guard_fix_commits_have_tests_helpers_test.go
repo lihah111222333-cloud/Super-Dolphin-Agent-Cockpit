@@ -366,7 +366,7 @@ func installPreCommitFixtureLauncher(t *testing.T, root string) string {
 	digest := sha256.Sum256(data)
 	tree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
 	installRoot := secureTrustedLauncherTestRoot(t)
-	launcher := filepath.Join(installRoot, "v1", tree, fmt.Sprintf("%x", digest[:]), "super-dolphin-gate")
+	launcher := filepath.Join(installRoot, "v2", tree, fmt.Sprintf("%x", digest[:]), "super-dolphin-gate")
 	if _, err := os.Lstat(launcher); err == nil {
 		t.Fatalf("refusing to overwrite existing launcher fixture: %s", launcher)
 	} else if !os.IsNotExist(err) {

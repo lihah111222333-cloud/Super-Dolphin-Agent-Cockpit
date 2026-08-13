@@ -104,7 +104,7 @@ func verifyReceiptCompilerDigests(ctx context.Context, receipt Receipt) error {
 }
 
 func verifyReceiptCompileClosure(ctx context.Context, options VerifyOptions, receipt Receipt) error {
-	sourceDigest, toolchainDigest, _, err := remoteci.LoadGateCLICompileClosure(ctx, options.RepositoryRoot, options.Tree)
+	sourceDigest, toolchainDigest, _, err := remoteci.LoadTrustedGateLauncherCompileClosure(ctx, options.RepositoryRoot, options.Tree)
 	if err != nil {
 		return fmt.Errorf("recompute trusted launcher compile closure: %w", err)
 	}

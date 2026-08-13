@@ -79,6 +79,44 @@ func TestAtomicReplaceFilePreservesOriginalModeBits(t *testing.T) {
 	}
 }
 
+// TestWindowsAtomicReplacePreservesMetadataWithoutDirectorySync 锁定 Windows 使用保留 DACL 的替换并只刷新结果文件。
+func TestWindowsAtomicReplacePreservesMetadataWithoutDirectorySync(t *testing.T) {
+	rename := parseFunctionDecl(t, "atomic_write_windows.go", "Rename")
+	if !functionCallsIdentifier(rename, "replaceFilePreservingMetadata") || !functionCallsIdentifier(rename, "syncReplacedFile") {
+		t.Fatal("Windows Rename must preserve target metadata and flush the replaced file")
+	}
+	raw, err := os.ReadFile("atomic_write_windows.go")
+	if err != nil {
+		t.Fatalf("read Windows atomic writer: %v", err)
+	}
+	source := string(raw)
+	if !strings.Contains(source, `NewProc("ReplaceFileW")`) {
+		t.Fatal("Windows atomic writer must call ReplaceFileW")
+	}
+	forbidden := []string{"MoveFileEx", "REPLACEFILE_IGNORE_ACL_ERRORS", "REPLACEFILE_IGNORE_MERGE_ERRORS"}
+	if value := firstContainedString(source, forbidden); value != "" {
+		t.Fatalf("Windows atomic writer must not use %s", value)
+	}
+	syncFile := parseFunctionDecl(t, "atomic_write_windows.go", "syncReplacedFile")
+	if !functionCallsSelectorName(syncFile, "OpenFile") || !functionCallsSelectorName(syncFile, "Sync") {
+		t.Fatal("Windows atomic writer must open and flush the replaced file")
+	}
+	syncFn := parseFunctionDecl(t, "atomic_write_parent_windows.go", "syncParentDirectory")
+	if functionCallsSelectorName(syncFn, "Open") || functionCallsSelectorName(syncFn, "Sync") {
+		t.Fatal("Windows syncParentDirectory must not open or flush a directory handle")
+	}
+}
+
+// firstContainedString 返回第一个出现在源码中的禁用标记。
+func firstContainedString(source string, values []string) string {
+	for _, value := range values {
+		if strings.Contains(source, value) {
+			return value
+		}
+	}
+	return ""
+}
+
 func assertEditFunctionUsesAtomicWrite(t *testing.T, fileName string, funcName string) {
 	t.Helper()
 	fn := parseFunctionDecl(t, fileName, funcName)
@@ -137,6 +175,19 @@ func functionCallsSelector(fn *ast.FuncDecl, packageName string, selectorName st
 		}
 		ident, ok := selector.X.(*ast.Ident)
 		if ok && strings.TrimSpace(ident.Name) == packageName {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func functionCallsSelectorName(fn *ast.FuncDecl, selectorName string) bool {
+	found := false
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if ok && selector.Sel.Name == selectorName {
 			found = true
 			return false
 		}

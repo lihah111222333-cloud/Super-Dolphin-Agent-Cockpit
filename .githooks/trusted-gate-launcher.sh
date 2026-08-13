@@ -152,7 +152,7 @@ validate_trusted_gate_launcher() {
 
   validate_trusted_launcher_root_path "$root" || return 1
   relative=${launcher#"$root"/}
-  if [[ "$relative" == "$launcher" || ! "$relative" =~ ^v1/([0-9a-f]{40}|[0-9a-f]{64})/([0-9a-f]{64})/super-dolphin-gate$ ]]; then
+  if [[ "$relative" == "$launcher" || ! "$relative" =~ ^v2/([0-9a-f]{40}|[0-9a-f]{64})/([0-9a-f]{64})/super-dolphin-gate$ ]]; then
     printf '%s\n' 'super-dolphin gate blocked: launcher path is not rooted in the canonical content-addressed install tree.' >&2
     return 1
   fi
@@ -162,9 +162,9 @@ validate_trusted_gate_launcher() {
     printf '%s\n' 'super-dolphin gate blocked: launcher path escapes the canonical install root.' >&2
     return 1
   }
-  if ! validate_trusted_launcher_directory "$root/v1" \
-    || ! validate_trusted_launcher_directory "$root/v1/$tree" \
-    || ! validate_trusted_launcher_directory "$root/v1/$tree/$digest"; then
+  if ! validate_trusted_launcher_directory "$root/v2" \
+    || ! validate_trusted_launcher_directory "$root/v2/$tree" \
+    || ! validate_trusted_launcher_directory "$root/v2/$tree/$digest"; then
     printf '%s\n' 'super-dolphin gate blocked: launcher install path has unsafe ownership, mode, or symlink.' >&2
     return 1
   fi
@@ -208,7 +208,7 @@ trusted_gate_launcher_for_tree() {
     printf '%s\n' "$configured"
     return 0
   fi
-  for candidate in "$install_root/v1"/*/*/super-dolphin-gate; do
+  for candidate in "$install_root/v2"/*/*/super-dolphin-gate; do
     if [[ ! -e "$candidate" ]]; then
       continue
     fi

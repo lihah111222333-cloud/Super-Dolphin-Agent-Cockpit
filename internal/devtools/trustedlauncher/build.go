@@ -172,7 +172,7 @@ func resolveBuildIdentity(ctx context.Context, repositoryRoot, tree string) (Lin
 	if err != nil {
 		return LinkedIdentity{}, "", fmt.Errorf("digest locked Go toolchain closure: %w", err)
 	}
-	sourceDigest, toolchainDigest, _, err := remoteci.LoadGateCLICompileClosure(ctx, repositoryRoot, tree)
+	sourceDigest, toolchainDigest, _, err := remoteci.LoadTrustedGateLauncherCompileClosure(ctx, repositoryRoot, tree)
 	if err != nil {
 		return LinkedIdentity{}, "", fmt.Errorf("load exact-tree Gate compile closure: %w", err)
 	}
@@ -260,7 +260,7 @@ func launcherBuildCacheRoot(installRoot string, identity LinkedIdentity) (string
 	}
 	cacheRoot := filepath.Join(
 		installRoot,
-		".go-build-cache-v1",
+		".go-build-cache-v2",
 		runtime.GOOS+"-"+runtime.GOARCH,
 		strings.TrimPrefix(identity.CompilerSHA256, "sha256:"),
 		strings.TrimPrefix(identity.CompilerClosureSHA256, "sha256:"),
@@ -320,7 +320,7 @@ func verifyCompilerIdentity(ctx context.Context, compilerPath, version, goos, go
 }
 
 func launcherPaths(installRoot string, receipt Receipt) BuildResult {
-	directory := filepath.Join(installRoot, "v1", receipt.Tree, strings.TrimPrefix(receipt.BinarySHA256, "sha256:"))
+	directory := filepath.Join(installRoot, "v2", receipt.Tree, strings.TrimPrefix(receipt.BinarySHA256, "sha256:"))
 	return BuildResult{BinaryPath: filepath.Join(directory, BinaryName), ReceiptPath: filepath.Join(directory, ReceiptName)}
 }
 

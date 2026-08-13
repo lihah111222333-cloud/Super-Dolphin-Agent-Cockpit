@@ -140,7 +140,7 @@ resolve_project_map_gate() {
     return 0
   fi
   install_root=$(run_without_hook_env trusted_launcher_root "$repo_root" 2>>"$active_launcher_lookup_log" || true)
-  for candidate in "$install_root/v1/$source_tree"/*/super-dolphin-gate; do
+  for candidate in "$install_root/v2/$source_tree"/*/super-dolphin-gate; do
     [[ -e "$candidate" ]] || continue
     if run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$candidate" 2>>"$active_launcher_lookup_log" \
       && run_without_hook_env verify_trusted_gate_launcher_tree "$repo_root" "$candidate" "$source_tree" 2>>"$active_launcher_lookup_log"; then

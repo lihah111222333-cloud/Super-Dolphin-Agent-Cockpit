@@ -12,6 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 // 加锁读取并提交一个 durable cohort 状态转换，保证跨 sidecar 的单写者约束。
@@ -243,8 +244,11 @@ func runtimeServerReadGoplsRootCohortJSON(path string, target any, maxSize int64
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > maxSize {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > maxSize {
 		return fmt.Errorf("gopls root cohort record is insecure: %s", path)
+	}
+	if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
+		return fmt.Errorf("gopls root cohort record is insecure: %s: %w", path, err)
 	}
 	payload, err := os.ReadFile(path)
 	if err != nil {
@@ -275,7 +279,7 @@ func runtimeServerWriteGoplsRootCohortJSON(path string, value any) error {
 	}
 	tempPath := file.Name()
 	defer func() { _ = os.Remove(tempPath) }()
-	if err := file.Chmod(0o600); err != nil {
+	if err := securefs.RestrictPrivateOwnerOnly(tempPath, 0o600); err != nil {
 		return errors.Join(fmt.Errorf("secure gopls root cohort temp file: %w", err), file.Close())
 	}
 	if _, err := file.Write(payload); err != nil {
@@ -287,19 +291,7 @@ func runtimeServerWriteGoplsRootCohortJSON(path string, value any) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return fmt.Errorf("publish gopls root cohort record: %w", err)
-	}
-	return runtimeServerSyncGoplsRootCohortDirectory(filepath.Dir(path))
-}
-
-// runtimeServerSyncGoplsRootCohortDirectory fsyncs a durable cohort directory.
-func runtimeServerSyncGoplsRootCohortDirectory(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open gopls root cohort directory for sync: %w", err)
-	}
-	return errors.Join(dir.Sync(), dir.Close())
+	return runtimeServerPublishGoplsRootCohortRecord(tempPath, path)
 }
 
 // 扫描并只删除已证明 owner 失效或 PID 已复用的 lease。

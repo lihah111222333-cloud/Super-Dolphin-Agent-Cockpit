@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import childProcess from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const GENERATOR_PATH = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = path.dirname(GENERATOR_PATH);
 
 const ROOT = findRepoRoot(process.cwd());
 const OUTPUT_DIR = path.join(ROOT, 'docs', 'doc', 'codemap', 'project-map');
@@ -13,6 +15,7 @@ const INDEX_DIR = path.join(OUTPUT_DIR, 'index');
 const MAP_MD = path.join(OUTPUT_DIR, 'AI_PROJECT_MAP.md');
 const DRIFT_MD = path.join(OUTPUT_DIR, 'AI_PROJECT_DRIFT.md');
 const MANIFEST_JSON = path.join(OUTPUT_DIR, 'AI_PROJECT_MANIFEST.json');
+const INPUT_FINGERPRINT_SCHEMA = 'project-map-input/v1';
 
 const INDEXED_TOP_LEVEL_DIRS = new Set([
   'cmd',
@@ -47,10 +50,11 @@ const INDEXED_ROOT_FILES = new Set([
 ]);
 
 function parseArgs(argv) {
-  const options = { check: false, strictDrift: false, filesystemScan: false, rulesPath: '' };
+  const options = { check: false, full: false, strictDrift: false, filesystemScan: false, rulesPath: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--check') options.check = true;
+    else if (arg === '--full') options.full = true;
     else if (arg === '--strict-drift') options.strictDrift = true;
     else if (arg === '--filesystem-scan') options.filesystemScan = true;
     else if (arg === '--rules' && i + 1 < argv.length) options.rulesPath = argv[++i];
@@ -127,9 +131,10 @@ function validatePolicyShards(shards) {
 
 const OPTIONS = parseArgs(process.argv.slice(2));
 const CHECK = OPTIONS.check;
+const FULL_SCAN = OPTIONS.full || CHECK || OPTIONS.filesystemScan;
 const STRICT_DRIFT = OPTIONS.strictDrift;
 const FILESYSTEM_SCAN = OPTIONS.filesystemScan;
-let GIT_BLOB_SIZES = null;
+let GENERATOR_RULES_FINGERPRINT = '';
 
 const CODEMAP_POLICY = loadCodemapPolicy();
 const HISTORICAL_DOC_PREFIXES = CODEMAP_POLICY.historical_doc_roots;
@@ -159,6 +164,7 @@ const EXCLUDES = [
   '**/.npm-cache/**',
   'docs/doc/codemap/project-map/**',
   'docs/doc/codemap/ai-index.json',
+  'config/remote-ci/aliyun.baseline-state.sqlite',
   'go.sum',
   'test_output.txt',
   'naked_go.txt',
@@ -390,9 +396,8 @@ const SUBSYSTEM_PREFIX_GROUPS = [
 function main() {
   loadRuleOverrides(OPTIONS);
   validateDomainPolicy();
-  GIT_BLOB_SIZES = FILESYSTEM_SCAN ? null : loadGitTrackedBlobSizes();
-  const files = scanFiles();
-  const entries = files.map(buildEntry);
+  GENERATOR_RULES_FINGERPRINT = buildGeneratorRulesFingerprint();
+  const entries = FULL_SCAN ? scanFiles().map(buildEntry) : loadIncrementalEntries();
   validatePurposeRulePrefixes();
   validateLifecycleEntries(entries);
   validateCurrentDocumentationNavigation();
@@ -419,7 +424,8 @@ function main() {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content);
   }
-  console.log(`project-map: ${entries.length} files, ${Object.keys(grouped).length} domains, drift=${drift.status}`);
+  const mode = FULL_SCAN ? 'full' : 'incremental';
+  console.log(`project-map: ${entries.length} files, ${Object.keys(grouped).length} domains, drift=${drift.status}, mode=${mode}`);
 }
 
 function validateDomainPolicy() {
@@ -431,8 +437,144 @@ function validateDomainPolicy() {
 }
 
 function scanFiles() {
-  if (!FILESYSTEM_SCAN) return scanGitTrackedFiles();
-  return scanFilesystemFiles();
+  if (FILESYSTEM_SCAN) return scanFilesystemFiles();
+  return scanGitWorktreeFiles();
+}
+
+function loadIncrementalEntries() {
+  const { entries: previous } = loadExistingEntries();
+  const currentFiles = scanGitWorktreeFiles();
+  const currentSet = new Set(currentFiles);
+  const changed = changedWorktreePaths();
+  const merged = new Map(previous.map((entry) => [entry.path, entry]));
+
+  for (const file of merged.keys()) {
+    if (!currentSet.has(file)) merged.delete(file);
+  }
+  for (const file of currentFiles) {
+    if (!merged.has(file) || changed.has(file)) merged.set(file, buildEntry(file));
+  }
+  const entries = [...merged.values()].sort(compareEntryPath);
+  const currentFingerprint = currentWorktreeSourceFingerprint(currentFiles);
+  if (sourceFingerprint(entries) !== currentFingerprint) {
+    throw new Error('project-map: incremental source fingerprint mismatch; rerun with --full');
+  }
+  return entries;
+}
+
+function loadExistingEntries() {
+  const entries = [];
+  const seenPaths = new Map();
+  if (!fs.existsSync(MANIFEST_JSON)) {
+    throw new Error('project-map: incremental refresh requires existing generated outputs; rerun with --full');
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(MANIFEST_JSON, 'utf8'));
+  } catch (error) {
+    throw new Error(`project-map: invalid incremental manifest; rerun with --full: ${error.message}`);
+  }
+  const fingerprint = manifest.input_fingerprint;
+  if (!fingerprint || fingerprint.schema !== INPUT_FINGERPRINT_SCHEMA) {
+    throw new Error('project-map: incremental manifest fingerprint is missing or unsupported; rerun with --full');
+  }
+  if (fingerprint.generator_rules_sha256 !== GENERATOR_RULES_FINGERPRINT) {
+    throw new Error('project-map: incremental generator or rules fingerprint mismatch; rerun with --full');
+  }
+  if (typeof fingerprint.source_sha256 !== 'string' || typeof fingerprint.entries_sha256 !== 'string') {
+    throw new Error('project-map: incremental manifest fingerprint is incomplete; rerun with --full');
+  }
+  for (const [domain, file] of Object.entries(DOMAIN_FILES)) {
+    const shardPath = path.join(INDEX_DIR, file);
+    if (!fs.existsSync(shardPath)) continue;
+    const lines = fs.readFileSync(shardPath, 'utf8').split(/\r?\n/).filter(Boolean);
+    if (lines.shift() !== 'path\tmodule\tdomain\ttype\tsize_bytes\tpurpose\tsearch_keys') {
+      throw new Error(`project-map: invalid incremental shard header ${path.relative(ROOT, shardPath)}; rerun with --full`);
+    }
+    for (const line of lines) {
+      const fields = line.split('\t');
+      if (fields.length !== 7 || !Number.isSafeInteger(Number(fields[4]))) {
+        throw new Error(`project-map: invalid incremental shard row in ${path.relative(ROOT, shardPath)}; rerun with --full`);
+      }
+      const relative = normalize(fields[0]);
+      if (relative !== fields[0] || !shouldIndexPath(relative) || shouldSkipPath(relative) || fields[2] !== domain) {
+        throw new Error(`project-map: invalid incremental shard row path ${fields[0]} in ${path.relative(ROOT, shardPath)}; rerun with --full`);
+      }
+      if (seenPaths.has(relative)) {
+        throw new Error(`project-map: duplicate incremental project-map row path ${relative} in ${seenPaths.get(relative)} and ${path.relative(ROOT, shardPath)}; rerun with --full`);
+      }
+      seenPaths.set(relative, path.relative(ROOT, shardPath));
+      entries.push({
+        path: relative, module: fields[1], domain: fields[2], type: fields[3],
+        size: Number(fields[4]), purpose: fields[5], searchKeys: fields[6],
+      });
+    }
+  }
+  entries.sort(compareEntryPath);
+  if (fingerprint.entries_sha256 !== entriesFingerprint(entries) || fingerprint.source_sha256 !== sourceFingerprint(entries)) {
+    throw new Error('project-map: incremental manifest and shard fingerprints disagree; rerun with --full');
+  }
+  return { entries, fingerprint };
+}
+
+function compareEntryPath(left, right) {
+  return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+}
+
+function scanGitWorktreeFiles() {
+  requireGitWorktreeRoot();
+  const result = childProcess.spawnSync(
+    'git',
+    ['-C', ROOT, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 },
+  );
+  if (result.status !== 0) {
+    const stderr = result.stderr ? result.stderr.toString('utf8').trim() : '';
+    throw new Error(`project-map: git ls-files failed; use --filesystem-scan only for explicit exported snapshots${stderr ? `: ${stderr}` : ''}`);
+  }
+  return [...new Set(result.stdout.toString('utf8').split('\0').filter(Boolean).map(normalize))]
+    .filter((file) => shouldIndexPath(file) && !shouldSkipPath(file) && trackedWorktreeFileExists(file))
+    .sort();
+}
+
+function requireGitWorktreeRoot() {
+  const result = childProcess.spawnSync('git', ['-C', ROOT, 'rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024,
+  });
+  const resolved = result.status === 0 ? result.stdout.trim() : '';
+  if (!resolved || fs.realpathSync(resolved) !== fs.realpathSync(ROOT)) {
+    const stderr = result.stderr ? result.stderr.trim() : '';
+    throw new Error(`project-map: git ls-files failed; use --filesystem-scan only for explicit exported snapshots${stderr ? `: ${stderr}` : ''}`);
+  }
+}
+
+function currentWorktreeSourceFingerprint(currentFiles) {
+  return sourceFingerprint(currentFiles.map((file) => ({ path: file, size: normalizedWorktreeSize(file) })));
+}
+
+function changedWorktreePaths() {
+  const result = childProcess.spawnSync(
+    'git',
+    ['-C', ROOT, 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
+    { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 },
+  );
+  if (result.status !== 0) {
+    const stderr = result.stderr ? result.stderr.toString('utf8').trim() : '';
+    throw new Error(`project-map: incremental git status failed${stderr ? `: ${stderr}` : ''}`);
+  }
+  const records = result.stdout.toString('utf8').split('\0').filter(Boolean);
+  const changed = new Set();
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (record.length < 4) continue;
+    changed.add(normalize(record.slice(3)));
+    const status = record.slice(0, 2);
+    if ((status.includes('R') || status.includes('C')) && index + 1 < records.length) {
+      changed.add(normalize(records[++index]));
+    }
+  }
+  return changed;
 }
 
 function validateLifecycleEntries(entries) {
@@ -548,48 +690,6 @@ function applyRulesPatch(patch, absPath) {
   runtime.rulesSources.push(path.relative(ROOT, absPath));
 }
 
-function scanGitTrackedFiles() {
-  return [...GIT_BLOB_SIZES.keys()].sort();
-}
-
-function loadGitTrackedBlobSizes() {
-  const lsResult = childProcess.spawnSync('git', ['-C', ROOT, 'ls-files', '-s', '-z'], {
-    encoding: 'buffer',
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (lsResult.status !== 0) {
-    const stderr = lsResult.stderr ? lsResult.stderr.toString('utf8').trim() : '';
-    console.error(`project-map: git ls-files failed; use --filesystem-scan only for explicit exported snapshots${stderr ? `: ${stderr}` : ''}`);
-    process.exit(1);
-  }
-
-  const records = lsResult.stdout
-    .toString('utf8')
-    .split('\0')
-    .filter(Boolean)
-    .map((entry) => {
-      const match = entry.match(/^\d+ ([0-9a-f]{40,64}) \d+\t(.+)$/);
-      if (!match) return null;
-      return { oid: match[1], rel: normalize(match[2]) };
-    })
-    .filter(
-      (record) =>
-        record &&
-        shouldIndexPath(record.rel) &&
-        !shouldSkipPath(record.rel) &&
-        trackedWorktreeFileExists(record.rel),
-    );
-
-  const objectSizes = loadGitObjectSizes([...new Set(records.map((record) => record.oid))]);
-  const sizes = new Map();
-  for (const record of records) {
-    const size = objectSizes.get(record.oid);
-    if (size === undefined) continue;
-    sizes.set(record.rel, size);
-  }
-  return sizes;
-}
-
 function trackedWorktreeFileExists(relative) {
   try {
     return fs.lstatSync(path.join(ROOT, relative)).isFile();
@@ -597,39 +697,6 @@ function trackedWorktreeFileExists(relative) {
     if (error?.code === 'ENOENT') return false;
     throw error;
   }
-}
-
-function loadGitObjectSizes(objectIds) {
-  if (objectIds.length === 0) return new Map();
-  const result = childProcess.spawnSync('git', ['-C', ROOT, 'cat-file', '--batch'], {
-    input: `${objectIds.join('\n')}\n`,
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.status !== 0) {
-    const stderr = result.stderr ? result.stderr.toString('utf8').trim() : '';
-    console.error(`project-map: git cat-file failed${stderr ? `: ${stderr}` : ''}`);
-    process.exit(1);
-  }
-
-  const sizes = new Map();
-  let offset = 0;
-  while (offset < result.stdout.length) {
-    const headerEnd = result.stdout.indexOf(10, offset);
-    if (headerEnd === -1) break;
-    const header = result.stdout.subarray(offset, headerEnd).toString('utf8');
-    offset = headerEnd + 1;
-    if (!header) continue;
-    const [oid, type, sizeText] = header.split(' ');
-    const size = Number(sizeText);
-    if (type !== 'blob' || !Number.isFinite(size)) {
-      offset += Math.max(0, size) + 1;
-      continue;
-    }
-    const content = result.stdout.subarray(offset, offset + size);
-    sizes.set(oid, normalizedContentSize(content));
-    offset += size + 1;
-  }
-  return sizes;
 }
 
 function scanFilesystemFiles() {
@@ -687,7 +754,13 @@ function shouldIndexPath(rel) {
 
 function shouldSkipFile(rel) {
   if (path.posix.basename(rel) === '.DS_Store') return true;
-  return ['go.sum', 'test_output.txt', 'naked_go.txt', 'docs/doc/codemap/ai-index.json'].includes(rel);
+  return [
+    'go.sum',
+    'test_output.txt',
+    'naked_go.txt',
+    'docs/doc/codemap/ai-index.json',
+    'config/remote-ci/aliyun.baseline-state.sqlite',
+  ].includes(rel);
 }
 
 function buildEntry(file) {
@@ -763,22 +836,15 @@ function classifyType(file) {
 }
 
 function safeSize(file) {
-  if (GIT_BLOB_SIZES && GIT_BLOB_SIZES.has(file)) return GIT_BLOB_SIZES.get(file);
-  if (FILESYSTEM_SCAN) return safeFilesystemScanSize(file);
-  try {
-    return fs.statSync(path.join(ROOT, file)).size;
-  } catch {
-    return 0;
-  }
+  return normalizedWorktreeSize(file);
 }
 
-function safeFilesystemScanSize(file) {
-  const abs = path.join(ROOT, file);
+function normalizedWorktreeSize(file) {
   try {
-    const data = fs.readFileSync(abs);
+    const data = fs.readFileSync(path.join(ROOT, file));
     return normalizedContentSize(data);
-  } catch {
-    return 0;
+  } catch (error) {
+    throw new Error(`project-map: cannot read indexed file ${file}: ${error.message}`);
   }
 }
 
@@ -837,7 +903,15 @@ function renderAll(entries, grouped, drift) {
 }
 
 function renderPolicyAwareMap(entries, drift, stats) {
-  const rendered = renderMap(entries, drift, stats);
+  let rendered = renderMap(entries, drift, stats);
+  rendered = rendered.replace(
+    'node scripts/generate_ai_project_map.mjs\nnode scripts/generate_ai_project_map.mjs --check',
+    'node scripts/generate_ai_project_map.mjs\nnode scripts/generate_ai_project_map.mjs --full\nnode scripts/generate_ai_project_map.mjs --check',
+  );
+  rendered = rendered.replace(
+    '现有手写代码地图仍以',
+    '默认刷新增量合并当前 Git 工作树；`--full` 全量重建同一工作树，`--check` 也按同一文件与规范化大小检查。首次生成、生成器或规则指纹变化时必须显式传入 `--full`。现有手写代码地图仍以',
+  );
   const historical = HISTORICAL_DOC_PREFIXES.map((prefix) => `\`${prefix}/*\``).join('、');
   return rendered.replace(
     /- 历史归档（L3）：[^\n]*/,
@@ -849,6 +923,12 @@ function renderManifest(entries, grouped, drift, stats) {
   return {
     version: '1.0',
     generator: 'node:scripts/generate_ai_project_map.mjs',
+    input_fingerprint: {
+      schema: INPUT_FINGERPRINT_SCHEMA,
+      generator_rules_sha256: GENERATOR_RULES_FINGERPRINT,
+      source_sha256: sourceFingerprint(entries),
+      entries_sha256: entriesFingerprint(entries),
+    },
     rules_sources: runtime.rulesSources,
     files: entries.length,
     domains: Object.fromEntries(Object.entries(grouped).map(([domain, items]) => [domain, items.length])),
@@ -875,6 +955,43 @@ function renderManifest(entries, grouped, drift, stats) {
       top_unknown_modules: drift.topUnknown,
     },
   };
+}
+
+function buildGeneratorRulesFingerprint() {
+  const hash = crypto.createHash('sha256');
+  updateFingerprint(hash, INPUT_FINGERPRINT_SCHEMA);
+  updateFingerprint(hash, fs.readFileSync(GENERATOR_PATH));
+  updateFingerprint(hash, JSON.stringify({ policy: CODEMAP_POLICY, runtime }));
+  return `sha256:${hash.digest('hex')}`;
+}
+
+function sourceFingerprint(entries) {
+  const hash = crypto.createHash('sha256');
+  updateFingerprint(hash, `${INPUT_FINGERPRINT_SCHEMA}:source`);
+  for (const entry of [...entries].sort(compareEntryPath)) {
+    updateFingerprint(hash, entry.path);
+    updateFingerprint(hash, String(entry.size));
+  }
+  return `sha256:${hash.digest('hex')}`;
+}
+
+function entriesFingerprint(entries) {
+  const hash = crypto.createHash('sha256');
+  updateFingerprint(hash, `${INPUT_FINGERPRINT_SCHEMA}:entries`);
+  for (const entry of [...entries].sort(compareEntryPath)) {
+    updateFingerprint(hash, JSON.stringify([
+      entry.path, entry.module, entry.domain, entry.type, entry.size, entry.purpose, entry.searchKeys,
+    ]));
+  }
+  return `sha256:${hash.digest('hex')}`;
+}
+
+function updateFingerprint(hash, value) {
+  const data = Buffer.isBuffer(value) ? value : Buffer.from(value, 'utf8');
+  hash.update(String(data.length));
+  hash.update(':');
+  hash.update(data);
+  hash.update('\n');
 }
 
 function scanPolicySummary() {
@@ -951,7 +1068,7 @@ function renderDrift(entries, drift) {
     .join('\n') || '| - | 0 |';
   const sample = drift.unknown.slice(0, 50).map((entry) => `- \`${entry.path}\``).join('\n') || '- 无';
   const warnings = drift.warnings.map((warning) => `- ${warning}`).join('\n') || '- 无';
-  return `# AI 项目地图漂移报告\n\n> 状态：**${drift.status}**\n>\n> 已索引文件：${entries.length}\n>\n> 未细分职责文件：${drift.unknown.length}\n\n## 1. 漂移指标\n\n| 指标 | 当前值 |\n|---|---:|\n| 未细分职责文件数 | ${drift.unknown.length} |\n| 未细分职责占比 | ${(drift.unknownRatio * 100).toFixed(2)}% |\n| 最大未细分职责占比阈值 | ${(drift.thresholds.max_unknown_ratio * 100).toFixed(2)}% |\n\n## 2. 漂移告警\n\n${warnings}\n\n## 3. 未细分职责分布\n\n| 模块 | 文件数 |\n|---|---:|\n${topUnknownRows}\n\n## 4. 样例文件\n\n${sample}\n\n## 5. 修复方式\n\n优先在 \`.ai-project-map.overrides.json\` 中补充 \`purpose_rules_append\`，或用 \`--rules\` 传入显式规则文件，然后重新运行：\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs\n\`\`\`\n`;
+  return `# AI 项目地图漂移报告\n\n> 状态：**${drift.status}**\n>\n> 已索引文件：${entries.length}\n>\n> 未细分职责文件：${drift.unknown.length}\n\n## 1. 漂移指标\n\n| 指标 | 当前值 |\n|---|---:|\n| 未细分职责文件数 | ${drift.unknown.length} |\n| 未细分职责占比 | ${(drift.unknownRatio * 100).toFixed(2)}% |\n| 最大未细分职责占比阈值 | ${(drift.thresholds.max_unknown_ratio * 100).toFixed(2)}% |\n\n## 2. 漂移告警\n\n${warnings}\n\n## 3. 未细分职责分布\n\n| 模块 | 文件数 |\n|---|---:|\n${topUnknownRows}\n\n## 4. 样例文件\n\n${sample}\n\n## 5. 修复方式\n\n优先在 \`.ai-project-map.overrides.json\` 中补充 \`purpose_rules_append\`，或用 \`--rules\` 传入显式规则文件，然后重新运行：\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs --full\n\`\`\`\n`;
 }
 
 function renderTSV(items) {

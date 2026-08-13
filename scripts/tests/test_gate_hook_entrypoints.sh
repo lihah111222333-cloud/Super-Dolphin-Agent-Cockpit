@@ -221,7 +221,7 @@ run_with_status() {
 fixture_launcher_for_tree() {
   local repository=$1 tree=$2 digest launcher receipt
   digest=$(shasum -a 256 "$bin_dir/super-dolphin-gate" | awk '{print $1}')
-  launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
+  launcher="$install_root/v2/$tree/$digest/super-dolphin-gate"
   receipt="$(dirname "$launcher")/receipt.json"
   mkdir -p "$(dirname "$launcher")"
   if [[ ! -e "$launcher" ]]; then
@@ -279,7 +279,7 @@ tree=${1:?exact tree is required}
 repository=$(git rev-parse --show-toplevel)
 install_root=$(git -C "$repository" config --local --get superdolphin.gateLauncherRoot)
 digest=$(shasum -a 256 "$GATE_HOOK_FIXTURE_GATE_BIN" | awk '{print $1}')
-launcher="$install_root/v1/$tree/$digest/super-dolphin-gate"
+launcher="$install_root/v2/$tree/$digest/super-dolphin-gate"
 mkdir -p "$(dirname "$launcher")"
 cp "$GATE_HOOK_FIXTURE_GATE_BIN" "$launcher"
 chmod 0500 "$launcher"
@@ -359,7 +359,7 @@ fi
 printf '%s\n' 'initial exact-tree bind' >>"$git_repo/tracked.txt"
 git -C "$git_repo" add tracked.txt
 initial_bind_tree=$(git -C "$git_repo" write-tree)
-rm -rf -- "$install_root/v1/$initial_bind_tree"
+rm -rf -- "$install_root/v2/$initial_bind_tree"
 reset_capture
 set +e
 (
@@ -372,7 +372,7 @@ set -e
 [[ "$initial_bind_status" -eq 0 ]] || fail "initial exact-tree code guard failed with status $initial_bind_status"
 assert_file_equals "$capture_dir/staged-tree" "$initial_bind_tree" "initial exact-tree code-guard tree"
 assert_file_equals "$capture_dir/project-map-check-tree" "$initial_bind_tree" "initial exact-tree project-map check"
-[[ -d "$install_root/v1/$initial_bind_tree" ]] || fail 'pre-commit did not install the missing exact-tree Gate launcher'
+[[ -d "$install_root/v2/$initial_bind_tree" ]] || fail 'pre-commit did not install the missing exact-tree Gate launcher'
 git -C "$git_repo" restore --staged --worktree -- tracked.txt
 cli_error="$fixture_root/cli-error.expected"
 printf '%s\n' 'fixture coordinator failure; job=job-23; status: super-dolphin-gate status --job job-23' >"$cli_error"

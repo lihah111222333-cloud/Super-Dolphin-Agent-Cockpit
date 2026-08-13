@@ -1,0 +1,85 @@
+//go:build windows
+
+package securefs
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"golang.org/x/sys/windows"
+)
+
+// TestRestrictPrivateOwnerOnlyWindowsRoundTrip 验证正常 NTFS DACL 不依赖 POSIX mode bits。
+func TestRestrictPrivateOwnerOnlyWindowsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	if err := RestrictPrivateOwnerOnly(dir, 0o700); err != nil {
+		t.Fatalf("RestrictPrivateOwnerOnly(dir) error = %v", err)
+	}
+	path := filepath.Join(dir, "lease.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := RestrictPrivateOwnerOnly(path, 0o600); err != nil {
+		t.Fatalf("RestrictPrivateOwnerOnly(file) error = %v", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat fixture: %v", err)
+	}
+	if err := CheckPrivateOwnerOnly(path, info); err != nil {
+		t.Fatalf("CheckPrivateOwnerOnly() error = %v", err)
+	}
+}
+
+// TestCheckPrivateOwnerOnlyWindowsRejectsOtherPrincipals 验证宽泛或管理员 SID 授权仍然 fail-fast。
+func TestCheckPrivateOwnerOnlyWindowsRejectsOtherPrincipals(t *testing.T) {
+	for name, sidAlias := range map[string]string{
+		"administrators": "BA",
+		"everyone":       "WD",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "lease.json")
+			if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			if err := setBroadPrivateOwnerOnlyTestACL(path, sidAlias); err != nil {
+				t.Fatalf("set broad fixture ACL: %v", err)
+			}
+			if err := CheckPrivateOwnerOnly(path, nil); err == nil {
+				t.Fatalf("CheckPrivateOwnerOnly() accepted %s access", name)
+			}
+		})
+	}
+}
+
+func setBroadPrivateOwnerOnlyTestACL(path string, sidAlias string) error {
+	userSID, err := currentUserSID()
+	if err != nil {
+		return err
+	}
+	sddl := "O:" + userSID.String() +
+		"D:P(A;;FA;;;SY)(A;;FA;;;" + userSID.String() + ")(A;;FA;;;" + sidAlias + ")"
+	descriptor, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return err
+	}
+	owner, _, err := descriptor.Owner()
+	if err != nil {
+		return err
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|
+			windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		owner,
+		nil,
+		dacl,
+		nil,
+	)
+}

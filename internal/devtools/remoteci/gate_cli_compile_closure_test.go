@@ -5,11 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
 func TestLoadGateCLICompileClosureTracksOnlyGateCompileInputs(t *testing.T) {
@@ -57,6 +60,92 @@ func TestLoadGateCLICompileClosureTracksOnlyGateCompileInputs(t *testing.T) {
 	}
 	if cliToolchain != baseToolchain {
 		t.Fatalf("CLI source change changed toolchain digest: %q != %q", cliToolchain, baseToolchain)
+	}
+}
+
+func TestLoadTrustedGateLauncherCompileClosureTracksEmbeddedAssets(t *testing.T) {
+	repo := newGateCLICompileClosureRepository(t)
+	writeGateCLICompileClosureFile(t, repo, "internal/gateimpl/gateimpl.go", `package gateimpl
+
+import _ "embed"
+
+//go:embed assets/value.txt
+var Value string
+
+func Run() { println(Value) }
+`)
+	writeGateCLICompileClosureFile(t, repo, "internal/gateimpl/assets/value.txt", "base\n")
+	embeddedTree := commitGateCLICompileClosureTree(t, repo, "embedded asset base")
+	stableSource, stableToolchain, _, err := LoadGateCLICompileClosure(context.Background(), repo, embeddedTree)
+	if err != nil {
+		t.Fatalf("load stable embedded compile closure: %v", err)
+	}
+	embeddedSource, embeddedToolchain, embeddedEntries, err := LoadTrustedGateLauncherCompileClosure(context.Background(), repo, embeddedTree)
+	if err != nil {
+		t.Fatalf("load trusted launcher embedded compile closure: %v", err)
+	}
+	if embeddedSource == stableSource {
+		t.Fatal("trusted launcher compile closure did not add the embedded asset")
+	}
+	if !gateCLICompileClosureContainsPath(embeddedEntries, "internal/gateimpl/assets/value.txt") {
+		t.Fatal("embedded asset is absent from trusted launcher compile closure")
+	}
+
+	writeGateCLICompileClosureFile(t, repo, "internal/gateimpl/assets/value.txt", "changed\n")
+	changedTree := commitGateCLICompileClosureTree(t, repo, "embedded asset change")
+	changedStableSource, changedStableToolchain, _, err := LoadGateCLICompileClosure(context.Background(), repo, changedTree)
+	if err != nil {
+		t.Fatalf("load changed stable compile closure: %v", err)
+	}
+	assertGateCLICompileClosureIdentity(t, changedStableSource, changedStableToolchain, stableSource, stableToolchain, "embedded asset changed cross-generation closure")
+	changedSource, changedToolchain, _, err := LoadTrustedGateLauncherCompileClosure(context.Background(), repo, changedTree)
+	if err != nil {
+		t.Fatalf("load changed trusted launcher compile closure: %v", err)
+	}
+	if changedSource == embeddedSource {
+		t.Fatal("embedded asset change did not change trusted launcher compile closure digest")
+	}
+	if changedToolchain != embeddedToolchain {
+		t.Fatalf("embedded asset changed toolchain digest: %q != %q", changedToolchain, embeddedToolchain)
+	}
+
+	writeGateCLICompileClosureFile(t, repo, "internal/gateimpl/assets/unreferenced.txt", "unreferenced\n")
+	unreferencedTree := commitGateCLICompileClosureTree(t, repo, "unreferenced asset change")
+	unreferencedSource, unreferencedToolchain, _, err := LoadTrustedGateLauncherCompileClosure(context.Background(), repo, unreferencedTree)
+	if err != nil {
+		t.Fatalf("load unreferenced-asset compile closure: %v", err)
+	}
+	assertGateCLICompileClosureIdentity(t, unreferencedSource, unreferencedToolchain, changedSource, changedToolchain, "unreferenced asset changed compile closure")
+}
+
+func gateCLICompileClosureContainsPath(entries []sourceexport.TreeEntry, want string) bool {
+	return slices.ContainsFunc(entries, func(entry sourceexport.TreeEntry) bool {
+		return entry.Path == want
+	})
+}
+
+func assertGateCLICompileClosureIdentity(t *testing.T, source, toolchain, wantSource, wantToolchain, message string) {
+	t.Helper()
+	if source != wantSource || toolchain != wantToolchain {
+		t.Fatalf("%s: source %q/%q toolchain %q/%q", message, source, wantSource, toolchain, wantToolchain)
+	}
+}
+
+func TestLoadTrustedGateLauncherCompileClosureRejectsUnmatchedEmbeddedAssets(t *testing.T) {
+	repo := newGateCLICompileClosureRepository(t)
+	writeGateCLICompileClosureFile(t, repo, "internal/gateimpl/gateimpl.go", `package gateimpl
+
+import _ "embed"
+
+//go:embed missing/*
+var Value string
+
+func Run() { println(Value) }
+`)
+	tree := commitGateCLICompileClosureTree(t, repo, "unmatched embedded asset")
+	_, _, _, err := LoadTrustedGateLauncherCompileClosure(context.Background(), repo, tree)
+	if err == nil || !strings.Contains(err.Error(), "go:embed pattern") {
+		t.Fatalf("unmatched embedded asset error = %v, want go:embed pattern", err)
 	}
 }
 
