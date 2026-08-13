@@ -90,6 +90,9 @@ func TestCronProgressWorkerWarnsAndCountsStaleTerminal(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	store := &recordingCronStore{
+		isTurnOwnedFn: func(context.Context, string) (bool, error) {
+			return true, nil
+		},
 		listUnresolvedFn: func(context.Context) ([]RunRecord, error) {
 			return nil, nil
 		},
