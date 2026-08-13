@@ -20,6 +20,24 @@ function successfulInterruptResult(overrides = {}) {
   };
 }
 
+function registeredInterruptResult(overrides = {}) {
+  return {
+    ok: true,
+    accepted: true,
+    requestId: 'pending-stop-request',
+    expectedTurnId: 'turn-pending',
+    turnId: 'turn-pending',
+    status: 'interrupting',
+    confirmed: false,
+    mode: 'interrupt_registered',
+    interruptSent: false,
+    stateBefore: 'running',
+    stateAfter: 'running',
+    activeObserved: true,
+    ...overrides,
+  };
+}
+
 function createRuntime(overrides = {}) {
   return {
     get: vi.fn(() => ({ activeThreadId: 'thread-1' })),
@@ -113,6 +131,73 @@ describe('thread lifecycle runtime', () => {
       requestId: 'pending-stop-request',
       source: 'ui_stop',
     });
+  });
+
+  it('uses the preparing turn identity to register cancellation before provider binding', async () => {
+    const pendingTurnStart = { localTurnId: 'turn-pending', threadId: 'thread-pending' };
+    const runtime = createRuntime({
+      pendingTurnStart,
+      cancelPendingTurnStart: vi.fn(() => ({
+        threadId: pendingTurnStart.threadId,
+        turnId: pendingTurnStart.localTurnId,
+        interruptible: true,
+      })),
+    });
+    const deps = createDeps({ createRequestId: vi.fn(() => 'pending-stop-request') });
+    const rpc = vi.fn().mockResolvedValue(registeredInterruptResult());
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+
+    expect(rpc).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-pending',
+      expectedTurnId: 'turn-pending',
+      requestId: 'pending-stop-request',
+      source: 'ui_stop',
+    });
+    expect(pendingTurnStart.interruptRequested).toBe(true);
+    expect(runtime.notifyAction).toHaveBeenCalledWith('中断已登记，等待任务启动后发送', 'success', { threadId: 'thread-pending' });
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-pending' });
+  });
+
+  it('accepts a full idempotent sent-pending interrupt envelope without inventing a terminal', async () => {
+    const runtime = createRuntime();
+    const deps = createDeps({ createRequestId: vi.fn(() => 'request-idempotent') });
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult({
+      requestId: 'request-idempotent', status: 'interrupting', confirmed: false, mode: 'interrupt_sent_pending',
+      interruptSent: true, stateBefore: 'running', stateAfter: 'running', waitedMs: 0, activeObserved: true,
+    }));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+    expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+  });
+
+  it.each([
+    ['interrupted', successfulInterruptResult({ stateBefore: 'idle', mode: 'interrupt_confirmed', waitedMs: 0 })],
+    ['completed', successfulInterruptResult({ status: 'completed', confirmed: false, mode: 'interrupt_terminal_completed', stateBefore: 'idle', stateAfter: 'idle', waitedMs: 0 })],
+    ['failed', successfulInterruptResult({ status: 'failed', confirmed: false, mode: 'interrupt_terminal_failed', stateBefore: 'error', stateAfter: 'error', waitedMs: 0 })],
+    ['stalled', successfulInterruptResult({ status: 'stalled', confirmed: false, mode: 'interrupt_terminal_failed', stateBefore: 'error', stateAfter: 'error', waitedMs: 0 })],
+  ])('accepts terminal same-request replay envelope: %s', async (_name, response) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockResolvedValue(response);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+  });
+
+  it.each([
+    ['interrupted', successfulInterruptResult({ stateBefore: 'idle', mode: 'interrupt_confirmed', waitedMs: 0 }), '任务已确认中断'],
+    ['completed', successfulInterruptResult({ status: 'completed', confirmed: false, mode: 'interrupt_terminal_completed', stateBefore: 'idle', stateAfter: 'idle', waitedMs: 0 }), '任务已结束，未确认由本次中断请求停止'],
+    ['failed', successfulInterruptResult({ status: 'failed', confirmed: false, mode: 'interrupt_terminal_failed', stateBefore: 'error', stateAfter: 'error', waitedMs: 0 }), '任务已结束（失败或停滞），未确认由本次中断请求停止'],
+  ])('reports truthful terminal replay copy: %s', async (_name, response, message) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockResolvedValue(response);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(message, 'success', { threadId: 'thread-1' });
   });
 
   it.each([

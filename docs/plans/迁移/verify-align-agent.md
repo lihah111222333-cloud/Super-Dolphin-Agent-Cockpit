@@ -1,6 +1,6 @@
 # 验证：orchestration agent 1:1 对齐修复（launch/submit/list）
 
-审查时间：2026-03-21  
+审查时间：2026-03-21
 审查方式：仅使用 LSP `read_file` / `text_search` / `references`
 
 已读取：

@@ -17,8 +17,8 @@ window.matchMedia = vi.fn(() => ({
 
 const backend = vi.hoisted(() => {
   const mockNames = `
-	    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
-	    callBackend checkAppUpdate installLatestAppUpdate
+    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
+    callBackend checkAppUpdate installLatestAppUpdate
     getSidebarState getThreadState getThreadMessages getBuildInfo getVideoApiKey getDashboardPage getObservabilityStatus
     getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
@@ -413,6 +413,7 @@ afterEach(cleanupAppTest);
         cwd: '/repo/app',
         threadId: 'thread-new',
         input: [{ type: 'text', text: '请真正调用后端聊天' }],
+        localTurnId: expect.any(String),
         manualSkillSelection: false,
       });
     });
@@ -556,6 +557,7 @@ afterEach(cleanupAppTest);
         cwd: '/repo/app',
         threadId: 'thread-1',
         input: [{ type: 'text', text: '普通 Enter 发送' }],
+        localTurnId: expect.any(String),
         manualSkillSelection: false,
       });
     });

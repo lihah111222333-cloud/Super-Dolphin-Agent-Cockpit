@@ -7,7 +7,7 @@
 ## V3 核心契约：`oklog/run` (RunGroup)
 
 > [!IMPORTANT]
-> **V3 严禁在 `fx.Provide`、HTTP Handler 或单例初始化中随意启动野生 `go func()`。**  
+> **V3 严禁在 `fx.Provide`、HTTP Handler 或单例初始化中随意启动野生 `go func()`。**
 > 所有的长生命周期组件（如监听器、后台轮询、事件分发队列）MUST 作为独立 Actor 被 `oklog/run` 统一托管。
 
 ### 1. Execute / Interrupt 二元模型
@@ -59,7 +59,7 @@ func newWorker() Runner {
 fx.Invoke(func(lc fx.Lifecycle, workers []Runner) {
     var g run.Group
     ctx, cancel := context.WithCancel(context.Background())
-    
+
     for _, w := range workers {
         worker := w
         g.Add(
@@ -67,7 +67,7 @@ fx.Invoke(func(lc fx.Lifecycle, workers []Runner) {
             func(err error) { cancel() },
         )
     }
-    
+
     lc.Append(fx.Hook{
         OnStart: func(context.Context) error {
             go g.Run() // 统一启动

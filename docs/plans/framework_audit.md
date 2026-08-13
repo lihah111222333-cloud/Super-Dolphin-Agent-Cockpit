@@ -1,8 +1,8 @@
 # V3 框架与迁移契约合规审查报告（2026-03-26 修订版）
 
-> 审查时间：2026-03-26  
-> 说明：本版在 `arch-*.md` / `verify-*.md` 基础上，补充吸收 `align-*.md`、`cap-*.md`、`review-*.md` 中已落锤的契约结论，对旧版 `framework_audit.md` 重新评估。  
-> 口径：本报告同时覆盖“框架选型/使用合规”与“迁移契约是否真正闭环”，因此结论会比旧版更严格。  
+> 审查时间：2026-03-26
+> 说明：本版在 `arch-*.md` / `verify-*.md` 基础上，补充吸收 `align-*.md`、`cap-*.md`、`review-*.md` 中已落锤的契约结论，对旧版 `framework_audit.md` 重新评估。
+> 口径：本报告同时覆盖“框架选型/使用合规”与“迁移契约是否真正闭环”，因此结论会比旧版更严格。
 > 注：`pgx` 项没有独立 `arch-pgx-*.md` 文档，本报告仅按“驱动选型与访问边界”口径归纳；`store` 的 1:1 parity 单列评估。
 > 2026-03-26 二次修订：根据 `verify-align-session-event.md` / `verify-align-fx-wails.md` / `internal/platform/eventsurface/bind.go` 实际代码状态，修正 event bus（❌→⚠️）、lifecycle（❌→⚠️）、JSON wire 描述
 > 2026-03-26 三次修订（老公审查后最终版）：#3 stateless、#4 jrpc2 确认为 V3 架构设计决策收口；#7 拆分为低风险（设计收口）+ 高风险（待修）；#6/#8/#9 确认已在 P1 会话中修复；更新优先级排序

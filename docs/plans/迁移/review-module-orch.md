@@ -1,7 +1,7 @@
 # module/orchestration 总审查
 
-审查时间：2026-03-21  
-审查范围：`cmd/mcp-orch/orchestration/` 下 12 个源码文件  
+审查时间：2026-03-21
+审查范围：`cmd/mcp-orch/orchestration/` 下 12 个源码文件
 辅助旁证：`cmd/mcp-orch/orchestration/submission_test.go`、`go-agent-v2/internal/apiserver/methods_orchestration.go`、`go-agent-v2/internal/apiserver/orchestration_report.go`、`internal/store/taskdag/*`、`internal/provider/unified/*`
 
 ## 结论摘要

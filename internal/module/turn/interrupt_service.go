@@ -32,13 +32,42 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), false, nil
 	}
 	if claim.accepted {
-		return attachAcceptedInterruptRequestID(before, claim.acceptedRequestID), true, nil
+		if isTerminalTurnState(before.State) {
+			status := attachInterruptEnvelope(before, buildTurnInterruptTerminalReplayEnvelope(before.State, claim.deliverySent))
+			return attachAcceptedInterruptRequestID(status, claim.acceptedRequestID), true, nil
+		}
+		envelope := buildTurnInterruptRegisteredEnvelope(before.State, before.State)
+		if claim.deliverySent {
+			envelope = buildTurnInterruptSentPendingEnvelope(before.State, before.State)
+		}
+		status := attachInterruptEnvelope(before, envelope)
+		return attachAcceptedInterruptRequestID(status, claim.acceptedRequestID), true, nil
 	}
 	if claim.conflict {
 		status := attachInterruptEnvelope(before, buildTurnInterruptNotAppliedEnvelope(before.State))
 		return attachAcceptedInterruptRequestID(status, claim.acceptedRequestID), false, nil
 	}
 	if !claim.claimed {
+		return before, false, nil
+	}
+	return s.executeInterruptClaim(ctx, session, active, before, threadID, source, requestID)
+}
+
+func (s *service) executeInterruptClaim(ctx context.Context, session contract.Session, active activeTurn, before TurnStatus, threadID, source, requestID string) (TurnStatus, bool, error) {
+	if active.handle == nil && active.providerID == "" {
+		if !confirmInterruptClaim(s.tracker, active.localID, requestID) {
+			releaseInterruptClaim(s.tracker, active.localID, requestID)
+			return before, false, nil
+		}
+		after, ok := s.tracker.Get(active.localID)
+		if !ok {
+			return TurnStatus{}, false, errors.New("turn/interrupt: preparing turn disappeared after cancellation registration")
+		}
+		status := attachInterruptEnvelope(after, buildTurnInterruptRegisteredEnvelope(before.State, after.State))
+		return attachAcceptedInterruptRequestID(status, requestID), true, nil
+	}
+	if !s.tracker.claimInterruptDelivery(active.localID, requestID) {
+		releaseInterruptClaim(s.tracker, active.localID, requestID)
 		return before, false, nil
 	}
 	start := time.Now()
@@ -55,8 +84,10 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 		releaseInterruptClaim(s.tracker, active.localID, requestID)
 		return before, false, nil
 	}
-	confirmInterruptClaim(s.tracker, active.localID, requestID)
-	status, err = s.finishInterrupt(ctx, active, before, start, waited)
+	if !s.tracker.acknowledgeInterruptDelivery(active.localID, requestID) {
+		return TurnStatus{}, false, errors.New("turn/interrupt: provider delivery acknowledgement was not persisted")
+	}
+	status, err := s.finishInterrupt(ctx, active, before, start, waited)
 	return attachAcceptedInterruptRequestID(status, requestID), true, err
 }
 

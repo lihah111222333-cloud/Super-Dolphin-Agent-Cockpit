@@ -282,13 +282,13 @@ V3 全部 `handler.Map` key 总数是 80。
 
 这里要区分 3 个口径：
 
-1. **迁移计划口径**  
+1. **迁移计划口径**
    `docs/plans/迁移/v3-migration-plan.md` 多处写的是 `151（含 23 noop）`。
 
-2. **V2 当前代码快照口径**  
+2. **V2 当前代码快照口径**
    `go-agent-v2/internal/guards/rpc_registry_snapshot.json` 实际解析出来是 **154** 个方法。
 
-3. **当前 V3 实装口径**  
+3. **当前 V3 实装口径**
    当前 V3 `handler.Map` key 是 **80** 个，但其中只有 **64** 个与 V2 快照同名对齐。
 
 精确覆盖率：
@@ -313,10 +313,10 @@ V3 全部 `handler.Map` key 总数是 80。
 
 结论分两层看：
 
-1. **是否零业务依赖**：基本是。  
+1. **是否零业务依赖**：基本是。
    `contract/` 与 `dto/` 都没有依赖 `internal/module`、`internal/platform`、`internal/provider`、`internal/store` 这些业务/基础设施层。
 
-2. **是否只依赖标准库**：不是。  
+2. **是否只依赖标准库**：不是。
    - `internal/contract/provider.go` 依赖了 `internal/dto/provider`
    - 多个 `dto/*` 子包依赖了 `internal/dto/shared`
 

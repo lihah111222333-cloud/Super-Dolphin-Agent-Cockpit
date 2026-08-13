@@ -6,7 +6,7 @@
 
 ## 一、核心理念
 
-**重构的本质**是"在保持行为不变的前提下改善结构"。  
+**重构的本质**是"在保持行为不变的前提下改善结构"。
 **逆向的本质**是"在观察行为的基础上还原结构"。
 
 两者是**镜像操作**——方向相反，但**护栏机制完全相同**：
@@ -104,23 +104,23 @@ import pytest
 
 class TestDecryptFunction:
     """在分析 libcrypto.so 的 decrypt() 之前，先锁定行为"""
-    
+
     @pytest.fixture
     def target(self):
         return frida.attach("target_app")
-    
+
     def test_known_input_output_pair(self, target):
         """🔴 从动态运行中捕获的已知 I/O 对"""
-        result = call_native(target, "decrypt", 
+        result = call_native(target, "decrypt",
                             key=b"\x01\x02\x03\x04",
                             data=b"\xAA\xBB\xCC\xDD")
         assert result == b"\x11\x22\x33\x44"  # 实际观察到的输出
-    
+
     def test_empty_input(self, target):
         """🔴 边界条件"""
         result = call_native(target, "decrypt", key=b"\x00"*4, data=b"")
         assert result == b""
-    
+
     def test_output_length_equals_input(self, target):
         """🔴 结构性质断言"""
         for size in [16, 32, 64, 128]:
@@ -194,20 +194,20 @@ def decrypt(key: bytes, data: bytes) -> bytes:
 ```python
 # test_vmp_handlers.py
 class TestVMPHandlers:
-    
+
     def test_handler_0x3A_is_add(self):
         """🔴 从 trace 中观察到的行为"""
         vm = VMState(regs=[10, 20, 0, 0], stack=[], pc=0)
         execute_handler(vm, opcode=0x3A, operands=[2, 0, 1])  # r2 = r0 + r1
         assert vm.regs[2] == 30
-    
+
     def test_handler_0x3A_overflow(self):
         """🔴 边界测试"""
         vm = VMState(regs=[0xFFFFFFFF, 1, 0, 0], stack=[], pc=0)
         execute_handler(vm, opcode=0x3A, operands=[2, 0, 1])
         assert vm.regs[2] == 0  # 32位溢出
         assert vm.flags['carry'] == True
-    
+
     def test_handler_0x5C_is_push(self):
         """🔴 另一个 handler"""
         vm = VMState(regs=[42, 0, 0, 0], stack=[], pc=0)
@@ -222,19 +222,19 @@ class TestVMPHandlers:
 ```python
 # test_deflat.py — 控制流平坦化还原的 TDD
 class TestDeflattening:
-    
+
     def test_original_behavior_preserved(self):
         """🔴 护栏：还原前后行为必须一致"""
         original_output = run_obfuscated_binary(input=b"test123")
         patched_output = run_deobfuscated_binary(input=b"test123")
         assert original_output == patched_output
-    
+
     def test_basic_block_count_reduced(self):
         """🔴 结构性质：去平坦化后 BB 数量应减少"""
         original_bbs = count_basic_blocks("obfuscated.so", "target_func")
-        patched_bbs = count_basic_blocks("deobfuscated.so", "target_func") 
+        patched_bbs = count_basic_blocks("deobfuscated.so", "target_func")
         assert patched_bbs < original_bbs * 0.5  # 至少减半
-    
+
     def test_no_dispatcher_block(self):
         """🔴 去平坦化后不应存在 dispatcher"""
         cfg = get_cfg("deobfuscated.so", "target_func")

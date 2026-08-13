@@ -7,8 +7,8 @@
 >
 > 不是独立新 lane，而是 P22 的子任务收口。文档按 P22 体系延续。
 
-> 总览：[`README.md`](README.md)  
-> Findings：[`FINDINGS.md`](FINDINGS.md)  
+> 总览：[`README.md`](README.md)
+> Findings：[`FINDINGS.md`](FINDINGS.md)
 > DAG：[`DAG.md`](DAG.md)
 
 ## 1. archtest gate 总表
@@ -190,7 +190,7 @@ R8_QC §7 明确：`docs/契约/*` 中仍存在 `runner.actors` vs `group:"runne
 - 若 P22 gate 与 P22.1 gate 对同一文件同时命中，优先按 P22.1 owner 语义修复，但不得删除 P22 已验证的 fail-closed / drain / SSRF / hidden-contract 约束。
 
 ## 红队仲裁（2026-04-25）
-详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §5。  
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §5。
 整体裁决：🟢 READY / 🟠 NEEDS-FIX / 🔴 BLOCK（以 JUDGEMENT.md §7 为准）。
 
 ## R2 发现仍未销账项（2026-04-25 HEAD drift note）

@@ -1,6 +1,6 @@
 # 07B 业务模块层代码地图（写侧）
 
-> 范围：`internal/module/thread/`、`internal/module/turn/`、`internal/module/uistate/`（含 `timeline/`）。  
+> 范围：`internal/module/thread/`、`internal/module/turn/`、`internal/module/uistate/`（含 `timeline/`）。
 > 关联入口：[07-module.md](07-module.md) / [07-module-read.md](07-module-read.md)。
 > UI 路径校正（2026-06-28）：当前 UI 源码只在 `frontend-app/`；桌面宿主嵌入产物同步到 `cmd/agent-terminal/web-dist`。当前 React UI 入口见 [01-terminal-ui-react.md](01-terminal-ui-react.md)。
 <!-- codemap-absent path="cmd/agent-terminal/web-dist" -->

@@ -505,7 +505,7 @@ sequenceDiagram
   4. `startReadLoop()`；
   5. 清空 suppressed；
   6. `resumeThreadAfterRecovery()`；
-  7. `replayPendingTurn()`。  
+  7. `replayPendingTurn()`。
   锚点：`internal/provider/codexapp/recovery.go:122-163`。
 - `applyReplayedTurn()` 会把老的 provider turn id 替换成新的 provider turn id，但复用原 `TurnHandle`，因此上层等待句柄不丢。锚点：`internal/provider/codexapp/recovery.go:252-265`。
 

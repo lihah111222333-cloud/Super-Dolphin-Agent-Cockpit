@@ -69,6 +69,20 @@ describe('backend response validators', () => {
     expect(() => validate(RPC_METHODS.THREAD_START, {})).toThrow('thread/start response missing threadId or thread_id');
     expect(() => validate(RPC_METHODS.THREAD_START, { thread: { id: '' } })).toThrow('thread/start response missing threadId or thread_id');
     expect(() => validate(RPC_METHODS.TURN_START, {})).toThrow('turn/start response missing turn_id or turnId');
+    expect(() => validate(RPC_METHODS.TURN_START, { turn_id: 'turn-1', interrupt_retryable: true })).toThrow('retryable interrupt delivery response is invalid');
+    expect(() => validate(RPC_METHODS.TURN_START, {
+      turn_id: 'turn-1', start_diagnostic_code: 'provider error leaked',
+    })).toThrow('start diagnostic response is invalid');
+    expect(() => validate(RPC_METHODS.TURN_START, {
+      turn_id: 'turn-1', start_diagnostic_code: 'TURN_DEDUPE_PROVIDER_ID_BIND_FAILED',
+      interrupt_retryable: true, interrupt_retryable_code: 'REGISTERED_INTERRUPT_DELIVERY_RETRYABLE',
+    })).toThrow('start durability diagnostic cannot include interrupt retryable state');
+    expect(validate(RPC_METHODS.TURN_START, {
+      turn_id: 'turn-1', interrupt_retryable: true, interrupt_retryable_code: 'REGISTERED_INTERRUPT_DELIVERY_RETRYABLE',
+    })).toEqual(expect.objectContaining({ turn_id: 'turn-1', interrupt_retryable: true }));
+    expect(validate(RPC_METHODS.TURN_START, {
+      turn_id: 'turn-1', start_diagnostic_code: 'TURN_DEDUPE_PROVIDER_ID_BIND_FAILED',
+    })).toEqual(expect.objectContaining({ turn_id: 'turn-1', start_diagnostic_code: 'TURN_DEDUPE_PROVIDER_ID_BIND_FAILED' }));
   });
 
   it('validates the canonical thread/fork response envelope', () => {

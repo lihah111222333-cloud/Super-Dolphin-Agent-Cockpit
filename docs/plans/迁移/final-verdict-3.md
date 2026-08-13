@@ -4,9 +4,9 @@
 
 ## 全量编译
 
-build: ✅  
-vet: ✅  
-archtest: ✅  
+build: ✅
+vet: ✅
+archtest: ✅
 diagnostics: ❌
 
 - `go build ./...` 通过。

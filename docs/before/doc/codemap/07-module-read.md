@@ -1,6 +1,6 @@
 # 07A 业务模块层代码地图（读侧）
 
-> 范围：`internal/module/dashboard/`、`internal/module/skill/`，以及 `internal/module/lspgui/` 的现状核对。  
+> 范围：`internal/module/dashboard/`、`internal/module/skill/`，以及 `internal/module/lspgui/` 的现状核对。
 > 关联入口：[07-module.md](07-module.md) / [07-module-write.md](07-module-write.md)。
 
 ---
@@ -171,7 +171,7 @@ sequenceDiagram
     FILT-->>LIST: keep global + scope.cwd:<cwd>
     LIST-->>PAGE: page.Prompts
     PAGE-->>RPC: DashboardPage{Prompts}
-    RPC-->>FE: {"prompts": [...]} 
+    RPC-->>FE: {"prompts": [...]}
 ```
 
 关键细节：

@@ -131,11 +131,11 @@ P1c -> P2（thread / cachekeepalive / 其它 session-related callback owner 复�
 
 ### recovery replay 顺序（冻结口径）
 
-1. transport / event / health 只上报 signal 到同一 owner  
-2. 先过 stop gate，再决定是否允许 recover  
-3. reconnect / ready 成功后先恢复 reader / health  
-4. 再恢复 pending replay / turn settle  
-5. 最后发出 `drained` 或 `dropped_signal` 观测信号  
+1. transport / event / health 只上报 signal 到同一 owner
+2. 先过 stop gate，再决定是否允许 recover
+3. reconnect / ready 成功后先恢复 reader / health
+4. 再恢复 pending replay / turn settle
+5. 最后发出 `drained` 或 `dropped_signal` 观测信号
 
 ### 最低 observability contract
 

@@ -429,4 +429,3 @@ internal/mcpserver/             ← 只剩 common/
 - **现状**：仓内仍有多份已落幕的计划写着 `≤400 行 / ≤ 15 文件 / ≤ 4500 行`：`docs/plans/2026-03-27-a4g-d1-timeline-offline-merge.md`、`docs/plans/迁移/p1-v2v3-fix-plan.md`、`p9-implementation-plan.md`、`p13-factory-repair-plan.md`、`p16-ui-diff-toolcall-plan.md`、`p16.1-unified-diff-plan.md`、`p17-ui-context-model-compact-plan.md`、`docs/plans/claude缓存保活计划.md`。
 - **不回改理由**：这些文档是历史执行快照（P1 / P9 / P13 / P16 / P17 等已结案批次），批量改数字会破坏当时的分阶段记账内气。
 - **应对**：新修计划一律引用 `docs/契约/modularity-convention.md §2.4` 与 `docs/plans/迁移/v3-code-guard-spec.md §1` 的当前默认；旧文档通过 v3-code-guard-spec §1 的「2026-04-17 补充」小节统一指向最新守卫值，不再逐份追改。
-

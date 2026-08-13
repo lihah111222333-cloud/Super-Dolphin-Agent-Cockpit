@@ -108,4 +108,3 @@
 1. **F2.0（schema kind 字段位返修，先行）**：S5.1 typed schema 已 done 但没加 Kind 字段，本属 drift。F2.0 给 `AutomationExecConfig` 加 `Kind string `json:"kind,omitempty"`` 字段位 + `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝」+ 「空 kind → 默认填 command_card」。实装位 `cmd/mcp-orch/orchestration/nodeexec/config.go`。
 2. **F2.1（AutomationExecutor 实装）**：仅识别 `kind="command_card"`，其他 kind 返 `unsupported automation.kind: <kind>` 错误。
 3. **后续 kind 渐进开通**：每种 kind 独立 ADR-007a/b/c 子节点 + 守门规则（详 §3）。webhook → http → shell 顺序。
-

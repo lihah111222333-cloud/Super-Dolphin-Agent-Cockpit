@@ -61,19 +61,19 @@
 | shutdown 中“退订”含义 | A2：退订不是 drain，根桥等待 RunGroup 也不等于所有隐式 worker 全退 | 旧文案容易把 bus 停派写成库级 shutdown | `kelindar/event` 实际能力 + §10.30 | README/P0/P2 明写“退订只代表 stop intake，drain 由 owner 负责” |
 
 ## 4. 已执行修订（本轮改动清单）
-- 改：`docs/plans/迁移/p22/README.md` §目标/§依赖图（文本）/§落地顺序建议/§收口口径/§实施方式/§非目标 → 从“单批修复总览”改成“P0-P3 runtime ownership + P4 dependency/hidden contract”双线 umbrella。  
+- 改：`docs/plans/迁移/p22/README.md` §目标/§依赖图（文本）/§落地顺序建议/§收口口径/§实施方式/§非目标 → 从“单批修复总览”改成“P0-P3 runtime ownership + P4 dependency/hidden contract”双线 umbrella。
   - 前：`把当前仓库里混入 fx、bus 回调和业务 service 的长跑 side effect...`
   - 后：`把 P22 明确成一套 umbrella plan...` / `其中 internal/app 与 cmd/mcp-orch 适用“双树同构”；cmd/mcp-lsp / cmd/mcp-ida 按 runner-only sidecar 处理...`
-- 改：`docs/plans/迁移/p22/README.md` 顶部契约引导 → 更正错误锚点。  
+- 改：`docs/plans/迁移/p22/README.md` 顶部契约引导 → 更正错误锚点。
   - 前：`fx-convention.md §2 +（历史误引死章节号；旧字面串已中断保留）`
   - 后：`modularity-convention.md §4.4 / §7` + `fx-convention.md §2 / §3`
 - 改：`docs/plans/迁移/p22/P0_RuntimeOwnershipSkeleton.md` §目标/§收口口径/§非目标 → 补 `fx.Module / BusModule / RunnerModule` 术语、双树/sidecar 边界、`unsubscribe != drain`、语义 allowlist 不入 numeric freeze。
 - 改：`docs/plans/迁移/p22/P1a_CodexAppPeerSupervisor.md` §目标/§实施方式/§收口口径/§依赖图（文本）/§非目标 → 明确 `PeerSupervisor` 是单一 owner，peer 降级不升级成 app-fatal，并与 `P1c` 分轨。
 - 改：`docs/plans/迁移/p22/P1b_PlatformLoopRunners.md` §目标/§实施方式/§收口口径/§依赖图（文本）/§非目标 → 明确 restore 留 `fx.Module`、长期 loop 入 `RunnerModule`，`config fanout/cachekeepalive/rpc push` 继续归 `P2`。
-- 改：`docs/plans/迁移/p22/P1c_CodexAppSessionRuntime.md` §目标/§实施方式/§收口口径/§依赖图（文本）/§落地顺序建议/§非目标 → 从骨架补成可派单版，并把默认 owner 钉死为 session-owned `SessionRuntime`。  
+- 改：`docs/plans/迁移/p22/P1c_CodexAppSessionRuntime.md` §目标/§实施方式/§收口口径/§依赖图（文本）/§落地顺序建议/§非目标 → 从骨架补成可派单版，并把默认 owner 钉死为 session-owned `SessionRuntime`。
   - 前：35 行骨架，仅有 `目标/覆盖问题/目标架构/TDD/验收`
   - 后：80 行，新增 `实施方式/收口口径/依赖图/落地顺序建议/非目标`
-- 改：`docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md` §目标/§收口口径/§实施方式/§依赖图（文本）/§落地顺序建议/§非目标 → 明确 `P2` 是 umbrella；补分批切片、overflow 语义、与 `P4` 的分轨边界。  
+- 改：`docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md` §目标/§收口口径/§实施方式/§依赖图（文本）/§落地顺序建议/§非目标 → 明确 `P2` 是 umbrella；补分批切片、overflow 语义、与 `P4` 的分轨边界。
   - 前：`把 memory 相关 bus 回调中的 runtime ownership 抽离出来...`
   - 后：`把 P2 明确成 bus/runtime ownership 的 umbrella plan，而不是单张 mega PR...`
 - 改：`docs/plans/迁移/p22/P3_OrchestrationWaiterAlignment.md` §目标/§实施方式/§收口口径/§依赖图（文本）/§落地顺序建议/§非目标 → 明确 local process monitor owner、exactly-once fence、与 `P4` 的 shell/identity/report 分工。

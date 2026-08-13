@@ -1,7 +1,7 @@
 # Observability Tracing Implementation Plan
 
-> Status: draft for cross-review  
-> Owner: main agent  
+> Status: draft for cross-review
+> Owner: main agent
 > Scope: full frontend/backend tracing for agent-assisted debugging, with Phase 1 JSONL persistence and no PostgreSQL expansion.
 
 ## 0. Decision Summary

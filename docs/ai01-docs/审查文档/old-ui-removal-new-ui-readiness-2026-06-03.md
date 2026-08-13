@@ -1,6 +1,6 @@
 # 旧 UI 删除可行性与新 UI 运行路径差异分析
 
-日期：2026-06-03  
+日期：2026-06-03
 范围：
 
 - 新 UI：`/Users/ai/Desktop/Super-Dolphin/frontend-app`
@@ -208,7 +208,7 @@ React-only 主要集中在：
 6. 把旧 Vue arch guards 迁移到 React 对应文件，或在删除 legacy 后移除这些旧 guard。
 7. 更新 project map、README、AGENTS/CLAUDE 中旧路径说明。
 
-优点：改动小，`cmd/agent-terminal/frontend.go` 可以暂时不动。  
+优点：改动小，`cmd/agent-terminal/frontend.go` 可以暂时不动。
 缺点：目录名仍叫 `frontend`，容易误解为旧 UI 仍存在。
 
 ### 方案 B：迁移 embed 目录后删除整个旧目录
@@ -226,12 +226,12 @@ React-only 主要集中在：
 4. 删除整个 `cmd/agent-terminal/frontend`。
 5. 同步修改 Makefile、Linux/macOS package、run-debug、tests、project map、docs。
 
-优点：旧 UI 目录可以真正消失，后续不再混淆。  
+优点：旧 UI 目录可以真正消失，后续不再混淆。
 缺点：改动比方案 A 大，需要更新更多路径和测试。
 
 ### 推荐
 
-如果目标是“尽快删除旧 UI 源码，保持新 UI 可跑”，先用方案 A。  
+如果目标是“尽快删除旧 UI 源码，保持新 UI 可跑”，先用方案 A。
 如果目标是“目录层面也不要再留下 `cmd/agent-terminal/frontend`”，用方案 B。
 
 从当前仓库状态看，方案 A 是更稳的第一步：它已经被 macOS package 采用了同样的思路，并且本轮手动验证证明 `frontend-app/dist -> cmd/agent-terminal/frontend/dist -> go build ./cmd/agent-terminal` 可行。
@@ -289,4 +289,3 @@ Browser/Chrome/Playwright smoke：
 2. 把旧 Vue guard/code-map/docs 改掉。
 3. 再删除 legacy Vue 源码和旧前端 package。
 4. 最后跑完整验证，确保默认 `make` 和 package 路径不再回到旧 UI。
-

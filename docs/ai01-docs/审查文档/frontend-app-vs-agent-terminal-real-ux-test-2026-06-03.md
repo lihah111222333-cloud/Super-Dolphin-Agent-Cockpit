@@ -1,7 +1,7 @@
 # frontend-app 与 cmd/agent-terminal 真实用户体验对比测试报告
 
-日期：2026-06-03  
-测试人：Codex  
+日期：2026-06-03
+测试人：Codex
 范围：
 
 - 新 UI 客户端：`/Users/ai/Desktop/Super-Dolphin/frontend-app`

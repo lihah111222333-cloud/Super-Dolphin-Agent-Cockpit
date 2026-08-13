@@ -15,6 +15,7 @@ import (
 
 // prepareInputSpec 是 buildPrepareInput 的参数结构体，字段对应 PrepareInput 但不含运行时派生字段。
 type prepareInputSpec struct {
+	LocalTurnID                  string
 	Inputs                       []InputItem
 	Prompt                       string
 	Images                       []string
@@ -67,6 +68,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		caps = session.Capabilities()
 	}
 	input := PrepareInput{
+		LocalTurnID:                  strings.TrimSpace(spec.LocalTurnID),
 		Inputs:                       append([]InputItem(nil), spec.Inputs...),
 		Prompt:                       spec.Prompt,
 		Images:                       append([]string(nil), spec.Images...),
@@ -473,8 +475,10 @@ func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope, exp
 	result.StateAfter = envelope.stateAfter
 	if envelope.interruptSent {
 		waitedMS := envelope.waitedMS
-		activeObserved := envelope.activeObserved
 		result.WaitedMS = &waitedMS
+	}
+	if envelope.activeObserved {
+		activeObserved := true
 		result.ActiveObserved = &activeObserved
 	}
 	return result

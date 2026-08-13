@@ -79,8 +79,9 @@ func newTurnStateMachineConfig() statemachine.Config {
 				Name: string(StateInterrupting),
 				Permits: []statemachine.Permit{
 					permit(TriggerAbort, StateInterrupted),
-					permit(TriggerFail, StateInterrupted),     // 中断后失败仍按 interrupted 收敛
+					permit(TriggerFail, StateFailed),
 					permit(TriggerComplete, StateInterrupted), // 中断后完成仍按 interrupted 收敛
+					permit(TriggerRun, StateRunning),
 					permit(TriggerStall, StateStalled),
 				},
 			},

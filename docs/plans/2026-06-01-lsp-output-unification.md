@@ -199,7 +199,7 @@ git commit -m "refactor(lsp): 统一列表承载字段 files → data"
 
 示例：
 - `next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>`
-- `next: edit action=replace_range file_path=<file> patch="..."` 
+- `next: edit action=replace_range file_path=<file> patch="..."`
 - `next: file action=read_file pos=<file>:1 limit=200`
 
 规则：

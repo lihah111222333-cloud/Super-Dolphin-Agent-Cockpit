@@ -7,8 +7,8 @@
 >
 > 不是独立新 lane，而是 P22 的子任务收口。文档按 P22 体系延续。
 
-> 创建时间：2026-04-25 | 状态：规划中，禁止在本子任务文档阶段改代码  
-> 输入：C3 §10.30 调研 11 处违例、`docs/1/会话习惯.md §10.30`、`docs/plans/迁移/p22/*`、HEAD LSP 核验  
+> 创建时间：2026-04-25 | 状态：规划中，禁止在本子任务文档阶段改代码
+> 输入：C3 §10.30 调研 11 处违例、`docs/1/会话习惯.md §10.30`、`docs/plans/迁移/p22/*`、HEAD LSP 核验
 > 关联文档：[`FINDINGS.md`](FINDINGS.md) · [`DAG.md`](DAG.md) · [`GATE_CONTRACTS.md`](GATE_CONTRACTS.md)
 
 
@@ -144,7 +144,7 @@ Phase 0：contract + archtest skeleton
 11 条逐条证据见 [`FINDINGS.md#2-findings-逐条`](FINDINGS.md#2-findings-逐条)。子任务拆分见 [`DAG.md#2-子任务-dag`](DAG.md#2-子任务-dag)。硬契约见 [`GATE_CONTRACTS.md#1-archtest-gate-总表`](GATE_CONTRACTS.md#1-archtest-gate-总表)。
 
 ## 红队仲裁（2026-04-25）
-详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md`。  
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md`。
 整体裁决：🟢 READY / 🟠 NEEDS-FIX / 🔴 BLOCK（以 JUDGEMENT.md §7 为准）。
 
 ## R2 发现仍未销账项（2026-04-25 HEAD drift note）

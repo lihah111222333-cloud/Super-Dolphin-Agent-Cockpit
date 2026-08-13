@@ -1,7 +1,7 @@
 # module/thread 后端总审查
 
-审查时间：2026-03-21  
-审查范围：`internal/module/thread/` 全部文件  
+审查时间：2026-03-21
+审查范围：`internal/module/thread/` 全部文件
 审查方式：只读审查，结合 LSP `text_search`、`workspace_symbol`、`references(compact)`、`call_hierarchy`、`read_file`、`document_symbol`
 
 ## 结论
@@ -75,7 +75,7 @@
 
 ## 3. V2 方法对照
 
-本节严格按用户要求，只对照 `go-agent-v2/internal/apiserver/methods_thread.go`。  
+本节严格按用户要求，只对照 `go-agent-v2/internal/apiserver/methods_thread.go`。
 如果 V2 路由真实实现位于 `methods_thread_turn.go` 或 `methods.go`，这里仍按“`methods_thread.go` 内是否存在等价方法”记为 `❌缺失`，并在备注里说明。
 
 结论先说：`29/29` 里没有一个可以给 `✅等价`。
@@ -252,25 +252,25 @@
 
 ### 缺口
 
-1. 没有独立的 app-level thread id 分配逻辑。  
+1. 没有独立的 app-level thread id 分配逻辑。
    V2 `thread/start` 先 `allocateFreshThreadID`，然后单独跟 provider thread id 对齐；当前 `Start` 直接用 `session.ThreadID()` 或 `agentID` 当 thread id，见 `lifecycle.go:62` 与 V2 `methods_thread.go:44-76`。
 
-2. 没有“running”状态。  
+2. 没有“running”状态。
    模块内只定义了 `created` 和 `archived` 两个状态，`persistThreadState` 永远写 `statusCreated`，`thread/loaded/list` 却把 `created` 当 loaded 用，见 `service.go:16-19`、`lifecycle.go:251`、`rpc.go:44-46`。
 
-3. 没有真正的 stop 生命周期。  
+3. 没有真正的 stop 生命周期。
    对外没有 `thread/stop`；`Archive` 和 `Delete` 也没有调用 `orchestration.StopAgent`，只做 `session.Close()` 或纯删表。V2 的 archive/delete 都会停进程。
 
-4. `Delete` 生命周期不完整。  
+4. `Delete` 生命周期不完整。
    当前 `Delete` 不清理 archive 目录、不回传 `{ok,threadId}`、不显式 stop orchestration agent。
 
-5. `Unarchive` 生命周期不完整。  
+5. `Unarchive` 生命周期不完整。
    当前只把状态改回 `created`，不恢复 artifacts、不 ensure process alive。V2 `threadUnarchiveTyped` 至少会尝试 `EnsureProcessAlive`。
 
-6. `Resume` 语义偏弱。  
+6. `Resume` 语义偏弱。
    当前 `newResumeHandler` 先 `svc.Get(threadID)` 取 `AgentID`，再要求 `provider`；如果 binding / agent id 缺失，就不能 resume。V2 `threadResumeTyped` 的入口参数和恢复策略更宽。
 
-7. `Fork` 语义偏弱。  
+7. `Fork` 语义偏弱。
    没有 `turnIndex`，只能 fork 整个 thread。
 
 结论：
@@ -337,25 +337,25 @@
 
 ### 返回不兼容
 
-1. `contract.go` 里的 `StartResult`、`ForkResult`、`Ref` 都没有 JSON tag。  
+1. `contract.go` 里的 `StartResult`、`ForkResult`、`Ref` 都没有 JSON tag。
    这意味着输出键会是 `ThreadID`、`AgentID`、`NewThreadID`、`ID`、`Name`，不是 V2 的 `threadId/id/name/...`。
 
-2. `thread/archive`、`thread/unarchive`、`thread/delete`、`thread/name/set`、`thread/recover`、`thread/resume` 当前大多返回 `null`。  
+2. `thread/archive`、`thread/unarchive`、`thread/delete`、`thread/name/set`、`thread/recover`、`thread/resume` 当前大多返回 `null`。
    V2 对应路由普遍返回对象。
 
-3. `thread/list` / `thread/loaded/list` 当前直接返回数组。  
+3. `thread/list` / `thread/loaded/list` 当前直接返回数组。
    V2 返回 `{data,nextCursor}`。
 
-4. `thread/read` 当前返回 `Ref`。  
+4. `thread/read` 当前返回 `Ref`。
    V2 返回 `{history:[...]}`。
 
-5. `thread/resolve` 当前返回 `Ref`。  
+5. `thread/resolve` 当前返回 `Ref`。
    V2 返回 `{threadId,state,port,providerThreadId,uuid,hasHistory}`。
 
-6. `thread/messages` 当前返回 `[]dto.Message`。  
+6. `thread/messages` 当前返回 `[]dto.Message`。
    V2 返回 `{messages,total}`。
 
-7. `thread/debugMemory` 当前返回整个 Go `runtime.MemStats`。  
+7. `thread/debugMemory` 当前返回整个 Go `runtime.MemStats`。
    V2 走 slash route，返回的是 provider 语义结果，不是宿主运行时结构。
 
 结论：
@@ -369,15 +369,15 @@
 
 主要问题：
 
-1. 大多数方法直接把底层错误原样返回。  
+1. 大多数方法直接把底层错误原样返回。
    `Start`、`Resume`、`Fork`、`Recover`、`ReadMessages`、`Delete`、`Archive`、`Unarchive` 基本都没有方法名上下文包装。
 
-2. 有多处错误被静默吞掉。  
-   `Delete` 忽略 `resolveBinding` 错误，也忽略 `closeSessionIfActive` 错误。  
-   `closeSessionIfActive` 自己也会吞掉 binding/session lookup 错误。  
+2. 有多处错误被静默吞掉。
+   `Delete` 忽略 `resolveBinding` 错误，也忽略 `closeSessionIfActive` 错误。
+   `closeSessionIfActive` 自己也会吞掉 binding/session lookup 错误。
    `stopAgent` 明确丢弃 `orchestration.StopAgent` 错误。
 
-3. `SendCommand` 的默认失败是 `fmt.Errorf("unsupported command: %s", cmd)`。  
+3. `SendCommand` 的默认失败是 `fmt.Errorf("unsupported command: %s", cmd)`。
    这类错误既没有 route 上下文，也没有结构化错误码。
 
 4. `thread/debugMemory` 的 TODO 已明确说明当前行为不是 V2，但没有做任何兼容保护。
@@ -397,10 +397,10 @@
 
 ### 仍然存在的风险
 
-1. 没有 per-thread 生命周期锁。  
+1. 没有 per-thread 生命周期锁。
    `Start`、`Resume`、`Recover`、`Archive`、`Delete` 都可能同时改 threadStore、bindingStore、session、orchestration，顺序并不原子。
 
-2. 没有事务边界。  
+2. 没有事务边界。
    `persistThreadState` 会先 upsert thread，再 upsert binding；`Delete` 会先删 binding 再删 thread。中间失败时可能留下半状态。
 
 3. `thread/loaded/list` 依赖 `statusCreated`，但状态更新本身没有更细粒度同步，无法表达 running/recovering/stopping 等过渡状态。

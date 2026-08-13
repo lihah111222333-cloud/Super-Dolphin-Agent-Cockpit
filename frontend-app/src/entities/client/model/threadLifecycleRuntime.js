@@ -7,6 +7,7 @@ export const INTERRUPT_RPC_TIMEOUT_MS = 15_000;
 const INTERRUPT_RPC_TIMEOUT_CODE = 'THREAD_INTERRUPT_RPC_TIMEOUT';
 const INTERRUPT_PENDING_MESSAGE = '正在请求停止，尚未确认，任务可能仍在运行';
 const INTERRUPT_UNCONFIRMED_MESSAGE = '停止未确认，任务可能仍在运行';
+const INTERRUPT_REGISTERED_MESSAGE = '中断已登记，等待任务启动后发送';
 const INTERRUPT_SUCCESS_RESPONSE_KEYS = new Set(['ok', 'accepted', 'requestId', 'expectedTurnId', 'turnId', 'status', 'confirmed', 'mode', 'interruptSent', 'stateBefore', 'stateAfter', 'waitedMs', 'activeObserved']);
 const INTERRUPT_FAILURE_RESPONSE_KEYS = new Set([...INTERRUPT_SUCCESS_RESPONSE_KEYS, 'errorCode', 'error', 'message', 'reason']);
 function threadActionRequiresActiveTurn(action) { return action === 'thread.interrupt' || action === 'thread.force_complete'; }
@@ -54,6 +55,24 @@ function validateInterruptFailureResponse(result) {
   assertOnlyResponseKeys('thread.interrupt', result, INTERRUPT_FAILURE_RESPONSE_KEYS, 'body');
 }
 
+function validateTerminalInterruptReplay(result) {
+  if (result.mode === 'interrupt_confirmed' && result.stateBefore === 'running') return false;
+  const expected = {
+    interrupt_confirmed: { statuses: ['interrupted'], state: 'idle', confirmed: true },
+    interrupt_terminal_completed: { statuses: ['completed'], state: 'idle', confirmed: false },
+    interrupt_terminal_failed: { statuses: ['failed', 'stalled'], state: 'error', confirmed: false },
+  }[result.mode];
+  if (!expected) return false;
+  if (!expected.statuses.includes(result.status)) throw interruptResponseContractError('status');
+  requireInterruptResponseText(result, 'stateBefore', expected.state);
+  requireInterruptResponseText(result, 'stateAfter', expected.state);
+  if (result.confirmed !== expected.confirmed) throw interruptResponseContractError('confirmed');
+  if (result.interruptSent !== true) throw interruptResponseContractError('interruptSent');
+  if (result.activeObserved !== true) throw interruptResponseContractError('activeObserved');
+  if (!Number.isInteger(result.waitedMs) || result.waitedMs < 0) throw interruptResponseContractError('waitedMs');
+  return true;
+}
+
 function validateInterruptSuccessResponse(result, request) {
   if (result == null || typeof result !== 'object' || Array.isArray(result)) {
     throw interruptResponseContractError('object');
@@ -64,6 +83,27 @@ function validateInterruptSuccessResponse(result, request) {
   requireInterruptResponseText(result, 'requestId', request.requestId);
   requireInterruptResponseText(result, 'expectedTurnId', request.expectedTurnId);
   requireInterruptResponseText(result, 'turnId', request.expectedTurnId);
+  if (result.mode === 'interrupt_registered') {
+    requireInterruptResponseText(result, 'status', 'interrupting');
+    requireInterruptResponseText(result, 'stateBefore', 'running');
+    requireInterruptResponseText(result, 'stateAfter', 'running');
+    if (result.confirmed !== false) throw interruptResponseContractError('confirmed');
+    if (result.interruptSent !== false) throw interruptResponseContractError('interruptSent');
+    if (result.activeObserved !== true) throw interruptResponseContractError('activeObserved');
+    if (Object.hasOwn(result, 'waitedMs')) throw interruptResponseContractError('waitedMs');
+    return;
+  }
+  if (result.mode === 'interrupt_sent_pending') {
+    requireInterruptResponseText(result, 'status', 'interrupting');
+    requireInterruptResponseText(result, 'stateBefore', 'running');
+    requireInterruptResponseText(result, 'stateAfter', 'running');
+    if (result.confirmed !== false) throw interruptResponseContractError('confirmed');
+    if (result.interruptSent !== true) throw interruptResponseContractError('interruptSent');
+    if (result.activeObserved !== true) throw interruptResponseContractError('activeObserved');
+    if (!Number.isInteger(result.waitedMs) || result.waitedMs < 0) throw interruptResponseContractError('waitedMs');
+    return;
+  }
+  if (validateTerminalInterruptReplay(result)) return;
   requireInterruptResponseText(result, 'status', 'interrupted');
   requireInterruptResponseText(result, 'mode', 'interrupt_confirmed');
   requireInterruptResponseText(result, 'stateBefore', 'running');
@@ -219,6 +259,16 @@ function notifyThreadTransportFailure(params) {
   addWarning('error', `${action}.failed`, { threadId, error: 'action failure; see Health diagnostic ID' });
 }
 
+function threadActionSuccessMessage(action, result) {
+  if (action === 'thread.interrupt') {
+    if (result?.interruptSent !== true) return INTERRUPT_REGISTERED_MESSAGE;
+    if (result?.mode === 'interrupt_confirmed' && result?.stateBefore === 'idle') return '任务已确认中断';
+    if (result?.mode === 'interrupt_terminal_completed') return '任务已结束，未确认由本次中断请求停止';
+    if (result?.mode === 'interrupt_terminal_failed') return '任务已结束（失败或停滞），未确认由本次中断请求停止';
+  }
+  return THREAD_ACTION_SUCCESS_MESSAGES[action] || '线程操作已提交';
+}
+
 export function attachActiveThreadRpcRuntime(runtime, deps) {
   const { activeThreadInterruptTarget, backendThreadIdForState, cleanObject, createRequestId } = deps;
   const { get, set, requireCwd, notifyAction: publishAction, addWarning } = runtime;
@@ -235,7 +285,8 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     const currentState = get();
     const requiresActiveTurn = threadActionRequiresActiveTurn(action);
     const explicitTarget = action === 'thread.interrupt' ? explicitInterruptTarget(options) : null;
-    const activeTurnTarget = requiresActiveTurn ? explicitTarget || activeThreadInterruptTarget(currentState) : null;
+    const pendingTurnStartTarget = options.pendingTurnStartTarget || null;
+    const activeTurnTarget = requiresActiveTurn ? explicitTarget || pendingTurnStartTarget || activeThreadInterruptTarget(currentState) : null;
     const threadId = options.threadId
       || activeTurnTarget?.threadId
       || backendThreadIdForState(currentState, currentState.activeThreadId);
@@ -265,29 +316,34 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
   const executeActiveThreadRPC = async (action, rpc, options) => {
     const outcome = await runActiveThreadRPC(action, rpc, options);
     if (!outcome.ok) return false;
-    notifyAction(THREAD_ACTION_SUCCESS_MESSAGES[action] || '线程操作已提交', 'success', { threadId: outcome.threadId });
+    notifyAction(threadActionSuccessMessage(action, outcome.result), 'success', { threadId: outcome.threadId });
     return true;
   };
 
   const activeThreadRPC = (action, rpc, options = {}) => {
     const explicitTarget = action === 'thread.interrupt' ? explicitInterruptTarget(options) : null;
-    if (action === 'thread.interrupt' && !explicitTarget && runtime.cancelPendingTurnStart?.()) return true;
+    const pendingTurnStartTarget = action === 'thread.interrupt' && !explicitTarget ? runtime.cancelPendingTurnStart?.() : null;
+    if (pendingTurnStartTarget === true) return true;
+    const actionOptions = pendingTurnStartTarget && pendingTurnStartTarget !== false
+      ? { ...options, pendingTurnStartTarget }
+      : options;
     if (action !== 'thread.interrupt') return executeActiveThreadRPC(action, rpc, options);
-    const key = interruptSingleFlightKey(explicitTarget || activeThreadInterruptTarget(get()));
-    if (!key) return executeActiveThreadRPC(action, rpc, options);
+    const key = interruptSingleFlightKey(explicitTarget || pendingTurnStartTarget || activeThreadInterruptTarget(get()));
+    if (!key) return executeActiveThreadRPC(action, rpc, actionOptions);
     const existing = interruptFlights.get(key);
     if (existing) return existing.actionPromise;
 
-    const actionPromise = executeActiveThreadRPC(action, rpc, options);
+    if (pendingTurnStartTarget && runtime.pendingTurnStart) runtime.pendingTurnStart.interruptRequested = true;
+    const actionPromise = executeActiveThreadRPC(action, rpc, actionOptions);
     const flight = { actionPromise };
     interruptFlights.set(key, flight);
     const releaseSettledFlight = () => {
       if (interruptFlights.get(key) === flight) interruptFlights.delete(key);
     };
-    void actionPromise.then(
-      releaseSettledFlight,
-      releaseSettledFlight,
-    );
+    void actionPromise.then(releaseSettledFlight, () => {
+      if (pendingTurnStartTarget && runtime.pendingTurnStart) runtime.pendingTurnStart.interruptRequested = false;
+      releaseSettledFlight();
+    });
     return actionPromise;
   };
 

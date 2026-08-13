@@ -213,7 +213,10 @@ function createSaveComposerModelProviderAction(runtime, deps) {
 async function promoteNewDraftThread(runtime, request, deps) {
   const started = await deps.startNewDraftThread(request, deps.resolveLaunchPreferences);
   runtime.set((state) => deps.promotedDraftThreadState(state, request, started));
-  if (runtime.pendingTurnStart) runtime.pendingTurnStart.threadId = started.threadId;
+  if (runtime.pendingTurnStart) {
+    runtime.pendingTurnStart.threadId = started.threadId;
+    runtime.pendingTurnStart.localTurnId = request.localTurnId;
+  }
   return started.threadId;
 }
 
@@ -222,6 +225,7 @@ function startDraftTurn(deps, request, threadId) {
     cwd: request.cwd,
     threadId,
     input: request.input,
+    localTurnId: request.localTurnId,
     ...request.capabilityPayload,
   });
 }
@@ -251,27 +255,51 @@ function recordCanonicalStartedTurn(runtime, threadId, result) {
   return localTurnId;
 }
 
+function exposeRetryableStartInterruptFailure(runtime, threadId, result) {
+  if (result?.interrupt_retryable !== true) return;
+  if (runtime.pendingTurnStart) runtime.pendingTurnStart.interruptRequested = false;
+  runtime.notifyAction('停止请求未送达，任务仍在运行，可再次停止', 'warning', { threadId });
+  runtime.addWarning('warn', 'thread.interrupt.delivery_retryable', { threadId, code: result.interrupt_retryable_code || 'REGISTERED_INTERRUPT_DELIVERY_RETRYABLE' });
+}
+
+function exposeStartDurabilityDiagnostic(runtime, threadId, result) {
+  if (result?.start_diagnostic_code !== 'TURN_DEDUPE_PROVIDER_ID_BIND_FAILED') return;
+  if (runtime.pendingTurnStart?.cancelled) runtime.pendingTurnStart.interruptRequested = false;
+  runtime.notifyAction('任务已启动，但启动去重状态未持久化', 'warning', { threadId });
+  runtime.addWarning('warn', 'thread.start.dedupe_provider_id_bind_failed', { threadId, code: result.start_diagnostic_code });
+}
+
 function depsNormalizeTurnId(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function requestWithLocalTurnID(request, deps) {
+  const existing = depsNormalizeTurnId(request.localTurnId);
+  if (existing) return request;
+  const localTurnId = depsNormalizeTurnId(deps.createLocalTurnID());
+  if (!localTurnId) throw new Error('turn/start local turn id generator returned an empty value');
+  return { ...request, localTurnId };
 }
 
 async function retryDraftWithFreshThread(runtime, deps, context, error) {
   const activeRequest = context.activeRequest;
   if (!activeRequest.previousThreadId || !deps.isCodexIdentityAutoResumeError(error)) throw error;
   runtime.set((state) => deps.rollbackSendDraftState(state, activeRequest, error));
-  const retryRequest = deps.freshThreadRetryRequest(activeRequest);
+  const retryRequest = requestWithLocalTurnID(deps.freshThreadRetryRequest(activeRequest), deps);
   context.activeRequest = retryRequest;
   context.threadId = '';
   runtime.set((state) => deps.optimisticSendDraftState(state, retryRequest));
   context.threadId = await promoteNewDraftThread(runtime, retryRequest, deps);
   const result = await startDraftTurn(deps, retryRequest, context.threadId);
   context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, result);
+  exposeRetryableStartInterruptFailure(runtime, context.threadId, result);
+  exposeStartDurabilityDiagnostic(runtime, context.threadId, result);
   context.started = true;
   return context;
 }
 
 async function interruptCancelledStartedTurn(runtime, context) {
-  if (!runtime.pendingTurnStart?.cancelled) return;
+  if (!runtime.pendingTurnStart?.cancelled || runtime.pendingTurnStart.interruptRequested) return;
   const interruptActiveThread = runtime.get().interruptActiveThread;
   if (typeof interruptActiveThread !== 'function') throw new Error('canonical thread interrupt capability is unavailable');
   const interrupted = await interruptActiveThread({
@@ -286,6 +314,8 @@ async function startDraftTurnWithRecovery(runtime, deps, context) {
   try {
     const result = await startDraftTurn(deps, context.activeRequest, context.threadId);
     context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, result);
+    exposeRetryableStartInterruptFailure(runtime, context.threadId, result);
+    exposeStartDurabilityDiagnostic(runtime, context.threadId, result);
     context.started = true;
   }
   catch (error) {
@@ -346,10 +376,16 @@ function createSendDraftAction(runtime, deps) {
       throw error;
     }
     if (!request) return false;
+    request = requestWithLocalTurnID(request, deps);
     runtime.set((state) => optimisticSendDraftState(state, request));
 
     const sendContext = { activeRequest: request, threadId: request.previousThreadId };
-    runtime.pendingTurnStart = { cancelled: false, threadId: request.previousThreadId || request.provisionalThreadId };
+    runtime.pendingTurnStart = {
+      cancelled: false,
+      interruptRequested: false,
+      localTurnId: request.localTurnId,
+      threadId: request.previousThreadId || request.provisionalThreadId,
+    };
     try {
       await startDraftTurnWithRecovery(runtime, deps, sendContext);
       return finishSendDraft(runtime, deps, sendContext);

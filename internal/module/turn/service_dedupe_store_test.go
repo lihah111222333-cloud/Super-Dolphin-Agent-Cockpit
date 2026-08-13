@@ -171,28 +171,39 @@ func TestServiceStartTurnDedupeUpsertErrorAbortsProviderStart(t *testing.T) {
 
 func TestServiceStartTurnDedupeProviderIDErrorSurfaces(t *testing.T) {
 	t.Parallel()
-	want := errors.New("provider id bind failed")
 	store := newFakeDedupeStore()
 	store.bindFn = func(context.Context, DedupeBindProviderTurnIDParams) error {
-		return want
+		return errors.New("provider id bind failed")
 	}
 	svc := serviceWithStore(store)
+	handle := newStubTurnHandle("turn-bind", "p-bind")
 	sess := &stubSession{
 		threadID: "thread-bind",
 		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
-			return &stubTurnHandle{localID: "turn-bind", providerID: "p-bind", done: make(chan struct{})}, nil
+			return handle, nil
 		},
 	}
 	req, err := svc.PrepareTurn(context.Background(), sess, PrepareInput{Prompt: "run", DedupeKey: "dk-bind"})
 	if err != nil {
 		t.Fatalf("PrepareTurn() error = %v", err)
 	}
-	_, err = svc.StartTurn(context.Background(), sess, req)
-	if !errors.Is(err, want) {
-		t.Fatalf("StartTurn() error = %v, want %v", err, want)
+	gotHandle, err := svc.StartTurn(context.Background(), sess, req)
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v, want partial-start success", err)
 	}
-	if sess.lastInterrupt.ThreadID != "thread-bind" || sess.lastInterrupt.TurnID != "p-bind" {
-		t.Fatalf("interrupt request = %#v, want thread-bind/p-bind cleanup", sess.lastInterrupt)
+	if gotHandle != handle {
+		t.Fatalf("StartTurn() handle = %v, want live handle", gotHandle)
+	}
+	status := requireTurnStatus(t, svc.tracker, req.LocalID)
+	if status.State != string(StateRunning) || status.StartDiagnosticCode != "TURN_DEDUPE_PROVIDER_ID_BIND_FAILED" {
+		t.Fatalf("tracker status = %+v, want running non-terminal turn", status)
+	}
+	if sess.lastInterrupt.TurnID != "" {
+		t.Fatalf("interrupt request = %#v, want no fabricated cleanup interrupt", sess.lastInterrupt)
+	}
+	handle.complete(nil)
+	if _, err := svc.waitForTrackedTerminal(context.Background(), req.LocalID, time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("live handle did not converge after provider terminal: %v", err)
 	}
 }
 
@@ -293,5 +304,29 @@ func TestServiceRecordDedupeUpsertEmptyKeyIsNoop(t *testing.T) {
 	defer store.mu.Unlock()
 	if store.upsertCalls != 0 {
 		t.Fatalf("empty key must not reach store, got %d calls", store.upsertCalls)
+	}
+}
+
+func TestServiceStartTurnRejectsDuplicateLocalTurnIDWithoutReplacingActiveTurn(t *testing.T) {
+	t.Parallel()
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
+	providerCalls := 0
+	session := &stubSession{
+		threadID: "thread-duplicate-local",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			providerCalls++
+			return newStubTurnHandle("local-duplicate", "provider-first"), nil
+		},
+	}
+	request := dto.TurnRequest{LocalID: "local-duplicate", ThreadID: "thread-duplicate-local"}
+	if _, err := svc.StartTurn(context.Background(), session, request); err != nil {
+		t.Fatalf("first StartTurn() error = %v", err)
+	}
+	if _, err := svc.StartTurn(context.Background(), session, request); err == nil {
+		t.Fatal("second StartTurn() error = nil, want duplicate local turn rejection")
+	}
+	status, ok := svc.tracker.Get("local-duplicate")
+	if !ok || status.ProviderID != "provider-first" || providerCalls != 1 {
+		t.Fatalf("active turn was replaced: status=%+v found=%v providerCalls=%d", status, ok, providerCalls)
 	}
 }

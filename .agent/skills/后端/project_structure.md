@@ -17,7 +17,7 @@
 | `pkg/` | 公共组件 | 可供其他仓库引用的纯净库（如 `logger`, `errors`）。 |
 | `sql/` | 产品 Store 查询 | 根目录 `sql/queries` 生成 `internal/store/sqlc`；mcp-orch sidecar 查询位于 `cmd/mcp-orch/sql/queries`。 |
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > V3 项目强制模块隔离，禁止跨领域深度耦合，所有装配由 `fx` 完成。
 
 ---

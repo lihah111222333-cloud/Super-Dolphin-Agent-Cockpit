@@ -21,4 +21,4 @@
 
 - `align-skill-exec.md` 里关于 “V3 已丢失 `env` / 只剩 `command+args+cwd`” 的结论已经过时；当前代码已补回 `env` 和 legacy `argv` 兼容层，见 `internal/module/skill/rpc_types.go:37-60` 与 `internal/module/skill/exec.go:42-60`。
 - `align-skill-card.md` 里对 card 面的旧判断也需要按当前实现更新：V3 现在确实存在完整的 `command/card/*` 7 个对外 handler，见 `internal/module/skill/rpc.go:42-50`。
-- 本文件没有把 “configured auto-match 是否已恢复 V2 explicit/force provider 语义” 作为通过条件；该问题仍可见于 `internal/module/skill/skills_match.go:68-72` 的 TODO。此次验证只覆盖你列出的 “回退 + 首参消费” 两点。 
+- 本文件没有把 “configured auto-match 是否已恢复 V2 explicit/force provider 语义” 作为通过条件；该问题仍可见于 `internal/module/skill/skills_match.go:68-72` 的 TODO。此次验证只覆盖你列出的 “回退 + 首参消费” 两点。

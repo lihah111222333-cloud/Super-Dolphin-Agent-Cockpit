@@ -324,6 +324,14 @@ func assertIdempotentInterruptResults(t *testing.T, first, second interruptAttem
 	if !first.accepted || !second.accepted || providerCalls != 1 {
 		t.Fatalf("interrupt results first=%+v second=%+v providerCalls=%d, want both accepted with one call", first, second, providerCalls)
 	}
+	envelope := second.status.interruptEnvelope()
+	if !isSentPendingInterruptEnvelope(second.status, envelope) {
+		t.Fatalf("idempotent retry status=%+v envelope=%+v, want full sent-pending non-terminal envelope", second.status, envelope)
+	}
+}
+
+func isSentPendingInterruptEnvelope(status TurnStatus, envelope turnInterruptEnvelope) bool {
+	return status.State == string(StateInterrupting) && envelope.mode == "interrupt_sent_pending" && !envelope.confirmed && envelope.interruptSent && envelope.activeObserved
 }
 
 func waitForInterruptingState(t *testing.T, tracker *turnTracker, localID string) {

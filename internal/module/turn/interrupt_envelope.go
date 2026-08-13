@@ -91,6 +91,37 @@ func buildTurnInterruptNotAppliedEnvelope(beforeRaw string) turnInterruptEnvelop
 	}
 }
 
+// buildTurnInterruptRegisteredEnvelope 表示 preparing 阶段已锁定同一 Stop identity，
+// 尚未取得 provider turn ID，因此绝不声称中断已发送或已完成。
+func buildTurnInterruptRegisteredEnvelope(beforeRaw, afterRaw string) turnInterruptEnvelope {
+	return turnInterruptEnvelope{
+		confirmed:      false,
+		mode:           "interrupt_registered",
+		interruptSent:  false,
+		stateBefore:    normalizeTurnInterruptState(beforeRaw),
+		stateAfter:     normalizeTurnInterruptState(afterRaw),
+		activeObserved: true,
+	}
+}
+
+// buildTurnInterruptSentPendingEnvelope 表示 provider 已接受中断但真实终态尚未观察到。
+func buildTurnInterruptSentPendingEnvelope(beforeRaw, afterRaw string) turnInterruptEnvelope {
+	return turnInterruptEnvelope{
+		confirmed:      false,
+		mode:           "interrupt_sent_pending",
+		interruptSent:  true,
+		stateBefore:    normalizeTurnInterruptState(beforeRaw),
+		stateAfter:     normalizeTurnInterruptState(afterRaw),
+		waitedMS:       0,
+		activeObserved: true,
+	}
+}
+
+// buildTurnInterruptTerminalReplayEnvelope 复用既有 settle 契约，回放同一 request 的真实终态。
+func buildTurnInterruptTerminalReplayEnvelope(stateRaw string, interruptSent bool) turnInterruptEnvelope {
+	return buildTurnInterruptEnvelope(stateRaw, stateRaw, interruptSent, true, 0, interruptSent && interruptConfirmed(stateRaw))
+}
+
 // normalizeTurnInterruptState 把 provider 与 tracker 的多种终止词折叠成 UI 分支需要的少数类别。
 // 未知状态原样返回，让前端和日志仍能看到 provider 的真实字面量。
 func normalizeTurnInterruptState(raw string) string {

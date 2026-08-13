@@ -24,11 +24,11 @@ docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	5748	手写代码�
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	4021	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
 docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68263	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
 docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25415	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
-docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	70585	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
+docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	70557	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
 docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67609	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
 docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	42327	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
-docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27964	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
-docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	38304	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
+docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27963	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
+docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	38302	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module.md	docs	docs-agent	doc	6088	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,手写代码地图卷与自动,ai-index
 docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54631	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
 docs/doc/codemap/09-provider.md	docs	docs-agent	doc	82630	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
@@ -40,7 +40,7 @@ docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11793	手写代码地�
 docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	22096	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
 docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	3717	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3379	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
-docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	466836	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
+docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	466832	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	3521486	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
@@ -90,10 +90,10 @@ docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,RE
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
 docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	12746	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
-docs/架构/skeleton-fx.md	docs	docs-agent	doc	14159	项目文档体系	docs,架构,skeleton,fx,项目文档体系
+docs/架构/skeleton-fx.md	docs	docs-agent	doc	14120	项目文档体系	docs,架构,skeleton,fx,项目文档体系
 docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系
 docs/架构/skeleton-rungroup.md	docs	docs-agent	doc	4776	项目文档体系	docs,架构,skeleton,rungroup,项目文档体系
 docs/架构/skeleton-stateless.md	docs	docs-agent	doc	3785	项目文档体系	docs,架构,skeleton,stateless,项目文档体系
 docs/运维/README.md	docs	docs-agent	doc	499	项目文档体系	docs,运维,README,项目文档体系
 docs/运维/update-recovery-schema-rollout.md	docs	docs-agent	doc	8764	项目文档体系	docs,运维,update,recovery,schema,rollout,项目文档体系
-docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系
+docs/面试试题.md	docs	docs-agent	doc	7563	项目文档体系	docs,面试试题,项目文档体系

@@ -312,6 +312,8 @@ function turnStartPayload(params) {
     'isWorktree',
     'is_worktree',
     'language',
+    'localTurnId',
+    'local_turn_id',
     'manualSkillSelection',
     'manual_skill_selection',
     'mcpSnapshot',

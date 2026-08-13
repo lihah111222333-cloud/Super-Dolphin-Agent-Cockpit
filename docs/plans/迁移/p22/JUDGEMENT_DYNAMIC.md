@@ -84,9 +84,9 @@
 
 ## 6. 死代码 / 空架子清单
 
-- **Finding 1/2/5/8 对应 helper 不是空架子**：  
+- **Finding 1/2/5/8 对应 helper 不是空架子**：
   `spawnToolbridgePeers` <- `module.go:35`；`StartSessionFromThreadEvent` <- `memory/module.go:458`；`StopSessionFromThreadEvent` <- `memory/module.go:463`；`waitForProcessExit` <- `helpers.go:173`
-- **`waitDreamTask(...)` 仍是 test-only helper**：  
+- **`waitDreamTask(...)` 仍是 test-only helper**：
   `internal/module/memory/auto_dream_task.go:135-154` 的 `waitDreamTask` 只有 `auto_dream_test.go` 两处 caller；prod stop 路径仍未接上
 
 ## 7. 已执行修订
@@ -104,7 +104,7 @@
 ## 8. 与 Judge-Static 工作域冲突风险
 
 - `orchestration_get_agent_report(agent-1776895620374-...)` 已返回 **裁决完成**
-- Judge-S 明确声明其工作域：  
+- Judge-S 明确声明其工作域：
   - `README.md`：`## 目标` / `## 依赖图（文本）` / `## 落地顺序建议` / `## 收口口径` / `## 实施方式` / `## 非目标`
   - `P0`：`## 目标` / `## 收口口径` / `## 非目标`
   - `P1a`：`## 目标` / `## 实施方式` / `## 收口口径` / `## 依赖图（文本）` / `## 非目标`
@@ -113,7 +113,7 @@
   - `P2`：`## 目标` / `## 收口口径` / `## 实施方式` / `## 依赖图（文本）` / `## 落地顺序建议` / `## 非目标`
   - `P3`：`## 目标` / `## 实施方式` / `## 收口口径` / `## 依赖图（文本）` / `## 落地顺序建议` / `## 非目标`
   - `P4`：`## 目标` / `## 收口口径` / `## 实施方式` / `## 依赖图（文本）` / `## 落地顺序建议` / `## 非目标`
-- 我本轮只改动态域：  
+- 我本轮只改动态域：
   `## Findings 对照表`、`## 现状校准`、`## 实施步骤（代码锚点段）`、`## 验收标准`、工时数字、`JUDGEMENT_DYNAMIC.md`
 - 风险判定：**无冲突**（Judge-S 报告已显式确认 “与 Judge-Dynamic 工作域无冲突：✅”）
 

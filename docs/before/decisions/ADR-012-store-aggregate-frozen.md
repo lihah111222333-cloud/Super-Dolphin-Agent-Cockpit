@@ -48,4 +48,3 @@ F1.5（commit `970cb5aa`）已用真实先例：`NodeSpawnRecorderStore` **没�
 
 - 若发现 `Store` 聚合接口本身被 service 直接持有 ≥3 处 → 触发方案 D（拆聚合）评估。
 - 若某个 embedded port 拆出后 mock / 测试桩复杂度反而失控 → 触发方案 B 与方案 D 的二次评估，但仍**不**走方案 C（放宽预算）。
-

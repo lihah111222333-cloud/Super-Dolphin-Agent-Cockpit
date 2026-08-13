@@ -1,6 +1,6 @@
 # 07B 业务模块层代码地图（写侧）
 
-> 范围：`internal/module/thread/`、`internal/module/turn/`、`internal/module/uistate/`（含 `timeline/`）。  
+> 范围：`internal/module/thread/`、`internal/module/turn/`、`internal/module/uistate/`（含 `timeline/`）。
 > 关联入口：[07-module.md](07-module.md) / [07-module-read.md](07-module-read.md)。
 > UI 路径校正（2026-06-02）：当前新 UI 在 `frontend-app/`，legacy Vue 锚点仍保留为旧/package-embed 参考。当前 React UI 入口见 [01-terminal-ui-react.md](01-terminal-ui-react.md)。
 

@@ -268,9 +268,9 @@ flowchart TD
 
 **切线规则：**
 
-1. **契约留在这里**：`internal/contract/*` 中真正跨 root 包复用、且需要被 `app / module / provider / cmd` 共同理解的接口。  
-2. **实现留在模块包**：谁拥有运行时状态、生命周期、缓存、transport、store，就把 concrete 留在自己的 `internal/module/*` / `internal/provider/*` / `internal/platform/*` / `cmd/mcp-orch/*`。  
-3. **不是所有 outward interface 都该进 `internal/contract`**：若接口只属于单个业务模块内部 outward surface，应留在拥有者模块（看 07 / 09），不要把 module-local 接口抬升成全局 contract。  
+1. **契约留在这里**：`internal/contract/*` 中真正跨 root 包复用、且需要被 `app / module / provider / cmd` 共同理解的接口。
+2. **实现留在模块包**：谁拥有运行时状态、生命周期、缓存、transport、store，就把 concrete 留在自己的 `internal/module/*` / `internal/provider/*` / `internal/platform/*` / `cmd/mcp-orch/*`。
+3. **不是所有 outward interface 都该进 `internal/contract`**：若接口只属于单个业务模块内部 outward surface，应留在拥有者模块（看 07 / 09），不要把 module-local 接口抬升成全局 contract。
 
 ---
 
@@ -859,21 +859,21 @@ type SessionResolver interface {
 
    `BindSessionGeneration` 已拆为 `thread.SessionGenerationBinder` 独立端口；当前 toolbridge facade 对该能力按 dependency profile 显式返回 unsupported / fail-fast。
 
-2. **`newRuntimeReporter` 是“单方法端口适配器”**  
+2. **`newRuntimeReporter` 是“单方法端口适配器”**
    它只暴露 `ReportRuntime(...)`，内部实际转调 `contract.AgentRuntimePort.UpdateRuntime(...)`；如果 runtime 端口不存在，则退化为 debug 日志 noop。
 
-3. **`AsRPCRunner` 只是 Fx 结果适配，不是业务适配器**  
+3. **`AsRPCRunner` 只是 Fx 结果适配，不是业务适配器**
    它的职责只是把 `*rpc.Server` 包装为 `RunnerResult{Runner: server}`，让 RPC Server 进入 `group:"runners"`。
 
-4. **桌面态的 noop 不是“假实现业务”，而是“断开可选 orchestration 链路”**  
+4. **桌面态的 noop 不是“假实现业务”，而是“断开可选 orchestration 链路”**
    即使 mcp-orch 生命周期或 runtime 窄端口缺失，`thread.Start/Resume` 依旧会通过 `unified.Client` 启动 provider session；只是外部 orchestration 进程的 stop / recover / generation bind 不再发生。
 
 ### 6.4 关键依赖结论
 
 1. **`contract` 是全局横向边界层，但不是所有接口的收容所。** provider、thread、turn、rpc、hooks、mcpcontrol、dashboard、uistate、wails、`cmd/mcp-orch` 仍通过稳定契约解耦；58f19fa 后，skill/taskdag 这类 owner-local 超大端口应拆在 owning package 的窄接口里。
-2. **`app` 是根组装层，不是业务层。** 它只决定“装哪些模块、以什么生命周期运行”。  
+2. **`app` 是根组装层，不是业务层。** 它只决定“装哪些模块、以什么生命周期运行”。
 3. **桌面端对 orchestration 是可选依赖。** mcp-orch 相关能力必须通过 `AgentLifecyclePort`、`AgentRuntimePort`、`AgentReportPort` 与 DAG runtime 窄端口声明消费面，缺失时由 noop 或 typed dependency error 表达。
-4. **provider 装配采用 `group:"drivers"`。** 新增 provider 只需追加一个 `contract.DriverFactory`，无需改 thread / turn / rpc 调用链。  
+4. **provider 装配采用 `group:"drivers"`。** 新增 provider 只需追加一个 `contract.DriverFactory`，无需改 thread / turn / rpc 调用链。
 5. **session generation 是 thread ↔ orchestration 的关键衔接点。** `SessionManager.Register()` 生成 generation；当 `thread.SessionGenerationBinder` 可用时，`thread.bindSessionGeneration()` 会上报，`mcp-orch/orchestration` 在进程退出时再用 generation-aware cleaner 做精确清理。
 
 ---
@@ -944,7 +944,7 @@ store/thread
 
 补充：`04` 这卷自身没有第二套 freeze registry；冻结债务统一以 `internal/archtest/freeze_baseline.json` 为唯一真值，接口隔离另由 `internal/archtest/interface_isolation_guard_test.go` 管住。
 
-接口隔离预算注脚：`taskdag.RunStore` 故意 **不** 嵌入 `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 InterfaceIsolation 预算（`<=0 direct + <=3 embedded` 与 `<=2 direct + <=1 embedded`）— 详见 `cmd/mcp-orch/store/taskdag/contract.go:25-27` 与 `:39-42`。service 层通过独立 `runStore` 字段持有 RunStore，与 `dagStore` 并列；事务内联合语义由 `DAGMutationWithRunStore` 扩展接口提供。  
+接口隔离预算注脚：`taskdag.RunStore` 故意 **不** 嵌入 `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 InterfaceIsolation 预算（`<=0 direct + <=3 embedded` 与 `<=2 direct + <=1 embedded`）— 详见 `cmd/mcp-orch/store/taskdag/contract.go:25-27` 与 `:39-42`。service 层通过独立 `runStore` 字段持有 RunStore，与 `dagStore` 并列；事务内联合语义由 `DAGMutationWithRunStore` 扩展接口提供。
 _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** embedded in the `taskdag.Store` aggregate so the `OrchestrationStore` / `DAGMutationStore` budgets stay green (`<=0 direct + <=3 embedded` and `<=2 direct + <=1 embedded`). See `cmd/mcp-orch/store/taskdag/contract.go:25-27` and `:39-42`. The service layer keeps RunStore as a separate `runStore` field alongside `dagStore`; in-transaction joint semantics go through the `DAGMutationWithRunStore` extension.
 
 ## 9. 常见修改路径（how-to）
@@ -961,11 +961,11 @@ _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** e
 
 ## 审查补遗
 
-- 已补齐 `5.6` 节中先前遗漏的接口签名：`HookReviewStore`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`。  
-- 已补充此前漏写的源码符号：`internal/app/app.go` 中的 `currentBuildInfo` / `applyBuildSetting`，以及 `contract.DriverFactory`、`TurnSubmission`、`AgentReportMetadata`、`RememberReportRequest`、`RememberReportRequestResult`、`ReportEventResult` 等契约类型。  
+- 已补齐 `5.6` 节中先前遗漏的接口签名：`HookReviewStore`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`。
+- 已补充此前漏写的源码符号：`internal/app/app.go` 中的 `currentBuildInfo` / `applyBuildSetting`，以及 `contract.DriverFactory`、`TurnSubmission`、`AgentReportMetadata`、`RememberReportRequest`、`RememberReportRequestResult`、`ReportEventResult` 等契约类型。
 - 已修正 `RuntimeReporter` 的实现说明：实现只在 `internal/app/runtime_reporter_adapter.go`，分别是接通 runtime port 的 `orchestrationRuntimeReporter` 与外部 orchestration profile 使用的 `desktopExternalRuntimeReporter`。
-- 已修正跨 Fx 图的依赖描述：`turn.NewOrchestrationTurnStarter` / `unified.NewSessionCleaner` 会在 `app.Module` 中导出，但当前生产 `mcp-orch` standalone 图分别实际注入的是 `newNoopTurnStarter` / `newNoopSessionCleaner`。  
-- 已补全此前文档未展开的依赖注入链：`group:"drivers" -> unified.Registry -> Client / SessionManager / SessionResolver -> thread / turn / rpc`，以及 `SessionGeneration -> BindSessionGeneration -> generation-aware session cleaner` 这条链路。  
+- 已修正跨 Fx 图的依赖描述：`turn.NewOrchestrationTurnStarter` / `unified.NewSessionCleaner` 会在 `app.Module` 中导出，但当前生产 `mcp-orch` standalone 图分别实际注入的是 `newNoopTurnStarter` / `newNoopSessionCleaner`。
+- 已补全此前文档未展开的依赖注入链：`group:"drivers" -> unified.Registry -> Client / SessionManager / SessionResolver -> thread / turn / rpc`，以及 `SessionGeneration -> BindSessionGeneration -> generation-aware session cleaner` 这条链路。
 - 已澄清适配器模式的真实落点：`newMCPOrchOrchestrationFacade` 与 `newRuntimeReporter` 是薄适配层；`AsRPCRunner` 只是 Fx 结果包装，不属于业务语义适配。
-- 已核对 `internal/app/modules.go`：根模块清单与文档一致，仍然 **不内嵌 orchestration module**；桌面态仅通过 optional 依赖和 noop 适配器感知 orchestration。  
+- 已核对 `internal/app/modules.go`：根模块清单与文档一致，仍然 **不内嵌 orchestration module**；桌面态仅通过 optional 依赖和 noop 适配器感知 orchestration。
 - 2026-04-29 已按接口隔离提交 58f19fa 同步维护口径：`skill.Service` / `taskdag.Store` 的拆分真值在 owner-local `contract.go` 与 `interface_isolation_guard_test.go`，04 不再把这类局部端口描述成 `internal/contract` 的扩展面。

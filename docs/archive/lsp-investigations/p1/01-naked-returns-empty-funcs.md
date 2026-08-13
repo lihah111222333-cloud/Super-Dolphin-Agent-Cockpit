@@ -21,7 +21,7 @@
 // 修复后：明确带参返回
 func Process() (result string, err error) {
     if condition {
-        return "", nil 
+        return "", nil
     }
     return "ok", nil
 }

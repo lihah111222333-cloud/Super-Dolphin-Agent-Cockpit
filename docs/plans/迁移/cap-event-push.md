@@ -1,7 +1,7 @@
 # 能力+容错审查：Event Bus → Push → Wails 事件推送链
 
-审查时间：2026-03-21  
-审查范围：V3 `internal/platform/bus` / `internal/platform/rpc` / `internal/ui/wails` / `cmd/mcp-orch/orchestration` / `internal/provider/*`，以及 V2 `go-agent-v2` 对照实现。  
+审查时间：2026-03-21
+审查范围：V3 `internal/platform/bus` / `internal/platform/rpc` / `internal/ui/wails` / `cmd/mcp-orch/orchestration` / `internal/provider/*`，以及 V2 `go-agent-v2` 对照实现。
 取证方式：仅使用 LSP `text_search` / `workspace_symbol` / `references(compact)` / `call_hierarchy` / `read_file(func_start/func_end)`。
 
 ## 结论摘要
@@ -199,9 +199,9 @@ Wails bridge 也没有 replay：
 
 所以存在窗口：
 
-1. FX runtime 已启动  
-2. bridge 已开始从 bus 收事件  
-3. Wails frontend 还未 ready / 还没 listener  
+1. FX runtime 已启动
+2. bridge 已开始从 bus 收事件
+3. Wails frontend 还未 ready / 还没 listener
 4. 事件直接 `Event.Emit(...)` 出去，没有缓存
 
 结果：**启动早期事件可能已经发到 Wails runtime，但前端并不会补收。**
@@ -397,15 +397,15 @@ provider translator 也会发布：
 
 因此链路方向是：
 
-1. provider raw event  
-2. translator 发 `TurnStarted` / `TurnCompleted`  
-3. orchestration 订阅后调用 `BindActiveTurnID()` / `CompleteTurn()`  
-4. 状态机 transition  
+1. provider raw event
+2. translator 发 `TurnStarted` / `TurnCompleted`
+3. orchestration 订阅后调用 `BindActiveTurnID()` / `CompleteTurn()`
+4. 状态机 transition
 5. `StateChanged`
 
 不是：
 
-1. 状态机 transition  
+1. 状态机 transition
 2. turn 事件
 
 ### 9.3 由此带来的空洞
@@ -432,21 +432,21 @@ provider translator 也会发布：
 
 `go-agent-v2/legacy-agentsdk/agentcore/types.go:210-274` 一共定义了 **63 个命名事件**。按语义可归为：
 
-1. agent / session / turn lifecycle  
+1. agent / session / turn lifecycle
    例：`session_configured`、`turn_started`、`turn_complete`、`turn_aborted`、`idle`、`shutdown_complete`、`connection_dead`
-2. agent 输出 / reasoning 流  
+2. agent 输出 / reasoning 流
    例：`agent_message*`、`agent_reasoning*`、`reasoning*`
-3. exec / tool / approval  
+3. exec / tool / approval
    例：`exec_approval_request`、`exec_command_*`、`dynamic_tool_call`
-4. file / patch / diff / undo  
+4. file / patch / diff / undo
    例：`patch_apply*`、`file_read`、`file_updated`、`turn_diff`、`undo_*`
-5. plan / review / collab  
+5. plan / review / collab
    例：`turn_plan`、`plan_delta`、`plan_update`、`entered_review_mode`、`collab_*`
-6. MCP / integration  
+6. MCP / integration
    例：`mcp_tool_call*`、`mcp_list_tools_response`、`mcp_startup_*`、`mcp_oauth_completed`
-7. thread 元数据  
+7. thread 元数据
    例：`thread_name_updated`、`thread_rolled_back`
-8. error / warning / token / context / background  
+8. error / warning / token / context / background
    例：`error`、`warning`、`stream_error`、`token_count`、`context_compacted`、`background_event`
 
 ### 10.2 V3 定义了多少
@@ -465,7 +465,7 @@ V3 `internal/dto/shared/event.go:5-39` 只定义了 **28 个 typed event**，6 �
 当前 live publisher 大约覆盖 **19 / 28**：
 
 - agent：5 / 5
-- turn：5 / 7  
+- turn：5 / 7
   缺 `TurnStalled`、`TurnResumed`
 - tool：4 / 4
 - workspace：5 / 5
@@ -515,19 +515,19 @@ V3 `internal/dto/shared/event.go:5-39` 只定义了 **28 个 typed event**，6 �
 
 ### 主要问题
 
-1. **双源 agent 事件没有隔离/去重。**  
+1. **双源 agent 事件没有隔离/去重。**
    尤其 `StateChanged`，codex provider 与 orchestration 会同时进入同一桥接方法 `ui/state/changed`。
 
-2. **顺序保证不足。**  
+2. **顺序保证不足。**
    只能保证同类型 FIFO；同一 agent 的跨类型事件没有顺序语义。
 
-3. **启动窗口存在前端事件丢失。**  
+3. **启动窗口存在前端事件丢失。**
    Wails bridge 在 FX start 后就工作，但 frontend ready 更晚，且没有 replay。
 
-4. **Wails 端到端链路未闭环。**  
+4. **Wails 端到端链路未闭环。**
    当前 embedded frontend 只是占位页，没有 `bridge-event` / `app-will-quit` 监听。
 
-5. **V2 事件面覆盖严重不足。**  
+5. **V2 事件面覆盖严重不足。**
    push/Wails 只外放 3 个事件，迁移远未覆盖 V2 的主要流式/工具/计划/MCP/错误事件面。
 
 ## 建议优先级
