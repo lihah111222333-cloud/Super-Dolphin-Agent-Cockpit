@@ -62,18 +62,19 @@ func TestJSONProgressObserverWritesReuseDecisionDiagnostic(t *testing.T) {
 	var output bytes.Buffer
 	observer := NewJSONProgressObserver(&output)
 	replay := ReuseReplayDiagnostic{
-		SourceCandidateWorkloads: 11, SourceCandidates: 12, SourceCandidateTrees: 28,
+		SourceCandidateWorkloads: 11, SourceCandidates: 12, SourceCandidateTrees: 28, SourceCandidateEvaluations: 38,
 		SourceInputUnavailable: 13, SourceInputMismatch: 14,
 		SourceSingleVoteRecovered: 23, SourceDeclarationMissVotes: 24,
 		SourceRuntimeMissVotes: 25, SourceCompileMissVotes: 26,
-		SourceCompileObligations: 29, SourceCompileCoveredRecoveries: 30, SourceConfirmedMisses: 27,
+		SourceCompileObligations: 29, SourceCompileCoveredRecoveries: 30, SourceAlgorithmCompatibleRecoveries: 39, SourceConfirmedMisses: 27,
 		EnvironmentHintWorkloads: 15, EnvironmentHints: 16,
 		EnvironmentGenerationMismatch: 17, EnvironmentTargetUnavailable: 18,
 		EnvironmentSourceUnavailable: 19, EnvironmentHistoricalMismatch: 20,
 		EnvironmentCurrentWorkerMismatch: 21, EnvironmentInputMismatch: 22,
+		EnvironmentAlgorithmCompatibleTrees: 41, EnvironmentInputPrewarmSkipped: 42,
 		CacheSnapshotComputations: 31, CacheSnapshotLoads: 32, CacheInputComputations: 33,
 		CacheCompileComputations: 34, CacheSemanticComputations: 35, CacheEnvironmentComputations: 36,
-		CacheWorkerComputations: 37,
+		CacheWorkerComputations: 37, CacheAlgorithmComputations: 40,
 	}
 	observer.ObserveRemoteCIReuseDiagnostic(ReuseDiagnostic{
 		MissConfirmationThreshold: 2,

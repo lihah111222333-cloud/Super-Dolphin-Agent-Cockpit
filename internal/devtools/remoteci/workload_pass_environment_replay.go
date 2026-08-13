@@ -355,16 +355,24 @@ func (evaluation remoteWorkloadPassEnvironmentEvaluation) evaluateTree(
 	keys []remoteWorkloadPassEnvironmentCandidateKey,
 	matchedCandidates map[remoteWorkloadPassEnvironmentCandidateKey]struct{},
 ) error {
-	partition := evaluation.exactInputPartition(keys)
-	if err := evaluation.cache.prewarmInputDigests(evaluation.ctx, evaluation.input.RepositoryRoot, tree, partition); err != nil {
-		return err
-	}
 	source, available, err := evaluation.cache.snapshot(evaluation.ctx, evaluation.input.RepositoryRoot, tree)
 	if err != nil {
 		return err
 	}
 	if !available {
 		return fmt.Errorf("remote workload PASS environment source tree %q disappeared after filtering", tree)
+	}
+	partition := evaluation.exactInputPartition(keys)
+	compatible, err := prewarmRemoteWorkloadPassSourceInputs(
+		evaluation.ctx, evaluation.input.RepositoryRoot, tree, partition,
+		source, evaluation.target, evaluation.cache,
+	)
+	if err != nil {
+		return err
+	}
+	if compatible {
+		evaluation.diagnostic.EnvironmentAlgorithmCompatibleTrees++
+		evaluation.diagnostic.EnvironmentInputPrewarmSkipped += len(partition)
 	}
 	for _, key := range keys {
 		prepared := evaluation.candidates[key.workloadID][key.index]
@@ -384,6 +392,24 @@ func (evaluation remoteWorkloadPassEnvironmentEvaluation) evaluateTree(
 	}
 	evaluation.cache.releaseSnapshot(evaluation.input.RepositoryRoot, tree, evaluation.input.Tree)
 	return nil
+}
+
+// prewarmRemoteWorkloadPassSourceInputs 先校验来源和目标的 input producer；
+// 仅旧算法或闭包变化时才执行昂贵的来源树 workload input 批量重算。
+func prewarmRemoteWorkloadPassSourceInputs(
+	ctx context.Context,
+	repositoryRoot string,
+	tree string,
+	workloads []gate.Workload,
+	source *remoteGitTreeSnapshot,
+	target *remoteGitTreeSnapshot,
+	cache *remoteReplayCache,
+) (bool, error) {
+	compatible, err := cache.inputAlgorithmsCompatible(source, target)
+	if err != nil || compatible {
+		return compatible, err
+	}
+	return false, cache.prewarmInputDigests(ctx, repositoryRoot, tree, workloads)
 }
 
 // authorizeRemoteWorkloadPassEnvironmentHints 一次精确重读全部语义命中项；任一
@@ -547,11 +573,18 @@ func verifyRemoteWorkloadPassSourceInput(
 	target *remoteGitTreeSnapshot,
 	cache *remoteReplayCache,
 ) (bool, error) {
+	compatible, err := cache.inputAlgorithmsCompatible(source, target)
+	if err != nil {
+		return false, err
+	}
 	if candidate.Identity.InputDigest != identity.InputDigest {
 		semanticMatches, err := remoteWorkloadSemanticInputMatches(ctx, workload, source, target, cache)
 		if err != nil || !semanticMatches {
 			return false, err
 		}
+	}
+	if compatible {
+		return true, nil
 	}
 	inputDigest, available, err := cache.inputDigest(ctx, input.RepositoryRoot, candidate.OriginSourceTreeSHA, workload)
 	if err != nil {

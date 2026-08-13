@@ -15,7 +15,7 @@ import (
 const ProgressEventSchemaVersion uint32 = 1
 
 // ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
-const ReuseDiagnosticSchemaVersion uint32 = 9
+const ReuseDiagnosticSchemaVersion uint32 = 10
 
 // ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
 const ShardPlanDiagnosticSchemaVersion uint32 = 1
@@ -88,33 +88,38 @@ type ReuseDiagnostic struct {
 
 // ReuseReplayDiagnostic 汇总两类 exact-tree replay 的候选与拒绝阶段，不携带 workload 或摘要。
 type ReuseReplayDiagnostic struct {
-	SourceCandidateWorkloads         int `json:"source_candidate_workloads"`
-	SourceCandidates                 int `json:"source_candidates"`
-	SourceCandidateTrees             int `json:"source_candidate_trees"`
-	SourceInputUnavailable           int `json:"source_input_unavailable"`
-	SourceInputMismatch              int `json:"source_input_mismatch"`
-	SourceSingleVoteRecovered        int `json:"source_single_vote_recovered"`
-	SourceDeclarationMissVotes       int `json:"source_declaration_miss_votes"`
-	SourceRuntimeMissVotes           int `json:"source_runtime_miss_votes"`
-	SourceCompileMissVotes           int `json:"source_compile_miss_votes"`
-	SourceCompileObligations         int `json:"source_compile_obligations"`
-	SourceCompileCoveredRecoveries   int `json:"source_compile_covered_recoveries"`
-	SourceConfirmedMisses            int `json:"source_confirmed_misses"`
-	EnvironmentHintWorkloads         int `json:"environment_hint_workloads"`
-	EnvironmentHints                 int `json:"environment_hints"`
-	EnvironmentGenerationMismatch    int `json:"environment_generation_mismatch"`
-	EnvironmentTargetUnavailable     int `json:"environment_target_unavailable"`
-	EnvironmentSourceUnavailable     int `json:"environment_source_unavailable"`
-	EnvironmentHistoricalMismatch    int `json:"environment_historical_mismatch"`
-	EnvironmentCurrentWorkerMismatch int `json:"environment_current_worker_mismatch"`
-	EnvironmentInputMismatch         int `json:"environment_input_mismatch"`
-	CacheSnapshotComputations        int `json:"cache_snapshot_computations"`
-	CacheSnapshotLoads               int `json:"cache_snapshot_loads"`
-	CacheInputComputations           int `json:"cache_input_computations"`
-	CacheCompileComputations         int `json:"cache_compile_computations"`
-	CacheSemanticComputations        int `json:"cache_semantic_computations"`
-	CacheEnvironmentComputations     int `json:"cache_environment_computations"`
-	CacheWorkerComputations          int `json:"cache_worker_computations"`
+	SourceCandidateWorkloads            int `json:"source_candidate_workloads"`
+	SourceCandidates                    int `json:"source_candidates"`
+	SourceCandidateTrees                int `json:"source_candidate_trees"`
+	SourceCandidateEvaluations          int `json:"source_candidate_evaluations"`
+	SourceInputUnavailable              int `json:"source_input_unavailable"`
+	SourceInputMismatch                 int `json:"source_input_mismatch"`
+	SourceSingleVoteRecovered           int `json:"source_single_vote_recovered"`
+	SourceDeclarationMissVotes          int `json:"source_declaration_miss_votes"`
+	SourceRuntimeMissVotes              int `json:"source_runtime_miss_votes"`
+	SourceCompileMissVotes              int `json:"source_compile_miss_votes"`
+	SourceCompileObligations            int `json:"source_compile_obligations"`
+	SourceCompileCoveredRecoveries      int `json:"source_compile_covered_recoveries"`
+	SourceAlgorithmCompatibleRecoveries int `json:"source_algorithm_compatible_recoveries"`
+	SourceConfirmedMisses               int `json:"source_confirmed_misses"`
+	EnvironmentHintWorkloads            int `json:"environment_hint_workloads"`
+	EnvironmentHints                    int `json:"environment_hints"`
+	EnvironmentGenerationMismatch       int `json:"environment_generation_mismatch"`
+	EnvironmentTargetUnavailable        int `json:"environment_target_unavailable"`
+	EnvironmentSourceUnavailable        int `json:"environment_source_unavailable"`
+	EnvironmentHistoricalMismatch       int `json:"environment_historical_mismatch"`
+	EnvironmentCurrentWorkerMismatch    int `json:"environment_current_worker_mismatch"`
+	EnvironmentInputMismatch            int `json:"environment_input_mismatch"`
+	EnvironmentAlgorithmCompatibleTrees int `json:"environment_algorithm_compatible_trees"`
+	EnvironmentInputPrewarmSkipped      int `json:"environment_input_prewarm_skipped"`
+	CacheSnapshotComputations           int `json:"cache_snapshot_computations"`
+	CacheSnapshotLoads                  int `json:"cache_snapshot_loads"`
+	CacheInputComputations              int `json:"cache_input_computations"`
+	CacheCompileComputations            int `json:"cache_compile_computations"`
+	CacheSemanticComputations           int `json:"cache_semantic_computations"`
+	CacheEnvironmentComputations        int `json:"cache_environment_computations"`
+	CacheWorkerComputations             int `json:"cache_worker_computations"`
+	CacheAlgorithmComputations          int `json:"cache_algorithm_computations"`
 }
 
 // ReuseDiagnosticGroup 按 workload 类型与编译单元聚合 MISS 来源；它不携带

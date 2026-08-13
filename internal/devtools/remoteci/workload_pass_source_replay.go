@@ -3,6 +3,7 @@ package remoteci
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
@@ -35,6 +36,12 @@ func replayRemoteWorkloadPassMisses(
 	if err != nil {
 		return err
 	}
+	observe.phase("reuse_source_rank_started")
+	treeRanks, err := rankRemoteWorkloadPassSourceTrees(ctx, input.RepositoryRoot, input.Tree, candidates, cache)
+	if err != nil {
+		return err
+	}
+	observe.phase("reuse_source_rank_completed")
 	compileCoverage := make(remoteReplayCompileCoverage)
 	observe.phase("reuse_source_vote_started")
 	for _, identity := range missing {
@@ -42,7 +49,7 @@ func replayRemoteWorkloadPassMisses(
 		if !ok {
 			return fmt.Errorf("remote workload PASS source replay %q is absent from current catalog", identity.WorkloadID)
 		}
-		if err := replayRemoteWorkloadPassMiss(ctx, input.RepositoryRoot, input.Tree, identity, workload, candidates[identity.WorkloadID], reused, compileCoverage, cache, confirmations, diagnostic); err != nil {
+		if err := replayRemoteWorkloadPassMiss(ctx, input.RepositoryRoot, input.Tree, identity, workload, candidates[identity.WorkloadID], treeRanks, reused, compileCoverage, cache, confirmations, diagnostic); err != nil {
 			return err
 		}
 	}
@@ -52,12 +59,12 @@ func replayRemoteWorkloadPassMisses(
 
 // replayRemoteWorkloadPassMiss 裁决一个 direct MISS，并让首个未复用 selector
 // 承担其 compile owner 的 fresh 编译义务。
-func replayRemoteWorkloadPassMiss(ctx context.Context, repositoryRoot, targetTree string, identity gate.WorkloadPassIdentity, workload gate.Workload, candidates []gate.WorkloadPassEvidence, reused map[string]gate.WorkloadPassEvidence, compileCoverage remoteReplayCompileCoverage, cache *remoteReplayCache, confirmations remoteReuseMissConfirmations, diagnostic *ReuseReplayDiagnostic) error {
+func replayRemoteWorkloadPassMiss(ctx context.Context, repositoryRoot, targetTree string, identity gate.WorkloadPassIdentity, workload gate.Workload, candidates []gate.WorkloadPassEvidence, treeRanks map[string]int, reused map[string]gate.WorkloadPassEvidence, compileCoverage remoteReplayCompileCoverage, cache *remoteReplayCache, confirmations remoteReuseMissConfirmations, diagnostic *ReuseReplayDiagnostic) error {
 	compileCovered, err := compileCoverage.covers(workload)
 	if err != nil {
 		return err
 	}
-	evidence, reusedPass, err := selectRemoteWorkloadPassReplay(ctx, repositoryRoot, targetTree, identity, workload, candidates, compileCovered, cache, diagnostic)
+	evidence, reusedPass, err := selectRemoteWorkloadPassReplay(ctx, repositoryRoot, targetTree, identity, workload, candidates, treeRanks, compileCovered, cache, diagnostic)
 	if err != nil {
 		return err
 	}
@@ -74,6 +81,30 @@ func replayRemoteWorkloadPassMiss(ctx context.Context, repositoryRoot, targetTre
 	}
 	confirmations.confirm(identity.WorkloadID, remoteReuseSourceMiss)
 	return nil
+}
+
+func rankRemoteWorkloadPassSourceTrees(ctx context.Context, repositoryRoot, targetTree string, candidates map[gate.GateID][]gate.WorkloadPassEvidence, cache *remoteReplayCache) (map[string]int, error) {
+	target, available, err := cache.snapshot(ctx, repositoryRoot, targetTree)
+	if err != nil || !available {
+		return nil, err
+	}
+	ranks := make(map[string]int)
+	for _, workloadCandidates := range candidates {
+		for _, candidate := range workloadCandidates {
+			if _, ranked := ranks[candidate.OriginSourceTreeSHA]; ranked {
+				continue
+			}
+			source, sourceAvailable, err := cache.snapshot(ctx, repositoryRoot, candidate.OriginSourceTreeSHA)
+			if err != nil {
+				return nil, err
+			}
+			ranks[candidate.OriginSourceTreeSHA] = remoteReplayTreeDistance(source, target)
+			if !sourceAvailable {
+				ranks[candidate.OriginSourceTreeSHA] = int(^uint(0) >> 1)
+			}
+		}
+	}
+	return ranks, nil
 }
 
 func recordRemoteSourceReplayCandidates(diagnostic *ReuseReplayDiagnostic, candidates map[gate.GateID][]gate.WorkloadPassEvidence) {
@@ -127,6 +158,14 @@ func canonicalRemoteWorkloadPassSourceCandidates(candidates []gate.WorkloadPassE
 	return canonical
 }
 
+func rankedRemoteWorkloadPassSourceCandidates(candidates []gate.WorkloadPassEvidence, treeRanks map[string]int) []gate.WorkloadPassEvidence {
+	canonical := canonicalRemoteWorkloadPassSourceCandidates(candidates)
+	sort.SliceStable(canonical, func(left, right int) bool {
+		return treeRanks[canonical[left].OriginSourceTreeSHA] < treeRanks[canonical[right].OriginSourceTreeSHA]
+	})
+	return canonical
+}
+
 // selectRemoteWorkloadPassReplay 按确定顺序重算来源树，首个精确 input digest 命中才返回直接证据。
 func selectRemoteWorkloadPassReplay(
 	ctx context.Context,
@@ -135,6 +174,7 @@ func selectRemoteWorkloadPassReplay(
 	identity gate.WorkloadPassIdentity,
 	workload gate.Workload,
 	candidates []gate.WorkloadPassEvidence,
+	treeRanks map[string]int,
 	compileCovered bool,
 	cache *remoteReplayCache,
 	diagnostic *ReuseReplayDiagnostic,
@@ -143,7 +183,8 @@ func selectRemoteWorkloadPassReplay(
 	if err != nil || !available {
 		return gate.WorkloadPassEvidence{}, false, err
 	}
-	for _, candidate := range canonicalRemoteWorkloadPassSourceCandidates(candidates) {
+	for _, candidate := range rankedRemoteWorkloadPassSourceCandidates(candidates, treeRanks) {
+		diagnostic.SourceCandidateEvaluations++
 		matches, err := matchesRemoteWorkloadPassSourceCandidate(ctx, repositoryRoot, identity, workload, candidate, target, compileCovered, cache, diagnostic)
 		if err != nil {
 			return gate.WorkloadPassEvidence{}, false, err
@@ -191,13 +232,23 @@ func matchesRemoteWorkloadPassSourceCandidate(ctx context.Context, repositoryRoo
 		diagnostic.SourceInputMismatch++
 		return false, nil
 	}
-	digest, available, err := cache.inputDigest(ctx, repositoryRoot, candidate.OriginSourceTreeSHA, workload)
+	digest := candidate.Identity.InputDigest
+	compatible, err := cache.inputAlgorithmsCompatible(source, target)
 	if err != nil {
-		return false, fmt.Errorf("recompute remote workload PASS source %q: %w", identity.WorkloadID, err)
+		return false, err
 	}
-	if !available {
-		diagnostic.SourceInputUnavailable++
-		return false, nil
+	if !compatible {
+		var available bool
+		digest, available, err = cache.inputDigest(ctx, repositoryRoot, candidate.OriginSourceTreeSHA, workload)
+		if err != nil {
+			return false, fmt.Errorf("recompute remote workload PASS source %q: %w", identity.WorkloadID, err)
+		}
+		if !available {
+			diagnostic.SourceInputUnavailable++
+			return false, nil
+		}
+	} else {
+		diagnostic.SourceAlgorithmCompatibleRecoveries++
 	}
 	if digest == identity.InputDigest {
 		return true, nil

@@ -414,6 +414,7 @@ func recordRemoteReplayCacheDiagnostic(diagnostic *ReuseReplayDiagnostic, cache 
 	diagnostic.CacheSemanticComputations = int(cache.semanticComputations)
 	diagnostic.CacheEnvironmentComputations = int(cache.environmentComputations)
 	diagnostic.CacheWorkerComputations = int(cache.previousGroupedComputations + cache.legacyComputations + cache.previousComputations + cache.previousStableComputations + cache.preciseComputations)
+	diagnostic.CacheAlgorithmComputations = int(cache.algorithmComputations)
 }
 
 // projectRemoteWorkloadReuseOutcome 同时冻结 package-atomic 重跑 proof 与对应

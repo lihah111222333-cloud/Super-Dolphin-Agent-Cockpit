@@ -56,6 +56,11 @@ type remoteReplayEnvironmentKey struct {
 	goFlags         string
 }
 
+type remoteReplayAlgorithmDigestResult struct {
+	digest    string
+	supported bool
+}
+
 // remoteReplayCache 只属于一次串行 Prepare；内容寻址 tree 的成功值和不可用事实可复用，错误始终立即返回。
 type remoteReplayCache struct {
 	snapshots                    map[remoteReplayTreeKey]remoteReplaySnapshotResult
@@ -68,6 +73,7 @@ type remoteReplayCache struct {
 	previousStableWorkerDigests  map[remoteReplayTreeKey]string
 	preciseWorkerDigests         map[remoteReplayTreeKey]string
 	environmentDigests           map[remoteReplayEnvironmentKey]string
+	algorithmDigests             map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult
 	snapshotComputations         uint64
 	snapshotLoads                uint64
 	inputComputations            uint64
@@ -79,6 +85,7 @@ type remoteReplayCache struct {
 	previousStableComputations   uint64
 	preciseComputations          uint64
 	environmentComputations      uint64
+	algorithmComputations        uint64
 }
 
 // newRemoteReplayCache 用已完成 correctness 指纹计算的当前快照预热 replay，拒绝错树绑定。
@@ -94,6 +101,7 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 		previousStableWorkerDigests:  make(map[remoteReplayTreeKey]string),
 		preciseWorkerDigests:         make(map[remoteReplayTreeKey]string),
 		environmentDigests:           make(map[remoteReplayEnvironmentKey]string),
+		algorithmDigests:             make(map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult),
 	}
 	if current == nil {
 		return cache, nil
@@ -104,6 +112,40 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 	key := remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree}
 	cache.snapshots[key] = remoteReplaySnapshotResult{snapshot: current, available: true}
 	return cache, nil
+}
+
+func (cache *remoteReplayCache) inputAlgorithmDigest(snapshot *remoteGitTreeSnapshot) (string, bool, error) {
+	if cache == nil {
+		return "", false, errors.New("remote workload PASS replay cache is required")
+	}
+	key, err := remoteReplaySnapshotKey(snapshot)
+	if err != nil {
+		return "", false, err
+	}
+	if cached, ok := cache.algorithmDigests[key]; ok {
+		return cached.digest, cached.supported, nil
+	}
+	cache.algorithmComputations++
+	digest, supported, err := snapshot.workloadInputAlgorithmDigest()
+	if err != nil {
+		return "", false, err
+	}
+	cache.algorithmDigests[key] = remoteReplayAlgorithmDigestResult{digest: digest, supported: supported}
+	return digest, supported, nil
+}
+
+// inputAlgorithmsCompatible 仅在来源和目标的完整 input producer 闭包摘要相同
+// 时允许读取已验证 evidence 的 same-tree input；否则保持现有完整重算。
+func (cache *remoteReplayCache) inputAlgorithmsCompatible(source, target *remoteGitTreeSnapshot) (bool, error) {
+	sourceDigest, sourceSupported, err := cache.inputAlgorithmDigest(source)
+	if err != nil || !sourceSupported {
+		return false, err
+	}
+	targetDigest, targetSupported, err := cache.inputAlgorithmDigest(target)
+	if err != nil || !targetSupported {
+		return false, err
+	}
+	return sourceDigest == targetDigest, nil
 }
 
 // environmentDigest 在一次 Prepare 的冻结 input/resource 边界内按 worker+GoFlags
