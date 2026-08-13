@@ -44,6 +44,40 @@ func appendOrdinaryCompilePlanningItem(item PlannedWorkload, context PlanningCon
 	return nil
 }
 
+// bindCompilePlanningUnitGroups 将规划单元统一绑定到最终返回的 canonical group 存储。
+func bindCompilePlanningUnitGroups(units []compilePlanningUnit, groups []CompileGroup) error {
+	owners := make(map[GateID]*CompileGroup)
+	for index := range groups {
+		for _, workloadID := range groups[index].WorkloadIDs {
+			if _, duplicate := owners[workloadID]; duplicate {
+				return fmt.Errorf("compile workload %q belongs to multiple groups", workloadID)
+			}
+			owners[workloadID] = &groups[index]
+		}
+	}
+	for index := range units {
+		if units[index].group == nil {
+			continue
+		}
+		if len(units[index].workloads) == 0 {
+			return errors.New("compile planning group unit has no workloads")
+		}
+		owner := owners[GateID(units[index].workloads[0].Workload.ID)]
+		if owner == nil {
+			return fmt.Errorf("compile planning workload %q has no canonical group", units[index].workloads[0].Workload.ID)
+		}
+		for _, workload := range units[index].workloads[1:] {
+			if owners[GateID(workload.Workload.ID)] != owner {
+				return errors.New("compile planning unit mixes canonical groups")
+			}
+		}
+		units[index].group = owner
+		units[index].sortID = owner.GroupID
+		units[index].costMS = compileGroupCriticalDurationMS(*owner)
+	}
+	return nil
+}
+
 // appendCompileSelectorToBucket 按 affinity 与资源档位加入 compile planning bucket。
 func appendCompileSelectorToBucket(selector compilePlanningSelector, buckets map[compilePlanningBucketKey]*compilePlanningBucket) error {
 	affinityKey, err := compileInputAffinityKey(selector.input)

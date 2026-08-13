@@ -3,6 +3,7 @@ package gate
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -221,6 +222,54 @@ func TestCompilePackingIsolationAwareLowerBoundAvoidsGreedyExplosion(t *testing.
 	}
 	if len(shards) != specialCount+ordinaryCount {
 		t.Fatalf("1000-unit compile shard count = %d, want %d", len(shards), specialCount+ordinaryCount)
+	}
+}
+
+func TestBuildCompileUnitsBindsCanonicalReturnedGroups(t *testing.T) {
+	context := testPlanningContext()
+	firstInput := compileTestInput(AtomicGatePackageTarget, "sha256:"+strings.Repeat("1", 64))
+	secondInput := compileTestInput(AtomicTaskDAGPackageTarget, "sha256:"+strings.Repeat("2", 64))
+	first, firstInputs := compileTestWorkloads(t, firstInput.PackageTarget, []string{"TestFirst"}, 1_000, firstInput)
+	second, secondInputs := compileTestWorkloads(t, secondInput.PackageTarget, []string{"TestSecond"}, 1_000, secondInput)
+	inputs := make(map[GateID]CompileGroupInput, 2)
+	maps.Copy(inputs, firstInputs)
+	maps.Copy(inputs, secondInputs)
+	catalog := testWorkloadCatalog(append(first, second...)...)
+	index, err := BuildDurationSampleIndex(testPlanningLedger(context, nil), context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := estimateShardableWorkloads(catalog, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hints, err := BuildCompileOwnerHints(base, inputs, index.CompileTimingIndex, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned, err := plannedWorkloadsFromEstimates(base, hints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	units, groups, err := buildCompileUnits(planned, index, inputs, workloadCanonicalOrder(catalog), hints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCompileUnitsBoundToGroups(t, units, groups)
+}
+
+func assertCompileUnitsBoundToGroups(t *testing.T, units []compilePlanningUnit, groups []CompileGroup) {
+	t.Helper()
+	owners := make(map[GateID]*CompileGroup)
+	for index := range groups {
+		for _, workloadID := range groups[index].WorkloadIDs {
+			owners[workloadID] = &groups[index]
+		}
+	}
+	for _, unit := range units {
+		if unit.group != nil && unit.group != owners[GateID(unit.workloads[0].Workload.ID)] {
+			t.Fatalf("unit %q points outside returned canonical groups", unit.workloads[0].Workload.ID)
+		}
 	}
 }
 

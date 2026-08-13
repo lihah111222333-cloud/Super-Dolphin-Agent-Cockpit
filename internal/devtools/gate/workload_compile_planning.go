@@ -134,6 +134,9 @@ func buildCompileUnits(planned []PlannedWorkload, index DurationSampleIndex, com
 		units = append(units, bucketUnits...)
 		groups = append(groups, bucketGroups...)
 	}
+	if err := bindCompilePlanningUnitGroups(units, groups); err != nil {
+		return nil, nil, err
+	}
 	sortCompilePlanningUnits(units)
 	return units, groups, nil
 }
