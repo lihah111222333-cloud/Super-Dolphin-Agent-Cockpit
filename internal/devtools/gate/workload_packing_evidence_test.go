@@ -56,12 +56,12 @@ func assertExactPackingEvidence(t *testing.T, evidence []WorkloadPackingEvidence
 	}
 }
 
-// assertMixedCompilePartition 校验 mixed fixture 的 packable 与 isolated 分区。
+// assertMixedCompilePartition 校验 mixed fixture 的 ordinary、serial 与 isolated 分区。
 func assertMixedCompilePartition(t *testing.T, units []compilePlanningUnit) {
 	t.Helper()
-	packable, isolated := partitionCompilePlanningUnits(units)
-	if len(packable) != 5 || len(isolated) != 20 {
-		t.Fatalf("compile partition = %d packable/%d isolated, want 5/20", len(packable), len(isolated))
+	ordinary, serial, isolated := partitionCompilePlanningUnits(units)
+	if len(ordinary) != 0 || len(serial) != 5 || len(isolated) != 20 {
+		t.Fatalf("compile partition = %d ordinary/%d serial/%d isolated, want 0/5/20", len(ordinary), len(serial), len(isolated))
 	}
 }
 

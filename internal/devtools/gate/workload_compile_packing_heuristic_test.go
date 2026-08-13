@@ -25,7 +25,106 @@ func TestBuildWorkloadExecutionPlanWithCompileInputsUsesProductionHeuristic(t *t
 	if err := first.ValidateStored(gatePlan); err != nil {
 		t.Fatalf("production heuristic stored validation = %v", err)
 	}
+	containerShards, err := BuildContainerShardSetFromWorkloadPlan(gatePlan, first, shardTestDigest('a'), shardTestDigest('b'))
+	if err != nil {
+		t.Fatalf("production heuristic container shards = %v", err)
+	}
+	assertWorkloadContainerShardSetIdentity(t, containerShards, first)
 	assertProductionCompileHeuristicReferenceGuards(t, first, catalog)
+}
+
+// TestHeuristicCompilePackingSeparatesMixedMissDomains reproduces the >12 mixed
+// MISS shape that contains the taskdag/sqlite selectors from the failed remote run.
+func TestHeuristicCompilePackingSeparatesMixedMissDomains(t *testing.T) {
+	units, groups, grouped := mixedMissCompilePlanningUnits(t)
+	shards, err := provenCompileUnitPacking(units, FullCITargetDurationMS)
+	if err != nil {
+		t.Fatalf("mixed MISS compile packing = %v", err)
+	}
+	assertCompilePackingDomainsSeparated(t, shards, groups, grouped)
+}
+
+func TestExactCompilePackingSeparatesMixedMissDomains(t *testing.T) {
+	units, groups, grouped := mixedMissCompilePlanningUnits(t)
+	exactUnits := append([]compilePlanningUnit(nil), units[:6]...)
+	exactUnits = append(exactUnits, units[13:17]...)
+	shards, err := provenCompileUnitPacking(exactUnits, FullCITargetDurationMS)
+	if err != nil {
+		t.Fatalf("mixed MISS exact compile packing = %v", err)
+	}
+	assertCompilePackingDomainsSeparated(t, shards, groups, grouped)
+}
+
+func mixedMissCompilePlanningUnits(t *testing.T) ([]compilePlanningUnit, map[string]CompileGroup, map[GateID]struct{}) {
+	t.Helper()
+	units := make([]compilePlanningUnit, 0, 23)
+	groups := make(map[string]CompileGroup, 13)
+	grouped := make(map[GateID]struct{}, 13)
+	for index := range 13 {
+		packageTarget, name := AtomicTaskDAGPackageTarget, fmt.Sprintf("TestTaskDAGMixedMiss%02d", index)
+		if index == 0 {
+			name = "TestClaimedWakeupLeaseContextRejectsNilReceiver"
+		}
+		if index == 1 {
+			packageTarget, name = AtomicSQLitePackageTarget, "TestCopyBranchLocalMigrationsBefore120KeepsBoundaryAt119"
+		}
+		workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, packageTarget, name, 1_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := compileTestInput(packageTarget, fmt.Sprintf("sha256:%064x", index+1))
+		groupID := fmt.Sprintf("mixed-miss-group-%02d", index)
+		group := CompileGroup{
+			GroupID: groupID, PackageTarget: input.PackageTarget, SemanticKey: input.SemanticKey,
+			SharedInputDigest: input.SharedInputDigest, ProfileDigest: input.ProfileDigest,
+			ResourceClassID: "medium", WorkloadIDs: []GateID{GateID(workload.ID)},
+		}
+		groups[groupID] = group
+		grouped[GateID(workload.ID)] = struct{}{}
+		units = append(units, compilePlanningUnit{
+			workloads: []PlannedWorkload{{Workload: workload, EstimatedDurationMS: 1_000, ResourceCPU: 4, ResourceMemoryGiB: 8}},
+			group:     &group, costMS: 1_000, affinityKey: "mixed-group-" + groupID, sortID: groupID,
+			tier: cicontract.WorkloadResourceTierMedium,
+		})
+	}
+	for index := range 10 {
+		workload, err := NewGoPackageWorkload(GateIDBackendTestWithGuard, fmt.Sprintf("./cmd/mcp-lsp/ordinary-miss-%02d", index), 1_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		units = append(units, compilePlanningUnit{
+			workloads: []PlannedWorkload{{Workload: workload, EstimatedDurationMS: 1_000, ResourceCPU: 4, ResourceMemoryGiB: 8}},
+			costMS:    1_000, affinityKey: "mixed-ordinary-" + workload.ID, sortID: workload.ID,
+			tier: cicontract.WorkloadResourceTierMedium,
+		})
+	}
+	return units, groups, grouped
+}
+
+func assertCompilePackingDomainsSeparated(t *testing.T, shards []ShardPlan, groups map[string]CompileGroup, grouped map[GateID]struct{}) {
+	t.Helper()
+	if len(shards) == 0 {
+		t.Fatal("mixed MISS packing returned no shards")
+	}
+	for _, shard := range shards {
+		if len(shard.CompileGroupIDs) == 0 {
+			for _, workload := range shard.Workloads {
+				if _, isGrouped := grouped[GateID(workload.Workload.ID)]; isGrouped {
+					t.Fatalf("ordinary shard %d contains grouped workload %q", shard.Index, workload.Workload.ID)
+				}
+			}
+			continue
+		}
+		if !compileGroupsCoverShardWorkloads(groups, shard) {
+			extra, missing := compileGroupShardCoverageMismatch(groups, shard)
+			t.Fatalf("compile shard %d coverage drift: extra=%v missing=%v", shard.Index, extra, missing)
+		}
+		for _, workload := range shard.Workloads {
+			if _, isGrouped := grouped[GateID(workload.Workload.ID)]; !isGrouped {
+				t.Fatalf("compile shard %d contains ordinary workload %q", shard.Index, workload.Workload.ID)
+			}
+		}
+	}
 }
 
 // productionCompileHeuristicFixture 构造真实 BuildWorkloadExecutionPlan 的 20 组输入。

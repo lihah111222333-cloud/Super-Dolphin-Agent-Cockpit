@@ -68,18 +68,23 @@ func (score compilePackingScore) less(other compilePackingScore) bool {
 
 // provenCompileUnitPacking 对 <=12 unit 做 exact；大输入走有界 compile-aware heuristic。
 func provenCompileUnitPacking(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
-	packable, isolated := partitionCompilePlanningUnits(units)
-	if len(packable) > cicontract.WorkloadPlanningExactPackableUnitThreshold {
+	ordinary, serial, isolated := partitionCompilePlanningUnits(units)
+	if len(ordinary)+len(serial) > cicontract.WorkloadPlanningExactPackableUnitThreshold {
 		result, err := heuristicCompileUnitPacking(units, target)
 		if err != nil {
 			return nil, err
 		}
 		return result, nil
 	}
-	best, err := provenCompilePackableExact(packable, target)
+	ordinaryShards, err := provenCompilePackableExact(ordinary, target)
 	if err != nil {
 		return nil, err
 	}
+	serialShards, err := provenCompilePackableExact(serial, target)
+	if err != nil {
+		return nil, err
+	}
+	best := append(ordinaryShards, serialShards...)
 	best = append(best, isolatedCompileShards(isolated)...)
 	best = canonicalCompilePacking(best)
 	if !compileShardsMeetTarget(best, target, units) {
