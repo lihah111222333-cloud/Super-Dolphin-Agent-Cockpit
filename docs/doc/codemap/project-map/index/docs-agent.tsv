@@ -1,5 +1,5 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-AGENTS.md	(root)	docs-agent	doc	10676	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	11280	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
 CLAUDE.md	(root)	docs-agent	doc	8545	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 README.de.md	(root)	docs-agent	doc	31790	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
 README.es.md	(root)	docs-agent	doc	32365	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件

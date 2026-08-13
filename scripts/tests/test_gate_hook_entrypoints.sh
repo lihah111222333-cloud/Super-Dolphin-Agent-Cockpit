@@ -371,7 +371,8 @@ initial_bind_status=$?
 set -e
 [[ "$initial_bind_status" -eq 0 ]] || fail "initial exact-tree code guard failed with status $initial_bind_status"
 assert_file_equals "$capture_dir/staged-tree" "$initial_bind_tree" "initial exact-tree code-guard tree"
-[[ ! -d "$install_root/v1/$initial_bind_tree" ]] || fail 'pre-commit unexpectedly installed a Gate launcher'
+assert_file_equals "$capture_dir/project-map-check-tree" "$initial_bind_tree" "initial exact-tree project-map check"
+[[ -d "$install_root/v1/$initial_bind_tree" ]] || fail 'pre-commit did not install the missing exact-tree Gate launcher'
 git -C "$git_repo" restore --staged --worktree -- tracked.txt
 cli_error="$fixture_root/cli-error.expected"
 printf '%s\n' 'fixture coordinator failure; job=job-23; status: super-dolphin-gate status --job job-23' >"$cli_error"
@@ -387,9 +388,53 @@ assert_file_equals "$fixture_root/pre-commit.status" 0 "pre-commit code-guard ex
 assert_file_equals "$capture_dir/code-guard-argc" 1 "pre-commit code-guard argc"
 assert_file_equals "$capture_dir/code-guard-arg.0" --light-guard-only "pre-commit code-guard mode"
 assert_file_equals "$capture_dir/staged-tree" "$clean_tree" "clean pre-commit staged tree"
+assert_file_equals "$capture_dir/project-map-check-tree" "$clean_tree" "clean pre-commit project-map tree"
 [[ ! -e "$capture_dir/argc" ]] || fail "pre-commit invoked the remote gate"
 grep -Fq 'fixture staged code guard passed' "$fixture_root/pre-commit.out" || fail "pre-commit did not stream code-guard output"
 grep -Fq 'fixture coordinator failure' "$fixture_root/pre-commit.out" && fail "pre-commit streamed remote gate output"
+
+printf '%s\n' 'project-map drift input' >>"$git_repo/tracked.txt"
+git -C "$git_repo" add tracked.txt
+project_map_source_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_PROJECT_MAP_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/project-map-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
+    >"$fixture_root/project-map-pre-commit.out" 2>"$fixture_root/project-map-pre-commit.err"
+)
+assert_file_equals "$fixture_root/project-map-pre-commit.status" 0 "project-map auto-refresh pre-commit exit code"
+assert_file_equals "$capture_dir/project-map-initial-check-tree" "$project_map_source_tree" "project-map initial staged tree"
+assert_file_equals "$capture_dir/project-map-refresh-tree" "$project_map_source_tree" "project-map refresh source tree"
+project_map_refreshed_tree=$(git -C "$git_repo" write-tree)
+[[ "$project_map_refreshed_tree" != "$project_map_source_tree" ]] || fail 'project-map auto-refresh did not change the staged tree'
+assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_refreshed_tree" "project-map refreshed check tree"
+assert_file_equals "$capture_dir/staged-tree" "$project_map_refreshed_tree" "project-map refreshed code-guard tree"
+git -C "$git_repo" diff --cached --name-only | grep -Fxq 'docs/doc/codemap/project-map/AI_PROJECT_MAP.md' \
+  || fail 'project-map auto-refresh did not stage the generated map'
+grep -Fq '[pre-commit] auto-staged project-map output: docs/doc/codemap/project-map/AI_PROJECT_MAP.md' \
+  "$fixture_root/project-map-pre-commit.out" || fail 'project-map auto-refresh did not report its staged output'
+git -C "$git_repo" restore --staged --worktree -- tracked.txt docs/doc/codemap/project-map
+
+printf '%s\n' 'project-map conflict input' >>"$git_repo/tracked.txt"
+git -C "$git_repo" add tracked.txt
+printf '%s\n' 'unstaged user project-map work' >"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
+project_map_conflict_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_PROJECT_MAP_DRIFT_ONCE=1 run_with_status \
+    "$fixture_root/project-map-conflict.status" bash "$repo_root/.githooks/pre-commit" \
+    >"$fixture_root/project-map-conflict.out" 2>"$fixture_root/project-map-conflict.err"
+)
+assert_file_equals "$fixture_root/project-map-conflict.status" 1 "project-map unstaged conflict exit code"
+grep -Fq 'project-map outputs contain unstaged changes' "$fixture_root/project-map-conflict.err" \
+  || fail 'project-map unstaged conflict error is not actionable'
+grep -Fq 'unstaged user project-map work' "$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md" \
+  || fail 'project-map unstaged conflict overwrote user work'
+assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_conflict_tree" "project-map conflict check tree"
+[[ ! -e "$capture_dir/project-map-refresh-tree" ]] || fail 'project-map refresh ran despite an unstaged conflict'
+git -C "$git_repo" restore --staged --worktree -- tracked.txt docs/doc/codemap/project-map
 
 printf '%s\n' 'staged' >"$git_repo/tracked.txt"
 git -C "$git_repo" add tracked.txt
@@ -545,7 +590,9 @@ missing_push_status=$?
 set -e
 fixture_launcher=$(fixture_launcher_for_tree "$git_repo" "$(git -C "$git_repo" write-tree)")
 git -C "$git_repo" config superdolphin.gateLauncher "$fixture_launcher"
-[[ $missing_commit_status -eq 0 ]] || fail "pre-commit incorrectly required the Gate CLI"
+[[ $missing_commit_status -ne 0 ]] || fail "pre-commit accepted an unverifiable project-map Gate"
+grep -Fq 'pre-commit blocked:' "$fixture_root/missing-pre-commit.err" \
+  || fail "pre-commit missing trusted Gate error is not actionable"
 [[ $missing_push_status -ne 0 ]] || fail "pre-push accepted a missing CLI"
 for entrypoint in \
   "$repo_root/.githooks/pre-commit" \

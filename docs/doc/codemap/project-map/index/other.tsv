@@ -1,5 +1,5 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-.githooks/README.md	.githooks	other	doc	4648	未细分职责：请结合路径、文件名和相邻代码判断	githooks,README,未细分职责：请结合路径,文件名和相邻代码判断
+.githooks/README.md	.githooks	other	doc	5033	未细分职责：请结合路径、文件名和相邻代码判断	githooks,README,未细分职责：请结合路径,文件名和相邻代码判断
 .githooks/commit-msg	.githooks	other	file	454	未细分职责：请结合路径、文件名和相邻代码判断	未细分职责：请结合路径,文件名和相邻代码判断
 Makefile	(root)	other	file	16910	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 cmd/acp-node/main.go	cmd	other	go-source	5424	未细分职责：请结合路径、文件名和相邻代码判断	cmd,acp,node,main,未细分职责：请结合路径,文件名和相邻代码判断
@@ -289,7 +289,7 @@ internal/archtest/provider_recovery_field_guard_test.go	internal	other	go-test	2
 internal/archtest/provider_recovery_migration_guard_test.go	internal	other	go-test	25214	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,recovery,migration,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/provider_resume_owner_field_guard_test.go	internal	other	go-test	6134	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,resume,owner,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ratchet.go	internal	other	go-source	14333	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,架构守卫,baseline,与冻结规则
-internal/archtest/ratchet_test.go	internal	other	go-test	18770	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,test,架构守卫,baseline,与冻结规则
+internal/archtest/ratchet_test.go	internal	other	go-test	19026	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,test,架构守卫,baseline,与冻结规则
 internal/archtest/remote_ci_agent_token_contract_guard_test.go	internal	other	go-test	13167	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,agent,token,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_atomic_go_package_contract_guard_test.go	internal	other	go-test	1923	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,atomic,go,package,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_cli_execution_contract_guard_test.go	internal	other	go-test	7958	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,cli,execution,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -1007,7 +1007,7 @@ scripts/ai_maintenance/release_gate_rules.go	scripts	other	go-source	2735	工程
 scripts/ai_maintenance/release_gate_rules_test.go	scripts	other	go-test	850	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,release,gate,rules,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/turn_contract_registry.go	scripts	other	go-source	6876	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,turn,contract,registry,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance_gates.sh	scripts	other	script	175	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance_gates_guard_test.go	scripts	other	go-test	7316	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance_gates_guard_test.go	scripts	other	go-test	8298	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/archtestmap/main.go	scripts	other	go-source	477	工程自动化、测试守卫、代码地图与开发脚本	scripts,archtestmap,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/bash_test_helpers_test.go	scripts	other	go-test	9650	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/build-trusted-gate-launcher.sh	scripts	other	script	2372	工程自动化、测试守卫、代码地图与开发脚本	scripts,build,trusted,gate,launcher,工程自动化,测试守卫,代码地图与开发脚本
@@ -1059,7 +1059,7 @@ scripts/guard_env_test.sh	scripts	other	script	8932	工程自动化、测试守�
 scripts/guard_fix_commits_have_tests.sh	scripts	other	script	10448	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_agentic_test.go	scripts	other	go-test	1719	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,agentic,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_guard_test.go	scripts	other	go-test	14663	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	29460	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	29940	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_recovery_test.go	scripts	other	go-test	2652	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,recovery,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/hook_node_runtime_guard_test.go	scripts	other	go-test	3988	工程自动化、测试守卫、代码地图与开发脚本	scripts,hook,node,runtime,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install-hooks.sh	scripts	other	script	2968	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本
@@ -1114,6 +1114,7 @@ scripts/package_windows_local.ps1	scripts	other	script	9598	工程自动化、�
 scripts/pre_commit_cleanup_guard_test.go	scripts	other	go-test	3458	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,cleanup,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_merge_snapshot_test.go	scripts	other	go-test	1317	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,merge,snapshot,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_nested_module_guard_test.go	scripts	other	go-test	5578	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,nested,module,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/pre_commit_project_map_refresh_test.go	scripts	other	go-test	3876	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,project,map,refresh,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_signal_unix_test.go	scripts	other	go-test	287	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,signal,unix,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_signal_windows_test.go	scripts	other	go-test	266	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,signal,windows,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_guard_test.go	scripts	other	go-test	20167	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,guard,test,工程自动化,测试守卫,代码地图与开发脚本

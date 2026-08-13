@@ -221,6 +221,16 @@ case "${1:-}" in
     if ! require_current_staged_tree project-map "$tree"; then
       exit 1
     fi
+    if [ "$2" = "check" ] && [ -n "${GATE_PROJECT_MAP_DRIFT_MARKER:-}" ] && [ ! -e "$GATE_PROJECT_MAP_DRIFT_MARKER" ]; then
+      exit 12
+    fi
+    if [ "$2" = "refresh" ]; then
+      mkdir -p "$repository_root/docs/doc/codemap/project-map"
+      printf 'fixture project map for %s\n' "$tree" >"$repository_root/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
+      if [ -n "${GATE_PROJECT_MAP_DRIFT_MARKER:-}" ]; then
+        : >"$GATE_PROJECT_MAP_DRIFT_MARKER"
+      fi
+    fi
     printf 'fixture project-map %s verified staged tree %s\n' "$2" "$tree"
     ;;
   codemap)

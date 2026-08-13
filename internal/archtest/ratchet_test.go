@@ -152,7 +152,11 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"internal/archtest/freeze_baseline.json",
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
-		`run_staged_light_code_guard "$staged_tree"`,
+		`run_staged_project_map_refresh "$staged_tree"`,
+		`run_staged_light_code_guard "$effective_staged_tree"`,
+		`"$project_map_gate_bin" project-map check --tree "$source_tree"`,
+		`"$project_map_gate_bin" project-map refresh --tree "$source_tree"`,
+		`git -C "$repo_root" add -A -- "$project_map_path"`,
 		`./scripts/test_with_guard.sh --light-guard-only`,
 		`SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`,
 	)

@@ -22,64 +22,65 @@ func (coordinator *Coordinator) cleanup(jobID string, groupIDs []string, objectK
 	var workers errgroup.Group
 	for index, groupID := range groupIDs {
 		workers.Go(func() error {
-			deleteErr := coordinator.runtime.DeleteContainerGroup(ctx, groupID)
-			confirmErr := waitForCleanupAbsence(ctx, coordinator.config.PollInterval,
-				func(confirmCtx context.Context) (bool, error) {
-					absent, err := coordinator.runtime.ConfirmContainerGroupAbsent(confirmCtx, groupID)
-					if err == nil && !absent {
-						_ = coordinator.runtime.DeleteContainerGroup(confirmCtx, groupID)
-					}
-					return absent, err
-				}, fmt.Sprintf("ECI container group %s", groupID),
-			)
-			var failure error
-			if deleteErr != nil {
-				failure = fmt.Errorf("delete ECI container group %s: %w", groupID, deleteErr)
-			}
-			if confirmErr != nil {
-				failure = errors.Join(failure, fmt.Errorf("confirm ECI container group %s absence: %w", groupID, confirmErr))
-			}
-			if failure != nil {
-				failures[index] = failure
-				coordinator.progress.markCleanup(false)
-				return nil
-			}
-			coordinator.progress.markCleanup(true)
+			failures[index] = coordinator.cleanupContainerGroup(ctx, groupID)
+			coordinator.progress.markCleanup(failures[index] == nil)
 			return nil
 		})
 	}
 	prefix := coordinator.config.SourcePrefix + jobID + "/"
 	workers.Go(func() error {
-		if err := validateRemoteTemporaryObjectKeys(prefix, objectKeys); err != nil {
-			failures[len(groupIDs)] = err
-			coordinator.progress.markCleanup(false)
-			return nil
-		}
-		deleteErr := coordinator.store.DeletePrefix(ctx, prefix)
-		confirmErr := waitForCleanupAbsence(ctx, coordinator.config.PollInterval,
-			func(confirmCtx context.Context) (bool, error) {
-				return coordinator.store.ConfirmPrefixEmpty(confirmCtx, prefix)
-			}, fmt.Sprintf("OSS job prefix %s", prefix),
-		)
-		var failure error
-		if deleteErr != nil {
-			failure = fmt.Errorf("delete OSS job prefix %s: %w", prefix, deleteErr)
-		}
-		if confirmErr != nil {
-			failure = errors.Join(failure, fmt.Errorf("confirm OSS job prefix %s empty: %w", prefix, confirmErr))
-		}
-		if failure != nil {
-			failures[len(groupIDs)] = failure
-			coordinator.progress.markCleanup(false)
-			return nil
-		}
-		coordinator.progress.markCleanup(true)
+		failureIndex := len(groupIDs)
+		failures[failureIndex] = coordinator.cleanupObjectPrefix(ctx, prefix, objectKeys)
+		coordinator.progress.markCleanup(failures[failureIndex] == nil)
 		return nil
 	})
 	_ = workers.Wait()
 	cleanupErr := errors.Join(failures...)
 	coordinator.progress.cleanupFinished(cleanupErr)
 	return cleanupErr
+}
+
+// cleanupContainerGroup 删除单个 ECI 分组并取得 provider absence proof。
+func (coordinator *Coordinator) cleanupContainerGroup(ctx context.Context, groupID string) error {
+	deleteErr := coordinator.runtime.DeleteContainerGroup(ctx, groupID)
+	confirmErr := waitForCleanupAbsence(ctx, coordinator.config.PollInterval,
+		func(confirmCtx context.Context) (bool, error) {
+			absent, err := coordinator.runtime.ConfirmContainerGroupAbsent(confirmCtx, groupID)
+			if err == nil && !absent {
+				_ = coordinator.runtime.DeleteContainerGroup(confirmCtx, groupID)
+			}
+			return absent, err
+		}, fmt.Sprintf("ECI container group %s", groupID),
+	)
+	return errors.Join(
+		wrapCleanupError(fmt.Sprintf("delete ECI container group %s", groupID), deleteErr),
+		wrapCleanupError(fmt.Sprintf("confirm ECI container group %s absence", groupID), confirmErr),
+	)
+}
+
+// cleanupObjectPrefix 校验临时对象归属后删除整个 OSS job 前缀并取得空前缀证明。
+func (coordinator *Coordinator) cleanupObjectPrefix(ctx context.Context, prefix string, objectKeys []string) error {
+	if err := validateRemoteTemporaryObjectKeys(prefix, objectKeys); err != nil {
+		return err
+	}
+	deleteErr := coordinator.store.DeletePrefix(ctx, prefix)
+	confirmErr := waitForCleanupAbsence(ctx, coordinator.config.PollInterval,
+		func(confirmCtx context.Context) (bool, error) {
+			return coordinator.store.ConfirmPrefixEmpty(confirmCtx, prefix)
+		}, fmt.Sprintf("OSS job prefix %s", prefix),
+	)
+	return errors.Join(
+		wrapCleanupError(fmt.Sprintf("delete OSS job prefix %s", prefix), deleteErr),
+		wrapCleanupError(fmt.Sprintf("confirm OSS job prefix %s empty", prefix), confirmErr),
+	)
+}
+
+// wrapCleanupError 只在 provider 操作失败时补充稳定 cleanup 上下文并保留原始错误。
+func wrapCleanupError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 // waitForCleanupAbsence 在共享清理超时内轮询一个 provider absence proof。

@@ -6,6 +6,11 @@ repo_root=$(git rev-parse --show-toplevel) || {
   exit 1
 }
 active_guard_worktree=
+active_launcher_helper=
+active_launcher_builder=
+active_launcher_lookup_log=
+project_map_gate_bin=
+effective_staged_tree=
 
 run_without_hook_env() (
   local git_var name
@@ -32,10 +37,27 @@ cleanup_staged_code_guard_worktree() {
   active_guard_worktree=
 }
 
+cleanup_project_map_launcher_files() {
+  local path cleanup_rc=0
+  for path in "$active_launcher_helper" "$active_launcher_builder" "$active_launcher_lookup_log"; do
+    if [[ -n "$path" && -e "$path" ]] && ! rm -f -- "$path"; then
+      printf 'pre-commit blocked: cannot remove trusted project-map launcher file %s.\n' "$path" >&2
+      cleanup_rc=1
+    fi
+  done
+  active_launcher_helper=
+  active_launcher_builder=
+  active_launcher_lookup_log=
+  return "$cleanup_rc"
+}
+
 finish_pre_commit() {
   local hook_rc=$?
   trap - EXIT
   if ! cleanup_staged_code_guard_worktree; then
+    hook_rc=1
+  fi
+  if ! cleanup_project_map_launcher_files; then
     hook_rc=1
   fi
   exit "$hook_rc"
@@ -88,6 +110,141 @@ run_staged_light_code_guard() {
   return "$guard_rc"
 }
 
+resolve_project_map_gate() {
+  local source_tree=${1:?source tree is required}
+  local built_gate configured_gate install_root candidate
+
+  if ! cleanup_project_map_launcher_files; then
+    return 1
+  fi
+  active_launcher_helper=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-pre-commit-launcher.XXXXXX") || {
+    printf '%s\n' 'pre-commit blocked: cannot allocate the trusted launcher helper.' >&2
+    return 1
+  }
+  if ! git -C "$repo_root" cat-file blob "$source_tree:.githooks/trusted-gate-launcher.sh" >"$active_launcher_helper"; then
+    printf '%s\n' 'pre-commit blocked: exact staged tree has no trusted launcher helper.' >&2
+    return 1
+  fi
+  # shellcheck disable=SC1090
+  source "$active_launcher_helper"
+
+  active_launcher_lookup_log=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-pre-commit-launcher-lookup.XXXXXX") || {
+    printf '%s\n' 'pre-commit blocked: cannot allocate the trusted launcher lookup log.' >&2
+    return 1
+  }
+  configured_gate=$(run_without_hook_env git -C "$repo_root" config --local --get superdolphin.gateLauncher 2>/dev/null || true)
+  if [[ -n "$configured_gate" ]] \
+    && run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$configured_gate" 2>"$active_launcher_lookup_log" \
+    && run_without_hook_env verify_trusted_gate_launcher_tree "$repo_root" "$configured_gate" "$source_tree" 2>>"$active_launcher_lookup_log"; then
+    project_map_gate_bin=$configured_gate
+    return 0
+  fi
+  install_root=$(run_without_hook_env trusted_launcher_root "$repo_root" 2>>"$active_launcher_lookup_log" || true)
+  for candidate in "$install_root/v1/$source_tree"/*/super-dolphin-gate; do
+    [[ -e "$candidate" ]] || continue
+    if run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$candidate" 2>>"$active_launcher_lookup_log" \
+      && run_without_hook_env verify_trusted_gate_launcher_tree "$repo_root" "$candidate" "$source_tree" 2>>"$active_launcher_lookup_log"; then
+      project_map_gate_bin=$candidate
+      return 0
+    fi
+  done
+
+  printf '%s\n' '[pre-commit] compatible trusted Gate is absent; building it from the exact staged tree...' >&2
+  active_launcher_builder=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-pre-commit-launcher-builder.XXXXXX") || {
+    printf '%s\n' 'pre-commit blocked: cannot allocate the trusted launcher builder.' >&2
+    return 1
+  }
+  if ! git -C "$repo_root" cat-file blob "$source_tree:scripts/build-trusted-gate-launcher.sh" >"$active_launcher_builder" \
+    || ! chmod 0500 "$active_launcher_builder"; then
+    printf '%s\n' 'pre-commit blocked: exact staged tree launcher builder is unavailable.' >&2
+    return 1
+  fi
+  if ! built_gate=$(cd "$repo_root" && run_without_hook_env "$active_launcher_builder" "$source_tree"); then
+    printf '%s\n' 'pre-commit blocked: trusted Gate build from the exact staged tree failed.' >&2
+    return 1
+  fi
+  if ! run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$built_gate" \
+    || ! run_without_hook_env verify_trusted_gate_launcher_tree "$repo_root" "$built_gate" "$source_tree"; then
+    printf '%s\n' 'pre-commit blocked: newly built Gate does not verify against the exact staged tree.' >&2
+    return 1
+  fi
+  if ! run_without_hook_env git -C "$repo_root" config --local superdolphin.gateLauncher "$built_gate"; then
+    printf '%s\n' 'pre-commit blocked: newly built Gate could not become the configured trusted launcher.' >&2
+    return 1
+  fi
+  project_map_gate_bin=$built_gate
+}
+
+project_map_outputs_are_clean() {
+  local project_map_path=${1:?project-map path is required}
+  local untracked
+
+  if ! git -C "$repo_root" diff --quiet -- "$project_map_path"; then
+    printf '%s\n' 'pre-commit blocked: project-map outputs contain unstaged changes; preserve or stage them before automatic refresh.' >&2
+    return 1
+  fi
+  untracked=$(git -C "$repo_root" ls-files --others -- "$project_map_path") || {
+    printf '%s\n' 'pre-commit blocked: cannot inspect untracked project-map outputs.' >&2
+    return 1
+  }
+  if [[ -n "$untracked" ]]; then
+    printf '%s\n' 'pre-commit blocked: project-map outputs contain untracked files; preserve or stage them before automatic refresh.' >&2
+    printf '%s\n' "$untracked" >&2
+    return 1
+  fi
+}
+
+run_staged_project_map_refresh() {
+  local source_tree=${1:?source tree is required}
+  local project_map_path=docs/doc/codemap/project-map
+  local refreshed_tree changed_path check_rc
+
+  if ! resolve_project_map_gate "$source_tree"; then
+    return 1
+  fi
+  printf '%s\n' '[pre-commit] trusted project-map check (exact staged tree)...'
+  set +e
+  run_without_hook_env "$project_map_gate_bin" project-map check --tree "$source_tree"
+  check_rc=$?
+  set -e
+  if [[ "$check_rc" -eq 0 ]]; then
+    effective_staged_tree=$source_tree
+    return 0
+  fi
+
+  if ! project_map_outputs_are_clean "$project_map_path"; then
+    return 1
+  fi
+  printf '%s\n' '[pre-commit] project-map drift detected; refreshing and staging trusted outputs...'
+  if ! run_without_hook_env "$project_map_gate_bin" project-map refresh --tree "$source_tree"; then
+    printf '%s\n' 'pre-commit blocked: trusted project-map refresh failed.' >&2
+    return 1
+  fi
+  if ! git -C "$repo_root" add -A -- "$project_map_path"; then
+    printf '%s\n' 'pre-commit blocked: refreshed project-map outputs could not be staged.' >&2
+    return 1
+  fi
+  refreshed_tree=$(git -C "$repo_root" write-tree) || {
+    printf '%s\n' 'pre-commit blocked: cannot capture the refreshed staged tree.' >&2
+    return 1
+  }
+  if ! run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$project_map_gate_bin" \
+    || ! run_without_hook_env verify_trusted_gate_launcher_tree "$repo_root" "$project_map_gate_bin" "$refreshed_tree"; then
+    if ! resolve_project_map_gate "$refreshed_tree"; then
+      printf '%s\n' 'pre-commit blocked: no trusted Gate matches the refreshed staged tree.' >&2
+      return 1
+    fi
+  fi
+  if ! run_without_hook_env "$project_map_gate_bin" project-map check --tree "$refreshed_tree"; then
+    printf '%s\n' 'pre-commit blocked: refreshed staged tree still fails trusted project-map verification.' >&2
+    return 1
+  fi
+  while IFS= read -r changed_path; do
+    [[ -n "$changed_path" ]] && printf '[pre-commit] auto-staged project-map output: %s\n' "$changed_path"
+  done < <(git -C "$repo_root" diff --name-only "$source_tree" "$refreshed_tree" -- "$project_map_path")
+  effective_staged_tree=$refreshed_tree
+}
+
 if ! staged_tree=$(git -C "$repo_root" write-tree); then
   printf '%s\n' 'pre-commit blocked: cannot capture the staged tree.' >&2
   exit 1
@@ -96,14 +253,17 @@ if [[ -z "$staged_tree" ]]; then
   printf '%s\n' 'pre-commit blocked: staged tree identity is empty.' >&2
   exit 1
 fi
-if ! run_staged_light_code_guard "$staged_tree"; then
+if ! run_staged_project_map_refresh "$staged_tree"; then
+  exit 1
+fi
+if ! run_staged_light_code_guard "$effective_staged_tree"; then
   exit 1
 fi
 if ! final_tree=$(git -C "$repo_root" write-tree); then
   printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after code guard.' >&2
   exit 1
 fi
-if [[ "$final_tree" != "$staged_tree" ]]; then
-  printf '%s\n' "pre-commit blocked: staged tree changed during code guard ($staged_tree -> $final_tree)." >&2
+if [[ "$final_tree" != "$effective_staged_tree" ]]; then
+  printf '%s\n' "pre-commit blocked: staged tree changed during code guard ($effective_staged_tree -> $final_tree)." >&2
   exit 1
 fi
