@@ -14,8 +14,14 @@ import (
 
 const configuredRemotePassPreflightEnabled = "SUPER_DOLPHIN_CONFIGURED_PASS_PREFLIGHT"
 
+const (
+	configuredRemotePassPreflightScenario   = "SUPER_DOLPHIN_PASS_PREFLIGHT_SCENARIO"
+	configuredRemotePassPreflightEntrypoint = "SUPER_DOLPHIN_PASS_PREFLIGHT_ENTRYPOINT"
+)
+
 // TestConfiguredRemotePassPreflight 对显式 exact commit 只执行生产 Prepare；
-// 它读取 accepted SQLite 并输出复用决策，但不会进入 OSS、ECI 或持久化路径。
+// 它读取 accepted SQLite 并输出复用决策，只允许写入可重算的输入派生索引，
+// 不会创建 run/PASS authority、OSS 或 ECI。
 func TestConfiguredRemotePassPreflight(t *testing.T) {
 	if os.Getenv(configuredRemotePassPreflightEnabled) != "1" {
 		t.Skip("configured remote PASS preflight is not requested")
@@ -49,12 +55,14 @@ func configuredRemotePassPreflightOptions(t *testing.T, observer remoteci.Progre
 	if err != nil {
 		t.Fatalf("digest preflight agent token: %v", err)
 	}
+	scenario := configuredRemotePassPreflightValue(configuredRemotePassPreflightScenario, "full")
+	entrypoint := configuredRemotePassPreflightValue(configuredRemotePassPreflightEntrypoint, string(gatecontract.CIEntrypointRelease))
 	return remoteRunOptions{
 		ConfigPath:       requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_CONFIG"),
 		RepositoryRoot:   requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_REPOSITORY"),
 		Commit:           requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_COMMIT"),
-		Scenario:         "full",
-		Entrypoint:       string(gatecontract.CIEntrypointRelease),
+		Scenario:         scenario,
+		Entrypoint:       entrypoint,
 		LedgerPath:       requiredRemotePassPreflightEnv(t, "SUPER_DOLPHIN_PASS_PREFLIGHT_LEDGER"),
 		AgentTokenDigest: agentTokenDigest,
 		ProgressObserver: observer,
@@ -124,7 +132,7 @@ func (observer *configuredRemotePassPreflightObserver) logPrepareDiagnostics(t *
 	}
 	for _, diagnostic := range diagnostics {
 		replay := diagnostic.Replay
-		t.Logf("configured PASS preflight reuse direct=%d source=%d environment=%d exact=%d effective=%d/%d source_candidates=%d trees=%d source_input_unavailable=%d source_input_mismatch=%d environment_hints=%d current_worker_mismatch=%d historical_mismatch=%d input_mismatch=%d calibration_demoted=%d", diagnostic.DirectHits, diagnostic.SourceReplayHits, diagnostic.EnvironmentReplayHits, diagnostic.ExactHits, diagnostic.EffectiveHits, diagnostic.EffectiveMisses, replay.SourceCandidates, replay.SourceCandidateTrees, replay.SourceInputUnavailable, replay.SourceInputMismatch, replay.EnvironmentHints, replay.EnvironmentCurrentWorkerMismatch, replay.EnvironmentHistoricalMismatch, replay.EnvironmentInputMismatch, diagnostic.CalibrationDurationDemoted)
+		t.Logf("configured PASS preflight reuse direct=%d source=%d environment=%d exact=%d effective=%d/%d source_candidates=%d trees=%d source_input_unavailable=%d source_input_mismatch=%d environment_hints=%d current_worker_mismatch=%d historical_mismatch=%d input_mismatch=%d environment_compile_owners=%d environment_compile_recovered=%d environment_confirmed_misses=%d persistent_input_hits=%d persistent_input_writes=%d calibration_demoted=%d", diagnostic.DirectHits, diagnostic.SourceReplayHits, diagnostic.EnvironmentReplayHits, diagnostic.ExactHits, diagnostic.EffectiveHits, diagnostic.EffectiveMisses, replay.SourceCandidates, replay.SourceCandidateTrees, replay.SourceInputUnavailable, replay.SourceInputMismatch, replay.EnvironmentHints, replay.EnvironmentCurrentWorkerMismatch, replay.EnvironmentHistoricalMismatch, replay.EnvironmentInputMismatch, replay.EnvironmentCompileOwners, replay.EnvironmentCompileCoveredRecoveries, replay.EnvironmentConfirmedMisses, replay.CachePersistentInputHits, replay.CachePersistentInputWrites, diagnostic.CalibrationDurationDemoted)
 	}
 }
 
@@ -151,6 +159,13 @@ func requiredRemotePassPreflightEnv(t *testing.T, key string) string {
 		t.Fatalf("configured PASS preflight requires %s", key)
 	}
 	return value
+}
+
+func configuredRemotePassPreflightValue(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func requiredRemotePassPreflightInt(t *testing.T, key string) int {
