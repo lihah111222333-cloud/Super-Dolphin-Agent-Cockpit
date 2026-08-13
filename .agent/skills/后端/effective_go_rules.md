@@ -166,5 +166,5 @@ buf.Write([]byte("hello"))  // 无需 NewBuffer()
 
 ---
 
-**文档版本**: 1.0.0  
+**文档版本**: 1.0.0
 **基于**: Go 1.27+ / Effective Go 2024

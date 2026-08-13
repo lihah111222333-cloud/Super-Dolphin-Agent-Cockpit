@@ -1816,7 +1816,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/main/.worktrees/review-child',
       threadId: 'agent_child_1',
       input: [{ type: 'text', text: '继续处理这个 DAG 结果' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
   });
 
@@ -2047,7 +2047,7 @@ function registerBridgeEventHandlersForTest() {
         { type: 'text', text: 'Hello backend' },
         { type: 'mention', name: 'a.txt', path: '/tmp/a.txt' },
       ],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     const turnPayload = backend.startTurn.mock.calls[0][0];
     expect(turnPayload).not.toHaveProperty('attachments');
@@ -3206,7 +3206,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'thread-codex',
       input: [{ type: 'text', text: 'Retry through selected Codex provider' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-codex');
   });
@@ -3251,7 +3251,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'thread-1',
       input: [{ type: 'text', text: 'Continue stopped DAG agent' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     expect(useClientStore.getState().draft).toBe('');
   });
@@ -3292,7 +3292,7 @@ function registerBridgeEventHandlersForTest() {
         scope: 'project',
         path: '/repo/app/.agents/skills/review',
       }],
-      manualSkillSelection: true,
+      manualSkillSelection: true, localTurnId: expect.any(String),
       enabledTools: ['lsp_edit'],
     });
     expect(backend.startTurn).toHaveBeenNthCalledWith(2, {
@@ -3305,7 +3305,7 @@ function registerBridgeEventHandlersForTest() {
         scope: 'project',
         path: '/repo/app/.agents/skills/review',
       }],
-      manualSkillSelection: true,
+      manualSkillSelection: true, localTurnId: expect.any(String),
       enabledTools: ['lsp_edit'],
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-recovered');
@@ -3347,7 +3347,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'thread-nested',
       input: [{ type: 'text', text: 'Hello nested backend' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-nested');
   });
@@ -3369,7 +3369,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'thread-nested',
       input: [{ type: 'text', text: 'Hello canonical nested backend' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-nested');
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
@@ -3395,7 +3395,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'essay_agent_16',
       input: [{ type: 'text', text: 'Use agent id fallback' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     expect(useClientStore.getState().activeThreadId).toBe('essay_agent_16');
   });
@@ -3428,7 +3428,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'agent_1780163711518420000',
       input: [{ type: 'text', text: 'Use pending launch id' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     expect(useClientStore.getState().activeThreadId).toBe('agent_1780163711518420000');
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
@@ -3861,7 +3861,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       threadId: 'thread-safe',
       input: [{ type: 'text', text: 'Recover from bad active id' }],
-      manualSkillSelection: false,
+      manualSkillSelection: false, localTurnId: expect.any(String),
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-safe');
   });
@@ -4404,7 +4404,7 @@ function registerBridgeEventHandlersForTest() {
         scope: 'project',
         path: '/repo/app/.agents/skills/review',
       }],
-      manualSkillSelection: true,
+      manualSkillSelection: true, localTurnId: expect.any(String),
       enabledTools: ['lsp_edit'],
     });
     expect(useClientStore.getState()).toEqual(expect.objectContaining({

@@ -35,8 +35,8 @@ func requireTurnStatus(t *testing.T, tracker *turnTracker, localID string) TurnS
 }
 
 // viewHandle returns the internal TurnHandle for a tracked turn (test-only).
-func viewHandle(tracker *turnTracker, localID string) interface{} {
-	var h interface{}
+func viewHandle(tracker *turnTracker, localID string) any {
+	var h any
 	tracker.store.View(localID, func(turn *trackedTurn) {
 		h = turn.handle
 	})
@@ -106,7 +106,7 @@ func TestTurnTrackerCompleteSuccessClearsActiveHandle(t *testing.T) {
 	}
 }
 
-func TestTurnTrackerCompleteMarksInterruptedAfterInterruptRequest(t *testing.T) {
+func TestTurnTrackerCompleteMarksInterruptedAfterDeliveredInterruptRequest(t *testing.T) {
 	t.Parallel()
 
 	tracker := newTurnTracker()
@@ -117,6 +117,9 @@ func TestTurnTrackerCompleteMarksInterruptedAfterInterruptRequest(t *testing.T) 
 	if !tracker.MarkInterruptRequested("local-1") {
 		t.Fatal("MarkInterruptRequested() = false")
 	}
+	tracker.store.Mutate("local-1", func(turn *trackedTurn) {
+		turn.interruptDeliverySent = true
+	})
 	tracker.Complete("local-1", false, " canceled ")
 
 	status := requireTurnStatus(t, tracker, "local-1")
@@ -126,6 +129,34 @@ func TestTurnTrackerCompleteMarksInterruptedAfterInterruptRequest(t *testing.T) 
 	if viewHandle(tracker, "local-1") != nil {
 		t.Fatal("handle was not cleared on interrupted Complete()")
 	}
+}
+
+func TestTurnTrackerStallClearsInterruptLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.Start("local-stall", "provider-stall", "thread-stall")
+	tracker.store.Mutate("local-stall", func(turn *trackedTurn) {
+		turn.interruptRequested = true
+		turn.interruptDeliveryClaimed = true
+		turn.interruptDeliverySent = true
+		turn.interruptRetryable = true
+		turn.interruptRetryableCode = "REGISTERED_INTERRUPT_DELIVERY_RETRYABLE"
+	})
+	tracker.Stall("local-stall", "watch timed out")
+
+	status := requireTurnStatus(t, tracker, "local-stall")
+	if status.State != string(StateStalled) || status.InterruptRetryable || status.InterruptRetryableCode != "" {
+		t.Fatalf("stall status = %+v, want terminal cleanup", status)
+	}
+	tracker.store.View("local-stall", func(turn *trackedTurn) {
+		if turn.interruptRequested || turn.interruptDeliveryClaimed || turn.interruptDeliverySent {
+			t.Fatalf("stalled turn retains live interrupt state: %+v", turn)
+		}
+		if !turn.terminalInterruptSent {
+			t.Fatal("stalled turn lost delivered interrupt replay fact")
+		}
+	})
 }
 
 func TestTurnTrackerAbortThreadSkipsTerminalTurns(t *testing.T) {

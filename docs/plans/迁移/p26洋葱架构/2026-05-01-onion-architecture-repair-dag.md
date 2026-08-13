@@ -113,7 +113,7 @@ const (
 ```bash
 go test ./internal/archtest -run 'TestDependencyDirection/rule16|rule17' -v -count=1
 ```
-Expected: PASS 
+Expected: PASS
 
 - [x] **Step 4: Commit**
 ```bash

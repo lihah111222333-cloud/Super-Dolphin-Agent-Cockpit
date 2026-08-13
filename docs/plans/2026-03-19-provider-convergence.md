@@ -153,19 +153,19 @@ type Client interface {
 type Client interface {
     // Launch 统一启动（不再传 dynamicTools）
     Launch(ctx context.Context, cfg LaunchConfig) error
-    
+
     // Submit 提交新一轮
     Submit(ctx context.Context, prompt string) error
-    
+
     // Resume 恢复已有线程（不再传 dynamicTools）
     Resume(ctx context.Context, cfg ResumeConfig) error
-    
+
     // Compact 上下文压缩
     Compact(ctx context.Context) error
-    
+
     // Interrupt 中断当前操作
     Interrupt() error
-    
+
     // Close 关闭连接
     Close() error
 }

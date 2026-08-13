@@ -108,4 +108,3 @@
 - `TestEnforceNodeResultSizeCap_FivekBytes`：5000 byte 拒绝、消息含具体数字；
 - `TestAutomationExecutor_Outputs_OversizeResultRejected`：端到端 5000 byte stdout + to_node_result=true → validation 拒绝，Result 未写；
 - `TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK`：大输出 + to_sharedfile（不勾 to_node_result）→ 走 sharedfile 主路径，不触发 cap rejection（ADR-006 主推修复路径）。
-

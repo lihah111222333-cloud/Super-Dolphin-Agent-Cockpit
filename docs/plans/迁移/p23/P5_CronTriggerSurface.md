@@ -97,5 +97,3 @@ CREATE UNIQUE INDEX CONCURRENTLY uq_cron_run_dag_trigger
 - 含 a9 调研建议：`target_dag_key=''` 双轨窗口不能无限期，P5 owner 需明确废弃窗口（1 个 release 后评估转 hard fail）。
 - DST / 时区漂移（a8）：`scheduled_at` 必须 UTC 落库，idempotency hash 以 UTC 为准，避免 DST 同一本地时点重触发。
 - 跨 a4/a5 共识：`cron_job_runs` 也走 append-only；bridge 在调 `StartDAG` 前必须带 `tenant_id`（从 cron job 继承）。
-
-

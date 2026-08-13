@@ -99,4 +99,3 @@ ADR-007 状态保持 Accepted（已实装 command_card 档），但 §6 progress
 - ADR-001 DAG v2 契约（agent / automation / hybrid 三 kind 节点）不变
 - ADR-007 §1-§5 决策（kind 字段位、fail-fast 未知 kind）不变，仅冻结 §6 progression
 - ADR-011 Hybrid 拓扑 ADR 不撤回，但 F3.x 实装推迟 H
-

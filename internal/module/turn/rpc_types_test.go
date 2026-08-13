@@ -94,6 +94,47 @@ func TestTurnStartParamsAcceptsCamelRuntimeAliases(t *testing.T) {
 	}
 }
 
+func TestTurnStartParamsCarriesLocalTurnIDAcrossWireAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{name: "snake", payload: `{"thread_id":"thread-1","local_turn_id":"turn-client-1"}`, want: "turn-client-1"},
+		{name: "camel", payload: `{"threadId":"thread-1","localTurnId":"turn-client-2"}`, want: "turn-client-2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var params turnStartParams
+			if err := json.Unmarshal([]byte(tt.payload), &params); err != nil {
+				t.Fatalf("json.Unmarshal(turnStartParams) error = %v", err)
+			}
+			if params.LocalTurnID != tt.want {
+				t.Fatalf("LocalTurnID = %q, want %q", params.LocalTurnID, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateRPCLocalTurnIDRejectsMissingMalformedAndOversizedClientIdentity(t *testing.T) {
+	t.Parallel()
+	for _, localID := range []string{
+		"",
+		"turn-client-1",
+		"turn_00000000-0000-0000-0000-000000000000/escape",
+		"turn_00000000-0000-0000-0000-000000000000" + strings.Repeat("x", 128),
+	} {
+		if err := validateRPCLocalTurnID(localID); err == nil {
+			t.Fatalf("validateRPCLocalTurnID(%q) error = nil, want rejection", localID)
+		}
+	}
+	if err := validateRPCLocalTurnID("turn_00000000-0000-4000-8000-000000000000"); err != nil {
+		t.Fatalf("validateRPCLocalTurnID(valid UUID) error = %v", err)
+	}
+}
+
 func TestTurnStartParamsRejectsConflictingBoolAliases(t *testing.T) {
 	t.Parallel()
 
@@ -299,5 +340,35 @@ func TestApprovalRespondParamsRejectsConflictingIdentityAliases(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Fatalf("json.Unmarshal(approvalRespondParams) error = %v, want %q", err, tt.want)
 		}
+	}
+}
+
+func TestTurnStartResultOmitsRetryableDiagnosticAfterTerminalInterleave(t *testing.T) {
+	t.Parallel()
+
+	svc := serviceWithStore(newFakeDedupeStore())
+	svc.tracker.Start("turn-terminal-interleave", "provider-terminal-interleave", "thread-terminal-interleave")
+	svc.tracker.store.Mutate("turn-terminal-interleave", func(turn *trackedTurn) {
+		turn.interruptRetryable = true
+		turn.interruptRetryableCode = "REGISTERED_INTERRUPT_DELIVERY_RETRYABLE"
+	})
+	svc.tracker.Complete("turn-terminal-interleave", true, "")
+
+	result := turnStartResult{TurnID: "turn-terminal-interleave"}
+	if err := attachTurnStartInterruptRetryable(svc, "turn-terminal-interleave", &result); err != nil {
+		t.Fatalf("attachTurnStartInterruptRetryable() error = %v", err)
+	}
+	if result.InterruptRetryable || result.InterruptRetryableCode != "" {
+		t.Fatalf("turn/start result = %+v, want no retryable diagnostic after terminal", result)
+	}
+}
+
+func TestAttachTurnStartInterruptRetryableFailsWhenTrackedTurnIsMissing(t *testing.T) {
+	t.Parallel()
+
+	result := turnStartResult{TurnID: "turn-missing"}
+	err := attachTurnStartInterruptRetryable(serviceWithStore(newFakeDedupeStore()), "turn-missing", &result)
+	if err == nil || !strings.Contains(err.Error(), "track started turn") {
+		t.Fatalf("attachTurnStartInterruptRetryable() error = %v, want tracker failure", err)
 	}
 }

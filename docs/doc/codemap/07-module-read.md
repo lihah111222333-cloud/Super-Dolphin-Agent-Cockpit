@@ -172,7 +172,7 @@ sequenceDiagram
     FILT-->>LIST: keep global + scope.cwd:<cwd>
     LIST-->>PAGE: page.Prompts
     PAGE-->>RPC: DashboardPage{Prompts}
-    RPC-->>FE: {"prompts": [...]} 
+    RPC-->>FE: {"prompts": [...]}
 ```
 
 关键细节：

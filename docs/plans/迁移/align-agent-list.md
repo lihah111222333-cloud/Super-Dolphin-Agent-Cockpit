@@ -1,6 +1,6 @@
 # V2↔V3 1:1 对齐：`agent.list` + `agent.snapshot` + `agent.getState` + `agent.getReport`
 
-审查时间：2026-03-21  
+审查时间：2026-03-21
 阅读方式：LSP `workspace_symbol` / `read_file` / `references`；未使用 `grep/find/cat/sed/awk`
 
 ## 范围
@@ -66,7 +66,7 @@ V3 依据：
   - V3 `state` 是扩展状态机：`provisioning/turn_queued/turn_starting/turn_running/awaiting_user_input/recovering/stopping/stopped/failed`，见 `internal/dto/agent/state.go:8-19`
   - 所以 shape 对齐，不代表状态语义 1:1 对齐
 
-结论：⚠️  
+结论：⚠️
 原因：`agent.list` 的 wire 和排序已经很接近，但 `state` 值域已经换代；`port/provider` 也不是 V2 那种 runtime 实测语义。
 
 ### 2. `agent.snapshot`
@@ -101,7 +101,7 @@ V3 依据：
 - 排序稳定性：
   - 不适用；V3 返回单对象，V2 内部方法返回切片但无排序语义
 
-结论：❌  
+结论：❌
 原因：这不是“同一方法的新实现”，而是“V3 新增了一个对外 DTO 方法；V2 只有内部 shutdown snapshot”。shape、可见性、粒度、用途全部不同。
 
 ### 3. `agent.getState`
@@ -132,7 +132,7 @@ V3 依据：
   - V3：缺失 agent 时直接报 `agent not found`
   - V2 状态值域是五态；V3 直接暴露扩展状态机，没有向 V2 五态折叠
 
-结论：⚠️  
+结论：⚠️
 原因：外层 shape 已对齐，但错误语义和状态值域都不再是 V2。
 
 ### 4. `agent.getReport`
@@ -169,7 +169,7 @@ V3 依据：
   - V3 缺失 agent 时报错
   - V3 多出 `metadata.requester_ids`
 
-结论：⚠️  
+结论：⚠️
 原因：wire 主体兼容，但 report 解析策略和缺失 agent 行为都变了；这会直接影响依赖“无 structured report 也能拿到 completion 文本”的调用方。
 
 ## `getState` vs `snapshot` 的语义差异

@@ -136,7 +136,7 @@ template.HTML(userInput)
 html.EscapeString(userInput)
 
 // ✅ 使用内容安全策略头
-w.Header().Set("Content-Security-Policy", 
+w.Header().Set("Content-Security-Policy",
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'")
 ```
 

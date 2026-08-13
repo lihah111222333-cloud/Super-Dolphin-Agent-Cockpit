@@ -655,7 +655,7 @@ Codex：
 - 修正 `internal/provider/codexapp/transport.go` 的白名单外依赖 `golang.org/x/net/websocket`，或同步调整白名单口径。
 - 打通运行时事件总线：provider 必须使用注入的 `*unified.EventDispatcher` 和真实 `*event.Dispatcher`，不能在 driver 内部新建 `nil` bus dispatcher；同时 codexapp 需要补上 `dto.RawProviderEvent` 生产与 `Dispatch` 链路。
 - 在事件总线接线完成后，重新核验 codex 的 typed event 是否真正可观测；当前 `fx.Invoke(RegisterTranslators)` 只完成了注册，不代表运行时 producer 已生效。
-- 补齐剩余 V2 核心差距：Claude 的显式 image/file 输入语义仍未达到 V2 `Submit` 水平；Codex 的 `connection_dead` 自动恢复闭环仍未达到 V2 行为。 
+- 补齐剩余 V2 核心差距：Claude 的显式 image/file 输入语义仍未达到 V2 `Submit` 水平；Codex 的 `connection_dead` 自动恢复闭环仍未达到 V2 行为。
 
 ---
 

@@ -11,6 +11,8 @@ import (
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
+const turnStartDiagnosticDedupeProviderIDBindFailed = "TURN_DEDUPE_PROVIDER_ID_BIND_FAILED"
+
 // ErrDedupeNotFound 表示没有可复用的 live 去重记录。
 var ErrDedupeNotFound = errors.New("turn dedupe: no live registry row")
 
@@ -76,6 +78,7 @@ type InputItem = shareddto.InputItem
 
 // PrepareInput 包含一次 turn 准备所需的全部参数，包括输入内容、技能引用、MCP 快照和运行时配置。
 type PrepareInput struct {
+	LocalTurnID                  string
 	Inputs                       []InputItem
 	Prompt                       string
 	Images                       []string
@@ -112,11 +115,14 @@ type PrepareInput struct {
 
 // TurnStatus 表示一次 turn 的当前状态快照，包含本地 ID、provider ID 和状态字符串。
 type TurnStatus struct {
-	LocalID    string `json:"localId"`
-	ProviderID string `json:"providerId"`
-	State      string `json:"state"`
-	Error      string `json:"error,omitempty"`
-	interrupt  turnInterruptEnvelope
+	LocalID                string `json:"localId"`
+	ProviderID             string `json:"providerId"`
+	State                  string `json:"state"`
+	Error                  string `json:"error,omitempty"`
+	InterruptRetryable     bool   `json:"interruptRetryable,omitempty"`
+	InterruptRetryableCode string `json:"interruptRetryableCode,omitempty"`
+	StartDiagnosticCode    string `json:"startDiagnosticCode,omitempty"`
+	interrupt              turnInterruptEnvelope
 }
 
 // CronExecutorAdapter 将完整 turn.Service 收窄为 cron 模块需要的执行接口。

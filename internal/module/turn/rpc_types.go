@@ -12,11 +12,12 @@ import (
 
 // turnStartParams 是 turn/start 的 RPC 入参，兼容 snake_case 与部分旧 camelCase 字段。
 type turnStartParams struct {
-	ThreadID string                `json:"thread_id"`
-	Prompt   string                `json:"prompt,omitempty"`
-	Images   []string              `json:"images,omitempty"`
-	Files    []string              `json:"files,omitempty"`
-	Input    []turnInputItemParams `json:"input,omitempty"`
+	ThreadID    string                `json:"thread_id"`
+	LocalTurnID string                `json:"local_turn_id,omitempty"`
+	Prompt      string                `json:"prompt,omitempty"`
+	Images      []string              `json:"images,omitempty"`
+	Files       []string              `json:"files,omitempty"`
+	Input       []turnInputItemParams `json:"input,omitempty"`
 
 	SelectedSkills               []string             `json:"selected_skills,omitempty"`
 	SelectedSkillRefs            []skillRefParams     `json:"selected_skill_refs,omitempty"`
@@ -62,6 +63,7 @@ type rawTurnStartParams turnStartParams
 type legacyTurnStartParams struct {
 	ThreadID                     string               `json:"threadId"`
 	ThreadIDUpper                string               `json:"threadID"`
+	LocalTurnID                  string               `json:"localTurnId"`
 	SelectedSkills               []string             `json:"selectedSkills"`
 	SelectedSkillRefs            []skillRefParams     `json:"selectedSkillRefs"`
 	ManualSkillSelection         *bool                `json:"manualSkillSelection"`
@@ -81,6 +83,7 @@ func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartPa
 	if strings.TrimSpace(current.ThreadID) == "" {
 		current.ThreadID = firstTrimmed(legacy.ThreadID, legacy.ThreadIDUpper)
 	}
+	mergeLocalTurnID(current, legacy)
 	if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
 		current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
 	}
@@ -114,6 +117,12 @@ func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartPa
 		current.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
 	}
 	return nil
+}
+
+func mergeLocalTurnID(current *rawTurnStartParams, legacy *legacyTurnStartParams) {
+	if strings.TrimSpace(current.LocalTurnID) == "" {
+		current.LocalTurnID = strings.TrimSpace(legacy.LocalTurnID)
+	}
 }
 
 // turnInputItemParams 是 text/image/mention/skill 等输入项的宽松 RPC 形态。
@@ -572,7 +581,10 @@ type turnForceCompleteResult struct {
 
 // turnStartResult 返回本地 turnID，并在 pending launch 首 turn 时附带路由信息。
 type turnStartResult struct {
-	TurnID string `json:"turn_id"`
+	TurnID                 string `json:"turn_id"`
+	InterruptRetryable     bool   `json:"interrupt_retryable,omitempty"`
+	InterruptRetryableCode string `json:"interrupt_retryable_code,omitempty"`
+	StartDiagnosticCode    string `json:"start_diagnostic_code,omitempty"`
 	// 路由字段只在 pending_launch 线程的首个 turn/start 触发 SpawnIfNeeded 时返回。
 	// eager 启动线程已从 thread/start 获得路由；这里的零值字段会被 omitempty 隐去。
 	AgentKey            string `json:"agent_key,omitempty"`

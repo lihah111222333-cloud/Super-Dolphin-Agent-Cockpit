@@ -101,6 +101,7 @@ const composerActionDeps = {
   },
   send: {
     actionNotice,
+    createLocalTurnID,
     createSendDraftRequest,
     createdThreadIdForSendRollback,
     deleteProvisionalThreadAfterSendFailure,
@@ -121,6 +122,14 @@ const composerActionDeps = {
 function createLaunchIntentId() {
   const id = globalThis.crypto?.randomUUID?.() || `${clockNowMillis()}-${Math.random().toString(16).slice(2)}`;
   return `launch_${id}`;
+}
+
+function createLocalTurnID() {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (typeof randomUUID !== 'function') throw new Error('turn/start: secure local turn id generator is required');
+  const value = normalizeString(randomUUID.call(globalThis.crypto));
+  if (!value) throw new Error('turn/start: local turn id generator returned an empty value');
+  return `turn_${value}`;
 }
 
 function sendDraftThreadName(text) {
@@ -542,6 +551,7 @@ export {
   composerModelConfigTarget,
   createDashboardCommandRequest,
   createLaunchIntentId,
+  createLocalTurnID,
   createSendDraftRequest,
   createdThreadIdForSendRollback,
   deleteProvisionalThreadAfterSendFailure,

@@ -1,7 +1,7 @@
 # feature-integration-20260618 安全扫描修复状态
 
-日期：2026-06-18  
-工作区：`D:\project\Super-Dolphin-worktrees\feature-integration-20260618`  
+日期：2026-06-18
+工作区：`D:\project\Super-Dolphin-worktrees\feature-integration-20260618`
 原始报告：`docs/ai01-docs/scan/deep-security-scan-feature-integration-20260618.md`
 
 ## 总览

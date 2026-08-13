@@ -51,7 +51,7 @@
   1. **立独立子 ADR**（ADR-011a / b / c，见 §2.2）——拍板 typed schema 扩展 + failure class 映射 + 守门规则
   2. **加拓扑 discriminator**（如 `exec.topology = "agent_then_automation"`）——schema 层独立字段位
   3. **加 dispatcher 内分支**（`HybridExecutor.Execute` switch 分支上 topology）——**不新建 Executor 类型**
-  
+
   误解提醒：「不另立 Executor」仅指 Go 类型层面，**不意味着跳过子 ADR**。v2 任何拓扑都走「立 ADR → 升 schema → 加 switch 分支」三步闭环。
 
 ## 3. 触发条件

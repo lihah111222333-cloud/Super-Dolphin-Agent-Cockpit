@@ -361,7 +361,7 @@ var AppModule = fx.Module("app",
 DBModule ─── *sql.DB ──→ StoreModule ─── sqlc.Querier ──→ RPCModule / Module services
                               │
                               └── sqlc.Queries
-                                       
+
 BusModule ──── event subscriptions ──→ RunnerModule (AgentManager)
                                        │
 ProviderModule ── MCP client ─────────→┘

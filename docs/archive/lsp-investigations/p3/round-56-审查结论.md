@@ -69,7 +69,7 @@
    - `preflightOpsBatch` OCC version check（line 248-249）
    - `ListRuns` ClampLimit 硬上限 200（line 48）
    - `rememberNodeOp` 同 node_key 重复 op → `ErrDuplicateOpForNode`（line 209-211）
-   
+
    这些都是「先校验后执行」的良好实践。建议作为项目内 fail-fast 模板推广。
 
 2. **`dag_query.go:219-239` runOpsBatch 的 OCC 设计**：`GetDAGVersionForUpdate`（SELECT FOR UPDATE）+ `BumpDAGVersion`（WHERE version = baseVersion）双重保护。即使并发 ApplyOps，只有一个能成功 bump version，其他返 `ErrVersionConflict`。这是分布式系统中 OCC 的标准实现。

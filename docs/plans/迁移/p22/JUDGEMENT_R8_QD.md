@@ -1,8 +1,8 @@
 # JUDGEMENT R8 Q-D
 
-> 域：安全 / 运维 / TDD / 死代码 / fallback 终裁  
-> R8 原始定调：**BLOCK**（按 §10.18，X1/X2/X3/X4 任一路红即整批红）  
-> 处理方式：按本轮用户指令，Q-D 直接修允许域内文档，并落本裁决书。  
+> 域：安全 / 运维 / TDD / 死代码 / fallback 终裁
+> R8 原始定调：**BLOCK**（按 §10.18，X1/X2/X3/X4 任一路红即整批红）
+> 处理方式：按本轮用户指令，Q-D 直接修允许域内文档，并落本裁决书。
 > 收报链路：`orchestration_get_agent_report` 6/6 收齐；`orchestration_list_agents` 已调用，但 34 agent 输出超 budget，最终以各 report 自带 `state="idle"` 作为收报真值。
 
 ## §1 收报状态表（6/6）
@@ -96,20 +96,20 @@
 
 ## §7 与 Q-A / Q-B / Q-C 的冲突点 + Q-D 裁决
 
-1. **Q-A 叙事 vs Q-D §10.27**  
-   - 冲突点：`P2` 的 global-view / no-op 叙事、`P4` 的 `PersistentSubagentDefault` / `gitRoot > cwd` / `AgentID fallback` 容易被读成默认行为。  
+1. **Q-A 叙事 vs Q-D §10.27**
+   - 冲突点：`P2` 的 global-view / no-op 叙事、`P4` 的 `PersistentSubagentDefault` / `gitRoot > cwd` / `AgentID fallback` 容易被读成默认行为。
    - 裁决：Q-D trump 叙事。统一改成 `ErrXxxRequired` / fail-closed + default-off compatibility gate。
 
-2. **Q-B（JUDGEMENT_*）边界**  
-   - 冲突点：无。  
+2. **Q-B（JUDGEMENT_*）边界**
+   - 冲突点：无。
    - 裁决：Q-D 不改 `JUDGEMENT_STATIC.md` / `JUDGEMENT_DYNAMIC.md`，仅新增本裁决书。
 
-3. **Q-C（契约）优先级**  
-   - 冲突点：无新增契约改判。  
+3. **Q-C（契约）优先级**
+   - 冲突点：无新增契约改判。
    - 裁决：凡涉及 `fx.Module / BusModule / RunnerModule`、`Invoke`、`run.Group` 语义，本轮只引用既有契约文档，不自造新 contract。
 
-4. **死代码判断**  
-   - 冲突点：`NewActiveAgentCounter` 与 `withDashboardPromptScopeCWD` 容易被误判成“新 helper 但没人用”。  
+4. **死代码判断**
+   - 冲突点：`NewActiveAgentCounter` 与 `withDashboardPromptScopeCWD` 容易被误判成“新 helper 但没人用”。
    - 裁决：按 `lsp_xref` 真值，两者均有 prod caller；`waitDreamTask` / `memory.NewRelevantMemoryFinder` / `TeamSyncService.Pull/Push` 才是当前真死/半死代码风险。
 
 ## §8 §10.31 self-check
@@ -125,39 +125,39 @@
 > 本轮实际使用的 LSP 族工具 / 动作：`lsp_grep(text_search)`、`lsp_grep(ast_search)`、`lsp_file(read_file)`、`lsp_file(diagnostics)`、`lsp_structure(document_symbol/workspace_symbol)`、`lsp_inspect(definition/implementation/hover/type_definition)`、`lsp_xref(references/call_hierarchy)`、`lsp_edit(replace_range)`、`lsp_completion`。
 
 ### safety（1-9）
-1. `lsp_grep P2 "SSRF"` -> `P2:129,131`，安全正文已恢复。  
-2. `lsp_grep P2 "link-local"` -> `P2:131`。  
-3. `lsp_grep P2 "ULA"` -> `P2:131`。  
-4. `lsp_grep P2 "multicast"` -> `P2:131`。  
-5. `lsp_grep P2 "Markdown escape"` + `"mention 抑制"` -> `P2:133`。  
-6. `lsp_grep P2 "钉钉" / "飞书" / "Slack"` -> `P2:132,135-137`。  
-7. `lsp_grep P1a "canonicalize"` -> `P1a:106,165`。  
-8. `lsp_file internal/module/skill/contract.go:11-45` + `internal/module/skill/rpc.go:45-63`：仓内已有 `ErrMissingCWD -> InvalidParams` 正例。  
-9. `lsp_file internal/provider/shared/codex_identity.go:37-53`：`ErrCodexHomeRequired` 且“does not fall back to a default home”是真值。  
+1. `lsp_grep P2 "SSRF"` -> `P2:129,131`，安全正文已恢复。
+2. `lsp_grep P2 "link-local"` -> `P2:131`。
+3. `lsp_grep P2 "ULA"` -> `P2:131`。
+4. `lsp_grep P2 "multicast"` -> `P2:131`。
+5. `lsp_grep P2 "Markdown escape"` + `"mention 抑制"` -> `P2:133`。
+6. `lsp_grep P2 "钉钉" / "飞书" / "Slack"` -> `P2:132,135-137`。
+7. `lsp_grep P1a "canonicalize"` -> `P1a:106,165`。
+8. `lsp_file internal/module/skill/contract.go:11-45` + `internal/module/skill/rpc.go:45-63`：仓内已有 `ErrMissingCWD -> InvalidParams` 正例。
+9. `lsp_file internal/provider/shared/codex_identity.go:37-53`：`ErrCodexHomeRequired` 且“does not fall back to a default home”是真值。
 
 ### ops（10-18）
-10. `lsp_file internal/platform/rpc/approval_support.go:18-20`：`DefaultApprovalTimeout = 5 * time.Minute`。  
-11. `lsp_file internal/platform/mcpcontrol/sweeper.go:12-17`：`defaultSweepTick/defaultSweepJitter/defaultHeartbeatTTL/defaultStaleGraceTime` 真值存在。  
-12. `lsp_file internal/provider/codexapp/recovery.go:24-28`：`healthCheckInterval = 15s`、`healthCheckIdleThreshold = 30s`。  
-13. `lsp_file internal/dto/agent/state.go:46-57,73-107`：agent FSM 真值为 `turn_queued -> turn_starting -> turn_running -> ...`。  
-14. `lsp_grep cmd/mcp-orch/orchestration "processExitWaitTimeout"` -> `service.go:171` = `30 * time.Second`。  
-15. `lsp_grep cmd/mcp-orch/orchestration "launchRetryBase"` -> `service_launcher_bridge.go:23` = `2 * time.Second`。  
-16. `lsp_grep P3 "CREATE UNIQUE INDEX"` -> `P3:166,167`，P21 DDL 锚点已补回。  
-17. `lsp_file docs/plans/迁移/p22/P1b_PlatformLoopRunners.md:138-170`：runner observability / rollback card 已落盘。  
-18. `lsp_file(diagnostics)` on `README/P0/P1a/P1b/P1c/P2/P3/P4` -> `no diagnostics`。  
+10. `lsp_file internal/platform/rpc/approval_support.go:18-20`：`DefaultApprovalTimeout = 5 * time.Minute`。
+11. `lsp_file internal/platform/mcpcontrol/sweeper.go:12-17`：`defaultSweepTick/defaultSweepJitter/defaultHeartbeatTTL/defaultStaleGraceTime` 真值存在。
+12. `lsp_file internal/provider/codexapp/recovery.go:24-28`：`healthCheckInterval = 15s`、`healthCheckIdleThreshold = 30s`。
+13. `lsp_file internal/dto/agent/state.go:46-57,73-107`：agent FSM 真值为 `turn_queued -> turn_starting -> turn_running -> ...`。
+14. `lsp_grep cmd/mcp-orch/orchestration "processExitWaitTimeout"` -> `service.go:171` = `30 * time.Second`。
+15. `lsp_grep cmd/mcp-orch/orchestration "launchRetryBase"` -> `service_launcher_bridge.go:23` = `2 * time.Second`。
+16. `lsp_grep P3 "CREATE UNIQUE INDEX"` -> `P3:166,167`，P21 DDL 锚点已补回。
+17. `lsp_file docs/plans/迁移/p22/P1b_PlatformLoopRunners.md:138-170`：runner observability / rollback card 已落盘。
+18. `lsp_file(diagnostics)` on `README/P0/P1a/P1b/P1c/P2/P3/P4` -> `no diagnostics`。
 
 ### TDD / dead-code（19-29）
-19. `lsp_grep P0 "_guard_test"` + `"表驱动"` -> `P0:156,164-166`，命名与 `t.Run` 规则已落盘。  
-20. `lsp_grep P1a "TestPeerSupervisorStartsPeers"` -> `P1a:151`。  
-21. `lsp_grep P1b "TestSweeperRunnerBlocksUntilContextDone"` -> `P1b:155`。  
-22. `lsp_grep P1c "TestSessionRuntimeStartOwnedByStartSession"` + `"运行时 PoC"` -> `P1c:136,138`。  
-23. `lsp_grep P2 "TestTeamSyncCallbackEnqueueOnly"` + `"运行时 PoC"` -> `P2:400,402`。  
-24. `lsp_grep P3 "TestOrchestrationWaiterHotFileGuard"` -> `P3:180-181`。  
-25. `lsp_grep P4 "TestClaudecliNativeScanRequiresCWD"` + `"运行时 PoC"` -> `P4:241-243`。  
-26. `lsp_xref NewActiveAgentCounter @ internal/ui/wails/module.go:53` -> prod ref `module.go:24`；**非死代码**。  
-27. `lsp_xref withDashboardPromptScopeCWD @ internal/module/dashboard/service.go:86` -> prod refs `rpc.go:86,103,114` + test ref `service_test.go:96`；**非死代码**。  
-28. `lsp_xref waitDreamTask @ internal/module/memory/auto_dream_task.go:135` -> only `auto_dream_test.go:146,211`；**test-only helper**。  
-29. `lsp_xref memory.NewRelevantMemoryFinder @ internal/module/memory/retrieval_bridge.go:44` -> only `parser_test.go:139`；**test-only bridge ctor**。  
+19. `lsp_grep P0 "_guard_test"` + `"表驱动"` -> `P0:156,164-166`，命名与 `t.Run` 规则已落盘。
+20. `lsp_grep P1a "TestPeerSupervisorStartsPeers"` -> `P1a:151`。
+21. `lsp_grep P1b "TestSweeperRunnerBlocksUntilContextDone"` -> `P1b:155`。
+22. `lsp_grep P1c "TestSessionRuntimeStartOwnedByStartSession"` + `"运行时 PoC"` -> `P1c:136,138`。
+23. `lsp_grep P2 "TestTeamSyncCallbackEnqueueOnly"` + `"运行时 PoC"` -> `P2:400,402`。
+24. `lsp_grep P3 "TestOrchestrationWaiterHotFileGuard"` -> `P3:180-181`。
+25. `lsp_grep P4 "TestClaudecliNativeScanRequiresCWD"` + `"运行时 PoC"` -> `P4:241-243`。
+26. `lsp_xref NewActiveAgentCounter @ internal/ui/wails/module.go:53` -> prod ref `module.go:24`；**非死代码**。
+27. `lsp_xref withDashboardPromptScopeCWD @ internal/module/dashboard/service.go:86` -> prod refs `rpc.go:86,103,114` + test ref `service_test.go:96`；**非死代码**。
+28. `lsp_xref waitDreamTask @ internal/module/memory/auto_dream_task.go:135` -> only `auto_dream_test.go:146,211`；**test-only helper**。
+29. `lsp_xref memory.NewRelevantMemoryFinder @ internal/module/memory/retrieval_bridge.go:44` -> only `parser_test.go:139`；**test-only bridge ctor**。
 
 ---
 
@@ -336,32 +336,32 @@
 ### §R2.7 LSP 自证（≥20 条；安全 / 运维 / TDD 各 ≥6）
 
 #### safety（1-7）
-1. `lsp_grep P2 "SSRF"` -> 2 命中。  
-2. `lsp_grep P2 "DNS rebinding"` -> 1 命中。  
-3. `lsp_grep P2 "secret"` -> 1 命中。  
-4. `lsp_grep P2 "markdownEscape"` -> 5 命中。  
-5. `lsp_grep P2 "mention 抑制"` -> 1 命中。  
-6. `lsp_grep P4 "ErrThreadRuntimeRequired"` -> 1 命中。  
-7. `lsp_grep P1a "GO_AGENT_CTL_RPC_ADDR"` + `"compatibility-only"` -> env fallback 已被降格为兼容语义。  
+1. `lsp_grep P2 "SSRF"` -> 2 命中。
+2. `lsp_grep P2 "DNS rebinding"` -> 1 命中。
+3. `lsp_grep P2 "secret"` -> 1 命中。
+4. `lsp_grep P2 "markdownEscape"` -> 5 命中。
+5. `lsp_grep P2 "mention 抑制"` -> 1 命中。
+6. `lsp_grep P4 "ErrThreadRuntimeRequired"` -> 1 命中。
+7. `lsp_grep P1a "GO_AGENT_CTL_RPC_ADDR"` + `"compatibility-only"` -> env fallback 已被降格为兼容语义。
 
 #### ops（8-14）
-8. `lsp_grep P1b "defaultHeartbeatTTL = 30s"` -> 2 命中，P1b live code truth 已明写。  
-9. `lsp_grep P1b "startup_restore"` -> FSM 表已存在。  
-10. `lsp_grep P1b "metric" / "trace" / "log"` -> 皆有命中。  
-11. `lsp_grep P1c "metric" / "trace" / "log"` -> 皆有命中。  
-12. `lsp_grep P3 "turn_queued"` + `"metric" / "trace" / "log"` -> crash-window 状态表与观测合同已落盘。  
-13. `lsp_grep P4 "heartbeat_failures_total"` -> bootstrap observability contract 已补。  
-14. `lsp_file(diagnostics)` on `README/P0/P1a/P1b/P1c/P2/P3/P4/JUDGEMENT_R8_QD` -> `no diagnostics`。  
+8. `lsp_grep P1b "defaultHeartbeatTTL = 30s"` -> 2 命中，P1b live code truth 已明写。
+9. `lsp_grep P1b "startup_restore"` -> FSM 表已存在。
+10. `lsp_grep P1b "metric" / "trace" / "log"` -> 皆有命中。
+11. `lsp_grep P1c "metric" / "trace" / "log"` -> 皆有命中。
+12. `lsp_grep P3 "turn_queued"` + `"metric" / "trace" / "log"` -> crash-window 状态表与观测合同已落盘。
+13. `lsp_grep P4 "heartbeat_failures_total"` -> bootstrap observability contract 已补。
+14. `lsp_file(diagnostics)` on `README/P0/P1a/P1b/P1c/P2/P3/P4/JUDGEMENT_R8_QD` -> `no diagnostics`。
 
 #### TDD / dead-code（15-22）
-15. `lsp_grep P0 "TestBusCallbackGuard"` -> 与命令、裁决书统一。  
-16. `lsp_grep P1c "Test(SessionRuntimeStartOwnedByStartSession"` -> exact-name `-run` 已补。  
-17. `lsp_grep P2 "Test(TeamSyncCallbackEnqueueOnly"` -> exact-name `-run` 已补。  
-18. `lsp_grep P4 "Test(ClaudecliNativeScanRequiresCWD|ClaudecliModeNoneContract)"` -> exact-name `-run` 已补。  
-19. `lsp_xref waitDreamTask @ auto_dream_task.go:135` -> 仅 test caller，继续记账。  
-20. `lsp_xref memory.NewRelevantMemoryFinder @ retrieval_bridge.go:44` -> 仅 test caller，继续记账。  
-21. `lsp_structure(document_symbol) P4` -> `phase-B / 子域回滚卡（R2）`、`bootstrap / gopls 最低 observability contract` 章节已存在。  
-22. `lsp_inspect(definition) handler.go:139` + `lsp_completion handler.go:139`：live code 仍引用 `PersistentSubagentDefault`，证明文档修复 ≠ 代码销账。  
+15. `lsp_grep P0 "TestBusCallbackGuard"` -> 与命令、裁决书统一。
+16. `lsp_grep P1c "Test(SessionRuntimeStartOwnedByStartSession"` -> exact-name `-run` 已补。
+17. `lsp_grep P2 "Test(TeamSyncCallbackEnqueueOnly"` -> exact-name `-run` 已补。
+18. `lsp_grep P4 "Test(ClaudecliNativeScanRequiresCWD|ClaudecliModeNoneContract)"` -> exact-name `-run` 已补。
+19. `lsp_xref waitDreamTask @ auto_dream_task.go:135` -> 仅 test caller，继续记账。
+20. `lsp_xref memory.NewRelevantMemoryFinder @ retrieval_bridge.go:44` -> 仅 test caller，继续记账。
+21. `lsp_structure(document_symbol) P4` -> `phase-B / 子域回滚卡（R2）`、`bootstrap / gopls 最低 observability contract` 章节已存在。
+22. `lsp_inspect(definition) handler.go:139` + `lsp_completion handler.go:139`：live code 仍引用 `PersistentSubagentDefault`，证明文档修复 ≠ 代码销账。
 
 ---
 

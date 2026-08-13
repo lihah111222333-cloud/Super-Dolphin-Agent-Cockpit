@@ -233,27 +233,27 @@ func main() {
         fx.Provide(config.Load),                    // envconfig
         fx.Provide(store.NewBundle),                // 所有 store 一次注入
         fx.Provide(event.NewDispatcher),            // kelindar/event
-        
-        // P2: 核心引擎  
+
+        // P2: 核心引擎
         fx.Provide(runner.NewStateMachine),         // qmuntal/stateless
         fx.Provide(runner.NewManager),              // 依赖 store + event + stateMachine
-        
+
         // P3: 工具层
         fx.Provide(toolsdk.NewRegistry),
         fx.Provide(mcp.NewServer),
-        
+
         // P5: RPC 服务
         fx.Provide(apiserver.NewServer),            // 依赖全部，jrpc2 handler
         fx.Provide(apiserver.NewSSEBridge),
-        
+
         // 生命周期
         fx.Invoke(func(lc fx.Lifecycle, srv *apiserver.Server, sse *apiserver.SSEBridge) {
             var g run.Group
-            
+
             g.Add(srv.ServeActor())                 // jrpc2 server
             g.Add(sse.ServeActor())                 // SSE notifications
             g.Add(signalActor())                    // graceful shutdown
-            
+
             lc.Append(fx.Hook{
                 OnStart: func(ctx context.Context) error { go g.Run(); return nil },
                 OnStop:  func(ctx context.Context) error { /* g.Run exits */ return nil },

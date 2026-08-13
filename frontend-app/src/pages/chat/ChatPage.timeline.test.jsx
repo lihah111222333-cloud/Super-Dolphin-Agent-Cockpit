@@ -484,7 +484,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
         threadTimelineReadyByThread: { 'thread-1': false },
       });
       const { rerender } = render(<TestChatPageWrapper store={storeLoading} projectPath="/repo/app" />);
-      
+
       const timeline = screen.getByTestId('chat-timeline');
       let scrollTop = 0;
       Object.defineProperty(timeline, 'clientHeight', { configurable: true, get: () => 400 });
@@ -506,7 +506,7 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
       expect(scrollTop).toBe(1000);
 
       scrollTop = 0;
-      
+
       act(() => {
         vi.advanceTimersByTime(50);
       });

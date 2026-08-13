@@ -167,7 +167,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	}
 	userText := s.assembler.PromptText(input)
 	s.cleanupStaleToolResults(threadID, input)
-	localID := idgen.NewID("turn")
+	localID := ensureLocalTurnID(input.LocalTurnID)
 	span.turnID = localID
 	mcp := s.manifest.Build(input, threadID)
 	span.metadata = turnPrepareTraceMetadata(input, mcp)
@@ -228,7 +228,9 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	req.ThreadID = threadID
 	s.tracker.Cleanup()
-	s.tracker.Start(req.LocalID, "", req.ThreadID)
+	if !s.tracker.Start(req.LocalID, "", req.ThreadID) {
+		return nil, fmt.Errorf("turn local id already registered: %s", req.LocalID)
+	}
 	// provider 调用尚未返回时也可能有并发 LookupByDedupeKey，因此先把 dedupe key 写入 tracker。
 	// 空 key 在 RegisterDedupeKey 内是 no-op。
 	s.tracker.RegisterDedupeKey(req.LocalID, req.DedupeKey)
@@ -250,21 +252,79 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	}
 	s.tracker.AttachHandle(req.LocalID, handle)
 	providerID := handle.ProviderID()
-	s.tracker.BindProviderID(req.LocalID, providerID)
-	if err = s.recordDedupeProviderID(ctx, req.DedupeKey, providerID); err != nil {
-		interruptErr := session.Interrupt(ctx, dto.InterruptRequest{
-			ThreadID: req.ThreadID,
-			TurnID:   providerID,
-			Source:   "dedupe_provider_id_bind_failed",
-		})
-		s.tracker.Complete(req.LocalID, false, err.Error())
-		terminalErr := s.recordDedupeTerminal(ctx, req.DedupeKey)
-		return nil, errors.Join(err, interruptErr, terminalErr)
+	registeredDeliveryRetryable := s.deliverRegisteredCancellation(ctx, session, req, handle, providerID)
+	if bindErr := s.recordDedupeProviderID(ctx, req.DedupeKey, providerID); bindErr != nil {
+		if registeredDeliveryRetryable {
+			clearInterruptRetryable(s.tracker, req.LocalID)
+		}
+		recordStartDiagnostic(s.tracker, req.LocalID, turnStartDiagnosticDedupeProviderIDBindFailed)
+		s.finalizeStartedTurn(ctx, req, handle, providerID, registeredDeliveryRetryable)
+		s.logger.Error("turn: dedupe provider id bind failed after provider start", "localID", req.LocalID, "error", bindErr)
+		return handle, nil
 	}
-	s.mapObservationTurn(req.LocalID, providerID)
-	s.tracker.Update(req.LocalID, StateRunning)
-	s.watchTurn(ctx, handle, req.LocalID, req.ThreadID)
+	s.finalizeStartedTurn(ctx, req, handle, providerID, registeredDeliveryRetryable)
 	return handle, nil
+}
+
+// finalizeStartedTurn 启动 watcher 并保留 live handle；durable dedupe 写失败时同样必须让真实终态收敛。
+func (s *service) finalizeStartedTurn(ctx context.Context, req dto.TurnRequest, handle contract.TurnHandle, providerID string, registeredDeliveryRetryable bool) {
+	s.mapObservationTurn(req.LocalID, providerID)
+	if !registeredDeliveryRetryable {
+		s.tracker.Update(req.LocalID, StateRunning)
+	}
+	if turnHandleCompleted(handle) {
+		s.completeStartedTurn(ctx, req, handle)
+		return
+	}
+	s.watchTurn(ctx, handle, req.LocalID, req.ThreadID)
+}
+
+// turnHandleCompleted 无阻塞确认 provider 是否已在 start 响应组装前结束。
+func turnHandleCompleted(handle contract.TurnHandle) bool {
+	select {
+	case <-handle.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// completeStartedTurn 同步收敛已结束的 handle，避免 start 响应暴露过期的 retryable 状态。
+func (s *service) completeStartedTurn(ctx context.Context, req dto.TurnRequest, handle contract.TurnHandle) {
+	if err := handle.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.tracker.Update(req.LocalID, StateInterrupted)
+		}
+		s.tracker.Complete(req.LocalID, false, err.Error())
+	} else {
+		s.tracker.Complete(req.LocalID, true, "")
+	}
+	s.recordDedupeTerminal(ctx, req.DedupeKey)
+}
+
+// deliverRegisteredCancellation 尝试投递 preparing 阶段登记的 Stop，失败时保留已启动 turn 并允许后续重试。
+func (s *service) deliverRegisteredCancellation(ctx context.Context, session contract.Session, req dto.TurnRequest, handle contract.TurnHandle, providerID string) bool {
+	requestID := s.tracker.BindProviderID(req.LocalID, providerID)
+	if requestID == "" {
+		return false
+	}
+	_, err := interruptAndWait(ctx, session, nil, activeTurn{localID: req.LocalID, providerID: providerID, handle: handle}, req.ThreadID, "registered_turn_cancellation", requestID, nil)
+	if err == nil && s.tracker.acknowledgeInterruptDelivery(req.LocalID, requestID) {
+		return false
+	}
+	if err == nil {
+		err = errors.New("registered cancellation delivery acknowledgement was not persisted")
+	}
+	s.preserveRegisteredCancellationDeliveryFailure(req, requestID, err)
+	return true
+}
+
+// preserveRegisteredCancellationDeliveryFailure 保留运行中的 handle，并把可重试失败暴露在 start 结果中。
+func (s *service) preserveRegisteredCancellationDeliveryFailure(req dto.TurnRequest, requestID string, deliveryErr error) {
+	released := releaseUndeliveredInterruptDelivery(s.tracker, req.LocalID, requestID)
+	if !released && s.logger != nil {
+		s.logger.Error("turn: registered cancellation delivery ownership rollback failed", "localID", req.LocalID, "error", deliveryErr)
+	}
 }
 
 // SteerTurn 将新的输入追加到当前活跃 turn，expectedTurnID 不匹配时拒绝发送。

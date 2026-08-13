@@ -394,4 +394,3 @@ make guard
 ```bash
 make sqlc-verify
 ```
-

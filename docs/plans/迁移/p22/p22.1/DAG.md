@@ -1,8 +1,8 @@
 # P22.1 子任务 DAG + 并行度
 
-> **归属声明**：本 DAG 是 P22 R10 FINAL deferred 的 P22.1 架构债子任务拆分；来源同其它 P22.1 主体：`docs/plans/迁移/p22/JUDGEMENT_R8_QA.md §R10.6`、`docs/plans/迁移/p22/JUDGEMENT_R8_QC.md §7` 与 §10.30 三层分工铁律；只规划收口，不改 P22 `JUDGEMENT_*` 历史快照。  
-> 总览：[`README.md`](README.md)  
-> Findings：[`FINDINGS.md`](FINDINGS.md)  
+> **归属声明**：本 DAG 是 P22 R10 FINAL deferred 的 P22.1 架构债子任务拆分；来源同其它 P22.1 主体：`docs/plans/迁移/p22/JUDGEMENT_R8_QA.md §R10.6`、`docs/plans/迁移/p22/JUDGEMENT_R8_QC.md §7` 与 §10.30 三层分工铁律；只规划收口，不改 P22 `JUDGEMENT_*` 历史快照。
+> 总览：[`README.md`](README.md)
+> Findings：[`FINDINGS.md`](FINDINGS.md)
 > Gate：[`GATE_CONTRACTS.md`](GATE_CONTRACTS.md)
 
 ## 1. DAG 原则
@@ -243,7 +243,7 @@ P22.1-P3A -> P22.1-P3B
 5. 若新增 allowlist，必须在 P3A 中登记精确 owner/function/shape，不允许整文件。
 
 ## 红队仲裁（2026-04-25）
-详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §4。  
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §4。
 整体裁决：🟢 READY / 🟠 NEEDS-FIX / 🔴 BLOCK（以 JUDGEMENT.md §7 为准）。
 
 ## R2 发现仍未销账项（2026-04-25 HEAD drift note）

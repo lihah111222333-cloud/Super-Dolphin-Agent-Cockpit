@@ -20,31 +20,31 @@
 
 ## 2. 已核对的源码事实
 
-1. **主 app 不 embed orchestration module**  
+1. **主 app 不 embed orchestration module**
    `internal/app/modules.go:28-57` 明确保留 `mcpcontrol.Module`，同时注明 orchestration 由 standalone `mcp-orch` 处理。
-2. **Claude 仍通过 `--mcp-config` 走 MCP sidecar**  
+2. **Claude 仍通过 `--mcp-config` 走 MCP sidecar**
    `internal/provider/claudecli/transport_config.go:89-108` 在 CLI 参数中追加 `--mcp-config`。
-3. **主进程 ctl RPC server 默认监听 `127.0.0.1:8090`**  
+3. **主进程 ctl RPC server 默认监听 `127.0.0.1:8090`**
    `internal/platform/config/config.go:9-26` 的 `Config.RPCAddr` 默认值是 `127.0.0.1:8090`。
-4. **`ServerManager` 当前真实方法集合**  
+4. **`ServerManager` 当前真实方法集合**
    `internal/provider/codexapp/module.go:52-155` 当前只有 `NewServerManager`、`ServerURL()`、`Running()`、`start(ctx)`、`writeMCPConfig()`、`stop(ctx)`；**当前代码还没有** `RegisterSession` / `UnregisterSession` / `routeEvent`。
-5. **`ToolRegistry` 已有 `byClientKind` 索引与默认 2s timeout**  
+5. **`ToolRegistry` 已有 `byClientKind` 索引与默认 2s timeout**
    `internal/platform/mcpcontrol/registry.go:56-75` 定义了 `byClientKind map[string]map[LeaseKey]struct{}`；`registry.go:14-20` 定义 `defaultNotifyTimeout = 2 * time.Second`。
-6. **按 selector 取 active peer 的底层能力已存在**  
+6. **按 selector 取 active peer 的底层能力已存在**
    `internal/platform/mcpcontrol/fanout.go:65-117` 已有 `snapshotTargets` / `activeTargetLocked`，可以在不走 fanout worker 的前提下做按 kind 精确取 peer。
-7. **peer callback 的真实签名已满足 live list/call 代理**  
+7. **peer callback 的真实签名已满足 live list/call 代理**
    `internal/platform/mcpcontrol/peers.go:23-35`：`func (p jrpcPeer) Callback(ctx context.Context, method string, params any, result any) error`。
-8. **MCP common server 原生支持 `tools/list` / `tools/call`**  
+8. **MCP common server 原生支持 `tools/list` / `tools/call`**
    `internal/mcpserver/common/server.go:208-219` 处理 `tools/list`，`221-251` 处理 `tools/call`；返回 `tools/list -> {"tools": []common.MCPTool}`，`tools/call -> {"content": [{"type":"text","text":...}]}`。
-9. **`cmd/mcp-lsp` 的 schema 分布已经固定**  
+9. **`cmd/mcp-lsp` 的 schema 分布已经固定**
    `cmd/mcp-lsp/schema.go` 定义 9 个 schema 变量；`cmd/mcp-lsp/tools.go` 定义 `lspToolManifests`；`cmd/mcp-lsp/fx.go:113-142` 负责 `ListTools()` 把 schema marshal 成 `common.MCPTool`；`cmd/mcp-lsp/runtime.go` 当前**没有** schema 定义。
-10. **V3 当前 transport 会丢掉 inbound JSON-RPC request id**  
+10. **V3 当前 transport 会丢掉 inbound JSON-RPC request id**
    `internal/provider/codexapp/transport.go:87-94` + `transport_helpers.go:210-222` 当前 `ReadLoop` 只向上抛 `method/params`，没有把 `json.RawMessage id` 继续往 session 传。
-11. **当前守卫预算（LSP 实测）**  
-   - `internal/provider/codexapp`：非测试文件 **15**，包总行数 **4398**，其中 `driver.go` **420** 行、`mcp_config.go` **371** 行。  
-   - `internal/platform/mcpcontrol`：非测试文件 **15**，包总行数 **2618**。  
+11. **当前守卫预算（LSP 实测）**
+   - `internal/provider/codexapp`：非测试文件 **15**，包总行数 **4398**，其中 `driver.go` **420** 行、`mcp_config.go` **371** 行。
+   - `internal/platform/mcpcontrol`：非测试文件 **15**，包总行数 **2618**。
    - `cmd/mcp-lsp`：非测试文件 **5**，包总行数 **623**（`fx.go` 222、`main.go` 30、`runtime.go` 149、`schema.go` 139、`tools.go` 83）。
-12. **`session` 当前没有保存 `manager`**  
+12. **`session` 当前没有保存 `manager`**
    `internal/provider/codexapp/session.go:21-49` 的 `session struct` 目前没有 `manager *ServerManager` 字段；`newSession(..., manager *ServerManager)` 在 `62-102` 行也还没有把参数保存到 struct。**Phase 1 必须补上这个字段与赋值。**
 
 ### 官方 dynamicTools 协议（来源：OpenAI Codex App Server 文档）
@@ -771,13 +771,13 @@ func (d *driver) postStartSetup(s *session, result startResult) {
 6. 验证 initialize 链路可以带上 `experimentalApi: true`。
 
 ### Phase 1：实现
-> **Phase 1 前置任务：**  
-> 当前 `ServerManager` 只管进程生命周期（`Start/Stop/ServerURL`），不涉及 WS 路由。Phase 1 需要补全：  
-> 1. `ServerManager` 新增 `toolHandler func(ctx, msg) (any, error)` 字段 + `SetToolHandler/getToolHandler` + `Responder` 接口  
-> 2. `transport_helpers.go` 新增 `RawMessage` 结构体、`ReadLoop` 改为上抛 `(ctx, Responder, RawMessage)`、`RespondWithID`  
-> 3. `session.go` 新增 `manager *ServerManager` 字段，并在 `newSession(..., manager)` 中保存参数  
-> 4. `session.go` 新增 `onInboundMessage(ctx, resp, msg)` 回调 + `isToolCallMethod` 白名单 + “非 tool request 且带 id 返回 JSON-RPC error” 分支  
-> 5. `session` 的 ReadLoop 启动改为传入 `s.onInboundMessage`  
+> **Phase 1 前置任务：**
+> 当前 `ServerManager` 只管进程生命周期（`Start/Stop/ServerURL`），不涉及 WS 路由。Phase 1 需要补全：
+> 1. `ServerManager` 新增 `toolHandler func(ctx, msg) (any, error)` 字段 + `SetToolHandler/getToolHandler` + `Responder` 接口
+> 2. `transport_helpers.go` 新增 `RawMessage` 结构体、`ReadLoop` 改为上抛 `(ctx, Responder, RawMessage)`、`RespondWithID`
+> 3. `session.go` 新增 `manager *ServerManager` 字段，并在 `newSession(..., manager)` 中保存参数
+> 4. `session.go` 新增 `onInboundMessage(ctx, resp, msg)` 回调 + `isToolCallMethod` 白名单 + “非 tool request 且带 id 返回 JSON-RPC error” 分支
+> 5. `session` 的 ReadLoop 启动改为传入 `s.onInboundMessage`
 > 这些改动是 P15 toolbridge 的硬前置，必须先合入再做后续步骤。
 1. 先完成上述 session 级别路由基础补全。
 2. 新增 `internal/platform/toolbridge/{module.go,types.go,handler.go}`。

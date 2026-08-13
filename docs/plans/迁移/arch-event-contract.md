@@ -42,19 +42,19 @@
 
 当前生产发布面可以收敛为 4 组：
 
-1. `orchestration` 主动发布 agent 族事件  
+1. `orchestration` 主动发布 agent 族事件
    证据：`cmd/mcp-orch/orchestration/events.go:13-64`
 
-2. provider translator 返回 typed DTO，再由 unified dispatcher 统一 `event.Publish`  
+2. provider translator 返回 typed DTO，再由 unified dispatcher 统一 `event.Publish`
    证据：
    - `internal/provider/unified/event_map.go:42-64`
    - `internal/provider/claudecli/event_map.go:21-103`
    - `internal/provider/codexapp/event_map.go:24-154`
 
-3. `ApprovalManager` 主动发布 tool approval 事件  
+3. `ApprovalManager` 主动发布 tool approval 事件
    证据：`internal/platform/rpc/approval_events.go:23-43`
 
-4. `workspace.Service` 通过 `bus.NewEmitter[T]` 发布 workspace 族事件  
+4. `workspace.Service` 通过 `bus.NewEmitter[T]` 发布 workspace 族事件
    证据：
    - `internal/module/workspace/service.go:49-59`
    - `internal/module/workspace/service_helpers.go:220-284`
@@ -65,18 +65,18 @@
 
 当前生产订阅面可以收敛为 4 组：
 
-1. `LogSink` 订阅全部已知 typed event 并写日志  
+1. `LogSink` 订阅全部已知 typed event 并写日志
    证据：`internal/platform/bus/sink.go:21-99`
 
-2. `orchestration` 在 lifecycle 中订阅 `TurnStarted` / `TurnCompleted`  
+2. `orchestration` 在 lifecycle 中订阅 `TurnStarted` / `TurnCompleted`
    证据：`cmd/mcp-orch/orchestration/module.go:25-50`
 
-3. `rpc` 在 lifecycle 中订阅 `StateChanged` / `TurnStarted` / `TurnCompleted`  
+3. `rpc` 在 lifecycle 中订阅 `StateChanged` / `TurnStarted` / `TurnCompleted`
    证据：
    - `internal/platform/rpc/module.go:54-72`
    - `internal/platform/rpc/push.go:75-92`
 
-4. `wails` 在 lifecycle 中订阅 `StateChanged` / `TurnStarted` / `TurnCompleted`  
+4. `wails` 在 lifecycle 中订阅 `StateChanged` / `TurnStarted` / `TurnCompleted`
    证据：
    - `internal/ui/wails/module.go:120-134`
    - `internal/ui/wails/bridge.go:42-79`
@@ -181,13 +181,13 @@
 
 以下订阅都满足“`OnStart` 建立 / `OnStop` 释放”：
 
-- `orchestration`  
+- `orchestration`
   `cmd/mcp-orch/orchestration/module.go:31-49`
 
-- `rpc`  
+- `rpc`
   `internal/platform/rpc/module.go:57-70`
 
-- `wails`  
+- `wails`
   `internal/ui/wails/module.go:124-133`
 
 此外，dispatcher 本身会在 bus module 的 `OnStop` 中关闭：`internal/platform/bus/module.go:25-35`。

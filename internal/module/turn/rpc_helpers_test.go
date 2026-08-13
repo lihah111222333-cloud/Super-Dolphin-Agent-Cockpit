@@ -93,6 +93,21 @@ func TestTurnStartResultPromptKeyStaleSurfacedToWire(t *testing.T) {
 	}
 }
 
+func TestTurnStartResultDurabilityDiagnosticUsesStableWireCode(t *testing.T) {
+	t.Parallel()
+
+	payload, err := json.Marshal(turnStartResult{
+		TurnID:              "turn-1",
+		StartDiagnosticCode: "TURN_DEDUPE_PROVIDER_ID_BIND_FAILED",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if body := string(payload); !strings.Contains(body, `"start_diagnostic_code":"TURN_DEDUPE_PROVIDER_ID_BIND_FAILED"`) {
+		t.Fatalf("turnStartResult JSON missing stable durability diagnostic: %s", body)
+	}
+}
+
 func expandedPrepareInputSession() *rpcHelperSession {
 	return &rpcHelperSession{
 		caps: dto.CapabilitySet{dto.CapMessageSend: true},

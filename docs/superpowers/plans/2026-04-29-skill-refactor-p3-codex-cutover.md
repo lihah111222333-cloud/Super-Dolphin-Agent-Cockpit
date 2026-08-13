@@ -550,7 +550,7 @@ func TestStartAssembly_PrependsSkillManifest(t *testing.T) {
 // 在 driver 结构体加 store *skilllibrary.Store 字段
 // startAssemblyInstructions 中：
 func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
-	base, dev := /* existing logic */ 
+	base, dev := /* existing logic */
 	if d.skillStore != nil {
 		entries, _ := d.skillStore.List()
 		manifest := buildSkillManifest(entries, defaultManifestBudget)
@@ -809,4 +809,3 @@ rm -rf "$TMP"
 
 1. **子代理驱动（推荐）**
 2. **当前会话内执行**
-

@@ -491,4 +491,3 @@ function toggleSearch() { searchExpanded.value = !searchExpanded.value; }
 | 搜索展开动效缺失 | O2: transition: width 0.25s ease | ✅ 已优化 |
 | 单列 Bento 数字过大 | O3: 720px 以下 font-size:22px | ✅ 已优化 |
 | Dropdown 关闭事件冒泡漏洞 | O4: document.addEventListener 全局监听 | ✅ 已优化 |
-

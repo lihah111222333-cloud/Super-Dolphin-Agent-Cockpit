@@ -30,6 +30,7 @@ func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRun
 		return PrepareInput{}, err
 	}
 	return buildPrepareInput(prepareInputSpec{
+		LocalTurnID:                  p.LocalTurnID,
 		Inputs:                       items,
 		Prompt:                       p.Prompt,
 		Images:                       p.Images,
@@ -249,62 +250,128 @@ func collectTurnStartUserInput(p turnStartParams) string {
 func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner contract.PendingLaunchSpawner, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
-		// pending_launch 线程在首个 turn/start 才真正启动 provider，并用首轮用户文本参与路由。
-		// 已运行线程在 SpawnIfNeeded 内是 no-op，不影响 eager 启动路径。
-		spawnRouting, err := traceSpawnIfNeeded(ctx, spawner, p)
-		if err != nil {
-			return nil, err
-		}
-		readyCtx, session, err := tracedReadyTurnSession(ctx, svc, resolver)
-		if err != nil {
-			return nil, err
-		}
-		return func(ctx context.Context, session contract.Session) (any, error) {
-			if err := platformrpc.RequireSessionCapability(session, dto.CapMessageSend); err != nil {
-				return nil, err
-			}
-			threadRuntimeConfig, err := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
-			if err != nil {
-				return nil, err
-			}
-			resolvedCWD, err := resolveTurnRPCCWD(p.CWD, threadRuntimeConfig)
-			if err != nil {
-				return nil, err
-			}
-			p.CWD = resolvedCWD
-			input, err := buildRPCPrepareInput(p, session, threadRuntimeConfig)
-			if err != nil {
-				return nil, err
-			}
-			if err := applyTurnStartConfig(ctx, session, p); err != nil {
-				return nil, err
-			}
-			req, err := svc.PrepareTurn(ctx, session, input)
-			if err != nil {
-				return nil, err
-			}
-			handle, err := svc.StartTurn(ctx, session, req)
-			if err != nil {
-				return nil, err
-			}
-			completeLaunchIntentIfAvailable(ctx, spawner)
-			// 把 SpawnIfNeeded 的路由结果透传给 UI，用于补齐线程 badge。
-			// eager 启动线程已从 thread/start 拿到路由信息，这里的空字段会被 omitempty 隐去。
-			result := turnStartResult{
-				TurnID:          handle.LocalID(),
-				AgentKey:        spawnRouting.AgentKey,
-				AgentTitle:      spawnRouting.AgentTitle,
-				PromptKey:       spawnRouting.PromptKey,
-				PromptVersionID: spawnRouting.PromptVersionID,
-			}
-			attachTurnPromptKeyStale(&result, spawnRouting.PromptKeyStale)
-			return result, nil
-		}(readyCtx, session)
+		return startTurnForRPC(ctx, svc, resolver, spawner, runtimeReader, p)
 	})
+}
+
+// startTurnForRPC 串联 provider 就绪、首 turn 启动及启动后中断诊断回传。
+func startTurnForRPC(ctx context.Context, svc Service, resolver contract.SessionResolver, spawner contract.PendingLaunchSpawner, runtimeReader ThreadStateConfigReader, p turnStartParams) (any, error) {
+	spawnRouting, err := traceSpawnIfNeeded(ctx, spawner, p)
+	if err != nil {
+		return nil, err
+	}
+	readyCtx, session, err := tracedReadyTurnSession(ctx, svc, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return startReadyTurnForRPC(readyCtx, svc, session, spawner, runtimeReader, spawnRouting, p)
+}
+
+// startReadyTurnForRPC 在已就绪 session 中执行严格配置、prepare、start 和结果投影。
+func startReadyTurnForRPC(ctx context.Context, svc Service, session contract.Session, spawner contract.PendingLaunchSpawner, runtimeReader ThreadStateConfigReader, spawnRouting threaddto.SpawnRouting, p turnStartParams) (any, error) {
+	if err := platformrpc.RequireSessionCapability(session, dto.CapMessageSend); err != nil {
+		return nil, err
+	}
+	threadRuntimeConfig, err := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
+	if err != nil {
+		return nil, err
+	}
+	resolvedCWD, err := resolveTurnRPCCWD(p.CWD, threadRuntimeConfig)
+	if err != nil {
+		return nil, err
+	}
+	p.CWD = resolvedCWD
+	input, err := buildRPCPrepareInput(p, session, threadRuntimeConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := applyTurnStartConfig(ctx, session, p); err != nil {
+		return nil, err
+	}
+	req, err := svc.PrepareTurn(ctx, session, input)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := svc.StartTurn(ctx, session, req)
+	if err != nil {
+		return nil, err
+	}
+	completeLaunchIntentIfAvailable(ctx, spawner)
+	return buildTurnStartRPCResult(svc, handle.LocalID(), spawnRouting)
+}
+
+// buildTurnStartRPCResult 投影规范 turn ID、路由元数据及安全启动诊断。
+func buildTurnStartRPCResult(svc Service, localID string, spawnRouting threaddto.SpawnRouting) (turnStartResult, error) {
+	result := turnStartResult{
+		TurnID:          localID,
+		AgentKey:        spawnRouting.AgentKey,
+		AgentTitle:      spawnRouting.AgentTitle,
+		PromptKey:       spawnRouting.PromptKey,
+		PromptVersionID: spawnRouting.PromptVersionID,
+	}
+	if err := attachTurnStartInterruptRetryable(svc, localID, &result); err != nil {
+		return turnStartResult{}, err
+	}
+	attachTurnPromptKeyStale(&result, spawnRouting.PromptKeyStale)
+	return result, nil
+}
+
+// attachTurnStartInterruptRetryable 把安全的启动诊断与可重试取消状态显式返回给客户端。
+func attachTurnStartInterruptRetryable(svc Service, localID string, result *turnStartResult) error {
+	if result == nil {
+		return errors.New("turn/start result is required")
+	}
+	status, err := svc.TrackTurn(context.Background(), localID)
+	if err != nil {
+		return fmt.Errorf("turn/start track started turn: %w", err)
+	}
+	if status.InterruptRetryable {
+		result.InterruptRetryable = true
+		result.InterruptRetryableCode = status.InterruptRetryableCode
+	}
+	result.StartDiagnosticCode = status.StartDiagnosticCode
+	return nil
+}
+
+// validateRPCLocalTurnID 只接受前端生成的 turn_UUID，避免 RPC 输入覆盖 tracker 本地键。
+func validateRPCLocalTurnID(localID string) error {
+	if isRPCLocalTurnID(localID) {
+		return nil
+	}
+	return platformrpc.ErrInvalidParams("turn/start localTurnId must be a turn_UUID")
+}
+
+func isRPCLocalTurnID(localID string) bool {
+	const prefix = "turn_"
+	const uuidLength = 36
+	localID = strings.TrimSpace(localID)
+	if !strings.HasPrefix(localID, prefix) || len(localID) != len(prefix)+uuidLength {
+		return false
+	}
+	for index, char := range localID[len(prefix):] {
+		if !isRPCLocalTurnIDRune(index, char) {
+			return false
+		}
+	}
+	return true
+}
+
+func isRPCLocalTurnIDRune(index int, char rune) bool {
+	if index == 8 || index == 13 || index == 18 || index == 23 {
+		return char == '-'
+	}
+	return isLowerHexRune(char)
+}
+
+func isLowerHexRune(char rune) bool {
+	return char >= '0' && char <= '9' || char >= 'a' && char <= 'f'
 }
 
 // traceSpawnIfNeeded 在 pending_launch 线程上启动 provider，并返回 UI 需要展示的路由信息。
 func traceSpawnIfNeeded(ctx context.Context, spawner contract.PendingLaunchSpawner, p turnStartParams) (threaddto.SpawnRouting, error) {
+	if err := validateRPCLocalTurnID(p.LocalTurnID); err != nil {
+		return threaddto.SpawnRouting{}, err
+	}
 	if spawner == nil {
 		return threaddto.SpawnRouting{}, nil
 	}

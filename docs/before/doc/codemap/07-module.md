@@ -1,6 +1,6 @@
 # 07 业务模块层代码地图（拆卷索引）
 
-> 扫描范围：`internal/module/dashboard/`、`skill/`、`thread/`、`turn/`、`uistate/`；`internal/module/lspgui/` 当前在仓内无源码目录。  
+> 扫描范围：`internal/module/dashboard/`、`skill/`、`thread/`、`turn/`、`uistate/`；`internal/module/lspgui/` 当前在仓内无源码目录。
 > 2026-04-20 起按 **读侧 / 写侧** 拆卷；本页只保留导航、边界与总览，避免单文件继续超过 600 行。
 
 ---

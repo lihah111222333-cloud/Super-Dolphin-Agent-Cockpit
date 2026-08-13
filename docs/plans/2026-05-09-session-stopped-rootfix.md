@@ -744,4 +744,3 @@ test: integration coverage for binding self-heal and event routing
 | 7 | 半天 |
 
 合计约 1.5-2 天。
-

@@ -202,7 +202,7 @@ func (s *consumer[T]) Listen(c *sync.Cond, fn func(T)) {
 		temp := s.queue
 		s.queue = pending[:0]
 		pending = temp
-		
+
 		// Unblock any publisher waiting on backpressure
 		c.Broadcast()
 

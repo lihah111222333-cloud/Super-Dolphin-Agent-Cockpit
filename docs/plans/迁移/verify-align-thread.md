@@ -1,7 +1,7 @@
 # 验证：thread 族 1:1 对齐修复（start/stop/resume/config）
 
-审查时间：2026-03-21  
-审查方式：只用 LSP；先读 `align-thread-start.md` / `align-thread-stop.md` / `align-thread-resume.md` / `align-thread-config.md`，再核对当前代码。  
+审查时间：2026-03-21
+审查方式：只用 LSP；先读 `align-thread-start.md` / `align-thread-stop.md` / `align-thread-resume.md` / `align-thread-config.md`，再核对当前代码。
 口径：这里只复核用户点名的 4 项，不重审 4 份报告中的全部结论。
 
 ## 结论摘要

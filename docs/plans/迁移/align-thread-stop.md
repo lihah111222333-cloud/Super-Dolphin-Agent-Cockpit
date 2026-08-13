@@ -1,6 +1,6 @@
 # V2↔V3 1:1 对齐：thread stop/delete
 
-审查时间：2026-03-21  
+审查时间：2026-03-21
 审查方式：只用 LSP，实际使用了 `workspace_symbol`、`text_search`、`references(compact)`、`read_file`
 
 ## 结论摘要

@@ -460,3 +460,38 @@ func assertInterruptObservation(t *testing.T, result turnInterruptResult) {
 		t.Fatalf("interrupt result activeObserved = false, want true")
 	}
 }
+
+func TestRegisteredInterruptResultSerializesActiveObservedWithoutPretendingInterruptSent(t *testing.T) {
+	t.Parallel()
+	result := buildInterruptResult(TurnStatus{LocalID: "turn-1", State: string(StateInterrupting)}, buildTurnInterruptRegisteredEnvelope(string(StateRunning), string(StateInterrupting)), "turn-1", "stop-1", true)
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(turnInterruptResult) error = %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatalf("json.Unmarshal(turnInterruptResult) error = %v", err)
+	}
+	if body["activeObserved"] != true || body["interruptSent"] != false {
+		t.Fatalf("serialized interrupt result = %#v, want activeObserved=true and interruptSent=false", body)
+	}
+	if _, exists := body["waitedMs"]; exists {
+		t.Fatalf("serialized interrupt result = %#v, must omit waitedMs before provider interrupt is sent", body)
+	}
+}
+
+func TestSentPendingInterruptResultSerializesCompleteRetryEnvelope(t *testing.T) {
+	t.Parallel()
+	result := buildInterruptResult(TurnStatus{LocalID: "turn-1", State: string(StateInterrupting)}, buildTurnInterruptSentPendingEnvelope(string(StateRunning), string(StateInterrupting)), "turn-1", "stop-1", true)
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(turnInterruptResult) error = %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatalf("json.Unmarshal(turnInterruptResult) error = %v", err)
+	}
+	if body["mode"] != "interrupt_sent_pending" || body["status"] != "interrupting" || body["confirmed"] != false || body["interruptSent"] != true || body["activeObserved"] != true || body["waitedMs"] != float64(0) {
+		t.Fatalf("serialized sent-pending interrupt result = %#v, want complete non-terminal envelope", body)
+	}
+}

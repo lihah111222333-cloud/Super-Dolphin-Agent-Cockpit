@@ -82,4 +82,3 @@ scripts/test_with_guard.sh --guard-only
 # DAG dogfood（需 PG + mcp-orch 已重启）
 mcp/task_create_dag → task_start_dag → task_get_dag 周期轮询
 ```
-

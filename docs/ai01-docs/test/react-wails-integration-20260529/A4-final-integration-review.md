@@ -34,4 +34,3 @@ npm run build
 cd ../../..
 ./scripts/test_with_guard.sh ./internal/ui/wails ./internal/module/thread ./internal/module/turn ./internal/module/uistate ./internal/module/dashboard ./internal/app -count=1
 ```
-

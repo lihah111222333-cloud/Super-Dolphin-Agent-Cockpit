@@ -683,6 +683,17 @@ function validateThreadResolveResponse(method, response) {
 function validateTurnStartResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   requireResponseKey(method, value, ['turn_id', 'turnId']);
+  if (Object.hasOwn(value, 'interrupt_retryable') || Object.hasOwn(value, 'interrupt_retryable_code')) {
+    if (value.interrupt_retryable !== true || value.interrupt_retryable_code !== 'REGISTERED_INTERRUPT_DELIVERY_RETRYABLE') {
+      throw new TypeError(`${method} retryable interrupt delivery response is invalid`);
+    }
+  }
+  if (Object.hasOwn(value, 'start_diagnostic_code') && value.start_diagnostic_code !== 'TURN_DEDUPE_PROVIDER_ID_BIND_FAILED') {
+    throw new TypeError(`${method} start diagnostic response is invalid`);
+  }
+  if (Object.hasOwn(value, 'start_diagnostic_code') && Object.hasOwn(value, 'interrupt_retryable')) {
+    throw new TypeError(`${method} start durability diagnostic cannot include interrupt retryable state`);
+  }
   return value;
 }
 

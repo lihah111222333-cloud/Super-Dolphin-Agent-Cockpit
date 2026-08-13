@@ -1,8 +1,8 @@
 # P23 R3/R3B 终审仲裁
 
-> 日期：2026-04-25  
-> 范围：`docs/plans/迁移/p23/` 全量文档 + 现有 migration/sql/store/archtest 事实  
-> 方式：15 个 Codex agent 终审 / 红队，只审不改；主 agent 收报告并仲裁落盘  
+> 日期：2026-04-25
+> 范围：`docs/plans/迁移/p23/` 全量文档 + 现有 migration/sql/store/archtest 事实
+> 方式：15 个 Codex agent 终审 / 红队，只审不改；主 agent 收报告并仲裁落盘
 > 总裁定：**BLOCK**
 
 ---
@@ -27,8 +27,8 @@
 | R3B | `agent_1777109596491655000` | gate 红队 | **BLOCK** |
 | R3B | `agent_1777109598231231000` | 状态机红队 | **BLOCK** |
 
-有效报告：14 份。  
-结论分布：**8 BLOCK / 6 NEEDS-FIX / 0 PASS**。  
+有效报告：14 份。
+结论分布：**8 BLOCK / 6 NEEDS-FIX / 0 PASS**。
 按会话规则“BLOCK 一票定调”，整体裁定为 **BLOCK**。
 
 ---
@@ -232,6 +232,6 @@ Agent D 指出根 `README.md` 仍有 `<<<<<<< / ======= / >>>>>>>`。虽非 P23 
 
 **P23 R3/R3B 终审不通过。**
 
-当前状态：**BLOCK**。  
-阻塞性质：不是单纯文档措辞，而是 gate 不可执行、代码事实与文档契约冲突、runtime lease / observe_lost / write-set 仍未冻结。  
+当前状态：**BLOCK**。
+阻塞性质：不是单纯文档措辞，而是 gate 不可执行、代码事实与文档契约冲突、runtime lease / observe_lost / write-set 仍未冻结。
 放行条件：Phase0 gate PR 可执行 + R4 小修复审无 BLOCK。

@@ -37,7 +37,7 @@
   ```go
   type service struct {
       // 错误：在内存中追踪 Agent 会话状态
-      threadAgents map[string]string 
+      threadAgents map[string]string
       agentReservations map[string]struct{}
   }
   ```

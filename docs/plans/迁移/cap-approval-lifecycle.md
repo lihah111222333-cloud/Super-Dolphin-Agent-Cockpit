@@ -194,11 +194,11 @@ handler 行为：
 
 所以整条链是：
 
-`approval/respond (前端 -> V3 RPC)`  
-`-> ApprovalManager.Respond`  
-`-> finishPending / close(done)`  
-`-> requestToolApproval 醒来`  
-`-> sendApprovalDecision`  
+`approval/respond (前端 -> V3 RPC)`
+`-> ApprovalManager.Respond`
+`-> finishPending / close(done)`
+`-> requestToolApproval 醒来`
+`-> sendApprovalDecision`
 `-> provider session`
 
 ## 3. `requestId` 去重

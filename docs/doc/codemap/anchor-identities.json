@@ -6187,14 +6187,14 @@
       "codemap_line": 260,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "19-262",
-      "content_sha256": "195d9e4f77649dc68085025efda59fceb793be1076ce0207e0f4097caf111d36"
+      "content_sha256": "71eaa2022a78ed5941f37ad9ae71f6420409eefc10ccf4c06e3d0be171e94322"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 261,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-446",
-      "content_sha256": "09ae8e0d2bcd6d962db6378138c9b1af2fbd7866ed2f34559fe5c0b7889a5456",
+      "content_sha256": "338448777871829598bc82f657b46daf2b5a575682f8bd92ad61fbc24f23e689",
       "symbol": "newService"
     },
     {
@@ -6202,7 +6202,7 @@
       "codemap_line": 262,
       "target_path": "internal/module/turn/interrupt_service.go",
       "line_spec": "11-97",
-      "content_sha256": "f4f2e41cfbbb2daf127678194d953f0b948996d80a5f7a13e3019079d04ad247"
+      "content_sha256": "dd049febf5244f5da4b642d8f1f420c47336bc915c752111a444b5d84f918352"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6239,7 +6239,7 @@
       "codemap_line": 288,
       "target_path": "internal/module/turn/contract.go",
       "line_spec": "33-62",
-      "content_sha256": "520f6c5f8ab6fcf6f8fa90ab19106833bf312de6f70d7c931133dd5ae78b47c2",
+      "content_sha256": "66d219b3a385e447b24adb0c6a39ea1de4c95b44d07917313483d85bae582daa",
       "symbol": "DedupeEntry"
     },
     {
@@ -6247,7 +6247,7 @@
       "codemap_line": 289,
       "target_path": "internal/module/turn/contract.go",
       "line_spec": "64-70",
-      "content_sha256": "47406c05e4f8d9d3413b33ad0da892ff2e3655a0e311af3522332b74eee62e7a",
+      "content_sha256": "fe41431aa6cd6eaf1b9a6d8fbb710c27310794b4e42c5349180830cfd9bc2c71",
       "symbol": "Service"
     },
     {
@@ -6255,7 +6255,7 @@
       "codemap_line": 290,
       "target_path": "internal/module/turn/tracker.go",
       "line_spec": "13-31",
-      "content_sha256": "007fe8dddb08e388ff566da03013776b5658081430a7722cd05a11eb75b30410"
+      "content_sha256": "3e31083fa1b6a0122da607fef026ab27979ad6f6ef1fe159b4c42822177e98e5"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6270,7 +6270,7 @@
       "codemap_line": 311,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "19-44",
-      "content_sha256": "b43b101cf6be7495804ca739ce50d53f17804e9758e43284dfa3b140ff8ffd2b"
+      "content_sha256": "83fab64054b55fdc04fef462a584e96f8422f481c644bdfba9f0d7286476a641"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6291,7 +6291,7 @@
       "codemap_line": 317,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "46-60",
-      "content_sha256": "440458463276c22bfe9fea83decc1641fd867bd0e191c076dfc128d915bdc002",
+      "content_sha256": "8696e241ae167f357c8bde0fa18d9e180a59be5a8db27114ee1915c614940ea7",
       "symbol": "buildRPCPrepareInput"
     },
     {
@@ -6352,7 +6352,7 @@
       "codemap_line": 331,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-182",
-      "content_sha256": "dc70f535d12d6966e41e40e1707a820987ce697c7603457a2c8fea0915f0b18d",
+      "content_sha256": "735e1534f58aef5524d76fbc4278235f39263544caab714c6a2ed9aca334319d",
       "symbol": "resolveReadyTurnSession"
     },
     {
@@ -6368,7 +6368,7 @@
       "codemap_line": 333,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "211-235",
-      "content_sha256": "e9cd860e91a9b7f79504c3ac73197a2608702a3b1e983a2b3b089c6d3e43e7d8",
+      "content_sha256": "962f4fd474ae13120d8696bc4042fe0ee35f17b31790f0be059e89f6f4812a6f",
       "symbol": "validatePrepareInputTypes"
     },
     {
@@ -6376,7 +6376,7 @@
       "codemap_line": 337,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "84-149",
-      "content_sha256": "3e4af203efa72ee57a0f6de0de8f84594611f975873cd48805d6c73e0f61f786",
+      "content_sha256": "35f1553c02b61c6d5d159e9d357d2e2d429f34be00c36323a68bb6764dfedf25",
       "symbol": "sameTurnRPCCWD"
     },
     {
@@ -6384,7 +6384,7 @@
       "codemap_line": 338,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "162-180",
-      "content_sha256": "1e10c35315ff4cbea259edaddc2547b339065192b6e6b9d24bb8739d0cbcf053",
+      "content_sha256": "d451f6061874671e92d3e075cbed36e36e4947e694d57b6860b3e37b35eb20a1",
       "symbol": "resolveReadyTurnSession"
     },
     {
@@ -6392,7 +6392,7 @@
       "codemap_line": 339,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "211-235",
-      "content_sha256": "e9cd860e91a9b7f79504c3ac73197a2608702a3b1e983a2b3b089c6d3e43e7d8",
+      "content_sha256": "962f4fd474ae13120d8696bc4042fe0ee35f17b31790f0be059e89f6f4812a6f",
       "symbol": "validatePrepareInputTypes"
     },
     {
@@ -6400,22 +6400,22 @@
       "codemap_line": 340,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "317-355",
-      "content_sha256": "b09fece365492f2505fea3fd416f8ccefae5ed43ff56c33d931d10640f134abb",
-      "symbol": "requireSteerableSession"
+      "content_sha256": "435235edd151ef597e5be787b8cd840262dc059dca2dff8270d42a134bced7e5",
+      "symbol": "*service.deliverRegisteredCancellation"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 340,
       "target_path": "internal/module/turn/tracker.go",
       "line_spec": "11-166",
-      "content_sha256": "1cb142dd7d0827c00ef554680795147ea3e2e47bd26d86835520eb7ab28049d4"
+      "content_sha256": "d6599da7a0be0cee149163eb20e89f0edbc039bca3de7de32dac7c3a3567126b"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 344,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "237-258",
-      "content_sha256": "e4930f684e5c65e9816792636769a00af4721f6d5c8994d814443ed0156e7d7a",
+      "content_sha256": "8507f869da4d1deb9193d5e5ae9651b0f97cd60a25396b7d9de2fecc1cb1188a",
       "symbol": "*service.StartTurn"
     },
     {
@@ -6423,15 +6423,15 @@
       "codemap_line": 349,
       "target_path": "internal/module/turn/interrupt_service.go",
       "line_spec": "11-97",
-      "content_sha256": "f4f2e41cfbbb2daf127678194d953f0b948996d80a5f7a13e3019079d04ad247"
+      "content_sha256": "dd049febf5244f5da4b642d8f1f420c47336bc915c752111a444b5d84f918352"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 350,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "283-303",
-      "content_sha256": "3eca45c83215df764a86d53a000a792c421c1e4382086b65ddf665e6d98e080d",
-      "symbol": "*service.SteerTurn"
+      "content_sha256": "671c9bb1f90c8a60f22b345b7f7698056aa7e61e3341700fade1e84e313377f0",
+      "symbol": "turnHandleCompleted"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6483,7 +6483,7 @@
       "codemap_line": 393,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "211-235",
-      "content_sha256": "e9cd860e91a9b7f79504c3ac73197a2608702a3b1e983a2b3b089c6d3e43e7d8",
+      "content_sha256": "962f4fd474ae13120d8696bc4042fe0ee35f17b31790f0be059e89f6f4812a6f",
       "symbol": "validatePrepareInputTypes"
     },
     {
@@ -6498,23 +6498,23 @@
       "codemap_line": 395,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "283-303",
-      "content_sha256": "3eca45c83215df764a86d53a000a792c421c1e4382086b65ddf665e6d98e080d",
-      "symbol": "*service.SteerTurn"
+      "content_sha256": "671c9bb1f90c8a60f22b345b7f7698056aa7e61e3341700fade1e84e313377f0",
+      "symbol": "turnHandleCompleted"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 396,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "317-355",
-      "content_sha256": "b09fece365492f2505fea3fd416f8ccefae5ed43ff56c33d931d10640f134abb",
-      "symbol": "requireSteerableSession"
+      "content_sha256": "435235edd151ef597e5be787b8cd840262dc059dca2dff8270d42a134bced7e5",
+      "symbol": "*service.deliverRegisteredCancellation"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 397,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-182",
-      "content_sha256": "dc70f535d12d6966e41e40e1707a820987ce697c7603457a2c8fea0915f0b18d",
+      "content_sha256": "735e1534f58aef5524d76fbc4278235f39263544caab714c6a2ed9aca334319d",
       "symbol": "resolveReadyTurnSession"
     },
     {
@@ -6522,7 +6522,7 @@
       "codemap_line": 398,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "19-44",
-      "content_sha256": "b43b101cf6be7495804ca739ce50d53f17804e9758e43284dfa3b140ff8ffd2b"
+      "content_sha256": "83fab64054b55fdc04fef462a584e96f8422f481c644bdfba9f0d7286476a641"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -7067,7 +7067,7 @@
       "codemap_line": 596,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-182",
-      "content_sha256": "dc70f535d12d6966e41e40e1707a820987ce697c7603457a2c8fea0915f0b18d",
+      "content_sha256": "735e1534f58aef5524d76fbc4278235f39263544caab714c6a2ed9aca334319d",
       "symbol": "resolveReadyTurnSession"
     },
     {
@@ -7075,7 +7075,7 @@
       "codemap_line": 596,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "135-186",
-      "content_sha256": "7cccfb012f030b2e1897297b7270694505d38fe97257600c8369aa7def4b2e6b",
+      "content_sha256": "5f368a396bcb7eddc3544131d01cb032eeba5e6271c5b7cde8d3440ac81cbc50",
       "symbol": "newService"
     },
     {
@@ -7083,7 +7083,7 @@
       "codemap_line": 626,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-182",
-      "content_sha256": "dc70f535d12d6966e41e40e1707a820987ce697c7603457a2c8fea0915f0b18d",
+      "content_sha256": "735e1534f58aef5524d76fbc4278235f39263544caab714c6a2ed9aca334319d",
       "symbol": "resolveReadyTurnSession"
     },
     {
@@ -7819,8 +7819,7 @@
       "codemap_line": 140,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "249-262",
-      "content_sha256": "c1baad124263c1bbb804fc8c119d3bcc37d8cfc5a7ad738ff353093b177790c9",
-      "symbol": "turnStartHandler"
+      "content_sha256": "1e3d9e7927b89d9f17c139856d90d35787d2c65e56df38b4167afb53c96fc430"
     },
     {
       "codemap_file": "09-provider.md",
@@ -11725,7 +11724,7 @@
       "codemap_line": 331,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "170",
-      "content_sha256": "10b5487b6725e7c18269a6f0a7d02b3eb27d729a52925695cac0c35ca38f8cf7",
+      "content_sha256": "167c975adf562f97107912b32f2ed47a4e06c6ee7954ea7b7d93b699ce64c385",
       "symbol": "*service.PrepareTurn"
     },
     {
@@ -11965,7 +11964,7 @@
       "codemap_line": 260,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-180",
-      "content_sha256": "7d38d91e306aab1dd0e701a03236215c49be256ff06d181c6ab0b7977f609bd8",
+      "content_sha256": "10a3dd3ce43778050748fc6afa2a23fe6d647e3fe24e3d6ea9aeddef9782c54e",
       "symbol": "resolveReadyTurnSession"
     },
     {
