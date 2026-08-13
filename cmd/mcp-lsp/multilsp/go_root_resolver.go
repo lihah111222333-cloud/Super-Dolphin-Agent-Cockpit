@@ -50,9 +50,9 @@ type GoRootInfo struct {
 // GoToolchainInfo 描述 Go 语言服务运行时需要注入的工具链路径和版本约束。
 type GoToolchainInfo struct {
 	RequiredVersion string
+	SelectedVersion string
 	BinDir          string
 	PathEnv         string
-	ForceLocal      bool
 }
 
 type goWorkspaceKeyParts struct {
@@ -81,7 +81,7 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 		return GoRootInfo{}, err
 	}
 	if goWorkPath != "" {
-		info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto)
+		info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto, env)
 		if err == nil && !goWorkRootContainsTarget(info, target) {
 			info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff, noiseDirNames)
 		}
@@ -121,6 +121,13 @@ func goRootRequestEnv(req GoRootRequest) []string {
 	return os.Environ()
 }
 
+// goRootEnvValue 只从已经按 nil 继承/非 nil 显式语义解析的请求环境读取字段。
+// 显式 Env 缺少 PATH 时必须 fail-fast，禁止重新回退到宿主进程环境。
+func goRootEnvValue(env []string, key string) string {
+	value, _ := envValue(env, key)
+	return value
+}
+
 // resolveGoRootFromGOWORK 按请求环境里的 GOWORK 解析 workspace。
 // auto 模式只接受覆盖当前目标的 go.work，避免外部 worktree 的环境变量污染本次 LSP scope。
 func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirNames []string) (GoRootInfo, bool, error) {
@@ -143,7 +150,7 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirN
 	if !fileExists(goWorkPath) {
 		return GoRootInfo{}, true, fmt.Errorf("GOWORK path does not exist: %s", goWorkPath)
 	}
-	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit)
+	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit, env)
 	if err == nil && !goWorkRootContainsTarget(info, target) {
 		// 环境里的 GOWORK 指向其他 worktree 时必须显式 off，不能让子进程继续继承父环境。
 		info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff, noiseDirNames)
@@ -210,13 +217,13 @@ func resolveGoRootWithoutGoWork(target, projectRoot, mode string, noiseDirNames 
 	}
 }
 
-func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string) (GoRootInfo, error) {
+func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string, env []string) (GoRootInfo, error) {
 	goWorkPath, err := normalizeOptionalPath(goWorkPath, "")
 	if err != nil {
 		return GoRootInfo{}, err
 	}
 	workspaceRoot := filepath.Dir(goWorkPath)
-	moduleRoots, err := parseGoWorkModuleRoots(goWorkPath)
+	moduleRoots, err := parseGoWorkModuleRoots(goWorkPath, env)
 	if err != nil {
 		return GoRootInfo{}, fmt.Errorf("parse go.work %s: %w", goWorkPath, err)
 	}
@@ -348,7 +355,7 @@ func resolveGoTargetPath(filePath, cwd string) (string, error) {
 	if trimmed == "" {
 		return "", nil
 	}
-	if strings.HasPrefix(trimmed, "file://") {
+	if hasFileURIScheme(trimmed) {
 		return absolutePathFromURI(trimmed)
 	}
 	if !filepath.IsAbs(trimmed) && cwd != "" {
@@ -476,7 +483,7 @@ func cleanSortedUniquePaths(paths []string) []string {
 }
 
 // goRootEnv 为解析出的 Go root 生成 LSP server 进程环境。
-// 这里只写入 GOWORK、PATH、GOTOOLCHAIN，其他环境由调用方按策略继承。
+// 这里只写入 GOWORK 和必要的 PATH；GOTOOLCHAIN 保持调用方的 auto、named 或 local 策略。
 func goRootEnv(root GoRootInfo) []string {
 	env := make([]string, 0, 3)
 	switch root.GOWORKMode {
@@ -489,9 +496,6 @@ func goRootEnv(root GoRootInfo) []string {
 	}
 	if root.GoToolchain.PathEnv != "" {
 		env = append(env, "PATH="+root.GoToolchain.PathEnv)
-	}
-	if root.GoToolchain.ForceLocal {
-		env = append(env, "GOTOOLCHAIN=local")
 	}
 	if len(env) == 0 {
 		return nil
@@ -539,10 +543,11 @@ func goLanguageSpecific(root GoRootInfo) map[string]string {
 		"moduleRootsHash":      hashStringList(cleanSortedUniquePaths(root.ModuleRoots)),
 		"workspaceFoldersHash": hashWorkspaceFolders(workspaceFolders(root)),
 	}
-	if root.GoToolchain.PathEnv != "" {
+	if root.GoToolchain.RequiredVersion != "" {
 		specific["goToolchainBinDir"] = root.GoToolchain.BinDir
 		specific["goToolchainPathEnv"] = root.GoToolchain.PathEnv
 		specific["goToolchainRequired"] = root.GoToolchain.RequiredVersion
+		specific["goToolchainSelected"] = root.GoToolchain.SelectedVersion
 	}
 	return specific
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -228,7 +229,7 @@ func ctxWithCWD(cwd, agentID, threadID string) context.Context {
 func setupWorktreeProject(t *testing.T, root string, modules []string) {
 	t.Helper()
 	useGoWorkFallbackParser(t)
-	goWorkBody := "go 1.25.0\n\n"
+	goWorkBody := ""
 	for _, mod := range modules {
 		goWorkBody += fmt.Sprintf("use ./%s\n", mod)
 		modDir := filepath.Join(root, mod)
@@ -251,5 +252,16 @@ func setupStandaloneGoProject(t *testing.T, root, modName string) {
 
 func useGoWorkFallbackParser(t *testing.T) {
 	t.Helper()
-	t.Setenv("PATH", t.TempDir())
+	goDir := filepath.Dir(runtimeGoExecutableForTest(t))
+	// 保留真实 go 供 go.work JSON 解析与工具链探测使用；不可用场景由 parser 单元测试独立覆盖。
+	t.Setenv("PATH", goDir)
+}
+
+func runtimeGoExecutableForTest(t *testing.T) string {
+	t.Helper()
+	executable, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("locate Go executable for multi-CWD fixture: %v", err)
+	}
+	return executable
 }

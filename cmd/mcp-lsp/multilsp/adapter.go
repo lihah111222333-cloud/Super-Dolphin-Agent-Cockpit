@@ -448,7 +448,7 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 		}
 	}
 	if pathEnv := scope.LanguageSpecific["goToolchainPathEnv"]; pathEnv != "" {
-		env = append(env, "PATH="+pathEnv, "GOTOOLCHAIN=local")
+		env = append(env, "PATH="+pathEnv)
 	}
 	return env
 }

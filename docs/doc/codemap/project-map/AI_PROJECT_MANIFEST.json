@@ -5,13 +5,13 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5025,
+  "files": 5029,
   "domains": {
     "other": 1189,
     "remote-ci": 268,
-    "docs-agent": 98,
+    "docs-agent": 99,
     "app-ui": 768,
-    "platform-provider": 1295,
+    "platform-provider": 1298,
     "orchestration": 411,
     "modules": 765,
     "store-sql": 231
@@ -44,8 +44,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1295,
-        "size_kb": 241.2,
+        "file_count": 1298,
+        "size_kb": 241.7,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -65,8 +65,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 98,
-        "size_kb": 14.6,
+        "file_count": 99,
+        "size_kb": 14.8,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
@@ -81,9 +81,9 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 900,
+    "cmd": 903,
     "config": 3,
-    "docs": 91,
+    "docs": 92,
     "frontend-app": 760,
     "internal": 2982,
     "pkg": 30,

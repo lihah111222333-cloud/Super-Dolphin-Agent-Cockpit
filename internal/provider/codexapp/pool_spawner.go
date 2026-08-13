@@ -263,7 +263,7 @@ func buildPoolSpawnEnv(parent []string, home, workDir string) []string {
 // codexSpawnEnvAllowlist 返回允许传给子 app-server 的父进程环境变量。
 // 其他 CODEX_*、OPENAI_* 污染项会被剥离，确保 CODEX_HOME 是唯一身份来源。
 func codexSpawnEnvAllowlist() []string {
-	return []string{"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TMPDIR", "TEMP", "TMP", "SHELL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv, providershared.SuperDolphinHomeEnv, codexRelayBootstrapTokenEnv}
+	return []string{"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TMPDIR", "TEMP", "TMP", "SHELL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv, sidecarDependencyProfileEnv, providershared.SuperDolphinHomeEnv, codexRelayBootstrapTokenEnv}
 }
 
 // buildAllowlistedSpawnEnv 从父环境中只保留允许传递给 codex app-server 的变量。

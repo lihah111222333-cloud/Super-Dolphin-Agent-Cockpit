@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -78,7 +77,7 @@ func resolveFilePath(ctx context.Context, path string) (string, error) {
 	return pathInfo.AbsPath, nil
 }
 
-// normalizeFilePathTarget 规范化 file_path 入参，支持 file:// URI 和已转义绝对路径。
+// normalizeFilePathTarget 规范化 file_path 入参；百分号解码只发生在明确的 file URI 边界。
 func normalizeFilePathTarget(raw string) (string, error) {
 	filePath, err := requireFilePath(raw)
 	if err != nil {
@@ -91,16 +90,6 @@ func normalizeFilePathTarget(raw string) (string, error) {
 			return "", err
 		}
 		return resolved, nil
-	}
-	if filepath.IsAbs(trimmed) && strings.Contains(trimmed, "%") {
-		unescaped, err := url.PathUnescape(trimmed)
-		if err != nil {
-			return "", fmt.Errorf("decode file_path %q: %w", trimmed, err)
-		}
-		if strings.TrimSpace(unescaped) == "" {
-			return "", fmt.Errorf("decode file_path %q: empty path", trimmed)
-		}
-		return unescaped, nil
 	}
 	return filePath, nil
 }

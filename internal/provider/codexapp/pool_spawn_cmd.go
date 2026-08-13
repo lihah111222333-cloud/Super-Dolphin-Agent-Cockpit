@@ -62,22 +62,6 @@ func codexLocalMCPCommand(name string) string {
 }
 func resolveCodexLocalMCPBinaryDir() string { return providershared.ResolveBinaryDir("", nil) }
 
-func isCodexAppServerListenArgs(args []string) bool {
-	for i := 0; i < len(args)-1; i++ {
-		if commandLeaf(args[i]) == codexAppServerCommand && args[i+1] == codexAppServerListen {
-			return true
-		}
-	}
-	return false
-}
-
-func commandLeaf(arg string) string {
-	if idx := strings.LastIndexAny(arg, `/\`); idx >= 0 {
-		return arg[idx+1:]
-	}
-	return arg
-}
-
 // BuildPoolSpawnCmd 组装 ServerPool spawner 将要启动的 exec.Cmd。
 // 命令会提高文件描述符上限、按 allowlist 重建环境并注入 CODEX_HOME，同时把子进程放入独立进程组。
 // 本函数只构建命令；启动、stderr 转发、listen URL 解析和 transport 注册仍由调用方负责。
@@ -90,16 +74,20 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	if err != nil {
 		return nil, err
 	}
+	parent := args.ParentEnv
+	if parent == nil {
+		parent = os.Environ()
+	}
 	// 不用 exec.CommandContext：启动超时 ctx 在 listen URL 发现后会取消，进程生命周期属于 transport.shutdownTransport。
-	extraArgs := append(poolSpawnNativeLSPConfigArgs(ctx, workDir), args.ExtraArgs...)
+	extraArgs, err := poolSpawnNativeLSPConfigArgs(ctx, workDir, parent)
+	if err != nil {
+		return nil, err
+	}
+	extraArgs = append(extraArgs, args.ExtraArgs...)
 	argv := buildCodexAppServerArgs(localSpawnListenURL(), extraArgs)
 	cmd := wrapWithFDLimit(argv)
 	if workDir != "" {
 		cmd.Dir = workDir
-	}
-	parent := args.ParentEnv
-	if parent == nil {
-		parent = os.Environ()
 	}
 	cmd.Env = buildPoolSpawnEnv(parent, home, workDir)
 	setCodexProcessAttrs(cmd)
@@ -108,26 +96,34 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 
 // poolSpawnNativeLSPConfigArgs 为 pool 启动的 Codex CLI 注入内置 LSP MCP 配置。
 // 即使没有 workspace roots，只要有二进制目录也显式传 GO_AGENT_LSP_ROOTS=[]，避免子进程扫描错误目录。
-func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string) []string {
+func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string, parentEnv []string) ([]string, error) {
 	roots := poolSpawnWorkspaceRoots(ctx)
 	if len(roots) == 0 && strings.TrimSpace(workDir) != "" {
 		roots = []string{strings.TrimSpace(workDir)}
 	}
 	binaryDir := strings.TrimSpace(poolSpawnMCPBinaryDir(ctx))
+	var runtimeOverrides []string
+	if len(roots) > 0 || binaryDir != "" {
+		var err error
+		runtimeOverrides, err = poolSpawnNativeLSPRuntimeOverrides(parentEnv)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if len(roots) == 0 {
 		if binaryDir == "" {
-			return nil
+			return nil, nil
 		}
-		return poolSpawnNativeLSPConfigOverrideArgs([]string{
+		return poolSpawnNativeLSPConfigOverrideArgs(append([]string{
 			"mcp_servers.lsp.command=" + tomlString(filepath.Join(binaryDir, "mcp-lsp")),
 			"mcp_servers.lsp.type=" + tomlString("stdio"),
 			"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=" + tomlString("[]"),
-		})
+		}, runtimeOverrides...)), nil
 	}
 	primary := roots[0]
 	rawRoots, err := json.Marshal(roots)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	overrides := []string{
 		"mcp_servers.lsp.type=" + tomlString("stdio"),
@@ -136,12 +132,31 @@ func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string) []string 
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=" + tomlString(string(rawRoots)),
 		"mcp_servers.lsp.env." + providershared.SuperDolphinHomeEnv + "=" + tomlString(os.Getenv(providershared.SuperDolphinHomeEnv)),
 	}
+	overrides = append(overrides, runtimeOverrides...)
 	if binaryDir != "" {
 		overrides = append([]string{
 			"mcp_servers.lsp.command=" + tomlString(filepath.Join(binaryDir, "mcp-lsp")),
 		}, overrides...)
 	}
-	return poolSpawnNativeLSPConfigOverrideArgs(overrides)
+	return poolSpawnNativeLSPConfigOverrideArgs(overrides), nil
+}
+
+// poolSpawnNativeLSPRuntimeOverrides 把可信 owner 的 sidecar mode/resources 显式写入 Codex MCP 配置，
+// 并把 app-server 启动的独立 mcp-lsp 固定为 production dependency profile。
+func poolSpawnNativeLSPRuntimeOverrides(parentEnv []string) ([]string, error) {
+	mode, ok := lookupTrimmedEnvValue(parentEnv, sidecarRuntimeModeEnv)
+	if !ok {
+		return nil, fmt.Errorf("codexapp: native LSP config requires %s", sidecarRuntimeModeEnv)
+	}
+	resources, ok := lookupTrimmedEnvValue(parentEnv, sidecarRuntimeResourcesEnv)
+	if !ok {
+		return nil, fmt.Errorf("codexapp: native LSP config requires %s", sidecarRuntimeResourcesEnv)
+	}
+	return []string{
+		"mcp_servers.lsp.env." + sidecarRuntimeModeEnv + "=" + tomlString(mode),
+		"mcp_servers.lsp.env." + sidecarRuntimeResourcesEnv + "=" + tomlString(resources),
+		"mcp_servers.lsp.env." + sidecarDependencyProfileEnv + "=" + tomlString("production"),
+	}, nil
 }
 
 func poolSpawnNativeLSPConfigOverrideArgs(overrides []string) []string {
@@ -270,7 +285,7 @@ func extractCodexTarEntry(reader *tar.Reader, header *tar.Header, targetDir stri
 	switch header.Typeflag {
 	case tar.TypeDir:
 		return 0, os.MkdirAll(target, 0o755)
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg:
 		return writeCodexTarEntry(reader, header, target)
 	default:
 		return 0, fmt.Errorf("Codex tar.gz contains unsupported entry %q", header.Name)

@@ -108,7 +108,7 @@ func TestGoRootSkipsNoiseDirsDuringSubmoduleDiscovery(t *testing.T) {
 	writeGenericTestFile(t, filepath.Join(root, "docs", "go.mod"), "module example.test/docs\n\ngo 1.25.0\n")
 	writeGenericTestFile(t, filepath.Join(root, "docs", "main.go"), "package docs\n")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: root, FilePath: root, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: root, FilePath: root, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("ResolveGoRoot: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestGoRootAllowsExplicitTargetsInsideNoiseDirs(t *testing.T) {
 	writeGenericTestFile(t, filepath.Join(noiseRoot, "go.mod"), "module example.test/docs\n\ngo 1.25.0\n")
 	writeGenericTestFile(t, target, "package docs\n")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: root, FilePath: target, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: root, FilePath: target, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("ResolveGoRoot: %v", err)
 	}

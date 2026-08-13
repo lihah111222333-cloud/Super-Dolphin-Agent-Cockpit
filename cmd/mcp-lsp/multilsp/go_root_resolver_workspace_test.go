@@ -59,7 +59,7 @@ func TestGoRootResolverAncestorGoWorkOutsideUseListFallsBackToNearestGoMod(t *te
 	writeFile(t, filepath.Join(repo, "go.work"), "go 1.25.0\n\nuse ./main\n")
 	target := writeGoFile(t, worktree, "main.go")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: worktree, FilePath: target, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: worktree, FilePath: target, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("ancestor go.work outside use list should fall back to nearest go.mod: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestGoRootResolverGoWorkRootTargetKeepsGoWork(t *testing.T) {
 	goWorkPath := filepath.Join(repo, "go.work")
 	writeFile(t, goWorkPath, "go 1.25.0\n\nuse ./backend\n")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("workspace root target should keep go.work: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestGoRootResolverSingleSubmodule(t *testing.T) {
 	backend := filepath.Join(repo, "backend")
 	writeGoMod(t, backend, "example.com/backend")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve single submodule root: %v", err)
 	}
@@ -177,7 +177,7 @@ func runSingleSubmoduleSkipsHiddenAndUnderscoreDirs(t *testing.T) {
 	writeGoMod(t, hidden, "example.com/hidden")
 	writeGoMod(t, underscore, "example.com/tools")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve child modules with hidden/underscore dirs: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestGoRootResolverMultiModule(t *testing.T) {
 	writeGoMod(t, backend, "example.com/backend")
 	writeGoMod(t, tools, "example.com/tools")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve multi module root: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestGoRootResolverNestedModule(t *testing.T) {
 	writeGoMod(t, nested, "example.com/pluginx")
 	target := writeGoFile(t, nested, "main.go")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve nested module root: %v", err)
 	}

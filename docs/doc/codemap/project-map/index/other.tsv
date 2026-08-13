@@ -1,7 +1,7 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 .githooks/README.md	.githooks	other	doc	5033	未细分职责：请结合路径、文件名和相邻代码判断	githooks,README,未细分职责：请结合路径,文件名和相邻代码判断
 .githooks/commit-msg	.githooks	other	file	454	未细分职责：请结合路径、文件名和相邻代码判断	未细分职责：请结合路径,文件名和相邻代码判断
-Makefile	(root)	other	file	16910	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+Makefile	(root)	other	file	17023	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 cmd/acp-node/main.go	cmd	other	go-source	5424	未细分职责：请结合路径、文件名和相邻代码判断	cmd,acp,node,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/acp-node/main_test.go	cmd	other	go-test	6000	未细分职责：请结合路径、文件名和相邻代码判断	cmd,acp,node,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/agent-runtime/main.go	cmd	other	go-source	1195	Agent runtime command entry and tests	cmd,agent,runtime,main,Agent,command,entry,and,tests
@@ -57,7 +57,7 @@ internal/app/modules_graph_test.go	internal	other	go-test	18951	root Fx/app 装�
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,graph,closure
-internal/app/new_ui_scripts_test.go	internal	other	go-test	27745	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,test,root,Fx,装配,runner,与,graph,closure
+internal/app/new_ui_scripts_test.go	internal	other	go-test	27798	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_sqlite_scripts_test.go	internal	other	go-test	4678	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,sqlite,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/observability_trace_adapters.go	internal	other	go-source	3023	root Fx/app 装配、runner 与 graph closure	internal,app,observability,trace,adapters,root,Fx,装配,runner,与,graph,closure
 internal/app/orchestration_adapter_ports_test.go	internal	other	go-test	10127	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,adapter,ports,test,root,Fx,装配,runner,与,graph,closure
@@ -980,7 +980,7 @@ pkg/skillblocks/skillblocks.go	pkg	other	go-source	9916	可复用公共库	pkg,s
 pkg/skillblocks/skillblocks_test.go	pkg	other	go-test	17555	可复用公共库	pkg,skillblocks,test,可复用公共库
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4179	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	1257	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
-run-new-ui-desktop.ps1	(root)	other	script	31756	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
+run-new-ui-desktop.ps1	(root)	other	script	31834	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 run-new-ui-desktop.sh	(root)	other	script	32895	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 scripts/activate_guard_env.sh	scripts	other	script	1320	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/affected_go_packages.go	scripts	other	go-source	3112	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,affected,go,packages,工程自动化,测试守卫,代码地图与开发脚本
@@ -1084,7 +1084,7 @@ scripts/mcp_lsp_workload_guard/main.go	scripts	other	go-source	12043	工程自�
 scripts/mcp_lsp_workload_guard/main_test.go	scripts	other	go-test	1043	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,guard,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/mcp_lsp_workload_runner/main.go	scripts	other	go-source	11133	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,runner,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/mcp_lsp_workload_runner/main_test.go	scripts	other	go-test	2394	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,runner,main,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/new_ui_desktop_dev_env_guard_test.go	scripts	other	go-test	3514	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,env,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/new_ui_desktop_dev_env_guard_test.go	scripts	other	go-test	8426	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,env,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/new_ui_desktop_dev_loopback_guard_test.go	scripts	other	go-test	1331	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,loopback,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/new_ui_desktop_dev_token_guard_test.go	scripts	other	go-test	2910	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,token,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/nightly_protocol_validator/main.go	scripts	other	go-source	8637	工程自动化、测试守卫、代码地图与开发脚本	scripts,nightly,protocol,validator,main,工程自动化,测试守卫,代码地图与开发脚本

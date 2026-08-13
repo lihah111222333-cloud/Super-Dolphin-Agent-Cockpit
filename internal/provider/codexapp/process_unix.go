@@ -163,7 +163,21 @@ func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 
 // isAppServerArgs 判断进程参数是否像 Codex app-server 监听进程。
 // 匹配逻辑只看 argv 片段，供孤儿清理在 ps 输出里识别可回收目标。
-func isAppServerArgs(args []string) bool { return isCodexAppServerListenArgs(args) }
+func isAppServerArgs(args []string) bool {
+	for i := 0; i < len(args)-1; i++ {
+		if commandLeaf(args[i]) == codexAppServerCommand && args[i+1] == codexAppServerListen {
+			return true
+		}
+	}
+	return false
+}
+
+func commandLeaf(arg string) string {
+	if idx := strings.LastIndexAny(arg, `/\`); idx >= 0 {
+		return arg[idx+1:]
+	}
+	return arg
+}
 
 // discoverAppServerProcessList 枚举进程图并筛出 Codex app-server 监听进程。
 // 这里必须读取完整 argv 才能确认 `app-server --listen`，因此使用带 args 的 ps 格式。

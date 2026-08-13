@@ -205,7 +205,6 @@ func TestDiagnosticsAllowsEncodedAppManagedPathOutsideWorkspace(t *testing.T) {
 		target string
 	}{
 		{name: "file URI", target: fileURI(appFile)},
-		{name: "encoded absolute path", target: strings.ReplaceAll(appFile, "Application Support", "Application%20Support")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -217,6 +216,23 @@ func TestDiagnosticsAllowsEncodedAppManagedPathOutsideWorkspace(t *testing.T) {
 			assertDiagnosticURIs(t, diagnosticTargetURIs(targets), []string{canonicalFileURI(t, appFile)})
 		})
 	}
+}
+
+func TestDiagnosticsPreservesLiteralPercentInAbsoluteWorkspacePath(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "100% ready")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir percent workspace: %v", err)
+	}
+	target := writeDiagnosticsFixture(t, workspace, "main.go")
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: target})
+
+	if _, err := handler(ctx, req); err != nil {
+		t.Fatalf("diagnostics literal percent path: %v", err)
+	}
+	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, target)})
 }
 
 func TestDiagnosticsRejectsAppManagedRootWithoutCapability(t *testing.T) {
@@ -263,7 +279,7 @@ func TestDiagnosticsAppManagedOutsideWorkspaceSkipsStartupOpenRecovery(t *testin
 	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
 	ctx = WithAppManagedReadCapability(ctx)
-	target := strings.ReplaceAll(appFile, "Application Support", "Application%20Support")
+	target := fileURI(appFile)
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: target})
 
 	_, err := handler(ctx, req)
@@ -390,7 +406,7 @@ func TestDiagnosticsMixedBatchRejectsAppManagedOutsideWorkspaceBeforeRegistry(t 
 		common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}},
 	)
 	ctx = WithAppManagedReadCapability(ctx)
-	target := strings.ReplaceAll(appFile, "Application Support", "Application%20Support")
+	target := fileURI(appFile)
 	req := marshalDiagnosticsInput(t, fileToolInput{
 		Action:    "diagnostics",
 		FilePaths: []string{workspaceFile, target},

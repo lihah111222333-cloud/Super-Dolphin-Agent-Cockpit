@@ -503,7 +503,7 @@ func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID str
 	var (
 		absPath string
 	)
-	if strings.HasPrefix(trimmed, "file://") {
+	if hasFileURIScheme(trimmed) {
 		absPath, err = absolutePathFromURI(trimmed)
 	} else if !filepath.IsAbs(trimmed) && baseRoot != "" {
 		absPath, err = platformshared.NormalizeAbsolutePath(filepath.Join(baseRoot, trimmed))

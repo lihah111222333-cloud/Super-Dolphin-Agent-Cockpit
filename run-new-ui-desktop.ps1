@@ -743,6 +743,7 @@ $ViteDevPort = $viteUri.Port
 Set-DefaultEnv -Name 'GO_AGENT_PEER_BIN_DIR' -Value $ProjectDir
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_RUNTIME_MODE' -Value 'dev'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR' -Value $ProjectDir
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEPENDENCY_PROFILE' -Value 'desktop_host'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_ENTRYPOINT' -Value 'run-new-ui-desktop.ps1'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_HOME' -Value $script:DefaultSuperDolphinHome
 Set-DefaultEnv -Name 'CODEX_HOME' -Value (Join-Path $env:USERPROFILE '.codex')

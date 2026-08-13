@@ -223,6 +223,16 @@ npm install -g typescript-language-server typescript@5.9.3
 .\run-new-ui-desktop.ps1
 ```
 
+독립 실행하는 `mcp-lsp` stdio server는 fail-fast 방식이며, 각 client server 설정에 다음 시작 contract가 필요합니다.
+
+```text
+SUPER_DOLPHIN_RUNTIME_MODE=dev
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<runtime-resource-root>
+SUPER_DOLPHIN_DEPENDENCY_PROFILE=production
+```
+
+source build의 runtime resource root는 source checkout root이고, cross-platform `bin/LSP` package에서는 artifact resource root입니다. target file에서 추측하지 않습니다. Windows platform semantics는 실제로 실행한 binary에서 자동 선택됩니다. native PowerShell은 `mcp-lsp-windows-*.exe`와 `G:/develop/project` 형식을, WSL은 `mcp-lsp-linux-*`와 `/mnt/g/develop/project` 형식을 사용하며 두 경로 체계를 섞지 마십시오. 세 client 예제와 troubleshooting은 추적되는 [standalone client guide](docs/reference/mcp-lsp-standalone-clients.md)에 있으며, cross-platform binary package의 `bin/LSP/README.md`와 config skill에도 같은 contract를 제공합니다.
+
 SQLite는 `SUPER_DOLPHIN_HOME/super-dolphin.db`에 자동 생성됩니다. `SUPER_DOLPHIN_SQLITE_PATH`를 설정하면 다른 local file을 사용할 수 있습니다. PostgreSQL environment variable은 product database 설정 경로가 아닙니다.
 
 Build 및 test:

@@ -223,6 +223,16 @@ npm install -g typescript-language-server typescript@5.9.3
 .\run-new-ui-desktop.ps1
 ```
 
+単独で起動する `mcp-lsp` stdio server は fail-fast です。各 client の server 設定に次の起動 contract が必要です。
+
+```text
+SUPER_DOLPHIN_RUNTIME_MODE=dev
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<runtime-resource-root>
+SUPER_DOLPHIN_DEPENDENCY_PROFILE=production
+```
+
+source build の runtime resource root は source checkout root、cross-platform `bin/LSP` package では artifact resource root です。target file から推測しません。Windows の platform semantics は実際に起動した binary から自動選択されます。native PowerShell は `mcp-lsp-windows-*.exe` と `G:/develop/project` 形式、WSL は `mcp-lsp-linux-*` と `/mnt/g/develop/project` 形式を使用し、両方を混在させないでください。三つの client の例と troubleshooting は追跡対象の[standalone client guide](docs/reference/mcp-lsp-standalone-clients.md)にあり、cross-platform binary package の `bin/LSP/README.md` と config skill にも同じ contract を収録します。
+
 SQLite は `SUPER_DOLPHIN_HOME/super-dolphin.db` に自動作成されます。`SUPER_DOLPHIN_SQLITE_PATH` を設定すると別の local file を使用できます。PostgreSQL environment variable は product database の設定経路ではありません。
 
 Build と test：

@@ -223,6 +223,16 @@ Aktuellen Desktop-Entwicklungsablauf starten:
 .\run-new-ui-desktop.ps1
 ```
 
+Ein eigenständig gestarteter `mcp-lsp`-stdio-Server arbeitet fail-fast: Jede Serverdefinition des Clients muss diesen Startvertrag enthalten:
+
+```text
+SUPER_DOLPHIN_RUNTIME_MODE=dev
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<runtime-resource-root>
+SUPER_DOLPHIN_DEPENDENCY_PROFILE=production
+```
+
+Bei einem Source-Build ist der Ressourcenstamm das Checkout-Stammverzeichnis; beim plattformübergreifenden `bin/LSP`-Paket ist es der Ressourcenstamm des Artefakts. Er wird nicht aus der Zieldatei abgeleitet. Unter Windows wird die Plattformsemantik automatisch durch das tatsächlich gestartete Binary bestimmt: Natives PowerShell verwendet `mcp-lsp-windows-*.exe` und Pfade wie `G:/develop/project`, WSL verwendet `mcp-lsp-linux-*` und Pfade wie `/mnt/g/develop/project`. Beide Pfadfamilien dürfen nicht gemischt werden. Beispiele für alle drei Clients und Hinweise zur Fehlerbehebung stehen im versionierten [Standalone-Client-Leitfaden](docs/reference/mcp-lsp-standalone-clients.md); das plattformübergreifende Binärpaket spiegelt denselben Vertrag in `bin/LSP/README.md` und seinem Konfigurations-Skill.
+
 SQLite wird automatisch unter `SUPER_DOLPHIN_HOME/super-dolphin.db` angelegt. Mit `SUPER_DOLPHIN_SQLITE_PATH` kann eine andere lokale Datei verwendet werden. PostgreSQL-Umgebungsvariablen sind kein Konfigurationsweg für die Produktdatenbank.
 
 Build und Tests:

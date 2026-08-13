@@ -12,7 +12,8 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
-const goVersionProbeTimeout = 2 * time.Second
+// 自动工具链第一次运行可能需要下载，仍以有界超时阻断长期挂起。
+const goVersionProbeTimeout = 30 * time.Second
 
 type goToolchainCandidate struct {
 	binDir string
@@ -23,7 +24,11 @@ func withGoToolchain(info GoRootInfo, env []string, rootErr error) (GoRootInfo, 
 	if rootErr != nil {
 		return info, rootErr
 	}
-	toolchain, err := resolveGoToolchainForModule(info.GoModPath, env)
+	toolchain, err := resolveGoToolchain(
+		info,
+		goToolchainProbeDir(info),
+		goToolchainProbeEnv(info, env),
+	)
 	if err != nil {
 		return GoRootInfo{}, err
 	}
@@ -31,34 +36,61 @@ func withGoToolchain(info GoRootInfo, env []string, rootErr error) (GoRootInfo, 
 	return info, nil
 }
 
-func resolveGoToolchainForModule(goModPath string, env []string) (GoToolchainInfo, error) {
-	if strings.TrimSpace(goModPath) == "" {
-		return GoToolchainInfo{}, nil
-	}
-	required, err := requiredGoVersionFromMod(goModPath)
+func resolveGoToolchain(info GoRootInfo, probeDir string, env []string) (GoToolchainInfo, error) {
+	required, source, err := requiredGoVersion(info)
 	if err != nil {
 		return GoToolchainInfo{}, err
 	}
 	if required == "" {
 		return GoToolchainInfo{}, nil
 	}
-	toolchain, err := selectGoToolchainFromPATH(required, env)
+	toolchain, err := selectGoToolchainFromPATH(required, probeDir, env)
 	if err != nil {
-		return GoToolchainInfo{}, fmt.Errorf("%s requires go %s but PATH has no matching Go executable: %w", goModPath, required, err)
+		return GoToolchainInfo{}, fmt.Errorf("%s requires go %s but Go toolchain selection failed: %w", source, required, err)
 	}
 	return toolchain, nil
 }
 
-// requiredGoVersionFromMod 读取 go.mod 中声明的最低 Go 版本。
-// toolchain 指令高于 go 指令时也会参与比较，确保后续 PATH 选择满足模块要求。
-func requiredGoVersionFromMod(goModPath string) (string, error) {
-	data, err := os.ReadFile(goModPath)
+// requiredGoVersion 合并主模块与当前 go.work 的最低/首选工具链要求。
+// workspace 指令高于模块时必须成为权威要求，go.work 文件目标也不能跳过探测。
+func requiredGoVersion(info GoRootInfo) (string, string, error) {
+	required := goVersion{}
+	requiredText := ""
+	source := ""
+	for _, path := range []string{info.GoModPath, info.GoWorkPath} {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		candidateText, err := requiredGoVersionFromFile(path)
+		if err != nil {
+			return "", "", err
+		}
+		if candidateText == "" {
+			continue
+		}
+		candidate, err := parseGoVersion(candidateText)
+		if err != nil {
+			return "", "", err
+		}
+		if requiredText == "" || candidate.compare(required) > 0 {
+			required = candidate
+			requiredText = candidate.String()
+			source = path
+		}
+	}
+	return requiredText, source, nil
+}
+
+// requiredGoVersionFromFile 读取 go.mod 或 go.work 中声明的最低/首选 Go 版本。
+// toolchain 指令高于 go 指令时也会参与比较，确保后续 PATH 选择满足当前 scope 要求。
+func requiredGoVersionFromFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read go.mod %s: %w", goModPath, err)
+		return "", fmt.Errorf("read Go toolchain requirements %s: %w", path, err)
 	}
 	required := goVersion{}
 	requiredText := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		candidate, ok := goDirectiveVersionCandidate(fields)
 		if !ok {
@@ -66,7 +98,7 @@ func requiredGoVersionFromMod(goModPath string) (string, error) {
 		}
 		parsed, err := parseGoVersion(candidate)
 		if err != nil {
-			return "", fmt.Errorf("parse %s directive in %s: %w", fields[0], goModPath, err)
+			return "", fmt.Errorf("parse %s directive in %s: %w", fields[0], path, err)
 		}
 		if requiredText == "" || parsed.compare(required) > 0 {
 			required = parsed
@@ -91,7 +123,7 @@ func goDirectiveVersionCandidate(fields []string) (string, bool) {
 	}
 }
 
-func selectGoToolchainFromPATH(requiredText string, env []string) (GoToolchainInfo, error) {
+func selectGoToolchainFromPATH(requiredText, probeDir string, env []string) (GoToolchainInfo, error) {
 	required, err := parseGoVersion(requiredText)
 	if err != nil {
 		return GoToolchainInfo{}, err
@@ -104,42 +136,47 @@ func selectGoToolchainFromPATH(requiredText string, env []string) (GoToolchainIn
 	if len(candidates) == 0 {
 		return GoToolchainInfo{}, fmt.Errorf("no go executable found in PATH")
 	}
-	return selectGoToolchainCandidate(required, pathValue, candidates)
+	return selectGoToolchainCandidate(required, pathValue, probeDir, env, candidates)
 }
 
-func selectGoToolchainCandidate(required goVersion, pathValue string, candidates []goToolchainCandidate) (GoToolchainInfo, error) {
+func selectGoToolchainCandidate(
+	required goVersion,
+	pathValue string,
+	probeDir string,
+	env []string,
+	candidates []goToolchainCandidate,
+) (GoToolchainInfo, error) {
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), goVersionProbeTimeout)
+	defer cancel()
 	probed := make([]string, 0, len(candidates))
 	for index, candidate := range candidates {
-		version, err := goExecutableVersion(candidate.path)
+		version, err := goExecutableVersion(ctx, candidate.path, probeDir, env)
 		if err != nil {
 			probed = append(probed, fmt.Sprintf("%s: %v", candidate.path, err))
 			continue
 		}
 		probed = append(probed, fmt.Sprintf("%s=%s", candidate.path, version.String()))
 		if version.compare(required) >= 0 {
-			return selectedGoToolchain(required, pathValue, candidate.binDir, index > 0), nil
+			return selectedGoToolchain(required, version, pathValue, candidate.binDir, index > 0), nil
 		}
 	}
-	return GoToolchainInfo{}, fmt.Errorf("checked %s", strings.Join(probed, ", "))
+	return GoToolchainInfo{}, fmt.Errorf("checked PATH candidates: %s", strings.Join(probed, ", "))
 }
 
-func selectedGoToolchain(required goVersion, pathValue, binDir string, overridePATH bool) GoToolchainInfo {
+func selectedGoToolchain(required, selected goVersion, pathValue, binDir string, overridePATH bool) GoToolchainInfo {
 	toolchain := GoToolchainInfo{
 		RequiredVersion: required.String(),
+		SelectedVersion: selected.String(),
 		BinDir:          binDir,
 	}
 	if overridePATH {
 		toolchain.PathEnv = prependPATHDir(binDir, pathValue)
-		toolchain.ForceLocal = true
 	}
 	return toolchain
 }
 
 func goToolchainPATHValue(env []string) string {
-	if pathValue, ok := envValue(env, "PATH"); ok {
-		return pathValue
-	}
-	return os.Getenv("PATH")
+	return goRootEnvValue(env, "PATH")
 }
 
 func goToolchainCandidates(pathValue string) []goToolchainCandidate {
@@ -177,12 +214,13 @@ func goToolchainCandidateForDir(dir string, seenDirs map[string]struct{}) (goToo
 	return goToolchainCandidate{}, false
 }
 
-// goExecutableVersion 运行候选 go 命令并解析其版本号。
-// 探测受超时保护，避免坏二进制或卡住的 wrapper 阻塞 LSP scope 解析。
-func goExecutableVersion(path string) (goVersion, error) {
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), goVersionProbeTimeout)
-	defer cancel()
-	out, err := hiddenexec.CommandContext(ctx, path, "version").Output()
+// goExecutableVersion 在调用级共享 deadline 下运行候选 go 命令并解析其版本号。
+// 坏二进制或卡住的 wrapper 会耗尽本次选择预算，而不会为每个 PATH 项重新计时。
+func goExecutableVersion(ctx context.Context, path, probeDir string, env []string) (goVersion, error) {
+	cmd := hiddenexec.CommandContext(ctx, path, "version")
+	cmd.Dir = probeDir
+	cmd.Env = env
+	out, err := cmd.Output()
 	if ctx.Err() != nil {
 		return goVersion{}, ctx.Err()
 	}
@@ -194,6 +232,36 @@ func goExecutableVersion(path string) (goVersion, error) {
 		return goVersion{}, fmt.Errorf("unexpected go version output %q", strings.TrimSpace(string(out)))
 	}
 	return parseGoVersion(strings.TrimPrefix(fields[2], "go"))
+}
+
+// goToolchainProbeDir 返回 go version 探测必须使用的模块或工作区目录。
+// GOTOOLCHAIN=auto 只有在该目录下才能读取当前 go.mod/go.work 并选择所需工具链。
+func goToolchainProbeDir(info GoRootInfo) string {
+	if info.GoWorkPath != "" && info.WorkspaceRoot != "" {
+		return info.WorkspaceRoot
+	}
+	if info.ModuleRoot != "" {
+		return info.ModuleRoot
+	}
+	if info.GoModPath != "" {
+		return filepath.Dir(info.GoModPath)
+	}
+	return info.WorkspaceRoot
+}
+
+// goToolchainProbeEnv 以已解析的请求环境为唯一基线，并把 GOWORK 绑定到同一探测上下文。
+// req.Env=nil 已由 goRootRequestEnv 转成父环境；显式 env 不得重新继承宿主污染。
+func goToolchainProbeEnv(info GoRootInfo, env []string) []string {
+	probeEnv := append([]string(nil), env...)
+	switch info.GOWORKMode {
+	case goworkModeOff:
+		probeEnv = append(probeEnv, "GOWORK=off")
+	case goworkModeAuto, goworkModeExplicit:
+		if info.GoWorkPath != "" {
+			probeEnv = append(probeEnv, "GOWORK="+info.GoWorkPath)
+		}
+	}
+	return probeEnv
 }
 
 func prependPATHDir(dir, pathValue string) string {
@@ -213,7 +281,7 @@ func prependPATHDir(dir, pathValue string) string {
 
 func goExecutableNames() []string {
 	if os.PathSeparator == '\\' {
-		return []string{"go.exe", "go.cmd", "go.bat"}
+		return []string{"go.exe"}
 	}
 	return []string{"go"}
 }

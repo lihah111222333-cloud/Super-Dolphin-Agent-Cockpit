@@ -3,11 +3,16 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 type registryContextKey struct{}
@@ -38,6 +43,58 @@ func TestRegistryGroupURIWaitUsesCallerContext(t *testing.T) {
 	if got := mgr.waitContext.Value(registryContextKey{}); got != "group-scope" {
 		t.Fatalf("WaitDiagnosticsStable ctx value = %#v, want group-scope", got)
 	}
+}
+
+func TestRegistryDiagnosticsRoutesEscapedFileURIInsideUnicodeWorkspace(t *testing.T) {
+	parent := t.TempDir()
+	for _, name := range []string{"中转", "space dir", "100% ready"} {
+		t.Run(name, func(t *testing.T) {
+			root := filepath.Join(parent, name, "new-api-main")
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				t.Fatalf("mkdir workspace root: %v", err)
+			}
+			target := filepath.Join(root, "main.go")
+			uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(target)}).String()
+			want, err := platformshared.NormalizeAbsolutePath(target)
+			if err != nil {
+				t.Fatalf("normalize expected target: %v", err)
+			}
+
+			mgr := &registryDiagnosticsManager{}
+			registry := NewRegistry(nil)
+			registry.Register("go", mgr, &registryTargetPathResolver{
+				manager: mgr,
+				want:    want,
+			})
+			ctx := common.WithToolScope(context.Background(), common.ToolScope{
+				CWD:            root,
+				WorkspaceRoots: []string{root},
+			})
+
+			if err := registry.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
+				t.Fatalf("WaitDiagnosticsStable(%q): %v", uri, err)
+			}
+			if err := registry.BootstrapDocument(ctx, uri); err != nil {
+				t.Fatalf("BootstrapDocument(%q): %v", uri, err)
+			}
+		})
+	}
+}
+
+type registryTargetPathResolver struct {
+	manager Manager
+	want    string
+}
+
+func (r *registryTargetPathResolver) ForToolScope(scope ToolScope) (ScopedManager, error) {
+	if scope.TargetPath != r.want {
+		return ScopedManager{}, fmt.Errorf("target path = %q, want decoded path %q", scope.TargetPath, r.want)
+	}
+	return ScopedManager{Manager: r.manager}, nil
+}
+
+func (r *registryTargetPathResolver) CurrentManagersForToolScope(ToolScope) ([]ScopedManager, error) {
+	return []ScopedManager{{Manager: r.manager}}, nil
 }
 
 func TestRegistryDiagnosticsExplicitUnsupportedLanguageReturnsFileError(t *testing.T) {

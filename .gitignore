@@ -18,7 +18,13 @@
 /codex-app 2/
 
 # Build directories
-/bin/
+/bin/*
+!/bin/LSP/
+/bin/LSP/*
+!/bin/LSP/AGENTS.md
+!/bin/LSP/README.md
+!/bin/LSP/mcp-lsp-project-config-skill/
+!/bin/LSP/mcp-lsp-project-config-skill/**
 /build/
 /dist/
 cmd/agent-terminal/frontend/node_modules/

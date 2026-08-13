@@ -215,6 +215,7 @@ func TestApplyPackagedEnvPrependsBundledTools(t *testing.T) {
 
 func TestApplySidecarRuntimeContractPackagedRebuildsBundledToolPath(t *testing.T) {
 	resources := t.TempDir()
+	t.Setenv(projectRootEnv, "")
 	binDir := filepath.Join(resources, "bin")
 	lspBinDir := filepath.Join(resources, "lsp", "bin")
 	lspNodePathDir := packagedNodePathEntryForTest(resources)

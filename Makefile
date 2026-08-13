@@ -111,6 +111,7 @@ DEV_SQLITE_PATH ?= $(HOME)/.super-dolphin/super-dolphin.db
 run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_SQLITE_PATH ?= $(DEV_SQLITE_PATH)
 run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_MODE := dev
 run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR := $(CURDIR)
+run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DEPENDENCY_PROFILE := desktop_host
 run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug
 
 # When agent-terminal runs via `go run`, its own binary lives under a go-build

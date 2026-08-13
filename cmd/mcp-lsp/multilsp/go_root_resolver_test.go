@@ -1,7 +1,9 @@
 package multilsp
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -14,7 +16,7 @@ func TestGoRootResolverGoMod(t *testing.T) {
 	writeGoMod(t, repo, "example.com/root")
 	target := writeGoFile(t, repo, "main.go")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve go.mod root: %v", err)
 	}
@@ -27,6 +29,21 @@ func TestGoRootResolverGoMod(t *testing.T) {
 		GOWORKMode:    goworkModeAuto,
 		ProjectRoot:   repo,
 	})
+}
+
+func TestResolveGoTargetPathAcceptsCaseInsensitiveFileURI(t *testing.T) {
+	repo := normalizedTempDir(t)
+	target := writeGoFile(t, repo, "中转.go")
+	uri := fileURIFromPath(target)
+	mixedCaseURI := "FiLe:" + strings.TrimPrefix(uri, "file:")
+
+	got, err := resolveGoTargetPath(mixedCaseURI, repo)
+	if err != nil {
+		t.Fatalf("resolveGoTargetPath(%q): %v", mixedCaseURI, err)
+	}
+	if got != target {
+		t.Fatalf("resolveGoTargetPath(%q) = %q, want %q", mixedCaseURI, got, target)
+	}
 }
 
 func TestGoRootResolverUsesGoModVersionBeforePATHDefault(t *testing.T) {
@@ -47,9 +64,105 @@ func TestGoRootResolverUsesGoModVersionBeforePATHDefault(t *testing.T) {
 	}
 
 	wantPath := "PATH=" + requiredGoDir + string(os.PathListSeparator) + oldGoDir
-	wantEnv := []string{wantPath, "GOTOOLCHAIN=local"}
+	wantEnv := []string{wantPath}
 	if got := goRootEnv(info); !reflect.DeepEqual(got, wantEnv) {
 		t.Fatalf("go.mod toolchain env = %#v, want %#v", got, wantEnv)
+	}
+}
+
+func TestGoRootResolverHonorsAutoToolchainInModuleDirectory(t *testing.T) {
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	writeFile(t, filepath.Join(backend, "go.mod"), "module example.com/backend\n\ngo 1.26.4\n")
+	target := writeGoFile(t, backend, "main.go")
+	goDir := writeCWDDependentFakeGoVersion(
+		t,
+		repo,
+		"auto-go",
+		backend,
+		"go version go1.26.4 windows/amd64",
+		"go version go1.25.6 windows/amd64",
+	)
+
+	info, err := ResolveGoRoot(GoRootRequest{
+		CWD:      repo,
+		FilePath: target,
+		Env: []string{
+			"PATH=" + goDir,
+			"GOTOOLCHAIN=auto",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveGoRoot() with GOTOOLCHAIN=auto error = %v", err)
+	}
+	if info.GoToolchain.RequiredVersion != "1.26.4" {
+		t.Fatalf("required Go version = %q, want 1.26.4", info.GoToolchain.RequiredVersion)
+	}
+	for _, entry := range goRootEnv(info) {
+		if entry == "GOTOOLCHAIN=local" {
+			t.Fatalf("goRootEnv() = %#v, must not disable automatic toolchain switching", goRootEnv(info))
+		}
+	}
+}
+
+func TestGoToolchainProbeEnvKeepsExplicitEnvironmentIsolated(t *testing.T) {
+	t.Setenv("GOWORK", filepath.Join(t.TempDir(), "external.go.work"))
+	want := []string{"PATH=/explicit/go/bin", "GOTOOLCHAIN=auto"}
+	got := goToolchainProbeEnv(GoRootInfo{GOWORKMode: goworkModeAuto}, want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("goToolchainProbeEnv() = %#v, want isolated explicit env %#v", got, want)
+	}
+}
+
+func TestParseGoWorkModuleRootsWithGoCommandUsesRequestPATH(t *testing.T) {
+	repo := normalizedTempDir(t)
+	moduleRoot := filepath.Join(repo, "module")
+	writeGoMod(t, moduleRoot, "example.com/module")
+	goWorkPath := filepath.Join(repo, "go.work")
+	writeFile(t, goWorkPath, "go 1.26.4\n\nuse ./module\n")
+	requestGoDir := writeFakeGoOutput(t, repo, "request-go", `{"Use":[{"DiskPath":"./module"}]}`)
+	t.Setenv("PATH", t.TempDir())
+
+	roots, err := parseGoWorkModuleRootsWithGoCommand(goWorkPath, []string{"PATH=" + requestGoDir})
+	if err != nil {
+		t.Fatalf("parse go.work with request PATH: %v", err)
+	}
+	want := []string{moduleRoot}
+	if !reflect.DeepEqual(roots, want) {
+		t.Fatalf("go.work roots = %#v, want %#v", roots, want)
+	}
+}
+
+func TestGoRootResolverExplicitEmptyEnvironmentDoesNotInheritHost(t *testing.T) {
+	repo := normalizedTempDir(t)
+	writeFile(t, filepath.Join(repo, "go.mod"), "module example.com/isolated\n\ngo 1.26.4\n")
+	target := writeGoFile(t, repo, "main.go")
+	matchingGoDir := writeFakeGoVersion(t, repo, "host-go", "go version go1.26.4 darwin/arm64")
+	t.Setenv("PATH", matchingGoDir)
+
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	if err == nil {
+		t.Fatalf("ResolveGoRoot() error = nil, got info %#v", info)
+	}
+	if !strings.Contains(err.Error(), "PATH is empty") {
+		t.Fatalf("ResolveGoRoot() error = %v, want explicit empty PATH failure", err)
+	}
+}
+
+func TestGoToolchainProbeEnvPreservesRequestedPolicy(t *testing.T) {
+	for _, value := range []string{"auto", "go1.25.1+auto", "go1.25.1", "local"} {
+		t.Run(value, func(t *testing.T) {
+			want := []string{"PATH=/explicit/go/bin", "GOTOOLCHAIN=" + value}
+			got := goToolchainProbeEnv(GoRootInfo{GOWORKMode: goworkModeAuto}, want)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("goToolchainProbeEnv(%q) = %#v, want %#v", value, got, want)
+			}
+			for _, entry := range goRootEnv(GoRootInfo{GoToolchain: GoToolchainInfo{}}) {
+				if strings.HasPrefix(entry, "GOTOOLCHAIN=") {
+					t.Fatalf("goRootEnv() must not overwrite %q: %#v", value, entry)
+				}
+			}
+		})
 	}
 }
 
@@ -84,7 +197,7 @@ func TestGoRootResolverGoWork(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "go.work"), "go 1.25.0\n\nuse (\n\t./tools\n\t./backend\n)\n")
 	target := writeGoFile(t, backend, "main.go")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve go.work root: %v", err)
 	}
@@ -106,6 +219,55 @@ func TestGoRootResolverGoWork(t *testing.T) {
 	assertGoLanguageSpecificContainsTopology(t, info)
 }
 
+func TestGoRootResolverUsesHigherGoWorkToolchainRequirement(t *testing.T) {
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	writeFile(t, filepath.Join(backend, "go.mod"), "module example.com/backend\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(repo, "go.work"), "go 1.26.4\n\nuse ./backend\n")
+	target := writeGoFile(t, backend, "main.go")
+	probeEnv := goEnvForToolchainProbe(t)
+	probeEnv = append(probeEnv, "GOTOOLCHAIN=auto")
+
+	info, err := ResolveGoRoot(GoRootRequest{
+		CWD:      repo,
+		FilePath: target,
+		Env:      probeEnv,
+	})
+	if err != nil {
+		t.Fatalf("ResolveGoRoot() with higher go.work requirement: %v", err)
+	}
+	selected, err := parseGoVersion(info.GoToolchain.SelectedVersion)
+	if err != nil {
+		t.Fatalf("parse selected toolchain %q: %v", info.GoToolchain.SelectedVersion, err)
+	}
+	required, _ := parseGoVersion("1.26.4")
+	if info.GoToolchain.RequiredVersion != "1.26.4" || selected.compare(required) < 0 {
+		t.Fatalf("go.work toolchain = %#v, want required 1.26.4 and selected >= requirement", info.GoToolchain)
+	}
+}
+
+func TestGoRootResolverGoWorkFileTargetChecksToolchain(t *testing.T) {
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	writeGoMod(t, backend, "example.com/backend")
+	goWorkPath := filepath.Join(repo, "go.work")
+	writeFile(t, goWorkPath, "go 1.26.4\n\nuse ./backend\n")
+	probeEnv := goEnvForToolchainProbe(t)
+	probeEnv = append(probeEnv, "GOTOOLCHAIN=auto")
+
+	info, err := ResolveGoRoot(GoRootRequest{
+		CWD:      repo,
+		FilePath: goWorkPath,
+		Env:      probeEnv,
+	})
+	if err != nil {
+		t.Fatalf("ResolveGoRoot(go.work target): %v", err)
+	}
+	if info.GoToolchain.RequiredVersion != "1.26.4" {
+		t.Fatalf("go.work target required toolchain = %q, want 1.26.4", info.GoToolchain.RequiredVersion)
+	}
+}
+
 func TestGoRootResolverGoWorkQuotedUsePath(t *testing.T) {
 	repo := normalizedTempDir(t)
 	spaced := filepath.Join(repo, "module with space")
@@ -115,7 +277,7 @@ func TestGoRootResolverGoWorkQuotedUsePath(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "go.work"), "go 1.25.0\n\nuse (\n\t\"./module with space\"\n\t./tools\n)\n")
 	target := writeGoFile(t, spaced, "main.go")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve go.work quoted use path: %v", err)
 	}
@@ -140,7 +302,7 @@ func TestGoRootResolverGoWorkFileTarget(t *testing.T) {
 	goWorkPath := filepath.Join(repo, "go.work")
 	writeFile(t, goWorkPath, "go 1.25.0\n\nuse ./backend\n")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: goWorkPath, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: goWorkPath, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve go.work file target: %v", err)
 	}
@@ -164,7 +326,10 @@ func TestGoRootResolverExplicitGoWork(t *testing.T) {
 	info, err := ResolveGoRoot(GoRootRequest{
 		CWD:      filepath.Join(repo, "unrelated"),
 		FilePath: target,
-		Env:      []string{"GOWORK=" + goWorkPath},
+		Env: []string{
+			"GOWORK=" + goWorkPath,
+			"PATH=" + os.Getenv("PATH"),
+		},
 	})
 	if err != nil {
 		t.Fatalf("resolve explicit go.work root: %v", err)
@@ -197,7 +362,10 @@ func runGOWORKAutoUsesAutoDiscovery(t *testing.T) {
 	info, err := ResolveGoRoot(GoRootRequest{
 		CWD:      repo,
 		FilePath: target,
-		Env:      []string{"GOWORK=auto"},
+		Env: []string{
+			"GOWORK=auto",
+			"PATH=" + os.Getenv("PATH"),
+		},
 	})
 	if err != nil {
 		t.Fatalf("GOWORK=auto should use automatic go.work discovery: %v", err)
@@ -242,7 +410,7 @@ func runBrokenGoWorkFailsClosed(t *testing.T) {
 	writeFile(t, goWorkPath, "go 1.25.0\n\nuse (\n\t./backend\n")
 	target := writeGoFile(t, backend, "main.go")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: goEnvForToolchainProbe(t)})
 	if err == nil {
 		t.Fatalf("broken go.work error = nil, got info %#v", info)
 	}
@@ -331,11 +499,11 @@ func TestGoRootResolverLinkedWorktreeWorkspaceKey(t *testing.T) {
 	targetA := writeGoFile(t, wtA, "main.go")
 	targetB := writeGoFile(t, wtB, "main.go")
 
-	infoA, err := ResolveGoRoot(GoRootRequest{CWD: wtA, FilePath: targetA, Env: []string{}})
+	infoA, err := ResolveGoRoot(GoRootRequest{CWD: wtA, FilePath: targetA, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve worktree A: %v", err)
 	}
-	infoB, err := ResolveGoRoot(GoRootRequest{CWD: wtB, FilePath: targetB, Env: []string{}})
+	infoB, err := ResolveGoRoot(GoRootRequest{CWD: wtB, FilePath: targetB, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve worktree B: %v", err)
 	}
@@ -363,11 +531,11 @@ func TestGoRootResolverLinkedWorktreeSymlinkAliasCanonicalKey(t *testing.T) {
 	}
 	aliasTarget := filepath.Join(aliasRoot, "main.go")
 
-	realInfo, err := ResolveGoRoot(GoRootRequest{CWD: realRoot, FilePath: realTarget, Env: []string{}})
+	realInfo, err := ResolveGoRoot(GoRootRequest{CWD: realRoot, FilePath: realTarget, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve real root: %v", err)
 	}
-	aliasInfo, err := ResolveGoRoot(GoRootRequest{CWD: aliasRoot, FilePath: aliasTarget, Env: []string{}})
+	aliasInfo, err := ResolveGoRoot(GoRootRequest{CWD: aliasRoot, FilePath: aliasTarget, Env: goEnvForToolchainProbe(t)})
 	if err != nil {
 		t.Fatalf("resolve symlink alias root: %v", err)
 	}
@@ -452,24 +620,90 @@ func normalizedTempDir(t *testing.T) string {
 
 func writeGoMod(t *testing.T, dir, module string) {
 	t.Helper()
-	writeFile(t, filepath.Join(dir, "go.mod"), "module "+module+"\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(dir, "go.mod"), "module "+module+"\n")
+}
+
+func goEnvForToolchainProbe(t *testing.T) []string {
+	t.Helper()
+	executable, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("locate Go executable for resolver fixture: %v", err)
+	}
+	return []string{"PATH=" + filepath.Dir(executable)}
 }
 
 func writeFakeGoVersion(t *testing.T, root, name, output string) string {
+	return writeFakeGoOutput(t, root, name, output)
+}
+
+func writeFakeGoOutput(t *testing.T, root, name, output string) string {
 	t.Helper()
 	dir := filepath.Join(root, name)
-	body := "#!/bin/sh\n/bin/echo '" + output + "'\nexit 0\n"
-	executable := "go"
 	if runtime.GOOS == "windows" {
-		executable = "go.cmd"
-		body = "@echo off\r\necho " + output + "\r\nexit /b 0\r\n"
+		path := filepath.Join(dir, "go.exe")
+		buildWindowsFakeGo(t, path, fmt.Sprintf("package main\nimport \"fmt\"\nfunc main() { fmt.Print(%q) }\n", output))
+		return dir
 	}
-	path := filepath.Join(dir, executable)
+	body := "#!/bin/sh\nprintf '%s' '" + strings.ReplaceAll(output, "'", "'\\''") + "'\n"
+	path := filepath.Join(dir, "go")
 	writeFile(t, path, body)
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatalf("chmod fake go: %v", err)
 	}
 	return dir
+}
+
+func writeCWDDependentFakeGoVersion(t *testing.T, root, name, requiredDir, matchingOutput, fallbackOutput string) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "go.exe")
+		body := fmt.Sprintf(`package main
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+func main() {
+	cwd, _ := os.Getwd()
+	if strings.EqualFold(filepath.Clean(cwd), filepath.Clean(%q)) && strings.EqualFold(os.Getenv("GOTOOLCHAIN"), "auto") {
+		fmt.Print(%q)
+		return
+	}
+	fmt.Print(%q)
+}
+`, requiredDir, matchingOutput, fallbackOutput)
+		buildWindowsFakeGo(t, path, body)
+		return dir
+	}
+	body := "#!/bin/sh\n" +
+		"if [ \"$PWD\" = '" + requiredDir + "' ] && [ \"$GOTOOLCHAIN\" = 'auto' ]; then\n" +
+		"  /bin/echo '" + matchingOutput + "'\n" +
+		"else\n" +
+		"  /bin/echo '" + fallbackOutput + "'\n" +
+		"fi\n"
+	path := filepath.Join(dir, "go")
+	writeFile(t, path, body)
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatalf("chmod cwd-sensitive fake go: %v", err)
+	}
+	return dir
+}
+
+func buildWindowsFakeGo(t *testing.T, path, source string) {
+	t.Helper()
+	sourcePath := filepath.Join(filepath.Dir(path), "main.go")
+	writeFile(t, sourcePath, source)
+	goPath, err := exec.LookPath("go.exe")
+	if err != nil {
+		t.Fatalf("locate Go executable for Windows fixture: %v", err)
+	}
+	cmd := exec.Command(goPath, "build", "-o", path, sourcePath)
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build Windows fake go: %v\n%s", err, output)
+	}
 }
 
 func writeGoFile(t *testing.T, dir, name string) string {

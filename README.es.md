@@ -223,6 +223,16 @@ Ejecuta el flujo actual de desarrollo de escritorio:
 .\run-new-ui-desktop.ps1
 ```
 
+Un servidor stdio `mcp-lsp` independiente aplica fail-fast: cada definición de servidor del cliente debe proporcionar este contrato de inicio:
+
+```text
+SUPER_DOLPHIN_RUNTIME_MODE=dev
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<runtime-resource-root>
+SUPER_DOLPHIN_DEPENDENCY_PROFILE=production
+```
+
+En una compilación desde fuente, la raíz de recursos es la raíz del checkout; en el paquete multiplataforma `bin/LSP`, es la raíz de recursos del artefacto. No se infiere del archivo objetivo. En Windows, la semántica de plataforma se selecciona automáticamente según el binario ejecutado: PowerShell nativo usa `mcp-lsp-windows-*.exe` y rutas como `G:/develop/project`; WSL usa `mcp-lsp-linux-*` y rutas como `/mnt/g/develop/project`. No mezcles ambos formatos. Los ejemplos de los tres clientes y la guía de diagnóstico están en la [guía de clientes independiente](docs/reference/mcp-lsp-standalone-clients.md); el paquete binario multiplataforma refleja el mismo contrato en `bin/LSP/README.md` y su skill de configuración.
+
 SQLite se crea automáticamente en `SUPER_DOLPHIN_HOME/super-dolphin.db`. Define `SUPER_DOLPHIN_SQLITE_PATH` para utilizar otro archivo local. Las variables de entorno de PostgreSQL no son una vía de configuración de la base de datos del producto.
 
 Compila y ejecuta los tests:

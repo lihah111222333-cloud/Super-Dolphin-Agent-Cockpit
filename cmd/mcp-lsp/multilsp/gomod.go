@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -23,8 +24,8 @@ type goWorkEditJSON struct {
 	} `json:"Use"`
 }
 
-func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
-	roots, err := parseGoWorkModuleRootsWithGoCommand(goWorkPath)
+func parseGoWorkModuleRoots(goWorkPath string, env []string) ([]string, error) {
+	roots, err := parseGoWorkModuleRootsWithGoCommand(goWorkPath, env)
 	if err == nil {
 		return cleanSortedUniquePaths(roots), nil
 	}
@@ -36,9 +37,14 @@ func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
 
 // parseGoWorkModuleRootsWithGoCommand 通过 `go work edit -json` 读取 go.work 的 use 列表。
 // 命令 stderr 会进入错误链，便于上层区分语法错误和 go 命令缺失。
-func parseGoWorkModuleRootsWithGoCommand(goWorkPath string) ([]string, error) {
-	cmd := hiddenexec.Command("go", "work", "edit", "-json", goWorkPath)
+func parseGoWorkModuleRootsWithGoCommand(goWorkPath string, env []string) ([]string, error) {
+	goPath, err := goExecutablePathFromEnv(env)
+	if err != nil {
+		return nil, err
+	}
+	cmd := hiddenexec.Command(goPath, "work", "edit", "-json", goWorkPath)
 	cmd.Dir = filepath.Dir(goWorkPath)
+	cmd.Env = env
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr := new(exec.ExitError); errors.As(err, &exitErr) {
@@ -59,6 +65,14 @@ func parseGoWorkModuleRootsWithGoCommand(goWorkPath string) ([]string, error) {
 		roots = appendGoWorkUseRoot(roots, workDir, use.DiskPath)
 	}
 	return roots, nil
+}
+
+func goExecutablePathFromEnv(env []string) (string, error) {
+	pathValue := goRootEnvValue(env, "PATH")
+	for _, candidate := range goToolchainCandidates(pathValue) {
+		return candidate.path, nil
+	}
+	return "", &exec.Error{Name: "go", Err: exec.ErrNotFound}
 }
 
 func parseGoWorkModuleRootsFallback(goWorkPath string) ([]string, error) {
@@ -247,24 +261,21 @@ func resolveStartDir(absPath string) (string, error) {
 // absolutePathFromURI 将 file URI 转成规范化绝对路径。
 // 空 URI、非 file scheme 或路径规范化失败都会返回错误，调用方不得静默回退。
 func absolutePathFromURI(uri string) (string, error) {
-	if strings.TrimSpace(uri) == "" {
-		return "", ErrDocumentTargetEmpty
-	}
-	parsed, err := url.Parse(uri)
+	path, err := format.AbsolutePathFromURI(uri)
 	if err != nil {
-		return "", fmt.Errorf("parse file URI: %w", err)
+		if strings.TrimSpace(uri) == "" {
+			return "", ErrDocumentTargetEmpty
+		}
+		return "", err
 	}
-	if !strings.EqualFold(parsed.Scheme, "file") {
-		return "", fmt.Errorf("unsupported URI scheme: %s", parsed.Scheme)
-	}
-	path := parsed.Path
-	if parsed.Host != "" {
-		path = "//" + parsed.Host + path
-	}
-	if unescaped, err := url.PathUnescape(path); err == nil && unescaped != "" {
-		path = unescaped
-	}
-	return platformshared.NormalizeAbsolutePath(path)
+	return path, nil
+}
+
+// hasFileURIScheme 按 URI scheme 的大小写不敏感规则识别 file URI。
+// 仅检查明确的 file: 前缀，后续结构和百分号转义统一交给 AbsolutePathFromURI 校验。
+func hasFileURIScheme(value string) bool {
+	const scheme = "file:"
+	return len(value) >= len(scheme) && strings.EqualFold(value[:len(scheme)], scheme)
 }
 
 func fileExists(path string) bool {

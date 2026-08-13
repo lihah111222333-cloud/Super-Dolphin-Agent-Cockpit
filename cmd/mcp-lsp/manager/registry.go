@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -540,7 +541,10 @@ func (r *dynamicRegistry) CurrentDiagnosticGeneration() uint64 {
 // BootstrapDocument 根据 URI 选择 manager 并执行文档启动同步。
 // 语言不支持会直接返回错误，避免调用方误以为 LSP 已准备好。
 func (r *dynamicRegistry) BootstrapDocument(ctx context.Context, uri string) error {
-	path := strings.TrimPrefix(uri, "file://")
+	path, err := format.AbsolutePathFromURI(uri)
+	if err != nil {
+		return fmt.Errorf("resolve bootstrap document URI %q: %w", uri, err)
+	}
 	scoped, err := r.resolveManagerForTarget(ctx, DetectLanguageID(path), path, uri)
 	if err != nil {
 		return err
@@ -624,7 +628,10 @@ func (r *dynamicRegistry) groupURIsByManager(ctx context.Context, uris []string)
 	result := make(map[Manager][]string)
 	unsupported := make([]string, 0)
 	for _, uri := range uris {
-		path := strings.TrimPrefix(uri, "file://")
+		path, err := format.AbsolutePathFromURI(uri)
+		if err != nil {
+			return nil, fmt.Errorf("resolve diagnostics URI %q: %w", uri, err)
+		}
 		scoped, err := r.resolveManagerForTarget(ctx, DetectLanguageID(path), path, uri)
 		if err != nil {
 			if errors.Is(err, ErrUnsupportedLanguage) {

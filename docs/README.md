@@ -27,6 +27,8 @@
 | [自动化协议](automation/) | 当前夜间巡检、门禁台账接管与授权修复协议 |
 | [文档脚本](scripts/) | 当前发布 smoke、文档维护与验证脚本 |
 
+独立 `mcp-lsp` 的三家客户端配置、Windows PowerShell/WSL 选型和必需环境变量见[当前参考](reference/mcp-lsp-standalone-clients.md)。
+
 ## 开发中材料
 
 | 入口 | 用途 |

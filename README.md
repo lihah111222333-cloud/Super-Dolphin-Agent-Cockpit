@@ -228,6 +228,16 @@ Run the current desktop development flow:
 .\run-new-ui-desktop.ps1
 ```
 
+A standalone `mcp-lsp` stdio server fails fast unless every client server definition provides this launch contract:
+
+```text
+SUPER_DOLPHIN_RUNTIME_MODE=dev
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<runtime-resource-root>
+SUPER_DOLPHIN_DEPENDENCY_PROFILE=production
+```
+
+For a source build, the runtime resource root is the source checkout root; for the cross-platform `bin/LSP` package, it is that artifact's resource root. It is never inferred from the target file. Windows selection follows the binary that is actually launched: native PowerShell uses `mcp-lsp-windows-*.exe` with Windows paths such as `G:/develop/project`, while WSL uses `mcp-lsp-linux-*` with Linux paths such as `/mnt/g/develop/project`. Do not mix the two path families. See the tracked [standalone client guide](docs/reference/mcp-lsp-standalone-clients.md); the cross-platform binary package mirrors it in `bin/LSP/README.md` and its configuration skill.
+
 SQLite is created automatically under `SUPER_DOLPHIN_HOME/super-dolphin.db`. Set `SUPER_DOLPHIN_SQLITE_PATH` to use a different local file. PostgreSQL environment variables are not a product-database configuration path.
 
 Build and test:

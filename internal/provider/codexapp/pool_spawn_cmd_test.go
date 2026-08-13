@@ -21,6 +21,13 @@ func commandLineContains(commandLine, want string) bool {
 	return doubleEscaped != want && strings.Contains(commandLine, doubleEscaped)
 }
 
+func standaloneLSPParentEnv(extra ...string) []string {
+	return append([]string{
+		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
+		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo",
+	}, extra...)
+}
+
 func TestBuildPoolSpawnCmdRequiresHome(t *testing.T) {
 	t.Parallel()
 	_, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{})
@@ -121,6 +128,7 @@ func TestBuildPoolSpawnCmdPropagatesSidecarRuntimeContract(t *testing.T) {
 			"PATH=/usr/bin",
 			"SUPER_DOLPHIN_RUNTIME_MODE=dev",
 			"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo",
+			"SUPER_DOLPHIN_DEPENDENCY_PROFILE=desktop_host",
 		},
 	})
 	if err != nil {
@@ -130,6 +138,7 @@ func TestBuildPoolSpawnCmdPropagatesSidecarRuntimeContract(t *testing.T) {
 	for _, want := range []string{
 		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo",
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=desktop_host",
 	} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("sidecar runtime contract env %q missing:\n%s", want, env)
@@ -173,6 +182,8 @@ func TestBuildPoolSpawnCmdSetsWorkDirAndPWD(t *testing.T) {
 		ParentEnv: []string{
 			"PATH=/usr/bin",
 			"PWD=/stale/workdir",
+			"SUPER_DOLPHIN_RUNTIME_MODE=dev",
+			"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo",
 		},
 	})
 	if err != nil {
@@ -195,6 +206,8 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
 	workDir := filepath.Join(parent, "project with space")
 	appHome := filepath.Join(parent, "Library", "Application Support", "Super Dolphin")
 	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR", parent)
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		t.Fatalf("mkdir work dir: %v", err)
 	}
@@ -205,7 +218,7 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
 	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
 	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
 		Home:      "/realpath/home",
-		ParentEnv: []string{"SUPER_DOLPHIN_HOME=" + appHome},
+		ParentEnv: standaloneLSPParentEnv("SUPER_DOLPHIN_HOME=" + appHome),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
@@ -217,6 +230,9 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOT=",
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
 		"mcp_servers.lsp.env.SUPER_DOLPHIN_HOME=",
+		"mcp_servers.lsp.env.SUPER_DOLPHIN_RUNTIME_MODE=\"dev\"",
+		"mcp_servers.lsp.env.SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=",
+		"mcp_servers.lsp.env.SUPER_DOLPHIN_DEPENDENCY_PROFILE=\"production\"",
 		realWorkDir,
 		appHome,
 	} {
@@ -235,7 +251,7 @@ func TestBuildPoolSpawnCmdOverridesModelProvider(t *testing.T) {
 	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
 		Home:      "/realpath/home",
 		ExtraArgs: poolSpawnNativeLSPConfigOverrideArgs([]string{"model_provider=" + tomlString("openai")}),
-		ParentEnv: []string{},
+		ParentEnv: standaloneLSPParentEnv(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
@@ -256,7 +272,7 @@ func TestBuildPoolSpawnCmdPlacesConfigOverridesBeforeAppServer(t *testing.T) {
 	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
 		Home:      "/realpath/home",
 		ExtraArgs: poolSpawnNativeLSPConfigOverrideArgs([]string{"model_provider=" + tomlString("openai")}),
-		ParentEnv: []string{},
+		ParentEnv: standaloneLSPParentEnv(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
@@ -284,7 +300,7 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForAdditionalRootsAndBinaryDir
 	ctx = withPoolSpawnLSPConfig(ctx, []string{workDir, extraDir}, binaryDir)
 	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
 		Home:      "/realpath/home",
-		ParentEnv: []string{},
+		ParentEnv: standaloneLSPParentEnv(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
@@ -302,13 +318,26 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForAdditionalRootsAndBinaryDir
 	}
 }
 
+func TestBuildPoolSpawnCmdRejectsNativeLSPConfigWithoutRuntimeContract(t *testing.T) {
+	t.Parallel()
+	binaryDir := filepath.Join(t.TempDir(), "mcp-bin")
+	ctx := withPoolSpawnLSPConfig(context.Background(), nil, binaryDir)
+	_, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ParentEnv: []string{"PATH=/usr/bin"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "SUPER_DOLPHIN_RUNTIME_MODE") {
+		t.Fatalf("BuildPoolSpawnCmd missing runtime contract error = %v", err)
+	}
+}
+
 func TestBuildPoolSpawnCmdOverridesNativeLSPConfigWithEmptyRoots(t *testing.T) {
 	t.Parallel()
 	binaryDir := filepath.Join(t.TempDir(), "mcp bin")
 	ctx := withPoolSpawnLSPConfig(context.Background(), nil, binaryDir)
 	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
 		Home:      "/realpath/home",
-		ParentEnv: []string{},
+		ParentEnv: standaloneLSPParentEnv(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)

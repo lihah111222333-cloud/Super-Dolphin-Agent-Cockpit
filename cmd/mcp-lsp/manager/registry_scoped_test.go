@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
@@ -201,8 +202,12 @@ func TestRegistryGroupURIsUsesCallerContext(t *testing.T) {
 	}
 	assertResolvedManagerKey(t, scopedMgr.lastDiagnosticsContext, "manager-key")
 	assertResolverScopeForGroupURI(t, resolver.lastScope, uri)
-	if resolver.lastScope.TargetPath != "/tmp/registry-group-main.go" {
-		t.Fatalf("resolver target path = %q, want URI path", resolver.lastScope.TargetPath)
+	wantPath, err := format.AbsolutePathFromURI(uri)
+	if err != nil {
+		t.Fatalf("AbsolutePathFromURI(%q): %v", uri, err)
+	}
+	if resolver.lastScope.TargetPath != wantPath {
+		t.Fatalf("resolver target path = %q, want normalized URI path %q", resolver.lastScope.TargetPath, wantPath)
 	}
 }
 

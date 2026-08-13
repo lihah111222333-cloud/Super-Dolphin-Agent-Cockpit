@@ -93,12 +93,19 @@ func AbsolutePathFromURI(uri string) (string, error) {
 	if !strings.EqualFold(parsed.Scheme, "file") {
 		return "", fmt.Errorf("unsupported URI scheme: %s", parsed.Scheme)
 	}
-	path := parsed.Path
+	if parsed.Opaque != "" {
+		return "", fmt.Errorf("opaque file URI is not supported")
+	}
+	escapedPath := parsed.EscapedPath()
+	if escapedPath == "" {
+		return "", fmt.Errorf("file URI path is required")
+	}
+	path, err := url.PathUnescape(escapedPath)
+	if err != nil {
+		return "", fmt.Errorf("decode file URI path: %w", err)
+	}
 	if parsed.Host != "" {
 		path = "//" + parsed.Host + path
-	}
-	if unescaped, err := url.PathUnescape(path); err == nil && unescaped != "" {
-		path = unescaped
 	}
 	return platformshared.NormalizeAbsolutePath(path)
 }

@@ -223,6 +223,16 @@ npm install -g typescript-language-server typescript@5.9.3
 .\run-new-ui-desktop.ps1
 ```
 
+独立运行的 `mcp-lsp` stdio 服务会执行 fail-fast；每个客户端的 server 配置都必须提供以下启动契约：
+
+```text
+SUPER_DOLPHIN_RUNTIME_MODE=dev
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<运行时资源根目录>
+SUPER_DOLPHIN_DEPENDENCY_PROFILE=production
+```
+
+源码构建的运行时资源根是源码 checkout 根；跨平台 `bin/LSP` 包则使用制品资源根，均不能从目标文件隐式推断。Windows 会按实际启动的二进制自动选择平台语义：原生 PowerShell 使用 `mcp-lsp-windows-*.exe` 和 `G:/develop/project` 这类 Windows 路径；WSL 使用 `mcp-lsp-linux-*` 和 `/mnt/g/develop/project` 这类 Linux 路径，两套路径不能混用。仓库内可跟踪的[独立客户端配置](docs/reference/mcp-lsp-standalone-clients.md)提供三家示例和排错说明，跨平台二进制包会把同一契约镜像到 `bin/LSP/README.md` 与配置 skill。
+
 SQLite 会自动创建在 `SUPER_DOLPHIN_HOME/super-dolphin.db`。设置 `SUPER_DOLPHIN_SQLITE_PATH` 可以使用其他本地文件。PostgreSQL 环境变量不是产品数据库的配置入口。
 
 构建与测试：

@@ -15,7 +15,7 @@ func TestBuildPoolSpawnCmdWrapsWithShellUlimit(t *testing.T) {
 	t.Parallel()
 	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
 		Home:      "/realpath/home",
-		ParentEnv: []string{},
+		ParentEnv: standaloneLSPParentEnv(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
@@ -86,7 +86,7 @@ func TestBuildPoolSpawnCmdShellQuotesWorkspaceRootOverrides(t *testing.T) {
 	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
 	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
 		Home:      "/realpath/home",
-		ParentEnv: []string{},
+		ParentEnv: standaloneLSPParentEnv(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
@@ -123,7 +123,7 @@ func TestBuildPoolSpawnCmdShellQuotesMCPCommandOverrideWithSpacesAndApostrophe(t
 	ctx = withPoolSpawnLSPConfig(ctx, []string{workDir}, binaryDir)
 	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
 		Home:      "/realpath/home",
-		ParentEnv: []string{},
+		ParentEnv: standaloneLSPParentEnv(),
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)

@@ -9,3 +9,7 @@
 - 有明确维护责任或可重复的刷新方式。
 
 无法证明仍有效的旧接口说明应进入 `docs/archive/reference/`，不得直接迁入本目录。
+
+## 当前条目
+
+- [mcp-lsp 独立客户端配置](mcp-lsp-standalone-clients.md)：Codex、Claude Code、Google Antigravity 的必需 sidecar 环境、Windows PowerShell/WSL 自动选型、中文路径和 Go 自动工具链。
