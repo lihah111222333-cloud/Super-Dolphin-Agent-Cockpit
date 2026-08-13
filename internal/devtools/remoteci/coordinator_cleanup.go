@@ -25,7 +25,11 @@ func (coordinator *Coordinator) cleanup(jobID string, groupIDs []string, objectK
 			deleteErr := coordinator.runtime.DeleteContainerGroup(ctx, groupID)
 			confirmErr := waitForCleanupAbsence(ctx, coordinator.config.PollInterval,
 				func(confirmCtx context.Context) (bool, error) {
-					return coordinator.runtime.ConfirmContainerGroupAbsent(confirmCtx, groupID)
+					absent, err := coordinator.runtime.ConfirmContainerGroupAbsent(confirmCtx, groupID)
+					if err == nil && !absent {
+						_ = coordinator.runtime.DeleteContainerGroup(confirmCtx, groupID)
+					}
+					return absent, err
 				}, fmt.Sprintf("ECI container group %s", groupID),
 			)
 			var failure error

@@ -81,7 +81,7 @@
 
 ## 三、强制工作流
 
-- 创建 Git 工作树时，必须放在仓库根目录 `super-agent-v3/.worktrees/` 下，不得创建到仓库外部或其他目录。
+- 创建 Git 工作树时，目标路径必须是当前项目根目录下的 `<repo-root>/.worktrees/<worktree-name>`；禁止在项目根目录之外、项目同级目录、系统临时目录或其他位置创建工作树。执行 `git worktree add` 前必须解析并确认目标路径位于 `<repo-root>/.worktrees/` 内。
 
 审查类：grep(text_search|ast_search) 定位 → inspect(definition|hover|type_definition) 理解 → xref(references|call_hierarchy) 影响面 → file(read_file) 精读 → 输出判定
 
@@ -92,6 +92,7 @@
 
 - 优先使用定向 `rg` 搜索和单文件读取，避免大范围目录扫描。
 - 创建子 agent 时禁止继承父级对话上下文；所有子 agent 必须以空上下文启动（例如调用 `spawn_agent` 时显式设置 `fork_turns="none"`），并仅通过任务说明传递完成该子任务所必需的最小信息。
+- 每次创建或继续子 agent，都必须在任务说明中显式下发 `cwd=<absolute-path>`；根工作区任务使用当前项目根目录的绝对路径，工作树任务使用 `<repo-root>/.worktrees/<worktree-name>` 的绝对路径。禁止依赖父 agent 的当前目录、默认工作目录或隐式上下文推断 `cwd`，子 agent 执行命令前必须核对其实际工作目录与下发值一致。
 - 默认不要递归读取或索引 `.build-cache/`、`bin/`、前端 `node_modules/`、前端 `dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/` 或生成的测试报告。
 - 默认不要递归读取或索引 `docs/archive/**`。只有当用户要求历史报告、旧代理笔记、迁移证据或来源追溯时才使用它。
 - 不要批量加载 `.agents/skills/**`。仓库本地技能是按需选择的参考，不是默认上下文。

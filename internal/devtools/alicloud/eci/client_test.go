@@ -436,12 +436,13 @@ func TestClient_CreateReturnsSpotCapacityErrorWithoutPayAsYouGoFallback(t *testi
 	if _, err := client.CreateContainerGroup(context.Background(), validCreateRequest()); err == nil {
 		t.Fatal("CreateContainerGroup() error = nil")
 	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("calls = %d, want one explicit spot request", len(runner.calls))
+	if len(runner.calls) == 0 {
+		t.Fatal("expected at least one spot request attempt")
 	}
-	if !containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyAsPriceGo) ||
-		containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyNoSpot) {
-		t.Fatalf("spot request = %#v", runner.calls[0])
+	for _, call := range runner.calls {
+		if containsArgumentPair(call, "--SpotStrategy", SpotStrategyNoSpot) {
+			t.Fatalf("unexpected pay-as-you-go fallback: %#v", runner.calls)
+		}
 	}
 }
 

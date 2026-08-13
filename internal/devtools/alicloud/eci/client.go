@@ -732,6 +732,14 @@ var (
 		"use of closed network connection",
 		"throttling.user",
 		"user flow control",
+		"stockout",
+		"insufficient",
+		"resourceinsufficient",
+		"quotaexceeded",
+		"notenough",
+		"noscenarios",
+		"out of stock",
+		"capacity",
 	}
 )
 
