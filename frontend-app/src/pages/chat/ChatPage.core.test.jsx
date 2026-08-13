@@ -106,7 +106,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     const layout = screen.getByTestId('chat-layout');
     const displayedRightWidth = Number(screen.getByTestId('right-panel-resizer').getAttribute('aria-valuenow'));
     expect(layout).toHaveStyle({
-      gridTemplateColumns: `minmax(0, 1fr) 6px ${displayedRightWidth}px`,
+      gridTemplateColumns: `240px minmax(0, 1fr) 6px ${displayedRightWidth}px`,
     });
     expect(layout.style.getPropertyValue('--composer-right-offset')).toBe(`${displayedRightWidth + 6}px`);
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
@@ -437,9 +437,23 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     );
 
     expect(screen.getByTestId('chat-layout')).toHaveStyle({
-      gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
+      gridTemplateColumns: '240px minmax(0, 1fr) 6px 480.5px',
     });
     expect(shellLayout.storage.set).not.toHaveBeenCalled();
+  });
+
+  it('hides the thread rail without reserving a grid column at 1280px', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    const store = createFakeStore();
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByTestId('thread-rail')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('thread-rail')).toHaveAttribute('inert');
+    expect(screen.getByTestId('thread-rail')).toHaveAttribute('hidden');
+    expect(screen.getByTestId('chat-layout')).toHaveStyle({
+      gridTemplateColumns: 'minmax(0, 1fr)',
+    });
   });
 
   it('renders an active thread timeline, sends through the store, and opens the runtime panel', async () => {

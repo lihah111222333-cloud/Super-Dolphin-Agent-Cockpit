@@ -76,6 +76,7 @@ describe('ThreadRail', () => {
     render(<ThreadRail hidden store={createStore()} />);
 
     const rail = screen.getByTestId('thread-rail');
+    expect(rail).toHaveAttribute('hidden');
     expect(rail).toHaveAttribute('aria-hidden', 'true');
     expect(rail).toHaveAttribute('inert');
   });

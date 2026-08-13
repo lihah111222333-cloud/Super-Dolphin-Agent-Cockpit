@@ -304,19 +304,6 @@
   height: 100%;
 }
 
-.chat-layout > .thread-rail,
-.chat-layout > .splitter--left {
-  position: absolute;
-  top: 0;
-  left: -360px;
-  width: 240px;
-  height: 100%;
-}
-
-.chat-layout > .splitter--left {
-  width: 6px;
-}
-
 .conversation {
   --conversation-content-width: min(var(--super-dolphin-agent-content-max-width), max(0px, calc(100% - clamp(32px, 7vw, 112px))));
   min-width: 0;

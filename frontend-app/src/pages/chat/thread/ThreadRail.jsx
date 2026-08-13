@@ -46,6 +46,7 @@ function ThreadRail({ copy = APP_COPY.zh.chat, hidden = false, store }) {
     <aside
       className="thread-rail"
       data-testid="thread-rail"
+      hidden={hidden}
       aria-hidden={hidden || undefined}
       aria-label={hidden ? undefined : (showArchivedThreads ? copy.archiveList : copy.threadList)}
       inert={hidden}

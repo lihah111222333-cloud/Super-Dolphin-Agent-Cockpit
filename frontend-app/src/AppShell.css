@@ -1085,6 +1085,10 @@
   background: var(--surface);
 }
 
+.thread-rail[hidden] {
+  display: none;
+}
+
 .thread-tools {
   height: 67px;
   display: flex;

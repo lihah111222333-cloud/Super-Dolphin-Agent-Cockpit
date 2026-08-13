@@ -23,13 +23,19 @@ describe('solveWorkbenchGeometry', () => {
     expect(Object.isFrozen(geometry.right)).toBe(true);
     expect(Object.isFrozen(geometry.activity)).toBe(true);
     expect(geometry.viewport).toEqual({ height, width });
+    const threadRailColumn = geometry.threadRail.visible ? '240px ' : '';
+    const rightColumns = geometry.right.displayed > 0
+      ? `${geometry.splitterWidth}px ${geometry.right.displayed}px`
+      : '';
     expect(geometry.gridTemplateColumns).toBe(
-      `minmax(0, 1fr) ${geometry.splitterWidth}px ${geometry.right.displayed}px`,
+      `${threadRailColumn}minmax(0, 1fr)${rightColumns ? ` ${rightColumns}` : ''}`,
     );
     expect(geometry.aria.rightNow).toBe(geometry.right.displayed);
     expect(geometry.aria.activityNow).toBe(geometry.activity.displayed);
     expect(geometry.cssVars['--activity-panel-height']).toBe(`${geometry.activity.displayed}px`);
-    expect(geometry.composer.rightOffset).toBe(geometry.right.displayed + geometry.splitterWidth);
+    expect(geometry.composer.rightOffset).toBe(geometry.right.displayed > 0
+      ? geometry.right.displayed + geometry.splitterWidth
+      : 0);
     expect(geometry.activity.displayed).toBe(112);
   });
 
@@ -97,5 +103,39 @@ describe('solveWorkbenchGeometry', () => {
 
     expect(closed.rail.displayed).toBe(0);
     expect(closed.cssVars['--workbench-sidebar-width']).toBe('320px');
+  });
+
+  it('reserves the visible thread rail before calculating a 440px conversation minimum', () => {
+    const geometry = solveWorkbenchGeometry({
+      activityHeight: 64,
+      railOpen: true,
+      railWidth: 340,
+      rightOpen: true,
+      rightPreference: 999,
+      viewportHeight: 900,
+      viewportWidth: 1440,
+    });
+
+    expect(geometry.threadRail).toEqual({ consumed: 240, visible: true });
+    expect(geometry.right.max).toBe(344);
+    expect(geometry.conversation.min).toBe(440);
+    expect(geometry.conversation.width).toBe(510);
+    expect(geometry.gridTemplateColumns).toBe('240px minmax(0, 1fr) 6px 344px');
+  });
+
+  it('removes the thread rail from every geometry boundary in the 1200-1280 range', () => {
+    const geometry = solveWorkbenchGeometry({
+      activityHeight: 64,
+      railOpen: true,
+      railWidth: 340,
+      rightOpen: false,
+      rightPreference: 0,
+      viewportHeight: 900,
+      viewportWidth: 1280,
+    });
+
+    expect(geometry.threadRail).toEqual({ consumed: 0, visible: false });
+    expect(geometry.cssVars['--thread-rail-column-width']).toBe('0px');
+    expect(geometry.gridTemplateColumns).toBe('minmax(0, 1fr)');
   });
 });

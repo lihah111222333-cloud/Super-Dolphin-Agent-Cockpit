@@ -125,7 +125,7 @@ afterEach(cleanupAppTest);
     dispatchPointer(rightResizer, 'pointerdown', 1100, { pointerId: 7 });
     dispatchPointer(window, 'pointermove', 700, { pointerId: 8 });
     dispatchPointer(window, 'pointerup', 700, { pointerId: 8 });
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr) 6px 380px' });
     expect(storage.set).not.toHaveBeenCalled();
 
     dispatchPointer(window, 'pointermove', 900, { pointerId: 7 });
@@ -150,8 +150,7 @@ afterEach(cleanupAppTest);
     expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
     dispatchPointer(window, 'pointerup', 1480);
 
-    expect(screen.getByTestId('runtime-panel')).toHaveClass('is-closing'); expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
-    await waitFor(() => expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument(); expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
     expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
     expect(storage.value()).toBe('0');
   });
@@ -358,7 +357,7 @@ afterEach(cleanupAppTest);
 
     expect(leftResizer).toHaveAttribute('aria-valuenow', '280');
     expect(screen.getByTestId('frontend-app')).toHaveStyle({ '--workbench-sidebar-width': '280px' });
-    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const rightResizer = screen.getByTestId('right-panel-resizer');
@@ -369,7 +368,7 @@ afterEach(cleanupAppTest);
 
     await waitFor(() => {
       expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
-      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 0px 0px' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
     });
   });
 

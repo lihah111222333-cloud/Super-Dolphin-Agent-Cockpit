@@ -110,17 +110,15 @@ it('docked 右侧栏保留宽度调整能力', () => {
   expect(screen.getByTestId('agent-hierarchy')).toBeInTheDocument();
 });
 
-it('收起右侧栏时先播放退出动画，再恢复悬浮看板', async () => {
+it('收起右侧栏时立即卸载，避免退出动画期间改变 grid 行', () => {
   render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" rightPanelOpen={true} />);
 
   fireEvent.click(screen.getByTestId('runtime-show-agents'));
   expect(screen.getByTestId('agent-board-panel')).toBeInTheDocument();
 
   fireEvent.click(screen.getByTestId('agent-board-collapse'));
-  expect(screen.getByTestId('agent-board-panel')).toHaveClass('is-closing');
-  expect(screen.getByTestId('agent-board-panel')).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.queryByTestId('agent-board-panel')).toBeNull();
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
-  await waitFor(() => expect(screen.queryByTestId('agent-board-panel')).toBeNull());
 });
 
 it('Runtime 右侧栏展开时悬浮看板同样隐藏', () => {
@@ -130,7 +128,7 @@ it('Runtime 右侧栏展开时悬浮看板同样隐藏', () => {
   expect(screen.queryByTestId('agent-board-floating')).toBeNull();
 });
 
-it('Agent/Runtime 切换过程中悬浮看板不出现，收起动画后恢复', async () => {
+it('Agent/Runtime 切换过程中悬浮看板不出现，收起后立即恢复', () => {
   render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" rightPanelOpen={true} />);
 
   expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
@@ -148,9 +146,8 @@ it('Agent/Runtime 切换过程中悬浮看板不出现，收起动画后恢复',
 
   fireEvent.click(screen.getByTestId('runtime-show-agents'));
   fireEvent.click(screen.getByTestId('agent-board-collapse'));
-  expect(screen.getByTestId('agent-board-panel')).toHaveClass('is-closing');
+  expect(screen.queryByTestId('agent-board-panel')).toBeNull();
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
-  await waitFor(() => expect(screen.queryByTestId('agent-board-panel')).toBeNull());
 });
 
 it('展开右侧看板后可选中对应 Agent 并展示层级', () => {

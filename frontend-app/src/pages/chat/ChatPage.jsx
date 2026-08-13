@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Bot, ChevronLeft, ChevronRight, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
@@ -34,23 +34,8 @@ import './ChatReasoning.css';
 import './ChatPage.css';
 import './agentBoard/AgentBoard.css';
 
-const RIGHT_PANEL_EXIT_MS = 180;
-const CLOSED_RIGHT_PANEL_COLUMNS = 'minmax(0, 1fr) 0px 0px';
-const THREAD_RAIL_HIDDEN_MIN_VIEWPORT_WIDTH = 1200;
-const THREAD_RAIL_HIDDEN_MAX_VIEWPORT_WIDTH = 1280;
-
 function useRightPanelPresence(open) {
-  const [mounted, setMounted] = useState(open);
-  useEffect(() => {
-    if (open) {
-      setMounted(true);
-      return undefined;
-    }
-    if (!mounted) return undefined;
-    const timer = window.setTimeout(() => setMounted(false), RIGHT_PANEL_EXIT_MS);
-    return () => window.clearTimeout(timer);
-  }, [mounted, open]);
-  return mounted;
+  return open;
 }
 
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
@@ -313,8 +298,7 @@ function ChatPage(props) {
   });
   const rightPanelMounted = useRightPanelPresence(rightPanelOpen);
   const agentBoardCompact = geometrySnapshot.viewport.width <= AGENT_BOARD_COMPACT_VIEWPORT_WIDTH;
-  const threadRailHidden = geometrySnapshot.viewport.width >= THREAD_RAIL_HIDDEN_MIN_VIEWPORT_WIDTH
-    && geometrySnapshot.viewport.width <= THREAD_RAIL_HIDDEN_MAX_VIEWPORT_WIDTH;
+  const threadRailHidden = !geometrySnapshot.threadRail.visible;
   const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
   const prefillIntroSuggestion = (prompt) => {
     store.setDraft(prompt);
@@ -340,14 +324,13 @@ function ChatPage(props) {
         data-testid="chat-layout"
         style={{
           '--composer-right-offset': geometrySnapshot.cssVars['--composer-right-offset'],
-          gridTemplateColumns: rightPanelOpen
-            ? geometrySnapshot.gridTemplateColumns
-            : CLOSED_RIGHT_PANEL_COLUMNS,
+          '--thread-rail-column-width': geometrySnapshot.cssVars['--thread-rail-column-width'],
+          gridTemplateColumns: geometrySnapshot.gridTemplateColumns,
         }}
       >
-        {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} hidden={threadRailHidden} store={store} />
         <div className="chat-main-column" data-testid="chat-main-column">
+          {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
           {!rightPanelOpen ? (
             <AgentBoardFloating
               collapsed={agentBoard.floatingCollapsed}

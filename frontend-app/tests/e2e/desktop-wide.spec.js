@@ -94,6 +94,97 @@ test('workbench shell keeps critical desktop regions visible and reachable', asy
   await expectCenterPointClickable(page.getByTestId('sidebar-nav').getByRole('button', { name: '链路追踪' }));
   await expectCenterPointClickable(page.getByRole('button', { name: '发送消息' }));
 });
+
+test('wide chat thread rail stays within the main canvas and receives its own hit target', async ({ page }) => {
+  await page.goto('/');
+
+  const threadRail = page.getByTestId('thread-rail');
+  const mainCanvas = page.locator('.super-dolphin-agent-main-canvas');
+  const chatMainColumn = page.getByTestId('chat-main-column');
+  const composer = page.getByTestId('composer-dock');
+  const spotlight = page.getByTestId('chat-intro-spotlight');
+  await expect(threadRail).toBeVisible();
+  const [railBox, canvasBox, mainBox] = await Promise.all([
+    threadRail.boundingBox(),
+    mainCanvas.boundingBox(),
+    chatMainColumn.boundingBox(),
+  ]);
+  expect(railBox).toBeTruthy();
+  expect(canvasBox).toBeTruthy();
+  expect(mainBox).toBeTruthy();
+  expect(railBox.x).toBeGreaterThanOrEqual(canvasBox.x);
+  expect(railBox.x + railBox.width).toBeLessThanOrEqual(canvasBox.x + canvasBox.width);
+  expectBoxesDisjointHorizontally(railBox, mainBox);
+  await expectBoxWithin(composer, chatMainColumn);
+  await expectBoxWithin(spotlight, chatMainColumn);
+  await expectCenterPointClickable(threadRail.getByRole('button', { name: '新建对话' }));
+
+  await page.getByRole('button', { name: '显示侧边栏' }).click();
+  await expect(page.getByTestId('right-panel-resizer')).toBeVisible();
+  await page.getByTestId('right-panel-resizer').press('End');
+  const openMainBox = await chatMainColumn.boundingBox();
+  expect(openMainBox).toBeTruthy();
+  expect(openMainBox.width).toBeGreaterThanOrEqual(440);
+  await expectCenterPointClickable(threadRail.getByRole('button', { name: '新建对话' }));
+  await expectBoxWithin(composer, chatMainColumn);
+  await expectBoxWithin(spotlight, chatMainColumn);
+
+  const agentBoardRuntimeToggle = page.getByTestId('agent-board-show-runtime');
+  if (await agentBoardRuntimeToggle.isVisible()) {
+    await agentBoardRuntimeToggle.click();
+    await expect(page.getByTestId('runtime-panel')).toBeVisible();
+  } else {
+    await page.getByTestId('runtime-show-agents').click();
+    await expect(page.getByTestId('agent-board-panel')).toBeVisible();
+    await page.getByTestId('right-panel-resizer').press('End');
+    await page.getByTestId('agent-board-show-runtime').click();
+    await expect(page.getByTestId('runtime-panel')).toBeVisible();
+  }
+  await page.getByTestId('right-panel-resizer').press('End');
+  const runtimeMainBox = await chatMainColumn.boundingBox();
+  expect(runtimeMainBox).toBeTruthy();
+  expect(runtimeMainBox.width).toBeGreaterThanOrEqual(440);
+  await expectCenterPointClickable(threadRail);
+
+  const [railBeforeClose, mainBeforeClose, panelBeforeClose] = await Promise.all([
+    threadRail.boundingBox(),
+    chatMainColumn.boundingBox(),
+    page.getByTestId('runtime-panel').boundingBox(),
+  ]);
+  expect(railBeforeClose).toBeTruthy();
+  expect(mainBeforeClose).toBeTruthy();
+  expect(panelBeforeClose).toBeTruthy();
+  expect(panelBeforeClose.y).toBeCloseTo(mainBeforeClose.y, 1);
+  expect(railBeforeClose.height).toBeCloseTo(mainBeforeClose.height, 1);
+
+  await page.getByTestId('runtime-panel-collapse').click();
+  await expect(page.getByTestId('runtime-panel')).not.toBeVisible();
+  await page.waitForTimeout(90);
+  const [railDuringClose, mainDuringClose] = await Promise.all([
+    threadRail.boundingBox(),
+    chatMainColumn.boundingBox(),
+  ]);
+  expect(railDuringClose.height).toBeCloseTo(railBeforeClose.height, 1);
+  expect(mainDuringClose.height).toBeCloseTo(mainBeforeClose.height, 1);
+
+  await page.waitForTimeout(130);
+  const [railAfterClose, mainAfterClose] = await Promise.all([
+    threadRail.boundingBox(),
+    chatMainColumn.boundingBox(),
+  ]);
+  expect(railAfterClose.height).toBeCloseTo(railBeforeClose.height, 1);
+  expect(mainAfterClose.height).toBeCloseTo(mainBeforeClose.height, 1);
+});
+});
+
+test('1280 chat hides the thread rail without collapsing the chat main column', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+
+  await expect(page.getByTestId('thread-rail')).not.toBeVisible();
+  const mainBox = await page.getByTestId('chat-main-column').boundingBox();
+  expect(mainBox).toBeTruthy();
+  expect(mainBox.width).toBeGreaterThan(0);
 });
 
 test.describe('desktop-business-pages', () => {
@@ -168,6 +259,18 @@ async function expectCenterPointClickable(locator) {
     return Boolean(top && (top === element || element.contains(top) || top.contains(element)));
   });
   expect(result).toBe(true);
+}
+
+async function expectBoxWithin(locator, container) {
+  const [box, containerBox] = await Promise.all([locator.boundingBox(), container.boundingBox()]);
+  expect(box).toBeTruthy();
+  expect(containerBox).toBeTruthy();
+  expect(box.x).toBeGreaterThanOrEqual(containerBox.x);
+  expect(box.x + box.width).toBeLessThanOrEqual(containerBox.x + containerBox.width);
+}
+
+function expectBoxesDisjointHorizontally(leftBox, rightBox) {
+  expect(leftBox.x + leftBox.width).toBeLessThanOrEqual(rightBox.x);
 }
 
 async function installDesktopWideBugCapture(page, testInfo) {
