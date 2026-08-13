@@ -397,7 +397,23 @@ func prepareRemoteWorkloadReuseReplays(ctx context.Context, input RunInput, cata
 	}
 	observe.phase("reuse_environment_replay_completed")
 	preparation.environmentReplayHits = len(reused) - afterSourceReplay
+	recordRemoteReplayCacheDiagnostic(&preparation.replayDiagnostic, replayCache)
 	return reused, validateRemoteReuseMissConsensus(identities, reused, preparation.missConfirmations)
+}
+
+// recordRemoteReplayCacheDiagnostic 只投影聚合计算次数，用于区分 SQLite、
+// tree material 与摘要重算成本；不输出 workload、tree 或身份摘要。
+func recordRemoteReplayCacheDiagnostic(diagnostic *ReuseReplayDiagnostic, cache *remoteReplayCache) {
+	if diagnostic == nil || cache == nil {
+		return
+	}
+	diagnostic.CacheSnapshotComputations = int(cache.snapshotComputations)
+	diagnostic.CacheSnapshotLoads = int(cache.snapshotLoads)
+	diagnostic.CacheInputComputations = int(cache.inputComputations)
+	diagnostic.CacheCompileComputations = int(cache.compileComputations)
+	diagnostic.CacheSemanticComputations = int(cache.semanticComputations)
+	diagnostic.CacheEnvironmentComputations = int(cache.environmentComputations)
+	diagnostic.CacheWorkerComputations = int(cache.previousGroupedComputations + cache.legacyComputations + cache.previousComputations + cache.previousStableComputations + cache.preciseComputations)
 }
 
 // projectRemoteWorkloadReuseOutcome 同时冻结 package-atomic 重跑 proof 与对应

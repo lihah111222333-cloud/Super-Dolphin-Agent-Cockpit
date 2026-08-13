@@ -15,7 +15,7 @@ import (
 const ProgressEventSchemaVersion uint32 = 1
 
 // ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
-const ReuseDiagnosticSchemaVersion uint32 = 8
+const ReuseDiagnosticSchemaVersion uint32 = 9
 
 // ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
 const ShardPlanDiagnosticSchemaVersion uint32 = 1
@@ -108,6 +108,13 @@ type ReuseReplayDiagnostic struct {
 	EnvironmentHistoricalMismatch    int `json:"environment_historical_mismatch"`
 	EnvironmentCurrentWorkerMismatch int `json:"environment_current_worker_mismatch"`
 	EnvironmentInputMismatch         int `json:"environment_input_mismatch"`
+	CacheSnapshotComputations        int `json:"cache_snapshot_computations"`
+	CacheSnapshotLoads               int `json:"cache_snapshot_loads"`
+	CacheInputComputations           int `json:"cache_input_computations"`
+	CacheCompileComputations         int `json:"cache_compile_computations"`
+	CacheSemanticComputations        int `json:"cache_semantic_computations"`
+	CacheEnvironmentComputations     int `json:"cache_environment_computations"`
+	CacheWorkerComputations          int `json:"cache_worker_computations"`
 }
 
 // ReuseDiagnosticGroup 按 workload 类型与编译单元聚合 MISS 来源；它不携带

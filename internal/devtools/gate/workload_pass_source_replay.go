@@ -13,7 +13,9 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-const workloadPassSourceReplayBatchSize = 200
+// workloadPassSourceReplayBatchSize 保证三列 requested identity 加三代参数仍低于
+// SQLite 3.32+ 默认 32766 变量上限，同时让当前约三千 workload 只做一次候选分区。
+const workloadPassSourceReplayBatchSize = 4096
 
 type workloadPassSourceReplayPayload struct {
 	Domain                   string               `json:"domain"`

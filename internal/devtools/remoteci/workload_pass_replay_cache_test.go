@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
@@ -17,8 +18,25 @@ func TestRemoteReplayCacheDeduplicatesExactTreeMaterials(t *testing.T) {
 	}
 	assertRemoteReplayInputDeduplication(t, cache, repositoryRoot, input.Tree, workloads[0])
 	assertRemoteReplayWorkerDeduplication(t, cache, snapshot)
+	assertRemoteReplayEnvironmentDeduplication(t, cache, input)
 	if cache.snapshotComputations != 0 || cache.snapshotLoads != 0 {
 		t.Fatalf("seeded current snapshot recomputed: resolutions=%d loads=%d", cache.snapshotComputations, cache.snapshotLoads)
+	}
+}
+
+func assertRemoteReplayEnvironmentDeduplication(t *testing.T, cache *remoteReplayCache, input RunInput) {
+	t.Helper()
+	goFlags := gate.CanonicalGoFlags(false)
+	first, err := cache.environmentDigest(input, 10*time.Minute, testRemoteResourcePolicy(), goFlags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cache.environmentDigest(input, 10*time.Minute, testRemoteResourcePolicy(), goFlags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || cache.environmentComputations != 1 {
+		t.Fatalf("environment replay cache digest=%q/%q computations=%d", first, second, cache.environmentComputations)
 	}
 }
 

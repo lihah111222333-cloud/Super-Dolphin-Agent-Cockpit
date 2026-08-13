@@ -11,8 +11,9 @@ import (
 	"strings"
 )
 
-// workloadPassEnvironmentReplayBatchSize 限制一次 authority hint 查询中的 OR 项数量。
-const workloadPassEnvironmentReplayBatchSize = 200
+// workloadPassEnvironmentReplayBatchSize 保证三列 requested identity 加代数参数仍低于
+// SQLite 3.32+ 默认 32766 变量上限，同时避免为同一 proof 分区重复执行 UNION/ORDER BY。
+const workloadPassEnvironmentReplayBatchSize = 4096
 
 // WorkloadPassEnvironmentReplayHint 是尚未验证来源 authority 的环境复用提示。
 // 调用方只能读取它做语义筛选；只有 ValidateWorkloadPassEnvironmentReplayHint

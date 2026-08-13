@@ -71,6 +71,9 @@ func TestJSONProgressObserverWritesReuseDecisionDiagnostic(t *testing.T) {
 		EnvironmentGenerationMismatch: 17, EnvironmentTargetUnavailable: 18,
 		EnvironmentSourceUnavailable: 19, EnvironmentHistoricalMismatch: 20,
 		EnvironmentCurrentWorkerMismatch: 21, EnvironmentInputMismatch: 22,
+		CacheSnapshotComputations: 31, CacheSnapshotLoads: 32, CacheInputComputations: 33,
+		CacheCompileComputations: 34, CacheSemanticComputations: 35, CacheEnvironmentComputations: 36,
+		CacheWorkerComputations: 37,
 	}
 	observer.ObserveRemoteCIReuseDiagnostic(ReuseDiagnostic{
 		MissConfirmationThreshold: 2,

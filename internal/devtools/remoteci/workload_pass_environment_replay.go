@@ -470,7 +470,7 @@ func verifyRemoteWorkloadPassHistoricalEnvironment(
 			return false, err
 		}
 		matches, err := remoteWorkloadPassEnvironmentMatches(
-			input, candidate, digest, goFlags, workerTimeout, resourcePolicy,
+			input, candidate, digest, goFlags, workerTimeout, resourcePolicy, cache,
 		)
 		if err != nil || matches {
 			return matches, err
@@ -486,10 +486,11 @@ func remoteWorkloadPassEnvironmentMatches(
 	goFlags string,
 	workerTimeout time.Duration,
 	resourcePolicy shardresource.Policy,
+	cache *remoteReplayCache,
 ) (bool, error) {
 	historicalInput := input
 	historicalInput.WorkerExecutionSemanticDigest = workerDigest
-	historicalEnvironment, err := remoteWorkloadEnvironmentDigestForGoFlags(historicalInput, workerTimeout, resourcePolicy, goFlags)
+	historicalEnvironment, err := cache.environmentDigest(historicalInput, workerTimeout, resourcePolicy, goFlags)
 	if err != nil {
 		return false, err
 	}
@@ -519,20 +520,11 @@ func verifyRemoteWorkloadPassPreciseEnvironment(
 	if preciseSourceDigest != preciseTargetDigest || preciseTargetDigest != input.WorkerExecutionSemanticDigest {
 		return false, nil
 	}
-	currentInput := input
-	currentInput.WorkerExecutionSemanticDigest = preciseSourceDigest
-	originEnvironment, err := remoteWorkloadEnvironmentDigestForGoFlags(currentInput, workerTimeout, resourcePolicy, goFlags)
+	currentEnvironment, err := cache.environmentDigest(input, workerTimeout, resourcePolicy, goFlags)
 	if err != nil {
 		return false, err
 	}
-	if originEnvironment != identity.EnvironmentDigest {
-		return false, nil
-	}
-	currentTargetEnvironment, err := remoteWorkloadEnvironmentDigestForGoFlags(input, workerTimeout, resourcePolicy, goFlags)
-	if err != nil {
-		return false, err
-	}
-	return currentTargetEnvironment == identity.EnvironmentDigest, nil
+	return currentEnvironment == identity.EnvironmentDigest, nil
 }
 
 // remoteReplayPreciseSourceDigest 将缺少新精确根的旧来源树视为该条候选不可证明；

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
 type remoteReplayTreeKey struct {
@@ -45,6 +47,15 @@ type remoteReplaySemanticDigestResult struct {
 	supported bool
 }
 
+type remoteReplayEnvironmentKey struct {
+	platform        string
+	policyDigest    string
+	toolchainDigest string
+	runtimeSeed     string
+	workerDigest    string
+	goFlags         string
+}
+
 // remoteReplayCache 只属于一次串行 Prepare；内容寻址 tree 的成功值和不可用事实可复用，错误始终立即返回。
 type remoteReplayCache struct {
 	snapshots                    map[remoteReplayTreeKey]remoteReplaySnapshotResult
@@ -56,6 +67,7 @@ type remoteReplayCache struct {
 	previousWorkerDigests        map[remoteReplayTreeKey]string
 	previousStableWorkerDigests  map[remoteReplayTreeKey]string
 	preciseWorkerDigests         map[remoteReplayTreeKey]string
+	environmentDigests           map[remoteReplayEnvironmentKey]string
 	snapshotComputations         uint64
 	snapshotLoads                uint64
 	inputComputations            uint64
@@ -66,6 +78,7 @@ type remoteReplayCache struct {
 	previousComputations         uint64
 	previousStableComputations   uint64
 	preciseComputations          uint64
+	environmentComputations      uint64
 }
 
 // newRemoteReplayCache 用已完成 correctness 指纹计算的当前快照预热 replay，拒绝错树绑定。
@@ -80,6 +93,7 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 		previousWorkerDigests:        make(map[remoteReplayTreeKey]string),
 		previousStableWorkerDigests:  make(map[remoteReplayTreeKey]string),
 		preciseWorkerDigests:         make(map[remoteReplayTreeKey]string),
+		environmentDigests:           make(map[remoteReplayEnvironmentKey]string),
 	}
 	if current == nil {
 		return cache, nil
@@ -90,6 +104,38 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 	key := remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree}
 	cache.snapshots[key] = remoteReplaySnapshotResult{snapshot: current, available: true}
 	return cache, nil
+}
+
+// environmentDigest 在一次 Prepare 的冻结 input/resource 边界内按 worker+GoFlags
+// 复用环境摘要。错误不进入缓存，避免把无效配置降级成历史 PASS。
+func (cache *remoteReplayCache) environmentDigest(input RunInput, workerTimeout time.Duration, resourcePolicy shardresource.Policy, goFlags string) (string, error) {
+	if cache == nil {
+		return "", errors.New("remote workload PASS replay cache is required")
+	}
+	if err := gate.ValidateExecutorWorkloadTimeout(workerTimeout); err != nil {
+		return "", fmt.Errorf("validate remote workload environment timeout: %w", err)
+	}
+	if err := resourcePolicy.Validate(); err != nil {
+		return "", fmt.Errorf("validate remote workload resource policy: %w", err)
+	}
+	if err := gate.ValidateCanonicalGoFlags(goFlags); err != nil {
+		return "", fmt.Errorf("validate remote workload GoFlags: %w", err)
+	}
+	key := remoteReplayEnvironmentKey{
+		platform: input.Platform, policyDigest: input.PolicyDigest,
+		toolchainDigest: input.ToolchainDigest, runtimeSeed: input.RuntimeSeedSHA256,
+		workerDigest: input.WorkerExecutionSemanticDigest, goFlags: goFlags,
+	}
+	if cached, ok := cache.environmentDigests[key]; ok {
+		return cached, nil
+	}
+	cache.environmentComputations++
+	digest, err := remoteWorkloadEnvironmentDigestForGoFlags(input, workerTimeout, resourcePolicy, goFlags)
+	if err != nil {
+		return "", err
+	}
+	cache.environmentDigests[key] = digest
+	return digest, nil
 }
 
 // compileInputDigest 按来源树、包和 race profile 分组缓存编译闭包；
