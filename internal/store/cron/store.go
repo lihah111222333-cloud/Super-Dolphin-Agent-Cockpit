@@ -47,6 +47,10 @@ type submittedOrRunningTurnQuerier interface {
 	GetSubmittedOrRunningCronJobRunByTurnID(ctx context.Context, arg sqlc.GetSubmittedOrRunningCronJobRunByTurnIDParams) (sqlc.CronJobRun, error)
 }
 
+type cronTurnOwnershipQuerier interface {
+	IsCronTurnOwned(ctx context.Context, arg sqlc.IsCronTurnOwnedParams) (int64, error)
+}
+
 // store 实现 cron Store，所有数据库错误统一通过 wrap 带上 cron 操作名。
 type store struct {
 	*submitStore
@@ -810,6 +814,23 @@ func (s *cronRunQueryStore) GetRunningRunByTurnID(ctx context.Context, turnID st
 		return Run{}, wrap(err, "get_running_run_by_turn_id")
 	}
 	return fromCronJobRun(row), nil
+}
+
+// IsTurnOwned 在一个 SQLite 快照内同时核对 run 状态与 job claim，供全局终态事件入队前判域。
+func (s *submitStore) IsTurnOwned(ctx context.Context, turnID string) (bool, error) {
+	turnID, err := requireID(turnID)
+	if err != nil {
+		return false, wrap(err, "is_turn_owned")
+	}
+	q, ok := s.q.(cronTurnOwnershipQuerier)
+	if !ok {
+		return false, wrap(errors.New("cron: querier does not implement turn ownership lookup"), "is_turn_owned")
+	}
+	owned, err := q.IsCronTurnOwned(ctx, sqlc.IsCronTurnOwnedParams{TurnID: turnID})
+	if err != nil {
+		return false, wrap(err, "is_turn_owned")
+	}
+	return owned != 0, nil
 }
 
 // GetSubmittedOrRunningRunByTurnID 按 turn ID 查找 submitted/running Run，供终态事件抢先到达时收尾。

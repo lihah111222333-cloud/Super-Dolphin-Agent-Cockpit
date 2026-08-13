@@ -159,6 +159,23 @@ it('clears only a superseded visible action failure after a successful action', 
   expect(visibleActionFailureSnapshot()?.actionId).toBe('project.remove');
 });
 
+it('clears a superseded failure only within the same thread scope', async () => {
+  publishVisibleActionFailure({ actionId: 'thread.interrupt', threadId: 'thread-1', publicError: {} });
+  runUIAction('composer.send', () => Promise.resolve(true), {
+    supersedesActionIds: ['thread.interrupt'],
+    threadId: 'thread-2',
+  });
+  await Promise.resolve();
+  expect(visibleActionFailureSnapshot()?.threadId).toBe('thread-1');
+
+  runUIAction('composer.send', () => Promise.resolve(true), {
+    supersedesActionIds: ['thread.interrupt'],
+    threadId: 'thread-1',
+  });
+  await Promise.resolve();
+  expect(visibleActionFailureSnapshot()).toBeNull();
+});
+
 it('clears the same action previous failure after asynchronous and synchronous success', async () => {
   runUIAction('composer.send', () => Promise.reject(new Error('first send failed')), {
     diagnosticIdFactory: diagnosticIds('composer-send-failed'),
@@ -217,6 +234,7 @@ it('fails fast when actionId or the retryable action thunk is missing', () => {
   expect(() => runUIAction('fixture.action', () => {}, { healthSink: null })).toThrow('healthSink must be a function');
   expect(() => runUIAction('fixture.action', () => {}, { retryable: 'yes' })).toThrow('retryable must be a boolean');
   expect(() => runUIAction('fixture.action', () => {}, { rejectFalse: 'yes' })).toThrow('rejectFalse must be a boolean');
+  expect(() => runUIAction('fixture.action', () => {}, { threadId: ' ' })).toThrow('threadId must be a non-empty string');
 });
 
 it('records a visible failure sink exception in Health without recursive reporting', () => {

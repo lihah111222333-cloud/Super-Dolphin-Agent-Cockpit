@@ -249,7 +249,7 @@ func applyBindingToAgent(agent *AgentSummary, idx map[string]BindingEntry, provi
 	}
 }
 
-// resolveBindingProviderThreads 为每个 binding 只解析一次 provider identity。
+// resolveBindingProviderThreads 为每个 binding 解析 provider identity，瞬态版本竞态除外。
 func resolveBindingProviderThreads(
 	idx map[string]BindingEntry,
 	resolve func(BindingEntry) (string, error),
@@ -259,13 +259,22 @@ func resolveBindingProviderThreads(
 	}
 	resolved := make(map[string]string, len(idx))
 	for agentID, binding := range idx {
-		providerThreadID, err := resolve(binding)
+		providerThreadID, err := resolveBindingProviderThread(binding, resolve)
 		if err != nil {
 			return nil, fmt.Errorf("uistate: recover provider identity for agent %q: %w", agentID, err)
 		}
 		resolved[strings.TrimSpace(agentID)] = providerThreadID
 	}
 	return resolved, nil
+}
+
+// resolveBindingProviderThread 仅对可判别的 artifact 版本竞态做一次有界重试。
+func resolveBindingProviderThread(binding BindingEntry, resolve func(BindingEntry) (string, error)) (string, error) {
+	providerThreadID, err := resolve(binding)
+	if !providerrecovery.IsKind(err, providerrecovery.ErrorKindArtifactRace) {
+		return providerThreadID, err
+	}
+	return resolve(binding)
 }
 
 // resolveProviderThreadID 通过唯一 recovery port 解析展示所需的精确 provider identity。

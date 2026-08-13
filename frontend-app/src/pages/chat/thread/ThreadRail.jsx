@@ -7,7 +7,7 @@ import { runUIAction } from '../model/chatUiActions.js';
 import { firstText, textValue, trimmedText } from '../markdown/markdownMessageModel.js';
 import './ThreadRail.css';
 
-function ThreadRail({ copy = APP_COPY.zh.chat, store }) {
+function ThreadRail({ copy = APP_COPY.zh.chat, hidden = false, store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [confirmCleanMode, setConfirmCleanMode] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState('');
@@ -43,7 +43,13 @@ function ThreadRail({ copy = APP_COPY.zh.chat, store }) {
     });
   };
   return (
-    <aside className="thread-rail" data-testid="thread-rail" aria-label={showArchivedThreads ? copy.archiveList : copy.threadList}>
+    <aside
+      className="thread-rail"
+      data-testid="thread-rail"
+      aria-hidden={hidden || undefined}
+      aria-label={hidden ? undefined : (showArchivedThreads ? copy.archiveList : copy.threadList)}
+      inert={hidden}
+    >
       <ThreadRailTools
         copy={copy}
         count={visibleThreads.length}

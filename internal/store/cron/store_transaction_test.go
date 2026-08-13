@@ -31,6 +31,44 @@ func TestSubmitRunWithActiveTurnPersistsAllFieldsWithExplicitDB(t *testing.T) {
 	assertSubmittedTurnState(ctx, t, db, "turn-submit", StatusSubmitted)
 }
 
+// TestIsTurnOwnedUsesCurrentRunAndJobFences 固定判域查询只接受仍由 Cron claim 持有的未解决 turn。
+func TestIsTurnOwnedUsesCurrentRunAndJobFences(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, _ := openSubmitRunStore(t, "turn-ownership")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	seedClaimedSubmittingRun(ctx, t, store, now)
+
+	owned, err := store.IsTurnOwned(ctx, "ordinary-turn")
+	if err != nil || owned {
+		t.Fatalf("ordinary turn ownership = %v, %v; want false, nil", owned, err)
+	}
+	if err := store.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID: "run-submit", JobID: "job-submit", ClaimToken: "claim-token",
+		ActiveTurnID: "turn-submit", SubmittedAt: now, Now: now,
+	}); err != nil {
+		t.Fatalf("SubmitRunWithActiveTurn() error = %v", err)
+	}
+	owned, err = store.IsTurnOwned(ctx, "turn-submit")
+	if err != nil || !owned {
+		t.Fatalf("submitted cron turn ownership = %v, %v; want true, nil", owned, err)
+	}
+	if err := store.FinalizeRecoveredRun(ctx, FinalizeRecoveredRunParams{
+		ExpectedRunStatus: StatusSubmitted,
+		MarkFailedParams: MarkFailedParams{
+			ID: "job-submit", ClaimToken: "claim-token", RunID: "run-submit",
+			ExpectedActiveTurnID: "turn-submit", LastRunAt: now, LastTurnID: "turn-submit",
+			LastStatus: StatusFinished, NextRunAt: now.Add(time.Hour), Now: now,
+		},
+	}); err != nil {
+		t.Fatalf("FinalizeRecoveredRun() error = %v", err)
+	}
+	owned, err = store.IsTurnOwned(ctx, "turn-submit")
+	if err != nil || owned {
+		t.Fatalf("finalized cron turn ownership = %v, %v; want false, nil", owned, err)
+	}
+}
+
 // TestSubmitRunWithActiveTurnRollsBackWhenActiveTurnFenceFails proves one-transaction semantics.
 func TestSubmitRunWithActiveTurnRollsBackWhenActiveTurnFenceFails(t *testing.T) {
 	t.Parallel()

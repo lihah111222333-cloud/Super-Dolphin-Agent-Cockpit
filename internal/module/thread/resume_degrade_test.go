@@ -30,13 +30,13 @@ func resumeDegradeCodexBinding(t *testing.T) *stubBindingStore {
 		t.Fatalf("canonicalize test codex home: %v", err)
 	}
 	return &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-1",
-		Provider:         "codex",
-		ProviderThreadID: "11111111-2222-3333-4444-555555555597",
-		CodexThreadID:    "thread-1",
-		Cwd:              "/repo",
-		CodexHome:        codexHome,
-		CodexInstanceKey: "default",
+		AgentID:            "agent-1",
+		Provider:           "codex",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555597",
+		CodexThreadID:      "thread-1",
+		Cwd:                "/repo",
+		CodexHome:          codexHome,
+		CodexInstanceKey:   "default",
 		CodexModelProvider: "openai",
 	}}
 }
@@ -70,13 +70,13 @@ func TestBackgroundResumeDegradesOnLostHistory(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &ThreadRecord{
-		ThreadID:  "thread-1",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := resumeDegradeCodexBinding(t)
@@ -121,13 +121,13 @@ func TestBackgroundResumeKeepsStateOnTransientError(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &ThreadRecord{
-		ThreadID:  "thread-1",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := resumeDegradeCodexBinding(t)
@@ -174,13 +174,13 @@ func TestExplicitResumeDegradesOnLostHistory(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &ThreadRecord{
-		ThreadID:  "thread-1",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := resumeDegradeCodexBinding(t)
@@ -211,6 +211,42 @@ func TestExplicitResumeDegradesOnLostHistory(t *testing.T) {
 	}
 	if len(stopped) != 1 {
 		t.Fatalf("stopped events = %d, want 1", len(stopped))
+	}
+}
+
+func TestExplicitResumeDoesNotPublishStoppedWhenDegradeCleanupFails(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &ThreadRecord{
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
+	}}
+	bindings := resumeDegradeCodexBinding(t)
+	bindings.deleteErr = errors.New("delete binding failed")
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, _ dto.ResumeSessionRequest) (contract.Session, error) {
+			return nil, errors.New("codexapp: rollout not found for thread-1")
+		},
+	}
+	var stopped []threaddto.Stopped
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, resumeDegradeOrchestration{}, nil).(*service)
+	svc.emitStopped = func(evt threaddto.Stopped) { stopped = append(stopped, evt) }
+
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"})
+	if err == nil || !strings.Contains(err.Error(), "delete binding failed") {
+		t.Fatalf("Resume() error = %v, want cleanup failure", err)
+	}
+	if threads.status.Status != "" {
+		t.Fatalf("thread status = %q, want unchanged when binding cleanup fails", threads.status.Status)
+	}
+	if len(stopped) != 0 {
+		t.Fatalf("stopped events = %d, want 0 when cleanup fails", len(stopped))
 	}
 }
 

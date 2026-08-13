@@ -408,6 +408,7 @@ type SchedulerStore interface {
 	InsertRun(ctx context.Context, params InsertRunParams) (RunRecord, error)
 	CASRunStatus(ctx context.Context, params CASRunStatusParams) error
 	SetRunTurn(ctx context.Context, params SetRunTurnParams) error
+	IsTurnOwned(ctx context.Context, turnID string) (bool, error)
 	GetRunByID(ctx context.Context, id string) (RunRecord, error)
 	GetRunningRunByTurnID(ctx context.Context, turnID string) (RunRecord, error)
 	ListUnresolvedRuns(ctx context.Context) ([]RunRecord, error)

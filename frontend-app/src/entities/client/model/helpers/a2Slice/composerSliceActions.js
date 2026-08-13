@@ -233,7 +233,6 @@ function canonicalStartedTurn(observed, localTurnId, threadId) {
   nextTurn.id = localTurnId;
   nextTurn.threadId = threadId;
   if (typeof observed.status !== 'string' || observed.status.trim() === '') nextTurn.status = 'running';
-  if (typeof observed.id === 'string' && observed.id !== localTurnId) nextTurn.providerTurnId = observed.id;
   return nextTurn;
 }
 

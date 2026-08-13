@@ -3,7 +3,7 @@ import { ArrowUp, CircleStop, Folder, Paperclip, Image } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { ProjectSelector } from '../components/ProjectSelector.jsx';
 import { ComposerModelSelector } from './ComposerModelSelector.jsx';
-import { runUIAction } from '../model/chatUiActions.js';
+import { runUIAction, threadScopedActionOptions } from '../model/chatUiActions.js';
 import { firstText, trimmedText } from '../markdown/markdownMessageModel.js';
 
 function composerProjectName(projectPath) {
@@ -36,10 +36,12 @@ function ComposerMeta({
   const projectTitle = projectPath || projectLabel;
   const onPrimaryAction = () => {
     if (canInterrupt) {
-      runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true });
+      runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), threadScopedActionOptions(modelThreadId, { rejectFalse: true }));
       return;
     }
-    if (canSend) runUIAction('composer.send', () => sendMessage(), { supersedesActionIds: ['thread.interrupt'] });
+    if (canSend) runUIAction('composer.send', () => sendMessage(), threadScopedActionOptions(modelThreadId, {
+      supersedesActionIds: ['thread.interrupt'],
+    }));
   };
   return (
     <div className="composer-meta">

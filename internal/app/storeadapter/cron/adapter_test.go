@@ -28,6 +28,7 @@ type cronStoreTestDouble struct {
 	*cronStoreJobTestDouble
 	*cronStoreClaimTestDouble
 	*cronStoreRunTestDouble
+	*cronStoreOwnershipTestDouble
 }
 
 func newCronStoreTestDouble(state *cronStoreTestState) *cronStoreTestDouble {
@@ -35,9 +36,10 @@ func newCronStoreTestDouble(state *cronStoreTestState) *cronStoreTestDouble {
 		state = &cronStoreTestState{}
 	}
 	return &cronStoreTestDouble{
-		cronStoreJobTestDouble:   &cronStoreJobTestDouble{state: state},
-		cronStoreClaimTestDouble: &cronStoreClaimTestDouble{state: state},
-		cronStoreRunTestDouble:   &cronStoreRunTestDouble{state: state},
+		cronStoreJobTestDouble:       &cronStoreJobTestDouble{state: state},
+		cronStoreClaimTestDouble:     &cronStoreClaimTestDouble{state: state},
+		cronStoreRunTestDouble:       &cronStoreRunTestDouble{state: state},
+		cronStoreOwnershipTestDouble: &cronStoreOwnershipTestDouble{},
 	}
 }
 
@@ -163,6 +165,12 @@ func (s *cronStoreRunTestDouble) GetSubmittedOrRunningRunByTurnID(
 		return s.state.getSubmittedOrRunningRun(ctx, turnID)
 	}
 	return cronstore.Run{}, cronstore.ErrJobRunNotFound
+}
+
+type cronStoreOwnershipTestDouble struct{}
+
+func (*cronStoreOwnershipTestDouble) IsTurnOwned(context.Context, string) (bool, error) {
+	return false, nil
 }
 
 var _ cronstore.Store = (*cronStoreTestDouble)(nil)

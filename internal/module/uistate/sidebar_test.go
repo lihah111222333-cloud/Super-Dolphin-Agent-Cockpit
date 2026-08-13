@@ -17,6 +17,7 @@ import (
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 )
 
 func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
@@ -346,6 +347,83 @@ func TestResolveBindingProviderThreadsRejectsMissingResolver(t *testing.T) {
 
 	if _, err := resolveBindingProviderThreads(map[string]BindingEntry{"agent-1": {}}, nil); err == nil {
 		t.Fatal("resolveBindingProviderThreads() error = nil, want missing resolver failure")
+	}
+}
+
+func TestResolveBindingProviderThreadsRetriesOnlyArtifactRace(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	binding := BindingEntry{AgentID: "agent-1", Provider: "claude", SessionUUID: providerUUID}
+	calls := 0
+	resolved, err := resolveBindingProviderThreads(map[string]BindingEntry{binding.AgentID: binding}, func(BindingEntry) (string, error) {
+		calls++
+		if calls == 1 {
+			return "", &providerrecovery.Error{
+				Kind:     providerrecovery.ErrorKindArtifactRace,
+				Provider: "claude",
+				Cause:    errors.New("artifact revision changed"),
+			}
+		}
+		return providerUUID, nil
+	})
+	if err != nil {
+		t.Fatalf("resolveBindingProviderThreads() error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("resolver calls = %d, want bounded retry with 2 calls", calls)
+	}
+	if resolved[binding.AgentID] != providerUUID {
+		t.Fatalf("resolved provider thread = %q, want %q", resolved[binding.AgentID], providerUUID)
+	}
+}
+
+func TestResolveBindingProviderThreadsBoundsPersistentArtifactRace(t *testing.T) {
+	t.Parallel()
+
+	binding := BindingEntry{AgentID: "agent-1", Provider: "claude"}
+	calls := 0
+	_, err := resolveBindingProviderThreads(map[string]BindingEntry{binding.AgentID: binding}, func(BindingEntry) (string, error) {
+		calls++
+		return "", &providerrecovery.Error{
+			Kind:     providerrecovery.ErrorKindArtifactRace,
+			Provider: "claude",
+			Cause:    errors.New("artifact keeps changing"),
+		}
+	})
+	if !providerrecovery.IsKind(err, providerrecovery.ErrorKindArtifactRace) {
+		t.Fatalf("resolveBindingProviderThreads() error = %v, want artifact race", err)
+	}
+	if calls != 2 {
+		t.Fatalf("resolver calls = %d, want bounded 2 attempts", calls)
+	}
+}
+
+func TestResolveBindingProviderThreadsPermanentErrorsFailFast(t *testing.T) {
+	t.Parallel()
+
+	binding := BindingEntry{AgentID: "agent-1", Provider: "claude"}
+	for _, kind := range []providerrecovery.ErrorKind{
+		providerrecovery.ErrorKindPermission,
+		providerrecovery.ErrorKindParse,
+		providerrecovery.ErrorKindIO,
+	} {
+		t.Run(string(kind)+" fails fast", func(t *testing.T) {
+			calls := 0
+			_, err := resolveBindingProviderThreads(map[string]BindingEntry{binding.AgentID: binding}, func(BindingEntry) (string, error) {
+				calls++
+				return "", &providerrecovery.Error{Kind: kind, Provider: "claude", Cause: errors.New("permanent failure")}
+			})
+			if err == nil {
+				t.Fatalf("resolveBindingProviderThreads() error = nil, want %q", kind)
+			}
+			if calls != 1 {
+				t.Fatalf("resolver calls = %d, want fail-fast single call", calls)
+			}
+			if !providerrecovery.IsKind(err, kind) {
+				t.Fatalf("resolveBindingProviderThreads() error = %v, want kind %q", err, kind)
+			}
+		})
 	}
 }
 

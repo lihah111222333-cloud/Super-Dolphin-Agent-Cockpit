@@ -1,14 +1,66 @@
 package codexapp
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kelindar/event"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	provdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
+
+// TestDispatchTurnIdentityFieldGuard 从公共 TurnIDHeader 的 JSON tag 动态取得公开字段，
+// 锁定 provider turn ID 在 dispatch 边界必须映射回同一 handle 的 local TurnRef。
+func TestDispatchTurnIdentityFieldGuard(t *testing.T) {
+	t.Parallel()
+
+	field, ok := reflect.TypeFor[shareddto.TurnIDHeader]().FieldByName("TurnID")
+	if !ok {
+		t.Fatal("TurnIDHeader.TurnID field is missing")
+	}
+	wireName, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+	if wireName == "" || wireName == "-" {
+		t.Fatalf("TurnIDHeader.TurnID json tag = %q, want public wire field", field.Tag.Get("json"))
+	}
+
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	rawEvents := make(chan provdto.BusRawProviderEvent, 1)
+	cancelSub := event.Subscribe(bus, func(ev provdto.BusRawProviderEvent) { rawEvents <- ev })
+	defer cancelSub()
+
+	const providerTurnID = "provider-turn-1"
+	const localTurnID = "local-turn-1"
+	s := &session{
+		agentID:    "agent-1",
+		dispatcher: unified.NewEventDispatcher(bus, nil),
+		turns: map[string]*turnHandle{
+			providerTurnID: newTurnHandle(localTurnID, providerTurnID),
+		},
+	}
+	input := map[string]any{wireName: providerTurnID}
+	s.dispatch(provdto.RawProviderEvent{
+		EventType: "turn/started",
+		Data:      input,
+	})
+	if got := stringValue(input, wireName, "turnId"); got != providerTurnID {
+		t.Fatalf("dispatch rewrote internal turn identity = %q, want provider ID %q", got, providerTurnID)
+	}
+
+	select {
+	case ev := <-rawEvents:
+		payload := ev.Event.Data.(map[string]any)
+		if got := stringValue(payload, wireName, "turnId"); got != localTurnID {
+			t.Fatalf("public turn identity = %q, want local TurnRef %q", got, localTurnID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for remapped turn event")
+	}
+}
 
 func TestDispatchPreservesCodexContextWindowTokens(t *testing.T) {
 	t.Parallel()

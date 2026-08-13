@@ -47,6 +47,11 @@ vi.mock("../../../shared/api/backendApi.js", async (importOriginal) => {
 
 import * as backendApi from "../../../shared/api/backendApi.js";
 import { EVENT_TYPED_WIRE_METHODS } from "../../../shared/api/eventWireMethods.js";
+import {
+  publishVisibleActionFailure,
+  resetVisibleActionFailureForTest,
+  visibleActionFailureSnapshot,
+} from "../../../shared/ui/actionFailureSink.js";
 import { resetClientStoreForTests, useClientStore } from "./useClientStore.js";
 
 async function flushPromises(count = 8) {
@@ -67,6 +72,7 @@ beforeEach(() => {
   runtime.bridgeOptions = null;
   runtime.runtimeReconnectCallback = null;
   resetClientStoreForTests();
+  resetVisibleActionFailureForTest();
   runtime.backend.readConfig.mockResolvedValue({ cwd: "/repo/app" });
   runtime.backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
   runtime.backend.getProjects.mockResolvedValue({ projects: ["/repo/app"], active: "/repo/app" });
@@ -102,6 +108,97 @@ it("rejects legacy or malformed terminal payloads into a visible contract error 
   );
   expect(state.warningEntries).toEqual([expect.objectContaining({ event: "turn.terminal.contract_invalid" })]);
   expect(state.timelinesByThread["thread-1"]).toEqual([]);
+});
+
+it("clears a scoped interrupt failure when the same thread reaches terminal state", () => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+    threads: [{ id: "thread-1", name: "Existing", provider: "codex", status: "running" }],
+    statuses: { "thread-1": { status: "running" } },
+    activeTurnByThread: { "thread-1": { id: "turn-1", threadId: "thread-1", status: "running" } },
+    timelinesByThread: { "thread-1": [] },
+  });
+  publishVisibleActionFailure({ actionId: "thread.interrupt", threadId: "thread-1", publicError: {} });
+  registerBridgeEventHandlersForTest();
+
+  runtime.bridgeCallback({
+    type: "turn/terminal",
+    payload: {
+      schemaVersion: 2,
+      eventId: "terminal-clears-interrupt",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      outcome: "success",
+      publicSummary: "done",
+      occurredAt: "2026-08-12T01:00:00Z",
+    },
+  });
+
+  expect(visibleActionFailureSnapshot()).toBeNull();
+});
+
+it("seals the local turn and closes thinking after the bridged final reply completes", () => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+    threads: [{ id: "thread-1", name: "Existing", provider: "codex", status: "running" }],
+    statuses: { "thread-1": { status: "running", interruptible: true } },
+    activeTurnByThread: {
+      "thread-1": {
+        id: "turn-local",
+        threadId: "thread-1",
+        status: "thinking",
+      },
+    },
+    timelinesByThread: {
+      "thread-1": [{
+        id: "thinking:turn-local",
+        role: "assistant",
+        kind: "thinking",
+        turnId: "turn-local",
+        status: "running",
+        done: false,
+      }],
+    },
+  });
+  registerBridgeEventHandlersForTest();
+
+  runtime.bridgeCallback({
+    type: "item/completed",
+    payload: {
+      threadId: "thread-1",
+      turnId: "turn-local",
+      item: { id: "assistant-final-turn-local", type: "assistant", content: "done" },
+    },
+  });
+  runtime.bridgeCallback({
+    type: "turn/terminal",
+    payload: {
+      schemaVersion: 2,
+      eventId: "terminal-local-turn",
+      threadId: "thread-1",
+      turnId: "turn-local",
+      outcome: "success",
+      publicSummary: "done",
+      partialItemIds: ["assistant-final-turn-local"],
+      occurredAt: "2026-08-12T01:02:03Z",
+    },
+  });
+
+  const state = useClientStore.getState();
+  expect(state.activeTurnByThread).not.toHaveProperty("thread-1");
+  expect(state.statuses["thread-1"]).toEqual(expect.objectContaining({ status: "completed", interruptible: false }));
+  expect(state.timelinesByThread["thread-1"]).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "thinking:turn-local", turnId: "turn-local", done: true }),
+    expect.objectContaining({ id: "assistant-final-turn-local", turnId: "turn-local", text: "done", done: true }),
+    expect.objectContaining({ kind: "turn_terminal", turnId: "turn-local", terminalOutcome: "success" }),
+  ]));
+  expect(state.timelinesByThread["thread-1"].some(
+    (item) => item.turnId === "turn-local" && item.done === false,
+  )).toBe(false);
 });
 
 it("routes every typed Wails wire method without treating lifecycle events as legacy turn terminals", () => {

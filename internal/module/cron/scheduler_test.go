@@ -35,6 +35,7 @@ type recordingCronStore struct {
 	listJobsFn              func(context.Context) ([]JobRecord, error)
 	listUnresolvedFn        func(context.Context) ([]RunRecord, error)
 	getRunningRunByTurnIDFn func(context.Context, string) (RunRecord, error)
+	isTurnOwnedFn           func(context.Context, string) (bool, error)
 	getRunByTurnIDFn        func(context.Context, string) (RunRecord, error)
 	listUnresolvedPageFn    func(context.Context, int32, string) ([]RunRecord, error)
 	listJobsClaimedByFn     func(context.Context, string) ([]JobRecord, error)
@@ -184,6 +185,13 @@ func (s *recordingCronStore) GetSubmittedOrRunningRunByTurnID(ctx context.Contex
 		}
 	}
 	return RunRecord{}, ErrStoreJobRunNotFound
+}
+
+func (s *recordingCronStore) IsTurnOwned(ctx context.Context, turnID string) (bool, error) {
+	if s.isTurnOwnedFn != nil {
+		return s.isTurnOwnedFn(ctx, turnID)
+	}
+	return false, nil
 }
 
 func (s *recordingCronStore) ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]RunRecord, error) {
@@ -755,6 +763,9 @@ func TestCronTerminalSubscriberMarksFinished(t *testing.T) {
 	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
 		finished <- p
 		return nil
+	}
+	store.isTurnOwnedFn = func(context.Context, string) (bool, error) {
+		return true, nil
 	}
 	dispatcher := platformbus.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })

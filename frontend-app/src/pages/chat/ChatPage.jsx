@@ -36,6 +36,8 @@ import './agentBoard/AgentBoard.css';
 
 const RIGHT_PANEL_EXIT_MS = 180;
 const CLOSED_RIGHT_PANEL_COLUMNS = 'minmax(0, 1fr) 0px 0px';
+const THREAD_RAIL_HIDDEN_MIN_VIEWPORT_WIDTH = 1200;
+const THREAD_RAIL_HIDDEN_MAX_VIEWPORT_WIDTH = 1280;
 
 function useRightPanelPresence(open) {
   const [mounted, setMounted] = useState(open);
@@ -311,6 +313,8 @@ function ChatPage(props) {
   });
   const rightPanelMounted = useRightPanelPresence(rightPanelOpen);
   const agentBoardCompact = geometrySnapshot.viewport.width <= AGENT_BOARD_COMPACT_VIEWPORT_WIDTH;
+  const threadRailHidden = geometrySnapshot.viewport.width >= THREAD_RAIL_HIDDEN_MIN_VIEWPORT_WIDTH
+    && geometrySnapshot.viewport.width <= THREAD_RAIL_HIDDEN_MAX_VIEWPORT_WIDTH;
   const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
   const prefillIntroSuggestion = (prompt) => {
     store.setDraft(prompt);
@@ -342,7 +346,7 @@ function ChatPage(props) {
         }}
       >
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
-        <ThreadRail copy={copy} store={store} />
+        <ThreadRail copy={copy} hidden={threadRailHidden} store={store} />
         <div className="chat-main-column" data-testid="chat-main-column">
           {!rightPanelOpen ? (
             <AgentBoardFloating

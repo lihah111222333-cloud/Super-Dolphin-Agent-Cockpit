@@ -110,6 +110,10 @@ type Querier interface {
 	InsertDatasourceV2Chunk(ctx context.Context, arg InsertDatasourceV2ChunkParams) error
 	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
+	// Classifies a global terminal event before it enters cron's worker queue.
+	// The join and terminal fences are evaluated in one SQLite snapshot so an
+	// unresolved run is only owned while its job still claims the same turn.
+	IsCronTurnOwned(ctx context.Context, arg IsCronTurnOwnedParams) (int64, error)
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]ListAILogSystemLogsRow, error)
 	ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error)
 	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]ListAgentFeedbackEventsByAgentRow, error)

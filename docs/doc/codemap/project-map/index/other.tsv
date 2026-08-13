@@ -85,10 +85,10 @@ internal/app/schema_filesystem_worker.go	internal	other	go-source	576	root Fx/ap
 internal/app/session_ports.go	internal	other	go-source	538	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,root,Fx,装配,runner,与,graph,closure
 internal/app/session_ports_test.go	internal	other	go-test	1303	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,test,root,Fx,装配,runner,与,graph,closure
 internal/app/sharedfile_adapter.go	internal	other	go-source	922	root Fx/app 装配、runner 与 graph closure	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,graph,closure
-internal/app/storeadapter/cron/adapter.go	internal	other	go-source	17628	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/cron/adapter_test.go	internal	other	go-test	18241	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,test,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/adapter.go	internal	other	go-source	17908	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/adapter_test.go	internal	other	go-test	18505	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,adapter,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/cron/module.go	internal	other	go-source	268	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,module,业务,Store,到,窄端口的适配器
-internal/app/storeadapter/cron/port_external_test.go	internal	other	go-test	3650	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,port,external,test,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/cron/port_external_test.go	internal	other	go-test	3761	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,cron,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/adapter.go	internal	other	go-source	19653	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/adapter_test.go	internal	other	go-test	19654	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,adapter,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/dashboard/module.go	internal	other	go-source	513	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,module,业务,Store,到,窄端口的适配器
@@ -938,8 +938,8 @@ internal/util/idgen/idgen_test.go	internal	other	go-test	1115	Internal shared ut
 internal/util/jsoninput/jsoninput.go	internal	other	go-source	770	Internal shared utility packages	internal,util,jsoninput,Internal,shared,utility,packages
 internal/util/pathutil/pathutil.go	internal	other	go-source	10865	Internal shared utility packages	internal,util,pathutil,Internal,shared,utility,packages
 internal/util/pathutil/pathutil_test.go	internal	other	go-test	1693	Internal shared utility packages	internal,util,pathutil,test,Internal,shared,utility,packages
-internal/util/providerrecovery/recovery.go	internal	other	go-source	6976	Internal shared utility packages	internal,util,providerrecovery,recovery,Internal,shared,utility,packages
-internal/util/providerrecovery/recovery_test.go	internal	other	go-test	10646	Internal shared utility packages	internal,util,providerrecovery,recovery,test,Internal,shared,utility,packages
+internal/util/providerrecovery/recovery.go	internal	other	go-source	7114	Internal shared utility packages	internal,util,providerrecovery,recovery,Internal,shared,utility,packages
+internal/util/providerrecovery/recovery_test.go	internal	other	go-test	11109	Internal shared utility packages	internal,util,providerrecovery,recovery,test,Internal,shared,utility,packages
 internal/util/repofingerprint/fingerprint.go	internal	other	go-source	1126	Internal shared utility packages	internal,util,repofingerprint,fingerprint,Internal,shared,utility,packages
 internal/util/repofingerprint/fingerprint_test.go	internal	other	go-test	1245	Internal shared utility packages	internal,util,repofingerprint,fingerprint,test,Internal,shared,utility,packages
 internal/util/safego/safego.go	internal	other	go-source	736	Internal shared utility packages	internal,util,safego,Internal,shared,utility,packages

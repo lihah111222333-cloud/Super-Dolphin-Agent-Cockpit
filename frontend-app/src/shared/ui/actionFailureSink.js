@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {{ actionId: string, publicError: { code: string, title: string, message: string, diagnosticId: string, retryable: boolean, recoveryActions: readonly string[] }, retry?: () => unknown }} VisibleActionFailure */
+/** @typedef {{ actionId: string, threadId?: string, publicError: { code: string, title: string, message: string, diagnosticId: string, retryable: boolean, recoveryActions: readonly string[] }, retry?: () => unknown }} VisibleActionFailure */
 
 /** @type {VisibleActionFailure | null} */
 let activeFailure = null;
@@ -22,17 +22,17 @@ export function clearVisibleActionFailure() {
   emit();
 }
 
-/** @param {readonly string[]} actionIds */
-export function clearVisibleActionFailureForActions(actionIds) {
-  if (!activeFailure || !actionIds.includes(activeFailure.actionId)) return false;
+/** @param {readonly string[]} actionIds @param {string | undefined} threadId */
+export function clearVisibleActionFailureForActions(actionIds, threadId) {
+  if (!activeFailure || activeFailure.threadId !== threadId || !actionIds.includes(activeFailure.actionId)) return false;
   clearVisibleActionFailure();
   return true;
 }
 
-/** @param {VisibleActionFailure | null} expectedFailure @param {readonly string[]} actionIds */
-export function clearVisibleActionFailureIfCurrent(expectedFailure, actionIds) {
+/** @param {VisibleActionFailure | null} expectedFailure @param {readonly string[]} actionIds @param {string | undefined} threadId */
+export function clearVisibleActionFailureIfCurrent(expectedFailure, actionIds, threadId) {
   if (!expectedFailure || activeFailure !== expectedFailure) return false;
-  return clearVisibleActionFailureForActions(actionIds);
+  return clearVisibleActionFailureForActions(actionIds, threadId);
 }
 
 /** @param {() => void} listener */

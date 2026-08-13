@@ -275,7 +275,7 @@
   box-shadow: var(--super-dolphin-agent-card-shadow);
   margin-right: 12px;
   opacity: 0;
-  transform: translateX(48px);
+  transform: translateX(12px);
   transition: background var(--transition), border-color var(--transition), color var(--transition), opacity var(--motion-hover), transform var(--motion-overlay);
 }
 

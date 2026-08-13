@@ -197,6 +197,12 @@ func (a *cronSchedulerRunAdapter) GetRunByID(ctx context.Context, id string) (cr
 	return fromStoreRun(row), mapCronStoreError(err)
 }
 
+// IsTurnOwned 使用 Store 的原子判域查询，避免 App adapter 拆分读取 run 与 job。
+func (a *cronSubmitAdapter) IsTurnOwned(ctx context.Context, turnID string) (bool, error) {
+	owned, err := a.store.IsTurnOwned(ctx, turnID)
+	return owned, mapCronStoreError(err)
+}
+
 // GetRunningRunByTurnID 查找当前 running run，用于终态事件收尾。
 func (a *cronSchedulerRunAdapter) GetRunningRunByTurnID(ctx context.Context, turnID string) (cron.RunRecord, error) {
 	row, err := a.store.GetRunningRunByTurnID(ctx, turnID)

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
 )
 
 const testProviderUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
@@ -108,7 +110,7 @@ func TestResolvePropagatesNonRegularArtifactAsIO(t *testing.T) {
 	}
 }
 
-func TestResolveClassifiesArtifactDeletionAfterValidationAsIO(t *testing.T) {
+func TestResolveClassifiesArtifactDeletionAfterValidationAsRace(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -126,11 +128,23 @@ func TestResolveClassifiesArtifactDeletionAfterValidationAsIO(t *testing.T) {
 		t.Fatalf("remove validated artifact: %v", err)
 	}
 	_, err := Resolve(req)
-	if !IsKind(err, ErrorKindIO) {
-		t.Fatalf("Resolve() after deletion error = %v, want %q", err, ErrorKindIO)
+	if !IsKind(err, ErrorKindArtifactRace) {
+		t.Fatalf("Resolve() after deletion error = %v, want %q", err, ErrorKindArtifactRace)
 	}
 	if errors.Is(err, ErrNotFound) {
 		t.Fatalf("validated artifact deletion error = %v, must not downgrade to not found", err)
+	}
+}
+
+func TestClassifyArtifactRaceAsTransientRace(t *testing.T) {
+	t.Parallel()
+
+	err := &historyjsonl.RecoveryArtifactRaceError{
+		Path:  "/provider/session.jsonl",
+		Cause: errors.New("artifact revision changed"),
+	}
+	if got := classifyArtifactError(err); got != ErrorKindArtifactRace {
+		t.Fatalf("classifyArtifactError() = %q, want artifact_race", got)
 	}
 }
 

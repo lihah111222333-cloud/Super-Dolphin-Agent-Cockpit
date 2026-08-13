@@ -76,6 +76,9 @@ func (externalCronSchedulerRunStore) SetRunTurn(context.Context, cron.SetRunTurn
 func (externalCronSchedulerRunStore) GetRunByID(context.Context, string) (cron.RunRecord, error) {
 	return cron.RunRecord{}, nil
 }
+func (externalCronSchedulerRunStore) IsTurnOwned(context.Context, string) (bool, error) {
+	return false, nil
+}
 func (externalCronSchedulerRunStore) GetRunningRunByTurnID(context.Context, string) (cron.RunRecord, error) {
 	return cron.RunRecord{}, nil
 }

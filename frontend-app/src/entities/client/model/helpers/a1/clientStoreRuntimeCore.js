@@ -24,6 +24,7 @@ import {
   activeTurnIdForThread,
   activeThreadInterruptTarget,
   backendThreadIdForState,
+  canonicalizeThreadKey,
   extractDeltaText,
   pickThreadScopedEntry,
   runtimeThreadIdentifier,
@@ -157,9 +158,12 @@ function createClientStoreRuntime(set, get, { getPreference }) {
 function attachComposerDraftRuntime(runtime) {
   const { get } = runtime;
   const { composerDrafts } = runtime;
+  const draftKey = (state, threadId = state.activeThreadId) => (
+    composerDraftKey(state, canonicalizeThreadKey(threadId, state.threads))
+  );
 
   const saveActiveComposerDraft = (state = get()) => {
-    const key = composerDraftKey(state);
+    const key = draftKey(state);
     const snapshot = normalizeComposerDraftSnapshot(state);
     if (isEmptyComposerDraftSnapshot(snapshot)) {
       composerDrafts.delete(key);
@@ -169,7 +173,7 @@ function attachComposerDraftRuntime(runtime) {
   };
 
   const saveComposerDraftSnapshot = (state = get(), threadId = state.activeThreadId, snapshot = {}) => {
-    const key = composerDraftKey(state, threadId);
+    const key = draftKey(state, threadId);
     const normalized = normalizeComposerDraftSnapshot(snapshot);
     if (isEmptyComposerDraftSnapshot(normalized)) {
       composerDrafts.delete(key);
@@ -179,7 +183,7 @@ function attachComposerDraftRuntime(runtime) {
   };
 
   const restoreComposerDraft = (state, threadId) => {
-    const key = composerDraftKey(state, threadId);
+    const key = draftKey(state, threadId);
     const restored = normalizeComposerDraftSnapshot(composerDrafts.get(key));
     return {
       ...restored,
@@ -188,7 +192,7 @@ function attachComposerDraftRuntime(runtime) {
   };
 
   const clearComposerDraft = (state, threadId) => {
-    composerDrafts.delete(composerDraftKey(state, threadId));
+    composerDrafts.delete(draftKey(state, threadId));
   };
 
 

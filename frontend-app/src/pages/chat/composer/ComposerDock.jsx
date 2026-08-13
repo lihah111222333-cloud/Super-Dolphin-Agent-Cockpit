@@ -11,7 +11,7 @@ import { ComposerAttachments } from './ComposerAttachments.jsx';
 import { ComposerMeta } from './ComposerMeta.jsx';
 import { ComposerTextarea } from './ComposerTextarea.jsx';
 import { ForkDraftCard } from './ForkDraftCard.jsx';
-import { runUIAction } from '../model/chatUiActions.js';
+import { runUIAction, threadScopedActionOptions } from '../model/chatUiActions.js';
 import './ComposerDock.css';
 
 function useComposerDropTarget(ref, composer) {
@@ -41,7 +41,7 @@ function useComposerDropTarget(ref, composer) {
   }, [composer, ref]);
 }
 
-function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
+function useComposerSendKeyHandler({ canSend, composer, sendMessage, threadId }) {
   return (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     const keyCode = Number(event.keyCode || event.which || 0);
@@ -49,7 +49,9 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
     if (imeLikely) return;
     event.preventDefault();
     if (!canSend) return;
-    runUIAction('composer.send', () => sendMessage(), { supersedesActionIds: ['thread.interrupt'] });
+    runUIAction('composer.send', () => sendMessage(), threadScopedActionOptions(threadId, {
+      supersedesActionIds: ['thread.interrupt'],
+    }));
   };
 }
 
@@ -73,8 +75,8 @@ function runPromptHistoryAction(direction, promptHistory) {
   return runUIAction('prompt-history.next', () => promptHistory.next(), { retryable: true });
 }
 
-function useComposerKeyHandler({ canSend, composer, promptHistory, sendMessage }) {
-  const handleSendKey = useComposerSendKeyHandler({ canSend, composer, sendMessage });
+function useComposerKeyHandler({ canSend, composer, promptHistory, sendMessage, threadId }) {
+  const handleSendKey = useComposerSendKeyHandler({ canSend, composer, sendMessage, threadId });
   return (event) => {
     const direction = event.key === 'ArrowUp' ? 'previous' : event.key === 'ArrowDown' ? 'next' : '';
     if (direction && !composer.isComposing() && shouldNavigatePromptHistory(event, event.currentTarget, direction)) {
@@ -166,6 +168,7 @@ function ComposerDock({
     composer,
     promptHistory,
     sendMessage: promptHistory.send,
+    threadId: modelThreadId,
   });
   const handleKeyDown = (event) => {
     if (palette.handleKeyDown(event, { isComposing: composer.isComposing() })) return;

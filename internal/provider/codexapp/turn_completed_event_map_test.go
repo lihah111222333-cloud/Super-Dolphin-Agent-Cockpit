@@ -118,6 +118,84 @@ func TestOnNotificationFirstTerminalWinsBeforeDispatch(t *testing.T) {
 	}
 }
 
+// TestOnNotificationMapsProviderTurnIDBeforeBusAndTerminalBridge 锁住 provider UUID 只能留在 session 内部。
+func TestOnNotificationMapsProviderTurnIDBeforeBusAndTerminalBridge(t *testing.T) {
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
+	rawEvents := make(chan dto.BusRawProviderEvent, 1)
+	cancelRaw := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
+		rawEvents <- ev
+	})
+	defer cancelRaw()
+	completed := make(chan turndto.TurnCompleted, 1)
+	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
+		completed <- ev
+	})
+	defer cancelCompleted()
+	terminals := make(chan turndto.TurnTerminalV2, 1)
+	for _, cancel := range eventsurface.Bind(bus, nil, func(method string, payload any) {
+		if method == eventsurface.MethodTurnTerminal {
+			terminals <- payload.(turndto.TurnTerminalV2)
+		}
+	}) {
+		defer cancel()
+	}
+
+	h := newTurnHandle("turn-local", "turn-provider")
+	s := &session{
+		agentID:      "thread-public",
+		dispatcher:   dispatcher,
+		turns:        map[string]*turnHandle{"turn-provider": h},
+		activeTurnID: "turn-provider",
+	}
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","timestamp":"2026-08-12T01:02:03Z","success":true,"status":"completed","result":"done","summary":"done"}`))
+
+	assertMappedRawTurn(t, rawEvents)
+	assertMappedCompletedTurn(t, completed)
+	assertMappedTerminalTurn(t, terminals)
+}
+
+// assertMappedRawTurn 验证公开 raw bus 已投影为 local TurnRef。
+func assertMappedRawTurn(t *testing.T, events <-chan dto.BusRawProviderEvent) {
+	t.Helper()
+	select {
+	case raw := <-events:
+		if turnID := payloadTurnID(decodeAnyPayload(raw.Event.Data)); turnID != "turn-local" {
+			t.Fatalf("raw bus turn id = %q, want local turn id", turnID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for mapped raw bus event")
+	}
+}
+
+// assertMappedCompletedTurn 验证 typed bus 终态携带公开 TurnRef。
+func assertMappedCompletedTurn(t *testing.T, events <-chan turndto.TurnCompleted) {
+	t.Helper()
+	select {
+	case ev := <-events:
+		if ev.ThreadID != "thread-public" || ev.TurnID != "turn-local" {
+			t.Fatalf("typed bus TurnRef = (%q, %q), want public thread/local turn", ev.ThreadID, ev.TurnID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for mapped typed bus event")
+	}
+}
+
+// assertMappedTerminalTurn 验证 bridge 终态继续保持公开 TurnRef。
+func assertMappedTerminalTurn(t *testing.T, events <-chan turndto.TurnTerminalV2) {
+	t.Helper()
+	select {
+	case terminal := <-events:
+		if terminal.ThreadID != "thread-public" || terminal.TurnID != "turn-local" {
+			t.Fatalf("terminal bridge TurnRef = (%q, %q), want public thread/local turn", terminal.ThreadID, terminal.TurnID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for terminal bridge event")
+	}
+}
+
 func TestOnNotificationOwnerlessTerminalIsRejected(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()

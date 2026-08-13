@@ -84,6 +84,8 @@ type Store interface {
 	ListUnresolvedRuns(ctx context.Context) ([]Run, error)
 	ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]Run, error)
 
+	// IsTurnOwned 在单次查询中核对未解决 run 与 active job 栅栏，判定全局 turn 事件是否归 Cron 所有。
+	IsTurnOwned(ctx context.Context, turnID string) (bool, error)
 	// GetRunningRunByTurnID 查找指定 turn 当前运行中的 run，不存在时返回 ErrJobRunNotFound。
 	GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error)
 	GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (Run, error)

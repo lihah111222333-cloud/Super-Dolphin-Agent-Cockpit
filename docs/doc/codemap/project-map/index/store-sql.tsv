@@ -57,16 +57,16 @@ internal/store/commandcard/module.go	internal	store-sql	go-source	218	应用级�
 internal/store/commandcard/store.go	internal	store-sql	go-source	2487	应用级持久化 store	internal,store,commandcard,应用级持久化
 internal/store/commandcard/store_test.go	internal	store-sql	go-test	5888	应用级持久化 store	internal,store,commandcard,test,应用级持久化
 internal/store/cron/claim_sqlite_concurrency_test.go	internal	store-sql	go-test	15137	应用级持久化 store	internal,store,cron,claim,sqlite,concurrency,test,应用级持久化
-internal/store/cron/contract.go	internal	store-sql	go-source	11426	应用级持久化 store	internal,store,cron,contract,应用级持久化
+internal/store/cron/contract.go	internal	store-sql	go-source	11616	应用级持久化 store	internal,store,cron,contract,应用级持久化
 internal/store/cron/list_page.go	internal	store-sql	go-source	2785	应用级持久化 store	internal,store,cron,list,page,应用级持久化
 internal/store/cron/list_page_test.go	internal	store-sql	go-test	6059	应用级持久化 store	internal,store,cron,list,page,test,应用级持久化
 internal/store/cron/mapping.go	internal	store-sql	go-source	2833	应用级持久化 store	internal,store,cron,mapping,应用级持久化
 internal/store/cron/module.go	internal	store-sql	go-source	206	应用级持久化 store	internal,store,cron,module,应用级持久化
 internal/store/cron/recovery_finalize.go	internal	store-sql	go-source	3941	应用级持久化 store	internal,store,cron,recovery,finalize,应用级持久化
 internal/store/cron/sqlc_type_contract_test.go	internal	store-sql	go-test	801	应用级持久化 store	internal,store,cron,sqlc,type,contract,test,应用级持久化
-internal/store/cron/store.go	internal	store-sql	go-source	28914	应用级持久化 store	internal,store,cron,应用级持久化
+internal/store/cron/store.go	internal	store-sql	go-source	29681	应用级持久化 store	internal,store,cron,应用级持久化
 internal/store/cron/store_test.go	internal	store-sql	go-test	24264	应用级持久化 store	internal,store,cron,test,应用级持久化
-internal/store/cron/store_transaction_test.go	internal	store-sql	go-test	8125	应用级持久化 store	internal,store,cron,transaction,test,应用级持久化
+internal/store/cron/store_transaction_test.go	internal	store-sql	go-test	9713	应用级持久化 store	internal,store,cron,transaction,test,应用级持久化
 internal/store/cwdlock/contract.go	internal	store-sql	go-source	1543	应用级持久化 store	internal,store,cwdlock,contract,应用级持久化
 internal/store/cwdlock/module.go	internal	store-sql	go-source	187	应用级持久化 store	internal,store,cwdlock,module,应用级持久化
 internal/store/cwdlock/store.go	internal	store-sql	go-source	4334	应用级持久化 store	internal,store,cwdlock,应用级持久化
@@ -145,7 +145,7 @@ internal/store/sqlc/ai_log.sql.go	internal	store-sql	go-source	8528	应用级持
 internal/store/sqlc/audit_log.sql.go	internal	store-sql	go-source	2818	应用级持久化 store	internal,store,sqlc,audit,log,sql,应用级持久化
 internal/store/sqlc/bus_log.sql.go	internal	store-sql	go-source	3086	应用级持久化 store	internal,store,sqlc,bus,log,sql,应用级持久化
 internal/store/sqlc/command_card.sql.go	internal	store-sql	go-source	10973	应用级持久化 store	internal,store,sqlc,command,card,sql,应用级持久化
-internal/store/sqlc/cron_job.sql.go	internal	store-sql	go-source	33486	应用级持久化 store	internal,store,sqlc,cron,job,sql,应用级持久化
+internal/store/sqlc/cron_job.sql.go	internal	store-sql	go-source	34376	应用级持久化 store	internal,store,sqlc,cron,job,sql,应用级持久化
 internal/store/sqlc/cwd_lock.sql.go	internal	store-sql	go-source	4665	应用级持久化 store	internal,store,sqlc,cwd,lock,sql,应用级持久化
 internal/store/sqlc/datasource.sql.go	internal	store-sql	go-source	6742	应用级持久化 store	internal,store,sqlc,datasource,sql,应用级持久化
 internal/store/sqlc/datasource_v2.sql.go	internal	store-sql	go-source	19590	应用级持久化 store	internal,store,sqlc,datasource,v2,sql,应用级持久化
@@ -163,7 +163,7 @@ internal/store/sqlc/prompt_template_sections.sql.go	internal	store-sql	go-source
 internal/store/sqlc/prompt_template_sections_scope_sqlite_test.go	internal	store-sql	go-test	2305	应用级持久化 store	internal,store,sqlc,prompt,template,sections,scope,sqlite,test,应用级持久化
 internal/store/sqlc/prompt_template_sections_sql_test.go	internal	store-sql	go-test	2366	应用级持久化 store	internal,store,sqlc,prompt,template,sections,sql,test,应用级持久化
 internal/store/sqlc/prompt_template_sql_test.go	internal	store-sql	go-test	1316	应用级持久化 store	internal,store,sqlc,prompt,template,sql,test,应用级持久化
-internal/store/sqlc/querier.go	internal	store-sql	go-source	23720	应用级持久化 store	internal,store,sqlc,querier,应用级持久化
+internal/store/sqlc/querier.go	internal	store-sql	go-source	24028	应用级持久化 store	internal,store,sqlc,querier,应用级持久化
 internal/store/sqlc/session_insight.sql.go	internal	store-sql	go-source	27902	应用级持久化 store	internal,store,sqlc,session,insight,sql,应用级持久化
 internal/store/sqlc/shared_file.sql.go	internal	store-sql	go-source	3341	应用级持久化 store	internal,store,sqlc,shared,file,sql,应用级持久化
 internal/store/sqlc/sqlite_runtime_sql_test.go	internal	store-sql	go-test	8709	应用级持久化 store	internal,store,sqlc,sqlite,runtime,sql,test,应用级持久化
@@ -210,7 +210,7 @@ sql/queries/ai_log.sql	sql	store-sql	sql	1979	仓库级 SQL query 源文件	sql,
 sql/queries/audit_log.sql	sql	store-sql	sql	1133	仓库级 SQL query 源文件	sql,queries,audit,log,仓库级,SQL,query,源文件
 sql/queries/bus_log.sql	sql	store-sql	sql	825	仓库级 SQL query 源文件	sql,queries,bus,log,仓库级,SQL,query,源文件
 sql/queries/command_card.sql	sql	store-sql	sql	2626	仓库级 SQL query 源文件	sql,queries,command,card,仓库级,SQL,query,源文件
-sql/queries/cron_job.sql	sql	store-sql	sql	13540	仓库级 SQL query 源文件	sql,queries,cron,job,仓库级,SQL,query,源文件
+sql/queries/cron_job.sql	sql	store-sql	sql	14100	仓库级 SQL query 源文件	sql,queries,cron,job,仓库级,SQL,query,源文件
 sql/queries/cwd_lock.sql	sql	store-sql	sql	1720	仓库级 SQL query 源文件	sql,queries,cwd,lock,仓库级,SQL,query,源文件
 sql/queries/datasource.sql	sql	store-sql	sql	1505	仓库级 SQL query 源文件	sql,queries,datasource,仓库级,SQL,query,源文件
 sql/queries/datasource_v2.sql	sql	store-sql	sql	5588	仓库级 SQL query 源文件	sql,queries,datasource,v2,仓库级,SQL,query,源文件

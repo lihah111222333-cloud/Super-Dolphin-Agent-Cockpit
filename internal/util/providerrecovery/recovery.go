@@ -19,6 +19,7 @@ const (
 	ErrorKindPermission      ErrorKind = "permission"
 	ErrorKindIO              ErrorKind = "io"
 	ErrorKindParse           ErrorKind = "parse"
+	ErrorKindArtifactRace    ErrorKind = "artifact_race"
 	ErrorKindUnknownProvider ErrorKind = "unknown_provider"
 	ErrorKindInvalidIdentity ErrorKind = "invalid_identity"
 )
@@ -199,6 +200,8 @@ func isLegacyAgentPlaceholder(raw string) bool {
 
 func classifyArtifactError(err error) ErrorKind {
 	switch {
+	case historyjsonl.IsRecoveryArtifactRaceError(err):
+		return ErrorKindArtifactRace
 	case errors.Is(err, os.ErrPermission):
 		return ErrorKindPermission
 	case historyjsonl.IsParseError(err):

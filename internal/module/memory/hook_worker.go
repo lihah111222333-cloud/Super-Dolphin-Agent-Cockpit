@@ -158,7 +158,7 @@ func (w *memoryHookWorker) enqueueLocked(req memoryHookRequest) (int64, int) {
 }
 
 func shouldLogMemoryHookDrop(dropTotal int64) bool {
-	return dropTotal == 1 || dropTotal%memoryHookMaxQueue == 0
+	return dropTotal > 0 && (dropTotal == 1 || dropTotal%memoryHookMaxQueue == 0)
 }
 
 // logQueueBackpressure 暴露 memory hook 队列压缩，避免后台记忆写入退化变成静默丢事件。

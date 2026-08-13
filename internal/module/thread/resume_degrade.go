@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 )
 
 // 不可恢复的 resume 失败（provider 会话历史已丢失）走降级路径。
@@ -36,28 +35,28 @@ func isUnrecoverableResumeError(err error) bool {
 }
 
 // degradeLostResume 处理不可恢复的 resume 失败。
-// 它会删除 binding、把线程标记为 failed 并发布 stopped 事件，同时清除进程内
-// resumeInFlight 标记，让后续检查重新评估（此时 binding 已删除，不会再触发恢复）。
-// 任一步清理失败只记录日志，不阻断主流程；调用方收到原始 cause 作为最终错误。
-func (s *service) degradeLostResume(ctx context.Context, threadID, agentID string, cause error) {
+// 它仅在 binding 删除和线程状态更新全部成功后发布 stopped 事件并清除
+// resumeInFlight；任一步失败都会返回错误并保留进程内标记，避免宣告虚假终态。
+func (s *service) degradeLostResume(ctx context.Context, threadID, agentID string, cause error) error {
 	threadID = strings.TrimSpace(threadID)
 	agentID = strings.TrimSpace(agentID)
 	if s == nil {
-		return
+		return errors.New("thread: service is required to degrade lost resume")
 	}
-	s.resumeInFlight.Delete(agentID)
 
-	var cleanupErr error
-	if binding, err := s.resolveBinding(ctx, threadID); err == nil && binding != nil {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil && !errors.Is(err, contract.ErrNotFound) {
+		return fmt.Errorf("thread: resolve binding for degraded resume: %w", err)
+	}
+	if binding != nil {
 		if err := s.deleteThreadBinding(ctx, binding); err != nil {
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("thread: delete binding for degraded resume: %w", err))
+			return fmt.Errorf("thread: delete binding for degraded resume: %w", err)
 		}
-	} else if err != nil && !errors.Is(err, contract.ErrNotFound) {
-		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("thread: resolve binding for degraded resume: %w", err))
 	}
 	if err := s.updateThreadStatus(ctx, threadID, statusFailed); err != nil {
-		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("thread: mark degraded resume thread failed: %w", err))
+		return fmt.Errorf("thread: mark degraded resume thread failed: %w", err)
 	}
+	s.resumeInFlight.Delete(agentID)
 	if s.logger != nil {
 		s.logger.Warn("thread: degraded unrecoverable resume",
 			"thread_id", threadID,
@@ -66,9 +65,7 @@ func (s *service) degradeLostResume(ctx context.Context, threadID, agentID strin
 		)
 	}
 	s.publishThreadStopped(threadID, agentID, statusFailed, "provider session history lost; start a new session")
-	if cleanupErr != nil {
-		util.LogIgnoredError(s.logger, "thread: degrade lost resume cleanup failed", cleanupErr)
-	}
+	return nil
 }
 
 // resumeLostError 包装不可恢复的 resume 失败为对用户可读的错误。

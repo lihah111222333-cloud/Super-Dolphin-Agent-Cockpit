@@ -3,6 +3,7 @@ package codexapp
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -34,7 +35,8 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 			"agent_id", s.agentID, "event_type", raw.EventType)
 		return
 	}
-	payload := decodeAnyPayload(raw.Data)
+	// 投影只允许改写副本：终态收敛、interrupt claim 与输出累积仍须使用 provider ID。
+	payload := maps.Clone(decodeAnyPayload(raw.Data))
 	payloadChanged := false
 	if len(payload) > 0 {
 		if agentID := strings.TrimSpace(s.agentID); agentID != "" {
@@ -45,45 +47,14 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 			payloadChanged = true
 		}
 		s.recordToolFailureFromRaw(raw.EventType, payload)
+		if s.remapEventTurnIdentity(payload) {
+			payloadChanged = true
+		}
 		if payloadChanged {
 			raw.Data = payload
 		}
 	}
 	s.dispatcher.Dispatch(raw)
-}
-
-// remapEventIdentity 将 provider 事件中的 agent/thread 身份映射为宿主公开 ID。
-// 只要发现外来 ID 就记录告警，便于排查 provider UUID 泄漏到 UI 的来源。
-func (s *session) remapEventIdentity(eventType string, payload map[string]any, hostAgentID string) {
-	pid := payloadAgentID(payload)
-	tid := payloadThreadID(payload)
-	if providerThreadIdentityEvent(eventType) && tid != "" && tid != hostAgentID {
-		payload["providerThreadId"] = tid
-	}
-	// agent 与 thread 两套字段都强制改写，避免旧 payload 混用 snake/camel 字段时漏映射。
-	if pid != "" && pid != hostAgentID && s.logger != nil {
-		s.logger.Warn("codexapp: remapped alien agent_id in event",
-			"event_type", eventType, "original", pid, "mapped", hostAgentID)
-	}
-	if tid != "" && tid != hostAgentID && s.logger != nil {
-		s.logger.Warn("codexapp: remapped alien thread_id in event",
-			"event_type", eventType, "original", tid, "mapped", hostAgentID)
-	}
-	payload["agentId"] = hostAgentID
-	payload["agent_id"] = hostAgentID
-	payload["threadId"] = hostAgentID
-	payload["thread_id"] = hostAgentID
-}
-
-// providerThreadIdentityEvent 只允许会话启动类事件保留 provider 原生 thread id。
-// 其它事件仍按宿主 agent id 严格重映射，不能借此放宽 alien thread 拒绝边界。
-func providerThreadIdentityEvent(eventType string) bool {
-	switch strings.TrimSpace(eventType) {
-	case "thread/started", "session.configured", "agent:launched":
-		return true
-	default:
-		return false
-	}
 }
 
 // finishTurn 只消费 adapter 已解析的 canonical outcome，禁止重新判定 raw success/status。
@@ -415,6 +386,7 @@ func (s *session) publishSyntheticTerminal(turnID string, payload map[string]any
 	}
 	h := s.takeTurn(turnID)
 	s.suppressTurn(turnID)
+	remapEventTurnIdentityForHandle(payload, h)
 	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload, Terminal: outcome})
 	if h == nil {
 		return

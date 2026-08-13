@@ -69,6 +69,11 @@ function uiActionOptions(store) {
   };
 }
 
+function threadUIActionOptions(store) {
+  const options = uiActionOptions(store);
+  return store.activeThreadId ? { ...options, threadId: store.activeThreadId } : options;
+}
+
 function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
   if (!updateBanner?.update && !updateBanner?.message) return null;
   const version = updateVersionFromResult(updateBanner.update);
@@ -257,7 +262,7 @@ function useBoundAppCommandRuntime(options) {
           run: () => setSidebarOpen((open) => !open),
         },
         [APP_COMMAND_IDS.TURN_INTERRUPT]: {
-          run: () => runUIAction('thread.interrupt', () => store.interruptActiveThread(), uiActionOptions(store)),
+      run: () => runUIAction('thread.interrupt', () => store.interruptActiveThread(), threadUIActionOptions(store)),
           canExecute: () => store.hasActiveThreadActions() && !hasOpenLocalEscapeSurface(),
           disabledReason: copy.turnInterruptDisabledReason,
         },

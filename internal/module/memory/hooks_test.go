@@ -215,6 +215,29 @@ func TestMemoryHookWorkerBackpressureLogsDrop(t *testing.T) {
 	}
 }
 
+func TestShouldLogMemoryHookDropOnlyForRealDrops(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		dropTotal int64
+		want      bool
+	}{
+		{name: "no drop", dropTotal: 0, want: false},
+		{name: "first drop", dropTotal: 1, want: true},
+		{name: "before batch boundary", dropTotal: memoryHookMaxQueue - 1, want: false},
+		{name: "batch boundary", dropTotal: memoryHookMaxQueue, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shouldLogMemoryHookDrop(tt.dropTotal); got != tt.want {
+				t.Fatalf("shouldLogMemoryHookDrop(%d) = %v, want %v", tt.dropTotal, got, tt.want)
+			}
+		})
+	}
+}
+
 func userTurnInputEvent(threadID, turnID, text string) turndto.TurnInputReceived {
 	return turndto.TurnInputReceived{
 		TurnHeader: shared.TurnHeader{

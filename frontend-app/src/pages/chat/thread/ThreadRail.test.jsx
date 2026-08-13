@@ -71,4 +71,12 @@ describe('ThreadRail', () => {
     expect(screen.getByRole('button', { name: /Active thread/ }).closest('.thread-card')).toHaveClass('active');
     expect(screen.getByRole('button', { name: /Older thread/ }).closest('.thread-card')).not.toHaveClass('active');
   });
+
+  it('removes a hidden rail from accessibility and interaction navigation', () => {
+    render(<ThreadRail hidden store={createStore()} />);
+
+    const rail = screen.getByTestId('thread-rail');
+    expect(rail).toHaveAttribute('aria-hidden', 'true');
+    expect(rail).toHaveAttribute('inert');
+  });
 });

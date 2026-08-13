@@ -3819,6 +3819,7 @@
         "internal/provider/codexapp.*session.recoveryShutdownErr",
         "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
+        "internal/provider/codexapp.*session.remapEventTurnIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
         "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
@@ -4391,6 +4392,7 @@
         "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
+        "internal/provider/codexapp.remapEventTurnIdentityForHandle",
         "internal/provider/codexapp.removeEnvKeys",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
@@ -8880,6 +8882,7 @@
         "internal/provider/codexapp.*session.recoveryShutdownErr",
         "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
+        "internal/provider/codexapp.*session.remapEventTurnIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
         "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
@@ -9452,6 +9455,7 @@
         "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
+        "internal/provider/codexapp.remapEventTurnIdentityForHandle",
         "internal/provider/codexapp.removeEnvKeys",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
@@ -13941,6 +13945,7 @@
         "internal/provider/codexapp.*session.recoveryShutdownErr",
         "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
+        "internal/provider/codexapp.*session.remapEventTurnIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
         "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
@@ -14513,6 +14518,7 @@
         "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
+        "internal/provider/codexapp.remapEventTurnIdentityForHandle",
         "internal/provider/codexapp.removeEnvKeys",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
@@ -19002,6 +19008,7 @@
         "internal/provider/codexapp.*session.recoveryShutdownErr",
         "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
+        "internal/provider/codexapp.*session.remapEventTurnIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
         "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
@@ -19574,6 +19581,7 @@
         "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
+        "internal/provider/codexapp.remapEventTurnIdentityForHandle",
         "internal/provider/codexapp.removeEnvKeys",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
@@ -24068,6 +24076,7 @@
         "internal/provider/codexapp.*session.recoveryShutdownErr",
         "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
+        "internal/provider/codexapp.*session.remapEventTurnIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
         "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
@@ -24643,6 +24652,7 @@
         "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
+        "internal/provider/codexapp.remapEventTurnIdentityForHandle",
         "internal/provider/codexapp.removeEnvKeys",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
@@ -29137,6 +29147,7 @@
         "internal/provider/codexapp.*session.recoveryShutdownErr",
         "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
+        "internal/provider/codexapp.*session.remapEventTurnIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
         "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
@@ -29712,6 +29723,7 @@
         "internal/provider/codexapp.registerPoolProcess",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
+        "internal/provider/codexapp.remapEventTurnIdentityForHandle",
         "internal/provider/codexapp.removeEnvKeys",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
@@ -30401,12 +30413,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2498,
-    "total_methods": 1303,
+    "total_functions": 2499,
+    "total_methods": 1304,
     "total_interfaces": 192,
     "total_interface_methods": 381,
     "total_exported": 1338,
-    "total_unexported": 3297,
+    "total_unexported": 3299,
     "total_structs": 642
   },
   "packages": [
@@ -85166,6 +85178,23 @@
           ]
         },
         {
+          "name": "remapEventTurnIdentityForHandle",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "handle",
+              "type": "*turnHandle"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "removeEnvKeys",
           "exported": false,
           "params": [
@@ -91708,6 +91737,20 @@
               "name": "hostAgentID",
               "type": "string"
             }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "remapEventTurnIdentity",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {

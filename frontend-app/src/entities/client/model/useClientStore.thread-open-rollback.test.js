@@ -100,6 +100,35 @@ it('does not silently reject a different thread immediately after a list mutatio
   expect(useClientStore.getState().activeThreadId).toBe('thread-b');
 });
 
+it('restores the canonical draft after alias selection crosses same-name threads A to B to A', async () => {
+  const threads = [
+    { id: 'thread-a', agentId: 'agent-a', cwd: '/repo/app', name: 'Same name', provider: 'codex', status: 'idle' },
+    { id: 'thread-b', agentId: 'agent-b', cwd: '/repo/app', name: 'Same name', provider: 'codex', status: 'idle' },
+  ];
+  resetClientStoreForTests({
+    cwd: '/repo/app',
+    activeProject: '/repo/app',
+    activeThreadId: 'agent-a',
+    threads,
+    draft: 'draft for A',
+  });
+  backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
+    activeThreadId: threadId,
+    threads,
+    timelinesByThread: { [threadId]: [] },
+  }));
+
+  await useClientStore.getState().setActiveThread('agent-b');
+  expect(useClientStore.getState().activeThreadId).toBe('thread-b');
+  expect(useClientStore.getState().draft).toBe('');
+
+  useClientStore.getState().setDraft('draft for B');
+  await useClientStore.getState().setActiveThread('thread-a');
+
+  expect(useClientStore.getState().activeThreadId).toBe('thread-a');
+  expect(useClientStore.getState().draft).toBe('draft for A');
+});
+
 it('keeps the previous active thread when the snapshot succeeds but message loading fails', async () => {
   backend.getThreadState.mockResolvedValue({
     activeThreadId: 'thread-b',

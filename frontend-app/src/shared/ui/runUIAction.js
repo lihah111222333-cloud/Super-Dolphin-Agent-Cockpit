@@ -14,7 +14,7 @@ import { diagnosticIdFactoryForError, publicErrorForAction, publicErrorForSink }
 /**
  * @typedef {ReturnType<typeof publicErrorForAction>} PublicError
  * @typedef {{ actionId: string, publicError: PublicError }} HealthFailure
- * @typedef {{ actionId: string, publicError: PublicError, retry?: () => unknown }} VisibleFailure
+ * @typedef {{ actionId: string, threadId?: string, publicError: PublicError, retry?: () => unknown }} VisibleFailure
  * @typedef {{
  *   diagnosticIdFactory?: () => string,
  *   healthSink?: (failure: HealthFailure) => unknown,
@@ -22,6 +22,7 @@ import { diagnosticIdFactoryForError, publicErrorForAction, publicErrorForSink }
  *   rejectFalse?: boolean,
  *   retryable?: boolean,
  *   supersedesActionIds?: readonly string[],
+ *   threadId?: string,
  *   visibleFailureSink?: (failure: VisibleFailure) => unknown,
  * }} RunUIActionOptions
  */
@@ -108,7 +109,7 @@ function reportFailure({ action, actionId, cause, options }) {
     );
   } : undefined;
   try {
-    visibleFailureSink({ actionId, publicError, retry });
+    visibleFailureSink({ actionId, publicError, retry, ...(options.threadId ? { threadId: options.threadId } : {}) });
   } catch {
     const visibleFailure = createSafePublicError({
       actionId: 'visible-action-failure.publish',
@@ -147,6 +148,7 @@ function handleActionSuccess(args) {
   clearVisibleActionFailureIfCurrent(
     args.failureAtStart,
     resolvedActionIds,
+    args.options.threadId,
   );
 }
 
@@ -210,6 +212,10 @@ export function runUIAction(actionId, action, options = {}) {
     || options.supersedesActionIds.some((id) => typeof id !== 'string' || !id.trim()))) {
     throw new TypeError('runUIAction supersedesActionIds must contain non-empty action ids');
   }
+  if (options.threadId !== undefined && (typeof options.threadId !== 'string' || !options.threadId.trim())) {
+    throw new TypeError('runUIAction threadId must be a non-empty string');
+  }
+  if (options.threadId) options = { ...options, threadId: options.threadId.trim() };
   return executeAction(actionId.trim(), action, options);
 }
 

@@ -551,6 +551,33 @@ func (q *Queries) InsertCronJobRun(ctx context.Context, arg InsertCronJobRunPara
 	return i, err
 }
 
+const isCronTurnOwned = `-- name: IsCronTurnOwned :one
+SELECT EXISTS(
+    SELECT 1
+    FROM cron_job_runs AS run
+    JOIN cron_jobs AS job ON job.id = run.job_id
+    WHERE run.turn_id = ?1
+      AND run.turn_id <> ''
+      AND run.status IN ('submitted', 'running')
+      AND job.active_turn_id = run.turn_id
+      AND job.claim_token <> ''
+)
+`
+
+type IsCronTurnOwnedParams struct {
+	TurnID string `db:"turn_id" json:"turn_id"`
+}
+
+// Classifies a global terminal event before it enters cron's worker queue.
+// The join and terminal fences are evaluated in one SQLite snapshot so an
+// unresolved run is only owned while its job still claims the same turn.
+func (q *Queries) IsCronTurnOwned(ctx context.Context, arg IsCronTurnOwnedParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, isCronTurnOwned, arg.TurnID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listCronJobRunsByJob = `-- name: ListCronJobRunsByJob :many
 SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        agent_id, turn_id, submitted_at, status, error, created_at,

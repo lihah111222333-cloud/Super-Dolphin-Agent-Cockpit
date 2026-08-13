@@ -25,6 +25,8 @@ const cronProgressDrainGrace = 10 * time.Second
 const cronProgressQueueLimit = 256
 const cronProgressRetryBaseDelay = 100 * time.Millisecond
 const cronProgressRetryMaxDelay = 2 * time.Second
+const cronTerminalOwnershipAttemptTimeout = 2 * time.Second
+const cronTerminalOwnershipMaxAttempts = 3
 
 // cronProgressEventKind 区分进度事件（续租）和终态事件（完成 turn）两种类型。
 type cronProgressEventKind int
@@ -56,12 +58,13 @@ type cronProgressWorker struct {
 
 	wake chan struct{}
 
-	startOnce sync.Once
-	stopOnce  sync.Once
-	stopCh    chan struct{}
-	doneCh    chan struct{}
-	runMu     sync.Mutex
-	runCancel context.CancelFunc
+	startOnce       sync.Once
+	stopOnce        sync.Once
+	stopCh          chan struct{}
+	doneCh          chan struct{}
+	runMu           sync.Mutex
+	runCancel       context.CancelFunc
+	ownershipCancel context.CancelFunc
 
 	enqueuedTotal  atomic.Int64
 	processedTotal atomic.Int64
@@ -128,6 +131,7 @@ func (w *cronProgressWorker) Stop(ctx context.Context) error {
 	var firstErr error
 	w.stopOnce.Do(func() {
 		close(w.stopCh)
+		w.cancelOwnershipLookup()
 		waitCtx := ctx
 		if waitCtx == nil {
 			waitCtx = context.Background()
@@ -157,6 +161,36 @@ func (w *cronProgressWorker) setRunCancel(cancel context.CancelFunc) {
 func (w *cronProgressWorker) cancelRun() {
 	w.runMu.Lock()
 	cancel := w.runCancel
+	w.runMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (w *cronProgressWorker) setOwnershipCancel(cancel context.CancelFunc) {
+	w.runMu.Lock()
+	w.ownershipCancel = cancel
+	stopped := false
+	select {
+	case <-w.stopCh:
+		stopped = true
+	default:
+	}
+	w.runMu.Unlock()
+	if stopped {
+		cancel()
+	}
+}
+
+func (w *cronProgressWorker) clearOwnershipCancel() {
+	w.runMu.Lock()
+	w.ownershipCancel = nil
+	w.runMu.Unlock()
+}
+
+func (w *cronProgressWorker) cancelOwnershipLookup() {
+	w.runMu.Lock()
+	cancel := w.ownershipCancel
 	w.runMu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -305,14 +339,45 @@ func (w *cronProgressWorker) dispatch(ctx context.Context, req cronProgressReque
 			w.logProgressError("cron: extend claim for turn progress failed", req.turnID, err)
 		}
 	case cronCompleteTurn:
-		// 终态事件才把 running run 结束；找不到 run 时让 CompleteTurn 暴露问题。
-		if err := w.scheduler.CompleteTurn(ctx, req.turnID, req.success, req.terminalErr); err != nil {
-			if w.retryTransient(ctx, req, err) {
-				return
-			}
-			w.logProgressError("cron: complete turn from terminal event failed", req.turnID, err)
-		}
+		w.dispatchTerminal(ctx, req)
 	}
+}
+
+// dispatchTerminal 先判定 Cron 归属，再执行终态收尾或有界重试。
+func (w *cronProgressWorker) dispatchTerminal(ctx context.Context, req cronProgressRequest) {
+	owned, err := w.lookupTerminalOwnership(ctx, req.turnID)
+	if err != nil {
+		if req.attempt+1 < cronTerminalOwnershipMaxAttempts && w.retryTransient(ctx, req, err) {
+			return
+		}
+		w.logProgressError("cron: terminal ownership lookup failed", req.turnID, err)
+		return
+	}
+	if !owned {
+		return
+	}
+	req.attempt = 0
+	// 权威判域通过后才结束 running run；找不到 run 时让 CompleteTurn 暴露问题。
+	if err := w.scheduler.CompleteTurn(ctx, req.turnID, req.success, req.terminalErr); err != nil {
+		if w.retryTransient(ctx, req, err) {
+			return
+		}
+		w.logProgressError("cron: complete turn from terminal event failed", req.turnID, err)
+	}
+}
+
+// lookupTerminalOwnership 在 worker 生命周期内执行有 deadline 的权威判域查询。
+func (w *cronProgressWorker) lookupTerminalOwnership(ctx context.Context, turnID string) (bool, error) {
+	if w == nil || w.scheduler == nil || w.scheduler.store == nil {
+		return false, errors.New("cron: scheduler store is required")
+	}
+	lookupCtx, cancel := ctxutil.WithTimeout(ctx, cronTerminalOwnershipAttemptTimeout)
+	w.setOwnershipCancel(cancel)
+	defer func() {
+		w.clearOwnershipCancel()
+		cancel()
+	}()
+	return w.scheduler.store.IsTurnOwned(lookupCtx, turnID)
 }
 
 func (w *cronProgressWorker) retryTransient(ctx context.Context, req cronProgressRequest, err error) bool {

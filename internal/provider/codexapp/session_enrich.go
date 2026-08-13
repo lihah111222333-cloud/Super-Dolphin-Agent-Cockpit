@@ -26,6 +26,68 @@ const (
 	toolMetadataKeyWorkspaceRoots = "_workspaceRoots"
 )
 
+// remapEventTurnIdentity 在唯一 provider 事件投影边界把内部 turn ID 还原为公共 local TurnRef。
+// provider ID 只用于 session 内查找 handle，不得继续投影到 UI 可见事件。
+func (s *session) remapEventTurnIdentity(payload map[string]any) bool {
+	providerTurnID := strings.TrimSpace(payloadTurnID(payload))
+	if s == nil || providerTurnID == "" {
+		return false
+	}
+	s.mu.Lock()
+	handle := s.turns[providerTurnID]
+	s.mu.Unlock()
+	return remapEventTurnIdentityForHandle(payload, handle)
+}
+
+// remapEventTurnIdentityForHandle 将给定内部 handle 的 provider ID 映射为公共 local TurnRef。
+func remapEventTurnIdentityForHandle(payload map[string]any, handle *turnHandle) bool {
+	providerTurnID := strings.TrimSpace(payloadTurnID(payload))
+	if handle == nil || providerTurnID == "" {
+		return false
+	}
+	localTurnID := strings.TrimSpace(handle.LocalID())
+	if localTurnID == "" || localTurnID == providerTurnID {
+		return false
+	}
+	payload["turnId"] = localTurnID
+	payload["turn_id"] = localTurnID
+	return true
+}
+
+// remapEventIdentity 将 provider 事件中的 agent/thread 身份映射为宿主公开 ID。
+// 只要发现外来 ID 就记录告警，便于排查 provider UUID 泄漏到 UI 的来源。
+func (s *session) remapEventIdentity(eventType string, payload map[string]any, hostAgentID string) {
+	pid := payloadAgentID(payload)
+	tid := payloadThreadID(payload)
+	if providerThreadIdentityEvent(eventType) && tid != "" && tid != hostAgentID {
+		payload["providerThreadId"] = tid
+	}
+	// agent 与 thread 两套字段都强制改写，避免旧 payload 混用 snake/camel 字段时漏映射。
+	if pid != "" && pid != hostAgentID && s.logger != nil {
+		s.logger.Warn("codexapp: remapped alien agent_id in event",
+			"event_type", eventType, "original", pid, "mapped", hostAgentID)
+	}
+	if tid != "" && tid != hostAgentID && s.logger != nil {
+		s.logger.Warn("codexapp: remapped alien thread_id in event",
+			"event_type", eventType, "original", tid, "mapped", hostAgentID)
+	}
+	payload["agentId"] = hostAgentID
+	payload["agent_id"] = hostAgentID
+	payload["threadId"] = hostAgentID
+	payload["thread_id"] = hostAgentID
+}
+
+// providerThreadIdentityEvent 只允许会话启动类事件保留 provider 原生 thread id。
+// 其它事件仍按宿主 agent id 严格重映射，不能借此放宽 alien thread 拒绝边界。
+func providerThreadIdentityEvent(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "thread/started", "session.configured", "agent:launched":
+		return true
+	default:
+		return false
+	}
+}
+
 // enrichToolCallParams 把 session 元数据注入到 codex item/tool/call 的 msg.Params 中。
 //
 // Codex app-server 的协议消息只含 name + arguments，不含 agentId（codex 不知道

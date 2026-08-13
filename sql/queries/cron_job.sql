@@ -313,6 +313,21 @@ WHERE turn_id = sqlc.arg(turn_id)
   AND status IN ('submitted', 'running')
 LIMIT 1;
 
+-- name: IsCronTurnOwned :one
+-- Classifies a global terminal event before it enters cron's worker queue.
+-- The join and terminal fences are evaluated in one SQLite snapshot so an
+-- unresolved run is only owned while its job still claims the same turn.
+SELECT EXISTS(
+    SELECT 1
+    FROM cron_job_runs AS run
+    JOIN cron_jobs AS job ON job.id = run.job_id
+    WHERE run.turn_id = sqlc.arg(turn_id)
+      AND run.turn_id <> ''
+      AND run.status IN ('submitted', 'running')
+      AND job.active_turn_id = run.turn_id
+      AND job.claim_token <> ''
+);
+
 -- name: ListCronJobsClaimedBy :many
 -- Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 -- owned by this scheduler instance, avoiding a full-table scan of cron_jobs.

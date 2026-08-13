@@ -231,8 +231,8 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	session, err := s.establishResumedSession(ctx, req, state, displayName)
 	if err != nil {
 		if isUnrecoverableResumeError(err) {
-			s.degradeLostResume(ctx, req.ThreadID, req.AgentID, err)
-			return ResumeResult{}, resumeLostError(err)
+			cleanupErr := s.degradeLostResume(ctx, req.ThreadID, req.AgentID, err)
+			return ResumeResult{}, errors.Join(resumeLostError(err), cleanupErr)
 		}
 		return ResumeResult{}, err
 	}
