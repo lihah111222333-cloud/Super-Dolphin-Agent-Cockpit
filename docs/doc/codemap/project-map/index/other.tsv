@@ -838,7 +838,7 @@ internal/dto/provider/session.go	internal	other	go-source	7216	provider/shared D
 internal/dto/provider/session_wire_test.go	internal	other	go-test	792	provider/shared DTO 与事件协议	internal,dto,provider,session,wire,test,shared,DTO,与事件协议
 internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO 与事件协议	internal,dto,provider,thread,shared,DTO,与事件协议
 internal/dto/provider/thread_config.go	internal	other	go-source	1866	provider/shared DTO 与事件协议	internal,dto,provider,thread,config,shared,DTO,与事件协议
-internal/dto/provider/turn.go	internal	other	go-source	6486	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
+internal/dto/provider/turn.go	internal	other	go-source	6696	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
 internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
 internal/dto/shared/errors.go	internal	other	go-source	439	provider/shared DTO 与事件协议	internal,dto,shared,errors,provider,DTO,与事件协议
 internal/dto/shared/event.go	internal	other	go-source	4625	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议

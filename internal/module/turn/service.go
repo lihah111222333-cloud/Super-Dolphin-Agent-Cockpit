@@ -146,6 +146,12 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	input = hydratePrepareInput(input, session)
+	localID, cleanupPreparingCancellation, err := beginPreparingCancellation(s, ctx, session, threadID, input)
+	if err != nil {
+		return dto.TurnRequest{}, err
+	}
+	span.turnID = localID
+	defer func() { cleanupPreparingCancellation(err) }()
 	if err := validatePrepareInputTypes(input.Inputs); err != nil {
 		return dto.TurnRequest{}, err
 	}
@@ -161,14 +167,9 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		return dto.TurnRequest{}, hydrateErr
 	}
 	input.Skills = hydrated
-	candidateSkills := input.CandidateSkills
-	if input.ManualSkillSelection {
-		candidateSkills = nil
-	}
+	candidateSkills := prepareCandidateSkills(input)
 	userText := s.assembler.PromptText(input)
 	s.cleanupStaleToolResults(threadID, input)
-	localID := ensureLocalTurnID(input.LocalTurnID)
-	span.turnID = localID
 	mcp := s.manifest.Build(input, threadID)
 	span.metadata = turnPrepareTraceMetadata(input, mcp)
 	synthetic, err := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
@@ -182,6 +183,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	}
 	req = dto.TurnRequest{
 		LocalID:                      localID,
+		PreparingCancelRequestID:     strings.TrimSpace(input.PreparingCancelRequestID),
 		ThreadID:                     threadID,
 		CWD:                          strings.TrimSpace(input.CWD),
 		Inputs:                       assembledInputs,
@@ -203,6 +205,51 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	req.TurnAssembly = assembly
 	s.recordSkillsSelected(req.LocalID, resolvedSkills)
 	return req, nil
+}
+
+// beginPreparingCancellation 在长 prepare 前登记客户端 Stop，并在后续 prepare 失败时只收敛该本地记录。
+func beginPreparingCancellation(s *service, ctx context.Context, session contract.Session, threadID string, input PrepareInput) (string, func(error), error) {
+	localID := ensureLocalTurnID(input.LocalTurnID)
+	if strings.TrimSpace(input.PreparingCancelRequestID) == "" {
+		return localID, func(error) {}, nil
+	}
+	if err := s.registerPreparingCancellation(ctx, session, threadID, localID, input.PreparingCancelRequestID); err != nil {
+		return "", nil, err
+	}
+	return localID, func(prepareErr error) {
+		if prepareErr != nil {
+			s.tracker.Complete(localID, false, prepareErr.Error())
+		}
+	}, nil
+}
+
+func prepareCandidateSkills(input PrepareInput) []dto.SkillRef {
+	if input.ManualSkillSelection {
+		return nil
+	}
+	return input.CandidateSkills
+}
+
+// registerPreparingCancellation 将客户端已生成的 Stop identity 绑定到本次 prepare 的唯一 tracker 键。
+// 只有首个同一 local turn 的请求可在随后 StartTurn 接管该记录，重复或跨线程 ID 均 fail-fast。
+func (s *service) registerPreparingCancellation(ctx context.Context, session contract.Session, threadID, localID, requestID string) error {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return errors.New("turn/start preparing cancellation request id is required")
+	}
+	if !s.tracker.Start(localID, "", threadID) {
+		return fmt.Errorf("turn local id already registered: %s", localID)
+	}
+	_, accepted, err := s.InterruptTurnForTarget(ctx, session, "turn_start_preparing_cancellation", localID, requestID)
+	if err != nil {
+		s.tracker.Complete(localID, false, err.Error())
+		return fmt.Errorf("turn/start register preparing cancellation: %w", err)
+	}
+	if !accepted {
+		s.tracker.Complete(localID, false, "turn/start preparing cancellation was not accepted")
+		return errors.New("turn/start preparing cancellation was not accepted")
+	}
+	return nil
 }
 
 // validatePrepareInputTypes 在 service 边界拒绝未知输入类型。
@@ -228,7 +275,11 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	req.ThreadID = threadID
 	s.tracker.Cleanup()
-	if !s.tracker.Start(req.LocalID, "", req.ThreadID) {
+	if strings.TrimSpace(req.PreparingCancelRequestID) != "" {
+		if !claimRegisteredPreparingStart(s.tracker, req.LocalID, req.ThreadID, req.PreparingCancelRequestID) {
+			return nil, fmt.Errorf("turn local id already registered: %s", req.LocalID)
+		}
+	} else if !s.tracker.Start(req.LocalID, "", req.ThreadID) {
 		return nil, fmt.Errorf("turn local id already registered: %s", req.LocalID)
 	}
 	// provider 调用尚未返回时也可能有并发 LookupByDedupeKey，因此先把 dedupe key 写入 tracker。

@@ -187,6 +187,7 @@ type trackedTurn struct {
 	interruptRetryable            bool
 	interruptRetryableCode        string
 	startDiagnosticCode           string
+	preparingStartClaimed         bool
 	handle                        contract.TurnHandle
 	sm                            *stateless.StateMachine
 }
@@ -243,6 +244,37 @@ func (t *turnTracker) Start(localID, providerID, threadID string) bool {
 	)
 
 	return t.store.PutIfAbsent(localID, turn)
+}
+
+// claimRegisteredPreparingStart 只允许首个携带同一已登记 Stop identity 的 StartTurn 接管 preparing 记录。
+// 它避免客户端重复 local ID 覆盖 tracker，且不把终态或其他请求误当成可启动 turn。
+func claimRegisteredPreparingStart(t *turnTracker, localID, threadID, requestID string) bool {
+	claimed := false
+	localID = strings.TrimSpace(localID)
+	threadID = strings.TrimSpace(threadID)
+	requestID = strings.TrimSpace(requestID)
+	if !hasPreparingStartIdentity(localID, threadID, requestID) {
+		return false
+	}
+	t.store.Mutate(localID, func(turn *trackedTurn) {
+		if !canClaimRegisteredPreparingStart(turn, threadID, requestID) {
+			return
+		}
+		turn.preparingStartClaimed = true
+		turn.updatedAt = t.store.Tick()
+		claimed = true
+	})
+	return claimed
+}
+
+// hasPreparingStartIdentity 要求启动接管携带完整稳定身份。
+func hasPreparingStartIdentity(localID, threadID, requestID string) bool {
+	return localID != "" && threadID != "" && requestID != ""
+}
+
+// canClaimRegisteredPreparingStart 只接受尚未绑定 provider 的同线程已登记 Stop。
+func canClaimRegisteredPreparingStart(turn *trackedTurn, threadID, requestID string) bool {
+	return turn.threadID == threadID && !turn.isTerminal() && !turn.preparingStartClaimed && turn.handle == nil && turn.providerID == "" && turn.interruptAcceptedRequestID == requestID && turn.state == StateInterrupting
 }
 
 // AttachHandle 把 provider handle 挂到本地 turn 上，并补齐 providerID。
@@ -323,6 +355,7 @@ func acknowledgeTerminalInterruptDelivery(turn *trackedTurn, requestID string, t
 	return true
 }
 
+// acknowledgeLiveInterruptDelivery 将 provider 已接受的 Stop 原子落入非终态 tracker，保留后续终态收敛路径。
 func acknowledgeLiveInterruptDelivery(turn *trackedTurn, requestID string, tick func() time.Time) bool {
 	if turn.interruptAcceptedRequestID == requestID && turn.interruptDeliverySent {
 		return true
@@ -334,16 +367,18 @@ func acknowledgeLiveInterruptDelivery(turn *trackedTurn, requestID string, tick 
 		if !turn.interruptClaimed || turn.interruptClaimRequestID != requestID {
 			return false
 		}
-		turn.interruptClaimed = false
-		turn.interruptClaimRequestID = ""
 		turn.interruptAcceptedRequestID = requestID
+	} else if turn.interruptAcceptedRequestID != requestID {
+		return false
+	}
+	if !turn.interruptRequested {
 		if err := turn.sm.Fire(string(TriggerInterrupt)); err != nil {
 			return false
 		}
 		turn.interruptRequested = true
-	} else if turn.interruptAcceptedRequestID != requestID {
-		return false
 	}
+	turn.interruptClaimed = false
+	turn.interruptClaimRequestID = ""
 	turn.interruptDeliverySent = true
 	turn.interruptRetryable = false
 	turn.interruptRetryableCode = ""
@@ -351,7 +386,8 @@ func acknowledgeLiveInterruptDelivery(turn *trackedTurn, requestID string, tick 
 	return true
 }
 
-// releaseUndeliveredInterruptDelivery 回退未送达 provider 的登记取消，释放所有权供后续 Stop 重试。
+// releaseUndeliveredInterruptDelivery 回退未送达 provider 的登记取消，释放投递所有权但保留 accepted request ID，
+// 使同一 Stop 能重试且不同 Stop 仍被冲突保护。
 func releaseUndeliveredInterruptDelivery(t *turnTracker, localID, requestID string) bool {
 	released := false
 	requestID = strings.TrimSpace(requestID)
@@ -370,7 +406,6 @@ func releaseUndeliveredInterruptDelivery(t *turnTracker, localID, requestID stri
 		}
 		turn.interruptDeliveryClaimed = false
 		turn.interruptRequested = false
-		turn.interruptAcceptedRequestID = ""
 		turn.interruptRetryable = true
 		turn.interruptRetryableCode = "REGISTERED_INTERRUPT_DELIVERY_RETRYABLE"
 		turn.updatedAt = t.store.Tick()
@@ -523,7 +558,7 @@ func applyActiveInterruptClaim(turn *trackedTurn, expectedTurnID, requestID stri
 
 // claimUndeliveredRegisteredInterrupt 允许同一已登记但未送达的 request ID 重新领取 provider 投递权。
 func claimUndeliveredRegisteredInterrupt(turn *trackedTurn, requestID string, claim *interruptClaim) bool {
-	if turn.interruptAcceptedRequestID != requestID || turn.interruptDeliveryClaimed || turn.interruptDeliverySent {
+	if turn.interruptAcceptedRequestID != requestID || !turn.interruptRetryable || turn.interruptDeliveryClaimed || turn.interruptDeliverySent {
 		return false
 	}
 	turn.interruptClaimed = true

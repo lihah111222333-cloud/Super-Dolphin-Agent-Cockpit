@@ -25,6 +25,9 @@ type TurnRequest struct {
 	// DedupeKey 是 turn 层内存幂等键，用来把 StartTurn 绑定到本地执行跟踪。
 	// 字段不进入 provider 线格式，避免把本地调度状态泄漏给 codex/claudecli 驱动。
 	DedupeKey string `json:"-"`
+	// PreparingCancelRequestID 只在 turn 层把 prepare 前登记的 Stop 绑定到首次 StartTurn。
+	// 该本地控制面字段绝不进入 provider 线格式。
+	PreparingCancelRequestID string `json:"-"`
 }
 
 // TurnOverrides 携带单次 turn 的模型和 effort 覆盖参数。

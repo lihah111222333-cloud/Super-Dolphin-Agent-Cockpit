@@ -118,6 +118,44 @@ func TestTurnStartParamsCarriesLocalTurnIDAcrossWireAliases(t *testing.T) {
 	}
 }
 
+func TestTurnStartParamsCarriesPreparingCancelRequestIDAcrossWireAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{name: "snake", payload: `{"thread_id":"thread-1","preparing_cancel_request_id":"stop-before-provider"}`, want: "stop-before-provider"},
+		{name: "camel", payload: `{"threadId":"thread-1","preparingCancelRequestId":"stop-before-provider-camel"}`, want: "stop-before-provider-camel"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var params turnStartParams
+			if err := json.Unmarshal([]byte(tt.payload), &params); err != nil {
+				t.Fatalf("json.Unmarshal(turnStartParams) error = %v", err)
+			}
+			if params.PreparingCancelRequestID != tt.want {
+				t.Fatalf("PreparingCancelRequestID = %q, want %q", params.PreparingCancelRequestID, tt.want)
+			}
+		})
+	}
+}
+
+func TestTurnStartParamsRejectsConflictingPreparingCancelRequestIDAliases(t *testing.T) {
+	t.Parallel()
+
+	var params turnStartParams
+	err := json.Unmarshal([]byte(`{
+		"thread_id":"thread-1",
+		"preparing_cancel_request_id":"stop-snake",
+		"preparingCancelRequestId":"stop-camel"
+	}`), &params)
+	if err == nil || !strings.Contains(err.Error(), "conflicting preparing cancellation request id") {
+		t.Fatalf("json.Unmarshal(turnStartParams) error = %v, want conflicting preparing cancellation request id", err)
+	}
+}
+
 func TestValidateRPCLocalTurnIDRejectsMissingMalformedAndOversizedClientIdentity(t *testing.T) {
 	t.Parallel()
 	for _, localID := range []string{

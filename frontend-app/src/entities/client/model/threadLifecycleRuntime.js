@@ -184,11 +184,23 @@ function threadActionPayload(params) {
   if (action === 'thread.interrupt') {
     const expectedTurnId = normalizeOptionalTextField(target.turnId);
     if (!expectedTurnId) throw new Error('thread.interrupt: expectedTurnId is required');
-    const requestId = normalizeOptionalTextField(createRequestId());
-    if (!requestId) throw new Error('thread.interrupt: requestId is required');
+    const requestId = interruptRequestId(params, createRequestId);
     return { cwd, threadId: target.threadId, expectedTurnId, requestId, source: 'ui_stop' };
   }
   return cleanObject({ cwd, threadId: target.threadId });
+}
+
+function interruptRequestId(params, createRequestId) {
+  const candidate = Object.hasOwn(params, 'requestId') ? params.requestId : createRequestId();
+  const requestId = normalizeOptionalTextField(candidate);
+  if (!requestId) throw new Error('thread.interrupt: requestId is required');
+  return requestId;
+}
+
+function threadActionPayloadParams(values) {
+  const { options, ...params } = values;
+  if (Object.hasOwn(options, 'requestId')) params.requestId = options.requestId;
+  return params;
 }
 
 function explicitInterruptTarget(options) {
@@ -296,7 +308,18 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     }
     try {
       const cwd = requireCwd(action);
-      const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, createRequestId, currentState, cwd, notifyAction, threadId });
+      const payload = threadActionPayload(threadActionPayloadParams({
+        action,
+        activeThreadInterruptTarget,
+        activeTurnTarget,
+        cleanObject,
+        createRequestId,
+        currentState,
+        cwd,
+        notifyAction,
+        threadId,
+        options,
+      }));
       if (!payload) return { ok: false, threadId, result: null };
       const request = cleanObject(payload);
       if (action === 'thread.interrupt') notifyAction(INTERRUPT_PENDING_MESSAGE, 'info', { request, threadId });
@@ -323,7 +346,15 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
   const activeThreadRPC = (action, rpc, options = {}) => {
     const explicitTarget = action === 'thread.interrupt' ? explicitInterruptTarget(options) : null;
     const pendingTurnStartTarget = action === 'thread.interrupt' && !explicitTarget ? runtime.cancelPendingTurnStart?.() : null;
-    if (pendingTurnStartTarget === true) return true;
+    if (pendingTurnStartTarget === true) {
+      const requestId = createRequestId();
+      if (!runtime.pendingTurnStart || typeof requestId !== 'string' || requestId.trim() === '') {
+        throw new Error('pending turn cancellation requires a stable request identity');
+      }
+      runtime.pendingTurnStart.interruptRequested = true;
+      runtime.pendingTurnStart.interruptRequestId = requestId.trim();
+      return true;
+    }
     const actionOptions = pendingTurnStartTarget && pendingTurnStartTarget !== false
       ? { ...options, pendingTurnStartTarget }
       : options;

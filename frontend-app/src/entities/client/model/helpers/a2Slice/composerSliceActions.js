@@ -220,14 +220,25 @@ async function promoteNewDraftThread(runtime, request, deps) {
   return started.threadId;
 }
 
-function startDraftTurn(deps, request, threadId) {
-  return deps.startTurnWithStoppedThreadRecovery({
+function startDraftTurnPayload(runtime, request, threadId) {
+  const params = {
     cwd: request.cwd,
     threadId,
     input: request.input,
     localTurnId: request.localTurnId,
     ...request.capabilityPayload,
-  });
+  };
+  const preparingCancelRequestId = depsNormalizeTurnId(runtime.pendingTurnStart?.interruptRequestId);
+  if (preparingCancelRequestId) params.preparingCancelRequestId = preparingCancelRequestId;
+  return { params, preparingCancelRequestId };
+}
+
+async function startDraftTurn(runtime, deps, request, threadId) {
+  const start = startDraftTurnPayload(runtime, request, threadId);
+  return {
+    result: await deps.startTurnWithStoppedThreadRecovery(start.params),
+    preparingCancelRequestId: start.preparingCancelRequestId,
+  };
 }
 
 function canonicalStartedTurn(observed, localTurnId, threadId) {
@@ -290,20 +301,28 @@ async function retryDraftWithFreshThread(runtime, deps, context, error) {
   context.threadId = '';
   runtime.set((state) => deps.optimisticSendDraftState(state, retryRequest));
   context.threadId = await promoteNewDraftThread(runtime, retryRequest, deps);
-  const result = await startDraftTurn(deps, retryRequest, context.threadId);
-  context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, result);
-  exposeRetryableStartInterruptFailure(runtime, context.threadId, result);
-  exposeStartDurabilityDiagnostic(runtime, context.threadId, result);
+  const started = await startDraftTurn(runtime, deps, retryRequest, context.threadId);
+  context.preparingCancelRequestId = started.preparingCancelRequestId;
+  context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, started.result);
+  exposeRetryableStartInterruptFailure(runtime, context.threadId, started.result);
+  exposeStartDurabilityDiagnostic(runtime, context.threadId, started.result);
   context.started = true;
   return context;
 }
 
 async function interruptCancelledStartedTurn(runtime, context) {
-  if (!runtime.pendingTurnStart?.cancelled || runtime.pendingTurnStart.interruptRequested) return;
+  const pending = runtime.pendingTurnStart;
+  if (!pending?.cancelled) return;
+  const pendingRequestId = depsNormalizeTurnId(pending.interruptRequestId);
+  if (pending.interruptRequested === true && pendingRequestId && pendingRequestId === context.preparingCancelRequestId) {
+    context.cancelled = true;
+    return;
+  }
   const interruptActiveThread = runtime.get().interruptActiveThread;
   if (typeof interruptActiveThread !== 'function') throw new Error('canonical thread interrupt capability is unavailable');
   const interrupted = await interruptActiveThread({
     activeTurnTarget: { threadId: context.threadId, turnId: context.turnId },
+    ...(pendingRequestId ? { requestId: pendingRequestId } : {}),
   });
   if (!interrupted) throw new Error('pending turn cancellation was not accepted');
   context.cancelled = true;
@@ -312,10 +331,11 @@ async function interruptCancelledStartedTurn(runtime, context) {
 async function startDraftTurnWithRecovery(runtime, deps, context) {
   if (!context.threadId) context.threadId = await promoteNewDraftThread(runtime, context.activeRequest, deps);
   try {
-    const result = await startDraftTurn(deps, context.activeRequest, context.threadId);
-    context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, result);
-    exposeRetryableStartInterruptFailure(runtime, context.threadId, result);
-    exposeStartDurabilityDiagnostic(runtime, context.threadId, result);
+    const started = await startDraftTurn(runtime, deps, context.activeRequest, context.threadId);
+    context.preparingCancelRequestId = started.preparingCancelRequestId;
+    context.turnId = recordCanonicalStartedTurn(runtime, context.threadId, started.result);
+    exposeRetryableStartInterruptFailure(runtime, context.threadId, started.result);
+    exposeStartDurabilityDiagnostic(runtime, context.threadId, started.result);
     context.started = true;
   }
   catch (error) {
@@ -383,6 +403,7 @@ function createSendDraftAction(runtime, deps) {
     runtime.pendingTurnStart = {
       cancelled: false,
       interruptRequested: false,
+      interruptRequestId: '',
       localTurnId: request.localTurnId,
       threadId: request.previousThreadId || request.provisionalThreadId,
     };

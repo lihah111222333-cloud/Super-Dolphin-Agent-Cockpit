@@ -78,7 +78,9 @@ type InputItem = shareddto.InputItem
 
 // PrepareInput 包含一次 turn 准备所需的全部参数，包括输入内容、技能引用、MCP 快照和运行时配置。
 type PrepareInput struct {
-	LocalTurnID                  string
+	LocalTurnID string
+	// PreparingCancelRequestID 是客户端在 provider 启动前登记 Stop 的稳定幂等身份；空值表示未提前取消。
+	PreparingCancelRequestID     string
 	Inputs                       []InputItem
 	Prompt                       string
 	Images                       []string

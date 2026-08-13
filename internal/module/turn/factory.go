@@ -16,6 +16,7 @@ import (
 // prepareInputSpec 是 buildPrepareInput 的参数结构体，字段对应 PrepareInput 但不含运行时派生字段。
 type prepareInputSpec struct {
 	LocalTurnID                  string
+	PreparingCancelRequestID     string
 	Inputs                       []InputItem
 	Prompt                       string
 	Images                       []string
@@ -69,6 +70,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 	}
 	input := PrepareInput{
 		LocalTurnID:                  strings.TrimSpace(spec.LocalTurnID),
+		PreparingCancelRequestID:     strings.TrimSpace(spec.PreparingCancelRequestID),
 		Inputs:                       append([]InputItem(nil), spec.Inputs...),
 		Prompt:                       spec.Prompt,
 		Images:                       append([]string(nil), spec.Images...),
