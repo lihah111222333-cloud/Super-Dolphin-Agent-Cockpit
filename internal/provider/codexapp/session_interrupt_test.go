@@ -420,7 +420,7 @@ func TestSessionInterruptConsumedClaimBlocksReplacementUntilTurnCleanup(t *testi
 
 func assertAcceptedInterruptTerminal(t *testing.T, terminal turndto.TurnCompleted) {
 	t.Helper()
-	if terminal.TurnID != "turn-1" || terminal.Success || terminal.Status != "cancelled" ||
+	if terminal.TurnID != "local-1" || terminal.Success || terminal.Status != "cancelled" ||
 		terminal.Reason != "user_request" || terminal.TerminationRequestID != "request-A" {
 		t.Fatalf("terminal = %#v, want unique accepted user_request/request-A", terminal)
 	}

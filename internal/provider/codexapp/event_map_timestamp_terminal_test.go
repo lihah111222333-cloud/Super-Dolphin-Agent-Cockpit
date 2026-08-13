@@ -262,7 +262,7 @@ func waitTimestampTerminal(t *testing.T, terminals <-chan turndto.TurnTerminalV2
 
 func assertSafeTimestampEventSurfaceTerminal(t *testing.T, terminal turndto.TurnTerminalV2) {
 	t.Helper()
-	if terminal.ThreadID != "agent-public" || terminal.TurnID != "turn-1" || terminal.Outcome != "failed" || terminal.PublicError == nil {
+	if terminal.ThreadID != "agent-public" || terminal.TurnID != "local-turn-1" || terminal.Outcome != "failed" || terminal.PublicError == nil {
 		t.Fatalf("terminal = %#v, want safe failed canonical terminal", terminal)
 	}
 	encoded, err := json.Marshal(terminal)

@@ -40,8 +40,8 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 	}`))
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
-	if completed.TurnID != "turn-1" || !completed.Success || completed.Status != "completed" {
-		t.Fatalf("TurnCompleted = %+v, want successful completed turn-1", completed)
+	if completed.TurnID != active.localID || !completed.Success || completed.Status != "completed" {
+		t.Fatalf("TurnCompleted = %+v, want successful completed %s", completed, active.localID)
 	}
 	if completed.Result != "done from resumed rollout" {
 		t.Fatalf("TurnCompleted.Result = %q, want assistant message text", completed.Result)
@@ -93,8 +93,8 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 	}`))
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
-	if completed.TurnID != "turn-1" || !completed.Success || completed.Status != "completed" {
-		t.Fatalf("TurnCompleted = %+v, want successful completed turn-1", completed)
+	if completed.TurnID != active.localID || !completed.Success || completed.Status != "completed" {
+		t.Fatalf("TurnCompleted = %+v, want successful completed %s", completed, active.localID)
 	}
 	if completed.Result != "你好" {
 		t.Fatalf("TurnCompleted.Result = %q, want accumulated assistant message", completed.Result)
