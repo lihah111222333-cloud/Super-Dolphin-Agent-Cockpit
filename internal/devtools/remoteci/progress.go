@@ -15,7 +15,7 @@ import (
 const ProgressEventSchemaVersion uint32 = 1
 
 // ReuseDiagnosticSchemaVersion 版本化非权威 PASS 复用归因旁路。
-const ReuseDiagnosticSchemaVersion uint32 = 7
+const ReuseDiagnosticSchemaVersion uint32 = 8
 
 // ShardPlanDiagnosticSchemaVersion 版本化非权威分片装箱摘要旁路。
 const ShardPlanDiagnosticSchemaVersion uint32 = 1
@@ -97,6 +97,8 @@ type ReuseReplayDiagnostic struct {
 	SourceDeclarationMissVotes       int `json:"source_declaration_miss_votes"`
 	SourceRuntimeMissVotes           int `json:"source_runtime_miss_votes"`
 	SourceCompileMissVotes           int `json:"source_compile_miss_votes"`
+	SourceCompileObligations         int `json:"source_compile_obligations"`
+	SourceCompileCoveredRecoveries   int `json:"source_compile_covered_recoveries"`
 	SourceConfirmedMisses            int `json:"source_confirmed_misses"`
 	EnvironmentHintWorkloads         int `json:"environment_hint_workloads"`
 	EnvironmentHints                 int `json:"environment_hints"`

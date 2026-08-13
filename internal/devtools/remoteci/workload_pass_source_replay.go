@@ -35,19 +35,44 @@ func replayRemoteWorkloadPassMisses(
 	if err != nil {
 		return err
 	}
+	compileCoverage := make(remoteReplayCompileCoverage)
 	observe.phase("reuse_source_vote_started")
 	for _, identity := range missing {
-		evidence, ok, err := selectRemoteWorkloadPassReplay(ctx, input.RepositoryRoot, input.Tree, identity, workloads, candidates[identity.WorkloadID], cache, diagnostic)
-		if err != nil {
+		workload, ok := workloads[identity.WorkloadID]
+		if !ok {
+			return fmt.Errorf("remote workload PASS source replay %q is absent from current catalog", identity.WorkloadID)
+		}
+		if err := replayRemoteWorkloadPassMiss(ctx, input.RepositoryRoot, input.Tree, identity, workload, candidates[identity.WorkloadID], reused, compileCoverage, cache, confirmations, diagnostic); err != nil {
 			return err
 		}
-		if ok {
-			reused[string(identity.WorkloadID)] = evidence
-			continue
-		}
-		confirmations.confirm(identity.WorkloadID, remoteReuseSourceMiss)
 	}
 	observe.phase("reuse_source_vote_completed")
+	return nil
+}
+
+// replayRemoteWorkloadPassMiss 裁决一个 direct MISS，并让首个未复用 selector
+// 承担其 compile owner 的 fresh 编译义务。
+func replayRemoteWorkloadPassMiss(ctx context.Context, repositoryRoot, targetTree string, identity gate.WorkloadPassIdentity, workload gate.Workload, candidates []gate.WorkloadPassEvidence, reused map[string]gate.WorkloadPassEvidence, compileCoverage remoteReplayCompileCoverage, cache *remoteReplayCache, confirmations remoteReuseMissConfirmations, diagnostic *ReuseReplayDiagnostic) error {
+	compileCovered, err := compileCoverage.covers(workload)
+	if err != nil {
+		return err
+	}
+	evidence, reusedPass, err := selectRemoteWorkloadPassReplay(ctx, repositoryRoot, targetTree, identity, workload, candidates, compileCovered, cache, diagnostic)
+	if err != nil {
+		return err
+	}
+	if reusedPass {
+		reused[string(identity.WorkloadID)] = evidence
+		return nil
+	}
+	covered, err := compileCoverage.cover(workload)
+	if err != nil {
+		return err
+	}
+	if covered {
+		diagnostic.SourceCompileObligations++
+	}
+	confirmations.confirm(identity.WorkloadID, remoteReuseSourceMiss)
 	return nil
 }
 
@@ -108,21 +133,18 @@ func selectRemoteWorkloadPassReplay(
 	repositoryRoot string,
 	targetTree string,
 	identity gate.WorkloadPassIdentity,
-	workloads map[gate.GateID]gate.Workload,
+	workload gate.Workload,
 	candidates []gate.WorkloadPassEvidence,
+	compileCovered bool,
 	cache *remoteReplayCache,
 	diagnostic *ReuseReplayDiagnostic,
 ) (gate.WorkloadPassEvidence, bool, error) {
-	workload, ok := workloads[identity.WorkloadID]
-	if !ok {
-		return gate.WorkloadPassEvidence{}, false, fmt.Errorf("remote workload PASS source replay %q is absent from current catalog", identity.WorkloadID)
-	}
 	target, available, err := cache.snapshot(ctx, repositoryRoot, targetTree)
 	if err != nil || !available {
 		return gate.WorkloadPassEvidence{}, false, err
 	}
 	for _, candidate := range canonicalRemoteWorkloadPassSourceCandidates(candidates) {
-		matches, err := matchesRemoteWorkloadPassSourceCandidate(ctx, repositoryRoot, identity, workload, candidate, target, cache, diagnostic)
+		matches, err := matchesRemoteWorkloadPassSourceCandidate(ctx, repositoryRoot, identity, workload, candidate, target, compileCovered, cache, diagnostic)
 		if err != nil {
 			return gate.WorkloadPassEvidence{}, false, err
 		}
@@ -138,7 +160,7 @@ func selectRemoteWorkloadPassReplay(
 }
 
 // remoteWorkloadPassSourceCompileMismatch 加载权威来源树并按包比较编译闭包。
-func remoteWorkloadPassSourceCompileMismatch(ctx context.Context, repositoryRoot string, workload gate.Workload, candidate gate.WorkloadPassEvidence, target *remoteGitTreeSnapshot, cache *remoteReplayCache, diagnostic *ReuseReplayDiagnostic) (*remoteGitTreeSnapshot, bool, error) {
+func remoteWorkloadPassSourceCompileMismatch(ctx context.Context, repositoryRoot string, workload gate.Workload, candidate gate.WorkloadPassEvidence, target *remoteGitTreeSnapshot, compileCovered bool, cache *remoteReplayCache, diagnostic *ReuseReplayDiagnostic) (*remoteGitTreeSnapshot, bool, error) {
 	source, sourceAvailable, err := cache.snapshot(ctx, repositoryRoot, candidate.OriginSourceTreeSHA)
 	if err != nil || !sourceAvailable {
 		return nil, false, err
@@ -147,7 +169,7 @@ func remoteWorkloadPassSourceCompileMismatch(ctx context.Context, repositoryRoot
 	if err != nil {
 		return nil, false, err
 	}
-	if supported && decision.compileMiss {
+	if supported && decision.compileMiss && !compileCovered {
 		diagnostic.observeSourceInputVoteDecision(decision)
 		return source, true, nil
 	}
@@ -156,8 +178,8 @@ func remoteWorkloadPassSourceCompileMismatch(ctx context.Context, repositoryRoot
 
 // matchesRemoteWorkloadPassSourceCandidate 从权威来源树重算当前 broad 摘要并交叉 selector 语义；
 // 历史 evidence 的旧摘要算法不替代当前重算，也不在进入多票裁决前制造假失败。
-func matchesRemoteWorkloadPassSourceCandidate(ctx context.Context, repositoryRoot string, identity gate.WorkloadPassIdentity, workload gate.Workload, candidate gate.WorkloadPassEvidence, target *remoteGitTreeSnapshot, cache *remoteReplayCache, diagnostic *ReuseReplayDiagnostic) (bool, error) {
-	source, compileMismatch, err := remoteWorkloadPassSourceCompileMismatch(ctx, repositoryRoot, workload, candidate, target, cache, diagnostic)
+func matchesRemoteWorkloadPassSourceCandidate(ctx context.Context, repositoryRoot string, identity gate.WorkloadPassIdentity, workload gate.Workload, candidate gate.WorkloadPassEvidence, target *remoteGitTreeSnapshot, compileCovered bool, cache *remoteReplayCache, diagnostic *ReuseReplayDiagnostic) (bool, error) {
+	source, compileMismatch, err := remoteWorkloadPassSourceCompileMismatch(ctx, repositoryRoot, workload, candidate, target, compileCovered, cache, diagnostic)
 	if err != nil {
 		return false, err
 	}
@@ -180,13 +202,60 @@ func matchesRemoteWorkloadPassSourceCandidate(ctx context.Context, repositoryRoo
 	if digest == identity.InputDigest {
 		return true, nil
 	}
-	decision, err := cache.semanticInputDecision(ctx, workload, source, target)
+	decision, err := cache.semanticInputDecisionWithCompileCoverage(ctx, workload, source, target, compileCovered)
 	matches := decision.allowReuse()
+	recordRemoteSourceSemanticDecision(diagnostic, decision, compileCovered, matches, err)
+	return matches, err
+}
+
+// recordRemoteSourceSemanticDecision 同时记录 selector 投票与 compile obligation 恢复结果。
+func recordRemoteSourceSemanticDecision(diagnostic *ReuseReplayDiagnostic, decision remoteWorkloadInputVoteDecision, compileCovered, matches bool, decisionErr error) {
 	diagnostic.observeSourceInputVoteDecision(decision)
-	if err == nil && !matches {
+	if matches && compileCovered && decision.compileMiss {
+		diagnostic.SourceCompileCoveredRecoveries++
+	}
+	if decisionErr == nil && !matches {
 		diagnostic.SourceInputMismatch++
 	}
-	return matches, err
+}
+
+type remoteReplayCompileCoverage map[string]struct{}
+
+// covers 判断当前 compile owner 是否已有一个确定 source MISS 将进入 fresh execution。
+func (coverage remoteReplayCompileCoverage) covers(workload gate.Workload) (bool, error) {
+	key, supported, err := remoteReplayCompileCoverageKey(workload)
+	if err != nil || !supported {
+		return false, err
+	}
+	_, covered := coverage[key]
+	return covered, nil
+}
+
+// cover 用当前确定 MISS 覆盖同 package+semantic 的精确树编译义务。
+func (coverage remoteReplayCompileCoverage) cover(workload gate.Workload) (bool, error) {
+	key, supported, err := remoteReplayCompileCoverageKey(workload)
+	if err != nil || !supported {
+		return false, err
+	}
+	if _, covered := coverage[key]; covered {
+		return false, nil
+	}
+	coverage[key] = struct{}{}
+	return true, nil
+}
+
+// remoteReplayCompileCoverageKey 复用 compile-group owner 身份，避免 normal、race
+// 和 benchmark 之间互相借用编译义务。
+func remoteReplayCompileCoverageKey(workload gate.Workload) (string, bool, error) {
+	target, _, supported, err := remoteGoWorkloadInputTarget(workload)
+	if err != nil || !supported {
+		return "", supported, err
+	}
+	semantic, err := gate.CompileGroupSemanticKeyForWorkloadID(gate.GateID(workload.ID))
+	if err != nil {
+		return "", false, err
+	}
+	return gate.CompileOwnerKey(target.Package, semantic), true, nil
 }
 
 // observeSourceInputVoteDecision 聚合独立 MISS 算法的票型，不记录 workload 或摘要。

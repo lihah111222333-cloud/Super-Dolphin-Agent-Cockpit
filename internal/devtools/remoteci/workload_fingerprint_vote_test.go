@@ -108,6 +108,7 @@ func TestRemoteWorkloadCompileMismatchSkipsFullInputDigest(t *testing.T) {
 		workload,
 		gate.WorkloadPassEvidence{OriginSourceTreeSHA: "source"},
 		target,
+		false,
 		cache,
 		&diagnostic,
 	)
@@ -122,6 +123,47 @@ func TestRemoteWorkloadCompileMismatchSkipsFullInputDigest(t *testing.T) {
 	}
 	if diagnostic.SourceCompileMissVotes != 1 || diagnostic.SourceConfirmedMisses != 1 {
 		t.Fatalf("compile-first diagnostic = %#v, want one confirmed compile MISS", diagnostic)
+	}
+}
+
+// TestRemoteWorkloadCompileCoverageReusesUnchangedSiblingBody 验证一个同 owner MISS
+// 已承担精确树编译后，未变 selector 只复用测试体语义，声明或运行时变化仍会阻断。
+func TestRemoteWorkloadCompileCoverageReusesUnchangedSiblingBody(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	source := testExactGoTestDigestSnapshot("")
+	source.repositoryRoot, source.tree = "repo", "source"
+	target := testExactGoTestDigestSnapshot("type Added int\n")
+	target.repositoryRoot, target.tree = "repo", "target"
+	cache, err := newRemoteReplayCache("repo", "target", target)
+	if err != nil {
+		t.Fatalf("newRemoteReplayCache: %v", err)
+	}
+	decision, err := cache.semanticInputDecisionWithCompileCoverage(t.Context(), workload, source, target, true)
+	if err != nil {
+		t.Fatalf("semanticInputDecisionWithCompileCoverage: %v", err)
+	}
+	if !decision.allowReuse() || !decision.compileMiss || decision.declarationMiss || decision.runtimeMiss {
+		t.Fatalf("covered sibling decision = %+v, want compile-only recovered PASS", decision)
+	}
+}
+
+// TestRemoteReplayCompileCoverageSeparatesSemanticOwners 验证同包 normal MISS 不会
+// 覆盖 race 或 benchmark 的独立编译义务。
+func TestRemoteReplayCompileCoverageSeparatesSemanticOwners(t *testing.T) {
+	normal := testRemoteGoWorkload(t, "TestX")
+	race, err := gate.NewGoTestWorkload(gate.GateIDBackendTestGuardWithRace, "./fixture", "TestX", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage := make(remoteReplayCompileCoverage)
+	if covered, err := coverage.cover(normal); err != nil || !covered {
+		t.Fatalf("cover normal = %v, err=%v", covered, err)
+	}
+	if covered, err := coverage.covers(normal); err != nil || !covered {
+		t.Fatalf("normal coverage = %v, err=%v", covered, err)
+	}
+	if covered, err := coverage.covers(race); err != nil || covered {
+		t.Fatalf("race coverage = %v, err=%v", covered, err)
 	}
 }
 

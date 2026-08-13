@@ -165,11 +165,17 @@ func (cache *remoteReplayCache) semanticInputMatches(ctx context.Context, worklo
 }
 
 func (cache *remoteReplayCache) semanticInputDecision(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot) (remoteWorkloadInputVoteDecision, error) {
+	return cache.semanticInputDecisionWithCompileCoverage(ctx, workload, source, target, false)
+}
+
+// semanticInputDecisionWithCompileCoverage 在同 package+semantic 已有确定 MISS 时，
+// 只让编译变化保留诊断票，不再把同包未变 selector 的测试体一并判 MISS。
+func (cache *remoteReplayCache) semanticInputDecisionWithCompileCoverage(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot, compileCovered bool) (remoteWorkloadInputVoteDecision, error) {
 	compileDecision, compileSupported, err := cache.compileInputDecision(ctx, workload, source, target)
 	if err != nil || !compileSupported {
 		return remoteWorkloadInputVoteDecision{}, err
 	}
-	if compileDecision.compileMiss {
+	if compileDecision.compileMiss && !compileCovered {
 		return compileDecision, nil
 	}
 	sourceVotes, sourceSupported, err := cache.semanticInputVoteDigests(ctx, source, workload)
@@ -180,7 +186,7 @@ func (cache *remoteReplayCache) semanticInputDecision(ctx context.Context, workl
 	if err != nil || !targetSupported {
 		return remoteWorkloadInputVoteDecision{}, err
 	}
-	return remoteWorkloadInputVoteDecisionFor(sourceVotes, targetVotes), nil
+	return remoteWorkloadInputVoteDecisionForCompileCoverage(sourceVotes, targetVotes, compileCovered), nil
 }
 
 type remoteWorkloadInputVoteDecision struct {
@@ -193,6 +199,12 @@ type remoteWorkloadInputVoteDecision struct {
 // remoteWorkloadInputVoteDecisionFor 先计 broad MISS，再独立核对声明、包编译与运行时闭包。
 // whole-tree runtime fallback 与 broad 同源，只保留包编译票，禁止重复计票。
 func remoteWorkloadInputVoteDecisionFor(source, target remoteWorkloadInputVoteDigests) remoteWorkloadInputVoteDecision {
+	return remoteWorkloadInputVoteDecisionForCompileCoverage(source, target, false)
+}
+
+// remoteWorkloadInputVoteDecisionForCompileCoverage 只在当前 compile owner 尚无 fresh
+// 执行兜底时把编译差异计入 MISS 阈值；声明和运行时票始终独立生效。
+func remoteWorkloadInputVoteDecisionForCompileCoverage(source, target remoteWorkloadInputVoteDigests, compileCovered bool) remoteWorkloadInputVoteDecision {
 	decision := remoteWorkloadInputVoteDecision{missVotes: 1}
 	if source.declaration != target.declaration {
 		decision.declarationMiss = true
@@ -200,7 +212,9 @@ func remoteWorkloadInputVoteDecisionFor(source, target remoteWorkloadInputVoteDi
 	}
 	if source.compile != target.compile {
 		decision.compileMiss = true
-		decision.missVotes++
+		if !compileCovered {
+			decision.missVotes++
+		}
 	}
 	if source.runtimeFallback != target.runtimeFallback {
 		decision.runtimeMiss = true

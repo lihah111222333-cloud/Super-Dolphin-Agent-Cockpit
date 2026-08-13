@@ -73,6 +73,7 @@ func TestPreCommitSIGINTCleansHookOutputFiles(t *testing.T) {
 		"GATE_WAIT_READY_FILE":    readyFile,
 		"GATE_WAIT_FOR_INTERRUPT": "1",
 	})
+	configureInterruptProcessGroup(cmd)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -91,7 +92,7 @@ func TestPreCommitSIGINTCleansHookOutputFiles(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+	if err := interruptProcessGroup(cmd); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		t.Fatalf("send SIGINT to pre-commit: %v", err)
