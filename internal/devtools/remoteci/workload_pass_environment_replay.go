@@ -343,17 +343,30 @@ type remoteWorkloadPassEnvironmentEvaluation struct {
 	diagnostic      *ReuseReplayDiagnostic
 }
 
-// exactInputPartition 返回当前 identity 与历史 identity 输入相同的去重 workload，
-// 供同树批量预热；语义候选由后续投票按需计算。
-func (evaluation remoteWorkloadPassEnvironmentEvaluation) exactInputPartition(
+// sourceInputPartition 先用 selector 多票筛掉确定语义 MISS，再返回后续需要
+// 验证历史 broad input 的去重 workload，供同树持久索引批量预热。
+func (evaluation remoteWorkloadPassEnvironmentEvaluation) sourceInputPartition(
+	source *remoteGitTreeSnapshot,
 	keys []remoteWorkloadPassEnvironmentCandidateKey,
-) []gate.Workload {
+) ([]gate.Workload, error) {
 	partition := make([]gate.Workload, 0, len(keys))
 	seen := make(map[gate.GateID]struct{}, len(keys))
 	for _, key := range keys {
 		candidate := evaluation.candidates[key.workloadID][key.index].hint.UntrustedCandidate()
 		if candidate.Identity.InputDigest != evaluation.identities[key.workloadID].InputDigest {
-			continue
+			compileCovered, err := evaluation.compileCoverage.covers(evaluation.workloads[key.workloadID])
+			if err != nil {
+				return nil, err
+			}
+			decision, err := evaluation.cache.semanticInputDecisionWithCompileCoverage(
+				evaluation.ctx, evaluation.workloads[key.workloadID], source, evaluation.target, compileCovered,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if !decision.allowReuse() {
+				continue
+			}
 		}
 		if _, ok := seen[key.workloadID]; ok {
 			continue
@@ -361,7 +374,7 @@ func (evaluation remoteWorkloadPassEnvironmentEvaluation) exactInputPartition(
 		seen[key.workloadID] = struct{}{}
 		partition = append(partition, evaluation.workloads[key.workloadID])
 	}
-	return partition
+	return partition, nil
 }
 
 // evaluateTree 在单个来源树中批量预热 exact 输入、按候选顺序投票并立即释放快照。
@@ -377,7 +390,10 @@ func (evaluation remoteWorkloadPassEnvironmentEvaluation) evaluateTree(
 	if !available {
 		return fmt.Errorf("remote workload PASS environment source tree %q disappeared after filtering", tree)
 	}
-	partition := evaluation.exactInputPartition(keys)
+	partition, err := evaluation.sourceInputPartition(source, keys)
+	if err != nil {
+		return err
+	}
 	compatible, err := prewarmRemoteWorkloadPassSourceInputs(
 		evaluation.ctx, evaluation.input.RepositoryRoot, tree, partition,
 		source, evaluation.target, evaluation.cache,
