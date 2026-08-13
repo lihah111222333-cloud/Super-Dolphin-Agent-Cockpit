@@ -41,7 +41,7 @@ internal/module/cron/scheduler_test.go	internal	modules	go-test	32383	业务模�
 internal/module/cron/service.go	internal	modules	go-source	13778	业务模块层	internal,module,cron,service,业务模块层
 internal/module/cron/service_test.go	internal	modules	go-test	18584	业务模块层	internal,module,cron,service,test,业务模块层
 internal/module/cron/subscribers.go	internal	modules	go-source	1491	业务模块层	internal,module,cron,subscribers,业务模块层
-internal/module/cron/subscribers_test.go	internal	modules	go-test	4047	业务模块层	internal,module,cron,subscribers,test,业务模块层
+internal/module/cron/subscribers_test.go	internal	modules	go-test	4135	业务模块层	internal,module,cron,subscribers,test,业务模块层
 internal/module/cron/thread_bootstrapper.go	internal	modules	go-source	2831	业务模块层	internal,module,cron,thread,bootstrapper,业务模块层
 internal/module/cron/tick_actor.go	internal	modules	go-source	1873	业务模块层	internal,module,cron,tick,actor,业务模块层
 internal/module/cron/timer_jitter.go	internal	modules	go-source	594	业务模块层	internal,module,cron,timer,jitter,业务模块层
