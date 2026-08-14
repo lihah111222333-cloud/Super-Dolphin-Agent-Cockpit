@@ -11,21 +11,17 @@ import (
 )
 
 type compilePackingBin struct {
-	shard           ShardPlan
-	affinities      map[string]struct{}
-	artifactKeys    map[string]struct{}
-	serialEligible  bool
-	resourceClassID string
+	shard        ShardPlan
+	affinities   map[string]struct{}
+	artifactKeys map[string]struct{}
 }
 
 type compilePackingUndo struct {
-	workloadCount   int
-	groupCount      int
-	durationMS      int64
-	serialEligible  bool
-	resourceClassID string
-	affinityKey     string
-	artifactKey     string
+	workloadCount int
+	groupCount    int
+	durationMS    int64
+	affinityKey   string
+	artifactKey   string
 }
 
 type compilePackingSearchResult struct {
@@ -80,11 +76,9 @@ func provenCompileUnitPacking(units []compilePlanningUnit, target int64) ([]Shar
 	if err != nil {
 		return nil, err
 	}
-	serialShards, err := provenCompilePackableExact(serial, target)
-	if err != nil {
-		return nil, err
-	}
-	best := append(ordinaryShards, serialShards...)
+	// serial 资格只参与全局 exact/heuristic 阈值；不同 canonical group 不能
+	// 进入同一次精确搜索，避免 shard workload 与 group 覆盖漂移。
+	best := append(ordinaryShards, isolatedCompileShards(serial)...)
 	best = append(best, isolatedCompileShards(isolated)...)
 	best = canonicalCompilePacking(best)
 	if !compileShardsMeetTarget(best, target, units) {
@@ -170,7 +164,7 @@ func minimizeCompilePackingMakespan(units []compilePlanningUnit, initial []Shard
 	return best, nil
 }
 
-// compilePackingShardLowerBound 按 hard-isolation 与可共享类别计算容量下界。
+// compilePackingShardLowerBound 按 ordinary 容量和每个 compile-group domain 计算下界。
 func compilePackingShardLowerBound(units []compilePlanningUnit, target int64) (int, error) {
 	if len(units) == 0 {
 		return 0, nil
@@ -186,35 +180,26 @@ func compilePackingShardLowerBound(units []compilePlanningUnit, target int64) (i
 	if err != nil {
 		return 0, err
 	}
-	serialLower, err := compilePackingCapacityLowerBound(classes.serialTotal, classes.serialOversize, target)
+	lower, err := addCompilePackingShardCounts(classes.compileGroups, ordinaryLower)
 	if err != nil {
 		return 0, err
 	}
-	lower, err := addCompilePackingShardCounts(classes.exclusive, ordinaryLower)
-	if err != nil {
-		return 0, err
-	}
-	return addCompilePackingShardCounts(lower, serialLower)
+	return addCompilePackingShardCounts(lower, classes.exclusive)
 }
 
 type compilePackingShardClasses struct {
 	ordinaryTotal    int64
 	ordinaryOversize int
-	serialTotal      int64
-	serialOversize   int
+	compileGroups    int
 	exclusive        int
 }
 
-// classifyCompilePackingShardClasses 汇总普通、可串行与 hard-isolation unit。
+// classifyCompilePackingShardClasses 汇总 ordinary、独立 compile-group 与 hard-isolation unit。
 func classifyCompilePackingShardClasses(units []compilePlanningUnit, target int64) (compilePackingShardClasses, error) {
 	var classes compilePackingShardClasses
 	for _, unit := range units {
 		if unit.costMS < 0 {
 			return compilePackingShardClasses{}, errors.New("compile packing unit cost must be non-negative")
-		}
-		if unit.group != nil && !CompileGroupSerialPackingEligible(*unit.group) {
-			classes.exclusive++
-			continue
 		}
 		if unit.group == nil {
 			if unit.costMS > target {
@@ -228,14 +213,10 @@ func classifyCompilePackingShardClasses(units []compilePlanningUnit, target int6
 			}
 			continue
 		}
-		if unit.costMS > target {
-			classes.serialOversize++
-			continue
-		}
-		var err error
-		classes.serialTotal, err = addCompilePackingDuration(classes.serialTotal, unit.costMS)
-		if err != nil {
-			return compilePackingShardClasses{}, err
+		if CompileGroupSerialPackingEligible(*unit.group) {
+			classes.compileGroups++
+		} else {
+			classes.exclusive++
 		}
 	}
 	return classes, nil
@@ -462,13 +443,12 @@ func compilePackingShardKey(shard ShardPlan) string {
 // applyCompilePackingUnit 将一个 unit 原地加入箱，并返回精确撤销信息。
 func applyCompilePackingUnit(bin *compilePackingBin, unit compilePlanningUnit, capacity int64) (compilePackingUndo, bool, error) {
 	if !compileUnitFitsPackingCapacity(bin.shard, unit, capacity) ||
-		!compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, bin.serialEligible,
-			bin.resourceClassID, unit) {
+		!compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, unit) {
 		return compilePackingUndo{}, false, nil
 	}
 	undo := compilePackingUndo{
 		workloadCount: len(bin.shard.Workloads), groupCount: len(bin.shard.CompileGroupIDs),
-		durationMS: bin.shard.EstimatedDurationMS, serialEligible: bin.serialEligible, resourceClassID: bin.resourceClassID,
+		durationMS:  bin.shard.EstimatedDurationMS,
 		affinityKey: unit.affinityKey,
 	}
 	bin.shard.Workloads = append(bin.shard.Workloads, unit.workloads...)
@@ -485,8 +465,6 @@ func applyCompilePackingUnit(bin *compilePackingBin, unit compilePlanningUnit, c
 	undo.artifactKey = artifactKey
 	bin.shard.CompileGroupIDs = append(bin.shard.CompileGroupIDs, unit.group.GroupID)
 	bin.artifactKeys[artifactKey] = struct{}{}
-	bin.serialEligible = bin.serialEligible || CompileGroupSerialPackingEligible(*unit.group)
-	bin.resourceClassID = unit.group.ResourceClassID
 	return undo, true, nil
 }
 
@@ -495,8 +473,6 @@ func undoCompilePackingUnit(bin *compilePackingBin, undo compilePackingUndo) {
 	bin.shard.Workloads = bin.shard.Workloads[:undo.workloadCount]
 	bin.shard.CompileGroupIDs = bin.shard.CompileGroupIDs[:undo.groupCount]
 	bin.shard.EstimatedDurationMS = undo.durationMS
-	bin.serialEligible = undo.serialEligible
-	bin.resourceClassID = undo.resourceClassID
 	delete(bin.affinities, undo.affinityKey)
 	if undo.artifactKey != "" {
 		delete(bin.artifactKeys, undo.artifactKey)

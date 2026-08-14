@@ -641,20 +641,18 @@ func distributeCompileUnitsWithinTarget(units []compilePlanningUnit, context Pla
 	return shards, nil
 }
 
-// distributeCompileUnits 按 affinity、artifact、串行政策和资源档确定性分配 compile units。
+// distributeCompileUnits 按 affinity、artifact 和单一 compile-group 域确定性分配 compile units。
 func distributeCompileUnits(units []compilePlanningUnit, count int, target int64) ([]ShardPlan, bool) {
 	shards := make([]ShardPlan, count)
 	affinities := make([]map[string]struct{}, count)
 	artifactKeys := make([]map[string]struct{}, count)
-	serialEligible := make([]bool, count)
-	resourceClassIDs := make([]string, count)
 	for index := range shards {
 		shards[index].Index = index
 		affinities[index] = make(map[string]struct{})
 		artifactKeys[index] = make(map[string]struct{})
 	}
 	for _, unit := range units {
-		index, ok := compileUnitShardIndexForCompileGroup(shards, affinities, artifactKeys, serialEligible, resourceClassIDs, unit, target)
+		index, ok := compileUnitShardIndexForCompileGroup(shards, affinities, artifactKeys, unit, target)
 		if !ok {
 			return nil, false
 		}
@@ -666,8 +664,6 @@ func distributeCompileUnits(units []compilePlanningUnit, count int, target int64
 				return nil, false
 			}
 			artifactKeys[index][artifactKey] = struct{}{}
-			serialEligible[index] = serialEligible[index] || CompileGroupSerialPackingEligible(*unit.group)
-			resourceClassIDs[index] = unit.group.ResourceClassID
 		}
 		if unit.costMS > int64(^uint64(0)>>1)-shards[index].EstimatedDurationMS {
 			return nil, false
@@ -682,14 +678,13 @@ func distributeCompileUnits(units []compilePlanningUnit, count int, target int64
 }
 
 // compileUnitShardIndexForCompileGroup 选择尚未占用同一编译 artifact 且当前负载最小的分片。
-// 首期仅允许 CompileGroupSerialPackingEligible 显式放行的普通 Go test 组共箱；
-// 特殊组、race、benchmark 和 exclusive wave 保持一组一 shard 的硬约束。
-func compileUnitShardIndexForCompileGroup(shards []ShardPlan, affinities, artifactKeys []map[string]struct{}, serialEligible []bool, resourceClassIDs []string, unit compilePlanningUnit, target int64) (int, bool) {
+// 每个 canonical compile group 都是一组一 shard 的硬约束。
+func compileUnitShardIndexForCompileGroup(shards []ShardPlan, affinities, artifactKeys []map[string]struct{}, unit compilePlanningUnit, target int64) (int, bool) {
 	least := -1
 	bestExcess := int64(^uint64(0) >> 1)
 	bestResidual := int64(^uint64(0) >> 1)
 	for index := range shards {
-		if !compileUnitCanShareShard(shards[index], affinities[index], artifactKeys[index], serialEligible[index], resourceClassIDs[index], unit) {
+		if !compileUnitCanShareShard(shards[index], affinities[index], artifactKeys[index], unit) {
 			continue
 		}
 		excess, residual := compileUnitPlacementScore(shards[index].EstimatedDurationMS, unit.costMS, target)
@@ -703,9 +698,8 @@ func compileUnitShardIndexForCompileGroup(shards []ShardPlan, affinities, artifa
 	return 0, false
 }
 
-// compileUnitCanShareShard 施加 affinity、artifact 唯一性与显式共箱政策约束。
-// 共箱的多个 compile group 还必须保持同一 ResourceClassID。
-func compileUnitCanShareShard(shard ShardPlan, affinities, artifactKeys map[string]struct{}, serialEligible bool, resourceClassID string, unit compilePlanningUnit) bool {
+// compileUnitCanShareShard 施加 affinity、artifact 唯一性与单一 compile-group 域约束。
+func compileUnitCanShareShard(shard ShardPlan, affinities, artifactKeys map[string]struct{}, unit compilePlanningUnit) bool {
 	if _, duplicate := affinities[unit.affinityKey]; duplicate {
 		return false
 	}
@@ -719,13 +713,7 @@ func compileUnitCanShareShard(shard ShardPlan, affinities, artifactKeys map[stri
 	if _, duplicate := artifactKeys[artifactKey]; duplicate {
 		return false
 	}
-	if len(shard.CompileGroupIDs) > 0 && unit.group.ResourceClassID != resourceClassID {
-		return false
-	}
-	if len(shard.Workloads) == 0 {
-		return true
-	}
-	return len(shard.CompileGroupIDs) > 0 && CompileGroupSerialPackingEligible(*unit.group) && serialEligible
+	return len(shard.Workloads) == 0
 }
 
 // compileUnitPlacementScore 以 target excess 优先、再以剩余容量稳定平局。

@@ -51,8 +51,8 @@ func mustDerivePackingEvidence(t *testing.T, shards []ShardPlan, groups []Compil
 // assertExactPackingEvidence 校验 exact solver 证明的 packable/isolated 计数与 gap。
 func assertExactPackingEvidence(t *testing.T, evidence []WorkloadPackingEvidence) {
 	t.Helper()
-	if len(evidence) != 1 || evidence[0].PackableUnitCount != 5 || evidence[0].IsolatedUnitCount != 20 || evidence[0].SolverMode != cicontract.WorkloadPlanningExactSolverModeID || evidence[0].LowerBoundShards != 21 || evidence[0].PlannedShards != 21 || evidence[0].HeuristicGapShards != 0 {
-		t.Fatalf("evidence = %#v, want solver-proven 5 packable/20 isolated exact evidence", evidence)
+	if len(evidence) != 1 || evidence[0].PackableUnitCount != 5 || evidence[0].IsolatedUnitCount != 20 || evidence[0].SolverMode != cicontract.WorkloadPlanningExactSolverModeID || evidence[0].LowerBoundShards != 25 || evidence[0].PlannedShards != 25 || evidence[0].HeuristicGapShards != 0 {
+		t.Fatalf("evidence = %#v, want solver-proven 5 independent-group/20 isolated exact evidence", evidence)
 	}
 }
 
@@ -90,17 +90,6 @@ func mixedEvidenceFixture() ([]ShardPlan, []CompileGroup, []compilePlanningUnit)
 		groups = append(groups, group)
 		units = append(units, compilePlanningUnit{workloads: []PlannedWorkload{workload}, group: &group, costMS: 1000, affinityKey: string(id), sortID: string(id), tier: cicontract.WorkloadResourceTierMedium})
 	}
-	packable := ShardPlan{Index: 0, EstimatedDurationMS: 10_000}
-	for index := range 5 {
-		packable.Workloads = append(packable.Workloads, shards[index].Workloads...)
-	}
-	merged := make([]ShardPlan, 0, len(shards)-4)
-	merged = append(merged, packable)
-	merged = append(merged, shards[5:]...)
-	for index := range merged {
-		merged[index].Index = index
-	}
-	shards = merged
 	return shards, groups, units
 }
 

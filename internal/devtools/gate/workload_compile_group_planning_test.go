@@ -314,7 +314,7 @@ func TestStoredCompilePlanRejectsArchtestArtifactDuplicateWithinShard(t *testing
 		CompileGroups:        []CompileGroup{first, second},
 		Shards:               []ShardPlan{{Index: 0, CompileGroupIDs: []string{first.GroupID, second.GroupID}}},
 	}
-	if _, _, err := validateStoredCompileGroups(plan, catalog); err == nil || !strings.Contains(err.Error(), "contains multiple groups for compile artifact") {
+	if _, _, err := validateStoredCompileGroups(plan, catalog); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
 		t.Fatalf("same-shard archtest artifact duplicate validation error = %v", err)
 	}
 }
@@ -396,7 +396,7 @@ func TestStoredCompilePlanRejectsDifferentArtifactsInOneShard(t *testing.T) {
 		CompileGroups:        groups,
 		Shards:               []ShardPlan{{Index: 0, Workloads: []PlannedWorkload{{Workload: workloads[0], EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}, {Workload: workloads[1], EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4}}, CompileGroupIDs: []string{groups[0].GroupID, groups[1].GroupID}, EstimatedDurationMS: groups[0].EstimatedDurationMS + groups[1].EstimatedDurationMS}},
 	}
-	if _, _, err := validateStoredCompileGroups(plan, testWorkloadCatalog(workloads...)); err == nil || !strings.Contains(err.Error(), "not eligible for serial packing") {
+	if _, _, err := validateStoredCompileGroups(plan, testWorkloadCatalog(workloads...)); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
 		t.Fatalf("different-artifact shard validation error = %v", err)
 	}
 }

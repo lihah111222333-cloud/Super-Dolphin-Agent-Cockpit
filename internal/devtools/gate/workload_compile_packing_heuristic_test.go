@@ -3,6 +3,7 @@ package gate
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -55,9 +56,54 @@ func TestExactCompilePackingSeparatesMixedMissDomains(t *testing.T) {
 	assertCompilePackingDomainsSeparated(t, shards, groups, grouped)
 }
 
+func TestValidateStoredAndContainerRejectDistinctSerialGroupsWithinOneShard(t *testing.T) {
+	gatePlan, catalog, context, snapshot, inputs, executionIDs := productionCompileHeuristicFixture(t)
+	plan, err := BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs(gatePlan, catalog, snapshot, context, executionIDs, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := mergeDistinctSerialGroupShards(t, plan)
+	if err := tampered.ValidateStored(gatePlan); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
+		t.Fatalf("ValidateStored() multi-group shard error = %v", err)
+	}
+	if _, err := BuildContainerShardSetFromWorkloadPlan(gatePlan, tampered, shardTestDigest('a'), shardTestDigest('b')); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
+		t.Fatalf("container projection multi-group shard error = %v", err)
+	}
+}
+
+func mergeDistinctSerialGroupShards(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
+	t.Helper()
+	if len(plan.Shards) < 2 || len(plan.PackingEvidence) != 1 {
+		t.Fatal("production compile fixture is not suitable for multi-group tampering")
+	}
+	tampered := plan
+	tampered.Shards = slices.Clone(plan.Shards)
+	first, second := tampered.Shards[0], tampered.Shards[1]
+	if len(first.CompileGroupIDs) != 1 || len(second.CompileGroupIDs) != 1 || first.CompileGroupIDs[0] == second.CompileGroupIDs[0] {
+		t.Fatal("production compile fixture lacks distinct single-group shards")
+	}
+	first.Workloads = append(slices.Clone(first.Workloads), second.Workloads...)
+	first.CompileGroupIDs = append(slices.Clone(first.CompileGroupIDs), second.CompileGroupIDs...)
+	first.EstimatedDurationMS += second.EstimatedDurationMS
+	tampered.Shards = append([]ShardPlan{first}, tampered.Shards[2:]...)
+	for index := range tampered.Shards {
+		tampered.Shards[index].Index = index
+	}
+	tampered.PackingEvidence = slices.Clone(plan.PackingEvidence)
+	tampered.PackingEvidence[0].PlannedShards = len(tampered.Shards)
+	tampered.PackingEvidence[0].LowerBoundShards = len(tampered.Shards)
+	tampered.PackingEvidence[0].HeuristicGapShards = 0
+	digest, err := tampered.digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered.PlanDigest = digest
+	return tampered
+}
+
 func mixedMissCompilePlanningUnits(t *testing.T) ([]compilePlanningUnit, map[string]CompileGroup, map[GateID]struct{}) {
 	t.Helper()
-	units := make([]compilePlanningUnit, 0, 23)
+	units := make([]compilePlanningUnit, 0, 30)
 	groups := make(map[string]CompileGroup, 13)
 	grouped := make(map[GateID]struct{}, 13)
 	for index := range 13 {
@@ -87,7 +133,7 @@ func mixedMissCompilePlanningUnits(t *testing.T) ([]compilePlanningUnit, map[str
 			tier: cicontract.WorkloadResourceTierMedium,
 		})
 	}
-	for index := range 10 {
+	for index := range 17 {
 		workload, err := NewGoPackageWorkload(GateIDBackendTestWithGuard, fmt.Sprintf("./cmd/mcp-lsp/ordinary-miss-%02d", index), 1_000)
 		if err != nil {
 			t.Fatal(err)
@@ -118,6 +164,9 @@ func assertCompilePackingDomainsSeparated(t *testing.T, shards []ShardPlan, grou
 		if !compileGroupsCoverShardWorkloads(groups, shard) {
 			extra, missing := compileGroupShardCoverageMismatch(groups, shard)
 			t.Fatalf("compile shard %d coverage drift: extra=%v missing=%v", shard.Index, extra, missing)
+		}
+		if len(shard.CompileGroupIDs) != 1 {
+			t.Fatalf("compile shard %d groups = %v, want one canonical group", shard.Index, shard.CompileGroupIDs)
 		}
 		for _, workload := range shard.Workloads {
 			if _, isGrouped := grouped[GateID(workload.Workload.ID)]; !isGrouped {
@@ -156,16 +205,20 @@ func productionCompileHeuristicFixture(t *testing.T) (GatePlan, WorkloadCatalog,
 // assertProductionCompileHeuristicCoverage 校验 group 覆盖、critical cost 和 evidence 算术。
 func assertProductionCompileHeuristicCoverage(t *testing.T, plan WorkloadExecutionPlan, catalog WorkloadCatalog, context PlanningContext) {
 	t.Helper()
-	seen, groups := productionCompileGroupMaps(plan)
+	seen, groups := productionCompileGroupMaps(t, plan)
 	assertProductionGroupCounts(t, seen, groups, len(catalog.Workloads))
 	assertProductionCriticalCosts(t, plan, groups)
 	assertProductionHeuristicEvidence(t, plan, context)
 }
 
 // productionCompileGroupMaps 收集 shard 中的 group 引用和定义。
-func productionCompileGroupMaps(plan WorkloadExecutionPlan) (map[string]int, map[string]CompileGroup) {
+func productionCompileGroupMaps(t *testing.T, plan WorkloadExecutionPlan) (map[string]int, map[string]CompileGroup) {
+	t.Helper()
 	seen := make(map[string]int, len(plan.CompileGroups))
 	for _, shard := range plan.Shards {
+		if len(shard.CompileGroupIDs) > 1 {
+			t.Fatalf("production compile shard %d groups = %v, want one canonical group", shard.Index, shard.CompileGroupIDs)
+		}
 		for _, groupID := range shard.CompileGroupIDs {
 			seen[groupID]++
 		}

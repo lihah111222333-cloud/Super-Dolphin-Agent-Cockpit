@@ -22,11 +22,9 @@ func heuristicCompileUnitPacking(units []compilePlanningUnit, target int64) ([]S
 	if err != nil {
 		return nil, err
 	}
-	serialShards, err := heuristicCompilePackingDomain(serial, target)
-	if err != nil {
-		return nil, err
-	}
-	best := append(ordinaryShards, serialShards...)
+	// 每个 canonical compile group 都是独立 packing domain；BFD/repair 只能
+	// 处理 ordinary workload，避免不同 group 的 workload 与 group ID 漂移。
+	best := append(ordinaryShards, isolatedCompileShards(serial)...)
 	best = append(best, isolatedCompileShards(isolated)...)
 	best = canonicalCompilePacking(best)
 	if !compileShardsMeetTarget(best, target, units) {
@@ -51,7 +49,7 @@ func heuristicCompilePackingDomain(units []compilePlanningUnit, target int64) ([
 }
 
 // partitionCompilePlanningUnits 将 ordinary、可串行 compile group 与硬隔离 unit 分域。
-// ordinary workload 永远不能与 compile-group shard 共享 BFD、精确搜索或 repair 输入。
+// ordinary 是唯一可共享的 packing domain；每个 compile group 都由调用方单独投影。
 func partitionCompilePlanningUnits(units []compilePlanningUnit) ([]compilePlanningUnit, []compilePlanningUnit, []compilePlanningUnit) {
 	ordinary := make([]compilePlanningUnit, 0, len(units))
 	serial := make([]compilePlanningUnit, 0, len(units))
@@ -118,7 +116,7 @@ func compileSelectBFDIndex(bins []compilePackingBin, unit compilePlanningUnit, t
 
 // compileBFDPlacementCandidate 复制箱状态并校验一次合法 unit 放置。
 func compileBFDPlacementCandidate(bin compilePackingBin, unit compilePlanningUnit, target int64) (int64, int64, string, bool, error) {
-	if !compileUnitFitsPackingCapacity(bin.shard, unit, target) || !compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, bin.serialEligible, bin.resourceClassID, unit) {
+	if !compileUnitFitsPackingCapacity(bin.shard, unit, target) || !compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, unit) {
 		return 0, 0, "", false, nil
 	}
 	candidateBin := cloneCompilePackingBin(bin)
@@ -467,11 +465,9 @@ func applyCompileRepairAssignments(bins []compilePackingBin, units []compilePlan
 
 func cloneCompilePackingBin(source compilePackingBin) compilePackingBin {
 	return compilePackingBin{
-		shard:           cloneCompilePacking([]ShardPlan{source.shard})[0],
-		affinities:      cloneStringSet(source.affinities),
-		artifactKeys:    cloneStringSet(source.artifactKeys),
-		serialEligible:  source.serialEligible,
-		resourceClassID: source.resourceClassID,
+		shard:        cloneCompilePacking([]ShardPlan{source.shard})[0],
+		affinities:   cloneStringSet(source.affinities),
+		artifactKeys: cloneStringSet(source.artifactKeys),
 	}
 }
 
