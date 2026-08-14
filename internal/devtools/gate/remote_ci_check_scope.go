@@ -21,7 +21,7 @@ func RequiredCheckForWorkloadID(workloadID string) (cicontract.RequiredCheck, er
 		return cicontract.RequiredCheckNormal, nil
 	case GateIDFrontendPreflight:
 		return cicontract.RequiredCheckDependency, nil
-	case GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
+	case GateIDFrontendPerformanceVerify, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
 		return cicontract.RequiredCheckFrontend, nil
 	case GateIDAIMaintenanceSelfTest, GateIDLSPChangedDiagnostics, GateIDBackendNilness, GateIDSQLCVerify,
 		GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck, GateIDReleaseLayeredCheck:
@@ -62,24 +62,4 @@ func validateRemoteCIExecutionScopePassingCheckReceipts(catalog WorkloadCatalog,
 		return fmt.Errorf("project stored remote CI execution catalog: %w", err)
 	}
 	return validateWorkloadCatalogPassingCheckReceipts(executionCatalog, receipts)
-}
-
-// validateLegacyRemoteCIRunFullWorkloadCoverage permits a missing scope only
-// when the persisted run itself proves coverage of the complete catalog.
-func validateLegacyRemoteCIRunFullWorkloadCoverage(catalog WorkloadCatalog, run RemoteCIRunRecord) error {
-	if run.Scope != nil {
-		return nil
-	}
-	fullScope, err := NewRemoteCIFullExecutionScope(catalog)
-	if err != nil {
-		return fmt.Errorf("construct full remote CI execution scope: %w", err)
-	}
-	index, err := newRemoteCIRunCatalogIndex(catalog)
-	if err != nil {
-		return err
-	}
-	if err := index.validatePassed(run, fullScope); err != nil {
-		return fmt.Errorf("missing remote CI execution scope does not cover full catalog: %w", err)
-	}
-	return nil
 }

@@ -21,8 +21,9 @@ var testSelectorNamePattern = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 const legacyResourceCohortCommand = "$(TEST_WITH_GUARD) --quick-guard -tags=e2e ./cmd/mcp-lsp -run '^TestMcpLSPBinary(LinkedWorktreesResourceCohortRecycleAndRecover|ResourceCohortMalformedReportQuarantine)_E2E$$' -v -timeout 240s -count=1"
 
 type guardRequest struct {
-	receipt string
-	id      string
+	receipt     string
+	id          string
+	receiptOnly bool
 }
 
 func main() {
@@ -46,17 +47,12 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateCanonicalIDs(document); err != nil {
+	if err := validateGuardRequest(repoRoot, document, request); err != nil {
 		return err
 	}
-	if err := validateCatalogTestSelectors(repoRoot, document); err != nil {
-		return err
-	}
-	if err := validateConsumers(repoRoot, document); err != nil {
-		return err
-	}
-	if err := validateRequestedReceipt(repoRoot, document, request); err != nil {
-		return err
+	if request.receiptOnly {
+		fmt.Printf("mcp-lsp workload receipt PASS id=%s\n", request.id)
+		return nil
 	}
 	fmt.Printf("mcp-lsp workload catalog PASS schema=%s digest=%s workloads=%d\n", document.Schema, document.CatalogDigest, len(document.Workloads))
 	return nil
@@ -67,16 +63,44 @@ func parseGuardRequest(args []string) (guardRequest, error) {
 	fs := flag.NewFlagSet("check_mcp_lsp_workload_catalog", flag.ContinueOnError)
 	receipt := fs.String("receipt", "", "optional absolute receipt path to verify")
 	id := fs.String("id", "", "catalog workload ID for --receipt")
+	receiptOnly := fs.Bool("receipt-only", false, "verify only the requested receipt after catalog.Load")
 	if err := fs.Parse(args); err != nil {
 		return guardRequest{}, err
 	}
 	if fs.NArg() != 0 {
 		return guardRequest{}, fmt.Errorf("unexpected workload guard arguments: %s", strings.Join(fs.Args(), " "))
 	}
-	if (*receipt == "") != (*id == "") {
+	if *receiptOnly {
+		if *receipt == "" || *id == "" {
+			return guardRequest{}, fmt.Errorf("--receipt-only requires --receipt and --id")
+		}
+		if !filepath.IsAbs(*receipt) {
+			return guardRequest{}, fmt.Errorf("--receipt-only requires an absolute --receipt")
+		}
+	} else if (*receipt == "") != (*id == "") {
 		return guardRequest{}, fmt.Errorf("--receipt and --id must be supplied together")
 	}
-	return guardRequest{receipt: *receipt, id: *id}, nil
+	return guardRequest{receipt: *receipt, id: *id, receiptOnly: *receiptOnly}, nil
+}
+
+// validateGuardRequest 让 receipt-only 保持失败即阻断，同时避免重复执行静态目录校验。
+func validateGuardRequest(repoRoot string, document catalog.Catalog, request guardRequest) error {
+	if request.receiptOnly {
+		if request.receipt == "" || request.id == "" {
+			return fmt.Errorf("--receipt-only requires --receipt and --id")
+		}
+		return validateRequestedReceipt(repoRoot, document, request)
+	}
+	if err := validateCanonicalIDs(document); err != nil {
+		return err
+	}
+	if err := validateCatalogTestSelectors(repoRoot, document); err != nil {
+		return err
+	}
+	if err := validateConsumers(repoRoot, document); err != nil {
+		return err
+	}
+	return validateRequestedReceipt(repoRoot, document, request)
 }
 
 // validateRequestedReceipt 校验命令行指定的回执路径和内容。

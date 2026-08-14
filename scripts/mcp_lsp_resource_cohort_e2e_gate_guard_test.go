@@ -17,7 +17,7 @@ func TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E(t *testing.T) {
 	makefile := readRepoFile(t, "../Makefile")
 	guardScript := readRepoFile(t, "test_with_guard.sh")
 
-	assertScriptContains(t, makefile, "test-e2e: test-e2e-rpc-runtime "+mcpLSPResourceCohortE2ETarget)
+	assertScriptContains(t, makefile, "test-e2e:\n\t$(TEST_WITH_GUARD) --make-e2e-suite")
 	assertScriptContains(t, makefile, mcpLSPResourceCohortE2ETarget+":")
 	assertScriptContains(t, makefile, "--quick-guard -tags=e2e ./cmd/mcp-lsp")
 	assertScriptContains(t, makefile, "-run '"+mcpLSPResourceCohortE2ERun+"$'")
@@ -33,8 +33,8 @@ func TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E(t *testing.T) {
 		t, guardScript, "run_canonical_backend() {", "\nrun_race_only() {",
 	)
 	assertScriptContains(t, canonical, `run_mcp_lsp_resource_cohort_e2e "$real_go"`)
-	if strings.Count(guardScript, `run_mcp_lsp_resource_cohort_e2e "$real_go"`) != 1 {
-		t.Fatal("resource cohort E2E must be selected only by canonical backend mode")
+	if strings.Count(guardScript, `run_mcp_lsp_resource_cohort_e2e "$real_go"`) != 2 {
+		t.Fatal("resource cohort E2E must be selected by exactly the make aggregate and canonical backend modes")
 	}
 }
 

@@ -35,6 +35,7 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/performance-baseline-provenance.test.mjs',
   'frontend-app/scripts/performance-budget-model.test.mjs',
   'frontend-app/scripts/performance-budget-runner.test.mjs',
+  'frontend-app/scripts/performance-budget-readonly-checkout.test.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
   'frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js',

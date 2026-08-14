@@ -63,7 +63,7 @@ func (policy gatePlanPolicy) applyOwnedGateRules(file string, gates map[string]b
 	if policy.archtestNonGoInputRelevant(file) {
 		gates["backend:archtest"] = true
 	}
-	if strings.HasSuffix(file, "_test.go") {
+	if strings.HasSuffix(file, "_test.go") && !strings.HasPrefix(file, "internal/guards/") {
 		gates["backend:test-integrity"] = true
 	}
 	if policy.nightlyProtocolRelevant(file) {

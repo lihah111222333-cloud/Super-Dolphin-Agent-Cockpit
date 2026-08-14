@@ -17,7 +17,7 @@ func releaseExecutorPlanLanes() [][]GateID {
 	return [][]GateID{
 		{GateIDAIMaintenanceSelfTest, GateIDFrontendPreflight, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDBackendTestWithGuard,
 			GateIDBackendTestGuardWithRace, GateIDBackendNilness},
-		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
+		{GateIDFrontendPerformanceVerify, GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 }

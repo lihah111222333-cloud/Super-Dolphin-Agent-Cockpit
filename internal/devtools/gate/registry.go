@@ -36,24 +36,25 @@ func (p Profile) Validate() error {
 type GateID string
 
 const (
-	GateIDAIMaintenanceSelfTest    GateID = "ai-maintenance:self-test"
-	GateIDFrontendLint             GateID = "frontend:lint"
-	GateIDFrontendPreflight        GateID = "frontend:preflight"
-	GateIDFrontendTest             GateID = "frontend:test"
-	GateIDFrontendE2E              GateID = "frontend:e2e"
-	GateIDFrontendFullTest         GateID = "frontend:test-full"
-	GateIDFrontendBuild            GateID = "frontend:build"
-	GateIDFrontendEmbedVerify      GateID = "frontend:embed-verify"
-	GateIDBackendTestWithGuard     GateID = "backend:test_with_guard"
-	GateIDLSPChangedDiagnostics    GateID = "lsp:changed-diagnostics"
-	GateIDBackendTestGuardWithRace GateID = "backend:test_with_guard_and_race"
-	GateIDBackendNilness           GateID = "backend:nilness"
-	GateIDSQLCVerify               GateID = "sqlc:verify"
-	GateIDCodemapCheck             GateID = "codemap:check"
-	GateIDProjectMapCheck          GateID = "project-map:check"
-	GateIDCapabilityContractCheck  GateID = "capcontract:check"
-	GateIDWhitespaceCheck          GateID = "diff:whitespace"
-	GateIDReleaseLayeredCheck      GateID = "release:ci-l3"
+	GateIDAIMaintenanceSelfTest     GateID = "ai-maintenance:self-test"
+	GateIDFrontendPerformanceVerify GateID = "ai:frontend:performance-verify"
+	GateIDFrontendLint              GateID = "frontend:lint"
+	GateIDFrontendPreflight         GateID = "frontend:preflight"
+	GateIDFrontendTest              GateID = "frontend:test"
+	GateIDFrontendE2E               GateID = "frontend:e2e"
+	GateIDFrontendFullTest          GateID = "frontend:test-full"
+	GateIDFrontendBuild             GateID = "frontend:build"
+	GateIDFrontendEmbedVerify       GateID = "frontend:embed-verify"
+	GateIDBackendTestWithGuard      GateID = "backend:test_with_guard"
+	GateIDLSPChangedDiagnostics     GateID = "lsp:changed-diagnostics"
+	GateIDBackendTestGuardWithRace  GateID = "backend:test_with_guard_and_race"
+	GateIDBackendNilness            GateID = "backend:nilness"
+	GateIDSQLCVerify                GateID = "sqlc:verify"
+	GateIDCodemapCheck              GateID = "codemap:check"
+	GateIDProjectMapCheck           GateID = "project-map:check"
+	GateIDCapabilityContractCheck   GateID = "capcontract:check"
+	GateIDWhitespaceCheck           GateID = "diff:whitespace"
+	GateIDReleaseLayeredCheck       GateID = "release:ci-l3"
 )
 
 const (
@@ -131,6 +132,7 @@ func GateRegistry() []GateSpec {
 	releaseRequired := []Profile{ProfileRelease}
 	registry := []GateSpec{
 		newGateSpec(GateIDAIMaintenanceSelfTest, all, all),
+		newGateSpec(GateIDFrontendPerformanceVerify, remotePromotionRelease, remotePromotionRelease),
 		newGateSpec(GateIDFrontendLint, all, all),
 		newGateSpec(GateIDFrontendPreflight, remotePromotionRelease, remotePromotionRelease),
 		newGateSpec(GateIDFrontendTest, localRemotePromotion, localRemotePromotion),

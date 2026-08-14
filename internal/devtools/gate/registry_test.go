@@ -76,7 +76,7 @@ func TestBuildGatePlanFiltersCanonicalRequiredProfiles(t *testing.T) {
 	for id := range gateIDSet(local.Gates) {
 		delete(remoteOnly, id)
 	}
-	if !reflect.DeepEqual(remoteOnly, map[GateID]bool{GateIDFrontendPreflight: true}) {
+	if !reflect.DeepEqual(remoteOnly, map[GateID]bool{GateIDFrontendPerformanceVerify: true, GateIDFrontendPreflight: true}) {
 		t.Fatalf("remote-only gates = %v", remoteOnly)
 	}
 	pushOnlyRemoved := gateIDSet(local.Gates)
@@ -96,14 +96,15 @@ func TestBuildGatePlanFiltersCanonicalRequiredProfiles(t *testing.T) {
 		delete(releaseOnly, id)
 	}
 	if !reflect.DeepEqual(releaseOnly, map[GateID]bool{
-		GateIDFrontendBuild:            true,
-		GateIDFrontendE2E:              true,
-		GateIDFrontendEmbedVerify:      true,
-		GateIDFrontendPreflight:        true,
-		GateIDFrontendFullTest:         true,
-		GateIDBackendTestGuardWithRace: true,
-		GateIDBackendNilness:           true,
-		GateIDReleaseLayeredCheck:      true,
+		GateIDFrontendBuild:             true,
+		GateIDFrontendE2E:               true,
+		GateIDFrontendEmbedVerify:       true,
+		GateIDFrontendPerformanceVerify: true,
+		GateIDFrontendPreflight:         true,
+		GateIDFrontendFullTest:          true,
+		GateIDBackendTestGuardWithRace:  true,
+		GateIDBackendNilness:            true,
+		GateIDReleaseLayeredCheck:       true,
 	}) {
 		t.Fatalf("release-only gates = %v", releaseOnly)
 	}

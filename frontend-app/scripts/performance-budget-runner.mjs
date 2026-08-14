@@ -111,16 +111,44 @@ async function runManagedSubjectCommand(command, args, {
   return result.stdout;
 }
 
-function cleanupDetachedWorktree({ execute, repositoryRoot, temporaryRoot, worktreeAdded }) {
-  try {
-    if (worktreeAdded) {
-      execute('git', ['worktree', 'remove', '--force', temporaryRoot], {
-        cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    }
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
+function materializeDetachedSubject({ execute, repositoryRoot, temporaryRoot, subjectSha }) {
+  execute('git', [
+    'clone',
+    '--local',
+    '--no-hardlinks',
+    '--no-checkout',
+    '--no-tags',
+    '--no-recurse-submodules',
+    repositoryRoot,
+    temporaryRoot,
+  ], {
+    cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  execute('git', ['checkout', '--detach', subjectSha], {
+    cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function inspectDetachedSubject({ execute, temporaryRoot, subject, label }) {
+  const { subjectSha, subjectTree } = subject;
+  const targetSha = requireFullSha(execute('git', ['rev-parse', 'HEAD'], {
+    cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim(), `${label} detached target SHA`);
+  const targetTree = requireFullSha(execute('git', ['rev-parse', 'HEAD^{tree}'], {
+    cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim(), `${label} detached target tree`);
+  const status = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+  if (targetSha !== subjectSha || targetTree !== subjectTree) {
+    throw new Error(`${label} detached target Git identity does not match the requested subject`);
   }
+  if (status) throw new Error(`${label} detached target subject must be clean`);
+  return Object.freeze({ subjectSha: targetSha, subjectTree: targetTree });
+}
+
+function cleanupDetachedSubject({ temporaryRoot }) {
+  rmSync(temporaryRoot, { recursive: true, force: true });
 }
 
 function requireDetachedP03SubjectClosure(subjectRoot) {
@@ -175,13 +203,14 @@ async function collectDetachedResourceBudget({
   measureResources = measureFrontendResources,
   runCommand = runManagedCommand,
 } = {}) {
+  requireFullSha(subjectSha, `${buildLabel} subject SHA`);
+  requireFullSha(subjectTree, `${buildLabel} subject tree`);
   const temporaryRoot = mkdtempSync(join(tmpdir(), temporaryPrefix));
-  let worktreeAdded = false;
   try {
-    execute('git', ['worktree', 'add', '--detach', temporaryRoot, subjectSha], {
-      cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    materializeDetachedSubject({ execute, repositoryRoot, temporaryRoot, subjectSha });
+    const target = inspectDetachedSubject({
+      execute, temporaryRoot, subject: { subjectSha, subjectTree }, label: buildLabel,
     });
-    worktreeAdded = true;
     const frontendRoot = join(temporaryRoot, 'frontend-app');
     const distDir = join(frontendRoot, 'dist');
     if (existsSync(distDir)) throw new Error(`${buildLabel} detached tree must not contain a prebuilt dist directory`);
@@ -196,13 +225,13 @@ async function collectDetachedResourceBudget({
       runCommand,
     });
     if (!existsSync(join(distDir, 'index.html'))) throw new Error(`${buildLabel} build did not produce dist/index.html`);
-    const metric = measureResources({ distDir, subjectSha });
+    const metric = measureResources({ distDir, subjectSha: target.subjectSha });
     const { manifest, manifestHash } = baseDistManifest(distDir, metric);
     return Object.freeze({
       metric,
       build: Object.freeze({
-        subjectSha,
-        subjectTree,
+        subjectSha: target.subjectSha,
+        subjectTree: target.subjectTree,
         installArgv: Object.freeze(['npm', ...INSTALL_ARGV]),
         buildArgv: Object.freeze(['npm', ...BASE_BUILD_ARGV]),
         distManifest: manifest,
@@ -210,7 +239,7 @@ async function collectDetachedResourceBudget({
       }),
     });
   } finally {
-    cleanupDetachedWorktree({ execute, repositoryRoot, temporaryRoot, worktreeAdded });
+    cleanupDetachedSubject({ temporaryRoot });
   }
 }
 
@@ -252,25 +281,11 @@ async function collectDetachedStopFeedbackBudget({
   requireFullSha(subjectSha, 'P03 subject SHA');
   requireFullSha(subjectTree, 'P03 subject tree');
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'frontend-stop-feedback-subject-'));
-  let worktreeAdded = false;
   try {
-    execute('git', ['worktree', 'add', '--detach', temporaryRoot, subjectSha], {
-      cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    materializeDetachedSubject({ execute, repositoryRoot, temporaryRoot, subjectSha });
+    const { subjectSha: targetSha, subjectTree: targetTree } = inspectDetachedSubject({
+      execute, temporaryRoot, subject: { subjectSha, subjectTree }, label: 'P03',
     });
-    worktreeAdded = true;
-    const targetSha = requireFullSha(execute('git', ['rev-parse', 'HEAD'], {
-      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim(), 'P03 detached target SHA');
-    const targetTree = requireFullSha(execute('git', ['rev-parse', 'HEAD^{tree}'], {
-      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim(), 'P03 detached target tree');
-    const status = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
-      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    if (targetSha !== subjectSha || targetTree !== subjectTree) {
-      throw new Error('P03 detached target Git identity does not match the requested subject');
-    }
-    if (status) throw new Error('P03 detached target worktree must be clean');
     requireDetachedP03SubjectClosure(temporaryRoot);
     const frontendRoot = join(temporaryRoot, 'frontend-app');
     await runManagedSubjectCommand('npm', INSTALL_ARGV, {
@@ -303,7 +318,7 @@ async function collectDetachedStopFeedbackBudget({
       }),
     });
   } finally {
-    cleanupDetachedWorktree({ execute, repositoryRoot, temporaryRoot, worktreeAdded });
+    cleanupDetachedSubject({ temporaryRoot });
   }
 }
 
@@ -415,25 +430,11 @@ async function collectDetachedP01P02Evidence({
   requireFullSha(subjectSha, 'P01/P02 subject SHA');
   requireFullSha(subjectTree, 'P01/P02 subject tree');
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'frontend-performance-subject-'));
-  let worktreeAdded = false;
   try {
-    execute('git', ['worktree', 'add', '--detach', temporaryRoot, subjectSha], {
-      cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    materializeDetachedSubject({ execute, repositoryRoot, temporaryRoot, subjectSha });
+    const { subjectSha: targetSha, subjectTree: targetTree } = inspectDetachedSubject({
+      execute, temporaryRoot, subject: { subjectSha, subjectTree }, label: 'P01/P02',
     });
-    worktreeAdded = true;
-    const targetSha = requireFullSha(execute('git', ['rev-parse', 'HEAD'], {
-      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim(), 'P01/P02 detached target SHA');
-    const targetTree = requireFullSha(execute('git', ['rev-parse', 'HEAD^{tree}'], {
-      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim(), 'P01/P02 detached target tree');
-    const status = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
-      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    if (targetSha !== subjectSha || targetTree !== subjectTree) {
-      throw new Error('P01/P02 detached target Git identity does not match the requested subject');
-    }
-    if (status) throw new Error('P01/P02 detached target worktree must be clean');
     const frontendRoot = join(temporaryRoot, 'frontend-app');
     await runManagedSubjectCommand('npm', INSTALL_ARGV, {
       cwd: frontendRoot,
@@ -481,7 +482,7 @@ async function collectDetachedP01P02Evidence({
       }),
     });
   } finally {
-    cleanupDetachedWorktree({ execute, repositoryRoot, temporaryRoot, worktreeAdded });
+    cleanupDetachedSubject({ temporaryRoot });
   }
 }
 

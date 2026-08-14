@@ -4,9 +4,11 @@ import "testing"
 
 func TestMakefileBroadGoTargetsCoverTheWholeRootModule(t *testing.T) {
 	makefile := readRepoFile(t, "../Makefile")
+	guardScript := readRepoFile(t, "test_with_guard.sh")
 
 	assertScriptContains(t, makefile, "GO_PACKAGE_PATTERNS := ./...")
-	assertScriptContains(t, makefile, "go list $(GO_PACKAGE_PATTERNS)")
+	assertScriptContains(t, makefile, "$(TEST_WITH_GUARD) --make-test-suite")
+	assertScriptContains(t, guardScript, `"$real_go" list ./...`)
 }
 
 func TestMakefileBuildPeerBinariesUsesAtomicReplace(t *testing.T) {

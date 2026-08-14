@@ -14,6 +14,16 @@ func TestGuardRaceOnlyModeUsesShortTestScope(t *testing.T) {
 	assertScriptContains(t, body, `run_go_test "$real_go" "$@" -race -short -count=1`)
 }
 
+func TestGuardWrappersRefuseGeneratedBaselineDrift(t *testing.T) {
+	body := readScript(t, "test_with_guard.sh")
+	if got := strings.Count(body, "env SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1"); got != 4 {
+		t.Fatalf("read-only guard drift environments = %d, want each full/quick/light guard command bound", got)
+	}
+	if strings.Contains(body, "export SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1") {
+		t.Fatal("read-only guard drift setting must not leak across subshell scopes")
+	}
+}
+
 func TestRemoteECITestGuidanceUsesExplicitAuthorityTarget(t *testing.T) {
 	for file, required := range map[string]string{
 		"test_with_guard.sh":    `test --target=remote --config`,
@@ -65,6 +75,9 @@ func TestHostTestModeRunsOneBoundedExactTest(t *testing.T) {
 	}
 	if !strings.Contains(result.output, "host_tier=medium") {
 		t.Fatalf("medium host load did not admit the bounded medium test:\n%s", result.output)
+	}
+	if got := strings.Count(result.output, "host admission class=medium"); got != 3 {
+		t.Fatalf("host test resource snapshots = %d, want before guard, before test, and after test:\n%s", got, result.output)
 	}
 }
 
@@ -236,6 +249,53 @@ func TestGuardCombinedRaceModeRunsGuardsOnceAndBothTestLanes(t *testing.T) {
 	}
 	if !strings.Contains(result.invocations, "list ./...") {
 		t.Fatalf("combined race mode omitted nested-module discovery:\n%s", result.invocations)
+	}
+}
+
+func TestGuardMakeTestSuiteRunsCommonGuardsOnceAndPreservesRaceLanes(t *testing.T) {
+	result := runTestWithGuardFakeGoWithListOutput(t, strings.Join([]string{
+		"example.test/internal/app",
+		"example.test/internal/archtest",
+		"example.test/internal/provider/claudecli",
+		"example.test/internal/provider/codexapp",
+	}, "\n"), "--make-test-suite")
+	if result.err != nil {
+		t.Fatalf("make test suite failed: %v: %s", result.err, result.output)
+	}
+	for _, invocation := range []string{
+		"test ./internal/archtest -count=1",
+		"vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...",
+		"test example.test/internal/app example.test/internal/archtest -race -count=1",
+		"test ./internal/provider/claudecli ./internal/provider/codexapp -race -count=1 -p 1 -timeout 120s",
+	} {
+		if strings.Count(result.invocations, invocation) != 1 {
+			t.Fatalf("make test suite invocation %q is not unique:\n%s", invocation, result.invocations)
+		}
+	}
+}
+
+func TestGuardMakeE2ESuiteRunsOneFullGuardAndBothExactLanes(t *testing.T) {
+	result := runTestWithGuardFakeGo(t, "--make-e2e-suite")
+	if result.err != nil {
+		t.Fatalf("make e2e suite failed: %v: %s", result.err, result.output)
+	}
+	for _, invocation := range []string{
+		"test ./internal/archtest -count=1",
+		"test -tags=e2e ./internal/e2e/rpc_runtime -v -timeout 120s -count=1",
+		"test -tags=e2e ./cmd/mcp-lsp -run " + mcpLSPResourceCohortE2ERun + " -v -timeout=240s -count=1",
+	} {
+		if strings.Count(result.invocations, invocation) != 1 {
+			t.Fatalf("make e2e suite invocation %q is not unique:\n%s", invocation, result.invocations)
+		}
+	}
+
+	t.Setenv("FAKE_GO_FAIL_PATTERN", "test -tags=e2e ./internal/e2e/rpc_runtime")
+	failed := runTestWithGuardFakeGo(t, "--make-e2e-suite")
+	if failed.err == nil {
+		t.Fatalf("make e2e suite accepted a failed rpc lane:\n%s", failed.invocations)
+	}
+	if strings.Contains(failed.invocations, "test -tags=e2e ./cmd/mcp-lsp") {
+		t.Fatalf("make e2e suite continued after the failed rpc lane:\n%s", failed.invocations)
 	}
 }
 

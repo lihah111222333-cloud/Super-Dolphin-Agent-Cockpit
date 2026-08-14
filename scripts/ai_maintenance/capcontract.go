@@ -15,13 +15,3 @@ func capabilityContractProducerInput(file string) bool {
 		file == "scripts/capcontract.go" ||
 		strings.HasPrefix(file, "scripts/capcontract/")
 }
-
-func backendGoFile(file string) bool {
-	if !strings.HasSuffix(file, ".go") {
-		return false
-	}
-	return strings.HasPrefix(file, "cmd/") ||
-		strings.HasPrefix(file, "internal/") ||
-		strings.HasPrefix(file, "pkg/") ||
-		strings.HasPrefix(file, "scripts/")
-}

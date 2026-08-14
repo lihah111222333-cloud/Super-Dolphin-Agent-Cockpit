@@ -2,6 +2,33 @@ package gate
 
 import "fmt"
 
+// FrontendPerformanceInputPaths 返回 performance:verify 的显式仓库输入闭包。
+func FrontendPerformanceInputPaths() []string {
+	return []string{
+		"frontend-app/package.json",
+		"frontend-app/package-lock.json",
+		"frontend-app/vite.config.js",
+		"frontend-app/scripts/chat-history-benchmark.mjs",
+		"frontend-app/scripts/evidence-provenance.mjs",
+		"frontend-app/scripts/frontend-maintainability-baseline.json",
+		"frontend-app/scripts/frontend-performance-cases.json",
+		"frontend-app/scripts/runtime/git-environment.mjs",
+		"frontend-app/scripts/managed-command.mjs",
+		"frontend-app/scripts/performance-baseline-provenance.mjs",
+		"frontend-app/scripts/performance-budget-config.mjs",
+		"frontend-app/scripts/performance-budget-model.mjs",
+		"frontend-app/scripts/performance-budget-runner.mjs",
+		"frontend-app/scripts/render-isolation-probe.test.jsx",
+		"frontend-app/scripts/resource-budget.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.mjs",
+		"frontend-app/src/entities/client/model/contractStoreModel.js",
+		"frontend-app/src/entities/client/model/threadLifecycleRuntime.js",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
+		"frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js",
+		"frontend-app/src/pages/chat/model/timelineMaterializationModel.js",
+	}
+}
+
 // buildCanonicalGateWorkloads 选择一个 Gate 在指定 profile 下的 canonical 或受控 suite workload。
 // 远程 profile 不允许回到 frontend raw parent；preflight 始终只产生固定 atomic children。
 func buildCanonicalGateWorkloads(spec GateSpec, profile Profile, bootstrap WorkloadBootstrap) ([]Workload, error) {

@@ -21,6 +21,8 @@ Usage:
   scripts/test_with_guard.sh --canonical-backend <package-pattern...>
   scripts/test_with_guard.sh --with-race <race-package...> -- <go-test-args...>
   scripts/test_with_guard.sh --race-only <race-package...>
+  scripts/test_with_guard.sh --make-test-suite
+  scripts/test_with_guard.sh --make-e2e-suite
   scripts/test_with_guard.sh --ci-guard
   scripts/test_with_guard.sh --ci-guard-source
   scripts/test_with_guard.sh --ci-copylocks <provider|platform|thread>
@@ -57,10 +59,10 @@ run_guard() {
     cd "$ROOT_DIR"
     ./scripts/forbid_raw_go_test.sh
     if [ "$mode" = "quick" ]; then
-      "$real_go" run ./scripts/code_size_guard.go
-      "$real_go" test ./internal/archtest -run "$QUICK_ARCHTEST_RUN" -count=1
+      env SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 "$real_go" run ./scripts/code_size_guard.go
+      env SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 "$real_go" test ./internal/archtest -run "$QUICK_ARCHTEST_RUN" -count=1
     else
-      "$real_go" test ./internal/archtest -count=1
+      env SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 "$real_go" test ./internal/archtest -count=1
     fi
   )
 }
@@ -70,7 +72,7 @@ run_light_guard() {
   (
     cd "$ROOT_DIR"
     ./scripts/forbid_raw_go_test.sh
-    "$real_go" run ./scripts/code_size_guard.go
+    env SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 "$real_go" run ./scripts/code_size_guard.go
   )
 }
 
@@ -299,7 +301,8 @@ admit_host_test_load() {
 }
 
 run_host_test() {
-  local real_go="$1" load_class="$2" output_file status=0 cache_values local_cache_root local_temp_root local_cache_identity
+  local real_go="$1" load_class="$2" output_file status=0 cleanup_status=0 post_admission_status=0
+  local cache_values local_cache_root local_temp_root local_cache_identity
   shift 2
   validate_host_test_args "$load_class" "$@"
   admit_host_test_load "$load_class" "$@"
@@ -323,16 +326,23 @@ run_host_test() {
   fi
   output_file="$(mktemp -t super-agent-host-test.XXXXXX)"
   (
-    export GOMAXPROCS="$gomaxprocs"
-    export GOCACHE="$local_cache_root"
-    export GOTMPDIR="$local_temp_root"
-    export GOTOOLCHAIN=local
-    run_go_test "$real_go" -p="$build_parallelism" "$@"
+    cd "$ROOT_DIR"
+    env GOMAXPROCS="$gomaxprocs" GOCACHE="$local_cache_root" GOTMPDIR="$local_temp_root" GOTOOLCHAIN=local \
+      "$real_go" test -p="$build_parallelism" "$@"
   ) 2>&1 | tee "$output_file" || status=$?
-  local_go_cache_cleanup_temp "$local_temp_root"
+  local_go_cache_cleanup_temp "$local_temp_root" || cleanup_status=$?
+  admit_host_test_load "$load_class" "$@" || post_admission_status=$?
   if [[ "$status" -ne 0 ]]; then
     rm -f -- "$output_file"
     return "$status"
+  fi
+  if [[ "$cleanup_status" -ne 0 ]]; then
+    rm -f -- "$output_file"
+    return "$cleanup_status"
+  fi
+  if [[ "$post_admission_status" -ne 0 ]]; then
+    rm -f -- "$output_file"
+    return "$post_admission_status"
   fi
   if grep -Fq '[no tests to run]' "$output_file"; then
     rm -f -- "$output_file"
@@ -402,6 +412,89 @@ run_with_race() {
   run_nested_module_guard "$real_go"
   run_go_test "$real_go" "$@"
   run_go_test "$real_go" "${race_packages[@]}" -race -short -count=1 -timeout=180s
+}
+
+MAKE_PRIMARY_TEST_PACKAGES=()
+MAKE_DEFERRED_TEST_PACKAGES=()
+
+load_make_test_packages() {
+  local real_go="$1" package deferred suffix matched listed
+  MAKE_PRIMARY_TEST_PACKAGES=()
+  MAKE_DEFERRED_TEST_PACKAGES=()
+  while IFS= read -r package || [ -n "$package" ]; do
+    [ -n "$package" ] || continue
+    if ! canonical_backend_target_allowed "$package" || [[ "$package" == *...* ]]; then
+      echo "make test suite deferred package is invalid: $package" >&2
+      return 2
+    fi
+    for deferred in ${MAKE_DEFERRED_TEST_PACKAGES[@]+"${MAKE_DEFERRED_TEST_PACKAGES[@]}"}; do
+      if [ "$deferred" = "$package" ]; then
+        echo "make test suite deferred package is duplicated: $package" >&2
+        return 2
+      fi
+    done
+    MAKE_DEFERRED_TEST_PACKAGES+=("$package")
+  done < "$ROOT_DIR/scripts/ai_maintenance/deferred_e2e_packages.txt"
+  if [ "${#MAKE_DEFERRED_TEST_PACKAGES[@]}" -eq 0 ]; then
+    echo "make test suite deferred package manifest is empty" >&2
+    return 2
+  fi
+
+  if ! listed="$(cd "$ROOT_DIR" && "$real_go" list ./...)"; then
+    echo "make test suite failed to resolve Go packages" >&2
+    return 1
+  fi
+  while IFS= read -r package || [ -n "$package" ]; do
+    if [[ -z "$package" || "$package" == *[[:space:]]* ]]; then
+      echo "make test suite received invalid package path: $package" >&2
+      return 1
+    fi
+    matched=0
+    for deferred in "${MAKE_DEFERRED_TEST_PACKAGES[@]}"; do
+      suffix="${deferred#./}"
+      if [[ "$package" == */"$suffix" ]]; then
+        matched=1
+        break
+      fi
+    done
+    [ "$matched" -eq 1 ] || MAKE_PRIMARY_TEST_PACKAGES+=("$package")
+  done <<<"$listed"
+  if [ "${#MAKE_PRIMARY_TEST_PACKAGES[@]}" -eq 0 ]; then
+    echo "make test suite resolved no primary Go packages" >&2
+    return 1
+  fi
+
+  for deferred in "${MAKE_DEFERRED_TEST_PACKAGES[@]}"; do
+    suffix="${deferred#./}"
+    matched=0
+    while IFS= read -r package || [ -n "$package" ]; do
+      [[ "$package" == */"$suffix" ]] && matched=1
+    done <<<"$listed"
+    if [ "$matched" -ne 1 ]; then
+      echo "make test suite deferred package is absent from go list: $deferred" >&2
+      return 1
+    fi
+  done
+}
+
+run_make_test_suite() {
+  local real_go="$1"
+  load_make_test_packages "$real_go"
+  run_guard "$real_go"
+  run_copylocks_guard "$real_go" ./internal/provider/... ./internal/platform/... ./internal/module/thread/...
+  run_nested_module_guard "$real_go"
+  run_go_test "$real_go" "${MAKE_PRIMARY_TEST_PACKAGES[@]}" -race -count=1
+  printf '\n=== deferred E2E packages (sequential, -p 1) ===\n'
+  run_go_test "$real_go" "${MAKE_DEFERRED_TEST_PACKAGES[@]}" -race -count=1 -p 1 -timeout 120s
+}
+
+run_make_e2e_suite() {
+  local real_go="$1"
+  run_guard "$real_go"
+  run_nested_module_guard "$real_go"
+  run_go_test "$real_go" -tags=e2e ./internal/e2e/rpc_runtime -v -timeout 120s -count=1
+  CANONICAL_BACKEND_PACKAGES=(./cmd/mcp-lsp)
+  run_mcp_lsp_resource_cohort_e2e "$real_go"
 }
 
 canonical_backend_target_allowed() {
@@ -781,6 +874,22 @@ main() {
       fi
       shift
       run_race_only "$real_go" "$@"
+      ;;
+    --make-test-suite)
+      [ "$#" -eq 1 ] || { usage; exit 2; }
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      run_make_test_suite "$real_go"
+      ;;
+    --make-e2e-suite)
+      [ "$#" -eq 1 ] || { usage; exit 2; }
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      run_make_e2e_suite "$real_go"
       ;;
     --ci-guard)
       local real_go

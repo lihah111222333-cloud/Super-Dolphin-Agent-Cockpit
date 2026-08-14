@@ -340,6 +340,8 @@ func (snapshot *remoteGitTreeSnapshot) canonicalGateInputDigest(parent gate.Gate
 		return snapshot.frontendPlaywrightParentInputDigest(context.Background())
 	case gate.GateIDFrontendBuild:
 		return snapshot.frontendBuildInputDigest()
+	case gate.GateIDFrontendPerformanceVerify:
+		return snapshot.frontendPerformanceInputDigest()
 	case gate.GateIDProjectMapCheck:
 		return snapshot.projectMapInputDigest()
 	case gate.GateIDFrontendEmbedVerify:
@@ -347,6 +349,39 @@ func (snapshot *remoteGitTreeSnapshot) canonicalGateInputDigest(parent gate.Gate
 	default:
 		return snapshot.digestEntries(snapshot.entries)
 	}
+}
+
+// frontendPerformanceInputDigest 绑定 performance:verify 的基准输入与前端构建闭包。
+func (snapshot *remoteGitTreeSnapshot) frontendPerformanceInputDigest() (string, error) {
+	selected := make(map[string]remoteGitTreeEntry)
+	for _, entry := range snapshot.entries {
+		if frontendBuildInputEntry(entry) {
+			selected[entry.path] = entry
+		}
+	}
+	seeds, observesDynamic, err := snapshot.frontendBuildEntrySeeds(context.Background())
+	if err != nil {
+		return "", err
+	}
+	if observesDynamic {
+		return snapshot.digestEntries(snapshot.entries)
+	}
+	closure, observesDynamic, err := snapshot.frontendStaticImportClosure(context.Background(), seeds)
+	if err != nil {
+		return "", err
+	}
+	if observesDynamic {
+		return snapshot.digestEntries(snapshot.entries)
+	}
+	for filePath := range closure {
+		selected[filePath] = snapshot.byPath[filePath]
+	}
+	for _, filePath := range gate.FrontendPerformanceInputPaths() {
+		if entry, ok := snapshot.byPath[filePath]; ok {
+			selected[filePath] = entry
+		}
+	}
+	return snapshot.digestEntries(sortedRemoteGitTreeEntries(selected))
 }
 
 func frontendLintInputEntry(entry remoteGitTreeEntry) bool {

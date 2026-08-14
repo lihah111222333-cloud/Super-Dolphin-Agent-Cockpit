@@ -14,7 +14,7 @@ docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11828	架�
 docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16954	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
 docs/adr/README.md	docs	docs-agent	doc	964	架构决策记录	docs,adr,README,架构决策记录
 docs/automation/代码仓库腐化守卫巡检协议.md	docs	docs-agent	doc	27410	当前自动化协议、门禁巡检与问题接管流程	docs,automation,代码仓库腐化守卫巡检协议,当前自动化协议,门禁巡检与问题接管流程
-docs/automation/全仓夜间门禁健康巡检协议.md	docs	docs-agent	doc	20186	当前自动化协议、门禁巡检与问题接管流程	docs,automation,全仓夜间门禁健康巡检协议,当前自动化协议,门禁巡检与问题接管流程
+docs/automation/全仓夜间门禁健康巡检协议.md	docs	docs-agent	doc	20235	当前自动化协议、门禁巡检与问题接管流程	docs,automation,全仓夜间门禁健康巡检协议,当前自动化协议,门禁巡检与问题接管流程
 docs/automation/授权问题修复与验证协议.md	docs	docs-agent	doc	8402	当前自动化协议、门禁巡检与问题接管流程	docs,automation,授权问题修复与验证协议,当前自动化协议,门禁巡检与问题接管流程
 docs/automation/门禁问题台账接管协议.md	docs	docs-agent	doc	9032	当前自动化协议、门禁巡检与问题接管流程	docs,automation,门禁问题台账接管协议,当前自动化协议,门禁巡检与问题接管流程
 docs/dev-agentic-e2e-harness.md	docs	docs-agent	doc	3050	项目文档体系	docs,dev,agentic,e2e,harness,项目文档体系
@@ -89,7 +89,7 @@ docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
 docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,README,项目文档体系
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
-docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	12746	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
+docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	13118	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
 docs/架构/skeleton-fx.md	docs	docs-agent	doc	14120	项目文档体系	docs,架构,skeleton,fx,项目文档体系
 docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系

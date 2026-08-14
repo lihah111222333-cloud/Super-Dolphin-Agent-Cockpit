@@ -83,8 +83,7 @@ frontend-embed-verify-after-build:
 	./scripts/frontend_embed_verify.sh
 
 frontend-gate-health:
-	./scripts/test_with_guard.sh ./scripts/ai_maintenance -run 'Frontend|GateInfrastructure|GateRunners' -count=1
-	./scripts/test_with_guard.sh ./scripts -run 'Frontend' -count=1
+	./scripts/test_with_guard.sh ./scripts/ai_maintenance ./scripts -run 'Frontend|GateInfrastructure|GateRunners' -count=1
 
 # The root desktop scripts are the preferred dev launchers. These make targets
 # keep the minimal packaged-asset run path for CI and local checks.
@@ -179,11 +178,10 @@ TEST_WITH_GUARD := ./scripts/test_with_guard.sh
 GO_PACKAGE_PATTERNS := ./...
 
 test: frontend-build
-	$(TEST_WITH_GUARD) $$(go list $(GO_PACKAGE_PATTERNS) | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
-	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
-	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
+	$(TEST_WITH_GUARD) --make-test-suite
 
-test-e2e: test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort
+test-e2e:
+	$(TEST_WITH_GUARD) --make-e2e-suite
 
 test-e2e-rpc-runtime:
 	$(TEST_WITH_GUARD) -tags=e2e ./internal/e2e/rpc_runtime -v -timeout 120s -count=1
@@ -210,8 +208,7 @@ mcp-lsp-workload-catalog-check:
 # Keeps mcp-orch launcher method aliases, report protocol, and toolbridge protocol
 # from silently drifting after shared constants / split files move around.
 protocol-sync-check: rpc-regression-check
-	@echo "[protocol-sync-check] protocol freeze guards"
-	$(TEST_WITH_GUARD) ./internal/archtest -run 'Test(OrchestrationLauncherProtocolFreeze|OrchestrationReportProtocolFreeze|ToolbridgeProtocolFreezeContractGuard)$$' -count=1
+	@echo "[protocol-sync-check] protocol freeze guards covered by rpc-regression-check full archtest"
 
 # rpc-regression-check: fast JSON-RPC package regression used by protocol gates.
 rpc-regression-check:

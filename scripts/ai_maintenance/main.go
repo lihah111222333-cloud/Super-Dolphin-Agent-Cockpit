@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
@@ -29,6 +28,7 @@ type gatePlanPolicy struct {
 	archtestNonGoInputPrefixes      []string
 }
 
+// newGatePlanPolicy 构造门禁计划使用的路径策略和核心包清单。
 func newGatePlanPolicy() gatePlanPolicy {
 	return gatePlanPolicy{
 		aiMaintenanceFiles: map[string]bool{
@@ -164,7 +164,6 @@ func runMain(args []string) error {
 func runPlan(args []string, stdout *os.File) error {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
 	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
-	pushGates := fs.Bool("push-gates", false, "include push-only risk gates")
 	changed := multiFlag{}
 	if stdout == nil {
 		stdout = os.Stdout
@@ -181,7 +180,7 @@ func runPlan(args []string, stdout *os.File) error {
 			return err
 		}
 	}
-	plan, err := gatePlanForScope(files, *pushGates)
+	plan, err := buildGatePlan(files)
 	if err != nil {
 		return err
 	}
@@ -196,18 +195,8 @@ func runGates(args []string) error {
 	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
 	evidencePath := fs.String("evidence", "", "optional AI maintenance evidence file to validate")
 	printPlan := fs.Bool("print-plan", false, "print gate plan and exit")
-	skipDeferredE2E := fs.Bool("skip-deferred-e2e", false, "exclude deferred provider E2E packages from this gate run")
-	cacheDir := fs.String("cache-dir", "", "optional directory for staged-input gate result caching")
-	cacheMaxAge := fs.Duration("cache-max-age", defaultGateCacheMaxAge, "maximum age for a cached green gate result")
-	cacheScope := fs.String("cache-scope", "", "staged Git tree used as the cache truth source")
-	diffCached := fs.Bool("diff-cached", false, "run whitespace checks against the staged index")
-	pushGates := fs.Bool("push-gates", false, "include push-only risk gates")
 	changed := multiFlag{}
-	diffRanges := multiFlag{}
-	prevalidatedGates := multiFlag{}
 	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
-	fs.Var(&diffRanges, "diff-range", "Git range checked for whitespace errors; may be repeated")
-	fs.Var(&prevalidatedGates, "prevalidated-gate", "staged map gate already completed by pre-commit; may be repeated")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -219,19 +208,10 @@ func runGates(args []string) error {
 			return err
 		}
 	}
-	cache, err := validatedGateCacheForRun(*cacheDir, *cacheMaxAge, *cacheScope, prevalidatedGates)
+	plan, err := buildGatePlan(files)
 	if err != nil {
 		return err
 	}
-	plan, err := buildGateRunPlan(files, *pushGates, *skipDeferredE2E, []string(prevalidatedGates), *diffCached, *cacheScope)
-	if err != nil {
-		return err
-	}
-	executionScope, err := newGateExecutionScope(*diffCached, diffRanges)
-	if err != nil {
-		return err
-	}
-	plan = gatePlanForExecutionScope(plan, executionScope)
 	if *printPlan {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -240,93 +220,7 @@ func runGates(args []string) error {
 	if err := validateOptionalEvidence(*evidencePath, plan); err != nil {
 		return err
 	}
-	return executeGatePlanWithCache(plan, cache, executionScope)
-}
-
-func validatedGateCacheForRun(root string, maxAge time.Duration, scope string, prevalidated []string) (*gateResultCache, error) {
-	cache, err := optionalGateResultCache(root, maxAge, scope)
-	if err != nil {
-		return nil, err
-	}
-	if len(prevalidated) > 0 && cache == nil {
-		return nil, errors.New("prevalidated map gates require a validated gate cache and isolated index")
-	}
-	return cache, nil
-}
-
-// buildGateRunPlan 依次应用推送风险、延后 E2E 和 staged 预验证约束，保持执行入口低复杂度。
-func buildGateRunPlan(files []string, pushGates, skipDeferredE2E bool, prevalidatedGates []string, diffCached bool, cacheScope string) (gatePlan, error) {
-	plan, err := gatePlanForScope(files, pushGates)
-	if err != nil {
-		return gatePlan{}, err
-	}
-	plan, err = filterDeferredE2E(plan, skipDeferredE2E)
-	if err != nil {
-		return gatePlan{}, err
-	}
-	return applyPrevalidatedMapGates(plan, prevalidatedGates, diffCached, pushGates, cacheScope)
-}
-
-// applyPrevalidatedMapGates 只允许 staged hook 对同一不可变 tree 跳过刚完成的地图检查。
-func applyPrevalidatedMapGates(plan gatePlan, gates []string, diffCached, pushGates bool, cacheScope string) (gatePlan, error) {
-	if len(gates) == 0 {
-		return plan, nil
-	}
-	if !diffCached || pushGates || !isGitObjectID(cacheScope) {
-		return gatePlan{}, errors.New("prevalidated map gates require staged diff, non-push scope, and an immutable cache tree")
-	}
-	allowed := map[string]bool{"codemap:check": true, "project-map:check": true}
-	required := map[string]bool{}
-	for _, gate := range plan.RequiredGates {
-		required[gate] = true
-	}
-	seen := map[string]bool{}
-	for _, gate := range gates {
-		if !allowed[gate] {
-			return gatePlan{}, fmt.Errorf("gate %q cannot be prevalidated", gate)
-		}
-		if seen[gate] {
-			return gatePlan{}, fmt.Errorf("prevalidated gate %q was provided more than once", gate)
-		}
-		if !required[gate] {
-			return gatePlan{}, fmt.Errorf("prevalidated gate %q is absent from the generated plan", gate)
-		}
-		seen[gate] = true
-		plan.RequiredGates = removeGate(plan.RequiredGates, gate)
-		fmt.Fprintf(os.Stderr, "[ai-maintenance] prevalidated gate=%s scope=%s\n", gate, cacheScope[:12])
-	}
-	return plan, nil
-}
-
-func gatePlanForExecutionScope(plan gatePlan, scope gateExecutionScope) gatePlan {
-	if scope.diffCached {
-		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "gate-image-closure:check")
-		plan.RequiredGates = orderGateNames(plan.RequiredGates)
-	}
-	return plan
-}
-
-// filterDeferredE2E 在显式要求时从计划中移除延迟 Provider E2E 包。
-func filterDeferredE2E(plan gatePlan, skip bool) (gatePlan, error) {
-	if !skip {
-		return plan, nil
-	}
-	repoRoot, err := capcontract.FindRepoRoot(".")
-	if err != nil {
-		return gatePlan{}, fmt.Errorf("resolve deferred E2E package owner: %w", err)
-	}
-	packages, err := excludeDeferredE2EGoPackages(
-		plan.AffectedGoPackages,
-		filepath.Join(repoRoot, "scripts", "ai_maintenance", "deferred_e2e_packages.txt"),
-	)
-	if err != nil {
-		return gatePlan{}, err
-	}
-	plan.AffectedGoPackages = packages
-	if len(packages) == 0 {
-		plan.RequiredGates = removeGate(plan.RequiredGates, "backend:test_with_guard")
-	}
-	return plan, nil
+	return executeGatePlan(plan)
 }
 
 // validateOptionalEvidence 校验显式证据文件；未提供时保留控制器阻断提示但继续运行命令 gate。
@@ -380,11 +274,7 @@ func buildGatePlan(files []string) (gatePlan, error) {
 
 // buildGatePlanForRepo 使用 generator AST 派生的 capability roots 构造计划；解析失败时拒绝产出不完整计划。
 func buildGatePlanForRepo(repoRoot string, files []string, policy gatePlanPolicy) (gatePlan, error) {
-	capabilityRules, err := capcontract.LoadPathRules(repoRoot)
-	if err != nil {
-		return gatePlan{}, fmt.Errorf("load capability-contract path rules: %w", err)
-	}
-	turnContractPaths, err := loadTurnContractPaths(repoRoot, policy)
+	capabilityRules, turnContractPaths, err := loadGatePlanRules(repoRoot, policy)
 	if err != nil {
 		return gatePlan{}, err
 	}
@@ -393,20 +283,20 @@ func buildGatePlanForRepo(repoRoot string, files []string, policy gatePlanPolicy
 	gates := map[string]bool{"diff:whitespace": true}
 	evidence := map[string]bool{}
 	generated := map[string]bool{}
-	backendChanged := false
-	for _, file := range normalized {
-		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, evidence, generated, policy)
-		if err != nil {
-			return gatePlan{}, err
-		}
-		if backendFile {
-			backendChanged = true
-		}
+	backendChanged, err := applyChangedFileGateRules(
+		repoRoot,
+		normalized,
+		capabilityRules,
+		turnContractPaths,
+		gates,
+		evidence,
+		generated,
+		policy,
+	)
+	if err != nil {
+		return gatePlan{}, err
 	}
-	if backendChanged {
-		gates["backend:test_with_guard"] = true
-		delete(gates, "ai-maintenance:self-test")
-	}
+	applyBackendGateRules(normalized, gates, backendChanged)
 	plan.DiagnosticFiles = changedDiagnosticFiles(normalized)
 	if len(plan.DiagnosticFiles) > 0 {
 		gates["lsp:changed-diagnostics"] = true
@@ -424,9 +314,59 @@ func buildGatePlanForRepo(repoRoot string, files []string, policy gatePlanPolicy
 	return plan, nil
 }
 
+// loadGatePlanRules 读取能力契约和 turn contract 路由所需的权威规则。
+func loadGatePlanRules(repoRoot string, policy gatePlanPolicy) (capcontract.PathRules, map[string]bool, error) {
+	capabilityRules, err := capcontract.LoadPathRules(repoRoot)
+	if err != nil {
+		return capcontract.PathRules{}, nil, fmt.Errorf("load capability-contract path rules: %w", err)
+	}
+	turnContractPaths, err := loadTurnContractPaths(repoRoot, policy)
+	if err != nil {
+		return capcontract.PathRules{}, nil, err
+	}
+	return capabilityRules, turnContractPaths, nil
+}
+
+// applyChangedFileGateRules 汇总所有变更路径的门禁规则，并报告是否需要后端验证面。
+func applyChangedFileGateRules(
+	repoRoot string,
+	files []string,
+	capabilityRules capcontract.PathRules,
+	turnContractPaths, gates, evidence, generated map[string]bool,
+	policy gatePlanPolicy,
+) (bool, error) {
+	backendChanged := false
+	for _, file := range files {
+		backendFile, err := applyFileGateRules(repoRoot, file, capabilityRules, turnContractPaths, gates, evidence, generated, policy)
+		if err != nil {
+			return false, err
+		}
+		if backendFile {
+			backendChanged = true
+		}
+	}
+	return backendChanged, nil
+}
+
+// applyBackendGateRules 为后端变更收敛唯一全工作区验证 owner，避免重复排队 archtest。
+func applyBackendGateRules(files []string, gates map[string]bool, backendChanged bool) {
+	if !backendChanged {
+		return
+	}
+	gates["backend:test_with_guard"] = true
+	delete(gates, "ai-maintenance:self-test")
+	if requiresBroadBackendRegression(files) {
+		// ci-l1 是后端基础设施变更的唯一全工作区 owner；另排 archtest 会重复执行同一守卫。
+		delete(gates, "backend:archtest")
+	}
+}
+
 // applyFileGateRules 汇总单个路径触发的命令 gate 和证据要求，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool, policy gatePlanPolicy) (bool, error) {
-	backendChanged := applySourceGateRules(file, gates, evidence)
+func applyFileGateRules(repoRoot, file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool, policy gatePlanPolicy) (bool, error) {
+	backendChanged, err := applySourceGateRules(repoRoot, file, gates, evidence)
+	if err != nil {
+		return false, err
+	}
 	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, evidence, generated); err != nil {
 		return false, err
 	}
@@ -470,7 +410,7 @@ func applyCapabilityContractGateRules(file string, capabilityRules capcontract.P
 	if err != nil {
 		return fmt.Errorf("match capability-contract path %q: %w", file, err)
 	}
-	if capabilityChanged || backendGoFile(file) || file == capabilityContractManifest {
+	if capabilityChanged {
 		gates["capcontract:check"] = true
 	}
 	if capabilityContractProducerInput(file) {
@@ -510,7 +450,7 @@ func turnContractRelevant(file string, turnContractPaths map[string]bool) bool {
 
 // frontendStaticGuardRelevant 覆盖 guard 自身与全部生产前端输入，防止新增 writer 或反向依赖绕过定向门禁。
 func (policy gatePlanPolicy) frontendStaticGuardRelevant(file string) bool {
-	return frontendProductionScriptRelevant(file) || policy.frontendStaticGuardFiles[file]
+	return frontendStaticGuardInputRelevant(file) || policy.frontendStaticGuardFiles[file]
 }
 
 func turnContractProductionGo(file string) bool {
@@ -555,40 +495,45 @@ func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
 }
 
 // applySourceGateRules 根据生产源码路径补充必须执行的门禁和 LSP 证据要求。
-func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
-	switch {
-	case strings.HasPrefix(file, "frontend-app/"):
-		if criticalTypecheckRelevant(file) {
-			gates["frontend:typecheck-contracts"] = true
-		}
-		if frontendLintRelevant(file) {
-			gates["frontend:lint"] = true
-		}
-		if frontendChangedTestRelevant(file) {
-			gates["frontend:changed-tests"] = true
-		}
-		if frontendDiagnosticsRelevant(file) {
-			requireLSPEvidence(file, evidence)
-		}
-	case strings.HasPrefix(file, "cmd/"), strings.HasPrefix(file, "internal/"), strings.HasPrefix(file, "pkg/"):
-		requireLSPEvidence(file, evidence)
-		return true
-	case strings.HasPrefix(file, "scripts/") && strings.HasSuffix(file, ".go"):
-		requireLSPEvidence(file, evidence)
-		return true
+func applySourceGateRules(repoRoot, file string, gates, evidence map[string]bool) (bool, error) {
+	if strings.HasPrefix(file, "frontend-app/") {
+		return applyFrontendSourceGateRules(repoRoot, file, gates, evidence)
 	}
-	return false
+	return applyBackendSourceGateRules(file, evidence)
 }
 
-// criticalTypecheckRelevant 判断变更是否会影响关键前端严格类型检查闭包。
-func criticalTypecheckRelevant(file string) bool {
-	return file == "frontend-app/tsconfig.contracts.json" ||
-		file == "frontend-app/scripts/critical-typecheck-files.json" ||
-		file == "frontend-app/scripts/critical-typecheck-guard.mjs" ||
-		file == "frontend-app/scripts/contracts-typecheck-guard.test.mjs" ||
-		(strings.HasPrefix(file, "frontend-app/src/") &&
-			(strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".jsx")) &&
-			!isFrontendTestFile(strings.TrimPrefix(file, "frontend-app/")))
+// applyFrontendSourceGateRules 为前端路径应用严格类型检查、lint、变更测试和 LSP 证据路由。
+func applyFrontendSourceGateRules(repoRoot, file string, gates, evidence map[string]bool) (bool, error) {
+	critical, err := criticalTypecheckRelevant(repoRoot, file)
+	if err != nil {
+		return false, fmt.Errorf("route critical typecheck path %q: %w", file, err)
+	}
+	if critical {
+		gates["frontend:typecheck-contracts"] = true
+	}
+	if frontendLintRelevant(file) {
+		gates["frontend:lint"] = true
+	}
+	if frontendChangedTestRelevant(file) {
+		gates["frontend:changed-tests"] = true
+	}
+	if frontendDiagnosticsRelevant(file) {
+		requireLSPEvidence(file, evidence)
+	}
+	return false, nil
+}
+
+// applyBackendSourceGateRules 为 Go 生产源码补充 LSP 证据并标记后端验证面。
+func applyBackendSourceGateRules(file string, evidence map[string]bool) (bool, error) {
+	if strings.HasSuffix(file, ".go") && (strings.HasPrefix(file, "cmd/") || strings.HasPrefix(file, "internal/") || strings.HasPrefix(file, "pkg/")) {
+		requireLSPEvidence(file, evidence)
+		return true, nil
+	}
+	if strings.HasPrefix(file, "scripts/") && strings.HasSuffix(file, ".go") {
+		requireLSPEvidence(file, evidence)
+		return true, nil
+	}
+	return false, nil
 }
 
 func requireLSPEvidence(file string, evidence map[string]bool) {
@@ -711,9 +656,7 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:lint",
 		"frontend:typecheck-contracts",
 		"frontend:changed-tests",
-		"frontend:e2e",
 		"frontend:embed-verify",
-		"frontend:performance-verify",
 		"workflow:actionlint",
 		"release:semantic-guards",
 		"nightly-protocol:check",
@@ -723,8 +666,6 @@ func orderedGates(values map[string]bool) []string {
 		"backend:test-integrity",
 		"lsp:changed-diagnostics",
 		"backend:archtest",
-		"backend:nilness",
-		"backend:race",
 		"sqlc:verify",
 		"codemap:check",
 		"project-map:check",

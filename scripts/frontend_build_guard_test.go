@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -83,8 +84,42 @@ func TestMakefileGuardRunsFullArchtestAndFrontendEmbedVerify(t *testing.T) {
 	assertScriptContains(t, makefile, "frontend-embed-verify: frontend-app-build")
 	assertScriptContains(t, makefile, "./scripts/frontend_embed_verify.sh")
 	assertScriptContains(t, makefile, "frontend-gate-health:")
-	assertScriptContains(t, makefile, "./scripts/test_with_guard.sh ./scripts/ai_maintenance -run 'Frontend|GateInfrastructure|GateRunners'")
-	assertScriptContains(t, makefile, "./scripts/test_with_guard.sh ./scripts -run 'Frontend'")
+	assertScriptContains(t, makefile, "./scripts/test_with_guard.sh ./scripts/ai_maintenance ./scripts -run 'Frontend|GateInfrastructure|GateRunners' -count=1")
+	assertScriptDoesNotContain(t, makefile, "./scripts/test_with_guard.sh ./scripts -run 'Frontend'")
 	assertScriptContains(t, makefile, "guard:\n\t$(TEST_WITH_GUARD) --guard-only")
 	assertScriptContains(t, makefile, "code-size-guard:\n\t$(TEST_WITH_GUARD) --guard-only")
+}
+
+func TestProtocolSyncReusesRPCFullArchtestWithoutRepeatingFreezeTests(t *testing.T) {
+	makefile := readRepoFile(t, "../Makefile")
+	protocolTarget := makefileTargetBlock(t, makefile, "protocol-sync-check")
+	assertScriptContains(t, protocolTarget, "protocol-sync-check: rpc-regression-check")
+	assertScriptDoesNotContain(t, protocolTarget, "$(TEST_WITH_GUARD)")
+
+	rpcTarget := makefileTargetBlock(t, makefile, "rpc-regression-check")
+	assertScriptContains(t, rpcTarget, "$(TEST_WITH_GUARD) ./internal/platform/rpc/... -count=1")
+	guardScript := readRepoFile(t, "test_with_guard.sh")
+	assertScriptContains(t, guardScript, `"$real_go" test ./internal/archtest -count=1`)
+
+	for file, testName := range map[string]string{
+		"../internal/archtest/orchestration_launcher_protocol_guard_test.go": "TestOrchestrationLauncherProtocolFreeze",
+		"../internal/archtest/orchestration_report_protocol_guard_test.go":   "TestOrchestrationReportProtocolFreeze",
+		"../internal/archtest/toolbridge_protocol_guard_test.go":             "TestToolbridgeProtocolFreezeContractGuard",
+	} {
+		assertScriptContains(t, readRepoFile(t, file), "func "+testName+"(")
+	}
+}
+
+func makefileTargetBlock(t *testing.T, makefile, target string) string {
+	t.Helper()
+	marker := target + ":"
+	start := strings.Index(makefile, marker)
+	if start < 0 {
+		t.Fatalf("Makefile target %q is missing", target)
+	}
+	block := makefile[start:]
+	if end := strings.Index(block, "\n\n"); end >= 0 {
+		block = block[:end]
+	}
+	return block
 }

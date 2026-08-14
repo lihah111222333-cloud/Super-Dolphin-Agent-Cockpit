@@ -842,7 +842,7 @@ func executorPlanLanes(gateIDs []GateID) ([][]GateID, error) {
 	laneCatalog := [][]GateID{
 		{GateIDAIMaintenanceSelfTest, GateIDFrontendPreflight, GateIDFrontendTest, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
 			GateIDBackendTestGuardWithRace, GateIDBackendNilness, GateIDReleaseLayeredCheck},
-		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
+		{GateIDFrontendPerformanceVerify, GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 	lanes := make([][]GateID, executorPlanLaneCount)

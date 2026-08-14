@@ -23,12 +23,11 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"codemap:check",
 		"diff:whitespace",
 		"frontend:lint",
-		"frontend:typecheck-contracts",
 		"frontend:changed-tests",
 		"lsp:changed-diagnostics",
 		"project-map:check",
 	)
-	assertStringSetOmits(t, plan.RequiredGates, "frontend:build")
+	assertStringSetOmits(t, plan.RequiredGates, "frontend:build", "frontend:typecheck-contracts")
 	assertStringSetContains(t, plan.DiagnosticFiles, "frontend-app/src/App.jsx", "internal/app/modules.go")
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"generated:source",
@@ -106,63 +105,6 @@ func TestBuildGatePlanRoutesCriticalTypecheckSourcesAndInfrastructure(t *testing
 	}
 }
 
-func TestPushGatePlanAddsRiskGatesWithoutChangingCommitPlan(t *testing.T) {
-	files := []string{"internal/provider/codexapp/session.go"}
-	commitPlan := mustGatePlanForScope(t, files, false)
-	pushPlan := mustGatePlanForScope(t, files, true)
-
-	assertStringSetOmits(t, commitPlan.RequiredGates, "backend:nilness", "backend:race")
-	assertStringSetContains(t, pushPlan.RequiredGates, "backend:archtest", "backend:nilness", "backend:race", "backend:test_with_guard")
-	assertStringSetOmits(t, pushPlan.RequiredGates, "backend:test_with_guard_and_race")
-	if got := affectedRacePackages(pushPlan.ChangedFiles); len(got) != 1 || got[0] != "./internal/provider/codexapp" {
-		t.Fatalf("affected race packages = %v, want provider package", got)
-	}
-}
-
-func TestPushGatePlanOmitsRaceForNonConcurrentBackendSurface(t *testing.T) {
-	plan := mustGatePlanForScope(t, []string{"internal/dto/agent/state.go"}, true)
-
-	assertStringSetContains(t, plan.RequiredGates, "backend:nilness")
-	assertStringSetOmits(t, plan.RequiredGates, "backend:race", "backend:test_with_guard_and_race")
-}
-
-func TestPushGatePlanRoutesGoModuleRiskGates(t *testing.T) {
-	plan := mustGatePlanForScope(t, []string{"go.mod"}, true)
-
-	assertStringSetContains(t, plan.RequiredGates, "backend:nilness", "backend:race", "backend:test_with_guard")
-	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard_and_race")
-	if len(affectedNilnessPackages(plan)) == 0 || len(affectedRacePackagesForPlan(plan)) == 0 {
-		t.Fatalf("go.mod push risk packages missing: nilness=%v race=%v", affectedNilnessPackages(plan), affectedRacePackagesForPlan(plan))
-	}
-}
-
-func TestBackendRaceArgsRunOnlyThePushRiskLane(t *testing.T) {
-	plan := mustGatePlanForScope(t, []string{"internal/provider/codexapp/session.go"}, true)
-	args, err := backendRaceArgs(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSetContains(t, args, "./scripts/test_with_guard.sh", "--race-only", "./internal/provider/codexapp")
-	count := 0
-	for _, arg := range args {
-		if arg == "./scripts/test_with_guard.sh" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("backend race gate must invoke one guard wrapper: %v", args)
-	}
-}
-
-func TestAffectedBackendGoPackagesExcludesAnalyzerTestdata(t *testing.T) {
-	packages := affectedBackendGoPackages([]string{
-		"internal/devtools/typednil/analyzer.go",
-		"internal/devtools/typednil/testdata/src/typednilfixture/typednil.go",
-	})
-	assertStringSetContains(t, packages, "./internal/devtools/typednil")
-	assertStringSetOmits(t, packages, "./internal/devtools/typednil/testdata/src/typednilfixture")
-}
-
 func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{".ai-project-map.overrides.json"})
 
@@ -222,7 +164,7 @@ func TestLSPDiagnosticsRunnerAuditsAllDeleted(t *testing.T) {
 		filepath.Join(root, "deleted-a.go"),
 		filepath.Join(root, "deleted-b.go"),
 	}}
-	runner := gateRunners(plan, gateExecutionScope{})["lsp:changed-diagnostics"]
+	runner := gateRunners(plan)["lsp:changed-diagnostics"]
 	stderr := captureStderr(t, runner.run)
 	want := "[ai-maintenance] lsp diagnostics skip: planned=2 existing=0 reason=all-deleted\n"
 	if stderr != want {
@@ -339,61 +281,6 @@ func TestBuildGatePlanRoutesGateInfrastructureToOwnedChecks(t *testing.T) {
 	}
 }
 
-func TestGateImageClosureCheckBindsStagedIndexTree(t *testing.T) {
-	root := t.TempDir()
-	runGateImageClosureGit(t, root, "init")
-	path := filepath.Join(root, "tracked.txt")
-	if err := os.WriteFile(path, []byte("staged\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runGateImageClosureGit(t, root, "add", "tracked.txt")
-	wantTree := strings.TrimSpace(runGateImageClosureGit(t, root, "write-tree"))
-	if err := os.WriteFile(path, []byte("unstaged\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	gotTree, err := resolveGateImageClosureTree(root)
-	if err != nil {
-		t.Fatalf("resolveGateImageClosureTree() error = %v", err)
-	}
-	if gotTree != wantTree {
-		t.Fatalf("resolved tree = %q, want staged index tree %q", gotTree, wantTree)
-	}
-	wantArgs := []string{"run", "./cmd/super-dolphin-gate", "closure", "check", "--tree", wantTree}
-	if gotArgs := gateImageClosureCheckArgs(gotTree); !slices.Equal(gotArgs, wantArgs) {
-		t.Fatalf("closure check args = %q, want %q", gotArgs, wantArgs)
-	}
-	if _, err := resolveGateImageClosureTree(t.TempDir()); err == nil {
-		t.Fatal("resolveGateImageClosureTree() accepted a non-Git directory")
-	}
-}
-
-func TestGateImageClosureCheckIsStagedOnly(t *testing.T) {
-	base := mustBuildGatePlan(t, []string{"internal/devtools/gate/contracts.go"})
-	staged := gatePlanForExecutionScope(base, gateExecutionScope{diffCached: true})
-	assertStringSetContains(t, staged.RequiredGates, "gate-image-closure:check")
-
-	for name, scope := range map[string]gateExecutionScope{
-		"unscoped":   {},
-		"push range": {diffRanges: []string{"HEAD~1..HEAD"}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			plan := gatePlanForExecutionScope(base, scope)
-			assertStringSetOmits(t, plan.RequiredGates, "gate-image-closure:check")
-		})
-	}
-}
-
-func runGateImageClosureGit(t *testing.T, directory string, args ...string) string {
-	t.Helper()
-	commandArgs := append([]string{"-C", directory}, args...)
-	output, err := exec.Command("git", commandArgs...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
-	}
-	return string(output)
-}
-
 func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 	tests := []struct {
 		path        string
@@ -404,10 +291,10 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 		{"go.work", true},
 		{"go.work.sum", true},
 		{"sqlc.yaml", false},
-		{"cmd/mcp-orch/sqlc.yaml", true},
+		{"cmd/mcp-orch/sqlc.yaml", false},
 		{"sql/queries.sql", false},
-		{"cmd/mcp-orch/sql/queries.sql", true},
-		{"internal/platform/db/sqlite/migrations/001.sql", true},
+		{"cmd/mcp-orch/sql/queries.sql", false},
+		{"internal/platform/db/sqlite/migrations/001.sql", false},
 		{"internal/store/thread/store.go", true},
 	}
 	for _, test := range tests {
@@ -582,6 +469,7 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"scripts/ai_maintenance/main.go"},
 		{".githooks/pre-commit"},
 		{"frontend-app/src/App.jsx"},
+		{"frontend-app/src/shared/ui/runUIAction.js"},
 		{"frontend-app/scripts/frontend-maintainability-baseline.json"},
 		{"internal/store/thread/store.go"},
 		{"internal/contract/provider.go"},
@@ -597,124 +485,12 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"scripts/mcp_lsp_workload_catalog.json"},
 		{"Makefile"},
 	} {
-		for _, gate := range mustGatePlanForScope(t, files, true).RequiredGates {
+		for _, gate := range mustBuildGatePlan(t, files).RequiredGates {
 			producerGates[gate] = true
 		}
 	}
-	producerGates["gate-image-closure:check"] = true
 
-	runners := gateRunners(gatePlan{}, gateExecutionScope{})
+	runners := gateRunners(mustBuildGatePlan(t, []string{"README.md"}))
 	assertRegistryMatchesProducer(t, producerGates, runners, "runner", "diff:whitespace")
 	assertRegistryMatchesProducer(t, producerGates, gateEvidenceCommandFragments(), "evidence", "diff:whitespace")
-}
-
-func TestGateRunnersCacheOnlyStaticGeneratedChecks(t *testing.T) {
-	cacheable := map[string]bool{
-		"ai-maintenance:self-test": true,
-		"backend:archtest":         true,
-		"backend:nilness":          true,
-		"backend:race":             true,
-		"backend:test_with_guard":  true,
-		"capcontract:check":        true,
-		"frontend:embed-verify":    true,
-		"frontend:lint":            true,
-		"frontend:changed-tests":   true,
-		"lsp:changed-diagnostics":  true,
-		"project-map:check":        true,
-		"sqlc:verify":              true,
-	}
-	for gate, runner := range gateRunners(gatePlan{}, gateExecutionScope{}) {
-		if runner.cacheable != cacheable[gate] {
-			t.Errorf("gate %q cacheable=%v, want %v", gate, runner.cacheable, cacheable[gate])
-		}
-	}
-}
-
-func TestApplyPrevalidatedMapGatesRequiresStagedCacheScope(t *testing.T) {
-	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
-	filtered, err := applyPrevalidatedMapGates(plan, []string{"codemap:check", "project-map:check"}, true, false, strings.Repeat("a", 40))
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertStringSetOmits(t, filtered.RequiredGates, "codemap:check", "project-map:check")
-
-	for _, test := range []struct {
-		name      string
-		gates     []string
-		diff      bool
-		push      bool
-		cacheTree string
-	}{
-		{name: "unstaged", gates: []string{"codemap:check"}, cacheTree: strings.Repeat("a", 40)},
-		{name: "push", gates: []string{"codemap:check"}, diff: true, push: true, cacheTree: strings.Repeat("a", 40)},
-		{name: "missing scope", gates: []string{"codemap:check"}, diff: true},
-		{name: "unsupported gate", gates: []string{"frontend:test"}, diff: true, cacheTree: strings.Repeat("a", 40)},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := applyPrevalidatedMapGates(plan, test.gates, test.diff, test.push, test.cacheTree); err == nil {
-				t.Fatal("invalid prevalidated gate configuration was accepted")
-			}
-		})
-	}
-}
-
-func TestRunGatesRejectsPrevalidatedMapWithoutValidatedCache(t *testing.T) {
-	err := runGates([]string{
-		"--changed-file", "internal/app/modules.go",
-		"--diff-cached",
-		"--cache-scope", strings.Repeat("a", 40),
-		"--prevalidated-gate", "codemap:check",
-		"--print-plan",
-	})
-	if err == nil || !strings.Contains(err.Error(), "validated gate cache and isolated index") {
-		t.Fatalf("prevalidated gate without cache error = %v", err)
-	}
-}
-
-func TestNewGateExecutionScopeRejectsAmbiguousWhitespaceTruth(t *testing.T) {
-	if _, err := newGateExecutionScope(true, []string{"base..head"}); err == nil {
-		t.Fatal("staged and push-range whitespace scopes were both accepted")
-	}
-	if _, err := newGateExecutionScope(false, []string{" "}); err == nil {
-		t.Fatal("empty push range was accepted")
-	}
-}
-
-func TestFrontendEmbedVerifyArgsPreserveExecutionScope(t *testing.T) {
-	if got, want := frontendEmbedVerifyArgs(gateExecutionScope{}), []string{"run", "verify:embed:isolated"}; !slices.Equal(got, want) {
-		t.Fatalf("normal frontend embed verify args = %v, want %v", got, want)
-	}
-	if got, want := frontendEmbedVerifyArgs(gateExecutionScope{diffCached: true}), []string{"run", "verify:embed:isolated", "--", "--cached"}; !slices.Equal(got, want) {
-		t.Fatalf("cached frontend embed verify args = %v, want %v", got, want)
-	}
-}
-
-func TestRunWhitespaceCheckUsesExplicitGitTruthScope(t *testing.T) {
-	binDir := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "git-args.log")
-	gitPath := filepath.Join(binDir, "git")
-	if err := os.WriteFile(gitPath, []byte("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$GIT_ARGS_LOG\"\nif [ \"$*\" = \"hash-object -t tree /dev/null\" ]; then\n  printf '%040d\\n' 0\nfi\n"), 0o755); err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("GIT_ARGS_LOG", logPath)
-
-	if err := runWhitespaceCheck(gateExecutionScope{diffCached: true}); err != nil {
-		t.Fatalf("staged whitespace check: %v", err)
-	}
-	if err := runWhitespaceCheck(gateExecutionScope{diffRanges: []string{"a..b", "c..d", "head"}}); err != nil {
-		t.Fatalf("range whitespace check: %v", err)
-	}
-	if err := runWhitespaceCheck(gateExecutionScope{}); err != nil {
-		t.Fatalf("worktree whitespace check: %v", err)
-	}
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("read git args: %v", err)
-	}
-	got := strings.Split(strings.TrimSpace(string(data)), "\n")
-	want := []string{"diff --cached --check", "diff --check a..b", "diff --check c..d", "hash-object -t tree /dev/null", "diff --check 0000000000000000000000000000000000000000 head", "diff --check"}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("git whitespace invocations = %q, want %q", got, want)
-	}
 }

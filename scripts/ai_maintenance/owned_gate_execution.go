@@ -1,53 +1,16 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-type frontendE2ECommand struct {
-	script string
-}
-
-type frontendE2EMatch struct {
-	pathFragment string
-	script       string
-}
-
-type e2eExecutionPolicy struct {
-	allFrontendE2ECommands []frontendE2ECommand
-	frontendE2EMatches     []frontendE2EMatch
-}
-
-func newE2EExecutionPolicy() e2eExecutionPolicy {
-	return e2eExecutionPolicy{
-		allFrontendE2ECommands: []frontendE2ECommand{
-			{script: "test:e2e:business"},
-			{script: "test:e2e:desktop-wide"},
-			{script: "smoke:desktop:failure"},
-			{script: "smoke:desktop:ux"},
-		},
-		frontendE2EMatches: []frontendE2EMatch{
-			{pathFragment: "business-flows", script: "test:e2e:business"},
-			{pathFragment: "desktop-wide", script: "test:e2e:desktop-wide"},
-			{pathFragment: "desktop-failure", script: "smoke:desktop:failure"},
-			{pathFragment: "desktop-ux", script: "smoke:desktop:ux"},
-			{pathFragment: "playwright.desktop.config.js", script: "smoke:desktop:ux"},
-		},
-	}
-}
-
-// ownedGateRunners 构造 release、工作流、夜间协议及 E2E 所有者的不可缓存 runner。
-func ownedGateRunners(plan gatePlan, policy e2eExecutionPolicy) map[string]gateRunner {
+// ownedGateRunners 构造 release、工作流、夜间协议所有者的 runner。
+func ownedGateRunners() map[string]gateRunner {
 	return map[string]gateRunner{
 		"backend:test-integrity": {run: func() error {
 			return runCommand("", "go", "test", "./internal/guards", "-count=1")
-		}},
-		"frontend:e2e": {run: func() error {
-			return runFrontendE2E(plan, policy)
 		}},
 		"workflow:actionlint": {run: func() error {
 			return runCommand("", "make", "actionlint")
@@ -81,7 +44,8 @@ func runMcpLSPQuickRoundTrip() error {
 		}
 		return runErr
 	}
-	guardErr := runCommand("", "./scripts/check_mcp_lsp_workload_catalog.sh", "--receipt", receipt, "--id", "mcp-lsp-idle-quick")
+	guardArgs := mcpLSPReceiptGuardArgs(receipt)
+	guardErr := runCommand("", guardArgs[0], guardArgs[1:]...)
 	cleanupErr := os.RemoveAll(receiptDir)
 	if guardErr != nil {
 		if cleanupErr != nil {
@@ -95,48 +59,6 @@ func runMcpLSPQuickRoundTrip() error {
 	return nil
 }
 
-// runFrontendE2E 按变更路径顺序执行所有匹配的前端 E2E 脚本，并在首个失败处阻断。
-func runFrontendE2E(plan gatePlan, policy e2eExecutionPolicy) error {
-	commands := policy.frontendE2ECommands(plan.ChangedFiles)
-	if len(commands) == 0 {
-		return errors.New("frontend e2e gate has no matching command")
-	}
-	for _, command := range commands {
-		if err := runCommand("frontend-app", "npm", "run", command.script); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// frontendE2ECommands 将已知规格精确映射到 npm 脚本，未知配置或 package.json 变更触发完整矩阵。
-func (policy e2eExecutionPolicy) frontendE2ECommands(files []string) []frontendE2ECommand {
-	selected := map[string]bool{}
-	for _, file := range files {
-		if !frontendE2ERelevant(file) {
-			continue
-		}
-		script, matched := policy.frontendE2EScript(file)
-		if !matched {
-			return append([]frontendE2ECommand(nil), policy.allFrontendE2ECommands...)
-		}
-		selected[script] = true
-	}
-	commands := make([]frontendE2ECommand, 0, len(selected))
-	for _, command := range policy.allFrontendE2ECommands {
-		if selected[command.script] {
-			commands = append(commands, command)
-		}
-	}
-	return commands
-}
-
-// frontendE2EScript 返回路径对应的唯一专项脚本；未登记路径由调用方提升为完整矩阵。
-func (policy e2eExecutionPolicy) frontendE2EScript(file string) (string, bool) {
-	for _, match := range policy.frontendE2EMatches {
-		if strings.Contains(file, match.pathFragment) {
-			return match.script, true
-		}
-	}
-	return "", false
+func mcpLSPReceiptGuardArgs(receipt string) []string {
+	return []string{"./scripts/check_mcp_lsp_workload_catalog.sh", "--receipt-only", "--receipt", receipt, "--id", "mcp-lsp-idle-quick"}
 }

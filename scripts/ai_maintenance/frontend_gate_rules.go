@@ -2,80 +2,88 @@ package main
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
+
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-// frontendLintRelevant 只把 ESLint 能读取的前端源码、测试和工具脚本路由到 lint。
+// frontendLintRelevant 覆盖 ESLint 实际扫描文件和决定命令、依赖的执行种子。
 func frontendLintRelevant(file string) bool {
-	return frontendScriptOrSourceFile(file) &&
-		(strings.HasPrefix(file, "frontend-app/src/") ||
-			strings.HasPrefix(file, "frontend-app/scripts/") ||
-			file == "frontend-app/eslint.config.js" ||
-			file == "frontend-app/vite.config.js")
+	switch file {
+	case "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/eslint.config.js":
+		return true
+	default:
+		return frontendLintSourceRelevant(file)
+	}
 }
 
-// frontendBuildRelevant 只覆盖会进入 Vite bundle 或嵌入产物契约的输入。
-func frontendBuildRelevant(file string) bool {
-	switch file {
-	case "frontend-app/package.json",
-		"frontend-app/package-lock.json",
-		"frontend-app/vite.config.js",
-		"frontend-app/index.html",
-		"frontend-app/recovery.html",
-		"frontend-app/required-dist-entries.txt",
-		"frontend-app/scripts/sync-frontend-dist.mjs":
-		return true
-	}
-	if strings.HasPrefix(file, "frontend-app/public/") {
-		return true
-	}
-	if !strings.HasPrefix(file, "frontend-app/src/") {
+func frontendLintSourceRelevant(file string) bool {
+	if !strings.HasPrefix(file, "frontend-app/") ||
+		strings.HasPrefix(file, "frontend-app/node_modules/") ||
+		strings.HasPrefix(file, "frontend-app/dist/") {
 		return false
 	}
-	rel := strings.TrimPrefix(file, "frontend-app/")
-	return !isFrontendTestFile(rel)
+	switch filepath.Ext(file) {
+	case ".js", ".jsx", ".mjs":
+		return true
+	default:
+		return false
+	}
 }
 
 // frontendDiagnosticsRelevant 仅把语言服务器可诊断的前端源码和工具脚本加入证据范围。
 func frontendDiagnosticsRelevant(file string) bool {
-	return frontendLintRelevant(file)
+	return frontendLintSourceRelevant(file)
 }
 
-// frontendProductionScriptRelevant 判断文件是否是会参与静态架构约束的生产脚本。
-func frontendProductionScriptRelevant(file string) bool {
-	if !strings.HasPrefix(file, "frontend-app/src/") || !frontendScriptOrSourceFile(file) {
-		return false
-	}
-	return !isFrontendTestFile(strings.TrimPrefix(file, "frontend-app/"))
-}
-
-// frontendPerformanceRelevant 覆盖性能 runner、契约测试、受管 subject 与其执行入口，防止证据或预算变化绕过 verifier。
-func frontendPerformanceRelevant(file string) bool {
+// frontendStaticGuardInputRelevant 覆盖 guard:critical-skip 扫描根和直接读取的 registry/baseline。
+func frontendStaticGuardInputRelevant(file string) bool {
 	switch file {
 	case "frontend-app/package.json",
-		"frontend-app/vite.config.js",
-		"frontend-app/scripts/chat-history-benchmark.mjs",
-		"frontend-app/scripts/chat-history-benchmark.test.mjs",
-		"frontend-app/scripts/evidence-provenance.mjs",
+		"frontend-app/package-lock.json",
+		"frontend-app/.frontend_code_size_guard_baseline.json",
+		"frontend-app/.frontend_code_size_guard_baseline_test.json",
+		"frontend-app/config/action-producer-registry.json",
+		"frontend-app/config/action-producer-test-matrix.json":
+		return true
+	}
+	if strings.HasPrefix(file, "frontend-app/src/") {
+		return frontendStaticScannedExtension(file, true)
+	}
+	if strings.HasPrefix(file, "frontend-app/scripts/") {
+		return frontendStaticScannedExtension(file, true) || filepath.Ext(file) == ".json"
+	}
+	if strings.HasPrefix(file, "frontend-app/tests/") {
+		return frontendStaticScannedExtension(file, false)
+	}
+	return false
+}
+
+func frontendStaticScannedExtension(file string, includeCSS bool) bool {
+	switch filepath.Ext(file) {
+	case ".js", ".jsx", ".mjs", ".ts", ".tsx":
+		return true
+	case ".css":
+		return includeCSS
+	default:
+		return false
+	}
+}
+
+// frontendPerformanceRelevant 覆盖远端性能 owner、契约测试、受管 subject 与其执行入口，防止证据或预算变化绕过 verifier。
+func frontendPerformanceRelevant(file string) bool {
+	if slices.Contains(gatecontract.FrontendPerformanceInputPaths(), file) {
+		return true
+	}
+	switch file {
+	case "frontend-app/scripts/chat-history-benchmark.test.mjs",
 		"frontend-app/scripts/evidence-provenance.test.mjs",
-		"frontend-app/scripts/frontend-maintainability-baseline.json",
-		"frontend-app/scripts/frontend-performance-cases.json",
-		"frontend-app/scripts/managed-command.mjs",
-		"frontend-app/scripts/performance-baseline-provenance.mjs",
 		"frontend-app/scripts/performance-baseline-provenance.test.mjs",
-		"frontend-app/scripts/performance-budget-config.mjs",
-		"frontend-app/scripts/performance-budget-model.mjs",
 		"frontend-app/scripts/performance-budget-model.test.mjs",
-		"frontend-app/scripts/performance-budget-runner.mjs",
 		"frontend-app/scripts/performance-budget-runner.test.mjs",
-		"frontend-app/scripts/render-isolation-probe.test.jsx",
-		"frontend-app/scripts/resource-budget.mjs",
 		"frontend-app/scripts/resource-budget.test.mjs",
-		"frontend-app/scripts/stop-feedback-benchmark.mjs",
-		"frontend-app/scripts/stop-feedback-benchmark.test.mjs",
-		"frontend-app/src/entities/client/model/contractStoreModel.js",
-		"frontend-app/src/entities/client/model/threadLifecycleRuntime.js",
-		"frontend-app/src/pages/chat/components/ChatActionFeedback.js":
+		"frontend-app/scripts/stop-feedback-benchmark.test.mjs":
 		return true
 	default:
 		return false
@@ -99,19 +107,13 @@ func frontendChangedTestRelevant(file string) bool {
 	return false
 }
 
-// frontendE2ERelevant 把默认 Vitest 排除的 Playwright/桌面场景交给显式 push gate。
-func frontendE2ERelevant(file string) bool {
-	return file == "frontend-app/package.json" ||
-		strings.HasPrefix(file, "frontend-app/tests/e2e/") ||
-		(strings.HasPrefix(file, "frontend-app/") &&
-			strings.HasPrefix(filepath.Base(file), "playwright.") &&
-			strings.HasSuffix(file, ".config.js"))
-}
-
-// frontendChangedTestDeferredToPerformance 识别被默认 Vitest 配置排除、由 push 性能验证独占的测试闭包。
+// frontendChangedTestDeferredToPerformance 识别被默认 Vitest 配置排除、由远端性能 owner 独占的测试闭包。
 func frontendChangedTestDeferredToPerformance(file string) bool {
 	if !frontendPerformanceRelevant(file) || !frontendScriptOrSourceFile(file) {
 		return false
+	}
+	if file == "frontend-app/scripts/runtime/git-environment.mjs" {
+		return true
 	}
 	rel := strings.TrimPrefix(file, "frontend-app/")
 	if isFrontendTestFile(rel) {

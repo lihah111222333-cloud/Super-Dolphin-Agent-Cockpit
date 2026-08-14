@@ -386,9 +386,9 @@ describe('candidate detached resource build', () => {
     let measured = 0;
     const execute = (command, args) => {
       commands.push([command, ...args]);
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-        mkdirSync(join(args[3], 'frontend-app'), { recursive: true });
-      }
+      if (command === 'git' && args[0] === 'clone') mkdirSync(join(args.at(-1), 'frontend-app'), { recursive: true });
+      if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return SUBJECT_SHA;
+      if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
       return '';
     };
     const runCommand = async (command, args, options) => {
@@ -439,10 +439,13 @@ describe('candidate detached resource build', () => {
 
     expect(measured).toBe(1);
     expect(commands.map((command) => command.slice(0, 3))).toEqual([
-      ['git', 'worktree', 'add'],
+      ['git', 'clone', '--local'],
+      ['git', 'checkout', '--detach'],
+      ['git', 'rev-parse', 'HEAD'],
+      ['git', 'rev-parse', 'HEAD^{tree}'],
+      ['git', 'status', '--porcelain'],
       ['npm', 'ci'],
       ['npm', 'run', 'build'].slice(0, 3),
-      ['git', 'worktree', 'remove'],
     ]);
     expect(metric.candidateBuild).toEqual(expect.objectContaining({
       subjectSha: SUBJECT_SHA,
@@ -463,16 +466,16 @@ describe('P01/P02 detached subject closure', () => {
     let temporaryRoot = '';
     const execute = (command, args) => {
       commands.push([command, ...args]);
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-        temporaryRoot = args[3];
+      if (command === 'git' && args[0] === 'clone') {
+        temporaryRoot = args.at(-1);
         mkdirSync(join(temporaryRoot, 'frontend-app', 'scripts'), { recursive: true });
         writeFileSync(join(temporaryRoot, 'frontend-app', 'scripts', 'render-isolation-probe.test.jsx'), 'subject probe');
         return '';
       }
+      if (command === 'git' && args[0] === 'checkout') return '';
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return SUBJECT_SHA;
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
       if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
       throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
     };
     const runCommand = vi.fn(async (command, args, options) => {
@@ -533,14 +536,14 @@ describe('P01/P02 detached subject closure', () => {
     expect(loadHistoryTarget).toHaveBeenCalledOnce();
     expect(runHistory).toHaveBeenCalledOnce();
     expect(commands.map((command) => command.slice(0, 3))).toEqual([
-      ['git', 'worktree', 'add'],
+      ['git', 'clone', '--local'],
+      ['git', 'checkout', '--detach'],
       ['git', 'rev-parse', 'HEAD'],
       ['git', 'rev-parse', 'HEAD^{tree}'],
       ['git', 'status', '--porcelain'],
       ['npm', 'ci'],
       ['git', 'status', '--porcelain'],
       ['git', 'status', '--porcelain'],
-      ['git', 'worktree', 'remove'],
     ]);
     expect(existsSync(temporaryRoot)).toBe(false);
   });
@@ -552,15 +555,15 @@ describe('P03 detached subject runtime', () => {
     let temporaryRoot = '';
     const execute = (command, args) => {
       commands.push([command, ...args]);
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-        temporaryRoot = args[3];
+      if (command === 'git' && args[0] === 'clone') {
+        temporaryRoot = args.at(-1);
         createP03SubjectClosure(temporaryRoot);
         return '';
       }
+      if (command === 'git' && args[0] === 'checkout') return '';
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return SUBJECT_SHA;
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
       if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
       throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
     };
     const runCommand = vi.fn(async (command, args, options) => {
@@ -590,7 +593,6 @@ describe('P03 detached subject runtime', () => {
       runCommand,
     })).rejects.toThrow(/timed out/);
     expect(runCommand).toHaveBeenCalledOnce();
-    expect(commands).toContainEqual(['git', 'worktree', 'remove', '--force', temporaryRoot]);
     expect(existsSync(temporaryRoot)).toBe(false);
   });
 
@@ -615,14 +617,14 @@ describe('P03 detached subject runtime', () => {
     const commands = [];
     const execute = (command, args) => {
       commands.push([command, ...args]);
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-        createP03SubjectClosure(args[3]);
+      if (command === 'git' && args[0] === 'clone') {
+        createP03SubjectClosure(args.at(-1));
         return '';
       }
+      if (command === 'git' && args[0] === 'checkout') return '';
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return SUBJECT_SHA;
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
       if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
       throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
     };
     const runCommand = vi.fn(async (command, args, options) => {
@@ -667,31 +669,31 @@ describe('P03 detached subject runtime', () => {
       worktreeStatus: [],
     }));
     expect(commands.map((command) => command.slice(0, 3))).toEqual([
-      ['git', 'worktree', 'add'],
+      ['git', 'clone', '--local'],
+      ['git', 'checkout', '--detach'],
       ['git', 'rev-parse', 'HEAD'],
       ['git', 'rev-parse', 'HEAD^{tree}'],
       ['git', 'status', '--porcelain'],
       ['npm', 'ci'],
       ['git', 'status', '--porcelain'],
-      ['git', 'worktree', 'remove'],
     ]);
   });
 
-  it('removes the detached worktree and temporary directory when Git identity differs from the requested subject', async () => {
+  it('cleans the temporary subject when Git identity differs from the requested subject', async () => {
     const commands = [];
     let temporaryRoot = '';
     const mismatchedSha = '9'.repeat(40);
     const execute = (command, args) => {
       commands.push([command, ...args]);
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-        temporaryRoot = args[3];
+      if (command === 'git' && args[0] === 'clone') {
+        temporaryRoot = args.at(-1);
         mkdirSync(join(temporaryRoot, 'frontend-app'), { recursive: true });
         return '';
       }
+      if (command === 'git' && args[0] === 'checkout') return '';
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return mismatchedSha;
       if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
       if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
       throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
     };
     await expect(collectDetachedStopFeedbackBudget({
@@ -700,7 +702,6 @@ describe('P03 detached subject runtime', () => {
       repositoryRoot: '/repository',
       execute,
     })).rejects.toThrow(/Git identity/);
-    expect(commands).toContainEqual(['git', 'worktree', 'remove', '--force', temporaryRoot]);
     expect(existsSync(temporaryRoot)).toBe(false);
   });
 
@@ -710,15 +711,15 @@ describe('P03 detached subject runtime', () => {
       let temporaryRoot = '';
       const execute = (command, args) => {
         commands.push([command, ...args]);
-        if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-          temporaryRoot = args[3];
+        if (command === 'git' && args[0] === 'clone') {
+          temporaryRoot = args.at(-1);
           createP03SubjectClosure(temporaryRoot);
           return '';
         }
+        if (command === 'git' && args[0] === 'checkout') return '';
         if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return SUBJECT_SHA;
         if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
         if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-        if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
         throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
       };
       const runCommand = async () => (stage === 'npm ci'
@@ -752,7 +753,6 @@ describe('P03 detached subject runtime', () => {
             subjectFeedbackComponent: { path: P03_SUBJECT_FEEDBACK_COMPONENT_PATH, source: 'subject' },
           }),
       })).rejects.toThrow(stage);
-      expect(commands).toContainEqual(['git', 'worktree', 'remove', '--force', temporaryRoot]);
       expect(existsSync(temporaryRoot)).toBe(false);
     }
   });

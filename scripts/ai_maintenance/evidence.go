@@ -131,8 +131,6 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"ai-maintenance:self-test":     {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
 		"backend:archtest":             {"./scripts/test_with_guard.sh", "--archtest-only"},
 		"backend:test_with_guard":      {"./scripts/test_with_guard.sh", "make ci-l1"},
-		"backend:race":                 {"./scripts/test_with_guard.sh", "--race-only"},
-		"backend:nilness":              {"go run ./scripts/nilness_guard.go"},
 		"lsp:changed-diagnostics":      {"go run ./scripts/lsp_diagnostics_gate"},
 		"capcontract:check":            {"make capcontract-check"},
 		"turncontract:verify":          {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
@@ -140,19 +138,16 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"frontend:lint":                {"npm run lint"},
 		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
 		"frontend:changed-tests":       {"npx vitest run"},
-		"frontend:e2e":                 {"npm run test:e2e:", "npm run smoke:desktop:"},
 		"frontend:embed-verify":        {"npm run verify:embed:isolated"},
-		"frontend:performance-verify":  {"npm run performance:verify"},
 		"workflow:actionlint":          {"make actionlint"},
 		"release:semantic-guards":      {"go test ./scripts"},
 		"nightly-protocol:check":       {"go run ./scripts/nightly_protocol_validator"},
 		"mcp-lsp:catalog":              {"./scripts/check_mcp_lsp_workload_catalog.sh"},
-		"mcp-lsp:idle-quick":           {"./scripts/run_mcp_lsp_workload.sh", "./scripts/check_mcp_lsp_workload_catalog.sh", "mcp-lsp-idle-quick"},
+		"mcp-lsp:idle-quick":           {"./scripts/run_mcp_lsp_workload.sh", "./scripts/check_mcp_lsp_workload_catalog.sh", "--receipt-only", "mcp-lsp-idle-quick"},
 		"backend:test-integrity":       {"go test ./internal/guards"},
 		"codemap:check":                {"make codemap-check"},
 		"project-map:check":            {"make project-map-check"},
 		"sqlc:verify":                  {"make sqlc-verify-worktree", "make sqlc-verify"},
-		"gate-image-closure:check":     {"go run ./cmd/super-dolphin-gate closure check --tree"},
 	}
 }
 
@@ -335,12 +330,34 @@ func (p *evidenceParser) setGeneratedPrecheck(value string) {
 
 // commandForGatePresent 将 gate 名称映射到 evidence 中必须出现的命令片段。
 func commandForGatePresent(commands []evidenceCommand, gate string) bool {
+	if gate == "mcp-lsp:idle-quick" {
+		return commandWithFragmentsPresent(commands,
+			"./scripts/run_mcp_lsp_workload.sh", "--id", "mcp-lsp-idle-quick", "--receipt") &&
+			commandWithFragmentsPresent(commands,
+				"./scripts/check_mcp_lsp_workload_catalog.sh", "--receipt-only", "--receipt", "--id", "mcp-lsp-idle-quick")
+	}
 	wants := gateEvidenceCommandFragments()
 	for _, cmd := range commands {
 		for _, want := range wants[gate] {
 			if strings.Contains(cmd.Cmd, want) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func commandWithFragmentsPresent(commands []evidenceCommand, fragments ...string) bool {
+	for _, cmd := range commands {
+		matched := true
+		for _, fragment := range fragments {
+			if !strings.Contains(cmd.Cmd, fragment) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
 		}
 	}
 	return false

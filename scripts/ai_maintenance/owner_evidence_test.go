@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
 func TestExcludeDeferredE2EGoPackagesKeepsFastPackages(t *testing.T) {
@@ -28,40 +30,6 @@ func TestExcludeDeferredE2EGoPackagesKeepsFastPackages(t *testing.T) {
 	}
 }
 
-func TestFilterDeferredE2ERemovesBackendGateWhenOnlyDeferredPackagesRemain(t *testing.T) {
-	plan, err := filterDeferredE2E(gatePlan{
-		RequiredGates:      []string{"backend:test_with_guard", "backend:archtest", "diff:whitespace"},
-		AffectedGoPackages: []string{"./internal/provider/claudecli", "./internal/provider/codexapp"},
-	}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.AffectedGoPackages) != 0 {
-		t.Fatalf("affected packages = %v, want empty", plan.AffectedGoPackages)
-	}
-	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
-	assertStringSetContains(t, plan.RequiredGates, "backend:archtest", "diff:whitespace")
-}
-
-func TestBuildGateRunPlanProviderOnlySkipDeferredRemovesBackendExecutionLane(t *testing.T) {
-	plan, err := buildGateRunPlan(
-		[]string{"internal/provider/claudecli/session.go"},
-		true,
-		true,
-		nil,
-		false,
-		"",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.AffectedGoPackages) != 0 {
-		t.Fatalf("provider-only affected packages = %v, want empty after deferred filtering", plan.AffectedGoPackages)
-	}
-	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
-	assertStringSetContains(t, plan.RequiredGates, "backend:archtest", "backend:nilness", "backend:race")
-}
-
 func TestBuildGatePlanRoutesReleaseWorkflowAndArchtestInputsToOwners(t *testing.T) {
 	tests := []struct {
 		file  string
@@ -78,7 +46,7 @@ func TestBuildGatePlanRoutesReleaseWorkflowAndArchtestInputsToOwners(t *testing.
 		{"internal/platform/db/sqlite/migrations/001.sql", []string{"backend:archtest"}},
 		{"docs/契约/modularity-convention.md", []string{"backend:archtest"}},
 		{"docs/guards/code-size-freeze-v3-fail-first.txt", []string{"backend:archtest"}},
-		{"go.mod", []string{"backend:archtest"}},
+		{"go.mod", []string{"backend:test_with_guard"}},
 		{"internal/archtest/freeze_baseline.json", []string{"backend:archtest"}},
 		{"internal/provider/_template/module.go.txt", []string{"backend:archtest"}},
 		{"scripts/ai_maintenance_gates.sh", []string{"backend:archtest"}},
@@ -174,6 +142,15 @@ func writeGateFixtureFile(t *testing.T, root, relative, body string) {
 	}
 }
 
+func aiMaintenanceRepoRoot(t *testing.T) string {
+	t.Helper()
+	root, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func TestGeneratedCodemapClassificationMatchesRefreshOwnerOutputs(t *testing.T) {
 	repoRoot := aiMaintenanceRepoRoot(t)
 	command := exec.Command("bash", filepath.Join(repoRoot, "scripts", "refresh_generated_artifacts.sh"), "all", "--list-outputs")
@@ -235,23 +212,6 @@ COMMANDS_RUN:
 			t.Fatalf("error missing %q\n%s", want, out)
 		}
 	}
-}
-
-func TestGateImageClosureEvidenceAcceptsActualRunnerAndRejectsRetiredAction(t *testing.T) {
-	plan := gatePlan{RequiredGates: []string{"gate-image-closure:check"}}
-	actual := evidenceDoc{CommandsRun: []evidenceCommand{{Cmd: "go run ./cmd/super-dolphin-gate closure check --tree deadbeef", Exit: intPointer(0)}}}
-	if problems := gateCommandProblems(actual, plan); len(problems) != 0 {
-		t.Fatalf("actual closure runner evidence rejected: %v", problems)
-	}
-
-	retired := evidenceDoc{CommandsRun: []evidenceCommand{{Cmd: "go run ./cmd/super-dolphin-gate verify-closure", Exit: intPointer(0)}}}
-	if problems := gateCommandProblems(retired, plan); len(problems) == 0 {
-		t.Fatal("retired verify-closure evidence was accepted")
-	}
-}
-
-func intPointer(value int) *int {
-	return &value
 }
 
 func TestValidateEvidenceAcceptsBlockedReportWithoutGreenEvidence(t *testing.T) {
@@ -398,21 +358,6 @@ func writeEvidence(t *testing.T, body string) string {
 	return path
 }
 
-func TestGateCommandEnvironmentIsolatesCacheIndexFromNonGitGates(t *testing.T) {
-	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "staged-index"))
-
-	for _, entry := range gateCommandEnvironment("go") {
-		if strings.HasPrefix(entry, "GIT_INDEX_FILE=") {
-			t.Fatalf("non-git gate inherited staged index: %q", entry)
-		}
-	}
-
-	want := "GIT_INDEX_FILE=" + os.Getenv("GIT_INDEX_FILE")
-	if !slices.Contains(gateCommandEnvironment("git"), want) {
-		t.Fatalf("git whitespace gate lost staged index %q", want)
-	}
-}
-
 func assertStringSetContains(t *testing.T, values []string, wants ...string) {
 	t.Helper()
 	set := map[string]bool{}
@@ -463,15 +408,6 @@ func mustBuildGatePlan(t *testing.T, files []string) gatePlan {
 	plan, err := buildGatePlan(files)
 	if err != nil {
 		t.Fatalf("build gate plan: %v", err)
-	}
-	return plan
-}
-
-func mustGatePlanForScope(t *testing.T, files []string, pushGates bool) gatePlan {
-	t.Helper()
-	plan, err := gatePlanForScope(files, pushGates)
-	if err != nil {
-		t.Fatalf("build scoped gate plan: %v", err)
 	}
 	return plan
 }

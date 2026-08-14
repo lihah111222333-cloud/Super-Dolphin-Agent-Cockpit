@@ -140,11 +140,11 @@ npm run guard:critical-skip
 - Go 代码：`local-fast` 先完成同 tree 的前端 test/build/embed；`pre-push` 只重复轻量前端+LSP、独占内存的完整普通后端与架构契约三分片，高内存 nilness 和独立 race 检查只进入 30 分钟 release profile。
 - 前端代码：`local-fast` 运行 `npm run lint`、`npm run test:hook`、build 与 `make frontend-embed-verify`；`pre-push` 只重复 lint，完整测试证据继续由同 tree 回执约束。
 - SQL/store：`make sqlc-verify-worktree`。
-- codemap/project-map/capcontract：由 AI maintenance 对应 `make *-check`，任何 drift 在 pre-commit/pre-push 都 fail-fast。
+- project-map 在 pre-commit exact staged tree 上收敛；codemap/capcontract 及其他完整检查由 remote WorkloadCatalog 的对应 owner 执行，任何 drift 都 fail-fast。
 - skill/doc skill surface：`python3 scripts/validate_super_agent_skills.py`。
 - AI-maintenance 自身或相关路径：`scripts/ai_maintenance_gates.sh`。
 
-`scripts/ai_maintenance/*` 的 gate plan 以变更路径推导 required gates，例如 `backend:test_with_guard`、`backend:archtest`、`backend:race`、`sqlc:verify`、`codemap:check`、`project-map:check`、`frontend:*` 和 `diff:whitespace`。这些完整 gate plan 由 push/release 路径执行；pre-commit 不运行 AI-maintenance plan，只对最终 staged tree 运行轻量代码守卫。可缓存绿色结果的指纹绑定不可变 tree、隔离 index、计划、工具链和稳定环境；只有单提交、同 tree 且 tracked 状态干净的 pre-push 才能复用共同 gate。codemap 与空白检查不缓存，所有缺失输入、损坏 marker 或指纹变化都 fail-fast。
+`scripts/ai_maintenance/*` 只提供开发期 changed-file 计划与显式本地执行，推导 `backend:test_with_guard`、`backend:archtest`、`sqlc:verify`、`codemap:check`、`project-map:check`、按 registry 收窄的 `frontend:*` 和 `diff:whitespace` 等现行 owner。它不再提供本地 push profile、staged gate cache、prevalidated gate 或 closure 旁路；pre-commit 不运行该计划，pre-push/release 的完整门禁、PASS 复用、race、nilness、性能与 E2E 均以 remote WorkloadCatalog 和权威 SQLite receipt 为唯一事实源。
 
 ---
 
@@ -170,7 +170,7 @@ source tree / generator
 
 1. 回答路径、影响面或架构边界问题时，先用 codemap/project-map 缩小范围，再用源码、测试和 LSP 确认。
 2. codemap/project-map/capcontract 看起来过期时，优先修生成器或运行统一刷新入口，不手改生成内容。
-3. pre-commit 不刷新或 stage 生成索引；pre-push 由 AI maintenance 单次检查 codemap/project-map，任何 drift 都会阻断，不能以 warning 形成假绿。
+3. pre-commit 在 exact staged tree 上检查 project-map；仅当输出区干净且发现漂移时，才由受信 Gate 刷新、暂存并对新 tree 复验。pre-push 的 codemap/capcontract 等完整检查由 remote WorkloadCatalog 唯一 owner 执行，任何 drift 都会阻断，不能以 warning 形成假绿。
 4. AI-maintenance gate 把 `codemap:check`、`project-map:check` 和 `generated:source` 当成证据要求，避免 stale map 继续指导修复。
 
 ---
@@ -226,7 +226,9 @@ npm run build
 改 AI-maintenance / hook gate：
 
 ```bash
-go test ./scripts/ai_maintenance -count=1
-go test ./scripts -run 'TestAIMaintenanceGate|TestPreCommit|TestPrePush|TestBuildGatePlan' -count=1
+./scripts/test_with_guard.sh --host-test light ./scripts/ai_maintenance -run '^TestGatePlanProducerMatchesRunnerAndEvidenceRegistries$' -timeout=120s -count=1
+./scripts/test_with_guard.sh --host-test light ./scripts -run '^TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E$' -timeout=120s -count=1
 git diff --check
 ```
+
+本地 host-test 只用于单个具名测试的非权威红绿；完整包与交付结论仍由正常 `git remote-ci push` 的 ECI receipt 给出。

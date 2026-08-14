@@ -112,6 +112,32 @@ func TestFrontendBuildFingerprintTracksViteConfigSiblingHelper(t *testing.T) {
 	}
 }
 
+func TestFrontendPerformanceFingerprintIncludesRunnerAndBuildClosure(t *testing.T) {
+	baseline := frontendCanonicalDigest(t, frontendFingerprintTestSnapshot(), gate.GateIDFrontendPerformanceVerify)
+	for _, test := range []struct {
+		name     string
+		filePath string
+		source   []byte
+	}{
+		{name: "production source", filePath: "frontend-app/src/production.js", source: []byte("export const production = false;\n")},
+		{name: "runner", filePath: "frontend-app/scripts/performance-budget-runner.mjs", source: []byte("export const runnerChanged = true;\n")},
+		{name: "baseline", filePath: "frontend-app/scripts/frontend-maintainability-baseline.json", source: []byte(`{"changed":true}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := frontendFingerprintTestSnapshot()
+			replaceFrontendFingerprintFile(changed, test.filePath, test.source)
+			if got := frontendCanonicalDigest(t, changed, gate.GateIDFrontendPerformanceVerify); got == baseline {
+				t.Fatalf("performance digest ignored %s", test.filePath)
+			}
+		})
+	}
+	unrelated := frontendFingerprintTestSnapshot()
+	replaceFrontendFingerprintFile(unrelated, "internal/fixture/unrelated.go", []byte("package fixture\nconst changed = true\n"))
+	if got := frontendCanonicalDigest(t, unrelated, gate.GateIDFrontendPerformanceVerify); got != baseline {
+		t.Fatal("performance digest changed after an unrelated repository edit")
+	}
+}
+
 func TestFrontendPlaywrightFingerprintHandlesAddInitScriptPath(t *testing.T) {
 	static := frontendFingerprintTestSnapshot()
 	replaceFrontendFingerprintFile(static, "frontend-app/tests/e2e/business-flows.spec.js", []byte("await page.addInitScript({ path: '../../scripts/init-helper.mjs' });"))

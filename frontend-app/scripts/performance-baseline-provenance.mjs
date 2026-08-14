@@ -21,6 +21,7 @@ const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/performance-budget-model.test.mjs',
   'frontend-app/scripts/performance-budget-runner.mjs',
   'frontend-app/scripts/performance-budget-runner.test.mjs',
+  'frontend-app/scripts/performance-budget-readonly-checkout.test.mjs',
   'frontend-app/scripts/render-isolation-probe.test.jsx',
   'frontend-app/scripts/resource-budget.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
