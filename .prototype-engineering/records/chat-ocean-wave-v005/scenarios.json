@@ -1,0 +1,64 @@
+{
+  "scenarios": [
+    {
+      "id": "intro-dark",
+      "description": "Default dark-theme welcome state shows the full ocean atmosphere behind readable suggestions and composer",
+      "fixture": "Vite browser baseline with no active thread and shell data-theme=dark"
+    },
+    {
+      "id": "intro-light",
+      "description": "Theme switching performs the full coordinated daylight/night transition without losing text contrast",
+      "fixture": "Toggle the existing theme control in the real page and sample the initial, midpoint, and settled CSS states"
+    },
+    {
+      "id": "active-conversation",
+      "description": "When a thread is active, the atmosphere stays continuous behind the timeline without a full-canvas overlay or backdrop filter",
+      "fixture": "User-marked real conversation in dark and light themes plus the existing ChatPage active-thread fixture"
+    },
+    {
+      "id": "glass-dark",
+      "description": "User bubble, assistant bubble, and composer expose the ocean through the same 67%-opaque blurred surface in dark mode",
+      "fixture": "User-marked real dark-theme conversation; sample computed background alpha and backdrop-filter for all three targets"
+    },
+    {
+      "id": "glass-light",
+      "description": "The same three surfaces retain exact 67% opacity and readable contrast after switching to light mode",
+      "fixture": "Toggle the existing theme control, then sample computed styles and capture the real conversation"
+    },
+    {
+      "id": "ai-running",
+      "description": "A running AI turn transitions the ocean to its energetic animation state from existing runtime truth",
+      "fixture": "Real active turn showing Running / Process status and active-thread React fixture"
+    },
+    {
+      "id": "ai-idle",
+      "description": "Completion removes the energetic state and returns the ocean to its calm animation",
+      "fixture": "Same real thread after the active turn completes"
+    },
+    {
+      "id": "notice-overlay",
+      "description": "A visible chat notice stays within the chat canvas and does not shift behind the navigation sidebar",
+      "fixture": "User-marked multi-reply notice in the real light-theme conversation"
+    },
+    {
+      "id": "agent-board-overlay",
+      "description": "The floating Agents board overlays the timeline without reserving scroll-canvas width or height",
+      "fixture": "Real conversation with Agents board expanded"
+    },
+    {
+      "id": "compact-width",
+      "description": "At compact width the wave field does not create overflow or overlap the composer controls",
+      "fixture": "Browser viewport override at 760 by 900 pixels"
+    },
+    {
+      "id": "reduced-motion",
+      "description": "Reduced-motion users receive the static ocean composition with all wave animations disabled",
+      "fixture": "CSS assertion for prefers-reduced-motion rules covering every animated ocean element"
+    },
+    {
+      "id": "bootstrap-failure",
+      "description": "Visible backend bootstrap recovery remains readable and actionable above the atmosphere",
+      "fixture": "Browser-only Vite run with Wails backend unavailable"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "createdAt": "2026-08-13T10:19:37+00:00",
+  "currentId": "chat-ocean-wave-v005",
+  "prototypeIds": [
+    "chat-ocean-wave-v001",
+    "chat-ocean-wave-v002",
+    "chat-ocean-wave-v003",
+    "chat-ocean-wave-v004",
+    "chat-ocean-wave-v005"
+  ],
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-14T08:21:14+00:00"
+}

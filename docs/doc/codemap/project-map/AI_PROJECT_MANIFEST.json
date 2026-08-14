@@ -4,19 +4,19 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:a5fe4708e403f77aef8c49b45534bcda6fbb74a5b1ab16aa8bc5ddfb8bdcb184",
-    "entries_sha256": "sha256:1e3a65101681377cbf56ac384fe124807b5cdf4e5a8eb10177607ca7e395eb31"
+    "source_sha256": "sha256:827295f6c68f008a7e1727ba9e33d4c1ddaefa05e674be4e46381e095d3c6505",
+    "entries_sha256": "sha256:c650039f5b3171bce13b7d78c354839337fa1c7def8f9b090fddb1aed989fc7d"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5060,
+  "files": 5062,
   "domains": {
     "other": 1188,
     "remote-ci": 270,
     "docs-agent": 99,
-    "app-ui": 769,
+    "app-ui": 771,
     "platform-provider": 1327,
     "orchestration": 411,
     "modules": 765,
@@ -29,8 +29,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 769,
-        "size_kb": 157,
+        "file_count": 771,
+        "size_kb": 157.4,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -90,7 +90,7 @@
     "cmd": 927,
     "config": 3,
     "docs": 92,
-    "frontend-app": 761,
+    "frontend-app": 763,
     "internal": 2990,
     "pkg": 30,
     "scripts": 192,

@@ -372,9 +372,11 @@ frontend-app/src/mainReadiness.js	frontend-app	app-ui	js-source	4324	当前 Reac
 frontend-app/src/mainReadiness.test.js	frontend-app	app-ui	js-test	3522	当前 React/Vite 前端包	frontend,app,src,mainReadiness,test,当前,React,Vite,前端包
 frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16816	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatMessages.css	frontend-app	app-ui	css	17359	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatMessages,React,页面与路由级,UI
-frontend-app/src/pages/chat/ChatPage.core.test.jsx	frontend-app	app-ui	jsx	36340	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,core,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatOceanPrototype.css	frontend-app	app-ui	css	10823	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatOceanPrototype,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatOceanPrototype.test.js	frontend-app	app-ui	js-test	3122	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatOceanPrototype,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatPage.core.test.jsx	frontend-app	app-ui	jsx	37816	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,core,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.css	frontend-app	app-ui	css	16636	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
-frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	18685	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	20258	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.preview.test.jsx	frontend-app	app-ui	jsx	23806	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,preview,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.retry.test.jsx	frontend-app	app-ui	jsx	2632	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,retry,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.scroll.test.jsx	frontend-app	app-ui	jsx	3519	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,scroll,test,React,页面与路由级,UI

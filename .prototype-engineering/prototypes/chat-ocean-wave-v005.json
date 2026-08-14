@@ -1,0 +1,57 @@
+{
+  "artifacts": {
+    "boundary": ".prototype-engineering/records/chat-ocean-wave-v005/boundary.json",
+    "brief": ".prototype-engineering/records/chat-ocean-wave-v005/brief.md",
+    "record": ".prototype-engineering/records/chat-ocean-wave-v005/record.md",
+    "repositoryMap": ".prototype-engineering/records/chat-ocean-wave-v005/repository-map.md",
+    "scenarios": ".prototype-engineering/records/chat-ocean-wave-v005/scenarios.json"
+  },
+  "boundaryVersion": 3,
+  "checks": [],
+  "createdAt": "2026-08-14T08:20:45+00:00",
+  "decision": null,
+  "evidence": [],
+  "git": {
+    "baseCommit": "dc5e75996510598afc8619797fd9aee1cd297d84",
+    "verifiedCommit": null
+  },
+  "history": [
+    {
+      "at": "2026-08-14T08:20:45+00:00",
+      "from": null,
+      "to": "draft"
+    },
+    {
+      "at": "2026-08-14T08:21:13+00:00",
+      "from": "draft",
+      "to": "discovered"
+    },
+    {
+      "at": "2026-08-14T08:21:14+00:00",
+      "from": "discovered",
+      "to": "framed"
+    },
+    {
+      "at": "2026-08-14T08:21:14+00:00",
+      "from": "framed",
+      "to": "bounded"
+    },
+    {
+      "at": "2026-08-14T08:21:14+00:00",
+      "from": "bounded",
+      "to": "frozen"
+    },
+    {
+      "at": "2026-08-14T08:21:14+00:00",
+      "from": "frozen",
+      "to": "building"
+    }
+  ],
+  "id": "chat-ocean-wave-v005",
+  "name": "chat-ocean-wave",
+  "parentId": "chat-ocean-wave-v004",
+  "phase": "building",
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-14T08:21:14+00:00",
+  "version": 5
+}

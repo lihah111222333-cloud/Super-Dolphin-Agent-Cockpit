@@ -87,6 +87,12 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.queryByText('Creative Brainstorm')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--intro');
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--ocean');
+    const oceanAtmosphere = screen.getByTestId('chat-ocean-atmosphere');
+    expect(oceanAtmosphere).toHaveAttribute('aria-hidden', 'true');
+    expect(oceanAtmosphere.querySelectorAll('.chat-ocean-wave')).toHaveLength(3);
+    expect(oceanAtmosphere.querySelectorAll('.chat-ocean-stars i')).toHaveLength(12);
+    expect(oceanAtmosphere.querySelector('.chat-ocean-moon-shadow')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-drop-zone')).toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
@@ -369,9 +375,27 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByRole('heading', { name: '空消息线程' })).toBeInTheDocument();
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--ocean');
+    expect(screen.getByTestId('chat-ocean-atmosphere')).toBeInTheDocument();
     expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
     expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
+  });
+
+  it('synchronizes the ocean energy state with active and idle thread work', () => {
+    const runningStore = createActiveThreadStore([], {
+      threads: [{ id: 'thread-1', name: '运行中线程', provider: 'codex', status: 'running', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+    const { rerender } = render(<TestChatPageWrapper store={runningStore} projectPath="/repo/app" />);
+
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--ocean-active');
+
+    const idleStore = createActiveThreadStore([], {
+      threads: [{ id: 'thread-1', name: '已完成线程', provider: 'codex', status: 'completed', updatedAt: '2026-06-02T08:01:00Z' }],
+    });
+    rerender(<TestChatPageWrapper store={idleStore} projectPath="/repo/app" />);
+
+    expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--ocean-active');
   });
 
   it('shows invalid message timestamps as an explicit placeholder', () => {
