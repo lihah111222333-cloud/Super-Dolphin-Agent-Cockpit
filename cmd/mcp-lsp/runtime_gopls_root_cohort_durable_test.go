@@ -1,3 +1,5 @@
+//go:build !windows
+
 package main
 
 import (
@@ -5,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,9 +17,6 @@ import (
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -78,9 +76,6 @@ func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T)
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -147,9 +142,6 @@ func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -303,9 +295,6 @@ func TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix(t *testing
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortIdleDrainCompletionAndAdmissionCancel(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	t.Run("completion receipt", func(t *testing.T) {
 		runDurableGoplsRootCohortCompletionReceipt(t)
 	})
@@ -443,9 +432,6 @@ func runDurableGoplsRootCohortAdmissionCancel(t *testing.T) {
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -503,9 +489,6 @@ func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *t
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -594,9 +577,6 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -672,9 +652,6 @@ func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)

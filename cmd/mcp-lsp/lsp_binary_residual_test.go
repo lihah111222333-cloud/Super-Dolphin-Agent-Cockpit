@@ -604,6 +604,8 @@ func lspBinaryEnvSkipKeys() map[string]bool {
 		"GO_AGENT_LSP_ROOTS":                  true,
 		"GO_AGENT_CTL_RPC_ADDR":               true,
 		"GO_AGENT_PEER_MODE":                  true,
+		"MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT":   true,
+		"MCP_LSP_IDLE_TIMEOUT":                true,
 		"PROJECT_ROOT":                        true,
 		"SUPER_DOLPHIN_RUNTIME_MODE":          true,
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR": true,

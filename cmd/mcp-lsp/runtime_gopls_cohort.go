@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -26,20 +25,12 @@ func runtimeServerGoplsDefaultableEnvironmentKeys() []string {
 
 // runtimeServerArgs 按 gopls 二进制内容、Go 构建环境和 daemon 参数派生唯一共享 cohort。
 func runtimeServerArgs(command multilsp.ServerCommand, binary string, env []string) ([]string, error) {
-	return runtimeServerArgsForOS(command, binary, env, runtime.GOOS)
+	return runtimeServerArgsPlatform(command, binary, env)
 }
 
-// runtimeServerArgsForOS 在支持 auto daemon 的平台派生 cohort，在 Windows 移除不受支持的 remote 参数。
-func runtimeServerArgsForOS(command multilsp.ServerCommand, binary string, env []string, goos string, workspaceRoot ...string) ([]string, error) {
+// runtimeServerGoplsAutoDaemonArgs 为非 Windows auto daemon 派生稳定 cohort 参数。
+func runtimeServerGoplsAutoDaemonArgs(command multilsp.ServerCommand, binary string, env []string, workspaceRoot ...string) ([]string, error) {
 	args := slices.Clone(command.Args)
-	if !runtimeServerUsesSharedGoplsDaemon(command) {
-		return args, nil
-	}
-	if goos == "windows" {
-		return slices.DeleteFunc(args, func(arg string) bool {
-			return strings.HasPrefix(arg, "-remote=") || strings.HasPrefix(arg, "-remote.listen.timeout=")
-		}), nil
-	}
 	cohortID, err := runtimeServerGoplsCohortID(command, binary, env, workspaceRoot...)
 	if err != nil {
 		return nil, err
@@ -82,8 +73,8 @@ func runtimeServerGoplsRootCohortConfig(
 	binary, workspaceRoot string,
 	env []string,
 ) (multilsp.GoplsRootCohortConfig, error) {
-	if runtime.GOOS == "windows" {
-		return multilsp.GoplsRootCohortConfig{}, fmt.Errorf("gopls root cohort admission is unsupported on windows")
+	if err := validateRuntimeServerGoplsRootCohortPlatform(); err != nil {
+		return multilsp.GoplsRootCohortConfig{}, err
 	}
 	proof, err := runtimeServerGoplsRepositoryInstanceProof(workspaceRoot)
 	if err != nil {
@@ -123,7 +114,7 @@ func runtimeServerGoplsRepositoryInstanceProof(workspaceRoot string) (multilsp.G
 	if !info.IsDir() {
 		return multilsp.GoplsRepositoryInstanceProof{}, fmt.Errorf("canonical root for gopls cohort proof is not a directory: %s", canonical)
 	}
-	filesystemIdentity, err := runtimeServerStableFilesystemIdentity(info)
+	filesystemIdentity, err := runtimeServerStableFilesystemIdentity(canonical, info)
 	if err != nil {
 		return multilsp.GoplsRepositoryInstanceProof{}, err
 	}
@@ -484,11 +475,9 @@ func runtimeServerEnvironmentFingerprint(env []string) string {
 	return hex.EncodeToString(sum[:6])
 }
 
-// runtimeServerUsesSharedGoplsDaemon 识别会派生进程外共享 daemon 的 gopls auto-remote 命令。
+// runtimeServerUsesSharedGoplsDaemon 按平台识别会接入进程外共享 daemon 的 gopls 命令。
 func runtimeServerUsesSharedGoplsDaemon(command multilsp.ServerCommand) bool {
 	base := filepath.Base(strings.TrimSpace(command.Executable))
 	base = strings.TrimSuffix(base, filepath.Ext(base))
-	return base == "gopls" && slices.ContainsFunc(command.Args, func(arg string) bool {
-		return strings.HasPrefix(arg, "-remote=auto;")
-	})
+	return runtimeServerUsesSharedGoplsDaemonPlatform(base, command.Args)
 }

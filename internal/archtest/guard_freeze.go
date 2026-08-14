@@ -360,6 +360,7 @@ func validateGuardFreezeEvidence(freezePath string, freeze GuardFreeze) error {
 	if err != nil {
 		return fmt.Errorf("guard freeze %s fail-first evidence: %w", freezePath, err)
 	}
+	body = normalizeGuardFreezeEvidenceBytes(body)
 	digest := sha256.Sum256(body)
 	if got := hex.EncodeToString(digest[:]); got != freeze.Acceptance.EvidenceSHA256 {
 		return fmt.Errorf("guard freeze %s fail-first evidence SHA-256 mismatch", freezePath)

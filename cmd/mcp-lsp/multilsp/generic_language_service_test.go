@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
@@ -38,36 +39,11 @@ func TestGoLanguageAdapterBoundsSharedDaemonMemory(t *testing.T) {
 	}
 }
 
-func TestGoplsRemoteListenTimeoutArgValidatesConfiguration(t *testing.T) {
-	tests := []struct {
-		name       string
-		idle       time.Duration
-		goos       string
-		want       []string
-		wantErrSub string
-	}{
-		{name: "default", idle: 15 * time.Minute, goos: "darwin", want: []string{goplsRemoteAutoArg, "-remote.listen.timeout=15m0s"}},
-		{name: "custom", idle: 2500 * time.Millisecond, goos: "linux", want: []string{goplsRemoteAutoArg, "-remote.listen.timeout=2.5s"}},
-		{name: "windows", idle: 15 * time.Minute, goos: "windows", want: nil},
-		{name: "zero", idle: 0, goos: "darwin", wantErrSub: "positive"},
-		{name: "negative", idle: -time.Second, goos: "darwin", wantErrSub: "positive"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := goplsServerArgs(test.idle, test.goos)
-			if test.wantErrSub != "" {
-				if err == nil || !strings.Contains(err.Error(), test.wantErrSub) {
-					t.Fatalf("goplsServerArgs() error = %v, want substring %q", err, test.wantErrSub)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("goplsServerArgs() error = %v", err)
-			}
-			if !slices.Equal(got, test.want) {
-				t.Fatalf("goplsServerArgs() = %#v, want %#v", got, test.want)
-			}
-		})
+func TestGoplsServerArgsRejectsNonPositiveIdleTimeout(t *testing.T) {
+	for _, idleTimeout := range []time.Duration{0, -time.Second} {
+		if _, err := lspplatform.GoplsServerArgs(idleTimeout); err == nil || !strings.Contains(err.Error(), "positive") {
+			t.Fatalf("GoplsServerArgs(%s) error = %v, want positive timeout error", idleTimeout, err)
+		}
 	}
 }
 

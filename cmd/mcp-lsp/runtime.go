@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -527,12 +526,9 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		return nil, errors.New("language adapter server command is empty")
 	}
 	binary := &runtimeBinaryOverride{value: initialBinary}
-	var goplsRootController multilsp.GoplsRootCohortController
-	if runtime.GOOS != "windows" && runtimeServerUsesSharedGoplsDaemon(command) {
-		goplsRootController, err = runtimeServerNewDurableGoplsRootCohortController()
-		if err != nil {
-			return nil, err
-		}
+	goplsRootController, err := runtimeServerNewPlatformGoplsRootCohortController(command)
+	if err != nil {
+		return nil, err
 	}
 	mgr, err := multilsp.NewManagerWithError(multilsp.Config{
 		WorkspaceRoot:                    root,

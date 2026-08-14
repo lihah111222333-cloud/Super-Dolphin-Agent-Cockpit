@@ -116,6 +116,15 @@ GO_AGENT_LSP_ROOTS=<由 JSON encoder 生成、仅含 trusted-cwd 的绝对路径
 
 前三项是 sidecar 启动所需契约，后两项绑定可信 LSP workspace。独立 `mcp-lsp` 使用 `production`；`desktop_host` 只用于桌面 owner 的开发启动器，不能复制到三家独立 MCP 配置。不得依赖 shell 中偶然继承的值，不得在二进制中添加隐式默认值。
 
+原生 Windows 使用共享 gopls 时，当前 server 的 `env` 还必须显式包含：
+
+~~~text
+SUPER_DOLPHIN_LSP_BUNDLE_DIR=<bin/LSP/lsp 的绝对路径>
+SUPER_DOLPHIN_LSP_MANIFEST=<bin/LSP/lsp/lsp-manifest.json 的绝对路径>
+~~~
+
+这两个字段只证明包内 gopls 的路径与摘要，不改变可信 workspace；不得把它们与 `GO_AGENT_LSP_ROOT(S)` 混用。bundle、manifest 或原生 `gopls.exe` 缺失时 fail-fast，不得退回 PATH gopls。
+
 `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` 在本 dev 分发布局中是随 `bin/LSP` 交付的资源根；从源码构建时是 source checkout 根。它不是目标源码文件目录，也不是凭二进制位置临时猜出的值。若用户采用其他资源布局，必须先核对真实资源根，再显式配置。
 
 Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼接 `C:\...`。原生 Windows 和 WSL 的 command、cwd、runtime resources 与两个 root 字段必须全部属于同一种路径体系。
@@ -129,7 +138,7 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 - 项目文件：.codex/config.toml。
 - 只在项目受信任时生效。
 - stdio server 使用 mcp_servers.<name> 表、command、args、cwd 和 env。
-- env 必须包含三个 `SUPER_DOLPHIN_*` 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段。
+- env 必须包含三个 sidecar 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段；原生 Windows 还必须包含两个受信 LSP bundle 字段。
 - 需要强制 LSP 时可设置 enabled = true 和 required = true。
 - 保留其他 MCP server、features、hooks、model 和逐工具审批设置。
 
@@ -138,7 +147,7 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 - 项目文件：项目根 .mcp.json。
 - 使用 mcpServers 对象中的项目 server；这是 project scope。
 - 本地 stdio server 使用 command、args 和 env。
-- env 必须包含三个 `SUPER_DOLPHIN_*` 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段。
+- env 必须包含三个 sidecar 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段；原生 Windows 还必须包含两个受信 LSP bundle 字段。
 - 首次加载项目 server 时需要 workspace trust 和用户批准。
 - 不得误写默认 local scope 或用户级 ~/.claude.json。
 
@@ -147,7 +156,7 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 - 项目文件：.agents/mcp_config.json。
 - 使用 mcpServers 对象中的 workspace-local server。
 - 本地 stdio server 使用 command、args、cwd 和 env。
-- env 必须包含三个 `SUPER_DOLPHIN_*` 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段。
+- env 必须包含三个 sidecar 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段；原生 Windows 还必须包含两个受信 LSP bundle 字段。
 - 不得写全局 ~/.gemini/config/mcp_config.json。
 - 远程 MCP 才使用 serverUrl；本地 mcp-lsp 不使用 url、httpUrl 或 serverUrl。
 
@@ -197,7 +206,7 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 6. command 使用已验证的当前平台二进制绝对路径；cwd 和 LSP roots 指向用户明确选择的同一个 `<trusted-cwd>`，Windows 原生与 WSL 路径不得混用。
 7. 不写密钥、令牌、账号、OAuth secret 或其他凭据。
 8. 缺文件、错误架构、解析失败、schema 不明或客户端不受支持时 fail-fast。
-9. 三个 sidecar 必需字段必须显式写在 server env 中；不为一次性差异增加默认值、兼容分支或隐式 fallback。
+9. 三个 sidecar 必需字段必须显式写在 server env 中；原生 Windows 的两个受信 LSP bundle 字段同样必须显式提供。不为一次性差异增加默认值、兼容分支或隐式 fallback。
 10. 保留用户已有 `GOTOOLCHAIN` 策略。`auto` 或 `<name>+auto` 由 Go 在模块/go.work 目录中执行真实选择；不得为某个项目硬编码通用 Go 补丁版本。
 
 如果目标项目的布局与 bin/LSP 不同，Agent 应直接按实际路径配置并更新说明，而不是强行搬运目录。移动项目或换机器后，要重新确认绝对路径和二进制架构。

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package main
 
 import (
@@ -91,8 +93,8 @@ func TestRuntimeServerArgsFailsFastWhenGoDefaultsCannotBeResolved(t *testing.T) 
 	goBinary := writeRuntimeServerCacheFixture(t, "go", "#!/bin/sh\nexit 23\n")
 	t.Setenv("PATH", filepath.Dir(goBinary))
 	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2"}}
-	if _, err := runtimeServerArgs(command, goplsBinary, []string{"GOCACHE=/go/cache"}); err == nil || !strings.Contains(err.Error(), "resolve default Go environment") {
-		t.Fatalf("runtimeServerArgs() error = %v, want default Go environment failure", err)
+	if _, err := runtimeServerGoplsAutoDaemonArgs(command, goplsBinary, []string{"GOCACHE=/go/cache"}); err == nil || !strings.Contains(err.Error(), "resolve default Go environment") {
+		t.Fatalf("runtimeServerGoplsAutoDaemonArgs() error = %v, want default Go environment failure", err)
 	}
 }
 
@@ -158,8 +160,8 @@ func TestRuntimeServerArgsIgnoresUnavailableGoDefaultAuxiliaryTools(t *testing.T
 	t.Setenv("PKG_CONFIG", "pkg-config")
 	t.Setenv("GOFLAGS", "-p=4")
 	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2"}}
-	if _, err := runtimeServerArgs(command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64"}); err != nil {
-		t.Fatalf("runtimeServerArgs() resolved unused Go defaults: %v", err)
+	if _, err := runtimeServerGoplsAutoDaemonArgs(command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64"}); err != nil {
+		t.Fatalf("runtimeServerGoplsAutoDaemonArgs() resolved unused Go defaults: %v", err)
 	}
 }
 
@@ -168,11 +170,11 @@ func TestRuntimeServerArgsRequiresSelectedGCCGO(t *testing.T) {
 	goBinary := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("selected-gccgo"))
 	t.Setenv("PATH", filepath.Dir(goBinary))
 	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2"}}
-	_, err := runtimeServerArgs(command, goplsBinary, []string{
+	_, err := runtimeServerGoplsAutoDaemonArgs(command, goplsBinary, []string{
 		"GOOS=linux", "GOARCH=amd64", "GOFLAGS=-compiler=gccgo", "GCCGO=gccgo",
 	})
 	if err == nil || !strings.Contains(err.Error(), "resolve GCCGO tool for gopls cohort") {
-		t.Fatalf("runtimeServerArgs() error = %v, want selected GCCGO resolution failure", err)
+		t.Fatalf("runtimeServerGoplsAutoDaemonArgs() error = %v, want selected GCCGO resolution failure", err)
 	}
 }
 

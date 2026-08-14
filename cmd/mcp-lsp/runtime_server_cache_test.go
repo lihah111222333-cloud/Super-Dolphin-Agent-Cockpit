@@ -227,27 +227,6 @@ func TestRuntimeGoplsCohortRehashesSamePathWithRestoredMetadata(t *testing.T) {
 	}
 }
 
-func TestRuntimeWindowsStandaloneGoplsGetsResourceCohort(t *testing.T) {
-	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
-	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
-	command := multilsp.ServerCommand{
-		Executable: "gopls",
-		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
-	}
-	args, err := runtimeServerArgsForOS(command, binary, nil, "windows")
-	if err != nil {
-		t.Fatalf("runtimeServerArgsForOS(windows) error = %v", err)
-	}
-	command.Args = args
-	resourceDir, err := runtimeServerResourceCohortDir(command, binary)
-	if err != nil {
-		t.Fatalf("runtimeServerResourceCohortDir(windows standalone) error = %v", err)
-	}
-	if !strings.Contains(resourceDir, "gopls-standalone") {
-		t.Fatalf("Windows standalone gopls resource cohort = %q", resourceDir)
-	}
-}
-
 func TestRuntimeServerEnvironmentPreservesNodeOptions(t *testing.T) {
 	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
 	t.Setenv("NODE_OPTIONS", "--trace-warnings")

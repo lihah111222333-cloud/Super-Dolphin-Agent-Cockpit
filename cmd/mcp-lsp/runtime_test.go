@@ -415,9 +415,9 @@ func TestRuntimeServerGoplsRootProofIsStableAcrossLinkedWorktrees(t *testing.T) 
 
 func mustRuntimeServerArgsForRoot(t *testing.T, command multilsp.ServerCommand, binary, root string) []string {
 	t.Helper()
-	args, err := runtimeServerArgsForOS(command, binary, []string{"GOOS=darwin"}, "darwin", root)
+	args, err := runtimeServerGoplsAutoDaemonArgs(command, binary, []string{"GOOS=darwin"}, root)
 	if err != nil {
-		t.Fatalf("runtimeServerArgsForOS(root=%q) error = %v", root, err)
+		t.Fatalf("runtimeServerGoplsAutoDaemonArgs(root=%q) error = %v", root, err)
 	}
 	return args
 }
@@ -454,23 +454,12 @@ func TestRuntimeServerArgsSeparatesDaemonIdleTimeouts(t *testing.T) {
 
 func TestRuntimeServerArgsLeavesNonSharedServerUnchanged(t *testing.T) {
 	command := multilsp.ServerCommand{Executable: "pyright-langserver", Args: []string{"--stdio"}}
-	got := mustRuntimeServerArgs(t, command, "pyright-langserver", []string{"GOOS=darwin"})
+	got, err := runtimeServerArgs(command, "pyright-langserver", []string{"GOOS=windows"})
+	if err != nil {
+		t.Fatalf("runtimeServerArgs(non-shared) error = %v", err)
+	}
 	if !slices.Equal(got, command.Args) {
 		t.Fatalf("runtimeServerArgs(non-shared) = %v, want %v", got, command.Args)
-	}
-}
-
-func TestRuntimeServerArgsDisablesUnsupportedWindowsGoplsAutoDaemon(t *testing.T) {
-	command := multilsp.ServerCommand{
-		Executable: "gopls.exe",
-		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
-	}
-	got, err := runtimeServerArgsForOS(command, "gopls.exe", nil, "windows")
-	if err != nil {
-		t.Fatalf("runtimeServerArgsForOS(windows) error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("runtimeServerArgsForOS(windows) = %v, want local gopls without unsupported auto daemon flags", got)
 	}
 }
 
@@ -490,9 +479,9 @@ func TestRuntimeServerArgsSeparatesDifferentGoplsBinaryContents(t *testing.T) {
 
 func mustRuntimeServerArgs(t *testing.T, command multilsp.ServerCommand, binary string, env []string) []string {
 	t.Helper()
-	args, err := runtimeServerArgs(command, binary, env)
+	args, err := runtimeServerGoplsAutoDaemonArgs(command, binary, env)
 	if err != nil {
-		t.Fatalf("runtimeServerArgs() error = %v", err)
+		t.Fatalf("runtimeServerGoplsAutoDaemonArgs() error = %v", err)
 	}
 	return args
 }

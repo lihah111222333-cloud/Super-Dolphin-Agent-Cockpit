@@ -6,7 +6,7 @@
     "reviewed_at": "2026-08-08T18:30:00Z",
     "review_by": "2026-09-08",
     "fail_first_evidence": "docs/guards/remote-ci-production-freeze-fail-first.txt",
-    "evidence_sha256": "a20fa3315901d3d078728ab210234bfb7a93e558a21dcc3ecfdd67437d4ee4e9"
+    "evidence_sha256": "24bb188f3f42e88c6c97b999ef8ee9d7a5faa13751e853d8e216746992b2aea4"
   },
   "approved": {
     "metrics": {
@@ -1250,9 +1250,9 @@
         },
         "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_test.go": {
           "lines": 739,
-          "max_func_len": 88,
+          "max_func_len": 85,
           "max_nesting": 2,
-          "max_complexity": 23,
+          "max_complexity": 22,
           "max_params": 2,
           "max_returns": 1,
           "max_underscore": 0,
@@ -3180,21 +3180,6 @@
       }
     },
     "tests": {
-      "cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go": {
-        "lines": 661,
-        "max_func_len": 83,
-        "max_nesting": 3,
-        "max_complexity": 10,
-        "max_params": 7,
-        "max_returns": 3,
-        "max_underscore": 1,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 4
-      },
       "cmd/mcp-lsp/lsp_binary_mjs_tools_e2e_test.go": {
         "lines": 389,
         "max_func_len": 33,
@@ -3259,9 +3244,9 @@
       },
       "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_test.go": {
         "lines": 739,
-        "max_func_len": 88,
+        "max_func_len": 85,
         "max_nesting": 2,
-        "max_complexity": 23,
+        "max_complexity": 22,
         "max_params": 2,
         "max_returns": 1,
         "max_underscore": 0,
@@ -3274,7 +3259,7 @@
         "max_struct_methods": 1
       },
       "cmd/mcp-lsp/runtime_test.go": {
-        "lines": 877,
+        "lines": 867,
         "max_func_len": 52,
         "max_nesting": 2,
         "max_complexity": 8,

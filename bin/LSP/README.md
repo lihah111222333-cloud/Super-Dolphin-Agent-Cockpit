@@ -16,6 +16,15 @@
 
 缺少前两个字段会报 `sidecar requires SUPER_DOLPHIN_RUNTIME_MODE and SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR`；补齐后若缺第三个字段，会报 `SUPER_DOLPHIN_DEPENDENCY_PROFILE is required for production bootstrap`。这些错误不能靠代码默认值绕过。
 
+Windows 原生版共享 gopls 时还必须显式提供受信 bundle：
+
+| 环境变量 | `bin/LSP` 交付布局的值 |
+|---|---|
+| `SUPER_DOLPHIN_LSP_BUNDLE_DIR` | `<项目根>/bin/LSP/lsp` 的绝对路径 |
+| `SUPER_DOLPHIN_LSP_MANIFEST` | `<项目根>/bin/LSP/lsp/lsp-manifest.json` 的绝对路径 |
+
+这两个字段只绑定包内 gopls 身份，不定义可信 workspace；workspace 仍只由外部 `GO_AGENT_LSP_ROOT(S)` 配置决定。缺少 bundle、manifest、摘要或原生 `gopls.exe` 时 Windows Go LSP 必须 fail-fast，不能退回 PATH gopls。
+
 项目作用域还应显式提供 `GO_AGENT_LSP_ROOT` 和合法 JSON 数组形式的 `GO_AGENT_LSP_ROOTS`。Windows 配置优先使用正斜杠路径，避免在 JSON 字符串中手工转义反斜杠。
 
 ## 目录内容
@@ -28,6 +37,7 @@
 | mcp-lsp-linux-arm | Linux ARM64 |
 | mcp-lsp-windows-x86.exe | Windows x86-64 |
 | mcp-lsp-windows-arm.exe | Windows ARM64 |
+| lsp/lsp-manifest.json、lsp/bin/gopls.exe | Windows 共享 gopls 的受信 bundle 与原生二进制 |
 | AGENTS.md | LSP 导航、影响分析、诊断和验证规则样板 |
 | codex-lsp-config.example.toml | 从本项目 `.codex/config.toml` 提取的 Codex LSP 配置示例，含平台二进制、默认 cwd、可信根和相对工具路径注释 |
 | mcp-lsp-project-config-skill | 三家客户端的项目级配置判断方法和参考 |
@@ -86,7 +96,7 @@ cp -R bin/LSP/mcp-lsp-project-config-skill \
 再检查当前系统和 CPU、bin/LSP 二进制的真实 GOOS/GOARCH、现有项目级 MCP 配置以及客户端版本。
 在 Windows 上自动判断当前是原生 PowerShell 还是 WSL：PowerShell 选择 Windows .exe 和 Windows 路径，WSL 选择 Linux 二进制和 /mnt 路径，禁止混用。
 根据实际情况为 Codex、Claude Code 和 Antigravity 配置项目级 mcp-lsp。
-在每家 server 的 env 中显式写入 SUPER_DOLPHIN_RUNTIME_MODE、SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR、SUPER_DOLPHIN_DEPENDENCY_PROFILE、GO_AGENT_LSP_ROOT 和 GO_AGENT_LSP_ROOTS。
+在每家 server 的 env 中显式写入 SUPER_DOLPHIN_RUNTIME_MODE、SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR、SUPER_DOLPHIN_DEPENDENCY_PROFILE、GO_AGENT_LSP_ROOT 和 GO_AGENT_LSP_ROOTS；Windows 原生版还写入 SUPER_DOLPHIN_LSP_BUNDLE_DIR 和 SUPER_DOLPHIN_LSP_MANIFEST。
 逐字段合并，不覆盖其他 server，不写用户级配置，不写凭据。
 完成后重新解析配置、刷新客户端，并实际调用一个 LSP 工具验证。
 ~~~
@@ -104,7 +114,7 @@ Agent 应自行完成：
 2. 识别 macOS/Linux/Windows 和 x86-64/ARM64；Windows 还要区分原生 PowerShell 与 WSL。
 3. 用 go version -m、file 或 PE 信息验证二进制真实目标。
 4. 读取全部现有配置。
-5. 根据客户端当前 schema 和项目布局拟定最小补丁，并补齐三个 sidecar 必需环境变量与两个 LSP root 字段。
+5. 根据客户端当前 schema 和项目布局拟定最小补丁，并补齐三个 sidecar 必需环境变量与两个 LSP root 字段；Windows 原生版同时补齐受信 bundle 和 manifest 路径。
 6. 逐字段合并并保留其他设置。
 7. 重新解析 JSON/TOML。
 8. 刷新客户端并调用真实 LSP 工具。

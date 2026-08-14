@@ -1,8 +1,9 @@
+//go:build !windows
+
 package main
 
 import (
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -19,9 +20,6 @@ type runtimeGoplsMultiAgentLease struct {
 // 用十个独立 controller 覆盖两个仓库各五个 worktree agent 同时持有 lease 的边界。
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortAllowsTenCompatibleAgentsAcrossTwoRepositories(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)

@@ -201,7 +201,7 @@ func (r *poolRecycler) checkManager(_ int, mgr *manager, scope ResolvedLSPToolSc
 // recycleIfNeeded 在单个 workspace client 超过 RSS 上限时尝试回收。
 // 仍有活跃租约时只记录日志不关闭进程，避免正在执行的 LSP 请求被异步切断。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
-	if isGoResourceCohortLanguage(workspace.languageID) {
+	if goplsRootCohortOwnsResources(workspace.languageID) {
 		// gopls daemon/forwarder 的关闭权归 root cohort controller；旧 recycler 不得成为第二个 writer。
 		return
 	}
@@ -239,7 +239,7 @@ func (r *poolRecycler) failClosedAfterProbeDegradation(
 	workspace workspaceClient,
 	probeDegraded bool,
 ) {
-	if isGoResourceCohortLanguage(workspace.languageID) {
+	if goplsRootCohortOwnsResources(workspace.languageID) {
 		return
 	}
 	if !probeDegraded {
@@ -342,7 +342,7 @@ func logRSSRecycleActiveLease(
 }
 
 func executeMemoryRecycle(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, cohortEviction bool) (bool, error) {
-	if isGoResourceCohortLanguage(workspace.languageID) {
+	if goplsRootCohortOwnsResources(workspace.languageID) {
 		return false, nil
 	}
 	if cohortEviction {
@@ -659,7 +659,7 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 // shutdownResourceCohortWorkspace 在跨 worktree cohort 超限时只关闭当前 owner 的空闲 client。
 // 它不立即重建；下一次真实请求会懒启动，从而让总账回到软水位而不跨进程 kill。
 func shutdownResourceCohortWorkspace(mgr *manager, workspace workspaceClient) (bool, error) {
-	if isGoResourceCohortLanguage(workspace.languageID) {
+	if goplsRootCohortOwnsResources(workspace.languageID) {
 		return false, nil
 	}
 	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClientForIdle(mgr, workspace)

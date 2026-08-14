@@ -17,6 +17,8 @@
 
 > 示例中的 `/absolute/project` 代表目标项目根，必须在落地配置时替换为该项目的真实绝对路径。示例二进制使用 macOS Apple Silicon；其他平台只替换 `command` 为“平台二进制映射”中的对应文件，不能同时混用另一平台的路径语义。
 
+原生 Windows 的 Go LSP 还要求同一 server 显式提供 `SUPER_DOLPHIN_LSP_BUNDLE_DIR=<项目根>/bin/LSP/lsp` 和 `SUPER_DOLPHIN_LSP_MANIFEST=<项目根>/bin/LSP/lsp/lsp-manifest.json` 的绝对路径。它们绑定包内 gopls 身份，不扩大 `GO_AGENT_LSP_ROOT(S)` 定义的 workspace。WSL 使用 Linux 二进制，不得混入 Windows bundle 路径。
+
 ## Codex
 
 项目文件：.codex/config.toml。项目必须被信任，否则 Codex 忽略项目 .codex 配置层。
@@ -191,6 +193,8 @@ claude mcp get lsp
 | `command`（x86-64） | `G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x86.exe` | `/mnt/g/develop/中转/new-api-main/bin/LSP/mcp-lsp-linux-x86` |
 | `cwd` | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
 | `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
+| `SUPER_DOLPHIN_LSP_BUNDLE_DIR` | `G:/develop/中转/new-api-main/bin/LSP/lsp` | 按 Linux 分发布局显式配置；不得使用 Windows 路径 |
+| `SUPER_DOLPHIN_LSP_MANIFEST` | `G:/develop/中转/new-api-main/bin/LSP/lsp/lsp-manifest.json` | 按 Linux 分发布局显式配置；不得使用 Windows 路径 |
 | `GO_AGENT_LSP_ROOT` | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
 | `GO_AGENT_LSP_ROOTS` | `["G:/develop/中转/new-api-main"]` | `["/mnt/g/develop/中转/new-api-main"]` |
 

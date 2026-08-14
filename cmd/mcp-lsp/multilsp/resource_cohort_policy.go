@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -71,19 +70,19 @@ func createResourceCohortDirectory(path string) (bool, error) {
 // resourceProcessPolicyForClient 读取创建期确定的非 gopls 主次资源策略。
 // gopls 已迁移到 root cohort controller，禁止重新接入旧 RSS cohort。
 func resourceProcessPolicyForClient(current Client, languageID string) (resourceProcessPolicy, error) {
-	if isGoResourceCohortLanguage(languageID) {
+	if goplsRootCohortOwnsResources(languageID) {
 		return resourceProcessPolicy{}, errors.New("gopls resource cohort policy is retired; use the root cohort controller")
 	}
-	return nonGoplsResourceProcessPolicy(current)
+	return repositoryResourceProcessPolicy(current)
 }
 
-// nonGoplsResourceProcessPolicy 严格校验创建期注入的 repo cohort、角色、租约与进程上限。
-func nonGoplsResourceProcessPolicy(current Client) (resourceProcessPolicy, error) {
+// repositoryResourceProcessPolicy 严格校验创建期注入的 repo cohort、角色、租约与进程上限。
+func repositoryResourceProcessPolicy(current Client) (resourceProcessPolicy, error) {
 	env, ok := resourceClientEnvironment(current)
 	if !ok {
-		return resourceProcessPolicy{}, errors.New("non-gopls resource policy requires a concrete client environment")
+		return resourceProcessPolicy{}, errors.New("repository resource policy requires a concrete client environment")
 	}
-	policy, err := nonGoplsResourcePolicyFromEnvironment(env)
+	policy, err := repositoryResourcePolicyFromEnvironment(env)
 	if err != nil {
 		return resourceProcessPolicy{}, err
 	}
@@ -94,8 +93,8 @@ func nonGoplsResourceProcessPolicy(current Client) (resourceProcessPolicy, error
 	return policy, nil
 }
 
-// nonGoplsResourcePolicyFromEnvironment 从冻结环境构造唯一预算快照，不读取父进程配置。
-func nonGoplsResourcePolicyFromEnvironment(env []string) (resourceProcessPolicy, error) {
+// repositoryResourcePolicyFromEnvironment 从冻结环境构造唯一预算快照，不读取父进程配置。
+func repositoryResourcePolicyFromEnvironment(env []string) (resourceProcessPolicy, error) {
 	if _, configured := resourceEnvironmentLookup(env, DeprecatedResourceCohortHardLimitMBEnv); configured {
 		return resourceProcessPolicy{}, fmt.Errorf(
 			"%s is no longer supported; use %s",
@@ -117,14 +116,14 @@ func nonGoplsResourcePolicyFromEnvironment(env []string) (resourceProcessPolicy,
 		rssLimitBytes:        limit,
 		cohortHardLimitBytes: hardLimit,
 	}
-	if err := policy.validateNonGopls(); err != nil {
+	if err := policy.validateRepositoryCohort(); err != nil {
 		return resourceProcessPolicy{}, err
 	}
 	return policy, nil
 }
 
-// validateNonGopls 校验冻结的 repo 身份、角色与两层 RSS 预算关系。
-func (policy resourceProcessPolicy) validateNonGopls() error {
+// validateRepositoryCohort 校验冻结的 repo 身份、角色与两层 RSS 预算关系。
+func (policy resourceProcessPolicy) validateRepositoryCohort() error {
 	if !strings.HasPrefix(policy.repositoryCohortID, "repo-") {
 		return fmt.Errorf("%s is invalid: %q", ResourceRepositoryCohortIDEnv, policy.repositoryCohortID)
 	}
@@ -406,24 +405,4 @@ func resourceCohortMemberIdentityMatches(member resourceCohortMember) (bool, err
 		return false, fmt.Errorf("verify LSP resource client start identity: %w", err)
 	}
 	return ownerStart == member.OwnerStartIdentity && clientStart == member.ClientStartIdentity, nil
-}
-
-// refreshStaleResourceCohortRSS 在 POSIX 上重采样进程树，Windows 上按创建期上限保守计账。
-func refreshStaleResourceCohortRSS(member resourceCohortMember) (uint64, error) {
-	switch runtime.GOOS {
-	case "darwin", "linux":
-		rssBytes, err := hiddenexec.ProcessTreeRSSBytes(member.ClientPID)
-		if err != nil {
-			return 0, fmt.Errorf("refresh stale LSP process-tree RSS: %w", err)
-		}
-		if rssBytes == 0 {
-			return 0, errors.New("refresh stale LSP process-tree RSS: zero-byte sample")
-		}
-		return rssBytes, nil
-	case "windows":
-		// 远端 owner 的 Job Object 句柄不可重建；至少按创建期进程上限保守计账。
-		return max(member.RSSBytes, member.ProcessRSSLimitBytes), nil
-	default:
-		return 0, fmt.Errorf("refresh stale LSP process-tree RSS: unsupported platform %s", runtime.GOOS)
-	}
 }

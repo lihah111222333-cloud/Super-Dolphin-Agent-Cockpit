@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -26,6 +25,10 @@ func createRuntimeLSPClient(
 ) (multilsp.Client, error) {
 	dir := runtimeServerLSPClientDir(root, rootDir)
 	serverBinary := binary.Get()
+	serverBinary, err := runtimeServerTrustedGoplsClientBinary(command, serverBinary)
+	if err != nil {
+		return nil, err
+	}
 	goplsLease, err := runtimeServerAcquireGoplsRootLease(command, serverBinary, dir, env, goplsRootController)
 	if err != nil {
 		return nil, err
@@ -66,29 +69,10 @@ func runtimeServerLSPClientDir(root, rootDir string) string {
 	return dir
 }
 
-// runtimeServerAcquireGoplsRootLease 为共享 gopls daemon 获取 durable root lease。
-func runtimeServerAcquireGoplsRootLease(command multilsp.ServerCommand, serverBinary, dir string, env []string, controller multilsp.GoplsRootCohortController) (*multilsp.GoplsRootCohortLease, error) {
-	if runtime.GOOS == "windows" || !runtimeServerUsesSharedGoplsDaemon(command) {
-		return nil, nil
-	}
-	config, err := runtimeServerGoplsRootCohortConfig(command, serverBinary, dir, env)
-	if err != nil {
-		return nil, err
-	}
-	if controller == nil {
-		return nil, fmt.Errorf("%w for cohort %s", multilsp.ErrGoplsRootCohortDurabilityUnsupported, config.CohortID)
-	}
-	lease, err := controller.AcquireLease(config)
-	if err != nil {
-		return nil, err
-	}
-	return &lease, nil
-}
-
 // runtimeServerPrepareLSPClient 计算 server args/env/init options，并建立 SQL 通知包装。
 func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command multilsp.ServerCommand, serverBinary, dir string, env []string, initOptions map[string]any, packagedLSP bool, handler protocol.NotificationHandler) (runtimeServerLSPClientPreparation, error) {
 	preparation := runtimeServerLSPClientPreparation{}
-	serverArgs, err := runtimeServerArgsForOS(command, serverBinary, env, runtime.GOOS, dir)
+	serverArgs, err := runtimeServerArgsPlatform(command, serverBinary, env, dir)
 	if err != nil {
 		return preparation, err
 	}
@@ -172,19 +156,12 @@ func (c *goplsRootCohortClient) ServerCapabilities() protocol.ServerCapabilities
 	return capabilities.ServerCapabilities()
 }
 
-// Close 把真实 forwarder transport 交给 root cohort owner；最后 member 的
-// transport 由 durable idle-drain 在 deadline/fence 复核后关闭，避免先关闭
-// 自身再把已关闭 callback 交给 15 分钟 drain。
+// Close 按平台顺序关闭 forwarder 并释放 root cohort lease。
 func (c *goplsRootCohortClient) Close() error {
 	if c == nil {
 		return nil
 	}
-	if c.lease == nil {
-		return c.Client.Close()
-	}
-	return c.lease.ReleaseWithOwner(func() error {
-		return c.Client.Close()
-	})
+	return runtimeServerCloseGoplsRootCohortClient(c.Client, c.lease)
 }
 
 // RequiresIdleRelease 标记共享 gopls forwarder 必须走 root cohort owner idle 路径。

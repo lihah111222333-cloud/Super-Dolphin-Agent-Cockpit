@@ -17,13 +17,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 const goBuildTagsLanguageSpecificKey = "goBuildTags"
 const goDefaultStandaloneTag = "ignore"
-const goplsRemoteAutoArg = "-remote=auto;sdmcp2"
 
 const (
 	projectWalkMaxDepth   = 32
@@ -201,26 +201,13 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 // ServerCommand 返回 Go 语言服务启动命令。
 // 所有 mcp-lsp sidecar 通过 gopls auto remote 共享 daemon cache，同时保留各自 LSP session。
 func (a goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
-	args, err := goplsServerArgs(a.idleTimeout, runtime.GOOS)
+	args, err := lspplatform.GoplsServerArgs(a.idleTimeout)
 	if err != nil {
 		return ServerCommand{}, err
 	}
 	return ServerCommand{
 		Executable: "gopls",
 		Args:       args,
-	}, nil
-}
-
-func goplsServerArgs(idleTimeout time.Duration, goos string) ([]string, error) {
-	if idleTimeout <= 0 {
-		return nil, fmt.Errorf("LSP idle timeout must be positive: %s", idleTimeout)
-	}
-	if strings.EqualFold(strings.TrimSpace(goos), "windows") {
-		return nil, nil
-	}
-	return []string{
-		goplsRemoteAutoArg,
-		"-remote.listen.timeout=" + idleTimeout.String(),
 	}, nil
 }
 

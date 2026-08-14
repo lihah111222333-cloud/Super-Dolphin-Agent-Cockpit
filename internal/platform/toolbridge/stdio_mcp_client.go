@@ -98,7 +98,7 @@ func newStdioMCPClientForValidatedBinary(ctx context.Context, binary providerdto
 	}
 	client := &stdioMCPClient{
 		cmd:       cmd,
-		guard:     stdioAttachProcessGuard(cmd),
+		guard:     stdioAttachProcessGuard(cmd, stdioMCPAllowsBreakaway(binary)),
 		transport: mcpwire.NewStdioTransport(stdout, stdin),
 		stdin:     stdin,
 		pending:   make(map[int64]chan stdioRequestResult),
@@ -119,6 +119,12 @@ func newStdioMCPClientForValidatedBinary(ctx context.Context, binary providerdto
 		return nil, fmt.Errorf("toolbridge: write stdio MCP initialized notification: %w", err)
 	}
 	return client, nil
+}
+
+// stdioMCPAllowsBreakaway 只允许进程内受信清单签发的 LSP sidecar 派生共享 daemon。
+func stdioMCPAllowsBreakaway(binary providerdto.MCPBinary) bool {
+	return binary.IsManagedMCPBinary() &&
+		strings.EqualFold(strings.TrimSpace(binary.Name), string(providerdto.FamilyLSP))
 }
 
 // manifestEnv 过滤 MCP binary env 中禁止透传的数据库环境变量。

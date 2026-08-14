@@ -74,7 +74,7 @@ func TestHostTestUsesIdentityScopedLocalGoCache(t *testing.T) {
 
 // validateHostTestScopedEnvironment 固定宿主测试的命令环境只能经单次 env 调用传入，同时允许扩展新的环境键。
 func validateHostTestScopedEnvironment(hostTestBody string) string {
-	for _, line := range strings.Split(hostTestBody, "\n") {
+	for line := range strings.SplitSeq(hostTestBody, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "export" || strings.HasPrefix(trimmed, "export ") {
 			return hostTestExportError
@@ -97,7 +97,7 @@ func hostTestScopedGoCommandEnvironment(hostTestBody string) (map[string]struct{
 	environment := make(map[string]struct{})
 	normalized := strings.ReplaceAll(hostTestBody, "\\\n", " ")
 	commandCount := 0
-	for _, line := range strings.Split(normalized, "\n") {
+	for line := range strings.SplitSeq(normalized, "\n") {
 		fields := strings.Fields(line)
 		commandIndex := scopedGoTestCommandIndex(fields)
 		if commandIndex < 0 {
@@ -247,12 +247,22 @@ func initializeLocalGoCacheRepository(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(repository, "scripts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	source, err := os.ReadFile("local_go_cache.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repository, "scripts", "local_go_cache.sh"), source, 0o700); err != nil {
-		t.Fatal(err)
+	for _, relative := range []string{
+		"local_go_cache.sh",
+		filepath.Join("platform", "posix", "local_go_cache_path.sh"),
+		filepath.Join("platform", "windows", "local_go_cache_path.sh"),
+	} {
+		source, err := os.ReadFile(relative)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(repository, "scripts", relative)
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, source, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(repository, "tracked"), []byte("tracked\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -265,7 +275,7 @@ func initializeLocalGoCacheRepository(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	runLocalGoCacheGit(t, repository, "add", "tracked", "go.mod", "main.go", "scripts/local_go_cache.sh")
+	runLocalGoCacheGit(t, repository, "add", "tracked", "go.mod", "main.go", "scripts")
 	runLocalGoCacheGit(t, repository, "-c", "user.name=Cache Test", "-c", "user.email=cache@example.invalid", "commit", "-m", "初始化")
 	return repository
 }

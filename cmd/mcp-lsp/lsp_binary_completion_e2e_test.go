@@ -82,10 +82,11 @@ func TestFakePyrightLangserverHelper(t *testing.T) {
 }
 
 type mcpLSPBinaryClient struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	stderr lockedStringBuilder
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    *bufio.Reader
+	stderr    lockedStringBuilder
+	closeHook func() error
 }
 
 type mcpLSPBinaryResponse struct {
@@ -240,6 +241,15 @@ func (c *mcpLSPBinaryClient) close(t *testing.T) {
 	}
 	cmd := c.cmd
 	c.cmd = nil
+	closeHook := c.closeHook
+	c.closeHook = nil
+	defer func() {
+		if closeHook != nil {
+			if err := closeHook(); err != nil {
+				t.Errorf("close mcp-lsp test process owner: %v", err)
+			}
+		}
+	}()
 	raw, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "exit",

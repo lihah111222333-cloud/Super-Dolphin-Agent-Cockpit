@@ -285,9 +285,7 @@ func typeScriptSpanEnd(span typeScriptTextSpan) int {
 func typeScriptTextSpanRange(content string, span typeScriptTextSpan) protocol.Range {
 	start := normalizeTypeScriptOffset(span.Start)
 	end := start + maxInt(0, span.Length)
-	if end < start {
-		end = start
-	}
+	end = max(end, start)
 	return protocol.Range{
 		Start: positionForTypeScriptOffset(content, start),
 		End:   positionForTypeScriptOffset(content, end),

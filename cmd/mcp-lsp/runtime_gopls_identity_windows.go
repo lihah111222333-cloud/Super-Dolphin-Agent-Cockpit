@@ -3,11 +3,12 @@
 package main
 
 import (
-	"errors"
 	"os"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 )
 
 // runtimeServerStableFilesystemIdentity 明确拒绝 Windows 的未证明 root cohort identity。
-func runtimeServerStableFilesystemIdentity(os.FileInfo) (string, error) {
-	return "", errors.New("gopls root cohort filesystem identity is unsupported on windows")
+func runtimeServerStableFilesystemIdentity(path string, info os.FileInfo) (string, error) {
+	return lspplatform.StableDirectoryIdentity(path, info)
 }
