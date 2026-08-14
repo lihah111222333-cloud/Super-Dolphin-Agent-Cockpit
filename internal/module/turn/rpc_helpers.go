@@ -31,6 +31,7 @@ func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRun
 	}
 	return buildPrepareInput(prepareInputSpec{
 		LocalTurnID:                  p.LocalTurnID,
+		PreparingCancelRequestID:     p.PreparingCancelRequestID,
 		Inputs:                       items,
 		Prompt:                       p.Prompt,
 		Images:                       p.Images,

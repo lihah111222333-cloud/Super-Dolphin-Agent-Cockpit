@@ -101,6 +101,40 @@ describe('thread lifecycle runtime', () => {
     );
   });
 
+  it('registers a stable Stop identity through the real interrupt facade during turn/start prepare', async () => {
+    const pendingTurnStart = {
+      cancelled: false,
+      interruptRequested: false,
+      localTurnId: 'turn-pending',
+      threadId: 'thread-pending',
+    };
+    const runtime = createRuntime({
+      pendingTurnStart,
+      cancelPendingTurnStart: vi.fn(() => {
+        pendingTurnStart.cancelled = true;
+        return true;
+      }),
+    });
+    const deps = createDeps({ createRequestId: vi.fn(() => 'stop-before-provider-start') });
+    const rpc = vi.fn().mockResolvedValue(registeredInterruptResult({ requestId: 'stop-before-provider-start' }));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+
+    expect(rpc).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-pending',
+      expectedTurnId: 'turn-pending',
+      requestId: 'stop-before-provider-start',
+      source: 'ui_stop',
+    });
+    expect(pendingTurnStart).toEqual(expect.objectContaining({
+      cancelled: true,
+      interruptRequested: true,
+      interruptRequestId: 'stop-before-provider-start',
+    }));
+  });
+
   it('interrupts the explicit turn returned by pending start after cancellation was already recorded', async () => {
     const cancelPendingTurnStart = vi.fn(() => true);
     const runtime = createRuntime({ cancelPendingTurnStart });
@@ -132,6 +166,31 @@ describe('thread lifecycle runtime', () => {
       source: 'ui_stop',
     });
   });
+
+it('reuses the registered Stop identity in the canonical interrupt RPC payload', async () => {
+  const runtime = createRuntime();
+  const deps = createDeps({ createRequestId: vi.fn(() => 'must-not-generate-a-new-stop-id') });
+  const rpc = vi.fn().mockResolvedValue(successfulInterruptResult({
+    requestId: 'stop-delivery-retryable',
+    expectedTurnId: 'started-turn',
+    turnId: 'started-turn',
+  }));
+  attachActiveThreadRpcRuntime(runtime, deps);
+
+  await expect(runtime.activeThreadRPC('thread.interrupt', rpc, {
+    activeTurnTarget: { threadId: 'started-thread', turnId: 'started-turn' },
+    requestId: 'stop-delivery-retryable',
+  })).resolves.toBe(true);
+
+  expect(deps.createRequestId).not.toHaveBeenCalled();
+  expect(rpc).toHaveBeenCalledWith({
+    cwd: '/repo/app',
+    threadId: 'started-thread',
+    expectedTurnId: 'started-turn',
+    requestId: 'stop-delivery-retryable',
+    source: 'ui_stop',
+  });
+});
 
   it('uses the preparing turn identity to register cancellation before provider binding', async () => {
     const pendingTurnStart = { localTurnId: 'turn-pending', threadId: 'thread-pending' };
@@ -172,6 +231,28 @@ describe('thread lifecycle runtime', () => {
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+  });
+
+  it('does not mark a known preparing turn cancelled before its interrupt RPC succeeds', async () => {
+    const pendingTurnStart = { localTurnId: 'turn-pending', threadId: 'thread-pending' };
+    const runtime = createRuntime({ pendingTurnStart, cancelPendingTurnStart: vi.fn(() => ({ threadId: 'thread-pending', turnId: 'turn-pending', interruptible: true })) });
+    const deps = createDeps({ createRequestId: vi.fn(() => 'failed-stop-request') });
+    const rpc = vi.fn().mockRejectedValue(new Error('interrupt transport failed'));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toThrow('interrupt transport failed');
+    expect(pendingTurnStart.interruptRequested).toBe(false);
+  });
+
+  it('does not treat terminal completed replay as preparing cancellation registration', async () => {
+    const pendingTurnStart = { localTurnId: 'turn-pending', threadId: 'thread-pending' };
+    const runtime = createRuntime({ pendingTurnStart, cancelPendingTurnStart: vi.fn(() => ({ threadId: 'thread-pending', turnId: 'turn-pending', interruptible: true })) });
+    const deps = createDeps({ createRequestId: vi.fn(() => 'terminal-stop-request') });
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult({ requestId: 'terminal-stop-request', expectedTurnId: 'turn-pending', turnId: 'turn-pending', status: 'completed', confirmed: false, mode: 'interrupt_terminal_completed', stateBefore: 'idle', stateAfter: 'idle', waitedMs: 0 }));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
+    expect(pendingTurnStart.interruptRequested).toBe(false);
   });
 
   it.each([

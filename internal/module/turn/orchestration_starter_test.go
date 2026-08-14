@@ -33,8 +33,9 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 			return handle, nil
 		},
 	}
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	starter := NewOrchestrationTurnStarter(
-		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()),
+		svc,
 		stubSessionProvider{session: session},
 		stubTurnRuntimeReader{cfg: map[string]any{"cwd": "/thread/worktree"}},
 	)
@@ -50,6 +51,10 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "turn-1", turnID)
+	implementation := svc.(*service)
+	require.Equal(t, 1, countEntries(implementation.tracker), "Prepare and Start must own one local tracker record")
+	_, active := implementation.tracker.ActiveByThread("thread-1")
+	require.False(t, active, "completed orchestration turn must not leave a generated preparing record active")
 }
 
 func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {

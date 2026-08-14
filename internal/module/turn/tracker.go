@@ -187,6 +187,7 @@ type trackedTurn struct {
 	interruptRetryable            bool
 	interruptRetryableCode        string
 	startDiagnosticCode           string
+	preparingStartClaimed         bool
 	handle                        contract.TurnHandle
 	sm                            *stateless.StateMachine
 }
@@ -245,6 +246,44 @@ func (t *turnTracker) Start(localID, providerID, threadID string) bool {
 	return t.store.PutIfAbsent(localID, turn)
 }
 
+// claimPreparingStart 只允许首个同线程 StartTurn 接管 prepare 阶段创建的记录。
+// 若 Stop 已在 prepare 窗口登记，返回的 requestID 是唯一能在 provider bind 后投递的 identity。
+func claimPreparingStart(t *turnTracker, localID, threadID, requestID string) (string, bool) {
+	localID = strings.TrimSpace(localID)
+	threadID = strings.TrimSpace(threadID)
+	requestID = strings.TrimSpace(requestID)
+	if localID == "" || threadID == "" {
+		return "", false
+	}
+	claimedRequestID := ""
+	claimed := false
+	t.store.Mutate(localID, func(turn *trackedTurn) {
+		if !canClaimPreparingStart(turn, threadID, requestID) {
+			return
+		}
+		turn.preparingStartClaimed = true
+		turn.updatedAt = t.store.Tick()
+		claimedRequestID = turn.interruptAcceptedRequestID
+		claimed = true
+	})
+	return claimedRequestID, claimed
+}
+
+// canClaimPreparingStart 只接管同线程、未绑定 provider 的 prepare 记录；显式请求必须与已登记 Stop 一致。
+func canClaimPreparingStart(turn *trackedTurn, threadID, requestID string) bool {
+	if turn.threadID != threadID || turn.isTerminal() || turn.preparingStartClaimed || turn.handle != nil || turn.providerID != "" {
+		return false
+	}
+	if turn.state != StatePreparing && turn.state != StateInterrupting {
+		return false
+	}
+	acceptedRequestID := strings.TrimSpace(turn.interruptAcceptedRequestID)
+	if requestID == "" {
+		return true
+	}
+	return acceptedRequestID == requestID
+}
+
 // AttachHandle 把 provider handle 挂到本地 turn 上，并补齐 providerID。
 func (t *turnTracker) AttachHandle(localID string, handle contract.TurnHandle) {
 	localID = strings.TrimSpace(localID)
@@ -270,6 +309,14 @@ func (t *turnTracker) BindProviderID(localID, providerID string) string {
 	registeredRequestID := ""
 	t.store.Mutate(localID, func(turn *trackedTurn) {
 		turn.providerID = strings.TrimSpace(providerID)
+		if turn.interruptClaimed && turn.interruptAcceptedRequestID == "" {
+			requestID := turn.interruptClaimRequestID
+			turn.interruptClaimed = false
+			turn.interruptClaimRequestID = ""
+			turn.interruptAcceptedRequestID = requestID
+			turn.interruptRequested = true
+			turn.sm.Fire(string(TriggerInterrupt))
+		}
 		if turn.interruptRequested && !turn.interruptDeliveryClaimed && !turn.interruptDeliverySent {
 			turn.interruptDeliveryClaimed = true
 			registeredRequestID = strings.TrimSpace(turn.interruptAcceptedRequestID)
@@ -323,6 +370,7 @@ func acknowledgeTerminalInterruptDelivery(turn *trackedTurn, requestID string, t
 	return true
 }
 
+// acknowledgeLiveInterruptDelivery 将 provider 已接受的 Stop 原子落入非终态 tracker，保留后续终态收敛路径。
 func acknowledgeLiveInterruptDelivery(turn *trackedTurn, requestID string, tick func() time.Time) bool {
 	if turn.interruptAcceptedRequestID == requestID && turn.interruptDeliverySent {
 		return true
@@ -334,16 +382,18 @@ func acknowledgeLiveInterruptDelivery(turn *trackedTurn, requestID string, tick 
 		if !turn.interruptClaimed || turn.interruptClaimRequestID != requestID {
 			return false
 		}
-		turn.interruptClaimed = false
-		turn.interruptClaimRequestID = ""
 		turn.interruptAcceptedRequestID = requestID
+	} else if turn.interruptAcceptedRequestID != requestID {
+		return false
+	}
+	if !turn.interruptRequested {
 		if err := turn.sm.Fire(string(TriggerInterrupt)); err != nil {
 			return false
 		}
 		turn.interruptRequested = true
-	} else if turn.interruptAcceptedRequestID != requestID {
-		return false
 	}
+	turn.interruptClaimed = false
+	turn.interruptClaimRequestID = ""
 	turn.interruptDeliverySent = true
 	turn.interruptRetryable = false
 	turn.interruptRetryableCode = ""
@@ -351,7 +401,8 @@ func acknowledgeLiveInterruptDelivery(turn *trackedTurn, requestID string, tick 
 	return true
 }
 
-// releaseUndeliveredInterruptDelivery 回退未送达 provider 的登记取消，释放所有权供后续 Stop 重试。
+// releaseUndeliveredInterruptDelivery 回退未送达 provider 的登记取消，释放投递所有权但保留 accepted request ID，
+// 使同一 Stop 能重试且不同 Stop 仍被冲突保护。
 func releaseUndeliveredInterruptDelivery(t *turnTracker, localID, requestID string) bool {
 	released := false
 	requestID = strings.TrimSpace(requestID)
@@ -370,7 +421,6 @@ func releaseUndeliveredInterruptDelivery(t *turnTracker, localID, requestID stri
 		}
 		turn.interruptDeliveryClaimed = false
 		turn.interruptRequested = false
-		turn.interruptAcceptedRequestID = ""
 		turn.interruptRetryable = true
 		turn.interruptRetryableCode = "REGISTERED_INTERRUPT_DELIVERY_RETRYABLE"
 		turn.updatedAt = t.store.Tick()
@@ -523,7 +573,7 @@ func applyActiveInterruptClaim(turn *trackedTurn, expectedTurnID, requestID stri
 
 // claimUndeliveredRegisteredInterrupt 允许同一已登记但未送达的 request ID 重新领取 provider 投递权。
 func claimUndeliveredRegisteredInterrupt(turn *trackedTurn, requestID string, claim *interruptClaim) bool {
-	if turn.interruptAcceptedRequestID != requestID || turn.interruptDeliveryClaimed || turn.interruptDeliverySent {
+	if turn.interruptAcceptedRequestID != requestID || !turn.interruptRetryable || turn.interruptDeliveryClaimed || turn.interruptDeliverySent {
 		return false
 	}
 	turn.interruptClaimed = true
@@ -570,6 +620,7 @@ func confirmInterruptClaim(t *turnTracker, localID, requestID string) bool {
 	requestID = strings.TrimSpace(requestID)
 	t.store.Mutate(strings.TrimSpace(localID), func(turn *trackedTurn) {
 		if !turn.interruptClaimed || turn.interruptClaimRequestID != requestID {
+			confirmed = turn.interruptAcceptedRequestID == requestID
 			return
 		}
 		turn.interruptClaimed = false

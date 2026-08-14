@@ -76,6 +76,56 @@ it('pre-generates the local turn identity and carries it into turn/start', async
   }));
 });
 
+it('carries a deferred Stop request identity into turn/start after a new thread becomes canonical', async () => {
+  const launch = deferred();
+  const runtime = testRuntime({ activeTurnByThread: {}, draft: 'Stop before provider start', attachments: [] });
+  const startTurn = vi.fn().mockResolvedValue({ turn_id: 'turn-local-pending' });
+  const deps = sendDependencies(startTurn);
+  const baseRequest = deps.createSendDraftRequest();
+  deps.createSendDraftRequest = () => ({
+    ...baseRequest, previousThreadId: '', provisionalThreadId: 'thread-provisional', previousActiveThreadId: '',
+  });
+  deps.startNewDraftThread.mockReturnValue(launch.promise);
+  const sendDraft = createComposerActionSet(runtime, {
+    attachment: {}, capability: {}, model: {}, modelProvider: {}, send: deps,
+  }).sendDraft;
+
+  const sending = sendDraft();
+  runtime.pendingTurnStart.cancelled = true;
+  runtime.pendingTurnStart.interruptRequested = true;
+  runtime.pendingTurnStart.interruptRequestId = 'stop-before-provider-start';
+  launch.resolve({ threadId: 'thread-canonical', identity: {}, launchPreferences: {} });
+
+  await expect(sending).resolves.toBe(true);
+  expect(startTurn).toHaveBeenCalledWith(expect.objectContaining({
+    threadId: 'thread-canonical',
+    localTurnId: 'turn-local-pending',
+    preparingCancelRequestId: 'stop-before-provider-start',
+  }));
+});
+
+it('does not duplicate a Stop already registered during turn/start prepare', async () => {
+  const pendingStart = deferred();
+  const runtime = testRuntime({ activeTurnByThread: {}, draft: 'Stop after dispatch', attachments: [] });
+  const interruptActiveThread = vi.fn().mockResolvedValue(true);
+  runtime.set({ interruptActiveThread });
+  const startTurn = vi.fn().mockReturnValue(pendingStart.promise);
+  const deps = sendDependencies(startTurn);
+  const sendDraft = createComposerActionSet(runtime, {
+    attachment: {}, capability: {}, model: {}, modelProvider: {}, send: deps,
+  }).sendDraft;
+
+  const sending = sendDraft();
+  expect(startTurn).toHaveBeenCalledWith(expect.not.objectContaining({ preparingCancelRequestId: expect.any(String) }));
+  runtime.pendingTurnStart.cancelled = true;
+  runtime.pendingTurnStart.interruptRequested = true;
+  runtime.pendingTurnStart.interruptRequestId = 'stop-after-dispatch';
+  pendingStart.resolve({ turn_id: 'turn-local-pending' });
+
+  await expect(sending).resolves.toBe(true);
+  expect(interruptActiveThread).not.toHaveBeenCalled();
+});
+
 it('wires the cancellation notice factory through the production send dependencies', () => {
   expect(composerActionDeps.send.actionNotice).toBe(actionNotice);
 });
@@ -134,6 +184,7 @@ it('does not roll back or delete a thread whose start succeeded when cancellatio
 });
 
 it('keeps a canonical provisional thread after retryable registered cancellation delivery failure', async () => {
+  const launch = deferred();
   const pendingStart = deferred();
   const runtime = testRuntime({ activeTurnByThread: {}, draft: 'Cancel this startup', attachments: [] });
   const interruptActiveThread = vi.fn().mockResolvedValue(true);
@@ -143,13 +194,19 @@ it('keeps a canonical provisional thread after retryable registered cancellation
   deps.createSendDraftRequest = () => ({
     ...baseRequest, previousThreadId: '', provisionalThreadId: 'thread-provisional', previousActiveThreadId: '',
   });
-  deps.startNewDraftThread.mockResolvedValue({ threadId: 'thread-canonical', identity: {}, launchPreferences: {} });
+  deps.startNewDraftThread.mockReturnValue(launch.promise);
   const sendDraft = createComposerActionSet(runtime, {
     attachment: {}, capability: {}, model: {}, modelProvider: {}, send: deps,
   }).sendDraft;
 
   const sending = sendDraft();
   runtime.pendingTurnStart.cancelled = true;
+  runtime.pendingTurnStart.interruptRequested = true;
+  runtime.pendingTurnStart.interruptRequestId = 'stop-delivery-retryable';
+  launch.resolve({ threadId: 'thread-canonical', identity: {}, launchPreferences: {} });
+  await vi.waitFor(() => expect(deps.startTurnWithStoppedThreadRecovery).toHaveBeenCalledWith(expect.objectContaining({
+    preparingCancelRequestId: 'stop-delivery-retryable',
+  })));
   pendingStart.resolve({
     turn_id: 'turn-local-pending', interrupt_retryable: true, interrupt_retryable_code: 'REGISTERED_INTERRUPT_DELIVERY_RETRYABLE',
   });
@@ -157,6 +214,7 @@ it('keeps a canonical provisional thread after retryable registered cancellation
   await expect(sending).resolves.toBe(true);
   expect(interruptActiveThread).toHaveBeenCalledWith({
     activeTurnTarget: { threadId: 'thread-canonical', turnId: 'turn-local-pending' },
+    requestId: 'stop-delivery-retryable',
   });
   expect(deps.deleteProvisionalThreadAfterSendFailure).not.toHaveBeenCalled();
   expect(runtime.get().activeTurnByThread['thread-canonical']).toEqual(expect.objectContaining({ id: 'turn-local-pending' }));

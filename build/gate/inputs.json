@@ -4255,6 +4255,7 @@
     "internal/provider/codexapp/session_runtime.go",
     "internal/provider/codexapp/session_runtime_test.go",
     "internal/provider/codexapp/session_test.go",
+    "internal/provider/codexapp/session_thread_projection_test.go",
     "internal/provider/codexapp/session_turn.go",
     "internal/provider/codexapp/session_turn_test.go",
     "internal/provider/codexapp/sidecar_runtime_env.go",
@@ -5160,6 +5161,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6758,
-  "source_snapshot_paths_sha256": "sha256:afade30ac34b87279198c9496e7320372c866b81ee4b1df5edac28535bde535a"
+  "source_snapshot_input_count": 6759,
+  "source_snapshot_paths_sha256": "sha256:0d8ea82180d84a735d9f23f7bb06b507e68c66327148de8672c7b717af4b9871"
 }

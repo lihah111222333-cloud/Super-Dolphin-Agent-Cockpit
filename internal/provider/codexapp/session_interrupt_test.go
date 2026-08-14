@@ -668,6 +668,7 @@ func newInterruptTestSession(t *testing.T, paramsCh chan<- map[string]any) *sess
 	}
 	s.runtime.Start()
 	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("thread-1")
 	return s
 }
 

@@ -8,24 +8,23 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-// heuristicCompileUnitPacking 对 >12 个 packable unit 使用受约束 BFD 与修复。
+// heuristicCompileUnitPacking 对 >12 个 packable unit 按 domain 使用受约束 BFD 与修复。
 func heuristicCompileUnitPacking(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
-	packable, isolated := partitionCompilePlanningUnits(units)
-	if len(packable) <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
+	ordinary, serial, isolated := partitionCompilePlanningUnits(units)
+	if len(ordinary)+len(serial) <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
 		return nil, errors.New("compile heuristic requires more than twelve packable units")
 	}
 	lower, err := compilePackingShardLowerBound(units, target)
 	if err != nil {
 		return nil, err
 	}
-	upper, err := compileVariableBinBFD(packable, target)
+	ordinaryShards, err := heuristicCompilePackingDomain(ordinary, target)
 	if err != nil {
 		return nil, err
 	}
-	best, err := repairCompilePackingBounded(packable, upper, target)
-	if err != nil {
-		return nil, err
-	}
+	// 每个 canonical compile group 都是独立 packing domain；BFD/repair 只能
+	// 处理 ordinary workload，避免不同 group 的 workload 与 group ID 漂移。
+	best := append(ordinaryShards, isolatedCompileShards(serial)...)
 	best = append(best, isolatedCompileShards(isolated)...)
 	best = canonicalCompilePacking(best)
 	if !compileShardsMeetTarget(best, target, units) {
@@ -37,18 +36,34 @@ func heuristicCompileUnitPacking(units []compilePlanningUnit, target int64) ([]S
 	return best, nil
 }
 
-// partitionCompilePlanningUnits 将可串行共箱组与硬隔离 unit 分开处理。
-func partitionCompilePlanningUnits(units []compilePlanningUnit) ([]compilePlanningUnit, []compilePlanningUnit) {
-	packable := make([]compilePlanningUnit, 0, len(units))
+// heuristicCompilePackingDomain 在一个可共箱 domain 内执行 BFD 与有限修复。
+func heuristicCompilePackingDomain(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
+	if len(units) == 0 {
+		return nil, nil
+	}
+	upper, err := compileVariableBinBFD(units, target)
+	if err != nil {
+		return nil, err
+	}
+	return repairCompilePackingBounded(units, upper, target)
+}
+
+// partitionCompilePlanningUnits 将 ordinary、可串行 compile group 与硬隔离 unit 分域。
+// ordinary 是唯一可共享的 packing domain；每个 compile group 都由调用方单独投影。
+func partitionCompilePlanningUnits(units []compilePlanningUnit) ([]compilePlanningUnit, []compilePlanningUnit, []compilePlanningUnit) {
+	ordinary := make([]compilePlanningUnit, 0, len(units))
+	serial := make([]compilePlanningUnit, 0, len(units))
 	isolated := make([]compilePlanningUnit, 0, len(units))
 	for _, unit := range units {
-		if unit.group == nil || CompileGroupSerialPackingEligible(*unit.group) {
-			packable = append(packable, unit)
+		if unit.group == nil {
+			ordinary = append(ordinary, unit)
+		} else if CompileGroupSerialPackingEligible(*unit.group) {
+			serial = append(serial, unit)
 		} else {
 			isolated = append(isolated, unit)
 		}
 	}
-	return packable, isolated
+	return ordinary, serial, isolated
 }
 
 // compileVariableBinBFD 逐 unit 在所有合法现有箱中选择最佳 projected score，否则开新箱。
@@ -101,7 +116,7 @@ func compileSelectBFDIndex(bins []compilePackingBin, unit compilePlanningUnit, t
 
 // compileBFDPlacementCandidate 复制箱状态并校验一次合法 unit 放置。
 func compileBFDPlacementCandidate(bin compilePackingBin, unit compilePlanningUnit, target int64) (int64, int64, string, bool, error) {
-	if !compileUnitFitsPackingCapacity(bin.shard, unit, target) || !compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, bin.serialEligible, bin.resourceClassID, unit) {
+	if !compileUnitFitsPackingCapacity(bin.shard, unit, target) || !compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, unit) {
 		return 0, 0, "", false, nil
 	}
 	candidateBin := cloneCompilePackingBin(bin)
@@ -450,11 +465,9 @@ func applyCompileRepairAssignments(bins []compilePackingBin, units []compilePlan
 
 func cloneCompilePackingBin(source compilePackingBin) compilePackingBin {
 	return compilePackingBin{
-		shard:           cloneCompilePacking([]ShardPlan{source.shard})[0],
-		affinities:      cloneStringSet(source.affinities),
-		artifactKeys:    cloneStringSet(source.artifactKeys),
-		serialEligible:  source.serialEligible,
-		resourceClassID: source.resourceClassID,
+		shard:        cloneCompilePacking([]ShardPlan{source.shard})[0],
+		affinities:   cloneStringSet(source.affinities),
+		artifactKeys: cloneStringSet(source.artifactKeys),
 	}
 }
 

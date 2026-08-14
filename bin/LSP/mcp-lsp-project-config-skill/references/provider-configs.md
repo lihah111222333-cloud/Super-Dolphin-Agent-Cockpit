@@ -63,6 +63,8 @@ Codex 的 stdio 配置由 command 判定，不需要额外 type = "stdio"。requ
 codex mcp list
 ~~~
 
+配置修改后必须先完整退出并重启 Codex Desktop/IDE 宿主或 Codex CLI 进程，再执行上述验证；Reload Window 或新建聊天不等于宿主重启。
+
 官方依据：
 
 - https://developers.openai.com/codex/mcp/
@@ -117,6 +119,8 @@ claude mcp list
 claude mcp get lsp
 ~~~
 
+配置修改后必须先结束并重启 Claude Code/CLI 或承载其 MCP client 的 IDE host，再完成批准和上述验证；新建会话不能替代宿主重启。
+
 官方依据：
 
 - https://code.claude.com/docs/en/mcp
@@ -149,7 +153,7 @@ claude mcp get lsp
 }
 ~~~
 
-IDE 验证：Agent 侧栏 ... → MCP Servers → Manage MCP Servers → Refresh。CLI 可输入 /mcp 查看状态和日志。
+配置修改后必须先完整退出并重启 Antigravity IDE/Desktop 或 CLI 宿主。重启后，IDE 在 Agent 侧栏 ... → MCP Servers → Manage MCP Servers → Refresh；CLI 输入 /mcp 查看状态和日志。仅 Refresh 或新建 Agent 会话不能替代宿主重启。
 
 远程 MCP 使用 serverUrl；本技能配置的是本地 stdio，所以只使用 command。不要使用旧的远程字段 url 或 httpUrl。
 
@@ -208,3 +212,7 @@ WSL 可以调用 Windows `.exe`，但那仍是 Windows 进程语义。本技能�
 | `SUPER_DOLPHIN_DEPENDENCY_PROFILE is required for production bootstrap` | 当前 server 的 env 是否包含 `SUPER_DOLPHIN_DEPENDENCY_PROFILE=production` |
 | `path_outside_workspace` 且路径含 `%E4...`/`%20` | 是否运行新二进制；command、cwd、roots 是否属于同一 Windows 或 WSL 路径体系 |
 | `Go toolchain selection failed` | PATH 是否有可运行的 Go；`GOTOOLCHAIN` 是否允许自动切换；module/go.work 声明是否可满足 |
+| Antigravity 已显示工具，但调用时报 `client is closing: EOF` 或 `Transport closed` | 对比 `.agents/mcp_config.json`、`.agents/plugins/*/mcp_config.json`、workspace `.gemini/config/mcp_config.json` 和只读全局配置；从 sidecar 日志确认实际 command、root、请求路径和第一个错误 |
+| `resolve parent path: lstat /parent/cmd: no such file or directory` | 若 trusted root 是仓库上一级，请求必须包含仓库目录前缀，例如 `repo/cmd/...`；不要把按项目根书写的 `cmd/...` 直接交给父级 root |
+| sidecar 日志先有 `tools/call done`，随后 `mcp stdio: read failed EOF` | 调用曾经成功，EOF 是 stdin 关闭结果；检查上游取消、重复 server 和旧 client，不得判为二进制崩溃 |
+| 修改配置后仍持续 `client is closing` | 完整退出并重启实际拥有 stdio 管道的 Codex、Claude Code、Antigravity 或其他宿主进程，再 Refresh/检查；旧 stdio client 无法原地恢复 |

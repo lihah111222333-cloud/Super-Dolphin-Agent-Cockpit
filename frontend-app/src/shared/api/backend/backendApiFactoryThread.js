@@ -318,6 +318,8 @@ function turnStartPayload(params) {
     'manual_skill_selection',
     'mcpSnapshot',
     'mcp_snapshot',
+    'preparingCancelRequestId',
+    'preparing_cancel_request_id',
     'model',
     'outputSchema',
     'output_schema',

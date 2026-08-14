@@ -267,6 +267,7 @@ func TestRegisteredCancellationDeliveryFailureConvergesTrackerDedupeAndWatcher(t
 	watchObserved := make(chan struct{})
 	deliveryErr := errors.New("registered interrupt delivery failed")
 	providerAttempts := 0
+	providerRequestIDs := make([]string, 0, 2)
 	handle := &watchObservedHandle{stubTurnHandle: newStubTurnHandle("local-delivery-failure", "provider-delivery-failure"), observed: watchObserved}
 	store := newFakeDedupeStore()
 	session := &stubSession{
@@ -276,8 +277,9 @@ func TestRegisteredCancellationDeliveryFailureConvergesTrackerDedupeAndWatcher(t
 			<-releaseStart
 			return handle, nil
 		},
-		interrupt: func(context.Context, dto.InterruptRequest) error {
+		interrupt: func(_ context.Context, request dto.InterruptRequest) error {
 			providerAttempts++
+			providerRequestIDs = append(providerRequestIDs, request.RequestID)
 			return deliveryErr
 		},
 	}
@@ -292,11 +294,115 @@ func TestRegisteredCancellationDeliveryFailureConvergesTrackerDedupeAndWatcher(t
 		t.Fatalf("StartTurn() error = %v, want successful provider start", err)
 	}
 	assertRegisteredCancellationDeliveryFailurePreservesLiveTurn(t, svc, store, watchObserved, "local-delivery-failure")
-	if _, _, err := svc.InterruptTurnForTarget(context.Background(), session, "user", "local-delivery-failure", "stop-delivery-failure"); !errors.Is(err, deliveryErr) || providerAttempts != 2 {
-		t.Fatalf("retry after delivery failure error=%v providerAttempts=%d, want second provider delivery attempt", err, providerAttempts)
-	}
+	assertRegisteredDeliveryRetryUsesOriginalRequestID(t, svc, session, deliveryErr, &providerAttempts, &providerRequestIDs)
 	handle.complete(nil)
 	assertRegisteredCancellationDeliveryFailureSettlesAfterProviderTerminal(t, svc, store, "local-delivery-failure")
+}
+
+func assertRegisteredDeliveryRetryUsesOriginalRequestID(t *testing.T, svc *service, session contract.Session, deliveryErr error, providerAttempts *int, providerRequestIDs *[]string) {
+	t.Helper()
+	_, _, err := svc.InterruptTurnForTarget(context.Background(), session, "user", "local-delivery-failure", "stop-delivery-failure")
+	if !errors.Is(err, deliveryErr) || *providerAttempts != 2 || len(*providerRequestIDs) != 2 || (*providerRequestIDs)[1] != "stop-delivery-failure" {
+		t.Fatalf("same-ID retry error=%v attempts=%d requestIDs=%v, want second delivery with original identity", err, *providerAttempts, *providerRequestIDs)
+	}
+	status, accepted, err := svc.InterruptTurnForTarget(context.Background(), session, "user", "local-delivery-failure", "stop-a-different-request")
+	if err != nil || accepted || *providerAttempts != 2 || status.interrupt.requestID != "stop-delivery-failure" || !status.interrupt.requestIDKnown {
+		t.Fatalf("different-ID retry status=%+v accepted=%v error=%v attempts=%d, want conflict without provider delivery", status, accepted, err, *providerAttempts)
+	}
+}
+
+func TestRegisteredRetrySuccessInterruptsCancelledHandleAcrossSettleOrders(t *testing.T) {
+	for _, withWatcher := range []bool{false, true} {
+		t.Run(retrySettleOrderName(withWatcher), func(t *testing.T) {
+			runRegisteredRetrySuccessWithCancelledHandle(t, withWatcher)
+		})
+	}
+}
+
+func retrySettleOrderName(withWatcher bool) string {
+	if withWatcher {
+		return "watcher_and_settle"
+	}
+	return "settle_only"
+}
+
+func runRegisteredRetrySuccessWithCancelledHandle(t *testing.T, withWatcher bool) {
+	const localID = "local-retry-success"
+	const threadID = "thread-retry-success"
+	const requestID = "stop-retry-success"
+	tracker := newTurnTracker()
+	handle := newStubTurnHandle(localID, "provider-retry-success")
+	tracker.Start(localID, handle.ProviderID(), threadID)
+	tracker.AttachHandle(localID, handle)
+	tracker.Update(localID, StateRunning)
+	markRegisteredRetryableDelivery(t, tracker, localID, requestID)
+	svc := &service{tracker: tracker, logger: silentLogger(), interruptSettleTimeout: time.Second, ctx: context.Background()}
+	if withWatcher {
+		svc.watchTurn(context.Background(), handle, localID, threadID)
+	}
+	calls := 0
+	providerCalled := make(chan struct{})
+	session := &stubSession{
+		threadID: threadID,
+		interrupt: func(_ context.Context, request dto.InterruptRequest) error {
+			calls++
+			if request.RequestID != requestID {
+				return errors.New("retry used a different stop identity")
+			}
+			close(providerCalled)
+			return nil
+		},
+	}
+	done := make(chan interruptAttemptResult, 1)
+	runtimesafe.SafeGo(context.Background(), silentLogger(), "turn.test.registered-retry-success", func(context.Context) {
+		status, accepted, err := svc.InterruptTurnForTarget(context.Background(), session, "user", localID, requestID)
+		done <- interruptAttemptResult{status: status, accepted: accepted, err: err}
+	})
+	<-providerCalled
+	waitForRegisteredRetryAcknowledgement(t, tracker, localID, requestID)
+	handle.complete(context.Canceled)
+	result := <-done
+	if result.err != nil || !result.accepted || result.status.State != string(StateInterrupted) || calls != 1 {
+		t.Fatalf("retry result=%+v calls=%d, want one successful interrupted delivery", result, calls)
+	}
+	status := requireTurnStatus(t, tracker, localID)
+	if status.State != string(StateInterrupted) {
+		t.Fatalf("tracker status=%+v, want interrupted after cancelled handle", status)
+	}
+}
+
+func markRegisteredRetryableDelivery(t *testing.T, tracker *turnTracker, localID, requestID string) {
+	t.Helper()
+	tracker.store.Mutate(localID, func(turn *trackedTurn) {
+		turn.interruptAcceptedRequestID = requestID
+		turn.interruptRetryable = true
+		turn.interruptRetryableCode = "REGISTERED_INTERRUPT_DELIVERY_RETRYABLE"
+	})
+}
+
+func waitForRegisteredRetryAcknowledgement(t *testing.T, tracker *turnTracker, localID, requestID string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if registeredRetryAcknowledged(tracker, localID, requestID) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("registered retry acknowledgement did not restore interrupt lifecycle")
+}
+
+func registeredRetryAcknowledged(tracker *turnTracker, localID, requestID string) bool {
+	acknowledged := false
+	tracker.store.View(localID, func(turn *trackedTurn) {
+		acknowledged = turn.state == StateInterrupting &&
+			turn.interruptRequested &&
+			!turn.interruptClaimed &&
+			turn.interruptClaimRequestID == "" &&
+			turn.interruptDeliverySent &&
+			turn.interruptAcceptedRequestID == requestID
+	})
+	return acknowledged
 }
 
 func TestRegisteredCancellationDeliveryAndDedupeProviderIDFailuresRemainVisible(t *testing.T) {
@@ -412,6 +518,27 @@ func TestTerminalSameRequestReplayUsesTerminalEnvelope(t *testing.T) {
 			t.Parallel()
 			runTerminalReplayCase(t, tt)
 		})
+	}
+}
+
+func TestReplayBoundInterruptClaimReturnsTerminalEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.Start("local-bind-terminal", "provider-bind-terminal", "thread-bind-terminal")
+	tracker.store.Mutate("local-bind-terminal", func(turn *trackedTurn) {
+		turn.interruptAcceptedRequestID = "request-bind-terminal"
+		turn.interruptDeliverySent = true
+	})
+	tracker.Complete("local-bind-terminal", true, "")
+	svc := &service{tracker: tracker, logger: silentLogger()}
+	status, accepted, err := svc.replayBoundInterruptClaim(TurnStatus{State: string(StateInterrupting)}, "thread-bind-terminal", "local-bind-terminal", "request-bind-terminal")
+	if err != nil || !accepted || status.State != string(StateCompleted) {
+		t.Fatalf("replayBoundInterruptClaim() status=%+v accepted=%t err=%v", status, accepted, err)
+	}
+	envelope := status.interruptEnvelope()
+	if envelope.mode != "interrupt_terminal_completed" || !envelope.interruptSent {
+		t.Fatalf("terminal bind replay envelope=%+v, want completed terminal replay", envelope)
 	}
 }
 

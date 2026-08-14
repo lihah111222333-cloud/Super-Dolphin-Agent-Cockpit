@@ -10,9 +10,9 @@ import (
 
 // workloadPackingEvidenceStats 汇总单一资源档的 packing 证明输入。
 type workloadPackingEvidenceStats struct {
-	planned, packable, isolated      int
-	ordinaryTotal, serialTotal       int64
-	ordinaryOversize, serialOversize int
+	planned, packable, isolated, serialDomains int
+	ordinaryTotal                              int64
+	ordinaryOversize                           int
 }
 
 // deriveWorkloadPackingEvidence 从 canonical shards/compile groups 重算可审计分档证据。
@@ -29,7 +29,7 @@ func deriveWorkloadPackingEvidence(shards []ShardPlan, groups []CompileGroup, co
 		return nil, err
 	}
 	covered := make(map[GateID]struct{})
-	if err := collectPackingEvidenceGroups(stats, workloads, covered, groups, target, context); err != nil {
+	if err := collectPackingEvidenceGroups(stats, workloads, covered, groups, context); err != nil {
 		return nil, err
 	}
 	if err := collectPackingEvidenceOrdinary(stats, workloads, covered, target, context); err != nil {
@@ -108,8 +108,8 @@ func collectPackingEvidenceShard(shard ShardPlan, context PlanningContext) (cico
 	return tier, entries, nil
 }
 
-// collectPackingEvidenceGroups 将 compile group 的串行资格和关键路径成本计入证据。
-func collectPackingEvidenceGroups(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, workloads map[GateID]PlannedWorkload, covered map[GateID]struct{}, groups []CompileGroup, target int64, context PlanningContext) error {
+// collectPackingEvidenceGroups 将每个 compile group 的独立 domain 计入证据。
+func collectPackingEvidenceGroups(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, workloads map[GateID]PlannedWorkload, covered map[GateID]struct{}, groups []CompileGroup, context PlanningContext) error {
 	for _, group := range groups {
 		tier, err := collectPackingEvidenceGroup(group, workloads, covered, context)
 		if err != nil {
@@ -118,9 +118,7 @@ func collectPackingEvidenceGroups(stats map[cicontract.WorkloadResourceTier]*wor
 		bucket := packingEvidenceStatsFor(stats, tier)
 		if CompileGroupSerialPackingEligible(group) {
 			bucket.packable++
-			if err := addCompileDuration(bucket, compileGroupCriticalDurationMS(group), target); err != nil {
-				return err
-			}
+			bucket.serialDomains++
 		} else {
 			bucket.isolated++
 		}
@@ -184,16 +182,6 @@ func packingEvidenceStatsFor(stats map[cicontract.WorkloadResourceTier]*workload
 	return stats[tier]
 }
 
-func addCompileDuration(bucket *workloadPackingEvidenceStats, duration, target int64) error {
-	if duration > target {
-		bucket.serialOversize++
-		return nil
-	}
-	var err error
-	bucket.serialTotal, err = addCompilePackingDuration(bucket.serialTotal, duration)
-	return err
-}
-
 func addOrdinaryDuration(bucket *workloadPackingEvidenceStats, duration, target int64) error {
 	if duration > target {
 		bucket.ordinaryOversize++
@@ -238,11 +226,7 @@ func packingEvidenceLowerBound(bucket *workloadPackingEvidenceStats, target int6
 	if err != nil {
 		return 0, err
 	}
-	serial, err := compilePackingCapacityLowerBound(bucket.serialTotal, bucket.serialOversize, target)
-	if err != nil {
-		return 0, err
-	}
-	total, err := addCompilePackingShardCounts(ordinary, serial)
+	total, err := addCompilePackingShardCounts(ordinary, bucket.serialDomains)
 	if err != nil {
 		return 0, err
 	}

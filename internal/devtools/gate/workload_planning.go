@@ -444,6 +444,9 @@ func validateStoredWorkloadShard(
 	if shard.Index != index || len(shard.Workloads) == 0 || shard.EstimatedDurationMS <= 0 {
 		return fmt.Errorf("workload shard %d identity is invalid", index)
 	}
+	if err := validateStoredCompileGroupShardDomain(shard, index, groups); err != nil {
+		return err
+	}
 	ordinaryTotal, plannedGroupWorkloads, err := collectStoredShardWorkloads(shard, index, seen, catalog, groupedWorkloads)
 	if err != nil {
 		return err
@@ -458,6 +461,24 @@ func validateStoredWorkloadShard(
 	total := ordinaryTotal + groupTotal
 	if total != shard.EstimatedDurationMS {
 		return fmt.Errorf("workload shard %d estimated duration mismatch", index)
+	}
+	return nil
+}
+
+// validateStoredCompileGroupShardDomain 锁定 compile-group shard 的单一 canonical group 覆盖边界。
+func validateStoredCompileGroupShardDomain(shard ShardPlan, index int, groups map[string]CompileGroup) error {
+	if len(shard.CompileGroupIDs) == 0 {
+		return nil
+	}
+	if len(shard.CompileGroupIDs) != 1 {
+		return fmt.Errorf("workload shard %d must reference exactly one compile group", index)
+	}
+	group, ok := groups[shard.CompileGroupIDs[0]]
+	if !ok {
+		return fmt.Errorf("workload shard %d references unknown compile group %q", index, shard.CompileGroupIDs[0])
+	}
+	if len(shard.Workloads) != len(group.WorkloadIDs) {
+		return fmt.Errorf("workload shard %d compile group %q workload coverage mismatch", index, group.GroupID)
 	}
 	return nil
 }
@@ -660,6 +681,9 @@ func validateStoredCompileGroupMember(group CompileGroup, id GateID, execution m
 func validateStoredCompileGroupReferences(plan WorkloadExecutionPlan, groups map[string]CompileGroup) error {
 	references := make(map[string]int, len(groups))
 	for _, shard := range plan.Shards {
+		if len(shard.CompileGroupIDs) > 1 {
+			return fmt.Errorf("workload shard %d must reference exactly one compile group", shard.Index)
+		}
 		if err := compileGroupAffinityFromShardIDs(groups, shard); err != nil {
 			return err
 		}

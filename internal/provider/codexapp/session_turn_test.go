@@ -28,6 +28,7 @@ func TestStartTurnAppliesTurnToolScopeRuntimeConfig(t *testing.T) {
 	}
 	s.runtime.Start()
 	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("provider-thread-1")
 	s.setRuntimeConfig(map[string]any{
 		"cwd":                          "/old",
 		"additionalWorkingDirectories": []string{"/old-extra"},
@@ -206,6 +207,7 @@ func TestStartTurnPreservesExplicitOverrideGPT5Model(t *testing.T) {
 	}
 	s.runtime.Start()
 	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("provider-thread-1")
 
 	handle, err := s.StartTurn(context.Background(), dto.TurnRequest{
 		ThreadID: "provider-thread-1",

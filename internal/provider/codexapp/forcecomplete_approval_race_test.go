@@ -144,7 +144,7 @@ func TestForceCompleteFallsBackWhenTurnIDRejected(t *testing.T) {
 	}
 
 	fixture.assertFirstTurnID(t, "turn-1")
-	fixture.assertFallbackThreadID(t, "thread-1")
+	fixture.assertFallbackThreadID(t, "provider-thread-1")
 	assertTurnDone(t, active, "forceComplete fallback did not finish active turn")
 }
 
@@ -448,6 +448,7 @@ func newForceCompleteTestSession(t *testing.T, serverURL string) *session {
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
+	s.setThreadID("provider-thread-1")
 	return s
 }
 

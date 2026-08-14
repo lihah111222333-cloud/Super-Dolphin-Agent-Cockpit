@@ -109,8 +109,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     if (!runtime.pendingTurnStart || runtime.pendingTurnStart.cancelled) return false;
     runtime.pendingTurnStart.cancelled = true;
     runtime.set({ actionNotice: actionNotice('正在取消启动中的任务', 'info') });
-    const { threadId, localTurnId } = runtime.pendingTurnStart;
-    return threadId && localTurnId ? { threadId, turnId: localTurnId, interruptible: true } : true;
+    return true;
   };
   attachWarningRuntime(runtime, {
     cleanObject,

@@ -6,10 +6,11 @@ import (
 	"testing"
 )
 
-func TestStoredCompilePlanAllowsEligibleSerialMultiGroupShard(t *testing.T) {
+func TestStoredCompilePlanRejectsEligibleSerialMultiGroupShard(t *testing.T) {
 	plan, catalog := storedEligibleMultiGroupFixture(t)
-	if _, _, err := validateStoredCompileGroups(plan, catalog); err != nil {
-		t.Fatalf("eligible serial multi-group shard rejected: %v", err)
+	plan = mergeStoredEligibleSerialGroupShards(t, plan)
+	if _, _, err := validateStoredCompileGroups(plan, catalog); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
+		t.Fatalf("eligible serial multi-group shard validation error = %v", err)
 	}
 }
 
@@ -25,18 +26,6 @@ func TestStoredCompilePlanRejectsCompileGroupResourceTampering(t *testing.T) {
 	plan.Shards[0].Workloads[0].ResourceMemoryGiB = 16
 	if _, _, err := validateStoredCompileGroups(plan, catalog); err == nil || !strings.Contains(err.Error(), "resource") {
 		t.Fatalf("tampered member resource error = %v", err)
-	}
-	plan, catalog = storedEligibleMultiGroupFixture(t)
-	plan.CompileGroups[1].ResourceClassID = "medium"
-	rebindStoredCompileGroupID(t, &plan, 1)
-	for index := range plan.Shards[0].Workloads {
-		if plan.Shards[0].Workloads[index].Workload.ID == string(plan.CompileGroups[1].WorkloadIDs[0]) {
-			plan.Shards[0].Workloads[index].ResourceCPU = 4
-			plan.Shards[0].Workloads[index].ResourceMemoryGiB = 8
-		}
-	}
-	if _, _, err := validateStoredCompileGroups(plan, catalog); err == nil || !strings.Contains(err.Error(), "mixes") {
-		t.Fatalf("mixed shard resource tuple error = %v", err)
 	}
 }
 
@@ -86,7 +75,32 @@ func storedEligibleMultiGroupFixture(t *testing.T) (WorkloadExecutionPlan, Workl
 	for _, workload := range workloads {
 		planned = append(planned, PlannedWorkload{Workload: workload, EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4})
 	}
-	shard := ShardPlan{Index: 0, Workloads: planned, CompileGroupIDs: []string{groups[0].GroupID, groups[1].GroupID}}
-	shard.EstimatedDurationMS = compileGroupCriticalDurationMS(groups[0]) + compileGroupCriticalDurationMS(groups[1])
-	return WorkloadExecutionPlan{ExecutionWorkloadIDs: []GateID{GateID(workloads[0].ID), GateID(workloads[1].ID)}, CompileGroups: groups, Shards: []ShardPlan{shard}}, catalog
+	shards := make([]ShardPlan, len(groups))
+	for index, group := range groups {
+		var groupWorkload PlannedWorkload
+		for _, candidate := range planned {
+			if candidate.Workload.ID == string(group.WorkloadIDs[0]) {
+				groupWorkload = candidate
+				break
+			}
+		}
+		if groupWorkload.Workload.ID == "" {
+			t.Fatal("eligible serial fixture cannot bind group workload")
+		}
+		shards[index] = ShardPlan{Index: index, Workloads: []PlannedWorkload{groupWorkload}, CompileGroupIDs: []string{group.GroupID}, EstimatedDurationMS: compileGroupCriticalDurationMS(group)}
+	}
+	return WorkloadExecutionPlan{ExecutionWorkloadIDs: []GateID{GateID(workloads[0].ID), GateID(workloads[1].ID)}, CompileGroups: groups, Shards: shards}, catalog
+}
+
+func mergeStoredEligibleSerialGroupShards(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
+	t.Helper()
+	if len(plan.Shards) != 2 {
+		t.Fatal("eligible serial fixture requires two shards")
+	}
+	merged := plan.Shards[0]
+	merged.Workloads = append(slices.Clone(merged.Workloads), plan.Shards[1].Workloads...)
+	merged.CompileGroupIDs = append(slices.Clone(merged.CompileGroupIDs), plan.Shards[1].CompileGroupIDs...)
+	merged.EstimatedDurationMS += plan.Shards[1].EstimatedDurationMS
+	plan.Shards = []ShardPlan{merged}
+	return plan
 }

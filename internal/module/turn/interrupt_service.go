@@ -67,8 +67,7 @@ func (s *service) executeInterruptClaim(ctx context.Context, session contract.Se
 		return attachAcceptedInterruptRequestID(status, requestID), true, nil
 	}
 	if !s.tracker.claimInterruptDelivery(active.localID, requestID) {
-		releaseInterruptClaim(s.tracker, active.localID, requestID)
-		return before, false, nil
+		return s.replayBoundInterruptClaim(before, threadID, active.localID, requestID)
 	}
 	start := time.Now()
 	waited, err := interruptAndWait(ctx, session, nil, active, threadID, source, requestID, nil)
@@ -89,6 +88,24 @@ func (s *service) executeInterruptClaim(ctx context.Context, session contract.Se
 	}
 	status, err := s.finishInterrupt(ctx, active, before, start, waited)
 	return attachAcceptedInterruptRequestID(status, requestID), true, err
+}
+
+// replayBoundInterruptClaim 返回 BindProviderID 已接管同一请求后的真实幂等状态。
+func (s *service) replayBoundInterruptClaim(before TurnStatus, threadID, localID, requestID string) (TurnStatus, bool, error) {
+	releaseInterruptClaim(s.tracker, localID, requestID)
+	replay := s.tracker.ClaimInterruptTarget(threadID, localID, requestID)
+	if !replay.accepted {
+		return before, false, nil
+	}
+	if isTerminalTurnState(replay.before.State) {
+		status := attachInterruptEnvelope(replay.before, buildTurnInterruptTerminalReplayEnvelope(replay.before.State, replay.deliverySent))
+		return attachAcceptedInterruptRequestID(status, requestID), true, nil
+	}
+	envelope := buildTurnInterruptRegisteredEnvelope(before.State, replay.before.State)
+	if replay.deliverySent {
+		envelope = buildTurnInterruptSentPendingEnvelope(before.State, replay.before.State)
+	}
+	return attachAcceptedInterruptRequestID(attachInterruptEnvelope(replay.before, envelope), requestID), true, nil
 }
 
 // finishInterrupt 在 provider 确认收到中断后等待本地 tracker 收敛，并构造响应 envelope。

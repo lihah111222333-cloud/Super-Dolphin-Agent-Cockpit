@@ -83,6 +83,29 @@ func TestTurnTrackerStartAttachUpdateAndGet(t *testing.T) {
 	}
 }
 
+func TestBindProviderIDClaimsPendingInterruptBeforeConfirmation(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	if !tracker.Start("local-claim-bind", "", "thread-claim-bind") {
+		t.Fatal("Start() = false")
+	}
+	claim := tracker.ClaimInterruptTarget("thread-claim-bind", "local-claim-bind", "request-claim-bind")
+	if !claim.claimed {
+		t.Fatalf("ClaimInterruptTarget() = %#v, want claimed", claim)
+	}
+	if requestID := tracker.BindProviderID("local-claim-bind", "provider-claim-bind"); requestID != "request-claim-bind" {
+		t.Fatalf("BindProviderID() = %q, want pending request id", requestID)
+	}
+	if !confirmInterruptClaim(tracker, "local-claim-bind", "request-claim-bind") {
+		t.Fatal("confirmInterruptClaim() = false after bind took delivery ownership")
+	}
+	status := requireTurnStatus(t, tracker, "local-claim-bind")
+	if status.State != "interrupting" || status.ProviderID != "provider-claim-bind" {
+		t.Fatalf("status after claim-bind-confirm = %#v, want interrupting bound turn", status)
+	}
+}
+
 func TestTurnTrackerCompleteSuccessClearsActiveHandle(t *testing.T) {
 	t.Parallel()
 

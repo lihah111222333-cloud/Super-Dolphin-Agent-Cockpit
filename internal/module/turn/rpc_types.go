@@ -12,12 +12,13 @@ import (
 
 // turnStartParams 是 turn/start 的 RPC 入参，兼容 snake_case 与部分旧 camelCase 字段。
 type turnStartParams struct {
-	ThreadID    string                `json:"thread_id"`
-	LocalTurnID string                `json:"local_turn_id,omitempty"`
-	Prompt      string                `json:"prompt,omitempty"`
-	Images      []string              `json:"images,omitempty"`
-	Files       []string              `json:"files,omitempty"`
-	Input       []turnInputItemParams `json:"input,omitempty"`
+	ThreadID                 string                `json:"thread_id"`
+	LocalTurnID              string                `json:"local_turn_id,omitempty"`
+	PreparingCancelRequestID string                `json:"preparing_cancel_request_id,omitempty"`
+	Prompt                   string                `json:"prompt,omitempty"`
+	Images                   []string              `json:"images,omitempty"`
+	Files                    []string              `json:"files,omitempty"`
+	Input                    []turnInputItemParams `json:"input,omitempty"`
 
 	SelectedSkills               []string             `json:"selected_skills,omitempty"`
 	SelectedSkillRefs            []skillRefParams     `json:"selected_skill_refs,omitempty"`
@@ -55,6 +56,9 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	}); err != nil {
 		return err
 	}
+	if err := mergePreparingCancelRequestID(p, &legacy, payload); err != nil {
+		return err
+	}
 	return validateSkillRefSources("turn/start", p.SelectedSkillRefs)
 }
 
@@ -64,6 +68,7 @@ type legacyTurnStartParams struct {
 	ThreadID                     string               `json:"threadId"`
 	ThreadIDUpper                string               `json:"threadID"`
 	LocalTurnID                  string               `json:"localTurnId"`
+	PreparingCancelRequestID     string               `json:"preparingCancelRequestId"`
 	SelectedSkills               []string             `json:"selectedSkills"`
 	SelectedSkillRefs            []skillRefParams     `json:"selectedSkillRefs"`
 	ManualSkillSelection         *bool                `json:"manualSkillSelection"`
@@ -123,6 +128,24 @@ func mergeLocalTurnID(current *rawTurnStartParams, legacy *legacyTurnStartParams
 	if strings.TrimSpace(current.LocalTurnID) == "" {
 		current.LocalTurnID = strings.TrimSpace(legacy.LocalTurnID)
 	}
+}
+
+// mergePreparingCancelRequestID 合并唯一 Stop identity，并拒绝 snake/camel 同时携带不同值。
+func mergePreparingCancelRequestID(current *turnStartParams, legacy *legacyTurnStartParams, payload map[string]json.RawMessage) error {
+	snake, snakeOK := payload["preparing_cancel_request_id"]
+	camel, camelOK := payload["preparingCancelRequestId"]
+	if snakeOK && camelOK && !samePreparingCancelRequestID(snake, camel) {
+		return platformrpc.ErrInvalidParams("turn/start: conflicting preparing cancellation request id values")
+	}
+	if strings.TrimSpace(current.PreparingCancelRequestID) == "" {
+		current.PreparingCancelRequestID = strings.TrimSpace(legacy.PreparingCancelRequestID)
+	}
+	return nil
+}
+
+func samePreparingCancelRequestID(snake, camel json.RawMessage) bool {
+	var snakeID, camelID string
+	return json.Unmarshal(snake, &snakeID) == nil && json.Unmarshal(camel, &camelID) == nil && strings.TrimSpace(snakeID) == strings.TrimSpace(camelID)
 }
 
 // turnInputItemParams 是 text/image/mention/skill 等输入项的宽松 RPC 形态。

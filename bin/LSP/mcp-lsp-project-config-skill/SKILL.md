@@ -1,6 +1,6 @@
 ---
 name: mcp-lsp-project-config
-description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio MCP，覆盖 Codex、Claude Code 和 Google Antigravity，以及 Windows 原生 PowerShell/WSL 自动选型。用户提到项目 MCP、LSP MCP、.codex/config.toml、.mcp.json、.agents/mcp_config.json，或希望三个客户端共用仓库内 mcp-lsp 时使用。
+description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio MCP，覆盖 Codex、Claude Code 和 Google Antigravity，以及 Windows 原生 PowerShell/WSL 自动选型。用户提到项目 MCP、LSP MCP、.codex/config.toml、.mcp.json、.agents/mcp_config.json、工具已显示但调用报 client is closing、EOF、Transport closed，或希望三个客户端共用仓库内 mcp-lsp 时使用。
 ---
 
 # 项目级 mcp-lsp 配置
@@ -151,6 +151,38 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 - 不得写全局 ~/.gemini/config/mcp_config.json。
 - 远程 MCP 才使用 serverUrl；本地 mcp-lsp 不使用 url、httpUrl 或 serverUrl。
 
+#### Antigravity 同名配置冲突排查
+
+工具已经显示但首次或后续 `tools/call` 报 `client is closing: EOF`、`Transport closed` 或 sidecar 很快退出时，不要只检查 `.agents/mcp_config.json`，也不要先归因于 Antigravity。先在当前 workspace 内完整盘点：
+
+1. 规范入口 `<workspace>/.agents/mcp_config.json`。
+2. 自动加载的 `<workspace>/.agents/plugins/*/mcp_config.json`。
+3. 旧安装或误写的 `<workspace>/.gemini/config/mcp_config.json`。
+4. 全局 `~/.gemini/config/mcp_config.json` 中是否还有同名 server；只读检查，未经用户明确授权不得修改全局配置。
+
+同名 `lsp` 出现在规范入口和插件或旧副本中不是冗余备份：不同 `cwd`、roots、command 或 env 可能让客户端发现工具后启动另一份 server，造成调用时路径解析、进程 owner 和 stdio 生命周期不一致。以用户确认的正确配置为基准逐字段比较；确认插件只用于重复注册同一 server、没有其他能力后，获得删除授权再删除整个插件目录。不要保留空 `plugin.json`、wrapper 或 stale 配置。
+
+必须从 `~/.multi-agent/log/mcp-lsp/mcp-lsp-*.log` 核对实际生效值和时序：
+
+- `tools/call begin/done` 之后才出现 `mcp stdio: read failed EOF`，说明二进制完成过调用，EOF 是 stdin 被关闭后的结果，不是二进制崩溃证据。
+- `resolve parent path: lstat <trusted-cwd>/...` 说明请求相对路径按实际 trusted root 解析；用日志中的 root 和请求 path 重建最终路径。
+- `sidecar requires SUPER_DOLPHIN_RUNTIME_MODE...` 只证明该次进程缺少启动 env。若它来自 Agent 用 shell 裸跑二进制的探测，不得据此断言正式 MCP server 配置漏传 env。
+- `context canceled` 可能是上游 cascade 取消后的收敛结果；必须向前找到第一个工具错误或 stdin EOF，不能把最后一行当首因。
+
+选择“仓库上一级”为 `<trusted-cwd>` 时，相对工具路径也以该上一级为基准。读取 `<trusted-cwd>/repo-a/cmd/main.go` 必须传 `repo-a/cmd/main.go`，不能传 `cmd/main.go`；否则会错误解析为 `<trusted-cwd>/cmd/main.go`。验证时必须覆盖这种带仓库目录前缀的真实调用。
+
+删除重复配置或修改 server 后，必须完整退出并重启 Antigravity 宿主，再在 MCP Servers 页面 Refresh。仅 Refresh、新建 Agent 会话、重新加载窗口、覆盖配置或替换二进制都不能保证旧 stdio client 被销毁；已经 closing 的 client 不能原地复活。
+
+## 修改配置后必须重启宿主
+
+修改任何本地 stdio MCP 的 command、args、cwd、env、server 名、启用状态或配置来源后，必须完整停止并重新启动实际拥有 stdio 管道的宿主进程，然后再验证。该规则适用于 Codex、Claude Code、Antigravity 以及其他 MCP host：
+
+- Codex Desktop/IDE：完整退出并重新打开宿主应用；Codex CLI：结束当前 CLI 进程并重新启动。
+- Claude Code：结束当前 Claude Code/CLI 或承载其 MCP client 的 IDE host，再重新启动。
+- Antigravity IDE/Desktop：完整退出并重新打开 Antigravity；Antigravity CLI：结束当前 CLI 进程并重新启动。
+
+不得把 Refresh、Reload Window、重新打开项目、新建聊天或手工杀掉/重启 `mcp-lsp` 当作宿主重启。stdio 管道和 MCP client 由宿主拥有；宿主未重启时，旧进程、旧 env、旧配置快照或 closing client 都可能继续被复用。无法重启宿主时，把在线验证记为 `BLOCKED_HOST_RESTART_REQUIRED`，不得声称配置已经生效。
+
 ## Agent 自适配
 
 Agent 可以根据事实调整 server 名、路径、环境变量、timeout、审批设置及客户端专属字段，也可以修改本技能和 references/provider-configs.md，使其匹配已验证的新版本行为。
@@ -184,13 +216,14 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 2. 重新解析项目根及其上一级，确认配置中的 cwd、`GO_AGENT_LSP_ROOT` 和解码后的 `GO_AGENT_LSP_ROOTS` 与用户选择的 `<trusted-cwd>` 完全一致；不得只凭字符串看起来相近就通过。
 3. 重新读取本次客户端对应的 AGENTS.md、CLAUDE.md 或两者，确认受管规则存在一次且必需语义完整。
 4. 重新解析所有修改后的 JSON/TOML。
-5. Codex：信任项目并重启，用 /mcp 或 codex mcp list 检查。
-6. Claude Code：完成 workspace trust 和项目 MCP 批准，用 /mcp、claude mcp list 或 claude mcp get 检查。
-7. Antigravity：在 MCP Servers 页面 Refresh，或在 CLI 用 /mcp 检查。
+5. Codex：完整退出并重启 Codex Desktop/IDE 宿主或 CLI 进程；信任项目后用 /mcp 或 codex mcp list 检查。
+6. Claude Code：完整结束并重启 Claude Code/CLI 或承载 MCP client 的 IDE host；完成 workspace trust 和项目 MCP 批准后，用 /mcp、claude mcp list 或 claude mcp get 检查。
+7. Antigravity：完整退出并重启 Antigravity IDE/Desktop 或 CLI 进程；宿主重启后再在 MCP Servers 页面 Refresh，或在 CLI 用 /mcp 检查。
 8. 至少实际调用 file、structure、inspect、xref、diagnostics 中的一项；列表显示 enabled 不是运行证据。
 9. 对含中文、空格或字面 `%` 的项目路径，至少用 `file(action=diagnostics)` 验证一次 file URI 能回到 workspace 内本机路径；`path_outside_workspace` 不能记为 PASS。
 10. 对选择“仓库上一级”的配置，必须实际读取或导航一个位于上一级内、但不在本仓库内的已知文件；若没有可安全验证的相邻文件，明确记为未验证，不得扩大到其他目录取证。
 11. 对 Go 项目保留并验证用户的 `GOTOOLCHAIN=auto`/`<name>+auto` 策略；版本探测应在已解析的 module 或 go.work 目录执行。
 12. 若配置修改需要第二次复核，重复读取配置，确认没有重复规则、重复 server、stale 路径或旧字段。
+13. Antigravity 必须再次扫描 `.agents/plugins/*/mcp_config.json` 和 workspace 内 `.gemini/config/mcp_config.json`，确认没有同名 `lsp` 副本；`initialize`、`tools/list` 和 UI enabled 不能替代至少一次真实 `tools/call`。
 
 报告二进制目标、修改的项目级文件、保留的既有设置、解析结果、客户端发现状态和实际工具调用证据。未启动对应客户端时，把在线连接明确标为未验证。

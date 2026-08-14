@@ -13,6 +13,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/stretchr/testify/require"
 )
@@ -61,6 +62,142 @@ func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) 
 	require.Equal(t, "explicit summary", req.Skills[0].Summary)
 	require.Equal(t, "debug summary", req.Skills[1].Summary)
 	require.Equal(t, "deploy summary", req.Skills[2].Summary)
+}
+
+func TestPrepareTurnRegistersDeferredStopBeforeLongPrepareAndStartUsesSameTrackerKey(t *testing.T) {
+	svc, session, assembly, handle, providerInterrupts := newDeferredPrepareWindow(t)
+	defer svc.ctxCancel()
+
+	localID := "turn_00000000-0000-4000-8000-000000000302"
+	requestID := "stop-before-provider-start"
+	prepared := startControlledPrepare(svc, session, localID, requestID)
+	waitForControlledPrepare(t, assembly)
+	replay, accepted, err := svc.InterruptTurnForTarget(context.Background(), session, "ui_stop", localID, requestID)
+	assertDeferredPreparingReplay(t, replay, accepted, err)
+	assertNoProviderInterruptBeforePrepareRelease(t, providerInterrupts)
+
+	close(assembly.release)
+	result := awaitControlledPrepare(t, prepared, localID, requestID)
+	if _, err := svc.StartTurn(context.Background(), session, result.req); err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	assertProviderInterruptAfterPrepareBinding(t, providerInterrupts, session.threadID, requestID)
+	handle.complete(context.Canceled)
+}
+
+func TestPrepareTurnRegistersFacadeStopAfterStartPayloadDispatch(t *testing.T) {
+	svc, session, assembly, handle, providerInterrupts := newDeferredPrepareWindow(t)
+	defer svc.ctxCancel()
+
+	localID := "turn_00000000-0000-4000-8000-000000000303"
+	requestID := "stop-during-prepare-after-start-payload"
+	prepared := startControlledPrepare(svc, session, localID, "")
+	waitForControlledPrepare(t, assembly)
+
+	registered, accepted, err := svc.InterruptTurnForTarget(context.Background(), session, "ui_stop", localID, requestID)
+	assertDeferredPreparingReplay(t, registered, accepted, err)
+	assertNoProviderInterruptBeforePrepareRelease(t, providerInterrupts)
+
+	close(assembly.release)
+	result := awaitControlledPrepare(t, prepared, localID, "")
+	if _, err := svc.StartTurn(context.Background(), session, result.req); err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	assertProviderInterruptAfterPrepareBinding(t, providerInterrupts, session.threadID, requestID)
+	handle.complete(context.Canceled)
+}
+
+func TestRequireTurnContextKeepsRPCThreadScopeAcrossProviderIdentityChange(t *testing.T) {
+	ctx := contract.WithThreadID(context.Background(), "thread-canonical")
+	_, threadID, err := requireTurnContext(ctx, &stubSession{threadID: "provider-thread-after-start"})
+	if err != nil {
+		t.Fatalf("requireTurnContext() error = %v", err)
+	}
+	if threadID != "thread-canonical" {
+		t.Fatalf("requireTurnContext() threadID = %q, want stable RPC scope", threadID)
+	}
+}
+
+type preparedTurnResult struct {
+	req dto.TurnRequest
+	err error
+}
+
+func newDeferredPrepareWindow(t *testing.T) (*service, *stubSession, *blockingPromptAssemblyService, *stubTurnHandle, chan dto.InterruptRequest) {
+	t.Helper()
+	assembly := &blockingPromptAssemblyService{entered: make(chan struct{}), release: make(chan struct{})}
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime()).(*service)
+	providerInterrupts := make(chan dto.InterruptRequest, 1)
+	handle := newStubTurnHandle("turn_00000000-0000-4000-8000-000000000302", "provider-prepare-window")
+	session := &stubSession{
+		threadID:  "thread-prepare-window",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) { return handle, nil },
+		interrupt: func(_ context.Context, request dto.InterruptRequest) error {
+			providerInterrupts <- request
+			return nil
+		},
+	}
+	return svc, session, assembly, handle, providerInterrupts
+}
+
+func startControlledPrepare(svc *service, session contract.Session, localID, requestID string) <-chan preparedTurnResult {
+	prepared := make(chan preparedTurnResult, 1)
+	runtimesafe.SafeGo(context.Background(), silentLogger(), "turn.test.controlled-prepare", func(context.Context) {
+		req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+			LocalTurnID: localID, PreparingCancelRequestID: requestID, Prompt: "wait during prepare",
+		})
+		prepared <- preparedTurnResult{req: req, err: err}
+	})
+	return prepared
+}
+
+func waitForControlledPrepare(t *testing.T, assembly *blockingPromptAssemblyService) {
+	t.Helper()
+	select {
+	case <-assembly.entered:
+	case <-time.After(time.Second):
+		t.Fatal("PrepareTurn did not enter the controlled long prepare window")
+	}
+}
+
+func assertDeferredPreparingReplay(t *testing.T, replay TurnStatus, accepted bool, err error) {
+	t.Helper()
+	if err != nil || !accepted || replay.State != string(StateInterrupting) || replay.interruptEnvelope().mode != "interrupt_registered" {
+		t.Fatalf("preparing Stop replay = status=%+v accepted=%v err=%v, want registered same-key cancellation", replay, accepted, err)
+	}
+}
+
+func assertNoProviderInterruptBeforePrepareRelease(t *testing.T, providerInterrupts <-chan dto.InterruptRequest) {
+	t.Helper()
+	select {
+	case request := <-providerInterrupts:
+		t.Fatalf("provider Interrupt during prepare = %#v, want deferred delivery", request)
+	default:
+	}
+}
+
+func awaitControlledPrepare(t *testing.T, prepared <-chan preparedTurnResult, localID, requestID string) preparedTurnResult {
+	t.Helper()
+	result := <-prepared
+	if result.err != nil {
+		t.Fatalf("PrepareTurn() error = %v", result.err)
+	}
+	if result.req.LocalID != localID || result.req.PreparingCancelRequestID != requestID {
+		t.Fatalf("prepared request identities = %#v", result.req)
+	}
+	return result
+}
+
+func assertProviderInterruptAfterPrepareBinding(t *testing.T, providerInterrupts <-chan dto.InterruptRequest, threadID, requestID string) {
+	t.Helper()
+	select {
+	case request := <-providerInterrupts:
+		if request.ThreadID != threadID || request.TurnID != "provider-prepare-window" || request.RequestID != requestID {
+			t.Fatalf("provider Interrupt = %#v, want canonical thread/provider/Stop identity", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("registered preparing Stop was not delivered after provider binding")
+	}
 }
 
 func TestNormalizeFileContentItemPreservesBoundaryWhitespace(t *testing.T) {
@@ -420,6 +557,23 @@ func TestInterruptTurnWaitsForSettle(t *testing.T) {
 	}
 }
 
+func assertSteerLeavesOriginalActiveTurn(t *testing.T, svc Service, session *stubSession, started contract.TurnHandle) {
+	t.Helper()
+	implementation := svc.(*service)
+	active, tracked := implementation.tracker.ActiveByThread("thread-1")
+	if !tracked || active.localID != "local-2" || active.handle != started {
+		t.Fatalf("SteerTurn() left active tracker = %#v, tracked=%t; want original live turn", active, tracked)
+	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, accepted, _ := implementation.InterruptTurnForTarget(stopCtx, session, "ui_stop", "local-2", "stop-after-steer"); !accepted {
+		t.Fatal("Stop after SteerTurn was not accepted for provider delivery")
+	}
+	if session.lastInterrupt.TurnID != "provider-2" {
+		t.Fatalf("Stop after SteerTurn target = %q, want provider-2", session.lastInterrupt.TurnID)
+	}
+}
+
 func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 	t.Parallel()
 
@@ -438,6 +592,7 @@ func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 			}
 			return nil
 		},
+		interrupt: func(context.Context, dto.InterruptRequest) error { return nil },
 	}
 
 	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
@@ -456,6 +611,7 @@ func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 	if handle != started {
 		t.Fatalf("SteerTurn() handle = %#v, want active handle %#v", handle, started)
 	}
+	assertSteerLeavesOriginalActiveTurn(t, svc, session, started)
 }
 
 func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {
@@ -529,6 +685,26 @@ func (s *stubPromptAssemblyService) AssembleAgent(context.Context, contract.Agen
 
 func (*stubPromptAssemblyService) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
+}
+
+type blockingPromptAssemblyService struct {
+	stubPromptAssemblyService
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingPromptAssemblyService) AssembleTurn(ctx context.Context, input contract.TurnInput) (contract.TurnAssembly, error) {
+	select {
+	case <-s.entered:
+	default:
+		close(s.entered)
+	}
+	select {
+	case <-s.release:
+		return s.stubPromptAssemblyService.AssembleTurn(ctx, input)
+	case <-ctx.Done():
+		return contract.TurnAssembly{}, ctx.Err()
+	}
 }
 
 type stubSession struct {

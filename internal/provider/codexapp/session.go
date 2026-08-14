@@ -529,7 +529,7 @@ func (s *session) resolveTurnStartModel(ctx context.Context, requested string) (
 // Steer 向当前线程的指定 turn 发送 steering 输入。
 // ExpectedTurnID 是调用方的并发保护，缺失时立即失败，避免把指令投递到未知 turn。
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
-	threadID, err := requireThreadID(s, req.ThreadID)
+	threadID, err := requireThreadID(s)
 	if err != nil {
 		return err
 	}
@@ -548,7 +548,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 // Interrupt 中断指定 turn；请求未带 turnID 时使用会话记录的 active turn。
 // 如果两者都为空会立即报错，防止向 provider 发送无目标的 interrupt。
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
-	threadID, err := requireThreadID(s, req.ThreadID)
+	threadID, err := requireThreadID(s)
 	if err != nil {
 		return err
 	}
@@ -702,7 +702,7 @@ func (s *session) setActiveTurnLocked(turnID string) {
 // ForceComplete 强制完成当前或指定 provider turn，并在远端确认后关闭本地 turn handle。
 // 找不到目标 turn 时返回 typed 错误，避免 UI 把未执行的强制完成显示为成功。
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
-	threadID, err := requireThreadID(s, req.ThreadID)
+	threadID, err := requireThreadID(s)
 	if err != nil {
 		return err
 	}

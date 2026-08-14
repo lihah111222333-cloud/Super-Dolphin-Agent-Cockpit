@@ -87,9 +87,6 @@ func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission cont
 	if err != nil {
 		return "", err
 	}
-	if turnID := strings.TrimSpace(submission.ExpectedTurnID); turnID != "" {
-		req.LocalID = turnID
-	}
 	if threadID != "" {
 		req.ThreadID = threadID
 	}
@@ -123,6 +120,7 @@ func readQueuedThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfig
 // prepareQueuedTurnInput 把编排提交转换成 turn service 的 PrepareInput。
 func prepareQueuedTurnInput(session sessionCaps, submission contract.TurnSubmission, threadRuntimeConfig map[string]any) PrepareInput {
 	return buildPrepareInput(prepareInputSpec{
+		LocalTurnID:           strings.TrimSpace(submission.ExpectedTurnID),
 		Inputs:               submission.Inputs,
 		ManualSkillSelection: submission.ManualSkillSelection,
 		OutputSchema:         append(json.RawMessage(nil), submission.OutputSchema...),

@@ -57,7 +57,7 @@
 - `session.go`：prompt assembly / session start-resume carrier。锚点：`internal/dto/provider/session.go:12`, `:19`, `:21`, `:26`, `:38`, `:47`, `:55`, `:73`
 - `thread.go`：`ThreadRef`。锚点：`internal/dto/provider/thread.go:3`
 - `thread_config.go`：thread override/config/compact DTO。锚点：`internal/dto/provider/thread_config.go:3`, `:10`, `:16`, `:24`
-- `turn.go`：turn/steer/skill/fork carrier。锚点：`internal/dto/provider/turn.go:11`, `:31`, `:57`, `:70`, `:100`, `:108`, `:116`, `:128`, `:134`, `:139`
+- `turn.go`：turn/steer/skill/fork carrier。锚点：`internal/dto/provider/turn.go:11`, `:34`, `:40`, `:60`, `:73`, `:103`, `:111`, `:119`, `:131`, `:137`, `:142`
 - `message_test.go`：`createdAt` JSON 契约测试。锚点：`internal/dto/provider/message_test.go:10`
 - `turn_test.go`：`SkillRef` 兼容/枚举/嵌入契约测试。锚点：`internal/dto/provider/turn_test.go:12`
 
@@ -184,10 +184,10 @@
 |---|---|---|---|
 | `StartSessionRequest` | `internal/module/thread/start_session.go:152` | `internal/provider/claudecli/driver.go:106`、`internal/provider/codexapp/driver.go:157` | `internal/dto/provider/session.go:55` |
 | `ResumeSessionRequest` | `thread` 恢复链路 | `claudecli.Driver.ResumeSession`、`codexapp.Driver.ResumeSession` | `internal/dto/provider/session.go:73` |
-| `TurnAssembly` | `internal/module/turn/prompt_assembly.go:13` | `internal/dto/provider/turn.go:17`, `:121`、`internal/provider/codexapp/session_turn.go:77` | `internal/dto/provider/session.go:47` |
+| `TurnAssembly` | `internal/module/turn/prompt_assembly.go:13` | `internal/dto/provider/turn.go:17`, `:124`、`internal/provider/codexapp/session_turn.go:77` | `internal/dto/provider/session.go:47` |
 | `AttachmentEnvelope` | `internal/module/memory/retrieval/render.go:33`、`internal/module/memory/nested/nested_rules.go:18` | `contract.RenderAttachmentText`、provider turn input builder | `internal/dto/provider/attachment.go:8` |
-| `TurnRequest` / `SteerRequest` | `turn` 提交/引导 | provider session turn builder | `internal/dto/provider/turn.go:11`, `:116` |
-| `InterruptRequest` / `ForceCompleteRequest` / `ForkRequest` | thread/turn 管理命令 | `contract.Session` 实现 | `internal/dto/provider/turn.go:108`, `:128`, `:134` |
+| `TurnRequest` / `SteerRequest` | `turn` 提交/引导 | provider session turn builder | `internal/dto/provider/turn.go:11`, `:119` |
+| `InterruptRequest` / `ForceCompleteRequest` / `ForkRequest` | thread/turn 管理命令 | `contract.Session` 实现 | `internal/dto/provider/turn.go:111`, `:131`, `:137` |
 | `ThreadConfigPatch` | thread config/set RPC | `contract.Session.Configure` | `internal/dto/provider/thread_config.go:3` |
 | `ThreadRef` / `Message` | provider history/list API | thread/history 查询面 | `internal/dto/provider/thread.go:3`, `internal/dto/provider/message.go:5` |
 
@@ -326,7 +326,7 @@ flowchart LR
 | `session.go` | prompt assembly snapshot、start/resume session carrier | `contract.Driver.StartSession/ResumeSession`、driver config builder | `internal/module/thread/start_session.go:152`、prompt assembly | `internal/dto/provider/session.go:21`, `:26`, `:47`, `:55`, `:73` |
 | `thread.go` | provider thread 轻量引用 | thread list/history 查询 | provider list/history 实现 | `internal/dto/provider/thread.go:3` |
 | `thread_config.go` | thread override/config/compact result carrier | thread config/set RPC、session.Configure、compact UI | `internal/module/thread` config 读写链 | `internal/dto/provider/thread_config.go:3`, `:16`, `:24` |
-| `turn.go` | turn / steer / interrupt / force-complete / fork / skill 引用 carrier | `internal/module/turn`、provider session methods、契约测试 | turn service / thread service / tests | `internal/dto/provider/turn.go:11`, `:57`, `:100`, `:108`, `:116`, `:128`, `:134`, `:139` |
+| `turn.go` | turn / steer / interrupt / force-complete / fork / skill 引用 carrier | `internal/module/turn`、provider session methods、契约测试 | turn service / thread service / tests | `internal/dto/provider/turn.go:11`, `:60`, `:103`, `:111`, `:119`, `:131`, `:137`, `:142` |
 
 #### 8.1.5 `task`
 
@@ -599,17 +599,17 @@ graph TD
 |---|---|---|---|---|
 | 出站 | `StartSessionRequest` | `internal/module/thread/start_session.go:152` | `claudecli.Driver.StartSession` / `codexapp.Driver.StartSession` | `internal/dto/provider/session.go:55` |
 | 出站 | `ResumeSessionRequest` | thread resume 链路 | `claudecli.Driver.ResumeSession` / `codexapp.Driver.ResumeSession` | `internal/dto/provider/session.go:73` |
-| 出站 | `TurnRequest` | `internal/module/turn/service.go:119` | provider `session.StartTurn` | `internal/dto/provider/turn.go:11` |
-| 出站 | `SteerRequest` | `internal/module/turn/service.go:153` | provider `session.Steer` | `internal/dto/provider/turn.go:116` |
-| 出站 | `InterruptRequest` | interrupt / approval / input flow | provider `session.Interrupt` | `internal/dto/provider/turn.go:108` |
-| 出站 | `ForceCompleteRequest` | turn 终止/清理流 | provider `session.ForceComplete` | `internal/dto/provider/turn.go:128` |
-| 出站 | `ForkRequest` | thread fork 流 | provider `session.Fork` | `internal/dto/provider/turn.go:134` |
+| 出站 | `TurnRequest` | `internal/module/turn/service.go:267` | provider `session.StartTurn` | `internal/dto/provider/turn.go:11` |
+| 出站 | `SteerRequest` | `internal/module/turn/service.go:382` | provider `session.Steer` | `internal/dto/provider/turn.go:119` |
+| 出站 | `InterruptRequest` | interrupt / approval / input flow | provider `session.Interrupt` | `internal/dto/provider/turn.go:111` |
+| 出站 | `ForceCompleteRequest` | turn 终止/清理流 | provider `session.ForceComplete` | `internal/dto/provider/turn.go:131` |
+| 出站 | `ForkRequest` | thread fork 流 | provider `session.Fork` | `internal/dto/provider/turn.go:137` |
 | 出站 | `ThreadConfigPatch` | thread config/set | provider `session.Configure` | `internal/dto/provider/thread_config.go:3` |
 | 出站 | `AttachmentEnvelope` / `TurnAssembly` | prompt assembly / memory retrieval | provider prompt/input builder | `internal/dto/provider/attachment.go:8`, `internal/dto/provider/session.go:47` |
 | 入站 | `RawProviderEvent` | claude/codex read loop | `internal/provider/unified/event_map.go:103` | `internal/dto/provider/event.go:6` |
 | 入站 | `BusRawProviderEvent` | unified dispatcher raw bus bridge | bus raw 订阅方 / 审计 | `internal/dto/provider/event.go:14` |
-| 入站 | `TurnResult` | provider turn/start 返回值 | `internal/module/turn/service.go` | `internal/dto/provider/turn.go:100` |
-| 入站 | `ForkResult` | provider fork 返回值 | thread fork 调用方 | `internal/dto/provider/turn.go:139` |
+| 入站 | `TurnResult` | provider turn/start 返回值 | `internal/module/turn/service.go` | `internal/dto/provider/turn.go:103` |
+| 入站 | `ForkResult` | provider fork 返回值 | thread fork 调用方 | `internal/dto/provider/turn.go:142` |
 | 入站 | `ThreadRef` / `Message` / `ThreadMessagesResult` | provider history/list API | thread/history、UI 历史页 | `internal/dto/provider/thread.go:3`, `internal/dto/provider/message.go:5`, `:16` |
 | 入站 | `ThreadCompactResult` | compact 执行结果 | thread compact / UI thread summary | `internal/dto/provider/thread_config.go:24` |
 
@@ -745,7 +745,7 @@ graph TD
 | `provider` | `session.go` | `internal/dto/provider/session.go:5`, `:12`, `:21`, `:26`, `:38`, `:47`, `:55`, `:73` | prompt assembly + start/resume |
 | `provider` | `thread.go` | `internal/dto/provider/thread.go:3` | thread ref |
 | `provider` | `thread_config.go` | `internal/dto/provider/thread_config.go:3`, `:10`, `:16`, `:24` | patch/values/config/compact |
-| `provider` | `turn.go` | `internal/dto/provider/turn.go:11`, `:31`, `:57`, `:70`, `:100`, `:108`, `:116`, `:128`, `:134`, `:139` | turn/skill/control DTO |
+| `provider` | `turn.go` | `internal/dto/provider/turn.go:11`, `:34`, `:40`, `:60`, `:73`, `:103`, `:111`, `:119`, `:131`, `:137`, `:142` | turn/skill/control DTO |
 | `provider` | `turn_test.go` | `internal/dto/provider/turn_test.go:11`, `:32`, `:51`, `:81`, `:101`, `:129`, `:145`, `:179` | SkillRef / retired mode / SkillSource 契约测试 |
 | `shared` | `errors.go` | `internal/dto/shared/errors.go:5` | 共享错误变量 |
 | `shared` | `event.go` | `internal/dto/shared/event.go:5`, `:55`, `:60`, `:66`, `:72`, `:78`, `:83`, `:89`, `:96`, `:102`, `:108`, `:113`, `:119`, `:125`, `:131` | event type + 全套 header |
