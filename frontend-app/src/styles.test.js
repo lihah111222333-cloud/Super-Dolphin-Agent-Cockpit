@@ -541,8 +541,8 @@ describe('composer layout styles', () => {
     const fixedFloatingComposer = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target]'); const expandedFloatingComposer = topLevelDeclarationsFor('.sa-window .composer.composer--floating[data-file-drop-target]');
     const collapsedFloatingComposer = topLevelDeclarationsFor('.sa-window.sidebar-collapsed .composer.composer--floating[data-file-drop-target]');
 
-    expect(expandedFloatingComposer['--composer-fixed-left']).toBe('calc(var(--workbench-sidebar-width) + var(--thread-rail-column-width, 0px))'); expect(fixedFloatingComposer.inset).toBe('auto var(--composer-fixed-right, 0px) calc(24px + var(--workbench-bottom-height, 0px)) var(--composer-fixed-left)');
-    expect(collapsedFloatingComposer['--composer-fixed-left']).toBe('calc(48px + var(--thread-rail-column-width, 0px))');
+    expect(expandedFloatingComposer['--composer-fixed-left']).toBe('var(--workbench-sidebar-width)'); expect(fixedFloatingComposer.inset).toBe('auto var(--composer-fixed-right, 0px) calc(24px + var(--workbench-bottom-height, 0px)) var(--composer-fixed-left)');
+    expect(collapsedFloatingComposer['--composer-fixed-left']).toBe('48px');
   });
 
   it('keeps composer send controls aligned with the shell theme', () => {

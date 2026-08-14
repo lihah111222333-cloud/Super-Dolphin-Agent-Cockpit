@@ -15,7 +15,6 @@ import {
 import { CodePreviewMarkdown } from './markdown/MarkdownMessage.jsx';
 import { chatHeaderFeedbackForStore } from './model/chatHeaderModel.js';
 import { RuntimePanelSlot } from './runtime/RuntimePanelSlot.jsx';
-import { ThreadRail } from './thread/ThreadRail.jsx';
 import { Conversation } from './thread/Conversation.jsx';
 import { firstText, firstTrimmedText, timeLabelFromTimestamp, trimmedText } from './markdown/markdownMessageModel.js';
 import { currentTimestampMillis } from '../shared/pageShared.js';
@@ -335,7 +334,6 @@ function ChatPage(props) {
   });
   const rightPanelMounted = useRightPanelPresence(rightPanelOpen);
   const agentBoardCompact = geometrySnapshot.viewport.width <= AGENT_BOARD_COMPACT_VIEWPORT_WIDTH;
-  const threadRailHidden = !geometrySnapshot.threadRail.visible;
   const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
   const prefillIntroSuggestion = (prompt) => {
     store.setDraft(prompt);
@@ -362,11 +360,9 @@ function ChatPage(props) {
         data-testid="chat-layout"
         style={{
           '--composer-right-offset': geometrySnapshot.cssVars['--composer-right-offset'],
-          '--thread-rail-column-width': geometrySnapshot.cssVars['--thread-rail-column-width'],
           gridTemplateColumns: geometrySnapshot.gridTemplateColumns,
         }}
       >
-        <ThreadRail copy={copy} hidden={threadRailHidden} store={store} />
         <div className="chat-main-column" data-testid="chat-main-column">
           {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
           {!rightPanelOpen ? (

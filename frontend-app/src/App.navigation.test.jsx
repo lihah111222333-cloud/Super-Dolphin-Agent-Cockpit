@@ -78,8 +78,6 @@ const appTestSupport = createAppTestSupport({
 });
 const {
   getSidebarNavButton,
-  getThreadCardByName,
-  findThreadCardByName,
   installAppOverlayHost,
   resetConnectedShellTestState,
   mockBootstrapBackendDefaults,
@@ -153,46 +151,6 @@ afterEach(cleanupAppTest);
 
     await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
     expect(getSidebarNavButton('插件与技能')).toHaveClass('active');
-  });
-
-  it('hides idle status noise while keeping the provider badge in thread cards', async () => {
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: 'thread-1',
-      threads: [{ id: 'thread-1', name: '静默会话', provider: 'codex', status: 'idle' }],
-    });
-
-    render(<App />);
-
-    const card = await findThreadCardByName('静默会话');
-    expect(within(card).queryByRole('button', { name: '重命名会话' })).not.toBeInTheDocument();
-    expect(card).toHaveTextContent('codex');
-    expect(card).not.toHaveTextContent('idle');
-    expect(card.querySelector('em')).toBeNull();
-    expect(card.querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--idle');
-  });
-
-  it('maps backend projected thread statuses in thread cards', async () => {
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: 'thread-thinking',
-      threads: [
-        { id: 'thread-thinking', name: '思考会话', provider: 'codex', status: 'thinking' },
-        { id: 'thread-editing', name: '编辑会话', provider: 'codex', status: 'editing' },
-        { id: 'thread-waiting', name: '确认会话', provider: 'codex', status: 'waiting' },
-        { id: 'thread-syncing', name: '同步会话', provider: 'codex', status: 'syncing' },
-        { id: 'thread-error', name: '异常会话', provider: 'codex', status: 'error' },
-      ],
-    });
-
-    render(<App />);
-
-    expect(await findThreadCardByName('思考会话')).toHaveTextContent('思考中');
-    expect(getThreadCardByName('编辑会话')).toHaveTextContent('编辑中');
-    expect(getThreadCardByName('确认会话')).toHaveTextContent('等待确认');
-    expect(getThreadCardByName('同步会话')).toHaveTextContent('同步中');
-    expect(getThreadCardByName('异常会话')).toHaveTextContent('异常');
-    expect(getThreadCardByName('思考会话').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--thinking');
-    expect(getThreadCardByName('确认会话').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--waiting');
-    expect(getThreadCardByName('异常会话').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--error');
   });
 
   it('shows a bootstrap failure notice when the backend bridge is unavailable', async () => {

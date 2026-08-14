@@ -255,7 +255,6 @@ textarea:disabled {
   height: calc(100% - 60px);
 }
 
-.thread-rail,
 .conversation {
   background: var(--bg);
 }

@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
-import { TestChatPage, TestChatPageWrapper, copyTextToClipboard, createActiveThreadStore, createFakeStore } from './__tests__/chatPageTestSupport.js';
+import { TestChatPage, TestChatPageWrapper, copyTextToClipboard, createActiveThreadStore } from './__tests__/chatPageTestSupport.js';
 const HIDDEN_MERMAID_TEXT = [
   '旧图表不应首屏渲染：',
   '```mermaid',
@@ -364,38 +364,6 @@ it('collapses earlier assistant updates per turn while keeping the final reply v
     expect(screen.getByText(/随便贴一篇：##回家之路无论走了多远/)).toBeInTheDocument();
   });
 
-  it('supports deleting an individual archived thread with confirmation', () => {
-    const store = createFakeStore({
-      activeThreadId: 'thread-active',
-      threads: [
-        { id: 'thread-active', name: 'Active Thread', provider: 'codex', status: 'idle' },
-        { id: 'thread-archived-1', name: 'Archived Thread 1', provider: 'codex', status: 'archived', archived: true },
-      ],
-    });
-
-    render(<TestChatPage store={store} projectPath="/repo/app" />);
-
-    fireEvent.click(screen.getByLabelText('打开归档列表'));
-    expect(screen.getByText('Archived Thread 1')).toBeInTheDocument();
-
-    const deleteBtn = screen.getByLabelText('删除会话');
-    expect(deleteBtn).toBeInTheDocument();
-    fireEvent.click(deleteBtn);
-
-    expect(screen.getByText('确定删除该会话？')).toBeInTheDocument();
-    const confirmBtn = screen.getByRole('button', { name: '确认' });
-    const cancelBtn = screen.getByRole('button', { name: '取消' });
-    expect(confirmBtn).toBeInTheDocument();
-    expect(cancelBtn).toBeInTheDocument();
-
-    fireEvent.click(cancelBtn);
-    expect(screen.queryByText('确定删除该会话？')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByLabelText('删除会话'));
-    fireEvent.click(screen.getByRole('button', { name: '确认' }));
-
-    expect(store.deleteStaleThreads).toHaveBeenCalledWith(['thread-archived-1']);
-  });
   it('[regression] renders user message image attachments inline (data: URL and clipboard route)', () => {
     const store = createActiveThreadStore([
       {

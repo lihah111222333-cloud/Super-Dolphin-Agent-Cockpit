@@ -95,29 +95,24 @@ test('workbench shell keeps critical desktop regions visible and reachable', asy
   await expectCenterPointClickable(page.getByRole('button', { name: '发送消息' }));
 });
 
-test('wide chat thread rail stays within the main canvas and receives its own hit target', async ({ page }) => {
+test('wide chat uses the full main canvas without a secondary thread rail', async ({ page }) => {
   await page.goto('/');
 
-  const threadRail = page.getByTestId('thread-rail');
   const mainCanvas = page.locator('.super-dolphin-agent-main-canvas');
   const chatMainColumn = page.getByTestId('chat-main-column');
   const composer = page.getByTestId('composer-dock');
   const spotlight = page.getByTestId('chat-intro-spotlight');
-  await expect(threadRail).toBeVisible();
-  const [railBox, canvasBox, mainBox] = await Promise.all([
-    threadRail.boundingBox(),
+  await expect(page.getByTestId('thread-rail')).toHaveCount(0);
+  const [canvasBox, mainBox] = await Promise.all([
     mainCanvas.boundingBox(),
     chatMainColumn.boundingBox(),
   ]);
-  expect(railBox).toBeTruthy();
   expect(canvasBox).toBeTruthy();
   expect(mainBox).toBeTruthy();
-  expect(railBox.x).toBeGreaterThanOrEqual(canvasBox.x);
-  expect(railBox.x + railBox.width).toBeLessThanOrEqual(canvasBox.x + canvasBox.width);
-  expectBoxesDisjointHorizontally(railBox, mainBox);
+  expect(mainBox.x).toBeGreaterThanOrEqual(canvasBox.x);
+  expect(mainBox.x + mainBox.width).toBeLessThanOrEqual(canvasBox.x + canvasBox.width);
   await expectBoxWithin(composer, chatMainColumn);
   await expectBoxWithin(spotlight, chatMainColumn);
-  await expectCenterPointClickable(threadRail.getByRole('button', { name: '新建对话' }));
 
   await page.getByRole('button', { name: '显示侧边栏' }).click();
   await expect(page.getByTestId('right-panel-resizer')).toBeVisible();
@@ -125,7 +120,6 @@ test('wide chat thread rail stays within the main canvas and receives its own hi
   const openMainBox = await chatMainColumn.boundingBox();
   expect(openMainBox).toBeTruthy();
   expect(openMainBox.width).toBeGreaterThanOrEqual(440);
-  await expectCenterPointClickable(threadRail.getByRole('button', { name: '新建对话' }));
   await expectBoxWithin(composer, chatMainColumn);
   await expectBoxWithin(spotlight, chatMainColumn);
 
@@ -144,44 +138,31 @@ test('wide chat thread rail stays within the main canvas and receives its own hi
   const runtimeMainBox = await chatMainColumn.boundingBox();
   expect(runtimeMainBox).toBeTruthy();
   expect(runtimeMainBox.width).toBeGreaterThanOrEqual(440);
-  await expectCenterPointClickable(threadRail);
-
-  const [railBeforeClose, mainBeforeClose, panelBeforeClose] = await Promise.all([
-    threadRail.boundingBox(),
+  const [mainBeforeClose, panelBeforeClose] = await Promise.all([
     chatMainColumn.boundingBox(),
     page.getByTestId('runtime-panel').boundingBox(),
   ]);
-  expect(railBeforeClose).toBeTruthy();
   expect(mainBeforeClose).toBeTruthy();
   expect(panelBeforeClose).toBeTruthy();
   expect(panelBeforeClose.y).toBeCloseTo(mainBeforeClose.y, 1);
-  expect(railBeforeClose.height).toBeCloseTo(mainBeforeClose.height, 1);
 
   await page.getByTestId('runtime-panel-collapse').click();
   await expect(page.getByTestId('runtime-panel')).not.toBeVisible();
   await page.waitForTimeout(90);
-  const [railDuringClose, mainDuringClose] = await Promise.all([
-    threadRail.boundingBox(),
-    chatMainColumn.boundingBox(),
-  ]);
-  expect(railDuringClose.height).toBeCloseTo(railBeforeClose.height, 1);
+  const mainDuringClose = await chatMainColumn.boundingBox();
   expect(mainDuringClose.height).toBeCloseTo(mainBeforeClose.height, 1);
 
   await page.waitForTimeout(130);
-  const [railAfterClose, mainAfterClose] = await Promise.all([
-    threadRail.boundingBox(),
-    chatMainColumn.boundingBox(),
-  ]);
-  expect(railAfterClose.height).toBeCloseTo(railBeforeClose.height, 1);
+  const mainAfterClose = await chatMainColumn.boundingBox();
   expect(mainAfterClose.height).toBeCloseTo(mainBeforeClose.height, 1);
 });
 });
 
-test('1280 chat hides the thread rail without collapsing the chat main column', async ({ page }) => {
+test('1280 chat does not render a secondary thread rail', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
 
-  await expect(page.getByTestId('thread-rail')).not.toBeVisible();
+  await expect(page.getByTestId('thread-rail')).toHaveCount(0);
   const mainBox = await page.getByTestId('chat-main-column').boundingBox();
   expect(mainBox).toBeTruthy();
   expect(mainBox.width).toBeGreaterThan(0);
@@ -267,10 +248,6 @@ async function expectBoxWithin(locator, container) {
   expect(containerBox).toBeTruthy();
   expect(box.x).toBeGreaterThanOrEqual(containerBox.x);
   expect(box.x + box.width).toBeLessThanOrEqual(containerBox.x + containerBox.width);
-}
-
-function expectBoxesDisjointHorizontally(leftBox, rightBox) {
-  expect(leftBox.x + leftBox.width).toBeLessThanOrEqual(rightBox.x);
 }
 
 async function installDesktopWideBugCapture(page, testInfo) {

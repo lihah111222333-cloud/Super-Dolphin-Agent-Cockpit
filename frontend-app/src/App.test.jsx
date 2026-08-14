@@ -220,7 +220,7 @@ it('renders the persisted shell layout width through the real chat layout', asyn
   fireEvent.click(await screen.findByRole('button', { name: '显示侧边栏' }, { timeout: 20_000 }));
 
   expect(chatLayout).toHaveStyle({
-    gridTemplateColumns: '240px minmax(0, 1fr) 6px 480.5px',
+    gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
   });
   expect(storage.set).not.toHaveBeenCalled();
 }, 30000);

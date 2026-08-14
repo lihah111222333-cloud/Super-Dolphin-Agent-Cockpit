@@ -77,7 +77,6 @@ const appTestSupport = createAppTestSupport({
 });
 const {
   waitForBackendThreadHeading,
-  findThreadCardByName,
   installAppOverlayHost,
   resetConnectedShellTestState,
   mockBootstrapBackendDefaults,
@@ -711,7 +710,7 @@ afterEach(cleanupAppTest);
 
     render(<App />);
 
-    await findThreadCardByName('Thread 1');
+    await screen.findByRole('heading', { name: 'Thread 1' });
 
     act(() => {
       useClientStore.setState((state) => ({

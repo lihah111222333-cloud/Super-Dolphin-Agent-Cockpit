@@ -81,7 +81,6 @@ test('high-risk chat send creates a thread then starts a turn through the bridge
 
   await expect(page.getByTestId('composer-input')).toHaveValue('');
   await expect(page.getByTestId('chat-timeline')).toContainText(prompt);
-  await expect(page.getByTestId('thread-rail')).toContainText(prompt);
 
   const runtime = await runtimeSnapshot(page);
   const calls = runtime.calls;

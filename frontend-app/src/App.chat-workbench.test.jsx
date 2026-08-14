@@ -618,7 +618,7 @@ afterEach(cleanupAppTest);
     expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '显示侧边栏' })).toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
@@ -631,7 +631,7 @@ afterEach(cleanupAppTest);
     expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
     const restoredRightPanelWidth = Number(screen.getByTestId('right-panel-resizer').getAttribute('aria-valuenow'));
     expect(layout).toHaveStyle({
-      gridTemplateColumns: `240px minmax(0, 1fr) 6px ${restoredRightPanelWidth}px`,
+      gridTemplateColumns: `minmax(0, 1fr) 6px ${restoredRightPanelWidth}px`,
     });
   });
 
@@ -653,7 +653,7 @@ afterEach(cleanupAppTest);
     fireEvent.keyDown(leftResizer, { key: 'ArrowLeft' });
 
     expect(leftResizer).toHaveAttribute('aria-valuenow', '324');
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     let rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
@@ -669,7 +669,7 @@ afterEach(cleanupAppTest);
     const arrowWidth = Number(rightResizer.getAttribute('aria-valuenow'));
     expect(arrowWidth).toBeGreaterThanOrEqual(restoredWidth);
     expect(storage.value()).toBe(String(arrowWidth));
-    expect(layout).toHaveStyle({ gridTemplateColumns: `240px minmax(0, 1fr) 6px ${arrowWidth}px` });
+    expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${arrowWidth}px` });
 
     fireEvent.keyDown(rightResizer, { key: 'Home' });
 
@@ -715,7 +715,7 @@ afterEach(cleanupAppTest);
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const initialDisplayedWidth = Number(screen.getByTestId('right-panel-resizer').getAttribute('aria-valuenow'));
     expect(initialDisplayedWidth).toBeLessThanOrEqual(persistedWidth);
-    expect(layout).toHaveStyle({ gridTemplateColumns: `240px minmax(0, 1fr) 6px ${initialDisplayedWidth}px` });
+    expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${initialDisplayedWidth}px` });
     expect(storage.set).not.toHaveBeenCalled();
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
@@ -726,7 +726,7 @@ afterEach(cleanupAppTest);
     await waitFor(() => {
       const displayedWidth = Number(screen.getByTestId('right-panel-resizer').getAttribute('aria-valuenow'));
       expect(displayedWidth).toBeLessThan(persistedWidth);
-      expect(layout).toHaveStyle({ gridTemplateColumns: `240px minmax(0, 1fr) 6px ${displayedWidth}px` });
+      expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${displayedWidth}px` });
       expect(storage.value()).toBe(String(persistedWidth));
     });
     expect(storage.set).not.toHaveBeenCalled();
@@ -737,7 +737,7 @@ afterEach(cleanupAppTest);
     });
 
     await waitFor(() => {
-      expect(layout).toHaveStyle({ gridTemplateColumns: `240px minmax(0, 1fr) 6px ${persistedWidth}px` });
+      expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${persistedWidth}px` });
     });
     expect(storage.value()).toBe(String(persistedWidth));
     expect(storage.set).not.toHaveBeenCalled();
@@ -770,7 +770,7 @@ afterEach(cleanupAppTest);
     dispatchPointer(window, 'pointermove', 700);
 
     const previewWidth = rightResizer.getAttribute('aria-valuenow');
-    expect(layout).toHaveStyle({ gridTemplateColumns: `240px minmax(0, 1fr) 6px ${previewWidth}px` });
+    expect(layout).toHaveStyle({ gridTemplateColumns: `minmax(0, 1fr) 6px ${previewWidth}px` });
     expect(storage.value()).toBe('380');
 
     dispatchPointer(window, 'pointerup', 700);
@@ -792,10 +792,10 @@ afterEach(cleanupAppTest);
     expect(storage.set).not.toHaveBeenCalled();
     dispatchPointer(rightResizer, 'pointerdown', 1100);
     dispatchPointer(window, 'pointermove', 900);
-    expect(layout).not.toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr) 6px 380px' });
+    expect(layout).not.toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
     dispatchPointer(window, 'pointercancel', 900);
 
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr) 6px 380px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
     expect(storage.value()).toBe('380');
     expect(storage.set).not.toHaveBeenCalled();
   });
