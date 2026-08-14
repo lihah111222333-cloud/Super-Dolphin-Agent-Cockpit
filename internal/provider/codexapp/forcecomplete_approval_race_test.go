@@ -448,6 +448,7 @@ func newForceCompleteTestSession(t *testing.T, serverURL string) *session {
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
+	s.setThreadID("thread-1")
 	return s
 }
 

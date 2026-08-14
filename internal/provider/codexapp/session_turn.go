@@ -189,7 +189,7 @@ func assistantMessageOwnsTurnTerminal(method string, payload, item map[string]an
 
 // prepareTurnStartParams 在远端调用前完成 thread、动态工具和运行时模型配置校验。
 func (s *session) prepareTurnStartParams(ctx context.Context, req dto.TurnRequest) (turnStartParams, error) {
-	threadID, err := requireThreadID(s, req.ThreadID)
+	threadID, err := requireThreadID(s)
 	if err != nil {
 		return turnStartParams{}, err
 	}
