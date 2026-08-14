@@ -18,21 +18,113 @@ type localGoCacheState struct {
 	UpdatedAtUnixSec int64  `json:"updated_at_unix_sec"`
 }
 
+const (
+	hostTestScopedCommandError     = `host-test 环境契约违规：必须且只能通过一条 env ... "$real_go" test 命令传入命令环境`
+	hostTestRequiredEnvironmentErr = "host-test 环境契约违规：scoped env 必须包含 GOMAXPROCS、GOCACHE、GOTMPDIR 和 GOTOOLCHAIN"
+	hostTestExportError            = "host-test 环境契约违规：run_host_test 禁止 export；命令环境必须通过 scoped env 传入"
+)
+
 func TestHostTestUsesIdentityScopedLocalGoCache(t *testing.T) {
 	hostTest := readScript(t, "test_with_guard.sh")
+	assertScriptContains(t, hostTest, `source "$ROOT_DIR/scripts/local_go_cache.sh"`)
+	hostTestBody := functionBody(t, hostTest, "run_host_test")
+	if diagnostic := validateHostTestScopedEnvironment(hostTestBody); diagnostic != "" {
+		t.Fatal(diagnostic)
+	}
 	for _, required := range []string{
-		`source "$ROOT_DIR/scripts/local_go_cache.sh"`,
 		`local_go_cache_prepare "$ROOT_DIR" "$real_go"`,
-		`export GOCACHE="$local_cache_root"`,
-		`export GOTMPDIR="$local_temp_root"`,
 		`local_go_cache_cleanup_temp "$local_temp_root"`,
 	} {
-		assertScriptContains(t, hostTest, required)
+		assertScriptContains(t, hostTestBody, required)
 	}
+	t.Run("legacy cache exports fail with a fixed diagnostic", func(t *testing.T) {
+		legacy := strings.Replace(hostTestBody, `env GOMAXPROCS="$gomaxprocs" GOCACHE="$local_cache_root" GOTMPDIR="$local_temp_root" GOTOOLCHAIN=local`, `export GOMAXPROCS="$gomaxprocs"
+  export GOCACHE="$local_cache_root"
+  export GOTMPDIR="$local_temp_root"
+  export GOTOOLCHAIN=local`, 1)
+		if got := validateHostTestScopedEnvironment(legacy); got != hostTestExportError {
+			t.Fatalf("legacy host-test environment diagnostic = %q, want %q", got, hostTestExportError)
+		}
+	})
+	t.Run("missing required environment fails with a fixed diagnostic", func(t *testing.T) {
+		missing := strings.Replace(hostTestBody, ` GOCACHE="$local_cache_root"`, "", 1)
+		if got := validateHostTestScopedEnvironment(missing); got != hostTestRequiredEnvironmentErr {
+			t.Fatalf("missing host-test environment diagnostic = %q, want %q", got, hostTestRequiredEnvironmentErr)
+		}
+	})
+	t.Run("missing scoped command fails with a fixed diagnostic", func(t *testing.T) {
+		missing := strings.Replace(hostTestBody, "    env GOMAXPROCS=", "    GOMAXPROCS=", 1)
+		if got := validateHostTestScopedEnvironment(missing); got != hostTestScopedCommandError {
+			t.Fatalf("missing scoped command diagnostic = %q, want %q", got, hostTestScopedCommandError)
+		}
+	})
+	t.Run("environment order and additional keys remain adaptable", func(t *testing.T) {
+		adapted := strings.Replace(hostTestBody,
+			`env GOMAXPROCS="$gomaxprocs" GOCACHE="$local_cache_root" GOTMPDIR="$local_temp_root" GOTOOLCHAIN=local`,
+			`/usr/bin/env GOTMPDIR="$local_temp_root" SUPER_DOLPHIN_FUTURE_SCOPE=1 GOTOOLCHAIN=local GOCACHE="$local_cache_root" GOMAXPROCS="$gomaxprocs"`, 1)
+		if got := validateHostTestScopedEnvironment(adapted); got != "" {
+			t.Fatalf("adapted host-test environment was rejected: %s", got)
+		}
+	})
 	identityScript := readScript(t, "local_go_cache.sh")
 	for _, required := range []string{"GOVERSION GOOS GOARCH GOAMD64 GOARM64 GOARM GOEXPERIMENT GOTOOLCHAIN", "tool_name in asm cgo compile link", "CC_VERSION", "CC_TARGET", "CC_SYSROOT", "APPLE_SDK_VERSION", "local-go-cache-state/v1", "|| return 1"} {
 		assertScriptContains(t, identityScript, required)
 	}
+}
+
+// validateHostTestScopedEnvironment 固定宿主测试的命令环境只能经单次 env 调用传入，同时允许扩展新的环境键。
+func validateHostTestScopedEnvironment(hostTestBody string) string {
+	for _, line := range strings.Split(hostTestBody, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "export" || strings.HasPrefix(trimmed, "export ") {
+			return hostTestExportError
+		}
+	}
+	environment, commandCount := hostTestScopedGoCommandEnvironment(hostTestBody)
+	if commandCount != 1 {
+		return hostTestScopedCommandError
+	}
+	for _, required := range []string{"GOMAXPROCS", "GOCACHE", "GOTMPDIR", "GOTOOLCHAIN"} {
+		if _, ok := environment[required]; !ok {
+			return hostTestRequiredEnvironmentErr
+		}
+	}
+	return ""
+}
+
+// hostTestScopedGoCommandEnvironment 提取 scoped Go test 命令的环境键，不依赖键顺序或额外扩展键。
+func hostTestScopedGoCommandEnvironment(hostTestBody string) (map[string]struct{}, int) {
+	environment := make(map[string]struct{})
+	normalized := strings.ReplaceAll(hostTestBody, "\\\n", " ")
+	commandCount := 0
+	for _, line := range strings.Split(normalized, "\n") {
+		fields := strings.Fields(line)
+		commandIndex := scopedGoTestCommandIndex(fields)
+		if commandIndex < 0 {
+			continue
+		}
+		commandCount++
+		for _, assignment := range fields[1:commandIndex] {
+			name, _, ok := strings.Cut(assignment, "=")
+			if ok && name != "" {
+				environment[name] = struct{}{}
+			}
+		}
+	}
+	return environment, commandCount
+}
+
+// scopedGoTestCommandIndex 定位由 env 直接启动的真实 Go test，允许 env 使用绝对路径。
+func scopedGoTestCommandIndex(fields []string) int {
+	if len(fields) < 3 || filepath.Base(fields[0]) != "env" {
+		return -1
+	}
+	for index := 1; index+1 < len(fields); index++ {
+		if fields[index] == `"$real_go"` && fields[index+1] == "test" {
+			return index
+		}
+	}
+	return -1
 }
 
 func TestLocalGoCacheSharesObjectsButIsolatesTemporaryDirectories(t *testing.T) {

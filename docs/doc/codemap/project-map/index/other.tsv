@@ -1064,7 +1064,7 @@ scripts/hook_node_runtime_guard_test.go	scripts	other	go-test	3988	工程自动�
 scripts/install-hooks.sh	scripts	other	script	2968	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install_hooks_guard_test.go	scripts	other	go-test	8439	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/local_go_cache.sh	scripts	other	script	6953	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,工程自动化,测试守卫,代码地图与开发脚本
-scripts/local_go_cache_test.go	scripts	other	go-test	8720	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/local_go_cache_test.go	scripts	other	go-test	12993	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/lsp_diagnostics_gate/main.go	scripts	other	go-source	22803	工程自动化、测试守卫、代码地图与开发脚本	scripts,lsp,diagnostics,gate,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/lsp_diagnostics_gate/main_test.go	scripts	other	go-test	25851	工程自动化、测试守卫、代码地图与开发脚本	scripts,lsp,diagnostics,gate,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/lsp_diagnostics_gate/process_unix.go	scripts	other	go-source	524	工程自动化、测试守卫、代码地图与开发脚本	scripts,lsp,diagnostics,gate,process,unix,工程自动化,测试守卫,代码地图与开发脚本
