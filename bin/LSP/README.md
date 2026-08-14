@@ -29,6 +29,7 @@
 | mcp-lsp-windows-x86.exe | Windows x86-64 |
 | mcp-lsp-windows-arm.exe | Windows ARM64 |
 | AGENTS.md | LSP 导航、影响分析、诊断和验证规则样板 |
+| codex-lsp-config.example.toml | 从本项目 `.codex/config.toml` 提取的 Codex LSP 配置示例，含平台二进制、默认 cwd、可信根和相对工具路径注释 |
 | mcp-lsp-project-config-skill | 三家客户端的项目级配置判断方法和参考 |
 
 ## 第一步：保留目录结构
@@ -116,13 +117,16 @@ Agent 应自行完成：
 | Claude Code | .mcp.json | 完成 workspace trust 和项目 MCP 批准；用 /mcp |
 | Antigravity | .agents/mcp_config.json | MCP Servers → Manage MCP Servers → Refresh，或 CLI /mcp |
 
+这些配置都建议放在目标项目根目录。Codex 使用 `<project-root>/.codex/config.toml`，不要把本示例写入 `~/.codex/config.toml` 等用户级全局配置；LSP 的二进制、默认 cwd 和可信根应由每个项目独立声明。
+
 具体字段示例见：
 
 ~~~text
+bin/LSP/codex-lsp-config.example.toml
 bin/LSP/mcp-lsp-project-config-skill/references/provider-configs.md
 ~~~
 
-示例仅用于判断，Agent 必须先检查当前客户端版本和现有配置，不得盲目覆盖。
+前者是可直接逐段合并的 Codex TOML 注释示例；后者覆盖 Codex、Claude Code 和 Antigravity。示例仅用于判断，Agent 必须先检查当前客户端版本和现有配置，不得盲目覆盖。
 
 ## 二进制映射
 

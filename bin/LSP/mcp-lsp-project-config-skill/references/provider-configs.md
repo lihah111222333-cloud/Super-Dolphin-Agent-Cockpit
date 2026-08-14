@@ -1,12 +1,27 @@
 # 三家项目级 MCP 配置
 
-本参考适用于本地 stdio 形式的 mcp-lsp。配置格式核对日期：2026-08-13。
+本参考适用于本地 stdio 形式的 mcp-lsp。配置格式核对日期：2026-08-14。
 
 所有示例都必须保留三个 sidecar 启动字段：`SUPER_DOLPHIN_RUNTIME_MODE=dev`、`SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<分发包资源根；源码构建则为 checkout 根，必须是绝对路径>`、`SUPER_DOLPHIN_DEPENDENCY_PROFILE=production`。它们必须位于当前 server 的 `env` 内，不能依赖另一个 shell 临时导出，也不能由二进制隐式补默认值。
+
+## 先看懂四个路径
+
+| 配置项 | 含义 | 本参考的取值规则 |
+|---|---|---|
+| `command` | 客户端实际启动的 mcp-lsp 二进制 | 按**最终启动 MCP server 的客户端平台和 CPU**选择。例如 macOS Apple Silicon 选择 `bin/LSP/mcp-lsp-mac-arm`，不是按编辑配置的 Agent 当前所在平台选择。 |
+| `cwd` | mcp-lsp 进程的默认启动目录，也是未另传 `work_dir` 时相对工具路径的起点 | 项目级配置统一设为项目根。客户端 schema 没有 `cwd` 字段时，必须从项目根启动客户端，并验证子进程实际继承的 cwd 是项目根。 |
+| `GO_AGENT_LSP_ROOT` / `GO_AGENT_LSP_ROOTS` | LSP 可以读取、导航和修改的**可信工作区根** | 单项目时两者都指向项目根。首个根必须是绝对路径；`cwd` 不会自动扩大可信范围，根外路径必须返回 `path_outside_workspace`。 |
+| `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` | sidecar 查找运行时资源的根 | 源码构建时是当前 checkout 根；分发包则是该包的资源根。它不是 Agent 每次工具调用要传的源码路径。 |
+
+配置文件负责一次性写清绝对二进制路径、资源根和可信根。配置成功后，Agent 调用 LSP 工具时使用相对项目根的路径即可，例如 `internal/foo.go`、`internal/foo.go:42:9`；默认 cwd 已经是项目根，不需要每次传 `/absolute/project/internal/foo.go`，也不需要重复传整个绝对 `work_dir`。只有确实要切换到另一个已配置的可信根时才显式传 `work_dir`。
+
+> 示例中的 `/absolute/project` 代表目标项目根，必须在落地配置时替换为该项目的真实绝对路径。示例二进制使用 macOS Apple Silicon；其他平台只替换 `command` 为“平台二进制映射”中的对应文件，不能同时混用另一平台的路径语义。
 
 ## Codex
 
 项目文件：.codex/config.toml。项目必须被信任，否则 Codex 忽略项目 .codex 配置层。
+
+建议只配置目标项目根的 `<project-root>/.codex/config.toml`。不要把本项目的 lsp server 写入 `~/.codex/config.toml` 或其他用户级全局配置；二进制路径、默认 cwd 和可信根都应由各项目独立声明。
 
 使用规范同步到项目根 AGENTS.md。
 
@@ -14,20 +29,32 @@
 [mcp_servers.lsp]
 enabled = true
 required = true
+# macOS Apple Silicon selects mcp-lsp-mac-arm; use the platform mapping below on other hosts.
+# macOS Apple Silicon 选择 mcp-lsp-mac-arm；其他平台按下方映射替换文件名。
 command = "/absolute/project/bin/LSP/mcp-lsp-mac-arm"
 args = []
+# Use the project root as the default startup cwd; agents may then pass relative source paths.
+# mcp-lsp 的默认启动 cwd 固定为项目根；Agent 后续可直接传 internal/foo.go 等相对路径。
 cwd = "/absolute/project"
 startup_timeout_sec = 30
 
 [mcp_servers.lsp.env]
 SUPER_DOLPHIN_RUNTIME_MODE = "dev"
+# For a source build, the runtime resources root is the checkout root and must be absolute.
+# 源码构建时的运行时资源根是 checkout 根；该值必须是绝对路径。
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = "/absolute/project"
 SUPER_DOLPHIN_DEPENDENCY_PROFILE = "production"
+# A single-project trusted root is the project root; cwd does not implicitly define trust.
+# 单项目的可信根就是项目根；它限制 LSP 可访问范围，不由 cwd 隐式推断。
 GO_AGENT_LSP_ROOT = "/absolute/project"
+# This TOML string contains a JSON array whose first trusted root must be absolute.
+# JSON 数组字符串；首项是主可信根且必须为绝对路径。
 GO_AGENT_LSP_ROOTS = '["/absolute/project"]'
 ~~~
 
 Codex 的 stdio 配置由 command 判定，不需要额外 type = "stdio"。required = true 会在启用的 server 无法初始化时阻断启动或恢复，适合仓库强制 LSP。
+
+上面 TOML 中的注释可以保留在真实配置里。Codex 从该项目根启动 lsp 后，Agent 的 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit` 和 `completion` 调用默认都应传项目相对路径。
 
 验证：
 
@@ -47,6 +74,8 @@ codex mcp list
 项目文件：项目根 .mcp.json。这是 project scope，会被团队共享；不要混淆默认 local scope。
 
 使用规范同步到项目根 CLAUDE.md。
+
+字段注释：`command` 示例选择 macOS Apple Silicon 二进制；`SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` 是绝对资源根；两个 `GO_AGENT_LSP_ROOT(S)` 是绝对可信根。`.mcp.json` 是严格 JSON，不能在下面可复制配置块中加入 `//` 注释。Claude Code 的项目 MCP schema 没有通用 `cwd` 字段，因此应从项目根启动并批准该项目 server，再实测子进程继承的默认 cwd 是项目根；成功后 Agent 工具参数同样只传项目相对路径。
 
 ~~~json
 {
@@ -99,6 +128,8 @@ claude mcp get lsp
 
 使用规范同步到项目根 AGENTS.md。
 
+字段注释：`command` 示例选择 macOS Apple Silicon 二进制；`cwd` 是 mcp-lsp 的默认启动 cwd，固定为项目根；两个 `GO_AGENT_LSP_ROOT(S)` 是可信根，单项目时同样固定为项目根。`.agents/mcp_config.json` 是严格 JSON，下面保持为可解析配置，不写 `//` 注释。
+
 ~~~json
 {
   "mcpServers": {
@@ -138,7 +169,14 @@ IDE 验证：Agent 侧栏 ... → MCP Servers → Manage MCP Servers → Refresh
 | Windows | x86-64 | bin/LSP/mcp-lsp-windows-x86.exe |
 | Windows | ARM64 | bin/LSP/mcp-lsp-windows-arm.exe |
 
-配置生成器只选择当前主机对应文件，不把其他平台二进制误配为当前命令。
+配置 Agent 只选择最终启动 MCP server 的客户端平台对应文件，不把其他平台二进制误配为当前命令：
+
+- macOS Apple Silicon（常见 `uname -m` 为 `arm64`）选择 `mcp-lsp-mac-arm`。
+- macOS Intel（`x86_64`）选择 `mcp-lsp-mac-x86`。
+- Linux/WSL 的 `x86_64` 选择 `mcp-lsp-linux-x86`，`aarch64`/`arm64` 选择 `mcp-lsp-linux-arm`。
+- Windows 原生进程的 AMD64 选择 `mcp-lsp-windows-x86.exe`，ARM64 选择 `mcp-lsp-windows-arm.exe`。
+
+这里选择的是**二进制文件**；`cwd` 和可信根仍是目标项目根。选择完成后应使用 `go version -m`、`file` 或 PE Machine 信息核对真实 GOOS/GOARCH，不能只相信文件名。
 
 ## Windows 原生 PowerShell 与 WSL
 

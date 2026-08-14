@@ -23,6 +23,7 @@
 /bin/LSP/*
 !/bin/LSP/AGENTS.md
 !/bin/LSP/README.md
+!/bin/LSP/codex-lsp-config.example.toml
 !/bin/LSP/mcp-lsp-project-config-skill/
 !/bin/LSP/mcp-lsp-project-config-skill/**
 /build/

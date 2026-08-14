@@ -1,0 +1,106 @@
+# Codex project-level mcp-lsp example configuration.
+#
+# Recommended scope: merge [mcp_servers.lsp] and its child tables into
+# <project-root>/.codex/config.toml only. Do not copy this configuration to
+# ~/.codex/config.toml or another user-level global configuration; the binary,
+# cwd, and trusted roots belong to one project and must not affect other projects.
+# Preserve all unrelated Codex settings and MCP servers already in the project file.
+# This example mirrors the current repository's .codex/config.toml lsp section,
+# with machine-specific paths replaced by /absolute/project. Replace every
+# /absolute/project with the target project's real absolute root path; TOML does
+# not expand this placeholder.
+# 推荐范围：仅把 [mcp_servers.lsp] 及其子表合并到
+# <project-root>/.codex/config.toml。不要复制到 ~/.codex/config.toml 或其他用户级
+# 全局配置；二进制、cwd 和可信根只属于当前项目，不能影响其他项目。
+# 保留项目配置里已有的其他 Codex 设置和 MCP server。本示例来自当前仓库的
+# .codex/config.toml lsp 段，机器路径已替换为 /absolute/project；落地时必须
+# 替换成目标项目根的真实绝对路径，TOML 不会自动展开这个占位符。
+
+[mcp_servers.lsp]
+# Enable the project-level lsp server.
+# 启用项目级 lsp server。
+enabled = true
+# Fail startup or recovery when lsp cannot initialize, so agents cannot continue
+# without the required LSP evidence.
+# lsp 初始化失败时阻断启动或恢复，避免 Agent 在缺少 LSP 证据时继续工作。
+required = true
+
+# Select the executable for the platform and CPU that will actually run Codex:
+#   macOS Apple Silicon -> bin/LSP/mcp-lsp-mac-arm
+#   macOS Intel         -> bin/LSP/mcp-lsp-mac-x86
+#   Linux/WSL x86-64    -> bin/LSP/mcp-lsp-linux-x86
+#   Linux/WSL ARM64     -> bin/LSP/mcp-lsp-linux-arm
+#   Windows x86-64      -> bin/LSP/mcp-lsp-windows-x86.exe
+#   Windows ARM64       -> bin/LSP/mcp-lsp-windows-arm.exe
+# This sample selects macOS Apple Silicon. On another platform, replace only the
+# final binary name and keep command, cwd, resources, and trusted roots in one
+# consistent native path system.
+# 必须按最终运行 Codex 的平台和 CPU 选择二进制。本示例选择 macOS Apple
+# Silicon；其他平台只替换末尾文件名，并让 command、cwd、资源根和可信根
+# 始终使用同一种本机路径体系。
+command = "/absolute/project/bin/LSP/mcp-lsp-mac-arm"
+args = []
+
+# cwd is the mcp-lsp process's default startup directory and must be the project
+# root. After setup, agents should pass project-relative tool paths such as
+# internal/foo.go or internal/foo.go:42:9 instead of repeating an absolute path
+# or absolute work_dir on every file, inspect, xref, or other LSP call.
+# cwd 是 mcp-lsp 进程的默认启动目录，固定为项目根。配置后 Agent 应传
+# internal/foo.go 或 internal/foo.go:42:9 等项目相对路径，无需在每次
+# file、inspect、xref 或其他 LSP 调用中重复绝对路径或绝对 work_dir。
+cwd = "/absolute/project"
+startup_timeout_sec = 30.0
+
+# Approve this server's tool calls by default. Tighten this value if the project
+# security policy requires per-call approval.
+# 默认批准此 server 的工具调用；如果项目安全策略要求逐次批准，应收紧此值。
+default_tools_approval_mode = "approve"
+
+[mcp_servers.lsp.env]
+# A standalone source-built sidecar uses dev; a release bundle uses its packaged
+# runtime contract.
+# 独立源码 sidecar 使用 dev；发行包使用其 packaged 运行时契约。
+SUPER_DOLPHIN_RUNTIME_MODE = "dev"
+# For a source build, this is the checkout root. For a distribution, this is its
+# bundled runtime resources root. The value must be absolute.
+# 源码构建时这里是 checkout 根；分发包中是随包资源根。该值必须是绝对路径。
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = "/absolute/project"
+# A standalone stdio sidecar uses the production dependency profile.
+# 独立 stdio sidecar 使用 production 依赖配置。
+SUPER_DOLPHIN_DEPENDENCY_PROFILE = "production"
+
+# GO_AGENT_LSP_ROOT(S) defines the trusted workspace roots and limits which files
+# LSP may access. For a single project, both values identify the project root and
+# the first root must be absolute. cwd is only the process startup directory; it
+# does not expand trust. Access outside these roots must return path_outside_workspace.
+# GO_AGENT_LSP_ROOT(S) 定义可信工作区根并限制 LSP 可访问的文件。单项目时
+# 两者都指向项目根，首个根必须是绝对路径。cwd 只是进程启动目录，不会扩大
+# 可信范围；访问根外路径必须返回 path_outside_workspace。
+GO_AGENT_LSP_ROOT = "/absolute/project"
+# This TOML string must itself contain a valid JSON array.
+# 这个 TOML 字符串的内容本身必须是合法 JSON 数组。
+GO_AGENT_LSP_ROOTS = '["/absolute/project"]'
+
+# These child tables mirror the current project and explicitly approve all seven
+# mcp-lsp tools.
+# 以下子表沿用当前项目配置，显式批准全部七个 mcp-lsp 工具。
+[mcp_servers.lsp.tools.file]
+approval_mode = "approve"
+
+[mcp_servers.lsp.tools.grep]
+approval_mode = "approve"
+
+[mcp_servers.lsp.tools.structure]
+approval_mode = "approve"
+
+[mcp_servers.lsp.tools.inspect]
+approval_mode = "approve"
+
+[mcp_servers.lsp.tools.xref]
+approval_mode = "approve"
+
+[mcp_servers.lsp.tools.completion]
+approval_mode = "approve"
+
+[mcp_servers.lsp.tools.patch_edit]
+approval_mode = "approve"
