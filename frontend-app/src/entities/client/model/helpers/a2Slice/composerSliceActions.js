@@ -314,7 +314,7 @@ async function interruptCancelledStartedTurn(runtime, context) {
   const pending = runtime.pendingTurnStart;
   if (!pending?.cancelled) return;
   const pendingRequestId = depsNormalizeTurnId(pending.interruptRequestId);
-  if (pending.interruptRequested === true && pendingRequestId && pendingRequestId === context.preparingCancelRequestId) {
+  if (pending.interruptRequested === true && pendingRequestId) {
     context.cancelled = true;
     return;
   }

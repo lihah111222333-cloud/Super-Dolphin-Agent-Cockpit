@@ -13,15 +13,13 @@ import {
   parseContractMatrixForTest,
   parseRpcMethodsForTest,
 } from './rpc-contract-audit.mjs'
-
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 const SHADOW_FILES = [
   'internal/contract/rpc_handler.go',
   'internal/module/thread/rpc_types.go',
   'internal/module/turn/rpc_types.go',
   'internal/module/uistate/state.go',
-  'frontend-app/src/shared/api/backendApi.js',
-  'frontend-app/src/shared/api/backend/backendRpcMethods.js',
+  'frontend-app/src/shared/api/backendApi.js', 'frontend-app/src/shared/api/backend/backendRpcMethods.js',
   'frontend-app/src/shared/api/backendApi.contractMatrix.js',
   'frontend-app/src/shared/api/backendResponseValidators.js',
   'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js',
@@ -31,6 +29,7 @@ const SHADOW_FILES = [
   'frontend-app/src/shared/api/wails/wailsBridgeConstants.js',
   'frontend-app/src/shared/api/wails/wailsBridgeRpc.js',
   'frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js',
+  'frontend-app/src/entities/client/model/contractStoreModel.js',
   'frontend-app/src/pages/files/services/filesPageService.js',
   'frontend-app/src/pages/memory/services/memoryPageService.js',
   'frontend-app/src/pages/observability/services/observabilityPageService.js',
@@ -1688,8 +1687,8 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
           "import { attachActiveThreadRpcRuntime } from './threadLifecycleRuntime.js';\nfunction seedWarning(runtime, proof) { runtime.notifyAction('seeded', 'warning'); return proof; }",
         )
         .replace(
-          "await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);",
-          "await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);\n    seedWarning(runtime, expect(true).toBe(true));",
+          "it('reports interrupt ok:false as warning without showing success', async () => {\n    const runtime = createRuntime();\n    const deps = createDeps();\n    const rpc = vi.fn().mockResolvedValue({ ok: false, error: 'turn already completed' });\n    attachActiveThreadRpcRuntime(runtime, deps);\n\n    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);",
+          "it('reports interrupt ok:false as warning without showing success', async () => {\n    const runtime = createRuntime();\n    const deps = createDeps();\n    const rpc = vi.fn().mockResolvedValue({ ok: false, error: 'turn already completed' });\n    attachActiveThreadRpcRuntime(runtime, deps);\n\n    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);\n    seedWarning(runtime, expect(true).toBe(true));",
         ),
     })
     const report = await auditRpcContracts({ repoRoot })

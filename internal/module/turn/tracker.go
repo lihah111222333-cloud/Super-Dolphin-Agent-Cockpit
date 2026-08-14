@@ -246,35 +246,42 @@ func (t *turnTracker) Start(localID, providerID, threadID string) bool {
 	return t.store.PutIfAbsent(localID, turn)
 }
 
-// claimRegisteredPreparingStart 只允许首个携带同一已登记 Stop identity 的 StartTurn 接管 preparing 记录。
-// 它避免客户端重复 local ID 覆盖 tracker，且不把终态或其他请求误当成可启动 turn。
-func claimRegisteredPreparingStart(t *turnTracker, localID, threadID, requestID string) bool {
-	claimed := false
+// claimPreparingStart 只允许首个同线程 StartTurn 接管 prepare 阶段创建的记录。
+// 若 Stop 已在 prepare 窗口登记，返回的 requestID 是唯一能在 provider bind 后投递的 identity。
+func claimPreparingStart(t *turnTracker, localID, threadID, requestID string) (string, bool) {
 	localID = strings.TrimSpace(localID)
 	threadID = strings.TrimSpace(threadID)
 	requestID = strings.TrimSpace(requestID)
-	if !hasPreparingStartIdentity(localID, threadID, requestID) {
-		return false
+	if localID == "" || threadID == "" {
+		return "", false
 	}
+	claimedRequestID := ""
+	claimed := false
 	t.store.Mutate(localID, func(turn *trackedTurn) {
-		if !canClaimRegisteredPreparingStart(turn, threadID, requestID) {
+		if !canClaimPreparingStart(turn, threadID, requestID) {
 			return
 		}
 		turn.preparingStartClaimed = true
 		turn.updatedAt = t.store.Tick()
+		claimedRequestID = turn.interruptAcceptedRequestID
 		claimed = true
 	})
-	return claimed
+	return claimedRequestID, claimed
 }
 
-// hasPreparingStartIdentity 要求启动接管携带完整稳定身份。
-func hasPreparingStartIdentity(localID, threadID, requestID string) bool {
-	return localID != "" && threadID != "" && requestID != ""
-}
-
-// canClaimRegisteredPreparingStart 只接受尚未绑定 provider 的同线程已登记 Stop。
-func canClaimRegisteredPreparingStart(turn *trackedTurn, threadID, requestID string) bool {
-	return turn.threadID == threadID && !turn.isTerminal() && !turn.preparingStartClaimed && turn.handle == nil && turn.providerID == "" && turn.interruptAcceptedRequestID == requestID && turn.state == StateInterrupting
+// canClaimPreparingStart 只接管同线程、未绑定 provider 的 prepare 记录；显式请求必须与已登记 Stop 一致。
+func canClaimPreparingStart(turn *trackedTurn, threadID, requestID string) bool {
+	if turn.threadID != threadID || turn.isTerminal() || turn.preparingStartClaimed || turn.handle != nil || turn.providerID != "" {
+		return false
+	}
+	if turn.state != StatePreparing && turn.state != StateInterrupting {
+		return false
+	}
+	acceptedRequestID := strings.TrimSpace(turn.interruptAcceptedRequestID)
+	if requestID == "" {
+		return true
+	}
+	return acceptedRequestID == requestID
 }
 
 // AttachHandle 把 provider handle 挂到本地 turn 上，并补齐 providerID。
@@ -302,6 +309,14 @@ func (t *turnTracker) BindProviderID(localID, providerID string) string {
 	registeredRequestID := ""
 	t.store.Mutate(localID, func(turn *trackedTurn) {
 		turn.providerID = strings.TrimSpace(providerID)
+		if turn.interruptClaimed && turn.interruptAcceptedRequestID == "" {
+			requestID := turn.interruptClaimRequestID
+			turn.interruptClaimed = false
+			turn.interruptClaimRequestID = ""
+			turn.interruptAcceptedRequestID = requestID
+			turn.interruptRequested = true
+			turn.sm.Fire(string(TriggerInterrupt))
+		}
 		if turn.interruptRequested && !turn.interruptDeliveryClaimed && !turn.interruptDeliverySent {
 			turn.interruptDeliveryClaimed = true
 			registeredRequestID = strings.TrimSpace(turn.interruptAcceptedRequestID)
@@ -605,6 +620,7 @@ func confirmInterruptClaim(t *turnTracker, localID, requestID string) bool {
 	requestID = strings.TrimSpace(requestID)
 	t.store.Mutate(strings.TrimSpace(localID), func(turn *trackedTurn) {
 		if !turn.interruptClaimed || turn.interruptClaimRequestID != requestID {
+			confirmed = turn.interruptAcceptedRequestID == requestID
 			return
 		}
 		turn.interruptClaimed = false

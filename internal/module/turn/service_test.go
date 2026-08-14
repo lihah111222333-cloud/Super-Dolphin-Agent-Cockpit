@@ -85,6 +85,39 @@ func TestPrepareTurnRegistersDeferredStopBeforeLongPrepareAndStartUsesSameTracke
 	handle.complete(context.Canceled)
 }
 
+func TestPrepareTurnRegistersFacadeStopAfterStartPayloadDispatch(t *testing.T) {
+	svc, session, assembly, handle, providerInterrupts := newDeferredPrepareWindow(t)
+	defer svc.ctxCancel()
+
+	localID := "turn_00000000-0000-4000-8000-000000000303"
+	requestID := "stop-during-prepare-after-start-payload"
+	prepared := startControlledPrepare(svc, session, localID, "")
+	waitForControlledPrepare(t, assembly)
+
+	registered, accepted, err := svc.InterruptTurnForTarget(context.Background(), session, "ui_stop", localID, requestID)
+	assertDeferredPreparingReplay(t, registered, accepted, err)
+	assertNoProviderInterruptBeforePrepareRelease(t, providerInterrupts)
+
+	close(assembly.release)
+	result := awaitControlledPrepare(t, prepared, localID, "")
+	if _, err := svc.StartTurn(context.Background(), session, result.req); err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	assertProviderInterruptAfterPrepareBinding(t, providerInterrupts, session.threadID, requestID)
+	handle.complete(context.Canceled)
+}
+
+func TestRequireTurnContextKeepsRPCThreadScopeAcrossProviderIdentityChange(t *testing.T) {
+	ctx := contract.WithThreadID(context.Background(), "thread-canonical")
+	_, threadID, err := requireTurnContext(ctx, &stubSession{threadID: "provider-thread-after-start"})
+	if err != nil {
+		t.Fatalf("requireTurnContext() error = %v", err)
+	}
+	if threadID != "thread-canonical" {
+		t.Fatalf("requireTurnContext() threadID = %q, want stable RPC scope", threadID)
+	}
+}
+
 type preparedTurnResult struct {
 	req dto.TurnRequest
 	err error
@@ -524,6 +557,23 @@ func TestInterruptTurnWaitsForSettle(t *testing.T) {
 	}
 }
 
+func assertSteerLeavesOriginalActiveTurn(t *testing.T, svc Service, session *stubSession, started contract.TurnHandle) {
+	t.Helper()
+	implementation := svc.(*service)
+	active, tracked := implementation.tracker.ActiveByThread("thread-1")
+	if !tracked || active.localID != "local-2" || active.handle != started {
+		t.Fatalf("SteerTurn() left active tracker = %#v, tracked=%t; want original live turn", active, tracked)
+	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, accepted, _ := implementation.InterruptTurnForTarget(stopCtx, session, "ui_stop", "local-2", "stop-after-steer"); !accepted {
+		t.Fatal("Stop after SteerTurn was not accepted for provider delivery")
+	}
+	if session.lastInterrupt.TurnID != "provider-2" {
+		t.Fatalf("Stop after SteerTurn target = %q, want provider-2", session.lastInterrupt.TurnID)
+	}
+}
+
 func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 	t.Parallel()
 
@@ -542,6 +592,7 @@ func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 			}
 			return nil
 		},
+		interrupt: func(context.Context, dto.InterruptRequest) error { return nil },
 	}
 
 	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
@@ -560,6 +611,7 @@ func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 	if handle != started {
 		t.Fatalf("SteerTurn() handle = %#v, want active handle %#v", handle, started)
 	}
+	assertSteerLeavesOriginalActiveTurn(t, svc, session, started)
 }
 
 func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {

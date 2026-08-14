@@ -521,6 +521,27 @@ func TestTerminalSameRequestReplayUsesTerminalEnvelope(t *testing.T) {
 	}
 }
 
+func TestReplayBoundInterruptClaimReturnsTerminalEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.Start("local-bind-terminal", "provider-bind-terminal", "thread-bind-terminal")
+	tracker.store.Mutate("local-bind-terminal", func(turn *trackedTurn) {
+		turn.interruptAcceptedRequestID = "request-bind-terminal"
+		turn.interruptDeliverySent = true
+	})
+	tracker.Complete("local-bind-terminal", true, "")
+	svc := &service{tracker: tracker, logger: silentLogger()}
+	status, accepted, err := svc.replayBoundInterruptClaim(TurnStatus{State: string(StateInterrupting)}, "thread-bind-terminal", "local-bind-terminal", "request-bind-terminal")
+	if err != nil || !accepted || status.State != string(StateCompleted) {
+		t.Fatalf("replayBoundInterruptClaim() status=%+v accepted=%t err=%v", status, accepted, err)
+	}
+	envelope := status.interruptEnvelope()
+	if envelope.mode != "interrupt_terminal_completed" || !envelope.interruptSent {
+		t.Fatalf("terminal bind replay envelope=%+v, want completed terminal replay", envelope)
+	}
+}
+
 type terminalReplayCase struct {
 	name      string
 	success   bool

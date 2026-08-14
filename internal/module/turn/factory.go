@@ -399,15 +399,14 @@ func requireTurnContext(
 	threadID := ""
 	if len(requestedThreadID) > 0 {
 		threadID = requestedThreadID[0]
+	} else {
+		// RPC ThreadScope 是一次请求的稳定 canonical thread identity；provider session ID
+		// 可在首轮启动中从临时值切换为真实 UUID，不能用它打断 tracker 键的一致性。
+		threadID = contract.ThreadIDFrom(ctx)
 	}
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		threadID = strings.TrimSpace(session.ThreadID())
-	}
-	// provider 真实 UUID 可能在首轮 turn 后才异步返回；此时回退到 RPC ThreadScope
-	// 注入的线程 ID，避免准备阶段因为 session.ThreadID 尚未解析而失败。
-	if threadID == "" {
-		threadID = strings.TrimSpace(contract.ThreadIDFrom(ctx))
 	}
 	if threadID == "" {
 		return ctx, "", errors.New("thread id is required")

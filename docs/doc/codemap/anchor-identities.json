@@ -4827,8 +4827,7 @@
       "codemap_line": 602,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "267",
-      "content_sha256": "761e54435f3ad9204d7575f069d1dabdadf50ecce30067f5fbf6d729f2be1715",
-      "symbol": "*service.StartTurn"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
@@ -4843,8 +4842,8 @@
       "codemap_line": 603,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "382",
-      "content_sha256": "f2404ca056d416ea3c62e16e2bc06dab13b90a21c02afdfc49413d2af77db8cb",
-      "symbol": "*service.SteerTurn"
+      "content_sha256": "cd9cee9810176327e0192efaf3e9b0ef0e48fbfd6509b8fa27d75af71e33613a",
+      "symbol": "*service.deliverRegisteredCancellation"
     },
     {
       "codemap_file": "05-dto.md",
@@ -6194,7 +6193,7 @@
       "codemap_line": 261,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-446",
-      "content_sha256": "cbc536cd7ac4ed5f44da0b9c19a2272120fcbc285869acf7e7acf4dfd795bf8c",
+      "content_sha256": "9a48cb6ab7e37f5bdb3a767bd9d24852866f0628749de62889d6ecad9ef2bb88",
       "symbol": "newService"
     },
     {
@@ -6202,7 +6201,7 @@
       "codemap_line": 262,
       "target_path": "internal/module/turn/interrupt_service.go",
       "line_spec": "11-97",
-      "content_sha256": "dd049febf5244f5da4b642d8f1f420c47336bc915c752111a444b5d84f918352"
+      "content_sha256": "98b8acd3d419553cadc593d24ff75f79a7cbd3f21ac0bbb30bdf314bf8a623ff"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6262,7 +6261,7 @@
       "codemap_line": 291,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "141-159",
-      "content_sha256": "dcbd277d8c6871a21d3c1a7b93a64795d18954a1e3909feb3e614318aa9ba95f",
+      "content_sha256": "0745fc00587ff3145c8f27290c6af4b42c977c0e0f384b9f469e068f926e3afe",
       "symbol": "*service.PrepareTurn"
     },
     {
@@ -6336,8 +6335,8 @@
       "codemap_line": 324,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "176",
-      "content_sha256": "f3144167fd23fbd5970bb7dcdb226b9d7cff20609b860578f7ef7cd50fbeb210",
-      "symbol": "*service.PrepareTurn"
+      "content_sha256": "6fa30407c19512797cf5963aedc60f4bc7af76b9787b544c4f803c8ec3b66964",
+      "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6360,7 +6359,7 @@
       "codemap_line": 332,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-160",
-      "content_sha256": "8dc6ad9bcafaf058af66dea53768b20d962b13fa7c1a1b643bcb412751a2ee7f",
+      "content_sha256": "f1f06e8eda2a73724412c41baed81dbfb8792827925336f8dc91f5413c56ce39",
       "symbol": "newService"
     },
     {
@@ -6368,8 +6367,8 @@
       "codemap_line": 333,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "211-235",
-      "content_sha256": "5f2f09a8cb3d9447d39c5bc77cce88f4ad08e9c3c3470d926b213a2550a6a6ba",
-      "symbol": "beginPreparingCancellation"
+      "content_sha256": "cb186849edae5105a708263cfbba876bddad384965340b9f3f8b23c2df43bebe",
+      "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6392,15 +6391,15 @@
       "codemap_line": 339,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "211-235",
-      "content_sha256": "5f2f09a8cb3d9447d39c5bc77cce88f4ad08e9c3c3470d926b213a2550a6a6ba",
-      "symbol": "beginPreparingCancellation"
+      "content_sha256": "cb186849edae5105a708263cfbba876bddad384965340b9f3f8b23c2df43bebe",
+      "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 340,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "317-355",
-      "content_sha256": "e8deb0e7969f2d37a884b7f3ba716039c24b022478e71dd82abd8480622dd01c",
+      "content_sha256": "b8b058f8b14e04ada6c68146308ec0b08dddfe5008e3a399d9717c6c8e770167",
       "symbol": "*service.StartTurn"
     },
     {
@@ -6415,22 +6414,22 @@
       "codemap_line": 344,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "237-258",
-      "content_sha256": "213993da6129d2e431d92f588b5c36835d62dade52420f3c94139106f5cf06ef",
-      "symbol": "*service.registerPreparingCancellation"
+      "content_sha256": "9af0de07da32a21f16b3efb138e1adb5d0a5838ae6893f405cc97c9766abadbe",
+      "symbol": "beginPreparingCancellation"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 349,
       "target_path": "internal/module/turn/interrupt_service.go",
       "line_spec": "11-97",
-      "content_sha256": "dd049febf5244f5da4b642d8f1f420c47336bc915c752111a444b5d84f918352"
+      "content_sha256": "98b8acd3d419553cadc593d24ff75f79a7cbd3f21ac0bbb30bdf314bf8a623ff"
     },
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 350,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "283-303",
-      "content_sha256": "5a9fa217e32f387b00e86629c200112b8c5221ea0ba8f3137d6e918b6a5de917",
+      "content_sha256": "ccde5bc2ccb7a39d061bae0b5ed7408e12d45aba5000c1eed6e4c8fce6d52f8e",
       "symbol": "*service.StartTurn"
     },
     {
@@ -6475,7 +6474,7 @@
       "codemap_line": 392,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-160",
-      "content_sha256": "8dc6ad9bcafaf058af66dea53768b20d962b13fa7c1a1b643bcb412751a2ee7f",
+      "content_sha256": "f1f06e8eda2a73724412c41baed81dbfb8792827925336f8dc91f5413c56ce39",
       "symbol": "newService"
     },
     {
@@ -6483,8 +6482,8 @@
       "codemap_line": 393,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "211-235",
-      "content_sha256": "5f2f09a8cb3d9447d39c5bc77cce88f4ad08e9c3c3470d926b213a2550a6a6ba",
-      "symbol": "beginPreparingCancellation"
+      "content_sha256": "cb186849edae5105a708263cfbba876bddad384965340b9f3f8b23c2df43bebe",
+      "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6498,7 +6497,7 @@
       "codemap_line": 395,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "283-303",
-      "content_sha256": "5a9fa217e32f387b00e86629c200112b8c5221ea0ba8f3137d6e918b6a5de917",
+      "content_sha256": "ccde5bc2ccb7a39d061bae0b5ed7408e12d45aba5000c1eed6e4c8fce6d52f8e",
       "symbol": "*service.StartTurn"
     },
     {
@@ -6506,7 +6505,7 @@
       "codemap_line": 396,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "317-355",
-      "content_sha256": "e8deb0e7969f2d37a884b7f3ba716039c24b022478e71dd82abd8480622dd01c",
+      "content_sha256": "b8b058f8b14e04ada6c68146308ec0b08dddfe5008e3a399d9717c6c8e770167",
       "symbol": "*service.StartTurn"
     },
     {
@@ -6536,7 +6535,7 @@
       "codemap_line": 400,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "141-146",
-      "content_sha256": "b25b1aff60389a9307af1b9f24e26530ede6bf58567a5d4d532255e0da53187b",
+      "content_sha256": "e49b9d7981ba562f16530d0e9c23bbd485208f55ead132e5d2eca4790ad5fd1b",
       "symbol": "*service.PrepareTurn"
     },
     {
@@ -6551,8 +6550,8 @@
       "codemap_line": 402,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "176",
-      "content_sha256": "f3144167fd23fbd5970bb7dcdb226b9d7cff20609b860578f7ef7cd50fbeb210",
-      "symbol": "*service.PrepareTurn"
+      "content_sha256": "6fa30407c19512797cf5963aedc60f4bc7af76b9787b544c4f803c8ec3b66964",
+      "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6566,7 +6565,7 @@
       "codemap_line": 404,
       "target_path": "internal/module/turn/orchestration_starter.go",
       "line_spec": "61-93",
-      "content_sha256": "2a206d420c404eb66690f64053f19865d3425213bb7be61ee916596303228a06",
+      "content_sha256": "68d39e45b33cc18f9bdfd8e8211a2ccd0d6e6c0c757d8aab8b0eea9b17db0d25",
       "symbol": "orchestrationTurnStarter.WaitForSessionReady"
     },
     {
@@ -7075,7 +7074,7 @@
       "codemap_line": 596,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "135-186",
-      "content_sha256": "0bc23e0b2d725946216bced132ec0adef0fd834c5f329c675669cb5eb42417e1",
+      "content_sha256": "7900128948de34fafe05102309993b578ca19c8547f28b3f4ae82e601f827519",
       "symbol": "newService"
     },
     {
@@ -7091,8 +7090,8 @@
       "codemap_line": 626,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "176",
-      "content_sha256": "f3144167fd23fbd5970bb7dcdb226b9d7cff20609b860578f7ef7cd50fbeb210",
-      "symbol": "*service.PrepareTurn"
+      "content_sha256": "6fa30407c19512797cf5963aedc60f4bc7af76b9787b544c4f803c8ec3b66964",
+      "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -7107,7 +7106,7 @@
       "codemap_line": 627,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "141-146",
-      "content_sha256": "b25b1aff60389a9307af1b9f24e26530ede6bf58567a5d4d532255e0da53187b",
+      "content_sha256": "e49b9d7981ba562f16530d0e9c23bbd485208f55ead132e5d2eca4790ad5fd1b",
       "symbol": "*service.PrepareTurn"
     },
     {
@@ -11724,8 +11723,8 @@
       "codemap_line": 331,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "170",
-      "content_sha256": "9a03934bdbe8451e25cce6b2e41e07b597f459229d598161ff5cc258814f8e6d",
-      "symbol": "*service.PrepareTurn"
+      "content_sha256": "9a634e96f871f8d03e6082ecc174b3f8f5f55e9f288cfc023872cf6c012ad759",
+      "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "11-memory.md",
@@ -11972,7 +11971,7 @@
       "codemap_line": 262,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-160",
-      "content_sha256": "8dc6ad9bcafaf058af66dea53768b20d962b13fa7c1a1b643bcb412751a2ee7f",
+      "content_sha256": "f1f06e8eda2a73724412c41baed81dbfb8792827925336f8dc91f5413c56ce39",
       "symbol": "newService"
     },
     {

@@ -104,7 +104,7 @@ it('carries a deferred Stop request identity into turn/start after a new thread 
   }));
 });
 
-it('sends exactly one canonical interrupt when Stop occurs after turn/start payload was dispatched', async () => {
+it('does not duplicate a Stop already registered during turn/start prepare', async () => {
   const pendingStart = deferred();
   const runtime = testRuntime({ activeTurnByThread: {}, draft: 'Stop after dispatch', attachments: [] });
   const interruptActiveThread = vi.fn().mockResolvedValue(true);
@@ -123,11 +123,7 @@ it('sends exactly one canonical interrupt when Stop occurs after turn/start payl
   pendingStart.resolve({ turn_id: 'turn-local-pending' });
 
   await expect(sending).resolves.toBe(true);
-  expect(interruptActiveThread).toHaveBeenCalledTimes(1);
-  expect(interruptActiveThread).toHaveBeenCalledWith({
-    activeTurnTarget: { threadId: 'thread-1', turnId: 'turn-local-pending' },
-    requestId: 'stop-after-dispatch',
-  });
+  expect(interruptActiveThread).not.toHaveBeenCalled();
 });
 
 it('wires the cancellation notice factory through the production send dependencies', () => {

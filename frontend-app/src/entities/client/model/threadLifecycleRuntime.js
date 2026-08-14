@@ -343,17 +343,29 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     return true;
   };
 
+  const confirmsPendingTurnCancellation = (result) => (
+    result?.accepted === true
+    && ['interrupt_registered', 'interrupt_sent_pending', 'interrupt_confirmed'].includes(result?.mode)
+  );
+
   const activeThreadRPC = (action, rpc, options = {}) => {
     const explicitTarget = action === 'thread.interrupt' ? explicitInterruptTarget(options) : null;
-    const pendingTurnStartTarget = action === 'thread.interrupt' && !explicitTarget ? runtime.cancelPendingTurnStart?.() : null;
+    let pendingTurnStartTarget = action === 'thread.interrupt' && !explicitTarget ? runtime.cancelPendingTurnStart?.() : null;
     if (pendingTurnStartTarget === true) {
       const requestId = createRequestId();
-      if (!runtime.pendingTurnStart || typeof requestId !== 'string' || requestId.trim() === '') {
+      const pending = runtime.pendingTurnStart;
+      if (!pending || typeof requestId !== 'string' || requestId.trim() === '') {
         throw new Error('pending turn cancellation requires a stable request identity');
       }
-      runtime.pendingTurnStart.interruptRequested = true;
-      runtime.pendingTurnStart.interruptRequestId = requestId.trim();
-      return true;
+      pending.interruptRequestId = requestId.trim();
+      const threadId = normalizeOptionalTextField(pending.threadId);
+      const turnId = normalizeOptionalTextField(pending.localTurnId);
+      if (!threadId || !turnId) {
+        pending.interruptRequested = true;
+        return true;
+      }
+      pendingTurnStartTarget = { threadId, turnId, interruptible: true };
+      options = { ...options, pendingTurnStartTarget, requestId: pending.interruptRequestId };
     }
     const actionOptions = pendingTurnStartTarget && pendingTurnStartTarget !== false
       ? { ...options, pendingTurnStartTarget }
@@ -364,14 +376,22 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     const existing = interruptFlights.get(key);
     if (existing) return existing.actionPromise;
 
-    if (pendingTurnStartTarget && runtime.pendingTurnStart) runtime.pendingTurnStart.interruptRequested = true;
-    const actionPromise = executeActiveThreadRPC(action, rpc, actionOptions);
+    const actionPromise = pendingTurnStartTarget
+      ? runActiveThreadRPC(action, rpc, actionOptions).then((outcome) => {
+        if (!outcome.ok) return false;
+        notifyAction(threadActionSuccessMessage(action, outcome.result), 'success', { threadId: outcome.threadId });
+        return confirmsPendingTurnCancellation(outcome.result);
+      })
+      : executeActiveThreadRPC(action, rpc, actionOptions);
     const flight = { actionPromise };
     interruptFlights.set(key, flight);
     const releaseSettledFlight = () => {
       if (interruptFlights.get(key) === flight) interruptFlights.delete(key);
     };
-    void actionPromise.then(releaseSettledFlight, () => {
+    void actionPromise.then((interrupted) => {
+      if (pendingTurnStartTarget && runtime.pendingTurnStart) runtime.pendingTurnStart.interruptRequested = interrupted === true;
+      releaseSettledFlight();
+    }, () => {
       if (pendingTurnStartTarget && runtime.pendingTurnStart) runtime.pendingTurnStart.interruptRequested = false;
       releaseSettledFlight();
     });
