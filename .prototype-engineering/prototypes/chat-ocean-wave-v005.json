@@ -7,13 +7,46 @@
     "scenarios": ".prototype-engineering/records/chat-ocean-wave-v005/scenarios.json"
   },
   "boundaryVersion": 3,
-  "checks": [],
+  "checks": [
+    {
+      "at": "2026-08-14T08:41:55+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v005/productionization.md",
+      "name": "Project map full refresh",
+      "status": "passed"
+    },
+    {
+      "at": "2026-08-14T08:41:55+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v005/productionization.md",
+      "name": "Focused production contracts",
+      "status": "passed"
+    },
+    {
+      "at": "2026-08-14T08:41:56+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v005/productionization.md",
+      "name": "Frontend lint",
+      "status": "passed"
+    },
+    {
+      "at": "2026-08-14T08:41:56+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v005/productionization.md",
+      "name": "Full frontend suite",
+      "status": "passed"
+    },
+    {
+      "at": "2026-08-14T08:41:56+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v005/productionization.md",
+      "name": "Frontend production build",
+      "status": "passed"
+    }
+  ],
   "createdAt": "2026-08-14T08:20:45+00:00",
-  "decision": null,
-  "evidence": [],
+  "decision": "productionize",
+  "evidence": [
+    ".prototype-engineering/evidence/chat-ocean-wave-v005/productionization.md"
+  ],
   "git": {
     "baseCommit": "dc5e75996510598afc8619797fd9aee1cd297d84",
-    "verifiedCommit": null
+    "verifiedCommit": "5aa2cd99e183df215274f887e577b8238fb72c14"
   },
   "history": [
     {
@@ -45,13 +78,28 @@
       "at": "2026-08-14T08:21:14+00:00",
       "from": "frozen",
       "to": "building"
+    },
+    {
+      "at": "2026-08-14T08:41:56+00:00",
+      "from": "building",
+      "to": "verified"
+    },
+    {
+      "at": "2026-08-14T08:41:57+00:00",
+      "from": "verified",
+      "to": "recorded"
+    },
+    {
+      "at": "2026-08-14T08:41:57+00:00",
+      "from": "recorded",
+      "to": "decided"
     }
   ],
   "id": "chat-ocean-wave-v005",
   "name": "chat-ocean-wave",
   "parentId": "chat-ocean-wave-v004",
-  "phase": "building",
+  "phase": "decided",
   "schemaVersion": 1,
-  "updatedAt": "2026-08-14T08:21:14+00:00",
+  "updatedAt": "2026-08-14T08:41:57+00:00",
   "version": 5
 }

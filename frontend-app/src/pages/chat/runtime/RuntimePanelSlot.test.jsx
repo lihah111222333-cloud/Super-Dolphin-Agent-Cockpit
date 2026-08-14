@@ -78,7 +78,7 @@ function renderSlot(overrides = {}) {
     expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
     expect(resizer).toHaveAttribute('aria-valuemin', '0');
     expect(resizer).toHaveAttribute('aria-valuemax', String(props.geometrySnapshot.aria.rightMax));
-    expect(resizer).toHaveAttribute('aria-valuenow', '240');
+    expect(resizer).toHaveAttribute('aria-valuenow', String(props.geometrySnapshot.aria.rightNow));
 
     fireEvent.keyDown(resizer, { key: 'ArrowLeft' });
     fireEvent.pointerDown(resizer, { pointerId: 1, clientX: 0 });

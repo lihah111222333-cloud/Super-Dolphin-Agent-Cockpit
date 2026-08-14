@@ -499,7 +499,7 @@ frontend-app/src/pages/chat/runtime/RuntimeDiffView.jsx	frontend-app	app-ui	jsx	
 frontend-app/src/pages/chat/runtime/RuntimePanel.css	frontend-app	app-ui	css	20293	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanel.jsx	frontend-app	app-ui	jsx	2694	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanelSlot.jsx	frontend-app	app-ui	jsx	1937	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanelSlot,React,页面与路由级,UI
-frontend-app/src/pages/chat/runtime/RuntimePanelSlot.test.jsx	frontend-app	app-ui	jsx	8815	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanelSlot,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/runtime/RuntimePanelSlot.test.jsx	frontend-app	app-ui	jsx	8854	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanelSlot,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimeToolbar.jsx	frontend-app	app-ui	jsx	1998	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeToolbar,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/runtimeActivityGeometry.js	frontend-app	app-ui	js-source	2771	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,runtimeActivityGeometry,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/useRuntimeCodePreview.jsx	frontend-app	app-ui	jsx	6648	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,useRuntimeCodePreview,React,页面与路由级,UI
@@ -751,7 +751,7 @@ frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	10593	Re
 frontend-app/src/shared/ui/runUIAction.singleFlight.test.js	frontend-app	app-ui	js-test	2174	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,singleFlight,test,React,共享,UI,组件
 frontend-app/src/shared/ui/runUIAction.test.js	frontend-app	app-ui	js-test	16075	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,test,React,共享,UI,组件
 frontend-app/src/styles.css	frontend-app	app-ui	css	12885	当前 React/Vite 前端包	frontend,app,src,styles,当前,React,Vite,前端包
-frontend-app/src/styles.test.js	frontend-app	app-ui	js-test	126870	当前 React/Vite 前端包	frontend,app,src,styles,test,当前,React,Vite,前端包
+frontend-app/src/styles.test.js	frontend-app	app-ui	js-test	126960	当前 React/Vite 前端包	frontend,app,src,styles,test,当前,React,Vite,前端包
 frontend-app/src/test-setup.js	frontend-app	app-ui	js-source	1626	当前 React/Vite 前端包	frontend,app,src,test,setup,当前,React,Vite,前端包
 frontend-app/src/test-utils/importAst.js	frontend-app	app-ui	js-source	1384	当前 React/Vite 前端包	frontend,app,src,test,utils,importAst,当前,React,Vite,前端包
 frontend-app/src/test-utils/preloadAppRouteModules.js	frontend-app	app-ui	js-source	702	当前 React/Vite 前端包	frontend,app,src,test,utils,preloadAppRouteModules,当前,React,Vite,前端包
