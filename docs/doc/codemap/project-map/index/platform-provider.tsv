@@ -1151,7 +1151,7 @@ internal/provider/codexapp/event_map_timestamp.go	internal	platform-provider	go-
 internal/provider/codexapp/event_map_timestamp_terminal_test.go	internal	platform-provider	go-test	11185	Codex app/server provider 集成	internal,provider,codexapp,event,map,timestamp,terminal,test,Codex,app,server,集成
 internal/provider/codexapp/factory.go	internal	platform-provider	go-source	25370	Codex app/server provider 集成	internal,provider,codexapp,factory,Codex,app,server,集成
 internal/provider/codexapp/failure_matrix_test.go	internal	platform-provider	go-test	6951	Codex app/server provider 集成	internal,provider,codexapp,failure,matrix,test,Codex,app,server,集成
-internal/provider/codexapp/forcecomplete_approval_race_test.go	internal	platform-provider	go-test	19628	Codex app/server provider 集成	internal,provider,codexapp,forcecomplete,approval,race,test,Codex,app,server,集成
+internal/provider/codexapp/forcecomplete_approval_race_test.go	internal	platform-provider	go-test	19646	Codex app/server provider 集成	internal,provider,codexapp,forcecomplete,approval,race,test,Codex,app,server,集成
 internal/provider/codexapp/history_rollout.go	internal	platform-provider	go-source	9677	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,Codex,app,server,集成
 internal/provider/codexapp/history_rollout_path_test.go	internal	platform-provider	go-test	3187	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,path,test,Codex,app,server,集成
 internal/provider/codexapp/history_rollout_test.go	internal	platform-provider	go-test	2404	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,test,Codex,app,server,集成
