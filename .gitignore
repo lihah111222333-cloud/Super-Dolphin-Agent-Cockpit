@@ -94,6 +94,7 @@ Thumbs.db
 !/.codex/hooks.json
 !/.codex/.gitignore
 /.codex/logs/
+/.mcp.json
 /.code_exec/
 /.tmp/
 /tmp/
