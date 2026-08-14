@@ -1,6 +1,6 @@
 ---
 name: mcp-lsp-project-config
-description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio MCP，覆盖 Codex、Claude Code 和 Google Antigravity，以及 Windows 原生 PowerShell/WSL 自动选型。用户提到项目 MCP、LSP MCP、.codex/config.toml、.mcp.json、.agents/mcp_config.json、工具已显示但调用报 client is closing、EOF、Transport closed，或希望三个客户端共用仓库内 mcp-lsp 时使用。
+description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio MCP，覆盖 Codex、Claude Code 和 Google Antigravity，以及 Windows 原生、WSL 原生和 Windows 宿主通过 wsl.exe 桥接 Linux sidecar 的自动选型。用户提到项目 MCP、LSP MCP、.codex/config.toml、.mcp.json、.agents/mcp_config.json、工具已显示但调用报 client is closing、EOF、Transport closed，或希望三个客户端共用仓库内 mcp-lsp 时使用。
 ---
 
 # 项目级 mcp-lsp 配置
@@ -57,15 +57,26 @@ description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio M
 
 同时确认文件存在、非空；macOS/Linux 还要确认可执行权限。不得把 Intel、ARM 或其他操作系统的文件配置给当前主机。
 
-### Windows 原生与 WSL 自动选型
+### Windows 原生、WSL 原生与 Windows→WSL 桥接
 
-不要求用户填写额外平台开关。Agent 必须根据“最终启动 MCP server 的客户端进程”自动选择：
+不要求用户填写额外平台开关。Agent 必须分别确认 MCP host 和 sidecar 的目标运行环境，不能把两者压缩成一个“当前平台”判断：
 
-1. 原生 Windows/Codex Desktop/PowerShell 客户端使用 `windows/*` 二进制；配置路径使用 Windows drive 或 UNC。JSON/TOML 中优先写 `G:/develop/project` 形式，避免手工反斜杠转义。
-2. WSL 内运行的 Codex、Claude Code 或 Antigravity CLI 使用 `linux/*` 二进制；路径使用 `/mnt/g/develop/project` 等 Linux 绝对路径。
-3. 当前编辑 shell 不一定等于目标客户端环境。若 Agent 在 WSL 中编辑 Windows Desktop 客户端的配置，必须按 Windows 客户端选 `.exe`；反之同理。
-4. WSL 可以透传执行 Windows `.exe`，但本技能禁止把 Linux `/mnt/...` roots 配给 Windows 二进制。无法确认最终 owner 时先报告 blocker。
-5. 用 `go version -m` 复核实际 GOOS/GOARCH；`mcp-lsp` 会按该构建目标自动采用对应路径和可执行文件语义，不做 Windows 与 WSL 路径猜测转换。
+1. **Windows 原生直连**：Windows host 直接启动 `windows/*` 二进制；`command`、`cwd`、resources 和 roots 全部使用 Windows drive/UNC 路径。
+2. **WSL 原生直连**：WSL 内的 CLI/IDE host 直接启动 `linux/*` 二进制；所有路径使用 `/mnt/...` 或其他 Linux 绝对路径。
+3. **Windows host 桥接 WSL sidecar**：只有用户明确要求 sidecar 在 WSL 运行、且实际 MCP host 是 Windows Codex Desktop/IDE/PowerShell 时使用。Windows 不能直接 `CreateProcess` `/mnt/.../mcp-lsp-linux-*`；`command` 必须是绝对 Windows `wsl.exe`，host 的 `cwd` 是 Windows 项目根，而 `args` 必须通过 `--cd <WSL项目根> env KEY=VALUE... ./bin/LSP/mcp-lsp-linux-*` 在 WSL 内设置 Linux resources/roots 并启动 ELF。
+4. 当前编辑 shell 不等于 MCP host，也不等于 sidecar。必须分别记录 host、bridge（如有）和 sidecar 三层证据。无法确认任一层时先报告 blocker。
+5. 用 `go version -m` 和 `file` 复核 Linux ELF 的 GOOS/GOARCH；用实际 `wsl.exe` command+args 完成 MCP initialize 和至少一次 tools/call。`mcp-lsp` 本身不负责 Windows/WSL 路径转换。
+6. Windows host 启动 `wsl.exe env ...` 时不得假设 WSL 用户的登录 PATH 已加载。先在目标发行版内分别用 `command -v` 定位 `go`、`gopls`、`node`、`typescript-language-server` 及项目需要的其他语言服务器，再把覆盖这些绝对目录的 Linux PATH 显式放进 args 的 `env` 段。缺少任一必需语言服务器时 fail-fast；不得用一个未经探测的通用 PATH 掩盖缺依赖。
+
+桥接模式禁止以下错误配置：
+
+- Windows host 的 `command` 直接写 `/mnt/c/.../mcp-lsp-linux-x86`。
+- `command=wsl.exe`，却只在 `[mcp_servers.<name>.env]` 写 Linux 路径并假设 WSL 会可靠转换或继承这些值。
+- 依赖 Windows Codex 继承的 PATH 或 WSL 非登录进程的偶然 PATH，导致用户级 `/home/<user>/.local/bin` 中的 `gopls`、`typescript-language-server` 等不可见。
+- 把 Windows `cwd` 与 Linux `GO_AGENT_LSP_ROOT` 直接做字符串相等断言。
+- 在桥接链中改用 Windows `.exe`，却继续传 `/mnt/...` roots。
+
+Codex Windows→WSL 的规范模板位于 `bin/LSP/codex-windows-wsl-lsp-config.example.toml`。
 
 当前 shell 就是目标客户端环境时，先记录自动探测证据：
 
@@ -81,7 +92,7 @@ if [ -n "${WSL_INTEROP:-}${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/sys
 printf 'is_wsl=%s arch=%s\n' "$is_wsl" "$(uname -m)"
 ~~~
 
-`$isNativeWindows=true` 选择 Windows `.exe`；`$isWSL=true` 或 `is_wsl=1` 选择 Linux/WSL 文件。若当前 shell 只是在编辑另一个环境中运行的 Desktop 客户端配置，仍以目标客户端进程为准，不能用编辑 shell 的结果覆盖它。
+`$isWSL=true` 或 `is_wsl=1` 且 MCP host 本身位于 WSL 时选择 Linux 直连。`$isNativeWindows=true` 时先确认 sidecar 目标：原生目标选择 Windows `.exe`；用户明确要求 WSL sidecar 时选择 `wsl.exe` 桥接 Linux ELF。若当前 shell 只是在编辑另一个环境的配置，不能用编辑 shell 的结果覆盖 host/sidecar 判定。
 
 ## 确认可信 cwd 与 workspace root
 
@@ -94,11 +105,13 @@ printf 'is_wsl=%s arch=%s\n' "$is_wsl" "$(uname -m)"
 
 将用户选中的绝对路径记为 `<trusted-cwd>`，并保持以下绑定：
 
-- 支持 `cwd` 字段的客户端 server 配置必须写 `cwd = <trusted-cwd>`；不支持该字段的客户端不得发明字段。
+- 直连模式下，支持 `cwd` 字段的客户端 server 配置必须写 `cwd = <trusted-cwd>`；不支持该字段的客户端不得发明字段。
 - `GO_AGENT_LSP_ROOT=<trusted-cwd>`。
 - `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成，当前选择只写一个元素：`[<trusted-cwd>]`。
 - 项目级配置文件以及 AGENTS.md/CLAUDE.md 仍写在原项目根；选择仓库上一级不等于把配置迁移到上一级。
 - `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` 仍指向已验证的分发包资源根或 source checkout 根，不跟随 `<trusted-cwd>` 扩大。
+
+Windows→WSL 桥接是路径表示上的明确例外，不是扩大权限：host `cwd` 写 Windows 项目根；`wsl.exe --cd`、resources 和两个 roots 写同一目录的 WSL 绝对路径。必须分别解析两侧真实路径，并用 `wslpath` 或 `readlink -f` 证明它们映射到同一目录；不得用字符串相等代替映射验证。
 
 这里控制的是 mcp-lsp 的 workspace containment。可信目录之外的路径会返回 `path_outside_workspace`；扩大 LSP workspace 不等于自动扩大客户端自身的文件系统沙箱或写权限。
 
@@ -127,7 +140,9 @@ SUPER_DOLPHIN_LSP_MANIFEST=<bin/LSP/lsp/lsp-manifest.json 的绝对路径>
 
 `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` 在本 dev 分发布局中是随 `bin/LSP` 交付的资源根；从源码构建时是 source checkout 根。它不是目标源码文件目录，也不是凭二进制位置临时猜出的值。若用户采用其他资源布局，必须先核对真实资源根，再显式配置。
 
-Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼接 `C:\...`。原生 Windows 和 WSL 的 command、cwd、runtime resources 与两个 root 字段必须全部属于同一种路径体系。
+Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼接 `C:\...`。直连模式的 command、cwd、runtime resources 与 roots 必须属于同一种路径体系。Windows→WSL 桥接模式则必须严格分层：Windows `command/cwd` 属于 host，`args` 中 `--cd`、resources、roots 和 Linux binary 属于 WSL sidecar；不得跨层混写。
+
+桥接模式必须把五个必需变量和经目标 WSL 实机探测的 Linux `PATH` 作为 `wsl.exe` 参数中 `env KEY=VALUE...` 的一部分显式注入 Linux 进程。可以在 Codex server 的 `env` 表中同步保留 sidecar 字段用于配置审计，但不能依赖 Windows host 环境自动成为正确的 Linux sidecar 环境。PATH 中的 home 目录必须先解析为绝对 Linux 路径；不要把不会经 shell 展开的字面 `$HOME` 写入 TOML args。
 
 ## 根据客户端配置
 
@@ -139,6 +154,7 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 - 只在项目受信任时生效。
 - stdio server 使用 mcp_servers.<name> 表、command、args、cwd 和 env。
 - env 必须包含三个 sidecar 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段；原生 Windows 还必须包含两个受信 LSP bundle 字段。
+- Windows Desktop/IDE 桥接 WSL 时，使用 `wsl.exe` 模板，并在 args 的 `env` 段显式传入五个 Linux sidecar 字段与实机探测的 Linux PATH；不得让 Windows 直接执行 Linux ELF，也不得依赖登录 shell 才存在的 PATH 修改。
 - 需要强制 LSP 时可设置 enabled = true 和 required = true。
 - 保留其他 MCP server、features、hooks、model 和逐工具审批设置。
 
@@ -203,7 +219,7 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 3. 写入前严格读取并解析现有 JSON/TOML；未知结构立即阻断。
 4. 逐字段合并，保留其他 server 和非 MCP 设置，不得整份覆盖。
 5. 同名 server 内容不同时先展示差异并判断 owner；不得静默替换。
-6. command 使用已验证的当前平台二进制绝对路径；cwd 和 LSP roots 指向用户明确选择的同一个 `<trusted-cwd>`，Windows 原生与 WSL 路径不得混用。
+6. 直连模式的 command、cwd 和 roots 使用 sidecar 平台的一致路径。Windows→WSL 桥接模式的 command/cwd 使用 Windows 路径，args 内的 `--cd`、resources、roots 和 Linux ELF 使用经验证映射到同一可信目录的 WSL 路径；不得把桥接所需的分层路径误判为混用。
 7. 不写密钥、令牌、账号、OAuth secret 或其他凭据。
 8. 缺文件、错误架构、解析失败、schema 不明或客户端不受支持时 fail-fast。
 9. 三个 sidecar 必需字段必须显式写在 server env 中；原生 Windows 的两个受信 LSP bundle 字段同样必须显式提供。不为一次性差异增加默认值、兼容分支或隐式 fallback。
@@ -221,8 +237,8 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 
 ## 验证
 
-1. 重新验证 command 指向存在、非空、架构正确的二进制，并确认其 GOOS 与 Windows 原生/WSL 路径体系一致。
-2. 重新解析项目根及其上一级，确认配置中的 cwd、`GO_AGENT_LSP_ROOT` 和解码后的 `GO_AGENT_LSP_ROOTS` 与用户选择的 `<trusted-cwd>` 完全一致；不得只凭字符串看起来相近就通过。
+1. 重新验证直连 command 或桥接链中的 `wsl.exe` 与 Linux binary 均存在、非空、架构正确；桥接模式必须确认 Linux binary 是 ELF 且 GOOS/GOARCH 匹配 WSL。
+2. 直连模式确认 cwd、`GO_AGENT_LSP_ROOT` 和解码后的 `GO_AGENT_LSP_ROOTS` 与 `<trusted-cwd>` 完全一致。桥接模式分别验证 Windows cwd 和 WSL roots，并证明两者映射到同一用户确认的可信目录；不得做错误的跨平台字符串相等断言。
 3. 重新读取本次客户端对应的 AGENTS.md、CLAUDE.md 或两者，确认受管规则存在一次且必需语义完整。
 4. 重新解析所有修改后的 JSON/TOML。
 5. Codex：完整退出并重启 Codex Desktop/IDE 宿主或 CLI 进程；信任项目后用 /mcp 或 codex mcp list 检查。
@@ -234,5 +250,7 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 11. 对 Go 项目保留并验证用户的 `GOTOOLCHAIN=auto`/`<name>+auto` 策略；版本探测应在已解析的 module 或 go.work 目录执行。
 12. 若配置修改需要第二次复核，重复读取配置，确认没有重复规则、重复 server、stale 路径或旧字段。
 13. Antigravity 必须再次扫描 `.agents/plugins/*/mcp_config.json` 和 workspace 内 `.gemini/config/mcp_config.json`，确认没有同名 `lsp` 副本；`initialize`、`tools/list` 和 UI enabled 不能替代至少一次真实 `tools/call`。
+14. Windows→WSL 桥接必须使用配置中的完整 `command + args` 做启动验证；仅在 WSL shell 中裸跑 Linux binary 不能证明 Windows host 可以创建该 MCP 进程。
+15. 桥接验证必须检查 `tools/list` 精确包含 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion` 七个工具。只出现 `file`、`grep` 时，优先用同一 command+args 执行 `command -v gopls` 和 `command -v typescript-language-server` 核对实际 PATH；不得把“server 已启动”写成 PASS。
 
 报告二进制目标、修改的项目级文件、保留的既有设置、解析结果、客户端发现状态和实际工具调用证据。未启动对应客户端时，把在线连接明确标为未验证。

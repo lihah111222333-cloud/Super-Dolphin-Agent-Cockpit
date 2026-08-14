@@ -40,6 +40,7 @@ Windows 原生版共享 gopls 时还必须显式提供受信 bundle：
 | lsp/lsp-manifest.json、lsp/bin/gopls.exe | Windows 共享 gopls 的受信 bundle 与原生二进制 |
 | AGENTS.md | LSP 导航、影响分析、诊断和验证规则样板 |
 | codex-lsp-config.example.toml | 从本项目 `.codex/config.toml` 提取的 Codex LSP 配置示例，含平台二进制、默认 cwd、可信根和相对工具路径注释 |
+| codex-windows-wsl-lsp-config.example.toml | Windows Codex Desktop/IDE 通过 `wsl.exe` 启动 WSL2 Linux sidecar 的项目级配置模板 |
 | mcp-lsp-project-config-skill | 三家客户端的项目级配置判断方法和参考 |
 
 ## 第一步：保留目录结构
@@ -94,7 +95,7 @@ cp -R bin/LSP/mcp-lsp-project-config-skill \
 配置 Claude Code 时，把同一受管规则合并到项目根 CLAUDE.md。
 三家一起配置时同步两份文件，保留已有更强规则并避免重复。
 再检查当前系统和 CPU、bin/LSP 二进制的真实 GOOS/GOARCH、现有项目级 MCP 配置以及客户端版本。
-在 Windows 上自动判断当前是原生 PowerShell 还是 WSL：PowerShell 选择 Windows .exe 和 Windows 路径，WSL 选择 Linux 二进制和 /mnt 路径，禁止混用。
+在 Windows 上分别判断 MCP host 与 sidecar 目标：Windows 原生直连选择 Windows `.exe`；WSL host 直连选择 Linux 二进制；Windows Desktop 明确要求 WSL sidecar 时用 `wsl.exe` 桥接，Windows `cwd` 与 args 内的 `/mnt/...` roots 分层配置。
 根据实际情况为 Codex、Claude Code 和 Antigravity 配置项目级 mcp-lsp。
 在每家 server 的 env 中显式写入 SUPER_DOLPHIN_RUNTIME_MODE、SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR、SUPER_DOLPHIN_DEPENDENCY_PROFILE、GO_AGENT_LSP_ROOT 和 GO_AGENT_LSP_ROOTS；Windows 原生版还写入 SUPER_DOLPHIN_LSP_BUNDLE_DIR 和 SUPER_DOLPHIN_LSP_MANIFEST。
 逐字段合并，不覆盖其他 server，不写用户级配置，不写凭据。
@@ -163,12 +164,15 @@ go version -m bin/LSP/mcp-lsp-mac-arm
 
 | 启动环境 | 二进制 | 项目路径示例 | URI/路径语义 |
 |---|---|---|---|
-| Windows 原生 PowerShell | `mcp-lsp-windows-x86.exe` 或 `mcp-lsp-windows-arm.exe` | `G:/develop/中转/new-api-main` | Windows drive/UNC |
-| WSL shell / WSL 客户端进程 | `mcp-lsp-linux-x86` 或 `mcp-lsp-linux-arm` | `/mnt/g/develop/中转/new-api-main` | Linux 绝对路径 |
+| Windows 原生 PowerShell/Desktop 直连 | `mcp-lsp-windows-x86.exe` 或 `mcp-lsp-windows-arm.exe` | `G:/develop/中转/new-api-main` | Windows drive/UNC |
+| WSL shell / WSL 客户端进程直连 | `mcp-lsp-linux-x86` 或 `mcp-lsp-linux-arm` | `/mnt/g/develop/中转/new-api-main` | Linux 绝对路径 |
+| Windows Desktop → WSL2 sidecar | `wsl.exe` 桥接 `mcp-lsp-linux-x86` 或 `mcp-lsp-linux-arm` | host cwd 为 Windows 路径；sidecar roots 为对应 `/mnt/...` 路径 | 以 `wsl.exe --cd ... env ...` 建立显式边界，并注入实机探测的 Linux PATH |
 
-WSL 能调用 Windows `.exe` 不代表两套路径可以混用；本教程要求 WSL 使用 Linux 二进制。`mcp-lsp` 会按实际二进制的 GOOS 使用对应的路径和可执行文件规则，不会把 `G:/...` 猜成 `/mnt/g/...`，也不会反向转换。
+WSL 能调用 Windows `.exe` 不代表两套路径可以混用；Windows 也不会自动执行 `/mnt/...` Linux ELF。桥接模式必须显式使用 `wsl.exe`，其完整模板见 `codex-windows-wsl-lsp-config.example.toml`。`mcp-lsp` 会按实际二进制的 GOOS 使用对应语义，不自行猜测路径转换。
 
-当前 shell 就是最终客户端环境时，可自动探测而无需额外开关：原生 PowerShell 以 `$PSVersionTable.PSEdition -eq "Desktop"` 或 `$IsWindows` 为真作为 Windows 证据；PowerShell 运行在 WSL 时 `$IsLinux` 为真且通常存在 `WSL_INTEROP`/`WSL_DISTRO_NAME`。在 POSIX shell 中检查上述 WSL 变量，或检查 `/proc/sys/kernel/osrelease` 是否包含 `microsoft`；架构分别读取 `$env:PROCESSOR_ARCHITECTURE` 或 `uname -m`。若当前 shell 只负责编辑 Windows Desktop 的配置，仍按 Desktop 的 Windows 进程选择 `.exe`。
+桥接前还必须在目标 WSL 发行版内用 `command -v` 定位 `go`、`gopls`、`node`、`typescript-language-server`，并把这些目录组成绝对 Linux PATH 写入模板 args。Windows Codex 启动的非登录 WSL 进程可能看不到 `/home/<user>/.local/bin`；此时 sidecar 仍可能启动，但只暴露 `file`、`grep`，不能判为完整可用。
+
+当前 shell 就是 MCP host 时，可自动探测而无需额外开关：原生 PowerShell 以 `$PSVersionTable.PSEdition -eq "Desktop"` 或 `$IsWindows` 为真作为 Windows host 证据；PowerShell 运行在 WSL 时 `$IsLinux` 为真且通常存在 `WSL_INTEROP`/`WSL_DISTRO_NAME`。在 POSIX shell 中检查上述 WSL 变量，或检查 `/proc/sys/kernel/osrelease` 是否包含 `microsoft`；架构分别读取 `$env:PROCESSOR_ARCHITECTURE` 或 `uname -m`。Windows host 检出后仍要确认用户要求的是 Windows sidecar 还是 WSL sidecar，再选择直连或桥接。
 
 ## 验证不能停在 enabled
 

@@ -8,7 +8,7 @@
 
 | 配置项 | 含义 | 本参考的取值规则 |
 |---|---|---|
-| `command` | 客户端实际启动的 mcp-lsp 二进制 | 按**最终启动 MCP server 的客户端平台和 CPU**选择。例如 macOS Apple Silicon 选择 `bin/LSP/mcp-lsp-mac-arm`，不是按编辑配置的 Agent 当前所在平台选择。 |
+| `command` | MCP host 实际创建的进程 | 直连时是 mcp-lsp 二进制；Windows host 桥接 WSL sidecar 时必须是 Windows `wsl.exe`，Linux ELF 位于 args 的最后一项。 |
 | `cwd` | mcp-lsp 进程的默认启动目录，也是未另传 `work_dir` 时相对工具路径的起点 | 项目级配置统一设为项目根。客户端 schema 没有 `cwd` 字段时，必须从项目根启动客户端，并验证子进程实际继承的 cwd 是项目根。 |
 | `GO_AGENT_LSP_ROOT` / `GO_AGENT_LSP_ROOTS` | LSP 可以读取、导航和修改的**可信工作区根** | 单项目时两者都指向项目根。首个根必须是绝对路径；`cwd` 不会自动扩大可信范围，根外路径必须返回 `path_outside_workspace`。 |
 | `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` | sidecar 查找运行时资源的根 | 源码构建时是当前 checkout 根；分发包则是该包的资源根。它不是 Agent 每次工具调用要传的源码路径。 |
@@ -184,23 +184,27 @@ claude mcp get lsp
 
 这里选择的是**二进制文件**；`cwd` 和可信根仍是目标项目根。选择完成后应使用 `go version -m`、`file` 或 PE Machine 信息核对真实 GOOS/GOARCH，不能只相信文件名。
 
-## Windows 原生 PowerShell 与 WSL
+## Windows 原生、WSL 原生与 Windows→WSL 桥接
 
-不配置人工平台开关。Agent 以最终启动 MCP server 的客户端进程为准，自动选择同一列中的全部值：
+不配置人工平台开关。先确认 MCP host，再确认用户要求 sidecar 在 Windows 还是 WSL 运行：
 
-| 配置项 | Windows 原生 PowerShell / Desktop | WSL 内客户端 |
-|---|---|---|
-| `command`（x86-64） | `G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x86.exe` | `/mnt/g/develop/中转/new-api-main/bin/LSP/mcp-lsp-linux-x86` |
-| `cwd` | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
-| `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
-| `SUPER_DOLPHIN_LSP_BUNDLE_DIR` | `G:/develop/中转/new-api-main/bin/LSP/lsp` | 按 Linux 分发布局显式配置；不得使用 Windows 路径 |
-| `SUPER_DOLPHIN_LSP_MANIFEST` | `G:/develop/中转/new-api-main/bin/LSP/lsp/lsp-manifest.json` | 按 Linux 分发布局显式配置；不得使用 Windows 路径 |
-| `GO_AGENT_LSP_ROOT` | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
-| `GO_AGENT_LSP_ROOTS` | `["G:/develop/中转/new-api-main"]` | `["/mnt/g/develop/中转/new-api-main"]` |
+| 配置项 | Windows 原生直连 | WSL host 原生直连 | Windows host → WSL sidecar |
+|---|---|---|---|
+| `command`（x86-64） | `G:/project/bin/LSP/mcp-lsp-windows-x86.exe` | `/mnt/g/project/bin/LSP/mcp-lsp-linux-x86` | `C:/Windows/System32/wsl.exe` |
+| host `cwd` | `G:/project` | `/mnt/g/project` | `G:/project` |
+| sidecar 启动 | command 本身 | command 本身 | args: `--cd /mnt/g/project env KEY=VALUE... PATH=<实机探测的Linux PATH> ./bin/LSP/mcp-lsp-linux-x86` |
+| resources / roots | `G:/project` | `/mnt/g/project` | args 的 env 段使用 `/mnt/g/project` |
+| Windows gopls bundle | 必需 | 不使用 | 不使用；由 WSL 的 Linux LSP 依赖负责 |
 
 ARM64 主机把文件名替换为同平台 `*-arm`，其他字段不变。原生 Windows 配置使用正斜杠可以避免 TOML/JSON 反斜杠转义；URI 中的中文、空格和字面 `%` 由新二进制在 URI 到本机路径边界解码一次。不要把 `%E4...` 形式直接写进 cwd 或 roots。
 
-WSL 可以调用 Windows `.exe`，但那仍是 Windows 进程语义。本技能的 WSL 配置固定使用 Linux 二进制与 `/mnt/...` roots；如果最终 owner 是 Windows Desktop，即使 Agent 当前在 WSL 编辑配置，也必须选择 Windows 列。
+WSL 可以调用 Windows `.exe`，但那仍是 Windows 进程语义。反向桥接也不会自动发生：Windows Desktop 不能直接执行 `/mnt/...` Linux ELF。用户要求 Windows Codex Desktop 使用 WSL sidecar 时，必须显式选择第三列，由 `wsl.exe` 建立边界。完整模板见 `bin/LSP/codex-windows-wsl-lsp-config.example.toml`。
+
+第三列中 Windows `cwd` 和 WSL roots 字符串必然不同，但必须映射到同一目录。用 `wslpath`/`readlink -f` 验证映射，并用配置中的完整 command+args 完成 MCP initialize 和真实 tools/call。只在 WSL shell 中裸跑 ELF 不能证明 Windows host 配置正确。
+
+Windows host 通过 `wsl.exe env` 启动 sidecar 时，不保证加载 WSL 用户的登录 shell PATH。配置前必须在目标发行版中运行 `command -v go gopls node typescript-language-server`，收集实际目录并在 args 的 `env` 段显式写入绝对 Linux PATH。常见的用户级目录是 `/home/<wsl-user>/.local/bin`，但用户名和安装位置必须实测，不能把该示例当默认值，也不能在 TOML args 中写不会展开的字面 `$HOME`。
+
+PATH 缺失可能不会让 sidecar 启动失败：能力探测会找不到语义语言服务器，`tools/list` 可能只返回 `file`、`grep`。因此桥接验收必须精确核对七个工具，并实际调用至少一个 `structure`、`inspect` 或 `xref` 语义工具；仅 initialize 成功、只读文件成功或看到两个基础工具均不算完整可用。
 
 当前 shell 与目标客户端相同时，PowerShell 用 `$IsWindows`/`$IsLinux` 和 `WSL_INTEROP`、`WSL_DISTRO_NAME` 判断原生 Windows 或 WSL；POSIX shell 用 WSL 环境变量或 `/proc/sys/kernel/osrelease` 中的 `microsoft` 判断，并用 `uname -m` 选择 x86-64/ARM64。当前 shell 不是最终 owner 时，以客户端进程平台为准。
 
@@ -215,6 +219,8 @@ WSL 可以调用 Windows `.exe`，但那仍是 Windows 进程语义。本技能�
 | `sidecar requires SUPER_DOLPHIN_RUNTIME_MODE and SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` | 当前 server 的 env 是否显式包含前两个字段，资源根是否为绝对路径 |
 | `SUPER_DOLPHIN_DEPENDENCY_PROFILE is required for production bootstrap` | 当前 server 的 env 是否包含 `SUPER_DOLPHIN_DEPENDENCY_PROFILE=production` |
 | `path_outside_workspace` 且路径含 `%E4...`/`%20` | 是否运行新二进制；command、cwd、roots 是否属于同一 Windows 或 WSL 路径体系 |
+| Windows Codex 启动 `/mnt/.../mcp-lsp-linux-*` 失败 | Windows `CreateProcess` 不会自动进入 WSL；改用 `command=wsl.exe`，并在 args 中传 `--cd`、`env`、Linux roots 和 ELF |
+| sidecar 能启动但 `tools/list` 只有 `file`、`grep` | 用配置的完整桥接命令检查 `command -v gopls`、`command -v typescript-language-server`；把实机探测的 Linux PATH 显式注入 args 的 `env` 段后重启宿主 |
 | `Go toolchain selection failed` | PATH 是否有可运行的 Go；`GOTOOLCHAIN` 是否允许自动切换；module/go.work 声明是否可满足 |
 | Antigravity 已显示工具，但调用时报 `client is closing: EOF` 或 `Transport closed` | 对比 `.agents/mcp_config.json`、`.agents/plugins/*/mcp_config.json`、workspace `.gemini/config/mcp_config.json` 和只读全局配置；从 sidecar 日志确认实际 command、root、请求路径和第一个错误 |
 | `resolve parent path: lstat /parent/cmd: no such file or directory` | 若 trusted root 是仓库上一级，请求必须包含仓库目录前缀，例如 `repo/cmd/...`；不要把按项目根书写的 `cmd/...` 直接交给父级 root |
