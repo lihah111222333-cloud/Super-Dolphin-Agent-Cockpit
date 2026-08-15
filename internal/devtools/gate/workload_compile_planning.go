@@ -641,6 +641,18 @@ func distributeCompileUnitsWithinTarget(units []compilePlanningUnit, context Pla
 	}
 	if context.Calibration {
 		tier = 0
+	} else {
+		reserve, err := resourceTierReserve(context.ResourceTierReserves, tier)
+		if err != nil {
+			return nil, err
+		}
+		switch reserve.Resolution {
+		case cicontract.WorkloadResourceTierReserveResolutionMeasured:
+		case cicontract.WorkloadResourceTierReserveResolutionBootstrap:
+			return isolateBootstrapCompileUnits(units)
+		default:
+			return nil, fmt.Errorf("resource-tier reserve resolution %q is not accepted", reserve.Resolution)
+		}
 	}
 	target, err := context.EffectiveTargetDurationForResourceTier(tier)
 	if err != nil {

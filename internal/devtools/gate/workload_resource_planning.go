@@ -21,9 +21,22 @@ func distributeTieredLPTWithinTarget(planned []PlannedWorkload, context Planning
 		if len(tierWorkloads) == 0 {
 			continue
 		}
-		tierShards, err := distributeLPTWithinTarget(tierWorkloads, context, cicontract.WorkloadResourceTier(tierIndex+1))
+		tier := cicontract.WorkloadResourceTier(tierIndex + 1)
+		reserve, err := resourceTierReserve(context.ResourceTierReserves, tier)
 		if err != nil {
-			return nil, fmt.Errorf("plan resource tier %d: %w", tierIndex+1, err)
+			return nil, fmt.Errorf("plan resource tier %d: %w", tier, err)
+		}
+		var tierShards []ShardPlan
+		switch reserve.Resolution {
+		case cicontract.WorkloadResourceTierReserveResolutionMeasured:
+			tierShards, err = distributeLPTWithinTarget(tierWorkloads, context, tier)
+		case cicontract.WorkloadResourceTierReserveResolutionBootstrap:
+			tierShards = isolateBootstrapWorkloads(tierWorkloads)
+		default:
+			err = fmt.Errorf("resource-tier reserve resolution %q is not accepted", reserve.Resolution)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("plan resource tier %d: %w", tier, err)
 		}
 		for _, shard := range tierShards {
 			shard.Index = len(shards)
@@ -31,6 +44,14 @@ func distributeTieredLPTWithinTarget(planned []PlannedWorkload, context Planning
 		}
 	}
 	return shards, nil
+}
+
+func isolateBootstrapWorkloads(workloads []PlannedWorkload) []ShardPlan {
+	shards := make([]ShardPlan, len(workloads))
+	for index, workload := range workloads {
+		shards[index] = ShardPlan{Index: index, Workloads: []PlannedWorkload{workload}, EstimatedDurationMS: workload.EstimatedDurationMS}
+	}
+	return shards
 }
 
 // plannedWorkloadResourceTier 只接受计划内固化的 normal 资源身份。

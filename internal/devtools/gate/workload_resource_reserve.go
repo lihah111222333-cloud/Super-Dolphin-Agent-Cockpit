@@ -39,21 +39,57 @@ func (context PlanningContext) EffectiveTargetDurationForResourceTier(tier cicon
 	if err != nil {
 		return 0, err
 	}
-	if reserve.P95MS >= context.TargetDurationMS {
+	if reserve.Resolution != cicontract.WorkloadResourceTierReserveResolutionMeasured || reserve.Measurement == nil {
+		return 0, fmt.Errorf("resource-tier %d bootstrap resolution has no effective packing target", tier)
+	}
+	if reserve.Measurement.P95MS >= context.TargetDurationMS {
 		return 0, fmt.Errorf("resource-tier %d reserve leaves no positive planning budget", tier)
 	}
-	return context.TargetDurationMS - reserve.P95MS, nil
+	return context.TargetDurationMS - reserve.Measurement.P95MS, nil
 }
 
 func resourceTierReserve(reserves []cicontract.WorkloadResourceTierReserve, tier cicontract.WorkloadResourceTier) (cicontract.WorkloadResourceTierReserve, error) {
 	if tier < cicontract.WorkloadResourceTierFast || tier > cicontract.WorkloadResourceTierSlow {
 		return cicontract.WorkloadResourceTierReserve{}, fmt.Errorf("resource tier %d is invalid", tier)
 	}
+	if len(reserves) != int(cicontract.WorkloadResourceTierSlow) {
+		return cicontract.WorkloadResourceTierReserve{}, fmt.Errorf("resource-tier reserve set is incomplete: got %d", len(reserves))
+	}
 	reserve := reserves[int(tier)-1]
 	if reserve.ResourceTier != tier {
 		return cicontract.WorkloadResourceTierReserve{}, fmt.Errorf("resource-tier reserve for tier %d is missing", tier)
 	}
 	return reserve, nil
+}
+
+func canonicalizeNormalResourceTierReserves(reserves []cicontract.WorkloadResourceTierReserve) ([]cicontract.WorkloadResourceTierReserve, error) {
+	canonical := make([]cicontract.WorkloadResourceTierReserve, int(cicontract.WorkloadResourceTierSlow))
+	for tier := cicontract.WorkloadResourceTierFast; tier <= cicontract.WorkloadResourceTierSlow; tier++ {
+		canonical[int(tier)-1] = cicontract.WorkloadResourceTierReserve{SchemaVersion: cicontract.WorkloadResourceTierReserveSchemaVersion, ResourceTier: tier, Resolution: cicontract.WorkloadResourceTierReserveResolutionBootstrap}
+	}
+	previous := cicontract.WorkloadResourceTier(0)
+	for index, reserve := range reserves {
+		if reserve.ResourceTier <= previous || reserve.ResourceTier < cicontract.WorkloadResourceTierFast || reserve.ResourceTier > cicontract.WorkloadResourceTierSlow {
+			return nil, fmt.Errorf("resource-tier reserve %d has non-canonical or duplicate tier %d", index, reserve.ResourceTier)
+		}
+		previous = reserve.ResourceTier
+		canonical[int(reserve.ResourceTier)-1] = reserve
+	}
+	return canonical, nil
+}
+
+func isolateBootstrapCompileUnits(units []compilePlanningUnit) ([]ShardPlan, error) {
+	shards := make([]ShardPlan, len(units))
+	for index, unit := range units {
+		if len(unit.workloads) == 0 || unit.costMS <= 0 {
+			return nil, fmt.Errorf("bootstrap compile unit %q is invalid", unit.sortID)
+		}
+		shards[index] = ShardPlan{Index: index, Workloads: append([]PlannedWorkload(nil), unit.workloads...), EstimatedDurationMS: unit.costMS}
+		if unit.group != nil {
+			shards[index].CompileGroupIDs = []string{unit.group.GroupID}
+		}
+	}
+	return shards, nil
 }
 
 // DeriveNormalResourceTierReserves derives tier-isolated P95 reserves from
@@ -69,7 +105,7 @@ func DeriveNormalResourceTierReserves(observations []TimingObservation, shards [
 		return nil, err
 	}
 	if len(groups) == 0 {
-		return nil, errors.New("no measured normal shard timing samples for resource-tier reserves")
+		return nil, nil
 	}
 	shardTiers, err := normalReserveShardTiers(shards, calibrationClassID)
 	if err != nil {
@@ -80,7 +116,7 @@ func DeriveNormalResourceTierReserves(observations []TimingObservation, shards [
 		return nil, err
 	}
 	if len(samples) == 0 {
-		return nil, errors.New("normal resource-tier reserves have no eligible samples")
+		return nil, nil
 	}
 	sort.Slice(samples, func(left, right int) bool {
 		if samples[left].ResourceTier != samples[right].ResourceTier {
@@ -169,13 +205,17 @@ func normalReserveAggregates(samples []resourceTierReserveSample) ([]cicontract.
 	for tier := cicontract.WorkloadResourceTierFast; tier <= cicontract.WorkloadResourceTierSlow; tier++ {
 		values := byTier[tier]
 		if len(values) == 0 {
-			return nil, fmt.Errorf("normal resource-tier reserve tier %d has no reliable samples", tier)
+			continue
 		}
 		digest, err := resourceTierReserveDigest(samples, tier)
 		if err != nil {
 			return nil, fmt.Errorf("derive resource-tier reserve tier %d provenance: %w", tier, err)
 		}
-		reserves = append(reserves, cicontract.WorkloadResourceTierReserve{SchemaVersion: 1, ResourceTier: tier, P95MS: nearestRankP95(values), SampleCount: len(values), ProvenanceDigest: digest})
+		reserves = append(reserves, cicontract.WorkloadResourceTierReserve{
+			SchemaVersion: cicontract.WorkloadResourceTierReserveSchemaVersion, ResourceTier: tier,
+			Resolution:  cicontract.WorkloadResourceTierReserveResolutionMeasured,
+			Measurement: &cicontract.WorkloadResourceTierReserveMeasurement{P95MS: nearestRankP95(values), SampleCount: len(values), ProvenanceDigest: digest},
+		})
 	}
 	return reserves, nil
 }

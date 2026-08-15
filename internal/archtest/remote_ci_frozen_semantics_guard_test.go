@@ -21,6 +21,7 @@ func TestRemoteCIFrozenProtocolAndPlannerSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRemoteCIFrozenIdentityAliases(t, root)
+	assertRemoteCIReserveBootstrapIsolation(t, root)
 	assertRemoteCIPlanOwnerCaller(t, root)
 	assertRemoteCIPassEnvironmentOwner(t, root)
 }
@@ -35,7 +36,8 @@ func assertRemoteCIFrozenIdentityAliases(t *testing.T, root string) {
 			"cicontract.WorkloadEstimationPolicyDigest",
 		},
 		"internal/devtools/cicontract/contract.go": {
-			"WorkloadPlanningAlgorithmID = \"deterministic-critical-path-aware-packing/v3\"",
+			"WorkloadPlanningAlgorithmID = \"deterministic-critical-path-aware-packing/v4\"",
+			"WorkloadPlanningReserveBootstrapSolverModeID      = \"isolated-reserve-bootstrap/v1\"",
 			"WorkloadPlanningObjective = \"hard constraints>target excess>minimum shards>makespan>setup proxy>canonical layout\"",
 			"WorkloadPlanningExactPackableUnitThreshold        = 12",
 			"WorkloadPlanningSearchNodeBudget = 1_000_000",
@@ -61,6 +63,24 @@ func assertRemoteCIFrozenIdentityAliases(t *testing.T, root string) {
 		for _, marker := range markers {
 			if !strings.Contains(source, marker) {
 				t.Errorf("%s is missing frozen semantic marker %q", relative, marker)
+			}
+		}
+	}
+}
+
+func assertRemoteCIReserveBootstrapIsolation(t *testing.T, root string) {
+	t.Helper()
+	for relative, function := range map[string]string{
+		"internal/devtools/gate/workload_resource_planning.go": "isolateBootstrapWorkloads",
+		"internal/devtools/gate/workload_resource_reserve.go":  "isolateBootstrapCompileUnits",
+	} {
+		file := parseRemoteCIContractGuardFile(t, filepath.Join(root, relative))
+		if remoteCIFunctionByName(file, function) == nil {
+			t.Fatalf("%s bootstrap isolation function %s is missing", relative, function)
+		}
+		for _, forbidden := range []string{"EffectiveTargetDurationForResourceTier", "distributeDCPAP", "provenCompileUnitPacking"} {
+			if remoteCIFunctionCalls(file, function, forbidden) {
+				t.Errorf("%s bootstrap isolation function %s calls forbidden planner %s", relative, function, forbidden)
 			}
 		}
 	}

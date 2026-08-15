@@ -68,7 +68,7 @@ func validateWorkloadPackingEvidence(plan WorkloadExecutionPlan) error {
 	if err != nil {
 		return err
 	}
-	if err := validatePackingEvidenceEntries(plan.PackingEvidence, actualShards); err != nil {
+	if err := validatePackingEvidenceEntries(plan.PackingEvidence, actualShards, plan.Context); err != nil {
 		return err
 	}
 	if len(actualShards) != 0 {
@@ -112,7 +112,7 @@ func validatePackingEvidenceShard(shardIndex int, shard ShardPlan) (cicontract.W
 }
 
 // validatePackingEvidenceEntries 校验证据排序、shard 绑定、计数关系和 solver mode。
-func validatePackingEvidenceEntries(entries []WorkloadPackingEvidence, actualShards map[cicontract.WorkloadResourceTier]int) error {
+func validatePackingEvidenceEntries(entries []WorkloadPackingEvidence, actualShards map[cicontract.WorkloadResourceTier]int, context PlanningContext) error {
 	previousTier := cicontract.WorkloadResourceTier(0)
 	for index, evidence := range entries {
 		if err := validatePackingEvidenceTierIdentity(index, evidence, previousTier); err != nil {
@@ -125,6 +125,13 @@ func validatePackingEvidenceEntries(entries []WorkloadPackingEvidence, actualSha
 		delete(actualShards, evidence.ResourceTier)
 		if err := validatePackingEvidenceCounts(index, evidence); err != nil {
 			return err
+		}
+		expectedResolution, err := packingEvidenceResolution(context, evidence.ResourceTier)
+		if err != nil {
+			return err
+		}
+		if evidence.Resolution != expectedResolution {
+			return fmt.Errorf("packing evidence %d resolution does not match planning context", index)
 		}
 		if err := validatePackingEvidenceMode(index, evidence); err != nil {
 			return err
@@ -168,6 +175,27 @@ func validatePackingEvidenceCounts(index int, evidence WorkloadPackingEvidence) 
 
 // validatePackingEvidenceMode 校验 packable 数量对应的 solver mode 和 gap 约束。
 func validatePackingEvidenceMode(index int, evidence WorkloadPackingEvidence) error {
+	if evidence.Resolution == cicontract.WorkloadResourceTierReserveResolutionBootstrap {
+		return validateBootstrapPackingEvidenceMode(index, evidence)
+	}
+	if evidence.Resolution != cicontract.WorkloadResourceTierReserveResolutionMeasured {
+		return fmt.Errorf("packing evidence %d resolution %q is not accepted", index, evidence.Resolution)
+	}
+	return validateMeasuredPackingEvidenceMode(index, evidence)
+}
+
+func validateBootstrapPackingEvidenceMode(index int, evidence WorkloadPackingEvidence) error {
+	unitCount := evidence.PackableUnitCount + evidence.IsolatedUnitCount
+	if evidence.SolverMode != cicontract.WorkloadPlanningReserveBootstrapSolverModeID {
+		return fmt.Errorf("packing evidence %d bootstrap solver is inconsistent", index)
+	}
+	if evidence.LowerBoundShards != unitCount || evidence.PlannedShards != unitCount || evidence.HeuristicGapShards != 0 {
+		return fmt.Errorf("packing evidence %d bootstrap shard proof is inconsistent", index)
+	}
+	return nil
+}
+
+func validateMeasuredPackingEvidenceMode(index int, evidence WorkloadPackingEvidence) error {
 	if evidence.PackableUnitCount == 0 {
 		if evidence.SolverMode != cicontract.WorkloadPlanningIsolatedSolverModeID || evidence.HeuristicGapShards != 0 || evidence.PlannedShards != evidence.LowerBoundShards {
 			return fmt.Errorf("packing evidence %d isolated-only mode is inconsistent", index)
@@ -192,7 +220,7 @@ func validatePackingEvidenceCalibration(plan WorkloadExecutionPlan) error {
 		return nil
 	}
 	for _, evidence := range plan.PackingEvidence {
-		if evidence.ResourceTier != cicontract.WorkloadResourceTierMedium {
+		if evidence.ResourceTier != cicontract.WorkloadResourceTierMedium || evidence.Resolution != cicontract.WorkloadResourceTierReserveResolutionMeasured {
 			return errors.New("calibration workload packing evidence must use the medium resource tier")
 		}
 	}

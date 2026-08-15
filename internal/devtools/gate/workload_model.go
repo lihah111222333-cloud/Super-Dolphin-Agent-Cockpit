@@ -181,13 +181,14 @@ type PlannedWorkload struct {
 // WorkloadPackingEvidence 是每个 stable resource tier 的可审计 D-CPAP 见证。
 // lower/planned/gap 均以该 tier 的总 shard 数计，禁止只报告 packable 子集。
 type WorkloadPackingEvidence struct {
-	ResourceTier       cicontract.WorkloadResourceTier `json:"resource_tier"`
-	SolverMode         string                          `json:"solver_mode"`
-	PackableUnitCount  int                             `json:"packable_unit_count"`
-	IsolatedUnitCount  int                             `json:"isolated_unit_count"`
-	LowerBoundShards   int                             `json:"lower_bound_shards"`
-	PlannedShards      int                             `json:"planned_shards"`
-	HeuristicGapShards int                             `json:"heuristic_gap_shards"`
+	ResourceTier       cicontract.WorkloadResourceTier                  `json:"resource_tier"`
+	Resolution         cicontract.WorkloadResourceTierReserveResolution `json:"resolution"`
+	SolverMode         string                                           `json:"solver_mode"`
+	PackableUnitCount  int                                              `json:"packable_unit_count"`
+	IsolatedUnitCount  int                                              `json:"isolated_unit_count"`
+	LowerBoundShards   int                                              `json:"lower_bound_shards"`
+	PlannedShards      int                                              `json:"planned_shards"`
+	HeuristicGapShards int                                              `json:"heuristic_gap_shards"`
 }
 
 // WorkloadExecutionPlan 将一次确定性分片绑定到 GatePlan、目录和账本 generation。

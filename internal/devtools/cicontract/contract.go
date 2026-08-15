@@ -64,9 +64,9 @@ const (
 	// 不再用 gate 数量猜测合法分片大小。
 	RemoteShardRequestMaxBytes = 1 << 20
 	// WorkloadExecutionPlanSchemaVersion 冻结确定性分片计划的唯一 wire schema。
-	WorkloadExecutionPlanSchemaVersion uint32 = 10
+	WorkloadExecutionPlanSchemaVersion uint32 = 11
 	// WorkloadPlanningAlgorithmID 冻结 normal/calibration 共用的 D-CPAP 算法身份。
-	WorkloadPlanningAlgorithmID = "deterministic-critical-path-aware-packing/v3"
+	WorkloadPlanningAlgorithmID = "deterministic-critical-path-aware-packing/v4"
 	// WorkloadPlanningObjective 冻结 planner 比较器的优先级顺序；不得改写为近似或隐式成本。
 	WorkloadPlanningObjective = "hard constraints>target excess>minimum shards>makespan>setup proxy>canonical layout"
 	// WorkloadPlanningSearchNodeBudget 冻结 exact proof 的确定性节点预算；耗尽时必须 fail-fast。
@@ -76,15 +76,16 @@ const (
 	WorkloadPlanningExactSolverModeID                 = "deterministic-branch-and-bound-exact/v1"
 	WorkloadPlanningHeuristicSolverModeID             = "deterministic-setup-aware-bfd-2move-3cycle-beam/v1"
 	WorkloadPlanningIsolatedSolverModeID              = "isolated-only/v1"
+	WorkloadPlanningReserveBootstrapSolverModeID      = "isolated-reserve-bootstrap/v1"
 	WorkloadPlanningHeuristicMaxTwoMoveTransitions    = 64
 	WorkloadPlanningHeuristicMaxThreeCycleTransitions = 64
 	WorkloadPlanningHeuristicBeamWidth                = 8
 	WorkloadPlanningHeuristicBeamDepth                = 3
 	WorkloadPlanningHeuristicMaxBeamTransitions       = 128
 	// WorkloadEstimationPolicyVersion 冻结估时摘要的 schema；估时摘要缺失必须拒绝计划。
-	WorkloadEstimationPolicyVersion = "duration-estimate-resource-tier-reserve-policy/v2"
+	WorkloadEstimationPolicyVersion = "duration-estimate-resource-tier-reserve-policy/v3"
 	// WorkloadPlanningRiskPolicyID 同时冻结 normal reserve 聚合与跨输入上尾隔离。
-	WorkloadPlanningRiskPolicyID = "normal-resource-tier-reserve-interval-union-p95+cross-input-upper-tail-isolation/v1"
+	WorkloadPlanningRiskPolicyID = "normal-resource-tier-reserve-measured-p95-or-isolated-bootstrap+cross-input-upper-tail-isolation/v2"
 	// WorkloadPassIdentityDomain 冻结可复用 PASS identity 的密码学域；无域或其他域材料不得命中。
 	WorkloadPassIdentityDomain = "pass-identity/v2"
 	// WorkloadInputFingerprintDomain 冻结 workload 生产输入摘要的密码学域；旧无域摘要自然 MISS。
@@ -498,14 +499,14 @@ var requirements = [...]Requirement{
 	{ID: "4.2", Section: 4, Summary: "首写只允许空 singleton 原子 INSERT baseline 与账本元数据；同态并发幂等收敛，异态、非空、缺字段或非首代 receipt 必须 fail-fast", Enforcement: "strict bootstrap boundary"},
 	{ID: "4.3", Section: 4, Summary: "pre-push 从 exact pushed tree 后台静默启动唯一 dispatcher；仅当 OSS strict 成功回执超过 24h 才在 ECI 内创建有限期非权威 ImageCache；normal run 每次 strict 读取并实时复核该物料后显式使用，维护锁只去重刷新", Enforcement: "exact-tree hook dispatch + scheduling receipt + live runtime selection + maintenance lock + archtest"},
 	{ID: "5.1", Section: 5, Summary: "shard 数只受可分片原子 workload 数量限制", Enforcement: "LPT planner + archtest"}, {ID: "5.2", Section: 5, Summary: "云配额与 API 限流必须显式失败，不得静默降并发或转本地", Enforcement: "runtime + archtest"},
-	{ID: "5.3", Section: 5, Summary: "normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；先分档再在档内 LPT；每档 100 秒预算必须扣除同一权威 measured eci_wait、source_materialize、candidate_compile、orchestration 区间并集的 nearest-rank P95 reserve，缺档、缺样本或不可验证必须 fail-fast；首次升档无新档 exact sample 时携带上一档权威实测估值规划新档，不伪造样本或回退资源；bootstrap 三类均固定 2C/4GiB，资源策略摘要只进入规划、duration sample 与 shard/run evidence，不进入 PASS identity；禁止额外内存档、混档污染、自动内存抬升、CPU 抬档、按 shard 聚合估时或复用旧策略 PASS，观测或 OOM 在同档没有更大内存必须 fail-fast", Enforcement: "tiered LPT + workload plan projection + resource selector + reserve field guard + PASS identity tests"},
+	{ID: "5.3", Section: 5, Summary: "normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；每档 reserve resolution 必须是 measured 或 bootstrap 并进入估时、规划和 plan digest：有 identity-bound measured reserve 时从 100 秒扣除同档区间并集 nearest-rank P95 后执行 D-CPAP；缺少该档可靠实测时使用 isolated-reserve-bootstrap/v1，将当前 MISS 的每个普通 workload 或不可拆 compile group 各放一片，禁止调用 EffectiveTarget/D-CPAP；partial MISS 按档独立决议，unknown、空 resolution、重复档或伪造数值必须 fail-fast，all-hit 仍不进入 planner；首次升档无新档 exact sample 时携带上一档权威实测 workload 估值，不伪造样本或回退资源；固定 5s/70s 阈值、bootstrap 资源和其他资源隔离约束保持不变", Enforcement: "tiered resolution + isolated bootstrap + workload plan digest + reserve field guard"},
 	{ID: "5.4", Section: 5, Summary: "CompileGroup schema v2 冻结 selector 估时、batch digest、wave/batch 覆盖与 warning；普通 compile group 仅允许显式 side-effect-safe allowlist、同 resource、严格串行共箱，archtest/super-dolphin-gate/codexapp/mcp-lsp/agent-terminal/race/benchmark 必须独占；同一 group 只编译一次，critical cost=compile once + Σwave max(body)，BodySum 仅 coverage。archtest 每组最多 64 个 selector、423 个 selector 约 7 组并无上限并发，GOMEMLIMIT=3GiB；旧版本/伪造 manifest/helper/manual selector 由执行协议拒绝；worker supervisor 必须显式将 TMPDIR 绑定现有 temp-data 挂载根 /tmp，禁止依赖镜像默认环境；每个 batch 必须在该挂载根下创建唯一短 0700 运行根并令 TMPDIR/GOTMPDIR 指向其子目录，结束时清理，禁止使用长 lane/batchRoot；normal 无历史固定 2C/4GiB、owner fixed-point 在 PlannedWorkload 前完成、calibration 固定 4C/8GiB", Enforcement: "compile-group schema/batch/packing/critical-path/history arch guard + worker/planner/coordinator tests"},
 	{ID: "5.5", Section: 5, Summary: "除 release owner 外所有重门禁必须作为 canonical shardable workload，在 PASS lookup 后仅 MISS 进入历史耗时 LPT 与无上限 ECI 分片；最终串行 owner 只能对逐 workload 权威证据生成固定大小、版本化且防篡改的 proof root，不得重跑门禁或拼接无界子日志", Enforcement: "workload catalog + miss-only planner + bounded owner proof + archtest"},
 	{ID: "6.1", Section: 6, Summary: "独立于 normal 的固定 4C/8GiB 校准规格贯穿 RunInput、ShardRequest、receipt、SQLite 与 checkpoint identity", Enforcement: "field guard + store"},
 	{ID: "6.2", Section: 6, Summary: "校准规格漂移或缺失必须 fail-fast，固定规格不限制 shard 并发", Enforcement: "validation + archtest"},
 	{ID: "7.1", Section: 7, Summary: "shard 与 workload 账本以统一 1ms 分辨率显式表达六个耗时阶段；compile group 另以 test_binary_compile 记录每组一次；实际为正的亚毫秒 worker 阶段记为 1ms，禁止降为缺失的 0ms", Enforcement: "worker timing producer + receipt + ledger renderer"},
 	{ID: "7.2", Section: 7, Summary: "账本证明 workload 实际 executed miss 或严格 reused hit，并记录 canonical reuse proof 与仅用于加速的 Go cache、前端 seed/Vite cache 证据", Enforcement: "receipt + ledger renderer"},
-	{ID: "7.3", Section: 7, Summary: "不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt；orchestration overhead 使用 v2 accounted interval union，扣除 workload、ECI wait、源码物化、候选 Gate 编译和 test-binary 编译的 measured 区间且不重复计数；normal 按资源档位从同一 union 取 nearest-rank P95 作为 100 秒 reserve，缺少可靠档位样本必须 fail-fast，calibration 继续使用固定规格语义", Enforcement: "receipt validation + overhead schema/policy guard + resource-tier reserve guard"},
+	{ID: "7.3", Section: 7, Summary: "不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt；orchestration overhead 使用 v2 accounted interval union，扣除 workload、ECI wait、源码物化、候选 Gate 编译和 test-binary 编译的 measured 区间且不重复计数；normal 每档有可靠 identity-bound 样本时从同一 union 取 nearest-rank P95 作为 measured reserve，缺少该档样本时显式记录 bootstrap resolution 而不伪造 0ms、100s、默认值或 sentinel；损坏、unknown 或来源不完整的 measured 状态仍 fail-fast，calibration 继续使用固定规格语义", Enforcement: "receipt validation + overhead schema/policy guard + typed resource-tier resolution guard"},
 	{ID: "7.4", Section: 7, Summary: "100 秒告警固定 warn_and_continue；不得 cancel、kill 或 fail shard", Enforcement: "warning-action validation + archtest"},
 	{ID: "8.1", Section: 8, Summary: "DataCache、旧 bundle、本地 Docker、ACR、JSON truth、GitHub remote-CI runner、通用/第二 provider executor、跨 shard CAS 与隐式 fallback 禁止存在；测试二进制编译只能留在既有 ECI shard worker 路径，镜像物料也必须在 ECI 构建", Enforcement: "deletion + archtest"},
 	{ID: "8.2", Section: 8, Summary: "固定 shard 数、CI 并发上限、accepted 缺失自动重建及接入 SQLite 的 successor refresh executor 禁止存在；唯一 pre-push 后台候选刷新维护不得阻塞 push、等待刷新结果或成为第二 CI executor", Enforcement: "hook non-blocking boundary + script deletion + archtest"},

@@ -14,16 +14,117 @@ import (
 	sqlitedriver "modernc.org/sqlite"
 )
 
-// TestNormalPlanningRequiresResourceTierReserve locks the fail-fast boundary
-// before normal planning can consume an unscoped calibration overhead.
-func TestNormalPlanningRequiresResourceTierReserve(t *testing.T) {
+// TestNormalPlanningBootstrapsMissingResourceTierReserve locks the explicit
+// isolated bootstrap path and rejects non-canonical resolution states.
+func TestNormalPlanningBootstrapsMissingResourceTierReserve(t *testing.T) {
+	context, resolved := resolveBootstrapPlanningContext(t)
+	workloads := assertBootstrapOrdinaryPlanning(t, resolved)
+	assertPartialReservePlanning(t, context, workloads)
+	assertBootstrapCompilePlanning(t, resolved, workloads)
+	assertInvalidReserveResolutions(t, context, resolved)
+}
+
+func resolveBootstrapPlanningContext(t *testing.T) (PlanningContext, PlanningContext) {
+	t.Helper()
 	context := testLinuxPlanningContext()
 	context.ResourceTierReserves = nil
-	context.ShardOverheadP95MS = 1_000
-	context.ShardOverheadSampleCount = 1
-	context.ShardOverheadProvenanceDigest = "sha256:" + strings.Repeat("a", 64)
-	if _, err := context.EffectiveTargetDurationMS(); err == nil || !strings.Contains(err.Error(), "resource-tier reserve") {
-		t.Fatalf("normal planning accepted unscoped overhead: %v", err)
+	resolved, err := ResolvePlanningContext(context, testPlanningLedger(context, nil))
+	if err != nil {
+		t.Fatalf("ResolvePlanningContext() error = %v", err)
+	}
+	if len(resolved.ResourceTierReserves) != int(cicontract.WorkloadResourceTierSlow) {
+		t.Fatalf("bootstrap resolutions = %#v", resolved.ResourceTierReserves)
+	}
+	for _, reserve := range resolved.ResourceTierReserves {
+		if reserve.Resolution != cicontract.WorkloadResourceTierReserveResolutionBootstrap {
+			t.Fatalf("bootstrap reserve resolution = %#v", reserve)
+		}
+		if reserve.Measurement != nil {
+			t.Fatalf("bootstrap reserve = %#v", reserve)
+		}
+	}
+	return context, resolved
+}
+
+func assertBootstrapOrdinaryPlanning(t *testing.T, resolved PlanningContext) []PlannedWorkload {
+	t.Helper()
+	workloads := []PlannedWorkload{
+		{Workload: Workload{ID: "bootstrap-a"}, EstimatedDurationMS: 1_000, ResourceCPU: 2, ResourceMemoryGiB: 4},
+		{Workload: Workload{ID: "bootstrap-b"}, EstimatedDurationMS: 2_000, ResourceCPU: 2, ResourceMemoryGiB: 4},
+	}
+	shards, err := distributeTieredLPTWithinTarget(workloads, resolved)
+	if err != nil {
+		t.Fatalf("distributeTieredLPTWithinTarget() error = %v", err)
+	}
+	if len(shards) != len(workloads) {
+		t.Fatalf("bootstrap ordinary shards = %d, want %d", len(shards), len(workloads))
+	}
+	evidence, err := deriveWorkloadPackingEvidence(shards, nil, resolved)
+	if err != nil {
+		t.Fatalf("deriveWorkloadPackingEvidence() error = %v", err)
+	}
+	assertBootstrapPackingEvidence(t, evidence)
+	return workloads
+}
+
+func assertBootstrapPackingEvidence(t *testing.T, evidence []WorkloadPackingEvidence) {
+	t.Helper()
+	if len(evidence) != 1 {
+		t.Fatalf("bootstrap packing evidence = %#v", evidence)
+	}
+	entry := evidence[0]
+	if entry.Resolution != cicontract.WorkloadResourceTierReserveResolutionBootstrap || entry.SolverMode != cicontract.WorkloadPlanningReserveBootstrapSolverModeID {
+		t.Fatalf("bootstrap packing identity = %#v", entry)
+	}
+	if entry.LowerBoundShards != 2 || entry.PlannedShards != 2 || entry.HeuristicGapShards != 0 {
+		t.Fatalf("bootstrap packing proof = %#v", entry)
+	}
+}
+
+func assertPartialReservePlanning(t *testing.T, context PlanningContext, workloads []PlannedWorkload) {
+	t.Helper()
+	partial := context
+	partial.ResourceTierReserves = []cicontract.WorkloadResourceTierReserve{testMeasuredResourceTierReserve(cicontract.WorkloadResourceTierFast, "e")}
+	partial, err := ResolvePlanningContext(partial, testPlanningLedger(context, nil))
+	if err != nil {
+		t.Fatalf("resolve partial reserve context: %v", err)
+	}
+	partialWorkloads := append(append([]PlannedWorkload(nil), workloads...),
+		PlannedWorkload{Workload: Workload{ID: "bootstrap-medium"}, EstimatedDurationMS: 6_000, ResourceCPU: 4, ResourceMemoryGiB: 8})
+	partialShards, err := distributeTieredLPTWithinTarget(partialWorkloads, partial)
+	if err != nil {
+		t.Fatalf("plan partial reserve tiers: %v", err)
+	}
+	if len(partialShards) != 2 {
+		t.Fatalf("partial reserve shards = %#v, want one measured plus one bootstrap shard", partialShards)
+	}
+}
+
+func assertBootstrapCompilePlanning(t *testing.T, resolved PlanningContext, workloads []PlannedWorkload) {
+	t.Helper()
+	groups := []CompileGroup{{GroupID: "bootstrap-group-a"}, {GroupID: "bootstrap-group-b"}}
+	units := []compilePlanningUnit{
+		{workloads: workloads[:1], group: &groups[0], costMS: 1_000, affinityKey: "a", sortID: "a", tier: cicontract.WorkloadResourceTierFast},
+		{workloads: workloads[1:], group: &groups[1], costMS: 2_000, affinityKey: "b", sortID: "b", tier: cicontract.WorkloadResourceTierFast},
+	}
+	compileShards, err := distributeCompileUnitsForPlanningContext(units, resolved)
+	if err != nil {
+		t.Fatalf("distributeCompileUnitsForPlanningContext() error = %v", err)
+	}
+	if len(compileShards) != len(units) {
+		t.Fatalf("bootstrap compile shards = %d, want %d", len(compileShards), len(units))
+	}
+}
+
+func assertInvalidReserveResolutions(t *testing.T, context, resolved PlanningContext) {
+	t.Helper()
+	for _, resolution := range []cicontract.WorkloadResourceTierReserveResolution{"", "unknown"} {
+		invalid := resolved
+		invalid.ResourceTierReserves = append([]cicontract.WorkloadResourceTierReserve(nil), resolved.ResourceTierReserves...)
+		invalid.ResourceTierReserves[0].Resolution = resolution
+		if _, err := ResolvePlanningContext(invalid, testPlanningLedger(context, nil)); err == nil || !strings.Contains(err.Error(), "resolution") {
+			t.Fatalf("resolution %q was not rejected first: %v", resolution, err)
+		}
 	}
 }
 
@@ -47,9 +148,17 @@ func TestDeriveNormalResourceTierReservesExcludesWorkloadAndTestBinaryCompileUni
 	}
 	for index, reserve := range reserves {
 		wantTier := cicontract.WorkloadResourceTier(index + 1)
-		if reserve.ResourceTier != wantTier || reserve.P95MS != 5_000 || reserve.SampleCount != 1 || reserve.ProvenanceDigest == "" {
-			t.Fatalf("reserve[%d] = %#v, want tier %d measured union P95 5000ms", index, reserve, wantTier)
-		}
+		assertMeasuredResourceTierReserve(t, index, reserve, wantTier)
+	}
+}
+
+func assertMeasuredResourceTierReserve(t *testing.T, index int, reserve cicontract.WorkloadResourceTierReserve, wantTier cicontract.WorkloadResourceTier) {
+	t.Helper()
+	if reserve.ResourceTier != wantTier || reserve.Resolution != cicontract.WorkloadResourceTierReserveResolutionMeasured || reserve.Measurement == nil {
+		t.Fatalf("reserve[%d] = %#v, want measured tier %d", index, reserve, wantTier)
+	}
+	if reserve.Measurement.P95MS != 5_000 || reserve.Measurement.SampleCount != 1 || reserve.Measurement.ProvenanceDigest == "" {
+		t.Fatalf("reserve[%d] measurement = %#v, want P95 5000ms", index, reserve.Measurement)
 	}
 }
 

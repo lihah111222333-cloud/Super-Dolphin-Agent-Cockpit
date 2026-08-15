@@ -162,12 +162,19 @@ func collectPackingEvidenceOrdinary(stats map[cicontract.WorkloadResourceTier]*w
 		if err != nil {
 			return err
 		}
+		bucket := packingEvidenceStatsFor(stats, tier)
+		bucket.packable++
+		resolution, err := packingEvidenceResolution(context, tier)
+		if err != nil {
+			return err
+		}
+		if resolution == cicontract.WorkloadResourceTierReserveResolutionBootstrap {
+			continue
+		}
 		target, err := packingEvidenceTarget(context, tier)
 		if err != nil {
 			return err
 		}
-		bucket := packingEvidenceStatsFor(stats, tier)
-		bucket.packable++
 		if err := addOrdinaryDuration(bucket, workload.EstimatedDurationMS, target); err != nil {
 			return err
 		}
@@ -201,28 +208,68 @@ func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workload
 	slices.Sort(tiers)
 	evidence := make([]WorkloadPackingEvidence, 0, len(tiers))
 	for _, tier := range tiers {
-		bucket := stats[tier]
-		target, err := packingEvidenceTarget(context, tier)
+		entry, err := finalizePackingEvidenceTier(stats[tier], context, tier)
 		if err != nil {
 			return nil, err
 		}
-		lower, err := packingEvidenceLowerBound(bucket, target)
-		if err != nil {
-			return nil, err
-		}
-		if bucket.planned < lower {
-			return nil, fmt.Errorf("tier %d planned shards below sound lower bound", tier)
-		}
-		mode, gap := packingEvidenceMode(bucket, lower)
-		if bucket.packable <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
-			lower, gap = bucket.planned, 0
-		}
-		if gap < 0 {
-			return nil, fmt.Errorf("tier %d planned shards below lower bound", tier)
-		}
-		evidence = append(evidence, WorkloadPackingEvidence{ResourceTier: tier, SolverMode: mode, PackableUnitCount: bucket.packable, IsolatedUnitCount: bucket.isolated, LowerBoundShards: lower, PlannedShards: bucket.planned, HeuristicGapShards: gap})
+		evidence = append(evidence, entry)
 	}
 	return evidence, nil
+}
+
+func finalizePackingEvidenceTier(bucket *workloadPackingEvidenceStats, context PlanningContext, tier cicontract.WorkloadResourceTier) (WorkloadPackingEvidence, error) {
+	resolution, err := packingEvidenceResolution(context, tier)
+	if err != nil {
+		return WorkloadPackingEvidence{}, err
+	}
+	if resolution == cicontract.WorkloadResourceTierReserveResolutionBootstrap {
+		return bootstrapPackingEvidence(bucket, tier)
+	}
+	return measuredPackingEvidence(bucket, context, tier, resolution)
+}
+
+func bootstrapPackingEvidence(bucket *workloadPackingEvidenceStats, tier cicontract.WorkloadResourceTier) (WorkloadPackingEvidence, error) {
+	unitCount := bucket.packable + bucket.isolated
+	if bucket.planned != unitCount {
+		return WorkloadPackingEvidence{}, fmt.Errorf("tier %d bootstrap planned shards %d differ from unit count %d", tier, bucket.planned, unitCount)
+	}
+	return WorkloadPackingEvidence{ResourceTier: tier, Resolution: cicontract.WorkloadResourceTierReserveResolutionBootstrap, SolverMode: cicontract.WorkloadPlanningReserveBootstrapSolverModeID, PackableUnitCount: bucket.packable, IsolatedUnitCount: bucket.isolated, LowerBoundShards: unitCount, PlannedShards: unitCount}, nil
+}
+
+func measuredPackingEvidence(bucket *workloadPackingEvidenceStats, context PlanningContext, tier cicontract.WorkloadResourceTier, resolution cicontract.WorkloadResourceTierReserveResolution) (WorkloadPackingEvidence, error) {
+	target, err := packingEvidenceTarget(context, tier)
+	if err != nil {
+		return WorkloadPackingEvidence{}, err
+	}
+	lower, err := packingEvidenceLowerBound(bucket, target)
+	if err != nil {
+		return WorkloadPackingEvidence{}, err
+	}
+	if bucket.planned < lower {
+		return WorkloadPackingEvidence{}, fmt.Errorf("tier %d planned shards below sound lower bound", tier)
+	}
+	mode, gap := packingEvidenceMode(bucket, lower)
+	if bucket.packable <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
+		lower, gap = bucket.planned, 0
+	}
+	if gap < 0 {
+		return WorkloadPackingEvidence{}, fmt.Errorf("tier %d planned shards below lower bound", tier)
+	}
+	return WorkloadPackingEvidence{ResourceTier: tier, Resolution: resolution, SolverMode: mode, PackableUnitCount: bucket.packable, IsolatedUnitCount: bucket.isolated, LowerBoundShards: lower, PlannedShards: bucket.planned, HeuristicGapShards: gap}, nil
+}
+
+func packingEvidenceResolution(context PlanningContext, tier cicontract.WorkloadResourceTier) (cicontract.WorkloadResourceTierReserveResolution, error) {
+	if context.Calibration {
+		return cicontract.WorkloadResourceTierReserveResolutionMeasured, nil
+	}
+	reserve, err := resourceTierReserve(context.ResourceTierReserves, tier)
+	if err != nil {
+		return "", err
+	}
+	if reserve.Resolution != cicontract.WorkloadResourceTierReserveResolutionMeasured && reserve.Resolution != cicontract.WorkloadResourceTierReserveResolutionBootstrap {
+		return "", fmt.Errorf("resource-tier reserve resolution %q is not accepted", reserve.Resolution)
+	}
+	return reserve.Resolution, nil
 }
 
 func packingEvidenceTarget(context PlanningContext, tier cicontract.WorkloadResourceTier) (int64, error) {

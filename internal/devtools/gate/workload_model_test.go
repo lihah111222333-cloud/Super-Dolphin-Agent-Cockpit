@@ -508,8 +508,8 @@ func TestValidateStoredRejectsPackingEvidencePlannedShardTamper(t *testing.T) {
 
 func assertWorkloadExecutionPlanPlannerIdentity(t *testing.T, plan WorkloadExecutionPlan) {
 	t.Helper()
-	if plan.SchemaVersion != 10 {
-		t.Fatalf("planner schema = %d, want 10", plan.SchemaVersion)
+	if plan.SchemaVersion != 11 {
+		t.Fatalf("planner schema = %d, want 11", plan.SchemaVersion)
 	}
 	if len(plan.PackingEvidence) == 0 {
 		t.Fatal("planner packing evidence is empty")
@@ -733,9 +733,17 @@ func testLinuxPlanningContext() PlanningContext {
 
 func testNormalResourceTierReserves() []cicontract.WorkloadResourceTierReserve {
 	return []cicontract.WorkloadResourceTierReserve{
-		{SchemaVersion: 1, ResourceTier: cicontract.WorkloadResourceTierFast, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("a", 64)},
-		{SchemaVersion: 1, ResourceTier: cicontract.WorkloadResourceTierMedium, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("b", 64)},
-		{SchemaVersion: 1, ResourceTier: cicontract.WorkloadResourceTierSlow, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("c", 64)},
+		testMeasuredResourceTierReserve(cicontract.WorkloadResourceTierFast, "a"),
+		testMeasuredResourceTierReserve(cicontract.WorkloadResourceTierMedium, "b"),
+		testMeasuredResourceTierReserve(cicontract.WorkloadResourceTierSlow, "c"),
+	}
+}
+
+func testMeasuredResourceTierReserve(tier cicontract.WorkloadResourceTier, provenance string) cicontract.WorkloadResourceTierReserve {
+	return cicontract.WorkloadResourceTierReserve{
+		SchemaVersion: cicontract.WorkloadResourceTierReserveSchemaVersion, ResourceTier: tier,
+		Resolution:  cicontract.WorkloadResourceTierReserveResolutionMeasured,
+		Measurement: &cicontract.WorkloadResourceTierReserveMeasurement{SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat(provenance, 64)},
 	}
 }
 

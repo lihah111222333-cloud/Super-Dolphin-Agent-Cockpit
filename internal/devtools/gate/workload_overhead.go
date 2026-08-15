@@ -181,6 +181,13 @@ func ResolvePlanningContext(context PlanningContext, ledger DurationLedger) (Pla
 	if err := validatePlanningContextBase(context); err != nil {
 		return PlanningContext{}, err
 	}
+	if !context.Calibration {
+		reserves, err := canonicalizeNormalResourceTierReserves(context.ResourceTierReserves)
+		if err != nil {
+			return PlanningContext{}, err
+		}
+		context.ResourceTierReserves = reserves
+	}
 	if err := validateAcceptedCalibration(context, ledger.Calibration); err != nil {
 		return PlanningContext{}, err
 	}

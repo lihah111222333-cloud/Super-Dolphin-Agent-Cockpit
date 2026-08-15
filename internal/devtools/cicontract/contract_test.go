@@ -523,7 +523,7 @@ func TestFrozenPlanningAndProtocolIdentityMatrix(t *testing.T) {
 
 func assertFrozenWorkloadPlanIdentity(t *testing.T) {
 	t.Helper()
-	if WorkloadExecutionPlanSchemaVersion != 10 || WorkloadPlanningAlgorithmID != "deterministic-critical-path-aware-packing/v3" || WorkloadPlanningSearchNodeBudget != 1_000_000 {
+	if WorkloadExecutionPlanSchemaVersion != 11 || WorkloadPlanningAlgorithmID != "deterministic-critical-path-aware-packing/v4" || WorkloadPlanningSearchNodeBudget != 1_000_000 {
 		t.Fatalf("workload plan identity drifted: schema=%d algorithm=%q", WorkloadExecutionPlanSchemaVersion, WorkloadPlanningAlgorithmID)
 	}
 	objectiveDigest := WorkloadPlanningObjectiveDigest()
@@ -536,10 +536,10 @@ func assertFrozenWorkloadPlanIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateWorkloadPlanContract(10, WorkloadPlanningAlgorithmID, objectiveDigest, planningDigest, estimationDigest, material); err != nil {
+	if err := ValidateWorkloadPlanContract(11, WorkloadPlanningAlgorithmID, objectiveDigest, planningDigest, estimationDigest, material); err != nil {
 		t.Fatalf("canonical workload plan rejected: %v", err)
 	}
-	for _, version := range []uint32{8, 9, 11} {
+	for _, version := range []uint32{8, 9, 10, 12} {
 		if err := ValidateWorkloadPlanContract(version, WorkloadPlanningAlgorithmID, objectiveDigest, planningDigest, estimationDigest, material); err == nil {
 			t.Fatalf("retired workload plan schema %d accepted", version)
 		}
@@ -569,10 +569,18 @@ func canonicalWorkloadEstimationPolicyMaterial() WorkloadEstimationPolicyMateria
 		TargetDurationMS:   100_000,
 		AcceptedSnapshotID: "snapshot-digest",
 		ResourceTierReserves: []WorkloadResourceTierReserve{
-			{SchemaVersion: 1, ResourceTier: WorkloadResourceTierFast, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("a", 64)},
-			{SchemaVersion: 1, ResourceTier: WorkloadResourceTierMedium, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("b", 64)},
-			{SchemaVersion: 1, ResourceTier: WorkloadResourceTierSlow, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("c", 64)},
+			canonicalMeasuredResourceTierReserve(WorkloadResourceTierFast, "a"),
+			canonicalMeasuredResourceTierReserve(WorkloadResourceTierMedium, "b"),
+			canonicalMeasuredResourceTierReserve(WorkloadResourceTierSlow, "c"),
 		},
+	}
+}
+
+func canonicalMeasuredResourceTierReserve(tier WorkloadResourceTier, provenance string) WorkloadResourceTierReserve {
+	return WorkloadResourceTierReserve{
+		SchemaVersion: WorkloadResourceTierReserveSchemaVersion, ResourceTier: tier,
+		Resolution:  WorkloadResourceTierReserveResolutionMeasured,
+		Measurement: &WorkloadResourceTierReserveMeasurement{SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat(provenance, 64)},
 	}
 }
 
@@ -590,7 +598,7 @@ func TestWorkloadPlanContractRejectsArbitraryEstimationDigest(t *testing.T) {
 		if planningErr != nil {
 			t.Fatal(planningErr)
 		}
-		if err := ValidateWorkloadPlanContract(10, WorkloadPlanningAlgorithmID, WorkloadPlanningObjectiveDigest(), planningDigest, digest, material); err == nil {
+		if err := ValidateWorkloadPlanContract(11, WorkloadPlanningAlgorithmID, WorkloadPlanningObjectiveDigest(), planningDigest, digest, material); err == nil {
 			t.Fatalf("arbitrary estimation digest %q was accepted", digest)
 		}
 	}
@@ -600,7 +608,7 @@ func TestWorkloadPlanContractRejectsArbitraryEstimationDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateWorkloadPlanContract(10, WorkloadPlanningAlgorithmID, WorkloadPlanningObjectiveDigest(), planningDigest, expected, tampered); err == nil {
+	if err := ValidateWorkloadPlanContract(11, WorkloadPlanningAlgorithmID, WorkloadPlanningObjectiveDigest(), planningDigest, expected, tampered); err == nil {
 		t.Fatal("estimation digest accepted a tampered PlanningContext material")
 	}
 }
@@ -618,6 +626,19 @@ func TestWorkloadPlanningPolicyDigestRejectsTransitionBoundDrift(t *testing.T) {
 
 func TestWorkloadResourceTierReservePolicyRejectsMissingTierAndCalibrationDrift(t *testing.T) {
 	material := canonicalWorkloadEstimationPolicyMaterial()
+	bootstrap := material
+	bootstrap.ResourceTierReserves = append([]WorkloadResourceTierReserve(nil), material.ResourceTierReserves...)
+	bootstrap.ResourceTierReserves[0].Resolution = WorkloadResourceTierReserveResolutionBootstrap
+	bootstrap.ResourceTierReserves[0].Measurement = nil
+	if _, err := WorkloadEstimationPolicyDigest(bootstrap); err != nil {
+		t.Fatalf("estimation policy rejected explicit bootstrap resolution: %v", err)
+	}
+	unknown := bootstrap
+	unknown.ResourceTierReserves = append([]WorkloadResourceTierReserve(nil), bootstrap.ResourceTierReserves...)
+	unknown.ResourceTierReserves[0].Resolution = "unknown"
+	if _, err := WorkloadEstimationPolicyDigest(unknown); err == nil {
+		t.Fatal("estimation policy accepted unknown reserve resolution")
+	}
 	material.ResourceTierReserves = material.ResourceTierReserves[:2]
 	if _, err := WorkloadEstimationPolicyDigest(material); err == nil {
 		t.Fatal("estimation policy accepted missing resource-tier reserve")
