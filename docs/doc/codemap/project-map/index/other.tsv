@@ -692,12 +692,12 @@ internal/devtools/gate/timing_observation_compile_group.go	internal	other	go-sou
 internal/devtools/gate/timing_observation_test.go	internal	other	go-test	26119	开发工具与生成器辅助包	internal,devtools,gate,timing,observation,test,开发工具与生成器辅助包
 internal/devtools/gate/validation.go	internal	other	go-source	6436	开发工具与生成器辅助包	internal,devtools,gate,validation,开发工具与生成器辅助包
 internal/devtools/gate/validation_test.go	internal	other	go-test	1882	开发工具与生成器辅助包	internal,devtools,gate,validation,test,开发工具与生成器辅助包
-internal/devtools/gate/workload_catalog.go	internal	other	go-source	31109	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,开发工具与生成器辅助包
+internal/devtools/gate/workload_catalog.go	internal	other	go-source	31223	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,开发工具与生成器辅助包
 internal/devtools/gate/workload_catalog_frontend.go	internal	other	go-source	5942	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,frontend,开发工具与生成器辅助包
 internal/devtools/gate/workload_catalog_frontend_suite_test.go	internal	other	go-test	10272	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,frontend,suite,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_catalog_race_scope.go	internal	other	go-source	2890	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,race,scope,开发工具与生成器辅助包
 internal/devtools/gate/workload_catalog_race_scope_test.go	internal	other	go-test	7606	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,race,scope,test,开发工具与生成器辅助包
-internal/devtools/gate/workload_catalog_test.go	internal	other	go-test	31919	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_catalog_test.go	internal	other	go-test	33246	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_group_planning_test.go	internal	other	go-test	36225	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,group,planning,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_owner_planning.go	internal	other	go-source	15577	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,owner,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_owner_planning_test.go	internal	other	go-test	11741	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,owner,planning,test,开发工具与生成器辅助包

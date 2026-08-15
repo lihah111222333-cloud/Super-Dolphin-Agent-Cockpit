@@ -421,6 +421,8 @@ func TestBuildExpandedWorkloadCatalogSplitsAtomicGoTopLevelTests(t *testing.T) {
 	assertAtomicMcpLSPCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestMcpLSPCommon", "TestMcpLSPRace"})
 	assertAtomicSuperDolphinGateCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"})
 	assertAtomicSuperDolphinGateCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestRemoteCIAgentTokenActualValueContinuesPastHandshake"})
+	assertAtomicScriptsCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestScriptsCommon", "TestScriptsNormal"})
+	assertAtomicScriptsCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestScriptsCommon", "TestScriptsRace"})
 }
 
 func atomicCatalogInventory() WorkloadInventory {
@@ -450,6 +452,8 @@ func atomicCatalogInventory() WorkloadInventory {
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPCommon"},
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPProcess"},
 			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"},
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsCommon"},
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsNormal"},
 		},
 		GoRaceTests: []GoTestTarget{
 			{Package: AtomicArchtestPackageTarget, Name: "TestAlpha"},
@@ -475,6 +479,8 @@ func atomicCatalogInventory() WorkloadInventory {
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPCommon"},
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPRace"},
 			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteCIAgentTokenActualValueContinuesPastHandshake"},
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsCommon"},
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsRace"},
 		},
 	}
 }
@@ -493,6 +499,7 @@ func TestAtomicGoPackageTargetsReturnsStableClone(t *testing.T) {
 		AtomicRemoteCIPackageTarget,
 		AtomicMcpLSPPackageTarget,
 		AtomicSuperDolphinGatePackageTarget,
+		AtomicScriptsPackageTarget,
 	}
 	first := AtomicGoPackageTargets()
 	if !slices.Equal(first, want) {
@@ -582,6 +589,14 @@ func assertAtomicSuperDolphinGateCatalog(t *testing.T, catalog WorkloadCatalog, 
 	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicSuperDolphinGatePackageTarget)
 	if !packageFound || !slices.Equal(got, want) {
 		t.Fatalf("parent %q super-dolphin-gate=%v tests=%v want=%v", parent, packageFound, got, want)
+	}
+}
+
+func assertAtomicScriptsCatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
+	t.Helper()
+	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicScriptsPackageTarget)
+	if !packageFound || !slices.Equal(got, want) {
+		t.Fatalf("parent %q scripts=%v tests=%v want=%v", parent, packageFound, got, want)
 	}
 }
 
@@ -691,7 +706,15 @@ func TestBuildCalibrationWorkloadCatalogRacesEveryGoPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := WorkloadInventory{
-		GoPackages: []string{"./internal/alpha", "./pkg/beta", "./scripts"},
+		GoPackages: []string{"./internal/alpha", "./pkg/beta", AtomicScriptsPackageTarget},
+		GoTests: []GoTestTarget{
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsCommon"},
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsNormal"},
+		},
+		GoRaceTests: []GoTestTarget{
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsCommon"},
+			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsRace"},
+		},
 	}
 	normal, err := BuildExpandedWorkloadCatalog(plan, DefaultWorkloadBootstrapPolicy(), inventory)
 	if err != nil {
@@ -714,8 +737,9 @@ func TestBuildCalibrationWorkloadCatalogRacesEveryGoPackage(t *testing.T) {
 		}
 		return count
 	}
-	if got := countParent(calibration, GateIDBackendTestGuardWithRace); got != len(inventory.GoPackages) {
-		t.Fatalf("calibration race workloads = %d, want %d", got, len(inventory.GoPackages))
+	wantCalibrationRaceWorkloads := len(inventory.GoPackages) + 1
+	if got := countParent(calibration, GateIDBackendTestGuardWithRace); got != wantCalibrationRaceWorkloads {
+		t.Fatalf("calibration race workloads = %d, want %d", got, wantCalibrationRaceWorkloads)
 	}
 	if got := countParent(normal, GateIDBackendTestGuardWithRace); got >= len(inventory.GoPackages) {
 		t.Fatalf("normal race workloads unexpectedly cover every package: %d", got)

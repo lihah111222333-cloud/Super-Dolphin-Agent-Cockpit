@@ -20,7 +20,8 @@ const (
 	// AtomicArchtestPackageTarget、AtomicCodexAppPackageTarget、AtomicAgentRuntimePackageTarget、
 	// AtomicAgentTerminalPackageTarget、AtomicAppPackageTarget、AtomicUpdaterPackageTarget、
 	// AtomicTaskDAGPackageTarget、AtomicSQLitePackageTarget、AtomicGatePackageTarget 与
-	// AtomicRemoteCIPackageTarget、AtomicMcpLSPPackageTarget、AtomicSuperDolphinGatePackageTarget 必须拆成顶层测试，
+	// AtomicRemoteCIPackageTarget、AtomicMcpLSPPackageTarget、AtomicSuperDolphinGatePackageTarget、AtomicScriptsPackageTarget
+	// 必须拆成顶层测试，
 	// 避免大型包形成超时整包 workload。
 	// 这些目标均保留同一 release/race gate 的完整覆盖，并由 compile group 共享一次测试二进制编译。
 	AtomicArchtestPackageTarget         = "./internal/archtest"
@@ -35,6 +36,7 @@ const (
 	AtomicRemoteCIPackageTarget         = "./internal/devtools/remoteci"
 	AtomicMcpLSPPackageTarget           = "./cmd/mcp-lsp"
 	AtomicSuperDolphinGatePackageTarget = "./cmd/super-dolphin-gate"
+	AtomicScriptsPackageTarget          = "./scripts"
 )
 
 // AtomicGoPackageTargets 返回需要按顶层 Go 测试拆分的包目标副本。
@@ -53,6 +55,7 @@ func AtomicGoPackageTargets() []string {
 		AtomicRemoteCIPackageTarget,
 		AtomicMcpLSPPackageTarget,
 		AtomicSuperDolphinGatePackageTarget,
+		AtomicScriptsPackageTarget,
 	}
 	return slices.Clone(atomicGoPackageTargets)
 }
