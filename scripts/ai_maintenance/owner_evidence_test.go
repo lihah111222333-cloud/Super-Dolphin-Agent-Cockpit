@@ -64,12 +64,41 @@ func TestBuildGatePlanRoutesReleaseWorkflowAndArchtestInputsToOwners(t *testing.
 		{"internal/guards/guard_manifest.json", []string{"backend:archtest"}},
 		{".githooks/pre-commit", []string{"backend:archtest", "ai-maintenance:self-test"}},
 		{"internal/module/thread/session_test.go", []string{"backend:test-integrity"}},
-		{"docs/automation/全仓夜间门禁健康巡检协议.md", []string{"nightly-protocol:check"}},
 	}
 	for _, test := range tests {
 		t.Run(test.file, func(t *testing.T) {
 			plan := mustBuildGatePlan(t, []string{test.file})
 			assertStringSetContains(t, plan.RequiredGates, test.gates...)
+		})
+	}
+	for _, test := range []struct {
+		file          string
+		retainedGates []string
+	}{
+		{"docs/automation/全仓夜间门禁健康巡检协议.md", []string{"project-map:check", "diff:whitespace"}},
+		{"docs/automation/门禁问题台账接管协议.md", []string{"project-map:check", "diff:whitespace"}},
+		{"docs/automation/授权问题修复与验证协议.md", []string{"project-map:check", "diff:whitespace"}},
+		{"Makefile", []string{"sqlc:verify", "frontend:embed-verify", "codemap:check", "project-map:check"}},
+		{"scripts/nightly_protocol_validator/main.go", []string{"project-map:check", "diff:whitespace"}},
+	} {
+		t.Run("retired-nightly-gate/"+test.file, func(t *testing.T) {
+			plan := mustBuildGatePlan(t, []string{test.file})
+			assertStringSetOmits(t, plan.RequiredGates, "nightly-protocol:check")
+			assertStringSetContains(t, plan.RequiredGates, test.retainedGates...)
+		})
+	}
+	for _, relative := range []string{
+		"scripts/nightly_protocol_validator/main.go",
+		"scripts/nightly_protocol_validator/main_test.go",
+	} {
+		t.Run("retired-nightly-validator/"+relative, func(t *testing.T) {
+			_, err := os.Stat(filepath.Join(aiMaintenanceRepoRoot(t), filepath.FromSlash(relative)))
+			if err == nil {
+				t.Fatalf("retired nightly protocol validator still exists: %s", relative)
+			}
+			if !os.IsNotExist(err) {
+				t.Fatalf("inspect retired nightly protocol validator %s: %v", relative, err)
+			}
 		})
 	}
 }

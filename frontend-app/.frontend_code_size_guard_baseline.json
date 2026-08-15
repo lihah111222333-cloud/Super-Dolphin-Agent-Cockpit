@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-08-02T13:33:00Z"
+    "updatedAt": "2026-08-15T22:06:52Z"
   },
   "files": {
     "scripts/action-producer-guard.mjs": {
@@ -350,8 +350,8 @@
       ]
     },
     "scripts/performance-budget-runner.mjs": {
-      "lines": 1117,
-      "maxFuncLen": 82,
+      "lines": 904,
+      "maxFuncLen": 54,
       "maxNesting": 5,
       "maxParams": 4,
       "exportCount": 1,

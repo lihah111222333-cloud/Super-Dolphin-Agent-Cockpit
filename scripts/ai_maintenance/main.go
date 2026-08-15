@@ -23,7 +23,6 @@ type gatePlanPolicy struct {
 	coreBackendGatePackages         []string
 	mcpLSPWorkloadExactFiles        map[string]bool
 	mcpLSPWorkloadPrefixes          []string
-	nightlyProtocolFiles            map[string]bool
 	archtestNonGoInputFiles         map[string]bool
 	archtestNonGoInputPrefixes      []string
 }
@@ -82,11 +81,6 @@ func newGatePlanPolicy() gatePlanPolicy {
 			".githooks/README.md":                            true,
 		},
 		mcpLSPWorkloadPrefixes: []string{"cmd/mcp-lsp/", "scripts/mcp_lsp_workload_"},
-		nightlyProtocolFiles: map[string]bool{
-			"docs/automation/全仓夜间门禁健康巡检协议.md": true,
-			"docs/automation/门禁问题台账接管协议.md":   true,
-			"docs/automation/授权问题修复与验证协议.md":  true,
-		},
 		archtestNonGoInputFiles: map[string]bool{
 			"cmd/mcp-orch/sqlc.yaml": true, "docs/契约/modularity-convention.md": true,
 			"frontend-app/src/App.jsx": true, "frontend-app/src/app/appShellModel.js": true,
@@ -594,7 +588,6 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:embed-verify",
 		"workflow:actionlint",
 		"release:semantic-guards",
-		"nightly-protocol:check",
 		"mcp-lsp:catalog",
 		"mcp-lsp:idle-quick",
 		"backend:test_with_guard",

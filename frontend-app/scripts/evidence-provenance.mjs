@@ -7,7 +7,6 @@ import process from 'node:process';
 import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 
 const RUNNER_CONTENT_PATHS = Object.freeze([
-  'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
   'frontend-app/scripts/runtime/git-environment.mjs',
@@ -18,18 +17,14 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
   'frontend-app/scripts/performance-budget-runner.mjs',
   'frontend-app/scripts/render-isolation-probe.test.jsx',
   'frontend-app/scripts/resource-budget.mjs',
-  'frontend-app/scripts/stop-feedback-benchmark.mjs',
 ]);
 
 const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   ...RUNNER_CONTENT_PATHS,
   'frontend-app/src/entities/client/model/contractStoreModel.js',
-  'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
-  'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
   'docs/doc/codemap/README.md',
   'docs/doc/codemap/ai-index.json',
   'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md',
-  'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
   'frontend-app/scripts/managed-command.test.mjs',
   'frontend-app/scripts/performance-baseline-provenance.test.mjs',
@@ -37,8 +32,6 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/performance-budget-runner.test.mjs',
   'frontend-app/scripts/performance-budget-readonly-checkout.test.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
-  'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
-  'frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js',
 ]));
 
 const BASELINE_AUDIT_ALLOWED_PREFIXES = Object.freeze([

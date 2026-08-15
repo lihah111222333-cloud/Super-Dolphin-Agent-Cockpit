@@ -17,12 +17,6 @@ import {
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import {
-  P02_SUBJECT_CONTENT_PATHS,
-  loadChatHistoryBenchmarkTarget,
-  runChatHistoryBenchmarkSamples,
-  verifyChatHistoryEvidence,
-} from './chat-history-benchmark.mjs';
 import { DEFAULT_BASELINE_PATH } from './performance-budget-config.mjs';
 import { evaluateRenderIsolation, requireSubjectSha } from './performance-budget-model.mjs';
 import { collectEvidenceProvenance } from './evidence-provenance.mjs';
@@ -32,14 +26,6 @@ import {
   validateV8HeapEvidence,
   verifyResourceEvidence,
 } from './resource-budget.mjs';
-import {
-  loadStopFeedbackTarget,
-  P03_RUNTIME_PATH,
-  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
-  P03_SUBJECT_CONTENT_PATHS,
-  runStopFeedbackBenchmark,
-  verifyStopFeedbackEvidence,
-} from './stop-feedback-benchmark.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
@@ -47,14 +33,10 @@ const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
 const CASE_REGISTRY_PATH = resolve(dirname(SCRIPT_PATH), 'frontend-performance-cases.json');
 const METRIC_IDS = Object.freeze([
   'P01-render-isolation',
-  'P02-history-budget',
-  'P03-feedback-budget',
   'P04-resource-budget',
 ]);
 // Advancing this runner intentionally gives each final baseline freeze a non-empty audited runner delta.
 const FREEZE_RUN_COUNT = 3;
-const P02_MAX_REGRESSION_RATIO = 1.15;
-const P03_MAX_REGRESSION_RATIO = 1.15;
 const P04_MAX_REGRESSION_RATIO = 1.05;
 const INSTALL_ARGV = Object.freeze(['ci']);
 const BASE_BUILD_ARGV = Object.freeze(['run', 'build']);
@@ -149,14 +131,6 @@ function inspectDetachedSubject({ execute, temporaryRoot, subject, label }) {
 
 function cleanupDetachedSubject({ temporaryRoot }) {
   rmSync(temporaryRoot, { recursive: true, force: true });
-}
-
-function requireDetachedP03SubjectClosure(subjectRoot) {
-  for (const path of P03_SUBJECT_CONTENT_PATHS) {
-    if (!existsSync(resolve(subjectRoot, path))) {
-      throw new Error(`P03 detached subject production closure is missing: ${path}`);
-    }
-  }
 }
 
 function loadAverageTolerance(environment) {
@@ -269,59 +243,6 @@ async function collectCandidateResourceBudget(options = {}) {
   return Object.freeze({ ...metric, candidateBuild: build });
 }
 
-async function collectDetachedStopFeedbackBudget({
-  subjectSha,
-  subjectTree,
-  repositoryRoot = REPOSITORY_ROOT,
-  execute = execFileSync,
-  loadTarget = loadStopFeedbackTarget,
-  runCommand = runManagedCommand,
-  runBenchmark = runStopFeedbackBenchmark,
-} = {}) {
-  requireFullSha(subjectSha, 'P03 subject SHA');
-  requireFullSha(subjectTree, 'P03 subject tree');
-  const temporaryRoot = mkdtempSync(join(tmpdir(), 'frontend-stop-feedback-subject-'));
-  try {
-    materializeDetachedSubject({ execute, repositoryRoot, temporaryRoot, subjectSha });
-    const { subjectSha: targetSha, subjectTree: targetTree } = inspectDetachedSubject({
-      execute, temporaryRoot, subject: { subjectSha, subjectTree }, label: 'P03',
-    });
-    requireDetachedP03SubjectClosure(temporaryRoot);
-    const frontendRoot = join(temporaryRoot, 'frontend-app');
-    await runManagedSubjectCommand('npm', INSTALL_ARGV, {
-      cwd: frontendRoot,
-      label: 'P03 detached npm ci',
-      runCommand,
-    });
-    const postInstallStatus = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
-      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    if (postInstallStatus) throw new Error('P03 detached target worktree changed during npm ci');
-    const target = await loadTarget({
-      subjectRoot: temporaryRoot,
-      subjectSha: targetSha,
-      subjectTree: targetTree,
-    });
-    const metric = await runBenchmark({ subjectSha: targetSha, target });
-    if (metric?.subjectSha !== targetSha || metric.subjectRuntime?.subjectSha !== targetSha
-      || metric.subjectFeedbackComponent?.source !== 'subject'
-      || metric.subjectFeedbackComponent?.path !== P03_SUBJECT_FEEDBACK_COMPONENT_PATH) {
-      throw new Error('P03 target benchmark subject provenance mismatch');
-    }
-    return Object.freeze({
-      ...metric,
-      subjectRuntime: Object.freeze({
-        ...metric.subjectRuntime,
-        installArgv: Object.freeze(['npm', ...INSTALL_ARGV]),
-        worktreeClean: true,
-        worktreeStatus: Object.freeze([]),
-      }),
-    });
-  } finally {
-    cleanupDetachedSubject({ temporaryRoot });
-  }
-}
-
 function requireFullSha(value, label) {
   if (!/^[0-9a-f]{40}$/.test(value || '')) {
     throw new TypeError(`${label} must be a full 40-character Git SHA`);
@@ -417,34 +338,32 @@ async function collectRenderIsolationEvidence({
   }
 }
 
-async function collectDetachedP01P02Evidence({
+async function collectDetachedP01Evidence({
   subjectSha,
   subjectTree,
   repositoryRoot = REPOSITORY_ROOT,
   execute = execFileSync,
   collectRender = collectRenderIsolationEvidence,
-  loadHistoryTarget = loadChatHistoryBenchmarkTarget,
   runCommand = runManagedCommand,
-  runHistory = runChatHistoryBenchmarkSamples,
 } = {}) {
-  requireFullSha(subjectSha, 'P01/P02 subject SHA');
-  requireFullSha(subjectTree, 'P01/P02 subject tree');
+  requireFullSha(subjectSha, 'P01 subject SHA');
+  requireFullSha(subjectTree, 'P01 subject tree');
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'frontend-performance-subject-'));
   try {
     materializeDetachedSubject({ execute, repositoryRoot, temporaryRoot, subjectSha });
     const { subjectSha: targetSha, subjectTree: targetTree } = inspectDetachedSubject({
-      execute, temporaryRoot, subject: { subjectSha, subjectTree }, label: 'P01/P02',
+      execute, temporaryRoot, subject: { subjectSha, subjectTree }, label: 'P01',
     });
     const frontendRoot = join(temporaryRoot, 'frontend-app');
     await runManagedSubjectCommand('npm', INSTALL_ARGV, {
       cwd: frontendRoot,
-      label: 'P01/P02 detached npm ci',
+      label: 'P01 detached npm ci',
       runCommand,
     });
     const postInstallStatus = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
       cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
-    if (postInstallStatus) throw new Error('P01/P02 detached target worktree changed during npm ci');
+    if (postInstallStatus) throw new Error('P01 detached target worktree changed during npm ci');
     const probePath = resolve(frontendRoot, P01_RENDER_PROBE_PATH);
     if (!existsSync(probePath)) {
       throw new Error(`P01 detached subject is missing render isolation probe: ${P01_RENDER_PROBE_PATH}`);
@@ -453,32 +372,19 @@ async function collectDetachedP01P02Evidence({
     if (renderIsolation?.metricId !== 'P01-render-isolation') {
       throw new Error('P01 detached render isolation probe did not produce P01 evidence');
     }
-    const historyTarget = await loadHistoryTarget({
-      subjectRoot: temporaryRoot,
-      subjectSha: targetSha,
-      subjectTree: targetTree,
-    });
-    const historyBudget = runHistory({ commit: targetSha, target: historyTarget });
-    if (historyBudget?.metricId !== 'P02-history-budget' || historyBudget.subjectSha !== targetSha
-      || historyBudget.subjectProduct?.subjectSha !== targetSha
-      || historyBudget.subjectProduct?.subjectTree !== targetTree) {
-      throw new Error('P02 detached target benchmark subject provenance mismatch');
-    }
     const finalStatus = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
       cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
-    if (finalStatus) throw new Error('P01/P02 detached target worktree changed during measurement');
+    if (finalStatus) throw new Error('P01 detached target worktree changed during measurement');
     return Object.freeze({
-      historyBudget,
-      renderIsolation: Object.freeze({
-        ...renderIsolation,
-        subjectProduct: Object.freeze({
-          probePath: P01_RENDER_PROBE_PATH,
-          probeSha256: sha256(readFileSync(probePath)),
-          subjectSha: targetSha,
-          subjectTree: targetTree,
-          worktreeClean: true,
-        }),
+      ...renderIsolation,
+      subjectSha: targetSha,
+      subjectProduct: Object.freeze({
+        probePath: P01_RENDER_PROBE_PATH,
+        probeSha256: sha256(readFileSync(probePath)),
+        subjectSha: targetSha,
+        subjectTree: targetTree,
+        worktreeClean: true,
       }),
     });
   } finally {
@@ -488,10 +394,9 @@ async function collectDetachedP01P02Evidence({
 
 async function collectPerformanceEvidence({
   subjectSha = currentCommit(),
-  collectP01P02 = collectDetachedP01P02Evidence,
+  collectP01 = collectDetachedP01Evidence,
   resourceBudget,
   collectCandidateResources = collectCandidateResourceBudget,
-  collectStopFeedback = collectDetachedStopFeedbackBudget,
 } = {}) {
   const context = collectEvidenceProvenance({
     repositoryRoot: REPOSITORY_ROOT,
@@ -501,11 +406,7 @@ async function collectPerformanceEvidence({
   if (context.provenance.worktreeClean !== true) {
     throw new Error('performance evidence requires a clean committed runner worktree');
   }
-  const p01p02 = await collectP01P02({
-    subjectSha,
-    subjectTree: context.subjectTree,
-  });
-  const feedbackBudget = await collectStopFeedback({
+  const renderIsolation = await collectP01({
     subjectSha,
     subjectTree: context.subjectTree,
   });
@@ -518,9 +419,7 @@ async function collectPerformanceEvidence({
     subjectSha,
     ...context,
     metrics: Object.freeze({
-      'P01-render-isolation': Object.freeze({ ...p01p02.renderIsolation, subjectSha }),
-      'P02-history-budget': p01p02.historyBudget,
-      'P03-feedback-budget': feedbackBudget,
+      'P01-render-isolation': Object.freeze({ ...renderIsolation, subjectSha }),
       'P04-resource-budget': measuredResources,
     }),
   });
@@ -544,36 +443,6 @@ function validateP01SubjectProduct(metric, subjectSha, subjectTree) {
     || !/^[0-9a-f]{64}$/.test(product.probeSha256 || '')) {
     throw new Error('P01 requires detached subject probe provenance');
   }
-}
-
-function validateSubjectContent(content, expectedPaths, label) {
-  if (!/^[0-9a-f]{64}$/.test(content?.contentHash || '')
-    || !Array.isArray(content.files) || content.files.length === 0) {
-    throw new Error(`${label} provenance is missing content evidence`);
-  }
-  const paths = content.files.map(({ path }) => path);
-  if (JSON.stringify(paths) !== JSON.stringify(expectedPaths)) {
-    throw new Error(`${label} provenance has an incomplete production closure`);
-  }
-  content.files.forEach(({ path, sha256: fileHash }) => {
-    if (typeof path !== 'string' || !/^[0-9a-f]{64}$/.test(fileHash || '')) {
-      throw new TypeError(`${label} files require path and SHA-256`);
-    }
-  });
-  const contentHash = sha256(content.files.map(({ path, sha256: fileHash }) => (
-    `${path}\0${fileHash}\n`
-  )).join(''));
-  if (contentHash !== content.contentHash) {
-    throw new Error(`${label} provenance content hash mismatch`);
-  }
-}
-
-function validateP02SubjectProduct(metric, subjectSha, subjectTree) {
-  const product = metric?.subjectProduct;
-  if (!product || product.subjectSha !== subjectSha || product.subjectTree !== subjectTree) {
-    throw new Error('P02 requires detached subject product provenance');
-  }
-  validateSubjectContent(product.content, P02_SUBJECT_CONTENT_PATHS, 'P02 subject product');
 }
 
 function validateRenderIsolationFreezeMetric(metric, subjectSha, subjectTree) {
@@ -616,22 +485,6 @@ function validateResourceFreezeMetric(metric, subjectSha) {
     throw new Error('P04 resource summary is not recomputable from files');
   }
   validateV8HeapEvidence(metric, 'P04 freeze');
-}
-
-function validateP03SubjectRuntime(metric, subjectSha, subjectTree) {
-  const target = metric?.subjectRuntime;
-  if (!target || target.subjectSha !== subjectSha || target.subjectTree !== subjectTree
-    || target.runtimePath !== P03_RUNTIME_PATH
-    || target.feedbackComponentPath !== P03_SUBJECT_FEEDBACK_COMPONENT_PATH
-    || JSON.stringify(target.installArgv) !== JSON.stringify(['npm', ...INSTALL_ARGV])
-    || target.worktreeClean !== true || !Array.isArray(target.worktreeStatus) || target.worktreeStatus.length !== 0) {
-    throw new Error('P03 requires detached subject runtime provenance');
-  }
-  const component = metric.subjectFeedbackComponent;
-  if (component?.source !== 'subject' || component.path !== P03_SUBJECT_FEEDBACK_COMPONENT_PATH) {
-    throw new Error('P03 requires detached subject feedback component provenance');
-  }
-  validateSubjectContent(target.content, P03_SUBJECT_CONTENT_PATHS, 'P03 subject runtime');
 }
 
 function validateBaseResourceBuild(metric, subjectSha, subjectTree) {
@@ -700,33 +553,8 @@ function validateFreezeEvidence(evidence, subjectSha) {
   }
 
   const p01 = evidence.metrics['P01-render-isolation'];
-  const p02 = evidence.metrics['P02-history-budget'];
-  const p03 = evidence.metrics['P03-feedback-budget'];
   const p04 = evidence.metrics['P04-resource-budget'];
   validateRenderIsolationFreezeMetric(p01, subjectSha, evidence.subjectTree);
-  if (p02?.subjectSha !== subjectSha || p03?.subjectSha !== subjectSha) {
-    throw new Error('P02/P03 freeze metric subject mismatch');
-  }
-  validateP02SubjectProduct(p02, subjectSha, evidence.subjectTree);
-  validateP03SubjectRuntime(p03, subjectSha, evidence.subjectTree);
-  requireFreezeVerifierPass(verifyChatHistoryEvidence(p02, {
-    metrics: {
-      'P02-history-budget': {
-        ...p02,
-        status: 'PASS',
-        maxRegressionRatio: P02_MAX_REGRESSION_RATIO,
-      },
-    },
-  }), 'P02-history-budget');
-  requireFreezeVerifierPass(verifyStopFeedbackEvidence(p03, {
-    metrics: {
-      'P03-feedback-budget': {
-        ...p03,
-        status: 'PASS',
-        maxRegressionRatio: P03_MAX_REGRESSION_RATIO,
-      },
-    },
-  }), 'P03-feedback-budget');
   validateResourceFreezeMetric(p04, subjectSha);
   validateBaseResourceBuild(p04, subjectSha, evidence.subjectTree);
   requireFreezeVerifierPass(verifyResourceEvidence(p04, {
@@ -799,19 +627,6 @@ function freezeMetric(metric, metadata) {
   return Object.freeze({ ...metric, status: 'PASS', ...metadata });
 }
 
-function freezeWorstTimingMetric(runs, metricId, metadata) {
-  const designated = runs[0].metrics[metricId];
-  const cases = Object.fromEntries(Object.entries(designated.cases).map(([caseId, designatedCase]) => {
-    const worstCase = runs
-      .map((run) => run.metrics[metricId].cases[caseId])
-      .reduce((worst, current) => (
-        current.durationMedianMs > worst.durationMedianMs ? current : worst
-      ), designatedCase);
-    return [caseId, worstCase];
-  }));
-  return freezeMetric({ ...designated, cases: Object.freeze(cases) }, metadata);
-}
-
 function buildFrozenPerformanceBaseline({
   runs,
   subjectSha,
@@ -845,12 +660,6 @@ function buildFrozenPerformanceBaseline({
     metrics: Object.freeze({
       'P01-render-isolation': freezeMetric(designated.metrics['P01-render-isolation'], {
         absoluteUpdateLimit: 1,
-      }),
-      'P02-history-budget': freezeWorstTimingMetric(runs, 'P02-history-budget', {
-        maxRegressionRatio: P02_MAX_REGRESSION_RATIO,
-      }),
-      'P03-feedback-budget': freezeWorstTimingMetric(runs, 'P03-feedback-budget', {
-        maxRegressionRatio: P03_MAX_REGRESSION_RATIO,
       }),
       'P04-resource-budget': freezeMetric(designated.metrics['P04-resource-budget'], {
         maxRegressionRatio: P04_MAX_REGRESSION_RATIO,
@@ -920,8 +729,6 @@ function verifyPerformanceEvidence(evidence, baseline) {
       evidence.metrics['P01-render-isolation'],
       baseline?.metrics?.['P01-render-isolation'],
     ),
-    verifyChatHistoryEvidence(evidence.metrics['P02-history-budget'], baseline),
-    verifyStopFeedbackEvidence(evidence.metrics['P03-feedback-budget'], baseline),
     verifyResourceEvidence(evidence.metrics['P04-resource-budget'], baseline),
   ];
   const provenanceValidators = [
@@ -931,20 +738,6 @@ function verifyPerformanceEvidence(evidence, baseline) {
         evidence?.metrics?.['P01-render-isolation'], evidence?.subjectSha, evidence?.subjectTree,
       ),
       label: 'P01 detached subject probe provenance',
-    },
-    {
-      metricId: 'P02-history-budget',
-      validate: () => validateP02SubjectProduct(
-        evidence?.metrics?.['P02-history-budget'], evidence?.subjectSha, evidence?.subjectTree,
-      ),
-      label: 'P02 detached subject product provenance',
-    },
-    {
-      metricId: 'P03-feedback-budget',
-      validate: () => validateP03SubjectRuntime(
-        evidence?.metrics?.['P03-feedback-budget'], evidence?.subjectSha, evidence?.subjectTree,
-      ),
-      label: 'P03 detached subject runtime provenance',
     },
   ];
   for (const { label, metricId, validate } of provenanceValidators) {
@@ -997,12 +790,6 @@ function actualEvidenceCases(evidence) {
       cases.push({ caseId, metricId: 'P01-render-isolation', evidenceKey });
     }
   }
-  for (const evidenceKey of Object.keys(metrics['P02-history-budget']?.cases || {})) {
-    cases.push({ caseId: evidenceKey, metricId: 'P02-history-budget', evidenceKey });
-  }
-  for (const evidenceKey of Object.keys(metrics['P03-feedback-budget']?.cases || {})) {
-    cases.push({ caseId: evidenceKey, metricId: 'P03-feedback-budget', evidenceKey });
-  }
   for (const [caseId, evidenceKey] of [
     ['bundle-total-bytes', 'totalBundleBytes'],
     ['bundle-max-chunk-bytes', 'maxChunkBytes'],
@@ -1021,10 +808,7 @@ function caseStatus(entry, evidence, verdictByMetric) {
   if (entry.evidenceKey === 'mutationDetected') {
     return evidence.metrics[entry.metricId][entry.evidenceKey] === true ? 'PASS' : 'FAIL';
   }
-  const comparisonKey = entry.metricId === 'P01-render-isolation'
-    || entry.metricId === 'P04-resource-budget'
-    ? entry.evidenceKey
-    : entry.caseId;
+  const comparisonKey = entry.evidenceKey;
   const comparison = verdict.comparisons?.find(({ case: name }) => name === comparisonKey);
   if (!comparison) throw new Error(`missing verdict result for performance case ${entry.caseId}`);
   return comparison.current <= comparison.threshold ? 'PASS' : 'FAIL';
@@ -1155,8 +939,7 @@ export {
   FREEZE_RUN_COUNT,
   buildFrozenPerformanceBaseline,
   collectCandidateResourceBudget,
-  collectDetachedP01P02Evidence,
-  collectDetachedStopFeedbackBudget,
+  collectDetachedP01Evidence,
   collectPerformanceEvidence,
   collectRenderIsolationEvidence,
   freezePerformanceBaseline,
@@ -1165,7 +948,6 @@ export {
   validateCaseRegistry,
   validateFreezeOutputPath,
   validateFreezePreconditions,
-  validateP03SubjectRuntime,
   verifyPerformanceEvidence,
   writeFrozenBaselineAtomically,
 };

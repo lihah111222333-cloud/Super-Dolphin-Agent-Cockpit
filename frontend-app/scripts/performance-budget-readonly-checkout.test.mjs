@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { collectDetachedP01P02Evidence } from './performance-budget-runner.mjs';
+import { collectDetachedP01Evidence } from './performance-budget-runner.mjs';
 
 function setTreeMode(root, writable) {
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -55,7 +55,7 @@ function commandResult() {
   };
 }
 
-describe('read-only source-data subject materialization', () => {
+describe('read-only P01 subject materialization', () => {
   it('checks out an exact subject from the local object database without source writes', async () => {
     const fixture = createReadOnlyRepository();
     const commands = [];
@@ -66,7 +66,7 @@ describe('read-only source-data subject materialization', () => {
     };
     setTreeMode(fixture.repositoryRoot, false);
     try {
-      const measured = await collectDetachedP01P02Evidence({
+      const measured = await collectDetachedP01Evidence({
         ...fixture,
         repositoryRoot: fixture.repositoryRoot,
         execute,
@@ -75,15 +75,9 @@ describe('read-only source-data subject materialization', () => {
           expect(existsSync(join(frontendRoot, 'scripts/render-isolation-probe.test.jsx'))).toBe(true);
           return { metricId: 'P01-render-isolation', updateCount: 20 };
         }),
-        loadHistoryTarget: vi.fn(async ({ subjectRoot, subjectSha, subjectTree }) => ({
-          provenance: { subjectRoot, subjectSha, subjectTree },
-        })),
-        runHistory: vi.fn(({ commit, target }) => ({
-          metricId: 'P02-history-budget', subjectSha: commit, subjectProduct: target.provenance,
-        })),
       });
-      expect(measured.historyBudget.subjectSha).toBe(fixture.subjectSha);
-      expect(measured.renderIsolation.subjectProduct).toEqual(expect.objectContaining({
+      expect(measured.subjectSha).toBe(fixture.subjectSha);
+      expect(measured.subjectProduct).toEqual(expect.objectContaining({
         subjectSha: fixture.subjectSha, subjectTree: fixture.subjectTree,
       }));
       expect(commands[0]).toEqual([
@@ -121,7 +115,7 @@ describe('read-only source-data subject materialization', () => {
         if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
         throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
       };
-      await expect(collectDetachedP01P02Evidence({
+      await expect(collectDetachedP01Evidence({
         subjectSha: 'a'.repeat(40), subjectTree: '1'.repeat(40), repositoryRoot: '/readonly-source-data', execute,
       })).rejects.toThrow(failedStage);
       expect(existsSync(temporaryRoot)).toBe(false);

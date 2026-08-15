@@ -1,7 +1,12 @@
 package gate
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +20,147 @@ func TestFrontendPerformanceVerifyHasCanonicalRemoteOwner(t *testing.T) {
 	assertFrontendPerformanceWorkload(t, plan, performanceGateID)
 	assertFrontendPerformanceExecutor(t, performanceGateID)
 	assertFrontendPerformanceCheck(t, performanceGateID)
+	assertFrontendPerformanceCorrectnessScope(t)
+}
+
+func assertFrontendPerformanceCorrectnessScope(t *testing.T) {
+	t.Helper()
+	assertFrontendPerformanceCorrectnessInputs(t)
+	root := frontendPerformanceRepositoryRoot(t)
+	assertFrontendPerformanceActiveOwners(t, root)
+	assertFrontendPerformanceActiveSchema(t, root)
+	assertFrontendPerformanceRetirementExceptions(t, root)
+}
+
+func assertFrontendPerformanceCorrectnessInputs(t *testing.T) {
+	t.Helper()
+	inputs := FrontendPerformanceInputPaths()
+	for _, required := range []string{
+		"frontend-app/scripts/performance-budget-runner.mjs",
+		"frontend-app/scripts/render-isolation-probe.test.jsx",
+		"frontend-app/scripts/resource-budget.mjs",
+	} {
+		if !slices.Contains(inputs, required) {
+			t.Errorf("frontend performance correctness inputs omitted %q: %v", required, inputs)
+		}
+	}
+	for _, retired := range []string{
+		"frontend-app/scripts/chat-history-benchmark.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.mjs",
+		"frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js",
+		"frontend-app/src/entities/client/model/threadLifecycleRuntime.js",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
+		"frontend-app/src/pages/chat/model/timelineMaterializationModel.js",
+	} {
+		if slices.Contains(inputs, retired) {
+			t.Errorf("retired wall-clock input %q remains in correctness fingerprint: %v", retired, inputs)
+		}
+	}
+}
+
+func assertFrontendPerformanceActiveOwners(t *testing.T, root string) {
+	t.Helper()
+	for _, relative := range []string{
+		"frontend-app/scripts/evidence-provenance.mjs",
+		"frontend-app/scripts/performance-baseline-provenance.mjs",
+		"frontend-app/scripts/performance-budget-runner.mjs",
+		"internal/devtools/gate/workload_catalog_frontend.go",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatalf("read active frontend performance owner %s: %v", relative, err)
+		}
+		assertFrontendPerformanceOwnerOmitsTiming(t, relative, string(body))
+	}
+}
+
+func assertFrontendPerformanceOwnerOmitsTiming(t *testing.T, relative, body string) {
+	t.Helper()
+	for _, retired := range []string{
+		"chat-history-benchmark",
+		"stop-feedback-benchmark",
+		"collectDetachedP01P02Evidence",
+		"collectDetachedStopFeedbackBudget",
+		"validateP03SubjectRuntime",
+	} {
+		if strings.Contains(body, retired) {
+			t.Errorf("active frontend performance owner %s still binds retired wall-clock surface %q", relative, retired)
+		}
+	}
+}
+
+func assertFrontendPerformanceActiveSchema(t *testing.T, root string) {
+	t.Helper()
+	retiredMetrics := []string{"P" + "02-history-budget", "P" + "03-feedback-budget"}
+	for _, relative := range []string{
+		"frontend-app/scripts/frontend-performance-cases.json",
+		"frontend-app/scripts/performance-budget-runner.mjs",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatalf("read active frontend performance schema %s: %v", relative, err)
+		}
+		assertFrontendPerformanceSchemaMetrics(t, relative, string(body), retiredMetrics)
+	}
+}
+
+func assertFrontendPerformanceSchemaMetrics(t *testing.T, relative, body string, retiredMetrics []string) {
+	t.Helper()
+	for _, retired := range retiredMetrics {
+		if strings.Contains(body, retired) {
+			t.Errorf("active frontend performance schema %s still contains retired metric %q", relative, retired)
+		}
+	}
+	for _, required := range []string{"P01-render-isolation", "P04-resource-budget"} {
+		if !strings.Contains(body, required) {
+			t.Errorf("active frontend performance schema %s omitted %q", relative, required)
+		}
+	}
+}
+
+func assertFrontendPerformanceRetirementExceptions(t *testing.T, root string) {
+	t.Helper()
+	retiredMetrics := []string{"P" + "02-history-budget", "P" + "03-feedback-budget"}
+	legacyBaselineRaw, err := os.ReadFile(filepath.Join(root, "frontend-app", "scripts", "frontend-maintainability-baseline.json"))
+	if err != nil {
+		t.Fatalf("read legacy frontend performance baseline: %v", err)
+	}
+	var legacyBaseline struct {
+		Metrics map[string]json.RawMessage `json:"metrics"`
+	}
+	if err := json.Unmarshal(legacyBaselineRaw, &legacyBaseline); err != nil {
+		t.Fatalf("parse legacy frontend performance baseline: %v", err)
+	}
+	allowedLegacyMetrics := map[string]bool{
+		"P01-render-isolation": true,
+		"P04-resource-budget":  true,
+		retiredMetrics[0]:      true,
+		retiredMetrics[1]:      true,
+	}
+	for metric := range legacyBaseline.Metrics {
+		if !allowedLegacyMetrics[metric] {
+			t.Errorf("legacy frontend performance baseline has an unknown metric %q", metric)
+		}
+	}
+	for _, relative := range []string{
+		"frontend-app/scripts/chat-history-benchmark.mjs",
+		"frontend-app/scripts/chat-history-benchmark.test.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.test.mjs",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
+			t.Errorf("non-blocking timing diagnostic %s must remain available: %v", relative, err)
+		}
+	}
+}
+
+func frontendPerformanceRepositoryRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve frontend performance test file")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
 func assertFrontendPerformanceProfiles(t *testing.T, spec GateSpec) {

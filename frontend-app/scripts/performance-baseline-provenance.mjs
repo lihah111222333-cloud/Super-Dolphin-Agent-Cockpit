@@ -6,8 +6,6 @@ import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 
 const FROZEN_PLAN_BASE_SHA = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
 const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
-  'frontend-app/scripts/chat-history-benchmark.mjs',
-  'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
@@ -25,9 +23,6 @@ const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/render-isolation-probe.test.jsx',
   'frontend-app/scripts/resource-budget.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
-  'frontend-app/scripts/stop-feedback-benchmark.mjs',
-  'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
-  'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
 ]));
 
 const PURE_AUDIT_PATHS = Object.freeze(new Set([

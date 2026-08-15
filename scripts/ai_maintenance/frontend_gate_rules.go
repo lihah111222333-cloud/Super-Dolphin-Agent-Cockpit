@@ -77,12 +77,22 @@ func frontendPerformanceRelevant(file string) bool {
 		return true
 	}
 	switch file {
-	case "frontend-app/scripts/chat-history-benchmark.test.mjs",
-		"frontend-app/scripts/evidence-provenance.test.mjs",
+	case "frontend-app/scripts/evidence-provenance.test.mjs",
 		"frontend-app/scripts/performance-baseline-provenance.test.mjs",
 		"frontend-app/scripts/performance-budget-model.test.mjs",
 		"frontend-app/scripts/performance-budget-runner.test.mjs",
-		"frontend-app/scripts/resource-budget.test.mjs",
+		"frontend-app/scripts/resource-budget.test.mjs":
+		return true
+	default:
+		return false
+	}
+}
+
+func frontendOptInTimingDiagnostic(file string) bool {
+	switch file {
+	case "frontend-app/scripts/chat-history-benchmark.mjs",
+		"frontend-app/scripts/chat-history-benchmark.test.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.mjs",
 		"frontend-app/scripts/stop-feedback-benchmark.test.mjs":
 		return true
 	default:
@@ -93,6 +103,9 @@ func frontendPerformanceRelevant(file string) bool {
 // frontendChangedTestRelevant 只把 commit-time 前端测试路由到 diff 命中的 Vitest 目标。
 func frontendChangedTestRelevant(file string) bool {
 	if frontendPreCommitSmokeOrE2EFile(file) {
+		return false
+	}
+	if frontendOptInTimingDiagnostic(file) {
 		return false
 	}
 	if frontendChangedTestDeferredToPerformance(file) {

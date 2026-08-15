@@ -59,3 +59,43 @@ func TestBuildGatePlanOmitsDesktopSmokeFromPreCommitChangedTests(t *testing.T) {
 	assertStringSetContains(t, plan.RequiredGates, "frontend:lint")
 	assertStringSetOmits(t, plan.RequiredGates, "frontend:embed-verify")
 }
+
+func TestFrontendWallClockDiagnosticsAreNonBlocking(t *testing.T) {
+	for _, path := range []string{
+		"frontend-app/scripts/chat-history-benchmark.mjs",
+		"frontend-app/scripts/chat-history-benchmark.test.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.test.mjs",
+	} {
+		t.Run("diagnostic/"+path, func(t *testing.T) {
+			if frontendPerformanceRelevant(path) {
+				t.Fatalf("frontendPerformanceRelevant(%q) = true, want false", path)
+			}
+			if frontendChangedTestRelevant(path) {
+				t.Fatalf("frontendChangedTestRelevant(%q) = true, want false", path)
+			}
+			plan := mustBuildGatePlan(t, []string{path})
+			assertStringSetOmits(t, plan.RequiredGates, "frontend:changed-tests")
+			assertStringSetContains(t, plan.RequiredGates, "frontend:lint", "lsp:changed-diagnostics")
+		})
+	}
+	for _, path := range []string{
+		"frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js",
+		"frontend-app/src/entities/client/model/threadLifecycleRuntime.js",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
+		"frontend-app/src/pages/chat/model/timelineMaterializationModel.js",
+	} {
+		t.Run("correctness/"+path, func(t *testing.T) {
+			if frontendPerformanceRelevant(path) {
+				t.Fatalf("frontendPerformanceRelevant(%q) = true, want false", path)
+			}
+			if !frontendChangedTestRelevant(path) {
+				t.Fatalf("frontendChangedTestRelevant(%q) = false, want true", path)
+			}
+			plan := mustBuildGatePlan(t, []string{path})
+			assertStringSetContains(t, plan.RequiredGates,
+				"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "lsp:changed-diagnostics",
+			)
+		})
+	}
+}

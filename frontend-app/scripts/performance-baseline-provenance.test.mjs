@@ -1,17 +1,24 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { cwd } from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
   FROZEN_PLAN_BASE_SHA,
+  PURE_PERFORMANCE_RUNNER_PATHS,
   analyzePerformanceBaselineProvenance,
   assertPerformanceBaselineProvenance,
 } from './performance-baseline-provenance.mjs';
 
 const REPOSITORY_ROOT = resolve(cwd(), '..');
 const SCRIPT_PATH = resolve(cwd(), 'scripts/performance-baseline-provenance.mjs');
+const OPT_IN_TIMING_DIAGNOSTIC_PATHS = Object.freeze([
+  'frontend-app/scripts/chat-history-benchmark.mjs',
+  'frontend-app/scripts/chat-history-benchmark.test.mjs',
+  'frontend-app/scripts/stop-feedback-benchmark.mjs',
+  'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
+]);
 
 describe('performance baseline provenance', () => {
   it('pins the frozen plan BASE_SHA and accepts the frozen baseline commit', () => {
@@ -21,6 +28,20 @@ describe('performance baseline provenance', () => {
       baselineBaseSha: FROZEN_PLAN_BASE_SHA,
     });
     expect(result).toMatchObject({ valid: true, changedPaths: [], forbiddenPaths: [] });
+  });
+
+  it('keeps P01/P04 runner provenance active while retaining P02/P03 as opt-in diagnostics', () => {
+    expect([...PURE_PERFORMANCE_RUNNER_PATHS]).toEqual(expect.arrayContaining([
+      'frontend-app/scripts/evidence-provenance.mjs',
+      'frontend-app/scripts/performance-budget-runner.mjs',
+      'frontend-app/scripts/render-isolation-probe.test.jsx',
+      'frontend-app/scripts/resource-budget.mjs',
+    ]));
+    OPT_IN_TIMING_DIAGNOSTIC_PATHS.forEach((path) => {
+      expect(existsSync(resolve(REPOSITORY_ROOT, path))).toBe(true);
+      expect(PURE_PERFORMANCE_RUNNER_PATHS.has(path)).toBe(false);
+      expect(isAllowedPerformanceBaselinePath(path)).toBe(false);
+    });
   });
 
   it('allows only runner, audit, plan, and generated map changes', () => withFixtureRepository((repositoryRoot, planBaseSha) => {
@@ -38,15 +59,12 @@ describe('performance baseline provenance', () => {
     ]);
   }));
 
-  it('allows only the exact audited feedback component path', () => withFixtureRepository((repositoryRoot, planBaseSha) => {
-    const baselineBaseSha = commit(repositoryRoot, {
-      'frontend-app/src/pages/chat/components/ChatActionFeedback.js': 'audited component\n',
-    }, 'audited-feedback-component');
-    expect(assertPerformanceBaselineProvenance({ repositoryRoot, planBaseSha, baselineBaseSha }))
-      .toMatchObject({ valid: true, forbiddenPaths: [] });
-  }));
-
   it.each([
+    'frontend-app/scripts/chat-history-benchmark.mjs',
+    'frontend-app/scripts/chat-history-benchmark.test.mjs',
+    'frontend-app/scripts/stop-feedback-benchmark.mjs',
+    'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
+    'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
     'frontend-app/src/pages/chat/ThreadPage.jsx',
     'frontend-app/src/pages/chat/ChatPage.jsx',
     'frontend-app/src/pages/chat/components/ChatActionFailureSink.js',

@@ -240,7 +240,11 @@ func existingDiagnosticFiles(files []string) (existing []string, deleted int, er
 func existingDiagnosticFilesInRoot(repoRoot string, files []string) (existing []string, deleted int, err error) {
 	existing = make([]string, 0, len(files))
 	for _, file := range files {
-		info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(file)))
+		targetPath := file
+		if !filepath.IsAbs(targetPath) {
+			targetPath = filepath.Join(repoRoot, filepath.FromSlash(file))
+		}
+		info, err := os.Stat(targetPath)
 		if errors.Is(err, os.ErrNotExist) {
 			deleted++
 			continue

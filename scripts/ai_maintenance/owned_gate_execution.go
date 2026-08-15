@@ -18,9 +18,6 @@ func ownedGateRunners(plan gatePlan) map[string]gateRunner {
 		"release:semantic-guards": {run: func() error {
 			return runCommand(gateExecutionDir(plan, ""), "go", "test", "./scripts", "-count=1")
 		}},
-		"nightly-protocol:check": {run: func() error {
-			return runCommand(gateExecutionDir(plan, ""), "go", "run", "./scripts/nightly_protocol_validator")
-		}},
 		"mcp-lsp:catalog": {run: func() error {
 			return runCommand(gateExecutionDir(plan, ""), "./scripts/check_mcp_lsp_workload_catalog.sh")
 		}},

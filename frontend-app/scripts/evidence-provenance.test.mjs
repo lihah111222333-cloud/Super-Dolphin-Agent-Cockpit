@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -22,18 +23,14 @@ import {
 } from './evidence-provenance.mjs';
 import { isAllowedPerformanceBaselinePath } from './performance-baseline-provenance.mjs';
 import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
-import {
-  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
-  P03_SUBJECT_CONTENT_PATHS,
-  subjectContentEvidence,
-} from './stop-feedback-benchmark.mjs';
 
 const REPOSITORY_ROOT = resolve(cwd(), '..');
 const FROZEN_PLAN_PATH = 'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md';
-const P03_SUBJECT_RUNTIME_CONTENT_PATHS = Object.freeze([
-  'frontend-app/src/entities/client/model/contractStoreModel.js',
-  'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
-  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
+const OPT_IN_TIMING_DIAGNOSTIC_PATHS = Object.freeze([
+  'frontend-app/scripts/chat-history-benchmark.mjs',
+  'frontend-app/scripts/chat-history-benchmark.test.mjs',
+  'frontend-app/scripts/stop-feedback-benchmark.mjs',
+  'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
 ]);
 
 describe('evidence provenance', () => {
@@ -47,39 +44,25 @@ describe('evidence provenance', () => {
     first.runnerFiles.forEach(({ sha256 }) => expect(sha256).toMatch(/^[0-9a-f]{64}$/));
   });
 
-  it('partitions P03 subject runtime content from runner content', () => {
-    const runnerFiles = runnerContentEvidence(REPOSITORY_ROOT).runnerFiles.map(({ path }) => path);
-    const subjectFiles = subjectContentEvidence(REPOSITORY_ROOT).files.map(({ path }) => path);
-
-    expect(runnerFiles).not.toContain(P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
-    expect(P03_SUBJECT_CONTENT_PATHS).toContain(P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
-    expect(subjectFiles).toEqual(expect.arrayContaining(P03_SUBJECT_RUNTIME_CONTENT_PATHS));
-    P03_SUBJECT_RUNTIME_CONTENT_PATHS.forEach((path) => {
-      expect(runnerFiles).not.toContain(path);
-      expect(BASELINE_AUDIT_ALLOWED_PATHS).toContain(path);
+  it('keeps P01/P04 active fingerprints separate from opt-in timing diagnostics', () => {
+    expect(RUNNER_CONTENT_PATHS).toEqual(expect.arrayContaining([
+      'frontend-app/scripts/render-isolation-probe.test.jsx',
+      'frontend-app/scripts/resource-budget.mjs',
+    ]));
+    const activeCases = JSON.parse(readFileSync(
+      resolve(REPOSITORY_ROOT, 'frontend-app/scripts/frontend-performance-cases.json'),
+      'utf8',
+    ));
+    expect([...new Set(activeCases.cases.map(({ metricId }) => metricId))].sort()).toEqual([
+      'P01-render-isolation',
+      'P04-resource-budget',
+    ]);
+    OPT_IN_TIMING_DIAGNOSTIC_PATHS.forEach((path) => {
+      expect(existsSync(resolve(REPOSITORY_ROOT, path))).toBe(true);
+      expect(RUNNER_CONTENT_PATHS).not.toContain(path);
+      expect(BASELINE_AUDIT_ALLOWED_PATHS).not.toContain(path);
+      expect(isAllowedPerformanceBaselinePath(path)).toBe(false);
     });
-  });
-
-  it('changes the subject content hash when the subject feedback component changes', () => {
-    const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'subject-content-hash-'));
-    try {
-      for (const subjectPath of P03_SUBJECT_CONTENT_PATHS) {
-        const sourcePath = resolve(REPOSITORY_ROOT, subjectPath);
-        const targetPath = resolve(temporaryRoot, subjectPath);
-        mkdirSync(resolve(targetPath, '..'), { recursive: true });
-        writeFileSync(targetPath, readFileSync(sourcePath));
-      }
-      const first = subjectContentEvidence(temporaryRoot);
-      const feedbackPath = resolve(temporaryRoot, P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
-      writeFileSync(feedbackPath, `${readFileSync(feedbackPath, 'utf8')}\n// hash mutation\n`);
-      const second = subjectContentEvidence(temporaryRoot);
-      expect(first.files.map(({ path }) => path)).toEqual(expect.arrayContaining([
-        P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
-      ]));
-      expect(second.contentHash).not.toBe(first.contentHash);
-    } finally {
-      rmSync(temporaryRoot, { recursive: true, force: true });
-    }
   });
 
   it('rejects duplicate, unsorted, and forbidden baseline audit changes', () => {
@@ -92,10 +75,10 @@ describe('evidence provenance', () => {
     ]);
     expect(validateBaselineAuditDiff(['frontend-app/scripts/evidence-provenance.test.mjs']))
       .toEqual(['frontend-app/scripts/evidence-provenance.test.mjs']);
-    expect(validateBaselineAuditDiff(['frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js']))
-      .toEqual(['frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js']);
-    expect(validateBaselineAuditDiff(['frontend-app/src/pages/chat/components/ChatActionFeedback.js']))
-      .toEqual(['frontend-app/src/pages/chat/components/ChatActionFeedback.js']);
+    expect(() => validateBaselineAuditDiff(['frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js']))
+      .toThrow(/forbidden path/);
+    expect(() => validateBaselineAuditDiff(['frontend-app/src/pages/chat/components/ChatActionFeedback.js']))
+      .toThrow(/forbidden path/);
     expect(() => validateBaselineAuditDiff(['frontend-app/package.json', 'frontend-app/package.json']))
       .toThrow(/exact, unique, and sorted/);
     expect(() => validateBaselineAuditDiff([
@@ -112,6 +95,9 @@ describe('evidence provenance', () => {
       .toThrow(/forbidden path/);
     expect(() => validateBaselineAuditDiff(['frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js.bak']))
       .toThrow(/forbidden path/);
+    OPT_IN_TIMING_DIAGNOSTIC_PATHS.forEach((path) => {
+      expect(() => validateBaselineAuditDiff([path])).toThrow(/forbidden path/);
+    });
   });
 
   it('canonicalizes duplicate-free unsorted adjacent paths once and keeps validator exact', () => {

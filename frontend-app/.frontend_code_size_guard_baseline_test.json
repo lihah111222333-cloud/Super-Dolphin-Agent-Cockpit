@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-08-07T08:43:13Z"
+    "updatedAt": "2026-08-15T22:06:53Z"
   },
   "files": {
     "src/entities/client/model/useClientStore.test.js": {
@@ -121,21 +121,6 @@
       "longLineCount": 0,
       "frozenViolations": [
         "file-length\u0000文件有效代码 1266 行，超过上限 800 行"
-      ]
-    },
-    "scripts/performance-budget-runner.test.mjs": {
-      "lines": 1138,
-      "maxFuncLen": 136,
-      "maxNesting": 6,
-      "maxParams": 3,
-      "exportCount": 0,
-      "consoleLogs": 0,
-      "anyCount": 0,
-      "emptyFuncs": 0,
-      "todoCount": 0,
-      "longLineCount": 0,
-      "frozenViolations": [
-        "file-length\u0000文件有效代码 1138 行，超过上限 800 行"
       ]
     },
     "scripts/rpc-contract-audit.test.mjs": {

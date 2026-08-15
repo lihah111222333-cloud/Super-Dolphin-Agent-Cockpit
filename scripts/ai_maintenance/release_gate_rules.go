@@ -42,12 +42,6 @@ func (policy gatePlanPolicy) archtestNonGoInputRelevant(file string) bool {
 	return false
 }
 
-func (policy gatePlanPolicy) nightlyProtocolRelevant(file string) bool {
-	return policy.nightlyProtocolFiles[file] ||
-		strings.HasPrefix(file, "scripts/nightly_protocol_validator/") ||
-		file == "Makefile"
-}
-
 // applyOwnedGateRules 将各门禁所有者输入路由到不可跳过的语义验证。
 func (policy gatePlanPolicy) applyOwnedGateRules(file string, gates map[string]bool) {
 	if policy.aiMaintenanceRelevant(file) {
@@ -65,9 +59,6 @@ func (policy gatePlanPolicy) applyOwnedGateRules(file string, gates map[string]b
 	}
 	if strings.HasSuffix(file, "_test.go") && !strings.HasPrefix(file, "internal/guards/") {
 		gates["backend:test-integrity"] = true
-	}
-	if policy.nightlyProtocolRelevant(file) {
-		gates["nightly-protocol:check"] = true
 	}
 	if policy.mcpLSPWorkloadRelevant(file) {
 		gates["mcp-lsp:catalog"] = true

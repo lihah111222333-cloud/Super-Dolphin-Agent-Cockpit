@@ -8,7 +8,6 @@ func FrontendPerformanceInputPaths() []string {
 		"frontend-app/package.json",
 		"frontend-app/package-lock.json",
 		"frontend-app/vite.config.js",
-		"frontend-app/scripts/chat-history-benchmark.mjs",
 		"frontend-app/scripts/evidence-provenance.mjs",
 		"frontend-app/scripts/frontend-maintainability-baseline.json",
 		"frontend-app/scripts/frontend-performance-cases.json",
@@ -20,12 +19,7 @@ func FrontendPerformanceInputPaths() []string {
 		"frontend-app/scripts/performance-budget-runner.mjs",
 		"frontend-app/scripts/render-isolation-probe.test.jsx",
 		"frontend-app/scripts/resource-budget.mjs",
-		"frontend-app/scripts/stop-feedback-benchmark.mjs",
 		"frontend-app/src/entities/client/model/contractStoreModel.js",
-		"frontend-app/src/entities/client/model/threadLifecycleRuntime.js",
-		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
-		"frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js",
-		"frontend-app/src/pages/chat/model/timelineMaterializationModel.js",
 	}
 }
 
