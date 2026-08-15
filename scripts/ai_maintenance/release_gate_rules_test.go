@@ -13,7 +13,6 @@ func TestMcpLSPWorkloadFilesRequireCatalogAndQuickRoundTrip(t *testing.T) {
 		".github/workflows/release.yml",
 		"scripts/ai_maintenance/main.go",
 		"scripts/ai_maintenance/owned_gate_execution.go",
-		"scripts/ai_maintenance/evidence.go",
 		".githooks/README.md",
 		"Makefile",
 	} {

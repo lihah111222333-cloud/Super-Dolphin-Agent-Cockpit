@@ -307,7 +307,6 @@ func validateConsumers(repoRoot string, document catalog.Catalog) error {
 		"cmd/super-dolphin-gate/test_cli.go",
 		"scripts/ai_maintenance/main.go",
 		"scripts/ai_maintenance/owned_gate_execution.go",
-		"scripts/ai_maintenance/evidence.go",
 		".githooks/README.md",
 	}
 	for _, relative := range consumerPaths {
@@ -359,10 +358,8 @@ func requireQuickConsumerReferences(repoRoot, quickID string) error {
 	if err := requireConsumerID(repoRoot, "Makefile", quickID); err != nil {
 		return err
 	}
-	for _, relative := range []string{"scripts/ai_maintenance/owned_gate_execution.go", "scripts/ai_maintenance/evidence.go"} {
-		if err := requireConsumerID(repoRoot, relative, quickID); err != nil {
-			return err
-		}
+	if err := requireConsumerID(repoRoot, "scripts/ai_maintenance/owned_gate_execution.go", quickID); err != nil {
+		return err
 	}
 	if err := requireConsumerID(repoRoot, "cmd/super-dolphin-gate/test_cli.go", "mcp-lsp-default-15m"); err != nil {
 		return err

@@ -33,7 +33,9 @@ guard rule source
 | Hook 准入 | `.githooks/pre-commit`、`.githooks/pre-push` | 提交前在 exact staged tree 运行代码守卫；推送前统一运行完整 remote ECI 门禁 | 让提交阶段启动完整 CI |
 | 前端守卫 | `frontend-app/scripts/*guard*.mjs`、`frontend-app/package.json` | React/Vite 侧 critical skip、silent async failure、contract store、code-size、RPC contract 等校验 | Go 架构边界 |
 | 代码地图/能力索引 | `docs/doc/codemap/*`、`docs/doc/codemap/project-map/*`、`docs/doc/codemap/capability-contract/*` | 给人和 AI 提供模块边界、文件索引、能力契约和漂移报告 | 代替源码/LSP 判断 |
-| 生成物/AI gate | `scripts/refresh_generated_artifacts.sh`、`scripts/ai_maintenance_gates.sh`、`scripts/ai_maintenance/*` | codemap/project-map/capcontract 刷新与漂移检查、按变更路径推导 gate 和证据 | 代替源代码事实 |
+| 生成物/AI gate | `scripts/refresh_generated_artifacts.sh`、`scripts/ai_maintenance_gates.sh`、`scripts/ai_maintenance/*` | 冻结 exact review object，在隔离候选树中按变更路径执行 codemap/project-map/capcontract 等 gate | 代替源代码事实或采信 agent 自报证据 |
+
+AI-maintenance 的可执行 review object 只有三种互斥模式：`range` 先解析 requested base/candidate commit，再冻结二者的 merge-base 作为实际 comparison base（JSON 同时记录 requested base、merge-base 与 candidate commit OID；无共同祖先立即失败）、`staged` 比较已解析的 HEAD commit tree 与 effective index tree、`worktree` 用临时 index 一次捕获 staged/unstaged/deleted/untracked 后比较 HEAD tree。`--changed-file` 仅是 `--print-plan` 的 `paths-only` 演示输入，进入执行器会在任何 runner 启动前拒绝。计划规则、affected packages、whitespace 与所有 runner 都从同一 candidate tree 的仓库内 `.worktrees/` 隔离物化读取；物化时禁用本地 checkout hook、清除除 staged effective index 之外的 repository-redirect Git 环境并拒绝 dirty candidate。前端 runner 必须显式提供物理 `SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED`，再由 candidate 自带的 lock/integrity 契约验证 package lock、hidden lock、optional/bin closure 与必需工具摘要；缺 seed 或身份不匹配时 fail-fast，不得静默链接 ambient `node_modules`。macOS/Linux 会用 O(top-level) 规范化视图排除 `.vite`/`.vite-temp`；Windows 上含这些 reserved cache 的 seed 必须换成 canonical clean seed 或转 remote ECI。
 
 ---
 
@@ -171,7 +173,7 @@ source tree / generator
 1. 回答路径、影响面或架构边界问题时，先用 codemap/project-map 缩小范围，再用源码、测试和 LSP 确认。
 2. codemap/project-map/capcontract 看起来过期时，优先修生成器或运行统一刷新入口，不手改生成内容。
 3. pre-commit 在 exact staged tree 上检查 project-map；仅当输出区干净且发现漂移时，才由受信 Gate 刷新、暂存并对新 tree 复验。pre-push 的 codemap/capcontract 等完整检查由 remote WorkloadCatalog 唯一 owner 执行，任何 drift 都会阻断，不能以 warning 形成假绿。
-4. AI-maintenance gate 把 `codemap:check`、`project-map:check` 和 `generated:source` 当成证据要求，避免 stale map 继续指导修复。
+4. AI-maintenance plan 的 `GeneratedFiles` 只提供生成物路由元数据；正确性由同一 exact review object 上实际执行的 `codemap:check`、`project-map:check` 等命令判定，不解析 agent 自报的命令退出码、LSP PASS 或生成来源文本。
 
 ---
 

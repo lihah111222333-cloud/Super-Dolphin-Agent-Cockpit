@@ -155,26 +155,6 @@ func TestMcpLSPQuickRoundTripValidatesOnlyItsReceiptAfterCatalogGate(t *testing.
 	}
 }
 
-func TestMcpLSPQuickEvidenceRequiresRunnerAndActualReceiptGuard(t *testing.T) {
-	success := 0
-	plan := gatePlan{RequiredGates: []string{"mcp-lsp:idle-quick"}}
-	fake := evidenceDoc{CommandsRun: []evidenceCommand{{
-		Cmd:  "./scripts/run_mcp_lsp_workload.sh --receipt-only mcp-lsp-idle-quick",
-		Exit: &success,
-	}}}
-	if problems := gateCommandProblems(fake, plan); len(problems) == 0 {
-		t.Fatal("impossible combined quick command was accepted as evidence")
-	}
-
-	real := evidenceDoc{CommandsRun: []evidenceCommand{
-		{Cmd: "./scripts/run_mcp_lsp_workload.sh --id mcp-lsp-idle-quick --receipt /tmp/receipt.json", Exit: &success},
-		{Cmd: "./scripts/check_mcp_lsp_workload_catalog.sh --receipt-only --receipt /tmp/receipt.json --id mcp-lsp-idle-quick", Exit: &success},
-	}}
-	if problems := gateCommandProblems(real, plan); len(problems) != 0 {
-		t.Fatalf("actual quick runner plus receipt guard evidence rejected: %v", problems)
-	}
-}
-
 func TestCriticalTypecheckRouteUsesRegistryAndExecutionSeeds(t *testing.T) {
 	for _, file := range []string{
 		"frontend-app/src/shared/ui/runUIAction.js",

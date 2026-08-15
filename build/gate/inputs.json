@@ -4650,7 +4650,6 @@
     "scripts/ai_maintenance/critical_typecheck_route.go",
     "scripts/ai_maintenance/deferred_e2e.go",
     "scripts/ai_maintenance/diagnostics_plan.go",
-    "scripts/ai_maintenance/evidence.go",
     "scripts/ai_maintenance/frontend_gate_rules.go",
     "scripts/ai_maintenance/frontend_gate_rules_test.go",
     "scripts/ai_maintenance/gate_execution.go",
@@ -4662,6 +4661,9 @@
     "scripts/ai_maintenance/project_map_routing_test.go",
     "scripts/ai_maintenance/release_gate_rules.go",
     "scripts/ai_maintenance/release_gate_rules_test.go",
+    "scripts/ai_maintenance/review_dependencies.go",
+    "scripts/ai_maintenance/review_object.go",
+    "scripts/ai_maintenance/review_object_test.go",
     "scripts/ai_maintenance/turn_contract_registry.go",
     "scripts/ai_maintenance_gates_guard_test.go",
     "scripts/archtestmap/main.go",
@@ -5161,6 +5163,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6759,
-  "source_snapshot_paths_sha256": "sha256:0d8ea82180d84a735d9f23f7bb06b507e68c66327148de8672c7b717af4b9871"
+  "source_snapshot_input_count": 6761,
+  "source_snapshot_paths_sha256": "sha256:d617ad4955d883aa4fdcca39fc4f4abfebf87d6e5a68a3881f82d04c140fd26d"
 }

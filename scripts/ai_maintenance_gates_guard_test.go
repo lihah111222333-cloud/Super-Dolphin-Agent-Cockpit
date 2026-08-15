@@ -161,21 +161,46 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 
 func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 	source := readRepoFile(t, "../scripts/ai_maintenance/main.go")
-	evidenceSource := readRepoFile(t, "../scripts/ai_maintenance/evidence.go")
+	reviewSource := readRepoFile(t, "../scripts/ai_maintenance/review_object.go")
+	dependencySource := readRepoFile(t, "../scripts/ai_maintenance/review_dependencies.go")
+	executionSource := readRepoFile(t, "../scripts/ai_maintenance/gate_execution.go")
+	deferredSource := readRepoFile(t, "../scripts/ai_maintenance/deferred_e2e.go")
+	diagnosticsSource := readRepoFile(t, "../scripts/ai_maintenance/diagnostics_plan.go")
 	testSource := readRepoFile(t, "../scripts/ai_maintenance/main_test.go") +
-		readRepoFile(t, "../scripts/ai_maintenance/owner_evidence_test.go")
+		readRepoFile(t, "../scripts/ai_maintenance/review_object_test.go")
 
-	assertScriptContains(t, source, "validate-evidence")
 	assertScriptContains(t, source, "buildGatePlan")
 	assertScriptContains(t, source, "frontend:embed-verify")
 	assertScriptContains(t, source, "ai-maintenance:self-test")
-	assertScriptContains(t, evidenceSource, "AGENTID must be exact platform UUID")
-	assertScriptContains(t, evidenceSource, "DONE_WITH_EVIDENCE must not include BLOCKERS")
-	assertScriptContains(t, evidenceSource, "generated file lacks check-failed plus refresh evidence")
-	assertScriptContains(t, evidenceSource, "missing or non-pass LSP evidence")
-	assertScriptContains(t, evidenceSource, "OWNED_FILES_CHANGED does not match changed files")
+	assertScriptContains(t, reviewSource, "paths-only review object is not executable")
+	assertScriptContains(t, reviewSource, "changedFilesFromReviewObject")
+	assertScriptContains(t, reviewSource, "checkReviewObjectWhitespace")
+	assertScriptContains(t, reviewSource, `filepath.Join(repository, ".worktrees")`)
+	for _, required := range []string{"ComparisonBaseCommit", `"merge-base"`, `"--no-checkout"`, "core.hooksPath=", "reviewGitLocalEnvironmentKey", `"--untracked-files=all"`} {
+		assertScriptContains(t, reviewSource, required)
+	}
+	assertScriptContains(t, dependencySource, "assertHiddenPackageLockClosure")
+	assertScriptContains(t, dependencySource, "expected.requiredTools")
+	assertScriptContains(t, dependencySource, "expectedOptionalLockSha256")
+	assertScriptContains(t, dependencySource, "runtimeOnly: true")
+	assertScriptContains(t, dependencySource, "SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED is required")
+	assertScriptContains(t, dependencySource, "process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED = seedRoot")
+	assertScriptContains(t, dependencySource, "candidate package-lock does not match its dependency integrity identity")
+	assertScriptContains(t, dependencySource, "validateReviewDependencyExecutionRoot")
+	assertScriptDoesNotContain(t, dependencySource, "filepath.WalkDir")
+	assertScriptDoesNotContain(t, dependencySource, "os.Link(")
+	assertScriptDoesNotContain(t, dependencySource, "copyReviewDependencyFile")
+	assertScriptDoesNotContain(t, dependencySource, `filepath.Join(repoRoot, "frontend-app", "node_modules")`)
+	assertScriptContains(t, executionSource, "exact candidate execution root is required before runner construction")
+	assertScriptContains(t, executionSource, "exact candidate execution root is required for whitespace check")
+	assertScriptDoesNotContain(t, deferredSource, `capcontract.FindRepoRoot(".")`)
+	assertScriptDoesNotContain(t, diagnosticsSource, "func sourceLike(")
+	for _, retired := range []string{"validate-evidence", `fs.String("evidence"`, "required_evidence", "controller-blocking"} {
+		assertScriptDoesNotContain(t, source, retired)
+	}
 	assertScriptContains(t, testSource, "TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles")
-	assertScriptContains(t, testSource, "TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands")
+	assertScriptContains(t, testSource, "TestReviewObjectBindsChangedFilesWhitespaceAndMaterialization")
+	assertScriptContains(t, testSource, "TestExternalEvidenceControllerSurfaceIsRetired")
 }
 
 func TestGeneratedArtifactRefreshOrdersProducersBeforeConsumers(t *testing.T) {

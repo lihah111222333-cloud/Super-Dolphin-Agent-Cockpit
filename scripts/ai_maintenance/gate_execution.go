@@ -16,6 +16,8 @@ type gateRunner struct {
 	run func() error
 }
 
+type gateRunnerFactory func(gatePlan) map[string]gateRunner
+
 // runGateWithTiming 保留每个普通 gate 的可审计耗时输出，不缓存或复用本地结果。
 func runGateWithTiming(gate string, run func() error) error {
 	started := time.Now()
@@ -26,7 +28,48 @@ func runGateWithTiming(gate string, run func() error) error {
 
 // executeGatePlan 严格按计划执行命令；必需 gate 缺少 runner 时立即失败。
 func executeGatePlan(plan gatePlan) error {
-	runners := gateRunners(plan)
+	repoRoot, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		return fmt.Errorf("resolve review execution repository: %w", err)
+	}
+	return executeGatePlanWithRunnerFactory(repoRoot, plan, gateRunners)
+}
+
+// executeGatePlanWithRunnerFactory 复核 exact object 后，在一次隔离物化中绑定依赖并执行 runner。
+func executeGatePlanWithRunnerFactory(repoRoot string, plan gatePlan, factory gateRunnerFactory) (resultErr error) {
+	if err := plan.ReviewObject.validateExecutable(); err != nil {
+		return err
+	}
+	files, err := changedFilesFromReviewObject(repoRoot, plan.ReviewObject)
+	if err != nil {
+		return err
+	}
+	if !sameStringSet(files, plan.ChangedFiles) {
+		return errors.New("gate plan changed-files drifted from exact review object")
+	}
+	materializedRoot, cleanup, err := materializeReviewObject(repoRoot, plan.ReviewObject)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, cleanup()) }()
+	plan.executionRoot = materializedRoot
+	dependencyCleanup, err := prepareReviewExecutionDependencies(repoRoot, materializedRoot, plan)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, dependencyCleanup()) }()
+	return executeMaterializedGatePlan(plan, factory)
+}
+
+// executeMaterializedGatePlan 仅在 exact candidate root 已绑定后构造并顺序执行 runner。
+func executeMaterializedGatePlan(plan gatePlan, factory gateRunnerFactory) error {
+	if strings.TrimSpace(plan.executionRoot) == "" {
+		return errors.New("exact candidate execution root is required before runner construction")
+	}
+	if factory == nil {
+		return errors.New("gate runner factory is required")
+	}
+	runners := factory(plan)
 	for _, gate := range plan.RequiredGates {
 		runner, ok := runners[gate]
 		if !ok {
@@ -43,25 +86,25 @@ func executeGatePlan(plan gatePlan) error {
 func gateRunners(plan gatePlan) map[string]gateRunner {
 	generatedCheck := func(name string, args ...string) gateRunner {
 		return gateRunner{run: func() error {
-			return runCommand("", name, args...)
+			return runCommand(gateExecutionDir(plan, ""), name, args...)
 		}}
 	}
 	runners := map[string]gateRunner{
 		"ai-maintenance:self-test": {run: func() error {
-			if err := runCommand("", "go", "test", "./scripts/ai_maintenance", "-count=1"); err != nil {
+			if err := runCommand(gateExecutionDir(plan, ""), "go", "test", "./scripts/ai_maintenance", "-count=1"); err != nil {
 				return err
 			}
-			return runCommand("", "go", "test", "./scripts", "-run", "TestAIMaintenanceGate", "-count=1")
+			return runCommand(gateExecutionDir(plan, ""), "go", "test", "./scripts", "-run", "TestAIMaintenanceGate", "-count=1")
 		}},
 		"backend:test_with_guard": {run: func() error {
 			args, err := backendTestWithGuardArgs(plan)
 			if err != nil {
 				return err
 			}
-			return runCommand("", args[0], args[1:]...)
+			return runCommand(gateExecutionDir(plan, ""), args[0], args[1:]...)
 		}},
 		"lsp:changed-diagnostics": {run: func() error {
-			files, deleted, err := existingDiagnosticFiles(plan.DiagnosticFiles)
+			files, deleted, err := existingDiagnosticFilesInRoot(gateExecutionDir(plan, ""), plan.DiagnosticFiles)
 			if err != nil {
 				return err
 			}
@@ -76,33 +119,35 @@ func gateRunners(plan gatePlan) map[string]gateRunner {
 			for _, file := range files {
 				args = append(args, "--file", file)
 			}
-			return runCommand("", "go", args...)
+			return runCommand(gateExecutionDir(plan, ""), "go", args...)
 		}},
 		"backend:archtest": {run: func() error {
-			return runCommand("", "./scripts/test_with_guard.sh", "--archtest-only")
+			return runCommand(gateExecutionDir(plan, ""), "./scripts/test_with_guard.sh", "--archtest-only")
 		}},
 		"capcontract:check":   generatedCheck("make", "capcontract-check"),
-		"turncontract:verify": {run: runTurnContractVerifyGate},
+		"turncontract:verify": {run: func() error { return runTurnContractVerifyGate(plan) }},
 		"frontend:static-guards": {run: func() error {
 			dir, name, args := frontendStaticGuardCommand()
-			return runCommand(dir, name, args...)
+			return runCommand(gateExecutionDir(plan, dir), name, args...)
 		}},
-		"frontend:lint":                {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
-		"frontend:typecheck-contracts": {run: func() error { return runCommand("frontend-app", "npm", "run", "typecheck:contracts") }},
-		"frontend:changed-tests":       {run: func() error { return runFrontendChangedTests(plan) }},
-		"frontend:embed-verify":        {run: runFrontendEmbedVerify},
-		"codemap:check":                generatedCheck("make", "codemap-check"),
-		"project-map:check":            generatedCheck("make", "project-map-check", "PROJECT_MAP_ARGS="),
-		"sqlc:verify":                  {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
-		"diff:whitespace":              {run: runWhitespaceCheck},
+		"frontend:lint": {run: func() error { return runCommand(gateExecutionDir(plan, "frontend-app"), "npm", "run", "lint") }},
+		"frontend:typecheck-contracts": {run: func() error {
+			return runCommand(gateExecutionDir(plan, "frontend-app"), "npm", "run", "typecheck:contracts")
+		}},
+		"frontend:changed-tests": {run: func() error { return runFrontendChangedTests(plan) }},
+		"frontend:embed-verify":  {run: func() error { return runFrontendEmbedVerify(plan) }},
+		"codemap:check":          generatedCheck("make", "codemap-check"),
+		"project-map:check":      generatedCheck("make", "project-map-check", "PROJECT_MAP_ARGS="),
+		"sqlc:verify":            {run: func() error { return runCommand(gateExecutionDir(plan, ""), "make", "sqlc-verify-worktree") }},
+		"diff:whitespace":        {run: func() error { return runWhitespaceCheck(plan) }},
 	}
-	maps.Copy(runners, ownedGateRunners())
+	maps.Copy(runners, ownedGateRunners(plan))
 	return runners
 }
 
 // runFrontendEmbedVerify 通过隔离 runner 执行嵌入验证。
-func runFrontendEmbedVerify() error {
-	return runCommand("frontend-app", "npm", "run", "verify:embed:isolated")
+func runFrontendEmbedVerify(plan gatePlan) error {
+	return runCommand(gateExecutionDir(plan, "frontend-app"), "npm", "run", "verify:embed:isolated")
 }
 
 // frontendStaticGuardCommand 返回 hook 与 CI 共用的只读前端静态门禁命令。
@@ -110,19 +155,19 @@ func frontendStaticGuardCommand() (string, string, []string) {
 	return "frontend-app", "npm", []string{"run", "guard:critical-skip"}
 }
 
-func runTurnContractVerifyGate() error {
-	if err := runCommand("", "go", "run", "./scripts/turncontract", "--verify"); err != nil {
+func runTurnContractVerifyGate(plan gatePlan) error {
+	if err := runCommand(gateExecutionDir(plan, ""), "go", "run", "./scripts/turncontract", "--verify"); err != nil {
 		return err
 	}
-	if err := runCommand("", "go", "test", "./internal/dto/turn", "-run", "^TestTurnContractFieldGuard", "-count=1"); err != nil {
+	if err := runCommand(gateExecutionDir(plan, ""), "go", "test", "./internal/dto/turn", "-run", "^TestTurnContractFieldGuard", "-count=1"); err != nil {
 		return err
 	}
-	return runCommand("", "node", "frontend-app/scripts/turn-contract-field-guard.mjs")
+	return runCommand(gateExecutionDir(plan, ""), "node", "frontend-app/scripts/turn-contract-field-guard.mjs")
 }
 
 // runFrontendChangedTests 执行与变更前端源码同名或直接变更的 Vitest 文件，避免局部维护退化为整套 npm test。
 func runFrontendChangedTests(plan gatePlan) error {
-	tests, err := frontendChangedTestFiles(plan.ChangedFiles)
+	tests, err := frontendChangedTestFilesInRoot(gateExecutionDir(plan, ""), plan.ChangedFiles)
 	if err != nil {
 		return err
 	}
@@ -131,11 +176,16 @@ func runFrontendChangedTests(plan gatePlan) error {
 	}
 	args := append([]string{"vitest", "run"}, tests...)
 	args = append(args, "--no-file-parallelism", "--maxWorkers=1")
-	return runCommand("frontend-app", "npx", args...)
+	return runCommand(gateExecutionDir(plan, "frontend-app"), "npx", args...)
 }
 
 // frontendChangedTestFiles 根据前端 diff 收集直接变更或同名配对的 Vitest 测试文件。
 func frontendChangedTestFiles(files []string) ([]string, error) {
+	return frontendChangedTestFilesInRoot(".", files)
+}
+
+// frontendChangedTestFilesInRoot 仅从指定 candidate root 解析直接或同名配对测试。
+func frontendChangedTestFilesInRoot(repoRoot string, files []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, file := range files {
 		if !frontendChangedTestRelevant(file) {
@@ -152,7 +202,7 @@ func frontendChangedTestFiles(files []string) ([]string, error) {
 			if frontendVitestDefaultExcludedTestFile(candidate) {
 				continue
 			}
-			if _, err := os.Stat(filepath.Join("frontend-app", candidate)); err == nil {
+			if _, err := os.Stat(filepath.Join(repoRoot, "frontend-app", candidate)); err == nil {
 				seen[candidate] = true
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("stat frontend test target %q: %w", candidate, err)
@@ -184,9 +234,13 @@ func pairedFrontendTestFile(file string) string {
 // existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while
 // preserving every currently existing file selected from the Git truth source.
 func existingDiagnosticFiles(files []string) (existing []string, deleted int, err error) {
+	return existingDiagnosticFilesInRoot(".", files)
+}
+
+func existingDiagnosticFilesInRoot(repoRoot string, files []string) (existing []string, deleted int, err error) {
 	existing = make([]string, 0, len(files))
 	for _, file := range files {
-		info, err := os.Stat(file)
+		info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(file)))
 		if errors.Is(err, os.ErrNotExist) {
 			deleted++
 			continue
@@ -203,9 +257,9 @@ func existingDiagnosticFiles(files []string) (existing []string, deleted int, er
 }
 
 func backendTestWithGuardArgs(plan gatePlan) ([]string, error) {
-	repoRoot, err := capcontract.FindRepoRoot(".")
-	if err != nil {
-		return nil, fmt.Errorf("resolve backend regression owner: %w", err)
+	repoRoot := plan.executionRoot
+	if repoRoot == "" {
+		return nil, errors.New("exact candidate execution root is required for backend regression")
 	}
 	return backendTestWithGuardArgsForRepo(plan, repoRoot)
 }
@@ -227,7 +281,7 @@ func backendTestWithGuardArgsForRepo(plan gatePlan, repoRoot string) ([]string, 
 		return nil, errors.New("backend gate resolved no Go packages")
 	}
 	if !requiresBroadBackendRegression(plan.ChangedFiles) {
-		packages, err = resolveDirectReverseDependentPackages(packages)
+		packages, err = resolveDirectReverseDependentPackages(repoRoot, packages)
 		if err != nil {
 			return nil, err
 		}
@@ -252,23 +306,28 @@ func requiresFullArchtest(files []string) bool {
 	return false
 }
 
-// runWhitespaceCheck 检查工作树相对于 HEAD 的空白错误。
-func runWhitespaceCheck() error {
-	return runCommand("", "git", "diff", "--check")
+// runWhitespaceCheck 检查与 changed-files 同源的 exact tree pair。
+func runWhitespaceCheck(plan gatePlan) error {
+	if strings.TrimSpace(plan.executionRoot) == "" {
+		return errors.New("exact candidate execution root is required for whitespace check")
+	}
+	if err := plan.ReviewObject.validateExecutable(); err != nil {
+		return err
+	}
+	return runCommand(gateExecutionDir(plan, ""), "git", "diff", "--no-ext-diff", "--no-renames", "--check",
+		plan.ReviewObject.BaseTree, plan.ReviewObject.CandidateTree, "--")
 }
 
-func gateCommandEnvironment(name string) []string {
-	env := os.Environ()
-	if name == "git" {
-		return env
+func gateExecutionDir(plan gatePlan, relative string) string {
+	if plan.executionRoot == "" {
+		return relative
 	}
+	if relative == "" {
+		return plan.executionRoot
+	}
+	return filepath.Join(plan.executionRoot, filepath.FromSlash(relative))
+}
 
-	filtered := make([]string, 0, len(env))
-	for _, entry := range env {
-		if strings.HasPrefix(entry, "GIT_INDEX_FILE=") {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
+func gateCommandEnvironment(_ string) []string {
+	return reviewGitEnvironment()
 }

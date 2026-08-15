@@ -29,21 +29,10 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 	)
 	assertStringSetOmits(t, plan.RequiredGates, "frontend:build", "frontend:typecheck-contracts")
 	assertStringSetContains(t, plan.DiagnosticFiles, "frontend-app/src/App.jsx", "internal/app/modules.go")
-	assertStringSetContains(t, plan.RequiredEvidence,
-		"generated:source",
-		"lsp:diagnostics",
-		"lsp:inspect",
-		"lsp:locate",
-		"lsp:read_file",
-		"lsp:xref",
-	)
 	assertStringSetContains(t, plan.GeneratedFiles, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md")
-	if !plan.RequiresEvidenceDoc {
-		t.Fatal("source and generated changes must require evidence doc")
-	}
 }
 
-func TestChangedFilesFromGitPreservesNulDelimitedUnicodePaths(t *testing.T) {
+func TestWorktreeReviewObjectPreservesNulDelimitedUnicodePaths(t *testing.T) {
 	root := t.TempDir()
 	runAIMaintenanceGit(t, root, "init", "--quiet")
 	runAIMaintenanceGit(t, root, "config", "user.name", "ai-maintenance-test")
@@ -68,14 +57,16 @@ func TestChangedFilesFromGitPreservesNulDelimitedUnicodePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	runAIMaintenanceGit(t, root, "add", "  前导目录/尾随文件  .txt")
-	runAIMaintenanceGit(t, root, "commit", "--quiet", "-m", "候选变更")
-	t.Chdir(root)
-	files, err := changedFilesFromGit("HEAD^")
+	object, err := resolveReviewObject(root, reviewObjectOptions{Worktree: true})
 	if err != nil {
-		t.Fatalf("changedFilesFromGit() error = %v", err)
+		t.Fatalf("resolveReviewObject() error = %v", err)
+	}
+	files, err := changedFilesFromReviewObject(root, object)
+	if err != nil {
+		t.Fatalf("changedFilesFromReviewObject() error = %v", err)
 	}
 	if !slices.Contains(files, "  前导目录/尾随文件  .txt") || !slices.Contains(files, "新增/  中文 名  .md") {
-		t.Fatalf("changedFilesFromGit() = %v, want exact Unicode/whitespace paths", files)
+		t.Fatalf("changedFilesFromReviewObject() = %v, want exact Unicode/whitespace paths", files)
 	}
 }
 
@@ -134,7 +125,7 @@ func TestExecuteGatePlanKeepsGeneratedDriftFailFast(t *testing.T) {
 		t.Fatalf("write fake make: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	plan := gatePlan{RequiredGates: []string{"codemap:check", "project-map:check"}}
+	plan := exactCurrentReviewPlan(t, "codemap:check", "project-map:check")
 
 	if err := executeGatePlan(plan); err == nil {
 		t.Fatal("generated drift gate unexpectedly succeeded")
@@ -147,7 +138,7 @@ func TestExecuteGatePlanKeepsGeneratedDriftFailFast(t *testing.T) {
 }
 
 func TestExecuteGatePlanRejectsRequiredGateWithoutRunner(t *testing.T) {
-	plan := gatePlan{RequiredGates: []string{"missing:runner"}}
+	plan := exactCurrentReviewPlan(t, "missing:runner")
 
 	err := executeGatePlan(plan)
 	if err == nil {
@@ -202,17 +193,21 @@ func captureStderr(t *testing.T, run func() error) string {
 	return string(data)
 }
 
-func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
+func exactCurrentReviewPlan(t *testing.T, gates ...string) gatePlan {
+	t.Helper()
+	repoRoot := aiMaintenanceRepoRoot(t)
+	object, err := resolveReviewObject(repoRoot, reviewObjectOptions{Base: "HEAD", Head: "HEAD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return gatePlan{ReviewObject: object, RequiredGates: gates}
+}
+
+func TestBuildGatePlanRequiresDiagnosticsGateForGoScripts(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"scripts/ai_maintenance/main.go"})
 
-	assertStringSetContains(t, plan.RequiredEvidence,
-		"lsp:diagnostics",
-		"lsp:inspect",
-		"lsp:locate",
-		"lsp:read_file",
-		"lsp:xref",
-	)
-	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
+	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard", "lsp:changed-diagnostics")
+	assertStringSetContains(t, plan.DiagnosticFiles, "scripts/ai_maintenance/main.go")
 	assertStringSetOmits(t, plan.RequiredGates, "ai-maintenance:self-test")
 	assertStringSetContains(t, plan.AffectedGoPackages, "./scripts/ai_maintenance")
 }
@@ -463,7 +458,7 @@ func collectRegistryLocatorPaths(value any, paths map[string]bool) {
 	}
 }
 
-func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
+func TestGatePlanProducerMatchesRunnerRegistry(t *testing.T) {
 	producerGates := map[string]bool{}
 	for _, files := range [][]string{
 		{"scripts/ai_maintenance/main.go"},
@@ -492,5 +487,4 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 
 	runners := gateRunners(mustBuildGatePlan(t, []string{"README.md"}))
 	assertRegistryMatchesProducer(t, producerGates, runners, "runner", "diff:whitespace")
-	assertRegistryMatchesProducer(t, producerGates, gateEvidenceCommandFragments(), "evidence", "diff:whitespace")
 }

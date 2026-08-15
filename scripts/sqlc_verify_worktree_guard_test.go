@@ -97,10 +97,11 @@ func TestSQLCVerifyWorktreeScriptRejectsRegenerationDrift(t *testing.T) {
 
 func TestSQLCVerificationModesStaySeparatedByWorkflow(t *testing.T) {
 	aiMaintenance := readRepoFile(t, "ai_maintenance/main.go") +
-		readRepoFile(t, "ai_maintenance/gate_execution.go") +
-		readRepoFile(t, "ai_maintenance/evidence.go")
-	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }}`)
-	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": {"make sqlc-verify-worktree", "make sqlc-verify"}`)
+		readRepoFile(t, "ai_maintenance/gate_execution.go")
+	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": {run: func() error { return runCommand(gateExecutionDir(plan, ""), "make", "sqlc-verify-worktree") }}`)
+	if _, err := os.Stat(filepath.Join("ai_maintenance", "evidence.go")); !os.IsNotExist(err) {
+		t.Fatalf("retired AI-maintenance evidence parser still exists: %v", err)
+	}
 
 	prePush := readRepoFile(t, "../.githooks/pre-push")
 	assertScriptContains(t, prePush, `remote hook pre-push`)
