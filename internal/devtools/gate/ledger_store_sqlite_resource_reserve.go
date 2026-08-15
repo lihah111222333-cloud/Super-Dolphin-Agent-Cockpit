@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
@@ -29,11 +28,9 @@ func loadSQLiteNormalResourceTierReserves(transaction *sql.Tx, generation uint64
 	if overhead == nil {
 		return nil, errors.New("normal resource-tier reserve requires accepted shard overhead identity")
 	}
-	runs, err := loadSQLiteNormalReserveRuns(transaction, generation, planning.AcceptedSnapshotID)
-	if err != nil {
-		return nil, err
-	}
-	observations, shards, err := loadSQLiteNormalReserveEvidence(transaction, runs)
+	observations, shards, err := loadSQLiteNormalReserveEvidence(
+		transaction, generation, planning, overhead.CalibrationResourceClassID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -44,70 +41,123 @@ func loadSQLiteNormalResourceTierReserves(transaction *sql.Tx, generation uint64
 	return reserves, nil
 }
 
-type normalReserveRun struct{ jobID string }
+// sqliteNormalReserveEvidenceQuery 在 SQLite 内完成 run identity 与 reserve 阶段投影。
+const sqliteNormalReserveEvidenceQuery = `
+	SELECT runs.job_id, shards.resources_json,
+		timing.scope, timing.shard_identity, timing.workload_id, timing.phase,
+		timing.started_at_unix_ms, timing.completed_at_unix_ms, timing.duration_ms,
+		timing.measurement, timing.reason, timing.aggregation, timing.cache_evidence_json,
+		timing.compile_group_id, timing.compile_artifact_key, timing.compile_package_target,
+		timing.compile_workload_ids_json, timing.compile_artifact_sha256, timing.compile_artifact_size,
+		timing.compile_cache_hits, timing.compile_cache_misses, timing.compile_cache_puts,
+		timing.compile_cache_status, timing.compile_status, timing.compile_exit_code,
+		timing.compile_error_text, timing.compile_command_digest, timing.compile_profile_digest,
+		timing.compile_resource_class_id, timing.compile_resource_cpu,
+		timing.compile_resource_memory_gib, timing.compile_execution_mode
+	FROM ci_runs AS runs
+	JOIN ci_shards AS shards ON shards.job_id = runs.job_id
+	JOIN ci_timing_observations AS timing
+		ON timing.job_id = shards.job_id AND timing.shard_identity = shards.shard_identity
+	WHERE runs.accepted_generation IN (?, ?, ?)
+		AND runs.image_cache_snapshot_id = ?
+		AND runs.authoritative = 1 AND runs.status = 'passed' AND runs.cleanup_complete = 1
+		AND EXISTS (
+			SELECT 1 FROM ci_compile_timing_observations AS exact_identity
+			WHERE exact_identity.job_id = runs.job_id
+				AND exact_identity.platform = ? AND exact_identity.runner_identity_digest = ?
+				AND exact_identity.toolchain_digest = ? AND exact_identity.execution_mode = ?)
+		AND NOT EXISTS (
+			SELECT 1 FROM ci_compile_timing_observations AS mixed_identity
+			WHERE mixed_identity.job_id = runs.job_id
+				AND (mixed_identity.platform <> ? OR mixed_identity.runner_identity_digest <> ?
+					OR mixed_identity.toolchain_digest <> ? OR mixed_identity.execution_mode <> ?))
+		AND (json_extract(shards.resources_json, '$.class_id') <> ?
+			OR json_extract(shards.resources_json, '$.class_id') IS NULL)
+		AND ((timing.scope = 'shard' AND timing.phase IN ('total', 'eci_wait', 'source_materialize', 'candidate_compile'))
+			OR (timing.scope = 'workload' AND timing.phase = 'total')
+			OR (timing.scope = 'compile_group' AND timing.phase = 'test_binary_compile'))`
 
-func loadSQLiteNormalReserveRuns(transaction *sql.Tx, generation uint64, snapshotID string) ([]normalReserveRun, error) {
-	rows, err := transaction.Query(`
-		SELECT job_id, accepted_generation, image_cache_snapshot_id
-		FROM ci_runs
-		WHERE authoritative = 1 AND status = 'passed' AND cleanup_complete = 1
-		ORDER BY accepted_generation, job_id
-	`)
+// loadSQLiteNormalReserveEvidence 以单次集合查询读取当前规划身份的 normal reserve 证据。
+func loadSQLiteNormalReserveEvidence(database sqliteRowQueryer, generation uint64, planning PlanningContext, calibrationClassID string) ([]TimingObservation, []RemoteCIShardRecord, error) {
+	if generation == 0 || planning.Calibration || planning.AcceptedSnapshotID == "" || calibrationClassID == "" {
+		return nil, nil, errors.New("normal resource-tier reserve query identity is incomplete")
+	}
+	if err := validateDurationEnvironment(planning.Platform, planning.Runner, planning.Toolchain); err != nil {
+		return nil, nil, fmt.Errorf("normal resource-tier reserve query environment: %w", err)
+	}
+	retained := retainedWorkloadPassGenerations(generation)
+	rows, err := database.Query(sqliteNormalReserveEvidenceQuery,
+		retained[0], retained[1], retained[2], planning.AcceptedSnapshotID,
+		planning.Platform, planning.Runner, planning.Toolchain, DurationExecutionModeNormal,
+		planning.Platform, planning.Runner, planning.Toolchain, DurationExecutionModeNormal,
+		calibrationClassID)
 	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("query normal resource-tier reserve runs", err)
+		return nil, nil, mapDurationLedgerSQLiteError("query normal resource-tier reserve evidence", err)
 	}
 	defer rows.Close()
-	minGeneration := uint64(1)
-	if generation > 2 {
-		minGeneration = generation - 2
-	}
-	runs := make([]normalReserveRun, 0)
+	return scanSQLiteNormalReserveEvidence(rows)
+}
+
+// scanSQLiteNormalReserveEvidence 严格解码集合查询返回的 timing 与资源身份。
+func scanSQLiteNormalReserveEvidence(rows *sql.Rows) ([]TimingObservation, []RemoteCIShardRecord, error) {
+	observations := make([]TimingObservation, 0)
+	shards := make([]RemoteCIShardRecord, 0)
+	resourcesByShard := make(map[shardOverheadObservationKey]RemoteCIShardResources)
 	for rows.Next() {
-		run, selected, err := scanSQLiteNormalReserveRun(rows, generation, minGeneration, snapshotID)
+		row := normalReserveEvidenceRow{rows: rows}
+		observation, resources, err := row.scan()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if !selected {
-			continue
+		key := shardOverheadObservationKey{jobID: observation.JobID, shard: observation.ShardIdentity}
+		prior, exists := resourcesByShard[key]
+		if exists && prior != resources {
+			return nil, nil, fmt.Errorf("normal reserve shard %s/%s has conflicting resources", key.jobID, key.shard)
 		}
-		runs = append(runs, run)
+		if !exists {
+			resourcesByShard[key] = resources
+			shards = append(shards, RemoteCIShardRecord{ShardIdentity: key.shard, Resources: resources})
+		}
+		observations = append(observations, observation)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate normal resource-tier reserve runs", err)
+		return nil, nil, mapDurationLedgerSQLiteError("iterate normal resource-tier reserve evidence", err)
 	}
-	return runs, nil
+	return observations, shards, nil
 }
 
-func scanSQLiteNormalReserveRun(rows *sql.Rows, generation, minGeneration uint64, acceptedSnapshotID string) (normalReserveRun, bool, error) {
-	var run normalReserveRun
-	var generationText, snapshotID string
-	if err := rows.Scan(&run.jobID, &generationText, &snapshotID); err != nil {
-		return normalReserveRun{}, false, mapDurationLedgerSQLiteError("scan normal resource-tier reserve run", err)
-	}
-	runGeneration, err := strconv.ParseUint(generationText, 10, 64)
-	if err != nil || runGeneration == 0 {
-		return normalReserveRun{}, false, errors.New("normal resource-tier reserve run generation is invalid")
-	}
-	if runGeneration > generation {
-		return normalReserveRun{}, false, fmt.Errorf("normal resource-tier reserve run generation %d is in the future", runGeneration)
-	}
-	return run, runGeneration >= minGeneration && snapshotID == acceptedSnapshotID, nil
+// normalReserveEvidenceRow 把 join 前缀列适配到共享 timing scanner。
+type normalReserveEvidenceRow struct {
+	rows          *sql.Rows
+	jobID         string
+	resourcesJSON string
 }
 
-func loadSQLiteNormalReserveEvidence(transaction *sql.Tx, runs []normalReserveRun) ([]TimingObservation, []RemoteCIShardRecord, error) {
-	allObservations := make([]TimingObservation, 0)
-	allShards := make([]RemoteCIShardRecord, 0)
-	for _, run := range runs {
-		shards, err := loadRemoteCIShardRows(transaction, run.jobID, ResultStatusPassed, true)
-		if err != nil {
-			return nil, nil, fmt.Errorf("load normal resource-tier reserve run %q shards: %w", run.jobID, err)
-		}
-		observations, err := loadTimingObservations(transaction, run.jobID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("load normal resource-tier reserve run %q timing: %w", run.jobID, err)
-		}
-		allShards = append(allShards, shards...)
-		allObservations = append(allObservations, observations...)
+// Scan 先消费 job/resource join 列，再消费 timing observation 列。
+func (row *normalReserveEvidenceRow) Scan(destinations ...any) error {
+	values := make([]any, 0, len(destinations)+2)
+	values = append(values, &row.jobID, &row.resourcesJSON)
+	return row.rows.Scan(append(values, destinations...)...)
+}
+
+// timingObservationJobID 返回当前 join 行所属的权威 job。
+func (row *normalReserveEvidenceRow) timingObservationJobID() string { return row.jobID }
+
+// scan 复用严格 timing decoder，并验证 normal 固定资源与编译模式。
+func (row *normalReserveEvidenceRow) scan() (TimingObservation, RemoteCIShardResources, error) {
+	observation, err := scanTimingObservation(row, "")
+	if err != nil {
+		return TimingObservation{}, RemoteCIShardResources{}, err
 	}
-	return allObservations, allShards, nil
+	var resources RemoteCIShardResources
+	if err := DecodeStrictJSON([]byte(row.resourcesJSON), &resources); err != nil {
+		return TimingObservation{}, RemoteCIShardResources{}, fmt.Errorf("decode normal reserve shard resources: %w", err)
+	}
+	if _, err := resourceTierForReserve(resources); err != nil {
+		return TimingObservation{}, RemoteCIShardResources{}, fmt.Errorf("validate normal reserve shard resources: %w", err)
+	}
+	if observation.Scope == cicontract.TimingScopeCompileGroup && observation.CompileExecutionMode != DurationExecutionModeNormal {
+		return TimingObservation{}, RemoteCIShardResources{}, errors.New("normal reserve compile timing execution mode is not normal")
+	}
+	return observation, resources, nil
 }

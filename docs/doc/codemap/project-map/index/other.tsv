@@ -604,7 +604,7 @@ internal/devtools/gate/ledger_store_sqlite_namespace_migration.go	internal	other
 internal/devtools/gate/ledger_store_sqlite_namespace_migration_test.go	internal	other	go-test	14176	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,namespace,migration,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_projection_test.go	internal	other	go-test	9738	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,projection,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_read.go	internal	other	go-source	14682	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,read,开发工具与生成器辅助包
-internal/devtools/gate/ledger_store_sqlite_resource_reserve.go	internal	other	go-source	4430	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,resource,reserve,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_resource_reserve.go	internal	other	go-source	8172	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,resource,reserve,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_retained_proof_migration_test.go	internal	other	go-test	14601	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,retained,proof,migration,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_retention.go	internal	other	go-source	18655	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,retention,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_retention_matrix_test.go	internal	other	go-test	19476	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,retention,matrix,test,开发工具与生成器辅助包
@@ -757,7 +757,7 @@ internal/devtools/gate/workload_pass_source_replay_test.go	internal	other	go-tes
 internal/devtools/gate/workload_planning.go	internal	other	go-source	31060	开发工具与生成器辅助包	internal,devtools,gate,workload,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_resource_planning.go	internal	other	go-source	1887	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_resource_reserve.go	internal	other	go-source	8642	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,reserve,开发工具与生成器辅助包
-internal/devtools/gate/workload_resource_reserve_test.go	internal	other	go-test	6493	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,reserve,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_resource_reserve_test.go	internal	other	go-test	14451	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,reserve,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_targets.go	internal	other	go-source	20962	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,开发工具与生成器辅助包
 internal/devtools/gate/workload_targets_test.go	internal	other	go-test	13813	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,test,开发工具与生成器辅助包
 internal/devtools/gatehook/doc.go	internal	other	go-source	90	开发工具与生成器辅助包	internal,devtools,gatehook,doc,开发工具与生成器辅助包
