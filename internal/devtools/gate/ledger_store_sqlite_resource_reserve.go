@@ -55,22 +55,15 @@ const sqliteNormalReserveEvidenceQuery = `
 		timing.compile_resource_class_id, timing.compile_resource_cpu,
 		timing.compile_resource_memory_gib, timing.compile_execution_mode
 	FROM ci_runs AS runs
+	JOIN ci_remote_run_execution_identities AS run_identity ON run_identity.job_id = runs.job_id
 	JOIN ci_shards AS shards ON shards.job_id = runs.job_id
 	JOIN ci_timing_observations AS timing
 		ON timing.job_id = shards.job_id AND timing.shard_identity = shards.shard_identity
 	WHERE runs.accepted_generation IN (?, ?, ?)
 		AND runs.image_cache_snapshot_id = ?
 		AND runs.authoritative = 1 AND runs.status = 'passed' AND runs.cleanup_complete = 1
-		AND EXISTS (
-			SELECT 1 FROM ci_compile_timing_observations AS exact_identity
-			WHERE exact_identity.job_id = runs.job_id
-				AND exact_identity.platform = ? AND exact_identity.runner_identity_digest = ?
-				AND exact_identity.toolchain_digest = ? AND exact_identity.execution_mode = ?)
-		AND NOT EXISTS (
-			SELECT 1 FROM ci_compile_timing_observations AS mixed_identity
-			WHERE mixed_identity.job_id = runs.job_id
-				AND (mixed_identity.platform <> ? OR mixed_identity.runner_identity_digest <> ?
-					OR mixed_identity.toolchain_digest <> ? OR mixed_identity.execution_mode <> ?))
+		AND run_identity.platform = ? AND run_identity.runner_identity_digest = ?
+		AND run_identity.toolchain_digest = ? AND run_identity.execution_mode = ?
 		AND (json_extract(shards.resources_json, '$.class_id') <> ?
 			OR json_extract(shards.resources_json, '$.class_id') IS NULL)
 		AND ((timing.scope = 'shard' AND timing.phase IN ('total', 'eci_wait', 'source_materialize', 'candidate_compile'))
@@ -88,7 +81,6 @@ func loadSQLiteNormalReserveEvidence(database sqliteRowQueryer, generation uint6
 	retained := retainedWorkloadPassGenerations(generation)
 	rows, err := database.Query(sqliteNormalReserveEvidenceQuery,
 		retained[0], retained[1], retained[2], planning.AcceptedSnapshotID,
-		planning.Platform, planning.Runner, planning.Toolchain, DurationExecutionModeNormal,
 		planning.Platform, planning.Runner, planning.Toolchain, DurationExecutionModeNormal,
 		calibrationClassID)
 	if err != nil {

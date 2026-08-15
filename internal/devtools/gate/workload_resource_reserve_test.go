@@ -169,12 +169,10 @@ func TestLoadPlanningDerivesNormalResourceTierReservesFromSQLiteTiming(t *testin
 	}
 	seedAcceptedGenerationForTest(t, store, 1)
 	sample := durationLedgerSQLiteShardOverheadRoundTripSample()
-	overhead := durationLedgerSQLiteShardOverheadRoundTripValue(sample.ProvenanceDigest)
+	overhead := normalReserveTestOverhead(sample.ProvenanceDigest)
 	durationLedgerSQLiteRecordShardOverheadRoundTrip(t, store, sample, overhead)
-	seedSQLiteNormalReserveEvidence(t, store, time.UnixMilli(10_000).UTC())
-	identity := compileTimingTestIdentity()
-	identity.Platform, identity.RunnerIdentityDigest, identity.ToolchainDigest = overhead.Platform, overhead.Runner, overhead.Toolchain
-	seedSQLiteNormalReserveCompileIdentities(t, store, time.UnixMilli(10_000).UTC(), identity)
+	seedSQLiteNormalReserveEvidenceWithoutCompile(t, store, time.UnixMilli(10_000).UTC())
+	seedSQLiteNormalReserveExecutionIdentities(t, store, overhead.Platform, overhead.Runner, overhead.Toolchain, DurationExecutionModeNormal)
 	context := PlanningContext{Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
 	snapshot, err := store.LoadPlanning(context)
 	if err != nil {
@@ -184,9 +182,16 @@ func TestLoadPlanningDerivesNormalResourceTierReservesFromSQLiteTiming(t *testin
 		t.Fatalf("SQLite planning reserves/index = %#v/%v", snapshot.ResourceTierReserves, snapshot.SampleIndex)
 	}
 	target, err := snapshot.SampleIndex.context.EffectiveTargetDurationForResourceTier(cicontract.WorkloadResourceTierMedium)
-	if err != nil || target != 95_000 {
-		t.Fatalf("SQLite planning medium target = %d, %v; want 95000", target, err)
+	if err != nil || target != 94_000 {
+		t.Fatalf("SQLite planning medium target = %d, %v; want 94000 without compile-group timing", target, err)
 	}
+}
+
+func normalReserveTestOverhead(digest string) ShardOrchestrationOverhead {
+	overhead := durationLedgerSQLiteShardOverheadRoundTripValue(digest)
+	overhead.Runner = "sha256:" + strings.Repeat("d", 64)
+	overhead.Toolchain = "sha256:" + strings.Repeat("e", 64)
+	return overhead
 }
 
 func TestLoadPlanningRejectsNormalReserveFromDifferentRunnerToolchain(t *testing.T) {
@@ -196,31 +201,57 @@ func TestLoadPlanningRejectsNormalReserveFromDifferentRunnerToolchain(t *testing
 	}
 	seedAcceptedGenerationForTest(t, store, 1)
 	sample := durationLedgerSQLiteShardOverheadRoundTripSample()
-	overhead := durationLedgerSQLiteShardOverheadRoundTripValue(sample.ProvenanceDigest)
-	targetRunner := "sha256:" + strings.Repeat("d", 64)
-	targetToolchain := "sha256:" + strings.Repeat("e", 64)
-	overhead.Runner, overhead.Toolchain = targetRunner, targetToolchain
+	overhead := normalReserveTestOverhead(sample.ProvenanceDigest)
 	durationLedgerSQLiteRecordShardOverheadRoundTrip(t, store, sample, overhead)
 	base := time.UnixMilli(10_000).UTC()
 	seedSQLiteNormalReserveEvidence(t, store, base)
-	seedSQLiteNormalReserveCompileIdentities(t, store, base, compileTimingTestIdentity())
-	context := PlanningContext{Platform: overhead.Platform, Runner: targetRunner, Toolchain: targetToolchain, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
-	if _, err := store.LoadPlanning(context); err == nil {
-		t.Fatal("normal planning reused resource-tier reserve from a different runner/toolchain")
+	seedSQLiteNormalReserveExecutionIdentities(t, store, overhead.Platform,
+		"sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64), DurationExecutionModeNormal)
+	context := PlanningContext{Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
+	snapshot, err := store.LoadPlanning(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.ResourceTierReserves) != 0 || snapshot.SampleIndex == nil || len(snapshot.SampleIndex.context.ResourceTierReserves) != int(cicontract.WorkloadResourceTierSlow) {
+		t.Fatalf("normal planning accepted mismatched execution identity: reserves=%#v context=%#v", snapshot.ResourceTierReserves, snapshot.SampleIndex)
 	}
 }
 
-func TestLoadPlanningRejectsNormalReserveWithMixedCompileIdentity(t *testing.T) {
+func TestLoadPlanningUsesOnlyExactV19SideRows(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
 	seedAcceptedGenerationForTest(t, store, 1)
 	sample := durationLedgerSQLiteShardOverheadRoundTripSample()
-	overhead := durationLedgerSQLiteShardOverheadRoundTripValue(sample.ProvenanceDigest)
+	overhead := normalReserveTestOverhead(sample.ProvenanceDigest)
+	durationLedgerSQLiteRecordShardOverheadRoundTrip(t, store, sample, overhead)
+	seedSQLiteNormalReserveEvidence(t, store, time.UnixMilli(10_000).UTC())
+	seedSQLiteNormalReserveExecutionIdentities(t, store, overhead.Platform, overhead.Runner, overhead.Toolchain, DurationExecutionModeNormal)
+	deleteSQLiteNormalReserveExecutionIdentity(t, store, "reserve-job-c")
+	updateSQLiteNormalReserveExecutionIdentity(t, store, "reserve-job-b", overhead.Platform, "sha256:"+strings.Repeat("f", 64), overhead.Toolchain, DurationExecutionModeNormal)
+	context := PlanningContext{Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
+	snapshot, err := store.LoadPlanning(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.ResourceTierReserves) != 1 || snapshot.ResourceTierReserves[0].ResourceTier != cicontract.WorkloadResourceTierFast {
+		t.Fatalf("mixed/missing v19 side rows = %#v, want exact fast tier only", snapshot.ResourceTierReserves)
+	}
+}
+
+func TestLoadPlanningUsesV19ExecutionIdentityDespiteMixedCompileIdentity(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedAcceptedGenerationForTest(t, store, 1)
+	sample := durationLedgerSQLiteShardOverheadRoundTripSample()
+	overhead := normalReserveTestOverhead(sample.ProvenanceDigest)
 	durationLedgerSQLiteRecordShardOverheadRoundTrip(t, store, sample, overhead)
 	base := time.UnixMilli(10_000).UTC()
 	seedSQLiteNormalReserveEvidence(t, store, base)
+	seedSQLiteNormalReserveExecutionIdentities(t, store, overhead.Platform, overhead.Runner, overhead.Toolchain, DurationExecutionModeNormal)
 	identity := compileTimingTestIdentity()
 	identity.Platform, identity.RunnerIdentityDigest, identity.ToolchainDigest = overhead.Platform, overhead.Runner, overhead.Toolchain
 	seedSQLiteNormalReserveCompileIdentities(t, store, base, identity)
@@ -250,8 +281,12 @@ func TestLoadPlanningRejectsNormalReserveWithMixedCompileIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	context := PlanningContext{Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
-	if _, err := store.LoadPlanning(context); err == nil {
-		t.Fatal("normal planning reused resource-tier reserve with mixed compile identity")
+	snapshot, err := store.LoadPlanning(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.ResourceTierReserves) != 3 {
+		t.Fatalf("normal planning reserves = %#v, want v19 side-row measured reserves", snapshot.ResourceTierReserves)
 	}
 }
 
@@ -262,12 +297,10 @@ func TestLoadSQLiteNormalResourceTierReservesUsesOneSetBasedQuery(t *testing.T) 
 	}
 	seedAcceptedGenerationForTest(t, store, 1)
 	sample := durationLedgerSQLiteShardOverheadRoundTripSample()
-	overhead := durationLedgerSQLiteShardOverheadRoundTripValue(sample.ProvenanceDigest)
+	overhead := normalReserveTestOverhead(sample.ProvenanceDigest)
 	base := time.UnixMilli(10_000).UTC()
 	seedSQLiteNormalReserveEvidence(t, store, base)
-	identity := compileTimingTestIdentity()
-	identity.Platform, identity.RunnerIdentityDigest, identity.ToolchainDigest = overhead.Platform, overhead.Runner, overhead.Toolchain
-	seedSQLiteNormalReserveCompileIdentities(t, store, base, identity)
+	seedSQLiteNormalReserveExecutionIdentities(t, store, overhead.Platform, overhead.Runner, overhead.Toolchain, DurationExecutionModeNormal)
 
 	var queryCount atomic.Int64
 	driverName := fmt.Sprintf("sqlite-resource-reserve-query-count-%p", &queryCount)
@@ -301,13 +334,12 @@ func TestLoadSQLiteNormalResourceTierReservesUsesOneSetBasedQuery(t *testing.T) 
 	details := sqliteQueryPlanDetails(t, database, sqliteNormalReserveEvidenceQuery,
 		retained[0], retained[1], retained[2], overhead.AcceptedSnapshotID,
 		planning.Platform, planning.Runner, planning.Toolchain, DurationExecutionModeNormal,
-		planning.Platform, planning.Runner, planning.Toolchain, DurationExecutionModeNormal,
 		overhead.CalibrationResourceClassID)
 	assertSQLiteQueryPlanAccess(t, details, []string{
-		"idx_ci_runs_accepted_generation", "sqlite_autoindex_ci_compile_timing_observations_1",
+		"idx_ci_runs_accepted_generation", "sqlite_autoindex_ci_remote_run_execution_identities_1",
 		"idx_ci_timing_observations_compile_group", "sqlite_autoindex_ci_shards_1",
 	})
-	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"runs", "shards", "timing", "exact_identity", "mixed_identity"})
+	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"runs", "run_identity", "shards", "timing"})
 }
 
 type resourceReserveQueryCountingDriver struct {
@@ -335,6 +367,45 @@ func (connection *resourceReserveQueryCountingConn) QueryContext(ctx context.Con
 		return nil, fmt.Errorf("SQLite query-count connection %T lacks QueryerContext", connection.Conn)
 	}
 	return queryer.QueryContext(ctx, query, args)
+}
+
+func seedSQLiteNormalReserveExecutionIdentities(t *testing.T, store *DurationLedgerStore, platform, runner, toolchain, mode string) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for index := range 3 {
+		jobID := "reserve-job-" + string(rune('a'+index))
+		if _, err := database.Exec(`INSERT INTO ci_remote_run_execution_identities (job_id, platform, runner_identity_digest, toolchain_digest, execution_mode) VALUES (?, ?, ?, ?, ?)`, jobID, platform, runner, toolchain, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func updateSQLiteNormalReserveExecutionIdentity(t *testing.T, store *DurationLedgerStore, jobID, platform, runner, toolchain, mode string) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`UPDATE ci_remote_run_execution_identities SET platform = ?, runner_identity_digest = ?, toolchain_digest = ?, execution_mode = ? WHERE job_id = ?`, platform, runner, toolchain, mode, jobID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func deleteSQLiteNormalReserveExecutionIdentity(t *testing.T, store *DurationLedgerStore, jobID string) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`DELETE FROM ci_remote_run_execution_identities WHERE job_id = ?`, jobID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func seedSQLiteNormalReserveCompileIdentities(t *testing.T, store *DurationLedgerStore, base time.Time, identity CompileTimingIdentity) {
@@ -366,6 +437,14 @@ func seedSQLiteNormalReserveCompileIdentities(t *testing.T, store *DurationLedge
 }
 
 func seedSQLiteNormalReserveEvidence(t *testing.T, store *DurationLedgerStore, base time.Time) {
+	seedSQLiteNormalReserveEvidenceWithCompileTiming(t, store, base, true)
+}
+
+func seedSQLiteNormalReserveEvidenceWithoutCompile(t *testing.T, store *DurationLedgerStore, base time.Time) {
+	seedSQLiteNormalReserveEvidenceWithCompileTiming(t, store, base, false)
+}
+
+func seedSQLiteNormalReserveEvidenceWithCompileTiming(t *testing.T, store *DurationLedgerStore, base time.Time, includeCompile bool) {
 	t.Helper()
 	database, err := store.openSQLiteAuthority(false)
 	if err != nil {
@@ -390,7 +469,11 @@ func seedSQLiteNormalReserveEvidence(t *testing.T, store *DurationLedgerStore, b
 			transaction.Rollback()
 			t.Fatal(err)
 		}
-		if err := replaceSQLiteTimingObservations(transaction, jobID, normalReserveTimingObservations(jobID, shardID, base, resource)); err != nil {
+		observations := normalReserveTimingObservations(jobID, shardID, base, resource)
+		if !includeCompile {
+			observations = append(append([]TimingObservation(nil), observations[:3]...), observations[4:]...)
+		}
+		if err := replaceSQLiteTimingObservations(transaction, jobID, observations); err != nil {
 			transaction.Rollback()
 			t.Fatal(err)
 		}
