@@ -97,7 +97,7 @@ func workloadContainerShardGroups(plan WorkloadExecutionPlan) [][]GateID {
 
 // validateWorkloadContainerShardSetHeader 校验 v3 set 与完整冻结计划的身份绑定。
 func validateWorkloadContainerShardSetHeader(set ContainerShardSet) error {
-	if err := set.WorkloadPlan.validateStoredPayload(); err != nil {
+	if err := set.WorkloadPlan.validateStoredPayload(true); err != nil {
 		return err
 	}
 	if set.WorkloadPlanDigest != set.WorkloadPlan.PlanDigest ||

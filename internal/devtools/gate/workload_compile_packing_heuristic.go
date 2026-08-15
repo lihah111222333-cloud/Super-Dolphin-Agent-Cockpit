@@ -14,21 +14,19 @@ func heuristicCompileUnitPacking(units []compilePlanningUnit, target int64) ([]S
 		return nil, err
 	}
 	ordinary, serial, isolated := partitionCompilePlanningUnits(units)
-	if len(ordinary)+len(serial) <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
+	packable := append(append([]compilePlanningUnit(nil), ordinary...), serial...)
+	if len(packable) <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
 		return nil, errors.New("compile heuristic requires more than twelve packable units")
 	}
 	lower, err := compilePackingShardLowerBound(units, target)
 	if err != nil {
 		return nil, err
 	}
-	ordinaryShards, err := heuristicCompilePackingDomain(ordinary, target)
+	packableShards, err := heuristicCompilePackingDomain(packable, target)
 	if err != nil {
 		return nil, err
 	}
-	// 每个 canonical compile group 都是独立 packing domain；BFD/repair 只能
-	// 处理 ordinary workload，避免不同 group 的 workload 与 group ID 漂移。
-	best := append(ordinaryShards, isolatedCompileShards(serial)...)
-	best = append(best, isolatedCompileShards(isolated)...)
+	best := append(packableShards, isolatedCompileShards(isolated)...)
 	best = canonicalCompilePacking(best)
 	if !compileShardsMeetTarget(best, target, units) {
 		return nil, errors.New("compile heuristic produced an invalid target violation")
@@ -55,13 +53,16 @@ func heuristicCompilePackingDomain(units []compilePlanningUnit, target int64) ([
 }
 
 // partitionCompilePlanningUnits 将 ordinary、可串行 compile group 与硬隔离 unit 分域。
-// ordinary 是唯一可共享的 packing domain；每个 compile group 都由调用方单独投影。
+// ordinary 与 eligible group 进入统一 packable domain，但 shard domain 约束
+// 禁止 ordinary↔group 混箱；special/exclusive group 继续独立隔离。
 func partitionCompilePlanningUnits(units []compilePlanningUnit) ([]compilePlanningUnit, []compilePlanningUnit, []compilePlanningUnit) {
 	ordinary := make([]compilePlanningUnit, 0, len(units))
 	serial := make([]compilePlanningUnit, 0, len(units))
 	isolated := make([]compilePlanningUnit, 0, len(units))
 	for _, unit := range units {
-		if unit.group == nil {
+		if unit.hardIsolationReason.hardIsolated() {
+			isolated = append(isolated, unit)
+		} else if unit.group == nil {
 			ordinary = append(ordinary, unit)
 		} else if CompileGroupSerialPackingEligible(*unit.group) {
 			serial = append(serial, unit)

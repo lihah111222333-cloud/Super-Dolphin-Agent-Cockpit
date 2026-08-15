@@ -11,6 +11,9 @@ import (
 // planWorkloadShards 依据 compile-aware 开关选择唯一的 workload 分片规划入口。
 func planWorkloadShards(executionCatalog WorkloadCatalog, index DurationSampleIndex, compileInputs map[GateID]CompileGroupInput, compileAware bool) ([]ShardPlan, []CompileGroup, error) {
 	if compileAware {
+		if len(compileInputs) == 0 {
+			return nil, nil, errors.New("compile-aware planning requires compile inputs")
+		}
 		return planLPTWithCompileInputs(executionCatalog, index, compileInputs)
 	}
 	shards, err := planLPTWithIndex(executionCatalog, index)
@@ -18,8 +21,8 @@ func planWorkloadShards(executionCatalog WorkloadCatalog, index DurationSampleIn
 }
 
 // finalizeWorkloadExecutionPlan 组装摘要、证据、digest 并执行生成计划的完整契约校验。
-func finalizeWorkloadExecutionPlan(gatePlan GatePlan, catalog WorkloadCatalog, snapshot DurationLedgerSnapshot, resolvedContext PlanningContext, executionIDs []GateID, index DurationSampleIndex, shards []ShardPlan, compileGroups []CompileGroup) (WorkloadExecutionPlan, error) {
-	packingEvidence, err := deriveWorkloadPackingEvidence(shards, compileGroups, resolvedContext)
+func finalizeWorkloadExecutionPlan(gatePlan GatePlan, catalog WorkloadCatalog, snapshot DurationLedgerSnapshot, resolvedContext PlanningContext, executionIDs []GateID, index DurationSampleIndex, shards []ShardPlan, compileGroups []CompileGroup, compileAware bool) (WorkloadExecutionPlan, error) {
+	packingEvidence, err := deriveWorkloadPackingEvidenceWithMode(shards, compileGroups, resolvedContext, compileAware)
 	if err != nil {
 		return WorkloadExecutionPlan{}, err
 	}
@@ -53,7 +56,7 @@ func finalizeWorkloadExecutionPlan(gatePlan GatePlan, catalog WorkloadCatalog, s
 	if err != nil {
 		return WorkloadExecutionPlan{}, err
 	}
-	if err := plan.ValidateStored(gatePlan); err != nil {
+	if err := plan.validateStoredPayload(false); err != nil {
 		return WorkloadExecutionPlan{}, err
 	}
 	return plan, nil
@@ -73,6 +76,13 @@ func validateWorkloadPackingEvidence(plan WorkloadExecutionPlan) error {
 	}
 	if len(actualShards) != 0 {
 		return errors.New("workload execution plan has resource tiers without packing evidence")
+	}
+	expected, err := deriveWorkloadPackingEvidence(plan.Shards, plan.CompileGroups, plan.Context)
+	if err != nil {
+		return fmt.Errorf("rebuild workload packing evidence: %w", err)
+	}
+	if !slices.Equal(expected, plan.PackingEvidence) {
+		return errors.New("stored workload packing evidence does not match rebuilt plan proof")
 	}
 	return validatePackingEvidenceCalibration(plan)
 }

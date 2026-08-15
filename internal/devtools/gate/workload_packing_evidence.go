@@ -10,13 +10,20 @@ import (
 
 // workloadPackingEvidenceStats 汇总单一资源档的 packing 证明输入。
 type workloadPackingEvidenceStats struct {
-	planned, packable, isolated, serialDomains int
-	ordinaryTotal                              int64
-	ordinaryOversize                           int
+	planned, packable, isolated int
+	units                       []compilePlanningUnit
+	shards                      []ShardPlan
 }
 
 // deriveWorkloadPackingEvidence 从 canonical shards/compile groups 重算可审计分档证据。
 func deriveWorkloadPackingEvidence(shards []ShardPlan, groups []CompileGroup, context PlanningContext) ([]WorkloadPackingEvidence, error) {
+	return deriveWorkloadPackingEvidenceWithMode(shards, groups, context, len(groups) > 0)
+}
+
+func deriveWorkloadPackingEvidenceWithMode(shards []ShardPlan, groups []CompileGroup, context PlanningContext, compileAware bool) ([]WorkloadPackingEvidence, error) {
+	if compileAware != (len(groups) > 0) {
+		return nil, errors.New("compile-aware mode does not match compile-group presence")
+	}
 	if len(shards) == 0 {
 		return nil, errors.New("packing evidence requires at least one shard")
 	}
@@ -31,7 +38,16 @@ func deriveWorkloadPackingEvidence(shards []ShardPlan, groups []CompileGroup, co
 	if err := collectPackingEvidenceOrdinary(stats, workloads, covered, context); err != nil {
 		return nil, err
 	}
-	return finalizePackingEvidence(stats, context)
+	unitsByTier, shardsByTier, err := rebuildPackingEvidenceUnits(shards, groups, context)
+	if err != nil {
+		return nil, err
+	}
+	for tier, units := range unitsByTier {
+		bucket := packingEvidenceStatsFor(stats, tier)
+		bucket.units = units
+		bucket.shards = shardsByTier[tier]
+	}
+	return finalizePackingEvidence(stats, context, compileAware)
 }
 
 // compileGroupShardCoverageMismatch 返回 shard 相对其 compile groups 的确定性覆盖差集。
@@ -104,7 +120,7 @@ func collectPackingEvidenceShard(shard ShardPlan, context PlanningContext) (cico
 	return tier, entries, nil
 }
 
-// collectPackingEvidenceGroups 将每个 compile group 的独立 domain 计入证据。
+// collectPackingEvidenceGroups 将每个 compile group 计入 packable 或 isolated 证据。
 func collectPackingEvidenceGroups(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, workloads map[GateID]PlannedWorkload, covered map[GateID]struct{}, groups []CompileGroup, context PlanningContext) error {
 	for _, group := range groups {
 		tier, err := collectPackingEvidenceGroup(group, workloads, covered, context)
@@ -112,9 +128,18 @@ func collectPackingEvidenceGroups(stats map[cicontract.WorkloadResourceTier]*wor
 			return err
 		}
 		bucket := packingEvidenceStatsFor(stats, tier)
-		if CompileGroupSerialPackingEligible(group) {
+		members := make([]PlannedWorkload, 0, len(group.WorkloadIDs))
+		for _, id := range group.WorkloadIDs {
+			members = append(members, workloads[id])
+		}
+		reason, err := deriveCompileUnitHardIsolationReason(members)
+		if err != nil {
+			return fmt.Errorf("classify compile group %q hard isolation: %w", group.GroupID, err)
+		}
+		if reason.hardIsolated() {
+			bucket.isolated++
+		} else if CompileGroupSerialPackingEligible(group) {
 			bucket.packable++
-			bucket.serialDomains++
 		} else {
 			bucket.isolated++
 		}
@@ -163,20 +188,14 @@ func collectPackingEvidenceOrdinary(stats map[cicontract.WorkloadResourceTier]*w
 			return err
 		}
 		bucket := packingEvidenceStatsFor(stats, tier)
-		bucket.packable++
-		resolution, err := packingEvidenceResolution(context, tier)
+		reason, err := canonicalCompileUnitHardIsolationReason(workload.Workload.ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("classify ordinary workload %q hard isolation: %w", workload.Workload.ID, err)
 		}
-		if resolution == cicontract.WorkloadResourceTierReserveResolutionBootstrap {
-			continue
-		}
-		target, err := packingEvidenceTarget(context, tier)
-		if err != nil {
-			return err
-		}
-		if err := addOrdinaryDuration(bucket, workload.EstimatedDurationMS, target); err != nil {
-			return err
+		if reason.hardIsolated() {
+			bucket.isolated++
+		} else {
+			bucket.packable++
 		}
 	}
 	return nil
@@ -189,18 +208,8 @@ func packingEvidenceStatsFor(stats map[cicontract.WorkloadResourceTier]*workload
 	return stats[tier]
 }
 
-func addOrdinaryDuration(bucket *workloadPackingEvidenceStats, duration, target int64) error {
-	if duration > target {
-		bucket.ordinaryOversize++
-		return nil
-	}
-	var err error
-	bucket.ordinaryTotal, err = addCompilePackingDuration(bucket.ordinaryTotal, duration)
-	return err
-}
-
 // finalizePackingEvidence 计算 sound lower bound、gap 和实际 solver mode。
-func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, context PlanningContext) ([]WorkloadPackingEvidence, error) {
+func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, context PlanningContext, compileAware bool) ([]WorkloadPackingEvidence, error) {
 	tiers := make([]cicontract.WorkloadResourceTier, 0, len(stats))
 	for tier := range stats {
 		tiers = append(tiers, tier)
@@ -208,7 +217,7 @@ func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workload
 	slices.Sort(tiers)
 	evidence := make([]WorkloadPackingEvidence, 0, len(tiers))
 	for _, tier := range tiers {
-		entry, err := finalizePackingEvidenceTier(stats[tier], context, tier)
+		entry, err := finalizePackingEvidenceTier(stats[tier], context, tier, compileAware)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +226,7 @@ func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workload
 	return evidence, nil
 }
 
-func finalizePackingEvidenceTier(bucket *workloadPackingEvidenceStats, context PlanningContext, tier cicontract.WorkloadResourceTier) (WorkloadPackingEvidence, error) {
+func finalizePackingEvidenceTier(bucket *workloadPackingEvidenceStats, context PlanningContext, tier cicontract.WorkloadResourceTier, compileAware bool) (WorkloadPackingEvidence, error) {
 	resolution, err := packingEvidenceResolution(context, tier)
 	if err != nil {
 		return WorkloadPackingEvidence{}, err
@@ -225,7 +234,7 @@ func finalizePackingEvidenceTier(bucket *workloadPackingEvidenceStats, context P
 	if resolution == cicontract.WorkloadResourceTierReserveResolutionBootstrap {
 		return bootstrapPackingEvidence(bucket, tier)
 	}
-	return measuredPackingEvidence(bucket, context, tier, resolution)
+	return measuredPackingEvidence(bucket, context, tier, resolution, compileAware)
 }
 
 func bootstrapPackingEvidence(bucket *workloadPackingEvidenceStats, tier cicontract.WorkloadResourceTier) (WorkloadPackingEvidence, error) {
@@ -236,7 +245,7 @@ func bootstrapPackingEvidence(bucket *workloadPackingEvidenceStats, tier cicontr
 	return WorkloadPackingEvidence{ResourceTier: tier, Resolution: cicontract.WorkloadResourceTierReserveResolutionBootstrap, SolverMode: cicontract.WorkloadPlanningReserveBootstrapSolverModeID, PackableUnitCount: bucket.packable, IsolatedUnitCount: bucket.isolated, LowerBoundShards: unitCount, PlannedShards: unitCount}, nil
 }
 
-func measuredPackingEvidence(bucket *workloadPackingEvidenceStats, context PlanningContext, tier cicontract.WorkloadResourceTier, resolution cicontract.WorkloadResourceTierReserveResolution) (WorkloadPackingEvidence, error) {
+func measuredPackingEvidence(bucket *workloadPackingEvidenceStats, context PlanningContext, tier cicontract.WorkloadResourceTier, resolution cicontract.WorkloadResourceTierReserveResolution, compileAware bool) (WorkloadPackingEvidence, error) {
 	target, err := packingEvidenceTarget(context, tier)
 	if err != nil {
 		return WorkloadPackingEvidence{}, err
@@ -247,6 +256,9 @@ func measuredPackingEvidence(bucket *workloadPackingEvidenceStats, context Plann
 	}
 	if bucket.planned < lower {
 		return WorkloadPackingEvidence{}, fmt.Errorf("tier %d planned shards below sound lower bound", tier)
+	}
+	if err := measuredPackingEvidenceMatches(bucket, target, compileAware); err != nil {
+		return WorkloadPackingEvidence{}, err
 	}
 	mode, gap := packingEvidenceMode(bucket, lower)
 	if bucket.packable <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
@@ -280,15 +292,10 @@ func packingEvidenceTarget(context PlanningContext, tier cicontract.WorkloadReso
 }
 
 func packingEvidenceLowerBound(bucket *workloadPackingEvidenceStats, target int64) (int, error) {
-	ordinary, err := compilePackingCapacityLowerBound(bucket.ordinaryTotal, bucket.ordinaryOversize, target)
-	if err != nil {
-		return 0, err
+	if len(bucket.units) == 0 {
+		return 0, errors.New("packing evidence proof units are missing")
 	}
-	total, err := addCompilePackingShardCounts(ordinary, bucket.serialDomains)
-	if err != nil {
-		return 0, err
-	}
-	return addCompilePackingShardCounts(bucket.isolated, total)
+	return compilePackingShardLowerBound(bucket.units, target)
 }
 
 func packingEvidenceMode(bucket *workloadPackingEvidenceStats, lower int) (string, int) {

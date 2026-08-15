@@ -415,6 +415,7 @@ func TestCompileGroupAffinityAllowsEligibleSerialMultiGroupShard(t *testing.T) {
 			SemanticKey:       CompileGroupSemanticGoTestNormal,
 			SharedInputDigest: "sha256:" + strings.Repeat(suffix, 64),
 			ProfileDigest:     "sha256:" + strings.Repeat("f", 64),
+			ResourceClassID:   "medium",
 			WorkloadIDs:       []GateID{GateID("gate:test-" + suffix)},
 		}
 	}
@@ -429,11 +430,11 @@ func TestCompileGroupAffinityAllowsEligibleSerialMultiGroupShard(t *testing.T) {
 
 func TestCompileGroupAffinityRejectsSpecialMultiGroupShard(t *testing.T) {
 	groups := map[string]CompileGroup{
-		"group-a": {GroupID: "group-a", PackageTarget: AtomicGatePackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat("a", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64), WorkloadIDs: []GateID{GateID("gate:test-a")}},
-		"group-b": {GroupID: "group-b", PackageTarget: AtomicArchtestPackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat("b", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64), WorkloadIDs: []GateID{GateID("gate:test-b")}},
+		"group-a": {GroupID: "group-a", PackageTarget: AtomicGatePackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat("a", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64), ResourceClassID: "medium", WorkloadIDs: []GateID{GateID("gate:test-a")}},
+		"group-b": {GroupID: "group-b", PackageTarget: AtomicArchtestPackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat("b", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64), ResourceClassID: "medium", WorkloadIDs: []GateID{GateID("gate:test-b")}},
 	}
-	if err := compileGroupAffinityFromShardIDs(groups, ShardPlan{Index: 0, CompileGroupIDs: []string{"group-a", "group-b"}}); err == nil {
-		t.Fatal("special compile group was accepted for serial multi-group packing")
+	if err := compileGroupAffinityFromShardIDs(groups, ShardPlan{Index: 0, CompileGroupIDs: []string{"group-a", "group-b"}}); err == nil || !strings.Contains(err.Error(), "is not eligible for serial packing") {
+		t.Fatalf("special compile group packing error = %v", err)
 	}
 }
 
@@ -484,6 +485,89 @@ func TestCompilePackingKeepsSpecialGroupIsolatedFromOrdinaryWorkload(t *testing.
 	mixed := ShardPlan{Index: 0, Workloads: []PlannedWorkload{selectors[0].planned, ordinaryWorkload}, CompileGroupIDs: []string{group.GroupID}}
 	if err := compileGroupAffinityFromShardIDs(map[string]CompileGroup{group.GroupID: group}, mixed); err == nil || !strings.Contains(err.Error(), "mixes grouped and ordinary") {
 		t.Fatalf("stored special+ordinary shard error = %v, want isolation failure", err)
+	}
+}
+
+func TestCompilePackingKeepsEligibleGroupIsolatedFromOrdinaryWorkload(t *testing.T) {
+	selectors := testCompilePlanningSelectors(t, AtomicGatePackageTarget, []string{"TestEligibleOrdinaryIsolation"}, []int64{40_000})
+	group := testCompileGroupFromPlanningSelectors(t, selectors, 1, "medium")
+	ordinary := testDCPAPPlannedWorkloads(map[string]int64{"ordinary": 60_000})[0]
+	groupUnit := compilePlanningUnit{workloads: []PlannedWorkload{selectors[0].planned}, group: &group, costMS: 40_000, affinityKey: group.SharedInputDigest, sortID: group.GroupID, tier: cicontract.WorkloadResourceTierFast}
+	ordinaryUnit := compilePlanningUnit{workloads: []PlannedWorkload{ordinary}, costMS: 60_000, affinityKey: "ordinary:ordinary", sortID: "ordinary", tier: cicontract.WorkloadResourceTierFast}
+	for _, units := range [][]compilePlanningUnit{{ordinaryUnit, groupUnit}, {groupUnit, ordinaryUnit}} {
+		shards, err := provenCompileUnitPacking(units, 100_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(shards) != 2 {
+			t.Fatalf("eligible group and ordinary workload were mixed: %#v", shards)
+		}
+		assertNoOrdinaryWorkloadInGroupShards(t, shards, ordinary.Workload.ID)
+	}
+}
+
+func assertNoOrdinaryWorkloadInGroupShards(t *testing.T, shards []ShardPlan, ordinaryID string) {
+	t.Helper()
+	for _, shard := range shards {
+		if len(shard.CompileGroupIDs) == 0 {
+			continue
+		}
+		if slices.ContainsFunc(shard.Workloads, func(workload PlannedWorkload) bool { return workload.Workload.ID == ordinaryID }) {
+			t.Fatalf("eligible group shard contains ordinary workload: %#v", shard)
+		}
+	}
+}
+
+func TestCompileHeuristicKeepsEligibleGroupsIsolatedFromOrdinaryWorkload(t *testing.T) {
+	units := make([]compilePlanningUnit, 0, 13)
+	for index := range 7 {
+		id := fmt.Sprintf("ordinary-%02d", index)
+		units = append(units, compilePackingTestUnit(id, 1))
+	}
+	for index := range 6 {
+		id := fmt.Sprintf("eligible-%02d", index)
+		group := &CompileGroup{GroupID: "group-" + id, PackageTarget: AtomicGatePackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + fmt.Sprintf("%064x", index+1), ProfileDigest: "sha256:" + strings.Repeat("f", 64), ResourceClassID: "normal"}
+		units = append(units, compilePlanningUnit{workloads: []PlannedWorkload{compilePackingTestWorkload(id, 1)}, group: group, costMS: 1, affinityKey: id, sortID: id, tier: cicontract.WorkloadResourceTierFast})
+	}
+	for _, ordered := range [][]compilePlanningUnit{units, slices.Clone(units)} {
+		shards, err := heuristicCompileUnitPacking(ordered, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertHeuristicDomainsSeparated(t, shards)
+	}
+}
+
+func TestCompilePackingRejectsGroupWithoutExplicitResourceClass(t *testing.T) {
+	group := &CompileGroup{GroupID: "missing-resource-class", PackageTarget: AtomicGatePackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat("a", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64)}
+	groupUnit := compilePlanningUnit{workloads: []PlannedWorkload{compilePackingTestWorkload("missing-resource-class", 1)}, group: group, costMS: 1, affinityKey: "missing-resource-class", sortID: "missing-resource-class", tier: cicontract.WorkloadResourceTierFast}
+	if _, ok := distributeCompileUnits([]compilePlanningUnit{groupUnit}, 1, 10); ok {
+		t.Fatal("exact placement accepted group without explicit resource class")
+	}
+	if _, err := provenCompileUnitPacking([]compilePlanningUnit{groupUnit}, 10); err == nil {
+		t.Fatal("exact proof accepted group without explicit resource class")
+	}
+	units := make([]compilePlanningUnit, 0, 13)
+	for index := range 12 {
+		units = append(units, compilePackingTestUnit(fmt.Sprintf("ordinary-class-%02d", index), 1))
+	}
+	units = append(units, groupUnit)
+	if _, err := heuristicCompileUnitPacking(units, 10); err == nil {
+		t.Fatal("heuristic accepted group without explicit resource class")
+	}
+}
+
+func assertHeuristicDomainsSeparated(t *testing.T, shards []ShardPlan) {
+	t.Helper()
+	for _, shard := range shards {
+		hasOrdinary, hasGroup := false, false
+		for _, workload := range shard.Workloads {
+			hasOrdinary = hasOrdinary || strings.HasPrefix(workload.Workload.ID, "ordinary-")
+			hasGroup = hasGroup || strings.HasPrefix(workload.Workload.ID, "eligible-")
+		}
+		if hasOrdinary && hasGroup {
+			t.Fatalf("heuristic mixed ordinary and eligible group workloads: %#v", shard)
+		}
 	}
 }
 

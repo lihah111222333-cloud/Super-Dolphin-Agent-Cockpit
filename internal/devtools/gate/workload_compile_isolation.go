@@ -124,7 +124,7 @@ func validateCompilePlanningUnitsHardIsolation(units []compilePlanningUnit) erro
 	return nil
 }
 
-// compileUnitCanShareShard 施加 affinity、artifact 唯一性与单一 compile-group 域约束。
+// compileUnitCanShareShard 施加 hard isolation、affinity、artifact、资源 class 与 compile-group 域约束。
 func compileUnitCanShareShard(shard ShardPlan, affinities, artifactKeys map[string]struct{}, unit compilePlanningUnit) bool {
 	if !compileUnitHardIsolationAllowsShare(shard, unit) {
 		return false
@@ -135,14 +135,7 @@ func compileUnitCanShareShard(shard ShardPlan, affinities, artifactKeys map[stri
 	if unit.group == nil {
 		return len(shard.CompileGroupIDs) == 0
 	}
-	artifactKey, err := CompileArtifactKey(*unit.group)
-	if err != nil {
-		return false
-	}
-	if _, duplicate := artifactKeys[artifactKey]; duplicate {
-		return false
-	}
-	return len(shard.Workloads) == 0
+	return compileGroupCanShareShard(shard, affinities, artifactKeys, unit)
 }
 
 func compileUnitHardIsolationAllowsShare(shard ShardPlan, unit compilePlanningUnit) bool {
@@ -157,4 +150,43 @@ func compileUnitHardIsolationAllowsShare(shard ShardPlan, unit compilePlanningUn
 		}
 	}
 	return true
+}
+
+// distributeDCPAPWithHardIsolation 在 ordinary planner 中先派生不可共箱 workload，
+// 再将其余 workload 交给唯一 D-CPAP solver；无隔离项时保持原布局不变。
+func distributeDCPAPWithHardIsolation(planned []PlannedWorkload, targetDurationMS int64) ([]ShardPlan, error) {
+	if len(planned) == 0 {
+		return distributeDCPAP(planned, targetDurationMS)
+	}
+	ordinary := make([]PlannedWorkload, 0, len(planned))
+	isolated := make([]ShardPlan, 0)
+	for _, workload := range planned {
+		reason, err := canonicalCompileUnitHardIsolationReason(workload.Workload.ID)
+		if err != nil {
+			return nil, fmt.Errorf("derive workload %q hard isolation: %w", workload.Workload.ID, err)
+		}
+		if !reason.hardIsolated() {
+			ordinary = append(ordinary, workload)
+			continue
+		}
+		if workload.EstimatedDurationMS <= 0 {
+			return nil, fmt.Errorf("workload %q estimate must be positive", workload.Workload.ID)
+		}
+		isolated = append(isolated, ShardPlan{EstimatedDurationMS: workload.EstimatedDurationMS, Workloads: []PlannedWorkload{workload}})
+	}
+	if len(isolated) == 0 {
+		return distributeDCPAP(planned, targetDurationMS)
+	}
+	if targetDurationMS <= 0 {
+		return distributeDCPAP(planned, targetDurationMS)
+	}
+	shards := isolated
+	if len(ordinary) != 0 {
+		ordinaryShards, err := distributeDCPAP(ordinary, targetDurationMS)
+		if err != nil {
+			return nil, err
+		}
+		shards = append(shards, ordinaryShards...)
+	}
+	return canonicalCompilePacking(shards), nil
 }

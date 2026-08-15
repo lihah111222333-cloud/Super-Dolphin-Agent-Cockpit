@@ -2,6 +2,7 @@ package gate
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,9 +14,10 @@ func TestDeriveWorkloadPackingEvidenceUsesCompileCriticalPath(t *testing.T) {
 	context.ShardOverheadSampleCount = 1
 	context.ShardOverheadProvenanceDigest = "sha256:" + strings.Repeat("0", 64)
 	workload := PlannedWorkload{Workload: Workload{ID: "group-workload"}, EstimatedDurationMS: 60001, ResourceCPU: 4, ResourceMemoryGiB: 8}
-	shards := []ShardPlan{{Index: 0, EstimatedDurationMS: 60001, Workloads: []PlannedWorkload{workload}}}
+	shards := []ShardPlan{{Index: 0, EstimatedDurationMS: 60001, CompileGroupIDs: []string{"group-1"}, Workloads: []PlannedWorkload{workload}}}
 	group := CompileGroup{
 		GroupID: "group-1", PackageTarget: AtomicGatePackageTarget, SemanticKey: CompileGroupSemanticGoTestNormal,
+		SharedInputDigest: "sha256:" + strings.Repeat("1", 64), ProfileDigest: "sha256:" + strings.Repeat("f", 64), ResourceClassID: "medium",
 		WorkloadIDs: []GateID{"group-workload"}, CompileEstimateMS: 1,
 		BatchPlan: []CompileGroupBatch{{Wave: 0, EstimatedBodyMS: 60000}, {Wave: 0, EstimatedBodyMS: 60000}},
 	}
@@ -51,8 +53,8 @@ func mustDerivePackingEvidence(t *testing.T, shards []ShardPlan, groups []Compil
 // assertExactPackingEvidence 校验 exact solver 证明的 packable/isolated 计数与 gap。
 func assertExactPackingEvidence(t *testing.T, evidence []WorkloadPackingEvidence) {
 	t.Helper()
-	if len(evidence) != 1 || evidence[0].PackableUnitCount != 5 || evidence[0].IsolatedUnitCount != 20 || evidence[0].SolverMode != cicontract.WorkloadPlanningExactSolverModeID || evidence[0].LowerBoundShards != 25 || evidence[0].PlannedShards != 25 || evidence[0].HeuristicGapShards != 0 {
-		t.Fatalf("evidence = %#v, want solver-proven 5 independent-group/20 isolated exact evidence", evidence)
+	if len(evidence) != 1 || evidence[0].PackableUnitCount != 5 || evidence[0].IsolatedUnitCount != 20 || evidence[0].SolverMode != cicontract.WorkloadPlanningExactSolverModeID || evidence[0].LowerBoundShards != 21 || evidence[0].PlannedShards != 21 || evidence[0].HeuristicGapShards != 0 {
+		t.Fatalf("evidence = %#v, want solver-proven 5 co-packable groups/20 isolated exact evidence", evidence)
 	}
 }
 
@@ -65,30 +67,37 @@ func assertMixedCompilePartition(t *testing.T, units []compilePlanningUnit) {
 	}
 }
 
-func TestFinalizePackingEvidenceRejectsPlannedBelowSoundLowerBound(t *testing.T) {
+func TestFinalizePackingEvidenceRejectsMissingProofUnits(t *testing.T) {
 	_, err := finalizePackingEvidence(map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats{
-		cicontract.WorkloadResourceTierMedium: {planned: 1, packable: 1, ordinaryTotal: FullCITargetDurationMS + 1},
-	}, testLinuxPlanningContext())
+		cicontract.WorkloadResourceTierMedium: {planned: 1, packable: 1},
+	}, testLinuxPlanningContext(), false)
 	if err == nil {
-		t.Fatal("finalizePackingEvidence accepted a plan below its sound lower bound")
+		t.Fatal("finalizePackingEvidence accepted evidence without rebuilt proof units")
 	}
 }
 
 func mixedEvidenceFixture() ([]ShardPlan, []CompileGroup, []compilePlanningUnit) {
-	shards := make([]ShardPlan, 0, 25)
+	shards := make([]ShardPlan, 0, 21)
 	groups := make([]CompileGroup, 0, 25)
 	units := make([]compilePlanningUnit, 0, 25)
 	for index := range 25 {
 		id := GateID(fmt.Sprintf("evidence-%d", index))
 		workload := PlannedWorkload{Workload: Workload{ID: string(id)}, EstimatedDurationMS: 1000, ResourceCPU: 4, ResourceMemoryGiB: 8}
-		shards = append(shards, ShardPlan{Index: index, EstimatedDurationMS: 1000, Workloads: []PlannedWorkload{workload}})
-		packageTarget := "non-eligible"
+		packageTarget := AtomicArchtestPackageTarget
 		if index < 5 {
 			packageTarget = AtomicGatePackageTarget
 		}
-		group := CompileGroup{GroupID: fmt.Sprintf("evidence-group-%d", index), PackageTarget: packageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, WorkloadIDs: []GateID{id}, CompileEstimateMS: 1000, BodyEstimateMS: 1000, EstimatedDurationMS: 2000}
+		group := CompileGroup{GroupID: fmt.Sprintf("evidence-group-%d", index), PackageTarget: packageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat(fmt.Sprintf("%x", index+1), 64)[:64], ProfileDigest: "sha256:" + strings.Repeat("f", 64), ResourceClassID: "medium", WorkloadIDs: []GateID{id}, CompileEstimateMS: 1000, BodyEstimateMS: 1000, EstimatedDurationMS: 2000}
 		groups = append(groups, group)
 		units = append(units, compilePlanningUnit{workloads: []PlannedWorkload{workload}, group: &group, costMS: 1000, affinityKey: string(id), sortID: string(id), tier: cicontract.WorkloadResourceTierMedium})
+		if index == 0 {
+			shards = append(shards, ShardPlan{Index: 0, EstimatedDurationMS: 10000, CompileGroupIDs: []string{"evidence-group-0", "evidence-group-1", "evidence-group-2", "evidence-group-3", "evidence-group-4"}, Workloads: make([]PlannedWorkload, 0, 5)})
+		}
+		if index < 5 {
+			shards[0].Workloads = append(shards[0].Workloads, workload)
+		} else {
+			shards = append(shards, ShardPlan{Index: len(shards), EstimatedDurationMS: 2000, CompileGroupIDs: []string{string(group.GroupID)}, Workloads: []PlannedWorkload{workload}})
+		}
 	}
 	return shards, groups, units
 }
@@ -112,6 +121,58 @@ func TestBuildWorkloadExecutionPlanReportsLargeHeuristicGap(t *testing.T) {
 	if evidence.PlannedShards <= evidence.LowerBoundShards || evidence.HeuristicGapShards != evidence.PlannedShards-evidence.LowerBoundShards {
 		t.Fatalf("packing evidence = %#v, want truthful positive gap", evidence)
 	}
+}
+
+func TestValidateStoredRejectsTamperedLargeDCPAPLayout(t *testing.T) {
+	gatePlan, catalog, snapshot, context, selected := largeHeuristicPlanFixture(t)
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.ValidateStored(gatePlan); err != nil {
+		t.Fatalf("large D-CPAP producer stored validation = %v", err)
+	}
+	tampered := splitOrdinaryWorkloadIntoShard(t, plan)
+	if err := tampered.ValidateStored(gatePlan); err == nil {
+		t.Fatal("ValidateStored accepted tampered large D-CPAP layout")
+	}
+}
+
+func splitOrdinaryWorkloadIntoShard(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
+	t.Helper()
+	tampered := plan
+	tampered.Shards = slices.Clone(plan.Shards)
+	target := plan.Context.TargetDurationMS
+	for sourceIndex, source := range tampered.Shards {
+		if len(source.Workloads) < 2 {
+			continue
+		}
+		for workloadIndex, workload := range source.Workloads {
+			if workload.EstimatedDurationMS > target {
+				continue
+			}
+			tampered.Shards[sourceIndex].Workloads = append(slices.Clone(source.Workloads[:workloadIndex]), source.Workloads[workloadIndex+1:]...)
+			tampered.Shards[sourceIndex].EstimatedDurationMS -= workload.EstimatedDurationMS
+			tampered.Shards = append(tampered.Shards, ShardPlan{Index: len(tampered.Shards), EstimatedDurationMS: workload.EstimatedDurationMS, Workloads: []PlannedWorkload{workload}})
+			for shardIndex := range tampered.Shards {
+				tampered.Shards[shardIndex].Index = shardIndex
+			}
+			tampered.PackingEvidence = slices.Clone(plan.PackingEvidence)
+			if len(tampered.PackingEvidence) != 1 {
+				t.Fatal("large D-CPAP fixture has unexpected evidence tiers")
+			}
+			tampered.PackingEvidence[0].PlannedShards++
+			tampered.PackingEvidence[0].HeuristicGapShards++
+			digest, err := tampered.digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			tampered.PlanDigest = digest
+			return tampered
+		}
+	}
+	t.Fatal("large D-CPAP fixture has no movable ordinary workload")
+	return WorkloadExecutionPlan{}
 }
 
 func largeHeuristicPlanFixture(t *testing.T) (GatePlan, WorkloadCatalog, DurationLedgerSnapshot, PlanningContext, []GateID) {

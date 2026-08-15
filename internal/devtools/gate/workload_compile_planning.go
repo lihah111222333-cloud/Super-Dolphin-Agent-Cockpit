@@ -86,12 +86,13 @@ type compilePlanningBucket struct {
 }
 
 type compilePlanningUnit struct {
-	workloads   []PlannedWorkload
-	group       *CompileGroup
-	costMS      int64
-	affinityKey string
-	sortID      string
-	tier        cicontract.WorkloadResourceTier
+	workloads       []PlannedWorkload
+	group           *CompileGroup
+	costMS          int64
+	affinityKey     string
+	sortID          string
+	tier            cicontract.WorkloadResourceTier
+	resourceClassID string
 	// hardIsolationReason 是 planner 内部的非持久化进程/receipt 边界证明。
 	hardIsolationReason compileUnitHardIsolationReason
 }
@@ -149,11 +150,15 @@ func ordinaryCompilePlanningUnit(item PlannedWorkload, context PlanningContext) 
 	if err != nil {
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q: %w", item.Workload.ID, err)
 	}
+	resourceClassID, err := checkedNormalCompileResourceClass(tier)
+	if err != nil {
+		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q resource class: %w", item.Workload.ID, err)
+	}
 	reason, err := canonicalCompileUnitHardIsolationReason(item.Workload.ID)
 	if err != nil {
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q hard isolation: %w", item.Workload.ID, err)
 	}
-	return compilePlanningUnit{workloads: []PlannedWorkload{item}, costMS: item.EstimatedDurationMS, affinityKey: "ordinary:" + item.Workload.ID, sortID: item.Workload.ID, tier: tier, hardIsolationReason: reason}, nil
+	return compilePlanningUnit{workloads: []PlannedWorkload{item}, costMS: item.EstimatedDurationMS, affinityKey: "ordinary:" + item.Workload.ID, sortID: item.Workload.ID, tier: tier, resourceClassID: resourceClassID, hardIsolationReason: reason}, nil
 }
 
 // splitCompilePlanningBucket 将同一编译输入和资源档位收敛为确定性的编译组。
@@ -186,7 +191,12 @@ func splitCompilePlanningBucket(bucket compilePlanningBucket, context PlanningCo
 	units := make([]compilePlanningUnit, 0, len(partitions))
 	for index, partition := range partitions {
 		group := &groups[index]
-		units = append(units, compilePlanningUnit{workloads: plannedWorkloads(partition), group: group, costMS: compileGroupCriticalDurationMS(*group), affinityKey: bucket.affinityKey, sortID: group.GroupID, tier: bucket.resourceTier})
+		workloads := plannedWorkloads(partition)
+		reason, err := deriveCompileUnitHardIsolationReason(workloads)
+		if err != nil {
+			return nil, nil, fmt.Errorf("derive compile group %q hard isolation: %w", group.GroupID, err)
+		}
+		units = append(units, compilePlanningUnit{workloads: workloads, group: group, costMS: compileGroupCriticalDurationMS(*group), affinityKey: bucket.affinityKey, sortID: group.GroupID, tier: bucket.resourceTier, resourceClassID: group.ResourceClassID, hardIsolationReason: reason})
 	}
 	return units, groups, nil
 }
@@ -701,6 +711,12 @@ func distributeCompileUnits(units []compilePlanningUnit, count int, target int64
 				return nil, false
 			}
 			artifactKeys[index][artifactKey] = struct{}{}
+			if resourceClassKey := compilePlanningUnitResourceClassKey(unit); resourceClassKey != "" {
+				affinities[index][resourceClassKey] = struct{}{}
+			}
+			if CompileGroupSerialPackingEligible(*unit.group) {
+				affinities[index][compilePackingEligibleGroupMarker] = struct{}{}
+			}
 		}
 		if unit.costMS > int64(^uint64(0)>>1)-shards[index].EstimatedDurationMS {
 			return nil, false
@@ -715,7 +731,7 @@ func distributeCompileUnits(units []compilePlanningUnit, count int, target int64
 }
 
 // compileUnitShardIndexForCompileGroup 选择尚未占用同一编译 artifact 且当前负载最小的分片。
-// 每个 canonical compile group 都是一组一 shard 的硬约束。
+// 每个 canonical compile group 不可拆；eligible groups 可在合法 domain 内共箱。
 func compileUnitShardIndexForCompileGroup(shards []ShardPlan, affinities, artifactKeys []map[string]struct{}, unit compilePlanningUnit, target int64) (int, bool) {
 	least := -1
 	bestExcess := int64(^uint64(0) >> 1)
@@ -762,13 +778,64 @@ func compileShardsMeetTarget(shards []ShardPlan, target int64, units []compilePl
 		if shard.EstimatedDurationMS <= target {
 			continue
 		}
-		if len(shard.CompileGroupIDs) == 1 && len(shard.Workloads) == groupWorkloadCount[shard.CompileGroupIDs[0]] {
+		if compileShardContainsOnlyEligibleGroups(shard, units, groupWorkloadCount) {
 			continue
 		}
 		if len(shard.Workloads) == 1 && len(shard.CompileGroupIDs) == 0 && shard.Workloads[0].EstimatedDurationMS > target {
 			continue
 		}
 		return false
+	}
+	return true
+}
+
+func compileShardContainsOnlyEligibleGroups(shard ShardPlan, units []compilePlanningUnit, groupWorkloadCount map[string]int) bool {
+	if len(shard.CompileGroupIDs) == 0 || len(shard.Workloads) == 0 {
+		return false
+	}
+	byID := compileGroupUnitIndex(units)
+	covered, ok := compileShardEligibleGroupCoverage(shard, byID, groupWorkloadCount)
+	return ok && compileShardWorkloadsCovered(shard, covered)
+}
+
+func compileGroupUnitIndex(units []compilePlanningUnit) map[string]compilePlanningUnit {
+	byID := make(map[string]compilePlanningUnit, len(units))
+	for _, unit := range units {
+		if unit.group != nil {
+			byID[unit.group.GroupID] = unit
+		}
+	}
+	return byID
+}
+
+func compileShardEligibleGroupCoverage(shard ShardPlan, byID map[string]compilePlanningUnit, groupWorkloadCount map[string]int) (map[string]struct{}, bool) {
+	covered := make(map[string]struct{}, len(shard.Workloads))
+	resourceClassID := ""
+	for _, groupID := range shard.CompileGroupIDs {
+		unit, ok := byID[groupID]
+		if !ok || unit.group == nil || !CompileGroupSerialPackingEligible(*unit.group) || groupWorkloadCount[groupID] == 0 {
+			return nil, false
+		}
+		classID := compilePlanningUnitResourceClass(unit)
+		if resourceClassID != "" && classID != resourceClassID {
+			return nil, false
+		}
+		resourceClassID = classID
+		for _, workload := range unit.workloads {
+			covered[workload.Workload.ID] = struct{}{}
+		}
+	}
+	return covered, true
+}
+
+func compileShardWorkloadsCovered(shard ShardPlan, covered map[string]struct{}) bool {
+	if len(covered) != len(shard.Workloads) {
+		return false
+	}
+	for _, workload := range shard.Workloads {
+		if _, ok := covered[workload.Workload.ID]; !ok {
+			return false
+		}
 	}
 	return true
 }
@@ -801,90 +868,4 @@ func compileInputsFromPlan(plan WorkloadExecutionPlan) (map[GateID]CompileGroupI
 		}
 	}
 	return inputs, nil
-}
-
-// compileGroupAffinityFromShardIDs 校验 compile group 的 canonical 顺序、重复
-// artifact 与首期显式共箱政策；资源档位一致性由外层 plan validator 负责。
-func compileGroupAffinityFromShardIDs(groups map[string]CompileGroup, shard ShardPlan) error {
-	seen := make(map[string]string, len(shard.CompileGroupIDs))
-	canonical := true
-	for index, groupID := range shard.CompileGroupIDs {
-		if index > 0 && shard.CompileGroupIDs[index-1] >= groupID {
-			canonical = false
-		}
-		if err := registerCompileGroupShardAffinity(seen, groups, shard.Index, groupID); err != nil {
-			return err
-		}
-	}
-	if !canonical {
-		return fmt.Errorf("shard %d compile groups are not canonical sorted", shard.Index)
-	}
-	if !compileGroupsCoverShardWorkloads(groups, shard) {
-		extra, missing := compileGroupShardCoverageMismatch(groups, shard)
-		return fmt.Errorf("shard %d mixes grouped and ordinary workloads: extra=%v missing=%v", shard.Index, extra, missing)
-	}
-	if len(shard.CompileGroupIDs) > 1 {
-		for _, groupID := range shard.CompileGroupIDs {
-			if !CompileGroupSerialPackingEligible(groups[groupID]) {
-				return fmt.Errorf("shard %d compile group %q is not eligible for serial packing", shard.Index, groupID)
-			}
-		}
-	}
-	return nil
-}
-
-// compileGroupsCoverShardWorkloads 拒绝把 ordinary workload 塞入任一 compile-group shard。
-func compileGroupsCoverShardWorkloads(groups map[string]CompileGroup, shard ShardPlan) bool {
-	if len(shard.Workloads) == 0 || len(shard.CompileGroupIDs) == 0 {
-		return true
-	}
-	covered := make(map[string]struct{})
-	for _, groupID := range shard.CompileGroupIDs {
-		for _, workloadID := range groups[groupID].WorkloadIDs {
-			covered[string(workloadID)] = struct{}{}
-		}
-	}
-	if len(covered) != len(shard.Workloads) {
-		return false
-	}
-	for _, workload := range shard.Workloads {
-		if _, ok := covered[workload.Workload.ID]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-// registerCompileGroupShardAffinity 记录 group 与 artifact，并拒绝重复引用。
-func registerCompileGroupShardAffinity(seen map[string]string, groups map[string]CompileGroup, shardIndex int, groupID string) error {
-	if _, duplicate := seen[groupID]; duplicate {
-		return fmt.Errorf("shard %d repeats compile group %q", shardIndex, groupID)
-	}
-	group, ok := groups[groupID]
-	if !ok {
-		return fmt.Errorf("shard %d references unknown compile group %q", shardIndex, groupID)
-	}
-	artifactKey, err := CompileArtifactKey(group)
-	if err != nil {
-		return err
-	}
-	for otherID, otherKey := range seen {
-		if otherID != groupID && otherKey == artifactKey {
-			return fmt.Errorf("shard %d contains multiple groups for compile artifact %q", shardIndex, artifactKey)
-		}
-	}
-	seen[groupID] = artifactKey
-	return nil
-}
-
-func compileGroupIDsEqual(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }

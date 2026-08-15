@@ -3,6 +3,7 @@ package gate
 import (
 	"errors"
 	"fmt"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"maps"
 	"slices"
 	"strings"
@@ -110,6 +111,35 @@ func TestCompilePackingThresholdCountsPackableUnitsNotIsolatedGroups(t *testing.
 	}
 	if len(shards) != 21 {
 		t.Fatalf("mixed packable/isolated shard count = %d, want exact packable one plus 20 isolated", len(shards))
+	}
+}
+
+func TestCompilePackingCoPacksEligibleGroupsWithSameResourceClass(t *testing.T) {
+	units := make([]compilePlanningUnit, 0, 2)
+	for _, id := range []string{"group-a", "group-b"} {
+		group := &CompileGroup{
+			GroupID:           id,
+			PackageTarget:     AtomicGatePackageTarget,
+			SemanticKey:       CompileGroupSemanticGoTestNormal,
+			SharedInputDigest: "sha256:" + strings.Repeat(string(id[len(id)-1]), 64),
+			ProfileDigest:     "sha256:" + strings.Repeat("f", 64),
+			ResourceClassID:   "normal",
+		}
+		units = append(units, compilePlanningUnit{
+			workloads:   []PlannedWorkload{compilePackingTestWorkload(id, 3)},
+			group:       group,
+			costMS:      3,
+			affinityKey: id,
+			sortID:      id,
+			tier:        cicontract.WorkloadResourceTierFast,
+		})
+	}
+	shards, err := provenCompileUnitPacking(units, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shards) != 1 || len(shards[0].CompileGroupIDs) != 2 {
+		t.Fatalf("eligible same-class groups were not co-packed: %#v", shards)
 	}
 }
 

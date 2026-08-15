@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestStoredCompilePlanRejectsEligibleSerialMultiGroupShard(t *testing.T) {
+func TestStoredCompilePlanAcceptsEligibleSerialMultiGroupShard(t *testing.T) {
 	plan, catalog := storedEligibleMultiGroupFixture(t)
 	plan = mergeStoredEligibleSerialGroupShards(t, plan)
-	if _, _, err := validateStoredCompileGroups(plan, catalog); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
+	if _, _, err := validateStoredCompileGroups(plan, catalog); err != nil {
 		t.Fatalf("eligible serial multi-group shard validation error = %v", err)
 	}
 }

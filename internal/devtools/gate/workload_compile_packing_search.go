@@ -17,11 +17,14 @@ type compilePackingBin struct {
 }
 
 type compilePackingUndo struct {
-	workloadCount int
-	groupCount    int
-	durationMS    int64
-	affinityKey   string
-	artifactKey   string
+	workloadCount            int
+	groupCount               int
+	durationMS               int64
+	affinityKey              string
+	artifactKey              string
+	resourceClassKey         string
+	resourceClassWasPresent  bool
+	eligibleMarkerWasPresent bool
 }
 
 type compilePackingSearchResult struct {
@@ -68,21 +71,19 @@ func provenCompileUnitPacking(units []compilePlanningUnit, target int64) ([]Shar
 		return nil, err
 	}
 	ordinary, serial, isolated := partitionCompilePlanningUnits(units)
-	if len(ordinary)+len(serial) > cicontract.WorkloadPlanningExactPackableUnitThreshold {
+	packable := append(append([]compilePlanningUnit(nil), ordinary...), serial...)
+	if len(packable) > cicontract.WorkloadPlanningExactPackableUnitThreshold {
 		result, err := heuristicCompileUnitPacking(units, target)
 		if err != nil {
 			return nil, err
 		}
 		return result, nil
 	}
-	ordinaryShards, err := provenCompilePackableExact(ordinary, target)
+	packableShards, err := provenCompilePackableExact(packable, target)
 	if err != nil {
 		return nil, err
 	}
-	// serial 资格只参与全局 exact/heuristic 阈值；不同 canonical group 不能
-	// 进入同一次精确搜索，避免 shard workload 与 group 覆盖漂移。
-	best := append(ordinaryShards, isolatedCompileShards(serial)...)
-	best = append(best, isolatedCompileShards(isolated)...)
+	best := append(packableShards, isolatedCompileShards(isolated)...)
 	best = canonicalCompilePacking(best)
 	if !compileShardsMeetTarget(best, target, units) {
 		return nil, errors.New("compile packing produced an invalid target violation")
@@ -170,7 +171,8 @@ func minimizeCompilePackingMakespan(units []compilePlanningUnit, initial []Shard
 	return best, nil
 }
 
-// compilePackingShardLowerBound 按 ordinary 容量和每个 compile-group domain 计算下界。
+// compilePackingShardLowerBound 分别计算 ordinary 与 eligible-group 容量下界，
+// 再叠加 special/exclusive 隔离单元。
 func compilePackingShardLowerBound(units []compilePlanningUnit, target int64) (int, error) {
 	if len(units) == 0 {
 		return 0, nil
@@ -186,17 +188,26 @@ func compilePackingShardLowerBound(units []compilePlanningUnit, target int64) (i
 	if err != nil {
 		return 0, err
 	}
-	lower, err := addCompilePackingShardCounts(classes.compileGroups, ordinaryLower)
+	serialLower, err := compilePackingCapacityLowerBound(classes.serialTotal, classes.serialOversize, target)
 	if err != nil {
 		return 0, err
 	}
-	return addCompilePackingShardCounts(lower, classes.exclusive)
+	lower, err := addCompilePackingShardCounts(ordinaryLower, serialLower)
+	if err != nil {
+		return 0, err
+	}
+	lower, err = addCompilePackingShardCounts(lower, classes.exclusive)
+	if err != nil {
+		return 0, err
+	}
+	return lower, nil
 }
 
 type compilePackingShardClasses struct {
 	ordinaryTotal    int64
 	ordinaryOversize int
-	compileGroups    int
+	serialTotal      int64
+	serialOversize   int
 	exclusive        int
 }
 
@@ -207,25 +218,42 @@ func classifyCompilePackingShardClasses(units []compilePlanningUnit, target int6
 		if unit.costMS < 0 {
 			return compilePackingShardClasses{}, errors.New("compile packing unit cost must be non-negative")
 		}
+		reason, err := compilePlanningUnitHardIsolationReason(unit)
+		if err != nil {
+			return compilePackingShardClasses{}, err
+		}
+		if reason.hardIsolated() {
+			classes.exclusive++
+			continue
+		}
 		if unit.group == nil {
-			if unit.costMS > target {
-				classes.ordinaryOversize++
-				continue
-			}
-			var err error
-			classes.ordinaryTotal, err = addCompilePackingDuration(classes.ordinaryTotal, unit.costMS)
-			if err != nil {
+			if err := accumulateCompilePackingClass(&classes.ordinaryTotal, &classes.ordinaryOversize, unit.costMS, target); err != nil {
 				return compilePackingShardClasses{}, err
 			}
 			continue
 		}
 		if CompileGroupSerialPackingEligible(*unit.group) {
-			classes.compileGroups++
+			if err := accumulateCompilePackingClass(&classes.serialTotal, &classes.serialOversize, unit.costMS, target); err != nil {
+				return compilePackingShardClasses{}, err
+			}
 		} else {
 			classes.exclusive++
 		}
 	}
 	return classes, nil
+}
+
+func accumulateCompilePackingClass(total *int64, oversize *int, cost, target int64) error {
+	if cost > target {
+		(*oversize)++
+		return nil
+	}
+	next, err := addCompilePackingDuration(*total, cost)
+	if err != nil {
+		return err
+	}
+	*total = next
+	return nil
 }
 
 func addCompilePackingDuration(total, cost int64) (int64, error) {
@@ -469,6 +497,9 @@ func applyCompilePackingUnit(bin *compilePackingBin, unit compilePlanningUnit, c
 	if unit.group == nil {
 		return undo, true, nil
 	}
+	undo.resourceClassKey = compilePlanningUnitResourceClassKey(unit)
+	_, undo.resourceClassWasPresent = bin.affinities[undo.resourceClassKey]
+	_, undo.eligibleMarkerWasPresent = bin.affinities[compilePackingEligibleGroupMarker]
 	artifactKey, err := CompileArtifactKey(*unit.group)
 	if err != nil {
 		undoCompilePackingUnit(bin, undo)
@@ -477,6 +508,12 @@ func applyCompilePackingUnit(bin *compilePackingBin, unit compilePlanningUnit, c
 	undo.artifactKey = artifactKey
 	bin.shard.CompileGroupIDs = append(bin.shard.CompileGroupIDs, unit.group.GroupID)
 	bin.artifactKeys[artifactKey] = struct{}{}
+	if undo.resourceClassKey != "" {
+		bin.affinities[undo.resourceClassKey] = struct{}{}
+	}
+	if CompileGroupSerialPackingEligible(*unit.group) {
+		bin.affinities[compilePackingEligibleGroupMarker] = struct{}{}
+	}
 	return undo, true, nil
 }
 
@@ -488,6 +525,12 @@ func undoCompilePackingUnit(bin *compilePackingBin, undo compilePackingUndo) {
 	delete(bin.affinities, undo.affinityKey)
 	if undo.artifactKey != "" {
 		delete(bin.artifactKeys, undo.artifactKey)
+	}
+	if undo.resourceClassKey != "" && !undo.resourceClassWasPresent {
+		delete(bin.affinities, undo.resourceClassKey)
+	}
+	if !undo.eligibleMarkerWasPresent {
+		delete(bin.affinities, compilePackingEligibleGroupMarker)
 	}
 }
 

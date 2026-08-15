@@ -50,7 +50,7 @@ func distributeLPTWithinTarget(planned []PlannedWorkload, context PlanningContex
 	if err != nil {
 		return nil, err
 	}
-	return distributeDCPAP(planned, targetDurationMS)
+	return distributeDCPAPWithHardIsolation(planned, targetDurationMS)
 }
 
 // BuildWorkloadExecutionPlanForWorkloads 将完整权威 catalog 与严格 execution 投影一同绑定。
@@ -99,7 +99,7 @@ func buildWorkloadExecutionPlanForWorkloads(
 	if err != nil {
 		return WorkloadExecutionPlan{}, err
 	}
-	return finalizeWorkloadExecutionPlan(gatePlan, catalog, snapshot, resolvedContext, executionIDs, index, shards, compileGroups)
+	return finalizeWorkloadExecutionPlan(gatePlan, catalog, snapshot, resolvedContext, executionIDs, index, shards, compileGroups, compileAware)
 }
 
 // workloadExecutionPlanDerivedFields 计算计划中由 catalog、ledger 和执行投影决定的摘要字段。
@@ -191,7 +191,7 @@ func (plan WorkloadExecutionPlan) ValidateStored(gatePlan GatePlan) error {
 	); err != nil {
 		return fmt.Errorf("validate stored workload execution plan contract: %w", err)
 	}
-	if err := plan.validateStoredPayload(); err != nil {
+	if err := plan.validateStoredPayload(true); err != nil {
 		return err
 	}
 	if plan.GatePlanDigest != gatePlan.PlanDigest {
@@ -204,14 +204,11 @@ func (plan WorkloadExecutionPlan) ValidateStored(gatePlan GatePlan) error {
 }
 
 // validateStoredPayload 校验不依赖当前账本或 registry 的不可变历史计划内容。
-func (plan WorkloadExecutionPlan) validateStoredPayload() error {
+func (plan WorkloadExecutionPlan) validateStoredPayload(replayEvidence bool) error {
 	if err := plan.validateHeader(); err != nil {
 		return err
 	}
-	if err := validateWorkloadPackingEvidence(plan); err != nil {
-		return err
-	}
-	if err := validateStoredWorkloadShards(plan); err != nil {
+	if err := validateStoredWorkloadShards(plan, false); err != nil {
 		return err
 	}
 	digest, err := plan.digest()
@@ -220,6 +217,12 @@ func (plan WorkloadExecutionPlan) validateStoredPayload() error {
 	}
 	if plan.PlanDigest != digest {
 		return errors.New("workload execution plan digest mismatch")
+	}
+	if replayEvidence {
+		if err := validateWorkloadPackingEvidence(plan); err != nil {
+			return err
+		}
+		return validateStoredWorkloadShardLayout(plan, true)
 	}
 	return nil
 }
@@ -344,7 +347,7 @@ func workloadExecutionDigest(executionIDs []GateID) (string, error) {
 }
 
 // validateStoredWorkloadShards 校验计划分片只且完整覆盖已绑定的执行投影。
-func validateStoredWorkloadShards(plan WorkloadExecutionPlan) error {
+func validateStoredWorkloadShards(plan WorkloadExecutionPlan, replayLayout bool) error {
 	executionCatalog, err := workloadExecutionCatalog(plan.Catalog, plan.ExecutionWorkloadIDs)
 	if err != nil {
 		return err
@@ -373,7 +376,7 @@ func validateStoredWorkloadShards(plan WorkloadExecutionPlan) error {
 	if err := validateStoredWorkloadCoverage(executionCatalog, seen); err != nil {
 		return err
 	}
-	return validateStoredWorkloadShardLayout(plan)
+	return validateStoredWorkloadShardLayout(plan, replayLayout)
 }
 
 func validateStoredWorkloadShardCount(plan WorkloadExecutionPlan, shardableCount int) error {
@@ -387,8 +390,8 @@ func validateStoredWorkloadShardCount(plan WorkloadExecutionPlan, shardableCount
 }
 
 // validateStoredWorkloadShardLayout 拒绝偏离 100 秒目标的过度分片计划。
-func validateStoredWorkloadShardLayout(plan WorkloadExecutionPlan) error {
-	if len(plan.CompileGroups) > 0 {
+func validateStoredWorkloadShardLayout(plan WorkloadExecutionPlan, replayLayout bool) error {
+	if !replayLayout || len(plan.CompileGroups) > 0 {
 		return nil
 	}
 	planned := make([]PlannedWorkload, 0, len(plan.ExecutionWorkloadIDs))
@@ -500,20 +503,13 @@ func validateStoredHardIsolationShard(shard ShardPlan, index int) error {
 	return nil
 }
 
-// validateStoredCompileGroupShardDomain 锁定 compile-group shard 的单一 canonical group 覆盖边界。
-func validateStoredCompileGroupShardDomain(shard ShardPlan, index int, groups map[string]CompileGroup) error {
+// validateStoredCompileGroupShardDomain 校验 compile-group shard 的 canonical 多组覆盖边界。
+func validateStoredCompileGroupShardDomain(shard ShardPlan, _ int, groups map[string]CompileGroup) error {
 	if len(shard.CompileGroupIDs) == 0 {
 		return nil
 	}
-	if len(shard.CompileGroupIDs) != 1 {
-		return fmt.Errorf("workload shard %d must reference exactly one compile group", index)
-	}
-	group, ok := groups[shard.CompileGroupIDs[0]]
-	if !ok {
-		return fmt.Errorf("workload shard %d references unknown compile group %q", index, shard.CompileGroupIDs[0])
-	}
-	if len(shard.Workloads) != len(group.WorkloadIDs) {
-		return fmt.Errorf("workload shard %d compile group %q workload coverage mismatch", index, group.GroupID)
+	if err := compileGroupAffinityFromShardIDs(groups, shard); err != nil {
+		return err
 	}
 	return nil
 }
@@ -716,9 +712,6 @@ func validateStoredCompileGroupMember(group CompileGroup, id GateID, execution m
 func validateStoredCompileGroupReferences(plan WorkloadExecutionPlan, groups map[string]CompileGroup) error {
 	references := make(map[string]int, len(groups))
 	for _, shard := range plan.Shards {
-		if len(shard.CompileGroupIDs) > 1 {
-			return fmt.Errorf("workload shard %d must reference exactly one compile group", shard.Index)
-		}
 		if err := compileGroupAffinityFromShardIDs(groups, shard); err != nil {
 			return err
 		}

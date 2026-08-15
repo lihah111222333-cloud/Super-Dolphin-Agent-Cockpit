@@ -526,7 +526,7 @@ func TestFrozenPlanningAndProtocolIdentityMatrix(t *testing.T) {
 
 func assertFrozenWorkloadPlanIdentity(t *testing.T) {
 	t.Helper()
-	if WorkloadExecutionPlanSchemaVersion != 11 || WorkloadPlanningAlgorithmID != "deterministic-critical-path-aware-packing/v4" || WorkloadPlanningSearchNodeBudget != 1_000_000 {
+	if WorkloadExecutionPlanSchemaVersion != 11 || WorkloadPlanningAlgorithmID != "deterministic-critical-path-aware-packing/v5" || WorkloadPlanningSearchNodeBudget != 1_000_000 {
 		t.Fatalf("workload plan identity drifted: schema=%d algorithm=%q", WorkloadExecutionPlanSchemaVersion, WorkloadPlanningAlgorithmID)
 	}
 	objectiveDigest := WorkloadPlanningObjectiveDigest()

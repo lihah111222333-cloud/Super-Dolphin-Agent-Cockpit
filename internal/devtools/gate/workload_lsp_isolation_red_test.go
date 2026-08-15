@@ -29,6 +29,35 @@ func TestLSPDiagnosticsCompileUnitCarriesCanonicalHardIsolationReason(t *testing
 	}
 }
 
+func TestBuildWorkloadExecutionPlanKeepsLSPDiagnosticsHardIsolatedWithoutCompileInputs(t *testing.T) {
+	lsp := lspWorkloadForIsolationTest(t, 1_000)
+	ordinary := ordinaryWorkloadForIsolationTest(t, "./internal/example", 1_000)
+	catalog := testWorkloadCatalog(lsp, ordinary)
+	gatePlan := mustBuildPlan(t, ProfileRelease)
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(
+		gatePlan,
+		catalog,
+		DurationLedgerSnapshot{Generation: 1, Ledger: fastDurationLedger(catalog)},
+		testLinuxPlanningContext(),
+		[]GateID{GateID(lsp.ID), GateID(ordinary.ID)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLSPCompileShardIsSingleton(t, plan.Shards)
+	var packable, isolated int
+	for _, evidence := range plan.PackingEvidence {
+		packable += evidence.PackableUnitCount
+		isolated += evidence.IsolatedUnitCount
+	}
+	if packable != 1 || isolated != 1 {
+		t.Fatalf("ordinary LSP packing evidence = packable:%d isolated:%d, want 1/1", packable, isolated)
+	}
+	if err := plan.ValidateStored(gatePlan); err != nil {
+		t.Fatalf("ordinary LSP singleton stored validation = %v", err)
+	}
+}
+
 func TestLSPDiagnosticsHardIsolationExactProducerRejectsBothPackingDirections(t *testing.T) {
 	lsp := lspCompilePlanningUnit(t, 2)
 	ordinary := ordinaryCompilePlanningUnitForTest(t, "./internal/example", 1)
@@ -113,7 +142,7 @@ func TestValidateStoredRejectsTamperedLSPShardWithSecondWorkload(t *testing.T) {
 			EstimatedDurationMS: 2_000,
 		}},
 	}
-	if err := validateStoredWorkloadShards(plan); err == nil || !strings.Contains(err.Error(), "hard-isolated") {
+	if err := validateStoredWorkloadShards(plan, false); err == nil || !strings.Contains(err.Error(), "hard-isolated") {
 		t.Fatalf("stored LSP shard tamper error = %v, want hard-isolation rejection", err)
 	}
 }

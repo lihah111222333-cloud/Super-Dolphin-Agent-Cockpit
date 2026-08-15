@@ -66,7 +66,7 @@ const (
 	// WorkloadExecutionPlanSchemaVersion 冻结确定性分片计划的唯一 wire schema。
 	WorkloadExecutionPlanSchemaVersion uint32 = 11
 	// WorkloadPlanningAlgorithmID 冻结 normal/calibration 共用的 D-CPAP 算法身份。
-	WorkloadPlanningAlgorithmID = "deterministic-critical-path-aware-packing/v4"
+	WorkloadPlanningAlgorithmID = "deterministic-critical-path-aware-packing/v5"
 	// WorkloadPlanningObjective 冻结 planner 比较器的优先级顺序；不得改写为近似或隐式成本。
 	WorkloadPlanningObjective = "hard constraints>target excess>minimum shards>makespan>setup proxy>canonical layout"
 	// WorkloadPlanningSearchNodeBudget 冻结 exact proof 的确定性节点预算；耗尽时必须 fail-fast。
@@ -85,7 +85,7 @@ const (
 	// WorkloadEstimationPolicyVersion 冻结估时摘要的 schema；估时摘要缺失必须拒绝计划。
 	WorkloadEstimationPolicyVersion = "duration-estimate-resource-tier-reserve-policy/v3"
 	// WorkloadPlanningRiskPolicyID 同时冻结 normal reserve 聚合与跨输入上尾隔离。
-	WorkloadPlanningRiskPolicyID = "normal-resource-tier-reserve-measured-p95-or-isolated-bootstrap+cross-input-upper-tail-isolation/v2"
+	WorkloadPlanningRiskPolicyID = "normal-resource-tier-reserve-measured-p95-or-isolated-bootstrap+cross-input-upper-tail-isolation/v3"
 	// WorkloadPassIdentityDomain 冻结可复用 PASS identity 的密码学域；无域或其他域材料不得命中。
 	WorkloadPassIdentityDomain = "pass-identity/v2"
 	// WorkloadInputFingerprintDomain 冻结 workload 生产输入摘要的密码学域；旧无域摘要自然 MISS。

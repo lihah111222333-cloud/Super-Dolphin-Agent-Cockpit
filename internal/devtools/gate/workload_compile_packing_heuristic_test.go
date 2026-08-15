@@ -3,7 +3,6 @@ package gate
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -25,6 +24,9 @@ func TestBuildWorkloadExecutionPlanWithCompileInputsUsesProductionHeuristic(t *t
 	assertProductionCompileHeuristicCoverage(t, first, catalog, context)
 	if err := first.ValidateStored(gatePlan); err != nil {
 		t.Fatalf("production heuristic stored validation = %v", err)
+	}
+	if !slices.ContainsFunc(first.Shards, func(shard ShardPlan) bool { return len(shard.CompileGroupIDs) > 1 }) {
+		t.Fatal("production heuristic plan has no legal multi-group shard")
 	}
 	containerShards, err := BuildContainerShardSetFromWorkloadPlan(gatePlan, first, shardTestDigest('a'), shardTestDigest('b'))
 	if err != nil {
@@ -53,52 +55,125 @@ func TestExactCompilePackingSeparatesMixedMissDomains(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mixed MISS exact compile packing = %v", err)
 	}
-	assertCompilePackingDomainsSeparated(t, shards, groups, grouped)
+	assertCompilePackingDomainsSeparated(t, shards, compileGroupsInShards(groups, shards), grouped)
 }
 
-func TestValidateStoredAndContainerRejectDistinctSerialGroupsWithinOneShard(t *testing.T) {
+func TestValidateStoredAndContainerRejectTamperedSerialGroupLayout(t *testing.T) {
 	gatePlan, catalog, context, snapshot, inputs, executionIDs := productionCompileHeuristicFixture(t)
 	plan, err := BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs(gatePlan, catalog, snapshot, context, executionIDs, inputs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := mergeDistinctSerialGroupShards(t, plan)
-	if err := tampered.ValidateStored(gatePlan); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
-		t.Fatalf("ValidateStored() multi-group shard error = %v", err)
+	tampered := duplicateSerialGroupReference(t, plan)
+	if err := tampered.ValidateStored(gatePlan); err == nil {
+		t.Fatal("ValidateStored accepted duplicate serial-group reference")
 	}
-	if _, err := BuildContainerShardSetFromWorkloadPlan(gatePlan, tampered, shardTestDigest('a'), shardTestDigest('b')); err == nil || !strings.Contains(err.Error(), "must reference exactly one compile group") {
-		t.Fatalf("container projection multi-group shard error = %v", err)
+	if _, err := BuildContainerShardSetFromWorkloadPlan(gatePlan, tampered, shardTestDigest('a'), shardTestDigest('b')); err == nil {
+		t.Fatal("container projection accepted duplicate serial-group reference")
 	}
 }
 
-func mergeDistinctSerialGroupShards(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
+func duplicateSerialGroupReference(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
 	t.Helper()
-	if len(plan.Shards) < 2 || len(plan.PackingEvidence) != 1 {
-		t.Fatal("production compile fixture is not suitable for multi-group tampering")
+	tampered := plan
+	tampered.Shards = slices.Clone(plan.Shards)
+	for index := range tampered.Shards {
+		if len(tampered.Shards[index].CompileGroupIDs) == 0 {
+			continue
+		}
+		groupID := tampered.Shards[index].CompileGroupIDs[0]
+		tampered.Shards[index].CompileGroupIDs = append(slices.Clone(tampered.Shards[index].CompileGroupIDs), groupID)
+		digest, err := tampered.digest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tampered.PlanDigest = digest
+		return tampered
+	}
+	t.Fatal("production compile fixture has no compile-group shard")
+	return WorkloadExecutionPlan{}
+}
+
+func TestValidateStoredRejectsNonCanonicalHeuristicCompileSplit(t *testing.T) {
+	gatePlan, catalog, context, snapshot, inputs, executionIDs := productionCompileHeuristicFixture(t)
+	plan, err := BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs(gatePlan, catalog, snapshot, context, executionIDs, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := splitEligibleCompileGroup(t, plan)
+	if err := tampered.ValidateStored(gatePlan); err == nil {
+		t.Fatal("ValidateStored accepted non-canonical heuristic compile split")
+	}
+}
+
+func splitEligibleCompileGroup(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
+	t.Helper()
+	groups := make(map[string]CompileGroup, len(plan.CompileGroups))
+	for _, group := range plan.CompileGroups {
+		groups[group.GroupID] = group
 	}
 	tampered := plan
 	tampered.Shards = slices.Clone(plan.Shards)
-	first, second := tampered.Shards[0], tampered.Shards[1]
-	if len(first.CompileGroupIDs) != 1 || len(second.CompileGroupIDs) != 1 || first.CompileGroupIDs[0] == second.CompileGroupIDs[0] {
-		t.Fatal("production compile fixture lacks distinct single-group shards")
-	}
-	first.Workloads = append(slices.Clone(first.Workloads), second.Workloads...)
-	first.CompileGroupIDs = append(slices.Clone(first.CompileGroupIDs), second.CompileGroupIDs...)
-	first.EstimatedDurationMS += second.EstimatedDurationMS
-	tampered.Shards = append([]ShardPlan{first}, tampered.Shards[2:]...)
 	for index := range tampered.Shards {
-		tampered.Shards[index].Index = index
+		if splitEligibleCompileShard(&tampered, index, groups) {
+			return finalizeCompileTamper(t, plan, tampered)
+		}
 	}
-	tampered.PackingEvidence = slices.Clone(plan.PackingEvidence)
-	tampered.PackingEvidence[0].PlannedShards = len(tampered.Shards)
-	tampered.PackingEvidence[0].LowerBoundShards = len(tampered.Shards)
-	tampered.PackingEvidence[0].HeuristicGapShards = 0
+	t.Fatal("production compile fixture has no multi-group eligible shard")
+	return WorkloadExecutionPlan{}
+}
+
+func splitEligibleCompileShard(plan *WorkloadExecutionPlan, index int, groups map[string]CompileGroup) bool {
+	shard := &plan.Shards[index]
+	if len(shard.CompileGroupIDs) < 2 {
+		return false
+	}
+	groupID := shard.CompileGroupIDs[len(shard.CompileGroupIDs)-1]
+	group, ok := groups[groupID]
+	if !ok || !CompileGroupSerialPackingEligible(group) {
+		return false
+	}
+	moved, remaining := splitGroupWorkloads(shard.Workloads, group)
+	cost := compileGroupCriticalDurationMS(group)
+	if len(moved) == 0 || len(remaining) == 0 || shard.EstimatedDurationMS < cost {
+		return false
+	}
+	shard.Workloads = remaining
+	shard.CompileGroupIDs = slices.DeleteFunc(slices.Clone(shard.CompileGroupIDs), func(id string) bool { return id == groupID })
+	shard.EstimatedDurationMS -= cost
+	plan.Shards = append(plan.Shards, ShardPlan{Index: len(plan.Shards), EstimatedDurationMS: cost, CompileGroupIDs: []string{groupID}, Workloads: moved})
+	return true
+}
+
+func finalizeCompileTamper(t *testing.T, original, tampered WorkloadExecutionPlan) WorkloadExecutionPlan {
+	for shardIndex := range tampered.Shards {
+		tampered.Shards[shardIndex].Index = shardIndex
+	}
+	if len(tampered.PackingEvidence) != 1 {
+		t.Fatal("production compile fixture has unexpected evidence tiers")
+	}
+	tampered.PackingEvidence = slices.Clone(original.PackingEvidence)
+	tampered.PackingEvidence[0].PlannedShards++
+	tampered.PackingEvidence[0].HeuristicGapShards++
 	digest, err := tampered.digest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	tampered.PlanDigest = digest
 	return tampered
+}
+
+func splitGroupWorkloads(workloads []PlannedWorkload, group CompileGroup) ([]PlannedWorkload, []PlannedWorkload) {
+	moved := make([]PlannedWorkload, 0, len(group.WorkloadIDs))
+	remaining := make([]PlannedWorkload, 0, len(workloads))
+	for _, workload := range workloads {
+		if slices.Contains(group.WorkloadIDs, GateID(workload.Workload.ID)) {
+			moved = append(moved, workload)
+			continue
+		}
+		remaining = append(remaining, workload)
+	}
+	return moved, remaining
 }
 
 func mixedMissCompilePlanningUnits(t *testing.T) ([]compilePlanningUnit, map[string]CompileGroup, map[GateID]struct{}) {
@@ -152,26 +227,50 @@ func assertCompilePackingDomainsSeparated(t *testing.T, shards []ShardPlan, grou
 	if len(shards) == 0 {
 		t.Fatal("mixed MISS packing returned no shards")
 	}
+	seen := make(map[string]int, len(groups))
 	for _, shard := range shards {
-		if len(shard.CompileGroupIDs) == 0 {
-			for _, workload := range shard.Workloads {
-				if _, isGrouped := grouped[GateID(workload.Workload.ID)]; isGrouped {
-					t.Fatalf("ordinary shard %d contains grouped workload %q", shard.Index, workload.Workload.ID)
-				}
-			}
-			continue
+		assertCompileShardDomain(t, shard, groups, grouped)
+		for _, groupID := range shard.CompileGroupIDs {
+			seen[groupID]++
 		}
-		if !compileGroupsCoverShardWorkloads(groups, shard) {
-			extra, missing := compileGroupShardCoverageMismatch(groups, shard)
-			t.Fatalf("compile shard %d coverage drift: extra=%v missing=%v", shard.Index, extra, missing)
+	}
+	for groupID := range groups {
+		if seen[groupID] != 1 {
+			t.Fatalf("compile group %q appears %d times, want exactly once", groupID, seen[groupID])
 		}
-		if len(shard.CompileGroupIDs) != 1 {
-			t.Fatalf("compile shard %d groups = %v, want one canonical group", shard.Index, shard.CompileGroupIDs)
+	}
+}
+
+func compileGroupsInShards(groups map[string]CompileGroup, shards []ShardPlan) map[string]CompileGroup {
+	selected := make(map[string]CompileGroup)
+	for _, shard := range shards {
+		for _, groupID := range shard.CompileGroupIDs {
+			selected[groupID] = groups[groupID]
 		}
+	}
+	return selected
+}
+
+func assertCompileShardDomain(t *testing.T, shard ShardPlan, groups map[string]CompileGroup, grouped map[GateID]struct{}) {
+	t.Helper()
+	if len(shard.CompileGroupIDs) == 0 {
 		for _, workload := range shard.Workloads {
-			if _, isGrouped := grouped[GateID(workload.Workload.ID)]; !isGrouped {
-				t.Fatalf("compile shard %d contains ordinary workload %q", shard.Index, workload.Workload.ID)
+			if _, isGrouped := grouped[GateID(workload.Workload.ID)]; isGrouped {
+				t.Fatalf("ordinary shard %d contains grouped workload %q", shard.Index, workload.Workload.ID)
 			}
+		}
+		return
+	}
+	if err := compileGroupAffinityFromShardIDs(groups, shard); err != nil {
+		t.Fatalf("compile shard %d domain invalid: %v", shard.Index, err)
+	}
+	if !compileGroupsCoverShardWorkloads(groups, shard) {
+		extra, missing := compileGroupShardCoverageMismatch(groups, shard)
+		t.Fatalf("compile shard %d coverage drift: extra=%v missing=%v", shard.Index, extra, missing)
+	}
+	for _, workload := range shard.Workloads {
+		if _, isGrouped := grouped[GateID(workload.Workload.ID)]; !isGrouped {
+			t.Fatalf("compile shard %d contains ordinary workload %q", shard.Index, workload.Workload.ID)
 		}
 	}
 }
@@ -216,9 +315,6 @@ func productionCompileGroupMaps(t *testing.T, plan WorkloadExecutionPlan) (map[s
 	t.Helper()
 	seen := make(map[string]int, len(plan.CompileGroups))
 	for _, shard := range plan.Shards {
-		if len(shard.CompileGroupIDs) > 1 {
-			t.Fatalf("production compile shard %d groups = %v, want one canonical group", shard.Index, shard.CompileGroupIDs)
-		}
 		for _, groupID := range shard.CompileGroupIDs {
 			seen[groupID]++
 		}
