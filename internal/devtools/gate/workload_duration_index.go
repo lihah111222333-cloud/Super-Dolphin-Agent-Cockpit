@@ -387,7 +387,7 @@ func (index DurationSampleIndex) HasSuccessfulCalibrationDurationEvidence(worklo
 		return true
 	}
 	cpu, memoryGiB, err := index.calibrationResource()
-	return err == nil && index.calibrationHistoricalUpperBound(workload, cpu, memoryGiB) > 0
+	return err == nil && index.planningCrossInputUpperBound(workload, DurationExecutionModeCalibration, index.context.CalibrationResourceClassID, cpu, memoryGiB) > 0
 }
 
 // hasComparableCalibrationSample 检查固定校准资源的成功样本。
@@ -552,7 +552,7 @@ func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, 
 	if err != nil {
 		return 0, durationSampleResource{}, err
 	}
-	upperBound := index.calibrationHistoricalUpperBound(workload, cpu, memoryGiB)
+	upperBound := index.planningCrossInputUpperBound(workload, DurationExecutionModeCalibration, index.context.CalibrationResourceClassID, cpu, memoryGiB)
 	aggregate, resource, found, err := index.aggregateForResource(workload, DurationExecutionModeCalibration, cpu, memoryGiB)
 	if err != nil {
 		return 0, durationSampleResource{}, err
@@ -579,19 +579,34 @@ func calibrationWorkloadPrior(workload Workload) (int64, error) {
 	return workload.BootstrapEstimateMS, nil
 }
 
-// calibrationHistoricalUpperBound 返回相同 workload/命令/资源在保留 generation 中的成功上界。
-// input digest 可不同，因为该值仅是装箱风险信号，不能替代当前输入的执行或 PASS 证据。
-func (index DurationSampleIndex) calibrationHistoricalUpperBound(workload Workload, cpu, memoryGiB float64) int64 {
+// planningCrossInputUpperBound 返回相同 workload/命令/模式/资源在保留 generation 中、
+// 且 input digest 不同的成功上界。它只影响规划风险，不替代当前输入的执行或 PASS 证据。
+func (index DurationSampleIndex) planningCrossInputUpperBound(workload Workload, executionMode, resourceClassID string, cpu, memoryGiB float64) int64 {
+	if workload.InputDigest == "" {
+		return 0
+	}
 	var upperBound int64
 	for key, aggregate := range index.buckets {
-		if key.workloadID != workload.ID || key.commandDigest != workload.CommandDigest ||
-			key.executionMode != DurationExecutionModeCalibration || key.resourceClassID != index.context.CalibrationResourceClassID ||
-			key.resourceCPU != cpu || key.resourceMemoryGiB != memoryGiB {
+		if !planningCrossInputKeyMatches(key, workload, executionMode, resourceClassID, cpu, memoryGiB) {
 			continue
 		}
-		for _, sample := range index.retainedSuccessSamples(aggregate) {
-			upperBound = max(upperBound, sample.durationMS)
-		}
+		upperBound = max(upperBound, index.maxRetainedSampleDuration(aggregate))
+	}
+	return upperBound
+}
+
+// planningCrossInputKeyMatches 锁定跨 input 上界的完整 workload/command/mode/resource 身份。
+func planningCrossInputKeyMatches(key durationSampleIndexKey, workload Workload, executionMode, resourceClassID string, cpu, memoryGiB float64) bool {
+	return key.workloadID == workload.ID && key.commandDigest == workload.CommandDigest &&
+		key.inputDigest != workload.InputDigest && key.executionMode == executionMode &&
+		key.resourceClassID == resourceClassID && key.resourceCPU == cpu && key.resourceMemoryGiB == memoryGiB
+}
+
+// maxRetainedSampleDuration 返回单个聚合在保留 generation 窗口内的成功上界。
+func (index DurationSampleIndex) maxRetainedSampleDuration(aggregate durationSampleAggregate) int64 {
+	var upperBound int64
+	for _, sample := range index.retainedSuccessSamples(aggregate) {
+		upperBound = max(upperBound, sample.durationMS)
 	}
 	return upperBound
 }
@@ -614,6 +629,17 @@ func (index DurationSampleIndex) estimateNormalWorkload(workload Workload, targe
 	tier := cicontract.WorkloadResourceTierFast
 	visited := map[cicontract.WorkloadResourceTier]struct{}{}
 	carriedEstimateMS := workload.BootstrapEstimateMS
+	upperBound, err := index.normalCrossInputUpperBound(workload)
+	if err != nil {
+		return 0, durationSampleResource{}, err
+	}
+	if upperBound > carriedEstimateMS {
+		carriedEstimateMS = upperBound
+		tier, err = cicontract.ClassifyWorkloadResourceDuration(upperBound)
+		if err != nil {
+			return 0, durationSampleResource{}, err
+		}
+	}
 	for range 3 {
 		if _, exists := visited[tier]; exists {
 			return 0, durationSampleResource{}, fmt.Errorf("normal resource fixed point oscillates for workload %q", workload.ID)
@@ -632,28 +658,45 @@ func (index DurationSampleIndex) estimateNormalWorkload(workload Workload, targe
 	return 0, durationSampleResource{}, fmt.Errorf("normal resource fixed point did not converge for workload %q", workload.ID)
 }
 
+// normalCrossInputUpperBound 汇总各 normal 资源档的跨 input 风险信号，仅用于
+// 在缺少当前档 exact 样本时把 fixed-point 起点提升到已知长尾所在档位。
+func (index DurationSampleIndex) normalCrossInputUpperBound(workload Workload) (int64, error) {
+	var upperBound int64
+	for _, tier := range []cicontract.WorkloadResourceTier{
+		cicontract.WorkloadResourceTierFast,
+		cicontract.WorkloadResourceTierMedium,
+		cicontract.WorkloadResourceTierSlow,
+	} {
+		cpu, memoryGiB, err := normalResourceForTier(tier)
+		if err != nil {
+			return 0, err
+		}
+		candidate := index.planningCrossInputUpperBound(workload, DurationExecutionModeNormal, normalCompileResourceClass(tier), cpu, memoryGiB)
+		upperBound = max(upperBound, candidate)
+	}
+	return upperBound, nil
+}
+
 // resolveNormalTierStep 读取一个 normal 档位并计算下一档位。
 func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier cicontract.WorkloadResourceTier, _ int64, carriedEstimateMS int64) (int64, durationSampleResource, cicontract.WorkloadResourceTier, bool, error) {
 	cpu, memoryGiB, err := normalResourceForTier(tier)
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
 	}
+	classID := normalCompileResourceClass(tier)
+	upperBound := index.planningCrossInputUpperBound(workload, DurationExecutionModeNormal, classID, cpu, memoryGiB)
 	aggregate, resource, found, err := index.aggregateForResource(workload, DurationExecutionModeNormal, cpu, memoryGiB)
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
 	}
 	if !found || aggregate.successCount == 0 {
-		if carriedEstimateMS <= 0 {
-			return 0, durationSampleResource{}, tier, false,
-				fmt.Errorf("normal resource fixed point for workload %q has invalid carried estimate %dms", workload.ID, carriedEstimateMS)
-		}
-		// 首次升档没有新档原始样本；沿用上一档实测估值，但不把它追加为新档样本。
-		return carriedEstimateMS, durationSampleResource{cpu: cpu, memoryGiB: memoryGiB}, tier, true, nil
+		return resolveNormalTierWithoutSample(workload, tier, classID, cpu, memoryGiB, carriedEstimateMS, upperBound)
 	}
 	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), workload.BootstrapEstimateMS)
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
 	}
+	estimate = max(estimate, upperBound)
 	nextTier, done, err := normalResourceTierTransition(tier, estimate)
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
@@ -664,6 +707,26 @@ func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier c
 		return estimate, resource, tier, true, nil
 	}
 	return estimate, resource, nextTier, false, nil
+}
+
+// resolveNormalTierWithoutSample 在当前资源档缺少 exact 样本时传递 bootstrap 或
+// 跨 input 上界；上界驱动的估值仍需重新经过资源 fixed-point 分类。
+func resolveNormalTierWithoutSample(workload Workload, tier cicontract.WorkloadResourceTier, classID string, cpu, memoryGiB float64, carriedEstimateMS, upperBound int64) (int64, durationSampleResource, cicontract.WorkloadResourceTier, bool, error) {
+	if carriedEstimateMS <= 0 {
+		return 0, durationSampleResource{}, tier, false,
+			fmt.Errorf("normal resource fixed point for workload %q has invalid carried estimate %dms", workload.ID, carriedEstimateMS)
+	}
+	// 首次升档没有新档原始样本；沿用上一档实测估值，但不把它追加为新档样本。
+	estimate := max(carriedEstimateMS, upperBound)
+	resource := durationSampleResource{classID: classID, cpu: cpu, memoryGiB: memoryGiB}
+	if upperBound == 0 {
+		return estimate, resource, tier, true, nil
+	}
+	nextTier, done, err := normalResourceTierTransition(tier, estimate)
+	if err != nil {
+		return 0, durationSampleResource{}, tier, false, err
+	}
+	return estimate, resource, nextTier, done, nil
 }
 
 func (index DurationSampleIndex) retainedSuccessSamples(aggregate durationSampleAggregate) []durationSampleValue {

@@ -78,6 +78,32 @@ func TestDurationSampleIndexCalibrationUsesCrossInputUpperBound(t *testing.T) {
 	}
 }
 
+// TestDurationSampleIndexNormalUsesCrossInputUpperBoundForResourceFixedPoint
+// 锁定 exact input 缺样本时仍沿同 workload/command/resource 的已知长尾规划。
+func TestDurationSampleIndexNormalUsesCrossInputUpperBoundForResourceFixedPoint(t *testing.T) {
+	current := Workload{
+		ID: "guard:normal-cross-input", Kind: WorkloadKindGuard,
+		CommandDigest: strings.Repeat("2", 64), InputDigest: "sha256:" + strings.Repeat("b", 64),
+		BootstrapEstimateMS: 1_000, Shardable: true,
+	}
+	historical := current
+	historical.InputDigest = "sha256:" + strings.Repeat("a", 64)
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	index, err := BuildDurationSampleIndex(testPlanningLedger(context, []DurationSample{
+		testDurationIndexSample(historical, DurationExecutionModeNormal, "small", 2, 4, 80_000),
+	}), context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	estimate, resource, err := index.estimateNormalWorkload(current, FullCITargetDurationMS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != 80_000 || resource.cpu != 8 || resource.memoryGiB != 16 {
+		t.Fatalf("normal cross-input estimate = %dms at %.0fC/%.0fGiB, want 80000ms at 8C/16GiB", estimate, resource.cpu, resource.memoryGiB)
+	}
+}
+
 // TestDurationSampleIndexCalibrationFloorsUnknownNilnessPackage 验证全新 nilness 包没有历史时仍保留单次 analyzer 冷启动预算。
 func TestDurationSampleIndexCalibrationFloorsUnknownNilnessPackage(t *testing.T) {
 	workload, err := NewGoPackageWorkload(GateIDBackendNilness, "./internal/newpkg", 625)
