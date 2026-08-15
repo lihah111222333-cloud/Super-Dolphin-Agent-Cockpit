@@ -99,8 +99,8 @@
       ]
     },
     "scripts/chat-history-benchmark.mjs": {
-      "lines": 347,
-      "maxFuncLen": 104,
+      "lines": 250,
+      "maxFuncLen": 102,
       "maxNesting": 5,
       "maxParams": 5,
       "exportCount": 1,
@@ -349,22 +349,6 @@
         "params\u0000函数 addViolation 有 6 个参数，超过上限 5 个"
       ]
     },
-    "scripts/performance-budget-runner.mjs": {
-      "lines": 904,
-      "maxFuncLen": 54,
-      "maxNesting": 5,
-      "maxParams": 4,
-      "exportCount": 1,
-      "consoleLogs": 0,
-      "anyCount": 0,
-      "emptyFuncs": 0,
-      "todoCount": 0,
-      "longLineCount": 0,
-      "frozenViolations": [
-        "file-length\u0000文件有效代码 1117 行，超过上限 800 行",
-        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
-      ]
-    },
     "scripts/rpc-contract-audit.mjs": {
       "lines": 5223,
       "maxFuncLen": 185,
@@ -390,10 +374,10 @@
       ]
     },
     "scripts/stop-feedback-benchmark.mjs": {
-      "lines": 402,
-      "maxFuncLen": 102,
+      "lines": 270,
+      "maxFuncLen": 82,
       "maxNesting": 5,
-      "maxParams": 3,
+      "maxParams": 2,
       "exportCount": 1,
       "consoleLogs": 0,
       "anyCount": 0,
@@ -515,7 +499,7 @@
       ]
     },
     "__dir__:scripts": {
-      "lines": 55
+      "lines": 50
     }
   }
 }

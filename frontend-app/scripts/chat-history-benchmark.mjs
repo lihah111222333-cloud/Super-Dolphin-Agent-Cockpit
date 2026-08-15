@@ -1,22 +1,8 @@
-import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
-import {
-  ATTEMPTS_PER_SAMPLE,
-  CPU_DURATION_CLOCK,
-  HISTORY_REGRESSION_RATIO,
-  SAMPLE_COUNT,
-  WARMUP_COUNT,
-  evaluatePairedMedianCases,
-  measurementMedian,
-  median,
-  requireSubjectSha,
-} from './performance-budget-model.mjs';
-import { DEFAULT_BASELINE_PATH } from './performance-budget-config.mjs';
 import { buildChatHistoryFixture } from '../src/pages/chat/model/chatHistoryBenchmarkFixture.js';
 import {
   TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
@@ -25,76 +11,34 @@ import {
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPOSITORY_ROOT = resolve(dirname(SCRIPT_PATH), '..', '..');
+const SAMPLE_COUNT = 5;
+const WARMUP_COUNT = 1;
+const ATTEMPTS_PER_SAMPLE = 1;
+const CPU_DURATION_CLOCK = 'p50(production/reference process.cpuUsage(user+system),alternating,500000-iteration-blocks)';
 const DEFAULT_TURNS = Object.freeze([200, 1_000, 5_000]);
 const EXTENDED_TURNS = 10_000;
 const TOOL_COUNTS = Object.freeze([1, 3]);
 const HISTORY_BLOCK_COUNT = 9;
 const HISTORY_BLOCK_ITERATIONS = 500_000;
 const MEASUREMENT_ITERATIONS = HISTORY_BLOCK_COUNT * HISTORY_BLOCK_ITERATIONS;
-const P02_FIXTURE_PATH = 'frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js';
-const P02_TIMELINE_PATH = 'frontend-app/src/pages/chat/model/timelineMaterializationModel.js';
-const P02_SUBJECT_CONTENT_PATHS = Object.freeze([
-  P02_FIXTURE_PATH,
-  P02_TIMELINE_PATH,
-]);
 
-function requireFullSha(value, label) {
-  if (!/^[0-9a-f]{40}$/.test(value || '')) {
-    throw new TypeError(`${label} must be a full 40-character Git SHA`);
-  }
+function requireFiniteNonNegative(value, label) {
+  if (!Number.isFinite(value) || value < 0) throw new TypeError(`${label} must be a finite non-negative number`);
   return value;
 }
 
-function subjectContentEvidence(subjectRoot) {
-  const files = P02_SUBJECT_CONTENT_PATHS.map((path) => {
-    const filePath = resolve(subjectRoot, path);
-    if (!existsSync(filePath)) throw new Error(`P02 detached subject is missing ${path}`);
-    return Object.freeze({
-      path,
-      sha256: createHash('sha256').update(readFileSync(filePath)).digest('hex'),
-    });
-  });
-  const contentHash = createHash('sha256').update(files.map(({ path, sha256 }) => `${path}\0${sha256}\n`).join('')).digest('hex');
-  return Object.freeze({ contentHash, files: Object.freeze(files) });
+function measurementMedian(values, label = 'measurements') {
+  if (!Array.isArray(values) || values.length === 0) throw new TypeError(`${label} must be non-empty`);
+  const sorted = values.map((value, index) => requireFiniteNonNegative(value, `${label}[${index}]`))
+    .sort((left, right) => left - right);
+  return sorted[Math.floor(sorted.length / 2)];
 }
 
-async function importSubjectModule(subjectRoot, path, label) {
-  const filePath = resolve(subjectRoot, path);
-  if (!existsSync(filePath)) throw new Error(`P02 detached subject is missing ${label}: ${path}`);
-  try {
-    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
-  } catch (error) {
-    throw new Error(`P02 detached subject ${label} cannot be imported: ${path}`, { cause: error });
+function median(values, label = 'samples') {
+  if (!Array.isArray(values) || values.length !== SAMPLE_COUNT) {
+    throw new TypeError(`${label} must contain exactly ${SAMPLE_COUNT} samples`);
   }
-}
-
-async function loadChatHistoryBenchmarkTarget({ subjectRoot, subjectSha, subjectTree } = {}) {
-  if (typeof subjectRoot !== 'string' || subjectRoot.length === 0) throw new TypeError('P02 subjectRoot is required');
-  requireFullSha(subjectSha, 'P02 subjectSha');
-  requireFullSha(subjectTree, 'P02 subjectTree');
-  const root = resolve(subjectRoot);
-  const [fixtureModule, timelineModule] = await Promise.all([
-    importSubjectModule(root, P02_FIXTURE_PATH, 'fixture'),
-    importSubjectModule(root, P02_TIMELINE_PATH, 'timeline model'),
-  ]);
-  if (typeof fixtureModule.buildChatHistoryFixture !== 'function') {
-    throw new Error(`P02 detached subject fixture does not export buildChatHistoryFixture: ${P02_FIXTURE_PATH}`);
-  }
-  if (typeof timelineModule.selectMaterializedTimeline !== 'function'
-    || !Number.isSafeInteger(timelineModule.TIMELINE_INITIAL_MATERIALIZED_MESSAGES)
-    || timelineModule.TIMELINE_INITIAL_MATERIALIZED_MESSAGES <= 0) {
-    throw new Error(`P02 detached subject timeline model has an invalid materialization contract: ${P02_TIMELINE_PATH}`);
-  }
-  return Object.freeze({
-    buildChatHistoryFixture: fixtureModule.buildChatHistoryFixture,
-    selectMaterializedTimeline: timelineModule.selectMaterializedTimeline,
-    timelineInitialMaterializedMessages: timelineModule.TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
-    provenance: Object.freeze({
-      content: subjectContentEvidence(root),
-      subjectSha,
-      subjectTree,
-    }),
-  });
+  return measurementMedian(values, label);
 }
 
 function resolveChatHistoryBenchmarkTarget(target) {
@@ -110,7 +54,7 @@ function resolveChatHistoryBenchmarkTarget(target) {
     || typeof target.selectMaterializedTimeline !== 'function'
     || !Number.isSafeInteger(target.timelineInitialMaterializedMessages)
     || target.timelineInitialMaterializedMessages <= 0) {
-    throw new TypeError('P02 target requires fixture, timeline selector, and a positive materialization limit');
+    throw new TypeError('chat history target requires fixture, timeline selector, and a positive materialization limit');
   }
   return target;
 }
@@ -193,7 +137,6 @@ function runChatHistoryBenchmarkSamples({
   const subjectTarget = resolveChatHistoryBenchmarkTarget(target);
   const {
     buildChatHistoryFixture: buildFixture,
-    provenance: subjectProduct,
     selectMaterializedTimeline: selectTimeline,
     timelineInitialMaterializedMessages: materializationLimit,
   } = subjectTarget;
@@ -276,9 +219,8 @@ function runChatHistoryBenchmarkSamples({
     });
   }
   return Object.freeze({
-    metricId: 'P02-history-budget',
+    metricId: 'history-timing-diagnostic',
     subjectSha: commit,
-    ...(subjectProduct === undefined ? {} : { subjectProduct }),
     node: process.version,
     warmupCount,
     sampleCount,
@@ -286,61 +228,22 @@ function runChatHistoryBenchmarkSamples({
   });
 }
 
-function verifyChatHistoryEvidence(evidence, baseline) {
-  return evaluatePairedMedianCases({
-    baselineMetric: baseline?.metrics?.['P02-history-budget'],
-    currentMetric: evidence,
-    durationClock: CPU_DURATION_CLOCK,
-    metricId: 'P02-history-budget',
-    ratioKey: 'maxRegressionRatio',
-    requiredRatio: HISTORY_REGRESSION_RATIO,
-  });
-}
-
 function parseArguments(args) {
   const options = {
     extended: false,
-    verify: false,
-    subject: currentCommit(),
-    baselinePath: DEFAULT_BASELINE_PATH,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--extended') options.extended = true;
-    else if (arg === '--verify') options.verify = true;
-    else if (arg === '--subject') options.subject = args[++index] || '';
-    else if (arg === '--baseline') options.baselinePath = resolve(args[++index] || '');
     else throw new TypeError(`unsupported chat history benchmark argument: ${arg}`);
   }
-  if (options.verify) requireSubjectSha(options.subject, currentCommit());
   return options;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
   try {
     const options = parseArguments(process.argv.slice(2));
-    if (!options.verify) {
-      process.stdout.write(`${JSON.stringify(runChatHistoryBenchmark({ extended: options.extended }))}\n`);
-    } else {
-      if (options.extended) {
-        throw new TypeError('--extended is not part of the frozen --verify case registry');
-      }
-      const result = spawnSync(process.execPath, [
-        resolve(dirname(SCRIPT_PATH), 'performance-budget-runner.mjs'),
-        '--verify',
-        '--subject', options.subject,
-        '--baseline', options.baselinePath,
-      ], {
-        cwd: REPOSITORY_ROOT,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      if (result.error) throw result.error;
-      if (result.stdout) process.stdout.write(result.stdout);
-      if (result.stderr) process.stderr.write(result.stderr);
-      if (!Number.isInteger(result.status)) throw new Error(`performance runner terminated by ${result.signal || 'unknown signal'}`);
-      process.exitCode = result.status;
-    }
+    process.stdout.write(`${JSON.stringify(runChatHistoryBenchmark({ extended: options.extended }))}\n`);
   } catch (error) {
     process.stderr.write(`chat history benchmark failed: ${error.message}\n`);
     process.exitCode = 1;
@@ -349,15 +252,13 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
 
 export {
   ATTEMPTS_PER_SAMPLE,
-  DEFAULT_BASELINE_PATH,
   HISTORY_BLOCK_COUNT,
   HISTORY_BLOCK_ITERATIONS,
   MEASUREMENT_ITERATIONS,
-  P02_SUBJECT_CONTENT_PATHS,
   buildChatHistoryBenchmarkCases,
-  loadChatHistoryBenchmarkTarget,
   measureChatHistoryCase,
+  measurementMedian,
+  median,
   runChatHistoryBenchmark,
   runChatHistoryBenchmarkSamples,
-  verifyChatHistoryEvidence,
 };

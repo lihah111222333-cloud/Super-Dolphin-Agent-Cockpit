@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// ownedGateRunners 构造 release、工作流、夜间协议所有者的 runner。
+// ownedGateRunners 构造 release、工作流所有者的 runner。
 func ownedGateRunners(plan gatePlan) map[string]gateRunner {
 	return map[string]gateRunner{
 		"backend:test-integrity": {run: func() error {

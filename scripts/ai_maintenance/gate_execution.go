@@ -179,11 +179,6 @@ func runFrontendChangedTests(plan gatePlan) error {
 	return runCommand(gateExecutionDir(plan, "frontend-app"), "npx", args...)
 }
 
-// frontendChangedTestFiles 根据前端 diff 收集直接变更或同名配对的 Vitest 测试文件。
-func frontendChangedTestFiles(files []string) ([]string, error) {
-	return frontendChangedTestFilesInRoot(".", files)
-}
-
 // frontendChangedTestFilesInRoot 仅从指定 candidate root 解析直接或同名配对测试。
 func frontendChangedTestFilesInRoot(repoRoot string, files []string) ([]string, error) {
 	seen := map[string]bool{}
@@ -219,8 +214,7 @@ func isFrontendTestFile(file string) bool {
 
 func frontendVitestDefaultExcludedTestFile(file string) bool {
 	base := filepath.Base(file)
-	return strings.Contains(base, "benchmark.test.") ||
-		(strings.HasPrefix(file, "scripts/performance-") && isFrontendTestFile(file))
+	return strings.Contains(base, "benchmark.test.")
 }
 
 func pairedFrontendTestFile(file string) string {

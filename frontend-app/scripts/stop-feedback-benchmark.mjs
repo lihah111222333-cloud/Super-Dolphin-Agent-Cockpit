@@ -1,65 +1,70 @@
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
+import process from 'node:process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
-import {
-  ATTEMPTS_PER_SAMPLE,
-  FEEDBACK_DURATION_CLOCK,
-  FEEDBACK_REGRESSION_RATIO,
-  SAMPLE_COUNT,
-  WARMUP_COUNT,
-  evaluateMedianCases,
-  measurementTrimmedMean,
-  median,
-} from './performance-budget-model.mjs';
+import { attachActiveThreadRpcRuntime } from '../src/entities/client/model/threadLifecycleRuntime.js';
+import { ChatActionFeedback } from '../src/pages/chat/components/ChatActionFeedback.js';
+
+const SAMPLE_COUNT = 5;
+const WARMUP_COUNT = 1;
+const ATTEMPTS_PER_SAMPLE = 1;
+const FEEDBACK_DURATION_CLOCK = 'trimmed-mean-80%(performance.now(feedbackAt-startedAt))';
 
 // Eleven observations retain the 80% trimmed mean's outlier rejection without turning DOM commits into a load test.
 const MEASUREMENT_ITERATIONS = 11;
 const DOM_COMMIT_TIMEOUT_MS = 250;
-const FROZEN_PLAN_BASE_SHA = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const STOP_FEEDBACK = Object.freeze({
-  base: Object.freeze({
-    confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
-    unconfirmed: Object.freeze({ message: '中断当前执行失败：stop confirmation timed out', tone: 'warning' }),
-    unconfirmedResponse: Object.freeze({
-      ok: false,
-      mode: 'interrupt_timeout',
-      message: 'stop confirmation timed out',
-    }),
-  }),
-  candidate: Object.freeze({
-    confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
-    unconfirmed: Object.freeze({ message: '停止未确认，任务可能仍在运行', tone: 'warning' }),
-    unconfirmedResponse: Object.freeze({
-      ok: false,
-      accepted: true,
-      requestId: 'performance-stop-request',
-      expectedTurnId: 'turn-performance',
-      turnId: 'turn-performance',
-      status: 'running',
-      confirmed: true,
-      mode: 'interrupt_timeout',
-      interruptSent: true,
-      stateBefore: 'running',
-      stateAfter: 'running',
-      waitedMs: 0,
-      activeObserved: true,
-    }),
+  confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
+  unconfirmed: Object.freeze({ message: '停止未确认，任务可能仍在运行', tone: 'warning' }),
+  unconfirmedResponse: Object.freeze({
+    ok: false,
+    accepted: true,
+    requestId: 'performance-stop-request',
+    expectedTurnId: 'turn-performance',
+    turnId: 'turn-performance',
+    status: 'running',
+    confirmed: true,
+    mode: 'interrupt_timeout',
+    interruptSent: true,
+    stateBefore: 'running',
+    stateAfter: 'running',
+    waitedMs: 0,
+    activeObserved: true,
   }),
 });
-const STOP_FEEDBACK_PENDING = Object.freeze({ message: '正在请求停止，尚未确认，任务可能仍在运行', tone: 'info' });
 const STOP_FEEDBACK_COPY = Object.freeze({ noticeTitle: '操作通知' });
-const P03_SUBJECT_FEEDBACK_COMPONENT_PATH = 'frontend-app/src/pages/chat/components/ChatActionFeedback.js';
-const P03_SUBJECT_CONTENT_PATHS = Object.freeze([
-  'frontend-app/package-lock.json',
-  'frontend-app/package.json',
-  'frontend-app/src/entities/client/model/contractStoreModel.js',
-  'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
-  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
-]);
-const P03_RUNTIME_PATH = 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js';
+
+function requireFiniteNonNegative(value, label) {
+  if (!Number.isFinite(value) || value < 0) throw new TypeError(`${label} must be a finite non-negative number`);
+  return value;
+}
+
+function measurementTrimmedMean(values, label = 'measurements') {
+  if (!Array.isArray(values) || values.length < 5) {
+    throw new TypeError(`${label} must contain at least 5 measurements`);
+  }
+  const sorted = values.map((value, index) => requireFiniteNonNegative(value, `${label}[${index}]`))
+    .sort((left, right) => left - right);
+  const trimCount = Math.floor(sorted.length * 0.1);
+  const retained = sorted.slice(trimCount, sorted.length - trimCount);
+  return retained.reduce((total, value) => total + value, 0) / retained.length;
+}
+
+function measurementMedian(values, label = 'measurements') {
+  if (!Array.isArray(values) || values.length === 0) throw new TypeError(`${label} must be non-empty`);
+  const sorted = values.map((value, index) => requireFiniteNonNegative(value, `${label}[${index}]`))
+    .sort((left, right) => left - right);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function median(values, label = 'samples') {
+  if (!Array.isArray(values) || values.length !== SAMPLE_COUNT) {
+    throw new TypeError(`${label} must contain exactly ${SAMPLE_COUNT} samples`);
+  }
+  return measurementMedian(values, label);
+}
 
 if (typeof globalThis.document === 'undefined') {
   const { window } = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -76,100 +81,6 @@ if (typeof globalThis.document === 'undefined') {
 const React = await import('react');
 const { flushSync } = await import('react-dom');
 const { createRoot } = await import('react-dom/client');
-
-function normalizeDOMMutation(mutation = {}) {
-  if (mutation == null || typeof mutation !== 'object' || Array.isArray(mutation)) {
-    throw new TypeError('domMutation must be an object');
-  }
-  const mode = mutation.mode ?? 'none';
-  const delayMs = mutation.delayMs ?? 0;
-  if (!['none', 'suppress', 'delay'].includes(mode)) throw new TypeError(`unsupported domMutation mode: ${mode}`);
-  if (!Number.isFinite(delayMs) || delayMs < 0) throw new TypeError('domMutation delayMs must be finite and non-negative');
-  if (mode !== 'delay' && delayMs !== 0) throw new TypeError('only delay domMutation may set delayMs');
-  return Object.freeze({ delayMs, mode });
-}
-
-function stopFeedbackContractForSubject(subjectSha) {
-  if (!/^[0-9a-f]{40}$/.test(subjectSha || '')) {
-    throw new TypeError('subjectSha must be a full 40-character Git SHA');
-  }
-  return subjectSha === FROZEN_PLAN_BASE_SHA ? STOP_FEEDBACK.base : STOP_FEEDBACK.candidate;
-}
-
-function subjectContentEvidence(subjectRoot, contentPaths = P03_SUBJECT_CONTENT_PATHS) {
-  if (typeof subjectRoot !== 'string' || subjectRoot.length === 0) throw new TypeError('subjectRoot is required');
-  if (!Array.isArray(contentPaths) || contentPaths.length === 0 || new Set(contentPaths).size !== contentPaths.length) {
-    throw new TypeError('P03 subject content paths must be a non-empty unique array');
-  }
-  const files = contentPaths.map((path) => {
-    const content = readFileSync(resolve(subjectRoot, path));
-    return Object.freeze({ path, sha256: createHash('sha256').update(content).digest('hex') });
-  });
-  const aggregate = createHash('sha256');
-  files.forEach(({ path, sha256 }) => aggregate.update(`${path}\0${sha256}\n`));
-  return Object.freeze({ contentHash: aggregate.digest('hex'), files: Object.freeze(files) });
-}
-
-async function importSubjectModule(subjectRoot, path, label) {
-  const filePath = resolve(subjectRoot, path);
-  if (!existsSync(filePath)) throw new Error(`P03 detached subject is missing ${label}: ${path}`);
-  try {
-    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
-  } catch (error) {
-    throw new Error(`P03 detached subject ${label} cannot be imported: ${path}`, { cause: error });
-  }
-}
-
-async function loadStopFeedbackTarget({ subjectRoot, subjectSha, subjectTree } = {}) {
-  if (typeof subjectRoot !== 'string' || subjectRoot.length === 0) throw new TypeError('P03 subjectRoot is required');
-  if (!/^[0-9a-f]{40}$/.test(subjectSha || '')) {
-    throw new TypeError('subjectSha must be a full 40-character Git SHA');
-  }
-  if (!/^[0-9a-f]{40}$/.test(subjectTree || '')) {
-    throw new TypeError('subjectTree must be a full 40-character Git tree SHA');
-  }
-  const root = resolve(subjectRoot);
-  const componentPath = resolve(root, P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
-  if (!existsSync(componentPath)) {
-    throw new Error(`P03 detached subject feedback component is missing: ${P03_SUBJECT_FEEDBACK_COMPONENT_PATH}`);
-  }
-  const [runtimeModule, componentModule] = await Promise.all([
-    importSubjectModule(root, P03_RUNTIME_PATH, 'runtime'),
-    importSubjectModule(root, P03_SUBJECT_FEEDBACK_COMPONENT_PATH, 'feedback component'),
-  ]);
-  if (typeof runtimeModule.attachActiveThreadRpcRuntime !== 'function') {
-    throw new Error(`P03 target runtime does not export attachActiveThreadRpcRuntime: ${P03_RUNTIME_PATH}`);
-  }
-  if (typeof componentModule.ChatActionFeedback !== 'function') {
-    throw new Error(`P03 target component does not export ChatActionFeedback: ${P03_SUBJECT_FEEDBACK_COMPONENT_PATH}`);
-  }
-  return Object.freeze({
-    attachRuntime: runtimeModule.attachActiveThreadRpcRuntime,
-    feedbackProbe: componentModule.ChatActionFeedback,
-    provenance: Object.freeze({
-      content: subjectContentEvidence(root),
-      feedbackComponentPath: P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
-      runtimePath: P03_RUNTIME_PATH,
-      subjectSha,
-      subjectTree,
-    }),
-  });
-}
-
-function resolveStopFeedbackAttachRuntime(attachRuntime, target) {
-  if (attachRuntime === undefined) {
-    if (typeof target?.attachRuntime !== 'function') throw new TypeError('P03 target attachRuntime is required');
-    return target.attachRuntime;
-  }
-  if (typeof attachRuntime !== 'function') throw new TypeError('attachRuntime must be a function');
-  return attachRuntime;
-}
-
-function resolveStopFeedbackComponent(target, feedbackProbe) {
-  const component = feedbackProbe ?? target?.feedbackProbe;
-  if (typeof component !== 'function') throw new TypeError('P03 subject feedback component is required');
-  return component;
-}
 
 function observeFeedbackCommit(host, expected) {
   return new Promise((resolve, reject) => {
@@ -216,17 +127,10 @@ function confirmedInterruptResponse() {
   };
 }
 
-function createStopFeedbackHarness({
-  attachRuntime,
-  domMutation,
-  feedbackProbe,
-  subjectSha,
-  target,
-} = {}) {
-  const runtimeAttacher = resolveStopFeedbackAttachRuntime(attachRuntime, target);
-  const FeedbackComponent = resolveStopFeedbackComponent(target, feedbackProbe);
-  const contract = stopFeedbackContractForSubject(subjectSha);
-  const mutation = normalizeDOMMutation(domMutation);
+function createStopFeedbackHarness() {
+  const runtimeAttacher = attachActiveThreadRpcRuntime;
+  const FeedbackComponent = ChatActionFeedback;
+  const contract = STOP_FEEDBACK;
   const host = globalThis.document.createElement('div');
   globalThis.document.body.append(host);
   const root = createRoot(host);
@@ -245,27 +149,16 @@ function createStopFeedbackHarness({
     },
     cwd: '/performance/probe',
   };
-  const scheduledFeedback = new Set();
   const renderFeedback = (feedback) => {
-    if (mutation.mode === 'suppress') return;
-    if (mutation.mode === 'delay') {
-      const timeoutId = globalThis.setTimeout(() => {
-        scheduledFeedback.delete(timeoutId);
-        commitFeedback(feedback);
-      }, mutation.delayMs);
-      scheduledFeedback.add(timeoutId);
-      return;
-    }
     commitFeedback(feedback);
   };
   const runtime = {
     addWarning() {},
     get: () => state,
     notifyAction(message, tone) {
-      const isPending = message === STOP_FEEDBACK_PENDING.message && tone === STOP_FEEDBACK_PENDING.tone;
       const isConfirmed = message === contract.confirmed.message && tone === contract.confirmed.tone;
       const isUnconfirmed = message === contract.unconfirmed.message && tone === contract.unconfirmed.tone;
-      if (!isPending && !isConfirmed && !isUnconfirmed) throw new Error(`unexpected stop feedback: ${tone}:${message}`);
+      if (!isConfirmed && !isUnconfirmed) throw new Error(`unexpected stop feedback: ${tone}:${message}`);
       renderFeedback({ message, tone });
     },
     requireCwd: () => state.cwd,
@@ -300,8 +193,6 @@ function createStopFeedbackHarness({
   };
   return {
     destroy() {
-      for (const timeoutId of scheduledFeedback) globalThis.clearTimeout(timeoutId);
-      scheduledFeedback.clear();
       root.unmount();
       host.remove();
     },
@@ -320,18 +211,12 @@ function createStopFeedbackHarness({
 }
 
 async function runStopFeedbackBenchmark({
-  attachRuntime,
-  subjectSha,
-  target,
   sampleCount = SAMPLE_COUNT,
   warmupCount = WARMUP_COUNT,
 } = {}) {
   if (sampleCount !== SAMPLE_COUNT) throw new TypeError(`sampleCount must be ${SAMPLE_COUNT}`);
   if (warmupCount !== WARMUP_COUNT) throw new TypeError(`warmupCount must be ${WARMUP_COUNT}`);
-  if (target?.provenance?.feedbackComponentPath !== P03_SUBJECT_FEEDBACK_COMPONENT_PATH) {
-    throw new Error('P03 target must bind the subject feedback component');
-  }
-  const harness = createStopFeedbackHarness({ attachRuntime, subjectSha, target });
+  const harness = createStopFeedbackHarness();
   const measureBatch = async () => {
     const durationsMs = [];
     for (let index = 0; index < MEASUREMENT_ITERATIONS; index += 1) {
@@ -357,13 +242,7 @@ async function runStopFeedbackBenchmark({
     const durationSamplesMs = sampleDiagnostics.map(({ durationMs }) => durationMs);
     const durationAttemptSamplesMs = durationSamplesMs.map((durationMs) => Object.freeze([durationMs]));
     return Object.freeze({
-      metricId: 'P03-feedback-budget',
-      subjectFeedbackComponent: Object.freeze({
-        path: P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
-        source: 'subject',
-      }),
-      subjectSha,
-      subjectRuntime: target?.provenance,
+      metricId: 'stop-feedback-timing-diagnostic',
       warmupCount,
       sampleCount,
       cases: Object.freeze({
@@ -385,35 +264,22 @@ async function runStopFeedbackBenchmark({
   }
 }
 
-function verifyStopFeedbackEvidence(evidence, baseline) {
-  return evaluateMedianCases({
-    baselineMetric: baseline?.metrics?.['P03-feedback-budget'],
-    currentMetric: evidence,
-    durationClock: FEEDBACK_DURATION_CLOCK,
-    metricId: 'P03-feedback-budget',
-    ratioKey: 'maxRegressionRatio',
-    requiredRatio: FEEDBACK_REGRESSION_RATIO,
-    valueKey: 'durationMedianMs',
-  });
+if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
+  try {
+    process.stdout.write(`${JSON.stringify(await runStopFeedbackBenchmark())}\n`);
+  } catch (error) {
+    process.stderr.write(`stop feedback benchmark failed: ${error.message}\n`);
+    process.exitCode = 1;
+  }
 }
 
 export {
   ATTEMPTS_PER_SAMPLE,
   DOM_COMMIT_TIMEOUT_MS,
   FEEDBACK_DURATION_CLOCK,
-  FROZEN_PLAN_BASE_SHA,
   MEASUREMENT_ITERATIONS,
-  P03_RUNTIME_PATH,
-  P03_SUBJECT_CONTENT_PATHS,
-  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
-  STOP_FEEDBACK_PENDING,
   createStopFeedbackHarness,
-  loadStopFeedbackTarget,
+  measurementMedian,
   measurementTrimmedMean,
   runStopFeedbackBenchmark,
-  resolveStopFeedbackAttachRuntime,
-  resolveStopFeedbackComponent,
-  stopFeedbackContractForSubject,
-  subjectContentEvidence,
-  verifyStopFeedbackEvidence,
 };

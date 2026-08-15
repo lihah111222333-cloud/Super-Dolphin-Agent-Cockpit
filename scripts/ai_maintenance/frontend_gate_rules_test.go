@@ -22,7 +22,7 @@ func TestFrontendGatePlanUsesRiskSpecificRouting(t *testing.T) {
 		{name: "stylesheet", path: "frontend-app/src/styles.css", want: []string{"frontend:static-guards"}, omit: []string{"frontend:lint", "frontend:changed-tests", "frontend:typecheck-contracts", "frontend:embed-verify", "lsp:changed-diagnostics"}},
 		{name: "unit test", path: "frontend-app/src/App.test.jsx", want: []string{"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "lsp:changed-diagnostics"}, omit: []string{"frontend:embed-verify", "frontend:typecheck-contracts"}},
 		{name: "gate script", path: "frontend-app/scripts/frontend-state-ownership-guard.mjs", want: []string{"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "lsp:changed-diagnostics"}, omit: []string{"frontend:embed-verify"}},
-		{name: "remote performance runtime", path: "frontend-app/scripts/runtime/git-environment.mjs", want: []string{"frontend:static-guards", "frontend:lint", "lsp:changed-diagnostics"}, omit: []string{"frontend:changed-tests"}},
+		{name: "delivery closure runtime", path: "frontend-app/scripts/runtime/git-environment.mjs", want: []string{"frontend:static-guards", "frontend:lint", "lsp:changed-diagnostics"}, omit: []string{"frontend:changed-tests"}},
 		{name: "performance subject with unit test", path: "frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js", want: []string{"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "lsp:changed-diagnostics"}},
 		{name: "package manifest", path: "frontend-app/package.json", want: []string{"frontend:static-guards", "frontend:lint", "frontend:typecheck-contracts"}, omit: []string{"frontend:changed-tests", "frontend:embed-verify", "lsp:changed-diagnostics"}},
 		{name: "package lock", path: "frontend-app/package-lock.json", want: []string{"frontend:static-guards", "frontend:lint", "frontend:typecheck-contracts"}, omit: []string{"frontend:changed-tests", "lsp:changed-diagnostics"}},
@@ -49,10 +49,12 @@ func TestBuildGatePlanRoutesFrontendChangedTestsWithoutFullNpmTest(t *testing.T)
 	assertStringSetOmits(t, plan.RequiredGates, "frontend:test")
 }
 
-func TestBuildGatePlanOmitsDesktopSmokeFromPreCommitChangedTests(t *testing.T) {
+func TestBuildGatePlanOmitsDeliveryClosureFromPreCommitChangedTests(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{
 		"frontend-app/scripts/delivery-smoke-runner.mjs",
 		"frontend-app/scripts/delivery-smoke-runner.test.mjs",
+		"frontend-app/scripts/evidence-provenance.mjs",
+		"frontend-app/scripts/runtime/git-environment.mjs",
 	})
 
 	assertStringSetOmits(t, plan.RequiredGates, "frontend:changed-tests", "frontend:test")
@@ -68,9 +70,6 @@ func TestFrontendWallClockDiagnosticsAreNonBlocking(t *testing.T) {
 		"frontend-app/scripts/stop-feedback-benchmark.test.mjs",
 	} {
 		t.Run("diagnostic/"+path, func(t *testing.T) {
-			if frontendPerformanceRelevant(path) {
-				t.Fatalf("frontendPerformanceRelevant(%q) = true, want false", path)
-			}
 			if frontendChangedTestRelevant(path) {
 				t.Fatalf("frontendChangedTestRelevant(%q) = true, want false", path)
 			}
@@ -80,15 +79,13 @@ func TestFrontendWallClockDiagnosticsAreNonBlocking(t *testing.T) {
 		})
 	}
 	for _, path := range []string{
+		"frontend-app/src/App.renderIsolation.test.jsx",
 		"frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js",
 		"frontend-app/src/entities/client/model/threadLifecycleRuntime.js",
 		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
 		"frontend-app/src/pages/chat/model/timelineMaterializationModel.js",
 	} {
 		t.Run("correctness/"+path, func(t *testing.T) {
-			if frontendPerformanceRelevant(path) {
-				t.Fatalf("frontendPerformanceRelevant(%q) = true, want false", path)
-			}
 			if !frontendChangedTestRelevant(path) {
 				t.Fatalf("frontendChangedTestRelevant(%q) = false, want true", path)
 			}

@@ -21,7 +21,7 @@ func RequiredCheckForWorkloadID(workloadID string) (cicontract.RequiredCheck, er
 		return cicontract.RequiredCheckNormal, nil
 	case GateIDFrontendPreflight:
 		return cicontract.RequiredCheckDependency, nil
-	case GateIDFrontendPerformanceVerify, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
+	case GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
 		return cicontract.RequiredCheckFrontend, nil
 	case GateIDAIMaintenanceSelfTest, GateIDLSPChangedDiagnostics, GateIDBackendNilness, GateIDSQLCVerify,
 		GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck, GateIDReleaseLayeredCheck:

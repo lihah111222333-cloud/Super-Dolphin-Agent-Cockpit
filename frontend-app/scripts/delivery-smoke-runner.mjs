@@ -6,7 +6,6 @@ import process from 'node:process';
 import { collectEvidenceProvenance } from './evidence-provenance.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
-import { requireSubjectSha } from './performance-budget-model.mjs';
 import { runManagedCommand } from './managed-command.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
@@ -17,6 +16,16 @@ export const DELIVERY_COMMAND_TIMEOUT_MS = 900_000;
 const NPM_COMMAND = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const DELIVERY_DIAGNOSTIC_MAX_BYTES = 4 * 1024;
 const RUNNER_TRUNCATION_MARKER = '\n...[runner truncated]...\n';
+
+function requireSubjectSha(subjectSha, currentSha) {
+  if (!/^[0-9a-f]{40}$/.test(subjectSha || '')) {
+    throw new TypeError('subject must be a full 40-character Git SHA');
+  }
+  if (subjectSha !== currentSha) {
+    throw new Error(`subject mismatch: expected current HEAD ${currentSha}, got ${subjectSha}`);
+  }
+  return subjectSha;
+}
 
 const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
@@ -298,7 +307,6 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
       repositoryRoot: options.repositoryRoot,
       runnerRepositoryRoot: REPOSITORY_ROOT,
       runnerContentPaths: DELIVERY_RUNNER_CONTENT_PATHS,
-      recordBaselineAudit: false,
       runnerId: 'frontend-delivery-smoke',
       subjectSha: options.subjectSha,
     });

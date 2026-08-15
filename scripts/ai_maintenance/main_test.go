@@ -465,7 +465,6 @@ func TestGatePlanProducerMatchesRunnerRegistry(t *testing.T) {
 		{".githooks/pre-commit"},
 		{"frontend-app/src/App.jsx"},
 		{"frontend-app/src/shared/ui/runUIAction.js"},
-		{"frontend-app/scripts/frontend-maintainability-baseline.json"},
 		{"internal/store/thread/store.go"},
 		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},

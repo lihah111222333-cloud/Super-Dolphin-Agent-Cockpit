@@ -173,10 +173,9 @@ func writeInventoryFixture(t *testing.T, repository string) {
 		"frontend-app/scripts/remote-suite-carriers/changed.test.mjs":             "// protocol carrier\n",
 		inventoryVitestSuitePolicyPath: `{
   "schemaVersion": 1,
-  "defaultExcludes": ["**/scripts/**/*benchmark.test.*", "**/scripts/**/performance-*.test.*", "**/scripts/remote-preflight-carriers/*.test.mjs", "**/scripts/remote-suite-carriers/*.test.mjs"]
+  "defaultExcludes": ["**/scripts/**/*benchmark.test.*", "**/scripts/remote-preflight-carriers/*.test.mjs", "**/scripts/remote-suite-carriers/*.test.mjs"]
 }`,
 		"frontend-app/scripts/chat-history-benchmark.test.mjs": "test('benchmark', () => {})\n",
-		"frontend-app/scripts/performance-budget.test.mjs":     "test('performance', () => {})\n",
 	}
 	for filePath, body := range files {
 		writeInventoryFile(t, repository, filePath, body)
@@ -282,8 +281,6 @@ func TestInventoryVitestGlobMatches(t *testing.T) {
 	}{
 		{pattern: "**/scripts/**/*benchmark.test.*", target: "scripts/chat-history-benchmark.test.mjs", want: true},
 		{pattern: "**/scripts/**/*benchmark.test.*", target: "scripts/nested/stop-feedback-benchmark.test.mjs", want: true},
-		{pattern: "**/scripts/**/performance-*.test.*", target: "scripts/performance-budget.test.mjs", want: true},
-		{pattern: "**/scripts/**/performance-*.test.*", target: "src/performance-budget.test.mjs", want: false},
 	} {
 		if got := inventoryVitestGlobMatches(test.pattern, test.target); got != test.want {
 			t.Errorf("inventoryVitestGlobMatches(%q, %q) = %t, want %t", test.pattern, test.target, got, test.want)
