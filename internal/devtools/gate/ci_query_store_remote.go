@@ -80,7 +80,24 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	record.CleanupComplete = cleanupComplete == 1
 	record.StartedAt = time.UnixMilli(startedAtMS).UTC()
 	record.CompletedAt = time.UnixMilli(completedAtMS).UTC()
+	if err := loadRemoteCIRunExecutionIdentity(database, &record); err != nil {
+		return RemoteCIRunRecord{}, err
+	}
 	return record, nil
+}
+
+func loadRemoteCIRunExecutionIdentity(database sqliteRowQueryer, record *RemoteCIRunRecord) error {
+	err := database.QueryRow(`SELECT platform, runner_identity_digest, toolchain_digest, execution_mode FROM ci_remote_run_execution_identities WHERE job_id = ?`, record.JobID).Scan(&record.Platform, &record.RunnerIdentityDigest, &record.ToolchainDigest, &record.ExecutionMode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return mapDurationLedgerSQLiteError("load remote CI run execution identity", err)
+	}
+	if err := validateRemoteCIRunExecutionIdentity(*record); err != nil {
+		return fmt.Errorf("stored remote CI run execution identity: %w", err)
+	}
+	return nil
 }
 
 // loadRemoteCIRunDetails 在同一个只读事务中补全 run 的关联投影。

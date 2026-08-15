@@ -429,8 +429,13 @@ func remoteRunAuthorityIdentity(result remoteci.RunResult) gatecontract.RemoteCI
 		ImageCacheSnapshotID:         result.ImageCacheSnapshotID,
 		CandidateGateSourceSHA256:    result.CandidateGateSourceSHA256,
 		CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256,
-		RunnerImage:                  result.RunnerImage, StartedAt: result.StartedAt,
-		WorkloadPassIdentities: slices.Clone(result.WorkloadPassIdentities),
+		RunnerImage:                  result.RunnerImage,
+		Platform:                     result.Platform,
+		RunnerIdentityDigest:         result.RunnerIdentityDigest,
+		ToolchainDigest:              result.ToolchainDigest,
+		ExecutionMode:                result.ExecutionMode,
+		StartedAt:                    result.StartedAt,
+		WorkloadPassIdentities:       slices.Clone(result.WorkloadPassIdentities),
 	}
 }
 

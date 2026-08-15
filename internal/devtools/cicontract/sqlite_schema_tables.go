@@ -40,6 +40,7 @@ func SQLAuthorityAuxiliaryTables() []string {
 		LocalWorkloadExecutionsTable,
 		LocalWorkloadPassEvidenceTable,
 		RemoteRunExecutionScopesTable,
+		RemoteRunExecutionIdentitiesTable,
 		RetainedWorkloadPassProofsTable,
 		WorkloadInputReplayCacheTable,
 	}

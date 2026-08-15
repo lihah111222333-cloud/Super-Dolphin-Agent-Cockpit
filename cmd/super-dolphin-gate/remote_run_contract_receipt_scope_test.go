@@ -202,6 +202,23 @@ func TestRemoteRunAuthorityIdentityScopeFieldGuard(t *testing.T) {
 	}
 }
 
+func TestRemoteRunAuthorityExecutionIdentityFieldGuard(t *testing.T) {
+	plan, catalog := remoteRunReceiptTestPlanAndCatalog(t)
+	result := remoteRunReceiptTestResult(t, plan, catalog)
+	identity := remoteRunAuthorityIdentity(result)
+	for _, name := range []string{"Platform", "RunnerIdentityDigest", "ToolchainDigest", "ExecutionMode"} {
+		producer, producerOK := reflect.TypeFor[remoteci.RunResult]().FieldByName(name)
+		consumer, consumerOK := reflect.TypeFor[gatecontract.RemoteCIRunAuthorityIdentity]().FieldByName(name)
+		stored, storedOK := reflect.TypeFor[gatecontract.RemoteCIRunRecord]().FieldByName(name)
+		if !producerOK || !consumerOK || !storedOK || producer.Type != consumer.Type || producer.Type != stored.Type {
+			t.Fatalf("execution identity field %q is not preserved across producer, authority, and record", name)
+		}
+		if !reflect.DeepEqual(reflect.ValueOf(result).FieldByName(name).Interface(), reflect.ValueOf(identity).FieldByName(name).Interface()) {
+			t.Fatalf("execution identity field %q drifted in authority mapper", name)
+		}
+	}
+}
+
 // TestRemoteRunCheckObservationsFollowExecutionScope ensures a subset receipt
 // covers exactly its selected shardable workloads and cannot carry a release
 // owner attestation from the full catalog.

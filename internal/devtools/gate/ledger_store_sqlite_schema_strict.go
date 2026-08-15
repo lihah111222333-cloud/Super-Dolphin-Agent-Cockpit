@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 type durationLedgerSQLiteSchemaQueryer interface {
@@ -31,7 +33,18 @@ func durationLedgerSQLiteCurrentSchemaStatements() []string {
 	statements = append(statements, durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
 	statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
 	statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
-	return append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
+	statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
+	return append(statements, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements()...)
+}
+
+func durationLedgerRemoteCIRunExecutionIdentitySchemaStatements() []string {
+	return []string{fmt.Sprintf(`CREATE TABLE IF NOT EXISTS ci_remote_run_execution_identities (
+	job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE,
+	platform TEXT NOT NULL CHECK (platform = '%s'),
+	runner_identity_digest TEXT NOT NULL CHECK (length(runner_identity_digest) = 71 AND substr(runner_identity_digest, 1, 7) = 'sha256:' AND substr(runner_identity_digest, 8) NOT GLOB '*[^0-9a-f]*'),
+	toolchain_digest TEXT NOT NULL CHECK (length(toolchain_digest) = 71 AND substr(toolchain_digest, 1, 7) = 'sha256:' AND substr(toolchain_digest, 8) NOT GLOB '*[^0-9a-f]*'),
+	execution_mode TEXT NOT NULL CHECK (execution_mode IN ('normal', 'calibration'))
+);`, cicontract.TargetPlatform)}
 }
 
 // durationLedgerSQLiteSchemaStatementsV14 is the complete pre-scope schema.

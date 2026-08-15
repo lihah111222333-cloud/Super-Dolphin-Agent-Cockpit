@@ -9,7 +9,7 @@ import (
 
 // TestRemoteCIRunRecordFieldRegistry 防止 run 主投影字段在 schema guard 前静默漂移。
 func TestRemoteCIRunRecordFieldRegistry(t *testing.T) {
-	want := []string{"JobID", "AgentTokenDigest", "Force", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "AcceptedGeneration", "Scope", "ImageCacheSnapshotID", "SourceTreeSHA", "CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "WorkloadExecutions", "WorkloadResults", "Warnings", "TimingWarnings", "TimingObservations", "CompileTimingObservations", "DurationSamples"}
+	want := []string{"JobID", "AgentTokenDigest", "Force", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "AcceptedGeneration", "Scope", "ImageCacheSnapshotID", "SourceTreeSHA", "CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "RunnerImage", "Platform", "RunnerIdentityDigest", "ToolchainDigest", "ExecutionMode", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "WorkloadExecutions", "WorkloadResults", "Warnings", "TimingWarnings", "TimingObservations", "CompileTimingObservations", "DurationSamples"}
 	typeOf := reflect.TypeFor[RemoteCIRunRecord]()
 	got := make([]string, 0, typeOf.NumField())
 	for field := range typeOf.Fields() {
@@ -17,6 +17,44 @@ func TestRemoteCIRunRecordFieldRegistry(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("RemoteCIRunRecord fields = %v, want %v", got, want)
+	}
+}
+
+func TestRemoteCIRunExecutionIdentitySQLiteRoundTripAndImmutable(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, _, _ := recordWorkloadPassRun(t, store, "execution-identity", 1, "execution-identity")
+	assertRemoteCIRunExecutionIdentityRoundTrip(t, store, record)
+	assertRemoteCIRunExecutionIdentityImmutable(t, store, record)
+}
+
+func assertRemoteCIRunExecutionIdentityRoundTrip(t *testing.T, store *DurationLedgerStore, record RemoteCIRunRecord) {
+	t.Helper()
+	loaded, err := store.LoadRemoteCIRun(record.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Platform != record.Platform || loaded.RunnerIdentityDigest != record.RunnerIdentityDigest || loaded.ToolchainDigest != record.ToolchainDigest || loaded.ExecutionMode != record.ExecutionMode {
+		t.Fatalf("stored execution identity = %#v, want %#v", loaded, record)
+	}
+}
+
+func assertRemoteCIRunExecutionIdentityImmutable(t *testing.T, store *DurationLedgerStore, record RemoteCIRunRecord) {
+	t.Helper()
+	drifted := record
+	drifted.RunnerIdentityDigest = digestForWorkloadPass("different-runner")
+	originalProof, err := digestProvisionalWorkloadProjection(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedProof, err := digestProvisionalWorkloadProjection(drifted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driftedProof != originalProof {
+		t.Fatal("planning execution identity changed PASS correctness projection")
+	}
+	if err := store.RecordProvisionalRemoteCIRun(drifted); err == nil || !strings.Contains(err.Error(), "immutable execution identity") {
+		t.Fatalf("execution identity drift error = %v, want fail-fast", err)
 	}
 }
 

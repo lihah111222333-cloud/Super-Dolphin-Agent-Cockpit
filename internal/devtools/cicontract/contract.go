@@ -42,7 +42,7 @@ const (
 	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
 	// DurationLedgerSQLiteSchemaVersion 是 duration-ledger SQLite 物理 schema 的唯一版本 owner。
-	DurationLedgerSQLiteSchemaVersion = 18
+	DurationLedgerSQLiteSchemaVersion = 19
 	// CacheMaterialSchemaID 标识 OCI 构建阶段可生成的非权威缓存材料 manifest。
 	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或首代检查回执。
 	CacheMaterialSchemaID = "remote-ci-cache-material/v1"
@@ -171,6 +171,8 @@ const (
 	RemoteRunsTable = "ci_runs"
 	// RemoteRunExecutionScopesTable 是 subset remote CI run execution scope 的 additive side table。
 	RemoteRunExecutionScopesTable = "ci_remote_run_execution_scopes"
+	// RemoteRunExecutionIdentitiesTable 保存每个 run 不可变的实际执行环境身份。
+	RemoteRunExecutionIdentitiesTable = "ci_remote_run_execution_identities"
 	// RetainedWorkloadPassProofsTable 是 retained reused PASS 的 consumer-owned immutable 辅助投影。
 	// 它不构成第八个 retention root，也不提供第二 authority。
 	RetainedWorkloadPassProofsTable = "ci_retained_workload_pass_proofs"

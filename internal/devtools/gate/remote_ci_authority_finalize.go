@@ -26,6 +26,10 @@ type RemoteCIRunAuthorityIdentity struct {
 	CandidateGateSourceSHA256    string
 	CandidateGateToolchainSHA256 string
 	RunnerImage                  string
+	Platform                     string
+	RunnerIdentityDigest         string
+	ToolchainDigest              string
+	ExecutionMode                string
 	StartedAt                    time.Time
 	// WorkloadPassIdentities 是 finalization 调用方从冻结 RunResult 携带的
 	// 内容身份快照；它不写入 SQLite，也不改变 PASS identity 本身。
@@ -188,7 +192,7 @@ func promoteSQLiteRemoteCIRunFreshEvidence(tx *sql.Tx, jobID string, promoteFres
 
 // verifySQLiteProvisionalRemoteCIRunForAuthority 在提升前于事务内重新验证 provisional 运行记录。
 func verifySQLiteProvisionalRemoteCIRunForAuthority(tx *sql.Tx, identity RemoteCIRunAuthorityIdentity) (RemoteCIRunRecord, error) {
-	record := RemoteCIRunRecord{JobID: identity.JobID, AgentTokenDigest: identity.AgentTokenDigest, Force: identity.Force, Entrypoint: identity.Entrypoint, Profile: identity.Profile, PlanDigest: identity.PlanDigest, CatalogDigest: identity.CatalogDigest, AcceptedGeneration: identity.AcceptedGeneration, Scope: identity.Scope, ImageCacheSnapshotID: identity.ImageCacheSnapshotID, SourceTreeSHA: identity.SourceTreeSHA, CandidateGateSourceSHA256: identity.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: identity.CandidateGateToolchainSHA256, RunnerImage: identity.RunnerImage, StartedAt: identity.StartedAt}
+	record := RemoteCIRunRecord{JobID: identity.JobID, AgentTokenDigest: identity.AgentTokenDigest, Force: identity.Force, Entrypoint: identity.Entrypoint, Profile: identity.Profile, PlanDigest: identity.PlanDigest, CatalogDigest: identity.CatalogDigest, AcceptedGeneration: identity.AcceptedGeneration, Scope: identity.Scope, ImageCacheSnapshotID: identity.ImageCacheSnapshotID, SourceTreeSHA: identity.SourceTreeSHA, CandidateGateSourceSHA256: identity.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: identity.CandidateGateToolchainSHA256, RunnerImage: identity.RunnerImage, Platform: identity.Platform, RunnerIdentityDigest: identity.RunnerIdentityDigest, ToolchainDigest: identity.ToolchainDigest, ExecutionMode: identity.ExecutionMode, StartedAt: identity.StartedAt}
 	if err := verifySQLiteRemoteCIRunIdentity(tx, record); err != nil {
 		return RemoteCIRunRecord{}, err
 	}

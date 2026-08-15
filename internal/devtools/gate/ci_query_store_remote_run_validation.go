@@ -28,11 +28,28 @@ func validateRemoteCIRunRecord(record RemoteCIRunRecord) error {
 	if err := validateRemoteCIRunTimingObservations(record); err != nil {
 		return err
 	}
+	if err := validateRemoteCIRunCompileTimingObservations(record); err != nil {
+		return err
+	}
 	if err := validateRemoteCIRunWarnings(record); err != nil {
 		return err
 	}
 	if err := validateRemoteCIRunTimingWarnings(record); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateRemoteCIRunCompileTimingObservations(record RemoteCIRunRecord) error {
+	want := newRemoteCIRunExecutionIdentity(record)
+	for _, observation := range record.CompileTimingObservations {
+		if err := observation.Validate(); err != nil {
+			return fmt.Errorf("remote CI compile timing observation: %w", err)
+		}
+		got := remoteCIRunExecutionIdentity{observation.Identity.Platform, observation.Identity.RunnerIdentityDigest, observation.Identity.ToolchainDigest, observation.Identity.ExecutionMode}
+		if got != want {
+			return errors.New("remote CI compile timing observation conflicts with run execution identity")
+		}
 	}
 	return nil
 }
@@ -137,11 +154,25 @@ func validateRemoteCIRunIdentity(record RemoteCIRunRecord) error {
 		validateRemoteCIRunTiming,
 		validateRemoteCIRunAgentTokenDigest,
 		validateRemoteCIRunCatalogDigest,
+		validateRemoteCIRunExecutionIdentity,
 		validateRemoteCIRunStatus,
 	} {
 		if err := validate(record); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateRemoteCIRunExecutionIdentity(record RemoteCIRunRecord) error {
+	if err := cicontract.ValidateTargetPlatform(record.Platform); err != nil {
+		return fmt.Errorf("remote CI run platform: %w", err)
+	}
+	if !isPrefixedSHA256Digest(record.RunnerIdentityDigest) || !isPrefixedSHA256Digest(record.ToolchainDigest) {
+		return errors.New("remote CI run runner and toolchain identity digests are invalid")
+	}
+	if record.ExecutionMode != DurationExecutionModeNormal && record.ExecutionMode != DurationExecutionModeCalibration {
+		return errors.New("remote CI run execution mode is invalid")
 	}
 	return nil
 }

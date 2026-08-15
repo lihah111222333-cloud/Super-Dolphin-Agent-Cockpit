@@ -95,6 +95,36 @@ func TestRemoteCIExecutionScopeV15AcceptedContract(t *testing.T) {
 	}
 }
 
+func TestRemoteCIRunExecutionIdentityV19AcceptedContract(t *testing.T) {
+	root := findRepoRoot(t)
+	if !slices.Contains(cicontract.SQLAuthoritySchemaTables(), cicontract.RemoteRunExecutionIdentitiesTable) {
+		t.Fatal("remote run execution identity table is not registered with the one SQLite authority")
+	}
+	schema := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_schema_strict.go"))
+	for _, marker := range []string{
+		"CREATE TABLE IF NOT EXISTS " + cicontract.RemoteRunExecutionIdentitiesTable,
+		"job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE",
+		"platform TEXT NOT NULL",
+		"runner_identity_digest TEXT NOT NULL",
+		"toolchain_digest TEXT NOT NULL",
+		"execution_mode TEXT NOT NULL",
+		"cicontract.TargetPlatform",
+	} {
+		if !strings.Contains(schema, marker) {
+			t.Errorf("run execution identity v19 schema is missing %q", marker)
+		}
+	}
+	if strings.Contains(schema, "DEFAULT") || strings.Contains(strings.ToLower(schema), "alter table") {
+		t.Fatal("run execution identity v19 schema must not default or alter identity fields")
+	}
+	migration := strings.ToLower(readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_namespace_migration.go")))
+	for _, forbidden := range []string{"insert into ci_remote_run_execution_identities", "update ci_remote_run_execution_identities", "alter table ci_runs"} {
+		if strings.Contains(migration, forbidden) {
+			t.Errorf("v18 to v19 migration contains forbidden compatibility operation %q", forbidden)
+		}
+	}
+}
+
 func TestRemoteCIExecutionScopeV15GuardCounterexamples(t *testing.T) {
 	for name, source := range map[string]string{
 		"second scope table":   `CREATE TABLE IF NOT EXISTS ci_remote_run_execution_scopes (job_id TEXT); CREATE TABLE IF NOT EXISTS ci_remote_run_execution_scope_alias (job_id TEXT);`,

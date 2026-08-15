@@ -71,11 +71,26 @@ func writeSQLiteRemoteCIRunCoreProjection(transaction *sql.Tx, record RemoteCIRu
 	if err := insertSQLiteRemoteCIRunAgentIdentity(transaction, record); err != nil {
 		return err
 	}
+	if err := insertSQLiteRemoteCIRunExecutionIdentity(transaction, record); err != nil {
+		return err
+	}
 	if err := insertSQLiteRemoteCIExecutionScope(transaction, record); err != nil {
 		return err
 	}
 	if err := verifySQLiteRemoteCIRunIdentity(transaction, record); err != nil {
 		return fmt.Errorf("read back remote CI agent identity: %w", err)
+	}
+	return nil
+}
+
+func insertSQLiteRemoteCIRunExecutionIdentity(transaction *sql.Tx, record RemoteCIRunRecord) error {
+	if _, err := transaction.Exec(`
+		INSERT INTO ci_remote_run_execution_identities (
+			job_id, platform, runner_identity_digest, toolchain_digest, execution_mode
+		) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(job_id) DO NOTHING
+	`, record.JobID, record.Platform, record.RunnerIdentityDigest, record.ToolchainDigest, record.ExecutionMode); err != nil {
+		return mapDurationLedgerSQLiteError("store remote CI run execution identity", err)
 	}
 	return nil
 }

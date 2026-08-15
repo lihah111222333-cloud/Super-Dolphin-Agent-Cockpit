@@ -19,6 +19,8 @@ const retainedProofDurationLedgerSQLiteSchemaVersion = 16
 
 const sourceReplayIndexDurationLedgerSQLiteSchemaVersion = 17
 
+const workloadInputReplayDurationLedgerSQLiteSchemaVersion = 18
+
 // migrateDurationLedgerSQLiteSchema13To14 adds only local-origin projections;
 // the frozen remote PASS table is validated and left untouched.
 func migrateDurationLedgerSQLiteSchema13To14(database *sql.DB, now func() time.Time) error {
@@ -236,8 +238,53 @@ func migrateDurationLedgerSQLiteWorkloadInputReplayCacheOnConnection(connection 
 			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite workload input replay cache", err)
 		}
 	}
-	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, workloadInputReplayDurationLedgerSQLiteSchemaVersion)); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite workload input replay cache schema version", err)
+	}
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, workloadInputReplayDurationLedgerSQLiteSchemaVersion)
+}
+
+// migrateDurationLedgerSQLiteSchema18To19 添加 run execution identity 侧表；
+// 既有 v18 run 不回填身份，也不会被猜测为当前执行环境。
+func migrateDurationLedgerSQLiteSchema18To19(database *sql.DB) error {
+	if database == nil {
+		return errors.New("duration ledger SQLite run execution identity migration requires database")
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite run execution identity migration connection", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return mapDurationLedgerSQLiteError("begin duration ledger SQLite run execution identity migration", err)
+	}
+	if err := migrateDurationLedgerSQLiteRunExecutionIdentityOnConnection(connection); err != nil {
+		return rollbackDurationLedgerSQLiteNamespace(connection, err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return mapDurationLedgerSQLiteError("commit duration ledger SQLite run execution identity migration", err)
+	}
+	return nil
+}
+
+func migrateDurationLedgerSQLiteRunExecutionIdentityOnConnection(connection *sql.Conn) error {
+	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	if version != workloadInputReplayDurationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite run execution identity migration expected schema version %d, got %d", workloadInputReplayDurationLedgerSQLiteSchemaVersion, version)
+	}
+	if err := preflightDurationLedgerSQLiteSchemaVersion(connection, workloadInputReplayDurationLedgerSQLiteSchemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range durationLedgerRemoteCIRunExecutionIdentitySchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite run execution identity", err)
+		}
+	}
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite run execution identity schema version", err)
 	}
 	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
 }
@@ -399,6 +446,11 @@ func preflightDurationLedgerSQLiteSchemaVersion(queryer durationLedgerSQLiteSche
 		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
 		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
 		statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
+	case workloadInputReplayDurationLedgerSQLiteSchemaVersion:
+		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+		statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
+		statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
 	case durationLedgerSQLiteSchemaVersion:
 		statements = durationLedgerSQLiteCurrentSchemaStatements()
 	default:

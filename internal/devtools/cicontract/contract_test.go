@@ -445,9 +445,12 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 	}
 }
 
-func TestDurationLedgerSQLiteSchemaV17OwnsReplayIndexObjects(t *testing.T) {
-	if DurationLedgerSQLiteSchemaVersion != 18 {
-		t.Fatalf("duration-ledger SQLite physical schema = %d, want 18", DurationLedgerSQLiteSchemaVersion)
+func TestDurationLedgerSQLiteSchemaV19OwnsExecutionIdentity(t *testing.T) {
+	if DurationLedgerSQLiteSchemaVersion != 19 {
+		t.Fatalf("duration-ledger SQLite physical schema = %d, want 19", DurationLedgerSQLiteSchemaVersion)
+	}
+	if !slices.Contains(SQLAuthoritySchemaTables(), RemoteRunExecutionIdentitiesTable) {
+		t.Fatalf("remote run execution identity table %q is not registered", RemoteRunExecutionIdentitiesTable)
 	}
 	if !slices.Contains(SQLAuthoritySchemaTables(), RetainedWorkloadPassProofsTable) {
 		t.Fatalf("retained proof table %q is not registered", RetainedWorkloadPassProofsTable)

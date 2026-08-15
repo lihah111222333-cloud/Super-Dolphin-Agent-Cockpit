@@ -116,6 +116,9 @@ func downgradeDurationLedgerSQLiteV18ToV16Fixture(t *testing.T, database *sql.DB
 	if _, err := database.Exec(`DROP TABLE ci_workload_input_replay_cache`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.Exec(`DROP TABLE ci_remote_run_execution_identities`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := database.Exec(`PRAGMA user_version = 16`); err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +136,9 @@ func TestDurationLedgerSQLiteV17ToV18AddsOnlyWorkloadInputReplayCache(t *testing
 	if _, err := database.Exec(`DROP TABLE ci_workload_input_replay_cache`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.Exec(`DROP TABLE ci_remote_run_execution_identities`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := database.Exec(`PRAGMA user_version = 17`); err != nil {
 		t.Fatal(err)
 	}
@@ -144,10 +150,10 @@ func TestDurationLedgerSQLiteV17ToV18AddsOnlyWorkloadInputReplayCache(t *testing
 	if beforeCount != afterCount || beforeDigest != afterDigest {
 		t.Fatalf("v17 to v18 rewrote evidence rows: before=%d/%s after=%d/%s", beforeCount, beforeDigest, afterCount, afterDigest)
 	}
-	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != durationLedgerSQLiteSchemaVersion {
-		t.Fatalf("user_version = %d, want %d", got, durationLedgerSQLiteSchemaVersion)
+	if got := durationLedgerSQLiteUserVersionForTest(t, database); got != workloadInputReplayDurationLedgerSQLiteSchemaVersion {
+		t.Fatalf("user_version = %d, want %d", got, workloadInputReplayDurationLedgerSQLiteSchemaVersion)
 	}
-	if err := newDurationLedgerSQLiteSchemaValidator().preflight(database, durationLedgerSQLiteSchemaVersion); err != nil {
+	if err := preflightDurationLedgerSQLiteSchemaVersion(database, workloadInputReplayDurationLedgerSQLiteSchemaVersion); err != nil {
 		t.Fatalf("v18 schema preflight: %v", err)
 	}
 }

@@ -88,6 +88,33 @@ func TestDurationLedgerSQLiteV14ToV15AddsOnlyExecutionScopeObjects(t *testing.T)
 	assertDurationLedgerSQLiteSchemaObjectsPresent(t, after, []string{"table:ci_remote_run_execution_scopes", "index:idx_ci_remote_run_execution_scopes_job", "index:idx_ci_remote_run_execution_scopes_generation"}, "v15 execution-scope")
 }
 
+func TestDurationLedgerSQLiteV18ToV19AddsExecutionIdentityWithoutBackfill(t *testing.T) {
+	database := openStrictSchemaTestDatabase(t, "v18-run-execution-identity.sqlite")
+	defer database.Close()
+	createDurationLedgerSQLiteV18Fixture(t, database)
+	before := snapshotDurationLedgerSQLiteSchema(t, database)
+
+	migrateDurationLedgerSQLiteSchema(t, database)
+	after := snapshotDurationLedgerSQLiteSchemaObjects(t, database)
+	assertDurationLedgerSQLiteSchemaObjectsUnchanged(t, before.schema, after, "v18 object", "v19 migration")
+	assertSQLiteRowsFingerprintUnchanged(t, database, `SELECT * FROM ci_runs ORDER BY job_id`, before.runCount, before.runDigest, "v18 ci_runs", "v19 migration")
+	assertDurationLedgerSQLiteSchemaObjectsPresent(t, after, []string{"table:ci_remote_run_execution_identities"}, "v19 run execution identity")
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ci_remote_run_execution_identities`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("migrated execution identity rows = %d, want no backfill", count)
+	}
+	legacy, err := loadRemoteCIRunRow(database, "remote-fixture-job")
+	if err != nil {
+		t.Fatalf("load migrated v18 PASS run: %v", err)
+	}
+	if legacy.Platform != "" || legacy.RunnerIdentityDigest != "" || legacy.ToolchainDigest != "" || legacy.ExecutionMode != "" {
+		t.Fatalf("migrated v18 run gained execution identity: %#v", legacy)
+	}
+}
+
 type durationLedgerSQLiteSchemaSnapshot struct {
 	schema    map[string]string
 	runCount  int
@@ -116,6 +143,34 @@ func createDurationLedgerSQLiteV14Fixture(t *testing.T, database *sql.DB) {
 	}
 	insertRemotePassFixture(t, database)
 	if _, err := database.Exec(`PRAGMA user_version = 14`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createDurationLedgerSQLiteV18Fixture(t *testing.T, database *sql.DB) {
+	t.Helper()
+	statements := append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+	statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+	statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
+	statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
+	for _, statement := range statements {
+		if _, err := database.Exec(statement); err != nil {
+			t.Fatalf("create v18 schema: %v", err)
+		}
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeLocalAuthorityStateOnConnection(connection, time.Now); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	insertRemotePassFixture(t, database)
+	if _, err := database.Exec(`PRAGMA user_version = 18`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -252,6 +307,9 @@ func insertRemotePassFixture(t *testing.T, database *sql.DB) {
 	t.Helper()
 	if _, err := database.Exec(`INSERT INTO ci_runs(job_id, force, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete, error_text) VALUES ('remote-fixture-job', 0, 'test', 'medium', 'sha256:plan', 'sha256:catalog', '1', 'snapshot-fixture', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '', '', 'eci-fixture', 'passed', 1, 1700000000000, 1700000001000, 1, '')`); err != nil {
 		t.Fatalf("insert remote run fixture: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO ci_run_agent_identities(job_id, agent_token_digest, started_at_unix_ms) VALUES ('remote-fixture-job', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 1700000000000)`); err != nil {
+		t.Fatalf("insert remote run agent fixture: %v", err)
 	}
 	if _, err := database.Exec(`INSERT INTO ci_workload_pass_evidence(identity_digest, accepted_generation, workload_id, execution_digest, input_digest, environment_digest, origin_job_id, origin_source_tree_sha, origin_receipt_set_sha256, origin_execution_json, evidence_sha256) VALUES ('sha256:identity-fixture', '1', 'backend:fixture', 'sha256:execution-fixture', 'sha256:input-fixture', 'sha256:environment-fixture', 'remote-fixture-job', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'sha256:receipt-fixture', '{}', 'sha256:evidence-fixture')`); err != nil {
 		t.Fatalf("insert remote evidence fixture: %v", err)

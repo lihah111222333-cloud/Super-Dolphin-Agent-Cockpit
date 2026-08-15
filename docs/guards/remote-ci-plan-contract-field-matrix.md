@@ -16,6 +16,7 @@
 | retained reused proof / physical schema v16 | `cicontract.DurationLedgerSQLiteSchemaVersion`、`RetainedWorkloadPassProofsTable` 与 additive index registry | reused consumer result → `ci_retained_workload_pass_proofs`；consumer job/workload/identity、direct origin、strict execution JSON、canonical evidence SHA | proof 是 retained consumer 的 immutable 辅助投影，不是第八 retention root、第二 authority 或 fallback；仅 current+prev2 consumer 可消费 | Accepted schema block、cicontract/arch dynamic table/index registry、v15→v16 count/rollback/backfill migration tests、four-generation retention proof test |
 | DTO → report → receipt | worker report 绑定 request `PlanDigest`；authority receipt 保存 `CandidateTreeSHA`，finalizer 将 receipt set 绑定到同一 run record | report decoder/validator、`CheckReceiptRecord` hash 与 SQLite check receipts | report/receipt 的 tree 是 candidate run audit；PASS evidence 的 origin tree 只证明来源，不改变 identity digest | report decoder binding guard、receipt hash validation、receipt finalizer plan binding、tree exclusion guard |
 | `RemoteCIExecutionScope` / v15 side table | `RemoteCIExecutionScope` constructs catalog-ordered scope; `cicontract.RemoteRunExecutionScopesTable` registers the only table | `RemoteCIRunRecord.Scope` is loaded/written through `ci_remote_run_execution_scopes` only | legacy/full scope has no row; subset alone persists selected IDs/typed JSON/digest/count. The digest excludes tree/path/commit/token and is not PASS identity, local namespace or owner attestation | v15 schema/migration guard, cicontract table registration, `TestRemoteCIExecutionScopeV15AcceptedContract` and its second-table/ci_runs-column/unknown-table/local-alias counterexamples |
+| run execution identity / v19 side table | `RunInput` → `RunResult` → `RemoteCIRunRecord`; `cicontract.RemoteRunExecutionIdentitiesTable` registers the only projection | new runs atomically write canonical platform/runner/toolchain/mode by `job_id`; authority finalization rereads the exact tuple | only normal reserve timing eligibility consumes this planning identity. Migrated v18 rows without it remain PASS-correctness-valid but are planning-ineligible; it never enters `WorkloadPassIdentity` | v18→v19 no-backfill migration test, projection field guard, immutable roundtrip test and `TestRemoteCIRunExecutionIdentityV19AcceptedContract` |
 
 本 slice 只交付 planner/context/evidence wire 与 digest 绑定；typed resolution 的独立 plan-receipt 持久化由后续任务闭合，本变更不新增 SQLite 列、表或 receipt 字段。
 
@@ -25,7 +26,7 @@
 2. `plan_digest` 是 report、request、SQLite run 和 receipt 对完整计划（包括 packing evidence 与两个 policy digest）的唯一跨边界绑定；下游不能把某一个字段的字符串存在误认为已完成 mapper 覆盖。
 3. `SourceTreeSHA`、`CandidateTreeSHA`、commit/worktree 只进入 run audit、catalog observation 或来源重放证明；`WorkloadPassIdentitySHA256` 的 canonical payload 不得包含它们。
 4. 所有严格 decoder 都必须拒绝未知字段、尾随 JSON 与不接受的版本；cicontract 版本 alias 是唯一 owner。
-5. 物理 schema v16 由唯一 `cicontract` version owner、Accepted schema block 与 dynamic table/index registry 共同冻结：v14→v15 只新增 remote execution-scope side table/indexes，v15→v16 只新增 consumer-owned immutable retained-proof table、必要 indexes 与严格 backfill；不得 ALTER/rewrite 既有 authority、向 `ci_runs`/evidence 加列、另建 truth source，或把 auxiliary projection 升格为第八 retention root/第二 authority。
+5. 物理 schema v19 由唯一 `cicontract` version owner、Accepted schema block 与 dynamic table/index registry 共同冻结：v14→v15 只新增 remote execution-scope side table/indexes，v15→v16 只新增 consumer-owned immutable retained-proof table、必要 indexes 与严格 backfill，v17→v18 只新增输入 replay cache，v18→v19 只新增 run execution identity side table且不回填；不得 ALTER/rewrite 既有 authority、向 `ci_runs`/evidence 加列、另建 truth source，或把 planning identity 纳入 PASS correctness。
 
 对应架构测试：
 
@@ -34,3 +35,4 @@
 - `TestRemoteCIEnvironmentV10AndDynamicFieldsGuard`
 - `TestRemoteCIPassIdentityTreeExclusionGuard`
 - `TestRemoteCIExecutionScopeV15AcceptedContract`
+- `TestRemoteCIRunExecutionIdentityV19AcceptedContract`

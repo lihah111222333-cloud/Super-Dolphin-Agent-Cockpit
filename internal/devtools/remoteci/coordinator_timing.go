@@ -40,6 +40,8 @@ func recordRemoteCIRun(store *gate.DurationLedgerStore, result RunResult, runErr
 		Scope:         result.Scope,
 		SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256,
 		CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, RunnerImage: result.RunnerImage,
+		Platform: result.Platform, RunnerIdentityDigest: result.RunnerIdentityDigest,
+		ToolchainDigest: result.ToolchainDigest, ExecutionMode: result.ExecutionMode,
 		Status: result.Status, Authoritative: false, StartedAt: result.StartedAt, CompletedAt: result.CompletedAt,
 		CleanupComplete: result.CleanupComplete, ErrorText: boundedRemoteRunErrorText(projectionErr),
 		Shards: shardRecords, Executions: result.GateExecutions,

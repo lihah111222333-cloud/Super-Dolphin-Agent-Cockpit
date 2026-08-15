@@ -34,6 +34,10 @@ type RemoteCIRunRecord struct {
 	CandidateGateSourceSHA256    string
 	CandidateGateToolchainSHA256 string
 	RunnerImage                  string
+	Platform                     string `json:"-"`
+	RunnerIdentityDigest         string `json:"-"`
+	ToolchainDigest              string `json:"-"`
+	ExecutionMode                string `json:"-"`
 	Status                       ResultStatus
 	Authoritative                bool
 	StartedAt                    time.Time
@@ -67,6 +71,17 @@ type RemoteCIShardResources struct {
 	ClassID   string  `json:"class_id"`
 	CPU       float64 `json:"cpu"`
 	MemoryGiB float64 `json:"memory_gib"`
+}
+
+type remoteCIRunExecutionIdentity struct {
+	Platform             string
+	RunnerIdentityDigest string
+	ToolchainDigest      string
+	ExecutionMode        string
+}
+
+func newRemoteCIRunExecutionIdentity(record RemoteCIRunRecord) remoteCIRunExecutionIdentity {
+	return remoteCIRunExecutionIdentity{record.Platform, record.RunnerIdentityDigest, record.ToolchainDigest, record.ExecutionMode}
 }
 
 // Validate 拒绝缺失或畸形的实际分片 CPU、内存与规格身份。
@@ -215,7 +230,29 @@ func verifySQLiteRemoteCIRunDependentIdentities(transaction *sql.Tx, record Remo
 	if err := verifySQLiteRemoteCIAgentIdentity(transaction, record); err != nil {
 		return err
 	}
+	if err := verifySQLiteRemoteCIRunExecutionIdentity(transaction, record); err != nil {
+		return err
+	}
 	return verifySQLiteRemoteCIExecutionScopeIdentity(transaction, record)
+}
+
+func verifySQLiteRemoteCIRunExecutionIdentity(transaction *sql.Tx, record RemoteCIRunRecord) error {
+	var stored remoteCIRunExecutionIdentity
+	err := transaction.QueryRow(`SELECT platform, runner_identity_digest, toolchain_digest, execution_mode FROM ci_remote_run_execution_identities WHERE job_id = ?`, record.JobID).Scan(&stored.Platform, &stored.RunnerIdentityDigest, &stored.ToolchainDigest, &stored.ExecutionMode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("remote CI job %q lacks required execution identity", record.JobID)
+	}
+	if err != nil {
+		return mapDurationLedgerSQLiteError("load existing remote CI run execution identity", err)
+	}
+	storedRecord := RemoteCIRunRecord{Platform: stored.Platform, RunnerIdentityDigest: stored.RunnerIdentityDigest, ToolchainDigest: stored.ToolchainDigest, ExecutionMode: stored.ExecutionMode}
+	if err := validateRemoteCIRunExecutionIdentity(storedRecord); err != nil {
+		return fmt.Errorf("stored remote CI run execution identity: %w", err)
+	}
+	if stored != newRemoteCIRunExecutionIdentity(record) {
+		return fmt.Errorf("remote CI job %q conflicts with immutable execution identity", record.JobID)
+	}
+	return nil
 }
 
 // sqliteRemoteCIRunIdentity 保存 SQLite 中不可变的运行身份投影。

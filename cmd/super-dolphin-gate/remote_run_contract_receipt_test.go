@@ -642,7 +642,9 @@ func remoteRunReceiptTestRecordAuthority(t *testing.T, store *gatecontract.Durat
 		JobID: complete.JobID, AgentTokenDigest: complete.AgentTokenDigest, Entrypoint: complete.Entrypoint, Profile: gatecontract.ProfileRelease, AcceptedGeneration: 7, ImageCacheSnapshotID: complete.ImageCacheSnapshotID,
 		PlanDigest: complete.PlanDigest, CatalogDigest: catalogDigest, Scope: complete.Scope, SourceTreeSHA: complete.SourceTreeSHA,
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("e", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("f", 64),
-		RunnerImage: "ubuntu:22.04", Status: gatecontract.ResultStatusPassed, Authoritative: false, CleanupComplete: true,
+		RunnerImage: complete.RunnerImage, Platform: complete.Platform, RunnerIdentityDigest: complete.RunnerIdentityDigest,
+		ToolchainDigest: complete.ToolchainDigest, ExecutionMode: complete.ExecutionMode,
+		Status: gatecontract.ResultStatusPassed, Authoritative: false, CleanupComplete: true,
 		StartedAt: complete.StartedAt, CompletedAt: complete.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, Executions: append([]gatecontract.PlanGateExecution(nil), complete.GateExecutions...), WorkloadExecutions: workloadExecutions, WorkloadResults: workloadResults,
 	}
 	record.TimingObservations = remoteRunReceiptTestTimingObservations(record.JobID, shard, workloadExecutions[0], workloadExecutions[0].StartedAt.Add(-3*time.Millisecond))
@@ -792,6 +794,8 @@ func remoteRunReceiptTestResult(t *testing.T, plan gatecontract.GatePlan, catalo
 		SourceTreeSHA: plan.Source.SourceTreeSHA, Status: gatecontract.ResultStatusPassed,
 		ImageCacheSnapshotID: "snapshot-7", CandidateGateSourceSHA256: "sha256:" + strings.Repeat("e", 64),
 		CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("f", 64), RunnerImage: "ubuntu:22.04",
+		Platform: cicontract.TargetPlatform, RunnerIdentityDigest: "sha256:" + strings.Repeat("6", 64),
+		ToolchainDigest: "sha256:" + strings.Repeat("7", 64), ExecutionMode: gatecontract.DurationExecutionModeNormal,
 		Authoritative: false, CleanupComplete: true, StartedAt: time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC), CompletedAt: time.Date(2026, time.August, 3, 10, 0, 0, int(20*time.Millisecond), time.UTC), GateExecutions: ownerExecutions, WorkloadExecutions: workloadExecutions, FreshWorkloadExecutions: workloadExecutions, WorkloadPassIdentities: identities,
 	}
 }

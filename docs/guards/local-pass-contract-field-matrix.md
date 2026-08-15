@@ -13,6 +13,7 @@
 | local authority state/generation | `ci_local_authority_state` 与 `initializeLocalAuthorityStateOnConnection` | `currentLocalAuthorityGeneration`、local origin write/lookup | local generation 独立于 accepted remote generation；clean init 可创建，损坏/摘要漂移/未知字段必须 fail-fast | state source markers (`sql.ErrNoRows`, strict decoder, digest validation)；missing/tampered state tests |
 | local origin/execution/evidence rows | `strictLocalWorkloadPassSQLiteSchema` 与 `RecordLocalWorkloadPassBatch` | `localSchedulerPassEntryFromReceipt` 与 production origin 从 sealed receipt 投影 `RunnerSemanticPolicy` / common `BaseRunnerSemanticDigest` 到 origin；每条 execution JSON 保留 per-workload base+final environment；`LookupLocalWorkloadPassEvidence`；FK cascade 只在 `ci_local_*` namespace 内 | v13→v14 只增加 local namespace；origin runner proof 必须等于 entry base runner proof，HostContext digest 只绑定 base，entry final 可以是 self-specific；local rows 不得写 `ci_runs`、`ci_check_receipts`、remote baseline 或 authoritative receipt | additive schema AST/string guard；sealed origin/environment mixed-promotion and rollback tests；remote SQLite authority guard allowlists only four `ci_local_*` tables |
 | remote execution scope side table | `RemoteCIExecutionScope` + `ci_remote_run_execution_scopes` | `RemoteCIRunRecord.Scope`、scope store write/load、SQLite schema registration | v14→v15 只新增 one remote side table/indexes；legacy/full no row，subset only typed JSON/digest/count；scope digest excludes tree/path/commit/token and is neither PASS identity nor local alias | `TestLocalPassContractBoundary` v15 guard；`TestRemoteCIExecutionScopeV15AcceptedContract` and counterexamples |
+| remote run execution identity side table | remote `RunInput` / `RunResult` + `ci_remote_run_execution_identities` | new remote run projection write/read/finalizer；normal reserve query按 exact tuple inner join | v18→v19 only additive；旧v18缺行不影响remote PASS correctness，但不得进入planning timing；字段不进入local/remote PASS identity | v19 migration no-backfill test、projection contract、immutable roundtrip与arch shape guard |
 | remote PASS lookup/receipt | remote gate/remoteci coordinator and SQLite authority | `LookupWorkloadPassEvidence`、remote receipt finalizer | remote path 不读 local table/lookup；local PASS 不能提升为 ECI/release PASS | remote source scan for `ci_local_`/local calls; remote finalizer table boundary guard |
 | local executor capability closure | `local_executor*.go` and local CLI path | local scheduler `Execute` callback and exact-tree materializer | local functions不得触 agent token、ECI、OSS、ImageCache 或云 provider；唯一例外是 frozen `runLocalRemoteSubset`，且仅在 `prepared.Remote` 非空后握手 token 并转交 remote subset | function-level AST boundary guard; local provider/token counterexamples |
 | receipt-bound / execution-only workload IDs | `LocalExecutorReceiptBoundWorkloadIDs` / `LocalExecutorExecutionWorkloadIDs` | production `prepareProductionLocalExecutorReceipt`, dependency discovery, session binding, scheduler receipt coverage | 所有有 canonical mapping 的 eligible 与 mapped-ineligible ID 都必须进入 sealed receipt，只有 `Eligible=true` 可进入 dependencies/session；known-unmapped 无 receipt/identity 且 direct remote | classification matrix tests + `TestProductionLocalExecutorReceiptSeparatesBoundAndExecutableIDs`; mapped-ineligible scheduler hit/miss and known-unmapped tests |
@@ -22,7 +23,7 @@
 ## 复查顺序
 
 1. 先确认 namespace 与四段 identity hash 的边界，再读 local origin/provenance。
-2. 再确认 local lookup/table 与 remote lookup/receipt 的物理隔离，以及 v13→v14 local 和 v14→v15 scope 仅 additive 的 schema diff。
+2. 再确认 local lookup/table 与 remote lookup/receipt 的物理隔离，以及 v13→v14 local、v14→v15 scope 与 v18→v19 planning identity 均只做 additive schema diff。
 3. 最后确认 hit-first sampling、auto scale、local failure no-fallback 和 CLI `--workload` 兼容性。
 
 对应架构守卫：
@@ -32,3 +33,4 @@
 - `TestRemoteCISQLAuthorityBindingsAreCreatedByGateSchema`
 - `TestRemoteCIPassIdentityTreeExclusionGuard`
 - `TestRemoteCIExecutionScopeV15AcceptedContract`
+- `TestRemoteCIRunExecutionIdentityV19AcceptedContract`

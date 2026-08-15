@@ -426,20 +426,29 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() ti
 	case 0:
 		return validator.initializeAuthority(database, now, validator)
 	case legacyDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema13To18(database, now)
+		return migrateDurationLedgerSQLiteSchemaThrough19(database, migrateDurationLedgerSQLiteSchema13To18(database, now))
 	case localDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema14To18(database)
+		return migrateDurationLedgerSQLiteSchemaThrough19(database, migrateDurationLedgerSQLiteSchema14To18(database))
 	case executionScopeDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema15To18(database)
+		return migrateDurationLedgerSQLiteSchemaThrough19(database, migrateDurationLedgerSQLiteSchema15To18(database))
 	case retainedProofDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema16To18(database)
+		return migrateDurationLedgerSQLiteSchemaThrough19(database, migrateDurationLedgerSQLiteSchema16To18(database))
 	case sourceReplayIndexDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema17To18(database)
+		return migrateDurationLedgerSQLiteSchemaThrough19(database, migrateDurationLedgerSQLiteSchema17To18(database))
+	case workloadInputReplayDurationLedgerSQLiteSchemaVersion:
+		return migrateDurationLedgerSQLiteSchema18To19(database)
 	case durationLedgerSQLiteSchemaVersion:
 		return validator.preflight(database, schemaVersion)
 	default:
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
+}
+
+func migrateDurationLedgerSQLiteSchemaThrough19(database *sql.DB, previous error) error {
+	if previous != nil {
+		return previous
+	}
+	return migrateDurationLedgerSQLiteSchema18To19(database)
 }
 
 // migrateDurationLedgerSQLiteSchema13To18 串联 legacy authority 的全部单向迁移。
