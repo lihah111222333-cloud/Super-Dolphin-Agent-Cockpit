@@ -47,7 +47,7 @@ fi
 # 只执行启动器所属仓库的受信契约，并在隔离子进程中验证目标仓库 Gate。
 # 目标仓库内容不能修改随后持有凭据的当前 shell。
 gate_bin=$(bash -c 'set -euo pipefail; source "$1"; trusted_gate_launcher "$2"' bash "$launcher_contract" "$repo_root") || {
-  printf '%s\n' 'remote CI Git blocked: target repository has no verified trusted Gate; run make install-hooks there first.' >&2
+  printf '%s\n' 'remote CI Git blocked: target repository could not materialize or verify its trusted Gate.' >&2
   exit 1
 }
 if [[ "$gate_bin" != /* || ! -f "$gate_bin" || -L "$gate_bin" || ! -x "$gate_bin" ]]; then

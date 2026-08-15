@@ -140,12 +140,29 @@ func TestRegistryCloseIncludesLanguageIdentity(t *testing.T) {
 	}
 }
 
+func TestRegistryCloseClosesSharedLanguageManagerOnce(t *testing.T) {
+	registry := NewRegistry(nil)
+	manager := &registryCloseErrorManager{registryDiagnosticsManager: &registryDiagnosticsManager{}}
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork"} {
+		registry.Register(languageID, manager)
+	}
+
+	if err := registry.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if manager.closeCalls != 1 {
+		t.Fatalf("shared manager Close() calls = %d, want 1", manager.closeCalls)
+	}
+}
+
 type registryCloseErrorManager struct {
 	*registryDiagnosticsManager
-	closeErr error
+	closeErr   error
+	closeCalls int
 }
 
 func (m *registryCloseErrorManager) Close() error {
+	m.closeCalls++
 	return m.closeErr
 }
 

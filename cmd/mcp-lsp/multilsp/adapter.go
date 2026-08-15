@@ -156,6 +156,7 @@ type goLanguageAdapter struct {
 	directoryFilters []string
 	noiseDirNames    []string
 	idleTimeout      time.Duration
+	caches           *goResolverCaches
 }
 
 // LanguageIDs 返回 Go adapter 覆盖的文件语言。
@@ -169,12 +170,12 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 	if languageID == "" {
 		return ResolvedLanguageScope{}, fmt.Errorf("go adapter requires a resolved language ID")
 	}
-	info, err := ResolveGoRoot(GoRootRequest{
+	info, err := resolveGoRoot(GoRootRequest{
 		CWD:           scope.CWD,
 		FilePath:      firstNonEmpty(target, scope.TargetPath, scope.CWD),
 		Env:           os.Environ(),
 		NoiseDirNames: a.noiseDirNames,
-	})
+	}, a.caches)
 	if err != nil {
 		return ResolvedLanguageScope{}, err
 	}
@@ -187,6 +188,10 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 	if len(buildTags) > 0 {
 		languageSpecific[goBuildTagsLanguageSpecificKey] = strings.Join(buildTags, ",")
 	}
+	folders := workspaceFolders(info)
+	if parts.RootKind == goRootKindGoMod && parts.LanguageWorkspaceRoot != "" && parts.LanguageWorkspaceRoot != parts.WorkspaceRoot {
+		folders = workspaceFoldersFromRootURI(fileURIFromPath(parts.LanguageWorkspaceRoot))
+	}
 	return ResolvedLanguageScope{
 		LanguageID:            languageID,
 		WorkspaceRoot:         parts.WorkspaceRoot,
@@ -194,7 +199,7 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 		ProjectRoot:           parts.ProjectRoot,
 		RootKind:              parts.RootKind,
 		LanguageSpecific:      languageSpecific,
-		WorkspaceFolders:      workspaceFolders(info),
+		WorkspaceFolders:      folders,
 	}, nil
 }
 
@@ -214,9 +219,13 @@ func (a goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope)
 // InitOptions 生成 gopls 初始化选项。
 // directoryFilters 来自 adapter 配置或默认配置，用于把噪声目录排除在 LSP 索引之外。
 func (a goLanguageAdapter) InitOptions(scope ResolvedLanguageScope) map[string]any {
+	expandWorkspaceToModule := scope.LanguageWorkspaceRoot == "" ||
+		scope.WorkspaceRoot == "" ||
+		scope.LanguageWorkspaceRoot == scope.WorkspaceRoot
 	options := map[string]any{
-		"semanticTokens":   true,
-		"directoryFilters": a.resolvedDirectoryFilters(),
+		"semanticTokens":          true,
+		"directoryFilters":        a.resolvedDirectoryFilters(),
+		"expandWorkspaceToModule": expandWorkspaceToModule,
 	}
 	buildFlags := goBuildFlagsForScope(scope)
 	if len(buildFlags) > 0 {
@@ -332,6 +341,7 @@ func goBuildConstraintLine(line string) bool {
 	return constraint.IsGoBuild(line) || constraint.IsPlusBuild(line)
 }
 
+// collectGoBuildConstraintTags 解析约束并收集正向自定义构建标签。
 func collectGoBuildConstraintTags(line string, tags map[string]struct{}) error {
 	expr, err := constraint.Parse(line)
 	if err != nil {
@@ -341,6 +351,7 @@ func collectGoBuildConstraintTags(line string, tags map[string]struct{}) error {
 	return nil
 }
 
+// collectPositiveGoBuildTags 递归收集表达式中的正向非工具链标签。
 func collectPositiveGoBuildTags(expr constraint.Expr, tags map[string]struct{}) {
 	switch typed := expr.(type) {
 	case *constraint.TagExpr:

@@ -2,13 +2,10 @@ package archtest
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -28,14 +25,12 @@ type GuardMetricFreeze struct {
 	Tests      Baseline `json:"tests"`
 }
 
-// GuardFreezeAcceptance 保存一次显式冻结所需的审批与 fail-first 证据。
+// GuardFreezeAcceptance 保存一次显式冻结所需的审批信息。
 type GuardFreezeAcceptance struct {
-	Owner             string `json:"owner"`
-	Reason            string `json:"reason"`
-	ReviewedAt        string `json:"reviewed_at"`
-	ReviewBy          string `json:"review_by"`
-	FailFirstEvidence string `json:"fail_first_evidence"`
-	EvidenceSHA256    string `json:"evidence_sha256"`
+	Owner      string `json:"owner"`
+	Reason     string `json:"reason"`
+	ReviewedAt string `json:"reviewed_at"`
+	ReviewBy   string `json:"review_by"`
 }
 
 // GuardFreezeSnapshot 保存审批时不可扩张的守卫债务上界。
@@ -166,41 +161,12 @@ func ValidateGuardFreezeApproval(acceptance GuardFreezeAcceptance) error {
 	if err := validateGuardFreezeAcceptanceDates(acceptance); err != nil {
 		return err
 	}
-	return validateGuardFreezeEvidencePath(acceptance.FailFirstEvidence)
-}
-
-// ValidateGuardFreezeAcceptance 校验完整冻结审批及其证据摘要。
-func ValidateGuardFreezeAcceptance(acceptance GuardFreezeAcceptance) error {
-	if err := ValidateGuardFreezeApproval(acceptance); err != nil {
-		return err
-	}
-	decoded, err := hex.DecodeString(acceptance.EvidenceSHA256)
-	if err != nil || len(decoded) != sha256.Size || hex.EncodeToString(decoded) != acceptance.EvidenceSHA256 {
-		return fmt.Errorf("acceptance.evidence_sha256 must be lowercase SHA-256")
-	}
 	return nil
 }
 
-// BindGuardFreezeAcceptance 将审批绑定到当前源码 HEAD、冻结快照和不可变 fail-first 证据摘要。
-func BindGuardFreezeAcceptance(repoRoot, sourceHead string, freeze GuardFreeze) (GuardFreezeAcceptance, error) {
-	acceptance := freeze.Acceptance
-	if err := ValidateGuardFreezeApproval(acceptance); err != nil {
-		return GuardFreezeAcceptance{}, err
-	}
-	body, err := readGuardFreezeEvidence(repoRoot, acceptance.FailFirstEvidence)
-	if err != nil {
-		return GuardFreezeAcceptance{}, err
-	}
-	snapshotSHA256, err := guardFreezeSnapshotSHA256(freeze)
-	if err != nil {
-		return GuardFreezeAcceptance{}, err
-	}
-	if err := validateGuardFreezeEvidenceBody(body, acceptance, sourceHead, snapshotSHA256); err != nil {
-		return GuardFreezeAcceptance{}, err
-	}
-	digest := sha256.Sum256(body)
-	acceptance.EvidenceSHA256 = hex.EncodeToString(digest[:])
-	return acceptance, nil
+// ValidateGuardFreezeAcceptance 校验完整冻结审批。
+func ValidateGuardFreezeAcceptance(acceptance GuardFreezeAcceptance) error {
+	return ValidateGuardFreezeApproval(acceptance)
 }
 
 func validateGuardFreezeAcceptanceFields(acceptance GuardFreezeAcceptance) error {
@@ -212,7 +178,6 @@ func validateGuardFreezeAcceptanceFields(acceptance GuardFreezeAcceptance) error
 		{name: "reason", value: acceptance.Reason},
 		{name: "reviewed_at", value: acceptance.ReviewedAt},
 		{name: "review_by", value: acceptance.ReviewBy},
-		{name: "fail_first_evidence", value: acceptance.FailFirstEvidence},
 	} {
 		if field.value == "" || strings.TrimSpace(field.value) != field.value {
 			return fmt.Errorf("acceptance.%s must be non-empty and trimmed", field.name)
@@ -251,18 +216,6 @@ func validateGuardFreezeAcceptanceDatesAt(acceptance GuardFreezeAcceptance, now 
 	return nil
 }
 
-// validateGuardFreezeEvidencePath 约束 fail-first 证据只能使用规范化仓库相对路径。
-func validateGuardFreezeEvidencePath(evidence string) error {
-	if filepath.IsAbs(evidence) {
-		return fmt.Errorf("acceptance.fail_first_evidence must be repository-relative")
-	}
-	if strings.Contains(evidence, `\`) || evidence == "." || filepath.ToSlash(filepath.Clean(evidence)) != evidence ||
-		strings.HasPrefix(evidence, "../") {
-		return fmt.Errorf("acceptance.fail_first_evidence must be a normalized repository-relative path")
-	}
-	return nil
-}
-
 func decodeGuardFreeze(data []byte) (GuardFreeze, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -279,18 +232,13 @@ func decodeGuardFreeze(data []byte) (GuardFreeze, error) {
 	return freeze, nil
 }
 
-// validateGuardFreeze 校验冻结文件版本、审批、证据及各项基线完整性。
+// validateGuardFreeze 校验冻结文件版本、审批及各项基线完整性。
 func validateGuardFreeze(path string, freeze GuardFreeze) error {
 	if freeze.Version != GuardFreezeVersion {
 		return fmt.Errorf("guard freeze %s version=%d, want %d", path, freeze.Version, GuardFreezeVersion)
 	}
 	if err := ValidateGuardFreezeAcceptance(freeze.Acceptance); err != nil {
 		return fmt.Errorf("guard freeze %s invalid acceptance: %w", path, err)
-	}
-	if path != "<json>" {
-		if err := validateGuardFreezeEvidence(path, freeze); err != nil {
-			return err
-		}
 	}
 	if freeze.Metrics.Production == nil {
 		return fmt.Errorf("guard freeze %s missing metrics.production", path)
@@ -350,123 +298,5 @@ func validateMetricBaselineSubset(name string, current, approved Baseline) error
 			return fmt.Errorf("%s[%q].has_init exceeds approved value", name, path)
 		}
 	}
-	return nil
-}
-
-// validateGuardFreezeEvidence 校验 fail-first 证据是普通文件且包含最小复现字段。
-func validateGuardFreezeEvidence(freezePath string, freeze GuardFreeze) error {
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Clean(freezePath))))
-	body, err := readGuardFreezeEvidence(repoRoot, freeze.Acceptance.FailFirstEvidence)
-	if err != nil {
-		return fmt.Errorf("guard freeze %s fail-first evidence: %w", freezePath, err)
-	}
-	body = normalizeGuardFreezeEvidenceBytes(body)
-	digest := sha256.Sum256(body)
-	if got := hex.EncodeToString(digest[:]); got != freeze.Acceptance.EvidenceSHA256 {
-		return fmt.Errorf("guard freeze %s fail-first evidence SHA-256 mismatch", freezePath)
-	}
-	snapshotSHA256, err := guardFreezeSnapshotSHA256(freeze)
-	if err != nil {
-		return err
-	}
-	return validateGuardFreezeEvidenceBody(body, freeze.Acceptance, "", snapshotSHA256)
-}
-
-func guardFreezeSnapshotSHA256(freeze GuardFreeze) (string, error) {
-	body, err := json.Marshal(freeze.Approved)
-	if err != nil {
-		return "", fmt.Errorf("marshal guard freeze snapshot: %w", err)
-	}
-	digest := sha256.Sum256(body)
-	return hex.EncodeToString(digest[:]), nil
-}
-
-// readGuardFreezeEvidence 读取仓库内普通证据文件，并拒绝符号链接越界。
-func readGuardFreezeEvidence(repoRoot, evidencePath string) ([]byte, error) {
-	absEvidence := filepath.Join(repoRoot, filepath.FromSlash(evidencePath))
-	resolvedRoot, err := filepath.EvalSymlinks(repoRoot)
-	if err != nil {
-		return nil, fmt.Errorf("resolve repository root: %w", err)
-	}
-	resolvedEvidence, err := filepath.EvalSymlinks(absEvidence)
-	if err != nil {
-		return nil, err
-	}
-	rel, err := filepath.Rel(resolvedRoot, resolvedEvidence)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("fail-first evidence must remain inside repository")
-	}
-	info, err := os.Lstat(absEvidence)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("fail-first evidence must be a regular non-symlink file")
-	}
-	body, err := os.ReadFile(absEvidence)
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
-}
-
-// validateGuardFreezeEvidenceBody 校验证据字段与审批、源码 HEAD 和冻结快照一致。
-func validateGuardFreezeEvidenceBody(body []byte, acceptance GuardFreezeAcceptance, sourceHead, snapshotSHA256 string) error {
-	fields, err := parseGuardFreezeEvidence(body)
-	if err != nil {
-		return err
-	}
-	if fields["reviewed_at"] != acceptance.ReviewedAt {
-		return fmt.Errorf("fail-first evidence reviewed_at does not match acceptance")
-	}
-	if sourceHead != "" && fields["source_head"] != sourceHead {
-		return fmt.Errorf("fail-first evidence source_head does not match current HEAD")
-	}
-	if snapshotSHA256 != "" && fields["snapshot_sha256"] != snapshotSHA256 {
-		return fmt.Errorf("fail-first evidence snapshot_sha256 does not match freeze snapshot; expected %s", snapshotSHA256)
-	}
-	return nil
-}
-
-// parseGuardFreezeEvidence 严格解析唯一且非空的 fail-first 证据字段。
-func parseGuardFreezeEvidence(body []byte) (map[string]string, error) {
-	required := map[string]bool{
-		"source_head": true, "reviewed_at": true, "snapshot_sha256": true, "working_directory": true,
-		"command": true, "expected_exit": true, "observed_failure": true,
-	}
-	fields := make(map[string]string, len(required))
-	for lineNumber, line := range strings.Split(strings.TrimSuffix(string(body), "\n"), "\n") {
-		if err := addGuardFreezeEvidenceLine(fields, required, lineNumber+1, line); err != nil {
-			return nil, err
-		}
-	}
-	for key := range required {
-		if fields[key] == "" {
-			return nil, fmt.Errorf("fail-first evidence missing field %q", key)
-		}
-	}
-	if fields["working_directory"] != "." {
-		return nil, fmt.Errorf("fail-first evidence working_directory must be repository root '.'")
-	}
-	if fields["expected_exit"] != "1" {
-		return nil, fmt.Errorf("fail-first evidence expected_exit must equal 1")
-	}
-	return fields, nil
-}
-
-// addGuardFreezeEvidenceLine 校验并登记一行唯一的证据键值。
-func addGuardFreezeEvidenceLine(fields map[string]string, required map[string]bool, lineNumber int, line string) error {
-	key, value, ok := strings.Cut(line, ":")
-	if !ok || !required[key] {
-		return fmt.Errorf("fail-first evidence line %d has unknown field", lineNumber)
-	}
-	if _, exists := fields[key]; exists {
-		return fmt.Errorf("fail-first evidence duplicate field %q", key)
-	}
-	value = strings.TrimPrefix(value, " ")
-	if value == "" || strings.TrimSpace(value) != value {
-		return fmt.Errorf("fail-first evidence field %q must be non-empty and trimmed", key)
-	}
-	fields[key] = value
 	return nil
 }

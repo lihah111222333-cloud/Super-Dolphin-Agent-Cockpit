@@ -2,6 +2,7 @@ package multilsp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
@@ -18,21 +20,72 @@ import (
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
+const goWorkModuleRootsCacheMaxEntries = 1024
+
+type goWorkModuleRootsCache struct {
+	sync.Mutex
+	entries map[string]goWorkModuleRootsCacheEntry
+}
+
+type goWorkModuleRootsCacheEntry struct {
+	digest [sha256.Size]byte
+	roots  []string
+}
+
 type goWorkEditJSON struct {
 	Use []struct {
 		DiskPath string `json:"DiskPath"`
 	} `json:"Use"`
 }
 
-func parseGoWorkModuleRoots(goWorkPath string, env []string) ([]string, error) {
+// parseGoWorkModuleRoots 按文件内容摘要复用 go.work 模块根，并在命令缺失时使用严格解析器。
+func parseGoWorkModuleRoots(goWorkPath string, env []string, caches *goResolverCaches) ([]string, error) {
+	payload, err := os.ReadFile(goWorkPath)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(payload)
+	if caches != nil {
+		cache := &caches.workRoots
+		cache.Lock()
+		cached, ok := cache.entries[goWorkPath]
+		cache.Unlock()
+		if ok && cached.digest == digest {
+			roots := append([]string(nil), cached.roots...)
+			return roots, nil
+		}
+	}
+
 	roots, err := parseGoWorkModuleRootsWithGoCommand(goWorkPath, env)
 	if err == nil {
-		return cleanSortedUniquePaths(roots), nil
+		roots = cleanSortedUniquePaths(roots)
+		cacheGoWorkModuleRoots(caches, goWorkPath, digest, roots)
+		return roots, nil
 	}
 	if _, ok := errors.AsType[*exec.Error](err); !ok {
 		return nil, err
 	}
-	return parseGoWorkModuleRootsFallback(goWorkPath)
+	roots, err = parseGoWorkModuleRootsFallback(goWorkPath)
+	if err == nil {
+		cacheGoWorkModuleRoots(caches, goWorkPath, digest, roots)
+	}
+	return roots, err
+}
+
+func cacheGoWorkModuleRoots(caches *goResolverCaches, path string, digest [sha256.Size]byte, roots []string) {
+	if caches == nil {
+		return
+	}
+	cache := &caches.workRoots
+	cache.Lock()
+	defer cache.Unlock()
+	if cache.entries == nil {
+		cache.entries = make(map[string]goWorkModuleRootsCacheEntry)
+	}
+	if len(cache.entries) >= goWorkModuleRootsCacheMaxEntries {
+		clear(cache.entries)
+	}
+	cache.entries[path] = goWorkModuleRootsCacheEntry{digest: digest, roots: append([]string(nil), roots...)}
 }
 
 // parseGoWorkModuleRootsWithGoCommand 通过 `go work edit -json` 读取 go.work 的 use 列表。

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,15 @@ type InstallerConfig struct {
 	Language            string
 	RequiredBinaries    []RequiredBinary
 	AllowInstallCommand bool
+	ManagedInstall      ManagedInstallFunc
+	ManagedBinaryPath   string
+	// ManagedOnly 禁止探测 PATH，仅允许使用 ManagedBinaryPath；用于不依赖系统 runtime 的服务。
+	ManagedOnly bool
 }
+
+// ManagedInstallFunc 在受控安装根内安装语言服务器并返回绝对 launcher 路径。
+// 它与 InstallCmd 互斥，避免同一语言同时存在全局命令和 managed artifact 两条真值路径。
+type ManagedInstallFunc func(context.Context) (string, error)
 
 // RequiredBinary 描述安装后必须存在并可选执行健康检查的伴随命令。
 type RequiredBinary struct {
@@ -131,6 +140,31 @@ func NewProvider() *Provider {
 	}
 }
 
+// ConfigForLanguage 返回指定语言的安装配置副本。
+// 返回值中的切片均为深拷贝，调用方不能通过快照修改 Provider 内部配置。
+func (p *Provider) ConfigForLanguage(lang string) (InstallerConfig, bool) {
+	if p == nil {
+		return InstallerConfig{}, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cfg, ok := p.configs[lang]
+	if !ok {
+		return InstallerConfig{}, false
+	}
+	return cloneInstallerConfig(cfg), true
+}
+
+func cloneInstallerConfig(cfg InstallerConfig) InstallerConfig {
+	cfg.BinaryCheckArgs = slices.Clone(cfg.BinaryCheckArgs)
+	cfg.InstallArgs = slices.Clone(cfg.InstallArgs)
+	cfg.RequiredBinaries = slices.Clone(cfg.RequiredBinaries)
+	for index := range cfg.RequiredBinaries {
+		cfg.RequiredBinaries[index].CheckArgs = slices.Clone(cfg.RequiredBinaries[index].CheckArgs)
+	}
+	return cfg
+}
+
 // Register 为语言登记安装命令和伴随二进制检查项。
 // 后续 EnsureInstalled 会按语言读取该配置，未登记时直接返回错误。
 func (p *Provider) Register(lang string, cfg InstallerConfig) {
@@ -166,6 +200,9 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	if !ok {
 		return InstallResult{}, fmt.Errorf("no installer config found for language: %s", lang)
 	}
+	if err := validateInstallerConfig(cfg); err != nil {
+		return InstallResult{}, fmt.Errorf("invalid installer config for language %s: %w", lang, err)
+	}
 
 	result := InstallResult{Lang: lang, Binary: cfg.BinaryName}
 
@@ -189,16 +226,16 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	p.logger.Info("LSP binary or required companion not ready, attempting auto-install...",
 		slog.String("lang", lang),
 		slog.String("binary", cfg.BinaryName),
-		slog.String("cmd", cfg.InstallCmd),
+		slog.String("cmd", installSourceName(cfg)),
 	)
 
-	installCtx, cancel, err := p.runInstallCommand(ctx, lang, cfg)
+	installCtx, cancel, managedPath, err := p.runInstallCommand(ctx, lang, cfg)
 	if err != nil {
 		return InstallResult{}, err
 	}
 	defer cancel()
 
-	return p.resolveInstalledBinary(ctx, installCtx, cfg, result)
+	return p.resolveInstalledBinary(ctx, installCtx, cfg, result, managedPath)
 }
 
 // installLock 返回单个语言的首次安装互斥锁，不阻塞其他语言并行安装。
@@ -227,9 +264,47 @@ func missingBinaryError(lang string, cfg InstallerConfig, reason error) *Missing
 
 func canRunInstallCommand(ctx context.Context, cfg InstallerConfig) bool {
 	return cfg.AllowInstallCommand &&
-		strings.TrimSpace(cfg.InstallCmd) != "" &&
+		(strings.TrimSpace(cfg.InstallCmd) != "" || cfg.ManagedInstall != nil) &&
 		installCommandCapabilityFromContext(ctx) &&
 		!installCheckOnlyFromContext(ctx)
+}
+
+// validateInstallerConfig 强制声明式命令与受管安装互斥，并校验 capability 配置闭合。
+func validateInstallerConfig(cfg InstallerConfig) error {
+	commandConfigured := strings.TrimSpace(cfg.InstallCmd) != ""
+	managedConfigured := cfg.ManagedInstall != nil
+	managedPath := strings.TrimSpace(cfg.ManagedBinaryPath)
+	if err := validateManagedInstallerConfig(commandConfigured, managedConfigured, managedPath); err != nil {
+		return err
+	}
+	if cfg.AllowInstallCommand && !commandConfigured && !managedConfigured {
+		return errors.New("install capability is enabled without an install implementation")
+	}
+	if !cfg.AllowInstallCommand && (commandConfigured || managedConfigured) {
+		return errors.New("install implementation is configured without AllowInstallCommand")
+	}
+	return nil
+}
+
+// validateManagedInstallerConfig 校验受管 installer 的互斥关系和绝对输出路径。
+func validateManagedInstallerConfig(commandConfigured, managedConfigured bool, managedPath string) error {
+	if commandConfigured && managedConfigured {
+		return errors.New("InstallCmd and ManagedInstall are mutually exclusive")
+	}
+	if managedConfigured && (managedPath == "" || !filepath.IsAbs(managedPath)) {
+		return errors.New("ManagedInstall requires an absolute ManagedBinaryPath")
+	}
+	if !managedConfigured && managedPath != "" {
+		return errors.New("ManagedBinaryPath is configured without ManagedInstall")
+	}
+	return nil
+}
+
+func installSourceName(cfg InstallerConfig) string {
+	if cfg.ManagedInstall != nil {
+		return "managed_artifact"
+	}
+	return cfg.InstallCmd
 }
 
 func installCommandCapabilityFromContext(ctx context.Context) bool {
@@ -259,10 +334,33 @@ func firstNonNilError(values ...error) error {
 
 // runInstallCommand 执行声明式安装命令，并为这一层强制设置 deadline。
 // 成功时返回仍可用于安装后探测的 installCtx，调用方负责 cancel。
-func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg InstallerConfig) (context.Context, context.CancelFunc, error) {
+func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg InstallerConfig) (context.Context, context.CancelFunc, string, error) {
 	installCtx, cancel, err := installCommandContext(ctx, cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
+	}
+	if cfg.ManagedInstall != nil {
+		start := time.Now()
+		managedPath, installErr := cfg.ManagedInstall(installCtx)
+		if installErr != nil {
+			ctxErr := installCtx.Err()
+			cancel()
+			if errors.Is(ctxErr, context.DeadlineExceeded) {
+				return nil, nil, "", fmt.Errorf("managed auto-install %s exceeded timeout %s: %w", cfg.BinaryName, installTimeout(cfg), ctxErr)
+			}
+			return nil, nil, "", fmt.Errorf("managed auto-install %s failed: %w", cfg.BinaryName, installErr)
+		}
+		managedPath = strings.TrimSpace(managedPath)
+		if managedPath == "" || !filepath.IsAbs(managedPath) {
+			cancel()
+			return nil, nil, "", fmt.Errorf("managed auto-install %s returned non-absolute launcher path %q", cfg.BinaryName, managedPath)
+		}
+		if filepath.Clean(managedPath) != filepath.Clean(cfg.ManagedBinaryPath) {
+			cancel()
+			return nil, nil, "", fmt.Errorf("managed auto-install %s returned launcher %q, want declared path %q", cfg.BinaryName, managedPath, cfg.ManagedBinaryPath)
+		}
+		p.logger.Info("LSP managed auto-install successful", slog.String("lang", lang), slog.String("duration", time.Since(start).String()))
+		return installCtx, cancel, managedPath, nil
 	}
 	cmd := hiddenexec.CommandContext(installCtx, cfg.InstallCmd, cfg.InstallArgs...)
 
@@ -272,10 +370,10 @@ func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg Insta
 		ctxErr := installCtx.Err()
 		cancel()
 		if errors.Is(ctxErr, context.DeadlineExceeded) {
-			return nil, nil, fmt.Errorf("auto-install %s exceeded timeout %s: %w\nOutput: %s",
+			return nil, nil, "", fmt.Errorf("auto-install %s exceeded timeout %s: %w\nOutput: %s",
 				cfg.BinaryName, installTimeout(cfg).String(), ctxErr, string(out))
 		}
-		return nil, nil, fmt.Errorf("failed to auto-install %s (%s %v): %w\nOutput: %s",
+		return nil, nil, "", fmt.Errorf("failed to auto-install %s (%s %v): %w\nOutput: %s",
 			cfg.BinaryName, cfg.InstallCmd, cfg.InstallArgs, err, string(out))
 	}
 
@@ -283,14 +381,17 @@ func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg Insta
 		slog.String("lang", lang),
 		slog.String("duration", time.Since(start).String()),
 	)
-	return installCtx, cancel, nil
+	return installCtx, cancel, "", nil
 }
 
 // resolveInstalledBinary 复验安装结果并返回最终二进制路径。
 // 安装命令成功但 PATH 或 go install fallback 不可用时必须报错，不能伪装成功。
-func (p *Provider) resolveInstalledBinary(ctx, installCtx context.Context, cfg InstallerConfig, result InstallResult) (InstallResult, error) {
+func (p *Provider) resolveInstalledBinary(ctx, installCtx context.Context, cfg InstallerConfig, result InstallResult, managedPath string) (InstallResult, error) {
 	// 安装后重新解析所有候选并复验，避免 PATH 中的旧 pnpm shim 遮蔽刚安装的 npm 全局二进制。
 	candidates, pathErr := installedBinaryCandidates(installCtx, cfg)
+	if managedPath != "" {
+		candidates = append([]installedBinaryCandidate{{path: managedPath}}, candidates...)
+	}
 	var readinessErr error
 	for _, candidate := range candidates {
 		if err := validateBinaryReadiness(ctx, candidate.path, cfg); err != nil {
@@ -322,7 +423,13 @@ type installedBinaryCandidate struct {
 
 // installedBinaryCandidates 解析 PATH 与安装器规范目录；pnpm shim 被 npm 全局路径优先遮蔽。
 func installedBinaryCandidates(ctx context.Context, cfg InstallerConfig) ([]installedBinaryCandidate, error) {
-	path, pathErr := exec.LookPath(cfg.BinaryName)
+	var path string
+	var pathErr error
+	if cfg.ManagedOnly {
+		pathErr = fmt.Errorf("managed-only LSP binary %s is not available in PATH by contract", cfg.BinaryName)
+	} else {
+		path, pathErr = exec.LookPath(cfg.BinaryName)
+	}
 	fallbackPath, fallbackOK := postInstallBinaryPath(ctx, cfg)
 	_, pathIsShim := CommandShimTarget(path)
 	candidates := make([]installedBinaryCandidate, 0, 2)
@@ -336,6 +443,12 @@ func installedBinaryCandidates(ctx context.Context, cfg InstallerConfig) ([]inst
 			}
 		}
 		candidates = append(candidates, candidate)
+	}
+	if managedPath := strings.TrimSpace(cfg.ManagedBinaryPath); managedPath != "" {
+		appendCandidate(installedBinaryCandidate{path: managedPath})
+	}
+	if cfg.ManagedOnly {
+		return candidates, pathErr
 	}
 	if pathIsShim && fallbackOK {
 		appendCandidate(installedBinaryCandidate{path: fallbackPath, fallback: true})
@@ -376,10 +489,14 @@ func validateBinaryReadiness(ctx context.Context, path string, cfg InstallerConf
 }
 
 func validatePrimaryBinary(ctx context.Context, path string, cfg InstallerConfig) error {
+	resolved, err := exec.LookPath(strings.TrimSpace(path))
+	if err != nil {
+		return fmt.Errorf("LSP binary %s is not executable at %s: %w", cfg.BinaryName, path, err)
+	}
 	if len(cfg.BinaryCheckArgs) == 0 {
 		return nil
 	}
-	cmd := hiddenexec.CommandContext(ctx, path, cfg.BinaryCheckArgs...)
+	cmd := hiddenexec.CommandContext(ctx, resolved, cfg.BinaryCheckArgs...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("LSP binary %s failed health check (%s %v): %w\nOutput: %s",
 			cfg.BinaryName, path, cfg.BinaryCheckArgs, err, string(out))

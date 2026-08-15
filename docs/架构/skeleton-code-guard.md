@@ -89,16 +89,12 @@ go run ./scripts/code_size_guard.go --freeze \
   --freeze-owner "<accountable-owner>" \
   --freeze-reason "<explicit-acceptance-reason>" \
   --freeze-reviewed-at "YYYY-MM-DDTHH:MM:SSZ" \
-  --freeze-review-by "YYYY-MM-DD" \
-  --freeze-fail-first "docs/guards/<fail-first-evidence>.txt"
+  --freeze-review-by "YYYY-MM-DD"
 ```
 
-`--freeze` 会改写统一冻结文件，五个审批参数缺一即失败。证据必须是仓库内规范相对路径，严格且唯一地保留
-`source_head:`、`reviewed_at:`、`snapshot_sha256:`、`working_directory: .`、`command:`、`expected_exit: 1`、`observed_failure:` 七项；
-未知、重复、空值或近似字段均会失败。`source_head` 只在执行 freeze 时绑定当时的当前 HEAD，`reviewed_at` 必须与审批参数一致，
-`snapshot_sha256` 绑定写入 JSON 的不可变 `approved` 债务上界；不匹配时不会写 baseline。普通 guard 允许当前 baseline 自动收缩，
-但新增条目、数值放宽或 priority SSA 内容变化只要超出 `approved` 就会 fail-closed。证据文件内容还由 SHA-256 防漂移。
-冻结 JSON 出现未知字段、尾随内容、未来审批时间、超过 90 天的复审周期、已过复审日期、证据摘要漂移或超出审批上界时，
+`--freeze` 会改写统一冻结文件，四个审批参数缺一即失败。冻结审批直接绑定 JSON 中的 owner、原因、审批时间和复审期限，
+不依赖仓库外部证明文件或外部文件摘要。普通 guard 允许当前 baseline 自动收缩，但新增条目、数值放宽或 priority SSA
+内容变化只要超出 `approved` 就会 fail-closed。冻结 JSON 出现未知字段、尾随内容、未来审批时间、超过 90 天的复审周期、已过复审日期或超出审批上界时，
 默认 guard、hook 和 CI 都会 fail-closed。
 
 `--strict` 不使用 baseline，适合验证新规则是否已经全仓通过。

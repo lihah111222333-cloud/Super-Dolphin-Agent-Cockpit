@@ -619,7 +619,12 @@ func workspaceConfigForLanguageScope(scope ResolvedLanguageScope, adapter Langua
 	if err != nil {
 		return workspaceConfig{}, err
 	}
-	rootURI := fileURIFromPath(scope.WorkspaceRoot)
+	languageRoot := scope.WorkspaceRoot
+	if scope.RootKind == goRootKindGoMod && scope.LanguageWorkspaceRoot != "" {
+		languageRoot = scope.LanguageWorkspaceRoot
+	}
+	languageRoot = firstNonEmpty(languageRoot, scope.LanguageWorkspaceRoot)
+	rootURI := fileURIFromPath(languageRoot)
 	folders := scope.WorkspaceFolders
 	if len(folders) == 0 {
 		folders = workspaceFoldersFromRootURI(rootURI)
@@ -630,7 +635,7 @@ func workspaceConfigForLanguageScope(scope ResolvedLanguageScope, adapter Langua
 	}
 	return workspaceConfig{
 		key:              key,
-		rootPath:         scope.WorkspaceRoot,
+		rootPath:         languageRoot,
 		rootURI:          rootURI,
 		languageID:       scope.LanguageID,
 		projectRoot:      scope.ProjectRoot,

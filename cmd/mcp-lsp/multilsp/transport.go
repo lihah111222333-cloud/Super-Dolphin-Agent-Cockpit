@@ -157,6 +157,7 @@ func cleanupFailedProcessTree(processTree *hiddenexec.ProcessTree) error {
 // request 发送一次 JSON-RPC 请求并等待匹配 id 的响应。
 // pending 表写入和清理都在超时/写失败路径中成对执行，避免调用方取消后留下悬挂 channel。
 func (t *transport) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	startedAt := time.Now()
 	ctx = platformshared.NonNilContext(ctx)
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, defaultRequestTimeout)
 	defer cancel()
@@ -183,9 +184,25 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 		return platformshared.CloneRawMessage(outcome.result), outcome.err
 	case <-ctx.Done():
 		t.removePending(key)
-		t.abortBlockedWrite(ctx.Err())
+		t.logResponseTimeout(method, time.Since(startedAt))
+		// 请求已经完整写入后，调用方超时只移除 pending。终止 transport 会丢弃
+		// 语言服务器正在进行的 workspace load，使大仓库的每次重试都从零开始。
+		// writeMessageContext 自己仍会在真正的阻塞写超时时调用 abortBlockedWrite。
 		return nil, ctx.Err()
 	}
+}
+
+// logResponseTimeout 记录响应等待超时，但不终止仍在处理 workspace 的语言服务器。
+func (t *transport) logResponseTimeout(method string, elapsed time.Duration) {
+	logger := pkglogger.Get()
+	if logger == nil {
+		return
+	}
+	args := []any{"event", "lsp_request_response_timeout", "lsp_method", method, "request_phase", "response_wait", "elapsed", elapsed, "transport_closed", t.closed.Load()}
+	if t.cmd != nil && t.cmd.Process != nil {
+		args = append(args, "server_pid", t.cmd.Process.Pid)
+	}
+	logger.Warn("LSP request timed out waiting for response", args...)
 }
 
 // notify 向 LSP 服务端发送无需响应的通知消息。

@@ -61,7 +61,7 @@ func requestDocument[T any](
 	missing documentMissingFunc[T],
 ) (T, error) {
 	var zero T
-	client, ref, err := m.documentClient(ctx, uri)
+	client, ref, err := m.documentClientWithoutDiagnosticsWait(ctx, uri)
 	if err != nil {
 		return zero, err
 	}
@@ -143,7 +143,7 @@ func queryHierarchy[I any, R any](
 	resolve hierarchyResolveFunc[I, R],
 	missing hierarchyMissingFunc[R],
 ) ([]R, error) {
-	client, ref, err := m.documentClient(ctx, uri)
+	client, ref, err := m.documentClientWithoutDiagnosticsWait(ctx, uri)
 	if err != nil {
 		return nil, err
 	}

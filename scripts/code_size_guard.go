@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -147,8 +146,6 @@ func parseGuardFlag(cfg *cliConfig, args []string, index *int) (bool, bool) {
 		cfg.acceptance.ReviewedAt = requiredGuardArg(args, index)
 	case "--freeze-review-by":
 		cfg.acceptance.ReviewBy = requiredGuardArg(args, index)
-	case "--freeze-fail-first":
-		cfg.acceptance.FailFirstEvidence = requiredGuardArg(args, index)
 	default:
 		return false, false
 	}
@@ -194,19 +191,9 @@ func modeFlag(mode string) string {
 // 该模式会写 baseline 文件，只应在明确更新守卫基线时使用。
 func runFreeze(opts archtest.CheckOptions, freezePath string, acceptance archtest.GuardFreezeAcceptance) {
 	fmt.Println("🔒  代码守卫: freeze 模式 — 建立 baseline")
-	sourceHead, err := currentSourceHead(opts.RepoRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  读取冻结源码 HEAD 失败: %v\n", err)
-		os.Exit(1)
-	}
 	freeze, err := archtest.FreezeGuardState(opts, acceptance)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌  生成统一冻结失败: %v\n", err)
-		os.Exit(1)
-	}
-	freeze.Acceptance, err = archtest.BindGuardFreezeAcceptance(opts.RepoRoot, sourceHead, freeze)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  绑定冻结证据失败: %v\n", err)
 		os.Exit(1)
 	}
 	if err := archtest.SaveGuardFreeze(freezePath, freeze); err != nil {
@@ -215,19 +202,6 @@ func runFreeze(opts archtest.CheckOptions, freezePath string, acceptance archtes
 	}
 	fmt.Printf("✅  统一冻结 — 生产 %d 个文件，测试 %d 个文件，priority SSA %d 条违规已冻结\n",
 		len(freeze.Metrics.Production), len(freeze.Metrics.Tests), len(freeze.PrioritySSA))
-}
-
-// currentSourceHead 返回本次冻结所针对的仓库 HEAD。
-func currentSourceHead(repoRoot string) (string, error) {
-	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "HEAD").Output()
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
-	}
-	head := strings.TrimSpace(string(out))
-	if len(head) != 40 {
-		return "", fmt.Errorf("git rev-parse HEAD returned invalid SHA %q", head)
-	}
-	return head, nil
 }
 
 // runStrict 不使用 baseline 进行全量检查，适合验证新规则当前是否全仓通过。

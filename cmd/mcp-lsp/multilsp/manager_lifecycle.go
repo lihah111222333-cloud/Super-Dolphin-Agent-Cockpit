@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -71,6 +72,7 @@ func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string)
 	return m.ensureClientForLanguage(ctx, languageID)
 }
 
+// managedDocumentNeedsClientRestore 判断失败 bootstrap 是否需要恢复先前 client 绑定。
 func (m *manager) managedDocumentNeedsClientRestore(
 	cfg workspaceConfig,
 	client Client,
@@ -186,9 +188,12 @@ func (m *manager) collectAndClearClientShutdowns() ([]pendingClientShutdown, err
 		count += len(states)
 	}
 	states := make([]pendingClientShutdown, 0, count)
+	seenClients := make(map[uintptr]struct{}, count)
 	var collectErr error
 	for _, pending := range m.provisionalCleanups {
-		states = append(states, pending...)
+		for _, state := range pending {
+			states = appendUniqueClientShutdown(states, seenClients, state)
+		}
 	}
 	for _, workspace := range m.workspaces {
 		if workspace != nil && workspace.client != nil {
@@ -198,13 +203,49 @@ func (m *manager) collectAndClearClientShutdowns() ([]pendingClientShutdown, err
 				workspace.client,
 				nil,
 			)
-			states = append(states, state)
+			states = appendUniqueClientShutdown(states, seenClients, state)
 			collectErr = errors.Join(collectErr, stateErr)
 		}
 	}
 	clear(m.workspaces)
 	clear(m.provisionalCleanups)
 	return states, collectErr
+}
+
+// appendUniqueClientShutdown 按底层 transport 指针去重一次关闭快照。
+func appendUniqueClientShutdown(states []pendingClientShutdown, seen map[uintptr]struct{}, state pendingClientShutdown) []pendingClientShutdown {
+	identity, ok := lifecycleClientPointerIdentity(state.client)
+	if !ok {
+		return append(states, state)
+	}
+	if _, exists := seen[identity]; exists {
+		return states
+	}
+	seen[identity] = struct{}{}
+	return append(states, state)
+}
+
+// lifecycleClientPointerIdentity 解开 client 装饰器并识别一次关闭快照中的唯一 transport owner。
+func lifecycleClientPointerIdentity(client Client) (uintptr, bool) {
+	for client != nil {
+		wrapped, ok := client.(WrappedClient)
+		if !ok {
+			break
+		}
+		underlying := wrapped.UnderlyingLSPClient()
+		if underlying == nil || underlying == client {
+			break
+		}
+		client = underlying
+	}
+	if client == nil {
+		return 0, false
+	}
+	value := reflect.ValueOf(client)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return 0, false
+	}
+	return value.Pointer(), true
 }
 
 func firstNonNilError(current, next error) error {
@@ -353,6 +394,7 @@ func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client
 	return m.ensurePublishedClient(ctx, cfg)
 }
 
+// ensurePublishedClient 原子发布新 client，并在并发 winner 已存在时回收重复实例。
 func (m *manager) ensurePublishedClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
 	m.ensureMu.Lock()
 	if candidate, ok, err := m.waitingLanguageBootstrapCandidate(cfg); ok || err != nil {
@@ -668,6 +710,7 @@ func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 
 type documentClientOptions struct {
 	waitDiagnostics bool
+	openOnly        bool
 }
 
 func (m *manager) documentClient(ctx context.Context, uri string) (Client, documentRef, error) {
@@ -675,12 +718,13 @@ func (m *manager) documentClient(ctx context.Context, uri string) (Client, docum
 }
 
 func (m *manager) documentClientWithoutDiagnosticsWait(ctx context.Context, uri string) (Client, documentRef, error) {
-	return m.documentClientWithOptions(ctx, uri, documentClientOptions{})
+	return m.documentClientWithOptions(ctx, uri, documentClientOptions{openOnly: true})
 }
 
 // documentClientWithOptions 解析文档、执行 bootstrap，并按选项返回可用 client。
 // 不受当前 manager 管理的语言返回 nil client，调用方可走静态 fallback 而不是启动无关 LSP。
 func (m *manager) documentClientWithOptions(ctx context.Context, uri string, opts documentClientOptions) (Client, documentRef, error) {
+	startedAt := time.Now()
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
 		return nil, documentRef{}, err
@@ -688,15 +732,23 @@ func (m *manager) documentClientWithOptions(ctx context.Context, uri string, opt
 	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil, ref, nil
 	}
-	if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
-		return nil, documentRef{}, err
+	var bootstrapErr error
+	if opts.openOnly {
+		bootstrapErr = m.bootstrapDocumentOpenOnly(ctx, ref.uri)
+	} else {
+		bootstrapErr = m.bootstrapDocument(ctx, ref.uri)
 	}
+	if bootstrapErr != nil {
+		return nil, documentRef{}, bootstrapErr
+	}
+	bootstrapFinishedAt := time.Now()
 	if opts.waitDiagnostics {
 		if err := m.waitDocumentDiagnosticsReady(ctx, ref); err != nil {
 			return nil, documentRef{}, err
 		}
 	}
 	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
+	traceLSPTiming("document_client language=%s open_only=%t resolve_bootstrap=%s ensure_client=%s total=%s err=%v", ref.languageID, opts.openOnly, bootstrapFinishedAt.Sub(startedAt), time.Since(bootstrapFinishedAt), time.Since(startedAt), err)
 	if err != nil {
 		return nil, documentRef{}, err
 	}

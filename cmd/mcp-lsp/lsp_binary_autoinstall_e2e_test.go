@@ -5,12 +5,15 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 type binaryAutoInstallLanguageCase struct {
@@ -32,11 +35,15 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsMissingLanguageServers_E2E(t *testin
 	binary := buildMcpLSPBinaryForTest(t)
 	for _, tc := range binaryAutoInstallLanguageCases(t) {
 		t.Run(tc.languageID, func(t *testing.T) {
+			if runtime.GOOS == "linux" && isLinuxManagedArtifactLanguage(tc.languageID) {
+				t.Skip("Linux uses the pinned managed native artifact manifest")
+			}
 			root := t.TempDir()
 			target := tc.write(t, root)
 			binDir := t.TempDir()
 			marker := filepath.Join(t.TempDir(), "installer-args")
 			writeFakeAutoInstallCommand(t, binDir, marker, tc)
+			linkAutoInstallRuntimeDependencies(t, binDir, tc)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
@@ -66,6 +73,33 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsMissingLanguageServers_E2E(t *testin
 	}
 }
 
+func isLinuxManagedArtifactLanguage(languageID string) bool {
+	switch languageID {
+	case "proto", "lua", "terraform", "sql", "csharp", contract.LSPServiceDart, contract.LSPServiceRust:
+		return true
+	}
+	for _, clangdLanguageID := range contract.ClangdLanguageIDs() {
+		if languageID == clangdLanguageID {
+			return true
+		}
+	}
+	return false
+}
+
+func linkAutoInstallRuntimeDependencies(t *testing.T, binDir string, tc binaryAutoInstallLanguageCase) {
+	t.Helper()
+	if tc.installCommand != "npm" {
+		return
+	}
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("node is required to validate %s post-install runtime: %v", tc.languageID, err)
+	}
+	if err := os.Symlink(nodePath, filepath.Join(binDir, "node")); err != nil {
+		t.Fatalf("link node runtime for %s: %v", tc.languageID, err)
+	}
+}
+
 func binaryAutoInstallLanguageCases(t *testing.T) []binaryAutoInstallLanguageCase {
 	t.Helper()
 	cases := []binaryAutoInstallLanguageCase{
@@ -92,6 +126,7 @@ func binaryAutoInstallLanguageCases(t *testing.T) []binaryAutoInstallLanguageCas
 		{languageID: "objective-cpp", installCommand: "brew", installedBinary: "clangd", requiredSnippets: []string{"install", "llvm"}, write: writeBinaryColdStartObjectiveCPPFixture},
 		{languageID: "php", installCommand: "npm", installedBinary: "intelephense", requiredSnippets: []string{"install", "-g", "intelephense"}, write: writeBinaryColdStartPHPFixture},
 		{languageID: "prisma", installCommand: "npm", installedBinary: "prisma-language-server", requiredSnippets: []string{"install", "-g", "@prisma/language-server"}, write: writeBinaryColdStartPrismaFixture},
+		{languageID: "proto", installCommand: "brew", installedBinary: "buf", requiredSnippets: []string{"install", "buf"}, write: writeBinaryColdStartProtoFixture},
 		{languageID: "python", installCommand: "npm", installedBinary: "pyright-langserver", requiredSnippets: []string{"install", "-g", "pyright"}, write: writeBinaryColdStartPythonFixture},
 		{languageID: "ruby", installCommand: "brew", installedBinary: "solargraph", requiredSnippets: []string{"install", "solargraph"}, write: writeBinaryColdStartRubyFixture},
 		{languageID: "rust", installCommand: "rustup", installedBinary: "rust-analyzer", requiredSnippets: []string{"component", "add", "rust-analyzer"}, write: writeBinaryColdStartRustFixture},
@@ -153,7 +188,11 @@ func autoInstallCommandScript(t *testing.T, marker string, tc binaryAutoInstallL
 }
 
 func autoInstallGoCommandBranches() string {
-	return "if [ \"${1:-}\" = \"env\" ]; then\n" +
+	return "if [ \"${1:-}\" = \"env\" ] && [ \"${2:-}\" = \"-json\" ]; then\n" +
+		"  echo '{\"AR\":\"ar\",\"CC\":\"gcc\",\"CXX\":\"g++\",\"FC\":\"gfortran\",\"GCCGO\":\"gccgo\",\"GOCACHE\":\"/tmp/go-cache\",\"GOMODCACHE\":\"/tmp/go-mod-cache\",\"GOPATH\":\"/tmp/go-path\",\"GOROOT\":\"/usr/local/go\",\"PKG_CONFIG\":\"pkg-config\"}'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"${1:-}\" = \"env\" ]; then\n" +
 		"  printf '%s\\n' \"${GOBIN:-}\" \"${GOPATH:-}\"\n" +
 		"  exit 0\n" +
 		"fi\n" +

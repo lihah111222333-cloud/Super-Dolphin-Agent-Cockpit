@@ -122,7 +122,9 @@ func buildMcpLSPBinaryForTest(t *testing.T) string {
 	t.Helper()
 	repoRoot := repoRootForMcpLSPBinaryTest(t)
 	output := filepath.Join(t.TempDir(), lspBinaryExecutableNameForTest())
-	cmd := exec.Command("go", "build", "-o", output, "./cmd/mcp-lsp")
+	// E2E 只验证刚编译出的 sidecar。禁用 VCS stamp，避免 WSL 在 /mnt/c
+	// 工作区为构建信息执行一次高成本的 `git status`，污染 LSP 冷启动耗时。
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", output, "./cmd/mcp-lsp")
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build mcp-lsp binary: %v\n%s", err, out)
@@ -166,6 +168,30 @@ func (c *mcpLSPBinaryClient) callTool(t *testing.T, name string, args map[string
 		"_cwd":            c.cmd.Dir,
 		"_workspaceRoots": []string{c.cmd.Dir},
 	})
+}
+
+func callMCPToolForScopedE2E(client *mcpLSPBinaryClient, name string, args map[string]any, cwd string, workspaceRoots []string) (mcpLSPBinaryResponse, error) {
+	params := map[string]any{"name": name, "arguments": args, "_cwd": cwd, "_workspaceRoots": workspaceRoots}
+	req := map[string]any{"jsonrpc": "2.0", "id": time.Now().UnixNano(), "method": "tools/call", "params": params}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return mcpLSPBinaryResponse{}, fmt.Errorf("marshal tools/call request: %w", err)
+	}
+	if _, err := client.stdin.Write(append(raw, '\n')); err != nil {
+		return mcpLSPBinaryResponse{}, fmt.Errorf("write tools/call request: %w", err)
+	}
+	line, err := client.stdout.ReadBytes('\n')
+	if err != nil {
+		return mcpLSPBinaryResponse{}, fmt.Errorf("read tools/call response: %w", err)
+	}
+	var response mcpLSPBinaryResponse
+	if err := json.Unmarshal(line, &response); err != nil {
+		return mcpLSPBinaryResponse{}, fmt.Errorf("unmarshal tools/call response: %w", err)
+	}
+	if response.Error != nil {
+		return mcpLSPBinaryResponse{}, fmt.Errorf("tools/call JSON-RPC error %d: %s", response.Error.Code, response.Error.Message)
+	}
+	return response, nil
 }
 
 func (c *mcpLSPBinaryClient) waitForHoverText(t *testing.T, pos, want string, timeout time.Duration) {
@@ -234,6 +260,33 @@ func (c *mcpLSPBinaryClient) call(t *testing.T, method string, params map[string
 	return resp
 }
 
+func callMcpLSPBinaryRaw(t *testing.T, client *mcpLSPBinaryClient, method string, params map[string]any) json.RawMessage {
+	t.Helper()
+	req := map[string]any{"jsonrpc": "2.0", "id": time.Now().UnixNano(), "method": method, "params": params}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal %s request: %v", method, err)
+	}
+	if _, err := client.stdin.Write(append(raw, '\n')); err != nil {
+		t.Fatalf("write %s request: %v; stderr=%s", method, err, client.stderrString())
+	}
+	line, err := client.stdout.ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read %s response: %v; stderr=%s", method, err, client.stderrString())
+	}
+	var response struct {
+		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(line, &response); err != nil {
+		t.Fatalf("decode %s response: %v; raw=%s", method, err, line)
+	}
+	if len(response.Error) > 0 && string(response.Error) != "null" {
+		t.Fatalf("%s returned JSON-RPC error: %s", method, response.Error)
+	}
+	return response.Result
+}
+
 func (c *mcpLSPBinaryClient) close(t *testing.T) {
 	t.Helper()
 	if c == nil || c.cmd == nil {
@@ -265,7 +318,10 @@ func (c *mcpLSPBinaryClient) close(t *testing.T) {
 		if err != nil && !errors.Is(err, os.ErrProcessDone) {
 			t.Logf("mcp-lsp binary exited with %v; stderr=%s", err, c.stderrString())
 		}
-	case <-time.After(5 * time.Second):
+	// 全语言 E2E 会在一个 sidecar 中持有数十个独立语言服务器。生命周期策略要求
+	// 每个 client 串行完成 protocol shutdown/exit 与 process-tree owner 释放；5 秒只够
+	// 少量 client，会把仍在正常收敛的进程误杀。30 秒仍是有界门禁，并足以暴露泄漏。
+	case <-time.After(30 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Errorf("mcp-lsp binary required kill after shutdown timeout; stderr=%s", c.stderrString())
 	}

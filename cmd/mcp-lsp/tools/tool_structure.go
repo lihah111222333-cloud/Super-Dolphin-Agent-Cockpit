@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // structureParams 是 structure 工具的入参，支持 file_path 和 language 写法。
@@ -43,11 +45,7 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 		}
 		return dispatchToolAction(ctx, "structure", req.Action, req, map[string]actionHandler[structureParams]{
 			"document_symbol": func(ctx context.Context, req structureParams) (any, error) {
-				mgr, err := resolveManager()
-				if err != nil {
-					return nil, err
-				}
-				return runDocumentSymbols(ctx, mgr, req)
+				return runDocumentSymbolAction(ctx, req, resolveManager)
 			},
 			"workspace_symbol": func(ctx context.Context, req structureParams) (any, error) {
 				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, firstNonEmpty(req.Language, req.LanguageID))
@@ -72,6 +70,23 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 			},
 		})
 	})
+}
+
+// runDocumentSymbolAction 分阶段记录 manager 解析与 LSP 请求耗时，定位冷启动阻塞。
+func runDocumentSymbolAction(ctx context.Context, req structureParams, resolve func() (lspmanager.Manager, error)) (any, error) {
+	log := pkglogger.Get()
+	started := time.Now()
+	log.InfoContext(ctx, "mcp-lsp structure stage started", "action", "document_symbol", "stage", "manager_resolution")
+	mgr, err := resolve()
+	if err != nil {
+		return nil, err
+	}
+	log.InfoContext(ctx, "mcp-lsp structure stage completed", "action", "document_symbol", "stage", "manager_resolution", "duration_ms", time.Since(started).Milliseconds())
+	started = time.Now()
+	log.InfoContext(ctx, "mcp-lsp structure stage started", "action", "document_symbol", "stage", "lsp_request")
+	result, err := runDocumentSymbols(ctx, mgr, req)
+	log.InfoContext(ctx, "mcp-lsp structure stage completed", "action", "document_symbol", "stage", "lsp_request", "duration_ms", time.Since(started).Milliseconds())
+	return result, err
 }
 
 // firstNonEmpty 返回第一个非空字符串。

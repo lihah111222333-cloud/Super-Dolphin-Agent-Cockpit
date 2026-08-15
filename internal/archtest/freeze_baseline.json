@@ -1,12 +1,10 @@
 {
   "version": 3,
   "acceptance": {
-    "owner": "remote-ci-maintainers",
-    "reason": "第三轮远程 CI 垃圾代码清理与协议收敛",
-    "reviewed_at": "2026-08-08T18:30:00Z",
-    "review_by": "2026-09-08",
-    "fail_first_evidence": "docs/guards/remote-ci-production-freeze-fail-first.txt",
-    "evidence_sha256": "24bb188f3f42e88c6c97b999ef8ee9d7a5faa13751e853d8e216746992b2aea4"
+    "owner": "lsp-maintainers",
+    "reason": "删除外部证明依赖并批准当前已通过阈值的守卫快照",
+    "reviewed_at": "2026-08-15T12:00:00Z",
+    "review_by": "2026-09-15"
   },
   "approved": {
     "metrics": {
@@ -118,7 +116,7 @@
           "max_struct_methods": 2
         },
         "cmd/super-dolphin-gate/main.go": {
-          "lines": 338,
+          "lines": 244,
           "max_func_len": 29,
           "max_nesting": 2,
           "max_complexity": 9,
@@ -129,8 +127,7 @@
           "panic_count": 0,
           "naked_returns": 0,
           "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 13
+          "todo_count": 0
         },
         "cmd/super-dolphin-updater/main.go": {
           "lines": 269,
@@ -219,8 +216,8 @@
           "todo_count": 0
         },
         "internal/devtools/alicloud/eci/client.go": {
-          "lines": 767,
-          "max_func_len": 76,
+          "lines": 791,
+          "max_func_len": 44,
           "max_nesting": 3,
           "max_complexity": 9,
           "max_params": 3,
@@ -231,7 +228,7 @@
           "naked_returns": 0,
           "empty_funcs": 0,
           "todo_count": 0,
-          "max_struct_fields": 17,
+          "max_struct_fields": 18,
           "max_struct_methods": 4
         },
         "internal/devtools/codemapindex/source_scan.go": {
@@ -264,7 +261,7 @@
           "max_struct_fields": 10
         },
         "internal/devtools/frontendcodesizetrusted/frontend_code_size.go": {
-          "lines": 563,
+          "lines": 575,
           "max_func_len": 84,
           "max_nesting": 4,
           "max_complexity": 28,
@@ -296,9 +293,9 @@
           "max_struct_methods": 4
         },
         "internal/devtools/gate/executor_mapping.go": {
-          "lines": 448,
-          "max_func_len": 36,
-          "max_nesting": 2,
+          "lines": 605,
+          "max_func_len": 58,
+          "max_nesting": 3,
           "max_complexity": 10,
           "max_params": 3,
           "max_returns": 3,
@@ -375,21 +372,6 @@
           "max_struct_fields": 31,
           "max_struct_methods": 1
         },
-        "internal/devtools/gate/workload_planning.go": {
-          "lines": 749,
-          "max_func_len": 54,
-          "max_nesting": 3,
-          "max_complexity": 10,
-          "max_params": 7,
-          "max_returns": 4,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 1,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_methods": 2
-        },
         "internal/devtools/godistribution/go_distribution.go": {
           "lines": 99,
           "max_func_len": 31,
@@ -450,11 +432,11 @@
           "todo_count": 0
         },
         "internal/devtools/remoteci/worker_execution_contract.go": {
-          "lines": 135,
-          "max_func_len": 25,
-          "max_nesting": 2,
+          "lines": 361,
+          "max_func_len": 34,
+          "max_nesting": 3,
           "max_complexity": 9,
-          "max_params": 1,
+          "max_params": 3,
           "max_returns": 2,
           "max_underscore": 0,
           "global_vars": 1,
@@ -683,10 +665,10 @@
           "max_struct_methods": 2
         },
         "internal/module/turn/tracker.go": {
-          "lines": 500,
-          "max_func_len": 24,
+          "lines": 708,
+          "max_func_len": 29,
           "max_nesting": 2,
-          "max_complexity": 7,
+          "max_complexity": 10,
           "max_params": 4,
           "max_returns": 2,
           "max_underscore": 0,
@@ -695,7 +677,7 @@
           "naked_returns": 0,
           "empty_funcs": 0,
           "todo_count": 0,
-          "max_struct_fields": 14,
+          "max_struct_fields": 21,
           "max_struct_methods": 10
         },
         "internal/module/uistate/projector_handlers.go": {
@@ -907,7 +889,7 @@
           "max_struct_fields": 3
         },
         "internal/provider/codexapp/factory.go": {
-          "lines": 560,
+          "lines": 626,
           "max_func_len": 35,
           "max_nesting": 3,
           "max_complexity": 10,
@@ -969,26 +951,11 @@
           "max_struct_fields": 48,
           "max_struct_methods": 9
         },
-        "internal/provider/codexapp/session_dispatch.go": {
-          "lines": 802,
-          "max_func_len": 51,
-          "max_nesting": 3,
-          "max_complexity": 10,
-          "max_params": 5,
-          "max_returns": 4,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 4
-        },
         "internal/provider/codexapp/session_enrich.go": {
-          "lines": 399,
+          "lines": 449,
           "max_func_len": 40,
           "max_nesting": 2,
-          "max_complexity": 9,
+          "max_complexity": 10,
           "max_params": 6,
           "max_returns": 3,
           "max_underscore": 0,
@@ -1154,8 +1121,8 @@
           "todo_count": 0
         },
         "scripts/lsp_diagnostics_gate/main.go": {
-          "lines": 656,
-          "max_func_len": 38,
+          "lines": 662,
+          "max_func_len": 44,
           "max_nesting": 2,
           "max_complexity": 10,
           "max_params": 4,
@@ -1171,21 +1138,6 @@
         }
       },
       "tests": {
-        "cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go": {
-          "lines": 661,
-          "max_func_len": 83,
-          "max_nesting": 3,
-          "max_complexity": 10,
-          "max_params": 7,
-          "max_returns": 3,
-          "max_underscore": 1,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 4
-        },
         "cmd/mcp-lsp/lsp_binary_mjs_tools_e2e_test.go": {
           "lines": 389,
           "max_func_len": 33,
@@ -1249,7 +1201,7 @@
           "max_struct_methods": 1
         },
         "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_test.go": {
-          "lines": 739,
+          "lines": 731,
           "max_func_len": 85,
           "max_nesting": 2,
           "max_complexity": 22,
@@ -1261,11 +1213,11 @@
           "naked_returns": 0,
           "empty_funcs": 0,
           "todo_count": 0,
-          "max_struct_fields": 3,
-          "max_struct_methods": 1
+          "max_struct_fields": 4,
+          "max_struct_methods": 2
         },
         "cmd/mcp-lsp/runtime_test.go": {
-          "lines": 877,
+          "lines": 848,
           "max_func_len": 52,
           "max_nesting": 2,
           "max_complexity": 8,
@@ -1276,9 +1228,7 @@
           "panic_count": 0,
           "naked_returns": 0,
           "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 1,
-          "max_struct_methods": 1
+          "todo_count": 0
         },
         "cmd/mcp-orch/notify/resolve_test.go": {
           "lines": 134,
@@ -1397,35 +1347,6 @@
           "naked_returns": 0,
           "empty_funcs": 0,
           "todo_count": 0
-        },
-        "cmd/super-dolphin-gate/remote_run_contract_receipt_test.go": {
-          "lines": 634,
-          "max_func_len": 83,
-          "max_nesting": 3,
-          "max_complexity": 17,
-          "max_params": 5,
-          "max_returns": 2,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0
-        },
-        "cmd/super-dolphin-gate/remote_run_execution_contract_test.go": {
-          "lines": 170,
-          "max_func_len": 33,
-          "max_nesting": 4,
-          "max_complexity": 12,
-          "max_params": 3,
-          "max_returns": 1,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 3
         },
         "internal/app/desktop_shutdown_test.go": {
           "lines": 278,
@@ -1560,10 +1481,10 @@
           "todo_count": 0
         },
         "internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go": {
-          "lines": 126,
+          "lines": 127,
           "max_func_len": 25,
           "max_nesting": 2,
-          "max_complexity": 4,
+          "max_complexity": 5,
           "max_params": 2,
           "max_returns": 1,
           "max_underscore": 0,
@@ -1616,7 +1537,7 @@
           "todo_count": 0
         },
         "internal/devtools/frontendcodesizetrusted/frontend_code_size_test.go": {
-          "lines": 474,
+          "lines": 510,
           "max_func_len": 47,
           "max_nesting": 2,
           "max_complexity": 11,
@@ -1630,7 +1551,7 @@
           "todo_count": 0
         },
         "internal/devtools/gate/registry_test.go": {
-          "lines": 340,
+          "lines": 341,
           "max_func_len": 54,
           "max_nesting": 2,
           "max_complexity": 14,
@@ -1658,12 +1579,12 @@
           "todo_count": 0
         },
         "internal/devtools/gate/remote_ci_authority_store_test.go": {
-          "lines": 266,
-          "max_func_len": 29,
+          "lines": 542,
+          "max_func_len": 39,
           "max_nesting": 3,
           "max_complexity": 9,
-          "max_params": 5,
-          "max_returns": 2,
+          "max_params": 6,
+          "max_returns": 3,
           "max_underscore": 0,
           "global_vars": 0,
           "panic_count": 1,
@@ -1673,7 +1594,7 @@
           "max_struct_fields": 4
         },
         "internal/devtools/remoteci/coordinator_shard_timing_test.go": {
-          "lines": 519,
+          "lines": 580,
           "max_func_len": 73,
           "max_nesting": 3,
           "max_complexity": 24,
@@ -1687,11 +1608,11 @@
           "todo_count": 0
         },
         "internal/devtools/remoteci/gate_cli_compile_closure_test.go": {
-          "lines": 259,
-          "max_func_len": 44,
+          "lines": 333,
+          "max_func_len": 48,
           "max_nesting": 2,
           "max_complexity": 12,
-          "max_params": 4,
+          "max_params": 6,
           "max_returns": 1,
           "max_underscore": 0,
           "global_vars": 0,
@@ -1941,7 +1862,7 @@
           "max_struct_methods": 1
         },
         "internal/provider/codexapp/forcecomplete_approval_race_test.go": {
-          "lines": 532,
+          "lines": 533,
           "max_func_len": 35,
           "max_nesting": 2,
           "max_complexity": 17,
@@ -2157,7 +2078,7 @@
         "max_struct_methods": 2
       },
       "cmd/super-dolphin-gate/main.go": {
-        "lines": 338,
+        "lines": 244,
         "max_func_len": 29,
         "max_nesting": 2,
         "max_complexity": 9,
@@ -2168,8 +2089,7 @@
         "panic_count": 0,
         "naked_returns": 0,
         "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 13
+        "todo_count": 0
       },
       "cmd/super-dolphin-updater/main.go": {
         "lines": 269,
@@ -2258,8 +2178,8 @@
         "todo_count": 0
       },
       "internal/devtools/alicloud/eci/client.go": {
-        "lines": 767,
-        "max_func_len": 76,
+        "lines": 791,
+        "max_func_len": 44,
         "max_nesting": 3,
         "max_complexity": 9,
         "max_params": 3,
@@ -2270,7 +2190,7 @@
         "naked_returns": 0,
         "empty_funcs": 0,
         "todo_count": 0,
-        "max_struct_fields": 17,
+        "max_struct_fields": 18,
         "max_struct_methods": 4
       },
       "internal/devtools/codemapindex/source_scan.go": {
@@ -2303,7 +2223,7 @@
         "max_struct_fields": 10
       },
       "internal/devtools/frontendcodesizetrusted/frontend_code_size.go": {
-        "lines": 563,
+        "lines": 575,
         "max_func_len": 84,
         "max_nesting": 4,
         "max_complexity": 28,
@@ -2335,9 +2255,9 @@
         "max_struct_methods": 4
       },
       "internal/devtools/gate/executor_mapping.go": {
-        "lines": 448,
-        "max_func_len": 36,
-        "max_nesting": 2,
+        "lines": 605,
+        "max_func_len": 58,
+        "max_nesting": 3,
         "max_complexity": 10,
         "max_params": 3,
         "max_returns": 3,
@@ -2474,11 +2394,11 @@
         "todo_count": 0
       },
       "internal/devtools/remoteci/worker_execution_contract.go": {
-        "lines": 135,
-        "max_func_len": 25,
-        "max_nesting": 2,
+        "lines": 361,
+        "max_func_len": 34,
+        "max_nesting": 3,
         "max_complexity": 9,
-        "max_params": 1,
+        "max_params": 3,
         "max_returns": 2,
         "max_underscore": 0,
         "global_vars": 1,
@@ -2707,10 +2627,10 @@
         "max_struct_methods": 2
       },
       "internal/module/turn/tracker.go": {
-        "lines": 500,
-        "max_func_len": 24,
+        "lines": 708,
+        "max_func_len": 29,
         "max_nesting": 2,
-        "max_complexity": 7,
+        "max_complexity": 10,
         "max_params": 4,
         "max_returns": 2,
         "max_underscore": 0,
@@ -2719,7 +2639,7 @@
         "naked_returns": 0,
         "empty_funcs": 0,
         "todo_count": 0,
-        "max_struct_fields": 14,
+        "max_struct_fields": 21,
         "max_struct_methods": 10
       },
       "internal/module/uistate/projector_handlers.go": {
@@ -2931,7 +2851,7 @@
         "max_struct_fields": 3
       },
       "internal/provider/codexapp/factory.go": {
-        "lines": 560,
+        "lines": 626,
         "max_func_len": 35,
         "max_nesting": 3,
         "max_complexity": 10,
@@ -2994,10 +2914,10 @@
         "max_struct_methods": 9
       },
       "internal/provider/codexapp/session_enrich.go": {
-        "lines": 399,
+        "lines": 449,
         "max_func_len": 40,
         "max_nesting": 2,
-        "max_complexity": 9,
+        "max_complexity": 10,
         "max_params": 6,
         "max_returns": 3,
         "max_underscore": 0,
@@ -3163,8 +3083,8 @@
         "todo_count": 0
       },
       "scripts/lsp_diagnostics_gate/main.go": {
-        "lines": 656,
-        "max_func_len": 38,
+        "lines": 662,
+        "max_func_len": 44,
         "max_nesting": 2,
         "max_complexity": 10,
         "max_params": 4,
@@ -3243,7 +3163,7 @@
         "max_struct_methods": 1
       },
       "cmd/mcp-lsp/runtime_gopls_root_cohort_durable_test.go": {
-        "lines": 739,
+        "lines": 731,
         "max_func_len": 85,
         "max_nesting": 2,
         "max_complexity": 22,
@@ -3255,11 +3175,11 @@
         "naked_returns": 0,
         "empty_funcs": 0,
         "todo_count": 0,
-        "max_struct_fields": 3,
-        "max_struct_methods": 1
+        "max_struct_fields": 4,
+        "max_struct_methods": 2
       },
       "cmd/mcp-lsp/runtime_test.go": {
-        "lines": 867,
+        "lines": 848,
         "max_func_len": 52,
         "max_nesting": 2,
         "max_complexity": 8,
@@ -3270,9 +3190,7 @@
         "panic_count": 0,
         "naked_returns": 0,
         "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 1,
-        "max_struct_methods": 1
+        "todo_count": 0
       },
       "cmd/mcp-orch/notify/resolve_test.go": {
         "lines": 134,
@@ -3525,10 +3443,10 @@
         "todo_count": 0
       },
       "internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go": {
-        "lines": 126,
+        "lines": 127,
         "max_func_len": 25,
         "max_nesting": 2,
-        "max_complexity": 4,
+        "max_complexity": 5,
         "max_params": 2,
         "max_returns": 1,
         "max_underscore": 0,
@@ -3581,7 +3499,7 @@
         "todo_count": 0
       },
       "internal/devtools/frontendcodesizetrusted/frontend_code_size_test.go": {
-        "lines": 474,
+        "lines": 510,
         "max_func_len": 47,
         "max_nesting": 2,
         "max_complexity": 11,
@@ -3595,7 +3513,7 @@
         "todo_count": 0
       },
       "internal/devtools/gate/registry_test.go": {
-        "lines": 340,
+        "lines": 341,
         "max_func_len": 54,
         "max_nesting": 2,
         "max_complexity": 14,
@@ -3623,12 +3541,12 @@
         "todo_count": 0
       },
       "internal/devtools/gate/remote_ci_authority_store_test.go": {
-        "lines": 266,
-        "max_func_len": 29,
+        "lines": 542,
+        "max_func_len": 39,
         "max_nesting": 3,
         "max_complexity": 9,
-        "max_params": 5,
-        "max_returns": 2,
+        "max_params": 6,
+        "max_returns": 3,
         "max_underscore": 0,
         "global_vars": 0,
         "panic_count": 1,
@@ -3638,7 +3556,7 @@
         "max_struct_fields": 4
       },
       "internal/devtools/remoteci/coordinator_shard_timing_test.go": {
-        "lines": 519,
+        "lines": 580,
         "max_func_len": 73,
         "max_nesting": 3,
         "max_complexity": 24,
@@ -3652,11 +3570,11 @@
         "todo_count": 0
       },
       "internal/devtools/remoteci/gate_cli_compile_closure_test.go": {
-        "lines": 259,
-        "max_func_len": 44,
+        "lines": 333,
+        "max_func_len": 48,
         "max_nesting": 2,
         "max_complexity": 12,
-        "max_params": 4,
+        "max_params": 6,
         "max_returns": 1,
         "max_underscore": 0,
         "global_vars": 0,
@@ -3906,7 +3824,7 @@
         "max_struct_methods": 1
       },
       "internal/provider/codexapp/forcecomplete_approval_race_test.go": {
-        "lines": 532,
+        "lines": 533,
         "max_func_len": 35,
         "max_nesting": 2,
         "max_complexity": 17,

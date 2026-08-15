@@ -49,6 +49,7 @@ real_go_resolver_required_version() {
   scripts_dir="$(real_go_resolver_script_dir)"
   root_dir="${scripts_dir%/*}"
   /usr/bin/awk '
+    { sub(/\r$/, "", $2) }
     $1 == "toolchain" && $2 ~ /^go[0-9]+\.[0-9]+\.[0-9]+$/ { print substr($2, 3); found=1; exit }
     $1 == "go" && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { fallback=$2 }
     END { if (!found && fallback != "") print fallback }

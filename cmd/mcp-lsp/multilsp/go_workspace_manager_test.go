@@ -680,3 +680,60 @@ func assertActiveLeaseSkipsRecycle(
 		t.Fatalf("hold active lease: %v", err)
 	}
 }
+
+func TestGoModNarrowCWDDrivesGoplsLanguageRoot(t *testing.T) {
+	t.Setenv("GOWORK", "off")
+	repo := normalizedTempDir(t)
+	writeGoMod(t, repo, "example.com/narrow")
+	packageDir := filepath.Join(repo, "cmd", "service")
+	target := writeGoFile(t, packageDir, "main.go")
+	adapter := goLanguageAdapter{}
+	resolved, err := adapter.ResolveRoot(context.Background(), LSPToolScope{
+		CWD:        packageDir,
+		LanguageID: "go",
+		TargetPath: target,
+	}, target)
+	if err != nil {
+		t.Fatalf("ResolveRoot() error = %v", err)
+	}
+	requireGoModNarrowResolvedScope(t, resolved, repo, packageDir)
+	cfg, err := workspaceConfigForLanguageScope(resolved, adapter)
+	if err != nil {
+		t.Fatalf("workspaceConfigForLanguageScope() error = %v", err)
+	}
+	requireGoModNarrowWorkspaceConfig(t, cfg, packageDir)
+}
+
+func requireGoModNarrowResolvedScope(t *testing.T, resolved ResolvedLanguageScope, repo, packageDir string) {
+	t.Helper()
+	if resolved.WorkspaceRoot != repo {
+		t.Fatalf("workspace root = %q, want %q", resolved.WorkspaceRoot, repo)
+	}
+	if resolved.LanguageWorkspaceRoot != packageDir {
+		t.Fatalf("resolved roots = workspace %q language %q, want %q and %q",
+			resolved.WorkspaceRoot, resolved.LanguageWorkspaceRoot, repo, packageDir)
+	}
+	if len(resolved.WorkspaceFolders) != 1 {
+		t.Fatalf("workspace folders = %#v, want one narrowed package root", resolved.WorkspaceFolders)
+	}
+	if resolved.WorkspaceFolders[0].URI != fileURIFromPath(packageDir) {
+		t.Fatalf("workspace folders = %#v, want narrowed package root", resolved.WorkspaceFolders)
+	}
+}
+
+func requireGoModNarrowWorkspaceConfig(t *testing.T, cfg workspaceConfig, packageDir string) {
+	t.Helper()
+	if cfg.rootPath != packageDir {
+		t.Fatalf("gopls root path = %q, want %q", cfg.rootPath, packageDir)
+	}
+	if cfg.rootURI != fileURIFromPath(packageDir) {
+		t.Fatalf("gopls config root = (%q, %q), want package root %q", cfg.rootPath, cfg.rootURI, packageDir)
+	}
+	expand, ok := cfg.initOptions["expandWorkspaceToModule"].(bool)
+	if !ok {
+		t.Fatalf("expandWorkspaceToModule type = %T, want bool", cfg.initOptions["expandWorkspaceToModule"])
+	}
+	if expand {
+		t.Fatalf("expandWorkspaceToModule = %#v, want false", cfg.initOptions["expandWorkspaceToModule"])
+	}
+}

@@ -42,6 +42,15 @@ EOF
 chmod 500 "$candidate_source"
 digest=$(sha256_file "$candidate_source")
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
+original_materializer=$(declare -f materialize_trusted_gate_launcher_for_tree)
+materialize_trusted_gate_launcher_for_tree() {
+  printf '/fixture/auto/%s/super-dolphin-gate\n' "$2"
+}
+git -C "$git_repo" config --local --unset-all superdolphin.gateLauncher 2>/dev/null || true
+auto_launcher=$(trusted_gate_launcher "$git_repo")
+[[ "$auto_launcher" == "/fixture/auto/$tree/super-dolphin-gate" ]] \
+  || fail 'missing launcher config did not trigger exact-tree automatic materialization'
+eval "$original_materializer"
 real_os_home=$(trusted_launcher_os_home) || fail 'operating-system home directory could not be resolved'
 test_home=$(mktemp -d "$real_os_home/.trusted-launcher-contract-home.XXXXXX")
 chmod 700 "$test_home"

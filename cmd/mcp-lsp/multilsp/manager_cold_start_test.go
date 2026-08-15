@@ -62,7 +62,7 @@ func TestWaitDiagnosticsStableWaitsForDelayedColdStartDiagnostics(t *testing.T) 
 	}
 }
 
-func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
+func TestDefinitionBootstrapsWithoutWaitingForColdStartDiagnostics(t *testing.T) {
 	for _, tc := range coldStartLanguageCases(t) {
 		t.Run(tc.languageID, func(t *testing.T) {
 			root := t.TempDir()
@@ -100,26 +100,25 @@ func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
 			})
 			select {
 			case <-didOpen:
-				close(releaseDiagnostics)
 			case <-ctx.Done():
-				t.Fatalf("Definition() did not open the document before diagnostics release: %v", ctx.Err())
+				t.Fatalf("Definition() did not bootstrap the document: %v", ctx.Err())
 			}
 			var result definitionResult
 			select {
 			case result = <-resultCh:
 			case <-ctx.Done():
-				t.Fatalf("Definition() did not finish after diagnostics release: %v", ctx.Err())
+				t.Fatalf("Definition() waited for cold-start diagnostics: %v", ctx.Err())
 			}
 			defs, err := result.definitions, result.err
 			if err != nil {
-				t.Fatalf("Definition() error = %v, want delayed cold-start diagnostics to make definition ready", err)
+				t.Fatalf("Definition() error = %v, want semantic request before diagnostics readiness", err)
 			}
-			if len(defs) != 1 {
-				t.Fatalf("Definition() results = %#v, want one location after diagnostics readiness", defs)
+			if len(defs) != 0 {
+				t.Fatalf("Definition() results = %#v, want empty pre-diagnostics server response", defs)
 			}
 			client := factory.clientAt(t)
-			if got := client.beforeReadyRequestCount(); got != 0 {
-				t.Fatalf("definition request raced cold-start diagnostics %d time(s)", got)
+			if got := client.beforeReadyRequestCount(); got != 1 {
+				t.Fatalf("definition requests before diagnostics readiness = %d, want exactly one", got)
 			}
 			if got := client.openedLanguageID(); got != tc.languageID {
 				t.Fatalf("DidOpen language ID = %q, want %q", got, tc.languageID)

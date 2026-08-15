@@ -362,6 +362,14 @@ func (t *transport) prepareProcessTreeShutdown() error {
 		}
 		return nil
 	}
+	// The read/write failure path may already have terminated the exact tree,
+	// waited for every member, and released its owner before manager shutdown
+	// begins. Preparation is then complete by stronger evidence; re-entering a
+	// released owner would turn an idempotent Close into a false lifecycle error.
+	if t.processTreeReleased() {
+		t.logShutdownStage("prepare", "skipped", nil)
+		return nil
+	}
 	err := t.processTree.PrepareShutdown()
 	if err != nil {
 		t.logShutdownStage("prepare", "failed", err)

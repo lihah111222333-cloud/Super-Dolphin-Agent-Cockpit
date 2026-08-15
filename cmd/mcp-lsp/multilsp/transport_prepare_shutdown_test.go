@@ -26,6 +26,18 @@ func TestTransportPrepareProcessTreeShutdownUsesExactOwner(t *testing.T) {
 	}
 }
 
+func TestTransportPrepareProcessTreeShutdownSkipsReleasedOwner(t *testing.T) {
+	owner := &countingProcessTreeOwner{}
+	tr := &transport{processTree: owner, treeReleased: true}
+
+	if err := tr.prepareProcessTreeShutdown(); err != nil {
+		t.Fatalf("prepareProcessTreeShutdown() after release error = %v", err)
+	}
+	if got := owner.prepareCalls.Load(); got != 0 {
+		t.Fatalf("PrepareShutdown() calls after release = %d, want 0", got)
+	}
+}
+
 // TestTransportPrepareProcessTreeShutdownPropagatesOwnerError 验证 owner 无法安全入册时关闭请求立即失败。
 func TestTransportPrepareProcessTreeShutdownPropagatesOwnerError(t *testing.T) {
 	want := errors.New("owner preparation failed")

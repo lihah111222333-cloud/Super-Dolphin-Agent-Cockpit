@@ -558,13 +558,26 @@ func runLSP() error {
 		var result any
 		switch req.Method {
 		case "initialize":
-			capabilities := map[string]any{"textDocumentSync": 1, "completionProvider": map[string]any{}}
+			capabilities := map[string]any{"textDocumentSync": 1, "completionProvider": map[string]any{}, "hoverProvider": true, "definitionProvider": true, "referencesProvider": true}
 			if strictFileURI {
 				capabilities["documentSymbolProvider"] = true
 			}
 			result = map[string]any{"capabilities": capabilities}
 		case "textDocument/completion":
 			result = map[string]any{"isIncomplete": false, "items": []any{}}
+		case "textDocument/hover":
+			result = map[string]any{"contents": map[string]any{"kind": "plaintext", "value": "WindowsFakeHover"}}
+		case "textDocument/definition", "textDocument/references":
+			var params struct {
+				TextDocument struct {
+					URI string ` + "`json:\"uri\"`" + `
+				} ` + "`json:\"textDocument\"`" + `
+			}
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return err
+			}
+			zero := map[string]any{"line": 0, "character": 0}
+			result = []any{map[string]any{"uri": params.TextDocument.URI, "range": map[string]any{"start": zero, "end": zero}}}
 		case "textDocument/documentSymbol":
 			if strictFileURI {
 				zero := map[string]any{"line": 0, "character": 0}

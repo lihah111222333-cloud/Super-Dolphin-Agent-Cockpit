@@ -58,6 +58,22 @@ func TestCreateAndRegisterClientShutsDownDiscardedClientOutsideLockWithTimeout(t
 	}
 }
 
+func TestCollectAndClearClientShutdownsDeduplicatesSharedTransportOwner(t *testing.T) {
+	client := &lockProbeShutdownClient{}
+	m := &manager{instanceID: "shared-owner-test", workspaces: map[string]*workspaceClient{
+		"repo:go":    {key: "repo:go", client: client, generation: 1, state: workspaceStateActive},
+		"repo:gosum": {key: "repo:gosum", client: client, generation: 1, state: workspaceStateActive},
+	}}
+
+	states, err := m.collectAndClearClientShutdowns()
+	if err != nil {
+		t.Fatalf("collectAndClearClientShutdowns() error = %v", err)
+	}
+	if len(states) != 1 {
+		t.Fatalf("shutdown owner count = %d, want 1", len(states))
+	}
+}
+
 type lockProbeShutdownClient struct {
 	noopClient
 	manager       *manager

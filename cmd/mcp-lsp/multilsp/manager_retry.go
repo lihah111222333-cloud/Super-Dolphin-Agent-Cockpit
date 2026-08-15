@@ -99,7 +99,8 @@ func retryPendingLSPClient(state pendingClientShutdown, observe func(pendingClie
 }
 
 // request 包装一次可重试的 LSP JSON-RPC 请求。
-// inspect/xref 读链路的单步超时会重建 client 后重试一次；其余重试仍只覆盖瞬时 content modified 或死连接。
+// inspect/xref 读链路的单步超时会优先复用仍健康的 client 重试一次，保留大仓库
+// workspace load 进度；只有 transport 已死时才重建 client。
 func (m *manager) request(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
 	if client == nil {
 		return nil, fmt.Errorf("request %s: client is nil", method)
@@ -110,11 +111,17 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 			return raw, nil
 		}
 		if isRetryableNavigationTimeout(ctx, method, err) {
-			retried, retryErr := m.retryRequestAfterDeadClient(ctx, client, method, params, err)
+			var retried json.RawMessage
+			var retryErr error
+			if clientHealthy(client) {
+				retried, retryErr = m.requestOnce(ctx, client, method, params)
+			} else {
+				retried, retryErr = m.retryRequestAfterDeadClient(ctx, client, method, params, err)
+			}
 			if retryErr == nil {
 				return retried, nil
 			}
-			return nil, fmt.Errorf("%s: %w", method, retryErr)
+			return nil, fmt.Errorf("%s: %w", method, errors.Join(err, retryErr))
 		}
 		if isRetryableTransientLSPRequestError(method, err) && attempt < transientLSPRequestMaxRetries {
 			if waitErr := m.waitBeforeTransientLSPRequestRetry(ctx, attempt); waitErr != nil {
@@ -149,7 +156,10 @@ func (m *manager) handleRequestFailure(ctx context.Context, client Client, metho
 		}
 		return retried, nil
 	}
-	if !isClientDeadError(err) {
+	// 进程退出错误可能来自 exec.Cmd.Wait（例如 SIGKILL 的 exit status 137），
+	// 文本不一定包含 pipe/transport sentinel；HealthCheckedClient 已确认死亡时
+	// 仍必须进入同调用重建，不能把一次可恢复的读请求泄漏给用户。
+	if !isClientDeadError(err) && clientHealthy(client) {
 		return nil, fmt.Errorf("%s: %w", method, err)
 	}
 	if canAutoRetryDeadClientRequest(method) {
@@ -188,7 +198,7 @@ func canAutoRetryDeadClientRequest(method string) bool {
 	}
 }
 
-// isRetryableNavigationTimeout 只允许 inspect/xref 读链路在单步内部 deadline 后重建 client 并重试一次。
+// isRetryableNavigationTimeout 只允许 inspect/xref 读链路在单步内部 deadline 后重试一次。
 // 调用方 deadline 或取消已生效时必须立即返回，不能通过重试延长上层预算。
 func isRetryableNavigationTimeout(ctx context.Context, method string, err error) bool {
 	if ctx == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
@@ -369,7 +379,9 @@ func (m *manager) rebuildClientAfterFailure(ctx context.Context, client Client, 
 			return replacement, errors.Join(shutdownErr, err)
 		}
 	}
-	return replacement, shutdownErr
+	// 旧 client 的协议 shutdown 失败不应污染已经成功发布并恢复的新代际。
+	// Close 已完成意味着旧 owner 已收敛；此处的业务结果由 replacement 决定。
+	return replacement, nil
 }
 
 func workspaceConfigFromClient(workspace workspaceClient) workspaceConfig {

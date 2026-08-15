@@ -18,6 +18,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 	cfg = lspConfigWithDefaults(cfg)
 	return NewLanguageAdapterRegistry(
 		goLanguageAdapter{
+			caches:           &goResolverCaches{},
 			directoryFilters: cfg.GoDirectoryFilters,
 			noiseDirNames:    cfg.NoiseDirNames,
 			idleTimeout:      cfg.IdleTimeout,

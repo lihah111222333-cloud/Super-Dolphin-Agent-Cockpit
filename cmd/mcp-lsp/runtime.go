@@ -73,29 +73,46 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	inst := runtimeInstaller(packagedLSP)
+	inst, err := runtimeInstaller(packagedLSP)
+	if err != nil {
+		return nil, err
+	}
 	languageIDs, err := runtimePrimaryLanguageIDsForBundle(adapters, lspBundle, packagedLSP)
 	if err != nil {
 		return nil, err
 	}
 
 	registry := manager.NewRegistry(inst)
+	backgroundRunners, releaseScopes, err := registerRuntimeLanguages(
+		registry, adapters, languageIDs, root, log, resolvedLSPConfig.IdleTimeout, lspBundle, packagedLSP,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners, releaseScopes: releaseScopes}, nil
+}
+
+// registerRuntimeLanguages 注册全部主语言，并聚合后台 runner 与 scope 清理器。
+func registerRuntimeLanguages(registry interface {
+	Register(string, manager.Manager, ...manager.ScopedManagerResolver)
+	RegisterNoInstall(string, manager.Manager, ...manager.ScopedManagerResolver)
+}, adapters *multilsp.LanguageAdapterRegistry, languageIDs []string, root string, log *slog.Logger, idleTimeout time.Duration, lspBundle runtimeenv.LSPBundle, packagedLSP bool) ([]platformrunner.Runner, []multilsp.ScopeReleaser, error) {
 	backgroundRunners := make([]platformrunner.Runner, 0, len(languageIDs))
 	releaseScopes := make([]multilsp.ScopeReleaser, 0, len(languageIDs))
 	for _, primaryLanguageID := range languageIDs {
 		adapter, ok := adapters.AdapterForLanguage(primaryLanguageID)
 		if !ok {
-			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
+			return nil, nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
 		}
-		runner, releaser, err := registerRuntimeAdapter(registry, adapter, adapters, root, log, resolvedLSPConfig.IdleTimeout, lspBundle, packagedLSP)
+		runner, releaser, err := registerRuntimeAdapter(registry, adapter, adapters, root, log, idleTimeout, lspBundle, packagedLSP)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		backgroundRunners = appendBackgroundRunner(backgroundRunners, runner)
 		releaseScopes = appendReleaseScopeReleaser(releaseScopes, releaser)
 	}
 
-	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners, releaseScopes: releaseScopes}, nil
+	return backgroundRunners, releaseScopes, nil
 }
 
 func requireResolvedLSPConfig(cfg contract.LSPConfig) (contract.LSPConfig, error) {
@@ -105,11 +122,11 @@ func requireResolvedLSPConfig(cfg contract.LSPConfig) (contract.LSPConfig, error
 	return cfg, nil
 }
 
-func runtimeInstaller(packagedLSP bool) *installer.Provider {
+func runtimeInstaller(packagedLSP bool) (*installer.Provider, error) {
 	if packagedLSP {
-		return nil
+		return nil, nil
 	}
-	return setupInstaller()
+	return setupInstallerWithError()
 }
 
 func runtimeRoot() (string, error) {
@@ -398,16 +415,21 @@ func runtimeScopedResolver(mgr multilsp.Manager) manager.ScopedManagerResolver {
 	return multilsp.NewRegistryScopedResolver(mgr)
 }
 
-// setupInstaller 注册按需安装各语言 LSP server 的命令。
-// 仅在未使用打包 LSP bundle 时启用，避免运行时覆盖应用随包携带的二进制。
-func setupInstaller() *installer.Provider {
+// setupInstallerWithError 注册按需安装各语言 LSP server，并把平台清单错误返回调用方。
+func setupInstallerWithError() (*installer.Provider, error) {
 	inst := installer.NewProvider()
 	registerNPMInstallers(inst)
 	registerNativeToolInstallers(inst)
+	if err := registerPlatformNativeArtifactInstallers(inst); err != nil {
+		return nil, err
+	}
+	if err := registerLinuxCSharpInstaller(inst); err != nil {
+		return nil, err
+	}
 	registerGoInstallers(inst)
 	registerShellAndSQLInstallers(inst)
 
-	return inst
+	return inst, nil
 }
 
 type runtimeInstallerSpec struct {
@@ -461,13 +483,10 @@ func registerNativeToolInstallers(inst *installer.Provider) {
 	registerInstallerSpecs(inst, []runtimeInstallerSpec{
 		{contract.ClangdLanguageIDs(), "clangd", "brew", []string{"install", "llvm"}},
 		{[]string{"swift"}, "sourcekit-lsp", "brew", []string{"install", "swift"}},
-		{[]string{"proto"}, "buf", "brew", []string{"install", "buf"}},
 		{[]string{"csharp"}, "csharp-ls", "dotnet", []string{"tool", "install", "--global", "csharp-ls"}},
 		{[]string{"ruby"}, "solargraph", "brew", []string{"install", "solargraph"}},
 		{[]string{"kotlin"}, "kotlin-language-server", "brew", []string{"install", "kotlin-language-server"}},
 		{[]string{"dart"}, "dart", "brew", []string{"install", "dart-sdk"}},
-		{[]string{"lua"}, "lua-language-server", "brew", []string{"install", "lua-language-server"}},
-		{[]string{"terraform"}, "terraform-ls", "brew", []string{"install", "hashicorp/tap/terraform-ls"}},
 		{[]string{"rust"}, "rust-analyzer", "rustup", []string{"component", "add", "rust-analyzer"}},
 		{[]string{"java"}, "jdtls", "brew", []string{"install", "jdtls"}},
 	})
@@ -494,13 +513,6 @@ func registerShellAndSQLInstallers(inst *installer.Provider) {
 		RequiredBinaries: []installer.RequiredBinary{
 			{Name: "shellcheck", CheckArgs: []string{"--version"}},
 		},
-	})
-	inst.Register("sql", installer.InstallerConfig{
-		BinaryName:          "sqruff",
-		BinaryCheckArgs:     []string{"--version"},
-		InstallCmd:          "cargo",
-		InstallArgs:         []string{"install", "sqruff", "--version", sqruffInstallVersion, "--locked"},
-		AllowInstallCommand: true,
 	})
 }
 
@@ -604,6 +616,7 @@ func runtimeAdapterInitOptionsWithBinary(adapter multilsp.LanguageAdapter, packa
 	return runtimeResolvedAdapterInitOptionsWithBinary(adapter, nil, packagedLSP, serverBinary)
 }
 
+// runtimeResolvedAdapterInitOptionsWithBinary 合并解析后的初始化参数，并为受管 JS/TS 与打包 Python 注入稳定运行约束。
 func runtimeResolvedAdapterInitOptionsWithBinary(adapter multilsp.LanguageAdapter, resolved map[string]any, packagedLSP bool, serverBinary string) map[string]any {
 	initOptions := multilsp.CloneInitOptions(resolved)
 	if len(initOptions) == 0 {

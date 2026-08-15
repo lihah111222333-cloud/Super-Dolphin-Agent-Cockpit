@@ -34,6 +34,11 @@ type GoRootRequest struct {
 	NoiseDirNames []string
 }
 
+type goResolverCaches struct {
+	toolchains goToolchainSelectionCache
+	workRoots  goWorkModuleRootsCache
+}
+
 // GoRootInfo 保存 Go root 解析结果，包括 workspace、module、go.work 和工具链信息。
 type GoRootInfo struct {
 	RootKind      string
@@ -67,28 +72,33 @@ type goWorkspaceKeyParts struct {
 // ResolveGoRoot 为 Go LSP 请求选择工作根目录和工具链环境。
 // 它优先尊重有效的 GOWORK，再按 go.mod、子模块和目录回退逐级收敛。
 func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
+	return resolveGoRoot(req, nil)
+}
+
+// resolveGoRoot 使用 adapter 持有的缓存解析 Go root；公共入口不共享可变进程状态。
+func resolveGoRoot(req GoRootRequest, caches *goResolverCaches) (GoRootInfo, error) {
 	target, projectRoot, err := resolveGoRootRequestPaths(req)
 	if err != nil {
 		return GoRootInfo{}, err
 	}
 	env := goRootRequestEnv(req)
 	noiseDirNames := resolvedGoNoiseDirNames(req.NoiseDirNames)
-	if info, handled, err := resolveGoRootFromGOWORK(target, projectRoot, env, noiseDirNames); handled || err != nil {
-		return withGoToolchain(info, env, err)
+	if info, handled, err := resolveGoRootFromGOWORK(target, projectRoot, env, noiseDirNames, caches); handled || err != nil {
+		return withGoToolchain(info, env, err, caches)
 	}
 	goWorkPath, err := findGoWorkPath(target)
 	if err != nil {
 		return GoRootInfo{}, err
 	}
 	if goWorkPath != "" {
-		info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto, env)
+		info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto, env, caches)
 		if err == nil && !goWorkRootContainsTarget(info, target) {
 			info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff, noiseDirNames)
 		}
-		return withGoToolchain(info, env, err)
+		return withGoToolchain(info, env, err, caches)
 	}
 	info, err := resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto, noiseDirNames)
-	return withGoToolchain(info, env, err)
+	return withGoToolchain(info, env, err, caches)
 }
 
 // resolveGoRootRequestPaths 归一化请求中的 cwd/filePath，并确定后续向上查找的起点。
@@ -130,7 +140,7 @@ func goRootEnvValue(env []string, key string) string {
 
 // resolveGoRootFromGOWORK 按请求环境里的 GOWORK 解析 workspace。
 // auto 模式只接受覆盖当前目标的 go.work，避免外部 worktree 的环境变量污染本次 LSP scope。
-func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirNames []string) (GoRootInfo, bool, error) {
+func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirNames []string, caches *goResolverCaches) (GoRootInfo, bool, error) {
 	gowork, ok := envValue(env, "GOWORK")
 	if !ok {
 		return GoRootInfo{}, false, nil
@@ -150,7 +160,7 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirN
 	if !fileExists(goWorkPath) {
 		return GoRootInfo{}, true, fmt.Errorf("GOWORK path does not exist: %s", goWorkPath)
 	}
-	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit, env)
+	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit, env, caches)
 	if err == nil && !goWorkRootContainsTarget(info, target) {
 		// 环境里的 GOWORK 指向其他 worktree 时必须显式 off，不能让子进程继续继承父环境。
 		info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff, noiseDirNames)
@@ -217,13 +227,13 @@ func resolveGoRootWithoutGoWork(target, projectRoot, mode string, noiseDirNames 
 	}
 }
 
-func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string, env []string) (GoRootInfo, error) {
+func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string, env []string, caches *goResolverCaches) (GoRootInfo, error) {
 	goWorkPath, err := normalizeOptionalPath(goWorkPath, "")
 	if err != nil {
 		return GoRootInfo{}, err
 	}
 	workspaceRoot := filepath.Dir(goWorkPath)
-	moduleRoots, err := parseGoWorkModuleRoots(goWorkPath, env)
+	moduleRoots, err := parseGoWorkModuleRoots(goWorkPath, env, caches)
 	if err != nil {
 		return GoRootInfo{}, fmt.Errorf("parse go.work %s: %w", goWorkPath, err)
 	}
@@ -523,6 +533,12 @@ func goWorkspaceKeyPartsFor(root GoRootInfo) goWorkspaceKeyParts {
 	projectRoot := root.ProjectRoot
 	if projectRoot == "" {
 		projectRoot = root.WorkspaceRoot
+	}
+	// 调用方显式把 work_dir 收窄到 module 内部时，gopls 必须尊重该语言工作区。
+	// 否则它会从 module 根执行 go list ./...，在 Windows 挂载的大仓库上让单包
+	// definition 永久等待。module/project 元数据仍保留在 key 中供依赖与隔离判断。
+	if root.RootKind == goRootKindGoMod && languageWorkspaceRoot != "" && pathWithinRoot(projectRoot, languageWorkspaceRoot) {
+		languageWorkspaceRoot = projectRoot
 	}
 	return goWorkspaceKeyParts{
 		Language:              "go",

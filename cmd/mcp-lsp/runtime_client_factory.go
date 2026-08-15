@@ -134,6 +134,7 @@ type goplsRootCohortClient struct {
 var (
 	_ multilsp.IdleReleasableClient      = (*goplsRootCohortClient)(nil)
 	_ multilsp.IdleReleaseRequiredClient = (*goplsRootCohortClient)(nil)
+	_ multilsp.HealthCheckedClient       = (*goplsRootCohortClient)(nil)
 )
 
 // UnderlyingLSPClient 保留真实 transport owner，供 multilsp 进程树和资源清理穿透 wrapper。
@@ -154,6 +155,16 @@ func (c *goplsRootCohortClient) ServerCapabilities() protocol.ServerCapabilities
 		return protocol.ServerCapabilities{}
 	}
 	return capabilities.ServerCapabilities()
+}
+
+// Healthy 穿透 lease wrapper 返回真实 forwarder transport 健康状态，确保 daemon
+// 断开后 manager 能摘除旧 generation 并创建 replacement client。
+func (c *goplsRootCohortClient) Healthy() bool {
+	if c == nil || c.Client == nil {
+		return false
+	}
+	health, ok := c.Client.(multilsp.HealthCheckedClient)
+	return ok && health.Healthy()
 }
 
 // Close 按平台顺序关闭 forwarder 并释放 root cohort lease。

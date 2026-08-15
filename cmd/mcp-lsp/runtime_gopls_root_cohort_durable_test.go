@@ -721,6 +721,18 @@ func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t 
 	}
 }
 
+func TestGoplsRootCohortClientForwardsTransportHealth(t *testing.T) {
+	forwarder := &durableForwarderCloseProbe{healthy: true}
+	client := &goplsRootCohortClient{Client: forwarder}
+	if !client.Healthy() {
+		t.Fatal("gopls root cohort wrapper hid healthy forwarder")
+	}
+	forwarder.healthy = false
+	if client.Healthy() {
+		t.Fatal("gopls root cohort wrapper hid dead forwarder")
+	}
+}
+
 // closeDurableGoplsRootCohortController 通过生产 Close 完成测试 teardown，并暴露任何 pending owner 错误。
 func closeDurableGoplsRootCohortController(t testing.TB, c multilsp.GoplsRootCohortController) {
 	t.Helper()
@@ -734,9 +746,12 @@ func closeDurableGoplsRootCohortController(t testing.TB, c multilsp.GoplsRootCoh
 
 type durableForwarderCloseProbe struct {
 	multilsp.Client
-	closes atomic.Int32
-	closed chan struct{}
+	closes  atomic.Int32
+	closed  chan struct{}
+	healthy bool
 }
+
+func (p *durableForwarderCloseProbe) Healthy() bool { return p != nil && p.healthy }
 
 func (p *durableForwarderCloseProbe) Close() error {
 	if p.closes.Add(1) == 1 {

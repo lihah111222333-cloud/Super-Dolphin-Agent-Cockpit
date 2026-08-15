@@ -3,8 +3,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,18 +10,28 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 )
 
+const allLanguageToolMatrixTimeout = 30 * time.Minute
+
+func TestAllLanguageToolMatrixTimeoutExceedsTenMinutes(t *testing.T) {
+	if allLanguageToolMatrixTimeout <= 10*time.Minute {
+		t.Fatalf("all-language tool matrix timeout = %s, want greater than 10 minutes", allLanguageToolMatrixTimeout)
+	}
+}
+
 const (
-	fakeMultilangDiagnosticsEnv     = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTICS"
-	fakeMultilangDiagnosticDelayEnv = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTIC_DELAY"
-	binaryColdStartDiagnosticsDelay = 1750 * time.Millisecond
-	binaryColdStartDiagnosticsSlack = 250 * time.Millisecond
+	fakeMultilangDiagnosticsEnv        = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTICS"
+	fakeMultilangServerEnv             = "MCP_LSP_FAKE_MULTILANG_SERVER"
+	fakeMultilangLifecycleJournalEnv   = "MCP_LSP_FAKE_MULTILANG_LIFECYCLE_JOURNAL"
+	fakeMultilangPendingRequestGateEnv = "MCP_LSP_FAKE_MULTILANG_PENDING_REQUEST_GATE"
+	fakeMultilangDiagnosticDelayEnv    = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTIC_DELAY"
+	binaryColdStartDiagnosticsDelay    = 1750 * time.Millisecond
+	binaryColdStartDiagnosticsSlack    = 250 * time.Millisecond
 )
 
 func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E2E(t *testing.T) {
@@ -79,6 +87,183 @@ func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E
 			if !strings.Contains(message, want) {
 				t.Fatalf("%s diagnostics message = %q, want %q; payload=%#v raw=%s stderr=%s",
 					tc.languageID, message, want, payload, diagnostics.Result.StructuredContent, client.stderrString())
+			}
+		})
+	}
+}
+
+// TestMcpLSPBinaryAllToolActionsCoverAllLSPClientLanguages_E2E 锁定每个默认语言
+// adapter 都能通过真实 mcp-lsp 二进制完成 7 个工具的全部 LSP action。
+func TestMcpLSPBinaryAllToolActionsCoverAllLSPClientLanguages_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping all-language semantic tool E2E in short mode")
+	}
+	runMcpLSPBinaryAllToolActionsForAllLSPClientLanguagesE2E(t)
+}
+
+func runMcpLSPBinaryAllToolActionsForAllLSPClientLanguagesE2E(t *testing.T) {
+	t.Helper()
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeServersBinDir := writeFakeMultilangDiagnosticsLangservers(t)
+	for _, tc := range binaryColdStartLanguageCases(t) {
+		t.Run(tc.languageID, func(t *testing.T) {
+			runMcpLSPBinaryAllToolActionsForLanguageE2E(t, binary, fakeServersBinDir, tc)
+		})
+	}
+}
+
+func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServersBinDir string, tc binaryColdStartLanguageCase) {
+	root := t.TempDir()
+	target := tc.write(t, root)
+	ctx, cancel := context.WithTimeout(context.Background(), allLanguageToolMatrixTimeout)
+	defer cancel()
+	var extraEnv []string
+	if serverName, ok := map[string]string{
+		"sql":   "sqruff",
+		"swift": "sourcekit-lsp",
+		"ruby":  "solargraph",
+	}[tc.languageID]; ok {
+		// 真实 managed server 的安装与能力由独立 E2E 校验；此测试只锁定
+		// mcp-lsp 的协议路由，因此显式隔离会抢占 fake PATH 的 ManagedOnly adapter。
+		fakeBundleDir := writeFakeProtocolBundle(t, fakeServersBinDir, serverName, tc.languageID)
+		extraEnv = []string{
+			"SUPER_DOLPHIN_LSP_BUNDLE_DIR=" + fakeBundleDir,
+			"SUPER_DOLPHIN_LSP_MANIFEST=" + filepath.Join(fakeBundleDir, "manifest.json"),
+		}
+	}
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, extraEnv)
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	current, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read %s replace_range fixture: %v", tc.languageID, err)
+	}
+	var editableLine string
+	for _, line := range strings.Split(strings.ReplaceAll(string(current), "\r\n", "\n"), "\n") {
+		if strings.TrimSpace(line) != "" {
+			editableLine = line
+			break
+		}
+	}
+	if editableLine == "" {
+		t.Fatalf("%s replace_range fixture has no non-empty line", tc.languageID)
+	}
+	replaceStartedAt := time.Now()
+	replaced := client.callTool(t, "patch_edit", map[string]any{
+		"action":    "replace_range",
+		"file_path": target,
+		"patch":     "@@\n-" + editableLine + "\n+" + editableLine + " ",
+	})
+	t.Logf("language=%s tool=patch_edit action=replace_range elapsed=%s", tc.languageID, time.Since(replaceStartedAt))
+	requireMCPToolSuccess(t, client, replaced, tc.languageID+" patch_edit replace_range")
+	if payload := replaced.Result.ContentText() + string(replaced.Result.StructuredContent); !strings.Contains(payload, "applied") {
+		t.Fatalf("%s replace_range did not report applied: text=%q structured=%s stderr=%s",
+			tc.languageID, replaced.Result.ContentText(), replaced.Result.StructuredContent, client.stderrString())
+	}
+
+	pos := target + ":1:1"
+	checks := []binaryAllLanguageToolCheck{
+		{tool: "file", args: map[string]any{"action": "open_file", "file_path": target}},
+		{tool: "file", args: map[string]any{"action": "read_file", "file_path": target}},
+		{tool: "file", args: map[string]any{"action": "read_file", "file_paths": []string{target}}, want: filepath.Base(target)},
+		{tool: "file", args: map[string]any{"action": "diagnostics", "file_path": target}},
+		{tool: "file", args: map[string]any{"action": "diagnostics", "file_paths": []string{target}}},
+		{tool: "grep", args: map[string]any{"action": "text_search", "query": "fixture", "path": target}},
+		{tool: "structure", args: map[string]any{"action": "document_symbol", "file_path": target}},
+		{tool: "structure", args: map[string]any{"action": "workspace_symbol", "file_path": target, "query": staleWorkspaceSymbolName(tc.languageID)}},
+		{tool: "structure", args: map[string]any{"action": "folding_range", "file_path": target}},
+		{tool: "structure", args: map[string]any{"action": "semantic_tokens", "file_path": target}},
+		{tool: "inspect", args: map[string]any{"action": "hover", "pos": pos}, want: "FakeHover"},
+		{tool: "inspect", args: map[string]any{"action": "definition", "pos": pos}, want: filepath.Base(target)},
+		{tool: "inspect", args: map[string]any{"action": "implementation", "pos": pos}, want: filepath.Base(target)},
+		{tool: "inspect", args: map[string]any{"action": "type_definition", "pos": pos}, want: filepath.Base(target)},
+		{tool: "inspect", args: map[string]any{"action": "signature_help", "pos": pos}, want: "FakeSignature"},
+		{tool: "xref", args: map[string]any{"action": "references", "pos": pos}, want: filepath.Base(target)},
+		{tool: "xref", args: map[string]any{"action": "call_hierarchy", "pos": pos, "direction": "incoming"}},
+		{tool: "xref", args: map[string]any{"action": "call_hierarchy", "pos": pos, "direction": "outgoing"}},
+		{tool: "xref", args: map[string]any{"action": "call_hierarchy", "pos": pos, "direction": "both"}},
+		{tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": pos, "direction": "supertypes"}},
+		{tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": pos, "direction": "subtypes"}},
+		{tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": pos, "direction": "both"}},
+		{tool: "completion", args: map[string]any{"pos": pos}, want: "FakeCompletion"},
+		{tool: "patch_edit", args: map[string]any{"action": "code_action", "pos": pos}},
+		{tool: "patch_edit", args: map[string]any{"action": "format", "file_path": target}},
+		{tool: "patch_edit", args: map[string]any{"action": "rename", "pos": pos, "new_name": "FakeRenamed"}},
+	}
+	runBinaryAllLanguageToolChecks(t, client, tc.languageID, checks)
+	if os.Getenv("MCP_LSP_TRACE_TIMING") == "1" {
+		t.Logf("language=%s sidecar timing log:\n%s", tc.languageID, client.stderrString())
+	}
+}
+
+type binaryAllLanguageToolCheck struct {
+	tool string
+	args map[string]any
+	want string
+}
+
+func runBinaryAllLanguageToolChecks(t *testing.T, client *mcpLSPBinaryClient, languageID string, checks []binaryAllLanguageToolCheck) {
+	t.Helper()
+	for _, check := range checks {
+		startedAt := time.Now()
+		result := client.callTool(t, check.tool, check.args)
+		t.Logf("language=%s tool=%s action=%v elapsed=%s", languageID, check.tool, check.args["action"], time.Since(startedAt))
+		requireMCPToolSuccess(t, client, result, languageID+" "+check.tool)
+		payload := result.Result.ContentText() + string(result.Result.StructuredContent)
+		if check.want != "" && !strings.Contains(payload, check.want) {
+			t.Fatalf("%s %s payload missing %q: text=%q structured=%s stderr=%s", languageID, check.tool, check.want, result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+		}
+	}
+}
+
+// TestMcpLSPBinaryGoAndGoSumSemanticActionsExposeLifecycleTiming_E2E isolates
+// semantic requests so their elapsed time can be correlated with fake gopls
+// process starts/stops and the sidecar owner logs.
+func TestMcpLSPBinaryGoAndGoSumSemanticActionsExposeLifecycleTiming_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping focused Go semantic timing E2E in short mode")
+	}
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeServersBinDir := writeFakeMultilangDiagnosticsLangservers(t)
+	cases := []binaryColdStartLanguageCase{
+		{languageID: "go", write: writeBinaryColdStartGoFixture},
+		{languageID: "gosum", write: writeBinaryColdStartGoSumFixture},
+	}
+	for _, tc := range cases {
+		t.Run(tc.languageID, func(t *testing.T) {
+			root := t.TempDir()
+			target := tc.write(t, root)
+			journalPath := filepath.Join(t.TempDir(), "fake-gopls-lifecycle.jsonl")
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, []string{
+				fakeMultilangLifecycleJournalEnv + "=" + journalPath,
+			})
+			defer client.close(t)
+			client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+			pos := target + ":1:1"
+			checks := []struct {
+				name string
+				tool string
+				args map[string]any
+			}{
+				{name: "document_symbol", tool: "structure", args: map[string]any{"action": "document_symbol", "file_path": target}},
+				{name: "hover", tool: "inspect", args: map[string]any{"action": "hover", "pos": pos}},
+				{name: "definition", tool: "inspect", args: map[string]any{"action": "definition", "pos": pos}},
+				{name: "references", tool: "xref", args: map[string]any{"action": "references", "pos": pos}},
+			}
+			for _, check := range checks {
+				started := time.Now()
+				result := client.callTool(t, check.tool, check.args)
+				elapsed := time.Since(started)
+				journal, _ := os.ReadFile(journalPath)
+				stderr := strings.TrimSpace(client.stderrString())
+				t.Logf("language=%s action=%s elapsed=%s sidecar_pid=%d fake_gopls_lifecycle=%s sidecar_stderr=%s",
+					tc.languageID, check.name, elapsed, client.cmd.Process.Pid, strings.TrimSpace(string(journal)), stderr)
+				if result.Result.IsError {
+					t.Fatalf("%s %s returned MCP error: text=%q structured=%s stderr=%s",
+						tc.languageID, check.name, result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+				}
 			}
 		})
 	}
@@ -216,9 +401,6 @@ func defaultBinaryLSPClientLanguageIDs(t *testing.T) []string {
 func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	script := "#!/bin/sh\n" +
-		fakeMultilangDiagnosticsEnv + "=1 exec " + shellQuote(os.Args[0]) +
-		" -test.run=TestFakeMultilangDiagnosticsLangserverHelper -- \"$@\"\n"
 	for _, name := range []string{
 		"bash-language-server",
 		"buf",
@@ -235,6 +417,7 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 		"pyright-langserver",
 		"prisma-language-server",
 		"rust-analyzer",
+		"shellcheck",
 		"sqruff",
 		"sourcekit-lsp",
 		"solargraph",
@@ -248,6 +431,10 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 		"vue-language-server",
 		"yaml-language-server",
 	} {
+		script := "#!/bin/sh\n" +
+			fakeMultilangDiagnosticsEnv + "=1 " + fakeMultilangServerEnv + "=" + shellQuote(name) +
+			" exec " + shellQuote(os.Args[0]) +
+			" -test.run=TestFakeMultilangDiagnosticsLangserverHelper -- \"$@\"\n"
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 			t.Fatalf("write fake %s: %v", name, err)
@@ -256,480 +443,81 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 	return dir
 }
 
-func runFakeMultilangDiagnosticsLangserver() {
-	reader := bufio.NewReader(os.Stdin)
-	var goroutines sync.WaitGroup
-	defer goroutines.Wait()
-	server := &fakeMultilangDiagnosticsServer{
-		writer: &fakeLSPWriter{w: os.Stdout, goroutines: &goroutines},
-		opened: make(map[string]fakeMultilangOpenedDocument),
+func writeFakeProtocolBundle(t *testing.T, fakeServersBinDir, serverName, languageID string) string {
+	t.Helper()
+	bundleDir := t.TempDir()
+	bundleBinDir := filepath.Join(bundleDir, "bin")
+	if err := os.MkdirAll(bundleBinDir, 0o755); err != nil {
+		t.Fatalf("create fake SQL protocol bundle bin dir: %v", err)
 	}
-	for {
-		raw, err := readFakeLSPFramedMessage(reader)
-		if err != nil {
-			return
-		}
-		var req fakeLSPRequest
-		if err := json.Unmarshal(raw, &req); err != nil {
-			continue
-		}
-		if req.Method == "exit" {
-			return
-		}
-		if server.handleNotification(req) {
-			continue
-		}
-		if len(bytes.TrimSpace(req.ID)) == 0 {
-			continue
-		}
-		_ = server.writer.writeResponse(req.ID, server.result(req))
-	}
-}
-
-type fakeMultilangDiagnosticsServer struct {
-	mu     sync.Mutex
-	writer *fakeLSPWriter
-	opened map[string]fakeMultilangOpenedDocument
-	events []string
-}
-
-type fakeMultilangOpenedDocument struct {
-	languageID string
-	version    int
-	text       string
-}
-
-type fakeMultilangDidOpenParams struct {
-	TextDocument struct {
-		URI        string `json:"uri"`
-		LanguageID string `json:"languageId"`
-		Version    int    `json:"version"`
-		Text       string `json:"text"`
-	} `json:"textDocument"`
-}
-
-type fakeMultilangDidCloseParams struct {
-	TextDocument struct {
-		URI string `json:"uri"`
-	} `json:"textDocument"`
-}
-
-type fakeMultilangDidChangeParams struct {
-	TextDocument struct {
-		URI     string `json:"uri"`
-		Version int    `json:"version"`
-	} `json:"textDocument"`
-	ContentChanges []struct {
-		Range       json.RawMessage `json:"range"`
-		RangeLength *int            `json:"rangeLength"`
-		Text        string          `json:"text"`
-	} `json:"contentChanges"`
-}
-
-type fakeMultilangDiagnosticParams struct {
-	TextDocument struct {
-		URI string `json:"uri"`
-	} `json:"textDocument"`
-}
-
-func (s *fakeMultilangDiagnosticsServer) handleNotification(req fakeLSPRequest) bool {
-	if len(bytes.TrimSpace(req.ID)) != 0 {
-		return false
-	}
-	switch req.Method {
-	case "textDocument/didClose":
-		s.handleDidClose(req.Params)
-	case "textDocument/didChange":
-		s.handleDidChange(req.Params)
-	case "textDocument/didOpen":
-		s.handleDidOpen(req.Params)
-	}
-	return true
-}
-
-func (s *fakeMultilangDiagnosticsServer) handleDidClose(raw json.RawMessage) {
-	var params fakeMultilangDidCloseParams
-	if err := json.Unmarshal(raw, &params); err != nil {
-		fakeMultilangProtocolViolation("decode didClose: %v", err)
-	}
-	uri := strings.TrimSpace(params.TextDocument.URI)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.opened, uri)
-	s.events = append(s.events, "close:"+uri)
-}
-
-func (s *fakeMultilangDiagnosticsServer) handleDidChange(raw json.RawMessage) {
-	var params fakeMultilangDidChangeParams
-	if err := json.Unmarshal(raw, &params); err != nil {
-		fakeMultilangProtocolViolation("decode didChange: %v", err)
-	}
-	if len(params.ContentChanges) != 1 || len(bytes.TrimSpace(params.ContentChanges[0].Range)) != 0 || params.ContentChanges[0].RangeLength != nil {
-		fakeMultilangProtocolViolation("didChange must contain one full-document change")
-	}
-	uri := strings.TrimSpace(params.TextDocument.URI)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	document, ok := s.opened[uri]
-	if !ok {
-		fakeMultilangProtocolViolation("didChange for unopened URI %s", uri)
-	}
-	if params.TextDocument.Version <= document.version {
-		fakeMultilangProtocolViolation("non-monotonic didChange for %s: %d <= %d", uri, params.TextDocument.Version, document.version)
-	}
-	document.version = params.TextDocument.Version
-	document.text = params.ContentChanges[0].Text
-	s.opened[uri] = document
-	s.events = append(s.events, fmt.Sprintf("change:%s:%d", uri, document.version))
-}
-
-func (s *fakeMultilangDiagnosticsServer) handleDidOpen(raw json.RawMessage) {
-	var params fakeMultilangDidOpenParams
-	if err := json.Unmarshal(raw, &params); err != nil {
-		fakeMultilangProtocolViolation("decode didOpen: %v", err)
-	}
-	uri := strings.TrimSpace(params.TextDocument.URI)
-	languageID := strings.TrimSpace(params.TextDocument.LanguageID)
-	if uri == "" || languageID == "" {
-		fakeMultilangProtocolViolation("didOpen requires URI and languageId")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if document, alreadyOpen := s.opened[uri]; alreadyOpen {
-		fakeMultilangProtocolViolation("duplicate didOpen for %s at version %d; current version %d", uri, params.TextDocument.Version, document.version)
-	}
-	s.opened[uri] = fakeMultilangOpenedDocument{
-		languageID: languageID,
-		version:    params.TextDocument.Version,
-		text:       params.TextDocument.Text,
-	}
-	s.events = append(s.events, fmt.Sprintf("open:%s:%d", uri, params.TextDocument.Version))
-}
-
-func (s *fakeMultilangDiagnosticsServer) result(req fakeLSPRequest) any {
-	switch req.Method {
-	case "initialize":
-		return map[string]any{
-			"capabilities": map[string]any{
-				"textDocumentSync":        1,
-				"workspaceSymbolProvider": true,
-				"diagnosticProvider": map[string]any{
-					"interFileDependencies": true,
-					"workspaceDiagnostics":  false,
-				},
-			},
-		}
-	case "textDocument/diagnostic":
-		if delay := fakeMultilangDiagnosticDelay(); delay > 0 {
-			time.Sleep(delay)
-		}
-		uri, document := s.diagnosticTarget(req)
-		return map[string]any{
-			"kind":  "full",
-			"items": fakeMultilangDiagnostics(uri, document),
-		}
-	case "workspace/symbol":
-		return s.workspaceSymbols(req)
-	case "shutdown":
-		return nil
-	default:
-		return nil
-	}
-}
-
-func (s *fakeMultilangDiagnosticsServer) workspaceSymbols(req fakeLSPRequest) []map[string]any {
-	var params struct {
-		Query string `json:"query"`
-	}
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		fakeMultilangProtocolViolation("decode workspace/symbol: %v", err)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.events = append(s.events, "request:"+params.Query)
-	result := make([]map[string]any, 0, len(s.opened))
-	for uri, document := range s.opened {
-		name := staleWorkspaceSymbolName(document.languageID)
-		if strings.Contains(document.text, freshWorkspaceSymbolName(document.languageID)) {
-			name = freshWorkspaceSymbolName(document.languageID)
-		}
-		if !strings.Contains(name, params.Query) {
-			continue
-		}
-		result = append(result, map[string]any{
-			"name": name,
-			"kind": 13,
-			"location": map[string]any{
-				"uri":   uri,
-				"range": map[string]any{"start": map[string]int{"line": 0, "character": 0}, "end": map[string]int{"line": 0, "character": len(name)}},
-			},
-		})
-	}
-	return result
-}
-
-func fakeMultilangProtocolViolation(format string, args ...any) {
-	_, _ = fmt.Fprintf(os.Stderr, "fake multilang LSP protocol violation: "+format+"\n", args...)
-	os.Exit(3)
-}
-
-func (s *fakeMultilangDiagnosticsServer) diagnosticTarget(req fakeLSPRequest) (string, fakeMultilangOpenedDocument) {
-	var params fakeMultilangDiagnosticParams
-	_ = json.Unmarshal(req.Params, &params)
-	uri := strings.TrimSpace(params.TextDocument.URI)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	document := s.opened[uri]
-	if strings.TrimSpace(document.languageID) == "" {
-		document.languageID = "unknown"
-	}
-	return uri, document
-}
-
-func fakeMultilangDiagnosticDelay() time.Duration {
-	raw := strings.TrimSpace(os.Getenv(fakeMultilangDiagnosticDelayEnv))
-	if raw == "" {
-		return 0
-	}
-	delay, err := time.ParseDuration(raw)
+	fakeServer, err := os.ReadFile(filepath.Join(fakeServersBinDir, serverName))
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "invalid %s %q: %v\n", fakeMultilangDiagnosticDelayEnv, raw, err)
-		os.Exit(2)
+		t.Fatalf("read fake %s server: %v", serverName, err)
 	}
-	return delay
-}
-
-func fakeMultilangDiagnostics(uri string, document fakeMultilangOpenedDocument) []map[string]any {
-	return []map[string]any{{
-		"range": map[string]any{
-			"start": map[string]any{"line": 0, "character": 0},
-			"end":   map[string]any{"line": 0, "character": 1},
-		},
-		"severity": 1,
-		"source":   "fake-" + document.languageID,
-		"message":  fmt.Sprintf("fake cold-start diagnostic for %s in %s: %s", document.languageID, filepath.Base(uri), strings.TrimSpace(document.text)),
-		"code":     "cold-start",
-	}}
-}
-
-func writeBinaryColdStartCSSFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-css"}`)
-	return writeBinaryColdStartFile(t, root, "style.css", "body { color: black; }\n")
-}
-
-func writeBinaryColdStartHTMLFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-html"}`)
-	return writeBinaryColdStartFile(t, root, "index.html", "<main>Hello</main>\n")
-}
-
-func writeBinaryColdStartJSONFixture(t *testing.T, root string) string {
-	t.Helper()
-	return writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-json"}`+"\n")
-}
-
-func writeBinaryColdStartYAMLFixture(t *testing.T, root string) string {
-	t.Helper()
-	return writeBinaryColdStartFile(t, root, "config.yaml", "name: binary-cold-yaml\n")
-}
-
-func writeBinaryColdStartMarkdownFixture(t *testing.T, root string) string {
-	t.Helper()
-	return writeBinaryColdStartFile(t, root, "README.md", "# Binary Cold Markdown\n")
-}
-
-func writeBinaryColdStartVueFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-vue"}`)
-	return writeBinaryColdStartFile(t, root, "App.vue", "<template><main>Hello</main></template>\n")
-}
-
-func writeBinaryColdStartSvelteFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-svelte"}`)
-	return writeBinaryColdStartFile(t, root, "App.svelte", "<main>Hello</main>\n")
-}
-
-func writeBinaryColdStartCFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
-	return writeBinaryColdStartFile(t, root, "main.c", "int main(void) { return 0; }\n")
-}
-
-func writeBinaryColdStartCPPFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
-	return writeBinaryColdStartFile(t, root, "main.cpp", "int main() { return 0; }\n")
-}
-
-func writeBinaryColdStartObjectiveCFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
-	return writeBinaryColdStartFile(t, root, "main.m", "int main(void) { return 0; }\n")
-}
-
-func writeBinaryColdStartObjectiveCPPFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\n")
-	return writeBinaryColdStartFile(t, root, "main.mm", "int main() { return 0; }\n")
-}
-
-func writeBinaryColdStartSwiftFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "Package.swift", "// swift-tools-version: 6.0\n")
-	return writeBinaryColdStartFile(t, root, "Sources/App/main.swift", "print(\"hello\")\n")
-}
-
-func writeBinaryColdStartCSharpFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "global.json", `{"sdk":{"rollForward":"latestFeature"}}`)
-	writeBinaryColdStartFile(t, root, "App.csproj", `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>`)
-	return writeBinaryColdStartFile(t, root, "Program.cs", "class Program { static void Main() {} }\n")
-}
-
-func writeBinaryColdStartPHPFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "composer.json", `{"name":"example/binary-cold-php"}`)
-	return writeBinaryColdStartFile(t, root, "index.php", "<?php echo 'hello';\n")
-}
-
-func writeBinaryColdStartRubyFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "Gemfile", "source 'https://rubygems.org'\n")
-	return writeBinaryColdStartFile(t, root, "app.rb", "puts 'hello'\n")
-}
-
-func writeBinaryColdStartKotlinFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "settings.gradle.kts", "pluginManagement {}\n")
-	return writeBinaryColdStartFile(t, root, "src/Main.kt", "fun main() {}\n")
-}
-
-func writeBinaryColdStartDartFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "pubspec.yaml", "name: binary_cold_dart\n")
-	return writeBinaryColdStartFile(t, root, "lib/main.dart", "void main() {}\n")
-}
-
-func writeBinaryColdStartLuaFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, ".luarc.json", "{}\n")
-	return writeBinaryColdStartFile(t, root, "init.lua", "local value = 1\n")
-}
-
-func writeBinaryColdStartDockerFixture(t *testing.T, root string) string {
-	t.Helper()
-	return writeBinaryColdStartFile(t, root, "Dockerfile", "FROM scratch\n")
-}
-
-func writeBinaryColdStartTerraformFixture(t *testing.T, root string) string {
-	t.Helper()
-	return writeBinaryColdStartFile(t, root, "main.tf", "terraform {}\n")
-}
-
-func writeBinaryColdStartGraphQLFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-graphql"}`)
-	return writeBinaryColdStartFile(t, root, "schema.graphql", "type Query { hello: String }\n")
-}
-
-func writeBinaryColdStartPrismaFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-prisma"}`)
-	return writeBinaryColdStartFile(t, root, "schema.prisma", "datasource db { provider = \"sqlite\" url = \"file:dev.db\" }\n")
-}
-
-func writeBinaryColdStartProtoFixture(t *testing.T, root string) string {
-	t.Helper()
-	return writeBinaryColdStartFile(t, root, "proto/example.proto", "syntax = \"proto3\";\nmessage Example {}\n")
-}
-
-func writeBinaryColdStartGoFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "go.mod", "module example.test/binarycoldgo\n\ngo 1.25.0\n")
-	return writeBinaryColdStartFile(t, root, "main.go", "package main\n")
-}
-
-func writeBinaryColdStartGoModFixture(t *testing.T, root string) string {
-	t.Helper()
-	return writeBinaryColdStartFile(t, root, "go.mod", "module example.test/binarycoldgomod\n\ngo 1.25.0\n")
-}
-
-func writeBinaryColdStartGoSumFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "go.mod", "module example.test/binarycoldgosum\n\ngo 1.25.0\n")
-	return writeBinaryColdStartFile(t, root, "go.sum", "")
-}
-
-func writeBinaryColdStartGoWorkFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "module/go.mod", "module example.test/binarycoldgowork\n\ngo 1.25.0\n")
-	return writeBinaryColdStartFile(t, root, "go.work", "go 1.25.0\n\nuse ./module\n")
-}
-
-func writeBinaryColdStartJavaFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "pom.xml", "<project></project>\n")
-	return writeBinaryColdStartFile(t, root, "src/Main.java", "class Main {}\n")
-}
-
-func writeBinaryColdStartJavaScriptFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-js"}`)
-	return writeBinaryColdStartFile(t, root, "app.js", "export const value = 1\n")
-}
-
-func writeBinaryColdStartJavaScriptReactFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "package.json", `{"name":"binary-cold-jsx"}`)
-	return writeBinaryColdStartFile(t, root, "app.jsx", "export const View = () => null\n")
-}
-
-func writeBinaryColdStartPythonFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "pyproject.toml", "[project]\nname = \"binary-cold-python\"\n")
-	return writeBinaryColdStartFile(t, root, "app.py", "value = 1\n")
-}
-
-func writeBinaryColdStartRustFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "Cargo.toml", "[package]\nname = \"binary_cold_rust\"\nversion = \"0.1.0\"\n")
-	return writeBinaryColdStartFile(t, root, "src/main.rs", "fn main() {}\n")
-}
-
-func writeBinaryColdStartShellFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "Makefile", "all:\n\t@true\n")
-	return writeBinaryColdStartFile(t, root, "scripts/run.sh", "#!/usr/bin/env bash\n")
-}
-
-func writeBinaryColdStartSQLFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: '2'\n")
-	return writeBinaryColdStartFile(t, root, "schema.sql", "select 1;\n")
-}
-
-func writeBinaryColdStartTypeScriptFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "tsconfig.json", `{"compilerOptions":{}}`)
-	return writeBinaryColdStartFile(t, root, "app.ts", "export const value: number = 1\n")
-}
-
-func writeBinaryColdStartTypeScriptReactFixture(t *testing.T, root string) string {
-	t.Helper()
-	writeBinaryColdStartFile(t, root, "tsconfig.json", `{"compilerOptions":{"jsx":"react-jsx"}}`)
-	return writeBinaryColdStartFile(t, root, "app.tsx", "export const View = () => null\n")
-}
-
-func writeBinaryColdStartFile(t *testing.T, root, name, body string) string {
-	t.Helper()
-	path := filepath.Join(root, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir fixture dir for %s: %v", name, err)
+	if err := os.WriteFile(filepath.Join(bundleBinDir, serverName), fakeServer, 0o700); err != nil {
+		t.Fatalf("write fake %s protocol bundle server: %v", serverName, err)
 	}
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatalf("write fixture %s: %v", name, err)
+	manifest := []byte(fmt.Sprintf("{\n  \"servers\": {\n    %q: {\"path\": %q, \"languages\": [%q]}\n  }\n}\n",
+		serverName, "bin/"+serverName, languageID))
+	if err := os.WriteFile(filepath.Join(bundleDir, "manifest.json"), manifest, 0o644); err != nil {
+		t.Fatalf("write fake SQL protocol bundle manifest: %v", err)
 	}
-	return path
+	return bundleDir
+}
+
+func writeFakeAllLanguagesProtocolBundle(t *testing.T, fakeServersBinDir string) string {
+	t.Helper()
+	servers := map[string][]string{
+		"vscode-css-language-server":      {"css"},
+		"clangd":                          {"c", "cpp", "objective-c", "objective-cpp"},
+		"csharp-ls":                       {"csharp"},
+		"dart":                            {"dart"},
+		"docker-langserver":               {"dockerfile"},
+		"gopls":                           {"go", "gomod", "gosum", "gowork"},
+		"graphql-lsp":                     {"graphql"},
+		"vscode-html-language-server":     {"html"},
+		"jdtls":                           {"java"},
+		"typescript-language-server":      {"javascript", "javascriptreact", "typescript", "typescriptreact"},
+		"vscode-json-language-server":     {"json"},
+		"kotlin-language-server":          {"kotlin"},
+		"lua-language-server":             {"lua"},
+		"vscode-markdown-language-server": {"markdown"},
+		"intelephense":                    {"php"},
+		"prisma-language-server":          {"prisma"},
+		"buf":                             {"proto"},
+		"pyright-langserver":              {"python"},
+		"solargraph":                      {"ruby"},
+		"rust-analyzer":                   {"rust"},
+		"bash-language-server":            {"shellscript"},
+		"sqruff":                          {"sql"},
+		"svelteserver":                    {"svelte"},
+		"sourcekit-lsp":                   {"swift"},
+		"terraform-ls":                    {"terraform"},
+		"vue-language-server":             {"vue"},
+		"yaml-language-server":            {"yaml"},
+	}
+	bundleDir := t.TempDir()
+	bundleBinDir := filepath.Join(bundleDir, "bin")
+	if err := os.MkdirAll(bundleBinDir, 0o755); err != nil {
+		t.Fatalf("create all-language fake bundle: %v", err)
+	}
+	manifestServers := make(map[string]any, len(servers))
+	for serverName, languages := range servers {
+		payload, err := os.ReadFile(filepath.Join(fakeServersBinDir, serverName))
+		if err != nil {
+			t.Fatalf("read fake bundled %s: %v", serverName, err)
+		}
+		if err := os.WriteFile(filepath.Join(bundleBinDir, serverName), payload, 0o700); err != nil {
+			t.Fatalf("write fake bundled %s: %v", serverName, err)
+		}
+		manifestServers[serverName] = map[string]any{"path": "bin/" + serverName, "languages": languages}
+	}
+	manifest, err := json.MarshalIndent(map[string]any{"servers": manifestServers}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal all-language fake bundle manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "manifest.json"), append(manifest, '\n'), 0o644); err != nil {
+		t.Fatalf("write all-language fake bundle manifest: %v", err)
+	}
+	return bundleDir
 }

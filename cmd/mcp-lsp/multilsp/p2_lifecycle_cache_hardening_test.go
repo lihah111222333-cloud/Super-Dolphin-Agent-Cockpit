@@ -76,12 +76,12 @@ func TestRequestFailureReturnsRetriedResultAfterRebootstrap(t *testing.T) {
 	}
 }
 
-func TestNavigationRequestTimeoutRetriesOnceAfterRebuild(t *testing.T) {
+func TestNavigationRequestTimeoutRetriesOnceOnHealthyClient(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"timeout-web"}`)
 	target := filepath.Join(root, "src", "app.ts")
 	writeGenericTestFile(t, target, "export const value = 1\n")
-	factory := &p2LifecycleFactory{requestFailures: []error{context.DeadlineExceeded, nil}}
+	factory := &p2LifecycleFactory{requestSequences: [][]error{{context.DeadlineExceeded, nil}}}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
 
@@ -92,8 +92,11 @@ func TestNavigationRequestTimeoutRetriesOnceAfterRebuild(t *testing.T) {
 	if len(symbols) != 1 || symbols[0].Name != "rebuilt" {
 		t.Fatalf("DocumentSymbol = %#v, want result from the single retry", symbols)
 	}
-	if got := factory.callCount(); got != 2 {
-		t.Fatalf("factory calls = %d, want original plus one retry client", got)
+	if got := factory.callCount(); got != 1 {
+		t.Fatalf("factory calls = %d, want timeout retry to preserve the original client", got)
+	}
+	if got := factory.clientAt(t, 0).requestCount(); got != 2 {
+		t.Fatalf("original client request count = %d, want initial request plus one retry", got)
 	}
 }
 
@@ -102,7 +105,7 @@ func TestNavigationRequestSecondTimeoutIsReportedWithoutThirdAttempt(t *testing.
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"timeout-twice-web"}`)
 	target := filepath.Join(root, "src", "app.ts")
 	writeGenericTestFile(t, target, "export const value = 1\n")
-	factory := &p2LifecycleFactory{requestFailures: []error{context.DeadlineExceeded, context.DeadlineExceeded, nil}}
+	factory := &p2LifecycleFactory{requestSequences: [][]error{{context.DeadlineExceeded, context.DeadlineExceeded, nil}}}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
 
@@ -110,13 +113,11 @@ func TestNavigationRequestSecondTimeoutIsReportedWithoutThirdAttempt(t *testing.
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("DocumentSymbol error = %v, want second timeout", err)
 	}
-	if got := factory.callCount(); got != 2 {
-		t.Fatalf("factory calls = %d, want exactly two attempts", got)
+	if got := factory.callCount(); got != 1 {
+		t.Fatalf("factory calls = %d, want both attempts on one healthy client", got)
 	}
-	for index := range 2 {
-		if got := factory.clientAt(t, index).requestCount(); got != 1 {
-			t.Fatalf("client %d request count = %d, want one", index, got)
-		}
+	if got := factory.clientAt(t, 0).requestCount(); got != 2 {
+		t.Fatalf("healthy client request count = %d, want exactly two attempts", got)
 	}
 }
 
