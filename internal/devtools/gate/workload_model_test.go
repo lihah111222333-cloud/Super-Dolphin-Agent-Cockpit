@@ -123,7 +123,7 @@ func TestDurationLedgerJSONFieldCoverage(t *testing.T) {
 		{
 			name:     "planning context",
 			producer: reflect.TypeFor[PlanningContext](),
-			fields:   []string{"accepted_snapshot_id", "calibration", "calibration_resource_class_id", "calibration_resource_cpu", "calibration_resource_memory_gib", "platform", "runner", "shard_overhead_p95_ms", "shard_overhead_provenance_digest", "shard_overhead_sample_count", "target_duration_ms", "toolchain"},
+			fields:   []string{"accepted_snapshot_id", "calibration", "calibration_resource_class_id", "calibration_resource_cpu", "calibration_resource_memory_gib", "platform", "resource_tier_reserves", "runner", "shard_overhead_p95_ms", "shard_overhead_provenance_digest", "shard_overhead_sample_count", "target_duration_ms", "toolchain"},
 		},
 	}
 	for _, registration := range registrations {
@@ -709,6 +709,7 @@ func testPlanningContext() PlanningContext {
 	return PlanningContext{
 		Platform: "darwin", Runner: "local", Toolchain: "go1.25",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-test",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 }
 
@@ -718,6 +719,7 @@ func testCalibrationPlanningContext() PlanningContext {
 	context.CalibrationResourceClassID = "calibration"
 	context.CalibrationResourceCPU = 4
 	context.CalibrationResourceMemoryGiB = 8
+	context.ResourceTierReserves = nil
 	return context
 }
 
@@ -725,6 +727,15 @@ func testLinuxPlanningContext() PlanningContext {
 	return PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-digest", Toolchain: "go1.26-node22",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-test-linux",
+		ResourceTierReserves: testNormalResourceTierReserves(),
+	}
+}
+
+func testNormalResourceTierReserves() []cicontract.WorkloadResourceTierReserve {
+	return []cicontract.WorkloadResourceTierReserve{
+		{SchemaVersion: 1, ResourceTier: cicontract.WorkloadResourceTierFast, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("a", 64)},
+		{SchemaVersion: 1, ResourceTier: cicontract.WorkloadResourceTierMedium, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("b", 64)},
+		{SchemaVersion: 1, ResourceTier: cicontract.WorkloadResourceTierSlow, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("c", 64)},
 	}
 }
 

@@ -147,18 +147,19 @@ type DurationBucket struct {
 
 // PlanningContext 是 LPT 规划的目标执行环境；它不接受瞬时 slot 状态。Calibration=true 时所有时长档位共享固定校准资源。
 type PlanningContext struct {
-	Platform                      string  `json:"platform"`
-	Runner                        string  `json:"runner"`
-	Toolchain                     string  `json:"toolchain"`
-	Calibration                   bool    `json:"calibration,omitempty"`
-	CalibrationResourceClassID    string  `json:"calibration_resource_class_id,omitempty"`
-	CalibrationResourceCPU        float64 `json:"calibration_resource_cpu,omitempty"`
-	CalibrationResourceMemoryGiB  float64 `json:"calibration_resource_memory_gib,omitempty"`
-	TargetDurationMS              int64   `json:"target_duration_ms"`
-	AcceptedSnapshotID            string  `json:"accepted_snapshot_id"`
-	ShardOverheadP95MS            int64   `json:"shard_overhead_p95_ms"`
-	ShardOverheadSampleCount      int     `json:"shard_overhead_sample_count"`
-	ShardOverheadProvenanceDigest string  `json:"shard_overhead_provenance_digest"`
+	Platform                      string                                   `json:"platform"`
+	Runner                        string                                   `json:"runner"`
+	Toolchain                     string                                   `json:"toolchain"`
+	Calibration                   bool                                     `json:"calibration,omitempty"`
+	CalibrationResourceClassID    string                                   `json:"calibration_resource_class_id,omitempty"`
+	CalibrationResourceCPU        float64                                  `json:"calibration_resource_cpu,omitempty"`
+	CalibrationResourceMemoryGiB  float64                                  `json:"calibration_resource_memory_gib,omitempty"`
+	TargetDurationMS              int64                                    `json:"target_duration_ms"`
+	AcceptedSnapshotID            string                                   `json:"accepted_snapshot_id"`
+	ShardOverheadP95MS            int64                                    `json:"shard_overhead_p95_ms"`
+	ShardOverheadSampleCount      int                                      `json:"shard_overhead_sample_count"`
+	ShardOverheadProvenanceDigest string                                   `json:"shard_overhead_provenance_digest"`
+	ResourceTierReserves          []cicontract.WorkloadResourceTierReserve `json:"resource_tier_reserves,omitempty"`
 }
 
 // ShardPlan 是单个计划分片及其确定性 workload 顺序。
@@ -221,6 +222,7 @@ func workloadEstimationPolicyMaterial(context PlanningContext) cicontract.Worklo
 	return cicontract.WorkloadEstimationPolicyMaterial{
 		PolicyVersion:                 cicontract.WorkloadEstimationPolicyVersion,
 		EstimatorPolicyID:             DurationEstimatorPolicyID,
+		PlanningRiskPolicy:            cicontract.WorkloadPlanningRiskPolicyID,
 		Platform:                      context.Platform,
 		Runner:                        context.Runner,
 		Toolchain:                     context.Toolchain,
@@ -233,6 +235,7 @@ func workloadEstimationPolicyMaterial(context PlanningContext) cicontract.Worklo
 		ShardOverheadP95MS:            context.ShardOverheadP95MS,
 		ShardOverheadSampleCount:      context.ShardOverheadSampleCount,
 		ShardOverheadProvenanceDigest: context.ShardOverheadProvenanceDigest,
+		ResourceTierReserves:          append([]cicontract.WorkloadResourceTierReserve(nil), context.ResourceTierReserves...),
 	}
 }
 

@@ -106,6 +106,12 @@ func validatePlanningContext(context PlanningContext) error {
 	if err := validatePlanningContextBase(context); err != nil {
 		return err
 	}
+	if err := workloadEstimationPolicyMaterial(context).Validate(); err != nil {
+		return fmt.Errorf("planning estimation policy: %w", err)
+	}
+	if !context.Calibration {
+		return nil
+	}
 	if context.Calibration && planningContextOverheadIsEmpty(context) {
 		return nil
 	}
@@ -217,7 +223,10 @@ func validateAcceptedCalibration(context PlanningContext, calibration *DurationC
 // resolveWithoutAcceptedCalibration 在缺少 accepted overhead 时仅允许 calibration 采样并校验旧证据身份。
 func resolveWithoutAcceptedCalibration(context PlanningContext, calibration *DurationCalibration) (PlanningContext, error) {
 	if !context.Calibration {
-		return PlanningContext{}, errors.New("normal planning requires an accepted duration calibration with shard overhead")
+		if err := validatePlanningContext(context); err != nil {
+			return PlanningContext{}, err
+		}
+		return context, nil
 	}
 	if calibration != nil && context.AcceptedSnapshotID != calibration.AcceptedSnapshotID {
 		return PlanningContext{}, errors.New("calibration planning snapshot does not match accepted duration calibration")
@@ -259,17 +268,7 @@ func bindPlanningOverhead(context PlanningContext, overhead ShardOrchestrationOv
 	return context
 }
 
-// EffectiveTargetDurationMS 返回扣除 accepted overhead 后的分片预算。
+// EffectiveTargetDurationMS 仅返回固定规格校准预算；normal 必须显式给出资源档位。
 func (context PlanningContext) EffectiveTargetDurationMS() (int64, error) {
-	if err := validatePlanningContext(context); err != nil {
-		return 0, err
-	}
-	if context.Calibration {
-		return context.TargetDurationMS, nil
-	}
-	effective := context.TargetDurationMS - context.ShardOverheadP95MS
-	if effective <= 0 {
-		return 0, errors.New("effective planning budget must be positive")
-	}
-	return effective, nil
+	return context.EffectiveTargetDurationForResourceTier(0)
 }

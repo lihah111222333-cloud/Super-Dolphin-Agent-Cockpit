@@ -249,11 +249,10 @@ func durationLedgerSQLiteRecordShardOverheadRoundTrip(t *testing.T, store *Durat
 func durationLedgerSQLiteAssertShardOverheadRoundTrip(t *testing.T, store *DurationLedgerStore, sample ShardOrchestrationOverheadSample, overhead ShardOrchestrationOverhead) {
 	t.Helper()
 	planning := PlanningContext{
-		Platform:           overhead.Platform,
-		Runner:             overhead.Runner,
-		Toolchain:          overhead.Toolchain,
-		TargetDurationMS:   FullCITargetDurationMS,
-		AcceptedSnapshotID: overhead.AcceptedSnapshotID,
+		Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain,
+		Calibration: true, CalibrationResourceClassID: overhead.CalibrationResourceClassID,
+		CalibrationResourceCPU: overhead.CalibrationResourceCPU, CalibrationResourceMemoryGiB: overhead.CalibrationResourceMemoryGiB,
+		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID,
 	}
 	loaded, err := store.LoadPlanning(planning)
 	if err != nil {

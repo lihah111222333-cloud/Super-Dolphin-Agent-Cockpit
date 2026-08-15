@@ -20,10 +20,6 @@ func deriveWorkloadPackingEvidence(shards []ShardPlan, groups []CompileGroup, co
 	if len(shards) == 0 {
 		return nil, errors.New("packing evidence requires at least one shard")
 	}
-	target, err := context.EffectiveTargetDurationMS()
-	if err != nil {
-		return nil, err
-	}
 	stats, workloads, err := collectPackingEvidenceShards(shards, context)
 	if err != nil {
 		return nil, err
@@ -32,10 +28,10 @@ func deriveWorkloadPackingEvidence(shards []ShardPlan, groups []CompileGroup, co
 	if err := collectPackingEvidenceGroups(stats, workloads, covered, groups, context); err != nil {
 		return nil, err
 	}
-	if err := collectPackingEvidenceOrdinary(stats, workloads, covered, target, context); err != nil {
+	if err := collectPackingEvidenceOrdinary(stats, workloads, covered, context); err != nil {
 		return nil, err
 	}
-	return finalizePackingEvidence(stats, target)
+	return finalizePackingEvidence(stats, context)
 }
 
 // compileGroupShardCoverageMismatch 返回 shard 相对其 compile groups 的确定性覆盖差集。
@@ -157,12 +153,16 @@ func collectPackingEvidenceGroup(group CompileGroup, workloads map[GateID]Planne
 }
 
 // collectPackingEvidenceOrdinary 将未归入 compile group 的 workload 计为 ordinary packable unit。
-func collectPackingEvidenceOrdinary(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, workloads map[GateID]PlannedWorkload, covered map[GateID]struct{}, target int64, context PlanningContext) error {
+func collectPackingEvidenceOrdinary(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, workloads map[GateID]PlannedWorkload, covered map[GateID]struct{}, context PlanningContext) error {
 	for id, workload := range workloads {
 		if _, grouped := covered[id]; grouped {
 			continue
 		}
 		tier, err := packingEvidenceTier(workload, context)
+		if err != nil {
+			return err
+		}
+		target, err := packingEvidenceTarget(context, tier)
 		if err != nil {
 			return err
 		}
@@ -193,7 +193,7 @@ func addOrdinaryDuration(bucket *workloadPackingEvidenceStats, duration, target 
 }
 
 // finalizePackingEvidence 计算 sound lower bound、gap 和实际 solver mode。
-func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, target int64) ([]WorkloadPackingEvidence, error) {
+func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, context PlanningContext) ([]WorkloadPackingEvidence, error) {
 	tiers := make([]cicontract.WorkloadResourceTier, 0, len(stats))
 	for tier := range stats {
 		tiers = append(tiers, tier)
@@ -202,6 +202,10 @@ func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workload
 	evidence := make([]WorkloadPackingEvidence, 0, len(tiers))
 	for _, tier := range tiers {
 		bucket := stats[tier]
+		target, err := packingEvidenceTarget(context, tier)
+		if err != nil {
+			return nil, err
+		}
 		lower, err := packingEvidenceLowerBound(bucket, target)
 		if err != nil {
 			return nil, err
@@ -219,6 +223,13 @@ func finalizePackingEvidence(stats map[cicontract.WorkloadResourceTier]*workload
 		evidence = append(evidence, WorkloadPackingEvidence{ResourceTier: tier, SolverMode: mode, PackableUnitCount: bucket.packable, IsolatedUnitCount: bucket.isolated, LowerBoundShards: lower, PlannedShards: bucket.planned, HeuristicGapShards: gap})
 	}
 	return evidence, nil
+}
+
+func packingEvidenceTarget(context PlanningContext, tier cicontract.WorkloadResourceTier) (int64, error) {
+	if context.Calibration {
+		return context.EffectiveTargetDurationForResourceTier(0)
+	}
+	return context.EffectiveTargetDurationForResourceTier(tier)
 }
 
 func packingEvidenceLowerBound(bucket *workloadPackingEvidenceStats, target int64) (int, error) {

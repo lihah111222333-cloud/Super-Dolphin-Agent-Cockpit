@@ -82,7 +82,9 @@ const (
 	WorkloadPlanningHeuristicBeamDepth                = 3
 	WorkloadPlanningHeuristicMaxBeamTransitions       = 128
 	// WorkloadEstimationPolicyVersion 冻结估时摘要的 schema；估时摘要缺失必须拒绝计划。
-	WorkloadEstimationPolicyVersion = "duration-estimate-overhead-policy/v1"
+	WorkloadEstimationPolicyVersion = "duration-estimate-resource-tier-reserve-policy/v2"
+	// WorkloadPlanningRiskPolicyID 同时冻结 normal reserve 聚合与跨输入上尾隔离。
+	WorkloadPlanningRiskPolicyID = "normal-resource-tier-reserve-interval-union-p95+cross-input-upper-tail-isolation/v1"
 	// WorkloadPassIdentityDomain 冻结可复用 PASS identity 的密码学域；无域或其他域材料不得命中。
 	WorkloadPassIdentityDomain = "pass-identity/v2"
 	// WorkloadInputFingerprintDomain 冻结 workload 生产输入摘要的密码学域；旧无域摘要自然 MISS。
@@ -496,14 +498,14 @@ var requirements = [...]Requirement{
 	{ID: "4.2", Section: 4, Summary: "首写只允许空 singleton 原子 INSERT baseline 与账本元数据；同态并发幂等收敛，异态、非空、缺字段或非首代 receipt 必须 fail-fast", Enforcement: "strict bootstrap boundary"},
 	{ID: "4.3", Section: 4, Summary: "pre-push 从 exact pushed tree 后台静默启动唯一 dispatcher；仅当 OSS strict 成功回执超过 24h 才在 ECI 内创建有限期非权威 ImageCache；normal run 每次 strict 读取并实时复核该物料后显式使用，维护锁只去重刷新", Enforcement: "exact-tree hook dispatch + scheduling receipt + live runtime selection + maintenance lock + archtest"},
 	{ID: "5.1", Section: 5, Summary: "shard 数只受可分片原子 workload 数量限制", Enforcement: "LPT planner + archtest"}, {ID: "5.2", Section: 5, Summary: "云配额与 API 限流必须显式失败，不得静默降并发或转本地", Enforcement: "runtime + archtest"},
-	{ID: "5.3", Section: 5, Summary: "normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；先分档再在档内 LPT；首次升档无新档 exact sample 时携带上一档权威实测估值规划新档，不伪造样本或回退资源；bootstrap 三类均固定 2C/4GiB，资源策略摘要只进入规划、duration sample 与 shard/run evidence，不进入 PASS identity；禁止额外内存档、混档污染、自动内存抬升、CPU 抬档、按 shard 聚合估时或复用旧策略 PASS，观测或 OOM 在同档没有更大内存必须 fail-fast", Enforcement: "tiered LPT + workload plan projection + resource selector + PASS identity tests"},
+	{ID: "5.3", Section: 5, Summary: "normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；先分档再在档内 LPT；每档 100 秒预算必须扣除同一权威 measured eci_wait、source_materialize、candidate_compile、orchestration 区间并集的 nearest-rank P95 reserve，缺档、缺样本或不可验证必须 fail-fast；首次升档无新档 exact sample 时携带上一档权威实测估值规划新档，不伪造样本或回退资源；bootstrap 三类均固定 2C/4GiB，资源策略摘要只进入规划、duration sample 与 shard/run evidence，不进入 PASS identity；禁止额外内存档、混档污染、自动内存抬升、CPU 抬档、按 shard 聚合估时或复用旧策略 PASS，观测或 OOM 在同档没有更大内存必须 fail-fast", Enforcement: "tiered LPT + workload plan projection + resource selector + reserve field guard + PASS identity tests"},
 	{ID: "5.4", Section: 5, Summary: "CompileGroup schema v2 冻结 selector 估时、batch digest、wave/batch 覆盖与 warning；普通 compile group 仅允许显式 side-effect-safe allowlist、同 resource、严格串行共箱，archtest/super-dolphin-gate/codexapp/mcp-lsp/agent-terminal/race/benchmark 必须独占；同一 group 只编译一次，critical cost=compile once + Σwave max(body)，BodySum 仅 coverage。archtest 每组最多 64 个 selector、423 个 selector 约 7 组并无上限并发，GOMEMLIMIT=3GiB；旧版本/伪造 manifest/helper/manual selector 由执行协议拒绝；worker supervisor 必须显式将 TMPDIR 绑定现有 temp-data 挂载根 /tmp，禁止依赖镜像默认环境；每个 batch 必须在该挂载根下创建唯一短 0700 运行根并令 TMPDIR/GOTMPDIR 指向其子目录，结束时清理，禁止使用长 lane/batchRoot；normal 无历史固定 2C/4GiB、owner fixed-point 在 PlannedWorkload 前完成、calibration 固定 4C/8GiB", Enforcement: "compile-group schema/batch/packing/critical-path/history arch guard + worker/planner/coordinator tests"},
 	{ID: "5.5", Section: 5, Summary: "除 release owner 外所有重门禁必须作为 canonical shardable workload，在 PASS lookup 后仅 MISS 进入历史耗时 LPT 与无上限 ECI 分片；最终串行 owner 只能对逐 workload 权威证据生成固定大小、版本化且防篡改的 proof root，不得重跑门禁或拼接无界子日志", Enforcement: "workload catalog + miss-only planner + bounded owner proof + archtest"},
 	{ID: "6.1", Section: 6, Summary: "独立于 normal 的固定 4C/8GiB 校准规格贯穿 RunInput、ShardRequest、receipt、SQLite 与 checkpoint identity", Enforcement: "field guard + store"},
 	{ID: "6.2", Section: 6, Summary: "校准规格漂移或缺失必须 fail-fast，固定规格不限制 shard 并发", Enforcement: "validation + archtest"},
 	{ID: "7.1", Section: 7, Summary: "shard 与 workload 账本以统一 1ms 分辨率显式表达六个耗时阶段；compile group 另以 test_binary_compile 记录每组一次；实际为正的亚毫秒 worker 阶段记为 1ms，禁止降为缺失的 0ms", Enforcement: "worker timing producer + receipt + ledger renderer"},
 	{ID: "7.2", Section: 7, Summary: "账本证明 workload 实际 executed miss 或严格 reused hit，并记录 canonical reuse proof 与仅用于加速的 Go cache、前端 seed/Vite cache 证据", Enforcement: "receipt + ledger renderer"},
-	{ID: "7.3", Section: 7, Summary: "不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt；orchestration overhead 使用 v2 accounted interval union，扣除 workload、ECI wait、源码物化、候选 Gate 编译和 test-binary 编译的 measured 区间且不重复计数", Enforcement: "receipt validation + overhead schema/policy guard"},
+	{ID: "7.3", Section: 7, Summary: "不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt；orchestration overhead 使用 v2 accounted interval union，扣除 workload、ECI wait、源码物化、候选 Gate 编译和 test-binary 编译的 measured 区间且不重复计数；normal 按资源档位从同一 union 取 nearest-rank P95 作为 100 秒 reserve，缺少可靠档位样本必须 fail-fast，calibration 继续使用固定规格语义", Enforcement: "receipt validation + overhead schema/policy guard + resource-tier reserve guard"},
 	{ID: "7.4", Section: 7, Summary: "100 秒告警固定 warn_and_continue；不得 cancel、kill 或 fail shard", Enforcement: "warning-action validation + archtest"},
 	{ID: "8.1", Section: 8, Summary: "DataCache、旧 bundle、本地 Docker、ACR、JSON truth、GitHub remote-CI runner、通用/第二 provider executor、跨 shard CAS 与隐式 fallback 禁止存在；测试二进制编译只能留在既有 ECI shard worker 路径，镜像物料也必须在 ECI 构建", Enforcement: "deletion + archtest"},
 	{ID: "8.2", Section: 8, Summary: "固定 shard 数、CI 并发上限、accepted 缺失自动重建及接入 SQLite 的 successor refresh executor 禁止存在；唯一 pre-push 后台候选刷新维护不得阻塞 push、等待刷新结果或成为第二 CI executor", Enforcement: "hook non-blocking boundary + script deletion + archtest"},
@@ -749,7 +751,7 @@ func validatePlanningConstants() error {
 	if err := ValidateRemoteCIProtocolVersions(AcceptedBootstrapRequestSchemaVersion, AcceptedCompileGroupSchemaVersion, AcceptedBootstrapManifestSchemaVersion, ShardRequestSchemaVersion, ShardExecutionManifestSchemaVersion); err != nil {
 		return err
 	}
-	if WorkloadPlanningAlgorithmID == "" || WorkloadPlanningObjective == "" || WorkloadPlanningSearchNodeBudget != 1_000_000 || WorkloadEstimationPolicyVersion == "" || CompileGroupSerialPackingPolicyID == "" || CriticalPathCostPolicyID == "" {
+	if WorkloadPlanningAlgorithmID == "" || WorkloadPlanningObjective == "" || WorkloadPlanningSearchNodeBudget != 1_000_000 || WorkloadEstimationPolicyVersion == "" || WorkloadPlanningRiskPolicyID == "" || CompileGroupSerialPackingPolicyID == "" || CriticalPathCostPolicyID == "" {
 		return errors.New("remote CI planning and compile-group policy identities are incomplete")
 	}
 	if err := ValidateWorkloadPassEnvironmentSchema(WorkloadPassEnvironmentSchemaVersion); err != nil {

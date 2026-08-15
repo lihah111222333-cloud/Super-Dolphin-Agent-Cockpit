@@ -562,11 +562,17 @@ func canonicalWorkloadEstimationPolicyMaterial() WorkloadEstimationPolicyMateria
 	return WorkloadEstimationPolicyMaterial{
 		PolicyVersion:      WorkloadEstimationPolicyVersion,
 		EstimatorPolicyID:  WorkloadEstimatorPolicyID,
+		PlanningRiskPolicy: WorkloadPlanningRiskPolicyID,
 		Platform:           "linux/amd64",
 		Runner:             "runner-digest",
 		Toolchain:          "go1.26.5",
 		TargetDurationMS:   100_000,
 		AcceptedSnapshotID: "snapshot-digest",
+		ResourceTierReserves: []WorkloadResourceTierReserve{
+			{SchemaVersion: 1, ResourceTier: WorkloadResourceTierFast, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("a", 64)},
+			{SchemaVersion: 1, ResourceTier: WorkloadResourceTierMedium, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("b", 64)},
+			{SchemaVersion: 1, ResourceTier: WorkloadResourceTierSlow, SampleCount: 1, ProvenanceDigest: "sha256:" + strings.Repeat("c", 64)},
+		},
 	}
 }
 
@@ -607,6 +613,23 @@ func TestWorkloadPlanningPolicyDigestRejectsTransitionBoundDrift(t *testing.T) {
 	material.HeuristicMaxBeamTransitions++
 	if err := material.Validate(); err == nil {
 		t.Fatal("planning policy accepted a drifted beam transition budget")
+	}
+}
+
+func TestWorkloadResourceTierReservePolicyRejectsMissingTierAndCalibrationDrift(t *testing.T) {
+	material := canonicalWorkloadEstimationPolicyMaterial()
+	material.ResourceTierReserves = material.ResourceTierReserves[:2]
+	if _, err := WorkloadEstimationPolicyDigest(material); err == nil {
+		t.Fatal("estimation policy accepted missing resource-tier reserve")
+	}
+	calibration := material
+	calibration.Calibration = true
+	calibration.CalibrationResourceClassID = "calibration"
+	calibration.CalibrationResourceCPU = CalibrationResourceCPU
+	calibration.CalibrationResourceMemoryGiB = CalibrationResourceMemoryGiB
+	calibration.ResourceTierReserves = nil
+	if _, err := WorkloadEstimationPolicyDigest(calibration); err != nil {
+		t.Fatalf("calibration estimation policy rejected fixed-resource semantics: %v", err)
 	}
 }
 

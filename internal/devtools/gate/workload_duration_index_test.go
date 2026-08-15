@@ -22,6 +22,7 @@ func TestDurationSampleIndexSeparatesCalibrationFromNormalResourceSamples(t *tes
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	normalIndex, err := BuildDurationSampleIndex(ledger, context)
 	if err != nil {
@@ -88,7 +89,7 @@ func TestDurationSampleIndexNormalUsesCrossInputUpperBoundForResourceFixedPoint(
 	}
 	historical := current
 	historical.InputDigest = "sha256:" + strings.Repeat("a", 64)
-	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1", ResourceTierReserves: testNormalResourceTierReserves()}
 	index, err := BuildDurationSampleIndex(testPlanningLedger(context, []DurationSample{
 		testDurationIndexSample(historical, DurationExecutionModeNormal, "small", 2, 4, 80_000),
 	}), context)
@@ -151,6 +152,7 @@ func TestDurationSampleIndexNormalEstimateReclassifiesToExactResourceTier(t *tes
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	index, err := BuildDurationSampleIndex(ledger, context)
 	if err != nil {
@@ -182,6 +184,7 @@ func TestDurationSampleIndexNormalEstimateUpdaterFastToMediumDoesNotDowngrade(t 
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	index, err := BuildDurationSampleIndex(ledger, context)
 	if err != nil {
@@ -271,6 +274,7 @@ func TestDurationSampleIndexNormalEstimateCarriesMeasuredDurationIntoNewTier(t *
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	index, err := BuildDurationSampleIndex(ledger, context)
 	if err != nil {
@@ -295,6 +299,7 @@ func TestDurationSampleIndexNormalBootstrapAlwaysUsesFastTier(t *testing.T) {
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	index, err := BuildDurationSampleIndex(DurationLedger{
 		Version: durationLedgerVersion, ShardOverhead: testDurationIndexOverhead(),
@@ -333,7 +338,7 @@ func testDurationIndexSample(workload Workload, mode, classID string, cpu, memor
 }
 
 func TestDurationEstimatorV2OutlierAndPermutationDeterministic(t *testing.T) {
-	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1", ResourceTierReserves: testNormalResourceTierReserves()}
 	workload := Workload{ID: "guard:robust-outlier", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), InputDigest: "sha256:" + strings.Repeat("b", 64), BootstrapEstimateMS: 100, Shardable: true}
 	makeSample := func(duration int64) DurationSample {
 		sample := testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, duration)
@@ -368,7 +373,7 @@ func TestDurationEstimatorV2OutlierAndPermutationDeterministic(t *testing.T) {
 }
 
 func TestDurationEstimatorV2WeightsLatestGenerationAndRetainsFailureDiagnostics(t *testing.T) {
-	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1", ResourceTierReserves: testNormalResourceTierReserves()}
 	workload := Workload{ID: "guard:generation-weight", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("c", 64), InputDigest: "sha256:" + strings.Repeat("d", 64), BootstrapEstimateMS: 100, Shardable: true}
 	sample := func(generation uint64, duration int64, succeeded bool) DurationSample {
 		result := testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, duration)
@@ -397,7 +402,7 @@ func TestDurationEstimatorV2WeightsLatestGenerationAndRetainsFailureDiagnostics(
 }
 
 func TestDurationEstimatorV2SparseNewestGenerationShrinksSinglePoint(t *testing.T) {
-	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1"}
+	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1", ResourceTierReserves: testNormalResourceTierReserves()}
 	workload := Workload{ID: "guard:sparse-newest", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("e", 64), InputDigest: "sha256:" + strings.Repeat("f", 64), BootstrapEstimateMS: 100, Shardable: true}
 	sample := func(generation uint64, durationMS int64) DurationSample {
 		result := testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, durationMS)

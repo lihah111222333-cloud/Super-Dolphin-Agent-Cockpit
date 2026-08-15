@@ -67,8 +67,8 @@ func assertMixedCompilePartition(t *testing.T, units []compilePlanningUnit) {
 
 func TestFinalizePackingEvidenceRejectsPlannedBelowSoundLowerBound(t *testing.T) {
 	_, err := finalizePackingEvidence(map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats{
-		cicontract.WorkloadResourceTierMedium: {planned: 1, packable: 1, ordinaryTotal: 11},
-	}, 10)
+		cicontract.WorkloadResourceTierMedium: {planned: 1, packable: 1, ordinaryTotal: FullCITargetDurationMS + 1},
+	}, testLinuxPlanningContext())
 	if err == nil {
 		t.Fatal("finalizePackingEvidence accepted a plan below its sound lower bound")
 	}

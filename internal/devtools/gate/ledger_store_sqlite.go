@@ -74,10 +74,11 @@ func loadSQLiteSnapshotPayload(transaction *sql.Tx, includeSamples bool, plannin
 		return DurationLedgerSnapshot{}, err
 	}
 	snapshot.Ledger.ShardOverhead = overhead
-	planning, err = ResolvePlanningContext(planning, snapshot.Ledger)
+	planning, reserves, err := resolveSQLitePlanningContext(transaction, snapshot.Generation, planning, snapshot.Ledger)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
+	snapshot.ResourceTierReserves = reserves
 	index, err := loadSQLiteDurationSampleIndex(transaction, planning)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err

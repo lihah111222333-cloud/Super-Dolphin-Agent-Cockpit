@@ -21,7 +21,7 @@ func distributeTieredLPTWithinTarget(planned []PlannedWorkload, context Planning
 		if len(tierWorkloads) == 0 {
 			continue
 		}
-		tierShards, err := distributeLPTWithinTarget(tierWorkloads, context)
+		tierShards, err := distributeLPTWithinTarget(tierWorkloads, context, cicontract.WorkloadResourceTier(tierIndex+1))
 		if err != nil {
 			return nil, fmt.Errorf("plan resource tier %d: %w", tierIndex+1, err)
 		}

@@ -38,10 +38,17 @@ func distributeLPTForPlanningContext(planned []PlannedWorkload, context Planning
 	}
 	return distributeTieredLPTWithinTarget(planned, context)
 }
-func distributeLPTWithinTarget(planned []PlannedWorkload, context PlanningContext) ([]ShardPlan, error) {
-	targetDurationMS := context.TargetDurationMS
-	if !context.Calibration {
-		targetDurationMS -= context.ShardOverheadP95MS
+func distributeLPTWithinTarget(planned []PlannedWorkload, context PlanningContext, tiers ...cicontract.WorkloadResourceTier) ([]ShardPlan, error) {
+	tier := cicontract.WorkloadResourceTier(0)
+	if len(tiers) > 1 {
+		return nil, errors.New("workload LPT accepts at most one resource tier")
+	}
+	if len(tiers) == 1 {
+		tier = tiers[0]
+	}
+	targetDurationMS, err := context.EffectiveTargetDurationForResourceTier(tier)
+	if err != nil {
+		return nil, err
 	}
 	return distributeDCPAP(planned, targetDurationMS)
 }
@@ -129,6 +136,7 @@ func prepareWorkloadExecutionPlanInputs(gatePlan GatePlan, catalog WorkloadCatal
 	if err := ValidateDurationLedger(snapshot.Ledger); err != nil {
 		return DurationSampleIndex{}, PlanningContext{}, err
 	}
+	context = planningContextWithSnapshotReserves(context, snapshot.ResourceTierReserves)
 	resolved, err := ResolvePlanningContext(context, snapshot.Ledger)
 	if err != nil {
 		return DurationSampleIndex{}, PlanningContext{}, err
@@ -138,6 +146,13 @@ func prepareWorkloadExecutionPlanInputs(gatePlan GatePlan, catalog WorkloadCatal
 		return DurationSampleIndex{}, PlanningContext{}, err
 	}
 	return index, resolved, nil
+}
+
+func planningContextWithSnapshotReserves(context PlanningContext, reserves []cicontract.WorkloadResourceTierReserve) PlanningContext {
+	if !context.Calibration && len(context.ResourceTierReserves) == 0 && len(reserves) != 0 {
+		context.ResourceTierReserves = append([]cicontract.WorkloadResourceTierReserve(nil), reserves...)
+	}
+	return context
 }
 
 // Validate 使用指定账本快照重新规划，拒绝估时、generation 或分组漂移。

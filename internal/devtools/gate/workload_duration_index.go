@@ -341,6 +341,7 @@ func (index *DurationSampleIndex) addSample(sample DurationSample, maximumInt64 
 
 // DurationSampleIndexFromSnapshot 优先复用 SQLite 聚合索引，并拒绝环境不一致的快照。
 func DurationSampleIndexFromSnapshot(snapshot DurationLedgerSnapshot, context PlanningContext) (DurationSampleIndex, error) {
+	context = planningContextWithSnapshotReserves(context, snapshot.ResourceTierReserves)
 	resolved, err := ResolvePlanningContext(context, snapshot.Ledger)
 	if err != nil {
 		return DurationSampleIndex{}, err
@@ -357,7 +358,7 @@ func DurationSampleIndexFromSnapshot(snapshot DurationLedgerSnapshot, context Pl
 		return index, nil
 	}
 	index := *snapshot.SampleIndex
-	if index.context != context {
+	if !planningContextsEqual(index.context, context) {
 		return DurationSampleIndex{}, errors.New("duration sample index planning context does not match")
 	}
 	if index.buckets == nil {
@@ -531,7 +532,7 @@ func durationResourceIdentityAmbiguous(found bool, resource durationSampleResour
 
 // estimateWorkloadDuration 按执行模式选择固定资源或 normal 档位估算路径。
 func (index DurationSampleIndex) estimateWorkloadDuration(workload Workload) (int64, durationSampleResource, error) {
-	targetDurationMS, err := index.context.EffectiveTargetDurationMS()
+	targetDurationMS, err := index.estimationTargetDurationMS()
 	if err != nil {
 		return 0, durationSampleResource{}, err
 	}
@@ -539,6 +540,16 @@ func (index DurationSampleIndex) estimateWorkloadDuration(workload Workload) (in
 		return index.estimateCalibrationWorkload(workload, targetDurationMS)
 	}
 	return index.estimateNormalWorkload(workload, targetDurationMS)
+}
+
+func (index DurationSampleIndex) estimationTargetDurationMS() (int64, error) {
+	if index.context.Calibration {
+		return index.context.EffectiveTargetDurationMS()
+	}
+	if err := validatePlanningContext(index.context); err != nil {
+		return 0, err
+	}
+	return index.context.TargetDurationMS, nil
 }
 
 // estimateCalibrationWorkload 交叉使用当前 identity 的稳健估值、同 workload/命令的

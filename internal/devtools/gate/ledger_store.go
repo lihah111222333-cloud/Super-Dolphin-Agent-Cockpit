@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate/testtiming"
 )
 
@@ -28,6 +29,9 @@ type DurationLedgerSnapshot struct {
 	Ledger             DurationLedger
 	SampleIndex        *DurationSampleIndex
 	CompileTimingIndex *CompileTimingIndex
+	// ResourceTierReserves is derived from existing authoritative shard/timing
+	// rows during planning; it is not a second SQLite authority or schema table.
+	ResourceTierReserves []cicontract.WorkloadResourceTierReserve
 }
 
 // GoTestDurationWorkloadID 返回测试级样本在账本中的稳定目标身份。

@@ -793,7 +793,7 @@ func TestBuildSelectedTestWorkloadCatalogIsNonAuthoritative(t *testing.T) {
 	if catalog.Authoritative || len(catalog.Workloads) != 2 {
 		t.Fatalf("selected catalog = %#v", catalog)
 	}
-	context := PlanningContext{Platform: "linux/arm64", Runner: "runner", Toolchain: "toolchain", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-selected"}
+	context := PlanningContext{Platform: "linux/arm64", Runner: "runner", Toolchain: "toolchain", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-selected", ResourceTierReserves: testNormalResourceTierReserves()}
 	snapshot := DurationLedgerSnapshot{Generation: 1, Ledger: testPlanningLedger(context, nil)}
 	if _, err := BuildWorkloadExecutionPlanForWorkloads(plan, catalog, snapshot, context, allShardableWorkloadIDsForTest(catalog)); err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads(selected) error = %v", err)

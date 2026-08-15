@@ -630,7 +630,19 @@ func distributeCompileUnitsForPlanningContext(units []compilePlanningUnit, conte
 
 // distributeCompileUnitsWithinTarget 在目标时长内寻找满足编译 affinity 约束的最小分片数。
 func distributeCompileUnitsWithinTarget(units []compilePlanningUnit, context PlanningContext) ([]ShardPlan, error) {
-	target, err := context.EffectiveTargetDurationMS()
+	if len(units) == 0 {
+		return nil, errors.New("compile planning units are empty")
+	}
+	tier := units[0].tier
+	for _, unit := range units[1:] {
+		if unit.tier != tier {
+			return nil, errors.New("compile planning units mix resource tiers")
+		}
+	}
+	if context.Calibration {
+		tier = 0
+	}
+	target, err := context.EffectiveTargetDurationForResourceTier(tier)
 	if err != nil {
 		return nil, err
 	}

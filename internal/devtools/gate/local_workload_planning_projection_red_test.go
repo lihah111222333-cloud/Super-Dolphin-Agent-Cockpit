@@ -15,6 +15,7 @@ func TestProjectLocalWorkloadPlanningRetainsOwnerHighTierFastSample(t *testing.T
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	ledger := testPlanningLedger(context, []DurationSample{
 		testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, 80_000),
@@ -45,6 +46,7 @@ func TestProjectLocalWorkloadPlanningRetainsCatalogOrderAcrossSelectionPermutati
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	ledger := testPlanningLedger(context, []DurationSample{
 		testDurationIndexSample(first, DurationExecutionModeNormal, "small", 2, 4, 1_000),
@@ -83,6 +85,7 @@ func TestProjectLocalWorkloadPlanningRejectsEmptyUnknownAndDuplicateIDs(t *testi
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	index, err := BuildDurationSampleIndex(testPlanningLedger(context, []DurationSample{
 		testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, 1_000),
@@ -114,6 +117,7 @@ func TestProjectLocalWorkloadPlanningMapsOwnerTupleWhenClassIsNotSampled(t *test
 	context := PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26",
 		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1",
+		ResourceTierReserves: testNormalResourceTierReserves(),
 	}
 	index, err := BuildDurationSampleIndex(testPlanningLedger(context, []DurationSample{
 		testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, 80_000),
