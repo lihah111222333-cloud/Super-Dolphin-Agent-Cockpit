@@ -334,11 +334,6 @@ func (cache *remoteReplayCache) semanticInputVoteDigests(ctx context.Context, sn
 	return digests, supported, nil
 }
 
-func (cache *remoteReplayCache) semanticInputMatches(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot) (bool, error) {
-	decision, err := cache.semanticInputDecision(ctx, workload, source, target)
-	return decision.allowReuse(), err
-}
-
 func (cache *remoteReplayCache) semanticInputDecision(ctx context.Context, workload gate.Workload, source, target *remoteGitTreeSnapshot) (remoteWorkloadInputVoteDecision, error) {
 	return cache.semanticInputDecisionWithCompileCoverage(ctx, workload, source, target, false)
 }

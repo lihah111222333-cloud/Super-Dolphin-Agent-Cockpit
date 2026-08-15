@@ -104,6 +104,55 @@ func TestRemoteCIWorkloadResultsRejectAtomicProofWithoutFreshExecution(t *testin
 	}
 }
 
+func TestRemoteCIWorkloadResultsRejectDuplicateRealScriptsSelectorIdentity(t *testing.T) {
+	identity := realScriptsTopLevelSelectorIdentity(t, "TestHostTestModeRunsOneBoundedExactTest")
+	result := RunResult{
+		WorkloadPassIdentities:  []gate.WorkloadPassIdentity{identity, identity},
+		FreshWorkloadExecutions: []gate.PlanGateExecution{{GateID: identity.WorkloadID}},
+	}
+	if _, err := remoteCIWorkloadResults(result); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("duplicate real scripts selector identity error = %v", err)
+	}
+}
+
+func TestRemoteCIWorkloadResultsKeepRealScriptsFreshReusedReexecutedProofScope(t *testing.T) {
+	fresh := realScriptsTopLevelSelectorIdentity(t, "TestCodeSizeGuardSingleGoFileIsQuietWhenClean")
+	reused := realScriptsTopLevelSelectorIdentity(t, "TestHostTestModeRunsOneBoundedExactTest")
+	reexecuted := realScriptsTopLevelSelectorIdentity(t, "TestCICompilePackageModeCompilesWithoutRunning")
+	proof := gate.RemoteCIWorkloadResult{
+		Identity:                 reexecuted,
+		Disposition:              gate.WorkloadDispositionReused,
+		OriginJobID:              "scripts-canonical-origin",
+		OriginAcceptedGeneration: 7,
+		EvidenceSHA256:           "sha256:" + strings.Repeat("d", 64),
+	}
+	result := RunResult{
+		JobID:                     "scripts-selector-consumer",
+		AcceptedGeneration:        7,
+		WorkloadPassIdentities:    []gate.WorkloadPassIdentity{fresh, reused, reexecuted},
+		FreshWorkloadExecutions:   []gate.PlanGateExecution{{GateID: fresh.WorkloadID}, {GateID: reexecuted.WorkloadID}},
+		ReusedWorkloads:           []gate.WorkloadPassEvidence{{Identity: reused, OriginJobID: "scripts-canonical-origin", OriginAcceptedGeneration: 7, EvidenceSHA256: "sha256:" + strings.Repeat("e", 64)}},
+		ReexecutedWorkloadResults: []gate.RemoteCIWorkloadResult{proof},
+	}
+	results, err := remoteCIWorkloadResults(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("real scripts selector receipt count = %d, want 3", len(results))
+	}
+	seen := make(map[gate.GateID]struct{}, len(results))
+	for _, receipt := range results {
+		if _, duplicate := seen[receipt.Identity.WorkloadID]; duplicate {
+			t.Fatalf("real scripts selector receipt identity duplicated: %#v", results)
+		}
+		seen[receipt.Identity.WorkloadID] = struct{}{}
+		if receipt.Identity.WorkloadID == reexecuted.WorkloadID && receipt != proof {
+			t.Fatalf("reexecuted selector proof was not retained: got=%#v want=%#v", receipt, proof)
+		}
+	}
+}
+
 func TestRemoteReexecutedWorkloadResultsProjectOnlyDemotedHits(t *testing.T) {
 	_, proofResult := atomicReexecutionTestResult(t)
 	evidence := gate.WorkloadPassEvidence{Identity: proofResult.Identity, OriginJobID: proofResult.OriginJobID, OriginAcceptedGeneration: proofResult.OriginAcceptedGeneration, EvidenceSHA256: proofResult.EvidenceSHA256}
@@ -209,4 +258,24 @@ func reusePackageTestIdentity(t *testing.T, parent gate.GateID, packageTarget, n
 		t.Fatalf("NewGoTestWorkload(%q, %q) error = %v", packageTarget, name, err)
 	}
 	return gate.WorkloadPassIdentity{WorkloadID: gate.GateID(workload.ID)}
+}
+
+func realScriptsTopLevelSelectorIdentity(t *testing.T, name string) gate.WorkloadPassIdentity {
+	t.Helper()
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./scripts", name, 1)
+	if err != nil {
+		t.Fatalf("NewGoTestWorkload(./scripts, %q) error = %v", name, err)
+	}
+	identity := gate.WorkloadPassIdentity{
+		WorkloadID:        gate.GateID(workload.ID),
+		ExecutionDigest:   "sha256:" + strings.Repeat("a", 64),
+		InputDigest:       "sha256:" + strings.Repeat("b", 64),
+		EnvironmentDigest: "sha256:" + strings.Repeat("c", 64),
+	}
+	digest, err := gate.WorkloadPassIdentitySHA256(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.IdentityDigest = digest
+	return identity
 }

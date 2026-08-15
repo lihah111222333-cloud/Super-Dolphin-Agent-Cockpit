@@ -459,6 +459,9 @@ func validateStoredWorkloadShard(
 	if shard.Index != index || len(shard.Workloads) == 0 || shard.EstimatedDurationMS <= 0 {
 		return fmt.Errorf("workload shard %d identity is invalid", index)
 	}
+	if err := validateStoredHardIsolationShard(shard, index); err != nil {
+		return err
+	}
 	if err := validateStoredCompileGroupShardDomain(shard, index, groups); err != nil {
 		return err
 	}
@@ -476,6 +479,23 @@ func validateStoredWorkloadShard(
 	total := ordinaryTotal + groupTotal
 	if total != shard.EstimatedDurationMS {
 		return fmt.Errorf("workload shard %d estimated duration mismatch", index)
+	}
+	return nil
+}
+
+func validateStoredHardIsolationShard(shard ShardPlan, index int) error {
+	hardIsolated := 0
+	for _, planned := range shard.Workloads {
+		reason, err := canonicalCompileUnitHardIsolationReason(planned.Workload.ID)
+		if err != nil {
+			return fmt.Errorf("workload shard %d hard-isolation derivation: %w", index, err)
+		}
+		if reason.hardIsolated() {
+			hardIsolated++
+		}
+	}
+	if hardIsolated != 0 && len(shard.Workloads) != 1 {
+		return fmt.Errorf("workload shard %d contains hard-isolated workload with second workload", index)
 	}
 	return nil
 }

@@ -124,21 +124,3 @@ func remoteRunExpectedWorkloadResults(result remoteci.RunResult) (map[gatecontra
 	}
 	return want, nil
 }
-
-// remoteRunReexecutedResultMap 校验 package 原子重跑的旧 proof 投影无重复。
-func remoteRunReexecutedResultMap(results []gatecontract.RemoteCIWorkloadResult) (map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, error) {
-	indexed := make(map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, len(results))
-	for _, result := range results {
-		if err := result.Validate(); err != nil {
-			return nil, fmt.Errorf("validate package-atomic remote CI workload %q proof result: %w", result.Identity.WorkloadID, err)
-		}
-		if result.Disposition != gatecontract.WorkloadDispositionReused {
-			return nil, fmt.Errorf("package-atomic remote CI workload %q proof disposition is invalid", result.Identity.WorkloadID)
-		}
-		if _, duplicate := indexed[result.Identity.WorkloadID]; duplicate {
-			return nil, fmt.Errorf("package-atomic remote CI workload %q proof is duplicated", result.Identity.WorkloadID)
-		}
-		indexed[result.Identity.WorkloadID] = result
-	}
-	return indexed, nil
-}

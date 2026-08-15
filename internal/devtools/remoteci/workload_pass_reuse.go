@@ -796,6 +796,9 @@ func remoteCIWorkloadResults(result RunResult) ([]gate.RemoteCIWorkloadResult, e
 	results := make([]gate.RemoteCIWorkloadResult, 0, len(result.ReusedWorkloads)+len(result.FreshWorkloadExecutions))
 	identities := make(map[gate.GateID]gate.WorkloadPassIdentity, len(result.WorkloadPassIdentities))
 	for _, identity := range result.WorkloadPassIdentities {
+		if _, duplicate := identities[identity.WorkloadID]; duplicate {
+			return nil, fmt.Errorf("current remote CI workload identity %q is duplicated", identity.WorkloadID)
+		}
 		identities[identity.WorkloadID] = identity
 	}
 	for _, evidence := range result.ReusedWorkloads {

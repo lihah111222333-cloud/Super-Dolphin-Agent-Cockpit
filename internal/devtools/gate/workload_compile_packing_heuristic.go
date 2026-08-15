@@ -10,6 +10,9 @@ import (
 
 // heuristicCompileUnitPacking 对 >12 个 packable unit 按 domain 使用受约束 BFD 与修复。
 func heuristicCompileUnitPacking(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
+	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
+		return nil, err
+	}
 	ordinary, serial, isolated := partitionCompilePlanningUnits(units)
 	if len(ordinary)+len(serial) <= cicontract.WorkloadPlanningExactPackableUnitThreshold {
 		return nil, errors.New("compile heuristic requires more than twelve packable units")
@@ -41,6 +44,9 @@ func heuristicCompilePackingDomain(units []compilePlanningUnit, target int64) ([
 	if len(units) == 0 {
 		return nil, nil
 	}
+	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
+		return nil, err
+	}
 	upper, err := compileVariableBinBFD(units, target)
 	if err != nil {
 		return nil, err
@@ -70,6 +76,9 @@ func partitionCompilePlanningUnits(units []compilePlanningUnit) ([]compilePlanni
 // unit.costMS 已由 CompileGroupCriticalDurationMS 固化 compile-once 加各 wave 最大
 // body 成本；unit 不可拆且每组仅出现一次，因此合法布局不再产生额外 setup proxy。
 func compileVariableBinBFD(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
+	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
+		return nil, err
+	}
 	ordered := append([]compilePlanningUnit(nil), units...)
 	sortCompilePlanningUnits(ordered)
 	bins := make([]compilePackingBin, 0, len(ordered))
@@ -116,6 +125,9 @@ func compileSelectBFDIndex(bins []compilePackingBin, unit compilePlanningUnit, t
 
 // compileBFDPlacementCandidate 复制箱状态并校验一次合法 unit 放置。
 func compileBFDPlacementCandidate(bin compilePackingBin, unit compilePlanningUnit, target int64) (int64, int64, string, bool, error) {
+	if _, err := compilePlanningUnitHardIsolationReason(unit); err != nil {
+		return 0, 0, "", false, err
+	}
 	if !compileUnitFitsPackingCapacity(bin.shard, unit, target) || !compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, unit) {
 		return 0, 0, "", false, nil
 	}

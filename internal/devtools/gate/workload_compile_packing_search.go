@@ -64,6 +64,9 @@ func (score compilePackingScore) less(other compilePackingScore) bool {
 
 // provenCompileUnitPacking 对 <=12 unit 做 exact；大输入走有界 compile-aware heuristic。
 func provenCompileUnitPacking(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
+	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
+		return nil, err
+	}
 	ordinary, serial, isolated := partitionCompilePlanningUnits(units)
 	if len(ordinary)+len(serial) > cicontract.WorkloadPlanningExactPackableUnitThreshold {
 		result, err := heuristicCompileUnitPacking(units, target)
@@ -91,6 +94,9 @@ func provenCompileUnitPacking(units []compilePlanningUnit, target int64) ([]Shar
 func provenCompilePackableExact(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
 	if len(units) == 0 {
 		return nil, nil
+	}
+	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
+		return nil, err
 	}
 	upper, err := greedyCompilePackingUpperBound(units, target)
 	if err != nil {
@@ -301,6 +307,9 @@ func searchCompilePackingFixedCount(units []compilePlanningUnit, count int, capa
 	if count < 0 {
 		return nil, false, errCompilePackingInvalidShardCount
 	}
+	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
+		return nil, false, err
+	}
 	ordered := append([]compilePlanningUnit(nil), units...)
 	sortCompilePlanningUnits(ordered)
 	bins := make([]compilePackingBin, count)
@@ -442,6 +451,9 @@ func compilePackingShardKey(shard ShardPlan) string {
 
 // applyCompilePackingUnit 将一个 unit 原地加入箱，并返回精确撤销信息。
 func applyCompilePackingUnit(bin *compilePackingBin, unit compilePlanningUnit, capacity int64) (compilePackingUndo, bool, error) {
+	if _, err := compilePlanningUnitHardIsolationReason(unit); err != nil {
+		return compilePackingUndo{}, false, err
+	}
 	if !compileUnitFitsPackingCapacity(bin.shard, unit, capacity) ||
 		!compileUnitCanShareShard(bin.shard, bin.affinities, bin.artifactKeys, unit) {
 		return compilePackingUndo{}, false, nil

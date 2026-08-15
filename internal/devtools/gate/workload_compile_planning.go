@@ -92,6 +92,8 @@ type compilePlanningUnit struct {
 	affinityKey string
 	sortID      string
 	tier        cicontract.WorkloadResourceTier
+	// hardIsolationReason 是 planner 内部的非持久化进程/receipt 边界证明。
+	hardIsolationReason compileUnitHardIsolationReason
 }
 
 func workloadCanonicalOrder(catalog WorkloadCatalog) map[string]int {
@@ -147,7 +149,11 @@ func ordinaryCompilePlanningUnit(item PlannedWorkload, context PlanningContext) 
 	if err != nil {
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q: %w", item.Workload.ID, err)
 	}
-	return compilePlanningUnit{workloads: []PlannedWorkload{item}, costMS: item.EstimatedDurationMS, affinityKey: "ordinary:" + item.Workload.ID, sortID: item.Workload.ID, tier: tier}, nil
+	reason, err := canonicalCompileUnitHardIsolationReason(item.Workload.ID)
+	if err != nil {
+		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q hard isolation: %w", item.Workload.ID, err)
+	}
+	return compilePlanningUnit{workloads: []PlannedWorkload{item}, costMS: item.EstimatedDurationMS, affinityKey: "ordinary:" + item.Workload.ID, sortID: item.Workload.ID, tier: tier, hardIsolationReason: reason}, nil
 }
 
 // splitCompilePlanningBucket 将同一编译输入和资源档位收敛为确定性的编译组。
@@ -630,6 +636,13 @@ func distributeCompileUnitsForPlanningContext(units []compilePlanningUnit, conte
 
 // distributeCompileUnitsWithinTarget 在目标时长内寻找满足编译 affinity 约束的最小分片数。
 func distributeCompileUnitsWithinTarget(units []compilePlanningUnit, context PlanningContext) ([]ShardPlan, error) {
+	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
+		return nil, err
+	}
+	return distributeCompileUnitsWithinTargetValidated(units, context)
+}
+
+func distributeCompileUnitsWithinTargetValidated(units []compilePlanningUnit, context PlanningContext) ([]ShardPlan, error) {
 	if len(units) == 0 {
 		return nil, errors.New("compile planning units are empty")
 	}
@@ -720,24 +733,6 @@ func compileUnitShardIndexForCompileGroup(shards []ShardPlan, affinities, artifa
 		return least, true
 	}
 	return 0, false
-}
-
-// compileUnitCanShareShard 施加 affinity、artifact 唯一性与单一 compile-group 域约束。
-func compileUnitCanShareShard(shard ShardPlan, affinities, artifactKeys map[string]struct{}, unit compilePlanningUnit) bool {
-	if _, duplicate := affinities[unit.affinityKey]; duplicate {
-		return false
-	}
-	if unit.group == nil {
-		return len(shard.CompileGroupIDs) == 0
-	}
-	artifactKey, err := CompileArtifactKey(*unit.group)
-	if err != nil {
-		return false
-	}
-	if _, duplicate := artifactKeys[artifactKey]; duplicate {
-		return false
-	}
-	return len(shard.Workloads) == 0
 }
 
 // compileUnitPlacementScore 以 target excess 优先、再以剩余容量稳定平局。
