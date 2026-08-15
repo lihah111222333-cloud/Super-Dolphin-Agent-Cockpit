@@ -356,12 +356,16 @@ func dcpapExactPack(items []dcpapItem, target int64, budget *deterministicPackin
 	if err != nil {
 		return nil, err
 	}
+	mandatoryExcess, err := dcpapMandatoryOversizeExcess(items, target)
+	if err != nil {
+		return nil, err
+	}
 	for count := minimumCount; count <= len(items); count++ {
 		search.bins = make([]dcpapBin, count)
 		if err := search.place(0); err != nil {
 			return nil, err
 		}
-		if search.best.excessMS == 0 && search.best.shardCount == count {
+		if search.best.excessMS == mandatoryExcess && search.best.shardCount == count {
 			return search.bestBins, nil
 		}
 	}

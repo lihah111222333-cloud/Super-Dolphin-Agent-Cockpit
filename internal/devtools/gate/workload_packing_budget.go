@@ -88,3 +88,22 @@ func dcpapShardCountLowerBound(items []dcpapItem, target int64) (int, error) {
 	}
 	return oversize + int(regularShards), nil
 }
+
+// dcpapMandatoryOversizeExcess 计算 hard-isolated oversize workload 的必然超额。
+func dcpapMandatoryOversizeExcess(items []dcpapItem, target int64) (int64, error) {
+	if target <= 0 {
+		return 0, errors.New("D-CPAP planner target must be positive")
+	}
+	excessTotal := int64(0)
+	for _, item := range items {
+		if item.durationMS <= target {
+			continue
+		}
+		excess := item.durationMS - target
+		if excess > maxDCPAPInt64-excessTotal {
+			return 0, errDCPAPDurationOverflow
+		}
+		excessTotal += excess
+	}
+	return excessTotal, nil
+}

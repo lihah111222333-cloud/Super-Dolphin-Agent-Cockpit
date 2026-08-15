@@ -174,6 +174,26 @@ func TestDCPAPExactPackingFailsClosedWhenNodeBudgetIsExhausted(t *testing.T) {
 	}
 }
 
+func TestDCPAPExactPackingStopsAtMandatoryOversizeExcess(t *testing.T) {
+	items := []dcpapItem{{id: "oversize", durationMS: 101_000}}
+	for index := 1; index <= 11; index++ {
+		items = append(items, dcpapItem{id: fmt.Sprintf("unit-%02d", index), durationMS: 1_000})
+	}
+	bins, err := dcpapProvenPack(items, 100_000)
+	if err != nil {
+		t.Fatalf("oversize exact packing error = %v, want nil", err)
+	}
+	if len(bins) != 2 {
+		t.Fatalf("oversize exact packing shard count = %d, want 2: %#v", len(bins), bins)
+	}
+	if bins[0].bodyMS != 101_000 || len(bins[0].items) != 1 || bins[0].items[0].id != "oversize" {
+		t.Fatalf("oversize exact packing canonical oversize bin = %#v", bins[0])
+	}
+	if bins[1].bodyMS != 11_000 || len(bins[1].items) != 11 {
+		t.Fatalf("oversize exact packing regular bin = %#v", bins[1])
+	}
+}
+
 func TestDCPAPPlannerRejectsDurationArithmeticOverflow(t *testing.T) {
 	maximum := int64(^uint64(0) >> 1)
 	planned := []PlannedWorkload{
@@ -237,20 +257,81 @@ func TestDCPAPPlannerWithinExactThresholdIsDeterministic(t *testing.T) {
 }
 
 func TestDCPAPPlannerLargeInputPerformanceGuard(t *testing.T) {
-	planned := make([]PlannedWorkload, 1_000)
-	for index := range planned {
-		planned[index] = testDCPAPWorkload(fmt.Sprintf("large-%04d", index), int64((index%20)+1))
-	}
+	const target int64 = 100
+	planned, items, expected := testDCPAPLargeInputFixtures()
+	reversed := slices.Clone(planned)
+	slices.Reverse(reversed)
 	started := time.Now()
-	shards, err := distributeDCPAP(planned, 100)
-	if err != nil && !errors.Is(err, errDeterministicPackingSearchBudget) {
-		t.Fatalf("large-input DCPAP returned unexpected error: %v", err)
+	shards, err := distributeDCPAP(planned, target)
+	if err != nil {
+		t.Fatalf("large-input DCPAP error = %v, want nil", err)
 	}
-	if err == nil && len(shards) == 0 {
-		t.Fatal("large-input DCPAP returned an empty proven plan")
+	reversedShards, err := distributeDCPAP(reversed, target)
+	if err != nil {
+		t.Fatalf("reversed large-input DCPAP error = %v, want nil", err)
 	}
+	if !reflect.DeepEqual(shards, reversedShards) {
+		t.Fatalf("large-input DCPAP changed under input reversal")
+	}
+	assertDCPAPLargeHeuristicEvidence(t, items, target, len(shards))
+	assertDCPAPLargeShardCoverage(t, shards, expected, target)
 	if elapsed := time.Since(started); elapsed > 5*time.Second {
-		t.Fatalf("large-input DCPAP performance guard failed: shards=%d err=%v elapsed=%s", len(shards), err, elapsed)
+		t.Fatalf("large-input DCPAP performance guard failed: shards=%d elapsed=%s", len(shards), elapsed)
+	}
+}
+
+func testDCPAPLargeInputFixtures() ([]PlannedWorkload, []dcpapItem, map[string]struct{}) {
+	planned := make([]PlannedWorkload, 1_000)
+	items := make([]dcpapItem, len(planned))
+	expected := make(map[string]struct{}, len(planned))
+	for index := range planned {
+		id := fmt.Sprintf("large-%04d", index)
+		duration := int64((index % 20) + 1)
+		planned[index] = testDCPAPWorkload(id, duration)
+		items[index] = dcpapItem{id: id, durationMS: duration}
+		expected[id] = struct{}{}
+	}
+	return planned, items, expected
+}
+
+func assertDCPAPLargeHeuristicEvidence(t *testing.T, items []dcpapItem, target int64, shardCount int) {
+	t.Helper()
+	result, err := dcpapHeuristicPack(items, target)
+	if err != nil {
+		t.Fatalf("large-input heuristic packing error = %v", err)
+	}
+	if result.objectiveMode != cicontract.WorkloadPlanningHeuristicSolverModeID {
+		t.Fatalf("large-input solver mode = %q, want heuristic", result.objectiveMode)
+	}
+	lower, err := dcpapShardCountLowerBound(items, target)
+	if err != nil {
+		t.Fatalf("large-input lower bound error = %v", err)
+	}
+	if result.lowerBoundShards != lower || result.plannedShards != shardCount || result.shardGap != result.plannedShards-result.lowerBoundShards {
+		t.Fatalf("large-input heuristic evidence = %#v, want truthful lower/planned/gap", result)
+	}
+}
+
+func assertDCPAPLargeShardCoverage(t *testing.T, shards []ShardPlan, expected map[string]struct{}, target int64) {
+	t.Helper()
+	covered := make(map[string]struct{}, len(expected))
+	for _, shard := range shards {
+		if shard.EstimatedDurationMS <= 0 || shard.EstimatedDurationMS > target {
+			t.Fatalf("large-input shard violates target: %#v", shard)
+		}
+		for _, workload := range shard.Workloads {
+			id := workload.Workload.ID
+			if _, duplicate := covered[id]; duplicate {
+				t.Fatalf("large-input shard coverage duplicates workload %q", id)
+			}
+			if _, known := expected[id]; !known {
+				t.Fatalf("large-input shard coverage contains unknown workload %q", id)
+			}
+			covered[id] = struct{}{}
+		}
+	}
+	if len(covered) != len(expected) {
+		t.Fatalf("large-input shard coverage = %d workloads, want %d", len(covered), len(expected))
 	}
 }
 
