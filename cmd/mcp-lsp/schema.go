@@ -155,16 +155,16 @@ func newLSPGrepSchema() schema {
 	paths["minItems"] = 1
 	return withActionConditions(NewObjectSchema(map[string]schema{
 		"action":         enumProp("Action", "text_search", "ast_search"),
+		"ast_language":   stringProp("Registered AST language selector for ast_search; omit only when a file path or glob identifies it unambiguously."),
 		"query":          stringProp("Search query"),
 		"paths":          paths,
 		"glob":           stringProp("Glob filter for text_search or ast_search; ast_search can also use it to infer the target language."),
-		"language":       stringProp("Language for AST"),
 		"regex":          booleanProp("Regex mode (default literal)"),
 		"case_sensitive": booleanProp("Override smart-case (default: sensitive when query has uppercase, insensitive otherwise)"),
 		"max_results":    integerProp("Max matches per file (default 50, cap 50)"),
 		"work_dir":       lspWorkDirProp(),
 	}, "action", "query"),
-		actionCondition("text_search", forbidFields("language")),
+		actionCondition("text_search", forbidFields("ast_language")),
 		actionCondition("ast_search", forbidFields("regex", "case_sensitive")),
 	)
 }
@@ -192,10 +192,10 @@ func newLSPStructureSchema() schema {
 		"oneOf": []any{
 			map[string]any{
 				"required": []string{"file_path"},
-				"not":      map[string]any{"required": []string{"language"}},
+				"not":      map[string]any{"required": []string{"workspace_language"}},
 			},
 			map[string]any{
-				"required": []string{"language"},
+				"required": []string{"workspace_language"},
 				"not": map[string]any{"anyOf": []any{
 					map[string]any{"required": []string{"file_path"}},
 					map[string]any{"required": []string{"language_id"}},
@@ -204,20 +204,27 @@ func newLSPStructureSchema() schema {
 		},
 	}
 	return withActionConditions(NewObjectSchema(map[string]schema{
-		"action":      enumProp("Action", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
-		"file_path":   stringProp("File path (absolute or relative, auto-resolved). Required for document_symbol, folding_range, and semantic_tokens. For workspace_symbol, pass exactly one of file_path or language. Path-only; no :line:column suffix."),
-		"query":       stringProp("Symbol query. Required for workspace_symbol; ignored by document_symbol, folding_range, and semantic_tokens."),
-		"language":    stringProp("Language selector for workspace_symbol when file_path is not provided. Pass exactly one of language or file_path."),
-		"match_mode":  enumProp("Workspace symbol match mode; exact is the default and fuzzy must be explicit", "exact", "fuzzy"),
-		"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
-		"max_results": integerProp("Max results (default 20, cap 50)"),
-		"work_dir":    lspWorkDirProp(),
+		"action":             enumProp("Action", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
+		"file_path":          stringProp("File path (absolute or relative, auto-resolved). Required for document_symbol, folding_range, and semantic_tokens. For workspace_symbol, pass exactly one of file_path or workspace_language. Path-only; no :line:column suffix."),
+		"query":              stringProp("Symbol query. Required for workspace_symbol; ignored by document_symbol, folding_range, and semantic_tokens."),
+		"workspace_language": stringProp("Registered LSP manager selector for workspace_symbol. Pass exactly one of workspace_language or file_path."),
+		"match_mode":         enumProp("Workspace symbol match mode; exact is the default and fuzzy must be explicit", "exact", "fuzzy"),
+		"language_id":        stringProp("Optional language server override for extensionless or ambiguous file_path values; invalid without file_path."),
+		"max_results":        integerProp("Max results (default 20, cap 50)"),
+		"work_dir":           lspWorkDirProp(),
 	}, "action"),
-		actionCondition("document_symbol", schema{"required": []string{"file_path"}}),
+		actionCondition("document_symbol", requiredWithForbiddenFields([]string{"file_path"}, "workspace_language")),
 		actionCondition("workspace_symbol", workspaceSymbol),
-		actionCondition("folding_range", schema{"required": []string{"file_path"}}),
-		actionCondition("semantic_tokens", schema{"required": []string{"file_path"}}),
+		actionCondition("folding_range", requiredWithForbiddenFields([]string{"file_path"}, "workspace_language")),
+		actionCondition("semantic_tokens", requiredWithForbiddenFields([]string{"file_path"}, "workspace_language")),
 	)
+}
+
+// requiredWithForbiddenFields 组合 action 的必填字段与禁止字段约束。
+func requiredWithForbiddenFields(required []string, forbidden ...string) schema {
+	condition := forbidFields(forbidden...)
+	condition["required"] = required
+	return condition
 }
 
 func newPatchEditSchema() schema {

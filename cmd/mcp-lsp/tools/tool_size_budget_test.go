@@ -87,7 +87,7 @@ func TestWorkspaceSymbolCompactBudget(t *testing.T) {
 	handler := NewStructureHandler(&structureTestRegistry{languageManager: manager})
 	root := t.TempDir()
 
-	result := callStructureTool(t, handler, root, structureParams{Action: "workspace_symbol", Query: "Symbol", Language: "go", MatchMode: "fuzzy"})
+	result := callStructureTool(t, handler, root, structureParams{Action: "workspace_symbol", Query: "Symbol", WorkspaceLanguage: "go", MatchMode: "fuzzy"})
 	list, ok := result.(workspaceSymbolListResponse)
 	if !ok {
 		t.Fatalf("workspace_symbol result = %T, want workspaceSymbolListResponse", result)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -77,9 +79,7 @@ type fileToolInput struct {
 
 // openFileResult 描述 open_file 对 LSP manager 的打开结果。
 type openFileResult struct {
-	Success  bool   `json:"success"`
 	Status   string `json:"status"`
-	Message  string `json:"message"`
 	FilePath string `json:"file_path"`
 	Bytes    int    `json:"bytes"`
 }
@@ -183,7 +183,11 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 
 	return dispatchToolAction(ctx, "file", input.Action, input, map[string]actionHandler[fileToolInput]{
 		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
-			return h.openFile(ctx, input.FilePath, input.LanguageID)
+			result, err := h.openFile(ctx, input.FilePath, input.LanguageID)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
 		},
 		"read_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			req := readFileRequest{
@@ -270,9 +274,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 		return openFileResult{}, fmt.Errorf("open_file DidOpen %s: %w", file.Path.DisplayPath, err)
 	}
 	return openFileResult{
-		Success:  true,
 		Status:   "opened",
-		Message:  "opened",
 		FilePath: file.Path.DisplayPath,
 		Bytes:    len(file.Content),
 	}, nil
@@ -650,12 +652,14 @@ func minInt(left, right int) int {
 	return right
 }
 
-// ToPlainText 将 open_file 结果渲染成简短文本，供纯文本客户端展示。
+// ToPlainText 将 open_file 成功结果渲染为严格行协议。
 func (r openFileResult) ToPlainText() string {
-	if r.Success {
-		return fmt.Sprintf("Successfully opened file: %s (%d bytes).", r.FilePath, r.Bytes)
-	}
-	return fmt.Sprintf("Failed to open file: %s. Message: %s", r.FilePath, r.Message)
+	return lineprotocol.HeaderLine(1, 1, false, "file") + "\n" +
+		lineprotocol.FieldsRecord("ROW",
+			lineprotocol.Field{Key: "file", Value: r.FilePath},
+			lineprotocol.Field{Key: "bytes", Value: strconv.Itoa(r.Bytes)},
+			lineprotocol.Field{Key: "status", Value: r.Status},
+		)
 }
 
 // ToPlainText 将批量读取结果扁平为严格行协议。

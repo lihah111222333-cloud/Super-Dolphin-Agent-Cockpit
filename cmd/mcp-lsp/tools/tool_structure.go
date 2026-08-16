@@ -19,15 +19,15 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
-// structureParams 是 structure 工具的入参，支持 file_path 和 language 写法。
+// structureParams 是 structure 工具的入参，支持 file_path 和 workspace_language 定位方式。
 type structureParams struct {
-	Action     string `json:"action"`
-	FilePath   string `json:"file_path"`
-	LanguageID string `json:"language_id,omitempty"`
-	Query      string `json:"query"`
-	Language   string `json:"language"`
-	MatchMode  string `json:"match_mode,omitempty"`
-	MaxResults int    `json:"max_results"`
+	Action            string `json:"action"`
+	FilePath          string `json:"file_path"`
+	LanguageID        string `json:"language_id,omitempty"`
+	Query             string `json:"query"`
+	WorkspaceLanguage string `json:"workspace_language,omitempty"`
+	MatchMode         string `json:"match_mode,omitempty"`
+	MaxResults        int    `json:"max_results"`
 }
 
 const (
@@ -147,9 +147,12 @@ func appendStructureHint(lines []string, hint string) string {
 
 // NewStructureHandler 创建 structure 工具处理器，按 action 延迟选择文件或语言级 manager。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("structure", middleware.TierSlow, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+	return newManagerToolWithDecodeError("structure", middleware.TierSlow, registry, decodeStrict, invalidStructureParams, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+		if err := validateStructureLanguageParameters(req); err != nil {
+			return nil, err
+		}
 		// Resolve the manager lazily per action: workspace_symbol can use
-		// the "language" parameter instead of "file_path", so we must not
+		// the "workspace_language" parameter instead of "file_path", so we must not
 		// call GetManagerForFile unconditionally.
 		resolveManager := func() (lspmanager.Manager, error) {
 			return managerForFile(ctx, registry, req.FilePath, req.LanguageID)
@@ -159,7 +162,7 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 				return runDocumentSymbolAction(ctx, req, resolveManager)
 			},
 			"workspace_symbol": func(ctx context.Context, req structureParams) (any, error) {
-				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, req.Language, req.LanguageID)
+				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, req.WorkspaceLanguage, req.LanguageID)
 				if err != nil {
 					return nil, err
 				}
@@ -200,6 +203,20 @@ func runDocumentSymbolAction(ctx context.Context, req structureParams, resolve f
 	return result, err
 }
 
+// validateStructureLanguageParameters 强制 workspace_language、file_path 与 language_id 的 action 边界。
+func validateStructureLanguageParameters(req structureParams) error {
+	workspaceLanguage := normalizeWorkspaceLanguage(req.WorkspaceLanguage)
+	filePath := strings.TrimSpace(req.FilePath)
+	languageID := normalizeWorkspaceLanguage(req.LanguageID)
+	if languageID != "" && filePath == "" {
+		return invalidStructureParams(errors.New("language_id is only valid with file_path; remove language_id"))
+	}
+	if req.Action != "workspace_symbol" && workspaceLanguage != "" {
+		return invalidStructureParams(errors.New("workspace_language is only valid for workspace_symbol"))
+	}
+	return nil
+}
+
 // firstNonEmpty 返回第一个非空字符串。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
@@ -210,38 +227,38 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// resolveWorkspaceSymbolManager 根据 language 或 file_path 选择 workspace_symbol 的 manager。
+// resolveWorkspaceSymbolManager 根据 workspace_language 或 file_path 选择 workspace_symbol 的 manager。
 // 两个定位方式必须二选一，避免目录路径被误当成源码文件启动语言服务。
-func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language, languageID string) (lspmanager.Manager, string, error) {
-	language = normalizeWorkspaceSymbolLanguage(language)
-	languageID = normalizeWorkspaceSymbolLanguage(languageID)
+func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, workspaceLanguage, languageID string) (lspmanager.Manager, string, error) {
+	workspaceLanguage = normalizeWorkspaceLanguage(workspaceLanguage)
+	languageID = normalizeWorkspaceLanguage(languageID)
 	filePath = strings.TrimSpace(filePath)
-	if (filePath == "") == (language == "") {
-		return nil, "", workspaceSymbolParamsError("exactly one of file_path or language is required")
+	if (filePath == "") == (workspaceLanguage == "") {
+		return nil, "", invalidStructureParams(errors.New("exactly one of file_path or workspace_language is required"))
 	}
-	if language != "" {
-		return resolveWorkspaceLanguageManager(ctx, registry, language, languageID)
+	if workspaceLanguage != "" && languageID != "" {
+		return nil, "", invalidStructureParams(errors.New("language_id is only valid with file_path; remove language_id"))
+	}
+	if workspaceLanguage != "" {
+		return resolveWorkspaceLanguageManager(ctx, registry, workspaceLanguage)
 	}
 	return resolveWorkspaceFileManager(ctx, registry, filePath, languageID)
 }
 
-func resolveWorkspaceLanguageManager(ctx context.Context, registry lspmanager.Registry, language, languageID string) (lspmanager.Manager, string, error) {
-	if languageID != "" {
-		return nil, "", workspaceSymbolParamsError("language_id is only valid with file_path; remove language_id")
+func resolveWorkspaceLanguageManager(ctx context.Context, registry lspmanager.Registry, workspaceLanguage string) (lspmanager.Manager, string, error) {
+	if workspaceLanguage == sqliteSQLLanguageID {
+		return nil, "", invalidStructureParams(errors.New("SQL workspace_symbol requires file_path so the SQLite sqlc owner can be validated"))
 	}
-	if language == sqliteSQLLanguageID {
-		return nil, "", workspaceSymbolParamsError("SQL workspace_symbol requires file_path so the SQLite sqlc owner can be validated")
+	if limitedDocumentFallbackLanguage(workspaceLanguage) != "" {
+		return nil, workspaceLanguage, nil
 	}
-	if limitedDocumentFallbackLanguage(language) != "" {
-		return nil, language, nil
-	}
-	manager, err := registry.GetManagerForLanguage(ctx, language)
-	return manager, language, err
+	manager, err := registry.GetManagerForLanguage(ctx, workspaceLanguage)
+	return manager, workspaceLanguage, err
 }
 
 func resolveWorkspaceFileManager(ctx context.Context, registry lspmanager.Registry, filePath, languageID string) (lspmanager.Manager, string, error) {
 	if err := validateWorkspaceSymbolFilePath(filePath); err != nil {
-		return nil, "", workspaceSymbolParamsError(err.Error())
+		return nil, "", invalidStructureParams(err)
 	}
 	if languageID == "" {
 		languageID = lspmanager.DetectLanguageID(workspaceSymbolPathForValidation(filePath))
@@ -252,16 +269,17 @@ func resolveWorkspaceFileManager(ctx context.Context, registry lspmanager.Regist
 	manager, err := managerForFile(ctx, registry, filePath, languageID)
 	if err != nil {
 		if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
-			return nil, "", errors.New("path must point to a source file with a configured language server; use language for workspace-wide search, and use file/grep for docs or config files")
+			return nil, "", errors.New("path must point to a source file with a configured language server; use workspace_language for workspace-wide search, and use file/grep for docs or config files")
 		}
 		return nil, "", err
 	}
 	return manager, languageID, nil
 }
 
-func workspaceSymbolParamsError(message string) error {
-	return common.NewCodedToolError("invalid_params", errors.New(message), false,
-		"choose-file_path-or-language; use-language_id-only-as-a-file_path-server-override")
+// invalidStructureParams 将 structure 入参错误映射为稳定的不可重试错误。
+func invalidStructureParams(err error) error {
+	return common.NewCodedToolError("invalid_params", err, false,
+		"choose-file_path-or-workspace_language; use-language_id-only-as-a-file_path-server-override")
 }
 
 // runDocumentSymbols 读取单文件符号树，并按 max_results 递归裁剪。
@@ -335,7 +353,7 @@ func runWorkspaceSymbols(
 	items = limitSlice(items, limit)
 	response := workspaceSymbolListResponse{
 		Data: items, Total: total, Showing: len(items), Truncated: len(items) < total,
-		Hint: "next: increase max_results or narrow query/language/file_path",
+		Hint: "next: increase max_results or narrow query/workspace_language/file_path",
 	}
 	if matchMode == workspaceSymbolMatchExact {
 		response.Hint = "next: retry with match_mode=fuzzy to include non-exact symbol names"
@@ -457,13 +475,13 @@ func semanticTokensProtocolError(err error) error {
 func validateWorkspaceSymbolFilePath(filePath string) error {
 	filePath = strings.TrimSpace(filePath)
 	if stat, err := os.Stat(workspaceSymbolPathForValidation(filePath)); err == nil && stat.IsDir() {
-		return errors.New("directory path is not supported for workspace_symbol; use language instead")
+		return errors.New("directory path is not supported for workspace_symbol; use workspace_language instead")
 	}
 	return nil
 }
 
-// normalizeWorkspaceSymbolLanguage 标准化 language 参数。
-func normalizeWorkspaceSymbolLanguage(raw string) string {
+// normalizeWorkspaceLanguage 标准化 workspace_language 或 language_id 参数。
+func normalizeWorkspaceLanguage(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
 }
 

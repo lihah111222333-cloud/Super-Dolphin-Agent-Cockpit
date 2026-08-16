@@ -43,7 +43,7 @@
 ### A：AST 搜索 → 精确读取
 
 ```text
-1. grep(ast_search, query="func ($R) MethodName(", language="go")
+1. grep(ast_search, query="func ($R) MethodName(", ast_language="go")
 2. 用返回的 func_start/func_end → file(read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>) 精准读取
 ```
 

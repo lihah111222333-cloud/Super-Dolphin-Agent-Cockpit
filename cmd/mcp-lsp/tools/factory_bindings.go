@@ -33,7 +33,19 @@ func newManagerTool[T any](
 	mode decodeMode,
 	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
 ) ToolHandler {
-	return newManagerToolWithTimeoutResolver(name, tier, nil, registry, mode, dispatch)
+	return newManagerToolWithDecodeError(name, tier, registry, mode, nil, dispatch)
+}
+
+// newManagerToolWithDecodeError 允许工具把严格解码错误映射为自己的稳定参数错误契约。
+func newManagerToolWithDecodeError[T any](
+	name string,
+	tier time.Duration,
+	registry lspmanager.Registry,
+	mode decodeMode,
+	mapDecodeError func(error) error,
+	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
+) ToolHandler {
+	return newManagerToolWithTimeoutResolver(name, tier, nil, registry, mode, mapDecodeError, dispatch)
 }
 
 // newManagerToolWithoutOuterTimeout 创建不共享工具级总 deadline 的 manager 工具。
@@ -47,7 +59,7 @@ func newManagerToolWithoutOuterTimeout[T any](
 ) ToolHandler {
 	return newManagerToolWithTimeoutResolver(name, tier, func(json.RawMessage) time.Duration {
 		return toolTimeoutDisabled
-	}, registry, mode, dispatch)
+	}, registry, mode, nil, dispatch)
 }
 
 // newManagerToolWithTimeoutResolver 统一组装 manager 工具，并允许动作级选择工具层 deadline。
@@ -57,6 +69,7 @@ func newManagerToolWithTimeoutResolver[T any](
 	timeoutTier func(json.RawMessage) time.Duration,
 	registry lspmanager.Registry,
 	mode decodeMode,
+	mapDecodeError func(error) error,
 	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
 ) ToolHandler {
 	if registry == nil {
@@ -65,6 +78,9 @@ func newManagerToolWithTimeoutResolver[T any](
 	return wrapToolHandlerWithTimeoutResolver(name, tier, timeoutTier, func(ctx context.Context, params json.RawMessage) (any, error) {
 		req, err := decodeToolParams[T](params, mode)
 		if err != nil {
+			if mapDecodeError != nil {
+				err = mapDecodeError(err)
+			}
 			return nil, err
 		}
 		return dispatch(ctx, registry, req)

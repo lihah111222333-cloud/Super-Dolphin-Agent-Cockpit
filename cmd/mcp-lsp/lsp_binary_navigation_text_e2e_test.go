@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 const fakeGoplsManyDocumentSymbolsEnv = "MCP_LSP_FAKE_GOPLS_MANY_DOCUMENT_SYMBOLS"
@@ -174,9 +176,9 @@ func TestMcpLSPBinaryWorkspaceSymbolWalkLimitSuggestsFileScope_E2E(t *testing.T)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
 	result := client.callTool(t, "structure", map[string]any{
-		"action":   "workspace_symbol",
-		"language": "go",
-		"query":    "Needle",
+		"action":             "workspace_symbol",
+		"workspace_language": "go",
+		"query":              "Needle",
 	})
 	if !result.Result.IsError {
 		t.Fatalf("workspace symbol walk limit = success, want structured error; text=%q structured=%s",
@@ -193,7 +195,7 @@ func TestMcpLSPBinaryWorkspaceSymbolWalkLimitSuggestsFileScope_E2E(t *testing.T)
 	}
 }
 
-// TestMcpLSPBinaryWorkspaceSymbolScopesRanksAndBoundsPayload_E2E 锁定文件范围、显式模糊扩展和双通道预算。
+// TestMcpLSPBinaryWorkspaceSymbolScopesRanksAndBoundsPayload_E2E 锁定文件范围、显式模糊扩展和行协议预算。
 func TestMcpLSPBinaryWorkspaceSymbolScopesRanksAndBoundsPayload_E2E(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/symbolscope\n\ngo 1.26\n"), 0o600); err != nil {
@@ -256,7 +258,7 @@ func writeWorkspaceSymbolScopeFixtures(t *testing.T, root string) (string, strin
 
 func assertExactWorkspaceSymbolScope(t *testing.T, result mcpLSPBinaryResponse, target string) {
 	t.Helper()
-	rows := decodeWorkspaceSymbolRows(t, result.Result.StructuredContent)
+	rows := decodeWorkspaceSymbolRows(t, result.Result.ContentText())
 	if len(rows) != 1 || rows[0].Name != "Needle" || rows[0].File != target {
 		t.Fatalf("exact file-scoped rows = %#v, want only Needle in %s; text=%q", rows, target, result.Result.ContentText())
 	}
@@ -267,7 +269,7 @@ func assertExactWorkspaceSymbolScope(t *testing.T, result mcpLSPBinaryResponse, 
 
 func assertFuzzyWorkspaceSymbolScopeAndPayload(t *testing.T, result mcpLSPBinaryResponse, target string) {
 	t.Helper()
-	rows := decodeWorkspaceSymbolRows(t, result.Result.StructuredContent)
+	rows := decodeWorkspaceSymbolRows(t, result.Result.ContentText())
 	if len(rows) != 10 || rows[0].Name != "Needle" {
 		t.Fatalf("fuzzy rows = %#v, want 10 target rows with exact match first", rows)
 	}
@@ -276,21 +278,31 @@ func assertFuzzyWorkspaceSymbolScopeAndPayload(t *testing.T, result mcpLSPBinary
 			t.Fatalf("fuzzy file scope leaked %s, want %s; rows=%#v", row.File, target, rows)
 		}
 	}
-	if strings.Contains(result.Result.ContentText(), "Needle09") || !strings.Contains(string(result.Result.StructuredContent), "Needle09") {
-		t.Fatalf("workspace symbol channels do not use bounded text preview; text=%q structured=%s",
-			result.Result.ContentText(), result.Result.StructuredContent)
+	if !strings.Contains(result.Result.ContentText(), "Needle09") {
+		t.Fatalf("workspace symbol line protocol lost the final bounded row: text=%q", result.Result.ContentText())
 	}
 }
 
-func decodeWorkspaceSymbolRows(t *testing.T, raw json.RawMessage) []workspaceSymbolE2ERow {
+func decodeWorkspaceSymbolRows(t *testing.T, text string) []workspaceSymbolE2ERow {
 	t.Helper()
-	var payload struct {
-		Data []workspaceSymbolE2ERow `json:"data"`
+	doc, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("decode workspace symbol line protocol: %v; text=%q", err, text)
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("decode workspace symbol rows: %v; raw=%s", err, raw)
+	if doc.Error != nil || doc.Header.Unit != "symbol" {
+		t.Fatalf("workspace symbol line protocol header = %#v error=%#v, want OK unit=symbol", doc.Header, doc.Error)
 	}
-	return payload.Data
+	rows := make([]workspaceSymbolE2ERow, 0, doc.Header.Showing)
+	for _, record := range doc.Records {
+		if record.Kind != "ROW" {
+			continue
+		}
+		rows = append(rows, workspaceSymbolE2ERow{
+			Name: record.Fields["name"],
+			File: record.Fields["file"],
+		})
+	}
+	return rows
 }
 
 func fakeGoplsDocumentSymbols() []map[string]any {

@@ -22,7 +22,7 @@ func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 		},
 		"structure": {
 			`{"action":"document_symbol","file_path":"internal/foo.go"}`,
-			`{"action":"workspace_symbol","query":"Handler","language":"go"}`,
+			`{"action":"workspace_symbol","query":"Handler","workspace_language":"go"}`,
 		},
 		"patch_edit": {
 			`{"action":"format","file_path":"internal/foo.go"}`,
@@ -139,10 +139,10 @@ func TestLSPStructureSchemaExposesWorkspaceSymbolCallShape(t *testing.T) {
 		t.Fatalf("structure schema properties type = %T", newLSPStructureSchema()["properties"])
 	}
 	for name, must := range map[string]string{
-		"file_path":  "For workspace_symbol, pass exactly one of file_path or language",
-		"query":      "Required for workspace_symbol",
-		"language":   "Pass exactly one of language or file_path",
-		"match_mode": "exact is the default",
+		"file_path":          "For workspace_symbol, pass exactly one of file_path or workspace_language",
+		"query":              "Required for workspace_symbol",
+		"workspace_language": "Pass exactly one of workspace_language or file_path",
+		"match_mode":         "exact is the default",
 	} {
 		prop, ok := props[name].(map[string]any)
 		if !ok {
@@ -162,7 +162,7 @@ func TestLSPToolManifestDescriptionsExposeActionVariantsWithoutMisleadingShortcu
 	}
 	for _, must := range []string{
 		`{"action":"document_symbol","file_path":"internal/foo.go"}`,
-		`{"action":"workspace_symbol","query":"Handler","language":"go"}`,
+		`{"action":"workspace_symbol","query":"Handler","workspace_language":"go"}`,
 	} {
 		if !strings.Contains(descriptions["structure"], must) {
 			t.Fatalf("structure description = %q, want action variant %q", descriptions["structure"], must)

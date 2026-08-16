@@ -70,6 +70,9 @@ type sgStreamMatch struct {
 
 var errSearchResultsLimitReached = errors.New("search results limit reached")
 
+// ErrInvalidASTLanguage 标识 ast_search 显式语言值或明确 glob 语言冲突。
+var ErrInvalidASTLanguage = errors.New("invalid ast_language")
+
 const maxGlobBracePatterns = 64
 
 func maxResultsReached(count, maxResults int) bool { return maxResults > 0 && count >= maxResults }
@@ -809,14 +812,23 @@ func isSGNoMatchExitCodeOneWithoutStderrBytes(err error, stderrBytes []byte) boo
 	return len(bytes.TrimSpace(stderrBytes)) == 0
 }
 
+// normalizeASTLanguage 优先校验显式 AST alias，仅在未显式提供时才从目标或 glob 推断。
 func normalizeASTLanguage(raw, target string, isDir bool, glob string) (string, error) {
-	if normalized := normalizeLanguageAlias(raw); normalized != "" {
+	explicit := strings.TrimSpace(raw)
+	if explicit != "" {
+		normalized := normalizeLanguageAlias(explicit)
+		if normalized == "" {
+			return "", fmt.Errorf("%w: unsupported ast_language %q", ErrInvalidASTLanguage, explicit)
+		}
+		if inferred := inferLanguage(glob); inferred != "" && inferred != normalized {
+			return "", fmt.Errorf("%w: ast_language %q conflicts with glob language %q", ErrInvalidASTLanguage, normalized, inferred)
+		}
 		return normalized, nil
 	}
 	if inferred := inferASTLanguage(target, isDir, glob); inferred != "" {
 		return inferred, nil
 	}
-	return "", errors.New("language is required for ast_search")
+	return "", fmt.Errorf("%w: ast_language is required for ast_search", ErrInvalidASTLanguage)
 }
 
 func astGrepLanguageID(language string) string {

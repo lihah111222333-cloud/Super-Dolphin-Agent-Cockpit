@@ -64,17 +64,17 @@ func warmWorkspaceSymbolDocument(t *testing.T, client *mcpLSPBinaryClient, targe
 
 func workspaceSymbolRequest(languageID, query string) map[string]any {
 	return map[string]any{
-		"action":      "workspace_symbol",
-		"language":    languageID,
-		"query":       query,
-		"max_results": 10,
+		"action":             "workspace_symbol",
+		"workspace_language": languageID,
+		"query":              query,
+		"max_results":        10,
 	}
 }
 
 func assertWorkspaceSymbolExternalDiskRefresh(t *testing.T, languageID, target, fresh string, response mcpLSPBinaryResponse) {
 	t.Helper()
 	if languageOnlyWorkspaceSymbolUnsupported(languageID) {
-		assertLanguageOnlyWorkspaceSymbolFailFast(t, languageID, response)
+		assertWorkspaceLanguageOnlySymbolFailFast(t, languageID, response)
 		return
 	}
 	if response.Result.IsError {
@@ -137,18 +137,18 @@ func languageOnlyWorkspaceSymbolUnsupported(languageID string) bool {
 	}
 }
 
-func assertLanguageOnlyWorkspaceSymbolFailFast(t *testing.T, languageID string, response mcpLSPBinaryResponse) {
+func assertWorkspaceLanguageOnlySymbolFailFast(t *testing.T, languageID string, response mcpLSPBinaryResponse) {
 	t.Helper()
 	if languageID == "sql" {
 		if !response.Result.IsError || !strings.Contains(response.Result.ContentText(), "requires file_path") {
-			t.Fatalf("sql language-only workspace_symbol = error=%v text=%q, want file_path requirement", response.Result.IsError, response.Result.ContentText())
+			t.Fatalf("sql workspace_language-only workspace_symbol = error=%v text=%q, want file_path requirement", response.Result.IsError, response.Result.ContentText())
 		}
 		return
 	}
 	if response.Result.IsError {
-		t.Fatalf("%s language-only workspace_symbol returned MCP error: %q", languageID, response.Result.ContentText())
+		t.Fatalf("%s workspace_language-only workspace_symbol returned MCP error: %q", languageID, response.Result.ContentText())
 	}
 	if !strings.Contains(response.Result.ContentText(), "not available for "+languageID) {
-		t.Fatalf("%s language-only workspace_symbol = %q, want explicit unsupported message", languageID, response.Result.ContentText())
+		t.Fatalf("%s workspace_language-only workspace_symbol = %q, want explicit unsupported message", languageID, response.Result.ContentText())
 	}
 }

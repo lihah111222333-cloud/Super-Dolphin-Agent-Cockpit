@@ -25,7 +25,7 @@
 - `pos` 使用 `file:line:column`；`line/column` 都是 1-based。
 - `file(read_file, pos=<file>:<line>)` 默认读函数窗口；固定行窗口加 `scope=lines`。
 - 拿到 `func_start/func_end` 后直接读：`file(action=read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)`。
-- `structure(workspace_symbol)` 必须带 `query`；`language` 与 `file_path` 二选一。
+- `structure(workspace_symbol)` 必须带 `query`；`workspace_language` 与 `file_path` 二选一，`language_id` 只可作为 `file_path` 的语言服务器覆盖。
 - 所有 LSP 工具都支持 `work_dir`，但必须在可信 workspace roots 内。
 - `max_results` 只裁剪返回结果；超时要收窄路径、查询或语言。
 

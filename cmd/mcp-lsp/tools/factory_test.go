@@ -143,9 +143,9 @@ func TestSemanticInspectAndStructureAutoInstallMissingBinary(t *testing.T) {
 
 	t.Run("structure", func(t *testing.T) {
 		payload := mustMarshalToolPayload(t, map[string]any{
-			"action":   "workspace_symbol",
-			"language": "typescript",
-			"query":    "anything",
+			"action":             "workspace_symbol",
+			"workspace_language": "typescript",
+			"query":              "anything",
 		})
 		_, err := NewStructureHandler(registry)(testToolContext(root), payload)
 		if err != nil {

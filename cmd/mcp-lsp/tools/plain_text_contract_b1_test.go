@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 // TestMcpLSPToolPlainTextContractB1 锁定基础工具的精确计数、选择器、错误和可逆行协议。
@@ -35,7 +35,7 @@ func testToolErrorEnvelopeLineProtocol(t *testing.T) {
 	if !handled {
 		t.Fatal("FormatToPlainText(ToolErrorEnvelope) handled = false")
 	}
-	want := "ERROR code=invalid_params retryable=0\nMESSAGE\tinvalid+regex\nHINT\tset+regex%3Dfalse"
+	want := "ERROR code=invalid_params retryable=0\nMESSAGE\tinvalid regex\nHINT\tset regex=false"
 	if text != want {
 		t.Fatalf("error envelope text = %q, want %q", text, want)
 	}
@@ -127,7 +127,7 @@ func testWorkspaceLanguageConflict(t *testing.T) {
 	registry := &structureTestRegistry{languageManager: &structureTestManager{}}
 	handler := NewStructureHandler(registry)
 	_, err := callPlainTextContractHandler(t, handler, root, structureParams{
-		Action: "workspace_symbol", Language: "python", LanguageID: "go", Query: "Needle",
+		Action: "workspace_symbol", WorkspaceLanguage: "python", LanguageID: "go", Query: "Needle",
 	})
 	assertCodedToolError(t, err, "invalid_params", false)
 }
@@ -279,21 +279,12 @@ func firstProtocolRow(t *testing.T, text string) string {
 
 func decodeProtocolRowForTest(t *testing.T, row string) map[string]string {
 	t.Helper()
-	parts := strings.Split(row, "\t")
-	if len(parts) < 2 || parts[0] != "ROW" {
-		t.Fatalf("invalid ROW record: %q", row)
+	doc, err := lineprotocol.Parse("OK total=1 showing=1 truncated=0 unit=test\n" + row)
+	if err != nil {
+		t.Fatalf("decode ROW record: %v; row=%q", err, row)
 	}
-	fields := make(map[string]string, len(parts)-1)
-	for _, part := range parts[1:] {
-		key, raw, ok := strings.Cut(part, "=")
-		if !ok || key == "" {
-			t.Fatalf("invalid ROW field %q", part)
-		}
-		value, err := url.QueryUnescape(raw)
-		if err != nil {
-			t.Fatalf("decode ROW field %s: %v", key, err)
-		}
-		fields[key] = value
+	if len(doc.Records) != 1 || doc.Records[0].Kind != "ROW" {
+		t.Fatalf("decoded ROW records = %#v, want one ROW", doc.Records)
 	}
-	return fields
+	return doc.Records[0].Fields
 }

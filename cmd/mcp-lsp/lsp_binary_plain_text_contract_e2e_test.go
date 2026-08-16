@@ -367,7 +367,7 @@ func assertBinaryToolConditionalSchemas(t *testing.T, listed []binaryListedTool)
 		"inspect":    {"action": "definition"},
 		"xref":       {"action": "call_hierarchy", "pos": "a.go:1:1", "direction": "supertypes"},
 		"grep":       {"action": "text_search", "paths": []any{"internal"}},
-		"structure":  {"action": "workspace_symbol", "query": "Handler", "file_path": "a.go", "language": "go"},
+		"structure":  {"action": "workspace_symbol", "query": "Handler", "file_path": "a.go", "workspace_language": "go"},
 		"patch_edit": {"action": "format"},
 		"completion": {},
 	}

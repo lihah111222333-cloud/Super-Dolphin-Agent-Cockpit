@@ -30,7 +30,7 @@ type grepToolInput struct {
 	Query         string   `json:"query,omitempty"`
 	Paths         []string `json:"paths,omitempty"`
 	Glob          string   `json:"glob,omitempty"`
-	Language      string   `json:"language,omitempty"`
+	ASTLanguage   string   `json:"ast_language,omitempty"`
 	Regex         bool     `json:"regex,omitempty"`
 	CaseSensitive *bool    `json:"case_sensitive,omitempty"`
 	MaxResults    int      `json:"max_results,omitempty"`
@@ -88,6 +88,9 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	if err := validateGrepPaths(input.Paths); err != nil {
 		return nil, invalidGrepParams(err)
 	}
+	if strings.TrimSpace(input.ASTLanguage) != "" && input.Action != "ast_search" {
+		return nil, invalidGrepParams(errors.New("ast_language is only valid for ast_search"))
+	}
 	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
 	logGrepCallDecoded(input, limit)
 
@@ -109,10 +112,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				Paths:        input.Paths,
 				Glob:         input.Glob,
 				Query:        input.Query,
-				Language:     input.Language,
+				Language:     input.ASTLanguage,
 				MaxResults:   limit,
 				MaxFileBytes: maxReadFileBytes,
 			})
+			if errors.Is(err, search.ErrInvalidASTLanguage) {
+				return nil, invalidGrepASTLanguageParams(err)
+			}
 			return nil, err
 		},
 	}); err != nil {
@@ -143,6 +149,16 @@ func invalidGrepParams(err error) error {
 		err,
 		false,
 		"pass search roots only as paths=[\"dir\"]; a single root is a one-element array",
+	)
+}
+
+// invalidGrepASTLanguageParams 返回 AST alias 值域或明确 glob 冲突的参数错误。
+func invalidGrepASTLanguageParams(err error) error {
+	return common.NewCodedToolError(
+		"invalid_params",
+		err,
+		false,
+		"use a registered ast_language alias and align it with any unambiguous glob",
 	)
 }
 
