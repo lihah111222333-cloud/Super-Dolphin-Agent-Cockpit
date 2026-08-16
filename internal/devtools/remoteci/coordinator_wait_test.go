@@ -15,17 +15,99 @@ import (
 )
 
 type flakyTimingWarningRecorder struct {
-	calls int
+	calls       int
+	singleCalls int
 }
 
 func (recorder *flakyTimingWarningRecorder) RecordLiveRemoteCITimingWarning(
 	warning gate.RemoteCITimingWarning,
 ) (gate.RemoteCITimingWarning, bool, error) {
-	recorder.calls++
-	if recorder.calls == 1 {
-		return gate.RemoteCITimingWarning{}, false, fmt.Errorf("injected SQLite contention: %w", gate.ErrDurationLedgerBusy)
-	}
+	recorder.singleCalls++
 	return warning, true, nil
+}
+
+func (recorder *flakyTimingWarningRecorder) RecordLiveRemoteCITimingWarnings(ctx context.Context, warnings []gate.RemoteCITimingWarning) ([]gate.RemoteCITimingWarning, []bool, error) {
+	recorder.calls++
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if recorder.calls == 1 {
+		return nil, nil, fmt.Errorf("injected SQLite contention: %w", gate.ErrDurationLedgerBusy)
+	}
+	inserted := make([]bool, len(warnings))
+	for index := range inserted {
+		inserted[index] = true
+	}
+	return append([]gate.RemoteCITimingWarning(nil), warnings...), inserted, nil
+}
+
+type singleOnlyTimingWarningRecorder struct {
+	calls int
+}
+
+func (recorder *singleOnlyTimingWarningRecorder) RecordLiveRemoteCITimingWarning(warning gate.RemoteCITimingWarning) (gate.RemoteCITimingWarning, bool, error) {
+	recorder.calls++
+	return warning, true, nil
+}
+
+type contextTimingWarningRecorder struct {
+	singleCalls   int
+	batchCalls    int
+	batchWarnings []gate.RemoteCITimingWarning
+	batchErr      error
+}
+
+func (recorder *contextTimingWarningRecorder) RecordLiveRemoteCITimingWarning(warning gate.RemoteCITimingWarning) (gate.RemoteCITimingWarning, bool, error) {
+	recorder.singleCalls++
+	return warning, true, nil
+}
+
+func (recorder *contextTimingWarningRecorder) RecordLiveRemoteCITimingWarnings(ctx context.Context, warnings []gate.RemoteCITimingWarning) ([]gate.RemoteCITimingWarning, []bool, error) {
+	recorder.batchCalls++
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if recorder.batchErr != nil {
+		return nil, nil, recorder.batchErr
+	}
+	recorder.batchWarnings = append(recorder.batchWarnings[:0], warnings...)
+	inserted := make([]bool, len(warnings))
+	for index := range inserted {
+		inserted[index] = true
+	}
+	return append([]gate.RemoteCITimingWarning(nil), warnings...), inserted, nil
+}
+
+type contextWarningObservationInput struct {
+	coordinator *Coordinator
+	shards      []gate.ContainerShard
+	pending     []pendingRemoteShard
+	groups      map[string]eci.ContainerGroup
+	warningRun  remoteTimingWarningRun
+	warned      map[int]struct{}
+	failures    []error
+}
+
+func newContextWarningObservationInput(t *testing.T, store remoteTimingWarningRecorder) contextWarningObservationInput {
+	t.Helper()
+	now := time.Date(2026, time.August, 3, 1, 0, 0, 0, time.UTC)
+	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	coordinator.now = func() time.Time { return now }
+	shards := []gate.ContainerShard{{IdentityDigest: "shard-b"}, {IdentityDigest: "shard-a"}}
+	pending := []pendingRemoteShard{{index: 1, groupID: "eci-a"}, {index: 0, groupID: "eci-b"}}
+	groups := map[string]eci.ContainerGroup{
+		"eci-a": {ID: "eci-a", Status: "Running", Containers: []eci.ContainerStatus{{Name: "worker", CurrentState: eci.ContainerState{StartTime: now.Add(-cicontract.ShardTargetDuration)}}}},
+		"eci-b": {ID: "eci-b", Status: "Running", Containers: []eci.ContainerStatus{{Name: "worker", CurrentState: eci.ContainerState{StartTime: now.Add(-cicontract.ShardTargetDuration)}}}},
+	}
+	return contextWarningObservationInput{
+		coordinator: coordinator,
+		shards:      shards,
+		pending:     pending,
+		groups:      groups,
+		warningRun:  remoteTimingWarningRun{jobID: "job-context-warning", agentTokenDigest: testRemoteAgentTokenDigest, acceptedGeneration: 1, store: store},
+		warned:      make(map[int]struct{}),
+		failures:    make([]error, len(shards)),
+	}
 }
 
 func TestCoordinatorBatchesPollingCloudCalls(t *testing.T) {
@@ -108,7 +190,7 @@ func TestShardTargetWarningIsNonTerminatingAndEmittedOnce(t *testing.T) {
 	warned := make(map[int]struct{})
 	failures := make([]error, 1)
 
-	warnings := coordinator.observeShardTargetWarnings(shards, pending, groups, warningRun, warned, failures)
+	warnings := coordinator.observeShardTargetWarningsWithContext(context.Background(), shards, pending, groups, warningRun, warned, failures)
 	if len(warnings) != 1 || warnings[0].Action != cicontract.TimingWarningWarnAndContinue ||
 		warnings[0].EvidenceKind != cicontract.TimingWarningEvidenceRunning ||
 		warnings[0].EvidenceStartedAt != now.Add(-cicontract.ShardTargetDuration) ||
@@ -119,8 +201,110 @@ func TestShardTargetWarningIsNonTerminatingAndEmittedOnce(t *testing.T) {
 		t.Fatalf("shard status = %q, want Running after target warning", groups["eci-slow"].Status)
 	}
 	now = now.Add(time.Second)
-	if warnings := coordinator.observeShardTargetWarnings(shards, pending, groups, warningRun, warned, failures); len(warnings) != 0 {
+	if warnings := coordinator.observeShardTargetWarningsWithContext(context.Background(), shards, pending, groups, warningRun, warned, failures); len(warnings) != 0 {
 		t.Fatalf("repeated target warnings = %#v, want exactly one warning", warnings)
+	}
+}
+
+func TestCoordinatorContextWarningBatchContract(t *testing.T) {
+	t.Run("canonical batch once", func(t *testing.T) { assertContextWarningBatchCanonical(t) })
+	t.Run("batch error fails all", func(t *testing.T) { assertContextWarningBatchError(t) })
+	t.Run("unsupported batch fails all", func(t *testing.T) { assertContextWarningBatchUnsupported(t) })
+	t.Run("cancelled context skips store", func(t *testing.T) { assertContextWarningBatchCancelled(t) })
+}
+
+func runContextWarningObservation(t *testing.T, ctx context.Context, store remoteTimingWarningRecorder) (contextWarningObservationInput, []gate.RemoteCITimingWarning) {
+	t.Helper()
+	input := newContextWarningObservationInput(t, store)
+	warnings := input.coordinator.observeShardTargetWarningsWithContext(ctx, input.shards, input.pending, input.groups, input.warningRun, input.warned, input.failures)
+	return input, warnings
+}
+
+func assertContextWarningBatchCanonical(t *testing.T) {
+	t.Helper()
+	recorder := &contextTimingWarningRecorder{}
+	input, warnings := runContextWarningObservation(t, context.Background(), recorder)
+	assertContextWarningStoreCalls(t, recorder, 1)
+	assertContextWarningCanonicalOrder(t, warnings, recorder.batchWarnings)
+	assertContextWarningIndexesWarned(t, input)
+	for index, failure := range input.failures {
+		if failure != nil {
+			t.Fatalf("failure[%d]=%v, want nil", index, failure)
+		}
+	}
+}
+
+func assertContextWarningStoreCalls(t *testing.T, recorder *contextTimingWarningRecorder, wantBatch int) {
+	t.Helper()
+	if recorder.batchCalls != wantBatch || recorder.singleCalls != 0 {
+		t.Fatalf("batch calls=%d single calls=%d, want batch=%d and zero single writes", recorder.batchCalls, recorder.singleCalls, wantBatch)
+	}
+}
+
+func assertContextWarningCanonicalOrder(t *testing.T, warnings, batch []gate.RemoteCITimingWarning) {
+	t.Helper()
+	if len(warnings) != 2 || len(batch) != 2 || warnings[0].ShardIdentity != "shard-a" || warnings[1].ShardIdentity != "shard-b" || batch[0].ShardIdentity != "shard-a" || batch[1].ShardIdentity != "shard-b" {
+		t.Fatalf("returned warnings=%#v batch=%#v, want canonical shard-a/shard-b", warnings, batch)
+	}
+}
+
+func assertContextWarningIndexesWarned(t *testing.T, input contextWarningObservationInput) {
+	t.Helper()
+	for _, index := range []int{0, 1} {
+		if _, ok := input.warned[index]; !ok {
+			t.Fatalf("warned map=%#v, missing shard index %d", input.warned, index)
+		}
+	}
+}
+
+func assertContextWarningBatchError(t *testing.T) {
+	t.Helper()
+	failure := errors.New("injected warning batch failure")
+	recorder := &contextTimingWarningRecorder{batchErr: failure}
+	input, warnings := runContextWarningObservation(t, context.Background(), recorder)
+	if warnings != nil || recorder.batchCalls != 1 || recorder.singleCalls != 0 {
+		t.Fatalf("warnings=%#v batch calls=%d single calls=%d, want fail-fast batch only", warnings, recorder.batchCalls, recorder.singleCalls)
+	}
+	for index, err := range input.failures {
+		if !errors.Is(err, failure) {
+			t.Fatalf("failure[%d]=%v, want batch failure", index, err)
+		}
+	}
+	if len(input.warned) != 0 {
+		t.Fatalf("warned map=%#v, want no successful indexes", input.warned)
+	}
+}
+
+func assertContextWarningBatchUnsupported(t *testing.T) {
+	t.Helper()
+	recorder := &singleOnlyTimingWarningRecorder{}
+	input, warnings := runContextWarningObservation(t, context.Background(), recorder)
+	if warnings != nil || recorder.calls != 0 {
+		t.Fatalf("warnings=%#v single calls=%d, want unsupported batch without single writes", warnings, recorder.calls)
+	}
+	for index, err := range input.failures {
+		if err == nil {
+			t.Fatalf("failure[%d] is nil, want unsupported batch error", index)
+		}
+	}
+	if len(input.warned) != 0 {
+		t.Fatalf("warned map=%#v, want no successful indexes", input.warned)
+	}
+}
+
+func assertContextWarningBatchCancelled(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	recorder := &contextTimingWarningRecorder{}
+	input, warnings := runContextWarningObservation(t, ctx, recorder)
+	if warnings != nil || recorder.batchCalls != 0 || recorder.singleCalls != 0 {
+		t.Fatalf("warnings=%#v batch calls=%d single calls=%d, want cancelled store bypass", warnings, recorder.batchCalls, recorder.singleCalls)
+	}
+	for index, err := range input.failures {
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("failure[%d]=%v, want context.Canceled", index, err)
+		}
 	}
 }
 
@@ -147,8 +331,8 @@ func TestShardTargetWarningUsesProviderTerminalTimeBetweenPolls(t *testing.T) {
 				Containers: []eci.ContainerStatus{{Name: "worker", CurrentState: eci.ContainerState{StartTime: startedAt}}},
 			}}
 			failures := make([]error, 1)
-			warnings := coordinator.observeShardTargetWarnings(
-				shards, pending, groups,
+			warnings := coordinator.observeShardTargetWarningsWithContext(
+				context.Background(), shards, pending, groups,
 				remoteTimingWarningRun{jobID: "job-terminal-" + testCase.name, agentTokenDigest: testRemoteAgentTokenDigest, acceptedGeneration: 1, store: ledgerStore},
 				make(map[int]struct{}), failures,
 			)
@@ -228,17 +412,17 @@ func TestTerminalTimingWarningSQLiteBusyIsRetriedBeforeConvergence(t *testing.T)
 	failures := make([]error, 1)
 	retries := make(map[int]pendingRemoteShard)
 
-	if warnings := coordinator.observeShardTargetWarnings(shards, pending, groups, run, warned, failures); len(warnings) != 0 || !errors.Is(failures[0], gate.ErrDurationLedgerBusy) {
+	if warnings := coordinator.observeShardTargetWarningsWithContext(context.Background(), shards, pending, groups, run, warned, failures); len(warnings) != 0 || !errors.Is(failures[0], gate.ErrDurationLedgerBusy) {
 		t.Fatalf("first terminal persistence warnings=%#v failure=%v", warnings, failures[0])
 	}
 	updateTerminalTimingWarningRetries(pending, groups, failures, retries)
 	if len(retries) != 1 {
 		t.Fatalf("terminal retry queue=%#v, want one busy warning", retries)
 	}
-	warnings := coordinator.observeShardTargetWarnings(shards, mergePendingRemoteShards(nil, retries), groups, run, warned, failures)
+	warnings := coordinator.observeShardTargetWarningsWithContext(context.Background(), shards, mergePendingRemoteShards(nil, retries), groups, run, warned, failures)
 	updateTerminalTimingWarningRetries(pending, groups, failures, retries)
-	if len(warnings) != 1 || failures[0] != nil || len(retries) != 0 || recorder.calls != 2 {
-		t.Fatalf("retried terminal warnings=%#v failure=%v retries=%#v calls=%d", warnings, failures[0], retries, recorder.calls)
+	if len(warnings) != 1 || failures[0] != nil || len(retries) != 0 || recorder.calls != 2 || recorder.singleCalls != 0 {
+		t.Fatalf("retried terminal warnings=%#v failure=%v retries=%#v batch calls=%d single calls=%d", warnings, failures[0], retries, recorder.calls, recorder.singleCalls)
 	}
 }
 

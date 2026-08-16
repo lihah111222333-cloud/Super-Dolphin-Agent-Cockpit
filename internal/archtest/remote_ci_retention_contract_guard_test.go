@@ -217,6 +217,7 @@ func TestRemoteCIRetentionRootWritersProveAcceptedGeneration(t *testing.T) {
 		remoteCIRetentionFunctionKey("", "appendSQLiteDurationSamplesInTransaction"):                        false,
 		remoteCIRetentionFunctionKey("", "writeSQLiteShardOverheadCAS"):                                     false,
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarning"):             false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarnings"):            false,
 	}
 	remoteCIRetentionAssertAcceptedGenerationProofs(t, directory, expectedCallers)
 	for caller, guarded := range expectedCallers {
@@ -488,6 +489,7 @@ func TestRemoteCIRetentionIsTheLastDatabaseOperationInEveryWriter(t *testing.T) 
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "appendSQLiteSamplesOnce"):                     false,
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "compareAndSwapSQLiteShardOverhead"):           false,
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarning"):             false,
+		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarnings"):            false,
 		remoteCIRetentionFunctionKey("", "saveWorkloadInputReplayCacheTransaction"):                         false,
 		remoteCIRetentionFunctionKey("", "finalizeSQLiteRemoteCIRunAuthority"):                              false,
 	}

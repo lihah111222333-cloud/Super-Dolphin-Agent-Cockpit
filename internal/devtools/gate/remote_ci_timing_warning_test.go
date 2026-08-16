@@ -1,7 +1,9 @@
 package gate
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -111,6 +113,225 @@ func TestLiveRemoteCITimingWarningsAreConcurrentAndShardScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRemoteCITimingWarningRowCounts(t, store, record.JobID, 0, 2)
+}
+
+func TestLiveRemoteCITimingWarningBatchCanonicalChunkedIdempotent(t *testing.T) {
+	store := newTimingWarningStore(t, 1)
+	warnings := batchRemoteCITimingWarnings()
+	assertBatchInsertCanonical(t, store, warnings)
+	assertBatchRevisionOnce(t, store)
+	assertBatchMixedRetryAndNewWarning(t, store, warnings[0])
+	assertBatchIdempotent(t, store, warnings)
+	assertBatchEntryCancellation(t, store, warnings[0])
+	assertCancelledBatchTransaction(t, store)
+	assertCancelledBatchCommit(t, store)
+	assertCancelledBusyBackoff(t)
+}
+
+func TestSQLiteWriteTransactionContextRetriesRealBusyLock(t *testing.T) {
+	store := newTimingWarningStore(t, 1)
+	locker, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locker.Close()
+	contender, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer contender.Close()
+	if _, err := contender.Exec(`PRAGMA busy_timeout=1`); err != nil {
+		t.Fatal(err)
+	}
+	var busyTimeout int
+	if err := contender.QueryRow(`PRAGMA busy_timeout`).Scan(&busyTimeout); err != nil || busyTimeout != 1 {
+		t.Fatalf("busy timeout=%d err=%v, want 1ms", busyTimeout, err)
+	}
+	lockTransaction, err := locker.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockTransaction.Rollback()
+	released := releaseSQLiteBusyLockAfterDelay(lockTransaction)
+	err = withSQLiteWriteTransactionContext(context.Background(), contender, "real busy retry", func(transaction *sql.Tx) error {
+		_, writeErr := transaction.Exec(`UPDATE ci_query_meta SET revision = revision WHERE singleton = 1`)
+		return writeErr
+	})
+	assertSQLiteBusyRetrySucceeded(t, err, released)
+}
+
+func releaseSQLiteBusyLockAfterDelay(transaction *sql.Tx) <-chan error {
+	released := make(chan error, 1)
+	time.AfterFunc(40*time.Millisecond, func() { released <- transaction.Rollback() })
+	return released
+}
+
+func assertSQLiteBusyRetrySucceeded(t *testing.T, retryErr error, released <-chan error) {
+	t.Helper()
+	if retryErr != nil {
+		t.Fatalf("busy retry error=%v, want success after lock release", retryErr)
+	}
+	select {
+	case err := <-released:
+		if err != nil {
+			t.Fatalf("release SQLite busy lock: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SQLite busy lock release did not finish")
+	}
+}
+
+func batchRemoteCITimingWarnings() []RemoteCITimingWarning {
+	warnings := make([]RemoteCITimingWarning, 0, remoteCITimingWarningInsertChunkSize+1)
+	for index := 0; index <= remoteCITimingWarningInsertChunkSize; index++ {
+		warnings = append(warnings, validRemoteCITimingWarning("job-batch", fmt.Sprintf("shard-%03d", index), 1))
+	}
+	return warnings
+}
+
+func batchRemoteCITimingWarningInput(warnings []RemoteCITimingWarning) []RemoteCITimingWarning {
+	input := append([]RemoteCITimingWarning{warnings[remoteCITimingWarningInsertChunkSize]}, warnings[:remoteCITimingWarningInsertChunkSize]...)
+	return append(input, warnings[0])
+}
+
+func assertBatchInsertCanonical(t *testing.T, store *DurationLedgerStore, warnings []RemoteCITimingWarning) {
+	t.Helper()
+	stored, inserted, err := store.RecordLiveRemoteCITimingWarnings(context.Background(), batchRemoteCITimingWarningInput(warnings))
+	if err != nil || len(stored) != len(warnings) || len(inserted) != len(warnings) {
+		t.Fatalf("batch stored=%d inserted=%d err=%v, want %d canonical rows", len(stored), len(inserted), err, len(warnings))
+	}
+	for index, value := range inserted {
+		if !value || stored[index].ShardIdentity != fmt.Sprintf("shard-%03d", index) {
+			t.Fatalf("batch[%d] = %#v inserted=%t, want canonical ordering and insert", index, stored[index], value)
+		}
+	}
+	assertRemoteCITimingWarningRowCounts(t, store, "job-batch", len(warnings), 0)
+}
+
+func assertBatchRevisionOnce(t *testing.T, store *DurationLedgerStore) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var revision string
+	if err := database.QueryRow("SELECT revision FROM ci_query_meta WHERE singleton = 1").Scan(&revision); err != nil || revision != "1" {
+		t.Fatalf("query revision=%q err=%v, want one batch advance", revision, err)
+	}
+}
+
+func assertBatchMixedRetryAndNewWarning(t *testing.T, store *DurationLedgerStore, retry RemoteCITimingWarning) {
+	t.Helper()
+	added := validRemoteCITimingWarning(retry.JobID, "shard-new-wave", retry.AcceptedGeneration)
+	added.EvidenceStartedAt = added.EvidenceStartedAt.Add(time.Minute)
+	added.ObservedAt = added.ObservedAt.Add(time.Minute)
+	added.WarningText = CanonicalRemoteCITimingWarningText(added)
+	stored, inserted, err := store.RecordLiveRemoteCITimingWarnings(context.Background(), []RemoteCITimingWarning{added, retry})
+	assertMixedBatchWriteResult(t, stored, inserted, err, retry, added)
+	assertMixedBatchRevision(t, store, added)
+}
+
+func assertMixedBatchWriteResult(t *testing.T, stored []RemoteCITimingWarning, inserted []bool, err error, retry, added RemoteCITimingWarning) {
+	t.Helper()
+	if err != nil || len(stored) != 2 || len(inserted) != 2 {
+		t.Fatalf("mixed batch stored=%d inserted=%d err=%v, want retry plus new warning", len(stored), len(inserted), err)
+	}
+	if inserted[0] || !inserted[1] || !stored[0].ObservedAt.Equal(retry.ObservedAt) || stored[1].ShardIdentity != added.ShardIdentity {
+		t.Fatalf("mixed batch stored=%#v inserted=%#v, want first fact plus one insertion", stored, inserted)
+	}
+}
+
+func assertMixedBatchRevision(t *testing.T, store *DurationLedgerStore, added RemoteCITimingWarning) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var revision string
+	var updatedAtMS int64
+	if err := database.QueryRow("SELECT revision, updated_at_unix_ms FROM ci_query_meta WHERE singleton = 1").Scan(&revision, &updatedAtMS); err != nil {
+		t.Fatal(err)
+	}
+	if revision != "2" || updatedAtMS != added.ObservedAt.UnixMilli() {
+		t.Fatalf("mixed batch revision=%q updated_at=%d, want revision 2 at %d", revision, updatedAtMS, added.ObservedAt.UnixMilli())
+	}
+}
+
+func assertBatchIdempotent(t *testing.T, store *DurationLedgerStore, warnings []RemoteCITimingWarning) {
+	t.Helper()
+	stored, inserted, err := store.RecordLiveRemoteCITimingWarnings(context.Background(), batchRemoteCITimingWarningInput(warnings))
+	if err != nil || len(stored) != len(warnings) {
+		t.Fatalf("idempotent batch stored=%d err=%v", len(stored), err)
+	}
+	for index, value := range inserted {
+		if value {
+			t.Fatalf("idempotent batch inserted[%d]=true", index)
+		}
+	}
+}
+
+func assertBatchEntryCancellation(t *testing.T, store *DurationLedgerStore, warning RemoteCITimingWarning) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := store.RecordLiveRemoteCITimingWarnings(ctx, []RemoteCITimingWarning{warning}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled batch err=%v, want context.Canceled", err)
+	}
+}
+
+func assertCancelledBatchTransaction(t *testing.T, store *DurationLedgerStore) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	warning := validRemoteCITimingWarning("job-batch-cancel", "shard-cancel", 1)
+	query := `INSERT INTO ci_live_timing_warnings (job_id, agent_token_digest, accepted_generation, scope, shard_identity, workload_id, evidence_kind, action, evidence_started_at_unix_ms, observed_at_unix_ms, evidence_duration_ms, target_ms, warning_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	ctx, cancel := context.WithCancel(context.Background())
+	err = withSQLiteWriteTransactionContext(ctx, database, "cancelled batch", func(transaction *sql.Tx) error {
+		cancel()
+		_, execErr := transaction.ExecContext(ctx, query, remoteCITimingWarningSQLArguments(warning)...)
+		if !errors.Is(execErr, context.Canceled) {
+			return fmt.Errorf("cancelled ExecContext error = %v", execErr)
+		}
+		return execErr
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled transaction error = %v", err)
+	}
+	assertRemoteCITimingWarningRowCounts(t, store, warning.JobID, 0, 0)
+}
+
+func assertCancelledBatchCommit(t *testing.T, store *DurationLedgerStore) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	err = withSQLiteWriteTransactionContext(ctx, database, "commit cancellation", func(transaction *sql.Tx) error {
+		if _, execErr := transaction.ExecContext(ctx, `SELECT 1`); execErr != nil {
+			return execErr
+		}
+		cancel()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled commit error = %v", err)
+	}
+}
+
+func assertCancelledBusyBackoff(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := waitSQLiteBusyRetry(ctx, sqliteWriteBusyRetryAttempts); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled busy retry error = %v", err)
+	}
 }
 
 func TestLiveRemoteCITimingWarningSurvivesOtherRootCompactionBeforeFinalizer(t *testing.T) {
@@ -361,6 +582,8 @@ func remoteCITimingWarningRunRecord(warning RemoteCITimingWarning) RemoteCIRunRe
 		AcceptedGeneration: warning.AcceptedGeneration, ImageCacheSnapshotID: fmt.Sprintf("snapshot-%d", warning.AcceptedGeneration),
 		SourceTreeSHA: strings.Repeat("c", 40), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("d", 64),
 		CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("e", 64), RunnerImage: "runner@example",
+		Platform: cicontract.TargetPlatform, RunnerIdentityDigest: "sha256:" + strings.Repeat("f", 64),
+		ToolchainDigest: "sha256:" + strings.Repeat("0", 64), ExecutionMode: DurationExecutionModeNormal,
 		Status: ResultStatusFailed, StartedAt: warning.EvidenceStartedAt, CompletedAt: warning.ObservedAt,
 		Shards: []RemoteCIShardRecord{{
 			ShardIdentity: warning.ShardIdentity, ContainerStatus: "Unknown",

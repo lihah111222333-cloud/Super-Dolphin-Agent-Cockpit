@@ -36,6 +36,18 @@ type remoteTimingWarningRecorder interface {
 	RecordLiveRemoteCITimingWarning(gate.RemoteCITimingWarning) (gate.RemoteCITimingWarning, bool, error)
 }
 
+type remoteTimingWarningCandidateRecorder struct {
+	warning gate.RemoteCITimingWarning
+}
+
+// RecordLiveRemoteCITimingWarning 捕获候选告警，避免候选构建阶段产生写入。
+func (recorder *remoteTimingWarningCandidateRecorder) RecordLiveRemoteCITimingWarning(
+	warning gate.RemoteCITimingWarning,
+) (gate.RemoteCITimingWarning, bool, error) {
+	recorder.warning = warning
+	return warning, true, nil
+}
+
 // waitShards 批量轮询云状态，并只为已经终态的分片并行读取报告。
 func (coordinator *Coordinator) waitShards(
 	ctx context.Context,
@@ -72,8 +84,8 @@ func (coordinator *Coordinator) waitValidatedShards(
 		if err != nil {
 			return results, warnings, err
 		}
-		warnings = append(warnings, coordinator.observeShardTargetWarnings(
-			shards, observedItems, groups, warningRun, warned, warningFailures,
+		warnings = append(warnings, coordinator.observeShardTargetWarningsWithContext(
+			ctx, shards, observedItems, groups, warningRun, warned, warningFailures,
 		)...)
 		pending, err = coordinator.collectObservedRemoteShards(ctx, shards, pending, groups, results, failures, terminalEvidenceRetries, warningRun.agentTokenDigest)
 		if err != nil {
@@ -148,9 +160,9 @@ func updateTerminalTimingWarningRetries(
 	}
 }
 
-// observeShardTargetWarnings 使用 provider worker StartTime 写入 live SQLite 事实。
-// 写入失败不会提前退出轮询、取消、kill 或标记 shard 失败；轮询收敛后会作为独立账本基础设施错误 fail-fast。
-func (coordinator *Coordinator) observeShardTargetWarnings(
+// observeShardTargetWarningsWithContext 批量观察分片目标告警，并坚持 warn_and_continue 语义。
+func (coordinator *Coordinator) observeShardTargetWarningsWithContext(
+	ctx context.Context,
 	shards []gate.ContainerShard,
 	pending []pendingRemoteShard,
 	groups map[string]eci.ContainerGroup,
@@ -158,37 +170,106 @@ func (coordinator *Coordinator) observeShardTargetWarnings(
 	warned map[int]struct{},
 	failures []error,
 ) []gate.RemoteCITimingWarning {
+	if ctx == nil {
+		markRemoteCITimingWarningContextFailure(pending, failures, errors.New("remote CI timing warning context is required"))
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		markRemoteCITimingWarningContextFailure(pending, failures, err)
+		return nil
+	}
 	now := coordinator.now().UTC().Truncate(time.Millisecond)
-	warnings := make([]gate.RemoteCITimingWarning, 0)
+	indexes := make([]int, 0, len(pending))
+	requested := make([]gate.RemoteCITimingWarning, 0, len(pending))
 	for _, item := range pending {
 		if item.index < 0 || item.index >= len(shards) || item.index >= len(failures) {
 			continue
 		}
-		group, ok := groups[item.groupID]
-		if !ok {
+		group, exists := groups[item.groupID]
+		if !exists {
 			failures[item.index] = fmt.Errorf("remote CI shard %q is missing from timing warning observation", item.groupID)
 			continue
 		}
-		_, alreadyWarned := warned[item.index]
-		warning, emitted, clearFailure, err := coordinator.observeShardTargetWarning(
-			shards[item.index], item, group, now, warningRun, alreadyWarned,
-		)
-		if err != nil {
-			failures[item.index] = err
-			continue
-		}
-		if clearFailure {
+		if _, alreadyWarned := warned[item.index]; alreadyWarned {
 			failures[item.index] = nil
 			continue
 		}
-		if !emitted {
-			continue
-		}
-		warned[item.index] = struct{}{}
-		failures[item.index] = nil
-		warnings = append(warnings, warning)
+		coordinator.appendRemoteCITimingWarningCandidate(
+			shards[item.index], item, group, now, warningRun, &indexes, &requested, failures,
+		)
 	}
-	return warnings
+	if len(requested) == 0 {
+		return nil
+	}
+	return coordinator.persistRemoteCITimingWarningBatch(ctx, warningRun, indexes, requested, warned, failures)
+}
+
+func markRemoteCITimingWarningContextFailure(pending []pendingRemoteShard, failures []error, failure error) {
+	for _, item := range pending {
+		if item.index >= 0 && item.index < len(failures) {
+			failures[item.index] = failure
+		}
+	}
+}
+
+// persistRemoteCITimingWarningBatch 一次调用 batch recorder，并在成功后更新轮询状态。
+func (coordinator *Coordinator) persistRemoteCITimingWarningBatch(ctx context.Context, warningRun remoteTimingWarningRun, indexes []int, requested []gate.RemoteCITimingWarning, warned map[int]struct{}, failures []error) []gate.RemoteCITimingWarning {
+	batchRecorder, ok := warningRun.store.(interface {
+		RecordLiveRemoteCITimingWarnings(context.Context, []gate.RemoteCITimingWarning) ([]gate.RemoteCITimingWarning, []bool, error)
+	})
+	if !ok {
+		for _, index := range indexes {
+			failures[index] = errors.New("remote CI timing warning store does not support context-aware batches")
+		}
+		return nil
+	}
+	stored, _, err := batchRecorder.RecordLiveRemoteCITimingWarnings(ctx, requested)
+	if err != nil {
+		for _, index := range indexes {
+			failures[index] = err
+		}
+		return nil
+	}
+	for _, index := range indexes {
+		warned[index] = struct{}{}
+		failures[index] = nil
+	}
+	return stored
+}
+
+// appendRemoteCITimingWarningCandidate 将已验证候选追加到本轮规范化批。
+func (coordinator *Coordinator) appendRemoteCITimingWarningCandidate(shard gate.ContainerShard, item pendingRemoteShard, group eci.ContainerGroup, now time.Time, warningRun remoteTimingWarningRun, indexes *[]int, requested *[]gate.RemoteCITimingWarning, failures []error) {
+	warning, emitted, clearFailure, err := coordinator.observeShardTargetWarningCandidate(shard, item, group, now, warningRun)
+	if err != nil {
+		failures[item.index] = err
+		return
+	}
+	if clearFailure {
+		failures[item.index] = nil
+		return
+	}
+	if emitted {
+		*indexes = append(*indexes, item.index)
+		*requested = append(*requested, warning)
+	}
+}
+
+// observeShardTargetWarningCandidate 只构造告警候选，不触发旧单条写入。
+func (coordinator *Coordinator) observeShardTargetWarningCandidate(
+	shard gate.ContainerShard,
+	item pendingRemoteShard,
+	group eci.ContainerGroup,
+	now time.Time,
+	warningRun remoteTimingWarningRun,
+) (gate.RemoteCITimingWarning, bool, bool, error) {
+	recorder := &remoteTimingWarningCandidateRecorder{}
+	candidateRun := warningRun
+	candidateRun.store = recorder
+	warning, emitted, clearFailure, err := coordinator.observeShardTargetWarning(shard, item, group, now, candidateRun, false)
+	if err != nil || clearFailure || !emitted {
+		return warning, emitted, clearFailure, err
+	}
+	return recorder.warning, true, false, nil
 }
 
 // observeShardTargetWarning 观察单个分片的目标告警，并坚持 warn_and_continue 语义。

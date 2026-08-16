@@ -670,13 +670,15 @@ func verifyDurationLedgerSQLAuthorityBindings(database *sql.DB) error {
 	return nil
 }
 
+const sqliteWriteBusyRetryAttempts = 16
+
 // withSQLiteWriteTransaction 在SQLite繁忙时重试写事务。
 func withSQLiteWriteTransaction(
 	database *sql.DB,
 	operation string,
 	write func(*sql.Tx) error,
 ) error {
-	for attempt := range 16 {
+	for attempt := range sqliteWriteBusyRetryAttempts {
 		transaction, err := database.BeginTx(context.Background(), nil)
 		if err != nil {
 			mapped := mapDurationLedgerSQLiteError("begin "+operation+" transaction", err)
