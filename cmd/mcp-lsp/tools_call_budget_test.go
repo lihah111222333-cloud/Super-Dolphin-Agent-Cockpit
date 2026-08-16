@@ -102,6 +102,7 @@ type directToolsCallResponse struct {
 			Text string `json:"text"`
 		} `json:"content"`
 		StructuredContent json.RawMessage `json:"structuredContent"`
+		IsError           bool            `json:"isError"`
 	} `json:"result"`
 }
 

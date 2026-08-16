@@ -330,6 +330,16 @@ func fakeGoplsCapabilities() map[string]any {
 		"documentSymbolProvider": true,
 		"callHierarchyProvider":  true,
 	}
+	if os.Getenv(fakeGoplsPlainTextContractEnv) == "1" {
+		capabilities["foldingRangeProvider"] = true
+		capabilities["semanticTokensProvider"] = map[string]any{
+			"legend": map[string]any{
+				"tokenTypes":     []string{"namespace", "type", "function", "variable"},
+				"tokenModifiers": []string{"declaration", "readonly"},
+			},
+			"full": true,
+		}
+	}
 	if os.Getenv(fakeGoplsWorkspaceSymbolsEnv) == "1" {
 		capabilities["workspaceSymbolProvider"] = true
 	}
@@ -378,6 +388,9 @@ func fakeGoplsWorkspaceSymbol(name, path string, line int) map[string]any {
 }
 
 func fakeGoplsCallHierarchyCalls(req fakeLSPRequest) []map[string]any {
+	if os.Getenv(fakeGoplsPlainTextContractEnv) == "1" {
+		return fakeGoplsPlainTextHierarchyCalls(req)
+	}
 	var params struct {
 		Item struct {
 			URI string `json:"uri"`

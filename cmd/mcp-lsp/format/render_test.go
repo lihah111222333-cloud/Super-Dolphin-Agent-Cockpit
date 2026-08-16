@@ -6,7 +6,37 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
+
+func TestRenderGroupedLocationsUsesLineProtocol(t *testing.T) {
+	result := protocol.GroupedLocationResult{
+		Data: map[string][]protocol.CompactLocation{
+			"zeta.go":  {{Line: 7, Col: 3, FuncStart: 5, FuncEnd: 9}},
+			"alpha.go": {{Line: 2, Col: 1}},
+		},
+		Total: 4,
+		Hint:  "narrow the symbol scope",
+	}
+	text := RenderGroupedLocations(result)
+	doc, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("parse grouped locations: %v; text=%q", err, text)
+	}
+	wantHeader := lineprotocol.Header{Total: 4, Showing: 2, Truncated: true, Unit: "location"}
+	if doc.Header != wantHeader {
+		t.Fatalf("header = %+v, want %+v", doc.Header, wantHeader)
+	}
+	if len(doc.Records) != 3 || doc.Records[0].Kind != "ROW" || doc.Records[1].Kind != "ROW" || doc.Records[2].Kind != "HINT" {
+		t.Fatalf("records = %#v, want two rows and one hint", doc.Records)
+	}
+	if got := doc.Records[0].Fields["file"]; got != "alpha.go" {
+		t.Fatalf("first row file = %q, want deterministic alpha.go", got)
+	}
+	if got := doc.Records[1].Fields["file"]; got != "zeta.go" {
+		t.Fatalf("second row file = %q, want retained zeta.go", got)
+	}
+}
 
 func TestNormalizeForDisplayRegistryParity(t *testing.T) {
 	location := protocol.Location{URI: "file:///tmp/main.go"}
@@ -123,9 +153,9 @@ func TestNormalizeForDisplayConcurrent(t *testing.T) {
 	const workers = 16
 	const iterations = 200
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for range workers {
 		wg.Go(func() {
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				location := protocol.Location{Range: protocol.Range{Start: protocol.Position{Line: j}}}
 				_ = NormalizeForDisplay(location)
 				_ = NormalizeForDisplay([]protocol.FoldingRange{{StartLine: j}})

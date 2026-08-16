@@ -236,7 +236,7 @@ func runRealPatchEditLanguage(t *testing.T, binary string, tc realPatchEditLangu
 	requireMCPToolSuccess(t, client, warm, tc.languageID+" warm diagnostics")
 	warmPatchEditRenameSymbol(t, client, target, tc)
 	if tc.languageID == "rust" {
-		waitForPatchEditRenameReferences(t, client, target+":"+tc.pos, tc.languageID)
+		waitForPatchEditRenameReferences(t, client, target, tc.pos, tc.languageID)
 	}
 	rename := client.callTool(t, "patch_edit", map[string]any{
 		"action":      "rename",
@@ -259,8 +259,8 @@ func runRealPatchEditLanguage(t *testing.T, binary string, tc realPatchEditLangu
 		"language_id": tc.languageID,
 	})
 	requireMCPToolSuccess(t, client, post, tc.languageID+" post-rename diagnostics")
-	if !strings.Contains(post.Result.ContentText(), "No diagnostics found") {
-		t.Fatalf("%s post-rename diagnostics are not zero: text=%q structured=%s", tc.languageID, post.Result.ContentText(), post.Result.StructuredContent)
+	if err := validateZeroDiagnosticsResult(post); err != nil {
+		t.Fatalf("%s post-rename diagnostics are not zero: %v; text=%q", tc.languageID, err, post.Result.ContentText())
 	}
 }
 
@@ -280,24 +280,47 @@ func warmPatchEditRenameSymbol(t *testing.T, client *mcpLSPBinaryClient, target 
 	requireToolResultContains(t, result, tc.oldName, tc.languageID+" rename symbol readiness")
 }
 
-func waitForPatchEditRenameReferences(t *testing.T, client *mcpLSPBinaryClient, pos string, languageID string) {
+func waitForPatchEditRenameReferences(t *testing.T, client *mcpLSPBinaryClient, target, pos, languageID string) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
+	requestPos := target + ":" + pos
 	for {
 		result := client.callTool(t, "xref", map[string]any{
 			"action":              "references",
-			"pos":                 pos,
+			"pos":                 requestPos,
 			"language_id":         languageID,
 			"include_declaration": true,
 			"max_results":         10,
 		})
-		text := strings.TrimSpace(result.Result.ContentText())
-		if !result.Result.IsError && text != "" && !strings.Contains(strings.ToLower(text), "no locations") {
-			return
+		if !result.Result.IsError {
+			if err := validateMCPToolSuccessResult(result); err != nil {
+				t.Fatalf("%s reference readiness violates content-only contract: %v", languageID, err)
+			}
+			doc, err := lineprotocol.Parse(result.Result.ContentText())
+			if err != nil {
+				t.Fatalf("parse %s reference readiness: %v; text=%q", languageID, err, result.Result.ContentText())
+			}
+			if doc.Header.Total > 0 && doc.Header.Showing > 0 && locationRowsContainTarget(doc, target) {
+				return
+			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("%s rename references did not become ready at %s; text=%q structured=%s", languageID, pos, result.Result.ContentText(), result.Result.StructuredContent)
+			t.Fatalf("%s rename references did not become ready at %s; text=%q", languageID, requestPos, result.Result.ContentText())
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+func locationRowsContainTarget(doc lineprotocol.Document, target string) bool {
+	cleanTarget := filepath.Clean(target)
+	for _, record := range doc.Records {
+		if record.Kind != "ROW" {
+			continue
+		}
+		cleanFile := filepath.Clean(record.Fields["file"])
+		if cleanFile == cleanTarget || !filepath.IsAbs(cleanFile) && strings.HasSuffix(cleanTarget, string(filepath.Separator)+cleanFile) {
+			return true
+		}
+	}
+	return false
 }

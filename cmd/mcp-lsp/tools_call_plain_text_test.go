@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,6 +94,33 @@ func TestDirectToolsCallUsesExplicitPlainTextFormatter(t *testing.T) {
 	}
 	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
 		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
+	}
+}
+
+func TestDirectToolsCallErrorUsesMcpLSPLineProtocol(t *testing.T) {
+	root := canonicalToolTestRoot(t, t.TempDir())
+	request := mustDirectToolCallRequest(t, root, "grep", map[string]any{})
+	defs := []toolDefinition{{
+		Manifest: ToolManifest{Name: "grep"},
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return nil, common.NewCodedToolError(
+				"invalid_params", errors.New("invalid regex"), false,
+				"fix-regex-syntax-or-set-regex=false-for-literal-search",
+			)
+		},
+	}}
+	response := runDirectToolCallForPlainText(t, request, defs)
+	if !response.Result.IsError {
+		t.Fatal("tools/call isError = false, want true")
+	}
+	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
+		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
+	}
+	want := "ERROR code=invalid_params retryable=0\n" +
+		"MESSAGE\tinvalid+regex\n" +
+		"HINT\tfix-regex-syntax-or-set-regex%3Dfalse-for-literal-search"
+	if got := response.Result.Content[0].Text; got != want {
+		t.Fatalf("error content = %q, want %q", got, want)
 	}
 }
 

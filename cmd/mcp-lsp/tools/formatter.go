@@ -52,11 +52,11 @@ func FormatToPlainText(result any) (string, bool) {
 	if result == nil {
 		return "", false
 	}
-	if provider, ok := result.(interface{ ToPlainText() string }); ok {
-		return provider.ToPlainText(), true
-	}
 	if text, ok := formatToolErrorEnvelope(result); ok {
 		return text, true
+	}
+	if provider, ok := result.(interface{ ToPlainText() string }); ok {
+		return provider.ToPlainText(), true
 	}
 	if text, ok := formatBudgetOverflow(result); ok {
 		return text, true

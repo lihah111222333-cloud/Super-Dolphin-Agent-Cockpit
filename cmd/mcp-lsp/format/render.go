@@ -48,40 +48,39 @@ func RenderLineNumberedText(content string, startLine int) string {
 	return builder.String()
 }
 
-// RenderGroupedLocations 将按文件分组的位置结果渲染成纯文本。
-// 函数范围只在结果携带时展示，用于提示下一步精读范围。
+// RenderGroupedLocations 将按文件分组的位置结果渲染成稳定行协议。
+// total 保留限制前计数，showing 由实际输出的 ROW 数决定。
 func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
-	if len(result.Data) == 0 {
-		return ""
-	}
 	files := make([]string, 0, len(result.Data))
+	showing := 0
 	for file := range result.Data {
 		files = append(files, file)
+		showing += len(result.Data[file])
 	}
 	sort.Strings(files)
-	var builder strings.Builder
-	for i := range files {
-		file := files[i]
+	total := max(result.Total, showing)
+	lines := make([]string, 0, showing+2)
+	lines = append(lines, lineprotocol.HeaderLine(total, showing, showing < total, "location"))
+	for _, file := range files {
 		for _, row := range result.Data[file] {
-			builder.WriteString(file)
-			builder.WriteByte(':')
-			builder.WriteString(strconv.Itoa(row.Line))
-			builder.WriteByte(':')
-			builder.WriteString(strconv.Itoa(row.Col))
-			if row.FuncStart > 0 && row.FuncEnd >= row.FuncStart {
-				builder.WriteString(" [func L")
-				builder.WriteString(strconv.Itoa(row.FuncStart))
-				builder.WriteString("-L")
-				builder.WriteString(strconv.Itoa(row.FuncEnd))
-				builder.WriteByte(']')
+			fields := []lineprotocol.Field{
+				{Key: "file", Value: file},
+				{Key: "line", Value: strconv.Itoa(row.Line)},
+				{Key: "col", Value: strconv.Itoa(row.Col)},
 			}
-			builder.WriteByte('\n')
-		}
-		if i+1 < len(files) {
-			builder.WriteByte('\n')
+			if row.FuncStart > 0 && row.FuncEnd >= row.FuncStart {
+				fields = append(fields,
+					lineprotocol.Field{Key: "func_start", Value: strconv.Itoa(row.FuncStart)},
+					lineprotocol.Field{Key: "func_end", Value: strconv.Itoa(row.FuncEnd)},
+				)
+			}
+			lines = append(lines, lineprotocol.FieldsRecord("ROW", fields...))
 		}
 	}
-	return strings.TrimRight(builder.String(), "\n")
+	if hint := strings.TrimSpace(result.Hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // RenderCompactList 渲染已按上限保留的全部列表行。

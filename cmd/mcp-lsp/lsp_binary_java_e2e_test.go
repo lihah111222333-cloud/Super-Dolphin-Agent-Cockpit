@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -345,25 +344,23 @@ public class MainActivity extends Activity {
 
 func requireMCPToolSuccess(t *testing.T, client *mcpLSPBinaryClient, response mcpLSPBinaryResponse, label string) {
 	t.Helper()
-	if response.Result.IsError {
-		t.Fatalf("%s returned MCP error result; structured=%s text=%q stderr=%s",
-			label, response.Result.StructuredContent, response.Result.ContentText(), client.stderrString())
+	if err := validateMCPToolSuccessResult(response); err != nil {
+		t.Fatalf("%s returned invalid content-only result: %v; text=%q stderr=%s",
+			label, err, response.Result.ContentText(), client.stderrString())
 	}
 }
 
 func requireToolTextContains(t *testing.T, response mcpLSPBinaryResponse, want string, label string) {
 	t.Helper()
 	if !strings.Contains(response.Result.ContentText(), want) {
-		t.Fatalf("%s text missing %q; text=%q structured=%s",
-			label, want, response.Result.ContentText(), response.Result.StructuredContent)
+		t.Fatalf("%s text missing %q; text=%q", label, want, response.Result.ContentText())
 	}
 }
 
 func requireToolResultContains(t *testing.T, response mcpLSPBinaryResponse, want string, label string) {
 	t.Helper()
-	if !strings.Contains(response.Result.ContentText(), want) && !strings.Contains(string(response.Result.StructuredContent), want) {
-		t.Fatalf("%s result missing %q; text=%q structured=%s",
-			label, want, response.Result.ContentText(), response.Result.StructuredContent)
+	if !strings.Contains(response.Result.ContentText(), want) {
+		t.Fatalf("%s result missing %q; text=%q", label, want, response.Result.ContentText())
 	}
 }
 

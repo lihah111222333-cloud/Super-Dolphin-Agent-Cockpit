@@ -73,7 +73,7 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 		"language_id": "typescript",
 	})
 	requireMCPToolSuccess(t, client, definition, "real typescript definition")
-	requireGroupedLocationTotal(t, definition.Result.StructuredContent, 1, "real typescript definition")
+	requireGroupedLocationTextTotal(t, definition, 1, "real typescript definition")
 	requireToolResultContains(t, definition, filepath.Base(mathTarget), "real typescript definition")
 
 	references := client.callTool(t, "xref", map[string]any{
@@ -84,7 +84,7 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 		"max_results":         10,
 	})
 	requireMCPToolSuccess(t, client, references, "real typescript references")
-	requireGroupedLocationTotal(t, references.Result.StructuredContent, 2, "real typescript references")
+	requireGroupedLocationTextTotal(t, references, 2, "real typescript references")
 	requireToolResultContains(t, references, filepath.Base(consumerTarget), "real typescript references")
 
 	completion := client.callTool(t, "completion", map[string]any{
@@ -93,9 +93,9 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 		"max_results": 10,
 	})
 	requireMCPToolSuccess(t, client, completion, "real typescript completion")
-	if !stringSliceContains(completionLabelsFromStructuredContent(t, completion.Result.StructuredContent), "inc") {
-		t.Fatalf("real typescript completion missing inc; structured=%s text=%q stderr=%s",
-			completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
+	if !stringSliceContains(completionLabelsFromContent(t, completion), "inc") {
+		t.Fatalf("real typescript completion missing inc; text=%q stderr=%s",
+			completion.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -223,7 +223,7 @@ func TestMcpLSPBinaryJavaScriptReactExportReferences_E2E(t *testing.T) {
 		"max_results":         10,
 	})
 	requireMCPToolSuccess(t, client, references, "real javascript react export references")
-	requireGroupedLocationTotal(t, references.Result.StructuredContent, 4, "real javascript react export references")
+	requireGroupedLocationTextTotal(t, references, 4, "real javascript react export references")
 	requireToolResultContains(t, references, filepath.Base(pageTarget), "real javascript react export references")
 	requireToolResultContains(t, references, filepath.Base(testTarget), "real javascript react export references")
 }
@@ -291,7 +291,7 @@ func runRealFrontendLanguageExportReferencesE2E(t *testing.T, languageID, ext st
 		"max_results":         10,
 	})
 	requireMCPToolSuccess(t, client, references, "real frontend language export references")
-	requireGroupedLocationTotal(t, references.Result.StructuredContent, 4, "real frontend language export references")
+	requireGroupedLocationTextTotal(t, references, 4, "real frontend language export references")
 	requireToolResultContains(t, references, filepath.Base(pageTarget), "real frontend language export references")
 	requireToolResultContains(t, references, filepath.Base(testTarget), "real frontend language export references")
 }

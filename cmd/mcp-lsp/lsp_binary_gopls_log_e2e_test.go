@@ -541,6 +541,8 @@ func fakeGoplsResult(req fakeLSPRequest) any {
 		return map[string]any{"capabilities": fakeGoplsCapabilities()}
 	case "textDocument/documentSymbol":
 		return fakeGoplsDocumentSymbols()
+	case "textDocument/foldingRange", "textDocument/semanticTokens/full":
+		return fakeGoplsPlainTextStructureResult(req.Method)
 	case "workspace/symbol":
 		return fakeGoplsWorkspaceSymbolResults()
 	case "textDocument/hover":
