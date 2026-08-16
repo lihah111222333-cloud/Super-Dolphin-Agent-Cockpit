@@ -16,6 +16,23 @@ func TestLoadAuthoritativeRemoteCIRunWorkloadCoverageRequiresExactFullAuthority(
 	assertRemoteCICalibrationCoverageMissing(t, store, record, "other-snapshot", "snapshot drift")
 }
 
+func TestLoadAuthoritativeRemoteCIRunWorkloadCoverageTreatsLegacyExecutionIdentityAsMissing(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	record, _, receipts := recordWorkloadPassRun(t, store, "calibration-legacy-identity", 1, "calibration-legacy-identity")
+	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	database := openWorkloadPassDatabase(t, store)
+	if _, err := database.Exec(`DELETE FROM ci_remote_run_execution_identities WHERE job_id = ?`, record.JobID); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertRemoteCICalibrationCoverageMissing(t, store, record, record.ImageCacheSnapshotID, "legacy execution identity")
+}
+
 func assertRemoteCICalibrationCoverageFound(t *testing.T, store *DurationLedgerStore, record RemoteCIRunRecord, want WorkloadPassIdentity) {
 	t.Helper()
 	coverage, found, err := store.LoadAuthoritativeRemoteCIRunWorkloadCoverage(record.Entrypoint, record.Profile, record.CatalogDigest, record.SourceTreeSHA, record.ImageCacheSnapshotID)

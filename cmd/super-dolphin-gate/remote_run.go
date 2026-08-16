@@ -211,7 +211,8 @@ func loadRunnableRemoteRunState(options remoteRunOptions) (remoteRunConfig, remo
 	return config, state, nil
 }
 
-// reloadRemotePlanningAfterCalibration 只在普通运行出现 miss 时校准并重载既有计划快照。
+// reloadRemotePlanningAfterCalibration 只在全量普通运行出现 miss 时校准并重载既有计划快照；
+// 显式 selected test 使用独立的非权威 atomic catalog，不依赖全量三场景校准 coverage。
 func reloadRemotePlanningAfterCalibration(
 	options remoteRunOptions,
 	state remoteci.BaselineState,
@@ -219,7 +220,7 @@ func reloadRemotePlanningAfterCalibration(
 	input remoteci.RunInput,
 	prepared *remoteci.PreparedRun,
 ) error {
-	if prepared.AllReused() || input.Calibration {
+	if prepared.AllReused() || input.Calibration || input.SelectedTests {
 		return nil
 	}
 	if err := ensureRemoteDurationCalibration(options, state, runnerIdentity); err != nil {

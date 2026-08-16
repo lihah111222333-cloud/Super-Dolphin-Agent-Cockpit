@@ -68,6 +68,15 @@ func (probe *allHitDependencyProbe) dependencies() remotePreparedRunDependencies
 	}
 }
 
+func TestReloadRemotePlanningSkipsCalibrationForSelectedTests(t *testing.T) {
+	err := reloadRemotePlanningAfterCalibration(
+		remoteRunOptions{}, remoteci.BaselineState{}, "", remoteci.RunInput{SelectedTests: true}, &remoteci.PreparedRun{},
+	)
+	if err != nil {
+		t.Fatalf("selected remote test calibration reload error = %v", err)
+	}
+}
+
 func TestExecutePreparedRemoteRunAllHitSkipsMissDependencies(t *testing.T) {
 	probe := &allHitDependencyProbe{t: t}
 	result, _, err := executePreparedRemoteRun(

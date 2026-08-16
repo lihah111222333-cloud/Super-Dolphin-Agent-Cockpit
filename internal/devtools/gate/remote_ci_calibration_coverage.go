@@ -63,11 +63,12 @@ func validateAuthoritativeRemoteCIRunCoverageRequest(store *DurationLedgerStore,
 
 func loadAuthoritativeRemoteCIRunWorkloadCoverage(tx *sql.Tx, entrypoint CIEntrypointID, profile Profile, catalogDigest, sourceTreeSHA, acceptedSnapshotID string) ([]WorkloadPassIdentity, bool, error) {
 	var jobID string
-	err := tx.QueryRow(`SELECT job_id FROM ci_runs
-		WHERE entrypoint = ? AND profile = ? AND catalog_digest = ? AND source_tree_sha = ?
-			AND image_cache_snapshot_id = ? AND status = ? AND authoritative = 1
-			AND cleanup_complete = 1 AND error_text = ''
-		ORDER BY completed_at_unix_ms DESC, job_id DESC LIMIT 1`,
+	err := tx.QueryRow(`SELECT runs.job_id FROM ci_runs AS runs
+		INNER JOIN ci_remote_run_execution_identities AS execution_identity ON execution_identity.job_id = runs.job_id
+		WHERE runs.entrypoint = ? AND runs.profile = ? AND runs.catalog_digest = ? AND runs.source_tree_sha = ?
+			AND runs.image_cache_snapshot_id = ? AND runs.status = ? AND runs.authoritative = 1
+			AND runs.cleanup_complete = 1 AND runs.error_text = ''
+		ORDER BY runs.completed_at_unix_ms DESC, runs.job_id DESC LIMIT 1`,
 		string(entrypoint), string(profile), catalogDigest, sourceTreeSHA, acceptedSnapshotID, string(ResultStatusPassed),
 	).Scan(&jobID)
 	if errors.Is(err, sql.ErrNoRows) {

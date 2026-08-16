@@ -43,7 +43,7 @@ func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *tes
 		t.Fatalf("miss-only helper calls must follow its early return: ensure=%q refresh=%q reload=%q", ensure.condition, refresh.condition, reload.condition)
 	}
 	requireRemoteRunEarlyReturnGuard(t, bindFunction.Body, "dependencies.allReused()")
-	requireRemoteRunEarlyReturnGuard(t, reloadFunction.Body, "prepared.AllReused() || input.Calibration")
+	requireRemoteRunEarlyReturnGuard(t, reloadFunction.Body, "prepared.AllReused() || input.Calibration || input.SelectedTests")
 }
 
 // assertRemotePreparedCallOrder 验证统一 prepared executor 的无条件终态链。

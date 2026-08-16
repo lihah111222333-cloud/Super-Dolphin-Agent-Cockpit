@@ -669,8 +669,8 @@ internal/devtools/gate/remote_ci_authority_finalize.go	internal	other	go-source	
 internal/devtools/gate/remote_ci_authority_records.go	internal	other	go-source	9961	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,authority,records,开发工具与生成器辅助包
 internal/devtools/gate/remote_ci_authority_store.go	internal	other	go-source	6641	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,authority,store,开发工具与生成器辅助包
 internal/devtools/gate/remote_ci_authority_store_test.go	internal	other	go-test	26954	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,authority,store,test,开发工具与生成器辅助包
-internal/devtools/gate/remote_ci_calibration_coverage.go	internal	other	go-source	8317	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,calibration,coverage,开发工具与生成器辅助包
-internal/devtools/gate/remote_ci_calibration_coverage_test.go	internal	other	go-test	2773	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,calibration,coverage,test,开发工具与生成器辅助包
+internal/devtools/gate/remote_ci_calibration_coverage.go	internal	other	go-source	8498	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,calibration,coverage,开发工具与生成器辅助包
+internal/devtools/gate/remote_ci_calibration_coverage_test.go	internal	other	go-test	3584	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,calibration,coverage,test,开发工具与生成器辅助包
 internal/devtools/gate/remote_ci_check_scope.go	internal	other	go-source	2641	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,check,scope,开发工具与生成器辅助包
 internal/devtools/gate/remote_ci_check_scope_test.go	internal	other	go-test	1608	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,check,scope,test,开发工具与生成器辅助包
 internal/devtools/gate/remote_ci_execution_scope.go	internal	other	go-source	11173	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,execution,scope,开发工具与生成器辅助包
