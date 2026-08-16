@@ -165,7 +165,7 @@ func localGateWorkloadIDs(values []string) ([]gatecontract.GateID, error) {
 	return ids, nil
 }
 
-// runLocalTestInvocation 保持 local PASS first，local failure 不得回退远程。
+// runLocalTestInvocation 先冻结本地非权威证据，local failure 不得回退远程。
 func runLocalTestInvocation(ctx context.Context, args []string, options remoteRunOptions, stdout io.Writer, adapter localTestCLIAdapter) error {
 	if ctx == nil {
 		return errors.New("local test CLI context is required")
@@ -297,12 +297,12 @@ func emitLocalTestAuthorityOutput(stdout io.Writer, target string, prepared gate
 	return nil
 }
 
-// localTestOutputStatus 将失败保留为失败，禁止被已经完成的 local PASS 覆盖。
+// localTestOutputStatus 将成功的本地执行标记为未验证；只有远程回执可形成权威 PASS。
 func localTestOutputStatus(runErr error) string {
 	if runErr != nil {
 		return "FAILED"
 	}
-	return "PASS"
+	return "NOT_VERIFIED"
 }
 
 // localTestOutputOutcome 让全命中结果显式声明为 local hit。

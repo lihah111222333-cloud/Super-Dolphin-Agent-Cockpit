@@ -113,7 +113,7 @@ func TestEmitLocalTestAuthorityOutputReportsHitsAndExecutedEvidence(t *testing.T
 				t.Fatal(err)
 			}
 			output := decodeLocalTestAuthorityOutput(t, stdout.Bytes())
-			if output.Authority != "LOCAL_NON_AUTHORITATIVE" || output.Target != "auto" || output.Status != "PASS" || output.LocalOutcome != test.outcome {
+			if output.Authority != "LOCAL_NON_AUTHORITATIVE" || output.Target != "auto" || output.Status != "NOT_VERIFIED" || output.LocalOutcome != test.outcome {
 				t.Fatalf("local authority output = %#v", output)
 			}
 			if !slices.Equal(output.LocalEvidenceIDs, test.wantIDs) || output.Stats != test.prepared.Stats {
@@ -143,7 +143,7 @@ func TestEmitLocalTestInvocationOutcomeKeepsRemoteResultSeparate(t *testing.T) {
 	if err := decoder.Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if local.Authority != "LOCAL_NON_AUTHORITATIVE" || !slices.Equal(local.LocalEvidenceIDs, []string{"local-only-evidence"}) {
+	if local.Authority != "LOCAL_NON_AUTHORITATIVE" || local.Status != "NOT_VERIFIED" || !slices.Equal(local.LocalEvidenceIDs, []string{"local-only-evidence"}) {
 		t.Fatalf("local output = %#v", local)
 	}
 	if result.JobID != "remote-subset-job" {
@@ -165,7 +165,7 @@ type frozenLocalRemoteFailureCase struct {
 	wantRemoteResult bool
 }
 
-func TestEmitLocalTestInvocationOutcomeKeepsFrozenLocalPassWhenRemoteStageFails(t *testing.T) {
+func TestEmitLocalTestInvocationOutcomeKeepsFrozenLocalNotVerifiedWhenRemoteStageFails(t *testing.T) {
 	prepared := gatecontract.LocalWorkloadScheduleResult{
 		Evidence: []gatecontract.WorkloadPassEvidence{{Identity: gatecontract.WorkloadPassIdentity{WorkloadID: "local-only-evidence"}}},
 		Remote:   []gatecontract.GateID{"remote-workload"},
@@ -189,12 +189,12 @@ func TestEmitLocalTestInvocationOutcomeKeepsFrozenLocalPassWhenRemoteStageFails(
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			assertFrozenLocalPassWithRemoteFailure(t, prepared, test)
+			assertFrozenLocalNotVerifiedWithRemoteFailure(t, prepared, test)
 		})
 	}
 }
 
-func assertFrozenLocalPassWithRemoteFailure(t *testing.T, prepared gatecontract.LocalWorkloadScheduleResult, test frozenLocalRemoteFailureCase) {
+func assertFrozenLocalNotVerifiedWithRemoteFailure(t *testing.T, prepared gatecontract.LocalWorkloadScheduleResult, test frozenLocalRemoteFailureCase) {
 	t.Helper()
 	var stdout bytes.Buffer
 	err := emitLocalTestInvocationOutcome(&stdout, "hybrid", prepared, test.remote, test.remoteErr)
@@ -206,7 +206,7 @@ func assertFrozenLocalPassWithRemoteFailure(t *testing.T, prepared gatecontract.
 	if err := decoder.Decode(&local); err != nil {
 		t.Fatal(err)
 	}
-	if local.Authority != "LOCAL_NON_AUTHORITATIVE" || local.Status != "PASS" || local.Error != "" {
+	if local.Authority != "LOCAL_NON_AUTHORITATIVE" || local.Status != "NOT_VERIFIED" || local.Error != "" {
 		t.Fatalf("frozen local output = %#v", local)
 	}
 	assertRemoteFailureOutput(t, decoder, test)

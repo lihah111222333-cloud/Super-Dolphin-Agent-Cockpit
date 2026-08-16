@@ -162,10 +162,6 @@ resolve_real_go() {
     candidate="$GOROOT/bin/go"
     if [[ -x "$candidate" ]]; then
       candidate_abs="$(real_go_resolver_real_path "$candidate")"
-      if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then
-        printf '%s\n' "$candidate_abs"
-        return 0
-      fi
       if real_go_resolver_probe "$candidate_abs" "$required_version"; then
         printf '%s\n' "$candidate_abs"
         return 0

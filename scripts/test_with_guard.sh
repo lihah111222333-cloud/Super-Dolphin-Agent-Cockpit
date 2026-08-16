@@ -376,7 +376,7 @@ run_host_test() {
     return 2
   fi
   rm -f -- "$output_file"
-  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE PASS class=$load_class"
+  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE NOT_VERIFIED class=$load_class"
 }
 
 collect_copylocks_packages() {

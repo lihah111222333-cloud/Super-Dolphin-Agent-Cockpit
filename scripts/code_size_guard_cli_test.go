@@ -56,6 +56,57 @@ func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
 	}
 }
 
+func TestCallerEnvironmentCannotBypassRawGoOrToolchainProbe(t *testing.T) {
+	assertScriptDoesNotContain(t, readScript(t, "go"), "GO_GUARD_ALLOW_RAW")
+	resolver := readScript(t, "real_go_resolver.sh")
+	assertScriptContains(t, resolver, `real_go_resolver_probe "$candidate_abs" "$required_version"`)
+	assertScriptDoesNotContain(t, resolver, `if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then`)
+
+	goRoot := t.TempDir()
+	fakeGo := filepath.Join(goRoot, "bin", "go")
+	if err := os.MkdirAll(filepath.Dir(fakeGo), 0o755); err != nil {
+		t.Fatalf("create fake GOROOT: %v", err)
+	}
+	if err := os.WriteFile(fakeGo, []byte("#!/usr/bin/env bash\nprintf 'go version go1.26.4 linux/amd64\\n'\n"), 0o700); err != nil {
+		t.Fatalf("write fake GOROOT Go: %v", err)
+	}
+	cmd := exec.Command("bash", "-c", "source scripts/real_go_resolver.sh; resolve_real_go")
+	cmd.Dir = ".."
+	environment := upsertEnv(os.Environ(), "GOROOT", bashAbsolutePath(goRoot))
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "GOROOT", "SUPER_DOLPHIN_TEST_BACKEND")
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "GOROOT 未提供仓库要求的 go1.26.5 工具链") {
+		t.Fatalf("remote-worker caller environment bypassed toolchain probe: err=%v output=%q", err, output)
+	}
+}
+
+func TestRawGoCallerEnvironmentDoesNotBypassWrapper(t *testing.T) {
+	fakeGo := filepath.Join(t.TempDir(), "fake-go")
+	invocations := filepath.Join(t.TempDir(), "go-invocations.log")
+	fakeScript := "#!/usr/bin/env bash\n" +
+		"if [[ \"$1\" == version ]]; then printf 'go version go1.26.5 linux/amd64\\n'; exit 0; fi\n" +
+		"printf '%s\\n' \"$*\" >> \"$FAKE_GO_LOG\"\n"
+	if err := os.WriteFile(fakeGo, []byte(fakeScript), 0o700); err != nil {
+		t.Fatalf("write fake go: %v", err)
+	}
+	cmd := exec.Command("bash", "scripts/go", "test", "./scripts", "-run", "^TestBoundary$")
+	cmd.Dir = ".."
+	environment := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(fakeGo))
+	environment = upsertEnv(environment, "GO_GUARD_ALLOW_RAW", "1")
+	environment = upsertEnv(environment, "FAKE_GO_LOG", bashAbsolutePath(invocations))
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "REAL_GO_BIN", "GO_GUARD_ALLOW_RAW", "FAKE_GO_LOG")
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "super-dolphin-gate test --target=remote") {
+		t.Fatalf("caller raw-Go environment changed authority: err=%v output=%q", err, output)
+	}
+	if data, readErr := os.ReadFile(invocations); readErr == nil && len(data) != 0 {
+		t.Fatalf("caller raw-Go environment reached real go: %s", data)
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("read fake Go invocation log: %v", readErr)
+	}
+}
+
 func TestHostTestModeRunsOneBoundedExactTest(t *testing.T) {
 	t.Setenv("FAKE_GO_TEST_OUTPUT", "ok  example.test/scripts  0.001s")
 	t.Setenv("FAKE_HOST_IDLE", "40.0")
@@ -70,7 +121,7 @@ func TestHostTestModeRunsOneBoundedExactTest(t *testing.T) {
 	if !strings.Contains(result.invocations, "test -p=2 -tags=e2e ./scripts -run ^TestHostBoundary$ -timeout=600s -count=1") {
 		t.Fatalf("medium host test omitted bounded execution flags:\n%s", result.invocations)
 	}
-	if !strings.Contains(result.output, "LOCAL_NON_AUTHORITATIVE PASS class=medium") {
+	if !strings.Contains(result.output, "LOCAL_NON_AUTHORITATIVE NOT_VERIFIED class=medium") {
 		t.Fatalf("medium host test omitted non-authoritative result marker:\n%s", result.output)
 	}
 	if !strings.Contains(result.output, "host_tier=medium") {
