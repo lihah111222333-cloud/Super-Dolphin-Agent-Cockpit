@@ -33,6 +33,7 @@
 - `cmd/mcp-lsp` 是 generic multi-language LSP peer；不得把本文件的 LSP 要求降级、改写或替换成 `gopls check`、`go test`、`rg + cat/sed`、单语言检查器或纯 shell 验证。
 - Go 文件可以由底层语言服务器使用 gopls，但人工工作流必须通过当前对外暴露的 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion` 等 LSP 工具完成导航、影响面分析、读取、编辑和诊断；`gopls check` 只能作为额外验证，不能替代 LSP 工具证据。
 - 当前 MCP 暴露名使用短名；在 Codex 工具命名空间中对应 `mcp__lsp.file`、`mcp__lsp.inspect`、`mcp__lsp.xref`、`mcp__lsp.grep`、`mcp__lsp.structure`、`mcp__lsp.patch_edit`、`mcp__lsp.completion`。`file(diagnostics)` 是诊断入口，没有独立 `diagnostics` 工具；`edit`、`lsp_edit`、`lsp_file` 等旧名不是当前对外契约。
+- 如果会话首层工具列表没有展示上述 LSP 工具，不得直接判定“未暴露”或降级到 shell。必须主动查询当前平台的工具注册表或延迟工具目录（可用时按名称包含 `lsp` 过滤），再按平台映射的真实工具名至少发起一次调用；只有注册表无匹配，或实际调用明确返回 unknown tool / unavailable 后，才可记录 blocker。
 - 7 个 LSP 工具的入参都是封闭的 JSON object，不是自由文本；未声明字段和 action 不兼容字段必须拒绝。返回值只读取 MCP `content` 中的纯文本行协议（`OK` / `ERROR`、`ATTR`、`ROW`、`HINT`），不得依赖已移除的 `structuredContent`。
 - 语言字段按唯一语义使用：`grep(ast_search)` 使用 `ast_language` 选择 AST 语法；`structure(workspace_symbol)` 在无文件定位时使用 `workspace_language`；`language_id` 只覆盖具体文件的 LSP server 路由。旧字段 `language` 已移除，不得作为兼容别名。
 - action 级必选字段、互斥字段和有效取值以 `cmd/mcp-lsp/schema.go` 为事实来源，以 `docs/internal-notes/LSP系统提示词.md` 为调用指南；不得凭工具名猜参数。
