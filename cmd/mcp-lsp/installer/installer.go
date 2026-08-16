@@ -561,6 +561,12 @@ func postInstallBinaryPath(ctx context.Context, cfg InstallerConfig) (string, bo
 			return "", false
 		}
 		return executableInDir(dir, cfg.BinaryName)
+	case "dotnet", "dotnet.exe":
+		dir := dotnetGlobalToolBinDir()
+		if dir == "" {
+			return "", false
+		}
+		return executableInDir(dir, cfg.BinaryName)
 	default:
 		return "", false
 	}
@@ -613,6 +619,18 @@ func cargoInstallBinDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".cargo", "bin")
+}
+
+// dotnetGlobalToolBinDir 返回 dotnet tool install --global 的规范 launcher 目录。
+func dotnetGlobalToolBinDir() string {
+	if cliHome := strings.TrimSpace(os.Getenv("DOTNET_CLI_HOME")); cliHome != "" {
+		return filepath.Join(cliHome, ".dotnet", "tools")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".dotnet", "tools")
 }
 
 func goInstallBinDir(ctx context.Context, goCmd string) string {

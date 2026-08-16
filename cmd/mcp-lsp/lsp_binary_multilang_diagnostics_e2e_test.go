@@ -1,4 +1,4 @@
-//go:build e2e
+//go:build e2e && (darwin || linux || windows)
 
 package main
 
@@ -117,7 +117,7 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 	target := tc.write(t, root)
 	ctx, cancel := context.WithTimeout(context.Background(), allLanguageToolMatrixTimeout)
 	defer cancel()
-	var extraEnv []string
+	extraEnv := []string{"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(t.TempDir(), "lsp-cache")}
 	if serverName, ok := map[string]string{
 		"sql":   "sqruff",
 		"swift": "sourcekit-lsp",
@@ -126,14 +126,15 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 		// 真实 managed server 的安装与能力由独立 E2E 校验；此测试只锁定
 		// mcp-lsp 的协议路由，因此显式隔离会抢占 fake PATH 的 ManagedOnly adapter。
 		fakeBundleDir := writeFakeProtocolBundle(t, fakeServersBinDir, serverName, tc.languageID)
-		extraEnv = []string{
-			"SUPER_DOLPHIN_LSP_BUNDLE_DIR=" + fakeBundleDir,
-			"SUPER_DOLPHIN_LSP_MANIFEST=" + filepath.Join(fakeBundleDir, "manifest.json"),
-		}
+		extraEnv = append(extraEnv,
+			"SUPER_DOLPHIN_LSP_BUNDLE_DIR="+fakeBundleDir,
+			"SUPER_DOLPHIN_LSP_MANIFEST="+filepath.Join(fakeBundleDir, "manifest.json"),
+		)
 	}
 	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, extraEnv)
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	warmWorkspaceSymbolDocument(t, client, target, tc.languageID)
 	current, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("read %s replace_range fixture: %v", tc.languageID, err)
@@ -163,12 +164,11 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 
 	pos := target + ":1:1"
 	checks := []binaryAllLanguageToolCheck{
-		{tool: "file", args: map[string]any{"action": "open_file", "file_path": target}},
 		{tool: "file", args: map[string]any{"action": "read_file", "file_path": target}},
 		{tool: "file", args: map[string]any{"action": "read_file", "file_paths": []string{target}}, want: filepath.Base(target)},
 		{tool: "file", args: map[string]any{"action": "diagnostics", "file_path": target}},
 		{tool: "file", args: map[string]any{"action": "diagnostics", "file_paths": []string{target}}},
-		{tool: "grep", args: map[string]any{"action": "text_search", "query": "fixture", "path": target}},
+		{tool: "grep", args: map[string]any{"action": "text_search", "query": "fixture", "paths": []string{target}}},
 		{tool: "structure", args: map[string]any{"action": "document_symbol", "file_path": target}},
 		{tool: "structure", args: map[string]any{"action": "workspace_symbol", "file_path": target, "query": staleWorkspaceSymbolName(tc.languageID)}},
 		{tool: "structure", args: map[string]any{"action": "folding_range", "file_path": target}},
