@@ -24,6 +24,29 @@ type completionTextProvider interface{ ToPlainText() string }
 
 type mqlCompletionResult struct{ result completionTextProvider }
 
+type emptyCompletionResult struct {
+	attribution lspmanager.CompletionAttribution
+	hint        string
+}
+
+// ToPlainText 渲染成功但零候选的 completion 运行时归因。
+func (result emptyCompletionResult) ToPlainText() string {
+	lines := []string{
+		lineprotocol.HeaderLine(0, 0, false, "completion"),
+		lineprotocol.FieldsRecord("ATTR",
+			lineprotocol.Field{Key: "language_id", Value: completionAttributionValue(result.attribution.LanguageID)},
+			lineprotocol.Field{Key: "server_name", Value: completionAttributionValue(result.attribution.ServerName)},
+			lineprotocol.Field{Key: "server_version", Value: completionAttributionValue(result.attribution.ServerVersion)},
+			lineprotocol.Field{Key: "capability", Value: "supported"},
+			lineprotocol.Field{Key: "reason", Value: "no_candidates"},
+		),
+	}
+	if result.hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", result.hint))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // ToPlainText 在补全文本后追加非原生 MQL 兼容性归因。
 func (result mqlCompletionResult) ToPlainText() string {
 	return strings.Join([]string{
@@ -67,10 +90,13 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 			return nil, err
 		}
 		if result == nil || len(result.Items) == 0 {
-			empty := emptyListEnvelope{
-				Success: true,
-				Data:    []any{},
-				Meta:    resultMeta{Count: 0, Message: rustDetachedWorkspaceMessage(filePath, "completions", "no completions")},
+			attribution, err := completionAttribution(ctx, manager, filePath, req.LanguageID)
+			if err != nil {
+				return nil, err
+			}
+			empty := emptyCompletionResult{
+				attribution: attribution,
+				hint:        rustDetachedWorkspaceMessage(filePath, "completions", "no completions"),
 			}
 			return completionResultForFile(filePath, empty), nil
 		}
@@ -83,6 +109,41 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 		)
 		return completionResultForFile(filePath, list), nil
 	})
+}
+
+func completionAttribution(
+	ctx context.Context,
+	manager lspmanager.Manager,
+	filePath string,
+	languageID string,
+) (lspmanager.CompletionAttribution, error) {
+	attribution := lspmanager.CompletionAttribution{LanguageID: completionLanguageID(filePath, languageID)}
+	provider, ok := manager.(lspmanager.CompletionAttributionManager)
+	if !ok {
+		return attribution, nil
+	}
+	resolved, err := provider.CompletionAttribution(ctx, filePath)
+	if err != nil {
+		return lspmanager.CompletionAttribution{}, err
+	}
+	if strings.TrimSpace(resolved.LanguageID) == "" {
+		resolved.LanguageID = attribution.LanguageID
+	}
+	return resolved, nil
+}
+
+func completionLanguageID(filePath, override string) string {
+	if languageID := normalizeLanguageIDOverride(override); languageID != "" {
+		return languageID
+	}
+	return lspmanager.DetectLanguageID(filePath)
+}
+
+func completionAttributionValue(value string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return "unknown"
 }
 
 // completionWithIdentifierEndRetry 在原光标没有候选时尝试标识符边界位置。

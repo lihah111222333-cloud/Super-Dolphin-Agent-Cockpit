@@ -243,7 +243,7 @@ func TestDiagnosticsWithRetryRetriesOnlyExplicitRetryableErrors(t *testing.T) {
 
 func TestDiagnosticsToolErrorRecognizesExplicitRetryableMarker(t *testing.T) {
 	var result toolResult
-	err := json.Unmarshal([]byte(`{"content":[{"text":"ERROR code=lsp_timeout retryable=1"}],"isError":true}`), &result)
+	err := json.Unmarshal([]byte(`{"content":[{"text":"ERROR code=lsp_timeout retryable=1\nMESSAGE\ttimed out"}],"isError":true}`), &result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -752,7 +752,7 @@ func diagnosticsPlainTextFixture(mode string) (string, bool) {
 	case "plain-success":
 		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tno+diagnostics", true
 	case "plain-malformed-escape":
-		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tbad%ZZ", true
+		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tbad\\q", true
 	case "plain-raw-cr":
 		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tbad\rvalue", true
 	case "plain-raw-nul":

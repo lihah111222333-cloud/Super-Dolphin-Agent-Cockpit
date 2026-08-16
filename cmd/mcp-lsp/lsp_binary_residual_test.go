@@ -22,7 +22,7 @@ func TestLSPBinaryPromptDocsUseReadFilePosContract(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       `offset=|read_file\([^)]*offset|read_file, offset`,
-		"path":        filepath.Join(repoRoot, "internal/platform/shared/builtinprompts/assets"),
+		"paths":       []string{filepath.Join(repoRoot, "internal/platform/shared/builtinprompts/assets")},
 		"glob":        "*.md",
 		"regex":       true,
 		"max_results": 10,
@@ -46,7 +46,7 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       "needle",
-		"path":        root,
+		"paths":       []string{root},
 		"glob":        "*.txt",
 		"max_results": 5,
 	})
@@ -62,8 +62,8 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 		t.Fatalf("truncated grep response missing hint; structuredContent=%s", string(result.StructuredContent))
 	}
 	lowerHint := strings.ToLower(payload.Hint)
-	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "path") && !strings.Contains(lowerHint, "glob")) {
-		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow path/glob", payload.Hint)
+	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "paths") && !strings.Contains(lowerHint, "glob")) {
+		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow paths/glob", payload.Hint)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       "needle",
-		"path":        "first second",
+		"paths":       []string{"first second"},
 		"glob":        "*.txt",
 		"max_results": 10,
 	})
@@ -127,7 +127,7 @@ func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
 	result := client.callToolWithoutTrustedScope(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       needle,
-		"path":        relPath,
+		"paths":       []string{relPath},
 		"max_results": 5,
 	})
 	if !result.IsError {

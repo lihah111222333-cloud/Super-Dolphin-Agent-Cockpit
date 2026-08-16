@@ -10,7 +10,7 @@ type toolOverflowHint struct {
 func toolOverflowHints() map[string]toolOverflowHint {
 	return map[string]toolOverflowHint{
 		"grep": {
-			Hint: "next: grep action=text_search query=<query> path=<path> glob=<glob> max_results=10",
+			Hint: `next: call grep with {"action":"text_search","query":"<query>","paths":["<path>"],"glob":"<glob>","max_results":10}`,
 			NextAction: map[string]any{
 				"tool":         "grep",
 				"suggest_args": map[string]any{"max_results": 10},

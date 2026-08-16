@@ -16,7 +16,7 @@ func TestLSPBinaryGrepBraceGlobMatchesFrontendJSAndJSX(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       needle,
-		"path":        "frontend-app/src",
+		"paths":       []string{"frontend-app/src"},
 		"glob":        "**/*.{js,jsx}",
 		"max_results": 10,
 	})

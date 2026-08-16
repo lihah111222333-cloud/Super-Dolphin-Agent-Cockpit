@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +23,7 @@ func TestGrepInvalidRegexReturnsErrorWithoutLiteralFallback(t *testing.T) {
 		Action: "text_search",
 		Query:  "[",
 		Regex:  true,
-		Path:   root,
+		Paths:  []string{root},
 		Glob:   "*.txt",
 	})
 	if err == nil || !strings.Contains(err.Error(), "regex") {
@@ -40,7 +39,7 @@ func TestGrepInvalidGlobReturnsError(t *testing.T) {
 	_, err := callGrepTool(t, root, grepToolInput{
 		Action: "text_search",
 		Query:  "needle",
-		Path:   root,
+		Paths:  []string{root},
 		Glob:   "[",
 	})
 	if err == nil || !strings.Contains(err.Error(), "glob") {
@@ -54,7 +53,7 @@ func TestGrepTextSearchEmptyResultHasMessage(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	handler := NewGrepHandler(Config{WorkspaceRoot: root})
-	input, err := json.Marshal(grepToolInput{Action: "text_search", Query: "missing", Path: root})
+	input, err := json.Marshal(grepToolInput{Action: "text_search", Query: "missing", Paths: []string{root}})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
@@ -82,7 +81,7 @@ func TestGrepTextSearchSingleTSVFileHonorsGlob(t *testing.T) {
 	got, err := callGrepTool(t, root, grepToolInput{
 		Action:     "text_search",
 		Query:      "cmd/mcp-orch/main.go",
-		Path:       target,
+		Paths:      []string{target},
 		Glob:       "*.tsv",
 		MaxResults: 10,
 	})
@@ -101,48 +100,44 @@ func TestGrepTextSearchSingleTSVFileHonorsGlob(t *testing.T) {
 	}
 }
 
-func TestGrepTextSearchAcceptsCommonMultiPathParams(t *testing.T) {
+func TestGrepTextSearchAcceptsCanonicalPaths(t *testing.T) {
 	root := t.TempDir()
 	writeGrepFixtureFile(t, filepath.Join(root, "first", "one.go"), "package first\nconst needleOne = true\n")
 	writeGrepFixtureFile(t, filepath.Join(root, "second", "two.go"), "package second\nconst needleTwo = true\n")
 	writeGrepFixtureFile(t, filepath.Join(root, "third", "skip.go"), "package third\nconst needleThree = true\n")
 
-	cases := map[string]map[string]any{
-		"path_array":       {"path": []string{"first", "second"}},
-		"paths_array":      {"paths": []string{"first", "second"}},
-		"paths_string":     {"paths": "first,second"},
-		"file_paths_array": {"file_paths": []string{"first", "second"}},
-	}
-	for name, fields := range cases {
-		t.Run(name, func(t *testing.T) {
-			input := map[string]any{
-				"action": "text_search",
-				"query":  "needle",
-				"glob":   "*.go",
-			}
-			maps.Copy(input, fields)
-			got, err := callGrepToolRaw(t, root, input)
-			if err != nil {
-				t.Fatalf("grep returned error: %v", err)
-			}
-			resp, ok := got.(grepResponse)
-			if !ok {
-				t.Fatalf("grep result type = %T, want grepResponse", got)
-			}
-			assertGrepResponseRelativeFiles(t, root, resp, []string{"first/one.go", "second/two.go"}, "third/skip.go")
-		})
-	}
-}
-
-func TestGrepTextSearchRejectsEmptyPathArray(t *testing.T) {
-	root := t.TempDir()
-	_, err := callGrepToolRaw(t, root, map[string]any{
+	got, err := callGrepToolRaw(t, root, map[string]any{
 		"action": "text_search",
 		"query":  "needle",
-		"path":   []string{},
+		"paths":  []string{"first", "second"},
+		"glob":   "*.go",
 	})
-	if err == nil || !strings.Contains(err.Error(), "path array must contain at least one path") {
-		t.Fatalf("grep empty path array error = %v, want path array validation", err)
+	if err != nil {
+		t.Fatalf("grep returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	assertGrepResponseRelativeFiles(t, root, resp, []string{"first/one.go", "second/two.go"}, "third/skip.go")
+}
+
+func TestGrepTextSearchRejectsInvalidPaths(t *testing.T) {
+	root := t.TempDir()
+	for name, paths := range map[string][]string{
+		"empty":      {},
+		"blank item": {" "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := callGrepToolRaw(t, root, map[string]any{
+				"action": "text_search",
+				"query":  "needle",
+				"paths":  paths,
+			})
+			if err == nil || !strings.Contains(err.Error(), "paths") {
+				t.Fatalf("grep invalid paths error = %v, want paths validation", err)
+			}
+		})
 	}
 }
 
@@ -159,7 +154,7 @@ func TestGrepDefaultMaxResultsIsFifty(t *testing.T) {
 	got, err := callGrepTool(t, root, grepToolInput{
 		Action: "text_search",
 		Query:  "needle",
-		Path:   root,
+		Paths:  []string{root},
 		Glob:   "*.txt",
 	})
 	if err != nil {
@@ -197,7 +192,7 @@ func TestGrepTextSearchExcludesWorkspaceCacheDirectoriesFromRootSearch(t *testin
 	got, err := callGrepTool(t, root, grepToolInput{
 		Action:     "text_search",
 		Query:      "defineConfig",
-		Path:       root,
+		Paths:      []string{root},
 		Glob:       "*.js",
 		MaxResults: 5,
 	})
@@ -217,63 +212,6 @@ func TestGrepTextSearchExcludesWorkspaceCacheDirectoriesFromRootSearch(t *testin
 	}
 }
 
-func TestGrepRuntimeFallbackRejectsClaudeWorktreeSearch(t *testing.T) {
-	root := t.TempDir()
-	relPath := filepath.Join("docs", "li", "p15", "TASKS", "TN-integration.md")
-	worktreeRoot := filepath.Join(root, ".claude", "worktrees", "feature")
-	target := filepath.Join(worktreeRoot, relPath)
-	writeGrepFixtureFile(t, filepath.Join(root, relPath), "stale notes\n")
-	writeGrepFixtureFile(t, target, "fresh notes\nBenchmarkTickAppendStrictParallel\n")
-
-	handler := NewGrepHandler(Config{WorkspaceRoot: root})
-	payload, err := json.Marshal(grepToolInput{
-		Action:     "text_search",
-		Query:      "BenchmarkTickAppendStrictParallel",
-		Path:       relPath,
-		MaxResults: 5,
-	})
-	if err != nil {
-		t.Fatalf("marshal grep input: %v", err)
-	}
-	ctx := common.WithRuntimeWorkspaceScopeFallback(testToolContext(root))
-
-	_, err = handler(ctx, payload)
-	if err == nil {
-		t.Fatal("grep returned nil error, want stale workspace root rejection")
-	}
-	if !strings.Contains(err.Error(), "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots") {
-		t.Fatalf("grep error = %v, want stale workspace root guidance for %s", err, target)
-	}
-}
-
-func TestGrepRuntimeFallbackDoesNotSearchSiblingWorktree(t *testing.T) {
-	parent := t.TempDir()
-	root := filepath.Join(parent, "main")
-	sibling := filepath.Join(parent, "feature")
-	relPath := filepath.Join("docs", "risk.md")
-	writeGrepFixtureFile(t, filepath.Join(root, relPath), "stale notes\n")
-	writeGrepFixtureFile(t, filepath.Join(sibling, relPath), "fresh L06L07Needle\n")
-
-	handler := NewGrepHandler(Config{WorkspaceRoot: root})
-	payload, err := json.Marshal(grepToolInput{
-		Action:     "text_search",
-		Query:      "L06L07Needle",
-		Path:       relPath,
-		MaxResults: 5,
-	})
-	if err != nil {
-		t.Fatalf("marshal grep input: %v", err)
-	}
-
-	_, err = handler(common.WithRuntimeWorkspaceScopeFallback(testToolContext(root)), payload)
-	if err == nil {
-		t.Fatal("grep returned nil error, want stale workspace root rejection before sibling search")
-	}
-	if !strings.Contains(err.Error(), "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots") {
-		t.Fatalf("grep error = %v, want stale workspace root guidance", err)
-	}
-}
-
 func TestGrepRuntimeFallbackAllowsExplicitNestedWorkDirEmptyResult(t *testing.T) {
 	root := t.TempDir()
 	worktreeRoot := filepath.Join(root, ".worktrees", "feature")
@@ -284,7 +222,7 @@ func TestGrepRuntimeFallbackAllowsExplicitNestedWorkDirEmptyResult(t *testing.T)
 	payload, err := json.Marshal(map[string]any{
 		"action":      "text_search",
 		"query":       "NeedleThatDoesNotExist",
-		"path":        relPath,
+		"paths":       []string{relPath},
 		"work_dir":    worktreeRoot,
 		"max_results": 5,
 	})
@@ -317,7 +255,7 @@ func TestGrepRequiresTrustedWorkspaceRootsWhenRuntimeFallbackWouldApply(t *testi
 	payload, err := json.Marshal(grepToolInput{
 		Action:     "text_search",
 		Query:      "L06L07Needle",
-		Path:       relPath,
+		Paths:      []string{relPath},
 		MaxResults: 5,
 	})
 	if err != nil {
@@ -342,7 +280,7 @@ func TestGrepHandlerAppliesSixteenKiBPayloadBudget(t *testing.T) {
 	got, err := callGrepTool(t, root, grepToolInput{
 		Action:     "text_search",
 		Query:      "needle",
-		Path:       root,
+		Paths:      []string{root},
 		Glob:       "*.txt",
 		MaxResults: maxSearchResults,
 	})
@@ -547,4 +485,24 @@ func callGrepToolRaw(t *testing.T, root string, input any) (any, error) {
 		t.Fatalf("marshal input: %v", err)
 	}
 	return handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload)
+}
+
+func TestGrepHandlerRejectsRemovedPathAliases(t *testing.T) {
+	root := t.TempDir()
+	handler := NewGrepHandler(Config{WorkspaceRoot: root})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		CWD:            root,
+		WorkspaceRoots: []string{root},
+	})
+	for name, raw := range map[string]json.RawMessage{
+		"path":       json.RawMessage(`{"action":"text_search","query":"needle","path":"."}`),
+		"file_paths": json.RawMessage(`{"action":"text_search","query":"needle","file_paths":["."]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := handler(ctx, raw)
+			if err == nil || !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("grep removed field %s error = %v, want unknown field rejection", name, err)
+			}
+		})
+	}
 }

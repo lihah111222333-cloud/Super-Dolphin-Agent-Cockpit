@@ -88,18 +88,29 @@ func formatToolErrorEnvelope(result any) (string, bool) {
 	if code == "" {
 		code = "tool_error"
 	}
-	retryable := 0
-	if envelope.Retryable {
-		retryable = 1
-	}
-	lines := []string{fmt.Sprintf("ERROR code=%s retryable=%d", code, retryable)}
+	lines := []string{lineprotocol.ErrorLine(code, envelope.Retryable)}
 	if message := strings.TrimSpace(envelope.Error); message != "" {
 		lines = append(lines, lineprotocol.TextRecord("MESSAGE", message))
 	}
 	if hint := strings.TrimSpace(envelope.Hint); hint != "" {
 		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
 	}
+	lines = appendToolErrorAttribution(lines, envelope.Meta)
 	return strings.Join(lines, "\n"), true
+}
+
+func appendToolErrorAttribution(lines []string, meta map[string]any) []string {
+	fields := make([]lineprotocol.Field, 0, 2)
+	if tool, ok := meta["tool"].(string); ok && strings.TrimSpace(tool) != "" {
+		fields = append(fields, lineprotocol.Field{Key: "tool", Value: strings.TrimSpace(tool)})
+	}
+	if languageID, ok := meta["language_id"].(string); ok && strings.TrimSpace(languageID) != "" {
+		fields = append(fields, lineprotocol.Field{Key: "language_id", Value: strings.TrimSpace(languageID)})
+	}
+	if len(fields) > 0 {
+		lines = append(lines, lineprotocol.FieldsRecord("ATTR", fields...))
+	}
+	return lines
 }
 
 // formatBudgetOverflow 将 result_too_large 信封转成人类可读提示。
@@ -190,8 +201,6 @@ func formatOtherStructures(result any) (string, bool) {
 		return formatFoldingRanges(val), true
 	case *protocol.SemanticTokensResult:
 		return formatSemanticTokens(val), true
-	case *protocol.SignatureHelpResult:
-		return formatSignatureHelp(val), true
 	case []protocol.CompletionItem:
 		return formatCompletionItems(val), true
 	}
@@ -411,42 +420,6 @@ func formatSemanticTokens(val *protocol.SemanticTokensResult) string {
 		fmt.Fprintf(&sb, "  L%d:C%d len=%d type=%s mod=%v\n", tok.Line, tok.StartCharacter, tok.Length, tok.TokenType, tok.TokenModifiers)
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// formatSignatureHelp 格式化签名帮助。
-func formatSignatureHelp(val *protocol.SignatureHelpResult) string {
-	if val == nil || len(val.Signatures) == 0 {
-		return "No signature help information."
-	}
-	var sb strings.Builder
-	sb.WriteString("Signature Help:\n")
-	for i, sig := range val.Signatures {
-		active := ""
-		if val.ActiveSignature != nil && i == *val.ActiveSignature {
-			active = " (active)"
-		}
-		fmt.Fprintf(&sb, "- Signature%s: `%s`\n", active, sig.Label)
-		if docStr, ok := sig.Documentation.(string); ok && docStr != "" {
-			fmt.Fprintf(&sb, "  Docs: %s\n", docStr)
-		}
-		formatParams(&sb, sig.Parameters, val.ActiveSignature != nil && i == *val.ActiveSignature, val.ActiveParameter)
-	}
-	return strings.TrimSpace(sb.String())
-}
-
-// formatParams 格式化params。
-func formatParams(sb *strings.Builder, params []protocol.ParameterInformationResult, isActiveSig bool, activeParam *int) {
-	if len(params) == 0 {
-		return
-	}
-	sb.WriteString("  Parameters:\n")
-	for j, param := range params {
-		paramActive := ""
-		if isActiveSig && activeParam != nil && j == *activeParam {
-			paramActive = " (active)"
-		}
-		fmt.Fprintf(sb, "    [%d] `%s`%s\n", j+1, param.Label, paramActive)
-	}
 }
 
 // formatCompletionItems 把补全项列表渲染为纯文本。

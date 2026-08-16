@@ -21,7 +21,7 @@ func TestDirectToolsCallGrepContentWithinSixteenKiBBudget(t *testing.T) {
 	args := map[string]any{
 		"action":      "text_search",
 		"query":       "needle",
-		"path":        root,
+		"paths":       []string{root},
 		"glob":        "*.txt",
 		"max_results": 50,
 	}
@@ -78,7 +78,7 @@ func TestDirectToolsCallGrepSingleTSVFileHonorsGlob(t *testing.T) {
 	request := mustDirectToolCallRequest(t, root, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       "cmd/mcp-orch/main.go",
-		"path":        target,
+		"paths":       []string{target},
 		"glob":        "*.tsv",
 		"max_results": 10,
 	})

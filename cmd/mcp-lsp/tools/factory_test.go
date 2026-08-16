@@ -79,7 +79,7 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	input, err := json.Marshal(map[string]any{
 		"action":                 "text_search",
 		"query":                  "needle",
-		"path":                   root,
+		"paths":                  []string{root},
 		"schema_forbidden_field": true,
 	})
 	if err != nil {

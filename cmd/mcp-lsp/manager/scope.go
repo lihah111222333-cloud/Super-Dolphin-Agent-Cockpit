@@ -195,6 +195,15 @@ func (m *resolvedScopeCompletion) Completion(ctx context.Context, uri string, po
 	return m.manager.Completion(m.scoped(ctx), uri, position)
 }
 
+// CompletionAttribution 注入同一 resolved scope 后读取实际语言服务器归因。
+func (m *resolvedScopeCompletion) CompletionAttribution(ctx context.Context, uri string) (CompletionAttribution, error) {
+	provider, ok := m.manager.(CompletionAttributionManager)
+	if !ok {
+		return CompletionAttribution{}, nil
+	}
+	return provider.CompletionAttribution(m.scoped(ctx), uri)
+}
+
 // Rename 注入 resolved scope 后转发重命名请求。
 func (m *resolvedScopeEdit) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
 	return m.manager.Rename(m.scoped(ctx), uri, position, newName)

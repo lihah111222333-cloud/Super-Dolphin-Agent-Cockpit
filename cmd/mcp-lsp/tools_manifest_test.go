@@ -6,22 +6,43 @@ import (
 )
 
 func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
-	want := map[string]string{
-		"file":       "action=read_file pos=",
-		"inspect":    "pos=internal/foo.go:42:9",
-		"xref":       "pos=internal/foo.go:42:9",
-		"grep":       "action=text_search",
-		"structure":  "action=document_symbol",
-		"patch_edit": "action=replace_range",
-		"completion": "pos=internal/foo.go:42:9",
+	want := map[string][]string{
+		"file": {
+			`{"action":"read_file","pos":"internal/foo.go:42","limit":40}`,
+			`{"action":"diagnostics","file_path":"internal/foo.go"}`,
+		},
+		"inspect": {
+			`{"action":"definition","pos":"internal/foo.go:42:9"}`,
+		},
+		"xref": {
+			`{"action":"references","pos":"internal/foo.go:42:9"}`,
+		},
+		"grep": {
+			`{"action":"text_search","query":"targetName","paths":["internal"],"glob":"*.go"}`,
+		},
+		"structure": {
+			`{"action":"document_symbol","file_path":"internal/foo.go"}`,
+			`{"action":"workspace_symbol","query":"Handler","language":"go"}`,
+		},
+		"patch_edit": {
+			`{"action":"format","file_path":"internal/foo.go"}`,
+		},
+		"completion": {
+			`{"pos":"internal/foo.go:42:9"}`,
+		},
 	}
 	for _, manifest := range newLSPToolManifests() {
-		must, ok := want[manifest.Name]
+		examples, ok := want[manifest.Name]
 		if !ok {
 			continue
 		}
-		if !strings.Contains(manifest.Description, must) {
-			t.Fatalf("%s description = %q, want example marker %q", manifest.Name, manifest.Description, must)
+		for _, example := range examples {
+			if !strings.Contains(manifest.Description, example) {
+				t.Fatalf("%s description = %q, want JSON object example %q", manifest.Name, manifest.Description, example)
+			}
+		}
+		if strings.Contains(manifest.Description, "action=") || strings.Contains(manifest.Description, "pos=internal/foo.go") {
+			t.Fatalf("%s description retains legacy key=value example: %q", manifest.Name, manifest.Description)
 		}
 	}
 }
@@ -34,7 +55,7 @@ func TestLSPToolManifestDescriptionsSeparateDiagnosticsFromPackageScripts(t *tes
 	if !strings.Contains(descriptions["file"], "fetch diagnostics") {
 		t.Fatalf("file description = %q, want diagnostics access", descriptions["file"])
 	}
-	for _, must := range []string{"Diagnostics are an action on this tool", "action=diagnostics file_path=internal/foo.go"} {
+	for _, must := range []string{"Diagnostics are an action on this tool", `{"action":"diagnostics","file_path":"internal/foo.go"}`} {
 		if !strings.Contains(descriptions["file"], must) {
 			t.Fatalf("file description = %q, want direct diagnostics guidance %q", descriptions["file"], must)
 		}
@@ -80,9 +101,9 @@ func TestLSPFileSchemaExposesDirectDiagnosticsCallShape(t *testing.T) {
 		t.Fatalf("file schema properties type = %T", newLSPFileSchema()["properties"])
 	}
 	for name, must := range map[string]string{
-		"action":     "Use action=diagnostics on this file tool",
-		"file_path":  "action=diagnostics file_path=internal/foo.go",
-		"file_paths": "action=diagnostics file_paths=",
+		"action":     "Use diagnostics on this file tool",
+		"file_path":  "diagnostics",
+		"file_paths": "diagnostics",
 	} {
 		prop, ok := props[name].(map[string]any)
 		if !ok {
@@ -139,29 +160,28 @@ func TestLSPToolManifestDescriptionsExposeActionVariantsWithoutMisleadingShortcu
 	for _, manifest := range newLSPToolManifests() {
 		descriptions[manifest.Name] = manifest.Description
 	}
-	for _, must := range []string{"action=document_symbol file_path=internal/foo.go", "action=workspace_symbol query=Handler language=go"} {
+	for _, must := range []string{
+		`{"action":"document_symbol","file_path":"internal/foo.go"}`,
+		`{"action":"workspace_symbol","query":"Handler","language":"go"}`,
+	} {
 		if !strings.Contains(descriptions["structure"], must) {
 			t.Fatalf("structure description = %q, want action variant %q", descriptions["structure"], must)
 		}
 	}
 }
 
-func TestLSPGrepSchemaPrefersPathsArrayForMultipleRoots(t *testing.T) {
+func TestLSPGrepSchemaExposesOnlyCanonicalPathsArray(t *testing.T) {
 	props, ok := newLSPGrepSchema()["properties"].(map[string]any)
 	if !ok {
 		t.Fatalf("grep schema properties type = %T", newLSPGrepSchema()["properties"])
 	}
-	for name, must := range map[string]string{
-		"path":  "for multiple roots prefer paths=",
-		"paths": "Prefer this over path when passing more than one root or paths containing spaces",
-	} {
-		prop, ok := props[name].(map[string]any)
-		if !ok {
-			t.Fatalf("grep schema %s property type = %T", name, props[name])
-		}
-		desc, _ := prop["description"].(string)
-		if !strings.Contains(desc, must) {
-			t.Fatalf("grep schema %s description = %q, want %q", name, desc, must)
+	paths, ok := props["paths"].(map[string]any)
+	if !ok || paths["type"] != "array" {
+		t.Fatalf("grep paths schema = %#v, want string array", props["paths"])
+	}
+	for _, removed := range []string{"path", "file_paths"} {
+		if _, ok := props[removed]; ok {
+			t.Fatalf("grep schema exposes removed field %q", removed)
 		}
 	}
 }

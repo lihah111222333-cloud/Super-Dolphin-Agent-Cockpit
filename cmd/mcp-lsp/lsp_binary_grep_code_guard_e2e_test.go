@@ -26,7 +26,7 @@ func TestLSPBinaryGrepFindsCodeGuardPlaceholderInRelativeDirectoryWithTrustedSco
 	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       query,
-		"path":        "backend/cmd/code_guard",
+		"paths":       []string{"backend/cmd/code_guard"},
 		"max_results": 20,
 	})
 	if result.IsError {

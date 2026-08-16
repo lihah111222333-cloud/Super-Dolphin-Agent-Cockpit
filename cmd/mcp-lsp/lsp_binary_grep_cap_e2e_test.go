@@ -18,7 +18,7 @@ func TestLSPBinaryGrepStopsAtDefaultMaxResultsWithHint(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action": "text_search",
 		"query":  "needle",
-		"path":   root,
+		"paths":  []string{root},
 		"glob":   "*.txt",
 	})
 	if result.IsError {
@@ -31,8 +31,8 @@ func TestLSPBinaryGrepStopsAtDefaultMaxResultsWithHint(t *testing.T) {
 			payload.Total, payload.Showing, payload.Truncated, result.ContentText())
 	}
 	lowerHint := strings.ToLower(payload.Hint)
-	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "path") && !strings.Contains(lowerHint, "glob")) {
-		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow path/glob", payload.Hint)
+	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "paths") && !strings.Contains(lowerHint, "glob")) {
+		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow paths/glob", payload.Hint)
 	}
 
 	largeRows := lspBinaryGrepRowsForFile(t, root, payload, "00-large.txt")

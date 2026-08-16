@@ -1,12 +1,10 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -22,16 +20,15 @@ const (
 	// grep 输出预算和提示文本保持稳定，便于模型按提示继续缩小查询。
 	defaultSearchResults = 50
 	maxSearchResults     = 50
-	grepTruncatedHint    = "next: adjust max_results, narrow path/glob, refine query, or search a specific file"
-	grepFuncRangeHint    = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
+	grepTruncatedHint    = "next: adjust max_results, narrow paths/glob, refine query, or search a specific file"
+	grepFuncRangeHint    = `next: call file with {"action":"read_file","pos":"<file>:<func_start>","limit":40}; set limit to func_end-func_start+1`
 )
 
-// grepToolInput 是 grep 工具的外部入参，支持 path/paths/file_paths 三种路径写法。
+// grepToolInput 是 grep 工具的外部入参，搜索范围只接受 paths 数组。
 type grepToolInput struct {
 	Action        string   `json:"action"`
 	Query         string   `json:"query,omitempty"`
-	Path          string   `json:"path,omitempty"`
-	Paths         []string `json:"-"`
+	Paths         []string `json:"paths,omitempty"`
 	Glob          string   `json:"glob,omitempty"`
 	Language      string   `json:"language,omitempty"`
 	Regex         bool     `json:"regex,omitempty"`
@@ -39,102 +36,20 @@ type grepToolInput struct {
 	MaxResults    int      `json:"max_results,omitempty"`
 }
 
-// UnmarshalJSON 解码 grep 入参，并把兼容路径字段统一到 Path/Paths。
-func (input *grepToolInput) UnmarshalJSON(raw []byte) error {
-	var decoded struct {
-		Action        string          `json:"action"`
-		Query         string          `json:"query,omitempty"`
-		Path          json.RawMessage `json:"path,omitempty"`
-		Paths         json.RawMessage `json:"paths,omitempty"`
-		FilePaths     json.RawMessage `json:"file_paths,omitempty"`
-		Glob          string          `json:"glob,omitempty"`
-		Language      string          `json:"language,omitempty"`
-		Regex         bool            `json:"regex,omitempty"`
-		CaseSensitive *bool           `json:"case_sensitive,omitempty"`
-		MaxResults    int             `json:"max_results,omitempty"`
+// validateGrepPaths 校验 canonical paths 数组，空数组和空字符串项立即失败。
+func validateGrepPaths(paths []string) error {
+	if paths == nil {
+		return nil
 	}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return err
+	if len(paths) == 0 {
+		return errors.New("paths must contain at least one search root")
 	}
-	path, paths, err := decodeGrepPathInputs(
-		grepPathInput{name: "path", raw: decoded.Path},
-		grepPathInput{name: "paths", raw: decoded.Paths},
-		grepPathInput{name: "file_paths", raw: decoded.FilePaths},
-	)
-	if err != nil {
-		return err
-	}
-	*input = grepToolInput{
-		Action:        decoded.Action,
-		Query:         decoded.Query,
-		Path:          path,
-		Paths:         paths,
-		Glob:          decoded.Glob,
-		Language:      decoded.Language,
-		Regex:         decoded.Regex,
-		CaseSensitive: decoded.CaseSensitive,
-		MaxResults:    decoded.MaxResults,
+	for index, value := range paths {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("paths contains empty search root at index %d", index)
+		}
 	}
 	return nil
-}
-
-// grepPathInput 保存一个兼容路径字段的原始 JSON。
-type grepPathInput struct {
-	name string
-	raw  json.RawMessage
-}
-
-// decodeGrepPathInputs 合并 path、paths 和 file_paths，保持单路径与多路径互斥表示。
-func decodeGrepPathInputs(inputs ...grepPathInput) (string, []string, error) {
-	paths := make([]string, 0, len(inputs))
-	for _, input := range inputs {
-		decoded, err := decodeGrepPathInput(input)
-		if err != nil {
-			return "", nil, err
-		}
-		paths = append(paths, decoded...)
-	}
-	switch len(paths) {
-	case 0:
-		return "", nil, nil
-	case 1:
-		return paths[0], nil, nil
-	default:
-		return "", paths, nil
-	}
-}
-
-// decodeGrepPathInput 解码单个路径字段，接受字符串或字符串数组。
-func decodeGrepPathInput(input grepPathInput) ([]string, error) {
-	raw := bytes.TrimSpace(input.raw)
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return nil, nil
-	}
-	var single string
-	if err := json.Unmarshal(raw, &single); err == nil {
-		return []string{single}, nil
-	}
-	var paths []string
-	if err := json.Unmarshal(raw, &paths); err == nil {
-		return normalizeGrepPathList(input.name, paths)
-	}
-	return nil, fmt.Errorf("%s must be a string or an array of strings", input.name)
-}
-
-// normalizeGrepPathList 校验路径数组，拒绝空数组和空字符串项。
-func normalizeGrepPathList(name string, paths []string) ([]string, error) {
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s array must contain at least one path", name)
-	}
-	normalized := make([]string, 0, len(paths))
-	for index, path := range paths {
-		trimmed := strings.TrimSpace(path)
-		if trimmed == "" {
-			return nil, fmt.Errorf("%s array contains empty path at index %d", name, index)
-		}
-		normalized = append(normalized, trimmed)
-	}
-	return normalized, nil
 }
 
 // grepFileRows 是 grep 响应中单文件的表格化匹配行。
@@ -166,9 +81,12 @@ func NewGrepHandler(cfg Config) Handler {
 
 // handleGrep 分发 grep action，并统一做结果截断、日志和空响应处理。
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {
-	input, err := decodeToolParams[grepToolInput](params, decodeLenient)
+	input, err := decodeToolParams[grepToolInput](params, decodeStrict)
 	if err != nil {
-		return nil, err
+		return nil, invalidGrepParams(err)
+	}
+	if err := validateGrepPaths(input.Paths); err != nil {
+		return nil, invalidGrepParams(err)
 	}
 	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
 	logGrepCallDecoded(input, limit)
@@ -188,7 +106,6 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 			searchResult, err = search.SearchASTCounted(ctx, search.ASTSearchOptions{
 				Root:         root,
 				Roots:        roots,
-				Path:         input.Path,
 				Paths:        input.Paths,
 				Glob:         input.Glob,
 				Query:        input.Query,
@@ -219,6 +136,16 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	return resp, nil
 }
 
+// invalidGrepParams 统一返回不可重试的参数错误，并提示唯一 paths 契约。
+func invalidGrepParams(err error) error {
+	return common.NewCodedToolError(
+		"invalid_params",
+		err,
+		false,
+		"pass search roots only as paths=[\"dir\"]; a single root is a one-element array",
+	)
+}
+
 // grepMessage 组合 regex fallback 和 payload 截断提示。
 func grepMessage(regexFallback bool, dropped int) string {
 	parts := make([]string, 0, 2)
@@ -244,20 +171,6 @@ func grepWorkspaceRoots(ctx context.Context) (string, []string, error) {
 
 func staleWorkspaceRootMessage() string {
 	return "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots"
-}
-
-func grepRuntimeFallbackWouldSearchOutsideRoots(ctx context.Context, input grepToolInput) bool {
-	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
-		return false
-	}
-	if explicitToolWorkDirFromContext(ctx) {
-		return false
-	}
-	if len(input.Paths) > 0 {
-		return false
-	}
-	path := strings.TrimSpace(input.Path)
-	return path != "" && !filepath.IsAbs(path)
 }
 
 func emptyGrepMessage(regexFallback bool) string {

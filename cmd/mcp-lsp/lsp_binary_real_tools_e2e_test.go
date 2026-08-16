@@ -51,7 +51,7 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 	grep := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       "realTsToolNeedle",
-		"path":        "src",
+		"paths":       []string{"src"},
 		"glob":        "**/*.ts",
 		"max_results": 10,
 	})

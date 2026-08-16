@@ -29,7 +29,7 @@ func TestGrepTextSearchDoesNotResolveLSPFuncRanges(t *testing.T) {
 	payload, err := json.Marshal(grepToolInput{
 		Action: "text_search",
 		Query:  "needle",
-		Path:   root,
+		Paths:  []string{root},
 		Glob:   "*.go",
 	})
 	if err != nil {

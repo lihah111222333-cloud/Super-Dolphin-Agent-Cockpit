@@ -12,27 +12,53 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
-func TestRenderReadContentDefaultLimitIsTwoHundredFifty(t *testing.T) {
+func TestRenderLineWindowDefaultLimitIsTwoHundredFifty(t *testing.T) {
+	got := renderLineWindow("file", numberedReadFixture(260), readFileRequest{line: 1}, lineWindowReasonExplicit)
+	doc, err := lineprotocol.Parse(got)
+	if err != nil {
+		t.Fatalf("Parse(renderLineWindow) error = %v; text=%q", err, got)
+	}
+	if doc.Header != (lineprotocol.Header{Total: 260, Showing: 250, Truncated: true, Unit: "line"}) {
+		t.Fatalf("read_file header = %#v", doc.Header)
+	}
+	rows, hint := readRowsAndHint(doc.Records)
+	if len(rows) != 250 {
+		t.Fatalf("read_file ROW count = %d, want 250", len(rows))
+	}
+	if rows[249].Fields["line"] != "250" || rows[249].Fields["text"] != "line-250" {
+		t.Fatalf("read_file last default ROW = %#v", rows[249])
+	}
+	if !strings.Contains(hint, "file:251") {
+		t.Fatalf("read_file continuation hint = %q, want line 251", hint)
+	}
+}
+
+func numberedReadFixture(lineCount int) string {
 	var body strings.Builder
-	for line := 1; line <= 260; line++ {
+	for line := 1; line <= lineCount; line++ {
 		if line > 1 {
 			body.WriteByte('\n')
 		}
 		fmt.Fprintf(&body, "line-%03d", line)
 	}
+	return body.String()
+}
 
-	got := renderReadContent(body.String(), 1, 0, false)
-	if !strings.Contains(got, "250: line-250") {
-		t.Fatalf("read_file default output missing line 250: %q", got)
+func readRowsAndHint(records []lineprotocol.Record) ([]lineprotocol.Record, string) {
+	var rows []lineprotocol.Record
+	var hint string
+	for _, record := range records {
+		switch record.Kind {
+		case "ROW":
+			rows = append(rows, record)
+		case "HINT":
+			hint = record.Value
+		}
 	}
-	if strings.Contains(got, "251: line-251") {
-		t.Fatalf("read_file default output includes line 251: %q", got)
-	}
-	if !strings.Contains(got, `[scope=lines L1-L250 of 260 total; use pos="file:251" to continue]`) {
-		t.Fatalf("read_file continuation hint = %q, want 250-line default", got)
-	}
+	return rows, hint
 }
 
 func TestFileReadPosWithoutLineReadsFullFile(t *testing.T) {

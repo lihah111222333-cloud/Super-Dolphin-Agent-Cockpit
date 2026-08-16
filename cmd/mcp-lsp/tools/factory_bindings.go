@@ -102,7 +102,7 @@ func decodeStrictToolParams[T any](raw json.RawMessage, value *T) error {
 	if err != nil {
 		return err
 	}
-	if err := validateStrictToolFields(stripped, value); err != nil {
+	if err := validateStrictToolFields[T](stripped); err != nil {
 		return formatDecodeParamsError(err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(stripped))
@@ -118,7 +118,7 @@ func decodeStrictToolParams[T any](raw json.RawMessage, value *T) error {
 }
 
 // validateStrictToolFields 在自定义 UnmarshalJSON 前检查顶层字段，避免自定义解码吞掉未知字段。
-func validateStrictToolFields[T any](raw []byte, value *T) error {
+func validateStrictToolFields[T any](raw []byte) error {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return nil
@@ -127,7 +127,7 @@ func validateStrictToolFields[T any](raw []byte, value *T) error {
 	if err := json.Unmarshal(trimmed, &fields); err != nil {
 		return err
 	}
-	allowed := strictToolFieldSet(value)
+	allowed := strictToolFieldSet[T]()
 	for field := range fields {
 		if _, ok := allowed[field]; !ok {
 			return &strictToolUnknownFieldError{Field: field}
@@ -136,15 +136,10 @@ func validateStrictToolFields[T any](raw []byte, value *T) error {
 	return nil
 }
 
-// strictToolFieldSet 收集工具入参允许的 JSON 字段，并保留明确支持的兼容别名。
-func strictToolFieldSet[T any](value *T) map[string]struct{} {
+// strictToolFieldSet 从目标 DTO 动态收集工具入参允许的 JSON 字段。
+func strictToolFieldSet[T any]() map[string]struct{} {
 	allowed := make(map[string]struct{})
 	addStrictJSONFields(reflect.TypeFor[T](), allowed)
-	switch any(value).(type) {
-	case *grepToolInput:
-		allowed["paths"] = struct{}{}
-		allowed["file_paths"] = struct{}{}
-	}
 	return allowed
 }
 

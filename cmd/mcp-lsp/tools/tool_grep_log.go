@@ -33,7 +33,6 @@ func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, l
 	opts := search.TextSearchOptions{
 		Root:          root,
 		Roots:         roots,
-		Path:          input.Path,
 		Paths:         input.Paths,
 		Glob:          input.Glob,
 		Query:         input.Query,
@@ -71,15 +70,6 @@ func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, l
 	if len(result.Matches) > 0 {
 		return result, nil
 	}
-	if grepRuntimeFallbackWouldSearchOutsideRoots(ctx, input) {
-		err := errors.New(staleWorkspaceRootMessage())
-		pkglogger.Warn("mcp-lsp grep text_search stale workspace root", grepLogAttrs(input,
-			"root", root,
-			"roots_count", len(roots),
-			"error", err,
-		)...)
-		return search.CountedSearchResult{}, err
-	}
 	return result, nil
 }
 
@@ -115,13 +105,12 @@ func finalizeGrepResponse(input grepToolInput, resp *grepResponse) {
 	pkglogger.Info("mcp-lsp grep response ready", attrs...)
 }
 
-// grepLogAttrs 统一 grep 日志字段，避免每个阶段手写 path/query 信息。
+// grepLogAttrs 统一 grep 日志字段，避免每个阶段手写 paths/query 信息。
 func grepLogAttrs(input grepToolInput, attrs ...any) []any {
 	base := []any{
 		"tool", "grep",
 		"action", input.Action,
 		"query", input.Query,
-		"path", input.Path,
 		"paths_count", len(input.Paths),
 		"glob", input.Glob,
 		"regex", input.Regex,

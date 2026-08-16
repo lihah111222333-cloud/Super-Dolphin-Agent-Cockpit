@@ -69,7 +69,7 @@ func testGrepPreLimitTotal(t *testing.T) {
 	}
 	handler := NewGrepHandler(Config{WorkspaceRoot: root})
 	result, err := callPlainTextContractHandler(t, handler, root, grepToolInput{
-		Action: "text_search", Query: "needle", Path: root, Glob: "*.txt", MaxResults: 5,
+		Action: "text_search", Query: "needle", Paths: []string{root}, Glob: "*.txt", MaxResults: 5,
 	})
 	if err != nil {
 		t.Fatalf("real grep handler error = %v", err)
@@ -84,7 +84,7 @@ func testInvalidRegexTypedError(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	handler := NewGrepHandler(Config{WorkspaceRoot: root})
-	raw := mustJSONForPlainTextContract(t, grepToolInput{Action: "text_search", Query: "[", Path: root, Regex: true})
+	raw := mustJSONForPlainTextContract(t, grepToolInput{Action: "text_search", Query: "[", Paths: []string{root}, Regex: true})
 	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), raw)
 	assertCodedToolError(t, err, "invalid_params", false)
 }

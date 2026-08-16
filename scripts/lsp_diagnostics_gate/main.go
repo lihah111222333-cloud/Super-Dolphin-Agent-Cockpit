@@ -580,12 +580,12 @@ func (c *peerClient) diagnostics(ctx context.Context, root, file string) error {
 
 // parseDiagnosticsTextResult 严格解析单个 diagnostics 文本结果。
 func parseDiagnosticsTextResult(result toolResult) (diagnosticsTextResult, error) {
-	if len(result.Content) != 1 || strings.TrimSpace(result.Content[0].Text) == "" {
-		return diagnosticsTextResult{}, errors.New("expected exactly one non-empty text content item")
-	}
-	doc, err := lineprotocol.Parse(result.Content[0].Text)
+	doc, err := parseToolLineProtocol(result)
 	if err != nil {
 		return diagnosticsTextResult{}, err
+	}
+	if doc.Error != nil {
+		return diagnosticsTextResult{}, errors.New("expected OK header")
 	}
 	if doc.Header.Unit != "diagnostic" {
 		return diagnosticsTextResult{}, fmt.Errorf("unexpected diagnostics unit %q", doc.Header.Unit)
@@ -594,6 +594,14 @@ func parseDiagnosticsTextResult(result toolResult) (diagnosticsTextResult, error
 		return diagnosticsTextResult{}, errors.New("diagnostics text is truncated")
 	}
 	return parseDiagnosticRecords(doc)
+}
+
+// parseToolLineProtocol 是 diagnostics 成功和错误响应的唯一语法入口。
+func parseToolLineProtocol(result toolResult) (lineprotocol.Document, error) {
+	if len(result.Content) != 1 || strings.TrimSpace(result.Content[0].Text) == "" {
+		return lineprotocol.Document{}, errors.New("expected exactly one non-empty text content item")
+	}
+	return lineprotocol.Parse(result.Content[0].Text)
 }
 
 // parseDiagnosticRecords 校验 diagnostics 记录类型和行数。
@@ -646,14 +654,29 @@ func validateDiagnosticRow(fields map[string]string) error {
 	return nil
 }
 
-// diagnosticsToolError 按 peer 的显式元数据区分临时错误和永久错误。
+// diagnosticsToolError 只信严格 ERROR header 的 retryable 字段。
 func diagnosticsToolError(result toolResult) error {
-	text := toolText(result)
-	err := fmt.Errorf("tool error: %s", text)
-	if strings.Contains(text, "retryable=1") {
+	doc, parseErr := parseToolLineProtocol(result)
+	if parseErr != nil {
+		return fmt.Errorf("malformed diagnostics ERROR line protocol: %w", parseErr)
+	}
+	if doc.Error == nil {
+		return errors.New("expected ERROR header")
+	}
+	err := fmt.Errorf("tool error %s: %s", doc.Error.Code, firstRecordValue(doc.Records, "MESSAGE"))
+	if doc.Error.Retryable {
 		return &retryableDiagnosticsError{err: err}
 	}
 	return err
+}
+
+func firstRecordValue(records []lineprotocol.Record, kind string) string {
+	for _, record := range records {
+		if record.Kind == kind {
+			return record.Value
+		}
+	}
+	return ""
 }
 
 func validateDiagnosticsMeta(message string) error {

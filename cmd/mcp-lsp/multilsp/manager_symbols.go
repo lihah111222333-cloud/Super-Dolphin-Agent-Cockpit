@@ -597,6 +597,22 @@ func (m *managerCompletion) Completion(ctx context.Context, uri string, position
 	)
 }
 
+// CompletionAttribution 从同一文档选择链读取实际语言和 initialize serverInfo。
+func (m *managerCompletion) CompletionAttribution(ctx context.Context, uri string) (lspmanager.CompletionAttribution, error) {
+	client, ref, err := m.documentClient(ctx, uri)
+	if err != nil {
+		return lspmanager.CompletionAttribution{}, err
+	}
+	attribution := lspmanager.CompletionAttribution{LanguageID: strings.TrimSpace(ref.languageID)}
+	if client == nil {
+		return attribution, nil
+	}
+	attrs := lspClientAttribution(client)
+	attribution.ServerName, _ = attrs["server_name"].(string)
+	attribution.ServerVersion, _ = attrs["server_version"].(string)
+	return attribution, nil
+}
+
 // Rename 请求语言服务器生成跨文件 workspace edit。
 // 不支持 rename 时返回能力错误，调用方不能自行拼接替换以免破坏语义边界。
 func (m *managerEdit) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {

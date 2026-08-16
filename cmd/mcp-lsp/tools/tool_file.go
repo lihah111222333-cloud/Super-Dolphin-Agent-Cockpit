@@ -91,6 +91,8 @@ type batchReadItem struct {
 	Success  bool   `json:"success"`
 	Content  string `json:"content,omitempty"`
 	Error    string `json:"error,omitempty"`
+
+	lineTotal int
 }
 
 // batchReadMeta 汇总批量读取的预算裁剪信息。
@@ -109,8 +111,8 @@ type batchReadResponse struct {
 	Total     int             `json:"total"`
 	Showing   int             `json:"showing"`
 	Truncated bool            `json:"truncated,omitempty"`
-	Hint      string          `json:"hint,omitempty"`
 	Meta      batchReadMeta   `json:"meta"`
+	rowTotal  int
 }
 
 // indexedBatchItem 保留批量读取原始顺序，避免 goroutine 返回顺序影响输出。
@@ -409,7 +411,7 @@ func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (strin
 // renderFunctionOrFallback tries to extract the enclosing function for
 // req.line via DocumentSymbol. On any failure (no LSP, no symbol
 // provider, line outside any function) we fall back to a default
-// line window and explain the reason in the footer so the model knows
+// line window and explain the reason in ATTR so the model knows
 // whether retrying with a different line could help.
 func (h handlerBase) renderFunctionOrFallback(ctx context.Context, path search.PathInfo, content string, req readFileRequest, budget int) string {
 	reason, ok := h.tryFunctionWindow(ctx, path, content, req)
@@ -420,7 +422,7 @@ func (h handlerBase) renderFunctionOrFallback(ctx context.Context, path search.P
 }
 
 // tryFunctionWindow 尝试用 DocumentSymbol 抽取包含目标行的完整函数。
-// 失败时返回可展示在 footer 的原因，让调用方知道是 LSP 不可用、无符号还是行号不在函数内。
+// 失败时返回可写入 ATTR.reason 的原因，让调用方知道是 LSP 不可用、无符号还是行号不在函数内。
 func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo, content string, req readFileRequest) (string, bool) {
 	if h.registry == nil {
 		return lineWindowReasonNoLSP, false
@@ -438,7 +440,7 @@ func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo
 		return lineWindowReasonOutsideFunction, false
 	}
 	name := enclosingFunctionName(symbols, req.line-1)
-	return renderFunctionWindow(content, name, start, end, req.limit), true
+	return renderFunctionWindow(path.DisplayPath, content, name, start, end, req.limit), true
 }
 
 // readFileDocumentSymbols 优先使用 best-effort symbol 查询，避免慢诊断阻塞 read_file。
@@ -453,6 +455,9 @@ func readFileDocumentSymbols(ctx context.Context, manager lspmanager.Manager, ur
 // 批量路径只返回行窗口，避免每个文件都触发 LSP 函数解析导致响应不可预测。
 func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchReadResponse, error) {
 	paths, meta := trimBatchPaths(req.rawPaths)
+	if meta.Dropped > 0 {
+		return batchReadResponse{}, fmt.Errorf("read_file batch exceeds maximum of %d files", lspReadFileBatchMax)
+	}
 	results := make(chan indexedBatchItem, len(paths))
 	var wg sync.WaitGroup
 	for index, rawPath := range paths {
@@ -477,6 +482,7 @@ func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchR
 			}
 			item.FilePath = file.Path.DisplayPath
 			item.Success = true
+			item.lineTotal = len(protocolSourceLines(file.Content))
 			// 批量读取固定走全文行窗口，不触发逐文件函数符号查询，避免多文件响应因 LSP 状态而抖动。
 			// 需要精确定位时由单文件 pos="file:line" 路径承担。
 			batchReq := readFileRequest{rawPath: targetPath, limit: req.limit}
@@ -518,6 +524,7 @@ func buildBatchReadPayload(items []indexedBatchItem, meta batchReadMeta) (batchR
 	var errs []error
 	for _, indexed := range items {
 		resp.Data = append(resp.Data, indexed.Item)
+		resp.rowTotal += indexed.Item.lineTotal
 		if indexed.Item.Error != "" {
 			errs = append(errs, fmt.Errorf("%s: %s", indexed.Item.FilePath, indexed.Item.Error))
 		}
@@ -556,23 +563,10 @@ func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 	}
 
 	resp.Truncated = true
-	for _, budget := range []int{2048, 1024, 512, 256} {
-		candidate := cloneBatchResponse(resp)
-		applyBatchContentLimit(&candidate, budget)
-		finalizeBatchMeta(&candidate)
-		if fitsBatchPayload(candidate) {
-			candidate.Meta.Message = appendMessage(candidate.Meta.Message, fmt.Sprintf("batch payload truncated to %d bytes", lspReadFileBatchPayloadMax))
-			return candidate
-		}
-		resp = candidate
-	}
-	for len(resp.Data) > 1 && !fitsBatchPayload(resp) {
+	for len(resp.Data) > 0 && !fitsBatchPayload(resp) {
 		resp.Data = resp.Data[:len(resp.Data)-1]
 		resp.Meta.Dropped++
 		finalizeBatchMeta(&resp)
-	}
-	if !fitsBatchPayload(resp) && len(resp.Data) == 1 {
-		resp.Data[0].Content = truncateText(resp.Data[0].Content, 128)
 	}
 	finalizeBatchMeta(&resp)
 	resp.Meta.Message = appendMessage(resp.Meta.Message, fmt.Sprintf("batch payload truncated to %d bytes", lspReadFileBatchPayloadMax))
@@ -591,26 +585,6 @@ func finalizeBatchMeta(resp *batchReadResponse) {
 			continue
 		}
 		resp.Meta.ErrorCount++
-	}
-	if resp.Truncated && resp.Hint == "" {
-		resp.Hint = batchReadTruncatedHint
-	}
-}
-
-// cloneBatchResponse 浅拷贝响应并复制 Data 切片，便于尝试不同截断预算。
-func cloneBatchResponse(resp batchReadResponse) batchReadResponse {
-	clone := resp
-	clone.Data = append([]batchReadItem(nil), resp.Data...)
-	return clone
-}
-
-// applyBatchContentLimit 对成功读取项逐个裁剪正文。
-func applyBatchContentLimit(resp *batchReadResponse, maxChars int) {
-	for index := range resp.Data {
-		if !resp.Data[index].Success {
-			continue
-		}
-		resp.Data[index].Content = truncateText(resp.Data[index].Content, maxChars)
 	}
 }
 
@@ -651,17 +625,6 @@ func clampOffset(offset, total int) int {
 	return offset
 }
 
-// truncateText 以字符数量裁剪文本，并保留省略号。
-func truncateText(text string, maxChars int) string {
-	if maxChars <= 0 || len(text) <= maxChars {
-		return text
-	}
-	if maxChars <= 3 {
-		return text[:maxChars]
-	}
-	return text[:maxChars-3] + "..."
-}
-
 // appendMessage 合并批量响应中的附加说明。
 func appendMessage(current, extra string) string {
 	switch {
@@ -695,30 +658,7 @@ func (r openFileResult) ToPlainText() string {
 	return fmt.Sprintf("Failed to open file: %s. Message: %s", r.FilePath, r.Message)
 }
 
-// ToPlainText 将批量读取结果渲染成带文件分隔符的文本。
+// ToPlainText 将批量读取结果扁平为严格行协议。
 func (r batchReadResponse) ToPlainText() string {
-	var sb strings.Builder
-	successCount := r.Showing - r.Meta.ErrorCount
-	successCount = max(successCount, 0)
-	fmt.Fprintf(&sb, "Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Showing, r.Total, successCount)
-	if r.Meta.Message != "" {
-		fmt.Fprintf(&sb, "Message: %s\n", r.Meta.Message)
-	}
-	sb.WriteString("\n")
-
-	for _, item := range r.Data {
-		fmt.Fprintf(&sb, "===== %s =====\n", item.FilePath)
-		if item.Success {
-			sb.WriteString(item.Content)
-		} else {
-			fmt.Fprintf(&sb, "Error: %s\n", item.Error)
-		}
-		fmt.Fprintf(&sb, "\n===== END %s =====\n\n", item.FilePath)
-	}
-
-	if r.Truncated || r.Meta.Dropped > 0 {
-		sb.WriteString("Warning: batch payload was truncated due to batch limits.\n")
-	}
-
-	return strings.TrimSpace(sb.String())
+	return renderBatchReadResponse(r)
 }

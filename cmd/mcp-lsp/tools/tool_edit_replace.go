@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	editpkg "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/edit"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
@@ -79,50 +81,44 @@ func (r replaceRangeResult) ToPlainText() string {
 	return r.editEnvelope.ToPlainText()
 }
 
-// ToPlainText 将 replace_range 失败结果渲染成可继续操作的文本。
-// 失败时优先给出 hint、候选位置和下一步 read_file 命令，不直接倾倒整文件。
+// ToPlainText 将 replace_range 失败结果渲染为严格错误行协议。
 func (r replaceRangeFailure) ToPlainText() string {
-	var sb strings.Builder
-	header := "Tool error in \"patch_edit\""
-	if r.Code != "" {
-		fmt.Fprintf(&sb, "%s [%s]: %s\n", header, r.Code, strings.TrimSpace(r.Error))
-	} else {
-		fmt.Fprintf(&sb, "%s: %s\n", header, strings.TrimSpace(r.Error))
+	lines := []string{
+		lineprotocol.ErrorLine(strings.TrimSpace(r.Code), r.Retryable),
+		lineprotocol.TextRecord("MESSAGE", strings.TrimSpace(r.Error)),
 	}
 	if hint := strings.TrimSpace(r.Hint); hint != "" {
-		fmt.Fprintf(&sb, "Hint: %s\n", hint)
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
 	}
-	if r.Retryable {
-		sb.WriteString("Retryable: yes\n")
+	if hint := replaceFailureNextHint(r); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
 	}
-	appendCandidateLocations(&sb, r.Meta)
-	appendFailureNextStep(&sb, r)
-	return strings.TrimSpace(sb.String())
-}
-
-func appendCandidateLocations(sb *strings.Builder, meta map[string]any) {
-	cands, ok := meta["candidate_locations"].([]string)
-	if !ok || len(cands) == 0 {
-		return
-	}
-	sb.WriteString("Candidate locations:\n")
-	for _, entry := range cands {
-		fmt.Fprintf(sb, "  - %s\n", entry)
-	}
-}
-
-// appendFailureNextStep 给模型返回可直接复用的 file.read_file 下一步。
-// 这里不猜具体偏移，patch 本身已有期望上下文；只给文件和行数，让调用方自行缩小窗口。
-func appendFailureNextStep(sb *strings.Builder, r replaceRangeFailure) {
-	if r.FilePath == "" {
-		return
+	fields := []lineprotocol.Field{{Key: "tool", Value: "patch_edit"}}
+	if strings.TrimSpace(r.FilePath) != "" {
+		fields = append(fields, lineprotocol.Field{Key: "file", Value: strings.TrimSpace(r.FilePath)})
 	}
 	if r.LineCount > 0 {
-		fmt.Fprintf(sb, "next: file action=read_file pos=%s:1 limit=%d (file has %d lines; narrow the window with a smaller limit)\n",
-			r.FilePath, minInt(r.LineCount, 200), r.LineCount)
-		return
+		fields = append(fields, lineprotocol.Field{Key: "line_count", Value: strconv.Itoa(r.LineCount)})
 	}
-	fmt.Fprintf(sb, "next: file action=read_file pos=%s\n", r.FilePath)
+	lines = append(lines, lineprotocol.FieldsRecord("ATTR", fields...))
+	if candidates, ok := r.Meta["candidate_locations"].([]string); ok {
+		for _, candidate := range candidates {
+			lines = append(lines, lineprotocol.FieldsRecord("ATTR",
+				lineprotocol.Field{Key: "candidate_location", Value: candidate}))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func replaceFailureNextHint(r replaceRangeFailure) string {
+	if r.FilePath == "" {
+		return ""
+	}
+	if r.LineCount > 0 {
+		return fmt.Sprintf("next: file action=read_file pos=%s:1 limit=%d (file has %d lines; narrow the window with a smaller limit)",
+			r.FilePath, minInt(r.LineCount, 200), r.LineCount)
+	}
+	return fmt.Sprintf("next: file action=read_file pos=%s", r.FilePath)
 }
 
 // handleReplaceRange 执行 patch 风格文本替换，并在写入后同步 LSP。
