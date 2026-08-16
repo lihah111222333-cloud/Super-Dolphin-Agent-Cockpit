@@ -489,6 +489,10 @@ func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {
 	if _, ok := meta["count"]; ok {
 		t.Fatalf("diagnostics meta contains legacy count: %#v", meta)
 	}
+	text := result.(diagnosticsResponse).ToPlainText()
+	if !strings.HasPrefix(text, "OK total=2 showing=2 truncated=0 unit=diagnostic\n") || strings.Count(text, "\nROW\t") != 2 {
+		t.Fatalf("diagnostics text protocol = %q, want exact header and two ROW records", text)
+	}
 }
 
 func TestDiagnosticsRendersTypeScriptDeprecatedSuggestionsAsHint(t *testing.T) {

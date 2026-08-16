@@ -107,7 +107,6 @@ func run(stdout *os.File, logRuntime *pkglogger.Runtime) error {
 			// flatten 会把 runner 切片拆成独立成员，确保 fx 生命周期统一启动和停止。
 			fx.Annotate(provideLSPBackgroundRunners, fx.ResultTags(`group:"runners,flatten"`)),
 		),
-		fx.Invoke(func() { common.RegisterToolResultPlainTextRenderer(tools.FormatToPlainText) }),
 		fx.Invoke(bindRuntime),
 	)
 	if err := app.Err(); err != nil {
@@ -132,7 +131,12 @@ func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Run
 	transport := common.NewStdioTransport(os.Stdin, stdout)
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
 		defs: toolDefinitions(handlers),
-	}, common.WithLoggerRuntime(logRuntime)), nil
+	}, common.WithLoggerRuntime(logRuntime), common.WithToolCallResultPolicy(lspToolCallResultPolicy())), nil
+}
+
+// lspToolCallResultPolicy 返回 mcp-lsp 专属的严格纯文本结果策略。
+func lspToolCallResultPolicy() common.ToolCallResultPolicy {
+	return common.NewTextOnlyToolCallResultPolicy(tools.FormatToPlainText)
 }
 
 // newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。
@@ -341,26 +345,9 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 	return wrapScopedToolResult(result)
 }
 
-// wrapScopedToolResult 将工具结果序列化为含 content/structuredContent/isError 的 MCP 响应格式。
+// wrapScopedToolResult 使用与 direct/HTTP 相同的 common builder 生成纯文本 MCP 响应。
 func wrapScopedToolResult(result any) (any, error) {
-	raw, err := json.Marshal(result)
-	if err != nil {
-		return nil, err
-	}
-	plainText, err := common.ResolveToolResultText(result, raw)
-	if err != nil {
-		return nil, err
-	}
-	structuredContent, err := common.StructuredContentFromRaw(raw)
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]any{
-		"content":           []map[string]string{{"type": "text", "text": plainText}},
-		"structuredContent": structuredContent,
-		"isError":           common.ToolResultIsError(result),
-	}, nil
+	return common.BuildToolCallResultWithPolicy(result, lspToolCallResultPolicy())
 }
 
 // marshalInputSchema 将工具输入 schema 序列化为 JSON，空 schema 返回 "{}"。

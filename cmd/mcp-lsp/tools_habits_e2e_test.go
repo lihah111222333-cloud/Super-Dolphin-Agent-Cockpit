@@ -29,10 +29,8 @@ type dummyManager struct {
 
 // TestToolsHabitsE2E_Inspect validates that the refactored unified 'pos' parameters
 // and plain-text output wrappers (wrapScopedToolResult) match the optimal
-// model usage habits by returning clean text and preserved raw GUI content.
+// model usage habits by returning one clean text result.
 func TestToolsHabitsE2E_Inspect(t *testing.T) {
-	registerPlainTextRendererForTest(t)
-
 	root := canonicalToolTestRoot(t, t.TempDir())
 	filePath := filepath.Join(root, "sample.go")
 	content := "package main\n\nfunc main() {\n\t// test target\n}\n"
@@ -82,7 +80,7 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	wrapped, ok := res.(map[string]any)
 	require.True(t, ok)
 
-	// 1. Verify LLM-facing format (optimally formatted as plain-text/markdown, not raw JSON!)
+	// Verify the single model-facing text representation.
 	contentList, ok := wrapped["content"].([]map[string]string)
 	require.True(t, ok)
 	textOutput := contentList[0]["text"]
@@ -90,21 +88,11 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	require.Contains(t, textOutput, filepath.ToSlash(filePath)+":3:6")
 	require.NotContains(t, textOutput, `[{"uri":`)
 
-	// 2. Verify GUI-facing structured JSON follows the shared MCP object contract.
-	structuredContent, ok := wrapped["structuredContent"].(json.RawMessage)
-	require.True(t, ok)
-	var structuredLocations struct {
-		Items []map[string]any `json:"items"`
-		Total int              `json:"total"`
-	}
-	err = json.Unmarshal(structuredContent, &structuredLocations)
-	require.NoError(t, err)
-	require.Equal(t, 1, structuredLocations.Total)
-	require.Len(t, structuredLocations.Items, 1)
-	require.Equal(t, locationURI, structuredLocations.Items[0]["file"])
+	_, hasStructuredContent := wrapped["structuredContent"]
+	require.False(t, hasStructuredContent)
 }
 
-func TestWrapScopedToolResultWrapsStringStructuredContent(t *testing.T) {
+func TestWrapScopedToolResultReturnsPlainTextContent(t *testing.T) {
 	const fileText = " 1: package main\n"
 	root := canonicalToolTestRoot(t, t.TempDir())
 	defs := []toolDefinition{{
@@ -126,13 +114,11 @@ func TestWrapScopedToolResultWrapsStringStructuredContent(t *testing.T) {
 
 	wrapped, ok := res.(map[string]any)
 	require.True(t, ok)
-	structuredContent, ok := wrapped["structuredContent"].(json.RawMessage)
+	_, hasStructuredContent := wrapped["structuredContent"]
+	require.False(t, hasStructuredContent)
+	contentList, ok := wrapped["content"].([]map[string]string)
 	require.True(t, ok)
-	var payload struct {
-		Value string `json:"value"`
-	}
-	require.NoError(t, json.Unmarshal(structuredContent, &payload))
-	require.Equal(t, fileText, payload.Value)
+	require.Equal(t, fileText, contentList[0]["text"])
 }
 
 // TestToolsHabitsE2E_FailFast verifies the fail-fast error behavior

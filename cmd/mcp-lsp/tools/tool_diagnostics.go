@@ -14,6 +14,7 @@ import (
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 const maxReactiveBootstrap = 30
@@ -691,54 +692,43 @@ func diagnosticSeverity(diag protocol.Diagnostic) string {
 	return diag.Severity.String()
 }
 
-// ToPlainText 渲染为纯文本。
+// ToPlainText 按稳定行协议渲染 diagnostics producer，供 gate 和模型共用同一文本真值。
 func (r diagnosticsResponse) ToPlainText() string {
 	if !r.Success {
-		return "Diagnostics retrieval failed."
+		return "ERROR code=diagnostics_failed retryable=0\n" + lineprotocol.TextRecord("MESSAGE", "diagnostics retrieval failed")
 	}
-	if len(r.Data) == 0 {
-		text := "No diagnostics found."
-		if message := strings.TrimSpace(r.Meta.Message); message != "" {
-			text += "\n" + message
-		}
-		return text
-	}
-
-	var sb strings.Builder
-	sb.WriteString("LSP Diagnostics:\n")
-	if r.Meta.Message != "" {
-		fmt.Fprintf(&sb, "Message: %s\n", r.Meta.Message)
+	lines := []string{lineprotocol.HeaderLine(r.Total, r.Showing, r.Truncated, "diagnostic")}
+	if message := strings.TrimSpace(r.Meta.Message); message != "" {
+		lines = append(lines, lineprotocol.TextRecord("MESSAGE", message))
 	}
 	for _, table := range r.Data {
 		for _, row := range table.Rows {
-			r.formatDiagnosticRow(&sb, table.File, row)
+			if fields := diagnosticTextFields(table.File, row); fields != nil {
+				lines = append(lines, lineprotocol.FieldsRecord("ROW", fields...))
+			}
 		}
 	}
-
-	return strings.TrimSpace(sb.String())
+	if hint := strings.TrimSpace(r.Hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	return strings.Join(lines, "\n")
 }
 
-// formatDiagnosticRow 格式化诊断row。
-func (r diagnosticsResponse) formatDiagnosticRow(sb *strings.Builder, file string, row []any) {
+func diagnosticTextFields(file string, row []any) []lineprotocol.Field {
 	if len(row) < 4 {
-		return
+		return nil
 	}
-	lineVal := numericRowValue(row[0])
-	colVal := numericRowValue(row[1])
-	severity, _ := row[2].(string)
-	msg, _ := row[3].(string)
-
-	source := ""
-	if len(row) >= 5 {
-		if src, ok := row[4].(string); ok && src != "" {
-			source = fmt.Sprintf(" [%s]", src)
+	fields := []lineprotocol.Field{
+		{Key: "file", Value: file},
+		{Key: "line", Value: fmt.Sprint(numericRowValue(row[0]))},
+		{Key: "col", Value: fmt.Sprint(numericRowValue(row[1]))},
+		{Key: "severity", Value: fmt.Sprint(row[2])},
+		{Key: "message", Value: fmt.Sprint(row[3])},
+	}
+	for index, key := range []string{"source", "code"} {
+		if position := index + 4; position < len(row) && fmt.Sprint(row[position]) != "" {
+			fields = append(fields, lineprotocol.Field{Key: key, Value: fmt.Sprint(row[position])})
 		}
 	}
-	codeVal := ""
-	if len(row) >= 6 {
-		if c, ok := row[5].(string); ok && c != "" {
-			codeVal = fmt.Sprintf(" (%s)", c)
-		}
-	}
-	fmt.Fprintf(sb, "%s:%d:%d: [%s] %s%s%s\n", file, lineVal, colVal, severity, msg, source, codeVal)
+	return fields
 }

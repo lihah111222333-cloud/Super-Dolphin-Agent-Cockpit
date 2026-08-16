@@ -134,6 +134,7 @@ type Server struct {
 	transport           *StdioTransport
 	tools               ToolProvider
 	toolErrorClassifier ToolErrorClassifier
+	toolResultPolicy    ToolCallResultPolicy
 	payloadLogger       toolPayloadLogger
 	ready               chan struct{} // closed when Run enters its read loop
 	idleTimeout         time.Duration
@@ -163,6 +164,11 @@ func WithToolErrorClassifier(classifier ToolErrorClassifier) ServerOption {
 	return func(s *Server) {
 		s.toolErrorClassifier = classifier
 	}
+}
+
+// WithToolCallResultPolicy 为当前 stdio server 选择显式 tools/call 结果策略。
+func WithToolCallResultPolicy(policy ToolCallResultPolicy) ServerOption {
+	return func(s *Server) { s.toolResultPolicy = policy }
 }
 
 // WithIdleTimeout 配置 stdio server 在没有协议消息时主动退出。
@@ -726,7 +732,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 			value = NewToolErrorEnvelopeWithClassifier(params.Name, "", err, nil, s.toolErrorClassifier)
 		}
 	}
-	resp, raw, err := toolCallResultResponse(req.ID, value)
+	resp, raw, err := toolCallResultResponseWithPolicy(req.ID, value, s.toolResultPolicy)
 	if err != nil {
 		resultPayload := s.payloadLogger.logResult("stdio", s.name, params.Name, req.ID, scope, nil, err)
 		attrs := []any{"server", s.name, "tool", params.Name, "error", err}
@@ -848,11 +854,15 @@ func callToolSafely(ctx context.Context, provider ToolProvider, name string, arg
 
 // toolCallResultResponse 同时生成结构化 MCP result 和原始 JSON，用于响应与载荷日志复用。
 func toolCallResultResponse(id json.RawMessage, value any) (*jsonRPCResponse, []byte, error) {
+	return toolCallResultResponseWithPolicy(id, value, ToolCallResultPolicy{})
+}
+
+func toolCallResultResponseWithPolicy(id json.RawMessage, value any, policy ToolCallResultPolicy) (*jsonRPCResponse, []byte, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil, nil, err
 	}
-	envelope, err := BuildToolCallResult(value)
+	envelope, err := BuildToolCallResultWithPolicy(value, policy)
 	if err != nil {
 		return nil, nil, err
 	}

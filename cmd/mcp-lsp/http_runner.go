@@ -42,7 +42,7 @@ func newHTTPRunner(handlers ToolHandlers, logRuntime *pkglogger.Runtime) (platfo
 	return &httpRunner{
 		bearerToken: bearerToken,
 		startServer: func(ctx context.Context) (string, func(context.Context) error, error) {
-			srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, tools, common.WithBearerToken(bearerToken), common.WithHTTPLoggerRuntime(logRuntime))
+			srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, tools, common.WithBearerToken(bearerToken), common.WithHTTPLoggerRuntime(logRuntime), common.WithHTTPToolCallResultPolicy(lspToolCallResultPolicy()))
 			addr, err := srv.Start(ctx, "127.0.0.1:0")
 			return addr, srv.Stop, err
 		},

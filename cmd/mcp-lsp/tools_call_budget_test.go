@@ -49,7 +49,7 @@ func TestDirectToolsCallGrepContentWithinSixteenKiBBudget(t *testing.T) {
 		Manifest: ToolManifest{Name: "grep"},
 		Handler:  ToolHandler(lsptools.NewGrepHandler(lsptools.Config{WorkspaceRoot: root})),
 	}}
-	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs}, common.WithToolCallResultPolicy(lspToolCallResultPolicy()))
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -61,20 +61,11 @@ func TestDirectToolsCallGrepContentWithinSixteenKiBBudget(t *testing.T) {
 	if got := len(response.Result.Content[0].Text); got > budget {
 		t.Fatalf("content text = %d bytes, want <= %d", got, budget)
 	}
-	if got := len(response.Result.StructuredContent); got > budget {
-		t.Fatalf("structuredContent = %d bytes, want <= %d", got, budget)
+	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
+		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
 	}
 	if !strings.Contains(response.Result.Content[0].Text, "Warning: results were truncated") {
 		t.Fatalf("content text missing truncation warning: %s", response.Result.Content[0].Text)
-	}
-	var payload struct {
-		DroppedForPayload int `json:"dropped_for_payload"`
-	}
-	if err := json.Unmarshal(response.Result.StructuredContent, &payload); err != nil {
-		t.Fatalf("unmarshal structuredContent: %v; raw=%s", err, response.Result.StructuredContent)
-	}
-	if payload.DroppedForPayload == 0 {
-		t.Fatalf("direct tools/call grep did not drop rows; structuredContent=%s", response.Result.StructuredContent)
 	}
 }
 
@@ -96,21 +87,10 @@ func TestDirectToolsCallGrepSingleTSVFileHonorsGlob(t *testing.T) {
 		Handler:  ToolHandler(lsptools.NewGrepHandler(lsptools.Config{WorkspaceRoot: root})),
 	}}
 	response := runDirectToolCallForPlainText(t, request, defs)
-	var payload struct {
-		Data    map[string]struct{} `json:"data"`
-		Total   int                 `json:"total"`
-		Showing int                 `json:"showing"`
+	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
+		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
 	}
-	if err := json.Unmarshal(response.Result.StructuredContent, &payload); err != nil {
-		t.Fatalf("unmarshal structuredContent: %v; raw=%s", err, response.Result.StructuredContent)
-	}
-	if payload.Total != 1 || payload.Showing != 1 {
-		t.Fatalf("grep totals = total:%d showing:%d, want single TSV match", payload.Total, payload.Showing)
-	}
-	if _, ok := payload.Data[target]; !ok {
-		t.Fatalf("grep data = %#v, want match for %s", payload.Data, target)
-	}
-	if !strings.Contains(response.Result.Content[0].Text, "cmd/mcp-orch/main.go") {
+	if text := response.Result.Content[0].Text; !strings.Contains(text, filepath.ToSlash(target)) || !strings.Contains(text, "cmd/mcp-orch/main.go") {
 		t.Fatalf("content text = %q, want TSV match", response.Result.Content[0].Text)
 	}
 }

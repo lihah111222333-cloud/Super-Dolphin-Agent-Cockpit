@@ -2486,21 +2486,6 @@
         "max_struct_fields": 15,
         "max_struct_methods": 2
       },
-      "internal/mcpserver/common/tool_result.go": {
-        "lines": 79,
-        "max_func_len": 27,
-        "max_nesting": 2,
-        "max_complexity": 9,
-        "max_params": 2,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 1,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 1
-      },
       "internal/module/cron/scheduler.go": {
         "lines": 359,
         "max_func_len": 26,

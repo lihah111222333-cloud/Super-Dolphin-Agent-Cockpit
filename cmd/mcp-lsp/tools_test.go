@@ -275,7 +275,7 @@ func TestHandleScopedToolsCallUsesTrustedScope(t *testing.T) {
 			if !json.Valid(args) {
 				t.Fatalf("args is not valid json: %s", args)
 			}
-			return map[string]any{"ok": true}, nil
+			return "trusted scope validated", nil
 		},
 	}}
 	params := json.RawMessage(`{"name":"file","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"agent-1","_threadId":"thread-1","_callId":"call-1","_cwd":"/trusted/lsp"}`)
@@ -284,9 +284,8 @@ func TestHandleScopedToolsCallUsesTrustedScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleScopedToolsCall() error = %v", err)
 	}
-	payload, ok := result.(map[string]any)
-	if !ok || payload["structuredContent"] == nil {
-		t.Fatalf("handleScopedToolsCall() result = %#v, want structured content", result)
+	if text := requirePlainTextToolResult(t, result, false); text != "trusted scope validated" {
+		t.Fatalf("content text = %q, want trusted scope confirmation", text)
 	}
 }
 
@@ -312,7 +311,7 @@ func TestHandleScopedToolsCallSetsIsErrorForToolEnvelope(t *testing.T) {
 	}
 }
 
-func TestHandleScopedToolsCallPreservesStructuredErrorResult(t *testing.T) {
+func TestHandleScopedToolsCallReturnsPlainTextAmbiguousPatchError(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "dup.txt")
 	if err := os.WriteFile(target, []byte("same\nsame\n"), 0o600); err != nil {
@@ -339,16 +338,10 @@ func TestHandleScopedToolsCallPreservesStructuredErrorResult(t *testing.T) {
 
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
 	require.NoError(t, err)
-	payload, ok := result.(map[string]any)
-	require.Truef(t, ok, "handleScopedToolsCall result = %T, want map", result)
-	require.Equal(t, true, payload["isError"])
-	contentList, ok := payload["content"].([]map[string]string)
-	require.True(t, ok)
-	require.Contains(t, contentList[0]["text"], "Candidate locations:")
-	require.Contains(t, contentList[0]["text"], target+":1-L1")
-	structured, ok := payload["structuredContent"].(json.RawMessage)
-	require.True(t, ok)
-	require.True(t, strings.Contains(string(structured), "candidate_locations"), "structuredContent = %s", structured)
+	text := requirePlainTextToolResult(t, result, true)
+	for _, want := range []string{"patch_ambiguous", "Hint:", "Candidate locations:", target + ":1-L1"} {
+		require.Contains(t, text, want)
+	}
 }
 
 func TestLSPOnToolsCallInjectsScopeContext(t *testing.T) {
@@ -363,7 +356,7 @@ func TestLSPOnToolsCallInjectsScopeContext(t *testing.T) {
 			assertToolScopeHasNoSessionID(t)
 			payload := decodeScopedToolCallPayload(t, args)
 			assertForgedToolArgumentsPreserved(t, scope, payload)
-			return map[string]any{"ok": true}, nil
+			return "scope context validated", nil
 		},
 	}}
 	params, err := json.Marshal(map[string]any{
@@ -386,7 +379,7 @@ func TestLSPOnToolsCallInjectsScopeContext(t *testing.T) {
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
 	require.NoError(t, err)
 	require.True(t, called, "handler was not called")
-	assertStructuredToolResult(t, result)
+	require.Equal(t, "scope context validated", requirePlainTextToolResult(t, result, false))
 }
 
 func TestHandleScopedToolsCallUsesRuntimeRootForDirectMCPClient(t *testing.T) {
@@ -406,7 +399,7 @@ func TestHandleScopedToolsCallUsesRuntimeRootForDirectMCPClient(t *testing.T) {
 			require.Equal(t, []string{trustedRoot}, scope.WorkspaceRoots)
 			payload := decodeScopedToolCallPayload(t, args)
 			require.Equal(t, "/forged/root", payload.CWD)
-			return map[string]any{"ok": true}, nil
+			return "runtime root validated", nil
 		},
 	}}
 	params := json.RawMessage(`{"name":"file","arguments":{"cwd":"/forged/root"}}`)
@@ -414,7 +407,7 @@ func TestHandleScopedToolsCallUsesRuntimeRootForDirectMCPClient(t *testing.T) {
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
 	require.NoError(t, err)
 	require.True(t, called, "handler was not called")
-	assertStructuredToolResult(t, result)
+	require.Equal(t, "runtime root validated", requirePlainTextToolResult(t, result, false))
 }
 
 type scopedToolCallPayload struct {
@@ -467,14 +460,19 @@ func assertForgedToolArgumentsPreserved(t *testing.T, scope common.ToolScope, pa
 	require.NotEqual(t, scope.CWD, payload.CWD)
 }
 
-func assertStructuredToolResult(t *testing.T, result any) {
+func requirePlainTextToolResult(t *testing.T, result any, wantError bool) string {
 	t.Helper()
 	payload, ok := result.(map[string]any)
 	require.Truef(t, ok, "tool result type = %T, want map[string]any", result)
-	raw, ok := payload["structuredContent"].(json.RawMessage)
-	require.Truef(t, ok, "structuredContent = %T, want json.RawMessage", payload["structuredContent"])
-	var object map[string]any
-	require.NoErrorf(t, json.Unmarshal(raw, &object), "structuredContent = %s, want JSON object", raw)
+	require.Equal(t, wantError, payload["isError"])
+	_, hasStructuredContent := payload["structuredContent"]
+	require.False(t, hasStructuredContent, "mcp-lsp result must omit structuredContent")
+	content, ok := payload["content"].([]map[string]string)
+	require.Truef(t, ok, "content = %T, want []map[string]string", payload["content"])
+	require.Len(t, content, 1)
+	require.Equal(t, "text", content[0]["type"])
+	require.NotEmpty(t, content[0]["text"])
+	return content[0]["text"]
 }
 
 func writeTestFile(t *testing.T, path, contents string) {

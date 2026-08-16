@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 type fakeGoInvocation struct {
@@ -107,6 +109,50 @@ func TestCollectDiagnosticsSuccessWritesNonEmptyCoverageWithOnePeer(t *testing.T
 	}
 }
 
+// TestDiagnosticsGatePlainTextProtocolContract 锁定 diagnostics gate 只消费严格的 mcp-lsp 纯文本行协议。
+func TestDiagnosticsGatePlainTextProtocolContract(t *testing.T) {
+	tests := []struct {
+		name        string
+		mode        string
+		wantErrPart string
+	}{
+		{name: "producer consumer round trip", mode: "plain-success"},
+		{name: "malformed escape fails fast", mode: "plain-malformed-escape", wantErrPart: "malformed"},
+		{name: "raw carriage return fails fast", mode: "plain-raw-cr", wantErrPart: "malformed"},
+		{name: "raw nul fails fast", mode: "plain-raw-nul", wantErrPart: "malformed"},
+		{name: "unknown header field fails fast", mode: "plain-unknown-header", wantErrPart: "unknown"},
+		{name: "missing header field fails fast", mode: "plain-missing-unit", wantErrPart: "missing"},
+		{name: "missing diagnostic row field fails fast", mode: "plain-missing-row-field", wantErrPart: "missing"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestFile(t, filepath.Join(root, "a.go"), "package a\n")
+			output := filepath.Join(root, "coverage.json")
+			err := run(context.Background(), options{
+				root: root, files: []string{"a.go"}, output: output,
+				peer:    []string{os.Args[0], "-test.run=TestDiagnosticsFakePeer", "--", tc.mode},
+				timeout: 2 * time.Second,
+			})
+			if tc.wantErrPart == "" {
+				if err != nil {
+					t.Fatalf("plain-text producer/consumer round trip: %v", err)
+				}
+				if info, statErr := os.Stat(output); statErr != nil || info.Size() == 0 {
+					t.Fatalf("coverage artifact after plain-text round trip: info=%v err=%v", info, statErr)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), tc.wantErrPart) {
+				t.Fatalf("run() error = %v, want fail-fast error containing %q", err, tc.wantErrPart)
+			}
+			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+				t.Fatalf("coverage artifact exists after malformed protocol: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestDiagnosticShardsKeepSmallSetsSingleAndSplitLargeSetsCompletely(t *testing.T) {
 	small := []string{"a.go", "b.go"}
 	if shards := diagnosticShards(small); len(shards) != 1 || strings.Join(shards[0], ",") != "a.go,b.go" {
@@ -197,7 +243,7 @@ func TestDiagnosticsWithRetryRetriesOnlyExplicitRetryableErrors(t *testing.T) {
 
 func TestDiagnosticsToolErrorRecognizesExplicitRetryableMarker(t *testing.T) {
 	var result toolResult
-	err := json.Unmarshal([]byte(`{"content":[{"text":"Tool error\nRetryable: yes"}],"isError":true}`), &result)
+	err := json.Unmarshal([]byte(`{"content":[{"text":"ERROR code=lsp_timeout retryable=1"}],"isError":true}`), &result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,34 +741,68 @@ func serveDiagnosticsFakePeer(mode string) {
 		if mode == "missing-target" && calls == 2 {
 			return
 		}
-		payload := diagnosticsFakePayload(mode, request, calls)
-		result := map[string]any{"content": []any{map[string]any{"type": "text", "text": fmt.Sprint(payload["meta"])}}, "structuredContent": payload, "isError": mode == "tool-error"}
+		text, isError := diagnosticsFakeTextResult(mode, request, calls)
+		result := map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": isError}
 		_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 	}
 }
 
-func diagnosticsFakePayload(mode string, request map[string]any, calls int) map[string]any {
-	payload := map[string]any{"success": true, "data": []any{}, "total": 0, "showing": 0, "meta": map[string]any{"message": "no diagnostics"}}
+func diagnosticsPlainTextFixture(mode string) (string, bool) {
+	switch mode {
+	case "plain-success":
+		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tno+diagnostics", true
+	case "plain-malformed-escape":
+		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tbad%ZZ", true
+	case "plain-raw-cr":
+		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tbad\rvalue", true
+	case "plain-raw-nul":
+		return "OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tbad\x00value", true
+	case "plain-unknown-header":
+		return "OK total=0 showing=0 truncated=0 unit=diagnostic extra=1\nMESSAGE\tno+diagnostics", true
+	case "plain-missing-unit":
+		return "OK total=0 showing=0 truncated=0\nMESSAGE\tno+diagnostics", true
+	case "plain-missing-row-field":
+		return "OK total=1 showing=1 truncated=0 unit=diagnostic\nROW\tfile=a.go\tseverity=Error", true
+	default:
+		return "", false
+	}
+}
+
+func diagnosticsFakeTextResult(mode string, request map[string]any, calls int) (string, bool) {
+	if text, ok := diagnosticsPlainTextFixture(mode); ok {
+		return text, false
+	}
+	message := "no diagnostics"
 	switch mode {
 	case "no-package":
-		payload["meta"] = map[string]any{"message": "no package metadata for file"}
+		message = "no package metadata for file"
 	case "partial":
-		payload["meta"] = map[string]any{"message": "partial diagnostics response"}
-	case "polluted":
-		payload["data"] = []any{map[string]any{"file": "a.go", "cols": []string{"severity", "message"}, "rows": [][]any{{"Error", "build constraints exclude all Go files in [aix,ppc64]"}}}}
-		payload["total"] = 1
-	case "hint":
-		payload["data"] = []any{map[string]any{"file": "a.go", "cols": []string{"severity", "message"}, "rows": [][]any{{"Hint", "modernize"}}}}
-		payload["total"] = 1
+		message = "partial diagnostics response"
+	case "polluted", "hint":
+		severity, detail := "Error", "build constraints exclude all Go files in [aix,ppc64]"
+		if mode == "hint" {
+			severity, detail = "Hint", "modernize"
+		}
+		return diagnosticFakeRowText(message, severity, detail), false
+	case "tool-error":
+		return "ERROR code=tool_error retryable=0\n" + lineprotocol.TextRecord("MESSAGE", "fake diagnostics failure"), true
 	}
 	if mode == "single-peer" {
 		params, _ := request["params"].(map[string]any)
 		arguments, _ := params["arguments"].(map[string]any)
 		if arguments["file_path"] == "b.go" && calls != 2 {
-			payload["meta"] = map[string]any{"message": "no package metadata: second target did not reuse peer"}
+			message = "no package metadata: second target did not reuse peer"
 		}
 	}
-	return payload
+	return lineprotocol.HeaderLine(0, 0, false, "diagnostic") + "\n" + lineprotocol.TextRecord("MESSAGE", message), false
+}
+
+func diagnosticFakeRowText(message, severity, detail string) string {
+	row := lineprotocol.FieldsRecord("ROW",
+		lineprotocol.Field{Key: "file", Value: "a.go"}, lineprotocol.Field{Key: "line", Value: "1"},
+		lineprotocol.Field{Key: "col", Value: "1"}, lineprotocol.Field{Key: "severity", Value: severity},
+		lineprotocol.Field{Key: "message", Value: detail})
+	return lineprotocol.HeaderLine(1, 1, false, "diagnostic") + "\n" + lineprotocol.TextRecord("MESSAGE", message) + "\n" + row
 }
 
 func writeTestFile(t *testing.T, path, content string) {
