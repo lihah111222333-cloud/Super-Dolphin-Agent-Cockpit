@@ -108,12 +108,12 @@ func TestXRefTypeHierarchyCorrectTypeTargetsReturnHierarchy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("type_hierarchy returned error = %v, want hierarchy", err)
 	}
-	results := requireTypeHierarchyResults(t, got)
-	if len(results) != 1 || results[0].Item.Name != "FileAuditLogger" {
-		t.Fatalf("type hierarchy results = %#v, want FileAuditLogger item", results)
+	response, ok := got.(hierarchyEdgeListResponse)
+	if !ok || response.Total != 1 || len(response.Rows) != 1 {
+		t.Fatalf("type hierarchy result = %#v, want one edge", got)
 	}
-	if len(results[0].Supertypes) != 1 || results[0].Supertypes[0].Name != "Logger" {
-		t.Fatalf("type hierarchy supertypes = %#v, want Logger", results[0].Supertypes)
+	if row := response.Rows[0]; row.Direction != "supertype" || row.Item.Name != "Logger" {
+		t.Fatalf("type hierarchy edge = %#v, want Logger supertype", row)
 	}
 }
 
@@ -145,15 +145,6 @@ func requireGroupedLocationResults(t *testing.T, got any) protocol.GroupedLocati
 	results, ok := got.(protocol.GroupedLocationResult)
 	if !ok {
 		t.Fatalf("result type = %T, want protocol.GroupedLocationResult", got)
-	}
-	return results
-}
-
-func requireTypeHierarchyResults(t *testing.T, got any) []protocol.TypeHierarchyResult {
-	t.Helper()
-	results, ok := got.([]protocol.TypeHierarchyResult)
-	if !ok {
-		t.Fatalf("result type = %T, want []protocol.TypeHierarchyResult", got)
 	}
 	return results
 }

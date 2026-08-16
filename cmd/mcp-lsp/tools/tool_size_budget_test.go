@@ -112,22 +112,27 @@ func TestCallHierarchyResultUsesCompactLocations(t *testing.T) {
 	})
 
 	got := callXRefTool(t, handler, root, filePath, xrefParams{Action: "call_hierarchy", Direction: "outgoing"})
-	payload := mustMarshalObject(t, got)
-	data, ok := payload["data"].([]any)
-	if !ok || len(data) != 1 {
-		t.Fatalf("call_hierarchy data = %#v, want one compact row", payload["data"])
+	response, ok := got.(hierarchyEdgeListResponse)
+	if !ok || response.Total != 1 || len(response.Rows) != 1 {
+		t.Fatalf("call_hierarchy result = %#v, want one compact edge", got)
 	}
-	row, ok := data[0].(map[string]any)
-	if !ok {
-		t.Fatalf("call_hierarchy row = %#v, want object", data[0])
+	row := response.Rows[0]
+	assertHierarchyEdgeLocation(t, row, "outgoing", "sample.go", 6, 7)
+	assertHierarchySingleSite(t, row, "sample.go", 8, 9)
+}
+
+func assertHierarchyEdgeLocation(t *testing.T, row hierarchyEdgeRow, direction, file string, line, col int) {
+	t.Helper()
+	if row.Direction != direction || row.Item.File != file || row.Item.Line != line || row.Item.Col != col {
+		t.Fatalf("call_hierarchy edge = %#v, want %s %s:%d:%d", row, direction, file, line, col)
 	}
-	assertCompactHierarchyItem(t, row["item"], "sample.go", 1, 1)
-	incoming := requireCompactHierarchyRows(t, row["incoming"], "incoming")
-	assertCompactHierarchyItem(t, incoming[0]["from"], "sample.go", 2, 3)
-	assertCompactHierarchyLocation(t, incoming[0]["fromRanges"], "sample.go", 4, 5)
-	outgoing := requireCompactHierarchyRows(t, row["outgoing"], "outgoing")
-	assertCompactHierarchyItem(t, outgoing[0]["to"], "sample.go", 6, 7)
-	assertCompactHierarchyLocation(t, outgoing[0]["fromRanges"], "sample.go", 8, 9)
+}
+
+func assertHierarchySingleSite(t *testing.T, row hierarchyEdgeRow, file string, line, col int) {
+	t.Helper()
+	if row.SitesTotal != 1 || len(row.Sites) != 1 || row.Sites[0].File != file || row.Sites[0].Line != line || row.Sites[0].Col != col {
+		t.Fatalf("call_hierarchy call site = %#v, want %s:%d:%d", row.Sites, file, line, col)
+	}
 }
 
 func callXRefTool(t *testing.T, handler ToolHandler, root string, filePath string, params xrefParams) any {
@@ -233,51 +238,5 @@ func makeCallHierarchyItem(name string, filePath string, line int, col int) prot
 		URI:            fileURI(filePath),
 		Range:          makeRange(line, col),
 		SelectionRange: makeRange(line, col),
-	}
-}
-
-func assertCompactHierarchyItem(t *testing.T, value any, file string, line int, col int) {
-	t.Helper()
-	item, ok := value.(map[string]any)
-	if !ok {
-		t.Fatalf("hierarchy item = %#v, want object", value)
-	}
-	if item["uri"] != nil || item["range"] != nil {
-		t.Fatalf("hierarchy item kept raw LSP fields: %#v", item)
-	}
-	if item["file"] != file ||
-		int(item["line"].(float64)) != line ||
-		int(item["col"].(float64)) != col {
-		t.Fatalf("hierarchy item location = %#v, want %s:%d:%d", item, file, line, col)
-	}
-}
-
-func requireCompactHierarchyRows(t *testing.T, value any, field string) []map[string]any {
-	t.Helper()
-	rows, ok := value.([]any)
-	if !ok || len(rows) != 1 {
-		t.Fatalf("hierarchy %s = %#v, want one row", field, value)
-	}
-	row, ok := rows[0].(map[string]any)
-	if !ok {
-		t.Fatalf("hierarchy %s row = %#v, want object", field, rows[0])
-	}
-	return []map[string]any{row}
-}
-
-func assertCompactHierarchyLocation(t *testing.T, value any, file string, line int, col int) {
-	t.Helper()
-	rows, ok := value.([]any)
-	if !ok || len(rows) != 1 {
-		t.Fatalf("hierarchy locations = %#v, want one row", value)
-	}
-	location, ok := rows[0].(map[string]any)
-	if !ok {
-		t.Fatalf("hierarchy location = %#v, want object", rows[0])
-	}
-	if location["file"] != file ||
-		int(location["line"].(float64)) != line ||
-		int(location["col"].(float64)) != col {
-		t.Fatalf("hierarchy location = %#v, want %s:%d:%d", location, file, line, col)
 	}
 }

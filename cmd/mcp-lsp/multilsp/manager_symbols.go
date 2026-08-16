@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
@@ -538,6 +539,47 @@ func (m *managerStructure) SemanticTokens(ctx context.Context, uri string) (*pro
 		},
 		fallbackDocument(&protocol.SemanticTokensResult{}),
 	)
+}
+
+// SemanticTokensLegend 从当前文档实际 client 的 initialize capability 读取 legend。
+func (m *managerStructure) SemanticTokensLegend(ctx context.Context, uri string) ([]string, []string, error) {
+	client, _, err := m.documentClient(ctx, uri)
+	if err != nil {
+		return nil, nil, err
+	}
+	if client == nil {
+		return nil, nil, errors.New("semantic tokens legend requires an initialized LSP client")
+	}
+	capabilityClient, ok := client.(ServerCapabilitiesClient)
+	if !ok {
+		return nil, nil, errors.New("initialized LSP client does not expose server capabilities")
+	}
+	return semanticTokensLegendFromProvider(capabilityClient.ServerCapabilities().SemanticTokensProvider)
+}
+
+func semanticTokensLegendFromProvider(provider any) ([]string, []string, error) {
+	raw, err := json.Marshal(provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode semantic tokens provider: %w", err)
+	}
+	var options protocol.SemanticTokensOptions
+	if err := json.Unmarshal(raw, &options); err != nil {
+		return nil, nil, fmt.Errorf("decode semantic tokens provider: %w", err)
+	}
+	if len(options.Legend.TokenTypes) == 0 {
+		return nil, nil, errors.New("semantic tokens provider is missing legend tokenTypes")
+	}
+	for index, tokenType := range options.Legend.TokenTypes {
+		if strings.TrimSpace(tokenType) == "" {
+			return nil, nil, fmt.Errorf("semantic tokens legend tokenTypes[%d] is empty", index)
+		}
+	}
+	for index, modifier := range options.Legend.TokenModifiers {
+		if strings.TrimSpace(modifier) == "" {
+			return nil, nil, fmt.Errorf("semantic tokens legend tokenModifiers[%d] is empty", index)
+		}
+	}
+	return append([]string(nil), options.Legend.TokenTypes...), append([]string(nil), options.Legend.TokenModifiers...), nil
 }
 
 // Completion 查询指定位置的补全候选。

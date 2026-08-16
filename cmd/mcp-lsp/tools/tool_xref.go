@@ -103,13 +103,13 @@ func runCallHierarchy(
 		return nil, err
 	}
 	limit := shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit)
-	total := len(results)
+	incoming, outgoing := compactCallHierarchyEdges(ctx, results)
+	rows, total := selectCallHierarchyEdges(incoming, outgoing, direction, limit)
 	hint := "next: increase max_results or narrow the target position"
-	list := format.NewCompactList(compactCallHierarchyResults(ctx, limitSlice(results, limit)), total, hint)
 	if total == 0 {
-		list.Hint = emptyCallHierarchyHint(filePath, req.LanguageID)
+		hint = emptyCallHierarchyHint(filePath, req.LanguageID)
 	}
-	return list, nil
+	return hierarchyEdgeListResponse{Rows: rows, Total: total, Unit: "edge", Hint: hint}, nil
 }
 
 // runTypeHierarchy 查询类型层级，并把无效目标包装成可读错误。
@@ -131,9 +131,48 @@ func runTypeHierarchy(
 	if err != nil {
 		return nil, typeHierarchyTargetError(err)
 	}
-	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no type hierarchy found", func(items []protocol.TypeHierarchyResult, _ int) any {
-		return format.NormalizeForDisplay(items)
-	})
+	limit := shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit)
+	supertypes, subtypes := compactTypeHierarchyEdges(ctx, results)
+	rows, total := selectTypeHierarchyEdges(supertypes, subtypes, direction, limit)
+	return hierarchyEdgeListResponse{Rows: rows, Total: total, Unit: "type_edge", Hint: "next: increase max_results or narrow the target position"}, nil
+}
+
+func selectCallHierarchyEdges(incoming, outgoing []hierarchyEdgeRow, direction string, limit int) ([]hierarchyEdgeRow, int) {
+	switch direction {
+	case "incoming":
+		return limitSlice(incoming, limit), len(incoming)
+	case "outgoing":
+		return limitSlice(outgoing, limit), len(outgoing)
+	default:
+		return alternateHierarchyEdges(incoming, outgoing, limit), len(incoming) + len(outgoing)
+	}
+}
+
+func selectTypeHierarchyEdges(supertypes, subtypes []hierarchyEdgeRow, direction string, limit int) ([]hierarchyEdgeRow, int) {
+	switch direction {
+	case "supertypes":
+		return limitSlice(supertypes, limit), len(supertypes)
+	case "subtypes":
+		return limitSlice(subtypes, limit), len(subtypes)
+	default:
+		return alternateHierarchyEdges(supertypes, subtypes, limit), len(supertypes) + len(subtypes)
+	}
+}
+
+// alternateHierarchyEdges 在两个方向都有结果时稳定交替，避免一侧因上限饥饿。
+func alternateHierarchyEdges(first, second []hierarchyEdgeRow, limit int) []hierarchyEdgeRow {
+	selected := make([]hierarchyEdgeRow, 0, min(limit, len(first)+len(second)))
+	for firstIndex, secondIndex := 0, 0; len(selected) < limit && (firstIndex < len(first) || secondIndex < len(second)); {
+		if firstIndex < len(first) {
+			selected = append(selected, first[firstIndex])
+			firstIndex++
+		}
+		if len(selected) < limit && secondIndex < len(second) {
+			selected = append(selected, second[secondIndex])
+			secondIndex++
+		}
+	}
+	return selected
 }
 
 // normalizeCallHierarchyDirection 校验 call_hierarchy direction 参数。

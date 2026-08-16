@@ -169,8 +169,6 @@ func formatXrefAndOutline(result any) (string, bool) {
 		return formatLocations(val), true
 	case []protocol.CallHierarchyResult:
 		return formatCallHierarchy(val), true
-	case format.CompactList[compactHierarchyResult]:
-		return formatCompactCallHierarchy(val), true
 	case []protocol.TypeHierarchyResult:
 		return formatTypeHierarchy(val), true
 	case []protocol.DocumentSymbol:
@@ -236,49 +234,6 @@ func formatCallHierarchy(val []protocol.CallHierarchyResult) string {
 		formatOutgoingCalls(&sb, item.Outgoing)
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// formatCompactCallHierarchy 将 compact hierarchy envelope 渲染为包含真实入边和出边的文本。
-func formatCompactCallHierarchy(val format.CompactList[compactHierarchyResult]) string {
-	if len(val.Data) == 0 {
-		return "No call hierarchy items found."
-	}
-	var sb strings.Builder
-	sb.WriteString("Call Hierarchy:\n")
-	for _, row := range val.Data {
-		formatCompactHierarchyItem(&sb, "-", row.Item)
-		if len(row.Incoming) > 0 {
-			sb.WriteString("  Incoming Calls:\n")
-			for i, call := range row.Incoming {
-				formatCompactHierarchyItem(&sb, fmt.Sprintf("    [%d]", i+1), call.From)
-				formatCompactHierarchyRanges(&sb, call.FromRanges)
-			}
-		}
-		if len(row.Outgoing) > 0 {
-			sb.WriteString("  Outgoing Calls:\n")
-			for i, call := range row.Outgoing {
-				formatCompactHierarchyItem(&sb, fmt.Sprintf("    [%d]", i+1), call.To)
-				formatCompactHierarchyRanges(&sb, call.FromRanges)
-			}
-		}
-	}
-	return strings.TrimSpace(sb.String())
-}
-
-func formatCompactHierarchyItem(sb *strings.Builder, prefix string, item compactHierarchyItem) {
-	fmt.Fprintf(sb, "%s %s `%s` at %s:%d:%d\n",
-		prefix, symbolKindName(protocol.SymbolKind(item.Kind)), item.Name, item.File, item.Line, item.Col)
-}
-
-func formatCompactHierarchyRanges(sb *strings.Builder, ranges []compactHierarchyLocation) {
-	if len(ranges) == 0 {
-		return
-	}
-	parts := make([]string, 0, len(ranges))
-	for _, location := range ranges {
-		parts = append(parts, fmt.Sprintf("%s:%d:%d", location.File, location.Line, location.Col))
-	}
-	fmt.Fprintf(sb, "      call sites: %s\n", strings.Join(parts, ", "))
 }
 
 // formatIncomingCalls 把入向调用列表渲染为带缩进的纯文本。

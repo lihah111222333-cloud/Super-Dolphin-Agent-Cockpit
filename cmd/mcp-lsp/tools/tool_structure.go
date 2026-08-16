@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -59,6 +60,14 @@ type foldingRangeListResponse struct {
 	Hint      string
 }
 
+type semanticTokenListResponse struct {
+	Legend    protocol.SemanticTokensLegend
+	Data      []protocol.DecodedSemanticToken
+	Total     int
+	Truncated bool
+	Hint      string
+}
+
 // ToPlainText 把递归符号树扁平为稳定的前序 ROW。
 func (response documentSymbolListResponse) ToPlainText() string {
 	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "symbol")}
@@ -105,6 +114,25 @@ func (response foldingRangeListResponse) ToPlainText() string {
 			lineprotocol.Field{Key: "start_line", Value: strconv.Itoa(format.FromLSP(item.StartLine))},
 			lineprotocol.Field{Key: "end_line", Value: strconv.Itoa(format.FromLSP(item.EndLine))},
 			lineprotocol.Field{Key: "kind", Value: item.Kind},
+		))
+	}
+	return appendStructureHint(lines, response.Hint)
+}
+
+// ToPlainText 输出 initialize legend 和已解码 token，不重复原始整数数组。
+func (response semanticTokenListResponse) ToPlainText() string {
+	lines := []string{lineprotocol.HeaderLine(response.Total, len(response.Data), response.Truncated, "token")}
+	lines = append(lines, lineprotocol.FieldsRecord("LEGEND",
+		lineprotocol.Field{Key: "token_types", Value: strings.Join(response.Legend.TokenTypes, ",")},
+		lineprotocol.Field{Key: "token_modifiers", Value: strings.Join(response.Legend.TokenModifiers, ",")},
+	))
+	for _, token := range response.Data {
+		lines = append(lines, lineprotocol.FieldsRecord("ROW",
+			lineprotocol.Field{Key: "line", Value: strconv.Itoa(token.Line)},
+			lineprotocol.Field{Key: "col", Value: strconv.Itoa(token.StartCharacter)},
+			lineprotocol.Field{Key: "length", Value: strconv.Itoa(token.Length)},
+			lineprotocol.Field{Key: "type", Value: token.TokenType},
+			lineprotocol.Field{Key: "modifiers", Value: strings.Join(token.TokenModifiers, ",")},
 		))
 	}
 	return appendStructureHint(lines, response.Hint)
@@ -399,19 +427,30 @@ func runSemanticTokens(
 	if err != nil {
 		return nil, err
 	}
-	limit := protocol.SemanticTokenResultLimit
-	if req.MaxResults > 0 && req.MaxResults < limit {
-		limit = req.MaxResults
+	legendManager, ok := manager.(lspmanager.SemanticTokensLegendManager)
+	if !ok {
+		return nil, semanticTokensProtocolError(errors.New("manager does not expose semantic tokens legend"))
 	}
-	result = capSemanticTokens(result, limit)
-	if result == nil || (len(result.Data) == 0 && len(result.Decoded) == 0) {
-		return emptyListEnvelope{
-			Success: true,
-			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Message: "no semantic tokens found"},
-		}, nil
+	tokenTypes, tokenModifiers, err := legendManager.SemanticTokensLegend(ctx, filePath)
+	if err != nil {
+		return nil, semanticTokensProtocolError(err)
 	}
-	return format.NormalizeForDisplay(result), nil
+	legend := protocol.SemanticTokensLegend{TokenTypes: tokenTypes, TokenModifiers: tokenModifiers}
+	limit := shared.ClampLimit(req.MaxResults, 1, protocol.SemanticTokenResultLimit, protocol.SemanticTokenResultLimit)
+	data, total, err := decodeSemanticTokenData(result, legend, limit)
+	if err != nil {
+		return nil, semanticTokensProtocolError(err)
+	}
+	response := semanticTokenListResponse{Legend: legend, Data: data, Total: total, Truncated: len(data) < total}
+	if response.Truncated {
+		response.Hint = "next: increase max_results or narrow file scope"
+	}
+	return response, nil
+}
+
+func semanticTokensProtocolError(err error) error {
+	return common.NewCodedToolError("lsp_protocol_error", err, false,
+		"retry-after-server-initialize-and-verify-semanticTokensProvider.legend-and-token-data")
 }
 
 // validateWorkspaceSymbolFilePath 拒绝目录路径，避免 workspace_symbol 扫描语义不明确。
@@ -479,38 +518,79 @@ func countDocumentSymbolNodes(symbols []protocol.DocumentSymbol) int {
 	return total
 }
 
-func capSemanticTokens(
-	result *protocol.SemanticTokensResult,
-	limit int,
-) *protocol.SemanticTokensResult {
-	if result == nil {
-		return nil
+func decodeSemanticTokenData(result *protocol.SemanticTokensResult, legend protocol.SemanticTokensLegend, limit int) ([]protocol.DecodedSemanticToken, int, error) {
+	if len(legend.TokenTypes) == 0 {
+		return nil, 0, errors.New("semantic tokens legend tokenTypes is empty")
 	}
-	if limit <= 0 {
-		limit = protocol.SemanticTokenResultLimit
+	var data []int
+	if result != nil {
+		data = result.Data
 	}
-	out := *result
-	if len(result.Decoded) > 0 {
-		out.Decoded = limitSlice(result.Decoded, limit)
+	if len(data)%5 != 0 {
+		return nil, 0, fmt.Errorf("semantic tokens data length %d is not divisible by 5", len(data))
 	}
-	tokenLimit := limit
-	if len(out.Decoded) > 0 {
-		tokenLimit = len(out.Decoded)
+	total := len(data) / 5
+	decoded := make([]protocol.DecodedSemanticToken, 0, min(limit, total))
+	line, column := 0, 0
+	for tuple := range total {
+		values := data[tuple*5 : tuple*5+5]
+		modifiers, err := validateSemanticTokenTuple(values, tuple, legend)
+		if err != nil {
+			return nil, 0, err
+		}
+		line, column, err = advanceSemanticTokenPosition(line, column, values, tuple)
+		if err != nil {
+			return nil, 0, err
+		}
+		if tuple < limit {
+			decoded = append(decoded, protocol.DecodedSemanticToken{
+				Line: format.FromLSP(line), StartCharacter: format.FromLSP(column), Length: values[2],
+				TokenType: legend.TokenTypes[values[3]], TokenModifiers: modifiers,
+			})
+		}
 	}
-	out.Data = limitSemanticTokenData(result.Data, tokenLimit)
-	return &out
+	return decoded, total, nil
 }
 
-func limitSemanticTokenData(data []int, tokenLimit int) []int {
-	if len(data) == 0 {
-		return nil
+func validateSemanticTokenTuple(values []int, tuple int, legend protocol.SemanticTokensLegend) ([]string, error) {
+	for _, value := range values {
+		if value < 0 {
+			return nil, fmt.Errorf("semantic token tuple %d contains a negative value", tuple)
+		}
 	}
-	if tokenLimit <= 0 {
-		tokenLimit = protocol.SemanticTokenResultLimit
+	if values[3] >= len(legend.TokenTypes) {
+		return nil, fmt.Errorf("semantic token tuple %d tokenType index %d exceeds legend", tuple, values[3])
 	}
-	maxData := tokenLimit * 5
-	if len(data) > maxData {
-		data = data[:maxData]
+	modifiers, err := decodeSemanticTokenModifiers(values[4], legend.TokenModifiers)
+	if err != nil {
+		return nil, fmt.Errorf("semantic token tuple %d: %w", tuple, err)
 	}
-	return append([]int(nil), data...)
+	return modifiers, nil
+}
+
+func advanceSemanticTokenPosition(line, column int, values []int, tuple int) (int, int, error) {
+	if values[0] == 0 {
+		column += values[1]
+	} else {
+		line += values[0]
+		column = values[1]
+	}
+	if line < 0 || column < 0 {
+		return 0, 0, fmt.Errorf("semantic token tuple %d position overflows", tuple)
+	}
+	return line, column, nil
+}
+
+func decodeSemanticTokenModifiers(bitset int, legend []string) ([]string, error) {
+	modifiers := make([]string, 0, len(legend))
+	for index := 0; bitset > 0; index, bitset = index+1, bitset>>1 {
+		if bitset&1 == 0 {
+			continue
+		}
+		if index >= len(legend) {
+			return nil, fmt.Errorf("modifier bit %d exceeds legend", index)
+		}
+		modifiers = append(modifiers, legend[index])
+	}
+	return modifiers, nil
 }

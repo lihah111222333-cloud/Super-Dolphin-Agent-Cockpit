@@ -4,12 +4,35 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
+
+func TestDecodeInitializeResultPreservesSemanticTokensLegend(t *testing.T) {
+	capabilities, _, err := decodeInitializeResultAttribution(json.RawMessage(`{
+		"capabilities":{"semanticTokensProvider":{"legend":{
+			"tokenTypes":["namespace","function"],
+			"tokenModifiers":["declaration","readonly"]
+		}}}
+	}`))
+	if err != nil {
+		t.Fatalf("decodeInitializeResultAttribution() error = %v", err)
+	}
+	tokenTypes, tokenModifiers, err := semanticTokensLegendFromProvider(capabilities.SemanticTokensProvider)
+	if err != nil {
+		t.Fatalf("semanticTokensLegendFromProvider() error = %v", err)
+	}
+	if got := strings.Join(tokenTypes, ","); got != "namespace,function" {
+		t.Errorf("token types = %q", got)
+	}
+	if got := strings.Join(tokenModifiers, ","); got != "declaration,readonly" {
+		t.Errorf("token modifiers = %q", got)
+	}
+}
 
 func TestInitOptionsSettingsAnswerWorkspaceConfiguration(t *testing.T) {
 	initOptions := map[string]any{

@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
@@ -178,6 +179,15 @@ func (m *resolvedScopeStructure) FoldingRange(ctx context.Context, uri string) (
 // SemanticTokens 注入 resolved scope 后转发语义 token 查询。
 func (m *resolvedScopeStructure) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
 	return m.manager.SemanticTokens(m.scoped(ctx), uri)
+}
+
+// SemanticTokensLegend 注入 resolved scope 后读取同一 server 的 initialize legend。
+func (m *resolvedScopeStructure) SemanticTokensLegend(ctx context.Context, uri string) ([]string, []string, error) {
+	legendManager, ok := m.manager.(SemanticTokensLegendManager)
+	if !ok {
+		return nil, nil, errors.New("semantic tokens legend is unavailable from manager")
+	}
+	return legendManager.SemanticTokensLegend(m.scoped(ctx), uri)
 }
 
 // Completion 注入 resolved scope 后转发补全查询。

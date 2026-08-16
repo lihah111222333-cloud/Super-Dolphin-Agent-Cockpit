@@ -53,6 +53,11 @@ type StructureManager interface {
 	SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error)
 }
 
+// SemanticTokensLegendManager 暴露当前文档实际 LSP server 在 initialize 中声明的 semantic legend。
+type SemanticTokensLegendManager interface {
+	SemanticTokensLegend(ctx context.Context, uri string) (tokenTypes []string, tokenModifiers []string, err error)
+}
+
 // BestEffortDocumentSymbolManager 允许实现方在语义 LSP 不可用时返回降级文档符号。
 // 调用方需要显式识别该接口，避免普通 DocumentSymbol 悄悄降级。
 type BestEffortDocumentSymbolManager interface {
