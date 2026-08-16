@@ -676,7 +676,8 @@ func assertTestWithGuardRemoteRejection(t *testing.T, result testWithGuardFakeGo
 	assertTestWithGuardRejected(t, result,
 		reason,
 		"remote CI exact test: source .githooks/trusted-gate-launcher.sh",
-		`"$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test`,
+		`"$(trusted_gate_launcher_for_tree "$(git rev-parse --show-toplevel)"`,
+		`)" test`,
 		"--target=remote",
 		`--config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}"`,
 		`--ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}"`,
@@ -699,6 +700,7 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	fakeGo := filepath.Join(root, "fake-go")
 	fakeToolDir := filepath.Join(root, "go-tools")
 	logPath := filepath.Join(root, "go-invocations.log")
+	candidateIndex := prepareTestWithGuardCandidateIndex(t, root)
 	script := "#!/usr/bin/env bash\n" +
 		"if [[ \"$1\" == version ]]; then printf 'go version go1.26.5 linux/amd64\\n'; exit 0; fi\n" +
 		"printf '%s ' \"$@\" >> \"$FAKE_GO_LOG\"\n" +
@@ -738,11 +740,12 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment = upsertEnv(environment, "FAKE_GO_TEST_OUTPUT", os.Getenv("FAKE_GO_TEST_OUTPUT"))
 	environment = upsertEnv(environment, "FAKE_GO_TOOL_DIR", bashAbsolutePath(fakeToolDir))
 	environment = upsertEnv(environment, "FAKE_HOST_IDLE", os.Getenv("FAKE_HOST_IDLE"))
+	environment = upsertEnv(environment, "GIT_INDEX_FILE", bashAbsolutePath(candidateIndex))
 	environment = upsertEnv(environment, "GOFLAGS", "")
 	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
 		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "FAKE_GO_TEST_OUTPUT", "FAKE_GO_TOOL_DIR", "FAKE_HOST_IDLE",
-		"SUPER_DOLPHIN_TEST_BACKEND",
+		"GIT_INDEX_FILE", "SUPER_DOLPHIN_TEST_BACKEND",
 	)
 	output, runErr := cmd.CombinedOutput()
 	data, err := os.ReadFile(logPath)
@@ -756,6 +759,25 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 		output:      strings.TrimSpace(string(output)),
 		err:         runErr,
 	}
+}
+
+func prepareTestWithGuardCandidateIndex(t *testing.T, fixtureRoot string) string {
+	t.Helper()
+	repositoryRoot := gitRevParseRequired(t, "--show-toplevel")
+	indexPath := filepath.Join(fixtureRoot, "candidate.index")
+	environment := upsertEnv(os.Environ(), "GIT_INDEX_FILE", indexPath)
+	for _, arguments := range [][]string{
+		{"read-tree", "HEAD"},
+		{"add", "--", "scripts/test_with_guard.sh", "scripts/code_size_guard_cli_test.go", "scripts/test_with_guard_remote_guidance_test.go"},
+		{"update-index", "--refresh"},
+	} {
+		command := exec.Command("git", append([]string{"-C", repositoryRoot}, arguments...)...)
+		command.Env = environment
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("prepare host-test candidate index with git %s: %v\n%s", strings.Join(arguments, " "), err, output)
+		}
+	}
+	return indexPath
 }
 
 func writeGuardFixture(t *testing.T, content string) string {

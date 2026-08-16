@@ -198,6 +198,7 @@ validate_host_test_args() {
 
 host_test_remote_guidance() {
   local package_name="" test_selector="" previous="" arg
+  local candidate_parent candidate_tree parent_tree worktree_status untracked_state
   for arg in "$@"; do
     if [[ "$previous" == "-run" ]]; then
       test_selector="$arg"
@@ -216,9 +217,60 @@ host_test_remote_guidance() {
     echo "host test could not derive the exact remote CI selector" >&2
     return 2
   fi
-  # 这里故意输出供调用方复制的字面命令，不在当前 shell 展开。
+  if git diff-files --quiet --ignore-submodules=none --; then
+    worktree_status=0
+  else
+    worktree_status=$?
+  fi
+  if [[ "$worktree_status" -eq 1 ]]; then
+    echo "host test exact candidate has unstaged worktree changes; stage or clean the candidate before requesting remote CI guidance" >&2
+    return 2
+  elif [[ "$worktree_status" -ne 0 ]]; then
+    echo "host test could not prove that the worktree matches the staged candidate" >&2
+    return 2
+  fi
+  untracked_state="$(
+    git ls-files --others --exclude-standard --directory --no-empty-directory |
+      awk 'BEGIN { found = 0 } { found = 1 } END { print found }'
+  )" || {
+    echo "host test could not inspect untracked candidate files" >&2
+    return 2
+  }
+  if [[ "$untracked_state" == "1" ]]; then
+    echo "host test exact candidate has untracked files; stage or clean the candidate before requesting remote CI guidance" >&2
+    return 2
+  elif [[ "$untracked_state" != "0" ]]; then
+    echo "host test received invalid untracked candidate evidence" >&2
+    return 2
+  fi
+  candidate_parent="$(git rev-parse --verify 'HEAD^{commit}')" || {
+    echo "host test could not capture the exact remote CI parent commit" >&2
+    return 2
+  }
+  candidate_tree="$(git write-tree)" || {
+    echo "host test could not capture the exact remote CI staged tree" >&2
+    return 2
+  }
+  parent_tree="$(git rev-parse --verify "${candidate_parent}^{tree}")" || {
+    echo "host test could not resolve the remote CI parent tree" >&2
+    return 2
+  }
+  # 这里只把仓库路径留给调用方解析；launcher 与 source selector 均冻结为当前 Git 对象。
   # shellcheck disable=SC2016
-  printf '%s' '[test-with-guard] remote CI exact test: source .githooks/trusted-gate-launcher.sh && "$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --target=remote --config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}" --ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}" --test ' >&2
+  printf '%s' '[test-with-guard] remote CI exact test: source .githooks/trusted-gate-launcher.sh && "$(trusted_gate_launcher_for_tree "$(git rev-parse --show-toplevel)" ' >&2
+  printf '%q' "$candidate_tree" >&2
+  # shellcheck disable=SC2016
+  printf '%s' ')" test --target=remote --config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}" --ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}" ' >&2
+  if [[ "$candidate_tree" == "$parent_tree" ]]; then
+    printf '%s' '--commit ' >&2
+    printf '%q' "$candidate_parent" >&2
+  else
+    printf '%s' '--tree ' >&2
+    printf '%q' "$candidate_tree" >&2
+    printf '%s' ' --parent ' >&2
+    printf '%q' "$candidate_parent" >&2
+  fi
+  printf '%s' ' --test ' >&2
   printf '%q\n' "$package_name#$test_selector" >&2
   echo '[test-with-guard] remote CI setup: make remote-ci-init; run through the verified trusted launcher installed by make install-hooks' >&2
 }
