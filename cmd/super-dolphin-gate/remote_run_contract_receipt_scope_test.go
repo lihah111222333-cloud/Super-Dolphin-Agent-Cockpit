@@ -12,6 +12,95 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
+// TestFinalizeRemoteRunEvidenceSelectedTestsRemainStrictlyNonAuthoritative
+// verifies that a selected-test ECI PASS is fully checked against its persisted
+// execution evidence without minting check receipts or authoritative PASS.
+func TestFinalizeRemoteRunEvidenceSelectedTestsRemainStrictlyNonAuthoritative(t *testing.T) {
+	t.Run("strict evidence stays non-authoritative", testFinalizeSelectedTestEvidenceStaysNonAuthoritative)
+	t.Run("cleanup incomplete", testFinalizeSelectedTestEvidenceRejectsIncompleteCleanup)
+	t.Run("aggregate readback drift", testFinalizeSelectedTestEvidenceRejectsAggregateDrift)
+	t.Run("runner identity readback drift", testFinalizeSelectedTestEvidenceRejectsRunnerIdentityDrift)
+}
+
+func testFinalizeSelectedTestEvidenceStaysNonAuthoritative(t *testing.T) {
+	input, result, store := remoteRunReceiptTestSelectedEvidence(t, nil)
+
+	if err := finalizeRemoteRunEvidence(input, &result, nil); err != nil {
+		t.Fatalf("finalizeRemoteRunEvidence() selected-test error = %v", err)
+	}
+	if result.Authoritative {
+		t.Fatal("selected-test result became authoritative")
+	}
+	recorded, err := store.LoadRemoteCIRun(result.JobID)
+	if err != nil {
+		t.Fatalf("LoadRemoteCIRun() selected-test error = %v", err)
+	}
+	assertRemoteRunSelectedTestStatus(t, recorded)
+	assertRemoteRunSelectedTestEvidence(t, recorded)
+	if receipts, err := store.LoadCheckReceipts(result.JobID); err == nil {
+		t.Fatalf("selected-test minted authoritative check receipts: %#v", receipts)
+	}
+}
+
+func assertRemoteRunSelectedTestStatus(t *testing.T, recorded gatecontract.RemoteCIRunRecord) {
+	t.Helper()
+	if recorded.Authoritative || recorded.Status != gatecontract.ResultStatusPassed || !recorded.CleanupComplete {
+		t.Fatalf("selected-test persisted authority/status = authoritative=%t status=%q cleanup=%t", recorded.Authoritative, recorded.Status, recorded.CleanupComplete)
+	}
+}
+
+func assertRemoteRunSelectedTestEvidence(t *testing.T, recorded gatecontract.RemoteCIRunRecord) {
+	t.Helper()
+	if len(recorded.Executions) == 0 || len(recorded.WorkloadResults) == 0 || len(recorded.TimingObservations) == 0 {
+		t.Fatalf("selected-test strict evidence is incomplete: gates=%d workloads=%d timings=%d", len(recorded.Executions), len(recorded.WorkloadResults), len(recorded.TimingObservations))
+	}
+}
+
+func testFinalizeSelectedTestEvidenceRejectsIncompleteCleanup(t *testing.T) {
+	input, result, _ := remoteRunReceiptTestSelectedEvidence(t, func(stored *remoteci.RunResult) {
+		stored.CleanupComplete = false
+	})
+	result.CleanupComplete = false
+	if err := finalizeRemoteRunEvidence(input, &result, nil); err == nil || !strings.Contains(err.Error(), "cleanup") {
+		t.Fatalf("selected-test incomplete cleanup error = %v", err)
+	}
+}
+
+func testFinalizeSelectedTestEvidenceRejectsAggregateDrift(t *testing.T) {
+	input, result, _ := remoteRunReceiptTestSelectedEvidence(t, func(stored *remoteci.RunResult) {
+		stored.GateExecutions = append([]gatecontract.PlanGateExecution(nil), stored.GateExecutions...)
+		stored.GateExecutions[0].ArgvDigest = "sha256:" + strings.Repeat("8", 64)
+	})
+	if err := finalizeRemoteRunEvidence(input, &result, nil); err == nil || !strings.Contains(err.Error(), "aggregate execution") {
+		t.Fatalf("selected-test aggregate readback drift error = %v", err)
+	}
+}
+
+func testFinalizeSelectedTestEvidenceRejectsRunnerIdentityDrift(t *testing.T) {
+	input, result, _ := remoteRunReceiptTestSelectedEvidence(t, func(stored *remoteci.RunResult) {
+		stored.RunnerIdentityDigest = "sha256:" + strings.Repeat("9", 64)
+	})
+	if err := finalizeRemoteRunEvidence(input, &result, nil); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("selected-test runner identity readback drift error = %v", err)
+	}
+}
+
+func remoteRunReceiptTestSelectedEvidence(t *testing.T, mutateStored func(*remoteci.RunResult)) (remoteci.RunInput, remoteci.RunResult, *gatecontract.DurationLedgerStore) {
+	t.Helper()
+	plan, catalog := remoteRunReceiptTestPlanAndCatalog(t)
+	catalog.Authoritative = false
+	result := remoteRunReceiptTestResult(t, plan, catalog)
+	stored := result
+	if mutateStored != nil {
+		mutateStored(&stored)
+	}
+	store := remoteRunReceiptTestAuthority(t, catalog, stored)
+	result = remoteRunReceiptTestResultFromStoredExecution(t, store, result)
+	input := remoteRunReceiptTestInput(plan, store)
+	input.SelectedTests = true
+	return input, result, store
+}
+
 // TestFinalizeRemoteRunEvidenceAuthoritativeSubset exercises the production
 // finalizer from a persisted full catalog and a one-workload subset receipt.
 func TestFinalizeRemoteRunEvidenceAuthoritativeSubset(t *testing.T) {

@@ -304,9 +304,12 @@ func finalizeRemoteRunEvidence(input remoteci.RunInput, result *remoteci.RunResu
 	if runErr != nil {
 		return remoteRunEvidenceError(runErr, "execute remote CI before authority finalization", runErr)
 	}
-	receipts, err := validateRemoteRunEvidence(input, *result, runErr)
+	receipts, authoritative, err := validateRemoteRunEvidence(input, *result, runErr)
 	if err != nil {
 		return err
+	}
+	if !authoritative {
+		return nil
 	}
 	var overhead *gatecontract.ShardOrchestrationOverheadEvidence
 	if input.Calibration && len(result.FreshWorkloadExecutions) != 0 {
@@ -357,15 +360,26 @@ func validateRemoteRunEvidence(
 	input remoteci.RunInput,
 	workerResult remoteci.RunResult,
 	runErr error,
-) ([]gatecontract.CheckReceiptRecord, error) {
-	_, receipts, contractErr := validateRemoteRunContract(input, input.AcceptedGeneration, workerResult)
+) ([]gatecontract.CheckReceiptRecord, bool, error) {
+	var (
+		receipts    []gatecontract.CheckReceiptRecord
+		contractErr error
+		operation   = "validate remote CI executed check receipts"
+	)
+	authoritative := !input.SelectedTests
+	if input.SelectedTests {
+		operation = "validate remote CI selected-test evidence"
+		contractErr = validateRemoteRunSelectedTestEvidence(input, input.AcceptedGeneration, workerResult)
+	} else {
+		_, receipts, contractErr = validateRemoteRunContract(input, input.AcceptedGeneration, workerResult)
+	}
 	if contractErr != nil {
-		return nil, remoteRunEvidenceError(runErr, "validate remote CI executed check receipts", contractErr)
+		return nil, false, remoteRunEvidenceError(runErr, operation, contractErr)
 	}
 	if err := cicontract.ValidateTimingWarningAction(cicontract.TimingWarningWarnAndContinue); err != nil {
-		return nil, remoteRunEvidenceError(runErr, "validate non-terminating remote CI timing warning action", err)
+		return nil, false, remoteRunEvidenceError(runErr, "validate non-terminating remote CI timing warning action", err)
 	}
-	return receipts, nil
+	return receipts, authoritative, nil
 }
 
 // remoteRunEvidenceError 将证据验证失败固定为不可通过的远程 CI 门禁结果。

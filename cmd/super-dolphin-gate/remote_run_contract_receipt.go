@@ -19,39 +19,68 @@ func validateRemoteRunContract(
 	acceptedGeneration uint64,
 	result remoteci.RunResult,
 ) ([]cicontract.CheckObservation, []gatecontract.CheckReceiptRecord, error) {
-	if err := validateRemoteRunInvocationIdentity(input, acceptedGeneration, result); err != nil {
-		return nil, nil, err
-	}
-	plan, catalog, err := remoteRunContractPlanAndCatalog(input, result)
+	catalog, observations, err := validateRemoteRunExecutionEvidence(input, acceptedGeneration, result)
 	if err != nil {
-		return nil, nil, err
-	}
-	executionCatalog, err := remoteRunContractExecutionCatalog(catalog, result.Scope)
-	if err != nil {
-		return nil, nil, err
-	}
-	observations, err := remoteRunCheckObservations(plan, catalog, input.ImageCacheSnapshotID, result)
-	if err != nil {
-		return nil, nil, err
-	}
-	requiredChecks, err := gatecontract.RequiredChecksForWorkloadCatalog(executionCatalog)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := cicontract.ValidateRequiredChecksObservedPassFor(requiredChecks, observations); err != nil {
 		return nil, nil, err
 	}
 	if !remoteRunIsFullAuthoritativeAcceptance(catalog, result) {
 		return nil, nil, errors.New("remote CI run is not a full authoritative acceptance")
-	}
-	if err := validateRemoteRunRecordedAuthority(input, acceptedGeneration, catalog, result); err != nil {
-		return nil, nil, err
 	}
 	receipts, err := remoteRunCheckReceipts(result, acceptedGeneration, observations)
 	if err != nil {
 		return nil, nil, err
 	}
 	return observations, receipts, nil
+}
+
+// validateRemoteRunSelectedTestEvidence 对 selected-test PASS 执行完整证据校验，
+// 同时禁止生成权威回执或提升运行 authority。
+func validateRemoteRunSelectedTestEvidence(input remoteci.RunInput, acceptedGeneration uint64, result remoteci.RunResult) error {
+	catalog, _, err := validateRemoteRunExecutionEvidence(input, acceptedGeneration, result)
+	if err != nil {
+		return err
+	}
+	if !input.SelectedTests || catalog.Authoritative || result.Authoritative {
+		return errors.New("remote CI selected-test evidence must remain non-authoritative")
+	}
+	if !result.CleanupComplete {
+		return errors.New("remote CI selected-test evidence requires complete cleanup")
+	}
+	if err := validateRemoteRunStoredAggregateExecutionReadback(input, result); err != nil {
+		return fmt.Errorf("validate remote CI selected-test aggregate execution readback: %w", err)
+	}
+	return nil
+}
+
+// validateRemoteRunExecutionEvidence 统一校验 invocation、catalog、required-check
+// observations、持久化结果、scope、timing 与 workload 集合。
+func validateRemoteRunExecutionEvidence(input remoteci.RunInput, acceptedGeneration uint64, result remoteci.RunResult) (gatecontract.WorkloadCatalog, []cicontract.CheckObservation, error) {
+	if err := validateRemoteRunInvocationIdentity(input, acceptedGeneration, result); err != nil {
+		return gatecontract.WorkloadCatalog{}, nil, err
+	}
+	plan, catalog, err := remoteRunContractPlanAndCatalog(input, result)
+	if err != nil {
+		return gatecontract.WorkloadCatalog{}, nil, err
+	}
+	executionCatalog, err := remoteRunContractExecutionCatalog(catalog, result.Scope)
+	if err != nil {
+		return gatecontract.WorkloadCatalog{}, nil, err
+	}
+	observations, err := remoteRunCheckObservations(plan, catalog, input.ImageCacheSnapshotID, result)
+	if err != nil {
+		return gatecontract.WorkloadCatalog{}, nil, err
+	}
+	requiredChecks, err := gatecontract.RequiredChecksForWorkloadCatalog(executionCatalog)
+	if err != nil {
+		return gatecontract.WorkloadCatalog{}, nil, err
+	}
+	if err := cicontract.ValidateRequiredChecksObservedPassFor(requiredChecks, observations); err != nil {
+		return gatecontract.WorkloadCatalog{}, nil, err
+	}
+	if err := validateRemoteRunRecordedAuthority(input, acceptedGeneration, catalog, result); err != nil {
+		return gatecontract.WorkloadCatalog{}, nil, err
+	}
+	return catalog, observations, nil
 }
 
 // validateRemoteRunInvocationIdentity 校验本次输入、结果和 accepted generation 的不可变绑定。
@@ -117,17 +146,45 @@ func remoteRunRecordedInvocationBindingMatches(
 		recorded.Force == input.Force && recorded.Force == result.Force
 }
 
-// remoteRunRecordedResultBindingMatches 比对回执与本次候选的源码、计划和状态。
+// remoteRunRecordedResultBindingMatches 比对回执与本次候选的源码、执行和生命周期身份。
 func remoteRunRecordedResultBindingMatches(
 	recorded gatecontract.RemoteCIRunRecord,
 	result remoteci.RunResult,
 ) bool {
+	return remoteRunRecordedCandidateBindingMatches(recorded, result) &&
+		remoteRunRecordedExecutionBindingMatches(recorded, result) &&
+		remoteRunRecordedLifecycleBindingMatches(recorded, result)
+}
+
+// remoteRunRecordedCandidateBindingMatches 比对候选源码、门禁闭包和计划目录摘要。
+func remoteRunRecordedCandidateBindingMatches(recorded gatecontract.RemoteCIRunRecord, result remoteci.RunResult) bool {
 	return recorded.SourceTreeSHA == result.SourceTreeSHA &&
+		recorded.CandidateGateSourceSHA256 == result.CandidateGateSourceSHA256 &&
+		recorded.CandidateGateToolchainSHA256 == result.CandidateGateToolchainSHA256 &&
 		recorded.PlanDigest == result.PlanDigest &&
 		recorded.CatalogDigest == result.CatalogDigest &&
-		recorded.Profile == result.Profile &&
+		recorded.Profile == result.Profile
+}
+
+// remoteRunRecordedExecutionBindingMatches 比对实际 runner、平台、工具链和执行模式。
+func remoteRunRecordedExecutionBindingMatches(recorded gatecontract.RemoteCIRunRecord, result remoteci.RunResult) bool {
+	return recorded.RunnerImage == result.RunnerImage &&
+		recorded.Platform == result.Platform &&
+		recorded.RunnerIdentityDigest == result.RunnerIdentityDigest &&
+		recorded.ToolchainDigest == result.ToolchainDigest &&
+		recorded.ExecutionMode == result.ExecutionMode
+}
+
+// remoteRunRecordedLifecycleBindingMatches 比对 job 入口、终态、清理和持久化时间边界。
+func remoteRunRecordedLifecycleBindingMatches(recorded gatecontract.RemoteCIRunRecord, result remoteci.RunResult) bool {
+	return recorded.JobID == result.JobID &&
+		recorded.Entrypoint == result.Entrypoint &&
 		recorded.Status == result.Status &&
-		recorded.Authoritative == result.Authoritative
+		recorded.Authoritative == result.Authoritative &&
+		recorded.CleanupComplete == result.CleanupComplete &&
+		recorded.ErrorText == "" &&
+		recorded.StartedAt.UnixMilli() == result.StartedAt.UnixMilli() &&
+		recorded.CompletedAt.UnixMilli() == result.CompletedAt.UnixMilli()
 }
 
 // validateRemoteRunFreshTimingAuthority 要求 fresh 运行有完整时序，reuse-only 运行没有伪造时序。

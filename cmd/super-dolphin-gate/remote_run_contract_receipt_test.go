@@ -644,7 +644,7 @@ func remoteRunReceiptTestRecordAuthority(t *testing.T, store *gatecontract.Durat
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("e", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("f", 64),
 		RunnerImage: complete.RunnerImage, Platform: complete.Platform, RunnerIdentityDigest: complete.RunnerIdentityDigest,
 		ToolchainDigest: complete.ToolchainDigest, ExecutionMode: complete.ExecutionMode,
-		Status: gatecontract.ResultStatusPassed, Authoritative: false, CleanupComplete: true,
+		Status: gatecontract.ResultStatusPassed, Authoritative: false, CleanupComplete: complete.CleanupComplete,
 		StartedAt: complete.StartedAt, CompletedAt: complete.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, Executions: append([]gatecontract.PlanGateExecution(nil), complete.GateExecutions...), WorkloadExecutions: workloadExecutions, WorkloadResults: workloadResults,
 	}
 	record.TimingObservations = remoteRunReceiptTestTimingObservations(record.JobID, shard, workloadExecutions[0], workloadExecutions[0].StartedAt.Add(-3*time.Millisecond))

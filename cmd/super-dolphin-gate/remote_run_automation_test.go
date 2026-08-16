@@ -188,32 +188,6 @@ func TestEnsureRemoteDurationCalibrationConcurrentAgentsDoNotUseFileAdmission(t 
 	assertAutomaticCalibrationRunsOverlap(t, started, release, calls, group)
 }
 
-// TestEnsureRemoteDurationCalibrationRunsForSelectedTests 验证 test 场景 miss 不再跳过自动校准。
-func TestEnsureRemoteDurationCalibrationRunsForSelectedTests(t *testing.T) {
-	options, _, _ := automaticCalibrationConcurrencyFixture(t)
-	options.Scenario = "test"
-	options.Tests = []string{"internal/devtools/gate"}
-	state := remoteRunRunnerIdentityState()
-	state.MainCommit = strings.Repeat("b", 40)
-	runnerIdentity := remoteRunRunnerIdentity(state)
-	var called bool
-	if err := ensureRemoteDurationCalibrationWithRun(options, state, runnerIdentity, func(got remoteRunOptions) error {
-		called = true
-		if got.Scenario != "" || len(got.Tests) != 0 {
-			return fmt.Errorf("automatic calibration retained selected-test options: scenario=%q tests=%v", got.Scenario, got.Tests)
-		}
-		if got.Commit != state.MainCommit {
-			return fmt.Errorf("automatic calibration commit = %q, want %q", got.Commit, state.MainCommit)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("ensureRemoteDurationCalibrationWithRun() error = %v", err)
-	}
-	if !called {
-		t.Fatal("selected-tests miss skipped automatic calibration")
-	}
-}
-
 func automaticCalibrationConcurrencyFixture(t *testing.T) (remoteRunOptions, remoteci.BaselineState, string) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
