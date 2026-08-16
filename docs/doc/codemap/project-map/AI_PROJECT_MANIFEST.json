@@ -4,20 +4,20 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:38bc7723c8ed5808fa6a76cb1baffffda3d557fe1712823c6bfa565fda92f332",
-    "entries_sha256": "sha256:d555a8fcd9fabcaa16b605068ee45de3e971613f2f9c3fc67b1c6261b241fbe9"
+    "source_sha256": "sha256:90a55b995c4e209215dce23525ed8f9919595e4537c731e6c50901559491b99f",
+    "entries_sha256": "sha256:738276b582175ad3466161048d7d792a2dc3ee5f6ea5ffcc19817bc705aae60c"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5058,
+  "files": 5176,
   "domains": {
-    "other": 1188,
+    "other": 1197,
     "remote-ci": 270,
     "docs-agent": 99,
     "app-ui": 767,
-    "platform-provider": 1327,
+    "platform-provider": 1436,
     "orchestration": 411,
     "modules": 765,
     "store-sql": 231
@@ -50,8 +50,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1327,
-        "size_kb": 247.2,
+        "file_count": 1436,
+        "size_kb": 268,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1188,
-        "size_kb": 237.6,
+        "file_count": 1197,
+        "size_kb": 239.7,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -87,13 +87,13 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 927,
+    "cmd": 1031,
     "config": 3,
     "docs": 92,
     "frontend-app": 759,
-    "internal": 2990,
+    "internal": 2995,
     "pkg": 30,
-    "scripts": 192,
+    "scripts": 201,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -267,7 +267,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0038,
+    "unknown_ratio": 0.0037,
     "unknown_files": 19,
     "thresholds": {
       "max_unknown_ratio": 0.05

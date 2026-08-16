@@ -1,7 +1,7 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 .githooks/pre-commit	.githooks	remote-ci	file	10838	精确 staged tree 的本地代码守卫入口	精确,staged,tree,的本地代码守卫入口
-.githooks/pre-push	.githooks	remote-ci	file	7668	精确 ref update 的远程 CI pre-push 门禁入口	精确,ref,update,的远程,CI,pre-push,门禁入口
-.githooks/trusted-gate-launcher.sh	.githooks	remote-ci	script	9133	远程 CI trusted gate launcher 验证入口	githooks,trusted,gate,launcher,远程,CI,验证入口
+.githooks/pre-push	.githooks	remote-ci	file	7651	精确 ref update 的远程 CI pre-push 门禁入口	精确,ref,update,的远程,CI,pre-push,门禁入口
+.githooks/trusted-gate-launcher.sh	.githooks	remote-ci	script	10233	远程 CI trusted gate launcher 验证入口	githooks,trusted,gate,launcher,远程,CI,验证入口
 cmd/super-dolphin-gate/capcontract_cli.go	cmd	remote-ci	go-source	1815	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,capcontract,cli,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker,入口
 cmd/super-dolphin-gate/capcontract_cli_test.go	cmd	remote-ci	go-test	9192	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,capcontract,cli,test,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker
 cmd/super-dolphin-gate/cli_common.go	cmd	remote-ci	go-source	669	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,cli,common,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker,入口
@@ -263,7 +263,7 @@ internal/devtools/remoteci/workload_pass_reuse_validation_test.go	internal	remot
 internal/devtools/remoteci/workload_pass_source_replay.go	internal	remote-ci	go-source	16779	远程 CI coordinator、source transport、workload identity、ECI shard 与 timing ledger	internal,devtools,remoteci,workload,pass,source,replay,远程,CI,coordinator,transport,identity,ECI,shard,与,timing
 internal/devtools/remoteci/workload_projection.go	internal	remote-ci	go-source	7343	远程 CI coordinator、source transport、workload identity、ECI shard 与 timing ledger	internal,devtools,remoteci,workload,projection,远程,CI,coordinator,source,transport,identity,ECI,shard,与,timing,ledger
 scripts/ci_truth_image_gate.sh	scripts	remote-ci	script	4627	远程 CI release/full gate 启动脚本	scripts,ci,truth,image,gate,远程,CI,release,full,启动脚本
-scripts/git_with_remote_ci_credentials.sh	scripts	remote-ci	script	5634	远程 CI 短期凭据与 agent token Git 启动器	scripts,git,with,remote,ci,credentials,远程,CI,短期凭据与,agent,token,Git,启动器
+scripts/git_with_remote_ci_credentials.sh	scripts	remote-ci	script	5618	远程 CI 短期凭据与 agent token Git 启动器	scripts,git,with,remote,ci,credentials,远程,CI,短期凭据与,agent,token,Git,启动器
 scripts/init_remote_ci_local.sh	scripts	remote-ci	script	1667	远程 CI 本地配置、SQLite 与 Git alias 初始化脚本	scripts,init,remote,ci,local,远程,CI,本地配置,SQLite,与,Git,alias,初始化脚本
 scripts/remote_ci_git_credentials_test.go	scripts	remote-ci	go-test	11711	远程 CI 脚本守卫与凭据回归测试	scripts,remote,ci,git,credentials,test,远程,CI,脚本守卫与凭据回归测试
 scripts/remote_ci_imagecache_refresh_dispatch_test.go	scripts	remote-ci	go-test	7535	远程 CI 脚本守卫与凭据回归测试	scripts,remote,ci,imagecache,refresh,dispatch,test,远程,CI,脚本守卫与凭据回归测试
