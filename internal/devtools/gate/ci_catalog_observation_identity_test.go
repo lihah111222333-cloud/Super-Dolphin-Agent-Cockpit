@@ -125,7 +125,7 @@ func testObservationIdentityCatalog(commandDigest string) WorkloadCatalog {
 		Version:       durationLedgerVersion,
 		Authoritative: true,
 		Workloads: []Workload{{
-			ID:                  string(GateIDAIMaintenanceSelfTest),
+			ID:                  string(GateIDCodemapCheck),
 			Kind:                WorkloadKindGuard,
 			CommandDigest:       commandDigest,
 			BootstrapEstimateMS: 1_000,

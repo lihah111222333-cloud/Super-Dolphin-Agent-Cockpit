@@ -253,8 +253,6 @@ func (snapshot *remoteGitTreeSnapshot) goGuardInputDigest(ctx context.Context, t
 		gate.GoGuardTargetSource,
 		gate.GoGuardTargetSourceRawGoTest:
 		return snapshot.digestEntries(snapshot.entries)
-	case gate.GoGuardTargetAIMaintenanceUnit, gate.GoGuardTargetAIMaintenanceGate:
-		return snapshot.canonicalGateInputDigest(gate.GateIDAIMaintenanceSelfTest)
 	case gate.GoGuardTargetCopylocksProvider:
 		return snapshot.goPackageTreeInputDigest(ctx, "internal/provider")
 	case gate.GoGuardTargetCopylocksPlatform:
@@ -344,9 +342,19 @@ func (snapshot *remoteGitTreeSnapshot) canonicalGateInputDigest(parent gate.Gate
 		return snapshot.projectMapInputDigest()
 	case gate.GateIDFrontendEmbedVerify:
 		return snapshot.digestMatching(frontendEmbedInputEntry)
+	case gate.GateIDWorkflowActionlint:
+		return snapshot.digestMatching(workflowActionlintInputEntry)
 	default:
 		return snapshot.digestEntries(snapshot.entries)
 	}
+}
+
+func workflowActionlintInputEntry(entry remoteGitTreeEntry) bool {
+	if entry.path == ".github/actionlint.yaml" {
+		return true
+	}
+	return strings.HasPrefix(entry.path, ".github/workflows/") &&
+		(strings.HasSuffix(entry.path, ".yml") || strings.HasSuffix(entry.path, ".yaml"))
 }
 
 func frontendLintInputEntry(entry remoteGitTreeEntry) bool {

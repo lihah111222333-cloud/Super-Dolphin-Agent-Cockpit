@@ -64,7 +64,7 @@ func testLoadCheckReceiptsRejectsMissingScopeWithSameCheckClass(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 6)
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Authoritative: true, Workloads: []Workload{
 		{ID: string(GateIDWhitespaceCheck), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), InputDigest: digestForWorkloadPass("same-check-class-whitespace"), BootstrapEstimateMS: 1, Shardable: true},
-		{ID: string(GateIDAIMaintenanceSelfTest), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("b", 64), InputDigest: digestForWorkloadPass("same-check-class-maintenance"), BootstrapEstimateMS: 1, Shardable: true},
+		{ID: string(GateIDCodemapCheck), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("b", 64), InputDigest: digestForWorkloadPass("same-check-class-codemap"), BootstrapEstimateMS: 1, Shardable: true},
 	}}
 	scope, err := NewRemoteCISubsetExecutionScope(catalog, []GateID{GateIDWhitespaceCheck})
 	if err != nil {
@@ -92,7 +92,7 @@ func testLoadCheckReceiptsRejectsCanonicalSameCheckScopeReplacement(t *testing.T
 	store := newWorkloadPassEvidenceStore(t, 6)
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Authoritative: true, Workloads: []Workload{
 		{ID: string(GateIDWhitespaceCheck), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), InputDigest: digestForWorkloadPass("same-check-scope-whitespace"), BootstrapEstimateMS: 1, Shardable: true},
-		{ID: string(GateIDAIMaintenanceSelfTest), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("b", 64), InputDigest: digestForWorkloadPass("same-check-scope-maintenance"), BootstrapEstimateMS: 1, Shardable: true},
+		{ID: string(GateIDCodemapCheck), Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("b", 64), InputDigest: digestForWorkloadPass("same-check-scope-codemap"), BootstrapEstimateMS: 1, Shardable: true},
 	}}
 	original, err := NewRemoteCISubsetExecutionScope(catalog, []GateID{GateIDWhitespaceCheck})
 	if err != nil {
@@ -102,7 +102,7 @@ func testLoadCheckReceiptsRejectsCanonicalSameCheckScopeReplacement(t *testing.T
 	if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, false); err != nil {
 		t.Fatalf("finalize subset authority: %v", err)
 	}
-	replacement, err := NewRemoteCISubsetExecutionScope(catalog, []GateID{GateIDAIMaintenanceSelfTest})
+	replacement, err := NewRemoteCISubsetExecutionScope(catalog, []GateID{GateIDCodemapCheck})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func scopedCheckReceiptCatalog(t *testing.T, jobID string, scopeKind RemoteCIExe
 func newScopedCheckReceiptRecord(jobID string, now time.Time, treeSHA, catalogDigest string, scope *RemoteCIExecutionScope) RemoteCIRunRecord {
 	shardIdentity := digestForWorkloadPass(jobID + "-shard")
 	shard := RemoteCIShardRecord{ShardIdentity: shardIdentity, ContainerGroup: "eci-" + jobID, ContainerStatus: "Succeeded", MaterializationTiming: measuredShardMaterializationTiming(shardIdentity), Resources: RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8}}
-	return RemoteCIRunRecord{JobID: jobID, AgentTokenDigest: digestForWorkloadPass(jobID + "-agent"), Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, AcceptedGeneration: 6, Scope: scope, ImageCacheSnapshotID: "snapshot-6", PlanDigest: "sha256:plan", CatalogDigest: catalogDigest, SourceTreeSHA: treeSHA, CandidateGateSourceSHA256: digestForWorkloadPass(jobID + "-gate-source"), CandidateGateToolchainSHA256: digestForWorkloadPass(jobID + "-toolchain"), RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true, Shards: []RemoteCIShardRecord{shard}}
+	return RemoteCIRunRecord{JobID: jobID, AgentTokenDigest: digestForWorkloadPass(jobID + "-agent"), Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, AcceptedGeneration: 6, Scope: scope, ImageCacheSnapshotID: "snapshot-6", PlanDigest: "sha256:plan", CatalogDigest: catalogDigest, SourceTreeSHA: treeSHA, CandidateGateSourceSHA256: digestForWorkloadPass(jobID + "-gate-source"), CandidateGateToolchainSHA256: digestForWorkloadPass(jobID + "-toolchain"), RunnerImage: "ubuntu:22.04", Platform: cicontract.TargetPlatform, RunnerIdentityDigest: digestForWorkloadPass(jobID + "-runner"), ToolchainDigest: digestForWorkloadPass(jobID + "-execution-toolchain"), ExecutionMode: DurationExecutionModeNormal, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true, Shards: []RemoteCIShardRecord{shard}}
 }
 
 func appendScopedCheckReceiptExecutions(t *testing.T, record *RemoteCIRunRecord, selected []Workload) {

@@ -7,17 +7,17 @@ import (
 
 func localFastExecutorPlanLanes() [][]GateID {
 	return [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendTest, GateIDBackendTestWithGuard},
-		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
+		{GateIDFrontendTest, GateIDBackendTestWithGuard},
+		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDWorkflowActionlint, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 }
 
 func releaseExecutorPlanLanes() [][]GateID {
 	return [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendPreflight, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDBackendTestWithGuard,
+		{GateIDFrontendPreflight, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDBackendTestWithGuard,
 			GateIDBackendTestGuardWithRace, GateIDBackendNilness},
-		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
+		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDWorkflowActionlint, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 }

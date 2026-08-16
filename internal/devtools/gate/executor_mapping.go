@@ -95,11 +95,6 @@ type ExecutorProgram struct {
 }
 
 var executorPrograms = map[GateID]ExecutorProgram{
-	GateIDAIMaintenanceSelfTest: requireExecutables(withGoSeed(requirePaths(commandProgram(
-		[]string{"actionlint"},
-		[]string{"go", "test", "./scripts/ai_maintenance", "-count=1"},
-		[]string{"go", "test", "./scripts", "-run", "^TestAIMaintenanceGate", "-count=1"},
-	), ".github/workflows", "scripts/ai_maintenance/main.go", "scripts/ai_maintenance_gates_guard_test.go")), ExecutorActionlintBinaryPath),
 	GateIDFrontendLint: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "lint"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
@@ -121,6 +116,9 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	GateIDFrontendEmbedVerify: withFrontendSeed(requirePaths(commandProgram(
 		[]string{"make", "frontend-embed-verify"},
 	), "Makefile", "scripts/frontend_embed_verify.sh")),
+	GateIDWorkflowActionlint: requireExecutables(requirePaths(commandProgram(
+		[]string{"actionlint"},
+	), ".github/workflows", ".github/actionlint.yaml"), ExecutorActionlintBinaryPath),
 	GateIDBackendTestWithGuard: withFrontendEmbedSeed(withGoSeed(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategyCommands,
 		Steps: []ExecutorStep{
@@ -212,9 +210,6 @@ func executorProgramForTarget(parent GateID, targetKind WorkloadTargetKind, targ
 
 // goGuardExecutorProgram 将历史 canonical 或新的原子守卫映射为固定 argv。
 func goGuardExecutorProgram(parent GateID, target string) (ExecutorProgram, error) {
-	if parent == GateIDAIMaintenanceSelfTest {
-		return aiMaintenanceGuardExecutorProgram(target)
-	}
 	if program, ok := splitSourceGoGuardExecutorProgram(target); ok {
 		return program, nil
 	}
@@ -263,22 +258,6 @@ func splitSourceGoGuardExecutorProgram(target string) (ExecutorProgram, bool) {
 	program.NeedsFrontendEmbedSeed = false
 	program.RequiredPaths = append(program.RequiredPaths, requiredPath)
 	return program, true
-}
-
-// aiMaintenanceGuardExecutorProgram 将维护工具单测与入口契约测试拆成独立命令。
-func aiMaintenanceGuardExecutorProgram(target string) (ExecutorProgram, error) {
-	var argv []string
-	switch target {
-	case GoGuardTargetAIMaintenanceUnit:
-		argv = []string{"go", "test", "./scripts/ai_maintenance", "-count=1"}
-	case GoGuardTargetAIMaintenanceGate:
-		argv = []string{"go", "test", "./scripts", "-run", "^TestAIMaintenanceGate", "-count=1"}
-	default:
-		return ExecutorProgram{}, fmt.Errorf("unsupported AI maintenance target %q", target)
-	}
-	return requireExecutables(withGoSeed(requirePaths(commandProgram(argv),
-		".github/workflows", "scripts/ai_maintenance/main.go", "scripts/ai_maintenance_gates_guard_test.go",
-	)), ExecutorActionlintBinaryPath), nil
 }
 
 // goPackageExecutorProgram 为一个 Go 包选择普通或 race 执行语义。
@@ -615,7 +594,7 @@ func WorkloadExecutionGoFlags(id string) (string, error) {
 	if targeted {
 		switch targetKind {
 		case workloadTargetGoGuard, workloadTargetGoPackage, workloadTargetGoTest, workloadTargetGoBenchmark:
-			if parent != GateIDBackendTestWithGuard && parent != GateIDBackendTestGuardWithRace && parent != GateIDBackendNilness && parent != GateIDAIMaintenanceSelfTest {
+			if parent != GateIDBackendTestWithGuard && parent != GateIDBackendTestGuardWithRace && parent != GateIDBackendNilness {
 				return "", err
 			}
 			return CanonicalGoFlags(parent == GateIDBackendTestGuardWithRace), nil

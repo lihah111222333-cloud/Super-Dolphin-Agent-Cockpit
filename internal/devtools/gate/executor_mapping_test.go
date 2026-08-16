@@ -115,16 +115,6 @@ func TestSQLCExecutorUsesPinnedRuntimeBinary(t *testing.T) {
 	}
 }
 
-func TestAIMaintenanceExecutorRunsPinnedActionlintInsideContainer(t *testing.T) {
-	program := testExecutorPrograms()[GateIDAIMaintenanceSelfTest]
-	if len(program.Steps) < 1 || !slices.Equal(program.Steps[0].Argv, []string{"actionlint"}) {
-		t.Fatalf("AI maintenance executor does not run actionlint first: %#v", program.Steps)
-	}
-	if !slices.Contains(program.RequiredExecutables, ExecutorActionlintBinaryPath) {
-		t.Fatalf("AI maintenance executor does not require pinned actionlint: %v", program.RequiredExecutables)
-	}
-}
-
 func TestProjectMapExecutorUsesTrustedCLIWithoutRepositoryGenerator(t *testing.T) {
 	program := testExecutorPrograms()[GateIDProjectMapCheck]
 	want := []string{ExecutorSelfCommandName, "project-map", "check", "--tree-from-head"}
@@ -214,8 +204,8 @@ func backendGoFlags(t *testing.T, program ExecutorProgram) string {
 		t.Fatalf("backend executor has no canonical GOFLAGS: %#v", program)
 	}
 	for _, assignment := range program.Steps[0].Environment {
-		if strings.HasPrefix(assignment, "GOFLAGS=") {
-			return strings.TrimPrefix(assignment, "GOFLAGS=")
+		if flags, ok := strings.CutPrefix(assignment, "GOFLAGS="); ok {
+			return flags
 		}
 	}
 	t.Fatalf("backend executor has no GOFLAGS assignment: %#v", program.Steps[0].Environment)

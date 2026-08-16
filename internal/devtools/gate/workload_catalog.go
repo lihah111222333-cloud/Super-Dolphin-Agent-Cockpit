@@ -113,7 +113,7 @@ func validateWorkloadPlanOwnerDuration(plan WorkloadExecutionPlan) error {
 // DefaultWorkloadBootstrapPolicy 返回覆盖当前完整 GateRegistry 的隔离策略。
 func DefaultWorkloadBootstrapPolicy() WorkloadBootstrapPolicy {
 	return WorkloadBootstrapPolicy{
-		GateIDAIMaintenanceSelfTest: {WorkloadKindGuard, 60000, true}, GateIDFrontendLint: {WorkloadKindGuard, 60000, true}, GateIDFrontendPreflight: {WorkloadKindGuard, 60000, true}, GateIDFrontendTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendFullTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendBuild: {WorkloadKindGuard, 60000, true}, GateIDFrontendEmbedVerify: {WorkloadKindGuard, 60000, true}, GateIDBackendTestWithGuard: {WorkloadKindGoTest, 90000, true}, GateIDBackendTestGuardWithRace: {WorkloadKindGoTest, 90000, true}, GateIDBackendNilness: {WorkloadKindGuard, 60000, true}, GateIDSQLCVerify: {WorkloadKindGuard, 60000, true}, GateIDCodemapCheck: {WorkloadKindGuard, 60000, true}, GateIDProjectMapCheck: {WorkloadKindGuard, 60000, true}, GateIDCapabilityContractCheck: {WorkloadKindGuard, 60000, true}, GateIDWhitespaceCheck: {WorkloadKindGuard, 10000, true}, GateIDReleaseLayeredCheck: {WorkloadKindGuard, 30000, false},
+		GateIDFrontendLint: {WorkloadKindGuard, 60000, true}, GateIDFrontendPreflight: {WorkloadKindGuard, 60000, true}, GateIDFrontendTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendFullTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendBuild: {WorkloadKindGuard, 60000, true}, GateIDFrontendEmbedVerify: {WorkloadKindGuard, 60000, true}, GateIDWorkflowActionlint: {WorkloadKindGuard, 60000, true}, GateIDBackendTestWithGuard: {WorkloadKindGoTest, 90000, true}, GateIDBackendTestGuardWithRace: {WorkloadKindGoTest, 90000, true}, GateIDBackendNilness: {WorkloadKindGuard, 60000, true}, GateIDSQLCVerify: {WorkloadKindGuard, 60000, true}, GateIDCodemapCheck: {WorkloadKindGuard, 60000, true}, GateIDProjectMapCheck: {WorkloadKindGuard, 60000, true}, GateIDCapabilityContractCheck: {WorkloadKindGuard, 60000, true}, GateIDWhitespaceCheck: {WorkloadKindGuard, 10000, true}, GateIDReleaseLayeredCheck: {WorkloadKindGuard, 30000, false},
 		GateIDFrontendE2E: {WorkloadKindNodeTest, 90000, true},
 	}
 }
@@ -670,12 +670,6 @@ func splitGoGuardWorkloadSpecs(
 	targetCount int,
 	nestedModules []string,
 ) ([]splitGoGuardWorkloadSpec, error) {
-	if gateID == GateIDAIMaintenanceSelfTest {
-		return []splitGoGuardWorkloadSpec{
-			{target: GoGuardTargetAIMaintenanceUnit, estimateMS: 60000},
-			{target: GoGuardTargetAIMaintenanceGate, estimateMS: 60000},
-		}, nil
-	}
 	if gateID != GateIDBackendTestWithGuard || targetKind != workloadTargetGoPackage || targetCount == 0 {
 		return nil, nil
 	}

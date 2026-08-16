@@ -111,7 +111,7 @@ func TestDurationLedgerSQLiteCatalogProjectionPreservesOrderAndObservations(t *t
 		Authoritative: true,
 		Workloads: []Workload{
 			{
-				ID: string(GateIDAIMaintenanceSelfTest), Kind: WorkloadKindGuard,
+				ID: string(GateIDCodemapCheck), Kind: WorkloadKindGuard,
 				CommandDigest: strings.Repeat("1", 64), BootstrapEstimateMS: 2_000,
 				Shardable: true,
 			},
@@ -283,7 +283,7 @@ func TestRecordRemoteCIRunRejectsUncoveredPassedCatalogWorkload(t *testing.T) {
 	seedAcceptedGenerationForTest(t, store, 1)
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Authoritative: true, Workloads: []Workload{{
-		ID: string(GateIDAIMaintenanceSelfTest), Kind: WorkloadKindGuard,
+		ID: string(GateIDCodemapCheck), Kind: WorkloadKindGuard,
 		CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 1_000, Shardable: true,
 	}}}
 	digest, err := WorkloadCatalogDigest(catalog)
@@ -356,7 +356,7 @@ func TestRecordRemoteCIRunRejectsUnknownStatusAndFailedCatalogDrift(t *testing.T
 		RunnerImage: "ubuntu:22.04", Status: ResultStatusFailed, StartedAt: now, CompletedAt: now,
 		Shards: []RemoteCIShardRecord{{
 			ShardIdentity: "sha256:" + strings.Repeat("5", 64), ContainerGroup: "eci-failed", ContainerStatus: "Failed",
-			Workloads:             []GateID{GateIDAIMaintenanceSelfTest},
+			Workloads:             []GateID{GateIDCodemapCheck},
 			MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("5", 64)),
 		}},
 	}
@@ -365,7 +365,7 @@ func TestRecordRemoteCIRunRejectsUnknownStatusAndFailedCatalogDrift(t *testing.T
 	}
 	record.Shards = []RemoteCIShardRecord{{
 		ShardIdentity: "sha256:" + strings.Repeat("6", 64), ContainerGroup: "eci-123", ContainerStatus: "Failed",
-		Workloads:             []GateID{GateIDAIMaintenanceSelfTest},
+		Workloads:             []GateID{GateIDCodemapCheck},
 		MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("6", 64)),
 	}}
 	if err := store.RecordProvisionalRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "absent from its catalog") {

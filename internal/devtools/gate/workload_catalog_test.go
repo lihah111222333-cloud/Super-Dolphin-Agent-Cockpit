@@ -117,7 +117,7 @@ func TestBuildExpandedWorkloadCatalogUsesAtomicTargets(t *testing.T) {
 		t.Fatalf("expanded catalog = %#v", catalog)
 	}
 	parents := workloadParentCounts(t, catalog)
-	if parents[GateIDAIMaintenanceSelfTest] != 2 || parents[GateIDBackendTestWithGuard] != 9 || parents[GateIDFrontendFullTest] != 3 {
+	if parents[GateIDBackendTestWithGuard] != 9 || parents[GateIDFrontendFullTest] != 3 {
 		t.Fatalf("expanded parent counts = %v", parents)
 	}
 	assertAtomicExpandedWorkloads(t, catalog)
@@ -353,8 +353,6 @@ func assertAtomicExpandedWorkloads(t *testing.T, catalog WorkloadCatalog) {
 		switch parent {
 		case GateIDBackendTestWithGuard:
 			assertAtomicBackendGuard(t, workload, kind, target, targeted)
-		case GateIDAIMaintenanceSelfTest:
-			assertAtomicAIMaintenanceGuard(t, workload, kind, target, targeted)
 		}
 	}
 }
@@ -371,15 +369,6 @@ func assertAtomicBackendGuard(t *testing.T, workload Workload, kind WorkloadTarg
 		if _, err := ParseNestedGoModuleGuardTarget(target); err != nil {
 			t.Fatalf("dynamic nested module target %q: %v", target, err)
 		}
-	}
-}
-
-func assertAtomicAIMaintenanceGuard(t *testing.T, workload Workload, kind WorkloadTargetKind, target string, targeted bool) {
-	t.Helper()
-	if !targeted || kind != WorkloadTargetGoGuard ||
-		(target != GoGuardTargetAIMaintenanceUnit && target != GoGuardTargetAIMaintenanceGate) ||
-		workload.BootstrapEstimateMS > FullCITargetDurationMS {
-		t.Fatalf("AI maintenance gate was not atomically bounded: id=%q estimate=%d", workload.ID, workload.BootstrapEstimateMS)
 	}
 }
 

@@ -36,7 +36,6 @@ func (p Profile) Validate() error {
 type GateID string
 
 const (
-	GateIDAIMaintenanceSelfTest    GateID = "ai-maintenance:self-test"
 	GateIDFrontendLint             GateID = "frontend:lint"
 	GateIDFrontendPreflight        GateID = "frontend:preflight"
 	GateIDFrontendTest             GateID = "frontend:test"
@@ -44,6 +43,7 @@ const (
 	GateIDFrontendFullTest         GateID = "frontend:test-full"
 	GateIDFrontendBuild            GateID = "frontend:build"
 	GateIDFrontendEmbedVerify      GateID = "frontend:embed-verify"
+	GateIDWorkflowActionlint       GateID = "workflow:actionlint"
 	GateIDBackendTestWithGuard     GateID = "backend:test_with_guard"
 	GateIDLSPChangedDiagnostics    GateID = "lsp:changed-diagnostics"
 	GateIDBackendTestGuardWithRace GateID = "backend:test_with_guard_and_race"
@@ -130,7 +130,6 @@ func GateRegistry() []GateSpec {
 	remotePromotionRelease := []Profile{ProfileRemoteRequired, ProfilePromotion, ProfileRelease}
 	releaseRequired := []Profile{ProfileRelease}
 	registry := []GateSpec{
-		newGateSpec(GateIDAIMaintenanceSelfTest, all, all),
 		newGateSpec(GateIDFrontendLint, all, all),
 		newGateSpec(GateIDFrontendPreflight, remotePromotionRelease, remotePromotionRelease),
 		newGateSpec(GateIDFrontendTest, localRemotePromotion, localRemotePromotion),
@@ -138,6 +137,7 @@ func GateRegistry() []GateSpec {
 		newGateSpec(GateIDFrontendFullTest, []Profile{ProfileRelease}, []Profile{ProfileRelease}),
 		newGateSpec(GateIDFrontendBuild, all, localRemotePromotionRelease),
 		newGateSpec(GateIDFrontendEmbedVerify, all, localRemotePromotionRelease),
+		newGateSpec(GateIDWorkflowActionlint, all, all),
 		newGateSpec(GateIDBackendTestWithGuard, all, all),
 		newGateSpec(GateIDBackendTestGuardWithRace, all, releaseRequired),
 		newGateSpec(GateIDBackendNilness, all, releaseRequired),

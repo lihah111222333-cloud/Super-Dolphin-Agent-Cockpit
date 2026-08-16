@@ -14,12 +14,12 @@ func TestExecutorPlanPendingExactGoResultsBindCanonicalProfilesAfterFailure(t *t
 	request := executorPlanRequest{
 		profile:    ProfileRelease,
 		planDigest: "sha256:" + strings.Repeat("a", 64),
-		gateIDs:    []GateID{GateIDAIMaintenanceSelfTest, GateID(normalID), GateID(raceID)},
+		gateIDs:    []GateID{GateIDFrontendPreflight, GateID(normalID), GateID(raceID)},
 		shard:      true,
 	}
 	failure := errors.New("preceding lane failed")
 	report, err := executeGatePlanWithRunner(context.Background(), request, func(_ context.Context, lane int, id GateID) (PlanGateExecution, error) {
-		if lane == 0 && id == GateIDAIMaintenanceSelfTest {
+		if lane == 0 && id == GateIDFrontendPreflight {
 			result := successfulPlanGateResult(id)
 			result.Status, result.ExitCode = ResultStatusFailed, 1
 			return result, failure

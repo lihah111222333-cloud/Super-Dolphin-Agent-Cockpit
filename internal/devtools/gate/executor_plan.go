@@ -840,9 +840,9 @@ func executorPlanLaneRoot(workRoot string, laneIndex int) string {
 // executorPlanLanes 将 exact gate 集合映射到固定、互不共享可写目录的 lane DAG。
 func executorPlanLanes(gateIDs []GateID) ([][]GateID, error) {
 	laneCatalog := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendPreflight, GateIDFrontendTest, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
+		{GateIDFrontendPreflight, GateIDFrontendTest, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
 			GateIDBackendTestGuardWithRace, GateIDBackendNilness, GateIDReleaseLayeredCheck},
-		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
+		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDWorkflowActionlint, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 	lanes := make([][]GateID, executorPlanLaneCount)

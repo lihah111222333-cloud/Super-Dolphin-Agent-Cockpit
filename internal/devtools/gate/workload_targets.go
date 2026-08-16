@@ -33,8 +33,6 @@ const (
 	GoGuardTargetCopylocksProvider = "copylocks-provider"
 	GoGuardTargetCopylocksPlatform = "copylocks-platform"
 	GoGuardTargetCopylocksThread   = "copylocks-thread"
-	GoGuardTargetAIMaintenanceUnit = "ai-maintenance-unit"
-	GoGuardTargetAIMaintenanceGate = "ai-maintenance-gate"
 
 	goGuardTargetNestedModulePrefix = "nested-module:"
 )
@@ -189,14 +187,6 @@ func validateFrontendPreflightWorkloadTarget(gateID GateID, target string) error
 func validateGoGuardWorkloadTarget(gateID GateID, target string) error {
 	if target == GoGuardTargetCanonical && isBackendTestGate(gateID) {
 		return nil
-	}
-	if gateID == GateIDAIMaintenanceSelfTest {
-		switch target {
-		case GoGuardTargetAIMaintenanceUnit, GoGuardTargetAIMaintenanceGate:
-			return nil
-		default:
-			return fmt.Errorf("gate %q has an invalid AI maintenance workload", gateID)
-		}
 	}
 	if gateID != GateIDBackendTestWithGuard || !isSplitGoGuardWorkloadTarget(target) {
 		return fmt.Errorf("gate %q has an invalid Go guard workload", gateID)

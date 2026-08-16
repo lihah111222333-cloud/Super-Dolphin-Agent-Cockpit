@@ -265,30 +265,6 @@ func TestSplitGoGuardWorkloadsUseFixedEntrypoints(t *testing.T) {
 	}
 }
 
-func TestAIMaintenanceGuardWorkloadsUseIndependentEntrypoints(t *testing.T) {
-	tests := []struct {
-		target string
-		argv   []string
-	}{
-		{GoGuardTargetAIMaintenanceUnit, []string{"go", "test", "./scripts/ai_maintenance", "-count=1"}},
-		{GoGuardTargetAIMaintenanceGate, []string{"go", "test", "./scripts", "-run", "^TestAIMaintenanceGate", "-count=1"}},
-	}
-	for _, test := range tests {
-		workloadID, err := targetWorkloadID(GateIDAIMaintenanceSelfTest, workloadTargetGoGuard, test.target)
-		if err != nil {
-			t.Fatal(err)
-		}
-		program := mustExecutorProgramForWorkload(t, workloadID)
-		assertSingleExecutorStep(t, program, test.argv)
-		if !program.NeedsGoSeed || len(program.RequiredExecutables) != 1 || program.RequiredExecutables[0] != ExecutorActionlintBinaryPath {
-			t.Fatalf("AI maintenance target %q prerequisites = %#v", test.target, program)
-		}
-	}
-	if _, err := targetWorkloadID(GateIDBackendTestWithGuard, workloadTargetGoGuard, GoGuardTargetAIMaintenanceUnit); err == nil {
-		t.Fatal("backend gate accepted an AI maintenance workload")
-	}
-}
-
 func mustGoTestWorkload(
 	t *testing.T,
 	parent GateID,
