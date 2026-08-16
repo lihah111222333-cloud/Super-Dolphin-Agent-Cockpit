@@ -111,7 +111,7 @@ cmd/mcp-lsp/lsp_binary_external_env_worktree_e2e_test.go	cmd	platform-provider	g
 cmd/mcp-lsp/lsp_binary_go_worktree_e2e_test.go	cmd	platform-provider	go-test	4114	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,go,worktree,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go	cmd	platform-provider	go-test	31108	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,gopls,daemon,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_gopls_log_e2e_test.go	cmd	platform-provider	go-test	21020	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,gopls,log,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_gopls_platform_constraint_e2e_test.go	cmd	platform-provider	go-test	1914	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,gopls,platform,constraint,e2e,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_gopls_platform_constraint_e2e_test.go	cmd	platform-provider	go-test	2033	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,gopls,platform,constraint,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_gopls_recovery_e2e_test.go	cmd	platform-provider	go-test	8321	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,gopls,recovery,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_grep_brace_glob_e2e_test.go	cmd	platform-provider	go-test	1502	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,grep,brace,glob,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_grep_cap_e2e_test.go	cmd	platform-provider	go-test	2424	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,grep,cap,e2e,test,代码智能,LSP,MCP,peer

@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build e2e && (darwin || linux)
 
 package main
 
@@ -15,8 +15,10 @@ const wjbootCandidatePublisherRelativePath = "backend/cmd/ai_maintenance_candida
 func TestMcpLSPBinaryWJBootCandidatePublisherPlatformConstraintKeepsRootCohortConfig(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	requireRealGopls(t)
+	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
 
 	wjbootRoot := canonicalToolTestRoot(t, t.TempDir())
+	runRealGoplsGit(t, wjbootRoot, "init")
 	writeLSPBinaryFixture(t, filepath.Join(wjbootRoot, "go.mod"), "module example.com/wjboot-red\n\ngo 1.26.0\n")
 	ordinaryTarget := filepath.Join(wjbootRoot, "backend", "ordinary.go")
 	writeLSPBinaryFixture(t, ordinaryTarget, "package backend\n\nfunc Ordinary() {}\n")
