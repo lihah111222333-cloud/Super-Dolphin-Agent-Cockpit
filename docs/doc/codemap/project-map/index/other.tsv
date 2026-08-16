@@ -705,7 +705,7 @@ internal/devtools/gate/workload_compile_owner_planning.go	internal	other	go-sour
 internal/devtools/gate/workload_compile_owner_planning_test.go	internal	other	go-test	11741	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,owner,planning,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_packing_domain.go	internal	other	go-source	5642	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,packing,domain,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_packing_heuristic.go	internal	other	go-source	21486	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,packing,heuristic,开发工具与生成器辅助包
-internal/devtools/gate/workload_compile_packing_heuristic_test.go	internal	other	go-test	16791	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,packing,heuristic,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_compile_packing_heuristic_test.go	internal	other	go-test	18126	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,packing,heuristic,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_packing_search.go	internal	other	go-source	18548	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,packing,search,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_packing_search_test.go	internal	other	go-test	13986	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,packing,search,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_compile_planning.go	internal	other	go-source	35241	开发工具与生成器辅助包	internal,devtools,gate,workload,compile,planning,开发工具与生成器辅助包
@@ -723,8 +723,8 @@ internal/devtools/gate/workload_model_test.go	internal	other	go-test	35420	开�
 internal/devtools/gate/workload_overhead.go	internal	other	go-source	12497	开发工具与生成器辅助包	internal,devtools,gate,workload,overhead,开发工具与生成器辅助包
 internal/devtools/gate/workload_packing_budget.go	internal	other	go-source	3188	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,budget,开发工具与生成器辅助包
 internal/devtools/gate/workload_packing_evidence.go	internal	other	go-source	12746	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,evidence,开发工具与生成器辅助包
-internal/devtools/gate/workload_packing_evidence_proof.go	internal	other	go-source	9181	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,evidence,proof,开发工具与生成器辅助包
-internal/devtools/gate/workload_packing_evidence_test.go	internal	other	go-test	10609	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,evidence,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_packing_evidence_proof.go	internal	other	go-source	9100	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,evidence,proof,开发工具与生成器辅助包
+internal/devtools/gate/workload_packing_evidence_test.go	internal	other	go-test	11082	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,evidence,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_packing_evidence_validation.go	internal	other	go-source	10842	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,evidence,validation,开发工具与生成器辅助包
 internal/devtools/gate/workload_packing_heuristic.go	internal	other	go-source	31848	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,heuristic,开发工具与生成器辅助包
 internal/devtools/gate/workload_packing_objective.go	internal	other	go-source	2400	开发工具与生成器辅助包	internal,devtools,gate,workload,packing,objective,开发工具与生成器辅助包

@@ -138,6 +138,18 @@ func TestValidateStoredRejectsTamperedLargeDCPAPLayout(t *testing.T) {
 	}
 }
 
+func TestValidateStoredRejectsReorderedHeuristicDCPAPLayout(t *testing.T) {
+	gatePlan, catalog, snapshot, context, selected := largeHeuristicPlanFixture(t)
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := reorderHeuristicShards(t, plan)
+	if err := tampered.ValidateStored(gatePlan); err == nil {
+		t.Fatal("ValidateStored accepted reordered heuristic D-CPAP layout")
+	}
+}
+
 func splitOrdinaryWorkloadIntoShard(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
 	t.Helper()
 	tampered := plan

@@ -105,9 +105,6 @@ func packingEvidenceActualShards(shards []ShardPlan, context PlanningContext) (m
 		}
 		actual[tier] = append(actual[tier], shard)
 	}
-	for tier := range actual {
-		actual[tier] = canonicalCompilePacking(actual[tier])
-	}
 	return actual, nil
 }
 
@@ -192,9 +189,12 @@ func measuredPackingEvidenceMatches(bucket *workloadPackingEvidenceStats, target
 	if err != nil {
 		return err
 	}
-	actual := canonicalCompilePacking(bucket.shards)
+	actual := bucket.shards
 	if !slices.EqualFunc(expected, actual, func(left, right ShardPlan) bool {
-		return left.EstimatedDurationMS == right.EstimatedDurationMS && compilePackingShardKey(left) == compilePackingShardKey(right) && compileGroupIDsEqual(left.CompileGroupIDs, right.CompileGroupIDs)
+		return left.Index+actual[0].Index == right.Index &&
+			left.EstimatedDurationMS == right.EstimatedDurationMS &&
+			slices.Equal(left.Workloads, right.Workloads) &&
+			slices.Equal(left.CompileGroupIDs, right.CompileGroupIDs)
 	}) {
 		return fmt.Errorf("measured workload packing evidence does not match canonical plan")
 	}

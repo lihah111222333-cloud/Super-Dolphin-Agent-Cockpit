@@ -106,6 +106,43 @@ func TestValidateStoredRejectsNonCanonicalHeuristicCompileSplit(t *testing.T) {
 	}
 }
 
+func TestValidateStoredRejectsReorderedHeuristicCompileLayout(t *testing.T) {
+	gatePlan, catalog, context, snapshot, inputs, executionIDs := productionCompileHeuristicFixture(t)
+	plan, err := BuildWorkloadExecutionPlanForWorkloadsWithCompileInputs(gatePlan, catalog, snapshot, context, executionIDs, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := reorderHeuristicShards(t, plan)
+	if err := tampered.ValidateStored(gatePlan); err == nil {
+		t.Fatal("ValidateStored accepted reordered heuristic compile layout")
+	}
+}
+
+func reorderHeuristicShards(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
+	t.Helper()
+	tampered := plan
+	tampered.Shards = slices.Clone(plan.Shards)
+	for left := range tampered.Shards {
+		for right := left + 1; right < len(tampered.Shards); right++ {
+			if compilePackingShardKey(tampered.Shards[left]) == compilePackingShardKey(tampered.Shards[right]) {
+				continue
+			}
+			tampered.Shards[left], tampered.Shards[right] = tampered.Shards[right], tampered.Shards[left]
+			for index := range tampered.Shards {
+				tampered.Shards[index].Index = index
+			}
+			digest, err := tampered.digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			tampered.PlanDigest = digest
+			return tampered
+		}
+	}
+	t.Fatal("heuristic fixture has no distinct shards to reorder")
+	return WorkloadExecutionPlan{}
+}
+
 func splitEligibleCompileGroup(t *testing.T, plan WorkloadExecutionPlan) WorkloadExecutionPlan {
 	t.Helper()
 	groups := make(map[string]CompileGroup, len(plan.CompileGroups))
