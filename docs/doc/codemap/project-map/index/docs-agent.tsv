@@ -1,6 +1,6 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-AGENTS.md	(root)	docs-agent	doc	11284	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
-CLAUDE.md	(root)	docs-agent	doc	8545	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	12094	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+CLAUDE.md	(root)	docs-agent	doc	9359	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 README.de.md	(root)	docs-agent	doc	32897	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
 README.es.md	(root)	docs-agent	doc	33398	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
 README.ja.md	(root)	docs-agent	doc	34179	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
@@ -54,10 +54,10 @@ docs/guards/remote-ci-production-freeze-fail-first.txt	docs	docs-agent	txt	510	�
 docs/guards/remote-ci-resource-plan-field-fail-first.txt	docs	docs-agent	txt	490	项目文档体系	docs,guards,remote,ci,resource,plan,field,fail,first,项目文档体系
 docs/guards/remote-ci-test-metrics-fail-first.txt	docs	docs-agent	txt	511	项目文档体系	docs,guards,remote,ci,test,metrics,fail,first,项目文档体系
 docs/guards/sd-go-1265-code-size-freeze-fail-first.txt	docs	docs-agent	txt	552	项目文档体系	docs,guards,sd,go,1265,code,size,freeze,fail,first,项目文档体系
-docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2998	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
+docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	5095	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
 docs/internal-notes/README.md	docs	docs-agent	doc	559	内部提示词与工程方法记录	docs,internal,notes,README,内部提示词与工程方法记录
 docs/internal-notes/RPC能力E2E覆盖矩阵.md	docs	docs-agent	doc	10761	内部提示词与工程方法记录	docs,internal,notes,RPC能力E2E覆盖矩阵,内部提示词与工程方法记录
-docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2359	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
+docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	4738	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
 docs/open-source/ARCHITECTURE.md	docs	docs-agent	doc	9765	项目文档体系	docs,open,source,ARCHITECTURE,项目文档体系
 docs/open-source/GOVERNANCE.md	docs	docs-agent	doc	11529	项目文档体系	docs,open,source,GOVERNANCE,项目文档体系
 docs/open-source/README.md	docs	docs-agent	doc	634	项目文档体系	docs,open,source,README,项目文档体系
