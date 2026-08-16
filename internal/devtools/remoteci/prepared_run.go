@@ -594,7 +594,9 @@ func (prepared *PreparedRun) consume(coordinator *Coordinator) error {
 	if err := prepared.validateLocked(); err != nil {
 		return err
 	}
-	if !prepared.allReused {
+	// SelectedTests 使用非权威 atomic catalog；无可靠历史时由既有 bootstrap
+	// planner 隔离分片，不读取或绑定 full normal 的 accepted overhead。
+	if !prepared.allReused && !prepared.input.SelectedTests {
 		if err := prepared.reloadPlanningSnapshotLocked(prepared.input.LedgerStore); err != nil {
 			return err
 		}

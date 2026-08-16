@@ -22,6 +22,98 @@ type missReuseLPTFixture struct {
 	allIDs   []gate.GateID
 }
 
+// TestCoordinatorSelectedTestsMissCreatesBootstrapECIWithoutAcceptedOverhead
+// 验证非权威选测在无历史与 accepted overhead 时仍按 bootstrap 规格真正创建 ECI。
+func TestCoordinatorSelectedTestsMissCreatesBootstrapECIWithoutAcceptedOverhead(t *testing.T) {
+	input := remoteOverheadlessMissInput(t)
+	input.SelectedTests = true
+	store := &coordinatorStore{}
+	runtime := &coordinatorRuntime{}
+	coordinator := newTestCoordinator(t, store, runtime)
+	prepared, err := coordinator.Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatalf("selected-test overheadless Prepare() error = %v", err)
+	}
+	if err := bindPreparedMissExecutionForTest(context.Background(), coordinator, prepared, input); err != nil {
+		t.Fatalf("selected-test overheadless BindPreparedMissExecution() error = %v", err)
+	}
+	_, misses := prepared.WorkloadReuseDecision()
+	set, err := buildRemoteExecutionShardSetForWorkloads(prepared.plan, prepared.catalog, misses, prepared.input)
+	if err != nil {
+		t.Fatalf("selected-test overheadless shard plan error = %v", err)
+	}
+	assertSelectedBootstrapPlan(t, set.WorkloadPlan)
+	result, err := coordinator.RunPrepared(context.Background(), prepared)
+	if err != nil {
+		t.Fatalf("selected-test overheadless miss Run() error = %v", err)
+	}
+	if result.Status != gate.ResultStatusPassed || len(result.FreshWorkloadExecutions) != 1 {
+		t.Fatalf("selected-test overheadless miss result = status=%q fresh=%d", result.Status, len(result.FreshWorkloadExecutions))
+	}
+	assertSelectedBootstrapECICreate(t, store, runtime)
+}
+
+// TestCoordinatorFullNormalMissStillRequiresAcceptedOverhead 锁定 full normal
+// 在同一无历史输入下继续 fail-fast，且不得产生 ECI 副作用。
+func TestCoordinatorFullNormalMissStillRequiresAcceptedOverhead(t *testing.T) {
+	input := remoteOverheadlessMissInput(t)
+	store := &coordinatorStore{}
+	runtime := &coordinatorRuntime{}
+	_, err := runCoordinatorTest(t, newTestCoordinator(t, store, runtime), context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "requires accepted shard overhead") {
+		t.Fatalf("full normal overheadless miss error = %v", err)
+	}
+	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
+}
+
+// remoteOverheadlessMissInput 构造只有 accepted generation、没有耗时样本或 overhead 的 MISS 输入。
+func remoteOverheadlessMissInput(t *testing.T) RunInput {
+	t.Helper()
+	_, input := coordinatorReuseFixture(t)
+	ledger := gate.DurationLedger{Version: input.LedgerSnapshot.Ledger.Version, Samples: []gate.DurationSample{}}
+	input.LedgerStore, input.LedgerSnapshot = newRemoteRunLedgerAuthority(t, ledger)
+	return input
+}
+
+// assertSelectedBootstrapPlan 校验空历史选测的 canonical isolated bootstrap 见证。
+func assertSelectedBootstrapPlan(t *testing.T, plan gate.WorkloadExecutionPlan) {
+	t.Helper()
+	if len(plan.Shards) != 1 || len(plan.Shards[0].Workloads) != 1 || len(plan.PackingEvidence) != 1 {
+		t.Fatalf("selected-test bootstrap plan = shards=%d workloads=%d evidence=%d", len(plan.Shards), len(plan.Shards[0].Workloads), len(plan.PackingEvidence))
+	}
+	evidence := plan.PackingEvidence[0]
+	if evidence.Resolution != cicontract.WorkloadResourceTierReserveResolutionBootstrap ||
+		evidence.SolverMode != cicontract.WorkloadPlanningReserveBootstrapSolverModeID ||
+		evidence.LowerBoundShards != 1 || evidence.PlannedShards != 1 || evidence.HeuristicGapShards != 0 {
+		t.Fatalf("selected-test bootstrap packing evidence = %#v", evidence)
+	}
+}
+
+// assertSelectedBootstrapECICreate 校验空历史选测只创建一片 bootstrap 2C/4GiB ECI。
+func assertSelectedBootstrapECICreate(t *testing.T, store *coordinatorStore, runtime *coordinatorRuntime) {
+	t.Helper()
+	runtime.mu.Lock()
+	if len(runtime.creates) != 1 {
+		runtime.mu.Unlock()
+		t.Fatalf("selected-test bootstrap ECI creates = %d, want 1", len(runtime.creates))
+	}
+	resources := runtime.creates[0].Resources
+	runtime.mu.Unlock()
+	if resources.CPU != 2 || resources.MemoryGiB != 4 {
+		t.Fatalf("selected-test bootstrap resources = %.gC/%.gGiB, want 2C/4GiB", resources.CPU, resources.MemoryGiB)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.shardRequests) != 1 {
+		t.Fatalf("selected-test bootstrap shard requests = %d, want 1", len(store.shardRequests))
+	}
+	for _, request := range store.shardRequests {
+		if request.Calibration || len(request.GateIDs) != 1 {
+			t.Fatalf("selected-test bootstrap shard request = calibration=%t gates=%v", request.Calibration, request.GateIDs)
+		}
+	}
+}
+
 // TestRemoteWorkloadMissesRejectReuseOverlapBeforeRemoteSideEffects 守护 reused 与 miss 交集在 splitter 前失败。
 func TestRemoteWorkloadMissesRejectReuseOverlapBeforeRemoteSideEffects(t *testing.T) {
 	objectKeys := []string{"sentinel-object"}
