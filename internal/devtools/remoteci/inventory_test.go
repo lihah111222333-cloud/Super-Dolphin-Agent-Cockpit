@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -73,6 +74,39 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 		t.Fatalf("inventory = %#v", inventory)
 	}
 	assertAtomicInventoryTestNames(t, inventory.GoTests, inventory.GoRaceTests)
+	tree := inventoryGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
+	treeInventory, err := BuildWorkloadInventory(context.Background(), repository, tree, base, "linux/amd64")
+	if err != nil {
+		t.Fatalf("BuildWorkloadInventory(tree) error = %v", err)
+	}
+	if !reflect.DeepEqual(treeInventory, inventory) {
+		t.Fatalf("tree inventory changed legacy behavior: tree=%#v commit=%#v", treeInventory, inventory)
+	}
+	assertLegacyInventoryRejectsRevisions(t, repository, base, commit)
+}
+
+// assertLegacyInventoryRejectsRevisions 验证旧入口只接受 canonical commit/tree OID。
+func assertLegacyInventoryRejectsRevisions(t *testing.T, repository, base, commit string) {
+	t.Helper()
+	runInventoryGit(t, repository, "branch", "inventory-moving", commit)
+	runInventoryGit(t, repository, "tag", "-a", "inventory-tag", "-m", "inventory tag", commit)
+	tagOID := inventoryGitOutput(t, repository, "rev-parse", "inventory-tag^{tag}")
+	for _, revision := range []struct {
+		name  string
+		value string
+	}{
+		{name: "HEAD", value: "HEAD"},
+		{name: "branch", value: "inventory-moving"},
+		{name: "tag", value: "inventory-tag"},
+		{name: "ref", value: "refs/heads/inventory-moving"},
+		{name: "tag-object", value: tagOID},
+	} {
+		t.Run(revision.name, func(t *testing.T) {
+			if _, err := BuildWorkloadInventory(context.Background(), repository, revision.value, base, "linux/amd64"); err == nil {
+				t.Fatalf("BuildWorkloadInventory() accepted revision %q", revision.value)
+			}
+		})
+	}
 }
 
 func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
@@ -84,19 +118,21 @@ func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
 	runInventoryGit(t, repository, "add", ".")
 	runInventoryGit(t, repository, "commit", "--quiet", "-m", "基础")
 	commit := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
+	tree := inventoryGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
 
-	inventory, inventorySnapshot, err := BuildWorkloadInventoryWithSnapshot(context.Background(), repository, commit, "", "linux/amd64")
+	assertInventorySnapshotRejectsCommit(t, repository, commit)
+	inventory, inventorySnapshot, err := BuildWorkloadInventoryWithSnapshot(context.Background(), repository, tree, "", "linux/amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := inventorySnapshot.exactTree(repository, commit)
+	snapshot, err := inventorySnapshot.exactTree(repository, tree)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := inventorySnapshot.exactTree(repository, strings.Repeat("0", len(commit))); err == nil || got != nil {
+	if got, err := inventorySnapshot.exactTree(repository, strings.Repeat("0", len(tree))); err == nil || got != nil {
 		t.Fatal("inventory snapshot accepted a different exact tree")
 	}
-	if got, err := inventorySnapshot.exactTree(repository+"-drift", commit); err == nil || got != nil {
+	if got, err := inventorySnapshot.exactTree(repository+"-drift", tree); err == nil || got != nil {
 		t.Fatal("inventory snapshot accepted a different repository root")
 	}
 	expectedPackages, expectedTests, expectedRaceTests := inventoryExpectedSelectors()
@@ -106,6 +142,14 @@ func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
 		t.Fatalf("inventory selectors changed: got=%#v wantPackages=%v wantTests=%v wantRaceTests=%v", inventory, expectedPackages, expectedTests, expectedRaceTests)
 	}
 	assertInventorySnapshotReuse(t, snapshot, expectedPackages, expectedTests, expectedRaceTests)
+}
+
+// assertInventorySnapshotRejectsCommit 验证 snapshot 入口只接受 exact tree OID。
+func assertInventorySnapshotRejectsCommit(t *testing.T, repository, commit string) {
+	t.Helper()
+	if _, _, err := BuildWorkloadInventoryWithSnapshot(context.Background(), repository, commit, "", "linux/amd64"); err == nil {
+		t.Fatal("BuildWorkloadInventoryWithSnapshot() accepted a commit object")
+	}
 }
 
 func TestBuildWorkloadInventoryPrepareReusesInventorySnapshot(t *testing.T) {
@@ -130,8 +174,12 @@ func TestBuildWorkloadInventoryPrepareReusesInventorySnapshot(t *testing.T) {
 	if got := listings.Load(); got != 1 {
 		t.Fatalf("tree listings after Prepare = %d, want the same single listing", got)
 	}
-	if prepared.input.InventorySnapshot != inventorySnapshot {
-		t.Fatal("Prepare() did not retain the inventory-bound snapshot")
+	if prepared.input.InventorySnapshot != nil {
+		t.Fatal("Prepare() retained the inventory-bound snapshot after identity derivation")
+	}
+	assertPrepareSubsetReleasesInventorySnapshot(t, ctx, input)
+	if got := listings.Load(); got != 1 {
+		t.Fatalf("tree listings after PrepareSubset = %d, want the same single listing", got)
 	}
 	baselineInput := input
 	baselineInput.InventorySnapshot = nil
@@ -148,6 +196,21 @@ func TestBuildWorkloadInventoryPrepareReusesInventorySnapshot(t *testing.T) {
 		t.Fatalf("baseline Prepare tree listings = %d, want 1", got)
 	}
 	assertPreparedInventorySnapshotIdentity(t, prepared, baselinePrepared)
+}
+
+// assertPrepareSubsetReleasesInventorySnapshot 验证 subset freeze 不保留 inventory 全树对象。
+func assertPrepareSubsetReleasesInventorySnapshot(t *testing.T, ctx context.Context, input RunInput) {
+	t.Helper()
+	catalog := mustCoordinatorCatalog(t, input)
+	selected, _ := subsetFixtureIDs(t, catalog)
+	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	prepared, err := coordinator.PrepareSubset(ctx, input, RemoteSubsetRequest{Selected: selected})
+	if err != nil {
+		t.Fatalf("PrepareSubset() error = %v", err)
+	}
+	if prepared.input.InventorySnapshot != nil {
+		t.Fatal("PrepareSubset() retained the inventory-bound snapshot after identity derivation")
+	}
 }
 
 // prepareInventorySnapshotReuseFixture 创建含远程门禁选择器策略的精确候选树。

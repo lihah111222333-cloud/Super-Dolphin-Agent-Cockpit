@@ -35,6 +35,11 @@ func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *tes
 	if executePrepared.order <= prepare.order {
 		t.Fatalf("prepared executor order = %d, Prepare order = %d; executor must follow reuse decision", executePrepared.order, prepare.order)
 	}
+	clearPosition := requireRemoteRunInventorySnapshotClear(t, prepareFunction.Body)
+	if !(prepare.position < clearPosition && clearPosition < executePrepared.position) {
+		t.Fatalf("inventory snapshot clear position = %d, want between Prepare %d and execute %d", clearPosition, prepare.position, executePrepared.position)
+	}
+	requireRemoteRunReturnedInputCall(t, prepareFunction.Body, "executePreparedRemoteRun", 5, "input")
 	assertRemotePreparedCallOrder(t, calibration, bind, run, finalize)
 	if !(ensure.order < refresh.order && refresh.order < reload.order) {
 		t.Fatalf("post-calibration order = ensure:%d refresh:%d reload:%d", ensure.order, refresh.order, reload.order)
@@ -44,6 +49,19 @@ func TestExecuteRemoteRunKeepsPreparedAllHitAndMissPathsOnOneFinalizedRun(t *tes
 	}
 	requireRemoteRunEarlyReturnGuard(t, bindFunction.Body, "dependencies.allReused()")
 	requireRemoteRunEarlyReturnGuard(t, reloadFunction.Body, "prepared.AllReused() || input.Calibration || input.SelectedTests")
+}
+
+// TestAutomaticCalibrationDropsInventorySnapshotsBeforeRetention 守卫自动校准只保留
+// 三次运行所需的 inventory/identity，不把 transient exact-tree snapshot 存入数组。
+func TestAutomaticCalibrationDropsInventorySnapshotsBeforeRetention(t *testing.T) {
+	function := parseRemoteRunFunctionFromFile(t, "remote_run_calibration_automation.go", "tryAcceptAutomaticRemoteCalibration")
+	requireRemoteRunInputArrayLength(t, function.Body, "inputs", "3")
+	resolvePosition := requireRemoteRunCallPosition(t, function.Body, "resolveRemoteRunInput")
+	clearPosition := requireRemoteRunInventorySnapshotClear(t, function.Body)
+	storePosition := requireRemoteRunInputStore(t, function.Body, "inputs", "input")
+	if !(resolvePosition < clearPosition && clearPosition < storePosition) {
+		t.Fatalf("automatic calibration input order = resolve:%d clear:%d store:%d", resolvePosition, clearPosition, storePosition)
+	}
 }
 
 // assertRemotePreparedCallOrder 验证统一 prepared executor 的无条件终态链。
@@ -61,6 +79,7 @@ type remoteRunCall struct {
 	name      string
 	order     int
 	condition string
+	position  token.Pos
 }
 
 func parseExecuteRemoteRun(t *testing.T) *ast.FuncDecl {
@@ -154,7 +173,130 @@ func appendRemoteRunCall(calls *[]remoteRunCall, expression ast.Expr, condition 
 	if name == "" {
 		return
 	}
-	*calls = append(*calls, remoteRunCall{name: name, order: len(*calls), condition: condition})
+	*calls = append(*calls, remoteRunCall{name: name, order: len(*calls), condition: condition, position: call.Pos()})
+}
+
+func requireRemoteRunInventorySnapshotClear(t *testing.T, body *ast.BlockStmt) token.Pos {
+	t.Helper()
+	var positions []token.Pos
+	ast.Inspect(body, func(node ast.Node) bool {
+		assignment, ok := node.(*ast.AssignStmt)
+		if ok && remoteRunClearsInventorySnapshot(assignment) {
+			positions = append(positions, assignment.Pos())
+		}
+		return true
+	})
+	if len(positions) != 1 {
+		t.Fatalf("input.InventorySnapshot clear assignments = %d, want 1", len(positions))
+	}
+	return positions[0]
+}
+
+func remoteRunClearsInventorySnapshot(assignment *ast.AssignStmt) bool {
+	if assignment == nil || assignment.Tok != token.ASSIGN || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
+		return false
+	}
+	selector, ok := assignment.Lhs[0].(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	input, inputOK := selector.X.(*ast.Ident)
+	zero, zeroOK := assignment.Rhs[0].(*ast.Ident)
+	return inputOK && zeroOK && input.Name == "input" && selector.Sel.Name == "InventorySnapshot" && zero.Name == "nil"
+}
+
+func requireRemoteRunCallPosition(t *testing.T, body *ast.BlockStmt, name string) token.Pos {
+	t.Helper()
+	var positions []token.Pos
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if ok && remoteRunCallName(call.Fun) == name {
+			positions = append(positions, call.Pos())
+		}
+		return true
+	})
+	if len(positions) != 1 {
+		t.Fatalf("%s call positions = %d, want 1", name, len(positions))
+	}
+	return positions[0]
+}
+
+func requireRemoteRunInputStore(t *testing.T, body *ast.BlockStmt, target, source string) token.Pos {
+	t.Helper()
+	var positions []token.Pos
+	ast.Inspect(body, func(node ast.Node) bool {
+		assignment, ok := node.(*ast.AssignStmt)
+		if ok && remoteRunStoresInput(assignment, target, source) {
+			positions = append(positions, assignment.Pos())
+		}
+		return true
+	})
+	if len(positions) != 1 {
+		t.Fatalf("%s indexed input stores = %d, want 1", target, len(positions))
+	}
+	return positions[0]
+}
+
+func remoteRunStoresInput(assignment *ast.AssignStmt, target, source string) bool {
+	if assignment == nil || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
+		return false
+	}
+	indexed, ok := assignment.Lhs[0].(*ast.IndexExpr)
+	if !ok {
+		return false
+	}
+	targetName, targetOK := indexed.X.(*ast.Ident)
+	sourceName, sourceOK := assignment.Rhs[0].(*ast.Ident)
+	return targetOK && sourceOK && targetName.Name == target && sourceName.Name == source
+}
+
+func requireRemoteRunInputArrayLength(t *testing.T, body *ast.BlockStmt, name, want string) {
+	t.Helper()
+	var found int
+	ast.Inspect(body, func(node ast.Node) bool {
+		spec, ok := node.(*ast.ValueSpec)
+		if !ok || len(spec.Names) != 1 || spec.Names[0].Name != name {
+			return true
+		}
+		array, ok := spec.Type.(*ast.ArrayType)
+		if !ok || array.Len == nil {
+			return true
+		}
+		length, lengthOK := array.Len.(*ast.BasicLit)
+		if lengthOK && length.Value == want {
+			found++
+		}
+		return true
+	})
+	if found != 1 {
+		t.Fatalf("%s fixed array length %s declarations = %d, want 1", name, want, found)
+	}
+}
+
+func requireRemoteRunReturnedInputCall(t *testing.T, body *ast.BlockStmt, name string, argument int, want string) {
+	t.Helper()
+	var found int
+	for _, statement := range body.List {
+		returned, ok := statement.(*ast.ReturnStmt)
+		if !ok || len(returned.Results) != 1 {
+			continue
+		}
+		call, ok := returned.Results[0].(*ast.CallExpr)
+		if !ok || remoteRunCallName(call.Fun) != name {
+			continue
+		}
+		if argument >= len(call.Args) {
+			t.Fatalf("%s argument index %d exceeds %d arguments", name, argument, len(call.Args))
+		}
+		input, ok := call.Args[argument].(*ast.Ident)
+		if !ok || input.Name != want {
+			t.Fatalf("%s argument %d is %T, want identifier %q", name, argument, call.Args[argument], want)
+		}
+		found++
+	}
+	if found != 1 {
+		t.Fatalf("directly returned %s calls using %q = %d, want 1", name, want, found)
+	}
 }
 
 func remoteRunCallName(expression ast.Expr) string {

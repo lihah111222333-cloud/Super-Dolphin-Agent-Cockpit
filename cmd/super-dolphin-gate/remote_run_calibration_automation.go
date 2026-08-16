@@ -133,6 +133,7 @@ func tryAcceptAutomaticRemoteCalibration(
 		if err != nil {
 			return false, err
 		}
+		input.InventorySnapshot = nil
 		inputs[index] = input
 	}
 	catalogs, digests, available, err := loadAutomaticRemoteCalibrationCatalogs(inputs)

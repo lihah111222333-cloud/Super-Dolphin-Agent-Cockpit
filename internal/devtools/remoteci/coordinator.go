@@ -114,7 +114,8 @@ type RunInput struct {
 	CalibrationResource        shardresource.Class
 
 	// InventorySnapshot 绑定 inventory 生成时的 exact candidate tree；它只在
-	// 当前 RunInput 内存中传递，不参与 wire identity 或跨 run 缓存。
+	// Prepare 身份派生期间传递，成功派生后清空，不参与 freeze、wire identity
+	// 或跨 run 缓存。
 	InventorySnapshot *WorkloadInventorySnapshot `json:"-"`
 }
 

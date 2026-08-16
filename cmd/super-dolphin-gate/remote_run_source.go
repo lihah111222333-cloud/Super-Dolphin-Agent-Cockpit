@@ -15,7 +15,6 @@ import (
 type remoteResolvedTarget struct {
 	commit                   string
 	tree                     string
-	revision                 string
 	bundleBase               string
 	sourceBase               string
 	candidateObjectAuthority gatecontract.CandidateObjectAuthority
@@ -188,7 +187,7 @@ func remoteRunPlanningContext(options remoteRunOptions, state remoteci.BaselineS
 	return context, nil
 }
 
-// buildRemoteRunInventory 从固定 revision 构建 inventory 并应用 test 场景选择器。
+// buildRemoteRunInventory 从固定 exact tree 构建 inventory 并应用 test 场景选择器。
 func buildRemoteRunInventory(repositoryRoot string, target remoteResolvedTarget, scenario string, selectors []string, platform string) (gatecontract.WorkloadInventory, *remoteci.WorkloadInventorySnapshot, error) {
 	// 用已解析的 tree OID 同时驱动 inventory 的文件、policy、diff 与 snapshot；
 	// tree source 与 commit source 都共享同一 exact candidate tree。
@@ -265,7 +264,7 @@ func resolveRemoteTreeTarget(
 		return remoteResolvedTarget{}, err
 	}
 	return remoteResolvedTarget{
-		tree: tree, revision: tree, bundleBase: parent, sourceBase: parent,
+		tree: tree, bundleBase: parent, sourceBase: parent,
 	}, nil
 }
 
@@ -303,7 +302,7 @@ func resolveRemoteCommitTarget(
 		return remoteResolvedTarget{}, err
 	}
 	return remoteResolvedTarget{
-		commit: commit, tree: tree, revision: commit,
+		commit: commit, tree: tree,
 		bundleBase: bundleBase, sourceBase: sourceBase,
 	}, nil
 }

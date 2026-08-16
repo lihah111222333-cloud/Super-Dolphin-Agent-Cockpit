@@ -134,7 +134,8 @@ func (coordinator *Coordinator) freezePreparedRun(
 	return prepared, nil
 }
 
-// prepareRemoteWorkloadIdentity 在 PASS lookup 前冻结 exact-tree correctness 输入。
+// prepareRemoteWorkloadIdentity 在 PASS lookup 前冻结 exact-tree correctness 输入，
+// 并在成功返回前从 RunInput 释放仅供派生使用的 inventory snapshot。
 func prepareRemoteWorkloadIdentity(
 	ctx context.Context,
 	input RunInput,
@@ -177,6 +178,7 @@ func prepareRemoteWorkloadIdentity(
 	if err != nil {
 		return RunInput{}, gate.WorkloadCatalog{}, "", nil, err
 	}
+	input.InventorySnapshot = nil
 	return input, catalog, catalogDigest, fingerprintSnapshot, nil
 }
 

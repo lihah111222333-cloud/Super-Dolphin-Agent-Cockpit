@@ -34,9 +34,9 @@ func (snapshot *WorkloadInventorySnapshot) exactTree(repositoryRoot, tree string
 	return snapshot.snapshot, nil
 }
 
-// BuildWorkloadInventory 从精确 commit tree 和 base..commit 变更范围生成确定性测试清单。
-// 兼容调用方只需要清单的旧入口；同一运行若还需复用 tree，应调用
-// BuildWorkloadInventoryWithSnapshot。
+// BuildWorkloadInventory 从 canonical commit 或历史兼容的 canonical tree OID
+// 解析 exact tree，并结合 base 变更范围生成确定性测试清单。兼容调用方只需要
+// 清单的旧入口；同一运行若还需复用 exact tree，应调用 BuildWorkloadInventoryWithSnapshot。
 func BuildWorkloadInventory(
 	ctx context.Context,
 	repositoryRoot string,
@@ -44,33 +44,40 @@ func BuildWorkloadInventory(
 	base string,
 	platform string,
 ) (gate.WorkloadInventory, error) {
-	inventory, _, err := BuildWorkloadInventoryWithSnapshot(ctx, repositoryRoot, commit, base, platform)
+	tree, err := resolveWorkloadInventoryTree(ctx, repositoryRoot, commit)
+	if err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	inventory, _, err := BuildWorkloadInventoryWithSnapshot(ctx, repositoryRoot, tree, base, platform)
 	return inventory, err
 }
 
-// BuildWorkloadInventoryWithSnapshot 从一个 immutable remoteGitTreeSnapshot
-// 派生 filenames、packages、tests 与前端目标，并把该 tree-bound snapshot 返回给
-// 随后的 PreparedRun.Prepare。完整 tree 仍只通过严格 snapshot loader 验证一次。
+// BuildWorkloadInventoryWithSnapshot 从调用方已经解析的 canonical exact tree OID
+// 构建 immutable remoteGitTreeSnapshot，派生 filenames、packages、tests 与前端目标，
+// 并把该 tree-bound snapshot 返回给随后的 PreparedRun.Prepare。
 func BuildWorkloadInventoryWithSnapshot(
 	ctx context.Context,
 	repositoryRoot string,
-	commit string,
+	tree string,
 	base string,
 	platform string,
 ) (gate.WorkloadInventory, *WorkloadInventorySnapshot, error) {
-	if !validInventoryInput(ctx, repositoryRoot, commit) {
-		return gate.WorkloadInventory{}, nil, errors.New("workload inventory Git identity is incomplete")
+	if !validRemoteGitTreeRequest(ctx, repositoryRoot, tree) {
+		return gate.WorkloadInventory{}, nil, errors.New("workload inventory exact tree identity is incomplete or non-canonical")
 	}
-	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, commit)
+	if err := verifyReadOnlyTreeObject(ctx, repositoryRoot, tree); err != nil {
+		return gate.WorkloadInventory{}, nil, fmt.Errorf("validate workload inventory exact tree: %w", err)
+	}
+	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, tree)
 	if err != nil {
 		return gate.WorkloadInventory{}, nil, err
 	}
 	files := remoteGitTreeFileNames(snapshot)
-	changed, err := inventoryChangedFiles(ctx, repositoryRoot, base, commit, files)
+	changed, err := inventoryChangedFiles(ctx, repositoryRoot, base, tree, files)
 	if err != nil {
 		return gate.WorkloadInventory{}, nil, err
 	}
-	vitestPolicy, err := loadInventoryVitestSuitePolicy(ctx, repositoryRoot, commit)
+	vitestPolicy, err := loadInventoryVitestSuitePolicy(ctx, repositoryRoot, tree)
 	if err != nil {
 		return gate.WorkloadInventory{}, nil, err
 	}
@@ -102,6 +109,39 @@ func BuildWorkloadInventoryWithSnapshot(
 		FrontendChangedTests: changedVitestTargets(changed, fullTargets.files, vitestPolicy),
 		FrontendFullTests:    fullTargets.frontendTests,
 	}, &WorkloadInventorySnapshot{snapshot: snapshot}, nil
+}
+
+// resolveWorkloadInventoryTree 通过受信 Git 把 legacy canonical commit/tree 输入解析为 exact tree。
+func resolveWorkloadInventoryTree(ctx context.Context, repositoryRoot, objectOID string) (string, error) {
+	if !validInventoryInput(ctx, repositoryRoot, objectOID) || !remoteOIDPattern.MatchString(objectOID) {
+		return "", errors.New("workload inventory Git identity is incomplete or non-canonical")
+	}
+	output, err := runGitOutput(ctx, repositoryRoot, nil, "cat-file", "-t", objectOID)
+	if err != nil {
+		return "", fmt.Errorf("inspect workload inventory Git object: %w", err)
+	}
+	objectType, err := strictGitLine(output)
+	if err != nil {
+		return "", fmt.Errorf("parse workload inventory Git object type: %w", err)
+	}
+	if objectType == "tree" {
+		return objectOID, nil
+	}
+	if objectType != "commit" {
+		return "", errors.New("workload inventory Git object must be a commit or tree")
+	}
+	output, err = runGitOutput(ctx, repositoryRoot, nil, "rev-parse", "--verify", "--end-of-options", objectOID+"^{tree}")
+	if err != nil {
+		return "", fmt.Errorf("resolve workload inventory commit tree: %w", err)
+	}
+	tree, err := strictGitLine(output)
+	if err != nil {
+		return "", fmt.Errorf("parse workload inventory commit tree: %w", err)
+	}
+	if !remoteOIDPattern.MatchString(tree) {
+		return "", errors.New("workload inventory commit tree is not a canonical Git object ID")
+	}
+	return tree, nil
 }
 
 // remoteGitTreeFileNames 从已排序的严格 tree entries 派生 canonical 文件名。

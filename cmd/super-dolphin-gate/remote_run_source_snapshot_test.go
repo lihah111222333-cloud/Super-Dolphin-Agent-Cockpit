@@ -22,7 +22,7 @@ func TestBuildRemoteRunInventoryUsesResolvedTreeNotCommitRevision(t *testing.T) 
 	candidateTree := remoteRunGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
 
 	target := remoteResolvedTarget{
-		commit: revision, tree: candidateTree, revision: revision, sourceBase: revision,
+		commit: revision, tree: candidateTree, sourceBase: revision,
 	}
 	inventory, snapshot, err := buildRemoteRunInventory(repository, target, "commit", nil, "linux/amd64")
 	if err != nil {

@@ -65,6 +65,7 @@ func executeRemoteRunWithPrepare(
 	if err != nil {
 		return result, input, err
 	}
+	input.InventorySnapshot = nil
 	return executePreparedRemoteRun(
 		runCtx, options, config, state, runnerIdentity, input, coordinator, prepared,
 		defaultRemotePreparedRunDependencies(),
