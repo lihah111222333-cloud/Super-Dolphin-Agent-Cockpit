@@ -721,7 +721,7 @@ func ValidateShardTargetDuration(duration time.Duration) error {
 
 // Validate 校验代码契约自身不存在重复 ID、章节缺口或无效不变量。
 func Validate() error {
-	for _, validate := range []func() error{validateContractIdentity, validateContractConstants, ValidateRemoteRuntimeIdentity, validateContractObservations, validateRequirements, validateSQLAuthorityBindings, validateSQLAuthoritySchemaTables} {
+	for _, validate := range []func() error{validateContractIdentity, validateContractConstants, ValidateWorkloadPlanningReceiptContract, ValidateRemoteRuntimeIdentity, validateContractObservations, validateRequirements, validateSQLAuthorityBindings, validateSQLAuthoritySchemaTables} {
 		if err := validate(); err != nil {
 			return err
 		}

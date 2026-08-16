@@ -327,6 +327,7 @@ internal/archtest/remote_ci_retired_legacy_artifacts_guard_test.go	internal	othe
 internal/archtest/remote_ci_source_bundle_guard_helpers_test.go	internal	other	go-test	2470	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,source,bundle,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_super_gate_atomic_contract_guard_test.go	internal	other	go-test	9072	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,super,gate,atomic,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_workload_pass_migration_guard_test.go	internal	other	go-test	4849	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,workload,pass,migration,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_workload_planning_receipt_contract_guard_test.go	internal	other	go-test	2489	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,workload,planning,receipt,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_refresh_detach_guard_test.go	internal	other	go-test	809	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,refresh,detach,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/repository_guard_scan.go	internal	other	go-source	2042	架构守卫、baseline ratchet 与冻结规则	internal,archtest,repository,guard,scan,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/repository_guard_scan_test.go	internal	other	go-test	1066	架构守卫、baseline ratchet 与冻结规则	internal,archtest,repository,guard,scan,test,架构守卫,baseline,ratchet,与冻结规则
@@ -775,6 +776,8 @@ internal/devtools/gate/workload_pass_retained_proof_write.go	internal	other	go-s
 internal/devtools/gate/workload_pass_source_replay.go	internal	other	go-source	28695	开发工具与生成器辅助包	internal,devtools,gate,workload,pass,source,replay,开发工具与生成器辅助包
 internal/devtools/gate/workload_pass_source_replay_test.go	internal	other	go-test	17571	开发工具与生成器辅助包	internal,devtools,gate,workload,pass,source,replay,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_planning.go	internal	other	go-source	31384	开发工具与生成器辅助包	internal,devtools,gate,workload,planning,开发工具与生成器辅助包
+internal/devtools/gate/workload_planning_receipt.go	internal	other	go-source	17108	开发工具与生成器辅助包	internal,devtools,gate,workload,planning,receipt,开发工具与生成器辅助包
+internal/devtools/gate/workload_planning_receipt_test.go	internal	other	go-test	8757	开发工具与生成器辅助包	internal,devtools,gate,workload,planning,receipt,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_resource_identity_test.go	internal	other	go-test	1488	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,identity,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_resource_planning.go	internal	other	go-source	2304	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,planning,开发工具与生成器辅助包
 internal/devtools/gate/workload_resource_reserve.go	internal	other	go-source	9948	开发工具与生成器辅助包	internal,devtools,gate,workload,resource,reserve,开发工具与生成器辅助包
