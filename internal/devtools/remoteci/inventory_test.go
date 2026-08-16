@@ -2,11 +2,13 @@ package remoteci
 
 import (
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -83,9 +85,19 @@ func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
 	runInventoryGit(t, repository, "commit", "--quiet", "-m", "基础")
 	commit := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
 
-	inventory, err := BuildWorkloadInventory(context.Background(), repository, commit, "", "linux/amd64")
+	inventory, inventorySnapshot, err := BuildWorkloadInventoryWithSnapshot(context.Background(), repository, commit, "", "linux/amd64")
 	if err != nil {
 		t.Fatal(err)
+	}
+	snapshot, err := inventorySnapshot.exactTree(repository, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := inventorySnapshot.exactTree(repository, strings.Repeat("0", len(commit))); err == nil || got != nil {
+		t.Fatal("inventory snapshot accepted a different exact tree")
+	}
+	if got, err := inventorySnapshot.exactTree(repository+"-drift", commit); err == nil || got != nil {
+		t.Fatal("inventory snapshot accepted a different repository root")
 	}
 	expectedPackages, expectedTests, expectedRaceTests := inventoryExpectedSelectors()
 	if !slices.Equal(inventory.GoPackages, expectedPackages) ||
@@ -93,16 +105,127 @@ func TestBuildWorkloadInventorySharesExactTreeSnapshot(t *testing.T) {
 		!slices.Equal(inventory.GoRaceTests, expectedRaceTests) {
 		t.Fatalf("inventory selectors changed: got=%#v wantPackages=%v wantTests=%v wantRaceTests=%v", inventory, expectedPackages, expectedTests, expectedRaceTests)
 	}
-	assertInventorySnapshotReuse(t, repository, commit, expectedPackages, expectedTests, expectedRaceTests)
+	assertInventorySnapshotReuse(t, snapshot, expectedPackages, expectedTests, expectedRaceTests)
+}
+
+func TestBuildWorkloadInventoryPrepareReusesInventorySnapshot(t *testing.T) {
+	repository, base, baseTree, commit, tree := prepareInventorySnapshotReuseFixture(t)
+	var listings atomic.Int32
+	ctx := context.WithValue(context.Background(), remoteGitTreeListingObserverContextKey{}, func() {
+		listings.Add(1)
+	})
+	inventory, inventorySnapshot, err := BuildWorkloadInventoryWithSnapshot(ctx, repository, tree, "", "linux/amd64")
+	if err != nil {
+		t.Fatalf("BuildWorkloadInventoryWithSnapshot() error = %v", err)
+	}
+	if got := listings.Load(); got != 1 {
+		t.Fatalf("tree listings after inventory = %d, want 1", got)
+	}
+	input := prepareInventorySnapshotRunInput(t, repository, base, baseTree, commit, tree, inventory, inventorySnapshot)
+	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	prepared, err := coordinator.Prepare(ctx, input)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if got := listings.Load(); got != 1 {
+		t.Fatalf("tree listings after Prepare = %d, want the same single listing", got)
+	}
+	if prepared.input.InventorySnapshot != inventorySnapshot {
+		t.Fatal("Prepare() did not retain the inventory-bound snapshot")
+	}
+	baselineInput := input
+	baselineInput.InventorySnapshot = nil
+	var baselineListings atomic.Int32
+	baselineContext := context.WithValue(context.Background(), remoteGitTreeListingObserverContextKey{}, func() {
+		baselineListings.Add(1)
+	})
+	baselineCoordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	baselinePrepared, err := baselineCoordinator.Prepare(baselineContext, baselineInput)
+	if err != nil {
+		t.Fatalf("baseline Prepare() error = %v", err)
+	}
+	if got := baselineListings.Load(); got != 1 {
+		t.Fatalf("baseline Prepare tree listings = %d, want 1", got)
+	}
+	assertPreparedInventorySnapshotIdentity(t, prepared, baselinePrepared)
+}
+
+// prepareInventorySnapshotReuseFixture 创建含远程门禁选择器策略的精确候选树。
+func prepareInventorySnapshotReuseFixture(t *testing.T) (repository, base, baseTree, commit, tree string) {
+	t.Helper()
+	repository, base, baseTree = prepareRemoteRunFixtureBase(t)
+	writeCoordinatorFixture(t, repository, "internal/devtools/gate/common_test.go", "package gate\n\nimport \"testing\"\n\nfunc TestGateAtomicCommon(t *testing.T) {}\n")
+	writeCoordinatorFixture(t, repository, "internal/devtools/gate/normal_test.go", "//go:build !race\n\npackage gate\n\nimport \"testing\"\n\nfunc TestGateAtomicNormal(t *testing.T) {}\n")
+	writeCoordinatorFixture(t, repository, "internal/devtools/remoteci/common_test.go", "package remoteci\n\nimport \"testing\"\n\nfunc TestRemoteCIAtomicCommon(t *testing.T) {}\n")
+	writeCoordinatorFixture(t, repository, "internal/devtools/remoteci/normal_test.go", "//go:build !race\n\npackage remoteci\n\nimport \"testing\"\n\nfunc TestRemoteCIAtomicNormal(t *testing.T) {}\n")
+	writeCoordinatorFixture(t, repository, "cmd/super-dolphin-gate/common_test.go", "package main\n\nimport \"testing\"\n\nfunc TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated(t *testing.T) {}\n")
+	writeCoordinatorFixture(t, repository, "cmd/super-dolphin-gate/race_test.go", "//go:build race\n\npackage main\n\nimport \"testing\"\n\nfunc TestRemoteCIAgentTokenActualValueContinuesPastHandshake(t *testing.T) {}\n")
+	writeCoordinatorFixture(t, repository, ".github/actionlint.yaml", "self-hosted-runner:\n")
+	writeCoordinatorFixture(t, repository, ".github/workflows/ci.yml", "name: ci\n")
+	writeCoordinatorFixture(t, repository, inventoryVitestSuitePolicyPath, `{
+  "schemaVersion": 1,
+  "defaultExcludes": [
+    "**/scripts/**/*benchmark.test.*",
+    "scripts/remote-preflight-carriers/*.test.mjs",
+    "scripts/remote-suite-carriers/*.test.mjs"
+  ]
+}`)
+	runCoordinatorGit(t, repository, "add", ".")
+	runCoordinatorGit(t, repository, "commit", "--quiet", "-m", "inventory policy")
+	return repository, base, baseTree, coordinatorGitOutput(t, repository, "rev-parse", "HEAD"), coordinatorGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
+}
+
+// prepareInventorySnapshotRunInput 构造复用 snapshot 与基线 Prepare 共用的运行输入。
+func prepareInventorySnapshotRunInput(t *testing.T, repository, base, baseTree, commit, tree string, inventory gate.WorkloadInventory, snapshot *WorkloadInventorySnapshot) RunInput {
+	t.Helper()
+	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runnerImage := "registry.example/runner@" + digest
+	ledgerStore, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
+	if err != nil {
+		t.Fatalf("NewDurationLedgerStore() error = %v", err)
+	}
+	if _, err := ledgerStore.CompareAndSwap(0, gate.DurationLedger{Version: 1}); err != nil {
+		t.Fatalf("initialize duration ledger: %v", err)
+	}
+	ledgerSnapshot, err := ledgerStore.Load()
+	if err != nil {
+		t.Fatalf("load duration ledger: %v", err)
+	}
+	return RunInput{
+		AcceptedGeneration: 1, AgentTokenDigest: digest, RepositoryRoot: repository, Commit: commit, Tree: tree, Base: base,
+		RunnerBaseCommit: base, RunnerBaseTree: baseTree,
+		Source: gate.SourceSpec{
+			Kind: gate.SourceKindCommit, ObjectFormat: gate.GitObjectFormatSHA1,
+			Commit: &gate.CommitSource{SHA: commit}, SourceTreeSHA: tree,
+		},
+		Profile: gate.ProfileLocalFast, Entrypoint: gate.CIEntrypointManualCLI, Platform: "linux/amd64",
+		PolicyDigest: digest, ToolchainDigest: digest, LedgerStore: ledgerStore, LedgerSnapshot: ledgerSnapshot,
+		RunnerImage: runnerImage, ImageCacheSnapshotID: "snap-accepted-baseline", RunnerIdentityDigest: digest,
+		BaselineManifestDigest: digest, RunnerConfigDigest: digest, GateBinarySHA256: digest, RuntimeSeedSHA256: digest,
+		Force: true, Inventory: inventory, InventorySnapshot: snapshot,
+		OCIProjectCache: &BaselineOCIProjectCache{
+			Image: runnerImage, ContentManifestSHA256: digest, MainTree: baseTree,
+			ToolchainDigest: digest, Platform: "linux/amd64", CachePath: OCIProjectGoBuildCachePath,
+		},
+	}
+}
+
+// assertPreparedInventorySnapshotIdentity 验证复用与独立加载保持完整 Prepare 身份一致。
+func assertPreparedInventorySnapshotIdentity(t *testing.T, prepared, baselinePrepared *PreparedRun) {
+	t.Helper()
+	if !maps.Equal(prepared.input.WorkloadInputDigests, baselinePrepared.input.WorkloadInputDigests) ||
+		prepared.input.WorkerExecutionSemanticDigest != baselinePrepared.input.WorkerExecutionSemanticDigest ||
+		prepared.catalogDigest != baselinePrepared.catalogDigest ||
+		prepared.frozenDigest != baselinePrepared.frozenDigest {
+		t.Fatalf("snapshot reuse changed Prepare identity: reused=(catalog=%s frozen=%s worker=%s inputs=%d) baseline=(catalog=%s frozen=%s worker=%s inputs=%d)",
+			prepared.catalogDigest, prepared.frozenDigest, prepared.input.WorkerExecutionSemanticDigest, len(prepared.input.WorkloadInputDigests),
+			baselinePrepared.catalogDigest, baselinePrepared.frozenDigest, baselinePrepared.input.WorkerExecutionSemanticDigest, len(baselinePrepared.input.WorkloadInputDigests))
+	}
 }
 
 // assertInventorySnapshotReuse 验证原子测试发现复用已准备的精确树源码快照。
-func assertInventorySnapshotReuse(t *testing.T, repository, commit string, expectedPackages []string, expectedTests, expectedRaceTests []gate.GoTestTarget) {
+func assertInventorySnapshotReuse(t *testing.T, snapshot *remoteGitTreeSnapshot, expectedPackages []string, expectedTests, expectedRaceTests []gate.GoTestTarget) {
 	t.Helper()
-	snapshot, err := loadRemoteGitTreeSnapshot(context.Background(), repository, commit)
-	if err != nil {
-		t.Fatal(err)
-	}
 	packages, err := inventoryPlatformGoPackagesWithSnapshot(context.Background(), snapshot, "linux/amd64", expectedPackages)
 	if err != nil {
 		t.Fatal(err)

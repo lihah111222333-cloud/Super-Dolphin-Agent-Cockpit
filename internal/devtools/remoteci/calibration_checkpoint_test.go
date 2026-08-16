@@ -20,6 +20,44 @@ import (
 
 const calibrationCheckpointAgentTokenDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+func TestRunInputInventorySnapshotStaysInMemoryOnly(t *testing.T) {
+	field, ok := reflect.TypeOf(RunInput{}).FieldByName("InventorySnapshot")
+	if !ok {
+		t.Fatal("RunInput.InventorySnapshot field is missing")
+	}
+	if got := field.Tag.Get("json"); got != "-" {
+		t.Fatalf("RunInput.InventorySnapshot json tag = %q, want %q", got, "-")
+	}
+
+	input := testCalibrationCheckpointInput()
+	input.InventorySnapshot = &WorkloadInventorySnapshot{snapshot: &remoteGitTreeSnapshot{
+		repositoryRoot: "must-not-persist",
+		tree:           input.Tree,
+	}}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal RunInput: %v", err)
+	}
+	var encoded map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &encoded); err != nil {
+		t.Fatalf("decode RunInput JSON: %v", err)
+	}
+	for name := range encoded {
+		normalized := strings.ReplaceAll(strings.ToLower(name), "_", "")
+		if normalized == "inventorysnapshot" {
+			t.Fatalf("RunInput JSON leaked InventorySnapshot as %q: %s", name, payload)
+		}
+	}
+	if strings.Contains(string(payload), "must-not-persist") {
+		t.Fatalf("RunInput JSON leaked inventory snapshot contents: %s", payload)
+	}
+
+	expanded := compactCalibrationCheckpointInput(input).expand()
+	if expanded.InventorySnapshot != nil {
+		t.Fatal("calibration checkpoint compact/expand retained InventorySnapshot")
+	}
+}
+
 func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 	store := calibrationCheckpointStore(t)
 	authorityPath := store.AuthorityPath()

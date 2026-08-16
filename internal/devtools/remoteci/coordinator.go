@@ -112,6 +112,10 @@ type RunInput struct {
 	WorkloadCompileGroupInputs map[string]gate.CompileGroupInput
 	OCIProjectCache            *BaselineOCIProjectCache
 	CalibrationResource        shardresource.Class
+
+	// InventorySnapshot 绑定 inventory 生成时的 exact candidate tree；它只在
+	// 当前 RunInput 内存中传递，不参与 wire identity 或跨 run 缓存。
+	InventorySnapshot *WorkloadInventorySnapshot `json:"-"`
 }
 
 // MissExecutionBinding 保存严格 cache MISS 才需要的候选 Gate 编译身份与实时 ImageCache 物料。

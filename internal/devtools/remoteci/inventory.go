@@ -16,7 +16,27 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
+// WorkloadInventorySnapshot 保留一次 exact tree listing，供同一 RunInput 的 Prepare
+// 继续消费；内部 tree 与候选对象 authority 不可由调用方修改。
+type WorkloadInventorySnapshot struct {
+	snapshot *remoteGitTreeSnapshot
+}
+
+// exactTree 返回与 RunInput 完全匹配的 snapshot，拒绝把一棵树的 inventory
+// 静默带入另一棵候选树。
+func (snapshot *WorkloadInventorySnapshot) exactTree(repositoryRoot, tree string) (*remoteGitTreeSnapshot, error) {
+	if snapshot == nil || snapshot.snapshot == nil {
+		return nil, errors.New("remote workload inventory snapshot is required")
+	}
+	if snapshot.snapshot.repositoryRoot != repositoryRoot || snapshot.snapshot.tree != tree {
+		return nil, errors.New("remote workload inventory snapshot does not match exact candidate tree")
+	}
+	return snapshot.snapshot, nil
+}
+
 // BuildWorkloadInventory 从精确 commit tree 和 base..commit 变更范围生成确定性测试清单。
+// 兼容调用方只需要清单的旧入口；同一运行若还需复用 tree，应调用
+// BuildWorkloadInventoryWithSnapshot。
 func BuildWorkloadInventory(
 	ctx context.Context,
 	repositoryRoot string,
@@ -24,31 +44,42 @@ func BuildWorkloadInventory(
 	base string,
 	platform string,
 ) (gate.WorkloadInventory, error) {
+	inventory, _, err := BuildWorkloadInventoryWithSnapshot(ctx, repositoryRoot, commit, base, platform)
+	return inventory, err
+}
+
+// BuildWorkloadInventoryWithSnapshot 从一个 immutable remoteGitTreeSnapshot
+// 派生 filenames、packages、tests 与前端目标，并把该 tree-bound snapshot 返回给
+// 随后的 PreparedRun.Prepare。完整 tree 仍只通过严格 snapshot loader 验证一次。
+func BuildWorkloadInventoryWithSnapshot(
+	ctx context.Context,
+	repositoryRoot string,
+	commit string,
+	base string,
+	platform string,
+) (gate.WorkloadInventory, *WorkloadInventorySnapshot, error) {
 	if !validInventoryInput(ctx, repositoryRoot, commit) {
-		return gate.WorkloadInventory{}, errors.New("workload inventory Git identity is incomplete")
-	}
-	files, err := inventoryGitLines(ctx, repositoryRoot, "ls-tree", "-r", "--name-only", commit, "--")
-	if err != nil {
-		return gate.WorkloadInventory{}, err
-	}
-	changed, err := inventoryChangedFiles(ctx, repositoryRoot, base, commit, files)
-	if err != nil {
-		return gate.WorkloadInventory{}, err
-	}
-	vitestPolicy, err := loadInventoryVitestSuitePolicy(ctx, repositoryRoot, commit)
-	if err != nil {
-		return gate.WorkloadInventory{}, err
-	}
-	fullTargets, err := inventoryFullTargets(files, vitestPolicy)
-	if err != nil {
-		return gate.WorkloadInventory{}, err
-	}
-	if _, _, err := remoteGoTestPlatform(platform); err != nil {
-		return gate.WorkloadInventory{}, err
+		return gate.WorkloadInventory{}, nil, errors.New("workload inventory Git identity is incomplete")
 	}
 	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, commit)
 	if err != nil {
-		return gate.WorkloadInventory{}, err
+		return gate.WorkloadInventory{}, nil, err
+	}
+	files := remoteGitTreeFileNames(snapshot)
+	changed, err := inventoryChangedFiles(ctx, repositoryRoot, base, commit, files)
+	if err != nil {
+		return gate.WorkloadInventory{}, nil, err
+	}
+	vitestPolicy, err := loadInventoryVitestSuitePolicy(ctx, repositoryRoot, commit)
+	if err != nil {
+		return gate.WorkloadInventory{}, nil, err
+	}
+	fullTargets, err := inventoryFullTargets(files, vitestPolicy)
+	if err != nil {
+		return gate.WorkloadInventory{}, nil, err
+	}
+	if _, _, err := remoteGoTestPlatform(platform); err != nil {
+		return gate.WorkloadInventory{}, nil, err
 	}
 	fullTargets.goPackages, err = inventoryPlatformGoPackagesWithSnapshot(
 		ctx,
@@ -57,11 +88,11 @@ func BuildWorkloadInventory(
 		fullTargets.goPackages,
 	)
 	if err != nil {
-		return gate.WorkloadInventory{}, err
+		return gate.WorkloadInventory{}, nil, err
 	}
 	goTests, goRaceTests, err := inventoryAtomicGoTestsWithSnapshot(ctx, snapshot, platform, fullTargets.goPackages)
 	if err != nil {
-		return gate.WorkloadInventory{}, err
+		return gate.WorkloadInventory{}, nil, err
 	}
 	return gate.WorkloadInventory{
 		GoPackages:           fullTargets.goPackages,
@@ -70,7 +101,16 @@ func BuildWorkloadInventory(
 		GoRaceTests:          goRaceTests,
 		FrontendChangedTests: changedVitestTargets(changed, fullTargets.files, vitestPolicy),
 		FrontendFullTests:    fullTargets.frontendTests,
-	}, nil
+	}, &WorkloadInventorySnapshot{snapshot: snapshot}, nil
+}
+
+// remoteGitTreeFileNames 从已排序的严格 tree entries 派生 canonical 文件名。
+func remoteGitTreeFileNames(snapshot *remoteGitTreeSnapshot) []string {
+	files := make([]string, 0, len(snapshot.entries))
+	for _, entry := range snapshot.entries {
+		files = append(files, entry.path)
+	}
+	return files
 }
 
 // inventoryPlatformGoPackagesWithSnapshot 在已加载的精确 tree snapshot 上过滤目标平台 Go 包。

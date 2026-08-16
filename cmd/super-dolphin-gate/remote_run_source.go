@@ -43,7 +43,7 @@ func resolveRemoteRunInput(
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
-	inventory, err := buildRemoteRunInventory(repositoryRoot, target, scenario, options.Tests, state.Platform)
+	inventory, inventorySnapshot, err := buildRemoteRunInventory(repositoryRoot, target, scenario, options.Tests, state.Platform)
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
@@ -61,6 +61,7 @@ func resolveRemoteRunInput(
 		LedgerSnapshot:      ledger,
 		LedgerStore:         ledgerStore,
 		Inventory:           inventory,
+		InventorySnapshot:   inventorySnapshot,
 		SelectedTests:       scenario == "test",
 		Calibration:         options.Calibration,
 		CalibrationResource: calibrationResource,
@@ -188,15 +189,21 @@ func remoteRunPlanningContext(options remoteRunOptions, state remoteci.BaselineS
 }
 
 // buildRemoteRunInventory 从固定 revision 构建 inventory 并应用 test 场景选择器。
-func buildRemoteRunInventory(repositoryRoot string, target remoteResolvedTarget, scenario string, selectors []string, platform string) (gatecontract.WorkloadInventory, error) {
-	inventory, err := remoteci.BuildWorkloadInventory(context.Background(), repositoryRoot, target.revision, target.sourceBase, platform)
+func buildRemoteRunInventory(repositoryRoot string, target remoteResolvedTarget, scenario string, selectors []string, platform string) (gatecontract.WorkloadInventory, *remoteci.WorkloadInventorySnapshot, error) {
+	// 用已解析的 tree OID 同时驱动 inventory 的文件、policy、diff 与 snapshot；
+	// tree source 与 commit source 都共享同一 exact candidate tree。
+	inventory, inventorySnapshot, err := remoteci.BuildWorkloadInventoryWithSnapshot(context.Background(), repositoryRoot, target.tree, target.sourceBase, platform)
 	if err != nil {
-		return gatecontract.WorkloadInventory{}, err
+		return gatecontract.WorkloadInventory{}, nil, err
 	}
 	if scenario != "test" {
-		return inventory, nil
+		return inventory, inventorySnapshot, nil
 	}
-	return selectRemoteTests(inventory, selectors)
+	selected, err := selectRemoteTests(inventory, selectors)
+	if err != nil {
+		return gatecontract.WorkloadInventory{}, nil, err
+	}
+	return selected, inventorySnapshot, nil
 }
 
 // remoteRunEntrypoint 解析入口标识。

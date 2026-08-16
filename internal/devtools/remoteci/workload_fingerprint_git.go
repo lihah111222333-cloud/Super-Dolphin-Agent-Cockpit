@@ -26,6 +26,9 @@ func loadRemoteGitTreeSnapshot(ctx context.Context, repositoryRoot string, tree 
 	return loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx, repositoryRoot, tree, gate.CandidateObjectAuthority{})
 }
 
+// remoteGitTreeListingObserverContextKey 仅供同包测试观察严格 tree listing；生产 context 不携带该值。
+type remoteGitTreeListingObserverContextKey struct{}
+
 func loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx context.Context, repositoryRoot string, tree string, authority gate.CandidateObjectAuthority) (*remoteGitTreeSnapshot, error) {
 	if !validRemoteGitTreeRequest(ctx, repositoryRoot, tree) {
 		return nil, errors.New("remote workload fingerprint Git identity is incomplete")
@@ -41,6 +44,9 @@ func loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx context.Context, 
 	entries, byPath, err := parseRemoteGitTreeEntries(output)
 	if err != nil {
 		return nil, err
+	}
+	if observer, ok := ctx.Value(remoteGitTreeListingObserverContextKey{}).(func()); ok && observer != nil {
+		observer()
 	}
 	return &remoteGitTreeSnapshot{
 		repositoryRoot:           repositoryRoot,

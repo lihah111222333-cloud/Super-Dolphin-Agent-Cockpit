@@ -140,12 +140,25 @@ func prepareRemoteWorkloadIdentity(
 	input RunInput,
 	catalog gate.WorkloadCatalog,
 ) (RunInput, gate.WorkloadCatalog, string, *remoteGitTreeSnapshot, error) {
-	inputDigests, _, fingerprintSnapshot, err := remoteWorkloadFingerprintsWithSnapshot(
-		ctx,
-		input.RepositoryRoot,
-		input.Tree,
-		remoteShardableWorkloads(catalog),
+	workloads := remoteShardableWorkloads(catalog)
+	var (
+		inputDigests        map[string]string
+		fingerprintSnapshot *remoteGitTreeSnapshot
+		err                 error
 	)
+	if input.InventorySnapshot != nil {
+		fingerprintSnapshot, err = input.InventorySnapshot.exactTree(input.RepositoryRoot, input.Tree)
+		if err == nil {
+			inputDigests, err = fingerprintSnapshot.remoteWorkloadInputDigests(ctx, workloads)
+		}
+	} else {
+		inputDigests, _, fingerprintSnapshot, err = remoteWorkloadFingerprintsWithSnapshot(
+			ctx,
+			input.RepositoryRoot,
+			input.Tree,
+			workloads,
+		)
+	}
 	if err != nil {
 		return RunInput{}, gate.WorkloadCatalog{}, "", nil, err
 	}
