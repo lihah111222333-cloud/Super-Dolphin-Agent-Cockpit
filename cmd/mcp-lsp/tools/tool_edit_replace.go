@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	// edit*Timeout 控制 replace_range 的磁盘确认、函数上下文查询和 LSP 同步窗口。
-	editDiskConfirmTimeout    = 750 * time.Millisecond
-	editFunctionLookupTimeout = 500 * time.Millisecond
+	// edit*Timeout 控制 replace_range 的磁盘确认和 LSP 同步窗口。
+	editDiskConfirmTimeout = 750 * time.Millisecond
 	// sourcekit-lsp 等真实服务的首次 initialize 可稳定超过旧的 2 秒窗口；
 	// 同步必须服从调用方 context，同时给冷启动留下明确且可测试的上限。
 	editLSPSyncTimeout  = 60 * time.Second
@@ -25,59 +24,32 @@ const (
 
 // replacePlan 是 build 阶段产物，记录替换后的内容和用于回显/定位的上下文。
 type replacePlan struct {
-	updatedContent     string
-	matchedBy          string
-	resolvedStart      int
-	resolvedEnd        int
-	resolvedLSPLine    int
-	affectedStartLine  int
-	affectedEndLine    int
-	editContext        string
-	replaced           string
-	replacement        string
-	functionLookupLine int
+	updatedContent    string
+	matchedBy         string
+	resolvedStart     int
+	resolvedEnd       int
+	resolvedLSPLine   int
+	affectedStartLine int
+	affectedEndLine   int
+	replaced          string
+	replacement       string
 }
 
-// replaceRangeResult 是 replace_range 成功或 no_change 时返回给工具调用方的结构化结果。
+// replaceRangeResult 是 replace_range 成功或 no_change 时返回给工具调用方的文本结果。
 type replaceRangeResult struct {
 	editEnvelope
-	MatchedBy         string `json:"matched_by,omitempty"`
-	ResolvedStart     int    `json:"resolved_start_offset,omitempty"`
-	ResolvedEnd       int    `json:"resolved_end_offset,omitempty"`
-	ResolvedLSPLine   int    `json:"resolved_lsp_line,omitempty"`
-	AffectedStartLine int    `json:"affected_start_line,omitempty"`
-	AffectedEndLine   int    `json:"affected_end_line,omitempty"`
-	EditContext       string `json:"edit_context,omitempty"`
-	Replaced          string `json:"replaced,omitempty"`
-	Replacement       string `json:"replacement,omitempty"`
-	ReplacedLen       int    `json:"replaced_len,omitempty"`
-	ReplacementLen    int    `json:"replacement_len,omitempty"`
-	FuncStart         int    `json:"func_start,omitempty"`
-	FuncEnd           int    `json:"func_end,omitempty"`
-	FuncBody          string `json:"func_body,omitempty"`
 }
 
 // replaceRangeFailure 保留失败时的定位线索，提示模型下一步用 file.read_file 精读。
 type replaceRangeFailure struct {
-	Success              bool           `json:"success"`
-	Error                string         `json:"error"`
-	Code                 string         `json:"code,omitempty"`
-	Retryable            bool           `json:"retryable,omitempty"`
-	Hint                 string         `json:"hint,omitempty"`
-	Meta                 map[string]any `json:"meta,omitempty"`
-	FilePath             string         `json:"file_path,omitempty"`
-	LineCount            int            `json:"line_count,omitempty"`
-	FuncStart            int            `json:"func_start,omitempty"`
-	FuncEnd              int            `json:"func_end,omitempty"`
-	FuncBody             string         `json:"func_body,omitempty"`
-	DiagnosticGeneration uint64         `json:"diagnostic_generation,omitempty"`
-}
-
-// functionContext 保存一次编辑影响到的函数范围和正文摘要。
-type functionContext struct {
-	Start int
-	End   int
-	Body  string
+	Success   bool           `json:"success"`
+	Error     string         `json:"error"`
+	Code      string         `json:"code,omitempty"`
+	Retryable bool           `json:"retryable,omitempty"`
+	Hint      string         `json:"hint,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"`
+	FilePath  string         `json:"file_path,omitempty"`
+	LineCount int            `json:"line_count,omitempty"`
 }
 
 // replaceSyncResult 是 LSP DidChange/diagnostic 同步确认的结果。
@@ -102,21 +74,9 @@ type replaceUpdateDecision struct {
 	err     error
 }
 
-// ToPlainText 只展示紧凑编辑回执；详细上下文仅在显式 full 模式下进入 structuredContent。
+// ToPlainText 使用统一编辑行协议，不再保留第二结果通道。
 func (r replaceRangeResult) ToPlainText() string {
-	base := r.editEnvelope.ToPlainText()
-	if !strings.EqualFold(strings.TrimSpace(r.Status), "applied") {
-		return base
-	}
-	var sb strings.Builder
-	sb.WriteString(base)
-	if r.AffectedStartLine > 0 && r.FilePath != "" {
-		fmt.Fprintf(&sb, "\nApplied at: %s:%d-L%d\n", r.FilePath, r.AffectedStartLine, r.AffectedEndLine)
-	} else {
-		sb.WriteByte('\n')
-	}
-	appendMatchedByNotice(&sb, r.MatchedBy)
-	return strings.TrimSpace(sb.String())
+	return r.editEnvelope.ToPlainText()
 }
 
 // ToPlainText 将 replace_range 失败结果渲染成可继续操作的文本。
@@ -215,7 +175,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	plan, err := buildReplacePlan(content, req)
 	if err != nil {
 		log.Failed("build_plan", stage, err)
-		return h.replaceFailure(ctx, manager, path, content, 0, err, req.ResponseDetail, log), err
+		return h.replaceFailure(path, content, err), err
 	}
 	log.Completed("build_plan", stage,
 		"matched_by", plan.matchedBy,
@@ -236,15 +196,14 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	lspSync, syncWarning, err := h.applyReplaceRangeUpdate(ctx, manager, path, file, updatedContent, version, log)
 	if err != nil {
 		log.Failed("apply_update", stage, err)
-		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err, req.ResponseDetail, log), err
+		return h.replaceFailure(path, content, err), err
 	}
 	log.Completed("apply_update", stage, "lsp_sync", lspSync, "sync_warning", syncWarning != "")
 	if syncWarning != "" {
 		warning = syncWarning
 	}
-	functionCtx := h.responseFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent, req.ResponseDetail, log)
 	log.Completed("replace_range", log.started, "result_status", "applied")
-	return h.buildAppliedResult(path, plan, lspSync, warning, functionCtx, req.ResponseDetail), nil
+	return h.buildAppliedResult(path, lspSync, warning), nil
 }
 
 // buildNoChangeResult 返回语义化 no_change，保留 manager 诊断代际方便调用方判断新旧。
@@ -261,8 +220,8 @@ func (h EditHandler) buildNoChangeResult(manager lspmanager.Manager, path string
 	}
 }
 
-func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync bool, warning string, functionCtx functionContext, responseDetail string) replaceRangeResult {
-	result := replaceRangeResult{
+func (h EditHandler) buildAppliedResult(path string, lspSync bool, warning string) replaceRangeResult {
+	return replaceRangeResult{
 		editEnvelope: editEnvelope{
 			Status:               "applied",
 			Message:              "replacement applied",
@@ -273,25 +232,7 @@ func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync b
 			Warning:              warning,
 			DiagnosticGeneration: h.registry.CurrentDiagnosticGeneration(),
 		},
-		MatchedBy:         plan.matchedBy,
-		ResolvedStart:     plan.resolvedStart,
-		ResolvedEnd:       plan.resolvedEnd,
-		ResolvedLSPLine:   plan.resolvedLSPLine,
-		AffectedStartLine: plan.affectedStartLine,
-		AffectedEndLine:   plan.affectedEndLine,
-		ReplacedLen:       len(plan.replaced),
-		ReplacementLen:    len(plan.replacement),
 	}
-	if responseDetail != fullEditResponseDetail {
-		return result
-	}
-	result.EditContext = plan.editContext
-	result.Replaced = plan.replaced
-	result.Replacement = plan.replacement
-	result.FuncStart = functionCtx.Start
-	result.FuncEnd = functionCtx.End
-	result.FuncBody = functionCtx.Body
-	return result
 }
 
 func (h EditHandler) replaceRangeManager(ctx context.Context, path string, languageID string) (lspmanager.Manager, string, error) {
@@ -305,8 +246,7 @@ func (h EditHandler) replaceRangeManager(ctx context.Context, path string, langu
 	return nil, "", err
 }
 
-func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error, responseDetail string, log *editStageLogger) replaceRangeFailure {
-	functionCtx := h.responseFunctionContext(ctx, manager, path, line, content, responseDetail, log)
+func (h EditHandler) replaceFailure(path string, content string, err error) replaceRangeFailure {
 	envelope := newToolErrorEnvelope("patch_edit", "", err)
 	meta := envelope.Meta
 	if meta == nil {
@@ -317,27 +257,15 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 		meta["hunk_index"] = ambig.HunkIndex + 1
 	}
 	return replaceRangeFailure{
-		Success:              false,
-		Error:                err.Error(),
-		Code:                 envelope.Code,
-		Retryable:            envelope.Retryable,
-		Hint:                 envelope.Hint,
-		Meta:                 meta,
-		FilePath:             path,
-		LineCount:            countLines(content),
-		FuncStart:            functionCtx.Start,
-		FuncEnd:              functionCtx.End,
-		FuncBody:             functionCtx.Body,
-		DiagnosticGeneration: managerDiagnosticGeneration(manager),
+		Success:   false,
+		Error:     err.Error(),
+		Code:      envelope.Code,
+		Retryable: envelope.Retryable,
+		Hint:      envelope.Hint,
+		Meta:      meta,
+		FilePath:  path,
+		LineCount: countLines(content),
 	}
-}
-
-func (h EditHandler) responseFunctionContext(ctx context.Context, manager lspmanager.Manager, path string, line int, content string, responseDetail string, log *editStageLogger) functionContext {
-	if responseDetail != fullEditResponseDetail {
-		log.Skipped("function_lookup", "compact_response")
-		return functionContext{}
-	}
-	return h.lookupFunctionContextWithLog(ctx, manager, path, line, content, log)
 }
 
 func asAmbiguousMatchError(err error) *editpkg.AmbiguousMatchError {
@@ -435,7 +363,6 @@ func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, e
 		return replacePlan{}, err
 	}
 	updated := content
-	contexts := make([]string, 0, len(matches))
 	modes := make([]string, 0, len(matches))
 	firstChangedIndex := -1
 	lastChangedIndex := -1
@@ -456,7 +383,6 @@ func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, e
 		}
 		lastChangedIndex = idx
 		modes = append(modes, match.MatchedBy)
-		contexts = append(contexts, match.EditContext)
 		updated = updated[:match.ResolvedStartOffset] + hunk.NewText + updated[match.ResolvedEndOffset:]
 	}
 	if firstChangedIndex < 0 {
@@ -465,16 +391,14 @@ func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, e
 	first := matches[firstChangedIndex]
 	last := matches[lastChangedIndex]
 	return replacePlan{
-		updatedContent:     updated,
-		matchedBy:          strings.Join(uniqueStrings(modes), ","),
-		resolvedStart:      first.ResolvedStartOffset,
-		resolvedEnd:        last.ResolvedEndOffset,
-		resolvedLSPLine:    first.ResolvedLSPLine,
-		affectedStartLine:  first.AffectedStartLine,
-		affectedEndLine:    last.AffectedEndLine,
-		editContext:        strings.Join(contexts, "\n\n"),
-		replaced:           joinHunkOldText(hunks),
-		replacement:        joinHunkNewText(hunks),
-		functionLookupLine: first.ResolvedLSPLine,
+		updatedContent:    updated,
+		matchedBy:         strings.Join(uniqueStrings(modes), ","),
+		resolvedStart:     first.ResolvedStartOffset,
+		resolvedEnd:       last.ResolvedEndOffset,
+		resolvedLSPLine:   first.ResolvedLSPLine,
+		affectedStartLine: first.AffectedStartLine,
+		affectedEndLine:   last.AffectedEndLine,
+		replaced:          joinHunkOldText(hunks),
+		replacement:       joinHunkNewText(hunks),
 	}, nil
 }

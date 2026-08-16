@@ -569,7 +569,7 @@ func TestReplaceRangeConfirmsDiskWriteWithGitDiffBeforeSlowLSPSync(t *testing.T)
 	assertEditRecoveryLog(t, logDir, path)
 }
 
-func TestReplaceRangeReturnsAppliedWhenFunctionLookupBlocksAfterSync(t *testing.T) {
+func TestReplaceRangeDoesNotRequestDeprecatedFunctionContext(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")
 	if err := os.WriteFile(path, []byte("package main\n\nfunc f() { old() }\n"), 0o600); err != nil {
@@ -599,17 +599,14 @@ func TestReplaceRangeReturnsAppliedWhenFunctionLookupBlocksAfterSync(t *testing.
 		t.Fatalf("edit returned error after disk write and LSP sync: %v", err)
 	}
 	if elapsed := time.Since(startedAt); elapsed > time.Second {
-		t.Fatalf("edit elapsed = %s, want bounded best-effort function lookup", elapsed)
+		t.Fatalf("edit elapsed = %s, want bounded replace_range completion", elapsed)
 	}
-	result := requireSyncedReplaceRangeResult(t, got)
-	if result.FuncStart != 0 || result.FuncEnd != 0 || result.FuncBody != "" {
-		t.Fatalf("function context = %#v, want empty when lookup times out", result)
-	}
+	requireSyncedReplaceRangeResult(t, got)
 	assertFileContent(t, path, "package main\n\nfunc f() { new() }\n")
 	select {
 	case <-manager.started:
+		t.Fatal("replace_range requested deprecated function context")
 	default:
-		t.Fatalf("DocumentSymbol was not called; test did not exercise blocking function lookup")
 	}
 }
 

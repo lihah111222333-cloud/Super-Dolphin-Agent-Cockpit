@@ -2,7 +2,6 @@ package tools
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
@@ -48,10 +47,13 @@ func symbolKindName(kind protocol.SymbolKind) string {
 }
 
 // FormatToPlainText 将复杂工具结果渲染为面向模型阅读的纯文本。
-// 只处理已知结构化响应；未知类型返回 ok=false 交给默认 JSON 渲染。
+// 只处理显式文本 provider 和已知结果；未知类型返回 false 交给严格边界报错。
 func FormatToPlainText(result any) (string, bool) {
 	if result == nil {
 		return "", false
+	}
+	if provider, ok := result.(interface{ ToPlainText() string }); ok {
+		return provider.ToPlainText(), true
 	}
 	if text, ok := formatToolErrorEnvelope(result); ok {
 		return text, true
@@ -65,7 +67,7 @@ func FormatToPlainText(result any) (string, bool) {
 	if text, ok := formatOtherStructures(result); ok {
 		return text, true
 	}
-	return formatCompactList(result)
+	return "", false
 }
 
 // formatToolErrorEnvelope 只在 mcp-lsp 边界把类型化错误渲染为稳定错误行协议。
@@ -458,104 +460,4 @@ func formatCompletionItems(val []protocol.CompletionItem) string {
 		fmt.Fprintf(&sb, "- `%s` [Kind %d]: %s\n", item.Label, item.Kind, item.Detail)
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// formatCompactList 格式化紧凑列表list。
-func formatCompactList(result any) (string, bool) {
-	rv := reflect.ValueOf(result)
-	if rv.Kind() != reflect.Struct {
-		return "", false
-	}
-	typeName := rv.Type().Name()
-	if !strings.HasPrefix(typeName, "CompactList") {
-		return "", false
-	}
-	dataField := rv.FieldByName("Data")
-	totalField := rv.FieldByName("Total")
-	showingField := rv.FieldByName("Showing")
-	hintField := rv.FieldByName("Hint")
-	if !dataField.IsValid() || dataField.Kind() != reflect.Slice {
-		return "", false
-	}
-	total := 0
-	if totalField.IsValid() {
-		total = int(totalField.Int())
-	}
-	showing := 0
-	if showingField.IsValid() {
-		showing = int(showingField.Int())
-	}
-	hint := ""
-	if hintField.IsValid() && hintField.Kind() == reflect.String {
-		hint = hintField.String()
-	}
-	return formatCompactListSlice(dataField, total, showing, hint), true
-}
-
-// formatCompactListSlice 把反射切片渲染为带序号和总量的纯文本列表。
-func formatCompactListSlice(dataField reflect.Value, total, showing int, hint string) string {
-	var sb strings.Builder
-	length := dataField.Len()
-	if length == 0 {
-		sb.WriteString("No matches found.")
-		appendCompactListHint(&sb, hint)
-		return sb.String()
-	}
-	fmt.Fprintf(&sb, "%s: showing %d of %d total\n\n", compactListTitle(dataField), showing, total)
-	preview := min(length, 3)
-	for i := range preview {
-		elem := dataField.Index(i).Interface()
-		fmt.Fprintf(&sb, "  [%d] ", i+1)
-		formatCompactListElem(&sb, elem)
-		sb.WriteString("\n")
-	}
-	if preview < length {
-		fmt.Fprintf(&sb, "\nText preview: %d of %d rows; full rows are in structuredContent.", preview, length)
-	}
-	appendCompactListHint(&sb, hint)
-	return strings.TrimSpace(sb.String())
-}
-
-// appendCompactListHint 把可执行后续动作追加到紧凑文本通道。
-func appendCompactListHint(sb *strings.Builder, hint string) {
-	if hint = strings.TrimSpace(hint); hint != "" {
-		fmt.Fprintf(sb, "\n\nHint: %s", hint)
-	}
-}
-
-// compactListTitle 根据元素类型名返回紧凑列表的标题。
-func compactListTitle(dataField reflect.Value) string {
-	elemType := dataField.Type().Elem()
-	for elemType.Kind() == reflect.Pointer {
-		elemType = elemType.Elem()
-	}
-	switch elemType.Name() {
-	case "CompactCompletionItem":
-		return "Code Completions"
-	case "CompactWorkspaceSymbol":
-		return "Workspace Symbol Matches"
-	default:
-		return "Compact Results"
-	}
-}
-
-// formatCompactListElem 格式化紧凑列表listelem。
-func formatCompactListElem(sb *strings.Builder, elem any) {
-	elemVal := reflect.ValueOf(elem)
-	if elemVal.Kind() != reflect.Struct {
-		fmt.Fprintf(sb, "%+v", elem)
-		return
-	}
-	elemType := elemVal.Type()
-	var fields []string
-	for f := 0; f < elemVal.NumField(); f++ {
-		fieldName := elemType.Field(f).Name
-		fieldVal := elemVal.Field(f).Interface()
-		if str, ok := fieldVal.(string); ok && str != "" {
-			fields = append(fields, fmt.Sprintf("%s: %q", strings.ToLower(fieldName), str))
-		} else if num, ok := fieldVal.(int); ok && num > 0 {
-			fields = append(fields, fmt.Sprintf("%s: %d", strings.ToLower(fieldName), num))
-		}
-	}
-	sb.WriteString(strings.Join(fields, ", "))
 }

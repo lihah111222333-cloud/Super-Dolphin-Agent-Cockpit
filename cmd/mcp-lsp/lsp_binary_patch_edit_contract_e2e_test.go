@@ -4,22 +4,22 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 type patchEditResidualFixture struct {
 	client               *mcpLSPBinaryClient
 	goTarget, textTarget string
 	oldBulk, newBulk     string
-	detailOld, detailNew string
 }
 
-// TestMcpLSPBinaryPatchEditResidualContracts_E2E 锁定紧凑回执、参数错误、空 action 提示和格式化无变化文案。
+// TestMcpLSPBinaryPatchEditResidualContracts_E2E 锁定文本回执、参数错误、空 action 提示和格式化无变化文案。
 func TestMcpLSPBinaryPatchEditResidualContracts_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
@@ -27,8 +27,7 @@ func TestMcpLSPBinaryPatchEditResidualContracts_E2E(t *testing.T) {
 	requireHostBinariesForE2E(t, []realLSPDiagnosticsCase{{languageID: "go", binaries: []string{"gopls"}}})
 	fixture := newPatchEditResidualFixture(t)
 	defer fixture.client.close(t)
-	t.Run("default compact receipt", func(t *testing.T) { assertDefaultCompactPatchReceipt(t, fixture) })
-	t.Run("full detail is structured only", func(t *testing.T) { assertFullPatchDetailStructuredOnly(t, fixture) })
+	t.Run("text-only receipt", func(t *testing.T) { assertTextOnlyPatchReceipt(t, fixture) })
 	t.Run("invalid rename is invalid params", func(t *testing.T) { assertInvalidRenameContract(t, fixture) })
 	t.Run("empty quickfix gives executable retry", func(t *testing.T) { assertEmptyQuickfixRetry(t, fixture) })
 	t.Run("format no change is action specific", func(t *testing.T) { assertFormatNoChangeText(t, fixture) })
@@ -41,9 +40,7 @@ func newPatchEditResidualFixture(t *testing.T) patchEditResidualFixture {
 	goTarget := writeBinaryColdStartFile(t, root, "main.go", "package main\n\nfunc stableName() int { return 1 }\n\nfunc main() { _ = stableName() }\n")
 	oldBulk := "old-" + strings.Repeat("x", 320)
 	newBulk := "new-" + strings.Repeat("y", 320)
-	detailOld := "detail-old-" + strings.Repeat("a", 160)
-	detailNew := "detail-new-" + strings.Repeat("b", 160)
-	textTarget := writeBinaryColdStartFile(t, root, "notes.txt", oldBulk+"\n"+detailOld+"\n")
+	textTarget := writeBinaryColdStartFile(t, root, "notes.txt", oldBulk+"\n")
 
 	binary := buildMcpLSPBinaryForTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -52,55 +49,35 @@ func newPatchEditResidualFixture(t *testing.T) patchEditResidualFixture {
 	})
 	t.Cleanup(cancel)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	return patchEditResidualFixture{client: client, goTarget: goTarget, textTarget: textTarget,
-		oldBulk: oldBulk, newBulk: newBulk, detailOld: detailOld, detailNew: detailNew}
+	return patchEditResidualFixture{client: client, goTarget: goTarget, textTarget: textTarget, oldBulk: oldBulk, newBulk: newBulk}
 }
 
-func assertDefaultCompactPatchReceipt(t *testing.T, f patchEditResidualFixture) {
+func assertTextOnlyPatchReceipt(t *testing.T, f patchEditResidualFixture) {
 	t.Helper()
 	result := f.client.callTool(t, "patch_edit", map[string]any{
 		"action":    "replace_range",
 		"file_path": f.textTarget,
 		"patch":     "@@\n-" + f.oldBulk + "\n+" + f.newBulk + "\n",
 	})
-	requireMCPToolSuccess(t, f.client, result, "compact patch_edit")
+	requireMCPToolSuccess(t, f.client, result, "text-only patch_edit")
 	text := result.Result.ContentText()
-	structured := string(result.Result.StructuredContent)
-	if size := len(text) + len(structured); size > 1400 {
-		t.Fatalf("compact patch_edit response = %d bytes, want <= 1400; text=%q structured=%s", size, text, structured)
-	} else {
-		t.Logf("compact patch_edit response bytes: text=%d structured=%d total=%d", len(text), len(structured), size)
+	if len(result.Result.StructuredContent) != 0 {
+		t.Fatalf("patch_edit returned deprecated structuredContent: %s", result.Result.StructuredContent)
+	}
+	if size := len(text); size > 1400 {
+		t.Fatalf("patch_edit response = %d bytes, want <= 1400; text=%q", size, text)
 	}
 	for _, forbidden := range []string{f.oldBulk, f.newBulk} {
-		if strings.Contains(text, forbidden) || strings.Contains(structured, forbidden) {
-			t.Fatalf("default patch_edit duplicated full edit content %q; text=%q structured=%s", forbidden[:16], text, structured)
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("patch_edit leaked full edit content %q; text=%q", forbidden[:16], text)
 		}
 	}
-	for _, required := range []string{"\"replaced_len\"", "\"replacement_len\"", "\"affected_start_line\""} {
-		if !strings.Contains(structured, required) {
-			t.Fatalf("compact patch_edit structured receipt missing %s: %s", required, structured)
-		}
+	doc, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("parse patch_edit receipt: %v", err)
 	}
-}
-
-func assertFullPatchDetailStructuredOnly(t *testing.T, f patchEditResidualFixture) {
-	t.Helper()
-	result := f.client.callTool(t, "patch_edit", map[string]any{
-		"action":          "replace_range",
-		"file_path":       f.textTarget,
-		"patch":           "@@\n-" + f.detailOld + "\n+" + f.detailNew + "\n",
-		"response_detail": "full",
-	})
-	requireMCPToolSuccess(t, f.client, result, "full patch_edit")
-	text := result.Result.ContentText()
-	structured := string(result.Result.StructuredContent)
-	for _, required := range []string{f.detailOld, f.detailNew} {
-		if !strings.Contains(structured, required) {
-			t.Fatalf("full patch_edit structured result missing requested detail %q: %s", required[:16], structured)
-		}
-		if strings.Contains(text, required) {
-			t.Fatalf("full patch_edit duplicated structured detail in text %q: %q", required[:16], text)
-		}
+	if doc.Header != (lineprotocol.Header{Total: 1, Showing: 1, Unit: "edit"}) {
+		t.Fatalf("patch_edit header = %+v", doc.Header)
 	}
 }
 
@@ -125,8 +102,11 @@ func assertInvalidRenameContract(t *testing.T, f patchEditResidualFixture) {
 	if !result.Result.IsError {
 		t.Fatalf("invalid rename returned success; text=%q structured=%s", result.Result.ContentText(), result.Result.StructuredContent)
 	}
-	if code := toolErrorCode(result.Result.StructuredContent); code != "invalid_params" {
-		t.Fatalf("invalid rename code = %q, want invalid_params; text=%q structured=%s", code, result.Result.ContentText(), result.Result.StructuredContent)
+	if len(result.Result.StructuredContent) != 0 {
+		t.Fatalf("invalid rename returned deprecated structuredContent: %s", result.Result.StructuredContent)
+	}
+	if !strings.HasPrefix(result.Result.ContentText(), "ERROR code=invalid_params retryable=0") {
+		t.Fatalf("invalid rename text = %q, want invalid_params error header", result.Result.ContentText())
 	}
 	after, err := os.ReadFile(f.goTarget)
 	if err != nil {
@@ -146,7 +126,17 @@ func assertEmptyQuickfixRetry(t *testing.T, f patchEditResidualFixture) {
 		"only":        []string{"quickfix"},
 	})
 	requireMCPToolSuccess(t, f.client, result, "empty quickfix")
-	combined := strings.ToLower(result.Result.ContentText() + "\n" + string(result.Result.StructuredContent))
+	if len(result.Result.StructuredContent) != 0 {
+		t.Fatalf("empty quickfix returned deprecated structuredContent: %s", result.Result.StructuredContent)
+	}
+	doc, err := lineprotocol.Parse(result.Result.ContentText())
+	if err != nil {
+		t.Fatalf("parse empty quickfix receipt: %v", err)
+	}
+	combined := ""
+	for _, record := range doc.Records {
+		combined += "\n" + strings.ToLower(record.Value)
+	}
 	for _, required := range []string{"no code actions found", "retry", "without only"} {
 		if !strings.Contains(combined, required) {
 			t.Fatalf("empty quickfix response missing %q; text=%q structured=%s", required, result.Result.ContentText(), result.Result.StructuredContent)
@@ -301,7 +291,8 @@ func waitForPatchEditRenameReferences(t *testing.T, client *mcpLSPBinaryClient, 
 			"include_declaration": true,
 			"max_results":         10,
 		})
-		if !result.Result.IsError && structuredResultTotal(result.Result.StructuredContent) > 0 {
+		text := strings.TrimSpace(result.Result.ContentText())
+		if !result.Result.IsError && text != "" && !strings.Contains(strings.ToLower(text), "no locations") {
 			return
 		}
 		if time.Now().After(deadline) {
@@ -309,24 +300,4 @@ func waitForPatchEditRenameReferences(t *testing.T, client *mcpLSPBinaryClient, 
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-}
-
-func structuredResultTotal(raw json.RawMessage) int {
-	var payload struct {
-		Total int `json:"total"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return 0
-	}
-	return payload.Total
-}
-
-func toolErrorCode(raw json.RawMessage) string {
-	var payload struct {
-		Code string `json:"code"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ""
-	}
-	return payload.Code
 }

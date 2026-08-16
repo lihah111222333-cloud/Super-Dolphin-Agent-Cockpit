@@ -94,7 +94,6 @@ type batchReadItem struct {
 }
 
 // batchReadMeta 汇总批量读取的预算裁剪信息。
-// 这些字段进入 structuredContent，方便调用方判断是否需要拆分 file_paths 重试。
 type batchReadMeta struct {
 	ErrorCount     int    `json:"error_count"`
 	RequestedCount int    `json:"requested_count,omitempty"`
@@ -103,8 +102,7 @@ type batchReadMeta struct {
 	Message        string `json:"message,omitempty"`
 }
 
-// batchReadResponse 是批量 read_file 的结构化响应。
-// Data 保留请求顺序，Meta/Hints 描述预算截断与下一步建议，兼容纯文本和 JSON 客户端。
+// batchReadResponse 是批量 read_file 的内部结果，Data 保留请求顺序。
 type batchReadResponse struct {
 	Success   bool            `json:"success"`
 	Data      []batchReadItem `json:"data"`
@@ -616,11 +614,9 @@ func applyBatchContentLimit(resp *batchReadResponse, maxChars int) {
 	}
 }
 
-// fitsBatchPayload 判断结构化 batch 响应是否落在 payload 字节预算内。
-// 预算以 JSON 后字节数为准，和实际 structuredContent 输出路径一致。
+// fitsBatchPayload 按最终纯文本字节数判断 batch 响应是否落在预算内。
 func fitsBatchPayload(resp batchReadResponse) bool {
-	raw, err := json.Marshal(resp)
-	return err == nil && len(raw) <= lspReadFileBatchPayloadMax
+	return len([]byte(resp.ToPlainText())) <= lspReadFileBatchPayloadMax
 }
 
 // resolveRoot 规范化工作区根目录；无效输入回退到当前目录规范化结果。

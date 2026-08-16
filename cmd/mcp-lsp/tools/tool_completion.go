@@ -3,18 +3,47 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 type completionParams struct {
 	Pos        string `json:"pos"`
 	LanguageID string `json:"language_id,omitempty"`
 	MaxResults int    `json:"max_results"`
+}
+
+type completionTextProvider interface{ ToPlainText() string }
+
+type mqlCompletionResult struct{ result completionTextProvider }
+
+// ToPlainText 在补全文本后追加非原生 MQL 兼容性归因。
+func (result mqlCompletionResult) ToPlainText() string {
+	return strings.Join([]string{
+		result.result.ToPlainText(),
+		lineprotocol.FieldsRecord("ATTR",
+			lineprotocol.Field{Key: "language_id", Value: "cpp"},
+			lineprotocol.Field{Key: "server", Value: "clangd"},
+			lineprotocol.Field{Key: "native", Value: "0"},
+			lineprotocol.Field{Key: "compatibility", Value: "mql-via-clangd"},
+		),
+		lineprotocol.TextRecord("WARNING", "candidates may include C/C++ or macOS macros; not-native-MetaEditor-MQL5-semantics"),
+	}, "\n")
+}
+
+// completionResultForFile 只为 .mqh 结果附加 clangd 兼容性说明。
+func completionResultForFile(filePath string, result completionTextProvider) any {
+	if !strings.EqualFold(filepath.Ext(filePath), ".mqh") {
+		return result
+	}
+	return mqlCompletionResult{result: result}
 }
 
 // NewCompletionHandler 注册 completion 工具处理器。
@@ -38,19 +67,21 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 			return nil, err
 		}
 		if result == nil || len(result.Items) == 0 {
-			return emptyListEnvelope{
+			empty := emptyListEnvelope{
 				Success: true,
 				Data:    []any{},
 				Meta:    resultMeta{Count: 0, Message: rustDetachedWorkspaceMessage(filePath, "completions", "no completions")},
-			}, nil
+			}
+			return completionResultForFile(filePath, empty), nil
 		}
 		total := len(result.Items)
 		items := limitSlice(result.Items, limit)
-		return format.NewCompactList(
+		list := format.NewCompactList(
 			format.CompactCompletionItems(items),
 			total,
 			"next: increase max_results or move to a more precise cursor",
-		), nil
+		)
+		return completionResultForFile(filePath, list), nil
 	})
 }
 

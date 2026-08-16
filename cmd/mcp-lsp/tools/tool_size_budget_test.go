@@ -81,27 +81,26 @@ func TestCompletionCompactBudget(t *testing.T) {
 	}
 }
 
-// TestWorkspaceSymbolCompactBudget mirrors the references coverage for
-// workspace_symbol queries.
+// TestWorkspaceSymbolCompactBudget 验证 workspace_symbol 的行数上限和文本截断信息。
 func TestWorkspaceSymbolCompactBudget(t *testing.T) {
 	manager := &structureTestManager{workspaceSymbols: makeWorkspaceSymbols(60)}
 	handler := NewStructureHandler(&structureTestRegistry{languageManager: manager})
 	root := t.TempDir()
 
-	compact := callStructureTool(t, handler, root, structureParams{Action: "workspace_symbol", Query: "Symbol", Language: "go", MatchMode: "fuzzy"})
-	list, ok := compact.(format.CompactList[format.CompactWorkspaceSymbol])
+	result := callStructureTool(t, handler, root, structureParams{Action: "workspace_symbol", Query: "Symbol", Language: "go", MatchMode: "fuzzy"})
+	list, ok := result.(workspaceSymbolListResponse)
 	if !ok {
-		t.Fatalf("compact workspace_symbol result = %T, want CompactList", compact)
+		t.Fatalf("workspace_symbol result = %T, want workspaceSymbolListResponse", result)
 	}
 	if list.Total != 60 || list.Showing != 20 {
-		t.Fatalf("compact workspace_symbol total/showing = %d/%d, want 60/20", list.Total, list.Showing)
+		t.Fatalf("workspace_symbol total/showing = %d/%d, want 60/20", list.Total, list.Showing)
 	}
-	payload := mustMarshalObject(t, list)
-	if payload["truncated"] != true {
-		t.Fatalf("compact workspace_symbol truncated = %#v, want true", payload["truncated"])
+	text := list.ToPlainText()
+	if !strings.HasPrefix(text, "OK total=60 showing=20 truncated=1 unit=symbol\n") {
+		t.Fatalf("workspace_symbol text header = %q", firstLine(text))
 	}
-	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "max_results") || !strings.Contains(hint, "query") {
-		t.Fatalf("compact workspace_symbol hint = %q, want max_results/query guidance", hint)
+	if len(protocolRows(text)) != 20 || !strings.Contains(text, "max_results") || !strings.Contains(text, "query") {
+		t.Fatalf("workspace_symbol text omitted retained rows or retry hint: %q", text)
 	}
 }
 

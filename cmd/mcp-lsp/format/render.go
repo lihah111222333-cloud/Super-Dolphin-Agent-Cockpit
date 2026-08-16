@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 // RenderJSON 将工具结构化结果渲染成稳定缩进 JSON。
@@ -83,9 +84,77 @@ func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-// RenderCompactList 渲染紧凑列表 wire 结构。
+// RenderCompactList 渲染已按上限保留的全部列表行。
 func RenderCompactList[T any](list CompactList[T]) (string, error) {
-	return RenderJSON(list)
+	return list.ToPlainText(), nil
+}
+
+// ToPlainText 将已保留列表完整渲染为稳定行协议。
+func (list CompactList[T]) ToPlainText() string {
+	total := max(list.Total, len(list.Data))
+	showing := len(list.Data)
+	lines := []string{lineprotocol.HeaderLine(total, showing, showing < total, compactListUnit[T]())}
+	for _, item := range list.Data {
+		lines = append(lines, compactListRecord(item))
+	}
+	if hint := strings.TrimSpace(list.Hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func compactListUnit[T any]() string {
+	elemType := reflect.TypeFor[T]()
+	for elemType.Kind() == reflect.Pointer {
+		elemType = elemType.Elem()
+	}
+	switch elemType.Name() {
+	case "CompactCompletionItem":
+		return "completion"
+	case "CompactWorkspaceSymbol":
+		return "symbol"
+	default:
+		return "row"
+	}
+}
+
+func compactListRecord(item any) string {
+	value := reflect.ValueOf(item)
+	for value.IsValid() && value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return lineprotocol.FieldsRecord("ROW", lineprotocol.Field{Key: "value", Value: "<nil>"})
+		}
+		value = value.Elem()
+	}
+	if !value.IsValid() || value.Kind() != reflect.Struct {
+		return lineprotocol.FieldsRecord("ROW", lineprotocol.Field{Key: "value", Value: fmt.Sprint(item)})
+	}
+	fields := make([]lineprotocol.Field, 0, value.NumField())
+	valueType := value.Type()
+	for index := range value.NumField() {
+		field := compactListField(strings.ToLower(valueType.Field(index).Name), value.Field(index))
+		if field.Key != "" {
+			fields = append(fields, field)
+		}
+	}
+	if len(fields) == 0 {
+		fields = append(fields, lineprotocol.Field{Key: "value", Value: fmt.Sprint(item)})
+	}
+	return lineprotocol.FieldsRecord("ROW", fields...)
+}
+
+func compactListField(name string, value reflect.Value) lineprotocol.Field {
+	switch value.Kind() {
+	case reflect.String:
+		if value.String() != "" {
+			return lineprotocol.Field{Key: name, Value: value.String()}
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if value.Int() != 0 {
+			return lineprotocol.Field{Key: name, Value: strconv.FormatInt(value.Int(), 10)}
+		}
+	}
+	return lineprotocol.Field{}
 }
 
 // NormalizeForDisplay 根据结果类型套用展示层 normalizer。
@@ -210,22 +279,22 @@ type displayNormalizerDispatch struct {
 // newDisplayNormalizerDispatch 构造展示归一化分派器。
 func newDisplayNormalizerDispatch() displayNormalizerDispatch {
 	return displayNormalizerDispatch{normalizers: map[reflect.Type]func(any) any{
-		reflect.TypeOf(protocol.Location{}):                func(value any) any { return Location(value.(protocol.Location)) },
-		reflect.TypeFor[*protocol.Location]():              func(value any) any { return LocationPtr(value.(*protocol.Location)) },
-		reflect.TypeOf(protocol.HoverResult{}):             func(value any) any { return HoverResult(value.(protocol.HoverResult)) },
-		reflect.TypeFor[*protocol.HoverResult]():           normalizeHoverResultPtr,
-		reflect.TypeOf([]protocol.LocationResult{}):        func(value any) any { return LocationResults(value.([]protocol.LocationResult)) },
-		reflect.TypeOf([]protocol.DocumentSymbol{}):        func(value any) any { return DocumentSymbols(value.([]protocol.DocumentSymbol)) },
-		reflect.TypeFor[*protocol.WorkspaceEdit]():         func(value any) any { return WorkspaceEdit(value.(*protocol.WorkspaceEdit)) },
-		reflect.TypeOf([]protocol.TextEdit{}):              func(value any) any { return TextEdits(value.([]protocol.TextEdit)) },
-		reflect.TypeOf([]protocol.Diagnostic{}):            func(value any) any { return Diagnostics(value.([]protocol.Diagnostic)) },
-		reflect.TypeOf([]protocol.CodeActionResult{}):      func(value any) any { return CodeActionResults(value.([]protocol.CodeActionResult)) },
-		reflect.TypeOf([]protocol.WorkspaceSymbolResult{}): func(value any) any { return WorkspaceSymbolResults(value.([]protocol.WorkspaceSymbolResult)) },
-		reflect.TypeOf([]protocol.CallHierarchyResult{}):   func(value any) any { return CallHierarchyResults(value.([]protocol.CallHierarchyResult)) },
-		reflect.TypeOf([]protocol.TypeHierarchyResult{}):   func(value any) any { return TypeHierarchyResults(value.([]protocol.TypeHierarchyResult)) },
-		reflect.TypeFor[*protocol.SemanticTokensResult]():  func(value any) any { return SemanticTokensResult(value.(*protocol.SemanticTokensResult)) },
-		reflect.TypeOf(protocol.FoldingRange{}):            func(value any) any { return FoldingRange(value.(protocol.FoldingRange)) },
-		reflect.TypeOf([]protocol.FoldingRange{}):          func(value any) any { return FoldingRanges(value.([]protocol.FoldingRange)) },
+		reflect.TypeFor[protocol.Location]():                func(value any) any { return Location(value.(protocol.Location)) },
+		reflect.TypeFor[*protocol.Location]():               func(value any) any { return LocationPtr(value.(*protocol.Location)) },
+		reflect.TypeFor[protocol.HoverResult]():             func(value any) any { return HoverResult(value.(protocol.HoverResult)) },
+		reflect.TypeFor[*protocol.HoverResult]():            normalizeHoverResultPtr,
+		reflect.TypeFor[[]protocol.LocationResult]():        func(value any) any { return LocationResults(value.([]protocol.LocationResult)) },
+		reflect.TypeFor[[]protocol.DocumentSymbol]():        func(value any) any { return DocumentSymbols(value.([]protocol.DocumentSymbol)) },
+		reflect.TypeFor[*protocol.WorkspaceEdit]():          func(value any) any { return WorkspaceEdit(value.(*protocol.WorkspaceEdit)) },
+		reflect.TypeFor[[]protocol.TextEdit]():              func(value any) any { return TextEdits(value.([]protocol.TextEdit)) },
+		reflect.TypeFor[[]protocol.Diagnostic]():            func(value any) any { return Diagnostics(value.([]protocol.Diagnostic)) },
+		reflect.TypeFor[[]protocol.CodeActionResult]():      func(value any) any { return CodeActionResults(value.([]protocol.CodeActionResult)) },
+		reflect.TypeFor[[]protocol.WorkspaceSymbolResult](): func(value any) any { return WorkspaceSymbolResults(value.([]protocol.WorkspaceSymbolResult)) },
+		reflect.TypeFor[[]protocol.CallHierarchyResult]():   func(value any) any { return CallHierarchyResults(value.([]protocol.CallHierarchyResult)) },
+		reflect.TypeFor[[]protocol.TypeHierarchyResult]():   func(value any) any { return TypeHierarchyResults(value.([]protocol.TypeHierarchyResult)) },
+		reflect.TypeFor[*protocol.SemanticTokensResult]():   func(value any) any { return SemanticTokensResult(value.(*protocol.SemanticTokensResult)) },
+		reflect.TypeFor[protocol.FoldingRange]():            func(value any) any { return FoldingRange(value.(protocol.FoldingRange)) },
+		reflect.TypeFor[[]protocol.FoldingRange]():          func(value any) any { return FoldingRanges(value.([]protocol.FoldingRange)) },
 	}}
 }
 

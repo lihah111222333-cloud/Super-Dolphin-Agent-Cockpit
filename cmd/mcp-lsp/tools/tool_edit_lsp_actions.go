@@ -50,17 +50,17 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	return h.applyCodeActions(ctx, roots, actions, normalizeEditVersion(req.Version), manager)
 }
 
-// emptyCodeActionResult 在过滤后无候选时给出可直接执行的无过滤重试参数。
-func emptyCodeActionResult(req EditRequest) emptyListEnvelope {
-	message := "no code actions found"
+// emptyCodeActionResult 在过滤后无候选时给出可直接执行的无过滤重试提示。
+func emptyCodeActionResult(req EditRequest) editEnvelope {
+	hint := ""
 	if len(req.Only) > 0 {
-		message += fmt.Sprintf(" for only=%q; retry patch_edit action=code_action pos=%s", req.Only, req.Pos)
+		hint = fmt.Sprintf("retry patch_edit action=code_action pos=%s", req.Pos)
 		if req.LanguageID != "" {
-			message += " language_id=" + req.LanguageID
+			hint += " language_id=" + req.LanguageID
 		}
-		message += " without only"
+		hint += " without only"
 	}
-	return emptyListEnvelope{Success: true, Data: []any{}, Meta: resultMeta{Count: 0, Message: message}}
+	return editEnvelope{Status: "no_change", Message: "no code actions found", Hint: hint}
 }
 
 // applyCodeActions 应用唯一可直接落盘的 WorkspaceEdit。

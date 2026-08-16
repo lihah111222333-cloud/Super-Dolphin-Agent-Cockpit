@@ -11,6 +11,7 @@ import (
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 func TestInspectImplementationUnsupportedCapabilityReturnsExplainableEmptyResult(t *testing.T) {
@@ -223,12 +224,7 @@ func TestEditCodeActionNoQuickFixesReturnsEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("code_action returned error = %v, want empty result when no quickfixes exist", err)
 	}
-	envelope := requireEmptyListEnvelope(t, got)
-	for _, required := range []string{"no code actions found", "retry patch_edit action=code_action", "without only"} {
-		if !strings.Contains(envelope.Meta.Message, required) {
-			t.Fatalf("empty result message = %q, want %q", envelope.Meta.Message, required)
-		}
-	}
+	assertEmptyCodeActionReceipt(t, requireEditEnvelope(t, got))
 	if manager.gotCodeActionPath != canonicalReproPath(t, target) {
 		t.Fatalf("CodeAction path = %q, want %q", manager.gotCodeActionPath, canonicalReproPath(t, target))
 	}
@@ -237,6 +233,34 @@ func TestEditCodeActionNoQuickFixesReturnsEmptyList(t *testing.T) {
 	}
 	if len(manager.gotCodeActionOnly) != 1 || manager.gotCodeActionOnly[0] != "quickfix" {
 		t.Fatalf("CodeAction only = %#v, want [quickfix]", manager.gotCodeActionOnly)
+	}
+}
+
+func assertEmptyCodeActionReceipt(t *testing.T, envelope editEnvelope) {
+	t.Helper()
+	doc, err := lineprotocol.Parse(envelope.ToPlainText())
+	if err != nil {
+		t.Fatalf("parse empty code-action receipt: %v", err)
+	}
+	if doc.Header != (lineprotocol.Header{Total: 0, Showing: 0, Unit: "edit"}) {
+		t.Errorf("empty code-action header = %+v", doc.Header)
+	}
+	message, hint := "", ""
+	for _, record := range doc.Records {
+		switch record.Kind {
+		case "MESSAGE":
+			message = record.Value
+		case "HINT":
+			hint = record.Value
+		}
+	}
+	if !strings.Contains(message, "no code actions found") {
+		t.Errorf("empty code-action message = %q", message)
+	}
+	for _, required := range []string{"retry patch_edit action=code_action", "without only"} {
+		if !strings.Contains(hint, required) {
+			t.Errorf("empty code-action hint = %q, want %q", hint, required)
+		}
 	}
 }
 
