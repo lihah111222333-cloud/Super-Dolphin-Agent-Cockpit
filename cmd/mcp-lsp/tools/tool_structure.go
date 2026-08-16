@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -40,6 +43,80 @@ type documentSymbolListResponse struct {
 	Hint      string                    `json:"hint,omitempty"`
 }
 
+type workspaceSymbolListResponse struct {
+	Data      []format.CompactWorkspaceSymbol
+	Total     int
+	Showing   int
+	Truncated bool
+	Hint      string
+}
+
+type foldingRangeListResponse struct {
+	Data      []protocol.FoldingRange
+	Total     int
+	Showing   int
+	Truncated bool
+	Hint      string
+}
+
+// ToPlainText 把递归符号树扁平为稳定的前序 ROW。
+func (response documentSymbolListResponse) ToPlainText() string {
+	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "symbol")}
+	appendDocumentSymbolRows(&lines, response.Data, 0)
+	return appendStructureHint(lines, response.Hint)
+}
+
+func appendDocumentSymbolRows(lines *[]string, symbols []protocol.DocumentSymbol, depth int) {
+	for _, symbol := range symbols {
+		*lines = append(*lines, lineprotocol.FieldsRecord("ROW",
+			lineprotocol.Field{Key: "name", Value: symbol.Name},
+			lineprotocol.Field{Key: "kind", Value: strconv.Itoa(int(symbol.Kind))},
+			lineprotocol.Field{Key: "depth", Value: strconv.Itoa(depth)},
+			lineprotocol.Field{Key: "start_line", Value: strconv.Itoa(format.FromLSP(symbol.Range.Start.Line))},
+			lineprotocol.Field{Key: "start_col", Value: strconv.Itoa(format.FromLSP(symbol.Range.Start.Character))},
+			lineprotocol.Field{Key: "end_line", Value: strconv.Itoa(format.FromLSP(symbol.Range.End.Line))},
+			lineprotocol.Field{Key: "end_col", Value: strconv.Itoa(format.FromLSP(symbol.Range.End.Character))},
+		))
+		appendDocumentSymbolRows(lines, symbol.Children, depth+1)
+	}
+}
+
+// ToPlainText 把 workspace symbol 列表渲染为紧凑 ROW。
+func (response workspaceSymbolListResponse) ToPlainText() string {
+	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "symbol")}
+	for _, symbol := range response.Data {
+		lines = append(lines, lineprotocol.FieldsRecord("ROW",
+			lineprotocol.Field{Key: "name", Value: symbol.Name},
+			lineprotocol.Field{Key: "kind", Value: strconv.Itoa(symbol.Kind)},
+			lineprotocol.Field{Key: "file", Value: symbol.File},
+			lineprotocol.Field{Key: "line", Value: strconv.Itoa(symbol.Line)},
+			lineprotocol.Field{Key: "col", Value: strconv.Itoa(symbol.Col)},
+			lineprotocol.Field{Key: "container", Value: symbol.Container},
+		))
+	}
+	return appendStructureHint(lines, response.Hint)
+}
+
+// ToPlainText 把 folding ranges 渲染为紧凑 ROW。
+func (response foldingRangeListResponse) ToPlainText() string {
+	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "range")}
+	for _, item := range response.Data {
+		lines = append(lines, lineprotocol.FieldsRecord("ROW",
+			lineprotocol.Field{Key: "start_line", Value: strconv.Itoa(format.FromLSP(item.StartLine))},
+			lineprotocol.Field{Key: "end_line", Value: strconv.Itoa(format.FromLSP(item.EndLine))},
+			lineprotocol.Field{Key: "kind", Value: item.Kind},
+		))
+	}
+	return appendStructureHint(lines, response.Hint)
+}
+
+func appendStructureHint(lines []string, hint string) string {
+	if hint = strings.TrimSpace(hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // NewStructureHandler 创建 structure 工具处理器，按 action 延迟选择文件或语言级 manager。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("structure", middleware.TierSlow, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
@@ -54,7 +131,7 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 				return runDocumentSymbolAction(ctx, req, resolveManager)
 			},
 			"workspace_symbol": func(ctx context.Context, req structureParams) (any, error) {
-				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, firstNonEmpty(req.Language, req.LanguageID))
+				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, req.Language, req.LanguageID)
 				if err != nil {
 					return nil, err
 				}
@@ -107,40 +184,56 @@ func firstNonEmpty(values ...string) string {
 
 // resolveWorkspaceSymbolManager 根据 language 或 file_path 选择 workspace_symbol 的 manager。
 // 两个定位方式必须二选一，避免目录路径被误当成源码文件启动语言服务。
-func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language string) (lspmanager.Manager, string, error) {
+func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language, languageID string) (lspmanager.Manager, string, error) {
 	language = normalizeWorkspaceSymbolLanguage(language)
+	languageID = normalizeWorkspaceSymbolLanguage(languageID)
 	filePath = strings.TrimSpace(filePath)
 	if (filePath == "") == (language == "") {
-		return nil, "", errors.New("exactly one of file_path or language is required")
+		return nil, "", workspaceSymbolParamsError("exactly one of file_path or language is required")
 	}
 	if language != "" {
-		if language == sqliteSQLLanguageID {
-			return nil, "", errors.New("SQL workspace_symbol requires file_path so the SQLite sqlc owner can be validated")
-		}
-		if limitedDocumentFallbackLanguage(language) != "" {
-			return nil, language, nil
-		}
-		manager, err := registry.GetManagerForLanguage(ctx, language)
-		if err != nil {
-			return nil, "", err
-		}
-		return manager, language, nil
+		return resolveWorkspaceLanguageManager(ctx, registry, language, languageID)
 	}
-	if err := validateWorkspaceSymbolFilePath(filePath); err != nil {
-		return nil, "", err
+	return resolveWorkspaceFileManager(ctx, registry, filePath, languageID)
+}
+
+func resolveWorkspaceLanguageManager(ctx context.Context, registry lspmanager.Registry, language, languageID string) (lspmanager.Manager, string, error) {
+	if languageID != "" {
+		return nil, "", workspaceSymbolParamsError("language_id is only valid with file_path; remove language_id")
 	}
-	language = lspmanager.DetectLanguageID(workspaceSymbolPathForValidation(filePath))
+	if language == sqliteSQLLanguageID {
+		return nil, "", workspaceSymbolParamsError("SQL workspace_symbol requires file_path so the SQLite sqlc owner can be validated")
+	}
 	if limitedDocumentFallbackLanguage(language) != "" {
 		return nil, language, nil
 	}
-	manager, err := managerForFile(ctx, registry, filePath, "")
+	manager, err := registry.GetManagerForLanguage(ctx, language)
+	return manager, language, err
+}
+
+func resolveWorkspaceFileManager(ctx context.Context, registry lspmanager.Registry, filePath, languageID string) (lspmanager.Manager, string, error) {
+	if err := validateWorkspaceSymbolFilePath(filePath); err != nil {
+		return nil, "", workspaceSymbolParamsError(err.Error())
+	}
+	if languageID == "" {
+		languageID = lspmanager.DetectLanguageID(workspaceSymbolPathForValidation(filePath))
+	}
+	if limitedDocumentFallbackLanguage(languageID) != "" {
+		return nil, languageID, nil
+	}
+	manager, err := managerForFile(ctx, registry, filePath, languageID)
 	if err != nil {
 		if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
 			return nil, "", errors.New("path must point to a source file with a configured language server; use language for workspace-wide search, and use file/grep for docs or config files")
 		}
 		return nil, "", err
 	}
-	return manager, language, nil
+	return manager, languageID, nil
+}
+
+func workspaceSymbolParamsError(message string) error {
+	return common.NewCodedToolError("invalid_params", errors.New(message), false,
+		"choose-file_path-or-language; use-language_id-only-as-a-file_path-server-override")
 }
 
 // runDocumentSymbols 读取单文件符号树，并按 max_results 递归裁剪。
@@ -161,15 +254,8 @@ func runDocumentSymbols(
 	limit := format.DocumentSymbolLimit(req.MaxResults)
 	results = limitDocumentSymbols(results, limit)
 	showing := countDocumentSymbolNodes(results)
-	if showing == 0 {
-		return emptyListEnvelope{
-			Success: true,
-			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Message: "no symbols found"},
-		}, nil
-	}
 	resp := documentSymbolListResponse{
-		Data:      format.NormalizeForDisplay(results),
+		Data:      results,
 		Total:     total,
 		Showing:   showing,
 		Truncated: showing < total,
@@ -219,7 +305,10 @@ func runWorkspaceSymbols(
 	items = selectWorkspaceSymbolMatches(items, query, matchMode)
 	total := len(items)
 	items = limitSlice(items, limit)
-	response := format.NewCompactList(items, total, "next: increase max_results or narrow query/language/file_path")
+	response := workspaceSymbolListResponse{
+		Data: items, Total: total, Showing: len(items), Truncated: len(items) < total,
+		Hint: "next: increase max_results or narrow query/language/file_path",
+	}
 	if matchMode == workspaceSymbolMatchExact {
 		response.Hint = "next: retry with match_mode=fuzzy to include non-exact symbol names"
 	}
@@ -285,9 +374,15 @@ func runFoldingRanges(
 	if err != nil {
 		return nil, err
 	}
-	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no folding ranges found", func(items []protocol.FoldingRange, _ int) any {
-		return format.NormalizeForDisplay(items)
-	})
+	total := len(results)
+	items := limitSlice(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit))
+	response := foldingRangeListResponse{
+		Data: items, Total: total, Showing: len(items), Truncated: len(items) < total,
+	}
+	if response.Truncated {
+		response.Hint = "next: increase max_results or narrow file scope"
+	}
+	return response, nil
 }
 
 // runSemanticTokens 返回语义令牌，并按协议上限裁剪。

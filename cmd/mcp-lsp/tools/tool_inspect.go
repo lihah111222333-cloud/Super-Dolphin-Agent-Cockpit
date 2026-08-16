@@ -10,6 +10,7 @@ import (
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 // filePositionParams 是需要 file:line:column 的 LSP 工具公共定位入参。
@@ -119,7 +120,8 @@ func runSignatureHelp(
 		return nil, err
 	}
 	if result == nil || len(result.Signatures) == 0 {
-		return "no signature help found", nil
+		return lineprotocol.HeaderLine(0, 0, false, "signature") + "\n" +
+			lineprotocol.TextRecord("HINT", "move-cursor-inside-call-arguments-or-after-comma"), nil
 	}
 	return result, nil
 }

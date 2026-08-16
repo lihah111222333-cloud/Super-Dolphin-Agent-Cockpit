@@ -7,6 +7,8 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 // symbolKindName 返回 SymbolKind 的可读名称，未知值返回 SymbolKind(n) 形式。
@@ -51,6 +53,9 @@ func FormatToPlainText(result any) (string, bool) {
 	if result == nil {
 		return "", false
 	}
+	if text, ok := formatToolErrorEnvelope(result); ok {
+		return text, true
+	}
 	if text, ok := formatBudgetOverflow(result); ok {
 		return text, true
 	}
@@ -61,6 +66,38 @@ func FormatToPlainText(result any) (string, bool) {
 		return text, true
 	}
 	return formatCompactList(result)
+}
+
+// formatToolErrorEnvelope 只在 mcp-lsp 边界把类型化错误渲染为稳定错误行协议。
+func formatToolErrorEnvelope(result any) (string, bool) {
+	var envelope common.ToolErrorEnvelope
+	switch value := result.(type) {
+	case common.ToolErrorEnvelope:
+		envelope = value
+	case *common.ToolErrorEnvelope:
+		if value == nil {
+			return "", false
+		}
+		envelope = *value
+	default:
+		return "", false
+	}
+	code := strings.TrimSpace(envelope.Code)
+	if code == "" {
+		code = "tool_error"
+	}
+	retryable := 0
+	if envelope.Retryable {
+		retryable = 1
+	}
+	lines := []string{fmt.Sprintf("ERROR code=%s retryable=%d", code, retryable)}
+	if message := strings.TrimSpace(envelope.Error); message != "" {
+		lines = append(lines, lineprotocol.TextRecord("MESSAGE", message))
+	}
+	if hint := strings.TrimSpace(envelope.Hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	return strings.Join(lines, "\n"), true
 }
 
 // formatBudgetOverflow 将 result_too_large 信封转成人类可读提示。
@@ -139,7 +176,7 @@ func formatXrefAndOutline(result any) (string, bool) {
 	case []protocol.DocumentSymbol:
 		return formatDocumentOutline(val), true
 	case documentSymbolListResponse:
-		return formatDocumentOutlinePreview(val), true
+		return val.ToPlainText(), true
 	}
 	return "", false
 }
@@ -354,21 +391,6 @@ func formatDocumentOutline(val []protocol.DocumentSymbol) string {
 		formatSymbol(s, 0)
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// formatDocumentOutlinePreview 只在文本通道展示前三个符号节点，完整树保留在 structuredContent。
-func formatDocumentOutlinePreview(response documentSymbolListResponse) string {
-	const previewLimit = 3
-	preview := limitDocumentSymbols(response.Data, previewLimit)
-	text := formatDocumentOutline(preview)
-	previewCount := countDocumentSymbolNodes(preview)
-	if previewCount < response.Showing {
-		text += fmt.Sprintf("\n\nText preview: %d of %d returned symbols; full symbols are in structuredContent.", previewCount, response.Showing)
-	}
-	if hint := strings.TrimSpace(response.Hint); hint != "" {
-		text += "\nHint: " + hint
-	}
-	return text
 }
 
 // formatWorkspaceSymbols 格式化工作区符号。

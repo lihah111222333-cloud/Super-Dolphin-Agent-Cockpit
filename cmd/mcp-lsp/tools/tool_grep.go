@@ -14,6 +14,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -172,21 +173,19 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
 	logGrepCallDecoded(input, limit)
 
-	var (
-		matches []search.SearchMatch
-		runErr  error
-	)
+	var searchResult search.CountedSearchResult
 	if _, err := dispatchToolAction(ctx, "grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
-			matches, runErr = h.runGrepTextSearch(ctx, input, limit)
-			return nil, runErr
+			var err error
+			searchResult, err = h.runGrepTextSearch(ctx, input, limit)
+			return nil, err
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
 			root, roots, err := grepWorkspaceRoots(ctx)
 			if err != nil {
 				return nil, err
 			}
-			matches, runErr = search.SearchAST(ctx, search.ASTSearchOptions{
+			searchResult, err = search.SearchASTCounted(ctx, search.ASTSearchOptions{
 				Root:         root,
 				Roots:        roots,
 				Path:         input.Path,
@@ -197,23 +196,22 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				MaxResults:   limit,
 				MaxFileBytes: maxReadFileBytes,
 			})
-			return nil, runErr
+			return nil, err
 		},
 	}); err != nil {
 		return nil, err
 	}
 
-	filtered, total, truncated := filterAndLogGrepMatches(input, matches, limit)
-	if len(filtered) == 0 {
-		logGrepResponseEmpty(input, len(matches), total)
+	if len(searchResult.Matches) == 0 {
+		logGrepResponseEmpty(input, 0, searchResult.Total)
 		return grepResponse{
 			Data:    map[string]grepFileRows{},
-			Total:   0,
+			Total:   searchResult.Total,
 			Showing: 0,
 			Message: emptyGrepMessage(false),
 		}, nil
 	}
-	resp := buildGrepResponse(filtered, total, truncated)
+	resp := buildGrepResponse(searchResult.Matches, searchResult.Total, searchResult.Truncated)
 	if message := grepMessage(false, resp.DroppedForPayload); message != "" {
 		resp.Message = message
 	}
@@ -273,8 +271,7 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	for {
 		ensureGrepResponseHint(resp)
 		resp.Message = grepMessage(resp.RegexFallback, resp.DroppedForPayload)
-		raw, err := json.Marshal(resp)
-		if err != nil || len(raw) <= maxBytes {
+		if len([]byte(resp.ToPlainText())) <= maxBytes {
 			return
 		}
 		if !dropLastGrepRow(resp) {
@@ -285,7 +282,7 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	}
 }
 
-// dropLastGrepRow 从行数最多的文件中移除一条匹配，用于把结构化响应压回预算内。
+// dropLastGrepRow 从行数最多的文件中移除一条匹配，用于把最终文本压回预算内。
 // 如果该文件只剩一行，直接移除整个文件块，保证 showing 计数同步下降。
 func dropLastGrepRow(resp *grepResponse) bool {
 	var maxFile string
@@ -396,19 +393,10 @@ func padGrepRows(rows [][]any, width int) [][]any {
 	return rows
 }
 
-// ToPlainText 将结构化 grep 结果渲染为确定顺序的纯文本。
+// ToPlainText 将 grep 结果渲染为确定顺序的紧凑行协议。
 // 纯文本通道保留截断和下一步 hint，方便模型继续缩小查询。
 func (r grepResponse) ToPlainText() string {
-	if r.Total == 0 {
-		return "No matches found."
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search Matches: showing %d of %d total\n", r.Showing, r.Total))
-	if r.Message != "" {
-		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Message))
-	}
-	sb.WriteString("\n")
+	lines := []string{lineprotocol.HeaderLine(r.Total, r.Showing, r.Showing < r.Total, "match")}
 
 	// 固定文件输出顺序，避免 map 遍历导致快照和模型上下文抖动。
 	var files []string
@@ -420,37 +408,47 @@ func (r grepResponse) ToPlainText() string {
 	for _, file := range files {
 		fr := r.Data[file]
 		for _, row := range fr.Rows {
-			r.formatGrepRow(&sb, file, row)
+			if record := r.formatGrepRow(file, row); record != "" {
+				lines = append(lines, record)
+			}
 		}
 	}
-
-	if r.Truncated || r.DroppedForPayload > 0 {
-		sb.WriteString("\nWarning: results were truncated due to limits or budget constraints.\n")
+	if r.Message != "" {
+		lines = append(lines, lineprotocol.TextRecord("MESSAGE", r.Message))
+	}
+	if r.Showing < r.Total {
+		lines = append(lines, lineprotocol.TextRecord("WARNING", "results-truncated"))
 	}
 	if r.Hint != "" {
-		sb.WriteString(fmt.Sprintf("\nHint: %s\n", r.Hint))
+		lines = append(lines, lineprotocol.TextRecord("HINT", r.Hint))
 	}
-
-	return strings.TrimSpace(sb.String())
+	return strings.Join(lines, "\n")
 }
 
-func (r grepResponse) formatGrepRow(sb *strings.Builder, file string, row []any) {
+func (r grepResponse) formatGrepRow(file string, row []any) string {
 	if len(row) < 3 {
-		return
+		return ""
 	}
 	lineVal := numericRowValue(row[0])
 	colVal := numericRowValue(row[1])
 	textVal, _ := row[2].(string)
-
-	funcInfo := ""
+	fields := []lineprotocol.Field{
+		{Key: "file", Value: file},
+		{Key: "line", Value: fmt.Sprint(lineVal)},
+		{Key: "col", Value: fmt.Sprint(colVal)},
+		{Key: "text", Value: textVal},
+	}
 	if len(row) >= 5 {
 		fs := numericRowValue(row[3])
 		fe := numericRowValue(row[4])
 		if fs > 0 && fe >= fs {
-			funcInfo = fmt.Sprintf(" [func L%d-L%d]", fs, fe)
+			fields = append(fields,
+				lineprotocol.Field{Key: "func_start", Value: fmt.Sprint(fs)},
+				lineprotocol.Field{Key: "func_end", Value: fmt.Sprint(fe)},
+			)
 		}
 	}
-	fmt.Fprintf(sb, "%s:%d:%d: %s%s\n", file, lineVal, colVal, textVal, funcInfo)
+	return lineprotocol.FieldsRecord("ROW", fields...)
 }
 
 // numericRowValue 兼容首次构建的 int 和 JSON 往返后的 float64。

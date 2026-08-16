@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -118,8 +119,8 @@ func TestSearchTextCaseSensitiveOverride(t *testing.T) {
 }
 
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
-	var results []SearchMatch
-	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher(t, "x"), 0, &results, "", nil, errors.New("walk boom"))
+	collector := newSearchMatchCollector(0, true, false)
+	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher(t, "x"), collector, "", nil, errors.New("walk boom"))
 	if err == nil || !strings.Contains(err.Error(), "walk boom") {
 		t.Fatalf("walkSearchEntry() error = %v, want walk boom", err)
 	}
@@ -485,13 +486,34 @@ func TestFilterAndCapSearchMatchesExcludesWorkspaceNoisePaths(t *testing.T) {
 }
 
 func TestDecodeSGRejectsInvalidJSON(t *testing.T) {
-	_, err := decodeSGMatchesReader(bytes.NewReader([]byte("{bad-json}\n")), "/repo", 0, func() {})
+	collector := newSearchMatchCollector(0, true, false)
+	err := decodeSGMatchesReader(bytes.NewReader([]byte("{bad-json}\n")), "/repo", collector, "", func() {})
 	if err == nil || !strings.Contains(err.Error(), "sg json") {
 		t.Fatalf("decodeSGMatches() error = %v, want json failure", err)
 	}
-	_, err = decodeSGScanMatchesReader(bytes.NewReader([]byte("{bad-json}")), "/repo", 0, func() {})
+	err = decodeSGScanMatchesReader(bytes.NewReader([]byte("{bad-json}")), "/repo", collector, "", func() {})
 	if err == nil || !strings.Contains(err.Error(), "sg scan json") {
 		t.Fatalf("decodeSGScanMatches() error = %v, want scan json failure", err)
+	}
+}
+
+func TestSearchASTCountedRetainsLimitAndCountsAll(t *testing.T) {
+	root := t.TempDir()
+	var stdout strings.Builder
+	for i := range 8 {
+		fmt.Fprintf(&stdout, `{"file":"main.go","text":"call_%d","range":{"start":{"line":%d,"column":0}}}`+"\n", i, i)
+	}
+	setFakeSGPath(t, writeFakeSG(t, 0, stdout.String(), ""))
+
+	result, err := SearchASTCounted(context.Background(), ASTSearchOptions{
+		Root: root, Query: "call($A)", Language: "go", MaxResults: 3,
+	})
+	if err != nil {
+		t.Fatalf("SearchASTCounted() error = %v", err)
+	}
+	if result.Total != 8 || len(result.Matches) != 3 || !result.Truncated {
+		t.Fatalf("SearchASTCounted() = total=%d matches=%d truncated=%v, want 8/3/true",
+			result.Total, len(result.Matches), result.Truncated)
 	}
 }
 
