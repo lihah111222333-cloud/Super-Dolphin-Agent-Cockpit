@@ -70,7 +70,11 @@ func gateIDsForPlan(plan GatePlan) []GateID {
 
 // Validate 拒绝伪造身份、重复 gate 覆盖、worker 越权 release 和来源或镜像漂移。
 func (set ContainerShardSet) Validate() error {
-	if err := validateContainerShardSetHeader(set); err != nil {
+	return set.validate(true)
+}
+
+func (set ContainerShardSet) validate(replayEvidence bool) error {
+	if err := validateContainerShardSetHeader(set, replayEvidence); err != nil {
 		return err
 	}
 	if err := validateCanonicalContainerShardGroups(set); err != nil {
@@ -103,7 +107,7 @@ func validateCanonicalContainerShardGroups(set ContainerShardSet) error {
 }
 
 // validateContainerShardSetHeader 验证所有 shard 共用的 profile、来源和镜像绑定。
-func validateContainerShardSetHeader(set ContainerShardSet) error {
+func validateContainerShardSetHeader(set ContainerShardSet, replayEvidence bool) error {
 	if err := set.Profile.Validate(); err != nil {
 		return err
 	}
@@ -121,7 +125,7 @@ func validateContainerShardSetHeader(set ContainerShardSet) error {
 	if len(set.Shards) != set.ShardsPerJob {
 		return errors.New("container shard count does not match shards_per_job")
 	}
-	return validateWorkloadContainerShardSetHeader(set)
+	return validateWorkloadContainerShardSetHeader(set, replayEvidence)
 }
 
 // validateContainerShard 验证单 shard 不能改变 group 绑定或把 release gate 交给 worker。

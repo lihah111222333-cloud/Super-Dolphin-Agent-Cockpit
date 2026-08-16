@@ -38,7 +38,7 @@ func BuildContainerShardSetFromWorkloadPlan(
 	if err := appendWorkloadContainerShards(&set); err != nil {
 		return ContainerShardSet{}, err
 	}
-	if err := set.Validate(); err != nil {
+	if err := set.validate(false); err != nil {
 		return ContainerShardSet{}, err
 	}
 	return set, nil
@@ -96,8 +96,8 @@ func workloadContainerShardGroups(plan WorkloadExecutionPlan) [][]GateID {
 }
 
 // validateWorkloadContainerShardSetHeader 校验 v3 set 与完整冻结计划的身份绑定。
-func validateWorkloadContainerShardSetHeader(set ContainerShardSet) error {
-	if err := set.WorkloadPlan.validateStoredPayload(true); err != nil {
+func validateWorkloadContainerShardSetHeader(set ContainerShardSet, replayEvidence bool) error {
+	if err := set.WorkloadPlan.validateStoredPayload(replayEvidence); err != nil {
 		return err
 	}
 	if set.WorkloadPlanDigest != set.WorkloadPlan.PlanDigest ||
