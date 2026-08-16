@@ -263,7 +263,7 @@ func runFrontendChangedTests(plan gatePlan) error {
 	return runCommand(gateExecutionDir(plan, "frontend-app"), "npx", args...)
 }
 
-// frontendChangedTestFilesInRoot 仅从指定 candidate root 解析直接或同名配对测试。
+// frontendChangedTestFilesInRoot 仅从指定 candidate root 解析直接测试或同 stem 的受控跨扩展配对测试。
 func frontendChangedTestFilesInRoot(repoRoot string, files []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, file := range files {
@@ -271,24 +271,46 @@ func frontendChangedTestFilesInRoot(repoRoot string, files []string) ([]string, 
 			continue
 		}
 		rel := strings.TrimPrefix(file, "frontend-app/")
-		candidates := []string{}
-		if isFrontendTestFile(rel) {
+		directTest := isFrontendTestFile(rel)
+		var candidates []string
+		if directTest {
 			candidates = append(candidates, rel)
-		} else if candidate := pairedFrontendTestFile(rel); candidate != "" {
-			candidates = append(candidates, candidate)
+		} else {
+			candidates = pairedFrontendTestFiles(rel)
 		}
+		matched := false
 		for _, candidate := range candidates {
 			if frontendVitestDefaultExcludedTestFile(candidate) {
 				continue
 			}
-			if _, err := os.Stat(filepath.Join(repoRoot, "frontend-app", candidate)); err == nil {
-				seen[candidate] = true
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("stat frontend test target %q: %w", candidate, err)
+			exists, err := exactRegularFrontendTestExists(repoRoot, candidate)
+			if err != nil {
+				return nil, err
 			}
+			if exists {
+				seen[candidate] = true
+				matched = true
+			}
+		}
+		if !directTest && !matched {
+			return nil, fmt.Errorf("frontend changed source %q has no matching test files", file)
 		}
 	}
 	return sortedKeys(seen), nil
+}
+
+func exactRegularFrontendTestExists(repoRoot, candidate string) (bool, error) {
+	info, err := os.Lstat(filepath.Join(repoRoot, "frontend-app", candidate))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("stat frontend test target %q: %w", candidate, err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("frontend test target %q is not a regular file", candidate)
+	}
+	return true, nil
 }
 
 func isFrontendTestFile(file string) bool {
@@ -301,12 +323,23 @@ func frontendVitestDefaultExcludedTestFile(file string) bool {
 	return strings.Contains(base, "benchmark.test.")
 }
 
-func pairedFrontendTestFile(file string) string {
+func pairedFrontendTestFiles(file string) []string {
 	ext := filepath.Ext(file)
 	if ext == "" {
-		return ""
+		return nil
 	}
-	return strings.TrimSuffix(file, ext) + ".test" + ext
+	stem := strings.TrimSuffix(file, ext) + ".test"
+	switch ext {
+	case ".js", ".jsx", ".ts", ".tsx":
+		return []string{
+			stem + ".js",
+			stem + ".jsx",
+			stem + ".ts",
+			stem + ".tsx",
+		}
+	default:
+		return []string{stem + ext}
+	}
 }
 
 // existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while

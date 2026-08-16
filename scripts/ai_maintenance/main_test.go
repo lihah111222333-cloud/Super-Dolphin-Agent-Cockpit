@@ -170,6 +170,108 @@ func TestExistingDiagnosticFilesRejectsNonRegularTarget(t *testing.T) {
 	}
 }
 
+func TestFrontendChangedTestFilesResolveControlledCrossExtensions(t *testing.T) {
+	repoRoot := t.TempDir()
+	for _, file := range []string{
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.test.jsx",
+		"frontend-app/src/shared/model/same.ts",
+		"frontend-app/src/shared/model/same.test.ts",
+		"frontend-app/src/shared/ui/FromTSX.tsx",
+		"frontend-app/src/shared/ui/FromTSX.test.js",
+		"frontend-app/src/shared/ui/Multi.jsx",
+		"frontend-app/src/shared/ui/Multi.test.js",
+		"frontend-app/src/shared/ui/Multi.test.jsx",
+		"frontend-app/src/shared/ui/Multi.test.ts",
+		"frontend-app/src/shared/ui/Multi.test.tsx",
+		"frontend-app/src/shared/ui/Unrelated.test.jsx",
+	} {
+		writeGateFixtureFile(t, repoRoot, file, "export {};\n")
+	}
+	got, err := frontendChangedTestFilesInRoot(repoRoot, []string{
+		"frontend-app/src/shared/ui/Multi.jsx",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
+		"frontend-app/src/shared/model/same.ts",
+		"frontend-app/src/shared/ui/FromTSX.tsx",
+		"frontend-app/src/shared/ui/Multi.jsx",
+	})
+	if err != nil {
+		t.Fatalf("frontendChangedTestFilesInRoot() error = %v", err)
+	}
+	want := []string{
+		"src/pages/chat/components/ChatActionFeedback.test.jsx",
+		"src/shared/model/same.test.ts",
+		"src/shared/ui/FromTSX.test.js",
+		"src/shared/ui/Multi.test.js",
+		"src/shared/ui/Multi.test.jsx",
+		"src/shared/ui/Multi.test.ts",
+		"src/shared/ui/Multi.test.tsx",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("frontendChangedTestFilesInRoot() = %v, want %v", got, want)
+	}
+}
+
+func TestFrontendChangedTestFilesFailClosedWhenAnySourceHasNoTest(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeGateFixtureFile(t, repoRoot, "frontend-app/src/covered.js", "export {};\n")
+	writeGateFixtureFile(t, repoRoot, "frontend-app/src/covered.test.js", "export {};\n")
+	writeGateFixtureFile(t, repoRoot, "frontend-app/src/missing.js", "export {};\n")
+
+	_, err := frontendChangedTestFilesInRoot(repoRoot, []string{
+		"frontend-app/src/covered.js",
+		"frontend-app/src/missing.js",
+	})
+	if err == nil || !strings.Contains(err.Error(), `frontend changed source "frontend-app/src/missing.js" has no matching test files`) {
+		t.Fatalf("missing frontend test error = %v", err)
+	}
+}
+
+func TestFrontendChangedTestFilesRejectsNonRegularCandidates(t *testing.T) {
+	tests := []struct {
+		name   string
+		create func(t *testing.T, repoRoot, candidate string)
+	}{
+		{
+			name: "directory",
+			create: func(t *testing.T, repoRoot, candidate string) {
+				t.Helper()
+				writeGateFixtureFile(t, repoRoot, candidate+"/Unrelated.test.jsx", "export {};\n")
+			},
+		},
+		{
+			name: "symlink",
+			create: func(t *testing.T, repoRoot, candidate string) {
+				t.Helper()
+				target := "frontend-app/src/Symlink.actual.jsx"
+				writeGateFixtureFile(t, repoRoot, target, "export {};\n")
+				if err := os.Symlink("Symlink.actual.jsx", filepath.Join(repoRoot, filepath.FromSlash(candidate))); err != nil {
+					t.Fatalf("symlink frontend test candidate: %v", err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot := t.TempDir()
+			stem := strings.ToUpper(test.name[:1]) + test.name[1:]
+			source := "frontend-app/src/" + stem + ".js"
+			candidate := "frontend-app/src/" + stem + ".test.jsx"
+			writeGateFixtureFile(t, repoRoot, source, "export {};\n")
+			test.create(t, repoRoot, candidate)
+
+			got, err := frontendChangedTestFilesInRoot(repoRoot, []string{source})
+			wantError := `frontend test target "src/` + stem + `.test.jsx" is not a regular file`
+			if err == nil || !strings.Contains(err.Error(), wantError) {
+				t.Fatalf("non-regular frontend test error = %v, want %q", err, wantError)
+			}
+			if len(got) != 0 {
+				t.Fatalf("non-regular frontend test targets = %v, want empty", got)
+			}
+		})
+	}
+}
+
 func captureStderr(t *testing.T, run func() error) string {
 	t.Helper()
 	reader, writer, err := os.Pipe()
