@@ -8,7 +8,7 @@ readonly crane_sha256='f76db5d7544a3c691a90fea7c87561342b2f03f1090f0299f029eafa1
 readonly accepted_base_digest='502e70fdbbae19d29722810179649e37b4bf38894a7e3d9bcdcd858372435aa7'
 readonly accepted_base_archive_sha256='0387001cad8918d779fb78c5d2e5234ba3725a677c3f5f6ebadb9744a40aeaa5'
 readonly receipt_schema='remote-ci-imagecache-refresh-receipt/v2'
-readonly image_cache_size_gib=40
+readonly image_cache_size_gib=100
 
 config='config/remote-ci/aliyun.json'
 source_ref='HEAD'
