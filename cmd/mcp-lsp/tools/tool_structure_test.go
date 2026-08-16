@@ -282,6 +282,16 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 	}
 }
 
+func TestStructureWorkspaceSymbolRejectsUnknownMatchMode(t *testing.T) {
+	_, err := runWorkspaceSymbols(context.Background(), &structureTestManager{}, "go", structureParams{
+		Query:     "Needle",
+		MatchMode: "broad",
+	})
+	if err == nil || !strings.Contains(err.Error(), "match_mode must be exact or fuzzy") {
+		t.Fatalf("unknown workspace symbol match_mode error = %v", err)
+	}
+}
+
 func TestStructureWorkspaceSymbolSQLLanguageRequiresFilePath(t *testing.T) {
 	root := t.TempDir()
 	writeStructureTestFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: postgresql\n    queries: queries\n")

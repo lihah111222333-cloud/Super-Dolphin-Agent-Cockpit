@@ -10,6 +10,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 // renameResult 描述一次 LSP rename 的落盘结果和受影响文件。
@@ -50,7 +51,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	}
 	edit, err := manager.Rename(ctx, filePath, position, req.NewName)
 	if err != nil {
-		return nil, fmt.Errorf("LSP rename: %w", err)
+		return nil, renameRequestError(err)
 	}
 	if edit == nil {
 		return renameResult{Success: true, Message: "rename returned no changes"}, nil
@@ -66,6 +67,53 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 		TotalEdits:    totalEdits,
 		Warning:       warning,
 	}, nil
+}
+
+// renameRequestError 把语言服务器确认的非法名称映射为稳定 invalid_params，其他失败保留原分类。
+func renameRequestError(err error) error {
+	wrapped := fmt.Errorf("LSP rename: %w", err)
+	if isRenameInvalidTarget(err) {
+		return common.NewCodedToolError(
+			"invalid_target",
+			wrapped,
+			false,
+			"next: move pos onto the definition or reference identifier to rename",
+		)
+	}
+	if !isRenameInvalidParams(err) {
+		return wrapped
+	}
+	hint := "next: verify pos identifies a renameable symbol and pass a language-valid identifier in new_name"
+	if isRenameInvalidName(err) {
+		hint = "next: pass a language-valid identifier in new_name and retry the same rename position"
+	}
+	return common.NewCodedToolError(
+		"invalid_params",
+		wrapped,
+		false,
+		hint,
+	)
+}
+
+func isRenameInvalidParams(err error) bool {
+	var rpcError interface{ JSONRPCErrorCode() int }
+	if errors.As(err, &rpcError) && rpcError.JSONRPCErrorCode() == -32602 {
+		return true
+	}
+	return isRenameInvalidName(err)
+}
+
+func isRenameInvalidName(err error) bool {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "invalid identifier to rename") ||
+		strings.Contains(message, "invalid new name") ||
+		strings.Contains(message, "new name is not valid")
+}
+
+func isRenameInvalidTarget(err error) bool {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "no references found at position") ||
+		strings.Contains(message, "no symbol found at position")
 }
 
 // applyWorkspaceEdit 逐文件应用 WorkspaceEdit；任一文件失败则回滚已写文件。

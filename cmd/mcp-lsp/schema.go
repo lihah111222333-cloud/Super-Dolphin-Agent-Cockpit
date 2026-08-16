@@ -134,6 +134,7 @@ func newLSPStructureSchema() schema {
 		"file_path":   stringProp("File path (absolute or relative, auto-resolved). Required for document_symbol, folding_range, and semantic_tokens. For workspace_symbol, pass exactly one of file_path or language. Path-only; no :line:column suffix."),
 		"query":       stringProp("Symbol query. Required for workspace_symbol; ignored by document_symbol, folding_range, and semantic_tokens."),
 		"language":    stringProp("Language selector for workspace_symbol when file_path is not provided. Pass exactly one of language or file_path."),
+		"match_mode":  enumProp("Workspace symbol match mode; exact is the default and fuzzy must be explicit", "exact", "fuzzy"),
 		"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
 		"max_results": integerProp("Max results (default 20, cap 50)"),
 		"work_dir":    lspWorkDirProp(),
@@ -142,14 +143,15 @@ func newLSPStructureSchema() schema {
 
 func newPatchEditSchema() schema {
 	return NewObjectSchema(map[string]schema{
-		"action":      enumProp("Action.", "replace_range", "rename", "code_action", "format"),
-		"file_path":   stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
-		"patch":       stringProp("Patch body for replace_range. Supports multi-section edits."),
-		"pos":         stringProp("Position as 'file_path:line:column' for rename/code_action (example internal/foo.go:42:9)."),
-		"new_name":    stringProp("New symbol name (rename only)."),
-		"only":        arrayOfStringsProp("Code action kinds filter (code_action only, e.g. [\"quickfix\", \"refactor\"])."),
-		"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
-		"work_dir":    lspWorkDirProp(),
+		"action":          enumProp("Action.", "replace_range", "rename", "code_action", "format"),
+		"file_path":       stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
+		"patch":           stringProp("Patch body for replace_range. Supports multi-section edits."),
+		"pos":             stringProp("Position as 'file_path:line:column' for rename/code_action (example internal/foo.go:42:9)."),
+		"new_name":        stringProp("New symbol name (rename only)."),
+		"only":            arrayOfStringsProp("Code action kinds filter (code_action only, e.g. [\"quickfix\", \"refactor\"])."),
+		"response_detail": enumProp("Response detail for replace_range. compact is the default; full adds edit and function context to structuredContent only.", "compact", "full"),
+		"language_id":     stringProp("Optional language server override for extensionless or ambiguous files."),
+		"work_dir":        lspWorkDirProp(),
 	}, "action")
 }
 

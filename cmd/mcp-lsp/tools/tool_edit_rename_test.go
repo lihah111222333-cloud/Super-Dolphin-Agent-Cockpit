@@ -12,6 +12,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type renameTestManager struct {
@@ -24,6 +25,22 @@ type renameTestManager struct {
 func (m *renameTestManager) Rename(_ context.Context, _ string, position protocol.Position, _ string) (*protocol.WorkspaceEdit, error) {
 	m.lastRenamePosition = position
 	return m.renameResult, m.renameErr
+}
+
+type renameInvalidParamsTestError struct{}
+
+func (renameInvalidParamsTestError) Error() string         { return "server rejected rename params" }
+func (renameInvalidParamsTestError) JSONRPCErrorCode() int { return -32602 }
+
+func TestRenameRequestErrorMapsJSONRPCInvalidParams(t *testing.T) {
+	err := renameRequestError(renameInvalidParamsTestError{})
+	var coded *common.CodedToolError
+	if !errors.As(err, &coded) || coded.Code != "invalid_params" {
+		t.Fatalf("renameRequestError() = %T %v, want invalid_params CodedToolError", err, err)
+	}
+	if coded.Retryable {
+		t.Fatal("invalid rename params must not be retryable without changing new_name")
+	}
 }
 
 func TestEditRenameHappyPath(t *testing.T) {

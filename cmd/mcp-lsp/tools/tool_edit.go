@@ -10,25 +10,29 @@ import (
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 const (
-	defaultEditVersion      = 2
-	replaceRangeFuncBodyMax = 8 * 1024
+	defaultEditVersion        = 2
+	defaultEditResponseDetail = "compact"
+	fullEditResponseDetail    = "full"
+	replaceRangeFuncBodyMax   = 8 * 1024
 )
 
 var errEditManagerNil = errors.New("patch_edit requires LSP manager; ensure language server is running for this file type")
 
 // EditRequest 是 patch_edit 工具的入参结构体，包含动作、路径、补丁和版本信息。
 type EditRequest struct {
-	Action     string   `json:"action"`
-	FilePath   string   `json:"file_path,omitempty"`
-	LanguageID string   `json:"language_id,omitempty"`
-	Patch      string   `json:"patch,omitempty"`
-	Version    int      `json:"version,omitempty"`
-	Pos        string   `json:"pos,omitempty"`
-	NewName    string   `json:"new_name,omitempty"`
-	Only       []string `json:"only,omitempty"`
+	Action         string   `json:"action"`
+	FilePath       string   `json:"file_path,omitempty"`
+	LanguageID     string   `json:"language_id,omitempty"`
+	Patch          string   `json:"patch,omitempty"`
+	Version        int      `json:"version,omitempty"`
+	Pos            string   `json:"pos,omitempty"`
+	NewName        string   `json:"new_name,omitempty"`
+	Only           []string `json:"only,omitempty"`
+	ResponseDetail string   `json:"response_detail,omitempty"`
 }
 
 // EditHandler 持有 LSP 管理器和工作区根目录，处理文件编辑请求。
@@ -83,9 +87,9 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	if h.registry == nil {
 		return nil, errEditManagerNil
 	}
-	req, err := decodeToolParams[EditRequest](params, decodeLenient)
+	req, err := decodeEditRequest(params)
 	if err != nil {
-		return nil, fmt.Errorf("decode patch_edit request: %w", err)
+		return nil, err
 	}
 	action := strings.TrimSpace(req.Action)
 	if action == "" {
@@ -111,12 +115,41 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	}
 }
 
+func decodeEditRequest(params json.RawMessage) (EditRequest, error) {
+	req, err := decodeToolParams[EditRequest](params, decodeLenient)
+	if err != nil {
+		return EditRequest{}, fmt.Errorf("decode patch_edit request: %w", err)
+	}
+	req.ResponseDetail, err = normalizeEditResponseDetail(req.ResponseDetail)
+	if err != nil {
+		return EditRequest{}, common.NewCodedToolError(
+			"invalid_params",
+			err,
+			false,
+			"next: pass response_detail=compact|full; omit it for the compact default",
+		)
+	}
+	return req, nil
+}
+
 // normalizeEditVersion 确保版本号有效，默认使用 defaultEditVersion。
 func normalizeEditVersion(version int) int {
 	if version <= 0 {
 		return defaultEditVersion
 	}
 	return version
+}
+
+// normalizeEditResponseDetail 默认返回紧凑回执，完整编辑上下文必须由调用方显式请求。
+func normalizeEditResponseDetail(detail string) (string, error) {
+	switch normalized := strings.ToLower(strings.TrimSpace(detail)); normalized {
+	case "", defaultEditResponseDetail:
+		return defaultEditResponseDetail, nil
+	case fullEditResponseDetail:
+		return fullEditResponseDetail, nil
+	default:
+		return "", fmt.Errorf("response_detail must be compact or full")
+	}
 }
 
 // ToPlainText 渲染为纯文本。
@@ -159,7 +192,7 @@ func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
 		sb.WriteString(")\n")
 		return
 	case "no_change":
-		sb.WriteString("Applied: false (patch matched but normalised away - current file already equals the requested NewText; verify your intended diff)\n")
+		sb.WriteString("Applied: false (no edits were necessary)\n")
 		return
 	case "failed":
 		sb.WriteString("Applied: false (patch_edit failed)\n")

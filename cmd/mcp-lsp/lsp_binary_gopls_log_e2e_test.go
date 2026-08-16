@@ -538,32 +538,11 @@ func fakeGoplsPublishTxtTemplateDiagnostics(writer *fakeLSPWriter, uri string) {
 func fakeGoplsResult(req fakeLSPRequest) any {
 	switch req.Method {
 	case "initialize":
-		capabilities := map[string]any{
-			"textDocumentSync":       1,
-			"hoverProvider":          true,
-			"documentSymbolProvider": true,
-			"callHierarchyProvider":  true,
-		}
-		if os.Getenv(fakeGoplsSuppressDiagnosticProviderEnv) != "1" {
-			capabilities["diagnosticProvider"] = map[string]any{
-				"interFileDependencies": true,
-				"workspaceDiagnostics":  false,
-			}
-		}
-		return map[string]any{"capabilities": capabilities}
+		return map[string]any{"capabilities": fakeGoplsCapabilities()}
 	case "textDocument/documentSymbol":
-		return []map[string]any{{
-			"name": "main",
-			"kind": 12,
-			"range": map[string]any{
-				"start": map[string]any{"line": 2, "character": 0},
-				"end":   map[string]any{"line": 2, "character": 14},
-			},
-			"selectionRange": map[string]any{
-				"start": map[string]any{"line": 2, "character": 5},
-				"end":   map[string]any{"line": 2, "character": 9},
-			},
-		}}
+		return fakeGoplsDocumentSymbols()
+	case "workspace/symbol":
+		return fakeGoplsWorkspaceSymbolResults()
 	case "textDocument/hover":
 		return map[string]any{
 			"contents": map[string]any{
@@ -574,7 +553,7 @@ func fakeGoplsResult(req fakeLSPRequest) any {
 	case "textDocument/prepareCallHierarchy":
 		return []map[string]any{fakeGoplsCallHierarchyItem(req)}
 	case "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls":
-		return []any{}
+		return fakeGoplsCallHierarchyCalls(req)
 	case "textDocument/diagnostic":
 		return map[string]any{
 			"kind":  "full",

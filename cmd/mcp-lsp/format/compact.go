@@ -13,6 +13,7 @@ const (
 	lspReferencesCompactLimit      = 30
 	lspCompletionCompactLimit      = 20
 	lspWorkspaceSymbolCompactLimit = 20
+	lspDocumentSymbolCompactLimit  = 20
 )
 
 // CompactList 是紧凑输出的通用 wire 结构。
@@ -81,6 +82,11 @@ func CompletionLimit(requested int, verbosity string) int {
 // WorkspaceSymbolLimit 返回 workspace_symbol 工具的结果上限。
 func WorkspaceSymbolLimit(requested int, verbosity string) int {
 	return ResolveResultLimit(requested, verbosity, lspWorkspaceSymbolCompactLimit)
+}
+
+// DocumentSymbolLimit 返回 document_symbol 工具的结果上限。
+func DocumentSymbolLimit(requested int) int {
+	return ResolveResultLimit(requested, VerbosityCompact, lspDocumentSymbolCompactLimit)
 }
 
 // NewCompactList 构造带截断提示的紧凑列表。

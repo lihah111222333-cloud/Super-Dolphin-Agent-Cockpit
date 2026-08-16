@@ -22,8 +22,14 @@ type structureParams struct {
 	LanguageID string `json:"language_id,omitempty"`
 	Query      string `json:"query"`
 	Language   string `json:"language"`
+	MatchMode  string `json:"match_mode,omitempty"`
 	MaxResults int    `json:"max_results"`
 }
+
+const (
+	workspaceSymbolMatchExact = "exact"
+	workspaceSymbolMatchFuzzy = "fuzzy"
+)
 
 // documentSymbolListResponse 是 document_symbol 的分页响应。
 type documentSymbolListResponse struct {
@@ -152,7 +158,7 @@ func runDocumentSymbols(
 		return nil, err
 	}
 	total := countDocumentSymbolNodes(results)
-	limit := shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit)
+	limit := format.DocumentSymbolLimit(req.MaxResults)
 	results = limitDocumentSymbols(results, limit)
 	showing := countDocumentSymbolNodes(results)
 	if showing == 0 {
@@ -185,6 +191,10 @@ func runWorkspaceSymbols(
 	if query == "" {
 		return nil, errors.New("query is required")
 	}
+	matchMode, err := normalizeWorkspaceSymbolMatchMode(req.MatchMode)
+	if err != nil {
+		return nil, err
+	}
 	if limitedDocumentFallbackLanguage(languageID) != "" {
 		return unsupportedCapabilityEmptyResult("workspace symbol", languageID), nil
 	}
@@ -199,20 +209,66 @@ func runWorkspaceSymbols(
 	if err != nil {
 		return nil, err
 	}
-	total := len(results)
-	results = limitSlice(results, limit)
-	if len(results) == 0 {
-		return emptyListEnvelope{
-			Success: true,
-			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Message: "no symbols found"},
-		}, nil
+	items := format.CompactWorkspaceSymbols(results)
+	if strings.TrimSpace(req.FilePath) != "" {
+		items, err = filterWorkspaceSymbolsForFile(ctx, items, req.FilePath)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return format.NewCompactList(
-		format.CompactWorkspaceSymbols(results),
-		total,
-		"next: increase max_results or narrow query/language",
-	), nil
+	items = selectWorkspaceSymbolMatches(items, query, matchMode)
+	total := len(items)
+	items = limitSlice(items, limit)
+	response := format.NewCompactList(items, total, "next: increase max_results or narrow query/language/file_path")
+	if matchMode == workspaceSymbolMatchExact {
+		response.Hint = "next: retry with match_mode=fuzzy to include non-exact symbol names"
+	}
+	return response, nil
+}
+
+// normalizeWorkspaceSymbolMatchMode 收敛 workspace_symbol 匹配模式，未知值立即失败。
+func normalizeWorkspaceSymbolMatchMode(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", workspaceSymbolMatchExact:
+		return workspaceSymbolMatchExact, nil
+	case workspaceSymbolMatchFuzzy:
+		return workspaceSymbolMatchFuzzy, nil
+	default:
+		return "", errors.New("match_mode must be exact or fuzzy")
+	}
+}
+
+// filterWorkspaceSymbolsForFile 把 file_path 语义落实为结果文件过滤，而不只是 manager 选择器。
+func filterWorkspaceSymbolsForFile(ctx context.Context, items []format.CompactWorkspaceSymbol, filePath string) ([]format.CompactWorkspaceSymbol, error) {
+	target, err := toolResolvePath(ctx, workspaceSymbolPathForValidation(filePath))
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]format.CompactWorkspaceSymbol, 0, len(items))
+	for _, item := range items {
+		candidate, err := toolResolvePath(ctx, item.File)
+		if err == nil && candidate.AbsPath == target.AbsPath {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}
+
+// selectWorkspaceSymbolMatches 默认只返回精确名称；fuzzy 模式把精确项稳定排在前面。
+func selectWorkspaceSymbolMatches(items []format.CompactWorkspaceSymbol, query, matchMode string) []format.CompactWorkspaceSymbol {
+	exact := make([]format.CompactWorkspaceSymbol, 0, len(items))
+	fuzzy := make([]format.CompactWorkspaceSymbol, 0, len(items))
+	for _, item := range items {
+		if item.Name == query {
+			exact = append(exact, item)
+			continue
+		}
+		fuzzy = append(fuzzy, item)
+	}
+	if matchMode == workspaceSymbolMatchExact {
+		return exact
+	}
+	return append(exact, fuzzy...)
 }
 
 // runFoldingRanges 返回文件折叠范围，供调用方理解大文件结构。

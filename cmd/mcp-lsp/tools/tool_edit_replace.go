@@ -102,8 +102,7 @@ type replaceUpdateDecision struct {
 	err     error
 }
 
-// ToPlainText 在基础编辑结果后补充命中位置和编辑上下文。
-// 原始替换前后正文只保留在 structuredContent 中，避免纯文本通道被大块 diff 挤占。
+// ToPlainText 只展示紧凑编辑回执；详细上下文仅在显式 full 模式下进入 structuredContent。
 func (r replaceRangeResult) ToPlainText() string {
 	base := r.editEnvelope.ToPlainText()
 	if !strings.EqualFold(strings.TrimSpace(r.Status), "applied") {
@@ -117,11 +116,7 @@ func (r replaceRangeResult) ToPlainText() string {
 		sb.WriteByte('\n')
 	}
 	appendMatchedByNotice(&sb, r.MatchedBy)
-	context := strings.TrimSpace(r.EditContext)
-	if context == "" {
-		return strings.TrimSpace(sb.String())
-	}
-	return strings.TrimSpace(sb.String()) + "\n\nEdit context:\n" + context
+	return strings.TrimSpace(sb.String())
 }
 
 // ToPlainText 将 replace_range 失败结果渲染成可继续操作的文本。
@@ -220,7 +215,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	plan, err := buildReplacePlan(content, req)
 	if err != nil {
 		log.Failed("build_plan", stage, err)
-		return h.replaceFailure(ctx, manager, path, content, 0, err, log), err
+		return h.replaceFailure(ctx, manager, path, content, 0, err, req.ResponseDetail, log), err
 	}
 	log.Completed("build_plan", stage,
 		"matched_by", plan.matchedBy,
@@ -241,15 +236,15 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	lspSync, syncWarning, err := h.applyReplaceRangeUpdate(ctx, manager, path, file, updatedContent, version, log)
 	if err != nil {
 		log.Failed("apply_update", stage, err)
-		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err, log), err
+		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err, req.ResponseDetail, log), err
 	}
 	log.Completed("apply_update", stage, "lsp_sync", lspSync, "sync_warning", syncWarning != "")
 	if syncWarning != "" {
 		warning = syncWarning
 	}
-	functionCtx := h.lookupFunctionContextWithLog(ctx, manager, path, plan.functionLookupLine, plan.updatedContent, log)
+	functionCtx := h.responseFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent, req.ResponseDetail, log)
 	log.Completed("replace_range", log.started, "result_status", "applied")
-	return h.buildAppliedResult(path, plan, lspSync, warning, functionCtx), nil
+	return h.buildAppliedResult(path, plan, lspSync, warning, functionCtx, req.ResponseDetail), nil
 }
 
 // buildNoChangeResult 返回语义化 no_change，保留 manager 诊断代际方便调用方判断新旧。
@@ -266,8 +261,8 @@ func (h EditHandler) buildNoChangeResult(manager lspmanager.Manager, path string
 	}
 }
 
-func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync bool, warning string, functionCtx functionContext) replaceRangeResult {
-	return replaceRangeResult{
+func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync bool, warning string, functionCtx functionContext, responseDetail string) replaceRangeResult {
+	result := replaceRangeResult{
 		editEnvelope: editEnvelope{
 			Status:               "applied",
 			Message:              "replacement applied",
@@ -284,15 +279,19 @@ func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync b
 		ResolvedLSPLine:   plan.resolvedLSPLine,
 		AffectedStartLine: plan.affectedStartLine,
 		AffectedEndLine:   plan.affectedEndLine,
-		EditContext:       plan.editContext,
-		Replaced:          plan.replaced,
-		Replacement:       plan.replacement,
 		ReplacedLen:       len(plan.replaced),
 		ReplacementLen:    len(plan.replacement),
-		FuncStart:         functionCtx.Start,
-		FuncEnd:           functionCtx.End,
-		FuncBody:          functionCtx.Body,
 	}
+	if responseDetail != fullEditResponseDetail {
+		return result
+	}
+	result.EditContext = plan.editContext
+	result.Replaced = plan.replaced
+	result.Replacement = plan.replacement
+	result.FuncStart = functionCtx.Start
+	result.FuncEnd = functionCtx.End
+	result.FuncBody = functionCtx.Body
+	return result
 }
 
 func (h EditHandler) replaceRangeManager(ctx context.Context, path string, languageID string) (lspmanager.Manager, string, error) {
@@ -306,8 +305,8 @@ func (h EditHandler) replaceRangeManager(ctx context.Context, path string, langu
 	return nil, "", err
 }
 
-func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error, log *editStageLogger) replaceRangeFailure {
-	functionCtx := h.lookupFunctionContextWithLog(ctx, manager, path, line, content, log)
+func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error, responseDetail string, log *editStageLogger) replaceRangeFailure {
+	functionCtx := h.responseFunctionContext(ctx, manager, path, line, content, responseDetail, log)
 	envelope := newToolErrorEnvelope("patch_edit", "", err)
 	meta := envelope.Meta
 	if meta == nil {
@@ -331,6 +330,14 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 		FuncBody:             functionCtx.Body,
 		DiagnosticGeneration: managerDiagnosticGeneration(manager),
 	}
+}
+
+func (h EditHandler) responseFunctionContext(ctx context.Context, manager lspmanager.Manager, path string, line int, content string, responseDetail string, log *editStageLogger) functionContext {
+	if responseDetail != fullEditResponseDetail {
+		log.Skipped("function_lookup", "compact_response")
+		return functionContext{}
+	}
+	return h.lookupFunctionContextWithLog(ctx, manager, path, line, content, log)
 }
 
 func asAmbiguousMatchError(err error) *editpkg.AmbiguousMatchError {

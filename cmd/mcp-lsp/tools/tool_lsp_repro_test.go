@@ -224,8 +224,10 @@ func TestEditCodeActionNoQuickFixesReturnsEmptyList(t *testing.T) {
 		t.Fatalf("code_action returned error = %v, want empty result when no quickfixes exist", err)
 	}
 	envelope := requireEmptyListEnvelope(t, got)
-	if envelope.Meta.Message != "no code actions found" {
-		t.Fatalf("empty result message = %q, want no code actions found", envelope.Meta.Message)
+	for _, required := range []string{"no code actions found", "retry patch_edit action=code_action", "without only"} {
+		if !strings.Contains(envelope.Meta.Message, required) {
+			t.Fatalf("empty result message = %q, want %q", envelope.Meta.Message, required)
+		}
 	}
 	if manager.gotCodeActionPath != canonicalReproPath(t, target) {
 		t.Fatalf("CodeAction path = %q, want %q", manager.gotCodeActionPath, canonicalReproPath(t, target))

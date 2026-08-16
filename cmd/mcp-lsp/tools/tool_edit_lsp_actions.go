@@ -44,15 +44,28 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	if err != nil {
 		return nil, fmt.Errorf("LSP code_action: %w", err)
 	}
+	if len(actions) == 0 {
+		return emptyCodeActionResult(req), nil
+	}
 	return h.applyCodeActions(ctx, roots, actions, normalizeEditVersion(req.Version), manager)
+}
+
+// emptyCodeActionResult 在过滤后无候选时给出可直接执行的无过滤重试参数。
+func emptyCodeActionResult(req EditRequest) emptyListEnvelope {
+	message := "no code actions found"
+	if len(req.Only) > 0 {
+		message += fmt.Sprintf(" for only=%q; retry patch_edit action=code_action pos=%s", req.Only, req.Pos)
+		if req.LanguageID != "" {
+			message += " language_id=" + req.LanguageID
+		}
+		message += " without only"
+	}
+	return emptyListEnvelope{Success: true, Data: []any{}, Meta: resultMeta{Count: 0, Message: message}}
 }
 
 // applyCodeActions 应用唯一可直接落盘的 WorkspaceEdit。
 // 多个 action 或无 edit 时返回 no_change，避免工具替模型做不透明选择。
 func (h EditHandler) applyCodeActions(ctx context.Context, roots []string, actions []protocol.CodeActionResult, version int, manager lspmanager.Manager) (any, error) {
-	if len(actions) == 0 {
-		return emptyListEnvelope{Success: true, Data: []any{}, Meta: resultMeta{Count: 0, Message: "no code actions found"}}, nil
-	}
 	editable := codeActionsWithWorkspaceEdit(actions)
 	if len(editable) == 0 {
 		return h.codeActionRequiresApply(actions, "code actions returned no directly applicable edits", manager), nil

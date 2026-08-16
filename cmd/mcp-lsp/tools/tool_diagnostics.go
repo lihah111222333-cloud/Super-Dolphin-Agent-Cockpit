@@ -271,10 +271,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	tables := buildDiagnosticsTables(items, displayPaths)
 	total := countDiagnosticRows(tables)
 	if len(tables) == 0 {
-		baseMessage := "no diagnostics"
-		if strings.TrimSpace(input.FilePath) == "" && len(input.FilePaths) == 0 {
-			baseMessage = "no diagnostics for currently open documents (pass file_path or file_paths to scope to specific files)"
-		}
+		baseMessage := diagnosticsCheckedScopeMessage(input, targets)
 		return diagnosticsResponse{
 			Success: true,
 			Data:    []diagnosticsTable{},
@@ -291,6 +288,32 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		Hint:    "next: patch_edit action=replace_range file_path=<file> patch=\"...\" or file action=read_file pos=<file>:<line>",
 		Meta:    diagnosticsMeta{Message: message},
 	}, nil
+}
+
+// diagnosticsCheckedScopeMessage 描述空诊断实际检查过的文件范围，避免被误解为全仓检查。
+func diagnosticsCheckedScopeMessage(input fileToolInput, targets []diagnosticTarget) string {
+	if strings.TrimSpace(input.FilePath) == "" && len(input.FilePaths) == 0 {
+		return "Checked currently open documents (pass file_path or file_paths to scope to specific files)"
+	}
+	paths := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if path := strings.TrimSpace(target.DisplayPath); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	if len(paths) == 1 {
+		return "Checked file: " + paths[0]
+	}
+	const previewLimit = 3
+	preview := paths
+	if len(preview) > previewLimit {
+		preview = preview[:previewLimit]
+	}
+	message := fmt.Sprintf("Checked %d files: %s", len(paths), strings.Join(preview, ", "))
+	if len(preview) < len(paths) {
+		message += fmt.Sprintf(" (+%d more)", len(paths)-len(preview))
+	}
+	return message
 }
 
 // fetchDiagnosticsBySQLDialect 在批量请求含 SQLite 查询时逐文件路由，避免不同 SQL 后端共享一次诊断生命周期。
@@ -674,7 +697,11 @@ func (r diagnosticsResponse) ToPlainText() string {
 		return "Diagnostics retrieval failed."
 	}
 	if len(r.Data) == 0 {
-		return "No diagnostics found."
+		text := "No diagnostics found."
+		if message := strings.TrimSpace(r.Meta.Message); message != "" {
+			text += "\n" + message
+		}
+		return text
 	}
 
 	var sb strings.Builder

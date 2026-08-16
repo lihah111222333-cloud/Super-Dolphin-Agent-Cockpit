@@ -132,10 +132,14 @@ func formatXrefAndOutline(result any) (string, bool) {
 		return formatLocations(val), true
 	case []protocol.CallHierarchyResult:
 		return formatCallHierarchy(val), true
+	case format.CompactList[compactHierarchyResult]:
+		return formatCompactCallHierarchy(val), true
 	case []protocol.TypeHierarchyResult:
 		return formatTypeHierarchy(val), true
 	case []protocol.DocumentSymbol:
 		return formatDocumentOutline(val), true
+	case documentSymbolListResponse:
+		return formatDocumentOutlinePreview(val), true
 	}
 	return "", false
 }
@@ -163,7 +167,7 @@ func formatLocations(val []protocol.LocationResult) string {
 		return "No locations found."
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Locations Found: %d total\n", len(val)))
+	fmt.Fprintf(&sb, "Locations Found: %d total\n", len(val))
 	for i, item := range val {
 		loc := item.PrimaryLocation()
 		if loc == nil {
@@ -195,6 +199,49 @@ func formatCallHierarchy(val []protocol.CallHierarchyResult) string {
 		formatOutgoingCalls(&sb, item.Outgoing)
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// formatCompactCallHierarchy 将 compact hierarchy envelope 渲染为包含真实入边和出边的文本。
+func formatCompactCallHierarchy(val format.CompactList[compactHierarchyResult]) string {
+	if len(val.Data) == 0 {
+		return "No call hierarchy items found."
+	}
+	var sb strings.Builder
+	sb.WriteString("Call Hierarchy:\n")
+	for _, row := range val.Data {
+		formatCompactHierarchyItem(&sb, "-", row.Item)
+		if len(row.Incoming) > 0 {
+			sb.WriteString("  Incoming Calls:\n")
+			for i, call := range row.Incoming {
+				formatCompactHierarchyItem(&sb, fmt.Sprintf("    [%d]", i+1), call.From)
+				formatCompactHierarchyRanges(&sb, call.FromRanges)
+			}
+		}
+		if len(row.Outgoing) > 0 {
+			sb.WriteString("  Outgoing Calls:\n")
+			for i, call := range row.Outgoing {
+				formatCompactHierarchyItem(&sb, fmt.Sprintf("    [%d]", i+1), call.To)
+				formatCompactHierarchyRanges(&sb, call.FromRanges)
+			}
+		}
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+func formatCompactHierarchyItem(sb *strings.Builder, prefix string, item compactHierarchyItem) {
+	fmt.Fprintf(sb, "%s %s `%s` at %s:%d:%d\n",
+		prefix, symbolKindName(protocol.SymbolKind(item.Kind)), item.Name, item.File, item.Line, item.Col)
+}
+
+func formatCompactHierarchyRanges(sb *strings.Builder, ranges []compactHierarchyLocation) {
+	if len(ranges) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(ranges))
+	for _, location := range ranges {
+		parts = append(parts, fmt.Sprintf("%s:%d:%d", location.File, location.Line, location.Col))
+	}
+	fmt.Fprintf(sb, "      call sites: %s\n", strings.Join(parts, ", "))
 }
 
 // formatIncomingCalls 把入向调用列表渲染为带缩进的纯文本。
@@ -309,6 +356,21 @@ func formatDocumentOutline(val []protocol.DocumentSymbol) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatDocumentOutlinePreview 只在文本通道展示前三个符号节点，完整树保留在 structuredContent。
+func formatDocumentOutlinePreview(response documentSymbolListResponse) string {
+	const previewLimit = 3
+	preview := limitDocumentSymbols(response.Data, previewLimit)
+	text := formatDocumentOutline(preview)
+	previewCount := countDocumentSymbolNodes(preview)
+	if previewCount < response.Showing {
+		text += fmt.Sprintf("\n\nText preview: %d of %d returned symbols; full symbols are in structuredContent.", previewCount, response.Showing)
+	}
+	if hint := strings.TrimSpace(response.Hint); hint != "" {
+		text += "\nHint: " + hint
+	}
+	return text
+}
+
 // formatWorkspaceSymbols 格式化工作区符号。
 func formatWorkspaceSymbols(val []protocol.WorkspaceSymbolResult) string {
 	if len(val) == 0 {
@@ -350,7 +412,7 @@ func formatFoldingRanges(val []protocol.FoldingRange) string {
 		if fr.Kind != "" {
 			kindStr = fmt.Sprintf(" [Kind: %s]", fr.Kind)
 		}
-		sb.WriteString(fmt.Sprintf("  [%d] Lines L%d - L%d%s\n", i+1, fr.StartLine, fr.EndLine, kindStr))
+		fmt.Fprintf(&sb, "  [%d] Lines L%d - L%d%s\n", i+1, fr.StartLine, fr.EndLine, kindStr)
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -361,13 +423,13 @@ func formatSemanticTokens(val *protocol.SemanticTokensResult) string {
 		return "No semantic tokens decoded."
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Semantic Tokens: %d decoded\n", len(val.Decoded)))
+	fmt.Fprintf(&sb, "Semantic Tokens: %d decoded\n", len(val.Decoded))
 	for i, tok := range val.Decoded {
 		if i >= 100 {
 			sb.WriteString("  ...[truncated]\n")
 			break
 		}
-		sb.WriteString(fmt.Sprintf("  L%d:C%d len=%d type=%s mod=%v\n", tok.Line, tok.StartCharacter, tok.Length, tok.TokenType, tok.TokenModifiers))
+		fmt.Fprintf(&sb, "  L%d:C%d len=%d type=%s mod=%v\n", tok.Line, tok.StartCharacter, tok.Length, tok.TokenType, tok.TokenModifiers)
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -384,9 +446,9 @@ func formatSignatureHelp(val *protocol.SignatureHelpResult) string {
 		if val.ActiveSignature != nil && i == *val.ActiveSignature {
 			active = " (active)"
 		}
-		sb.WriteString(fmt.Sprintf("- Signature%s: `%s`\n", active, sig.Label))
+		fmt.Fprintf(&sb, "- Signature%s: `%s`\n", active, sig.Label)
 		if docStr, ok := sig.Documentation.(string); ok && docStr != "" {
-			sb.WriteString(fmt.Sprintf("  Docs: %s\n", docStr))
+			fmt.Fprintf(&sb, "  Docs: %s\n", docStr)
 		}
 		formatParams(&sb, sig.Parameters, val.ActiveSignature != nil && i == *val.ActiveSignature, val.ActiveParameter)
 	}
@@ -404,7 +466,7 @@ func formatParams(sb *strings.Builder, params []protocol.ParameterInformationRes
 		if isActiveSig && activeParam != nil && j == *activeParam {
 			paramActive = " (active)"
 		}
-		sb.WriteString(fmt.Sprintf("    [%d] `%s`%s\n", j+1, param.Label, paramActive))
+		fmt.Fprintf(sb, "    [%d] `%s`%s\n", j+1, param.Label, paramActive)
 	}
 }
 
@@ -416,7 +478,7 @@ func formatCompletionItems(val []protocol.CompletionItem) string {
 	var sb strings.Builder
 	sb.WriteString("Code Completions:\n")
 	for _, item := range val {
-		sb.WriteString(fmt.Sprintf("- `%s` [Kind %d]: %s\n", item.Label, item.Kind, item.Detail))
+		fmt.Fprintf(&sb, "- `%s` [Kind %d]: %s\n", item.Label, item.Kind, item.Detail)
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -434,6 +496,7 @@ func formatCompactList(result any) (string, bool) {
 	dataField := rv.FieldByName("Data")
 	totalField := rv.FieldByName("Total")
 	showingField := rv.FieldByName("Showing")
+	hintField := rv.FieldByName("Hint")
 	if !dataField.IsValid() || dataField.Kind() != reflect.Slice {
 		return "", false
 	}
@@ -445,24 +508,42 @@ func formatCompactList(result any) (string, bool) {
 	if showingField.IsValid() {
 		showing = int(showingField.Int())
 	}
-	return formatCompactListSlice(dataField, total, showing), true
+	hint := ""
+	if hintField.IsValid() && hintField.Kind() == reflect.String {
+		hint = hintField.String()
+	}
+	return formatCompactListSlice(dataField, total, showing, hint), true
 }
 
 // formatCompactListSlice 把反射切片渲染为带序号和总量的纯文本列表。
-func formatCompactListSlice(dataField reflect.Value, total, showing int) string {
+func formatCompactListSlice(dataField reflect.Value, total, showing int, hint string) string {
 	var sb strings.Builder
 	length := dataField.Len()
 	if length == 0 {
-		return "No matches found."
+		sb.WriteString("No matches found.")
+		appendCompactListHint(&sb, hint)
+		return sb.String()
 	}
-	sb.WriteString(fmt.Sprintf("%s: showing %d of %d total\n\n", compactListTitle(dataField), showing, total))
-	for i := 0; i < length; i++ {
+	fmt.Fprintf(&sb, "%s: showing %d of %d total\n\n", compactListTitle(dataField), showing, total)
+	preview := min(length, 3)
+	for i := range preview {
 		elem := dataField.Index(i).Interface()
-		sb.WriteString(fmt.Sprintf("  [%d] ", i+1))
+		fmt.Fprintf(&sb, "  [%d] ", i+1)
 		formatCompactListElem(&sb, elem)
 		sb.WriteString("\n")
 	}
+	if preview < length {
+		fmt.Fprintf(&sb, "\nText preview: %d of %d rows; full rows are in structuredContent.", preview, length)
+	}
+	appendCompactListHint(&sb, hint)
 	return strings.TrimSpace(sb.String())
+}
+
+// appendCompactListHint 把可执行后续动作追加到紧凑文本通道。
+func appendCompactListHint(sb *strings.Builder, hint string) {
+	if hint = strings.TrimSpace(hint); hint != "" {
+		fmt.Fprintf(sb, "\n\nHint: %s", hint)
+	}
 }
 
 // compactListTitle 根据元素类型名返回紧凑列表的标题。
@@ -485,7 +566,7 @@ func compactListTitle(dataField reflect.Value) string {
 func formatCompactListElem(sb *strings.Builder, elem any) {
 	elemVal := reflect.ValueOf(elem)
 	if elemVal.Kind() != reflect.Struct {
-		sb.WriteString(fmt.Sprintf("%+v", elem))
+		fmt.Fprintf(sb, "%+v", elem)
 		return
 	}
 	elemType := elemVal.Type()
