@@ -29,10 +29,10 @@ func toolOverflowHints() map[string]toolOverflowHint {
 			Hint: "next: inspect pos=<file>:<line>:<col>",
 		},
 		"xref": {
-			Hint: "next: xref verbosity=compact max_results=10",
+			Hint: "next: xref max_results=10 and narrow pos/scope",
 			NextAction: map[string]any{
 				"tool":         "xref",
-				"suggest_args": map[string]any{"verbosity": "compact", "max_results": 10},
+				"suggest_args": map[string]any{"max_results": 10},
 			},
 		},
 		"structure": {

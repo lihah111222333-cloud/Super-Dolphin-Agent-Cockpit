@@ -47,7 +47,7 @@ func completionResultForFile(filePath string, result completionTextProvider) any
 }
 
 // NewCompletionHandler 注册 completion 工具处理器。
-// 输入使用 pos 统一定位文件和光标，返回结果按 max_results 裁剪为紧凑列表。
+// 输入使用 pos 统一定位文件和光标，返回结果按 max_results 裁剪为受限列表。
 func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("completion", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
@@ -61,7 +61,7 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		limit := format.CompletionLimit(req.MaxResults, format.VerbosityCompact)
+		limit := format.CompletionLimit(req.MaxResults)
 		result, err := completionWithIdentifierEndRetry(ctx, manager, filePath, position)
 		if err != nil {
 			return nil, err

@@ -7,13 +7,10 @@ import (
 )
 
 const (
-	VerbosityCompact = "compact"
-	VerbosityFull    = "full"
-
-	lspReferencesCompactLimit      = 30
-	lspCompletionCompactLimit      = 20
-	lspWorkspaceSymbolCompactLimit = 20
-	lspDocumentSymbolCompactLimit  = 20
+	lspReferencesDefaultLimit      = 30
+	lspCompletionDefaultLimit      = 20
+	lspWorkspaceSymbolDefaultLimit = 20
+	lspDocumentSymbolDefaultLimit  = 20
 )
 
 // CompactList 是紧凑输出的通用 wire 结构。
@@ -43,50 +40,36 @@ type CompactWorkspaceSymbol struct {
 	Container string `json:"container,omitempty"`
 }
 
-// NormalizeVerbosity 把调用方传入的 verbosity 收敛到支持值。
-// 未识别或空值默认 compact，避免超预算输出。
-func NormalizeVerbosity(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case VerbosityFull:
-		return VerbosityFull
-	default:
-		return VerbosityCompact
-	}
-}
-
 // ResolveResultLimit 计算工具结果上限。
-// full 模式最多放大到协议硬上限，compact 模式使用各工具默认值。
-func ResolveResultLimit(requested int, verbosity string, compactDefault int) int {
+// 显式请求受协议硬上限约束，未请求时使用对应工具的默认值。
+func ResolveResultLimit(requested int, defaultLimit int) int {
 	if requested > protocol.XRefResultLimit {
 		requested = protocol.XRefResultLimit
 	}
 	if requested > 0 {
 		return requested
 	}
-	if NormalizeVerbosity(verbosity) == VerbosityFull {
-		return protocol.XRefResultLimit
-	}
-	return compactDefault
+	return defaultLimit
 }
 
 // ReferencesLimit 返回 references 工具的结果上限。
-func ReferencesLimit(requested int, verbosity string) int {
-	return ResolveResultLimit(requested, verbosity, lspReferencesCompactLimit)
+func ReferencesLimit(requested int) int {
+	return ResolveResultLimit(requested, lspReferencesDefaultLimit)
 }
 
 // CompletionLimit 返回 completion 工具的结果上限。
-func CompletionLimit(requested int, verbosity string) int {
-	return ResolveResultLimit(requested, verbosity, lspCompletionCompactLimit)
+func CompletionLimit(requested int) int {
+	return ResolveResultLimit(requested, lspCompletionDefaultLimit)
 }
 
 // WorkspaceSymbolLimit 返回 workspace_symbol 工具的结果上限。
-func WorkspaceSymbolLimit(requested int, verbosity string) int {
-	return ResolveResultLimit(requested, verbosity, lspWorkspaceSymbolCompactLimit)
+func WorkspaceSymbolLimit(requested int) int {
+	return ResolveResultLimit(requested, lspWorkspaceSymbolDefaultLimit)
 }
 
 // DocumentSymbolLimit 返回 document_symbol 工具的结果上限。
 func DocumentSymbolLimit(requested int) int {
-	return ResolveResultLimit(requested, VerbosityCompact, lspDocumentSymbolCompactLimit)
+	return ResolveResultLimit(requested, lspDocumentSymbolDefaultLimit)
 }
 
 // NewCompactList 构造带截断提示的紧凑列表。

@@ -315,7 +315,7 @@ func runWorkspaceSymbols(
 	if manager == nil {
 		return nil, errManagerUnavailable
 	}
-	limit := format.WorkspaceSymbolLimit(req.MaxResults, format.VerbosityCompact)
+	limit := format.WorkspaceSymbolLimit(req.MaxResults)
 	results, err := manager.WorkspaceSymbol(ctx, query, languageID)
 	if isUnsupportedCapability(err) {
 		return unsupportedCapabilityEmptyResult("workspace symbol", languageID), nil

@@ -51,7 +51,7 @@ func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
 	})
 }
 
-// runReferences 查询符号引用，并按 compact 上限裁剪。
+// runReferences 查询符号引用，并按结果上限裁剪。
 func runReferences(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -64,7 +64,7 @@ func runReferences(
 	if req.IncludeDeclaration != nil {
 		includeDeclaration = *req.IncludeDeclaration
 	}
-	limit := format.ReferencesLimit(req.MaxResults, format.VerbosityCompact)
+	limit := format.ReferencesLimit(req.MaxResults)
 	results, err := manager.References(ctx, filePath, position, includeDeclaration)
 	if err != nil {
 		return nil, enrichIdentifierNotFoundError(filePath, position, err)
