@@ -43,12 +43,21 @@ chmod 500 "$candidate_source"
 digest=$(sha256_file "$candidate_source")
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 original_materializer=$(declare -f materialize_trusted_gate_launcher_for_tree)
+for shell_name in bash zsh; do
+  command -v "$shell_name" >/dev/null 2>&1 || fail "$shell_name is required for missing-launcher discovery"
+  shell_command=("$shell_name")
+  [[ "$shell_name" == zsh ]] && shell_command+=(-f)
+  "${shell_command[@]}" -c "
+set -euo pipefail
+source \"\$1\"
 materialize_trusted_gate_launcher_for_tree() {
-  printf '/fixture/auto/%s/super-dolphin-gate\n' "$2"
+  printf \"/fixture/auto/%s/super-dolphin-gate\\n\" \"\$2\"
 }
-auto_launcher=$(trusted_gate_launcher "$git_repo")
-[[ "$auto_launcher" == "/fixture/auto/$tree/super-dolphin-gate" ]] \
-  || fail 'missing exact-tree launcher did not trigger automatic materialization'
+actual=\$(trusted_gate_launcher \"\$2\")
+[[ \"\$actual\" == \"/fixture/auto/\$3/super-dolphin-gate\" ]]
+" -- "$repo_root/.githooks/trusted-gate-launcher.sh" "$git_repo" "$tree" \
+    || fail "$shell_name missing exact-tree launcher did not trigger automatic materialization"
+done
 eval "$original_materializer"
 real_os_home=$(trusted_launcher_os_home) || fail 'operating-system home directory could not be resolved'
 test_home=$(mktemp -d "$real_os_home/.trusted-launcher-contract-home.XXXXXX")

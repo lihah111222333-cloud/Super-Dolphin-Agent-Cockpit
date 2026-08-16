@@ -1,7 +1,7 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 .githooks/pre-commit	.githooks	remote-ci	file	10074	精确 staged tree 的本地代码守卫入口	精确,staged,tree,的本地代码守卫入口
 .githooks/pre-push	.githooks	remote-ci	file	7651	精确 ref update 的远程 CI pre-push 门禁入口	精确,ref,update,的远程,CI,pre-push,门禁入口
-.githooks/trusted-gate-launcher.sh	.githooks	remote-ci	script	9054	远程 CI trusted gate launcher 验证入口	githooks,trusted,gate,launcher,远程,CI,验证入口
+.githooks/trusted-gate-launcher.sh	.githooks	remote-ci	script	9755	远程 CI trusted gate launcher 验证入口	githooks,trusted,gate,launcher,远程,CI,验证入口
 cmd/super-dolphin-gate/capcontract_cli.go	cmd	remote-ci	go-source	1815	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,capcontract,cli,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker,入口
 cmd/super-dolphin-gate/capcontract_cli_test.go	cmd	remote-ci	go-test	9192	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,capcontract,cli,test,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker
 cmd/super-dolphin-gate/cli_common.go	cmd	remote-ci	go-source	669	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,cli,common,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker,入口

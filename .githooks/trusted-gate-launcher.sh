@@ -185,6 +185,29 @@ trusted_gate_launcher() {
   trusted_gate_launcher_for_tree "$repo_root" "$tree"
 }
 
+trusted_launcher_candidates_for_tree() {
+  local install_root=${1:?launcher install root is required}
+  local tree=${2:?tree is required}
+  local restore_nullglob=0
+  local -a candidates=()
+
+  if [[ -n "${ZSH_VERSION:-}" ]]; then
+    setopt local_options null_glob
+    candidates=("$install_root/v2/$tree"/*/super-dolphin-gate)
+  else
+    if ! shopt -q nullglob; then
+      shopt -s nullglob
+      restore_nullglob=1
+    fi
+    candidates=("$install_root/v2/$tree"/*/super-dolphin-gate)
+    if [[ $restore_nullglob -eq 1 ]]; then
+      shopt -u nullglob
+    fi
+  fi
+  [[ ${#candidates[@]} -gt 0 ]] || return 0
+  printf '%s\n' "${candidates[@]}"
+}
+
 trusted_gate_launcher_for_tree() {
   local repo_root=${1:?repository root is required}
   local tree=${2:?tree is required}
@@ -196,14 +219,14 @@ trusted_gate_launcher_for_tree() {
   fi
   install_root="$(trusted_launcher_os_home)/.super-dolphin-gate-launchers" || return 1
   if [[ -d "$install_root" ]] && validate_trusted_launcher_root_path "$install_root"; then
-    for candidate in "$install_root/v2/$tree"/*/super-dolphin-gate; do
-      [[ -e "$candidate" ]] || continue
+    while IFS= read -r candidate; do
+      [[ -n "$candidate" && -e "$candidate" ]] || continue
       if validate_trusted_gate_launcher "$repo_root" "$candidate" \
         && verify_trusted_gate_launcher_tree "$repo_root" "$candidate" "$tree"; then
         printf '%s\n' "$candidate"
         return 0
       fi
-    done
+    done < <(trusted_launcher_candidates_for_tree "$install_root" "$tree")
   fi
   materialize_trusted_gate_launcher_for_tree "$repo_root" "$tree"
 }
@@ -214,7 +237,7 @@ materialize_trusted_gate_launcher_for_tree() {
   local builder launcher
 
   builder=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-launcher-builder.XXXXXX") || return 1
-  if ! git -C "$repo_root" cat-file blob "$tree:scripts/build-trusted-gate-launcher.sh" >"$builder"; then
+  if ! git -C "$repo_root" cat-file blob "${tree}:scripts/build-trusted-gate-launcher.sh" >"$builder"; then
     rm -f -- "$builder"
     printf 'super-dolphin gate blocked: launcher builder is missing from exact tree %s.\n' "$tree" >&2
     return 1

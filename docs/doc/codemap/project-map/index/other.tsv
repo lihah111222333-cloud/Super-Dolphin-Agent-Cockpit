@@ -1072,7 +1072,7 @@ scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	29755
 scripts/guard_fix_commits_have_tests_recovery_test.go	scripts	other	go-test	2652	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,recovery,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/hook_node_runtime_guard_test.go	scripts	other	go-test	3988	工程自动化、测试守卫、代码地图与开发脚本	scripts,hook,node,runtime,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install-hooks.sh	scripts	other	script	2708	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本
-scripts/install_hooks_guard_test.go	scripts	other	go-test	8856	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install_hooks_guard_test.go	scripts	other	go-test	9358	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/local_go_cache.sh	scripts	other	script	7327	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,工程自动化,测试守卫,代码地图与开发脚本
 scripts/local_go_cache_test.go	scripts	other	go-test	13263	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/local_go_cache_windows_e2e_test.go	scripts	other	go-test	1157	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,windows,e2e,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -1167,7 +1167,7 @@ scripts/test_with_guard.ps1	scripts	other	script	15086	工程自动化、测试�
 scripts/test_with_guard.sh	scripts	other	script	33986	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard_host_resource_test.go	scripts	other	go-test	1806	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,host,resource,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard_host_resource_windows_e2e_test.go	scripts	other	go-test	1261	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,host,resource,windows,e2e,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_trusted_gate_launcher_contract.sh	scripts	other	script	8324	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,trusted,gate,launcher,contract,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_trusted_gate_launcher_contract.sh	scripts	other	script	8693	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,trusted,gate,launcher,contract,工程自动化,测试守卫,代码地图与开发脚本
 scripts/trusted_launcher_test_helpers_test.go	scripts	other	go-test	1604	工程自动化、测试守卫、代码地图与开发脚本	scripts,trusted,launcher,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/main.go	scripts	other	go-source	6740	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/schema_support.go	scripts	other	go-source	16072	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,schema,support,工程自动化,测试守卫,代码地图与开发脚本

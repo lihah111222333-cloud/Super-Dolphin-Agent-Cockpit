@@ -64,6 +64,16 @@ func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T)
 	assertScriptDoesNotContain(t, guard, "super-dolphin-gate-launchers")
 }
 
+func TestTrustedGateLauncherShellContract(t *testing.T) {
+	command := exec.Command("bash", "tests/test_trusted_gate_launcher_contract.sh")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("trusted launcher shell contract failed: %v\n%s", err, output)
+	}
+	helper := readRequiredFile(t, filepath.Join(scriptRepoRoot(t), ".githooks", "trusted-gate-launcher.sh"))
+	assertScriptContains(t, helper, `git -C "$repo_root" cat-file blob "${tree}:scripts/build-trusted-gate-launcher.sh"`)
+}
+
 func TestInstallHooksMakeTargetRefusesConflictingHooksPath(t *testing.T) {
 	root := prepareInstallHooksRepo(t)
 	_ = commitInstallHooksFixture(t, root)
