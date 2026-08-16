@@ -13,8 +13,6 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		`"$project_map_gate_bin" project-map check --tree "$source_tree"`,
 		`"$project_map_gate_bin" project-map refresh --tree "$source_tree"`,
 		`git -C "$repo_root" add -A -- "$project_map_path"`,
-		`config --local --get superdolphin.gateLauncher`,
-		`config --local superdolphin.gateLauncher "$built_gate"`,
 		`"$install_root/v2/$source_tree"/*/super-dolphin-gate`,
 		`./scripts/test_with_guard.sh --light-guard-only`,
 		`SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`,
@@ -24,7 +22,7 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 			return fmt.Errorf("pre-commit must retain lightweight code-guard contract %q", required)
 		}
 	}
-	for _, forbidden := range []string{"gate_output_file", "tee", `remote hook pre-commit`, `remote_config=`, `remote_ledger=`, `SUPER_DOLPHIN_CI_AGENT_TOKEN`, `closure check`, `codemap check`, `capability-contract check`} {
+	for _, forbidden := range []string{"gate_output_file", "tee", `remote hook pre-commit`, `remote_config=`, `remote_ledger=`, `SUPER_DOLPHIN_CI_AGENT_TOKEN`, `superdolphin.gateLauncher`, `superdolphin.gateLauncherRoot`, `closure check`, `codemap check`, `capability-contract check`} {
 		if strings.Contains(preCommit, forbidden) {
 			return fmt.Errorf("pre-commit must not contain complete gate operation %q", forbidden)
 		}
@@ -51,6 +49,7 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	testWithGuard := readScript(t, "test_with_guard.sh")
 	preCommit := readRepoFile(t, "../.githooks/pre-commit")
 	prePush := readRepoFile(t, "../.githooks/pre-push")
+	trustedLauncher := readRepoFile(t, "../.githooks/trusted-gate-launcher.sh")
 
 	if err := validateAIMaintenanceHookRoutes(preCommit, prePush, script); err != nil {
 		t.Fatal(err)
@@ -63,6 +62,10 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, preCommit, `git -C "$repo_root" add -A -- "$project_map_path"`)
 	assertScriptContains(t, preCommit, `./scripts/test_with_guard.sh --light-guard-only`)
 	assertScriptContains(t, preCommit, `SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`)
+	assertScriptContains(t, trustedLauncher, `"$install_root/v2/$tree"/*/super-dolphin-gate`)
+	assertScriptDoesNotContain(t, trustedLauncher, `"$install_root/v2"/*/*/super-dolphin-gate`)
+	assertScriptDoesNotContain(t, trustedLauncher, `superdolphin.gateLauncher`)
+	assertScriptDoesNotContain(t, trustedLauncher, `superdolphin.gateLauncherRoot`)
 	lightGuardStart := strings.Index(testWithGuard, "run_light_guard() {")
 	archtestStart := strings.Index(testWithGuard, "run_archtest_only() {")
 	if lightGuardStart < 0 || archtestStart <= lightGuardStart {

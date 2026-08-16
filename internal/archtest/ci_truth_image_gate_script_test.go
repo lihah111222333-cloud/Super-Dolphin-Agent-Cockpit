@@ -16,7 +16,6 @@ func TestCITruthImageScriptBindsNonReleaseProfilesToActiveStagedTree(t *testing.
 	root := newCITruthImageScriptRepository(t, true)
 	scriptPath := filepath.Join(root, "scripts", "ci_truth_image_gate.sh")
 	logPath, fakeCoordinator := writeFakeCoordinator(t, root)
-	configureCITruthImageLauncher(t, root, fakeCoordinator)
 	path := filepath.Dir(fakeCoordinator) + string(os.PathListSeparator) + os.Getenv("PATH")
 	commitSHA := gitOutput(t, root, "rev-parse", "HEAD")
 	stagedTree := gitOutput(t, root, "write-tree")
@@ -53,7 +52,6 @@ func TestCITruthImageScriptBindsNonReleaseProfilesToActiveStagedTree(t *testing.
 func TestCITruthImageScriptBindsReleaseToCurrentCommit(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, false)
 	logPath, fakeCoordinator := writeFakeCoordinator(t, root)
-	configureCITruthImageLauncher(t, root, fakeCoordinator)
 	path := filepath.Dir(fakeCoordinator) + string(os.PathListSeparator) + os.Getenv("PATH")
 	commitSHA := gitOutput(t, root, "rev-parse", "HEAD")
 	repositoryRoot := gitOutput(t, root, "rev-parse", "--show-toplevel")
@@ -127,7 +125,6 @@ func TestRemoteRunCLIRequiresExplicitScenarioWithoutLegacyProfile(t *testing.T) 
 func TestCITruthImageScriptRejectsRetiredReleaseGrantArguments(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, false)
 	logPath, fakeCoordinator := writeFakeCoordinator(t, root)
-	configureCITruthImageLauncher(t, root, fakeCoordinator)
 	path := filepath.Dir(fakeCoordinator) + string(os.PathListSeparator) + os.Getenv("PATH")
 	grantPath := filepath.Join(t.TempDir(), "grant.json")
 	command := exec.Command("bash", filepath.Join(root, "scripts", "ci_truth_image_gate.sh"), "release",
@@ -146,7 +143,6 @@ func TestCITruthImageScriptRejectsRetiredReleaseGrantArguments(t *testing.T) {
 func TestCITruthImageScriptUsesHookConfigEnvironmentOverrides(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, false)
 	logPath, fakeCoordinator := writeFakeCoordinator(t, root)
-	configureCITruthImageLauncher(t, root, fakeCoordinator)
 	commitSHA := gitOutput(t, root, "rev-parse", "HEAD")
 	stagedTree := gitOutput(t, root, "write-tree")
 	repositoryRoot := gitOutput(t, root, "rev-parse", "--show-toplevel")
@@ -168,7 +164,6 @@ func TestCITruthImageScriptUsesHookConfigEnvironmentOverrides(t *testing.T) {
 func TestCITruthImageScriptUsesRealRemoteCLIHandshake(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, false)
 	logPath, gateBinary := writeHandshakeCoordinator(t, root)
-	configureCITruthImageLauncher(t, root, gateBinary)
 	for _, testCase := range []struct {
 		name     string
 		token    string
@@ -209,7 +204,6 @@ func TestCITruthImageScriptRejectsReleaseWithStagedChanges(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, true)
 	scriptPath := filepath.Join(root, "scripts", "ci_truth_image_gate.sh")
 	logPath, fakeCoordinator := writeFakeCoordinator(t, root)
-	configureCITruthImageLauncher(t, root, fakeCoordinator)
 	command := exec.Command("bash", scriptPath, "release")
 	command.Dir = root
 	command.Env = ciTruthImageEnv(filepath.Dir(fakeCoordinator)+string(os.PathListSeparator)+os.Getenv("PATH"), logPath)
@@ -320,11 +314,11 @@ func writeCITruthImageLauncher(t *testing.T, root string, script []byte) string 
 	launcherRoot := secureCITruthImageLauncherRoot(t)
 	tree := gitOutput(t, root, "write-tree")
 	digest := sha256.Sum256(script)
-	binaryPath := filepath.Join(launcherRoot, "v1", tree, fmt.Sprintf("%x", digest[:]), "super-dolphin-gate")
+	binaryPath := filepath.Join(launcherRoot, "v2", tree, fmt.Sprintf("%x", digest[:]), "super-dolphin-gate")
 	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o700); err != nil {
 		t.Fatalf("create fake coordinator directory: %v", err)
 	}
-	for _, directory := range []string{launcherRoot, filepath.Join(launcherRoot, "v1"), filepath.Join(launcherRoot, "v1", tree), filepath.Dir(binaryPath)} {
+	for _, directory := range []string{launcherRoot, filepath.Join(launcherRoot, "v2"), filepath.Join(launcherRoot, "v2", tree), filepath.Dir(binaryPath)} {
 		if err := os.Chmod(directory, 0o700); err != nil {
 			t.Fatalf("secure fake coordinator directory: %v", err)
 		}
@@ -377,13 +371,6 @@ func installCITruthImageOSHomeResolver(t *testing.T, fixtureHome string) {
 		t.Fatalf("write CI truth-image resolver %s: %v", name, err)
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
-func configureCITruthImageLauncher(t *testing.T, root, launcher string) {
-	t.Helper()
-	launcherRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(launcher))))
-	gitOutput(t, root, "config", "--local", "superdolphin.gateLauncher", launcher)
-	gitOutput(t, root, "config", "--local", "superdolphin.gateLauncherRoot", launcherRoot)
 }
 
 func ciTruthImageEnv(path, logPath string) []string {

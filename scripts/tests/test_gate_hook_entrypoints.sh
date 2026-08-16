@@ -232,18 +232,16 @@ fixture_launcher_for_tree() {
     printf 'fixture-tree=%s\n' "$tree" >"$receipt"
     chmod 0400 "$receipt"
   fi
-  git -C "$repository" config superdolphin.gateLauncherRoot "$install_root"
   printf '%s\n' "$launcher"
 }
 
 provision_fixture_launchers() {
-  local repository tree commit launcher
+  local repository tree commit
   repository=$(git rev-parse --show-toplevel 2>/dev/null || true)
   [[ -n "$repository" ]] || return 0
   tree=$(git -C "$repository" write-tree 2>/dev/null || true)
   if [[ -n "$tree" ]]; then
-    launcher=$(fixture_launcher_for_tree "$repository" "$tree")
-    git -C "$repository" config superdolphin.gateLauncher "$launcher"
+    fixture_launcher_for_tree "$repository" "$tree" >/dev/null
   fi
   while IFS= read -r commit; do
     [[ -n "$commit" ]] || continue
@@ -255,6 +253,7 @@ provision_fixture_launchers() {
 export PATH="$bin_dir:$fake_os_bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export GATE_HOOK_CAPTURE_DIR="$capture_dir"
 export GATE_HOOK_FIXTURE_GATE_BIN="$bin_dir/super-dolphin-gate"
+export GATE_HOOK_FIXTURE_INSTALL_ROOT="$install_root"
 export SUPER_DOLPHIN_CI_AGENT_TOKEN=fixture-agent-token
 
 git_repo="$fixture_root/repository"
@@ -277,7 +276,7 @@ cat >"$git_repo/scripts/build-trusted-gate-launcher.sh" <<'EOF'
 set -euo pipefail
 tree=${1:?exact tree is required}
 repository=$(git rev-parse --show-toplevel)
-install_root=$(git -C "$repository" config --local --get superdolphin.gateLauncherRoot)
+install_root=${GATE_HOOK_FIXTURE_INSTALL_ROOT:?}
 digest=$(shasum -a 256 "$GATE_HOOK_FIXTURE_GATE_BIN" | awk '{print $1}')
 launcher="$install_root/v2/$tree/$digest/super-dolphin-gate"
 mkdir -p "$(dirname "$launcher")"
@@ -336,7 +335,6 @@ mkdir -p "$git_repo/nested"
 # shellcheck disable=SC1091
 source "$git_repo/.githooks/trusted-gate-launcher.sh"
 fixture_launcher=$(fixture_launcher_for_tree "$git_repo" "$(git -C "$git_repo" write-tree)")
-git -C "$git_repo" config superdolphin.gateLauncher "$fixture_launcher"
 if trusted_gate_launcher "$git_repo" >/dev/null 2>&1; then
   :
 else
@@ -574,22 +572,22 @@ grep -Fq 'repository root is unavailable' "$fixture_root/no-repo-pre-commit.err"
 grep -Fq 'repository root is unavailable' "$fixture_root/no-repo-pre-push.err" || fail "pre-push unresolved worktree error is not actionable"
 [[ ! -e "$capture_dir/argc" ]] || fail "Git hook invoked the CLI without a resolved worktree"
 
-missing_path=/usr/bin:/bin:/usr/sbin:/sbin
-git -C "$git_repo" config --unset superdolphin.gateLauncher
+missing_path="$fake_os_bin:/usr/bin:/bin:/usr/sbin:/sbin"
+missing_launcher_tree=$(git -C "$git_repo" write-tree)
+rm -rf -- "$install_root/v2/$missing_launcher_tree"
 set +e
 (
   cd "$git_repo/nested"
-  PATH=$missing_path bash "$repo_root/.githooks/pre-commit"
+  GATE_HOOK_FIXTURE_GATE_BIN="$fixture_root/missing-super-dolphin-gate" PATH=$missing_path bash "$repo_root/.githooks/pre-commit"
 ) >/dev/null 2>"$fixture_root/missing-pre-commit.err"
 missing_commit_status=$?
 (
   cd "$git_repo/nested"
-  PATH=$missing_path bash "$repo_root/.githooks/pre-push" origin https://example.invalid/repo.git
+  GATE_HOOK_FIXTURE_GATE_BIN="$fixture_root/missing-super-dolphin-gate" PATH=$missing_path bash "$repo_root/.githooks/pre-push" origin https://example.invalid/repo.git
 ) </dev/null >/dev/null 2>"$fixture_root/missing-pre-push.err"
 missing_push_status=$?
 set -e
-fixture_launcher=$(fixture_launcher_for_tree "$git_repo" "$(git -C "$git_repo" write-tree)")
-git -C "$git_repo" config superdolphin.gateLauncher "$fixture_launcher"
+fixture_launcher_for_tree "$git_repo" "$missing_launcher_tree" >/dev/null
 [[ $missing_commit_status -ne 0 ]] || fail "pre-commit accepted an unverifiable project-map Gate"
 grep -Fq 'pre-commit blocked:' "$fixture_root/missing-pre-commit.err" \
   || fail "pre-commit missing trusted Gate error is not actionable"

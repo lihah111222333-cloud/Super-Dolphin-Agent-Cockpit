@@ -24,9 +24,10 @@ func TestInstallHooksMakeTargetUsesWorktreeSafeRelativePath(t *testing.T) {
 	if got := installHooksGitOutput(t, root, "config", "--get", "core.hooksPath"); got != ".githooks" {
 		t.Fatalf("core.hooksPath = %q, want .githooks\nmake output:\n%s", got, output)
 	}
-	if got := installHooksGitOutput(t, root, "config", "--local", "--get", "superdolphin.gateLauncher"); got != launcher {
-		t.Fatalf("superdolphin.gateLauncher = %q, want %q", got, launcher)
+	if _, err := os.Stat(launcher); err != nil {
+		t.Fatalf("exact-tree launcher was not installed: %v", err)
 	}
+	assertInstallHooksLauncherConfigAbsent(t, root, output)
 
 	linkedRoot := filepath.Join(t.TempDir(), "linked")
 	runInstallHooksGit(t, root, "worktree", "add", "-q", "--detach", linkedRoot, "HEAD")
@@ -46,9 +47,10 @@ func TestInstallHooksMakeTargetBuildsExactTreeLauncherByDefault(t *testing.T) {
 		t.Fatalf("make install-hooks failed: %v\n%s", err, output)
 	}
 
-	if got := installHooksGitOutput(t, root, "config", "--local", "--get", "superdolphin.gateLauncher"); got != launcher {
-		t.Fatalf("superdolphin.gateLauncher = %q, want exact-tree builder output %q", got, launcher)
+	if _, err := os.Stat(launcher); err != nil {
+		t.Fatalf("exact-tree builder output is unavailable: %v", err)
 	}
+	assertInstallHooksLauncherConfigAbsent(t, root, output)
 }
 
 func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T) {
@@ -98,14 +100,13 @@ func TestInstallHooksMakeTargetRejectsMissingExactTreeBuilder(t *testing.T) {
 func writeInstallHooksBuilder(t *testing.T, root string, launcherMode os.FileMode) string {
 	t.Helper()
 	installRoot := secureTrustedLauncherTestRoot(t)
-	runInstallHooksGit(t, root, "config", "--local", "superdolphin.testLauncherRoot", installRoot)
 	path := filepath.Join(root, "scripts", "build-trusted-gate-launcher.sh")
 	body := `#!/usr/bin/env bash
 set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 repo_root=$(cd "$repo_root" && pwd -P)
 tree=${1:?tree is required}
-install_root=$(git config --local --get superdolphin.testLauncherRoot)
+install_root=` + fmt.Sprintf("%q", installRoot) + `
 # Keep each fixture tree distinct from any user-installed launcher.
 # fixture-root: ` + root + `
 launcher="$install_root/v2/$tree/` + installHooksStubDigest() + `/super-dolphin-gate"
@@ -205,4 +206,19 @@ func installHooksGitOutput(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s failed in %s: %v\n%s", strings.Join(args, " "), dir, err, output)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func assertInstallHooksLauncherConfigAbsent(t *testing.T, root string, installOutput []byte) {
+	t.Helper()
+	for _, key := range []string{"superdolphin.gateLauncher", "superdolphin.gateLauncherRoot"} {
+		cmd := exec.Command("git", "config", "--local", "--get", key)
+		cmd.Dir = root
+		output, err := cmd.CombinedOutput()
+		if err == nil || strings.TrimSpace(string(output)) != "" {
+			t.Fatalf("install-hooks retained repo-local %s=%q", key, output)
+		}
+		if strings.Contains(string(installOutput), key) {
+			t.Fatalf("install-hooks output exposed retired config key %s: %s", key, installOutput)
+		}
+	}
 }

@@ -49,7 +49,6 @@ fi
 LAUNCHER_DIGEST_DIR=$(dirname "$LAUNCHER")
 LAUNCHER_TREE_DIR=$(dirname "$LAUNCHER_DIGEST_DIR")
 LAUNCHER_VERSION_DIR=$(dirname "$LAUNCHER_TREE_DIR")
-LAUNCHER_ROOT=$(dirname "$LAUNCHER_VERSION_DIR")
 if [[ "$(basename "$LAUNCHER")" != "super-dolphin-gate" \
     || "$(basename "$LAUNCHER_TREE_DIR")" != "$STAGED_TREE" \
     || "$(basename "$LAUNCHER_VERSION_DIR")" != "v2" \
@@ -59,8 +58,6 @@ if [[ "$(basename "$LAUNCHER")" != "super-dolphin-gate" \
 fi
 
 git config --local core.hooksPath .githooks
-git config --local superdolphin.gateLauncher "$LAUNCHER"
-git config --local superdolphin.gateLauncherRoot "$LAUNCHER_ROOT"
 shopt -s nullglob
 for hook in .githooks/*; do
     chmod +x "$hook"
@@ -68,7 +65,6 @@ done
 
 echo "✅ git hooks 已启用"
 echo "   core.hooksPath = $(git config --get core.hooksPath)"
-echo "   trusted gate launcher = $(git config --local --get superdolphin.gateLauncher)"
 echo ""
 echo "已安装钩子："
 for hook in .githooks/*; do

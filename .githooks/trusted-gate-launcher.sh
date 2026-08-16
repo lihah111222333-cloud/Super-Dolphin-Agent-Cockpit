@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
 # The hook and CI entrypoints share this fail-closed launcher contract. The
-# launcher path may be selected by repository-local config, but the install
-# root is always derived from the operating-system account and cannot be
-# redirected by Git config.
+# launcher is selected only from the exact-tree directory below the canonical
+# operating-system-account install root.
 
 trusted_launcher_stat() {
   local format=$1 target_path=$2
@@ -31,7 +30,7 @@ trusted_launcher_sha256() {
 }
 
 trusted_launcher_root() {
-  local repo_root=${1:?repository root is required} root physical_root os_home
+  local root physical_root os_home
   os_home=$(trusted_launcher_os_home) || return 1
   root="$os_home/.super-dolphin-gate-launchers"
   [[ -d "$root" ]] || {
@@ -40,7 +39,7 @@ trusted_launcher_root() {
   }
   physical_root=$(cd "$root" && pwd -P) || return 1
   if [[ "$physical_root" != "$root" ]]; then
-    printf '%s\n' 'super-dolphin gate blocked: configured launcher install root is not canonical.' >&2
+    printf '%s\n' 'super-dolphin gate blocked: launcher install root is not canonical.' >&2
     return 1
   fi
   printf '%s\n' "$root"
@@ -78,8 +77,8 @@ validate_trusted_launcher_directory() {
 }
 
 validate_trusted_launcher_root() {
-  local repo_root=${1:?repository root is required} root
-  root=$(trusted_launcher_root "$repo_root") || return 1
+  local root
+  root=$(trusted_launcher_root) || return 1
   validate_trusted_launcher_root_path "$root"
 }
 
@@ -118,11 +117,11 @@ validate_trusted_gate_launcher() {
   if [[ $# -eq 1 ]]; then
     repo_root=$(git rev-parse --show-toplevel) || return 1
     launcher=$1
-    root=$(trusted_launcher_root "$repo_root") || return 1
+    root=$(trusted_launcher_root) || return 1
   else
     repo_root=${1:?repository root is required}
     launcher=${2:-}
-    root=$(trusted_launcher_root "$repo_root") || return 1
+    root=$(trusted_launcher_root) || return 1
   fi
   local owner mode relative tree digest actual_digest
 
@@ -177,47 +176,28 @@ validate_trusted_gate_launcher() {
 
 trusted_gate_launcher() {
   local repo_root=${1:?repository root is required}
-  local launcher tree
+  local tree
 
-  launcher=$(git -C "$repo_root" config --local --get superdolphin.gateLauncher 2>/dev/null || true)
-  if [[ -z "$launcher" ]]; then
-    tree=$(git -C "$repo_root" write-tree) || {
-      printf '%s\n' 'super-dolphin gate blocked: exact staged tree is unavailable.' >&2
-      return 1
-    }
-    trusted_gate_launcher_for_tree "$repo_root" "$tree"
-    return
-  fi
-  validate_trusted_gate_launcher "$repo_root" "$launcher" || return 1
-  tree=$(basename "$(dirname "$(dirname "$launcher")")")
-  verify_trusted_gate_launcher_tree "$repo_root" "$launcher" "$tree" || return 1
-  printf '%s\n' "$launcher"
+  tree=$(git -C "$repo_root" write-tree) || {
+    printf '%s\n' 'super-dolphin gate blocked: exact staged tree is unavailable.' >&2
+    return 1
+  }
+  trusted_gate_launcher_for_tree "$repo_root" "$tree"
 }
 
 trusted_gate_launcher_for_tree() {
   local repo_root=${1:?repository root is required}
   local tree=${2:?tree is required}
-  local install_root configured candidate
+  local install_root candidate
 
   if [[ ! "$tree" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
     printf '%s\n' 'super-dolphin gate blocked: exact launcher tree is invalid.' >&2
     return 1
   fi
   install_root="$(trusted_launcher_os_home)/.super-dolphin-gate-launchers" || return 1
-  configured=$(git -C "$repo_root" config --local --get superdolphin.gateLauncher 2>/dev/null || true)
-  if [[ -d "$install_root" ]] \
-    && validate_trusted_launcher_root_path "$install_root" \
-    && [[ -n "$configured" ]] \
-    && validate_trusted_gate_launcher "$repo_root" "$configured" \
-    && verify_trusted_gate_launcher_tree "$repo_root" "$configured" "$tree"; then
-    printf '%s\n' "$configured"
-    return 0
-  fi
   if [[ -d "$install_root" ]] && validate_trusted_launcher_root_path "$install_root"; then
-    for candidate in "$install_root/v2"/*/*/super-dolphin-gate; do
-      if [[ ! -e "$candidate" || "$candidate" == "$configured" ]]; then
-        continue
-      fi
+    for candidate in "$install_root/v2/$tree"/*/super-dolphin-gate; do
+      [[ -e "$candidate" ]] || continue
       if validate_trusted_gate_launcher "$repo_root" "$candidate" \
         && verify_trusted_gate_launcher_tree "$repo_root" "$candidate" "$tree"; then
         printf '%s\n' "$candidate"
@@ -250,7 +230,6 @@ materialize_trusted_gate_launcher_for_tree() {
   rm -f -- "$builder"
   validate_trusted_gate_launcher "$repo_root" "$launcher" || return 1
   verify_trusted_gate_launcher_tree "$repo_root" "$launcher" "$tree" || return 1
-  git -C "$repo_root" config --local superdolphin.gateLauncher "$launcher" || return 1
   printf '%s\n' "$launcher"
 }
 
