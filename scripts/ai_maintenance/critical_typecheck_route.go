@@ -41,19 +41,58 @@ type criticalTypecheckRegistry struct {
 	TestFiles       []string            `json:"testFiles"`
 }
 
-// criticalTypecheckRelevant 只把 registry 生产闭包及其执行种子路由到重型严格类型检查。
-func criticalTypecheckRelevant(repoRoot, file string) (bool, error) {
+type criticalTypecheckProductionLoader func(repoRoot string) (map[string]bool, error)
+
+// criticalTypecheckPlanContext 持有单个 candidate 的已验证生产闭包，禁止跨计划共享。
+type criticalTypecheckPlanContext struct {
+	productionFiles map[string]bool
+}
+
+// newCriticalTypecheckPlanContext 为一个计划至多加载一次 registry，显式接收 loader 以便计数验证。
+func newCriticalTypecheckPlanContext(repoRoot string, files []string, load criticalTypecheckProductionLoader) (criticalTypecheckPlanContext, error) {
+	if load == nil {
+		return criticalTypecheckPlanContext{}, fmt.Errorf("critical typecheck registry loader is nil")
+	}
+	for _, file := range files {
+		if !strings.HasPrefix(file, "frontend-app/src/") {
+			continue
+		}
+		productionFiles, err := load(repoRoot)
+		if err != nil {
+			return criticalTypecheckPlanContext{}, err
+		}
+		if productionFiles == nil {
+			return criticalTypecheckPlanContext{}, fmt.Errorf("critical typecheck registry loader returned nil production files")
+		}
+		memo := make(map[string]bool, len(productionFiles))
+		for candidate, critical := range productionFiles {
+			memo[candidate] = critical
+		}
+		return criticalTypecheckPlanContext{productionFiles: memo}, nil
+	}
+	return criticalTypecheckPlanContext{}, nil
+}
+
+func (context criticalTypecheckPlanContext) relevant(file string) (bool, error) {
 	if criticalTypecheckExecutionSeed(file) {
 		return true, nil
 	}
 	if !strings.HasPrefix(file, "frontend-app/src/") {
 		return false, nil
 	}
-	files, err := loadCriticalTypecheckProductionFiles(repoRoot)
+	if context.productionFiles == nil {
+		return false, fmt.Errorf("critical typecheck registry context is not initialized")
+	}
+	return context.productionFiles[strings.TrimPrefix(file, "frontend-app/")], nil
+}
+
+// criticalTypecheckRelevant 只把 registry 生产闭包及其执行种子路由到重型严格类型检查。
+func criticalTypecheckRelevant(repoRoot, file string) (bool, error) {
+	context, err := newCriticalTypecheckPlanContext(repoRoot, []string{file}, loadCriticalTypecheckProductionFiles)
 	if err != nil {
 		return false, err
 	}
-	return files[strings.TrimPrefix(file, "frontend-app/")], nil
+	return context.relevant(file)
 }
 
 func criticalTypecheckExecutionSeed(file string) bool {

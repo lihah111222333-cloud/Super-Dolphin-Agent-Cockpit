@@ -176,6 +176,96 @@ func TestCriticalTypecheckRouteUsesRegistryAndExecutionSeeds(t *testing.T) {
 	assertStringSetOmits(t, plan.RequiredGates, "frontend:typecheck-contracts")
 }
 
+func TestCriticalTypecheckPlanContextMemoizesRegistryPerCandidate(t *testing.T) {
+	changedFiles := []string{
+		"frontend-app/src/critical.js",
+		"frontend-app/src/unregistered.js",
+	}
+	loadCounts := map[string]int{}
+	load := func(repoRoot string) (map[string]bool, error) {
+		loadCounts[repoRoot]++
+		return loadCriticalTypecheckProductionFiles(repoRoot)
+	}
+
+	firstRoot := t.TempDir()
+	writeCriticalTypecheckRepoFixture(t, firstRoot)
+	writeGateFixtureFile(t, firstRoot, "frontend-app/src/unregistered.js", "export const unregistered = true;\n")
+	firstContext, err := newCriticalTypecheckPlanContext(firstRoot, changedFiles, load)
+	if err != nil {
+		t.Fatalf("newCriticalTypecheckPlanContext(first) error = %v", err)
+	}
+	for _, file := range changedFiles {
+		if _, err := firstContext.relevant(file); err != nil {
+			t.Fatalf("first candidate critical route %q: %v", file, err)
+		}
+	}
+	if loadCounts[firstRoot] != 1 {
+		t.Fatalf("first candidate registry loads = %d, want 1", loadCounts[firstRoot])
+	}
+
+	secondRoot := t.TempDir()
+	writeCriticalTypecheckRepoFixture(t, secondRoot)
+	writeGateFixtureFile(t, secondRoot, "frontend-app/src/unregistered.js", "export const unregistered = true;\n")
+	secondContext, err := newCriticalTypecheckPlanContext(secondRoot, changedFiles, load)
+	if err != nil {
+		t.Fatalf("newCriticalTypecheckPlanContext(second) error = %v", err)
+	}
+	for _, file := range changedFiles {
+		if _, err := secondContext.relevant(file); err != nil {
+			t.Fatalf("second candidate critical route %q: %v", file, err)
+		}
+	}
+	if loadCounts[secondRoot] != 1 {
+		t.Fatalf("second candidate registry loads = %d, want 1", loadCounts[secondRoot])
+	}
+}
+
+func TestCriticalTypecheckPlanContextPreservesMultiFileRouting(t *testing.T) {
+	registered := "frontend-app/src/shared/ui/runUIAction.js"
+	unregistered := "frontend-app/src/App.jsx"
+	singleRegistered := mustBuildGatePlan(t, []string{registered})
+	singleUnregistered := mustBuildGatePlan(t, []string{unregistered})
+	multi := mustBuildGatePlan(t, []string{registered, unregistered})
+
+	assertStringSetContains(t, singleRegistered.RequiredGates, "frontend:typecheck-contracts")
+	assertStringSetOmits(t, singleUnregistered.RequiredGates, "frontend:typecheck-contracts")
+	assertStringSetContains(t, multi.RequiredGates, "frontend:typecheck-contracts")
+	assertStringSetContains(t, multi.RequiredGates, "frontend:lint", "frontend:changed-tests")
+}
+
+func TestCriticalTypecheckPlanContextFailsClosedForMissingRegistry(t *testing.T) {
+	_, err := newCriticalTypecheckPlanContext(
+		t.TempDir(),
+		[]string{"frontend-app/src/critical.js"},
+		loadCriticalTypecheckProductionFiles,
+	)
+	if err == nil || !strings.Contains(err.Error(), "read critical typecheck registry") {
+		t.Fatalf("missing critical typecheck registry error = %v", err)
+	}
+}
+
+func TestCriticalTypecheckExecutionSeedsRouteWithoutRegistry(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeCriticalTypecheckRepoFixture(t, repoRoot)
+	registryPath := filepath.Join(repoRoot, filepath.FromSlash(criticalTypecheckRegistryPath))
+	if err := os.Remove(registryPath); err != nil {
+		t.Fatalf("remove critical typecheck registry: %v", err)
+	}
+	for _, file := range []string{
+		"frontend-app/package.json",
+		"frontend-app/tsconfig.contracts.json",
+	} {
+		t.Run(file, func(t *testing.T) {
+			writeGateFixtureFile(t, repoRoot, file, "{}\n")
+			plan, err := buildGatePlanForRepo(repoRoot, []string{file}, newGatePlanPolicy())
+			if err != nil {
+				t.Fatalf("buildGatePlanForRepo(%q) error = %v", file, err)
+			}
+			assertStringSetContains(t, plan.RequiredGates, "frontend:typecheck-contracts")
+		})
+	}
+}
+
 func TestCriticalTypecheckRegistryRouteFailsClosedOnInvalidPaths(t *testing.T) {
 	repoRoot := t.TempDir()
 	registry := criticalTypecheckRegistryFixture()

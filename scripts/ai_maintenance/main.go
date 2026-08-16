@@ -290,17 +290,21 @@ func buildGatePlanForRepoAndObject(repoRoot string, files []string, object revie
 		return gatePlan{}, err
 	}
 	normalized := normalizeFiles(files)
+	criticalRouteContext, err := newCriticalTypecheckPlanContext(repoRoot, normalized, loadCriticalTypecheckProductionFiles)
+	if err != nil {
+		return gatePlan{}, fmt.Errorf("prepare critical typecheck route context: %w", err)
+	}
 	plan := gatePlan{ReviewObject: object, ChangedFiles: normalized}
 	gates := map[string]bool{"diff:whitespace": true}
 	generated := map[string]bool{}
 	backendChanged, err := applyChangedFileGateRules(
-		repoRoot,
 		normalized,
 		capabilityRules,
 		turnContractPaths,
 		gates,
 		generated,
 		policy,
+		criticalRouteContext,
 	)
 	if err != nil {
 		return gatePlan{}, err
@@ -336,15 +340,15 @@ func loadGatePlanRules(repoRoot string, policy gatePlanPolicy) (capcontract.Path
 
 // applyChangedFileGateRules 汇总所有变更路径的门禁规则，并报告是否需要后端验证面。
 func applyChangedFileGateRules(
-	repoRoot string,
 	files []string,
 	capabilityRules capcontract.PathRules,
 	turnContractPaths, gates, generated map[string]bool,
 	policy gatePlanPolicy,
+	criticalTypecheckContext criticalTypecheckPlanContext,
 ) (bool, error) {
 	backendChanged := false
 	for _, file := range files {
-		backendFile, err := applyFileGateRules(repoRoot, file, capabilityRules, turnContractPaths, gates, generated, policy)
+		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, generated, policy, criticalTypecheckContext)
 		if err != nil {
 			return false, err
 		}
@@ -369,8 +373,8 @@ func applyBackendGateRules(files []string, gates map[string]bool, backendChanged
 }
 
 // applyFileGateRules 汇总单个路径触发的命令 gate，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(repoRoot, file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, generated map[string]bool, policy gatePlanPolicy) (bool, error) {
-	backendChanged, err := applySourceGateRules(repoRoot, file, gates)
+func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, generated map[string]bool, policy gatePlanPolicy, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
+	backendChanged, err := applySourceGateRules(file, gates, criticalTypecheckContext)
 	if err != nil {
 		return false, err
 	}
@@ -500,16 +504,16 @@ func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
 }
 
 // applySourceGateRules 根据生产源码路径补充必须执行的门禁。
-func applySourceGateRules(repoRoot, file string, gates map[string]bool) (bool, error) {
+func applySourceGateRules(file string, gates map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
 	if strings.HasPrefix(file, "frontend-app/") {
-		return applyFrontendSourceGateRules(repoRoot, file, gates)
+		return applyFrontendSourceGateRules(file, gates, criticalTypecheckContext)
 	}
 	return applyBackendSourceGateRules(file)
 }
 
 // applyFrontendSourceGateRules 为前端路径应用严格类型检查、lint、变更测试和 diagnostics gate。
-func applyFrontendSourceGateRules(repoRoot, file string, gates map[string]bool) (bool, error) {
-	critical, err := criticalTypecheckRelevant(repoRoot, file)
+func applyFrontendSourceGateRules(file string, gates map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
+	critical, err := criticalTypecheckContext.relevant(file)
 	if err != nil {
 		return false, fmt.Errorf("route critical typecheck path %q: %w", file, err)
 	}
