@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -258,14 +259,77 @@ func transferTreeClosure(ctx context.Context, repoRoot string, bareRoot string, 
 }
 
 func makeReadOnlyGitTree(root string) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+	entries := 0
+	var bytes int64
+	return makeReadOnlyGitTreeEntry(root, &entries, &bytes)
+}
+
+func makeReadOnlyGitTreeEntry(path string, entries *int, bytes *int64) (err error) {
+	info, err := accountReadOnlyGitTreeEntry(path, entries, bytes)
+	if err != nil {
+		return err
+	}
+	if err := chmodReadOnlyGitTreeEntry(path, info); err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	return walkReadOnlyGitTreeDirectory(path, entries, bytes)
+}
+
+func accountReadOnlyGitTreeEntry(path string, entries *int, bytes *int64) (os.FileInfo, error) {
+	*entries++
+	if *entries > maxReadOnlyGitTreeEntries {
+		return nil, fmt.Errorf("source baseline tree contains too many entries: %d exceeds limit %d", *entries, maxReadOnlyGitTreeEntries)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat source baseline entry %s: %w", path, err)
+	}
+	if info.Mode().IsRegular() {
+		if info.Size() > int64(maxReadOnlyGitTreeBytes)-*bytes {
+			return nil, fmt.Errorf("source baseline tree contains too many bytes: %d exceeds limit %d", *bytes+info.Size(), maxReadOnlyGitTreeBytes)
 		}
-		mode := os.FileMode(0o444)
-		if entry.IsDir() {
-			mode = 0o555
+		*bytes += info.Size()
+	}
+	return info, nil
+}
+
+func chmodReadOnlyGitTreeEntry(path string, info os.FileInfo) error {
+	mode := os.FileMode(0o444)
+	if info.IsDir() {
+		mode = 0o555
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("chmod source baseline entry %s: %w", path, err)
+	}
+	return nil
+}
+
+// walkReadOnlyGitTreeDirectory 逐项读取目录，避免在校验上限前把全部名称载入内存。
+func walkReadOnlyGitTreeDirectory(path string, entries *int, bytes *int64) (err error) {
+	directory, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open source baseline directory %s: %w", path, err)
+	}
+	defer func() {
+		if closeErr := directory.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close source baseline directory %s: %w", path, closeErr))
 		}
-		return os.Chmod(path, mode)
-	})
+	}()
+	for {
+		names, readErr := directory.Readdirnames(1)
+		for _, name := range names {
+			if err := makeReadOnlyGitTreeEntry(filepath.Join(path, name), entries, bytes); err != nil {
+				return err
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("read source baseline directory %s: %w", path, readErr)
+		}
+	}
 }

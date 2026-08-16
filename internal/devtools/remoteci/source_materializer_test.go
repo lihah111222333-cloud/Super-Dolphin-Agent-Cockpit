@@ -48,6 +48,90 @@ func TestSourceMaterializationRootsOmitsOnlyDeterministicEmptyTree(t *testing.T)
 	}
 }
 
+func TestMakeReadOnlyGitTreeRejectsOversizedFileBeforeChmod(t *testing.T) {
+	root := t.TempDir()
+	defer func() { _ = restoreSourceTempPermissions(root) }()
+	oversized := filepath.Join(root, "objects", "pack", "oversized")
+	if err := os.MkdirAll(filepath.Dir(oversized), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oversized, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(oversized, int64(maxReadOnlyGitTreeBytes)+1); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := makeReadOnlyGitTree(root); err == nil {
+		t.Fatal("makeReadOnlyGitTree() accepted an oversized file")
+	}
+	after, err := os.Stat(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Mode().Perm() != before.Mode().Perm() {
+		t.Fatalf("oversized file mode = %o, want unchanged %o", after.Mode().Perm(), before.Mode().Perm())
+	}
+}
+
+func TestMakeReadOnlyGitTreeEntryRejectsEntryCapBeforeChmod(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "entry")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := maxReadOnlyGitTreeEntries
+	var bytes int64
+	if err := makeReadOnlyGitTreeEntry(path, &entries, &bytes); err == nil {
+		t.Fatal("makeReadOnlyGitTreeEntry() accepted an excessive entry count")
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Mode().Perm() != before.Mode().Perm() {
+		t.Fatalf("entry mode = %o, want unchanged %o", after.Mode().Perm(), before.Mode().Perm())
+	}
+}
+
+func TestMakeReadOnlyGitTreePreservesOwnerReadOnlyModes(t *testing.T) {
+	root := t.TempDir()
+	defer func() { _ = restoreSourceTempPermissions(root) }()
+	file := filepath.Join(root, "objects", "pack", "entry")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("object"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := makeReadOnlyGitTree(root); err != nil {
+		t.Fatalf("makeReadOnlyGitTree() error = %v", err)
+	}
+	for _, test := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{root, 0o555},
+		{filepath.Dir(file), 0o555},
+		{file, 0o444},
+	} {
+		info, err := os.Stat(test.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != test.mode {
+			t.Errorf("%s mode = %o, want %o", test.path, got, test.mode)
+		}
+	}
+}
+
 func TestMaterializeVerifiedSourceBundleRoundTrip(t *testing.T) {
 	fixture := newSourceMaterializerFixture(t, "candidate.txt", "candidate\n", "seed", "candidate.txt", "candidate changed\n", "candidate", true)
 	artifacts, _ := materializeSourceFixture(t, fixture, commitSourceSpec(fixture))
