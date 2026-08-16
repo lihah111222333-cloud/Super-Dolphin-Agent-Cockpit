@@ -35,7 +35,7 @@ trusted_launcher_root() {
   os_home=$(trusted_launcher_os_home) || return 1
   root="$os_home/.super-dolphin-gate-launchers"
   [[ -d "$root" ]] || {
-    printf '%s\n' 'super-dolphin gate blocked: no canonical launcher install root is provisioned; run make install-hooks.' >&2
+    printf '%s\n' 'super-dolphin gate blocked: canonical launcher install root is unavailable.' >&2
     return 1
   }
   physical_root=$(cd "$root" && pwd -P) || return 1
@@ -181,8 +181,12 @@ trusted_gate_launcher() {
 
   launcher=$(git -C "$repo_root" config --local --get superdolphin.gateLauncher 2>/dev/null || true)
   if [[ -z "$launcher" ]]; then
-    printf '%s\n' 'super-dolphin gate blocked: no trusted launcher is provisioned; run make install-hooks.' >&2
-    return 1
+    tree=$(git -C "$repo_root" write-tree) || {
+      printf '%s\n' 'super-dolphin gate blocked: exact staged tree is unavailable.' >&2
+      return 1
+    }
+    trusted_gate_launcher_for_tree "$repo_root" "$tree"
+    return
   fi
   validate_trusted_gate_launcher "$repo_root" "$launcher" || return 1
   tree=$(basename "$(dirname "$(dirname "$launcher")")")
@@ -199,30 +203,55 @@ trusted_gate_launcher_for_tree() {
     printf '%s\n' 'super-dolphin gate blocked: exact launcher tree is invalid.' >&2
     return 1
   fi
-  install_root=$(trusted_launcher_root "$repo_root") || return 1
-  validate_trusted_launcher_root "$repo_root" || return 1
+  install_root="$(trusted_launcher_os_home)/.super-dolphin-gate-launchers" || return 1
   configured=$(git -C "$repo_root" config --local --get superdolphin.gateLauncher 2>/dev/null || true)
-  if [[ -n "$configured" ]] \
+  if [[ -d "$install_root" ]] \
+    && validate_trusted_launcher_root_path "$install_root" \
+    && [[ -n "$configured" ]] \
     && validate_trusted_gate_launcher "$repo_root" "$configured" \
     && verify_trusted_gate_launcher_tree "$repo_root" "$configured" "$tree"; then
     printf '%s\n' "$configured"
     return 0
   fi
-  for candidate in "$install_root/v2"/*/*/super-dolphin-gate; do
-    if [[ ! -e "$candidate" ]]; then
-      continue
-    fi
-    if [[ "$candidate" == "$configured" ]]; then
-      continue
-    fi
-    if validate_trusted_gate_launcher "$repo_root" "$candidate" \
-      && verify_trusted_gate_launcher_tree "$repo_root" "$candidate" "$tree"; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-  printf 'super-dolphin gate blocked: no verified launcher version matches tree %s; run make install-hooks.\n' "$tree" >&2
-  return 1
+  if [[ -d "$install_root" ]] && validate_trusted_launcher_root_path "$install_root"; then
+    for candidate in "$install_root/v2"/*/*/super-dolphin-gate; do
+      if [[ ! -e "$candidate" || "$candidate" == "$configured" ]]; then
+        continue
+      fi
+      if validate_trusted_gate_launcher "$repo_root" "$candidate" \
+        && verify_trusted_gate_launcher_tree "$repo_root" "$candidate" "$tree"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+  fi
+  materialize_trusted_gate_launcher_for_tree "$repo_root" "$tree"
+}
+
+materialize_trusted_gate_launcher_for_tree() {
+  local repo_root=${1:?repository root is required}
+  local tree=${2:?tree is required}
+  local builder launcher
+
+  builder=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-launcher-builder.XXXXXX") || return 1
+  if ! git -C "$repo_root" cat-file blob "$tree:scripts/build-trusted-gate-launcher.sh" >"$builder"; then
+    rm -f -- "$builder"
+    printf 'super-dolphin gate blocked: launcher builder is missing from exact tree %s.\n' "$tree" >&2
+    return 1
+  fi
+  chmod 0500 "$builder" || {
+    rm -f -- "$builder"
+    return 1
+  }
+  launcher=$(cd "$repo_root" && "$builder" "$tree") || {
+    rm -f -- "$builder"
+    return 1
+  }
+  rm -f -- "$builder"
+  validate_trusted_gate_launcher "$repo_root" "$launcher" || return 1
+  verify_trusted_gate_launcher_tree "$repo_root" "$launcher" "$tree" || return 1
+  git -C "$repo_root" config --local superdolphin.gateLauncher "$launcher" || return 1
+  printf '%s\n' "$launcher"
 }
 
 verify_trusted_gate_launcher_tree() {

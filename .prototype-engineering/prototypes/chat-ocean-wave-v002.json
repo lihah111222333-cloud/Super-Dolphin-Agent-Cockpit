@@ -1,0 +1,95 @@
+{
+  "artifacts": {
+    "boundary": ".prototype-engineering/records/chat-ocean-wave-v002/boundary.json",
+    "brief": ".prototype-engineering/records/chat-ocean-wave-v002/brief.md",
+    "record": ".prototype-engineering/records/chat-ocean-wave-v002/record.md",
+    "repositoryMap": ".prototype-engineering/records/chat-ocean-wave-v002/repository-map.md",
+    "scenarios": ".prototype-engineering/records/chat-ocean-wave-v002/scenarios.json"
+  },
+  "boundaryVersion": 1,
+  "checks": [
+    {
+      "at": "2026-08-13T11:01:26+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v002/verification.md",
+      "name": "focused-tests",
+      "status": "passed"
+    },
+    {
+      "at": "2026-08-13T11:01:26+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v002/verification.md",
+      "name": "lsp-diagnostics",
+      "status": "passed"
+    },
+    {
+      "at": "2026-08-13T11:01:26+00:00",
+      "evidence": ".prototype-engineering/evidence/chat-ocean-wave-v002/verification.md",
+      "name": "real-browser",
+      "status": "passed"
+    }
+  ],
+  "createdAt": "2026-08-13T10:54:59+00:00",
+  "decision": "continue",
+  "evidence": [
+    ".prototype-engineering/evidence/chat-ocean-wave-v002/verification.md",
+    ".prototype-engineering/evidence/chat-ocean-wave-v002/active-dark.png",
+    ".prototype-engineering/evidence/chat-ocean-wave-v002/active-light.png"
+  ],
+  "git": {
+    "baseCommit": "088c81bf8008c1ee1e528b8e465e66b517c2d880",
+    "verifiedCommit": "088c81bf8008c1ee1e528b8e465e66b517c2d880"
+  },
+  "history": [
+    {
+      "at": "2026-08-13T10:54:59+00:00",
+      "from": null,
+      "to": "draft"
+    },
+    {
+      "at": "2026-08-13T10:55:59+00:00",
+      "from": "draft",
+      "to": "discovered"
+    },
+    {
+      "at": "2026-08-13T10:55:59+00:00",
+      "from": "discovered",
+      "to": "framed"
+    },
+    {
+      "at": "2026-08-13T10:55:59+00:00",
+      "from": "framed",
+      "to": "bounded"
+    },
+    {
+      "at": "2026-08-13T10:55:59+00:00",
+      "from": "bounded",
+      "to": "frozen"
+    },
+    {
+      "at": "2026-08-13T10:56:00+00:00",
+      "from": "frozen",
+      "to": "building"
+    },
+    {
+      "at": "2026-08-13T11:01:27+00:00",
+      "from": "building",
+      "to": "verified"
+    },
+    {
+      "at": "2026-08-13T11:01:27+00:00",
+      "from": "verified",
+      "to": "recorded"
+    },
+    {
+      "at": "2026-08-13T11:01:27+00:00",
+      "from": "recorded",
+      "to": "decided"
+    }
+  ],
+  "id": "chat-ocean-wave-v002",
+  "name": "chat-ocean-wave",
+  "parentId": "chat-ocean-wave-v001",
+  "phase": "decided",
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-13T11:01:27+00:00",
+  "version": 2
+}

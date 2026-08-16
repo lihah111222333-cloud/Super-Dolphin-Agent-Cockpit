@@ -2,10 +2,12 @@ package multilsp
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
@@ -20,14 +22,29 @@ type goToolchainCandidate struct {
 	path   string
 }
 
-func withGoToolchain(info GoRootInfo, env []string, rootErr error) (GoRootInfo, error) {
+const goToolchainSelectionCacheLimit = 128
+
+type goToolchainSelectionCache struct {
+	sync.Mutex
+	values map[[sha256.Size]byte]goToolchainSelectionCacheEntry
+	order  [][sha256.Size]byte
+}
+
+type goToolchainSelectionCacheEntry struct {
+	info       GoToolchainInfo
+	executable string
+	size       int64
+	mtimeNS    int64
+}
+
+func withGoToolchain(info GoRootInfo, env []string, rootErr error, caches *goResolverCaches) (GoRootInfo, error) {
 	if rootErr != nil {
 		return info, rootErr
 	}
 	toolchain, err := resolveGoToolchain(
 		info,
 		goToolchainProbeDir(info),
-		goToolchainProbeEnv(info, env),
+		goToolchainProbeEnv(info, env), caches,
 	)
 	if err != nil {
 		return GoRootInfo{}, err
@@ -36,7 +53,7 @@ func withGoToolchain(info GoRootInfo, env []string, rootErr error) (GoRootInfo, 
 	return info, nil
 }
 
-func resolveGoToolchain(info GoRootInfo, probeDir string, env []string) (GoToolchainInfo, error) {
+func resolveGoToolchain(info GoRootInfo, probeDir string, env []string, caches *goResolverCaches) (GoToolchainInfo, error) {
 	required, source, err := requiredGoVersion(info)
 	if err != nil {
 		return GoToolchainInfo{}, err
@@ -44,7 +61,7 @@ func resolveGoToolchain(info GoRootInfo, probeDir string, env []string) (GoToolc
 	if required == "" {
 		return GoToolchainInfo{}, nil
 	}
-	toolchain, err := selectGoToolchainFromPATH(required, probeDir, env)
+	toolchain, err := selectGoToolchainFromPATH(required, probeDir, env, caches)
 	if err != nil {
 		return GoToolchainInfo{}, fmt.Errorf("%s requires go %s but Go toolchain selection failed: %w", source, required, err)
 	}
@@ -123,20 +140,102 @@ func goDirectiveVersionCandidate(fields []string) (string, bool) {
 	}
 }
 
-func selectGoToolchainFromPATH(requiredText, probeDir string, env []string) (GoToolchainInfo, error) {
+// selectGoToolchainFromPATH 按版本要求扫描 PATH，并复用 adapter 私有的有效工具链缓存。
+func selectGoToolchainFromPATH(requiredText, probeDir string, env []string, caches *goResolverCaches) (GoToolchainInfo, error) {
+	startedAt := time.Now()
 	required, err := parseGoVersion(requiredText)
 	if err != nil {
 		return GoToolchainInfo{}, err
 	}
 	pathValue := goToolchainPATHValue(env)
-	candidates := goToolchainCandidates(pathValue)
 	if strings.TrimSpace(pathValue) == "" {
 		return GoToolchainInfo{}, fmt.Errorf("PATH is empty")
 	}
+	cacheKey := goToolchainSelectionKey(requiredText, probeDir, env)
+	if cached, ok := loadGoToolchainSelection(caches, cacheKey); ok {
+		traceLSPTiming("go_toolchain cache=hit root=%q elapsed=%s", probeDir, time.Since(startedAt))
+		return cached, nil
+	}
+	candidates := goToolchainCandidates(pathValue)
 	if len(candidates) == 0 {
 		return GoToolchainInfo{}, fmt.Errorf("no go executable found in PATH")
 	}
-	return selectGoToolchainCandidate(required, pathValue, probeDir, env, candidates)
+	selected, err := selectGoToolchainCandidate(required, pathValue, probeDir, env, candidates)
+	if err == nil {
+		storeGoToolchainSelection(caches, cacheKey, selected, selectedGoExecutable(candidates, selected.BinDir))
+	}
+	traceLSPTiming("go_toolchain cache=miss root=%q elapsed=%s err=%v", probeDir, time.Since(startedAt), err)
+	return selected, err
+}
+
+func traceLSPTiming(format string, args ...any) {
+	if os.Getenv("MCP_LSP_TRACE_TIMING") != "1" {
+		return
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "mcp-lsp timing: "+format+"\n", args...)
+}
+
+// goToolchainSelectionKey 绑定工作区和完整环境，允许在扫描 PATH 前命中缓存。
+func goToolchainSelectionKey(requiredText, probeDir string, env []string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(strings.Join([]string{requiredText, probeDir, strings.Join(env, "\x00")}, "\x00")))
+}
+
+// loadGoToolchainSelection 校验可执行文件身份未漂移后返回缓存的工具链选择。
+func loadGoToolchainSelection(caches *goResolverCaches, key [sha256.Size]byte) (GoToolchainInfo, bool) {
+	if caches == nil {
+		return GoToolchainInfo{}, false
+	}
+	cache := &caches.toolchains
+	cache.Lock()
+	defer cache.Unlock()
+	entry, ok := cache.values[key]
+	if !ok {
+		return GoToolchainInfo{}, false
+	}
+	info, err := os.Stat(entry.executable)
+	if err != nil || info.Size() != entry.size || info.ModTime().UnixNano() != entry.mtimeNS {
+		delete(cache.values, key)
+		return GoToolchainInfo{}, false
+	}
+	return entry.info, true
+}
+
+// storeGoToolchainSelection 保存有界缓存，并在写入前绑定可执行文件大小与修改时间。
+func storeGoToolchainSelection(caches *goResolverCaches, key [sha256.Size]byte, value GoToolchainInfo, executable string) {
+	if caches == nil {
+		return
+	}
+	info, err := os.Stat(executable)
+	if err != nil {
+		return
+	}
+	entry := goToolchainSelectionCacheEntry{info: value, executable: executable, size: info.Size(), mtimeNS: info.ModTime().UnixNano()}
+	cache := &caches.toolchains
+	cache.Lock()
+	defer cache.Unlock()
+	if cache.values == nil {
+		cache.values = make(map[[sha256.Size]byte]goToolchainSelectionCacheEntry)
+	}
+	if _, exists := cache.values[key]; exists {
+		cache.values[key] = entry
+		return
+	}
+	if len(cache.order) >= goToolchainSelectionCacheLimit {
+		oldest := cache.order[0]
+		cache.order = cache.order[1:]
+		delete(cache.values, oldest)
+	}
+	cache.order = append(cache.order, key)
+	cache.values[key] = entry
+}
+
+func selectedGoExecutable(candidates []goToolchainCandidate, binDir string) string {
+	for _, candidate := range candidates {
+		if candidate.binDir == binDir {
+			return candidate.path
+		}
+	}
+	return ""
 }
 
 func selectGoToolchainCandidate(

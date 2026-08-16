@@ -328,7 +328,8 @@ func defaultToolErrorClassifiersLSPPathPolicy() []toolErrorClassifier {
 			hint: staticToolHint("next: use a path under trusted workspace roots or add the directory to workspace roots"),
 			match: func(_ error, message string, _ string) bool {
 				return strings.Contains(message, "outside workspace roots") ||
-					strings.Contains(message, "outside allowed workspace roots")
+					strings.Contains(message, "outside allowed workspace roots") ||
+					strings.Contains(message, "foreign platform path family")
 			},
 		},
 	}

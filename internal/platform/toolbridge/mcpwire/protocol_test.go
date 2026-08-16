@@ -83,6 +83,13 @@ func TestClassifyToolErrorKeepsDefaultAndCallerPrecedence(t *testing.T) {
 	}
 }
 
+func TestClassifyToolErrorTreatsForeignPlatformPathAsOutsideWorkspace(t *testing.T) {
+	code, retryable, hint, meta := ClassifyToolError("file", errors.New(`path "C:\\repo\\main.go" belongs to a foreign platform path family`))
+	if code != "path_outside_workspace" || retryable || hint == "" || meta != nil {
+		t.Fatalf("foreign path classification = (%q, %v, %q, %#v), want path_outside_workspace non-retryable with hint", code, retryable, hint, meta)
+	}
+}
+
 func TestDefaultToolErrorClassifiersKeepOriginalPrecedenceOrder(t *testing.T) {
 	want := []string{
 		"patch_no_match", "patch_ambiguous", "database_schema_missing", "internal_panic",

@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, expect, it, vi } from 'vitest';
 import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../shared/diagnostics/frontendHealthStore.js';
 import { resetVisibleActionFailureForTest, visibleActionFailureSnapshot } from '../../shared/ui/actionFailureSink.js';
-import { TestChatPage, TestChatPageWrapper, createActiveThreadStore, createFakeStore, deferred, getThreadCardByName, locateCodeFile, openCodeFile, openPath, saveCodeFile } from './__tests__/chatPageTestSupport.js';
+import { TestChatPage, TestChatPageWrapper, createActiveThreadStore, createFakeStore, deferred, locateCodeFile, openCodeFile, openPath, saveCodeFile } from './__tests__/chatPageTestSupport.js';
 
 function resetActionFailures() {
   window.localStorage.clear();
@@ -41,41 +41,6 @@ afterEach(async () => {
     expect(screen.getByText('Done: 内容方向固定为AI工具')).toBeInTheDocument();
     expect(screen.getByText('Done: 每天生成3条成片。')).toBeInTheDocument();
     expect(container.querySelector('.message-markdown p')).not.toHaveTextContent('##Done-Done');
-  });
-
-  it('treats backend created thread status as idle noise in thread cards', () => {
-    const store = createActiveThreadStore([], {
-      threads: [{ id: 'thread-1', name: '启动中间态会话', provider: 'codex', status: 'created', updatedAt: '2026-06-02T08:00:00Z' }],
-    });
-
-    render(<TestChatPage store={store} projectPath="/repo/app" />);
-
-    const card = getThreadCardByName('启动中间态会话');
-    expect(card).toHaveTextContent('codex');
-    expect(card).not.toHaveTextContent('created');
-    expect(card.querySelector('.thread-status-label')).toBeNull();
-    expect(card.querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--idle');
-    expect(card.querySelector('.thread-status-dot')).toHaveAttribute('title', '空闲');
-  });
-
-  it('groups thread card actions separately from the main agent button', () => {
-    const store = createFakeStore({
-      activeThreadId: 'agent-design',
-      threads: [{ id: 'agent-design', name: 'AI 设计流程', provider: 'unknown', status: 'idle' }],
-    });
-
-    render(<TestChatPage store={store} projectPath="/repo/app" />);
-
-    const card = getThreadCardByName('AI 设计流程');
-    const actions = card.querySelector('.thread-card-actions');
-
-    expect(actions).not.toBeNull();
-    expect(within(actions).getByRole('button', { name: '置顶对话' })).toBeInTheDocument();
-    expect(within(actions).getByRole('button', { name: '删除会话' })).toBeInTheDocument();
-    expect(within(actions).queryByRole('button', { name: '重命名会话' })).not.toBeInTheDocument();
-    expect(within(actions).queryByRole('button', { name: '归档会话' })).not.toBeInTheDocument();
-    expect(card.querySelector('.thread-main .thread-pin')).toBeNull();
-    expect(card.querySelector('.thread-main .thread-rename-trigger')).toBeNull();
   });
 
   it('renders an active conversation without the chat mode switch cards', () => {

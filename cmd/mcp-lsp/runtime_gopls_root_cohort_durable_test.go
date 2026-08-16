@@ -1,3 +1,5 @@
+//go:build !windows
+
 package main
 
 import (
@@ -5,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,9 +17,6 @@ import (
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -78,9 +76,6 @@ func TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers(t *testing.T)
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -147,9 +142,6 @@ func TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead(t
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortSerializesConcurrentConfigRotation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -303,9 +295,6 @@ func TestRuntimeServerGoplsRootCohortConfigRotationAllowedStateMatrix(t *testing
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortIdleDrainCompletionAndAdmissionCancel(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	t.Run("completion receipt", func(t *testing.T) {
 		runDurableGoplsRootCohortCompletionReceipt(t)
 	})
@@ -443,9 +432,6 @@ func runDurableGoplsRootCohortAdmissionCancel(t *testing.T) {
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -503,9 +489,6 @@ func TestRuntimeDurableGoplsRootCohortDrainFailureRetainsEvidenceAndRetries(t *t
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -594,9 +577,6 @@ func TestRuntimeDurableGoplsRootCohortCrossControllerAdmissionFencesOldCleanup(t
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -672,9 +652,6 @@ func TestRuntimeDurableGoplsRootCohortUnreachableOldOwnerRetainsCleanupEvidence(
 
 // super-dolphin-ci: compile-group-exclusive
 func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("gopls auto daemon root cohorts are unsupported on Windows")
-	}
 	cacheRoot := t.TempDir()
 	if err := os.Chmod(cacheRoot, 0o700); err != nil {
 		t.Fatalf("secure test cache root: %v", err)
@@ -744,6 +721,18 @@ func TestRuntimeGoplsRootCohortClientDelaysForwarderCloseUntilDurableDeadline(t 
 	}
 }
 
+func TestGoplsRootCohortClientForwardsTransportHealth(t *testing.T) {
+	forwarder := &durableForwarderCloseProbe{healthy: true}
+	client := &goplsRootCohortClient{Client: forwarder}
+	if !client.Healthy() {
+		t.Fatal("gopls root cohort wrapper hid healthy forwarder")
+	}
+	forwarder.healthy = false
+	if client.Healthy() {
+		t.Fatal("gopls root cohort wrapper hid dead forwarder")
+	}
+}
+
 // closeDurableGoplsRootCohortController 通过生产 Close 完成测试 teardown，并暴露任何 pending owner 错误。
 func closeDurableGoplsRootCohortController(t testing.TB, c multilsp.GoplsRootCohortController) {
 	t.Helper()
@@ -757,9 +746,12 @@ func closeDurableGoplsRootCohortController(t testing.TB, c multilsp.GoplsRootCoh
 
 type durableForwarderCloseProbe struct {
 	multilsp.Client
-	closes atomic.Int32
-	closed chan struct{}
+	closes  atomic.Int32
+	closed  chan struct{}
+	healthy bool
 }
+
+func (p *durableForwarderCloseProbe) Healthy() bool { return p != nil && p.healthy }
 
 func (p *durableForwarderCloseProbe) Close() error {
 	if p.closes.Add(1) == 1 {

@@ -1317,7 +1317,7 @@
     },
     {
       "actionId": "thread.delete",
-      "producerCount": 3,
+      "producerCount": 1,
       "kind": "user",
       "owner": "thread/delete",
       "visibleSink": "ActionFailureSink",

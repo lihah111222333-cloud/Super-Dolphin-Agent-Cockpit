@@ -7,6 +7,44 @@ import (
 	"testing"
 )
 
+func TestParseGoWorkModuleRootsCachesByContentAndInvalidatesOnChange(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	mustCreateGoWorkTestDir(t, first)
+	mustCreateGoWorkTestDir(t, second)
+	goWorkPath := filepath.Join(root, "go.work")
+	mustWriteGoWorkTestFile(t, goWorkPath, "first")
+	caches := &goResolverCaches{}
+	firstRoots, err := parseGoWorkModuleRoots(goWorkPath, []string{"PATH="}, caches)
+	if err != nil || len(firstRoots) != 1 || firstRoots[0] != first {
+		t.Fatalf("first roots = %#v, err=%v", firstRoots, err)
+	}
+	secondRoots, err := parseGoWorkModuleRoots(goWorkPath, []string{"PATH="}, caches)
+	if err != nil || len(secondRoots) != 1 || secondRoots[0] != first {
+		t.Fatalf("cached roots = %#v, err=%v", secondRoots, err)
+	}
+	mustWriteGoWorkTestFile(t, goWorkPath, "second")
+	changedRoots, err := parseGoWorkModuleRoots(goWorkPath, []string{"PATH="}, caches)
+	if err != nil || len(changedRoots) != 1 || changedRoots[0] != second {
+		t.Fatalf("changed roots = %#v, err=%v", changedRoots, err)
+	}
+}
+
+func mustCreateGoWorkTestDir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWriteGoWorkTestFile(t *testing.T, path, module string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("go 1.25.0\n\nuse ./"+module+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFindJSTSProjectRootWithinFindsFirstValidProject(t *testing.T) {
 	root := t.TempDir()
 

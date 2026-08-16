@@ -95,6 +95,7 @@ type p2LifecycleFactory struct {
 	calls              []genericMatrixFactoryCall
 	initializeFailures []error
 	requestFailures    []error
+	requestSequences   [][]error
 }
 
 func (f *p2LifecycleFactory) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
@@ -111,6 +112,7 @@ func (f *p2LifecycleFactory) NewClientWithEnv(rootDir string, env []string, hand
 		documents:         map[string]string{},
 		initializeFailure: failureAt(f.initializeFailures, idx),
 		requestFailure:    failureAt(f.requestFailures, idx),
+		requestFailures:   append([]error(nil), sequenceAt(f.requestSequences, idx)...),
 	}
 	f.clients = append(f.clients, client)
 	f.calls = append(f.calls, genericMatrixFactoryCall{rootDir: rootDir, env: append([]string(nil), env...)})
@@ -160,6 +162,7 @@ type p2LifecycleClient struct {
 	requestLog        []string
 	initializeFailure error
 	requestFailure    error
+	requestFailures   []error
 	shutdownFailure   error
 	closeFailure      error
 }
@@ -189,10 +192,17 @@ func (c *p2LifecycleClient) Shutdown(context.Context) error { return c.shutdownF
 func (c *p2LifecycleClient) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
 	c.mu.Lock()
 	c.requestLog = append(c.requestLog, method)
+	requestIndex := len(c.requestLog) - 1
+	requestFailure := c.requestFailure
+	if requestIndex < len(c.requestFailures) {
+		requestFailure = c.requestFailures[requestIndex]
+	}
 	c.mu.Unlock()
-	if c.requestFailure != nil {
-		c.markUnhealthy()
-		return nil, c.requestFailure
+	if requestFailure != nil {
+		if !errors.Is(requestFailure, context.DeadlineExceeded) {
+			c.markUnhealthy()
+		}
+		return nil, requestFailure
 	}
 	return json.Marshal([]protocol.DocumentSymbol{{
 		Name:           "rebuilt",
@@ -200,6 +210,13 @@ func (c *p2LifecycleClient) Request(_ context.Context, method string, _ any) (js
 		Range:          protocol.Range{},
 		SelectionRange: protocol.Range{},
 	}})
+}
+
+func sequenceAt(values [][]error, index int) []error {
+	if index < 0 || index >= len(values) {
+		return nil
+	}
+	return values[index]
 }
 
 func (c *p2LifecycleClient) Notify(context.Context, string, any) error { return nil }

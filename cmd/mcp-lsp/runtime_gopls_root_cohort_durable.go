@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -121,9 +120,6 @@ func runtimeServerNewDurableGoplsRootCohortController() (multilsp.GoplsRootCohor
 }
 
 func runtimeServerNewDurableGoplsRootCohortControllerWithDrainWindow(window time.Duration) (multilsp.GoplsRootCohortController, error) {
-	if runtime.GOOS == "windows" {
-		return nil, multilsp.ErrGoplsRootCohortDurabilityUnsupported
-	}
 	if window <= 0 {
 		return nil, errors.New("gopls root cohort idle drain window must be positive")
 	}
@@ -395,10 +391,10 @@ func (c *runtimeServerDurableGoplsRootCohortController) Close() error {
 	c.mu.Lock()
 	c.closed = true
 	c.mu.Unlock()
+	c.drainLaunchMu.Lock()
 	if c.drainCancel != nil {
 		c.drainCancel()
 	}
-	c.drainLaunchMu.Lock()
 	c.drainLaunchMu.Unlock()
 	c.drainWG.Wait()
 	c.drainMu.Lock()

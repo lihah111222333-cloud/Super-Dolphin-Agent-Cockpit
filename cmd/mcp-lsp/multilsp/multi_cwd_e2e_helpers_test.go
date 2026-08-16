@@ -99,10 +99,14 @@ func (f *e2eFactory) NewClient(rootDir string, handler protocol.NotificationHand
 }
 
 func (f *e2eFactory) NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error) {
+	return f.NewClientWithOptions(rootDir, env, nil, handler)
+}
+
+func (f *e2eFactory) NewClientWithOptions(rootDir string, env []string, initOptions map[string]any, handler protocol.NotificationHandler) (Client, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	client := &e2eClient{rootDir: rootDir, handler: handler, documents: map[string]string{}}
-	f.calls = append(f.calls, genericMatrixFactoryCall{rootDir: rootDir, env: append([]string(nil), env...)})
+	f.calls = append(f.calls, genericMatrixFactoryCall{rootDir: rootDir, env: append([]string(nil), env...), initOptions: cloneAnyMap(initOptions)})
 	f.clients = append(f.clients, client)
 	return client, nil
 }

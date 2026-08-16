@@ -29,6 +29,9 @@ func main() {
 	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
 		os.Exit(exitCode)
 	}
+	if handled, exitCode := runWindowsGoplsBrokerIfRequested(os.Args); handled {
+		os.Exit(exitCode)
+	}
 	rlimit.Init()
 	stdout := os.Stdout
 	os.Stdout = os.Stderr

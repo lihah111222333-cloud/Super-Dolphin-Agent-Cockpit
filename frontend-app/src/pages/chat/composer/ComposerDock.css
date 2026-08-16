@@ -81,12 +81,12 @@
 }
 
 .sa-window .composer.composer--floating[data-file-drop-target] {
-  --composer-fixed-left: calc(var(--workbench-sidebar-width) + var(--thread-rail-column-width, 0px));
+  --composer-fixed-left: var(--workbench-sidebar-width);
   --composer-fixed-right: var(--composer-right-offset, 0px);
 }
 
 .sa-window.sidebar-collapsed .composer.composer--floating[data-file-drop-target] {
-  --composer-fixed-left: calc(48px + var(--thread-rail-column-width, 0px));
+  --composer-fixed-left: 48px;
 }
 
 .composer-card {

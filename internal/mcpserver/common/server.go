@@ -722,7 +722,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		}
 		errorAttrs = append(errorAttrs, toolPayloadAttrs("error_payload", errorPayload)...)
 		pkglogger.Warn("mcp: tools/call error", errorAttrs...)
-		if isNilToolResult(value) {
+		if isNilToolResult(value) || !ToolResultIsError(value) {
 			value = NewToolErrorEnvelopeWithClassifier(params.Name, "", err, nil, s.toolErrorClassifier)
 		}
 	}

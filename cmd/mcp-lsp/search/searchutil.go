@@ -313,7 +313,7 @@ func explicitHiddenSearchRoot(pathInfo PathInfo, explicit bool) string {
 
 // containsHiddenAgentDirectory 判断路径段是否命中 .agent 或 .agents。
 func containsHiddenAgentDirectory(path string) bool {
-	for _, segment := range strings.Split(filepath.ToSlash(filepath.Clean(path)), "/") {
+	for segment := range strings.SplitSeq(filepath.ToSlash(filepath.Clean(path)), "/") {
 		if segment == ".agent" || segment == ".agents" {
 			return true
 		}
@@ -602,7 +602,7 @@ func sgItemToSearchMatch(item sgStreamMatch, root string) SearchMatch {
 }
 
 func validateSearchGlob(rawGlob string) error {
-	glob := filepath.ToSlash(strings.TrimSpace(rawGlob))
+	glob := platformNormalizeSearchGlob(strings.TrimSpace(rawGlob))
 	if glob == "" {
 		return nil
 	}
@@ -710,7 +710,7 @@ func splitUnescapedGlobAlternatives(body string) []string {
 // matchesPathGlob 判断候选文件是否匹配用户提供的 glob。
 // 含路径分隔符的 glob 按相对路径匹配，裸文件名 glob 额外尝试 basename。
 func matchesPathGlob(root, candidate, rawGlob string) (bool, error) {
-	glob := filepath.ToSlash(strings.TrimSpace(rawGlob))
+	glob := platformNormalizeSearchGlob(strings.TrimSpace(rawGlob))
 	if glob == "" {
 		return true, nil
 	}
@@ -788,8 +788,7 @@ func matchesGlobSegments(patterns, candidates []string) (bool, error) {
 }
 
 func formatSGCommandErrorWithStderr(prefix string, err error, stderrBytes []byte) error {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		if len(stderrBytes) == 0 {
 			stderrBytes = exitErr.Stderr
 		}
@@ -802,8 +801,8 @@ func formatSGCommandErrorWithStderr(prefix string, err error, stderrBytes []byte
 }
 
 func isSGNoMatchExitCodeOneWithoutStderrBytes(err error, stderrBytes []byte) bool {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok || exitErr.ExitCode() != 1 {
 		return false
 	}
 	if len(stderrBytes) == 0 {

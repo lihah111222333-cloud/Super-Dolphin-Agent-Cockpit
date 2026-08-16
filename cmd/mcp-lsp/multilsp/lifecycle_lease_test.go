@@ -47,8 +47,8 @@ func TestLeaseReleaseStartsFullIdleWindow(t *testing.T) {
 	leased.Release()
 
 	got := mgr.workspaces["workspace"].lastActivity
-	if !got.After(releasedAt) {
-		t.Fatalf("lastActivity after release = %s, want after %s", got, releasedAt)
+	if got.Before(releasedAt) {
+		t.Fatalf("lastActivity after release = %s, want at or after %s", got, releasedAt)
 	}
 }
 

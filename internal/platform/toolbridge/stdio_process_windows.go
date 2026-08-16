@@ -18,6 +18,8 @@ const (
 	// Windows CreationFlags 常量用于隐藏 stdio MCP 窗口并创建独立进程组。
 	stdioCreateNewProcessGroup = 0x00000200
 	stdioCreateNoWindow        = 0x08000000
+	stdioJobKillOnClose        = 0x00002000
+	stdioJobBreakawayOK        = 0x00000800
 )
 
 // stdioProcessGuard 保存 Windows Job Object 句柄，Close 时负责释放整棵进程树。
@@ -38,11 +40,11 @@ func stdioConfigureCommand(cmd *exec.Cmd) {
 
 // stdioAttachProcessGuard 把 stdio MCP 子进程加入 KillOnClose Job Object。
 // Job 创建或绑定失败只记录告警并回退到单进程关闭路径。
-func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {
+func stdioAttachProcessGuard(cmd *exec.Cmd, allowBreakaway bool) *stdioProcessGuard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
-	handle, err := stdioCreateKillOnCloseJob()
+	handle, err := stdioCreateKillOnCloseJob(allowBreakaway)
 	if err != nil {
 		pkglogger.Warn("toolbridge: create stdio MCP job failed", "pid", cmd.Process.Pid, "error", err)
 		return nil
@@ -105,14 +107,18 @@ func stdioCleanupProcessTree(_ *exec.Cmd, guard *stdioProcessGuard) error {
 }
 
 // stdioCreateKillOnCloseJob 创建带 KillOnJobClose 标志的 Windows Job Object。
-func stdioCreateKillOnCloseJob() (windows.Handle, error) {
+func stdioCreateKillOnCloseJob(allowBreakaway bool) (windows.Handle, error) {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return 0, err
 	}
+	limitFlags := uint32(stdioJobKillOnClose)
+	if allowBreakaway {
+		limitFlags |= stdioJobBreakawayOK
+	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: 0x2000,
+			LimitFlags: limitFlags,
 		},
 	}
 	if _, err := windows.SetInformationJobObject(

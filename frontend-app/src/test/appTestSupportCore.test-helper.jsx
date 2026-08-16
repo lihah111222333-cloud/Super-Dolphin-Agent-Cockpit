@@ -93,21 +93,21 @@ function getBackendThreadText() {
 
 function getThreadCardByName(name) {
   const card = screen.getAllByText(name)
-    .map((node) => node.closest('.thread-card'))
+    .map((node) => node.closest('.sidebar-thread-row'))
     .find(Boolean);
   if (!card) throw new Error(`Thread card not found: ${name}`);
   return card;
 }
 
 function clickThreadCardByName(name) {
-  const button = getThreadCardByName(name).querySelector('.thread-main');
+  const button = getThreadCardByName(name).querySelector('.sidebar-thread-item');
   if (!button) throw new Error(`Thread card button not found: ${name}`);
   fireEvent.click(button);
 }
 
 function queryThreadCardByName(name) {
   return screen.queryAllByText(name)
-    .map((node) => node.closest('.thread-card'))
+    .map((node) => node.closest('.sidebar-thread-row'))
     .find(Boolean) ?? null;
 }
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, createShellLayoutTestHarness, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
+import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, createShellLayoutTestHarness } from './__tests__/chatPageTestSupport.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { resetVisibleActionFailureForTest } from '../../shared/ui/actionFailureSink.js';
 import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
@@ -87,6 +87,12 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.queryByText('Creative Brainstorm')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--intro');
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--ocean');
+    const oceanAtmosphere = screen.getByTestId('chat-ocean-atmosphere');
+    expect(oceanAtmosphere).toHaveAttribute('aria-hidden', 'true');
+    expect(oceanAtmosphere.querySelectorAll('.chat-ocean-wave')).toHaveLength(3);
+    expect(oceanAtmosphere.querySelectorAll('.chat-ocean-stars i')).toHaveLength(12);
+    expect(oceanAtmosphere.querySelector('.chat-ocean-moon-shadow')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-drop-zone')).toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
@@ -106,7 +112,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     const layout = screen.getByTestId('chat-layout');
     const displayedRightWidth = Number(screen.getByTestId('right-panel-resizer').getAttribute('aria-valuenow'));
     expect(layout).toHaveStyle({
-      gridTemplateColumns: `240px minmax(0, 1fr) 6px ${displayedRightWidth}px`,
+      gridTemplateColumns: `minmax(0, 1fr) 6px ${displayedRightWidth}px`,
     });
     expect(layout.style.getPropertyValue('--composer-right-offset')).toBe(`${displayedRightWidth + 6}px`);
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
@@ -369,9 +375,27 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByRole('heading', { name: '空消息线程' })).toBeInTheDocument();
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--ocean');
+    expect(screen.getByTestId('chat-ocean-atmosphere')).toBeInTheDocument();
     expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
     expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
+  });
+
+  it('synchronizes the ocean energy state with active and idle thread work', () => {
+    const runningStore = createActiveThreadStore([], {
+      threads: [{ id: 'thread-1', name: '运行中线程', provider: 'codex', status: 'running', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+    const { rerender } = render(<TestChatPageWrapper store={runningStore} projectPath="/repo/app" />);
+
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--ocean-active');
+
+    const idleStore = createActiveThreadStore([], {
+      threads: [{ id: 'thread-1', name: '已完成线程', provider: 'codex', status: 'completed', updatedAt: '2026-06-02T08:01:00Z' }],
+    });
+    rerender(<TestChatPageWrapper store={idleStore} projectPath="/repo/app" />);
+
+    expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--ocean-active');
   });
 
   it('shows invalid message timestamps as an explicit placeholder', () => {
@@ -401,7 +425,6 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.queryByText('连接后端失败：backend unavailable')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新连接后端' })).toBeEnabled();
     expect(screen.getByText('我们应该在 Super Dolphin Agent 中构建什么？')).toBeInTheDocument();
-    expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('请修复测试');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
@@ -437,20 +460,18 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     );
 
     expect(screen.getByTestId('chat-layout')).toHaveStyle({
-      gridTemplateColumns: '240px minmax(0, 1fr) 6px 480.5px',
+      gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
     });
     expect(shellLayout.storage.set).not.toHaveBeenCalled();
   });
 
-  it('hides the thread rail without reserving a grid column at 1280px', () => {
+  it('does not render the removed secondary thread rail', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
     const store = createFakeStore();
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByTestId('thread-rail')).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getByTestId('thread-rail')).toHaveAttribute('inert');
-    expect(screen.getByTestId('thread-rail')).toHaveAttribute('hidden');
+    expect(screen.queryByTestId('thread-rail')).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-layout')).toHaveStyle({
       gridTemplateColumns: 'minmax(0, 1fr)',
     });
@@ -494,7 +515,6 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--floating');
-    expect(getThreadCardByName('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
     expect(container.querySelector('.message.user.no-avatar')).not.toBeNull();

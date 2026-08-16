@@ -167,6 +167,9 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsCSharpLSWithRealDotnet_E2E(t *testin
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses POSIX PATH isolation")
 	}
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		t.Skip("Linux amd64 C# uses the pinned managed .NET/csharp-ls installer")
+	}
 
 	binary := buildMcpLSPBinaryForTest(t)
 	root := t.TempDir()

@@ -1,6 +1,7 @@
 package multilsp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -9,6 +10,10 @@ import (
 	"testing"
 	"time"
 )
+
+type bufferWriteCloser struct{ bytes.Buffer }
+
+func (*bufferWriteCloser) Close() error { return nil }
 
 func TestDefaultLSPRequestTimeoutIsSixtySeconds(t *testing.T) {
 	if defaultRequestTimeout != 60*time.Second {
@@ -145,6 +150,33 @@ func TestTransportRequestWriteHonorsDeadline(t *testing.T) {
 	waitForRequestDeadline(t, tr, gate, errCh)
 	assertRequestContextTerminatedTransport(t, tr)
 	closeOriginalStdin()
+}
+
+func TestTransportResponseDeadlinePreservesHealthyTransport(t *testing.T) {
+	writer := &bufferWriteCloser{}
+	tr := &transport{
+		stdin:   writer,
+		pending: map[string]chan pendingResult{},
+		done:    make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := tr.request(ctx, "textDocument/definition", map[string]string{"uri": "file:///slow.go"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("request() error = %v, want context deadline exceeded", err)
+	}
+	if tr.closed.Load() {
+		t.Fatal("response deadline closed transport; slow server progress must survive for retry")
+	}
+	tr.pendingMu.Lock()
+	pendingCount := len(tr.pending)
+	tr.pendingMu.Unlock()
+	if pendingCount != 0 {
+		t.Fatalf("pending requests after response deadline = %d, want 0", pendingCount)
+	}
+	if writer.Len() == 0 {
+		t.Fatal("request was not written before response deadline")
+	}
 }
 
 func waitForGatedWrite(t *testing.T, tr *transport, gate *gatedWriteCloser) {

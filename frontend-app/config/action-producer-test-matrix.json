@@ -5538,8 +5538,8 @@
       "semanticClass": "thread-mutation",
       "actionId": "thread.pin",
       "sourcePath": "src/pages/chat/thread/ThreadCard.jsx",
-      "testFile": "src/pages/chat/thread/ThreadRail.test.jsx",
-      "testName": "renders active threads and routes thread actions through the store"
+      "testFile": "src/pages/chat/thread/ThreadCard.test.jsx",
+      "testName": "routes pin actions through the store"
     },
     {
       "semanticClass": "settings-save",

@@ -277,6 +277,10 @@ type mcpLSPPeerBinaryClient struct {
 }
 
 func startMcpLSPBinaryForTestWithEnv(t *testing.T, ctx context.Context, binary, root, fakePyrightBinDir string, extraEnv []string) *mcpLSPBinaryClient {
+	return startMcpLSPBinaryForTestWithEnvConfigured(t, ctx, binary, root, fakePyrightBinDir, extraEnv, func(*exec.Cmd) {}, func(*exec.Cmd) (func() error, error) { return nil, nil })
+}
+
+func startMcpLSPBinaryForTestWithEnvConfigured(t *testing.T, ctx context.Context, binary, root, fakePyrightBinDir string, extraEnv []string, configure func(*exec.Cmd), afterStart func(*exec.Cmd) (func() error, error)) *mcpLSPBinaryClient {
 	t.Helper()
 	repoRoot := repoRootForMcpLSPBinaryTest(t)
 	rawRoots, err := json.Marshal([]string{root})
@@ -284,6 +288,7 @@ func startMcpLSPBinaryForTestWithEnv(t *testing.T, ctx context.Context, binary, 
 		t.Fatalf("marshal roots: %v", err)
 	}
 	cmd := exec.CommandContext(ctx, binary)
+	configure(cmd)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"GO_AGENT_LSP_ROOT="+root,
@@ -314,6 +319,12 @@ func startMcpLSPBinaryForTestWithEnv(t *testing.T, ctx context.Context, binary, 
 	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start mcp-lsp binary: %v", err)
+	}
+	client.closeHook, err = afterStart(cmd)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("finish mcp-lsp test launch: %v", err)
 	}
 	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {

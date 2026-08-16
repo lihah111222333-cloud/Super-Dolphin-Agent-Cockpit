@@ -79,9 +79,6 @@ const appTestSupport = createAppTestSupport({
 const {
   dispatchPointer,
   waitForBackendThreadHeading,
-  getThreadCardByName,
-  clickThreadCardByName,
-  findThreadCardByName,
   createShellLayoutStorage,
   installAppOverlayHost,
   resetConnectedShellTestState,
@@ -125,7 +122,7 @@ afterEach(cleanupAppTest);
     dispatchPointer(rightResizer, 'pointerdown', 1100, { pointerId: 7 });
     dispatchPointer(window, 'pointermove', 700, { pointerId: 8 });
     dispatchPointer(window, 'pointerup', 700, { pointerId: 8 });
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr) 6px 380px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
     expect(storage.set).not.toHaveBeenCalled();
 
     dispatchPointer(window, 'pointermove', 900, { pointerId: 7 });
@@ -150,7 +147,7 @@ afterEach(cleanupAppTest);
     expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
     dispatchPointer(window, 'pointerup', 1480);
 
-    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument(); expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
+    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument(); expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
     expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
     expect(storage.value()).toBe('0');
   });
@@ -180,7 +177,7 @@ afterEach(cleanupAppTest);
     }));
 
     render(<App />);
-    await findThreadCardByName('Agent A');
+    await screen.findByRole('heading', { name: 'Agent A' });
 
     act(() => {
       bridgeCallback({
@@ -209,7 +206,9 @@ afterEach(cleanupAppTest);
     expect(screen.getByTestId('warning-log-panel')).toHaveTextContent('api.rpc.failed');
     expect(screen.getByTestId('warning-log-panel')).not.toHaveTextContent('bridge.call/failed');
 
-    clickThreadCardByName('Agent B');
+    await act(async () => {
+      await useClientStore.getState().openThreadById('thread-b');
+    });
 
     await waitFor(() => {
       expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: '折叠 b' })).toBeInTheDocument();
@@ -257,7 +256,9 @@ afterEach(cleanupAppTest);
       }));
     });
 
-    clickThreadCardByName('Agent B');
+    act(() => {
+      void useClientStore.getState().openThreadById('thread-b');
+    });
 
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
@@ -267,7 +268,7 @@ afterEach(cleanupAppTest);
     expect(useClientStore.getState().activeThreadId).toBe('thread-a');
     expect(useClientStore.getState().pendingActiveThreadId).toBe('thread-b');
     expect(useClientStore.getState().threadStateLoadingByThread['thread-b']).toBe(true);
-    expect(getThreadCardByName('Agent A')).toHaveClass('active');
+    expect(useClientStore.getState().activeThreadId).toBe('thread-a');
     expect(screen.getByText('Agent A ready')).toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
     expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
@@ -331,7 +332,9 @@ afterEach(cleanupAppTest);
       }));
     });
 
-    clickThreadCardByName('Agent B');
+    act(() => {
+      void useClientStore.getState().openThreadById('thread-b');
+    });
 
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
@@ -357,7 +360,7 @@ afterEach(cleanupAppTest);
 
     expect(leftResizer).toHaveAttribute('aria-valuenow', '280');
     expect(screen.getByTestId('frontend-app')).toHaveStyle({ '--workbench-sidebar-width': '280px' });
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const rightResizer = screen.getByTestId('right-panel-resizer');
@@ -368,7 +371,7 @@ afterEach(cleanupAppTest);
 
     await waitFor(() => {
       expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
-      expect(layout).toHaveStyle({ gridTemplateColumns: '240px minmax(0, 1fr)' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
     });
   });
 
@@ -557,10 +560,6 @@ afterEach(cleanupAppTest);
     expect(screen.queryByRole('button', { name: '语音输入' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('添加文件')).toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('会话列表')).toBeInTheDocument();
-    expect(screen.getByLabelText('0 个 Agent')).toBeInTheDocument();
-    expect(screen.getByLabelText('打开归档列表')).toBeEnabled();
-    expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
   });
 
   it('disables thread-scoped chat buttons when the active backend thread is archived', async () => {

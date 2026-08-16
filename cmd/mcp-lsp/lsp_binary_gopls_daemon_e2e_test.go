@@ -238,11 +238,7 @@ func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create gopls runtime dir: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(runtimeDir); err != nil {
-			t.Errorf("remove gopls runtime dir: %v", err)
-		}
-	})
+	t.Cleanup(func() { removeGoplsRuntimeDirForE2E(t, runtimeDir) })
 	goplsBinDir := filepath.Dir(goplsPath)
 	env := []string{
 		"XDG_RUNTIME_DIR=" + runtimeDir,
@@ -315,6 +311,13 @@ func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	}
 	t.Logf("real gopls daemon self-exited after last forwarder: configured=%s actual_wait=%s endpoint_error=%v output=%s",
 		realGoplsRemoteListenTimeout, actualWait, stopped.Err, stopped.Output)
+}
+
+func removeGoplsRuntimeDirForE2E(t *testing.T, runtimeDir string) {
+	t.Helper()
+	if err := os.RemoveAll(runtimeDir); err != nil {
+		t.Errorf("remove gopls runtime dir: %v", err)
+	}
 }
 
 type goplsRemoteState struct {

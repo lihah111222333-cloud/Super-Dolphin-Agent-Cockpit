@@ -48,8 +48,6 @@ test('terminal-failed crosses production Wails application and EventBridge into 
 
   await page.goto('/');
   await expectChatShellReady(page, browserDiagnostics);
-  await expect(page.getByTestId('thread-rail').getByText(/^Failure smoke thread/u)).toBeAttached();
-
   const trigger = await page.evaluate(async () => {
     const { callAPI } = await import('/src/shared/api/wailsBridge.js');
     return callAPI('failure-smoke/trigger', { caseId: 'terminal-failed' });

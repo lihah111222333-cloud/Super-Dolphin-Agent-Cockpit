@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -428,13 +429,38 @@ func (r *dynamicRegistry) Close() error {
 	defer r.mu.Unlock()
 
 	var errs []error
+	closed := make(map[uintptr]string)
 	for languageID, cfg := range r.managers {
+		if identity, ok := registryManagerPointerIdentity(cfg.manager); ok {
+			if _, exists := closed[identity]; exists {
+				continue
+			}
+			closed[identity] = languageID
+		}
 		if err := cfg.manager.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close %s LSP manager: %w", languageID, err))
 		}
 	}
 	r.managers = make(map[string]*languageConfig)
 	return errors.Join(errs...)
+}
+
+// registryManagerPointerIdentity 返回注册 manager 的稳定进程内身份，用于确保
+// 同一 adapter 以多个 language ID 注册时只关闭一次共享 client/process-tree owner。
+func registryManagerPointerIdentity(mgr Manager) (uintptr, bool) {
+	if mgr == nil {
+		return 0, false
+	}
+	value := reflect.ValueOf(mgr)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		if value.IsNil() {
+			return 0, false
+		}
+		return value.Pointer(), true
+	default:
+		return 0, false
+	}
 }
 
 // DetectLanguageID 根据文件名或扩展名判断 LSP language id。

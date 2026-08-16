@@ -18,36 +18,6 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
-type testStdioServer struct{ err error }
-
-func (s testStdioServer) Run(context.Context) error { return s.err }
-
-type testStdioCloser struct{ err error }
-
-func (c testStdioCloser) Close() error { return c.err }
-
-func TestStdioRunnerJoinsRunAndCloseErrors(t *testing.T) {
-	runErr := errors.New("run failed")
-	closeErr := errors.New("close failed")
-	for _, tc := range []struct {
-		name     string
-		runErr   error
-		closeErr error
-	}{
-		{name: "both nil"},
-		{name: "run only", runErr: runErr},
-		{name: "close only", closeErr: closeErr},
-		{name: "both", runErr: runErr, closeErr: closeErr},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := (stdioRunner{server: testStdioServer{err: tc.runErr}, manager: testStdioCloser{err: tc.closeErr}}).Run(context.Background())
-			if errors.Is(err, runErr) != (tc.runErr != nil) || errors.Is(err, closeErr) != (tc.closeErr != nil) {
-				t.Fatalf("Run() error = %v, run=%v close=%v", err, tc.runErr, tc.closeErr)
-			}
-		})
-	}
-}
-
 func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {
 	declareTestDependencyBootstrap(t)
 	root := runtimeCanonicalTempDir(t)
@@ -119,7 +89,7 @@ func TestSetupInstallerPrefersNPMGlobalBinaryOverPNPMCommandShim(t *testing.T) {
 	writeRuntimeExecutable(t, filepath.Join(shadowBin, "npm"), "#!/bin/sh\nprintf '%s\\n' '"+npmPrefix+"'\n")
 	t.Setenv("PATH", shadowBin)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(
+	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(
 		lspinstaller.WithToolCallInstallCheckOnly(context.Background()),
 		"markdown",
 	)
@@ -415,9 +385,9 @@ func TestRuntimeServerGoplsRootProofIsStableAcrossLinkedWorktrees(t *testing.T) 
 
 func mustRuntimeServerArgsForRoot(t *testing.T, command multilsp.ServerCommand, binary, root string) []string {
 	t.Helper()
-	args, err := runtimeServerArgsForOS(command, binary, []string{"GOOS=darwin"}, "darwin", root)
+	args, err := runtimeServerGoplsAutoDaemonArgs(command, binary, []string{"GOOS=darwin"}, root)
 	if err != nil {
-		t.Fatalf("runtimeServerArgsForOS(root=%q) error = %v", root, err)
+		t.Fatalf("runtimeServerGoplsAutoDaemonArgs(root=%q) error = %v", root, err)
 	}
 	return args
 }
@@ -454,23 +424,12 @@ func TestRuntimeServerArgsSeparatesDaemonIdleTimeouts(t *testing.T) {
 
 func TestRuntimeServerArgsLeavesNonSharedServerUnchanged(t *testing.T) {
 	command := multilsp.ServerCommand{Executable: "pyright-langserver", Args: []string{"--stdio"}}
-	got := mustRuntimeServerArgs(t, command, "pyright-langserver", []string{"GOOS=darwin"})
+	got, err := runtimeServerArgs(command, "pyright-langserver", []string{"GOOS=windows"})
+	if err != nil {
+		t.Fatalf("runtimeServerArgs(non-shared) error = %v", err)
+	}
 	if !slices.Equal(got, command.Args) {
 		t.Fatalf("runtimeServerArgs(non-shared) = %v, want %v", got, command.Args)
-	}
-}
-
-func TestRuntimeServerArgsDisablesUnsupportedWindowsGoplsAutoDaemon(t *testing.T) {
-	command := multilsp.ServerCommand{
-		Executable: "gopls.exe",
-		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
-	}
-	got, err := runtimeServerArgsForOS(command, "gopls.exe", nil, "windows")
-	if err != nil {
-		t.Fatalf("runtimeServerArgsForOS(windows) error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("runtimeServerArgsForOS(windows) = %v, want local gopls without unsupported auto daemon flags", got)
 	}
 }
 
@@ -490,9 +449,9 @@ func TestRuntimeServerArgsSeparatesDifferentGoplsBinaryContents(t *testing.T) {
 
 func mustRuntimeServerArgs(t *testing.T, command multilsp.ServerCommand, binary string, env []string) []string {
 	t.Helper()
-	args, err := runtimeServerArgs(command, binary, env)
+	args, err := runtimeServerGoplsAutoDaemonArgs(command, binary, env)
 	if err != nil {
-		t.Fatalf("runtimeServerArgs() error = %v", err)
+		t.Fatalf("runtimeServerGoplsAutoDaemonArgs() error = %v", err)
 	}
 	return args
 }
@@ -713,7 +672,7 @@ func TestSetupInstallerRegistersBufProtoLanguageServer(t *testing.T) {
 	bufBinary := filepath.Join(binDir, mcpLSPExecutableFileName("buf"))
 	t.Setenv("PATH", binDir)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
+	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(proto) error = %v", err)
 	}
@@ -725,7 +684,7 @@ func TestSetupInstallerRegistersBufProtoLanguageServer(t *testing.T) {
 func TestSetupInstallerReportsMissingBufBinaryForProto(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	_, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
+	_, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
 	if err == nil {
 		t.Fatal("EnsureInstalledDetailed(proto) error = nil, want missing binary")
 	}
@@ -742,12 +701,15 @@ func TestSetupInstallerReportsMissingBufBinaryForProto(t *testing.T) {
 }
 
 func TestSetupInstallerRegistersSQLiteSQLLanguageServer(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Linux SQL uses the managed sqruff artifact")
+	}
 	binDir := t.TempDir()
 	writeMcpLSPExecutable(t, binDir, "sqruff")
 	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sqruff"))
 	t.Setenv("PATH", binDir)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
+	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
 	}
@@ -757,8 +719,8 @@ func TestSetupInstallerRegistersSQLiteSQLLanguageServer(t *testing.T) {
 }
 
 func TestSetupInstallerInstallsPinnedSQLiteSQLLanguageServer(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses a POSIX fake cargo script")
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		t.Skip("test uses the non-Linux cargo installer")
 	}
 	binDir := t.TempDir()
 	cargoHome := filepath.Join(t.TempDir(), "cargo-home")
@@ -784,7 +746,7 @@ EOF
 	t.Setenv("CARGO_HOME", cargoHome)
 	t.Setenv("CARGO_ARGS_MARKER", marker)
 
-	if _, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql"); err != nil {
+	if _, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql"); err != nil {
 		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
 	}
 	raw, err := os.ReadFile(marker)
@@ -798,12 +760,15 @@ EOF
 }
 
 func TestSetupInstallerRegistersSQLLanguageServer(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Linux SQL uses the managed sqruff artifact")
+	}
 	binDir := t.TempDir()
 	writeMcpLSPExecutable(t, binDir, "sqruff")
 	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sqruff"))
 	t.Setenv("PATH", binDir)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
+	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
 	}
@@ -822,7 +787,7 @@ func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
 	writeMcpLSPExecutable(t, binDir, "shellcheck")
 	t.Setenv("PATH", binDir)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
+	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
 	}
@@ -871,7 +836,7 @@ printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
 	t.Setenv("FAKE_INSTALL_BIN", binDir)
 	t.Setenv("FAKE_NPM_MARKER", marker)
 
-	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
+	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
 	}

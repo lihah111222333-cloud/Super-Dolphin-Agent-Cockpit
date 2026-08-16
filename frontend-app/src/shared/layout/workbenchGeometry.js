@@ -5,9 +5,6 @@ const MOBILE_RAIL_MAX_WIDTH = 320;
 const MOBILE_BREAKPOINT = 920;
 const RUNTIME_COMPACT_BREAKPOINT = 720;
 const SPLITTER_WIDTH = 6;
-const THREAD_RAIL_WIDTH = 240;
-const THREAD_RAIL_HIDDEN_MIN_VIEWPORT_WIDTH = 1200;
-const THREAD_RAIL_HIDDEN_MAX_VIEWPORT_WIDTH = 1280;
 const CONVERSATION_MIN_WIDTH = 440;
 const ACTIVITY_PANEL_MIN_HEIGHT = 112;
 const DESKTOP_RUNTIME_TOOLBAR_HEIGHT = 67;
@@ -54,10 +51,7 @@ function solveWorkbenchGeometry(input) {
   const railExpandedWidth = clamp(requestedRailWidth, railMin, railMax);
   const railDisplayed = railOpen ? railExpandedWidth : 0;
   const railConsumed = mobile ? 0 : railDisplayed;
-  const threadRailVisible = viewportWidth < THREAD_RAIL_HIDDEN_MIN_VIEWPORT_WIDTH
-    || viewportWidth > THREAD_RAIL_HIDDEN_MAX_VIEWPORT_WIDTH;
-  const threadRailConsumed = threadRailVisible ? THREAD_RAIL_WIDTH : 0;
-  const mainWidth = Math.max(0, viewportWidth - railConsumed - threadRailConsumed);
+  const mainWidth = Math.max(0, viewportWidth - railConsumed);
   const conversationMin = Math.min(mainWidth, Math.max(CONVERSATION_MIN_WIDTH, Math.floor(mainWidth * 0.4)));
   const rightMax = Math.max(0, Math.min(
     Math.floor(mainWidth * 0.4),
@@ -87,9 +81,7 @@ function solveWorkbenchGeometry(input) {
   const conversationGridTemplateColumns = rightDisplayed > 0
     ? `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightDisplayed}px`
     : 'minmax(0, 1fr)';
-  const gridTemplateColumns = threadRailVisible
-    ? `${THREAD_RAIL_WIDTH}px ${conversationGridTemplateColumns}`
-    : conversationGridTemplateColumns;
+  const gridTemplateColumns = conversationGridTemplateColumns;
 
   return freezeRecord({
     activity: {
@@ -125,7 +117,6 @@ function solveWorkbenchGeometry(input) {
       '--diff-panel-min-height': `${diffMin}px`,
       '--composer-right-offset': `${rightDisplayed + rightSplitter}px`,
       '--runtime-toolbar-height': `${toolbarHeight}px`,
-      '--thread-rail-column-width': `${threadRailConsumed}px`,
       '--workbench-sidebar-width': `${railExpandedWidth}px`,
     },
     gridTemplateColumns,
@@ -145,10 +136,6 @@ function solveWorkbenchGeometry(input) {
       preference: rightPreference,
     },
     splitterWidth: SPLITTER_WIDTH,
-    threadRail: {
-      consumed: threadRailConsumed,
-      visible: threadRailVisible,
-    },
     viewport: {
       height: viewportHeight,
       width: viewportWidth,
@@ -162,6 +149,5 @@ export {
   DESKTOP_RAIL_MIN_WIDTH,
   MOBILE_BREAKPOINT,
   SPLITTER_WIDTH,
-  THREAD_RAIL_WIDTH,
   solveWorkbenchGeometry,
 };

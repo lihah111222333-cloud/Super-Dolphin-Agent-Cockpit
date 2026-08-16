@@ -144,7 +144,7 @@ while IFS= read -r push_line || [[ -n "$push_line" ]]; do
     exit 1
   fi
   if ! push_launcher=$(trusted_gate_launcher_for_tree "$repo_root" "$local_tree"); then
-    printf 'pre-push blocked: trusted launcher receipt does not match pushed tree %s; run make install-hooks, then retry.\n' "$local_tree" >&2
+    printf 'pre-push blocked: trusted launcher could not be materialized or verified for pushed tree %s.\n' "$local_tree" >&2
     exit 1
   fi
   if [[ -n "$selected_push_launcher" && "$selected_push_launcher" != "$push_launcher" ]]; then

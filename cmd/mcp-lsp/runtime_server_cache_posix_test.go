@@ -5,8 +5,38 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/sync/errgroup"
 )
+
+func TestRuntimeServerEnsurePrivateDescendantAllowsConcurrentCreators(t *testing.T) {
+	root := runtimeServerSecureCacheRoot(t)
+	target := filepath.Join(root, "gopls-root-cohorts", strings.Repeat("a", 64))
+
+	const creators = 32
+	start := make(chan struct{})
+	errs := make(chan error, creators)
+	var group errgroup.Group
+	for range creators {
+		group.Go(func() error {
+			<-start
+			errs <- runtimeServerEnsurePrivateDescendant(root, target)
+			return nil
+		})
+	}
+	close(start)
+	if err := group.Wait(); err != nil {
+		t.Fatalf("wait concurrent creators: %v", err)
+	}
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent private descendant creation failed: %v", err)
+		}
+	}
+}
 
 func TestRuntimeServerEnsurePrivateRootRejectsBroadPermissions(t *testing.T) {
 	root := t.TempDir()

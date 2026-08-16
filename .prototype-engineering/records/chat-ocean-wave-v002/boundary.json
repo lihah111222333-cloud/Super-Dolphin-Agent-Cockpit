@@ -1,0 +1,38 @@
+{
+  "subject": "Theme-aware ocean atmosphere for the existing React chat panel",
+  "inside": [
+    "Decorative atmosphere markup mounted by ChatPage",
+    "Scoped ocean palette, light field, wave geometry, animation, responsive behavior, and reduced-motion rules",
+    "DOM regression assertions for the decorative layer"
+  ],
+  "outside": [
+    {
+      "system": "Chat state and actions",
+      "contract": "ChatPage continues to receive the existing store, geometry snapshot, layout actions, and thread data without shape or behavior changes",
+      "adapter": "Existing ChatPage props and Conversation component boundary",
+      "scenarioIds": [
+        "intro-dark",
+        "active-conversation",
+        "bootstrap-failure"
+      ]
+    },
+    {
+      "system": "Application appearance theme",
+      "contract": "The shell exposes light/dark mode through .sa-window[data-theme] and existing CSS variables",
+      "adapter": "Scoped CSS selectors and inherited design tokens",
+      "scenarioIds": [
+        "intro-dark",
+        "intro-light"
+      ]
+    },
+    {
+      "system": "Viewport and motion preference",
+      "contract": "CSS media features provide compact-width and prefers-reduced-motion state",
+      "adapter": "Responsive and reduced-motion media queries",
+      "scenarioIds": [
+        "compact-width",
+        "reduced-motion"
+      ]
+    }
+  ]
+}

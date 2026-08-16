@@ -61,16 +61,25 @@ func loadRunnerWorkload(repoRoot, id string) (catalog.Catalog, catalog.Workload,
 	if err != nil {
 		return catalog.Catalog{}, catalog.Workload{}, err
 	}
-	return document, workload, nil
+	return document, runnerPlatformWorkload(workload), nil
+}
+
+// cloneRunnerWorkload 深拷贝 runner 平台视图会触达的引用字段，禁止回写共享 catalog 对象。
+func cloneRunnerWorkload(workload catalog.Workload) catalog.Workload {
+	cloned := workload
+	cloned.Platforms = append([]string(nil), workload.Platforms...)
+	cloned.Command = append([]string(nil), workload.Command...)
+	if workload.ReceiptRequired != nil {
+		receiptRequired := *workload.ReceiptRequired
+		cloned.ReceiptRequired = &receiptRequired
+	}
+	return cloned
 }
 
 // validateRunnerWorkload 在任何计划或执行前执行平台、实现和 authority 门禁。
 func validateRunnerWorkload(workload catalog.Workload) error {
 	if !workload.SupportsCurrentPlatform() {
 		return fmt.Errorf("workload %q is not registered for platform %q", workload.ID, runtime.GOOS)
-	}
-	if workload.ID == "mcp-lsp-default-15m" && runtime.GOOS == "windows" {
-		return fmt.Errorf("workload %q is N/V on Windows until native daemon owner receipt is implemented", workload.ID)
 	}
 	if workload.ImplementationStatus != "implemented" {
 		return fmt.Errorf("workload %q is N/V: implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)

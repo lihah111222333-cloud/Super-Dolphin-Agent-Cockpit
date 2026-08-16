@@ -32,7 +32,7 @@ const (
 	ResourceCohortLeaseEnv = "MCP_LSP_REPOSITORY_COHORT_LEASE"
 	// ResourceProcessRSSLimitMBEnv 是创建时确定、recycler 强制执行的进程树 RSS 上限。
 	ResourceProcessRSSLimitMBEnv = "MCP_LSP_PROCESS_RSS_LIMIT_MB"
-	// ResourceCohortHardLimitMBEnv 是非 gopls cohort 唯一可写的 RSS 总预算。
+	// ResourceCohortHardLimitMBEnv 是 repo cohort 唯一可写的 RSS 总预算。
 	ResourceCohortHardLimitMBEnv = "AGENT_LSP_COHORT_RSS_LIMIT_MB"
 	// DeprecatedResourceCohortHardLimitMBEnv 仅作为旧配置的 fail-fast 迁移墓碑，不参与预算解析。
 	DeprecatedResourceCohortHardLimitMBEnv = "AGENT_LSP_RESOURCE_COHORT_HARD_LIMIT_MB"
@@ -126,7 +126,7 @@ func evaluateResourceCohort(
 	activeLeases int,
 	now time.Time,
 ) (resourceCohortDecision, error) {
-	if isGoResourceCohortLanguage(workspace.languageID) {
+	if goplsRootCohortOwnsResources(workspace.languageID) {
 		return resourceCohortDecision{}, errors.New("gopls resource cohort evaluation is retired; use the root cohort controller")
 	}
 	hardLimit := policy.cohortHardLimitBytes
@@ -683,15 +683,6 @@ func addResourceCohortRSS(total, added uint64) uint64 {
 func resourceCohortMemberKey(member resourceCohortMember) string {
 	return strconv.Itoa(member.OwnerPID) + "/" + member.OwnerStartIdentity + "/" +
 		strconv.Itoa(member.ClientPID) + "/" + member.ClientStartIdentity
-}
-
-func isGoResourceCohortLanguage(languageID string) bool {
-	switch normalizeLanguageID(languageID) {
-	case "go", "gomod", "gosum", "gowork":
-		return true
-	default:
-		return false
-	}
 }
 
 func effectiveLSPLogMessageType(params protocol.LogMessageParams) protocol.LogMessageType {

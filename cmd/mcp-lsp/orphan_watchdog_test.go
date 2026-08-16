@@ -16,6 +16,9 @@ func TestMain(m *testing.M) {
 	if handled, exitCode := hiddenexec.RunProcessSupervisorIfRequested(os.Args); handled {
 		os.Exit(exitCode)
 	}
+	if handled, exitCode := runWindowsGoplsBrokerIfRequested(os.Args); handled {
+		os.Exit(exitCode)
+	}
 	os.Exit(m.Run())
 }
 

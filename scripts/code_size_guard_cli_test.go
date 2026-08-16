@@ -456,7 +456,7 @@ func TestCodeSizeGuardRejectsConflictingModesAndHonorsTerminator(t *testing.T) {
 func TestCodeSizeGuardFreezeExposesAllApprovalFlags(t *testing.T) {
 	guard := readScript(t, "code_size_guard.go")
 	for _, flag := range []string{
-		"--freeze-owner", "--freeze-reason", "--freeze-reviewed-at", "--freeze-review-by", "--freeze-fail-first",
+		"--freeze-owner", "--freeze-reason", "--freeze-reviewed-at", "--freeze-review-by",
 	} {
 		assertScriptContains(t, guard, flag)
 	}

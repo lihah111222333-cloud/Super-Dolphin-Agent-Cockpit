@@ -84,7 +84,12 @@ func runtimeServerEnsurePrivateChild(path string) error {
 	_, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := os.Mkdir(path, 0o700); err != nil {
-			return fmt.Errorf("create private directory %s: %w", path, err)
+			// Another sidecar may create the same cohort component between
+			// Lstat and Mkdir. EEXIST is safe only after the strict validation
+			// below proves the winner created a real private directory.
+			if !errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("create private directory %s: %w", path, err)
+			}
 		}
 		if err := runtimeServerHardenPrivateDirectory(path); err != nil {
 			return err

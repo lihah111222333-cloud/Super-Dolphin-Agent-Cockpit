@@ -1,0 +1,415 @@
+.chat-page--ocean {
+	--ocean-sky-top: #d8f3fb;
+	--ocean-sky-bottom: #82c8df;
+	--ocean-horizon: rgb(241 254 255 / 88%);
+	--ocean-wave-far: #58b4d3;
+	--ocean-wave-mid: #2884ad;
+	--ocean-wave-near: #12537d;
+	--ocean-line: rgb(231 252 255 / 62%);
+	--ocean-orb: rgb(255 239 171 / 82%);
+	--ocean-orb-glow: rgb(255 239 171 / 30%);
+	--ocean-cloud: rgb(255 255 255 / 30%);
+	--ocean-scene-ease: cubic-bezier(0.45, 0, 0.25, 1);
+	isolation: isolate;
+	overflow: hidden;
+	background: var(--ocean-sky-top);
+	transition: background 1.8s var(--ocean-scene-ease);
+}
+
+.sa-window[data-theme="dark"] .chat-page--ocean {
+	--ocean-sky-top: #071722;
+	--ocean-sky-bottom: #0d3345;
+	--ocean-horizon: rgb(164 231 244 / 55%);
+	--ocean-wave-far: #176985;
+	--ocean-wave-mid: #0b4969;
+	--ocean-wave-near: #062f4c;
+	--ocean-line: rgb(166 232 244 / 31%);
+	--ocean-orb: rgb(204 238 244 / 82%);
+	--ocean-orb-glow: rgb(134 220 238 / 21%);
+	--ocean-cloud: rgb(197 221 250 / 18%);
+}
+
+.chat-ocean-atmosphere {
+	position: absolute;
+	inset: 0;
+	z-index: var(--z-local-behind);
+	overflow: hidden;
+	pointer-events: none;
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--ocean-sky-top) 90%, var(--workbench-bg)) 0%, var(--ocean-sky-bottom) 64%, var(--ocean-wave-far) 100%);
+	transition: background 1.8s var(--ocean-scene-ease), filter 650ms ease;
+}
+
+.chat-page--ocean > .chat-page-header,
+.chat-page--ocean > .chat-layout {
+	z-index: var(--z-local-raised);
+}
+
+.chat-page--ocean-active .chat-ocean-atmosphere {
+	filter: saturate(1.16) brightness(1.04);
+}
+
+.chat-ocean-orb {
+	position: absolute;
+	top: clamp(74px, 13vh, 138px);
+	right: clamp(9%, 15vw, 22%);
+	width: clamp(78px, 9vw, 126px);
+	aspect-ratio: 1;
+	overflow: hidden;
+	border-radius: 50%;
+	background: var(--ocean-orb);
+	box-shadow: 0 0 34px 14px var(--ocean-orb-glow), 0 0 110px 40px var(--ocean-orb-glow);
+	animation: chat-ocean-breathe 7s ease-in-out infinite alternate;
+	transition: background 1.8s var(--ocean-scene-ease), box-shadow 1.8s var(--ocean-scene-ease);
+}
+
+.chat-ocean-moon-shadow {
+	position: absolute;
+	top: -8%;
+	left: 112%;
+	width: 88%;
+	aspect-ratio: 1;
+	border-radius: 50%;
+	background: var(--ocean-sky-top);
+	transition: left 1.7s var(--ocean-scene-ease), background 1.8s var(--ocean-scene-ease);
+}
+
+.sa-window[data-theme="dark"] .chat-ocean-moon-shadow {
+	left: 66%;
+}
+
+.chat-ocean-stars {
+	position: absolute;
+	inset: 0 0 36%;
+	opacity: 0;
+	transition: opacity 1.4s ease 250ms;
+}
+
+.sa-window[data-theme="dark"] .chat-ocean-stars {
+	opacity: 1;
+}
+
+.chat-ocean-stars i {
+	position: absolute;
+	width: 2px;
+	aspect-ratio: 1;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 0 8px #cfe5ff;
+	animation: chat-ocean-star-pulse 4s ease-in-out infinite alternate;
+}
+
+.chat-ocean-stars i:nth-child(1) { left: 8%; top: 18%; }
+.chat-ocean-stars i:nth-child(2) { left: 18%; top: 41%; animation-delay: -0.7s; }
+.chat-ocean-stars i:nth-child(3) { left: 27%; top: 13%; animation-delay: -1.4s; }
+.chat-ocean-stars i:nth-child(4) { left: 38%; top: 31%; }
+.chat-ocean-stars i:nth-child(5) { left: 48%; top: 9%; animation-delay: -0.9s; }
+.chat-ocean-stars i:nth-child(6) { left: 68%; top: 12%; }
+.chat-ocean-stars i:nth-child(7) { left: 77%; top: 34%; animation-delay: -1.6s; }
+.chat-ocean-stars i:nth-child(8) { left: 88%; top: 17%; }
+.chat-ocean-stars i:nth-child(9) { left: 94%; top: 43%; animation-delay: -0.4s; }
+.chat-ocean-stars i:nth-child(10) { left: 4%; top: 54%; }
+.chat-ocean-stars i:nth-child(11) { left: 34%; top: 53%; animation-delay: -1.2s; }
+.chat-ocean-stars i:nth-child(12) { left: 83%; top: 57%; }
+
+.chat-ocean-cloud {
+	position: absolute;
+	width: clamp(170px, 25vw, 360px);
+	height: 42px;
+	border-radius: 50%;
+	background: var(--ocean-cloud);
+	filter: blur(14px);
+	opacity: 0.75;
+	transition: background 1.8s var(--ocean-scene-ease), opacity 1.2s ease;
+	animation: chat-ocean-cloud-drift 40s linear infinite;
+}
+
+.chat-ocean-cloud--a { left: -8%; top: 28%; }
+.chat-ocean-cloud--b { right: 3%; top: 47%; scale: 0.7; animation-duration: 51.2s; animation-direction: reverse; }
+
+.sa-window[data-theme="dark"] .chat-ocean-cloud {
+	opacity: 0.08;
+}
+
+.chat-ocean-light-path {
+	position: absolute;
+	z-index: var(--z-local-behind);
+	left: 47%;
+	top: 45%;
+	width: 34%;
+	height: 70%;
+	transform: perspective(300px) rotateX(62deg);
+	background: linear-gradient(90deg, transparent, rgb(255 255 255 / 10%) 25%, rgb(255 255 255 / 52%) 50%, rgb(255 255 255 / 10%) 75%, transparent);
+	filter: blur(5px);
+	opacity: 0.25;
+	transition: opacity 1.6s ease;
+}
+
+.sa-window[data-theme="dark"] .chat-ocean-light-path {
+	opacity: 0.6;
+}
+
+.chat-ocean-horizon {
+	position: absolute;
+	left: 7%;
+	right: 7%;
+	top: 52%;
+	height: 1px;
+	background: linear-gradient(90deg, transparent, var(--ocean-horizon) 18%, var(--ocean-horizon) 82%, transparent);
+	box-shadow: 0 0 18px var(--ocean-horizon);
+	opacity: 0.72;
+	transition: background 1.8s var(--ocean-scene-ease), box-shadow 1.8s var(--ocean-scene-ease);
+}
+
+.chat-ocean-wave {
+	position: absolute;
+	left: -12%;
+	width: 124%;
+	overflow: hidden;
+	border-top: 3px solid var(--ocean-horizon);
+	border-radius: 48% 52% 0 0 / 11% 13% 0 0;
+	transform-origin: 50% 100%;
+	scale: 1 1;
+	transition: background 1.8s var(--ocean-scene-ease), border-color 1.8s var(--ocean-scene-ease), scale 650ms cubic-bezier(0.22, 1, 0.36, 1), filter 650ms ease;
+	will-change: transform;
+}
+
+.chat-ocean-wave::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: repeating-radial-gradient(ellipse at 50% -6%,
+			transparent 0 42px,
+			var(--ocean-line) 43px 44px,
+			transparent 45px 86px);
+	opacity: 0.66;
+	transition: background 1.8s var(--ocean-scene-ease);
+}
+
+.chat-ocean-wave--far {
+	bottom: -1%;
+	height: 42%;
+	background: linear-gradient(180deg, color-mix(in srgb, var(--ocean-wave-far) 88%, transparent), var(--ocean-wave-far));
+	opacity: 0.84;
+	animation: chat-ocean-drift-far 12s ease-in-out infinite alternate;
+}
+
+.chat-ocean-wave--mid {
+	bottom: -13%;
+	height: 42%;
+	border-top-width: 4px;
+	background: linear-gradient(180deg, color-mix(in srgb, var(--ocean-wave-mid) 86%, transparent), var(--ocean-wave-mid));
+	animation: chat-ocean-drift-mid 10s ease-in-out infinite alternate-reverse;
+}
+
+.chat-ocean-wave--near {
+	bottom: -25%;
+	height: 44%;
+	border-top-width: 5px;
+	background: linear-gradient(180deg, color-mix(in srgb, var(--ocean-wave-near) 86%, transparent), var(--ocean-wave-near));
+	animation: chat-ocean-drift-near 8s ease-in-out infinite alternate;
+}
+
+.chat-page--ocean-active .chat-ocean-wave--far {
+	scale: 1.01 1.04;
+	animation-duration: 6.4s;
+}
+
+.chat-page--ocean-active .chat-ocean-wave--mid {
+	scale: 1.015 1.07;
+	animation-duration: 5.2s;
+}
+
+.chat-page--ocean-active .chat-ocean-wave--near {
+	scale: 1.02 1.1;
+	filter: brightness(1.08);
+	animation-duration: 4.2s;
+}
+
+.chat-ocean-glint {
+	position: absolute;
+	left: 18%;
+	right: 18%;
+	top: 0;
+	height: 72%;
+	background: repeating-radial-gradient(ellipse at 50% 0%, transparent 0 48px, var(--ocean-line) 49px 50px, transparent 51px 98px);
+	opacity: 0.3;
+	mix-blend-mode: screen;
+	animation: chat-ocean-glint 9s ease-in-out infinite alternate;
+}
+
+.chat-page--ocean-active .chat-ocean-glint {
+	animation-duration: 4.8s;
+}
+
+.chat-page--ocean-active .chat-ocean-orb {
+	animation-duration: 3s;
+}
+
+.chat-page--ocean-active .chat-ocean-cloud {
+	animation-duration: 14s;
+}
+
+.chat-page--ocean-active .chat-ocean-stars i {
+	animation-duration: 1.4s;
+}
+
+.sa-window .chat-page.chat-page--ocean .chat-layout,
+.sa-window[data-theme="dark"] .chat-page.chat-page--ocean .chat-layout,
+.chat-page--ocean .chat-main-column,
+.chat-page--ocean .timeline-shell,
+.chat-page--ocean .timeline {
+	background: transparent;
+}
+
+.chat-page--ocean .conversation {
+	background: transparent;
+	backdrop-filter: none;
+}
+
+.sa-window .chat-page.chat-page--ocean.chat-page--intro .conversation,
+.sa-window[data-theme="dark"] .chat-page.chat-page--ocean.chat-page--intro .conversation {
+	background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 12%, transparent), color-mix(in srgb, var(--bg) 28%, transparent));
+	backdrop-filter: none;
+}
+
+.chat-page--ocean .chat-page-header {
+	background: color-mix(in srgb, var(--surface) 78%, transparent);
+	backdrop-filter: blur(14px);
+}
+
+.chat-page--ocean .chat-intro-title,
+.chat-page--ocean .chat-intro-subtitle {
+	text-shadow: 0 2px 28px color-mix(in srgb, var(--bg) 52%, transparent);
+}
+
+.chat-page--ocean .chat-intro-card {
+	background: color-mix(in srgb, var(--surface) 88%, transparent);
+	backdrop-filter: blur(18px) saturate(118%);
+}
+
+.sa-window[data-theme] .chat-page.chat-page--ocean .message.user .chat-x-bubble .ant-bubble-content,
+.sa-window[data-theme] .chat-page.chat-page--ocean .message.assistant .chat-x-bubble .ant-bubble-content,
+.sa-window[data-theme] .chat-page.chat-page--ocean .composer .composer-card {
+  --glass-card-background: rgb(from var(--surface) r g b / 67%);
+  background: rgb(from var(--surface) r g b / 67%);
+  backdrop-filter: blur(18px) saturate(118%);
+  -webkit-backdrop-filter: blur(18px) saturate(118%);
+}
+
+.sa-window:not([data-theme="dark"]) .chat-page--ocean .chat-intro-title,
+.sa-window:not([data-theme="dark"]) .chat-page--ocean .chat-intro-subtitle {
+	text-shadow: 0 1px 24px rgb(242 254 255 / 74%);
+}
+
+@keyframes chat-ocean-breathe {
+	from {
+		transform: scale(0.96);
+		opacity: 0.84;
+	}
+
+	to {
+		transform: scale(1.04);
+		opacity: 1;
+	}
+}
+
+@keyframes chat-ocean-star-pulse {
+	to {
+		opacity: 0.25;
+		transform: scale(0.55);
+	}
+}
+
+@keyframes chat-ocean-cloud-drift {
+	50% {
+		transform: translateX(12vw) scale(0.9);
+	}
+}
+
+@keyframes chat-ocean-drift-far {
+	from {
+		transform: translate3d(-1.5%, 0, 0) scaleY(0.96);
+	}
+
+	to {
+		transform: translate3d(1.5%, -2%, 0) scaleY(1.04);
+	}
+}
+
+@keyframes chat-ocean-drift-mid {
+	from {
+		transform: translate3d(1.5%, 1%, 0) scaleY(1.02);
+	}
+
+	to {
+		transform: translate3d(-1.5%, -2%, 0) scaleY(0.97);
+	}
+}
+
+@keyframes chat-ocean-drift-near {
+	from {
+		transform: translate3d(-1%, 1%, 0) scaleY(0.98);
+	}
+
+	to {
+		transform: translate3d(1%, -1%, 0) scaleY(1.03);
+	}
+}
+
+@keyframes chat-ocean-glint {
+	from {
+		transform: translateX(-1.5%);
+		opacity: 0.2;
+	}
+
+	to {
+		transform: translateX(1.5%);
+		opacity: 0.4;
+	}
+}
+
+@media (max-width: 760px) {
+	.chat-ocean-orb {
+		top: 96px;
+		right: 8%;
+		width: 72px;
+	}
+
+	.chat-ocean-horizon {
+		top: 57%;
+	}
+
+	.chat-ocean-wave--far {
+		height: 36%;
+	}
+
+	.chat-ocean-wave--mid,
+	.chat-ocean-wave--near {
+		height: 38%;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.chat-ocean-orb,
+	.chat-ocean-stars i,
+	.chat-ocean-cloud,
+	.chat-ocean-wave,
+	.chat-ocean-glint {
+		animation: none;
+	}
+
+	.chat-page--ocean,
+	.chat-ocean-atmosphere,
+	.chat-ocean-orb,
+	.chat-ocean-moon-shadow,
+	.chat-ocean-stars,
+	.chat-ocean-cloud,
+	.chat-ocean-light-path,
+	.chat-ocean-horizon,
+	.chat-ocean-wave,
+	.chat-ocean-wave::after {
+		transition-duration: 0.01ms;
+	}
+}

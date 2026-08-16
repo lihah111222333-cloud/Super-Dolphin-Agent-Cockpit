@@ -3,15 +3,19 @@
 package processobserve_test
 
 import (
-	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve"
 )
 
-func TestDurableStoreWindowsContractIsExplicitlyNotVerified(t *testing.T) {
-	_, err := processobserve.OpenDurableStore(`C:\\private\\mcp-lsp-observations`, processobserve.DurableOptions{})
-	if !errors.Is(err, processobserve.ErrDurablePlatformNotVerified) {
-		t.Fatalf("OpenDurableStore() error = %v, want explicit Windows N/V", err)
+func TestDurableStoreWindowsContractIsAvailable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "durable")
+	store, err := processobserve.OpenDurableStore(root, processobserve.DurableOptions{TestOnly: true})
+	if err != nil {
+		t.Fatalf("OpenDurableStore() error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }

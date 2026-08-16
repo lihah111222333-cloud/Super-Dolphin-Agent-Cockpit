@@ -41,8 +41,8 @@ func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsMissingLanguageServer_E2E(t *t
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
 	}
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses POSIX shell scripts as fake cargo and installed LSP binary")
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		t.Skip("test uses the non-Linux cargo installer")
 	}
 
 	binary := buildMcpLSPBinaryForTest(t)
@@ -139,8 +139,8 @@ func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsWithRealCargo_E2E(t *testing.T
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
 	}
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses POSIX PATH isolation")
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		t.Skip("test uses the non-Linux cargo installer")
 	}
 
 	binary := buildMcpLSPBinaryForTest(t)
@@ -306,6 +306,29 @@ func requireSQLInitializeCapabilities(t *testing.T, response json.RawMessage, st
 	}
 	if payload.ID != 1 || len(payload.Result.Capabilities) == 0 {
 		t.Fatalf("initialize response = %s, want capabilities for request id 1; stderr=%s", response, stderr)
+	}
+	for _, capability := range []string{"textDocumentSync", "documentFormattingProvider", "semanticTokensProvider"} {
+		if !sqlCapabilityAdvertised(payload.Result.Capabilities[capability]) {
+			t.Fatalf("sqruff capability %q = %#v, want advertised; raw=%s stderr=%s", capability, payload.Result.Capabilities[capability], response, stderr)
+		}
+	}
+	if sqlCapabilityAdvertised(payload.Result.Capabilities["documentSymbolProvider"]) {
+		t.Fatalf("sqruff unexpectedly advertises documentSymbolProvider; raw=%s stderr=%s", response, stderr)
+	}
+}
+
+func sqlCapabilityAdvertised(value any) bool {
+	switch capability := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return capability
+	case float64:
+		return capability != 0
+	case map[string]any:
+		return true
+	default:
+		return true
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
@@ -107,15 +108,49 @@ func NormalizeRootSet(primaryRoot string, additionalRoots []string) ([]string, e
 	return roots, nil
 }
 
+// resolveCandidateInRoots 在 workspace roots 内解析目标，并拒绝另一平台路径族。
 func resolveCandidateInRoots(roots []string, target string) (string, string, error) {
 	if len(roots) == 0 || strings.TrimSpace(roots[0]) == "" {
 		return "", "", fmt.Errorf("workspace root is required")
 	}
 	trimmed := strings.TrimSpace(target)
+	if foreignPathFamily(trimmed) {
+		return "", "", fmt.Errorf("path %q belongs to a foreign platform path family", trimmed)
+	}
 	if trimmed == "" || !filepath.IsAbs(trimmed) {
 		return resolveRelativeCandidateInRoot(roots[0], trimmed)
 	}
 	return resolveAbsoluteCandidateInRoots(roots, trimmed)
+}
+
+// foreignPathFamily 拒绝跨 Windows/WSL 边界后仍使用 host 路径表示的输入。
+// 路径转换属于 wsl.exe 启动边界；sidecar 不猜测、不静默拼接另一平台的绝对路径。
+func foreignPathFamily(path string) bool {
+	if path == "" {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return isWSLMountPath(path)
+	}
+	return isWindowsAbsolutePath(path)
+}
+
+// isWSLMountPath 识别 Windows 进程收到的 /mnt/<drive>/ 路径。
+func isWSLMountPath(path string) bool {
+	normalized := strings.ToLower(filepath.ToSlash(path))
+	return strings.HasPrefix(normalized, "/mnt/") && len(normalized) > len("/mnt/x/") &&
+		normalized[5] >= 'a' && normalized[5] <= 'z' && normalized[6] == '/'
+}
+
+// isWindowsAbsolutePath 识别 Linux 进程收到的盘符或 UNC 绝对路径。
+func isWindowsAbsolutePath(path string) bool {
+	if strings.HasPrefix(path, `\\`) {
+		return true
+	}
+	if len(path) < 3 || path[1] != ':' || (path[2] != '\\' && path[2] != '/') {
+		return false
+	}
+	return (path[0] >= 'a' && path[0] <= 'z') || (path[0] >= 'A' && path[0] <= 'Z')
 }
 
 func resolveRelativeCandidateInRoot(root, target string) (string, string, error) {

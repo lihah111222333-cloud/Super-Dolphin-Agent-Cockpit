@@ -246,6 +246,7 @@ func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, erro
 	if trimmed == "" {
 		return "", errors.New("work_dir is required")
 	}
+	trimmed = normalizePlatformWorkDir(trimmed)
 	if !filepath.IsAbs(trimmed) {
 		root, err := common.WorkspaceRootFromContextStrict(ctx)
 		if err != nil {

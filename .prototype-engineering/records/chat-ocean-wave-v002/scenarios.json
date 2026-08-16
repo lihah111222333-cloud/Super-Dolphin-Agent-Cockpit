@@ -1,0 +1,34 @@
+{
+  "scenarios": [
+    {
+      "id": "intro-dark",
+      "description": "Default dark-theme welcome state shows the full ocean atmosphere behind readable suggestions and composer",
+      "fixture": "Vite browser baseline with no active thread and shell data-theme=dark"
+    },
+    {
+      "id": "intro-light",
+      "description": "Light theme maps the atmosphere to a clear daylight palette without losing text contrast",
+      "fixture": "Toggle the existing theme control to Day mode on the intro state"
+    },
+    {
+      "id": "active-conversation",
+      "description": "When a thread is active, the atmosphere stays continuous behind the timeline without a full-canvas overlay or backdrop filter",
+      "fixture": "User-marked real conversation in dark and light themes plus the existing ChatPage active-thread fixture"
+    },
+    {
+      "id": "compact-width",
+      "description": "At compact width the wave field does not create overflow or overlap the composer controls",
+      "fixture": "Browser viewport override at 760 by 900 pixels"
+    },
+    {
+      "id": "reduced-motion",
+      "description": "Reduced-motion users receive the static ocean composition with all wave animations disabled",
+      "fixture": "CSS assertion for prefers-reduced-motion rules covering every animated ocean element"
+    },
+    {
+      "id": "bootstrap-failure",
+      "description": "Visible backend bootstrap recovery remains readable and actionable above the atmosphere",
+      "fixture": "Browser-only Vite run with Wails backend unavailable"
+    }
+  ]
+}

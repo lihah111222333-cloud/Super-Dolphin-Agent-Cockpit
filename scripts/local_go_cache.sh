@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW*|MSYS*|CYGWIN*)
+    # shellcheck disable=SC1091
+    source "${BASH_SOURCE[0]%/*}/platform/windows/local_go_cache_path.sh"
+    ;;
+  *)
+    # shellcheck disable=SC1091
+    source "${BASH_SOURCE[0]%/*}/platform/posix/local_go_cache_path.sh"
+    ;;
+esac
+
 local_go_cache_digest_file() {
   local file_path="$1"
   if command -v shasum >/dev/null 2>&1; then
@@ -111,6 +122,7 @@ local_go_cache_identity() {
   printf 'GOFLAGS=%s\n' "${GOFLAGS:-}" >>"$identity_file"
   local_go_cache_write_file_identity go "$real_go" "$identity_file"
   tool_dir="$(GOTOOLCHAIN=local "$real_go" env GOTOOLDIR)"
+  tool_dir="$(local_go_cache_platform_tool_dir "$tool_dir")" || return 1
   if [[ "$tool_dir" != /* || ! -d "$tool_dir" || -L "$tool_dir" ]]; then
     echo "local Go cache identity requires a canonical absolute GOTOOLDIR" >&2
     return 1

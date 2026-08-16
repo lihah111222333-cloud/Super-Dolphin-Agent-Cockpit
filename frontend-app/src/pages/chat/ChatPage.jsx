@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Bot, ChevronLeft, ChevronRight, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
+  workStatusForThread,
 } from './adapters/threadStateAdapter.js';
 import { ChatPageHeader } from './components/ChatPageHeader.jsx';
 import { ChatActionFeedback } from './components/ChatActionFeedback.js';
@@ -14,7 +15,6 @@ import {
 import { CodePreviewMarkdown } from './markdown/MarkdownMessage.jsx';
 import { chatHeaderFeedbackForStore } from './model/chatHeaderModel.js';
 import { RuntimePanelSlot } from './runtime/RuntimePanelSlot.jsx';
-import { ThreadRail } from './thread/ThreadRail.jsx';
 import { Conversation } from './thread/Conversation.jsx';
 import { firstText, firstTrimmedText, timeLabelFromTimestamp, trimmedText } from './markdown/markdownMessageModel.js';
 import { currentTimestampMillis } from '../shared/pageShared.js';
@@ -32,6 +32,7 @@ import './ChatTimeline.css';
 import './ChatMessages.css';
 import './ChatReasoning.css';
 import './ChatPage.css';
+import './ChatOceanPrototype.css';
 import './agentBoard/AgentBoard.css';
 
 function useRightPanelPresence(open) {
@@ -261,6 +262,41 @@ function ChatSidepanelShortcut({ onToggle, open }) {
   );
 }
 
+const CHAT_OCEAN_STAR_IDS = Object.freeze(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l']);
+
+// 聊天海洋原型只提供无交互的氛围层；真实消息、输入与主题状态仍由既有边界负责。
+function ChatOceanAtmosphere() {
+  return (
+    <div className="chat-ocean-atmosphere" data-testid="chat-ocean-atmosphere" aria-hidden="true">
+      <span className="chat-ocean-stars">
+        {CHAT_OCEAN_STAR_IDS.map((starId) => <i key={starId} />)}
+      </span>
+      <span className="chat-ocean-cloud chat-ocean-cloud--a" />
+      <span className="chat-ocean-cloud chat-ocean-cloud--b" />
+      <span className="chat-ocean-orb">
+        <span className="chat-ocean-moon-shadow" />
+      </span>
+      <span className="chat-ocean-light-path" />
+      <span className="chat-ocean-horizon" />
+      <span className="chat-ocean-wave chat-ocean-wave--far" />
+      <span className="chat-ocean-wave chat-ocean-wave--mid" />
+      <span className="chat-ocean-wave chat-ocean-wave--near">
+        <span className="chat-ocean-glint" />
+      </span>
+    </div>
+  );
+}
+
+function oceanActiveClassForChat(store, threadData) {
+  return workStatusForThread({
+    sending: store.sending,
+    loading: threadData.timelineContentBlocked,
+    activeThreadId: store.activeThreadId,
+    activeThread: threadData.activeThread,
+    statusEntry: threadData.statusEntry,
+  }).busy ? ' chat-page--ocean-active' : '';
+}
+
 function ChatPage(props) {
   const {
     actionsHostedInTopBar = false,
@@ -298,7 +334,6 @@ function ChatPage(props) {
   });
   const rightPanelMounted = useRightPanelPresence(rightPanelOpen);
   const agentBoardCompact = geometrySnapshot.viewport.width <= AGENT_BOARD_COMPACT_VIEWPORT_WIDTH;
-  const threadRailHidden = !geometrySnapshot.threadRail.visible;
   const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
   const prefillIntroSuggestion = (prompt) => {
     store.setDraft(prompt);
@@ -306,10 +341,11 @@ function ChatPage(props) {
 
   return (
     <section
-      className={`chat-page${introMode ? ' chat-page--intro' : ''}`}
+      className={`chat-page chat-page--ocean${oceanActiveClassForChat(store, threadData)}${introMode ? ' chat-page--intro' : ''}`}
       data-testid="chat-page"
       style={{ '--chat-right-offset': geometrySnapshot.cssVars['--composer-right-offset'] }}
     >
+      <ChatOceanAtmosphere />
       {showHeader ? (
         <ChatPageHeader copy={copy} showActions={!actionsHostedInTopBar} store={store} projectPath={projectPath} />
       ) : null}
@@ -324,11 +360,9 @@ function ChatPage(props) {
         data-testid="chat-layout"
         style={{
           '--composer-right-offset': geometrySnapshot.cssVars['--composer-right-offset'],
-          '--thread-rail-column-width': geometrySnapshot.cssVars['--thread-rail-column-width'],
           gridTemplateColumns: geometrySnapshot.gridTemplateColumns,
         }}
       >
-        <ThreadRail copy={copy} hidden={threadRailHidden} store={store} />
         <div className="chat-main-column" data-testid="chat-main-column">
           {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
           {!rightPanelOpen ? (

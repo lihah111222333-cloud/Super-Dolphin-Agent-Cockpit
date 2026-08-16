@@ -248,6 +248,19 @@ host_test_cpu_busy_percent() {
   return 2
 }
 
+host_test_windows_resource_snapshot() {
+  local sampler="$ROOT_DIR/scripts/platform/windows/host_resource_snapshot.ps1"
+  if [[ ! -r "$sampler" ]]; then
+    echo "Windows host resource sampler is unavailable: $sampler" >&2
+    return 2
+  fi
+  if ! command -v powershell.exe >/dev/null 2>&1; then
+    echo "Windows PowerShell is required for host resource sampling" >&2
+    return 2
+  fi
+  powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$sampler"
+}
+
 host_test_resource_tier() {
   local cpu_busy_percent="$1" memory_free_percent="$2"
   awk -v cpu="$cpu_busy_percent" -v memory="$memory_free_percent" '
@@ -259,19 +272,32 @@ host_test_resource_tier() {
 }
 
 host_test_resource_snapshot() {
-  local logical_cpus="" cpu_busy_percent="" memory_free_percent="" tier=""
-  if command -v sysctl >/dev/null 2>&1; then
-    logical_cpus="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
-  fi
-  if [[ -z "$logical_cpus" ]] && command -v getconf >/dev/null 2>&1; then
-    logical_cpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
-  fi
-  cpu_busy_percent="$(host_test_cpu_busy_percent || true)"
-  if command -v memory_pressure >/dev/null 2>&1; then
-    memory_free_percent="$(memory_pressure -Q 2>/dev/null | awk -F': ' '/free percentage/ {gsub(/%/, "", $2); print $2; exit}' || true)"
-  elif [[ -r /proc/meminfo ]]; then
-    memory_free_percent="$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {available=$2} END {if (total > 0) printf "%.0f", available*100/total}' /proc/meminfo)"
-  fi
+  local kernel_name logical_cpus="" cpu_busy_percent="" memory_free_percent="" tier="" windows_snapshot=""
+  kernel_name="$(uname -s 2>/dev/null || true)"
+  case "$kernel_name" in
+    MINGW*|MSYS*|CYGWIN*)
+      if ! windows_snapshot="$(host_test_windows_resource_snapshot)"; then
+        echo "host resource evidence is unavailable; route this test to ECI" >&2
+        return 2
+      fi
+      windows_snapshot="${windows_snapshot//$'\r'/}"
+      read -r cpu_busy_percent logical_cpus memory_free_percent <<<"$windows_snapshot"
+      ;;
+    *)
+      if command -v sysctl >/dev/null 2>&1; then
+        logical_cpus="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
+      fi
+      if [[ -z "$logical_cpus" ]] && command -v getconf >/dev/null 2>&1; then
+        logical_cpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+      fi
+      cpu_busy_percent="$(host_test_cpu_busy_percent || true)"
+      if command -v memory_pressure >/dev/null 2>&1; then
+        memory_free_percent="$(memory_pressure -Q 2>/dev/null | awk -F': ' '/free percentage/ {gsub(/%/, "", $2); print $2; exit}' || true)"
+      elif [[ -r /proc/meminfo ]]; then
+        memory_free_percent="$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {available=$2} END {if (total > 0) printf "%.0f", available*100/total}' /proc/meminfo)"
+      fi
+      ;;
+  esac
   if [[ ! "$logical_cpus" =~ ^[0-9]+$ ]] || [[ "$logical_cpus" -le 0 ]] ||
     [[ ! "$cpu_busy_percent" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
     ! awk -v cpu="$cpu_busy_percent" 'BEGIN {exit !(cpu >= 0 && cpu <= 100)}' ||

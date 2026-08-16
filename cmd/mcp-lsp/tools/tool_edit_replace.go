@@ -17,8 +17,10 @@ const (
 	// edit*Timeout 控制 replace_range 的磁盘确认、函数上下文查询和 LSP 同步窗口。
 	editDiskConfirmTimeout    = 750 * time.Millisecond
 	editFunctionLookupTimeout = 500 * time.Millisecond
-	editLSPSyncTimeout        = 2 * time.Second
-	editRecoveryLogFile       = "mcp-lsp-edit-recovery.jsonl"
+	// sourcekit-lsp 等真实服务的首次 initialize 可稳定超过旧的 2 秒窗口；
+	// 同步必须服从调用方 context，同时给冷启动留下明确且可测试的上限。
+	editLSPSyncTimeout  = 60 * time.Second
+	editRecoveryLogFile = "mcp-lsp-edit-recovery.jsonl"
 )
 
 // replacePlan 是 build 阶段产物，记录替换后的内容和用于回显/定位的上下文。

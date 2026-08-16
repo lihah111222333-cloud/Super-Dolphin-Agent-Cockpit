@@ -1,0 +1,34 @@
+# Codex runs as a native Windows host, while mcp-lsp runs inside WSL2.
+# Replace both project-root placeholders with paths that map to the same directory.
+# Do not point the Windows command directly at /mnt/.../mcp-lsp-linux-*.
+
+[mcp_servers.lsp]
+enabled = true
+required = true
+command = "C:/Windows/System32/wsl.exe"
+args = [
+  "--cd",
+  "/mnt/c/absolute/project",
+  "env",
+  "SUPER_DOLPHIN_RUNTIME_MODE=dev",
+  "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/mnt/c/absolute/project",
+  "SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
+  # Replace <wsl-user> and extend this PATH with every directory discovered by
+  # `command -v go gopls node typescript-language-server` in the target distro.
+  # TOML args do not expand a literal $HOME.
+  "PATH=/home/<wsl-user>/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "GO_AGENT_LSP_ROOT=/mnt/c/absolute/project",
+  'GO_AGENT_LSP_ROOTS=["/mnt/c/absolute/project"]',
+  "./bin/LSP/mcp-lsp-linux-x86",
+]
+cwd = "C:/absolute/project"
+startup_timeout_sec = 30
+
+# Keep the sidecar contract visible in the project config. The args/env segment
+# above is authoritative at the Windows -> WSL process boundary.
+[mcp_servers.lsp.env]
+SUPER_DOLPHIN_RUNTIME_MODE = "dev"
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = "/mnt/c/absolute/project"
+SUPER_DOLPHIN_DEPENDENCY_PROFILE = "production"
+GO_AGENT_LSP_ROOT = "/mnt/c/absolute/project"
+GO_AGENT_LSP_ROOTS = '["/mnt/c/absolute/project"]'

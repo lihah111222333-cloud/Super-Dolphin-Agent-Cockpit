@@ -481,6 +481,31 @@ func TestToolsCallErrorEnvelopeSetsMCPIsError(t *testing.T) {
 	}
 }
 
+func TestToolsCallZeroValueReturnedWithErrorBecomesErrorEnvelope(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":240,"method":"tools/call","params":{"name":"file","arguments":{}}}`)
+	var output bytes.Buffer
+	type zeroFileResult struct {
+		Value string `json:"value"`
+	}
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return zeroFileResult{}, NewCodedToolError("path_outside_workspace", errors.New("foreign path family"), false, "use sidecar-native paths")
+	}}
+	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Result struct {
+			IsError           bool            `json:"isError"`
+			StructuredContent json.RawMessage `json:"structuredContent"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if !resp.Result.IsError || !bytes.Contains(resp.Result.StructuredContent, []byte("path_outside_workspace")) {
+		t.Fatalf("zero value + error was not converted to MCP error envelope: %s", output.String())
+	}
+}
+
 func TestToolsCallPreservesStructuredValueReturnedWithError(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":27,"method":"tools/call","params":{"name":"edit","arguments":{}}}`)
 	var output bytes.Buffer

@@ -19,6 +19,8 @@ type Handler func(context.Context, json.RawMessage) (any, error)
 // Middleware 包装 Handler 以附加横切关注点。
 type Middleware func(Handler) Handler
 
+const slowActionLogThreshold = 5 * time.Second
+
 // Chain 把多个中间件按顺序串起来。
 func Chain(handler Handler, middlewares ...Middleware) Handler {
 	wrapped := handler
@@ -43,8 +45,19 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx context.Context, params json.RawMessage) (any, error) {
 			start := time.Now()
+			action := loggingAction(params)
+			slowTimer := time.AfterFunc(slowActionLogThreshold, func() {
+				logger.WarnContext(ctx, "mcp-lsp action still running",
+					pkglogger.String("tool", name),
+					pkglogger.String("action", action),
+					pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
+					pkglogger.String("status", "running_slow"),
+				)
+			})
+			defer slowTimer.Stop()
 			logger.DebugContext(ctx, "mcp-lsp request",
 				pkglogger.String("tool", name),
+				pkglogger.String("action", action),
 				pkglogger.Int("request_bytes", len(params)),
 				pkglogger.String("status", "started"),
 			)
@@ -52,6 +65,7 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			if err != nil {
 				code, retryable, _, meta := common.ClassifyToolError(name, err)
 				attrs := loggingFailureAttrs(name, start, code, retryable, meta)
+				attrs = append(attrs, pkglogger.String("action", action))
 				logger.WarnContext(ctx, "mcp-lsp request failed",
 					append(attrs, pkglogger.String("error_kind", loggingErrorKind(err)))...,
 				)
@@ -63,6 +77,7 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			}
 			logger.DebugContext(ctx, "mcp-lsp response",
 				pkglogger.String("tool", name),
+				pkglogger.String("action", action),
 				pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
 				pkglogger.Int("response_bytes", responseBytes),
 				pkglogger.String("status", "succeeded"),
@@ -70,6 +85,17 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			return result, nil
 		}
 	}
+}
+
+// loggingAction 只提取可安全记录的短 action，不记录原始工具参数。
+func loggingAction(params json.RawMessage) string {
+	var payload struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return ""
+	}
+	return safeLogToken(payload.Action)
 }
 
 // loggingFailureAttrs 构造失败日志的稳定字段，按错误分类附加经过白名单校验的归因信息。
