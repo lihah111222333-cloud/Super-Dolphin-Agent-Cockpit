@@ -194,6 +194,7 @@
     "cmd/mcp-lsp/lsp_binary_windows_wsl_bridge_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_workspace_symbol_refresh_e2e_test.go",
     "cmd/mcp-lsp/lsp_binary_wsl_gopls_e2e_linux_test.go",
+    "cmd/mcp-lsp/lsp_binary_wsl_shared_e2e_platform_test.go",
     "cmd/mcp-lsp/main.go",
     "cmd/mcp-lsp/main_logging_test.go",
     "cmd/mcp-lsp/manager/go_work_e2e_test.go",
@@ -340,6 +341,7 @@
     "cmd/mcp-lsp/multilsp/transport_prepare_shutdown_test.go",
     "cmd/mcp-lsp/multilsp/transport_process_tree_darwin_test.go",
     "cmd/mcp-lsp/multilsp/transport_process_tree_linux_test.go",
+    "cmd/mcp-lsp/multilsp/transport_process_tree_other_test.go",
     "cmd/mcp-lsp/multilsp/transport_process_tree_unix_test.go",
     "cmd/mcp-lsp/multilsp/transport_process_tree_windows_test.go",
     "cmd/mcp-lsp/multilsp/transport_request_context_test.go",
@@ -5250,6 +5252,6 @@
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
   ],
-  "source_snapshot_input_count": 6889,
-  "source_snapshot_paths_sha256": "sha256:a0cf7066686c9dafc3de68b77467aced4b2b8580500a01bf59368c59fedef2f9"
+  "source_snapshot_input_count": 6891,
+  "source_snapshot_paths_sha256": "sha256:25f44f27185fcd85f82d363222b78b239227c511e46b3077818fabea21d6b4cd"
 }

@@ -78,12 +78,7 @@ func isLinuxManagedArtifactLanguage(languageID string) bool {
 	case "proto", "lua", "terraform", "sql", "csharp", contract.LSPServiceDart, contract.LSPServiceRust:
 		return true
 	}
-	for _, clangdLanguageID := range contract.ClangdLanguageIDs() {
-		if languageID == clangdLanguageID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(contract.ClangdLanguageIDs(), languageID)
 }
 
 func linkAutoInstallRuntimeDependencies(t *testing.T, binDir string, tc binaryAutoInstallLanguageCase) {

@@ -53,10 +53,11 @@ func handleFakeMultilangMessage(raw []byte, server *fakeMultilangDiagnosticsServ
 }
 
 func (j *fakeMultilangLifecycleJournal) recordRequest(req fakeLSPRequest, server *fakeMultilangDiagnosticsServer) {
-	if req.Method == "initialize" {
+	switch req.Method {
+	case "initialize":
 		server.setRootURI(fakeMultilangInitializeRootURI(req.Params))
 		j.append("initialize", server.rootURI())
-	} else if req.Method == "shutdown" {
+	case "shutdown":
 		j.append("shutdown", server.rootURI())
 	}
 	j.append("request:"+req.Method, server.rootURI())

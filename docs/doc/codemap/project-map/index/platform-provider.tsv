@@ -31,7 +31,7 @@ cmd/mcp-lsp/installer/native_artifact.go	cmd	platform-provider	go-source	34175	�
 cmd/mcp-lsp/installer/native_artifact_deb.go	cmd	platform-provider	go-source	3333	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,native,artifact,deb,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/native_artifact_field_guard_test.go	cmd	platform-provider	go-test	2378	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,native,artifact,field,guard,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/native_artifact_symlink_test.go	cmd	platform-provider	go-test	2162	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,native,artifact,symlink,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/installer/native_artifact_test.go	cmd	platform-provider	go-test	16086	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,native,artifact,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/installer/native_artifact_test.go	cmd	platform-provider	go-test	16083	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,native,artifact,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/windows_hidden_process_guard_test.go	cmd	platform-provider	go-test	1026	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,windows,hidden,process,guard,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/gopls_broker_bootstrap_other.go	cmd	platform-provider	go-source	1897	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,gopls,broker,bootstrap,other,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/gopls_broker_bootstrap_windows.go	cmd	platform-provider	go-source	12585	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,gopls,broker,bootstrap,windows,代码智能,LSP,MCP,peer
@@ -105,8 +105,8 @@ cmd/mcp-lsp/internal/processprobe/probe_unix_test.go	cmd	platform-provider	go-te
 cmd/mcp-lsp/internal/processprobe/probe_windows.go	cmd	platform-provider	go-source	2683	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,probe,windows,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/processprobe/security_guard_test.go	cmd	platform-provider	go-test	10468	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,security,guard,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/processprobe/snapshot.go	cmd	platform-provider	go-source	9122	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,snapshot,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_autoinstall_e2e_test.go	cmd	platform-provider	go-test	15231	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,autoinstall,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_completion_e2e_test.go	cmd	platform-provider	go-test	19525	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,completion,e2e,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_autoinstall_e2e_test.go	cmd	platform-provider	go-test	15158	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,autoinstall,e2e,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_completion_e2e_test.go	cmd	platform-provider	go-test	17320	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,completion,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_external_env_worktree_e2e_test.go	cmd	platform-provider	go-test	7643	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,external,env,worktree,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_go_worktree_e2e_test.go	cmd	platform-provider	go-test	4114	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,go,worktree,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go	cmd	platform-provider	go-test	31108	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,gopls,daemon,e2e,test,代码智能,LSP,MCP,peer
@@ -120,10 +120,10 @@ cmd/mcp-lsp/lsp_binary_idle_real_e2e_test.go	cmd	platform-provider	go-test	24554
 cmd/mcp-lsp/lsp_binary_java_e2e_test.go	cmd	platform-provider	go-test	12173	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,java,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_linux_managed_swift_ruby_e2e_test.go	cmd	platform-provider	go-test	1946	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,linux,managed,swift,ruby,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_mjs_tools_e2e_test.go	cmd	platform-provider	go-test	13355	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,mjs,tools,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_multilang_diagnostics_e2e_test.go	cmd	platform-provider	go-test	23447	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,diagnostics,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_multilang_fake_server_e2e_test.go	cmd	platform-provider	go-test	15489	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,fake,server,e2e,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_multilang_diagnostics_e2e_test.go	cmd	platform-provider	go-test	20785	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,diagnostics,e2e,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_multilang_fake_server_e2e_test.go	cmd	platform-provider	go-test	15477	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,fake,server,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_multilang_fixtures_e2e_test.go	cmd	platform-provider	go-test	9349	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,fixtures,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_multilang_lifecycle_e2e_linux_test.go	cmd	platform-provider	go-test	28513	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,lifecycle,e2e,linux,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_multilang_lifecycle_e2e_linux_test.go	cmd	platform-provider	go-test	31155	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,lifecycle,e2e,linux,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_patch_edit_windows_e2e_test.go	cmd	platform-provider	go-test	1695	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,patch,edit,windows,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_python_red_e2e_test.go	cmd	platform-provider	go-test	20574	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,python,red,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_real_autoinstall_e2e_test.go	cmd	platform-provider	go-test	13184	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,autoinstall,e2e,test,代码智能,LSP,MCP,peer
@@ -150,6 +150,7 @@ cmd/mcp-lsp/lsp_binary_windows_workdir_e2e_linux_test.go	cmd	platform-provider	g
 cmd/mcp-lsp/lsp_binary_windows_wsl_bridge_e2e_test.go	cmd	platform-provider	go-test	13987	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,windows,wsl,bridge,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_workspace_symbol_refresh_e2e_test.go	cmd	platform-provider	go-test	5727	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,workspace,symbol,refresh,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_wsl_gopls_e2e_linux_test.go	cmd	platform-provider	go-test	22197	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,wsl,gopls,e2e,linux,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_wsl_shared_e2e_platform_test.go	cmd	platform-provider	go-test	2311	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,wsl,shared,e2e,platform,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/main.go	cmd	platform-provider	go-source	3154	代码智能/LSP MCP peer	cmd,mcp,lsp,main,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/main_logging_test.go	cmd	platform-provider	go-test	3109	代码智能/LSP MCP peer	cmd,mcp,lsp,main,logging,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/go_work_e2e_test.go	cmd	platform-provider	go-test	8620	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,go,work,e2e,test,代码智能,LSP,MCP,peer
@@ -200,7 +201,7 @@ cmd/mcp-lsp/multilsp/go_root_resolver.go	cmd	platform-provider	go-source	18843	�
 cmd/mcp-lsp/multilsp/go_root_resolver_test.go	cmd	platform-provider	go-test	25278	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,root,resolver,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/go_root_resolver_workspace_test.go	cmd	platform-provider	go-test	8392	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,root,resolver,workspace,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/go_toolchain.go	cmd	platform-provider	go-source	13828	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,toolchain,多语言,LSP,manager,transport,与缓存
-cmd/mcp-lsp/multilsp/go_toolchain_cache_test.go	cmd	platform-provider	go-test	1541	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,toolchain,cache,test,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/multilsp/go_toolchain_cache_test.go	cmd	platform-provider	go-test	1596	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,toolchain,cache,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/go_workspace_manager_shard16_test.go	cmd	platform-provider	go-test	12837	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,workspace,manager,shard16,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/go_workspace_manager_test.go	cmd	platform-provider	go-test	28576	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,workspace,manager,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/gomod.go	cmd	platform-provider	go-source	11430	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,gomod,多语言,LSP,manager,transport,与缓存
@@ -296,6 +297,7 @@ cmd/mcp-lsp/multilsp/transport_conn.go	cmd	platform-provider	go-source	17871	多
 cmd/mcp-lsp/multilsp/transport_prepare_shutdown_test.go	cmd	platform-provider	go-test	7306	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,prepare,shutdown,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_process_tree_darwin_test.go	cmd	platform-provider	go-test	4336	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,process,tree,darwin,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_process_tree_linux_test.go	cmd	platform-provider	go-test	1579	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,process,tree,linux,test,多语言,LSP,manager,与缓存
+cmd/mcp-lsp/multilsp/transport_process_tree_other_test.go	cmd	platform-provider	go-test	325	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,process,tree,other,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_process_tree_unix_test.go	cmd	platform-provider	go-test	4681	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,process,tree,unix,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_process_tree_windows_test.go	cmd	platform-provider	go-test	311	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,process,tree,windows,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_request_context_test.go	cmd	platform-provider	go-test	7268	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,request,context,test,多语言,LSP,manager,与缓存
@@ -355,7 +357,7 @@ cmd/mcp-lsp/runtime_gopls_semantic_environment_test.go	cmd	platform-provider	go-
 cmd/mcp-lsp/runtime_gopls_shared_other.go	cmd	platform-provider	go-source	698	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,gopls,shared,other,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_gopls_shared_windows.go	cmd	platform-provider	go-source	721	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,gopls,shared,windows,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_gopls_trust_windows.go	cmd	platform-provider	go-source	12083	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,gopls,trust,windows,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/runtime_installer_coverage_linux_amd64_test.go	cmd	platform-provider	go-test	10193	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,installer,coverage,linux,amd64,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/runtime_installer_coverage_linux_amd64_test.go	cmd	platform-provider	go-test	10181	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,installer,coverage,linux,amd64,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_installer_test_helpers_test.go	cmd	platform-provider	go-test	1315	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,installer,test,helpers,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_lifecycle.go	cmd	platform-provider	go-source	5842	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,lifecycle,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_native_artifacts_linux.go	cmd	platform-provider	go-source	17040	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,native,artifacts,linux,代码智能,LSP,MCP,peer

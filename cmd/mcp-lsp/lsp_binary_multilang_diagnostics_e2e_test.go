@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,7 +138,7 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 		t.Fatalf("read %s replace_range fixture: %v", tc.languageID, err)
 	}
 	var editableLine string
-	for _, line := range strings.Split(strings.ReplaceAll(string(current), "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(current), "\r\n", "\n"), "\n") {
 		if strings.TrimSpace(line) != "" {
 			editableLine = line
 			break
@@ -457,67 +456,10 @@ func writeFakeProtocolBundle(t *testing.T, fakeServersBinDir, serverName, langua
 	if err := os.WriteFile(filepath.Join(bundleBinDir, serverName), fakeServer, 0o700); err != nil {
 		t.Fatalf("write fake %s protocol bundle server: %v", serverName, err)
 	}
-	manifest := []byte(fmt.Sprintf("{\n  \"servers\": {\n    %q: {\"path\": %q, \"languages\": [%q]}\n  }\n}\n",
-		serverName, "bin/"+serverName, languageID))
+	manifest := fmt.Appendf(nil, "{\n  \"servers\": {\n    %q: {\"path\": %q, \"languages\": [%q]}\n  }\n}\n",
+		serverName, "bin/"+serverName, languageID)
 	if err := os.WriteFile(filepath.Join(bundleDir, "manifest.json"), manifest, 0o644); err != nil {
 		t.Fatalf("write fake SQL protocol bundle manifest: %v", err)
-	}
-	return bundleDir
-}
-
-func writeFakeAllLanguagesProtocolBundle(t *testing.T, fakeServersBinDir string) string {
-	t.Helper()
-	servers := map[string][]string{
-		"vscode-css-language-server":      {"css"},
-		"clangd":                          {"c", "cpp", "objective-c", "objective-cpp"},
-		"csharp-ls":                       {"csharp"},
-		"dart":                            {"dart"},
-		"docker-langserver":               {"dockerfile"},
-		"gopls":                           {"go", "gomod", "gosum", "gowork"},
-		"graphql-lsp":                     {"graphql"},
-		"vscode-html-language-server":     {"html"},
-		"jdtls":                           {"java"},
-		"typescript-language-server":      {"javascript", "javascriptreact", "typescript", "typescriptreact"},
-		"vscode-json-language-server":     {"json"},
-		"kotlin-language-server":          {"kotlin"},
-		"lua-language-server":             {"lua"},
-		"vscode-markdown-language-server": {"markdown"},
-		"intelephense":                    {"php"},
-		"prisma-language-server":          {"prisma"},
-		"buf":                             {"proto"},
-		"pyright-langserver":              {"python"},
-		"solargraph":                      {"ruby"},
-		"rust-analyzer":                   {"rust"},
-		"bash-language-server":            {"shellscript"},
-		"sqruff":                          {"sql"},
-		"svelteserver":                    {"svelte"},
-		"sourcekit-lsp":                   {"swift"},
-		"terraform-ls":                    {"terraform"},
-		"vue-language-server":             {"vue"},
-		"yaml-language-server":            {"yaml"},
-	}
-	bundleDir := t.TempDir()
-	bundleBinDir := filepath.Join(bundleDir, "bin")
-	if err := os.MkdirAll(bundleBinDir, 0o755); err != nil {
-		t.Fatalf("create all-language fake bundle: %v", err)
-	}
-	manifestServers := make(map[string]any, len(servers))
-	for serverName, languages := range servers {
-		payload, err := os.ReadFile(filepath.Join(fakeServersBinDir, serverName))
-		if err != nil {
-			t.Fatalf("read fake bundled %s: %v", serverName, err)
-		}
-		if err := os.WriteFile(filepath.Join(bundleBinDir, serverName), payload, 0o700); err != nil {
-			t.Fatalf("write fake bundled %s: %v", serverName, err)
-		}
-		manifestServers[serverName] = map[string]any{"path": "bin/" + serverName, "languages": languages}
-	}
-	manifest, err := json.MarshalIndent(map[string]any{"servers": manifestServers}, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal all-language fake bundle manifest: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(bundleDir, "manifest.json"), append(manifest, '\n'), 0o644); err != nil {
-		t.Fatalf("write all-language fake bundle manifest: %v", err)
 	}
 	return bundleDir
 }
