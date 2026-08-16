@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,6 +26,18 @@ func TestReviewObjectBindsChangedFilesWhitespaceAndMaterialization(t *testing.T)
 	t.Run("git local environment cannot redirect repository", testReviewObjectRejectsAmbientGitRepository)
 	t.Run("materialization ignores local checkout hooks", testReviewObjectMaterializationIgnoresLocalHooks)
 	t.Run("execution helpers reject ambient fallback", testReviewExecutionHelpersRejectAmbientFallback)
+}
+
+func TestPreparedReviewExecutionReusesMaterialization(t *testing.T) {
+	testPreparedReviewExecutionReusesMaterialization(t)
+}
+
+func TestPreparedReviewExecutionFailureCleansUp(t *testing.T) {
+	testPreparedReviewExecutionFailureCleansUp(t)
+}
+
+func TestRunGatesSharesPreparedReviewExecution(t *testing.T) {
+	testRunGatesSharesPreparedReviewExecution(t)
 }
 
 func testRangeReviewObject(t *testing.T) {
@@ -218,6 +232,75 @@ func testReviewObjectRunnerMaterialization(t *testing.T) {
 	}
 	if _, err := os.Stat(executedRoot); !os.IsNotExist(err) {
 		t.Fatalf("materialized runner root was not cleaned: %v", err)
+	}
+}
+
+func testPreparedReviewExecutionReusesMaterialization(t *testing.T) {
+	repo := aiMaintenanceRepoRoot(t)
+	object := mustResolveReviewObject(t, repo, reviewObjectOptions{Staged: true})
+	wantStatus := mustReviewGitOutput(t, repo, "status", "--porcelain")
+	materializeCalls := 0
+	cleanupCalls := 0
+	materializer := countingReviewObjectMaterializer(&materializeCalls, &cleanupCalls)
+	session, err := prepareGatePlanForReviewObject(repo, object, newGatePlanPolicy(), materializer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory := preparedExecutionRootFactory()
+	if err := executePreparedGatePlanWithRunnerFactory(session, factory); err != nil {
+		t.Fatal(err)
+	}
+	if materializeCalls != 1 || cleanupCalls != 1 {
+		t.Fatalf("prepared review materialize/cleanup = %d/%d, want 1/1", materializeCalls, cleanupCalls)
+	}
+	if session.plan.ReviewObject != object || session.object != object {
+		t.Fatalf("prepared review provenance changed: plan=%#v object=%#v want=%#v", session.plan.ReviewObject, session.object, object)
+	}
+	if got := mustReviewGitOutput(t, repo, "status", "--porcelain"); got != wantStatus {
+		t.Fatalf("review repository status changed: before=%q after=%q", wantStatus, got)
+	}
+	if err := executePreparedGatePlanWithRunnerFactory(session, factory); err == nil {
+		t.Fatal("closed prepared review session was reused")
+	}
+}
+
+func testRunGatesSharesPreparedReviewExecution(t *testing.T) {
+	repo := aiMaintenanceRepoRoot(t)
+	wantStatus := mustReviewGitOutput(t, repo, "status", "--porcelain")
+	materializeCalls := 0
+	cleanupCalls := 0
+	materializer := countingReviewObjectMaterializer(&materializeCalls, &cleanupCalls)
+	factory := preparedNoopFactory()
+	if err := runGatesWithMaterializer([]string{"--staged"}, materializer, factory); err != nil {
+		t.Fatal(err)
+	}
+	if materializeCalls != 1 || cleanupCalls != 1 {
+		t.Fatalf("run plan/execute materialize/cleanup = %d/%d, want 1/1", materializeCalls, cleanupCalls)
+	}
+	if got := mustReviewGitOutput(t, repo, "status", "--porcelain"); got != wantStatus {
+		t.Fatalf("run plan/execute changed review repository status: before=%q after=%q", wantStatus, got)
+	}
+}
+
+func testPreparedReviewExecutionFailureCleansUp(t *testing.T) {
+	repo := aiMaintenanceRepoRoot(t)
+	object := mustResolveReviewObject(t, repo, reviewObjectOptions{Staged: true})
+	cleanupCalls := 0
+	materializer := countingReviewObjectMaterializer(nil, &cleanupCalls)
+	session, err := prepareGatePlanForReviewObject(repo, object, newGatePlanPolicy(), materializer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("prepared runner failed")
+	factory := preparedFailureFactory(wantErr)
+	if err := executePreparedGatePlanWithRunnerFactory(session, factory); !errors.Is(err, wantErr) {
+		t.Fatalf("prepared runner failure = %v, want %v", err, wantErr)
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("prepared runner failure cleanup count = %d, want 1", cleanupCalls)
+	}
+	if _, err := os.Stat(session.executionRoot); !os.IsNotExist(err) {
+		t.Fatalf("prepared runner failure left execution root: %v", err)
 	}
 }
 
@@ -525,6 +608,68 @@ func mustReviewGitSingleLine(t *testing.T, repository string, args ...string) st
 		t.Fatal(err)
 	}
 	return value
+}
+
+func mustReviewGitOutput(t *testing.T, repository string, args ...string) string {
+	t.Helper()
+	value, err := gitOutput(repository, nil, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(value)
+}
+
+func countingReviewObjectMaterializer(materializeCalls, cleanupCalls *int) reviewObjectMaterializer {
+	return func(repository string, candidate reviewObject) (string, func() error, error) {
+		if materializeCalls != nil {
+			(*materializeCalls)++
+		}
+		root, cleanup, err := materializeReviewObject(repository, candidate)
+		if err != nil {
+			return "", nil, err
+		}
+		return root, func() error {
+			if cleanupCalls != nil {
+				(*cleanupCalls)++
+			}
+			return cleanup()
+		}, nil
+	}
+}
+
+func preparedExecutionRootFactory() gateRunnerFactory {
+	return func(plan gatePlan) map[string]gateRunner {
+		runners := make(map[string]gateRunner, len(plan.RequiredGates))
+		for _, gate := range plan.RequiredGates {
+			runners[gate] = gateRunner{run: func() error {
+				if _, err := os.Stat(plan.executionRoot); err != nil {
+					return fmt.Errorf("prepared execution root disappeared: %w", err)
+				}
+				return nil
+			}}
+		}
+		return runners
+	}
+}
+
+func preparedNoopFactory() gateRunnerFactory {
+	return func(plan gatePlan) map[string]gateRunner {
+		runners := make(map[string]gateRunner, len(plan.RequiredGates))
+		for _, gate := range plan.RequiredGates {
+			runners[gate] = gateRunner{run: func() error { return nil }}
+		}
+		return runners
+	}
+}
+
+func preparedFailureFactory(wantErr error) gateRunnerFactory {
+	return func(plan gatePlan) map[string]gateRunner {
+		runners := make(map[string]gateRunner, len(plan.RequiredGates))
+		for _, gate := range plan.RequiredGates {
+			runners[gate] = gateRunner{run: func() error { return wantErr }}
+		}
+		return runners
+	}
 }
 
 func mustCreateReviewCommit(t *testing.T, repository, tree, parent, message string) string {

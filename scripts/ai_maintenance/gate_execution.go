@@ -18,6 +18,93 @@ type gateRunner struct {
 
 type gateRunnerFactory func(gatePlan) map[string]gateRunner
 
+type reviewObjectMaterializer func(string, reviewObject) (string, func() error, error)
+
+type preparedReviewExecution struct {
+	repoRoot      string
+	plan          gatePlan
+	object        reviewObject
+	changedFiles  []string
+	executionRoot string
+	cleanup       func() error
+	closed        bool
+	cleanupErr    error
+}
+
+// prepareGatePlanForReviewObject 只物化一次 exact candidate，并把计划、身份和 cleanup 绑定到同一 session。
+func prepareGatePlanForReviewObject(repoRoot string, object reviewObject, policy gatePlanPolicy, materializer reviewObjectMaterializer) (*preparedReviewExecution, error) {
+	if materializer == nil {
+		return nil, errors.New("review object materializer is required")
+	}
+	files, err := changedFilesFromReviewObject(repoRoot, object)
+	if err != nil {
+		return nil, err
+	}
+	executionRoot, cleanup, err := materializer(repoRoot, object)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(executionRoot) == "" {
+		if cleanup == nil {
+			return nil, errors.New("review object materializer returned empty execution root")
+		}
+		return nil, errors.Join(errors.New("review object materializer returned empty execution root"), cleanup())
+	}
+	if cleanup == nil {
+		return nil, errors.New("review object materializer returned missing cleanup")
+	}
+	plan, err := buildGatePlanForRepoAndObject(executionRoot, files, object, policy)
+	if err != nil {
+		return nil, errors.Join(err, cleanup())
+	}
+	return &preparedReviewExecution{
+		repoRoot: repoRoot, plan: plan, object: object,
+		changedFiles: append([]string(nil), files...), executionRoot: executionRoot, cleanup: cleanup,
+	}, nil
+}
+
+// close 以幂等边界释放 session 的 exact candidate worktree。
+func (session *preparedReviewExecution) close() error {
+	if session == nil {
+		return errors.New("prepared review execution session is required")
+	}
+	if session.closed {
+		return session.cleanupErr
+	}
+	session.closed = true
+	if session.cleanup == nil {
+		session.cleanupErr = errors.New("prepared review execution cleanup is required")
+		return session.cleanupErr
+	}
+	session.cleanupErr = session.cleanup()
+	return session.cleanupErr
+}
+
+// executePreparedGatePlanWithRunnerFactory 复用 prepared session；session 关闭后不可跨 candidate 重放。
+func executePreparedGatePlanWithRunnerFactory(session *preparedReviewExecution, factory gateRunnerFactory) (resultErr error) {
+	if session == nil {
+		return errors.New("prepared review execution session is required")
+	}
+	if session.closed {
+		return errors.New("prepared review execution session is already closed")
+	}
+	defer func() { resultErr = errors.Join(resultErr, session.close()) }()
+	if session.plan.ReviewObject != session.object || !sameStringSet(session.plan.ChangedFiles, session.changedFiles) {
+		return errors.New("prepared review execution identity drifted")
+	}
+	if err := session.plan.ReviewObject.validateExecutable(); err != nil {
+		return err
+	}
+	plan := session.plan
+	plan.executionRoot = session.executionRoot
+	dependencyCleanup, err := prepareReviewExecutionDependencies(session.repoRoot, session.executionRoot, plan)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, dependencyCleanup()) }()
+	return executeMaterializedGatePlan(plan, factory)
+}
+
 // runGateWithTiming 保留每个普通 gate 的可审计耗时输出，不缓存或复用本地结果。
 func runGateWithTiming(gate string, run func() error) error {
 	started := time.Now()
@@ -36,7 +123,7 @@ func executeGatePlan(plan gatePlan) error {
 }
 
 // executeGatePlanWithRunnerFactory 复核 exact object 后，在一次隔离物化中绑定依赖并执行 runner。
-func executeGatePlanWithRunnerFactory(repoRoot string, plan gatePlan, factory gateRunnerFactory) (resultErr error) {
+func executeGatePlanWithRunnerFactory(repoRoot string, plan gatePlan, factory gateRunnerFactory) error {
 	if err := plan.ReviewObject.validateExecutable(); err != nil {
 		return err
 	}
@@ -51,14 +138,11 @@ func executeGatePlanWithRunnerFactory(repoRoot string, plan gatePlan, factory ga
 	if err != nil {
 		return err
 	}
-	defer func() { resultErr = errors.Join(resultErr, cleanup()) }()
-	plan.executionRoot = materializedRoot
-	dependencyCleanup, err := prepareReviewExecutionDependencies(repoRoot, materializedRoot, plan)
-	if err != nil {
-		return err
+	session := &preparedReviewExecution{
+		repoRoot: repoRoot, plan: plan, object: plan.ReviewObject,
+		changedFiles: append([]string(nil), files...), executionRoot: materializedRoot, cleanup: cleanup,
 	}
-	defer func() { resultErr = errors.Join(resultErr, dependencyCleanup()) }()
-	return executeMaterializedGatePlan(plan, factory)
+	return executePreparedGatePlanWithRunnerFactory(session, factory)
 }
 
 // executeMaterializedGatePlan 仅在 exact candidate root 已绑定后构造并顺序执行 runner。
@@ -231,6 +315,7 @@ func existingDiagnosticFiles(files []string) (existing []string, deleted int, er
 	return existingDiagnosticFilesInRoot(".", files)
 }
 
+// existingDiagnosticFilesInRoot 仅返回 candidate root 中仍存在的诊断目标并记录删除数。
 func existingDiagnosticFilesInRoot(repoRoot string, files []string) (existing []string, deleted int, err error) {
 	existing = make([]string, 0, len(files))
 	for _, file := range files {

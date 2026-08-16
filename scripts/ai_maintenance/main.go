@@ -149,25 +149,63 @@ func runPlan(args []string, stdout *os.File) error {
 
 // runGates 是统一入口的执行模式：先冻结 exact review object，再只执行命中的命令面。
 func runGates(args []string) error {
+	return runGatesWithMaterializer(args, materializeReviewObject, gateRunners)
+}
+
+// runGatesWithMaterializer 在同一 prepared session 内完成计划和执行，避免重新物化 exact candidate。
+func runGatesWithMaterializer(args []string, materializer reviewObjectMaterializer, factory gateRunnerFactory) (resultErr error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	reviewFlags := registerReviewFlags(fs)
 	printPlan := fs.Bool("print-plan", false, "print gate plan and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if len(reviewFlags.changed) > 0 && !*printPlan {
+	if len(reviewFlags.changed) > 0 {
+		return runPathsOnlyGatePlan(reviewFlags, *printPlan)
+	}
+	return runExecutableGatePlan(reviewFlags, *printPlan, materializer, factory)
+}
+
+// runPathsOnlyGatePlan 保持 paths-only 展示输入不可进入执行器的边界。
+func runPathsOnlyGatePlan(reviewFlags *reviewFlags, printPlan bool) error {
+	if !printPlan {
 		return errors.New("paths-only review object is not executable")
 	}
-	plan, err := buildGatePlanFromReviewFlags(reviewFlags)
+	if *reviewFlags.staged || *reviewFlags.worktree || *reviewFlags.base != "" || *reviewFlags.head != "" {
+		return errors.New("--changed-file paths-only mode cannot be combined with executable review object flags")
+	}
+	plan, err := buildGatePlan([]string(reviewFlags.changed))
 	if err != nil {
 		return err
 	}
-	if *printPlan {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(plan)
+}
+
+// runExecutableGatePlan 为 executable review object 创建一次 session 并执行或输出计划。
+func runExecutableGatePlan(reviewFlags *reviewFlags, printPlan bool, materializer reviewObjectMaterializer, factory gateRunnerFactory) (resultErr error) {
+	repoRoot, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		return fmt.Errorf("resolve review repository root: %w", err)
+	}
+	object, err := resolveReviewObject(repoRoot, reviewObjectOptions{
+		Base: *reviewFlags.base, Head: *reviewFlags.head, Staged: *reviewFlags.staged, Worktree: *reviewFlags.worktree,
+	})
+	if err != nil {
+		return err
+	}
+	session, err := prepareGatePlanForReviewObject(repoRoot, object, newGatePlanPolicy(), materializer)
+	if err != nil {
+		return err
+	}
+	if printPlan {
+		defer func() { resultErr = errors.Join(resultErr, session.close()) }()
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(plan)
+		return enc.Encode(session.plan)
 	}
-	return executeGatePlan(plan)
+	return executePreparedGatePlanWithRunnerFactory(session, factory)
 }
 
 type reviewFlags struct {
@@ -191,6 +229,11 @@ func registerReviewFlags(fs *flag.FlagSet) *reviewFlags {
 
 // buildGatePlanFromReviewFlags 将互斥 flag 解析为 paths-only 或 executable exact object 计划。
 func buildGatePlanFromReviewFlags(flags *reviewFlags) (gatePlan, error) {
+	return buildGatePlanFromReviewFlagsWithMaterializer(flags, materializeReviewObject)
+}
+
+// buildGatePlanFromReviewFlagsWithMaterializer 仅为 plan 输出准备并立即收口 session。
+func buildGatePlanFromReviewFlagsWithMaterializer(flags *reviewFlags, materializer reviewObjectMaterializer) (plan gatePlan, resultErr error) {
 	if len(flags.changed) > 0 {
 		if *flags.staged || *flags.worktree || *flags.base != "" || *flags.head != "" {
 			return gatePlan{}, errors.New("--changed-file paths-only mode cannot be combined with executable review object flags")
@@ -207,7 +250,12 @@ func buildGatePlanFromReviewFlags(flags *reviewFlags) (gatePlan, error) {
 	if err != nil {
 		return gatePlan{}, err
 	}
-	return buildGatePlanForReviewObject(repoRoot, object, newGatePlanPolicy())
+	session, err := prepareGatePlanForReviewObject(repoRoot, object, newGatePlanPolicy(), materializer)
+	if err != nil {
+		return gatePlan{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, session.close()) }()
+	return session.plan, nil
 }
 
 // buildGatePlan 把 paths-only 演示输入映射成必须执行的命令。
@@ -222,16 +270,12 @@ func buildGatePlan(files []string) (gatePlan, error) {
 
 // buildGatePlanForReviewObject 从 exact tree pair 派生 changed-files，禁止调用方另行注入路径。
 func buildGatePlanForReviewObject(repoRoot string, object reviewObject, policy gatePlanPolicy) (plan gatePlan, resultErr error) {
-	files, err := changedFilesFromReviewObject(repoRoot, object)
+	session, err := prepareGatePlanForReviewObject(repoRoot, object, policy, materializeReviewObject)
 	if err != nil {
 		return gatePlan{}, err
 	}
-	candidateRoot, cleanup, err := materializeReviewObject(repoRoot, object)
-	if err != nil {
-		return gatePlan{}, err
-	}
-	defer func() { resultErr = errors.Join(resultErr, cleanup()) }()
-	return buildGatePlanForRepoAndObject(candidateRoot, files, object, policy)
+	defer func() { resultErr = errors.Join(resultErr, session.close()) }()
+	return session.plan, nil
 }
 
 // buildGatePlanForRepo 使用 generator AST 派生的 capability roots 构造计划；解析失败时拒绝产出不完整计划。
