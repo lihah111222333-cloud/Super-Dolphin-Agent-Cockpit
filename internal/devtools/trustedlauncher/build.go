@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	gateclosure "github.com/lihah111222333-cloud/super-dolphin-agent/build/gate/closure"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/godistribution"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/projectmaptrusted"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -61,7 +62,7 @@ func Build(ctx context.Context, options BuildOptions) (result BuildResult, resul
 	if err != nil {
 		return BuildResult{}, err
 	}
-	exact, err := projectmaptrusted.MaterializeExactTree(repositoryRoot, options.Tree, "super-dolphin-launcher-source-")
+	exact, err := projectmaptrusted.MaterializeExactTreeContext(ctx, repositoryRoot, options.Tree, "super-dolphin-launcher-source-")
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("materialize exact launcher tree: %w", err)
 	}
@@ -153,13 +154,9 @@ func resolveBuildIdentity(ctx context.Context, repositoryRoot, tree string) (Lin
 	if err != nil || asset.Version != runtime.Version() {
 		return LinkedIdentity{}, "", errors.Join(fmt.Errorf("host Go runtime must match the locked distribution %s", godistribution.Version), err)
 	}
-	compilerPath, err := exec.LookPath("go")
+	compilerPath, err := resolveTrustedCompiler(repositoryRoot)
 	if err != nil {
-		return LinkedIdentity{}, "", fmt.Errorf("locate locked Go compiler: %w", err)
-	}
-	compilerPath, err = filepath.EvalSymlinks(compilerPath)
-	if err != nil {
-		return LinkedIdentity{}, "", fmt.Errorf("resolve locked Go compiler: %w", err)
+		return LinkedIdentity{}, "", err
 	}
 	if err := verifyCompilerIdentity(ctx, compilerPath, asset.Version, asset.GOOS, asset.GOARCH); err != nil {
 		return LinkedIdentity{}, "", err
@@ -190,6 +187,22 @@ func resolveBuildIdentity(ctx context.Context, repositoryRoot, tree string) (Lin
 	return identity, compilerPath, nil
 }
 
+func resolveTrustedCompiler(repositoryRoot string) (string, error) {
+	compilerPath, err := gateprivate.CanonicalRuntimeGoExecutable()
+	if err != nil {
+		return "", fmt.Errorf("resolve locked Go compiler outside PATH: %w", err)
+	}
+	if pathWithin(repositoryRoot, compilerPath) {
+		return "", errors.New("locked Go compiler must be outside the candidate repository")
+	}
+	return compilerPath, nil
+}
+
+func pathWithin(root, target string) bool {
+	relative, err := filepath.Rel(root, target)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
 // compileLauncher 在物化的精确树中编译 linker 绑定的 launcher 和回执。
 func compileLauncher(ctx context.Context, sourceRoot, repositoryRoot, compilerPath, binaryPath, cacheRoot string, identity LinkedIdentity) (Receipt, error) {
 	arguments, err := expectedBuildArguments(identity)
@@ -205,6 +218,9 @@ func compileLauncher(ctx context.Context, sourceRoot, repositoryRoot, compilerPa
 		return Receipt{}, err
 	}
 	command.Env = environment
+	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+		return Receipt{}, err
+	}
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
@@ -308,6 +324,9 @@ func verifyCompilerIdentity(ctx context.Context, compilerPath, version, goos, go
 		return err
 	}
 	command.Env = environment
+	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+		return err
+	}
 	output, err := command.Output()
 	if err != nil {
 		return fmt.Errorf("inspect locked Go compiler: %w", err)
@@ -326,6 +345,9 @@ func launcherPaths(installRoot string, receipt Receipt) BuildResult {
 
 func executeLauncherVerification(ctx context.Context, repositoryRoot, tree string, paths BuildResult) error {
 	command := exec.CommandContext(ctx, paths.BinaryPath, "launcher", "verify", "--repository", repositoryRoot, "--tree", tree, "--receipt", paths.ReceiptPath)
+	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+		return err
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("launcher verification command: %w: %s", err, strings.TrimSpace(string(output)))
@@ -457,6 +479,9 @@ func compilerClosureDigest(ctx context.Context, compilerPath string) (string, er
 		return "", err
 	}
 	command.Env = environment
+	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+		return "", err
+	}
 	output, err := command.Output()
 	if err != nil {
 		return "", fmt.Errorf("resolve Go toolchain root: %w", err)

@@ -44,6 +44,20 @@ func TestTrustedGitCommandIgnoresReplaceAndAmbientRepositoryRouting(t *testing.T
 // only permitted candidate ODB capture fail-closed. No later trusted Git read
 // may consult ambient Git routing.
 func TestCandidateObjectAuthorityRejectsPartialAndDriftedAmbientRouting(t *testing.T) {
+	t.Run("primary only remains valid", func(t *testing.T) {
+		objects := filepath.Join(t.TempDir(), "objects")
+		if err := os.MkdirAll(objects, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("GIT_OBJECT_DIRECTORY", objects)
+		authority, err := CaptureCandidateObjectAuthority()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := authority.Digest(); err != nil {
+			t.Fatalf("reverify primary-only candidate object authority: %v", err)
+		}
+	})
 	t.Run("alternate without primary", func(t *testing.T) {
 		t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", t.TempDir())
 		if _, err := CaptureCandidateObjectAuthority(); err == nil {

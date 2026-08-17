@@ -7,11 +7,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 // workloadInputDigest 按 workload 类型计算其可观察生产输入摘要。
@@ -253,6 +256,8 @@ func (snapshot *remoteGitTreeSnapshot) goGuardInputDigest(ctx context.Context, t
 		gate.GoGuardTargetSource,
 		gate.GoGuardTargetSourceRawGoTest:
 		return snapshot.digestEntries(snapshot.entries)
+	case gate.GoGuardTargetMcpLSPWorkloadCatalog:
+		return snapshot.mcpLSPWorkloadCatalogGuardInputDigest(ctx)
 	case gate.GoGuardTargetCopylocksProvider:
 		return snapshot.goPackageTreeInputDigest(ctx, "internal/provider")
 	case gate.GoGuardTargetCopylocksPlatform:
@@ -266,6 +271,212 @@ func (snapshot *remoteGitTreeSnapshot) goGuardInputDigest(ctx context.Context, t
 		}
 		return snapshot.nestedGoModuleInputDigest(ctx, module)
 	}
+}
+
+const mcpLSPQuickWorkloadCatalogPath = catalog.Path
+
+// mcpLSPWorkloadCatalogGuardInputDigest 计算 catalog 守卫真实读取闭包的摘要。
+func (snapshot *remoteGitTreeSnapshot) mcpLSPWorkloadCatalogGuardInputDigest(ctx context.Context) (string, error) {
+	raw, err := snapshot.exactTreeBlob(ctx, mcpLSPQuickWorkloadCatalogPath)
+	if err != nil {
+		return "", err
+	}
+	workloads, err := catalog.ParseImplementedRemoteTestsFromRaw(raw)
+	if err != nil {
+		return "", err
+	}
+	selected, err := snapshot.mcpLSPCatalogGuardBaseEntries(workloads)
+	if err != nil {
+		return "", err
+	}
+	packages, testEntries, err := snapshot.mcpLSPCatalogTestPackages(ctx, workloads)
+	if err != nil {
+		return "", err
+	}
+	for _, workload := range workloads {
+		projection, err := catalog.ProjectRemoteTestCommand(workload.Command, catalog.DefaultRemoteTestEnvironment(), selectMcpLSPTestPackages(packages, workload.Command.Packages))
+		if err != nil {
+			return "", fmt.Errorf("workload %q: %w", workload.WorkloadID, err)
+		}
+		for _, input := range projection.InputFiles {
+			selected[input] = testEntries[input]
+		}
+	}
+	return snapshot.digestEntries(sortedRemoteGitTreeEntries(selected))
+}
+
+func (snapshot *remoteGitTreeSnapshot) mcpLSPCatalogGuardBaseEntries(workloads []catalog.ImplementedRemoteTest) (map[string]remoteGitTreeEntry, error) {
+	selected := make(map[string]remoteGitTreeEntry)
+	addMcpLSPCatalogGuardEntries(snapshot, selected)
+	if err := addMcpLSPCatalogRequiredEntries(snapshot, selected); err != nil {
+		return nil, err
+	}
+	if err := addMcpLSPCatalogProducerEntries(snapshot, selected, workloads); err != nil {
+		return nil, err
+	}
+	return selected, nil
+}
+
+func addMcpLSPCatalogGuardEntries(snapshot *remoteGitTreeSnapshot, selected map[string]remoteGitTreeEntry) {
+	for _, entry := range snapshot.entries {
+		if mcpLSPWorkloadCatalogGuardInputEntry(entry) {
+			selected[entry.path] = entry
+		}
+	}
+}
+
+func addMcpLSPCatalogRequiredEntries(snapshot *remoteGitTreeSnapshot, selected map[string]remoteGitTreeEntry) error {
+	requiredPaths := []string{"go.mod", "go.sum", mcpLSPQuickWorkloadCatalogPath, "scripts/check_mcp_lsp_workload_catalog.sh"}
+	for _, path := range catalog.WorkloadConsumerPaths() {
+		requiredPaths = append(requiredPaths, path)
+	}
+	for _, required := range requiredPaths {
+		entry, ok := snapshot.byPath[required]
+		if !ok {
+			return fmt.Errorf("MCP-LSP catalog guard required input %q is unavailable", required)
+		}
+		if entry.kind != "blob" {
+			return fmt.Errorf("MCP-LSP catalog guard required input %q is unavailable", required)
+		}
+		selected[required] = entry
+	}
+	return nil
+}
+
+func addMcpLSPCatalogProducerEntries(snapshot *remoteGitTreeSnapshot, selected map[string]remoteGitTreeEntry, workloads []catalog.ImplementedRemoteTest) error {
+	for _, workload := range workloads {
+		entry, ok := snapshot.byPath[workload.ProducerWorkflowPath]
+		if ok && entry.kind == "blob" {
+			selected[entry.path] = entry
+			continue
+		}
+		return fmt.Errorf("MCP-LSP workload %q producer workflow %q is unavailable", workload.WorkloadID, workload.ProducerWorkflowPath)
+	}
+	return nil
+}
+
+func (snapshot *remoteGitTreeSnapshot) mcpLSPCatalogTestPackages(ctx context.Context, workloads []catalog.ImplementedRemoteTest) ([]catalog.RemoteTestPackageFiles, map[string]remoteGitTreeEntry, error) {
+	packageDirectories := mcpLSPCatalogPackageDirectories(workloads)
+	entries, err := mcpLSPCatalogTestEntries(snapshot, packageDirectories)
+	if err != nil {
+		return nil, nil, err
+	}
+	contents, err := snapshot.mcpLSPCatalogTestContents(ctx, entries)
+	if err != nil {
+		return nil, nil, err
+	}
+	packages, indexed := groupMcpLSPCatalogTestEntries(entries, packageDirectories, contents)
+	slices.SortFunc(packages, func(left, right catalog.RemoteTestPackageFiles) int {
+		return strings.Compare(left.Package, right.Package)
+	})
+	return packages, indexed, nil
+}
+
+func mcpLSPCatalogPackageDirectories(workloads []catalog.ImplementedRemoteTest) map[string]string {
+	packageDirectories := make(map[string]string)
+	for _, workload := range workloads {
+		for _, packagePath := range workload.Command.Packages {
+			packageDirectories[strings.TrimPrefix(packagePath, "./")] = packagePath
+		}
+	}
+	return packageDirectories
+}
+
+// mcpLSPCatalogTestEntries 收集候选包目录下所有适用 Go 源文件输入。
+func mcpLSPCatalogTestEntries(snapshot *remoteGitTreeSnapshot, packageDirectories map[string]string) ([]remoteGitTreeEntry, error) {
+	entries := make([]remoteGitTreeEntry, 0)
+	for _, entry := range snapshot.entries {
+		if _, ok := packageDirectories[path.Dir(entry.path)]; !ok {
+			continue
+		}
+		if entry.kind != "blob" || path.Ext(entry.path) != ".go" {
+			continue
+		}
+		if entry.mode != "100644" && entry.mode != "100755" {
+			return nil, fmt.Errorf("MCP-LSP catalog test input %q is not a regular blob", entry.path)
+		}
+		entries = append(entries, entry)
+	}
+	slices.SortFunc(entries, func(left, right remoteGitTreeEntry) int { return strings.Compare(left.path, right.path) })
+	return entries, nil
+}
+
+// mcpLSPCatalogTestContents 从 exact tree 读取候选文件 blob 内容。
+func (snapshot *remoteGitTreeSnapshot) mcpLSPCatalogTestContents(ctx context.Context, entries []remoteGitTreeEntry) (map[string][]byte, error) {
+	contents := make(map[string][]byte, len(entries))
+	missing := make([]string, 0)
+	for _, entry := range entries {
+		if raw, ok := snapshot.remoteGitBlob(entry.objectID); ok {
+			contents[entry.path] = raw
+			continue
+		}
+		missing = append(missing, entry.path)
+	}
+	if len(missing) == 0 {
+		return contents, nil
+	}
+	loaded, err := snapshot.readGitBlobs(ctx, missing)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(contents, loaded)
+	return contents, nil
+}
+
+func groupMcpLSPCatalogTestEntries(entries []remoteGitTreeEntry, packageDirectories map[string]string, contents map[string][]byte) ([]catalog.RemoteTestPackageFiles, map[string]remoteGitTreeEntry) {
+	grouped := make(map[string][]catalog.RemoteTestFile, len(packageDirectories))
+	indexed := make(map[string]remoteGitTreeEntry, len(entries))
+	for _, entry := range entries {
+		packagePath := packageDirectories[path.Dir(entry.path)]
+		grouped[packagePath] = append(grouped[packagePath], catalog.RemoteTestFile{Path: entry.path, Name: path.Base(entry.path), Source: contents[entry.path]})
+		indexed[entry.path] = entry
+	}
+	packages := make([]catalog.RemoteTestPackageFiles, 0, len(packageDirectories))
+	for _, packagePath := range packageDirectories {
+		packages = append(packages, catalog.RemoteTestPackageFiles{Package: packagePath, Files: grouped[packagePath]})
+	}
+	return packages, indexed
+}
+
+// selectMcpLSPTestPackages 按 catalog package 投影选择并保持稳定顺序。
+func selectMcpLSPTestPackages(packages []catalog.RemoteTestPackageFiles, selected []string) []catalog.RemoteTestPackageFiles {
+	result := make([]catalog.RemoteTestPackageFiles, 0, len(selected))
+	for _, packagePath := range selected {
+		for _, packageFiles := range packages {
+			if packageFiles.Package == packagePath {
+				result = append(result, packageFiles)
+				break
+			}
+		}
+	}
+	return result
+}
+
+// exactTreeBlob 从 immutable tree 读取单个真实输入 blob。
+func (snapshot *remoteGitTreeSnapshot) exactTreeBlob(ctx context.Context, filePath string) ([]byte, error) {
+	entry, ok := snapshot.byPath[filePath]
+	if !ok || entry.kind != "blob" {
+		return nil, fmt.Errorf("exact-tree blob %q is unavailable", filePath)
+	}
+	if raw, found := snapshot.remoteGitBlob(entry.objectID); found {
+		return raw, nil
+	}
+	blobs, err := snapshot.readGitBlobs(ctx, []string{filePath})
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := blobs[filePath]
+	if !ok {
+		return nil, fmt.Errorf("exact-tree blob %q was not returned", filePath)
+	}
+	return raw, nil
+}
+
+func mcpLSPWorkloadCatalogGuardInputEntry(entry remoteGitTreeEntry) bool {
+	if strings.HasSuffix(entry.path, ".go") && !strings.HasSuffix(entry.path, "_test.go") {
+		return true
+	}
+	return entry.path == "Makefile" || strings.HasSuffix(entry.path, ".sh")
 }
 
 // goPackageTreeInputDigest 计算一个注册目录树及其本地 Go 依赖闭包。

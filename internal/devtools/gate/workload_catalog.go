@@ -675,6 +675,7 @@ func splitGoGuardWorkloadSpecs(
 	}
 	specs := []splitGoGuardWorkloadSpec{
 		{target: GoGuardTargetSourceRawGoTest, estimateMS: 60000},
+		{target: GoGuardTargetMcpLSPWorkloadCatalog, estimateMS: 30000},
 		{target: GoGuardTargetCopylocksProvider, estimateMS: 20000},
 		{target: GoGuardTargetCopylocksPlatform, estimateMS: 20000},
 		{target: GoGuardTargetCopylocksThread, estimateMS: 10000},

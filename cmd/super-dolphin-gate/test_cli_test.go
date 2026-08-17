@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -74,6 +74,172 @@ func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 	}
 }
 
+func TestParseRemoteRunOptionsAllowsCanonicalTestScenarioSelectors(t *testing.T) {
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseRemoteRunOptions([]string{
+		"--target", "remote", "--config", "/tmp/config.json", "--ledger", "/tmp/config.baseline-state.sqlite",
+		"--agent-token", token, "--scenario", "test", "--test", "./internal/module/turn#TestRedact",
+	}); err != nil {
+		t.Fatalf("parseRemoteRunOptions() rejected canonical test scenario selector: %v", err)
+	}
+}
+
+func TestParseRemoteRunOptionsRejectsMixedGateAndTestSelectors(t *testing.T) {
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseRemoteRunOptions([]string{
+		"--target", "remote", "--config", "/tmp/config.json", "--ledger", "/tmp/config.baseline-state.sqlite",
+		"--agent-token", token, "--scenario", "test", "--test", "./internal/module/turn#TestRedact",
+		"--gate-workload", "backend:test_with_guard",
+	}); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("parseRemoteRunOptions() error = %v, want mixed selector rejection", err)
+	}
+}
+
+func TestParseAutoTestRunOptionsRejectsRemoteAuthorityFlagsForLocalTarget(t *testing.T) {
+	for _, authority := range [][]string{{"--config", "/tmp/config.json"}, {"--agent-token", "issued-token"}} {
+		args := []string{"--target", "local", "--ledger", "/tmp/config.baseline-state.sqlite", "--test", "./internal/module/turn#TestRedact"}
+		args = append(args, authority...)
+		if _, err := parseAutoTestRunOptions(args); err == nil || !strings.Contains(err.Error(), "remote-only") {
+			t.Fatalf("parseAutoTestRunOptions(%v) error = %v, want local remote-authority rejection", authority, err)
+		}
+	}
+}
+
+func TestParseAutoAndHybridTestOptionsDeferRemoteAuthorityUntilScheduler(t *testing.T) {
+	for _, target := range []string{"auto", "hybrid"} {
+		t.Run(target, func(t *testing.T) {
+			options, err := parseAutoTestRunOptions([]string{
+				"--target", target,
+				"--ledger", "/tmp/config.baseline-state.sqlite",
+				"--config", "/tmp/config.json",
+				"--commit", "HEAD",
+				"--agent-token=raw-token-deferred",
+				"--gate-workload", "backend:test_with_guard",
+			})
+			if err != nil {
+				t.Fatalf("parseAutoTestRunOptions(%s) error = %v, want deferred authority", target, err)
+			}
+			if options.ConfigPath != "/tmp/config.json" || options.Commit != "HEAD" || options.AgentTokenDigest != "" {
+				t.Fatalf("deferred %s options = %#v", target, options)
+			}
+		})
+	}
+}
+
+func TestDeferredAutoAndHybridAuthorityRejectsSingleDashWhenNoRemoteSubset(t *testing.T) {
+	for _, target := range []string{"auto", "hybrid"} {
+		for _, authority := range [][]string{{"-config", "/tmp/config.json"}, {"-agent-token=secret-not-for-errors"}} {
+			err := validateDeferredRemoteAuthorityUsage(remoteRunOptions{Target: target}, authority, false)
+			if err == nil || !strings.Contains(err.Error(), "unused remote authority") {
+				t.Fatalf("validateDeferredRemoteAuthorityUsage(%s, %v) error = %v", target, authority, err)
+			}
+			if strings.Contains(err.Error(), "secret-not-for-errors") {
+				t.Fatalf("authority error leaked token: %v", err)
+			}
+		}
+	}
+}
+
+func TestPreHandshakeAuthorityScannersStopAtPositionalSentinel(t *testing.T) {
+	target, err := requestedWorkloadTarget([]string{"--target", "auto", "--", "-target=remote", "--target", "remote"}, "local")
+	if err != nil || target != "auto" {
+		t.Fatalf("requestedWorkloadTarget() = %q, %v; want auto", target, err)
+	}
+	args := []string{"--agent-token", "before", "--", "--agent-token", "after"}
+	filtered, err := withoutDeferredAgentToken(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--", "--agent-token", "after"}
+	if !reflect.DeepEqual(filtered, want) {
+		t.Fatalf("withoutDeferredAgentToken() = %#v, want %#v", filtered, want)
+	}
+	positional := []string{"--", "--agent-token", "secret-positional"}
+	if hasRemoteCIAgentTokenArgument(positional) {
+		t.Fatal("hasRemoteCIAgentTokenArgument crossed -- sentinel")
+	}
+	if value, found, err := remoteCIAgentTokenArgument(positional); err != nil || found || value != "" {
+		t.Fatalf("remoteCIAgentTokenArgument(positional) = %q, %t, %v", value, found, err)
+	}
+	if got := withoutRemoteCIAgentTokenArgument(positional); !reflect.DeepEqual(got, positional) {
+		t.Fatalf("withoutRemoteCIAgentTokenArgument(positional) = %#v", got)
+	}
+}
+
+func TestPrepareRunOptionParseArgsRejectsMissingDeferredAgentTokenValue(t *testing.T) {
+	for _, args := range [][]string{
+		{"--agent-token", "--target=hybrid"},
+		{"-agent-token", "-target=hybrid"},
+		{"--agent-token", "--", "--target=hybrid"},
+	} {
+		filtered, deferred, err := prepareRunOptionParseArgs(args, "auto", true)
+		if err == nil || !strings.Contains(err.Error(), "--agent-token requires a value") {
+			t.Fatalf("prepareRunOptionParseArgs(%v) = %#v, %t, %v; want missing token value", args, filtered, deferred, err)
+		}
+	}
+}
+
+func TestAutoTestAuthorityFailsWhenSchedulerHasNoRemoteSubset(t *testing.T) {
+	err := validateDeferredRemoteAuthorityUsage(remoteRunOptions{Target: "auto"}, []string{"--config", "/tmp/config.json"}, false)
+	if err == nil || !strings.Contains(err.Error(), "unused remote authority") {
+		t.Fatalf("validateDeferredRemoteAuthorityUsage() error = %v, want unused authority rejection", err)
+	}
+}
+
+func TestParseRemoteRunOptionsRejectsManifestAndTestSelectors(t *testing.T) {
+	manifest := filepath.Join(t.TempDir(), "workloads.json")
+	if err := os.WriteFile(manifest, []byte(`["backend:test_with_guard"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = parseRemoteRunOptions([]string{
+		"--target", "remote", "--config", "/tmp/config.json", "--ledger", "/tmp/config.baseline-state.sqlite",
+		"--agent-token", token, "--scenario", "test", "--test", "./internal/module/turn#TestRedact",
+		"--gate-workload-manifest", manifest,
+	})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("parseRemoteRunOptions() error = %v, want manifest/test mutual exclusion", err)
+	}
+}
+
+func TestDuplicateAuthorityErrorDoesNotEchoRawToken(t *testing.T) {
+	secretA := "raw-secret-A-should-not-echo"
+	secretB := "raw-secret-B-should-not-echo"
+	_, err := parseRemoteRunOptions([]string{
+		"--config", "/tmp/config.json", "--agent-token", secretA, "--agent-token=" + secretB,
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate authority flag --agent-token") {
+		t.Fatalf("duplicate agent-token error = %v, want flag-only duplicate error", err)
+	}
+	if strings.Contains(err.Error(), secretA) || strings.Contains(err.Error(), secretB) || strings.Contains(err.Error(), "--agent-token=") {
+		t.Fatalf("duplicate agent-token error leaked raw argument: %v", err)
+	}
+}
+
+func TestAuthoritySingleDashAliasesCanonicalizeBeforeTargetAndDuplicateChecks(t *testing.T) {
+	if _, err := parseAutoTestRunOptions([]string{
+		"-target", "local", "--target", "local", "--ledger", "/tmp/config.baseline-state.sqlite",
+		"--gate-workload", "backend:test_with_guard",
+	}); err == nil || !strings.Contains(err.Error(), "duplicate authority flag --target") {
+		t.Fatalf("parseAutoTestRunOptions() error = %v, want canonical duplicate target rejection", err)
+	}
+	if _, err := parseAutoTestRunOptions([]string{
+		"-target", "local", "--ledger", "/tmp/config.baseline-state.sqlite",
+		"--config", "/tmp/config.json", "--gate-workload", "backend:test_with_guard",
+	}); err == nil || !strings.Contains(err.Error(), "remote-only") {
+		t.Fatalf("parseAutoTestRunOptions() error = %v, want canonical local authority rejection", err)
+	}
+}
+
 func TestParseAutoTestRunOptionsBindsDefaultMcpLSPWorkloadAndKeepsItNV(t *testing.T) {
 	token, err := cicontract.GenerateAgentToken()
 	if err != nil {
@@ -119,7 +285,7 @@ func TestValidateMcpLSPWorkloadBlocksDefaultAuthorityBeforeExecution(t *testing.
 		ID:                           mcpLSPDefault15mWorkloadID,
 		ImplementationStatus:         "implemented",
 		ProducerImplementationStatus: "implemented",
-		Platforms:                    []string{runtime.GOOS},
+		Platforms:                    []string{catalog.RemoteTestGOOS},
 		TriggerClass:                 "default-15m-source-e2e",
 	}
 	err := validateMcpLSPWorkload(workload, remoteRunOptions{CompletionReceiptPath: receiptPath})

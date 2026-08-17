@@ -251,6 +251,15 @@ func splitSourceGoGuardExecutorProgram(target string) (ExecutorProgram, bool) {
 	case GoGuardTargetSourceRawGoTest:
 		argv = []string{"./scripts/forbid_raw_go_test.sh"}
 		requiredPath = "scripts/forbid_raw_go_test.sh"
+	case GoGuardTargetMcpLSPWorkloadCatalog:
+		program := requirePaths(commandProgram(
+			[]string{ExecutorSelfCommandName, "worker", "mcp-lsp-catalog-guard"},
+		),
+			"scripts/mcp_lsp_workload_catalog.json",
+			"internal/devtools/mcplspguardcore",
+			"scripts/mcp_lsp_workload_catalog",
+		)
+		return program, true
 	default:
 		return ExecutorProgram{}, false
 	}

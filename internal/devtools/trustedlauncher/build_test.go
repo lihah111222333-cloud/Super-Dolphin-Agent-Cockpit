@@ -11,6 +11,26 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+func TestResolveTrustedCompilerIgnoresAmbientPathGo(t *testing.T) {
+	fakeRoot := t.TempDir()
+	fakeGo := filepath.Join(fakeRoot, "go")
+	if err := os.WriteFile(fakeGo, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeRoot)
+	compiler, err := resolveTrustedCompiler(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedFake, err := filepath.EvalSymlinks(fakeGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiler == resolvedFake {
+		t.Fatalf("resolveTrustedCompiler() = ambient fake %q", compiler)
+	}
+}
+
 func TestValidateSecureAncestorsRejectsCurrentUserWritableParent(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o770); err != nil {

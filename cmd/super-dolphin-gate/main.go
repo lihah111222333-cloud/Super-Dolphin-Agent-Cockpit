@@ -13,6 +13,7 @@ import (
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
+	mcplspcatalogguard "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/mcplspguardcore"
 )
 
 const remoteWorkerSetupAllowance = 2 * time.Minute
@@ -89,30 +90,44 @@ func runWorkerBuiltinCommand(args []string, stdout, stderr io.Writer) (bool, int
 	if len(args) == 0 {
 		return false, 0
 	}
+	if args[0] == "mcp-lsp-catalog-guard" {
+		return true, runMcpLSPCatalogGuardWorker(args[1:], stdout, stderr)
+	}
 	switch args[0] {
 	case "cli-identity":
 		if err := writeGateCLIIdentity(args[1:], stdout); err != nil {
-			_ = writeCLIError(stderr, err)
-			return true, int(gatecontract.ExitCodeOf(err))
+			return true, workerBuiltinErrorExitCode(stderr, err)
 		}
 		return true, int(gatecontract.ExitOK)
 	case "go-cache-proxy":
 		return true, runWorkerGoCacheProxy(args[1:], stdout, stderr)
 	case "validate-go-distribution":
 		if err := validateWorkerGoDistribution(args[1:], runtime.GOOS, runtime.GOARCH); err != nil {
-			_ = writeCLIError(stderr, err)
-			return true, int(gatecontract.ExitCodeOf(err))
+			return true, workerBuiltinErrorExitCode(stderr, err)
 		}
 		return true, int(gatecontract.ExitOK)
 	case "race-package-patterns":
 		if err := writeWorkerRacePackagePatterns(args[1:], stdout); err != nil {
-			_ = writeCLIError(stderr, err)
-			return true, int(gatecontract.ExitCodeOf(err))
+			return true, workerBuiltinErrorExitCode(stderr, err)
 		}
 		return true, int(gatecontract.ExitOK)
 	default:
 		return false, 0
 	}
+}
+
+func runMcpLSPCatalogGuardWorker(args []string, stdout, stderr io.Writer) int {
+	if err := mcplspcatalogguard.Run(args, stdout); err != nil {
+		return workerBuiltinErrorExitCode(stderr, err)
+	}
+	return int(gatecontract.ExitOK)
+}
+
+func workerBuiltinErrorExitCode(stderr io.Writer, commandErr error) int {
+	if err := writeCLIError(stderr, commandErr); err != nil {
+		return int(gatecontract.ExitInfrastructure)
+	}
+	return int(gatecontract.ExitCodeOf(commandErr))
 }
 
 // runWorkerGoCacheProxy 透传构建缓存代理的退出语义。

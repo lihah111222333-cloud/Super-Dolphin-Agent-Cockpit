@@ -4,17 +4,17 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:000d2999b5f2c336ef370a438c4de5a60c566a9ea8c8970c2d2bc52a7bd6cf2d",
-    "entries_sha256": "sha256:8b3f957c1b4cecba04c2f773da2f37ddf9ed7aec18cafad60f42ed46c1e29331"
+    "source_sha256": "sha256:1827d34ff319a3ecc0cfd0d43975b8cee323146c2e93b3a58ad10fd3e8bad986",
+    "entries_sha256": "sha256:bf800952c4da22c12c38a155fb56b85f8a33a19eb6eededb18cd48bb1bc889d9"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5152,
+  "files": 5171,
   "domains": {
-    "other": 1205,
-    "remote-ci": 272,
+    "other": 1223,
+    "remote-ci": 273,
     "docs-agent": 99,
     "app-ui": 754,
     "platform-provider": 1415,
@@ -64,8 +64,8 @@
       {
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
-        "file_count": 272,
-        "size_kb": 74.3,
+        "file_count": 273,
+        "size_kb": 74.6,
         "desc": "远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker"
       },
       {
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1205,
-        "size_kb": 241.3,
+        "file_count": 1223,
+        "size_kb": 245.2,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -91,9 +91,9 @@
     "config": 3,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 3000,
+    "internal": 3012,
     "pkg": 30,
-    "scripts": 201,
+    "scripts": 208,
     "sql": 29,
     "test": 9,
     "tests": 1,

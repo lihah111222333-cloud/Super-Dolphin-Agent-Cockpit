@@ -93,6 +93,19 @@ func TestWorkerValidateGoDistributionRejectsArguments(t *testing.T) {
 	}
 }
 
+func TestWorkerBuiltinCommandsReturnInfrastructureWhenErrorOutputFails(t *testing.T) {
+	for _, args := range [][]string{
+		{"cli-identity", "extra"},
+		{"validate-go-distribution", "extra"},
+		{"race-package-patterns", "extra"},
+		{"mcp-lsp-catalog-guard"},
+	} {
+		if code := runWorkerCLI(args, &bytes.Buffer{}, failingWriter{err: errors.New("closed stderr")}); code != int(gate.ExitInfrastructure) {
+			t.Fatalf("runWorkerCLI(%q) code = %d, want infrastructure after stderr failure", args, code)
+		}
+	}
+}
+
 func TestWorkerCanonicalInvocationEntersProductionPreflight(t *testing.T) {
 	t.Setenv(gate.ExecutorWorkloadTimeoutEnvironment, (10 * time.Minute).String())
 	stderr := &bytes.Buffer{}

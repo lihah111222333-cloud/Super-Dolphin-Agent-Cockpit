@@ -142,17 +142,10 @@ func TestInternalGuardTestsDoNotRepeatIntegrityPackage(t *testing.T) {
 	assertStringSetContains(t, ordinary.RequiredGates, "backend:test-integrity")
 }
 
-func TestMcpLSPQuickRoundTripValidatesOnlyItsReceiptAfterCatalogGate(t *testing.T) {
-	receipt := filepath.Join(t.TempDir(), "receipt.json")
-	want := []string{
-		"./scripts/check_mcp_lsp_workload_catalog.sh",
-		"--receipt-only",
-		"--receipt", receipt,
-		"--id", "mcp-lsp-idle-quick",
-	}
-	if got := mcpLSPReceiptGuardArgs(receipt); !slices.Equal(got, want) {
-		t.Fatalf("mcp-lsp receipt guard args = %v, want %v", got, want)
-	}
+func TestMcpLSPQuickRemainsARequiredReleaseAuthority(t *testing.T) {
+	plan := mustBuildGatePlan(t, []string{"scripts/mcp_lsp_workload_runner/main.go"})
+	assertStringSetContains(t, plan.RequiredGates, "mcp-lsp:catalog")
+	assertStringSetContains(t, plan.RequiredGates, "mcp-lsp:idle-quick")
 }
 
 func TestCriticalTypecheckRouteUsesRegistryAndExecutionSeeds(t *testing.T) {

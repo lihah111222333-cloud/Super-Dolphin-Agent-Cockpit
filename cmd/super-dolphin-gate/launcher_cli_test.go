@@ -62,6 +62,16 @@ func TestParseLauncherCommandFailFast(t *testing.T) {
 	}
 }
 
+func TestParseLauncherCommandCanonicalizesSingleDashAndRejectsMixedDuplicates(t *testing.T) {
+	command, err := parseLauncherCommand([]string{"verify", "-repository", "/tmp/repo", "-tree", "tree", "-receipt", "receipt"})
+	if err != nil || command.repository != "/tmp/repo" || command.tree != "tree" || command.receipt != "receipt" {
+		t.Fatalf("single-dash launcher command = %#v, %v", command, err)
+	}
+	if _, err := parseLauncherCommand([]string{"verify", "-tree", "first", "--tree=second", "--repository", "/tmp/repo", "--receipt", "receipt"}); err == nil || !strings.Contains(err.Error(), "duplicate authority flag --tree") {
+		t.Fatalf("mixed duplicate tree error = %v", err)
+	}
+}
+
 func validLauncherLinkedIdentity() trustedlauncher.LinkedIdentity {
 	return trustedlauncher.LinkedIdentity{
 		Tree:                  strings.Repeat("a", 40),

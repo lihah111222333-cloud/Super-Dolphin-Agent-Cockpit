@@ -182,14 +182,44 @@ func runLocalTestInvocation(ctx context.Context, args []string, options remoteRu
 		return err
 	}
 	prepared, err = gatecontract.RunLocalWorkloadMisses(ctx, plan.Store, plan.Input, prepared)
+	var authorityErr error
+	if len(prepared.Remote) == 0 {
+		authorityErr = validateDeferredRemoteAuthorityUsage(options, args, false)
+	}
 	if err != nil {
-		return emitFrozenLocalTestInvocationOutcome(stdout, options.Target, prepared, localTestInvocationOutcome{LocalErr: err})
+		return emitLocalTestFailureWithAuthority(stdout, options.Target, prepared, err, authorityErr)
+	}
+	if authorityErr != nil {
+		return authorityErr
 	}
 	if len(prepared.Remote) == 0 {
 		return emitFrozenLocalTestInvocationOutcome(stdout, options.Target, prepared, localTestInvocationOutcome{})
 	}
 	remote, remoteErr := runLocalRemoteSubset(ctx, args, options, stdout, adapter, &plan.Input, &prepared)
 	return emitLocalTestInvocationOutcome(stdout, options.Target, prepared, remote, remoteErr)
+}
+
+func emitLocalTestFailureWithAuthority(stdout io.Writer, target string, prepared gatecontract.LocalWorkloadScheduleResult, localErr, authorityErr error) error {
+	emitErr := emitFrozenLocalTestInvocationOutcome(stdout, target, prepared, localTestInvocationOutcome{LocalErr: localErr})
+	return errors.Join(emitErr, authorityErr)
+}
+
+// validateDeferredRemoteAuthorityUsage 在 scheduler 没有冻结 remote subset 时拒绝未使用的 remote authority。
+func validateDeferredRemoteAuthorityUsage(options remoteRunOptions, args []string, remoteSubset bool) error {
+	if remoteSubset || options.Target != "auto" && options.Target != "hybrid" {
+		return nil
+	}
+	canonical, err := canonicalizeUniqueAuthorityArgs(args, remoteAuthorityFlagNames()...)
+	if err != nil {
+		return err
+	}
+	for _, arg := range canonical {
+		name, _ := authorityFlagName(arg)
+		if strings.Contains(remoteOnlyTestAuthorityFlags, "\x00"+name+"\x00") {
+			return protocolError("unused remote authority %s because scheduler selected no remote subset", name)
+		}
+	}
+	return nil
 }
 
 // prepareLocalTestCLIPlan 校验 adapter 的不可变计划交接。

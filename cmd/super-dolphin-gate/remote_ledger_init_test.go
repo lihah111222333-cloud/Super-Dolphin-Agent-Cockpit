@@ -80,6 +80,16 @@ func TestRunRemoteLedgerInitRejectsInvalidArguments(t *testing.T) {
 	}
 }
 
+func TestRunRemoteLedgerInitCanonicalizesSingleDashAndRejectsMixedDuplicates(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "ledger.sqlite")
+	if err := runRemoteLedgerInit([]string{"-ledger", ledgerPath}); err != nil {
+		t.Fatalf("runRemoteLedgerInit(single dash) error = %v", err)
+	}
+	if err := runRemoteLedgerInit([]string{"-ledger", ledgerPath, "--ledger=" + ledgerPath}); err == nil || !strings.Contains(err.Error(), "duplicate authority flag --ledger") {
+		t.Fatalf("mixed duplicate ledger error = %v", err)
+	}
+}
+
 func TestTrackedRemoteCIConfigPassesStrictValidation(t *testing.T) {
 	configPath := filepath.Join("..", "..", "config", "remote-ci", "aliyun.json")
 	config, err := loadRemoteRunConfig(configPath)

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -175,6 +175,10 @@ func parseRemotePrePushOptions(args []string, agentTokenDigest string) (remoteRu
 	if err := cicontract.ValidateAgentTokenDigest(agentTokenDigest); err != nil {
 		return options, "", "", protocolError("validate CI agent token digest: %v", err)
 	}
+	args, err := canonicalizeUniqueAuthorityArgs(args, "config", "repository", "ledger", "force")
+	if err != nil {
+		return options, "", "", protocolError("parse remote pre-push flags: %v", err)
+	}
 	flags := flag.NewFlagSet("remote hook pre-push", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.ConfigPath, "config", "", "remote CI config path")
@@ -291,9 +295,9 @@ func validateAuthoritativeRemoteHookResult(
 
 // remoteGitOutput 在指定仓库执行只读 Git 查询并保留可诊断错误。
 func remoteGitOutput(repositoryRoot string, args ...string) (string, error) {
-	command := exec.Command("git", args...)
-	command.Dir = repositoryRoot
-	output, err := command.CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	output, err := gatecontract.BoundedTrustedGitCombinedOutput(ctx, repositoryRoot, args...)
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}

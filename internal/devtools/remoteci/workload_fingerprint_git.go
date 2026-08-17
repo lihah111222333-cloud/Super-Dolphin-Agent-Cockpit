@@ -37,9 +37,12 @@ func loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx context.Context, 
 	if err != nil {
 		return nil, fmt.Errorf("resolve trusted Git for remote workload fingerprint tree: %w", err)
 	}
+	if err := gate.ConfigureBoundedCommand(command); err != nil {
+		return nil, err
+	}
 	output, err := command.Output()
 	if err != nil {
-		return nil, fmt.Errorf("list remote workload fingerprint tree: %w", err)
+		return nil, fmt.Errorf("list remote workload fingerprint tree: %w", remoteGitContextError(ctx, err))
 	}
 	entries, byPath, err := parseRemoteGitTreeEntries(output)
 	if err != nil {
@@ -340,6 +343,9 @@ func (snapshot *remoteGitTreeSnapshot) readGitBlobs(ctx context.Context, paths [
 		return nil, fmt.Errorf("resolve trusted Git for remote workload blobs: %w", err)
 	}
 	command.Stdin = bytes.NewReader(query)
+	if err := gate.ConfigureBoundedCommand(command); err != nil {
+		return nil, err
+	}
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	stdout, err := command.StdoutPipe()
@@ -355,8 +361,8 @@ func (snapshot *remoteGitTreeSnapshot) readGitBlobs(ctx context.Context, paths [
 	for _, filePath := range paths {
 		data, size, err := readRemoteGitBlob(reader, filePath, total)
 		if err != nil {
-			_ = command.Wait()
-			return nil, err
+			waitErr := command.Wait()
+			return nil, errors.Join(remoteGitContextError(ctx, err), waitErr)
 		}
 		contents[filePath] = data
 		entry, ok := snapshot.byPath[filePath]
@@ -366,9 +372,16 @@ func (snapshot *remoteGitTreeSnapshot) readGitBlobs(ctx context.Context, paths [
 		total += size
 	}
 	if err := command.Wait(); err != nil {
-		return nil, fmt.Errorf("read remote workload Git blobs: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("read remote workload Git blobs: %w: %s", remoteGitContextError(ctx, err), strings.TrimSpace(stderr.String()))
 	}
 	return contents, nil
+}
+
+func remoteGitContextError(ctx context.Context, commandErr error) error {
+	if ctx.Err() != nil {
+		return errors.Join(ctx.Err(), commandErr)
+	}
+	return commandErr
 }
 
 func (snapshot *remoteGitTreeSnapshot) gitBlobQuery(paths []string) []byte {

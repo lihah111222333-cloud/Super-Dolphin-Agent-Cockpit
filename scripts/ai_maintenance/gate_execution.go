@@ -53,6 +53,10 @@ func prepareGatePlanForReviewObject(repoRoot string, object reviewObject, policy
 	if cleanup == nil {
 		return nil, errors.New("review object materializer returned missing cleanup")
 	}
+	policy, err = bindCandidateWorkloadGateInputs(executionRoot, policy)
+	if err != nil {
+		return nil, errors.Join(err, cleanup())
+	}
 	plan, err := buildGatePlanForRepoAndObject(executionRoot, files, object, policy)
 	if err != nil {
 		return nil, errors.Join(err, cleanup())
@@ -430,7 +434,7 @@ func runWhitespaceCheck(plan gatePlan) error {
 	if err := plan.ReviewObject.validateExecutable(); err != nil {
 		return err
 	}
-	return runCommand(gateExecutionDir(plan, ""), "git", "diff", "--no-ext-diff", "--no-renames", "--check",
+	return runTrustedOwnedGateCommand(plan, "git", "diff", "--no-ext-diff", "--no-renames", "--check",
 		plan.ReviewObject.BaseTree, plan.ReviewObject.CandidateTree, "--")
 }
 

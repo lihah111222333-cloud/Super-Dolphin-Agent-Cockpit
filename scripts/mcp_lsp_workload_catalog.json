@@ -1,13 +1,13 @@
 {
   "schema": "super-dolphin/mcp-lsp-workload-catalog/v1",
-  "catalog_digest": "sha256:0590a4bd3987000142cbabd40403c962787cff78e7d305e08f03b765f53efc39",
+  "catalog_digest": "sha256:c55b84ec38405c64602034be851b621cd12807ce0e03becade2df63518afb51a",
   "workloads": [
     {
       "id": "mcp-lsp-idle-quick",
       "implementation_status": "implemented",
       "producer_implementation_status": "missing",
-      "runner_target": "local-go-test",
-      "platforms": ["darwin", "linux"],
+      "runner_target": "remote-go-test",
+      "platforms": ["darwin", "linux", "windows"],
       "timeout_seconds": 240,
       "trigger_class": "quick",
       "receipt_schema": "super-dolphin/mcp-lsp-workload-receipt/v1",
@@ -24,8 +24,7 @@
         "./cmd/mcp-lsp/internal/processobserve",
         "./cmd/mcp-lsp/internal/processprobe",
         "-run",
-        "^Test(LeaseReleaseStartsFullIdleWindow|BootstrappingNeverIdleEligible|RecyclerRechecksLeaseAcquireBeforeDetach|ReleaseScopeZeroLeaseBeforeIdleTimeoutDoesNotClose|EnsureClientRetainsFailedInitializeCleanupUntilRetry|ManagerCloseRetriesProvisionalCleanupRacingRegistration|PoolRecyclerIdleWorkspaceWinsOverRSSRecycle|RecyclerProbeDegradationFailsClosedForIdleClient|ProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle|LinuxPidfdUnavailableLeavesProcessTreePendingWithoutSignal|GhostObservationIsBoundedPairAndOperationSafe|GhostObservationFloodStaysBounded|GhostPairPendingRetriesWithStableProjectionIDs|ProbeCurrentProcessIsReadOnly|GoAdapterUsesResolvedIdleTimeoutForRemoteArg|NewManagerWithErrorRejectsMissingIdleTimeout|ManagerClonePreservesConfiguredIdleTimeout|PoolReleaseEligibilityUsesManagerIdleTimeout|ManagerStoresConfiguredIdleTimeout)$",
-        "-count=1"
+        "^Test(?:LeaseReleaseStartsFullIdleWindow|BootstrappingNeverIdleEligible|RecyclerRechecksLeaseAcquireBeforeDetach|ReleaseScopeZeroLeaseBeforeIdleTimeoutDoesNotClose|EnsureClientRetainsFailedInitializeCleanupUntilRetry|ManagerCloseRetriesProvisionalCleanupRacingRegistration|PoolRecyclerIdleWorkspaceWinsOverRSSRecycle|RecyclerProbeDegradationFailsClosedForIdleClient|ProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle|GhostObservationIsBoundedPairAndOperationSafe|GhostObservationFloodStaysBounded|GhostPairPendingRetriesWithStableProjectionIDs|ProbeCurrentProcessIsReadOnly|GoAdapterUsesResolvedIdleTimeoutForRemoteArg|NewManagerWithErrorRejectsMissingIdleTimeout|ManagerClonePreservesConfiguredIdleTimeout|PoolReleaseEligibilityUsesManagerIdleTimeout|ManagerStoresConfiguredIdleTimeout)$"
       ]
     },
     {
@@ -42,7 +41,22 @@
       "t6_blocking": true,
       "release_blocking": true,
       "receipt_required": true,
-      "command": ["go", "test", "./cmd/mcp-lsp/internal/hiddenexec", "-count=1"]
+      "command": ["go", "test", "./cmd/mcp-lsp/internal/hiddenexec", "-run", "^TestProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle$"]
+    },
+    {
+      "id": "mcp-lsp-resource-cohort",
+      "implementation_status": "missing",
+      "producer_implementation_status": "missing",
+      "runner_target": "not-implemented",
+      "platforms": ["darwin", "linux", "windows"],
+      "timeout_seconds": 240,
+      "trigger_class": "resource-cohort-e2e",
+      "receipt_schema": "super-dolphin/mcp-lsp-workload-receipt/v1",
+      "producer_workflow_path": ".github/workflows/ci.yml",
+      "producer_artifact_name": "mcp-lsp-resource-cohort-receipt",
+      "t6_blocking": true,
+      "release_blocking": true,
+      "receipt_required": true
     },
     {
       "id": "mcp-lsp-default-15m",

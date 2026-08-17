@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -156,9 +155,17 @@ func requestedTestTarget(args []string) (string, error) {
 
 // requestedWorkloadTarget 仅预读 --target，其余语法仍交由严格 parser 处理，避免在握手前构造配置或协调器。
 func requestedWorkloadTarget(args []string, defaultTarget string) (string, error) {
+	canonicalArgs, err := catalog.CanonicalizeAuthorityFlags(args, remoteAuthorityFlagNames()...)
+	if err != nil {
+		return "", err
+	}
+	args = canonicalArgs
 	target := defaultTarget
 	for index := 0; index < len(args); index++ {
 		value := args[index]
+		if value == "--" {
+			break
+		}
 		if targetValue, ok := strings.CutPrefix(value, "--target="); ok {
 			target = targetValue
 			continue
@@ -225,8 +232,11 @@ func validateAutoTestReceiptPath(options remoteRunOptions) error {
 
 // validateAutoTestSelectorCompatibility 拒绝 legacy workload 与 gate selector 混用。
 func validateAutoTestSelectorCompatibility(options remoteRunOptions) error {
-	if options.WorkloadID != "" && len(options.GateWorkloadIDs) != 0 {
-		return protocolError("--workload and --gate-workload selectors are mutually exclusive")
+	if len(options.GateWorkloadIDs) != 0 && (options.WorkloadID != "" || len(options.Tests) != 0) {
+		return protocolError("--gate-workload and --test/workload selectors are mutually exclusive")
+	}
+	if options.WorkloadID != "" && len(options.Tests) != 0 {
+		return protocolError("--workload and --test selectors are mutually exclusive")
 	}
 	return nil
 }
@@ -287,7 +297,7 @@ func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {
 	if err := validateMcpLSPWorkload(workload, *options); err != nil {
 		return err
 	}
-	selectors, err := catalog.RemoteTestSelectors(workload.Command)
+	selectors, err := catalog.RemoteTestSelectorsAt(repository, candidateTree, workload.Command)
 	if err != nil {
 		return err
 	}
@@ -305,11 +315,8 @@ func validateMcpLSPBindingInput(options *remoteRunOptions) error {
 // validateMcpLSPWorkload 执行平台、实现状态和远程 completion authority 门禁；
 // local runner workload 不得经 remote test 伪装为 ECI 结果。
 func validateMcpLSPWorkload(workload catalog.Workload, options remoteRunOptions) error {
-	if !workload.SupportsCurrentPlatform() {
-		return fmt.Errorf("platform %q is N/V for workload (registered platforms=%s)", runtime.GOOS, strings.Join(workload.Platforms, ","))
-	}
-	if workload.ID == mcpLSPDefault15mWorkloadID && runtime.GOOS == "windows" {
-		return fmt.Errorf("default-15m workload is N/V on Windows until native daemon owner receipt is implemented")
+	if !slices.Contains(workload.Platforms, catalog.RemoteTestGOOS) {
+		return fmt.Errorf("platform %q is N/V for remote workload (registered platforms=%s)", catalog.RemoteTestGOOS, strings.Join(workload.Platforms, ","))
 	}
 	if workload.ImplementationStatus != "implemented" {
 		return mcpLSPImplementationStatusError(workload)

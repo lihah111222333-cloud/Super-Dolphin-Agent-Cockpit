@@ -80,6 +80,15 @@ func TestRunLocalTestInvocationDoesNotHandshakeBeforeCanonicalProducer(t *testin
 	}
 }
 
+func TestEmitLocalTestFailurePreservesDeferredAuthorityError(t *testing.T) {
+	localErr := errors.New("local execution failed")
+	authorityErr := errors.New("deferred authority was unused")
+	err := emitLocalTestFailureWithAuthority(io.Discard, "auto", gatecontract.LocalWorkloadScheduleResult{}, localErr, authorityErr)
+	if !errors.Is(err, localErr) || !errors.Is(err, authorityErr) {
+		t.Fatalf("joined error = %v, want local and deferred authority causes", err)
+	}
+}
+
 func TestEmitLocalTestAuthorityOutputReportsHitsAndExecutedEvidence(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -309,7 +318,7 @@ func TestParseAutoTestRunOptionsDefersRawAgentTokenUntilRemoteSubset(t *testing.
 		t.Fatal(err)
 	}
 	if options.AgentTokenDigest != "" {
-		t.Fatalf("non-remote parser bound token digest %q", options.AgentTokenDigest)
+		t.Fatalf("non-remote parser bound deferred token digest %q", options.AgentTokenDigest)
 	}
 }
 

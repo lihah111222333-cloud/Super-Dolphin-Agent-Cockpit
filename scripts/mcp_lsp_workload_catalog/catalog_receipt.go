@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -19,7 +18,10 @@ import (
 
 // ValidateReceipt 按精确目录摘要和 ID 校验已产出的回执。
 func ValidateReceipt(document Catalog, id, path string) error {
-	repoRoot, _ := receiptRepositoryRoot(path)
+	repoRoot, err := receiptRepositoryRoot(path)
+	if err != nil {
+		return err
+	}
 	return ValidateReceiptAt(document, repoRoot, id, path)
 }
 
@@ -37,7 +39,49 @@ func ValidateReceiptAt(document Catalog, repoRoot, id, path string) error {
 	if err != nil {
 		return err
 	}
-	return validateReceiptValue(value, workload, document, repoRoot)
+	return validateReceiptValue(value, workload, document)
+}
+
+// ValidateReceiptAtCandidate 校验回执并要求其 source tree 绑定请求的候选 tree。
+func ValidateReceiptAtCandidate(document Catalog, repoRoot, tree, id, path string) error {
+	if !validGitOID(tree) {
+		return errors.New("candidate tree identity is invalid")
+	}
+	workload, err := document.Find(id)
+	if err != nil {
+		return err
+	}
+	if err := requireImplementedReceiptWorkload(workload); err != nil {
+		return err
+	}
+	value, err := readReceiptFile(path)
+	if err != nil {
+		return err
+	}
+	if value.SourceTreeDigest != tree {
+		return fmt.Errorf("workload receipt source tree %q does not match candidate tree", value.SourceTreeDigest)
+	}
+	if err := validateCandidateReceiptGitHead(repoRoot, tree, value); err != nil {
+		return err
+	}
+	return validateReceiptValue(value, workload, document)
+}
+
+// validateCandidateReceiptGitHead binds the optional-looking GitHead field to
+// the requested tree without consulting mutable HEAD.  A receipt cannot claim
+// a commit whose tree differs from the candidate source identity.
+func validateCandidateReceiptGitHead(repoRoot, tree string, value Receipt) error {
+	if !validGitOID(value.GitHead) {
+		return errors.New("workload receipt git_head must be a commit object bound to candidate tree")
+	}
+	resolved, err := runGitIdentity(repoRoot, "rev-parse", "--verify", "--end-of-options", value.GitHead+"^{tree}")
+	if err != nil {
+		return fmt.Errorf("resolve workload receipt git_head tree: %w", err)
+	}
+	if resolved != tree {
+		return errors.New("workload receipt git_head is not bound to candidate tree")
+	}
+	return nil
 }
 
 // requireImplementedReceiptWorkload 拒绝为缺失实现伪造可消费回执。
@@ -61,7 +105,7 @@ func readReceiptFile(path string) (Receipt, error) {
 }
 
 // validateReceiptValue 按固定顺序校验回执身份、生产者、执行和溯源。
-func validateReceiptValue(value Receipt, workload Workload, document Catalog, repoRoot string) error {
+func validateReceiptValue(value Receipt, workload Workload, document Catalog) error {
 	if err := validateReceiptIdentity(value, workload, document); err != nil {
 		return err
 	}
@@ -71,10 +115,10 @@ func validateReceiptValue(value Receipt, workload Workload, document Catalog, re
 	if err := validateReceiptExecution(value, workload); err != nil {
 		return err
 	}
-	if err := validateReceiptProvenance(value, workload, repoRoot); err != nil {
+	if err := validateReceiptStatus(value, workload.ID); err != nil {
 		return err
 	}
-	return validateReceiptStatus(value, workload.ID)
+	return rejectUnboundReceiptAuthority(workload)
 }
 
 // receiptRepositoryRoot 从回执路径向上解析 Git 根；guard 应优先调用
@@ -226,24 +270,54 @@ func validateReceiptStatus(value Receipt, workloadID string) error {
 
 const default15mTriggerClass = "default-15m-source-e2e"
 const default15mWorkloadID = "mcp-lsp-default-15m"
+const idleQuickWorkloadID = "mcp-lsp-idle-quick"
+const idleQuickCommandSHA256 = "a75d4d2d5f393e8b38246f7b499f335ece6e5de2f36678a7cc5ae118e189df21"
 
-// completionActionOrder 返回固定的 root-cohort 完成动作顺序。
-func completionActionOrder() []string {
-	return []string{
-		"mark_draining",
-		"shutdown_forwarders",
-		"shutdown_daemon",
-		"verify",
-		"completed",
+// RequireIdleQuickReleaseRole freezes the release gate role before authority lookup.
+func RequireIdleQuickReleaseRole(workload Workload) error {
+	if !idleQuickIdentityMatches(workload) || !idleQuickExecutionMatches(workload) || !idleQuickReceiptMatches(workload) {
+		return fmt.Errorf("workload %q does not match the canonical idle-quick release role", workload.ID)
 	}
+	return nil
 }
 
-// RequireRemoteCompletionAuthority 在任何远程或本地执行前检查 completion
-// artifact 的权威绑定；仅远程权威 workload 尚无该能力时保持 N/V。
+func idleQuickIdentityMatches(workload Workload) bool {
+	return workload.ID == idleQuickWorkloadID && workload.ImplementationStatus == "implemented" &&
+		workload.ProducerImplementationStatus == "missing" && workload.TriggerClass == "quick"
+}
+
+func idleQuickExecutionMatches(workload Workload) bool {
+	return workload.RunnerTarget == "remote-go-test" && workload.TimeoutSeconds == 240 &&
+		slices.Equal(workload.Platforms, []string{"darwin", "linux", "windows"}) && idleQuickCommandDigest(workload.Command) == idleQuickCommandSHA256
+}
+
+func idleQuickReceiptMatches(workload Workload) bool {
+	return workload.ReceiptSchema == ReceiptSchema && workload.ReceiptRequired != nil && *workload.ReceiptRequired &&
+		workload.T6Blocking && workload.ReleaseBlocking && workload.ProducerWorkflowPath == ".github/workflows/ci.yml" &&
+		workload.ProducerArtifactName == "mcp-lsp-idle-quick-receipt"
+}
+
+func idleQuickCommandDigest(command []string) string {
+	raw, err := json.Marshal(command)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// RequireRemoteCompletionAuthority 在执行前拒绝缺少 ECI artifact owner 的
+// 远程 workload；本地 host workload 仍可运行，但其结果不是发布回执。
 func RequireRemoteCompletionAuthority(workload Workload) error {
 	if !IsRemoteAuthoritativeWorkload(workload) {
 		return nil
 	}
+	return fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", workload.ID)
+}
+
+// rejectUnboundReceiptAuthority 拒绝把本地 host 输出或未绑定的远程 artifact
+// 当作发布 PASS。远程 executor 接入受信 receipt owner 前没有例外分支。
+func rejectUnboundReceiptAuthority(workload Workload) error {
 	return fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", workload.ID)
 }
 
@@ -259,215 +333,6 @@ func IsRemoteAuthoritativeWorkload(workload Workload) bool {
 		return true
 	}
 	return strings.TrimSpace(workload.RunnerTarget) != "" && !IsLocalRunnerWorkload(workload)
-}
-
-// validateReceiptProvenance 校验默认 15 分钟 E2E 的 Git 身份和 root-cohort
-// completion chain。短 workload 没有 root daemon，因此保留旧 receipt 兼容边界。
-func validateReceiptProvenance(value Receipt, workload Workload, repoRoot string) error {
-	if workload.ID != default15mWorkloadID || workload.TriggerClass != default15mTriggerClass {
-		return nil
-	}
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("workload %q is N/V on Windows until native daemon owner receipt is implemented", workload.ID)
-	}
-	return fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", workload.ID)
-}
-
-// AttachCompletionProvenance 将显式提供的 root-cohort completion receipt
-// 绑定到 workload receipt。它只读取 path，不接受环境变量或默认路径。
-func AttachCompletionProvenance(value *Receipt, repoRoot, completionPath string) error {
-	if err := validateCompletionAttachInput(value, repoRoot, completionPath); err != nil {
-		return err
-	}
-	raw, proof, err := readCompletionProof(completionPath)
-	if err != nil {
-		return err
-	}
-	gitHead, sourceTree, err := currentGitIdentity(repoRoot)
-	if err != nil {
-		return fmt.Errorf("resolve current Git identity: %w", err)
-	}
-	if proof.GitHead != gitHead || proof.SourceTreeDigest != sourceTree {
-		return errors.New("completion receipt Git HEAD/tree does not match current repository")
-	}
-	applyCompletionProvenance(value, proof, gitHead, sourceTree, raw, completionPath)
-	if err := validateReceiptProvenanceFields(*value, value.WorkloadID); err != nil {
-		return err
-	}
-	return validateCompletionProof(proof, *value, value.WorkloadID)
-}
-
-// validateCompletionAttachInput 校验 completion 绑定的输入边界和默认 workload 门禁。
-func validateCompletionAttachInput(value *Receipt, repoRoot, completionPath string) error {
-	if value == nil {
-		return errors.New("workload receipt is required")
-	}
-	if value.WorkloadID == default15mWorkloadID {
-		return errors.New("default-15m completion receipt requires remote run/job/artifact authority")
-	}
-	if strings.TrimSpace(repoRoot) == "" {
-		return errors.New("completion provenance repository root is required")
-	}
-	if completionPath == "" || !filepath.IsAbs(completionPath) {
-		return errors.New("completion receipt path must be absolute")
-	}
-	return nil
-}
-
-// readCompletionProof 读取并解码指定 completion receipt，同时保留原始字节摘要输入。
-func readCompletionProof(path string) ([]byte, completionProof, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, completionProof{}, fmt.Errorf("read completion receipt: %w", err)
-	}
-	proof, err := decodeCompletionProof(raw)
-	if err != nil {
-		return nil, completionProof{}, fmt.Errorf("decode completion receipt: %w", err)
-	}
-	return raw, proof, nil
-}
-
-// applyCompletionProvenance 将 proof 的远程坐标和 root-cohort 字段写入回执。
-func applyCompletionProvenance(value *Receipt, proof completionProof, gitHead, sourceTree string, raw []byte, path string) {
-	value.GitHead = gitHead
-	value.SourceTreeDigest = sourceTree
-	value.CohortID = proof.CohortID
-	value.RepositoryInstanceProofHash = proof.RepositoryInstanceProofHash
-	value.Epoch = proof.Epoch
-	value.DaemonOwnerReceiptHash = proof.DaemonOwnerReceiptHash
-	value.RemoteRunID = proof.RemoteRunID
-	value.RemoteJobID = proof.RemoteJobID
-	value.RemoteArtifactName = proof.RemoteArtifactName
-	value.RemoteArtifactDigest = proof.RemoteArtifactDigest
-	value.CompletionReceiptHash = digestBytes(raw)
-	value.CompletionReceiptPath = filepath.Clean(path)
-	value.ActionOrder = append([]string(nil), proof.ActionOrder...)
-	value.ForwarderCountAfter = proof.ForwarderCountAfter
-	value.DaemonObservedAfter = proof.DaemonObservedAfter
-	value.TelemetryIdentitiesGone = proof.TelemetryIdentitiesGone
-	value.EndpointUnreachable = proof.EndpointUnreachable
-	value.NativeOwnerReleased = proof.NativeOwnerReleased
-	value.QuietWindowVerified = proof.QuietWindowVerified
-	value.NextEpoch = proof.NextEpoch
-}
-
-// ValidateCompletionReceipt 保留兼容入口，但在远程 run/job/artifact authority
-// 未接入前明确返回 N/V；本地 completion JSON 不能成为信任根。
-func ValidateCompletionReceipt(repoRoot, completionPath string) error {
-	if strings.TrimSpace(repoRoot) == "" {
-		return errors.New("completion provenance repository root is required")
-	}
-	if completionPath == "" || !filepath.IsAbs(completionPath) {
-		return errors.New("completion receipt path must be absolute")
-	}
-	return errors.New("completion receipt remote run/job/artifact authority binding is unavailable")
-}
-
-// ValidateCompletionReceiptForCandidate 保留候选身份参数以避免调用方自行
-// 降级到工作树校验，但在 artifact authority 未提供时仍 fail-closed 为 N/V。
-func ValidateCompletionReceiptForCandidate(gitHead, sourceTree, completionPath string) error {
-	return errors.New("completion receipt remote run/job/artifact authority binding is unavailable")
-}
-
-// validateReceiptProvenanceFields 校验回执的 Git、远程权威和完成链字段。
-func validateReceiptProvenanceFields(value Receipt, workloadID string) error {
-	checks := []func() error{
-		func() error { return validateReceiptGitIdentity(value, workloadID) },
-		func() error { return validateReceiptDigestFields(value, workloadID) },
-		func() error { return validateReceiptAuthorityFields(value, workloadID) },
-		func() error { return validateReceiptEpochFields(value, workloadID) },
-		func() error { return validateReceiptTimeFields(value, workloadID) },
-		func() error { return validateReceiptCompletionFields(value, workloadID) },
-	}
-	for _, check := range checks {
-		if err := check(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateReceiptGitIdentity 校验 receipt 声称的 Git HEAD/tree 标识。
-func validateReceiptGitIdentity(value Receipt, workloadID string) error {
-	if !digestPattern.MatchString(value.GitHead) && !validGitOID(value.GitHead) {
-		return fmt.Errorf("workload receipt git_head is invalid for %q", workloadID)
-	}
-	if !validGitOID(value.SourceTreeDigest) {
-		return fmt.Errorf("workload receipt source_tree_digest is invalid for %q", workloadID)
-	}
-	return nil
-}
-
-// validateReceiptDigestFields 校验 cohort、owner 和 artifact digest 字段。
-func validateReceiptDigestFields(value Receipt, workloadID string) error {
-	for name, digest := range map[string]string{
-		"cohort_id":                      value.CohortID,
-		"repository_instance_proof_hash": value.RepositoryInstanceProofHash,
-		"daemon_owner_receipt_hash":      value.DaemonOwnerReceiptHash,
-		"completion_receipt_hash":        value.CompletionReceiptHash,
-		"remote_artifact_digest":         value.RemoteArtifactDigest,
-	} {
-		if !digestPattern.MatchString(digest) {
-			return fmt.Errorf("workload receipt %s is invalid for %q", name, workloadID)
-		}
-	}
-	return nil
-}
-
-// validateReceiptAuthorityFields 校验远程 run、job、artifact 名称边界。
-func validateReceiptAuthorityFields(value Receipt, workloadID string) error {
-	for name, authorityID := range map[string]string{
-		"remote_run_id":        value.RemoteRunID,
-		"remote_job_id":        value.RemoteJobID,
-		"remote_artifact_name": value.RemoteArtifactName,
-	} {
-		if !validAuthorityID(authorityID) {
-			return fmt.Errorf("workload receipt %s is invalid for %q", name, workloadID)
-		}
-	}
-	return nil
-}
-
-// validateReceiptEpochFields 校验 root-cohort epoch 单调递增。
-func validateReceiptEpochFields(value Receipt, workloadID string) error {
-	if value.Epoch == 0 || value.NextEpoch <= value.Epoch {
-		return fmt.Errorf("workload receipt epoch transition is invalid for %q", workloadID)
-	}
-	return nil
-}
-
-// validateReceiptTimeFields 校验 workload 时间戳和 execution 时间戳一致。
-func validateReceiptTimeFields(value Receipt, workloadID string) error {
-	if value.WorkloadStartedAt == "" || value.WorkloadFinishedAt == "" {
-		return fmt.Errorf("workload receipt workload timestamps are missing for %q", workloadID)
-	}
-	started, err := time.Parse(time.RFC3339Nano, value.WorkloadStartedAt)
-	if err != nil {
-		return fmt.Errorf("workload receipt workload_started_at is invalid for %q: %w", workloadID, err)
-	}
-	finished, err := time.Parse(time.RFC3339Nano, value.WorkloadFinishedAt)
-	if err != nil {
-		return fmt.Errorf("workload receipt workload_finished_at is invalid for %q: %w", workloadID, err)
-	}
-	if !strings.HasSuffix(value.WorkloadStartedAt, "Z") || !strings.HasSuffix(value.WorkloadFinishedAt, "Z") {
-		return fmt.Errorf("workload receipt workload timestamps must be UTC for %q", workloadID)
-	}
-	if finished.Before(started) || value.WorkloadStartedAt != value.StartedAt || value.WorkloadFinishedAt != value.FinishedAt {
-		return fmt.Errorf("workload receipt workload timestamps do not match execution timestamps for %q", workloadID)
-	}
-	return nil
-}
-
-// validateReceiptCompletionFields 校验完成动作顺序、进程和隔离证明。
-func validateReceiptCompletionFields(value Receipt, workloadID string) error {
-	if !slices.Equal(value.ActionOrder, completionActionOrder()) {
-		return fmt.Errorf("workload receipt action order is invalid for %q", workloadID)
-	}
-	if value.ForwarderCountAfter != 0 || value.DaemonObservedAfter || !value.TelemetryIdentitiesGone ||
-		!value.EndpointUnreachable || !value.NativeOwnerReleased || !value.QuietWindowVerified {
-		return fmt.Errorf("workload receipt completion verification is incomplete for %q", workloadID)
-	}
-	return nil
 }
 
 // validGitOID 判断值是否为小写十六进制 Git object id。
@@ -496,8 +361,7 @@ func currentGitIdentity(repoRoot string) (string, string, error) {
 }
 
 func runGitIdentity(repoRoot string, args ...string) (string, error) {
-	command := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
-	output, err := command.Output()
+	output, err := BoundedGitOutput(repoRoot, args...)
 	if err != nil {
 		return "", err
 	}
@@ -506,208 +370,4 @@ func runGitIdentity(repoRoot string, args ...string) (string, error) {
 		return "", errors.New("git returned an empty identity")
 	}
 	return value, nil
-}
-
-type completionProof struct {
-	GitHead                     string
-	SourceTreeDigest            string
-	CohortID                    string
-	RepositoryInstanceProofHash string
-	Epoch                       uint64
-	DaemonOwnerReceiptHash      string
-	RemoteRunID                 string
-	RemoteJobID                 string
-	RemoteArtifactName          string
-	RemoteArtifactDigest        string
-	ActionOrder                 []string
-	ForwarderCountAfter         int
-	DaemonObservedAfter         bool
-	TelemetryIdentitiesGone     bool
-	EndpointUnreachable         bool
-	NativeOwnerReleased         bool
-	QuietWindowVerified         bool
-	NextEpoch                   uint64
-	Status                      string
-}
-
-// decodeCompletionProof 解码 completion receipt 的固定溯源字段并拒绝缺失字段。
-func decodeCompletionProof(raw []byte) (completionProof, error) {
-	fields, err := decodeCompletionProofFields(raw)
-	if err != nil {
-		return completionProof{}, err
-	}
-	var proof completionProof
-	if err := decodeCompletionIdentityFields(fields, &proof); err != nil {
-		return completionProof{}, err
-	}
-	if err := decodeCompletionAuthorityFields(fields, &proof); err != nil {
-		return completionProof{}, err
-	}
-	if err := decodeCompletionVerificationFields(fields, &proof); err != nil {
-		return completionProof{}, err
-	}
-	return proof, nil
-}
-
-// decodeCompletionProofFields 将 completion receipt 解析为可选择的 JSON 字段。
-func decodeCompletionProofFields(raw []byte) (map[string]json.RawMessage, error) {
-	var fields map[string]json.RawMessage
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	// Completion receipts are owned by the mcp-lsp controller and may grow
-	// fields independently; retain strict JSON syntax while selecting only the
-	// frozen provenance fields below.
-	if err := decoder.Decode(&fields); err != nil {
-		return nil, err
-	}
-	if err := requireDecoderEOF(decoder); err != nil {
-		return nil, err
-	}
-	return fields, nil
-}
-
-// decodeCompletionIdentityFields 读取 Git、cohort、epoch 等源身份字段。
-func decodeCompletionIdentityFields(fields map[string]json.RawMessage, proof *completionProof) error {
-	var err error
-	proof.GitHead, err = requiredJSONField[string](fields, "git_head")
-	if err != nil {
-		return err
-	}
-	proof.SourceTreeDigest, err = requiredJSONField[string](fields, "source_tree_digest")
-	if err != nil {
-		return err
-	}
-	proof.CohortID, err = requiredJSONField[string](fields, "cohort_id")
-	if err != nil {
-		return err
-	}
-	proof.RepositoryInstanceProofHash, err = requiredJSONField[string](fields, "repository_instance_proof_hash")
-	if err != nil {
-		return err
-	}
-	proof.Epoch, err = requiredJSONField[uint64](fields, "epoch")
-	if err != nil {
-		return err
-	}
-	proof.DaemonOwnerReceiptHash, err = requiredJSONField[string](fields, "daemon_owner_receipt_hash")
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// decodeCompletionAuthorityFields 读取远程 run、job 和 artifact 权威坐标。
-func decodeCompletionAuthorityFields(fields map[string]json.RawMessage, proof *completionProof) error {
-	var err error
-	proof.RemoteRunID, err = requiredJSONField[string](fields, "remote_run_id")
-	if err != nil {
-		return err
-	}
-	proof.RemoteJobID, err = requiredJSONField[string](fields, "remote_job_id")
-	if err != nil {
-		return err
-	}
-	proof.RemoteArtifactName, err = requiredJSONField[string](fields, "remote_artifact_name")
-	if err != nil {
-		return err
-	}
-	proof.RemoteArtifactDigest, err = requiredJSONField[string](fields, "remote_artifact_digest")
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// decodeCompletionVerificationFields 读取 completion 链的动作、状态和隔离证明。
-func decodeCompletionVerificationFields(fields map[string]json.RawMessage, proof *completionProof) error {
-	var err error
-	proof.ActionOrder, err = requiredJSONField[[]string](fields, "action_order")
-	if err != nil {
-		return err
-	}
-	proof.ForwarderCountAfter, err = requiredJSONField[int](fields, "forwarder_count_after")
-	if err != nil {
-		return err
-	}
-	proof.DaemonObservedAfter, err = requiredJSONField[bool](fields, "daemon_observed_after")
-	if err != nil {
-		return err
-	}
-	proof.TelemetryIdentitiesGone, err = requiredJSONField[bool](fields, "telemetry_identities_gone")
-	if err != nil {
-		return err
-	}
-	proof.EndpointUnreachable, err = requiredJSONField[bool](fields, "endpoint_unreachable")
-	if err != nil {
-		return err
-	}
-	proof.NativeOwnerReleased, err = requiredJSONField[bool](fields, "native_owner_released")
-	if err != nil {
-		return err
-	}
-	proof.QuietWindowVerified, err = requiredJSONField[bool](fields, "quiet_window_verified")
-	if err != nil {
-		return err
-	}
-	proof.NextEpoch, err = requiredJSONField[uint64](fields, "next_epoch")
-	if err != nil {
-		return err
-	}
-	proof.Status, err = requiredJSONField[string](fields, "status")
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func requiredJSONField[T any](fields map[string]json.RawMessage, name string) (T, error) {
-	var value T
-	raw, ok := fields[name]
-	if !ok {
-		return value, fmt.Errorf("completion receipt field %q is required", name)
-	}
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return value, fmt.Errorf("completion receipt field %q: %w", name, err)
-	}
-	return value, nil
-}
-
-// validateCompletionProof 比较 completion proof 与已写入 receipt 的所有权威坐标。
-func validateCompletionProof(proof completionProof, value Receipt, workloadID string) error {
-	if !completionProofMatchesReceipt(proof, value) {
-		return fmt.Errorf("completion receipt provenance chain mismatch for %q", workloadID)
-	}
-	return validateCompletionProofFields(proof, workloadID)
-}
-
-// completionProofMatchesReceipt 汇总 root-cohort 与远程 artifact 坐标比较。
-func completionProofMatchesReceipt(proof completionProof, value Receipt) bool {
-	return completionProofRootMatchesReceipt(proof, value) && completionProofAuthorityMatchesReceipt(proof, value)
-}
-
-// completionProofRootMatchesReceipt 比较 Git、cohort、epoch 和 owner 字段。
-func completionProofRootMatchesReceipt(proof completionProof, value Receipt) bool {
-	return proof.GitHead == value.GitHead && proof.SourceTreeDigest == value.SourceTreeDigest &&
-		proof.CohortID == value.CohortID && proof.RepositoryInstanceProofHash == value.RepositoryInstanceProofHash &&
-		proof.Epoch == value.Epoch && proof.DaemonOwnerReceiptHash == value.DaemonOwnerReceiptHash
-}
-
-// completionProofAuthorityMatchesReceipt 比较远程 run、job 和 artifact 字段。
-func completionProofAuthorityMatchesReceipt(proof completionProof, value Receipt) bool {
-	return proof.RemoteRunID == value.RemoteRunID && proof.RemoteJobID == value.RemoteJobID &&
-		proof.RemoteArtifactName == value.RemoteArtifactName && proof.RemoteArtifactDigest == value.RemoteArtifactDigest
-}
-
-// validateCompletionProofFields 在远程 authority 尚未接入时保持 N/V。
-func validateCompletionProofFields(proof completionProof, workloadID string) error {
-	return fmt.Errorf("completion receipt for %q is N/V: remote run/job/artifact authority binding is unavailable", workloadID)
-}
-
-func validAuthorityID(value string) bool {
-	trimmed := strings.TrimSpace(value)
-	return trimmed != "" && trimmed == value && !strings.ContainsAny(value, "\x00\r\n")
-}
-
-func digestBytes(raw []byte) string {
-	digest := sha256.Sum256(raw)
-	return "sha256:" + hex.EncodeToString(digest[:])
 }

@@ -262,11 +262,15 @@ func prepareExecutorRun(
 	if err != nil {
 		return nil, nil, "", err
 	}
-	steps, err := resolveExecutorSteps(config.searchPath, layout.sourceCopy, program)
+	gitBinary, err := resolveExecutable("git", config.searchPath)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	gitBinary, err := resolveExecutable("git", config.searchPath)
+	candidateTree, err := resolveExecutorCandidateTree(ctx, gitBinary, layout.sourceCopy)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	steps, err := resolveCandidateExecutorSteps(config.searchPath, layout.sourceCopy, program, candidateTree)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -280,6 +284,23 @@ func prepareExecutorRun(
 		return nil, nil, "", err
 	}
 	return environment, steps, gitBinary, nil
+}
+
+func resolveCandidateExecutorSteps(searchPath, sourceCopy string, program ExecutorProgram, candidateTree string) ([]resolvedStep, error) {
+	self, err := resolveExecutorProgramSelf(program)
+	if err != nil {
+		return nil, err
+	}
+	return resolveExecutorStepsWithCandidateTree(searchPath, sourceCopy, program, self, candidateTree)
+}
+
+func resolveExecutorProgramSelf(program ExecutorProgram) (TrustedSelfBinary, error) {
+	for _, step := range program.Steps {
+		if len(step.Argv) != 0 && step.Argv[0] == ExecutorSelfCommandName {
+			return resolveTrustedSelfBinary()
+		}
+	}
+	return TrustedSelfBinary{}, nil
 }
 
 // prepareExecutorEnvironment 只为声明需要的运行时 seed 构造隔离执行环境。
@@ -464,8 +485,19 @@ func validateExecutorUID(expectedUID int) error {
 	return nil
 }
 
-func resolveExecutorSteps(searchPath string, sourceCopy string, program ExecutorProgram) ([]resolvedStep, error) {
-	return resolveExecutorStepsWithSelf(searchPath, sourceCopy, program, TrustedSelfBinary{})
+func resolveExecutorStepsWithCandidateTree(searchPath, sourceCopy string, program ExecutorProgram, self TrustedSelfBinary, candidateTree string) ([]resolvedStep, error) {
+	steps, err := resolveExecutorStepsWithSelf(searchPath, sourceCopy, program, self)
+	if err != nil {
+		return nil, err
+	}
+	for index := range steps {
+		argv, err := injectMcpLSPCandidateTreeAt(steps[index].argv, candidateTree, sourceCopy)
+		if err != nil {
+			return nil, fmt.Errorf("executor step %d: %w", index, err)
+		}
+		steps[index].argv = argv
+	}
+	return steps, nil
 }
 
 func resolveExecutorStepsWithSelf(searchPath string, sourceCopy string, program ExecutorProgram, self TrustedSelfBinary) ([]resolvedStep, error) {
