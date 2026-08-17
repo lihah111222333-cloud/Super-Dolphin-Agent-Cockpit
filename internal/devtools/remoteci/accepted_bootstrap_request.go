@@ -516,11 +516,15 @@ func validateAcceptedBootstrapManifestHeader(manifest acceptedBootstrapManifest)
 }
 
 func acceptedBootstrapManifestGateSet(gateIDs []gate.GateID) (map[gate.GateID]struct{}, error) {
+	projected, err := ProjectAcceptedGateIDs(gateIDs)
+	if err != nil {
+		return nil, fmt.Errorf("accepted bootstrap manifest gate ID: %w", err)
+	}
+	if !slices.Equal(projected, gateIDs) {
+		return nil, errors.New("accepted bootstrap manifest gate IDs are not projected")
+	}
 	gateSet := make(map[gate.GateID]struct{}, len(gateIDs))
 	for _, id := range gateIDs {
-		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
-			return nil, fmt.Errorf("accepted bootstrap manifest gate ID: %w", err)
-		}
 		if _, duplicate := gateSet[id]; duplicate {
 			return nil, fmt.Errorf("accepted bootstrap manifest gate ID %q is duplicated", id)
 		}

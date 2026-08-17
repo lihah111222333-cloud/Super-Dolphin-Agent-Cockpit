@@ -317,6 +317,13 @@ func TestAcceptedBootstrapProjectionMapsWorkflowActionlintToAcceptedOwner(t *tes
 	if _, err := ProjectAcceptedGateIDs(projected); err != nil {
 		t.Fatalf("accepted workflow projection is not idempotent: %v", err)
 	}
+	gateSet, err := acceptedBootstrapManifestGateSet(projected)
+	if err != nil {
+		t.Fatalf("accepted manifest rejected projected workflow owner: %v", err)
+	}
+	if _, ok := gateSet[acceptedBootstrapAIMaintenanceGateID]; !ok {
+		t.Fatal("accepted manifest lost projected workflow owner")
+	}
 }
 
 func TestAcceptedBootstrapProjectionFiltersExpansionOnlyNilnessCompileGroups(t *testing.T) {
