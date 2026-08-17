@@ -221,6 +221,17 @@ func normalCompileResourceClass(tier cicontract.WorkloadResourceTier) (string, e
 	return cicontract.NormalResourceClassForTier(tier)
 }
 
+// ordinaryCompileResourceClass 在 calibration 模式绑定固定资源，normal 模式才消费持久化档位。
+func ordinaryCompileResourceClass(tier cicontract.WorkloadResourceTier, context PlanningContext) (string, error) {
+	if context.Calibration {
+		if err := cicontract.ValidateCalibrationResources(context.CalibrationResourceClassID, context.CalibrationResourceCPU, context.CalibrationResourceMemoryGiB); err != nil {
+			return "", err
+		}
+		return context.CalibrationResourceClassID, nil
+	}
+	return normalCompileResourceClass(tier)
+}
+
 // compileInputAffinityKey 生成 compile input 的稳定 affinity key。
 func compileInputAffinityKey(input CompileGroupInput) (string, error) {
 	key, err := CompileArtifactKeyForInput(input)

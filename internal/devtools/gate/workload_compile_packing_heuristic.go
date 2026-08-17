@@ -154,6 +154,22 @@ func isolatedCompileShards(units []compilePlanningUnit) []ShardPlan {
 	return shards
 }
 
+// compileShardContainsSingleCompileGroupUnit 只放行不可再拆的单一 compile unit，禁止借 group ID 掩盖混箱超限。
+func compileShardContainsSingleCompileGroupUnit(shard ShardPlan, units []compilePlanningUnit) bool {
+	if len(shard.CompileGroupIDs) != 1 {
+		return false
+	}
+	unit, ok := compileGroupUnitIndex(units)[shard.CompileGroupIDs[0]]
+	if !ok || unit.group == nil || shard.EstimatedDurationMS != unit.costMS {
+		return false
+	}
+	covered := make(map[string]struct{}, len(unit.workloads))
+	for _, workload := range unit.workloads {
+		covered[workload.Workload.ID] = struct{}{}
+	}
+	return compileShardWorkloadsCovered(shard, covered)
+}
+
 // repairCompilePackingBounded 按固定顺序执行 move、swap、cycle 和 beam。
 func repairCompilePackingBounded(units []compilePlanningUnit, initial []ShardPlan, target int64) ([]ShardPlan, error) {
 	assignments, ok := compilePackingAssignments(units, initial)
