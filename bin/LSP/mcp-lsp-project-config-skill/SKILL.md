@@ -1,6 +1,7 @@
 ---
 name: mcp-lsp-project-config
 description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio MCP，覆盖 Codex、Claude Code 和 Google Antigravity，以及 Windows 原生、WSL 原生和 Windows 宿主通过 wsl.exe 桥接 Linux sidecar 的自动选型。用户提到项目 MCP、LSP MCP、.codex/config.toml、.mcp.json、.agents/mcp_config.json、工具已显示但调用报 client is closing、EOF、Transport closed，或希望三个客户端共用仓库内 mcp-lsp 时使用。
+description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio MCP，覆盖 Codex、Claude Code 和 Google Antigravity，以及 Windows 原生、WSL 原生和 Windows 宿主通过 wsl.exe 桥接 Linux sidecar 的自动选型。用户提到项目 MCP、LSP MCP、.codex/config.toml、.mcp.json、.agents/mcp_config.json、Codex 中 LSP 工具有时直接暴露有时只在延迟工具目录、ALL_TOOLS 过滤为空、工具已显示但调用报 client is closing、EOF、Transport closed，或希望三个客户端共用仓库内 mcp-lsp 时使用。
 ---
 
 # 项目级 mcp-lsp 配置
@@ -155,8 +156,30 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 - stdio server 使用 mcp_servers.<name> 表、command、args、cwd 和 env。
 - env 必须包含三个 sidecar 启动字段与两个 `GO_AGENT_LSP_ROOT(S)` workspace 字段；原生 Windows 还必须包含两个受信 LSP bundle 字段。
 - Windows Desktop/IDE 桥接 WSL 时，使用 `wsl.exe` 模板，并在 args 的 `env` 段显式传入五个 Linux sidecar 字段与实机探测的 Linux PATH；不得让 Windows 直接执行 Linux ELF，也不得依赖登录 shell 才存在的 PATH 修改。
-- 需要强制 LSP 时可设置 enabled = true 和 required = true。
+- 需要强制 LSP 时设置 `enabled = true` 和 `required = true`；初始化失败必须阻断，不能静默省略后继续任务。
 - 保留其他 MCP server、features、hooks、model 和逐工具审批设置。
+
+#### Codex 工具延迟暴露
+
+Codex 可能已发现并启动 `lsp`，但首层工具列表不直接显示 `mcp__lsp__*`，只把它们放入 code mode 的延迟工具目录。先用 `codex features list` 检查 `tool_search_always_defer_mcp_tools`：若该项显示 `removed` 且有效值为 `true`，不要写 `features.tool_search_always_defer_mcp_tools = false`；该旧开关不会改变有效状态。
+
+要让 LSP 命名空间作为直接工具暴露，逐字段合并以下项目级配置，不得覆盖已有 `[features]` 内容：
+
+~~~toml
+[features.code_mode]
+enabled = true
+direct_only_tool_namespaces = ["mcp__lsp"]
+~~~
+
+`mcp__lsp` 是命名空间，不是具体工具名。该设置控制工具 schema 的直接暴露方式，不承诺 sidecar 零耗时启动；同时保留 `[mcp_servers.lsp] required = true`，让初始化失败 fail-fast。修改后必须完整重启 Codex 宿主并新建任务；旧任务已经生成的工具 schema 不能作为新配置生效证据。
+
+重启后同时验证三项，缺一不可：
+
+1. 当前任务的顶层直接工具声明出现 `mcp__lsp`，并包含 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion`。
+2. 不经过 `functions.exec`，直接调用至少一个 `mcp__lsp.<tool>` 成功。
+3. 在 `functions.exec` 内执行 `ALL_TOOLS.filter(({ name }) => name.startsWith("mcp__lsp__"))`，结果应为 `[]`。`ALL_TOOLS` 是 code mode 的嵌套/延迟工具目录；direct-only 生效后 LSP 从这里移除，因此空数组是成功证据，不是未注册。只有“顶层直接工具不存在或直接调用失败”时，空数组才表示 LSP 两边都不可用。
+
+最后确认 `codex features list` 中 `code_mode` 为 `true`，并用 `/mcp` 检查 `lsp` 已连接。不要把 `ALL_TOOLS` 非空、仅 `/mcp` enabled 或仅有 sidecar 进程当成直接暴露成功。
 
 ### Claude Code
 
