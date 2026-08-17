@@ -1,5 +1,8 @@
 package main
 
+// 本文件是公共跨平台的 E2E 覆盖静态门禁，不直接运行被审计的 E2E；
+// 普通测试必须在每个平台发现覆盖漂移，因此故意不加 e2e build tag。
+
 import (
 	"os"
 	"os/exec"

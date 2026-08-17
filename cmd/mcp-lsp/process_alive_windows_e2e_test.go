@@ -45,11 +45,19 @@ func windowsGoplsProcessStartIdentity(pid int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var creation, exit, kernel, user windows.Filetime
-	identityErr := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user)
+	identity, identityErr := windowsGoplsProcessStartIdentityForHandle(handle)
 	closeErr := windows.CloseHandle(handle)
 	if identityErr != nil || closeErr != nil {
 		return "", errors.Join(identityErr, closeErr)
+	}
+	return identity, nil
+}
+
+// windowsGoplsProcessStartIdentityForHandle 在固定进程句柄上读取启动时间，避免 PID 复用竞态。
+func windowsGoplsProcessStartIdentityForHandle(handle windows.Handle) (string, error) {
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
+		return "", err
 	}
 	return strconv.FormatUint(uint64(creation.HighDateTime)<<32|uint64(creation.LowDateTime), 10), nil
 }
@@ -95,9 +103,21 @@ func cleanupWindowsGoplsExactIdentity(t *testing.T, identity windowsGoplsProvisi
 	if !alive {
 		return
 	}
-	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(identity.PID))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE, false, uint32(identity.PID))
 	if err != nil {
 		t.Errorf("open exact Windows process for cleanup %+v: %v", identity, err)
+		return
+	}
+	start, err := windowsGoplsProcessStartIdentityForHandle(handle)
+	if err != nil {
+		_ = windows.CloseHandle(handle)
+		t.Errorf("read exact Windows process start identity for cleanup %+v: %v", identity, err)
+		return
+	}
+	if start != identity.StartIdentity {
+		if err := windows.CloseHandle(handle); err != nil {
+			t.Errorf("close reused Windows process handle during cleanup %+v: %v", identity, err)
+		}
 		return
 	}
 	terminateErr := windows.TerminateProcess(handle, 1)

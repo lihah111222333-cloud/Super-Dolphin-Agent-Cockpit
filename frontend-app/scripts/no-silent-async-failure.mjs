@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
+// 公共门禁直接使用 Node 的本地模块目录，确保 Windows 与 POSIX 使用同一根目录语义。
+const appRoot = path.resolve(import.meta.dirname, '..');
 
 export const SILENT_ASYNC_FAILURE_ROOTS = Object.freeze(['src']);
 const sourceExtensionPattern = /\.[cm]?[jt]sx?$/;
@@ -159,7 +159,7 @@ export function collectSilentAsyncFailureViolations({ root = appRoot, roots = SI
   return silentAsyncFailureViolationsFromSources(sources);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (path.resolve(process.argv[1] || '') === import.meta.filename) {
   const violations = collectSilentAsyncFailureViolations();
   if (violations.length > 0) {
     console.error('silent async failure guard failed:');

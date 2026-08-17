@@ -135,7 +135,8 @@ func TestEditRenameMultiFile(t *testing.T) {
 			},
 		},
 	}
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	registry := &structureTestRegistry{fileManager: manager}
+	handler := NewEditHandlerWithRoot(root, registry)
 
 	params, _ := json.Marshal(map[string]any{
 		"action":   "rename",
@@ -149,6 +150,9 @@ func TestEditRenameMultiFile(t *testing.T) {
 	resp := result.(renameResult)
 	if len(resp.AffectedFiles) != 2 {
 		t.Fatalf("affected files = %d, want 2", len(resp.AffectedFiles))
+	}
+	if registry.fileWithLanguageCalls != 1 {
+		t.Fatalf("rename manager resolution calls = %d, want exactly 1", registry.fileWithLanguageCalls)
 	}
 }
 
@@ -404,3 +408,54 @@ func canonicalRenameURIPath(t *testing.T, path string) string {
 	}
 	return canonical
 }
+
+func TestApplyTextEditsPreservesCRLFAndLF(t *testing.T) {
+	t.Run("preserves CRLF", func(t *testing.T) {
+		crlfContent := "package main\r\n\r\nfunc oldName() {\r\n\treturn\r\n}\r\n"
+		edits := []protocol.TextEdit{
+			{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: 2, Character: 5},
+					End:   protocol.Position{Line: 2, Character: 12},
+				},
+				NewText: "newName",
+			},
+		}
+		got, err := applyTextEdits(crlfContent, edits)
+		if err != nil {
+			t.Fatalf("applyTextEdits error: %v", err)
+		}
+		want := "package main\r\n\r\nfunc newName() {\r\n\treturn\r\n}\r\n"
+		if got != want {
+			t.Fatalf("applyTextEdits result = %q, want %q", got, want)
+		}
+		if !strings.Contains(got, "\r\n") || strings.Contains(strings.ReplaceAll(got, "\r\n", ""), "\n") {
+			t.Fatalf("result has mixed newlines or lost CRLF: %q", got)
+		}
+	})
+
+	t.Run("preserves LF", func(t *testing.T) {
+		lfContent := "package main\n\nfunc oldName() {\n\treturn\n}\n"
+		edits := []protocol.TextEdit{
+			{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: 2, Character: 5},
+					End:   protocol.Position{Line: 2, Character: 12},
+				},
+				NewText: "newName",
+			},
+		}
+		got, err := applyTextEdits(lfContent, edits)
+		if err != nil {
+			t.Fatalf("applyTextEdits error: %v", err)
+		}
+		want := "package main\n\nfunc newName() {\n\treturn\n}\n"
+		if got != want {
+			t.Fatalf("applyTextEdits result = %q, want %q", got, want)
+		}
+		if strings.Contains(got, "\r") {
+			t.Fatalf("result introduced unexpected CR: %q", got)
+		}
+	})
+}
+

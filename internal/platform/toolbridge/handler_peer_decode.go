@@ -97,12 +97,17 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 }
 
 // validateCodexToolSurfaceScope 校验准备 surface 所需的 agent、cwd 和 manifest。
+// 这是跨平台协议边界：CWD 必须能按当前系统的路径规则归一化为绝对路径，
+// 避免先发布一个 cwd 为空的 surface，再把确定性配置错误延迟到第一次工具调用。
 func validateCodexToolSurfaceScope(scope contract.CodexToolSurfaceScope) error {
 	if strings.TrimSpace(scope.AgentID) == "" {
 		return fmt.Errorf("toolbridge: codex tool surface agent id is required")
 	}
 	if strings.TrimSpace(scope.CWD) == "" {
 		return fmt.Errorf("toolbridge: codex tool surface cwd is required")
+	}
+	if normalizeToolCallCWD(scope.CWD) == "" {
+		return fmt.Errorf("toolbridge: codex tool surface cwd must be an absolute path for the current platform")
 	}
 	if len(scope.Manifest.Binaries) == 0 {
 		return fmt.Errorf("toolbridge: codex tool surface manifest is empty")
@@ -535,7 +540,7 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 		}
 	}
 	var validationDone bool
-	result, err, validationDone = h.validateCodexSurfaceEntryResult(ctx, entry, req.Arguments)
+	result, err, validationDone = h.validateCodexSurfaceEntryResult(ctx, entry, req)
 	if validationDone {
 		return result, err
 	}
@@ -545,10 +550,14 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 }
 
 // validateCodexSurfaceEntryResult 把已知 schema 恢复失败转换成 provider 可见结果，未知错误继续冒泡。
-func (h *Handler) validateCodexSurfaceEntryResult(ctx context.Context, entry codexToolEntry, arguments json.RawMessage) (*ToolCallResult, error, bool) {
-	err := h.validateCodexSurfaceEntryArguments(ctx, entry, arguments)
+// 平台权限 seam 只允许使用同一受信 ToolCallRequest 做一次审批重试，成功后才继续执行工具。
+func (h *Handler) validateCodexSurfaceEntryResult(ctx context.Context, entry codexToolEntry, req ToolCallRequest) (*ToolCallResult, error, bool) {
+	err := h.validateCodexSurfaceEntryArguments(ctx, entry, req.Arguments)
 	if err == nil {
 		return nil, nil, false
+	}
+	if decision := h.handleSchemaValidationAuthorization(ctx, entry, req, err); decision.handled {
+		return decision.result, decision.err, decision.validationDone
 	}
 	if recoveryResult, ok := toolCallRecoveryFailureResult(err); ok {
 		return recoveryResult, nil, true

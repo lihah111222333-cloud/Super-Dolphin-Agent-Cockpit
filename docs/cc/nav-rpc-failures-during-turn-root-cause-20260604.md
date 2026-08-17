@@ -3,7 +3,7 @@
 - 日期：2026-06-04
 - 范围：源码追踪 + 既有 trace/log 复核；未修改业务代码。
 - 现象入口：普通对话 `turn/start` 进行中，或自动化/run 进行中，切到其他 nav 页面（技能、提示词、自动化、记忆中心、共享文件等）会出现红色“同步失败/需要重试”提示；点击重试仍可能失败。
-- 主要证据文件：`~/.multi-agent/log/workflow-sync-root-cause-20260604/traces/trace-2026-06-04.jsonl` 与同目录 `agent-terminal-2026-06-04-1.log`。
+- 主要证据文件：`~/.super-dolphin/log/workflow-sync-root-cause-20260604/traces/trace-2026-06-04.jsonl` 与同目录 `agent-terminal-2026-06-04-1.log`。
 
 ## 结论
 

@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	lspinstaller "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
@@ -57,7 +59,7 @@ func TestPrepareLSPBundleScriptsRegisterBundledClangdForMQL(t *testing.T) {
 	assertScriptContains(t, windowsScript, "missing clangd; set SUPER_DOLPHIN_CLANGD_BIN")
 	assertScriptContains(t, windowsScript, "Copy-Item -LiteralPath $ClangdBin -Destination (Join-Path $LspDir 'bin/clangd.exe')")
 	assertScriptContains(t, windowsScript, "bundled clangd failed --version smoke")
-	assertScriptContains(t, windowsScript, "clangd|bin/clangd.exe|[\"c\",\"cpp\",\"objective-c\",\"objective-cpp\",\"mql\",\"mql4\",\"mql5\",\"mq4\",\"mq5\",\"mqh\"]")
+	assertScriptContains(t, windowsScript, "id = 'clangd'; path = 'bin/clangd.exe'")
 	assertScriptDoesNotContain(t, windowsScript, `C:\Program Files\LLVM\bin\clangd.exe`)
 
 	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh", "prepare_lsp_bundle_windows.ps1"} {
@@ -74,12 +76,24 @@ func TestPrepareLSPBundleScriptsRegisterBundledClangdForMQL(t *testing.T) {
 func clangdManifestLanguageIDs(t *testing.T, script string) []string {
 	t.Helper()
 	match := regexp.MustCompile(`clangd\|bin/clangd(?:\.exe)?\|(\[[^\]\r\n]+\])`).FindStringSubmatch(script)
+	if len(match) == 2 {
+		var languages []string
+		if err := json.Unmarshal([]byte(match[1]), &languages); err != nil {
+			t.Fatalf("parse clangd manifest languages: %v", err)
+		}
+		if len(languages) == 0 {
+			t.Fatal("clangd manifest languages are empty")
+		}
+		return languages
+	}
+	match = regexp.MustCompile(`id = 'clangd'; path = 'bin/clangd\.exe'.*?languages = @\(([^)]*)\)`).FindStringSubmatch(script)
 	if len(match) != 2 {
 		t.Fatal("clangd manifest language descriptor not found")
 	}
-	var languages []string
-	if err := json.Unmarshal([]byte(match[1]), &languages); err != nil {
-		t.Fatalf("parse clangd manifest languages: %v", err)
+	entries := regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(match[1], -1)
+	languages := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		languages = append(languages, entry[1])
 	}
 	if len(languages) == 0 {
 		t.Fatal("clangd manifest languages are empty")
@@ -164,9 +178,11 @@ func TestPrepareLSPBundleScriptsIncludeShellcheckInManifestAndChecksums(t *testi
 func TestPrepareLSPBundleWindowsWritesManifestLanguagesAsArrays(t *testing.T) {
 	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
 
-	assertScriptContains(t, script, "[string[]](ConvertFrom-Json -InputObject $parts[2])")
+	assertScriptContains(t, script, "$languages = [string[]]$spec.languages")
 	assertScriptContains(t, script, "LSP manifest languages for $serverId must be a non-empty JSON array")
-	assertScriptDoesNotContain(t, script, "$languages = $parts[2] | ConvertFrom-Json")
+	assertScriptContains(t, script, "version = $version")
+	assertScriptContains(t, script, "sha256 = $digest")
+	assertScriptDoesNotContain(t, script, "version = 'bundled'")
 }
 
 func TestPrepareLSPBundleMacOSStandardProfileExcludesJDTLSManifestEntry(t *testing.T) {
@@ -297,9 +313,15 @@ func TestPrepareLSPBundleWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "prepare_lsp_bundle_windows.ps1 must run on Windows")
 	assertScriptContains(t, script, "Resolve-RepoRoot")
 	assertScriptContains(t, script, "keep prepare_lsp_bundle_windows.ps1 under <repo>\\scripts")
-	assertScriptContains(t, script, "$GoOS -ne 'windows'")
+	assertScriptContains(t, script, "Get-WindowsHostIdentity")
+	assertScriptContains(t, script, "RtlGetVersion")
+	assertScriptContains(t, script, "IsWow64Process2")
+	assertScriptContains(t, script, "cross-architecture Windows LSP packaging is forbidden")
+	assertScriptContains(t, script, "require Windows 10.0 build 19041 or newer")
+	assertScriptDoesNotContain(t, script, "(& go env GOOS).Trim()")
+	assertScriptDoesNotContain(t, script, "(& go env GOARCH).Trim()")
 	assertScriptContains(t, script, "node.exe")
-	assertScriptContains(t, script, "& $NpmBin install --prefix $LspDir @LSPNpmPackages")
+	assertScriptContains(t, script, "& $NpmBin install --prefix $LspDir --save-exact @LSPNpmPackages")
 	assertScriptContains(t, script, "typescript-language-server")
 	assertScriptContains(t, script, "vscode-langservers-extracted")
 	assertScriptContains(t, script, "pyright")
@@ -309,7 +331,17 @@ func TestPrepareLSPBundleWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "@ast-grep/cli")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vscode-css-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vscode-html-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vscode-json-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vscode-markdown-language-server.cmd'")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'pyright-langserver.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'yaml-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vue-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'svelteserver.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'intelephense.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'docker-langserver.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'graphql-lsp.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'prisma-language-server.cmd'")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'bash-language-server.cmd'")
 	assertScriptContains(t, script, "Copy-Item -LiteralPath $SqruffBin -Destination (Join-Path $LspDir 'bin/sqruff.exe')")
 	assertScriptContains(t, script, "node_modules/shellcheck/bin/shellcheck.js")
@@ -321,27 +353,64 @@ func TestPrepareLSPBundleWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "$shellcheck = Resolve-ShellcheckExecutable")
 	assertScriptOrder(t, script, "function Resolve-ShellcheckExecutable", "$shellcheck = Resolve-ShellcheckExecutable")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_MSVC_RUNTIME_DIR")
+	assertScriptContains(t, script, "function Resolve-WindowsVCLibsDesktopDirectory")
+	assertScriptContains(t, script, "Microsoft.VCLibs.arm64.14.00.Desktop.appx")
+	assertScriptContains(t, script, "Microsoft.VCLibs.x64.14.00.Desktop.appx")
+	assertScriptContains(t, script, "Microsoft.VCLibs.x86.14.00.Desktop.appx")
+	assertScriptContains(t, script, "Microsoft.VCLibs.140.00.UWPDesktop")
+	assertScriptContains(t, script, "Windows VCLibs Desktop SHA-256 mismatch")
+	assertScriptContains(t, script, "Windows VCLibs Desktop Appx entry escapes extraction root")
+	assertScriptContains(t, script, "[IO.FileShare]::None")
 	assertScriptContains(t, script, "node_modules/@ast-grep/cli/ast-grep.exe")
 	assertScriptContains(t, script, "bin/ast-grep.exe")
+	assertScriptContains(t, script, "msvcp140_atomic_wait.dll")
 	assertScriptContains(t, script, "vcruntime140.dll")
 	assertScriptContains(t, script, "bundled ast-grep smoke failed")
 	assertScriptOrder(t, script, "node_modules/@ast-grep/cli/sg.exe", "node_modules/@ast-grep/cli/ast-grep.exe")
-	assertScriptOrder(t, script, "Copy-Item -LiteralPath $astGrep", "Copy-Item -LiteralPath $vcruntime140")
+	assertScriptOrder(t, script, "Copy-Item -LiteralPath $astGrep", "$MSVCRuntimeDir = Resolve-WindowsVCLibsDesktopDirectory")
 	assertScriptContains(t, script, "Write-GoToolchainWrapper")
-	assertScriptContains(t, script, "go|bin/go.cmd|[\"go-toolchain\"]")
-	assertScriptContains(t, script, "gopls|bin/gopls.exe|[\"go\",\"gomod\",\"gosum\",\"gowork\"]")
-	assertScriptContains(t, script, "sg|bin/sg.exe|[\"ast-grep\"]")
-	assertScriptContains(t, script, "sqruff|bin/sqruff.exe|[\"sql\"]")
+	assertScriptContains(t, script, "id = 'go'; path = 'bin/go.cmd'")
+	assertScriptContains(t, script, "id = 'gopls'; path = 'bin/gopls.exe'")
+	assertScriptContains(t, script, "id = 'sg'; path = 'bin/sg.exe'")
+	assertScriptContains(t, script, "id = 'sqruff'; path = 'bin/sqruff.exe'")
 	assertScriptContains(t, script, "'bin/ast-grep.exe'")
 	assertScriptContains(t, script, "'bin/vcruntime140.dll'")
 	assertScriptContains(t, script, "'amd64' { 'win32-x64' }")
 	assertScriptContains(t, script, "'arm64' { 'win32-arm64' }")
+	assertScriptContains(t, script, "'x86' { 'win32-ia32' }")
+	assertScriptContains(t, script, "0x014C { return 'x86' }")
 	assertScriptContains(t, script, "python.cmd")
 	assertScriptContains(t, script, "python3.cmd")
 	assertScriptContains(t, script, "lsp-manifest.json")
 	assertScriptContains(t, script, "lsp-checksums.sha256")
-	assertScriptOrder(t, script, "& $NpmBin install --prefix $LspDir @LSPNpmPackages", "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
+	assertScriptOrder(t, script, "& $NpmBin install --prefix $LspDir --save-exact @LSPNpmPackages", "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
 	assertScriptOrder(t, script, "Write-GoToolchainWrapper", "Write-LSPManifestAndChecksums")
+}
+
+func TestPrepareLSPBundleWindowsArchitectureAliasesMatchGoContract(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+	testGroups := []struct {
+		goCanonical         string
+		powerShellCanonical string
+		aliases             []string
+	}{
+		{goCanonical: lspinstaller.WindowsHostArchARM64, powerShellCanonical: "arm64", aliases: []string{"arm64", "aarch64", "armv8", "arm64-v8a"}},
+		{goCanonical: lspinstaller.WindowsHostArchX64, powerShellCanonical: "amd64", aliases: []string{"amd64", "x64", "x86_64", "x86-64"}},
+		{goCanonical: lspinstaller.WindowsHostArchX86, powerShellCanonical: "x86", aliases: []string{"386", "x86", "i386", "i486", "i586", "i686", "x86-32", "ia32"}},
+	}
+	for _, group := range testGroups {
+		quotedAliases := make([]string, 0, len(group.aliases))
+		for _, alias := range group.aliases {
+			got, err := lspinstaller.NormalizeWindowsArchitectureAlias(alias)
+			if err != nil || got != group.goCanonical {
+				t.Fatalf("NormalizeWindowsArchitectureAlias(%q) = %q, %v; want %q", alias, got, err, group.goCanonical)
+			}
+			quotedAliases = append(quotedAliases, fmt.Sprintf("'%s'", alias))
+		}
+		powerShellBranch := fmt.Sprintf("{ $_ -in @(%s) } { '%s'; break }", strings.Join(quotedAliases, ", "), group.powerShellCanonical)
+		assertScriptContains(t, script, powerShellBranch)
+	}
+	assertScriptContains(t, script, "installer.NormalizeWindowsArchitectureAlias")
 }
 
 func TestPrepareLSPBundleWindowsPinsNpmDependencyVersions(t *testing.T) {
@@ -352,7 +421,15 @@ func TestPrepareLSPBundleWindowsPinsNpmDependencyVersions(t *testing.T) {
 		"typescript-language-server@5.3.0",
 		"typescript@5.9.3",
 		"vscode-langservers-extracted@4.10.0",
-		"pyright@1.1.410",
+		"vscode-markdown-languageservice@0.5.0-alpha.11",
+		"pyright@1.1.412",
+		"yaml-language-server@1.24.0",
+		"@vue/language-server@3.3.9",
+		"svelte-language-server@0.18.4",
+		"intelephense@1.18.5",
+		"dockerfile-language-server-nodejs@0.15.0",
+		"graphql-language-service-cli@3.5.0",
+		"@prisma/language-server@31.11.0",
 		"bash-language-server@5.6.0",
 		"shellcheck@4.1.0",
 		"@ast-grep/cli@0.43.0",
@@ -361,8 +438,47 @@ func TestPrepareLSPBundleWindowsPinsNpmDependencyVersions(t *testing.T) {
 	}
 	assertScriptContains(t, script, "if (-not $OmitShellcheck -and $ShellcheckBin.Trim() -eq '' -and $WindowsPackageArch -ne 'arm64')")
 	assertScriptContains(t, script, "$LSPNpmPackages += 'shellcheck@4.1.0'")
-	assertScriptContains(t, script, "& $NpmBin install --prefix $LspDir @LSPNpmPackages")
+	assertScriptContains(t, script, "& $NpmBin install --prefix $LspDir --save-exact @LSPNpmPackages")
+	assertScriptContains(t, script, "'vscode-markdown-languageservice' = '0.5.0-alpha.11'")
 	assertScriptDoesNotContain(t, script, "npm install --prefix $LspDir typescript-language-server typescript vscode-langservers-extracted pyright bash-language-server shellcheck @ast-grep/cli")
+}
+
+func TestPrepareLSPBundleWindowsShellcheckNpmCohortMatchesArchitectureAndOverrideBranches(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+	condition := "-not $OmitShellcheck -and $ShellcheckBin.Trim() -eq '' -and $WindowsPackageArch -ne 'arm64'"
+	assertScriptContains(t, script, "if ("+condition+") {")
+	assertScriptContains(t, script, "$LSPNpmPackages += 'shellcheck@4.1.0'")
+	assertScriptContains(t, script, "$expectedNpmPackageVersions['shellcheck'] = '4.1.0'")
+	assertScriptOrder(t, script, "$LSPNpmPackages += 'shellcheck@4.1.0'", "$expectedNpmPackageVersions['shellcheck'] = '4.1.0'")
+	assertScriptContains(t, script, "if ($OmitShellcheck) {")
+	assertScriptContains(t, script, "if ($WindowsPackageArch -eq 'arm64') {")
+}
+
+func TestPrepareLSPBundleWindowsCoversDefaultNodeAdapterCohort(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+
+	for _, want := range []string{
+		"id = 'typescript-language-server'; path = 'bin/typescript-language-server.cmd'",
+		"id = 'vscode-langservers-extracted'; path = 'bin/vscode-css-language-server.cmd'",
+		"id = 'vscode-html-language-server'; path = 'bin/vscode-html-language-server.cmd'",
+		"id = 'vscode-json-language-server'; path = 'bin/vscode-json-language-server.cmd'",
+		"id = 'vscode-markdown-language-server'; path = 'bin/vscode-markdown-language-server.cmd'",
+		"id = 'pyright'; path = 'bin/pyright-langserver.cmd'",
+		"id = 'yaml-language-server'; path = 'bin/yaml-language-server.cmd'",
+		"id = 'vue-language-server'; path = 'bin/vue-language-server.cmd'",
+		"id = 'svelteserver'; path = 'bin/svelteserver.cmd'",
+		"id = 'intelephense'; path = 'bin/intelephense.cmd'",
+		"id = 'docker-langserver'; path = 'bin/docker-langserver.cmd'",
+		"id = 'graphql-lsp'; path = 'bin/graphql-lsp.cmd'",
+		"id = 'prisma-language-server'; path = 'bin/prisma-language-server.cmd'",
+		"id = 'bash-language-server'; path = 'bin/bash-language-server.cmd'",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptContains(t, script, "Get-SHA256File $fullPath")
+	assertScriptContains(t, script, "Get-NpmPackageVersion")
+	assertScriptContains(t, script, "Get-ExecutableVersion")
+	assertScriptContains(t, script, "Get-JDTLSVersion")
 }
 
 func TestPrepareLSPBundleWindowsFullProfileBundlesJavaRuntimeAndJDTLS(t *testing.T) {
@@ -372,8 +488,8 @@ func TestPrepareLSPBundleWindowsFullProfileBundlesJavaRuntimeAndJDTLS(t *testing
 	assertScriptContains(t, script, "$JDKHome = if ($env:SUPER_DOLPHIN_JDK_HOME)")
 	assertScriptContains(t, script, "Write-JavaRuntimeWrapper")
 	assertScriptContains(t, script, "Write-JDTLSWrapper")
-	assertScriptContains(t, script, "java|bin/java.cmd|[\"java-runtime\"]")
-	assertScriptContains(t, script, "jdtls|bin/jdtls.cmd|[\"java\"]")
+	assertScriptContains(t, script, "id = 'java'; path = 'bin/java.cmd'")
+	assertScriptContains(t, script, "id = 'jdtls'; path = 'bin/jdtls.cmd'")
 	assertScriptContains(t, script, "if ($LSPProfile -eq 'full') {")
 	assertScriptContains(t, script, "missing jdtls; set SUPER_DOLPHIN_JDTLS_HOME")
 	assertScriptContains(t, script, "missing JDK; set SUPER_DOLPHIN_JDK_HOME or JAVA_HOME")

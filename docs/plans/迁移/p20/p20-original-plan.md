@@ -73,7 +73,7 @@
 ### 1.3 本仓库现状（已就位的基础设施）
 | 能力 | 位置 |
 |---|---|
-| 文件扫描 `.agent/skills` + `~/.multi-agent/skills` | `internal/module/skill/skills_meta.go:19`（`scanSkills`） |
+| 文件扫描 `.agent/skills` + `~/.super-dolphin/skills` | `internal/module/skill/skills_meta.go:19`（`scanSkills`） |
 | 元数据解析（name/description/**summary**/trigger_words/force_words） | `skills_meta.go:83-109`（`parseSkillInfo`） |
 | Summary 自动生成 + 220 字符截断 | `skills_meta.go:101-105`（`summarizeSkillBody`） |
 | `skillResolver` 自动匹配 | `internal/module/turn/skills.go:11`（`Resolve` / `autoMatch`） |
@@ -244,7 +244,7 @@ func (s SkillSource) Valid() bool { ... }
 | `internal/module/skill/skills_meta_test.go` | untrusted skill 拒绝 Bash/Write/Net 工具；path 越界测试 |
 #### 验收
 - 项目级 skill 首次扫描必弹审批（UI event `SkillsChanged{action:"approval_required"}`）
-- 审批缓存持久化到 `~/.multi-agent/skills-trust.json`
+- 审批缓存持久化到 `~/.super-dolphin/skills-trust.json`
 - `skill_expand("../../../.ssh/id_rsa")` 必拒绝并记录告警
 - frontmatter `disable-model-invocation: true` 的 skill 不出现在 L1 清单的自主调用区
 ### ⚠️ Phase 2：DTO 兼容扩展（P0，1 天）
@@ -555,7 +555,7 @@ Phase 7 Port  ────────┴─→ Phase 9 元指令 ─→ Phase 1
 ## 10. 不实现范围（显式排除）
 - **Skill 热加载 watcher**：审查9 指出 watcher 会绕过审批；本期仍走启动期扫描 + 手动 reload RPC
 - **签名 skill 分发**：`trust: signed` 字段先保留在 frontmatter schema，但验签逻辑延后至 P21
-- **Skill 目录云同步**：用户级 `~/.multi-agent/skills` 跨设备同步不在本期
+- **Skill 目录云同步**：用户级 `~/.super-dolphin/skills` 跨设备同步不在本期
 - **Skill 版本化与依赖**：多版本并存 / skill-to-skill 依赖延后
 - **中文 skill_expand 分节锚点**：本期仅支持 Markdown H2/H3 英文/通用锚点，中文标题后续支持
 - **L3 直接用 Read/Bash 访问 skill 资源**：claudecli `--disallowedTools Read,Bash,Glob,LS` 硬编码禁用这些工具，直读方案在 claudecli 不可行。本期统一走 `skill_expand(section=<relative_path>)`（选项 3），两家 provider 行为一致；codexapp 若未来放宽也建议继续走 `skill_expand` 避免漂移

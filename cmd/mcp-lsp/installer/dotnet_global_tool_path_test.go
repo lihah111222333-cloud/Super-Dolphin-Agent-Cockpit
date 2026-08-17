@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -32,10 +33,16 @@ func TestInstalledBinaryCandidatesFindsDotnetGlobalToolOutsidePATH(t *testing.T)
 	t.Fatalf("dotnet global launcher %s not found in candidates: %#v", launcher, candidates)
 }
 
-func TestDotnetGlobalToolBinDirFallsBackToHome(t *testing.T) {
+// TestDotnetGlobalToolBinDirFallsBackToPlatformHome 验证在未设置 DOTNET_CLI_HOME 时，
+// Windows 使用 USERPROFILE，非 Windows 使用 HOME。
+func TestDotnetGlobalToolBinDirFallsBackToPlatformHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DOTNET_CLI_HOME", "")
-	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	} else {
+		t.Setenv("HOME", home)
+	}
 	want := filepath.Join(home, ".dotnet", "tools")
 	if got := dotnetGlobalToolBinDir(); filepath.Clean(got) != filepath.Clean(want) {
 		t.Fatalf("dotnet global tool directory = %q, want %q", got, want)

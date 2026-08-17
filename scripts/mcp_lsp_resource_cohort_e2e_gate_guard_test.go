@@ -1,5 +1,8 @@
 package main
 
+// 本文件是公共跨平台的静态门禁，检查真实 E2E 的选择入口；它自身必须参与普通测试，
+// 因此故意不加 e2e 或平台 build tag。
+
 import (
 	"strings"
 	"testing"

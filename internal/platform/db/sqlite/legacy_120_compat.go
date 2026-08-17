@@ -160,10 +160,10 @@ func readCompatibilityMigrationBody(dir, name string) (string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf(
-			"read compatibility migration %s from %s: %s",
+			"read compatibility migration %s from %s: %w",
 			name,
 			redactPath(dir),
-			securefs.SafeErrorForPath(err, path),
+			securefs.WrapErrorForPath(err, path),
 		)
 	}
 	return string(body), nil

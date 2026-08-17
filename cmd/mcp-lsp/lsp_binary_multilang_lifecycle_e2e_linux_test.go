@@ -330,14 +330,14 @@ func callMultilangLifecycleLanguage(t *testing.T, client *mcpLSPBinaryClient, ta
 	})
 }
 
-// TestMcpLSPBinaryMultilangIdleLeaseIsolation_E2E 验证不同 adapter 的 workspace
-// 生命周期相互隔离：Python 的长请求持有 lease 时，已释放的 TypeScript child
-// 必须跨过 1s idle 窗口和 30s recycler 扫描后只清理自己。
-func TestMcpLSPBinaryMultilangIdleLeaseIsolation_E2E(t *testing.T) {
+// TestMcpLSPBinaryMultilangIdleLeaseIsolationPrecheck_E2E 验证不同 adapter 的
+// workspace 生命周期相互隔离。它显式使用 short-idle tagged binary，只是
+// NON_PASS 快速预检；正式生命周期证据仍由同文件的 15 分钟测试提供。
+func TestMcpLSPBinaryMultilangIdleLeaseIsolationPrecheck_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multilang idle lease isolation E2E in short mode")
 	}
-	binary := buildMcpLSPBinaryForTest(t)
+	binary := buildMcpLSPShortIdlePrecheckBinaryForTest(t)
 	fakeServers := writeFakeMultilangDiagnosticsLangservers(t)
 	cases := []binaryColdStartLanguageCase{
 		{languageID: "python", write: writeBinaryColdStartPythonFixture},

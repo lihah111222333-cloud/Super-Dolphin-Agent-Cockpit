@@ -241,7 +241,7 @@ func TestNormalizeArtifactLocator_InvalidKind(t *testing.T) {
 func TestInferTrustFromRoot(t *testing.T) {
 	tmp := t.TempDir()
 	projectRoot := filepath.Join(tmp, "proj", ".agents", "skills")
-	userRoot := filepath.Join(tmp, "home", ".multi-agent", "skills")
+	userRoot := filepath.Join(tmp, "home", ".super-dolphin", "skills")
 
 	cases := []struct {
 		name string

@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	lspinstaller "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
@@ -101,3 +104,32 @@ func wrapToolHandlerWithTimeoutResolver(toolName string, tier time.Duration, tim
 	)
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
 }
+
+// normalizePlatformWorkDir 把 Windows 主机传给 WSL sidecar 的绝对路径转换成挂载路径（Linux 下执行）。
+func normalizePlatformWorkDir(workDir string) string {
+	if runtime.GOOS != "linux" {
+		return workDir
+	}
+	return normalizeWSLWorkDir(workDir)
+}
+
+func normalizeWSLWorkDir(workDir string) string {
+	if len(workDir) < 3 || workDir[1] != ':' || (workDir[2] != '\\' && workDir[2] != '/') {
+		return workDir
+	}
+	drive := workDir[0]
+	if drive >= 'A' && drive <= 'Z' {
+		drive += 'a' - 'A'
+	}
+	if drive < 'a' || drive > 'z' {
+		return workDir
+	}
+	remainder := strings.ReplaceAll(workDir[3:], "\\", "/")
+	return filepath.Clean("/mnt/" + string(drive) + "/" + remainder)
+}
+
+// hostColdInstallOuterTimeoutDisabled 在 Windows 构建中启用锁定资产冷安装策略。
+func hostColdInstallOuterTimeoutDisabled() bool {
+	return runtime.GOOS == "windows"
+}
+

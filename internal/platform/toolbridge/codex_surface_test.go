@@ -17,6 +17,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPrepareCodexToolSurfaceRejectsRelativeCWDBeforeStartingClients(t *testing.T) {
+	started := 0
+	h := &Handler{
+		stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
+			started++
+			return &fakeMCPClient{}, nil
+		},
+	}
+	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:  "agent-relative-cwd",
+		CWD:      "relative/repo",
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{task4BExternalBinary("external")}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "absolute path for the current platform") {
+		t.Fatalf("PrepareCodexToolSurface() error = %v, want current-platform absolute CWD rejection", err)
+	}
+	if started != 0 {
+		t.Fatalf("stdio clients started = %d, want 0 before scope validation", started)
+	}
+}
+
 func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T) {
 	lspInputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"search query"}}}`)
 	lspOutputSchema := json.RawMessage(`{"type":"object","properties":{"files":{"type":"object","description":"matches by file"}}}`)

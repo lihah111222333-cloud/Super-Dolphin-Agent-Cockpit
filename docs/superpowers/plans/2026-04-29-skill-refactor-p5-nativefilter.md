@@ -11,7 +11,7 @@
 ## Architecture
 
 ```
-~/.multi-agent/native-cli-filter.json         # 全局基线（用户级）
+~/.super-dolphin/native-cli-filter.json         # 全局基线（用户级）
                 +
 SkillMeta.ReplacesNative["claude"]            # 每条 active skill 的声明叠加
                 ↓
@@ -139,7 +139,7 @@ import (
     "os"
 )
 
-// Config 对应 ~/.multi-agent/native-cli-filter.json schema。
+// Config 对应 ~/.super-dolphin/native-cli-filter.json schema。
 // 缺省字段（如 allowed_tools=null）解析为 nil slice。
 type Config struct {
     Claude ClaudeConfig `json:"claude"`
@@ -481,7 +481,7 @@ func NewFilter(store *skilllibrary.Store) *Filter {
         baseFn: func() (Config, error) {
             home, err := os.UserHomeDir()
             if err != nil { return Config{}, err }
-            return LoadConfig(filepath.Join(home, ".multi-agent", "native-cli-filter.json"))
+            return LoadConfig(filepath.Join(home, ".super-dolphin", "native-cli-filter.json"))
         },
         enabled: enabled,
     }
@@ -611,7 +611,7 @@ go vet ./...
 **2. 占位符扫描**：所有代码段为完整可应用编辑。
 
 **3. 类型一致性**：
-- `nativefilter.Config` 与 `~/.multi-agent/native-cli-filter.json` schema 字面对应
+- `nativefilter.Config` 与 `~/.super-dolphin/native-cli-filter.json` schema 字面对应
 - `BuildClaudeSettings` 输出 JSON 与实测验证过的 `permissions.deny: ["Skill:..."]` 字面一致
 - `Filter.Apply` 与 driver 的调用约定（在 SetupWorkspaceSkills 之后调）一致
 

@@ -50,10 +50,13 @@ description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio M
 | macOS Apple Silicon | bin/LSP/mcp-lsp-mac-arm | darwin/arm64 |
 | Linux/WSL x86-64 | bin/LSP/mcp-lsp-linux-x86 | linux/amd64 |
 | Linux/WSL ARM64 | bin/LSP/mcp-lsp-linux-arm | linux/arm64 |
-| Windows x86-64 | bin/LSP/mcp-lsp-windows-x86.exe | windows/amd64 |
-| Windows ARM64 | bin/LSP/mcp-lsp-windows-arm.exe | windows/arm64 |
+| Windows x64 | bin/LSP/mcp-lsp-windows-x64.exe | windows/amd64 |
+| Windows ARM64 | bin/LSP/mcp-lsp-windows-arm64.exe | windows/arm64 |
+| Windows x86 | bin/LSP/mcp-lsp-windows-x86.exe | windows/386 |
 
 不能只按文件名判断。优先用 go version -m 读取 Go 构建元数据并确认 GOOS/GOARCH；macOS/Linux 可用 file 交叉验证 Mach-O/ELF，Windows 可检查 PE Machine。若无法验证实际目标，记录 blocker，不要写配置。
+
+Windows 必须分别记录系统版本/build、操作系统原生架构和当前进程架构。二进制按原生架构选择；仿真进程的架构只用于审计，不能覆盖原生架构。mcp-lsp 安装器会用 Windows API 再次检测这三项并按目录最低版本/build fail-fast；Agent 不得用 `PROCESSOR_ARCHITECTURE` 或当前 shell 位数替代该判断。
 
 同时确认文件存在、非空；macOS/Linux 还要确认可执行权限。不得把 Intel、ARM 或其他操作系统的文件配置给当前主机。
 
@@ -61,9 +64,9 @@ description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio M
 
 不要求用户填写额外平台开关。Agent 必须分别确认 MCP host 和 sidecar 的目标运行环境，不能把两者压缩成一个“当前平台”判断：
 
-1. **Windows 原生直连**：Windows host 直接启动 `windows/*` 二进制；`command`、`cwd`、resources 和 roots 全部使用 Windows drive/UNC 路径。
+1. **Windows 原生直连（Windows EXE 主线）**：Windows host 默认直接启动对应原生架构的 `windows/*` EXE；`command`、`cwd`、resources 和 roots 全部使用 Windows drive/UNC 路径。
 2. **WSL 原生直连**：WSL 内的 CLI/IDE host 直接启动 `linux/*` 二进制；所有路径使用 `/mnt/...` 或其他 Linux 绝对路径。
-3. **Windows host 桥接 WSL sidecar**：只有用户明确要求 sidecar 在 WSL 运行、且实际 MCP host 是 Windows Codex Desktop/IDE/PowerShell 时使用。Windows 不能直接 `CreateProcess` `/mnt/.../mcp-lsp-linux-*`；`command` 必须是绝对 Windows `wsl.exe`，host 的 `cwd` 是 Windows 项目根，而 `args` 必须通过 `--cd <WSL项目根> env KEY=VALUE... ./bin/LSP/mcp-lsp-linux-*` 在 WSL 内设置 Linux resources/roots 并启动 ELF。
+3. **Windows host 通过 `wsl.exe` 桥接 WSL sidecar**：只有用户明确要求 sidecar 在 WSL 运行、且实际 MCP host 是 Windows Codex Desktop/IDE/PowerShell 时使用。`wsl.exe` 是 Windows EXE 的启动/桥接边界，不是替代 Windows EXE 的 Linux-only 旁路。Windows 不能直接 `CreateProcess` `/mnt/.../mcp-lsp-linux-*`；`command` 必须是绝对 Windows `wsl.exe`，host 的 `cwd` 是 Windows 项目根，而 `args` 必须通过 `--cd <WSL项目根> env KEY=VALUE... ./bin/LSP/mcp-lsp-linux-*` 在 WSL 内设置 Linux resources/roots 并启动 ELF。
 4. 当前编辑 shell 不等于 MCP host，也不等于 sidecar。必须分别记录 host、bridge（如有）和 sidecar 三层证据。无法确认任一层时先报告 blocker。
 5. 用 `go version -m` 和 `file` 复核 Linux ELF 的 GOOS/GOARCH；用实际 `wsl.exe` command+args 完成 MCP initialize 和至少一次 tools/call。`mcp-lsp` 本身不负责 Windows/WSL 路径转换。
 6. Windows host 启动 `wsl.exe env ...` 时不得假设 WSL 用户的登录 PATH 已加载。先在目标发行版内分别用 `command -v` 定位 `go`、`gopls`、`node`、`typescript-language-server` 及项目需要的其他语言服务器，再把覆盖这些绝对目录的 Linux PATH 显式放进 args 的 `env` 段。缺少任一必需语言服务器时 fail-fast；不得用一个未经探测的通用 PATH 掩盖缺依赖。
@@ -83,7 +86,12 @@ Codex Windows→WSL 的规范模板位于 `bin/LSP/codex-windows-wsl-lsp-config.
 ~~~powershell
 $isNativeWindows = ($PSVersionTable.PSEdition -eq "Desktop") -or ($IsWindows -eq $true)
 $isWSL = ($IsLinux -eq $true) -and (($null -ne $env:WSL_INTEROP) -or ($null -ne $env:WSL_DISTRO_NAME))
-$env:PROCESSOR_ARCHITECTURE
+[PSCustomObject]@{
+  OSVersion = [Environment]::OSVersion.Version.ToString()
+  OSArchitecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+  ProcessArchitecture = [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+  ProcessorArchitectureEnv = $env:PROCESSOR_ARCHITECTURE
+}
 ~~~
 
 ~~~bash
@@ -92,7 +100,26 @@ if [ -n "${WSL_INTEROP:-}${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/sys
 printf 'is_wsl=%s arch=%s\n' "$is_wsl" "$(uname -m)"
 ~~~
 
-`$isWSL=true` 或 `is_wsl=1` 且 MCP host 本身位于 WSL 时选择 Linux 直连。`$isNativeWindows=true` 时先确认 sidecar 目标：原生目标选择 Windows `.exe`；用户明确要求 WSL sidecar 时选择 `wsl.exe` 桥接 Linux ELF。若当前 shell 只是在编辑另一个环境的配置，不能用编辑 shell 的结果覆盖 host/sidecar 判定。
+`$isWSL=true` 或 `is_wsl=1` 且 MCP host 本身位于 WSL 时选择 Linux 直连。`$isNativeWindows=true` 时先确认 sidecar 目标：原生目标选择 Windows `.exe`；用户明确要求 WSL sidecar 时选择 `wsl.exe` 桥接 Linux ELF。Windows 的 `OSArchitecture` 为 Arm64、X64、X86 时分别选择 `mcp-lsp-windows-arm64.exe`、`mcp-lsp-windows-x64.exe`、`mcp-lsp-windows-x86.exe`；`ProcessArchitecture` 不一致表示当前进程处于仿真层，不得据此降级。若当前 shell 只是在编辑另一个环境的配置，不能用编辑 shell 的结果覆盖 host/sidecar 判定，仍以目标客户端进程为准。
+
+### Windows NativeArch、ProcessArch 与官方依赖边界
+
+配置、安装和审计时把 `OSArchitecture` 记为 `NativeArch`，把 `ProcessArchitecture` 记为 `ProcessArch`。`NativeArch` 是唯一的 Windows 交付物/依赖选择键；`ProcessArch` 仅是仿真诊断字段，不能让 ARM64 host 降级到 x64，也不能让 x64/x86 host 借用另一架构资产。Windows EXE、EmmyLua、Swift、Node 和 VCLibs 都必须对同一 `NativeArch` 做 fail-fast 选择和完整身份复验。
+
+必须把下列官方锁定事实当作配置审查边界（完整 URL/SHA 清单见本目录的 `references/provider-configs.md`）：
+
+- EmmyLua 固定为官方 `EmmyLuaLs/emmylua-analyzer-rust` `0.25.1` `emmylua_ls-win32-arm64.zip`；归档和其中 `emmylua_ls.exe` 的 SHA-256、PE ARM64 必须复验，且只允许 Windows `NativeArch=ARM64`。
+- Swift/sourcekit-lsp 固定为 Swift `6.3.3` 官方 Windows ARM64 installer；`windows.msi`、`windows.cab` 和 `a22`–`a28`（ARM64/x64/x86 及 experimental sibling CAB）必须由同一 installer 提取并放在同一目录，不能删掉 sibling CAB 或跨版本混用；`sourcekit-lsp.exe` 必须为 ARM64。
+- Node 固定官方 `22.22.0` 的 `win-arm64`、`win-x64`、`win-x86` ZIP；VCLibs 固定微软 `Microsoft.VCLibs.140.00.UWPDesktop` `14.0.33321.0` 的 `arm64`、`x64`、`x86` Appx。每个架构分别锁定 URL/SHA/版本/身份，不读 PATH、不跨架构回退。
+- Windows 私有 Terraform CLI companion 固定 `1.15.6`：ARM64 `https://releases.hashicorp.com/terraform/1.15.6/terraform_1.15.6_windows_arm64.zip`（`02820bcae3725c9c4e91deb6656e9b96ca8af9f395fc5faccc0820dd3295d6e0`）、x64 `..._windows_amd64.zip`（`56b4d3a157e346f8fc1e94254d0a944e6fec81f58ddd43eb274b8e0ebb56e334`）、x86 `..._windows_386.zip`（`00d51ccf53664f68bd6fb7dfa7edbc7bbff4032ff048787c096d23ece2dcc092`）。
+- Windows 私有 rustfmt companion 固定 Rust `1.96.0` `rustfmt-preview` MSVC 归档：ARM64 `https://static.rust-lang.org/dist/2026-05-28/rustfmt-1.96.0-aarch64-pc-windows-msvc.tar.xz`（`d9e403d778e0ad95d814275b1265057478d4cde463d8bf620846056a7f00a59d`）、x64 `...-x86_64-pc-windows-msvc.tar.xz`（`7ae6d141dfb844355c4756a41f39ed45b74ff9295fff86bd0bf9b559a83c5d5d`）、x86 `...-i686-pc-windows-msvc.tar.xz`（`75a69f518db96b5c46fa4b98d169688e7670c8bff29b7f1831f6dcfdfc6311ab`）。
+- 两类 companion 均须验证归档/解包摘要、PE Machine、产品根 ACL 与 reparse；只向 product-owned `terraform-ls`/`rust-analyzer` 子进程注入同一 NativeArch 的 PATH。非 Windows 与外部配置不变，禁止 PATH、用户缓存和跨架构 fallback。下载/安装 proof 与 correctness E2E 分离：本地锁定包存在时 correctness 必须 `cache_only=true`、`HTTP=0`，setup/import receipt 不能冒充自动下载证明。此处中文说明是公共配置语义，实际平台选择仍只在 Windows 生产实现中执行。
+
+8.3 short path 只允许作为 Swift/Node installer 或子进程的临时进程边界，用来规避 `MAX_PATH`；canonical long path 才是缓存、manifest、receipt、日志、roots 和安全身份，不能持久化短名或用短名作授权/身份比较。TOML、PowerShell 和本文中的注释只解释配置与安全边界，不能授予 ACL、改变架构选择或执行提权。Windows Win32 `5`/`1314` 必须保留为结构化 `authorization_required`；无宿主授权桥时报告 blocker，不改 ACL、不换目录、不吞错。以上规则仅作用于 Windows 原生；非 Windows 行为保持不变，macOS/Linux/WSL 原生行为和既有 Mach-O/ELF 依赖选择保持不变。
+
+Kotlin/IntelliJ 的 Windows ARM64 进程边界必须使用产品私有、物理扁平且经过 ACL、reparse、架构和摘要校验的 short root；`subst`、8.3、junction 和系统公共目录都不是合规替代。canonical root 仍用于缓存、manifest、receipt 和授权身份。容量预检或受控解包遇到空间不足时必须 fail-fast，receipt 分类为 `disk_space_exhausted`/`runtime_failure`，不得伪装成合法空结果或能力不支持。
+
+当前远程 6b7 工具协议只认 content 纯文本行（`OK`/`ERROR`/`ATTR`/`ROW`/`HINT`/`WARNING`）。`StructuredContent` 应为空且不可作为 fallback；验收只能依据 content 和动作合同分类 success、legal_empty、capability_unsupported 或 runtime_failure。
 
 ## 确认可信 cwd 与 workspace root
 
@@ -144,6 +171,14 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 
 桥接模式必须把五个必需变量和经目标 WSL 实机探测的 Linux `PATH` 作为 `wsl.exe` 参数中 `env KEY=VALUE...` 的一部分显式注入 Linux 进程。可以在 Codex server 的 `env` 表中同步保留 sidecar 字段用于配置审计，但不能依赖 Windows host 环境自动成为正确的 Linux sidecar 环境。PATH 中的 home 目录必须先解析为绝对 Linux 路径；不要把不会经 shell 展开的字面 `$HOME` 写入 TOML args。
 
+正式构建的 LSP 空闲生命周期默认且最低为 15 分钟。不要在项目配置中写小于 `15m` 的 `MCP_LSP_IDLE_TIMEOUT` 或旧别名；正式二进制会 fail-fast。带 `mcp_lsp_short_idle_precheck` build tag 的短周期二进制只用于快速预检，不能交付，也不能替代“14 分钟仍存活、15 分钟后回收、精确进程身份零残留”的真实生命周期证据。
+
+Windows Win32 `5` 或 `1314` 权限错误必须保留为结构化 `authorization_required`。桌面宿主必须通过 `ApprovalRequester` 发布真实授权提示；只有用户明确批准后，才允许对同一个已固定 peer 精确重试一次。拒绝、无决定、无审批 UI 或单次重试仍失败时都保持 blocker，禁止循环重试、改 ACL、换备用目录或吞错。独立 stdio sidecar 没有宿主授权桥，不能自行提权，也不能声称已经弹窗或取得权限。
+
+原生 Windows 且 `SUPER_DOLPHIN_DEPENDENCY_PROFILE=production` 时，语义工具可见性还可由带 Windows build tag 的生产自动安装器提供：空 PATH、无额外 bundle 的 `tools/list` 也必须精确包含七个工具族，并在 sidecar 日志中标明 `source=windows_production_auto_installer`。这不是语言级 PASS；随后必须实际调用目标语言并验证安装、语义结果和生命周期。非 Windows/WSL 不读取这条 Windows 策略，仍按自己的 bundle/PATH 事实判断。
+
+语言级验收必须逐一执行精确 36 键闭包，分布固定为 `file/inspect/xref/grep/structure/patch_edit/completion = 8/5/7/6/5/4/1`：`file` 为 `open_file`、五种 `read_file-*` 动作（`single/full/batch/lines/function`）及 `diagnostics`、`diagnostics-batch`；`inspect` 为 `hover/definition/implementation/type_definition/signature_help`；`xref` 为 `references`、`references-no-declaration`、三种 `call_hierarchy-*` 与两种 `type_hierarchy-*`；`grep` 为 `text_search`、`text_search-regex`、`text_search-paths`、`text_search-file_paths`、`text_search-glob`、`ast_search`；`structure` 为 `document_symbol`、两种 `workspace_symbol-*`、`folding_range`、`semantic_tokens`；`patch_edit` 为 `replace_range/rename/code_action/format`；`completion` 为 `completion`。精确键以 `bin/LSP/README.md` 的“36 个小动作的精确验收合同”为可读清单，以 E2E 的 `realMCPExpectedActionKeys` 为可执行守卫。结果必须区分 `success`、`legal_empty_success`、能力快照明确允许的 `capability_unsupported` 和 `runtime_failure/NON_PASS`；不得用工具可见性或合法空结果掩盖运行失败。
+
 ## 根据客户端配置
 
 只处理用户要求的客户端；用户要求 all 或三家共用时才处理全部。
@@ -187,7 +222,7 @@ Windows 的 `GO_AGENT_LSP_ROOTS` 必须由 JSON encoder 生成；不要手工拼
 
 同名 `lsp` 出现在规范入口和插件或旧副本中不是冗余备份：不同 `cwd`、roots、command 或 env 可能让客户端发现工具后启动另一份 server，造成调用时路径解析、进程 owner 和 stdio 生命周期不一致。以用户确认的正确配置为基准逐字段比较；确认插件只用于重复注册同一 server、没有其他能力后，获得删除授权再删除整个插件目录。不要保留空 `plugin.json`、wrapper 或 stale 配置。
 
-必须从 `~/.multi-agent/log/mcp-lsp/mcp-lsp-*.log` 核对实际生效值和时序：
+必须从 `~/.super-dolphin/log/mcp-lsp/mcp-lsp-*.log` 核对实际生效值和时序：
 
 - `tools/call begin/done` 之后才出现 `mcp stdio: read failed EOF`，说明二进制完成过调用，EOF 是 stdin 被关闭后的结果，不是二进制崩溃证据。
 - `resolve parent path: lstat <trusted-cwd>/...` 说明请求相对路径按实际 trusted root 解析；用日志中的 root 和请求 path 重建最终路径。
@@ -252,5 +287,6 @@ Agent 可以根据事实调整 server 名、路径、环境变量、timeout、�
 13. Antigravity 必须再次扫描 `.agents/plugins/*/mcp_config.json` 和 workspace 内 `.gemini/config/mcp_config.json`，确认没有同名 `lsp` 副本；`initialize`、`tools/list` 和 UI enabled 不能替代至少一次真实 `tools/call`。
 14. Windows→WSL 桥接必须使用配置中的完整 `command + args` 做启动验证；仅在 WSL shell 中裸跑 Linux binary 不能证明 Windows host 可以创建该 MCP 进程。
 15. 桥接验证必须检查 `tools/list` 精确包含 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion` 七个工具。只出现 `file`、`grep` 时，优先用同一 command+args 执行 `command -v gopls` 和 `command -v typescript-language-server` 核对实际 PATH；不得把“server 已启动”写成 PASS。
+16. 原生 Windows production 验证必须同时核对七族清单和可见性来源日志；PATH/bundle 为空时应命中 `windows_production_auto_installer`。只出现 `file`、`grep` 时先检查三个 `SUPER_DOLPHIN_*` 字段、实际 Windows EXE/NativeArch 和 installer 注册错误，不得照搬 WSL 的 PATH 修复或把两工具状态写成 PASS。
 
 报告二进制目标、修改的项目级文件、保留的既有设置、解析结果、客户端发现状态和实际工具调用证据。未启动对应客户端时，把在线连接明确标为未验证。

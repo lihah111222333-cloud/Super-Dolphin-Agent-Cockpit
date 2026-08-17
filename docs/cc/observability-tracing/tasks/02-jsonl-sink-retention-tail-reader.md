@@ -30,7 +30,7 @@ internal/platform/observability/retention_test.go
 
 ## Required design
 
-- Trace JSONL path: `~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl`.
+- Trace JSONL path: `~/.super-dolphin/log/<project>/traces/trace-YYYY-MM-DD.jsonl`.
 - Create `traces/` from `internal/platform/observability`; do not use `pkg/logger.InitWithFile` for trace file creation.
 - On Unix-like platforms, create directory with `0700` and trace files with `0600` where supported.
 - Single process owns primary trace writes; sidecars relay instead of directly writing primary trace JSONL.

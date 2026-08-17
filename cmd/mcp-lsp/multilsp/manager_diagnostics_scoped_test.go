@@ -673,9 +673,31 @@ func TestWaitDiagnosticsStableIgnoresReopenCloseEmptyUntilFreshPublish(t *testin
 	requireDiagnosticMessage(t, diagnosticsItemsForURI(t, mgr, ctx, uri, "fresh reopen"), "fresh after reopen")
 }
 
+func TestReopenDocumentForDiagnosticsKeepsSynchronousDidOpenPublish(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"reopen-diagnostics-did-open"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "const reopened = true\n")
+	factory := &reopenPushDiagnosticsFactory{publishOnOpen: true}
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          time.Millisecond,
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+	uri := fileURIFromPath(target)
+
+	if err := mgr.ReopenDocumentForDiagnostics(ctx, uri); err != nil {
+		t.Fatalf("ReopenDocumentForDiagnostics() error = %v", err)
+	}
+	requireDiagnosticMessage(t, diagnosticsItemsForURI(t, mgr, ctx, uri, "synchronous didOpen publish"), "fresh from didOpen")
+}
+
 type reopenPushDiagnosticsFactory struct {
-	handler protocol.NotificationHandler
-	uri     string
+	handler       protocol.NotificationHandler
+	uri           string
+	publishOnOpen bool
 }
 
 func (f *reopenPushDiagnosticsFactory) NewClient(_ string, handler protocol.NotificationHandler) (Client, error) {
@@ -704,6 +726,12 @@ func (c *reopenPushDiagnosticsClient) Request(context.Context, string, any) (jso
 }
 func (c *reopenPushDiagnosticsClient) DidOpen(_ context.Context, uri, _ string, _ int, _ string) error {
 	c.factory.uri = uri
+	if c.factory.publishOnOpen {
+		return c.factory.handler.PublishDiagnostics(protocol.PublishDiagnosticsParams{
+			URI:         uri,
+			Diagnostics: []protocol.Diagnostic{{Message: "fresh from didOpen"}},
+		})
+	}
 	return nil
 }
 func (c *reopenPushDiagnosticsClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {

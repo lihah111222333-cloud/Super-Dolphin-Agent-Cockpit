@@ -123,12 +123,28 @@ func (r mcpLSPBinaryToolResult) ContentText() string {
 }
 
 func buildMcpLSPBinaryForTest(t *testing.T) string {
+	return buildMcpLSPBinaryForTestWithTags(t, "")
+}
+
+// buildMcpLSPShortIdlePrecheckBinaryForTest 构建显式允许十五分钟以下生命周期的快速预检二进制；该产物不得用于正式生命周期证明。
+func buildMcpLSPShortIdlePrecheckBinaryForTest(t *testing.T) string {
+	t.Helper()
+	t.Log("status=NON_PASS_PRECHECK_ONLY: short-idle binary cannot prove the formal 15-minute lifecycle")
+	return buildMcpLSPBinaryForTestWithTags(t, "mcp_lsp_short_idle_precheck")
+}
+
+func buildMcpLSPBinaryForTestWithTags(t *testing.T, buildTags string) string {
 	t.Helper()
 	repoRoot := repoRootForMcpLSPBinaryTest(t)
 	output := filepath.Join(t.TempDir(), lspBinaryExecutableNameForTest())
 	// E2E 只验证刚编译出的 sidecar。禁用 VCS stamp，避免 WSL 在 /mnt/c
 	// 工作区为构建信息执行一次高成本的 `git status`，污染 LSP 冷启动耗时。
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", output, "./cmd/mcp-lsp")
+	args := []string{"build", "-buildvcs=false"}
+	if buildTags != "" {
+		args = append(args, "-tags="+buildTags)
+	}
+	args = append(args, "-o", output, "./cmd/mcp-lsp")
+	cmd := exec.Command("go", args...)
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build mcp-lsp binary: %v\n%s", err, out)

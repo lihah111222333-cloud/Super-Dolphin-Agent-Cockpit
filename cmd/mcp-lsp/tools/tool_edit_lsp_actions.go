@@ -39,7 +39,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	rng := protocol.Range{Start: position, End: position}
 	actions, err := manager.CodeAction(ctx, filePath, rng, req.Only)
 	if isUnsupportedCapability(err) {
-		return unsupportedCapabilityEmptyResult("code action"), nil
+		return nil, err
 	}
 	if err != nil {
 		return nil, fmt.Errorf("LSP code_action: %w", err)
@@ -74,7 +74,7 @@ func (h EditHandler) applyCodeActions(ctx context.Context, roots []string, actio
 		return h.codeActionRequiresApply(actions, "multiple code actions returned; no edit applied", manager), nil
 	}
 	selected := editable[0]
-	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, roots, selected.edit, version)
+	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, roots, selected.edit, version, manager)
 	if err != nil {
 		return nil, fmt.Errorf("apply code action edits: %w", err)
 	}
@@ -109,7 +109,7 @@ func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, er
 	}
 	edits, err := manager.Format(ctx, path, defaultFormattingOptions())
 	if isUnsupportedCapability(err) {
-		return unsupportedCapabilityEmptyResult("format"), nil
+		return nil, err
 	}
 	if err != nil {
 		return nil, fmt.Errorf("LSP format: %w", err)

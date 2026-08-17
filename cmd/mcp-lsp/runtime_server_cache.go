@@ -65,6 +65,10 @@ type runtimeServerLeaseQuarantine struct {
 	modTime time.Time
 }
 
+// runtimeServerNodeVersionResolver 是 Node 版本解析策略；Windows 生产实现必须接收
+// 已验证的锁定 Node 绝对路径，测试可注入只读的锁定 fixture 解析器。
+type runtimeServerNodeVersionResolver func([]string) (string, bool, error)
+
 // runtimeServerEnvironment 为语言服务器注入全局 RSS 总账及稳定 repo/language 内存 cohort。
 // Node compile cache 只是磁盘编译启动优化；内存治理只由主次 heap、RSS 准入与 owner-only 回收承担。
 func runtimeServerEnvironment(
@@ -73,6 +77,30 @@ func runtimeServerEnvironment(
 	languageIDs, env []string,
 	nodeBacked bool,
 ) ([]string, error) {
+	// 生产 Node resolver 的平台选择由带显式 build tag 的实现完成；公共装配层只接收
+	// 已选定策略，不能再用 runtime.GOOS 隐藏 Windows 与非 Windows 行为分支。
+	nodeVersionResolver := runtimeServerProductionNodeVersionResolver(binary)
+	return runtimeServerEnvironmentWithNodeResolver(command, binary, workspaceRoot, languageIDs, env, nodeBacked, nodeVersionResolver)
+}
+
+// runtimeServerEnvironmentWithNodeResolver 允许受控 Windows fixture 注入只读 Node
+// 版本 resolver；生产路径始终使用 runtimeServerNodeVersion，不能通过 PATH 静默回退。
+func runtimeServerEnvironmentWithNodeResolver(
+	command multilsp.ServerCommand,
+	binary, workspaceRoot string,
+	languageIDs, env []string,
+	nodeBacked bool,
+	nodeVersionResolver runtimeServerNodeVersionResolver,
+) ([]string, error) {
+	if nodeBacked && nodeVersionResolver == nil {
+		return nil, errors.New("Node version resolver is required for a Node-backed language server")
+	}
+	// 平台依赖环境属于所有语言服务器的公共启动边界；Windows 生产 cache 在这里
+	// 只读注入已安装的 VC++ runtime，其他平台和外部二进制保持原环境。
+	env, err := runtimeServerPlatformDependencyEnvironment(binary, env)
+	if err != nil {
+		return nil, err
+	}
 	limits, err := runtimeServerResolveResourceLimits(env)
 	if err != nil {
 		return nil, err
@@ -110,7 +138,7 @@ func runtimeServerEnvironment(
 		multilsp.ResourceProcessRSSLimitMBEnv+"="+strconv.Itoa(processLimitMB),
 	)
 	if nodeBacked {
-		overrides, err = runtimeServerNodeEnvironment(root, command, binary, env, overrides, limits, role)
+		overrides, err = runtimeServerNodeEnvironment(root, command, binary, env, overrides, limits, role, nodeVersionResolver)
 		if err != nil {
 			return nil, errors.Join(err, multilsp.ReleaseResourceCohortLease(overrides))
 		}
@@ -129,7 +157,7 @@ func runtimeServerResourceDirectories(command multilsp.ServerCommand, binary str
 		return "", "", err
 	}
 	if err := runtimeServerEnsurePrivateDescendant(root, filepath.Join(resourceDir, "members")); err != nil {
-		return "", "", fmt.Errorf("secure shared LSP resource cohort directory %s: %w", resourceDir, err)
+		return "", "", fmt.Errorf("secure shared LSP resource cohort directory %s: %w", securefs.RedactPath(resourceDir), err)
 	}
 	return root, resourceDir, nil
 }
@@ -142,8 +170,9 @@ func runtimeServerNodeEnvironment(
 	env, overrides []string,
 	limits runtimeServerResourceLimits,
 	role string,
+	nodeVersionResolver runtimeServerNodeVersionResolver,
 ) ([]string, error) {
-	nodeVersion, portable, err := runtimeServerNodeVersion(env)
+	nodeVersion, portable, err := nodeVersionResolver(env)
 	if err != nil {
 		return overrides, err
 	}
@@ -160,11 +189,11 @@ func runtimeServerNodeEnvironment(
 		return overrides, err
 	}
 	if err := runtimeServerEnsurePrivateDescendant(root, cacheDir); err != nil {
-		return overrides, fmt.Errorf("secure Node compile cache directory %s: %w", cacheDir, err)
+		return overrides, fmt.Errorf("secure Node compile cache directory %s: %w", securefs.RedactPath(cacheDir), err)
 	}
 	nodeCompileCacheDir := filepath.Join(cacheDir, "node-compile", runtimeServerCacheName(nodeVersion))
 	if err := runtimeServerEnsurePrivateDescendant(root, nodeCompileCacheDir); err != nil {
-		return overrides, fmt.Errorf("create portable Node compile cache directory %s: %w", nodeCompileCacheDir, err)
+		return overrides, fmt.Errorf("create portable Node compile cache directory %s: %w", securefs.RedactPath(nodeCompileCacheDir), err)
 	}
 	return append(overrides,
 		"NODE_COMPILE_CACHE="+nodeCompileCacheDir,
@@ -371,7 +400,7 @@ func runtimeServerValidateResourceLeaseLock(path string, file *os.File) error {
 		return fmt.Errorf("repository cohort election lock is insecure: %s", path)
 	}
 	if err := securefs.CheckPrivateOwnerOnly(path, linked); err != nil {
-		return fmt.Errorf("repository cohort election lock is insecure: %s: %w", path, err)
+		return fmt.Errorf("repository cohort election lock is insecure: %s: %w", securefs.RedactPath(path), err)
 	}
 	return nil
 }
@@ -650,7 +679,7 @@ func runtimeServerReadResourceLease(path string) (runtimeServerResourceLease, er
 		return runtimeServerResourceLease{}, fmt.Errorf("repository cohort lease is insecure: %s", path)
 	}
 	if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
-		return runtimeServerResourceLease{}, fmt.Errorf("repository cohort lease is insecure: %s: %w", path, err)
+		return runtimeServerResourceLease{}, fmt.Errorf("repository cohort lease is insecure: %s: %w", securefs.RedactPath(path), err)
 	}
 	payload, err := os.ReadFile(path)
 	if err != nil {

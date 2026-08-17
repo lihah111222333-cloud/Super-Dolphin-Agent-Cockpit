@@ -1,5 +1,8 @@
 package search
 
+// 本静态 AST 守卫故意不加 windows build tag：它只检查源码调用形状，不执行
+// Win32 API，因此所有平台都必须运行以防 sg 子进程绕过隐藏窗口策略。
+
 import (
 	"go/ast"
 	"go/parser"

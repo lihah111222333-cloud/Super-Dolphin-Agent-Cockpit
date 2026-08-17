@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-08-14T08:25:36Z"
+    "updatedAt": "2026-08-17T21:56:36Z"
   },
   "files": {
     "scripts/action-producer-guard.mjs": {
@@ -201,7 +201,7 @@
       ]
     },
     "scripts/frontend-code-size-guard.mjs": {
-      "lines": 569,
+      "lines": 568,
       "maxFuncLen": 18,
       "maxNesting": 6,
       "maxParams": 3,
@@ -224,7 +224,7 @@
       ]
     },
     "scripts/frontend-contract-store-guard.mjs": {
-      "lines": 467,
+      "lines": 466,
       "maxFuncLen": 59,
       "maxNesting": 4,
       "maxParams": 6,
@@ -318,7 +318,7 @@
       ]
     },
     "scripts/no-critical-skip.mjs": {
-      "lines": 233,
+      "lines": 232,
       "maxFuncLen": 36,
       "maxNesting": 5,
       "maxParams": 2,
@@ -334,7 +334,7 @@
       ]
     },
     "scripts/no-silent-async-failure.mjs": {
-      "lines": 150,
+      "lines": 149,
       "maxFuncLen": 35,
       "maxNesting": 4,
       "maxParams": 6,

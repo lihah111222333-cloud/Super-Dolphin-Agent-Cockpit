@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
@@ -56,7 +57,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	if edit == nil {
 		return renameResult{Success: true, Message: "rename returned no changes"}, nil
 	}
-	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, roots, edit, normalizeEditVersion(req.Version))
+	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, roots, edit, normalizeEditVersion(req.Version), manager)
 	if err != nil {
 		return nil, fmt.Errorf("apply rename edits: %w", err)
 	}
@@ -117,7 +118,8 @@ func isRenameInvalidTarget(err error) bool {
 }
 
 // applyWorkspaceEdit 逐文件应用 WorkspaceEdit；任一文件失败则回滚已写文件。
-func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edit *protocol.WorkspaceEdit, version int) ([]renameFileChange, int, string, error) {
+// 同一 rename 请求复用入口已解析的 manager，避免 hydration 再次按文件解析并创建 clone。
+func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edit *protocol.WorkspaceEdit, version int, manager lspmanager.Manager) ([]renameFileChange, int, string, error) {
 	changes := mergeWorkspaceEditChanges(edit)
 	if len(changes) == 0 {
 		return nil, 0, "", nil
@@ -152,7 +154,7 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edi
 	affected := make([]renameFileChange, 0, len(changes))
 	totalEdits := 0
 	for uri, edits := range changes {
-		result, err := h.applyFileEdits(ctx, uri, edits, version)
+		result, err := h.applyFileEdits(ctx, uri, edits, version, manager)
 		if err != nil {
 			return nil, 0, "", withRollbackError(err, rollback())
 		}
@@ -198,12 +200,13 @@ type textEditApplication struct {
 }
 
 // applyFileEdits 把 URI 定位到本地文件后复用通用 TextEdit 写入路径。
-func (h EditHandler) applyFileEdits(ctx context.Context, uri string, edits []protocol.TextEdit, version int) (*fileEditResult, error) {
+// manager 由同一请求入口传入；跨 workspace 的 edit 仍先由上层 containment 校验并失败。
+func (h EditHandler) applyFileEdits(ctx context.Context, uri string, edits []protocol.TextEdit, version int, manager lspmanager.Manager) (*fileEditResult, error) {
 	absPath, err := format.AbsolutePathFromURI(uri)
 	if err != nil {
 		return nil, fmt.Errorf("resolve URI %q: %w", uri, err)
 	}
-	return h.applyTextEditsToPath(ctx, absPath, edits, version, nil)
+	return h.applyTextEditsToPath(ctx, absPath, edits, version, manager)
 }
 
 // mergeWorkspaceEditChanges 合并 changes 与 documentChanges，统一后续落盘循环。
@@ -224,8 +227,17 @@ func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 	if len(edits) == 0 {
 		return content, nil
 	}
-	lines := strings.Split(content, "\n")
-	applications, err := buildTextEditApplications(lines, edits)
+	lineEnding := detectLineEnding(content)
+	normalized := normalizeLineEndings(content)
+	lines := strings.Split(normalized, "\n")
+	normalizedEdits := make([]protocol.TextEdit, len(edits))
+	for i, e := range edits {
+		normalizedEdits[i] = protocol.TextEdit{
+			Range:   e.Range,
+			NewText: normalizeLineEndings(e.NewText),
+		}
+	}
+	applications, err := buildTextEditApplications(lines, normalizedEdits)
 	if err != nil {
 		return "", err
 	}
@@ -242,7 +254,8 @@ func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 		}
 		lines = newLines
 	}
-	return strings.Join(lines, "\n"), nil
+	joined := strings.Join(lines, "\n")
+	return restoreLineEndings(joined, lineEnding), nil
 }
 
 // buildTextEditApplications 校验并转换全部 TextEdit，再按安全应用顺序排序。
@@ -261,21 +274,22 @@ func buildTextEditApplications(lines []string, edits []protocol.TextEdit) ([]tex
 
 // buildTextEditApplication 把 LSP UTF-16 位置转换成 Go 字符串字节偏移。
 func buildTextEditApplication(lines []string, edit protocol.TextEdit) (textEditApplication, error) {
-	if err := validateTextEditRange(lines, edit.Range); err != nil {
+	rng, err := normalizeTextEditRange(lines, edit.Range)
+	if err != nil {
 		return textEditApplication{}, err
 	}
-	startByte, err := utf16CharacterToByteOffset(lines[edit.Range.Start.Line], edit.Range.Start.Character)
+	startByte, err := utf16CharacterToByteOffset(lines[rng.Start.Line], rng.Start.Character)
 	if err != nil {
 		return textEditApplication{}, fmt.Errorf("edit start: %w", err)
 	}
-	endByte, err := utf16CharacterToByteOffset(lines[edit.Range.End.Line], edit.Range.End.Character)
+	endByte, err := utf16CharacterToByteOffset(lines[rng.End.Line], rng.End.Character)
 	if err != nil {
 		return textEditApplication{}, fmt.Errorf("edit end: %w", err)
 	}
 	return textEditApplication{
-		startLine: edit.Range.Start.Line,
+		startLine: rng.Start.Line,
 		startByte: startByte,
-		endLine:   edit.Range.End.Line,
+		endLine:   rng.End.Line,
 		endByte:   endByte,
 		newText:   edit.NewText,
 	}, nil
@@ -283,19 +297,46 @@ func buildTextEditApplication(lines []string, edit protocol.TextEdit) (textEditA
 
 // validateTextEditRange 校验 TextEdit 行列范围，拒绝越界或反向区间。
 func validateTextEditRange(lines []string, rng protocol.Range) error {
+	_, err := normalizeTextEditRange(lines, rng)
+	return err
+}
+
+// normalizeTextEditRange 将合法的文件末尾边界归一到最后一行，避免把 LSP 的
+// “无末尾换行文件的下一行第 0 列”误判为越界；其他非法位置仍然明确拒绝。
+func normalizeTextEditRange(lines []string, rng protocol.Range) (protocol.Range, error) {
 	if rng.Start.Line < 0 || rng.End.Line < 0 {
-		return fmt.Errorf("edit range line must be non-negative: L%d-L%d", rng.Start.Line, rng.End.Line)
-	}
-	if rng.Start.Line >= len(lines) || rng.End.Line >= len(lines) {
-		return fmt.Errorf("edit range out of bounds: L%d-L%d (file has %d lines)", rng.Start.Line, rng.End.Line, len(lines))
+		return protocol.Range{}, fmt.Errorf("edit range line must be non-negative: L%d-L%d", rng.Start.Line, rng.End.Line)
 	}
 	if rng.Start.Character < 0 || rng.End.Character < 0 {
-		return fmt.Errorf("edit range character must be non-negative: C%d-C%d", rng.Start.Character, rng.End.Character)
+		return protocol.Range{}, fmt.Errorf("edit range character must be non-negative: C%d-C%d", rng.Start.Character, rng.End.Character)
 	}
+	if len(lines) == 0 || rng.Start.Line > len(lines) || rng.End.Line > len(lines) ||
+		(rng.Start.Line == len(lines) && (rng.Start.Character != 0 || lines[len(lines)-1] == "")) ||
+		(rng.End.Line == len(lines) && (rng.End.Character != 0 || lines[len(lines)-1] == "")) {
+		return protocol.Range{}, fmt.Errorf("edit range out of bounds: L%d-L%d (file has %d lines)", rng.Start.Line, rng.End.Line, len(lines))
+	}
+	if rng.Start.Line == len(lines) {
+		rng.Start = protocol.Position{Line: len(lines) - 1, Character: utf16LineLength(lines[len(lines)-1])}
+	}
+	if rng.End.Line == len(lines) {
+		rng.End = protocol.Position{Line: len(lines) - 1, Character: utf16LineLength(lines[len(lines)-1])}
+	}
+	rng.Start.Character = normalizeLSPTextEditCharacter(lines[rng.Start.Line], rng.Start.Character)
+	rng.End.Character = normalizeLSPTextEditCharacter(lines[rng.End.Line], rng.End.Character)
 	if textEditRangeReversed(rng) {
-		return fmt.Errorf("edit range start after end: L%d:C%d-L%d:C%d", rng.Start.Line, rng.Start.Character, rng.End.Line, rng.End.Character)
+		return protocol.Range{}, fmt.Errorf("edit range start after end: L%d:C%d-L%d:C%d", rng.Start.Line, rng.Start.Character, rng.End.Line, rng.End.Character)
 	}
-	return nil
+	return rng, nil
+}
+
+const lspEndOfLineCharacter = 1<<31 - 1
+
+// normalizeLSPTextEditCharacter 只识别 LSP uinteger 最大值这一行尾哨兵；普通越界列仍失败。
+func normalizeLSPTextEditCharacter(line string, character int) int {
+	if character == lspEndOfLineCharacter {
+		return utf16LineLength(line)
+	}
+	return character
 }
 
 // textEditRangeReversed 判断 LSP range 是否起点晚于终点。
@@ -323,6 +364,15 @@ func utf16CharacterToByteOffset(line string, character int) (int, error) {
 		return len(line), nil
 	}
 	return 0, fmt.Errorf("character %d out of bounds (line has %d UTF-16 units)", character, units)
+}
+
+// utf16LineLength 返回一行在 LSP UTF-16 坐标中的长度。
+func utf16LineLength(line string) int {
+	units := 0
+	for _, r := range line {
+		units += utf16RuneWidth(r)
+	}
+	return units
 }
 
 // utf16RuneWidth 返回 rune 在 LSP UTF-16 坐标里的宽度。

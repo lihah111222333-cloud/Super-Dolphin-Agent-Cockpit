@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -32,9 +31,12 @@ func TestLSPBinaryPromptDocsUseReadFilePosContract(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("grep returned tool error: %s", result.ContentText())
 	}
-	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
-	if payload.Total != 0 {
-		t.Fatalf("builtin prompt docs still mention removed read_file offset contract: total=%d content=%s", payload.Total, result.ContentText())
+	doc, err := lineprotocol.Parse(result.ContentText())
+	if err != nil {
+		t.Fatalf("parse grep content-only result: %v; content=%s", err, result.ContentText())
+	}
+	if doc.Header.Total != 0 {
+		t.Fatalf("builtin prompt docs still mention removed read_file offset contract: total=%d content=%s", doc.Header.Total, result.ContentText())
 	}
 }
 
@@ -54,20 +56,29 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("grep returned tool error: %s", result.ContentText())
 	}
-	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
-	if !payload.Truncated || payload.Total != 6 || payload.Showing != 5 {
-		t.Fatalf("grep truncation payload = total:%d showing:%d truncated:%t, want 6/5/true; content=%s", payload.Total, payload.Showing, payload.Truncated, result.ContentText())
+	doc, err := lineprotocol.Parse(result.ContentText())
+	if err != nil {
+		t.Fatalf("parse truncated grep content-only result: %v; content=%s", err, result.ContentText())
 	}
-	if strings.TrimSpace(payload.Hint) == "" {
-		t.Fatalf("truncated grep response missing hint; content=%s", result.ContentText())
+	if !doc.Header.Truncated || doc.Header.Total != 6 || doc.Header.Showing != 5 {
+		t.Fatalf("grep truncation header = total:%d showing:%d truncated:%t, want 6/5/true; content=%s", doc.Header.Total, doc.Header.Showing, doc.Header.Truncated, result.ContentText())
 	}
-	lowerHint := strings.ToLower(payload.Hint)
+	hint := ""
+	for _, record := range doc.Records {
+		if record.Kind == "HINT" {
+			hint = record.Value
+		}
+	}
+	if strings.TrimSpace(hint) == "" {
+		t.Fatalf("truncated grep response missing lineprotocol HINT; content=%s", result.ContentText())
+	}
+	lowerHint := strings.ToLower(hint)
 	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "paths") && !strings.Contains(lowerHint, "glob")) {
-		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow paths/glob", payload.Hint)
+		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow paths/glob", hint)
 	}
 }
 
-func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
+func TestLSPBinaryGrepSearchesExplicitPathArray(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	writeLSPBinaryFixture(t, filepath.Join(root, "first", "one.txt"), "needle from first\n")
@@ -78,20 +89,27 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       "needle",
-		"paths":       []string{"first second"},
+		"paths":       []string{"first", "second"},
 		"glob":        "*.txt",
 		"max_results": 10,
 	})
 	if result.IsError {
-		t.Fatalf("grep returned tool error for whitespace-separated paths: %s; stderr=%s", result.ContentText(), client.stderr.String())
+		t.Fatalf("grep returned tool error for explicit paths: %s; stderr=%s", result.ContentText(), client.stderr.String())
 	}
-	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
-	if payload.Total != 2 || payload.Showing != 2 {
+	doc, err := lineprotocol.Parse(result.ContentText())
+	if err != nil {
+		t.Fatalf("parse grep explicit-path content-only result: %v; content=%s", err, result.ContentText())
+	}
+	if doc.Header.Total != 2 || doc.Header.Showing != 2 {
 		t.Fatalf("grep whitespace-separated path payload = total:%d showing:%d, want 2/2; content=%s",
-			payload.Total, payload.Showing, result.ContentText())
+			doc.Header.Total, doc.Header.Showing, result.ContentText())
 	}
 	got := map[string]bool{}
-	for path := range payload.Data {
+	for _, record := range doc.Records {
+		if record.Kind != "ROW" || strings.TrimSpace(record.Fields["file"]) == "" {
+			continue
+		}
+		path := record.Fields["file"]
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			t.Fatalf("relative grep path %q: %v", path, err)
@@ -108,7 +126,7 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	}
 }
 
-func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
+func TestLSPBinaryGrepWithoutTrustedScopeStaysAtProcessWorkspace(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	parent := t.TempDir()
 	staleRoot := canonicalToolTestRoot(t, filepath.Join(parent, "stale"))
@@ -133,14 +151,11 @@ func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
 		t.Fatalf("grep without trusted scope returned success after external patch; content=%s stderr=%s",
 			result.ContentText(), client.stderr.String())
 	}
-	if !strings.Contains(result.ContentText(), "stale workspace root") {
-		t.Fatalf("grep without trusted scope error = %q, want stale workspace root guidance; stderr=%s",
-			result.ContentText(), client.stderr.String())
-	}
 }
 
 func TestLSPBinaryXrefIdentifierMissClassifiesCursorError(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
+	requireRealGopls(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	writeLSPBinaryFixture(t, filepath.Join(root, "go.mod"), "module example.com/lspbinary\n\ngo 1.25\n")
 	target := filepath.Join(root, "main.go")
@@ -197,6 +212,7 @@ func TestLSPBinaryXrefIdentifierMissClassifiesCursorError(t *testing.T) {
 
 func TestLSPBinaryXrefIdentifierMissSuggestsImplementationMethodColumn(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
+	requireRealGopls(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	writeLSPBinaryFixture(t, filepath.Join(root, "go.mod"), "module example.com/lspbinary\n\ngo 1.25\n")
 	target := filepath.Join(root, "adapter.go")
@@ -330,8 +346,7 @@ type lspBinaryToolResult struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
-	StructuredContent json.RawMessage `json:"structuredContent"`
-	IsError           bool            `json:"isError"`
+	IsError bool `json:"isError"`
 }
 
 func (r lspBinaryToolResult) ContentText() string {
@@ -526,13 +541,6 @@ func buildLSPBinary(t *testing.T) string {
 		t.Fatalf("build mcp-lsp binary: %v\n%s", err, string(output))
 	}
 	return binary
-}
-
-func lspBinaryExecutableNameForTest() string {
-	if runtime.GOOS == "windows" {
-		return "mcp-lsp.exe"
-	}
-	return "mcp-lsp"
 }
 
 func lspBinaryPackageDir(t *testing.T) string {

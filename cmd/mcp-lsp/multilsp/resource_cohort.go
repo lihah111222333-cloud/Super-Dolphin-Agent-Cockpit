@@ -696,3 +696,14 @@ func lspErrorMessageIsWarning(message string) bool {
 	return strings.HasPrefix(normalized, "warning:") ||
 		strings.Contains(normalized, "warning: while diagnosing orphaned files: session is shut down")
 }
+
+// goplsRootCohortOwnsResources 表示 gopls 资源由 root cohort controller 独占管理。
+func goplsRootCohortOwnsResources(languageID string) bool {
+	switch normalizeLanguageID(languageID) {
+	case "go", "gomod", "gosum", "gowork":
+		return true
+	default:
+		return false
+	}
+}
+

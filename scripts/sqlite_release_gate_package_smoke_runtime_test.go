@@ -1,7 +1,11 @@
+// 本文件只保留 SQLite 打包 smoke 的跨平台协议、状态断言和 fixture 公共流程；
+// Windows/Darwin/其他非 Windows 的 launcher、路径后缀与进程入口由带精确 build tag
+// 的 companion 测试文件提供，避免用 runtime.GOOS 在公共测试中选择行为。
 package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
 	"debug/buildinfo"
 	"encoding/json"
@@ -11,8 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -344,120 +346,6 @@ func latestPackagedSQLiteMigrationVersion(root string) (int, error) {
 	return latest, nil
 }
 
-func sqliteReleaseGatePackageSmokeCommand(t *testing.T, stage sqliteReleaseGateUnsignedPackage) *exec.Cmd {
-	t.Helper()
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		command = exec.Command("cmd", "/c", filepath.Base(stage.launchers[0]))
-	case "darwin":
-		command = exec.Command(stage.entrypoint)
-	default:
-		command = exec.Command(stage.launchers[0])
-	}
-	command.Dir = stage.root
-	if os.Getenv("SUPER_DOLPHIN_TEST_BACKEND") != "remote-worker" || runtime.GOOS == "windows" {
-		return command
-	}
-	xvfbRun := os.Getenv("SUPER_DOLPHIN_GATE_XVFB_RUN")
-	if xvfbRun == "" || !filepath.IsAbs(xvfbRun) {
-		t.Fatalf("remote worker package smoke requires absolute SUPER_DOLPHIN_GATE_XVFB_RUN")
-	}
-	if info, err := os.Stat(xvfbRun); err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
-		t.Fatalf("remote worker package smoke requires executable SUPER_DOLPHIN_GATE_XVFB_RUN %q: %v", xvfbRun, err)
-	}
-	arguments := append([]string{"--auto-servernum", "--server-args=-screen 0 1280x1024x24", command.Path}, command.Args[1:]...)
-	wrapped := exec.Command(xvfbRun, arguments...)
-	wrapped.Dir = command.Dir
-	return wrapped
-}
-
-func TestSQLiteReleaseGatePackageSmokeCommandUsesWorkerXvfb(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows package smoke uses cmd launcher")
-	}
-	fixture := newSQLitePackageSmokeCommandFixture(t)
-	assertSQLitePackageSmokeCommand(t, fixture)
-	assertSQLitePackageSmokeRuntimePath(t, fixture.gitPath, fixture.xvfbRun)
-	assertSQLitePackageSmokeMemoryOverride(t, fixture.stage)
-}
-
-type sqlitePackageSmokeCommandFixture struct {
-	stage   sqliteReleaseGateUnsignedPackage
-	command *exec.Cmd
-	gitPath string
-	xvfbRun string
-}
-
-func newSQLitePackageSmokeCommandFixture(t *testing.T) sqlitePackageSmokeCommandFixture {
-	t.Helper()
-	xvfbRun := filepath.Join(t.TempDir(), "xvfb-run")
-	if err := os.WriteFile(xvfbRun, []byte("#!/bin/sh\n:\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	gitPath := filepath.Join(t.TempDir(), "git")
-	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\n:\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
-	t.Setenv("SUPER_DOLPHIN_GATE_GIT", gitPath)
-	t.Setenv("SUPER_DOLPHIN_GATE_XVFB_RUN", xvfbRun)
-	stage := sqliteReleaseGateUnsignedPackage{
-		root:       t.TempDir(),
-		entrypoint: "/stage/bin/agent-terminal",
-		launchers:  []string{"/stage/run.sh"},
-	}
-	return sqlitePackageSmokeCommandFixture{
-		stage:   stage,
-		command: sqliteReleaseGatePackageSmokeCommand(t, stage),
-		gitPath: gitPath,
-		xvfbRun: xvfbRun,
-	}
-
-}
-
-func assertSQLitePackageSmokeCommand(t *testing.T, fixture sqlitePackageSmokeCommandFixture) {
-	t.Helper()
-	if fixture.command.Path != fixture.xvfbRun {
-		t.Fatalf("remote worker smoke command = %q, want fixed Xvfb runner %q", fixture.command.Path, fixture.xvfbRun)
-	}
-	target := fixture.stage.launchers[0]
-	if runtime.GOOS == "darwin" {
-		target = fixture.stage.entrypoint
-	}
-	if !slices.Equal(fixture.command.Args[1:], []string{"--auto-servernum", "--server-args=-screen 0 1280x1024x24", target}) {
-		t.Fatalf("remote worker Xvfb arguments = %q", fixture.command.Args[1:])
-	}
-	if fixture.command.Dir != fixture.stage.root {
-		t.Fatalf("remote worker Xvfb directory = %q, want %q", fixture.command.Dir, fixture.stage.root)
-	}
-}
-
-func assertSQLitePackageSmokeRuntimePath(t *testing.T, gitPath, xvfbRun string) {
-	t.Helper()
-	path := sqlitePackageSmokeRuntimePath(t)
-	for _, directory := range []string{filepath.Dir(gitPath), filepath.Dir(xvfbRun)} {
-		if !slices.Contains(filepath.SplitList(path), directory) {
-			t.Fatalf("remote worker runtime PATH = %q, missing %q", path, directory)
-		}
-	}
-}
-
-func assertSQLitePackageSmokeMemoryOverride(t *testing.T, stage sqliteReleaseGateUnsignedPackage) {
-	t.Helper()
-	home := t.TempDir()
-	inheritedOverride := filepath.Join(t.TempDir(), "inherited-memory")
-	t.Setenv("MULTI_AGENT_MEMORY_PATH_OVERRIDE", inheritedOverride)
-	env := sqliteReleaseGatePackageSmokeEnv(t, stage, home, t.TempDir())
-	wantOverride := "MULTI_AGENT_MEMORY_PATH_OVERRIDE=" + filepath.Join(home, "memory")
-	if !slices.Contains(env, wantOverride) {
-		t.Fatalf("remote worker package smoke env missing isolated memory override %q", wantOverride)
-	}
-	if slices.Contains(env, "MULTI_AGENT_MEMORY_PATH_OVERRIDE="+inheritedOverride) {
-		t.Fatalf("remote worker package smoke env retained inherited memory override %q", inheritedOverride)
-	}
-}
-
 func sqliteReleaseGatePackageSmokeEnv(t *testing.T, stage sqliteReleaseGateUnsignedPackage, home, oldPGData string) []string {
 	t.Helper()
 	skip := map[string]bool{
@@ -547,52 +435,59 @@ func assertSQLiteReleaseGatePackageSmokeState(t *testing.T, sqlitePath, oldPGDat
 	}
 }
 
-func writeSQLiteReleaseGateUnsignedPackage(t *testing.T) sqliteReleaseGateUnsignedPackage {
+// sqliteReleaseGatePackageSmokeCommandWithWorkerXvfb 只包装已经由平台 companion
+// 选择好的入口；它不判断 GOOS，因此公共流程只表达 remote-worker 的显示服务契约。
+func sqliteReleaseGatePackageSmokeCommandWithWorkerXvfb(t *testing.T, command *exec.Cmd) *exec.Cmd {
+	t.Helper()
+	if os.Getenv("SUPER_DOLPHIN_TEST_BACKEND") != "remote-worker" {
+		return command
+	}
+	xvfbRun := os.Getenv("SUPER_DOLPHIN_GATE_XVFB_RUN")
+	if xvfbRun == "" || !filepath.IsAbs(xvfbRun) {
+		t.Fatalf("remote worker package smoke requires absolute SUPER_DOLPHIN_GATE_XVFB_RUN")
+	}
+	if info, err := os.Stat(xvfbRun); err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		t.Fatalf("remote worker package smoke requires executable SUPER_DOLPHIN_GATE_XVFB_RUN %q: %v", xvfbRun, err)
+	}
+	arguments := append([]string{"--auto-servernum", "--server-args=-screen 0 1280x1024x24", command.Path}, command.Args[1:]...)
+	wrapped := exec.Command(xvfbRun, arguments...)
+	wrapped.Dir = command.Dir
+	return wrapped
+}
+
+// writeSQLiteReleaseGateUnsignedPackageWithLayout 执行所有平台共享的未签名包 fixture
+// 发布流程；平台 companion 只负责提供已编译选择的路径布局和脚本内容，公共流程不读取宿主平台。
+func writeSQLiteReleaseGateUnsignedPackageWithLayout(t *testing.T, pkg sqliteReleaseGateUnsignedPackage, windows bool) sqliteReleaseGateUnsignedPackage {
 	t.Helper()
 
-	stageDir := t.TempDir()
-	pkg := sqliteReleaseGateUnsignedPackage{}
-	switch runtime.GOOS {
-	case "darwin":
-		app := filepath.Join(stageDir, "Super Dolphin.app")
-		pkg.root = filepath.Join(app, "Contents", "Resources")
-		pkg.entrypoint = filepath.Join(app, "Contents", "MacOS", "agent-terminal")
-		pkg.binaryNames = []string{"mcp-orch", "mcp-lsp", "mcp-ida", "codex", "gopls"}
-	case "windows":
-		pkg.root = filepath.Join(stageDir, fmt.Sprintf("super-dolphin-0.1.0-windows-%s", runtime.GOARCH))
-		pkg.entrypoint = filepath.Join(pkg.root, "bin", "agent-terminal.exe")
-		pkg.launchers = []string{filepath.Join(pkg.root, "run.cmd"), filepath.Join(pkg.root, "run.ps1")}
-		pkg.binaryNames = []string{"agent-terminal.exe", "mcp-orch.exe", "mcp-lsp.exe", "mcp-ida.exe", "codex.exe", "gopls.exe"}
-	default:
-		pkg.root = filepath.Join(stageDir, fmt.Sprintf("super-dolphin-0.1.0-%s-%s", runtime.GOOS, runtime.GOARCH))
-		pkg.entrypoint = filepath.Join(pkg.root, "bin", "agent-terminal")
-		pkg.launchers = []string{filepath.Join(pkg.root, "run.sh")}
-		pkg.binaryNames = []string{"agent-terminal", "mcp-orch", "mcp-lsp", "mcp-ida", "codex", "gopls"}
-	}
 	pkg.envFiles = []string{filepath.Join(pkg.root, ".env"), filepath.Join(pkg.root, "runtime-manifest.json")}
-
 	writeFile(t, filepath.Join(pkg.root, ".env"), "# sqlite release gate smoke\n", 0o600)
 	writeFile(t, filepath.Join(pkg.root, "models.yaml"), "models: []\n", 0o644)
-	writeFile(t, filepath.Join(pkg.root, "lsp", "bin", executableForPackageSmoke("gopls")), unusedPackagePeerBody(runtime.GOOS, "gopls"), 0o755)
+	goplsBody := unusedPackagePeerBody("gopls")
+	writeFile(t, filepath.Join(pkg.root, "lsp", "bin", executableForPackageSmoke("gopls")), goplsBody, 0o755)
+	goplsSHA256 := fmt.Sprintf("%x", sha256.Sum256([]byte(goplsBody)))
 	writeFile(t, filepath.Join(pkg.root, "lsp", "lsp-manifest.json"), fmt.Sprintf(
-		"{\"servers\":{\"gopls\":{\"path\":\"bin/%s\",\"languages\":[\"go\"]}}}\n",
+		"{\"servers\":{\"gopls\":{\"path\":\"bin/%s\",\"version\":\"test\",\"sha256\":\"%s\",\"languages\":[\"go\"]}}}\n",
 		executableForPackageSmoke("gopls"),
+		goplsSHA256,
 	), 0o644)
 	copySQLiteReleaseGateMigrations(t, filepath.Join(pkg.root, "internal", "platform", "db", "sqlite", "migrations"))
-	writeSQLiteReleaseGateRuntimeManifest(t, pkg.root, runtime.GOOS == "windows")
+	writeSQLiteReleaseGateRuntimeManifest(t, pkg.root, windows)
+	builtEntrypoint := false
 	for _, name := range pkg.binaryNames {
 		path := filepath.Join(pkg.root, "bin", name)
 		if samePackageSmokePath(path, pkg.entrypoint) {
 			buildSQLiteReleaseGatePackageSmokeEntrypoint(t, path)
+			builtEntrypoint = true
 			continue
 		}
-		writeFile(t, path, unusedPackagePeerBody(runtime.GOOS, name), 0o755)
+		writeFile(t, path, unusedPackagePeerBody(name), 0o755)
 	}
-	if runtime.GOOS == "darwin" {
+	if !builtEntrypoint {
 		buildSQLiteReleaseGatePackageSmokeEntrypoint(t, pkg.entrypoint)
 	}
 	for _, launcher := range pkg.launchers {
-		writeFile(t, launcher, packageSmokeLauncherBody(runtime.GOOS), 0o755)
+		writeFile(t, launcher, packageSmokeLauncherBody(), 0o755)
 	}
 	return pkg
 }
@@ -613,22 +508,6 @@ func buildSQLiteReleaseGatePackageSmokeEntrypoint(t *testing.T, dest string) {
 	if err != nil {
 		t.Fatalf("go build package smoke runtime entrypoint: %v\n%s", err, output)
 	}
-}
-
-func executableForPackageSmoke(name string) string {
-	if runtime.GOOS == "windows" {
-		return name + ".exe"
-	}
-	return name
-}
-
-func samePackageSmokePath(left, right string) bool {
-	left = filepath.Clean(left)
-	right = filepath.Clean(right)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
 }
 
 func copySQLiteReleaseGateMigrations(t *testing.T, dest string) {
@@ -743,18 +622,4 @@ func assertSQLitePackageHasNoPostgresRuntime(t *testing.T, stage sqliteReleaseGa
 			}
 		}
 	}
-}
-
-func unusedPackagePeerBody(goos, name string) string {
-	if goos == "windows" {
-		return "@echo off\r\necho sqlite release gate smoke unused peer " + name + "\r\nexit /b %SUPER_DOLPHIN_UNUSED_PEER_STATUS%\r\n"
-	}
-	return "#!/bin/sh\necho sqlite release gate smoke unused peer " + name + "\nexit ${SUPER_DOLPHIN_UNUSED_PEER_STATUS:-0}\n"
-}
-
-func packageSmokeLauncherBody(goos string) string {
-	if goos == "windows" {
-		return "@echo off\r\nsetlocal\r\nset \"here=%~dp0\"\r\nfor %%I in (\"%here%.\") do set \"here=%%~fI\"\r\nset \"SUPER_DOLPHIN_PACKAGE_ROOT=%here%\"\r\nset \"PROJECT_ROOT=%here%\"\r\nset \"PATH=%here%\\bin;%PATH%\"\r\nset \"SUPER_DOLPHIN_RUNTIME_MODE=packaged\"\r\nset \"SUPER_DOLPHIN_PACKAGED_LAUNCHER=1\"\r\n\"%here%\\bin\\agent-terminal.exe\" %*\r\nexit /b %ERRORLEVEL%\r\n"
-	}
-	return "#!/usr/bin/env bash\nset -euo pipefail\nhere=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\nexport SUPER_DOLPHIN_PACKAGE_ROOT=\"$here\"\nexport PROJECT_ROOT=\"$here\"\nexport PATH=\"$here/bin:${PATH:-}\"\nexport SUPER_DOLPHIN_RUNTIME_MODE=packaged\nexport SUPER_DOLPHIN_PACKAGED_LAUNCHER=1\nexec \"$here/bin/agent-terminal\" \"$@\"\n"
 }

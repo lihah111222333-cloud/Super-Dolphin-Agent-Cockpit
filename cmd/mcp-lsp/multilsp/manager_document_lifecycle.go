@@ -30,9 +30,25 @@ func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version i
 	if err != nil {
 		return err
 	}
+	recoveryUsed := false
 	client, err := m.ensureClientForDocumentMutation(ctx, cfg)
 	if err != nil {
-		return err
+		m.logDidOpenWin122State("ensure_failed", cfg, client, recoveryUsed, err)
+		// 生产 Windows clangd 可能在首次显式 open 的初始化边界返回
+		// transport closed + 精确 Win122；失败 provisional owner 已由 ensure 清理，
+		// 此处只允许同一 DidOpen 操作再 ensure 一次，其他错误立即返回。
+		if !shouldRecoverBootstrapDidOpenWin122(ctx, nil, err) {
+			return err
+		}
+		recoveryUsed = true
+		client, err = m.ensureClientForDocumentMutation(ctx, cfg)
+		m.logDidOpenWin122State("ensure_retry_result", cfg, client, recoveryUsed, err)
+		if err != nil {
+			return err
+		}
+	}
+	if client == nil {
+		return ErrClientClosed
 	}
 	identity, err := m.workspaceClientIdentityForConfig(cfg, client)
 	if err != nil {
@@ -42,14 +58,75 @@ func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version i
 	if err != nil {
 		return err
 	}
-	if err := m.withPooledClient(client, func() error {
+	sendErr := m.withPooledClient(client, func() error {
 		return sendExplicitDocumentOpen(ctx, client, state, change, text)
-	}); err != nil {
+	})
+	if sendErr != nil {
+		m.logDidOpenWin122State("did_open_failed", cfg, client, recoveryUsed, sendErr)
+	}
+	if sendErr != nil && !recoveryUsed && shouldRecoverBootstrapDidOpenWin122(ctx, client, sendErr) {
 		reservation.cancel()
-		return err
+		recoveryUsed = true
+		replacement, rebuildErr := m.rebuildClientAfterFailure(ctx, client, false)
+		if rebuildErr != nil {
+			return errors.Join(sendErr, fmt.Errorf("DidOpen Win122 client rebuild: %w", rebuildErr))
+		}
+		if replacement == nil {
+			return errors.Join(sendErr, ErrClientClosed)
+		}
+		client = replacement
+		identity, err = m.workspaceClientIdentityForConfig(cfg, client)
+		if err != nil {
+			return err
+		}
+		state, change, reservation, err = m.prepareExplicitDocumentOpen(ref, cfg, scope, identity, version, text)
+		if err != nil {
+			return err
+		}
+		sendErr = m.withPooledClient(client, func() error {
+			return sendExplicitDocumentOpen(ctx, client, state, change, text)
+		})
+	}
+	if sendErr != nil {
+		reservation.cancel()
+		return sendErr
 	}
 	operation.commitMutation()
 	return reservation.commitForRecipient(client)
+}
+
+// logDidOpenWin122State 记录显式 DidOpen 恢复边界的低敏状态，不记录路径、正文或命令行。
+// 这些字段用于区分 provisional cleanup、bootstrap candidate 与 retry budget，不改变恢复判定。
+func (m *manager) logDidOpenWin122State(stage string, cfg workspaceConfig, client Client, recoveryUsed bool, err error) {
+	if m == nil || m.logger == nil {
+		return
+	}
+	m.mu.RLock()
+	workspace := m.workspaces[cfg.key]
+	candidatePresent := workspace != nil && workspace.client != nil
+	workspaceState := "absent"
+	bootstrapAttemptPresent := false
+	if workspace != nil {
+		workspaceState = string(workspace.state)
+		bootstrapAttemptPresent = workspace.bootstrapAttempt != nil
+	}
+	pendingCleanupCount := len(m.provisionalCleanups[cfg.key])
+	bootstrapAttemptCount := len(m.bootstrapAttempts)
+	m.mu.RUnlock()
+	m.logger.Info("LSP DidOpen Win122 recovery state",
+		"stage", stage,
+		"manager_instance_id_digest", provisionalWorkspaceHash(m.instanceID),
+		"workspace_config_key_digest", provisionalWorkspaceHash(cfg.key),
+		"language", cfg.languageID,
+		"candidate_present", candidatePresent,
+		"workspace_state", workspaceState,
+		"bootstrap_attempt_present", bootstrapAttemptPresent,
+		"bootstrap_attempt_count", bootstrapAttemptCount,
+		"pending_cleanup_count", pendingCleanupCount,
+		"retry_budget_used", recoveryUsed,
+		"client_present", client != nil,
+		"error_present", err != nil,
+	)
 }
 
 // DidChange 把文档变更事件转给 LSP。

@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
 
 func TestRegistryRegisterAndPersist(t *testing.T) {
 	r := &Registry{
@@ -148,7 +150,8 @@ func TestRegistryClose(t *testing.T) {
 
 func startIdentityTestProcess(t *testing.T) int {
 	t.Helper()
-	cmd := exec.Command("sleep", "30")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperSleepProcess", "--")
+	cmd.Env = append(os.Environ(), "GO_WANT_HELPER_SLEEP_PROCESS=1")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start identity test process: %v", err)
 	}
@@ -158,6 +161,15 @@ func startIdentityTestProcess(t *testing.T) int {
 	})
 	return cmd.Process.Pid
 }
+
+func TestHelperSleepProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_SLEEP_PROCESS") != "1" {
+		return
+	}
+	time.Sleep(30 * time.Second)
+	os.Exit(0)
+}
+
 
 func TestRegistryNilSafe(t *testing.T) {
 	var r *Registry

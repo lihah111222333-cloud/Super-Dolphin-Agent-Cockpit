@@ -11,6 +11,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rlimit"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -61,15 +62,37 @@ func main() {
 
 // initSidecarFileLogger 将 mcp-lsp 日志同时写入 stderr 和进程自有的私有文件。
 func initSidecarFileLogger(logRuntime *pkglogger.Runtime, homeDir string, console io.Writer) error {
+	return initSidecarFileLoggerAt(logRuntime, filepath.Join(homeDir, ".super-dolphin", "log", binaryName), console)
+}
+
+// initSidecarFileLoggerAt 只接受唯一的私有日志目录；权限或路径错误必须保留并阻断启动，
+// 不能换目录重试，否则 Windows ACL 5/1314 会被伪装成一次成功初始化。
+func initSidecarFileLoggerAt(logRuntime *pkglogger.Runtime, logDir string, console io.Writer) error {
 	if logRuntime == nil {
 		return fmt.Errorf("initialize mcp-lsp file logger: logger runtime is required")
 	}
-	logDir := filepath.Join(homeDir, ".multi-agent", "log", binaryName)
+	// pkg/logger 是公共包，受架构门禁约束不能依赖 internal/securefs；sidecar 在平台边界
+	// 先保护目录、再创建日志并保护文件，Windows 因而校验 DACL 而不是无意义的 POSIX mode。
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return fmt.Errorf("initialize mcp-lsp file logger: create private log directory: %w", wrapSidecarLogPathError("create_private_log_directory", logDir, err))
+	}
+	if err := securefs.RestrictPrivateOwnerOnly(logDir, 0o700); err != nil {
+		return fmt.Errorf("initialize mcp-lsp file logger: protect private log directory: %w", err)
+	}
 	if err := logRuntime.InitWithFileOptions(logDir, pkglogger.FileOptions{
 		Prefix:        binaryName,
 		ConsoleWriter: console,
 	}); err != nil {
-		return fmt.Errorf("initialize mcp-lsp file logger: %w", err)
+		return fmt.Errorf("initialize mcp-lsp file logger: create private log file: %w", wrapSidecarLogPathError("create_private_log_file", logDir, err))
+	}
+	logPath := logRuntime.CurrentLogFilePath()
+	if logPath == "" {
+		logRuntime.ShutdownFileHandler()
+		return fmt.Errorf("initialize mcp-lsp file logger: logger returned an empty path")
+	}
+	if err := securefs.RestrictPrivateOwnerOnly(logPath, 0o600); err != nil {
+		logRuntime.ShutdownFileHandler()
+		return fmt.Errorf("initialize mcp-lsp file logger: protect private log file: %w", err)
 	}
 	logRuntime.BindDefault()
 	return nil

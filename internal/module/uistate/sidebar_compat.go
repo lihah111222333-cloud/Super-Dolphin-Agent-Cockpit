@@ -224,7 +224,7 @@ func buildLogPath(cwd string) string {
 	if name == "" || name == "." || name == "/" {
 		return ""
 	}
-	return "~/.multi-agent/log/" + name + "/"
+	return "~/.super-dolphin/log/" + name + "/"
 }
 
 // deriveThreadStatuses 为 sidebar 线程填充状态、agent 关联和最近错误信息。

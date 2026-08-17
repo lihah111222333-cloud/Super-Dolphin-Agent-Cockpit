@@ -56,9 +56,9 @@ func AppManagedDataRoots() ([]string, error) {
 	}
 
 	for _, root := range []string{
-		filepath.Join(userHome, ".multi-agent", "log"),
-		filepath.Join(userHome, ".multi-agent", "memory"),
-		filepath.Join(userHome, ".multi-agent", "skills"),
+		filepath.Join(userHome, ".super-dolphin", "log"),
+		filepath.Join(userHome, ".super-dolphin", "memory"),
+		filepath.Join(userHome, ".super-dolphin", "skills"),
 		filepath.Join(userHome, "sharedfile"),
 	} {
 		var appendErr error

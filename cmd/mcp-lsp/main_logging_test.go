@@ -28,7 +28,7 @@ func TestInitSidecarFileLoggerPersistsFatalError(t *testing.T) {
 		t.Fatalf("initSidecarFileLogger() error = %v", err)
 	}
 	logPath := logRuntime.CurrentLogFilePath()
-	wantDir := filepath.Join(homeDir, ".multi-agent", "log", binaryName)
+	wantDir := filepath.Join(homeDir, ".super-dolphin", "log", binaryName)
 	if filepath.Dir(logPath) != wantDir {
 		t.Fatalf("log directory = %q, want %q", filepath.Dir(logPath), wantDir)
 	}
@@ -67,27 +67,26 @@ func TestInitSidecarFileLoggerFailsClosed(t *testing.T) {
 	}
 }
 
+// TestInitSidecarFileLoggerFailsClosedWithoutAlternateDirectory 锁定权限或路径失败不能通过换目录被掩盖。
+func TestInitSidecarFileLoggerFailsClosedWithoutAlternateDirectory(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(homeFile, []byte("blocked"), 0o600); err != nil {
+		t.Fatalf("create blocking home file: %v", err)
+	}
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	t.Cleanup(logRuntime.ShutdownFileHandler)
+
+	if err := initSidecarFileLogger(logRuntime, homeFile, io.Discard); err == nil {
+		t.Fatal("initSidecarFileLogger() accepted a blocked home path through fallback")
+	}
+	if got := logRuntime.CurrentLogFilePath(); got != "" {
+		t.Fatalf("log file path = %q after failure, want empty", got)
+	}
+}
+
 // TestRunMainRequiresExistingLoggerRuntime 锁定 Fx runtime 必须复用 main 已初始化的私有文件 logger。
 func TestRunMainRequiresExistingLoggerRuntime(t *testing.T) {
 	if exitCode := runMain(nil, nil); exitCode != 1 {
 		t.Fatalf("runMain(nil, nil) exit code = %d, want 1", exitCode)
-	}
-}
-
-func assertPrivateLogPermissions(t *testing.T, logDir, logPath string) {
-	t.Helper()
-	dirInfo, err := os.Stat(logDir)
-	if err != nil {
-		t.Fatalf("stat log directory: %v", err)
-	}
-	if got := dirInfo.Mode().Perm(); got != 0o700 {
-		t.Fatalf("log directory mode = %o, want 700", got)
-	}
-	fileInfo, err := os.Stat(logPath)
-	if err != nil {
-		t.Fatalf("stat log file: %v", err)
-	}
-	if got := fileInfo.Mode().Perm(); got != 0o600 {
-		t.Fatalf("log file mode = %o, want 600", got)
 	}
 }

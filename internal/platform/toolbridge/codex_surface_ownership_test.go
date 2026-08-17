@@ -291,7 +291,7 @@ func ownershipBinaries(count int) []providerdto.MCPBinary {
 }
 
 func ownershipScope(count int) contract.CodexToolSurfaceScope {
-	return contract.CodexToolSurfaceScope{AgentID: "agent-1", CWD: "/repo", Manifest: providerdto.MCPManifest{Binaries: ownershipBinaries(count)}}
+	return contract.CodexToolSurfaceScope{AgentID: "agent-1", CWD: portableToolbridgeTestCWD("ownership", "repo"), Manifest: providerdto.MCPManifest{Binaries: ownershipBinaries(count)}}
 }
 
 func applyOwnershipTools(clients []*ownershipMCPClient, tools [][]mcpdto.MCPTool) {

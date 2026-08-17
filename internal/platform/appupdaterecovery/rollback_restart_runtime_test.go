@@ -3,11 +3,9 @@ package appupdaterecovery
 import (
 	"context"
 	"errors"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,6 +23,7 @@ func TestRollbackRestartLauncherReapsEveryPostStartFailure(t *testing.T) {
 }
 
 func TestRollbackRestartReadinessRetriesRefusedPublishedEndpoint(t *testing.T) {
+	// readiness/identity 轮询跨平台共享；拒绝态 endpoint 仅由 Darwin companion 创建。
 	endpoint := newRefusedRollbackRestartEndpoint(t)
 	token := "rollback-restart-readiness"
 	exact := currentRollbackRestartExactProcess(t, endpoint, token)
@@ -149,6 +148,7 @@ func assertRollbackRestartEndpointReady(
 }
 
 func TestRollbackRestartReadinessRefusedEndpointHonorsDeadline(t *testing.T) {
+	// deadline 断言跨平台共享；拒绝态 endpoint 仅由 Darwin companion 创建。
 	endpoint := newRefusedRollbackRestartEndpoint(t)
 	exact := currentRollbackRestartExactProcess(t, endpoint, "rollback-restart-deadline")
 	ctx, cancel := context.WithTimeout(t.Context(), 3*rollbackRestartEndpointPoll)
@@ -161,42 +161,6 @@ func TestRollbackRestartReadinessRefusedEndpointHonorsDeadline(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("deadline wait elapsed = %v, want <= 1s", elapsed)
 	}
-}
-
-func newRefusedRollbackRestartEndpoint(t *testing.T) string {
-	t.Helper()
-	if runtime.GOOS != "darwin" {
-		t.Skip("cooperative rollback endpoint requires Darwin")
-	}
-	file, err := os.CreateTemp("/tmp", "sd-rollback-ready-")
-	if err != nil {
-		t.Fatalf("create refused rollback endpoint path: %v", err)
-	}
-	endpoint := file.Name() + ".sock"
-	if err := file.Close(); err != nil {
-		t.Fatalf("close refused rollback endpoint path: %v", err)
-	}
-	if err := os.Remove(file.Name()); err != nil {
-		t.Fatalf("remove refused rollback endpoint path: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Remove(endpoint); err != nil && !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("remove refused rollback endpoint: %v", err)
-		}
-	})
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: endpoint, Net: "unix"})
-	if err != nil {
-		t.Fatalf("listen refused rollback endpoint: %v", err)
-	}
-	listener.SetUnlinkOnClose(false)
-	if err := os.Chmod(endpoint, 0o600); err != nil {
-		_ = listener.Close()
-		t.Fatalf("chmod refused rollback endpoint: %v", err)
-	}
-	if err := listener.Close(); err != nil {
-		t.Fatalf("close refused rollback listener: %v", err)
-	}
-	return endpoint
 }
 
 func currentRollbackRestartExactProcess(

@@ -99,7 +99,20 @@ func assignWindowsGoplsTestSidecarJob(job windows.Handle, command *exec.Cmd) err
 	return errors.Join(assignErr, windows.CloseHandle(process))
 }
 
-func buildWindowsGoplsTestInstall(t *testing.T) windowsGoplsTestInstall {
+// buildWindowsGoplsProductionTestInstall 构建不含短空闲预检标签的正式 Windows gopls 测试交付物。
+func buildWindowsGoplsProductionTestInstall(t *testing.T) windowsGoplsTestInstall {
+	return buildWindowsGoplsTestInstallWithTags(t, "")
+}
+
+// buildWindowsGoplsShortIdlePrecheckTestInstall 构建允许十五分钟以下空闲窗口的 Windows 快速预检交付物。
+// 该产物不得用于正式十五分钟生命周期证明。
+func buildWindowsGoplsShortIdlePrecheckTestInstall(t *testing.T) windowsGoplsTestInstall {
+	t.Helper()
+	t.Log("status=NON_PASS_PRECHECK_ONLY: short-idle Windows gopls install cannot prove the formal 15-minute lifecycle")
+	return buildWindowsGoplsTestInstallWithTags(t, "mcp_lsp_short_idle_precheck")
+}
+
+func buildWindowsGoplsTestInstallWithTags(t *testing.T, buildTags string) windowsGoplsTestInstall {
 	t.Helper()
 	root := t.TempDir()
 	install := windowsGoplsTestInstall{
@@ -115,7 +128,7 @@ func buildWindowsGoplsTestInstall(t *testing.T) windowsGoplsTestInstall {
 	if err := os.MkdirAll(filepath.Dir(install.Gopls), 0o700); err != nil {
 		t.Fatalf("create Windows broker test LSP bin: %v", err)
 	}
-	buildWindowsTestExecutable(t, install.Binary, "./cmd/mcp-lsp")
+	buildWindowsTestExecutableWithTags(t, install.Binary, "./cmd/mcp-lsp", buildTags)
 	source := filepath.Join(t.TempDir(), "main.go")
 	if err := os.WriteFile(source, []byte(windowsFakeGoplsSource), 0o600); err != nil {
 		t.Fatalf("write native fake gopls source: %v", err)
@@ -159,8 +172,17 @@ func startWindowsGoplsTestHostInJob(t *testing.T, command *exec.Cmd) {
 }
 
 func buildWindowsTestExecutable(t *testing.T, output, target string) {
+	buildWindowsTestExecutableWithTags(t, output, target, "")
+}
+
+func buildWindowsTestExecutableWithTags(t *testing.T, output, target, buildTags string) {
 	t.Helper()
-	cmd := exec.Command("go", "build", "-trimpath", "-o", output, target)
+	args := []string{"build", "-buildvcs=false", "-trimpath"}
+	if buildTags != "" {
+		args = append(args, "-tags="+buildTags)
+	}
+	args = append(args, "-o", output, target)
+	cmd := exec.Command("go", args...)
 	cmd.Dir = repoRootForMcpLSPBinaryTest(t)
 	if result, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build Windows test executable %s: %v\n%s", output, err, result)

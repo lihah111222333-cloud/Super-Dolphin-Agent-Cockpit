@@ -724,13 +724,12 @@ func clientRSSBytes(current Client) (uint64, int, error) {
 	return rss, pid, err
 }
 
-// rssLimitBytesForLanguage 返回指定语言的单进程树紧急回收阈值。
-// 非 gopls 默认不早于全局 15GiB 池触发；POSIX gopls forwarder 独立使用轻量阈值。
+// rssLimitBytesForLanguage 返回单进程树紧急回收阈值。
 func rssLimitBytesForLanguage(languageID string) uint64 {
 	return rssLimitBytesForLanguageOnOS(languageID, runtime.GOOS)
 }
 
-// rssLimitBytesForLanguageOnOS 按语言与平台选择单进程树的紧急回收阈值。
+// rssLimitBytesForLanguageOnOS 只按显式目标 OS、语言和配置环境选择单进程树阈值。
 func rssLimitBytesForLanguageOnOS(languageID, goos string) uint64 {
 	lang := normalizeLanguageID(languageID)
 	if lang == "go" || lang == "gomod" || lang == "gosum" || lang == "gowork" {

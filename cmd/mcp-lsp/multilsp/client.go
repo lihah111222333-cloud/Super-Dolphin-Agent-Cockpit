@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +49,10 @@ type ServerCapabilitiesClient interface {
 	ServerCapabilities() protocol.ServerCapabilities
 }
 
+// ServerProfileJDTLS160 是 Windows product-owned JDK/JDTLS 1.60.0 的精确 profile。
+// 只有 runtime resolver 明确传入该值时才会关闭已知非法 typeDefinition 响应。
+const ServerProfileJDTLS160 = "jdk-jdtls@1.60.0"
+
 // HealthCheckedClient 在 Client 基础上暴露 pool 复用前的健康状态。
 type HealthCheckedClient interface {
 	Client
@@ -79,14 +82,17 @@ type IdleReleaseRequiredClient interface {
 
 // Options 描述启动 LSP client 时传给 transport、initialize 和回调处理器的配置。
 type Options struct {
-	Binary              string
-	Args                []string
-	Dir                 string
-	Env                 []string
-	ProcessID           int
-	InitOptions         map[string]any
-	NotificationHandler protocol.NotificationHandler
-	RequestHandler      ServerRequestHandler
+	Binary                    string
+	Args                      []string
+	Dir                       string
+	Env                       []string
+	ProcessID                 int
+	InitOptions               map[string]any
+	NotificationHandler       protocol.NotificationHandler
+	RequestHandler            ServerRequestHandler
+	ServerNotificationHandler ServerNotificationHandler
+	// ServerProfile 是生产 resolver 传入的精确服务端身份；空值表示未知，不能据此禁用能力。
+	ServerProfile string
 }
 
 type client struct {
@@ -105,9 +111,12 @@ type client struct {
 	resourceReportsReleased     bool
 	resourceCohortLeaseReleased bool
 	capabilities                protocol.ServerCapabilities
+	semanticTokensLegendBroken  bool
 	serverName                  string
 	serverVersion               string
 	initializeResponseKnown     bool
+	knownJDTLSTypeDefinitionOff bool
+	serverProfile               string
 }
 
 // concreteClient 穿透有限层包装器，定位拥有 transport 与进程资源的真实 client。
@@ -130,15 +139,21 @@ func concreteClient(current Client) (*client, bool) {
 }
 
 type dynamicRegistrationTracker struct {
-	mu                          sync.RWMutex
-	diagnosticRegistrations     map[string]struct{}
-	documentSymbolRegistrations map[string]struct{}
+	mu            sync.RWMutex
+	registrations map[string]map[string]dynamicRegistration
+}
+
+// invalidSemanticTokensProvider 是初始化阶段识别出的协议畸形标记；它只存在于
+// 能力合并内部，向调用方暴露前会归一化为 nil，避免动态 full 注册重新打开坏能力。
+type invalidSemanticTokensProvider struct{}
+
+type dynamicRegistration struct {
+	options json.RawMessage
 }
 
 func newDynamicRegistrationTracker() *dynamicRegistrationTracker {
 	return &dynamicRegistrationTracker{
-		diagnosticRegistrations:     map[string]struct{}{},
-		documentSymbolRegistrations: map[string]struct{}{},
+		registrations: map[string]map[string]dynamicRegistration{},
 	}
 }
 
@@ -175,21 +190,29 @@ func (t *dynamicRegistrationTracker) handleServerRequest(method string, params j
 func (t *dynamicRegistrationTracker) register(params json.RawMessage) error {
 	var request struct {
 		Registrations []struct {
-			ID     string `json:"id"`
-			Method string `json:"method"`
+			ID              string          `json:"id"`
+			Method          string          `json:"method"`
+			RegisterOptions json.RawMessage `json:"registerOptions"`
 		} `json:"registrations"`
 	}
 	if err := json.Unmarshal(params, &request); err != nil {
 		return err
 	}
+	for _, registration := range request.Registrations {
+		if strings.TrimSpace(registration.ID) == "" {
+			return fmt.Errorf("dynamic registration id is required for %s", strings.TrimSpace(registration.Method))
+		}
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for index, registration := range request.Registrations {
+	for _, registration := range request.Registrations {
 		registrations, ok := t.registrationsForMethod(registration.Method)
 		if !ok {
 			continue
 		}
-		registrations[dynamicRegistrationKey(registration.ID, registration.Method, index)] = struct{}{}
+		registrations[strings.TrimSpace(registration.ID)] = dynamicRegistration{
+			options: append(json.RawMessage(nil), registration.RegisterOptions...),
+		}
 	}
 	return nil
 }
@@ -204,62 +227,158 @@ func (t *dynamicRegistrationTracker) unregister(params json.RawMessage) error {
 	if err := json.Unmarshal(params, &request); err != nil {
 		return err
 	}
+	for _, registration := range request.Unregisterations {
+		if strings.TrimSpace(registration.ID) == "" {
+			return fmt.Errorf("dynamic unregistration id is required for %s", strings.TrimSpace(registration.Method))
+		}
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for index, registration := range request.Unregisterations {
+	for _, registration := range request.Unregisterations {
 		registrations, ok := t.registrationsForMethod(registration.Method)
 		if !ok {
 			continue
 		}
-		key := dynamicRegistrationKey(registration.ID, registration.Method, index)
-		if strings.TrimSpace(registration.ID) == "" {
-			clear(registrations)
-			continue
-		}
-		delete(registrations, key)
+		delete(registrations, strings.TrimSpace(registration.ID))
 	}
 	return nil
 }
 
 // registrationsForMethod 返回需要合并进静态能力快照的动态注册集合。
-func (t *dynamicRegistrationTracker) registrationsForMethod(method string) (map[string]struct{}, bool) {
-	switch method {
-	case protocol.MethodTextDocumentDiagnostic:
-		return t.diagnosticRegistrations, true
-	case protocol.MethodDocumentSymbol:
-		return t.documentSymbolRegistrations, true
-	default:
+// 这是跨平台共享的 LSP 协议账本：只按方法名记录能力，不读取宿主系统或进程架构。
+func (t *dynamicRegistrationTracker) registrationsForMethod(method string) (map[string]dynamicRegistration, bool) {
+	method = strings.TrimSpace(method)
+	if !tracksDynamicRegistrationMethod(method) {
 		return nil, false
+	}
+	registrations := t.registrations[method]
+	if registrations == nil {
+		registrations = map[string]dynamicRegistration{}
+		t.registrations[method] = registrations
+	}
+	return registrations, true
+}
+
+// tracksDynamicRegistrationMethod 限定 sidecar 已声明并能路由的动态注册方法。
+// 公共协议方法在所有平台使用同一集合，平台专用进程启动逻辑不得进入这里。
+func tracksDynamicRegistrationMethod(method string) bool {
+	switch method {
+	case protocol.MethodTextDocumentDiagnostic,
+		protocol.MethodCompletion,
+		protocol.MethodDocumentSymbol,
+		protocol.MethodDefinition,
+		protocol.MethodImplementation,
+		protocol.MethodTypeDefinition,
+		protocol.MethodReferences,
+		protocol.MethodPrepareCallHierarchy,
+		protocol.MethodPrepareTypeHierarchy,
+		protocol.MethodCodeAction,
+		protocol.MethodSignatureHelp,
+		protocol.MethodFormatting,
+		protocol.MethodFoldingRange,
+		protocol.MethodSemanticTokens:
+		return true
+	default:
+		return false
 	}
 }
 
+// serverCapabilities 把动态注册账本合并到 initialize 静态能力快照。
+// 合并规则属于公共 LSP 语义；Windows、Darwin、Linux 等平台必须得到完全相同的能力裁决。
 func (t *dynamicRegistrationTracker) serverCapabilities(capabilities protocol.ServerCapabilities) protocol.ServerCapabilities {
 	if t == nil {
 		return capabilities
 	}
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	if len(t.diagnosticRegistrations) > 0 {
+	semanticTokensLegendBroken := false
+	if _, broken := capabilities.SemanticTokensProvider.(invalidSemanticTokensProvider); broken {
+		semanticTokensLegendBroken = true
+		capabilities.SemanticTokensProvider = nil
+	}
+	if len(t.registrations[protocol.MethodTextDocumentDiagnostic]) > 0 {
 		capabilities.DiagnosticProvider = true
 	}
-	if len(t.documentSymbolRegistrations) > 0 {
+	if len(t.registrations[protocol.MethodCompletion]) > 0 {
+		capabilities.CompletionProvider = true
+	}
+	if len(t.registrations[protocol.MethodDocumentSymbol]) > 0 {
 		capabilities.DocumentSymbolProvider = true
+	}
+	if len(t.registrations[protocol.MethodDefinition]) > 0 {
+		capabilities.DefinitionProvider = true
+	}
+	if len(t.registrations[protocol.MethodImplementation]) > 0 {
+		capabilities.ImplementationProvider = true
+	}
+	if len(t.registrations[protocol.MethodTypeDefinition]) > 0 {
+		capabilities.TypeDefinitionProvider = true
+	}
+	if len(t.registrations[protocol.MethodReferences]) > 0 {
+		capabilities.ReferencesProvider = true
+	}
+	if len(t.registrations[protocol.MethodPrepareCallHierarchy]) > 0 {
+		capabilities.CallHierarchyProvider = true
+	}
+	if len(t.registrations[protocol.MethodPrepareTypeHierarchy]) > 0 {
+		capabilities.TypeHierarchyProvider = true
+	}
+	if len(t.registrations[protocol.MethodCodeAction]) > 0 {
+		capabilities.CodeActionProvider = true
+	}
+	if len(t.registrations[protocol.MethodSignatureHelp]) > 0 {
+		capabilities.SignatureHelpProvider = true
+	}
+	if len(t.registrations[protocol.MethodFormatting]) > 0 {
+		capabilities.DocumentFormattingProvider = true
+	}
+	if len(t.registrations[protocol.MethodFoldingRange]) > 0 {
+		capabilities.FoldingRangeProvider = true
+	}
+	semanticRegistrations := t.registrations[protocol.MethodSemanticTokens]
+	if len(semanticRegistrations) > 0 &&
+		!semanticTokensLegendBroken &&
+		dynamicSemanticTokensFullCapabilityAvailable(semanticRegistrations) &&
+		!semanticTokensFullCapabilityAvailable(capabilities.SemanticTokensProvider) {
+		capabilities.SemanticTokensProvider = semanticTokensProviderWithFull(capabilities.SemanticTokensProvider)
 	}
 	return capabilities
 }
 
-func dynamicRegistrationKey(id, method string, index int) string {
-	id = strings.TrimSpace(id)
-	if id != "" {
-		return id
+func dynamicSemanticTokensFullCapabilityAvailable(registrations map[string]dynamicRegistration) bool {
+	for _, registration := range registrations {
+		if semanticTokensFullCapabilityAvailable(registration.options) {
+			return true
+		}
 	}
-	return strings.TrimSpace(method) + "#" + strconv.Itoa(index)
+	return false
+}
+
+// semanticTokensProviderWithFull 合并动态 full 子能力，同时保留静态 provider 的
+// range、legend 等字段；这是所有平台共享的协议合并，不能因 Windows 安装路径而改写。
+func semanticTokensProviderWithFull(provider any) any {
+	switch typed := provider.(type) {
+	case map[string]any:
+		merged := make(map[string]any, len(typed)+1)
+		for key, value := range typed {
+			merged[key] = value
+		}
+		merged["full"] = true
+		return merged
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err == nil {
+			return semanticTokensProviderWithFull(decoded)
+		}
+	}
+	return map[string]any{"full": true}
 }
 
 type limitedBuffer struct {
 	mu    sync.Mutex
 	buf   bytes.Buffer
 	limit int
+	total int64
 }
 
 type responseError struct {
@@ -290,12 +409,13 @@ func NewClientWithOptions(options Options) (Client, error) {
 	}
 	dynamicRegistrations := newDynamicRegistrationTracker()
 	transport, err := newTransport(transportOptions{
-		Binary:              binary,
-		Args:                defaultArgs(options.Args),
-		Dir:                 options.Dir,
-		Env:                 append([]string(nil), options.Env...),
-		NotificationHandler: options.NotificationHandler,
-		RequestHandler:      dynamicRegistrationRequestHandler(dynamicRegistrations, requestHandler),
+		Binary:                    binary,
+		Args:                      defaultArgs(options.Args),
+		Dir:                       options.Dir,
+		Env:                       append([]string(nil), options.Env...),
+		NotificationHandler:       options.NotificationHandler,
+		RequestHandler:            dynamicRegistrationRequestHandler(dynamicRegistrations, requestHandler),
+		ServerNotificationHandler: options.ServerNotificationHandler,
 	})
 	if err != nil {
 		return nil, err
@@ -305,6 +425,7 @@ func NewClientWithOptions(options Options) (Client, error) {
 		processID:            normalizeProcessID(options.ProcessID),
 		initOptions:          options.InitOptions,
 		dynamicRegistrations: dynamicRegistrations,
+		serverProfile:        strings.TrimSpace(options.ServerProfile),
 	}, nil
 }
 
@@ -340,12 +461,20 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	if err != nil {
 		return err
 	}
+	semanticTokensLegendBroken := false
+	if _, broken := capabilities.SemanticTokensProvider.(invalidSemanticTokensProvider); broken {
+		semanticTokensLegendBroken = true
+		capabilities.SemanticTokensProvider = nil
+	}
+	capabilities = normalizeServerProfileCapabilities(capabilities, c.serverProfile)
 	c.stateMu.Lock()
 	c.rootURI = rootURI
 	c.initialized = true
 	c.capabilities = capabilities
+	c.semanticTokensLegendBroken = semanticTokensLegendBroken
 	c.serverName = serverInfo.name
 	c.serverVersion = serverInfo.version
+	c.knownJDTLSTypeDefinitionOff = c.serverProfile == ServerProfileJDTLS160
 	c.initializeResponseKnown = true
 	c.stateMu.Unlock()
 	return nil
@@ -494,6 +623,8 @@ func (c *client) Close() error {
 	)
 }
 
+// 平台策略通过外层 hook 选择是否调用，普通 client 不改变既有重建路径。
+
 // Healthy 报告 client 是否还能被 pool 复用。
 // nil、已 shutdown 或 transport 已关闭都会返回 false。
 func (c *client) Healthy() bool {
@@ -513,8 +644,24 @@ func (c *client) Healthy() bool {
 func (c *client) ServerCapabilities() protocol.ServerCapabilities {
 	c.stateMu.RLock()
 	capabilities := c.capabilities
+	semanticTokensLegendBroken := c.semanticTokensLegendBroken
+	knownJDTLSTypeDefinitionOff := c.knownJDTLSTypeDefinitionOff
 	c.stateMu.RUnlock()
-	return c.dynamicRegistrations.serverCapabilities(capabilities)
+	// semantic tokens 的坏 legend 只禁用该能力；其他动态 registration 仍须合并。
+	// 这是跨平台 LSP 能力裁决，不因某个 server 的单项协议畸形而吞掉 completion 等能力。
+	if semanticTokensLegendBroken {
+		capabilities.SemanticTokensProvider = nil
+	}
+	capabilities = c.dynamicRegistrations.serverCapabilities(capabilities)
+	if semanticTokensLegendBroken {
+		// tracker 可能合并动态 semantic registration，但坏 legend 不能被任何动态声明绕过。
+		capabilities.SemanticTokensProvider = nil
+	}
+	if knownJDTLSTypeDefinitionOff {
+		// 已确认的 JDTLS 1.60.0 即使错误地动态注册该方法，也不能重新打开非法响应能力。
+		capabilities.TypeDefinitionProvider = nil
+	}
+	return capabilities
 }
 
 type initializeServerInfo struct {
@@ -540,6 +687,8 @@ func lspClientAttribution(current Client) map[string]any {
 		name := concrete.serverName
 		version := concrete.serverVersion
 		capabilities := concrete.capabilities
+		profile := concrete.serverProfile
+		profileDisabled := concrete.knownJDTLSTypeDefinitionOff
 		concrete.stateMu.RUnlock()
 		if known {
 			attrs["capabilities_known"] = true
@@ -550,6 +699,10 @@ func lspClientAttribution(current Client) map[string]any {
 		}
 		if version != "" {
 			attrs["server_version"] = version
+		}
+		if profile = strings.TrimSpace(profile); profile != "" {
+			attrs["server_profile"] = profile
+			attrs["type_definition_profile_disabled"] = profileDisabled
 		}
 		if executable := concrete.serverExecutable(); executable != "" {
 			attrs["server_executable"] = executable
@@ -679,10 +832,33 @@ func decodeInitializeResultAttribution(result json.RawMessage) (protocol.ServerC
 	if err := json.Unmarshal(result, &decoded); err != nil {
 		return protocol.ServerCapabilities{}, initializeServerInfo{}, fmt.Errorf("decode initialize result: %w", err)
 	}
+	decoded.Capabilities.SemanticTokensProvider = normalizeSemanticTokensProvider(decoded.Capabilities.SemanticTokensProvider)
 	return decoded.Capabilities, initializeServerInfo{
 		name:    strings.TrimSpace(decoded.ServerInfo.Name),
 		version: strings.TrimSpace(decoded.ServerInfo.Version),
 	}, nil
+}
+
+// normalizeServerProfileCapabilities 应用 resolver 传入的精确 product profile；未知 profile 保持原能力。
+func normalizeServerProfileCapabilities(capabilities protocol.ServerCapabilities, profile string) protocol.ServerCapabilities {
+	if strings.TrimSpace(profile) == ServerProfileJDTLS160 {
+		capabilities.TypeDefinitionProvider = nil
+	}
+	return capabilities
+}
+
+// normalizeSemanticTokensProvider 只保留带完整 legend 的 semanticTokensProvider。
+// LSP 服务端若只报 full=true 或缺少 tokenTypes，能力实际上不可用；初始化阶段将其
+// 明确归一化为未声明，使上层返回 typed capability_unsupported，而不是伪造 token 类型
+// 或把服务端协议错误降级成合法空结果。该规则是协议公共语义，与平台无关。
+func normalizeSemanticTokensProvider(provider any) any {
+	if provider == nil {
+		return nil
+	}
+	if _, _, err := semanticTokensLegendFromProvider(provider); err != nil {
+		return invalidSemanticTokensProvider{}
+	}
+	return provider
 }
 
 // clientCapabilities 声明本 sidecar 支持的 LSP 能力集合。
@@ -841,6 +1017,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	n, err := b.buf.Write(p)
+	b.total += int64(n)
 	if b.buf.Len() <= b.limit {
 		return n, err
 	}
@@ -853,9 +1030,15 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 // String 返回当前缓冲的尾部日志快照。
 // 读取时持锁，避免与 transport 写入并发访问 bytes.Buffer。
 func (b *limitedBuffer) String() string {
+	text, _, _ := b.Snapshot()
+	return text
+}
+
+// Snapshot 返回当前尾部、累计字节数和是否发生截断，供脱敏生命周期日志使用。
+func (b *limitedBuffer) Snapshot() (string, int64, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.String()
+	return b.buf.String(), b.total, b.total > int64(b.buf.Len())
 }
 
 // Error 把 JSON-RPC 错误码和消息组合成人类可读文本。

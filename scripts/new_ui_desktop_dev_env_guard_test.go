@@ -140,7 +140,7 @@ func TestStandaloneMCPRuntimeContractDocumented(t *testing.T) {
 
 func assertStandaloneMCPExamplesParse(t *testing.T, guide string) {
 	t.Helper()
-	jsonBlocks := regexp.MustCompile("(?s)```json\\n(.*?)\\n```").FindAllStringSubmatch(guide, -1)
+	jsonBlocks := regexp.MustCompile("(?s)```json\\r?\\n(.*?)\\r?\\n```").FindAllStringSubmatch(guide, -1)
 	if len(jsonBlocks) != 2 {
 		t.Fatalf("standalone MCP guide JSON example count = %d, want 2", len(jsonBlocks))
 	}
@@ -152,7 +152,7 @@ func assertStandaloneMCPExamplesParse(t *testing.T, guide string) {
 		assertStandaloneMCPServerEnv(t, decoded, "mcpServers")
 	}
 
-	tomlBlocks := regexp.MustCompile("(?s)```toml\\n(.*?)\\n```").FindAllStringSubmatch(guide, -1)
+	tomlBlocks := regexp.MustCompile("(?s)```toml\\r?\\n(.*?)\\r?\\n```").FindAllStringSubmatch(guide, -1)
 	if len(tomlBlocks) != 1 {
 		t.Fatalf("standalone MCP guide TOML example count = %d, want 1", len(tomlBlocks))
 	}

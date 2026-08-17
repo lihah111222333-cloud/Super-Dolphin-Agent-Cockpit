@@ -210,20 +210,24 @@ func (s Sanitizer) enforceMetadataLimit(metadata map[string]any, dropped bool) m
 		metadata["metadata_dropped"] = true
 	}
 	for metadataJSONSize(metadata) > s.metadataMaxBytes && len(metadata) > 0 {
-		deleteOneMetadataKey(metadata)
+		if !deleteOneMetadataKey(metadata) {
+			metadata["metadata_truncated"] = true
+			break
+		}
 		metadata["metadata_truncated"] = true
 	}
 	return metadata
 }
 
 // deleteOneMetadataKey 删除一个普通 metadata 键，保留诊断标记。
-func deleteOneMetadataKey(metadata map[string]any) {
+func deleteOneMetadataKey(metadata map[string]any) bool {
 	for key := range metadata {
 		if key != "metadata_truncated" && key != "metadata_dropped" {
 			delete(metadata, key)
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // metadataJSONSize 返回 metadata 编码后的字节数，编码失败时视为超限。

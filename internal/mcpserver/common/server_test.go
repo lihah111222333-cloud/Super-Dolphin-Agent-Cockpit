@@ -485,10 +485,13 @@ func TestToolsCallZeroValueReturnedWithErrorBecomesErrorEnvelope(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":240,"method":"tools/call","params":{"name":"file","arguments":{}}}`)
 	var output bytes.Buffer
 	type zeroFileResult struct {
-		Value string `json:"value"`
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Status  string `json:"status"`
+		Value   string `json:"value"`
 	}
 	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
-		return zeroFileResult{}, NewCodedToolError("path_outside_workspace", errors.New("foreign path family"), false, "use sidecar-native paths")
+		return zeroFileResult{Status: "failed"}, NewCodedToolError("path_outside_workspace", errors.New("foreign path family"), false, "use sidecar-native paths")
 	}}
 	server := newTestServer("test", "dev", NewStdioTransport(input, &output), provider)
 	if err := server.Run(context.Background()); err != nil {
@@ -503,6 +506,30 @@ func TestToolsCallZeroValueReturnedWithErrorBecomesErrorEnvelope(t *testing.T) {
 	decodeJSONRPCOutput(t, output.Bytes(), &resp)
 	if !resp.Result.IsError || !bytes.Contains(resp.Result.StructuredContent, []byte("path_outside_workspace")) {
 		t.Fatalf("zero value + error was not converted to MCP error envelope: %s", output.String())
+	}
+}
+
+func TestHTTPToolsCallZeroSuccessResultWithErrorBecomesErrorEnvelope(t *testing.T) {
+	type zeroFileResult struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return zeroFileResult{}, NewCodedToolError("lsp_start_failed", errors.New("gopls exited during initialize"), true, "inspect the language server log")
+	}}
+	server := newTestHTTPServer("test", "dev", provider)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":241,"method":"tools/call","params":{"name":"file","arguments":{}}}`))
+	attachInitializedHTTPSession(t, server, request)
+
+	server.handleMCP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, recorder.Body.Bytes())
+	if envelope.Code != "lsp_start_failed" || !strings.Contains(envelope.Error, "gopls exited") {
+		t.Fatalf("zero success result + error was not converted to HTTP error envelope: body=%s", recorder.Body.String())
 	}
 }
 

@@ -37,12 +37,12 @@ GO_AGENT_LSP_ROOTS=<由 JSON encoder 生成的绝对路径数组>
 
 | 配置项 | Windows 原生 PowerShell/Desktop | WSL 内客户端 |
 | --- | --- | --- |
-| x86-64 `command` | `G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x86.exe` | `/mnt/g/develop/中转/new-api-main/bin/LSP/mcp-lsp-linux-x86` |
+| x64 `command` | `G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x64.exe` | `/mnt/g/develop/中转/new-api-main/bin/LSP/mcp-lsp-linux-x86` |
 | `cwd` | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
 | runtime resources | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
 | LSP root | `G:/develop/中转/new-api-main` | `/mnt/g/develop/中转/new-api-main` |
 
-ARM64 主机选择同一平台的 `*-arm` 文件。原生 Windows 配置优先使用正斜杠，避免手工转义 JSON/TOML 反斜杠。WSL 即使能启动 Windows `.exe`，该进程仍使用 Windows 路径语义；本参考要求 WSL 客户端使用 Linux 二进制和 `/mnt/...` 路径。
+Windows ARM64 和 x86 主机分别选择 `mcp-lsp-windows-arm64.exe` 和 `mcp-lsp-windows-x86.exe`；WSL ARM64 选择 Linux `*-arm`。原生 Windows 配置优先使用正斜杠，避免手工转义 JSON/TOML 反斜杠。WSL 即使能启动 Windows `.exe`，该进程仍使用 Windows 路径语义；本参考要求 WSL 客户端使用 Linux 二进制和 `/mnt/...` 路径。
 
 `mcp-lsp` 按已构建二进制的 GOOS 自动采用 Windows 或 Linux 的路径、可执行文件与 URI 规则；它不会把 `G:/...` 猜成 `/mnt/g/...`。command、cwd、runtime resources 和两个 LSP root 字段必须属于同一种路径体系。
 
@@ -54,7 +54,7 @@ ARM64 主机选择同一平台的 `*-arm` 文件。原生 Windows 配置优先�
 [mcp_servers.lsp]
 enabled = true
 required = true
-command = "G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x86.exe"
+command = "G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x64.exe"
 args = []
 cwd = "G:/develop/中转/new-api-main"
 startup_timeout_sec = 30
@@ -75,7 +75,7 @@ GO_AGENT_LSP_ROOTS = '["G:/develop/中转/new-api-main"]'
 {
   "mcpServers": {
     "lsp": {
-      "command": "G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x86.exe",
+      "command": "G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x64.exe",
       "args": [],
       "env": {
         "SUPER_DOLPHIN_RUNTIME_MODE": "dev",
@@ -97,7 +97,7 @@ GO_AGENT_LSP_ROOTS = '["G:/develop/中转/new-api-main"]'
 {
   "mcpServers": {
     "lsp": {
-      "command": "G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x86.exe",
+      "command": "G:/develop/中转/new-api-main/bin/LSP/mcp-lsp-windows-x64.exe",
       "args": [],
       "cwd": "G:/develop/中转/new-api-main",
       "env": {

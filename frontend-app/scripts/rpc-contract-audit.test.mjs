@@ -1,6 +1,10 @@
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile as rawReadFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+const readFile = async (...args) => {
+  const result = await rawReadFile(...args)
+  return typeof result === 'string' ? result.replace(/\r\n/g, '\n') : result
+}
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {

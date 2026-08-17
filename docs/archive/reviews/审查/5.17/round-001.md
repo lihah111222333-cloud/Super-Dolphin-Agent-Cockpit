@@ -41,7 +41,7 @@
    - 建议：让 runner 适配层可传播启动错误，或至少在 `trackerWorker.Start()` 记录结构化错误并把 tracker 标记为不可记录；`Record()` 应检查 `started` 或暴露健康状态；损坏 stats 可考虑 quarantine 后以空 stats 恢复，并写明确告警。
 
 2. **[major] workspace stats 只按 hostname 隔离，会跨项目混合量化信号**
-   - 证据：`internal/module/fbsd/module.go:28-45` 将全局 stats 放在 `~/.multi-agent/skills-stats.json`，workspace stats 放在 `~/.multi-agent/workspaces/<host>/skills-stats.json`；同段注释已承认 “multi-user / multi-project 同主机会混淆”。评分合并在 workspace 调用数达到阈值后直接用 workspace-only（`internal/module/fbsd/merge.go:11-24`），测试也锁定 `ws >= minCalls` 时忽略 global（`internal/module/fbsd/merge_test.go:21-35`）。
+   - 证据：`internal/module/fbsd/module.go:28-45` 将全局 stats 放在 `~/.super-dolphin/skills-stats.json`，workspace stats 放在 `~/.super-dolphin/workspaces/<host>/skills-stats.json`；同段注释已承认 “multi-user / multi-project 同主机会混淆”。评分合并在 workspace 调用数达到阈值后直接用 workspace-only（`internal/module/fbsd/merge.go:11-24`），测试也锁定 `ws >= minCalls` 时忽略 global（`internal/module/fbsd/merge_test.go:21-35`）。
    - 风险：同一台机器上的不同仓库会共享一个“workspace”统计桶。项目 A 的 skill 使用频率会改变项目 B 的 Hot/Warm/Cold/Frozen 分层，导致 Codex system prompt 中暴露的 skill 顺序和细节不再反映当前项目。对安全审查任务来说，这既是推荐失准，也可能造成工作流偏好泄露。
    - 建议：workspace ID 至少纳入规范化 cwd hash；迁移时保留旧 hostname stats 作为 global/legacy fallback，并在 disclosure snapshot 中暴露 workspace ID 版本，方便定位混桶问题。
 

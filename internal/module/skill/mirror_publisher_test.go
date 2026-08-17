@@ -359,7 +359,7 @@ func TestSkillMirrorPublisherFailsClosedOnSymlinksAndPathEscape(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(legacyRoot), 0o755); err != nil {
 		t.Fatalf("MkdirAll legacy parent: %v", err)
 	}
-	if err := os.Symlink(filepath.Join(project, ".multi-agent", "skills-cache"), legacyRoot); err != nil {
+	if err := os.Symlink(filepath.Join(project, ".super-dolphin", "skills-cache"), legacyRoot); err != nil {
 		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink legacy root: %v", err)
 	}

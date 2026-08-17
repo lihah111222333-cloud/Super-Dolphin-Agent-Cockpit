@@ -53,6 +53,10 @@ type filesystemWorkerError struct {
 	Code         Code                       `json:"code"`
 	Message      string                     `json:"message"`
 	FailureClass InitializationFailureClass `json:"failure_class"`
+	// Windows 权限字段是可选的跨进程分类；只允许 5/1314 与固定 kind 配对，
+	// 不携带路径或底层错误文本，非 Windows producer 保持为空。
+	WindowsErrorCode      uint32 `json:"windows_error_code,omitempty"`
+	WindowsPermissionKind string `json:"windows_permission_kind,omitempty"`
 }
 
 // PrepareFilesystemWorker 固定当前宿主执行物，避免请求期重新解析或读取可替换路径。
@@ -63,20 +67,20 @@ func PrepareFilesystemWorker() (func() error, error) {
 	}
 	dir, err := os.MkdirTemp("", "reasonix-schema-fs-worker.")
 	if err != nil {
-		return nil, fmt.Errorf("create schema filesystem worker directory: %w", err)
+		return nil, fmt.Errorf("create schema filesystem worker directory: %w", wrapSchemaFilesystemError("", err))
 	}
 	staged := filepath.Join(dir, "worker"+filepath.Ext(executable))
 	if err := stageFilesystemWorkerExecutable(executable, staged); err != nil {
-		return nil, errors.Join(err, os.RemoveAll(dir))
+		return nil, errors.Join(err, wrapSchemaFilesystemError(dir, os.RemoveAll(dir)))
 	}
 	previous, hadPrevious := os.LookupEnv(filesystemWorkerExecutableEnv)
 	if err := os.Setenv(filesystemWorkerExecutableEnv, staged); err != nil {
-		return nil, errors.Join(fmt.Errorf("publish schema filesystem worker: %w", err), os.RemoveAll(dir))
+		return nil, errors.Join(fmt.Errorf("publish schema filesystem worker: %w", err), wrapSchemaFilesystemError(dir, os.RemoveAll(dir)))
 	}
 	cleanup := func() error {
 		return errors.Join(
 			restoreFilesystemWorkerEnvironment(previous, hadPrevious),
-			os.RemoveAll(dir),
+			wrapSchemaFilesystemError(dir, os.RemoveAll(dir)),
 		)
 	}
 	if err := sweepFilesystemSnapshotsWithWorker(staged); err != nil {
@@ -105,26 +109,35 @@ func PreparedFilesystemWorkerPath() (string, error) {
 func stageFilesystemWorkerExecutable(sourcePath, targetPath string) error {
 	source, err := os.Open(sourcePath)
 	if err != nil {
-		return fmt.Errorf("open schema filesystem worker source: %w", err)
+		return fmt.Errorf("open schema filesystem worker source: %w", wrapSchemaFilesystemError(sourcePath, err))
 	}
 	info, err := source.Stat()
 	if err != nil {
-		return errors.Join(fmt.Errorf("inspect schema filesystem worker source: %w", err), source.Close())
+		return errors.Join(
+			fmt.Errorf("inspect schema filesystem worker source: %w", wrapSchemaFilesystemError(sourcePath, err)),
+			wrapSchemaFilesystemError(sourcePath, source.Close()),
+		)
 	}
 	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > filesystemWorkerMaxBinaryBytes {
-		return errors.Join(fmt.Errorf("schema filesystem worker source is invalid: mode=%s size=%d", info.Mode(), info.Size()), source.Close())
+		return errors.Join(
+			fmt.Errorf("schema filesystem worker source is invalid: mode=%s size=%d", info.Mode(), info.Size()),
+			wrapSchemaFilesystemError(sourcePath, source.Close()),
+		)
 	}
 	target, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
 	if err != nil {
-		return errors.Join(fmt.Errorf("create staged schema filesystem worker: %w", err), source.Close())
+		return errors.Join(
+			fmt.Errorf("create staged schema filesystem worker: %w", wrapSchemaFilesystemError(targetPath, err)),
+			wrapSchemaFilesystemError(sourcePath, source.Close()),
+		)
 	}
 	written, copyErr := io.Copy(target, io.LimitReader(source, info.Size()+1))
 	if copyErr == nil && written != info.Size() {
 		copyErr = fmt.Errorf("staged schema filesystem worker bytes = %d, want %d", written, info.Size())
 	}
-	err = errors.Join(copyErr, target.Sync(), target.Close(), source.Close())
+	err = wrapSchemaFilesystemError(targetPath, errors.Join(copyErr, target.Sync(), target.Close(), source.Close()))
 	if err != nil {
-		return errors.Join(err, os.Remove(targetPath))
+		return errors.Join(err, wrapSchemaFilesystemError(targetPath, os.Remove(targetPath)))
 	}
 	return nil
 }
@@ -477,7 +490,14 @@ func classifiedWorkerError(
 	if len(message) > maxMessageBytes {
 		message = message[:maxMessageBytes]
 	}
-	return &filesystemWorkerError{Code: code, Message: message, FailureClass: class}
+	permissionCode, permissionKind := filesystemWorkerPermissionMetadata(cause)
+	return &filesystemWorkerError{
+		Code:                  code,
+		Message:               message,
+		FailureClass:          class,
+		WindowsErrorCode:      permissionCode,
+		WindowsPermissionKind: permissionKind,
+	}
 }
 
 func initializationFailureClassOrTransient(err error) InitializationFailureClass {

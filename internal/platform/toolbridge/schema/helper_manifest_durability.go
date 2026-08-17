@@ -37,18 +37,19 @@ func writeAtomicRegularFile(path string, data []byte, mode os.FileMode) error {
 }
 
 // writeDurableRegularFile 写入、同步并原子发布文件，失败时保留可清扫的中间态。
+// 文件写入与重命名协议跨平台共用；目录句柄同步由平台文件实现，以隔离 Windows API 语义差异。
 func writeDurableRegularFile(path string, data []byte, mode os.FileMode, exclusive bool) (err error) {
 	publishingPath := path + filesystemSnapshotPublishSuffix
 	file, err := os.OpenFile(publishingPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
-		return err
+		return wrapSchemaFilesystemError(publishingPath, err)
 	}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, removeSnapshotPathIfPresent(publishingPath))
 		}
 	}()
-	if err := writeAndSyncFilesystemSnapshotFile(file, data); err != nil {
+	if err := writeAndSyncFilesystemSnapshotFile(publishingPath, file, data); err != nil {
 		return err
 	}
 	if exclusive {
@@ -57,41 +58,30 @@ func writeDurableRegularFile(path string, data []byte, mode os.FileMode, exclusi
 		}
 	}
 	if err := os.Rename(publishingPath, path); err != nil {
-		return err
+		return wrapSchemaFilesystemError(path, err)
 	}
 	return syncFilesystemSnapshotDirectory(filepath.Dir(path))
 }
 
-func writeAndSyncFilesystemSnapshotFile(file *os.File, data []byte) error {
+func writeAndSyncFilesystemSnapshotFile(path string, file *os.File, data []byte) error {
 	written, err := file.Write(data)
 	if err != nil {
-		return errors.Join(err, file.Close())
+		return wrapSchemaFilesystemError(path, errors.Join(err, file.Close()))
 	}
 	if written != len(data) {
-		return errors.Join(io.ErrShortWrite, file.Close())
+		return wrapSchemaFilesystemError(path, errors.Join(io.ErrShortWrite, file.Close()))
 	}
 	if err := file.Sync(); err != nil {
-		return errors.Join(err, file.Close())
+		return wrapSchemaFilesystemError(path, errors.Join(err, file.Close()))
 	}
-	return file.Close()
+	return wrapSchemaFilesystemError(path, file.Close())
 }
 
 func ensureFilesystemSnapshotFileAbsent(path string) error {
 	if _, err := os.Lstat(path); err == nil {
 		return errors.New("schema snapshot file already exists")
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-func syncFilesystemSnapshotDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open schema snapshot directory for fsync: %w", err)
-	}
-	if err := errors.Join(directory.Sync(), directory.Close()); err != nil {
-		return fmt.Errorf("fsync schema snapshot directory: %w", err)
+		return wrapSchemaFilesystemError(path, err)
 	}
 	return nil
 }

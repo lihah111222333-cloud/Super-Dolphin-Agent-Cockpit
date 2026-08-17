@@ -2,9 +2,11 @@ package runtimeenv
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -82,10 +84,12 @@ type LSPBundle struct {
 	Languages    map[string]LSPServer // 以 language id 索引的服务声明。
 }
 
-// LSPServer 保留单个打包 LSP server 的执行路径和语言列表，路径需位于 bundle 根内。
+// LSPServer 保留单个打包 LSP server 的清单元数据、执行路径和语言列表，路径需位于 bundle 根内。
 type LSPServer struct {
 	ID        string   // 规范化后的 server id。
 	Path      string   // 包内可执行文件路径。
+	Version   string   // manifest 中声明的 server 版本。
+	SHA256    string   // manifest 中声明的可执行文件 SHA-256 摘要。
 	Languages []string // 规范化后的 language id 列表。
 }
 
@@ -267,6 +271,14 @@ func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManife
 		if err := requireExecutableFile(serverPath); err != nil {
 			return LSPBundle{}, fmt.Errorf("missing bundled LSP server %s: %w", serverPath, err)
 		}
+		version := server.Version
+		expectedSHA, err := canonicalLSPServerSHA256(serverID, server.SHA256)
+		if err != nil {
+			return LSPBundle{}, err
+		}
+		if err := verifyLSPServerSHA256(serverID, serverPath, expectedSHA); err != nil {
+			return LSPBundle{}, err
+		}
 		languages := normalizeLSPLanguages(server.Languages)
 		if len(languages) == 0 {
 			languages = defaultLSPLanguages(serverID)
@@ -274,7 +286,7 @@ func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManife
 		if len(languages) == 0 {
 			return LSPBundle{}, fmt.Errorf("bundled LSP server %s has no languages", serverID)
 		}
-		resolved := LSPServer{ID: serverID, Path: serverPath, Languages: languages}
+		resolved := LSPServer{ID: serverID, Path: serverPath, Version: version, SHA256: expectedSHA, Languages: languages}
 		bundle.Servers[serverID] = resolved
 		for _, languageID := range languages {
 			if _, exists := bundle.Languages[languageID]; exists {
@@ -284,6 +296,43 @@ func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManife
 		}
 	}
 	return bundle, nil
+}
+
+// canonicalLSPServerSHA256 要求清单摘要为规范的小写 64 位十六进制。
+func canonicalLSPServerSHA256(serverID, value string) (string, error) {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) || value != strings.TrimSpace(value) {
+		return "", fmt.Errorf("bundled LSP server %s sha256 is invalid", serverID)
+	}
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != sha256.Size {
+		return "", fmt.Errorf("bundled LSP server %s sha256 is invalid", serverID)
+	}
+	return value, nil
+}
+
+// verifyLSPServerSHA256 计算包内可执行文件摘要，并拒绝与 manifest 不一致的文件。
+func verifyLSPServerSHA256(serverID, serverPath, expected string) error {
+	file, err := os.Open(serverPath)
+	if err != nil {
+		return fmt.Errorf("hash bundled LSP server %s: %w", serverPath, err)
+	}
+	digest := sha256.New()
+	_, copyErr := io.Copy(digest, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		if closeErr != nil {
+			return fmt.Errorf("hash bundled LSP server %s: %w; close: %v", serverPath, copyErr, closeErr)
+		}
+		return fmt.Errorf("hash bundled LSP server %s: %w", serverPath, copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close bundled LSP server %s after hashing: %w", serverPath, closeErr)
+	}
+	actual := hex.EncodeToString(digest.Sum(nil))
+	if actual != expected {
+		return fmt.Errorf("bundled LSP server %s sha256 mismatch: manifest=%s actual=%s", serverID, expected, actual)
+	}
+	return nil
 }
 
 // resolveLSPBundlePath 清理 manifest 中的相对路径，并阻止路径逃出 LSP bundle。

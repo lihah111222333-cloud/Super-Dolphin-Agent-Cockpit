@@ -1,5 +1,8 @@
 package installer
 
+// 本静态 AST 守卫故意不加 windows build tag：它不启动 Windows 进程，所有
+// 平台都应阻止公共安装路径绕过 hiddenexec。
+
 import (
 	"go/ast"
 	"go/parser"

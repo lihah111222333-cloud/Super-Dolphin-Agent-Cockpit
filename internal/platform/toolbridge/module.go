@@ -71,6 +71,9 @@ type handlerIn struct {
 	Lifecycle       mcpToolLifecycleBackfiller `optional:"true"`
 	LifecyclePolicy mcpToolLifecyclePolicyReader
 	AuthorityOwner  contract.MCPToolAuthorityOwner
+	// ApprovalRequester 由产品宿主 RPC 模块提供；standalone sidecar 不装配
+	// toolbridge，因此仍只返回类型化 authorization_required 错误。
+	ApprovalRequester contract.ApprovalRequester `optional:"true"`
 	// HostTools 是 Fx 可选字段：agent-terminal 生产图由 provideHostToolRegistry 填充；
 	// Handler 构造期会按 dependency profile 校验它不能静默为空。
 	HostTools  HostToolRegistry           `optional:"true"`

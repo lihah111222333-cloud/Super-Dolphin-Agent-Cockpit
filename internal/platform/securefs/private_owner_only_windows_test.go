@@ -3,8 +3,10 @@
 package securefs
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -29,6 +31,33 @@ func TestRestrictPrivateOwnerOnlyWindowsRoundTrip(t *testing.T) {
 	}
 	if err := CheckPrivateOwnerOnly(path, info); err != nil {
 		t.Fatalf("CheckPrivateOwnerOnly() error = %v", err)
+	}
+}
+
+// TestWindowsSecurityOperationErrorPreservesCodeAndRedactsPath 验证 ACL 诊断可定位 Win32 阶段且不泄露完整路径。
+func TestWindowsSecurityOperationErrorPreservesCodeAndRedactsPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private-cache")
+	err := newWindowsSecurityOperationError(
+		"read private path ACL",
+		"get_named_security_info",
+		path,
+		windows.ERROR_ACCESS_DENIED,
+	)
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		t.Fatalf("error chain lost ERROR_ACCESS_DENIED: %v", err)
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"windows_operation=get_named_security_info",
+		"windows_error_code=5",
+		RedactPath(path),
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("diagnostic error missing %q: %s", want, message)
+		}
+	}
+	if strings.Contains(message, filepath.Dir(path)) {
+		t.Fatalf("diagnostic error leaked parent path: %s", message)
 	}
 }
 

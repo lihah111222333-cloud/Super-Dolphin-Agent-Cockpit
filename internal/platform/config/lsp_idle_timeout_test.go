@@ -28,6 +28,16 @@ func TestLSPConfigIdleTimeoutDefaultsToFifteenMinutes(t *testing.T) {
 	}
 }
 
+func TestLSPConfigIdleTimeoutRejectsDefaultBelowFifteenMinutes(t *testing.T) {
+	setOrUnsetLSPEnv(t, lspIdleTimeoutEnv, "")
+	setOrUnsetLSPEnv(t, lspIdleTimeoutLegacyEnv, "")
+
+	_, err := effectiveLSPIdleTimeout(14 * time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "at least 15m") {
+		t.Fatalf("effectiveLSPIdleTimeout(14m) error = %v, want fifteen-minute minimum", err)
+	}
+}
+
 func TestLSPConfigIdleTimeoutEnvironmentMatrix(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -36,14 +46,16 @@ func TestLSPConfigIdleTimeoutEnvironmentMatrix(t *testing.T) {
 		want       time.Duration
 		wantErrSub string
 	}{
-		{name: "canonical override", canonical: "2500ms", want: 2500 * time.Millisecond},
-		{name: "legacy alias", legacy: "3s", want: 3 * time.Second},
-		{name: "matching aliases", canonical: "2s", legacy: "2000ms", want: 2 * time.Second},
-		{name: "canonical legacy conflict", canonical: "2s", legacy: "3s", wantErrSub: "conflict"},
+		{name: "canonical override", canonical: "20m", want: 20 * time.Minute},
+		{name: "legacy alias", legacy: "25m", want: 25 * time.Minute},
+		{name: "matching aliases", canonical: "30m", legacy: "1800s", want: 30 * time.Minute},
+		{name: "canonical legacy conflict", canonical: "20m", legacy: "25m", wantErrSub: "conflict"},
 		{name: "canonical invalid", canonical: "not-a-duration", wantErrSub: lspIdleTimeoutEnv},
 		{name: "legacy invalid", legacy: "not-a-duration", wantErrSub: lspIdleTimeoutLegacyEnv},
 		{name: "canonical zero", canonical: "0", wantErrSub: lspIdleTimeoutEnv},
 		{name: "legacy negative", legacy: "-1s", wantErrSub: lspIdleTimeoutLegacyEnv},
+		{name: "canonical below lifecycle minimum", canonical: "14m", wantErrSub: "at least 15m"},
+		{name: "legacy six minute precheck is not production", legacy: "6m", wantErrSub: "at least 15m"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -100,7 +112,7 @@ func TestLSPConfigIdleTimeoutRejectsExplicitEmptyValues(t *testing.T) {
 
 func TestLSPConfigIdleTimeoutLegacyAliasLogsDeprecation(t *testing.T) {
 	setOrUnsetLSPEnv(t, lspIdleTimeoutEnv, "")
-	t.Setenv(lspIdleTimeoutLegacyEnv, "2s")
+	t.Setenv(lspIdleTimeoutLegacyEnv, "20m")
 	var logs bytes.Buffer
 	restoreConfigLogger(t, &logs)
 

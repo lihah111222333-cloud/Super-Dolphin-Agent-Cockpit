@@ -73,8 +73,9 @@ type grepResponse struct {
 // NewGrepHandler 创建 grep 工具处理器，支持 text_search 和 ast_search。
 func NewGrepHandler(cfg Config) Handler {
 	handler := handlerBase{
-		root:     resolveRoot(cfg.WorkspaceRoot),
-		registry: cfg.Registry,
+		root:          resolveRoot(cfg.WorkspaceRoot),
+		registry:      cfg.Registry,
+		ensureASTGrep: cfg.EnsureASTGrep,
 	}
 	return Handler(wrapToolHandler("grep", middleware.TierSlow, handler.handleGrep))
 }
@@ -106,6 +107,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 			if err != nil {
 				return nil, err
 			}
+			commandPath := ""
+			if h.ensureASTGrep != nil {
+				commandPath, err = h.ensureASTGrep(ctx)
+				if err != nil {
+					return nil, err
+				}
+			}
 			searchResult, err = search.SearchASTCounted(ctx, search.ASTSearchOptions{
 				Root:         root,
 				Roots:        roots,
@@ -115,6 +123,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				Language:     input.ASTLanguage,
 				MaxResults:   limit,
 				MaxFileBytes: maxReadFileBytes,
+				CommandPath:  commandPath,
 			})
 			if errors.Is(err, search.ErrInvalidASTLanguage) {
 				return nil, invalidGrepASTLanguageParams(err)

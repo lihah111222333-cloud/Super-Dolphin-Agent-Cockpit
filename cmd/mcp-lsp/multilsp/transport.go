@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,12 +32,21 @@ const (
 // ServerRequestHandler 处理 LSP 服务端主动发起的请求。
 type ServerRequestHandler func(context.Context, string, json.RawMessage) (any, error)
 
+// ServerNotificationSender 让服务端通知处理器沿用当前 transport 回发通知。
+// 回发入口只暴露通用 LSP method/params，不把任何语言服务协议硬编码到 transport。
+type ServerNotificationSender func(context.Context, string, any) error
+
+// ServerNotificationHandler 处理未被标准 NotificationHandler 识别的服务端通知。
+// handler 返回 ErrMethodNotSupported 时保留未知通知的兼容忽略语义；其他错误直接终止 transport。
+type ServerNotificationHandler func(context.Context, string, json.RawMessage, ServerNotificationSender) error
+
 // transportOptions 配置 transport 启动参数。
 type transportOptions struct {
-	Binary, Dir         string
-	Args, Env           []string
-	NotificationHandler protocol.NotificationHandler
-	RequestHandler      ServerRequestHandler
+	Binary, Dir               string
+	Args, Env                 []string
+	NotificationHandler       protocol.NotificationHandler
+	RequestHandler            ServerRequestHandler
+	ServerNotificationHandler ServerNotificationHandler
 }
 
 type processTreeOwner interface {
@@ -46,6 +56,17 @@ type processTreeOwner interface {
 	PrepareShutdown() error
 }
 
+// jdtlsLaunchArguments 仅依据固定 launcher 参数识别 JDTLS，供 serverInfo 缺失时维持稳定身份。
+func jdtlsLaunchArguments(args []string) bool {
+	for _, arg := range args {
+		lower := strings.ToLower(arg)
+		if strings.Contains(lower, "org.eclipse.equinox.launcher") || strings.Contains(lower, "jdt-language-server") {
+			return true
+		}
+	}
+	return false
+}
+
 type transportCloseAttempt struct {
 	done   chan struct{}
 	result error
@@ -53,36 +74,45 @@ type transportCloseAttempt struct {
 
 // transport 封装 LSP 子进程的 stdin/stdout 通信，管理 pending 请求和响应派发。
 type transport struct {
-	cmd                 *exec.Cmd
-	processTree         processTreeOwner
-	stdin               io.WriteCloser
-	stdinMu             sync.Mutex
-	stdout              *bufio.Reader
-	stderr              *limitedBuffer
-	notificationHandler protocol.NotificationHandler
-	requestHandler      ServerRequestHandler
-	logger              *slog.Logger
-	writeMu             sync.Mutex
-	pendingMu           sync.Mutex
-	pending             map[string]chan pendingResult
-	nextID              atomic.Int64
-	closed              atomic.Bool
-	closeMu             sync.Mutex
-	closeAttempt        *transportCloseAttempt
-	closeComplete       bool
-	closeResult         error
-	done                chan struct{}
-	doneMu              sync.Mutex
-	doneErr             error
-	terminationMu       sync.Mutex
-	terminationInFlight bool
-	terminationDone     chan struct{}
-	terminationComplete bool
-	terminationErr      error
-	treeReleaseMu       sync.Mutex
-	treeReleased        bool
-	actorCtx            context.Context
-	cancelActors        context.CancelFunc
+	cmd                       *exec.Cmd
+	processTree               processTreeOwner
+	stdin                     io.WriteCloser
+	stdinMu                   sync.Mutex
+	stdout                    *bufio.Reader
+	stderr                    *limitedBuffer
+	notificationHandler       protocol.NotificationHandler
+	requestHandler            ServerRequestHandler
+	serverNotificationHandler ServerNotificationHandler
+	logger                    *slog.Logger
+	writeMu                   sync.Mutex
+	pendingMu                 sync.Mutex
+	pending                   map[string]chan pendingResult
+	nextID                    atomic.Int64
+	closed                    atomic.Bool
+	closeMu                   sync.Mutex
+	closeAttempt              *transportCloseAttempt
+	closeComplete             bool
+	closeResult               error
+	done                      chan struct{}
+	doneMu                    sync.Mutex
+	doneErr                   error
+	binaryPath                string
+	workingDirectory          string
+	argumentCount             int
+	envOverrideCount          int
+	jdtlsLaunch               bool
+	startupDiagnostics        []any
+	startedAt                 time.Time
+	writeFailureLogged        atomic.Bool
+	terminationMu             sync.Mutex
+	terminationInFlight       bool
+	terminationDone           chan struct{}
+	terminationComplete       bool
+	terminationErr            error
+	treeReleaseMu             sync.Mutex
+	treeReleased              bool
+	actorCtx                  context.Context
+	cancelActors              context.CancelFunc
 
 	responderMu              sync.Mutex
 	responderAdmissionClosed bool
@@ -121,22 +151,33 @@ func newTransportFromStarted(
 	startErr error,
 ) (*transport, error) {
 	if startErr != nil {
+		logTransportStartupFailure(options, cmd, processTree, startErr)
 		return nil, errors.Join(startErr, cleanupFailedProcessTree(processTree))
 	}
 	actorCtx, cancelActors := context.WithCancel(context.Background())
 	t := &transport{
-		cmd:                 cmd,
-		processTree:         processTree,
-		stdin:               stdin,
-		stdout:              bufio.NewReader(stdout),
-		stderr:              stderr,
-		notificationHandler: options.NotificationHandler,
-		requestHandler:      options.RequestHandler,
-		pending:             map[string]chan pendingResult{},
-		done:                make(chan struct{}),
-		actorCtx:            actorCtx,
-		cancelActors:        cancelActors,
+		cmd:                       cmd,
+		processTree:               processTree,
+		stdin:                     stdin,
+		stdout:                    bufio.NewReader(stdout),
+		stderr:                    stderr,
+		notificationHandler:       options.NotificationHandler,
+		requestHandler:            options.RequestHandler,
+		serverNotificationHandler: options.ServerNotificationHandler,
+		logger:                    pkglogger.Get(),
+		pending:                   map[string]chan pendingResult{},
+		done:                      make(chan struct{}),
+		actorCtx:                  actorCtx,
+		cancelActors:              cancelActors,
+		binaryPath:                options.Binary,
+		workingDirectory:          options.Dir,
+		argumentCount:             len(options.Args),
+		envOverrideCount:          len(options.Env),
+		jdtlsLaunch:               jdtlsLaunchArguments(options.Args),
+		startupDiagnostics:        lspStartupDiagnosticFields(options, cmd),
+		startedAt:                 time.Now(),
 	}
+	t.logProcessLifecycle("start", "completed", nil, "", 0, false)
 	safego.Go(actorCtx, nil, "mcp-lsp.transport.wait", func(context.Context) {
 		t.wait()
 	})
@@ -144,6 +185,159 @@ func newTransportFromStarted(
 		t.readLoop()
 	})
 	return t, nil
+}
+
+// logTransportStartupFailure 记录启动阶段的脱敏失败事实，保留是否已取得 exact owner。
+func logTransportStartupFailure(options transportOptions, cmd *exec.Cmd, processTree processTreeOwner, startErr error) {
+	logger := pkglogger.Get()
+	if logger == nil {
+		return
+	}
+	fields := transportLifecycleLogFields(
+		options.Binary,
+		options.Dir,
+		len(options.Args),
+		len(options.Env),
+		cmd,
+		processTree,
+	)
+	fields = append(fields, "event", "lsp_process_lifecycle", "stage", "start", "action_result", "failed")
+	fields = append(fields, platformshared.SafePayloadLogFields("start_error", startErr.Error())...)
+	logger.Warn("LSP process lifecycle", fields...)
+}
+
+// logProcessLifecycle 记录不含参数、环境值、完整路径或 stderr 原文的进程生命周期事实。
+func (t *transport) logProcessLifecycle(stage, actionResult string, lifecycleErr error, stderr string, stderrBytes int64, stderrTruncated bool) {
+	if t == nil {
+		return
+	}
+	logger := t.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	if logger == nil {
+		return
+	}
+	fields := transportLifecycleLogFields(
+		t.binaryPath,
+		t.workingDirectory,
+		t.argumentCount,
+		t.envOverrideCount,
+		t.cmd,
+		t.processTree,
+	)
+	fields = append(fields, "event", "lsp_process_lifecycle", "stage", stage, "action_result", actionResult)
+	if lifecycleErr != nil || actionResult == "failed" {
+		fields = append(fields, t.startupDiagnostics...)
+	}
+	if stderrBytes > 0 {
+		fields = append(fields, "stderr_total_bytes", stderrBytes, "stderr_truncated", stderrTruncated)
+		fields = append(fields, platformshared.SafePayloadLogFields("stderr_tail", stderr)...)
+	}
+	if lifecycleErr != nil {
+		fields = append(fields, platformshared.SafePayloadLogFields("lifecycle_error", lifecycleErr.Error())...)
+	}
+	if lifecycleErr != nil || actionResult == "failed" {
+		logger.Warn("LSP process lifecycle", fields...)
+		return
+	}
+	logger.Info("LSP process lifecycle", fields...)
+}
+
+func transportLifecycleLogFields(
+	binaryPath, workingDirectory string,
+	argumentCount, envOverrideCount int,
+	cmd *exec.Cmd,
+	processTree processTreeOwner,
+) []any {
+	processID := 0
+	processStatePresent := false
+	processExited := false
+	exitCodePresent := false
+	exitCode := 0
+	if cmd != nil && cmd.Process != nil {
+		processID = cmd.Process.Pid
+	}
+	if cmd != nil && cmd.ProcessState != nil {
+		processStatePresent = true
+		processExited = cmd.ProcessState.Exited()
+		if processExited {
+			exitCodePresent = true
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+	}
+	fields := []any{
+		"server_role", "language_server_stdio",
+		"server_binary_basename", filepath.Base(filepath.Clean(binaryPath)),
+		"argument_count", argumentCount,
+		"env_override_count", envOverrideCount,
+		"process_id", processID,
+		"process_id_observation_only", true,
+		"exact_process_tree_owner_present", processTree != nil,
+		"process_state_present", processStatePresent,
+		"process_exited", processExited,
+		"exit_code_present", exitCodePresent,
+	}
+	if exitCodePresent {
+		fields = append(fields, "exit_code", exitCode)
+	}
+	fields = append(fields, platformshared.SafePathLogFields("server_binary_path", binaryPath)...)
+	fields = append(fields, platformshared.SafePathLogFields("working_directory", workingDirectory)...)
+	return fields
+}
+
+// logReadFailure 把 LSP framing、EOF 和 stderr 事实分类记录，禁止输出协议行或服务端 stderr 原文。
+func (t *transport) logReadFailure(readErr error) {
+	if t == nil || readErr == nil {
+		return
+	}
+	logger := t.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	if logger == nil {
+		return
+	}
+	actionResult := "failed"
+	if t.closed.Load() && errors.Is(readErr, io.EOF) {
+		actionResult = "expected_eof"
+	}
+	fields := transportLifecycleLogFields(
+		t.binaryPath,
+		t.workingDirectory,
+		t.argumentCount,
+		t.envOverrideCount,
+		t.cmd,
+		t.processTree,
+	)
+	fields = append(fields, "event", "lsp_stdio_read", "stage", "read_frame", "action_result", actionResult)
+	var framingErr *lspFramingError
+	if errors.As(readErr, &framingErr) {
+		fields = append(fields,
+			"failure_kind", framingErr.kind,
+			"header_count", framingErr.headerCount,
+			"observed_present", framingErr.observedPresent,
+			"observed_bytes", framingErr.observedBytes,
+			"observed_sha256", framingErr.observedSHA256,
+			"expected_bytes", framingErr.expectedBytes,
+			"received_bytes", framingErr.receivedBytes,
+		)
+	} else {
+		fields = append(fields, "failure_kind", "io_or_dispatch")
+	}
+	fields = append(fields, platformshared.SafePayloadLogFields("read_error", readErr.Error())...)
+	if t.stderr != nil {
+		stderr, totalBytes, truncated := t.stderr.Snapshot()
+		if totalBytes > 0 {
+			fields = append(fields, "stderr_total_bytes", totalBytes, "stderr_truncated", truncated)
+			fields = append(fields, platformshared.SafePayloadLogFields("stderr_tail", stderr)...)
+		}
+	}
+	if actionResult == "expected_eof" {
+		logger.Info("LSP stdio read", fields...)
+		return
+	}
+	logger.Warn("LSP stdio read", fields...)
 }
 
 // cleanupFailedProcessTree consumes the startup owner transferred through the
@@ -255,6 +449,37 @@ func (t *transport) logShutdownStage(stage, actionResult string, stageErr error)
 	logger.Info("LSP shutdown stage", args...)
 }
 
+// logProcessTreeReleaseEvidence 记录 Remaining 与 Release 的精确收敛证据；
+// 查询失败时 remaining_count_present=false，禁止把未知成员数伪装成零。
+func (t *transport) logProcessTreeReleaseEvidence(actionResult string, remainingChecked, remainingCountPresent bool, remainingCount int, releaseErr error) {
+	if t == nil {
+		return
+	}
+	logger := t.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	if logger == nil {
+		return
+	}
+	fields := []any{
+		"event", "lsp_process_tree_release",
+		"action_result", actionResult,
+		"release_result", actionResult,
+		"remaining_checked", remainingChecked,
+		"remaining_count_present", remainingCountPresent,
+	}
+	if remainingCountPresent {
+		fields = append(fields, "remaining_count", remainingCount)
+	}
+	if releaseErr != nil {
+		fields = append(fields, platformshared.SafePayloadLogFields("release_error", releaseErr.Error())...)
+		logger.Warn("LSP process tree release", fields...)
+		return
+	}
+	logger.Info("LSP process tree release", fields...)
+}
+
 // dispatchMessage 根据消息类型将其派发到对应处理器。
 func (t *transport) dispatchMessage(payload json.RawMessage) error {
 	envelope, err := protocol.DecodeEnvelope(payload)
@@ -304,7 +529,7 @@ func (t *transport) sealResponderAdmission() bool {
 func (t *transport) handleResponse(payload json.RawMessage) error {
 	response, err := protocol.DecodeResponse(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w; response_shape=%s", err, jsonRPCShapeSummary(payload))
 	}
 	result := t.removePending(normalizeID(response.ID))
 	if result == nil {
@@ -324,11 +549,31 @@ func (t *transport) handleResponse(payload json.RawMessage) error {
 
 // handleNotification 将收到的通知转发给注册的通知处理器。
 func (t *transport) handleNotification(payload json.RawMessage) error {
-	if t.notificationHandler == nil {
+	if t.notificationHandler != nil {
+		err := protocol.DispatchNotification(payload, t.notificationHandler)
+		if err != nil && !errors.Is(err, protocol.ErrUnsupportedNotification) {
+			return err
+		}
+		if err == nil {
+			return nil
+		}
+	}
+	if t.serverNotificationHandler == nil {
 		return nil
 	}
-	err := protocol.DispatchNotification(payload, t.notificationHandler)
-	if errors.Is(err, protocol.ErrUnsupportedNotification) {
+	envelope, err := protocol.DecodeEnvelope(payload)
+	if err != nil {
+		return err
+	}
+	err = t.serverNotificationHandler(
+		platformshared.NonNilContext(t.actorCtx),
+		envelope.Method,
+		envelope.Params,
+		func(ctx context.Context, method string, params any) error {
+			return t.notify(ctx, method, params)
+		},
+	)
+	if errors.Is(err, ErrMethodNotSupported) {
 		return nil
 	}
 	return err

@@ -89,10 +89,10 @@ stack:
 Trace files live under an observability-owned `traces/` subdirectory inside the existing project log directory:
 
 ```text
-~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl
+~/.super-dolphin/log/<project>/traces/trace-YYYY-MM-DD.jsonl
 ```
 
-Do not write trace JSONL directly into `~/.multi-agent/log/<project>/`; ordinary app logs use different permissions and retention behavior.
+Do not write trace JSONL directly into `~/.super-dolphin/log/<project>/`; ordinary app logs use different permissions and retention behavior.
 
 Each line is one event:
 
@@ -558,7 +558,7 @@ Writer requirements:
 
 - single process owns writes;
 - append-only line writes;
-- create `~/.multi-agent/log/<project>/traces/` from `internal/platform/observability`, not through `pkg/logger.InitWithFile`;
+- create `~/.super-dolphin/log/<project>/traces/` from `internal/platform/observability`, not through `pkg/logger.InitWithFile`;
 - create the `traces/` directory with `0700` permissions on Unix-like platforms where supported;
 - create trace files inside `traces/` with `0600` permissions on Unix-like platforms and preserve secure permissions across rotation;
 - `json.Encoder` or pre-marshaled bytes plus newline;
@@ -880,7 +880,7 @@ Accepted high-confidence findings incorporated into this document:
 10. Privacy tests must cover all event construction paths, not only manual smoke.
 11. JSONL schema needs `schema_version` and constrained metadata for future SQLite migration.
 12. React frontend already has W3C trace context, but remote frontend trace flushing, patch slow timing, and render slow timing are new work; do not assume old Vue log bridge behavior applies.
-13. Trace JSONL must live under `~/.multi-agent/log/<project>/traces/`, with `0700` directory and `0600` file permissions where supported; retention and pruning are scoped only to exact `trace-*.jsonl` files in that directory.
+13. Trace JSONL must live under `~/.super-dolphin/log/<project>/traces/`, with `0700` directory and `0600` file permissions where supported; retention and pruning are scoped only to exact `trace-*.jsonl` files in that directory.
 14. RPC trace events must not reuse existing raw params preview fields such as `rpcParamPreview` or `params_preview`; privacy tests must lock this down.
 15. Fx wiring must be explicit in `internal/app/modules.go`; both platform and module observability modules must be added, and `observability/*` RPC handlers must be exposed through `rpc.HandlerMapResult`.
 

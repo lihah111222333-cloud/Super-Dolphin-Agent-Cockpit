@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -120,7 +121,7 @@ func (fn ClientFactoryWithEnvFunc) NewClientWithEnv(rootDir string, env []string
 
 // Config 描述 multilsp manager 的启动参数和诊断等待策略。
 type Config struct {
-	WorkspaceRoot                    string                   // 默认 workspace root，空值时回退到当前进程目录。
+	WorkspaceRoot                    string                   // 必填 workspace root，空值时直接报错。
 	ClientFactory                    ClientFactory            // 创建语言服务器客户端的必填工厂。
 	LanguageAdapters                 *LanguageAdapterRegistry // 语言适配器注册表，空值时使用默认注册表。
 	IdleTimeout                      time.Duration            // 已解析的 LSP workspace/client 空闲窗口，生产 wiring 必须显式注入。
@@ -141,6 +142,29 @@ type manager struct {
 	clock                            func() time.Time         // 测试可注入时钟；生产路径使用 time.Now。
 	provisionalOperation             atomic.Uint64            // provisional cleanup 的本地操作序号。
 	instanceID                       string                   // manager 实例随机身份，避免 clone 操作 ID 碰撞。
+	poolInstanceDigest               string                   // 低敏池身份摘要，仅用于诊断 manager 复用。
+	resolvedManagerKeyDigest         string                   // 解析后的 pool key 摘要，仅用于诊断 key 漂移。
+	resolvedScopeKeyDigest           string                   // 解析后的可信 ScopeKey 摘要。
+	resolvedWorkspaceKeyDigest       string                   // 解析后的可信 WorkspaceKey 摘要。
+	resolvedAgentIDPresent           bool                     // agent 身份是否进入可信 scope。
+	resolvedThreadIDPresent          bool                     // thread 身份是否进入可信 scope。
+	turnCallExcluded                 bool                     // turn/call 明确不进入 manager key。
+	workspaceRootEqualsCWD           bool                     // workspace root 是否等于可信 CWD。
+	workspaceRootVsCWDRelation       string                   // self/ancestor/descendant/unrelated。
+	workspaceRootDepth               int                      // root 路径深度，不记录路径正文。
+	workspaceRootUTF16Units          int                      // root UTF-16 长度。
+	targetWithinWorkspace            bool                     // target 是否位于 workspace root 内。
+	workspaceHasPOM                  bool                     // Java root 是否含 pom.xml。
+	workspaceHasGradle               bool                     // Java root 是否含 Gradle marker。
+	workspaceHasGradleKTS            bool                     // Java root 是否含 Kotlin Gradle marker。
+	workspaceRootsCount              int                      // 可信 workspace roots 数量。
+	resolvedLanguageID               string                   // 解析后的语言枚举。
+	resolvedRootKind                 string                   // 解析后的 root kind 枚举。
+	workspaceRootDigest              string                   // workspace root 摘要。
+	languageWorkspaceRootDigest      string                   // language workspace root 摘要。
+	projectRootDigest                string                   // project root 摘要。
+	languageSpecificDigest           string                   // language-specific metadata 摘要。
+	languageSpecificEmpty            bool                     // metadata 是否为空。
 	provisionalEntropy               io.Reader                // 测试熵源；生产 manager 由 crypto/rand 提供身份。
 	factory                          ClientFactory            // 语言服务器客户端工厂。
 	adapters                         *LanguageAdapterRegistry // 语言到 root/能力策略的适配表。
@@ -302,13 +326,16 @@ func NewManagerWithError(cfg Config) (Manager, error) {
 // newManager 完成已校验配置的 manager 组装，并在生产熵源失败时立即返回构造错误。
 func newManager(cfg Config) (*manager, error) {
 	root, err := platformshared.NormalizeAbsolutePath(cfg.WorkspaceRoot)
-	if err != nil {
-		root = ""
+	if err != nil || root == "" {
+		return nil, errors.New("LSP workspace root is required")
 	}
-	if root == "" {
-		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-			root, _ = platformshared.NormalizeAbsolutePath(cwd)
-		}
+	poolSize, err := PoolSizeFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("resolve LSP manager pool size: %w", err)
+	}
+	shardCap, err := PoolShardCapFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("resolve LSP manager pool shard capacity: %w", err)
 	}
 	instanceID := cfg.provisionalInstanceID
 	if instanceID == "" {
@@ -357,7 +384,7 @@ func newManager(cfg Config) (*manager, error) {
 		mgr.adapters = NewDefaultLanguageAdapterRegistry()
 	}
 	mgr.diagGeneration.Store(1)
-	mgr.pool = NewManagerPool(mgr, PoolSizeFromEnv())
+	mgr.pool = newManagerPool(mgr, poolSize, shardCap)
 	return mgr, nil
 }
 
@@ -513,6 +540,9 @@ func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID str
 	if err != nil {
 		return documentRef{}, err
 	}
+	// 所有公共路径/URI 入口在这里汇合到同一平台路径身份；否则同一文档可能
+	// bootstrap 到一个 client，却把后续语义请求发给仅盘符大小写不同的另一个 client。
+	absPath = platformCanonicalAbsolutePath(absPath)
 	lang := normalizeLanguageID(languageID)
 	if lang == "" {
 		lang = lspmanager.DetectLanguageID(absPath)
@@ -708,3 +738,12 @@ func decodeCompletionList(raw json.RawMessage) (*protocol.CompletionList, error)
 func decodeCodeActions(raw json.RawMessage) ([]protocol.CodeActionResult, error) {
 	return decodeUnionList(raw, decodeCodeActionUnion)
 }
+
+// shouldRecoverBootstrapDidOpenWin122 仅允许 Windows 首次 bootstrap/open-only hydration 的精确 Win122 恢复。
+func shouldRecoverBootstrapDidOpenWin122(ctx context.Context, client Client, err error) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	return isWindows122StartupError(ctx, client, err)
+}
+

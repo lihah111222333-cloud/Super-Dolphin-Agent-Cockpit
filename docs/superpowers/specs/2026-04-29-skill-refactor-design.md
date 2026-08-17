@@ -45,11 +45,11 @@
                   │
                   │  go:embed → harness 启动时 seed/对账
                   ▼
-        ~/.multi-agent/skills-library/<n>/{SKILL.md, .skill-meta.json}    ← 单一 library
+        ~/.super-dolphin/skills-library/<n>/{SKILL.md, .skill-meta.json}    ← 单一 library
                   │
                   │  forge: H2 拆段 + 数字前缀 + 摘要生成 + 单 skill 原子写
                   ▼
-        ~/.multi-agent/skills-cache/<n>/{SKILL.md, references/<NN-anchor>.md}  ← CLI 中立缓存
+        ~/.super-dolphin/skills-cache/<n>/{SKILL.md, references/<NN-anchor>.md}  ← CLI 中立缓存
                   │
         ┌─────────┴─────────┐
         ▼                   ▼
@@ -73,7 +73,7 @@
 ### 3.1 Library 结构
 
 ```
-~/.multi-agent/skills-library/
+~/.super-dolphin/skills-library/
   <skill-name>/
     SKILL.md             # 源文件（H2 拆段前的完整版）
     .skill-meta.json     # 元数据 sidecar (M1)
@@ -121,7 +121,7 @@
 ### 3.2 Cache 结构
 
 ```
-~/.multi-agent/skills-cache/
+~/.super-dolphin/skills-cache/
   <skill-name>/
     SKILL.md             # 瘦身版：frontmatter + 节索引 + 各节摘要
     references/
@@ -406,7 +406,7 @@ def render_codex_l1(skills_with_tier, budget_chars=8192):
 ### 8.1 配置位置
 
 ```
-~/.multi-agent/native-cli-filter.json     # 全局基线
+~/.super-dolphin/native-cli-filter.json     # 全局基线
 + 每条 skill 的 .skill-meta.json 的 replaces_native 字段（声明式叠加）
 ```
 
@@ -428,7 +428,7 @@ def render_codex_l1(skills_with_tier, budget_chars=8192):
 
 ```python
 def build_claude_settings(workspace_dir):
-    base = read_json("~/.multi-agent/native-cli-filter.json").get("claude", {})
+    base = read_json("~/.super-dolphin/native-cli-filter.json").get("claude", {})
 
     extra_disabled_skills = []
     for skill in library.list_active():
@@ -563,7 +563,7 @@ def assign_tiers(skills, workspace_id, budget=8192, now=datetime.now()):
 ### 9.6 Stats 持久化
 
 ```
-~/.multi-agent/skills-stats.json    (全局)
+~/.super-dolphin/skills-stats.json    (全局)
 {
   "测试驱动开发": {
     "calls": [1714389000, 1714389050, 1714390000],
@@ -572,7 +572,7 @@ def assign_tiers(skills, workspace_id, budget=8192, now=datetime.now()):
   }
 }
 
-~/.multi-agent/workspaces/<workspace-id>/skills-stats.json    (workspace)
+~/.super-dolphin/workspaces/<workspace-id>/skills-stats.json    (workspace)
 （同 schema）
 ```
 

@@ -160,17 +160,7 @@ func installFakeTypeScriptNavigationNode(t *testing.T, output string) {
 	if err := os.WriteFile(outputPath, []byte(output), 0o600); err != nil {
 		t.Fatalf("write fake navigation output: %v", err)
 	}
-	nodePath := filepath.Join(dir, "node")
-	script := strings.Join([]string{
-		"#!/bin/sh",
-		"cat >/dev/null",
-		"cat " + shellQuote(outputPath),
-		"",
-	}, "\n")
-	if err := os.WriteFile(nodePath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake node: %v", err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	installFakeTypeScriptNavigationNodePlatform(t, dir, outputPath)
 }
 
 func mustMarshalDocumentSymbols(t *testing.T, symbols []protocol.DocumentSymbol) json.RawMessage {
@@ -228,8 +218,4 @@ func requireSymbolNamesNotContain(t *testing.T, got []string, want []string) {
 			t.Fatalf("symbols = %v, unexpected %q", got, name)
 		}
 	}
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

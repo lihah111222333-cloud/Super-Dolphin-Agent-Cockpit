@@ -313,10 +313,10 @@ func LoadNestedMemoryPaths() []string {
 
 func defaultRootDir(platformCfg *contract.Config) string {
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".multi-agent", "memory")
+		return filepath.Join(home, ".super-dolphin", "memory")
 	}
 	if platformCfg != nil && strings.TrimSpace(platformCfg.ProjectRoot) != "" {
-		return filepath.Join(platformCfg.ProjectRoot, ".multi-agent", "memory")
+		return filepath.Join(platformCfg.ProjectRoot, ".super-dolphin", "memory")
 	}
 	return ""
 }

@@ -3,9 +3,7 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -17,29 +15,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
-
-func TestSchemaHelperProductionPathIgnoresProjectRootAndEnvironment(t *testing.T) {
-	t.Setenv("PROJECT_ROOT", filepath.Join(t.TempDir(), "attacker"))
-	dir, err := schemaHelperDirectory(filepath.Join(t.TempDir(), "controlled"), contract.DependencyProfileProduction)
-	if err != nil {
-		t.Fatal(err)
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	executable, err = filepath.EvalSymlinks(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Dir(executable)
-	if runtime.GOOS == "darwin" && filepath.Base(want) == "MacOS" && filepath.Base(filepath.Dir(want)) == "Contents" {
-		want = filepath.Join(filepath.Dir(want), "Resources", "bin")
-	}
-	if dir != want {
-		t.Fatalf("production helper dir = %q, want executable-owned %q", dir, want)
-	}
-}
 
 func TestSchemaHelperDevelopmentPathRequiresExplicitProfile(t *testing.T) {
 	root := t.TempDir()

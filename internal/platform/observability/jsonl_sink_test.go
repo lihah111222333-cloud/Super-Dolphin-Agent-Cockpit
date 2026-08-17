@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,34 +37,13 @@ func TestTraceDirectoryUsesProjectTracePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TraceDirectory: %v", err)
 	}
-	wantSuffix := filepath.Join(".multi-agent", "log", "demo-project", "traces")
+	wantSuffix := filepath.Join(".super-dolphin", "log", "demo-project", "traces")
 	if !strings.HasSuffix(dir, wantSuffix) {
 		t.Fatalf("TraceDirectory = %q, want suffix %q", dir, wantSuffix)
 	}
 	if _, err := TraceDirectory("../escape"); err == nil {
 		t.Fatalf("TraceDirectory accepted path traversal project")
 	}
-}
-
-func TestTraceDirectoryAndFilePermissionsOwnerOnly(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("owner-only chmod is not enforced on windows")
-	}
-	cfg := enabledTestConfig(t)
-	dir := t.TempDir()
-	sink, err := NewJSONLSinkInDir(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewJSONLSinkInDir: %v", err)
-	}
-	sink.now = func() time.Time { return time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC) }
-	if err := sink.Append(context.Background(), TraceEvent{TraceID: "trace", Status: StatusOK}); err != nil {
-		t.Fatalf("Append: %v", err)
-	}
-	if err := sink.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	assertPerm(t, dir, 0o700)
-	assertPerm(t, filepath.Join(dir, "trace-2026-06-02.jsonl"), 0o600)
 }
 
 func TestJSONLSinkRotatesByDayAndSize(t *testing.T) {

@@ -3,14 +3,99 @@
 package tools
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 	"golang.org/x/sys/windows"
 )
+
+// TestReplaceFilePreservingMetadataWindowsRetriesOnlyUnchanged1175 验证仅在
+// Microsoft 保证两个文件仍保留原名的 Win32 1175 下重试，并保留数字错误证据。
+func TestReplaceFilePreservingMetadataWindowsRetriesOnlyUnchanged1175(t *testing.T) {
+	calls := 0
+	sleeps := 0
+	err := replaceFilePreservingMetadataWithCall(`C:\replacement.tmp`, `C:\target.ts`, func(_, _ *uint16) (uintptr, error) {
+		calls++
+		if calls == 1 {
+			return 0, windows.ERROR_UNABLE_TO_REMOVE_REPLACED
+		}
+		return 1, windows.ERROR_SUCCESS
+	}, func(delay time.Duration) {
+		if delay != windowsReplaceFileRetryDelay {
+			t.Fatalf("retry delay = %s, want %s", delay, windowsReplaceFileRetryDelay)
+		}
+		sleeps++
+	})
+	if err != nil {
+		t.Fatalf("replace after transient Win32 1175: %v", err)
+	}
+	if calls != 2 || sleeps != 1 {
+		t.Fatalf("ReplaceFileW calls=%d sleeps=%d, want 2/1", calls, sleeps)
+	}
+
+	calls = 0
+	sleeps = 0
+	err = replaceFilePreservingMetadataWithCall(`C:\replacement.tmp`, `C:\target.ts`, func(_, _ *uint16) (uintptr, error) {
+		calls++
+		return 0, windows.ERROR_UNABLE_TO_MOVE_REPLACEMENT
+	}, func(time.Duration) { sleeps++ })
+	if !errors.Is(err, windows.ERROR_UNABLE_TO_MOVE_REPLACEMENT) || !strings.Contains(err.Error(), "win32=1176") {
+		t.Fatalf("state-changing Win32 1176 error = %v, want wrapped numeric evidence", err)
+	}
+	if calls != 1 || sleeps != 0 {
+		t.Fatalf("state-changing Win32 1176 calls=%d sleeps=%d, want fail-fast 1/0", calls, sleeps)
+	}
+}
+
+// TestAtomicReplaceFileWindowsRetriesTransientSharing 以真实不共享 DELETE 的
+// 文件句柄复现语言服务器/索引器短暂占用，证明释放后仍走 ReplaceFileW 原子替换。
+func TestAtomicReplaceFileWindowsRetriesTransientSharing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "managed.ts")
+	if err := os.WriteFile(path, []byte("const value = 'old';\r\n"), 0o600); err != nil {
+		t.Fatalf("write managed fixture: %v", err)
+	}
+	pathPtr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := windows.CreateFile(
+		pathPtr,
+		windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("open managed fixture without delete sharing: %v", err)
+	}
+	closed := make(chan error, 1)
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		closed <- windows.CloseHandle(handle)
+	}()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceErr := atomicReplaceFile(path, []byte("const value = 'new';\r\n"), info.Mode(), defaultFileWriter)
+	if closeErr := <-closed; closeErr != nil {
+		t.Fatalf("close managed fixture handle: %v", closeErr)
+	}
+	if replaceErr != nil {
+		t.Fatalf("atomicReplaceFile() after transient managed-file share = %v", replaceErr)
+	}
+	if raw, err := os.ReadFile(path); err != nil || string(raw) != "const value = 'new';\r\n" {
+		t.Fatalf("replaced managed fixture = %q, %v", raw, err)
+	}
+}
 
 // TestAtomicReplaceFileWindowsDoesNotSyncDirectory 验证 Windows 替换成功后不会因目录 FlushFileBuffers 误报失败。
 func TestAtomicReplaceFileWindowsDoesNotSyncDirectory(t *testing.T) {

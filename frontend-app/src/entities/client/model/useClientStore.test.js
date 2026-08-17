@@ -1950,7 +1950,7 @@ function registerBridgeEventHandlersForTest() {
       effort: 'medium',
       port: 4512,
       cwd: '/repo/app',
-      'log-path': '~/.multi-agent/log/app/',
+      'log-path': '~/.super-dolphin/log/app/',
     }));
     expect(payload.copiedAt).toContain('UTC+8');
   });

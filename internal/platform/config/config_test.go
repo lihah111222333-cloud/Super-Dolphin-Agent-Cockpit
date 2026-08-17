@@ -52,16 +52,48 @@ func TestNew_UsesLegacyRPCAddrWithDeprecationWarning(t *testing.T) {
 	}
 }
 
-func TestNew_DefaultsSQLitePathUnderProjectHomeInDev(t *testing.T) {
+// assertDefaultSQLitePathInDev 校验平台专用测试传入的默认 SQLite 路径及公共环境副作用。
+func assertDefaultSQLitePathInDev(t *testing.T, want func(*Config) string) {
+	t.Helper()
 	isolateConfigTestEnv(t)
 
 	cfg := mustNewConfig(t)
-	want := filepath.Join(cfg.ProjectRoot, ".super-dolphin", "super-dolphin.db")
-	if cfg.SQLitePath != want {
-		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, want)
+	wantPath := want(cfg)
+	if cfg.SQLitePath != wantPath {
+		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, wantPath)
 	}
 	if got := os.Getenv("DATABASE_URL"); got != "" {
 		t.Fatalf("DATABASE_URL = %q, want empty", got)
+	}
+}
+
+// assertValidateSQLiteParentFailsFast 校验平台专用权限实现保留原始原因且不会创建兜底目录。
+func assertValidateSQLiteParentFailsFast(t *testing.T, wantCause string) {
+	t.Helper()
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o777); err != nil {
+		t.Fatalf("chmod parent: %v", err)
+	}
+	dbPath := filepath.Join(parent, "super-dolphin.db")
+
+	err := validateSQLiteParent(dbPath, parent)
+	if err == nil {
+		t.Fatal("validateSQLiteParent() error = nil, want owner-only failure")
+	}
+	if !strings.Contains(err.Error(), wantCause) {
+		t.Fatalf("validateSQLiteParent() error = %v, want original owner-only error %q", err, wantCause)
+	}
+	if strings.Contains(err.Error(), parent) || strings.Contains(err.Error(), dbPath) {
+		t.Fatalf("validateSQLiteParent() leaked full path: %v", err)
+	}
+	entries, readErr := os.ReadDir(filepath.Dir(parent))
+	if readErr != nil {
+		t.Fatalf("read fallback parent: %v", readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "state-") {
+			t.Fatalf("unexpected fallback directory %q", entry.Name())
+		}
 	}
 }
 

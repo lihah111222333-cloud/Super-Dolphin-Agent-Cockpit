@@ -1,17 +1,107 @@
 package multilsp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
+
+// TestTransportReadMessageLogsMalformedHeaderWithoutPayload 验证 stdout 污染可定位且不会泄露原始行或 stderr。
+func TestTransportReadMessageLogsMalformedHeaderWithoutPayload(t *testing.T) {
+	const contaminated = "IJ_JAVA_OPTIONS=secret-value"
+	var logs bytes.Buffer
+	stderr := &limitedBuffer{limit: 8}
+	if _, err := stderr.Write([]byte("stderr-secret")); err != nil {
+		t.Fatalf("write stderr fixture: %v", err)
+	}
+	tr := &transport{
+		stdout: bufio.NewReader(strings.NewReader(contaminated + "\r\n\r\n")),
+		stderr: stderr,
+		logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+	}
+	_, err := tr.readMessage()
+	var framingErr *lspFramingError
+	if !errors.As(err, &framingErr) {
+		t.Fatalf("readMessage() error = %v, want lspFramingError", err)
+	}
+	if framingErr.kind != "malformed_header" || framingErr.observedSHA256 == "" {
+		t.Fatalf("framing diagnostic = %+v", framingErr)
+	}
+	if strings.Contains(err.Error(), contaminated) {
+		t.Fatalf("framing error leaked stdout payload: %v", err)
+	}
+	tr.logReadFailure(err)
+	output := logs.String()
+	for _, want := range []string{
+		"\"event\":\"lsp_stdio_read\"",
+		"\"failure_kind\":\"malformed_header\"",
+		"\"observed_sha256\":\"" + framingErr.observedSHA256 + "\"",
+		"\"stderr_truncated\":true",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("read diagnostic log missing %q: %s", want, output)
+		}
+	}
+	for _, secret := range []string{contaminated, "secret-value", "stderr-secret"} {
+		if strings.Contains(output, secret) {
+			t.Fatalf("read diagnostic log leaked %q: %s", secret, output)
+		}
+	}
+}
+
+// TestTransportLifecycleFieldsIncludeExitCodeAndServerRole 验证 wait 后的安全日志可区分服务角色与真实退出码。
+func TestTransportLifecycleFieldsIncludeExitCodeAndServerRole(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run exited helper process: %v", err)
+	}
+	fields := transportLifecycleLogFields("server.exe", "workspace", 2, 3, cmd, nil)
+	values := make(map[string]any, len(fields)/2)
+	for index := 0; index+1 < len(fields); index += 2 {
+		key, ok := fields[index].(string)
+		if ok {
+			values[key] = fields[index+1]
+		}
+	}
+	if values["server_role"] != "language_server_stdio" || values["process_exited"] != true || values["exit_code_present"] != true || values["exit_code"] != 0 {
+		t.Fatalf("transport lifecycle fields = %#v, want role and exited code 0", values)
+	}
+}
+
+// TestTransportReleaseLogsZeroRemainingEvidence 验证 exact owner 证明零成员后，日志明确记录 Remaining=0 与 released。
+func TestTransportReleaseLogsZeroRemainingEvidence(t *testing.T) {
+	var logs bytes.Buffer
+	owner := &convergedTerminationFailureOwner{}
+	tr := newTestTransportWithExitedProcess()
+	tr.processTree = owner
+	tr.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	if err := tr.Close(); err != nil {
+		t.Fatalf("Close() after verified natural exit: %v", err)
+	}
+	output := logs.String()
+	for _, want := range []string{
+		`"event":"lsp_process_tree_release"`,
+		`"release_result":"released"`,
+		`"remaining_checked":true`,
+		`"remaining_count_present":true`,
+		`"remaining_count":0`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("release evidence log missing %q: %s", want, output)
+		}
+	}
+}
 
 // TestTransportPrepareProcessTreeShutdownUsesExactOwner 验证关闭协议只调用 transport 持有的 exact owner。
 func TestTransportPrepareProcessTreeShutdownUsesExactOwner(t *testing.T) {

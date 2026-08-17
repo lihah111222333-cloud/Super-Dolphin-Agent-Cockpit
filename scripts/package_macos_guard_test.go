@@ -1,5 +1,7 @@
 package main
 
+// 本文件是公共跨平台的 macOS 交付静态门禁，只读取脚本和清单，故意不加 darwin build tag。
+
 import (
 	"os"
 	"path/filepath"

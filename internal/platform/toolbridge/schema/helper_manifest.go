@@ -207,7 +207,7 @@ func validateIdentity(identity HelperIdentity) error {
 func readRegularNoSymlink(path string, limit int64) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, err
+		return nil, wrapSchemaFilesystemError(path, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s must be a regular non-symlink file", path)
@@ -215,14 +215,18 @@ func readRegularNoSymlink(path string, limit int64) ([]byte, error) {
 	if info.Size() > limit {
 		return nil, fmt.Errorf("%s exceeds %d bytes", path, limit)
 	}
-	return os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, wrapSchemaFilesystemError(path, err)
+	}
+	return data, nil
 }
 
 // verifyExecutable 按目标平台执行 owner-execute 或 Windows PE 策略校验。
 func verifyExecutable(path, goos string, image []byte) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return err
+		return wrapSchemaFilesystemError(path, err)
 	}
 	if goos == "windows" {
 		if filepath.Ext(path) != ".exe" || len(image) < 2 || image[0] != 'M' || image[1] != 'Z' {
@@ -337,7 +341,7 @@ func createFilesystemSnapshotStagingDirectory(identity filesystemSnapshotIdentit
 	}
 	directory := filesystemSnapshotStagingDirectory(identity)
 	if err := os.Mkdir(directory, 0o700); err != nil {
-		return "", err
+		return "", wrapSchemaFilesystemError(directory, err)
 	}
 	return directory, nil
 }
@@ -381,13 +385,13 @@ func publishExecutableSnapshot(
 			removeStagedFilesystemSnapshot(identity, directory),
 		)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+		return "", errors.Join(wrapSchemaFilesystemError(identity.Directory, err), removeStagedFilesystemSnapshot(identity, directory))
 	}
 	if err := syncFilesystemSnapshotDirectory(directory); err != nil {
 		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
 	}
 	if err := os.Rename(directory, identity.Directory); err != nil {
-		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+		return "", errors.Join(wrapSchemaFilesystemError(identity.Directory, err), removeStagedFilesystemSnapshot(identity, directory))
 	}
 	if err := syncFilesystemSnapshotDirectory(filepath.Dir(identity.Directory)); err != nil {
 		return "", errors.Join(err, removeOwnedFilesystemSnapshot(identity))
@@ -412,7 +416,7 @@ func removeStagedFilesystemSnapshot(identity filesystemSnapshotIdentity, directo
 		return nil
 	}
 	if len(entries) == 0 {
-		return os.Remove(directory)
+		return wrapSchemaFilesystemError(directory, os.Remove(directory))
 	}
 	helperName := HelperFileName(identity.HelperGOOS)
 	for _, entry := range entries {
@@ -441,7 +445,7 @@ func removeOwnedFilesystemSnapshot(identity filesystemSnapshotIdentity) error {
 		return stagingErr
 	}
 	if len(entries) == 0 {
-		return errors.Join(stagingErr, os.Remove(identity.Directory))
+		return errors.Join(stagingErr, wrapSchemaFilesystemError(identity.Directory, os.Remove(identity.Directory)))
 	}
 	if err := verifyFilesystemSnapshotMarker(identity); err != nil {
 		return errors.Join(stagingErr, err)
@@ -464,13 +468,16 @@ func ownedFilesystemSnapshotEntries(directory string) ([]os.DirEntry, bool, erro
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, false, wrapSchemaFilesystemError(directory, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, false, errors.New("schema snapshot path is not a non-symlink directory")
 	}
 	entries, err := os.ReadDir(directory)
-	return entries, true, err
+	if err != nil {
+		return nil, true, wrapSchemaFilesystemError(directory, err)
+	}
+	return entries, true, nil
 }
 
 func removeFilesystemSnapshotFiles(directory, helperName string) error {
@@ -483,7 +490,7 @@ func removeFilesystemSnapshotFiles(directory, helperName string) error {
 			return err
 		}
 	}
-	return os.Remove(directory)
+	return wrapSchemaFilesystemError(directory, os.Remove(directory))
 }
 
 // validateFilesystemSnapshotEntry 严格拒绝未知、symlink 或非 regular 条目。
@@ -496,7 +503,7 @@ func validateFilesystemSnapshotEntry(directory, helperName string, entry os.DirE
 	}
 	info, err := os.Lstat(filepath.Join(directory, name))
 	if err != nil {
-		return err
+		return wrapSchemaFilesystemError(filepath.Join(directory, name), err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("schema snapshot entry %q is not a regular non-symlink file", name)
@@ -533,7 +540,7 @@ func removeSnapshotPathIfPresent(path string) error {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	return err
+	return wrapSchemaFilesystemError(path, err)
 }
 
 // sweepStaleFilesystemSnapshots 清扫 owner 已失效的严格新格式目录。
@@ -544,7 +551,7 @@ func sweepStaleFilesystemSnapshots() error {
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return err
+		return wrapSchemaFilesystemError(root, err)
 	}
 	for _, entry := range entries {
 		if err := sweepFilesystemSnapshotCandidate(root, entry.Name()); err != nil {
@@ -578,7 +585,7 @@ func sweepPublishedFilesystemSnapshotCandidate(root, name, token string) error {
 		return err
 	}
 	if empty {
-		return os.Remove(directory)
+		return wrapSchemaFilesystemError(directory, os.Remove(directory))
 	}
 	active, err := filesystemSnapshotOwnerActive(identity)
 	if err != nil || active {
@@ -603,12 +610,12 @@ func sweepFilesystemSnapshotStagingCandidate(root, name, token string, ownerPID 
 	}
 	switch state {
 	case filesystemSnapshotStagingEmpty:
-		return os.Remove(directory)
+		return wrapSchemaFilesystemError(directory, os.Remove(directory))
 	case filesystemSnapshotStagingPublishing:
 		if err := removeSnapshotEntryIfPresent(directory, filesystemSnapshotMarker+filesystemSnapshotPublishSuffix); err != nil {
 			return err
 		}
-		return os.Remove(directory)
+		return wrapSchemaFilesystemError(directory, os.Remove(directory))
 	case filesystemSnapshotStagingOwned:
 		return removeStagedFilesystemSnapshot(identity, directory)
 	default:
@@ -668,7 +675,7 @@ func validFilesystemSnapshotOwnerDigest(digest string) bool {
 func readSweepSnapshotIdentity(directory, token string) (filesystemSnapshotIdentity, bool, error) {
 	info, err := os.Lstat(directory)
 	if err != nil {
-		return filesystemSnapshotIdentity{}, false, err
+		return filesystemSnapshotIdentity{}, false, wrapSchemaFilesystemError(directory, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return filesystemSnapshotIdentity{}, false, errors.New(
@@ -677,7 +684,7 @@ func readSweepSnapshotIdentity(directory, token string) (filesystemSnapshotIdent
 	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return filesystemSnapshotIdentity{}, false, err
+		return filesystemSnapshotIdentity{}, false, wrapSchemaFilesystemError(directory, err)
 	}
 	if len(entries) == 0 {
 		return filesystemSnapshotIdentity{}, true, nil

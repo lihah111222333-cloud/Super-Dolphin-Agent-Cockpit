@@ -1,5 +1,8 @@
 package main
 
+// 本文件是公共跨平台的 Linux 交付静态门禁：它读取脚本和清单，不调用 Linux 专用系统 API，
+// 因而故意不加 linux build tag，让 Windows、macOS 与 Linux CI 都能审计同一交付契约。
+
 import (
 	"encoding/json"
 	"errors"

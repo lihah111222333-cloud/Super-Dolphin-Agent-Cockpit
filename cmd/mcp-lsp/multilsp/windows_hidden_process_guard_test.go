@@ -1,5 +1,8 @@
 package multilsp
 
+// 本静态 AST 守卫故意不加 windows build tag：它只检查源码调用形状，不执行
+// Win32 API，因此所有平台都必须运行以防隐藏窗口策略回退。
+
 import (
 	"go/ast"
 	"go/parser"

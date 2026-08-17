@@ -30,7 +30,8 @@ func isUnsupportedCapability(err error) bool {
 	return ok && isUnsupportedCapability(wrapped.Unwrap())
 }
 
-// unsupportedCapabilityEmptyResult 返回表示不支持能力的空列表响应信封。
+// unsupportedCapabilityEmptyResult 返回远程纯文本协议要求的不支持能力空列表信封。
+// 该公共工具语义与平台无关；Windows 自动安装不能把真实能力缺失伪装成运行失败。
 func unsupportedCapabilityEmptyResult(capability string, languageIDs ...string) emptyListEnvelope {
 	return emptyListEnvelope{
 		Success: true,
@@ -42,7 +43,6 @@ func unsupportedCapabilityEmptyResult(capability string, languageIDs ...string) 
 	}
 }
 
-// unsupportedCapabilityMessage 构建不支持能力的消息，markdown 语言有特殊降级提示。
 func unsupportedCapabilityMessage(capability string, languageIDs ...string) string {
 	if languageID := limitedDocumentFallbackLanguage(languageIDs...); languageID != "" {
 		return fmt.Sprintf("%s is not available for %s. %s support is limited to document_symbol fallback; use structure action=document_symbol file_path=<%s file> or grep action=text_search.", capability, languageID, languageID, languageID)
@@ -50,7 +50,7 @@ func unsupportedCapabilityMessage(capability string, languageIDs ...string) stri
 	return fmt.Sprintf("%s unsupported by current language server", capability)
 }
 
-// limitedDocumentFallbackLanguage 返回只支持 document_symbol 降级的语言 ID，不匹配时返回空。
+// limitedDocumentFallbackLanguage 返回仅支持 document_symbol 降级的语言 ID。
 func limitedDocumentFallbackLanguage(languageIDs ...string) string {
 	for _, languageID := range languageIDs {
 		switch strings.ToLower(strings.TrimSpace(languageID)) {

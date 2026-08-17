@@ -286,7 +286,7 @@ func TestDiagnosticsAppManagedOutsideWorkspaceSkipsStartupOpenRecovery(t *testin
 	if err == nil {
 		t.Fatal("diagnostics returned nil error, want app-managed target outside workspace roots rejected")
 	}
-	if !strings.Contains(err.Error(), appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
+	if !diagnosticErrorMentionsPath(err, appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
 		t.Fatalf("diagnostics error = %q, want target path %q and outside workspace roots context", err.Error(), appFile)
 	}
 	assertAppManagedDiagnosticsRegistryNotCalled(t, registry)
@@ -358,7 +358,7 @@ func assertAppManagedDiagnosticsRejected(t *testing.T, err error, appFile string
 	if err == nil {
 		t.Fatal("diagnostics returned nil error, want language override app-managed target outside workspace roots rejected")
 	}
-	if !strings.Contains(err.Error(), appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
+	if !diagnosticErrorMentionsPath(err, appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
 		t.Fatalf("diagnostics error = %q, want target path %q and outside workspace roots context", err.Error(), appFile)
 	}
 }
@@ -416,7 +416,7 @@ func TestDiagnosticsMixedBatchRejectsAppManagedOutsideWorkspaceBeforeRegistry(t 
 	if err == nil {
 		t.Fatal("diagnostics returned nil error, want mixed batch app-managed target outside workspace roots rejected")
 	}
-	if !strings.Contains(err.Error(), appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
+	if !diagnosticErrorMentionsPath(err, appFile) || !strings.Contains(err.Error(), "outside workspace roots") {
 		t.Fatalf("diagnostics error = %q, want target path %q and outside workspace roots context", err.Error(), appFile)
 	}
 	assertAppManagedDiagnosticsRegistryNotCalled(t, registry)
@@ -436,6 +436,20 @@ func assertAppManagedDiagnosticsRegistryNotCalled(t *testing.T, registry *diagno
 	if len(registry.reopenURIs) != 0 {
 		t.Fatalf("ReopenDocumentsForDiagnostics URIs = %#v, want app-managed target handled before reopen", registry.reopenURIs)
 	}
+}
+
+func diagnosticErrorMentionsPath(err error, target string) bool {
+	if err == nil {
+		return false
+	}
+	normalize := func(value string) string {
+		value = strings.ToLower(filepath.ToSlash(value))
+		for strings.Contains(value, "//") {
+			value = strings.ReplaceAll(value, "//", "/")
+		}
+		return value
+	}
+	return strings.Contains(normalize(err.Error()), normalize(target))
 }
 
 func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {

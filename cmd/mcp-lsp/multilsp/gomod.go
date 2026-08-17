@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -321,7 +320,7 @@ func absolutePathFromURI(uri string) (string, error) {
 		}
 		return "", err
 	}
-	return path, nil
+	return platformCanonicalAbsolutePath(path), nil
 }
 
 // hasFileURIScheme 按 URI scheme 的大小写不敏感规则识别 file URI。
@@ -393,6 +392,8 @@ func normalizeLanguageID(languageID string) string {
 	return languageID
 }
 
+// fileURIFromPath 把本机绝对路径编码成当前平台的规范 file URI。
+// 公共调用方只依赖这一个入口；平台特有的盘符、大小写和转义语义由带 build tag 的实现负责。
 func fileURIFromPath(absPath string) string {
-	return (&url.URL{Scheme: "file", Path: platformFileURIPath(absPath)}).String()
+	return platformFileURIFromPath(absPath)
 }

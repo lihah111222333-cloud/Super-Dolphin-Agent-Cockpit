@@ -45,7 +45,7 @@ func Open(ctx context.Context, opts OpenOptions) (*sql.DB, error) {
 
 	db, err := sql.Open(driverName, sqliteDSN(path))
 	if err != nil {
-		return nil, fmt.Errorf("open SQLite database %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
+		return nil, fmt.Errorf("open SQLite database %s: %w", redactPath(path), securefs.WrapErrorForPath(err, path))
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
@@ -54,7 +54,7 @@ func Open(ctx context.Context, opts OpenOptions) (*sql.DB, error) {
 
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("ping SQLite database %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
+		return nil, fmt.Errorf("ping SQLite database %s: %w", redactPath(path), securefs.WrapErrorForPath(err, path))
 	}
 	if err := configureAndVerifyPragmas(ctx, db); err != nil {
 		_ = db.Close()
@@ -179,7 +179,7 @@ func validateExistingDatabasePath(clean string) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("inspect SQLite database path %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
+		return fmt.Errorf("inspect SQLite database path %s: %w", redactPath(clean), securefs.WrapErrorForPath(err, clean))
 	}
 	if info.IsDir() {
 		return fmt.Errorf("SQLite database path points to a directory: %s", redactPath(clean))
@@ -195,10 +195,10 @@ func validateExistingDatabasePath(clean string) error {
 func probeExistingDatabaseWritable(path string) error {
 	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
-		return fmt.Errorf("SQLite database file is not writable: %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
+		return fmt.Errorf("SQLite database file is not writable: %s: %w", redactPath(path), securefs.WrapErrorForPath(err, path))
 	}
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("close SQLite database file %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
+		return fmt.Errorf("close SQLite database file %s: %w", redactPath(path), securefs.WrapErrorForPath(err, path))
 	}
 	return nil
 }
@@ -207,12 +207,12 @@ func ensureParentDirectory(parent string) (bool, error) {
 	info, err := os.Stat(parent)
 	if os.IsNotExist(err) {
 		if err := os.MkdirAll(parent, 0o700); err != nil {
-			return false, fmt.Errorf("create SQLite parent directory %s: %s", redactPath(parent), securefs.SafeErrorForPath(err, parent))
+			return false, fmt.Errorf("create SQLite parent directory %s: %w", redactPath(parent), securefs.WrapErrorForPath(err, parent))
 		}
 		return true, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("inspect SQLite parent directory %s: %s", redactPath(parent), securefs.SafeErrorForPath(err, parent))
+		return false, fmt.Errorf("inspect SQLite parent directory %s: %w", redactPath(parent), securefs.WrapErrorForPath(err, parent))
 	}
 	if !info.IsDir() {
 		return false, fmt.Errorf("SQLite database parent is not a directory: %s", redactPath(parent))
@@ -223,7 +223,7 @@ func ensureParentDirectory(parent string) (bool, error) {
 func validateExistingParentDirectory(parent string) error {
 	info, err := os.Stat(parent)
 	if err != nil {
-		return fmt.Errorf("inspect SQLite parent directory %s: %s", redactPath(parent), securefs.SafeErrorForPath(err, parent))
+		return fmt.Errorf("inspect SQLite parent directory %s: %w", redactPath(parent), securefs.WrapErrorForPath(err, parent))
 	}
 	if err := securefs.CheckExistingOwnerOnly(parent, info); err != nil {
 		return err
@@ -241,14 +241,14 @@ func ensureDatabaseFile(path string) error {
 	if _, err := os.Stat(clean); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect SQLite database path %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
+		return fmt.Errorf("inspect SQLite database path %s: %w", redactPath(clean), securefs.WrapErrorForPath(err, clean))
 	}
 	file, err := os.OpenFile(clean, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return fmt.Errorf("create SQLite database file %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
+		return fmt.Errorf("create SQLite database file %s: %w", redactPath(clean), securefs.WrapErrorForPath(err, clean))
 	}
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("close SQLite database file %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
+		return fmt.Errorf("close SQLite database file %s: %w", redactPath(clean), securefs.WrapErrorForPath(err, clean))
 	}
 	return securefs.RestrictOwnerOnly(clean, 0o600)
 }
@@ -262,7 +262,7 @@ func RestrictSidecarFilePermissions(path string) error {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("inspect SQLite file %s: %s", redactPath(candidate), securefs.SafeErrorForPath(err, candidate))
+			return fmt.Errorf("inspect SQLite file %s: %w", redactPath(candidate), securefs.WrapErrorForPath(err, candidate))
 		}
 		if info.IsDir() {
 			return fmt.Errorf("SQLite file path points to a directory: %s", redactPath(candidate))

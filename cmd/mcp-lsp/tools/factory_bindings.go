@@ -62,6 +62,42 @@ func newManagerToolWithoutOuterTimeout[T any](
 	}, registry, mode, nil, dispatch)
 }
 
+// newManagerToolWithWindowsColdInstallTimeout 仅在 Windows 关闭工具层总 deadline。
+// 其他平台保持原有 tier deadline；Windows 的锁定资产安装由安装器自身 deadline 约束。
+func newManagerToolWithWindowsColdInstallTimeout[T any](
+	name string,
+	tier time.Duration,
+	registry lspmanager.Registry,
+	mode decodeMode,
+	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
+) ToolHandler {
+	if hostColdInstallOuterTimeoutDisabled() {
+		return newManagerToolWithoutOuterTimeout(name, tier, registry, mode, dispatch)
+	}
+	return newManagerTool(name, tier, registry, mode, dispatch)
+}
+
+// newManagerToolWithWindowsColdInstallTimeoutAndDecodeError 组合严格参数错误映射与跨平台超时策略。
+// Windows 自动安装继续由安装器 deadline 约束；其他平台保持原 tier deadline，不改变既有行为。
+func newManagerToolWithWindowsColdInstallTimeoutAndDecodeError[T any](
+	name string,
+	tier time.Duration,
+	registry lspmanager.Registry,
+	mode decodeMode,
+	mapDecodeError func(error) error,
+	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
+) ToolHandler {
+	var timeoutTier func(json.RawMessage) time.Duration
+	if hostColdInstallOuterTimeoutDisabled() {
+		timeoutTier = func(json.RawMessage) time.Duration { return toolTimeoutDisabled }
+	}
+	return newManagerToolWithTimeoutResolver(name, tier, timeoutTier, registry, mode, mapDecodeError, dispatch)
+}
+
+func windowsColdInstallOuterTimeoutDisabled(goos string) bool {
+	return strings.EqualFold(strings.TrimSpace(goos), "windows")
+}
+
 // newManagerToolWithTimeoutResolver 统一组装 manager 工具，并允许动作级选择工具层 deadline。
 func newManagerToolWithTimeoutResolver[T any](
 	name string,

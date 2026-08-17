@@ -1,5 +1,7 @@
 package main
 
+// 本文件是公共跨平台的 macOS Git hardlink 静态门禁，只读取脚本契约，故意不加 darwin build tag。
+
 import "testing"
 
 func TestPackageMacOSScriptPreservesGitCoreHardlinks(t *testing.T) {

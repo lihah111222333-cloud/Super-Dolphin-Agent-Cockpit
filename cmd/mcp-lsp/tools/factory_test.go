@@ -95,66 +95,6 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestSemanticInspectAndStructureAutoInstallMissingBinary(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses a POSIX shell script as the fake installer")
-	}
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write go fixture: %v", err)
-	}
-	binDir := t.TempDir()
-	t.Setenv("PATH", binDir)
-	marker := filepath.Join(t.TempDir(), "installer-ran")
-	t.Setenv("INSTALL_MARKER", marker)
-	t.Setenv("FAKE_BIN_DIR", binDir)
-	installScript := filepath.Join(t.TempDir(), "install-lsp")
-	if err := os.WriteFile(installScript, []byte("#!/bin/sh\nset -eu\n: >> \"$INSTALL_MARKER\"\ntarget=\"$1\"\nprintf '#!/bin/sh\\nexit 0\\n' > \"$FAKE_BIN_DIR/$target\"\n/bin/chmod +x \"$FAKE_BIN_DIR/$target\"\n"), 0o755); err != nil {
-		t.Fatalf("write fake installer: %v", err)
-	}
-	inst := lspinstaller.NewProvider()
-	inst.Register("go", lspinstaller.InstallerConfig{
-		BinaryName:          "gopls",
-		InstallCmd:          installScript,
-		InstallArgs:         []string{"gopls"},
-		AllowInstallCommand: true,
-	})
-	inst.Register("typescript", lspinstaller.InstallerConfig{
-		BinaryName:          "typescript-language-server",
-		InstallCmd:          installScript,
-		InstallArgs:         []string{"typescript-language-server"},
-		AllowInstallCommand: true,
-	})
-	registry := lspmanager.NewRegistryWithInstaller(inst)
-	registry.Register("go", &structureTestManager{})
-	registry.Register("typescript", &structureTestManager{})
-
-	t.Run("inspect", func(t *testing.T) {
-		payload := mustMarshalToolPayload(t, map[string]any{
-			"action": "hover",
-			"pos":    filepath.Join(root, "main.go") + ":1:1",
-		})
-		_, err := NewInspectHandler(registry)(testToolContext(root), payload)
-		if err != nil {
-			t.Fatalf("inspect handler error = %v, want auto-install success", err)
-		}
-		requireInstallerMarkerPresent(t, marker)
-	})
-
-	t.Run("structure", func(t *testing.T) {
-		payload := mustMarshalToolPayload(t, map[string]any{
-			"action":             "workspace_symbol",
-			"workspace_language": "typescript",
-			"query":              "anything",
-		})
-		_, err := NewStructureHandler(registry)(testToolContext(root), payload)
-		if err != nil {
-			t.Fatalf("structure handler error = %v, want auto-install success", err)
-		}
-		requireInstallerMarkerPresent(t, marker)
-	})
-}
-
 // TestWrapperRejectsEmptyWorkDir ensures wrapper-owned work_dir cannot be silently stripped when empty.
 func TestWrapperRejectsEmptyWorkDir(t *testing.T) {
 	root := t.TempDir()
@@ -204,14 +144,31 @@ func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	}
 }
 
-func TestFileDiagnosticsDisablesOuterTimeout(t *testing.T) {
+func TestFileLSPBootstrapActionsDisableOuterTimeout(t *testing.T) {
 	if _, ok := fileToolDeadlineForAction(t, "diagnostics"); ok {
-		t.Fatal("file diagnostics received an outer tool deadline, want diagnostics timeout to start after LSP bootstrap")
+		t.Fatal("file diagnostics received an outer tool deadline")
+	}
+	openParams := json.RawMessage(`{"action":"open_file"}`)
+	if got := fileToolTimeoutTierForOS(openParams, "windows"); got != toolTimeoutDisabled {
+		t.Fatalf("Windows open_file timeout tier = %s, want disabled", got)
+	}
+	if got := fileToolTimeoutTierForOS(openParams, "linux"); got != middleware.TierNormal {
+		t.Fatalf("Linux open_file timeout tier = %s, want unchanged normal tier", got)
 	}
 }
 
-func TestInspectAndXRefDisableSharedOuterTimeout(t *testing.T) {
-	for _, toolName := range []string{"inspect", "xref"} {
+func TestFileReadFirstCallHasWindowsColdInstallWindow(t *testing.T) {
+	params := json.RawMessage(`{"action":"read_file"}`)
+	if got := fileToolTimeoutTierForOS(params, "windows"); got != toolTimeoutDisabled {
+		t.Fatalf("Windows first read_file timeout tier = %s, want disabled for cold LSP install", got)
+	}
+	if got := fileToolTimeoutTierForOS(params, "linux"); got != middleware.TierNormal {
+		t.Fatalf("Linux first read_file timeout tier = %s, want unchanged normal tier", got)
+	}
+}
+
+func TestManagerLSPToolsDisableSharedOuterTimeout(t *testing.T) {
+	for _, toolName := range []string{"completion", "inspect", "structure", "xref"} {
 		t.Run(toolName, func(t *testing.T) {
 			deadlinePresent := false
 			handler := newManagerToolWithoutOuterTimeout(
@@ -234,23 +191,31 @@ func TestInspectAndXRefDisableSharedOuterTimeout(t *testing.T) {
 	}
 }
 
-func TestFileReadKeepsNormalTimeoutTier(t *testing.T) {
-	deadline, ok := fileToolDeadlineForAction(t, "read_file")
-	if !ok {
-		t.Fatal("file read_file context deadline missing")
+func TestWindowsColdInstallTimeoutPolicyDoesNotAffectOtherPlatforms(t *testing.T) {
+	if !windowsColdInstallOuterTimeoutDisabled("windows") {
+		t.Fatal("Windows cold install timeout policy is not enabled")
 	}
-	assertDeadlineNear(t, deadline, middleware.TierNormal, "read_file")
+	for _, goos := range []string{"linux", "darwin", "freebsd"} {
+		if windowsColdInstallOuterTimeoutDisabled(goos) {
+			t.Fatalf("Windows cold install timeout policy leaked to %s", goos)
+		}
+	}
 }
 
-func TestPatchEditReplaceRangeDisablesOuterTimeout(t *testing.T) {
-	if _, ok := patchEditDeadlineForAction(t, "replace_range"); ok {
-		t.Fatal("patch_edit replace_range received an outer tool deadline, want LSP initialization to own its timeout")
+func TestPatchEditActionsDisableOuterTimeout(t *testing.T) {
+	for _, action := range []string{"replace_range", "rename", "code_action", "format"} {
+		params := json.RawMessage(`{"action":"` + action + `"}`)
+		if got := patchEditTimeoutTierForOS(params, "windows"); got != toolTimeoutDisabled {
+			t.Fatalf("Windows patch_edit %s timeout tier = %s, want disabled", action, got)
+		}
+		wantOther := middleware.TierNormal
+		if action == "replace_range" {
+			wantOther = toolTimeoutDisabled
+		}
+		if got := patchEditTimeoutTierForOS(params, "linux"); got != wantOther {
+			t.Fatalf("Linux patch_edit %s timeout tier = %s, want unchanged %s", action, got, wantOther)
+		}
 	}
-	deadline, ok := patchEditDeadlineForAction(t, "rename")
-	if !ok {
-		t.Fatal("patch_edit rename context deadline missing")
-	}
-	assertDeadlineNear(t, deadline, middleware.TierNormal, "rename")
 }
 
 func patchEditDeadlineForAction(t *testing.T, action string) (time.Time, bool) {
@@ -457,3 +422,75 @@ func requireInstallerMarkerPresent(t *testing.T, marker string) {
 		t.Fatalf("stat installer marker: %v", err)
 	}
 }
+
+func TestFileReadKeepsNormalTimeoutTier(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		_, ok := fileToolDeadlineForAction(t, "read_file")
+		if ok {
+			t.Fatal("Windows file read_file received an outer tool deadline")
+		}
+		return
+	}
+	deadline, ok := fileToolDeadlineForAction(t, "read_file")
+	if !ok {
+		t.Fatal("file read_file context deadline missing")
+	}
+	assertDeadlineNear(t, deadline, middleware.TierNormal, "read_file")
+}
+
+func TestSemanticInspectAndStructureAutoInstallMissingBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping POSIX shell installer test on windows")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write go fixture: %v", err)
+	}
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir)
+	marker := filepath.Join(t.TempDir(), "installer-ran")
+	t.Setenv("INSTALL_MARKER", marker)
+	t.Setenv("FAKE_BIN_DIR", binDir)
+	installScript := filepath.Join(t.TempDir(), "install-lsp")
+	if err := os.WriteFile(installScript, []byte("#!/bin/sh\nset -eu\n: >> \"$INSTALL_MARKER\"\ntarget=\"$1\"\nprintf '#!/bin/sh\\nexit 0\\n' > \"$FAKE_BIN_DIR/$target\"\n/bin/chmod +x \"$FAKE_BIN_DIR/$target\"\n"), 0o755); err != nil {
+		t.Fatalf("write fake installer: %v", err)
+	}
+	inst := lspinstaller.NewProvider()
+	inst.Register("go", lspinstaller.InstallerConfig{BinaryName: "gopls", InstallCmd: installScript, InstallArgs: []string{"gopls"}, AllowInstallCommand: true})
+	inst.Register("typescript", lspinstaller.InstallerConfig{BinaryName: "typescript-language-server", InstallCmd: installScript, InstallArgs: []string{"typescript-language-server"}, AllowInstallCommand: true})
+	registry := lspmanager.NewRegistryWithInstaller(inst)
+	registry.Register("go", &structureTestManager{})
+	registry.Register("typescript", &structureTestManager{})
+
+	t.Run("inspect", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{"action": "hover", "pos": filepath.Join(root, "main.go") + ":1:1"})
+		if _, err := NewInspectHandler(registry)(testToolContext(root), payload); err != nil {
+			t.Fatalf("inspect handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
+	})
+	t.Run("structure", func(t *testing.T) {
+		payload := mustMarshalToolPayload(t, map[string]any{"action": "workspace_symbol", "language": "typescript", "query": "anything"})
+		if _, err := NewStructureHandler(registry)(testToolContext(root), payload); err != nil {
+			t.Fatalf("structure handler error = %v, want auto-install success", err)
+		}
+		requireInstallerMarkerPresent(t, marker)
+	})
+}
+
+func TestNormalizePlatformWorkDirConvertsWindowsAbsolutePathForWSL(t *testing.T) {
+	got := normalizeWSLWorkDir(`C:\Users\ai06\Desktop\Super-Dolphin`)
+	want := "/mnt/c/Users/ai06/Desktop/Super-Dolphin"
+	if got != want {
+		t.Fatalf("normalizeWSLWorkDir() = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizePlatformWorkDirPreservesLinuxAndRelativePaths(t *testing.T) {
+	for _, path := range []string{"/workspace/project", "relative/project", `not:a\path`} {
+		if got := normalizeWSLWorkDir(path); got != path {
+			t.Fatalf("normalizeWSLWorkDir(%q) = %q, want unchanged", path, got)
+		}
+	}
+}
+

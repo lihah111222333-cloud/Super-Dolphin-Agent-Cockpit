@@ -47,9 +47,11 @@ type TextSearchOptions struct {
 
 // ASTSearchOptions 描述 ast-grep 搜索输入，Language 为空时按目标路径推断。
 type ASTSearchOptions struct {
-	Root, Path, Glob, Query  string
-	Roots, Paths             []string
-	Language                 string
+	Root, Path, Glob, Query string
+	Roots, Paths            []string
+	Language                string
+	// CommandPath 是经过生产 provision 与 readiness 校验的绝对 ast-grep 命令路径；为空时保留系统 PATH 行为。
+	CommandPath              string
 	MaxResults, MaxFileBytes int
 }
 
@@ -180,9 +182,9 @@ func searchAST(ctx context.Context, opts ASTSearchOptions, collector *searchMatc
 			return err
 		}
 		if isLikelyNodeType(query) {
-			err = runSGKindSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, collector, searchPath.explicitHiddenRoot)
+			err = runSGKindSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, collector, searchPath.explicitHiddenRoot, opts.CommandPath)
 		} else {
-			err = runSGPatternSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, collector, searchPath.explicitHiddenRoot)
+			err = runSGPatternSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, collector, searchPath.explicitHiddenRoot, opts.CommandPath)
 		}
 		if errors.Is(err, errSearchResultsLimitReached) {
 			break
@@ -480,14 +482,14 @@ func scanSearchTextFile(ctx context.Context, candidate, searchRoot string, maxFi
 	return scanner.Err()
 }
 
-func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glob string, collector *searchMatchCollector, explicitHiddenRoot string) error {
+func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glob string, collector *searchMatchCollector, explicitHiddenRoot, commandPath string) error {
 	args := []string{"run", "--pattern", query, "--lang", astGrepLanguageID(language), "--json=stream"}
 	if glob := strings.TrimSpace(glob); glob != "" {
 		args = append(args, "--globs", glob)
 	}
 	args = append(args, absPath)
 
-	return runSGStreaming(ctx, "sg run", args, root, collector, explicitHiddenRoot, decodeSGMatchesReader)
+	return runSGStreaming(ctx, "sg run", args, root, collector, explicitHiddenRoot, commandPath, decodeSGMatchesReader)
 }
 
 // isLikelyNodeType 判断 query 是否像 tree-sitter 节点类型而不是 ast-grep 代码模式。
@@ -501,7 +503,7 @@ func isLikelyNodeType(query string) bool {
 
 // runSGKindSearch 通过临时 ast-grep rule 按 tree-sitter kind 搜索节点。
 // `sg scan --json` 输出数组，因此结果解码路径与 `sg run --json=stream` 分开处理。
-func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string, collector *searchMatchCollector, explicitHiddenRoot string) error {
+func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string, collector *searchMatchCollector, explicitHiddenRoot, commandPath string) error {
 	rule := fmt.Sprintf("id: kind-search\nlanguage: %s\nrule:\n  kind: %s\n", astGrepLanguageID(language), kind)
 
 	tmpFile, err := os.CreateTemp("", "sg-rule-*.yml")
@@ -524,17 +526,24 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 	args = append(args, absPath)
 
 	// sg scan --json 输出 JSON 数组，不是 sg run --json=stream 的逐行 JSON。
-	return runSGStreaming(ctx, "sg scan", args, root, collector, explicitHiddenRoot, decodeSGScanMatchesReader)
+	return runSGStreaming(ctx, "sg scan", args, root, collector, explicitHiddenRoot, commandPath, decodeSGScanMatchesReader)
 }
 
 type sgDecodeFunc func(io.Reader, string, *searchMatchCollector, string, context.CancelFunc) error
 
 // runSGStreaming 启动 ast-grep 并边读 stdout 边解码命中。
 // 旧模式达到上限时取消命令；精确计数模式继续排空流但只保留有限命中。
-func runSGStreaming(ctx context.Context, label string, args []string, root string, collector *searchMatchCollector, explicitHiddenRoot string, decode sgDecodeFunc) error {
+// commandPath 为空时沿用 PATH；非空时必须是生产自动安装器确认过的绝对路径。
+func runSGStreaming(ctx context.Context, label string, args []string, root string, collector *searchMatchCollector, explicitHiddenRoot, commandPath string, decode sgDecodeFunc) error {
 	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := hiddenCommandContext(cmdCtx, "sg", args...)
+	command := strings.TrimSpace(commandPath)
+	if command == "" {
+		command = "sg"
+	} else if !filepath.IsAbs(command) {
+		return fmt.Errorf("%s command path must be absolute: %q", label, command)
+	}
+	cmd := hiddenCommandContext(cmdCtx, command, args...)
 	cmd.Dir = root
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

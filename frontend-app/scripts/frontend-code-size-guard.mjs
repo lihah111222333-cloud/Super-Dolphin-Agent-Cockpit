@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import { parse as parseJavaScriptSource } from '@babel/parser';
 import { canonicalViolationSignature, isCanonicalFullScan, sameCanonicalViolationBudget } from './lib/frontend-code-size-baseline.mjs';
 import { assertFrontendCodeSizeBaselineSchema, BASELINE_PUBLIC_ERROR_CONTRACT_REJECTED_PROJECTION, formatBaselineTransactionErrorForStderr, hashBaselineBytes } from './lib/frontend-code-size-baseline-transaction.mjs';
 import * as guardRunner from './lib/frontend-code-size-guard-runner.mjs';
 
-const appRoot = guardRunner.resolveFrontendCodeSizeAppRoot(path.resolve(new URL('..', import.meta.url).pathname));
+// 默认根目录是跨平台公共入口；Node 的本地模块目录同时兼容直接执行与 Vitest 加载。
+const appRoot = guardRunner.resolveFrontendCodeSizeAppRoot(path.resolve(import.meta.dirname, '..'));
 const baselinePath = path.join(appRoot, '.frontend_code_size_guard_baseline.json');
 const baselineTestPath = path.join(appRoot, '.frontend_code_size_guard_baseline_test.json');
 
@@ -155,7 +155,7 @@ function makeViolation(file, line, rule, message) {
 }
 
 function rulesForSource(relFile, source, limits = FRONTEND_CODE_SIZE_LIMITS) {
-  const lines = source.split('\n');
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
   const violations = [];
   const testFile = isFrontendTestFile(relFile);
   const effectiveLines = countEffectiveLines(lines);
@@ -608,7 +608,7 @@ function main() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (path.resolve(process.argv[1] || '') === import.meta.filename) {
   try {
     main();
   } catch (error) {

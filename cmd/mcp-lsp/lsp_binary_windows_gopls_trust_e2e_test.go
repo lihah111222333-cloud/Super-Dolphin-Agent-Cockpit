@@ -13,7 +13,7 @@ import (
 
 // super-dolphin-ci: compile-group-exclusive
 func TestWindowsLSPBundleRejectsTamperedGoplsSHA256E2E(t *testing.T) {
-	install := buildWindowsGoplsTestInstall(t)
+	install := buildWindowsGoplsShortIdlePrecheckTestInstall(t)
 	writeWindowsGoplsManifest(t, install, strings.Repeat("0", sha256.Size*2))
 	root := t.TempDir()
 	target := writeFakeGoplsGoFixture(t, root)

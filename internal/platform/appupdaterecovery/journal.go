@@ -12,7 +12,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
+
 
 const journalSchemaVersion = 2
 
@@ -297,7 +300,7 @@ func atomicWrite(path string, raw []byte) (err error) {
 	if err := os.Rename(tempPath, path); err != nil {
 		return fmt.Errorf("replace update transaction journal: %w", err)
 	}
-	return syncDirectory(dir)
+	return securefs.SyncDirectory(dir)
 }
 
 func closeJournalTemp(temp *os.File, cause error) error {
@@ -308,15 +311,3 @@ func closeJournalTemp(temp *os.File, cause error) error {
 	return errors.Join(cause, closeErr)
 }
 
-func syncDirectory(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open directory for fsync %s: %w", path, err)
-	}
-	syncErr := dir.Sync()
-	closeErr := dir.Close()
-	if err := errors.Join(syncErr, closeErr); err != nil {
-		return fmt.Errorf("fsync directory %s: %w", path, err)
-	}
-	return nil
-}

@@ -434,12 +434,21 @@ func validateFilesystemWorkerResponse(response filesystemWorkerResponse, operati
 
 // filesystemWorkerResponseError 校验 worker 错误响应并恢复初始化失败分类。
 func filesystemWorkerResponseError(response filesystemWorkerResponse) error {
+	permissionFieldsErr := validateFilesystemWorkerPermissionFields(response.Error)
 	if response.PayloadBytes != 0 || !validFilesystemWorkerErrorCode(response.Error.Code) ||
 		strings.TrimSpace(response.Error.Message) == "" ||
-		!validInitializationFailureClass(response.Error.FailureClass) {
+		!validInitializationFailureClass(response.Error.FailureClass) ||
+		permissionFieldsErr != nil {
 		return newDiagnostic(CodeProtocolViolation, "schema filesystem worker error response is invalid", nil)
 	}
-	diagnostic := newDiagnostic(response.Error.Code, response.Error.Message, nil)
+	permissionCause, err := filesystemWorkerPermissionCause(
+		response.Error.WindowsErrorCode,
+		response.Error.WindowsPermissionKind,
+	)
+	if err != nil {
+		return newDiagnostic(CodeProtocolViolation, "schema filesystem worker permission fields are invalid", nil)
+	}
+	diagnostic := newDiagnostic(response.Error.Code, response.Error.Message, permissionCause)
 	if response.Error.FailureClass == InitializationFailureStable {
 		return StableInitializationError(diagnostic)
 	}

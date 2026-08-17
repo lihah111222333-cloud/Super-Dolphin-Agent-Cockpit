@@ -12,7 +12,9 @@ import (
 	"sync"
 
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
+
 
 const generationOwnerMetaID = 1
 
@@ -284,7 +286,7 @@ func writeGenerationOwnerMarker(path, epoch string) error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close mcpcontrol generation owner marker: %w", err)
 	}
-	if err := syncGenerationDirectory(filepath.Dir(path)); err != nil {
+	if err := securefs.SyncDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
 	ok = true
@@ -308,14 +310,3 @@ func nextGeneration(latest map[string]uint64, instanceID string, resumeFrom *uin
 	return current, nil
 }
 
-func syncGenerationDirectory(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open mcpcontrol generation directory: %w", err)
-	}
-	defer dir.Close()
-	if err := dir.Sync(); err != nil {
-		return fmt.Errorf("sync mcpcontrol generation directory: %w", err)
-	}
-	return nil
-}

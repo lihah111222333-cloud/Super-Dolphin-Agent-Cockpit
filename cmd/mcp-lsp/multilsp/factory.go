@@ -49,8 +49,8 @@ type snapshotSyncRequest struct {
 	scope                   ResolvedLSPToolScope
 }
 
-// requestDocument 为单文档 LSP 工具租用 client、构造参数并解码响应。
-// 缺少真实 client 时只走调用方提供的 missing 分支，避免把不支持能力伪装成空结果。
+// requestDocument 为单文档 LSP 工具租用 client、按公共能力快照门禁、构造参数并解码响应。
+// 该协议边界跨平台共享；缺少真实 client 时只走调用方提供的 missing 分支，避免把不支持能力伪装成空结果。
 func requestDocument[T any](
 	ctx context.Context,
 	m *manager,
@@ -70,6 +70,50 @@ func requestDocument[T any](
 			return zero, nil
 		}
 		return missing(ref)
+	}
+	return requestDocumentForClientWithCapability(ctx, m, client, ref, method, build, decode, clientMethodCapabilityGuard(method))
+}
+
+// requestDocumentWithCapability 在发送文档请求前按 initialize 能力快照做一次门禁。
+// 未知旧客户端不设置 guard，保持原有请求路径；已知明确不支持时必须返回结构化错误。
+func requestDocumentWithCapability[T any](
+	ctx context.Context,
+	m *manager,
+	uri string,
+	method string,
+	build documentParamsBuilder,
+	decode documentDecodeFunc[T],
+	missing documentMissingFunc[T],
+	guard func(Client) bool,
+) (T, error) {
+	var zero T
+	client, ref, err := m.documentClientWithoutDiagnosticsWait(ctx, uri)
+	if err != nil {
+		return zero, err
+	}
+	if client == nil {
+		if missing == nil {
+			return zero, nil
+		}
+		return missing(ref)
+	}
+	return requestDocumentForClientWithCapability(ctx, m, client, ref, method, build, decode, guard)
+}
+
+// requestDocumentForClientWithCapability 是已租用文档 client 的发送边界，供能力门禁测试验证未发出 RPC。
+func requestDocumentForClientWithCapability[T any](
+	ctx context.Context,
+	m *manager,
+	client Client,
+	ref documentRef,
+	method string,
+	build documentParamsBuilder,
+	decode documentDecodeFunc[T],
+	guard func(Client) bool,
+) (T, error) {
+	var zero T
+	if guard != nil && !guard(client) {
+		return zero, unsupportedCapabilityErrorForAdvertisedMethod(method, client)
 	}
 	raw, err := m.request(ctx, client, method, buildDocumentParams(ref, build))
 	if err != nil {
@@ -132,7 +176,7 @@ func (m *manager) callWithPooledClient(client Client, fn func() error) (error, e
 }
 
 // queryHierarchy 统一执行 call/type hierarchy 的 prepare 和方向查询。
-// prepare 为空时可按语言策略重试，最终仍为空则返回空结果而不是猜测层级。
+// prepare 在发送前遵守公共能力门禁；已声明请求为空时可按语言策略重试，最终仍为空则不猜测层级。
 func queryHierarchy[I any, R any](
 	ctx context.Context,
 	m *manager,
@@ -279,6 +323,16 @@ func unsupportedCapabilityErrorForMethod(err error, method string, client Client
 	}
 }
 
+func unsupportedCapabilityErrorForAdvertisedMethod(method string, client Client) error {
+	return &common.CodedToolError{
+		Err:       fmt.Errorf("%w: %s", lspmanager.ErrUnsupportedCapability, method),
+		Code:      "capability_unsupported",
+		Retryable: false,
+		Hint:      "next: use a language server that advertises or dynamically registers " + method,
+		Meta:      capabilityErrorMeta(method, client),
+	}
+}
+
 func hasFatalCapabilitySibling(err error) bool {
 	for err != nil {
 		if joined, ok := err.(interface{ Unwrap() []error }); ok {
@@ -395,7 +449,21 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	}
 	defer operation.release()
 	if err := c.applySnapshotUpdate(ctx, m, client, cfg, snapshot, &req); err != nil {
-		return err
+		// 仅首次 bootstrap/open-only hydration 允许一次 Windows Win122 恢复。
+		// DidChange、forceReopen、普通 dead client 和第二次失败均保持 fail-fast。
+		if req.forceReopen || (!req.openOnly && req.previous != "") || !shouldRecoverBootstrapDidOpenWin122(ctx, client, err) {
+			return err
+		}
+		replacement, rebuildErr := m.rebuildClientAfterFailure(ctx, client, false)
+		if rebuildErr != nil {
+			return errors.Join(err, fmt.Errorf("bootstrap Win122 client rebuild: %w", rebuildErr))
+		}
+		if replacement == nil {
+			return errors.Join(err, ErrClientClosed)
+		}
+		if retryErr := c.applySnapshotUpdate(ctx, m, replacement, cfg, snapshot, &req); retryErr != nil {
+			return errors.Join(err, fmt.Errorf("bootstrap Win122 replay: %w", retryErr))
+		}
 	}
 	return c.withMutation(func() error {
 		if err := c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version)); err != nil {

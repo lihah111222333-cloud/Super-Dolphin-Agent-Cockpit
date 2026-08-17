@@ -100,7 +100,7 @@ Manual smoke checklist:
 ```text
 1. Start app normally; tracing is enabled in safe mode by default. Set `OBS_TRACING_ENABLED=0` only when intentionally disabling tracing.
 2. Send one message.
-3. Locate ~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl.
+3. Locate ~/.super-dolphin/log/<project>/traces/trace-YYYY-MM-DD.jsonl.
 4. Confirm trace directory/file permissions are owner-only where supported.
 5. Confirm frontend/Wails/RPC/turn events share a trace id.
 6. Query Dashboard by trace id.

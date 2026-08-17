@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -77,7 +76,7 @@ func TraceDirectory(project string) (string, error) {
 	if strings.TrimSpace(home) == "" {
 		return "", errors.New("resolve user home for trace directory: empty home")
 	}
-	return filepath.Join(home, ".multi-agent", "log", project, "traces"), nil
+	return filepath.Join(home, ".super-dolphin", "log", project, "traces"), nil
 }
 
 // Append 脱敏并追加一条 trace event。
@@ -225,17 +224,6 @@ func ensureTraceDirectory(dir string) error {
 		return fmt.Errorf("create trace directory %s: %w", dir, err)
 	}
 	return chmodOwnerOnly(dir, traceDirPerm)
-}
-
-// chmodOwnerOnly 在支持 chmod 的平台上限制文件或目录仅当前用户可访问。
-func chmodOwnerOnly(path string, perm os.FileMode) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	if err := os.Chmod(path, perm); err != nil {
-		return fmt.Errorf("set owner-only permissions on %s: %w", path, err)
-	}
-	return nil
 }
 
 // ApplyTraceRetention 删除过期 trace 文件，并按总大小继续裁剪最旧文件。

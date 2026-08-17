@@ -121,11 +121,19 @@ func runtimeServerWindowsSelfInstallRoot() (string, error) {
 		!strings.EqualFold(filepath.Base(filepath.Dir(installDir)), "bin") {
 		return "", errors.New("Windows mcp-lsp executable must be installed under the package bin directory")
 	}
-	switch strings.ToLower(filepath.Base(self)) {
-	case "mcp-lsp-windows-arm.exe", "mcp-lsp-windows-x86.exe":
+	if runtimeServerWindowsSkillDeliveryNameAllowed(filepath.Base(self)) {
 		return installDir, nil
+	}
+	return "", errors.New("Windows skill delivery mcp-lsp executable name is invalid")
+}
+
+// runtimeServerWindowsSkillDeliveryNameAllowed 要求跨平台包文件名一眼可见 Windows 平台及 ARM64、x64 或 x86 架构。
+func runtimeServerWindowsSkillDeliveryNameAllowed(name string) bool {
+	switch strings.ToLower(name) {
+	case "mcp-lsp-windows-arm64.exe", "mcp-lsp-windows-x64.exe", "mcp-lsp-windows-x86.exe":
+		return true
 	default:
-		return "", errors.New("Windows skill delivery mcp-lsp executable name is invalid")
+		return false
 	}
 }
 

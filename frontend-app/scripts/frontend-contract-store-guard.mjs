@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
+// 公共门禁直接使用 Node 的本地模块目录，不能把 Windows /C:/... URL pathname 当成本地路径。
+const appRoot = path.resolve(import.meta.dirname, '..');
 const sourceExtensionPattern = /\.[cm]?[jt]sx?$/;
 const guardedSourceRoots = Object.freeze(['src']);
 
@@ -504,7 +504,7 @@ export function contractStoreGuardRatchetFailures(violations, limits = ratchetLi
     .filter((entry) => entry.count > entry.limit);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (path.resolve(process.argv[1] || '') === import.meta.filename) {
   const violations = collectContractStoreGuardViolations();
   const failures = contractStoreGuardRatchetFailures(violations);
   if (failures.length > 0) {

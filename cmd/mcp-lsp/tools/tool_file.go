@@ -41,12 +41,15 @@ var errManagerUnavailable = errors.New("lsp manager is not configured; use read_
 type Config struct {
 	WorkspaceRoot string
 	Registry      lspmanager.Registry
+	// EnsureASTGrep 在 Windows 返回已校验的绝对 ast-grep 命令路径；nil 时保留其他平台的既有行为。
+	EnsureASTGrep func(context.Context) (string, error)
 }
 
 // handlerBase 保存文件类工具共享的根目录和 LSP registry。
 type handlerBase struct {
-	root     string
-	registry lspmanager.Registry
+	root          string
+	registry      lspmanager.Registry
+	ensureASTGrep func(context.Context) (string, error)
 }
 
 // resultMeta 是空列表响应的统一元信息。
@@ -145,6 +148,18 @@ func warnFileReadFailure(action, root, rawPath string, err error) {
 	pkglogger.Get().Warn("mcp-lsp: file cwd failure", fields...)
 }
 
+// logOpenFileStage 记录 open_file 的 manager/install 与 DidOpen 边界；路径和错误只写安全摘要，避免诊断日志泄露用户路径。
+func logOpenFileStage(stage, languageID, filePath string, err error) {
+	fields := []any{"stage", stage, "language_id", strings.TrimSpace(languageID)}
+	fields = append(fields, platformshared.SafePathLogFields("file_path", strings.TrimSpace(filePath))...)
+	if err != nil {
+		fields = append(fields, platformshared.SafePayloadLogFields("error", err.Error())...)
+		pkglogger.Get().Warn("mcp-lsp: open_file stage", fields...)
+		return
+	}
+	pkglogger.Get().Info("mcp-lsp: open_file stage", fields...)
+}
+
 // NewFileHandler 创建 file 工具处理器，支持 open_file、read_file 和 diagnostics。
 func NewFileHandler(cfg Config) Handler {
 	handler := handlerBase{
@@ -154,7 +169,10 @@ func NewFileHandler(cfg Config) Handler {
 	return Handler(wrapToolHandlerWithTimeoutResolver("file", middleware.TierNormal, fileToolTimeoutTier, handler.handleFile))
 }
 
-func fileToolTimeoutTier(params json.RawMessage) time.Duration {
+// fileToolTimeoutTierForOS 是故意保留在公共文件中的纯策略函数：调用方显式传入
+// 目标 OS，便于同一测试矩阵验证两个平台族。diagnostics 在所有平台关闭外层 deadline；
+// Windows 的 open_file/read_file 还允许锁定语言服务冷安装完成，其他平台保留 tier deadline。
+func fileToolTimeoutTierForOS(params json.RawMessage, goos string) time.Duration {
 	var input struct {
 		Action string `json:"action"`
 	}
@@ -162,7 +180,8 @@ func fileToolTimeoutTier(params json.RawMessage) time.Duration {
 		return middleware.TierNormal
 	}
 	action := normalizeAction(input.Action)
-	if action == "diagnostics" {
+	if action == "diagnostics" ||
+		(windowsColdInstallOuterTimeoutDisabled(goos) && (action == "open_file" || action == "read_file")) {
 		return toolTimeoutDisabled
 	}
 	return middleware.TierNormal
@@ -259,10 +278,13 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 		return openFileResult{}, err
 	}
 	uri := fileURI(file.Path.AbsPath)
+	logOpenFileStage("manager_for_file_begin", languageID, file.Path.AbsPath, nil)
 	manager, err := managerForFile(ctx, h.registry, file.Path.AbsPath, languageID)
 	if err != nil {
+		logOpenFileStage("manager_for_file_error", languageID, file.Path.AbsPath, err)
 		return openFileResult{}, err
 	}
+	logOpenFileStage("manager_for_file_ready", languageID, file.Path.AbsPath, nil)
 	openLanguageID := normalizeLanguageIDOverride(languageID)
 	if openLanguageID == "" {
 		openLanguageID = lspmanager.DetectLanguageID(file.Path.AbsPath)
@@ -270,14 +292,30 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	if openLanguageID == sqliteSQLLanguageID {
 		openLanguageID = "sql"
 	}
-	if err := manager.DidOpen(ctx, uri, openLanguageID, 1, file.Content); err != nil {
-		return openFileResult{}, fmt.Errorf("open_file DidOpen %s: %w", file.Path.DisplayPath, err)
+	logOpenFileStage("did_open_begin", openLanguageID, file.Path.AbsPath, nil)
+	didOpenErr := manager.DidOpen(ctx, uri, openLanguageID, 1, file.Content)
+	if shouldRetryOpenFileBootstrap(ctx, didOpenErr) {
+		// 首次冷启动 initialize 超时后，manager 已清理失败 client；重试会取得新的真实 client。
+		didOpenErr = manager.DidOpen(ctx, uri, openLanguageID, 1, file.Content)
 	}
+	if didOpenErr != nil {
+		logOpenFileStage("did_open_error", openLanguageID, file.Path.AbsPath, didOpenErr)
+		return openFileResult{}, fmt.Errorf("open_file DidOpen %s: %w", file.Path.DisplayPath, didOpenErr)
+	}
+	logOpenFileStage("did_open_ready", openLanguageID, file.Path.AbsPath, nil)
 	return openFileResult{
 		Status:   "opened",
 		FilePath: file.Path.DisplayPath,
 		Bytes:    len(file.Content),
 	}, nil
+}
+
+// shouldRetryOpenFileBootstrap 只恢复未取消上下文中的冷启动 initialize 超时；路径、ACL、协议和语义错误必须直接失败。
+func shouldRetryOpenFileBootstrap(ctx context.Context, err error) bool {
+	if err == nil || ctx == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return strings.Contains(err.Error(), "initialize LSP client")
 }
 
 func shouldUseLanguageOverrideDiagnostics(input fileToolInput, targets []diagnosticTarget) bool {
@@ -641,7 +679,11 @@ func appendMessage(current, extra string) string {
 
 // fileURI 把本地绝对路径转换成 LSP file URI。
 func fileURI(absPath string) string {
-	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(absPath)}).String()
+	path := filepath.ToSlash(absPath)
+	if filepath.VolumeName(absPath) != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return (&url.URL{Scheme: "file", Path: path}).String()
 }
 
 // minInt 返回两个整数中的较小值。

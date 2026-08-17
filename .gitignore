@@ -51,6 +51,7 @@ test-results/
 
 # Go build cache
 /vendor/
+/.tmp-go-cache/
 
 # IDE
 .idea/
@@ -106,6 +107,8 @@ __pycache__/
 
 # Logs
 /logs/
+/npm-err.txt
+/npm-out.txt
 
 # Worktrees
 /.worktrees/
@@ -113,9 +116,9 @@ __pycache__/
 /.lsp-target
 
 # Added by Agent
+/.agent/
 /.workspace/
-/.build-cache/
-/cmd/agent-terminal/frontend/.build-cache/
+**/.build-cache/
 /cmd/agent-terminal/frontend/.vite-cache/
 /.agnet/report/
 docs/doc/ai-index.json

@@ -11,6 +11,10 @@ import (
 // 工具层收到该错误时应提示调用方稍后重试，而不是返回空诊断假装成功。
 var ErrDiagnosticsNotReady = errors.New("diagnostics not ready")
 
+// ErrSemanticTokensLegendUnavailable 表示服务端声明了 semantic tokens 但没有可解码 legend。
+// 工具层据此返回 typed capability_unsupported；其他 LSP 协议错误仍原样失败。
+var ErrSemanticTokensLegendUnavailable = errors.New("semantic tokens legend unavailable")
+
 // Manager 聚合 mcp-lsp 工具需要的全部 LSP 能力。
 // 具体实现可拆分组合这些小接口，注册表只依赖该跨模块入口。
 type Manager interface {

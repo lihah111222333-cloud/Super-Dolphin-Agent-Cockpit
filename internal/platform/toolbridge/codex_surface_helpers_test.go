@@ -3,8 +3,11 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +17,17 @@ import (
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 )
+
+// portableToolbridgeTestCWD 返回按当前系统路径规则可识别的绝对测试目录。
+// 公共测试不得把 Unix 风格伪绝对路径当成 Windows 上的有效 CWD。
+func portableToolbridgeTestCWD(parts ...string) string {
+	base := filepath.Join(os.TempDir(), "super-dolphin-toolbridge-tests")
+	absolute, err := filepath.Abs(filepath.Join(append([]string{base}, parts...)...))
+	if err != nil {
+		panic("resolve portable toolbridge test CWD: " + err.Error())
+	}
+	return absolute
+}
 
 func legacyScopedToolCallParams(name string) json.RawMessage {
 	payload := map[string]any{
@@ -124,6 +138,11 @@ func prepareCodexToolSurfaceForTest(
 	scope contract.CodexToolSurfaceScope,
 ) ([]contract.DynamicToolSchema, error) {
 	t.Helper()
+	// 历史测试使用 /repo 表示逻辑工作区；在 Windows 上它不是绝对路径。
+	// 仅测试适配器把这种非空伪路径换成系统原生绝对路径，生产入口仍严格拒绝。
+	if strings.TrimSpace(scope.CWD) != "" && normalizeToolCallCWD(scope.CWD) == "" {
+		scope.CWD = portableToolbridgeTestCWD("surface")
+	}
 	if h.authorityOwner == nil {
 		h.authorityOwner = newTask4BAuthorityOwner()
 	}

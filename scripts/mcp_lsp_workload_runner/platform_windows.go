@@ -40,6 +40,6 @@ func windowsIdleQuickHostCommand() []string {
 func windowsDefault15mSourceCommand() []string {
 	return []string{
 		"go", "test", "./cmd/mcp-lsp", "-tags=e2e",
-		"-run", "^TestMcpLSPBinaryWindowsGoplsDefault15mIdleReclaimsSharedDaemonE2E$", "-count=1",
+		"-run", "^TestMcpLSPBinaryWindowsGoplsDefault15mIdleReclaimsSharedDaemonE2E$", "-timeout=20m", "-count=1",
 	}
 }

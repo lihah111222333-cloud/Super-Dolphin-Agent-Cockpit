@@ -1,12 +1,10 @@
 package multilsp
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -634,76 +632,6 @@ func goEnvForToolchainProbe(t *testing.T) []string {
 
 func writeFakeGoVersion(t *testing.T, root, name, output string) string {
 	return writeFakeGoOutput(t, root, name, output)
-}
-
-func writeFakeGoOutput(t *testing.T, root, name, output string) string {
-	t.Helper()
-	dir := filepath.Join(root, name)
-	if runtime.GOOS == "windows" {
-		path := filepath.Join(dir, "go.exe")
-		buildWindowsFakeGo(t, path, fmt.Sprintf("package main\nimport \"fmt\"\nfunc main() { fmt.Print(%q) }\n", output))
-		return dir
-	}
-	body := "#!/bin/sh\nprintf '%s' '" + strings.ReplaceAll(output, "'", "'\\''") + "'\n"
-	path := filepath.Join(dir, "go")
-	writeFile(t, path, body)
-	if err := os.Chmod(path, 0o755); err != nil {
-		t.Fatalf("chmod fake go: %v", err)
-	}
-	return dir
-}
-
-func writeCWDDependentFakeGoVersion(t *testing.T, root, name, requiredDir, matchingOutput, fallbackOutput string) string {
-	t.Helper()
-	dir := filepath.Join(root, name)
-	if runtime.GOOS == "windows" {
-		path := filepath.Join(dir, "go.exe")
-		body := fmt.Sprintf(`package main
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-)
-func main() {
-	cwd, _ := os.Getwd()
-	if strings.EqualFold(filepath.Clean(cwd), filepath.Clean(%q)) && strings.EqualFold(os.Getenv("GOTOOLCHAIN"), "auto") {
-		fmt.Print(%q)
-		return
-	}
-	fmt.Print(%q)
-}
-`, requiredDir, matchingOutput, fallbackOutput)
-		buildWindowsFakeGo(t, path, body)
-		return dir
-	}
-	body := "#!/bin/sh\n" +
-		"if [ \"$PWD\" = '" + requiredDir + "' ] && [ \"$GOTOOLCHAIN\" = 'auto' ]; then\n" +
-		"  /bin/echo '" + matchingOutput + "'\n" +
-		"else\n" +
-		"  /bin/echo '" + fallbackOutput + "'\n" +
-		"fi\n"
-	path := filepath.Join(dir, "go")
-	writeFile(t, path, body)
-	if err := os.Chmod(path, 0o755); err != nil {
-		t.Fatalf("chmod cwd-sensitive fake go: %v", err)
-	}
-	return dir
-}
-
-func buildWindowsFakeGo(t *testing.T, path, source string) {
-	t.Helper()
-	sourcePath := filepath.Join(filepath.Dir(path), "main.go")
-	writeFile(t, sourcePath, source)
-	goPath, err := exec.LookPath("go.exe")
-	if err != nil {
-		t.Fatalf("locate Go executable for Windows fixture: %v", err)
-	}
-	cmd := exec.Command(goPath, "build", "-o", path, sourcePath)
-	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build Windows fake go: %v\n%s", err, output)
-	}
 }
 
 func writeGoFile(t *testing.T, dir, name string) string {

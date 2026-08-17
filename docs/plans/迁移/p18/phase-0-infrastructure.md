@@ -30,7 +30,7 @@
 - `BuildCtx` 只承载 prompt 计算所需只读上下文，不直接持有 provider DTO；最少应预留 `cwd/gitRoot/language/provider/model/enabledTools/additionalWorkingDirectories/mcpSnapshot/session flags`
 - `internal/module/*` 自身 outward interface 按 `contract.go` 落位；若接口会被 `internal/provider/*` 或 `cmd/mcp-*` 消费，则必须额外抽到 `internal/contract/*`，相关数据载荷抽到 `internal/dto/*`
 - 模块注册顺序按依赖方向固定：`memory.Module → prompt.Module → thread/turn/provider consumers`
-- `~/.multi-agent/memory/` 目录初始化放在 `fx.Invoke + Lifecycle.OnStart`，不要在 constructor 中做副作用；目录初始化 owner 统一为 `memory.Service.EnsureRoot`，如保留 `RootManager` 也只能委托 `Service.EnsureRoot`，不得再拥有独立目录初始化实现，避免双 owner 长期并存
+- `~/.super-dolphin/memory/` 目录初始化放在 `fx.Invoke + Lifecycle.OnStart`，不要在 constructor 中做副作用；目录初始化 owner 统一为 `memory.Service.EnsureRoot`，如保留 `RootManager` 也只能委托 `Service.EnsureRoot`，不得再拥有独立目录初始化实现，避免双 owner 长期并存
 
 ## 任务清单
 - [ ] 创建 `internal/module/memory/` 模块目录
@@ -39,7 +39,7 @@
 - [ ] 定义核心类型（见下方）
 - [ ] 定义 `memory.Config` / `prompt.Config` / `BuildCtx` 骨架
 - [ ] fx.Module 注册到应用
-- [ ] 创建 `~/.multi-agent/memory/` 目录管理工具
+- [ ] 创建 `~/.super-dolphin/memory/` 目录管理工具
 
 ## 核心类型
 

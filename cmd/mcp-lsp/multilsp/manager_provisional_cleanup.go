@@ -5,10 +5,15 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve"
@@ -16,6 +21,69 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
+
+func sameCleanPath(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func tracePathWithinRoot(root, target string) bool {
+	if root == "" || target == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+func workspaceRootCWDRelation(root, cwd string) string {
+	if sameCleanPath(root, cwd) {
+		return "self"
+	}
+	if tracePathWithinRoot(root, cwd) {
+		return "ancestor"
+	}
+	if tracePathWithinRoot(cwd, root) {
+		return "descendant"
+	}
+	return "unrelated"
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// recordResolvedScopeTrace 只保存 scope 组成的摘要/枚举，便于定位 key 漂移而不泄露路径或配置内容。
+func recordResolvedScopeTrace(m *manager, resolved ResolvedLSPToolScope) {
+	if m == nil {
+		return
+	}
+	m.resolvedManagerKeyDigest = provisionalWorkspaceHash(resolved.ManagerKey)
+	m.resolvedScopeKeyDigest = provisionalWorkspaceHash(resolved.ScopeKey)
+	m.resolvedWorkspaceKeyDigest = provisionalWorkspaceHash(resolved.WorkspaceKey)
+	m.resolvedAgentIDPresent = strings.TrimSpace(resolved.AgentID) != ""
+	m.resolvedThreadIDPresent = strings.TrimSpace(resolved.ThreadID) != ""
+	m.turnCallExcluded = true
+	m.workspaceRootEqualsCWD = sameCleanPath(resolved.WorkspaceRoot, resolved.CWD)
+	m.workspaceRootVsCWDRelation = workspaceRootCWDRelation(resolved.WorkspaceRoot, resolved.CWD)
+	m.workspaceRootDepth = strings.Count(filepath.Clean(resolved.WorkspaceRoot), string(filepath.Separator))
+	m.workspaceRootUTF16Units = len(utf16.Encode([]rune(resolved.WorkspaceRoot)))
+	m.targetWithinWorkspace = tracePathWithinRoot(resolved.WorkspaceRoot, resolved.TargetPath)
+	m.workspaceRootsCount = len(resolved.WorkspaceRoots)
+	if strings.EqualFold(resolved.LanguageID, "java") {
+		m.workspaceHasPOM = pathExists(filepath.Join(resolved.WorkspaceRoot, "pom.xml"))
+		m.workspaceHasGradle = pathExists(filepath.Join(resolved.WorkspaceRoot, "build.gradle")) || pathExists(filepath.Join(resolved.WorkspaceRoot, "build.gradle.kts"))
+		m.workspaceHasGradleKTS = pathExists(filepath.Join(resolved.WorkspaceRoot, "build.gradle.kts"))
+	}
+	m.resolvedLanguageID = resolved.LanguageID
+	m.resolvedRootKind = string(resolved.RootKind)
+	m.workspaceRootDigest = provisionalWorkspaceHash(resolved.WorkspaceRoot)
+	m.languageWorkspaceRootDigest = provisionalWorkspaceHash(resolved.LanguageWorkspaceRoot)
+	m.projectRootDigest = provisionalWorkspaceHash(resolved.ProjectRoot)
+	m.languageSpecificEmpty = len(resolved.LanguageSpecific) == 0
+	if encoded, err := json.Marshal(resolved.LanguageSpecific); err == nil {
+		m.languageSpecificDigest = provisionalWorkspaceHash(string(encoded))
+	}
+}
 
 // restoreDetachedWorkspaceClient 在进程级 Close 失败时归还唯一 cleanup owner。
 func restoreDetachedWorkspaceClient(mgr *manager, workspace *workspaceClient) {
@@ -31,6 +99,43 @@ func restoreDetachedWorkspaceClient(mgr *manager, workspace *workspaceClient) {
 		workspace.state = workspaceStateCleanupPending
 		workspace.idleSince = time.Time{}
 		mgr.workspaces[workspace.key] = workspace
+	}
+}
+
+// managerTraceFields 返回不含路径、命令行和协议内容的公共 manager 诊断字段。
+// tool_family/callsite 固定标识 manager.ensure_client；具体工具请求仍由外层调用日志绑定。
+func (m *manager) managerTraceFields() []any {
+	poolDigest := m.poolInstanceDigest
+	if poolDigest == "" && m.pool != nil {
+		poolDigest = provisionalWorkspaceHash(fmt.Sprintf("%p", m.pool))
+	}
+	return []any{
+		"pool_instance_id_digest", poolDigest,
+		"resolved_manager_key_digest", m.resolvedManagerKeyDigest,
+		"resolved_scope_key_digest", m.resolvedScopeKeyDigest,
+		"resolved_workspace_key_digest", m.resolvedWorkspaceKeyDigest,
+		"resolved_agent_id_present", m.resolvedAgentIDPresent,
+		"resolved_thread_id_present", m.resolvedThreadIDPresent,
+		"turn_call_excluded", m.turnCallExcluded,
+		"registry_instance_id_digest", provisionalWorkspaceHash(m.instanceID),
+		"tool_family", "lsp",
+		"callsite", "manager.ensure_client",
+		"resolved_language_id", m.resolvedLanguageID,
+		"resolved_root_kind", m.resolvedRootKind,
+		"workspace_root_equals_cwd", m.workspaceRootEqualsCWD,
+		"workspace_root_vs_cwd_relation", m.workspaceRootVsCWDRelation,
+		"workspace_root_depth", m.workspaceRootDepth,
+		"workspace_root_utf16_units", m.workspaceRootUTF16Units,
+		"target_within_workspace", m.targetWithinWorkspace,
+		"workspace_has_pom", m.workspaceHasPOM,
+		"workspace_has_gradle", m.workspaceHasGradle,
+		"workspace_has_gradle_kts", m.workspaceHasGradleKTS,
+		"workspace_roots_count", m.workspaceRootsCount,
+		"workspace_root_digest", m.workspaceRootDigest,
+		"language_workspace_root_digest", m.languageWorkspaceRootDigest,
+		"project_root_digest", m.projectRootDigest,
+		"language_specific_digest", m.languageSpecificDigest,
+		"language_specific_empty", m.languageSpecificEmpty,
 	}
 }
 
@@ -138,12 +243,43 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		return nil, err
 	}
 	generation := m.workspaceGeneration.Add(1)
+	// 这里只记录脱敏 scope 摘要与代际，帮助区分同一 MCP 下的 client replacement；
+	// 不写入 URI、绝对路径或命令行，保持跨平台日志语义一致。
+	if m.logger != nil {
+		fields := append([]any{"event", "create_begin", "manager_instance_id_digest", provisionalWorkspaceHash(m.instanceID), "workspace_config_key_digest", provisionalWorkspaceHash(cfg.key), "generation", generation, "language", cfg.languageID, "creation_reason", "ensure_client"}, m.managerTraceFields()...)
+		m.logger.Info("LSP client instance", fields...)
+	}
 	client, err := newClientFromFactory(m.factory, cfg, handler)
 	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("LSP client instance", "event", "create_failed", "manager_instance_id_digest", provisionalWorkspaceHash(m.instanceID), "workspace_config_key_digest", provisionalWorkspaceHash(cfg.key), "generation", generation, "language", cfg.languageID, "creation_reason", "ensure_client")
+		}
 		return nil, m.handleClientFactoryFailure(cfg.key, generation, err)
 	}
+	if m.logger != nil {
+		fields := append([]any{"event", "create_ready", "manager_instance_id_digest", provisionalWorkspaceHash(m.instanceID), "client_instance_id_digest", lspClientInstanceDigest(cfg, generation), "workspace_config_key_digest", provisionalWorkspaceHash(cfg.key), "generation", generation, "language", cfg.languageID, "transport_pid", lspClientTransportPID(client), "client_state", "provisional"}, m.managerTraceFields()...)
+		m.logger.Info("LSP client instance", fields...)
+	}
 	configureClientWorkspace(client, cfg)
-	if err := client.Initialize(ctx, cfg.rootURI); err != nil {
+	client, err = initializeClientWithWindows122Retry(
+		ctx,
+		client,
+		func(candidate Client) error { return candidate.Initialize(ctx, cfg.rootURI) },
+		func() (Client, error) {
+			generation = m.workspaceGeneration.Add(1)
+			if m.logger != nil {
+				m.logger.Info("LSP client instance", "event", "create_begin", "manager_instance_id_digest", provisionalWorkspaceHash(m.instanceID), "client_instance_id_digest", lspClientInstanceDigest(cfg, generation), "workspace_config_key_digest", provisionalWorkspaceHash(cfg.key), "generation", generation, "language", cfg.languageID, "creation_reason", "windows_122_startup_retry")
+			}
+			replacement, replacementErr := newClientFromFactory(m.factory, cfg, handler)
+			if replacementErr != nil {
+				return nil, m.handleClientFactoryFailure(cfg.key, generation, replacementErr)
+			}
+			configureClientWorkspace(replacement, cfg)
+			return replacement, nil
+		},
+		func(candidate Client) error { return m.cleanupProvisionalClient(cfg.key, generation, candidate, false) },
+	)
+	if err != nil {
 		cleanupErr := m.cleanupProvisionalClient(cfg.key, generation, client, false)
 		return nil, joinProvisionalClientError(fmt.Errorf("initialize LSP client: %w", err), cleanupErr)
 	}
@@ -155,10 +291,18 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		return nil, joinProvisionalClientError(ErrManagerClosed, cleanupErr)
 	}
 	if workspace := m.workspaces[cfg.key]; workspace != nil && workspace.client != nil {
+		if m.logger != nil {
+			fields := append([]any{"event", "registry_hit", "workspace_config_key_digest", provisionalWorkspaceHash(cfg.key), "generation", generation, "language", cfg.languageID, "client_state", "existing_wins"}, m.managerTraceFields()...)
+			m.logger.Info("LSP client instance", fields...)
+		}
 		existing := workspace.client
 		m.mu.Unlock()
 		cleanupErr := m.cleanupProvisionalClient(cfg.key, generation, client, true)
 		return existing, joinProvisionalClientError(nil, cleanupErr)
+	}
+	if m.logger != nil {
+		fields := append([]any{"event", "registry_miss", "workspace_config_key_digest", provisionalWorkspaceHash(cfg.key), "generation", generation, "language", cfg.languageID, "client_state", "registered"}, m.managerTraceFields()...)
+		m.logger.Info("LSP client instance", fields...)
 	}
 	attempt := newWorkspaceBootstrapAttempt(ctx)
 	m.workspaces[cfg.key] = &workspaceClient{
@@ -443,6 +587,21 @@ func (state pendingClientShutdown) workspaceHashValue() string {
 func provisionalWorkspaceHash(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:8])
+}
+
+// lspClientInstanceDigest 以 scope/language/generation 生成脱敏实例关联键；不写 URI
+// 或命令行，供 manager 与 transport 生命周期日志做内部关联。
+func lspClientInstanceDigest(cfg workspaceConfig, generation uint64) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", provisionalWorkspaceHash(cfg.key), cfg.languageID, generation)))
+	return hex.EncodeToString(sum[:8])
+}
+
+func lspClientTransportPID(client Client) int {
+	concrete, ok := concreteClient(client)
+	if !ok {
+		return 0
+	}
+	return concrete.serverProcessID()
 }
 
 // provisionalInstanceID 返回 manager 随机实例标识，确保 clone operation ID 不碰撞。

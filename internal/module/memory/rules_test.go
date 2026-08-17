@@ -339,8 +339,8 @@ func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"shared team directory",
-		memoryIndexPath(autoRoot),
-		memoryIndexPath(filepath.Join(autoRoot, teamMemoryRootDirName)),
+		filepath.ToSlash(memoryIndexPath(autoRoot)),
+		filepath.ToSlash(memoryIndexPath(filepath.Join(autoRoot, teamMemoryRootDirName))),
 	} {
 		if !strings.Contains(section.Content, snippet) {
 			t.Fatalf("combined memory section missing %q:\n%s", snippet, section.Content)

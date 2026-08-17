@@ -182,21 +182,21 @@ func TestInitializeFailureDoesNotLeaveStaleWorkspaceClient(t *testing.T) {
 	}
 }
 
-func TestGoRSSLimitUsesLanguageSpecificDefault(t *testing.T) {
-	if got := rssLimitBytesForLanguage("go"); got != defaultGoRSSLimitBytes {
-		t.Fatalf("rssLimitBytesForLanguage(go) = %d, want %d", got, defaultGoRSSLimitBytes)
+func TestPOSIXGoRSSLimitUsesLanguageSpecificDefault(t *testing.T) {
+	if got := rssLimitBytesForLanguageOnOS("go", "linux"); got != defaultGoRSSLimitBytes {
+		t.Fatalf("rssLimitBytesForLanguageOnOS(go, linux) = %d, want %d", got, uint64(defaultGoRSSLimitBytes))
 	}
 }
 
 func TestGenericRSSLimitUsesDefaultLimit(t *testing.T) {
 	if got := rssLimitBytesForLanguage("typescript"); got != defaultCohortHardLimitBytes {
-		t.Fatalf("rssLimitBytesForLanguage(typescript) = %d, want %d", got, defaultCohortHardLimitBytes)
+		t.Fatalf("rssLimitBytesForLanguage(typescript) = %d, want %d", got, uint64(defaultCohortHardLimitBytes))
 	}
 }
 
 func TestWindowsGoplsUsesStandaloneFourGiBProcessLimit(t *testing.T) {
 	if got := rssLimitBytesForLanguageOnOS("go", "windows"); got != defaultGoWindowsRSSLimitBytes {
-		t.Fatalf("Windows standalone gopls RSS limit = %d, want %d", got, defaultGoWindowsRSSLimitBytes)
+		t.Fatalf("Windows standalone gopls RSS limit = %d, want %d", got, uint64(defaultGoWindowsRSSLimitBytes))
 	}
 }
 

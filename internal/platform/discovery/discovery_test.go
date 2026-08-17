@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,12 +22,8 @@ func TestWriteDiscoveryFileUsesOwnerOnlyPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
 	}
-	if runtime.GOOS == "windows" {
-		return
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("mode = %o, want 600", got)
-	}
+	// discovery 文件存在性跨平台共享；owner-only 权限由 tagged helper 按平台语义断言。
+	assertDiscoveryFileOwnerOnly(t, info)
 }
 
 func TestDiscoverPeersDeletesStalePeerAddrAfterHealthProbeFailure(t *testing.T) {

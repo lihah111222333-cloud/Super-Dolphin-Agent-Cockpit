@@ -12,11 +12,11 @@ The plan is broadly feasible for backend implementation, JSONL-first persistence
 
 - Severity: high
 - Evidence:
-  - `docs/cc/observability-tracing/00-implementation-plan.md:89-93` places trace files directly under `~/.multi-agent/log/<project>/trace-YYYY-MM-DD.jsonl`.
+  - `docs/cc/observability-tracing/00-implementation-plan.md:89-93` places trace files directly under `~/.super-dolphin/log/<project>/trace-YYYY-MM-DD.jsonl`.
   - `pkg/logger/logger.go:189-207` creates the existing log directory with `0755` and current app log files with `0644`.
   - `docs/cc/observability-tracing/00-implementation-plan.md:555-563` requires owner-only trace directory/file permissions and retention pruning.
 - Why it matters: Directly writing trace JSONL into the existing project log directory makes the “trace directory owner-only” requirement ambiguous and risks inheriting the existing logger convention, which is not owner-only. Trace JSONL is more privacy-sensitive than ordinary logs and needs a separate permission boundary and pruning scope.
-- Exact recommended doc change: In §3.2 and §9, change the Phase 1 path to `~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl`. Require `internal/platform/observability` to create `traces/` with `0700` on Unix-like platforms and trace files with `0600`; do not rely on `pkg/logger.InitWithFile` permissions. Retention/pruning must operate only inside that `traces/` directory and only on exact `trace-*.jsonl` matches.
+- Exact recommended doc change: In §3.2 and §9, change the Phase 1 path to `~/.super-dolphin/log/<project>/traces/trace-YYYY-MM-DD.jsonl`. Require `internal/platform/observability` to create `traces/` with `0700` on Unix-like platforms and trace files with `0600`; do not rely on `pkg/logger.InitWithFile` permissions. Retention/pruning must operate only inside that `traces/` directory and only on exact `trace-*.jsonl` matches.
 
 ### Finding 2
 

@@ -33,7 +33,7 @@ func TestMcpLSPBinaryWindowsGoplsRootCohortJobRSSAccountingDefersActiveLeasesE2E
 	roots, targets := writeRealGoplsLinkedWorktreeFixtures(t)
 	fixture := t.TempDir()
 	argsLog, cacheRoot := filepath.Join(fixture, "args.log"), filepath.Join(fixture, "cache")
-	install := buildWindowsGoplsTestInstall(t)
+	install := buildWindowsGoplsShortIdlePrecheckTestInstall(t)
 	env := windowsGoplsSidecarEnv(t, install, fakeGoplsArgsLogEnv+"="+argsLog,
 		"AGENT_LSP_SHARED_CACHE_DIR="+cacheRoot, "AGENT_LSP_GO_RSS_LIMIT_MB=1", "MCP_LSP_FAKE_GOPLS_RSS_CHILD=1")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)

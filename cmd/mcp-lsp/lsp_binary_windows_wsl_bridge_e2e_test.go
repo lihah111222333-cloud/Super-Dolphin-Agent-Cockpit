@@ -45,7 +45,7 @@ func TestMcpLSPBinaryWindowsHostOrchestratesWSL2AllLanguagesFullMatrix_E2E(t *te
 		"TestMcpLSPBinaryWSLToolsListPinsSevenShortNamesAndActions_E2E|" +
 		"TestMcpLSPBinaryWSLLocalToolActions_E2E|" +
 		"TestMcpLSPBinaryAllLanguageLifecycleSingleSidecar_E2E|" +
-		"TestMcpLSPBinaryMultilangIdleLeaseIsolation_E2E)$"
+		"TestMcpLSPBinaryMultilangIdleLeaseIsolationPrecheck_E2E)$"
 	cmd := exec.CommandContext(ctx, wslPath,
 		"--cd", wslRepoRoot,
 		"--exec",
@@ -71,7 +71,7 @@ func TestMcpLSPBinaryWindowsHostOrchestratesWSL2AllLanguagesFullMatrix_E2E(t *te
 		"TestMcpLSPBinaryWSLToolsListPinsSevenShortNamesAndActions_E2E",
 		"TestMcpLSPBinaryWSLLocalToolActions_E2E",
 		"TestMcpLSPBinaryAllLanguageLifecycleSingleSidecar_E2E",
-		"TestMcpLSPBinaryMultilangIdleLeaseIsolation_E2E",
+		"TestMcpLSPBinaryMultilangIdleLeaseIsolationPrecheck_E2E",
 	} {
 		if !strings.Contains(text, "--- PASS: "+testName) {
 			t.Fatalf("Windows-host WSL2 output lacks PASS marker for %s\n%s", testName, text)
@@ -133,7 +133,6 @@ func TestMcpLSPBinaryWindowsHostLaunchesWSL2LinuxSidecar_E2E(t *testing.T) {
 				"GO_AGENT_LSP_ROOT=" + wslWorkspace,
 				"GO_AGENT_LSP_ROOTS=" + string(rootsJSON),
 				"GO_AGENT_PEER_MODE=0",
-				"MCP_LSP_IDLE_TIMEOUT=1s",
 				"XDG_RUNTIME_DIR=" + wslRuntimeDir,
 				"AGENT_LSP_SHARED_CACHE_DIR=" + wslCacheDir,
 				"PATH=" + wslPATH,
@@ -204,7 +203,7 @@ func requireWindowsHostWSLSemantics(t *testing.T, client *mcpLSPBinaryClient, ws
 		want string
 	}{
 		{"file", map[string]any{"action": "read_file", "file_path": wslTarget}, "BridgeSymbol"},
-		{"grep", map[string]any{"action": "text_search", "query": "bridge-pinned", "path": wslTarget}, "bridge-pinned"},
+		{"grep", map[string]any{"action": "text_search", "query": "bridge-pinned", "paths": []string{wslTarget}}, "bridge-pinned"},
 		{"structure", map[string]any{"action": "document_symbol", "file_path": wslTarget}, "BridgeSymbol"},
 	}
 	for _, check := range checks {

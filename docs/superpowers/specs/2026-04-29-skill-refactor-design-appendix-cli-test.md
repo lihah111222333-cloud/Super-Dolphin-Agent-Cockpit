@@ -383,7 +383,7 @@ P5b 的代码逻辑无需修改；只需在 `nativefilter` 包注释里把 `Allo
 ## Known scope limitation: P5b 只覆盖 user-level skill (2026-04-30)
 
 真 desktop session smoke (commit `34ed147f` 集成测试 + 启动 binary 实跑) 揭示
-P5b 的 `applyNativeFilter` 当前只扫 user-level `~/.multi-agent/skills-library/`，
+P5b 的 `applyNativeFilter` 当前只扫 user-level `~/.super-dolphin/skills-library/`，
 **不扫项目级 `<cwd>/.agent/skills`**。
 
 ### 数据源错位的真因
@@ -392,8 +392,8 @@ P5b 的 `applyNativeFilter` 当前只扫 user-level `~/.multi-agent/skills-libra
 
 | 包 | 扫描路径 | 元数据来源 |
 |---|---|---|
-| `internal/module/skill` | user `~/.multi-agent/skills/` + project `<cwd>/.agent/skills` + cwd | SKILL.md frontmatter 直接解析 |
-| `internal/module/skilllibrary` | user `~/.multi-agent/skills-library/`（builtin seed / marketplace） | sidecar `.skill-meta.json` |
+| `internal/module/skill` | user `~/.super-dolphin/skills/` + project `<cwd>/.agent/skills` + cwd | SKILL.md frontmatter 直接解析 |
+| `internal/module/skilllibrary` | user `~/.super-dolphin/skills-library/`（builtin seed / marketplace） | sidecar `.skill-meta.json` |
 
 P5b 当前用 `*skilllibrary.Store`（第二条），看不到项目 skill。
 

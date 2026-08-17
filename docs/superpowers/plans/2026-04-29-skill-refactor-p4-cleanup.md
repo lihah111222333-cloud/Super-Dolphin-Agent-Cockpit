@@ -374,7 +374,7 @@ go vet ./...
 按新 spec §10/§11/§12，下列项是后续 phase 的硬前置，P4 **必须明示**给后续工作者：
 
 1. **§10 `allowed_tools` enforcement** — ✅ **已完成**（commit `b3eee92`）。`nativefilter.AggregateAllowedTools` + `BuildClaudeSettings` `permissions.allow` allowlist 在运行时收敛 Claude 会话工具集。设计折中：Claude Code 2.1.119 的 permissions.allow 是 session 级 allowlist，不支持 per-skill 精确控制；本实现是全局并集近似，是现有 CLI 能力下能做到的最接近 spec 语义的严格收敛。
-2. **§10 `~/.multi-agent/skills-trust.json` 迁移/废弃策略** — ⏸️ **当前不需要迁移**：approval.go 由 spec §11 明确要求 P5+ 之前不删，旧 `skills-trust.json` cache 仍在用。但 codify 入 plan：当 ArtifactKind 删除被提上日程（P5+ 某阶段）时，**必须先实现**：
+2. **§10 `~/.super-dolphin/skills-trust.json` 迁移/废弃策略** — ⏸️ **当前不需要迁移**：approval.go 由 spec §11 明确要求 P5+ 之前不删，旧 `skills-trust.json` cache 仍在用。但 codify 入 plan：当 ArtifactKind 删除被提上日程（P5+ 某阶段）时，**必须先实现**：
    - 读旧 `skills-trust.json` cache（详见 `internal/module/skill/approval.go: NewApprovalCache`）
    - 按 sidecar 新模型重新发现状态（SkillMeta.Origin / `EvaluateTrust`）与旧 cache 决议合并
    - 写迁移标记避免重复迁移

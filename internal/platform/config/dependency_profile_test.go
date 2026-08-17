@@ -120,6 +120,24 @@ func TestParseDependencyBootstrapRejectsExplicitTestForSidecar(t *testing.T) {
 	}
 }
 
+func TestGoTestBinaryNameRecognizesWindowsAndUnixExecutables(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{name: "/tmp/config.test", want: true},
+		{name: `C:\\temp\\config.test.exe`, want: true},
+		{name: `C:\\temp\\CONFIG.TEST.EXE`, want: true},
+		{name: `C:\\temp\\config.exe`, want: false},
+		{name: "/tmp/config.test-helper", want: false},
+	} {
+		if got := goTestBinaryName(tc.name); got != tc.want {
+			t.Errorf("goTestBinaryName(%q) = %t, want %t", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestNewRejectsUndeclaredDependencyBootstrapInGoTests(t *testing.T) {
 	t.Setenv("PROJECT_ROOT", t.TempDir())
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")

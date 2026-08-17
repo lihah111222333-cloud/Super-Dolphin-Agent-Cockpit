@@ -69,12 +69,19 @@ func newEditHandler(root string, registry lspmanager.Registry) EditHandler {
 	return EditHandler{registry: registry, root: root, lockRegistry: &editLockRegistry{}}
 }
 
-func patchEditTimeoutTier(params json.RawMessage) time.Duration {
+// patchEditTimeoutTierForOS 是故意保留在公共文件中的纯策略函数：调用方显式传入
+// 目标 OS，测试可覆盖 Windows 与非 Windows，而不在这里执行任何平台专用系统调用。
+// Windows 冷安装动作关闭工具层外部 deadline，安装器自身仍负责有界超时；其他平台
+// 保留原有 tier deadline。replace_range 在所有平台都由内部事务边界管理。
+func patchEditTimeoutTierForOS(params json.RawMessage, goos string) time.Duration {
 	var input struct {
 		Action string `json:"action"`
 	}
-	if err := json.Unmarshal(params, &input); err == nil && strings.TrimSpace(input.Action) == "replace_range" {
-		return toolTimeoutDisabled
+	if err := json.Unmarshal(params, &input); err == nil {
+		action := strings.TrimSpace(input.Action)
+		if action == "replace_range" || (windowsColdInstallOuterTimeoutDisabled(goos) && (action == "rename" || action == "code_action" || action == "format")) {
+			return toolTimeoutDisabled
+		}
 	}
 	return middleware.TierNormal
 }

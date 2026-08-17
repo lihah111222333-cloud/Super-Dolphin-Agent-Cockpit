@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	toolpkg "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/tools"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
@@ -42,7 +43,7 @@ func newHTTPRunner(handlers ToolHandlers, logRuntime *pkglogger.Runtime) (platfo
 	return &httpRunner{
 		bearerToken: bearerToken,
 		startServer: func(ctx context.Context) (string, func(context.Context) error, error) {
-			srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, tools, common.WithBearerToken(bearerToken), common.WithHTTPLoggerRuntime(logRuntime), common.WithHTTPToolCallResultPolicy(lspToolCallResultPolicy()))
+			srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, tools, common.WithBearerToken(bearerToken), common.WithHTTPLoggerRuntime(logRuntime), common.WithHTTPToolCallResultPolicy(lspToolCallResultPolicy()), common.WithHTTPToolErrorClassifier(toolpkg.ToolErrorClassifier))
 			addr, err := srv.Start(ctx, "127.0.0.1:0")
 			return addr, srv.Stop, err
 		},

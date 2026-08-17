@@ -417,7 +417,7 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 		}
 		errorAttrs = append(errorAttrs, toolPayloadAttrs("error_payload", errorPayload)...)
 		pkglogger.Warn("mcp http: tools/call error", errorAttrs...)
-		if isNilToolResult(value) || !ToolResultIsError(value) {
+		if isNilToolResult(value) || !ToolResultIsError(value) || !toolResultCarriesErrorDetail(value) {
 			value = NewToolErrorEnvelopeWithClassifier(params.Name, "", err, nil, h.toolErrorClassifier)
 		}
 	}

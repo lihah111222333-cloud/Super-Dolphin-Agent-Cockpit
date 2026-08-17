@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -435,20 +434,6 @@ func assertNativeInstallPaths(t *testing.T, result NativeInstallResult, root str
 	}
 	if _, err := os.Stat(result.LauncherPath); err != nil {
 		t.Fatalf("stat managed launcher: %v", err)
-	}
-}
-
-func assertExecutable(t *testing.T, filename string) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		return
-	}
-	info, err := os.Stat(filename)
-	if err != nil {
-		t.Fatalf("stat executable %s: %v", filename, err)
-	}
-	if info.Mode()&0o111 == 0 {
-		t.Fatalf("%s mode = %o, want executable", filename, info.Mode().Perm())
 	}
 }
 

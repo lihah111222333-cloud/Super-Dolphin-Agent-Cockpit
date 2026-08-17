@@ -92,13 +92,21 @@ func inspectOpenWindowsGoplsBrokerExecutable(handle windows.Handle) (windowsGopl
 	}
 	invalidAttributes := uint32(windows.FILE_ATTRIBUTE_DIRECTORY | windows.FILE_ATTRIBUTE_REPARSE_POINT)
 	name := filepath.Base(path)
-	allowedName := strings.EqualFold(name, "mcp-lsp.exe") ||
-		strings.EqualFold(name, "mcp-lsp-windows-arm.exe") ||
-		strings.EqualFold(name, "mcp-lsp-windows-x86.exe")
+	allowedName := windowsGoplsBrokerDeliveryNameAllowed(name)
 	if info.FileAttributes&invalidAttributes != 0 || !filepath.IsAbs(path) || !allowedName {
 		return windowsGoplsBrokerExecutableProof{}, errors.New("Windows gopls broker bootstrap executable must use a fixed regular mcp-lsp delivery name")
 	}
 	return windowsGoplsBrokerExecutableProof{path: filepath.Clean(path), volumeSerialNumber: info.VolumeSerialNumber, fileID: uint64(info.FileIndexHigh)<<32 | uint64(info.FileIndexLow)}, nil
+}
+
+// windowsGoplsBrokerDeliveryNameAllowed 锁定 source/bin 与跨平台包的四个 Windows 交付名；架构名必须明确区分 ARM64、x64 和 x86。
+func windowsGoplsBrokerDeliveryNameAllowed(name string) bool {
+	switch strings.ToLower(name) {
+	case "mcp-lsp.exe", "mcp-lsp-windows-arm64.exe", "mcp-lsp-windows-x64.exe", "mcp-lsp-windows-x86.exe":
+		return true
+	default:
+		return false
+	}
 }
 
 // requireSameWindowsGoplsBrokerExecutable 拒绝路径、文件索引或内容摘要的任一漂移。

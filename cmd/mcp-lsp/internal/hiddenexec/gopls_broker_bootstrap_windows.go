@@ -189,7 +189,13 @@ func windowsGoplsBrokerBootstrapCreationFlags() (uint32, error) {
 		return flags, nil
 	}
 	if limits&jobObjectLimitBreakawayOK == 0 {
-		return 0, errors.New("current Windows Job does not allow the approved mcp-lsp broker breakaway")
+		return 0, &WindowsJobPolicyError{
+			Operation:       "current Windows Job does not allow the approved mcp-lsp broker breakaway",
+			LimitFlags:      limits,
+			KillOnClose:     true,
+			BreakawayOK:     false,
+			SilentBreakaway: false,
+		}
 	}
 	return flags | createBreakawayFromJob, nil
 }
@@ -260,10 +266,25 @@ func rejectCurrentWindowsKillOnCloseJob() error {
 	if err := windows.QueryInformationJobObject(0, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
 		return fmt.Errorf("query Windows gopls broker child Job limits: %w", err)
 	}
-	if info.BasicLimitInformation.LimitFlags&jobObjectLimitKillOnJobClose != 0 {
-		return errors.New("Windows gopls broker bootstrap remains in a KILL_ON_CLOSE Job")
+	limits := info.BasicLimitInformation.LimitFlags
+	if limits&jobObjectLimitKillOnJobClose != 0 {
+		return fmt.Errorf(
+			"Windows gopls broker bootstrap remains in a KILL_ON_CLOSE Job: %s",
+			windowsGoplsBrokerJobLimitFacts(limits),
+		)
 	}
 	return nil
+}
+
+// windowsGoplsBrokerJobLimitFacts 输出不含路径、PID 或句柄的 Job 策略事实，供启动失败审计。
+func windowsGoplsBrokerJobLimitFacts(limits uint32) string {
+	return fmt.Sprintf(
+		"limit_flags=0x%08x kill_on_close=%t breakaway_ok=%t silent_breakaway_ok=%t",
+		limits,
+		limits&jobObjectLimitKillOnJobClose != 0,
+		limits&jobObjectLimitBreakawayOK != 0,
+		limits&jobObjectLimitSilentBreakawayOK != 0,
+	)
 }
 
 // newWindowsGoplsBrokerBootstrapPipes 创建父写子读和子写父读两组匿名 pipe。

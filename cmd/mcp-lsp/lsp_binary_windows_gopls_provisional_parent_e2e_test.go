@@ -33,7 +33,7 @@ type windowsGoplsProvisionalReport struct {
 
 // super-dolphin-ci: compile-group-exclusive
 func TestMcpLSPBinaryWindowsGoplsProvisionalParentExitE2E(t *testing.T) {
-	install := buildWindowsGoplsTestInstall(t)
+	install := buildWindowsGoplsShortIdlePrecheckTestInstall(t)
 	installWindowsGoplsTestHost(t, install.Binary)
 	fixtureDir := t.TempDir()
 	cacheRoot := filepath.Join(fixtureDir, "cache")

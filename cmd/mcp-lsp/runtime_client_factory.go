@@ -37,16 +37,65 @@ func createRuntimeLSPClient(
 	if err != nil {
 		return nil, errors.Join(err, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
 	}
-	client, err := multilsp.NewClientWithOptions(multilsp.Options{
-		Binary:              serverBinary,
-		Args:                preparation.serverArgs,
-		Dir:                 dir,
-		Env:                 preparation.serverEnv,
-		InitOptions:         preparation.initOptions,
-		NotificationHandler: preparation.notificationHandler,
-	})
+	processBinary, err := runtimeServerPlatformProcessBinary(serverBinary)
 	if err != nil {
 		return nil, errors.Join(err, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
+	}
+	var vueBridge *runtimeVueTSBridgeClient
+	if preparation.vueBridgeSpec != nil {
+		vueBridge, err = runtimeServerStartVueTSBridge(*preparation.vueBridgeSpec, dir, preparation.serverEnv)
+		if err != nil {
+			return nil, errors.Join(err, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
+		}
+	}
+	markdownSupport, err := runtimeMarkdownClientSupportForAdapter(adapter, dir, preparation.serverEnv, serverBinary)
+	if err != nil {
+		var bridgeErr error
+		if vueBridge != nil {
+			bridgeErr = vueBridge.Close()
+		}
+		return nil, errors.Join(err, bridgeErr, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
+	}
+	serverNotificationHandler := multilsp.ServerNotificationHandler(nil)
+	if vueBridge != nil {
+		serverNotificationHandler = vueBridge.handleServerNotification
+	}
+	if markdownSupport != nil {
+		serverNotificationHandler = markdownSupport.ServerNotificationHandler()
+	}
+	var serverRequestHandler multilsp.ServerRequestHandler
+	if markdownSupport != nil {
+		serverRequestHandler = markdownSupport.RequestHandler()
+	}
+	client, err := multilsp.NewClientWithOptions(multilsp.Options{
+		Binary:                    processBinary,
+		Args:                      preparation.serverArgs,
+		Dir:                       dir,
+		Env:                       preparation.serverEnv,
+		InitOptions:               preparation.initOptions,
+		NotificationHandler:       preparation.notificationHandler,
+		RequestHandler:            serverRequestHandler,
+		ServerNotificationHandler: serverNotificationHandler,
+		ServerProfile:             preparation.serverProfile,
+	})
+	if err != nil {
+		var bridgeErr error
+		if vueBridge != nil {
+			bridgeErr = vueBridge.Close()
+		}
+		var markdownErr error
+		if markdownSupport != nil {
+			markdownErr = markdownSupport.Close()
+		}
+		return nil, errors.Join(err, bridgeErr, markdownErr, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
+	}
+	if markdownSupport != nil {
+		markdownSupport.Attach(client)
+		client = wrapRuntimeMarkdownClient(client, markdownSupport)
+	}
+	if vueBridge != nil {
+		vueBridge.vue = client
+		client = vueBridge
 	}
 	return runtimeServerFinalizeLSPClient(client, preparation, dir, handler, goplsLease)
 }
@@ -57,7 +106,9 @@ type runtimeServerLSPClientPreparation struct {
 	serverEnv           []string
 	initOptions         map[string]any
 	notificationHandler protocol.NotificationHandler
+	vueBridgeSpec       *runtimeVueTSBridgeSpec
 	sqliteWorkspace     bool
+	serverProfile       string
 }
 
 // runtimeServerLSPClientDir 解析 client 的最终工作目录，空 rootDir 沿用 root。
@@ -73,6 +124,10 @@ func runtimeServerLSPClientDir(root, rootDir string) string {
 func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command multilsp.ServerCommand, serverBinary, dir string, env []string, initOptions map[string]any, packagedLSP bool, handler protocol.NotificationHandler) (runtimeServerLSPClientPreparation, error) {
 	preparation := runtimeServerLSPClientPreparation{}
 	serverArgs, err := runtimeServerArgsPlatform(command, serverBinary, env, dir)
+	if err != nil {
+		return preparation, err
+	}
+	serverArgs, preparation.vueBridgeSpec, err = runtimeServerPrepareVueBridge(adapter, serverBinary, serverArgs)
 	if err != nil {
 		return preparation, err
 	}
@@ -92,6 +147,7 @@ func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command mul
 		preparation.notificationHandler = &sqlDiagnosticNotificationHandler{root: dir, next: handler}
 	}
 	preparation.initOptions, err = runtimeServerInitOptions(adapter, initOptions, packagedLSP, serverBinary, preparation.serverEnv)
+	preparation.serverProfile = runtimeServerProductProfile(adapter, command, serverBinary, preparation.serverArgs)
 	return preparation, err
 }
 

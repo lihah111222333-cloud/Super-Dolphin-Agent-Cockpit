@@ -1,5 +1,8 @@
 package main
 
+// 本文件是公共跨平台的 Windows 交付静态门禁：除显式环境预检外只读取脚本和清单，
+// 因而故意不加 windows build tag，让非 Windows CI 也能审计 Windows 交付契约。
+
 import (
 	"os"
 	"os/exec"

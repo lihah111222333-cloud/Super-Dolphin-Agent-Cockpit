@@ -224,7 +224,7 @@ func formatLocations(val []protocol.LocationResult) string {
 		if item.HasFuncRange() {
 			funcInfo = fmt.Sprintf(" [func L%d-L%d]", item.FuncStart, item.FuncEnd)
 		}
-		fmt.Fprintf(&sb, "  [%d] %s:%d:%d%s\n", i+1, path, loc.Range.Start.Line, loc.Range.Start.Character, funcInfo)
+		fmt.Fprintf(&sb, "  [%d] %s:%d:%d%s\n", i+1, path, format.FromLSP(loc.Range.Start.Line), format.FromLSP(loc.Range.Start.Character), funcInfo)
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -240,7 +240,7 @@ func formatCallHierarchy(val []protocol.CallHierarchyResult) string {
 		fmt.Fprintf(&sb, "- %s `%s` at %s:%d:%d\n",
 			symbolKindName(protocol.SymbolKind(item.Item.Kind)), item.Item.Name,
 			format.URIToPath(item.Item.URI),
-			item.Item.Range.Start.Line, item.Item.Range.Start.Character)
+			format.FromLSP(item.Item.Range.Start.Line), format.FromLSP(item.Item.Range.Start.Character))
 		formatIncomingCalls(&sb, item.Incoming)
 		formatOutgoingCalls(&sb, item.Outgoing)
 	}
@@ -258,7 +258,7 @@ func formatIncomingCalls(sb *strings.Builder, incoming []protocol.CallHierarchyI
 		ranges := callSiteRanges(path, call.FromRanges)
 		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d (call sites: %s)\n",
 			i+1, symbolKindName(protocol.SymbolKind(call.From.Kind)), call.From.Name,
-			path, call.From.Range.Start.Line, call.From.Range.Start.Character,
+			path, format.FromLSP(call.From.Range.Start.Line), format.FromLSP(call.From.Range.Start.Character),
 			ranges)
 	}
 }
@@ -274,7 +274,7 @@ func formatOutgoingCalls(sb *strings.Builder, outgoing []protocol.CallHierarchyO
 		ranges := callSiteRanges(path, call.FromRanges)
 		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d (call sites: %s)\n",
 			i+1, symbolKindName(protocol.SymbolKind(call.To.Kind)), call.To.Name,
-			path, call.To.Range.Start.Line, call.To.Range.Start.Character,
+			path, format.FromLSP(call.To.Range.Start.Line), format.FromLSP(call.To.Range.Start.Character),
 			ranges)
 	}
 }
@@ -287,7 +287,7 @@ func callSiteRanges(path string, ranges []protocol.Range) string {
 	}
 	parts := make([]string, 0, len(ranges))
 	for _, r := range ranges {
-		parts = append(parts, fmt.Sprintf("%s:%d:%d", path, r.Start.Line, r.Start.Character))
+		parts = append(parts, fmt.Sprintf("%s:%d:%d", path, format.FromLSP(r.Start.Line), format.FromLSP(r.Start.Character)))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -303,7 +303,7 @@ func formatTypeHierarchy(val []protocol.TypeHierarchyResult) string {
 		fmt.Fprintf(&sb, "- %s `%s` at %s:%d:%d\n",
 			symbolKindName(protocol.SymbolKind(item.Item.Kind)), item.Item.Name,
 			format.URIToPath(item.Item.URI),
-			item.Item.Range.Start.Line, item.Item.Range.Start.Character)
+			format.FromLSP(item.Item.Range.Start.Line), format.FromLSP(item.Item.Range.Start.Character))
 		formatSupertypes(&sb, item.Supertypes)
 		formatSubtypes(&sb, item.Subtypes)
 	}
@@ -320,7 +320,7 @@ func formatSupertypes(sb *strings.Builder, supertypes []protocol.TypeHierarchyIt
 		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d\n",
 			i+1, symbolKindName(protocol.SymbolKind(super.Kind)), super.Name,
 			format.URIToPath(super.URI),
-			super.Range.Start.Line, super.Range.Start.Character)
+			format.FromLSP(super.Range.Start.Line), format.FromLSP(super.Range.Start.Character))
 	}
 }
 
@@ -334,7 +334,7 @@ func formatSubtypes(sb *strings.Builder, subtypes []protocol.TypeHierarchyItem) 
 		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d\n",
 			i+1, symbolKindName(protocol.SymbolKind(sub.Kind)), sub.Name,
 			format.URIToPath(sub.URI),
-			sub.Range.Start.Line, sub.Range.Start.Character)
+			format.FromLSP(sub.Range.Start.Line), format.FromLSP(sub.Range.Start.Character))
 	}
 }
 
@@ -348,7 +348,7 @@ func formatDocumentOutline(val []protocol.DocumentSymbol) string {
 	var formatSymbol func(protocol.DocumentSymbol, int)
 	formatSymbol = func(s protocol.DocumentSymbol, depth int) {
 		indent := strings.Repeat("  ", depth)
-		fmt.Fprintf(&sb, "%s- %s `%s` (L%d-L%d)\n", indent, symbolKindName(s.Kind), s.Name, s.Range.Start.Line, s.Range.End.Line)
+		fmt.Fprintf(&sb, "%s- %s `%s` (L%d-L%d)\n", indent, symbolKindName(s.Kind), s.Name, format.FromLSP(s.Range.Start.Line), format.FromLSP(s.Range.End.Line))
 		for _, child := range s.Children {
 			formatSymbol(child, depth+1)
 		}
@@ -371,7 +371,7 @@ func formatWorkspaceSymbols(val []protocol.WorkspaceSymbolResult) string {
 			fmt.Fprintf(&sb, "  [%d] %s `%s` at %s:%d:%d\n",
 				i+1, symbolKindName(si.Kind), si.Name,
 				format.URIToPath(si.Location.URI),
-				si.Location.Range.Start.Line, si.Location.Range.Start.Character)
+				format.FromLSP(si.Location.Range.Start.Line), format.FromLSP(si.Location.Range.Start.Character))
 		} else if ws := item.WorkspaceSymbol; ws != nil {
 			file, line, col, ok := format.LocationFromAny(ws.Location)
 			locStr := ""
@@ -400,7 +400,7 @@ func formatFoldingRanges(val []protocol.FoldingRange) string {
 		if fr.Kind != "" {
 			kindStr = fmt.Sprintf(" [Kind: %s]", fr.Kind)
 		}
-		fmt.Fprintf(&sb, "  [%d] Lines L%d - L%d%s\n", i+1, fr.StartLine, fr.EndLine, kindStr)
+		fmt.Fprintf(&sb, "  [%d] Lines L%d - L%d%s\n", i+1, format.FromLSP(fr.StartLine), format.FromLSP(fr.EndLine), kindStr)
 	}
 	return strings.TrimSpace(sb.String())
 }

@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
+// 公共门禁直接使用 Node 的本地模块目录，避免 Windows 盘符失真，也兼容 Vitest 模块加载。
+const appRoot = path.resolve(import.meta.dirname, '..');
 
 export const CRITICAL_SKIP_ROOTS = Object.freeze(['src', 'scripts', 'tests']);
 export const criticalPattern = /\b(provider|thread|turn|workflow|rpc|contract|desktop|smoke)\b/i;
@@ -259,7 +259,7 @@ export function collectCriticalSkipViolations({ root = appRoot, roots = CRITICAL
   return criticalSkipViolationsFromSources(sources);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (path.resolve(process.argv[1] || '') === import.meta.filename) {
   const violations = collectCriticalSkipViolations();
   if (violations.length > 0) {
     console.error('critical .skip guard failed:');

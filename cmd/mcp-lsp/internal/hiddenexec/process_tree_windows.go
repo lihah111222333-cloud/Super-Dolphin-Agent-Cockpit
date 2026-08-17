@@ -14,6 +14,8 @@ import (
 	"unsafe"
 
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"golang.org/x/sys/windows"
 )
 
@@ -53,6 +55,84 @@ type jobProcessIDListHeader struct {
 	processIDList             [1]uintptr
 }
 
+// windowsProcessTreeJobFacts 保存外层 Job 的最小策略事实；路径、PID 和句柄不放入该结构。
+type windowsProcessTreeJobFacts struct {
+	InJob           bool
+	LimitFlags      uint32
+	KillOnClose     bool
+	BreakawayOK     bool
+	SilentBreakaway bool
+}
+
+// inspectWindowsProcessTreeOuterJob 读取当前 mcp-lsp 进程的外层 Job 策略。
+// 受限宿主下不能猜测 breakaway 能力；查询失败直接返回，让启动路径 fail-fast。
+func inspectWindowsProcessTreeOuterJob() (windowsProcessTreeJobFacts, error) {
+	inJob, err := windowsBootstrapProcessInJob(windows.CurrentProcess())
+	if err != nil {
+		return windowsProcessTreeJobFacts{}, fmt.Errorf("inspect current Windows Job membership: %w", err)
+	}
+	facts := windowsProcessTreeJobFacts{InJob: inJob}
+	if !inJob {
+		return facts, nil
+	}
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if err := windows.QueryInformationJobObject(0, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
+		return windowsProcessTreeJobFacts{}, fmt.Errorf("query current Windows Job limits: %w", err)
+	}
+	facts.LimitFlags = info.BasicLimitInformation.LimitFlags
+	facts.KillOnClose = facts.LimitFlags&jobObjectLimitKillOnJobClose != 0
+	facts.BreakawayOK = facts.LimitFlags&jobObjectLimitBreakawayOK != 0
+	facts.SilentBreakaway = facts.LimitFlags&jobObjectLimitSilentBreakawayOK != 0
+	return facts, nil
+}
+
+// logWindowsProcessTreeStage 记录受控启动阶段，所有路径和错误都走脱敏字段。
+func logWindowsProcessTreeStage(stage string, cmd *exec.Cmd, pid int, facts windowsProcessTreeJobFacts, stageErr error) {
+	logger := pkglogger.Get()
+	if logger == nil {
+		return
+	}
+	fields := []any{
+		"event", "windows_process_tree",
+		"stage", stage,
+		"pid", pid,
+		"outer_in_job", facts.InJob,
+		"outer_limit_flags", fmt.Sprintf("0x%08x", facts.LimitFlags),
+		"outer_kill_on_close", facts.KillOnClose,
+		"outer_breakaway_ok", facts.BreakawayOK,
+		"outer_silent_breakaway_ok", facts.SilentBreakaway,
+	}
+	if cmd != nil {
+		fields = append(fields, platformshared.SafePathLogFields("binary", cmd.Path)...)
+		fields = append(fields, platformshared.SafePathLogFields("working_directory", cmd.Dir)...)
+	}
+	if stageErr != nil {
+		fields = append(fields, platformshared.SafePayloadLogFields("error", stageErr.Error())...)
+		logger.Warn("Windows process-tree startup", fields...)
+		return
+	}
+	logger.Info("Windows process-tree startup", fields...)
+}
+
+// windowsProcessTreeJobPolicyError 将受限外层 Job 的拒绝转换成稳定 typed error。
+// 只有 Job assignment 的 Win32 拒绝才进入该分支；其他 5/1314 ACL 错误原样保留。
+func windowsProcessTreeJobPolicyError(err error, facts windowsProcessTreeJobFacts) error {
+	if err == nil || !facts.InJob || !facts.KillOnClose || facts.BreakawayOK || facts.SilentBreakaway {
+		return err
+	}
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) && !errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
+		return err
+	}
+	return &WindowsJobPolicyError{
+		Operation:       "current Windows Job rejected language-server Job assignment",
+		LimitFlags:      facts.LimitFlags,
+		KillOnClose:     facts.KillOnClose,
+		BreakawayOK:     facts.BreakawayOK,
+		SilentBreakaway: facts.SilentBreakaway,
+		Cause:           err,
+	}
+}
+
 // startProcessTree 先创建 Job，再以 CREATE_SUSPENDED 启动并绑定子进程，最后恢复唯一初始线程。
 // 因为用户代码只会在 AssignProcessToJobObject 成功后执行，子进程没有 Start→Assign 逃逸窗口。
 func startProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
@@ -62,28 +142,40 @@ func startProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
 	if cmd.Process != nil {
 		return nil, errors.New("start Windows process tree: command is already started")
 	}
+	facts, factsErr := inspectWindowsProcessTreeOuterJob()
+	logWindowsProcessTreeStage("outer_job_probe", cmd, 0, facts, factsErr)
+	if factsErr != nil {
+		return nil, factsErr
+	}
 	job, err := createKillOnCloseJob()
 	if err != nil {
+		logWindowsProcessTreeStage("inner_job_create_failed", cmd, 0, facts, err)
 		return nil, err
 	}
+	logWindowsProcessTreeStage("inner_job_created", cmd, 0, facts, nil)
 	if cmd.SysProcAttr == nil {
 		configureCommand(cmd)
 	}
 	cmd.SysProcAttr.CreationFlags |= createSuspended
 	if err := cmd.Start(); err != nil {
+		logWindowsProcessTreeStage("suspended_process_start_failed", cmd, 0, facts, err)
 		return nil, errors.Join(
 			fmt.Errorf("start suspended language-server process: %w", err),
 			closeWindowsHandle(job, "close unassigned language-server Job Object"),
 		)
 	}
+	logWindowsProcessTreeStage("suspended_process_started", cmd, cmd.Process.Pid, facts, nil)
 	// Assign while the initial thread is still suspended.  Any subsequent
 	// identity-bind failure can therefore terminate through Job authority and
 	// reap the exact startup process; it cannot escape between Start and Assign.
 	owner := &windowsProcessTree{job: job, pid: cmd.Process.Pid}
 	if err := assignProcessToJob(owner.job, owner.pid); err != nil {
+		policyErr := windowsProcessTreeJobPolicyError(err, facts)
+		logWindowsProcessTreeStage("job_assignment_failed", cmd, owner.pid, facts, policyErr)
 		cleanupOwner, cleanupErr := cleanupUnassignedSuspendedProcess(cmd, owner)
-		return cleanupOwner, errors.Join(err, cleanupErr)
+		return cleanupOwner, errors.Join(policyErr, cleanupErr)
 	}
+	logWindowsProcessTreeStage("job_assignment_succeeded", cmd, owner.pid, facts, nil)
 	root, identityErr := captureWindowsProcessIdentity(cmd.Process.Pid)
 	if identityErr != nil {
 		cleanupErr := cleanupAssignedSuspendedProcess(cmd, owner)
@@ -91,9 +183,11 @@ func startProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
 	}
 	owner.root = root
 	if err := resumeUniqueProcessThread(owner.pid); err != nil {
+		logWindowsProcessTreeStage("resume_failed", cmd, owner.pid, facts, err)
 		cleanupErr := cleanupAssignedSuspendedProcess(cmd, owner)
 		return nil, errors.Join(fmt.Errorf("resume language-server process: %w", err), cleanupErr)
 	}
+	logWindowsProcessTreeStage("ready", cmd, owner.pid, facts, nil)
 	return &ProcessTree{controller: owner}, nil
 }
 

@@ -12,7 +12,7 @@ Run this after Task 10 is merged into the integration branch.
 
 1. Start the app normally; tracing is enabled in safe mode by default. Set `OBS_TRACING_ENABLED=0` only when intentionally disabling tracing.
 2. Send one chat message that reaches `turn/start` and causes at least one provider/tool path or normal turn lifecycle event.
-3. Locate `~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl`.
+3. Locate `~/.super-dolphin/log/<project>/traces/trace-YYYY-MM-DD.jsonl`.
 4. Confirm the trace directory and JSONL file are owner-only where the OS supports permissions.
 5. Pick one trace id and confirm frontend, Wails/RPC, turn/thread, provider/toolbridge, and bus/UI-state events can be correlated by `trace_id`, `thread_id`, `turn_id`, `agent_id`, `call_id`, or `tool_name`.
 6. Open the “链路追踪” dashboard and query the trace id.

@@ -14,10 +14,10 @@
 1. 被审查文档本身。
 2. 当前 worktree 源码。
 3. 被审查文档引用的 trace/log：
-   - trace：`~/.multi-agent/log/workflow-sync-root-cause-20260604/traces/trace-2026-06-04.jsonl`
+   - trace：`~/.super-dolphin/log/workflow-sync-root-cause-20260604/traces/trace-2026-06-04.jsonl`
      - `sha256=f63f31971d1b4812a359cf5db4f5fbc366e1aee6b69c831ee538be5fa2959e45`
      - `3903` 行。
-   - log：`~/.multi-agent/log/workflow-sync-root-cause-20260604/agent-terminal-2026-06-04-1.log`
+   - log：`~/.super-dolphin/log/workflow-sync-root-cause-20260604/agent-terminal-2026-06-04-1.log`
      - `sha256=ade645241069c1d47587cc6fdcc86a10dd397a727da63599bee9e4e894fb7c51`
      - `207920` 行。
 

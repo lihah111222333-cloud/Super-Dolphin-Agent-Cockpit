@@ -503,11 +503,9 @@ func trustedRegistryFileInfo(path string, info os.FileInfo) bool {
 	if info.IsDir() {
 		return false
 	}
-	if info.Mode().Perm()&0o022 != 0 {
-		return false
-	}
 	return registryFileOwnedByCurrentUser(path, info)
 }
+
 
 // cleanupStaleFiles 删除已经处理完的过期 registry 文件。
 func cleanupStaleFiles(files []staleFile) {

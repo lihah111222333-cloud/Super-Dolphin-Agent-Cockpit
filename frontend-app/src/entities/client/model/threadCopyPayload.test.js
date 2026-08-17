@@ -15,8 +15,8 @@ describe('threadCopyPayload', () => {
   });
 
   it('builds cwd log paths only for project-like paths', () => {
-    expect(buildCwdLogPath('D:/project/app')).toBe('~/.multi-agent/log/app/');
-    expect(buildCwdLogPath('D:/project/app/')).toBe('~/.multi-agent/log/app/');
+    expect(buildCwdLogPath('D:/project/app')).toBe('~/.super-dolphin/log/app/');
+    expect(buildCwdLogPath('D:/project/app/')).toBe('~/.super-dolphin/log/app/');
     expect(buildCwdLogPath('D:')).toBeNull();
     expect(buildCwdLogPath('/')).toBeNull();
     expect(buildCwdLogPath('.')).toBeNull();
@@ -24,7 +24,14 @@ describe('threadCopyPayload', () => {
 
   it('formats copiedAt in UTC+8', () => {
     expect(formatUTC8HumanReadable(new Date('2026-06-15T00:01:02Z'))).toBe('2026-06-15 08:01:02 UTC+8');
-    expect(formatUTC8HumanReadable('not a date')).toBe('');
+    expect(() => formatUTC8HumanReadable('not a date')).toThrow();
+  });
+
+  it('throws when provider is missing from all sources', () => {
+    expect(() => buildThreadCopyPayload({
+      state: {},
+      threadId: 'thread-1',
+    })).toThrow('thread copy payload provider is required');
   });
 
   it('builds thread copy payload from identity, thread, config, and state fallbacks', () => {
@@ -63,7 +70,7 @@ describe('threadCopyPayload', () => {
       effort: 'high',
       port: 4512,
       cwd: 'D:/project/app',
-      'log-path': '~/.multi-agent/log/app/',
+      'log-path': '~/.super-dolphin/log/app/',
       copiedAt: '2026-06-15 08:00:00 UTC+8',
     });
   });

@@ -8,5 +8,5 @@ type ToolErrorEnvelope = common.ToolErrorEnvelope
 
 // newToolErrorEnvelope 通过 common 包生成统一工具错误，保持各 transport 的错误格式一致。
 func newToolErrorEnvelope(toolName, languageID string, err error) ToolErrorEnvelope {
-	return common.NewToolErrorEnvelopeWithMeta(toolName, languageID, err, nil)
+	return common.NewToolErrorEnvelopeWithClassifier(toolName, languageID, err, nil, ToolErrorClassifier)
 }

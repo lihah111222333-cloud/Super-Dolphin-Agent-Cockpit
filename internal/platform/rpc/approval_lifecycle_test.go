@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	"github.com/creachadair/jrpc2/handler"
+	jrpcserver "github.com/creachadair/jrpc2/server"
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -63,6 +65,94 @@ func TestApprovalRequesterDoesNotFallbackToToolPeer(t *testing.T) {
 	}
 	if len(manager.PendingSnapshot()) != 0 {
 		t.Fatal("RequestApproval left pending approvals behind without a UI peer")
+	}
+}
+
+func TestApprovalRequestFromContractKeepsSourceButUsesGenericUICallback(t *testing.T) {
+	t.Parallel()
+	request := approvalRequestFromContract(contract.ApprovalRequest{
+		CallID:       "call-acl",
+		ApprovalID:   "approval-acl",
+		ToolName:     "file",
+		AgentID:      "agent-1",
+		ThreadID:     "thread-1",
+		TurnID:       "turn-1",
+		Kind:         "windows_acl",
+		SourceMethod: "tools/call",
+		Payload:      map[string]any{"windows_error_code": 5},
+	})
+	if request.SourceMethod != "tools/call" {
+		t.Fatalf("SourceMethod = %q, want provenance tools/call", request.SourceMethod)
+	}
+	if request.CallbackMethod != DefaultApprovalCallbackMethod {
+		t.Fatalf("CallbackMethod = %q, want %q", request.CallbackMethod, DefaultApprovalCallbackMethod)
+	}
+	if got := callbackMethod(request); got != DefaultApprovalCallbackMethod {
+		t.Fatalf("callbackMethod() = %q, want %q", got, DefaultApprovalCallbackMethod)
+	}
+}
+
+func TestApprovalRequesterPublishesWindowsACLPromptAndReceivesUIDecision(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	manager := NewApprovalManager(nil, dispatcher)
+	bridge := NewPushBridge(dispatcher, nil)
+	requested := make(chan tooldto.ToolApprovalRequested, 1)
+	cancelSubscription := event.Subscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) {
+		requested <- ev
+	})
+	defer cancelSubscription()
+	callbackParams := make(chan map[string]any, 1)
+	local := jrpcserver.NewLocal(handler.Map{}, &jrpcserver.LocalOptions{
+		Client: &jrpc2.ClientOptions{OnCallback: StrictHandler(func(_ context.Context, params map[string]any) (map[string]any, error) {
+			callbackParams <- params
+			return map[string]any{"approved": true, "reason": "approved"}, nil
+		})},
+		Server: &jrpc2.ServerOptions{AllowPush: true},
+	})
+	defer local.Close()
+	server := &Server{active: make(map[*jrpc2.Server]string)}
+	server.addActive(local.Server, dto.PeerKindUI)
+	requester := approvalRequester{manager: manager, bridge: bridge, server: server}
+	decision, err := requester.RequestApproval(context.Background(), contract.ApprovalRequest{
+		CallID:       "call-acl-ui",
+		ApprovalID:   "call-acl-ui",
+		ToolName:     "file",
+		AgentID:      "agent-trusted",
+		ThreadID:     "thread-trusted",
+		TurnID:       "turn-trusted",
+		Reason:       "Windows 权限不足；批准后仅重试一次。",
+		Kind:         "windows_acl",
+		SourceMethod: "tools/call",
+		Payload: map[string]any{
+			"authorization_required":  true,
+			"windows_error_code":      5,
+			"windows_permission_kind": "access_denied",
+		},
+	})
+	if err != nil {
+		t.Fatalf("RequestApproval() error = %v", err)
+	}
+	if decision.Approved == nil || !*decision.Approved {
+		t.Fatalf("RequestApproval() decision = %+v, want UI approval", decision)
+	}
+	select {
+	case ev := <-requested:
+		if ev.CallID != "call-acl-ui" || ev.AgentID != "agent-trusted" || ev.ThreadID != "thread-trusted" || ev.Kind != "windows_acl" {
+			t.Fatalf("ToolApprovalRequested identity = %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ToolApprovalRequested")
+	}
+	select {
+	case params := <-callbackParams:
+		if params["sourceMethod"] != "tools/call" || params["kind"] != "windows_acl" || params["windows_error_code"] != float64(5) && params["windows_error_code"] != 5 {
+			t.Fatalf("approval callback params = %#v", params)
+		}
+		if _, leaked := params["file_path"]; leaked {
+			t.Fatalf("approval callback leaked file_path: %#v", params)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for UI approval callback")
 	}
 }
 

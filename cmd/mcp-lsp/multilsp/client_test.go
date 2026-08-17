@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -11,6 +12,20 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
+
+func TestNormalizeJDTLSProfileTypeDefinitionCapability(t *testing.T) {
+	for profile, wantHidden := range map[string]bool{
+		ServerProfileJDTLS160: true,
+		"":                    false,
+		"jdk-jdtls@1.61.0":    false,
+		"other-server":        false,
+	} {
+		capabilities := normalizeServerProfileCapabilities(protocol.ServerCapabilities{TypeDefinitionProvider: true}, profile)
+		if got := capabilities.TypeDefinitionProvider == nil; got != wantHidden {
+			t.Fatalf("profile=%q typeDefinitionProvider nil=%t want=%t", profile, got, wantHidden)
+		}
+	}
+}
 
 func TestDecodeInitializeResultPreservesSemanticTokensLegend(t *testing.T) {
 	capabilities, _, err := decodeInitializeResultAttribution(json.RawMessage(`{
@@ -31,6 +46,60 @@ func TestDecodeInitializeResultPreservesSemanticTokensLegend(t *testing.T) {
 	}
 	if got := strings.Join(tokenModifiers, ","); got != "declaration,readonly" {
 		t.Errorf("token modifiers = %q", got)
+	}
+}
+
+func TestDecodeInitializeResultDisablesSemanticTokensWithoutLegend(t *testing.T) {
+	for name, raw := range map[string]string{
+		"missing legend":   `{"capabilities":{"semanticTokensProvider":{"full":true}}}`,
+		"boolean provider": `{"capabilities":{"semanticTokensProvider":true}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			capabilities, _, err := decodeInitializeResultAttribution(json.RawMessage(raw))
+			if err != nil {
+				t.Fatalf("decodeInitializeResultAttribution() error = %v", err)
+			}
+			if semanticTokensFullCapabilityAvailable(capabilities.SemanticTokensProvider) {
+				t.Fatalf("semanticTokensProvider = %#v, want disabled for missing legend", capabilities.SemanticTokensProvider)
+			}
+		})
+	}
+}
+
+func TestBrokenSemanticTokensDoesNotSuppressOtherDynamicCapabilities(t *testing.T) {
+	tracker := newDynamicRegistrationTracker()
+	handler := dynamicRegistrationRequestHandler(tracker, nil)
+	for _, raw := range []string{
+		`{"registrations":[{"id":"completion","method":"textDocument/completion"}]}`,
+		`{"registrations":[{"id":"definition","method":"textDocument/definition"}]}`,
+		`{"registrations":[{"id":"semantic-full","method":"textDocument/semanticTokens","registerOptions":{"full":{"delta":true}}}]}`,
+	} {
+		if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(raw)); err != nil {
+			t.Fatalf("register dynamic capability: %v", err)
+		}
+	}
+
+	capabilities := tracker.serverCapabilities(protocol.ServerCapabilities{
+		SemanticTokensProvider: invalidSemanticTokensProvider{},
+	})
+	if capabilities.SemanticTokensProvider != nil {
+		t.Fatalf("broken semantic tokens provider = %#v, want nil", capabilities.SemanticTokensProvider)
+	}
+	if !serverCapabilityAvailable(capabilities.CompletionProvider) {
+		t.Fatal("dynamic completion was suppressed by broken semantic tokens legend")
+	}
+	if !serverCapabilityAvailable(capabilities.DefinitionProvider) {
+		t.Fatal("dynamic definition was suppressed by broken semantic tokens legend")
+	}
+
+	client := &client{
+		capabilities:               protocol.ServerCapabilities{SemanticTokensProvider: invalidSemanticTokensProvider{}},
+		dynamicRegistrations:       tracker,
+		semanticTokensLegendBroken: true,
+	}
+	snapshot := client.ServerCapabilities()
+	if snapshot.SemanticTokensProvider != nil || !serverCapabilityAvailable(snapshot.CompletionProvider) || !serverCapabilityAvailable(snapshot.DefinitionProvider) {
+		t.Fatalf("client capability snapshot = %#v, want only semantic tokens disabled", snapshot)
 	}
 }
 
@@ -152,6 +221,381 @@ func TestRequestDocumentSymbolsSkipsUnadvertisedCapability(t *testing.T) {
 	}
 }
 
+func TestRequestCompletionSkipsUnadvertisedCapability(t *testing.T) {
+	client := &unadvertisedCompletionClient{}
+	_, err := requestDocumentForClientWithCapability[*protocol.CompletionList](
+		context.Background(),
+		&manager{},
+		client,
+		documentRef{},
+		protocol.MethodCompletion,
+		nil,
+		nil,
+		clientSupportsCompletion,
+	)
+	if !errors.Is(err, lspmanager.ErrUnsupportedCapability) {
+		t.Fatalf("requestDocumentForClientWithCapability() error = %v, want ErrUnsupportedCapability", err)
+	}
+	var codedErr *common.CodedToolError
+	if !errors.As(err, &codedErr) {
+		t.Fatalf("requestDocumentForClientWithCapability() error = %T, want *common.CodedToolError", err)
+	}
+	if codedErr.Code != "capability_unsupported" || codedErr.Retryable {
+		t.Fatalf("completion capability error = %#v, want non-retryable capability_unsupported", codedErr)
+	}
+	if codedErr.Meta["lsp_method"] != protocol.MethodCompletion {
+		t.Fatalf("completion capability metadata = %#v, want lsp_method=%q", codedErr.Meta, protocol.MethodCompletion)
+	}
+	if client.requested {
+		t.Fatal("requestDocumentForClientWithCapability() sent textDocument/completion despite absent server capability")
+	}
+}
+
+func TestClientSupportsCompletionPreservesTrueAndUnknown(t *testing.T) {
+	cases := []struct {
+		name   string
+		client Client
+		want   bool
+	}{
+		{name: "advertised", client: &advertisedCompletionClient{}, want: true},
+		{name: "unknown_client", client: noopClient{}, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := clientSupportsCompletion(tc.client); got != tc.want {
+				t.Fatalf("clientSupportsCompletion() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClientSupportsMethodUsesAdvertisedCapabilities(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		enable func(*protocol.ServerCapabilities)
+	}{
+		{name: "hover", method: protocol.MethodHover, enable: func(c *protocol.ServerCapabilities) { c.HoverProvider = true }},
+		{name: "definition", method: protocol.MethodDefinition, enable: func(c *protocol.ServerCapabilities) { c.DefinitionProvider = true }},
+		{name: "implementation", method: protocol.MethodImplementation, enable: func(c *protocol.ServerCapabilities) { c.ImplementationProvider = true }},
+		{name: "type_definition", method: protocol.MethodTypeDefinition, enable: func(c *protocol.ServerCapabilities) { c.TypeDefinitionProvider = true }},
+		{name: "signature_help", method: protocol.MethodSignatureHelp, enable: func(c *protocol.ServerCapabilities) { c.SignatureHelpProvider = true }},
+		{name: "references", method: protocol.MethodReferences, enable: func(c *protocol.ServerCapabilities) { c.ReferencesProvider = true }},
+		{name: "document_symbol", method: protocol.MethodDocumentSymbol, enable: func(c *protocol.ServerCapabilities) { c.DocumentSymbolProvider = true }},
+		{name: "completion", method: protocol.MethodCompletion, enable: func(c *protocol.ServerCapabilities) { c.CompletionProvider = true }},
+		{name: "call_hierarchy", method: protocol.MethodPrepareCallHierarchy, enable: func(c *protocol.ServerCapabilities) { c.CallHierarchyProvider = true }},
+		{name: "type_hierarchy", method: protocol.MethodPrepareTypeHierarchy, enable: func(c *protocol.ServerCapabilities) { c.TypeHierarchyProvider = true }},
+		{name: "folding_range", method: protocol.MethodFoldingRange, enable: func(c *protocol.ServerCapabilities) { c.FoldingRangeProvider = true }},
+		{name: "semantic_tokens_full", method: protocol.MethodSemanticTokensFull, enable: func(c *protocol.ServerCapabilities) { c.SemanticTokensProvider = true }},
+		{name: "rename", method: protocol.MethodRename, enable: func(c *protocol.ServerCapabilities) { c.RenameProvider = true }},
+		{name: "code_action", method: protocol.MethodCodeAction, enable: func(c *protocol.ServerCapabilities) { c.CodeActionProvider = true }},
+		{name: "formatting", method: protocol.MethodFormatting, enable: func(c *protocol.ServerCapabilities) { c.DocumentFormattingProvider = true }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &staticCapabilitiesClient{}
+			if clientSupportsMethod(client, tc.method) {
+				t.Fatalf("clientSupportsMethod(%q) = true with absent initialize capability", tc.method)
+			}
+			tc.enable(&client.capabilities)
+			if !clientSupportsMethod(client, tc.method) {
+				t.Fatalf("clientSupportsMethod(%q) = false with advertised initialize capability", tc.method)
+			}
+		})
+	}
+	if !clientSupportsMethod(noopClient{}, protocol.MethodImplementation) {
+		t.Fatal("clientSupportsMethod() rejected legacy client without a capability snapshot")
+	}
+	if !clientSupportsMethod(&staticCapabilitiesClient{}, "textDocument/futureMethod") {
+		t.Fatal("clientSupportsMethod() rejected an unknown future method")
+	}
+}
+
+func TestRequestImplementationSkipsUnadvertisedCapability(t *testing.T) {
+	client := &staticCapabilitiesClient{}
+	_, err := requestDocumentForClientWithCapability[[]protocol.LocationResult](
+		context.Background(),
+		&manager{},
+		client,
+		documentRef{},
+		protocol.MethodImplementation,
+		nil,
+		nil,
+		clientMethodCapabilityGuard(protocol.MethodImplementation),
+	)
+	assertCapabilityRequestWasSkipped(t, err, protocol.MethodImplementation, client.requested)
+	var codedErr *common.CodedToolError
+	if !errors.As(err, &codedErr) {
+		t.Fatalf("implementation capability error = %T, want *common.CodedToolError", err)
+	}
+	if known, _ := codedErr.Meta["capabilities_known"].(bool); !known {
+		t.Fatalf("implementation capability metadata = %#v, want capabilities_known=true", codedErr.Meta)
+	}
+	if snapshot, _ := codedErr.Meta["capability_snapshot"].(string); !strings.Contains(snapshot, "implementation=false") {
+		t.Fatalf("implementation capability metadata = %#v, want implementation=false snapshot", codedErr.Meta)
+	}
+}
+
+func TestPrepareCallHierarchySkipsUnadvertisedCapability(t *testing.T) {
+	client := &staticCapabilitiesClient{}
+	_, err := prepareHierarchy[protocol.CallHierarchyItem](
+		context.Background(),
+		&manager{},
+		client,
+		protocol.MethodPrepareCallHierarchy,
+		"file:///workspace/main.php",
+		protocol.Position{},
+	)
+	assertCapabilityRequestWasSkipped(t, err, protocol.MethodPrepareCallHierarchy, client.requested)
+}
+
+func TestDynamicRegistrationTracksAllGuardedOptionalMethods(t *testing.T) {
+	cases := []struct {
+		name               string
+		registrationMethod string
+		requestMethod      string
+		registerOptions    map[string]any
+	}{
+		{name: "completion", registrationMethod: protocol.MethodCompletion, requestMethod: protocol.MethodCompletion},
+		{name: "document_symbol", registrationMethod: protocol.MethodDocumentSymbol, requestMethod: protocol.MethodDocumentSymbol},
+		{name: "definition", registrationMethod: protocol.MethodDefinition, requestMethod: protocol.MethodDefinition},
+		{name: "implementation", registrationMethod: protocol.MethodImplementation, requestMethod: protocol.MethodImplementation},
+		{name: "type_definition", registrationMethod: protocol.MethodTypeDefinition, requestMethod: protocol.MethodTypeDefinition},
+		{name: "references", registrationMethod: protocol.MethodReferences, requestMethod: protocol.MethodReferences},
+		{name: "call_hierarchy", registrationMethod: protocol.MethodPrepareCallHierarchy, requestMethod: protocol.MethodPrepareCallHierarchy},
+		{name: "type_hierarchy", registrationMethod: protocol.MethodPrepareTypeHierarchy, requestMethod: protocol.MethodPrepareTypeHierarchy},
+		{name: "code_action", registrationMethod: protocol.MethodCodeAction, requestMethod: protocol.MethodCodeAction},
+		{name: "signature_help", registrationMethod: protocol.MethodSignatureHelp, requestMethod: protocol.MethodSignatureHelp},
+		{name: "formatting", registrationMethod: protocol.MethodFormatting, requestMethod: protocol.MethodFormatting},
+		{name: "folding_range", registrationMethod: protocol.MethodFoldingRange, requestMethod: protocol.MethodFoldingRange},
+		{
+			name:               "semantic_tokens_full",
+			registrationMethod: protocol.MethodSemanticTokens,
+			requestMethod:      protocol.MethodSemanticTokensFull,
+			registerOptions:    map[string]any{"range": true, "full": true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tracker := newDynamicRegistrationTracker()
+			client := &dynamicDocumentSymbolsClient{tracker: tracker}
+			handler := dynamicRegistrationRequestHandler(tracker, nil)
+			registrationEntry := map[string]any{"id": tc.name, "method": tc.registrationMethod}
+			if tc.registerOptions != nil {
+				registrationEntry["registerOptions"] = tc.registerOptions
+			}
+			registration, err := json.Marshal(map[string]any{
+				"registrations": []map[string]any{registrationEntry},
+			})
+			if err != nil {
+				t.Fatalf("marshal registration: %v", err)
+			}
+			if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, registration); err != nil {
+				t.Fatalf("register %s: %v", tc.registrationMethod, err)
+			}
+			if !clientSupportsMethod(client, tc.requestMethod) {
+				t.Fatalf("dynamic registration %q did not enable %q", tc.registrationMethod, tc.requestMethod)
+			}
+
+			unregistration, err := json.Marshal(map[string]any{
+				"unregisterations": []map[string]any{{"id": tc.name, "method": tc.registrationMethod}},
+			})
+			if err != nil {
+				t.Fatalf("marshal unregistration: %v", err)
+			}
+			if _, err := handler(context.Background(), LSPCompatMethodClientUnregisterCapability, unregistration); err != nil {
+				t.Fatalf("unregister %s: %v", tc.registrationMethod, err)
+			}
+			if clientSupportsMethod(client, tc.requestMethod) {
+				t.Fatalf("dynamic unregister %q left %q enabled", tc.registrationMethod, tc.requestMethod)
+			}
+		})
+	}
+}
+
+func TestSemanticTokensFullGuardRequiresFullSubcapability(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider any
+		want     bool
+	}{
+		{name: "absent", provider: nil, want: false},
+		{name: "range_only", provider: map[string]any{"range": true}, want: false},
+		{name: "explicit_false", provider: map[string]any{"range": true, "full": false}, want: false},
+		{name: "full_true", provider: map[string]any{"full": true}, want: true},
+		{name: "full_options", provider: map[string]any{"full": map[string]any{"delta": true}}, want: true},
+		{name: "raw_false", provider: json.RawMessage(`{"range":true,"full":false}`), want: false},
+		{name: "raw_true", provider: json.RawMessage(`{"full":{"delta":true}}`), want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &staticCapabilitiesClient{capabilities: protocol.ServerCapabilities{
+				SemanticTokensProvider: tc.provider,
+			}}
+			if got := clientSupportsMethod(client, protocol.MethodSemanticTokensFull); got != tc.want {
+				t.Fatalf("clientSupportsMethod(semanticTokens/full) = %t, want %t for %#v", got, tc.want, tc.provider)
+			}
+		})
+	}
+
+	client := &staticCapabilitiesClient{capabilities: protocol.ServerCapabilities{
+		SemanticTokensProvider: map[string]any{"range": true, "full": false},
+	}}
+	_, err := requestDocumentForClientWithCapability[protocol.SemanticTokens](
+		context.Background(),
+		&manager{},
+		client,
+		documentRef{},
+		protocol.MethodSemanticTokensFull,
+		nil,
+		nil,
+		clientMethodCapabilityGuard(protocol.MethodSemanticTokensFull),
+	)
+	assertCapabilityRequestWasSkipped(t, err, protocol.MethodSemanticTokensFull, client.requested)
+
+	advertised := &staticCapabilitiesClient{capabilities: protocol.ServerCapabilities{
+		SemanticTokensProvider: map[string]any{"full": true},
+	}}
+	requestManager := &manager{workspaces: map[string]*workspaceClient{
+		"semantic-tokens": {
+			key:        "semantic-tokens",
+			client:     advertised,
+			generation: 1,
+			state:      workspaceStateActive,
+		},
+	}}
+	_, err = requestDocumentForClientWithCapability[protocol.SemanticTokens](
+		context.Background(),
+		requestManager,
+		advertised,
+		documentRef{},
+		protocol.MethodSemanticTokensFull,
+		nil,
+		nil,
+		clientMethodCapabilityGuard(protocol.MethodSemanticTokensFull),
+	)
+	if err != nil {
+		t.Fatalf("advertised semanticTokens/full request: %v", err)
+	}
+	if !advertised.requested {
+		t.Fatal("advertised semanticTokens/full capability did not send the request")
+	}
+}
+
+func TestDynamicSemanticTokensRangeOnlyDoesNotEnableFull(t *testing.T) {
+	tracker := newDynamicRegistrationTracker()
+	handler := dynamicRegistrationRequestHandler(tracker, nil)
+	client := &dynamicDocumentSymbolsClient{tracker: tracker}
+	if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(`{
+		"registrations":[{
+			"id":"semantic-range-only",
+			"method":"textDocument/semanticTokens",
+			"registerOptions":{"range":true,"full":false}
+		}]
+	}`)); err != nil {
+		t.Fatalf("register range-only semantic tokens: %v", err)
+	}
+	snapshot := client.ServerCapabilities()
+	if clientSupportsMethod(client, protocol.MethodSemanticTokensFull) {
+		t.Fatal("range-only dynamic semantic token registration enabled semanticTokens/full")
+	}
+
+	requestClient := &staticCapabilitiesClient{capabilities: snapshot}
+	_, err := requestDocumentForClientWithCapability[protocol.SemanticTokens](
+		context.Background(),
+		&manager{},
+		requestClient,
+		documentRef{},
+		protocol.MethodSemanticTokensFull,
+		nil,
+		nil,
+		clientMethodCapabilityGuard(protocol.MethodSemanticTokensFull),
+	)
+	assertCapabilityRequestWasSkipped(t, err, protocol.MethodSemanticTokensFull, requestClient.requested)
+}
+
+func TestDynamicSemanticTokensFullPreservesStaticProvider(t *testing.T) {
+	tracker := newDynamicRegistrationTracker()
+	handler := dynamicRegistrationRequestHandler(tracker, nil)
+	if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(`{
+		"registrations":[{
+			"id":"semantic-full",
+			"method":"textDocument/semanticTokens",
+			"registerOptions":{"range":false,"full":{"delta":true}}
+		}]
+	}`)); err != nil {
+		t.Fatalf("register semantic tokens full: %v", err)
+	}
+	legend := map[string]any{"tokenTypes": []any{"function"}, "tokenModifiers": []any{}}
+	snapshot := tracker.serverCapabilities(protocol.ServerCapabilities{
+		SemanticTokensProvider: map[string]any{"range": true, "full": false, "legend": legend},
+	})
+	provider, ok := snapshot.SemanticTokensProvider.(map[string]any)
+	if !ok {
+		t.Fatalf("merged semantic token provider = %T, want map", snapshot.SemanticTokensProvider)
+	}
+	if provider["range"] != true || !reflect.DeepEqual(provider["legend"], legend) || provider["full"] != true {
+		t.Fatalf("merged semantic token provider = %#v, want preserved range/legend and full=true", provider)
+	}
+}
+
+func TestDynamicRegistrationRejectsEmptyIDAtomically(t *testing.T) {
+	tracker := newDynamicRegistrationTracker()
+	handler := dynamicRegistrationRequestHandler(tracker, nil)
+	client := &dynamicDocumentSymbolsClient{tracker: tracker}
+
+	_, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(`{
+		"registrations":[
+			{"id":"implementation-valid","method":"textDocument/implementation"},
+			{"id":" ","method":"textDocument/completion"}
+		]
+	}`))
+	if err == nil {
+		t.Fatal("registration with an empty ID succeeded")
+	}
+	if clientSupportsMethod(client, protocol.MethodImplementation) {
+		t.Fatal("registration request partially mutated the capability ledger before rejecting an empty ID")
+	}
+
+	if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(`{
+		"registrations":[{"id":"implementation-valid","method":"textDocument/implementation"}]
+	}`)); err != nil {
+		t.Fatalf("register valid implementation capability: %v", err)
+	}
+	_, err = handler(context.Background(), LSPCompatMethodClientUnregisterCapability, json.RawMessage(`{
+		"unregisterations":[
+			{"id":"implementation-valid","method":"textDocument/implementation"},
+			{"id":"","method":"textDocument/completion"}
+		]
+	}`))
+	if err == nil {
+		t.Fatal("unregistration with an empty ID succeeded")
+	}
+	if !clientSupportsMethod(client, protocol.MethodImplementation) {
+		t.Fatal("unregistration request partially mutated the capability ledger before rejecting an empty ID")
+	}
+}
+
+func assertCapabilityRequestWasSkipped(t *testing.T, err error, method string, requested bool) {
+	t.Helper()
+	if !errors.Is(err, lspmanager.ErrUnsupportedCapability) {
+		t.Fatalf("capability guard error = %v, want ErrUnsupportedCapability", err)
+	}
+	var codedErr *common.CodedToolError
+	if !errors.As(err, &codedErr) {
+		t.Fatalf("capability guard error = %T, want *common.CodedToolError", err)
+	}
+	if codedErr.Code != "capability_unsupported" || codedErr.Retryable {
+		t.Fatalf("capability guard error = %#v, want non-retryable capability_unsupported", codedErr)
+	}
+	if codedErr.Meta["lsp_method"] != method {
+		t.Fatalf("capability metadata = %#v, want lsp_method=%q", codedErr.Meta, method)
+	}
+	if requested {
+		t.Fatalf("capability guard sent %s despite absent server capability", method)
+	}
+}
+
 type dynamicDocumentSymbolsClient struct {
 	noopClient
 	tracker *dynamicRegistrationTracker
@@ -173,4 +617,41 @@ func (c *unadvertisedDocumentSymbolsClient) Request(context.Context, string, any
 
 func (unadvertisedDocumentSymbolsClient) ServerCapabilities() protocol.ServerCapabilities {
 	return protocol.ServerCapabilities{}
+}
+
+type unadvertisedCompletionClient struct {
+	noopClient
+	requested bool
+}
+
+func (c *unadvertisedCompletionClient) Request(context.Context, string, any) (json.RawMessage, error) {
+	c.requested = true
+	return json.RawMessage(`{"isIncomplete":false,"items":[]}`), nil
+}
+
+func (unadvertisedCompletionClient) ServerCapabilities() protocol.ServerCapabilities {
+	return protocol.ServerCapabilities{CompletionProvider: false}
+}
+
+type advertisedCompletionClient struct {
+	noopClient
+}
+
+func (advertisedCompletionClient) ServerCapabilities() protocol.ServerCapabilities {
+	return protocol.ServerCapabilities{CompletionProvider: true}
+}
+
+type staticCapabilitiesClient struct {
+	noopClient
+	capabilities protocol.ServerCapabilities
+	requested    bool
+}
+
+func (c *staticCapabilitiesClient) Request(context.Context, string, any) (json.RawMessage, error) {
+	c.requested = true
+	return json.RawMessage("[]"), nil
+}
+
+func (c *staticCapabilitiesClient) ServerCapabilities() protocol.ServerCapabilities {
+	return c.capabilities
 }

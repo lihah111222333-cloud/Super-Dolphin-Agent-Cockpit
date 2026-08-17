@@ -1,48 +1,48 @@
 +----------------------------------+
-|    agent-terminal ±àÒë¹¤¾ß       |
+|    agent-terminal ï¿½ï¿½ï¿½ë¹¤ï¿½ï¿½       |
 +----------------------------------+
 
-  [1] Ö÷·ÖÖ§±àÒë debug (ÎÞ Frida)
-  [2] test ·ÖÖ§±àÒë debug
-  [3] Õý³£±àÒë (release)
-  [4] Ö±½ÓÆô¶¯ÒÑ±àÒë¶þ½øÖÆ (debug + vite HMR)
-  [5] °´ git tag ±àÒë debug
+  [1] ï¿½ï¿½ï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½ debug (ï¿½ï¿½ Frida)
+  [2] test ï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½ debug
+  [3] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (release)
+  [4] Ö±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (debug + vite HMR)
+  [5] ï¿½ï¿½ git tag ï¿½ï¿½ï¿½ï¿½ debug
 
 1
 
-  debug ×ÓÑ¡Ïî:
-    [1] ÆÕÍ¨ debug (ÎÞ IDA/Frida)
-    [2] Server Ä£Ê½ (ä¯ÀÀÆ÷·ÃÎÊ http://localhost:4511)
+  debug ï¿½ï¿½Ñ¡ï¿½ï¿½:
+    [1] ï¿½ï¿½Í¨ debug (ï¿½ï¿½ IDA/Frida)
+    [2] Server Ä£Ê½ (ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ http://localhost:4511)
 
 2
 
 > Ä£Ê½: main + debug (server mode)
 > Ä¿Â¼: D:\project\Super-Dolphin
 ------------------------------------
-[1/4] Ç°¶Ë´¦Àí...
-  -> ÒÀÀµÎÞ±ä»¯£¬Ìø¹ý°²×°
-  -> Ô¤¼ì Vue template£¨runtime-compiler£©...
+[1/4] Ç°ï¿½Ë´ï¿½ï¿½ï¿½...
+  -> ï¿½ï¿½ï¿½ï¿½ï¿½Þ±ä»¯ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×°
+  -> Ô¤ï¿½ï¿½ Vue templateï¿½ï¿½runtime-compilerï¿½ï¿½...
 [check-templates] âœ… 33 Vue templates å…¨éƒ¨é€šè¿‡ (æµè§ˆå™¨ Vue runtime-compiler)
-  -> Æô¶¯ vite dev server (¶Ë¿Ú 5173)...
-  -> vite dev server ÒÑ¾ÍÐ÷ OK (PID: 38112)
-[2/4] ÇåÀí webview »º´æ...
-[pre-build] Ìø¹ý´úÂëµØÍ¼Ë÷ÒýË¢ÐÂ (AUTO_CODEMAP_REFRESH=0)
-[3/4] ºó¶Ë´úÂëÊØÎÀ¼ì²é...
-  -> ±àÒë code_size_guard...
+  -> ï¿½ï¿½ï¿½ vite dev server (ï¿½Ë¿ï¿½ 5173)...
+  -> vite dev server ï¿½Ñ¾ï¿½ï¿½ï¿½ OK (PID: 38112)
+[2/4] ï¿½ï¿½ï¿½ï¿½ webview ï¿½ï¿½ï¿½ï¿½...
+[pre-build] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¼ï¿½ï¿½ï¿½ï¿½Ë¢ï¿½ï¿½ (AUTO_CODEMAP_REFRESH=0)
+[3/4] ï¿½ï¿½Ë´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
+  -> ï¿½ï¿½ï¿½ï¿½ code_size_guard...
 ðŸ“  æ–‡ä»¶â‰¤600 å‡½æ•°â‰¤80 åµŒå¥—â‰¤4 CCâ‰¤10 ä¸‹åˆ’çº¿â‰¤3 åŒ…æ–‡ä»¶â‰¤30 åŒ…è¡Œâ‰¤10000
 ðŸ“Š  ç”Ÿäº§ baseline æ£˜è½®é€šè¿‡ â€” 82 ä¸ªæ–‡ä»¶å†»ç»“ä¸­
 ðŸ“Š  æµ‹è¯• baseline æ£˜è½®é€šè¿‡ â€” 32 ä¸ªæ–‡ä»¶å†»ç»“ä¸­
 âœ…  ä»£ç å®ˆå«: å…¨éƒ¨é€šè¿‡
-[3/4] ±àÒëºó¶Ë (debug server Ä£Ê½: -gcflags='-N -l')...
+[3/4] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (debug server Ä£Ê½: -gcflags='-N -l')...
   OK super-agent-debug.exe    sha256: 2410fa243a52d37864b3fd1ff0c944f2725d86777ff461bc493289e6d2d105cc
   OK mcp-orch.exe             sha256: df65c470289788c2c3568d79119a5dcd2ae5db1ce1cb6c1992bfe4b1329a58de
   OK mcp-lsp.exe              sha256: b6ca9ee58a157aaf73ea29ecefe34d20e7f2b89cac57503705e3e41427099472
-[4/4] Í£Ö¹¾É½ø³Ì...
+[4/4] Í£Ö¹ï¿½É½ï¿½ï¿½ï¿½...
 
 ====================================
-> Æô¶¯ debug Ä£Ê½ (Ç°¶ËÈÈ¸üÐÂ -> http://localhost:5173)...
+> ï¿½ï¿½ï¿½ debug Ä£Ê½ (Ç°ï¿½ï¿½ï¿½È¸ï¿½ï¿½ï¿½ -> http://localhost:5173)...
 {"time":"2026-05-22 20:25:23","level":"INFO","msg":"build info","version":"v0.0.0-20260522062858-d7b070e2ee36+dirty","commit":"d7b070e","build_time":"2026-05-22T06:28:58Z","runtime":"windows/amd64"}
-{"time":"2026-05-22 20:25:23","level":"INFO","msg":"log file opened","path":"C:\\Users\\ai01\\.multi-agent\\log\\Super-Dolphin\\agent-terminal-2026-05-22-14.log","run":14}
+{"time":"2026-05-22 20:25:23","level":"INFO","msg":"log file opened","path":"C:\\Users\\ai01\\.super-dolphin\\log\\Super-Dolphin\\agent-terminal-2026-05-22-14.log","run":14}
 {"time":"2026-05-22 20:25:23","level":"INFO","msg":"frontend proxying to vite dev server","project":"Super-Dolphin","url":"http://localhost:5173"}
 {"time":"2026-05-22 20:25:23","level":"INFO","msg":"frontend proxying to vite dev server","project":"Super-Dolphin","url":"http://localhost:5173"}
 {"time":"2026-05-22 20:25:23","level":"INFO","msg":"Build Info:","project":"Super-Dolphin","Wails":"v3.0.0-alpha.74","Compiler":"go1.26.3","CGO_ENABLED":"1","CGO_CPPFLAGS":"","-buildmode":"exe","-gcflags":"-N -l","DefaultGODEBUG":"cryptocustomrand=1,tlssecpmlkem=0,urlstrictcolons=0","GOAMD64":"v1","-compiler":"gc","CGO_CXXFLAGS":"","GOOS":"windows","vcs":"git","CGO_CFLAGS":"","CGO_LDFLAGS":"","GOARCH":"amd64","vcs.revision":"d7b070e2ee36fbb1e399ac52838e9aea4ab44a03","vcs.time":"2026-05-22T06:28:58Z","vcs.modified":"true"}

@@ -2,16 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
-	"strings"
 	"testing"
 
-	lspinstaller "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -22,15 +20,7 @@ func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {
 	declareTestDependencyBootstrap(t)
 	root := runtimeCanonicalTempDir(t)
 	t.Setenv("GO_AGENT_LSP_ROOT", root)
-	binDir := t.TempDir()
-	for _, name := range []string{
-		"vscode-json-language-server",
-		"vscode-markdown-language-server",
-		"yaml-language-server",
-	} {
-		writeMcpLSPExecutable(t, binDir, name)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	configureRuntimeManagerLanguageServerFixtures(t, t.TempDir(), []string{"markdown", "json", "yaml"})
 
 	cfg, err := platformconfig.New()
 	if err != nil {
@@ -75,38 +65,13 @@ func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {
 	}
 }
 
-func TestSetupInstallerPrefersNPMGlobalBinaryOverPNPMCommandShim(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses POSIX npm and pnpm command shims")
-	}
-	prefix := t.TempDir()
-	shadowBin := filepath.Join(prefix, "shadow-bin")
-	npmPrefix := filepath.Join(prefix, "npm-prefix")
-	shadowBinary := filepath.Join(shadowBin, "vscode-markdown-language-server")
-	globalBinary := filepath.Join(npmPrefix, "bin", "vscode-markdown-language-server")
-	writeRuntimeExecutable(t, shadowBinary, "#!/bin/sh\nexit 9\n# cmd-shim-target=/invalid/pnpm/markdown-server\n")
-	writeRuntimeExecutable(t, globalBinary, "#!/bin/sh\nexit 0\n")
-	writeRuntimeExecutable(t, filepath.Join(shadowBin, "npm"), "#!/bin/sh\nprintf '%s\\n' '"+npmPrefix+"'\n")
-	t.Setenv("PATH", shadowBin)
-
-	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(
-		lspinstaller.WithToolCallInstallCheckOnly(context.Background()),
-		"markdown",
-	)
-	if err != nil {
-		t.Fatalf("EnsureInstalledDetailed(markdown) error = %v", err)
-	}
-	if result.Path != globalBinary {
-		t.Fatalf("EnsureInstalledDetailed(markdown).Path = %q, want npm global binary %q", result.Path, globalBinary)
-	}
-}
-
 func TestNewManagerUsesPlatformLSPConfig(t *testing.T) {
 	declareTestDependencyBootstrap(t)
 	root := runtimeCanonicalTempDir(t)
 	t.Setenv("PROJECT_ROOT", root)
 	t.Setenv("GO_AGENT_LSP_ROOT", root)
 	t.Setenv("LSP_JSTS_ROOT_MARKERS", "custom.workspace")
+	configureRuntimeManagerLanguageServerFixtures(t, t.TempDir(), []string{"typescript"})
 	writeRuntimeTestFile(t, filepath.Join(root, "custom.workspace"), "marker\n")
 	target := filepath.Join(root, "src", "app.ts")
 	writeRuntimeTestFile(t, target, "export const value = 1\n")
@@ -280,6 +245,8 @@ func writeRuntimeTestFile(t *testing.T, path, body string) {
 	}
 }
 
+// writeRuntimeExecutable 只写入 fixture 内容和权限位，不选择平台命令；
+// POSIX shell 行为由显式 !windows 测试文件控制。
 func writeRuntimeExecutable(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -543,29 +510,6 @@ func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t
 	}
 }
 
-func TestRuntimeJSTSInitOptionsResolveInstalledTSServerPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses a POSIX npm binary symlink")
-	}
-	binDir, typeScriptRoot := writeTypeScriptNPMFixture(t)
-	t.Setenv("PATH", binDir)
-	registry := multilsp.NewDefaultLanguageAdapterRegistry()
-	adapter, ok := registry.AdapterForLanguage("typescript")
-	if !ok {
-		t.Fatal("missing typescript adapter")
-	}
-
-	serverBinary := filepath.Join(binDir, "typescript-language-server")
-	initOptions := runtimeAdapterInitOptionsWithBinary(adapter, false, serverBinary)
-	tsserver, ok := initOptions["tsserver"].(map[string]any)
-	if !ok {
-		t.Fatalf("typescript init options = %#v, want tsserver map", initOptions)
-	}
-	if got := runtimeStringOption(tsserver["fallbackPath"]); got != typeScriptRoot {
-		t.Fatalf("tsserver fallbackPath = %q, want %q", got, typeScriptRoot)
-	}
-}
-
 func TestRuntimeJSTSInitOptionsUseSingleBoundedTSServer(t *testing.T) {
 	registry := multilsp.NewDefaultLanguageAdapterRegistry()
 	adapter, ok := registry.AdapterForLanguage("typescript")
@@ -608,24 +552,6 @@ func TestRuntimeJSTSInitOptionsResolvePackagedWrapperTSServerPath(t *testing.T) 
 	}
 }
 
-func TestRuntimeTypeScriptModuleRootResolvesPNPMCommandShim(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses a POSIX pnpm command shim")
-	}
-	prefix := t.TempDir()
-	binDir := filepath.Join(prefix, "bin")
-	typeScriptRoot := filepath.Join(prefix, "store", "node_modules", "typescript")
-	target := filepath.Join(typeScriptRoot, "bin", "tsserver")
-	writeRuntimeExecutable(t, target, "#!/bin/sh\nexit 0\n")
-	writeRuntimeTestFile(t, filepath.Join(typeScriptRoot, "lib", "tsserver.js"), "fixture\n")
-	writeRuntimeExecutable(t, filepath.Join(binDir, "tsserver"), "#!/bin/sh\nexit 0\n# cmd-shim-target="+target+"\n")
-	t.Setenv("PATH", binDir)
-
-	if got := runtimeTypeScriptModuleRoot(""); got != typeScriptRoot {
-		t.Fatalf("runtimeTypeScriptModuleRoot() = %q, want pnpm TypeScript root %q", got, typeScriptRoot)
-	}
-}
-
 func writeTypeScriptNPMFixture(t *testing.T) (string, string) {
 	t.Helper()
 	prefix := t.TempDir()
@@ -648,9 +574,7 @@ func writeTypeScriptNPMFixture(t *testing.T) (string, string) {
 			t.Fatalf("write npm fixture: %v", err)
 		}
 	}
-	if err := os.Symlink(languageServerCLI, filepath.Join(binDir, "typescript-language-server")); err != nil {
-		t.Fatalf("symlink typescript-language-server: %v", err)
-	}
+	writeTypeScriptNPMBinaryFixture(t, languageServerCLI, filepath.Join(binDir, "typescript-language-server"))
 	canonicalTypeScriptRoot, err := filepath.EvalSymlinks(typeScriptRoot)
 	if err != nil {
 		t.Fatalf("canonicalize TypeScript fixture root: %v", err)
@@ -663,191 +587,6 @@ func TestRuntimePrimaryLanguageIDsIncludeShellscriptAndSQL(t *testing.T) {
 		if !slices.Contains(runtimePrimaryLanguageIDs(), languageID) {
 			t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing %s", runtimePrimaryLanguageIDs(), languageID)
 		}
-	}
-}
-
-func TestSetupInstallerRegistersBufProtoLanguageServer(t *testing.T) {
-	binDir := t.TempDir()
-	writeMcpLSPExecutable(t, binDir, "buf")
-	bufBinary := filepath.Join(binDir, mcpLSPExecutableFileName("buf"))
-	t.Setenv("PATH", binDir)
-
-	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
-	if err != nil {
-		t.Fatalf("EnsureInstalledDetailed(proto) error = %v", err)
-	}
-	if result.Binary != "buf" || result.Path != bufBinary {
-		t.Fatalf("proto installer result = %#v, want buf at %q", result, bufBinary)
-	}
-}
-
-func TestSetupInstallerReportsMissingBufBinaryForProto(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-
-	_, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithToolCallInstallCheckOnly(context.Background()), "proto")
-	if err == nil {
-		t.Fatal("EnsureInstalledDetailed(proto) error = nil, want missing binary")
-	}
-	var missing *lspinstaller.MissingBinaryError
-	if !errors.As(err, &missing) {
-		t.Fatalf("EnsureInstalledDetailed(proto) error = %T %v, want MissingBinaryError", err, err)
-	}
-	if languageID, binaryName := missing.MissingLSPBinary(); languageID != "proto" || binaryName != "buf" {
-		t.Fatalf("missing proto binary = (%q, %q), want (proto, buf)", languageID, binaryName)
-	}
-	if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
-		t.Fatalf("missing proto binary error was classified as unsupported language: %v", err)
-	}
-}
-
-func TestSetupInstallerRegistersSQLiteSQLLanguageServer(t *testing.T) {
-	if runtime.GOOS == "linux" {
-		t.Skip("Linux SQL uses the managed sqruff artifact")
-	}
-	binDir := t.TempDir()
-	writeMcpLSPExecutable(t, binDir, "sqruff")
-	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sqruff"))
-	t.Setenv("PATH", binDir)
-
-	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
-	if err != nil {
-		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
-	}
-	if result.Binary != "sqruff" || result.Path != fakeServer {
-		t.Fatalf("sql installer result = %#v, want sqruff at %q", result, fakeServer)
-	}
-}
-
-func TestSetupInstallerInstallsPinnedSQLiteSQLLanguageServer(t *testing.T) {
-	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
-		t.Skip("test uses the non-Linux cargo installer")
-	}
-	binDir := t.TempDir()
-	cargoHome := filepath.Join(t.TempDir(), "cargo-home")
-	fakeCargo := filepath.Join(binDir, "cargo")
-	marker := filepath.Join(t.TempDir(), "cargo-args")
-	script := `#!/bin/sh
-set -eu
-printf '%s\n' "$*" > "$CARGO_ARGS_MARKER"
-/bin/mkdir -p "$CARGO_HOME/bin"
-/bin/cat > "$CARGO_HOME/bin/sqruff" <<'EOF'
-#!/bin/sh
-if [ "${1:-}" = "--version" ]; then
-  echo "sqruff 0.38.0"
-fi
-exit 0
-EOF
-/bin/chmod +x "$CARGO_HOME/bin/sqruff"
-`
-	if err := os.WriteFile(fakeCargo, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake cargo: %v", err)
-	}
-	t.Setenv("PATH", binDir)
-	t.Setenv("CARGO_HOME", cargoHome)
-	t.Setenv("CARGO_ARGS_MARKER", marker)
-
-	if _, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql"); err != nil {
-		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
-	}
-	raw, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatalf("read cargo args: %v", err)
-	}
-	want := "install sqruff --version " + sqruffInstallVersion + " --locked"
-	if strings.TrimSpace(string(raw)) != want {
-		t.Fatalf("cargo args = %q, want %q", strings.TrimSpace(string(raw)), want)
-	}
-}
-
-func TestSetupInstallerRegistersSQLLanguageServer(t *testing.T) {
-	if runtime.GOOS == "linux" {
-		t.Skip("Linux SQL uses the managed sqruff artifact")
-	}
-	binDir := t.TempDir()
-	writeMcpLSPExecutable(t, binDir, "sqruff")
-	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sqruff"))
-	t.Setenv("PATH", binDir)
-
-	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
-	if err != nil {
-		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
-	}
-	if result.Binary != "sqruff" {
-		t.Fatalf("sql installer binary = %q, want sqruff", result.Binary)
-	}
-	if result.Path != fakeServer {
-		t.Fatalf("sql installer path = %q, want %q", result.Path, fakeServer)
-	}
-}
-
-func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
-	binDir := t.TempDir()
-	writeMcpLSPExecutable(t, binDir, "bash-language-server")
-	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("bash-language-server"))
-	writeMcpLSPExecutable(t, binDir, "shellcheck")
-	t.Setenv("PATH", binDir)
-
-	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
-	if err != nil {
-		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
-	}
-	if result.Binary != "bash-language-server" {
-		t.Fatalf("shell installer binary = %q, want bash-language-server", result.Binary)
-	}
-	if result.Path != fakeServer {
-		t.Fatalf("shell installer path = %q, want %q", result.Path, fakeServer)
-	}
-}
-
-func TestSetupInstallerInstallsShellcheckWhenShellServerAlreadyExists(t *testing.T) {
-	binDir := t.TempDir()
-	writeMcpLSPExecutable(t, binDir, "bash-language-server")
-	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("bash-language-server"))
-	fakeNPM := filepath.Join(binDir, mcpLSPExecutableFileName("npm"))
-	marker := filepath.Join(binDir, "npm-called")
-	script := `#!/bin/sh
-set -eu
-case " $* " in
-  *" shellcheck "*) ;;
-  *) echo "missing shellcheck install arg: $*" >&2; exit 1 ;;
-esac
-printf '%s\n' "$*" > "$FAKE_NPM_MARKER"
-printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
-/bin/chmod +x "$FAKE_INSTALL_BIN/shellcheck"
-`
-	if runtime.GOOS == "windows" {
-		script = "@echo off\r\n" +
-			"set \"ARGS=%*\"\r\n" +
-			"if \"%ARGS:shellcheck=%\"==\"%ARGS%\" (\r\n" +
-			"  echo missing shellcheck install arg: %* 1>&2\r\n" +
-			"  exit /b 1\r\n" +
-			")\r\n" +
-			"echo %*>\"%FAKE_NPM_MARKER%\"\r\n" +
-			"(\r\n" +
-			"  echo @echo off\r\n" +
-			"  echo exit /b 0\r\n" +
-			") > \"%FAKE_INSTALL_BIN%\\shellcheck.cmd\"\r\n" +
-			"exit /b 0\r\n"
-	}
-	if err := os.WriteFile(fakeNPM, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake npm: %v", err)
-	}
-	t.Setenv("PATH", binDir)
-	t.Setenv("FAKE_INSTALL_BIN", binDir)
-	t.Setenv("FAKE_NPM_MARKER", marker)
-
-	result, err := mustSetupInstaller(t).EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "shellscript")
-	if err != nil {
-		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
-	}
-	if result.Path != fakeServer {
-		t.Fatalf("shell installer path = %q, want %q", result.Path, fakeServer)
-	}
-	if _, err := os.Stat(filepath.Join(binDir, mcpLSPExecutableFileName("shellcheck"))); err != nil {
-		t.Fatalf("shellcheck dependency was not installed: %v", err)
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("shell installer did not invoke npm when shellcheck was missing: %v", err)
 	}
 }
 
@@ -883,43 +622,38 @@ func writeMcpLSPBundleManifest(t *testing.T, bundle, body string) {
 	}
 }
 
+// writeMcpLSPExecutable 只负责跨平台 fixture 的目录创建和写入错误；
+// 文件名与脚本体由显式平台 companion 提供，公共流程不读取 GOOS。
 func writeMcpLSPExecutable(t *testing.T, dir, name string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 	}
 	path := filepath.Join(dir, mcpLSPExecutableFileName(name))
-	body := "#!/bin/sh\nexit 0\n"
-	if runtime.GOOS == "windows" {
-		body = "@echo off\r\nexit /b 0\r\n"
-	}
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte(mcpLSPExecutableFixtureBody()), 0o755); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }
 
-func mcpLSPExecutableFileName(name string) string {
-	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
-		return name + ".cmd"
-	}
-	return name
-}
-
+// normalizeMcpLSPBundleManifestForTest 保留跨平台 JSON 解析、版本/SHA
+// 摘要和序列化；平台路径后缀转换由显式平台 companion 提供。
 func normalizeMcpLSPBundleManifestForTest(body string) string {
-	if runtime.GOOS != "windows" {
-		return body
+	body = normalizeMcpLSPBundleExecutablePaths(body)
+
+	var manifest struct {
+		Servers map[string]map[string]any `json:"servers"`
 	}
-	for _, path := range []string{
-		"bin/gopls", "bin/clangd",
-		"bin/typescript-language-server",
-		"node_modules/.bin/typescript-language-server",
-		"bin/vscode-css-language-server",
-		"bin/pyright-langserver",
-		"bin/rust-analyzer",
-		"bin/bash-language-server",
-		"bin/sqruff",
-	} {
-		body = strings.ReplaceAll(body, `"`+path+`"`, `"`+path+`.cmd"`)
+	if err := json.Unmarshal([]byte(body), &manifest); err != nil {
+		panic("decode test LSP manifest: " + err.Error())
 	}
-	return body
+	digest := sha256.Sum256([]byte(mcpLSPExecutableFixtureBody()))
+	for _, server := range manifest.Servers {
+		server["version"] = "test"
+		server["sha256"] = hex.EncodeToString(digest[:])
+	}
+	normalized, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		panic("encode test LSP manifest: " + err.Error())
+	}
+	return string(normalized) + "\n"
 }

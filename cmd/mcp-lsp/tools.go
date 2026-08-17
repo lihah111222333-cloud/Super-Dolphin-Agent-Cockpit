@@ -53,6 +53,7 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 	cfg := tools.Config{
 		WorkspaceRoot: m.root,
 		Registry:      m.registry,
+		EnsureASTGrep: m.astGrepEnsurer,
 	}
 	return ToolHandlers{
 		"file":       ToolHandler(tools.NewFileHandler(cfg)),

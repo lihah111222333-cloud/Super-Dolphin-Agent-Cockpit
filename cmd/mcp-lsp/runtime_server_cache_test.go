@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,13 +24,14 @@ func TestRuntimeServerEnvironmentSharesCacheAcrossWorktrees(t *testing.T) {
 	firstBinary := writeRuntimeServerCacheFixture(t, "typescript-language-server", "#!/bin/sh\nexit 0\n")
 	secondBinary := writeRuntimeServerCacheFixture(t, "typescript-language-server", "#!/bin/sh\nexit 0\n")
 	command := multilsp.ServerCommand{Executable: firstBinary, Args: []string{"--stdio"}}
+	nodeEnv := runtimeServerLockedNodeFixtureEnv(t)
 
-	first, err := runtimeServerEnvironment(command, firstBinary, firstRoot, []string{"typescript"}, []string{"WORKTREE=" + firstRoot}, true)
+	first, err := runtimeServerEnvironmentWithNodeResolver(command, firstBinary, firstRoot, []string{"typescript"}, append([]string{"WORKTREE=" + firstRoot}, nodeEnv...), true, runtimeServerTestNodeVersionResolver(nodeEnv))
 	if err != nil {
 		t.Fatalf("runtimeServerEnvironment(first) error = %v", err)
 	}
 	t.Cleanup(func() { _ = multilsp.ReleaseResourceCohortLease(first) })
-	second, err := runtimeServerEnvironment(command, secondBinary, secondRoot, []string{"typescript"}, []string{"WORKTREE=" + secondRoot}, true)
+	second, err := runtimeServerEnvironmentWithNodeResolver(command, secondBinary, secondRoot, []string{"typescript"}, append([]string{"WORKTREE=" + secondRoot}, nodeEnv...), true, runtimeServerTestNodeVersionResolver(nodeEnv))
 	if err != nil {
 		t.Fatalf("runtimeServerEnvironment(second) error = %v", err)
 	}
@@ -96,7 +96,8 @@ func assertRuntimeServerResourceLimits(t *testing.T, firstEnv, secondEnv map[str
 
 func assertPortableNodeCompileCache(t *testing.T, firstEnv, secondEnv map[string]string) {
 	t.Helper()
-	_, portable, err := runtimeServerNodeVersion(nil)
+	resolver := runtimeServerPortableNodeResolver(firstEnv)
+	_, portable, err := resolver(nil)
 	if err != nil {
 		t.Fatalf("runtimeServerNodeVersion() error = %v", err)
 	}
@@ -231,14 +232,16 @@ func TestRuntimeServerEnvironmentPreservesNodeOptions(t *testing.T) {
 	t.Setenv(agentLSPSharedCacheDirEnv, runtimeServerSecureCacheRoot(t))
 	t.Setenv("NODE_OPTIONS", "--trace-warnings")
 	binary := writeRuntimeServerCacheFixture(t, "language-server", "#!/bin/sh\nexit 0\n")
+	nodeEnv := runtimeServerLockedNodeFixtureEnv(t)
 
-	env, err := runtimeServerEnvironment(
+	env, err := runtimeServerEnvironmentWithNodeResolver(
 		multilsp.ServerCommand{Executable: binary},
 		binary,
 		t.TempDir(),
 		[]string{"typescript"},
-		[]string{"NODE_OPTIONS=--enable-source-maps"},
+		append([]string{"NODE_OPTIONS=--enable-source-maps"}, nodeEnv...),
 		true,
+		runtimeServerTestNodeVersionResolver(nodeEnv),
 	)
 	if err != nil {
 		t.Fatalf("runtimeServerEnvironment() error = %v", err)
@@ -287,24 +290,6 @@ func TestRuntimeParseNodeVersionPortableBoundary(t *testing.T) {
 		if got != test.portable {
 			t.Fatalf("runtimeParseNodeVersion(%q) portable = %v, want %v", test.version, got, test.portable)
 		}
-	}
-}
-
-func TestRuntimeServerNodeVersionUsesAdapterPATH(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture uses a POSIX executable script")
-	}
-	dir := t.TempDir()
-	nodePath := filepath.Join(dir, "node")
-	if err := os.WriteFile(nodePath, []byte("#!/bin/sh\nprintf 'v24.11.9\\n'\n"), 0o755); err != nil {
-		t.Fatalf("write fake Node runtime: %v", err)
-	}
-	version, portable, err := runtimeServerNodeVersion([]string{"PATH=" + dir})
-	if err != nil {
-		t.Fatalf("runtimeServerNodeVersion(adapter PATH) error = %v", err)
-	}
-	if version != "v24.11.9" || portable {
-		t.Fatalf("adapter Node result = (%q, %v), want (v24.11.9, false)", version, portable)
 	}
 }
 

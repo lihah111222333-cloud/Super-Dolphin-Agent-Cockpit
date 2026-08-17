@@ -178,17 +178,7 @@ func requestApproval(
 			defer cancel()
 		}
 		payload := trustedApprovalPayload(req.Payload)
-		decision, err := approvals.RequestInternalApproval(callCtx, bridge, server, rpc.ApprovalRequest{
-			CallID:       req.CallID,
-			ApprovalID:   req.CallID,
-			ToolName:     req.ToolName,
-			AgentID:      instance.AgentID,
-			ThreadID:     instance.ThreadID,
-			Reason:       req.Reason,
-			Kind:         req.Kind,
-			SourceMethod: dto.MethodApproval,
-			Payload:      payload,
-		})
+		decision, err := approvals.RequestInternalApproval(callCtx, bridge, server, mcpInternalApprovalRequest(instance, req, payload))
 		if err != nil {
 			return dto.ApprovalResponse{}, err
 		}
@@ -199,6 +189,23 @@ func requestApproval(
 			DecisionSource: approvalDecisionSource(decision),
 		}, nil
 	})
+}
+
+// mcpInternalApprovalRequest 保留 ctl/approval/request 作为来源证据，但固定使用
+// 通用 approval/request UI 回调；否则 SourceMethod 会被错误当作客户端 RPC 方法。
+func mcpInternalApprovalRequest(instance *ToolInstance, req dto.ApprovalRequest, payload map[string]any) rpc.ApprovalRequest {
+	return rpc.ApprovalRequest{
+		CallID:         req.CallID,
+		ApprovalID:     req.CallID,
+		ToolName:       req.ToolName,
+		AgentID:        strings.TrimSpace(instance.AgentID),
+		ThreadID:       strings.TrimSpace(instance.ThreadID),
+		Reason:         req.Reason,
+		Kind:           req.Kind,
+		SourceMethod:   dto.MethodApproval,
+		CallbackMethod: rpc.DefaultApprovalCallbackMethod,
+		Payload:        payload,
+	}
 }
 
 func trustedApprovalPayload(raw json.RawMessage) map[string]any {

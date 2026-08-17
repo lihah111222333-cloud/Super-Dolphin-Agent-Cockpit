@@ -298,7 +298,7 @@ func task4BScope(binary providerdto.MCPBinary) contract.CodexToolSurfaceScope {
 	return contract.CodexToolSurfaceScope{
 		AgentID:          "task4b-agent",
 		ProviderThreadID: "task4b-thread",
-		CWD:              "/task4b/repo",
+		CWD:              portableToolbridgeTestCWD("task4b", "repo"),
 		Manifest:         providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{binary}},
 	}
 }

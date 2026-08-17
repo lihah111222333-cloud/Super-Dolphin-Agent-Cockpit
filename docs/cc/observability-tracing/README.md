@@ -4,7 +4,7 @@ Phase 1 provides local, bounded chain tracing for frontend → Wails/RPC → thr
 
 ## Storage model
 
-- Primary durable storage is JSONL under `~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl`.
+- Primary durable storage is JSONL under `~/.super-dolphin/log/<project>/traces/trace-YYYY-MM-DD.jsonl`.
 - Hot queries use an in-memory bounded index; misses can scan a bounded recent JSONL tail.
 - Query responses label their source as `memory`, `jsonl_tail`, or `mixed` and expose `truncated` when the bounded result omitted older matches.
 - Phase 1 intentionally does not add PostgreSQL tables, sqlc queries, migrations, or SQLite dependencies.

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,47 +34,6 @@ func TestSqruffLSPStarts_E2E(t *testing.T) {
 	}
 
 	requireSqruffInitialize(t, ctx, binary)
-}
-
-func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsMissingLanguageServer_E2E(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping mcp-lsp binary e2e test in short mode")
-	}
-	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
-		t.Skip("test uses the non-Linux cargo installer")
-	}
-
-	binary := buildMcpLSPBinaryForTest(t)
-	root := t.TempDir()
-	target := writeBinaryColdStartSQLFixture(t, root)
-	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: sqlite\n    queries: .\n")
-	writeBinaryColdStartFile(t, root, ".sqruff", "[sqruff]\ndialect = sqlite\nrules =\n")
-	binDir := t.TempDir()
-	marker := filepath.Join(t.TempDir(), "cargo-args")
-	writeFakeSQLAutoInstallCargo(t, binDir)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, binDir, []string{
-		"PATH=" + binDir,
-		"FAKE_SQL_INSTALL_BIN=" + binDir,
-		"FAKE_SQL_CARGO_MARKER=" + marker,
-	})
-	defer client.close(t)
-
-	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
-		"file_path": target,
-	})
-	requireMCPToolSuccess(t, client, diagnostics, "sql diagnostics after auto-install")
-	requireFakeSQLCargoArgs(t, marker)
-
-	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
-	if payload.Total != 0 || payload.HasFile(target) {
-		t.Fatalf("valid SQLite diagnostics after auto-install = %#v, want no diagnostics; text=%q stderr=%s",
-			payload, diagnostics.Result.ContentText(), client.stderrString())
-	}
 }
 
 func TestMcpLSPBinarySQLiteDiagnosticsWithRealLanguageServer_E2E(t *testing.T) {
@@ -132,44 +90,6 @@ func TestMcpLSPBinarySQLiteInvalidSQLProducesRealDiagnostic_E2E(t *testing.T) {
 	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total == 0 || !payload.HasFile(target) {
 		t.Fatalf("invalid SQLite SQL produced no parser diagnostic: payload=%#v text=%q stderr=%s", payload, diagnostics.Result.ContentText(), client.stderrString())
-	}
-}
-
-func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsWithRealCargo_E2E(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping mcp-lsp binary e2e test in short mode")
-	}
-	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
-		t.Skip("test uses the non-Linux cargo installer")
-	}
-
-	binary := buildMcpLSPBinaryForTest(t)
-	root := t.TempDir()
-	target := writeBinaryColdStartSQLFixture(t, root)
-	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: sqlite\n    queries: .\n")
-	writeBinaryColdStartFile(t, root, ".sqruff", "[sqruff]\ndialect = sqlite\nrules =\n")
-	cargoHome := filepath.Join(t.TempDir(), "cargo-home")
-	toolBin := symlinkHostToolsForE2E(t, "cargo", "rustc", "rustup")
-	path := filepath.Join(cargoHome, "bin") + string(os.PathListSeparator) + toolBin + string(os.PathListSeparator) + "/usr/bin:/bin"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
-		"PATH=" + path,
-		"CARGO_HOME=" + cargoHome,
-	})
-	defer client.close(t)
-	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
-		"file_path": target,
-	})
-	requireMCPToolSuccess(t, client, diagnostics, "SQLite diagnostics after real Cargo auto-install")
-	installed := filepath.Join(cargoHome, "bin", "sqruff")
-	if out, err := exec.CommandContext(ctx, installed, "--version").CombinedOutput(); err != nil {
-		t.Fatalf("real Cargo-installed sqruff --version: %v\n%s", err, out)
-	} else if !strings.Contains(string(out), sqruffInstallVersion) {
-		t.Fatalf("real Cargo-installed sqruff version = %q, want %s", out, sqruffInstallVersion)
 	}
 }
 
@@ -348,52 +268,10 @@ func installSqruffForE2E(t *testing.T) string {
 	if out, err := create.CombinedOutput(); err != nil {
 		t.Fatalf("create sqruff test venv: %v\n%s", err, out)
 	}
-	binDir := filepath.Join(venv, "bin")
-	if runtime.GOOS == "windows" {
-		binDir = filepath.Join(venv, "Scripts")
-	}
+	binDir := sqruffVenvBinDirForE2E(venv)
 	install := exec.CommandContext(ctx, filepath.Join(binDir, mcpLSPExecutableFileName("pip")), "install", "sqruff=="+sqruffInstallVersion)
 	if out, err := install.CombinedOutput(); err != nil {
 		t.Fatalf("install sqruff test backend: %v\n%s", err, out)
 	}
 	return binDir
-}
-
-func writeFakeSQLAutoInstallCargo(t *testing.T, binDir string) {
-	t.Helper()
-	path := filepath.Join(binDir, "cargo")
-	script := `#!/bin/sh
-set -eu
-case " $* " in
-  *" sqruff "*) ;;
-  *) echo "missing sqruff install arg: $*" >&2; exit 1 ;;
-esac
-printf '%s\n' "$*" > "$FAKE_SQL_CARGO_MARKER"
-/bin/cat > "$FAKE_SQL_INSTALL_BIN/sqruff" <<'EOF'
-#!/bin/sh
-if [ "${1:-}" = "--version" ]; then
-  echo "sqruff 0.38.0"
-  exit 0
-fi
-MCP_LSP_FAKE_MULTILANG_DIAGNOSTICS=1 exec ` + shellQuote(os.Args[0]) + ` -test.run=TestFakeMultilangDiagnosticsLangserverHelper -- "$@"
-EOF
-/bin/chmod +x "$FAKE_SQL_INSTALL_BIN/sqruff"
-`
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake cargo: %v", err)
-	}
-}
-
-func requireFakeSQLCargoArgs(t *testing.T, marker string) {
-	t.Helper()
-	raw, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatalf("read fake cargo marker: %v", err)
-	}
-	args := string(raw)
-	for _, want := range []string{"install", "sqruff", "--version", sqruffInstallVersion, "--locked"} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("fake cargo args = %q, missing %q", args, want)
-		}
-	}
 }

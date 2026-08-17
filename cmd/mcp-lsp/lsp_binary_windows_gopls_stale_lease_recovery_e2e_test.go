@@ -42,7 +42,7 @@ func TestMcpLSPBinaryWindowsCommittedDurableGoplsStaleLeaseRecoveryE2E(t *testin
 	roots, targets := writeRealGoplsLinkedWorktreeFixtures(t)
 	argsLog := filepath.Join(t.TempDir(), "gopls-args.log")
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
-	install := buildWindowsGoplsTestInstall(t)
+	install := buildWindowsGoplsShortIdlePrecheckTestInstall(t)
 	env := windowsGoplsSidecarEnv(t, install,
 		fakeGoplsArgsLogEnv+"="+argsLog,
 		"AGENT_LSP_SHARED_CACHE_DIR="+cacheRoot,

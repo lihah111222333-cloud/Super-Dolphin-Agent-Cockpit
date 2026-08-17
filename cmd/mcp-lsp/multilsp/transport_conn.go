@@ -2,12 +2,15 @@ package multilsp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 const (
@@ -219,6 +223,7 @@ func (t *transport) readLoop() {
 	for {
 		payload, err := t.readMessage()
 		if err != nil {
+			t.logReadFailure(err)
 			t.stopWithError(t.readFailure(err))
 			return
 		}
@@ -233,35 +238,149 @@ func (t *transport) readLoop() {
 // header 缺失或长度非法会直接返回错误，避免把半包当成空通知继续处理。
 func (t *transport) readMessage() (json.RawMessage, error) {
 	length := -1
+	headerCount := 0
 	for {
 		line, err := t.stdout.ReadString('\n')
 		if err != nil {
-			return nil, err
+			return nil, newLSPFramingError("read_header", line, headerCount, 0, len(line), err)
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
 			break
 		}
+		headerCount++
 		name, value, ok := strings.Cut(line, ":")
 		if !ok {
-			return nil, fmt.Errorf("LSP malformed header %q", line)
+			return nil, newLSPFramingError("malformed_header", line, headerCount, 0, 0, nil)
 		}
 		if !strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 			continue
 		}
 		length, err = strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || length < 0 {
-			return nil, fmt.Errorf("LSP invalid Content-Length %q", value)
+			if err == nil {
+				err = errors.New("negative Content-Length")
+			}
+			return nil, newLSPFramingError("invalid_content_length", value, headerCount, 0, 0, err)
 		}
 	}
 	if length < 0 {
-		return nil, errors.New("LSP missing Content-Length header")
+		return nil, newLSPFramingError("missing_content_length", "", headerCount, 0, 0, nil)
 	}
 	body := make([]byte, length)
-	if _, err := io.ReadFull(t.stdout, body); err != nil {
-		return nil, err
+	readBytes, err := io.ReadFull(t.stdout, body)
+	if err != nil {
+		return nil, newLSPFramingError("read_body", "", headerCount, length, readBytes, err)
 	}
+	t.logJSONRPCShape(body)
 	return body, nil
+}
+
+// logJSONRPCShape 在完整 stdio 帧边界记录脱敏 JSON-RPC 形状，追踪字段 presence 且不记录协议正文。
+// 仅显式开启 MCP_LSP_TRACE_LSP_SHAPES 时输出，避免改变正常生产日志量与内容契约。
+func (t *transport) logJSONRPCShape(payload []byte) {
+	if t == nil || os.Getenv("MCP_LSP_TRACE_LSP_SHAPES") != "1" || t.logger == nil {
+		return
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.logger.Warn("LSP JSON-RPC shape", "parse_error", true, "payload_bytes", len(payload), "payload_sha256", digestLSPShape(payload))
+		return
+	}
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result, resultPresent := fields["result"]
+	_, errorPresent := fields["error"]
+	method := strings.Trim(string(fields["method"]), `"`)
+	idDigest := ""
+	if id, ok := fields["id"]; ok {
+		idDigest = digestLSPShape(id)
+	}
+	t.logger.Info("LSP JSON-RPC shape", "keys", keys, "method", method, "id_sha256", idDigest,
+		"result_present", resultPresent, "result_is_null", resultPresent && strings.TrimSpace(string(result)) == "null",
+		"error_present", errorPresent, "payload_bytes", len(payload), "payload_sha256", digestLSPShape(payload))
+}
+
+func digestLSPShape(payload []byte) string {
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
+}
+
+// jsonRPCShapeSummary 为协议错误附加脱敏字段形状，保证缺字段根因可复查而不泄露正文。
+func jsonRPCShapeSummary(payload []byte) string {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return fmt.Sprintf("parse_error=true,payload_bytes=%d,payload_sha256=%s", len(payload), digestLSPShape(payload))
+	}
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result, resultPresent := fields["result"]
+	_, errorPresent := fields["error"]
+	idDigest := ""
+	if id, ok := fields["id"]; ok {
+		idDigest = digestLSPShape(id)
+	}
+	return fmt.Sprintf("keys=%s,method=%s,id_sha256=%s,result_present=%t,result_is_null=%t,error_present=%t,payload_bytes=%d,payload_sha256=%s",
+		strings.Join(keys, ","), strings.Trim(string(fields["method"]), `"`), idDigest,
+		resultPresent, resultPresent && strings.TrimSpace(string(result)) == "null", errorPresent, len(payload), digestLSPShape(payload))
+}
+
+type lspFramingError struct {
+	kind            string
+	headerCount     int
+	observedPresent bool
+	observedBytes   int
+	observedSHA256  string
+	expectedBytes   int
+	receivedBytes   int
+	cause           error
+}
+
+// newLSPFramingError 对异常 stdout 行只保留长度和 SHA-256，避免诊断日志泄露协议正文。
+func newLSPFramingError(kind, observed string, headerCount, expectedBytes, receivedBytes int, cause error) error {
+	result := &lspFramingError{
+		kind:            kind,
+		headerCount:     headerCount,
+		observedPresent: observed != "",
+		observedBytes:   len(observed),
+		expectedBytes:   expectedBytes,
+		receivedBytes:   receivedBytes,
+		cause:           cause,
+	}
+	if observed != "" {
+		digest := sha256.Sum256([]byte(observed))
+		result.observedSHA256 = hex.EncodeToString(digest[:])
+	}
+	return result
+}
+
+func (e *lspFramingError) Error() string {
+	if e == nil {
+		return "LSP framing failed"
+	}
+	return fmt.Sprintf(
+		"LSP framing failed kind=%s header_count=%d observed_present=%t observed_bytes=%d observed_sha256=%s expected_bytes=%d received_bytes=%d",
+		e.kind,
+		e.headerCount,
+		e.observedPresent,
+		e.observedBytes,
+		e.observedSHA256,
+		e.expectedBytes,
+		e.receivedBytes,
+	)
+}
+
+func (e *lspFramingError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
 }
 
 // writeMessage 序列化并按 LSP framing 写入子进程 stdin。
@@ -281,12 +400,33 @@ func (t *transport) writeMessage(message any) error {
 		return ErrTransportClosed
 	}
 	if _, err := fmt.Fprintf(stdin, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
+		t.logTransportWriteFailure("header", err)
 		return t.joinWaitError(err)
 	}
 	if _, err := stdin.Write(payload); err != nil {
+		t.logTransportWriteFailure("body", err)
 		return t.joinWaitError(err)
 	}
 	return nil
+}
+
+// logTransportWriteFailure 记录首个 stdio 写失败的低敏边界事实；平台文件只补充
+// Windows 的启动/管道诊断，非 Windows 保持原有日志语义。
+func (t *transport) logTransportWriteFailure(stage string, writeErr error) {
+	if t == nil || writeErr == nil || !t.writeFailureLogged.CompareAndSwap(false, true) {
+		return
+	}
+	logger := t.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	if logger == nil {
+		return
+	}
+	fields := transportLifecycleLogFields(t.binaryPath, t.workingDirectory, t.argumentCount, t.envOverrideCount, t.cmd, t.processTree)
+	fields = append(fields, "event", "lsp_stdio_write", "stage", stage, "action_result", "failed")
+	fields = append(fields, lspTransportWriteFailureFields(t, stage, writeErr)...)
+	logger.Warn("LSP stdio write", fields...)
 }
 
 // writeMessageContext 用调用方 ctx 监督底层 stdin 写入。
@@ -313,7 +453,8 @@ func (t *transport) writeMessageContext(ctx context.Context, message any) error 
 
 func (t *transport) wait() {
 	err := t.cmd.Wait()
-	if stderr := strings.TrimSpace(t.stderr.String()); stderr != "" {
+	stderr, stderrBytes, stderrTruncated := t.stderr.Snapshot()
+	if stderr = strings.TrimSpace(stderr); stderr != "" {
 		switch {
 		case err != nil:
 			err = fmt.Errorf("%w: %s", err, stderr)
@@ -327,6 +468,11 @@ func (t *transport) wait() {
 	t.doneMu.Lock()
 	t.doneErr = err
 	t.doneMu.Unlock()
+	actionResult := "completed"
+	if err != nil {
+		actionResult = "failed"
+	}
+	t.logProcessLifecycle("wait", actionResult, err, stderr, stderrBytes, stderrTruncated)
 	t.cancelActorContext()
 	close(t.done)
 }
@@ -485,27 +631,38 @@ func (t *transport) releaseProcessTreeAttempt() (error, bool) {
 	t.treeReleaseMu.Lock()
 	defer t.treeReleaseMu.Unlock()
 	if t.treeReleased {
+		t.logProcessTreeReleaseEvidence("already_released", false, false, 0, nil)
 		return nil, true
 	}
+	remainingChecked := false
+	remainingCountPresent := false
+	remainingCount := 0
 	if verifier, ok := t.processTree.(interface {
 		Remaining() ([]hiddenexec.ProcessIdentity, error)
 	}); ok {
+		remainingChecked = true
 		remaining, err := verifier.Remaining()
 		if err != nil {
 			t.markTerminationRetryNeeded(err)
+			t.logProcessTreeReleaseEvidence("failed", remainingChecked, false, 0, err)
 			return err, false
 		}
+		remainingCountPresent = true
+		remainingCount = len(remaining)
 		if len(remaining) != 0 {
 			err := fmt.Errorf("LSP process-tree release blocked: %w: %d members remain", hiddenexec.ErrProcessTreeRemaining, len(remaining))
 			t.markTerminationRetryNeeded(err)
+			t.logProcessTreeReleaseEvidence("failed", remainingChecked, remainingCountPresent, remainingCount, err)
 			return err, false
 		}
 	}
 	if err := t.processTree.Release(); err != nil {
 		t.markTerminationRetryNeeded(err)
+		t.logProcessTreeReleaseEvidence("failed", remainingChecked, remainingCountPresent, remainingCount, err)
 		return err, false
 	}
 	t.treeReleased = true
+	t.logProcessTreeReleaseEvidence("released", remainingChecked, remainingCountPresent, remainingCount, nil)
 	return nil, true
 }
 

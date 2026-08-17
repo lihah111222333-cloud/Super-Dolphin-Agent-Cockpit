@@ -10,7 +10,7 @@
 ## 目录结构（默认布局）
 
 ```text
-~/.multi-agent/memory/
+~/.super-dolphin/memory/
 ├── projects/
 │   └── <canonical-git-root>/    # 同仓多 worktree 共享
 │       └── memory/
@@ -28,12 +28,12 @@
 ### 路径解析优先级
 1. 显式 full-path / env override
 2. 受信配置（policy/local/user 级）
-3. 默认 `~/.multi-agent/memory/projects/<sanitized-root>/memory/`
+3. 默认 `~/.super-dolphin/memory/projects/<sanitized-root>/memory/`
 
 > **Claude 对照细节**：
 > - Claude 先用 `getMemoryBaseDir()` 解析 **base dir**（`CLAUDE_CODE_REMOTE_MEMORY_DIR` → `~/.claude`），再由 `getAutoMemPath()` 解析 **最终 auto-memory 目录**
 > - `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` / trusted settings 覆盖的是**最终 full path**，不是 base dir
-> - V3 可以把 base dir 换成 `~/.multi-agent/memory` / `MULTI_AGENT_MEMORY_DIR`，但文档与实现都要区分“base dir”和“project memory path”两层语义
+> - V3 可以把 base dir 换成 `~/.super-dolphin/memory` / `MULTI_AGENT_MEMORY_DIR`，但文档与实现都要区分“base dir”和“project memory path”两层语义
 
 硬规则：
 - **仓库内 project/repo 级配置不得重定向 memory 根目录**

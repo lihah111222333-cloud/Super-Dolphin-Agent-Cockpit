@@ -82,7 +82,7 @@ T09 -> T10
 
 ## Execution Rules
 
-- Do not make agents parse `~/.multi-agent/log/<project>/traces/*.jsonl` directly.
+- Do not make agents parse `~/.super-dolphin/log/<project>/traces/*.jsonl` directly.
 - Do not expose raw, unbounded `TraceEvent` data to a model-facing tool.
 - Do not advertise `observability_trace_get` when tracing is disabled.
 - If tail reads fail, return an explicit error or a degraded diagnosis; never return a clean diagnosis.

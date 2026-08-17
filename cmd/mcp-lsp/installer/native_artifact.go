@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 const (
@@ -762,7 +764,9 @@ func extractNativeTarSymlink(header *tar.Header, name, destination string, allow
 		return fmt.Errorf("create native tar symlink parent %q: %w", header.Name, err)
 	}
 	if err := os.Symlink(header.Linkname, destination); err != nil {
-		return fmt.Errorf("create native tar symlink %q: %w", header.Name, err)
+		// Windows 需把 Win32 5/1314 保留为 typed authorization_required 根因，
+		// 由支持审批 UI 的宿主弹出授权；安装器本身不得改 ACL 或复制文件冒充链接。
+		return fmt.Errorf("create native tar symlink %q: %w", header.Name, securefs.WrapErrorForPath(err, destination))
 	}
 	return nil
 }

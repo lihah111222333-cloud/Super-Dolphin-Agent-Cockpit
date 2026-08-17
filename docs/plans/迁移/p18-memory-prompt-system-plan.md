@@ -88,7 +88,7 @@
 ### 3.1 记忆存储层
 
 ```
-~/.multi-agent/memory/
+~/.super-dolphin/memory/
 ├── projects/
 │   └── <sanitized-project-root>/
 │       └── memory/
@@ -254,7 +254,7 @@ turn/start
 - [ ] 创建 `internal/module/prompt/` 模块骨架
 - [ ] 定义 `MemoryType` / `MemoryEntry` / `PromptSection` 核心类型
 - [ ] fx 注册到应用生命周期
-- [ ] 创建 `~/.multi-agent/memory/` 目录结构管理
+- [ ] 创建 `~/.super-dolphin/memory/` 目录结构管理
 
 ### Phase 1：记忆存储层（预计 2 天）
 - [ ] 实现 `memory/store.go`：

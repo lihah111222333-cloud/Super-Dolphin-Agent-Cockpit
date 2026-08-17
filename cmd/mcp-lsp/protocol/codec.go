@@ -192,17 +192,24 @@ func DecodeResponse(payload []byte) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	hasResult := len(bytes.TrimSpace(env.Result)) > 0
+	// JSON-RPC 允许 result:null；必须按字段 presence 判定，而不能把 null 当作缺字段。
+	hasResult, hasError, err := responseFieldPresence(payload)
+	if err != nil {
+		return Response{}, fmt.Errorf("%w: inspect result/error fields: %v", ErrInvalidResponse, err)
+	}
 	if strings.TrimSpace(env.Method) != "" {
 		return Response{}, fmt.Errorf("%w: response cannot contain method", ErrInvalidResponse)
 	}
 	if !hasRequestID(env.ID) {
 		return Response{}, fmt.Errorf("%w: id is required", ErrInvalidResponse)
 	}
-	if hasResult && env.Error != nil {
+	if hasError && env.Error == nil {
+		return Response{}, fmt.Errorf("%w: error must be an object", ErrInvalidResponse)
+	}
+	if hasResult && hasError {
 		return Response{}, fmt.Errorf("invalid JSON-RPC response: result and error are mutually exclusive")
 	}
-	if !hasResult && env.Error == nil {
+	if !hasResult && !hasError {
 		return Response{}, fmt.Errorf("%w: result or error is required", ErrInvalidResponse)
 	}
 	return Response{
@@ -235,6 +242,17 @@ func marshalPayload(value any) (json.RawMessage, error) {
 		return nil, err
 	}
 	return payload, nil
+}
+
+// responseFieldPresence 返回原始 JSON 外壳中 result/error 键是否存在，保留 null 的协议语义。
+func responseFieldPresence(payload []byte) (resultPresent, errorPresent bool, err error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return false, false, err
+	}
+	_, resultPresent = fields["result"]
+	_, errorPresent = fields["error"]
+	return resultPresent, errorPresent, nil
 }
 
 // cloneResponseError 深拷贝 error data，避免 Response 共享调用方 RawMessage 底层切片。

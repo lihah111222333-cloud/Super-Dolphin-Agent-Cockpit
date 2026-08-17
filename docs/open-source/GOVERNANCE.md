@@ -76,7 +76,7 @@ This is more dangerous than a visible tool failure: an AI agent can act confiden
 
 ### Public proof
 
-- `cmd/mcp-lsp/multilsp/multi_cwd_e2e_test.go` proves worktree routing, diagnostic isolation, concurrent requests, and missing-CWD rejection.
+- `cmd/mcp-lsp/multilsp/multi_cwd_test.go` proves worktree routing, diagnostic isolation, concurrent requests, and missing-CWD rejection.
 - `cmd/mcp-lsp/tools/tool_grep_test.go` rejects stale roots and sibling-worktree fallback.
 - `cmd/mcp-lsp/tools/tool_edit_support_test.go` rejects edits outside the trusted workspace, including symlink escapes.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"os"
 	"path/filepath"
@@ -71,13 +72,19 @@ type languageOverrideManager struct {
 	didOpenLanguageID string
 	didOpenScope      lspmanager.ResolvedToolScope
 	didOpenErr        error
+	didOpenErrs       []error
+	didOpenCalls      int
 	reopenURI         string
 	reopenScope       lspmanager.ResolvedToolScope
 }
 
 func (m *languageOverrideManager) DidOpen(ctx context.Context, _ string, languageID string, _ int, _ string) error {
+	m.didOpenCalls++
 	m.didOpenLanguageID = languageID
 	m.didOpenScope, _ = lspmanager.ResolvedToolScopeFromContext(ctx)
+	if m.didOpenCalls <= len(m.didOpenErrs) {
+		return m.didOpenErrs[m.didOpenCalls-1]
+	}
 	return m.didOpenErr
 }
 
@@ -119,6 +126,32 @@ func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
 	}
 	if manager.didOpenScope.WorkspaceKey != "workspace:typescript" || manager.didOpenScope.ManagerKey != "manager:typescript" {
 		t.Fatalf("resolved scope keys = workspace %q manager %q, want override-derived cache keys", manager.didOpenScope.WorkspaceKey, manager.didOpenScope.ManagerKey)
+	}
+}
+
+func TestInspectLanguageOverrideRoutesAmbiguousExtension(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "contract.mod")
+	if err := os.WriteFile(path, []byte("module contract.example/fake\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	registry := &languageOverrideRegistry{manager: &languageOverrideManager{}}
+	handler := NewInspectHandler(registry)
+	payload, err := json.Marshal(map[string]any{
+		"action":      "hover",
+		"pos":         path + ":1:1",
+		"language_id": "gomod",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+
+	if _, err := handler(ctx, payload); err != nil {
+		t.Fatalf("inspect with language_id returned error: %v", err)
+	}
+	if registry.gotLanguageID != "gomod" {
+		t.Fatalf("registry language = %q, want gomod override", registry.gotLanguageID)
 	}
 }
 
@@ -202,6 +235,28 @@ func TestOpenFileReturnsErrorWhenDidOpenFails(t *testing.T) {
 	}
 }
 
+func TestOpenFileRetriesColdBootstrapTimeoutOnce(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &languageOverrideManager{didOpenErrs: []error{
+		fmt.Errorf("initialize LSP client: %w", context.DeadlineExceeded),
+		nil,
+	}}
+	registry := &languageOverrideRegistry{manager: manager}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+
+	result, err := handlerBase{registry: registry}.openFile(ctx, path, "")
+	if err != nil {
+		t.Fatalf("openFile() error = %v, want cold bootstrap retry success", err)
+	}
+	if result.Status != "opened" || manager.didOpenCalls != 2 {
+		t.Fatalf("openFile() result=%#v DidOpen calls=%d, want success after exactly one retry", result, manager.didOpenCalls)
+	}
+}
+
 func TestDiagnosticsLanguageOverrideReopensDocumentWithResolvedScope(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.txt")
@@ -227,7 +282,7 @@ func TestDiagnosticsLanguageOverrideReopensDocumentWithResolvedScope(t *testing.
 	if err != nil {
 		t.Fatalf("resolve canonical fixture path: %v", err)
 	}
-	wantURI := "file://" + canonicalPath
+	wantURI := fileURI(canonicalPath)
 	if manager.reopenURI != wantURI {
 		t.Fatalf("reopen URI = %q, want %q", manager.reopenURI, wantURI)
 	}

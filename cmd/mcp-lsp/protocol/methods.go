@@ -19,6 +19,7 @@ const (
 	MethodSignatureHelp           = "textDocument/signatureHelp"
 	MethodFormatting              = "textDocument/formatting"
 	MethodFoldingRange            = "textDocument/foldingRange"
+	MethodSemanticTokens          = "textDocument/semanticTokens"
 	MethodSemanticTokensFull      = "textDocument/semanticTokens/full"
 	MethodPrepareCallHierarchy    = "textDocument/prepareCallHierarchy"
 	MethodCallHierarchyIncoming   = "callHierarchy/incomingCalls"

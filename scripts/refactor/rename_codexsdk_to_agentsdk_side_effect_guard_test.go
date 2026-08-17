@@ -272,6 +272,7 @@ func strippedRenameScriptSource(t *testing.T) string {
 	t.Helper()
 
 	src := readRenameScriptSourceFile(t, "rename_codexsdk_to_agentsdk.go")
+	src = strings.TrimPrefix(src, "//go:build ignore\r\n\r\n")
 	src = strings.TrimPrefix(src, "//go:build ignore\n\n")
 	return src
 }

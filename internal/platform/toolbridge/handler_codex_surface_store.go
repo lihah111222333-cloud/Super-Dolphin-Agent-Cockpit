@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -418,10 +417,11 @@ func newMCPSchemaExecutor(cfgProjectRoot string, profile contract.DependencyProf
 	if err != nil {
 		return nil, err
 	}
-	helperName := schema.HelperFileName(runtime.GOOS)
+	helperGOOS := schemaHelperPlatformGOOS()
+	helperName := schema.HelperFileName(helperGOOS)
 	return &lazyMCPSchemaExecutor{profile: profile, config: schema.ClientConfig{
 		HelperPath:   filepath.Join(helperDir, helperName),
-		ManifestPath: filepath.Join(helperDir, schema.HelperManifestFileName(runtime.GOOS)),
+		ManifestPath: filepath.Join(helperDir, schema.HelperManifestFileName(helperGOOS)),
 	}}, nil
 }
 
@@ -470,11 +470,7 @@ func packagedSchemaHelperDirectory() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("toolbridge: canonicalize executable for schema helper: %w", err)
 	}
-	dir := filepath.Dir(executable)
-	if runtime.GOOS == "darwin" && filepath.Base(dir) == "MacOS" && filepath.Base(filepath.Dir(dir)) == "Contents" {
-		return filepath.Join(filepath.Dir(dir), "Resources", "bin"), nil
-	}
-	return dir, nil
+	return packagedSchemaHelperDirectoryForExecutable(executable), nil
 }
 
 func developmentSchemaHelperDirectory(cfgProjectRoot string) (string, error) {

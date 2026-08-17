@@ -12,7 +12,7 @@ Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责
 
 - 不再给 Claude/Codex prompt 注入 Super-Dolphin skill manifest。
 - 不再暴露 `skill_read_section` 这类 host-direct skill 读取工具给 Codex 作为运行时依赖。
-- 不再启动时把 `.claude/skills` symlink 到 `~/.multi-agent/skills-cache`。
+- 不再启动时把 `.claude/skills` symlink 到 `~/.super-dolphin/skills-cache`。
 - Super-Dolphin 管 canonical；provider-native 目录只是 mirror/output。
 - Claude/Codex 是否调用 skill，由 provider 原生发现和调用机制决定。
 - Super-Dolphin 的自进化是旁路维护 canonical，不是让 provider mirror 自己成为事实源。
@@ -339,7 +339,7 @@ V1 包含：
 - 项目级 mirror：`<repo>/.claude/skills`、`<repo>/.agents/skills`。
 - 删除 Codex skill manifest injection。
 - 删除 Codex `skill_read_section` 运行时依赖。
-- 停止 Claude `.claude/skills -> ~/.multi-agent/skills-cache` symlink 注入。
+- 停止 Claude `.claude/skills -> ~/.super-dolphin/skills-cache` symlink 注入。
 - 添加 `.agents/` gitignore。
 - ownership manifest。
 - startup/open project reconcile。
@@ -370,7 +370,7 @@ V1 不包含：
 
 需要移除或替换的旧行为：
 
-- README 中旧 `~/.multi-agent/skills-library`、`skills-cache`、`.claude/skills` symlink、Codex `skill_read_section` 描述。
+- README 中旧 `~/.super-dolphin/skills-library`、`skills-cache`、`.claude/skills` symlink、Codex `skill_read_section` 描述。
 - `internal/provider/codexapp/driver.go` 中 `RenderSkillManifest()` prepend。
 - `internal/platform/toolbridge` 中 `skill_read_section` host tool 对 Codex skill 的必要性。
 - `internal/provider/claudecli/driver.go` 中 startup-time `setupWorkspaceSkills` symlink。
@@ -378,7 +378,7 @@ V1 不包含：
 
 旧 `.claude/skills` 迁移：
 
-- 如果检测到 symlink 且目标精确等于旧 `~/.multi-agent/skills-cache`，启动/发布必须 fail-closed，并通过 V1 resolution UI/RPC 显示 takeover/replace 操作；不能在启动路径自动替换。
+- 如果检测到 symlink 且目标精确等于旧 `~/.super-dolphin/skills-cache`，启动/发布必须 fail-closed，并通过 V1 resolution UI/RPC 显示 takeover/replace 操作；不能在启动路径自动替换。
 - 用户确认后才按 `preview hash -> backup -> audit intent -> mutate -> audit finalize` 执行替换，并生成新的 owned mirror manifest。
 - 如果不是这个精确旧 symlink，同样报冲突，不自动替换。
 
@@ -638,7 +638,7 @@ V1 验证：
 - Codex prompt 中不再出现 Super-Dolphin skill manifest prepend。
 - `skill_read_section` 不再是 Codex skill 读取必需链路。
 - `rg "turnSkillPrompt|SkillPrompt|SkillReplacementAggregator|ReplacedNativeTools|skilllibrary|skillforge|fbsd" internal cmd sql` 只允许命中删除态测试、迁移/历史文档、显式兼容拒绝测试，不能命中生产注入链路。
-- 旧 `~/.multi-agent/skills` 被一次性迁移/导入到 `personal/user` 后，不再作为 live runtime root 扫描。
+- 旧 `~/.super-dolphin/skills` 被一次性迁移/导入到 `personal/user` 后，不再作为 live runtime root 扫描。
 - 聊天页不再保留启动 skill picker；create/edit/import/delete、summary、resolution 和 provider-start payload 不再发送或展示 live `system` scope。
 - old `skills/candidate/*` 入口不再作为生产 skill pipeline 存活；V2 用 `skill_proposals/*` 替代。
 
@@ -668,7 +668,7 @@ V3 验证：
 推荐按以下顺序实施：
 
 1. V1A: 建 canonical store、personal type、effective set、manifest、ownership、hash、mirror publisher。
-2. V1B: 接入现有 create/edit/import/delete/read/turn hydration 路径，迁移旧 `~/.multi-agent/skills`，移除 live `scope=system` 输入，并清理聊天页 launch auto-match / picker 旧入口。
+2. V1B: 接入现有 create/edit/import/delete/read/turn hydration 路径，迁移旧 `~/.super-dolphin/skills`，移除 live `scope=system` 输入，并清理聊天页 launch auto-match / picker 旧入口。
 3. V1C: 做 resolution list/preview/apply/export-preview/export UI/RPC，覆盖 same-name、drift、multi-provider drift、unmanaged、canonical-deleted-with-drift。
 4. V1D/E: 全量切 provider runtime，同时落地 startup/open project reconcile、write-time publish、provider-native personal mirror、Claude/Codex driver-level native discovery smoke，并删除旧注入链路、`skill_read_section` runtime dependency、旧 `.claude/skills` symlink 注入，迁移 prompt/uistate/app 中旧 skilllibrary/skillforge/fbsd 消费者和 old candidate 生产入口。这一组不能拆成可单独验收的中间态；缺少任一项都不算 V1 full landing。
 5. V1F: 补 README / docs / 测试。

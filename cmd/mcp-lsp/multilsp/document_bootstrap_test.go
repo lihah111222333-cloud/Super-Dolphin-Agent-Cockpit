@@ -56,6 +56,41 @@ func TestDocumentRequestBootstrapsFreshSnapshotForJavaScript(t *testing.T) {
 	}
 }
 
+func TestDocumentRequestPreservesDirtyEditorSnapshotForJavaScript(t *testing.T) {
+	root := t.TempDir()
+	ctx := ctxWithCWD(root, "agent-dirty-snapshot", "thread-dirty-snapshot")
+	writeBootstrapTestFile(t, filepath.Join(root, "package.json"), `{"name":"multilsp-dirty-test"}`)
+	target := filepath.Join(root, "app.js")
+	writeBootstrapTestFile(t, target, "function diskName() { return 1; }\n")
+	uri := fileURIFromPath(target)
+
+	factory := &recordingClientFactory{}
+	manager := NewManager(Config{
+		WorkspaceRoot:      root,
+		ClientFactory:      factory,
+		DiagnosticsMaxWait: 1,
+	})
+	t.Cleanup(func() { closeBootstrapTestManager(t, manager) })
+
+	const editorText = "function editorName() { return 2; }\n"
+	if err := manager.DidOpen(ctx, uri, "javascript", 1, editorText); err != nil {
+		t.Fatalf("open dirty editor document: %v", err)
+	}
+	client := requireRecordingClient(t, factory)
+	client.expectRequestContent("editorName")
+
+	symbols, err := manager.DocumentSymbol(ctx, target)
+	if err != nil {
+		t.Fatalf("document symbol for dirty editor snapshot: %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "editorName" {
+		t.Fatalf("dirty editor symbol result = %#v, want editorName", symbols)
+	}
+	if got := client.changeCount(); got != 0 {
+		t.Fatalf("document request overwrote dirty editor snapshot with %d DidChange notifications", got)
+	}
+}
+
 func TestDidOpenCommitAndManagerCloseAreAtomicallyOrdered(t *testing.T) {
 	root, target, text := writeWorkspaceSymbolSyncFixture(t, "app.js", "function CloseBarrier() {}\n")
 	openEntered := make(chan struct{})
@@ -177,21 +212,18 @@ func TestOpenManagedSnapshotKeepsAuthoritativeReadCleanAcrossLaterDiskWrite(t *t
 	}
 }
 
-func TestReadDocumentSnapshotRejectsAtomicPathReplacementAfterOpen(t *testing.T) {
+func TestReadDocumentSnapshotRejectsOrBlocksAtomicPathReplacementAfterOpen(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "atomic.js")
 	replacement := filepath.Join(root, "atomic.next.js")
 	writeBootstrapTestFile(t, target, "function OldAtomic() {}\n")
 	writeBootstrapTestFile(t, replacement, "function NewAtomic() {}\n")
 	ref := documentRef{uri: fileURIFromPath(target), absPath: target, languageID: "javascript"}
-	_, err := readDocumentSnapshotWithLimitAfterOpen(ref, defaultCleanDocumentByteLimit, func() {
-		if renameErr := os.Rename(replacement, target); renameErr != nil {
-			t.Fatalf("atomic replace target: %v", renameErr)
-		}
+	var renameErr error
+	snapshot, err := readDocumentSnapshotWithLimitAfterOpen(ref, defaultCleanDocumentByteLimit, func() {
+		renameErr = os.Rename(replacement, target)
 	})
-	if err == nil || !strings.Contains(err.Error(), "path was replaced") {
-		t.Fatalf("read snapshot error = %v, want atomic path replacement rejection", err)
-	}
+	assertAtomicReplacementOutcome(t, renameErr, snapshot, err)
 }
 
 func prepareAuthoritativeSnapshotFixture(

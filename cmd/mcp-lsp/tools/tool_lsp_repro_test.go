@@ -11,13 +11,14 @@ import (
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
-func TestInspectImplementationUnsupportedCapabilityReturnsExplainableEmptyResult(t *testing.T) {
+func TestInspectImplementationUnsupportedCapabilityReturnsContentOnlyEmptyResult(t *testing.T) {
 	root := t.TempDir()
 	target := writeReproFile(t, root, "sample.go", "package sample\n\ntype fileAuditLogger struct{}\n")
-	manager := &lspReproManager{implementationErr: lspmanager.ErrUnsupportedCapability}
+	manager := &lspReproManager{implementationErr: codedUnsupportedCapabilityError()}
 	handler := NewInspectHandler(&structureTestRegistry{fileManager: manager})
 	input := marshalReproParams(t, inspectParams{
 		Action: "implementation",
@@ -28,18 +29,15 @@ func TestInspectImplementationUnsupportedCapabilityReturnsExplainableEmptyResult
 
 	got, err := handler(testToolContext(root), input)
 	if err != nil {
-		t.Fatalf("implementation returned error = %v, want explainable empty result", err)
+		t.Fatalf("implementation returned error = %v, want content-only empty result", err)
 	}
-	envelope := requireEmptyListEnvelope(t, got)
-	if !strings.Contains(envelope.Meta.Message, "implementation") || !strings.Contains(envelope.Meta.Message, "unsupported") {
-		t.Fatalf("empty result message = %q, want implementation unsupported explanation", envelope.Meta.Message)
-	}
+	requireCapabilityEmptyResult(t, got, "implementation")
 }
 
-func TestXRefTypeHierarchyUnsupportedCapabilityReturnsExplainableEmptyResult(t *testing.T) {
+func TestXRefTypeHierarchyUnsupportedCapabilityReturnsContentOnlyEmptyResult(t *testing.T) {
 	root := t.TempDir()
 	target := writeReproFile(t, root, "sample.go", "package sample\n\ntype fileAuditLogger struct{}\n")
-	manager := &lspReproManager{typeHierarchyErr: lspmanager.ErrUnsupportedCapability}
+	manager := &lspReproManager{typeHierarchyErr: codedUnsupportedCapabilityError()}
 	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
 	input := marshalReproParams(t, xrefParams{
 		Action:    "type_hierarchy",
@@ -49,18 +47,16 @@ func TestXRefTypeHierarchyUnsupportedCapabilityReturnsExplainableEmptyResult(t *
 
 	got, err := handler(testToolContext(root), input)
 	if err != nil {
-		t.Fatalf("type_hierarchy returned error = %v, want explainable empty result", err)
+		t.Fatalf("type hierarchy returned error = %v, want content-only empty result", err)
 	}
-	envelope := requireEmptyListEnvelope(t, got)
-	if !strings.Contains(envelope.Meta.Message, "type hierarchy") || !strings.Contains(envelope.Meta.Message, "unsupported") {
-		t.Fatalf("empty result message = %q, want type hierarchy unsupported explanation", envelope.Meta.Message)
-	}
+	requireCapabilityEmptyResult(t, got, "type hierarchy")
 }
 
-func TestXRefMarkdownCallHierarchyReportsLimitedSupport(t *testing.T) {
+func TestXRefMarkdownCallHierarchyReturnsContentOnlyEmptyResult(t *testing.T) {
 	root := t.TempDir()
 	writeReproFile(t, root, "README.md", "# Intro\n\nBody\n")
-	handler := NewXRefHandler(newMarkdownFallbackRegistry(t, root))
+	manager := &lspReproManager{callHierarchyErr: codedUnsupportedCapabilityError()}
+	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
 	input := marshalReproParams(t, xrefParams{
 		Action: "call_hierarchy",
 		Pos:    "README.md:1:3",
@@ -68,10 +64,27 @@ func TestXRefMarkdownCallHierarchyReportsLimitedSupport(t *testing.T) {
 
 	got, err := handler(testToolContext(root), input)
 	if err != nil {
-		t.Fatalf("markdown call_hierarchy returned error = %v, want explainable empty result", err)
+		t.Fatalf("call hierarchy returned error = %v, want content-only empty result", err)
 	}
+	requireCapabilityEmptyResult(t, got, "call hierarchy")
+}
+
+// requireCapabilityEmptyResult 校验远程 content-only 契约下的能力空结果与可操作提示。
+func requireCapabilityEmptyResult(t *testing.T, got any, action string) {
+	t.Helper()
 	envelope := requireEmptyListEnvelope(t, got)
-	requireLimitedMarkdownSupportMessage(t, envelope.Meta.Message, "call hierarchy")
+	if !strings.Contains(strings.ToLower(envelope.Meta.Message), strings.ToLower(action)) {
+		t.Fatalf("%s empty result message = %q, want capability context", action, envelope.Meta.Message)
+	}
+}
+
+func codedUnsupportedCapabilityError() error {
+	return common.NewCodedToolError(
+		"capability_unsupported",
+		lspmanager.ErrUnsupportedCapability,
+		false,
+		"next: inspect the server capability snapshot",
+	)
 }
 
 func TestEditFormatAppliesLSPTextEditsAndSyncsDocument(t *testing.T) {
@@ -176,6 +189,39 @@ func TestApplyTextEditsUsesUTF16CharacterOffsets(t *testing.T) {
 	}
 }
 
+func TestApplyTextEditsAcceptsLSPEndOfLineCharacterSentinelWithUTF16(t *testing.T) {
+	got, err := applyTextEdits("🙂x\n", []protocol.TextEdit{{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 2},
+			End:   protocol.Position{Line: 0, Character: lspEndOfLineCharacter},
+		},
+		NewText: "!",
+	}})
+	if err != nil {
+		t.Fatalf("applyTextEdits returned error = %v, want LSP end-of-line sentinel", err)
+	}
+	if want := "🙂!\n"; got != want {
+		t.Fatalf("applyTextEdits = %q, want %q", got, want)
+	}
+}
+
+func TestApplyTextEditsAcceptsEOFLineBoundaryWithoutTerminalNewline(t *testing.T) {
+	content := strings.TrimSuffix(strings.Repeat("line\n", 23), "\n")
+	got, err := applyTextEdits(content, []protocol.TextEdit{{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 23, Character: 0},
+		},
+		NewText: "formatted",
+	}})
+	if err != nil {
+		t.Fatalf("applyTextEdits returned error = %v, want legal EOF boundary edit", err)
+	}
+	if got != "formatted" {
+		t.Fatalf("applyTextEdits = %q, want formatted replacement", got)
+	}
+}
+
 func TestApplyTextEditsRejectsInvalidRanges(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -200,6 +246,34 @@ func TestApplyTextEditsRejectsInvalidRanges(t *testing.T) {
 			edit: protocol.TextEdit{Range: protocol.Range{
 				Start: protocol.Position{Line: 0, Character: 2},
 				End:   protocol.Position{Line: 0, Character: 1},
+			}},
+		},
+		{
+			name: "line beyond EOF",
+			edit: protocol.TextEdit{Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 2, Character: 0},
+			}},
+		},
+		{
+			name: "one-past EOF with nonzero character",
+			edit: protocol.TextEdit{Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 1, Character: 1},
+			}},
+		},
+		{
+			name: "character beyond line length",
+			edit: protocol.TextEdit{Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 4},
+			}},
+		},
+		{
+			name: "ordinary value below EOL sentinel remains invalid",
+			edit: protocol.TextEdit{Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: lspEndOfLineCharacter - 1},
 			}},
 		},
 	} {
@@ -311,6 +385,7 @@ type lspReproManager struct {
 
 	implementationErr error
 	typeHierarchyErr  error
+	callHierarchyErr  error
 	formatEdits       []protocol.TextEdit
 	codeActions       []protocol.CodeActionResult
 
@@ -339,6 +414,13 @@ func (m *lspReproManager) Implementation(context.Context, string, protocol.Posit
 func (m *lspReproManager) TypeHierarchy(context.Context, string, protocol.Position, string) ([]protocol.TypeHierarchyResult, error) {
 	if m.typeHierarchyErr != nil {
 		return nil, m.typeHierarchyErr
+	}
+	return nil, nil
+}
+
+func (m *lspReproManager) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
+	if m.callHierarchyErr != nil {
+		return nil, m.callHierarchyErr
 	}
 	return nil, nil
 }

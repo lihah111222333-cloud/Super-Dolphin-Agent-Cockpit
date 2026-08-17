@@ -147,7 +147,7 @@ func appendStructureHint(lines []string, hint string) string {
 
 // NewStructureHandler 创建 structure 工具处理器，按 action 延迟选择文件或语言级 manager。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerToolWithDecodeError("structure", middleware.TierSlow, registry, decodeStrict, invalidStructureParams, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+	return newManagerToolWithWindowsColdInstallTimeoutAndDecodeError("structure", middleware.TierSlow, registry, decodeStrict, invalidStructureParams, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		if err := validateStructureLanguageParameters(req); err != nil {
 			return nil, err
 		}
@@ -451,6 +451,10 @@ func runSemanticTokens(
 	}
 	tokenTypes, tokenModifiers, err := legendManager.SemanticTokensLegend(ctx, filePath)
 	if err != nil {
+		if errors.Is(err, lspmanager.ErrSemanticTokensLegendUnavailable) {
+			return nil, common.NewCodedToolError("capability_unsupported", err, false,
+				"next: use a language server that advertises semanticTokensProvider.legend")
+		}
 		return nil, semanticTokensProtocolError(err)
 	}
 	legend := protocol.SemanticTokensLegend{TokenTypes: tokenTypes, TokenModifiers: tokenModifiers}

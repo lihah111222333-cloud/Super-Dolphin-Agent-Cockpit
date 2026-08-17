@@ -419,3 +419,24 @@ func TestNewHandlers_ApprovalSignsTrustedInternalIdentity(t *testing.T) {
 		t.Fatalf("callback requestId = %d, want positive manager-signed id", identity.RequestID)
 	}
 }
+
+func TestMCPInternalApprovalRequestUsesGenericUICallback(t *testing.T) {
+	t.Parallel()
+	request := mcpInternalApprovalRequest(&ToolInstance{
+		AgentID:  " agent-trusted ",
+		ThreadID: " thread-trusted ",
+	}, dto.ApprovalRequest{
+		CallID:   "call-approval",
+		ToolName: "file",
+		Kind:     "windows_acl",
+	}, map[string]any{"windows_error_code": 5})
+	if request.SourceMethod != dto.MethodApproval {
+		t.Fatalf("SourceMethod = %q, want %q", request.SourceMethod, dto.MethodApproval)
+	}
+	if request.CallbackMethod != platformrpc.DefaultApprovalCallbackMethod {
+		t.Fatalf("CallbackMethod = %q, want %q", request.CallbackMethod, platformrpc.DefaultApprovalCallbackMethod)
+	}
+	if request.AgentID != "agent-trusted" || request.ThreadID != "thread-trusted" {
+		t.Fatalf("trusted identity = %q/%q", request.AgentID, request.ThreadID)
+	}
+}

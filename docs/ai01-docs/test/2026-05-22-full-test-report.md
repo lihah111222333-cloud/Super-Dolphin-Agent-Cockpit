@@ -29,7 +29,7 @@
   - `GO_AGENT_CTL_SESSION_TOKEN` / `GO_AGENT_MCP_SESSION_TOKEN`：本次临时 token
   - `AUTO_CODEMAP_REFRESH=0`
 - 日志根目录：`C:\Users\ai01\AppData\Local\Temp\super-dolphin-fulltest-20260522`
-- App 日志目录：`C:\Users\ai01\.multi-agent\log\Super-Dolphin`
+- App 日志目录：`C:\Users\ai01\.super-dolphin\log\Super-Dolphin`
 
 ## 命令矩阵
 
@@ -250,6 +250,6 @@ HTTP 结果：
 - 截图：
   - `C:\Users\ai01\AppData\Local\Temp\super-dolphin-fulltest-20260522\ux-home-1440x1000.png`
 - App 日志：
-  - `C:\Users\ai01\.multi-agent\log\Super-Dolphin\agent-terminal-2026-05-22-13.log`
-  - `C:\Users\ai01\.multi-agent\log\Super-Dolphin\peer-fallback\mcp-orch.exe-2026-05-22.log`
-  - `C:\Users\ai01\.multi-agent\log\Super-Dolphin\peer-fallback\mcp-lsp.exe-2026-05-22.log`
+  - `C:\Users\ai01\.super-dolphin\log\Super-Dolphin\agent-terminal-2026-05-22-13.log`
+  - `C:\Users\ai01\.super-dolphin\log\Super-Dolphin\peer-fallback\mcp-orch.exe-2026-05-22.log`
+  - `C:\Users\ai01\.super-dolphin\log\Super-Dolphin\peer-fallback\mcp-lsp.exe-2026-05-22.log`

@@ -44,7 +44,7 @@ function buildCwdLogPath(cwd) {
   if (!normalized || /^[A-Za-z]:$/.test(normalized) || /^[\\/]+$/.test(normalized)) return null;
   const projectName = normalized.split(/[\\/]/).filter(Boolean).pop() || optionalTextField();
   if (!projectName || projectName === '.' || projectName === '/') return null;
-  return `~/.multi-agent/log/${projectName}/`;
+  return `~/.super-dolphin/log/${projectName}/`;
 }
 
 function copiedAtEpochMillis(value) {
@@ -53,12 +53,7 @@ function copiedAtEpochMillis(value) {
 }
 
 function formatUTC8HumanReadable(value = currentIsoTimestamp('thread copy copiedAt')) {
-  let epochMillis;
-  try {
-    epochMillis = copiedAtEpochMillis(value);
-  } catch {
-    return optionalTextField();
-  }
+  const epochMillis = copiedAtEpochMillis(value);
   const utc8 = utcPartsFromEpochMillis(epochMillis + (8 * 60 * 60 * 1000), 'thread copy copiedAt utc8');
   const year = utc8.year;
   const month = String(utc8.month).padStart(2, '0');
@@ -75,7 +70,7 @@ function buildThreadCopyPayload({
   thread = {},
   identity = {},
   threadConfig = null,
-  defaultProvider = 'codex',
+  defaultProvider,
   copiedAt = currentIsoTimestamp('thread copy copiedAt'),
 }) {
   const providerThreadId = firstThreadCopyText(
@@ -91,7 +86,10 @@ function buildThreadCopyPayload({
     thread.agent_id,
     threadId,
   );
-  const provider = firstThreadCopyText(identity.provider, thread.provider, state.provider) || defaultProvider;
+  const provider = firstThreadCopyText(identity.provider, thread.provider, state?.provider, defaultProvider);
+  if (!provider) {
+    throw new Error('thread copy payload provider is required');
+  }
   const cwd = firstThreadCopyText(identity.cwd, identity.CWD, thread.cwd, state.activeProject, state.cwd);
   const model = firstThreadCopyText(
     identity.model,

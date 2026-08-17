@@ -92,7 +92,7 @@ func TestAppManagedDataRootsIncludesExplicitMultiAgentLogRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppManagedDataRoots returned error: %v", err)
 	}
-	assertContainsRoot(t, roots, filepath.Join(fakeHome, ".multi-agent", "log"))
+	assertContainsRoot(t, roots, filepath.Join(fakeHome, ".super-dolphin", "log"))
 }
 
 func setTestUserHome(t *testing.T, home string) {

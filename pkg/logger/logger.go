@@ -458,7 +458,7 @@ func (r *Runtime) SetProject(name string) {
 func resolveProjectLogDir(homeDir, cwd string) (string, string) {
 	logDir := "logs"
 	if home := strings.TrimSpace(homeDir); home != "" {
-		logDir = filepath.Join(home, ".multi-agent", "log")
+		logDir = filepath.Join(home, ".super-dolphin", "log")
 	}
 
 	projectName := ""

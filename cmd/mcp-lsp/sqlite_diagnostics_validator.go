@@ -144,7 +144,7 @@ func canonicalSQLiteDiagnosticsPath(path string) (string, error) {
 	current := abs
 	missing := make([]string, 0, 4)
 	for {
-		resolved, resolveErr := filepath.EvalSymlinks(current)
+		resolved, resolveErr := evalSQLiteDiagnosticsExistingPath(current)
 		if resolveErr == nil {
 			for index := len(missing) - 1; index >= 0; index-- {
 				resolved = filepath.Join(resolved, missing[index])

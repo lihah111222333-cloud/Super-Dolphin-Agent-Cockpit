@@ -419,6 +419,7 @@ func TestFilesystemWorkerProtocolFieldsAndStrictDecoding(t *testing.T) {
 		Version: filesystemWorkerVersion, Operation: filesystemWorkerVerify, PayloadBytes: 1,
 		Error: &filesystemWorkerError{
 			Code: CodeProcessExited, Message: "fixture", FailureClass: InitializationFailureTransient,
+			WindowsErrorCode: filesystemWorkerWindowsAccessDeniedCode, WindowsPermissionKind: filesystemWorkerWindowsAccessDeniedKind,
 		},
 	}
 	assertProducerFieldsAcceptedByConsumer(t, response, &filesystemWorkerResponse{})

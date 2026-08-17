@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -151,14 +152,38 @@ func aiMaintenanceRepoRoot(t *testing.T) string {
 	return root
 }
 
+func runAIMaintenanceBashOutput(t *testing.T, repoRoot string, args ...string) []byte {
+	t.Helper()
+	bashBinary := "bash"
+	if runtime.GOOS == "windows" {
+		if path, err := exec.LookPath("bash"); err == nil {
+			bashBinary = path
+		} else if gitPath, err := exec.LookPath("git"); err == nil {
+			gitDir := filepath.Dir(gitPath)
+			for _, probe := range []string{
+				filepath.Join(gitDir, "bash.exe"),
+				filepath.Join(filepath.Dir(gitDir), "bin", "bash.exe"),
+				filepath.Join(filepath.Dir(gitDir), "usr", "bin", "bash.exe"),
+			} {
+				if _, err := os.Stat(probe); err == nil {
+					bashBinary = probe
+					break
+				}
+			}
+		}
+	}
+	command := exec.Command(bashBinary, args...)
+	command.Dir = repoRoot
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run bash %v: %v\n%s", args, err, output)
+	}
+	return output
+}
+
 func TestGeneratedCodemapClassificationMatchesRefreshOwnerOutputs(t *testing.T) {
 	repoRoot := aiMaintenanceRepoRoot(t)
-	command := exec.Command("bash", filepath.Join(repoRoot, "scripts", "refresh_generated_artifacts.sh"), "all", "--list-outputs")
-	command.Dir = repoRoot
-	output, err := command.Output()
-	if err != nil {
-		t.Fatalf("list generated outputs: %v", err)
-	}
+	output := runAIMaintenanceBashOutput(t, repoRoot, filepath.ToSlash(filepath.Join(repoRoot, "scripts", "refresh_generated_artifacts.sh")), "all", "--list-outputs")
 	for _, line := range lines(string(output)) {
 		kind, path, ok := strings.Cut(line, "\t")
 		if !ok {

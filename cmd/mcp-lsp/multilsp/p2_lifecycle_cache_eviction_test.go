@@ -31,6 +31,53 @@ func TestManagerPoolEvictsOldIdleCloneAtCap(t *testing.T) {
 	}
 }
 
+// TestManagerPoolCapEvictionUsesStrictUseSequence 证明 Windows 同一时钟刻度内的访问仍按严格 LRU 序号淘汰，不依赖 map 遍历顺序。
+func TestManagerPoolCapEvictionUsesStrictUseSequence(t *testing.T) {
+	t.Setenv(lspPoolSizeEnv, "1")
+	root := canonicalScopePath(t.TempDir(), "")
+	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	firstScope := testLSPToolScope(root, "agent-sequence-first", "thread")
+	secondScope := testLSPToolScope(root, "agent-sequence-second", "thread")
+	firstManager := scopedManagerForTest(t, mgr, firstScope)
+	_ = scopedManagerForTest(t, mgr, secondScope)
+	if cacheHit := scopedManagerForTest(t, mgr, firstScope); cacheHit != firstManager {
+		t.Fatalf("ForScope(first) cache hit returned %p, want original manager %p", cacheHit, firstManager)
+	}
+	firstResolved, err := ResolveLSPToolScope(firstScope)
+	if err != nil {
+		t.Fatalf("ResolveLSPToolScope(first): %v", err)
+	}
+	secondResolved, err := ResolveLSPToolScope(secondScope)
+	if err != nil {
+		t.Fatalf("ResolveLSPToolScope(second): %v", err)
+	}
+
+	shard := mgr.pool.shardForKey(firstResolved.ShardKey)
+	shard.mu.Lock()
+	first := shard.clones[firstResolved.ManagerKey]
+	second := shard.clones[secondResolved.ManagerKey]
+	if first == nil || second == nil {
+		shard.mu.Unlock()
+		t.Fatalf("strict sequence fixtures missing: first=%p second=%p", first, second)
+	}
+	// 时间戳故意给出与访问顺序相反的结果，证明容量淘汰只服从锁内严格序号；
+	// 序号本身必须来自第三次 ForScope 的真实 cache-hit，不能由测试直接篡改。
+	first.lastUsedAt = time.Now().Add(-time.Hour)
+	second.lastUsedAt = time.Now()
+	if first.lastUseSequence <= second.lastUseSequence || shard.nextUseSequence != first.lastUseSequence {
+		shard.mu.Unlock()
+		t.Fatalf("cache-hit sequence did not advance strictly: first=%d second=%d next=%d", first.lastUseSequence, second.lastUseSequence, shard.nextUseSequence)
+	}
+	gotKey, got := mgr.pool.oldestIdleCloneLocked(shard, "")
+	shard.mu.Unlock()
+
+	if gotKey != secondResolved.ManagerKey || got != second {
+		t.Fatalf("oldestIdleCloneLocked() = (%q, %p), want strict sequence victim (%q, %p)", gotKey, got, secondResolved.ManagerKey, second)
+	}
+}
+
 func TestManagerPoolCapDetachRejectsNewClientBeforeClose(t *testing.T) {
 	t.Setenv(lspPoolSizeEnv, "1")
 	t.Setenv("AGENT_LSP_POOL_SHARD_CAP", "2")

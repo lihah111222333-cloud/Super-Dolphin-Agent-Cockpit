@@ -90,9 +90,12 @@ type Handler struct {
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
 	// toolbridge.Module。
-	hostTools                              HostToolRegistry
-	skillTools                             contract.SkillToolProvider
-	skillMetrics                           skillmetrics.HostToolCallWriter
+	hostTools    HostToolRegistry
+	skillTools   contract.SkillToolProvider
+	skillMetrics skillmetrics.HostToolCallWriter
+	// approvalRequester 只接收宿主已验证的工具调用身份；Windows ACL 错误
+	// 不能从 peer 响应或模型 arguments 补写这些身份字段。
+	approvalRequester                      contract.ApprovalRequester
 	surfaceMu                              sync.Mutex
 	surfaces                               map[string]*codexToolSurface
 	peerSchemaMu                           sync.Mutex
@@ -170,26 +173,27 @@ func NewHandler(in handlerIn) (*Handler, error) {
 		}
 	}
 	handler := &Handler{
-		registry:        in.Registry,
-		emitter:         in.Emitter,
-		resolver:        in.Resolver,
-		diffFallback:    in.DiffFallback,
-		bindingStore:    in.BindingStore,
-		threadStore:     in.ThreadStore,
-		preferences:     in.Preferences,
-		cfg:             in.Config,
-		logger:          logger,
-		tracer:          in.Tracer,
-		dispatcher:      in.Dispatcher,
-		lifecycle:       in.Lifecycle,
-		lifecyclePolicy: in.LifecyclePolicy,
-		schemaExecutor:  schemaExecutor,
-		authorityOwner:  in.AuthorityOwner,
-		hostTools:       in.HostTools,
-		skillTools:      in.SkillTools,
-		skillMetrics:    in.Metrics,
-		surfaces:        make(map[string]*codexToolSurface),
-		proxyAuthToken:  newProxyAuthToken(),
+		registry:          in.Registry,
+		emitter:           in.Emitter,
+		resolver:          in.Resolver,
+		diffFallback:      in.DiffFallback,
+		bindingStore:      in.BindingStore,
+		threadStore:       in.ThreadStore,
+		preferences:       in.Preferences,
+		cfg:               in.Config,
+		logger:            logger,
+		tracer:            in.Tracer,
+		dispatcher:        in.Dispatcher,
+		lifecycle:         in.Lifecycle,
+		lifecyclePolicy:   in.LifecyclePolicy,
+		schemaExecutor:    schemaExecutor,
+		authorityOwner:    in.AuthorityOwner,
+		hostTools:         in.HostTools,
+		skillTools:        in.SkillTools,
+		skillMetrics:      in.Metrics,
+		approvalRequester: in.ApprovalRequester,
+		surfaces:          make(map[string]*codexToolSurface),
+		proxyAuthToken:    newProxyAuthToken(),
 	}
 	handler.stdioClientFactory = handler.defaultStdioClientFactory
 	return handler, nil
@@ -432,9 +436,6 @@ func (h *Handler) callPeerTool(ctx context.Context, instance *mcpcontrol.ToolIns
 	if pin != nil {
 		defer func() { _ = pin.Release() }()
 	}
-	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, toolCallTimeout)
-	defer cancel()
-
 	snapshot := h.beginToolDiffSnapshot(ctx, req)
 	req, err = h.injectManagedLaunchContext(ctx, req)
 	if err != nil {
@@ -448,8 +449,37 @@ func (h *Handler) callPeerTool(ctx context.Context, instance *mcpcontrol.ToolIns
 	if err := h.validatePeerToolCallInput(req); err != nil {
 		return nil, err
 	}
+	result, err := h.callPinnedPeerTool(ctx, peer, pin, req, cwd)
+	if err != nil {
+		return nil, err
+	}
+	if approval, ok := h.windowsACLApprovalRequest(instance, req, result); ok {
+		decision, approvalErr := h.approvalRequester.RequestApproval(ctx, approval)
+		if err := requireCurrentManagedPin(pin); err != nil {
+			return nil, err
+		}
+		h.logWindowsACLApprovalDecision(approval, decision, approvalErr)
+		if approvalErr == nil && decision.Approved != nil && *decision.Approved {
+			result, err = h.callPinnedPeerTool(ctx, peer, pin, req, cwd)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	h.emitToolDiff(ctx, req, snapshot)
+	return result, nil
+}
+
+// callPinnedPeerTool 对同一个已固定 peer 发起一次调用。每次尝试都创建新的
+// peer timeout；用户批准后的重试不会继承第一次调用已经消耗的 deadline。
+func (h *Handler) callPinnedPeerTool(ctx context.Context, peer mcpcontrol.Peer, pin *mcpcontrol.LeasePin, req ToolCallRequest, cwd string) (*ToolCallResult, error) {
+	if err := requireCurrentManagedPin(pin); err != nil {
+		return nil, err
+	}
+	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, toolCallTimeout)
+	defer cancel()
 	var resp peerToolCallResponse
-	err = peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
+	err := peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
 		"name":                    req.Name,
 		"arguments":               req.Arguments,
 		MetadataKeyAgentID:        req.AgentID,
@@ -458,20 +488,14 @@ func (h *Handler) callPeerTool(ctx context.Context, instance *mcpcontrol.ToolIns
 		MetadataKeyCWD:            cwd,
 		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	}, &resp)
-	if err := requireCurrentManagedPin(pin); err != nil {
-		return nil, err
+	if currentErr := requireCurrentManagedPin(pin); currentErr != nil {
+		return nil, currentErr
 	}
 	if err != nil {
 		logToolCallFailure("peer_callback", err)
 		return toolCallPublicErrorResult(err), nil
 	}
-
-	result, err := adaptMCPResponse(resp)
-	if err != nil {
-		return nil, err
-	}
-	h.emitToolDiff(ctx, req, snapshot)
-	return result, nil
+	return adaptMCPResponse(resp)
 }
 
 // pinToolPeer 只为 strict managed family 固定 concrete lease，其他产品面保持旧 peer 调用路径。

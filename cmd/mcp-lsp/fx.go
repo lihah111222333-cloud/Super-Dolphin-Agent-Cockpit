@@ -129,9 +129,11 @@ func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Run
 		return nil, errors.New("mcp-lsp: stdout is nil; program assembly order is broken")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
+	// ToolErrorClassifier 是共享传输契约：它只识别显式 typed Windows 错误，
+	// 非 Windows 原生 errno/PathError 保持普通工具错误，不能改变其他平台的授权语义。
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
 		defs: toolDefinitions(handlers),
-	}, common.WithLoggerRuntime(logRuntime), common.WithToolCallResultPolicy(lspToolCallResultPolicy())), nil
+	}, common.WithLoggerRuntime(logRuntime), common.WithToolCallResultPolicy(lspToolCallResultPolicy()), common.WithToolErrorClassifier(tools.ToolErrorClassifier)), nil
 }
 
 // lspToolCallResultPolicy 返回 mcp-lsp 专属的严格纯文本结果策略。
@@ -203,8 +205,10 @@ func isSemanticLSPToolName(name string) bool {
 	}
 }
 
-// runtimeSemanticLSPToolsAvailable 检查打包环境或 PATH 中是否存在语义 LSP server 二进制。
-func runtimeSemanticLSPToolsAvailable(context.Context) (bool, error) {
+// runtimeSemanticLSPToolsAvailable 按共享优先级检查语义 LSP 能力：先读取显式 bundle，
+// 再检查 PATH，最后交给带 build tag 的平台实现判断生产自动安装器是否可用。
+// 平台实现只能补充本平台的可用性事实，不能改变其他平台的 bundle/PATH 语义。
+func runtimeSemanticLSPToolsAvailable(ctx context.Context) (bool, error) {
 	lspBundle, packaged, err := runtimeenv.LoadLSPBundleFromEnv()
 	if packaged {
 		if err != nil {
@@ -221,7 +225,7 @@ func runtimeSemanticLSPToolsAvailable(context.Context) (bool, error) {
 			return true, nil
 		}
 	}
-	return false, nil
+	return runtimePlatformSemanticLSPToolsAvailable(ctx)
 }
 
 // runtimeSemanticLSPServerBinaries 返回支持的语义 LSP server 二进制名称列表。
@@ -325,7 +329,7 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 	toolName := "tools/call"
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			result, err = wrapScopedToolResult(common.NewToolErrorEnvelope(toolName, common.NewPanicToolError(recovered)))
+			result, err = wrapScopedToolResult(common.NewToolErrorEnvelopeWithClassifier(toolName, "", common.NewPanicToolError(recovered), nil, tools.ToolErrorClassifier))
 		}
 	}()
 	req, err := common.DecodeToolCallParams(params)
@@ -339,7 +343,7 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 	result, err = tp.CallTool(ctx, req.Name, req.Arguments)
 	if err != nil {
 		if result == nil {
-			result = common.NewToolErrorEnvelope(req.Name, err)
+			result = common.NewToolErrorEnvelopeWithClassifier(req.Name, "", err, nil, tools.ToolErrorClassifier)
 		}
 	}
 	return wrapScopedToolResult(result)

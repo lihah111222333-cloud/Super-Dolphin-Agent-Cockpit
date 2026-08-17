@@ -117,7 +117,7 @@ afterEach(cleanupAppTest);
       provider: 'codex',
       port: 4512,
       cwd: '/repo/app',
-      logPath: '/repo/app/.multi-agent/log/app/agent.log',
+      logPath: '/repo/app/.super-dolphin/log/app/agent.log',
     });
 
     render(<App />);
@@ -139,7 +139,7 @@ afterEach(cleanupAppTest);
         effort: 'medium',
         port: 4512,
         cwd: '/repo/app',
-        'log-path': '/repo/app/.multi-agent/log/app/agent.log',
+        'log-path': '/repo/app/.super-dolphin/log/app/agent.log',
       }));
       expect(payload.copiedAt).toContain('UTC+8');
     });

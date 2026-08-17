@@ -1,10 +1,12 @@
 package common
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // PlainTextRenderer 将工具结果转换为面向 LLM 的纯文本。
@@ -124,4 +126,39 @@ func isNilToolResult(value any) bool {
 	default:
 		return false
 	}
+}
+
+// toolResultCarriesErrorDetail 判断 handler 返回的失败结构是否真的携带可操作错误。
+// stdio 与 legacy HTTP 共用这条跨平台规则：仅有 success=false 的零值结构不能吞掉
+// 同时返回的 Go error；error/message/code/hint 至少一项非空时才保留原结构。
+// status 只表示分类（例如 failed），本身不能替代可诊断的根因文本。
+func toolResultCarriesErrorDetail(value any) bool {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return false
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return false
+	}
+	for _, key := range []string{"error", "message", "code", "hint"} {
+		field := bytes.TrimSpace(object[key])
+		if len(field) == 0 {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(field, &text); err == nil {
+			if strings.TrimSpace(text) != "" {
+				return true
+			}
+			continue
+		}
+		switch string(field) {
+		case "null", "false", "0", "{}", "[]":
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }

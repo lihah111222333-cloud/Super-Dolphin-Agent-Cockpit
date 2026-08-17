@@ -107,9 +107,9 @@ owner_key = "sd_owner:" + hex(HMAC-SHA256(app_install_salt, normalized_super_dol
 
 Change scope normalization so new `scope=system` writes are rejected with `ErrSkillSystemScopeRemoved`. If persisted old metadata exists, add a one-time migration/normalizer that rewrites it to `scope=personal` and `personal_type=user` before normal runtime code sees it. Returned DTOs must expose `scope=personal` and `personal_type=user`. Update `contentParams`, `skillNamedContentParams`, `skillSummaryWriteParams`, `importSkillDirParams`, `deleteLocalSkillParams`, `SkillInfo`, and `skillListItem` so storage scope is distinct from `Trust`.
 
-Add a one-time filesystem migration/import path for existing user skills under the old default root `~/.multi-agent/skills`. The migration copies or moves only valid skill directories into `~/.super-dolphin/skills/personal/user/<skill-name>` after validating `SKILL.md`, computing source and destination hashes, and writing a migration report. It must not overwrite an existing personal canonical directory; same-name conflicts become explicit unresolved conflicts. After migration, normal V1 runtime scanning must not read `~/.multi-agent/skills` as a live skill root.
+Add a one-time filesystem migration/import path for existing user skills under the old default root `~/.super-dolphin/skills`. The migration copies or moves only valid skill directories into `~/.super-dolphin/skills/personal/user/<skill-name>` after validating `SKILL.md`, computing source and destination hashes, and writing a migration report. It must not overwrite an existing personal canonical directory; same-name conflicts become explicit unresolved conflicts. After migration, normal V1 runtime scanning must not read `~/.super-dolphin/skills` as a live skill root.
 
-Retire the old global-root override as runtime configuration. `SKILLS_ROOT`, `defaultSkillsRoot()`, `systemGlobalSkillsRoot()`, and any remaining `s.root` service field may be used only by the explicit migration/import command path, never by normal list/read/write/delete/match/hydration code after V1. Add regression tests proving `SKILLS_ROOT=$HOME/.multi-agent/skills` does not make that directory a live scan/write root, while the one-time migration can still import from it by explicit migration flow.
+Retire the old global-root override as runtime configuration. `SKILLS_ROOT`, `defaultSkillsRoot()`, `systemGlobalSkillsRoot()`, and any remaining `s.root` service field may be used only by the explicit migration/import command path, never by normal list/read/write/delete/match/hydration code after V1. Add regression tests proving `SKILLS_ROOT=$HOME/.super-dolphin/skills` does not make that directory a live scan/write root, while the one-time migration can still import from it by explicit migration flow.
 
 Replace `DeleteLocal(ctx, name string)` with a structured target:
 
@@ -133,9 +133,9 @@ Add regression coverage for old write surfaces that currently use system/global 
 - `ImportLocalDir`
 - `DeleteLocal`
 - `skills/local/delete` RPC handler in `internal/module/skill/rpc.go`
-- existing `~/.multi-agent/skills` filesystem migration/import
+- existing `~/.super-dolphin/skills` filesystem migration/import
 
-Expected behavior: new `scope=system` write/import/delete inputs fail; migrated old metadata and old `~/.multi-agent/skills` content are represented as `personal/user`; new UI/RPC emits explicit `scope=personal` plus `personal_type`; project writes continue to land only in `.agent/skills`; and no runtime scanner treats `~/.multi-agent/skills`, `SKILLS_ROOT`, or `s.root` as a live root after migration.
+Expected behavior: new `scope=system` write/import/delete inputs fail; migrated old metadata and old `~/.super-dolphin/skills` content are represented as `personal/user`; new UI/RPC emits explicit `scope=personal` plus `personal_type`; project writes continue to land only in `.agent/skills`; and no runtime scanner treats `~/.super-dolphin/skills`, `SKILLS_ROOT`, or `s.root` as a live root after migration.
 
 Do not leave `WriteRemote`, `WriteSkillContent`, `WriteSummary`, or `skills/local/delete` hard-coded to `skillScopeSystem` or `s.root`. Either remove the old RPCs if no frontend/production caller remains, or change their request DTOs and service calls to structured targets with `scope` and `personal_type`. Add an RPC regression test proving `skills/local/delete` must carry `scope` and `personal_type`, rejects missing personal type for personal deletes, and deletes/archives only the addressed canonical target when project and personal skills share a name.
 
@@ -345,7 +345,7 @@ Cover these cases:
 - canonical deletion deletes owned, non-drifted mirror
 - mirror deletion is regenerated when canonical still exists
 - `.agents/skills/<name>/SKILL.md` is ignored by git
-- existing legacy `.claude/skills` symlink to `~/.multi-agent/skills-cache` is detected before writing and fails closed unless explicitly replaced by the V1 cutover path
+- existing legacy `.claude/skills` symlink to `~/.super-dolphin/skills-cache` is detected before writing and fails closed unless explicitly replaced by the V1 cutover path
 - non-owned provider mirror roots, unexpected symlinks, and symlinked final skill directories are not followed or overwritten
 - symlink entries inside canonical skill directories are rejected or copied as inert metadata, never followed
 - a malicious relative path cannot make mirror copy write outside the mirror root
@@ -376,7 +376,7 @@ type SkillMirrorTarget struct {
 
 - [ ] **Step 3: Implement safe copy**
 
-Publisher validates the mirror root and final target path with `lstat` before any temp write. It must fail closed for non-owned roots, unexpected symlinks, and legacy `.claude/skills -> ~/.multi-agent/skills-cache` style links; it must not follow the link and must not write generated mirrors into the old runtime cache. Publisher writes to a temp directory next to the final skill directory, then renames into place. It only overwrites directories that are present in the manifest and not drifted. Safe copy must walk with `lstat`, reject path escape, reject symlink traversal, and apply a documented mode policy: regular files under `scripts/**` may preserve executable bits, while `SKILL.md`, `references/**`, `templates/**`, and other support files are written non-executable.
+Publisher validates the mirror root and final target path with `lstat` before any temp write. It must fail closed for non-owned roots, unexpected symlinks, and legacy `.claude/skills -> ~/.super-dolphin/skills-cache` style links; it must not follow the link and must not write generated mirrors into the old runtime cache. Publisher writes to a temp directory next to the final skill directory, then renames into place. It only overwrites directories that are present in the manifest and not drifted. Safe copy must walk with `lstat`, reject path escape, reject symlink traversal, and apply a documented mode policy: regular files under `scripts/**` may preserve executable bits, while `SKILL.md`, `references/**`, `templates/**`, and other support files are written non-executable.
 
 - [ ] **Step 4: Return structured report**
 
@@ -606,7 +606,7 @@ If the Task 1 data-scope gate introduces or changes migrations, SQL queries, sto
 
 ## Accepted Defaults And Gates For This Plan
 
-- D2 is fixed: no live `system` alias; V1 updates callers/tests, migrates persisted old metadata and old `~/.multi-agent/skills` content to `personal/user`, and stops runtime scanning the old root.
+- D2 is fixed: no live `system` alias; V1 updates callers/tests, migrates persisted old metadata and old `~/.super-dolphin/skills` content to `personal/user`, and stops runtime scanning the old root.
 - `personal/user` is the wire enum for human-authored personal skills; do not add a second `human` enum or directory in V1-V3.
 - `personal/hub` is catalog-only. It is not an active canonical root, not a valid write/import/delete target, and must not be published into provider-native mirrors.
 - Old global root configuration is fixed: `SKILLS_ROOT`, `defaultSkillsRoot()`, `systemGlobalSkillsRoot()`, and service `s.root` are not accepted as runtime skill roots after V1. They may remain only as explicit migration/import inputs with test coverage.

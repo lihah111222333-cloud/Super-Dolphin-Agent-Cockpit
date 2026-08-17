@@ -41,7 +41,7 @@ Severity: Medium. Raise to High only when this blocks a user-visible incident wo
 The current backend has trace storage and RPC query paths:
 
 - `internal/platform/observability/module.go:28-46` wires `*observability.Service` with a JSONL sink and tail reader.
-- `internal/platform/observability/jsonl_sink.go:57-72` stores project trace files under `~/.multi-agent/log/<project>/traces`.
+- `internal/platform/observability/jsonl_sink.go:57-72` stores project trace files under `~/.super-dolphin/log/<project>/traces`.
 - `internal/module/observability/module.go:5-7` provides the observability RPC handlers.
 - `internal/module/observability/rpc.go:106-114` registers observability RPC methods, including `observability/trace/get`, `observability/recent/list`, `observability/slow/list`, `observability/error/list`, `observability/status`, and `observability/frontend/ingest`.
 - `internal/module/observability/rpc.go:127-137` maps `observability/trace/get` to `svc.Query(ctx, Query{TraceID: ...})`.
@@ -186,7 +186,7 @@ Suggested follow-ups:
 
 ## Non-Goals
 
-- Do not make the agent parse `~/.multi-agent/log/<project>/traces/*.jsonl` directly.
+- Do not make the agent parse `~/.super-dolphin/log/<project>/traces/*.jsonl` directly.
 - Do not expose raw, unbounded JSONL content to the model.
 - Do not rely only on prompt wording to make agents search logs.
 - Do not make `cmd/mcp-orch` the first implementation path; host-direct is shorter because the app graph already owns `*observability.Service`.

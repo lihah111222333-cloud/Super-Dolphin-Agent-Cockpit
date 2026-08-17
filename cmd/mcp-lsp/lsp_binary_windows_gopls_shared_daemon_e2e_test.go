@@ -22,7 +22,7 @@ func TestMcpLSPBinaryWindowsGoplsSharedDaemonLifecycleE2E(t *testing.T) {
 	roots, targets := writeRealGoplsLinkedWorktreeFixtures(t)
 	argsLog := filepath.Join(t.TempDir(), "gopls-args.log")
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
-	install := buildWindowsGoplsTestInstall(t)
+	install := buildWindowsGoplsShortIdlePrecheckTestInstall(t)
 	env := windowsGoplsSidecarEnv(t, install, fakeGoplsArgsLogEnv+"="+argsLog, "AGENT_LSP_SHARED_CACHE_DIR="+cacheRoot)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

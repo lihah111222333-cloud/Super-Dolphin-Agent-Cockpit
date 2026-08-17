@@ -69,18 +69,7 @@ func (r approvalRequester) RequestApproval(ctx context.Context, req contract.App
 	if server == nil {
 		bridge = nil
 	}
-	decision, err := r.manager.RequestInternalApproval(ctx, bridge, server, ApprovalRequest{
-		CallID:       req.CallID,
-		ApprovalID:   req.ApprovalID,
-		ToolName:     req.ToolName,
-		AgentID:      req.AgentID,
-		ThreadID:     req.ThreadID,
-		TurnID:       req.TurnID,
-		Reason:       req.Reason,
-		Kind:         req.Kind,
-		SourceMethod: req.SourceMethod,
-		Payload:      req.Payload,
-	})
+	decision, err := r.manager.RequestInternalApproval(ctx, bridge, server, approvalRequestFromContract(req))
 	if err != nil {
 		return decision, err
 	}
@@ -88,6 +77,24 @@ func (r approvalRequester) RequestApproval(ctx context.Context, req contract.App
 		return decision, ErrNoUIPeer
 	}
 	return decision, nil
+}
+
+// approvalRequestFromContract 保留 SourceMethod 作为来源证据，同时强制使用通用
+// approval/request 回调；来源方法（例如 tools/call）不能被误当成 UI RPC 方法。
+func approvalRequestFromContract(req contract.ApprovalRequest) ApprovalRequest {
+	return ApprovalRequest{
+		CallID:         req.CallID,
+		ApprovalID:     req.ApprovalID,
+		ToolName:       req.ToolName,
+		AgentID:        req.AgentID,
+		ThreadID:       req.ThreadID,
+		TurnID:         req.TurnID,
+		Reason:         req.Reason,
+		Kind:           req.Kind,
+		SourceMethod:   req.SourceMethod,
+		CallbackMethod: DefaultApprovalCallbackMethod,
+		Payload:        req.Payload,
+	}
 }
 
 // activeServer 只选择 UI peer 作为审批回调目标，缺失时由调用方 fail-closed。

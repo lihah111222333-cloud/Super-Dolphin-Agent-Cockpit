@@ -13,13 +13,13 @@
 ```
                                      ┌───────────────────────┐
                                      │  global stats         │
-                                     │  ~/.multi-agent/      │
+                                     │  ~/.super-dolphin/      │
                                      │  skills-stats.json    │
                                      └────────▲──────────────┘
                                               │ score()
                           ┌──────────────────┐│      ┌────────────────────┐
 打点 hook                 │  workspace stats │├──────┤  effective_score   │
-─────────────             │  ~/.multi-agent/ ││ G3   │  (双层合并 §9.3)   │
+─────────────             │  ~/.super-dolphin/ ││ G3   │  (双层合并 §9.3)   │
 Claude tool_use(Read)     │  workspaces/<id>/├──────►                    │
 Codex skill_read_section  │  skills-stats.   │      │  ws ≥ 10 calls →   │
 ─────────────             │  json            │      │  use ws-only       │
@@ -621,10 +621,10 @@ func NewTrackerFromEnv() (*Tracker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fbsd: user home: %w", err)
 	}
-	globPath := filepath.Join(home, ".multi-agent", "skills-stats.json")
+	globPath := filepath.Join(home, ".super-dolphin", "skills-stats.json")
 	// workspace stats 用 hostname 当 ID 是简化方案；多用户场景 P6.x 再细化。
 	host, _ := os.Hostname()
-	wsPath := filepath.Join(home, ".multi-agent", "workspaces", host, "skills-stats.json")
+	wsPath := filepath.Join(home, ".super-dolphin", "workspaces", host, "skills-stats.json")
 	return NewTracker(wsPath, globPath, enabled)
 }
 

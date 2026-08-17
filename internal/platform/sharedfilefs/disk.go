@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+
 // sharedfilefs 提供 sharedfile 磁盘正文的 sandbox 和原子写入原语。
 //
 // 正文落在 `<CWD>/.agnet/shared/<rel>`，DB 保留索引、作者和时间戳；
@@ -268,16 +269,6 @@ func splitCleanRel(rel string) []string {
 	return strings.Split(cleaned, string(filepath.Separator))
 }
 
-// sameFilesystemPath 按平台规则比较文件系统路径，Windows 下忽略大小写。
-func sameFilesystemPath(left, right string) bool {
-	left = filepath.Clean(left)
-	right = filepath.Clean(right)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
-}
-
 // WriteAtomic 通过临时文件、fsync 和 rename 写入目标文件，避免半写入内容覆盖正式文件。
 // absPath 必须已通过 ResolveAbs/ResolveWriteAbs；data 为 nil 时写入空文件。
 func WriteAtomic(absPath string, data []byte) error {
@@ -371,3 +362,13 @@ func makeTempFile(dir, base string) (*os.File, error) {
 	}
 	return nil, errors.New("sharedfilefs: could not create unique tmp file")
 }
+
+// sameFilesystemPath 按当前平台文件系统语义比较两个路径。
+// Windows 平台忽略大小写，非 Windows 平台严格区分大小写。
+func sameFilesystemPath(left, right string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	}
+	return filepath.Clean(left) == filepath.Clean(right)
+}
+

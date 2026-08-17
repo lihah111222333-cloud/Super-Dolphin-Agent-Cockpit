@@ -15,6 +15,7 @@ import (
 const (
 	lspIdleTimeoutEnv       = "MCP_LSP_IDLE_TIMEOUT"
 	lspIdleTimeoutLegacyEnv = "MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT"
+	lspMinimumIdleTimeout   = 15 * time.Minute
 	lspDefaultIdleTimeout   = 15 * time.Minute
 )
 
@@ -224,8 +225,8 @@ func effectiveLSPIdleTimeout(defaultTimeout time.Duration) (time.Duration, error
 	canonical, canonicalSet := os.LookupEnv(lspIdleTimeoutEnv)
 	legacy, legacySet := os.LookupEnv(lspIdleTimeoutLegacyEnv)
 	if !canonicalSet && !legacySet {
-		if defaultTimeout <= 0 {
-			return 0, fmt.Errorf("default LSP idle timeout must be positive: %s", defaultTimeout)
+		if defaultTimeout < lspMinimumIdleTimeout {
+			return 0, fmt.Errorf("default LSP idle timeout must be at least %s: %s", lspMinimumIdleTimeout, defaultTimeout)
 		}
 		return defaultTimeout, nil
 	}
@@ -259,6 +260,9 @@ func parseLSPIdleTimeout(key, raw string, configured bool) (time.Duration, error
 	timeout, err := time.ParseDuration(raw)
 	if err != nil || timeout <= 0 {
 		return 0, fmt.Errorf("%s must be a positive Go duration: %q", key, raw)
+	}
+	if timeout < lspMinimumIdleTimeout && !allowShortLSPIdleTimeoutPrecheck {
+		return 0, fmt.Errorf("%s must be at least %s: %q", key, lspMinimumIdleTimeout, raw)
 	}
 	return timeout, nil
 }

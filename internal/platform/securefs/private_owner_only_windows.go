@@ -16,7 +16,7 @@ func CheckPrivateOwnerOnly(path string, info os.FileInfo) error {
 		var err error
 		info, err = os.Lstat(path)
 		if err != nil {
-			return fmt.Errorf("inspect private path %s: %s", RedactPath(path), SafeError(err))
+			return newWindowsSecurityOperationError("inspect private path", "lstat", path, err)
 		}
 	}
 	if err := checkWindowsPrivatePathAttributes(path); err != nil {
@@ -28,7 +28,7 @@ func CheckPrivateOwnerOnly(path string, info os.FileInfo) error {
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION,
 	)
 	if err != nil {
-		return fmt.Errorf("read private path ACL %s: %s", RedactPath(path), SafeErrorForPath(err, path))
+		return newWindowsSecurityOperationError("read private path ACL", "get_named_security_info", path, err)
 	}
 	return checkWindowsPrivateDescriptor(path, info, descriptor)
 }
@@ -38,43 +38,37 @@ func RestrictPrivateOwnerOnly(path string, _ os.FileMode) error {
 	if err := checkWindowsPrivatePathAttributes(path); err != nil {
 		return err
 	}
-	userSID, err := currentUserSID()
+	userSID, err := currentUserSIDForPath(path)
 	if err != nil {
 		return fmt.Errorf("read current Windows user SID: %w", err)
 	}
 	inheritance := ""
 	info, err := os.Lstat(path)
 	if err != nil {
-		return fmt.Errorf("inspect private path %s: %s", RedactPath(path), SafeError(err))
+		return newWindowsSecurityOperationError("inspect private path", "lstat", path, err)
 	}
 	if info.IsDir() {
 		inheritance = "OICI"
 	}
-	sddl := "O:" + userSID.String() +
-		"D:P(A;" + inheritance + ";FA;;;SY)(A;" + inheritance + ";FA;;;" + userSID.String() + ")"
+	sddl := "D:P(A;" + inheritance + ";FA;;;SY)(A;" + inheritance + ";FA;;;" + userSID.String() + ")"
 	descriptor, err := windows.SecurityDescriptorFromString(sddl)
 	if err != nil {
-		return fmt.Errorf("build private path ACL: %w", err)
-	}
-	owner, _, err := descriptor.Owner()
-	if err != nil {
-		return fmt.Errorf("read private path ACL owner: %w", err)
+		return newWindowsSecurityOperationError("build private path ACL", "security_descriptor_from_string", path, err)
 	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil {
-		return fmt.Errorf("read private path DACL: %w", err)
+		return newWindowsSecurityOperationError("read private path DACL", "read_dacl", path, err)
 	}
 	if err := windows.SetNamedSecurityInfo(
 		path,
 		windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|
-			windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		owner,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
 		nil,
 		dacl,
 		nil,
 	); err != nil {
-		return fmt.Errorf("set private path ACL %s: %s", RedactPath(path), SafeErrorForPath(err, path))
+		return newWindowsSecurityOperationError("set private path ACL", "set_named_security_info", path, err)
 	}
 	return CheckPrivateOwnerOnly(path, info)
 }
@@ -86,7 +80,7 @@ func checkWindowsPrivatePathAttributes(path string) error {
 	}
 	attributes, err := windows.GetFileAttributes(pathPointer)
 	if err != nil {
-		return fmt.Errorf("read private path attributes %s: %s", RedactPath(path), SafeErrorForPath(err, path))
+		return newWindowsSecurityOperationError("read private path attributes", "get_file_attributes", path, err)
 	}
 	if attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 		return fmt.Errorf("private path is a reparse point: %s", RedactPath(path))
@@ -96,7 +90,7 @@ func checkWindowsPrivatePathAttributes(path string) error {
 
 // checkWindowsPrivateDescriptor 校验 owner、目录保护位和严格授权 SID 集合。
 func checkWindowsPrivateDescriptor(path string, info os.FileInfo, descriptor *windows.SECURITY_DESCRIPTOR) error {
-	userSID, err := currentUserSID()
+	userSID, err := currentUserSIDForPath(path)
 	if err != nil {
 		return fmt.Errorf("read current Windows user SID: %w", err)
 	}
@@ -108,14 +102,14 @@ func checkWindowsPrivateDescriptor(path string, info os.FileInfo, descriptor *wi
 	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil {
-		return fmt.Errorf("read private path DACL %s: %w", RedactPath(path), err)
+		return newWindowsSecurityOperationError("read private path DACL", "read_dacl", path, err)
 	}
 	if dacl == nil {
 		return fmt.Errorf("private path DACL is unavailable: %s", RedactPath(path))
 	}
 	systemSID, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
 	if err != nil {
-		return fmt.Errorf("resolve Windows LocalSystem SID: %w", err)
+		return newWindowsSecurityOperationError("resolve Windows LocalSystem SID", "create_well_known_sid", path, err)
 	}
 	return checkWindowsPrivateACEs(path, dacl, userSID, systemSID)
 }
@@ -124,7 +118,7 @@ func checkWindowsPrivateDescriptor(path string, info os.FileInfo, descriptor *wi
 func checkWindowsPrivateOwner(path string, descriptor *windows.SECURITY_DESCRIPTOR, userSID *windows.SID) error {
 	owner, _, err := descriptor.Owner()
 	if err != nil {
-		return fmt.Errorf("read private path owner %s: %w", RedactPath(path), err)
+		return newWindowsSecurityOperationError("read private path owner", "read_owner", path, err)
 	}
 	if owner == nil || !owner.Equals(userSID) {
 		return fmt.Errorf("private path owner does not match current user: %s", RedactPath(path))
@@ -139,7 +133,7 @@ func checkWindowsPrivateDirectoryControl(path string, info os.FileInfo, descript
 	}
 	control, _, err := descriptor.Control()
 	if err != nil {
-		return fmt.Errorf("read private directory DACL control %s: %w", RedactPath(path), err)
+		return newWindowsSecurityOperationError("read private directory DACL control", "read_dacl_control", path, err)
 	}
 	if control&windows.SE_DACL_PROTECTED == 0 {
 		return fmt.Errorf("private directory DACL is not protected: %s", RedactPath(path))
@@ -152,7 +146,7 @@ func checkWindowsPrivateACEs(path string, dacl *windows.ACL, userSID, systemSID 
 	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, index, &ace); err != nil {
-			return fmt.Errorf("read private path ACE %s: %w", RedactPath(path), err)
+			return newWindowsSecurityOperationError("read private path ACE", "get_ace", path, err)
 		}
 		access, err := windowsPrivateUserAccess(path, ace, userSID, systemSID)
 		if err != nil {

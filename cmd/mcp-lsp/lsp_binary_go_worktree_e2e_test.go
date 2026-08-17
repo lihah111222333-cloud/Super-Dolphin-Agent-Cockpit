@@ -99,13 +99,6 @@ func startPrebuiltLSPBinaryClient(t *testing.T, binary, root string) *lspBinaryC
 	return client
 }
 
-func requireRealGopls(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("gopls"); err != nil {
-		t.Fatalf("gopls is required for real Go worktree diagnostics e2e: %v", err)
-	}
-}
-
 func containsGoWorkspaceConfigurationDiagnostic(payload diagnosticsPayload, target string) bool {
 	for _, table := range payload.Data {
 		if table.File != target {

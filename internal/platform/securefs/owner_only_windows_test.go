@@ -3,13 +3,65 @@
 package securefs
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/windows"
 )
+
+func TestSyncDirectoryWindows(t *testing.T) {
+	dir := t.TempDir()
+	if err := SyncDirectory(dir); err != nil {
+		t.Fatalf("SyncDirectory(dir) error = %v", err)
+	}
+	filePath := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(filePath, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncDirectory(filePath); err == nil {
+		t.Fatal("SyncDirectory(file) error = nil, want non-directory error")
+	}
+}
+
+func TestWrapErrorForPathPromotesWindowsPermissionCodes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private-state.db")
+	for _, code := range []uint32{5, 1314} {
+		t.Run(fmt.Sprintf("windows_code_%d", code), func(t *testing.T) {
+			raw := &os.PathError{Op: "open", Path: path, Err: syscall.Errno(code)}
+			wrapped := WrapErrorForPath(raw, path)
+
+			var permissionErr *WindowsPermissionError
+			if !errors.As(wrapped, &permissionErr) || permissionErr == nil {
+				t.Fatalf("WrapErrorForPath() did not promote Windows code %d: %v", code, wrapped)
+			}
+			if got := permissionErr.Win32Code(); got != code {
+				t.Fatalf("promoted Windows code = %d, want %d", got, code)
+			}
+			if got := wrapped.Error(); containsSecurefsPathToken(got, path, filepath.Dir(path)) {
+				t.Fatalf("promoted error leaked path: %q", got)
+			}
+		})
+	}
+}
+
+func TestWrapErrorForPathDoesNotReplaceTypedWindowsPermissionError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private-state.db")
+	typed := NewWindowsPermissionError("ACL check", path, syscall.Errno(5))
+	wrapped := WrapErrorForPath(typed, path)
+	var permissionErr *WindowsPermissionError
+	if !errors.As(wrapped, &permissionErr) || permissionErr == nil {
+		t.Fatalf("typed Windows permission error was lost: %v", wrapped)
+	}
+	if permissionErr != typed.(*WindowsPermissionError) {
+		t.Fatalf("WrapErrorForPath() replaced an existing typed error")
+	}
+}
+
 
 func TestRestrictOwnerOnlyKeepsCurrentUserWritable(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")

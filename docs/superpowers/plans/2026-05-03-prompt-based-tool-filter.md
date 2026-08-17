@@ -657,7 +657,7 @@ git commit -m "feat(frontend): convert builtin tools panel to hybrid mode (auto 
 - [ ] **Step 1: 查找并更新现有 skill meta**
 
 ```bash
-grep -r '"replaces_native"' ~/.multi-agent/skills-library/ ~/.multi-agent/skills-cache/
+grep -r '"replaces_native"' ~/.super-dolphin/skills-library/ ~/.super-dolphin/skills-cache/
 ```
 
 对找到的 skill，确认 `replaces_native` 包含跨模型 `"*"` key。如果只有 `"claude"` key 不用改（聚合函数已兼容），但建议迁移到 `"*"`。

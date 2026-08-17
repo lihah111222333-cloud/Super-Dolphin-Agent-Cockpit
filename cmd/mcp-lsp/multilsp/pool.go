@@ -51,8 +51,9 @@ type ManagerPool struct {
 
 // managerShard 是 ManagerPool 的单个缓存分片，锁范围只覆盖本 shard。
 type managerShard struct {
-	index int      // shard 编号，仅用于日志和快照。
-	base  *manager // primary manager 对应的基础实例。
+	index           int      // shard 编号，仅用于日志和快照。
+	base            *manager // primary manager 对应的基础实例。
+	nextUseSequence uint64   // shard 锁内递增的访问序号，为同一时钟刻度提供确定性 LRU 顺序。
 
 	mu     sync.RWMutex              // 保护 clones。
 	clones map[string]*pooledManager // manager key 到 scoped clone。
@@ -60,10 +61,11 @@ type managerShard struct {
 
 // pooledManager 记录一个可回收的 scoped manager 及最近使用时间。
 type pooledManager struct {
-	key           string               // ManagerPool 内部缓存键。
-	resolvedScope ResolvedLSPToolScope // 该 manager 绑定的规范 scope。
-	manager       *manager             // scoped clone 实例。
-	lastUsedAt    time.Time            // recycler 判断闲置的时间戳。
+	key             string               // ManagerPool 内部缓存键。
+	resolvedScope   ResolvedLSPToolScope // 该 manager 绑定的规范 scope。
+	manager         *manager             // scoped clone 实例。
+	lastUsedAt      time.Time            // recycler 判断闲置的时间戳。
+	lastUseSequence uint64               // shard 内严格递增的最近访问顺序，供容量淘汰确定性比较。
 }
 
 // pendingManagerRelease 保存已从 shard 摘除、等待最后租约释放的旧 manager 代际。
@@ -114,11 +116,15 @@ func (fn managerFactoryFunc) NewManager(language string, workspaceRoot string, o
 // NewManagerPool 创建分片池并登记 recycler。
 // 构造函数不启动 goroutine，回收循环必须由上层 runner 生命周期控制。
 func NewManagerPool(primary *manager, size int) *ManagerPool {
+	return newManagerPool(primary, size, defaultShardCap)
+}
+
+func newManagerPool(primary *manager, size, shardCap int) *ManagerPool {
 	clamped := clampPoolSize(size)
 	pool := &ManagerPool{
 		primary:         primary,
 		size:            clamped,
-		shardCap:        PoolShardCapFromEnv(),
+		shardCap:        shardCap,
 		closePending:    make(map[*manager]struct{}),
 		pendingReleases: make(map[*manager]pendingManagerReleaseState),
 	}
@@ -138,31 +144,33 @@ func (p *ManagerPool) RecyclerRunner() platformrunner.Runner {
 	return p.recycler
 }
 
-// PoolSizeFromEnv 读取 LSP 池大小并裁剪到安全范围。
-// 环境变量缺失或非法时使用默认值，避免错误配置导致无法启动工具。
-func PoolSizeFromEnv() int {
-	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(lspPoolSizeEnv)))
-	if err != nil {
-		return defaultPoolSize
-	}
-	return clampPoolSize(value)
+// PoolSizeFromEnv 读取可选 LSP 池大小覆盖；未设置时返回默认值，显式空值、非法值或越界值立即报错。
+func PoolSizeFromEnv() (int, error) {
+	return boundedPoolEnvironmentValue(lspPoolSizeEnv, defaultPoolSize, maxPoolSize)
 }
 
-// PoolShardCapFromEnv 读取单 shard clone 上限并裁剪到安全范围。
-// 非法配置回到默认值，防止缓存无限增长或被设置成不可用大小。
-func PoolShardCapFromEnv() int {
-	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(lspPoolShardCapEnv)))
+// PoolShardCapFromEnv 读取可选单 shard clone 上限；未设置时返回默认值，显式错误配置立即报错。
+func PoolShardCapFromEnv() (int, error) {
+	return boundedPoolEnvironmentValue(lspPoolShardCapEnv, defaultShardCap, maxShardCap)
+}
+
+func boundedPoolEnvironmentValue(key string, defaultValue, maximum int) (int, error) {
+	raw, configured := os.LookupEnv(key)
+	if !configured {
+		return defaultValue, nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("%s is explicitly configured but empty", key)
+	}
+	value, err := strconv.Atoi(raw)
 	if err != nil {
-		return defaultShardCap
+		return 0, fmt.Errorf("parse %s: %w", key, err)
 	}
-	switch {
-	case value <= 0:
-		return defaultShardCap
-	case value > maxShardCap:
-		return maxShardCap
-	default:
-		return value
+	if value <= 0 || value > maximum {
+		return 0, fmt.Errorf("%s must be between 1 and %d, got %d", key, maximum, value)
 	}
+	return value, nil
 }
 
 // Primary 返回主 manager。
@@ -394,7 +402,7 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 	shard.mu.Lock()
 
 	if pooled := shard.clones[resolved.ManagerKey]; pooled != nil {
-		pooled.lastUsedAt = time.Now()
+		p.touchPooledManagerLocked(shard, pooled)
 		shard.mu.Unlock()
 		return pooled, nil
 	}
@@ -418,12 +426,14 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 		return nil, errors.New("create scoped LSP manager: nil manager")
 	}
 	mgr.pool = p
+	mgr.poolInstanceDigest = provisionalWorkspaceHash(fmt.Sprintf("%p", p))
+	recordResolvedScopeTrace(mgr, resolved)
 	pooled := &pooledManager{
 		key:           resolved.ManagerKey,
 		resolvedScope: resolved,
 		manager:       mgr,
-		lastUsedAt:    time.Now(),
 	}
+	p.touchPooledManagerLocked(shard, pooled)
 	shard.clones[resolved.ManagerKey] = pooled
 	toClose := p.evictIdleClonesLocked(shard, resolved.ManagerKey)
 	shard.mu.Unlock()
@@ -432,6 +442,15 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 		return nil, closeErr
 	}
 	return pooled, nil
+}
+
+// touchPooledManagerLocked 在持有 shard 写锁时同时刷新闲置时间和严格访问顺序。
+// Windows 时钟可能让连续访问得到相同时间戳；容量淘汰必须依靠序号保持真实 LRU，
+// 不能退化为 Go map 遍历顺序。uint64 回绕在进程生命周期内不可达。
+func (p *ManagerPool) touchPooledManagerLocked(shard *managerShard, pooled *pooledManager) {
+	shard.nextUseSequence++
+	pooled.lastUsedAt = time.Now()
+	pooled.lastUseSequence = shard.nextUseSequence
 }
 
 // evictIdleClonesLocked 在 shard 锁内挑选可关闭的闲置 clone。
@@ -465,7 +484,7 @@ func (p *ManagerPool) oldestIdleCloneLocked(shard *managerShard, keepKey string)
 		if !p.canEvictClone(key, keepKey, clone) {
 			continue
 		}
-		if evict == nil || clone.lastUsedAt.Before(evict.lastUsedAt) {
+		if evict == nil || clone.lastUseSequence < evict.lastUseSequence {
 			evictKey = key
 			evict = clone
 		}

@@ -15,6 +15,11 @@ import (
 func TestWindowsFileURIFromPathRoundTripsDriveLetter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace with space", "main.ts")
 	uri := fileURIFromPath(path)
+	volume := filepath.VolumeName(path)
+	wantPrefix := "file:///" + strings.ToLower(volume[:1]) + "%3A/"
+	if !strings.HasPrefix(uri, wantPrefix) {
+		t.Fatalf("file URI %q prefix mismatch, want VS Code-compatible %q", uri, wantPrefix)
+	}
 	parsed, err := url.Parse(uri)
 	if err != nil {
 		t.Fatalf("parse file URI %q: %v", uri, err)

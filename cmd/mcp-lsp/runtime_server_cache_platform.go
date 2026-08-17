@@ -6,12 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 // runtimeServerCacheRoot 解析并严格校验共享 LSP cache 根目录。
@@ -33,7 +33,7 @@ func runtimeServerCacheRoot() (string, error) {
 		root = filepath.Join(userCacheDir, "super-agent-v3", "mcp-lsp", "language-servers")
 	}
 	if err := runtimeServerEnsurePrivateRoot(root); err != nil {
-		return "", fmt.Errorf("secure shared LSP cache root %s: %w", root, err)
+		return "", fmt.Errorf("secure shared LSP cache root %s: %w", securefs.RedactPath(root), err)
 	}
 	return root, nil
 }
@@ -136,17 +136,11 @@ func runtimeServerCacheName(base string) string {
 	return name
 }
 
-// runtimeServerNodeVersion 返回当前 Node 版本，以及该版本是否支持跨路径 portable compile cache。
-func runtimeServerNodeVersion(overrides []string) (string, bool, error) {
-	pathEnv := runtimeServerEnvValue(overrides, "PATH")
-	nodePath, err := runtimeServerLookPath(
-		"node",
-		pathEnv,
-		runtimeServerEnvValue(overrides, "PATHEXT"),
-	)
-	if err != nil {
-		return "", false, fmt.Errorf("resolve Node runtime for language server: %w", err)
-	}
+const runtimeServerWindowsNodeExecutableEnv = "SUPER_DOLPHIN_WINDOWS_NODE_PATH"
+
+// runtimeServerReadNodeVersion 是 Windows 与非 Windows 版本探测共享的协议逻辑；
+// 可执行文件如何定位和校验由带显式 build tag 的平台文件负责。
+func runtimeServerReadNodeVersion(nodePath, pathEnv string) (string, bool, error) {
 	cmd := hiddenexec.Command(nodePath, "--version")
 	if pathEnv != "" {
 		cmd.Env = append(os.Environ(), "PATH="+pathEnv)
@@ -191,31 +185,6 @@ func runtimeServerLookPath(file, pathEnv, pathExt string) (string, error) {
 	return "", fmt.Errorf("%w: %s", exec.ErrNotFound, file)
 }
 
-func runtimeServerValidateExecutable(file string) (string, error) {
-	info, err := os.Stat(file)
-	if err != nil {
-		return "", err
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("%w: %s", exec.ErrNotFound, file)
-	}
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
-		return "", fmt.Errorf("%w: %s", exec.ErrNotFound, file)
-	}
-	return file, nil
-}
-
-func runtimeServerExecutableExtensions(file, pathExt string) []string {
-	if runtime.GOOS != "windows" || filepath.Ext(file) != "" {
-		return []string{""}
-	}
-	extensions := filepath.SplitList(pathExt)
-	if len(extensions) == 0 {
-		return []string{".COM", ".EXE", ".BAT", ".CMD"}
-	}
-	return extensions
-}
-
 func runtimeServerValidatePATHDirectory(file, dir string) error {
 	if strings.TrimSpace(dir) == "" {
 		return fmt.Errorf("resolve %s: PATH contains unsafe current-directory entry %q", file, dir)
@@ -237,7 +206,7 @@ func runtimeServerLookPathInDirectory(dir, file string, extensions []string) (st
 		if info.IsDir() {
 			continue
 		}
-		if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		if !runtimeServerFileInfoIsExecutable(info) {
 			continue
 		}
 		resolved, err := filepath.Abs(candidate)

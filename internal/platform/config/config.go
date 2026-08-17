@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -184,7 +183,14 @@ func dependencyBootstrapModeForProcessRole(role string) contract.DependencyBoots
 }
 
 func runningUnderGoTest() bool {
-	return strings.HasSuffix(filepath.Base(os.Args[0]), ".test")
+	return goTestBinaryName(os.Args[0])
+}
+
+// goTestBinaryName 同时识别 Unix 的 .test 与 Windows 的 .test.exe，避免 Windows 测试被误判为生产进程。
+func goTestBinaryName(name string) bool {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(name)))
+	base = strings.TrimSuffix(base, ".exe")
+	return strings.HasSuffix(base, ".test")
 }
 
 // parseConfigEnv 解析会影响运行行为的环境变量。
@@ -265,7 +271,7 @@ func loadDotEnv(projectRoot string) error {
 	content, readFailure := os.ReadFile(path)
 	if readFailure != nil {
 		if packaged {
-			return fmt.Errorf("load packaged .env %s: %s", redactPath(path), securefs.SafeErrorForPath(readFailure, path))
+			return fmt.Errorf("load packaged .env %s: %w", redactPath(path), securefs.WrapErrorForPath(readFailure, path))
 		}
 		return nil
 	}
@@ -331,7 +337,7 @@ func hasPackagedRuntimeManifest(projectRoot string) (bool, error) {
 	if os.IsNotExist(err) {
 		return false, nil
 	}
-	return false, fmt.Errorf("inspect packaged runtime manifest %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
+	return false, fmt.Errorf("inspect packaged runtime manifest %s: %w", redactPath(path), securefs.WrapErrorForPath(err, path))
 }
 
 // exportRPCAddrIfMissing 在进程环境中补齐 GO_AGENT_CTL_RPC_ADDR。
@@ -385,17 +391,18 @@ func resolveSQLitePath(projectRoot string) (string, error) {
 
 	home := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
 	if home == "" && strings.EqualFold(strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")), "packaged") {
-		resolved, err := resolvePackagedSQLiteHome(runtime.GOOS, os.Getenv, os.UserHomeDir)
+		resolved, err := resolveCurrentPackagedSQLiteHome()
 		if err != nil {
 			return "", err
 		}
 		home = resolved
 	}
 	if home == "" {
-		if strings.TrimSpace(projectRoot) == "" {
-			return "", fmt.Errorf("SQLite path requires PROJECT_ROOT or SUPER_DOLPHIN_HOME")
+		resolved, err := resolveDefaultSQLiteHome(projectRoot)
+		if err != nil {
+			return "", err
 		}
-		home = filepath.Join(projectRoot, ".super-dolphin")
+		home = resolved
 	}
 	return validateSQLitePath(filepath.Join(home, "super-dolphin.db"), "")
 }
@@ -450,7 +457,7 @@ func validateSQLitePath(path string, explicitKey string) (string, error) {
 	if info, err := os.Stat(clean); err == nil && info.IsDir() {
 		return "", fmt.Errorf("SQLite database path points to a directory: %s", redactPath(clean))
 	} else if err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("inspect SQLite database path %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
+		return "", fmt.Errorf("inspect SQLite database path %s: %w", redactPath(clean), securefs.WrapErrorForPath(err, clean))
 	}
 	return clean, nil
 }
@@ -479,13 +486,13 @@ func validateSQLiteParent(dbPath, parent string) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("inspect SQLite database parent %s: %s", redactPath(parent), securefs.SafeErrorForPath(err, parent))
+		return fmt.Errorf("inspect SQLite database parent %s: %w", redactPath(parent), securefs.WrapErrorForPath(err, parent))
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("SQLite database parent is not a directory: %s", redactPath(parent))
 	}
 	if err := securefs.CheckExistingOwnerOnly(parent, info); err != nil {
-		return fmt.Errorf("SQLite database parent permissions are not owner-only: %s", redactPath(parent))
+		return fmt.Errorf("SQLite database parent permissions are not owner-only: %s: %w", redactPath(parent), err)
 	}
 	if err := securefs.ProbeWritableDir(parent); err != nil {
 		return fmt.Errorf("SQLite database parent is not writable: %s", redactPath(parent))
@@ -493,8 +500,9 @@ func validateSQLiteParent(dbPath, parent string) error {
 	return nil
 }
 
-// resolvePackagedSQLiteHome 根据平台解析打包应用的 SQLite 数据目录。
-// 必要的用户目录环境缺失时直接返回错误，避免把数据库落到不可预期的位置。
+// resolvePackagedSQLiteHome 是只按显式目标 OS 和注入回调计算目录的纯映射，无系统调用。
+// 必要的用户目录环境缺失时直接返回错误，避免把数据库落到不可预期的位置；当前宿主
+// 的平台选择由带 build tag 的 resolveCurrentPackagedSQLiteHome 实现完成。
 func resolvePackagedSQLiteHome(goos string, getenv func(string) string, userHomeDir func() (string, error)) (string, error) {
 	switch goos {
 	case "windows":

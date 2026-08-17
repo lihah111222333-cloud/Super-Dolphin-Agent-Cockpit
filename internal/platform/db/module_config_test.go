@@ -5,12 +5,10 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
-	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
 func TestNewDBRejectsEmptySQLitePath(t *testing.T) {
@@ -93,24 +91,8 @@ func TestNewDBCreatesSQLiteWithPragmasAndRestrictiveFiles(t *testing.T) {
 		t.Fatalf("MaxOpenConnections = %d, want 1", got)
 	}
 
-	if runtime.GOOS != "windows" {
-		assertSQLiteFileMode(t, path, 0o600)
-		if _, err := database.ExecContext(context.Background(), "CREATE TABLE file_mode_probe(id INTEGER PRIMARY KEY, value TEXT)"); err != nil {
-			t.Fatalf("create file mode probe: %v", err)
-		}
-		if _, err := database.ExecContext(context.Background(), "INSERT INTO file_mode_probe(value) VALUES ('x')"); err != nil {
-			t.Fatalf("insert file mode probe: %v", err)
-		}
-		if err := sqliteruntime.RestrictSidecarFilePermissions(path); err != nil {
-			t.Fatalf("RestrictSidecarFilePermissions() error = %v", err)
-		}
-		for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
-			if _, err := os.Stat(candidate); os.IsNotExist(err) {
-				continue
-			}
-			assertSQLiteFileMode(t, candidate, 0o600)
-		}
-	}
+	// SQLite pragma/生命周期断言跨平台共享；Unix mode 与 sidecar 权限由 tagged helper 负责。
+	exerciseSQLiteRestrictiveFiles(t, database, path)
 }
 
 func TestNewDBRejectsReadOnlyDatabaseFileWithRedaction(t *testing.T) {
@@ -140,33 +122,6 @@ func TestNewDBRejectsReadOnlyDatabaseFileWithRedaction(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "<redacted:super-dolphin.db>") {
 		t.Fatalf("NewDB() error = %v, want redacted DB path", err)
-	}
-}
-
-func TestNewDBRejectsUnwritableExistingParentWithRedaction(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows writability is covered by ACL checks and read-only file attribute coverage")
-	}
-	parent := filepath.Join(t.TempDir(), "state")
-	if err := os.Mkdir(parent, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(parent, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
-	path := filepath.Join(parent, "super-dolphin.db")
-
-	database, err := NewDB(&config.Config{SQLitePath: path})
-	if err == nil {
-		_ = database.Close()
-		t.Fatal("NewDB() error = nil, want unwritable parent fail-fast")
-	}
-	if strings.Contains(err.Error(), parent) || strings.Contains(err.Error(), path) {
-		t.Fatalf("NewDB() error leaked full path: %v", err)
-	}
-	if !strings.Contains(err.Error(), "<redacted:state>") {
-		t.Fatalf("NewDB() error = %v, want redacted parent path", err)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 // TestRuntimeDurableGoplsRootCohortWindowsPersistenceE2E 锁定 Windows 文件锁、严格记录和原子发布闭环。
@@ -81,7 +82,7 @@ func assertRuntimeWindowsPrivatePaths(t *testing.T, paths ...string) {
 		if err != nil {
 			t.Fatalf("Lstat(%q): %v", path, err)
 		}
-		if err := runtimeServerValidatePrivateDirectoryPlatform(path, info); err != nil {
+		if err := securefs.CheckPrivateOwnerOnly(path, info); err != nil {
 			t.Fatalf("Windows private DACL validation for %q: %v", path, err)
 		}
 	}

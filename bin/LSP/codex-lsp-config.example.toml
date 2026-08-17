@@ -30,8 +30,14 @@ required = true
 #   macOS Intel         -> bin/LSP/mcp-lsp-mac-x86
 #   Linux/WSL x86-64    -> bin/LSP/mcp-lsp-linux-x86
 #   Linux/WSL ARM64     -> bin/LSP/mcp-lsp-linux-arm
-#   Windows x86-64      -> bin/LSP/mcp-lsp-windows-x86.exe
-#   Windows ARM64       -> bin/LSP/mcp-lsp-windows-arm.exe
+#   Windows x64         -> bin/LSP/mcp-lsp-windows-x64.exe
+#   Windows ARM64       -> bin/LSP/mcp-lsp-windows-arm64.exe
+#   Windows x86         -> bin/LSP/mcp-lsp-windows-x86.exe
+# On Windows, select from OSArchitecture, not ProcessArchitecture: an emulated
+# x64 process on ARM64 Windows still uses mcp-lsp-windows-arm64.exe. Record the
+# Windows version/build too; the installer enforces every catalog minimum.
+# Windows 按 OSArchitecture 选择，不能按可能处于仿真层的 ProcessArchitecture
+# 选择；同时记录系统版本/build，安装器会执行目录最低版本门禁。
 # This sample selects macOS Apple Silicon. On another platform, replace only the
 # final binary name and keep command, cwd, resources, and trusted roots in one
 # consistent native path system.
@@ -54,6 +60,10 @@ startup_timeout_sec = 30.0
 # Approve this server's tool calls by default. Tighten this value if the project
 # security policy requires per-call approval.
 # 默认批准此 server 的工具调用；如果项目安全策略要求逐次批准，应收紧此值。
+# 这不是 Windows ACL 提权开关。Win32 5/1314 必须先返回 authorization_required；
+# 只有集成 ApprovalRequester 的桌面宿主在显示真实授权提示并取得明确批准后，
+# 才能对同一已固定 peer 重试一次。拒绝、无决定、无 UI 或再次失败均保持阻断；
+# 独立 stdio sidecar 不得自提权、放宽 ACL、换目录或循环重试。
 default_tools_approval_mode = "approve"
 
 [mcp_servers.lsp.env]
@@ -68,6 +78,32 @@ SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = "/absolute/project"
 # A standalone stdio sidecar uses the production dependency profile.
 # 独立 stdio sidecar 使用 production 依赖配置。
 SUPER_DOLPHIN_DEPENDENCY_PROFILE = "production"
+# The production idle lifecycle defaults to and cannot be configured below 15m.
+# Omit MCP_LSP_IDLE_TIMEOUT to keep 15m; shorter values are test-precheck only.
+# Windows production companions are selected only by NativeArch. Terraform CLI
+# 1.15.6 official ZIP SHA256: ARM64 02820bcae3725c9c4e91deb6656e9b96ca8af9f395fc5faccc0820dd3295d6e0,
+# x64 56b4d3a157e346f8fc1e94254d0a944e6fec81f58ddd43eb274b8e0ebb56e334, x86
+# 00d51ccf53664f68bd6fb7dfa7edbc7bbff4032ff048787c096d23ece2dcc092; official
+# URLs are https://releases.hashicorp.com/terraform/1.15.6/terraform_1.15.6_windows_arm64.zip,
+# ..._windows_amd64.zip and ..._windows_386.zip respectively.
+# Rust 1.96.0 rustfmt-preview MSVC xz SHA256: ARM64
+# d9e403d778e0ad95d814275b1265057478d4cde463d8bf620846056a7f00a59d, x64
+# 7ae6d141dfb844355c4756a41f39ed45b74ff9295fff86bd0bf9b559a83c5d5d, x86
+# 75a69f518db96b5c46fa4b98d169688e7670c8bff29b7f1831f6dcfdfc6311ab; official
+# URLs are https://static.rust-lang.org/dist/2026-05-28/rustfmt-1.96.0-aarch64-pc-windows-msvc.tar.xz,
+# ...-x86_64-pc-windows-msvc.tar.xz and ...-i686-pc-windows-msvc.tar.xz respectively.
+# Installer verifies PE Machine, archive/extracted SHA, product-root ACL and reparse;
+# only product-owned terraform-ls/rust-analyzer children receive this PATH. No
+# external/cross-arch fallback; non-Windows and external configuration are unchanged.
+# Download/install proof is separate from correctness: existing locked packages are
+# not downloaded again; correctness uses cache_only=true and HTTP=0, and setup/import
+# receipts never count as automatic-download proof. 公共配置注释不改变非 Windows 行为。
+# 正式生命周期默认且最低为 15 分钟；省略该字段即可保持 15m，小于 15m
+# 的值只属于专用测试预检构建，不能作为交付证明。
+# Windows ARM64 Kotlin 进程使用产品私有、物理扁平且经 ACL/reparse/摘要校验的
+# short root；不得用 subst、8.3、junction 或系统公共目录替代。容量不足或 tar
+# 解包明确耗尽磁盘时必须 fail-fast，分类为 disk_space_exhausted/runtime_failure。
+# 远程 6b7 工具结果只依据 content 纯文本行；StructuredContent 必须为空且不可 fallback。
 
 # GO_AGENT_LSP_ROOT(S) defines the trusted workspace roots and limits which files
 # LSP may access. For a single project, both values identify the project root and
@@ -82,8 +118,11 @@ GO_AGENT_LSP_ROOT = "/absolute/project"
 GO_AGENT_LSP_ROOTS = '["/absolute/project"]'
 
 # These child tables mirror the current project and explicitly approve all seven
-# mcp-lsp tools.
-# 以下子表沿用当前项目配置，显式批准全部七个 mcp-lsp 工具。
+# mcp-lsp tools. Language acceptance executes exactly 36 actions with the fixed
+# file/inspect/xref/grep/structure/patch_edit/completion distribution 8/5/7/6/5/4/1.
+# 以下子表沿用当前项目配置，显式批准全部七个 mcp-lsp 工具。语言验收必须执行
+# README“36 个小动作的精确验收合同”所列全部键，固定分布 8/5/7/6/5/4/1；
+# success、合法空成功、能力不支持与运行失败必须分别记账，运行失败不得算通过。
 [mcp_servers.lsp.tools.file]
 approval_mode = "approve"
 

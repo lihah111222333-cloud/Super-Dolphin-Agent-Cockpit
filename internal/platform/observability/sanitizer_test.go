@@ -141,3 +141,20 @@ func mustJSON(t *testing.T, event TraceEvent) string {
 	}
 	return string(data)
 }
+
+func TestEnforceMetadataLimit_NoInfiniteLoopOnSmallBytes(t *testing.T) {
+	cfg, err := ParseConfig(EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_METADATA_MAX_BYTES": "10"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	s := NewSanitizer(cfg)
+	metadata := map[string]any{
+		"k1": "val1",
+		"k2": "val2",
+	}
+	got := s.SanitizeMetadata(metadata)
+	if got["metadata_truncated"] != true {
+		t.Fatalf("metadata_truncated marker missing: %#v", got)
+	}
+}
+

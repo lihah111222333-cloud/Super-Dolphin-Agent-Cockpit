@@ -62,6 +62,13 @@ func TestWindowsDefault15mCatalogImplementation_E2E(t *testing.T) {
 	}
 }
 
+// TestWindowsDefault15mSourceCommandCarriesGoTimeout_E2E 锁定 15 分钟 soak 的 Go 测试预算。
+func TestWindowsDefault15mSourceCommandCarriesGoTimeout_E2E(t *testing.T) {
+	if !slices.Contains(windowsDefault15mSourceCommand(), "-timeout=20m") {
+		t.Fatalf("Windows default-15m command = %v, want explicit -timeout=20m", windowsDefault15mSourceCommand())
+	}
+}
+
 func repoRootForWindowsWorkloadE2E(t *testing.T) string {
 	t.Helper()
 	root, err := findRepoRoot()

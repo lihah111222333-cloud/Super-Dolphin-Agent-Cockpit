@@ -37,7 +37,12 @@ func TestIsSQLiteDiagnosticsPathAcceptsPhysicalAndSymlinkAliases(t *testing.T) {
 	queryPath := filepath.Join(physical, "sql", "queries", "query.sql")
 	require.NoError(t, os.WriteFile(queryPath, []byte("SELECT 1;\n"), 0o600))
 	alias := filepath.Join(t.TempDir(), "repo-link")
-	require.NoError(t, os.Symlink(physical, alias))
+	createSQLiteDiagnosticsDirectoryAlias(t, physical, alias)
+	canonicalAlias, aliasErr := canonicalSQLiteDiagnosticsPath(alias)
+	require.NoError(t, aliasErr)
+	canonicalPhysical, physicalErr := canonicalSQLiteDiagnosticsPath(physical)
+	require.NoError(t, physicalErr)
+	require.Equal(t, canonicalPhysical, canonicalAlias, "platform directory alias must resolve to the physical SQLite diagnostics root")
 	require.True(t, isSQLiteDiagnosticsPath(alias, queryPath))
 	require.True(t, isSQLiteDiagnosticsPath(alias, filepath.Join(physical, "sql", "queries", "new.sql")))
 }

@@ -29,7 +29,7 @@ func (m *managerNavigation) Definition(ctx context.Context, uri string, position
 }
 
 // Implementation 查询接口或抽象符号的实现位置。
-// 不支持该能力的语言会按文档请求降级为空结果，而不是伪造静态匹配。
+// initialize 明确未声明该能力时返回结构化 capability_unsupported；已声明请求的真实空结果仍保持为空。
 func (m *managerNavigation) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodImplementation, protocol.ImplementationParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -240,11 +240,101 @@ func (m *manager) requestDocumentSymbols(ctx context.Context, client Client, ref
 // clientSupportsDocumentSymbols 仅在客户端已暴露 initialize 能力时拒绝未声明的大纲请求。
 // 旧客户端没有能力快照，仍保留原有请求路径以维持兼容。
 func clientSupportsDocumentSymbols(client Client) bool {
+	return clientSupportsMethod(client, protocol.MethodDocumentSymbol)
+}
+
+// clientSupportsCompletion 只在客户端明确报告 completion 能力时允许发送补全请求。
+// 没有能力快照的旧客户端按未知处理，继续保留原有兼容路径。
+func clientSupportsCompletion(client Client) bool {
+	return clientSupportsMethod(client, protocol.MethodCompletion)
+}
+
+// clientSupportsMethod 依据 initialize 静态能力与动态注册合并快照裁决公共 LSP 请求。
+// 该规则在所有平台完全一致；没有能力快照的旧客户端和未知方法继续走服务器请求，以免改变既有兼容边界。
+func clientSupportsMethod(client Client, method string) bool {
 	capClient, ok := client.(ServerCapabilitiesClient)
 	if !ok {
 		return true
 	}
-	return serverCapabilityAvailable(capClient.ServerCapabilities().DocumentSymbolProvider)
+	capability, known := serverCapabilityForMethod(capClient.ServerCapabilities(), method)
+	return !known || serverCapabilityAvailable(capability)
+}
+
+// clientMethodCapabilityGuard 把方法级能力裁决封装成文档请求边界需要的 guard。
+func clientMethodCapabilityGuard(method string) func(Client) bool {
+	return func(client Client) bool {
+		return clientSupportsMethod(client, method)
+	}
+}
+
+// serverCapabilityForMethod 维护公共 LSP 方法到 initialize 能力字段的唯一映射。
+// 平台专用代码只能负责安装和启动，不能在此修改任一语言的协议能力语义。
+func serverCapabilityForMethod(capabilities protocol.ServerCapabilities, method string) (any, bool) {
+	switch method {
+	case protocol.MethodHover:
+		return capabilities.HoverProvider, true
+	case protocol.MethodDefinition:
+		return capabilities.DefinitionProvider, true
+	case protocol.MethodImplementation:
+		return capabilities.ImplementationProvider, true
+	case protocol.MethodTypeDefinition:
+		return capabilities.TypeDefinitionProvider, true
+	case protocol.MethodSignatureHelp:
+		return capabilities.SignatureHelpProvider, true
+	case protocol.MethodReferences:
+		return capabilities.ReferencesProvider, true
+	case protocol.MethodDocumentSymbol:
+		return capabilities.DocumentSymbolProvider, true
+	case protocol.MethodCompletion:
+		return capabilities.CompletionProvider, true
+	case protocol.MethodPrepareCallHierarchy:
+		return capabilities.CallHierarchyProvider, true
+	case protocol.MethodPrepareTypeHierarchy:
+		return capabilities.TypeHierarchyProvider, true
+	case protocol.MethodFoldingRange:
+		return capabilities.FoldingRangeProvider, true
+	case protocol.MethodSemanticTokensFull:
+		return semanticTokensFullCapabilityAvailable(capabilities.SemanticTokensProvider), true
+	case protocol.MethodRename:
+		return capabilities.RenameProvider, true
+	case protocol.MethodCodeAction:
+		return capabilities.CodeActionProvider, true
+	case protocol.MethodFormatting:
+		return capabilities.DocumentFormattingProvider, true
+	default:
+		return nil, false
+	}
+}
+
+// semanticTokensFullCapabilityAvailable 精确检查 semanticTokensProvider.full 子能力。
+// 这是跨平台公共协议解析：provider 只声明 range 时不得向任何平台的服务器发送 full 请求。
+func semanticTokensFullCapabilityAvailable(provider any) bool {
+	switch typed := provider.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return false
+		}
+		return semanticTokensFullCapabilityAvailable(decoded)
+	case map[string]any:
+		full, ok := typed["full"]
+		return ok && serverCapabilityAvailable(full)
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return false
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			return false
+		}
+		full, ok := decoded["full"]
+		return ok && serverCapabilityAvailable(full)
+	}
 }
 
 func capabilityErrorMeta(method string, client Client) map[string]any {
@@ -499,7 +589,7 @@ func (m *manager) workspaceSymbolConfigFromResolvedScope(
 }
 
 // FoldingRange 查询文档折叠区间。
-// 不支持该能力时返回空切片，保持工具输出可渲染但不伪造范围。
+// initialize 明确未声明该能力时返回结构化 capability_unsupported；已声明请求可返回真实空切片。
 func (m *managerStructure) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodFoldingRange,
 		func(ref documentRef) any {
@@ -519,7 +609,7 @@ func (m *managerStructure) FoldingRange(ctx context.Context, uri string) ([]prot
 }
 
 // SemanticTokens 查询整篇文档的语义 token。
-// 不支持时返回空结果对象，保留 LSP wire 形状供前端/工具层统一处理。
+// initialize 明确未声明该能力时返回结构化 capability_unsupported；已声明请求保留真实 LSP wire 形状。
 func (m *managerStructure) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodSemanticTokensFull,
 		func(ref documentRef) any {
@@ -567,7 +657,7 @@ func semanticTokensLegendFromProvider(provider any) ([]string, []string, error) 
 		return nil, nil, fmt.Errorf("decode semantic tokens provider: %w", err)
 	}
 	if len(options.Legend.TokenTypes) == 0 {
-		return nil, nil, errors.New("semantic tokens provider is missing legend tokenTypes")
+		return nil, nil, fmt.Errorf("%w: semantic tokens provider is missing legend tokenTypes", lspmanager.ErrSemanticTokensLegendUnavailable)
 	}
 	for index, tokenType := range options.Legend.TokenTypes {
 		if strings.TrimSpace(tokenType) == "" {
@@ -583,9 +673,9 @@ func semanticTokensLegendFromProvider(provider any) ([]string, []string, error) 
 }
 
 // Completion 查询指定位置的补全候选。
-// 响应兼容数组和 CompletionList 两种 LSP 形态，unsupported 时返回空列表。
+// 响应兼容数组和 CompletionList 两种 LSP 形态；已知能力缺失时返回结构化 unsupported 错误。
 func (m *managerCompletion) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
-	return requestDocument(ctx, m, uri, protocol.MethodCompletion,
+	return requestDocumentWithCapability(ctx, m, uri, protocol.MethodCompletion,
 		func(ref documentRef) any {
 			return protocol.CompletionParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
@@ -594,6 +684,7 @@ func (m *managerCompletion) Completion(ctx context.Context, uri string, position
 		},
 		decodeCompletionList,
 		fallbackDocument(&protocol.CompletionList{}),
+		clientSupportsCompletion,
 	)
 }
 
@@ -726,6 +817,9 @@ func normalizeLocationParams(params any, documentURI string) any {
 }
 
 func prepareHierarchy[T any](ctx context.Context, m *manager, client Client, method, uri string, position protocol.Position) ([]T, error) {
+	if !clientSupportsMethod(client, method) {
+		return nil, unsupportedCapabilityErrorForAdvertisedMethod(method, client)
+	}
 	raw, err := m.request(ctx, client, method, protocol.TextDocumentPositionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 		Position:     position,

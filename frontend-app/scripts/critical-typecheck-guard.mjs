@@ -3,8 +3,9 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 
-const appRoot = path.resolve(process.cwd());
-const modulePath = path.resolve(decodeURIComponent(new URL(import.meta.url).pathname));
+const appRoot = path.resolve(import.meta.dirname, '..');
+// 直接执行检测是公共门禁的一部分；必须先将模块 URL 转成本地路径，避免 Windows 盘符失真后静默跳过。
+const modulePath = import.meta.filename;
 const configPath = path.join(appRoot, 'tsconfig.contracts.json');
 const registryPath = path.join(appRoot, 'scripts', 'critical-typecheck-files.json');
 const tscPath = path.join(appRoot, 'node_modules', 'typescript', 'bin', 'tsc');

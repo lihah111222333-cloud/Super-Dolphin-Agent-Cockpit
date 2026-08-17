@@ -4,7 +4,7 @@
 
 **Goal:** 建立 skill 重构的纯基础设施层 —— `skillforge` + `skilllibrary` 两个新包，提供 library/cache 的 parse / render / atomic write / scan / seed / reconcile 能力，**不接任何上游调用方**（claudecli/codexapp 在 P2/P3 才切换）。
 
-**Architecture:** 单一 library (`~/.multi-agent/skills-library/`) → forge 纯函数转换 → 单一 cache (`~/.multi-agent/skills-cache/`)。Library 入口：embedded source seed + 用户/商店 install + dev override fsnotify。Cache 写入：单 skill 粒度 `.tmp + rename` 原子替换。本 Phase 完成后 main 永远绿，但 runtime 行为不变（旧 skill 路径仍工作）。
+**Architecture:** 单一 library (`~/.super-dolphin/skills-library/`) → forge 纯函数转换 → 单一 cache (`~/.super-dolphin/skills-cache/`)。Library 入口：embedded source seed + 用户/商店 install + dev override fsnotify。Cache 写入：单 skill 粒度 `.tmp + rename` 原子替换。本 Phase 完成后 main 永远绿，但 runtime 行为不变（旧 skill 路径仍工作）。
 
 **Tech Stack:** Go 1.22+、`go.uber.org/fx`、`github.com/fsnotify/fsnotify`、`embed` (stdlib)、现有 frontmatter 解析模式参考 `internal/module/skill/skills_meta.go`。
 
@@ -2078,8 +2078,8 @@ import "go.uber.org/fx"
 
 // Config 是 skilllibrary 的启动配置。注入方负责填充。
 type Config struct {
-	LibraryDir     string // ~/.multi-agent/skills-library/
-	CacheDir       string // ~/.multi-agent/skills-cache/
+	LibraryDir     string // ~/.super-dolphin/skills-library/
+	CacheDir       string // ~/.super-dolphin/skills-cache/
 	HarnessVersion string // 用于 SeedBuiltins
 }
 
@@ -2114,8 +2114,8 @@ import (
 
 func provideSkillLibraryConfig(home string, version string) skilllibrary.Config {
 	return skilllibrary.Config{
-		LibraryDir:     filepath.Join(home, ".multi-agent", "skills-library"),
-		CacheDir:       filepath.Join(home, ".multi-agent", "skills-cache"),
+		LibraryDir:     filepath.Join(home, ".super-dolphin", "skills-library"),
+		CacheDir:       filepath.Join(home, ".super-dolphin", "skills-cache"),
 		HarnessVersion: version,
 	}
 }

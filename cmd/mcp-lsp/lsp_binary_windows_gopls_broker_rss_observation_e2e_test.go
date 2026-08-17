@@ -3,11 +3,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -34,13 +37,13 @@ func TestMcpLSPBinaryWindowsGoplsBrokerOwnedJobRSSObservationE2E(t *testing.T) {
 	roots, targets := writeRealGoplsLinkedWorktreeFixtures(t)
 	fixture := t.TempDir()
 	argsLog, cacheRoot := filepath.Join(fixture, "args.log"), filepath.Join(fixture, "cache")
-	install := buildWindowsGoplsTestInstall(t)
+	install := buildWindowsGoplsShortIdlePrecheckTestInstall(t)
 	env := windowsGoplsSidecarEnv(t, install, fakeGoplsArgsLogEnv+"="+argsLog,
 		"AGENT_LSP_SHARED_CACHE_DIR="+cacheRoot, "MCP_LSP_FAKE_GOPLS_RSS_CHILD=1")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	var exact []windowsGoplsProvisionalIdentity
-	registerWindowsGoplsExactCleanup(t, &exact)
+	registerWindowsGoplsExactCleanup(t, &exact, cacheRoot)
 	clients := startWindowsGoplsClients(t, ctx, install.Binary, roots, filepath.Dir(install.Gopls), env, targets)
 
 	invocations := waitForFakeGoplsInvocations(t, argsLog, 4)
@@ -68,13 +71,54 @@ func TestMcpLSPBinaryWindowsGoplsBrokerOwnedJobRSSObservationE2E(t *testing.T) {
 	requireWindowsGoplsExactIdentitiesGone(t, 2*time.Second, exact...)
 }
 
-func registerWindowsGoplsExactCleanup(t *testing.T, identities *[]windowsGoplsProvisionalIdentity) {
+// registerWindowsGoplsExactCleanup 注册成功路径 identity 与 cache record 兜底清理。
+// 兜底只读取指定 cacheRoot 下的 daemon.json，并始终使用 PID+启动身份，拒绝裸 PID。
+func registerWindowsGoplsExactCleanup(t *testing.T, identities *[]windowsGoplsProvisionalIdentity, cacheRoots ...string) {
 	t.Helper()
 	t.Cleanup(func() {
 		for _, identity := range *identities {
 			cleanupWindowsGoplsExactIdentity(t, identity)
 		}
+		for _, cacheRoot := range cacheRoots {
+			paths, err := windowsGoplsBrokerRecordPaths(cacheRoot)
+			if err != nil {
+				t.Errorf("find Windows gopls broker records during cleanup: %v", err)
+				continue
+			}
+			for _, path := range paths {
+				record, err := readWindowsGoplsBrokerRecordForCleanup(path)
+				if err != nil {
+					t.Errorf("read Windows gopls broker record during cleanup %s: %v", path, err)
+					continue
+				}
+				for _, identity := range []windowsGoplsProvisionalIdentity{
+					{PID: record.OwnerPID, StartIdentity: record.OwnerStartIdentity},
+					{PID: record.DaemonPID, StartIdentity: record.DaemonStartIdentity},
+				} {
+					if identity.PID > 1 && identity.StartIdentity != "" {
+						cleanupWindowsGoplsExactIdentity(t, identity)
+					}
+				}
+			}
+		}
 	})
+}
+
+func readWindowsGoplsBrokerRecordForCleanup(path string) (windowsGoplsBrokerRecordV2, error) {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return windowsGoplsBrokerRecordV2{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	var record windowsGoplsBrokerRecordV2
+	if err := decoder.Decode(&record); err != nil {
+		return windowsGoplsBrokerRecordV2{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return windowsGoplsBrokerRecordV2{}, errors.New("trailing JSON payload")
+	}
+	return record, nil
 }
 
 func requireWindowsGoplsRSSInvocationTopology(t *testing.T, invocations [][]string, executable string) (int, int, map[int]bool) {

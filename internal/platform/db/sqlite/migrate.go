@@ -27,7 +27,7 @@ func RunMigrations(ctx context.Context, db *sql.DB, dir string) error {
 	}
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("read SQLite migration directory %s: %s", redactPath(dir), securefs.SafeErrorForPath(err, dir))
+		return fmt.Errorf("read SQLite migration directory %s: %w", redactPath(dir), securefs.WrapErrorForPath(err, dir))
 	}
 	applied, err := loadAppliedMigrations(ctx, db)
 	if err != nil {
@@ -117,7 +117,7 @@ func appliedMigrations(ctx context.Context, db *sql.DB) (map[string]bool, error)
 func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
 	body, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
-		return fmt.Errorf("read SQLite migration %s from %s: %s", name, redactPath(dir), securefs.SafeErrorForPath(err, filepath.Join(dir, name)))
+		return fmt.Errorf("read SQLite migration %s from %s: %w", name, redactPath(dir), securefs.WrapErrorForPath(err, filepath.Join(dir, name)))
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

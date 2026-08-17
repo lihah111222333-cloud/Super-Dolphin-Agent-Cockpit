@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 func TestSQLiteBackupRestoreSmoke(t *testing.T) {
@@ -106,6 +109,16 @@ func copySQLiteFile(t *testing.T, sourcePath, destPath string) {
 	}
 	if len(body) == 0 {
 		t.Fatalf("SQLite backup source %s is empty", sourcePath)
+	}
+	// Windows 的 t.TempDir 会继承测试宿主的宽 DACL；恢复合同要求父目录先成为
+	// owner-only，再让生产 prepareFilesystem 校验；不存在的父目录仍由生产代码创建并收紧。
+	destParent := filepath.Dir(destPath)
+	if _, err := os.Stat(destParent); err == nil {
+		if err := securefs.RestrictOwnerOnly(destParent, 0o700); err != nil {
+			t.Fatalf("protect SQLite restore parent %s: %v", destParent, err)
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("inspect SQLite restore parent %s: %v", destParent, err)
 	}
 	if err := prepareFilesystem(destPath); err != nil {
 		t.Fatalf("prepare SQLite restore target %s: %v", destPath, err)
