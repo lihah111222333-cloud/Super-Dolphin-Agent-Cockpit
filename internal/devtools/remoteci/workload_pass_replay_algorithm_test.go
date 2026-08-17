@@ -194,6 +194,21 @@ func TestPersistentInputReplayRoundTripsCurrentTargetVotesAcrossPrepare(t *testi
 	}
 }
 
+func TestPersistentWorkerExecutionDigestAvoidsSecondPrepareRebuild(t *testing.T) {
+	fixture := newPersistentSemanticReplayFixture(t)
+	key := remoteReplayTreeKey{repositoryRoot: "repo", tree: fixture.source.tree}
+	want := "sha256:" + strings.Repeat("9", 64)
+	fixture.persistWorkerDigest(t, key, want)
+	second := fixture.loadWorkerDigest(t)
+	got, err := second.preciseWorkerDigest(t.Context(), fixture.source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want || second.preciseComputations != 0 || second.persistentWorkerHits != 1 {
+		t.Fatalf("second Prepare worker digest=%q computations=%d hits=%d", got, second.preciseComputations, second.persistentWorkerHits)
+	}
+}
+
 // TestPersistentInputReplaySeedsCompileDigest 验证持久语义缓存同时预热按包 compile 摘要，
 // 第二次 Prepare 的 source vote 不得重复遍历同一 Go package 编译闭包。
 func TestPersistentInputReplaySeedsCompileDigest(t *testing.T) {
@@ -299,6 +314,39 @@ func newPersistentSemanticReplayFixture(t *testing.T) persistentSemanticReplayFi
 
 func (fixture persistentSemanticReplayFixture) persist(t *testing.T) *remoteReplayCache {
 	return fixture.persistKey(t, fixture.key)
+}
+
+func (fixture persistentSemanticReplayFixture) persistentCache(t *testing.T) *remoteReplayCache {
+	t.Helper()
+	cache, err := newRemoteReplayCache("repo", fixture.target.tree, fixture.target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.bindPersistentInputReplayCache(fixture.store, 1, fixture.target); err != nil {
+		t.Fatal(err)
+	}
+	return cache
+}
+
+func (fixture persistentSemanticReplayFixture) persistWorkerDigest(t *testing.T, key remoteReplayTreeKey, digest string) {
+	t.Helper()
+	cache := fixture.persistentCache(t)
+	cache.preciseWorkerDigests[key] = digest
+	if err := cache.persistComputedInputDigests(); err != nil {
+		t.Fatal(err)
+	}
+	if cache.persistentWorkerWrites != 1 {
+		t.Fatalf("first Prepare worker writes = %d, want 1", cache.persistentWorkerWrites)
+	}
+}
+
+func (fixture persistentSemanticReplayFixture) loadWorkerDigest(t *testing.T) *remoteReplayCache {
+	t.Helper()
+	cache := fixture.persistentCache(t)
+	if err := cache.preloadPersistentWorkerDigests("repo", []string{fixture.source.tree}); err != nil {
+		t.Fatal(err)
+	}
+	return cache
 }
 
 func (fixture persistentSemanticReplayFixture) persistKey(t *testing.T, key remoteReplayWorkloadKey) *remoteReplayCache {

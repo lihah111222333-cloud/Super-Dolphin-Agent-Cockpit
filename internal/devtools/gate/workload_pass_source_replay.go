@@ -212,6 +212,9 @@ func validateWorkloadInputReplayCacheCoordinates(acceptedGeneration uint64, sour
 func validateWorkloadInputReplayCacheWorkloads(workloadIDs []GateID) (map[GateID]struct{}, error) {
 	requested := make(map[GateID]struct{}, len(workloadIDs))
 	for _, workloadID := range workloadIDs {
+		if string(workloadID) == workerExecutionReplayCacheWorkloadID {
+			return nil, errors.New("workload input replay cache workload ID is reserved")
+		}
 		if strings.TrimSpace(string(workloadID)) == "" || string(workloadID) != strings.TrimSpace(string(workloadID)) {
 			return nil, errors.New("workload input replay cache workload ID is invalid")
 		}

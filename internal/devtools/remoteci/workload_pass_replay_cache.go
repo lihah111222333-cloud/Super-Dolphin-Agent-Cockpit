@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
@@ -79,7 +80,9 @@ type remoteReplayCache struct {
 	persistentInputStore         *gate.DurationLedgerStore
 	persistentAcceptedGeneration uint64
 	persistentInputAlgorithm     string
+	persistentWorkerAlgorithm    string
 	persistentLoadedInputs       map[remoteReplayWorkloadKey]struct{}
+	persistentLoadedWorkers      map[remoteReplayTreeKey]struct{}
 	snapshotComputations         uint64
 	snapshotLoads                uint64
 	inputComputations            uint64
@@ -94,6 +97,8 @@ type remoteReplayCache struct {
 	algorithmComputations        uint64
 	persistentInputHits          uint64
 	persistentInputWrites        uint64
+	persistentWorkerHits         uint64
+	persistentWorkerWrites       uint64
 }
 
 // newRemoteReplayCache 用已完成 correctness 指纹计算的当前快照预热 replay，拒绝错树绑定。
@@ -112,6 +117,7 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 		algorithmDigests:             make(map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult),
 		currentTree:                  remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree},
 		persistentLoadedInputs:       make(map[remoteReplayWorkloadKey]struct{}),
+		persistentLoadedWorkers:      make(map[remoteReplayTreeKey]struct{}),
 	}
 	if current == nil {
 		return cache, nil
@@ -143,6 +149,27 @@ func (cache *remoteReplayCache) bindPersistentInputReplayCache(store *gate.Durat
 	cache.persistentInputStore = store
 	cache.persistentAcceptedGeneration = acceptedGeneration
 	cache.persistentInputAlgorithm = digest
+	workerAlgorithm := sha256.Sum256([]byte("remote-worker-execution-replay-cache-algorithm/v1\n" + digest + "\n"))
+	cache.persistentWorkerAlgorithm = fmt.Sprintf("sha256:%x", workerAlgorithm)
+	return nil
+}
+
+// preloadPersistentWorkerDigests 批量读取 tree 级 precise worker 摘要，避免环境回放
+// 为同一历史树反复解析完整 Go 执行闭包。
+func (cache *remoteReplayCache) preloadPersistentWorkerDigests(repositoryRoot string, trees []string) error {
+	if cache == nil || cache.persistentInputStore == nil || len(trees) == 0 {
+		return nil
+	}
+	hits, err := cache.persistentInputStore.LookupWorkerExecutionReplayCache(cache.persistentAcceptedGeneration, cache.persistentWorkerAlgorithm, trees)
+	if err != nil {
+		return err
+	}
+	for tree, digest := range hits {
+		key := remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree}
+		cache.preciseWorkerDigests[key] = digest
+		cache.persistentLoadedWorkers[key] = struct{}{}
+		cache.persistentWorkerHits++
+	}
 	return nil
 }
 
@@ -234,13 +261,30 @@ func (cache *remoteReplayCache) persistComputedInputDigests() error {
 			entries = append(entries, entry)
 		}
 	}
+	if len(entries) != 0 {
+		if err := cache.persistentInputStore.SaveWorkloadInputReplayCache(cache.persistentAcceptedGeneration, cache.persistentInputAlgorithm, entries); err != nil {
+			return err
+		}
+		cache.persistentInputWrites += uint64(len(entries))
+	}
+	return cache.persistComputedWorkerDigests()
+}
+
+func (cache *remoteReplayCache) persistComputedWorkerDigests() error {
+	entries := make([]gate.WorkerExecutionReplayCacheEntry, 0, len(cache.preciseWorkerDigests))
+	for key, digest := range cache.preciseWorkerDigests {
+		if _, loaded := cache.persistentLoadedWorkers[key]; loaded {
+			continue
+		}
+		entries = append(entries, gate.WorkerExecutionReplayCacheEntry{SourceTreeSHA: key.tree, WorkerDigest: digest})
+	}
 	if len(entries) == 0 {
 		return nil
 	}
-	if err := cache.persistentInputStore.SaveWorkloadInputReplayCache(cache.persistentAcceptedGeneration, cache.persistentInputAlgorithm, entries); err != nil {
+	if err := cache.persistentInputStore.SaveWorkerExecutionReplayCache(cache.persistentAcceptedGeneration, cache.persistentWorkerAlgorithm, entries); err != nil {
 		return err
 	}
-	cache.persistentInputWrites += uint64(len(entries))
+	cache.persistentWorkerWrites += uint64(len(entries))
 	return nil
 }
 

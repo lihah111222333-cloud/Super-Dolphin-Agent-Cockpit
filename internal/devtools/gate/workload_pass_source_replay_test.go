@@ -311,6 +311,32 @@ func TestWorkloadInputReplayCacheRoundTripsAndRejectsDrift(t *testing.T) {
 	}
 }
 
+func TestWorkerExecutionReplayCacheRoundTripsAndProtectsReservedKey(t *testing.T) {
+	store := newWorkloadPassEvidenceStore(t, 1)
+	algorithm := digestForWorkloadPass("worker-replay-algorithm")
+	entries := []WorkerExecutionReplayCacheEntry{
+		{SourceTreeSHA: strings.Repeat("a", 40), WorkerDigest: digestForWorkloadPass("worker-a")},
+		{SourceTreeSHA: strings.Repeat("b", 40), WorkerDigest: digestForWorkloadPass("worker-b")},
+	}
+	if err := store.SaveWorkerExecutionReplayCache(1, algorithm, entries); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := store.LookupWorkerExecutionReplayCache(1, algorithm, []string{entries[1].SourceTreeSHA, entries[0].SourceTreeSHA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[entries[0].SourceTreeSHA] != entries[0].WorkerDigest || hits[entries[1].SourceTreeSHA] != entries[1].WorkerDigest {
+		t.Fatalf("worker execution replay cache hits = %#v", hits)
+	}
+	if _, err := store.LookupWorkloadInputReplayCache(1, entries[0].SourceTreeSHA, algorithm, []GateID{GateID(workerExecutionReplayCacheWorkloadID)}); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("reserved worker replay key entered workload lookup: %v", err)
+	}
+	drifted := []WorkerExecutionReplayCacheEntry{{SourceTreeSHA: entries[0].SourceTreeSHA, WorkerDigest: digestForWorkloadPass("worker-drift")}}
+	if err := store.SaveWorkerExecutionReplayCache(1, algorithm, drifted); err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("worker execution replay cache drift was accepted: %v", err)
+	}
+}
+
 func TestWorkloadInputReplayCacheCompactsOutsideThreeGenerations(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 4)
 	database := openWorkloadPassDatabase(t, store)

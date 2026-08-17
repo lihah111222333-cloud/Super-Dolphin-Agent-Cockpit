@@ -97,6 +97,15 @@ func filterRemoteWorkloadPassEnvironmentCandidates(
 	cache *remoteReplayCache,
 	diagnostic *ReuseReplayDiagnostic,
 ) (map[gate.GateID][]remoteWorkloadPassEnvironmentCandidate, *remoteGitTreeSnapshot, error) {
+	workerTrees := []string{input.Tree}
+	for _, workloadHints := range hints {
+		for _, hint := range workloadHints {
+			workerTrees = append(workerTrees, hint.UntrustedCandidate().OriginSourceTreeSHA)
+		}
+	}
+	if err := cache.preloadPersistentWorkerDigests(input.RepositoryRoot, workerTrees); err != nil {
+		return nil, nil, fmt.Errorf("preload remote worker execution replay cache: %w", err)
+	}
 	target, available, err := cache.snapshot(ctx, input.RepositoryRoot, input.Tree)
 	if err != nil || !available {
 		if err == nil {
