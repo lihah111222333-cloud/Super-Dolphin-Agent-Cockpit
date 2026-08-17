@@ -436,7 +436,9 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() ti
 	case sourceReplayIndexDurationLedgerSQLiteSchemaVersion:
 		return migrateDurationLedgerSQLiteSchemaThrough19(database, migrateDurationLedgerSQLiteSchema17To18(database))
 	case workloadInputReplayDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema18To19(database)
+		return migrateDurationLedgerSQLiteSchemaThrough20(database)
+	case runExecutionIdentityDurationLedgerSQLiteSchemaVersion:
+		return migrateDurationLedgerSQLiteSchema19To20(database)
 	case durationLedgerSQLiteSchemaVersion:
 		return validator.preflight(database, schemaVersion)
 	default:
@@ -448,7 +450,14 @@ func migrateDurationLedgerSQLiteSchemaThrough19(database *sql.DB, previous error
 	if previous != nil {
 		return previous
 	}
-	return migrateDurationLedgerSQLiteSchema18To19(database)
+	if err := migrateDurationLedgerSQLiteSchema18To19(database); err != nil {
+		return err
+	}
+	return migrateDurationLedgerSQLiteSchema19To20(database)
+}
+
+func migrateDurationLedgerSQLiteSchemaThrough20(database *sql.DB) error {
+	return migrateDurationLedgerSQLiteSchemaThrough19(database, nil)
 }
 
 // migrateDurationLedgerSQLiteSchema13To18 串联 legacy authority 的全部单向迁移。

@@ -108,6 +108,7 @@ func TestDurationLedgerSQLiteV16ToV17AddsOnlySourceReplayIndexes(t *testing.T) {
 
 func downgradeDurationLedgerSQLiteV18ToV16Fixture(t *testing.T, database *sql.DB) {
 	t.Helper()
+	dropPlanningReceiptSchemaForMigrationFixture(t, database)
 	for _, index := range []string{"idx_ci_workload_pass_evidence_source_replay", "idx_ci_retained_workload_pass_proofs_source_replay"} {
 		if _, err := database.Exec("DROP INDEX " + index); err != nil {
 			t.Fatal(err)
@@ -139,6 +140,7 @@ func TestDurationLedgerSQLiteV17ToV18AddsOnlyWorkloadInputReplayCache(t *testing
 	if _, err := database.Exec(`DROP TABLE ci_remote_run_execution_identities`); err != nil {
 		t.Fatal(err)
 	}
+	dropPlanningReceiptSchemaForMigrationFixture(t, database)
 	if _, err := database.Exec(`PRAGMA user_version = 17`); err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +157,13 @@ func TestDurationLedgerSQLiteV17ToV18AddsOnlyWorkloadInputReplayCache(t *testing
 	}
 	if err := preflightDurationLedgerSQLiteSchemaVersion(database, workloadInputReplayDurationLedgerSQLiteSchemaVersion); err != nil {
 		t.Fatalf("v18 schema preflight: %v", err)
+	}
+}
+
+func dropPlanningReceiptSchemaForMigrationFixture(t *testing.T, database *sql.DB) {
+	t.Helper()
+	if _, err := database.Exec(`DROP INDEX idx_ci_remote_run_planning_receipts_status; DROP TABLE ci_remote_run_planning_receipts`); err != nil {
+		t.Fatal(err)
 	}
 }
 

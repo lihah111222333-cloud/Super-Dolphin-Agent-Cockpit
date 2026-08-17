@@ -125,6 +125,25 @@ func TestRemoteCIRunExecutionIdentityV19AcceptedContract(t *testing.T) {
 	}
 }
 
+func TestRemoteCIPlanningReceiptV20AcceptedContract(t *testing.T) {
+	root := findRepoRoot(t)
+	if !slices.Contains(cicontract.SQLAuthoritySchemaTables(), cicontract.RemoteRunPlanningReceiptsTable) || !slices.Contains(cicontract.SQLAuthorityAdditiveSchemaIndexes(), cicontract.RemoteRunPlanningReceiptsStatusIndex) {
+		t.Fatal("planning receipt table/index is not registered with the one SQLite authority")
+	}
+	schema := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_schema_strict.go"))
+	for _, marker := range []string{"CREATE TABLE IF NOT EXISTS " + cicontract.RemoteRunPlanningReceiptsTable, "job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE", "receipt_json TEXT NOT NULL", "receipt_digest TEXT NOT NULL", "mapping_root TEXT NOT NULL", "CREATE INDEX IF NOT EXISTS " + cicontract.RemoteRunPlanningReceiptsStatusIndex} {
+		if !strings.Contains(schema, marker) {
+			t.Errorf("planning receipt v20 schema is missing %q", marker)
+		}
+	}
+	migration := strings.ToLower(readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_namespace_migration.go")))
+	for _, forbidden := range []string{"alter table ci_runs", "insert into ci_remote_run_planning_receipts", "update ci_remote_run_planning_receipts"} {
+		if strings.Contains(migration, forbidden) {
+			t.Errorf("planning receipt v20 migration contains forbidden operation %q", forbidden)
+		}
+	}
+}
+
 func TestRemoteCIExecutionScopeV15GuardCounterexamples(t *testing.T) {
 	for name, source := range map[string]string{
 		"second scope table":   `CREATE TABLE IF NOT EXISTS ci_remote_run_execution_scopes (job_id TEXT); CREATE TABLE IF NOT EXISTS ci_remote_run_execution_scope_alias (job_id TEXT);`,

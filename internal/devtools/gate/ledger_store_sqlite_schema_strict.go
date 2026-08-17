@@ -34,7 +34,8 @@ func durationLedgerSQLiteCurrentSchemaStatements() []string {
 	statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
 	statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
 	statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
-	return append(statements, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements()...)
+	statements = append(statements, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements()...)
+	return append(statements, durationLedgerRemoteCIPlanningReceiptSchemaStatements()...)
 }
 
 func durationLedgerRemoteCIRunExecutionIdentitySchemaStatements() []string {
@@ -45,6 +46,23 @@ func durationLedgerRemoteCIRunExecutionIdentitySchemaStatements() []string {
 	toolchain_digest TEXT NOT NULL CHECK (length(toolchain_digest) = 71 AND substr(toolchain_digest, 1, 7) = 'sha256:' AND substr(toolchain_digest, 8) NOT GLOB '*[^0-9a-f]*'),
 	execution_mode TEXT NOT NULL CHECK (execution_mode IN ('normal', 'calibration'))
 );`, cicontract.TargetPlatform)}
+}
+
+func durationLedgerRemoteCIPlanningReceiptSchemaStatements() []string {
+	return []string{`CREATE TABLE IF NOT EXISTS ci_remote_run_planning_receipts (
+	job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE,
+	status TEXT NOT NULL CHECK (status IN ('not_applicable', 'planned')),
+	reason TEXT NOT NULL CHECK (reason IN ('', 'pre_planning_failure', 'all_hit')),
+	gate_plan_digest TEXT NOT NULL CHECK (length(gate_plan_digest) = 71 AND substr(gate_plan_digest, 1, 7) = 'sha256:' AND substr(gate_plan_digest, 8) NOT GLOB '*[^0-9a-f]*'),
+	catalog_digest TEXT NOT NULL CHECK (length(catalog_digest) = 71 AND substr(catalog_digest, 1, 7) = 'sha256:' AND substr(catalog_digest, 8) NOT GLOB '*[^0-9a-f]*'),
+	ledger_generation TEXT NOT NULL CHECK (ledger_generation <> '' AND ledger_generation NOT GLOB '0*' AND ledger_generation NOT GLOB '*[^0-9]*'),
+	receipt_json TEXT NOT NULL CHECK (length(receipt_json) > 0),
+	receipt_digest TEXT NOT NULL CHECK (length(receipt_digest) = 71 AND substr(receipt_digest, 1, 7) = 'sha256:' AND substr(receipt_digest, 8) NOT GLOB '*[^0-9a-f]*'),
+	mapping_root TEXT NOT NULL CHECK (mapping_root = '' OR (length(mapping_root) = 71 AND substr(mapping_root, 1, 7) = 'sha256:' AND substr(mapping_root, 8) NOT GLOB '*[^0-9a-f]*')),
+	planned_workload_count INTEGER NOT NULL CHECK (planned_workload_count >= 0),
+	planned_shard_count INTEGER NOT NULL CHECK (planned_shard_count >= 0),
+	CHECK ((status = 'not_applicable' AND reason <> '' AND mapping_root = '' AND planned_workload_count = 0 AND planned_shard_count = 0) OR (status = 'planned' AND reason = ''))
+);`, `CREATE INDEX IF NOT EXISTS idx_ci_remote_run_planning_receipts_status ON ci_remote_run_planning_receipts (status, reason, job_id);`}
 }
 
 // durationLedgerSQLiteSchemaStatementsV14 is the complete pre-scope schema.

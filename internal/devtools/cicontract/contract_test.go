@@ -475,9 +475,15 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 	}
 }
 
-func TestDurationLedgerSQLiteSchemaV19OwnsExecutionIdentity(t *testing.T) {
-	if DurationLedgerSQLiteSchemaVersion != 19 {
-		t.Fatalf("duration-ledger SQLite physical schema = %d, want 19", DurationLedgerSQLiteSchemaVersion)
+func TestDurationLedgerSQLiteSchemaV20OwnsPlanningReceipt(t *testing.T) {
+	if DurationLedgerSQLiteSchemaVersion != 20 {
+		t.Fatalf("duration-ledger SQLite physical schema = %d, want 20", DurationLedgerSQLiteSchemaVersion)
+	}
+	if !slices.Contains(SQLAuthoritySchemaTables(), RemoteRunPlanningReceiptsTable) {
+		t.Fatalf("planning receipt table %q is not registered", RemoteRunPlanningReceiptsTable)
+	}
+	if !slices.Contains(SQLAuthorityAdditiveSchemaIndexes(), RemoteRunPlanningReceiptsStatusIndex) {
+		t.Fatalf("planning receipt index %q is not registered", RemoteRunPlanningReceiptsStatusIndex)
 	}
 	if !slices.Contains(SQLAuthoritySchemaTables(), RemoteRunExecutionIdentitiesTable) {
 		t.Fatalf("remote run execution identity table %q is not registered", RemoteRunExecutionIdentitiesTable)

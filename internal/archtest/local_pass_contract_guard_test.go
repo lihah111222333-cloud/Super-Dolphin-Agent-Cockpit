@@ -193,15 +193,15 @@ func assertLocalPassContractValues(t *testing.T, root string) {
 	if !strings.Contains(remoteContract, "BaselineStateSchemaVersion uint32 = 13") {
 		t.Fatal("remote accepted baseline JSON schema owner drifted from v13")
 	}
-	if cicontract.DurationLedgerSQLiteSchemaVersion != 19 {
-		t.Fatalf("cicontract duration-ledger SQLite physical schema = %d, want v19", cicontract.DurationLedgerSQLiteSchemaVersion)
+	if cicontract.DurationLedgerSQLiteSchemaVersion != 20 {
+		t.Fatalf("cicontract duration-ledger SQLite physical schema = %d, want v20", cicontract.DurationLedgerSQLiteSchemaVersion)
 	}
 	ledger := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/ledger_store_sqlite.go")
 	if !strings.Contains(ledger, "durationLedgerSQLiteSchemaVersion = cicontract.DurationLedgerSQLiteSchemaVersion") {
 		t.Fatal("duration-ledger SQLite schema version must consume the cicontract owner")
 	}
 	migration := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/ledger_store_sqlite_namespace_migration.go")
-	for _, marker := range []string{"legacyDurationLedgerSQLiteSchemaVersion = 13", "localDurationLedgerSQLiteSchemaVersion = 14", "retainedProofDurationLedgerSQLiteSchemaVersion = 16", "sourceReplayIndexDurationLedgerSQLiteSchemaVersion = 17", "workloadInputReplayDurationLedgerSQLiteSchemaVersion = 18", "migrateDurationLedgerSQLiteSchema13To14", "migrateDurationLedgerSQLiteSchema14To15", "migrateDurationLedgerSQLiteSchema15To16", "migrateDurationLedgerSQLiteSchema16To17", "migrateDurationLedgerSQLiteSchema17To18", "migrateDurationLedgerSQLiteSchema18To19", "strictLocalWorkloadPassSQLiteSchema", "durationLedgerRemoteCIExecutionScopeSchemaStatements", "durationLedgerRetainedWorkloadPassProofSchemaStatements", "durationLedgerSourceReplayIndexSchemaStatements", "durationLedgerWorkloadInputReplayCacheSchemaStatements", "backfillRetainedWorkloadPassProofs"} {
+	for _, marker := range []string{"legacyDurationLedgerSQLiteSchemaVersion = 13", "localDurationLedgerSQLiteSchemaVersion = 14", "retainedProofDurationLedgerSQLiteSchemaVersion = 16", "sourceReplayIndexDurationLedgerSQLiteSchemaVersion = 17", "workloadInputReplayDurationLedgerSQLiteSchemaVersion = 18", "runExecutionIdentityDurationLedgerSQLiteSchemaVersion = 19", "migrateDurationLedgerSQLiteSchema13To14", "migrateDurationLedgerSQLiteSchema14To15", "migrateDurationLedgerSQLiteSchema15To16", "migrateDurationLedgerSQLiteSchema16To17", "migrateDurationLedgerSQLiteSchema17To18", "migrateDurationLedgerSQLiteSchema18To19", "migrateDurationLedgerSQLiteSchema19To20", "strictLocalWorkloadPassSQLiteSchema", "durationLedgerRemoteCIExecutionScopeSchemaStatements", "durationLedgerRetainedWorkloadPassProofSchemaStatements", "durationLedgerSourceReplayIndexSchemaStatements", "durationLedgerWorkloadInputReplayCacheSchemaStatements", "durationLedgerRemoteCIPlanningReceiptSchemaStatements", "backfillRetainedWorkloadPassProofs"} {
 		if !strings.Contains(migration, marker) {
 			t.Errorf("local migration is missing additive marker %q", marker)
 		}
@@ -209,6 +209,9 @@ func assertLocalPassContractValues(t *testing.T, root string) {
 	strictSchema := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/ledger_store_sqlite_schema_strict.go")
 	if !strings.Contains(strictSchema, "durationLedgerRemoteCIRunExecutionIdentitySchemaStatements") {
 		t.Fatal("v19 run execution identity DDL owner is missing")
+	}
+	if !strings.Contains(strictSchema, "durationLedgerRemoteCIPlanningReceiptSchemaStatements") {
+		t.Fatal("v20 planning receipt DDL owner is missing")
 	}
 }
 

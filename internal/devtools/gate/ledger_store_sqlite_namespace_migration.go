@@ -21,6 +21,8 @@ const sourceReplayIndexDurationLedgerSQLiteSchemaVersion = 17
 
 const workloadInputReplayDurationLedgerSQLiteSchemaVersion = 18
 
+const runExecutionIdentityDurationLedgerSQLiteSchemaVersion = 19
+
 // migrateDurationLedgerSQLiteSchema13To14 adds only local-origin projections;
 // the frozen remote PASS table is validated and left untouched.
 func migrateDurationLedgerSQLiteSchema13To14(database *sql.DB, now func() time.Time) error {
@@ -267,6 +269,50 @@ func migrateDurationLedgerSQLiteSchema18To19(database *sql.DB) error {
 	return nil
 }
 
+// migrateDurationLedgerSQLiteSchema19To20 仅增加规划回执侧表和索引，不回填既有 run。
+func migrateDurationLedgerSQLiteSchema19To20(database *sql.DB) error {
+	if database == nil {
+		return errors.New("duration ledger SQLite planning receipt migration requires database")
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite planning receipt migration connection", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return mapDurationLedgerSQLiteError("begin duration ledger SQLite planning receipt migration", err)
+	}
+	if err := migrateDurationLedgerSQLitePlanningReceiptOnConnection(connection); err != nil {
+		return rollbackDurationLedgerSQLiteNamespace(connection, err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return mapDurationLedgerSQLiteError("commit duration ledger SQLite planning receipt migration", err)
+	}
+	return nil
+}
+
+func migrateDurationLedgerSQLitePlanningReceiptOnConnection(connection *sql.Conn) error {
+	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	if version != runExecutionIdentityDurationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite planning receipt migration expected schema version %d, got %d", runExecutionIdentityDurationLedgerSQLiteSchemaVersion, version)
+	}
+	if err := preflightDurationLedgerSQLiteSchemaVersion(connection, runExecutionIdentityDurationLedgerSQLiteSchemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range durationLedgerRemoteCIPlanningReceiptSchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite planning receipt", err)
+		}
+	}
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite planning receipt schema version", err)
+	}
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
+}
+
 func migrateDurationLedgerSQLiteRunExecutionIdentityOnConnection(connection *sql.Conn) error {
 	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
 	if err != nil {
@@ -283,10 +329,10 @@ func migrateDurationLedgerSQLiteRunExecutionIdentityOnConnection(connection *sql
 			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite run execution identity", err)
 		}
 	}
-	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, runExecutionIdentityDurationLedgerSQLiteSchemaVersion)); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite run execution identity schema version", err)
 	}
-	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, runExecutionIdentityDurationLedgerSQLiteSchemaVersion)
 }
 
 // migrateDurationLedgerSQLiteSourceReplayIndexesOnConnection 在同一写事务内校验 v16、
@@ -437,24 +483,25 @@ func preflightDurationLedgerSQLiteSchemaVersion(queryer durationLedgerSQLiteSche
 		statements = durationLedgerSQLiteLegacySchemaStatementsV13()
 	case localDurationLedgerSQLiteSchemaVersion:
 		statements = durationLedgerSQLiteSchemaStatementsV14()
-	case executionScopeDurationLedgerSQLiteSchemaVersion:
-		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
-	case retainedProofDurationLedgerSQLiteSchemaVersion:
-		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
-		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
-	case sourceReplayIndexDurationLedgerSQLiteSchemaVersion:
-		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
-		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
-		statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
-	case workloadInputReplayDurationLedgerSQLiteSchemaVersion:
-		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
-		statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
-		statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
-		statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
-	case durationLedgerSQLiteSchemaVersion:
-		statements = durationLedgerSQLiteCurrentSchemaStatements()
 	default:
-		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported for preflight", version)
+		if version < executionScopeDurationLedgerSQLiteSchemaVersion || version > durationLedgerSQLiteSchemaVersion {
+			return fmt.Errorf("duration ledger SQLite schema version %d is unsupported for preflight", version)
+		}
+		statements = append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+		for _, step := range []struct {
+			version    int
+			statements func() []string
+		}{
+			{retainedProofDurationLedgerSQLiteSchemaVersion, durationLedgerRetainedWorkloadPassProofSchemaStatements},
+			{sourceReplayIndexDurationLedgerSQLiteSchemaVersion, durationLedgerSourceReplayIndexSchemaStatements},
+			{workloadInputReplayDurationLedgerSQLiteSchemaVersion, durationLedgerWorkloadInputReplayCacheSchemaStatements},
+			{runExecutionIdentityDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements},
+			{durationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIPlanningReceiptSchemaStatements},
+		} {
+			if version >= step.version {
+				statements = append(statements, step.statements()...)
+			}
+		}
 	}
 	expected, err := buildDurationLedgerSQLiteReferenceSchemaForStatements(statements)
 	if err != nil {

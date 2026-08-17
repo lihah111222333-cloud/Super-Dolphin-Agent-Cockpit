@@ -25,6 +25,10 @@ const (
 	LocalWorkloadPassEvidenceTable = "ci_local_workload_pass_evidence"
 	// WorkloadInputReplayCacheTable 是 immutable source-tree 的派生输入索引表。
 	WorkloadInputReplayCacheTable = "ci_workload_input_replay_cache"
+	// RemoteRunPlanningReceiptsTable 是远程 CI 规划回执的 CAS 侧表。
+	RemoteRunPlanningReceiptsTable = "ci_remote_run_planning_receipts"
+	// RemoteRunPlanningReceiptsStatusIndex 是规划回执状态检索索引。
+	RemoteRunPlanningReceiptsStatusIndex = "idx_ci_remote_run_planning_receipts_status"
 )
 
 // SQLAuthorityAuxiliaryTables 返回不属于事实域绑定但仍受唯一 SQLite authority 管理的表。
@@ -43,6 +47,7 @@ func SQLAuthorityAuxiliaryTables() []string {
 		RemoteRunExecutionIdentitiesTable,
 		RetainedWorkloadPassProofsTable,
 		WorkloadInputReplayCacheTable,
+		RemoteRunPlanningReceiptsTable,
 	}
 }
 
@@ -56,6 +61,7 @@ func SQLAuthorityAdditiveSchemaIndexes() []string {
 		RunWorkloadResultsRetentionIndex,
 		WorkloadPassEvidenceSourceReplayIndex,
 		RetainedWorkloadPassProofSourceReplayIndex,
+		RemoteRunPlanningReceiptsStatusIndex,
 	}
 }
 

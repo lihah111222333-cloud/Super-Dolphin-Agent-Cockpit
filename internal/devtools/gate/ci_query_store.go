@@ -53,6 +53,13 @@ type RemoteCIRunRecord struct {
 	TimingObservations           []TimingObservation
 	CompileTimingObservations    []CompileTimingObservation
 	DurationSamples              []DurationSample
+	PlanningReceiptEligibility   WorkloadPlanningReceiptEligibility `json:"-"`
+	PlanningReceipt              *WorkloadPlanningReceipt           `json:"-"`
+	PlanningReceiptBytes         []byte                             `json:"-"`
+	PlanningReceiptDigest        string                             `json:"-"`
+	PlanningMappingRoot          string                             `json:"-"`
+	PlannedWorkloadCount         int                                `json:"-"`
+	PlannedShardCount            int                                `json:"-"`
 }
 
 // RemoteCIShardRecord 保存一个远程分片的稳定云资源身份和终态。
@@ -120,14 +127,12 @@ func newRemoteCIRunExecutionIdentity(record RemoteCIRunRecord) remoteCIRunExecut
 	return remoteCIRunExecutionIdentity{record.Platform, record.RunnerIdentityDigest, record.ToolchainDigest, record.ExecutionMode}
 }
 
-// Validate checks only the mode-independent resource shape. Callers with a
-// known execution mode must use ValidateForExecutionMode instead of guessing
-// normal versus calibration from the tuple.
+// Validate 只校验与执行模式无关的资源形状；已知模式的调用方必须使用 ValidateForExecutionMode。
 func (resources RemoteCIShardResources) Validate() error {
 	return resources.validateShape()
 }
 
-// ValidateForExecutionMode binds provider evidence to the run mode.
+// ValidateForExecutionMode 将 provider 资源证据绑定到明确的执行模式。
 func (resources RemoteCIShardResources) ValidateForExecutionMode(executionMode string) error {
 	if err := resources.validateShape(); err != nil {
 		return err
@@ -142,6 +147,7 @@ func (resources RemoteCIShardResources) ValidateForExecutionMode(executionMode s
 	}
 }
 
+// validateShape 校验资源类别、CPU 与内存的基础数值形状。
 func (resources RemoteCIShardResources) validateShape() error {
 	if strings.TrimSpace(resources.ClassID) == "" || resources.ClassID != strings.TrimSpace(resources.ClassID) ||
 		resources.CPU <= 0 || resources.MemoryGiB <= 0 ||
@@ -242,13 +248,32 @@ func (store *DurationLedgerStore) LoadRemoteCIRun(jobID string) (RemoteCIRunReco
 		return RemoteCIRunRecord{}, err
 	}
 	legacyRead := identityState == remoteCIExecutionIdentityStateMissing && record.Authoritative && record.Status == ResultStatusPassed
-	if err := loadRemoteCIRunDetails(transaction, jobID, &record, legacyRead); err != nil {
+	if err := loadRemoteCIRunDetailsAndReceipt(transaction, jobID, &record, legacyRead); err != nil {
 		return RemoteCIRunRecord{}, err
 	}
 	if err := transaction.Commit(); err != nil {
 		return RemoteCIRunRecord{}, mapDurationLedgerSQLiteError("commit remote CI run read snapshot", err)
 	}
 	return record, nil
+}
+
+// loadRemoteCIRunDetailsAndReceipt 在同一只读快照中加载运行明细与规划回执投影。
+func loadRemoteCIRunDetailsAndReceipt(transaction *sql.Tx, jobID string, record *RemoteCIRunRecord, legacyRead bool) error {
+	if err := loadRemoteCIRunDetails(transaction, jobID, record, legacyRead); err != nil {
+		return err
+	}
+	receipt, err := loadSQLitePlanningReceipt(transaction, jobID)
+	if err != nil {
+		return err
+	}
+	record.PlanningReceiptEligibility = receipt.Eligibility
+	record.PlanningReceipt = receipt.Receipt
+	record.PlanningReceiptBytes = receipt.ReceiptBytes
+	record.PlanningReceiptDigest = receipt.ReceiptDigest
+	record.PlanningMappingRoot = receipt.MappingRoot
+	record.PlannedWorkloadCount = receipt.PlannedWorkloadCount
+	record.PlannedShardCount = receipt.PlannedShardCount
+	return nil
 }
 
 // verifySQLiteRemoteCIRunIdentity 拒绝权威 run 重写，并校验已存在 run 的不可变字段一致。
