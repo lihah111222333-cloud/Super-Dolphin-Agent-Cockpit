@@ -268,11 +268,11 @@ func (index *DurationSampleIndex) addSample(sample DurationSample, maximumInt64 
 	if sample.Bucket.Platform != index.context.Platform || sample.Bucket.Runner != index.context.Runner || sample.Bucket.Toolchain != index.context.Toolchain {
 		return nil
 	}
-	expectedMode := DurationExecutionModeNormal
-	if index.context.Calibration {
-		expectedMode = DurationExecutionModeCalibration
+	accepted, err := index.acceptsPlanningSample(sample.Bucket)
+	if err != nil {
+		return err
 	}
-	if sample.Bucket.ExecutionMode != expectedMode {
+	if !accepted {
 		return nil
 	}
 	if sample.DurationMS <= 0 {
@@ -307,6 +307,25 @@ func (index *DurationSampleIndex) addSample(sample DurationSample, maximumInt64 
 	aggregate.successSamples = append(aggregate.successSamples, value)
 	index.buckets[key] = aggregate
 	return nil
+}
+
+// acceptsPlanningSample 保持执行模式证据隔离，同时允许 calibration 规划复用同规格 normal 实测耗时。
+// normal 样本只进入估时桶，HasSuccessfulCalibrationDurationEvidence 仍只读取 calibration 模式。
+func (index DurationSampleIndex) acceptsPlanningSample(bucket DurationBucket) (bool, error) {
+	if !index.context.Calibration {
+		return bucket.ExecutionMode == DurationExecutionModeNormal, nil
+	}
+	if bucket.ExecutionMode == DurationExecutionModeCalibration {
+		return true, nil
+	}
+	if bucket.ExecutionMode != DurationExecutionModeNormal {
+		return false, nil
+	}
+	classID, err := cicontract.NormalResourceClassProjection("", index.context.CalibrationResourceCPU, index.context.CalibrationResourceMemoryGiB)
+	if err != nil {
+		return false, fmt.Errorf("resolve calibration normal-history resource: %w", err)
+	}
+	return bucket.ResourceClassID == classID && bucket.ResourceCPU == index.context.CalibrationResourceCPU && bucket.ResourceMemoryGiB == index.context.CalibrationResourceMemoryGiB, nil
 }
 
 // DurationSampleIndexFromSnapshot 优先复用 SQLite 聚合索引，并拒绝环境不一致的快照。
@@ -521,17 +540,45 @@ func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, 
 		return 0, durationSampleResource{}, err
 	}
 	if !found || aggregate.successCount == 0 {
-		estimate := prior
 		if upperBound > 0 {
-			estimate = upperBound
+			return upperBound, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
 		}
-		return estimate, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
+		normalEstimate, normalFound, err := index.calibrationNormalHistoryEstimate(workload, prior, cpu, memoryGiB)
+		if err != nil {
+			return 0, durationSampleResource{}, err
+		}
+		if normalFound {
+			return normalEstimate, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
+		}
+		return prior, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
 	}
 	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), prior)
 	if err != nil {
 		return 0, durationSampleResource{}, err
 	}
 	return max(estimate, upperBound), resource, nil
+}
+
+// calibrationNormalHistoryEstimate 只在 calibration 历史全空时读取同规格 normal 实测样本。
+// 返回资源仍由调用方固定为 calibration class，避免把 normal 样本提升为校准身份或 PASS 证据。
+func (index DurationSampleIndex) calibrationNormalHistoryEstimate(workload Workload, prior int64, cpu, memoryGiB float64) (int64, bool, error) {
+	classID, err := cicontract.NormalResourceClassProjection("", cpu, memoryGiB)
+	if err != nil {
+		return 0, false, fmt.Errorf("resolve calibration normal-history resource: %w", err)
+	}
+	upperBound := index.planningCrossInputUpperBound(workload, DurationExecutionModeNormal, classID, cpu, memoryGiB)
+	aggregate, _, found, err := index.aggregateForResource(workload, DurationExecutionModeNormal, cpu, memoryGiB)
+	if err != nil {
+		return 0, false, err
+	}
+	if !found || aggregate.successCount == 0 {
+		return upperBound, upperBound > 0, nil
+	}
+	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), prior)
+	if err != nil {
+		return 0, false, err
+	}
+	return max(estimate, upperBound), true, nil
 }
 
 // calibrationWorkloadPrior 为没有可比样本的校准任务提供保守下界。

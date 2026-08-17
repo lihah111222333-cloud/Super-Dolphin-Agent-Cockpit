@@ -22,6 +22,7 @@ func TestRecordRemoteCIRunPersistsCleanedFailedRunWithTimingGaps(t *testing.T) {
 		Profile: gate.ProfileLocalFast, PlanDigest: "sha256:" + strings.Repeat("e", 64),
 		CatalogDigest: "sha256:" + strings.Repeat("f", 64), SourceTreeSHA: strings.Repeat("a", 40),
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("b", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("c", 64),
+		Platform: "linux/amd64", RunnerIdentityDigest: testDurationDigest("8"), ToolchainDigest: testDurationDigest("9"), ExecutionMode: gate.DurationExecutionModeNormal,
 		RunnerImage: "ubuntu:22.04", Status: gate.ResultStatusFailed, StartedAt: started,
 		CompletedAt: started.Add(time.Minute), CleanupComplete: true,
 	}

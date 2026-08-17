@@ -173,9 +173,8 @@ func TestSQLiteShardOverheadExcludesMissingExecutionIdentity(t *testing.T) {
 
 func TestSQLiteShardOverheadRequiresExactRunAndResourceBinding(t *testing.T) {
 	cases := []struct {
-		name       string
-		mutateRun  func(*sql.DB) error
-		mutatePlan func(*PlanningContext)
+		name      string
+		mutateRun func(*sql.DB) error
 	}{
 		{name: "run generation", mutateRun: func(database *sql.DB) error {
 			_, err := database.Exec(`UPDATE ci_runs SET accepted_generation = '2' WHERE job_id = ?`, "overhead-roundtrip-job")
@@ -184,9 +183,6 @@ func TestSQLiteShardOverheadRequiresExactRunAndResourceBinding(t *testing.T) {
 		{name: "run snapshot", mutateRun: func(database *sql.DB) error {
 			_, err := database.Exec(`UPDATE ci_runs SET image_cache_snapshot_id = 'other-snapshot' WHERE job_id = ?`, "overhead-roundtrip-job")
 			return err
-		}},
-		{name: "calibration resource", mutatePlan: func(planning *PlanningContext) {
-			planning.CalibrationResourceClassID = "other-class"
 		}},
 	}
 	for _, testCase := range cases {
@@ -203,19 +199,14 @@ func TestSQLiteShardOverheadRequiresExactRunAndResourceBinding(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if testCase.mutateRun != nil {
-				if err := testCase.mutateRun(database); err != nil {
-					database.Close()
-					t.Fatal(err)
-				}
+			if err := testCase.mutateRun(database); err != nil {
+				database.Close()
+				t.Fatal(err)
 			}
 			if err := database.Close(); err != nil {
 				t.Fatal(err)
 			}
 			planning := PlanningContext{Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain, Calibration: true, CalibrationResourceClassID: overhead.CalibrationResourceClassID, CalibrationResourceCPU: overhead.CalibrationResourceCPU, CalibrationResourceMemoryGiB: overhead.CalibrationResourceMemoryGiB, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
-			if testCase.mutatePlan != nil {
-				testCase.mutatePlan(&planning)
-			}
 			loaded, err := store.LoadPlanning(planning)
 			if err != nil {
 				t.Fatal(err)
@@ -224,6 +215,26 @@ func TestSQLiteShardOverheadRequiresExactRunAndResourceBinding(t *testing.T) {
 				t.Fatalf("drifted overhead = %#v, want excluded", loaded.Ledger.ShardOverhead)
 			}
 		})
+	}
+}
+
+func TestSQLiteShardOverheadRejectsDriftedPlanningResource(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedAcceptedGenerationForTest(t, store, 1)
+	sample := durationLedgerSQLiteShardOverheadRoundTripSample()
+	overhead := durationLedgerSQLiteShardOverheadRoundTripValue(sample.ProvenanceDigest)
+	durationLedgerSQLiteRecordShardOverheadRoundTrip(t, store, sample, overhead)
+	planning := PlanningContext{
+		Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain,
+		Calibration: true, CalibrationResourceClassID: "other-class",
+		CalibrationResourceCPU: overhead.CalibrationResourceCPU, CalibrationResourceMemoryGiB: overhead.CalibrationResourceMemoryGiB,
+		TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID,
+	}
+	if _, err := store.LoadPlanning(planning); err == nil {
+		t.Fatal("drifted calibration planning resource was accepted")
 	}
 }
 

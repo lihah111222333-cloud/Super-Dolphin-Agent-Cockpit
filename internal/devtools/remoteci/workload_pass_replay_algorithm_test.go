@@ -194,6 +194,62 @@ func TestPersistentInputReplayRoundTripsCurrentTargetVotesAcrossPrepare(t *testi
 	}
 }
 
+// TestPersistentInputReplaySeedsCompileDigest 验证持久语义缓存同时预热按包 compile 摘要，
+// 第二次 Prepare 的 source vote 不得重复遍历同一 Go package 编译闭包。
+func TestPersistentInputReplaySeedsCompileDigest(t *testing.T) {
+	cache, source, target, workload := persistentCompileReplayFixture(t)
+	decision, supported, err := cache.compileInputDecision(t.Context(), workload, source, target)
+	if err != nil || !supported || decision.compileMiss {
+		t.Fatalf("persistent compile decision = %#v supported=%t err=%v", decision, supported, err)
+	}
+	if cache.compileComputations != 0 {
+		t.Fatalf("second Prepare recomputed %d compile inputs, want 0", cache.compileComputations)
+	}
+}
+
+func persistentCompileReplayFixture(t *testing.T) (*remoteReplayCache, *remoteGitTreeSnapshot, *remoteGitTreeSnapshot, gate.Workload) {
+	t.Helper()
+	target := testRemoteReplayAlgorithmSnapshot(strings.Repeat("a", 40), "stable-algorithm", "target-unrelated")
+	source := testRemoteReplayAlgorithmSnapshot(strings.Repeat("b", 40), "stable-algorithm", "source-unrelated")
+	cache, err := newRemoteReplayCache("repo", target.tree, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwap(0, gate.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteCITestAcceptedGeneration(t, store, 1)
+	if err := cache.bindPersistentInputReplayCache(store, 1, target); err != nil {
+		t.Fatal(err)
+	}
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./internal/devtools/gate", "TestPersistentInputReplaySeedsCompileDigest", 1_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compileDigest := "sha256:" + strings.Repeat("d", 64)
+	value := gate.WorkloadInputReplayCacheValue{
+		InputDigest: "sha256:" + strings.Repeat("c", 64), CompileDigest: compileDigest,
+		DeclarationDigest: "sha256:" + strings.Repeat("e", 64), RuntimeDigest: "sha256:" + strings.Repeat("f", 64),
+	}
+	entries := []gate.WorkloadInputReplayCacheEntry{
+		{SourceTreeSHA: source.tree, WorkloadID: gate.GateID(workload.ID), Value: value},
+		{SourceTreeSHA: target.tree, WorkloadID: gate.GateID(workload.ID), Value: value},
+	}
+	if err := store.SaveWorkloadInputReplayCache(1, cache.persistentInputAlgorithm, entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, snapshot := range []*remoteGitTreeSnapshot{source, target} {
+		if err := cache.preloadPersistentInputDigests(snapshot, []gate.Workload{workload}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return cache, source, target, workload
+}
+
 func TestPrewarmCurrentSemanticInputDigestsCompletesTargetCacheEntry(t *testing.T) {
 	fixture := newPersistentSemanticReplayFixture(t)
 	cache, err := newRemoteReplayCache("repo", fixture.target.tree, fixture.target)

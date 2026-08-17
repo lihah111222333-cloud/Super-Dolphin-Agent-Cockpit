@@ -84,8 +84,7 @@ func TestRemoteDurationSamplesRejectNonPositiveProviderInterval(t *testing.T) {
 }
 
 func TestRecordRemoteCIRunPersistsUncreatedShardPlaceholderAudit(t *testing.T) {
-	ledgerStore := newPartialResultsLedgerStore(t)
-	started := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
+	ledgerStore, started := newPartialResultsLedgerStore(t), time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
 	runErr := errors.New("ECI create request failed after shard-000 was accepted")
 	identity := "sha256:" + strings.Repeat("a", 64)
 	agentDigest := "sha256:" + strings.Repeat("d", 64)
@@ -104,11 +103,12 @@ func TestRecordRemoteCIRunPersistsUncreatedShardPlaceholderAudit(t *testing.T) {
 		Profile: gate.ProfileLocalFast, PlanDigest: "sha256:plan",
 		CatalogDigest: testDurationDigest("e"), SourceTreeSHA: strings.Repeat("f", 40),
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("b", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("c", 64),
+		Platform: "linux/amd64", RunnerIdentityDigest: testDurationDigest("8"), ToolchainDigest: testDurationDigest("9"), ExecutionMode: gate.DurationExecutionModeNormal,
 		ImageCacheSnapshotID: "snapshot-1", RunnerImage: "ubuntu:22.04", Status: gate.ResultStatusFailed, Authoritative: true,
 		StartedAt: started, CompletedAt: started.Add(101 * time.Second), CleanupComplete: true,
 		DurationSamples: []gate.DurationSample{
-			{Bucket: gate.DurationBucket{WorkloadID: "guard:passed", CommandDigest: strings.Repeat("1", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: "linux/amd64", Runner: "runner", Toolchain: "toolchain", ExecutionMode: gate.DurationExecutionModeNormal, ResourceClassID: "small", ResourceCPU: 2, ResourceMemoryGiB: 4}, Succeeded: true, DurationMS: 30},
-			{Bucket: gate.DurationBucket{WorkloadID: "guard:cancelled", CommandDigest: strings.Repeat("2", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: "linux/amd64", Runner: "runner", Toolchain: "toolchain", ExecutionMode: gate.DurationExecutionModeNormal, ResourceClassID: "small", ResourceCPU: 2, ResourceMemoryGiB: 4}, Succeeded: false, DurationMS: 30},
+			{Bucket: gate.DurationBucket{WorkloadID: "guard:passed", CommandDigest: strings.Repeat("1", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: "linux/amd64", Runner: testDurationDigest("8"), Toolchain: testDurationDigest("9"), ExecutionMode: gate.DurationExecutionModeNormal, ResourceClassID: "small", ResourceCPU: 2, ResourceMemoryGiB: 4}, Succeeded: true, DurationMS: 30},
+			{Bucket: gate.DurationBucket{WorkloadID: "guard:cancelled", CommandDigest: strings.Repeat("2", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: "linux/amd64", Runner: testDurationDigest("8"), Toolchain: testDurationDigest("9"), ExecutionMode: gate.DurationExecutionModeNormal, ResourceClassID: "small", ResourceCPU: 2, ResourceMemoryGiB: 4}, Succeeded: false, DurationMS: 30},
 		},
 		Shards: []ShardResult{
 			{
@@ -119,7 +119,7 @@ func TestRecordRemoteCIRunPersistsUncreatedShardPlaceholderAudit(t *testing.T) {
 					Source:           gate.MaterializationPhaseTiming{StartedAtUnixMS: started.Add(time.Millisecond).UnixMilli(), CompletedAtUnixMS: started.Add(2 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
 					CandidateCompile: gate.MaterializationPhaseTiming{StartedAtUnixMS: started.Add(3 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: started.Add(4 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
 				},
-				ResourceClass: "normal", Resources: eci.Resources{CPU: 4, MemoryGiB: 8},
+				ResourceClass: "medium", Resources: eci.Resources{CPU: 4, MemoryGiB: 8},
 			},
 			{
 				// initializeRemoteShardResults 在 ECI create call 未返回 group ID 时
@@ -700,10 +700,11 @@ func runPartialMergePersistenceTest(t *testing.T) {
 		CandidateGateSourceSHA256:    "sha256:" + strings.Repeat("b", 64),
 		CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("c", 64),
 		RunnerImage:                  "ubuntu:22.04",
-		Status:                       gate.ResultStatusFailed,
-		StartedAt:                    started,
-		CompletedAt:                  started.Add(2 * time.Minute),
-		CleanupComplete:              true,
+		Platform:                     "linux/amd64", RunnerIdentityDigest: testDurationDigest("c"), ToolchainDigest: testDurationDigest("d"), ExecutionMode: gate.DurationExecutionModeNormal,
+		Status:          gate.ResultStatusFailed,
+		StartedAt:       started,
+		CompletedAt:     started.Add(2 * time.Minute),
+		CleanupComplete: true,
 	}
 	coordinator := &Coordinator{now: func() time.Time { return started }}
 	reusedID := prepared.set.WorkloadPlan.ExecutionWorkloadIDs[1]
@@ -791,6 +792,6 @@ func partialRemoteShardResult(identity, groupID, status string, workloadID gate.
 			Source:           gate.MaterializationPhaseTiming{StartedAtUnixMS: started.Add(time.Millisecond).UnixMilli(), CompletedAtUnixMS: started.Add(2 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
 			CandidateCompile: gate.MaterializationPhaseTiming{StartedAtUnixMS: started.Add(3 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: started.Add(4 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
 		},
-		ResourceClass: "normal", Resources: eci.Resources{CPU: 4, MemoryGiB: 8},
+		ResourceClass: "medium", Resources: eci.Resources{CPU: 4, MemoryGiB: 8},
 	}
 }

@@ -3,6 +3,7 @@ package remoteci
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -12,10 +13,13 @@ func TestCoordinatorRunReexecutesOnlyFailedWorkloadsAfterPreviousFailure(t *test
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
 	store := &coordinatorStore{}
+	var failOnce sync.Once
 	firstCoordinator := newTestCoordinator(
 		t,
 		store,
-		&coordinatorRuntime{failReport: true, failureLog: "injected failure\n"},
+		&coordinatorRuntime{mutateReport: func(report *gate.PlanExecutionReport) {
+			failOnce.Do(func() { forceFailedCoordinatorReport(report, "injected failure\n") })
+		}},
 	)
 	first, err := runCoordinatorTest(t, firstCoordinator, context.Background(), input)
 	if !errors.Is(err, ErrGateFailed) {

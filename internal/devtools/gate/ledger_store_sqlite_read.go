@@ -115,18 +115,24 @@ func loadSQLiteDurationSampleIndex(
 	`
 	args := []any{DurationExecutionModeNormal, planning.Platform, planning.Runner, planning.Toolchain}
 	if planning.Calibration {
+		normalClassID, err := cicontract.NormalResourceClassProjection("", planning.CalibrationResourceCPU, planning.CalibrationResourceMemoryGiB)
+		if err != nil {
+			return DurationSampleIndex{}, fmt.Errorf("resolve calibration normal-history resource: %w", err)
+		}
 		query = `
 			SELECT accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain,
 				execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
 				succeeded, duration_ms, target_kind, parent_workload_id, parent_command_digest,
 				target_name, target_status
 			FROM duration_samples
-			WHERE execution_mode = ? AND resource_class_id = ? AND resource_cpu = ? AND resource_memory_gib = ?
+			WHERE ((execution_mode = ? AND resource_class_id = ?)
+				OR (execution_mode = ? AND resource_class_id = ?))
+				AND resource_cpu = ? AND resource_memory_gib = ?
 				AND platform = ? AND runner = ? AND toolchain = ?
 			ORDER BY accepted_generation DESC, workload_id, command_digest, input_digest,
 				resource_class_id, resource_cpu, resource_memory_gib, succeeded, duration_ms, id
 		`
-		args = []any{DurationExecutionModeCalibration, planning.CalibrationResourceClassID, planning.CalibrationResourceCPU, planning.CalibrationResourceMemoryGiB, planning.Platform, planning.Runner, planning.Toolchain}
+		args = []any{DurationExecutionModeCalibration, planning.CalibrationResourceClassID, DurationExecutionModeNormal, normalClassID, planning.CalibrationResourceCPU, planning.CalibrationResourceMemoryGiB, planning.Platform, planning.Runner, planning.Toolchain}
 	}
 	rows, err := database.Query(query, args...)
 	if err != nil {

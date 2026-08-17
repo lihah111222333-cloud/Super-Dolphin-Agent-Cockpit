@@ -156,18 +156,19 @@ func (cache *remoteReplayCache) preloadPersistentInputDigests(source *remoteGitT
 	if err != nil {
 		return err
 	}
-	workloadIDs := make([]gate.GateID, 0, len(workloads))
-	for _, workload := range workloads {
-		key := remoteReplayWorkloadKey{tree: treeKey, workloadID: workload.ID}
-		if _, cached := cache.inputDigests[key]; !cached {
-			workloadIDs = append(workloadIDs, gate.GateID(workload.ID))
-		}
+	workloadsByID, workloadIDs, err := cache.persistentInputLookupWorkloads(treeKey, workloads)
+	if err != nil {
+		return err
 	}
 	hits, err := cache.persistentInputStore.LookupWorkloadInputReplayCache(cache.persistentAcceptedGeneration, treeKey.tree, cache.persistentInputAlgorithm, workloadIDs)
 	if err != nil {
 		return err
 	}
 	for workloadID, value := range hits {
+		workload, ok := workloadsByID[workloadID]
+		if !ok {
+			return fmt.Errorf("remote workload input replay cache returned unrequested workload %q", workloadID)
+		}
 		key := remoteReplayWorkloadKey{tree: treeKey, workloadID: string(workloadID)}
 		cache.inputDigests[key] = remoteReplayInputDigestResult{digest: value.InputDigest, available: true}
 		cache.semanticInputVotes[key] = remoteReplaySemanticDigestResult{
@@ -177,9 +178,46 @@ func (cache *remoteReplayCache) preloadPersistentInputDigests(source *remoteGitT
 			},
 			supported: true,
 		}
+		if err := cache.seedPersistentCompileInputDigest(treeKey, workload, value.CompileDigest); err != nil {
+			return err
+		}
 		cache.persistentLoadedInputs[key] = struct{}{}
 		cache.persistentInputHits++
 	}
+	return nil
+}
+
+func (cache *remoteReplayCache) persistentInputLookupWorkloads(tree remoteReplayTreeKey, workloads []gate.Workload) (map[gate.GateID]gate.Workload, []gate.GateID, error) {
+	byID := make(map[gate.GateID]gate.Workload, len(workloads))
+	pending := make([]gate.GateID, 0, len(workloads))
+	for _, workload := range workloads {
+		workloadID := gate.GateID(workload.ID)
+		if _, duplicate := byID[workloadID]; duplicate {
+			return nil, nil, fmt.Errorf("remote workload input replay preload repeats workload %q", workload.ID)
+		}
+		byID[workloadID] = workload
+		if _, cached := cache.inputDigests[remoteReplayWorkloadKey{tree: tree, workloadID: workload.ID}]; !cached {
+			pending = append(pending, workloadID)
+		}
+	}
+	return byID, pending, nil
+}
+
+// seedPersistentCompileInputDigest 把已校验的 selector 语义缓存投影到 package+race 编译键，
+// 避免第二次 Prepare 为同包每个 selector 重复遍历不可变源码闭包。
+func (cache *remoteReplayCache) seedPersistentCompileInputDigest(tree remoteReplayTreeKey, workload gate.Workload, digest string) error {
+	parsed, profile, supported, err := remoteGoWorkloadInputTarget(workload)
+	if err != nil || !supported {
+		return err
+	}
+	if digest == "" {
+		return fmt.Errorf("persistent Go workload %q compile digest is missing", workload.ID)
+	}
+	key := remoteReplayCompileKey{tree: tree, packageTarget: parsed.Package, race: profile.race}
+	if existing, ok := cache.compileInputDigests[key]; ok && existing.digest != digest {
+		return fmt.Errorf("persistent Go package %q compile digest is ambiguous", parsed.Package)
+	}
+	cache.compileInputDigests[key] = remoteReplayCompileDigestResult{digest: digest}
 	return nil
 }
 

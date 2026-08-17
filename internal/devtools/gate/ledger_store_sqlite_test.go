@@ -56,6 +56,39 @@ func TestDurationLedgerSQLiteRejectsZeroAcceptedGenerationForPlanningIndex(t *te
 	}
 }
 
+// TestDurationLedgerSQLiteCalibrationPlanningLoadsExactResourceNormalHistory 验证权威 SQLite 投影
+// 会为 calibration 估时装载同环境、同 4C/8GiB 的 normal 历史，但不会提升其证据模式。
+func TestDurationLedgerSQLiteCalibrationPlanningLoadsExactResourceNormalHistory(t *testing.T) {
+	workload := calibrationDurationWorkload("guard:sqlite-calibration-normal-history", "b", 90_000)
+	ledger := NewDurationLedger()
+	ledger.Samples = []DurationSample{
+		testDurationIndexSample(workload, DurationExecutionModeNormal, "medium", 4, 8, 12_000),
+	}
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, ledger); err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	index, err := loadSQLiteDurationSampleIndex(database, mustBuildCalibrationDurationIndex(t, nil).context, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	estimate, err := index.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != 12_000 {
+		t.Fatalf("SQLite calibration estimate = %d, want exact-resource normal history 12000", estimate)
+	}
+	if index.HasSuccessfulCalibrationDurationEvidence(workload) {
+		t.Fatal("SQLite normal history was incorrectly promoted to calibration authority evidence")
+	}
+}
+
 func TestDurationLedgerSQLiteCompactsLargeRetentionScopeWithoutVariableOverflow(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, testDurationLedger(1)); err != nil {

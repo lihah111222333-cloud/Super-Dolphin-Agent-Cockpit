@@ -32,14 +32,14 @@ func TestCompileTimingIndexUsesRobustThreeGenerationMedian(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("EstimateMS() found=%t err=%v", found, err)
 	}
-	if got.DurationMS != 6_000 {
-		t.Fatalf("single sparse compile estimate = %d, want 6000", got.DurationMS)
+	if got.DurationMS != 1 {
+		t.Fatalf("observed compile estimate = %d, want generation median 1", got.DurationMS)
 	}
 	if err := got.Representative.Validate(); err != nil {
 		t.Fatalf("representative compile timing sample is not raw-valid: %v", err)
 	}
-	if got.Representative.DurationMS == got.DurationMS {
-		t.Fatal("robust estimate unexpectedly overwrote representative raw duration")
+	if got.Representative.DurationMS != got.DurationMS {
+		t.Fatal("observed compile estimate did not preserve its representative raw duration")
 	}
 	permuted, err := BuildCompileTimingIndex([]CompileTimingSample{samples[2], samples[0], samples[1]})
 	if err != nil {
@@ -70,8 +70,8 @@ func TestCompileTimingIndexLatestGenerationWeightAndNineDIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	got, found, err := index.EstimateMS(identity)
-	if err != nil || !found || got.DurationMS != 9_040 {
-		t.Fatalf("latest generation weighted estimate = %#v found=%t err=%v, want 9040 after confidence shrink", got, found, err)
+	if err != nil || !found || got.DurationMS != 100 {
+		t.Fatalf("latest generation weighted estimate = %#v found=%t err=%v, want observed weighted median 100", got, found, err)
 	}
 	if len(index.AcceptedGenerations) != 3 || len(index.Samples) != 5 {
 		t.Fatalf("retained generations=%v samples=%d, want [3 2 1]/5", index.AcceptedGenerations, len(index.Samples))
@@ -114,7 +114,7 @@ func TestCompileTimingIdentityRejectsCustomNormalClassWithCanonicalTuple(t *test
 	}
 }
 
-func TestCompileTimingIndexSparseNewestGenerationShrinksSinglePoint(t *testing.T) {
+func TestCompileTimingIndexSparseNewestGenerationUsesObservedSinglePoint(t *testing.T) {
 	identity := CompileTimingIdentity{
 		PackageTarget: "./internal/devtools/gate", SemanticKey: CompileGroupSemanticGoTestNormal,
 		Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "go1.26",
@@ -132,7 +132,7 @@ func TestCompileTimingIndexSparseNewestGenerationShrinksSinglePoint(t *testing.T
 	if err != nil || !found {
 		t.Fatalf("EstimateMS() found=%t err=%v", found, err)
 	}
-	if got.DurationMS != 12_200 {
-		t.Fatalf("sparse newest compile estimate = %d, want 12200 after confidence shrink", got.DurationMS)
+	if got.DurationMS != 1_000 {
+		t.Fatalf("sparse newest compile estimate = %d, want observed latest-generation value 1000", got.DurationMS)
 	}
 }

@@ -98,6 +98,56 @@ func TestDurationSampleIndexCalibrationUsesObservedCrossInputBelowBootstrap(t *t
 	}
 }
 
+// TestDurationSampleIndexCalibrationUsesExactResourceNormalHistory 验证校准任务没有校准样本时，
+// 先复用同平台、同 runner、同 toolchain、同 4C/8GiB 的 normal 实测历史；bootstrap 只用于历史全空。
+func TestDurationSampleIndexCalibrationUsesExactResourceNormalHistory(t *testing.T) {
+	workload := calibrationDurationWorkload("guard:calibration-normal-history", "b", 90_000)
+	index := mustBuildCalibrationDurationIndex(t, []DurationSample{
+		testDurationIndexSample(workload, DurationExecutionModeNormal, "medium", 4, 8, 12_000),
+	})
+	estimate, err := index.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != 12_000 {
+		t.Fatalf("calibration estimate = %d, want exact-resource normal history 12000", estimate)
+	}
+	if index.HasSuccessfulCalibrationDurationEvidence(workload) {
+		t.Fatal("normal history was incorrectly promoted to calibration authority evidence")
+	}
+}
+
+func TestDurationSampleIndexCalibrationHistoryPrecedesNormalFallback(t *testing.T) {
+	workload := calibrationDurationWorkload("guard:calibration-history-precedence", "b", 90_000)
+	index := mustBuildCalibrationDurationIndex(t, []DurationSample{
+		testDurationIndexSample(workload, DurationExecutionModeNormal, "medium", 4, 8, 12_000),
+		testDurationIndexSample(workload, DurationExecutionModeCalibration, "calibration", 4, 8, 9_000),
+	})
+	estimate, err := index.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != 9_000 || !index.HasSuccessfulCalibrationDurationEvidence(workload) {
+		t.Fatalf("calibration estimate = %d evidence=%t, want calibration history 9000", estimate, index.HasSuccessfulCalibrationDurationEvidence(workload))
+	}
+}
+
+// TestDurationSampleIndexCalibrationRejectsWrongResourceNormalHistory 锁定 normal 回退只能复用
+// 与固定 calibration tuple 完全相同的资源；错误规格不能替代冷启动预估。
+func TestDurationSampleIndexCalibrationRejectsWrongResourceNormalHistory(t *testing.T) {
+	workload := calibrationDurationWorkload("guard:calibration-wrong-resource", "b", 90_000)
+	index := mustBuildCalibrationDurationIndex(t, []DurationSample{
+		testDurationIndexSample(workload, DurationExecutionModeNormal, "small", 2, 4, 12_000),
+	})
+	estimate, err := index.EstimateWorkloadDurationMS(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != workload.BootstrapEstimateMS {
+		t.Fatalf("calibration estimate = %d, want cold bootstrap %d", estimate, workload.BootstrapEstimateMS)
+	}
+}
+
 // TestDurationSampleIndexNormalUsesCrossInputUpperBoundForResourceFixedPoint
 // 锁定 exact input 缺样本时仍沿同 workload/command/resource 的已知长尾规划。
 func TestDurationSampleIndexNormalUsesCrossInputUpperBoundForResourceFixedPoint(t *testing.T) {

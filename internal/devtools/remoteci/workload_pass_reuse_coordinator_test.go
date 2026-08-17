@@ -193,8 +193,8 @@ func TestCoordinatorRunPreparedRejectsPlanningOverheadIdentityDrift(t *testing.T
 
 	replaceCoordinatorPlanningOverhead(t, input)
 
-	if _, err := coordinator.RunPrepared(context.Background(), prepared); err == nil || !strings.Contains(err.Error(), "planning shard overhead identity drifted") {
-		t.Fatalf("RunPrepared() error = %v, want planning overhead identity drift", err)
+	if err := prepared.ReloadPlanningSnapshot(input.LedgerStore); err == nil || !strings.Contains(err.Error(), "planning shard overhead identity drifted") {
+		t.Fatalf("ReloadPlanningSnapshot() error = %v, want planning overhead identity drift", err)
 	}
 	if len(store.uploads) != 0 || len(store.deletePrefixes) != 0 || len(runtime.creates) != 0 {
 		t.Fatalf("planning drift caused remote side effects: uploads=%v deletes=%v creates=%v", store.uploads, store.deletePrefixes, runtime.creates)
@@ -208,7 +208,6 @@ func replaceCoordinatorPlanningOverhead(t *testing.T, input RunInput) {
 		t.Fatal("prepared planning snapshot has no accepted overhead")
 	}
 	replacement := *currentOverhead
-	replacement.CalibrationResourceClassID = "calibration-drift"
 	replacement.ProvenanceDigest = "sha256:" + strings.Repeat("e", 64)
 	sample := gate.ShardOrchestrationOverheadSample{
 		AcceptedGeneration:     replacement.AcceptedGeneration,

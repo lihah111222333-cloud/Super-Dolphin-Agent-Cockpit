@@ -120,8 +120,8 @@ func TestSuperDolphinGateHelpersAreRemovedBeforeCatalogExpansion(t *testing.T) {
 }
 
 func TestCanonicalGoTestHelperRegistryHasAllCurrentOwners(t *testing.T) {
-	if got := len(CanonicalGoTestHelperTargets()); got != 15 {
-		t.Fatalf("canonical helper registry count = %d, want 15", got)
+	if got := len(CanonicalGoTestHelperTargets()); got != 17 {
+		t.Fatalf("canonical helper registry count = %d, want 17", got)
 	}
 }
 

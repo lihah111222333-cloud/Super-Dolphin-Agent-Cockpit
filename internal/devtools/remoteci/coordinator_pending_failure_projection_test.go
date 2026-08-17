@@ -144,6 +144,7 @@ func remoteFailedExactGoRunResult(shard ShardResult, execution gate.PlanGateExec
 		AcceptedGeneration: 1, JobID: "job-failed-exact-go-projection", AgentTokenDigest: testRemoteAgentTokenDigest,
 		Entrypoint: gate.CIEntrypointGitPreCommit, Profile: gate.ProfileLocalFast, PlanDigest: testDurationDigest("b"),
 		SourceTreeSHA: strings.Repeat("f", 40), CandidateGateSourceSHA256: testDurationDigest("c"), CandidateGateToolchainSHA256: testDurationDigest("d"),
+		Platform: "linux/amd64", RunnerIdentityDigest: testDurationDigest("8"), ToolchainDigest: testDurationDigest("9"), ExecutionMode: gate.DurationExecutionModeNormal,
 		ImageCacheSnapshotID: "snapshot-1", RunnerImage: "ubuntu:22.04", Status: gate.ResultStatusFailed,
 		StartedAt: started, CompletedAt: started.Add(2 * time.Second), CleanupComplete: true,
 		Shards: []ShardResult{shard}, FreshWorkloadExecutions: []gate.PlanGateExecution{execution},

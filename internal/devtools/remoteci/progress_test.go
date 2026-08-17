@@ -177,6 +177,8 @@ func TestCoordinatorPrepareReportsInternalStages(t *testing.T) {
 		"reuse_source_input_cache_completed",
 		"reuse_source_vote_started",
 		"reuse_source_vote_completed",
+		"reuse_target_input_cache_started",
+		"reuse_target_input_cache_completed",
 		"reuse_environment_replay_started",
 		"reuse_environment_hint_query_started",
 		"reuse_environment_hint_query_completed",

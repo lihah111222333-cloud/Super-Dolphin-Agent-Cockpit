@@ -235,8 +235,8 @@ func partialPrepareE2EFailedRunAt(t *testing.T, fixture partialPrepareE2EFixture
 	result := RunResult{AcceptedGeneration: fixture.input.AcceptedGeneration, JobID: fmt.Sprintf("job-partial-prepare-%d", failureIndex), AgentTokenDigest: fixture.input.AgentTokenDigest,
 		Entrypoint: gate.CIEntrypointGitPreCommit, Profile: fixture.input.Profile, PlanDigest: fixture.plan.PlanDigest, SourceTreeSHA: fixture.input.Tree,
 		CandidateGateSourceSHA256: fixture.input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: fixture.input.CandidateGateToolchainSHA256,
-		ImageCacheSnapshotID: fixture.input.ImageCacheSnapshotID, RunnerImage: fixture.input.RunnerImage, RunnerIdentityDigest: fixture.input.RunnerIdentityDigest,
-		ToolchainDigest: fixture.input.ToolchainDigest, Status: gate.ResultStatusFailed, StartedAt: started, CompletedAt: started.Add(2 * time.Second),
+		ImageCacheSnapshotID: fixture.input.ImageCacheSnapshotID, RunnerImage: fixture.input.RunnerImage, Platform: fixture.input.Platform, RunnerIdentityDigest: fixture.input.RunnerIdentityDigest,
+		ToolchainDigest: fixture.input.ToolchainDigest, ExecutionMode: gate.DurationExecutionModeNormal, Status: gate.ResultStatusFailed, StartedAt: started, CompletedAt: started.Add(2 * time.Second),
 		CleanupComplete: true, Shards: []ShardResult{shard}, WorkloadExecutions: executions,
 		FreshWorkloadExecutions: executions, WorkloadPassIdentities: fixture.identities}
 	recordPartialResultsCatalog(t, fixture.input.LedgerStore, &result, fixture.catalog, started)
@@ -260,8 +260,8 @@ func partialPrepareE2EOnePassRun(t *testing.T, fixture partialPrepareE2EFixture,
 	result := RunResult{AcceptedGeneration: fixture.input.AcceptedGeneration, JobID: "job-partial-prepare-miss-pass", AgentTokenDigest: fixture.input.AgentTokenDigest,
 		Entrypoint: gate.CIEntrypointGitPreCommit, Profile: fixture.input.Profile, PlanDigest: fixture.plan.PlanDigest, SourceTreeSHA: fixture.input.Tree,
 		CandidateGateSourceSHA256: fixture.input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: fixture.input.CandidateGateToolchainSHA256,
-		ImageCacheSnapshotID: fixture.input.ImageCacheSnapshotID, RunnerImage: fixture.input.RunnerImage, RunnerIdentityDigest: fixture.input.RunnerIdentityDigest,
-		ToolchainDigest: fixture.input.ToolchainDigest, Status: gate.ResultStatusFailed, StartedAt: started, CompletedAt: started.Add(time.Second),
+		ImageCacheSnapshotID: fixture.input.ImageCacheSnapshotID, RunnerImage: fixture.input.RunnerImage, Platform: fixture.input.Platform, RunnerIdentityDigest: fixture.input.RunnerIdentityDigest,
+		ToolchainDigest: fixture.input.ToolchainDigest, ExecutionMode: gate.DurationExecutionModeNormal, Status: gate.ResultStatusFailed, StartedAt: started, CompletedAt: started.Add(time.Second),
 		CleanupComplete: true, Shards: []ShardResult{shard}, WorkloadExecutions: []gate.PlanGateExecution{execution},
 		FreshWorkloadExecutions: []gate.PlanGateExecution{execution}, WorkloadPassIdentities: []gate.WorkloadPassIdentity{fixture.identities[workloadIndex]}}
 	recordPartialResultsCatalog(t, fixture.input.LedgerStore, &result, fixture.catalog, started)
