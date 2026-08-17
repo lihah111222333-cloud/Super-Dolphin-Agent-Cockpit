@@ -103,6 +103,17 @@ func TestCompileTimingIndexLatestGenerationWeightAndNineDIdentity(t *testing.T) 
 	}
 }
 
+func TestCompileTimingIdentityRejectsCustomNormalClassWithCanonicalTuple(t *testing.T) {
+	identity := CompileTimingIdentity{
+		PackageTarget: "./internal/devtools/gate", SemanticKey: CompileGroupSemanticGoTestNormal,
+		Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "go1.26",
+		ExecutionMode: DurationExecutionModeNormal, ResourceClassID: "custom", ResourceCPU: 2, ResourceMemoryGiB: 4,
+	}
+	if err := identity.Validate(); err == nil {
+		t.Fatal("CompileTimingIdentity accepted custom normal class with canonical tuple")
+	}
+}
+
 func TestCompileTimingIndexSparseNewestGenerationShrinksSinglePoint(t *testing.T) {
 	identity := CompileTimingIdentity{
 		PackageTarget: "./internal/devtools/gate", SemanticKey: CompileGroupSemanticGoTestNormal,

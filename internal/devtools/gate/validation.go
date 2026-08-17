@@ -37,6 +37,21 @@ func DecodeStrictJSON(data []byte, target Validatable) error {
 	return target.Validate()
 }
 
+// DecodeCanonicalStrictJSON 在 strict 解码和完整校验后拒绝字段大小写别名、重复键及非规范字节。
+func DecodeCanonicalStrictJSON(data []byte, target Validatable) error {
+	if err := DecodeStrictJSON(data, target); err != nil {
+		return err
+	}
+	canonical, err := json.Marshal(target)
+	if err != nil {
+		return fmt.Errorf("marshal canonical strict JSON: %w", err)
+	}
+	if !bytes.Equal(canonical, data) {
+		return errors.New("strict JSON is not canonical")
+	}
+	return nil
+}
+
 func ensureJSONEOF(decoder *json.Decoder) error {
 	var trailing any
 	err := decoder.Decode(&trailing)

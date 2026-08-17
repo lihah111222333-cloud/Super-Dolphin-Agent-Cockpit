@@ -13,6 +13,34 @@ func validateRemoteCIRunRecord(record RemoteCIRunRecord) error {
 	if err := validateRemoteCIRunIdentity(record); err != nil {
 		return err
 	}
+	return validateRemoteCIRunRecordDetails(record)
+}
+
+func validateRetainedConsumerCorrectnessRecord(record RemoteCIRunRecord) error {
+	if err := validateRemoteCIRunIdentityWithoutExecutionIdentity(record); err != nil {
+		return err
+	}
+	return validateRetainedConsumerCorrectnessDetails(record)
+}
+
+func validateRetainedConsumerCorrectnessDetails(record RemoteCIRunRecord) error {
+	for _, validate := range []func(RemoteCIRunRecord) error{
+		validateRemoteCIRunShards,
+		func(record RemoteCIRunRecord) error { return validateRemoteCIRunExecutions(record.Executions) },
+		func(record RemoteCIRunRecord) error {
+			return validateRemoteCIRunWorkloadExecutions(record.WorkloadExecutions)
+		},
+		func(record RemoteCIRunRecord) error { return validateRemoteCIWorkloadResults(record.WorkloadResults) },
+		validateRemoteCIRunWarnings,
+	} {
+		if err := validate(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRemoteCIRunRecordDetails(record RemoteCIRunRecord) error {
 	if err := validateRemoteCIRunShards(record); err != nil {
 		return err
 	}
@@ -155,6 +183,22 @@ func validateRemoteCIRunIdentity(record RemoteCIRunRecord) error {
 		validateRemoteCIRunAgentTokenDigest,
 		validateRemoteCIRunCatalogDigest,
 		validateRemoteCIRunExecutionIdentity,
+		validateRemoteCIRunStatus,
+	} {
+		if err := validate(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRemoteCIRunIdentityWithoutExecutionIdentity(record RemoteCIRunRecord) error {
+	for _, validate := range []func(RemoteCIRunRecord) error{
+		validateRemoteCIRunRequiredFields,
+		validateRemoteCIRunEntrypoint,
+		validateRemoteCIRunTiming,
+		validateRemoteCIRunAgentTokenDigest,
+		validateRemoteCIRunCatalogDigest,
 		validateRemoteCIRunStatus,
 	} {
 		if err := validate(record); err != nil {
@@ -315,7 +359,7 @@ func validateRemoteCIRunShards(record RemoteCIRunRecord) error {
 	seenWorkloads := make(map[GateID]string)
 	uncreatedWorkloads := make(map[GateID]string)
 	for _, shard := range record.Shards {
-		if err := validateRemoteCIShardEvidence(record.Status, record.Authoritative, shard, uncreatedWorkloads); err != nil {
+		if err := validateRemoteCIShardEvidence(record.ExecutionMode, record.Status, record.Authoritative, shard, uncreatedWorkloads); err != nil {
 			return err
 		}
 		if err := validateRemoteCIShardWorkloads(shard, seenWorkloads); err != nil {
@@ -326,7 +370,7 @@ func validateRemoteCIRunShards(record RemoteCIRunRecord) error {
 }
 
 // validateRemoteCIShardEvidence 校验分片身份、物化证据及失败终态允许的未创建占位。
-func validateRemoteCIShardEvidence(status ResultStatus, authoritative bool, shard RemoteCIShardRecord, uncreatedWorkloads map[GateID]string) error {
+func validateRemoteCIShardEvidence(executionMode string, status ResultStatus, authoritative bool, shard RemoteCIShardRecord, uncreatedWorkloads map[GateID]string) error {
 	if strings.TrimSpace(shard.ShardIdentity) == "" || strings.TrimSpace(shard.ContainerStatus) == "" {
 		return errors.New("remote CI shard identity and status are required")
 	}
@@ -334,7 +378,10 @@ func validateRemoteCIShardEvidence(status ResultStatus, authoritative bool, shar
 		return errors.New("remote CI shard materialization timing is invalid")
 	}
 	if !remoteCIShardWasNotCreated(shard) {
-		return validateRemoteCIShardResources(status, authoritative, shard)
+		return validateRemoteCIShardResources(executionMode, status, authoritative, shard)
+	}
+	if shard.Resources != (RemoteCIShardResources{}) {
+		return fmt.Errorf("remote CI uncreated shard %q must not carry resource evidence", shard.ShardIdentity)
 	}
 	if status == ResultStatusPassed || status == ResultStatusPassedStalePolicy {
 		return fmt.Errorf("remote CI %s run cannot contain uncreated shard %q", status, shard.ShardIdentity)
@@ -346,11 +393,17 @@ func validateRemoteCIShardEvidence(status ResultStatus, authoritative bool, shar
 }
 
 // validateRemoteCIShardResources 校验实际资源规格；失败 provisional 可保留未观察到的空资源证据。
-func validateRemoteCIShardResources(status ResultStatus, authoritative bool, shard RemoteCIShardRecord) error {
+func validateRemoteCIShardResources(executionMode string, status ResultStatus, authoritative bool, shard RemoteCIShardRecord) error {
 	if remoteCIShardResourcesMissingAllowed(status, authoritative, shard) {
 		return nil
 	}
-	if err := shard.Resources.Validate(); err != nil {
+	var err error
+	if strings.TrimSpace(executionMode) == "" {
+		err = shard.Resources.Validate()
+	} else {
+		err = shard.Resources.ValidateForExecutionMode(executionMode)
+	}
+	if err != nil {
 		return fmt.Errorf("remote CI shard resources are invalid: %w", err)
 	}
 	return nil
@@ -364,7 +417,7 @@ func remoteCIShardResourcesMissingAllowed(status ResultStatus, authoritative boo
 	if remoteCIShardWasNotCreated(shard) {
 		return true
 	}
-	return shard.ContainerGroup != "" && shard.Resources == (RemoteCIShardResources{})
+	return shard.ContainerGroup != "" && shard.remoteCIResourceEvidenceMissing()
 }
 
 func validateRemoteCIShardWorkloads(shard RemoteCIShardRecord, seenWorkloads map[GateID]string) error {

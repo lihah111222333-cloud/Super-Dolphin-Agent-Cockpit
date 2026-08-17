@@ -150,7 +150,7 @@ func ordinaryCompilePlanningUnit(item PlannedWorkload, context PlanningContext) 
 	if err != nil {
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q: %w", item.Workload.ID, err)
 	}
-	resourceClassID, err := checkedNormalCompileResourceClass(tier)
+	resourceClassID, err := normalCompileResourceClass(tier)
 	if err != nil {
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q resource class: %w", item.Workload.ID, err)
 	}
@@ -592,7 +592,7 @@ func compileGroupResourceClass(partition []compilePlanningSelector, context Plan
 			return "", errors.New("compile planning partition mixes normal resource tiers")
 		}
 	}
-	return checkedNormalCompileResourceClass(tier)
+	return normalCompileResourceClass(tier)
 }
 
 func plannedWorkloads(selectors []compilePlanningSelector) []PlannedWorkload {

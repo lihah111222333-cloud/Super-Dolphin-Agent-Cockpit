@@ -45,6 +45,38 @@ func TestDecodeShardRequestRejectsUnknownTopLevelField(t *testing.T) {
 	}
 }
 
+func TestDecodeShardRequestRejectsCaseAliasesAndDuplicates(t *testing.T) {
+	data, _, err := EncodeShardRequest(testSourceBundleShardRequest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := fmt.Sprintf(`"schema_version":%d`, ShardRequestSchemaVersion)
+	alias := fmt.Sprintf(`"SCHEMA_VERSION":%d`, ShardRequestSchemaVersion)
+	caseAlias := []byte(strings.Replace(string(data), field, alias, 1))
+	caseDuplicate := append(append([]byte(nil), data[:len(data)-1]...), []byte(","+alias+"}")...)
+	for name, forged := range map[string][]byte{"case alias": caseAlias, "case duplicate": caseDuplicate} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeShardRequest(forged); err == nil {
+				t.Fatal("DecodeShardRequest accepted non-canonical field casing")
+			}
+		})
+	}
+}
+
+func TestDecodeShardRequestRejectsUnknownPlainGateID(t *testing.T) {
+	if err := validateGateIDs([]gate.GateID{gate.GateIDWhitespaceCheck, "bogus"}); err == nil {
+		t.Fatal("ShardRequest validation accepted unknown plain gate ID")
+	}
+}
+
+func TestShardRequestRejectsExpansionParentsBeforeRemoteSideEffects(t *testing.T) {
+	for _, id := range []gate.GateID{gate.GateIDFrontendPreflight, gate.GateIDBackendNilness} {
+		if err := validateGateIDs([]gate.GateID{id}); err == nil {
+			t.Fatalf("current ShardRequest accepted expansion parent %q", id)
+		}
+	}
+}
+
 func TestShardRequestRejectsLegacyAndUnknownSchemaVersions(t *testing.T) {
 	valid := testSourceBundleShardRequest(t)
 	for _, version := range []uint32{14, 16} {
@@ -231,5 +263,13 @@ func TestShardRequestRejectsUnregisteredNormalResourceShape(t *testing.T) {
 	request.ResourceClass = shardresource.Class{ID: "custom", VCPU: 3, MemoryGiB: 6}
 	if err := request.Validate(); err == nil {
 		t.Fatal("request accepted a normal resource shape outside the fixed ECI tiers")
+	}
+}
+
+func TestShardRequestRejectsCustomNormalClassWithCanonicalTuple(t *testing.T) {
+	request := testSourceBundleShardRequest(t)
+	request.ResourceClass = shardresource.Class{ID: "custom", VCPU: 2, MemoryGiB: 4}
+	if err := request.Validate(); err == nil {
+		t.Fatal("request accepted a custom normal class ID with the canonical 2C/4GiB tuple")
 	}
 }

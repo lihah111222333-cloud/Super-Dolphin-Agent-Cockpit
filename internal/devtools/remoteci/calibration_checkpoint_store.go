@@ -31,6 +31,7 @@ type calibrationScenarioState struct {
 }
 
 type calibrationCheckpointInput struct {
+	OwnerIdentity                string                         `json:"owner_identity"`
 	AgentTokenDigest             string                         `json:"agent_token_digest"`
 	AcceptedGeneration           uint64                         `json:"accepted_generation"`
 	ImageCacheSnapshotID         string                         `json:"image_cache_snapshot_id"`
@@ -59,6 +60,7 @@ func (input *calibrationCheckpointInput) Validate() error {
 }
 
 type calibrationCheckpointResult struct {
+	OwnerIdentity                string                      `json:"owner_identity"`
 	AgentTokenDigest             string                      `json:"agent_token_digest"`
 	AcceptedGeneration           uint64                      `json:"accepted_generation"`
 	ImageCacheSnapshotID         string                      `json:"image_cache_snapshot_id"`
@@ -170,7 +172,11 @@ func (checkpoint *CalibrationCheckpoint) Observe(scenario string, input RunInput
 		return err
 	}
 	if completed {
-		if err := validateCompletedCalibrationCheckpoint(*compactCalibrationCheckpointInput(input), *compactCalibrationCheckpointResult(result)); err != nil {
+		checkpointInput := compactCalibrationCheckpointInput(input)
+		checkpointResult := compactCalibrationCheckpointResult(result)
+		checkpointInput.OwnerIdentity = checkpoint.identity
+		checkpointResult.OwnerIdentity = checkpoint.identity
+		if err := validateCompletedCalibrationCheckpoint(*checkpointInput, *checkpointResult); err != nil {
 			return err
 		}
 	}
@@ -195,6 +201,9 @@ func (checkpoint *CalibrationCheckpoint) validateObservation(scenario string, in
 	if input.AcceptedGeneration != checkpoint.acceptedGeneration || result.AcceptedGeneration != checkpoint.acceptedGeneration {
 		return errors.New("calibration checkpoint execution accepted generation does not match authority")
 	}
+	if input.AgentTokenDigest != checkpoint.agentTokenDigest || result.AgentTokenDigest != checkpoint.agentTokenDigest {
+		return errors.New("calibration checkpoint execution agent token digest does not match authority")
+	}
 	return nil
 }
 
@@ -208,6 +217,8 @@ func (checkpoint *CalibrationCheckpoint) completeResumedScenario(document calibr
 	state.Completed = true
 	state.Input = compactCalibrationCheckpointInput(input)
 	state.Result = compactCalibrationCheckpointResult(result)
+	state.Input.OwnerIdentity = checkpoint.identity
+	state.Result.OwnerIdentity = checkpoint.identity
 	return checkpoint.compareAndSwapScenario(scenario, &previous, state)
 }
 
@@ -217,6 +228,8 @@ func (checkpoint *CalibrationCheckpoint) saveObservedScenario(document calibrati
 	if completed {
 		state.Input = compactCalibrationCheckpointInput(input)
 		state.Result = compactCalibrationCheckpointResult(result)
+		state.Input.OwnerIdentity = checkpoint.identity
+		state.Result.OwnerIdentity = checkpoint.identity
 	}
 	previous, exists := document.Scenarios[scenario]
 	if !exists {
@@ -348,21 +361,40 @@ func (result calibrationCheckpointResult) expand() RunResult {
 // validateCalibrationCheckpointDocument 验证所有场景的持久化状态和完整身份。
 func validateCalibrationCheckpointDocument(document calibrationCheckpointDocument) error {
 	for scenario, state := range document.Scenarios {
-		if strings.TrimSpace(scenario) == "" || !state.Started {
-			return errors.New("calibration checkpoint contains invalid scenario state")
+		if err := validateCalibrationCheckpointScenario(document.Identity, scenario, state); err != nil {
+			return err
 		}
-		if !state.Completed {
-			if state.Input != nil || state.Result != nil {
-				return fmt.Errorf("calibration checkpoint scenario %q retained partial execution payload", scenario)
-			}
-			continue
+	}
+	return nil
+}
+
+// validateCalibrationCheckpointScenario 校验单个场景的状态、owner 和完成载荷。
+func validateCalibrationCheckpointScenario(identity, scenario string, state calibrationScenarioState) error {
+	if strings.TrimSpace(scenario) == "" || !state.Started {
+		return errors.New("calibration checkpoint contains invalid scenario state")
+	}
+	if !state.Completed {
+		if state.Input != nil || state.Result != nil {
+			return fmt.Errorf("calibration checkpoint scenario %q retained partial execution payload", scenario)
 		}
-		if state.Input == nil || state.Result == nil {
-			return fmt.Errorf("calibration checkpoint scenario %q completed without identity", scenario)
-		}
-		if err := validateCompletedCalibrationCheckpoint(*state.Input, *state.Result); err != nil {
-			return fmt.Errorf("calibration checkpoint scenario %q: %w", scenario, err)
-		}
+		return nil
+	}
+	if state.Input == nil || state.Result == nil {
+		return fmt.Errorf("calibration checkpoint scenario %q completed without identity", scenario)
+	}
+	if err := validateCalibrationCheckpointScenarioOwner(identity, *state.Input, *state.Result); err != nil {
+		return fmt.Errorf("calibration checkpoint scenario %q: %w", scenario, err)
+	}
+	if err := validateCompletedCalibrationCheckpoint(*state.Input, *state.Result); err != nil {
+		return fmt.Errorf("calibration checkpoint scenario %q: %w", scenario, err)
+	}
+	return nil
+}
+
+// validateCalibrationCheckpointScenarioOwner 校验场景载荷来自当前 checkpoint owner。
+func validateCalibrationCheckpointScenarioOwner(identity string, input calibrationCheckpointInput, result calibrationCheckpointResult) error {
+	if input.OwnerIdentity != identity || result.OwnerIdentity != identity {
+		return errors.New("calibration checkpoint scenario owner identity does not match document")
 	}
 	return nil
 }

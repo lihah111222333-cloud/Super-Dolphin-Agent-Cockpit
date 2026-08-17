@@ -3,7 +3,6 @@ package gate
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -127,8 +126,14 @@ func (observation TimingObservation) validateCompileGroupResources() error {
 	if err := validateCompileExecutionMode(observation.CompileExecutionMode); err != nil {
 		return err
 	}
-	if err := validateCompileResourceShape(observation.CompileResourceCPU, observation.CompileResourceMemoryGiB); err != nil {
-		return err
+	if observation.CompileExecutionMode == DurationExecutionModeCalibration {
+		if err := cicontract.ValidateCalibrationResources(observation.CompileResourceClassID, observation.CompileResourceCPU, observation.CompileResourceMemoryGiB); err != nil {
+			return fmt.Errorf("compile group timing calibration resources: %w", err)
+		}
+		return nil
+	}
+	if err := cicontract.ValidateNormalResourceIdentity(observation.CompileResourceClassID, observation.CompileResourceCPU, observation.CompileResourceMemoryGiB); err != nil {
+		return fmt.Errorf("compile group timing normal resources: %w", err)
 	}
 	return nil
 }
@@ -136,13 +141,6 @@ func (observation TimingObservation) validateCompileGroupResources() error {
 func validateCompileExecutionMode(mode string) error {
 	if mode != DurationExecutionModeNormal && mode != DurationExecutionModeCalibration {
 		return errors.New("compile group timing execution mode is invalid")
-	}
-	return nil
-}
-
-func validateCompileResourceShape(cpu, memoryGiB float64) error {
-	if cpu <= 0 || memoryGiB <= 0 || math.IsNaN(cpu) || math.IsInf(cpu, 0) || math.IsNaN(memoryGiB) || math.IsInf(memoryGiB, 0) {
-		return errors.New("compile group timing resource evidence is invalid")
 	}
 	return nil
 }

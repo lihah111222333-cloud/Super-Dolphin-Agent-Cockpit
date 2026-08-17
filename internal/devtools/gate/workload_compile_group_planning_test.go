@@ -731,13 +731,13 @@ func compileOverTargetSamples(t *testing.T, parent Workload, workloads []Workloa
 	t.Helper()
 	samples := []DurationSample{
 		compileDurationSample(parent.ID, parent.CommandDigest, inputDigest, 130_000, "small", 2, 4),
-		compileDurationSample(parent.ID, parent.CommandDigest, inputDigest, 130_000, "large", 8, 16),
+		compileDurationSample(parent.ID, parent.CommandDigest, inputDigest, 130_000, "maximum", 8, 16),
 	}
 	for _, workload := range workloads {
 		samples = append(samples, compileDurationSample(workload.ID, workload.CommandDigest, inputDigest, 130_000, "small", 2, 4))
-		samples = append(samples, compileDurationSample(workload.ID, workload.CommandDigest, inputDigest, 130_000, "large", 8, 16))
+		samples = append(samples, compileDurationSample(workload.ID, workload.CommandDigest, inputDigest, 130_000, "maximum", 8, 16))
 		target := compileSelectorTarget(t, workload)
-		targetSample := compileDurationSample(GoTestDurationWorkloadID(parent.ID, target.Name), GoTestDurationCommandDigest(parent.CommandDigest, target.Name), inputDigest, 10_000, "large", 8, 16)
+		targetSample := compileDurationSample(GoTestDurationWorkloadID(parent.ID, target.Name), GoTestDurationCommandDigest(parent.CommandDigest, target.Name), inputDigest, 10_000, "maximum", 8, 16)
 		targetSample.TargetKind = WorkloadKindGoTest
 		targetSample.ParentWorkloadID = parent.ID
 		targetSample.ParentCommandDigest = parent.CommandDigest
@@ -755,7 +755,7 @@ func compileTestNormalResourceForDuration(durationMS int64) (string, float64, fl
 	case durationMS <= 70_000:
 		return "medium", 4, 8
 	default:
-		return "large", 8, 16
+		return "maximum", 8, 16
 	}
 }
 

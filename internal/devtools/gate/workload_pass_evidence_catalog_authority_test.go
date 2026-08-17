@@ -122,6 +122,8 @@ func newSelectedCatalogAuthorityFixture(t *testing.T, store *DurationLedgerStore
 		ImageCacheSnapshotID: "snapshot-1", PlanDigest: plan.PlanDigest, CatalogDigest: catalogDigest,
 		SourceTreeSHA: treeSHA, CandidateGateSourceSHA256: digestForWorkloadPass("gate-source-" + jobID),
 		CandidateGateToolchainSHA256: digestForWorkloadPass("gate-toolchain-" + jobID), RunnerImage: "ubuntu:22.04",
+		Platform: cicontract.TargetPlatform, RunnerIdentityDigest: digestForWorkloadPass("runner-" + jobID),
+		ToolchainDigest: digestForWorkloadPass("toolchain-" + jobID), ExecutionMode: DurationExecutionModeNormal,
 		Status: ResultStatusPassed, CleanupComplete: true, StartedAt: now, CompletedAt: now.Add(2 * time.Minute),
 		Shards: shards, WorkloadExecutions: executions, WorkloadResults: results, TimingObservations: timings,
 	}
@@ -182,7 +184,7 @@ func selectedCatalogWorkloadRecords(
 		ShardIdentity: shardIdentity, ContainerGroup: fmt.Sprintf("eci-%s-%d", jobID, index),
 		ContainerStatus: "Succeeded", Workloads: []GateID{workloadID},
 		MaterializationTiming: measuredShardMaterializationTiming(shardIdentity),
-		Resources:             RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8},
+		Resources:             RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8},
 	}
 	identity := WorkloadPassIdentity{
 		WorkloadID: workloadID, ExecutionDigest: digestForWorkloadPass("execution-" + string(workloadID)),

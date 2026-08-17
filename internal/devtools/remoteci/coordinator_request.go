@@ -198,7 +198,7 @@ func validateProjectedCompileGroupCoverage(gateIDs []gate.GateID, grouped map[ga
 const (
 	remoteShardPrivateCachePath    = "/workspace/work/go-cache"
 	remoteShardCacheMetricsMarker  = "{{CACHE_METRICS_PATH}}"
-	remoteShardBootstrapVolumeName = "bootstrap-config"
+	remoteShardBootstrapVolumeName = cicontract.ECIBootstrapConfigVolumeName
 	remoteShardBootstrapMountPath  = "/run/super-dolphin/bootstrap"
 	remoteShardBootstrapFilePath   = "bootstrap.sh"
 	remoteShardBootstrapPath       = remoteShardBootstrapMountPath + "/" + remoteShardBootstrapFilePath
@@ -219,7 +219,7 @@ chmod 0700 "$private_cache" "$private_mod_cache"
 "$accepted_gate" worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache "$private_mod_cache"
 started="$(date +%s%3N)"
 cd /workspace/source
-cache_proxy="$accepted_gate worker go-cache-proxy --seed /opt/super-dolphin/cache/go-build --private $private_cache --metrics $cache_metrics"
+cache_proxy="$accepted_gate worker go-cache-proxy --seed ` + cicontract.AcceptedBaselineOCIProjectCachePath + ` --private $private_cache --metrics $cache_metrics"
 gate_ldflags="-X main.gateSourceDigest=$candidate_gate_source -X main.gateToolchainDigest=$candidate_gate_toolchain"
 env GOCACHE="$private_cache" GOCACHEPROG="$cache_proxy" GOMODCACHE="$private_mod_cache" GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH=amd64 /usr/local/go/bin/go build -mod=mod -trimpath -buildvcs=false -ldflags "$gate_ldflags" -o "$built_gate" ./cmd/super-dolphin-gate
 test -x "$built_gate"
@@ -291,16 +291,16 @@ func (coordinator *Coordinator) createRequest(
 		},
 	}
 	initMounts := []eci.VolumeMount{
-		{Name: "source-data", MountPath: gate.ExecutorSourcePath},
-		{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
-		{Name: "temp-data", MountPath: remoteWritableTempMountPath},
+		{Name: cicontract.ECISourceVolumeName, MountPath: gate.ExecutorSourcePath},
+		{Name: cicontract.ECIWorkVolumeName, MountPath: gate.ExecutorWorkRoot},
+		{Name: cicontract.ECITempVolumeName, MountPath: remoteWritableTempMountPath},
 		{Name: remoteShardBootstrapVolumeName, MountPath: remoteShardBootstrapMountPath, ReadOnly: true},
 	}
 	mainEnvironment := remoteWorkerEnvironment(coordinator.config.WorkerTimeout, input.AgentTokenDigest)
 	mainMounts := []eci.VolumeMount{
-		{Name: "source-data", MountPath: gate.ExecutorSourcePath, ReadOnly: true},
-		{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
-		{Name: "temp-data", MountPath: remoteWritableTempMountPath},
+		{Name: cicontract.ECISourceVolumeName, MountPath: gate.ExecutorSourcePath, ReadOnly: true},
+		{Name: cicontract.ECIWorkVolumeName, MountPath: gate.ExecutorWorkRoot},
+		{Name: cicontract.ECITempVolumeName, MountPath: remoteWritableTempMountPath},
 	}
 	return eci.CreateRequest{
 		ContainerGroupName: groupName, ContainerName: "worker",
@@ -308,6 +308,8 @@ func (coordinator *Coordinator) createRequest(
 		MainImage:            input.ExecutionRunnerImage,
 		InitImage:            input.ExecutionRunnerImage,
 		ImageCacheOnly:       input.ImageCacheOnly,
+		ResourceClassID:      resources.ID,
+		ExecutionMode:        remoteExecutionMode(input.Calibration),
 		Resources:            eci.Resources{CPU: resources.VCPU, MemoryGiB: resources.MemoryGiB},
 		Command:              remoteWorkerSupervisorCommand(gate.ExecutorWorkRoot + "/bin/super-dolphin-gate"),
 		Args: []string{
@@ -318,9 +320,9 @@ func (coordinator *Coordinator) createRequest(
 		Environment:   mainEnvironment,
 		Tags:          map[string]string{"super-dolphin-job": jobID, "super-dolphin-shard": fmt.Sprintf("%d", shard.Index)},
 		InitContainer: initContainer,
-		SourceVolume:  eci.EmptyDirVolume{Name: "source-data"},
-		WorkVolume:    eci.EmptyDirVolume{Name: "work-data"},
-		TempVolume:    eci.EmptyDirVolume{Name: "temp-data"},
+		SourceVolume:  eci.EmptyDirVolume{Name: cicontract.ECISourceVolumeName},
+		WorkVolume:    eci.EmptyDirVolume{Name: cicontract.ECIWorkVolumeName},
+		TempVolume:    eci.EmptyDirVolume{Name: cicontract.ECITempVolumeName},
 		ConfigFileVolumes: []eci.ConfigFileVolume{{
 			Name:        remoteShardBootstrapVolumeName,
 			DefaultMode: eci.ConfigFileVolumeSafeMode,
@@ -335,6 +337,13 @@ func (coordinator *Coordinator) createRequest(
 	}
 }
 
+func remoteExecutionMode(calibration bool) string {
+	if calibration {
+		return cicontract.ExecutionModeCalibration
+	}
+	return cicontract.ExecutionModeNormal
+}
+
 // validateShardResourceBinding 确保请求声明的实际资源类与 ECI 规格严格一致。
 // 校准模式还必须绑定固定规格，normal 不得夹带 calibration_resource。
 func validateShardResourceBinding(resources shardresource.Class, request ShardRequest) error {
@@ -342,7 +351,7 @@ func validateShardResourceBinding(resources shardresource.Class, request ShardRe
 		return errors.New("remote shard request resource_class drifted")
 	}
 	if !request.Calibration {
-		if err := cicontract.ValidateNormalResources(resources.VCPU, resources.MemoryGiB); err != nil {
+		if err := cicontract.ValidateNormalResourceIdentity(resources.ID, resources.VCPU, resources.MemoryGiB); err != nil {
 			return fmt.Errorf("normal shard request resources: %w", err)
 		}
 		if request.CalibrationResource != nil {

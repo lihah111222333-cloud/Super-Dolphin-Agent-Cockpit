@@ -3,7 +3,6 @@ package gate
 import (
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -31,7 +30,7 @@ func requireHistoricallyAcceptedGeneration(transaction *sql.Tx, generation uint6
 }
 
 // currentAcceptedBaselineGeneration 从内容摘要已复核的基线状态读取当前代。
-func currentAcceptedBaselineGeneration(transaction *sql.Tx) (uint64, error) {
+func currentAcceptedBaselineGeneration(transaction sqliteRowQueryer) (uint64, error) {
 	var schemaVersion uint32
 	var storedGeneration, stateJSON, stateSHA256 string
 	err := transaction.QueryRow(`SELECT schema_version, generation, state_json, state_sha256 FROM ci_remote_baseline_state WHERE singleton = 1`).Scan(&schemaVersion, &storedGeneration, &stateJSON, &stateSHA256)
@@ -52,8 +51,8 @@ func currentAcceptedBaselineGeneration(transaction *sql.Tx) (uint64, error) {
 }
 
 // validateAcceptedBaselineStateProjection 在查找逻辑信任代际或 ECI 快照前，
-// 以存储的内容摘要复核持久化基线 JSON。完整 BaselineState 解码仍位于 remoteci 写入边界；
-// 此读取侧投影刻意不接受更弱的身份校验。
+// 以存储的内容摘要复核持久化基线 JSON，并使用 cicontract 的完整 canonical
+// BaselineState owner，避免读取侧把投影字段当作第二真值源。
 func validateAcceptedBaselineStateProjection(stateJSON, stateSHA256 string, generation uint64) (string, error) {
 	if strings.TrimSpace(stateJSON) == "" || strings.TrimSpace(stateSHA256) == "" {
 		return "", errors.New("accepted baseline generation authority is invalid")
@@ -62,23 +61,14 @@ func validateAcceptedBaselineStateProjection(stateJSON, stateSHA256 string, gene
 	if stateSHA256 != fmt.Sprintf("sha256:%x", digest) {
 		return "", errors.New("accepted baseline state JSON SHA-256 does not match authority")
 	}
-	var projection struct {
-		SchemaVersion        uint32 `json:"schema_version"`
-		Generation           uint64 `json:"generation"`
-		ExecutionProvider    string `json:"execution_provider"`
-		RegionID             string `json:"region_id"`
-		ImageCacheSnapshotID string `json:"image_cache_snapshot_id"`
+	state, err := cicontract.DecodeAcceptedBaselineState([]byte(stateJSON))
+	if err != nil {
+		return "", err
 	}
-	if err := json.Unmarshal([]byte(stateJSON), &projection); err != nil {
-		return "", fmt.Errorf("decode accepted baseline state projection: %w", err)
+	if state.Generation != generation {
+		return "", errors.New("accepted baseline state does not bind generation and image cache snapshot")
 	}
-	if err := cicontract.ValidateAcceptedBaselineProjection(projection.SchemaVersion, projection.ExecutionProvider, projection.RegionID); err != nil {
-		return "", fmt.Errorf("accepted baseline state projection: %w", err)
-	}
-	if projection.Generation != generation || strings.TrimSpace(projection.ImageCacheSnapshotID) == "" {
-		return "", errors.New("accepted baseline state projection does not bind generation and image cache snapshot")
-	}
-	return projection.ImageCacheSnapshotID, nil
+	return state.ImageCacheSnapshotID, nil
 }
 
 const retentionStaleGenerationsTable = "retention_stale_generations"
@@ -91,31 +81,19 @@ type retentionGeneration struct {
 // validateRetentionRootBindings 约束七个历史根同属一个代际压缩事务，
 // 并拒绝把仅供消费方使用的 v16 proof 辅助投影替代 ci_runs 根。
 func validateRetentionRootBindings(bindings []cicontract.RetentionRootBinding) error {
-	expected := map[string]struct{}{
-		cicontract.DurationSamplesTable:              {},
-		cicontract.DurationShardOverheadsTable:       {},
-		cicontract.DurationShardOverheadSamplesTable: {},
-		cicontract.CatalogObservationsTable:          {},
-		cicontract.RemoteRunsTable:                   {},
-		cicontract.WorkloadPassEvidenceTable:         {},
-		cicontract.CalibrationCheckpointsTable:       {},
+	authority := cicontract.RetentionRootBindings()
+	expected := make(map[string]cicontract.RetentionRootBinding, len(authority))
+	for _, binding := range authority {
+		expected[binding.Table] = binding
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
-		if binding.GenerationColumn != cicontract.AcceptedGenerationColumn {
-			return fmt.Errorf("retention root %q generation column = %q, want %q", binding.Table, binding.GenerationColumn, cicontract.AcceptedGenerationColumn)
-		}
-		switch binding.Table {
-		case cicontract.RemoteRunsTable:
-			// Remote runs own the consumer rows whose v16 proof is auxiliary only.
-		case cicontract.DurationSamplesTable,
-			cicontract.DurationShardOverheadsTable,
-			cicontract.DurationShardOverheadSamplesTable,
-			cicontract.CatalogObservationsTable,
-			cicontract.WorkloadPassEvidenceTable,
-			cicontract.CalibrationCheckpointsTable:
-		default:
+		authoritative, supported := expected[binding.Table]
+		if !supported {
 			return fmt.Errorf("unsupported retention root %q", binding.Table)
+		}
+		if binding.GenerationColumn != authoritative.GenerationColumn {
+			return fmt.Errorf("retention root %q generation column = %q, want %q", binding.Table, binding.GenerationColumn, authoritative.GenerationColumn)
 		}
 		if _, duplicate := seen[binding.Table]; duplicate {
 			return fmt.Errorf("retention root %q is duplicated", binding.Table)

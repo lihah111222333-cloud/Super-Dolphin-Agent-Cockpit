@@ -180,6 +180,24 @@ func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	}
 }
 
+func TestLoadRemoteRunConfigRejectsNonCanonicalRawJSON(t *testing.T) {
+	for name, document := range map[string]string{
+		"top-level case alias": strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 10`, `"SCHEMA_VERSION": 10`, 1),
+		"top-level case duplicate": strings.Replace(
+			validRemoteRunConfigJSON(),
+			`"schema_version": 10`,
+			`"schema_version": 10, "SCHEMA_VERSION": 10`,
+			1,
+		),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, document)); err == nil {
+				t.Fatal("loadRemoteRunConfig() accepted non-canonical raw config")
+			}
+		})
+	}
+}
+
 func TestValidateRunnableRemoteBaselineRejectsMissingOCIProjectCache(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
 	state := remoteRunBaselineState(t, repository)

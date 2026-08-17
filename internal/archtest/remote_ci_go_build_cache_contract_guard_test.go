@@ -41,6 +41,64 @@ func assertRemoteCIGoBuildCachePathIdentity(t *testing.T) {
 	}
 }
 
+func TestRemoteCIGenerationOneAndGoCachePathUseCanonicalOwners(t *testing.T) {
+	root := findRepoRoot(t)
+	commandPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_provision_generation_one.go")
+	command := parseRemoteCIContractGuardFile(t, commandPath)
+	for _, duplicate := range []string{
+		"decodeGenerationOneProvisionState", "validateGenerationOneProvisionStateBinding",
+		"validateGenerationOneStateCoreBinding", "generationOneStateCloudIdentityMatches",
+		"generationOneStateSourceIdentityMatches", "validateGenerationOneStateArtifactBinding",
+	} {
+		if remoteCIFunctionByName(command, duplicate) != nil {
+			t.Errorf("super-dolphin-gate retains duplicate generation-one owner %s", duplicate)
+		}
+	}
+	const cachePath = "/opt/super-dolphin/cache/go-build"
+	production := []string{
+		"internal/devtools/cicontract/generation_one.go",
+		"internal/devtools/gate/executor.go",
+		"internal/devtools/remoteci/coordinator_request.go",
+	}
+	owners := 0
+	for _, relative := range production {
+		source := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(relative)))
+		owners += strings.Count(source, `"`+cachePath+`"`)
+	}
+	if owners != 1 {
+		t.Fatalf("accepted baseline Go cache path literal owners = %d, want cicontract only", owners)
+	}
+	assertRemoteCIECIVolumeNameOwners(t, root)
+}
+
+func assertRemoteCIECIVolumeNameOwners(t *testing.T, root string) {
+	t.Helper()
+	want := map[string]string{
+		"source-data":      cicontract.ECISourceVolumeName,
+		"work-data":        cicontract.ECIWorkVolumeName,
+		"temp-data":        cicontract.ECITempVolumeName,
+		"bootstrap-config": cicontract.ECIBootstrapConfigVolumeName,
+	}
+	production := []string{
+		"internal/devtools/cicontract/contract.go",
+		"internal/devtools/alicloud/eci/client_validation.go",
+		"internal/devtools/remoteci/coordinator_request.go",
+	}
+	for literal, value := range want {
+		if value != literal {
+			t.Errorf("canonical ECI volume name = %q, want %q", value, literal)
+		}
+		owners := 0
+		for _, relative := range production {
+			source := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(relative)))
+			owners += strings.Count(source, `"`+literal+`"`)
+		}
+		if owners != 1 {
+			t.Errorf("ECI volume name %q literal owners = %d, want cicontract only", literal, owners)
+		}
+	}
+}
+
 func assertRemoteCIGoBuildCacheNoRetiredPaths(t *testing.T, paths map[string]string) {
 	t.Helper()
 	for name, path := range paths {

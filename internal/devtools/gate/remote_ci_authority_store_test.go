@@ -215,7 +215,7 @@ func scopedCheckReceiptCatalog(t *testing.T, jobID string, scopeKind RemoteCIExe
 
 func newScopedCheckReceiptRecord(jobID string, now time.Time, treeSHA, catalogDigest string, scope *RemoteCIExecutionScope) RemoteCIRunRecord {
 	shardIdentity := digestForWorkloadPass(jobID + "-shard")
-	shard := RemoteCIShardRecord{ShardIdentity: shardIdentity, ContainerGroup: "eci-" + jobID, ContainerStatus: "Succeeded", MaterializationTiming: measuredShardMaterializationTiming(shardIdentity), Resources: RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8}}
+	shard := RemoteCIShardRecord{ShardIdentity: shardIdentity, ContainerGroup: "eci-" + jobID, ContainerStatus: "Succeeded", MaterializationTiming: measuredShardMaterializationTiming(shardIdentity), Resources: RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8}}
 	return RemoteCIRunRecord{JobID: jobID, AgentTokenDigest: digestForWorkloadPass(jobID + "-agent"), Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, AcceptedGeneration: 6, Scope: scope, ImageCacheSnapshotID: "snapshot-6", PlanDigest: "sha256:plan", CatalogDigest: catalogDigest, SourceTreeSHA: treeSHA, CandidateGateSourceSHA256: digestForWorkloadPass(jobID + "-gate-source"), CandidateGateToolchainSHA256: digestForWorkloadPass(jobID + "-toolchain"), RunnerImage: "ubuntu:22.04", Platform: cicontract.TargetPlatform, RunnerIdentityDigest: digestForWorkloadPass(jobID + "-runner"), ToolchainDigest: digestForWorkloadPass(jobID + "-execution-toolchain"), ExecutionMode: DurationExecutionModeNormal, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true, Shards: []RemoteCIShardRecord{shard}}
 }
 

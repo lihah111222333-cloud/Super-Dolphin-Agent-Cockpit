@@ -158,7 +158,7 @@ func TestCompileGroupBatchWaveRejectsGapsAndNonZeroStart(t *testing.T) {
 }
 
 func TestCompileGroupResourceClassIsExplicit(t *testing.T) {
-	for _, class := range []string{"small", "medium", "maximum", "calibration"} {
+	for _, class := range []string{"small", "medium", "maximum", "calibration", "fixed"} {
 		if err := validateCompileGroupResourceClass(class); err != nil {
 			t.Fatalf("validateCompileGroupResourceClass(%q) = %v", class, err)
 		}
@@ -166,13 +166,19 @@ func TestCompileGroupResourceClassIsExplicit(t *testing.T) {
 			t.Fatalf("compileGroupBatchCapacity(%q) = %d, %v; want selector-driven capacity 3", class, got, err)
 		}
 	}
-	for _, class := range []string{"", "normal-medium", "future"} {
+	for _, class := range []string{"", "normal medium", " future", "future/class"} {
 		if err := validateCompileGroupResourceClass(class); err == nil {
 			t.Fatalf("unknown compile group resource class %q passed identity validation", class)
 		}
 		if _, err := compileGroupBatchCapacity("./internal/example", class, 1); err == nil {
 			t.Fatalf("unknown compile group resource class %q passed batch capacity", class)
 		}
+	}
+}
+
+func TestCompileGroupResourceClassAllowsPolicyDefinedCalibrationID(t *testing.T) {
+	if err := validateCompileGroupResourceClass("fixed"); err != nil {
+		t.Fatalf("validateCompileGroupResourceClass() rejected policy-defined calibration ID: %v", err)
 	}
 }
 

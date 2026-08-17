@@ -184,16 +184,7 @@ func normalReserveSample(key shardOverheadObservationKey, group *shardOverheadOb
 }
 
 func normalReserveExcludedIntervals(group *shardOverheadObservationGroup) []TimingObservation {
-	excluded := make([]TimingObservation, 0, len(group.workloads)+len(group.compileGroups))
-	for _, observation := range group.workloads {
-		excluded = append(excluded, observation)
-	}
-	for _, observation := range group.accounted {
-		if observation.Scope == cicontract.TimingScopeCompileGroup {
-			excluded = append(excluded, observation)
-		}
-	}
-	return excluded
+	return append([]TimingObservation(nil), group.accounted...)
 }
 
 func normalReserveAggregates(samples []resourceTierReserveSample) ([]cicontract.WorkloadResourceTierReserve, error) {
@@ -221,16 +212,7 @@ func normalReserveAggregates(samples []resourceTierReserveSample) ([]cicontract.
 }
 
 func resourceTierForReserve(resources RemoteCIShardResources) (cicontract.WorkloadResourceTier, error) {
-	switch {
-	case resources.ClassID == "small" && resources.CPU == 2 && resources.MemoryGiB == 4:
-		return cicontract.WorkloadResourceTierFast, nil
-	case resources.ClassID == "medium" && resources.CPU == 4 && resources.MemoryGiB == 8:
-		return cicontract.WorkloadResourceTierMedium, nil
-	case resources.ClassID == "maximum" && resources.CPU == 8 && resources.MemoryGiB == 16:
-		return cicontract.WorkloadResourceTierSlow, nil
-	default:
-		return 0, fmt.Errorf("resource class %q does not match a canonical normal tier", resources.ClassID)
-	}
+	return cicontract.NormalResourceTierForIdentity(resources.ClassID, resources.CPU, resources.MemoryGiB)
 }
 
 func resourceTierReserveDigest(samples []resourceTierReserveSample, tier cicontract.WorkloadResourceTier) (string, error) {

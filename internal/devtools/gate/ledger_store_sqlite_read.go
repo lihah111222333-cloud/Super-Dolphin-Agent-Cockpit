@@ -61,7 +61,8 @@ func loadSQLiteMetadata(database sqliteRowQueryer) (DurationLedgerSnapshot, erro
 	return DurationLedgerSnapshot{Generation: generation, Ledger: ledger}, nil
 }
 
-func loadSQLiteDurationSamples(database sqliteRowQueryer) ([]DurationSample, error) {
+// loadSQLiteDurationSamples 读取所有样本并按 accepted baseline 窗口逐行校验。
+func loadSQLiteDurationSamples(database sqliteRowQueryer, currentAcceptedGeneration uint64) ([]DurationSample, error) {
 	rows, err := database.Query(`
 		SELECT accepted_generation, workload_id, command_digest, input_digest, platform, runner, toolchain,
 			execution_mode, resource_class_id, resource_cpu, resource_memory_gib,
@@ -81,6 +82,9 @@ func loadSQLiteDurationSamples(database sqliteRowQueryer) ([]DurationSample, err
 		if err != nil {
 			return nil, err
 		}
+		if err := validateSQLiteDurationSampleGeneration(sample.AcceptedGeneration, currentAcceptedGeneration); err != nil {
+			return nil, err
+		}
 		samples = append(samples, sample)
 	}
 	if err := rows.Err(); err != nil {
@@ -93,6 +97,7 @@ func loadSQLiteDurationSamples(database sqliteRowQueryer) ([]DurationSample, err
 func loadSQLiteDurationSampleIndex(
 	database sqliteRowQueryer,
 	planning PlanningContext,
+	currentAcceptedGeneration uint64,
 ) (DurationSampleIndex, error) {
 	index := DurationSampleIndex{
 		context: planning,
@@ -128,7 +133,7 @@ func loadSQLiteDurationSampleIndex(
 		return DurationSampleIndex{}, mapDurationLedgerSQLiteError("query duration sample planning index", err)
 	}
 	defer rows.Close()
-	if err := appendSQLiteDurationIndexRows(&index, rows, planning); err != nil {
+	if err := appendSQLiteDurationIndexRows(&index, rows, planning, currentAcceptedGeneration); err != nil {
 		return DurationSampleIndex{}, err
 	}
 	if err := index.finalizeGenerationWindow(); err != nil {
@@ -138,11 +143,17 @@ func loadSQLiteDurationSampleIndex(
 }
 
 // appendSQLiteDurationIndexRows 将权威 SQLite 原始行校验后写入时长索引。
-func appendSQLiteDurationIndexRows(index *DurationSampleIndex, rows *sql.Rows, planning PlanningContext) error {
+func appendSQLiteDurationIndexRows(index *DurationSampleIndex, rows *sql.Rows, planning PlanningContext, currentAcceptedGeneration uint64) error {
 	for rows.Next() {
 		sample, err := scanSQLiteDurationSample(rows)
 		if err != nil {
 			return err
+		}
+		if err := validateSQLiteDurationSampleGeneration(sample.AcceptedGeneration, currentAcceptedGeneration); err != nil {
+			return err
+		}
+		if err := ValidateDurationLedger(DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{sample}}); err != nil {
+			return fmt.Errorf("validate duration sample planning row: %w", err)
 		}
 		if sample.Bucket.Platform != planning.Platform || sample.Bucket.Runner != planning.Runner || sample.Bucket.Toolchain != planning.Toolchain {
 			return errors.New("duration sample planning query returned an environment mismatch")
@@ -153,6 +164,21 @@ func appendSQLiteDurationIndexRows(index *DurationSampleIndex, rows *sql.Rows, p
 	}
 	if err := rows.Err(); err != nil {
 		return mapDurationLedgerSQLiteError("iterate duration sample planning index", err)
+	}
+	return nil
+}
+
+func validateSQLiteDurationSampleGeneration(acceptedGeneration, currentAcceptedGeneration uint64) error {
+	if currentAcceptedGeneration == 0 {
+		return errors.New("duration ledger SQLite current generation is invalid")
+	}
+	window := cicontract.RetentionGenerationWindow(currentAcceptedGeneration)
+	if acceptedGeneration > currentAcceptedGeneration {
+		return fmt.Errorf("duration sample generation %d was never accepted; current accepted baseline generation is %d", acceptedGeneration, currentAcceptedGeneration)
+	}
+	oldest := window[len(window)-1]
+	if acceptedGeneration < oldest {
+		return fmt.Errorf("duration sample generation %d is older than accepted baseline retained window [%d,%d]", acceptedGeneration, oldest, currentAcceptedGeneration)
 	}
 	return nil
 }
@@ -259,9 +285,137 @@ func loadSQLiteCalibration(database sqliteRowQueryer) (*DurationCalibration, err
 	return &calibration, nil
 }
 
-// loadSQLiteShardOverhead 只选择同环境、最新 accepted generation 的权威 aggregate，
+// loadSQLiteShardOverhead 只选择同环境、accepted baseline 保留窗口内最新的权威 aggregate，
 // 并以样本表行数复核 aggregate 的 sample_count，拒绝空或不完整 provenance。
-func loadSQLiteShardOverhead(database sqliteRowQueryer, planning PlanningContext) (*ShardOrchestrationOverhead, error) {
+func loadSQLiteShardOverhead(database sqliteRowQueryer, planning PlanningContext, currentAcceptedGeneration uint64) (*ShardOrchestrationOverhead, error) {
+	if currentAcceptedGeneration == 0 {
+		return nil, errors.New("shard orchestration overhead requires accepted baseline generation")
+	}
+	var err error
+	if planning, err = resolveShardOverheadCalibrationResource(database, planning); err != nil {
+		return nil, err
+	}
+	if planning.CalibrationResourceClassID == "" {
+		return nil, nil
+	}
+	retained := cicontract.RetentionGenerationWindow(currentAcceptedGeneration)
+	retainedText := [3]string{
+		strconv.FormatUint(retained[0], 10),
+		strconv.FormatUint(retained[1], 10),
+		strconv.FormatUint(retained[2], 10),
+	}
+	covered, err := sqliteShardOverheadIdentityCoverage(database, retainedText, planning)
+	if err != nil {
+		return nil, err
+	}
+	if !covered {
+		return nil, nil
+	}
+	overhead, generationText, err := querySQLiteShardOverhead(database, planning, retainedText)
+	if err != nil {
+		return nil, err
+	}
+	if generationText == "" {
+		return nil, nil
+	}
+	if err := validateSQLiteShardOverheadEvidence(database, &overhead, generationText, currentAcceptedGeneration); err != nil {
+		return nil, err
+	}
+	return &overhead, nil
+}
+
+// resolveShardOverheadCalibrationResource 从 accepted calibration singleton 补齐开销查询的固定资源。
+func resolveShardOverheadCalibrationResource(database sqliteRowQueryer, planning PlanningContext) (PlanningContext, error) {
+	empty := planning.CalibrationResourceClassID == "" && planning.CalibrationResourceCPU == 0 && planning.CalibrationResourceMemoryGiB == 0
+	partial := planning.CalibrationResourceClassID == "" || planning.CalibrationResourceCPU <= 0 || planning.CalibrationResourceMemoryGiB <= 0
+	if !empty && partial {
+		return PlanningContext{}, errors.New("shard overhead calibration resource identity is incomplete")
+	}
+	if !empty {
+		return planning, nil
+	}
+	calibration, err := loadSQLiteCalibration(database)
+	if err != nil {
+		return PlanningContext{}, err
+	}
+	if calibration == nil {
+		return planning, nil
+	}
+	planning.CalibrationResourceClassID = calibration.CalibrationResourceClassID
+	planning.CalibrationResourceCPU = calibration.CalibrationResourceCPU
+	planning.CalibrationResourceMemoryGiB = calibration.CalibrationResourceMemoryGiB
+	return planning, nil
+}
+
+// validateSQLiteShardOverheadEvidence 校验 aggregate、样本闭包和 P95 一致性。
+func validateSQLiteShardOverheadEvidence(database sqliteRowQueryer, overhead *ShardOrchestrationOverhead, generationText string, currentAcceptedGeneration uint64) error {
+	acceptedGeneration, err := strconv.ParseUint(generationText, 10, 64)
+	if err != nil || acceptedGeneration == 0 {
+		return errors.New("shard orchestration overhead accepted generation is invalid")
+	}
+	if err := validateSQLiteDurationSampleGeneration(acceptedGeneration, currentAcceptedGeneration); err != nil {
+		return err
+	}
+	overhead.AcceptedGeneration = acceptedGeneration
+	if err := ValidateShardOrchestrationOverhead(*overhead); err != nil {
+		return fmt.Errorf("validate shard orchestration overhead: %w", err)
+	}
+	samples, err := loadSQLiteShardOverheadSamples(database, generationText, overhead.ProvenanceDigest)
+	if err != nil {
+		return err
+	}
+	if len(samples) != overhead.SampleCount {
+		return fmt.Errorf("shard orchestration overhead sample count %d does not match selected evidence rows %d", overhead.SampleCount, len(samples))
+	}
+	durations := make([]int64, len(samples))
+	for index, sample := range samples {
+		durations[index] = sample.OverheadMS
+	}
+	if nearestRankP95(durations) != overhead.P95MS {
+		return errors.New("shard orchestration overhead p95 does not match selected evidence rows")
+	}
+	return nil
+}
+
+// sqliteShardOverheadIdentityCoverage 排除缺少 exact calibration execution identity 的样本 aggregate。
+func sqliteShardOverheadIdentityCoverage(database sqliteRowQueryer, retained [3]string, planning PlanningContext) (bool, error) {
+	var invalid int
+	err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM duration_shard_overhead_samples AS samples
+		LEFT JOIN ci_runs AS runs ON runs.job_id = samples.job_id
+		LEFT JOIN ci_remote_run_execution_identities AS run_identity ON run_identity.job_id = samples.job_id
+			WHERE samples.accepted_generation IN (?, ?, ?)
+			  AND samples.provenance_digest IN (
+				SELECT provenance_digest FROM duration_shard_overheads
+				WHERE accepted_generation IN (?, ?, ?)
+				  AND platform = ? AND runner = ? AND toolchain = ? AND accepted_snapshot_id = ?
+				  AND calibration_resource_class_id = ? AND calibration_resource_cpu = ? AND calibration_resource_memory_gib = ?
+			)
+			  AND (
+				runs.job_id IS NULL OR runs.status <> 'passed' OR runs.authoritative <> 1 OR runs.cleanup_complete <> 1
+				OR runs.accepted_generation IS NULL OR runs.accepted_generation <> samples.accepted_generation
+				OR runs.image_cache_snapshot_id IS NULL OR runs.image_cache_snapshot_id <> ?
+				OR run_identity.job_id IS NULL
+			OR run_identity.platform <> ? OR length(run_identity.runner_identity_digest) <> 71
+			OR substr(run_identity.runner_identity_digest, 1, 7) <> 'sha256:'
+			OR length(run_identity.toolchain_digest) <> 71 OR substr(run_identity.toolchain_digest, 1, 7) <> 'sha256:'
+			OR run_identity.runner_identity_digest <> ? OR run_identity.toolchain_digest <> ?
+			OR run_identity.execution_mode <> ?
+		  )
+		`, retained[0], retained[1], retained[2], retained[0], retained[1], retained[2],
+		planning.Platform, planning.Runner, planning.Toolchain, planning.AcceptedSnapshotID,
+		planning.CalibrationResourceClassID, planning.CalibrationResourceCPU, planning.CalibrationResourceMemoryGiB,
+		planning.AcceptedSnapshotID,
+		planning.Platform, planning.Runner, planning.Toolchain, DurationExecutionModeCalibration).Scan(&invalid)
+	if err != nil {
+		return false, mapDurationLedgerSQLiteError("audit shard overhead execution identity coverage", err)
+	}
+	return invalid == 0, nil
+}
+
+// querySQLiteShardOverhead 在 accepted generation 窗口内读取单个 aggregate。
+func querySQLiteShardOverhead(database sqliteRowQueryer, planning PlanningContext, retained [3]string) (ShardOrchestrationOverhead, string, error) {
 	var (
 		overhead        ShardOrchestrationOverhead
 		generationText  string
@@ -272,10 +426,14 @@ func loadSQLiteShardOverhead(database sqliteRowQueryer, planning PlanningContext
 			calibration_resource_class_id, calibration_resource_cpu, calibration_resource_memory_gib,
 			p95_ms, sample_count, provenance_digest, accepted_snapshot_id
 		FROM duration_shard_overheads
-		WHERE platform = ? AND runner = ? AND toolchain = ? AND accepted_snapshot_id = ?
-		ORDER BY length(accepted_generation) DESC, accepted_generation DESC, id DESC
+			WHERE platform = ? AND runner = ? AND toolchain = ? AND accepted_snapshot_id = ?
+			  AND calibration_resource_class_id = ? AND calibration_resource_cpu = ? AND calibration_resource_memory_gib = ?
+			  AND accepted_generation IN (?, ?, ?)
+			ORDER BY length(accepted_generation) DESC, accepted_generation DESC, id DESC
 		LIMIT 1
-	`, planning.Platform, planning.Runner, planning.Toolchain, planning.AcceptedSnapshotID).Scan(
+	`, planning.Platform, planning.Runner, planning.Toolchain, planning.AcceptedSnapshotID,
+		planning.CalibrationResourceClassID, planning.CalibrationResourceCPU, planning.CalibrationResourceMemoryGiB,
+		retained[0], retained[1], retained[2]).Scan(
 		&overhead.SchemaVersion,
 		&generationText,
 		&overhead.PolicyVersion,
@@ -291,35 +449,13 @@ func loadSQLiteShardOverhead(database sqliteRowQueryer, planning PlanningContext
 		&overhead.AcceptedSnapshotID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return ShardOrchestrationOverhead{}, "", nil
 	}
 	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("load shard orchestration overhead", err)
+		return ShardOrchestrationOverhead{}, "", mapDurationLedgerSQLiteError("load shard orchestration overhead", err)
 	}
-	acceptedGeneration, err := strconv.ParseUint(generationText, 10, 64)
-	if err != nil || acceptedGeneration == 0 {
-		return nil, errors.New("shard orchestration overhead accepted generation is invalid")
-	}
-	overhead.AcceptedGeneration = acceptedGeneration
 	overhead.CalibrationResourceClassID = resourceClassID
-	if err := ValidateShardOrchestrationOverhead(overhead); err != nil {
-		return nil, fmt.Errorf("validate shard orchestration overhead: %w", err)
-	}
-	samples, err := loadSQLiteShardOverheadSamples(database, generationText, overhead.ProvenanceDigest)
-	if err != nil {
-		return nil, err
-	}
-	if len(samples) != overhead.SampleCount {
-		return nil, fmt.Errorf("shard orchestration overhead sample count %d does not match selected evidence rows %d", overhead.SampleCount, len(samples))
-	}
-	durations := make([]int64, len(samples))
-	for index, sample := range samples {
-		durations[index] = sample.OverheadMS
-	}
-	if nearestRankP95(durations) != overhead.P95MS {
-		return nil, errors.New("shard orchestration overhead p95 does not match selected evidence rows")
-	}
-	return &overhead, nil
+	return overhead, generationText, nil
 }
 
 // loadSQLiteShardOverheadSamples 读取并校验指定代次的 overhead 原始样本。

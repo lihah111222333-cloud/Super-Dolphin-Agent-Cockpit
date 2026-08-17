@@ -78,6 +78,32 @@ func TestBaselineStateFieldRegistry(t *testing.T) {
 	assertBaselineFields(t, reflect.TypeFor[BaselineOCIProjectCache](), []string{"Image", "ContentManifestSHA256", "MainTree", "ToolchainDigest", "Platform", "CachePath"})
 }
 
+func TestBaselineStateAcceptedMapperOneHotAllFields(t *testing.T) {
+	template := reflect.ValueOf(validBaselineState())
+	producerType := reflect.TypeFor[BaselineState]()
+	consumerType := reflect.TypeFor[cicontract.AcceptedBaselineState]()
+	if producerType.NumField() != consumerType.NumField() {
+		t.Fatalf("mapper field counts differ: producer=%d consumer=%d", producerType.NumField(), consumerType.NumField())
+	}
+	for field := range producerType.Fields() {
+		t.Run(field.Name, func(t *testing.T) {
+			oneHot := reflect.New(producerType).Elem()
+			oneHot.FieldByName(field.Name).Set(template.FieldByName(field.Name))
+			mapped := reflect.ValueOf(oneHot.Interface().(BaselineState).acceptedBaselineState())
+			for destination := range consumerType.Fields() {
+				got := mapped.FieldByName(destination.Name).Interface()
+				want := reflect.Zero(destination.Type).Interface()
+				if destination.Name == field.Name {
+					want = template.FieldByName(field.Name).Interface()
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Errorf("one-hot %s mapped %s = %#v, want %#v", field.Name, destination.Name, got, want)
+				}
+			}
+		})
+	}
+}
+
 func validBaselineState() BaselineState {
 	created := time.Date(2026, 8, 2, 1, 0, 0, 0, time.UTC)
 	mainTree, toolchain, runtimeImage := strings.Repeat("b", 40), digest("d"), "registry.example/runtime@"+digest("e")

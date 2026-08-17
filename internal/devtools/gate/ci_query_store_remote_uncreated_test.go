@@ -59,10 +59,10 @@ func TestRemoteCIPassedRunRequiresMeasuredCreatedShardTiming(t *testing.T) {
 
 func TestRemoteCIPassedRunRequiresCreatedShardResources(t *testing.T) {
 	shard := RemoteCIShardRecord{ShardIdentity: "sha256:" + strings.Repeat("d", 64), ContainerGroup: "eci-created", ContainerStatus: "Failed"}
-	if err := validateRemoteCIShardResources(ResultStatusPassed, false, shard); err == nil || !strings.Contains(err.Error(), "remote CI shard resources are invalid") {
+	if err := validateRemoteCIShardResources(DurationExecutionModeNormal, ResultStatusPassed, false, shard); err == nil || !strings.Contains(err.Error(), "remote CI shard resources are invalid") {
 		t.Fatalf("validateRemoteCIShardResources() error = %v, want PASS resource rejection", err)
 	}
-	if err := validateRemoteCIShardResources(ResultStatusFailed, false, shard); err != nil {
+	if err := validateRemoteCIShardResources(DurationExecutionModeNormal, ResultStatusFailed, false, shard); err != nil {
 		t.Fatalf("validateRemoteCIShardResources() failed provisional error = %v, want truthful missing-resource acceptance", err)
 	}
 }
@@ -73,7 +73,7 @@ func TestDecodeStoredRemoteCIShardEvidenceAllowsFailedCreatedMissingResources(t 
 		t.Fatal(err)
 	}
 	shard := RemoteCIShardRecord{ShardIdentity: "sha256:" + strings.Repeat("e", 64), ContainerGroup: "eci-created", ContainerStatus: "Failed"}
-	if err := decodeStoredRemoteCIShardEvidence(&shard, string(timingJSON), "", ResultStatusFailed, false); err != nil {
+	if err := decodeStoredRemoteCIShardEvidence(&shard, string(timingJSON), "", ResultStatusFailed, false, DurationExecutionModeNormal); err != nil {
 		t.Fatalf("decodeStoredRemoteCIShardEvidence() failed missing resources = %v, want truthful acceptance", err)
 	}
 	if shard.Resources != (RemoteCIShardResources{}) {
@@ -87,11 +87,11 @@ func TestDecodeStoredRemoteCIShardEvidenceDoesNotFabricateZeroResources(t *testi
 		t.Fatal(err)
 	}
 	placeholder := RemoteCIShardRecord{ShardIdentity: "sha256:" + strings.Repeat("b", 64), ContainerStatus: "Unknown"}
-	if err := decodeStoredRemoteCIShardEvidence(&placeholder, string(timingJSON), "", ResultStatusFailed, false); err != nil {
+	if err := decodeStoredRemoteCIShardEvidence(&placeholder, string(timingJSON), "", ResultStatusFailed, false, DurationExecutionModeNormal); err != nil {
 		t.Fatalf("decodeStoredRemoteCIShardEvidence() missing resources = %v, want placeholder acceptance", err)
 	}
 	placeholder = RemoteCIShardRecord{ShardIdentity: "sha256:" + strings.Repeat("b", 64), ContainerStatus: "Unknown"}
-	if err := decodeStoredRemoteCIShardEvidence(&placeholder, string(timingJSON), "{}", ResultStatusFailed, false); err == nil || !strings.Contains(err.Error(), "decode stored remote CI shard resources") {
+	if err := decodeStoredRemoteCIShardEvidence(&placeholder, string(timingJSON), "{}", ResultStatusFailed, false, DurationExecutionModeNormal); err == nil || !strings.Contains(err.Error(), "decode stored remote CI shard resources") {
 		t.Fatalf("decodeStoredRemoteCIShardEvidence() zero resource object error = %v, want strict rejection", err)
 	}
 }

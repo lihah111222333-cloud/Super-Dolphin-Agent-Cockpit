@@ -220,6 +220,15 @@ func TestPolicyRejectsNonStandardOrNonMonotonicClasses(t *testing.T) {
 	}
 }
 
+func TestPolicyRejectsCustomClassWithCanonicalTuple(t *testing.T) {
+	policy := testPolicy()
+	policy.Classes[0].ID = "custom"
+	policy.Bootstrap = BootstrapClasses{Guard: "custom", NodeTest: "custom", GoTest: "custom"}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("Policy.Validate() accepted a custom normal class ID with the canonical 2C/4GiB tuple")
+	}
+}
+
 func TestPolicyRejectsAdditionalNormalMemoryTiers(t *testing.T) {
 	for _, testCase := range []struct {
 		name   string
@@ -251,6 +260,20 @@ func TestSelectRejectsShardThatMixesPersistedResourceTiers(t *testing.T) {
 	}, Context{Runner: "sha256:" + strings.Repeat("b", 64), Toolchain: "sha256:" + strings.Repeat("c", 64)}, nil)
 	if err == nil {
 		t.Fatal("Select() accepted a shard that mixes 2C and 4C workloads")
+	}
+}
+
+func TestSelectRejectsNonCanonicalWorkloadTuple(t *testing.T) {
+	policy := testPolicy()
+	_, err := Select(policy, Shard{
+		Identity: "sha256:" + strings.Repeat("a", 64),
+		Workloads: []Workload{{
+			ID: "non-canonical", Kind: "guard", EstimatedDurationMS: 1_000,
+			ResourceCPU: 4, ResourceMemoryGiB: 4,
+		}},
+	}, Context{Runner: "sha256:" + strings.Repeat("b", 64), Toolchain: "sha256:" + strings.Repeat("c", 64)}, nil)
+	if err == nil {
+		t.Fatal("Select() accepted non-canonical 4C/4GiB workload tuple")
 	}
 }
 

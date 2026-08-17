@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -30,10 +31,27 @@ func TestInitializeRemoteBaselineGenerationOneConvergesOnIdenticalState(t *testi
 	}
 	assertGenerationOneRecordsEqual(t, first, second, "identical duplicate")
 	assertGenerationOneInitializedAuthority(t, store, first)
-	if third, err := store.InitializeRemoteBaselineGenerationOne(receipt); err != nil {
-		t.Fatalf("identical duplicate after retained history error = %v", err)
-	} else {
-		assertGenerationOneRecordsEqual(t, first, third, "identical duplicate after retained history")
+}
+
+// TestInitializeRemoteBaselineGenerationOneRejectsAdvancedLedgerMetadata 保证幂等首写仍要求账本元数据精确绑定首代。
+func TestInitializeRemoteBaselineGenerationOneRejectsAdvancedLedgerMetadata(t *testing.T) {
+	store := newGenerationOneTestStore(t)
+	receipt := generationOneGateReceipt(t)
+	if _, err := store.InitializeRemoteBaselineGenerationOne(receipt); err != nil {
+		t.Fatalf("initialize generation one: %v", err)
+	}
+	database, err := store.openSQLiteAuthority(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`UPDATE duration_ledger_meta SET generation='2' WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InitializeRemoteBaselineGenerationOne(receipt); err == nil {
+		t.Fatal("idempotent generation-one initialization accepted duration metadata generation 2")
 	}
 }
 
@@ -104,6 +122,110 @@ func TestInitializeRemoteBaselineGenerationOneRejectsStrictReceiptFailures(t *te
 	if _, err := store.LoadMetadata(); !errors.Is(err, ErrDurationLedgerMetadataMissing) {
 		t.Fatalf("invalid receipt left duration metadata: %v", err)
 	}
+}
+
+// TestInitializeRemoteBaselineGenerationOneRejectsUntrustedCachePaths 保证首代写入不会接受可穿越或含控制字符的 cache 身份。
+func TestInitializeRemoteBaselineGenerationOneRejectsUntrustedCachePaths(t *testing.T) {
+	for _, cacheID := range []string{"../../evil", " snapshot", "snapshot\n"} {
+		t.Run(fmt.Sprintf("%q", cacheID), func(t *testing.T) {
+			store := newGenerationOneTestStore(t)
+			receipt := forgedGenerationOneReceiptState(t, generationOneGateReceipt(t), func(state *cicontract.AcceptedBaselineState, receipt *cicontract.GenerationOneProvisionReceipt) {
+				state.ImageCacheID = cacheID
+				state.ImageCacheSnapshotID = cacheID
+				receipt.ImageCacheID = cacheID
+				receipt.ImageCacheSnapshotID = cacheID
+				for index := range receipt.ProvisionChecks {
+					receipt.ProvisionChecks[index].ProvisionSnapshotID = cacheID
+					digest, err := cicontract.ProvisionCheckObservationReceiptDigest(receipt.ProvisionChecks[index])
+					if err != nil {
+						t.Fatalf("digest forged provision check: %v", err)
+					}
+					receipt.ProvisionChecks[index].ReceiptSHA256 = digest
+				}
+			})
+			if _, err := store.InitializeRemoteBaselineGenerationOne(receipt); err == nil {
+				t.Fatal("initializer accepted an untrusted cache path")
+			}
+			if _, err := store.LoadRemoteBaselineState(); !errors.Is(err, ErrRemoteBaselineStateNotFound) {
+				t.Fatalf("untrusted cache path left accepted state: %v", err)
+			}
+		})
+	}
+}
+
+// TestDecodeGenerationOneProvisionReceiptRejectsNonCanonicalStateShape 保证 receipt 不能只靠摘要掩盖 state 的 unknown、duplicate 或缺失字段。
+func TestDecodeGenerationOneProvisionReceiptRejectsNonCanonicalStateShape(t *testing.T) {
+	tests := map[string]func([]byte) []byte{
+		"unknown field": func(state []byte) []byte {
+			return append(append([]byte(nil), state[:len(state)-1]...), []byte(`,"unknown":"value"}`)...)
+		},
+		"duplicate field": func(state []byte) []byte {
+			return append(append([]byte(nil), state[:len(state)-1]...), []byte(`,"generation":1}`)...)
+		},
+		"incomplete field": func(state []byte) []byte {
+			return bytes.Replace(state, []byte(`"image_cache_ready":true,`), nil, 1)
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			forged := forgedGenerationOneReceiptStateJSON(t, generationOneGateReceipt(t), mutate)
+			if _, err := cicontract.DecodeGenerationOneProvisionReceipt(forged); err == nil {
+				t.Fatal("non-canonical state shape was accepted")
+			}
+		})
+	}
+}
+
+func forgedGenerationOneReceiptState(t *testing.T, encoded []byte, mutate func(*cicontract.AcceptedBaselineState, *cicontract.GenerationOneProvisionReceipt)) []byte {
+	t.Helper()
+	receipt, err := cicontract.DecodeGenerationOneProvisionReceipt(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := cicontract.DecodeAcceptedBaselineState(receipt.StateJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate(&state, &receipt)
+	receipt.StateJSON, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDigest := sha256.Sum256(receipt.StateJSON)
+	receipt.StateSHA256 = fmt.Sprintf("sha256:%x", stateDigest)
+	receipt.ReceiptSHA256 = ""
+	digest, err := cicontract.GenerationOneProvisionReceiptDigest(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ReceiptSHA256 = digest
+	forged, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return forged
+}
+
+func forgedGenerationOneReceiptStateJSON(t *testing.T, encoded []byte, mutate func([]byte) []byte) []byte {
+	t.Helper()
+	receipt, err := cicontract.DecodeGenerationOneProvisionReceipt(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.StateJSON = mutate(receipt.StateJSON)
+	stateDigest := sha256.Sum256(receipt.StateJSON)
+	receipt.StateSHA256 = fmt.Sprintf("sha256:%x", stateDigest)
+	receipt.ReceiptSHA256 = ""
+	digest, err := cicontract.GenerationOneProvisionReceiptDigest(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ReceiptSHA256 = digest
+	forged, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return forged
 }
 
 // TestInitializeRemoteBaselineGenerationOneRollsBackOnMetadataConflict 锁定 baseline 与账本元数据的原子首写。
@@ -266,11 +388,11 @@ func generationOneGateReceipt(t *testing.T) []byte {
 	t.Helper()
 	image := "registry.example/runtime@sha256:" + strings.Repeat("a", 64)
 	digest := func(letter string) string { return "sha256:" + strings.Repeat(letter, 64) }
-	state := generationOneStateProjection{
+	state := cicontract.AcceptedBaselineState{
 		SchemaVersion: cicontract.BaselineStateSchemaVersion, Generation: 1, ExecutionProvider: cicontract.ExecutionProviderID, RegionID: "cn-shenzhen", MainCommit: strings.Repeat("b", 40), MainTree: strings.Repeat("c", 40),
 		Platform: cicontract.TargetPlatform, PolicyDigest: digest("d"), ToolchainDigest: digest("e"), RuntimeImage: image,
 		ImageCacheID: "imc-generation-one", ImageCacheSnapshotID: "snapshot-generation-one", ImageCacheReady: true, ImageDigest: digest("a"),
-		OCIProjectCache:  &generationOneOCIProjectCache{Image: image, ContentManifestSHA256: digest("5"), MainTree: strings.Repeat("c", 40), ToolchainDigest: digest("e"), Platform: cicontract.TargetPlatform, CachePath: "/opt/super-dolphin/cache/go-build"},
+		OCIProjectCache:  &cicontract.AcceptedBaselineOCIProjectCache{Image: image, ContentManifestSHA256: digest("5"), MainTree: strings.Repeat("c", 40), ToolchainDigest: digest("e"), Platform: cicontract.TargetPlatform, CachePath: cicontract.AcceptedBaselineOCIProjectCachePath},
 		GateBinarySHA256: digest("f"), RuntimeSeedSHA256: digest("1"), BaselineManifestDigest: digest("2"),
 		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), AcceptedAt: time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC), RenewedAt: time.Date(2026, 1, 1, 0, 2, 0, 0, time.UTC),
 	}
@@ -302,7 +424,7 @@ func divergentGenerationOneGateReceipt(t *testing.T, encoded []byte) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := decodeGenerationOneStateProjection(receipt.StateJSON)
+	state, err := cicontract.DecodeAcceptedBaselineState(receipt.StateJSON)
 	if err != nil {
 		t.Fatal(err)
 	}

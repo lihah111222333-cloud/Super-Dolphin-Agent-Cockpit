@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -160,8 +161,12 @@ func seedRemoteRunShardOverheadFixture(t *testing.T, store *gatecontract.Duratio
 
 func writeRemoteRunConfigFixture(t *testing.T, document string) string {
 	t.Helper()
+	var canonical bytes.Buffer
+	if err := json.Compact(&canonical, []byte(document)); err != nil {
+		t.Fatalf("compact remote CI config fixture: %v", err)
+	}
 	path := filepath.Join(t.TempDir(), "remote-ci.json")
-	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+	if err := os.WriteFile(path, canonical.Bytes(), 0o600); err != nil {
 		t.Fatalf("write remote CI config fixture: %v", err)
 	}
 	return path

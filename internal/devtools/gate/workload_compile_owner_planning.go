@@ -114,7 +114,11 @@ func validateCompileOwnerHintResource(hint CompileOwnerHint) error {
 	if tier != hint.ResourceTier {
 		return fmt.Errorf("tier %d does not match %.gC/%.gGiB", hint.ResourceTier, hint.ResourceCPU, hint.ResourceMemoryGiB)
 	}
-	if classID := normalCompileResourceClass(tier); hint.ResourceClassID != classID {
+	classID, err := normalCompileResourceClass(tier)
+	if err != nil {
+		return fmt.Errorf("tier %d class: %w", tier, err)
+	}
+	if hint.ResourceClassID != classID {
 		return fmt.Errorf("class %q does not match tier %d class %q", hint.ResourceClassID, tier, classID)
 	}
 	return nil
@@ -320,7 +324,7 @@ func resolveNormalCompileTier(ownerKey string, input CompileGroupInput, index Co
 	if err != nil {
 		return compileOwnerTierResult{}, err
 	}
-	classID, err := checkedNormalCompileResourceClass(tier)
+	classID, err := normalCompileResourceClass(tier)
 	if err != nil {
 		return compileOwnerTierResult{}, err
 	}

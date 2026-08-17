@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -436,24 +437,162 @@ func ValidateWorkloadPassEvidenceGeneration(acceptedGeneration, evidenceGenerati
 	return nil
 }
 
-// ValidateNormalResources 拒绝 generation-one 内容检查使用 calibration 或未登记的资源规格。
-func ValidateNormalResources(cpu, memoryGiB float64) error {
-	if cpu <= 0 || memoryGiB <= 0 {
-		return errors.New("remote CI normal resource CPU and memory are required")
+// NormalResourceIdentity 是 normal tier、持久化 class 与固定规格的唯一映射。
+type NormalResourceIdentity struct {
+	Tier      WorkloadResourceTier
+	ClassID   string
+	CPU       float64
+	MemoryGiB float64
+}
+
+var resourceClassIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// ValidateResourceClassID 校验由资源策略声明的 class ID 语法。
+// normal 的三档 tuple/class 一一映射与 calibration 的独立规格由各自调用方校验；
+// 这里不硬编码 calibration literal，避免把策略配置 ID 误当成协议常量。
+func ValidateResourceClassID(classID string) error {
+	if strings.TrimSpace(classID) == "" || classID != strings.TrimSpace(classID) {
+		return errors.New("remote CI resource class requires a canonical ID")
 	}
-	if !((cpu == 2 && memoryGiB == 4) || (cpu == 4 && memoryGiB == 8) || (cpu == 8 && memoryGiB == 16)) {
-		return errors.New("remote CI normal resources must use exactly 2 vCPU/4 GiB, 4 vCPU/8 GiB, or 8 vCPU/16 GiB")
+	if !resourceClassIDPattern.MatchString(classID) {
+		return fmt.Errorf("remote CI resource class ID %q is not canonical", classID)
 	}
 	return nil
 }
 
+// NormalResourceIdentityForTier 返回 normal tier 的规范资源身份。
+func NormalResourceIdentityForTier(tier WorkloadResourceTier) (NormalResourceIdentity, error) {
+	switch tier {
+	case WorkloadResourceTierFast:
+		return FastNormalResourceIdentity(), nil
+	case WorkloadResourceTierMedium:
+		return mediumNormalResourceIdentity(), nil
+	case WorkloadResourceTierSlow:
+		return slowNormalResourceIdentity(), nil
+	default:
+		return NormalResourceIdentity{}, fmt.Errorf("remote CI normal resource tier %d is unsupported", tier)
+	}
+}
+
+// NormalResourceTupleForTier 返回 normal tier 的规范 CPU/memory tuple。
+// tuple 仍只由 NormalResourceIdentityForTier 提供，避免 gate 重新维护规格表。
+func NormalResourceTupleForTier(tier WorkloadResourceTier) (float64, float64, error) {
+	identity, err := NormalResourceIdentityForTier(tier)
+	if err != nil {
+		return 0, 0, err
+	}
+	return identity.CPU, identity.MemoryGiB, nil
+}
+
+// NormalResourceClassForTier 返回 normal tier 的规范持久化 class ID。
+// 未知 tier 直接返回错误，禁止以空 class 继续规划。
+func NormalResourceClassForTier(tier WorkloadResourceTier) (string, error) {
+	identity, err := NormalResourceIdentityForTier(tier)
+	if err != nil {
+		return "", err
+	}
+	return identity.ClassID, nil
+}
+
+// NormalResourceClassProjection 将可选 class 与 CPU/memory tuple 投影为规范 class。
+// 已有 class 必须先通过 canonical identity 校验；缺失 class 则由 tuple 反查唯一 tier。
+func NormalResourceClassProjection(classID string, cpu, memoryGiB float64) (string, error) {
+	if classID != "" {
+		if err := ValidateNormalResourceIdentity(classID, cpu, memoryGiB); err != nil {
+			return "", err
+		}
+		return classID, nil
+	}
+	tier, err := NormalResourceTierForResources(cpu, memoryGiB)
+	if err != nil {
+		return "", err
+	}
+	identity, err := NormalResourceIdentityForTier(tier)
+	if err != nil {
+		return "", err
+	}
+	return identity.ClassID, nil
+}
+
+// FastNormalResourceIdentity 返回 bootstrap 基线使用的 canonical Fast 身份。
+func FastNormalResourceIdentity() NormalResourceIdentity {
+	return NormalResourceIdentity{Tier: WorkloadResourceTierFast, ClassID: "small", CPU: 2, MemoryGiB: 4}
+}
+
+func mediumNormalResourceIdentity() NormalResourceIdentity {
+	return NormalResourceIdentity{Tier: WorkloadResourceTierMedium, ClassID: "medium", CPU: 4, MemoryGiB: 8}
+}
+
+func slowNormalResourceIdentity() NormalResourceIdentity {
+	return NormalResourceIdentity{Tier: WorkloadResourceTierSlow, ClassID: "maximum", CPU: 8, MemoryGiB: 16}
+}
+
+// NormalResourceTierForResources 将规范 CPU/memory tuple 映射为唯一 normal tier。
+func NormalResourceTierForResources(cpu, memoryGiB float64) (WorkloadResourceTier, error) {
+	for tier := WorkloadResourceTierFast; tier <= WorkloadResourceTierSlow; tier++ {
+		identity, err := NormalResourceIdentityForTier(tier)
+		if err != nil {
+			return 0, err
+		}
+		if identity.CPU == cpu && identity.MemoryGiB == memoryGiB {
+			return tier, nil
+		}
+	}
+	return 0, errors.New("remote CI normal resources must use exactly 2 vCPU/4 GiB, 4 vCPU/8 GiB, or 8 vCPU/16 GiB")
+}
+
+// NormalResourceTierForIdentity 校验 class 与 tuple 的规范一一映射并返回 tier。
+func NormalResourceTierForIdentity(classID string, cpu, memoryGiB float64) (WorkloadResourceTier, error) {
+	if err := ValidateResourceClassID(classID); err != nil {
+		return 0, fmt.Errorf("remote CI canonical normal resource identity: %w", err)
+	}
+	tier, err := NormalResourceTierForResources(cpu, memoryGiB)
+	if err != nil {
+		return 0, fmt.Errorf("remote CI canonical normal resource identity: %w", err)
+	}
+	identity, err := NormalResourceIdentityForTier(tier)
+	if err != nil {
+		return 0, err
+	}
+	if classID != identity.ClassID {
+		return 0, fmt.Errorf("remote CI canonical normal resource identity at %.0fC/%.0fGiB requires class %q, got %q", cpu, memoryGiB, identity.ClassID, classID)
+	}
+	return tier, nil
+}
+
+// ValidateNormalResourceIdentity 校验完整 normal class/tuple 身份。
+func ValidateNormalResourceIdentity(classID string, cpu, memoryGiB float64) error {
+	_, err := NormalResourceTierForIdentity(classID, cpu, memoryGiB)
+	return err
+}
+
+// ValidateNormalResourceClassID 校验 normal class ID 必须来自 canonical identity。
+func ValidateNormalResourceClassID(classID string) error {
+	if err := ValidateResourceClassID(classID); err != nil {
+		return fmt.Errorf("remote CI canonical normal resource class: %w", err)
+	}
+	for tier := WorkloadResourceTierFast; tier <= WorkloadResourceTierSlow; tier++ {
+		identity, err := NormalResourceIdentityForTier(tier)
+		if err != nil {
+			return err
+		}
+		if classID == identity.ClassID {
+			return nil
+		}
+	}
+	return fmt.Errorf("remote CI normal resource class %q is not canonical", classID)
+}
+
 // ValidateCalibrationResources 拒绝缺失或不可被回执精确绑定的固定规格。
 func ValidateCalibrationResources(classID string, cpu, memoryGiB float64) error {
-	if strings.TrimSpace(classID) == "" || classID != strings.TrimSpace(classID) || cpu <= 0 || memoryGiB <= 0 {
+	if err := ValidateResourceClassID(classID); err != nil {
+		return fmt.Errorf("remote CI calibration resource class ID: %w", err)
+	}
+	if cpu <= 0 || memoryGiB <= 0 {
 		return errors.New("remote CI calibration class, CPU, and memory are required")
 	}
-	if classID == "medium" {
-		return errors.New("remote CI calibration resource class ID must remain independent from the normal medium class")
+	if err := ValidateNormalResourceClassID(classID); err == nil {
+		return fmt.Errorf("remote CI calibration resource class ID %q must remain independent from normal classes", classID)
 	}
 	if cpu != CalibrationResourceCPU || memoryGiB != CalibrationResourceMemoryGiB {
 		return errors.New("remote CI calibration resources must be exactly 4 vCPU and 8 GiB")

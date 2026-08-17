@@ -105,7 +105,7 @@ func TestLiveRemoteCITimingWarningsAreConcurrentAndShardScoped(t *testing.T) {
 	record.Shards = append(record.Shards, RemoteCIShardRecord{
 		ShardIdentity: warnings[1].ShardIdentity, ContainerStatus: "Unknown",
 		MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementNotMeasured},
-		Resources:             RemoteCIShardResources{ClassID: "normal", CPU: 4, MemoryGiB: 8},
+		Resources:             RemoteCIShardResources{},
 	})
 	record.Warnings = []string{warnings[0].WarningText, warnings[1].WarningText}
 	record.TimingWarnings = warnings
@@ -588,7 +588,7 @@ func remoteCITimingWarningRunRecord(warning RemoteCITimingWarning) RemoteCIRunRe
 		Shards: []RemoteCIShardRecord{{
 			ShardIdentity: warning.ShardIdentity, ContainerStatus: "Unknown",
 			MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementNotMeasured},
-			Resources:             RemoteCIShardResources{ClassID: "normal", CPU: 4, MemoryGiB: 8},
+			Resources:             RemoteCIShardResources{},
 		}},
 		Warnings: []string{warning.WarningText}, TimingWarnings: []RemoteCITimingWarning{warning},
 	}

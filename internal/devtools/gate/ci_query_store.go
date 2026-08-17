@@ -66,6 +66,42 @@ type RemoteCIShardRecord struct {
 	TerminalEvidence      *RemoteCITerminalEvidence
 }
 
+// remoteCIExecutionIdentityState keeps the read-side distinction between an
+// explicitly absent v18 identity row and an identity that was loaded and
+// validated. The zero value remains unknown for records assembled for writes.
+type remoteCIExecutionIdentityState uint8
+
+const (
+	remoteCIExecutionIdentityStateUnknown remoteCIExecutionIdentityState = iota
+	remoteCIExecutionIdentityStateMissing
+	remoteCIExecutionIdentityStatePresent
+)
+
+// remoteCIResourceEvidenceState keeps an empty resources_json distinct from a
+// decoded zero value. The zero value remains unknown for records assembled for
+// writes and is inferred from the resource tuple where necessary.
+type remoteCIResourceEvidenceState uint8
+
+const (
+	remoteCIResourceEvidenceStateUnknown remoteCIResourceEvidenceState = iota
+	remoteCIResourceEvidenceStateMissing
+	remoteCIResourceEvidenceStatePresent
+)
+
+func remoteCIResourceEvidenceStateOf(shard RemoteCIShardRecord) remoteCIResourceEvidenceState {
+	if shard.Resources == (RemoteCIShardResources{}) {
+		return remoteCIResourceEvidenceStateMissing
+	}
+	if err := shard.Resources.Validate(); err != nil {
+		return remoteCIResourceEvidenceStateUnknown
+	}
+	return remoteCIResourceEvidenceStatePresent
+}
+
+func (shard RemoteCIShardRecord) remoteCIResourceEvidenceMissing() bool {
+	return remoteCIResourceEvidenceStateOf(shard) == remoteCIResourceEvidenceStateMissing
+}
+
 // RemoteCIShardResources is the scheduled CPU/memory evidence for one ECI shard.
 type RemoteCIShardResources struct {
 	ClassID   string  `json:"class_id"`
@@ -84,9 +120,29 @@ func newRemoteCIRunExecutionIdentity(record RemoteCIRunRecord) remoteCIRunExecut
 	return remoteCIRunExecutionIdentity{record.Platform, record.RunnerIdentityDigest, record.ToolchainDigest, record.ExecutionMode}
 }
 
-// Validate 拒绝缺失或畸形的实际分片 CPU、内存与规格身份。
-// 校准固定规格由 remote CI 请求与 checkpoint 额外严格绑定，normal 则保留策略实际选择。
+// Validate checks only the mode-independent resource shape. Callers with a
+// known execution mode must use ValidateForExecutionMode instead of guessing
+// normal versus calibration from the tuple.
 func (resources RemoteCIShardResources) Validate() error {
+	return resources.validateShape()
+}
+
+// ValidateForExecutionMode binds provider evidence to the run mode.
+func (resources RemoteCIShardResources) ValidateForExecutionMode(executionMode string) error {
+	if err := resources.validateShape(); err != nil {
+		return err
+	}
+	switch executionMode {
+	case cicontract.ExecutionModeNormal:
+		return cicontract.ValidateNormalResourceIdentity(resources.ClassID, resources.CPU, resources.MemoryGiB)
+	case cicontract.ExecutionModeCalibration:
+		return cicontract.ValidateCalibrationResources(resources.ClassID, resources.CPU, resources.MemoryGiB)
+	default:
+		return fmt.Errorf("remote CI shard execution mode %q is invalid", executionMode)
+	}
+}
+
+func (resources RemoteCIShardResources) validateShape() error {
 	if strings.TrimSpace(resources.ClassID) == "" || resources.ClassID != strings.TrimSpace(resources.ClassID) ||
 		resources.CPU <= 0 || resources.MemoryGiB <= 0 ||
 		math.IsNaN(resources.CPU) || math.IsInf(resources.CPU, 0) ||
@@ -181,11 +237,12 @@ func (store *DurationLedgerStore) LoadRemoteCIRun(jobID string) (RemoteCIRunReco
 		return RemoteCIRunRecord{}, mapDurationLedgerSQLiteError("begin remote CI run read snapshot", err)
 	}
 	defer transaction.Rollback()
-	record, err := loadRemoteCIRunRow(transaction, jobID)
+	record, identityState, err := loadRemoteCIRunRowWithIdentityState(transaction, jobID)
 	if err != nil {
 		return RemoteCIRunRecord{}, err
 	}
-	if err := loadRemoteCIRunDetails(transaction, jobID, &record); err != nil {
+	legacyRead := identityState == remoteCIExecutionIdentityStateMissing && record.Authoritative && record.Status == ResultStatusPassed
+	if err := loadRemoteCIRunDetails(transaction, jobID, &record, legacyRead); err != nil {
 		return RemoteCIRunRecord{}, err
 	}
 	if err := transaction.Commit(); err != nil {

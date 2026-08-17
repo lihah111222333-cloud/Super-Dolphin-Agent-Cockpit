@@ -387,22 +387,6 @@
           "todo_count": 0,
           "max_struct_fields": 6
         },
-        "internal/devtools/remoteci/baseline_state.go": {
-          "lines": 162,
-          "max_func_len": 24,
-          "max_nesting": 2,
-          "max_complexity": 11,
-          "max_params": 3,
-          "max_returns": 1,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 21,
-          "max_struct_methods": 2
-        },
         "internal/devtools/remoteci/gate_cli_compile_closure.go": {
           "lines": 225,
           "max_func_len": 61,
@@ -2348,22 +2332,6 @@
         "empty_funcs": 0,
         "todo_count": 0,
         "max_struct_fields": 6
-      },
-      "internal/devtools/remoteci/baseline_state.go": {
-        "lines": 162,
-        "max_func_len": 24,
-        "max_nesting": 2,
-        "max_complexity": 11,
-        "max_params": 3,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 21,
-        "max_struct_methods": 2
       },
       "internal/devtools/remoteci/gate_cli_compile_closure.go": {
         "lines": 225,

@@ -284,6 +284,15 @@ func TestShardExecutionManifestRejectsLegacyAndUnknownSchemaVersions(t *testing.
 	}
 }
 
+func TestShardExecutionManifestRejectsExpansionParents(t *testing.T) {
+	for _, id := range []GateID{GateIDFrontendPreflight, GateIDBackendNilness} {
+		manifest := manifestTestInput([]GateID{id})
+		if _, err := manifest.validateGateIDs(); err == nil {
+			t.Fatalf("current shard execution manifest accepted expansion parent %q", id)
+		}
+	}
+}
+
 func TestShardExecutionManifestRejectsMixedResourceSpecialAndReorderedGroups(t *testing.T) {
 	t.Run("mixed resource", func(t *testing.T) {
 		ids, groups := manifestMixedResourceGroups(t)

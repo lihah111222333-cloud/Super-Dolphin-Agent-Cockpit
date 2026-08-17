@@ -120,6 +120,9 @@ func (request BootstrapShardRequest) Validate() error {
 	if err := validateAcceptedBootstrapRequestCore(common, request.GateIDs); err != nil {
 		return err
 	}
+	if err := validateAcceptedBootstrapCompileGroupResources(request.CompileGroups, request.Calibration, request.ResourceClass); err != nil {
+		return err
+	}
 	manifest := acceptedBootstrapManifestFromRequest(request)
 	_, digest, err := encodeAcceptedBootstrapManifest(manifest)
 	if err != nil {
@@ -127,6 +130,22 @@ func (request BootstrapShardRequest) Validate() error {
 	}
 	if request.ShardExecutionManifestDigest != digest {
 		return errors.New("accepted bootstrap shard execution manifest digest drifted")
+	}
+	return nil
+}
+
+func validateAcceptedBootstrapCompileGroupResources(groups []acceptedCompileGroup, calibration bool, resource shardresource.Class) error {
+	if calibration {
+		if err := cicontract.ValidateCalibrationResources(resource.ID, resource.VCPU, resource.MemoryGiB); err != nil {
+			return fmt.Errorf("accepted bootstrap calibration resource: %w", err)
+		}
+	} else if err := cicontract.ValidateNormalResourceIdentity(resource.ID, resource.VCPU, resource.MemoryGiB); err != nil {
+		return fmt.Errorf("accepted bootstrap normal resource: %w", err)
+	}
+	for index, group := range groups {
+		if group.ResourceClassID != resource.ID {
+			return fmt.Errorf("accepted bootstrap compile_groups[%d] resource class %q does not match top-level class %q", index, group.ResourceClassID, resource.ID)
+		}
 	}
 	return nil
 }
@@ -141,12 +160,29 @@ func validateAcceptedBootstrapRequestCore(request ShardRequest, gateIDs []gate.G
 		request.validateObjects,
 		request.validateCalibrationResource,
 		request.validateResourceClass,
-		func() error { return validateGateIDs(gateIDs) },
+		func() error { return validateAcceptedBootstrapGateIDs(gateIDs) },
 	}
 	for _, validate := range validators {
 		if err := validate(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateAcceptedBootstrapGateIDs(ids []gate.GateID) error {
+	if len(ids) == 0 {
+		return errors.New("accepted bootstrap gate IDs are required")
+	}
+	seen := make(map[gate.GateID]struct{}, len(ids))
+	for index, id := range ids {
+		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
+			return fmt.Errorf("accepted bootstrap gate_ids[%d]: %w", index, err)
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("accepted bootstrap gate ID %q is duplicated", id)
+		}
+		seen[id] = struct{}{}
 	}
 	return nil
 }
@@ -185,6 +221,9 @@ func projectAcceptedCompileGroupWorkloadIDs(ids []gate.GateID) ([]gate.GateID, e
 	projected := make([]gate.GateID, 0, len(ids))
 	filteredNilness := false
 	for index, id := range ids {
+		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
+			return nil, fmt.Errorf("workload_ids[%d]: %w", index, err)
+		}
 		parent, _, _, targeted, err := gate.ParseWorkloadID(string(id))
 		if err != nil {
 			return nil, fmt.Errorf("workload_ids[%d]: %w", index, err)
@@ -208,6 +247,9 @@ func ProjectAcceptedGateIDs(ids []gate.GateID) ([]gate.GateID, error) {
 	projected := make([]gate.GateID, 0, len(ids))
 	seen := make(map[gate.GateID]struct{}, len(ids))
 	for index, id := range ids {
+		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
+			return nil, fmt.Errorf("gate_ids[%d] accepted projection: %w", index, err)
+		}
 		parent, _, _, targeted, err := gate.ParseWorkloadID(string(id))
 		if err != nil {
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection: %w", index, err)
@@ -296,9 +338,9 @@ func validateAcceptedCompileGroupWorkloads(workloadIDs []gate.GateID) error {
 		return errors.New("accepted compile group workload IDs must not be empty")
 	}
 	seen := make(map[gate.GateID]struct{}, len(workloadIDs))
-	for _, workloadID := range workloadIDs {
-		if workloadID == "" {
-			return errors.New("accepted compile group workload ID is empty")
+	for index, workloadID := range workloadIDs {
+		if err := gate.ValidateAcceptedBootstrapProjectionID(workloadID); err != nil {
+			return fmt.Errorf("accepted compile group workload_ids[%d]: %w", index, err)
 		}
 		if _, duplicate := seen[workloadID]; duplicate {
 			return fmt.Errorf("accepted compile group workload ID %q is duplicated", workloadID)
@@ -399,6 +441,9 @@ func encodeAcceptedBootstrapManifest(manifest acceptedBootstrapManifest) ([]byte
 // EncodeAcceptedBootstrapManifestForRequest 生成 accepted 暂时 manifest 的
 // canonical bytes；当前 worker 不消费该 v1 模型，候选 installer 只作交叉校验。
 func EncodeAcceptedBootstrapManifestForRequest(request BootstrapShardRequest) ([]byte, string, error) {
+	if err := request.Validate(); err != nil {
+		return nil, "", fmt.Errorf("validate accepted bootstrap request before manifest encoding: %w", err)
+	}
 	gateIDs, err := ProjectAcceptedGateIDs(request.GateIDs)
 	if err != nil {
 		return nil, "", err
@@ -411,7 +456,7 @@ func EncodeAcceptedBootstrapManifestForRequest(request BootstrapShardRequest) ([
 // v1 manifest 与其声明摘要，避免候选 installer 接受脏文件。
 func ValidateAcceptedBootstrapManifestBytes(data []byte, expectedDigest string) error {
 	var manifest acceptedBootstrapManifest
-	if err := gate.DecodeStrictJSON(data, &manifest); err != nil {
+	if err := gate.DecodeCanonicalStrictJSON(data, &manifest); err != nil {
 		return fmt.Errorf("decode accepted bootstrap manifest: %w", err)
 	}
 	claimed := manifest.ManifestDigest
@@ -453,8 +498,8 @@ func validateAcceptedBootstrapManifestHeader(manifest acceptedBootstrapManifest)
 func acceptedBootstrapManifestGateSet(gateIDs []gate.GateID) (map[gate.GateID]struct{}, error) {
 	gateSet := make(map[gate.GateID]struct{}, len(gateIDs))
 	for _, id := range gateIDs {
-		if id == "" {
-			return nil, errors.New("accepted bootstrap manifest gate ID is empty")
+		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
+			return nil, fmt.Errorf("accepted bootstrap manifest gate ID: %w", err)
 		}
 		if _, duplicate := gateSet[id]; duplicate {
 			return nil, fmt.Errorf("accepted bootstrap manifest gate ID %q is duplicated", id)
@@ -597,7 +642,7 @@ func DecodeBootstrapShardRequest(data []byte) (BootstrapShardRequest, error) {
 		return BootstrapShardRequest{}, errors.New("accepted bootstrap shard request exceeds canonical byte limit")
 	}
 	var request BootstrapShardRequest
-	if err := gate.DecodeStrictJSON(data, &request); err != nil {
+	if err := gate.DecodeCanonicalStrictJSON(data, &request); err != nil {
 		return BootstrapShardRequest{}, fmt.Errorf("decode accepted bootstrap shard request: %w", err)
 	}
 	if err := request.Validate(); err != nil {

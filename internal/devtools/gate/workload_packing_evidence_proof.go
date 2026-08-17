@@ -84,11 +84,15 @@ func appendPackingEvidenceOrdinaryUnits(units map[cicontract.WorkloadResourceTie
 		if err != nil {
 			return err
 		}
+		classID, err := normalCompileResourceClass(tier)
+		if err != nil {
+			return fmt.Errorf("rebuild ordinary workload %q resource class: %w", workload.Workload.ID, err)
+		}
 		reason, err := canonicalCompileUnitHardIsolationReason(workload.Workload.ID)
 		if err != nil {
 			return fmt.Errorf("rebuild ordinary workload %q hard isolation: %w", workload.Workload.ID, err)
 		}
-		units[tier] = append(units[tier], compilePlanningUnit{workloads: []PlannedWorkload{workload}, costMS: workload.EstimatedDurationMS, affinityKey: "ordinary:" + workload.Workload.ID, sortID: workload.Workload.ID, tier: tier, resourceClassID: normalCompileResourceClass(tier), hardIsolationReason: reason})
+		units[tier] = append(units[tier], compilePlanningUnit{workloads: []PlannedWorkload{workload}, costMS: workload.EstimatedDurationMS, affinityKey: "ordinary:" + workload.Workload.ID, sortID: workload.Workload.ID, tier: tier, resourceClassID: classID, hardIsolationReason: reason})
 	}
 	for tier := range units {
 		sortCompilePlanningUnits(units[tier])

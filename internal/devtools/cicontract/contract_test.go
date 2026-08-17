@@ -194,14 +194,44 @@ func TestContractValidatorsRejectDrift(t *testing.T) {
 		{name: "calibration class", err: ValidateCalibrationResources("", 4, 16)},
 		{name: "calibration CPU", err: ValidateCalibrationResources("fixed", 0, 16)},
 		{name: "calibration memory", err: ValidateCalibrationResources("fixed", 4, 0)},
-		{name: "normal CPU", err: ValidateNormalResources(0, 4)},
-		{name: "normal memory", err: ValidateNormalResources(4, 0)},
-		{name: "normal pair", err: ValidateNormalResources(4, 16)},
+		{name: "normal CPU", err: ValidateNormalResourceIdentity("small", 0, 4)},
+		{name: "normal memory", err: ValidateNormalResourceIdentity("medium", 4, 0)},
+		{name: "normal pair", err: ValidateNormalResourceIdentity("medium", 4, 16)},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
 			if check.err == nil {
 				t.Fatal("expected drift to be rejected")
+			}
+		})
+	}
+}
+
+func TestValidateCalibrationResourcesRejectsNormalClassIDs(t *testing.T) {
+	for _, classID := range []string{"small", "medium", "maximum"} {
+		t.Run(classID, func(t *testing.T) {
+			if err := ValidateCalibrationResources(classID, CalibrationResourceCPU, CalibrationResourceMemoryGiB); err == nil {
+				t.Fatalf("ValidateCalibrationResources accepted normal class %q", classID)
+			}
+		})
+	}
+}
+
+func TestValidateCalibrationResourcesAllowsPolicyDefinedClassIDs(t *testing.T) {
+	for _, classID := range []string{"calibration", "fixed", "custom-calibration"} {
+		t.Run(classID, func(t *testing.T) {
+			if err := ValidateCalibrationResources(classID, CalibrationResourceCPU, CalibrationResourceMemoryGiB); err != nil {
+				t.Fatalf("ValidateCalibrationResources rejected policy-defined class %q: %v", classID, err)
+			}
+		})
+	}
+}
+
+func TestValidateCalibrationResourcesRejectsMalformedClassID(t *testing.T) {
+	for _, classID := range []string{"CALIBRATION", "calibration class", " calibration", "calibration_"} {
+		t.Run(classID, func(t *testing.T) {
+			if err := ValidateCalibrationResources(classID, CalibrationResourceCPU, CalibrationResourceMemoryGiB); err == nil {
+				t.Fatalf("ValidateCalibrationResources accepted malformed class ID %q", classID)
 			}
 		})
 	}

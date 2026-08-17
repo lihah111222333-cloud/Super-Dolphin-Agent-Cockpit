@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,7 +11,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 type remoteGenerationOneECIVerifier interface {
@@ -112,11 +109,11 @@ func validateRemoteGenerationOneProvisionInput(config remoteRunConfig, receipt c
 	if receipt.ExecutionProvider != cicontract.ExecutionProviderID || receipt.RegionID != config.RegionID {
 		return errors.New("generation-one receipt provider or region does not match the Alibaba Cloud ECI config")
 	}
-	state, err := decodeGenerationOneProvisionState(receipt)
+	state, err := cicontract.DecodeGenerationOneProvisionState(receipt)
 	if err != nil {
 		return fmt.Errorf("validate generation-one baseline state: %w", err)
 	}
-	if err := validateGenerationOneProvisionStateBinding(receipt, state); err != nil {
+	if err := cicontract.ValidateGenerationOneProvisionStateBinding(receipt, state); err != nil {
 		return fmt.Errorf("validate generation-one receipt/state binding: %w", err)
 	}
 	if err := validateRemoteGenerationOneProvisionResources(config, receipt); err != nil {
@@ -252,7 +249,7 @@ func validateGenerationOneLiveContainerGroup(group eci.ContainerGroup, regionID 
 
 // validateGenerationOneLiveContainerGroupResources 将 ECI 控制面真实规格绑定到内容检查观测。
 func validateGenerationOneLiveContainerGroupResources(group eci.ContainerGroup, observation cicontract.ProvisionCheckObservation) error {
-	if err := cicontract.ValidateNormalResources(group.CPU, group.MemoryGiB); err != nil {
+	if err := cicontract.ValidateNormalResourceIdentity(observation.ResourceClassID, group.CPU, group.MemoryGiB); err != nil {
 		return fmt.Errorf("generation-one ECI container group %q resources are invalid: %w", group.ID, err)
 	}
 	if group.CPU != observation.ResourceCPU || group.MemoryGiB != observation.ResourceMemoryGiB {
@@ -349,62 +346,4 @@ func newRemoteGenerationOneVerifier(config remoteRunConfig) (*eci.Client, error)
 		SpotDurationHours:        1,
 		RegistryCredentialLoader: loadRemoteRegistryCredential,
 	})
-}
-
-// decodeGenerationOneProvisionState 严格解码 canonical BaselineState 并执行其完整校验。
-func decodeGenerationOneProvisionState(receipt cicontract.GenerationOneProvisionReceipt) (remoteci.BaselineState, error) {
-	var state remoteci.BaselineState
-	if err := gatecontract.DecodeStrictJSON(receipt.StateJSON, &state); err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	canonical, err := json.Marshal(state)
-	if err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	if !bytes.Equal(canonical, receipt.StateJSON) {
-		return remoteci.BaselineState{}, errors.New("generation-one state_json is not canonical JSON")
-	}
-	if err := state.Validate(); err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	return state, nil
-}
-
-// validateGenerationOneProvisionStateBinding 证明回执字段与 canonical BaselineState 一一绑定。
-func validateGenerationOneProvisionStateBinding(receipt cicontract.GenerationOneProvisionReceipt, state remoteci.BaselineState) error {
-	if err := validateGenerationOneStateCoreBinding(receipt, state); err != nil {
-		return err
-	}
-	if err := validateGenerationOneStateArtifactBinding(receipt, state); err != nil {
-		return err
-	}
-	return nil
-}
-
-// validateGenerationOneStateCoreBinding 校验代次、缓存、平台与策略身份。
-func validateGenerationOneStateCoreBinding(receipt cicontract.GenerationOneProvisionReceipt, state remoteci.BaselineState) error {
-	if !generationOneStateCloudIdentityMatches(receipt, state) || !generationOneStateSourceIdentityMatches(receipt, state) {
-		return errors.New("generation-one receipt core fields do not match BaselineState")
-	}
-	return nil
-}
-
-// generationOneStateCloudIdentityMatches 比较首代 provider、region、cache 与 runtime image。
-func generationOneStateCloudIdentityMatches(receipt cicontract.GenerationOneProvisionReceipt, state remoteci.BaselineState) bool {
-	return state.Generation == 1 && state.ExecutionProvider == receipt.ExecutionProvider && state.RegionID == receipt.RegionID &&
-		state.ImageCacheID == receipt.ImageCacheID && state.ImageCacheSnapshotID == receipt.ImageCacheSnapshotID && state.RuntimeImage == receipt.RuntimeImage
-}
-
-// generationOneStateSourceIdentityMatches 比较首代源码、平台、策略和工具链身份。
-func generationOneStateSourceIdentityMatches(receipt cicontract.GenerationOneProvisionReceipt, state remoteci.BaselineState) bool {
-	return state.MainCommit == receipt.MainCommit && state.MainTree == receipt.MainTree && state.Platform == receipt.Platform &&
-		state.PolicyDigest == receipt.PolicyDigest && state.ToolchainDigest == receipt.ToolchainDigest
-}
-
-// validateGenerationOneStateArtifactBinding 校验 Gate、seed 与 baseline manifest 摘要。
-func validateGenerationOneStateArtifactBinding(receipt cicontract.GenerationOneProvisionReceipt, state remoteci.BaselineState) error {
-	if state.GateBinarySHA256 != receipt.GateBinarySHA256 || state.RuntimeSeedSHA256 != receipt.RuntimeSeedSHA256 || state.BaselineManifestDigest != receipt.BaselineManifestDigest {
-		return errors.New("generation-one receipt artifact fields do not match BaselineState")
-	}
-	return nil
 }

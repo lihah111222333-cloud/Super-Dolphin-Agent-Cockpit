@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -160,6 +161,7 @@ func TestCompareAndSwapCalibrationPreservesSQLiteSamples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	calibration := testSQLiteDurationCalibration()
 	updated, err := store.CompareAndSwapCalibration(first.Generation, &calibration)
 	if err != nil {
@@ -191,6 +193,74 @@ func TestDurationLedgerSQLiteShardOverheadRoundTripPreservesAccountedIntervals(t
 	durationLedgerSQLiteAssertShardOverheadRoundTrip(t, store, sample, overhead)
 }
 
+func TestLoadSQLiteShardOverheadRejectsOutsideAcceptedBaselineWindow(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	oldSample := durationLedgerSQLiteShardOverheadRoundTripSample()
+	oldOverhead := durationLedgerSQLiteShardOverheadRoundTripValue(oldSample.ProvenanceDigest)
+	futureSample := oldSample
+	futureSample.AcceptedGeneration = 5
+	futureSample.JobID = "overhead-future-job"
+	futureOverhead := oldOverhead
+	futureOverhead.AcceptedGeneration = 5
+	futureOverhead.ProvenanceDigest = "sha256:" + strings.Repeat("b", 64)
+	insertGenerationOneRunForTest(t, database, oldSample.JobID)
+	insertCalibrationExecutionIdentityForTest(t, database, oldSample.JobID, oldOverhead.Platform, oldOverhead.Runner, oldOverhead.Toolchain)
+	insertGenerationOneRunForTest(t, database, futureSample.JobID)
+	insertCalibrationExecutionIdentityForTest(t, database, futureSample.JobID, futureOverhead.Platform, futureOverhead.Runner, futureOverhead.Toolchain)
+	tx, err := database.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insertSQLiteShardOverhead(tx, oldOverhead, []ShardOrchestrationOverheadSample{oldSample}); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := insertSQLiteShardOverhead(tx, futureOverhead, []ShardOrchestrationOverheadSample{futureSample}); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	planning := PlanningContext{Platform: oldOverhead.Platform, Runner: oldOverhead.Runner, Toolchain: oldOverhead.Toolchain, AcceptedSnapshotID: oldOverhead.AcceptedSnapshotID}
+	loaded, err := loadSQLiteShardOverhead(database, planning, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != nil {
+		t.Fatalf("outside-window shard overhead = %#v, want nil", loaded)
+	}
+}
+
+func TestSQLiteDurationSampleGenerationUsesCanonicalRetentionWindow(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		generation uint64
+		wantError  bool
+	}{
+		{name: "current", generation: 4},
+		{name: "previous", generation: 3},
+		{name: "oldest retained", generation: 2},
+		{name: "older", generation: 1, wantError: true},
+		{name: "future", generation: 5, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateSQLiteDurationSampleGeneration(test.generation, 4)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateSQLiteDurationSampleGeneration(%d, 4) error = %v, wantError=%t", test.generation, err, test.wantError)
+			}
+		})
+	}
+}
+
 // durationLedgerSQLiteShardOverheadRoundTripSample 构造保留间隔往返测试样本。
 func durationLedgerSQLiteShardOverheadRoundTripSample() ShardOrchestrationOverheadSample {
 	digest := "sha256:" + strings.Repeat("a", 64)
@@ -216,8 +286,8 @@ func durationLedgerSQLiteShardOverheadRoundTripValue(digest string) ShardOrchest
 		SchemaVersion:                ShardOrchestrationOverheadSchemaVersion,
 		PolicyVersion:                ShardOverheadPolicyVersion,
 		Platform:                     "linux/amd64",
-		Runner:                       "eci",
-		Toolchain:                    "go",
+		Runner:                       "sha256:" + strings.Repeat("c", 64),
+		Toolchain:                    "sha256:" + strings.Repeat("d", 64),
 		CalibrationResourceClassID:   "calibration",
 		CalibrationResourceCPU:       4,
 		CalibrationResourceMemoryGiB: 8,
@@ -237,10 +307,29 @@ func durationLedgerSQLiteRecordShardOverheadRoundTrip(t *testing.T, store *Durat
 		t.Fatal(err)
 	}
 	insertGenerationOneRunForTest(t, database, sample.JobID)
+	if _, err := database.Exec(`UPDATE ci_runs SET image_cache_snapshot_id = ? WHERE job_id = ?`, overhead.AcceptedSnapshotID, sample.JobID); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	insertCalibrationExecutionIdentityForTest(t, database, sample.JobID, overhead.Platform, overhead.Runner, overhead.Toolchain)
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.CompareAndSwapShardOverhead(1, overhead, []ShardOrchestrationOverheadSample{sample}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertCalibrationExecutionIdentityForTest(t *testing.T, database *sql.DB, jobID string, identity ...string) {
+	t.Helper()
+	platform, runner, toolchain := "linux/amd64", "sha256:"+strings.Repeat("c", 64), "sha256:"+strings.Repeat("d", 64)
+	if len(identity) != 0 {
+		if len(identity) != 3 {
+			t.Fatalf("calibration execution identity arguments = %d, want 3", len(identity))
+		}
+		platform, runner, toolchain = identity[0], identity[1], identity[2]
+	}
+	if _, err := database.Exec(`INSERT INTO ci_remote_run_execution_identities (job_id, platform, runner_identity_digest, toolchain_digest, execution_mode) VALUES (?, ?, ?, ?, 'calibration')`, jobID, platform, runner, toolchain); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -301,7 +390,7 @@ func TestRecordRemoteCIRunRejectsUncoveredPassedCatalogWorkload(t *testing.T) {
 		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("b", 40),
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("1", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("2", 64),
-		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
+		RunnerImage: "ubuntu:22.04", Platform: "linux/amd64", RunnerIdentityDigest: digestForWorkloadPass("runner"), ToolchainDigest: digestForWorkloadPass("toolchain"), ExecutionMode: DurationExecutionModeNormal, Status: ResultStatusPassed, Authoritative: false,
 		StartedAt: now, CompletedAt: now,
 		TimingObservations: []TimingObservation{authoritativeRunTimingObservation("uncovered")},
 	})
@@ -353,7 +442,7 @@ func TestRecordRemoteCIRunRejectsUnknownStatusAndFailedCatalogDrift(t *testing.T
 		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("b", 40),
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("3", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("4", 64),
-		RunnerImage: "ubuntu:22.04", Status: ResultStatusFailed, StartedAt: now, CompletedAt: now,
+		RunnerImage: "ubuntu:22.04", Platform: "linux/amd64", RunnerIdentityDigest: digestForWorkloadPass("runner"), ToolchainDigest: digestForWorkloadPass("toolchain"), ExecutionMode: DurationExecutionModeNormal, Status: ResultStatusFailed, StartedAt: now, CompletedAt: now,
 		Shards: []RemoteCIShardRecord{{
 			ShardIdentity: "sha256:" + strings.Repeat("5", 64), ContainerGroup: "eci-failed", ContainerStatus: "Failed",
 			Workloads:             []GateID{GateIDCodemapCheck},
@@ -423,7 +512,7 @@ func durationLedgerSQLiteManualSelectionRecord(now time.Time, digest string) Rem
 		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("d", 40),
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("5", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("6", 64),
-		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
+		RunnerImage: "ubuntu:22.04", Platform: "linux/amd64", RunnerIdentityDigest: digestForWorkloadPass("runner"), ToolchainDigest: digestForWorkloadPass("toolchain"), ExecutionMode: DurationExecutionModeNormal, Status: ResultStatusPassed, Authoritative: false,
 		StartedAt: now, CompletedAt: now, CleanupComplete: true,
 		TimingObservations: []TimingObservation{authoritativeRunTimingObservation("manual-selection")},
 		Shards: []RemoteCIShardRecord{{
@@ -516,7 +605,7 @@ func TestRecordRemoteCIRunRejectsPassedShardCoverageDrift(t *testing.T) {
 		Profile: ProfileLocalFast, PlanDigest: "sha256:plan",
 		CatalogDigest: digest, SourceTreeSHA: strings.Repeat("2", 40),
 		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("7", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("8", 64),
-		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed,
+		RunnerImage: "ubuntu:22.04", Platform: "linux/amd64", RunnerIdentityDigest: digestForWorkloadPass("runner"), ToolchainDigest: digestForWorkloadPass("toolchain"), ExecutionMode: DurationExecutionModeNormal, Status: ResultStatusPassed,
 		Authoritative: false, StartedAt: now, CompletedAt: now.Add(time.Second),
 		CleanupComplete: true,
 	}
@@ -527,7 +616,7 @@ func TestRecordRemoteCIRunRejectsPassedShardCoverageDrift(t *testing.T) {
 		ShardIdentity: "sha256:" + strings.Repeat("9", 64), ContainerGroup: "eci-executed",
 		ContainerStatus: "Succeeded", Workloads: []GateID{GateIDWhitespaceCheck},
 		MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("9", 64)),
-		Resources:             RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8},
+		Resources:             RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8},
 	}}
 	execution := PlanGateExecution{ShardIdentity: record.Shards[0].ShardIdentity, GateID: GateIDWhitespaceCheck, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
 	record.WorkloadExecutions = []PlanGateExecution{execution}

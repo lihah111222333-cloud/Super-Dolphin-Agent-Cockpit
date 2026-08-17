@@ -56,14 +56,5 @@ func isolateBootstrapWorkloads(workloads []PlannedWorkload) []ShardPlan {
 
 // plannedWorkloadResourceTier 只接受计划内固化的 normal 资源身份。
 func plannedWorkloadResourceTier(workload PlannedWorkload) (cicontract.WorkloadResourceTier, error) {
-	switch {
-	case workload.ResourceCPU == 2 && workload.ResourceMemoryGiB == 4:
-		return cicontract.WorkloadResourceTierFast, nil
-	case workload.ResourceCPU == 4 && workload.ResourceMemoryGiB == 8:
-		return cicontract.WorkloadResourceTierMedium, nil
-	case workload.ResourceCPU == 8 && workload.ResourceMemoryGiB == 16:
-		return cicontract.WorkloadResourceTierSlow, nil
-	default:
-		return 0, fmt.Errorf("workload %q has unsupported resource %.gC/%.gGiB", workload.Workload.ID, workload.ResourceCPU, workload.ResourceMemoryGiB)
-	}
+	return cicontract.NormalResourceTierForResources(workload.ResourceCPU, workload.ResourceMemoryGiB)
 }
