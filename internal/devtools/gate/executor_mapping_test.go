@@ -2,6 +2,7 @@ package gate
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -104,14 +105,40 @@ func TestSQLCExecutorUsesPinnedRuntimeBinary(t *testing.T) {
 	if program.Strategy != ExecutorStrategySQLCVerify {
 		t.Fatalf("sqlc executor strategy = %q, want %q", program.Strategy, ExecutorStrategySQLCVerify)
 	}
-	if !slices.Equal(program.RequiredExecutables, []string{ExecutorSQLCBinaryPath, ExecutorBashBinaryPath}) {
+	if !slices.Equal(program.RequiredExecutables, []string{ExecutorSQLCBinaryPath, ExecutorGoFmtBinaryPath}) {
 		t.Fatalf("sqlc required executables = %v, want fixed runtime binary", program.RequiredExecutables)
 	}
-	if !slices.Contains(program.RequiredPaths, "scripts/sqlc_postprocess.sh") {
-		t.Fatalf("sqlc required paths = %v, want canonical postprocessor", program.RequiredPaths)
+	if !program.NeedsGoSeed {
+		t.Fatal("sqlc executor must declare the Go runtime seed for preflight/postprocess")
+	}
+	wantPaths := []string{
+		".git", "sqlc.yaml", "cmd/mcp-orch/sqlc.yaml",
+		"go.mod", "go.sum", "sql/queries", "cmd/mcp-orch/sql/queries",
+		"internal/platform/db/sqlite/migrations",
+	}
+	if !slices.Equal(program.RequiredPaths, wantPaths) {
+		t.Fatalf("sqlc required paths = %v, want complete authoritative dependency set %v", program.RequiredPaths, wantPaths)
 	}
 	if len(program.Steps) != 0 {
 		t.Fatalf("sqlc executor unexpectedly delegates to mapped commands: %v", program.Steps)
+	}
+}
+
+func TestSQLCVerifierIsInCandidateGateCompileClosure(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	command := exec.Command("go", "list", "-deps", "./cmd/super-dolphin-gate")
+	command.Dir = root
+	command.Env = append(os.Environ(), "GOWORK=off")
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("resolve candidate Gate compile closure: %v", err)
+	}
+	if !strings.Contains(string(output), "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig\n") {
+		t.Fatalf("candidate Gate compile closure omits trusted SQLC verifier:\n%s", output)
 	}
 }
 

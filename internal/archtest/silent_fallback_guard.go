@@ -72,7 +72,12 @@ func (g *silentFallbackReturnGuard) scanFile(path string) {
 		g.addScanViolation(rel, fmt.Sprintf("silent fallback guard read error: %v", err))
 		return
 	}
-	if IsGeneratedSQLCFile(rel, data) {
+	generated, err := IsGeneratedSQLCFile(CheckOptions{RepoRoot: g.repoRoot}, rel, data)
+	if err != nil {
+		g.addScanViolation(rel, fmt.Sprintf("silent fallback SQLC ownership error: %v", err))
+		return
+	}
+	if generated {
 		return
 	}
 	fset := token.NewFileSet()

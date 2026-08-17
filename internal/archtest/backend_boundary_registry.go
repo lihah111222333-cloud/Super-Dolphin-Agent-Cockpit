@@ -1,5 +1,7 @@
 package archtest
 
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
+
 // BoundaryOwnerID 标识后端边界规则拥有者。
 type BoundaryOwnerID string
 
@@ -261,7 +263,7 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/build-trusted-gate-launcher", "trusted gate launcher build command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
+		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "mcp_orch_sqlc_sidecar_only", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
 		backendBoundarySurface("cmd/mcp-schema-compiler-helper", "one-shot MCP schema compiler helper", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-gate", "standalone gate coordinator and worker command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
@@ -405,6 +407,7 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultPlatformModuleRule(patterns),
 		defaultPlatformStoreRule(patterns),
 		defaultSQLCStoreRule(patterns),
+		defaultOrchestratorSQLCRule(patterns),
 		defaultStoreDependencyRule(patterns),
 		defaultAppAdapterRule(),
 		defaultFXAssemblyRule(patterns),
@@ -626,7 +629,7 @@ func defaultSQLCStoreRule(patterns backendBoundaryPatterns) BackendBoundaryRule 
 		Reason:       "store/sqlc generated types must stay inside persistence implementation seams",
 		Kind:         BoundaryRuleScopedImport,
 		FilePatterns: patterns.sqlc,
-		Deny:         boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{"internal/store/sqlc"}, "sqlc imports are restricted to persistence seams"),
+		Deny:         boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{sqlcconfig.RootOutputOwnerParent}, "sqlc imports are restricted to persistence seams"),
 		ScopeAllow: []BoundaryFilePolicy{
 			boundaryFilePolicy("sqlc_boundary", BoundaryScopeStore, "store packages are the canonical anti-corruption wrappers around sqlc"),
 			boundaryFilePolicy("sqlc_boundary", BoundaryScopePlatformDB, "platform DB schema verification may inspect sqlc-backed persistence boundaries"),
@@ -644,7 +647,6 @@ func defaultStoreDependencyRule(patterns backendBoundaryPatterns) BackendBoundar
 		"internal/platform/sharedfilefs",
 		"internal/platform/sharedfilegitignore",
 		"internal/platform/sharedfilepath",
-		"internal/store/sqlc",
 		"internal/contract",
 		"internal/dto",
 	}, "store packages may consume only registered persistence contracts and shared path adapters")

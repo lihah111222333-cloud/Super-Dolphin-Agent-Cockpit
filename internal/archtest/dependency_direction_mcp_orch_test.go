@@ -43,7 +43,7 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 	}
 	registry := archtest.DefaultBackendBoundaryRegistry()
 	t.Run("direct_internal_boundary", func(t *testing.T) {
-		assertMCPOrchDirectImportBoundary(t, files, registry)
+		assertMCPOrchDirectImportBoundary(t, root, files, registry)
 	})
 	t.Run("transitive_internal_boundary", func(t *testing.T) {
 		assertMCPSidecarTransitiveImportBoundary(t, root, registry)
@@ -54,11 +54,12 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 	})
 }
 
-func assertMCPOrchDirectImportBoundary(t *testing.T, files []parsedFile, registry archtest.BackendBoundaryRegistry) {
+func assertMCPOrchDirectImportBoundary(t *testing.T, root string, files []parsedFile, registry archtest.BackendBoundaryRegistry) {
 	t.Helper()
 	var violations []string
 	for _, file := range files {
 		fileViolations, err := archtest.EvaluateBackendBoundaryFile(
+			root,
 			file.AbsPath,
 			file.RelPath,
 			registry,
@@ -95,11 +96,14 @@ func mcpSidecarTransitiveViolations(t *testing.T, registry archtest.BackendBound
 	if len(imports) == 0 {
 		t.Fatalf("%s has zero internal/cmd transitive imports", relPkg)
 	}
-	path := filepath.Join(t.TempDir(), "mcp_sidecar_transitive.go")
+	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
+	path := filepath.Join(root, "mcp_sidecar_transitive.go")
 	if err := os.WriteFile(path, []byte(mcpSidecarImportFixtureSource(imports)), 0o600); err != nil {
 		t.Fatalf("write transitive fixture: %v", err)
 	}
 	violations, err := archtest.EvaluateBackendBoundaryFile(
+		root,
 		path,
 		relPkg+"/main.go",
 		registry,

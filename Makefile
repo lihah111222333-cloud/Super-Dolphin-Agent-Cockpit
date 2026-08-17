@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-embed-verify-after-build frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort test-e2e-gopls-daemon-lifecycle test-e2e-mcp-lsp-idle-quick test-e2e-mcp-lsp-native-process-tree test-e2e-mcp-lsp-default-15m mcp-lsp-workload-catalog-check vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready remote-ci-init
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-embed-verify-after-build frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort test-e2e-gopls-daemon-lifecycle test-e2e-mcp-lsp-idle-quick test-e2e-mcp-lsp-native-process-tree test-e2e-mcp-lsp-default-15m mcp-lsp-workload-catalog-check vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-local-toolchain-check sqlc-generate-worktree sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready remote-ci-init
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -342,33 +342,41 @@ ci-l3-release:
 # Pin the CLI version so every
 # contributor and CI node produces byte-identical output; drift would defeat
 # the whole point of a type-safe store layer.
-SQLC_VERSION ?= v1.30.0
+override SQLC_VERSION := v1.30.0
+override SQLC_GO := $(shell command -v go)
+override SQLC_GO_CANONICAL := $(shell cd "$$(dirname "$(SQLC_GO)")" 2>/dev/null && printf '%s/%s\n' "$$(pwd -P)" "$$(basename "$(SQLC_GO)")")
+override SQLC_GIT := $(shell command -v git)
+override SQLC_GIT_CANONICAL := $(shell cd "$$(dirname "$(SQLC_GIT)")" 2>/dev/null && printf '%s/%s\n' "$$(pwd -P)" "$$(basename "$(SQLC_GIT)")")
+override SQLC_REPO_CANONICAL := $(shell pwd -P)
 # Hermetic invocation via 'go run' ensures every contributor / CI job produces
 # byte-identical output regardless of any sqlc binary that may live on PATH
 # (e.g. homebrew-managed copies at a different version). The first run hits the
 # Go module cache; subsequent runs are just a local exec.
-SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+override SQLC := GOWORK=off $(SQLC_GO_CANONICAL) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 
-sqlc-generate:
+# Local Make targets are diagnostics; release authority is the fixed-seed remote
+# executor. Reject candidate-local PATH shims so diagnostics cannot trust a
+# writable repository tool as Go.
+sqlc-local-toolchain-check:
+	@case "$(SQLC_GO_CANONICAL)" in /*) ;; *) echo "❌ local SQLC diagnostic requires an absolute Go executable"; exit 1;; esac
+	@case "$(SQLC_GO_CANONICAL)" in "$(SQLC_REPO_CANONICAL)"/*) echo "❌ candidate-local Go executable is forbidden for SQLC diagnostics"; exit 1;; esac
+	@case "$(SQLC_GIT_CANONICAL)" in /*) ;; *) echo "❌ local SQLC diagnostic requires an absolute Git executable"; exit 1;; esac
+	@case "$(SQLC_GIT_CANONICAL)" in "$(SQLC_REPO_CANONICAL)"/*) echo "❌ candidate-local Git executable is forbidden for SQLC diagnostics"; exit 1;; esac
+
+sqlc-generate-worktree: sqlc-local-toolchain-check
+	GOWORK=off $(SQLC_GO_CANONICAL) run ./scripts/sqlc_config_outputs --git-binary "$(SQLC_GIT_CANONICAL)" --preflight >/dev/null
 	$(SQLC) generate
 	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
 	bash scripts/sqlc_postprocess.sh
+	GOWORK=off $(SQLC_GO_CANONICAL) run ./scripts/sqlc_config_outputs --git-binary "$(SQLC_GIT_CANONICAL)" --verify-shape
+
+sqlc-generate: sqlc-generate-worktree
 	@echo "✅ sqlc generate (root + cmd/mcp-orch)"
 
 # CI gate: regenerate and fail if the working tree drifts from committed output.
-sqlc-verify:
-	$(MAKE) --no-print-directory sqlc-generate
-	@if [ -n "$$(git status --porcelain --untracked-files=all -- internal/store/sqlc cmd/mcp-orch/store/sqlc)" ]; then \
-		echo "❌ sqlc-generated code is out of date; run 'make sqlc-generate' and commit."; \
-		git --no-pager diff -- internal/store/sqlc cmd/mcp-orch/store/sqlc; \
-		UNTRACKED=$$(git ls-files --others --exclude-standard -- internal/store/sqlc cmd/mcp-orch/store/sqlc); \
-		if [ -n "$$UNTRACKED" ]; then \
-			echo "Untracked generated files:"; \
-			echo "$$UNTRACKED"; \
-		fi; \
-		exit 1; \
-	fi
-	@echo "✅ sqlc-verify (generated code matches root + cmd/mcp-orch sqlc configs)"
+sqlc-verify: sqlc-generate
+	GOWORK=off $(SQLC_GO_CANONICAL) run ./scripts/sqlc_config_outputs --git-binary "$(SQLC_GIT_CANONICAL)" --verify
+	@echo "✅ sqlc-verify (generated code matches configured SQLC outputs)"
 
 # Worker worktree gate: generated files may already be dirty against HEAD, but
 # regeneration must be stable against the worktree's current generated content.

@@ -51,6 +51,7 @@ func assertModuleNoStoreRuleDenyPolicy(t *testing.T, rule archtest.BackendBounda
 
 func TestModuleNoStoreImportsRejectsFixture(t *testing.T) {
 	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
 	relPath := "internal/module/example/leak.go"
 	absPath := filepath.Join(root, filepath.FromSlash(relPath))
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
@@ -61,6 +62,7 @@ func TestModuleNoStoreImportsRejectsFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	violations, err := archtest.EvaluateBackendBoundaryFile(
+		root,
 		absPath,
 		relPath,
 		archtest.DefaultBackendBoundaryRegistry(),
@@ -93,6 +95,7 @@ func TestModuleNoStoreImportsCoversProductionTree(t *testing.T) {
 
 func TestModuleNoStoreImportsCoversFutureModulesWithoutMatchingStorex(t *testing.T) {
 	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
 	relPath := "internal/module/future/service.go"
 	absPath := filepath.Join(root, filepath.FromSlash(relPath))
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {

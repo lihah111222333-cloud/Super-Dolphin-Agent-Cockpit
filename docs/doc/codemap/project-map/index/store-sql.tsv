@@ -152,7 +152,7 @@ internal/store/sqlc/datasource_v2.sql.go	internal	store-sql	go-source	19590	应�
 internal/store/sqlc/db.go	internal	store-sql	go-source	573	应用级持久化 store	internal,store,sqlc,db,应用级持久化
 internal/store/sqlc/db_query.sql.go	internal	store-sql	go-source	1026	应用级持久化 store	internal,store,sqlc,db,query,sql,应用级持久化
 internal/store/sqlc/hook_pending_review.sql.go	internal	store-sql	go-source	16146	应用级持久化 store	internal,store,sqlc,hook,pending,review,sql,应用级持久化
-internal/store/sqlc/hook_pending_review_idempotency_sqlite_test.go	internal	store-sql	go-test	2477	应用级持久化 store	internal,store,sqlc,hook,pending,review,idempotency,sqlite,test,应用级持久化
+internal/store/sqlc/hook_pending_review_idempotency_sqlite_test.go	internal	store-sql	go-test	2526	应用级持久化 store	internal,store,sqlc,hook,pending,review,idempotency,sqlite,test,应用级持久化
 internal/store/sqlc/interaction.sql.go	internal	store-sql	go-source	5470	应用级持久化 store	internal,store,sqlc,interaction,sql,应用级持久化
 internal/store/sqlc/mcp_tool_lifecycle.sql.go	internal	store-sql	go-source	6914	应用级持久化 store	internal,store,sqlc,mcp,tool,lifecycle,sql,应用级持久化
 internal/store/sqlc/models.go	internal	store-sql	go-source	13432	应用级持久化 store	internal,store,sqlc,models,应用级持久化
@@ -160,13 +160,13 @@ internal/store/sqlc/prompt_intent_drafts.sql.go	internal	store-sql	go-source	104
 internal/store/sqlc/prompt_routing_test.sql.go	internal	store-sql	go-source	1007	应用级持久化 store	internal,store,sqlc,prompt,routing,test,sql,应用级持久化
 internal/store/sqlc/prompt_template.sql.go	internal	store-sql	go-source	15468	应用级持久化 store	internal,store,sqlc,prompt,template,sql,应用级持久化
 internal/store/sqlc/prompt_template_sections.sql.go	internal	store-sql	go-source	15175	应用级持久化 store	internal,store,sqlc,prompt,template,sections,sql,应用级持久化
-internal/store/sqlc/prompt_template_sections_scope_sqlite_test.go	internal	store-sql	go-test	2305	应用级持久化 store	internal,store,sqlc,prompt,template,sections,scope,sqlite,test,应用级持久化
-internal/store/sqlc/prompt_template_sections_sql_test.go	internal	store-sql	go-test	2366	应用级持久化 store	internal,store,sqlc,prompt,template,sections,sql,test,应用级持久化
-internal/store/sqlc/prompt_template_sql_test.go	internal	store-sql	go-test	1316	应用级持久化 store	internal,store,sqlc,prompt,template,sql,test,应用级持久化
+internal/store/sqlc/prompt_template_sections_scope_sqlite_test.go	internal	store-sql	go-test	2354	应用级持久化 store	internal,store,sqlc,prompt,template,sections,scope,sqlite,test,应用级持久化
+internal/store/sqlc/prompt_template_sections_sql_test.go	internal	store-sql	go-test	2415	应用级持久化 store	internal,store,sqlc,prompt,template,sections,sql,test,应用级持久化
+internal/store/sqlc/prompt_template_sql_test.go	internal	store-sql	go-test	1365	应用级持久化 store	internal,store,sqlc,prompt,template,sql,test,应用级持久化
 internal/store/sqlc/querier.go	internal	store-sql	go-source	24028	应用级持久化 store	internal,store,sqlc,querier,应用级持久化
 internal/store/sqlc/session_insight.sql.go	internal	store-sql	go-source	27902	应用级持久化 store	internal,store,sqlc,session,insight,sql,应用级持久化
 internal/store/sqlc/shared_file.sql.go	internal	store-sql	go-source	3341	应用级持久化 store	internal,store,sqlc,shared,file,sql,应用级持久化
-internal/store/sqlc/sqlite_runtime_sql_test.go	internal	store-sql	go-test	8709	应用级持久化 store	internal,store,sqlc,sqlite,runtime,sql,test,应用级持久化
+internal/store/sqlc/sqlite_runtime_sql_test.go	internal	store-sql	go-test	8758	应用级持久化 store	internal,store,sqlc,sqlite,runtime,sql,test,应用级持久化
 internal/store/sqlc/system_log.sql.go	internal	store-sql	go-source	5949	应用级持久化 store	internal,store,sqlc,system,log,sql,应用级持久化
 internal/store/sqlc/thread_binding.sql.go	internal	store-sql	go-source	5272	应用级持久化 store	internal,store,sqlc,thread,binding,sql,应用级持久化
 internal/store/sqlc/topology_approval.sql.go	internal	store-sql	go-source	4078	应用级持久化 store	internal,store,sqlc,topology,approval,sql,应用级持久化

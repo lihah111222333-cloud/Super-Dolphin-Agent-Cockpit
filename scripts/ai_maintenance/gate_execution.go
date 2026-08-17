@@ -222,11 +222,36 @@ func gateRunners(plan gatePlan) map[string]gateRunner {
 		"frontend:embed-verify":  {run: func() error { return runFrontendEmbedVerify(plan) }},
 		"codemap:check":          generatedCheck("make", "codemap-check"),
 		"project-map:check":      generatedCheck("make", "project-map-check", "PROJECT_MAP_ARGS="),
-		"sqlc:verify":            {run: func() error { return runCommand(gateExecutionDir(plan, ""), "make", "sqlc-verify-worktree") }},
-		"diff:whitespace":        {run: func() error { return runWhitespaceCheck(plan) }},
+		"sqlc:verify": {run: func() error {
+			return runLocalSQLCDiagnostic(plan)
+		}},
+		"diff:whitespace": {run: func() error { return runWhitespaceCheck(plan) }},
 	}
 	maps.Copy(runners, ownedGateRunners(plan))
 	return runners
+}
+
+// runLocalSQLCDiagnostic 使用 host 固定候选解析 Bash；发布权威仍属于 remote executor。
+func runLocalSQLCDiagnostic(plan gatePlan) error {
+	bash, err := trustedHostBash()
+	if err != nil {
+		return err
+	}
+	return runCommand(gateExecutionDir(plan, ""), bash, "scripts/sqlc_verify_worktree.sh")
+}
+
+func trustedHostBash() (string, error) {
+	for _, candidate := range []string{"/bin/bash", "/usr/bin/bash"} {
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(resolved)
+		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return resolved, nil
+		}
+	}
+	return "", errors.New("trusted host Bash is unavailable")
 }
 
 // runFrontendEmbedVerify 通过隔离 runner 执行嵌入验证。

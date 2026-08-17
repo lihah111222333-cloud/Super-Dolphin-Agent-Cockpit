@@ -668,6 +668,7 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 		"\nXDG_DATA_DIRS=/usr/local/share:/usr/share\n",
 		"\nGSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas\n",
 		"\nPATH=" + ExecutorSearchPath + "\n",
+		"\nGOWORK=off\n",
 		"\nSUPER_DOLPHIN_GATE_GIT=/usr/bin/git\n",
 		"\nSUPER_DOLPHIN_GATE_NODE=/usr/local/bin/node\n",
 		"\nSUPER_DOLPHIN_GATE_XVFB_RUN=/usr/bin/xvfb-run\n",
@@ -682,7 +683,7 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 			t.Errorf("executor environment missing %q", strings.TrimSpace(want))
 		}
 	}
-	for _, forbidden := range []string{"\nGIT_CONFIG_GLOBAL=", "\nGOFLAGS=", "\nGOWORK=", "\nFONTCONFIG_SYSROOT="} {
+	for _, forbidden := range []string{"\nGIT_CONFIG_GLOBAL=", "\nGOFLAGS=", "\nFONTCONFIG_SYSROOT="} {
 		if strings.Contains(joined, forbidden) {
 			t.Errorf("executor environment leaks child-process policy %q", strings.TrimSpace(forbidden))
 		}

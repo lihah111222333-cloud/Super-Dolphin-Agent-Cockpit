@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func onionArchitectureViolationsForFile(path, rel string) ([]string, error) {
-	return EvaluateBackendBoundaryFile(path, rel, DefaultBackendBoundaryRegistry(), OnionBoundaryRuleIDs()...)
+func onionArchitectureViolationsForFile(root, path, rel string) ([]string, error) {
+	return EvaluateBackendBoundaryFile(root, path, rel, DefaultBackendBoundaryRegistry(), OnionBoundaryRuleIDs()...)
 }
 
 func assertBackendBoundaryGuardCoverage(
