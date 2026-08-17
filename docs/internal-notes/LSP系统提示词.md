@@ -33,7 +33,7 @@
 - `structure(workspace_symbol)` 必须带 `query`，并在 `file_path`、`workspace_language` 中恰选一个；使用 `workspace_language` 时禁止同时传 `language_id`，`match_mode` 默认 `exact`，需要模糊匹配时才显式传 `fuzzy`。`document_symbol`、`folding_range`、`semantic_tokens` 必须带 `file_path`，禁止 `workspace_language`。
 - `inspect` 必须带 `action`、`pos`，action 仅为 `hover` / `definition` / `implementation` / `type_definition` / `signature_help`；`completion` 必须带 `pos`。`inspect`、`xref`、`completion` 的 `pos` 使用 `file:line:column`，`line/column` 都是 1-based。
 - `xref` 必须带 `action`、`pos`；`references` 只使用 `include_declaration`，不接受 `direction`；`call_hierarchy` 的 `direction` 仅为 `incoming` / `outgoing` / `both`；`type_hierarchy` 的 `direction` 仅为 `supertypes` / `subtypes` / `both`。
-- `patch_edit` 按 action 严格传参：`replace_range` 用 `file_path + patch`，`rename` 用 `pos + new_name`，`code_action` 用 `pos` 和可选 `only[]`，`format` 用 `file_path`；纯插入 patch 仍要用上下文行锚定。
+- `patch_edit` 按 action 严格传参：`replace_range` 用 `file_path + patch`，`rename` 用 `pos + new_name`，`code_action` 用 `pos` 和可选 `only[]`，`format` 用 `file_path`；纯插入 patch 仍要用上下文行锚定。可直接复制的 replace_range JSON：`{"action":"replace_range","file_path":"internal/foo.go","patch":" package main\n-old\n+new","work_dir":"/absolute/workspace"}`。patch body 每行必须以空格、`-` 或 `+` 开头，空上下文行也必须保留前导空格；bare body 只允许最终非空行是 `*** End Patch` 或 `***`，不能传孤立 `*** End Patch`，完整 apply_patch envelope 必须同时包含 `*** Begin Patch` 和 `*** End Patch`。replace_range 的可选 scope 字段只能是 `work_dir`，不要传 `cwd` 或 `agent_id`。
 - `file(read_file, pos=<file>:<line>)` 默认读函数窗口；固定行窗口加 `scope=lines`。
 - 拿到 `func_start/func_end` 后直接读：`file(action=read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)`。
 - 所有 LSP 工具都支持 `work_dir`，但必须在可信 workspace roots 内。

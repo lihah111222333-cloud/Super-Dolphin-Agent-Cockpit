@@ -275,3 +275,85 @@ func TestParseMultiRejectsImplicitContextOnlySectionAnchor(t *testing.T) {
 		t.Fatalf("ParseMulti error = %v, want ErrInvalidPatch", err)
 	}
 }
+
+func TestParseMultiAcceptsBareEndPatchSentinelAndPreservesCompleteEnvelope(t *testing.T) {
+	incomplete := strings.Join([]string{
+		" package main",
+		"-old",
+		"+new",
+		"*** End Patch",
+	}, "\n")
+	hunks, err := ParseMulti(incomplete)
+	if err != nil || len(hunks) != 1 || hunks[0].OldText != "old\n" || hunks[0].NewText != "new\n" {
+		t.Fatalf("ParseMulti safe bare envelope hunks = %#v, err = %v", hunks, err)
+	}
+
+	complete := strings.Join([]string{
+		"*** Begin Patch",
+		"*** Update File: file.go",
+		"@@",
+		" package main",
+		"-old",
+		"+new",
+		"*** End Patch",
+		"",
+		"",
+	}, "\n")
+	hunks, err = ParseMulti(complete)
+	if err != nil {
+		t.Fatalf("ParseMulti complete envelope returned error: %v", err)
+	}
+	if len(hunks) != 1 || hunks[0].OldText != "old\n" || hunks[0].NewText != "new\n" {
+		t.Fatalf("ParseMulti complete envelope hunks = %#v", hunks)
+	}
+}
+
+func TestParseMultiAcceptsLegacyBareStarSentinel(t *testing.T) {
+	patch := strings.Join([]string{
+		" package main",
+		"-old",
+		"+new",
+		"***",
+	}, "\n")
+	hunks, err := ParseMulti(patch)
+	if err != nil {
+		t.Fatalf("ParseMulti legacy bare sentinel returned error: %v", err)
+	}
+	if len(hunks) != 1 || hunks[0].OldText != "old\n" || hunks[0].NewText != "new\n" {
+		t.Fatalf("ParseMulti legacy bare sentinel hunks = %#v", hunks)
+	}
+}
+
+func TestParseRejectsUnsafeBarePatchSentinels(t *testing.T) {
+	tests := []struct {
+		name  string
+		patch string
+	}{
+		{name: "end patch in middle", patch: " package main\n*** End Patch\n-old\n+new"},
+		{name: "unknown sentinel", patch: " package main\n-old\n+new\n*** Unknown"},
+		{name: "anchor only", patch: " package main\n*** End Patch"},
+		{name: "insertion only", patch: "+new\n*** End Patch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := ParseMulti(tt.patch); !errors.Is(err, ErrInvalidPatch) && !errors.Is(err, ErrIncompletePatchEnvelope) {
+				t.Fatalf("ParseMulti error = %v, want ErrInvalidPatch or ErrIncompletePatchEnvelope", err)
+			}
+		})
+	}
+}
+
+func TestParseMultiAcceptsBareEndPatchSentinelWithTrailingBlankLines(t *testing.T) {
+	patch := strings.Join([]string{
+		" package main",
+		"-old",
+		"+new",
+		"*** End Patch",
+		"",
+		"",
+	}, "\n")
+	hunks, err := ParseMulti(patch)
+	if err != nil || len(hunks) != 1 || hunks[0].OldText != "old\n" || hunks[0].NewText != "new\n" {
+		t.Fatalf("ParseMulti trailing blank lines returned hunks = %#v, err = %v", hunks, err)
+	}
+}

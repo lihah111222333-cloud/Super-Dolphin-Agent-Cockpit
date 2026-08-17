@@ -161,7 +161,7 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 	ctx = platformshared.NonNilContext(ctx)
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, defaultRequestTimeout)
 	defer cancel()
-	if err := ctx.Err(); err != nil {
+	if err := t.requestPreflight(ctx); err != nil {
 		return nil, err
 	}
 	request, err := protocol.BuildRequest(method, t.nextID.Add(1), params)
@@ -179,9 +179,12 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 		}
 		return nil, err
 	}
+	if err := t.afterRequestWrite(key); err != nil {
+		return nil, err
+	}
 	select {
 	case outcome := <-result:
-		return platformshared.CloneRawMessage(outcome.result), outcome.err
+		return t.completeRequestOutcome(outcome)
 	case <-ctx.Done():
 		t.removePending(key)
 		t.logResponseTimeout(method, time.Since(startedAt))
@@ -215,7 +218,10 @@ func (t *transport) notify(ctx context.Context, method string, params any) error
 	if err != nil {
 		return err
 	}
-	return t.writeMessageContext(ctx, notification)
+	if err := t.writeMessageContext(ctx, notification); err != nil {
+		return err
+	}
+	return t.checkFatalChildCrash()
 }
 
 // logShutdownStage 记录关闭阶段的脱敏结构化结果，不输出命令、路径、PID 或协议 payload。
@@ -470,4 +476,50 @@ func (t *transport) clearPending(err error) {
 		default:
 		}
 	}
+}
+
+func (t *transport) requestPreflight(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return t.checkFatalChildCrash()
+}
+
+func (t *transport) afterRequestWrite(key string) error {
+	if err := t.checkFatalChildCrash(); err != nil {
+		t.removePending(key)
+		return err
+	}
+	return nil
+}
+
+func (t *transport) completeRequestOutcome(outcome pendingResult) (json.RawMessage, error) {
+	if err := t.checkFatalChildCrash(); err != nil {
+		return nil, err
+	}
+	return platformshared.CloneRawMessage(outcome.result), outcome.err
+}
+
+func (t *transport) checkFatalChildCrash() error {
+	if t == nil || t.closed.Load() || t.stderr == nil {
+		return nil
+	}
+	err := fatalChildCrashError(t.stderr.String())
+	if err == nil {
+		return nil
+	}
+	t.stopWithError(err)
+	return err
+}
+
+func fatalChildCrashError(stderr string) error {
+	trimmed := strings.TrimSpace(stderr)
+	lower := strings.ToLower(trimmed)
+	if !strings.Contains(lower, "fatal error:") ||
+		!strings.Contains(lower, "heap out of memory") ||
+		!strings.Contains(lower, "[tsserver] exited.") ||
+		!strings.Contains(lower, "signal: sigabrt") {
+		return nil
+	}
+	return fmt.Errorf("%w: TypeScript child server crash: %s", ErrTransportClosed, trimmed)
 }

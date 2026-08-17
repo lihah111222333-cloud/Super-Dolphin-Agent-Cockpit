@@ -130,9 +130,6 @@ func (policy resourceProcessPolicy) validateRepositoryCohort() error {
 	if policy.role != ResourceCohortRolePrimary && policy.role != ResourceCohortRoleSecondary {
 		return fmt.Errorf("%s is invalid: %q", ResourceCohortRoleEnv, policy.role)
 	}
-	if policy.role == ResourceCohortRoleSecondary && policy.rssLimitBytes >= 2*1024*1024*1024 {
-		return errors.New("secondary LSP RSS limit must stay below 2 GiB")
-	}
 	if policy.rssLimitBytes > policy.cohortHardLimitBytes {
 		return errors.New("LSP process RSS limit exceeds global cohort hard limit")
 	}

@@ -321,11 +321,37 @@ func (t *transport) wait() {
 			err = errors.New(stderr)
 		}
 	}
+	if !t.closed.Load() {
+		t.markUnexpectedExit(err)
+	}
 	t.doneMu.Lock()
 	t.doneErr = err
 	t.doneMu.Unlock()
 	t.cancelActorContext()
 	close(t.done)
+}
+
+// markUnexpectedExit 在语言服务器自行退出时立即封闭 transport，并失败所有未完成请求。
+// 退出码与 stderr 保留在包装错误中，调用方可通过 ErrTransportClosed 识别不可用状态。
+func (t *transport) markUnexpectedExit(cause error) {
+	if cause == nil {
+		cause = errors.New("language server exited unexpectedly")
+	}
+	failure := transportUnavailableError(cause)
+	t.sealResponderAdmission()
+	t.cancelActorContext()
+	t.clearPending(failure)
+	t.closeInput()
+}
+
+func transportUnavailableError(cause error) error {
+	if cause == nil || errors.Is(cause, ErrTransportClosed) {
+		if cause == nil {
+			return ErrTransportClosed
+		}
+		return cause
+	}
+	return fmt.Errorf("%w: %w", ErrTransportClosed, cause)
 }
 
 func (t *transport) cancelActorContext() {
@@ -530,21 +556,23 @@ func (t *transport) readFailure(err error) error {
 	}
 	if errors.Is(err, io.EOF) {
 		if exitErr := t.waitForExit(defaultShutdownTimeout); exitErr != nil {
-			return errors.Join(err, exitErr)
+			return transportUnavailableError(errors.Join(err, exitErr))
 		}
 		if waitErr := t.waitErr(); waitErr != nil {
-			return waitErr
+			return transportUnavailableError(waitErr)
 		}
 		return err
 	}
 	if waitErr := t.waitErr(); waitErr != nil {
-		return errors.Join(err, waitErr)
+		return transportUnavailableError(errors.Join(err, waitErr))
 	}
 	return err
 }
 
 func (t *transport) stopWithError(err error) {
-	t.sealResponderAdmission()
+	if !t.sealResponderAdmission() {
+		return
+	}
 	t.cancelActorContext()
 	t.clearPending(err)
 	t.closeInput()

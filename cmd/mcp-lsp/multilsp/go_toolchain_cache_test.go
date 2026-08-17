@@ -25,15 +25,16 @@ func TestGoToolchainSelectionCacheKeyTracksBinaryWorkspaceAndEnvironment(t *test
 		t.Fatalf("replace fake Go binary: %v", err)
 	}
 	selected := GoToolchainInfo{RequiredVersion: "1.24", SelectedVersion: "1.24.1", BinDir: root}
-	storeGoToolchainSelection(base, selected, binary)
-	got, found := loadGoToolchainSelection(base)
+	caches := &goResolverCaches{}
+	storeGoToolchainSelection(caches, base, selected, binary)
+	got, found := loadGoToolchainSelection(caches, base)
 	if !found || got != selected {
 		t.Fatalf("cached toolchain = %#v, %v; want %#v, true", got, found, selected)
 	}
 	if err := os.WriteFile(binary, []byte("third-version-with-new-size"), 0o755); err != nil {
 		t.Fatalf("replace cached Go binary: %v", err)
 	}
-	if _, found := loadGoToolchainSelection(base); found {
+	if _, found := loadGoToolchainSelection(caches, base); found {
 		t.Fatal("Go binary identity change did not invalidate toolchain selection cache")
 	}
 }

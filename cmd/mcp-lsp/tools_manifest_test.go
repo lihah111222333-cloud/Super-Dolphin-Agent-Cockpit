@@ -95,6 +95,27 @@ func TestPatchEditManifestAndSchemaDocumentExactSectionAnchors(t *testing.T) {
 	}
 }
 
+func TestPatchEditManifestProvidesCopyableReplaceRangeGuidance(t *testing.T) {
+	var description string
+	for _, manifest := range newLSPToolManifests() {
+		if manifest.Name == "patch_edit" {
+			description = manifest.Description
+			break
+		}
+	}
+	for _, must := range []string{
+		`{"action":"replace_range","file_path":"internal/foo.go","patch":"`,
+		`"work_dir":"/absolute/workspace"}`,
+		"only optional scope field is work_dir",
+		"Do not pass an isolated *** End Patch",
+		"empty context lines still need a leading space",
+	} {
+		if !strings.Contains(description, must) {
+			t.Fatalf("patch_edit description = %q, want copyable guidance %q", description, must)
+		}
+	}
+}
+
 func TestLSPFileSchemaExposesDirectDiagnosticsCallShape(t *testing.T) {
 	props, ok := newLSPFileSchema()["properties"].(map[string]any)
 	if !ok {

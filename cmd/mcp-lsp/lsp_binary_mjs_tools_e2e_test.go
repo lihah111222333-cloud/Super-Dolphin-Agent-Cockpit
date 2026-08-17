@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +18,10 @@ import (
 )
 
 const fakeJSTSLangserverEnv = "MCP_LSP_FAKE_JSTS_LANGSERVER"
+const fakeJSTSCrashMethodEnv = "MCP_LSP_FAKE_JSTS_CRASH_METHOD"
+const fakeJSTSCrashMarkerEnv = "MCP_LSP_FAKE_JSTS_CRASH_MARKER"
+const fakeJSTSInstanceFileEnv = "MCP_LSP_FAKE_JSTS_INSTANCE_FILE"
+const fakeJSTSGrandchildCrashEnv = "MCP_LSP_FAKE_JSTS_GRANDCHILD_CRASH"
 
 func TestMcpLSPBinaryMJSToolsUseConfiguredTSServerFallback_E2E(t *testing.T) {
 	if testing.Short() {
@@ -43,6 +49,39 @@ func TestMcpLSPBinaryMJSToolsUseConfiguredTSServerFallback_E2E(t *testing.T) {
 			}
 		})
 	}
+}
+func TestMcpLSPBinaryMJSDiagnosticsPropagatesTSServerCrashAndRebuilds_E2E(t *testing.T) {
+	root := t.TempDir()
+	target := writeMJSNoTypeScriptWorkspaceFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeJSTSBinDir := writeFakeJSTSLangserver(t)
+	crashMarker := filepath.Join(t.TempDir(), "crashed")
+	instanceFile := filepath.Join(t.TempDir(), "instances")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeJSTSBinDir, []string{
+		fakeJSTSCrashMethodEnv + "=textDocument/didChange",
+		fakeJSTSCrashMarkerEnv + "=" + crashMarker,
+		fakeJSTSInstanceFileEnv + "=" + instanceFile,
+		fakeJSTSGrandchildCrashEnv + "=1",
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	open := client.callTool(t, "file", map[string]any{"action": "open_file", "file_path": target, "language_id": "javascript"})
+	if open.Result.IsError {
+		t.Fatalf("open_file returned MCP error before crash: %q stderr=%s", open.Result.ContentText(), client.stderrString())
+	}
+	first := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target, "language_id": "javascript"})
+	if !first.Result.IsError || !strings.Contains(first.Result.ContentText(), "transport closed") {
+		t.Fatalf("diagnostics did not propagate tsserver crash: text=%q structured=%s stderr=%s", first.Result.ContentText(), first.Result.StructuredContent, client.stderrString())
+	}
+	waitForFakeJSTSMarker(t, crashMarker)
+	second := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target, "language_id": "javascript"})
+	if second.Result.IsError || !strings.Contains(second.Result.ContentText(), "OK total=0") {
+		t.Fatalf("diagnostics did not recover on rebuilt language server: text=%q structured=%s stderr=%s", second.Result.ContentText(), second.Result.StructuredContent, client.stderrString())
+	}
+	waitForFakeJSTSInstanceCount(t, instanceFile, 2)
+	waitForFakeJSTSReclaim(t, instanceFile)
 }
 
 // super-dolphin-ci: helper
@@ -230,6 +269,7 @@ type fakeJSTSServer struct {
 }
 
 func runFakeJSTSLangserver() {
+	recordFakeJSTSInstance()
 	reader := bufio.NewReader(os.Stdin)
 	var goroutines sync.WaitGroup
 	defer goroutines.Wait()
@@ -257,14 +297,137 @@ func runFakeJSTSLangserver() {
 			continue
 		}
 		_ = server.writer.writeResponse(req.ID, fakeJSTSResult(req))
+		if fakeJSTSCrashMethodMatches(req) {
+			emitFakeJSTSChildCrash()
+		}
 	}
 }
 
+func recordFakeJSTSInstance() {
+	path := strings.TrimSpace(os.Getenv(fakeJSTSInstanceFileEnv))
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open instance file: %v\n", err)
+		os.Exit(125)
+	}
+	if _, err := fmt.Fprintf(file, "%d\n", os.Getpid()); err != nil {
+		_ = file.Close()
+		fmt.Fprintf(os.Stderr, "failed to record instance: %v\n", err)
+		os.Exit(125)
+	}
+	if err := file.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to close instance file: %v\n", err)
+		os.Exit(125)
+	}
+}
+func waitForFakeJSTSMarker(t *testing.T, path string) {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	timeout := time.NewTimer(10 * time.Second)
+	defer ticker.Stop()
+	defer timeout.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			data, err := os.ReadFile(path)
+			if err == nil && strings.Contains(string(data), "crashed") {
+				return
+			}
+		case <-timeout.C:
+			t.Fatalf("timed out waiting for fake tsserver crash marker %s", path)
+		}
+	}
+}
+func waitForFakeJSTSInstanceCount(t *testing.T, path string, want int) {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	timeout := time.NewTimer(10 * time.Second)
+	defer ticker.Stop()
+	defer timeout.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			data, err := os.ReadFile(path)
+			if err == nil && len(strings.Fields(string(data))) >= want {
+				return
+			}
+		case <-timeout.C:
+			t.Fatalf("timed out waiting for %d fake tsserver instances in %s", want, path)
+		}
+	}
+}
+
+func waitForFakeJSTSReclaim(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fake tsserver instances for reclaim: %v", err)
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		t.Fatal("fake tsserver instance file was empty after rebuild")
+	}
+	pid, err := strconv.Atoi(fields[0])
+	if err != nil {
+		t.Fatalf("parse old fake tsserver pid %q: %v", fields[0], err)
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	timeout := time.NewTimer(10 * time.Second)
+	defer ticker.Stop()
+	defer timeout.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			alive, err := processAliveForE2E(pid)
+			if err != nil {
+				t.Fatalf("check old fake tsserver pid %d: %v", pid, err)
+			}
+			if !alive {
+				return
+			}
+		case <-timeout.C:
+			t.Fatalf("old fake tsserver pid %d remained alive after rebuild", pid)
+		}
+	}
+}
 func (s *fakeJSTSServer) handleNotification(req fakeLSPRequest) bool {
 	if len(bytes.TrimSpace(req.ID)) != 0 {
 		return false
 	}
+	if fakeJSTSCrashMethodMatches(req) {
+		emitFakeJSTSChildCrash()
+	}
 	return req.Method == "initialized" || req.Method == "textDocument/didOpen" || req.Method == "textDocument/didChange"
+}
+
+func fakeJSTSCrashMethodMatches(req fakeLSPRequest) bool {
+	crashMethod := strings.TrimSpace(os.Getenv(fakeJSTSCrashMethodEnv))
+	return crashMethod != "" && req.Method == crashMethod
+}
+
+func emitFakeJSTSChildCrash() {
+	marker := strings.TrimSpace(os.Getenv(fakeJSTSCrashMarkerEnv))
+	if marker != "" && fakeJSTSMarkerExists(marker) {
+		return
+	}
+	if marker != "" {
+		if err := os.WriteFile(marker, []byte("crashed\n"), 0o600); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to write crash marker: %v\n", err)
+		}
+	}
+	fmt.Fprintln(os.Stderr, "FATAL ERROR: JavaScript heap out of memory")
+	fmt.Fprintln(os.Stderr, "[tsserver] Exited. Code: null. Signal: SIGABRT")
+	if os.Getenv(fakeJSTSGrandchildCrashEnv) != "1" {
+		os.Exit(134)
+	}
+}
+
+func fakeJSTSMarkerExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (w *fakeLSPWriter) writeError(id json.RawMessage, code int, message string) error {

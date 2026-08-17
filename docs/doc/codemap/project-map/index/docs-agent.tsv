@@ -54,7 +54,7 @@ docs/guards/remote-ci-production-freeze-fail-first.txt	docs	docs-agent	txt	510	�
 docs/guards/remote-ci-resource-plan-field-fail-first.txt	docs	docs-agent	txt	490	项目文档体系	docs,guards,remote,ci,resource,plan,field,fail,first,项目文档体系
 docs/guards/remote-ci-test-metrics-fail-first.txt	docs	docs-agent	txt	511	项目文档体系	docs,guards,remote,ci,test,metrics,fail,first,项目文档体系
 docs/guards/sd-go-1265-code-size-freeze-fail-first.txt	docs	docs-agent	txt	552	项目文档体系	docs,guards,sd,go,1265,code,size,freeze,fail,first,项目文档体系
-docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	5095	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
+docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	5645	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
 docs/internal-notes/README.md	docs	docs-agent	doc	559	内部提示词与工程方法记录	docs,internal,notes,README,内部提示词与工程方法记录
 docs/internal-notes/RPC能力E2E覆盖矩阵.md	docs	docs-agent	doc	10761	内部提示词与工程方法记录	docs,internal,notes,RPC能力E2E覆盖矩阵,内部提示词与工程方法记录
 docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	4738	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
