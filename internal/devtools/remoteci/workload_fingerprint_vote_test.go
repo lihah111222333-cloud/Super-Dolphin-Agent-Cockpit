@@ -85,6 +85,24 @@ func TestRemoteWorkloadCompileMismatchSkipsSemanticDigests(t *testing.T) {
 	}
 }
 
+// TestRemoteSemanticVotesReuseGroupedCompileDigest 验证 selector 语义投票复用按包缓存的编译摘要，
+// 禁止每个 selector 再次遍历同一包编译闭包。
+func TestRemoteSemanticVotesReuseGroupedCompileDigest(t *testing.T) {
+	workload := testRemoteGoWorkload(t, "TestX")
+	snapshot := testExactGoTestDigestSnapshot("")
+	snapshot.repositoryRoot, snapshot.tree = "repo", "source"
+	cache, err := newRemoteReplayCache("repo", "source", snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, supported, err := cache.semanticInputVoteDigests(t.Context(), snapshot, workload); err != nil || !supported {
+		t.Fatalf("semanticInputVoteDigests supported=%t err=%v", supported, err)
+	}
+	if cache.compileComputations != 1 {
+		t.Fatalf("compile computations = %d, want one grouped package computation", cache.compileComputations)
+	}
+}
+
 // TestRemoteWorkloadCompileMismatchSkipsFullInputDigest 验证真实 candidate 匹配路径
 // 在 compile MISS 后不再计算完整 workload InputDigest。
 func TestRemoteWorkloadCompileMismatchSkipsFullInputDigest(t *testing.T) {

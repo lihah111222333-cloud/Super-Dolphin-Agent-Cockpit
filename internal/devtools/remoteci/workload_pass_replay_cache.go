@@ -325,8 +325,12 @@ func (cache *remoteReplayCache) semanticInputVoteDigests(ctx context.Context, sn
 	if cached, ok := cache.semanticInputVotes[key]; ok {
 		return cached.digests, cached.supported, nil
 	}
+	compile, supported, err := cache.compileInputDigest(ctx, snapshot, workload)
+	if err != nil || !supported {
+		return remoteWorkloadInputVoteDigests{}, supported, err
+	}
 	cache.semanticComputations++
-	digests, supported, err := snapshot.workloadInputVoteDigests(ctx, workload)
+	digests, supported, err := snapshot.workloadInputVoteDigests(ctx, workload, compile)
 	if err != nil {
 		return remoteWorkloadInputVoteDigests{}, false, err
 	}

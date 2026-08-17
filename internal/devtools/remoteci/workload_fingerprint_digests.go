@@ -220,15 +220,11 @@ func remoteGoWorkloadInputTarget(workload gate.Workload) (gate.GoTestTarget, rem
 	return parsed, profile, true, nil
 }
 
-// workloadInputVoteDigests 独立计算编译、声明与运行时观察三类 selector 输入。
-func (snapshot *remoteGitTreeSnapshot) workloadInputVoteDigests(ctx context.Context, workload gate.Workload) (remoteWorkloadInputVoteDigests, bool, error) {
+// workloadInputVoteDigests 使用调用方按包缓存的编译摘要，并独立计算声明与运行时观察输入。
+func (snapshot *remoteGitTreeSnapshot) workloadInputVoteDigests(ctx context.Context, workload gate.Workload, compile string) (remoteWorkloadInputVoteDigests, bool, error) {
 	parsed, profile, supported, err := remoteGoWorkloadInputTarget(workload)
 	if err != nil || !supported {
 		return remoteWorkloadInputVoteDigests{}, supported, err
-	}
-	compile, err := snapshot.goPackageInputDigest(ctx, parsed.Package, profile)
-	if err != nil {
-		return remoteWorkloadInputVoteDigests{}, false, err
 	}
 	declaration, err := snapshot.goExactTestDeclarationInputDigest(ctx, parsed, profile)
 	if err != nil {
