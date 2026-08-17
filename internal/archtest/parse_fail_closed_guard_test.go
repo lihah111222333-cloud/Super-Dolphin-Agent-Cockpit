@@ -10,14 +10,15 @@ func TestArchGuardsFailClosedOnMalformedGoFiles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
 	domainFile := writeMalformedGoFile(t, root, "internal/domain/broken.go")
 	adminFile := writeMalformedGoFile(t, root, "internal/admin/broken.go")
 	domainInfo := statGuardFixture(t, domainFile)
 
-	if _, err := onionArchitectureViolationsForFile(domainFile, "internal/domain/broken.go"); err == nil {
+	if _, err := onionArchitectureViolationsForFile(root, domainFile, "internal/domain/broken.go"); err == nil {
 		t.Fatal("onion architecture guard swallowed malformed Go file")
 	}
-	if _, err := crossDomainFileViolations(adminFile, "internal/admin/broken.go"); err == nil {
+	if _, err := crossDomainFileViolations(root, adminFile, "internal/admin/broken.go"); err == nil {
 		t.Fatal("cross-domain guard swallowed malformed Go file")
 	}
 	if err := deterministicTimeMalformedFixtureError(root, domainFile, domainInfo); err == nil {

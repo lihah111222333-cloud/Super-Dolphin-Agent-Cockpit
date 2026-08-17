@@ -228,6 +228,7 @@ func TestCheckAllAllowsLargePackageLineTotals(t *testing.T) {
 	}
 
 	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
 	pkgDir := filepath.Join(root, "pkg", "sample")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatalf("mkdir package fixture: %v", err)

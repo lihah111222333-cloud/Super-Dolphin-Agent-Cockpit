@@ -268,11 +268,11 @@ cmd/mcp-orch/store/sqlc/task_dag_node_runtime.sql.go	cmd	orchestration	go-source
 cmd/mcp-orch/store/sqlc/task_dag_node_spawning_thread.sql.go	cmd	orchestration	go-source	1280	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,node,spawning,thread,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_node_write.sql.go	cmd	orchestration	go-source	10467	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,node,write,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_run.sql.go	cmd	orchestration	go-source	15560	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,run,sql,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/task_dag_run_guard_test.go	cmd	orchestration	go-test	936	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,run,guard,test,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/task_dag_run_guard_test.go	cmd	orchestration	go-test	985	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,run,guard,test,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_wakeup_dispatch.sql.go	cmd	orchestration	go-source	11420	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,wakeup,dispatch,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_wakeup_query.sql.go	cmd	orchestration	go-source	13092	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,wakeup,query,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_worker_lease.sql.go	cmd	orchestration	go-source	4012	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,worker,lease,sql,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/types_ext.go	cmd	orchestration	go-source	1921	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,types,ext,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/types_ext.go	cmd	orchestration	go-source	1965	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,types,ext,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/workspace_run.sql.go	cmd	orchestration	go-source	13534	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,workspace,run,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlctx/db.go	cmd	orchestration	go-source	7225	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,sqlctx,db,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/sqlctx/db_test.go	cmd	orchestration	go-test	1178	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,sqlctx,db,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口

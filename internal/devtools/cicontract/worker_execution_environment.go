@@ -30,6 +30,7 @@ func CanonicalWorkerExecutionEnvironment() []string {
 		"GOPROXY=off",
 		"GOSUMDB=off",
 		"GOTOOLCHAIN=local",
+		"GOWORK=off",
 		"LANG=C.UTF-8",
 		"LC_ALL=C.UTF-8",
 		"LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:/usr/lib:/lib",

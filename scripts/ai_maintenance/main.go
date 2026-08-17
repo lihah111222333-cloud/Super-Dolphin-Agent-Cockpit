@@ -9,10 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/trustedgitpolicy"
 )
 
 type gatePlanPolicy struct {
@@ -440,13 +443,44 @@ func goModuleFile(file string) bool {
 
 // sqlcRelevant 覆盖两个生成入口、其配置、查询、迁移以及共享 store 消费面。
 func sqlcRelevant(file string) bool {
-	return file == "sqlc.yaml" ||
-		file == "cmd/mcp-orch/sqlc.yaml" ||
-		goModuleFile(file) ||
-		strings.HasPrefix(file, "sql/") ||
-		strings.HasPrefix(file, "cmd/mcp-orch/sql/") ||
-		strings.HasPrefix(file, "internal/platform/db/sqlite/migrations/") ||
-		strings.HasPrefix(file, "internal/store/")
+	exact := []string{
+		"sqlc.yaml",
+		"cmd/mcp-orch/sqlc.yaml",
+		"internal/devtools/gate/executor_mapping.go",
+		"internal/devtools/cicontract/worker_execution_environment.go",
+		"internal/devtools/cicontract/worker_execution_environment_sqlc_test.go",
+		"internal/archtest/backend_boundary_evaluator.go",
+		"internal/archtest/backend_boundary_sqlc.go",
+		"internal/archtest/backend_boundary_registry.go",
+		"internal/archtest/guardlib.go",
+		"internal/archtest/backend_boundary_sqlc_owner_test.go",
+		"internal/archtest/sqlc_bypass_guard_test.go",
+		"internal/archtest/migration_sqlc_guard_test.go",
+		"internal/archtest/sqlc_guard_fixture_test.go",
+		"internal/archtest/sqlc_guard_external_fixture_test.go",
+		"scripts/sqlc_postprocess.sh",
+		"scripts/sqlc_verify_worktree.sh",
+		"scripts/sqlc_verify_worktree_guard_test.go",
+		"Makefile",
+	}
+	if slices.Contains(exact, file) || goModuleFile(file) {
+		return true
+	}
+	prefixes := []string{
+		"sql/",
+		"cmd/mcp-orch/sql/",
+		"internal/platform/db/sqlite/migrations/",
+		sqlcconfig.RootOutputOwnerParent + "/",
+		"internal/devtools/sqlcconfig/",
+		trustedgitpolicy.SourceOwnerDirectory + "/",
+		trustedgitpolicy.GatePrivateSourceStem,
+		"internal/devtools/gate/executor",
+		"scripts/sqlc_config_outputs/",
+		sqlcconfig.OrchestratorOutputOwnerParent + "/",
+	}
+	return slices.ContainsFunc(prefixes, func(prefix string) bool {
+		return strings.HasPrefix(file, prefix)
+	})
 }
 
 // turnContractRelevant 覆盖 canonical schema、基础设施以及 registry 派生的完整生产消费链。

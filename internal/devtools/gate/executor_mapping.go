@@ -126,9 +126,11 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		},
 	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))),
 	GateIDBackendTestGuardWithRace: backendRaceExecutorProgram(),
-	GateIDSQLCVerify: requireExecutables(requirePaths(ExecutorProgram{
+	GateIDSQLCVerify: withGoSeed(requireExecutables(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategySQLCVerify,
-	}, "sqlc.yaml", "cmd/mcp-orch/sqlc.yaml", "scripts/sqlc_postprocess.sh"), ExecutorSQLCBinaryPath, ExecutorBashBinaryPath),
+	}, ".git", "sqlc.yaml", "cmd/mcp-orch/sqlc.yaml",
+		"go.mod", "go.sum", "sql/queries", "cmd/mcp-orch/sql/queries",
+		"internal/platform/db/sqlite/migrations"), ExecutorSQLCBinaryPath, ExecutorGoFmtBinaryPath)),
 	GateIDCodemapCheck: withGoSeed(requirePaths(commandProgram(
 		[]string{"make", "codemap-check"},
 	), "Makefile", "scripts/codemap_index.go", "scripts/archtestmap/main.go")),

@@ -152,6 +152,7 @@ func TestFunctionCommentGuardSkipsTestFiles(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, dir)
 	path := filepath.Join(dir, "sample_test.go")
 	if err := os.WriteFile(path, []byte(`package sample
 
@@ -193,6 +194,7 @@ func writeFunctionCommentFixture(t *testing.T, src string) string {
 	t.Helper()
 
 	dir := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, dir)
 	path := filepath.Join(dir, "sample.go")
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)

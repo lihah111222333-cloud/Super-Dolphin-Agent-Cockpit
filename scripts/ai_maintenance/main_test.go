@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 )
 
 func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
@@ -391,8 +393,37 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 		{"cmd/mcp-orch/sqlc.yaml", false},
 		{"sql/queries.sql", false},
 		{"cmd/mcp-orch/sql/queries.sql", false},
+		{"cmd/mcp-orch/store/sqlc/types_ext.go", true},
 		{"internal/platform/db/sqlite/migrations/001.sql", false},
 		{"internal/store/thread/store.go", true},
+		{"internal/devtools/sqlcconfig/config.go", true},
+		{"internal/devtools/sqlcconfig/config_test.go", true},
+		{"internal/devtools/gate/executor_sqlc.go", true},
+		{"internal/devtools/gate/executor_sqlc_manifest.go", true},
+		{"internal/devtools/gate/executor_sqlc_postprocess.go", true},
+		{"internal/devtools/gate/executor_mapping.go", true},
+		{"internal/devtools/gate/executor.go", true},
+		{"internal/devtools/gate/executor_future_identity.go", true},
+		{"internal/devtools/cicontract/worker_execution_environment.go", true},
+		{"internal/devtools/cicontract/worker_execution_environment_sqlc_test.go", true},
+		{"internal/devtools/gateprivate/trusted_git.go", true},
+		{"internal/devtools/trustedgitpolicy/policy.go", true},
+		{"internal/devtools/trustedgitpolicy/future_helper.go", true},
+		{"internal/devtools/gateprivate/trusted_git_future.go", true},
+		{"internal/archtest/backend_boundary_evaluator.go", true},
+		{"internal/archtest/backend_boundary_sqlc.go", true},
+		{"internal/archtest/backend_boundary_registry.go", true},
+		{"internal/archtest/guardlib.go", true},
+		{"internal/archtest/backend_boundary_sqlc_owner_test.go", true},
+		{"internal/archtest/sqlc_bypass_guard_test.go", true},
+		{"internal/archtest/migration_sqlc_guard_test.go", true},
+		{"internal/archtest/sqlc_guard_fixture_test.go", true},
+		{"internal/archtest/sqlc_guard_external_fixture_test.go", true},
+		{"scripts/sqlc_config_outputs/main.go", true},
+		{"scripts/sqlc_postprocess.sh", false},
+		{"scripts/sqlc_verify_worktree.sh", false},
+		{"scripts/sqlc_verify_worktree_guard_test.go", true},
+		{"Makefile", true},
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
@@ -404,6 +435,27 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 				assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
 			}
 		})
+	}
+}
+
+func TestSQLCRelevantFollowsCentralOutputOwnerParents(t *testing.T) {
+	for _, file := range []string{
+		sqlcconfig.RootOutputOwnerParent + "/future/store.go",
+		sqlcconfig.OrchestratorOutputOwnerParent + "/future/store.go",
+	} {
+		if !sqlcRelevant(file) {
+			t.Fatalf("central SQLC owner path %q did not route sqlc:verify", file)
+		}
+	}
+}
+
+func TestTrustedHostBashResolvesExecutableOnCurrentHost(t *testing.T) {
+	bash, err := trustedHostBash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(bash) {
+		t.Fatalf("trusted host Bash is not absolute: %q", bash)
 	}
 }
 

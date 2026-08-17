@@ -1,3 +1,4 @@
+// SQLC manual test extension. DO NOT OVERWRITE.
 package sqlc
 
 import (

@@ -283,6 +283,7 @@ func TestBackendBoundaryEvaluatorFailsClosed(t *testing.T) {
 	}
 
 	brokenRoot := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, brokenRoot)
 	brokenFile := filepath.Join(brokenRoot, "internal", "contract", "broken.go")
 	if err := os.MkdirAll(filepath.Dir(brokenFile), 0o755); err != nil {
 		t.Fatalf("create broken fixture directory: %v", err)

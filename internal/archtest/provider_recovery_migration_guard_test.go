@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"golang.org/x/tools/go/packages"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -777,19 +777,21 @@ func calledObject(expression ast.Expr, info *types.Info) types.Object {
 
 func providerRecoverySQLCSchemaNames(t *testing.T, root string) []string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(root, "sqlc.yaml"))
+	units, err := sqlcconfig.LoadDefault(root)
 	if err != nil {
-		t.Fatalf("read sqlc.yaml: %v", err)
+		t.Fatalf("load canonical SQLC configs: %v", err)
 	}
-	var config sqlcDatabaseConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		t.Fatalf("parse sqlc.yaml: %v", err)
+	var rootUnits []sqlcconfig.Unit
+	for _, unit := range units {
+		if unit.ConfigPath == "sqlc.yaml" {
+			rootUnits = append(rootUnits, unit)
+		}
 	}
-	if len(config.SQL) != 1 {
-		t.Fatalf("sqlc.yaml sql entries = %d, want 1", len(config.SQL))
+	if len(rootUnits) != 1 {
+		t.Fatalf("root sqlc.yaml units = %d, want exactly one configured owner", len(rootUnits))
 	}
 	var names []string
-	for _, schema := range config.SQL[0].Schema {
+	for _, schema := range rootUnits[0].Schemas {
 		name := filepath.Base(schema)
 		if strings.HasSuffix(name, "_agent_provider_binding_recovery_owner.sql") {
 			names = append(names, name)

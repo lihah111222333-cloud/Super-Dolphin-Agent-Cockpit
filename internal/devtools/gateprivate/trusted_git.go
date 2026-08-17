@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/trustedgitpolicy"
 )
 
 const defaultTrustedGitBinary = "/usr/bin/git"
@@ -195,13 +197,5 @@ func TrustedGitBinary() (string, error) {
 // TrustedGitEnvironment is the sole environment for exact Git object reads.
 // Do not append os.Environ: all repository/object redirectors must stay absent.
 func TrustedGitEnvironment() []string {
-	return []string{
-		"GIT_NO_REPLACE_OBJECTS=1",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ASKPASS=/bin/false",
-		"GIT_OPTIONAL_LOCKS=0",
-		"LC_ALL=C",
-	}
+	return trustedgitpolicy.Environment()
 }

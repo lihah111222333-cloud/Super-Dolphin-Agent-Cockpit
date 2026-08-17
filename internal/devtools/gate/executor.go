@@ -28,6 +28,8 @@ const (
 	ExecutorRuntimeSeedRoot                = ExecutorRoot + "/runtime"
 	ExecutorRuntimeSeedManifestPath        = ExecutorRuntimeSeedRoot + "/manifest.json"
 	ExecutorGoRoot                         = "/usr/local/go"
+	ExecutorGoBinaryPath                   = ExecutorGoRoot + "/bin/go"
+	ExecutorGoFmtBinaryPath                = ExecutorGoRoot + "/bin/gofmt"
 	ExecutorSystemLibraryPath              = "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:/usr/lib:/lib"
 	ExecutorSearchPath                     = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 	ExecutorOCIProjectGoBuildCacheSeedRoot = "/opt/super-dolphin/cache/go-build"
@@ -352,7 +354,7 @@ func runExecutorProgram(
 	case ExecutorStrategyChangedDiagnostics:
 		return runChangedDiagnostics(ctx, gitBinary, layout.sourceCopy, environment, config.searchPath, config.stdout, config.stderr)
 	case ExecutorStrategySQLCVerify:
-		return runSQLCVerify(ctx, gitBinary, ExecutorSQLCBinaryPath, ExecutorBashBinaryPath, layout.sourceCopy, environment, config.stdout, config.stderr)
+		return runSQLCVerify(ctx, gitBinary, ExecutorSQLCBinaryPath, ExecutorGoFmtBinaryPath, layout.sourceCopy, environment, config.stdout, config.stderr)
 	}
 	for _, step := range steps {
 		if err := runResolvedStep(ctx, step, environment, config.stdout, config.stderr); err != nil {
