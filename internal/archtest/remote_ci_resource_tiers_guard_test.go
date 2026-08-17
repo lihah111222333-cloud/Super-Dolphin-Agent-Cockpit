@@ -34,19 +34,52 @@ func assertRemoteCIResourcePlannerContract(t *testing.T, root string) {
 	for _, required := range []string{
 		`json:"normal_classes"`, `json:"calibration_resource"`,
 		`json:"fast_workload_max_duration_ms"`, `json:"medium_workload_max_duration_ms"`,
-		`class.VCPU != cicontract.CalibrationResourceCPU || class.MemoryGiB != cicontract.CalibrationResourceMemoryGiB`, `class.VCPU != 2`,
-		`len(classes) != 3`, `VCPU: 2, MemoryGiB: 4`, `VCPU: 4, MemoryGiB: 8`, `VCPU: 8, MemoryGiB: 16`,
-		`class.MemoryGiB != 4`,
+		`func validateCalibrationResource(class Class) error`,
+		`return cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB)`,
+		`len(classes) != 3`, `NormalResourceIdentityForTier`, `ValidateNormalResourceIdentity`,
+		`FastNormalResourceIdentity`, `bootstrapIdentity.CPU`, `bootstrapIdentity.MemoryGiB`,
+		`bootstrap.ID != fastIdentity.ClassID`, `bootstrap.VCPU != fastIdentity.CPU`,
 	} {
 		if !strings.Contains(planner, required) {
 			t.Errorf("resource planner is missing contract marker %q", required)
 		}
+	}
+	if marker := remoteCIResourcePlannerDuplicateCalibrationTuple(planner); marker != "" {
+		t.Errorf("resource planner must delegate calibration validation to cicontract owner; duplicate tuple marker %q", marker)
 	}
 	if strings.Contains(planner, `json:"calibration_class"`) {
 		t.Error("resource planner reintroduced calibration as a normal class ID")
 	}
 	if strings.Contains(planner, "ClassifyWorkloadResourceDuration") {
 		t.Error("resource selector must consume persisted plan identity, not reclassify duration")
+	}
+}
+
+// remoteCIResourcePlannerDuplicateCalibrationTuple identifies retired tuple checks
+// that would create a second calibration-resource owner in the planner.
+func remoteCIResourcePlannerDuplicateCalibrationTuple(planner string) string {
+	for _, marker := range []string{
+		`class.VCPU != cicontract.CalibrationResourceCPU`,
+		`class.MemoryGiB != cicontract.CalibrationResourceMemoryGiB`,
+	} {
+		if strings.Contains(planner, marker) {
+			return marker
+		}
+	}
+	return ""
+}
+
+// TestRemoteCIResourcePlannerGuardRejectsDuplicateCalibrationTuple keeps the
+// negative guard fixture independent from the live planner source text.
+func TestRemoteCIResourcePlannerGuardRejectsDuplicateCalibrationTuple(t *testing.T) {
+	fixture := `func validateCalibrationResource(class Class) error {
+	if class.VCPU != cicontract.CalibrationResourceCPU || class.MemoryGiB != cicontract.CalibrationResourceMemoryGiB {
+		return nil
+	}
+	return cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB)
+}`
+	if got := remoteCIResourcePlannerDuplicateCalibrationTuple(fixture); got == "" {
+		t.Fatal("duplicate calibration tuple fixture was not rejected")
 	}
 }
 

@@ -1,13 +1,8 @@
 package remoteci
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -45,148 +40,41 @@ type BaselineState struct {
 // baselineIdentity contains all inputs whose change requires a new baseline generation.
 type baselineIdentity struct{ MainCommit, MainTree, Platform, PolicyDigest, ToolchainDigest, RuntimeImage string }
 
-// UnmarshalJSON strictly decodes only the OCI-only state schema. Older state
-// must never be silently reinterpreted as a current cache authority.
+// UnmarshalJSON 复用 cicontract 的 canonical owner 严格解码 accepted state。
 func (state *BaselineState) UnmarshalJSON(data []byte) error {
-	var header struct {
-		SchemaVersion uint32 `json:"schema_version"`
-	}
-	if err := json.Unmarshal(data, &header); err != nil {
-		return fmt.Errorf("decode remote baseline state header: %w", err)
-	}
-	if header.SchemaVersion != BaselineStateSchemaVersion {
-		return fmt.Errorf("remote baseline state schema %d is not accepted schema %d", header.SchemaVersion, BaselineStateSchemaVersion)
+	canonical, err := cicontract.DecodeAcceptedBaselineState(data)
+	if err != nil {
+		return err
 	}
 	type stateWire BaselineState
 	var wire stateWire
-	if err := decodeSingleJSON(data, &wire); err != nil {
+	canonicalJSON, err := json.Marshal(canonical)
+	if err != nil {
+		return fmt.Errorf("marshal canonical remote baseline state: %w", err)
+	}
+	if err := json.Unmarshal(canonicalJSON, &wire); err != nil {
 		return err
 	}
 	*state = BaselineState(wire)
 	return nil
 }
 
-func decodeSingleJSON(data []byte, value any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(value); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("remote baseline state contains multiple JSON values")
-		}
-		return err
-	}
-	return nil
-}
-
 // Validate rejects incomplete or non-OCI baseline state.
 func (state BaselineState) Validate() error {
-	if state.SchemaVersion != BaselineStateSchemaVersion || state.Generation == 0 {
-		return errors.New("remote baseline state schema or generation is invalid")
-	}
-	if err := validateAcceptedBaselineIdentity(state); err != nil {
-		return err
-	}
-	if err := state.validateImageCacheAuthority(); err != nil {
-		return err
-	}
-	if state.OCIProjectCache == nil {
-		return errors.New("remote baseline OCI project cache description is required")
-	}
-	if err := state.OCIProjectCache.ValidateForBaseline(state.MainTree, state.ToolchainDigest, state.Platform, state.RuntimeImage); err != nil {
-		return err
-	}
-	if !remoteDigestPattern.MatchString(state.BaselineManifestDigest) || !remoteDigestPattern.MatchString(state.GateBinarySHA256) || !remoteDigestPattern.MatchString(state.RuntimeSeedSHA256) {
-		return errors.New("remote baseline digest is invalid")
-	}
-	if !validBaselineTimes(state.CreatedAt, state.AcceptedAt, state.RenewedAt) {
-		return errors.New("remote baseline timestamps are invalid")
-	}
-	return nil
-}
-
-// validateAcceptedBaselineIdentity 校验 immutable identity 与唯一阿里云 ECI 执行位置。
-func validateAcceptedBaselineIdentity(state BaselineState) error {
-	if err := validateBaselineIdentity(state.identity()); err != nil {
-		return err
-	}
-	return validateBaselineExecutionLocation(state.ExecutionProvider, state.RegionID)
-}
-
-// validateBaselineExecutionLocation 将每个 accepted baseline 锁定到一个 Alibaba Cloud ECI region。
-func validateBaselineExecutionLocation(provider, regionID string) error {
-	if err := cicontract.ValidateAcceptedBaselineProjection(BaselineStateSchemaVersion, provider, regionID); err != nil {
-		return fmt.Errorf("remote baseline execution location: %w", err)
-	}
-	return nil
+	return state.acceptedBaselineState().Validate()
 }
 
 func (state BaselineState) identity() baselineIdentity {
 	return baselineIdentity{state.MainCommit, state.MainTree, state.Platform, state.PolicyDigest, state.ToolchainDigest, state.RuntimeImage}
 }
 
-// validateImageCacheAuthority rejects a state whose ECI image cache cannot be
-// selected deterministically by a consumer. Ready is persisted only after the
-// ECI control-plane result is verified against the immutable runtime image.
-func (state BaselineState) validateImageCacheAuthority() error {
-	if !validImageCacheIdentifier(state.ImageCacheID) || !validImageCacheIdentifier(state.ImageCacheSnapshotID) || !state.ImageCacheReady {
-		return errors.New("remote baseline ECI image cache authority is invalid")
+func (state BaselineState) acceptedBaselineState() cicontract.AcceptedBaselineState {
+	return cicontract.AcceptedBaselineState{
+		SchemaVersion: state.SchemaVersion, Generation: state.Generation, ExecutionProvider: state.ExecutionProvider, RegionID: state.RegionID,
+		MainCommit: state.MainCommit, MainTree: state.MainTree, Platform: state.Platform, PolicyDigest: state.PolicyDigest,
+		ToolchainDigest: state.ToolchainDigest, RuntimeImage: state.RuntimeImage, ImageCacheID: state.ImageCacheID,
+		ImageCacheSnapshotID: state.ImageCacheSnapshotID, ImageCacheReady: state.ImageCacheReady, ImageDigest: state.ImageDigest,
+		OCIProjectCache: state.OCIProjectCache, GateBinarySHA256: state.GateBinarySHA256, RuntimeSeedSHA256: state.RuntimeSeedSHA256,
+		BaselineManifestDigest: state.BaselineManifestDigest, CreatedAt: state.CreatedAt, AcceptedAt: state.AcceptedAt, RenewedAt: state.RenewedAt,
 	}
-	if state.ImageDigest != remoteRuntimeImageDigest(state.RuntimeImage) {
-		return errors.New("remote baseline ECI image cache digest does not match runtime image")
-	}
-	return nil
 }
-
-func validImageCacheIdentifier(value string) bool {
-	return value != "" && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n\t /\\?#")
-}
-
-func remoteRuntimeImageDigest(value string) string {
-	_, digest, ok := strings.Cut(value, "@")
-	if !ok {
-		return ""
-	}
-	return digest
-}
-
-func validBaselineTimes(createdAt, acceptedAt, renewedAt time.Time) bool {
-	return !createdAt.IsZero() && !acceptedAt.IsZero() && !renewedAt.IsZero() &&
-		createdAt.Location() == time.UTC && acceptedAt.Location() == time.UTC && renewedAt.Location() == time.UTC &&
-		!acceptedAt.Before(createdAt) && !renewedAt.Before(acceptedAt)
-}
-
-func validateBaselineIdentity(identity baselineIdentity) error {
-	if !baselineOIDPattern.MatchString(identity.MainCommit) || !baselineOIDPattern.MatchString(identity.MainTree) {
-		return errors.New("remote baseline Git identity is invalid")
-	}
-	if err := cicontract.ValidateTargetPlatform(identity.Platform); err != nil {
-		return err
-	}
-	for name, value := range map[string]string{"policy": identity.PolicyDigest, "toolchain": identity.ToolchainDigest} {
-		if !remoteDigestPattern.MatchString(value) {
-			return fmt.Errorf("remote baseline %s digest is invalid", name)
-		}
-	}
-	if !validRemoteImageReference(identity.RuntimeImage) {
-		return errors.New("remote baseline runtime image must use an immutable digest")
-	}
-	return nil
-}
-
-func validRemoteImageReference(value string) bool {
-	repository, digest, ok := strings.Cut(value, "@")
-	if !ok || strings.Contains(digest, "@") || !remoteDigestPattern.MatchString(digest) || repository == "" || repository != strings.ToLower(repository) || strings.ContainsAny(repository, " \t\r\n\\?#") || strings.Contains(repository, "://") {
-		return false
-	}
-	last := repository
-	if slash := strings.LastIndexByte(repository, '/'); slash >= 0 {
-		last = repository[slash+1:]
-	}
-	return last != "" && !strings.Contains(last, ":")
-}
-
-var baselineOIDPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)

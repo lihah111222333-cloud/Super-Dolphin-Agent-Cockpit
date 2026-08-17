@@ -15,12 +15,13 @@ import (
 func TestFinalizeRemoteRunEvidenceAcceptsCalibrationShardOverhead(t *testing.T) {
 	plan, catalog := remoteRunReceiptTestPlanAndCatalog(t)
 	result := remoteRunReceiptTestResult(t, plan, catalog)
+	result.ExecutionMode = gatecontract.DurationExecutionModeCalibration
 	store := remoteRunReceiptTestAuthority(t, catalog, result)
 	input := remoteRunReceiptTestInput(plan, store)
 	input.Calibration = true
 	input.Platform = "linux/amd64"
-	input.RunnerIdentityDigest = "sha256:runner"
-	input.ToolchainDigest = "sha256:toolchain"
+	input.RunnerIdentityDigest = result.RunnerIdentityDigest
+	input.ToolchainDigest = result.ToolchainDigest
 	input.CalibrationResource = calibrationShardOverheadTestClass()
 	setCalibrationShardOverheadTestResources(t, store, result.JobID)
 
@@ -42,6 +43,8 @@ func TestFinalizeRemoteRunEvidenceAcceptsCalibrationShardOverhead(t *testing.T) 
 	}
 	context := gatecontract.PlanningContext{
 		Platform: "linux/amd64", Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest,
+		Calibration: true, CalibrationResourceClassID: input.CalibrationResource.ID,
+		CalibrationResourceCPU: input.CalibrationResource.VCPU, CalibrationResourceMemoryGiB: input.CalibrationResource.MemoryGiB,
 		TargetDurationMS: gatecontract.FullCITargetDurationMS, AcceptedSnapshotID: input.ImageCacheSnapshotID,
 	}
 	snapshot, err := store.LoadPlanning(context)

@@ -98,6 +98,10 @@ func bindRemoteShardResources(results []ShardResult, resources []shardresource.C
 	}
 	var bindingErrors []error
 	for index := range results {
+		if results[index].ResourceClass != "" && results[index].ResourceClass != resources[index].ID {
+			bindingErrors = append(bindingErrors, fmt.Errorf("remote CI shard %d provider resource class %q does not match requested %q", index, results[index].ResourceClass, resources[index].ID))
+			continue
+		}
 		if err := validateShardResourceBinding(resources[index], requests[index]); err != nil {
 			bindingErrors = append(bindingErrors, fmt.Errorf("remote CI shard %d resource receipt: %w", index, err))
 			continue

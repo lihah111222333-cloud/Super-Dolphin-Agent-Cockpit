@@ -444,10 +444,11 @@ func validateWorkloadPassIdentities(identities []WorkloadPassIdentity) error {
 
 // retainedWorkloadPassGenerations 返回当前 accepted 代及最多两个连续前代的规范存储值。
 func retainedWorkloadPassGenerations(current uint64) [3]string {
+	window := cicontract.RetentionGenerationWindow(current)
 	return [3]string{
-		strconv.FormatUint(current, 10),
-		strconv.FormatUint(current-min(current-1, 1), 10),
-		strconv.FormatUint(current-min(current-1, 2), 10),
+		strconv.FormatUint(window[0], 10),
+		strconv.FormatUint(window[1], 10),
+		strconv.FormatUint(window[2], 10),
 	}
 }
 

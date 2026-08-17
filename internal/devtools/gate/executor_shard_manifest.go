@@ -353,8 +353,8 @@ func validateShardManifestDigest(manifest ShardExecutionManifest) error {
 func (manifest ShardExecutionManifest) validateGateIDs() (map[GateID]struct{}, error) {
 	gateSet := make(map[GateID]struct{}, len(manifest.GateIDs))
 	for _, id := range manifest.GateIDs {
-		if id == "" {
-			return nil, errors.New("shard execution manifest gate ID is empty")
+		if err := ValidateExecutableWorkloadID(id); err != nil {
+			return nil, fmt.Errorf("shard execution manifest gate ID: %w", err)
 		}
 		if _, duplicate := gateSet[id]; duplicate {
 			return nil, fmt.Errorf("shard execution manifest gate ID %q is duplicated", id)

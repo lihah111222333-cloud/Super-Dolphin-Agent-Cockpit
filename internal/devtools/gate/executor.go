@@ -32,7 +32,7 @@ const (
 	ExecutorGoFmtBinaryPath                = ExecutorGoRoot + "/bin/gofmt"
 	ExecutorSystemLibraryPath              = "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:/usr/lib:/lib"
 	ExecutorSearchPath                     = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
-	ExecutorOCIProjectGoBuildCacheSeedRoot = "/opt/super-dolphin/cache/go-build"
+	ExecutorOCIProjectGoBuildCacheSeedRoot = cicontract.AcceptedBaselineOCIProjectCachePath
 	ExecutorFrontendEmbedSeedRoot          = ExecutorRoot + "/frontend-embed"
 	ExecutorActionlintBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/actionlint"
 	ExecutorBashBinaryPath                 = "/usr/bin/bash"

@@ -3,6 +3,7 @@ package gate
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,20 +12,28 @@ import (
 )
 
 func TestAcceptedBaselineStateProjectionRejectsCorruptionAndSnapshotDrift(t *testing.T) {
-	stateJSON := `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`
+	stateBytes, err := json.Marshal(acceptedBaselineStateForTest(7))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateJSON := string(stateBytes)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(stateJSON)))
+	unknownField := strings.TrimSuffix(stateJSON, "}") + `,"unexpected":"field"}`
+	incompleteState := strings.Replace(stateJSON, `"image_cache_ready":true,`, "", 1)
 	for name, test := range map[string]struct {
 		state        string
 		storedDigest string
 		generation   uint64
 	}{
-		"corrupt JSON":        {state: `{`, storedDigest: digest, generation: 7},
-		"forged digest":       {state: stateJSON, storedDigest: "sha256:forged", generation: 7},
-		"generation mismatch": {state: stateJSON, storedDigest: digest, generation: 8},
-		"legacy schema":       {state: `{"schema_version":12,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
-		"wrong provider":      {state: `{"schema_version":13,"generation":7,"execution_provider":"docker/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
-		"missing region":      {state: `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
-		"missing snapshot":    {state: `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen"}`, generation: 7},
+		"corrupt JSON":         {state: `{`, storedDigest: digest, generation: 7},
+		"forged digest":        {state: stateJSON, storedDigest: "sha256:forged", generation: 7},
+		"generation mismatch":  {state: stateJSON, storedDigest: digest, generation: 8},
+		"legacy schema":        {state: `{"schema_version":12,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
+		"wrong provider":       {state: `{"schema_version":13,"generation":7,"execution_provider":"docker/v1","region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
+		"missing region":       {state: `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","image_cache_snapshot_id":"snapshot-7"}`, generation: 7},
+		"missing snapshot":     {state: `{"schema_version":13,"generation":7,"execution_provider":"aliyun-eci/v1","region_id":"cn-shenzhen"}`, generation: 7},
+		"unknown field":        {state: unknownField, generation: 7},
+		"incomplete canonical": {state: incompleteState, generation: 7},
 	} {
 		t.Run(name, func(t *testing.T) {
 			storedDigest := test.storedDigest

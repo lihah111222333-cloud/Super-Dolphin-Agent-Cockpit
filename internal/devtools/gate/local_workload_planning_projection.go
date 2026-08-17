@@ -70,9 +70,9 @@ func ProjectLocalBootstrapWorkloadPlanning(catalog WorkloadCatalog, workloadIDs 
 		if err != nil {
 			return nil, fmt.Errorf("local bootstrap resource for workload %q: %w", workload.ID, err)
 		}
-		classID := normalCompileResourceClass(tier)
-		if classID == "" {
-			return nil, fmt.Errorf("local bootstrap workload %q has no resource class for tier %d", workload.ID, tier)
+		classID, err := normalCompileResourceClass(tier)
+		if err != nil {
+			return nil, fmt.Errorf("local bootstrap resource class for workload %q: %w", workload.ID, err)
 		}
 		projection = append(projection, LocalWorkloadPlanningProjection{
 			WorkloadID: GateID(workload.ID), PredictedDurationMS: workload.BootstrapEstimateMS,
@@ -155,16 +155,5 @@ func localProjectionCalibrationClass(context PlanningContext, resource durationS
 
 // localProjectionNormalClass 校验 normal 三档 tuple 并恢复其 canonical class。
 func localProjectionNormalClass(resource durationSampleResource) (string, error) {
-	tier, err := normalResourceTierForTuple(resource.cpu, resource.memoryGiB)
-	if err != nil {
-		return "", err
-	}
-	classID := normalCompileResourceClass(tier)
-	if classID == "" {
-		return "", fmt.Errorf("normal resource tier %d has no class identity", tier)
-	}
-	if resource.classID != "" && resource.classID != classID {
-		return "", fmt.Errorf("owner class %q does not match tuple class %q", resource.classID, classID)
-	}
-	return classID, nil
+	return cicontract.NormalResourceClassProjection(resource.classID, resource.cpu, resource.memoryGiB)
 }

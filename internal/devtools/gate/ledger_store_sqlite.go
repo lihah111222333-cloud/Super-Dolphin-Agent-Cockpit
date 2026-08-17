@@ -47,17 +47,17 @@ func (store *DurationLedgerStore) loadSQLiteSnapshot(
 
 // loadSQLiteSnapshotPayload 保持读取投影与调用方事务边界一致。
 func loadSQLiteSnapshotPayload(transaction *sql.Tx, includeSamples bool, planning PlanningContext) (DurationLedgerSnapshot, error) {
-	snapshot, err := loadSQLiteMetadata(transaction)
+	snapshot, acceptedGeneration, err := loadSQLiteReadAuthority(transaction)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
-	compileTimingIndex, err := loadSQLiteCompileTimingIndex(transaction)
+	compileTimingIndex, err := loadSQLiteCompileTimingIndex(transaction, acceptedGeneration)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
 	snapshot.CompileTimingIndex = &compileTimingIndex
 	if includeSamples {
-		snapshot.Ledger.Samples, err = loadSQLiteDurationSamples(transaction)
+		snapshot.Ledger.Samples, err = loadSQLiteDurationSamples(transaction, acceptedGeneration)
 		if err != nil {
 			return DurationLedgerSnapshot{}, err
 		}
@@ -69,23 +69,32 @@ func loadSQLiteSnapshotPayload(transaction *sql.Tx, includeSamples bool, plannin
 	if planning.Platform == "" {
 		return snapshot, nil
 	}
-	overhead, err := loadSQLiteShardOverhead(transaction, planning)
+	overhead, err := loadSQLiteShardOverhead(transaction, planning, acceptedGeneration)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
 	snapshot.Ledger.ShardOverhead = overhead
-	planning, reserves, err := resolveSQLitePlanningContext(transaction, snapshot.Generation, planning, snapshot.Ledger)
+	planning, reserves, err := resolveSQLitePlanningContext(transaction, acceptedGeneration, planning, snapshot.Ledger)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
 	snapshot.ResourceTierReserves = reserves
-	index, err := loadSQLiteDurationSampleIndex(transaction, planning)
+	index, err := loadSQLiteDurationSampleIndex(transaction, planning, acceptedGeneration)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
 	index.CompileTimingIndex = compileTimingIndex
 	snapshot.SampleIndex = &index
 	return snapshot, nil
+}
+
+func loadSQLiteReadAuthority(transaction *sql.Tx) (DurationLedgerSnapshot, uint64, error) {
+	snapshot, err := loadSQLiteMetadata(transaction)
+	if err != nil {
+		return DurationLedgerSnapshot{}, 0, err
+	}
+	acceptedGeneration, err := currentAcceptedBaselineGeneration(transaction)
+	return snapshot, acceptedGeneration, err
 }
 
 // compareAndSwapSQLite 维护 SQLite 权威账本的原子读写边界。

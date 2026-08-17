@@ -341,11 +341,15 @@ func prepareRemoteRunShardOverhead(input remoteci.RunInput, result remoteci.RunR
 		return gatecontract.ShardOrchestrationOverheadEvidence{}, err
 	}
 	planning := gatecontract.PlanningContext{
-		Platform:           input.Platform,
-		Runner:             input.RunnerIdentityDigest,
-		Toolchain:          input.ToolchainDigest,
-		TargetDurationMS:   gatecontract.FullCITargetDurationMS,
-		AcceptedSnapshotID: input.ImageCacheSnapshotID,
+		Platform:                     input.Platform,
+		Runner:                       input.RunnerIdentityDigest,
+		Toolchain:                    input.ToolchainDigest,
+		Calibration:                  true,
+		CalibrationResourceClassID:   input.CalibrationResource.ID,
+		CalibrationResourceCPU:       input.CalibrationResource.VCPU,
+		CalibrationResourceMemoryGiB: input.CalibrationResource.MemoryGiB,
+		TargetDurationMS:             gatecontract.FullCITargetDurationMS,
+		AcceptedSnapshotID:           input.ImageCacheSnapshotID,
 	}
 	resource := input.CalibrationResource
 	return gatecontract.DeriveShardOrchestrationOverheadEvidence(

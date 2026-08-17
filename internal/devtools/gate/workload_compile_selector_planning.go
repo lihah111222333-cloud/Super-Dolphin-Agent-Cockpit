@@ -216,26 +216,9 @@ func canonicalCompileResourceTier(item PlannedWorkload, context PlanningContext)
 }
 
 // normalCompileResourceClass 将 normal 资源档位映射为持久化 class ID。
-func normalCompileResourceClass(tier cicontract.WorkloadResourceTier) string {
-	switch tier {
-	case cicontract.WorkloadResourceTierFast:
-		return "small"
-	case cicontract.WorkloadResourceTierMedium:
-		return "medium"
-	case cicontract.WorkloadResourceTierSlow:
-		return "maximum"
-	default:
-		return ""
-	}
-}
-
-// checkedNormalCompileResourceClass 校验 normal 档位并返回 class ID。
-func checkedNormalCompileResourceClass(tier cicontract.WorkloadResourceTier) (string, error) {
-	classID := normalCompileResourceClass(tier)
-	if classID == "" {
-		return "", fmt.Errorf("unsupported normal workload resource tier %d", tier)
-	}
-	return classID, nil
+// 未知档位直接传播 canonical owner 的错误，禁止空 class 继续规划。
+func normalCompileResourceClass(tier cicontract.WorkloadResourceTier) (string, error) {
+	return cicontract.NormalResourceClassForTier(tier)
 }
 
 // compileInputAffinityKey 生成 compile input 的稳定 affinity key。
@@ -326,7 +309,7 @@ func compileNormalResourceIdentity(tier cicontract.WorkloadResourceTier, item Pl
 	if _, err := plannedWorkloadResourceTier(item); err != nil {
 		return "", 0, 0, "", err
 	}
-	classID, err := checkedNormalCompileResourceClass(tier)
+	classID, err := normalCompileResourceClass(tier)
 	if err != nil {
 		return "", 0, 0, "", err
 	}

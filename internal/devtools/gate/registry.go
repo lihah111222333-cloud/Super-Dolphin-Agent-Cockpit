@@ -151,6 +151,29 @@ func GateRegistry() []GateSpec {
 	return cloneGateSpecs(registry)
 }
 
+// ValidateAcceptedBootstrapProjectionID 接受 canonical registry parent 或可执行
+// targeted workload；仅供 accepted bootstrap 的折叠投影边界使用。
+func ValidateAcceptedBootstrapProjectionID(id GateID) error {
+	for _, spec := range GateRegistry() {
+		if spec.ID == id {
+			return nil
+		}
+	}
+	if _, _, err := executorProgramForWorkload(id); err != nil {
+		return fmt.Errorf("unknown canonical gate or workload ID %q: %w", id, err)
+	}
+	return nil
+}
+
+// ValidateExecutableWorkloadID 拒绝 expansion-only parent，并复用 executor
+// 唯一映射验证 current request/manifest 中实际交给 worker 的 workload。
+func ValidateExecutableWorkloadID(id GateID) error {
+	if _, _, err := executorProgramForWorkload(id); err != nil {
+		return fmt.Errorf("workload ID %q is not executable: %w", id, err)
+	}
+	return nil
+}
+
 func newGateSpec(id GateID, profiles, required []Profile) GateSpec {
 	return GateSpec{
 		ID:               id,

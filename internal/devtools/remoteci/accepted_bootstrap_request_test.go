@@ -1,7 +1,9 @@
 package remoteci
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -9,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
 func TestAcceptedBootstrapProjectionFixtureFromSchema14V2Request(t *testing.T) {
@@ -18,6 +21,19 @@ func TestAcceptedBootstrapProjectionFixtureFromSchema14V2Request(t *testing.T) {
 	}
 	assertAcceptedBootstrapProjectionWire(t, data)
 	assertAcceptedBootstrapProjectionDigests(t, decoded, requestDigest)
+}
+
+func TestDecodeBootstrapShardRequestRejectsCaseAliasesAndDuplicates(t *testing.T) {
+	_, data, _, _ := acceptedBootstrapProjectionFixture(t)
+	caseAlias := []byte(strings.Replace(string(data), `"schema_version":14`, `"SCHEMA_VERSION":14`, 1))
+	caseDuplicate := append(append([]byte(nil), data[:len(data)-1]...), []byte(`,"SCHEMA_VERSION":14}`)...)
+	for name, forged := range map[string][]byte{"case alias": caseAlias, "case duplicate": caseDuplicate} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeBootstrapShardRequest(forged); err == nil {
+				t.Fatal("accepted bootstrap decoder accepted non-canonical field casing")
+			}
+		})
+	}
 }
 
 func TestAcceptedBootstrapVersionMatrixRejectsLegacyFullAndUnknownManifest(t *testing.T) {
@@ -336,5 +352,86 @@ func TestAcceptedBootstrapProjectionSortsRecomputedGroupIDs(t *testing.T) {
 	}
 	if len(projected) != 2 || projected[0].GroupID >= projected[1].GroupID {
 		t.Fatalf("accepted projected group order = %#v", projected)
+	}
+}
+
+func TestDecodeBootstrapShardRequestRejectsForgedNestedResourceClass(t *testing.T) {
+	_, _, _, decoded := acceptedBootstrapProjectionFixture(t)
+	decoded.CompileGroups[0].ResourceClassID = "custom"
+	groupID, err := acceptedCompileGroupID(decoded.CompileGroups[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded.CompileGroups[0].GroupID = groupID
+	assertForgedBootstrapRequestRejected(t, decoded, "bootstrap decoder accepted forged nested resource class")
+}
+
+func TestDecodeBootstrapShardRequestRejectsForgedCalibrationModeBinding(t *testing.T) {
+	_, _, _, decoded := acceptedBootstrapProjectionFixture(t)
+	calibration := shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}
+	decoded.Calibration = true
+	decoded.ResourceClass = calibration
+	decoded.CalibrationResource = &calibration
+	assertForgedBootstrapRequestRejected(t, decoded, "bootstrap decoder accepted forged calibration mode/resource binding")
+}
+
+func TestEncodeAcceptedBootstrapManifestForRequestRejectsForgedResourceBinding(t *testing.T) {
+	_, _, _, decoded := acceptedBootstrapProjectionFixture(t)
+	calibration := shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}
+	decoded.Calibration = true
+	decoded.ResourceClass = calibration
+	decoded.CalibrationResource = &calibration
+	if _, _, err := EncodeAcceptedBootstrapManifestForRequest(decoded); err == nil {
+		t.Fatal("accepted bootstrap manifest helper accepted a forged request resource binding")
+	}
+}
+
+func TestAcceptedBootstrapRejectsUnknownGateIDsAtProjectionAndDecode(t *testing.T) {
+	if _, err := ProjectAcceptedGateIDs([]gate.GateID{gate.GateIDWhitespaceCheck, "bogus"}); err == nil {
+		t.Fatal("accepted gate projection accepted unknown plain gate ID")
+	}
+	_, _, _, topLevel := acceptedBootstrapProjectionFixture(t)
+	topLevel.GateIDs = append(topLevel.GateIDs, "bogus")
+	assertRawForgedBootstrapRequestRejected(t, topLevel, "bootstrap decoder accepted unknown top-level gate ID")
+
+	_, _, _, grouped := acceptedBootstrapProjectionFixture(t)
+	grouped.GateIDs[0] = "bogus"
+	grouped.CompileGroups[0].WorkloadIDs[0] = "bogus"
+	assertRawForgedBootstrapRequestRejected(t, grouped, "bootstrap decoder accepted unknown compile-group workload ID")
+}
+
+func assertRawForgedBootstrapRequestRejected(t *testing.T, request BootstrapShardRequest, message string) {
+	t.Helper()
+	manifest := acceptedBootstrapManifestFromRequest(request)
+	manifest.ManifestDigest = ""
+	material, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(material)
+	request.ShardExecutionManifestDigest = "sha256:" + hex.EncodeToString(sum[:])
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeBootstrapShardRequest(data); err == nil {
+		t.Fatal(message)
+	}
+}
+
+func assertForgedBootstrapRequestRejected(t *testing.T, request BootstrapShardRequest, message string) {
+	t.Helper()
+	manifest := acceptedBootstrapManifestFromRequest(request)
+	_, digest, err := encodeAcceptedBootstrapManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.ShardExecutionManifestDigest = digest
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeBootstrapShardRequest(data); err == nil {
+		t.Fatal(message)
 	}
 }

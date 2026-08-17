@@ -197,9 +197,12 @@ func validateRemoteCIShardForWrite(record RemoteCIRunRecord, shard RemoteCIShard
 		return fmt.Errorf("validate remote CI shard materialization timing: %w", err)
 	}
 	if remoteCIShardWasNotCreated(shard) {
+		if shard.Resources != (RemoteCIShardResources{}) {
+			return errors.New("uncreated remote CI shard must not carry resource evidence")
+		}
 		return nil
 	}
-	return validateRemoteCIShardResources(record.Status, record.Authoritative, shard)
+	return validateRemoteCIShardResources(record.ExecutionMode, record.Status, record.Authoritative, shard)
 }
 
 // replaceSQLiteRemoteCIRunExecutions 原子替换该任务的 gate 执行记录。

@@ -41,6 +41,32 @@ func TestGateRegistryIsCanonicalAndIsolated(t *testing.T) {
 	assertContainerWorkerCommand(t, fresh)
 }
 
+func TestAcceptedBootstrapAndExecutableWorkloadIDValidation(t *testing.T) {
+	targeted, err := targetWorkloadID(GateIDBackendNilness, workloadTargetGoPackage, "./internal/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []GateID{GateIDWhitespaceCheck, GateID(targeted)} {
+		if err := ValidateAcceptedBootstrapProjectionID(id); err != nil {
+			t.Fatalf("accepted bootstrap projection %q rejected: %v", id, err)
+		}
+		if err := ValidateExecutableWorkloadID(id); err != nil {
+			t.Fatalf("executable workload %q rejected: %v", id, err)
+		}
+	}
+	for _, id := range []GateID{GateIDFrontendPreflight, GateIDBackendNilness} {
+		if err := ValidateAcceptedBootstrapProjectionID(id); err != nil {
+			t.Fatalf("accepted bootstrap projection rejected expansion parent %q: %v", id, err)
+		}
+		if err := ValidateExecutableWorkloadID(id); err == nil {
+			t.Fatalf("executable workload accepted expansion parent %q", id)
+		}
+	}
+	if err := ValidateAcceptedBootstrapProjectionID("bogus"); err == nil {
+		t.Fatal("unknown plain ID accepted")
+	}
+}
+
 func assertCanonicalRegistryDigest(t *testing.T, digest string, err error) {
 	t.Helper()
 	if err != nil || !strings.HasPrefix(digest, "sha256:") {

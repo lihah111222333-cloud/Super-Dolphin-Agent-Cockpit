@@ -27,10 +27,10 @@ const (
 	FullCITargetDurationMS int64 = int64(FullCITargetDuration / time.Millisecond)
 	// DurationExecutionModeNormal 标记由 normal 2C/4C/8C resource tier 采集的 sample。
 	// 它与 fixed-size calibration 有意保持区分。
-	DurationExecutionModeNormal = "normal"
+	DurationExecutionModeNormal = cicontract.ExecutionModeNormal
 	// DurationExecutionModeCalibration 标记由固定 4C/8GiB calibration resource 采集的
 	// sample。Calibration sample 绝不能进入 normal LPT。
-	DurationExecutionModeCalibration = "calibration"
+	DurationExecutionModeCalibration = cicontract.ExecutionModeCalibration
 )
 
 // WorkloadKind 标识由 gate 支持的确定性执行种类。
@@ -699,8 +699,8 @@ func validateDurationBucketResourceClass(bucket DurationBucket) error {
 		}
 		return nil
 	}
-	if !isNormalResourceIdentity(bucket.ResourceCPU, bucket.ResourceMemoryGiB) {
-		return errors.New("normal resource must be exactly 2C/4GiB, 4C/8GiB, or 8C/16GiB")
+	if err := cicontract.ValidateNormalResourceIdentity(bucket.ResourceClassID, bucket.ResourceCPU, bucket.ResourceMemoryGiB); err != nil {
+		return fmt.Errorf("normal resource: %w", err)
 	}
 	return nil
 }
@@ -729,13 +729,6 @@ func validateDurationEnvironment(platform, runner, toolchain string) error {
 // ValidateDurationBucket 向远程 producer 暴露严格的 duration identity 守卫。
 func ValidateDurationBucket(bucket DurationBucket) error {
 	return validateDurationBucket(bucket)
-}
-
-// isNormalResourceIdentity 判断资源是否属于 normal 的三个固定规格。
-func isNormalResourceIdentity(cpu, memoryGiB float64) bool {
-	return (cpu == 2 && memoryGiB == 4) ||
-		(cpu == 4 && memoryGiB == 8) ||
-		(cpu == 8 && memoryGiB == 16)
 }
 
 func estimateOwnerWorkloadDurationMS(catalog WorkloadCatalog, index DurationSampleIndex) (int64, error) {

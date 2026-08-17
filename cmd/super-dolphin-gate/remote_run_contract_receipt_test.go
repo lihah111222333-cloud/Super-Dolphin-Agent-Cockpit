@@ -631,8 +631,12 @@ func remoteRunReceiptTestRecordAuthority(t *testing.T, store *gatecontract.Durat
 	}
 	shardID := "sha256:" + strings.Repeat("c", 64)
 	workloadExecutions, workloadResults, workloads := remoteRunReceiptTestAuthorityWorkloads(t, catalog, complete, shardID)
+	shardResources := gatecontract.RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8}
+	if complete.ExecutionMode == gatecontract.DurationExecutionModeCalibration {
+		shardResources = gatecontract.RemoteCIShardResources{ClassID: "calibration", CPU: 4, MemoryGiB: 8}
+	}
 	shard := gatecontract.RemoteCIShardRecord{
-		ShardIdentity: shardID, ContainerGroup: "eci-authority", ContainerStatus: "Succeeded", Workloads: workloads, Resources: gatecontract.RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8},
+		ShardIdentity: shardID, ContainerGroup: "eci-authority", ContainerStatus: "Succeeded", Workloads: workloads, Resources: shardResources,
 		MaterializationTiming: gatecontract.ShardMaterializationTiming{Measurement: gatecontract.MaterializationMeasurementMeasured, ShardIdentity: shardID,
 			Source:           gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(2 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
 			CandidateCompile: gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(2 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(3 * time.Millisecond).UnixMilli(), MaterializeMS: 1},

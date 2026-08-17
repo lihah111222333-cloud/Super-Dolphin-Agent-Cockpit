@@ -171,6 +171,14 @@ func TestVerifyRemoteGenerationOneProvisionECIBindsLiveGroups(t *testing.T) {
 	}
 }
 
+func TestValidateGenerationOneLiveContainerGroupResourcesRejectsCustomClass(t *testing.T) {
+	group := eci.ContainerGroup{ID: "eci-custom-class", CPU: 2, MemoryGiB: 4}
+	observation := cicontract.ProvisionCheckObservation{Check: cicontract.ProvisionCheckGateBuild, ResourceClassID: "custom", ResourceCPU: 2, ResourceMemoryGiB: 4}
+	if err := validateGenerationOneLiveContainerGroupResources(group, observation); err == nil {
+		t.Fatal("live generation-one verifier accepted custom class with canonical tuple")
+	}
+}
+
 func TestValidateRemoteGenerationOneProvisionResourcesBindsNormalClasses(t *testing.T) {
 	config, receipt, _ := generationOneConfiguredFixture(t)
 	for name, mutate := range map[string]func(*cicontract.ProvisionCheckObservation){

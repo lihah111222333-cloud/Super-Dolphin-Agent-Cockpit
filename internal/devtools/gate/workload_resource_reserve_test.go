@@ -128,7 +128,7 @@ func assertInvalidReserveResolutions(t *testing.T, context, resolved PlanningCon
 	}
 }
 
-func TestDeriveNormalResourceTierReservesExcludesWorkloadAndTestBinaryCompileUnion(t *testing.T) {
+func TestDeriveNormalResourceTierReservesExcludesAccountedIntervalUnion(t *testing.T) {
 	base := time.UnixMilli(10_000).UTC()
 	resources := []RemoteCIShardResources{
 		{ClassID: "small", CPU: 2, MemoryGiB: 4},
@@ -157,8 +157,8 @@ func assertMeasuredResourceTierReserve(t *testing.T, index int, reserve cicontra
 	if reserve.ResourceTier != wantTier || reserve.Resolution != cicontract.WorkloadResourceTierReserveResolutionMeasured || reserve.Measurement == nil {
 		t.Fatalf("reserve[%d] = %#v, want measured tier %d", index, reserve, wantTier)
 	}
-	if reserve.Measurement.P95MS != 5_000 || reserve.Measurement.SampleCount != 1 || reserve.Measurement.ProvenanceDigest == "" {
-		t.Fatalf("reserve[%d] measurement = %#v, want P95 5000ms", index, reserve.Measurement)
+	if reserve.Measurement.P95MS != 2_000 || reserve.Measurement.SampleCount != 1 || reserve.Measurement.ProvenanceDigest == "" {
+		t.Fatalf("reserve[%d] measurement = %#v, want P95 2000ms", index, reserve.Measurement)
 	}
 }
 
@@ -173,6 +173,10 @@ func TestLoadPlanningDerivesNormalResourceTierReservesFromSQLiteTiming(t *testin
 	durationLedgerSQLiteRecordShardOverheadRoundTrip(t, store, sample, overhead)
 	seedSQLiteNormalReserveEvidenceWithoutCompile(t, store, time.UnixMilli(10_000).UTC())
 	seedSQLiteNormalReserveExecutionIdentities(t, store, overhead.Platform, overhead.Runner, overhead.Toolchain, DurationExecutionModeNormal)
+	database := openWorkloadPassDatabase(t, store)
+	insertRawDurationSample(t, database, "1", "planning-read-row", "small", overhead.Platform, overhead.Runner, overhead.Toolchain)
+	execLocalAuthorityRowsAffectedOne(t, database, "duration metadata advance", `UPDATE duration_ledger_meta SET generation = ? WHERE singleton = 1`, 4)
+	database.Close()
 	context := PlanningContext{Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain, TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
 	snapshot, err := store.LoadPlanning(context)
 	if err != nil {
@@ -463,7 +467,7 @@ func seedSQLiteNormalReserveEvidenceWithCompileTiming(t *testing.T, store *Durat
 		if err != nil {
 			t.Fatal(err)
 		}
-		record := RemoteCIRunRecord{JobID: jobID, Status: ResultStatusPassed, Authoritative: true}
+		record := RemoteCIRunRecord{JobID: jobID, Status: ResultStatusPassed, Authoritative: true, ExecutionMode: DurationExecutionModeNormal}
 		shard := RemoteCIShardRecord{ShardIdentity: shardID, ContainerGroup: "eci-" + jobID, ContainerStatus: "Succeeded", MaterializationTiming: measuredShardMaterializationTiming(shardID), Resources: resource}
 		if err := insertSQLiteRemoteCIRunShard(transaction, record, shard); err != nil {
 			transaction.Rollback()

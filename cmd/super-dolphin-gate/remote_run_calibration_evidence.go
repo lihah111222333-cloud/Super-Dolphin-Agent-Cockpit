@@ -271,11 +271,38 @@ func remoteCalibrationResultSourceMatchesInput(input remoteci.RunInput, result r
 
 // remoteCalibrationResultRuntimeMatchesInput 核对 accepted generation、snapshot 与 runner 身份。
 func remoteCalibrationResultRuntimeMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
-	return result.AcceptedGeneration == input.AcceptedGeneration &&
-		result.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
-		result.CandidateGateSourceSHA256 == input.CandidateGateSourceSHA256 &&
+	return input.Calibration && remoteCalibrationResultGenerationMatchesInput(input, result) &&
+		remoteCalibrationResultCandidateMatchesInput(input, result) &&
+		remoteCalibrationResultExecutionIdentityMatchesInput(input, result) &&
+		remoteCalibrationResultResourceMatchesInput(input, result)
+}
+
+// remoteCalibrationResultGenerationMatchesInput 核对结果 generation 和 accepted snapshot。
+func remoteCalibrationResultGenerationMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
+	return result.AcceptedGeneration == input.AcceptedGeneration && result.ImageCacheSnapshotID == input.ImageCacheSnapshotID
+}
+
+// remoteCalibrationResultCandidateMatchesInput 核对候选 Gate 编译和 runner image 身份。
+func remoteCalibrationResultCandidateMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
+	return result.CandidateGateSourceSHA256 == input.CandidateGateSourceSHA256 &&
 		result.CandidateGateToolchainSHA256 == input.CandidateGateToolchainSHA256 &&
 		result.RunnerImage == input.RunnerImage
+}
+
+// remoteCalibrationResultExecutionIdentityMatchesInput 核对结果 execution runtime identity 和 calibration mode。
+func remoteCalibrationResultExecutionIdentityMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
+	return result.Platform == input.Platform && result.RunnerIdentityDigest == input.RunnerIdentityDigest &&
+		result.ToolchainDigest == input.ToolchainDigest && result.ExecutionMode == gatecontract.DurationExecutionModeCalibration
+}
+
+// remoteCalibrationResultResourceMatchesInput 核对结果固定 calibration 资源身份。
+func remoteCalibrationResultResourceMatchesInput(input remoteci.RunInput, result remoteci.RunResult) bool {
+	if input.CalibrationResource.ID == "" || input.CalibrationResource.VCPU <= 0 || input.CalibrationResource.MemoryGiB <= 0 {
+		return false
+	}
+	return result.CalibrationResourceClassID == input.CalibrationResource.ID &&
+		result.CalibrationResourceCPU == input.CalibrationResource.VCPU &&
+		result.CalibrationResourceMemoryGiB == input.CalibrationResource.MemoryGiB
 }
 
 // remoteCalibrationForceMatches 要求三次校准运行和各自输入保持同一显式 force 语义。

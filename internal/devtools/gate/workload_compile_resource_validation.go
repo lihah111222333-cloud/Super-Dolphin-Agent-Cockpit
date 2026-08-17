@@ -55,7 +55,7 @@ func storedWorkloadResourceClass(context PlanningContext, item PlannedWorkload) 
 	if err != nil {
 		return "", err
 	}
-	return checkedNormalCompileResourceClass(tier)
+	return normalCompileResourceClass(tier)
 }
 
 // validateStoredShardResourceUniformity 拒绝已存分片混用不同 workload 或 compile-group 资源档。

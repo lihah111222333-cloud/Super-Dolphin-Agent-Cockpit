@@ -828,15 +828,7 @@ func (group CompileGroup) validateIdentityFields() error {
 
 // validateCompileGroupResourceClass 校验资源档位只作为 group execution 身份。
 func validateCompileGroupResourceClass(value string) error {
-	if strings.TrimSpace(value) != value {
-		return errors.New("compile group resource class is not canonical")
-	}
-	switch value {
-	case "small", "medium", "maximum", "calibration":
-		return nil
-	default:
-		return fmt.Errorf("compile group resource class %q is unsupported", value)
-	}
+	return cicontract.ValidateResourceClassID(value)
 }
 
 // isCanonicalCompileGroupPackageTarget 校验 package target 的 canonical 相对路径。

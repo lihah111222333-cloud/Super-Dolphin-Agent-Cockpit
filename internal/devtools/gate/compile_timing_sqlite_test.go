@@ -104,7 +104,7 @@ func TestCompileTimingSQLiteAuthorityWindowAndCascadeRetention(t *testing.T) {
 	defer database.Close()
 	base := time.UnixMilli(1_700_100_000_000).UTC()
 	seedCompileTimingAuthorityRows(t, database, base)
-	index, err := loadSQLiteCompileTimingIndex(database)
+	index, err := loadSQLiteCompileTimingIndex(database, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +119,13 @@ func seedCompileTimingAuthorityRows(t *testing.T, database *sql.DB, base time.Ti
 		insertCompileTimingTestRun(t, database, jobID, generation, "passed", true, true, base.Add(time.Duration(generation)*time.Second))
 		observation := compileTimingTestObservation(base.Add(time.Duration(generation)*time.Second), int64(generation*10))
 		writeCompileTimingTestObservation(t, database, jobID, generation, observation)
+	}
+	insertCompileTimingTestRun(t, database, "compile-authority-future", 5, "passed", true, true, base.Add(6*time.Second))
+	writeCompileTimingTestObservation(t, database, "compile-authority-future", 5, compileTimingTestObservation(base.Add(6*time.Second), 60))
+	insertCompileTimingTestRun(t, database, "compile-authority-missing-identity", 4, "passed", true, true, base.Add(7*time.Second))
+	writeCompileTimingTestObservation(t, database, "compile-authority-missing-identity", 4, compileTimingTestObservation(base.Add(7*time.Second), 70))
+	if _, err := database.Exec(`DELETE FROM ci_remote_run_execution_identities WHERE job_id = ?`, "compile-authority-missing-identity"); err != nil {
+		t.Fatal(err)
 	}
 	insertCompileTimingTestRun(t, database, "compile-authority-empty", 5, "passed", true, true, base.Add(5*time.Second))
 	insertCompileTimingTestRun(t, database, "compile-authority-failed", 5, "failed", false, true, base.Add(5*time.Second))
@@ -142,12 +149,12 @@ func writeCompileTimingTestObservation(t *testing.T, database *sql.DB, jobID str
 
 func assertCompileTimingAuthorityWindow(t *testing.T, index CompileTimingIndex) {
 	t.Helper()
-	if len(index.Samples) != 2 {
-		t.Fatalf("authoritative compile timing samples = %d, want rows from latest three run generations", len(index.Samples))
+	if len(index.Samples) != 3 {
+		t.Fatalf("authoritative compile timing samples = %d, want rows from accepted baseline current+previous-two", len(index.Samples))
 	}
-	gotGenerations := []uint64{index.Samples[0].AcceptedGeneration, index.Samples[1].AcceptedGeneration}
-	if !slices.Equal(gotGenerations, []uint64{4, 3}) {
-		t.Fatalf("compile timing generations = %v, want [4 3] after empty generation 5", gotGenerations)
+	gotGenerations := []uint64{index.Samples[0].AcceptedGeneration, index.Samples[1].AcceptedGeneration, index.Samples[2].AcceptedGeneration}
+	if !slices.Equal(gotGenerations, []uint64{4, 3, 2}) {
+		t.Fatalf("compile timing generations = %v, want accepted generations [4 3 2] without future or missing-identity rows", gotGenerations)
 	}
 	if _, found, err := index.EstimateMS(compileTimingTestIdentity()); err != nil || !found {
 		t.Fatalf("compile timing estimate found=%t err=%v, want authoritative hit", found, err)
@@ -179,8 +186,8 @@ func compileTimingTestIdentity() CompileTimingIdentity {
 		PackageTarget:        "./internal/devtools/gate",
 		SemanticKey:          CompileGroupSemanticGoTestNormal,
 		Platform:             "linux/amd64",
-		RunnerIdentityDigest: "runner-digest",
-		ToolchainDigest:      "toolchain-digest",
+		RunnerIdentityDigest: "sha256:" + strings.Repeat("a", 64),
+		ToolchainDigest:      "sha256:" + strings.Repeat("b", 64),
 		ExecutionMode:        DurationExecutionModeNormal,
 		ResourceClassID:      "small",
 		ResourceCPU:          2,
@@ -212,6 +219,10 @@ func insertCompileTimingTestRun(t *testing.T, database *sql.DB, jobID string, ge
 			'snapshot', 'tree', '', '', 'runner-image', ?, ?, ?, ?, ?, '')
 	`, jobID, strconv.FormatUint(generation, 10), status, boolToSQLite(authoritative), started.UnixMilli(), started.Add(time.Second).UnixMilli(), boolToSQLite(cleanupComplete)); err != nil {
 		t.Fatalf("insert compile timing test run %q: %v", jobID, err)
+	}
+	identity := compileTimingTestIdentity()
+	if _, err := database.Exec(`INSERT INTO ci_remote_run_execution_identities (job_id, platform, runner_identity_digest, toolchain_digest, execution_mode) VALUES (?, ?, ?, ?, ?)`, jobID, identity.Platform, identity.RunnerIdentityDigest, identity.ToolchainDigest, identity.ExecutionMode); err != nil {
+		t.Fatalf("insert compile timing execution identity %q: %v", jobID, err)
 	}
 }
 

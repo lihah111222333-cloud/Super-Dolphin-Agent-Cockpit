@@ -21,7 +21,7 @@ import (
 const calibrationCheckpointAgentTokenDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestRunInputInventorySnapshotStaysInMemoryOnly(t *testing.T) {
-	field, ok := reflect.TypeOf(RunInput{}).FieldByName("InventorySnapshot")
+	field, ok := reflect.TypeFor[RunInput]().FieldByName("InventorySnapshot")
 	if !ok {
 		t.Fatal("RunInput.InventorySnapshot field is missing")
 	}
@@ -466,4 +466,38 @@ func testCalibrationCheckpointInput() RunInput {
 
 func testCalibrationCheckpointResult(input RunInput) RunResult {
 	return RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("7", 64), CatalogDigest: "sha256:" + strings.Repeat("8", 64), SourceTreeSHA: input.Tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, CalibrationResourceClassID: input.CalibrationResource.ID, CalibrationResourceCPU: input.CalibrationResource.VCPU, CalibrationResourceMemoryGiB: input.CalibrationResource.MemoryGiB, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
+}
+
+func TestCalibrationCheckpointRejectsCrossWireScenarioPayloadOwner(t *testing.T) {
+	store := calibrationCheckpointStore(t)
+	const sourceIdentity = "sha256:checkpoint-source"
+	const targetIdentity = "sha256:checkpoint-target"
+	source, err := NewCalibrationCheckpoint(store, sourceIdentity, 7, calibrationCheckpointAgentTokenDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testCalibrationCheckpointInput()
+	result := testCalibrationCheckpointResult(input)
+	result.DurationSamples = []gatecontract.DurationSample{{DurationMS: 1}}
+	if err := source.Observe("commit", input, result, true); err != nil {
+		t.Fatal(err)
+	}
+	target, err := NewCalibrationCheckpoint(store, targetIdentity, 7, calibrationCheckpointAgentTokenDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := target.Observe("commit", input, result, false); err != nil {
+		t.Fatal(err)
+	}
+	database, err := sql.Open("sqlite", store.AuthorityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`UPDATE remote_ci_calibration_checkpoint_scenarios SET started = 1, completed = 1, input_json = (SELECT input_json FROM remote_ci_calibration_checkpoint_scenarios WHERE identity = ? AND scenario = ?), result_json = (SELECT result_json FROM remote_ci_calibration_checkpoint_scenarios WHERE identity = ? AND scenario = ?) WHERE identity = ? AND scenario = ?`, sourceIdentity, "commit", sourceIdentity, "commit", targetIdentity, "commit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, completed, err := target.Completed("commit"); err == nil || completed {
+		t.Fatalf("cross-wire checkpoint payload completed=%t err=%v, want owner mismatch rejection", completed, err)
+	}
 }

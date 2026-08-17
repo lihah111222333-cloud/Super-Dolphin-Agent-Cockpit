@@ -2,6 +2,7 @@ package gate
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"golang.org/x/sync/errgroup"
@@ -23,6 +25,7 @@ func TestDurationLedgerStoreRoundTripAndCAS(t *testing.T) {
 		t.Fatalf("CompareAndSwap(create) error = %v", err)
 	}
 	assertDurationLedgerSnapshot(t, snapshot, 1, first, "CompareAndSwap(create)")
+	seedAcceptedGenerationForTest(t, store, 1)
 
 	loaded, err := store.Load()
 	if err != nil {
@@ -229,14 +232,37 @@ func newTestDurationLedgerStore(t *testing.T) *DurationLedgerStore {
 
 func seedAcceptedGenerationForTest(t *testing.T, store *DurationLedgerStore, generation uint64) {
 	t.Helper()
-	stateJSON := fmt.Sprintf(`{"schema_version":%d,"generation":%d,"execution_provider":%q,"region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-%d"}`, cicontract.BaselineStateSchemaVersion, generation, cicontract.ExecutionProviderID, generation)
-	stateDigest := sha256.Sum256([]byte(stateJSON))
+	state := acceptedBaselineStateForTest(generation)
+	if err := state.Validate(); err != nil {
+		t.Fatalf("validate accepted baseline test state: %v", err)
+	}
+	stateBytes, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDigest := sha256.Sum256(stateBytes)
 	seedRemoteBaselineState(t, store, RemoteBaselineStateRecord{
 		Generation:  generation,
-		StateJSON:   []byte(stateJSON),
+		StateJSON:   stateBytes,
 		StateSHA256: fmt.Sprintf("sha256:%x", stateDigest),
 	})
 }
+
+func acceptedBaselineStateForTest(generation uint64) cicontract.AcceptedBaselineState {
+	return cicontract.AcceptedBaselineState{
+		SchemaVersion: cicontract.BaselineStateSchemaVersion, Generation: generation,
+		ExecutionProvider: cicontract.ExecutionProviderID, RegionID: "cn-shenzhen",
+		MainCommit: strings.Repeat("a", 40), MainTree: strings.Repeat("b", 40),
+		Platform: cicontract.TargetPlatform, PolicyDigest: testBaselineDigest("c"), ToolchainDigest: testBaselineDigest("d"),
+		RuntimeImage: "registry.example/runner@" + testBaselineDigest("e"),
+		ImageCacheID: fmt.Sprintf("imc-%d", generation), ImageCacheSnapshotID: fmt.Sprintf("snapshot-%d", generation), ImageCacheReady: true,
+		ImageDigest: testBaselineDigest("e"), GateBinarySHA256: testBaselineDigest("f"), RuntimeSeedSHA256: testBaselineDigest("1"), BaselineManifestDigest: testBaselineDigest("2"),
+		CreatedAt: time.Unix(1_700_000_000, 0).UTC(), AcceptedAt: time.Unix(1_700_000_001, 0).UTC(), RenewedAt: time.Unix(1_700_000_002, 0).UTC(),
+		OCIProjectCache: &cicontract.AcceptedBaselineOCIProjectCache{Image: "registry.example/runner@" + testBaselineDigest("e"), ContentManifestSHA256: testBaselineDigest("0"), MainTree: strings.Repeat("b", 40), ToolchainDigest: testBaselineDigest("d"), Platform: cicontract.TargetPlatform, CachePath: "/opt/super-dolphin/cache/go-build"},
+	}
+}
+
+func testBaselineDigest(hexDigit string) string { return "sha256:" + strings.Repeat(hexDigit, 64) }
 
 func testDurationLedger(durationMS int64) DurationLedger {
 	return DurationLedger{

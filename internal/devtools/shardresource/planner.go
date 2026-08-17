@@ -121,11 +121,6 @@ func validatePolicyClasses(classes []Class) (map[string]Class, error) {
 		return nil, errors.New("normal resource classes must contain exactly the 2C/4GiB, 4C/8GiB, and 8C/16GiB tiers")
 	}
 	registered := make(map[string]Class, len(classes))
-	wantTiers := [...]Class{
-		{VCPU: 2, MemoryGiB: 4},
-		{VCPU: 4, MemoryGiB: 8},
-		{VCPU: 8, MemoryGiB: 16},
-	}
 	for index, class := range classes {
 		if err := validateClass(class); err != nil {
 			return nil, fmt.Errorf("resource class %d: %w", index, err)
@@ -133,8 +128,8 @@ func validatePolicyClasses(classes []Class) (map[string]Class, error) {
 		if _, exists := registered[class.ID]; exists {
 			return nil, fmt.Errorf("resource class %d duplicates id %q", index, class.ID)
 		}
-		if class.VCPU != wantTiers[index].VCPU || class.MemoryGiB != wantTiers[index].MemoryGiB {
-			return nil, fmt.Errorf("normal resource class %d must be exactly %g vCPU and %g GiB", index, wantTiers[index].VCPU, wantTiers[index].MemoryGiB)
+		if err := validateCanonicalPolicyClass(index, class); err != nil {
+			return nil, err
 		}
 		registered[class.ID] = class
 		if index > 0 && classDecreases(class, classes[index-1]) {
@@ -144,11 +139,27 @@ func validatePolicyClasses(classes []Class) (map[string]Class, error) {
 	return registered, nil
 }
 
+// validateCanonicalPolicyClass 将配置列表位置绑定到 canonical normal identity。
+func validateCanonicalPolicyClass(index int, class Class) error {
+	expected, err := cicontract.NormalResourceIdentityForTier(cicontract.WorkloadResourceTier(index + 1))
+	if err != nil {
+		return fmt.Errorf("normal resource class %d: %w", index, err)
+	}
+	if class.ID != expected.ClassID || class.VCPU != expected.CPU || class.MemoryGiB != expected.MemoryGiB {
+		return fmt.Errorf("normal resource class %d must bind canonical %q at %g vCPU and %g GiB", index, expected.ClassID, expected.CPU, expected.MemoryGiB)
+	}
+	return nil
+}
+
 func classDecreases(class Class, previous Class) bool {
 	return class.VCPU < previous.VCPU || class.MemoryGiB < previous.MemoryGiB
 }
 
 func validateBootstrapClasses(classes BootstrapClasses, registered map[string]Class) error {
+	bootstrapIdentity, err := cicontract.NormalResourceIdentityForTier(cicontract.WorkloadResourceTierFast)
+	if err != nil {
+		return err
+	}
 	for _, bootstrap := range []struct {
 		kind    string
 		classID string
@@ -161,8 +172,8 @@ func validateBootstrapClasses(classes BootstrapClasses, registered map[string]Cl
 		if !exists {
 			return fmt.Errorf("resource bootstrap class for %s is not registered", bootstrap.kind)
 		}
-		if class.VCPU != 2 || class.MemoryGiB != 4 {
-			return fmt.Errorf("resource bootstrap class for %s must be exactly 2 vCPU and 4 GiB", bootstrap.kind)
+		if class.VCPU != bootstrapIdentity.CPU || class.MemoryGiB != bootstrapIdentity.MemoryGiB {
+			return fmt.Errorf("resource bootstrap class for %s must be exactly %g vCPU and %g GiB", bootstrap.kind, bootstrapIdentity.CPU, bootstrapIdentity.MemoryGiB)
 		}
 	}
 	return nil
@@ -324,28 +335,11 @@ func selectAfterOOM(policy Policy, targetCPU float64, baselineIndex int, observa
 }
 
 func validateClass(class Class) error {
-	if !classIDPattern.MatchString(class.ID) {
-		return errors.New("id is invalid")
-	}
-	allowed := map[float64]map[float64]bool{
-		2: {4: true},
-		4: {8: true},
-		8: {16: true},
-	}
-	if !allowed[class.VCPU][class.MemoryGiB] {
-		return errors.New("normal CPU and memory must be exactly 2C/4GiB, 4C/8GiB, or 8C/16GiB")
-	}
-	return nil
+	return cicontract.ValidateNormalResourceIdentity(class.ID, class.VCPU, class.MemoryGiB)
 }
 
 func validateCalibrationResource(class Class) error {
-	if err := cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB); err != nil {
-		return err
-	}
-	if class.VCPU != cicontract.CalibrationResourceCPU || class.MemoryGiB != cicontract.CalibrationResourceMemoryGiB {
-		return errors.New("remote CI calibration resource must be exactly 4 vCPU and 8 GiB")
-	}
-	return nil
+	return cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB)
 }
 
 // validateSelectionInput 校验分片、运行器和工具链身份足以参与资源选择。
@@ -364,6 +358,9 @@ func validateSelectionWorkloads(workloads []Workload) error {
 		if strings.TrimSpace(workload.ID) == "" || workload.EstimatedDurationMS <= 0 || workload.ResourceCPU <= 0 || workload.ResourceMemoryGiB <= 0 {
 			return errors.New("resource selection workload ID, duration, CPU, and memory are required")
 		}
+		if _, err := cicontract.NormalResourceTierForResources(workload.ResourceCPU, workload.ResourceMemoryGiB); err != nil {
+			return fmt.Errorf("resource selection workload %q has unsupported CPU/memory tuple: %w", workload.ID, err)
+		}
 		if shardCPU != 0 && (workload.ResourceCPU != shardCPU || workload.ResourceMemoryGiB != shardMemoryGiB) {
 			return errors.New("resource selection shard must not mix workload CPU tiers")
 		}
@@ -379,6 +376,7 @@ func baselineClassIndex(policy Policy, workloads []Workload) (int, error) {
 	}
 	targetCPU := workloads[0].ResourceCPU
 	memoryFloor := workloads[0].ResourceMemoryGiB
+	fastIdentity := canonicalFastNormalResourceIdentity()
 	for _, workload := range workloads {
 		if workload.ResourceCPU != targetCPU || workload.ResourceMemoryGiB != memoryFloor {
 			return 0, errors.New("resource selection shard must not mix workload CPU tiers")
@@ -388,12 +386,16 @@ func baselineClassIndex(policy Policy, workloads []Workload) (int, error) {
 			return 0, err
 		}
 		bootstrap, bootstrapIndex := classByID(policy, classID)
-		if bootstrapIndex < 0 || bootstrap.VCPU != 2 {
+		if bootstrapIndex < 0 || bootstrap.ID != fastIdentity.ClassID || bootstrap.VCPU != fastIdentity.CPU || bootstrap.MemoryGiB != fastIdentity.MemoryGiB {
 			return 0, fmt.Errorf("resource bootstrap class %q is not a normal class", classID)
 		}
 		memoryFloor = maxFloat(memoryFloor, bootstrap.MemoryGiB)
 	}
 	return selectMemoryClass(policy, targetCPU, memoryFloor)
+}
+
+func canonicalFastNormalResourceIdentity() cicontract.NormalResourceIdentity {
+	return cicontract.FastNormalResourceIdentity()
 }
 
 func classByID(policy Policy, id string) (Class, int) {
@@ -559,8 +561,7 @@ func classIndex(classes []Class, id string) int {
 }
 
 var (
-	classIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
-	digestPattern  = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 )
 
 const maxInt64 = int64(1<<63 - 1)

@@ -214,6 +214,23 @@ func TestClientCreateContainerGroupAcceptsECIImageCacheIdentity(t *testing.T) {
 	}
 }
 
+// TestClientCreateContainerGroupRejectsUnsafeImageCacheSnapshotID 保证非法快照身份在任何 CLI side effect 前失败。
+func TestClientCreateContainerGroupRejectsUnsafeImageCacheSnapshotID(t *testing.T) {
+	for _, snapshotID := range []string{"../../evil", " snapshot", "snapshot\n"} {
+		t.Run(snapshotID, func(t *testing.T) {
+			runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"unexpected"}`)}}
+			request := validCreateRequest()
+			request.ImageCacheSnapshotID = snapshotID
+			if _, err := newTestClient(t, runner).CreateContainerGroup(context.Background(), request); err == nil {
+				t.Fatal("CreateContainerGroup accepted an unsafe ImageCacheSnapshotID")
+			}
+			if len(runner.calls) != 0 {
+				t.Fatalf("unsafe ImageCacheSnapshotID reached CLI side effect: %#v", runner.calls)
+			}
+		})
+	}
+}
+
 func TestClientCreateContainerGroupEncodesOnlyThreeShardLocalEmptyDirs(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
 	if _, err := newTestClient(t, runner).CreateContainerGroup(context.Background(), validCreateRequest()); err != nil {
@@ -689,7 +706,7 @@ func TestConfig_FieldRegistry(t *testing.T) {
 
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
-		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "ImageCacheOnly", "Resources", "Command", "Args", "Environment", "Tags",
+		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "ImageCacheOnly", "ResourceClassID", "ExecutionMode", "Resources", "Command", "Args", "Environment", "Tags",
 		"InitContainer", "SourceVolume", "WorkVolume", "TempVolume",
 		"ConfigFileVolumes",
 		"MainVolumeMounts", "InitVolumeMounts",
@@ -790,11 +807,12 @@ func validCreateRequest() CreateRequest {
 		ImageCacheSnapshotID: "snap-test-cache",
 		MainImage:            testMainImageDigest,
 		InitImage:            testInitImageDigest,
-		Resources:            Resources{CPU: 4, MemoryGiB: 8},
-		Command:              []string{"/runner", "execute"},
-		Args:                 []string{"--shard", "one"},
-		Environment:          map[string]string{"TASK_MODE": "execute"},
-		Tags:                 map[string]string{"workload": "test"},
+		ResourceClassID:      "medium", ExecutionMode: cicontract.ExecutionModeNormal,
+		Resources:   Resources{CPU: 4, MemoryGiB: 8},
+		Command:     []string{"/runner", "execute"},
+		Args:        []string{"--shard", "one"},
+		Environment: map[string]string{"TASK_MODE": "execute"},
+		Tags:        map[string]string{"workload": "test"},
 		InitContainer: InitContainer{
 			Name:        "materializer",
 			Command:     []string{"/runner", "materialize"},

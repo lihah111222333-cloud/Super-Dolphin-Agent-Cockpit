@@ -366,7 +366,7 @@ func loadRemoteRunConfig(path string) (remoteRunConfig, error) {
 		return remoteRunConfig{}, err
 	}
 	var config remoteRunConfig
-	if err := gatecontract.DecodeStrictJSON(data, &config); err != nil {
+	if err := gatecontract.DecodeCanonicalStrictJSON(data, &config); err != nil {
 		return remoteRunConfig{}, err
 	}
 	if err := config.Validate(); err != nil {

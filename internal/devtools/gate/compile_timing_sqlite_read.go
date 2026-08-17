@@ -11,15 +11,6 @@ import (
 )
 
 const compileTimingIndexQuery = `
-	WITH retained_generations AS (
-		SELECT DISTINCT runs.accepted_generation
-		FROM ci_runs AS runs
-		WHERE runs.status = 'passed'
-		  AND runs.authoritative = 1
-		  AND runs.cleanup_complete = 1
-		ORDER BY length(runs.accepted_generation) DESC, runs.accepted_generation DESC
-		LIMIT 3
-	)
 	SELECT observations.package_target, observations.semantic_key,
 		observations.platform, observations.runner_identity_digest,
 		observations.toolchain_digest, observations.execution_mode,
@@ -29,13 +20,18 @@ const compileTimingIndexQuery = `
 		runs.accepted_generation, runs.job_id
 	FROM ci_compile_timing_observations AS observations
 	INNER JOIN ci_runs AS runs ON runs.job_id = observations.job_id
-	INNER JOIN retained_generations
-		ON retained_generations.accepted_generation = runs.accepted_generation
+	INNER JOIN ci_remote_run_execution_identities AS run_identity
+		ON run_identity.job_id = runs.job_id
 	WHERE observations.measurement = 'measured'
 	  AND observations.aggregation = 'raw'
 	  AND runs.status = 'passed'
 	  AND runs.authoritative = 1
 	  AND runs.cleanup_complete = 1
+	  AND runs.accepted_generation IN (?, ?, ?)
+	  AND observations.platform = run_identity.platform
+	  AND observations.runner_identity_digest = run_identity.runner_identity_digest
+	  AND observations.toolchain_digest = run_identity.toolchain_digest
+	  AND observations.execution_mode = run_identity.execution_mode
 	ORDER BY length(runs.accepted_generation) DESC, runs.accepted_generation DESC,
 		observations.package_target, observations.semantic_key,
 		observations.platform, observations.runner_identity_digest,
@@ -48,8 +44,13 @@ const compileTimingIndexQuery = `
 // loadSQLiteCompileTimingIndex 只读取 authoritative、passed、cleanup-complete
 // 的 measured/raw 行。三代窗口和运行 authority 条件与规划快照在同一
 // SQLite 读事务内计算，不读取 JSON 或内存兜底数据。
-func loadSQLiteCompileTimingIndex(database sqliteRowQueryer) (CompileTimingIndex, error) {
-	rows, err := database.Query(compileTimingIndexQuery)
+func loadSQLiteCompileTimingIndex(database sqliteRowQueryer, currentAcceptedGeneration uint64) (CompileTimingIndex, error) {
+	if currentAcceptedGeneration == 0 {
+		return CompileTimingIndex{}, errors.New("compile timing index requires accepted baseline generation")
+	}
+	retained := cicontract.RetentionGenerationWindow(currentAcceptedGeneration)
+	args := []any{strconv.FormatUint(retained[0], 10), strconv.FormatUint(retained[1], 10), strconv.FormatUint(retained[2], 10)}
+	rows, err := database.Query(compileTimingIndexQuery, args...)
 	if err != nil {
 		return CompileTimingIndex{}, mapDurationLedgerSQLiteError("query compile timing history", err)
 	}

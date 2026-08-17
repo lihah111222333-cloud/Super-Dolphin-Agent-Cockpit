@@ -50,6 +50,12 @@ const (
 	CacheMaterialAuthority = "non_authoritative_material"
 	// GoBuildCachePathID 冻结普通分片只消费 accepted ImageCache 的唯一只读 seed 与私有小写层。
 	GoBuildCachePathID = "accepted-imagecache-single-readonly-go-build-seed-private-delta/v2"
+	// ECISourceVolumeName、ECIWorkVolumeName、ECITempVolumeName 与
+	// ECIBootstrapConfigVolumeName 是 ECI requester/coordinator 共用的卷身份 owner。
+	ECISourceVolumeName          = "source-data"
+	ECIWorkVolumeName            = "work-data"
+	ECITempVolumeName            = "temp-data"
+	ECIBootstrapConfigVolumeName = "bootstrap-config"
 	// CompileGroupExecutionPathID 冻结测试二进制编译只能在既有 ECI shard worker
 	// 路径内按 compile group 执行；它不是第二 executor，也不允许跨 shard CAS。
 	CompileGroupExecutionPathID = "same-eci-shard-worker-test-binary-compile-no-cross-shard-cas/v1"
@@ -109,6 +115,11 @@ const (
 	ShardRequestSchemaVersion              uint32 = 15
 	ShardExecutionManifestSchemaVersion    uint32 = 2
 	CompileGroupSchemaVersion              uint32 = 2
+	// ExecutionModeNormal and ExecutionModeCalibration are the only resource
+	// selection modes carried across the planner, request, provider, and ledger
+	// boundaries.
+	ExecutionModeNormal      = "normal"
+	ExecutionModeCalibration = "calibration"
 	// CompileGroupSerialPackingPolicyID 冻结 ordinary side-effect-safe 同资源串行共箱策略。
 	CompileGroupSerialPackingPolicyID = "same-resource-side-effect-safe-serial-packing/v1"
 	// CriticalPathCostPolicyID 冻结 compile-once 与 wave critical-path 记账公式。
@@ -243,6 +254,23 @@ const (
 	// AcceptedGenerationColumn 是所有 SQLite 历史根共享的 generation 列名。
 	AcceptedGenerationColumn = "accepted_generation"
 )
+
+// RetentionGenerationWindow 返回当前 accepted 代及连续保留的前代窗口；零值保持零，
+// 让调用方在使用窗口前可以 fail-fast，低于首代的前代统一钳制为一。
+func RetentionGenerationWindow(current uint64) [RetentionGenerations]uint64 {
+	var window [RetentionGenerations]uint64
+	for offset := range RetentionGenerations {
+		switch {
+		case current == 0:
+			window[offset] = 0
+		case current > uint64(offset):
+			window[offset] = current - uint64(offset)
+		default:
+			window[offset] = 1
+		}
+	}
+	return window
+}
 
 const (
 	// CalibrationResourceCPU 和 CalibrationResourceMemoryGiB 是唯一的 calibration tuple。

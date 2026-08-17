@@ -20,6 +20,12 @@ var errLegacyRemoteCIExecutionProfile = errors.New("legacy remote CI execution p
 
 // loadRemoteCIRunRow 从一致性读快照解码远端 CI run 的主记录。
 func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRecord, error) {
+	record, _, err := loadRemoteCIRunRowWithIdentityState(database, jobID)
+	return record, err
+}
+
+// loadRemoteCIRunRowWithIdentityState 读取 run 主投影并返回 SQL side-row 的显式 identity state。
+func loadRemoteCIRunRowWithIdentityState(database sqliteRowQueryer, jobID string) (RemoteCIRunRecord, remoteCIExecutionIdentityState, error) {
 	var (
 		record                                          RemoteCIRunRecord
 		entrypoint, profile, status, acceptedGeneration string
@@ -58,56 +64,58 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 		&record.ErrorText,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return RemoteCIRunRecord{}, fmt.Errorf("%w: %s", ErrRemoteCIRunNotFound, jobID)
+		return RemoteCIRunRecord{}, remoteCIExecutionIdentityStateUnknown, fmt.Errorf("%w: %s", ErrRemoteCIRunNotFound, jobID)
 	}
 	if err != nil {
-		return RemoteCIRunRecord{}, mapDurationLedgerSQLiteError("load remote CI run", err)
+		return RemoteCIRunRecord{}, remoteCIExecutionIdentityStateUnknown, mapDurationLedgerSQLiteError("load remote CI run", err)
 	}
 	record.Entrypoint = CIEntrypointID(entrypoint)
 	record.Profile = Profile(profile)
 	if record.AcceptedGeneration, err = strconv.ParseUint(acceptedGeneration, 10, 64); err != nil || record.AcceptedGeneration == 0 {
-		return RemoteCIRunRecord{}, errors.New("stored remote CI accepted generation is invalid")
+		return RemoteCIRunRecord{}, remoteCIExecutionIdentityStateUnknown, errors.New("stored remote CI accepted generation is invalid")
 	}
 	if force != 0 && force != 1 {
-		return RemoteCIRunRecord{}, errors.New("stored remote CI force identity is invalid")
+		return RemoteCIRunRecord{}, remoteCIExecutionIdentityStateUnknown, errors.New("stored remote CI force identity is invalid")
 	}
 	record.Status = ResultStatus(status)
 	record.Force = force == 1
 	if err := cicontract.ValidateAgentTokenDigest(record.AgentTokenDigest); err != nil {
-		return RemoteCIRunRecord{}, fmt.Errorf("stored remote CI agent token digest: %w", err)
+		return RemoteCIRunRecord{}, remoteCIExecutionIdentityStateUnknown, fmt.Errorf("stored remote CI agent token digest: %w", err)
 	}
 	record.Authoritative = authoritative == 1
 	record.CleanupComplete = cleanupComplete == 1
 	record.StartedAt = time.UnixMilli(startedAtMS).UTC()
 	record.CompletedAt = time.UnixMilli(completedAtMS).UTC()
-	if err := loadRemoteCIRunExecutionIdentity(database, &record); err != nil {
-		return RemoteCIRunRecord{}, err
+	identityState, err := loadRemoteCIRunExecutionIdentity(database, &record)
+	if err != nil {
+		return RemoteCIRunRecord{}, remoteCIExecutionIdentityStateUnknown, err
 	}
-	return record, nil
+	return record, identityState, nil
 }
 
-func loadRemoteCIRunExecutionIdentity(database sqliteRowQueryer, record *RemoteCIRunRecord) error {
+func loadRemoteCIRunExecutionIdentity(database sqliteRowQueryer, record *RemoteCIRunRecord) (remoteCIExecutionIdentityState, error) {
 	err := database.QueryRow(`SELECT platform, runner_identity_digest, toolchain_digest, execution_mode FROM ci_remote_run_execution_identities WHERE job_id = ?`, record.JobID).Scan(&record.Platform, &record.RunnerIdentityDigest, &record.ToolchainDigest, &record.ExecutionMode)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return remoteCIExecutionIdentityStateMissing, nil
 	}
 	if err != nil {
-		return mapDurationLedgerSQLiteError("load remote CI run execution identity", err)
+		return remoteCIExecutionIdentityStateUnknown, mapDurationLedgerSQLiteError("load remote CI run execution identity", err)
 	}
 	if err := validateRemoteCIRunExecutionIdentity(*record); err != nil {
-		return fmt.Errorf("stored remote CI run execution identity: %w", err)
+		return remoteCIExecutionIdentityStateUnknown, fmt.Errorf("stored remote CI run execution identity: %w", err)
 	}
-	return nil
+	return remoteCIExecutionIdentityStatePresent, nil
 }
 
 // loadRemoteCIRunDetails 在同一个只读事务中补全 run 的关联投影。
-func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIRunRecord) error {
+func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIRunRecord, legacyIdentityMissing ...bool) error {
+	allowLegacyIdentityMissing := len(legacyIdentityMissing) != 0 && legacyIdentityMissing[0]
 	var err error
 	record.Scope, err = loadRemoteCIExecutionScope(transaction, jobID, record.AcceptedGeneration)
 	if err != nil {
 		return err
 	}
-	record.Shards, err = loadRemoteCIShardRows(transaction, jobID, record.Status, record.Authoritative)
+	record.Shards, err = loadRemoteCIShardRows(transaction, jobID, record.Status, record.Authoritative, record.ExecutionMode, allowLegacyIdentityMissing)
 	if err != nil {
 		return err
 	}
@@ -123,6 +131,12 @@ func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIR
 	if err != nil {
 		return err
 	}
+	return loadRemoteCIRunAdditionalDetails(transaction, jobID, record)
+}
+
+// loadRemoteCIRunAdditionalDetails 在同一个事务中补全告警和时序投影。
+func loadRemoteCIRunAdditionalDetails(transaction *sql.Tx, jobID string, record *RemoteCIRunRecord) error {
+	var err error
 	record.Warnings, err = loadRemoteCIRunWarningRows(transaction, jobID)
 	if err != nil {
 		return err
@@ -301,7 +315,10 @@ func loadRemoteCIShardRows(
 	jobID string,
 	status ResultStatus,
 	authoritative bool,
+	executionMode string,
+	legacyIdentityMissing ...bool,
 ) ([]RemoteCIShardRecord, error) {
+	allowLegacyIdentityMissing := len(legacyIdentityMissing) != 0 && legacyIdentityMissing[0]
 	rows, err := database.Query(`
 		SELECT shards.shard_identity, shards.container_group_id, shards.container_status, shards.materialization_timing_json, shards.resources_json,
 			workloads.workload_id
@@ -337,7 +354,7 @@ func loadRemoteCIShardRows(
 		); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan remote CI shard", err)
 		}
-		if err := decodeStoredRemoteCIShardEvidence(&shard, timingJSON, resourcesJSON, status, authoritative); err != nil {
+		if err := decodeStoredRemoteCIShardEvidence(&shard, timingJSON, resourcesJSON, status, authoritative, executionMode, allowLegacyIdentityMissing); err != nil {
 			return nil, err
 		}
 		index, exists := shardIndex[shard.ShardIdentity]
@@ -346,11 +363,8 @@ func loadRemoteCIShardRows(
 			shardIndex[shard.ShardIdentity] = index
 			shards = append(shards, shard)
 		}
-		if workloadID.Valid {
-			if strings.TrimSpace(workloadID.String) == "" {
-				return nil, errors.New("stored remote CI shard workload ID is invalid")
-			}
-			shards[index].Workloads = append(shards[index].Workloads, GateID(workloadID.String))
+		if err := appendRemoteCIShardWorkload(&shards[index], workloadID); err != nil {
+			return nil, err
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -360,6 +374,18 @@ func loadRemoteCIShardRows(
 		return nil, mapDurationLedgerSQLiteError("close remote CI shards", err)
 	}
 	return loadRemoteCIShardTerminalEvidenceIntoShards(database, jobID, shards, shardIndex)
+}
+
+// appendRemoteCIShardWorkload 校验并绑定一个已扫描的分片 workload。
+func appendRemoteCIShardWorkload(shard *RemoteCIShardRecord, workloadID sql.NullString) error {
+	if !workloadID.Valid {
+		return nil
+	}
+	if strings.TrimSpace(workloadID.String) == "" {
+		return errors.New("stored remote CI shard workload ID is invalid")
+	}
+	shard.Workloads = append(shard.Workloads, GateID(workloadID.String))
+	return nil
 }
 
 // loadRemoteCIShardTerminalEvidenceIntoShards 严格加载并绑定分片终态证据，拒绝未知分片身份。
@@ -386,17 +412,13 @@ func loadRemoteCIShardTerminalEvidenceIntoShards(
 // decodeStoredRemoteCIShardEvidence 严格解码并校验 SQLite 分片的资源和物化时序证据。
 // 未创建分片没有 ECI 资源可记录；其空 resources_json 只有在完整的
 // Unknown/not_measured placeholder 形状下才可回读，不能被解释为零资源。
-func decodeStoredRemoteCIShardEvidence(shard *RemoteCIShardRecord, timingJSON, resourcesJSON string, status ResultStatus, authoritative bool) error {
+func decodeStoredRemoteCIShardEvidence(shard *RemoteCIShardRecord, timingJSON, resourcesJSON string, status ResultStatus, authoritative bool, executionMode string, legacyIdentityMissing ...bool) error {
+	allowLegacyIdentityMissing := len(legacyIdentityMissing) != 0 && legacyIdentityMissing[0]
 	if shard == nil {
 		return errors.New("stored remote CI shard is required")
 	}
-	if resourcesJSON != "" {
-		if err := DecodeStrictJSON([]byte(resourcesJSON), &shard.Resources); err != nil {
-			return fmt.Errorf("decode stored remote CI shard resources: %w", err)
-		}
-		if err := shard.Resources.Validate(); err != nil {
-			return fmt.Errorf("validate stored remote CI shard resources: %w", err)
-		}
+	if err := decodeStoredRemoteCIShardResources(shard, resourcesJSON, executionMode); err != nil {
+		return err
 	}
 	if timingJSON == "" {
 		return errors.New("stored remote CI shard materialization timing is required")
@@ -407,69 +429,48 @@ func decodeStoredRemoteCIShardEvidence(shard *RemoteCIShardRecord, timingJSON, r
 	if err := validateRemoteCIShardMaterializationTiming(status, authoritative, *shard); err != nil {
 		return fmt.Errorf("validate stored remote CI shard materialization timing: %w", err)
 	}
-	if resourcesJSON == "" && !remoteCIShardResourcesMissingAllowed(status, authoritative, *shard) {
+	if err := validateStoredRemoteCIShardResourceShape(*shard); err != nil {
+		return err
+	}
+	if err := validateStoredRemoteCIShardResourcePresence(resourcesJSON, status, authoritative, *shard, allowLegacyIdentityMissing); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateStoredRemoteCIShardResourceShape 拒绝未创建分片携带资源证据。
+func validateStoredRemoteCIShardResourceShape(shard RemoteCIShardRecord) error {
+	if remoteCIShardWasNotCreated(shard) && shard.Resources != (RemoteCIShardResources{}) {
+		return errors.New("stored uncreated remote CI shard must not carry resource evidence")
+	}
+	return nil
+}
+
+// validateStoredRemoteCIShardResourcePresence 区分旧身份缺失和普通空资源记录。
+func validateStoredRemoteCIShardResourcePresence(resourcesJSON string, status ResultStatus, authoritative bool, shard RemoteCIShardRecord, allowLegacyIdentityMissing bool) error {
+	if resourcesJSON == "" && !remoteCIShardResourcesMissingAllowed(status, authoritative, shard) && !allowLegacyIdentityMissing {
 		return errors.New("stored remote CI shard resources are required")
 	}
 	return nil
 }
 
-// loadRemoteCIExecutionRows 从读取快照恢复 gate 终态投影。
-func loadRemoteCIExecutionRows(
-	database sqliteRowQueryer,
-	jobID string,
-) ([]PlanGateExecution, error) {
-	rows, err := database.Query(`
-		SELECT workload_id, status, exit_code, started_at_unix_ms,
-			completed_at_unix_ms, argv_digest, log_digest, test_timings_json, execution_profile_json
-		FROM ci_gate_executions
-		WHERE job_id = ?
-		ORDER BY workload_id
-	`, jobID)
+func decodeStoredRemoteCIShardResources(shard *RemoteCIShardRecord, resourcesJSON, executionMode string) error {
+	if resourcesJSON == "" {
+		return nil
+	}
+	if err := DecodeStrictJSON([]byte(resourcesJSON), &shard.Resources); err != nil {
+		return fmt.Errorf("decode stored remote CI shard resources: %w", err)
+	}
+	var err error
+	if strings.TrimSpace(executionMode) == "" {
+		err = shard.Resources.Validate()
+	} else {
+		err = shard.Resources.ValidateForExecutionMode(executionMode)
+	}
 	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("query remote CI gate executions", err)
+		return fmt.Errorf("validate stored remote CI shard resources: %w", err)
 	}
-	defer rows.Close()
-	var executions []PlanGateExecution
-	for rows.Next() {
-		var (
-			execution                    PlanGateExecution
-			workloadID, status           string
-			startedAtMS, completedAtMS   int64
-			testTimingsJSON, profileJSON string
-		)
-		if err := rows.Scan(
-			&workloadID,
-			&status,
-			&execution.ExitCode,
-			&startedAtMS,
-			&completedAtMS,
-			&execution.ArgvDigest,
-			&execution.LogDigest,
-			&testTimingsJSON,
-			&profileJSON,
-		); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan remote CI gate execution", err)
-		}
-		execution.GateID = GateID(workloadID)
-		execution.Status = ResultStatus(status)
-		execution.StartedAt = time.UnixMilli(startedAtMS).UTC()
-		execution.CompletedAt = time.UnixMilli(completedAtMS).UTC()
-		if execution.TestTimings, err = decodeStoredRemoteCIExecutionTestTimings(testTimingsJSON); err != nil {
-			return nil, err
-		}
-		execution.ExecutionProfile, err = decodeStoredRemoteCIAggregateExecutionProfile(profileJSON)
-		if err != nil {
-			return nil, err
-		}
-		if err := validateRemoteCIAggregateExecution(execution); err != nil {
-			return nil, err
-		}
-		executions = append(executions, execution)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate remote CI gate executions", err)
-	}
-	return executions, nil
+	return nil
 }
 
 func decodeStoredRemoteCIExecutionTestTimings(encoded string) ([]GoTestTiming, error) {

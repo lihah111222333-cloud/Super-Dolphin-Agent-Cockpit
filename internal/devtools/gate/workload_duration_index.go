@@ -430,31 +430,13 @@ type durationSampleResource struct {
 
 // normalResourceForTier 将分类结果映射为固定 normal 资源，未知分类直接报错。
 func normalResourceForTier(tier cicontract.WorkloadResourceTier) (float64, float64, error) {
-	switch tier {
-	case cicontract.WorkloadResourceTierFast:
-		return 2, 4, nil
-	case cicontract.WorkloadResourceTierMedium:
-		return 4, 8, nil
-	case cicontract.WorkloadResourceTierSlow:
-		return 8, 16, nil
-	default:
-		return 0, 0, fmt.Errorf("unsupported workload resource tier %q", tier)
-	}
+	return cicontract.NormalResourceTupleForTier(tier)
 }
 
 // normalResourceTierForTuple 将计划持久化的固定 CPU/内存 tuple 映射为档位。
 // 任何非协议资源都直接失败，避免 owner hint 静默改变资源身份。
 func normalResourceTierForTuple(cpu, memoryGiB float64) (cicontract.WorkloadResourceTier, error) {
-	switch {
-	case cpu == 2 && memoryGiB == 4:
-		return cicontract.WorkloadResourceTierFast, nil
-	case cpu == 4 && memoryGiB == 8:
-		return cicontract.WorkloadResourceTierMedium, nil
-	case cpu == 8 && memoryGiB == 16:
-		return cicontract.WorkloadResourceTierSlow, nil
-	default:
-		return 0, fmt.Errorf("unsupported resource %.gC/%.gGiB", cpu, memoryGiB)
-	}
+	return cicontract.NormalResourceTierForResources(cpu, memoryGiB)
 }
 
 // normalResourceTierRank 返回仅用于单次规划收敛的显式策略顺序，
@@ -682,7 +664,11 @@ func (index DurationSampleIndex) normalCrossInputUpperBound(workload Workload) (
 		if err != nil {
 			return 0, err
 		}
-		candidate := index.planningCrossInputUpperBound(workload, DurationExecutionModeNormal, normalCompileResourceClass(tier), cpu, memoryGiB)
+		classID, err := normalCompileResourceClass(tier)
+		if err != nil {
+			return 0, err
+		}
+		candidate := index.planningCrossInputUpperBound(workload, DurationExecutionModeNormal, classID, cpu, memoryGiB)
 		upperBound = max(upperBound, candidate)
 	}
 	return upperBound, nil
@@ -694,7 +680,10 @@ func (index DurationSampleIndex) resolveNormalTierStep(workload Workload, tier c
 	if err != nil {
 		return 0, durationSampleResource{}, tier, false, err
 	}
-	classID := normalCompileResourceClass(tier)
+	classID, err := normalCompileResourceClass(tier)
+	if err != nil {
+		return 0, durationSampleResource{}, tier, false, err
+	}
 	upperBound := index.planningCrossInputUpperBound(workload, DurationExecutionModeNormal, classID, cpu, memoryGiB)
 	aggregate, resource, found, err := index.aggregateForResource(workload, DurationExecutionModeNormal, cpu, memoryGiB)
 	if err != nil {

@@ -72,10 +72,10 @@ func validateCompileTimingEnvironmentIdentity(identity CompileTimingIdentity) er
 
 func validateCompileTimingIdentityResources(identity CompileTimingIdentity) error {
 	if identity.ExecutionMode == DurationExecutionModeCalibration {
-		if identity.ResourceCPU != cicontract.CalibrationResourceCPU || identity.ResourceMemoryGiB != cicontract.CalibrationResourceMemoryGiB {
-			return errors.New("compile timing calibration resources must be 4C/8GiB")
+		if err := cicontract.ValidateCalibrationResources(identity.ResourceClassID, identity.ResourceCPU, identity.ResourceMemoryGiB); err != nil {
+			return fmt.Errorf("compile timing calibration resources: %w", err)
 		}
-	} else if err := cicontract.ValidateNormalResources(identity.ResourceCPU, identity.ResourceMemoryGiB); err != nil {
+	} else if err := cicontract.ValidateNormalResourceIdentity(identity.ResourceClassID, identity.ResourceCPU, identity.ResourceMemoryGiB); err != nil {
 		return fmt.Errorf("compile timing normal resources: %w", err)
 	}
 	return nil

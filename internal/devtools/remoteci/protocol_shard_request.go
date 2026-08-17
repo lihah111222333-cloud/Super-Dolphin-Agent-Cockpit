@@ -96,7 +96,7 @@ func (request ShardRequest) validateResourceClass() error {
 		return errors.New("remote shard request resource_class requires class ID, CPU, and memory")
 	}
 	if !request.Calibration {
-		if err := cicontract.ValidateNormalResources(class.VCPU, class.MemoryGiB); err != nil {
+		if err := cicontract.ValidateNormalResourceIdentity(class.ID, class.VCPU, class.MemoryGiB); err != nil {
 			return fmt.Errorf("remote shard request normal resource_class: %w", err)
 		}
 	}
@@ -130,7 +130,7 @@ func (request ShardRequest) validateOCIProjectCache() error {
 	if request.OCIProjectCache == nil {
 		return errors.New("remote shard OCI project cache is required")
 	}
-	if err := request.OCIProjectCache.validate(); err != nil {
+	if err := request.OCIProjectCache.Validate(); err != nil {
 		return err
 	}
 	if err := request.OCIProjectCache.ValidateForBaseline(request.RunnerBaseTree, request.BaselineToolchainDigest, cicontract.TargetPlatform, request.BaselineRuntimeImage); err != nil {
@@ -214,8 +214,8 @@ func validateGateIDs(ids []gate.GateID) error {
 	}
 	seen := make(map[gate.GateID]struct{}, len(ids))
 	for index, id := range ids {
-		if strings.TrimSpace(string(id)) == "" {
-			return fmt.Errorf("remote shard request gate_ids[%d] is empty", index)
+		if err := gate.ValidateExecutableWorkloadID(id); err != nil {
+			return fmt.Errorf("remote shard request gate_ids[%d]: %w", index, err)
 		}
 		if _, duplicate := seen[id]; duplicate {
 			return fmt.Errorf("remote shard request gate_ids[%d] is duplicated", index)
@@ -276,7 +276,7 @@ func DecodeShardRequest(data []byte) (ShardRequest, error) {
 		return ShardRequest{}, errors.New("remote shard request exceeds canonical byte limit")
 	}
 	var request ShardRequest
-	if err := gate.DecodeStrictJSON(data, &request); err != nil {
+	if err := gate.DecodeCanonicalStrictJSON(data, &request); err != nil {
 		return ShardRequest{}, fmt.Errorf("decode remote shard request: %w", err)
 	}
 	if err := request.Validate(); err != nil {

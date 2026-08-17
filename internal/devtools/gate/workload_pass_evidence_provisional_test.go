@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // TestWorkloadPassEvidencePromotesPassingWorkloadFromFailedRun verifies that a
@@ -200,7 +202,7 @@ func recordBulkFailedRun(t *testing.T, store *DurationLedgerStore, jobID, tree s
 	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{SourceTreeSHA: tree, Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, AcceptedGeneration: 1, ObservedAt: now}); err != nil {
 		t.Fatalf("record bulk catalog: %v", err)
 	}
-	record := RemoteCIRunRecord{JobID: jobID, AgentTokenDigest: bulkDigest(1), Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, PlanDigest: bulkDigest(2), CatalogDigest: catalogDigest, AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-" + jobID, SourceTreeSHA: tree, CandidateGateSourceSHA256: bulkDigest(3), CandidateGateToolchainSHA256: bulkDigest(4), RunnerImage: "ubuntu:22.04", Status: ResultStatusFailed, StartedAt: now, CompletedAt: now.Add(2 * time.Minute), CleanupComplete: true, ErrorText: "bulk workload failure"}
+	record := RemoteCIRunRecord{JobID: jobID, AgentTokenDigest: bulkDigest(1), Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, PlanDigest: bulkDigest(2), CatalogDigest: catalogDigest, AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-" + jobID, SourceTreeSHA: tree, CandidateGateSourceSHA256: bulkDigest(3), CandidateGateToolchainSHA256: bulkDigest(4), RunnerImage: "ubuntu:22.04", Platform: cicontract.TargetPlatform, RunnerIdentityDigest: bulkDigest(5), ToolchainDigest: bulkDigest(6), ExecutionMode: DurationExecutionModeNormal, Status: ResultStatusFailed, StartedAt: now, CompletedAt: now.Add(2 * time.Minute), CleanupComplete: true, ErrorText: "bulk workload failure"}
 	for index, workload := range catalog.Workloads {
 		shard, execution := bulkExecutionParts(t, workload, record.StartedAt, jobID, index == failedIndex, index)
 		record.Shards = append(record.Shards, shard)
@@ -225,7 +227,7 @@ func bulkExecutionParts(t *testing.T, workload Workload, started time.Time, jobI
 	}
 	executionStarted := started.Add(time.Duration(index+1) * time.Millisecond)
 	execution := PlanGateExecution{ShardIdentity: shardIdentity, GateID: GateID(workload.ID), Status: status, ExitCode: exitCode, StartedAt: executionStarted, CompletedAt: executionStarted.Add(7 * time.Millisecond), ExecutionProfile: ExecutionProfile{GoFlags: goFlags, CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
-	shard := RemoteCIShardRecord{ShardIdentity: shardIdentity, ContainerGroup: fmt.Sprintf("eci-%s-%02d", jobID, index), ContainerStatus: containerStatus, Workloads: []GateID{GateID(workload.ID)}, MaterializationTiming: measuredShardMaterializationTiming(shardIdentity), Resources: RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8}}
+	shard := RemoteCIShardRecord{ShardIdentity: shardIdentity, ContainerGroup: fmt.Sprintf("eci-%s-%02d", jobID, index), ContainerStatus: containerStatus, Workloads: []GateID{GateID(workload.ID)}, MaterializationTiming: measuredShardMaterializationTiming(shardIdentity), Resources: RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8}}
 	return shard, execution
 }
 
@@ -238,7 +240,7 @@ func bulkRetryExecutionParts(previous PlanGateExecution, started time.Time, jobI
 	execution := previous
 	execution.ShardIdentity, execution.Status, execution.ExitCode = shardIdentity, status, exitCode
 	execution.StartedAt, execution.CompletedAt = started.Add(time.Duration(index+1)*time.Millisecond), started.Add(time.Duration(index+8)*time.Millisecond)
-	shard := RemoteCIShardRecord{ShardIdentity: shardIdentity, ContainerGroup: fmt.Sprintf("eci-%s-%02d", jobID, index), ContainerStatus: containerStatus, Workloads: []GateID{execution.GateID}, MaterializationTiming: measuredShardMaterializationTiming(shardIdentity), Resources: RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 8}}
+	shard := RemoteCIShardRecord{ShardIdentity: shardIdentity, ContainerGroup: fmt.Sprintf("eci-%s-%02d", jobID, index), ContainerStatus: containerStatus, Workloads: []GateID{execution.GateID}, MaterializationTiming: measuredShardMaterializationTiming(shardIdentity), Resources: RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 8}}
 	return shard, execution
 }
 

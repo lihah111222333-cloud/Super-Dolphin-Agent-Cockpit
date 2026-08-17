@@ -1,8 +1,11 @@
 package eci
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 type invalidCreateRequestCase struct {
@@ -33,12 +36,15 @@ func invalidCreateRequestCases() []invalidCreateRequestCase {
 }
 
 func TestValidateResourcesAcceptsOnlyTheThreeNormalClasses(t *testing.T) {
-	for _, resource := range []Resources{{CPU: 2, MemoryGiB: 4}, {CPU: 4, MemoryGiB: 8}, {CPU: 8, MemoryGiB: 16}} {
-		if err := validateResources(resource.CPU, resource.MemoryGiB); err != nil {
+	for _, resource := range []struct {
+		class string
+		Resources
+	}{{class: "small", Resources: Resources{CPU: 2, MemoryGiB: 4}}, {class: "medium", Resources: Resources{CPU: 4, MemoryGiB: 8}}, {class: "maximum", Resources: Resources{CPU: 8, MemoryGiB: 16}}} {
+		if err := validateResources(resource.CPU, resource.MemoryGiB, resource.class, cicontract.ExecutionModeNormal); err != nil {
 			t.Fatalf("validateResources(%g, %g) failed: %v", resource.CPU, resource.MemoryGiB, err)
 		}
 	}
-	if err := validateResources(6, 12); err == nil {
+	if err := validateResources(6, 12, "custom", cicontract.ExecutionModeNormal); err == nil {
 		t.Fatal("validateResources(6, 12) unexpectedly passed")
 	}
 }
@@ -57,8 +63,39 @@ func TestValidateResourcesRejectsRetiredNormalMemoryTiers(t *testing.T) {
 		{cpu: 8, memory: 8},
 		{cpu: 8, memory: 32},
 	} {
-		if err := validateResources(resource.cpu, resource.memory); err == nil {
+		if err := validateResources(resource.cpu, resource.memory, "small", cicontract.ExecutionModeNormal); err == nil {
 			t.Fatalf("validateResources(%g, %g) unexpectedly accepted a retired resource tier", resource.cpu, resource.memory)
 		}
+	}
+}
+
+func TestResourceValidationAPIsRequireExplicitIdentity(t *testing.T) {
+	validateType := reflect.TypeOf(validateResources)
+	if validateType.IsVariadic() || validateType.NumIn() != 4 {
+		t.Fatalf("validateResources signature = variadic=%t params=%d, want explicit cpu/memory/class/mode", validateType.IsVariadic(), validateType.NumIn())
+	}
+}
+
+func TestCreateRequestCarriesResourceClassAndExecutionMode(t *testing.T) {
+	typ := reflect.TypeFor[CreateRequest]()
+	for _, field := range []string{"ResourceClassID", "ExecutionMode"} {
+		if _, ok := typ.FieldByName(field); !ok {
+			t.Fatalf("CreateRequest is missing canonical resource field %q", field)
+		}
+	}
+}
+
+func TestValidateResourcesUsesExecutionModeAndCanonicalClass(t *testing.T) {
+	if err := validateResources(2, 4, "custom", cicontract.ExecutionModeNormal); err == nil {
+		t.Fatal("normal resource validation accepted custom class with canonical tuple")
+	}
+	if err := validateResources(4, 8, "calibration", cicontract.ExecutionModeCalibration); err != nil {
+		t.Fatalf("calibration resource validation rejected fixed resource: %v", err)
+	}
+	if err := validateResources(4, 8, "medium", cicontract.ExecutionModeCalibration); err == nil {
+		t.Fatal("calibration resource validation accepted normal class")
+	}
+	if err := validateResources(4, 8, "calibration", cicontract.ExecutionModeNormal); err == nil {
+		t.Fatal("normal resource validation accepted calibration class")
 	}
 }

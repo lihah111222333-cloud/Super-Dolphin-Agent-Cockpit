@@ -38,6 +38,79 @@ func TestRemoteCalibrationCheckpointIdentitySeparatesForceModes(t *testing.T) {
 	}
 }
 
+func TestRemoteCalibrationCheckpointRejectsMissingExecutionIdentity(t *testing.T) {
+	input, result := calibrationRunsInputResult("commit", 1)
+	result.PlanDigest = "sha256:" + strings.Repeat("p", 64)
+	result.CatalogDigest = "sha256:" + strings.Repeat("q", 64)
+	record := gatecontract.RemoteCIRunRecord{
+		JobID:                        result.JobID,
+		AcceptedGeneration:           result.AcceptedGeneration,
+		ImageCacheSnapshotID:         input.ImageCacheSnapshotID,
+		Entrypoint:                   input.Entrypoint,
+		Profile:                      input.Profile,
+		Force:                        input.Force,
+		PlanDigest:                   result.PlanDigest,
+		CatalogDigest:                result.CatalogDigest,
+		SourceTreeSHA:                input.Tree,
+		CandidateGateSourceSHA256:    input.CandidateGateSourceSHA256,
+		CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256,
+		Status:                       gatecontract.ResultStatusPassed,
+		Authoritative:                true,
+		CleanupComplete:              true,
+	}
+	if remoteCalibrationCheckpointRunMatches(input, result, record) {
+		t.Fatal("legacy checkpoint without execution identity was accepted for calibration reuse")
+	}
+}
+
+func TestRemoteCalibrationCheckpointRejectsCrossWireIdentityAndResourceDrift(t *testing.T) {
+	input, result := calibrationRunsInputResult("commit", 1)
+	result.PlanDigest, result.CatalogDigest = "sha256:"+strings.Repeat("p", 64), "sha256:"+strings.Repeat("q", 64)
+	record := gatecontract.RemoteCIRunRecord{
+		JobID: result.JobID, AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration,
+		ImageCacheSnapshotID: input.ImageCacheSnapshotID, Entrypoint: input.Entrypoint, Profile: input.Profile, Force: input.Force,
+		PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: input.Tree,
+		CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256,
+		RunnerImage: input.RunnerImage, Platform: input.Platform, RunnerIdentityDigest: input.RunnerIdentityDigest,
+		ToolchainDigest: input.ToolchainDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration,
+		Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true,
+		Shards: []gatecontract.RemoteCIShardRecord{{Resources: gatecontract.RemoteCIShardResources{ClassID: input.CalibrationResource.ID, CPU: input.CalibrationResource.VCPU, MemoryGiB: input.CalibrationResource.MemoryGiB}}},
+	}
+	if !remoteCalibrationCheckpointRunMatches(input, result, record) {
+		t.Fatal("valid calibration checkpoint identity was rejected")
+	}
+	cases := []struct {
+		name   string
+		mutate func(*gatecontract.RemoteCIRunRecord)
+	}{
+		{name: "agent token", mutate: func(record *gatecontract.RemoteCIRunRecord) {
+			record.AgentTokenDigest = "sha256:" + strings.Repeat("z", 64)
+		}},
+		{name: "platform", mutate: func(record *gatecontract.RemoteCIRunRecord) { record.Platform = "windows/amd64" }},
+		{name: "runner", mutate: func(record *gatecontract.RemoteCIRunRecord) {
+			record.RunnerIdentityDigest = "sha256:" + strings.Repeat("z", 64)
+		}},
+		{name: "toolchain", mutate: func(record *gatecontract.RemoteCIRunRecord) {
+			record.ToolchainDigest = "sha256:" + strings.Repeat("z", 64)
+		}},
+		{name: "mode", mutate: func(record *gatecontract.RemoteCIRunRecord) {
+			record.ExecutionMode = gatecontract.DurationExecutionModeNormal
+		}},
+		{name: "resource class", mutate: func(record *gatecontract.RemoteCIRunRecord) { record.Shards[0].Resources.ClassID = "medium" }},
+		{name: "resource cpu", mutate: func(record *gatecontract.RemoteCIRunRecord) { record.Shards[0].Resources.CPU = 2 }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mutated := record
+			mutated.Shards = append([]gatecontract.RemoteCIShardRecord(nil), record.Shards...)
+			testCase.mutate(&mutated)
+			if remoteCalibrationCheckpointRunMatches(input, result, mutated) {
+				t.Fatalf("drifted calibration checkpoint %s was accepted", testCase.name)
+			}
+		})
+	}
+}
+
 func TestExecuteRemoteCalibrationRunsForceDoesNotReuseNonForceCheckpoint(t *testing.T) {
 	store := newRemoteCalibrationRunsStore(t, 1)
 	checkpoint := newRemoteCalibrationRunsCheckpoint(t, store, "checkpoint-force-isolation", 1)
@@ -347,7 +420,7 @@ func calibrationRunsInputResult(scenario string, generation uint64) (remoteci.Ru
 	}
 	tree := strings.Repeat("a", 40)
 	input := remoteci.RunInput{AgentTokenDigest: calibrationRunsAgentTokenDigest, AcceptedGeneration: generation, ImageCacheSnapshotID: "snapshot-test-" + strconv.FormatUint(generation, 10), Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1, Commit: &gatecontract.CommitSource{SHA: strings.Repeat("b", 40)}, SourceTreeSHA: tree}, Profile: profile, Entrypoint: entrypoint, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("c", 64), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("d", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("e", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("f", 64), RunnerImage: "registry.example/runner@sha256:" + strings.Repeat("0", 64), CalibrationResource: shardresource.Class{ID: "calibration", VCPU: 4, MemoryGiB: 8}}
-	result := remoteci.RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: generation, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-" + scenario, Entrypoint: entrypoint, Profile: profile, SourceTreeSHA: tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, CalibrationResourceClassID: input.CalibrationResource.ID, CalibrationResourceCPU: input.CalibrationResource.VCPU, CalibrationResourceMemoryGiB: input.CalibrationResource.MemoryGiB, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, time.August, 3, 0, 0, 0, 0, time.UTC), DurationSamples: []gatecontract.DurationSample{{Bucket: gatecontract.DurationBucket{WorkloadID: "guard:test", CommandDigest: strings.Repeat("1", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration, ResourceClassID: input.CalibrationResource.ID, ResourceCPU: input.CalibrationResource.VCPU, ResourceMemoryGiB: input.CalibrationResource.MemoryGiB}, Succeeded: true, DurationMS: 1}}}
+	result := remoteci.RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: generation, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-" + scenario, Entrypoint: entrypoint, Profile: profile, SourceTreeSHA: tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Platform: input.Platform, RunnerIdentityDigest: input.RunnerIdentityDigest, ToolchainDigest: input.ToolchainDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration, CalibrationResourceClassID: input.CalibrationResource.ID, CalibrationResourceCPU: input.CalibrationResource.VCPU, CalibrationResourceMemoryGiB: input.CalibrationResource.MemoryGiB, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, time.August, 3, 0, 0, 0, 0, time.UTC), DurationSamples: []gatecontract.DurationSample{{Bucket: gatecontract.DurationBucket{WorkloadID: "guard:test", CommandDigest: strings.Repeat("1", 64), InputDigest: "sha256:" + strings.Repeat("0", 64), Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration, ResourceClassID: input.CalibrationResource.ID, ResourceCPU: input.CalibrationResource.VCPU, ResourceMemoryGiB: input.CalibrationResource.MemoryGiB}, Succeeded: true, DurationMS: 1}}}
 	return input, result
 }
 
@@ -399,7 +472,7 @@ func calibrationRunsRecord(t *testing.T, store *gatecontract.DurationLedgerStore
 			}
 		}
 	}
-	record := gatecontract.RemoteCIRunRecord{JobID: result.JobID, AgentTokenDigest: input.AgentTokenDigest, Force: result.Force, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, Entrypoint: result.Entrypoint, Profile: result.Profile, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Status: result.Status, Authoritative: false, CleanupComplete: result.CleanupComplete, RunnerImage: input.RunnerImage, StartedAt: startedAt, CompletedAt: result.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, WorkloadExecutions: executions, WorkloadResults: workloadResults, TimingObservations: timings}
+	record := gatecontract.RemoteCIRunRecord{JobID: result.JobID, AgentTokenDigest: input.AgentTokenDigest, Force: result.Force, AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID, Entrypoint: result.Entrypoint, Profile: result.Profile, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, RunnerImage: input.RunnerImage, Platform: input.Platform, RunnerIdentityDigest: input.RunnerIdentityDigest, ToolchainDigest: input.ToolchainDigest, ExecutionMode: gatecontract.DurationExecutionModeCalibration, Status: result.Status, Authoritative: false, CleanupComplete: result.CleanupComplete, StartedAt: startedAt, CompletedAt: result.CompletedAt, Shards: []gatecontract.RemoteCIShardRecord{shard}, WorkloadExecutions: executions, WorkloadResults: workloadResults, TimingObservations: timings}
 	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
 		t.Fatal(err)
 	}

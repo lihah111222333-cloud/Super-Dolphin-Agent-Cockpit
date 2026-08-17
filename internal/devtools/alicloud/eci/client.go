@@ -73,6 +73,8 @@ type CreateRequest struct {
 	MainImage            string
 	InitImage            string
 	ImageCacheOnly       bool
+	ResourceClassID      string
+	ExecutionMode        string
 	Resources            Resources
 	Command              []string
 	Args                 []string

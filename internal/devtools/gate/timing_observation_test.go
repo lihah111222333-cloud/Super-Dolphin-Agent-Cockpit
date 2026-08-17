@@ -114,6 +114,14 @@ func pureOverheadCompileGroupTimingObservation(jobID, shard string, startedAt, c
 	}
 }
 
+func TestCompileGroupTimingObservationRejectsCustomNormalClassWithCanonicalTuple(t *testing.T) {
+	observation := pureOverheadCompileGroupTimingObservation("job", "shard", time.UnixMilli(100).UTC(), time.UnixMilli(101).UTC())
+	observation.CompileResourceClassID = "custom"
+	if err := observation.Validate(); err == nil {
+		t.Fatal("compile-group timing observation accepted custom normal class with canonical tuple")
+	}
+}
+
 // TestTimingObservationSQLiteRoundTrip 保证 SQLite 仅保存并回读严格结构化 cache evidence。
 func TestTimingObservationSQLiteRoundTrip(t *testing.T) {
 	store, err := NewDurationLedgerStore(t.TempDir() + "/duration-ledger.sqlite")

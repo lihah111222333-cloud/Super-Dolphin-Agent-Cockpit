@@ -400,7 +400,7 @@ func TestPlanCurrentWorkloadsKeepsMeasuredPackageOver100SecondsRunnable(t *testi
 	// carry the measured duration into the slow tier.  A slow-tier sample then
 	// closes the chain without treating the bootstrap estimate as a tier hint.
 	slowSample := ledger.Samples[0]
-	slowSample.Bucket.ResourceClassID = "large"
+	slowSample.Bucket.ResourceClassID = "maximum"
 	slowSample.Bucket.ResourceCPU = 8
 	slowSample.Bucket.ResourceMemoryGiB = 16
 	ledger.Samples = append(ledger.Samples, slowSample)
@@ -755,7 +755,7 @@ func fastDurationLedger(catalog WorkloadCatalog) DurationLedger {
 			classID string
 			cpu     float64
 			memory  float64
-		}{{"small", 2, 4}, {"medium", 4, 8}, {"large", 8, 16}} {
+		}{{"small", 2, 4}, {"medium", 4, 8}, {"maximum", 8, 16}} {
 			ledger.Samples = append(ledger.Samples, DurationSample{
 				Bucket: DurationBucket{
 					WorkloadID: workload.ID, CommandDigest: workload.CommandDigest,
@@ -803,4 +803,12 @@ func testCalibrationDurationSample(workloadID, digest string, succeeded bool, du
 	sample.Bucket.ResourceCPU = 4
 	sample.Bucket.ResourceMemoryGiB = 8
 	return sample
+}
+
+func TestValidateDurationBucketRejectsCustomNormalClassWithCanonicalTuple(t *testing.T) {
+	bucket := testDurationSample("workload", strings.Repeat("a", 64), true, 1).Bucket
+	bucket.ResourceClassID = "custom"
+	if err := ValidateDurationBucket(bucket); err == nil {
+		t.Fatal("ValidateDurationBucket accepted custom normal class with canonical tuple")
+	}
 }

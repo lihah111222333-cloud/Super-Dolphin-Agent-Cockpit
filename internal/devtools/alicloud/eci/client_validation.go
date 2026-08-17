@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	sourceVolumeName = "source-data"
-	workVolumeName   = "work-data"
-	tempVolumeName   = "temp-data"
+	sourceVolumeName = cicontract.ECISourceVolumeName
+	workVolumeName   = cicontract.ECIWorkVolumeName
+	tempVolumeName   = cicontract.ECITempVolumeName
 )
 
 // validateConfig 在启动 CLI 前阻断不完整基础设施配置和不可表示的资源值。
@@ -99,22 +99,24 @@ func imagesUseRegistry(server string, images ...string) bool {
 	return true
 }
 
-func validateResources(cpu float64, memoryGiB float64) error {
-	allowed := map[float64]map[float64]bool{
-		2: {4: true},
-		4: {8: true},
-		8: {16: true},
+func validateResources(cpu float64, memoryGiB float64, classID, executionMode string) error {
+	if strings.TrimSpace(classID) == "" {
+		return errors.New("ECI resource class ID is required")
 	}
-	if cpu > 8 || memoryGiB > 16 || !allowed[cpu][memoryGiB] {
-		return errors.New("ECI resources must use exactly 2C/4GiB, 4C/8GiB, or 8C/16GiB")
+	switch executionMode {
+	case cicontract.ExecutionModeNormal:
+		return cicontract.ValidateNormalResourceIdentity(classID, cpu, memoryGiB)
+	case cicontract.ExecutionModeCalibration:
+		return cicontract.ValidateCalibrationResources(classID, cpu, memoryGiB)
+	default:
+		return fmt.Errorf("ECI execution mode %q is invalid", executionMode)
 	}
-	return nil
 }
 
 // validateCreateRequest 按容器、卷、挂载和标签阶段校验 ECI 分片请求。
 func validateCreateRequest(request CreateRequest) error {
-	if strings.TrimSpace(request.ImageCacheSnapshotID) == "" {
-		return errors.New("ECI image cache snapshot ID is required; container groups must pin an explicitly Ready image snapshot")
+	if !cicontract.ValidAcceptedBaselineIdentifier(request.ImageCacheSnapshotID) {
+		return errors.New("ECI image cache snapshot ID must be a canonical accepted-baseline identifier")
 	}
 	for _, check := range []func(CreateRequest) error{
 		validateContainerNames, validateRequestImages, validateRequestContainers, validateRequestVolumes,
@@ -155,7 +157,7 @@ func validateContainerNames(request CreateRequest) error {
 }
 
 func validateRequestContainers(request CreateRequest) error {
-	if err := validateResources(request.Resources.CPU, request.Resources.MemoryGiB); err != nil {
+	if err := validateResources(request.Resources.CPU, request.Resources.MemoryGiB, request.ResourceClassID, request.ExecutionMode); err != nil {
 		return err
 	}
 	if err := validateContainerInput("task container", request.Command, request.Args, request.Environment); err != nil {

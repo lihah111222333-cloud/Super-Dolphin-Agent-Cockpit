@@ -21,15 +21,14 @@ const remoteCalibrationResultSchemaVersion uint32 = 4
 var errRemoteCalibrationSamplesIncomplete = errors.New("remote calibration samples are incomplete")
 
 type remoteRunConfig struct {
-	SchemaVersion          uint32                                    `json:"schema_version"`
-	AliyunCLI              string                                    `json:"aliyun_cli"`
-	CredentialProfile      string                                    `json:"credential_profile"`
-	RegionID               string                                    `json:"region_id"`
-	VSwitches              []cicontract.ECIVSwitch                   `json:"vswitches"`
-	SecurityGroupID        string                                    `json:"security_group_id"`
-	WorkerRoleName         string                                    `json:"worker_role_name"`
-	GenerationOneProvision *cicontract.GenerationOneProvisionReceipt `json:"generation_one_provision,omitempty"`
-	OSS                    struct {
+	SchemaVersion     uint32                  `json:"schema_version"`
+	AliyunCLI         string                  `json:"aliyun_cli"`
+	CredentialProfile string                  `json:"credential_profile"`
+	RegionID          string                  `json:"region_id"`
+	VSwitches         []cicontract.ECIVSwitch `json:"vswitches"`
+	SecurityGroupID   string                  `json:"security_group_id"`
+	WorkerRoleName    string                  `json:"worker_role_name"`
+	OSS               struct {
 		Bucket           string `json:"bucket"`
 		Endpoint         string `json:"endpoint"`
 		InternalEndpoint string `json:"internal_endpoint"`
@@ -38,6 +37,7 @@ type remoteRunConfig struct {
 	Capacity struct {
 		ResourcePolicy shardresource.Policy `json:"resource_policy"`
 	} `json:"capacity"`
+	GenerationOneProvision *cicontract.GenerationOneProvisionReceipt `json:"generation_one_provision,omitempty"`
 }
 
 // Validate 校验 normal CI 所需的云身份、对象存储和分片资源。

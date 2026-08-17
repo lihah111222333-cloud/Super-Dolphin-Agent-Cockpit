@@ -115,3 +115,25 @@ func TestTrackedRemoteCIConfigPassesStrictValidation(t *testing.T) {
 		t.Fatal("tracked remote CI config guard accepted a drifted schema version")
 	}
 }
+
+func TestTrackedRemoteCIConfigRejectsNonCanonicalEmbeddedReceipt(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "remote-ci", "aliyun.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(data)
+	for name, replacement := range map[string]string{
+		"case alias":     `"generation_one_provision":{"SCHEMA_VERSION":5`,
+		"case duplicate": `"generation_one_provision":{"schema_version":5,"SCHEMA_VERSION":5`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutated := strings.Replace(document, `"generation_one_provision":{"schema_version":5`, replacement, 1)
+			if mutated == document {
+				t.Fatal("tracked config fixture did not contain generation-one receipt")
+			}
+			if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, mutated)); err == nil {
+				t.Fatal("loadRemoteRunConfig() accepted non-canonical embedded receipt")
+			}
+		})
+	}
+}

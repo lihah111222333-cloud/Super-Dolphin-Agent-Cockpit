@@ -233,7 +233,7 @@ func loadRetainedConsumerRecords(tx *sql.Tx, jobIDs []string, stats *workloadPas
 	records := make(map[string]RemoteCIRunRecord, len(jobIDs))
 	for start := 0; start < len(jobIDs); start += retainedConsumerBatchSize {
 		end := min(start+retainedConsumerBatchSize, len(jobIDs))
-		chunk, err := loadRetainedConsumerChunk(tx, jobIDs[start:end], stats)
+		chunk, states, err := loadRetainedConsumerChunkWithIdentityStates(tx, jobIDs[start:end], stats)
 		if err != nil {
 			return nil, err
 		}
@@ -245,7 +245,7 @@ func loadRetainedConsumerRecords(tx *sql.Tx, jobIDs []string, stats *workloadPas
 		if err != nil {
 			return nil, err
 		}
-		if err := validateAndCopyRetainedConsumerChunk(records, chunk, catalogs, receipts); err != nil {
+		if err := validateAndCopyRetainedConsumerChunk(records, chunk, states, catalogs, receipts); err != nil {
 			return nil, err
 		}
 	}
@@ -253,9 +253,15 @@ func loadRetainedConsumerRecords(tx *sql.Tx, jobIDs []string, stats *workloadPas
 }
 
 // validateAndCopyRetainedConsumerChunk 对完整投影逐 run 执行 canonical 校验。
-func validateAndCopyRetainedConsumerChunk(destination, chunk map[string]RemoteCIRunRecord, catalogs map[string]retainedConsumerCatalog, receipts map[string][]CheckReceiptRecord) error {
+func validateAndCopyRetainedConsumerChunk(destination, chunk map[string]RemoteCIRunRecord, states map[string]remoteCIExecutionIdentityState, catalogs map[string]retainedConsumerCatalog, receipts map[string][]CheckReceiptRecord) error {
 	for jobID, record := range chunk {
-		if err := validateRemoteCIRunRecord(record); err != nil {
+		var err error
+		if retainedConsumerLegacyExecutionIdentityRead(record, states[jobID]) {
+			err = validateRetainedConsumerCorrectnessRecord(record)
+		} else {
+			err = validateRemoteCIRunRecord(record)
+		}
+		if err != nil {
 			return fmt.Errorf("validate retained consumer %q: %w", jobID, err)
 		}
 		if err := validateRetainedConsumerCatalogCoverage(record, catalogs); err != nil {
@@ -274,34 +280,44 @@ func validateAndCopyRetainedConsumerChunk(destination, chunk map[string]RemoteCI
 
 // loadRetainedConsumerChunk 按固定投影顺序读取一个 consumer chunk。
 func loadRetainedConsumerChunk(tx *sql.Tx, jobIDs []string, stats *workloadPassEvidenceLookupStats) (map[string]RemoteCIRunRecord, error) {
+	chunk, _, err := loadRetainedConsumerChunkWithIdentityStates(tx, jobIDs, stats)
+	return chunk, err
+}
+
+// loadRetainedConsumerChunkWithIdentityStates 组装 retained projection 并保留每个 side-row 的显式 state。
+func loadRetainedConsumerChunkWithIdentityStates(tx *sql.Tx, jobIDs []string, stats *workloadPassEvidenceLookupStats) (map[string]RemoteCIRunRecord, map[string]remoteCIExecutionIdentityState, error) {
 	chunk, err := loadRetainedConsumerRunRows(tx, jobIDs, stats)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	states := make(map[string]remoteCIExecutionIdentityState, len(jobIDs))
 	loaders := []func(*sql.Tx, []string, map[string]RemoteCIRunRecord, *workloadPassEvidenceLookupStats) error{
 		loadRetainedConsumerWorkloadResults, loadRetainedConsumerExecutionScopes,
 	}
 	for _, load := range loaders {
 		if err := load(tx, jobIDs, chunk, stats); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	if err := loadRetainedConsumerTimingDetails(tx, jobIDs, chunk, stats); err != nil {
-		return nil, err
+	if err := loadRetainedConsumerExecutionIdentities(tx, jobIDs, chunk, states, stats); err != nil {
+		return nil, nil, err
 	}
-	if err := loadRetainedConsumerShards(tx, jobIDs, chunk, stats); err != nil {
-		return nil, err
+	if err := loadRetainedConsumerTimingDetails(tx, jobIDs, chunk, stats); err != nil {
+		return nil, nil, err
+	}
+	if err := loadRetainedConsumerShards(tx, jobIDs, chunk, states, stats); err != nil {
+		return nil, nil, err
 	}
 	if err := loadRetainedConsumerTerminalEvidence(tx, jobIDs, chunk, stats); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := loadRetainedConsumerExecutions(tx, jobIDs, chunk, "ci_gate_executions", false, stats); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := loadRetainedConsumerExecutions(tx, jobIDs, chunk, "ci_workload_executions", true, stats); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return chunk, nil
+	return chunk, states, nil
 }
 
 // loadRetainedConsumerTimingDetails 批量读取 warning 与两个 timing 投影。
@@ -330,7 +346,7 @@ func initializeRetainedConsumerTimingDetails(records map[string]RemoteCIRunRecor
 }
 
 // loadRetainedConsumerShards 批量恢复 shard 与 workload 归属投影。
-func loadRetainedConsumerShards(tx *sql.Tx, jobIDs []string, records map[string]RemoteCIRunRecord, stats *workloadPassEvidenceLookupStats) error {
+func loadRetainedConsumerShards(tx *sql.Tx, jobIDs []string, records map[string]RemoteCIRunRecord, states map[string]remoteCIExecutionIdentityState, stats *workloadPassEvidenceLookupStats) error {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(jobIDs)), ",")
 	rows, err := tx.Query(`SELECT shards.job_id, shards.shard_identity, shards.container_group_id, shards.container_status, shards.materialization_timing_json, shards.resources_json, workloads.workload_id FROM ci_shards AS shards LEFT JOIN ci_shard_workloads AS workloads ON workloads.job_id = shards.job_id AND workloads.shard_identity = shards.shard_identity WHERE shards.job_id IN (`+placeholders+") ORDER BY shards.job_id, shards.shard_identity, workloads.workload_id", stringsToAny(jobIDs)...)
 	if err != nil {
@@ -340,7 +356,7 @@ func loadRetainedConsumerShards(tx *sql.Tx, jobIDs []string, records map[string]
 	incrementRetainedConsumerBatchQueries(stats)
 	indexes := make(map[string]map[string]int, len(records))
 	for rows.Next() {
-		if err := scanAndAppendRetainedConsumerShard(rows, records, indexes); err != nil {
+		if err := scanAndAppendRetainedConsumerShard(rows, records, states, indexes); err != nil {
 			return err
 		}
 	}
@@ -351,7 +367,7 @@ func loadRetainedConsumerShards(tx *sql.Tx, jobIDs []string, records map[string]
 }
 
 // scanAndAppendRetainedConsumerShard 解码 shard JSON 后与所属 run 合并。
-func scanAndAppendRetainedConsumerShard(rows *sql.Rows, records map[string]RemoteCIRunRecord, indexes map[string]map[string]int) error {
+func scanAndAppendRetainedConsumerShard(rows *sql.Rows, records map[string]RemoteCIRunRecord, states map[string]remoteCIExecutionIdentityState, indexes map[string]map[string]int) error {
 	var jobID, timingJSON, resourcesJSON string
 	var workloadID sql.NullString
 	var shard RemoteCIShardRecord
@@ -362,7 +378,7 @@ func scanAndAppendRetainedConsumerShard(rows *sql.Rows, records map[string]Remot
 	if !ok {
 		return errors.New("retained consumer shard references an unknown run")
 	}
-	if err := decodeStoredRemoteCIShardEvidence(&shard, timingJSON, resourcesJSON, record.Status, record.Authoritative); err != nil {
+	if err := decodeStoredRemoteCIShardEvidence(&shard, timingJSON, resourcesJSON, record.Status, record.Authoritative, record.ExecutionMode, retainedConsumerLegacyExecutionIdentityRead(record, states[jobID])); err != nil {
 		return err
 	}
 	index := retainedConsumerShardIndex(indexes, jobID, shard.ShardIdentity, &record, shard)

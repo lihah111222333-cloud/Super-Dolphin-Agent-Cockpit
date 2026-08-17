@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // RemoteCIRunAuthorityIdentity 将最终化操作绑定到不可变的 CI 运行记录。
@@ -53,6 +55,12 @@ func (store *DurationLedgerStore) FinalizeRemoteCIRunAuthorityWithShardOverhead(
 ) error {
 	if err := evidence.Validate(); err != nil {
 		return fmt.Errorf("validate shard orchestration overhead evidence: %w", err)
+	}
+	if identity.ExecutionMode != cicontract.ExecutionModeCalibration {
+		return errors.New("shard orchestration overhead finalization requires calibration execution mode")
+	}
+	if evidence.Overhead.Platform != identity.Platform || evidence.Overhead.Runner != identity.RunnerIdentityDigest || evidence.Overhead.Toolchain != identity.ToolchainDigest {
+		return errors.New("shard orchestration overhead evidence does not match remote CI execution identity")
 	}
 	if evidence.Overhead.AcceptedGeneration != identity.AcceptedGeneration || evidence.Overhead.AcceptedSnapshotID != identity.ImageCacheSnapshotID {
 		return errors.New("shard orchestration overhead evidence does not match remote CI authority identity")
@@ -149,6 +157,11 @@ func validateSQLiteRemoteCIRunAuthorityInputs(tx *sql.Tx, identity RemoteCIRunAu
 // promoteSQLiteRemoteCIRunAuthorityAndOverhead 在同一事务内完成 authority CAS
 // 后的 overhead 写入；事务外不可观察到中间状态。
 func promoteSQLiteRemoteCIRunAuthorityAndOverhead(tx *sql.Tx, identity RemoteCIRunAuthorityIdentity, evidence *ShardOrchestrationOverheadEvidence, fault durationLedgerFinalizeFault) error {
+	if evidence != nil {
+		if err := validateSQLiteShardOverheadSourceJoin(tx, identity.JobID, *evidence); err != nil {
+			return err
+		}
+	}
 	if err := invokeDurationLedgerFinalizeFault(fault, durationLedgerFinalizeStepCAS); err != nil {
 		return err
 	}
@@ -156,6 +169,69 @@ func promoteSQLiteRemoteCIRunAuthorityAndOverhead(tx *sql.Tx, identity RemoteCIR
 		return err
 	}
 	return writeSQLiteShardOverheadIfPresent(tx, evidence, fault)
+}
+
+func validateSQLiteShardOverheadSourceJoin(tx *sql.Tx, jobID string, evidence ShardOrchestrationOverheadEvidence) error {
+	resourcesByShard, err := loadSQLiteShardOverheadSourceResources(tx, jobID, evidence.Overhead)
+	if err != nil {
+		return err
+	}
+	if len(resourcesByShard) == 0 {
+		return fmt.Errorf("shard overhead source job %q has no ci_shards rows", jobID)
+	}
+	return validateSQLiteShardOverheadSamples(jobID, evidence.Samples, resourcesByShard)
+}
+
+// loadSQLiteShardOverheadSourceResources 从同一 job 的 ci_shards 读取并验证固定 calibration 资源。
+func loadSQLiteShardOverheadSourceResources(tx *sql.Tx, jobID string, overhead ShardOrchestrationOverhead) (map[string]RemoteCIShardResources, error) {
+	rows, err := tx.Query(`SELECT shard_identity, resources_json FROM ci_shards WHERE job_id = ?`, jobID)
+	if err != nil {
+		return nil, mapDurationLedgerSQLiteError("query shard overhead source shards", err)
+	}
+	defer rows.Close()
+	resourcesByShard := make(map[string]RemoteCIShardResources)
+	for rows.Next() {
+		var shardID, resourcesJSON string
+		if err := rows.Scan(&shardID, &resourcesJSON); err != nil {
+			return nil, mapDurationLedgerSQLiteError("scan shard overhead source shard", err)
+		}
+		if shardID == "" {
+			return nil, errors.New("shard overhead source contains an empty shard identity")
+		}
+		if _, duplicate := resourcesByShard[shardID]; duplicate {
+			return nil, fmt.Errorf("shard overhead source job %q duplicates shard %q", jobID, shardID)
+		}
+		shard := RemoteCIShardRecord{}
+		if err := decodeStoredRemoteCIShardResources(&shard, resourcesJSON, cicontract.ExecutionModeCalibration); err != nil {
+			return nil, fmt.Errorf("decode shard overhead source shard %q resources: %w", shardID, err)
+		}
+		if !shardOverheadResourcesMatch(shard.Resources, overhead.CalibrationResourceClassID, overhead.CalibrationResourceCPU, overhead.CalibrationResourceMemoryGiB) {
+			return nil, fmt.Errorf("shard overhead source shard %q resource does not match calibration evidence", shardID)
+		}
+		resourcesByShard[shardID] = shard.Resources
+	}
+	if err := rows.Err(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("iterate shard overhead source shards", err)
+	}
+	return resourcesByShard, nil
+}
+
+// shardOverheadResourcesMatch 比较 SQLite 分片资源与 calibration overhead 规格。
+func shardOverheadResourcesMatch(resources RemoteCIShardResources, classID string, cpu, memoryGiB float64) bool {
+	return resources.ClassID == classID && resources.CPU == cpu && resources.MemoryGiB == memoryGiB
+}
+
+// validateSQLiteShardOverheadSamples 将逐分片样本绑定到同一 job 的 ci_shards 行。
+func validateSQLiteShardOverheadSamples(jobID string, samples []ShardOrchestrationOverheadSample, resourcesByShard map[string]RemoteCIShardResources) error {
+	for _, sample := range samples {
+		if sample.JobID != jobID {
+			return fmt.Errorf("shard overhead sample %s/%s does not match source job", sample.JobID, sample.ShardIdentity)
+		}
+		if _, found := resourcesByShard[sample.ShardIdentity]; !found {
+			return fmt.Errorf("shard overhead sample %s has no matching ci_shards row", sample.ShardIdentity)
+		}
+	}
+	return nil
 }
 
 // writeSQLiteShardOverheadIfPresent 将已验证 overhead 绑定当前账本 generation 写入事务。

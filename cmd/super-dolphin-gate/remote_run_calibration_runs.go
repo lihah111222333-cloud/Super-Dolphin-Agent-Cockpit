@@ -215,22 +215,66 @@ func remoteCalibrationCheckpointRunMatches(input remoteci.RunInput, result remot
 // remoteCalibrationCheckpointRunIdentityMatches 验证 job 与 accepted generation 的稳定身份。
 func remoteCalibrationCheckpointRunIdentityMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
 	return record.JobID == result.JobID &&
+		record.AgentTokenDigest == input.AgentTokenDigest &&
+		record.AgentTokenDigest == result.AgentTokenDigest &&
 		record.AcceptedGeneration == input.AcceptedGeneration &&
 		record.AcceptedGeneration == result.AcceptedGeneration
 }
 
 // remoteCalibrationCheckpointExecutionMatches 验证同一执行入口、计划、catalog 和 snapshot。
 func remoteCalibrationCheckpointExecutionMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return remoteCalibrationCheckpointEntrypointMatches(input, result, record) &&
+		remoteCalibrationCheckpointPlanSnapshotMatches(input, result, record) &&
+		remoteCalibrationCheckpointLedgerRuntimeMatches(input, record)
+}
+
+// remoteCalibrationCheckpointEntrypointMatches 核对 checkpoint 的入口、profile 和 force 身份。
+func remoteCalibrationCheckpointEntrypointMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
 	return record.Entrypoint == input.Entrypoint &&
 		record.Entrypoint == result.Entrypoint &&
 		record.Profile == input.Profile &&
 		record.Profile == result.Profile &&
 		record.Force == input.Force &&
-		record.Force == result.Force &&
-		record.PlanDigest == result.PlanDigest &&
+		record.Force == result.Force
+}
+
+// remoteCalibrationCheckpointPlanSnapshotMatches 核对计划、catalog 和 accepted snapshot。
+func remoteCalibrationCheckpointPlanSnapshotMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return record.PlanDigest == result.PlanDigest &&
 		record.CatalogDigest == result.CatalogDigest &&
 		record.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
 		record.ImageCacheSnapshotID == result.ImageCacheSnapshotID
+}
+
+// remoteCalibrationCheckpointLedgerRuntimeMatches 只接受账本 side-row 的完整 calibration runtime identity。
+func remoteCalibrationCheckpointLedgerRuntimeMatches(input remoteci.RunInput, record gatecontract.RemoteCIRunRecord) bool {
+	if !remoteCalibrationCheckpointLedgerIdentityMatches(input, record) {
+		return false
+	}
+	return remoteCalibrationCheckpointLedgerResourcesMatch(input, record)
+}
+
+// remoteCalibrationCheckpointLedgerIdentityMatches 核对 mode、平台、runner 和 toolchain。
+func remoteCalibrationCheckpointLedgerIdentityMatches(input remoteci.RunInput, record gatecontract.RemoteCIRunRecord) bool {
+	return input.Calibration && record.ExecutionMode == gatecontract.DurationExecutionModeCalibration &&
+		record.Platform == input.Platform && record.RunnerIdentityDigest == input.RunnerIdentityDigest &&
+		record.ToolchainDigest == input.ToolchainDigest && record.RunnerImage == input.RunnerImage && len(record.Shards) != 0
+}
+
+// remoteCalibrationCheckpointLedgerResourcesMatch 核对每个 calibration shard 的固定资源。
+func remoteCalibrationCheckpointLedgerResourcesMatch(input remoteci.RunInput, record gatecontract.RemoteCIRunRecord) bool {
+	if input.CalibrationResource.ID == "" || input.CalibrationResource.VCPU <= 0 || input.CalibrationResource.MemoryGiB <= 0 {
+		return false
+	}
+	for _, shard := range record.Shards {
+		resources := shard.Resources
+		if resources.ClassID != input.CalibrationResource.ID ||
+			resources.CPU != input.CalibrationResource.VCPU ||
+			resources.MemoryGiB != input.CalibrationResource.MemoryGiB {
+			return false
+		}
+	}
+	return true
 }
 
 // remoteCalibrationCheckpointSourceMatches 验证同一 source tree 与候选 Gate 编译身份。
@@ -251,10 +295,15 @@ func remoteCalibrationCheckpointPassed(record gatecontract.RemoteCIRunRecord) bo
 		record.ErrorText == ""
 }
 
+// remoteRunResultFromLedgerRecord 将账本事实原样映射为 checkpoint replay 结果，不从输入伪造身份。
 func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remoteci.RunResult {
 	identities := make([]gatecontract.WorkloadPassIdentity, 0, len(record.WorkloadResults))
 	for _, workload := range record.WorkloadResults {
 		identities = append(identities, workload.Identity)
+	}
+	var resource gatecontract.RemoteCIShardResources
+	if len(record.Shards) != 0 {
+		resource = record.Shards[0].Resources
 	}
 	return remoteci.RunResult{
 		SchemaVersion:                remoteci.RunResultSchemaVersion,
@@ -271,6 +320,13 @@ func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remo
 		CandidateGateSourceSHA256:    record.CandidateGateSourceSHA256,
 		CandidateGateToolchainSHA256: record.CandidateGateToolchainSHA256,
 		RunnerImage:                  record.RunnerImage,
+		Platform:                     record.Platform,
+		RunnerIdentityDigest:         record.RunnerIdentityDigest,
+		ToolchainDigest:              record.ToolchainDigest,
+		CalibrationResourceClassID:   resource.ClassID,
+		CalibrationResourceCPU:       resource.CPU,
+		CalibrationResourceMemoryGiB: resource.MemoryGiB,
+		ExecutionMode:                record.ExecutionMode,
 		Status:                       record.Status,
 		Authoritative:                record.Authoritative,
 		StartedAt:                    record.StartedAt,
