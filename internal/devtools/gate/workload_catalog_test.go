@@ -117,7 +117,7 @@ func TestBuildExpandedWorkloadCatalogUsesAtomicTargets(t *testing.T) {
 		t.Fatalf("expanded catalog = %#v", catalog)
 	}
 	parents := workloadParentCounts(t, catalog)
-	if parents[GateIDBackendTestWithGuard] != 9 || parents[GateIDFrontendFullTest] != 3 {
+	if parents[GateIDBackendTestWithGuard] != 10 || parents[GateIDFrontendFullTest] != 3 {
 		t.Fatalf("expanded parent counts = %v", parents)
 	}
 	assertAtomicExpandedWorkloads(t, catalog)

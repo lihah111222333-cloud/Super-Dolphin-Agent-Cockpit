@@ -249,11 +249,20 @@ func trustedGitOutputInDirectoryWithEnv(trustedGit gate.TrustedGitBinary, direct
 
 // MaterializeExactTree 校验 tree 对象并安全解包，不读取工作区覆盖内容。
 func MaterializeExactTree(repository, tree, temporaryPrefix string) (ExactTree, error) {
+	return MaterializeExactTreeContext(context.Background(), repository, tree, temporaryPrefix)
+}
+
+// MaterializeExactTreeContext materializes an exact tree under caller-owned
+// cancellation; Git subprocesses cannot outlive a cancelled release gate.
+func MaterializeExactTreeContext(ctx context.Context, repository, tree, temporaryPrefix string) (ExactTree, error) {
+	if ctx == nil {
+		return ExactTree{}, errors.New("exact-tree context is required")
+	}
 	root, err := canonicalRepository(repository)
 	if err != nil {
 		return ExactTree{}, err
 	}
-	treeSHA, err := requireExactTree(root, tree)
+	treeSHA, err := requireExactTreeContext(ctx, root, tree)
 	if err != nil {
 		return ExactTree{}, err
 	}
@@ -271,7 +280,7 @@ func MaterializeExactTree(repository, tree, temporaryPrefix string) (ExactTree, 
 	if err := os.Mkdir(sourceRoot, 0o700); err != nil {
 		return ExactTree{}, errors.Join(fmt.Errorf("create exact-tree source root: %w", err), cleanup())
 	}
-	if err := extractGitTree(root, treeSHA, sourceRoot); err != nil {
+	if err := extractGitTreeContext(ctx, root, treeSHA, sourceRoot); err != nil {
 		return ExactTree{}, errors.Join(err, cleanup())
 	}
 	return ExactTree{RepositoryRoot: root, SourceRoot: sourceRoot, SourceTreeSHA: treeSHA, Cleanup: cleanup}, nil
@@ -379,12 +388,16 @@ func canonicalRepository(repository string) (string, error) {
 	return root, nil
 }
 
-func requireExactTree(repository, tree string) (string, error) {
+func requireExactTreeContext(ctx context.Context, repository, tree string) (string, error) {
 	treeSHA := strings.TrimSpace(tree)
 	if treeSHA != tree || !exactTreePattern.MatchString(treeSHA) {
 		return "", &TreeError{Tree: tree, Err: errors.New("tree must be one lowercase 40- or 64-hex object ID")}
 	}
-	command, commandErr := gateprivate.TrustedGitCommand(context.Background(), repository, "cat-file", "-t", treeSHA)
+	command, commandErr := gateprivate.TrustedGitCommand(ctx, repository, "cat-file", "-t", treeSHA)
+	if commandErr != nil {
+		return "", &TreeError{Tree: treeSHA, Err: commandErr}
+	}
+	commandErr = gateprivate.ConfigureBoundedCommand(command)
 	if commandErr != nil {
 		return "", &TreeError{Tree: treeSHA, Err: commandErr}
 	}
@@ -421,9 +434,16 @@ func requireExactTreeWithTrustedGit(trustedGit gate.TrustedGitBinary, repository
 
 // extractGitTree 从指定 tree 导出候选内容，不读取工作区文件。
 func extractGitTree(repository, tree, destination string) error {
-	command, commandErr := gateprivate.TrustedGitCommand(context.Background(), repository, "archive", "--format=tar", tree)
+	return extractGitTreeContext(context.Background(), repository, tree, destination)
+}
+
+func extractGitTreeContext(ctx context.Context, repository, tree, destination string) error {
+	command, commandErr := gateprivate.TrustedGitCommand(ctx, repository, "archive", "--format=tar", tree)
 	if commandErr != nil {
 		return &TreeError{Tree: tree, Err: commandErr}
+	}
+	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+		return &TreeError{Tree: tree, Err: err}
 	}
 	archive, err := command.StdoutPipe()
 	if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 const (
@@ -566,15 +570,27 @@ func gitOutputWithInput(repoRoot string, environment []string, input string, arg
 		commandArgs = append(commandArgs, "-C", repoRoot)
 	}
 	commandArgs = append(commandArgs, args...)
-	command := exec.Command("git", commandArgs...)
+	git, err := gateprivate.TrustedGitBinary()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, git, commandArgs...)
 	if environment == nil {
 		environment = reviewGitEnvironment()
 	}
 	command.Env = environment
+	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+		return nil, err
+	}
 	if input != "" {
 		command.Stdin = strings.NewReader(input)
 	}
 	out, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		err = errors.Join(ctx.Err(), err)
+	}
 	if err != nil {
 		return out, fmt.Errorf("git %s: %w\n%s", strings.Join(commandArgs, " "), err, out)
 	}
@@ -593,15 +609,7 @@ func replaceEnvironment(environment []string, key, value string) []string {
 }
 
 func reviewGitEnvironment() []string {
-	environment := make([]string, 0, len(os.Environ()))
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		if reviewGitLocalEnvironmentKey(key) {
-			continue
-		}
-		environment = append(environment, entry)
-	}
-	return environment
+	return gateprivate.TrustedGitEnvironment()
 }
 
 func stagedReviewGitEnvironment() []string {
@@ -610,16 +618,4 @@ func stagedReviewGitEnvironment() []string {
 		environment = replaceEnvironment(environment, "GIT_INDEX_FILE", indexFile)
 	}
 	return environment
-}
-
-func reviewGitLocalEnvironmentKey(key string) bool {
-	switch key {
-	case "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
-		"GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE",
-		"GIT_INDEX_FILE", "GIT_NAMESPACE", "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY",
-		"GIT_PREFIX", "GIT_QUARANTINE_PATH", "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_WORK_TREE":
-		return true
-	default:
-		return strings.HasPrefix(key, "GIT_CONFIG_KEY_") || strings.HasPrefix(key, "GIT_CONFIG_VALUE_")
-	}
 }

@@ -99,7 +99,7 @@ func (authority CandidateObjectAuthority) reverify() error {
 	if err != nil || primary != authority.objectDirectory {
 		return errors.New("candidate Git object directory drifted")
 	}
-	_, err = canonicalCandidateObjectAlternates(strings.Join(authority.alternates, string(filepath.ListSeparator)), true, authority.objectDirectory)
+	_, err = canonicalCandidateObjectAlternates(strings.Join(authority.alternates, string(filepath.ListSeparator)), len(authority.alternates) != 0, authority.objectDirectory)
 	return err
 }
 

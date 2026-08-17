@@ -27,12 +27,13 @@ const (
 )
 
 const (
-	GoGuardTargetCanonical         = "canonical"
-	GoGuardTargetSource            = "source"
-	GoGuardTargetSourceRawGoTest   = "source-raw-go-test"
-	GoGuardTargetCopylocksProvider = "copylocks-provider"
-	GoGuardTargetCopylocksPlatform = "copylocks-platform"
-	GoGuardTargetCopylocksThread   = "copylocks-thread"
+	GoGuardTargetCanonical             = "canonical"
+	GoGuardTargetSource                = "source"
+	GoGuardTargetSourceRawGoTest       = "source-raw-go-test"
+	GoGuardTargetCopylocksProvider     = "copylocks-provider"
+	GoGuardTargetCopylocksPlatform     = "copylocks-platform"
+	GoGuardTargetCopylocksThread       = "copylocks-thread"
+	GoGuardTargetMcpLSPWorkloadCatalog = "mcp-lsp-workload-catalog"
 
 	goGuardTargetNestedModulePrefix = "nested-module:"
 )
@@ -201,7 +202,8 @@ func isSplitGoGuardWorkloadTarget(target string) bool {
 		GoGuardTargetSourceRawGoTest,
 		GoGuardTargetCopylocksProvider,
 		GoGuardTargetCopylocksPlatform,
-		GoGuardTargetCopylocksThread:
+		GoGuardTargetCopylocksThread,
+		GoGuardTargetMcpLSPWorkloadCatalog:
 		return true
 	default:
 		_, err := ParseNestedGoModuleGuardTarget(target)

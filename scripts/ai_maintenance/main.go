@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,10 +13,13 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/trustedgitpolicy"
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 type gatePlanPolicy struct {
@@ -76,14 +80,8 @@ func newGatePlanPolicy() gatePlanPolicy {
 			"./internal/provider/unified", "./internal/provider/codexapp", "./internal/provider/claudecli",
 			"./internal/provider", "./scripts", "./scripts/ai_maintenance",
 		},
-		mcpLSPWorkloadExactFiles: map[string]bool{
-			"Makefile": true, ".github/workflows/ci.yml": true, ".github/workflows/release.yml": true,
-			"scripts/check_mcp_lsp_workload_catalog.sh": true, "scripts/mcp_lsp_workload_catalog.json": true,
-			"scripts/run_mcp_lsp_workload.sh": true, "scripts/ai_maintenance/main.go": true,
-			"scripts/ai_maintenance/owned_gate_execution.go": true,
-			".githooks/README.md":                            true,
-		},
-		mcpLSPWorkloadPrefixes: []string{"cmd/mcp-lsp/", "scripts/mcp_lsp_workload_"},
+		mcpLSPWorkloadExactFiles: workloadGateInputFileSet(catalog.Catalog{}),
+		mcpLSPWorkloadPrefixes:   []string{"cmd/mcp-lsp/", "internal/devtools/mcplspguardcore/", "scripts/mcp_lsp_workload_"},
 		archtestNonGoInputFiles: map[string]bool{
 			"cmd/mcp-orch/sqlc.yaml": true, "docs/契约/modularity-convention.md": true,
 			"frontend-app/src/App.jsx": true, "frontend-app/src/app/appShellModel.js": true,
@@ -98,6 +96,23 @@ func newGatePlanPolicy() gatePlanPolicy {
 			"internal/provider/_template/", "migrations/", "sql/queries/",
 		},
 	}
+}
+
+func workloadGateInputFileSet(document catalog.Catalog) map[string]bool {
+	result := make(map[string]bool)
+	for _, path := range catalog.WorkloadGateInputPaths(document) {
+		result[path] = true
+	}
+	return result
+}
+
+func bindCandidateWorkloadGateInputs(repoRoot string, policy gatePlanPolicy) (gatePlanPolicy, error) {
+	document, err := catalog.Load(repoRoot)
+	if err != nil {
+		return gatePlanPolicy{}, fmt.Errorf("load candidate workload gate inputs: %w", err)
+	}
+	policy.mcpLSPWorkloadExactFiles = workloadGateInputFileSet(document)
+	return policy, nil
 }
 
 type gatePlan struct {
@@ -575,16 +590,36 @@ func applyBackendSourceGateRules(file string) (bool, error) {
 }
 
 func runCommand(dir, name string, args ...string) error {
+	return runCommandWithEnvironment(dir, name, gateCommandEnvironment(name), args...)
+}
+
+func runCommandWithEnvironment(dir, name string, environment []string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	return runCommandWithEnvironmentContext(ctx, dir, name, environment, args...)
+}
+
+func runCommandWithEnvironmentContext(ctx context.Context, dir, name string, environment []string, args ...string) error {
+	if ctx == nil {
+		return errors.New("gate command context is required")
+	}
 	fmt.Printf("\n==> %s %s\n", name, strings.Join(args, " "))
-	cmd := exec.Command(name, args...)
-	cmd.Env = gateCommandEnvironment(name)
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = environment
+	if err := gateprivate.ConfigureBoundedCommand(cmd); err != nil {
+		return err
+	}
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	runErr := cmd.Run()
+	if ctx.Err() != nil {
+		return errors.Join(ctx.Err(), runErr)
+	}
+	return runErr
 }
 
 func normalizeFiles(files []string) []string {

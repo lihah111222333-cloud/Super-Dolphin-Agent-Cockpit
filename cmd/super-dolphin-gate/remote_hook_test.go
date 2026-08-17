@@ -72,6 +72,25 @@ func TestParseRemotePrePushOptionsDefaultsToPassReuse(t *testing.T) {
 	}
 }
 
+func TestParseRemotePrePushOptionsCanonicalizesSingleDashAndRejectsMixedDuplicates(t *testing.T) {
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := cicontract.AgentTokenDigest(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, _, _, err := parseRemotePrePushOptions([]string{"-config", "/tmp/remote-ci.json", "-repository", "/tmp/repo", "origin", "ssh://git@example.invalid/repository.git"}, digest)
+	if err != nil || options.ConfigPath != "/tmp/remote-ci.json" || options.RepositoryRoot != "/tmp/repo" {
+		t.Fatalf("single-dash pre-push options = %#v, %v", options, err)
+	}
+	_, _, _, err = parseRemotePrePushOptions([]string{"-config", "/tmp/one.json", "--config=/tmp/two.json", "origin", "ssh://git@example.invalid/repository.git"}, digest)
+	if err == nil || !strings.Contains(err.Error(), "duplicate authority flag --config") {
+		t.Fatalf("mixed duplicate config error = %v", err)
+	}
+}
+
 func TestParseRemotePrePushOptionsRejectsAgentTokenFlagAndMissingDigest(t *testing.T) {
 	token, err := cicontract.GenerateAgentToken()
 	if err != nil {

@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -25,8 +23,6 @@ const (
 	ReceiptSchema = "super-dolphin/mcp-lsp-workload-receipt/v1"
 	Path          = "scripts/mcp_lsp_workload_catalog.json"
 )
-
-var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 const maxTimeoutSeconds = int64((1<<63 - 1) / int64(time.Second))
 
@@ -132,8 +128,7 @@ func LoadAt(repoRoot, revision string) (Catalog, error) {
 	if !validGitOID(revision) {
 		return Catalog{}, fmt.Errorf("catalog revision %q is not a resolved Git object id", revision)
 	}
-	command := exec.Command("git", "-C", repoRoot, "show", "--format=", "--end-of-options", revision+":"+Path)
-	raw, err := command.Output()
+	raw, err := BoundedGitOutput(repoRoot, "show", "--format=", "--end-of-options", revision+":"+Path)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("read workload catalog at Git tree %q: %w", revision, err)
 	}
@@ -227,7 +222,7 @@ func materializeCandidateProducerWorkflow(validationRoot, repoRoot, revision str
 // readCandidateTreeFile 从已解析的 Git tree 读取普通 workflow blob 与模式。
 func readCandidateTreeFile(repoRoot, revision, relative string) ([]byte, string, error) {
 	path := filepath.ToSlash(relative)
-	listing, err := exec.Command("git", "-C", repoRoot, "ls-tree", "-z", revision, "--", path).Output()
+	listing, err := BoundedGitOutput(repoRoot, "ls-tree", "-z", revision, "--", path)
 	if err != nil {
 		return nil, "", err
 	}
@@ -241,7 +236,7 @@ func readCandidateTreeFile(repoRoot, revision, relative string) ([]byte, string,
 		return nil, "", errors.New("candidate tree workflow entry is not a regular blob")
 	}
 	object := revision + ":" + path
-	raw, err := exec.Command("git", "-C", repoRoot, "show", "--format=", "--end-of-options", object).Output()
+	raw, err := BoundedGitOutput(repoRoot, "show", "--format=", "--end-of-options", object)
 	if err != nil {
 		return nil, "", err
 	}
@@ -253,7 +248,7 @@ func Validate(document Catalog, raw []byte, repoRoot string) error {
 	if document.Schema != Schema {
 		return fmt.Errorf("workload catalog schema %q does not match %q", document.Schema, Schema)
 	}
-	if !digestPattern.MatchString(document.CatalogDigest) {
+	if !isSHA256Digest(document.CatalogDigest) {
 		return fmt.Errorf("workload catalog digest %q is invalid", document.CatalogDigest)
 	}
 	digest, err := CanonicalDigest(raw)
@@ -618,6 +613,20 @@ func CanonicalDigest(raw []byte) (string, error) {
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
+// isSHA256Digest 校验摘要是否为规范的小写 SHA-256 表示。
+func isSHA256Digest(value string) bool {
+	const prefix = "sha256:"
+	if len(value) != len(prefix)+sha256.Size*2 || !strings.HasPrefix(value, prefix) {
+		return false
+	}
+	for _, char := range value[len(prefix):] {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
 // Find 按 ID 解析 workload，禁止调用方自造命令真相。
 func (document Catalog) Find(id string) (Workload, error) {
 	if strings.TrimSpace(id) == "" {
@@ -636,109 +645,153 @@ func (workload Workload) SupportsCurrentPlatform() bool {
 	return slices.Contains(workload.Platforms, runtime.GOOS)
 }
 
-// RemoteTestSelectors 将 catalog-owned `go test` 命令投影为 Gate CLI 的精确
-// package[#Test] 选择器。它只接受可静态证明的命令，不把任意 shell 命令送入
-// remote coordinator。
-func RemoteTestSelectors(command []string) ([]string, error) {
-	parsed, err := parseRemoteTestCommand(command)
+// RemoteTestCommand 是 catalog-owned go test 命令的唯一解析结果。
+type RemoteTestCommand struct {
+	Packages  []string
+	TestNames []string
+	BuildTags []string
+}
+
+// RemoteTestSelector 将一个精确测试名绑定到唯一包。
+type RemoteTestSelector struct{ Package, TestName string }
+
+// RemoteTestProjection 是按目标平台解析后的精确 package+Test 投影。
+type RemoteTestProjection struct {
+	Selectors  []RemoteTestSelector
+	InputFiles []string
+}
+
+// RemoteTestFile 是 exact tree 或本地仓库提供的测试源码对象。
+type RemoteTestFile struct {
+	Path, Name string
+	Source     []byte
+}
+
+// RemoteTestPackageFiles 将测试源码绑定到规范包路径。
+type RemoteTestPackageFiles struct {
+	Package string
+	Files   []RemoteTestFile
+}
+
+// RemoteTestEnvironment 冻结远程 worker 的 go/build 适用性身份。
+type RemoteTestEnvironment struct {
+	GOOS       string
+	GOARCH     string
+	CGOEnabled bool
+}
+
+const (
+	RemoteTestGOOS   = "linux"
+	RemoteTestGOARCH = "amd64"
+)
+
+// DefaultRemoteTestEnvironment 是唯一受支持的 MCP-LSP 远程选择器平台。
+func DefaultRemoteTestEnvironment() RemoteTestEnvironment {
+	return RemoteTestEnvironment{GOOS: RemoteTestGOOS, GOARCH: RemoteTestGOARCH, CGOEnabled: false}
+}
+
+// Validate 拒绝由主机推导或其他非规范的远程测试平台。
+func (environment RemoteTestEnvironment) Validate() error {
+	if environment.GOOS != RemoteTestGOOS || environment.GOARCH != RemoteTestGOARCH || environment.CGOEnabled {
+		return fmt.Errorf("remote test environment must be %s/%s with CGO_ENABLED=0", RemoteTestGOOS, RemoteTestGOARCH)
+	}
+	return nil
+}
+
+// ImplementedRemoteTest 是 canonical raw catalog 中一个已实现 workload 的解析结果。
+type ImplementedRemoteTest struct {
+	WorkloadID, ProducerWorkflowPath, ProducerImplementationStatus string
+	Command                                                        RemoteTestCommand
+}
+
+// WorkloadConsumerPaths 是真实 runner/consumer 源文件的唯一路径清单；ID 集合始终从 Catalog 派生。
+func WorkloadConsumerPaths() []string {
+	return []string{
+		"Makefile",
+		"scripts/check_mcp_lsp_workload_catalog.sh",
+		"scripts/run_mcp_lsp_workload.sh",
+		"scripts/mcp_lsp_workload_runner/main.go",
+		"scripts/mcp_lsp_workload_runner/platform_other.go",
+		"scripts/mcp_lsp_workload_runner/platform_windows.go",
+		"scripts/ai_maintenance/owned_gate_execution.go",
+		"scripts/ai_maintenance/main.go",
+		"scripts/ai_maintenance/release_gate_rules.go",
+		"scripts/ai_maintenance/gate_execution.go",
+		"cmd/super-dolphin-gate/remote_baseline_source.go",
+		"cmd/super-dolphin-gate/remote_agent_token.go",
+		"cmd/super-dolphin-gate/remote_run_options.go",
+		"cmd/super-dolphin-gate/test_cli.go",
+		"internal/devtools/gate/executor_mapping.go",
+		"internal/devtools/gate/executor.go",
+		"internal/devtools/gate/executor_catalog_tree.go",
+		"internal/devtools/gate/workload_catalog.go",
+		"internal/devtools/gate/workload_targets.go",
+		"internal/devtools/mcplspguardcore/consumer_ast_helpers.go",
+		"internal/devtools/mcplspguardcore/scheduler_validation.go",
+		"internal/devtools/mcplspguardcore/consumer_validation.go",
+		"internal/devtools/mcplspguardcore/executor_ast_helpers.go",
+		"internal/devtools/mcplspguardcore/guard.go",
+		"internal/devtools/mcplspguardcore/receipt_ast_helpers.go",
+		"cmd/super-dolphin-gate/main.go",
+		"internal/devtools/remoteci/go_test_inventory.go",
+		"internal/devtools/remoteci/workload_fingerprint_digests.go",
+	}
+}
+
+// WorkloadGateInputPaths derives the scheduler closure from the canonical
+// consumer registry and the exact candidate catalog's implemented producers.
+func WorkloadGateInputPaths(document Catalog) []string {
+	paths := []string{
+		".githooks/README.md", Path, "Makefile", "go.mod", "go.sum",
+		"scripts/check_mcp_lsp_workload_catalog.sh", "scripts/run_mcp_lsp_workload.sh",
+	}
+	paths = append(paths, WorkloadConsumerPaths()...)
+	for _, workload := range document.Workloads {
+		if workload.ImplementationStatus == "implemented" && workload.ProducerWorkflowPath != "" {
+			paths = append(paths, workload.ProducerWorkflowPath)
+		}
+	}
+	slices.Sort(paths)
+	return slices.Compact(paths)
+}
+
+// ParseImplementedRemoteTestsFromRaw 复用 canonical decode/digest 并解析全部 implemented workload。
+func ParseImplementedRemoteTestsFromRaw(raw []byte) ([]ImplementedRemoteTest, error) {
+	document, err := decodeCanonicalCatalogRaw(raw)
 	if err != nil {
 		return nil, err
 	}
-	names, err := remoteTestNames(parsed.runSelector)
-	if err != nil {
-		return nil, err
-	}
-	return expandRemoteTestSelectors(parsed.packages, names), nil
-}
-
-type remoteTestCommand struct {
-	packages    []string
-	runSelector string
-}
-
-// parseRemoteTestCommand 校验 catalog-owned go test 命令并提取包与 -run 选择器。
-func parseRemoteTestCommand(command []string) (remoteTestCommand, error) {
-	if len(command) < 3 || command[0] != "go" || command[1] != "test" {
-		return remoteTestCommand{}, errors.New("workload command is not a catalog-owned go test command")
-	}
-	parsed := remoteTestCommand{}
-	for index := 2; index < len(command); index++ {
-		next, packagePath, runSelector, err := parseRemoteTestArgument(command, index)
-		if err != nil {
-			return remoteTestCommand{}, err
-		}
-		if packagePath != "" {
-			parsed.packages = append(parsed.packages, packagePath)
-		}
-		if runSelector != "" {
-			parsed.runSelector = runSelector
-		}
-		index = next
-	}
-	if len(parsed.packages) == 0 {
-		return remoteTestCommand{}, errors.New("workload command contains no repository-relative Go package")
-	}
-	return parsed, nil
-}
-
-// parseRemoteTestArgument 解析单个 go test 参数，并返回下一个待处理位置。
-func parseRemoteTestArgument(command []string, index int) (int, string, string, error) {
-	argument := command[index]
-	if strings.HasPrefix(argument, "./") && !strings.Contains(filepath.ToSlash(argument), "../") {
-		return index, argument, "", nil
-	}
-	if argument == "-run" {
-		if index+1 >= len(command) {
-			return index, "", "", errors.New("workload command -run selector is missing")
-		}
-		return index + 1, "", command[index+1], nil
-	}
-	if !strings.HasPrefix(argument, "-") {
-		return index, "", "", fmt.Errorf("workload command contains an unsupported argument %q", argument)
-	}
-	if argument == "-tags" || argument == "-timeout" || argument == "-count" {
-		if index+1 >= len(command) {
-			return index, "", "", fmt.Errorf("workload command flag %s is missing a value", argument)
-		}
-		return index + 1, "", "", nil
-	}
-	return index, "", "", nil
-}
-
-// expandRemoteTestSelectors 将包路径和精确测试名组合为 Gate 选择器。
-func expandRemoteTestSelectors(packages, names []string) []string {
-	selectors := make([]string, 0, len(packages)*max(1, len(names)))
-	for _, packagePath := range packages {
-		if len(names) == 0 {
-			selectors = append(selectors, packagePath)
+	result := make([]ImplementedRemoteTest, 0, len(document.Workloads))
+	for _, workload := range document.Workloads {
+		if workload.ImplementationStatus != "implemented" {
 			continue
 		}
-		for _, name := range names {
-			selectors = append(selectors, packagePath+"#"+name)
+		command, err := ParseRemoteTestCommand(workload.Command)
+		if err != nil {
+			return nil, fmt.Errorf("workload %q: %w", workload.ID, err)
 		}
+		result = append(result, ImplementedRemoteTest{WorkloadID: workload.ID, ProducerWorkflowPath: workload.ProducerWorkflowPath, ProducerImplementationStatus: workload.ProducerImplementationStatus, Command: command})
 	}
-	return selectors
-}
-
-// remoteTestNames 将受限 -run 表达式展开为固定测试名。
-func remoteTestNames(selector string) ([]string, error) {
-	if selector == "" {
-		return nil, nil
-	}
-	if !strings.HasPrefix(selector, "^Test") || !strings.HasSuffix(selector, "$") {
-		return nil, fmt.Errorf("workload command -run selector %q is not an exact Test selector", selector)
-	}
-	inner := strings.TrimSuffix(strings.TrimPrefix(selector, "^Test"), "$")
-	if strings.HasPrefix(inner, "(") && strings.HasSuffix(inner, ")") {
-		inner = strings.TrimSuffix(strings.TrimPrefix(inner, "("), ")")
-	}
-	parts := strings.Split(inner, "|")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part == "" || strings.ContainsAny(part, "()[]{}*+?.\\") {
-			return nil, fmt.Errorf("workload command -run selector %q is not exact", selector)
-		}
-		result = append(result, "Test"+part)
+	if len(result) == 0 {
+		return nil, errors.New("workload catalog contains no implemented remote tests")
 	}
 	return result, nil
+}
+
+func decodeCanonicalCatalogRaw(raw []byte) (Catalog, error) {
+	document, err := decodeCatalogDocument(raw)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if document.Schema != Schema {
+		return Catalog{}, fmt.Errorf("workload catalog schema %q does not match %q", document.Schema, Schema)
+	}
+	digest, err := CanonicalDigest(raw)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("compute workload catalog digest: %w", err)
+	}
+	if document.CatalogDigest != digest {
+		return Catalog{}, fmt.Errorf("workload catalog digest mismatch: expected %s actual %s", document.CatalogDigest, digest)
+	}
+	return document, nil
 }

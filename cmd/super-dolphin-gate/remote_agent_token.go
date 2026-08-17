@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 const remoteCIAgentTokenBootstrapSchemaVersion uint32 = 1
@@ -62,7 +63,8 @@ func requireRemoteCIAgentTokenDigest(
 	args []string,
 	stdout io.Writer,
 ) (string, error) {
-	if err := validateRetiredRequesterFingerprint(args); err != nil {
+	args, err := canonicalRemoteTokenArgs(args)
+	if err != nil {
 		return "", err
 	}
 	remoteHook := isRemoteHookCommand(command)
@@ -97,6 +99,18 @@ func requireRemoteCIAgentTokenDigest(
 		return "", protocolError("digest CI agent token: %v", err)
 	}
 	return digest, nil
+}
+
+// canonicalRemoteTokenArgs 在读取 token 前统一单横线 authority 并拒绝退役入口。
+func canonicalRemoteTokenArgs(args []string) ([]string, error) {
+	canonical, err := catalog.CanonicalizeAuthorityFlags(args, remoteAuthorityFlagNames()...)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRetiredRequesterFingerprint(canonical); err != nil {
+		return nil, err
+	}
+	return canonical, nil
 }
 
 func validateRemoteCIAgentTokenInputs(explicit string, explicitPresent bool, inherited string, inheritedPresent bool) error {
@@ -295,6 +309,9 @@ func isRemoteHookCommand(command []string) bool {
 // hasRemoteCIAgentTokenArgument 识别任意 agent-token flag，供 hook 严格拒绝。
 func hasRemoteCIAgentTokenArgument(args []string) bool {
 	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
 		if arg == cicontract.AgentTokenFlag || strings.HasPrefix(arg, cicontract.AgentTokenFlag+"=") {
 			return true
 		}
@@ -314,6 +331,9 @@ func remoteCIAgentTokenIssueArgv(command []string, args []string) []string {
 
 func hasRetiredRequesterFingerprintArgument(args []string) bool {
 	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
 		if arg == "--requester-fingerprint" || (len(arg) > len("--requester-fingerprint=") && arg[:len("--requester-fingerprint=")] == "--requester-fingerprint=") {
 			return true
 		}
@@ -327,6 +347,9 @@ func remoteCIAgentTokenArgument(args []string) (string, bool, error) {
 	found := false
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
+		if arg == "--" {
+			break
+		}
 		if arg == cicontract.AgentTokenFlag {
 			if index+1 == len(args) {
 				return "", false, errors.New("--agent-token requires a value")
@@ -350,6 +373,10 @@ func withoutRemoteCIAgentTokenArgument(args []string) []string {
 	result := make([]string, 0, len(args))
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
+		if arg == "--" {
+			result = append(result, args[index:]...)
+			break
+		}
 		if arg == cicontract.AgentTokenFlag {
 			index++
 			continue

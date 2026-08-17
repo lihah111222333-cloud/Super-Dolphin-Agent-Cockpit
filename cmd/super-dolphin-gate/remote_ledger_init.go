@@ -11,6 +11,10 @@ import (
 
 // runRemoteLedgerInit 只创建或校验本地 SQLite schema，不写 accepted baseline。
 func runRemoteLedgerInit(args []string) error {
+	args, err := canonicalizeUniqueAuthorityArgs(args, "ledger")
+	if err != nil {
+		return protocolError("parse remote init-ledger flags: %v", err)
+	}
 	flags := flag.NewFlagSet("remote init-ledger", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var ledgerPath string

@@ -1,10 +1,42 @@
 package gateprivate
 
 import (
+	"errors"
 	"fmt"
+	"go/build"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"time"
 )
+
+const boundedCommandWaitDelay = 5 * time.Second
+
+// ConfigureBoundedCommand gives an external command process-group cancellation
+// and a finite pipe-drain deadline. Callers still own the command environment.
+func ConfigureBoundedCommand(command *exec.Cmd) error {
+	if command == nil {
+		return errors.New("bounded command is required")
+	}
+	configureBoundedCommandPlatform(command)
+	command.WaitDelay = boundedCommandWaitDelay
+	return nil
+}
+
+// CanonicalRuntimeGoExecutable resolves Go from the running toolchain root,
+// never ambient PATH or candidate-controlled Go environment variables.
+func CanonicalRuntimeGoExecutable() (string, error) {
+	root := build.Default.GOROOT
+	if !filepath.IsAbs(root) {
+		return "", errors.New("running Go toolchain root must be absolute")
+	}
+	name := "go"
+	if runtime.GOOS == "windows" {
+		name = "go.exe"
+	}
+	return CanonicalCurrentOrRootExecutable("locked Go compiler", filepath.Join(root, "bin", name))
+}
 
 type trustedExecutableOwner func(os.FileInfo) bool
 type trustedDirectoryPermissions func(os.FileInfo) bool

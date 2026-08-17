@@ -738,6 +738,24 @@ func newReviewObjectRepository(t *testing.T) string {
 	return repo
 }
 
+func TestReviewGitOutputIgnoresAmbientPathAndRepositoryRedirectors(t *testing.T) {
+	repo := newReviewObjectRepository(t)
+	fake := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fake, "git"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fake)
+	t.Setenv("GIT_DIR", t.TempDir())
+	t.Setenv("GIT_WORK_TREE", t.TempDir())
+	value, err := gitSingleLine(repo, nil, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validGitOID(value) {
+		t.Fatalf("review Git tree = %q, want trusted OID", value)
+	}
+}
+
 func writeReviewObjectFile(t *testing.T, root, relative, body string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relative))

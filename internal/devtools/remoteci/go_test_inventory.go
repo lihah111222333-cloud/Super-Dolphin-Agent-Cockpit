@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode"
-	"unicode/utf8"
+
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 // remoteGoTestPlatform 校验并拆分远程执行平台。
@@ -68,7 +68,7 @@ func (snapshot *remoteGitTreeSnapshot) remoteGoBuildContext(goos string, goarch 
 	buildContext := build.Default
 	buildContext.GOOS = goos
 	buildContext.GOARCH = goarch
-	buildContext.CgoEnabled = true
+	buildContext.CgoEnabled = false
 	buildContext.UseAllFiles = false
 	if race {
 		buildContext.BuildTags = append(buildContext.BuildTags, "race")
@@ -121,9 +121,9 @@ func goTestNamesFromFiles(files []*ast.File, goos string) ([]string, error) {
 	}
 	seen := make(map[string]struct{})
 	for _, file := range files {
-		included, err := remoteGoTestDirectiveAllows(file.Doc, goos)
+		included, err := remoteGoTestFileIncluded(file, goos)
 		if err != nil {
-			return nil, fmt.Errorf("Go test file directive: %w", err)
+			return nil, err
 		}
 		if !included {
 			continue
@@ -141,6 +141,28 @@ func goTestNamesFromFiles(files []*ast.File, goos string) ([]string, error) {
 		}
 	}
 	return sortedRemoteGoTestNames(seen), nil
+}
+
+func remoteGoTestFileIncluded(file *ast.File, goos string) (bool, error) {
+	included, err := catalog.GoTestDirectiveAllows(file.Doc, goos)
+	if err != nil {
+		return false, fmt.Errorf("Go test file directive: %w", err)
+	}
+	if included && remoteGoTestFileHasDeclaration(file) && !catalog.HasTestingImport(file) {
+		return false, errors.New("Go test declaration requires an explicit testing import")
+	}
+	return included, nil
+}
+
+// remoteGoTestFileHasDeclaration 判断文件是否包含顶层 Test 声明。
+func remoteGoTestFileHasDeclaration(file *ast.File) bool {
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && function.Recv == nil && function.Name != nil && catalog.GoTestNameMatches(function.Name.Name, "Test") {
+			return true
+		}
+	}
+	return false
 }
 
 // addGoTestDeclarations 校验并记录文件中的顶层测试声明。
@@ -163,18 +185,18 @@ func addGoTestFunction(seen map[string]struct{}, function *ast.FuncDecl, goos st
 	switch {
 	case name == "TestMain":
 		return validateGoTestFunction(function, "M")
-	case goTestNameMatches(name, "Test"):
-		if err := validateGoTestFunction(function, "T"); err != nil {
+	case catalog.GoTestNameMatches(name, "Test"):
+		if err := catalog.ValidateGoTestFunction(function, "T"); err != nil {
 			return err
 		}
-	case goTestNameMatches(name, "Fuzz"):
-		if err := validateGoTestFunction(function, "F"); err != nil {
+	case catalog.GoTestNameMatches(name, "Fuzz"):
+		if err := catalog.ValidateGoTestFunction(function, "F"); err != nil {
 			return err
 		}
 	default:
 		return nil
 	}
-	included, err := remoteGoTestDirectiveAllows(function.Doc, goos)
+	included, err := catalog.GoTestDirectiveAllows(function.Doc, goos)
 	if err != nil {
 		return fmt.Errorf("Go test %q directive: %w", name, err)
 	}
@@ -184,40 +206,9 @@ func addGoTestFunction(seen map[string]struct{}, function *ast.FuncDecl, goos st
 	return addRemoteGoTestName(seen, name)
 }
 
-// remoteGoTestDirectiveAllows 应用源码就地声明的平台或 helper 盘点边界。
+// remoteGoTestDirectiveAllows 保留同包兼容符号，但策略唯一归 catalog 所有。
 func remoteGoTestDirectiveAllows(comments *ast.CommentGroup, goos string) (bool, error) {
-	const prefix = "super-dolphin-ci:"
-	directive := ""
-	if comments != nil {
-		for _, comment := range comments.List {
-			text := strings.TrimSpace(strings.TrimPrefix(comment.Text, "//"))
-			if !strings.HasPrefix(text, prefix) {
-				continue
-			}
-			if directive != "" {
-				return false, errors.New("multiple super-dolphin-ci directives are not allowed")
-			}
-			directive = strings.TrimSpace(strings.TrimPrefix(text, prefix))
-		}
-	}
-	switch {
-	case directive == "":
-		return true, nil
-	case directive == "helper":
-		return false, nil
-	case directive == "compile-group-exclusive":
-		return true, nil
-	case strings.HasPrefix(directive, "platform="):
-		platform := strings.TrimPrefix(directive, "platform=")
-		switch platform {
-		case "darwin", "linux", "windows":
-			return platform == goos, nil
-		default:
-			return false, fmt.Errorf("unsupported platform directive %q", platform)
-		}
-	default:
-		return false, fmt.Errorf("unsupported directive %q", directive)
-	}
+	return catalog.GoTestDirectiveAllows(comments, goos)
 }
 
 // sortedRemoteGoTestNames 将去重后的测试名称按字典序返回。
@@ -230,61 +221,14 @@ func sortedRemoteGoTestNames(seen map[string]struct{}) []string {
 	return names
 }
 
-// goTestNameMatches 判断名称是否符合 Go 测试前缀与大小写规则。
+// goTestNameMatches 保留同包兼容符号，但策略唯一归 catalog 所有。
 func goTestNameMatches(name string, prefix string) bool {
-	if !strings.HasPrefix(name, prefix) {
-		return false
-	}
-	if len(name) == len(prefix) {
-		return true
-	}
-	first, _ := utf8.DecodeRuneInString(name[len(prefix):])
-	return !unicode.IsLower(first)
+	return catalog.GoTestNameMatches(name, prefix)
 }
 
-// validateGoTestFunction 校验测试函数的参数、返回值和泛型约束。
+// validateGoTestFunction 保留同包兼容符号，但策略唯一归 catalog 所有。
 func validateGoTestFunction(function *ast.FuncDecl, argument string) error {
-	if hasGoTestTypeParameters(function) {
-		return fmt.Errorf("Go test %q cannot have type parameters", function.Name.Name)
-	}
-	if !hasValidGoTestSignatureShape(function) {
-		return fmt.Errorf("Go test %q has an invalid signature", function.Name.Name)
-	}
-	if goTestArgumentMatches(function.Type.Params.List[0].Type, argument) {
-		return nil
-	}
-	return fmt.Errorf("Go test %q has an invalid signature", function.Name.Name)
-}
-
-// hasGoTestTypeParameters 判断测试函数是否声明了泛型参数。
-func hasGoTestTypeParameters(function *ast.FuncDecl) bool {
-	return function.Type.TypeParams != nil && function.Type.TypeParams.NumFields() > 0
-}
-
-// hasValidGoTestSignatureShape 判断测试函数的返回值与参数个数是否合法。
-func hasValidGoTestSignatureShape(function *ast.FuncDecl) bool {
-	if function.Type.Results != nil && len(function.Type.Results.List) > 0 {
-		return false
-	}
-	if function.Type.Params == nil || len(function.Type.Params.List) != 1 {
-		return false
-	}
-	return len(function.Type.Params.List[0].Names) <= 1
-}
-
-// goTestArgumentMatches 判断唯一参数是否为指定 testing 类型的指针。
-func goTestArgumentMatches(parameter ast.Expr, argument string) bool {
-	pointer, ok := parameter.(*ast.StarExpr)
-	if !ok {
-		return false
-	}
-	if identifier, ok := pointer.X.(*ast.Ident); ok {
-		return identifier.Name == argument
-	}
-	if selector, ok := pointer.X.(*ast.SelectorExpr); ok {
-		return selector.Sel.Name == argument
-	}
-	return false
+	return catalog.ValidateGoTestFunction(function, argument)
 }
 
 // addRemoteGoTestName 将名称写入集合，并拒绝重复的可执行测试。
