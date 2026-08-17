@@ -244,11 +244,8 @@ func runtimeServerApplyResourceLimitOverrides(env []string, limits *runtimeServe
 
 // validate 校验同一个冻结快照内主次进程、Node heap 与 cohort 总预算的关系。
 func (limits runtimeServerResourceLimits) validate() error {
-	if limits.secondaryRSSMB >= limits.primaryRSSMB {
-		return fmt.Errorf("%s must be lower than %s", runtimeSecondaryRSSLimitEnv, runtimePrimaryRSSLimitEnv)
-	}
-	if limits.secondaryRSSMB >= 2*1024 {
-		return fmt.Errorf("%s must stay below 2048 MiB", runtimeSecondaryRSSLimitEnv)
+	if limits.secondaryRSSMB > limits.primaryRSSMB {
+		return fmt.Errorf("%s must not exceed %s", runtimeSecondaryRSSLimitEnv, runtimePrimaryRSSLimitEnv)
 	}
 	if limits.primaryRSSMB > limits.cohortRSSMB || limits.secondaryRSSMB > limits.cohortRSSMB {
 		return fmt.Errorf(

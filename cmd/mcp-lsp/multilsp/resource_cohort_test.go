@@ -70,6 +70,33 @@ func TestResourceCohortAllowsHeavyPrimaryAndLightSecondaryBelowHardLimit(t *test
 	}
 }
 
+func TestResourceCohortAllowsSecondaryRSSAt2560MiB(t *testing.T) {
+	env := []string{
+		ResourceRepositoryCohortIDEnv + "=repo-secondary-budget",
+		ResourceCohortRoleEnv + "=" + ResourceCohortRoleSecondary,
+		ResourceProcessRSSLimitMBEnv + "=2560",
+		ResourceCohortHardLimitMBEnv + "=5120",
+	}
+	policy, err := repositoryResourcePolicyFromEnvironment(env)
+	if err != nil {
+		t.Fatalf("repositoryResourcePolicyFromEnvironment() error = %v", err)
+	}
+	if policy.rssLimitBytes != 2560*1024*1024 || policy.cohortHardLimitBytes != 5120*1024*1024 {
+		t.Fatalf("secondary policy limits = (rss=%d cohort=%d), want (rss=%d cohort=%d)",
+			policy.rssLimitBytes, policy.cohortHardLimitBytes, 2560*1024*1024, 5120*1024*1024)
+	}
+}
+
+func TestValidateResourceCohortMemberAllowsSecondaryRSSAt2560MiB(t *testing.T) {
+	member := resourceCohortTestMember(101, 201, 64*1024*1024, time.Now(), 1)
+	member.Role = ResourceCohortRoleSecondary
+	member.ProcessRSSLimitBytes = 2560 * 1024 * 1024
+	member.CohortHardLimitBytes = 5120 * 1024 * 1024
+	if err := validateResourceCohortMember(member); err != nil {
+		t.Fatalf("validateResourceCohortMember() error = %v", err)
+	}
+}
+
 func TestResourceCohortEvictsOldestIdleOwnersUntilSoftLimit(t *testing.T) {
 	now := time.Now()
 	gib := uint64(1024 * 1024 * 1024)

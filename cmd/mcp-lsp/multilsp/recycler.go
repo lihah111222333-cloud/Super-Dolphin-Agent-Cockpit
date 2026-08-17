@@ -67,11 +67,20 @@ var _ platformrunner.Runner = (*poolRecycler)(nil)
 func newPoolRecycler(pool *ManagerPool) *poolRecycler {
 	return &poolRecycler{
 		pool:       pool,
-		interval:   defaultRecyclerInterval,
+		interval:   resolveRecyclerInterval(),
 		rssProbe:   clientRSSBytes,
 		now:        time.Now,
 		lastActive: map[int]time.Time{},
 	}
+}
+
+func resolveRecyclerInterval() time.Duration {
+	if raw := os.Getenv("MCP_LSP_RECYCLER_INTERVAL_MS"); raw != "" {
+		if ms, err := strconv.Atoi(raw); err == nil && ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return defaultRecyclerInterval
 }
 
 func (r *poolRecycler) recyclerNow() time.Time {

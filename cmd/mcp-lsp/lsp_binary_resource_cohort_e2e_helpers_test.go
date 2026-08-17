@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +17,14 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 )
+
+type resourceCohortE2ENodeBudget struct {
+	NodeOptions       string `json:"node_options"`
+	ProcessRSSLimitMB string `json:"process_rss_limit_mb"`
+	CohortHardLimitMB string `json:"cohort_hard_limit_mb"`
+}
 
 type resourceCohortE2ESnapshot struct {
 	Members          []resourceCohortE2EMember
@@ -599,4 +607,107 @@ func waitUntilResourceCohortE2ETime(t *testing.T, target time.Time) {
 	timer := time.NewTimer(remaining)
 	defer timer.Stop()
 	<-timer.C
+}
+
+func newResourceCohortE2ETypeScriptFixture(t *testing.T) resourceCohortE2EFixture {
+	t.Helper()
+	fixture := newResourceCohortE2EFixture(t)
+	for index, worktree := range fixture.worktrees {
+		path := filepath.Join(worktree, "probe.ts")
+		if err := os.WriteFile(path, []byte("export const RESOURCE_COHORT = 1;\n"), 0o600); err != nil {
+			t.Fatalf("write temporary TypeScript source %d: %v", index, err)
+		}
+		fixture.targets[index] = path
+	}
+	fixture.serverBin = writeResourceCohortE2ETypeScriptLanguageServer(t)
+	return fixture
+}
+
+func startResourceCohortE2ETypeScriptOwner(
+	t *testing.T,
+	ctx context.Context,
+	fixture resourceCohortE2EFixture,
+	worktreeIndex int,
+	role string,
+) resourceCohortE2EOwner {
+	t.Helper()
+	launched := time.Now()
+	client := startResourceCohortE2ETypeScriptSidecar(t, ctx, fixture, worktreeIndex, role)
+	initializeResourceCohortE2ESidecar(t, client)
+	warmResourceCohortE2ESidecar(t, client, fixture.targets[worktreeIndex], role)
+	pid := waitForResourceCohortE2ELSPPID(t, fixture.stateDir, role, 0)
+	waitForResourceCohortE2EInitialize(t, fixture.stateDir, role, pid)
+	leasePath, lease := waitForResourceCohortE2ELease(t, fixture.cacheDir, client.cmd.Process.Pid, role, "")
+	return resourceCohortE2EOwner{
+		launched: launched, client: client, pid: pid, leasePath: leasePath, lease: lease,
+	}
+}
+
+func assertResourceCohortE2ETypeScriptNodeBudget(
+	t *testing.T,
+	fixture resourceCohortE2EFixture,
+	primary, secondary resourceCohortE2EOwner,
+) {
+	t.Helper()
+	if primary.lease.CohortID == "" || primary.lease.CohortID != secondary.lease.CohortID {
+		t.Fatalf("TypeScript leases do not share one repo/language/server cohort: primary=%#v secondary=%#v", primary.lease, secondary.lease)
+	}
+	for _, owner := range []resourceCohortE2EOwner{primary, secondary} {
+		budget := waitForResourceCohortE2ENodeBudget(t, fixture.stateDir, owner.lease.Role, owner.pid)
+		t.Logf("TypeScript %s child budget marker: NODE_OPTIONS=%q %s=%q %s=%q", owner.lease.Role, budget.NodeOptions, multilsp.ResourceProcessRSSLimitMBEnv, budget.ProcessRSSLimitMB, multilsp.ResourceCohortHardLimitMBEnv, budget.CohortHardLimitMB)
+		if budget.NodeOptions != "--max-old-space-size=2048" ||
+			budget.ProcessRSSLimitMB != "2560" || budget.CohortHardLimitMB != "5120" {
+			t.Fatalf("TypeScript %s child budget = %#v, want heap=2048 rss=2560 cohort=5120", owner.lease.Role, budget)
+		}
+		heapMB := parseResourceCohortE2EMiB(t, owner.lease.Role, "heap", strings.TrimPrefix(budget.NodeOptions, "--max-old-space-size="))
+		rssMB := parseResourceCohortE2EMiB(t, owner.lease.Role, "RSS", budget.ProcessRSSLimitMB)
+		cohortMB := parseResourceCohortE2EMiB(t, owner.lease.Role, "cohort", budget.CohortHardLimitMB)
+		if heapMB >= rssMB || rssMB >= cohortMB {
+			t.Fatalf("TypeScript %s budget ordering = heap:%d rss:%d cohort:%d, want heap<RSS<cohort", owner.lease.Role, heapMB, rssMB, cohortMB)
+		}
+	}
+}
+
+func parseResourceCohortE2EMiB(t *testing.T, role, name, raw string) int {
+	t.Helper()
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		t.Fatalf("TypeScript %s %s budget = %q, want positive MiB", role, name, raw)
+	}
+	return value
+}
+
+func writeResourceCohortE2ENodeOptions(stateDir, owner string, pid int) error {
+	path := filepath.Join(stateDir, resourceCohortE2ENodeOptionsMarker(owner, pid))
+	payload, err := json.Marshal(resourceCohortE2ENodeBudget{
+		NodeOptions:       strings.TrimSpace(os.Getenv("NODE_OPTIONS")),
+		ProcessRSSLimitMB: strings.TrimSpace(os.Getenv(multilsp.ResourceProcessRSSLimitMBEnv)),
+		CohortHardLimitMB: strings.TrimSpace(os.Getenv(multilsp.ResourceCohortHardLimitMBEnv)),
+	})
+	if err != nil {
+		return fmt.Errorf("encode TypeScript Node budget marker %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		return fmt.Errorf("write TypeScript Node budget marker %s: %w", path, err)
+	}
+	return nil
+}
+
+func resourceCohortE2ENodeOptionsMarker(owner string, pid int) string {
+	return owner + ".node-options." + strconv.Itoa(pid)
+}
+
+func waitForResourceCohortE2ENodeBudget(t *testing.T, stateDir, owner string, pid int) resourceCohortE2ENodeBudget {
+	t.Helper()
+	path := filepath.Join(stateDir, resourceCohortE2ENodeOptionsMarker(owner, pid))
+	waitForResourceCohortE2EPathState(t, path, true, 10*time.Second)
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read TypeScript Node budget marker %s: %v", path, err)
+	}
+	var budget resourceCohortE2ENodeBudget
+	if err := json.Unmarshal(payload, &budget); err != nil {
+		t.Fatalf("decode TypeScript Node budget marker %s: %v", path, err)
+	}
+	return budget
 }

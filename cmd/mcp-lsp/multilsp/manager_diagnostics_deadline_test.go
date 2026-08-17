@@ -14,6 +14,23 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
+func TestDiagnosticsFailsFastWhenClientReportsTransportUnavailable(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"diagnostics-unavailable"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "export const value = 1\\n")
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    unavailableDiagnosticsFactory{},
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	ctx, cancel := diagnosticsDeadlineContext(root, time.Second)
+	defer cancel()
+	_, err := mgr.Diagnostics(ctx, []string{fileURIFromPath(target)})
+	if !errors.Is(err, ErrTransportClosed) {
+		t.Fatalf("Diagnostics() error = %v, want ErrTransportClosed", err)
+	}
+}
+
 func TestWaitDiagnosticsStableUsesManagerDeadlineBeforeCallerContext(t *testing.T) {
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"diagnostics-manager-deadline"}`)
@@ -352,3 +369,27 @@ func (c *delayedPullDiagnosticsClient) requestCount() int {
 	defer c.mu.Unlock()
 	return c.requests
 }
+
+type unavailableDiagnosticsFactory struct{}
+
+func (unavailableDiagnosticsFactory) NewClient(_ string, _ protocol.NotificationHandler) (Client, error) {
+	return unavailableDiagnosticsClient{}, nil
+}
+
+type unavailableDiagnosticsClient struct{}
+
+func (unavailableDiagnosticsClient) Initialize(context.Context, string) error { return nil }
+func (unavailableDiagnosticsClient) Shutdown(context.Context) error           { return nil }
+func (unavailableDiagnosticsClient) Request(context.Context, string, any) (json.RawMessage, error) {
+	return json.RawMessage("[]"), nil
+}
+func (unavailableDiagnosticsClient) Notify(context.Context, string, any) error { return nil }
+func (unavailableDiagnosticsClient) DidOpen(context.Context, string, string, int, string) error {
+	return nil
+}
+func (unavailableDiagnosticsClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+	return nil
+}
+func (unavailableDiagnosticsClient) DidClose(context.Context, string) error { return nil }
+func (unavailableDiagnosticsClient) Close() error                           { return nil }
+func (unavailableDiagnosticsClient) Healthy() bool                          { return false }

@@ -74,7 +74,7 @@ func assertRuntimeServerResourceLimits(t *testing.T, firstEnv, secondEnv map[str
 	if got := firstEnv["NODE_OPTIONS"]; got != "--max-old-space-size=2048" {
 		t.Fatalf("primary NODE_OPTIONS = %q, want managed primary Node memory limit", got)
 	}
-	if got := secondEnv["NODE_OPTIONS"]; got != "--max-old-space-size=384" {
+	if got := secondEnv["NODE_OPTIONS"]; got != "--max-old-space-size=2048" {
 		t.Fatalf("secondary NODE_OPTIONS = %q, want managed secondary Node memory limit", got)
 	}
 	if firstEnv[multilsp.ResourceCohortRoleEnv] != multilsp.ResourceCohortRolePrimary {
@@ -88,8 +88,8 @@ func assertRuntimeServerResourceLimits(t *testing.T, firstEnv, secondEnv map[str
 	if secondEnv[multilsp.ResourceCohortRoleEnv] != multilsp.ResourceCohortRoleSecondary {
 		t.Fatalf("second role = %q, want secondary", secondEnv[multilsp.ResourceCohortRoleEnv])
 	}
-	if firstEnv[multilsp.ResourceProcessRSSLimitMBEnv] != "2560" || secondEnv[multilsp.ResourceProcessRSSLimitMBEnv] != "512" {
-		t.Fatalf("process RSS limits = (%q, %q), want primary 2560 and secondary 512 MiB",
+	if firstEnv[multilsp.ResourceProcessRSSLimitMBEnv] != "2560" || secondEnv[multilsp.ResourceProcessRSSLimitMBEnv] != "2560" {
+		t.Fatalf("process RSS limits = (%q, %q), want primary and secondary 2560 MiB",
 			firstEnv[multilsp.ResourceProcessRSSLimitMBEnv], secondEnv[multilsp.ResourceProcessRSSLimitMBEnv])
 	}
 }
@@ -451,9 +451,15 @@ func TestRuntimeServerResolveResourceLimitsMatrix(t *testing.T) {
 		{name: "deprecated cohort owner", env: []string{
 			multilsp.DeprecatedResourceCohortHardLimitMBEnv + "=15360",
 		}, wantErr: true},
-		{name: "secondary reaches two GiB", env: []string{
-			runtimePrimaryRSSLimitEnv + "=4096",
-			runtimeSecondaryRSSLimitEnv + "=2048",
+		{name: "secondary matches primary at 2.5 GiB", env: []string{
+			runtimePrimaryRSSLimitEnv + "=2560",
+			runtimeSecondaryRSSLimitEnv + "=2560",
+			runtimeNodePrimaryHeapEnv + "=2048",
+			runtimeNodeSecondaryHeapEnv + "=2048",
+		}},
+		{name: "secondary exceeds primary", env: []string{
+			runtimePrimaryRSSLimitEnv + "=2560",
+			runtimeSecondaryRSSLimitEnv + "=2561",
 		}, wantErr: true},
 		{name: "primary exceeds global", env: []string{
 			runtimePrimaryRSSLimitEnv + "=15361",

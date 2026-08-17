@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	gostdruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +29,6 @@ const (
 	resourceCohortE2EMemoryMiBEnv     = "MCP_LSP_RESOURCE_COHORT_E2E_MEMORY_MIB"
 	resourceCohortE2EHardLimitMiB     = 192
 	resourceCohortE2EChildMemoryMiB   = 96
-	resourceCohortE2ERecyclerPeriod   = 30 * time.Second
 	resourceCohortE2EFirstBlockLead   = 20 * time.Second
 	resourceCohortE2ERecycleBlockLead = 50 * time.Second
 	resourceCohortE2ERecoveryCallLead = 80 * time.Second
@@ -98,6 +98,17 @@ func TestMcpLSPBinaryLinkedWorktreesResourceCohortRecycleAndRecover_E2E(t *testi
 }
 
 // super-dolphin-ci: compile-group-exclusive
+func TestMcpLSPBinaryTypeScriptSecondaryNodeBudget_E2E(t *testing.T) {
+	fixture := newResourceCohortE2ETypeScriptFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	primary := startResourceCohortE2ETypeScriptOwner(t, ctx, fixture, 0, "primary")
+	secondary := startResourceCohortE2ETypeScriptOwner(t, ctx, fixture, 1, "secondary")
+	registerResourceCohortE2ECleanup(t, fixture, primary, secondary)
+	assertResourceCohortE2ETypeScriptNodeBudget(t, fixture, primary, secondary)
+}
+
+// super-dolphin-ci: compile-group-exclusive
 func TestMcpLSPBinaryResourceCohortMalformedReportQuarantine_E2E(t *testing.T) {
 	fixture := newResourceCohortE2EFixture(t)
 	badReportPath := writeResourceCohortE2EBadReport(t, fixture.cacheDir)
@@ -146,8 +157,8 @@ func registerResourceCohortE2ECleanup(
 ) {
 	t.Helper()
 	t.Cleanup(func() {
-		for index := len(owners) - 1; index >= 0; index-- {
-			owners[index].client.close(t)
+		for _, owner := range slices.Backward(owners) {
+			owner.client.close(t)
 		}
 	})
 	t.Cleanup(func() {
@@ -373,6 +384,22 @@ func writeResourceCohortE2ELanguageServer(t *testing.T) string {
 	return dir
 }
 
+func writeResourceCohortE2ETypeScriptLanguageServer(t *testing.T) string {
+	t.Helper()
+	testBinary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve E2E test binary: %v", err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "typescript-language-server")
+	script := "#!/bin/sh\n" + resourceCohortE2EHelperEnv + "=1 exec " + shellQuote(testBinary) +
+		" -test.run=^TestResourceCohortE2ELanguageServerHelper$ -test.count=1 -- \"$@\"\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatalf("write controlled TypeScript language server: %v", err)
+	}
+	return dir
+}
+
 func startResourceCohortE2ESidecar(
 	t *testing.T,
 	ctx context.Context,
@@ -404,6 +431,33 @@ func startResourceCohortE2ESidecar(
 	)
 }
 
+func startResourceCohortE2ETypeScriptSidecar(
+	t *testing.T,
+	ctx context.Context,
+	fixture resourceCohortE2EFixture,
+	worktreeIndex int,
+	owner string,
+) *mcpLSPBinaryClient {
+	t.Helper()
+	return startMcpLSPBinaryForTestWithEnv(
+		t,
+		ctx,
+		fixture.sidecarBin,
+		fixture.worktrees[worktreeIndex],
+		fixture.serverBin,
+		[]string{
+			"AGENT_LSP_SHARED_CACHE_DIR=" + fixture.cacheDir,
+			"AGENT_LSP_COHORT_RSS_LIMIT_MB=5120",
+			"AGENT_LSP_PRIMARY_RSS_LIMIT_MB=2560",
+			"AGENT_LSP_SECONDARY_RSS_LIMIT_MB=2560",
+			resourceCohortE2EStateDirEnv + "=" + fixture.stateDir,
+			resourceCohortE2EOwnerEnv + "=" + owner,
+			resourceCohortE2EMemoryMiBEnv + "=8",
+			"MCP_LSP_PROCESS_IDLE_TIMEOUT=3m",
+		},
+	)
+}
+
 func initializeResourceCohortE2ESidecar(t *testing.T, client *mcpLSPBinaryClient) {
 	t.Helper()
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
@@ -427,6 +481,9 @@ func runResourceCohortE2ELanguageServer() error {
 	defer gostdruntime.KeepAlive(payload)
 	pid := os.Getpid()
 	if err := writeResourceCohortE2EMarker(stateDir, resourceCohortE2EStartedMarker(owner, pid)); err != nil {
+		return err
+	}
+	if err := writeResourceCohortE2ENodeOptions(stateDir, owner, pid); err != nil {
 		return err
 	}
 	reader := bufio.NewReader(os.Stdin)

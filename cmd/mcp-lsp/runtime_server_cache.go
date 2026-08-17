@@ -28,9 +28,9 @@ const (
 	runtimeNodePrimaryHeapEnv         = "AGENT_LSP_NODE_PRIMARY_HEAP_LIMIT_MB"
 	runtimeNodeSecondaryHeapEnv       = "AGENT_LSP_NODE_SECONDARY_HEAP_LIMIT_MB"
 	runtimeDefaultPrimaryRSSLimitMB   = 2560
-	runtimeDefaultSecondaryRSSLimitMB = 512
+	runtimeDefaultSecondaryRSSLimitMB = 2560
 	runtimeDefaultNodePrimaryHeapMB   = 2048
-	runtimeDefaultNodeSecondaryHeapMB = 384
+	runtimeDefaultNodeSecondaryHeapMB = 2048
 	runtimeDefaultCohortRSSLimitMB    = 15 * 1024
 	runtimeResourceLeaseSchemaVersion = 1
 	runtimeResourceLeaseLockTimeout   = 2 * time.Second

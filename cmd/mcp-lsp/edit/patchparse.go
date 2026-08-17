@@ -15,10 +15,11 @@ const (
 )
 
 var (
-	ErrEmptyPatch       = errors.New("patch is empty")
-	ErrInvalidPatch     = errors.New("invalid patch")
-	ErrSequenceNotFound = errors.New("sequence not found")
-	ErrAmbiguousMatch   = errors.New("ambiguous match")
+	ErrEmptyPatch              = errors.New("patch is empty")
+	ErrInvalidPatch            = errors.New("invalid patch")
+	ErrIncompletePatchEnvelope = errors.New("incomplete apply_patch envelope")
+	ErrSequenceNotFound        = errors.New("sequence not found")
+	ErrAmbiguousMatch          = errors.New("ambiguous match")
 )
 
 // Hunk 是 replace_range patch 解析后的内部契约。
@@ -47,6 +48,9 @@ func Parse(patch string) (Hunk, error) {
 	if err != nil {
 		return Hunk{}, err
 	}
+	if err := validateLLMPatchEnvelope(lines); err != nil {
+		return Hunk{}, err
+	}
 	lines = normalizeLLMPatchEnvelope(lines)
 	if len(lines) == 0 {
 		return Hunk{}, ErrEmptyPatch
@@ -72,6 +76,9 @@ func Parse(patch string) (Hunk, error) {
 func ParseMulti(patch string) ([]Hunk, error) {
 	lines, err := normalizePatchLines(patch)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateLLMPatchEnvelope(lines); err != nil {
 		return nil, err
 	}
 	lines = normalizeLLMPatchEnvelope(lines)
@@ -179,8 +186,77 @@ func parseImplicitHunk(lines []string) ([]Hunk, error) {
 	return hunks, nil
 }
 
+// validateLLMPatchEnvelope validates apply_patch wrapper markers before parsing the body.
+// Complete envelopes and a bare body with one final sentinel are accepted; malformed
+// or misplaced sentinels remain fail-fast so an untrusted line is never treated as source.
+func validateLLMPatchEnvelope(lines []string) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	if lines[0] == "*** Begin Patch" {
+		return validateCompletePatchEnvelope(lines)
+	}
+	return validateBarePatchEnvelope(lines)
+}
+
+func validateCompletePatchEnvelope(lines []string) error {
+	if len(lines) < 2 || lines[len(lines)-1] != "*** End Patch" {
+		return fmt.Errorf("%w: %w: complete apply_patch envelope must end with *** End Patch; send both wrapper lines or remove the wrapper markers", ErrIncompletePatchEnvelope, ErrInvalidPatch)
+	}
+	if slices.Contains(lines[1:len(lines)-1], "*** End Patch") {
+		return fmt.Errorf("%w: %w: *** End Patch must be the final non-empty envelope line", ErrIncompletePatchEnvelope, ErrInvalidPatch)
+	}
+	return nil
+}
+
+func validateBarePatchEnvelope(lines []string) error {
+	for idx, line := range lines {
+		if err := validateBarePatchMarker(line, idx, len(lines)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBarePatchMarker(line string, idx int, lineCount int) error {
+	switch line {
+	case "*** End Patch":
+		return validateBareEndPatchMarker(idx, lineCount)
+	case "***":
+		return validateBareStarMarker(idx, lineCount)
+	default:
+		return nil
+	}
+}
+
+func validateBareEndPatchMarker(idx int, lineCount int) error {
+	if idx == 0 {
+		return fmt.Errorf("%w: %w: isolated *** End Patch has no patch body; send both wrapper lines or remove the sentinel", ErrIncompletePatchEnvelope, ErrInvalidPatch)
+	}
+	if idx != lineCount-1 {
+		return fmt.Errorf("%w: %w: *** End Patch must be the final non-empty sentinel; send both wrapper lines or remove the sentinel", ErrIncompletePatchEnvelope, ErrInvalidPatch)
+	}
+	return nil
+}
+
+func validateBareStarMarker(idx int, lineCount int) error {
+	if idx == 0 {
+		return fmt.Errorf("%w: isolated *** sentinel has no patch body; remove it or provide a valid patch body", ErrInvalidPatch)
+	}
+	if idx != lineCount-1 {
+		return fmt.Errorf("%w: *** sentinel must be the final non-empty sentinel; source additions require a leading '+'", ErrInvalidPatch)
+	}
+	return nil
+}
+
 func normalizeLLMPatchEnvelope(lines []string) []string {
 	trimmed := dropApplyPatchEnvelope(lines)
+	if len(lines) > 0 && lines[0] != "*** Begin Patch" && len(trimmed) > 0 {
+		last := trimmed[len(trimmed)-1]
+		if last == "*** End Patch" || last == "***" {
+			trimmed = trimmed[:len(trimmed)-1]
+		}
+	}
 	return dropUnifiedDiffFileHeaders(trimmed)
 }
 
@@ -226,7 +302,7 @@ func normalizePatchLines(patch string) ([]string, error) {
 	}
 	normalized := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(patch)
 	lines := strings.Split(normalized, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
 	if len(lines) > maxPatchLines {

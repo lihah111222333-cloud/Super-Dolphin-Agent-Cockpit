@@ -112,12 +112,83 @@ func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.Pu
 	if err := m.cleanupDeletedDiagnostics(ctx, filter); err != nil {
 		return nil, err
 	}
+	if err := m.rejectClosedDiagnosticClients(filter); err != nil {
+		return nil, err
+	}
 
 	items := m.currentDiagnostics(filter)
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].URI < items[j].URI
 	})
 	return items, nil
+}
+
+// rejectClosedDiagnosticClients 防止已退出的语言服务器把空快照伪装成成功结果。
+// 只有确认存在 closed client 时才阻断，初始尚未创建 client 的 fallback 读取仍由上层策略决定。
+func (m *manager) rejectClosedDiagnosticClients(filter diagnosticFilter) error {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for workspaceKey, workspace := range m.workspaces {
+		if diagnosticWorkspaceMatchesFilter(workspaceKey, workspace, filter) && workspace != nil && workspace.client != nil && !clientHealthy(workspace.client) {
+			return ErrTransportClosed
+		}
+	}
+	return nil
+}
+
+func diagnosticWorkspaceMatchesFilter(workspaceKey string, workspace *workspaceClient, filter diagnosticFilter) bool {
+	if workspace == nil {
+		return false
+	}
+	if filter.workspaceKey != "" {
+		return diagnosticWorkspaceKeyMatches(workspaceKey, workspace, filter.workspaceKey)
+	}
+	if len(filter.keys) == 0 {
+		return diagnosticWorkspaceRootMatches(workspace, filter.workspaceRoot)
+	}
+	return diagnosticWorkspaceFilterKeysMatch(workspaceKey, workspace, filter.keys)
+}
+
+func diagnosticWorkspaceKeyMatches(workspaceKey string, workspace *workspaceClient, want string) bool {
+	return workspaceKey == want || workspace.key == want
+}
+
+func diagnosticWorkspaceRootMatches(workspace *workspaceClient, root string) bool {
+	if root == "" {
+		return true
+	}
+	return platformshared.ContainsPath(root, workspace.rootPath)
+}
+
+func diagnosticWorkspaceFilterKeysMatch(workspaceKey string, workspace *workspaceClient, keys map[string]struct{}) bool {
+	for encoded := range keys {
+		parts := strings.Split(encoded, "\x00")
+		if len(parts) != 3 {
+			continue
+		}
+		if diagnosticWorkspaceEncodedKeyMatches(parts, workspaceKey, workspace) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagnosticWorkspaceEncodedKeyMatches(parts []string, workspaceKey string, workspace *workspaceClient) bool {
+	if parts[1] != "" {
+		return parts[1] == workspaceKey || parts[1] == workspace.key
+	}
+	return diagnosticWorkspaceURIInRoot(parts[2], workspace.rootPath)
+}
+
+func diagnosticWorkspaceURIInRoot(uri, root string) bool {
+	if root == "" {
+		return false
+	}
+	path, err := absolutePathFromURI(uri)
+	return err == nil && platformshared.ContainsPath(root, path)
 }
 
 // refreshExistingDiagnosticTargets 对仍存在的诊断目标触发一次按需刷新。

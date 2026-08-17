@@ -135,7 +135,11 @@ func (f *goWorkFakeClientFactory) NewClient(rootDir string, handler protocol.Not
 	return f.NewClientWithEnv(rootDir, nil, handler)
 }
 
-func (f *goWorkFakeClientFactory) NewClientWithEnv(rootDir string, env []string, _ protocol.NotificationHandler) (multilsp.Client, error) {
+func (f *goWorkFakeClientFactory) NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (multilsp.Client, error) {
+	return f.NewClientWithOptions(rootDir, env, nil, handler)
+}
+
+func (f *goWorkFakeClientFactory) NewClientWithOptions(rootDir string, env []string, _ map[string]any, _ protocol.NotificationHandler) (multilsp.Client, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	client := &goWorkFakeClient{}

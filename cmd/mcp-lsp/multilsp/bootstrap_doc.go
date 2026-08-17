@@ -405,22 +405,6 @@ func (c *bootstrapCoordinator) reopenSnapshotForDiagnostics(ctx context.Context,
 	return nil
 }
 
-// openSnapshotVersion 为 open-only 同步选择下一次文档版本。
-// 缓存内容不匹配时会删除旧记录，防止 server 接收与缓存不一致的版本序列。
-func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot documentSnapshot) (int, error) {
-	version := 1
-	if record, cached := c.cache.Load(key); cached && cacheValueMatchesSnapshot(record, snapshot) {
-		if record.Version > 0 {
-			version = record.Version + 1
-		}
-	} else if cached {
-		if err := c.cache.Delete(key); err != nil {
-			return 0, err
-		}
-	}
-	return version, nil
-}
-
 // refreshWorkspace 在目标文档同步后刷新同 scope 下的已缓存文档。
 // 刷新数量和并发都有上限，避免一次 bootstrap 扫描拖垮 LSP server。
 func (c *bootstrapCoordinator) refreshWorkspace(ctx context.Context, m *manager, cfg workspaceConfig, excludeURI string) {

@@ -606,7 +606,6 @@ func validateResourceCohortMember(member resourceCohortMember) error {
 		{member.ProcessRSSLimitBytes == 0, "process_rss_limit_bytes must be greater than zero"},
 		{member.CohortHardLimitBytes == 0, "cohort_hard_limit_bytes must be greater than zero"},
 		{member.ProcessRSSLimitBytes > member.CohortHardLimitBytes, "process_rss_limit_bytes exceeds cohort_hard_limit_bytes"},
-		{member.Role == ResourceCohortRoleSecondary && member.ProcessRSSLimitBytes >= 2*1024*1024*1024, "secondary process_rss_limit_bytes must stay below 2 GiB"},
 		{!strings.HasPrefix(member.RepositoryCohortID, "repo-"), "repository_cohort_id must start with repo-"},
 		{member.ActiveLeases < 0, "active_leases must not be negative"},
 		{member.LastActivityUnixNano <= 0, "last_activity_unix_nano must be greater than zero"},

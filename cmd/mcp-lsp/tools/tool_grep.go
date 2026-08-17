@@ -178,6 +178,9 @@ func grepMessage(regexFallback bool, dropped int) string {
 }
 
 func grepWorkspaceRoots(ctx context.Context) (string, []string, error) {
+	if !explicitToolWorkDirFromContext(ctx) && common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
+		return "", nil, errors.New(staleWorkspaceRootMessage())
+	}
 	scope, ok := common.ToolScopeFromContext(ctx)
 	if !ok || len(scope.WorkspaceRoots) == 0 {
 		return "", nil, errors.New(staleWorkspaceRootMessage())
