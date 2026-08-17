@@ -157,7 +157,7 @@ func TestHandleScopedToolsCallKeepsMetadataRootsImmutableWhenRuntimeEnvIsInvalid
 			roots, err := common.WorkspaceRootsFromContextStrict(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{metadataRoot}, roots)
-			return map[string]any{"ok": true}, nil
+			return "OK", nil
 		},
 	}}
 	params, err := json.Marshal(map[string]any{

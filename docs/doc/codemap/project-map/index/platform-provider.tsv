@@ -138,7 +138,7 @@ cmd/mcp-lsp/lsp_binary_plain_text_contract_e2e_test.go	cmd	platform-provider	go-
 cmd/mcp-lsp/lsp_binary_python_red_e2e_test.go	cmd	platform-provider	go-test	19625	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,python,red,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_real_autoinstall_e2e_test.go	cmd	platform-provider	go-test	13171	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,autoinstall,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_real_tools_e2e_test.go	cmd	platform-provider	go-test	18571	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,tools,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_residual_test.go	cmd	platform-provider	go-test	21270	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,residual,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_residual_test.go	cmd	platform-provider	go-test	21231	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,residual,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_resource_cohort_e2e_helpers_test.go	cmd	platform-provider	go-test	18469	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,resource,cohort,e2e,helpers,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_resource_cohort_e2e_test.go	cmd	platform-provider	go-test	26339	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,resource,cohort,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_shell_e2e_test.go	cmd	platform-provider	go-test	7253	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,shell,e2e,test,代码智能,LSP,MCP,peer
@@ -387,7 +387,7 @@ cmd/mcp-lsp/runtime_server_cache_posix_test.go	cmd	platform-provider	go-test	161
 cmd/mcp-lsp/runtime_server_cache_test.go	cmd	platform-provider	go-test	28134	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,server,cache,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_server_cache_windows.go	cmd	platform-provider	go-source	1092	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,server,cache,windows,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_server_cache_windows_test.go	cmd	platform-provider	go-test	1451	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,server,cache,windows,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/runtime_test.go	cmd	platform-provider	go-test	33778	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/runtime_test.go	cmd	platform-provider	go-test	33808	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/schema.go	cmd	platform-provider	go-source	13481	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/schema_test.go	cmd	platform-provider	go-test	26534	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/search/ast_language_contract_test.go	cmd	platform-provider	go-test	1123	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,ast,language,contract,test,文件搜索与,grep,搜索工具实现
@@ -502,7 +502,7 @@ cmd/mcp-lsp/tools_call_budget_test.go	cmd	platform-provider	go-test	4524	代码�
 cmd/mcp-lsp/tools_call_plain_text_test.go	cmd	platform-provider	go-test	6101	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,call,plain,text,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools_habits_e2e_test.go	cmd	platform-provider	go-test	5395	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,habits,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools_manifest_test.go	cmd	platform-provider	go-test	8308	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,manifest,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/tools_scope_routing_test.go	cmd	platform-provider	go-test	10887	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,scope,routing,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/tools_scope_routing_test.go	cmd	platform-provider	go-test	10865	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,scope,routing,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools_test.go	cmd	platform-provider	go-test	17595	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,test,代码智能,LSP,MCP,peer
 internal/mcpserver/common/bootstrap/callback_drain_test.go	internal	platform-provider	go-test	2945	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,callback,drain,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/client.go	internal	platform-provider	go-source	11009	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,client,MCP,server,公共框架,与,transport

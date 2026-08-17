@@ -132,10 +132,24 @@ func seedRemoteRunShardOverheadFixture(t *testing.T, store *gatecontract.Duratio
 		candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image,
 		status, authoritative, started_at_unix_ms, completed_at_unix_ms,
 		cleanup_complete, error_text
-	) VALUES (?, 0, 'manual-cli', 'local-fast', ?, ?, '1', ?, ?, ?, ?, ?, 'passed', 0, ?, ?, 1, '')`,
+	) VALUES (?, 0, 'manual-cli', 'local-fast', ?, ?, '1', ?, ?, ?, ?, ?, 'passed', 1, ?, ?, 1, '')`,
 		jobID, digest, digest, snapshotID, strings.Repeat("f", 40), digest, digest, "runner@"+runner,
 		now.UnixMilli(), now.Add(time.Millisecond).UnixMilli()); err != nil {
 		t.Fatalf("seed shard overhead run fixture: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO ci_remote_run_execution_identities (
+		job_id, platform, runner_identity_digest, toolchain_digest, execution_mode
+	) VALUES (?, 'linux/amd64', ?, ?, 'calibration')`, jobID, runner, remoteRunRunnerIdentityState().ToolchainDigest); err != nil {
+		t.Fatalf("seed shard overhead execution identity fixture: %v", err)
+	}
+	resources, err := json.Marshal(gatecontract.RemoteCIShardResources{ClassID: "calibration", CPU: 4, MemoryGiB: 8})
+	if err != nil {
+		t.Fatalf("encode shard overhead resource fixture: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO ci_shards (
+		job_id, shard_identity, container_group_id, container_status, resources_json
+	) VALUES (?, 'fixture-shard', 'fixture-container', 'Succeeded', ?)`, jobID, string(resources)); err != nil {
+		t.Fatalf("seed shard overhead resource fixture: %v", err)
 	}
 	overhead := gatecontract.ShardOrchestrationOverhead{
 		SchemaVersion: gatecontract.ShardOrchestrationOverheadSchemaVersion,

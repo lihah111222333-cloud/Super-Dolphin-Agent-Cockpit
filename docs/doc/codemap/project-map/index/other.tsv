@@ -1129,7 +1129,7 @@ scripts/makefile_dead_targets_guard_test.go	scripts	other	go-test	1517	工程自
 scripts/makefile_git_context_guard_test.go	scripts	other	go-test	1038	工程自动化、测试守卫、代码地图与开发脚本	scripts,makefile,git,context,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/mcp_lsp_resource_cohort_e2e_gate_guard_test.go	scripts	other	go-test	3664	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,resource,cohort,e2e,gate,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/mcp_lsp_workload_catalog.json	scripts	other	json	4953	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,catalog,工程自动化,测试守卫,代码地图与开发脚本
-scripts/mcp_lsp_workload_catalog/catalog.go	scripts	other	go-source	30249	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,catalog,工程自动化,测试守卫,代码地图与开发脚本
+scripts/mcp_lsp_workload_catalog/catalog.go	scripts	other	go-source	30308	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,catalog,工程自动化,测试守卫,代码地图与开发脚本
 scripts/mcp_lsp_workload_catalog/catalog_receipt.go	scripts	other	go-source	13977	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,catalog,receipt,工程自动化,测试守卫,代码地图与开发脚本
 scripts/mcp_lsp_workload_catalog/catalog_test.go	scripts	other	go-test	36324	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,catalog,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/mcp_lsp_workload_catalog/consumer_discovery.go	scripts	other	go-source	5273	工程自动化、测试守卫、代码地图与开发脚本	scripts,mcp,lsp,workload,catalog,consumer,discovery,工程自动化,测试守卫,代码地图与开发脚本

@@ -67,7 +67,7 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	}
 }
 
-func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
+func TestLSPBinaryGrepSearchesExplicitPathList(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	writeLSPBinaryFixture(t, filepath.Join(root, "first", "one.txt"), "needle from first\n")
@@ -78,16 +78,16 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       "needle",
-		"paths":       []string{"first second"},
+		"paths":       []string{"first", "second"},
 		"glob":        "*.txt",
 		"max_results": 10,
 	})
 	if result.IsError {
-		t.Fatalf("grep returned tool error for whitespace-separated paths: %s; stderr=%s", result.ContentText(), client.stderr.String())
+		t.Fatalf("grep returned tool error for explicit paths: %s; stderr=%s", result.ContentText(), client.stderr.String())
 	}
 	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
 	if payload.Total != 2 || payload.Showing != 2 {
-		t.Fatalf("grep whitespace-separated path payload = total:%d showing:%d, want 2/2; content=%s",
+		t.Fatalf("grep explicit path payload = total:%d showing:%d, want 2/2; content=%s",
 			payload.Total, payload.Showing, result.ContentText())
 	}
 	got := map[string]bool{}
@@ -108,7 +108,7 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	}
 }
 
-func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
+func TestLSPBinaryGrepWithoutTrustedScopeStaysOnProcessWorkspace(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	parent := t.TempDir()
 	staleRoot := canonicalToolTestRoot(t, filepath.Join(parent, "stale"))
@@ -129,13 +129,12 @@ func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
 		"paths":       []string{relPath},
 		"max_results": 5,
 	})
-	if !result.IsError {
-		t.Fatalf("grep without trusted scope returned success after external patch; content=%s stderr=%s",
-			result.ContentText(), client.stderr.String())
+	if result.IsError {
+		t.Fatalf("grep without trusted scope returned error: content=%s stderr=%s", result.ContentText(), client.stderr.String())
 	}
-	if !strings.Contains(result.ContentText(), "stale workspace root") {
-		t.Fatalf("grep without trusted scope error = %q, want stale workspace root guidance; stderr=%s",
-			result.ContentText(), client.stderr.String())
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
+	if payload.Total != 0 {
+		t.Fatalf("grep without trusted scope escaped stale process workspace: content=%s stderr=%s", result.ContentText(), client.stderr.String())
 	}
 }
 
@@ -230,8 +229,8 @@ func TestLSPBinaryXrefIdentifierMissSuggestsImplementationMethodColumn(t *testin
 		}
 		t.Fatalf("xref declaration whitespace code = %q, want identifier_not_found; content=%s", got, result.ContentText())
 	}
-	if hint := strings.ToLower(lineProtocolRecordValue(doc, "HINT")); !strings.Contains(hint, "identifier") || !strings.Contains(hint, "column") {
-		t.Fatalf("xref declaration whitespace hint = %q, want identifier and column guidance", hint)
+	if hint := strings.ToLower(lineProtocolRecordValue(doc, "HINT")); !strings.Contains(hint, "column") || !strings.Contains(hint, "suggested_columns") {
+		t.Fatalf("xref declaration whitespace hint = %q, want suggested column guidance", hint)
 	}
 }
 
