@@ -150,7 +150,7 @@ func ordinaryCompilePlanningUnit(item PlannedWorkload, context PlanningContext) 
 	if err != nil {
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q: %w", item.Workload.ID, err)
 	}
-	resourceClassID, err := normalCompileResourceClass(tier)
+	resourceClassID, err := ordinaryCompileResourceClass(tier, context)
 	if err != nil {
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q resource class: %w", item.Workload.ID, err)
 	}
@@ -159,6 +159,17 @@ func ordinaryCompilePlanningUnit(item PlannedWorkload, context PlanningContext) 
 		return compilePlanningUnit{}, fmt.Errorf("classify ordinary workload %q hard isolation: %w", item.Workload.ID, err)
 	}
 	return compilePlanningUnit{workloads: []PlannedWorkload{item}, costMS: item.EstimatedDurationMS, affinityKey: "ordinary:" + item.Workload.ID, sortID: item.Workload.ID, tier: tier, resourceClassID: resourceClassID, hardIsolationReason: reason}, nil
+}
+
+// ordinaryCompileResourceClass 在 calibration 模式绑定固定资源，normal 模式才消费持久化档位。
+func ordinaryCompileResourceClass(tier cicontract.WorkloadResourceTier, context PlanningContext) (string, error) {
+	if context.Calibration {
+		if err := cicontract.ValidateCalibrationResources(context.CalibrationResourceClassID, context.CalibrationResourceCPU, context.CalibrationResourceMemoryGiB); err != nil {
+			return "", err
+		}
+		return context.CalibrationResourceClassID, nil
+	}
+	return normalCompileResourceClass(tier)
 }
 
 // splitCompilePlanningBucket 将同一编译输入和资源档位收敛为确定性的编译组。
