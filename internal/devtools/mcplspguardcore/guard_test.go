@@ -125,7 +125,8 @@ func TestValidateConsumersRequiresExactLiveRegistryCoverage(t *testing.T) {
 	writeConsumerFixture("scripts/ai_maintenance/owned_gate_execution.go", ownedGateFixtureSource("mcp-lsp-idle-quick"))
 	for _, relative := range []string{
 		"scripts/ai_maintenance/main.go", "scripts/ai_maintenance/release_gate_rules.go", "scripts/ai_maintenance/gate_execution.go",
-		"cmd/super-dolphin-gate/remote_baseline_source.go",
+		"cmd/super-dolphin-gate/remote_baseline_source.go", "cmd/super-dolphin-gate/remote_run_calibration_automation.go",
+		"cmd/super-dolphin-gate/remote_run_calibration_runs.go", "cmd/super-dolphin-gate/remote_run_source.go",
 	} {
 		writeConsumerFixture(relative, string(readGuardCandidateBlob(t, relative)))
 	}

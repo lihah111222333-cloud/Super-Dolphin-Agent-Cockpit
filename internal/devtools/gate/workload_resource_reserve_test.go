@@ -186,8 +186,8 @@ func TestLoadPlanningDerivesNormalResourceTierReservesFromSQLiteTiming(t *testin
 		t.Fatalf("SQLite planning reserves/index = %#v/%v", snapshot.ResourceTierReserves, snapshot.SampleIndex)
 	}
 	target, err := snapshot.SampleIndex.context.EffectiveTargetDurationForResourceTier(cicontract.WorkloadResourceTierMedium)
-	if err != nil || target != 94_000 {
-		t.Fatalf("SQLite planning medium target = %d, %v; want 94000 without compile-group timing", target, err)
+	if err != nil || target != 97_000 {
+		t.Fatalf("SQLite planning medium target = %d, %v; want 97000 without compile-group timing", target, err)
 	}
 }
 

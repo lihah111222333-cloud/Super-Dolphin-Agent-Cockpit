@@ -44,6 +44,8 @@ func completeFailedProjectionResult(t *testing.T, store *gate.DurationLedgerStor
 		Entrypoint: gate.CIEntrypointGitPreCommit, Profile: gate.ProfileLocalFast, PlanDigest: "sha256:" + strings.Repeat("b", 64),
 		SourceTreeSHA: strings.Repeat("f", 40), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("c", 64),
 		CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("d", 64), ImageCacheSnapshotID: "snapshot-1", RunnerImage: "ubuntu:22.04",
+		Platform: "linux/amd64", RunnerIdentityDigest: "sha256:" + strings.Repeat("e", 64),
+		ToolchainDigest: "sha256:" + strings.Repeat("f", 64), ExecutionMode: gate.DurationExecutionModeNormal,
 		Status: gate.ResultStatusFailed, StartedAt: started, CompletedAt: started.Add(2 * time.Second), CleanupComplete: true,
 	}
 	recordPartialResultsCatalog(t, store, &result, catalog, started)

@@ -34,7 +34,15 @@ func TestDeriveWorkloadPackingEvidenceExactModeWithIsolatedUnits(t *testing.T) {
 	context := testLinuxPlanningContext()
 	context.ShardOverheadSampleCount = 1
 	context.ShardOverheadProvenanceDigest = "sha256:" + strings.Repeat("0", 64)
-	shards, groups, units := mixedEvidenceFixture()
+	_, groups, units := mixedEvidenceFixture(t)
+	target, err := context.EffectiveTargetDurationForResourceTier(cicontract.WorkloadResourceTierMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shards, err := provenCompileUnitPacking(units, target)
+	if err != nil {
+		t.Fatal(err)
+	}
 	evidence := mustDerivePackingEvidence(t, shards, groups, context)
 	assertExactPackingEvidence(t, evidence)
 	assertMixedCompilePartition(t, units)
@@ -76,7 +84,8 @@ func TestFinalizePackingEvidenceRejectsMissingProofUnits(t *testing.T) {
 	}
 }
 
-func mixedEvidenceFixture() ([]ShardPlan, []CompileGroup, []compilePlanningUnit) {
+func mixedEvidenceFixture(t *testing.T) ([]ShardPlan, []CompileGroup, []compilePlanningUnit) {
+	t.Helper()
 	shards := make([]ShardPlan, 0, 21)
 	groups := make([]CompileGroup, 0, 25)
 	units := make([]compilePlanningUnit, 0, 25)
@@ -88,8 +97,16 @@ func mixedEvidenceFixture() ([]ShardPlan, []CompileGroup, []compilePlanningUnit)
 			packageTarget = AtomicGatePackageTarget
 		}
 		group := CompileGroup{GroupID: fmt.Sprintf("evidence-group-%d", index), PackageTarget: packageTarget, SemanticKey: CompileGroupSemanticGoTestNormal, SharedInputDigest: "sha256:" + strings.Repeat(fmt.Sprintf("%x", index+1), 64)[:64], ProfileDigest: "sha256:" + strings.Repeat("f", 64), ResourceClassID: "medium", WorkloadIDs: []GateID{id}, CompileEstimateMS: 1000, BodyEstimateMS: 1000, EstimatedDurationMS: 2000}
+		affinity, err := CompileArtifactKey(group)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reason, err := deriveCompileUnitHardIsolationReason([]PlannedWorkload{workload})
+		if err != nil {
+			t.Fatal(err)
+		}
 		groups = append(groups, group)
-		units = append(units, compilePlanningUnit{workloads: []PlannedWorkload{workload}, group: &group, costMS: 1000, affinityKey: string(id), sortID: string(id), tier: cicontract.WorkloadResourceTierMedium})
+		units = append(units, compilePlanningUnit{workloads: []PlannedWorkload{workload}, group: &group, costMS: compileGroupCriticalDurationMS(group), affinityKey: affinity, sortID: group.GroupID, tier: cicontract.WorkloadResourceTierMedium, resourceClassID: group.ResourceClassID, hardIsolationReason: reason})
 		if index == 0 {
 			shards = append(shards, ShardPlan{Index: 0, EstimatedDurationMS: 10000, CompileGroupIDs: []string{"evidence-group-0", "evidence-group-1", "evidence-group-2", "evidence-group-3", "evidence-group-4"}, Workloads: make([]PlannedWorkload, 0, 5)})
 		}

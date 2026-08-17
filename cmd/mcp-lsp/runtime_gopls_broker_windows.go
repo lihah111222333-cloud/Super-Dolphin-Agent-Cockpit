@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 )
 
 const (
@@ -320,16 +321,16 @@ func runtimeServerWriteWindowsGoplsBrokerFrame(output io.Writer, value any, kind
 func runtimeServerWaitWindowsGoplsBrokerDaemon(command *exec.Cmd, tree *hiddenexec.ProcessTree, observer *runtimeServerWindowsGoplsObservationServer) error {
 	processErr := command.Wait()
 	observerErr := observer.CloseAndWait()
-	waitContext, cancelWait := context.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
+	waitContext, cancelWait := ctxutil.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
 	waitErr := tree.Wait(waitContext)
 	cancelWait()
 	if waitErr == nil {
 		return errors.Join(processErr, observerErr, tree.Release())
 	}
-	forceContext, cancelForce := context.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
+	forceContext, cancelForce := ctxutil.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
 	forceErr := tree.Force(forceContext)
 	cancelForce()
-	retryContext, cancelRetry := context.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
+	retryContext, cancelRetry := ctxutil.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
 	retryErr := tree.Wait(retryContext)
 	cancelRetry()
 	if retryErr != nil {
@@ -349,7 +350,7 @@ func runtimeServerAbortWindowsGoplsBrokerDaemon(command *exec.Cmd, tree *hiddene
 		return nil
 	}
 	terminateErr := tree.Terminate()
-	waitContext, cancel := context.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
+	waitContext, cancel := ctxutil.WithTimeout(context.Background(), runtimeServerWindowsGoplsBrokerCleanupTimeout)
 	waitErr := tree.Wait(waitContext)
 	cancel()
 	if waitErr != nil {

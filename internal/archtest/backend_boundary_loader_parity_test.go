@@ -82,8 +82,8 @@ func assertBackendBoundaryExternalVariantSyntaxDigest(t *testing.T, root string,
 		paths = append(paths, filepath.ToSlash(rel))
 	}
 	sort.Strings(paths)
-	const wantSyntaxCount = 66
-	const wantSyntaxDigest = "cedfe0a24d65e8500f50be3d43cd061b5aafd4b42f75156fe81cdaa3d697029d"
+	const wantSyntaxCount = 67
+	const wantSyntaxDigest = "b0eb6bd37f33e1a99fb8214b32d1d31cbdf99873b9f5d07f1d15d70deb00b5aa"
 	if len(paths) != wantSyntaxCount || stablePathDigest(paths) != wantSyntaxDigest {
 		t.Fatalf("external variant syntax candidate set changed: count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}

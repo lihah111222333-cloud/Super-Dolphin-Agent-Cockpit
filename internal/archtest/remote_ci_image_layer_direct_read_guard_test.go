@@ -117,13 +117,14 @@ func assertRequiredImageLayerCoordinatorMarkers(t *testing.T, coordinator string
 	t.Helper()
 	for _, required := range []string{
 		`SourceVolume:`,
-		`eci.EmptyDirVolume{Name: "source-data"}`,
+		`eci.EmptyDirVolume{Name: cicontract.ECISourceVolumeName}`,
 		`WorkVolume:`,
-		`eci.EmptyDirVolume{Name: "work-data"}`,
+		`eci.EmptyDirVolume{Name: cicontract.ECIWorkVolumeName}`,
 		`TempVolume:`,
-		`eci.EmptyDirVolume{Name: "temp-data"}`,
+		`eci.EmptyDirVolume{Name: cicontract.ECITempVolumeName}`,
 		`/usr/local/go/bin/go build`,
-		`--seed /opt/super-dolphin/cache/go-build --private $private_cache`,
+		`cicontract.AcceptedBaselineOCIProjectCachePath`,
+		`--private $private_cache`,
 		`worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache "$private_mod_cache"`,
 		`GOMODCACHE="$private_mod_cache" GOPROXY=off`,
 	} {

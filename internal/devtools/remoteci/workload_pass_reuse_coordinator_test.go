@@ -778,8 +778,8 @@ func promoteCoordinatorFreshWorkloads(t *testing.T, input RunInput, result RunRe
 		JobID: result.JobID, AgentTokenDigest: result.AgentTokenDigest, Force: result.Force, Entrypoint: result.Entrypoint,
 		Profile: result.Profile, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest,
 		AcceptedGeneration: result.AcceptedGeneration, ImageCacheSnapshotID: result.ImageCacheSnapshotID,
-		SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256,
-		CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, RunnerImage: result.RunnerImage,
+		SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, Platform: result.Platform, RunnerIdentityDigest: result.RunnerIdentityDigest,
+		CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, RunnerImage: result.RunnerImage, ToolchainDigest: result.ToolchainDigest, ExecutionMode: result.ExecutionMode,
 		StartedAt: result.StartedAt, WorkloadPassIdentities: append([]gate.WorkloadPassIdentity(nil), result.WorkloadPassIdentities...),
 	}
 	if err := input.LedgerStore.FinalizeRemoteCIRunAuthorityWithSamples(

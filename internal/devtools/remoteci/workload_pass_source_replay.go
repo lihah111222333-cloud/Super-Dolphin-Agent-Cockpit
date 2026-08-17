@@ -59,6 +59,11 @@ func replayRemoteWorkloadPassMisses(
 		}
 	}
 	observe.phase("reuse_source_vote_completed")
+	observe.phase("reuse_target_input_cache_started")
+	if err := cache.prewarmCurrentSemanticInputDigests(ctx, workloads); err != nil {
+		return err
+	}
+	observe.phase("reuse_target_input_cache_completed")
 	return nil
 }
 
@@ -69,7 +74,15 @@ func preloadRemoteWorkloadPassSourceInputs(ctx context.Context, repositoryRoot, 
 	if err != nil || !available {
 		return err
 	}
+	if err := cache.preloadPersistentInputDigests(target, canonicalRemoteReplayWorkloads(workloads)); err != nil {
+		return err
+	}
 	partitions := remoteWorkloadPassSourceInputPartitions(candidates, workloads)
+	return preloadRemoteWorkloadPassSourcePartitions(ctx, repositoryRoot, target, partitions, cache)
+}
+
+// preloadRemoteWorkloadPassSourcePartitions 按来源树稳定顺序批量预热持久语义摘要。
+func preloadRemoteWorkloadPassSourcePartitions(ctx context.Context, repositoryRoot string, target *remoteGitTreeSnapshot, partitions map[string][]gate.Workload, cache *remoteReplayCache) error {
 	trees := make([]string, 0, len(partitions))
 	for tree := range partitions {
 		trees = append(trees, tree)
@@ -96,6 +109,16 @@ func preloadRemoteWorkloadPassSourceInputs(ctx context.Context, repositoryRoot, 
 	return nil
 }
 
+func canonicalRemoteReplayWorkloads(workloads map[gate.GateID]gate.Workload) []gate.Workload {
+	result := make([]gate.Workload, 0, len(workloads))
+	for _, workload := range workloads {
+		result = append(result, workload)
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left].ID < result[right].ID })
+	return result
+}
+
+// remoteWorkloadPassSourceInputPartitions 按不可变来源树聚合去重后的 workload 候选。
 func remoteWorkloadPassSourceInputPartitions(candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload) map[string][]gate.Workload {
 	partitions := make(map[string][]gate.Workload)
 	seen := make(map[string]map[gate.GateID]struct{})
@@ -144,6 +167,7 @@ func replayRemoteWorkloadPassMiss(ctx context.Context, repositoryRoot, targetTre
 	return nil
 }
 
+// rankRemoteWorkloadPassSourceTrees 计算候选来源树相对当前树的稳定距离排序。
 func rankRemoteWorkloadPassSourceTrees(ctx context.Context, repositoryRoot, targetTree string, candidates map[gate.GateID][]gate.WorkloadPassEvidence, cache *remoteReplayCache) (map[string]int, error) {
 	target, available, err := cache.snapshot(ctx, repositoryRoot, targetTree)
 	if err != nil || !available {

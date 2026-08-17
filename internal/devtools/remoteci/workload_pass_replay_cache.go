@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -182,7 +183,7 @@ func (cache *remoteReplayCache) preloadPersistentInputDigests(source *remoteGitT
 	return nil
 }
 
-// persistComputedInputDigests 一次写回本轮新计算的 source-tree 摘要；目标树、
+// persistComputedInputDigests 一次写回本轮新计算的 immutable tree 摘要；
 // unavailable 结果和已从 SQLite 命中的键均不重复写入。
 func (cache *remoteReplayCache) persistComputedInputDigests() error {
 	if cache == nil || cache.persistentInputStore == nil {
@@ -206,7 +207,7 @@ func (cache *remoteReplayCache) persistComputedInputDigests() error {
 }
 
 func (cache *remoteReplayCache) persistentInputReplayEntry(key remoteReplayWorkloadKey, result remoteReplayInputDigestResult) (gate.WorkloadInputReplayCacheEntry, bool) {
-	if !result.available || key.tree == cache.currentTree {
+	if !result.available {
 		return gate.WorkloadInputReplayCacheEntry{}, false
 	}
 	if _, loaded := cache.persistentLoadedInputs[key]; loaded {
@@ -225,6 +226,27 @@ func (cache *remoteReplayCache) persistentInputReplayEntry(key remoteReplayWorkl
 			RuntimeDigest:     semantic.digests.runtime, RuntimeFallback: semantic.digests.runtimeFallback,
 		},
 	}, true
+}
+
+// prewarmCurrentSemanticInputDigests 为当前树已实际参与语义投票的 workload
+// 补齐 broad digest，使同一 candidate tree 的后续 Prepare 可完整复用投票。
+func (cache *remoteReplayCache) prewarmCurrentSemanticInputDigests(ctx context.Context, workloads map[gate.GateID]gate.Workload) error {
+	pending := make([]gate.Workload, 0)
+	for key, semantic := range cache.semanticInputVotes {
+		if key.tree != cache.currentTree || !semantic.supported {
+			continue
+		}
+		if _, cached := cache.inputDigests[key]; cached {
+			continue
+		}
+		workload, ok := workloads[gate.GateID(key.workloadID)]
+		if !ok {
+			return fmt.Errorf("remote semantic replay cache workload %q is absent from current catalog", key.workloadID)
+		}
+		pending = append(pending, workload)
+	}
+	sort.Slice(pending, func(left, right int) bool { return pending[left].ID < pending[right].ID })
+	return cache.prewarmInputDigests(ctx, cache.currentTree.repositoryRoot, cache.currentTree.tree, pending)
 }
 
 func (cache *remoteReplayCache) inputAlgorithmDigest(snapshot *remoteGitTreeSnapshot) (string, bool, error) {

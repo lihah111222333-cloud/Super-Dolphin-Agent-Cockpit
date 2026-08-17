@@ -20,7 +20,7 @@ func TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary(t *test
 		t.Fatal(err)
 	}
 	source := strings.ToLower(string(content))
-	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=30"} {
+	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=100"} {
 		if !strings.Contains(source, strings.ToLower(required)) {
 			t.Errorf("refresh script is missing %q", required)
 		}

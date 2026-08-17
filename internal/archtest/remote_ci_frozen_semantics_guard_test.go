@@ -150,7 +150,7 @@ func TestRemoteCIWorkloadPassIdentityCollisionIsFailFast(t *testing.T) {
 		}
 	}
 	retention := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_retention.go"))
-	for _, marker := range []string{"requireHistoricallyAcceptedGeneration", "accepted baseline generation authority", "DELETE FROM %s WHERE %s IN", "case cicontract.RemoteRunsTable:"} {
+	for _, marker := range []string{"requireHistoricallyAcceptedGeneration", "accepted baseline generation authority", "DELETE FROM %s WHERE %s IN", "cicontract.RetentionRootBindings()"} {
 		if !strings.Contains(retention, marker) {
 			t.Errorf("retention proof is not anchored in the SQLite authority: missing %q", marker)
 		}

@@ -2,6 +2,7 @@ package gate
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
@@ -229,8 +230,18 @@ func readMcpLSPExclusiveSourceNames(t *testing.T) map[string]struct{} {
 		t.Fatalf("read mcp-lsp source root: %v", err)
 	}
 	sourceNames := make(map[string]struct{})
+	remoteBuild := build.Default
+	remoteBuild.GOOS, remoteBuild.GOARCH = "linux", "amd64"
+	remoteBuild.BuildTags = []string{"e2e"}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		matched, err := remoteBuild.MatchFile(root, entry.Name())
+		if err != nil {
+			t.Fatalf("match mcp-lsp remote platform source %q: %v", entry.Name(), err)
+		}
+		if !matched {
 			continue
 		}
 		readMcpLSPExclusiveSourceFile(t, filepath.Join(root, entry.Name()), sourceNames)
@@ -261,7 +272,12 @@ func readMcpLSPExclusiveSourceFile(t *testing.T, filePath string, sourceNames ma
 func assertMcpLSPExclusiveSetEqual(t *testing.T, sourceNames map[string]struct{}, registeredNames []string) {
 	t.Helper()
 	if len(sourceNames) != len(registeredNames) {
-		t.Fatalf("mcp-lsp exclusive directive count=%d registered=%d; source and planner sets diverged", len(sourceNames), len(registeredNames))
+		sourceList := make([]string, 0, len(sourceNames))
+		for name := range sourceNames {
+			sourceList = append(sourceList, name)
+		}
+		sort.Strings(sourceList)
+		t.Fatalf("mcp-lsp exclusive directive count=%d registered=%d; source=%v registered=%v", len(sourceNames), len(registeredNames), sourceList, registeredNames)
 	}
 	for _, name := range registeredNames {
 		if _, ok := sourceNames[name]; !ok {

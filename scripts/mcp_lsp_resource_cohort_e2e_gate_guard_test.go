@@ -19,8 +19,7 @@ func TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E(t *testing.T) {
 
 	assertScriptContains(t, makefile, "test-e2e:\n\t$(TEST_WITH_GUARD) --make-e2e-suite")
 	assertScriptContains(t, makefile, mcpLSPResourceCohortE2ETarget+":")
-	assertScriptContains(t, makefile, "--quick-guard -tags=e2e ./cmd/mcp-lsp")
-	assertScriptContains(t, makefile, "-run '"+mcpLSPResourceCohortE2ERun+"$'")
+	assertScriptContains(t, makefile, `./scripts/run_mcp_lsp_workload.sh --tree "$(MCP_LSP_CANDIDATE_TREE)" --id mcp-lsp-resource-cohort`)
 
 	runner := requireMcpLSPResourceCohortGateSection(
 		t, guardScript, "run_mcp_lsp_resource_cohort_e2e() {", "\nresolve_canonical_backend_packages() {",

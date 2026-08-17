@@ -778,6 +778,10 @@ func isCodexExclusiveTestName(name string) bool {
 
 func mcpLSPExclusiveTestNames() map[string]struct{} {
 	return map[string]struct{}{
+		"TestMcpLSPBinaryAllLanguageLifecycleSingleSidecar_E2E":                           {},
+		"TestMcpLSPBinaryWSLAllToolActionsCoverAllLSPClientLanguages_E2E":                 {},
+		"TestMcpLSPBinaryWSLCodexConcurrentSemanticToolsShareRealGopls_E2E":               {},
+		"TestMcpLSPBinaryWSLRepositoryRootColdStartRealGopls_E2E":                         {},
 		"TestRuntimeDurableGoplsRootCohortAllowsTenCompatibleAgentsAcrossTwoRepositories": {},
 		"TestRuntimeDurableGoplsRootCohortSharesStateAcrossControllers":                   {},
 		"TestRuntimeDurableGoplsRootCohortRotatesConfigAfterStaleOwnerIsProvenDead":       {},

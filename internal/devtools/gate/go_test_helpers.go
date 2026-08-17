@@ -19,7 +19,9 @@ func CanonicalGoTestHelperTargets() []GoTestTarget {
 		{Package: AtomicMcpLSPPackageTarget, Name: "TestFakeGoplsShutdownWarningHelper"},
 		{Package: AtomicMcpLSPPackageTarget, Name: "TestFakeBashLanguageServerHelper"},
 		{Package: AtomicMcpLSPPackageTarget, Name: "TestFakeMultilangDiagnosticsLangserverHelper"},
+		{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPBinaryWindowsGoplsProvisionalParentExitHelper"},
 		{Package: AtomicMcpLSPPackageTarget, Name: "TestResourceCohortE2ELanguageServerHelper"},
+		{Package: AtomicMcpLSPPackageTarget, Name: "TestStrictTextProtocolFakeGoplsHelper"},
 		{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessHelper"},
 		{Package: AtomicSQLitePackageTarget, Name: "TestSQLiteMixedWritePressureChild"},
 	})
@@ -27,10 +29,5 @@ func CanonicalGoTestHelperTargets() []GoTestTarget {
 
 // IsCanonicalGoTestHelper 报告 exact Go test target 是否是受控子进程入口。
 func IsCanonicalGoTestHelper(target GoTestTarget) bool {
-	for _, helper := range CanonicalGoTestHelperTargets() {
-		if helper == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(CanonicalGoTestHelperTargets(), target)
 }

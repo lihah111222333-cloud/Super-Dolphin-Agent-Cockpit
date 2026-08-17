@@ -190,8 +190,8 @@ func TestRemoteCIStrictPlanAndProtocolDecoderGuard(t *testing.T) {
 		name, relative, function, decoder string
 	}{
 		{"workload plan clone", "internal/devtools/gate/workload_container_shards.go", "cloneWorkloadExecutionPlan", "decodeStrictJSON"},
-		{"current shard request", "internal/devtools/remoteci/protocol_shard_request.go", "DecodeShardRequest", "DecodeStrictJSON"},
-		{"accepted bootstrap request", "internal/devtools/remoteci/accepted_bootstrap_request.go", "DecodeBootstrapShardRequest", "DecodeStrictJSON"},
+		{"current shard request", "internal/devtools/remoteci/protocol_shard_request.go", "DecodeShardRequest", "DecodeCanonicalStrictJSON"},
+		{"accepted bootstrap request", "internal/devtools/remoteci/accepted_bootstrap_request.go", "DecodeBootstrapShardRequest", "DecodeCanonicalStrictJSON"},
 		{"worker manifest", "internal/devtools/gate/executor_shard_manifest.go", "LoadShardExecutionManifest", "decodeStrictJSON"},
 	}
 	for _, row := range rows {

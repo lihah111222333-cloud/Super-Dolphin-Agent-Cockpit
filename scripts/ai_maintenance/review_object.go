@@ -574,7 +574,7 @@ func gitOutputWithInput(repoRoot string, environment []string, input string, arg
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, git, commandArgs...)
 	if environment == nil {

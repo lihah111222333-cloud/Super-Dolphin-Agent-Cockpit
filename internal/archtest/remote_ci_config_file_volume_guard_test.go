@@ -27,7 +27,7 @@ func assertConfigFileCoordinatorContract(t *testing.T, coordinator string) {
 		"ConfigFileVolumeSafeMode",
 		"ConfigFileToPath: []eci.ConfigFileToPath",
 		"chmod -R a+rX /workspace/source",
-		`{Name: "source-data", MountPath: gate.ExecutorSourcePath, ReadOnly: true}`,
+		`{Name: cicontract.ECISourceVolumeName, MountPath: gate.ExecutorSourcePath, ReadOnly: true}`,
 	} {
 		if !strings.Contains(coordinator, required) {
 			t.Fatalf("normal shard ConfigFileVolume projection is missing %q", required)

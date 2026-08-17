@@ -302,6 +302,15 @@ func durationLedgerSQLiteShardOverheadRoundTripValue(digest string) ShardOrchest
 // durationLedgerSQLiteRecordShardOverheadRoundTrip 写入开销样本并保留同一事务语义。
 func durationLedgerSQLiteRecordShardOverheadRoundTrip(t *testing.T, store *DurationLedgerStore, sample ShardOrchestrationOverheadSample, overhead ShardOrchestrationOverhead) {
 	t.Helper()
+	calibration := testSQLiteDurationCalibration()
+	calibration.Platform, calibration.Runner, calibration.Toolchain = overhead.Platform, overhead.Runner, overhead.Toolchain
+	calibration.AcceptedSnapshotID = overhead.AcceptedSnapshotID
+	calibration.CalibrationResourceClassID = overhead.CalibrationResourceClassID
+	calibration.CalibrationResourceCPU, calibration.CalibrationResourceMemoryGiB = overhead.CalibrationResourceCPU, overhead.CalibrationResourceMemoryGiB
+	calibrationSnapshot, err := store.CompareAndSwapCalibration(1, &calibration)
+	if err != nil {
+		t.Fatal(err)
+	}
 	database, err := store.openSQLiteAuthority(false)
 	if err != nil {
 		t.Fatal(err)
@@ -312,10 +321,15 @@ func durationLedgerSQLiteRecordShardOverheadRoundTrip(t *testing.T, store *Durat
 		t.Fatal(err)
 	}
 	insertCalibrationExecutionIdentityForTest(t, database, sample.JobID, overhead.Platform, overhead.Runner, overhead.Toolchain)
+	resourcesJSON := fmt.Sprintf(`{"class_id":%q,"cpu":%g,"memory_gib":%g}`, overhead.CalibrationResourceClassID, overhead.CalibrationResourceCPU, overhead.CalibrationResourceMemoryGiB)
+	if _, err := database.Exec(`INSERT INTO ci_shards (job_id, shard_identity, container_group_id, container_status, resources_json) VALUES (?, ?, 'fixture-group', 'Succeeded', ?)`, sample.JobID, sample.ShardIdentity, resourcesJSON); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CompareAndSwapShardOverhead(1, overhead, []ShardOrchestrationOverheadSample{sample}); err != nil {
+	if _, err := store.CompareAndSwapShardOverhead(calibrationSnapshot.Generation, overhead, []ShardOrchestrationOverheadSample{sample}); err != nil {
 		t.Fatal(err)
 	}
 }

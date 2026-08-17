@@ -472,7 +472,7 @@ func prepareRemoteCalibrationLedger(path string) (*gatecontract.DurationLedgerSt
 		}
 		return store, nil
 	}
-	if !errors.Is(err, os.ErrNotExist) {
+	if !errors.Is(err, gatecontract.ErrDurationLedgerMetadataMissing) && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	if _, err := store.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {

@@ -95,6 +95,7 @@ func DefaultSkipDirs() map[string]bool {
 	return map[string]bool{
 		".build-cache": true,
 		".git":         true,
+		".lsp-target":  true,
 		".workspace":   true,
 		".worktrees":   true,
 		"node_modules": true,

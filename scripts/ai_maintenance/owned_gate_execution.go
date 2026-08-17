@@ -35,7 +35,7 @@ func ownedGateRunners(plan gatePlan) map[string]gateRunner {
 }
 
 func runTrustedOwnedGateCommand(plan gatePlan, tool string, arguments ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	var executable string
 	var err error
@@ -72,7 +72,7 @@ func runMcpLSPCatalogGuard(plan gatePlan) error {
 	if err != nil {
 		return fmt.Errorf("resolve trusted candidate Gate install root: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), 10*time.Minute)
 	result, err := trustedlauncher.Build(ctx, trustedlauncher.BuildOptions{
 		RepositoryRoot: gateExecutionDir(plan, ""), Tree: plan.ReviewObject.CandidateTree, InstallRoot: installRoot,
 	})

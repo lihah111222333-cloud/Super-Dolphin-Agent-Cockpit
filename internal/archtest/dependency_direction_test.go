@@ -111,10 +111,7 @@ func TestProviderExternalWhitelistEnforcesFXAssemblyScope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeCanonicalSQLCGuardFixture(t, root)
-			path := filepath.Join(root, "fixture.go")
-			if err := os.WriteFile(path, []byte(tc.source), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, tc.source)
 			got, err := archtest.EvaluateBackendBoundaryFile(
 				root,
 				path,

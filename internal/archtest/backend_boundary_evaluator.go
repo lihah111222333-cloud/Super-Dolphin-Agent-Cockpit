@@ -650,10 +650,13 @@ func collectBackendBoundaryGoFiles(root string) ([]string, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
-			if path != root && skipDirs[entry.Name()] {
+		if path != root && skipDirs[entry.Name()] {
+			if entry.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if entry.IsDir() {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {

@@ -594,7 +594,7 @@ func runCommand(dir, name string, args ...string) error {
 }
 
 func runCommandWithEnvironment(dir, name string, environment []string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	return runCommandWithEnvironmentContext(ctx, dir, name, environment, args...)
 }

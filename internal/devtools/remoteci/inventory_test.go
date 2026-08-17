@@ -250,6 +250,7 @@ func prepareInventorySnapshotRunInput(t *testing.T, repository, base, baseTree, 
 	if _, err := ledgerStore.CompareAndSwap(0, gate.DurationLedger{Version: 1}); err != nil {
 		t.Fatalf("initialize duration ledger: %v", err)
 	}
+	seedRemoteCITestAcceptedGeneration(t, ledgerStore, 1)
 	ledgerSnapshot, err := ledgerStore.Load()
 	if err != nil {
 		t.Fatalf("load duration ledger: %v", err)

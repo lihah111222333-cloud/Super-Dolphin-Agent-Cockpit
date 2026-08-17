@@ -257,6 +257,9 @@ func validateAndCopyRetainedConsumerChunk(destination, chunk map[string]RemoteCI
 	for jobID, record := range chunk {
 		var err error
 		if retainedConsumerLegacyExecutionIdentityRead(record, states[jobID]) {
+			if retainedConsumerCarriesResourceEvidence(record) {
+				return fmt.Errorf("validate retained consumer %q: legacy correctness projection carries resource or timing evidence", jobID)
+			}
 			err = validateRetainedConsumerCorrectnessRecord(record)
 		} else {
 			err = validateRemoteCIRunRecord(record)
@@ -276,6 +279,18 @@ func validateAndCopyRetainedConsumerChunk(destination, chunk map[string]RemoteCI
 		destination[jobID] = record
 	}
 	return nil
+}
+
+func retainedConsumerCarriesResourceEvidence(record RemoteCIRunRecord) bool {
+	if len(record.TimingObservations) != 0 || len(record.CompileTimingObservations) != 0 || len(record.DurationSamples) != 0 {
+		return true
+	}
+	for _, shard := range record.Shards {
+		if shard.Resources != (RemoteCIShardResources{}) {
+			return true
+		}
+	}
+	return false
 }
 
 // loadRetainedConsumerChunk 按固定投影顺序读取一个 consumer chunk。

@@ -13,6 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -295,7 +296,7 @@ func validateAuthoritativeRemoteHookResult(
 
 // remoteGitOutput 在指定仓库执行只读 Git 查询并保留可诊断错误。
 func remoteGitOutput(repositoryRoot string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	output, err := gatecontract.BoundedTrustedGitCombinedOutput(ctx, repositoryRoot, args...)
 	if err != nil {

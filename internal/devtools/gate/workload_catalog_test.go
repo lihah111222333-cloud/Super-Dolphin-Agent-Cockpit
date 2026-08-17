@@ -755,6 +755,7 @@ func TestCalibrationBootstrapPlansRepositoryScaleWithinTarget(t *testing.T) {
 	context.CalibrationResourceClassID = "calibration"
 	context.CalibrationResourceCPU = 4
 	context.CalibrationResourceMemoryGiB = 8
+	context.ResourceTierReserves = nil
 	_, err = BuildWorkloadExecutionPlanForWorkloads(
 		plan,
 		catalog,

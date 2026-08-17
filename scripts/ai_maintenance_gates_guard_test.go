@@ -179,7 +179,7 @@ func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 	assertScriptContains(t, reviewSource, "changedFilesFromReviewObject")
 	assertScriptContains(t, reviewSource, "checkReviewObjectWhitespace")
 	assertScriptContains(t, reviewSource, `filepath.Join(repository, ".worktrees")`)
-	for _, required := range []string{"ComparisonBaseCommit", `"merge-base"`, `"--no-checkout"`, "core.hooksPath=", "reviewGitLocalEnvironmentKey", `"--untracked-files=all"`} {
+	for _, required := range []string{"ComparisonBaseCommit", `"merge-base"`, `"--no-checkout"`, "core.hooksPath=", "gateprivate.TrustedGitEnvironment()", `"--untracked-files=all"`} {
 		assertScriptContains(t, reviewSource, required)
 	}
 	assertScriptContains(t, dependencySource, "assertHiddenPackageLockClosure")

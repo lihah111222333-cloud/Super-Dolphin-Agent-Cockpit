@@ -332,7 +332,10 @@ func verifySQLiteRemoteCIRunExecutionIdentity(transaction *sql.Tx, record Remote
 		return fmt.Errorf("stored remote CI run execution identity: %w", err)
 	}
 	if stored != newRemoteCIRunExecutionIdentity(record) {
-		return fmt.Errorf("remote CI job %q conflicts with immutable execution identity", record.JobID)
+		current := newRemoteCIRunExecutionIdentity(record)
+		return fmt.Errorf("remote CI job %q conflicts with immutable execution identity (platform=%t runner=%t toolchain=%t mode=%t)", record.JobID,
+			stored.Platform == current.Platform, stored.RunnerIdentityDigest == current.RunnerIdentityDigest,
+			stored.ToolchainDigest == current.ToolchainDigest, stored.ExecutionMode == current.ExecutionMode)
 	}
 	return nil
 }

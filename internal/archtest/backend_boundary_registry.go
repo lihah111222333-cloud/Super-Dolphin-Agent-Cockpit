@@ -420,6 +420,12 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 	}
 }
 
+func defaultOrchestratorSQLCRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: orchestratorSQLCBoundaryRuleID, Owner: "sqlc_boundary", Reason: "mcp-orch SQLC generated types remain private to the orchestrator sidecar",
+		Kind: BoundaryRuleScopedImport, FilePatterns: patterns.sqlc, Deny: boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{sqlcconfig.OrchestratorOutputOwnerParent}, "orchestrator SQLC imports stay inside mcp-orch"),
+		ScopeAllow: []BoundaryFilePolicy{boundaryFilePolicy("sqlc_boundary", BoundaryScopeFXMCPOrch, "mcp-orch owns its configured SQLC output")}, SkipTestFiles: true}
+}
+
 func defaultContractDTOFrameworkRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
 	files := combineBoundaryPatterns(patterns.contract, patterns.dto)
 	return BackendBoundaryRule{
@@ -849,6 +855,7 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/devtools/gate",
 		"internal/devtools/gateprivate",
 		"internal/devtools/gatehook",
+		"internal/devtools/mcplspguardcore",
 		"internal/devtools/projectmaptrusted",
 		"internal/devtools/remoteci",
 		"internal/devtools/shardresource",

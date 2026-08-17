@@ -5,8 +5,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -98,14 +96,12 @@ func mcpSidecarTransitiveViolations(t *testing.T, registry archtest.BackendBound
 	}
 	root := t.TempDir()
 	writeCanonicalSQLCGuardFixture(t, root)
-	path := filepath.Join(root, "mcp_sidecar_transitive.go")
-	if err := os.WriteFile(path, []byte(mcpSidecarImportFixtureSource(imports)), 0o600); err != nil {
-		t.Fatalf("write transitive fixture: %v", err)
-	}
+	relPath := relPkg + "/main.go"
+	path := writeBackendBoundaryFixtureAt(t, root, relPath, mcpSidecarImportFixtureSource(imports))
 	violations, err := archtest.EvaluateBackendBoundaryFile(
 		root,
 		path,
-		relPkg+"/main.go",
+		relPath,
 		registry,
 		"mcp_sidecar_narrow_import_surface",
 	)

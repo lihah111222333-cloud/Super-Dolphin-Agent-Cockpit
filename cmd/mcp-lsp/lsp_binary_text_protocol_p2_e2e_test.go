@@ -414,6 +414,7 @@ func writeStrictTextProtocolFakeGopls(t *testing.T) string {
 	return dir
 }
 
+// super-dolphin-ci: helper
 func TestStrictTextProtocolFakeGoplsHelper(t *testing.T) {
 	if os.Getenv(fakeGoplsStrictTextProtocolEnv) != "1" {
 		return

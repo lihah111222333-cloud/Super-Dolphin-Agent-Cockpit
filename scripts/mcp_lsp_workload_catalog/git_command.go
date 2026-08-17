@@ -17,7 +17,7 @@ func BoundedGitOutput(repoRoot string, args ...string) ([]byte, error) {
 }
 
 func boundedGitOutput(repoRoot string, timeout time.Duration, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	command, err := gateprivate.TrustedGitCommand(ctx, repoRoot, args...)
 	if err != nil {

@@ -47,11 +47,8 @@ func TestCanonicalDependencyRulesRejectProceduralBoundaryViolations(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeCanonicalSQLCGuardFixture(t, root)
-			path := filepath.Join(root, "fixture.go")
 			source := "package fixture\n\nimport _ " + strconv.Quote(tc.imp) + "\n"
-			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, source)
 			violations, err := archtest.EvaluateBackendBoundaryFile(root, path, tc.relPath, registry, tc.ruleID)
 			if err != nil {
 				t.Fatalf("EvaluateBackendBoundaryFile(): %v", err)
@@ -79,11 +76,8 @@ func TestStoreDependencyRulePreservesAuditedImports(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeCanonicalSQLCGuardFixture(t, root)
-			path := filepath.Join(root, "fixture.go")
 			source := "package fixture\n\nimport _ " + strconv.Quote(tc.imp) + "\n"
-			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, source)
 			violations, err := archtest.EvaluateBackendBoundaryFile(root, path, tc.relPath, registry, "store_dependency_surface")
 			if err != nil {
 				t.Fatalf("EvaluateBackendBoundaryFile(): %v", err)
@@ -109,11 +103,8 @@ func TestStoreDependencyRuleKeepsExternalAllowancesExact(t *testing.T) {
 	for _, tc := range cases {
 		root := t.TempDir()
 		writeCanonicalSQLCGuardFixture(t, root)
-		path := filepath.Join(root, "fixture.go")
 		source := "package fixture\n\nimport _ " + strconv.Quote(tc.imp) + "\n"
-		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, source)
 		violations, err := archtest.EvaluateBackendBoundaryFile(root, path, tc.relPath, registry, "store_dependency_surface")
 		if err != nil {
 			t.Fatalf("EvaluateBackendBoundaryFile(): %v", err)
@@ -142,10 +133,7 @@ func TestFXAssemblyScopesUseTypedPathMatchers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeCanonicalSQLCGuardFixture(t, root)
-			path := filepath.Join(root, "fixture.go")
-			if err := os.WriteFile(path, []byte("package fixture\n\nimport _ \"go.uber.org/fx\"\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, "package fixture\n\nimport _ \"go.uber.org/fx\"\n")
 			violations, err := archtest.EvaluateBackendBoundaryFile(root, path, tc.relPath, registry, "fx_assembly_scope")
 			if err != nil {
 				t.Fatalf("EvaluateBackendBoundaryFile(): %v", err)
@@ -158,6 +146,18 @@ func TestFXAssemblyScopesUseTypedPathMatchers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func writeBackendBoundaryFixtureAt(t *testing.T, root, relPath, source string) string {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestFXAssemblyScopeRejectsUnregisteredMatcher(t *testing.T) {
