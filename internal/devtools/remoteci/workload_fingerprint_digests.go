@@ -345,6 +345,9 @@ func addMcpLSPCatalogRequiredEntries(snapshot *remoteGitTreeSnapshot, selected m
 
 func addMcpLSPCatalogProducerEntries(snapshot *remoteGitTreeSnapshot, selected map[string]remoteGitTreeEntry, workloads []catalog.ImplementedRemoteTest) error {
 	for _, workload := range workloads {
+		if workload.ProducerImplementationStatus != "implemented" {
+			continue
+		}
 		entry, ok := snapshot.byPath[workload.ProducerWorkflowPath]
 		if ok && entry.kind == "blob" {
 			selected[entry.path] = entry

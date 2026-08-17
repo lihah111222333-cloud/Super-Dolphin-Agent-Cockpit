@@ -81,6 +81,31 @@ func TestMcpLSPCatalogGuardFingerprintTracksCanonicalInputs(t *testing.T) {
 	}
 }
 
+func TestMcpLSPCatalogGuardFingerprintAllowsMissingProducerWorkflow(t *testing.T) {
+	entries := []remoteGitTreeEntry{
+		{mode: "100644", kind: "blob", objectID: "catalog-v1", path: mcpLSPQuickWorkloadCatalogPath},
+		{mode: "100644", kind: "blob", objectID: "quick-test-v1", path: "cmd/mcp-lsp/quick/quick_test.go"},
+		{mode: "100644", kind: "blob", objectID: "native-test-v1", path: "cmd/mcp-lsp/native/native_test.go"},
+		{mode: "100644", kind: "blob", objectID: "go-mod-v1", path: "go.mod"},
+		{mode: "100644", kind: "blob", objectID: "go-sum-v1", path: "go.sum"},
+	}
+	entries = d1AppendCatalogConsumerEntries(entries)
+	snapshot := &remoteGitTreeSnapshot{
+		entries: entries,
+		byPath:  d1FingerprintEntriesByPath(entries),
+		gitBlobContents: map[string][]byte{
+			"catalog-v1":     d1FingerprintCatalogRawWithProducerStatus(t, "./cmd/mcp-lsp/quick", "missing"),
+			"quick-test-v1":  []byte("package quick\n\nimport \"testing\"\nfunc TestQuick(t *testing.T) {}\n"),
+			"native-test-v1": []byte("package native\n\nimport \"testing\"\nfunc TestNative(t *testing.T) {}\n"),
+		},
+	}
+	id := string(gate.GateIDBackendTestWithGuard) + "::go-guard::" +
+		base64.RawURLEncoding.EncodeToString([]byte(gate.GoGuardTargetMcpLSPWorkloadCatalog))
+	if _, err := snapshot.workloadInputDigest(context.Background(), gate.Workload{ID: id}); err != nil {
+		t.Fatalf("missing producer workflow must not be a fingerprint input: %v", err)
+	}
+}
+
 func d1AppendCatalogConsumerEntries(entries []remoteGitTreeEntry) []remoteGitTreeEntry {
 	registered := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
@@ -118,13 +143,17 @@ func d1AssertFingerprintMutation(t *testing.T, snapshot *remoteGitTreeSnapshot, 
 }
 
 func d1FingerprintCatalogRaw(t *testing.T, packagePath string) []byte {
+	return d1FingerprintCatalogRawWithProducerStatus(t, packagePath, "implemented")
+}
+
+func d1FingerprintCatalogRawWithProducerStatus(t *testing.T, packagePath, producerStatus string) []byte {
 	t.Helper()
 	document := catalog.Catalog{
 		Schema:        catalog.Schema,
 		CatalogDigest: "sha256:" + strings.Repeat("0", 64),
 		Workloads: []catalog.Workload{
-			{ID: "mcp-lsp-idle-quick", ImplementationStatus: "implemented", ProducerWorkflowPath: ".github/workflows/ci.yml", Command: []string{"go", "test", packagePath, "-run", "^TestQuick$"}},
-			{ID: "mcp-lsp-native-process-tree", ImplementationStatus: "implemented", ProducerWorkflowPath: ".github/workflows/ci.yml", Command: []string{"go", "test", "./cmd/mcp-lsp/native", "-run", "^TestNative$"}},
+			{ID: "mcp-lsp-idle-quick", ImplementationStatus: "implemented", ProducerImplementationStatus: producerStatus, ProducerWorkflowPath: ".github/workflows/ci.yml", Command: []string{"go", "test", packagePath, "-run", "^TestQuick$"}},
+			{ID: "mcp-lsp-native-process-tree", ImplementationStatus: "implemented", ProducerImplementationStatus: producerStatus, ProducerWorkflowPath: ".github/workflows/ci.yml", Command: []string{"go", "test", "./cmd/mcp-lsp/native", "-run", "^TestNative$"}},
 		},
 	}
 	raw, err := json.Marshal(document)

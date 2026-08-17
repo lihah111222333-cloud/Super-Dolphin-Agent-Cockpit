@@ -4,8 +4,8 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:22dcece10c2785cc52f78e6182273e1c1ca88179fc8ded32957206900e80a613",
-    "entries_sha256": "sha256:2f10af15d0f17647830139056d24bb80e44da0a8d6eaa14acf73040e72aa8c9f"
+    "source_sha256": "sha256:52b7a4864ab16cf7efc82feac7e5bf3fd9843c6be78e032ec68759982b9cfa68",
+    "entries_sha256": "sha256:89c912debdea28b6a18df29bbe77593a6ae93e2acf4162730f566f3ddd62245c"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
@@ -65,7 +65,7 @@
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
         "file_count": 277,
-        "size_kb": 75.6,
+        "size_kb": 75.7,
         "desc": "远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker"
       },
       {

@@ -26,7 +26,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/modules.tsv` | 765 | 149.2 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1440 | 268.8 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 231 | 36.1 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 277 | 75.6 KB | 远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker |
+| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 277 | 75.7 KB | 远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 99 | 14.8 KB | 代码地图、ADR、契约与 docs 项目知识 |
 | `docs/doc/codemap/project-map/index/other.tsv` | 1255 | 251.6 KB | 公共库、脚本、测试、配置与其他根级资源 |
 

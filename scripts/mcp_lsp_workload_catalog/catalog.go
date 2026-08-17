@@ -747,7 +747,8 @@ func WorkloadGateInputPaths(document Catalog) []string {
 	}
 	paths = append(paths, WorkloadConsumerPaths()...)
 	for _, workload := range document.Workloads {
-		if workload.ImplementationStatus == "implemented" && workload.ProducerWorkflowPath != "" {
+		if workload.ImplementationStatus == "implemented" &&
+			workload.ProducerImplementationStatus == "implemented" && workload.ProducerWorkflowPath != "" {
 			paths = append(paths, workload.ProducerWorkflowPath)
 		}
 	}

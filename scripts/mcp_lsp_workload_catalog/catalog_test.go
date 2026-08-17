@@ -557,15 +557,16 @@ func TestConsumerDiscoveryFindsIndirectOwnerCallsWithoutCatalogImport(t *testing
 
 func TestWorkloadGateInputPathsUseCandidateProducerAndModuleClosure(t *testing.T) {
 	paths := WorkloadGateInputPaths(Catalog{Workloads: []Workload{
-		{ImplementationStatus: "implemented", ProducerWorkflowPath: ".github/workflows/candidate.yml"},
-		{ImplementationStatus: "missing", ProducerWorkflowPath: ".github/workflows/stale.yml"},
+		{ImplementationStatus: "implemented", ProducerImplementationStatus: "implemented", ProducerWorkflowPath: ".github/workflows/candidate.yml"},
+		{ImplementationStatus: "implemented", ProducerImplementationStatus: "missing", ProducerWorkflowPath: ".github/workflows/missing.yml"},
+		{ImplementationStatus: "missing", ProducerImplementationStatus: "implemented", ProducerWorkflowPath: ".github/workflows/stale.yml"},
 	}})
 	for _, want := range []string{"go.mod", "go.sum", ".github/workflows/candidate.yml"} {
 		if !slices.Contains(paths, want) {
 			t.Fatalf("WorkloadGateInputPaths() omitted %q", want)
 		}
 	}
-	if slices.Contains(paths, ".github/workflows/stale.yml") || slices.Contains(paths, ".github/workflows/release.yml") {
+	if slices.Contains(paths, ".github/workflows/missing.yml") || slices.Contains(paths, ".github/workflows/stale.yml") || slices.Contains(paths, ".github/workflows/release.yml") {
 		t.Fatalf("WorkloadGateInputPaths() contains non-candidate workflow: %v", paths)
 	}
 }
