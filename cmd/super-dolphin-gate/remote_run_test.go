@@ -419,6 +419,7 @@ func writeRemoteRunLedgerFixture(t *testing.T, runners ...string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
 	ledger := gatecontract.NewDurationLedger()
 	ledger.Calibration = &gatecontract.DurationCalibration{
 		SchemaVersion:              gatecontract.DurationCalibrationSchemaVersion,
@@ -447,9 +448,17 @@ func writeRemoteRunLedgerFixture(t *testing.T, runners ...string) string {
 	return path
 }
 
-func TestPrepareRemoteCalibrationLedgerInitializesAndResumes(t *testing.T) {
+func TestPrepareRemoteCalibrationLedgerRequiresAcceptedBaselineAndResumes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
-	store, err := prepareRemoteCalibrationLedger(path)
+	store, err := gatecontract.NewDurationLedgerStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
+	if _, err := store.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	store, err = prepareRemoteCalibrationLedger(path)
 	if err != nil {
 		t.Fatalf("prepareRemoteCalibrationLedger() error = %v", err)
 	}

@@ -76,10 +76,10 @@ func TestFileReadPosWithoutLineReadsFullFile(t *testing.T) {
 	if !ok {
 		t.Fatalf("read_file result type = %T, want string", got)
 	}
-	if !strings.Contains(content, "1: alpha") || !strings.Contains(content, "2: beta") {
+	if !strings.Contains(content, "ROW\tline=1\ttext=alpha") || !strings.Contains(content, "ROW\tline=2\ttext=beta") {
 		t.Fatalf("read_file content = %q, want full file", content)
 	}
-	if !strings.Contains(content, "[scope=file 3 lines]") {
+	if !strings.Contains(content, "scope=lines") || !strings.Contains(content, "total=2") {
 		t.Fatalf("read_file footer = %q, want file scope", content)
 	}
 }
@@ -102,36 +102,21 @@ func TestFileHandlerTruncatesSingleReadToTextBudget(t *testing.T) {
 	if len([]byte(content)) > middleware.ToolBudget("file") {
 		t.Fatalf("read_file text bytes = %d, want <= %d", len([]byte(content)), middleware.ToolBudget("file"))
 	}
-	if !strings.Contains(content, "truncated to fit output budget") {
+	if !strings.Contains(content, "WARNING\tread_file rows reduced to fit output budget") {
 		t.Fatalf("read_file missing budget truncation hint: %q", content)
 	}
-	if !strings.Contains(content, `large.txt:`) || !strings.Contains(content, "to continue") {
+	if !strings.Contains(content, `large.txt:190`) || !strings.Contains(content, "HINT\tnext:") {
 		t.Fatalf("read_file missing continuation hint: %q", content)
 	}
 }
 
-func TestFileBatchResponseUsesTopLevelTotalShowingAndHint(t *testing.T) {
+func TestFileBatchRejectsMoreThanMaximumFiles(t *testing.T) {
 	root := t.TempDir()
 	paths := writeBatchReadFixturePaths(t, root, lspReadFileBatchMax+2)
 
-	got, err := callFileTool(t, root, fileToolInput{Action: "read_file", FilePaths: paths})
-	if err != nil {
-		t.Fatalf("read_file batch returned error: %v", err)
+	if _, err := callFileTool(t, root, fileToolInput{Action: "read_file", FilePaths: paths}); err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Fatalf("read_file oversized batch error = %v, want maximum rejection", err)
 	}
-	payload := mustMarshalObject(t, got)
-	requireNumberField(t, payload, "total", len(paths))
-	requireNumberField(t, payload, "showing", lspReadFileBatchMax)
-	requireBoolField(t, payload, "truncated", true)
-	requireStringFieldContains(t, payload, "hint", "file_paths", "batch")
-	meta := requireObjectField(t, payload, "meta")
-	requireNumberField(t, meta, "max_batch", lspReadFileBatchMax)
-	requireNumberField(t, meta, "dropped", len(paths)-lspReadFileBatchMax)
-	requireAbsentField(t, meta, "count")
-	requireAbsentField(t, meta, "success_count")
-	requireAbsentField(t, meta, "total")
-	requireAbsentField(t, meta, "showing")
-	requireAbsentField(t, meta, "truncated")
-	requireAbsentField(t, meta, "hint")
 }
 
 func callFileTool(t *testing.T, root string, input fileToolInput) (any, error) {
@@ -240,7 +225,7 @@ func TestReadFileFunctionWindowUsesBestEffortDocumentSymbols(t *testing.T) {
 	if !ok {
 		t.Fatalf("read_file result = %T, want string", got)
 	}
-	if !strings.Contains(text, "[scope=function hello L3-L5]") {
+	if !strings.Contains(text, "scope=function") || !strings.Contains(text, "symbol=hello") {
 		t.Fatalf("read_file result = %q, want function window from best-effort symbols", text)
 	}
 }

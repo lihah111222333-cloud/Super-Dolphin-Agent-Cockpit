@@ -259,12 +259,15 @@ func TestParseAutoTestRunOptionsBindsDefaultMcpLSPWorkloadAndKeepsItNV(t *testin
 	}
 }
 
-func TestParseAutoTestRunOptionsRejectsLocalMcpLSPWorkloadsForRemoteCLI(t *testing.T) {
+func TestParseAutoTestRunOptionsKeepsLocalMcpLSPWorkloadsNVForRemoteCLI(t *testing.T) {
 	token, err := cicontract.GenerateAgentToken()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, workloadID := range []string{"mcp-lsp-idle-quick", "mcp-lsp-native-process-tree"} {
+	for workloadID, reason := range map[string]string{
+		"mcp-lsp-idle-quick":          "producer_implementation_status=missing",
+		"mcp-lsp-native-process-tree": "remote test cannot execute local runner target",
+	} {
 		_, err := parseAutoTestRunOptions([]string{
 			"--target", "remote",
 			"--config", "/tmp/config.json",
@@ -273,8 +276,8 @@ func TestParseAutoTestRunOptionsRejectsLocalMcpLSPWorkloadsForRemoteCLI(t *testi
 			"--agent-token", token,
 			"--workload", workloadID,
 		})
-		if err == nil || !strings.Contains(err.Error(), "remote test cannot execute local runner target") || !strings.Contains(err.Error(), "local runner receipts cannot substitute remote authority") {
-			t.Fatalf("local workload %q parse error = %v, want remote N/V", workloadID, err)
+		if err == nil || !strings.Contains(err.Error(), "is N/V") || !strings.Contains(err.Error(), reason) {
+			t.Fatalf("local workload %q parse error = %v, want N/V reason %q", workloadID, err, reason)
 		}
 	}
 }

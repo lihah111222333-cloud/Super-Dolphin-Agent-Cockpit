@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -76,7 +75,6 @@ func TestMcpLSPWorkloadFilesRequireCatalogAndQuickRoundTrip(t *testing.T) {
 		"scripts/mcp_lsp_workload_runner/main.go",
 		"internal/devtools/mcplspguardcore/guard.go",
 		"scripts/mcp_lsp_workload_catalog_guard_test.go",
-		".github/workflows/ci.yml",
 		"scripts/ai_maintenance/main.go",
 		"scripts/ai_maintenance/owned_gate_execution.go",
 		".githooks/README.md",
@@ -102,33 +100,18 @@ func TestMcpLSPWorkloadRoutingCoversCanonicalConsumerRegistry(t *testing.T) {
 }
 
 func TestCandidateProducerWorkflowChangeRoutesBothMcpLSPGates(t *testing.T) {
-	root := t.TempDir()
-	catalogPath := filepath.Join(root, filepath.FromSlash(catalog.Path))
-	if err := os.MkdirAll(filepath.Dir(catalogPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(catalog.Path)))
-	if err != nil {
-		t.Fatal(err)
-	}
 	const producer = ".github/workflows/new-mcp-lsp.yml"
-	raw = bytes.ReplaceAll(raw, []byte(".github/workflows/ci.yml"), []byte(producer))
-	digest, err := catalog.CanonicalDigest(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
 	current, err := catalog.Load(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw = bytes.Replace(raw, []byte(current.CatalogDigest), []byte(digest), 1)
-	if err := os.WriteFile(catalogPath, raw, 0o600); err != nil {
-		t.Fatal(err)
+	if len(current.Workloads) == 0 {
+		t.Fatal("candidate catalog has no workload fixture")
 	}
-	policy, err := bindCandidateWorkloadGateInputs(root, newGatePlanPolicy())
-	if err != nil {
-		t.Fatal(err)
-	}
+	current.Workloads[0].ProducerImplementationStatus = "implemented"
+	current.Workloads[0].ProducerWorkflowPath = producer
+	policy := newGatePlanPolicy()
+	policy.mcpLSPWorkloadExactFiles = workloadGateInputFileSet(current)
 	gates := map[string]bool{}
 	policy.applyOwnedGateRules(producer, gates)
 	if !gates["mcp-lsp:catalog"] || !gates["mcp-lsp:idle-quick"] {

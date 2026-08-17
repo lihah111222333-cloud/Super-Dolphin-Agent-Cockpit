@@ -346,6 +346,7 @@ func TestPrepareAutomaticRemoteCalibrationLedgerPreservesSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := remoteRunRunnerIdentityState()
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
 	runnerIdentity := remoteRunRunnerIdentity(state)
 	staleRunner := "sha256:" + strings.Repeat("f", 64)
 	sample := gatecontract.DurationSample{
@@ -388,6 +389,7 @@ func TestPrepareAutomaticRemoteCalibrationLedgerDoesNotReuseRetiredV1Identity(t 
 		t.Fatal(err)
 	}
 	state := remoteRunRunnerIdentityState()
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
 	runnerIdentity := remoteRunRunnerIdentity(state)
 	legacyIdentity := "sha256:" + strings.Repeat("e", 64)
 	sample := gatecontract.DurationSample{
@@ -430,6 +432,7 @@ func TestPrepareAutomaticRemoteCalibrationLedgerDoesNotReuseV2RuntimeImageIdenti
 		t.Fatal(err)
 	}
 	state := remoteRunRunnerIdentityState()
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
 	v2Identity := historicalV2RemoteRunnerIdentity(state, "sha256:"+strings.Repeat("f", 64))
 	ledger := gatecontract.NewDurationLedger()
 	ledger.Calibration = new(remoteAutomationCalibration(state, v2Identity))

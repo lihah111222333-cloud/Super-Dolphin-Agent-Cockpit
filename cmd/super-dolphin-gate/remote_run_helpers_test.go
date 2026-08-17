@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,6 +24,9 @@ import (
 // generation, snapshot and content digest agree with the SQLite authority.
 func seedRemoteRunTestAcceptedGeneration(t *testing.T, store *gatecontract.DurationLedgerStore, generation uint64) string {
 	t.Helper()
+	if _, err := store.LoadRemoteBaselineState(); err != nil && !errors.Is(err, gatecontract.ErrRemoteBaselineStateNotFound) {
+		t.Fatalf("initialize accepted baseline fixture authority: %v", err)
+	}
 	state := remoteRunTestAcceptedBaselineState(generation)
 	payload, err := json.Marshal(state)
 	if err != nil {

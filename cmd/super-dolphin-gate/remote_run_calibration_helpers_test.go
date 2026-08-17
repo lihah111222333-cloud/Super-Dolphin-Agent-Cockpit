@@ -24,11 +24,16 @@ type remoteDurationCalibrationFixture struct {
 
 func newRemoteDurationCalibrationFixture(t *testing.T) remoteDurationCalibrationFixture {
 	t.Helper()
-	store, err := prepareRemoteCalibrationLedger(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
+	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
+	store, err := gatecontract.NewDurationLedgerStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	seedRemoteRunTestAcceptedGeneration(t, store, 1)
+	store, err = prepareRemoteCalibrationLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	base, commit, tree := strings.Repeat("1", 40), strings.Repeat("2", 40), strings.Repeat("3", 40)
 	inventory := gatecontract.WorkloadInventory{GoPackages: []string{"./internal/alpha", "./pkg/beta"}}
 	commitCatalog, commitDigest := mustRemoteCalibrationCatalog(t, remoteci.RunInput{Profile: gatecontract.ProfileLocalFast, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, ObjectFormat: gatecontract.GitObjectFormatSHA1, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: base}, SourceTreeSHA: tree}, Inventory: inventory})
