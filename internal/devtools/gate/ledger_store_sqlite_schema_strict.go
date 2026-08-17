@@ -35,7 +35,8 @@ func durationLedgerSQLiteCurrentSchemaStatements() []string {
 	statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
 	statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
 	statements = append(statements, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements()...)
-	return append(statements, durationLedgerRemoteCIPlanningReceiptSchemaStatements()...)
+	statements = append(statements, durationLedgerRemoteCIPlanningReceiptSchemaStatements()...)
+	return append(statements, durationLedgerWorkloadSemanticReplayCacheSchemaStatements()...)
 }
 
 func durationLedgerRemoteCIRunExecutionIdentitySchemaStatements() []string {

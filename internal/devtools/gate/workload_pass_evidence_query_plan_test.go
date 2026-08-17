@@ -87,7 +87,7 @@ func TestWorkloadInputReplayCacheQueryPlanUsesPrimaryPartition(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 12)
 	database := openWorkloadPassDatabase(t, store)
 	defer database.Close()
-	query := `SELECT workload_id, input_digest, cache_sha256 FROM ci_workload_input_replay_cache WHERE accepted_generation = ? AND source_tree_sha = ? AND input_algorithm_digest = ? AND workload_id IN (?, ?) ORDER BY workload_id`
+	query := `SELECT workload_id, input_digest, compile_digest, declaration_digest, runtime_digest, runtime_fallback, cache_sha256 FROM ci_workload_input_replay_cache WHERE accepted_generation = ? AND source_tree_sha = ? AND input_algorithm_digest = ? AND workload_id IN (?, ?) ORDER BY workload_id`
 	details := sqliteQueryPlanDetails(t, database, query, "12", strings.Repeat("a", 40), digestForWorkloadPass("query-plan-input-algorithm"), GateIDWhitespaceCheck, GateIDProjectMapCheck)
 	assertSQLiteQueryPlanAccess(t, details, []string{"SEARCH ci_workload_input_replay_cache USING PRIMARY KEY (accepted_generation=? AND source_tree_sha=? AND input_algorithm_digest=? AND workload_id=?)"})
 	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_input_replay_cache"})

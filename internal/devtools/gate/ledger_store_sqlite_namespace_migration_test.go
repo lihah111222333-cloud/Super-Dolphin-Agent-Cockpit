@@ -94,7 +94,9 @@ func TestDurationLedgerSQLiteV18ToV19AddsExecutionIdentityWithoutBackfill(t *tes
 	createDurationLedgerSQLiteV18Fixture(t, database)
 	before := snapshotDurationLedgerSQLiteSchema(t, database)
 
-	migrateDurationLedgerSQLiteSchema(t, database)
+	if err := migrateDurationLedgerSQLiteSchema18To19(database); err != nil {
+		t.Fatal(err)
+	}
 	after := snapshotDurationLedgerSQLiteSchemaObjects(t, database)
 	assertDurationLedgerSQLiteSchemaObjectsUnchanged(t, before.schema, after, "v18 object", "v19 migration")
 	assertSQLiteRowsFingerprintUnchanged(t, database, `SELECT * FROM ci_runs ORDER BY job_id`, before.runCount, before.runDigest, "v18 ci_runs", "v19 migration")
@@ -112,6 +114,36 @@ func TestDurationLedgerSQLiteV18ToV19AddsExecutionIdentityWithoutBackfill(t *tes
 	}
 	if legacy.Platform != "" || legacy.RunnerIdentityDigest != "" || legacy.ToolchainDigest != "" || legacy.ExecutionMode != "" {
 		t.Fatalf("migrated v18 run gained execution identity: %#v", legacy)
+	}
+}
+
+func TestDurationLedgerSQLiteV20ToV21AddsSemanticReplayColumnsWithoutBackfill(t *testing.T) {
+	database := openStrictSchemaTestDatabase(t, "v20-semantic-replay-cache.sqlite")
+	defer database.Close()
+	createDurationLedgerSQLiteV20Fixture(t, database)
+	tree := strings.Repeat("a", 40)
+	algorithm := digestForWorkloadPass("legacy-input-algorithm")
+	input := digestForWorkloadPass("legacy-input")
+	cache := digestForWorkloadPass("legacy-cache")
+	if _, err := database.Exec(`INSERT INTO ci_workload_input_replay_cache(accepted_generation, source_tree_sha, input_algorithm_digest, workload_id, input_digest, cache_sha256) VALUES('1', ?, ?, 'legacy-workload', ?, ?)`, tree, algorithm, input, cache); err != nil {
+		t.Fatal(err)
+	}
+
+	migrateDurationLedgerSQLiteSchema(t, database)
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != durationLedgerSQLiteSchemaVersion {
+		t.Fatalf("migrated schema version = %d, want %d", version, durationLedgerSQLiteSchemaVersion)
+	}
+	var gotInput, compile, declaration, runtime string
+	var fallback bool
+	if err := database.QueryRow(`SELECT input_digest, compile_digest, declaration_digest, runtime_digest, runtime_fallback FROM ci_workload_input_replay_cache WHERE workload_id = 'legacy-workload'`).Scan(&gotInput, &compile, &declaration, &runtime, &fallback); err != nil {
+		t.Fatal(err)
+	}
+	if gotInput != input || compile != "" || declaration != "" || runtime != "" || fallback {
+		t.Fatalf("migrated semantic replay row = input:%q compile:%q declaration:%q runtime:%q fallback:%t", gotInput, compile, declaration, runtime, fallback)
 	}
 }
 
@@ -171,6 +203,36 @@ func createDurationLedgerSQLiteV18Fixture(t *testing.T, database *sql.DB) {
 	}
 	insertRemotePassFixture(t, database)
 	if _, err := database.Exec(`PRAGMA user_version = 18`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createDurationLedgerSQLiteV20Fixture(t *testing.T, database *sql.DB) {
+	t.Helper()
+	statements := append(durationLedgerSQLiteSchemaStatementsV14(), durationLedgerRemoteCIExecutionScopeSchemaStatements()...)
+	statements = append(statements, durationLedgerRetainedWorkloadPassProofSchemaStatements()...)
+	statements = append(statements, durationLedgerSourceReplayIndexSchemaStatements()...)
+	statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
+	statements = append(statements, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements()...)
+	statements = append(statements, durationLedgerRemoteCIPlanningReceiptSchemaStatements()...)
+	for _, statement := range statements {
+		if _, err := database.Exec(statement); err != nil {
+			t.Fatalf("create v20 schema: %v", err)
+		}
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeLocalAuthorityStateOnConnection(connection, time.Now); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	insertRemotePassFixture(t, database)
+	if _, err := database.Exec(`PRAGMA user_version = 20`); err != nil {
 		t.Fatal(err)
 	}
 }

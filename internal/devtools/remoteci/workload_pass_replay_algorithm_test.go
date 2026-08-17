@@ -113,12 +113,9 @@ func TestPrewarmRemoteWorkloadPassSourceInputsLoadsPersistentDigest(t *testing.T
 		t.Fatalf("persistent incompatible prewarm compatible=%t err=%v", compatible, err)
 	}
 	key := remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: sourceTree}, workloadID: workload.ID}
-	if got := cache.inputDigests[key]; !got.available || got.digest != wantDigest {
-		t.Fatalf("persistent workload input digest = %#v", got)
-	}
-	if cache.inputComputations != 0 || cache.persistentInputHits != 1 {
-		t.Fatalf("persistent cache computations=%d hits=%d", cache.inputComputations, cache.persistentInputHits)
-	}
+	assertPersistentInputDigest(t, cache, key, wantDigest)
+	assertPersistentSemanticVotes(t, cache, key)
+	assertPersistentInputCounters(t, cache)
 	if err := cache.persistComputedInputDigests(); err != nil {
 		t.Fatal(err)
 	}
@@ -138,12 +135,108 @@ func TestPreloadRemoteWorkloadPassSourceInputsLoadsPersistentDigest(t *testing.T
 		t.Fatal(err)
 	}
 	key := remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: source.tree}, workloadID: workload.ID}
-	if got := cache.inputDigests[key]; !got.available || got.digest != wantDigest {
-		t.Fatalf("source replay persistent workload input digest = %#v", got)
+	assertPersistentInputDigest(t, cache, key, wantDigest)
+	assertPersistentSemanticVotes(t, cache, key)
+	assertPersistentInputCounters(t, cache)
+}
+
+func assertPersistentInputDigest(t *testing.T, cache *remoteReplayCache, key remoteReplayWorkloadKey, want string) {
+	t.Helper()
+	if got := cache.inputDigests[key]; !got.available || got.digest != want {
+		t.Fatalf("persistent workload input digest = %#v, want %s", got, want)
 	}
-	if cache.inputComputations != 0 || cache.persistentInputHits != 1 {
-		t.Fatalf("source replay persistent cache computations=%d hits=%d", cache.inputComputations, cache.persistentInputHits)
+}
+
+func assertPersistentSemanticVotes(t *testing.T, cache *remoteReplayCache, key remoteReplayWorkloadKey) {
+	t.Helper()
+	if got := cache.semanticInputVotes[key]; !got.supported || got.digests.declaration == "" || got.digests.runtime == "" {
+		t.Fatalf("persistent semantic votes = %#v", got)
 	}
+}
+
+func assertPersistentInputCounters(t *testing.T, cache *remoteReplayCache) {
+	t.Helper()
+	if cache.inputComputations != 0 || cache.semanticComputations != 0 || cache.persistentInputHits != 1 {
+		t.Fatalf("persistent cache input=%d semantic=%d hits=%d", cache.inputComputations, cache.semanticComputations, cache.persistentInputHits)
+	}
+}
+
+func TestPersistentInputReplayRoundTripsSemanticVotesAcrossPrepare(t *testing.T) {
+	fixture := newPersistentSemanticReplayFixture(t)
+	first := fixture.persist(t)
+	second := fixture.load(t)
+	if got := second.semanticInputVotes[fixture.key]; !got.supported || got.digests != first.semanticInputVotes[fixture.key].digests {
+		t.Fatalf("second Prepare semantic votes = %#v", got)
+	}
+	if second.semanticComputations != 0 || second.persistentInputHits != 1 {
+		t.Fatalf("second Prepare semantic computations=%d persistent hits=%d", second.semanticComputations, second.persistentInputHits)
+	}
+}
+
+type persistentSemanticReplayFixture struct {
+	store    *gate.DurationLedgerStore
+	target   *remoteGitTreeSnapshot
+	source   *remoteGitTreeSnapshot
+	workload gate.Workload
+	key      remoteReplayWorkloadKey
+}
+
+func newPersistentSemanticReplayFixture(t *testing.T) persistentSemanticReplayFixture {
+	t.Helper()
+	targetTree := strings.Repeat("a", 40)
+	sourceTree := strings.Repeat("b", 40)
+	store, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwap(0, gate.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteCITestAcceptedGeneration(t, store, 1)
+	workload := gate.Workload{ID: string(gate.GateIDWhitespaceCheck)}
+	return persistentSemanticReplayFixture{
+		store: store, target: testRemoteReplayAlgorithmSnapshot(targetTree, "stable-algorithm", "target-unrelated"),
+		source: testRemoteReplayAlgorithmSnapshot(sourceTree, "stable-algorithm", "source-unrelated"), workload: workload,
+		key: remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: sourceTree}, workloadID: workload.ID},
+	}
+}
+
+func (fixture persistentSemanticReplayFixture) persist(t *testing.T) *remoteReplayCache {
+	t.Helper()
+	cache, err := newRemoteReplayCache("repo", fixture.target.tree, fixture.target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.bindPersistentInputReplayCache(fixture.store, 1, fixture.target); err != nil {
+		t.Fatal(err)
+	}
+	cache.inputDigests[fixture.key] = remoteReplayInputDigestResult{digest: "sha256:" + strings.Repeat("c", 64), available: true}
+	cache.semanticInputVotes[fixture.key] = remoteReplaySemanticDigestResult{supported: true, digests: remoteWorkloadInputVoteDigests{
+		compile: "sha256:" + strings.Repeat("d", 64), declaration: "sha256:" + strings.Repeat("e", 64), runtime: "sha256:" + strings.Repeat("f", 64),
+	}}
+	if err := cache.persistComputedInputDigests(); err != nil {
+		t.Fatal(err)
+	}
+	if cache.persistentInputWrites != 1 {
+		t.Fatalf("first Prepare persistent writes = %d, want 1", cache.persistentInputWrites)
+	}
+	return cache
+}
+
+func (fixture persistentSemanticReplayFixture) load(t *testing.T) *remoteReplayCache {
+	t.Helper()
+	cache, err := newRemoteReplayCache("repo", fixture.target.tree, fixture.target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.bindPersistentInputReplayCache(fixture.store, 1, fixture.target); err != nil {
+		t.Fatal(err)
+	}
+	cache.snapshots[fixture.key.tree] = remoteReplaySnapshotResult{snapshot: fixture.source, available: true}
+	if err := cache.preloadPersistentInputDigests(fixture.source, []gate.Workload{fixture.workload}); err != nil {
+		t.Fatal(err)
+	}
+	return cache
 }
 
 func persistentInputReplayTestFixture(t *testing.T) (*remoteReplayCache, *remoteGitTreeSnapshot, *remoteGitTreeSnapshot, gate.Workload, string) {
@@ -169,7 +262,11 @@ func persistentInputReplayTestFixture(t *testing.T) (*remoteReplayCache, *remote
 	}
 	workload := gate.Workload{ID: string(gate.GateIDWhitespaceCheck)}
 	wantDigest := "sha256:" + strings.Repeat("c", 64)
-	if err := store.SaveWorkloadInputReplayCache(1, cache.persistentInputAlgorithm, []gate.WorkloadInputReplayCacheEntry{{SourceTreeSHA: sourceTree, WorkloadID: gate.GateID(workload.ID), InputDigest: wantDigest}}); err != nil {
+	value := gate.WorkloadInputReplayCacheValue{
+		InputDigest: wantDigest, CompileDigest: "sha256:" + strings.Repeat("d", 64),
+		DeclarationDigest: "sha256:" + strings.Repeat("e", 64), RuntimeDigest: "sha256:" + strings.Repeat("f", 64),
+	}
+	if err := store.SaveWorkloadInputReplayCache(1, cache.persistentInputAlgorithm, []gate.WorkloadInputReplayCacheEntry{{SourceTreeSHA: sourceTree, WorkloadID: gate.GateID(workload.ID), Value: value}}); err != nil {
 		t.Fatal(err)
 	}
 	cache.snapshots[remoteReplayTreeKey{repositoryRoot: "repo", tree: sourceTree}] = remoteReplaySnapshotResult{snapshot: source, available: true}

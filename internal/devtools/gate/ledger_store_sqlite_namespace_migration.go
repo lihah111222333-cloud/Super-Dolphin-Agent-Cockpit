@@ -23,6 +23,8 @@ const workloadInputReplayDurationLedgerSQLiteSchemaVersion = 18
 
 const runExecutionIdentityDurationLedgerSQLiteSchemaVersion = 19
 
+const planningReceiptDurationLedgerSQLiteSchemaVersion = 20
+
 // migrateDurationLedgerSQLiteSchema13To14 adds only local-origin projections;
 // the frozen remote PASS table is validated and left untouched.
 func migrateDurationLedgerSQLiteSchema13To14(database *sql.DB, now func() time.Time) error {
@@ -307,8 +309,53 @@ func migrateDurationLedgerSQLitePlanningReceiptOnConnection(connection *sql.Conn
 			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite planning receipt", err)
 		}
 	}
-	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, planningReceiptDurationLedgerSQLiteSchemaVersion)); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite planning receipt schema version", err)
+	}
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, planningReceiptDurationLedgerSQLiteSchemaVersion)
+}
+
+// migrateDurationLedgerSQLiteSchema20To21 只扩展 workload input 派生缓存，
+// 不回填或改写任何 PASS authority、receipt 或历史耗时证据。
+func migrateDurationLedgerSQLiteSchema20To21(database *sql.DB) error {
+	if database == nil {
+		return errors.New("duration ledger SQLite semantic replay cache migration requires database")
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite semantic replay cache migration connection", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return mapDurationLedgerSQLiteError("begin duration ledger SQLite semantic replay cache migration", err)
+	}
+	if err := migrateDurationLedgerSQLiteSemanticReplayCacheOnConnection(connection); err != nil {
+		return rollbackDurationLedgerSQLiteNamespace(connection, err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return mapDurationLedgerSQLiteError("commit duration ledger SQLite semantic replay cache migration", err)
+	}
+	return nil
+}
+
+func migrateDurationLedgerSQLiteSemanticReplayCacheOnConnection(connection *sql.Conn) error {
+	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	if version != planningReceiptDurationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite semantic replay cache migration expected schema version %d, got %d", planningReceiptDurationLedgerSQLiteSchemaVersion, version)
+	}
+	if err := preflightDurationLedgerSQLiteSchemaVersion(connection, planningReceiptDurationLedgerSQLiteSchemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range durationLedgerWorkloadSemanticReplayCacheSchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite semantic replay cache", err)
+		}
+	}
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite semantic replay cache schema version", err)
 	}
 	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
 }
@@ -496,7 +543,8 @@ func preflightDurationLedgerSQLiteSchemaVersion(queryer durationLedgerSQLiteSche
 			{sourceReplayIndexDurationLedgerSQLiteSchemaVersion, durationLedgerSourceReplayIndexSchemaStatements},
 			{workloadInputReplayDurationLedgerSQLiteSchemaVersion, durationLedgerWorkloadInputReplayCacheSchemaStatements},
 			{runExecutionIdentityDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements},
-			{durationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIPlanningReceiptSchemaStatements},
+			{planningReceiptDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIPlanningReceiptSchemaStatements},
+			{durationLedgerSQLiteSchemaVersion, durationLedgerWorkloadSemanticReplayCacheSchemaStatements},
 		} {
 			if version >= step.version {
 				statements = append(statements, step.statements()...)

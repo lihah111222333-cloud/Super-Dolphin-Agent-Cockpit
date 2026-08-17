@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const remoteWorkloadInputAlgorithmDomain = "remote-workload-input-algorithm/v1"
+const remoteWorkloadInputAlgorithmDomain = "remote-workload-input-algorithm/v2"
 
 // remoteWorkloadInputAlgorithmRequiredPaths 返回 input producer 的跨包静态闭包；
 // workload_fingerprint 前缀下的其他生产文件由动态路径规则一并纳入。

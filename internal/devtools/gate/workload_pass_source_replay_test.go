@@ -288,8 +288,8 @@ func TestWorkloadInputReplayCacheRoundTripsAndRejectsDrift(t *testing.T) {
 	tree := strings.Repeat("a", 40)
 	algorithm := digestForWorkloadPass("input-replay-algorithm")
 	entries := []WorkloadInputReplayCacheEntry{
-		{SourceTreeSHA: tree, WorkloadID: GateIDWhitespaceCheck, InputDigest: digestForWorkloadPass("input-replay-whitespace")},
-		{SourceTreeSHA: tree, WorkloadID: GateIDProjectMapCheck, InputDigest: digestForWorkloadPass("input-replay-project-map")},
+		{SourceTreeSHA: tree, WorkloadID: GateIDWhitespaceCheck, Value: testWorkloadInputReplayValue("input-replay-whitespace")},
+		{SourceTreeSHA: tree, WorkloadID: GateIDProjectMapCheck, Value: testWorkloadInputReplayValue("input-replay-project-map")},
 	}
 	if err := store.SaveWorkloadInputReplayCache(1, algorithm, entries); err != nil {
 		t.Fatal(err)
@@ -298,11 +298,11 @@ func TestWorkloadInputReplayCacheRoundTripsAndRejectsDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 2 || hits[GateIDWhitespaceCheck] != entries[0].InputDigest || hits[GateIDProjectMapCheck] != entries[1].InputDigest {
+	if len(hits) != 2 || hits[GateIDWhitespaceCheck] != entries[0].Value || hits[GateIDProjectMapCheck] != entries[1].Value {
 		t.Fatalf("workload input replay cache hits = %#v", hits)
 	}
 	drifted := entries[:1]
-	drifted[0].InputDigest = digestForWorkloadPass("input-replay-drift")
+	drifted[0].Value.RuntimeDigest = digestForWorkloadPass("input-replay-drift")
 	if err := store.SaveWorkloadInputReplayCache(1, algorithm, drifted); err == nil || !strings.Contains(err.Error(), "verification drifted") {
 		t.Fatalf("workload input replay cache digest drift was accepted: %v", err)
 	}
@@ -317,8 +317,8 @@ func TestWorkloadInputReplayCacheCompactsOutsideThreeGenerations(t *testing.T) {
 	algorithm := digestForWorkloadPass("input-replay-retention-algorithm")
 	tree := strings.Repeat("d", 40)
 	for generation := uint64(1); generation <= 3; generation++ {
-		entry := WorkloadInputReplayCacheEntry{SourceTreeSHA: tree, WorkloadID: GateID("retention-generation-" + strconv.FormatUint(generation, 10)), InputDigest: digestForWorkloadPass("retention-input-" + strconv.FormatUint(generation, 10))}
-		if _, err := database.Exec(`INSERT INTO ci_workload_input_replay_cache(accepted_generation, source_tree_sha, input_algorithm_digest, workload_id, input_digest, cache_sha256) VALUES(?, ?, ?, ?, ?, ?)`, strconv.FormatUint(generation, 10), tree, algorithm, entry.WorkloadID, entry.InputDigest, workloadInputReplayCacheSHA256(generation, algorithm, entry)); err != nil {
+		entry := WorkloadInputReplayCacheEntry{SourceTreeSHA: tree, WorkloadID: GateID("retention-generation-" + strconv.FormatUint(generation, 10)), Value: testWorkloadInputReplayValue("retention-input-" + strconv.FormatUint(generation, 10))}
+		if _, err := database.Exec(`INSERT INTO ci_workload_input_replay_cache(accepted_generation, source_tree_sha, input_algorithm_digest, workload_id, input_digest, compile_digest, declaration_digest, runtime_digest, runtime_fallback, cache_sha256) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, strconv.FormatUint(generation, 10), tree, algorithm, entry.WorkloadID, entry.Value.InputDigest, entry.Value.CompileDigest, entry.Value.DeclarationDigest, entry.Value.RuntimeDigest, entry.Value.RuntimeFallback, workloadInputReplayCacheSHA256(generation, algorithm, entry)); err != nil {
 			database.Close()
 			t.Fatal(err)
 		}
@@ -326,7 +326,7 @@ func TestWorkloadInputReplayCacheCompactsOutsideThreeGenerations(t *testing.T) {
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	current := WorkloadInputReplayCacheEntry{SourceTreeSHA: tree, WorkloadID: GateID("retention-generation-4"), InputDigest: digestForWorkloadPass("retention-input-4")}
+	current := WorkloadInputReplayCacheEntry{SourceTreeSHA: tree, WorkloadID: GateID("retention-generation-4"), Value: testWorkloadInputReplayValue("retention-input-4")}
 	if err := store.SaveWorkloadInputReplayCache(4, algorithm, []WorkloadInputReplayCacheEntry{current}); err != nil {
 		t.Fatal(err)
 	}
@@ -338,5 +338,12 @@ func TestWorkloadInputReplayCacheCompactsOutsideThreeGenerations(t *testing.T) {
 	}
 	if generations != "2,3,4" {
 		t.Fatalf("retained workload input replay generations = %q, want 2,3,4", generations)
+	}
+}
+
+func testWorkloadInputReplayValue(seed string) WorkloadInputReplayCacheValue {
+	return WorkloadInputReplayCacheValue{
+		InputDigest: digestForWorkloadPass(seed + "-input"), CompileDigest: digestForWorkloadPass(seed + "-compile"),
+		DeclarationDigest: digestForWorkloadPass(seed + "-declaration"), RuntimeDigest: digestForWorkloadPass(seed + "-runtime"),
 	}
 }

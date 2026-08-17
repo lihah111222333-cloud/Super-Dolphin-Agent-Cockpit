@@ -166,9 +166,16 @@ func (cache *remoteReplayCache) preloadPersistentInputDigests(source *remoteGitT
 	if err != nil {
 		return err
 	}
-	for workloadID, digest := range hits {
+	for workloadID, value := range hits {
 		key := remoteReplayWorkloadKey{tree: treeKey, workloadID: string(workloadID)}
-		cache.inputDigests[key] = remoteReplayInputDigestResult{digest: digest, available: true}
+		cache.inputDigests[key] = remoteReplayInputDigestResult{digest: value.InputDigest, available: true}
+		cache.semanticInputVotes[key] = remoteReplaySemanticDigestResult{
+			digests: remoteWorkloadInputVoteDigests{
+				compile: value.CompileDigest, declaration: value.DeclarationDigest,
+				runtime: value.RuntimeDigest, runtimeFallback: value.RuntimeFallback,
+			},
+			supported: true,
+		}
 		cache.persistentLoadedInputs[key] = struct{}{}
 		cache.persistentInputHits++
 	}
@@ -183,13 +190,10 @@ func (cache *remoteReplayCache) persistComputedInputDigests() error {
 	}
 	entries := make([]gate.WorkloadInputReplayCacheEntry, 0)
 	for key, result := range cache.inputDigests {
-		if !result.available || key.tree == cache.currentTree {
-			continue
+		entry, ok := cache.persistentInputReplayEntry(key, result)
+		if ok {
+			entries = append(entries, entry)
 		}
-		if _, loaded := cache.persistentLoadedInputs[key]; loaded {
-			continue
-		}
-		entries = append(entries, gate.WorkloadInputReplayCacheEntry{SourceTreeSHA: key.tree.tree, WorkloadID: gate.GateID(key.workloadID), InputDigest: result.digest})
 	}
 	if len(entries) == 0 {
 		return nil
@@ -199,6 +203,28 @@ func (cache *remoteReplayCache) persistComputedInputDigests() error {
 	}
 	cache.persistentInputWrites += uint64(len(entries))
 	return nil
+}
+
+func (cache *remoteReplayCache) persistentInputReplayEntry(key remoteReplayWorkloadKey, result remoteReplayInputDigestResult) (gate.WorkloadInputReplayCacheEntry, bool) {
+	if !result.available || key.tree == cache.currentTree {
+		return gate.WorkloadInputReplayCacheEntry{}, false
+	}
+	if _, loaded := cache.persistentLoadedInputs[key]; loaded {
+		return gate.WorkloadInputReplayCacheEntry{}, false
+	}
+	semantic, ok := cache.semanticInputVotes[key]
+	if !ok || !semantic.supported {
+		return gate.WorkloadInputReplayCacheEntry{}, false
+	}
+	return gate.WorkloadInputReplayCacheEntry{
+		SourceTreeSHA: key.tree.tree,
+		WorkloadID:    gate.GateID(key.workloadID),
+		Value: gate.WorkloadInputReplayCacheValue{
+			InputDigest: result.digest, CompileDigest: semantic.digests.compile,
+			DeclarationDigest: semantic.digests.declaration,
+			RuntimeDigest:     semantic.digests.runtime, RuntimeFallback: semantic.digests.runtimeFallback,
+		},
+	}, true
 }
 
 func (cache *remoteReplayCache) inputAlgorithmDigest(snapshot *remoteGitTreeSnapshot) (string, bool, error) {
