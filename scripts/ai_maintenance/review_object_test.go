@@ -370,7 +370,7 @@ func testReviewFrontendSeedBindingBehavior(t *testing.T) {
 	repository := aiMaintenanceRepoRoot(t)
 	sourceSeed := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED"))
 	if sourceSeed == "" {
-		sourceSeed = filepath.Join(repository, "frontend-app", "node_modules")
+		t.Skip("controlled frontend dependency seed is unavailable")
 	}
 	sourceInfo := mustReviewFileInfo(t, sourceSeed)
 	t.Setenv("SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED", sourceSeed)

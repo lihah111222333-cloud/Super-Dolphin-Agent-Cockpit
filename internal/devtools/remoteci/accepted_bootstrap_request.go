@@ -37,6 +37,9 @@ const (
 	acceptedCompileSemanticGoTestNormal = "go-test-selector/v1/race=false"
 	acceptedCompileSemanticGoTestRace   = "go-test-selector/v1/race=true"
 	acceptedCompileSemanticGoBenchmark  = "go-benchmark-selector/v1/race=false"
+	// acceptedBootstrapAIMaintenanceGateID 是 accepted commit 7b11f3 中
+	// workflow lint 所属的旧 gate 身份；候选完整请求仍只使用 workflow:actionlint。
+	acceptedBootstrapAIMaintenanceGateID gate.GateID = "ai-maintenance:self-test"
 )
 
 // acceptedCompileGroup 是 accepted gate 严格接收的 schema-1 nested wire。
@@ -134,6 +137,7 @@ func (request BootstrapShardRequest) Validate() error {
 	return nil
 }
 
+// validateAcceptedBootstrapCompileGroupResources 校验 accepted 顶层资源与编译组资源一致。
 func validateAcceptedBootstrapCompileGroupResources(groups []acceptedCompileGroup, calibration bool, resource shardresource.Class) error {
 	if calibration {
 		if err := cicontract.ValidateCalibrationResources(resource.ID, resource.VCPU, resource.MemoryGiB); err != nil {
@@ -248,28 +252,41 @@ func ProjectAcceptedGateIDs(ids []gate.GateID) ([]gate.GateID, error) {
 	projected := make([]gate.GateID, 0, len(ids))
 	seen := make(map[gate.GateID]struct{}, len(ids))
 	for index, id := range ids {
-		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
-			return nil, fmt.Errorf("gate_ids[%d] accepted projection: %w", index, err)
-		}
-		parent, targetKind, _, targeted, err := gate.ParseWorkloadID(string(id))
+		projectedID, collapsed, err := projectAcceptedGateID(id)
 		if err != nil {
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection: %w", index, err)
 		}
-		collapsed := false
-		if targeted && (parent == gate.GateIDBackendNilness || parent == gate.GateIDFrontendPreflight || targetKind == gate.WorkloadTargetGoGuard) {
-			id = parent
-			collapsed = true
-		}
-		if _, duplicate := seen[id]; duplicate {
+		if _, duplicate := seen[projectedID]; duplicate {
 			if collapsed {
 				continue
 			}
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection is duplicated", index)
 		}
-		seen[id] = struct{}{}
-		projected = append(projected, id)
+		seen[projectedID] = struct{}{}
+		projected = append(projected, projectedID)
 	}
 	return projected, nil
+}
+
+// projectAcceptedGateID 将一个 current gate 身份投影到 accepted v1 owner。
+func projectAcceptedGateID(id gate.GateID) (gate.GateID, bool, error) {
+	if id == acceptedBootstrapAIMaintenanceGateID {
+		return id, false, nil
+	}
+	if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
+		return "", false, err
+	}
+	if id == gate.GateIDWorkflowActionlint {
+		return acceptedBootstrapAIMaintenanceGateID, true, nil
+	}
+	parent, targetKind, _, targeted, err := gate.ParseWorkloadID(string(id))
+	if err != nil {
+		return "", false, err
+	}
+	if targeted && (parent == gate.GateIDBackendNilness || parent == gate.GateIDFrontendPreflight || targetKind == gate.WorkloadTargetGoGuard) {
+		return parent, true, nil
+	}
+	return id, false, nil
 }
 
 func projectAcceptedCompileGroup(group gate.CompileGroup) (acceptedCompileGroup, error) {

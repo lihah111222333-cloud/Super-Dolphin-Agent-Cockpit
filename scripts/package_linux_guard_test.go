@@ -1,3 +1,5 @@
+//go:build linux
+
 // super-dolphin-ci: platform=linux
 
 package main

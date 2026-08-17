@@ -3,7 +3,7 @@
 > 由 `go run ./scripts/archtestmap` 从 `DefaultBackendBoundaryRegistry()` 自动生成。请勿手工维护本页事实。
 
 - Owners: 14
-- Canonical rules: 25
+- Canonical rules: 26
 - Specialized guards: 10
 - Governed backend surfaces: 34
 
@@ -38,6 +38,7 @@
 | `hooks_no_mcpcontrol` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/mcpcontrol` | — | — | hooks publish contracts instead of importing MCP control implementations |
 | `hooks_no_platform_db` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/db` | — | — | hooks must not own database lifecycle in production or test helpers |
 | `internal_support_narrow_import_surface` | `internal_support_boundary` | `allow_internal_imports` | `internal/devtools/**/*.go`<br>`internal/devtools/archtestmap/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | 15 policies across 5 file patterns | — | — | — | support packages may import only descendants and explicitly registered shared seams |
+| `mcp_orch_sqlc_sidecar_only` | `sqlc_boundary` | `scoped_import` | `cmd/**/*.go`<br>`internal/**/*.go` | — | `cmd/**/*.go` → `cmd/mcp-orch/store`<br>`internal/**/*.go` → `cmd/mcp-orch/store` | `cmd/mcp-orch/**/*.go` (`fx_mcp_orch`) | — | mcp-orch SQLC generated types remain private to the orchestrator sidecar |
 | `mcp_sidecar_narrow_import_surface` | `mcp_sidecar_boundary` | `allow_internal_imports` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go` | 51 policies across 3 file patterns | 21 policies across 3 file patterns | — | — | cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services |
 | `mcpcontrol_no_hooks` | `platform_control_boundary` | `deny_imports` | `internal/platform/mcpcontrol/**/*.go` | — | `internal/platform/mcpcontrol/**/*.go` → `internal/platform/hooks` | — | — | MCP control consumes injected hook ports instead of hook implementations |
 | `mcpserver_ida_family` | `mcpserver_family` | `deny_imports` | `cmd/mcp-ida/**/*.go` | — | `cmd/mcp-ida/**/*.go` → `internal/tool/lsp`<br>`cmd/mcp-ida/**/*.go` → `internal/tool/orchestration` | — | — | IDA MCP servers must not depend on LSP or orchestration tool families |
@@ -53,8 +54,8 @@
 | `provider_no_platform_db` | `provider_runtime` | `deny_imports` | `internal/provider/**/*.go` | — | `internal/provider/**/*.go` → `internal/platform/db` | — | — | provider production code must not own SQLite handles or DB lifecycle |
 | `provider_no_store` | `provider_runtime` | `deny_imports` | `internal/provider/**/*.go` | — | `internal/provider/**/*.go` → `internal/store` | — | — | provider adapters consume session contracts and must not import product store packages directly |
 | `provider_unified_no_concrete_imports` | `provider_runtime` | `allow_internal_imports` | `internal/provider/unified/**/*.go` | `internal/provider/unified/**/*.go` → `internal/contract`<br>`internal/provider/unified/**/*.go` → `internal/dto`<br>`internal/provider/unified/**/*.go` → `internal/platform`<br>`internal/provider/unified/**/*.go` → `internal/provider/shared`<br>`internal/provider/unified/**/*.go` → `internal/util` | — | — | — | the unified provider dispatch layer must depend on shared contracts instead of concrete provider implementations |
-| `store_dependency_surface` | `store_dependency` | `store_imports` | `internal/store/**/*.go`<br>`internal/store/**/module.go`<br>`internal/store/module.go` | 11 policies across 3 file patterns | — | — | — | store packages must depend only on their own implementation package and registered persistence ports |
-| `store_sqlc_store_platform_only` | `sqlc_boundary` | `scoped_import` | `cmd/**/*.go`<br>`internal/**/*.go` | — | `cmd/**/*.go` → `internal/store/sqlc`<br>`internal/**/*.go` → `internal/store/sqlc` | `internal/platform/db/**/*.go` (`platform_db`)<br>`internal/store/**/*.go` (`store`) | — | store/sqlc generated types must stay inside persistence implementation seams |
+| `store_dependency_surface` | `store_dependency` | `store_imports` | `internal/store/**/*.go`<br>`internal/store/**/module.go`<br>`internal/store/module.go` | 10 policies across 3 file patterns | — | — | — | store packages must depend only on their own implementation package and registered persistence ports |
+| `store_sqlc_store_platform_only` | `sqlc_boundary` | `scoped_import` | `cmd/**/*.go`<br>`internal/**/*.go` | — | `cmd/**/*.go` → `internal/store`<br>`internal/**/*.go` → `internal/store` | `internal/platform/db/**/*.go` (`platform_db`)<br>`internal/store/**/*.go` (`store`) | — | store/sqlc generated types must stay inside persistence implementation seams |
 
 ## Specialized guards
 
@@ -82,7 +83,7 @@
 | `cmd/codex-worktree-setup` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | Codex worktree LSP bootstrap command |
 | `cmd/mcp-ida` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_ida_family` | — | IDA MCP sidecar boundary |
 | `cmd/mcp-lsp` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface` | — | LSP MCP sidecar boundary |
-| `cmd/mcp-orch` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_orch_family` | — | orchestration MCP sidecar boundary |
+| `cmd/mcp-orch` | `fx_assembly_scope`<br>`mcp_orch_sqlc_sidecar_only`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_orch_family` | — | orchestration MCP sidecar boundary |
 | `cmd/mcp-schema-compiler-helper` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | one-shot MCP schema compiler helper |
 | `cmd/super-dolphin-gate` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | standalone gate coordinator and worker command |
 | `cmd/super-dolphin-guard` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | detached probation Guard command |

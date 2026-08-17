@@ -1,3 +1,5 @@
+//go:build windows
+
 // super-dolphin-ci: platform=windows
 
 package main

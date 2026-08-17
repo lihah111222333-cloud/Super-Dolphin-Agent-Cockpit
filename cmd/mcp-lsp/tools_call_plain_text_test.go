@@ -62,8 +62,17 @@ func TestDirectToolsCallReadFileReturnsPlainTextContent(t *testing.T) {
 	if strings.HasPrefix(text, `"`) {
 		t.Fatalf("content text = %q, want unquoted plain text", text)
 	}
-	if !strings.Contains(text, "1: package main") {
-		t.Fatalf("content text = %q, want line-numbered file text", text)
+	for _, required := range []string{
+		"OK total=3 showing=2 truncated=1 unit=line",
+		"ATTR\tfile=",
+		"\tscope=lines\tstart_line=1\tend_line=2\trequested_start_line=1\treason=explicit",
+		"ROW\tline=1\ttext=package main",
+		"ROW\tline=2\ttext=",
+		"HINT\tnext: file action=read_file pos=",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("content text = %q, want line-protocol field %q", text, required)
+		}
 	}
 	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
 		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
@@ -117,8 +126,9 @@ func TestDirectToolsCallErrorUsesMcpLSPLineProtocol(t *testing.T) {
 		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
 	}
 	want := "ERROR code=invalid_params retryable=0\n" +
-		"MESSAGE\tinvalid+regex\n" +
-		"HINT\tfix-regex-syntax-or-set-regex%3Dfalse-for-literal-search"
+		"MESSAGE\tinvalid regex\n" +
+		"HINT\tfix-regex-syntax-or-set-regex=false-for-literal-search\n" +
+		"ATTR\ttool=grep"
 	if got := response.Result.Content[0].Text; got != want {
 		t.Fatalf("error content = %q, want %q", got, want)
 	}

@@ -580,10 +580,10 @@ func TestTargetCompileKeySeparatesBuildTagsAndRegistryVersion(t *testing.T) {
 	}
 }
 
-// super-dolphin-ci: local-only
+// super-dolphin-ci: platform=darwin
 func TestActualStagedWindowsGateFileGetsTargetCompileEvidence(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows source is host-visible on Windows")
+	if runtime.GOOS != "darwin" {
+		t.Skip("cross-target Windows compile evidence is a Darwin-hosted test")
 	}
 	root := lspDiagnosticsGateRepoRoot(t)
 	target := stagedWindowsTargetCompile(t, root)

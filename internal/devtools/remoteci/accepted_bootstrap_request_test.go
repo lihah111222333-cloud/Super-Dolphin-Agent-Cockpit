@@ -299,6 +299,26 @@ func TestAcceptedBootstrapProjectionCollapsesGoGuardTargets(t *testing.T) {
 	}
 }
 
+// TestAcceptedBootstrapProjectionMapsWorkflowActionlintToAcceptedOwner 锁定
+// accepted commit 7b11f3 只识别旧 workflow lint owner，而 current 请求保持新 ID。
+func TestAcceptedBootstrapProjectionMapsWorkflowActionlintToAcceptedOwner(t *testing.T) {
+	current := []gate.GateID{gate.GateIDWorkflowActionlint}
+	projected, err := ProjectAcceptedGateIDs(current)
+	if err != nil {
+		t.Fatalf("ProjectAcceptedGateIDs() error = %v", err)
+	}
+	want := []gate.GateID{acceptedBootstrapAIMaintenanceGateID}
+	if !slices.Equal(projected, want) {
+		t.Fatalf("accepted workflow projection = %v, want %v", projected, want)
+	}
+	if slices.Equal(current, projected) {
+		t.Fatal("current workflow actionlint identity was unexpectedly rewritten")
+	}
+	if _, err := ProjectAcceptedGateIDs(projected); err != nil {
+		t.Fatalf("accepted workflow projection is not idempotent: %v", err)
+	}
+}
+
 func TestAcceptedBootstrapProjectionFiltersExpansionOnlyNilnessCompileGroups(t *testing.T) {
 	workload, err := gate.NewGoPackageWorkload(gate.GateIDBackendNilness, "./internal/alpha", 10)
 	if err != nil {
