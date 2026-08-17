@@ -178,15 +178,12 @@ func validateAcceptedBootstrapGateIDs(ids []gate.GateID) error {
 	if len(ids) == 0 {
 		return errors.New("accepted bootstrap gate IDs are required")
 	}
-	seen := make(map[gate.GateID]struct{}, len(ids))
-	for index, id := range ids {
-		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
-			return fmt.Errorf("accepted bootstrap gate_ids[%d]: %w", index, err)
-		}
-		if _, duplicate := seen[id]; duplicate {
-			return fmt.Errorf("accepted bootstrap gate ID %q is duplicated", id)
-		}
-		seen[id] = struct{}{}
+	projected, err := ProjectAcceptedGateIDs(ids)
+	if err != nil {
+		return fmt.Errorf("accepted bootstrap gate IDs: %w", err)
+	}
+	if !slices.Equal(projected, ids) {
+		return errors.New("accepted bootstrap gate IDs are not projected")
 	}
 	return nil
 }

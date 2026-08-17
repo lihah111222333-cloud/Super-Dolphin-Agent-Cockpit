@@ -324,6 +324,17 @@ func TestAcceptedBootstrapProjectionMapsWorkflowActionlintToAcceptedOwner(t *tes
 	if _, ok := gateSet[acceptedBootstrapAIMaintenanceGateID]; !ok {
 		t.Fatal("accepted manifest lost projected workflow owner")
 	}
+	_, _, _, bootstrap := acceptedBootstrapProjectionFixture(t)
+	bootstrap.GateIDs = append(bootstrap.GateIDs, acceptedBootstrapAIMaintenanceGateID)
+	manifest := acceptedBootstrapManifestFromRequest(bootstrap)
+	_, digest, err := encodeAcceptedBootstrapManifest(manifest)
+	if err != nil {
+		t.Fatalf("encode accepted workflow bootstrap manifest: %v", err)
+	}
+	bootstrap.ShardExecutionManifestDigest = digest
+	if err := bootstrap.Validate(); err != nil {
+		t.Fatalf("complete accepted bootstrap rejected projected workflow owner: %v", err)
+	}
 }
 
 func TestAcceptedBootstrapProjectionFiltersExpansionOnlyNilnessCompileGroups(t *testing.T) {
