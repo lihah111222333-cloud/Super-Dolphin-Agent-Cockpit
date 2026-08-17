@@ -447,7 +447,7 @@ func marshalStructureParams(t *testing.T, params structureParams) json.RawMessag
 	return input
 }
 
-func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestRegistry, filePath string) {
+func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestRegistry, filePath, wantLanguageID string) {
 	t.Helper()
 	if registry.gotFilePath != filePath {
 		t.Fatalf("GetManagerForFileWithLanguage called with %q", registry.gotFilePath)
@@ -458,8 +458,8 @@ func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestR
 	if registry.languageCalls != 0 {
 		t.Fatalf("GetManagerForLanguage calls = %d, want 0 for file_path routing", registry.languageCalls)
 	}
-	if registry.gotLanguageID != "" {
-		t.Fatalf("GetManagerForFileWithLanguage language override = %q, want empty so file_path infers language", registry.gotLanguageID)
+	if registry.gotLanguageID != wantLanguageID {
+		t.Fatalf("GetManagerForFileWithLanguage language override = %q, want %q", registry.gotLanguageID, wantLanguageID)
 	}
 }
 
@@ -489,7 +489,7 @@ func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), input); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertWorkspaceSymbolFilePathRouting(t, registry, "frontend/service.ts")
+	assertWorkspaceSymbolFilePathRouting(t, registry, "frontend/service.ts", "typescript")
 	if manager.gotWorkspaceLang != "typescript" {
 		t.Fatalf("WorkspaceSymbol language = %q", manager.gotWorkspaceLang)
 	}

@@ -114,7 +114,7 @@ func TestLSPContractMatrix_FileInputOutputs_Single(t *testing.T) {
 	if !ok {
 		t.Fatalf("read_file output type = %T, want string", got)
 	}
-	if !strings.Contains(text, "3: import") {
+	if !strings.Contains(text, "line=3") || !strings.Contains(text, "import") {
 		t.Fatalf("read_file missing line 3: %q", text)
 	}
 	if !strings.Contains(text, "scope=lines") {

@@ -516,9 +516,7 @@ func fatalChildCrashError(stderr string) error {
 	trimmed := strings.TrimSpace(stderr)
 	lower := strings.ToLower(trimmed)
 	if !strings.Contains(lower, "fatal error:") ||
-		!strings.Contains(lower, "heap out of memory") ||
-		!strings.Contains(lower, "[tsserver] exited.") ||
-		!strings.Contains(lower, "signal: sigabrt") {
+		!strings.Contains(lower, "heap out of memory") {
 		return nil
 	}
 	return fmt.Errorf("%w: TypeScript child server crash: %s", ErrTransportClosed, trimmed)

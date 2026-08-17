@@ -273,10 +273,10 @@ func TestE2EFileToolSmartCommentExpansion_SingleRead(t *testing.T) {
 		t.Fatalf("unexpected response type: %T", res)
 	}
 
-	if !strings.Contains(content, "5: // Increment increments an integer by 1.") {
+	if !strings.Contains(content, "line=5") || !strings.Contains(content, "Increment increments an integer by 1.") {
 		t.Errorf("expected output to contain line 5 comment, got:\n%s", content)
 	}
-	if !strings.Contains(content, "8: \treturn x + 1") {
+	if !strings.Contains(content, "line=8") || !strings.Contains(content, "return x + 1") {
 		t.Errorf("expected output to contain line 8 (tail mitigation), got:\n%s", content)
 	}
 }
@@ -303,13 +303,13 @@ func TestE2EFileToolSmartCommentExpansion_BatchRead(t *testing.T) {
 	}
 
 	batchContent := batchPayload.Data[0].Content
-	if !strings.Contains(batchContent, "1: package main") {
+	if !strings.Contains(batchContent, "line=1") || !strings.Contains(batchContent, "package main") {
 		t.Errorf("batch read should start from line 1, got:\n%s", batchContent)
 	}
-	if !strings.Contains(batchContent, "5: // Increment increments an integer by 1.") {
+	if !strings.Contains(batchContent, "line=5") || !strings.Contains(batchContent, "Increment increments an integer by 1.") {
 		t.Errorf("batch read should contain comments, got:\n%s", batchContent)
 	}
-	if !strings.Contains(batchContent, "7: func Increment(x int) int {") {
+	if !strings.Contains(batchContent, "line=7") || !strings.Contains(batchContent, "func Increment(x int) int {") {
 		t.Errorf("batch read should contain function declaration, got:\n%s", batchContent)
 	}
 }
@@ -339,10 +339,10 @@ func TargetFunc() {
 		t.Fatalf("unexpected response type: %T", res)
 	}
 
-	if !strings.Contains(content, "3: // First comment") {
+	if !strings.Contains(content, "line=3") || !strings.Contains(content, "// First comment") {
 		t.Errorf("expected output to contain line 3, got:\n%s", content)
 	}
-	if !strings.Contains(content, "6: \t// body") {
+	if !strings.Contains(content, "line=6") || !strings.Contains(content, "// body") {
 		t.Errorf("expected output to contain line 6, got:\n%s", content)
 	}
 }
@@ -365,7 +365,7 @@ func TestE2EFileToolSmartCommentExpansion_NegativeLimit(t *testing.T) {
 		t.Fatalf("unexpected response type: %T", res)
 	}
 
-	if !strings.Contains(content, "5: // Increment increments an integer by 1.") {
+	if !strings.Contains(content, "line=5") || !strings.Contains(content, "Increment increments an integer by 1.") {
 		t.Errorf("expected negative limit fallback to default limit and expand comments, got:\n%s", content)
 	}
 }

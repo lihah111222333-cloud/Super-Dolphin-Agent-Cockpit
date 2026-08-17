@@ -199,6 +199,21 @@ func (s *bootstrapStateStore) status(workspace, uri string) bootstrapStatus {
 	return entry.status
 }
 
+// isReadyAndCurrent 检查指定 URI 是否处于 ready 状态且快照指纹完全匹配。
+func (s *bootstrapStateStore) isReadyAndCurrent(workspace, uri, fingerprint string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed.Load() {
+		return false
+	}
+
+	entry := s.entries[bootstrapKey{workspace: workspace, uri: uri}]
+	if entry == nil {
+		return false
+	}
+	return entry.status == bootstrapReady && entry.fingerprint == fingerprint
+}
+
 // finish 应用 apply 函数更新条目并通知等待方。
 func (s *bootstrapStateStore) finish(workspace, uri string, apply func(*bootstrapEntry)) error {
 	s.mu.Lock()

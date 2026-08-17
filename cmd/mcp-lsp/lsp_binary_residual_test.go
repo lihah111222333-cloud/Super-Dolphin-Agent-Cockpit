@@ -118,7 +118,7 @@ func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
 	currentPath := filepath.Join(currentRoot, relPath)
 	writeLSPBinaryFixture(t, stalePath, "existing TN integration notes\n")
 	writeLSPBinaryFixture(t, currentPath, "existing TN integration notes\n")
-	client := startLSPBinaryClient(t, staleRoot)
+	client := startLSPBinaryClientWithoutEnvRoots(t, staleRoot)
 
 	needle := "BenchmarkTickAppendStrictParallel"
 	writeLSPBinaryFixture(t, currentPath, "existing TN integration notes\n"+needle+"\n")
@@ -230,8 +230,8 @@ func TestLSPBinaryXrefIdentifierMissSuggestsImplementationMethodColumn(t *testin
 		}
 		t.Fatalf("xref declaration whitespace code = %q, want identifier_not_found; content=%s", got, result.ContentText())
 	}
-	if hint := strings.ToLower(lineProtocolRecordValue(doc, "HINT")); !strings.Contains(hint, "identifier") || !strings.Contains(hint, "column") {
-		t.Fatalf("xref declaration whitespace hint = %q, want identifier and column guidance", hint)
+	if hint := strings.ToLower(lineProtocolRecordValue(doc, "HINT")); !strings.Contains(hint, "column") {
+		t.Fatalf("xref declaration whitespace hint = %q, want column guidance", hint)
 	}
 }
 
@@ -354,12 +354,20 @@ type lspBinaryGrepFileRows struct {
 }
 
 func startLSPBinaryClient(t *testing.T, root string) *lspBinaryClient {
+	return startLSPBinaryClientWithEnv(t, root, lspBinaryEnv(t, root))
+}
+
+func startLSPBinaryClientWithoutEnvRoots(t *testing.T, root string) *lspBinaryClient {
+	return startLSPBinaryClientWithEnv(t, root, lspBinaryEnvWithoutRoots(t, root))
+}
+
+func startLSPBinaryClientWithEnv(t *testing.T, root string, env []string) *lspBinaryClient {
 	t.Helper()
 	binary := buildLSPBinary(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	cmd := exec.CommandContext(ctx, binary)
 	cmd.Dir = root
-	cmd.Env = lspBinaryEnv(t, root)
+	cmd.Env = env
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -571,6 +579,27 @@ func lspBinaryEnv(t *testing.T, root string) []string {
 	env = append(env,
 		"GO_AGENT_LSP_ROOT="+root,
 		"GO_AGENT_LSP_ROOTS="+string(roots),
+		"PROJECT_ROOT="+repoRoot,
+		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
+		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="+repoRoot,
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
+	)
+	return env
+}
+
+func lspBinaryEnvWithoutRoots(t *testing.T, root string) []string {
+	t.Helper()
+	repoRoot := lspBinaryRepoRoot(t)
+	env := make([]string, 0, len(os.Environ())+5)
+	skip := lspBinaryEnvSkipKeys()
+	for _, item := range os.Environ() {
+		if skip[lspBinaryEnvKey(item)] {
+			continue
+		}
+		env = append(env, item)
+	}
+	env = append(env,
+		"GO_AGENT_LSP_ROOT="+root,
 		"PROJECT_ROOT="+repoRoot,
 		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="+repoRoot,

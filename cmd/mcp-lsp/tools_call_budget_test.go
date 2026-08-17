@@ -64,7 +64,7 @@ func TestDirectToolsCallGrepContentWithinSixteenKiBBudget(t *testing.T) {
 	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
 		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
 	}
-	if !strings.Contains(response.Result.Content[0].Text, "Warning: results were truncated") {
+	if !strings.Contains(response.Result.Content[0].Text, "results-truncated") {
 		t.Fatalf("content text missing truncation warning: %s", response.Result.Content[0].Text)
 	}
 }

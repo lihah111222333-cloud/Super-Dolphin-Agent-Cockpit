@@ -291,7 +291,7 @@ func TestGrepHandlerAppliesSixteenKiBPayloadBudget(t *testing.T) {
 	if !ok {
 		t.Fatalf("grep result type = %T, want grepResponse", got)
 	}
-	raw := mustMarshalGrepResponse(t, resp)
+	raw := []byte(resp.ToPlainText())
 	if len(raw) > middleware.ToolBudget("grep") {
 		t.Fatalf("grep payload = %d bytes, want <= %d", len(raw), middleware.ToolBudget("grep"))
 	}

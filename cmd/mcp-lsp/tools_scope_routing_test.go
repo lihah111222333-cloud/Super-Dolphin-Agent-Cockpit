@@ -29,7 +29,7 @@ func TestHandleScopedToolsCallRoutesTrustedScopeToManagerPool(t *testing.T) {
 			assertTrustedManagerPoolScope(t, resolved, trustedRoot, evilRoot)
 			_, err = scoped.Manager.Diagnostics(ctx, nil)
 			require.NoError(t, err)
-			return map[string]any{"manager_key": resolved.ManagerKey}, nil
+			return "OK\tmanager_key=" + resolved.ManagerKey, nil
 		},
 	}}
 	params, err := json.Marshal(map[string]any{
@@ -157,7 +157,7 @@ func TestHandleScopedToolsCallKeepsMetadataRootsImmutableWhenRuntimeEnvIsInvalid
 			roots, err := common.WorkspaceRootsFromContextStrict(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{metadataRoot}, roots)
-			return map[string]any{"ok": true}, nil
+			return "OK", nil
 		},
 	}}
 	params, err := json.Marshal(map[string]any{

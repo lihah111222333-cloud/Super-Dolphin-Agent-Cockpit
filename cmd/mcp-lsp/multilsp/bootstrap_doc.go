@@ -396,7 +396,7 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 	if status == bootstrapBootstrapping {
 		return nil
 	}
-	if (status == bootstrapReady || status == bootstrapStale) &&
+	if c.states.isReadyAndCurrent(stateKey, snapshot.ref.uri, snapshot.fingerprint) &&
 		m.managedBootstrapSnapshotCurrent(cfg, snapshot.ref.uri) {
 		return nil
 	}

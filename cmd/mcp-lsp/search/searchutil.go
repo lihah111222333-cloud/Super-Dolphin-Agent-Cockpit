@@ -300,14 +300,43 @@ func statSearchPaths(root string, roots []string, rawPath string, explicitPaths 
 	return searchPaths, nil
 }
 
+func statSplitSearchPaths(root string, roots []string, rawPath string, fields []string) ([]searchPathStat, error) {
+	stats := make([]searchPathStat, 0, len(fields))
+	for _, field := range fields {
+		fieldInfo, fieldStat, fieldErr := statSearchPath(root, roots, field)
+		if fieldErr != nil {
+			return nil, fmt.Errorf("stat search path %q: %w", rawPath, fieldErr)
+		}
+		stats = append(stats, searchPathStat{
+			Path:               fieldInfo,
+			Info:               fieldStat,
+			explicitHiddenRoot: explicitHiddenSearchRoot(fieldInfo, true),
+		})
+	}
+	return stats, nil
+}
+
 func statExplicitSearchPaths(root string, roots []string, rawPaths []string) ([]searchPathStat, error) {
 	searchPaths := make([]searchPathStat, 0, len(rawPaths))
 	for _, rawPath := range rawPaths {
 		pathInfo, info, err := statSearchPath(root, roots, rawPath)
-		if err != nil {
+		if err == nil {
+			searchPaths = append(searchPaths, searchPathStat{
+				Path:               pathInfo,
+				Info:               info,
+				explicitHiddenRoot: explicitHiddenSearchRoot(pathInfo, true),
+			})
+			continue
+		}
+		fields := splitSearchPathList(rawPath)
+		if len(fields) <= 1 {
 			return nil, fmt.Errorf("stat search path %q: %w", rawPath, err)
 		}
-		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info, explicitHiddenRoot: explicitHiddenSearchRoot(pathInfo, true)})
+		splitStats, splitErr := statSplitSearchPaths(root, roots, rawPath, fields)
+		if splitErr != nil {
+			return nil, fmt.Errorf("stat search path %q: %w", rawPath, err)
+		}
+		searchPaths = append(searchPaths, splitStats...)
 	}
 	return searchPaths, nil
 }
