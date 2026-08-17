@@ -275,6 +275,30 @@ func TestAcceptedBootstrapProjectionCollapsesFrontendPreflightAndKeepsCurrentExa
 	}
 }
 
+// TestAcceptedBootstrapProjectionCollapsesGoGuardTargets 锁定 accepted
+// materializer 不需要理解候选新增的原子 guard target，current worker 仍保留精确 ID。
+func TestAcceptedBootstrapProjectionCollapsesGoGuardTargets(t *testing.T) {
+	goGuardID := func(target string) gate.GateID {
+		encoded := base64.RawURLEncoding.EncodeToString([]byte(target))
+		return gate.GateID(fmt.Sprintf("%s::%s::%s", gate.GateIDBackendTestWithGuard, gate.WorkloadTargetGoGuard, encoded))
+	}
+	current := []gate.GateID{goGuardID(gate.GoGuardTargetMcpLSPWorkloadCatalog), goGuardID(gate.GoGuardTargetSourceRawGoTest)}
+	projected, err := ProjectAcceptedGateIDs(current)
+	if err != nil {
+		t.Fatalf("ProjectAcceptedGateIDs() error = %v", err)
+	}
+	want := []gate.GateID{gate.GateIDBackendTestWithGuard}
+	if !slices.Equal(projected, want) {
+		t.Fatalf("accepted Go guard projection = %v, want %v", projected, want)
+	}
+	if slices.Equal(current, projected) {
+		t.Fatal("current Go guard identities were unexpectedly collapsed")
+	}
+	if _, err := ProjectAcceptedGateIDs([]gate.GateID{gate.GateIDBackendTestWithGuard, gate.GateIDBackendTestWithGuard}); err == nil {
+		t.Fatal("accepted projection swallowed duplicated canonical backend gate IDs")
+	}
+}
+
 func TestAcceptedBootstrapProjectionFiltersExpansionOnlyNilnessCompileGroups(t *testing.T) {
 	workload, err := gate.NewGoPackageWorkload(gate.GateIDBackendNilness, "./internal/alpha", 10)
 	if err != nil {

@@ -1,3 +1,5 @@
+// super-dolphin-ci: platform=linux
+
 package main
 
 import (

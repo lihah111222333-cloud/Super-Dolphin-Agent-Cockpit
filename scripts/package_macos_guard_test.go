@@ -1,3 +1,5 @@
+// super-dolphin-ci: platform=darwin
+
 package main
 
 import (
@@ -107,6 +109,7 @@ func TestPackageMacOSScriptRequiresVerifiedBundledCodexArtifact(t *testing.T) {
 	assertScriptOrder(t, script, "copy_packaged_codex \"$resources\" \"$resources/bin/codex\"", "bundle_git_dylibs \"$resources\"")
 }
 
+// super-dolphin-ci: platform=darwin
 func TestPackageMacOSScriptRequiresVerifiedLSPBundle(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 	body := functionBody(t, script, "write_runtime_manifest")
@@ -189,6 +192,7 @@ func TestPackageMacOSScriptsDoNotInvokeHostPython3(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: platform=darwin
 func TestPackageMacOSRemovesPythonBackedGitP4(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
@@ -543,6 +547,7 @@ func TestVerifyPackagedAppMacOSSmokesJDTLSWhenBundled(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: platform=darwin
 func TestVerifyPackagedAppMacOSTypeScriptLSPExecutableCheckPassesUnderCleanPath(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")

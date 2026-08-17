@@ -147,6 +147,10 @@ func (f *goWorkFakeClientFactory) NewClientWithEnv(rootDir string, env []string,
 	return client, nil
 }
 
+func (f *goWorkFakeClientFactory) NewClientWithOptions(rootDir string, env []string, _ map[string]any, handler protocol.NotificationHandler) (multilsp.Client, error) {
+	return f.NewClientWithEnv(rootDir, env, handler)
+}
+
 func (f *goWorkFakeClientFactory) callAt(t *testing.T, index int) goWorkFakeFactoryCall {
 	t.Helper()
 	f.mu.Lock()

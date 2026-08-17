@@ -427,8 +427,14 @@ func functionShadowsName(function *ast.FuncDecl, name string) bool {
 	}
 	shadowed := false
 	ast.Inspect(function.Body, func(node ast.Node) bool {
-		shadowed = nodeDeclaresName(node, name)
-		return !shadowed
+		if shadowed {
+			return false
+		}
+		if nodeDeclaresName(node, name) {
+			shadowed = true
+			return false
+		}
+		return true
 	})
 	return shadowed
 }

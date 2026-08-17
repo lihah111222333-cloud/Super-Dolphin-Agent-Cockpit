@@ -166,7 +166,7 @@ cmd/mcp-lsp/lsp_binary_wsl_shared_e2e_platform_test.go	cmd	platform-provider	go-
 cmd/mcp-lsp/main.go	cmd	platform-provider	go-source	3154	代码智能/LSP MCP peer	cmd,mcp,lsp,main,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/main_logging_test.go	cmd	platform-provider	go-test	3109	代码智能/LSP MCP peer	cmd,mcp,lsp,main,logging,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/go_work_e2e_test.go	cmd	platform-provider	go-test	8620	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,go,work,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/manager/go_work_fake_test.go	cmd	platform-provider	go-test	7285	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,go,work,fake,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/manager/go_work_fake_test.go	cmd	platform-provider	go-test	7506	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,go,work,fake,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/go_work_fake_uri_posix_test.go	cmd	platform-provider	go-test	296	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,go,work,fake,uri,posix,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/go_work_fake_uri_windows_test.go	cmd	platform-provider	go-test	430	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,go,work,fake,uri,windows,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/language_id_test.go	cmd	platform-provider	go-test	3511	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,language,id,test,代码智能,LSP,MCP,peer
@@ -498,7 +498,7 @@ cmd/mcp-lsp/tools/tool_structure.go	cmd	platform-provider	go-source	23633	LSP MC
 cmd/mcp-lsp/tools/tool_structure_test.go	cmd	platform-provider	go-test	27926	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_xref.go	cmd	platform-provider	go-source	8615	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_xref_test.go	cmd	platform-provider	go-test	3562	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,test,LSP,MCP,实现
-cmd/mcp-lsp/tools_call_budget_test.go	cmd	platform-provider	go-test	4529	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,call,budget,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/tools_call_budget_test.go	cmd	platform-provider	go-test	4524	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,call,budget,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools_call_plain_text_test.go	cmd	platform-provider	go-test	5777	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,call,plain,text,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools_habits_e2e_test.go	cmd	platform-provider	go-test	5395	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,habits,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/tools_manifest_test.go	cmd	platform-provider	go-test	8308	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,manifest,test,代码智能,LSP,MCP,peer
@@ -1057,7 +1057,7 @@ internal/platform/toolbridge/lifecycle_enforcement_test.go	internal	platform-pro
 internal/platform/toolbridge/managed_authority_test.go	internal	platform-provider	go-test	4425	provider 与 MCP tools 桥接	internal,platform,toolbridge,managed,authority,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcp_namespace_test.go	internal	platform-provider	go-test	1560	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcp,namespace,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcpwire/protocol.go	internal	platform-provider	go-source	2556	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,protocol,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/mcpwire/protocol_test.go	internal	platform-provider	go-test	4692	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,protocol,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/mcpwire/protocol_test.go	internal	platform-provider	go-test	4711	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,protocol,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcpwire/stdio.go	internal	platform-provider	go-source	8663	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,stdio,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcpwire/stdio_test.go	internal	platform-provider	go-test	4344	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,stdio,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcpwire/structured_content.go	internal	platform-provider	go-source	1540	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,structured,content,provider,与,MCP,tools,桥接

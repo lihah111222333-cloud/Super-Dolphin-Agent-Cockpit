@@ -241,8 +241,9 @@ func projectAcceptedCompileGroupWorkloadIDs(ids []gate.GateID) ([]gate.GateID, e
 }
 
 // ProjectAcceptedGateIDs 将 current v2 的精确 workload ID 投影为 accepted v1 可解码的 gate 集合。
-// expansion-only nilness/frontend-preflight workload 仍由 current request 保留；
-// bootstrap 只携带其 canonical parent。
+// expansion-only nilness/frontend-preflight 与可演进的 Go guard workload 仍由
+// current request 保留；bootstrap 只携带其 canonical parent，避免 accepted
+// materializer 因不认识候选新增的 guard target 而在候选 Gate 编译前失败。
 func ProjectAcceptedGateIDs(ids []gate.GateID) ([]gate.GateID, error) {
 	projected := make([]gate.GateID, 0, len(ids))
 	seen := make(map[gate.GateID]struct{}, len(ids))
@@ -250,15 +251,17 @@ func ProjectAcceptedGateIDs(ids []gate.GateID) ([]gate.GateID, error) {
 		if err := gate.ValidateAcceptedBootstrapProjectionID(id); err != nil {
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection: %w", index, err)
 		}
-		parent, _, _, targeted, err := gate.ParseWorkloadID(string(id))
+		parent, targetKind, _, targeted, err := gate.ParseWorkloadID(string(id))
 		if err != nil {
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection: %w", index, err)
 		}
-		if targeted && (parent == gate.GateIDBackendNilness || parent == gate.GateIDFrontendPreflight) {
+		collapsed := false
+		if targeted && (parent == gate.GateIDBackendNilness || parent == gate.GateIDFrontendPreflight || targetKind == gate.WorkloadTargetGoGuard) {
 			id = parent
+			collapsed = true
 		}
 		if _, duplicate := seen[id]; duplicate {
-			if id == gate.GateIDBackendNilness || id == gate.GateIDFrontendPreflight {
+			if collapsed {
 				continue
 			}
 			return nil, fmt.Errorf("gate_ids[%d] accepted projection is duplicated", index)

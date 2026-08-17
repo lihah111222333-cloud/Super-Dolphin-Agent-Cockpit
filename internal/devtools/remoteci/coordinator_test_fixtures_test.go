@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 	_ "modernc.org/sqlite"
 )
 
@@ -116,7 +119,10 @@ func prepareRemoteRunFixtureBase(t *testing.T) (string, string, string) {
 	runCoordinatorGit(t, repository, "config", "user.email", "remote-ci@example.invalid")
 	runCoordinatorGit(t, repository, "config", "user.name", "Remote CI")
 	writeRemoteRunFixtureFiles(t, repository)
-	runCoordinatorGit(t, repository, "add", "fixture.txt", "go.mod", "go.sum", "build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum", "internal/devtools/gate/executor.go", "internal/devtools/gate/executor_mapping.go", "scripts/check_nested_go_modules.sh", "scripts/real_go_resolver.sh", "scripts/test_with_guard.sh", "cmd/super-dolphin-gate/main.go", "internal/devtools/remoteci/coordinator_request.go", "internal/devtools/remoteci/source_materializer_manifest.go", "internal/fixture/fixture.go", "internal/provider/provider.go", "internal/platform/platform.go", "internal/module/thread/thread.go", "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/tests/e2e/business-flows.spec.js", "frontend-app/tests/e2e/desktop-wide.spec.js", "frontend-app/playwright.business-flows.config.js", "frontend-app/playwright.desktop-wide.config.js")
+	runCoordinatorGit(t, repository, "add", "fixture.txt", "go.mod", "go.sum", ".github/workflows/ci.yml", "build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum", "internal/devtools/gate/executor.go", "internal/devtools/gate/executor_mapping.go", "scripts/check_nested_go_modules.sh", "scripts/real_go_resolver.sh", "scripts/test_with_guard.sh", "cmd/super-dolphin-gate/main.go", "internal/devtools/remoteci/coordinator_request.go", "internal/devtools/remoteci/source_materializer_manifest.go", "internal/fixture/fixture.go", "internal/fixture/fixture_test.go", "internal/provider/provider.go", "internal/platform/platform.go", "internal/module/thread/thread.go", "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/tests/e2e/business-flows.spec.js", "frontend-app/tests/e2e/desktop-wide.spec.js", "frontend-app/playwright.business-flows.config.js", "frontend-app/playwright.desktop-wide.config.js")
+	mcpGuardInputs := []string{"add", catalog.Path, "scripts/check_mcp_lsp_workload_catalog.sh"}
+	mcpGuardInputs = append(mcpGuardInputs, catalog.WorkloadConsumerPaths()...)
+	runCoordinatorGit(t, repository, mcpGuardInputs...)
 	runCoordinatorGit(t, repository, "add", "frontend-app/scripts/remote-preflight-carriers", "frontend-app/scripts/remote-suite-carriers")
 	runCoordinatorGit(t, repository, "commit", "--quiet", "-m", "base")
 	return repository, coordinatorGitOutput(t, repository, "rev-parse", "HEAD"), coordinatorGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
@@ -128,6 +134,7 @@ func writeRemoteRunFixtureFiles(t *testing.T, repository string) {
 	writeCoordinatorFixture(t, repository, "fixture.txt", "base\n")
 	writeCoordinatorFixture(t, repository, "go.mod", "module example.invalid/remote-fixture\n\ngo 1.26.5\n")
 	writeCoordinatorFixture(t, repository, "go.sum", "")
+	writeCoordinatorFixture(t, repository, ".github/workflows/ci.yml", "name: CI\non: [push]\njobs: {}\n")
 	writeCoordinatorFixture(t, repository, "build/gate/runtime-proxy/go.mod", "module example.invalid/remote-fixture/runtime-proxy\n\ngo 1.26.5\n")
 	writeCoordinatorFixture(t, repository, "build/gate/runtime-proxy/go.sum", "")
 	writeCoordinatorFixture(t, repository, "internal/devtools/gate/executor.go", "package gate\n\nfunc ensureJSONEOF() {}\nfunc executeProgram() error { return nil }\nfunc sourceVariantCount() {}\nfunc validateCommitSource() {}\nfunc validateOID() {}\nfunc validateRangeSource() {}\nfunc validateTreeSource() {}\n\nfunc ExecuteExecutor() { config := executorConfig{}; _ = config }\ntype executorConfig struct{}\n")
@@ -139,6 +146,7 @@ func writeRemoteRunFixtureFiles(t *testing.T, repository string) {
 	writeCoordinatorFixture(t, repository, "internal/devtools/remoteci/coordinator_request.go", "package remoteci\n\nfunc createRequest() {}\nfunc checkoutMaterializedSource() {}\nfunc importSourceWorktreeBundle() {}\nfunc materializeSourceWorktree() {}\nfunc remoteShardBootstrapSH() string { return \"\" }\nfunc remoteWorkerEnvironment() {}\nfunc remoteWorkerSupervisorCommand() {}\nfunc validateCanonicalDirectory() {}\nfunc validateManifestCommitIdentity() {}\nfunc validateManifestIdentityFields() {}\nfunc validateManifestSyntheticBase() {}\nfunc validatePublishedArtifacts() {}\nfunc validateSourceBaseline() {}\nfunc verifyPublishedSourceBundle() {}\n")
 	writeCoordinatorFixture(t, repository, workerExecutionSourceManifestPath, "package remoteci\n\nfunc readSourceManifest() {}\n")
 	writeCoordinatorFixture(t, repository, "internal/fixture/fixture.go", "package fixture\n\nfunc Value() int { return 1 }\n")
+	writeCoordinatorFixture(t, repository, "internal/fixture/fixture_test.go", "package fixture\n\nimport \"testing\"\n\nfunc TestValue(t *testing.T) { if Value() != 1 { t.Fatal(\"unexpected fixture value\") } }\n")
 	writeCoordinatorFixture(t, repository, "internal/provider/provider.go", "package provider\n")
 	writeCoordinatorFixture(t, repository, "internal/platform/platform.go", "package platform\n")
 	writeCoordinatorFixture(t, repository, "internal/module/thread/thread.go", "package thread\n")
@@ -149,6 +157,45 @@ func writeRemoteRunFixtureFiles(t *testing.T, repository string) {
 	writeCoordinatorFixture(t, repository, "frontend-app/playwright.business-flows.config.js", "module.exports = {}\n")
 	writeCoordinatorFixture(t, repository, "frontend-app/playwright.desktop-wide.config.js", "module.exports = {}\n")
 	writeRemoteRunFrontendCarrierFixtures(t, repository)
+	writeRemoteRunMCPGuardFixtures(t, repository)
+}
+
+// writeRemoteRunMCPGuardFixtures 为通用 coordinator 夹具补齐 catalog guard 的
+// 显式输入闭包；catalog 只实现本夹具自有测试，不会伪造产品 MCP-LSP 测试包。
+func writeRemoteRunMCPGuardFixtures(t *testing.T, repository string) {
+	t.Helper()
+	placeholder := "sha256:" + strings.Repeat("0", 64)
+	raw := []byte(`{"schema":"super-dolphin/mcp-lsp-workload-catalog/v1","catalog_digest":"` + placeholder + `","workloads":[{"id":"fixture-remote","implementation_status":"implemented","producer_implementation_status":"missing","runner_target":"remote-go-test","platforms":["darwin","linux","windows"],"timeout_seconds":60,"trigger_class":"fixture","receipt_schema":"super-dolphin/mcp-lsp-workload-receipt/v1","producer_workflow_path":".github/workflows/ci.yml","producer_artifact_name":"fixture-receipt","t6_blocking":true,"release_blocking":true,"receipt_required":true,"command":["go","test","./internal/fixture","-run","^TestValue$"]}]}` + "\n")
+	digest, err := catalog.CanonicalDigest(raw)
+	if err != nil {
+		t.Fatalf("compute fixture MCP-LSP catalog digest: %v", err)
+	}
+	writeCoordinatorFixture(t, repository, catalog.Path, strings.Replace(string(raw), placeholder, digest, 1))
+	copyCoordinatorFixtureInput(t, repository, "scripts/check_mcp_lsp_workload_catalog.sh")
+	for _, path := range catalog.WorkloadConsumerPaths() {
+		copyCoordinatorFixtureInput(t, repository, path)
+	}
+}
+
+// copyCoordinatorFixtureInput 只补尚未由最小夹具显式拥有的真实 guard 输入。
+func copyCoordinatorFixtureInput(t *testing.T, repository, relativePath string) {
+	t.Helper()
+	target := filepath.Join(repository, filepath.FromSlash(relativePath))
+	if _, err := os.Stat(target); err == nil {
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("inspect fixture input %q: %v", relativePath, err)
+	}
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve coordinator fixture source file")
+	}
+	sourceRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", ".."))
+	data, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(relativePath)))
+	if err != nil {
+		t.Fatalf("read fixture input %q: %v", relativePath, err)
+	}
+	writeCoordinatorFixture(t, repository, relativePath, string(data))
 }
 
 func writeRemoteRunFrontendCarrierFixtures(t *testing.T, repository string) {
@@ -251,7 +298,12 @@ func newRemoteRunLedgerAuthority(t *testing.T, ledger gate.DurationLedger) (*gat
 	}
 	seedRemoteCITestAcceptedGeneration(t, store, 1)
 	if overhead != nil {
-		seedRemoteRunOverheadForeignKey(t, store)
+		calibration := remoteRunFixtureCalibration(*overhead)
+		calibrationSnapshot, err := store.CompareAndSwapCalibration(1, &calibration)
+		if err != nil {
+			t.Fatalf("seed duration calibration authority: %v", err)
+		}
+		seedRemoteRunOverheadForeignKey(t, store, *overhead)
 		sample := gate.ShardOrchestrationOverheadSample{
 			AcceptedGeneration:     overhead.AcceptedGeneration,
 			ProvenanceDigest:       overhead.ProvenanceDigest,
@@ -265,7 +317,7 @@ func newRemoteRunLedgerAuthority(t *testing.T, ledger gate.DurationLedger) (*gat
 			AccountedIntervalCount: 1,
 			OverheadMS:             1000,
 		}
-		if _, err := store.CompareAndSwapShardOverhead(1, *overhead, []gate.ShardOrchestrationOverheadSample{sample}); err != nil {
+		if _, err := store.CompareAndSwapShardOverhead(calibrationSnapshot.Generation, *overhead, []gate.ShardOrchestrationOverheadSample{sample}); err != nil {
 			t.Fatalf("seed shard overhead authority: %v", err)
 		}
 		planning := gate.PlanningContext{Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain, TargetDurationMS: gate.FullCITargetDurationMS, AcceptedSnapshotID: overhead.AcceptedSnapshotID}
@@ -285,6 +337,22 @@ func newRemoteRunLedgerAuthority(t *testing.T, ledger gate.DurationLedger) (*gat
 	return store, snapshot
 }
 
+// remoteRunFixtureCalibration 为 normal planning 提供可验证的固定校准资源 owner。
+func remoteRunFixtureCalibration(overhead gate.ShardOrchestrationOverhead) gate.DurationCalibration {
+	digest := "sha256:" + strings.Repeat("c", 64)
+	return gate.DurationCalibration{
+		SchemaVersion: gate.DurationCalibrationSchemaVersion,
+		Commit:        strings.Repeat("1", 40), Tree: strings.Repeat("2", 40),
+		Platform: overhead.Platform, Runner: overhead.Runner, Toolchain: overhead.Toolchain,
+		CommitEntrypoint: gate.CIEntrypointGitPreCommit, PushEntrypoint: gate.CIEntrypointGitPrePush, ReleaseEntrypoint: gate.CIEntrypointRelease,
+		CommitCatalogDigest: digest, PushCatalogDigest: digest, ReleaseCatalogDigest: digest,
+		CalibrationResourceClassID: overhead.CalibrationResourceClassID,
+		CalibrationResourceCPU:     overhead.CalibrationResourceCPU, CalibrationResourceMemoryGiB: overhead.CalibrationResourceMemoryGiB,
+		WorkloadCount: 1, RacePackageCount: 1,
+		AcceptedSnapshotID: overhead.AcceptedSnapshotID, CompletedAt: time.Date(2026, 7, 27, 0, 0, 3, 0, time.UTC),
+	}
+}
+
 // reloadRemotePlanningSnapshot 让测试输入的 mode 与 SQLite 派生索引保持同一 planning context。
 func reloadRemotePlanningSnapshot(t *testing.T, input *RunInput) {
 	t.Helper()
@@ -299,7 +367,7 @@ func reloadRemotePlanningSnapshot(t *testing.T, input *RunInput) {
 }
 
 // seedRemoteRunOverheadForeignKey 建立 overhead sample 所需的最小 provisional ci_runs 行。
-func seedRemoteRunOverheadForeignKey(t *testing.T, store *gate.DurationLedgerStore) {
+func seedRemoteRunOverheadForeignKey(t *testing.T, store *gate.DurationLedgerStore, overhead gate.ShardOrchestrationOverhead) {
 	t.Helper()
 	database, err := sql.Open("sqlite", store.AuthorityPath())
 	if err != nil {
@@ -308,9 +376,13 @@ func seedRemoteRunOverheadForeignKey(t *testing.T, store *gate.DurationLedgerSto
 	defer database.Close()
 	now := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC).UnixMilli()
 	digest := "sha256:" + strings.Repeat("e", 64)
-	_, err = database.Exec(`INSERT INTO ci_runs (job_id, force, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete, error_text) VALUES (?, 0, 'manual-cli', 'local-fast', ?, ?, '1', 'snap-accepted-baseline', ?, ?, ?, ?, 'passed', 0, ?, ?, 1, '')`, "fixture-shard-overhead", digest, digest, strings.Repeat("f", 40), digest, digest, "runner@"+digest, now, now+1)
+	_, err = database.Exec(`INSERT INTO ci_runs (job_id, force, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete, error_text) VALUES (?, 0, 'manual-cli', 'local-fast', ?, ?, '1', 'snap-accepted-baseline', ?, ?, ?, ?, 'passed', 1, ?, ?, 1, '')`, "fixture-shard-overhead", digest, digest, strings.Repeat("f", 40), digest, digest, "runner@"+digest, now, now+1)
 	if err != nil {
 		t.Fatalf("seed shard overhead ci_runs foreign key: %v", err)
+	}
+	_, err = database.Exec(`INSERT INTO ci_remote_run_execution_identities (job_id, platform, runner_identity_digest, toolchain_digest, execution_mode) VALUES (?, ?, ?, ?, 'calibration')`, "fixture-shard-overhead", overhead.Platform, overhead.Runner, overhead.Toolchain)
+	if err != nil {
+		t.Fatalf("seed shard overhead execution identity: %v", err)
 	}
 }
 

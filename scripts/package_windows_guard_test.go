@@ -1,3 +1,5 @@
+// super-dolphin-ci: platform=windows
+
 package main
 
 import (
@@ -432,6 +434,7 @@ func TestPackageWindowsScriptBundlesFFmpegForVideoTools(t *testing.T) {
 	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
 }
 
+// super-dolphin-ci: platform=windows
 func TestPackageWindowsLocalScriptChecksHostFFmpegDependency(t *testing.T) {
 	script := readScript(t, "package_windows_local.ps1")
 

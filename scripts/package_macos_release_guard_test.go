@@ -1,3 +1,5 @@
+// super-dolphin-ci: platform=darwin
+
 package main
 
 import (
@@ -94,6 +96,7 @@ func TestPackageMacOSScriptRunsBundleVerifierAfterCodesignBeforeDmg(t *testing.T
 	assertScriptOrder(t, script, "\"$root/scripts/verify_packaged_app_macos.sh\" \"$app\"", "hdiutil create -volname \"$app_name\"")
 }
 
+// super-dolphin-ci: platform=darwin
 func TestVerifyPackagedAppMacOSChecksBundledAstGrep(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_macos.sh")
 
