@@ -376,14 +376,16 @@ func workerExecutionCallDeclaration(closure *workerExecutionGoClosure, unit *wor
 		name = value.Name
 	case *ast.SelectorExpr:
 		identifier, ok := value.X.(*ast.Ident)
-		if !ok {
-			return nil
+		if ok {
+			if imported, exists := unit.imports[identifier.Name]; exists {
+				if !imported.local {
+					return nil
+				}
+				directory, name = imported.directory, value.Sel.Name
+				break
+			}
 		}
-		imported, ok := unit.imports[identifier.Name]
-		if !ok || !imported.local {
-			return nil
-		}
-		directory, name = imported.directory, value.Sel.Name
+		return workerExecutionReceiverMethodDeclaration(closure, unit, value)
 	default:
 		return nil
 	}
@@ -392,6 +394,24 @@ func workerExecutionCallDeclaration(closure *workerExecutionGoClosure, unit *wor
 		return nil
 	}
 	return candidates[0]
+}
+
+// 从静态 receiver 类型解析唯一的本地方法声明，供多返回值来源继续追踪外部类型。
+func workerExecutionReceiverMethodDeclaration(closure *workerExecutionGoClosure, unit *workerExecutionGoUnit, selector *ast.SelectorExpr) *workerExecutionGoUnit {
+	directory, receiver, resolved := closure.resolveWorkerSelectorReceiverType(unit, selector.X)
+	if !resolved {
+		return nil
+	}
+	var matched []*workerExecutionGoUnit
+	for _, candidate := range closure.index.receiverMethods[directory][receiver] {
+		if len(candidate.names) == 1 && candidate.names[0] == selector.Sel.Name {
+			matched = append(matched, candidate)
+		}
+	}
+	if len(matched) != 1 {
+		return nil
+	}
+	return matched[0]
 }
 
 // 展开命名结果字段并返回指定调用结果的声明类型。
