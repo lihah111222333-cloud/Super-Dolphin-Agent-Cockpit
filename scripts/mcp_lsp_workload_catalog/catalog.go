@@ -719,6 +719,7 @@ func WorkloadConsumerPaths() []string {
 		"scripts/ai_maintenance/gate_execution.go",
 		"cmd/super-dolphin-gate/remote_baseline_source.go",
 		"cmd/super-dolphin-gate/remote_agent_token.go",
+		"cmd/super-dolphin-gate/remote_run_calibration_automation.go",
 		"cmd/super-dolphin-gate/remote_run_options.go",
 		"cmd/super-dolphin-gate/test_cli.go",
 		"internal/devtools/gate/executor_mapping.go",

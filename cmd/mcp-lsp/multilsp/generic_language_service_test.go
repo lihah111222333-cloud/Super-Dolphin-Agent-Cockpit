@@ -3,6 +3,7 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -60,7 +61,7 @@ func hostGoEnv(extra ...string) []string {
 	return append([]string{
 		"GOOS=" + runtime.GOOS,
 		"GOARCH=" + runtime.GOARCH,
-		"GOMEMLIMIT=3584MiB",
+		fmt.Sprintf("GOMEMLIMIT=%dMiB", goplsHeapLimitBytes()/(1024*1024)),
 	}, extra...)
 }
 
@@ -135,6 +136,7 @@ func TestGenericLanguageServicesDefaultDocumentLanguagesUseLSPClients(t *testing
 }
 
 func TestLanguageAdapterRegistryOwnsRootEnvBootstrapPolicy(t *testing.T) {
+	t.Setenv("GOWORK", "auto")
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: ""})
 	root := canonicalScopePath(t.TempDir(), "")
 	goDir := filepath.Join(root, "goapp")
@@ -182,6 +184,7 @@ func assertGoAdapterPolicies(t *testing.T, ctx context.Context, registry *Langua
 }
 
 func TestGoAdapterUsesTargetBuildTagsOnlyInInitOptions(t *testing.T) {
+	t.Setenv("GOWORK", "auto")
 	t.Setenv("GOFLAGS", "-mod=mod")
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/e2e\n\ngo 1.25.0\n")
@@ -224,6 +227,7 @@ func TestGoAdapterUsesTargetBuildTagsOnlyInInitOptions(t *testing.T) {
 }
 
 func TestGoAdapterDoesNotPromotePlatformConstraintsToCustomBuildTags(t *testing.T) {
+	t.Setenv("GOWORK", "auto")
 	t.Setenv("GOFLAGS", "-mod=mod")
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/platform\n\ngo 1.25.0\n")
@@ -270,6 +274,7 @@ func TestGoAdapterDoesNotPromotePlatformConstraintsToCustomBuildTags(t *testing.
 }
 
 func TestGoAdapterLeavesStandaloneIgnoreTagToGopls(t *testing.T) {
+	t.Setenv("GOWORK", "auto")
 	t.Setenv("GOFLAGS", "-mod=mod")
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/standalone\n\ngo 1.25.0\n")

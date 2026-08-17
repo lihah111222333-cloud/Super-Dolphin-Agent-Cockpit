@@ -44,6 +44,7 @@ func TestMultiCWD_ManagerContractCoverage(t *testing.T) {
 }
 
 func TestMultiWorktree_AllLSPMethodsRouteToExpectedModuleClients(t *testing.T) {
+	t.Setenv("GOWORK", "auto")
 	root := canonicalScopePath(t.TempDir(), "")
 	setupWorktreeProject(t, root, []string{"alpha", "beta"})
 	factory := &e2eFactory{}
@@ -114,6 +115,7 @@ func TestMultiCWD_AllLSPMethodsRouteToExpectedProjectClients(t *testing.T) {
 }
 
 func TestMultiCWD_MultipleWorkDirectoriesPerCWDRouteIndependently(t *testing.T) {
+	t.Setenv("GOWORK", "auto")
 	rootX := canonicalScopePath(t.TempDir(), "")
 	rootY := canonicalScopePath(t.TempDir(), "")
 	setupWorktreeProject(t, rootX, []string{"api", "worker"})

@@ -339,7 +339,7 @@ func TestHandleScopedToolsCallReturnsPlainTextAmbiguousPatchError(t *testing.T) 
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
 	require.NoError(t, err)
 	text := requirePlainTextToolResult(t, result, true)
-	for _, want := range []string{"patch_ambiguous", "Hint:", "Candidate locations:", target + ":1-L1"} {
+	for _, want := range []string{"ERROR code=patch_ambiguous retryable=0", "HINT\tnext:", "ATTR\tcandidate_location=", target + ":1-L1"} {
 		require.Contains(t, text, want)
 	}
 }

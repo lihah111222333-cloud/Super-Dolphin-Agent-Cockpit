@@ -124,11 +124,7 @@ func (m *manager) bootstrapDocumentOpenOnly(ctx context.Context, uri string) err
 	if err != nil {
 		return err
 	}
-	snapshot, err := readDocumentSnapshot(ref)
-	if err != nil {
-		return err
-	}
-	return coordinator.openSnapshotIfNeeded(ctx, m, cfg, snapshot)
+	return coordinator.syncDocument(ctx, m, cfg, ref)
 }
 
 func restoreBootstrappedWorkspace(ctx context.Context, m *manager, cfg workspaceConfig) error {
@@ -382,39 +378,6 @@ func (m *manager) managedBootstrapSnapshotCurrent(cfg workspaceConfig, uri strin
 		return false
 	}
 	return clientHealthy(client)
-}
-
-// openSnapshotIfNeeded 只在文档尚未 ready/stale/bootstrapping 时打开快照。
-// 这是 hover/definition 等轻量请求的预热路径，不会重复抢占正在进行的 bootstrap。
-func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
-	scope, err := m.resolvedScopeForConfig(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	stateKey := scope.bootstrapKey()
-	status := c.states.status(stateKey, snapshot.ref.uri)
-	if status == bootstrapBootstrapping {
-		return nil
-	}
-	if (status == bootstrapReady || status == bootstrapStale) &&
-		m.managedBootstrapSnapshotCurrent(cfg, snapshot.ref.uri) {
-		return nil
-	}
-	key := scope.cacheKey(snapshot.ref.languageID, snapshot.ref.uri)
-	version, err := c.openSnapshotVersion(key, snapshot)
-	if err != nil {
-		return err
-	}
-	if err := c.syncSnapshotToClient(ctx, m, cfg, snapshot, snapshotSyncRequest{
-		key:      key,
-		version:  version,
-		openOnly: true,
-		scope:    scope,
-	}); err != nil {
-		c.states.fail(stateKey, snapshot.ref.uri, err)
-		return err
-	}
-	return nil
 }
 
 // reopenSnapshotForDiagnostics 强制 close/open 当前磁盘快照，并在成功后记录新的版本与 ready 状态。
