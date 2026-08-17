@@ -41,6 +41,7 @@ func TestDurationSampleIndexSeparatesCalibrationFromNormalResourceSamples(t *tes
 	calibrationContext.CalibrationResourceClassID = "calibration"
 	calibrationContext.CalibrationResourceCPU = 4
 	calibrationContext.CalibrationResourceMemoryGiB = 8
+	calibrationContext.ResourceTierReserves = nil
 	calibrationIndex, err := BuildDurationSampleIndex(ledger, calibrationContext)
 	if err != nil {
 		t.Fatalf("BuildDurationSampleIndex(calibration) error = %v", err)
@@ -76,6 +77,24 @@ func TestDurationSampleIndexCalibrationUsesCrossInputUpperBound(t *testing.T) {
 	})
 	if !currentOnlyHistory.HasSuccessfulCalibrationDurationEvidence(current) || currentOnlyHistory.HasComparableSuccessfulDurationSample(current) {
 		t.Fatal("cross-input history was not distinguished from an exact comparable sample")
+	}
+}
+
+// TestDurationSampleIndexCalibrationUsesObservedCrossInputBelowBootstrap 验证跨输入已有真实短任务证据时，
+// bootstrap 只用于无历史冷启动，不会永久把 selector body 高估为固定下界。
+func TestDurationSampleIndexCalibrationUsesObservedCrossInputBelowBootstrap(t *testing.T) {
+	current := calibrationDurationWorkload("guard:calibration-observed-short", "b", 4_000)
+	historical := current
+	historical.InputDigest = "sha256:" + strings.Repeat("a", 64)
+	index := mustBuildCalibrationDurationIndex(t, []DurationSample{
+		testDurationIndexSample(historical, DurationExecutionModeCalibration, "calibration", 4, 8, 20),
+	})
+	estimate, err := index.EstimateWorkloadDurationMS(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate != 20 {
+		t.Fatalf("calibration estimate = %d, want observed cross-input upper bound 20", estimate)
 	}
 }
 
@@ -354,9 +373,9 @@ func TestDurationEstimatorV2OutlierAndPermutationDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Generation median is 1ms; n=3 shrinks toward the 100ms workload prior: (1*3+100*2)/5.
-	if got != 40 {
-		t.Fatalf("robust outlier estimate = %d, want 40", got)
+	// Generation median is 1ms; once history exists, bootstrap must not enter the estimate.
+	if got != 1 {
+		t.Fatalf("robust outlier estimate = %d, want observed median 1", got)
 	}
 	permuted := testPlanningLedger(context, []DurationSample{makeSample(1_000), makeSample(1), makeSample(1)})
 	permutedIndex, err := BuildDurationSampleIndex(permuted, context)
@@ -401,7 +420,7 @@ func TestDurationEstimatorV2WeightsLatestGenerationAndRetainsFailureDiagnostics(
 	}
 }
 
-func TestDurationEstimatorV2SparseNewestGenerationShrinksSinglePoint(t *testing.T) {
+func TestDurationEstimatorV2SparseNewestGenerationUsesObservedWeightedMedian(t *testing.T) {
 	context := PlanningContext{Platform: "linux/amd64", Runner: "runner-v1", Toolchain: "go1.26", TargetDurationMS: FullCITargetDurationMS, AcceptedSnapshotID: "snapshot-v1", ResourceTierReserves: testNormalResourceTierReserves()}
 	workload := Workload{ID: "guard:sparse-newest", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("e", 64), InputDigest: "sha256:" + strings.Repeat("f", 64), BootstrapEstimateMS: 100, Shardable: true}
 	sample := func(generation uint64, durationMS int64) DurationSample {
@@ -421,7 +440,7 @@ func TestDurationEstimatorV2SparseNewestGenerationShrinksSinglePoint(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 280 {
-		t.Fatalf("sparse newest estimate = %d, want 280 after confidence shrink", got)
+	if got != 1_000 {
+		t.Fatalf("sparse newest estimate = %d, want observed weighted median 1000", got)
 	}
 }

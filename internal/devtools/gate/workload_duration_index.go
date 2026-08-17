@@ -129,7 +129,7 @@ type generationMedian struct {
 }
 
 // robustDurationEstimate 先按代取 nearest-rank median，再用 4/2/1 固定权重取 weighted median。
-// n<5 时按整数公式向 prior 收缩；所有乘加均在 int64 上显式检查溢出。
+// prior 只用于历史为空的冷启动；一旦存在成功样本，结果只来自真实账本观测。
 func robustDurationEstimate(values []durationSampleValue, prior int64) (int64, durationSampleValue, int64, error) {
 	if prior <= 0 {
 		return 0, durationSampleValue{}, 0, errors.New("duration estimator prior must be positive")
@@ -146,11 +146,7 @@ func robustDurationEstimate(values []durationSampleValue, prior int64) (int64, d
 	if err != nil {
 		return 0, durationSampleValue{}, 0, err
 	}
-	estimate, err := shrinkDurationEstimate(chosen.value.durationMS, chosen.count, prior)
-	if err != nil {
-		return 0, durationSampleValue{}, 0, err
-	}
-	return estimate, chosen.value, int64(len(retained)), nil
+	return chosen.value.durationMS, chosen.value, int64(len(retained)), nil
 }
 
 func validateDurationEstimatorValues(values []durationSampleValue) ([]durationSampleValue, error) {
@@ -228,25 +224,6 @@ func weightedMedianDuration(medians []generationMedian) (generationMedian, error
 	return medians[len(medians)-1], nil
 }
 
-func shrinkDurationEstimate(estimate, sampleCount, prior int64) (int64, error) {
-	if sampleCount >= 5 {
-		return estimate, nil
-	}
-	priorWeight := int64(5) - sampleCount
-	if estimate > mathMaxInt64/nSafe(sampleCount) {
-		return 0, errors.New("duration estimator sample multiplication overflows int64")
-	}
-	weightedEstimate := estimate * sampleCount
-	if prior > mathMaxInt64/priorWeight {
-		return 0, errors.New("duration estimator prior multiplication overflows int64")
-	}
-	weightedPrior := prior * priorWeight
-	if weightedEstimate > mathMaxInt64-weightedPrior {
-		return 0, errors.New("duration estimator shrink sum overflows int64")
-	}
-	return (weightedEstimate + weightedPrior) / 5, nil
-}
-
 // estimateDurationValues 保持仅存在于非权威内存 fixture 的 generation=0 样本兼容；
 // SQLite 读链在 scanSQLiteDurationSample 中拒绝 generation=0，权威估算始终走 v2。
 func estimateDurationValues(values []durationSampleValue, prior int64) (int64, durationSampleValue, int64, error) {
@@ -274,13 +251,6 @@ func estimateDurationValues(values []durationSampleValue, prior int64) (int64, d
 }
 
 const mathMaxInt64 = int64(^uint64(0) >> 1)
-
-func nSafe(n int64) int64 {
-	if n <= 0 {
-		return 1
-	}
-	return n
-}
 
 func durationSampleValueLess(left, right durationSampleValue) bool {
 	if left.acceptedGeneration != right.acceptedGeneration {
@@ -534,8 +504,8 @@ func (index DurationSampleIndex) estimationTargetDurationMS() (int64, error) {
 	return index.context.TargetDurationMS, nil
 }
 
-// estimateCalibrationWorkload 交叉使用当前 identity 的稳健估值、同 workload/命令的
-// 跨输入历史上界与 bootstrap 下界；取最大值，避免源码变化后把不确定任务过度装箱。
+// estimateCalibrationWorkload 优先使用当前 identity 的稳健估值，并以同 workload/命令的
+// 跨输入历史上界覆盖输入变化；bootstrap 只服务完全没有成功历史的冷启动任务。
 func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, _ int64) (int64, durationSampleResource, error) {
 	cpu, memoryGiB, err := index.calibrationResource()
 	if err != nil {
@@ -551,7 +521,11 @@ func (index DurationSampleIndex) estimateCalibrationWorkload(workload Workload, 
 		return 0, durationSampleResource{}, err
 	}
 	if !found || aggregate.successCount == 0 {
-		return max(prior, upperBound), durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
+		estimate := prior
+		if upperBound > 0 {
+			estimate = upperBound
+		}
+		return estimate, durationSampleResource{classID: index.context.CalibrationResourceClassID, cpu: cpu, memoryGiB: memoryGiB}, nil
 	}
 	estimate, _, _, err := estimateDurationValues(index.retainedSuccessSamples(aggregate), prior)
 	if err != nil {
