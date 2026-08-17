@@ -580,6 +580,7 @@ func TestTargetCompileKeySeparatesBuildTagsAndRegistryVersion(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: local-only
 func TestActualStagedWindowsGateFileGetsTargetCompileEvidence(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows source is host-visible on Windows")

@@ -145,6 +145,8 @@ import "testing"
 
 // super-dolphin-ci: helper
 func TestProcessHelper(t *testing.T) {}
+// super-dolphin-ci: local-only
+func TestCrossPlatformCompile(t *testing.T) {}
 func TestRegular(t *testing.T) {}
 `)
 	names, err := goTestNamesFromFiles([]*ast.File{functions}, "linux")

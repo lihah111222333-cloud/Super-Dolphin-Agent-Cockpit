@@ -384,7 +384,7 @@ func GoTestDirectiveAllows(comments *ast.CommentGroup, goos string) (bool, error
 	switch {
 	case directive == "":
 		return true, nil
-	case directive == "helper":
+	case directive == "helper", directive == "local-only":
 		return false, nil
 	case directive == "compile-group-exclusive":
 		return true, nil
