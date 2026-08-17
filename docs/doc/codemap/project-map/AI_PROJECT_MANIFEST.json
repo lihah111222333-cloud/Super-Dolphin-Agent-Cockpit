@@ -4,20 +4,20 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:28efa61ce38624ef1492b1faa12b38d5c0757c9e832fb3cabc1eef088761d0dc",
-    "entries_sha256": "sha256:24928dfc8b1d1c0d38fda4d8a4e3c4577f75c6d2f79d79e7103971ffe10f80cf"
+    "source_sha256": "sha256:22dcece10c2785cc52f78e6182273e1c1ca88179fc8ded32957206900e80a613",
+    "entries_sha256": "sha256:2f10af15d0f17647830139056d24bb80e44da0a8d6eaa14acf73040e72aa8c9f"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5206,
+  "files": 5232,
   "domains": {
-    "other": 1254,
+    "other": 1255,
     "remote-ci": 277,
     "docs-agent": 99,
     "app-ui": 754,
-    "platform-provider": 1415,
+    "platform-provider": 1440,
     "orchestration": 411,
     "modules": 765,
     "store-sql": 231
@@ -50,8 +50,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1415,
-        "size_kb": 264,
+        "file_count": 1440,
+        "size_kb": 268.8,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1254,
-        "size_kb": 251.4,
+        "file_count": 1255,
+        "size_kb": 251.6,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -87,13 +87,13 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1015,
+    "cmd": 1036,
     "config": 3,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 3046,
+    "internal": 3050,
     "pkg": 30,
-    "scripts": 209,
+    "scripts": 210,
     "sql": 29,
     "test": 9,
     "tests": 1,

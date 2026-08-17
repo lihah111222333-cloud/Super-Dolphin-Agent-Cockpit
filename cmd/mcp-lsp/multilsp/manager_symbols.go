@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
@@ -540,6 +541,47 @@ func (m *managerStructure) SemanticTokens(ctx context.Context, uri string) (*pro
 	)
 }
 
+// SemanticTokensLegend 从当前文档实际 client 的 initialize capability 读取 legend。
+func (m *managerStructure) SemanticTokensLegend(ctx context.Context, uri string) ([]string, []string, error) {
+	client, _, err := m.documentClient(ctx, uri)
+	if err != nil {
+		return nil, nil, err
+	}
+	if client == nil {
+		return nil, nil, errors.New("semantic tokens legend requires an initialized LSP client")
+	}
+	capabilityClient, ok := client.(ServerCapabilitiesClient)
+	if !ok {
+		return nil, nil, errors.New("initialized LSP client does not expose server capabilities")
+	}
+	return semanticTokensLegendFromProvider(capabilityClient.ServerCapabilities().SemanticTokensProvider)
+}
+
+func semanticTokensLegendFromProvider(provider any) ([]string, []string, error) {
+	raw, err := json.Marshal(provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode semantic tokens provider: %w", err)
+	}
+	var options protocol.SemanticTokensOptions
+	if err := json.Unmarshal(raw, &options); err != nil {
+		return nil, nil, fmt.Errorf("decode semantic tokens provider: %w", err)
+	}
+	if len(options.Legend.TokenTypes) == 0 {
+		return nil, nil, errors.New("semantic tokens provider is missing legend tokenTypes")
+	}
+	for index, tokenType := range options.Legend.TokenTypes {
+		if strings.TrimSpace(tokenType) == "" {
+			return nil, nil, fmt.Errorf("semantic tokens legend tokenTypes[%d] is empty", index)
+		}
+	}
+	for index, modifier := range options.Legend.TokenModifiers {
+		if strings.TrimSpace(modifier) == "" {
+			return nil, nil, fmt.Errorf("semantic tokens legend tokenModifiers[%d] is empty", index)
+		}
+	}
+	return append([]string(nil), options.Legend.TokenTypes...), append([]string(nil), options.Legend.TokenModifiers...), nil
+}
+
 // Completion 查询指定位置的补全候选。
 // 响应兼容数组和 CompletionList 两种 LSP 形态，unsupported 时返回空列表。
 func (m *managerCompletion) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
@@ -553,6 +595,22 @@ func (m *managerCompletion) Completion(ctx context.Context, uri string, position
 		decodeCompletionList,
 		fallbackDocument(&protocol.CompletionList{}),
 	)
+}
+
+// CompletionAttribution 从同一文档选择链读取实际语言和 initialize serverInfo。
+func (m *managerCompletion) CompletionAttribution(ctx context.Context, uri string) (lspmanager.CompletionAttribution, error) {
+	client, ref, err := m.documentClient(ctx, uri)
+	if err != nil {
+		return lspmanager.CompletionAttribution{}, err
+	}
+	attribution := lspmanager.CompletionAttribution{LanguageID: strings.TrimSpace(ref.languageID)}
+	if client == nil {
+		return attribution, nil
+	}
+	attrs := lspClientAttribution(client)
+	attribution.ServerName, _ = attrs["server_name"].(string)
+	attribution.ServerVersion, _ = attrs["server_version"].(string)
+	return attribution, nil
 }
 
 // Rename 请求语言服务器生成跨文件 workspace edit。

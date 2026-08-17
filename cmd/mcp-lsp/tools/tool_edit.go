@@ -5,17 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
-const (
-	defaultEditVersion      = 2
-	replaceRangeFuncBodyMax = 8 * 1024
-)
+const defaultEditVersion = 2
 
 var errEditManagerNil = errors.New("patch_edit requires LSP manager; ensure language server is running for this file type")
 
@@ -47,6 +47,7 @@ type editEnvelope struct {
 	LSPSync              bool   `json:"lsp_sync,omitempty"`
 	FilePath             string `json:"file_path,omitempty"`
 	Warning              string `json:"warning,omitempty"`
+	Hint                 string `json:"hint,omitempty"`
 	DiagnosticGeneration uint64 `json:"diagnostic_generation,omitempty"`
 }
 
@@ -83,9 +84,9 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	if h.registry == nil {
 		return nil, errEditManagerNil
 	}
-	req, err := decodeToolParams[EditRequest](params, decodeLenient)
+	req, err := decodeEditRequest(params)
 	if err != nil {
-		return nil, fmt.Errorf("decode patch_edit request: %w", err)
+		return nil, err
 	}
 	action := strings.TrimSpace(req.Action)
 	if action == "" {
@@ -101,7 +102,7 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 		}
 		return h.handleReplaceRange(ctx, req)
 	case "rename":
-		return h.handleRename(ctx, req)
+		return h.handleValidatedRename(ctx, req)
 	case "code_action":
 		return h.handleCodeAction(ctx, req)
 	case "format":
@@ -109,6 +110,34 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	default:
 		return nil, fmt.Errorf("unsupported patch_edit action %q (valid: replace_range, rename, code_action, format)", action)
 	}
+}
+
+// handleValidatedRename 校验 rename 参数后进入真实 LSP 写入流程。
+func (h EditHandler) handleValidatedRename(ctx context.Context, req EditRequest) (any, error) {
+	if err := validateRenameEditRequest(req); err != nil {
+		return nil, err
+	}
+	return h.handleRename(ctx, req)
+}
+
+func decodeEditRequest(params json.RawMessage) (EditRequest, error) {
+	req, err := decodeToolParams[EditRequest](params, decodeLenient)
+	if err != nil {
+		return EditRequest{}, fmt.Errorf("decode patch_edit request: %w", err)
+	}
+	return req, nil
+}
+
+func validateRenameEditRequest(req EditRequest) error {
+	if strings.TrimSpace(req.NewName) == "" {
+		return common.NewCodedToolError("invalid_params", errors.New("rename requires new_name"), false,
+			"next: pass a language-valid identifier in new_name")
+	}
+	if strings.TrimSpace(req.Pos) == "" {
+		return common.NewCodedToolError("invalid_params", errors.New("rename requires pos"), false,
+			"next: pass pos=file_path:line:column on the identifier to rename")
+	}
+	return nil
 }
 
 // normalizeEditVersion 确保版本号有效，默认使用 defaultEditVersion。
@@ -119,70 +148,49 @@ func normalizeEditVersion(version int) int {
 	return version
 }
 
-// ToPlainText 渲染为纯文本。
+// ToPlainText 将单文件编辑结果渲染为稳定行协议。
 func (e editEnvelope) ToPlainText() string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Edit Status: %s\n", editStatusText(e))
-	if e.Message != "" {
-		fmt.Fprintf(&sb, "Message: %s\n", e.Message)
+	files := []renameFileChange(nil)
+	if strings.TrimSpace(e.FilePath) != "" {
+		files = []renameFileChange{{FilePath: e.FilePath, EditCount: max(e.AppliedCount, 0)}}
 	}
-	appendEditApplyStatus(&sb, e)
-	appendEditWarnings(&sb, e)
-	return strings.TrimSpace(sb.String())
+	return renderEditReceipt(e.AppliedCount, e.Status, e.Message, e.Hint, e.Warning, e.Persisted, e.LSPSync, files)
 }
 
-// editStatusText 把状态码映射为 SUCCESS/NO_CHANGE/FAILED 文本。
-func editStatusText(e editEnvelope) string {
-	switch strings.ToLower(strings.TrimSpace(e.Status)) {
-	case "applied":
-		return "SUCCESS"
-	case "no_change":
-		return "NO_CHANGE"
-	case "failed":
-		return "FAILED"
-	default:
-		return "FAILED"
+// ToPlainText 将 rename 结果渲染为同一编辑行协议。
+func (r renameResult) ToPlainText() string {
+	status := "no_change"
+	if r.TotalEdits > 0 {
+		status = "applied"
 	}
+	return renderEditReceipt(r.TotalEdits, status, r.Message, "", r.Warning, r.TotalEdits > 0, r.Warning == "", r.AffectedFiles)
 }
 
-// appendEditApplyStatus 追加编辑应用状态。
-func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
-	switch strings.ToLower(strings.TrimSpace(e.Status)) {
-	case "applied":
-		fmt.Fprintf(sb, "Applied: true (%d replacements", e.AppliedCount)
-		if e.Persisted {
-			sb.WriteString(", persisted to disk")
-		}
-		if e.LSPSync {
-			sb.WriteString(", LSP synced")
-		}
-		sb.WriteString(")\n")
-		return
-	case "no_change":
-		sb.WriteString("Applied: false (patch matched but normalised away - current file already equals the requested NewText; verify your intended diff)\n")
-		return
-	case "failed":
-		sb.WriteString("Applied: false (patch_edit failed)\n")
-	}
+// ToPlainText 将 code_action 结果渲染为同一编辑行协议。
+func (r codeActionResult) ToPlainText() string {
+	return renderEditReceipt(r.TotalEdits, r.Status, r.Message, r.Hint, r.Warning, r.Persisted, r.LSPSync, r.AffectedFiles)
 }
 
-// appendMatchedByNotice 在补丁通过宽松匹配命中时追加人工复核提示。
-// exact 命中保持静默；trim/unicode/escape/substring 命中都提示检查缩进和空白。
-func appendMatchedByNotice(sb *strings.Builder, matchedBy string) {
-	matchedBy = strings.TrimSpace(matchedBy)
-	if matchedBy == "" || matchedBy == "exact" {
-		return
+func renderEditReceipt(total int, status, message, hint, warning string, persisted, lspSync bool, files []renameFileChange) string {
+	total = max(total, 0)
+	lines := []string{lineprotocol.HeaderLine(total, total, false, "edit")}
+	if message = strings.TrimSpace(message); message != "" {
+		lines = append(lines, lineprotocol.TextRecord("MESSAGE", message))
 	}
-	fmt.Fprintf(sb, "Matched by: %s — verify indentation/whitespace before continuing.\n", matchedBy)
-}
-
-// appendEditWarnings 把 warning 和后续操作提示追加到输出。
-func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
-	if e.Warning != "" {
-		fmt.Fprintf(sb, "Warning: %s\n", e.Warning)
+	for _, file := range files {
+		lines = append(lines, lineprotocol.FieldsRecord("FILE",
+			lineprotocol.Field{Key: "path", Value: file.FilePath},
+			lineprotocol.Field{Key: "edits", Value: strconv.Itoa(max(file.EditCount, 0))},
+			lineprotocol.Field{Key: "status", Value: strings.TrimSpace(status)},
+			lineprotocol.Field{Key: "persisted", Value: strconv.Itoa(boolToInt(persisted))},
+			lineprotocol.Field{Key: "lsp_sync", Value: strconv.Itoa(boolToInt(lspSync))},
+		))
 	}
-	status := strings.ToLower(strings.TrimSpace(e.Status))
-	if (status == "applied" || status == "no_change") && e.FilePath != "" {
-		fmt.Fprintf(sb, "next: file action=diagnostics file_path=%s\n", e.FilePath)
+	if warning = strings.TrimSpace(warning); warning != "" {
+		lines = append(lines, lineprotocol.TextRecord("WARNING", warning))
 	}
+	if hint = strings.TrimSpace(hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	return strings.Join(lines, "\n")
 }

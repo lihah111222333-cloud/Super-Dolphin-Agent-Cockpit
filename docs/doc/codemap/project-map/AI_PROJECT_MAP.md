@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**5206**
+> 已索引文件：**5232**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/plans/**, docs/superpowers/**, docs/archive/**, docs/before/**, docs/迁移/**, docs/ai01-docs/**, docs/cc/**, docs/li/**, docs/pians/**, docs/调研/**, docs/healthy-check/**, docs/decisions/**, docs/reviews/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, config/remote-ci/aliyun.baseline-state.sqlite, go.sum, test_output.txt, naked_go.txt
 >
@@ -24,11 +24,11 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/app-ui.tsv` | 754 | 154.0 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 411 | 93.1 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
 | `docs/doc/codemap/project-map/index/modules.tsv` | 765 | 149.2 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1415 | 264.0 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1440 | 268.8 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 231 | 36.1 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/remote-ci.tsv` | 277 | 75.6 KB | 远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 99 | 14.8 KB | 代码地图、ADR、契约与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 1254 | 251.4 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 1255 | 251.6 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -47,10 +47,10 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 3046 | 应用内部模块、平台、provider、store 与守卫 |
-| `cmd` | 1015 | 可执行入口与 MCP peer |
+| `internal` | 3050 | 应用内部模块、平台、provider、store 与守卫 |
+| `cmd` | 1036 | 可执行入口与 MCP peer |
 | `frontend-app` | 746 | 当前 React/Vite 新 UI |
-| `scripts` | 209 | 工程自动化脚本 |
+| `scripts` | 210 | 工程自动化脚本 |
 | `docs` | 92 | 当前文档、生成索引、开发中材料与历史证据 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
@@ -161,7 +161,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 |---|---:|---|
 | `cmd/mcp-orch/tools` | 77 | mcp-orch MCP tool schema、registry 与 handler |
 | `cmd/mcp-orch/orchestration` | 186 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
-| `cmd/mcp-lsp/tools` | 74 | LSP MCP tools 实现 |
+| `cmd/mcp-lsp/tools` | 80 | LSP MCP tools 实现 |
 | `cmd/mcp-lsp/multilsp` | 132 | 多语言 LSP manager、transport 与缓存 |
 
 ### remote CI

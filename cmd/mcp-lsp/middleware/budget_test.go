@@ -95,3 +95,20 @@ func TestBudgetDescriptorsDoNotShareMutableState(t *testing.T) {
 		t.Fatalf("lookupHint(grep).NextAction[tool] after descriptor mutation = %#v, want grep", got)
 	}
 }
+
+func TestXRefOverflowHintUsesSupportedArguments(t *testing.T) {
+	hint := lookupHint("xref")
+	if strings.Contains(hint.Hint, "verbosity") {
+		t.Fatalf("xref overflow hint exposes unsupported verbosity argument: %q", hint.Hint)
+	}
+	args, ok := hint.NextAction["suggest_args"].(map[string]any)
+	if !ok {
+		t.Fatalf("xref suggest_args = %#v, want map", hint.NextAction["suggest_args"])
+	}
+	if _, present := args["verbosity"]; present {
+		t.Fatalf("xref suggest_args contains unsupported verbosity: %#v", args)
+	}
+	if got := args["max_results"]; got != 10 {
+		t.Fatalf("xref max_results suggestion = %#v, want 10", got)
+	}
+}

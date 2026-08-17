@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type scopedToolCallResult struct {
@@ -76,31 +76,10 @@ func waitForScopedToolCall(t *testing.T, done <-chan scopedToolCallResult) scope
 
 func assertTimeoutToolResult(t *testing.T, result any) {
 	t.Helper()
-	payload, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("result = %T, want map", result)
+	text := requirePlainTextToolResult(t, result, true)
+	for _, want := range []string{"lsp_timeout", "Retryable: yes"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("timeout content = %q, want %q", text, want)
+		}
 	}
-	if payload["isError"] != true {
-		t.Fatalf("isError = %#v, want true; result=%#v", payload["isError"], payload)
-	}
-	envelope := decodeTimeoutToolErrorEnvelope(t, payload)
-	if envelope.Code != "lsp_timeout" {
-		t.Fatalf("error code = %q, want lsp_timeout; envelope=%#v", envelope.Code, envelope)
-	}
-	if envelope.Success {
-		t.Fatalf("success = true, want false; envelope=%#v", envelope)
-	}
-}
-
-func decodeTimeoutToolErrorEnvelope(t *testing.T, payload map[string]any) common.ToolErrorEnvelope {
-	t.Helper()
-	raw, ok := payload["structuredContent"].(json.RawMessage)
-	if !ok {
-		t.Fatalf("structuredContent = %T, want json.RawMessage", payload["structuredContent"])
-	}
-	var envelope common.ToolErrorEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode structuredContent: %v", err)
-	}
-	return envelope
 }

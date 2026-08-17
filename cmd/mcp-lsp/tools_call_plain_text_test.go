@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,17 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
-func registerPlainTextRendererForTest(t *testing.T) {
-	t.Helper()
-	common.RegisterToolResultPlainTextRenderer(lsptools.FormatToPlainText)
-	t.Cleanup(func() {
-		common.RegisterToolResultPlainTextRenderer(nil)
-	})
-}
-
 func TestDirectToolsCallReadFileReturnsPlainTextContent(t *testing.T) {
-	registerPlainTextRendererForTest(t)
-
 	root := canonicalToolTestRoot(t, t.TempDir())
 	target := filepath.Join(root, "main.go")
 	if err := os.WriteFile(target, []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
@@ -59,7 +50,7 @@ func TestDirectToolsCallReadFileReturnsPlainTextContent(t *testing.T) {
 		Manifest: ToolManifest{Name: "file"},
 		Handler:  ToolHandler(lsptools.NewFileHandler(lsptools.Config{WorkspaceRoot: root})),
 	}}
-	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs}, common.WithToolCallResultPolicy(lspToolCallResultPolicy()))
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -74,18 +65,12 @@ func TestDirectToolsCallReadFileReturnsPlainTextContent(t *testing.T) {
 	if !strings.Contains(text, "1: package main") {
 		t.Fatalf("content text = %q, want line-numbered file text", text)
 	}
-	var structured struct {
-		Value string `json:"value"`
-	}
-	if err := json.Unmarshal(response.Result.StructuredContent, &structured); err != nil {
-		t.Fatalf("unmarshal structuredContent: %v; raw=%s", err, response.Result.StructuredContent)
-	}
-	if !strings.Contains(structured.Value, "1: package main") {
-		t.Fatalf("structuredContent.value = %q, want line-numbered file text", structured.Value)
+	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
+		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
 	}
 }
 
-func TestDirectToolsCallUsesRegisteredPlainTextFormatter(t *testing.T) {
+func TestDirectToolsCallUsesExplicitPlainTextFormatter(t *testing.T) {
 	root := canonicalToolTestRoot(t, t.TempDir())
 	request := mustDirectToolCallRequest(t, root, "structure", map[string]any{"action": "document_symbol"})
 	defs := []toolDefinition{{
@@ -107,15 +92,35 @@ func TestDirectToolsCallUsesRegisteredPlainTextFormatter(t *testing.T) {
 	if !strings.Contains(text, "Document Symbol Outline:") || !strings.Contains(text, "`main`") {
 		t.Fatalf("content text = %q, want document symbol outline", text)
 	}
-	var structured struct {
-		Items []protocol.DocumentSymbol `json:"items"`
-		Total int                       `json:"total"`
+	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
+		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
 	}
-	if err := json.Unmarshal(response.Result.StructuredContent, &structured); err != nil {
-		t.Fatalf("unmarshal structuredContent: %v; raw=%s", err, response.Result.StructuredContent)
+}
+
+func TestDirectToolsCallErrorUsesMcpLSPLineProtocol(t *testing.T) {
+	root := canonicalToolTestRoot(t, t.TempDir())
+	request := mustDirectToolCallRequest(t, root, "grep", map[string]any{})
+	defs := []toolDefinition{{
+		Manifest: ToolManifest{Name: "grep"},
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return nil, common.NewCodedToolError(
+				"invalid_params", errors.New("invalid regex"), false,
+				"fix-regex-syntax-or-set-regex=false-for-literal-search",
+			)
+		},
+	}}
+	response := runDirectToolCallForPlainText(t, request, defs)
+	if !response.Result.IsError {
+		t.Fatal("tools/call isError = false, want true")
 	}
-	if structured.Total != 1 || len(structured.Items) != 1 || structured.Items[0].Name != "main" {
-		t.Fatalf("structuredContent = %#v, want original document symbol array wrapper", structured)
+	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
+		t.Fatalf("mcp-lsp tools/call returned structuredContent: %s", response.Result.StructuredContent)
+	}
+	want := "ERROR code=invalid_params retryable=0\n" +
+		"MESSAGE\tinvalid+regex\n" +
+		"HINT\tfix-regex-syntax-or-set-regex%3Dfalse-for-literal-search"
+	if got := response.Result.Content[0].Text; got != want {
+		t.Fatalf("error content = %q, want %q", got, want)
 	}
 }
 
@@ -140,10 +145,9 @@ func mustDirectToolCallRequest(t *testing.T, root, name string, arguments any) [
 
 func runDirectToolCallForPlainText(t *testing.T, request []byte, defs []toolDefinition) directToolsCallResponse {
 	t.Helper()
-	registerPlainTextRendererForTest(t)
 
 	var output bytes.Buffer
-	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
+	server := newTestMCPServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs}, common.WithToolCallResultPolicy(lspToolCallResultPolicy()))
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 // callMCPTool Helper to invoke an MCP tool handler in a configured CWD context.
@@ -167,7 +169,7 @@ func TestLSPContractMatrix_GrepOutputs(t *testing.T) {
 	got, err := callMCPTool(t, handler, root, map[string]any{
 		"action": "text_search",
 		"query":  "mySearchFunc",
-		"path":   root,
+		"paths":  []string{root},
 		"glob":   "*.go",
 	})
 	if err != nil {
@@ -246,15 +248,38 @@ func TestLSPContractMatrix_CompletionOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("completion failed: %v", err)
 	}
+	assertEmptyCompletionProtocol(t, got)
+}
 
-	envelope, ok := got.(emptyListEnvelope)
+// assertEmptyCompletionProtocol 校验零候选 completion 的严格行协议与运行时归因。
+func assertEmptyCompletionProtocol(t *testing.T, got any) {
+	t.Helper()
+	provider, ok := got.(completionTextProvider)
 	if !ok {
-		t.Fatalf("completion output type = %T, want emptyListEnvelope", got)
+		t.Fatalf("completion output type = %T, want completionTextProvider", got)
 	}
-	if !envelope.Success {
-		t.Fatalf("expected envelope success = true")
+	doc, err := lineprotocol.Parse(provider.ToPlainText())
+	if err != nil {
+		t.Fatalf("parse completion line protocol: %v", err)
 	}
-	if len(envelope.Data) != 0 {
-		t.Fatalf("expected empty data list")
+	wantHeader := lineprotocol.Header{Total: 0, Showing: 0, Unit: "completion"}
+	if doc.Error != nil || doc.Header != wantHeader {
+		t.Fatalf("completion header = %#v error=%#v, want %#v", doc.Header, doc.Error, wantHeader)
+	}
+	var attributes []lineprotocol.Record
+	for _, record := range doc.Records {
+		if record.Kind == "ATTR" {
+			attributes = append(attributes, record)
+		}
+	}
+	if len(attributes) != 1 {
+		t.Fatalf("completion records = %#v, want exactly one ATTR", doc.Records)
+	}
+	wantFields := map[string]string{
+		"language_id": "go", "server_name": "unknown", "server_version": "unknown",
+		"capability": "supported", "reason": "no_candidates",
+	}
+	if !maps.Equal(attributes[0].Fields, wantFields) {
+		t.Fatalf("completion ATTR = %#v, want %#v", attributes[0].Fields, wantFields)
 	}
 }

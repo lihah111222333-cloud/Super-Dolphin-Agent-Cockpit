@@ -45,6 +45,11 @@ func WithHTTPToolErrorClassifier(classifier ToolErrorClassifier) HTTPServerOptio
 	}
 }
 
+// WithHTTPToolCallResultPolicy 为当前 legacy HTTP server 选择显式 tools/call 结果策略。
+func WithHTTPToolCallResultPolicy(policy ToolCallResultPolicy) HTTPServerOption {
+	return func(h *HTTPServer) { h.toolResultPolicy = policy }
+}
+
 // WithHTTPLoggerRuntime 为此 HTTPServer 的 payloadLogger 注入显式日志 runtime owner。
 func WithHTTPLoggerRuntime(runtime *pkglogger.Runtime) HTTPServerOption {
 	if runtime == nil {
@@ -63,6 +68,7 @@ type HTTPServer struct {
 	server              *http.Server
 	bearerToken         string
 	toolErrorClassifier ToolErrorClassifier
+	toolResultPolicy    ToolCallResultPolicy
 	payloadLogger       toolPayloadLogger
 
 	sessionsMu sync.RWMutex
@@ -415,7 +421,7 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 			value = NewToolErrorEnvelopeWithClassifier(params.Name, "", err, nil, h.toolErrorClassifier)
 		}
 	}
-	resp, raw, err := toolCallResultResponse(req.ID, value)
+	resp, raw, err := toolCallResultResponseWithPolicy(req.ID, value, h.toolResultPolicy)
 	if err != nil {
 		resultPayload := h.payloadLogger.logResult("http", h.name, params.Name, req.ID, scope, nil, err)
 		attrs := []any{"server", h.name, "tool", params.Name, "deprecated", true, "error", err}

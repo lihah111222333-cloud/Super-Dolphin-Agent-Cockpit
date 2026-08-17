@@ -864,6 +864,14 @@ func (e *responseError) Error() string {
 	return fmt.Sprintf("json-rpc error %d: %s", e.Code, e.Message)
 }
 
+// JSONRPCErrorCode 暴露服务端错误码，供上层按协议语义分类且不依赖错误文本。
+func (e *responseError) JSONRPCErrorCode() int {
+	if e == nil {
+		return 0
+	}
+	return e.Code
+}
+
 func normalizeID(id json.RawMessage) string {
 	return string(bytes.TrimSpace(id))
 }

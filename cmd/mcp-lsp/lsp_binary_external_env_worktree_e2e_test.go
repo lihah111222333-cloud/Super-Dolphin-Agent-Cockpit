@@ -35,17 +35,17 @@ func TestMcpLSPBinaryExternalEnvRootAllowsWorktreeSQLDiagnostics_E2E(t *testing.
 		"file_path": target,
 	})
 	if result.IsError {
-		t.Fatalf("SQL diagnostics returned error; text=%q structured=%s stderr=%s",
-			result.ContentText(), string(result.StructuredContent), client.stderr.String())
+		t.Fatalf("SQL diagnostics returned error; text=%q stderr=%s",
+			result.ContentText(), client.stderr.String())
 	}
 	payload := decodeExternalEnvDiagnosticsPayload(t, result)
 	if !payload.HasFile(target) {
-		t.Fatalf("SQL diagnostics did not report worktree target %s; payload=%s text=%q stderr=%s",
-			target, string(result.StructuredContent), result.ContentText(), client.stderr.String())
+		t.Fatalf("SQL diagnostics did not report worktree target %s; text=%q stderr=%s",
+			target, result.ContentText(), client.stderr.String())
 	}
 	if payload.Total == 0 {
-		t.Fatalf("SQL diagnostics returned clean payload, want real sqruff parser diagnostic evidence; payload=%s stderr=%s",
-			string(result.StructuredContent), client.stderr.String())
+		t.Fatalf("SQL diagnostics returned clean payload, want real sqruff parser diagnostic evidence; text=%q stderr=%s",
+			result.ContentText(), client.stderr.String())
 	}
 }
 
@@ -73,17 +73,17 @@ func TestMcpLSPBinaryExternalEnvRootDiagnosticsStayOnWorktreeTarget_E2E(t *testi
 		"file_path": worktreeTarget,
 	})
 	if result.IsError {
-		t.Fatalf("worktree diagnostics returned error; text=%q structured=%s stderr=%s",
-			result.ContentText(), string(result.StructuredContent), client.stderr.String())
+		t.Fatalf("worktree diagnostics returned error; text=%q stderr=%s",
+			result.ContentText(), client.stderr.String())
 	}
 	payload := decodeExternalEnvDiagnosticsPayload(t, result)
 	if !payload.HasFile(worktreeTarget) {
-		t.Fatalf("diagnostics did not stay on worktree target %s; payload=%s text=%q stderr=%s",
-			worktreeTarget, string(result.StructuredContent), result.ContentText(), client.stderr.String())
+		t.Fatalf("diagnostics did not stay on worktree target %s; text=%q stderr=%s",
+			worktreeTarget, result.ContentText(), client.stderr.String())
 	}
 	if payload.HasFile(mainTarget) {
-		t.Fatalf("diagnostics leaked to env-root main target %s instead of worktree target %s; payload=%s",
-			mainTarget, worktreeTarget, string(result.StructuredContent))
+		t.Fatalf("diagnostics leaked to env-root main target %s instead of worktree target %s; text=%q",
+			mainTarget, worktreeTarget, result.ContentText())
 	}
 }
 
@@ -109,17 +109,17 @@ func TestMcpLSPBinaryExternalEnvRootTypeScriptSlowDiagnosticsEventuallyReady_E2E
 		"file_path": target,
 	})
 	if result.IsError {
-		t.Fatalf("TypeScript slow diagnostics returned error, want eventual diagnostics readiness; text=%q structured=%s stderr=%s",
-			result.ContentText(), string(result.StructuredContent), client.stderr.String())
+		t.Fatalf("TypeScript slow diagnostics returned error, want eventual diagnostics readiness; text=%q stderr=%s",
+			result.ContentText(), client.stderr.String())
 	}
 	payload := decodeExternalEnvDiagnosticsPayload(t, result)
 	if !payload.HasFile(target) {
-		t.Fatalf("TypeScript slow diagnostics missing target %s; payload=%s text=%q stderr=%s",
-			target, string(result.StructuredContent), result.ContentText(), client.stderr.String())
+		t.Fatalf("TypeScript slow diagnostics missing target %s; text=%q stderr=%s",
+			target, result.ContentText(), client.stderr.String())
 	}
 	if payload.Total == 0 {
-		t.Fatalf("TypeScript slow diagnostics returned clean payload, want fake diagnostic evidence; payload=%s stderr=%s",
-			string(result.StructuredContent), client.stderr.String())
+		t.Fatalf("TypeScript slow diagnostics returned clean payload, want fake diagnostic evidence; text=%q stderr=%s",
+			result.ContentText(), client.stderr.String())
 	}
 }
 
@@ -185,27 +185,7 @@ func startLSPBinaryClientWithExternalEnvRoot(t *testing.T, binary, envRoot, proc
 	return client
 }
 
-type externalEnvDiagnosticsPayload struct {
-	Success bool `json:"success"`
-	Data    []struct {
-		File string  `json:"file"`
-		Rows [][]any `json:"rows"`
-	} `json:"data"`
-	Total int `json:"total"`
-}
-
-func (p externalEnvDiagnosticsPayload) HasFile(path string) bool {
-	for _, table := range p.Data {
-		if table.File == path {
-			return true
-		}
-	}
-	return false
-}
-
-func decodeExternalEnvDiagnosticsPayload(t *testing.T, result lspBinaryToolResult) externalEnvDiagnosticsPayload {
+func decodeExternalEnvDiagnosticsPayload(t *testing.T, result lspBinaryToolResult) diagnosticsPayload {
 	t.Helper()
-	var payload externalEnvDiagnosticsPayload
-	decodeLSPBinaryStructuredContent(t, result, &payload)
-	return payload
+	return decodeDiagnosticsContentText(t, result.ContentText())
 }

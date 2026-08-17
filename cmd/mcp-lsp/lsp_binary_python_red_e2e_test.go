@@ -59,13 +59,13 @@ func TestMcpLSPBinaryPythonConstantIdentifierCompletionIsColumnInsensitive_E2E(t
 			"max_results": 10,
 		})
 		if completion.Result.IsError {
-			t.Fatalf("completion at %s returned MCP error result; text=%q structured=%s stderr=%s",
-				tc.pos, completion.Result.ContentText(), completion.Result.StructuredContent, client.stderrString())
+			t.Fatalf("completion at %s returned MCP error result; text=%q stderr=%s",
+				tc.pos, completion.Result.ContentText(), client.stderrString())
 		}
-		labels := completionLabelsFromStructuredContent(t, completion.Result.StructuredContent)
+		labels := completionLabelsFromContent(t, completion)
 		if !stringSliceContains(labels, tc.want) {
-			t.Fatalf("completion at %s is column-sensitive: labels=%v want=%s structured=%s text=%q stderr=%s",
-				tc.pos, labels, tc.want, completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
+			t.Fatalf("completion at %s is column-sensitive: labels=%v want=%s text=%q stderr=%s",
+				tc.pos, labels, tc.want, completion.Result.ContentText(), client.stderrString())
 		}
 	}
 }
@@ -126,10 +126,10 @@ func TestMcpLSPBinaryPythonFirstConcurrentCompletionDoesNotTimeout_E2E(t *testin
 				outcome.index, outcome.resp.Error.Code, outcome.resp.Error.Message, outcome.raw, client.stderrString())
 		}
 		if outcome.resp.Result.IsError {
-			t.Fatalf("first concurrent completion %d timed out or returned MCP error; text=%q structured=%s raw=%s stderr=%s",
-				outcome.index, outcome.resp.Result.ContentText(), outcome.resp.Result.StructuredContent, outcome.raw, client.stderrString())
+			t.Fatalf("first concurrent completion %d timed out or returned MCP error; text=%q raw=%s stderr=%s",
+				outcome.index, outcome.resp.Result.ContentText(), outcome.raw, client.stderrString())
 		}
-		labels := completionLabelsFromStructuredContent(t, outcome.resp.Result.StructuredContent)
+		labels := completionLabelsFromContent(t, outcome.resp)
 		if !stringSliceContains(labels, "REG_CN") {
 			t.Fatalf("concurrent completion %d labels=%v, want REG_CN; raw=%s stderr=%s",
 				outcome.index, labels, outcome.raw, client.stderrString())
@@ -162,22 +162,22 @@ func TestMcpLSPBinaryPythonDiagnosticsWaitsForDelayedTargets_E2E(t *testing.T) {
 		"file_paths": targets,
 	})
 	if diagnostics.Result.IsError {
-		t.Fatalf("diagnostics returned MCP error result; text=%q structured=%s stderr=%s",
-			diagnostics.Result.ContentText(), diagnostics.Result.StructuredContent, client.stderrString())
+		t.Fatalf("diagnostics returned MCP error result; text=%q stderr=%s",
+			diagnostics.Result.ContentText(), client.stderrString())
 	}
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if strings.Contains(payload.Meta.Message, "partial diagnostics") {
-		t.Fatalf("diagnostics returned partial readiness before delayed Python target published: meta=%q payload=%s text=%q stderr=%s",
-			payload.Meta.Message, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("diagnostics returned partial readiness before delayed Python target published: meta=%q text=%q stderr=%s",
+			payload.Meta.Message, diagnostics.Result.ContentText(), client.stderrString())
 	}
 	if payload.Total != len(targets) {
-		t.Fatalf("diagnostics total = %d, want %d; payload=%s text=%q stderr=%s",
-			payload.Total, len(targets), diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("diagnostics total = %d, want %d; text=%q stderr=%s",
+			payload.Total, len(targets), diagnostics.Result.ContentText(), client.stderrString())
 	}
 	for _, target := range targets {
 		if !payload.HasFile(target) {
-			t.Fatalf("diagnostics missing %s; payload=%s text=%q stderr=%s",
-				target, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+			t.Fatalf("diagnostics missing %s; text=%q stderr=%s",
+				target, diagnostics.Result.ContentText(), client.stderrString())
 		}
 	}
 }
@@ -208,21 +208,21 @@ func TestMcpLSPBinaryPythonDiagnosticsRetriesPastStartupRecoveryBudget_E2E(t *te
 		"file_path": slowTarget,
 	})
 	if diagnostics.Result.IsError {
-		t.Fatalf("diagnostics timed out before delayed Python target published; text=%q structured=%s stderr=%s",
-			diagnostics.Result.ContentText(), diagnostics.Result.StructuredContent, client.stderrString())
+		t.Fatalf("diagnostics timed out before delayed Python target published; text=%q stderr=%s",
+			diagnostics.Result.ContentText(), client.stderrString())
 	}
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if strings.Contains(payload.Meta.Message, "partial diagnostics") {
-		t.Fatalf("diagnostics returned partial readiness before delayed Python target published: meta=%q payload=%s text=%q stderr=%s",
-			payload.Meta.Message, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("diagnostics returned partial readiness before delayed Python target published: meta=%q text=%q stderr=%s",
+			payload.Meta.Message, diagnostics.Result.ContentText(), client.stderrString())
 	}
 	if payload.Total != 1 {
-		t.Fatalf("diagnostics total = %d, want 1; payload=%s text=%q stderr=%s",
-			payload.Total, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("diagnostics total = %d, want 1; text=%q stderr=%s",
+			payload.Total, diagnostics.Result.ContentText(), client.stderrString())
 	}
 	if !payload.HasFile(slowTarget) {
-		t.Fatalf("diagnostics missing %s; payload=%s text=%q stderr=%s",
-			slowTarget, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("diagnostics missing %s; text=%q stderr=%s",
+			slowTarget, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -250,15 +250,15 @@ func TestMcpLSPBinaryPythonDiagnosticsSummarizesMultilineMessages_E2E(t *testing
 		"file_path": targets[0],
 	})
 	if diagnostics.Result.IsError {
-		t.Fatalf("diagnostics returned MCP error result; text=%q structured=%s stderr=%s",
-			diagnostics.Result.ContentText(), diagnostics.Result.StructuredContent, client.stderrString())
+		t.Fatalf("diagnostics returned MCP error result; text=%q stderr=%s",
+			diagnostics.Result.ContentText(), client.stderrString())
 	}
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	msg := payload.FirstMessageForFile(t, targets[0])
 	want := `Argument of type "dict[str, object]" cannot be assigned to parameter "feature_name" of type "FeatureName" in function "train"`
 	if msg != want {
-		t.Fatalf("diagnostics msg = %q, want first-line summary %q; payload=%s text=%q stderr=%s",
-			msg, want, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("diagnostics msg = %q, want first-line summary %q; text=%q stderr=%s",
+			msg, want, diagnostics.Result.ContentText(), client.stderrString())
 	}
 	if strings.Contains(msg, "\n") {
 		t.Fatalf("diagnostics msg still contains Pyright detail lines: %q", msg)
@@ -524,15 +524,17 @@ func stringSliceContains(values []string, want string) bool {
 }
 
 type diagnosticsPayload struct {
-	Success bool `json:"success"`
-	Data    []struct {
-		File string  `json:"file"`
-		Rows [][]any `json:"rows"`
-	} `json:"data"`
-	Total int `json:"total"`
-	Meta  struct {
+	Success bool                      `json:"success"`
+	Data    []diagnosticsTablePayload `json:"data"`
+	Total   int                       `json:"total"`
+	Meta    struct {
 		Message string `json:"message"`
 	} `json:"meta"`
+}
+
+type diagnosticsTablePayload struct {
+	File string  `json:"file"`
+	Rows [][]any `json:"rows"`
 }
 
 func (p diagnosticsPayload) HasFile(path string) bool {
@@ -564,15 +566,6 @@ func (p diagnosticsPayload) FirstMessageForFile(t *testing.T, path string) strin
 	}
 	t.Fatalf("diagnostics missing %s: %#v", path, p.Data)
 	return ""
-}
-
-func decodeDiagnosticsStructuredContent(t *testing.T, raw json.RawMessage) diagnosticsPayload {
-	t.Helper()
-	var payload diagnosticsPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal diagnostics structuredContent: %v; raw=%s", err, raw)
-	}
-	return payload
 }
 
 func writePythonDiagnosticsFixture(t *testing.T, root string) []string {

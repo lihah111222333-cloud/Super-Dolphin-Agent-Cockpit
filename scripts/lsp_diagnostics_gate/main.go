@@ -13,10 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
@@ -129,21 +131,12 @@ type toolResult struct {
 	Content []struct {
 		Text string `json:"text"`
 	} `json:"content"`
-	StructuredContent json.RawMessage `json:"structuredContent"`
-	IsError           bool            `json:"isError"`
+	IsError bool `json:"isError"`
 }
 
-type diagnosticsPayload struct {
-	Success bool `json:"success"`
-	Data    []struct {
-		File string   `json:"file"`
-		Cols []string `json:"cols"`
-		Rows [][]any  `json:"rows"`
-	} `json:"data"`
-	Total int `json:"total"`
-	Meta  struct {
-		Message string `json:"message"`
-	} `json:"meta"`
+type diagnosticsTextResult struct {
+	total   int
+	message string
 }
 
 func main() {
@@ -572,30 +565,118 @@ func (c *peerClient) diagnostics(ctx context.Context, root, file string) error {
 	if result.IsError {
 		return diagnosticsToolError(result)
 	}
-	var payload diagnosticsPayload
-	if err := json.Unmarshal(result.StructuredContent, &payload); err != nil {
-		return fmt.Errorf("decode diagnostics payload: %w", err)
+	parsed, err := parseDiagnosticsTextResult(result)
+	if err != nil {
+		return fmt.Errorf("decode diagnostics text: %w", err)
 	}
-	if !payload.Success {
-		return errors.New("diagnostics payload success=false")
-	}
-	if err := validateDiagnosticsMeta(payload.Meta.Message); err != nil {
+	if err := validateDiagnosticsMeta(parsed.message); err != nil {
 		return err
 	}
-	if payload.Total != 0 || len(payload.Data) != 0 {
-		return fmt.Errorf("found %d Error/Warning/Information/Hint diagnostics: %s", payload.Total, toolText(result))
+	if parsed.total != 0 {
+		return fmt.Errorf("found %d Error/Warning/Information/Hint diagnostics: %s", parsed.total, toolText(result))
 	}
 	return nil
 }
 
-// diagnosticsToolError 按 peer 的显式元数据区分临时错误和永久错误。
+// parseDiagnosticsTextResult 严格解析单个 diagnostics 文本结果。
+func parseDiagnosticsTextResult(result toolResult) (diagnosticsTextResult, error) {
+	doc, err := parseToolLineProtocol(result)
+	if err != nil {
+		return diagnosticsTextResult{}, err
+	}
+	if doc.Error != nil {
+		return diagnosticsTextResult{}, errors.New("expected OK header")
+	}
+	if doc.Header.Unit != "diagnostic" {
+		return diagnosticsTextResult{}, fmt.Errorf("unexpected diagnostics unit %q", doc.Header.Unit)
+	}
+	if doc.Header.Truncated {
+		return diagnosticsTextResult{}, errors.New("diagnostics text is truncated")
+	}
+	return parseDiagnosticRecords(doc)
+}
+
+// parseToolLineProtocol 是 diagnostics 成功和错误响应的唯一语法入口。
+func parseToolLineProtocol(result toolResult) (lineprotocol.Document, error) {
+	if len(result.Content) != 1 || strings.TrimSpace(result.Content[0].Text) == "" {
+		return lineprotocol.Document{}, errors.New("expected exactly one non-empty text content item")
+	}
+	return lineprotocol.Parse(result.Content[0].Text)
+}
+
+// parseDiagnosticRecords 校验 diagnostics 记录类型和行数。
+func parseDiagnosticRecords(doc lineprotocol.Document) (diagnosticsTextResult, error) {
+	parsed := diagnosticsTextResult{total: doc.Header.Total}
+	rows := 0
+	for _, record := range doc.Records {
+		switch record.Kind {
+		case "MESSAGE":
+			if parsed.message != "" {
+				return diagnosticsTextResult{}, errors.New("duplicate diagnostics MESSAGE record")
+			}
+			parsed.message = record.Value
+		case "HINT":
+			continue
+		case "ROW":
+			if err := validateDiagnosticRow(record.Fields); err != nil {
+				return diagnosticsTextResult{}, err
+			}
+			rows++
+		default:
+			return diagnosticsTextResult{}, fmt.Errorf("unknown diagnostics record %q", record.Kind)
+		}
+	}
+	if rows != doc.Header.Showing || rows != doc.Header.Total {
+		return diagnosticsTextResult{}, fmt.Errorf("diagnostics row count=%d does not match total=%d showing=%d", rows, doc.Header.Total, doc.Header.Showing)
+	}
+	return parsed, nil
+}
+
+// validateDiagnosticRow 拒绝未知字段并校验必填位置字段。
+func validateDiagnosticRow(fields map[string]string) error {
+	for key := range fields {
+		switch key {
+		case "file", "line", "col", "severity", "message", "source", "code":
+		default:
+			return fmt.Errorf("unknown diagnostic ROW field %q", key)
+		}
+	}
+	for _, key := range []string{"file", "line", "col", "severity", "message"} {
+		if fields[key] == "" {
+			return fmt.Errorf("missing required diagnostic ROW field %q", key)
+		}
+	}
+	for _, key := range []string{"line", "col"} {
+		if value, err := strconv.Atoi(fields[key]); err != nil || value < 0 {
+			return fmt.Errorf("malformed diagnostic ROW field %s=%q", key, fields[key])
+		}
+	}
+	return nil
+}
+
+// diagnosticsToolError 只信严格 ERROR header 的 retryable 字段。
 func diagnosticsToolError(result toolResult) error {
-	text := toolText(result)
-	err := fmt.Errorf("tool error: %s", text)
-	if strings.Contains(text, "Retryable: yes") {
+	doc, parseErr := parseToolLineProtocol(result)
+	if parseErr != nil {
+		return fmt.Errorf("malformed diagnostics ERROR line protocol: %w", parseErr)
+	}
+	if doc.Error == nil {
+		return errors.New("expected ERROR header")
+	}
+	err := fmt.Errorf("tool error %s: %s", doc.Error.Code, firstRecordValue(doc.Records, "MESSAGE"))
+	if doc.Error.Retryable {
 		return &retryableDiagnosticsError{err: err}
 	}
 	return err
+}
+
+func firstRecordValue(records []lineprotocol.Record, kind string) string {
+	for _, record := range records {
+		if record.Kind == kind {
+			return record.Value
+		}
+	}
+	return ""
 }
 
 func validateDiagnosticsMeta(message string) error {
@@ -615,7 +696,7 @@ func toolText(result toolResult) string {
 			parts = append(parts, item.Text)
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "\n")
 }
 
 func (c *peerClient) sendRequest(fields map[string]any) (int, error) {

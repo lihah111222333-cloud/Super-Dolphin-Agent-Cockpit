@@ -1,4 +1,4 @@
-//go:build e2e
+//go:build e2e && (darwin || linux || windows)
 
 package main
 
@@ -176,7 +176,7 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsCSharpLSWithRealDotnet_E2E(t *testin
 	dotnetHome := filepath.Join(t.TempDir(), "dotnet-cli")
 	dotnetTools := filepath.Join(dotnetHome, ".dotnet", "tools")
 	toolBin := symlinkHostToolsForE2E(t, "dotnet")
-	path := dotnetTools + string(os.PathListSeparator) + toolBin + string(os.PathListSeparator) + "/usr/bin:/bin"
+	path := toolBin + string(os.PathListSeparator) + "/usr/bin:/bin"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

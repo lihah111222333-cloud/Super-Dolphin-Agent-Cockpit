@@ -315,6 +315,19 @@ func defaultToolErrorClassifiersLSPPathMissing() []toolErrorClassifier {
 func defaultToolErrorClassifiersLSPPathPolicy() []toolErrorClassifier {
 	return []toolErrorClassifier{
 		{
+			code:      "scope_too_broad",
+			retryable: true,
+			hint: func(toolName, _ string) string {
+				if toolName == "structure" {
+					return "next: structure action=workspace_symbol query=\"<symbol>\" file_path=\"<source-file>\" match_mode=exact max_results=20"
+				}
+				return "next: retry with a concrete file_path inside the intended source scope"
+			},
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "project walk entry limit exceeded")
+			},
+		},
+		{
 			code: "path_invalid",
 			hint: staticToolHint("next: pass a regular file_path for file actions; directories are not valid file_path values"),
 			match: func(_ error, message string, _ string) bool {

@@ -16,11 +16,11 @@ func TestFormatToPlainTextUsesCompletionTitleForCompactCompletionList(t *testing
 	if !ok {
 		t.Fatalf("FormatToPlainText() handled = false")
 	}
-	if !strings.Contains(text, "Code Completions: showing 1 of 2 total") {
-		t.Fatalf("text = %q, want completion title", text)
+	if !strings.HasPrefix(text, "OK total=2 showing=1 truncated=1 unit=completion\n") {
+		t.Fatalf("text = %q, want completion line-protocol header", text)
 	}
-	if strings.Contains(text, "Workspace Search Matches") {
-		t.Fatalf("text = %q, contains workspace search title for completion list", text)
+	if !strings.Contains(text, "ROW\tlabel=Println\tkind=3\tdetail=func") {
+		t.Fatalf("text = %q, want retained completion row", text)
 	}
 }
 
@@ -33,7 +33,10 @@ func TestFormatToPlainTextUsesWorkspaceSymbolTitleForCompactWorkspaceList(t *tes
 	if !ok {
 		t.Fatalf("FormatToPlainText() handled = false")
 	}
-	if !strings.Contains(text, "Workspace Symbol Matches: showing 1 of 1 total") {
-		t.Fatalf("text = %q, want workspace symbol title", text)
+	if !strings.HasPrefix(text, "OK total=1 showing=1 truncated=0 unit=symbol\n") {
+		t.Fatalf("text = %q, want workspace-symbol line-protocol header", text)
+	}
+	if !strings.Contains(text, "ROW\tname=Target\tkind=12\tfile=target.go\tline=7\tcol=3") {
+		t.Fatalf("text = %q, want retained workspace-symbol row", text)
 	}
 }

@@ -51,7 +51,7 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 	grep := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       "realTsToolNeedle",
-		"path":        "src",
+		"paths":       []string{"src"},
 		"glob":        "**/*.ts",
 		"max_results": 10,
 	})
@@ -73,7 +73,7 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 		"language_id": "typescript",
 	})
 	requireMCPToolSuccess(t, client, definition, "real typescript definition")
-	requireGroupedLocationTotal(t, definition.Result.StructuredContent, 1, "real typescript definition")
+	requireGroupedLocationTextTotal(t, definition, 1, "real typescript definition")
 	requireToolResultContains(t, definition, filepath.Base(mathTarget), "real typescript definition")
 
 	references := client.callTool(t, "xref", map[string]any{
@@ -84,7 +84,7 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 		"max_results":         10,
 	})
 	requireMCPToolSuccess(t, client, references, "real typescript references")
-	requireGroupedLocationTotal(t, references.Result.StructuredContent, 2, "real typescript references")
+	requireGroupedLocationTextTotal(t, references, 2, "real typescript references")
 	requireToolResultContains(t, references, filepath.Base(consumerTarget), "real typescript references")
 
 	completion := client.callTool(t, "completion", map[string]any{
@@ -93,10 +93,88 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 		"max_results": 10,
 	})
 	requireMCPToolSuccess(t, client, completion, "real typescript completion")
-	if !stringSliceContains(completionLabelsFromStructuredContent(t, completion.Result.StructuredContent), "inc") {
-		t.Fatalf("real typescript completion missing inc; structured=%s text=%q stderr=%s",
-			completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
+	if !stringSliceContains(completionLabelsFromContent(t, completion), "inc") {
+		t.Fatalf("real typescript completion missing inc; text=%q stderr=%s",
+			completion.Result.ContentText(), client.stderrString())
 	}
+}
+
+// TestMcpLSPBinaryRealGoPythonJavaRustTools_E2E 通过真实语言服务器证明四种主流后端语言的结构和诊断工具链。
+func TestMcpLSPBinaryRealGoPythonJavaRustTools_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary real-language e2e test in short mode")
+	}
+	requireHostBinariesForE2E(t, []realLSPDiagnosticsCase{
+		{languageID: "go", binaries: []string{"gopls"}},
+		{languageID: "python", binaries: []string{"pyright-langserver"}},
+		{languageID: "java", binaries: []string{"jdtls"}},
+		{languageID: "rust", binaries: []string{"rust-analyzer"}},
+	})
+
+	binary := buildMcpLSPBinaryForTest(t)
+	root := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
+		"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(t.TempDir(), "lsp-cache"),
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	cases := []struct {
+		languageID string
+		symbol     string
+		write      func(*testing.T, string) string
+		workspace  bool
+	}{
+		{languageID: "go", symbol: "main", write: writeRealGoToolsFixture},
+		{languageID: "python", symbol: "value", write: writeBinaryColdStartPythonFixture},
+		{languageID: "java", symbol: "Main", write: writeBinaryColdStartJavaFixture, workspace: true},
+		{languageID: "rust", symbol: "main", write: writeBinaryColdStartRustFixture},
+	}
+	for _, tc := range cases {
+		t.Run(tc.languageID, func(t *testing.T) {
+			assertRealLanguageStructureAndDiagnostics(t, client, filepath.Join(root, tc.languageID), tc)
+		})
+	}
+}
+
+func writeRealGoToolsFixture(t *testing.T, root string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "go.mod", "module example.test/realgotools\n\ngo 1.26.0\n")
+	return writeBinaryColdStartFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
+}
+
+func assertRealLanguageStructureAndDiagnostics(t *testing.T, client *mcpLSPBinaryClient, root string, tc struct {
+	languageID string
+	symbol     string
+	write      func(*testing.T, string) string
+	workspace  bool
+}) {
+	t.Helper()
+	target := tc.write(t, root)
+	structureArgs := map[string]any{
+		"action":      "document_symbol",
+		"file_path":   target,
+		"language_id": tc.languageID,
+		"max_results": 10,
+	}
+	if tc.workspace {
+		structureArgs["action"] = "workspace_symbol"
+		structureArgs["query"] = tc.symbol
+		structureArgs["match_mode"] = "exact"
+		delete(structureArgs, "language_id")
+	}
+	structure := client.callTool(t, "structure", structureArgs)
+	requireMCPToolSuccess(t, client, structure, "real "+tc.languageID+" document symbols")
+	requireToolResultContains(t, structure, tc.symbol, "real "+tc.languageID+" document symbols")
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   target,
+		"language_id": tc.languageID,
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "real "+tc.languageID+" diagnostics")
 }
 
 // TestMcpLSPBinaryJavaScriptReactExportReferences_E2E 守护前端真实 JS 声明到 JSX 消费者的引用链。
@@ -145,7 +223,7 @@ func TestMcpLSPBinaryJavaScriptReactExportReferences_E2E(t *testing.T) {
 		"max_results":         10,
 	})
 	requireMCPToolSuccess(t, client, references, "real javascript react export references")
-	requireGroupedLocationTotal(t, references.Result.StructuredContent, 4, "real javascript react export references")
+	requireGroupedLocationTextTotal(t, references, 4, "real javascript react export references")
 	requireToolResultContains(t, references, filepath.Base(pageTarget), "real javascript react export references")
 	requireToolResultContains(t, references, filepath.Base(testTarget), "real javascript react export references")
 }
@@ -213,7 +291,7 @@ func runRealFrontendLanguageExportReferencesE2E(t *testing.T, languageID, ext st
 		"max_results":         10,
 	})
 	requireMCPToolSuccess(t, client, references, "real frontend language export references")
-	requireGroupedLocationTotal(t, references.Result.StructuredContent, 4, "real frontend language export references")
+	requireGroupedLocationTextTotal(t, references, 4, "real frontend language export references")
 	requireToolResultContains(t, references, filepath.Base(pageTarget), "real frontend language export references")
 	requireToolResultContains(t, references, filepath.Base(testTarget), "real frontend language export references")
 }

@@ -3,12 +3,15 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 type completionParams struct {
@@ -17,8 +20,57 @@ type completionParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
+type completionTextProvider interface{ ToPlainText() string }
+
+type mqlCompletionResult struct{ result completionTextProvider }
+
+type emptyCompletionResult struct {
+	attribution lspmanager.CompletionAttribution
+	hint        string
+}
+
+// ToPlainText 渲染成功但零候选的 completion 运行时归因。
+func (result emptyCompletionResult) ToPlainText() string {
+	lines := []string{
+		lineprotocol.HeaderLine(0, 0, false, "completion"),
+		lineprotocol.FieldsRecord("ATTR",
+			lineprotocol.Field{Key: "language_id", Value: completionAttributionValue(result.attribution.LanguageID)},
+			lineprotocol.Field{Key: "server_name", Value: completionAttributionValue(result.attribution.ServerName)},
+			lineprotocol.Field{Key: "server_version", Value: completionAttributionValue(result.attribution.ServerVersion)},
+			lineprotocol.Field{Key: "capability", Value: "supported"},
+			lineprotocol.Field{Key: "reason", Value: "no_candidates"},
+		),
+	}
+	if result.hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", result.hint))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// ToPlainText 在补全文本后追加非原生 MQL 兼容性归因。
+func (result mqlCompletionResult) ToPlainText() string {
+	return strings.Join([]string{
+		result.result.ToPlainText(),
+		lineprotocol.FieldsRecord("ATTR",
+			lineprotocol.Field{Key: "language_id", Value: "cpp"},
+			lineprotocol.Field{Key: "server", Value: "clangd"},
+			lineprotocol.Field{Key: "native", Value: "0"},
+			lineprotocol.Field{Key: "compatibility", Value: "mql-via-clangd"},
+		),
+		lineprotocol.TextRecord("WARNING", "candidates may include C/C++ or macOS macros; not-native-MetaEditor-MQL5-semantics"),
+	}, "\n")
+}
+
+// completionResultForFile 只为 .mqh 结果附加 clangd 兼容性说明。
+func completionResultForFile(filePath string, result completionTextProvider) any {
+	if !strings.EqualFold(filepath.Ext(filePath), ".mqh") {
+		return result
+	}
+	return mqlCompletionResult{result: result}
+}
+
 // NewCompletionHandler 注册 completion 工具处理器。
-// 输入使用 pos 统一定位文件和光标，返回结果按 max_results 裁剪为紧凑列表。
+// 输入使用 pos 统一定位文件和光标，返回结果按 max_results 裁剪为受限列表。
 func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("completion", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
@@ -32,26 +84,66 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		limit := format.CompletionLimit(req.MaxResults, format.VerbosityCompact)
+		limit := format.CompletionLimit(req.MaxResults)
 		result, err := completionWithIdentifierEndRetry(ctx, manager, filePath, position)
 		if err != nil {
 			return nil, err
 		}
 		if result == nil || len(result.Items) == 0 {
-			return emptyListEnvelope{
-				Success: true,
-				Data:    []any{},
-				Meta:    resultMeta{Count: 0, Message: rustDetachedWorkspaceMessage(filePath, "completions", "no completions")},
-			}, nil
+			attribution, err := completionAttribution(ctx, manager, filePath, req.LanguageID)
+			if err != nil {
+				return nil, err
+			}
+			empty := emptyCompletionResult{
+				attribution: attribution,
+				hint:        rustDetachedWorkspaceMessage(filePath, "completions", "no completions"),
+			}
+			return completionResultForFile(filePath, empty), nil
 		}
 		total := len(result.Items)
 		items := limitSlice(result.Items, limit)
-		return format.NewCompactList(
+		list := format.NewCompactList(
 			format.CompactCompletionItems(items),
 			total,
 			"next: increase max_results or move to a more precise cursor",
-		), nil
+		)
+		return completionResultForFile(filePath, list), nil
 	})
+}
+
+func completionAttribution(
+	ctx context.Context,
+	manager lspmanager.Manager,
+	filePath string,
+	languageID string,
+) (lspmanager.CompletionAttribution, error) {
+	attribution := lspmanager.CompletionAttribution{LanguageID: completionLanguageID(filePath, languageID)}
+	provider, ok := manager.(lspmanager.CompletionAttributionManager)
+	if !ok {
+		return attribution, nil
+	}
+	resolved, err := provider.CompletionAttribution(ctx, filePath)
+	if err != nil {
+		return lspmanager.CompletionAttribution{}, err
+	}
+	if strings.TrimSpace(resolved.LanguageID) == "" {
+		resolved.LanguageID = attribution.LanguageID
+	}
+	return resolved, nil
+}
+
+func completionLanguageID(filePath, override string) string {
+	if languageID := normalizeLanguageIDOverride(override); languageID != "" {
+		return languageID
+	}
+	return lspmanager.DetectLanguageID(filePath)
+}
+
+func completionAttributionValue(value string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return "unknown"
 }
 
 // completionWithIdentifierEndRetry 在原光标没有候选时尝试标识符边界位置。

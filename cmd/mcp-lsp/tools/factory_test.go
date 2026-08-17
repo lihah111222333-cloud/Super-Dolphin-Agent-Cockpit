@@ -79,7 +79,7 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	input, err := json.Marshal(map[string]any{
 		"action":                 "text_search",
 		"query":                  "needle",
-		"path":                   root,
+		"paths":                  []string{root},
 		"schema_forbidden_field": true,
 	})
 	if err != nil {
@@ -143,9 +143,9 @@ func TestSemanticInspectAndStructureAutoInstallMissingBinary(t *testing.T) {
 
 	t.Run("structure", func(t *testing.T) {
 		payload := mustMarshalToolPayload(t, map[string]any{
-			"action":   "workspace_symbol",
-			"language": "typescript",
-			"query":    "anything",
+			"action":             "workspace_symbol",
+			"workspace_language": "typescript",
+			"query":              "anything",
 		})
 		_, err := NewStructureHandler(registry)(testToolContext(root), payload)
 		if err != nil {

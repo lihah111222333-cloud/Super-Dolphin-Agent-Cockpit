@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
@@ -180,9 +181,27 @@ func (m *resolvedScopeStructure) SemanticTokens(ctx context.Context, uri string)
 	return m.manager.SemanticTokens(m.scoped(ctx), uri)
 }
 
+// SemanticTokensLegend 注入 resolved scope 后读取同一 server 的 initialize legend。
+func (m *resolvedScopeStructure) SemanticTokensLegend(ctx context.Context, uri string) ([]string, []string, error) {
+	legendManager, ok := m.manager.(SemanticTokensLegendManager)
+	if !ok {
+		return nil, nil, errors.New("semantic tokens legend is unavailable from manager")
+	}
+	return legendManager.SemanticTokensLegend(m.scoped(ctx), uri)
+}
+
 // Completion 注入 resolved scope 后转发补全查询。
 func (m *resolvedScopeCompletion) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
 	return m.manager.Completion(m.scoped(ctx), uri, position)
+}
+
+// CompletionAttribution 注入同一 resolved scope 后读取实际语言服务器归因。
+func (m *resolvedScopeCompletion) CompletionAttribution(ctx context.Context, uri string) (CompletionAttribution, error) {
+	provider, ok := m.manager.(CompletionAttributionManager)
+	if !ok {
+		return CompletionAttribution{}, nil
+	}
+	return provider.CompletionAttribution(m.scoped(ctx), uri)
 }
 
 // Rename 注入 resolved scope 后转发重命名请求。

@@ -71,10 +71,10 @@ func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsMissingLanguageServer_E2E(t *t
 	requireMCPToolSuccess(t, client, diagnostics, "sql diagnostics after auto-install")
 	requireFakeSQLCargoArgs(t, marker)
 
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total != 0 || payload.HasFile(target) {
-		t.Fatalf("valid SQLite diagnostics after auto-install = %#v, want no diagnostics; raw=%s stderr=%s",
-			payload, diagnostics.Result.StructuredContent, client.stderrString())
+		t.Fatalf("valid SQLite diagnostics after auto-install = %#v, want no diagnostics; text=%q stderr=%s",
+			payload, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -129,9 +129,9 @@ func TestMcpLSPBinarySQLiteInvalidSQLProducesRealDiagnostic_E2E(t *testing.T) {
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "invalid SQLite diagnostics")
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total == 0 || !payload.HasFile(target) {
-		t.Fatalf("invalid SQLite SQL produced no parser diagnostic: payload=%#v raw=%s stderr=%s", payload, diagnostics.Result.StructuredContent, client.stderrString())
+		t.Fatalf("invalid SQLite SQL produced no parser diagnostic: payload=%#v text=%q stderr=%s", payload, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -199,10 +199,10 @@ func TestMcpLSPBinarySQLDiagnosticsAcceptsSQLiteQuestionMarkPlaceholder_E2E(t *t
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "SQLite question-mark placeholder diagnostics")
 
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total != 0 || payload.HasFile(target) {
-		t.Fatalf("valid SQLite question-mark placeholder produced diagnostics: payload=%#v raw=%s text=%q stderr=%s",
-			payload, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("valid SQLite question-mark placeholder produced diagnostics: payload=%#v text=%q stderr=%s",
+			payload, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 

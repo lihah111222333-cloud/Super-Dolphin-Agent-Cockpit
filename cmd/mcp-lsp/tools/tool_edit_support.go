@@ -270,19 +270,6 @@ func restoreLineEndings(content string, lineEnding lineEndingStyle) string {
 	return content
 }
 
-// functionBody 返回受影响函数正文，超过上限时裁剪，避免工具响应过大。
-func functionBody(content string, start int, end int) string {
-	lines := splitNormalizedLines(content)
-	if start <= 0 || end < start || end > len(lines) {
-		return ""
-	}
-	body := strings.Join(lines[start-1:end], "\n")
-	if len(body) <= replaceRangeFuncBodyMax {
-		return body
-	}
-	return body[:replaceRangeFuncBodyMax] + "\n...(truncated)"
-}
-
 // countLines 返回规范化后的文件行数，末尾空行不计入总数。
 func countLines(content string) int {
 	lines := splitNormalizedLines(content)

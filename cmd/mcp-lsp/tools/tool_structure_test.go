@@ -251,9 +251,9 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 	handler := NewStructureHandler(registry)
 
 	input, err := json.Marshal(structureParams{
-		Action:   "workspace_symbol",
-		Language: "javascript",
-		Query:    "greet",
+		Action:            "workspace_symbol",
+		WorkspaceLanguage: "javascript",
+		Query:             "greet",
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -282,20 +282,30 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 	}
 }
 
-func TestStructureWorkspaceSymbolSQLLanguageRequiresFilePath(t *testing.T) {
+func TestStructureWorkspaceSymbolRejectsUnknownMatchMode(t *testing.T) {
+	_, err := runWorkspaceSymbols(context.Background(), &structureTestManager{}, "go", structureParams{
+		Query:     "Needle",
+		MatchMode: "broad",
+	})
+	if err == nil || !strings.Contains(err.Error(), "match_mode must be exact or fuzzy") {
+		t.Fatalf("unknown workspace symbol match_mode error = %v", err)
+	}
+}
+
+func TestStructureWorkspaceSymbolSQLWorkspaceLanguageRequiresFilePath(t *testing.T) {
 	root := t.TempDir()
 	writeStructureTestFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: postgresql\n    queries: queries\n")
 	registry := &structureTestRegistry{languageManager: &structureTestManager{}}
 	handler := NewStructureHandler(registry)
 	input := marshalStructureParams(t, structureParams{
-		Action:   "workspace_symbol",
-		Language: "sql",
-		Query:    "card",
+		Action:            "workspace_symbol",
+		WorkspaceLanguage: "sql",
+		Query:             "card",
 	})
 
 	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "requires file_path") {
-		t.Fatalf("SQL language-only workspace_symbol error = %v, want file_path requirement", err)
+		t.Fatalf("SQL workspace_language-only workspace_symbol error = %v, want file_path requirement", err)
 	}
 	if registry.languageCalls != 0 {
 		t.Fatalf("GetManagerForLanguage calls = %d, want fail-fast before manager lookup", registry.languageCalls)

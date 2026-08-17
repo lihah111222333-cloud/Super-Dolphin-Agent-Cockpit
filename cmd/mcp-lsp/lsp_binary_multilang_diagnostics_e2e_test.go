@@ -1,4 +1,4 @@
-//go:build e2e
+//go:build e2e && (darwin || linux || windows)
 
 package main
 
@@ -16,6 +16,24 @@ import (
 )
 
 const allLanguageToolMatrixTimeout = 30 * time.Minute
+
+func TestFakeAllLanguagesProtocolBundleWritesGoplsManifest_E2E(t *testing.T) {
+	fakeServers := writeFakeMultilangDiagnosticsLangservers(t)
+	bundleDir := writeFakeAllLanguagesProtocolBundle(t, fakeServers)
+	manifest, err := os.ReadFile(filepath.Join(bundleDir, "manifest.json"))
+	if err != nil {
+		t.Fatalf("read all-language fake bundle manifest: %v", err)
+	}
+	var payload struct {
+		Servers map[string]json.RawMessage `json:"servers"`
+	}
+	if err := json.Unmarshal(manifest, &payload); err != nil {
+		t.Fatalf("decode all-language fake bundle manifest: %v", err)
+	}
+	if _, ok := payload.Servers["gopls"]; !ok {
+		t.Fatalf("all-language fake bundle manifest lacks gopls: %s", manifest)
+	}
+}
 
 func TestAllLanguageToolMatrixTimeoutExceedsTenMinutes(t *testing.T) {
 	if allLanguageToolMatrixTimeout <= 10*time.Minute {
@@ -63,29 +81,28 @@ func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E
 			elapsed := time.Since(startedAt)
 			requireMCPToolSuccess(t, client, diagnostics, tc.languageID+" diagnostics")
 			if tc.languageID == "sql" {
-				payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+				payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 				if payload.Total != 0 || payload.HasFile(target) {
 					t.Fatalf("valid SQLite fake-server diagnostics = %#v, want no diagnostics before real parser tests", payload)
 				}
 				return
 			}
 			if elapsed < binaryColdStartDiagnosticsDelay-binaryColdStartDiagnosticsSlack {
-				t.Fatalf("%s diagnostics returned in %s, want it to wait for delayed cold-start diagnostics >= %s; structured=%s stderr=%s",
+				t.Fatalf("%s diagnostics returned in %s, want it to wait for delayed cold-start diagnostics >= %s; text=%q stderr=%s",
 					tc.languageID, elapsed, binaryColdStartDiagnosticsDelay-binaryColdStartDiagnosticsSlack,
-					diagnostics.Result.StructuredContent, client.stderrString())
+					diagnostics.Result.ContentText(), client.stderrString())
 			}
 
-			payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+			payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 			if !payload.HasFile(target) {
-				t.Fatalf("%s diagnostics missing target %s: payload=%#v raw=%s text=%q stderr=%s",
-					tc.languageID, target, payload, diagnostics.Result.StructuredContent,
-					diagnostics.Result.ContentText(), client.stderrString())
+				t.Fatalf("%s diagnostics missing target %s: payload=%#v text=%q stderr=%s",
+					tc.languageID, target, payload, diagnostics.Result.ContentText(), client.stderrString())
 			}
 			message := payload.FirstMessageForFile(t, target)
 			want := "fake cold-start diagnostic for " + tc.languageID
 			if !strings.Contains(message, want) {
-				t.Fatalf("%s diagnostics message = %q, want %q; payload=%#v raw=%s stderr=%s",
-					tc.languageID, message, want, payload, diagnostics.Result.StructuredContent, client.stderrString())
+				t.Fatalf("%s diagnostics message = %q, want %q; payload=%#v text=%q stderr=%s",
+					tc.languageID, message, want, payload, diagnostics.Result.ContentText(), client.stderrString())
 			}
 		})
 	}
@@ -116,7 +133,7 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 	target := tc.write(t, root)
 	ctx, cancel := context.WithTimeout(context.Background(), allLanguageToolMatrixTimeout)
 	defer cancel()
-	var extraEnv []string
+	extraEnv := []string{"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(t.TempDir(), "lsp-cache")}
 	if serverName, ok := map[string]string{
 		"sql":   "sqruff",
 		"swift": "sourcekit-lsp",
@@ -125,14 +142,15 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 		// 真实 managed server 的安装与能力由独立 E2E 校验；此测试只锁定
 		// mcp-lsp 的协议路由，因此显式隔离会抢占 fake PATH 的 ManagedOnly adapter。
 		fakeBundleDir := writeFakeProtocolBundle(t, fakeServersBinDir, serverName, tc.languageID)
-		extraEnv = []string{
-			"SUPER_DOLPHIN_LSP_BUNDLE_DIR=" + fakeBundleDir,
-			"SUPER_DOLPHIN_LSP_MANIFEST=" + filepath.Join(fakeBundleDir, "manifest.json"),
-		}
+		extraEnv = append(extraEnv,
+			"SUPER_DOLPHIN_LSP_BUNDLE_DIR="+fakeBundleDir,
+			"SUPER_DOLPHIN_LSP_MANIFEST="+filepath.Join(fakeBundleDir, "manifest.json"),
+		)
 	}
 	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, extraEnv)
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	warmWorkspaceSymbolDocument(t, client, target, tc.languageID)
 	current, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("read %s replace_range fixture: %v", tc.languageID, err)
@@ -155,19 +173,18 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 	})
 	t.Logf("language=%s tool=patch_edit action=replace_range elapsed=%s", tc.languageID, time.Since(replaceStartedAt))
 	requireMCPToolSuccess(t, client, replaced, tc.languageID+" patch_edit replace_range")
-	if payload := replaced.Result.ContentText() + string(replaced.Result.StructuredContent); !strings.Contains(payload, "applied") {
-		t.Fatalf("%s replace_range did not report applied: text=%q structured=%s stderr=%s",
-			tc.languageID, replaced.Result.ContentText(), replaced.Result.StructuredContent, client.stderrString())
+	if payload := replaced.Result.ContentText(); !strings.Contains(payload, "applied") {
+		t.Fatalf("%s replace_range did not report applied: text=%q stderr=%s",
+			tc.languageID, replaced.Result.ContentText(), client.stderrString())
 	}
 
 	pos := target + ":1:1"
 	checks := []binaryAllLanguageToolCheck{
-		{tool: "file", args: map[string]any{"action": "open_file", "file_path": target}},
 		{tool: "file", args: map[string]any{"action": "read_file", "file_path": target}},
 		{tool: "file", args: map[string]any{"action": "read_file", "file_paths": []string{target}}, want: filepath.Base(target)},
 		{tool: "file", args: map[string]any{"action": "diagnostics", "file_path": target}},
 		{tool: "file", args: map[string]any{"action": "diagnostics", "file_paths": []string{target}}},
-		{tool: "grep", args: map[string]any{"action": "text_search", "query": "fixture", "path": target}},
+		{tool: "grep", args: map[string]any{"action": "text_search", "query": "fixture", "paths": []string{target}}},
 		{tool: "structure", args: map[string]any{"action": "document_symbol", "file_path": target}},
 		{tool: "structure", args: map[string]any{"action": "workspace_symbol", "file_path": target, "query": staleWorkspaceSymbolName(tc.languageID)}},
 		{tool: "structure", args: map[string]any{"action": "folding_range", "file_path": target}},
@@ -208,9 +225,9 @@ func runBinaryAllLanguageToolChecks(t *testing.T, client *mcpLSPBinaryClient, la
 		result := client.callTool(t, check.tool, check.args)
 		t.Logf("language=%s tool=%s action=%v elapsed=%s", languageID, check.tool, check.args["action"], time.Since(startedAt))
 		requireMCPToolSuccess(t, client, result, languageID+" "+check.tool)
-		payload := result.Result.ContentText() + string(result.Result.StructuredContent)
+		payload := result.Result.ContentText()
 		if check.want != "" && !strings.Contains(payload, check.want) {
-			t.Fatalf("%s %s payload missing %q: text=%q structured=%s stderr=%s", languageID, check.tool, check.want, result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+			t.Fatalf("%s %s payload missing %q: text=%q stderr=%s", languageID, check.tool, check.want, result.Result.ContentText(), client.stderrString())
 		}
 	}
 }
@@ -260,8 +277,8 @@ func TestMcpLSPBinaryGoAndGoSumSemanticActionsExposeLifecycleTiming_E2E(t *testi
 				t.Logf("language=%s action=%s elapsed=%s sidecar_pid=%d fake_gopls_lifecycle=%s sidecar_stderr=%s",
 					tc.languageID, check.name, elapsed, client.cmd.Process.Pid, strings.TrimSpace(string(journal)), stderr)
 				if result.Result.IsError {
-					t.Fatalf("%s %s returned MCP error: text=%q structured=%s stderr=%s",
-						tc.languageID, check.name, result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+					t.Fatalf("%s %s returned MCP error: text=%q stderr=%s",
+						tc.languageID, check.name, result.Result.ContentText(), client.stderrString())
 				}
 			}
 		})
@@ -290,7 +307,7 @@ func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, first, "initial stale-name diagnostics")
-	firstMessage := decodeDiagnosticsStructuredContent(t, first.Result.StructuredContent).FirstMessageForFile(t, target)
+	firstMessage := decodeDiagnosticsContentText(t, first.Result.ContentText()).FirstMessageForFile(t, target)
 	if !strings.Contains(firstMessage, "staleName") {
 		t.Fatalf("initial diagnostics message = %q, want staleName; stderr=%s", firstMessage, client.stderrString())
 	}
@@ -303,7 +320,7 @@ func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, second, "fresh-name diagnostics after rewrite")
-	secondMessage := decodeDiagnosticsStructuredContent(t, second.Result.StructuredContent).FirstMessageForFile(t, target)
+	secondMessage := decodeDiagnosticsContentText(t, second.Result.ContentText()).FirstMessageForFile(t, target)
 	if !strings.Contains(secondMessage, "freshName") || strings.Contains(secondMessage, "staleName") {
 		t.Fatalf("diagnostics after rewrite = %q, want freshName without staleName; stderr=%s", secondMessage, client.stderrString())
 	}

@@ -3,18 +3,16 @@ package tools
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
-type compactHierarchyResult struct {
-	Item     compactHierarchyItem           `json:"item"`
-	Incoming []compactHierarchyIncomingCall `json:"incoming,omitempty"`
-	Outgoing []compactHierarchyOutgoingCall `json:"outgoing,omitempty"`
-}
+const hierarchyContentMaxBytes = 4 * 1024
 
 type compactHierarchyItem struct {
 	Name   string `json:"name"`
@@ -25,20 +23,124 @@ type compactHierarchyItem struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-type compactHierarchyIncomingCall struct {
-	From       compactHierarchyItem       `json:"from"`
-	FromRanges []compactHierarchyLocation `json:"fromRanges,omitempty"`
-}
-
-type compactHierarchyOutgoingCall struct {
-	To         compactHierarchyItem       `json:"to"`
-	FromRanges []compactHierarchyLocation `json:"fromRanges,omitempty"`
-}
-
 type compactHierarchyLocation struct {
 	File string `json:"file,omitempty"`
 	Line int    `json:"line"`
 	Col  int    `json:"col"`
+}
+
+type hierarchyEdgeRow struct {
+	Direction    string
+	Item         compactHierarchyItem
+	Sites        []compactHierarchyLocation
+	SitesTotal   int
+	HasCallSites bool
+}
+
+type hierarchyEdgeListResponse struct {
+	Rows  []hierarchyEdgeRow
+	Total int
+	Unit  string
+	Hint  string
+}
+
+// ToPlainText 渲染扁平 hierarchy edge，并按最终文本硬预算同步裁剪 showing。
+func (response hierarchyEdgeListResponse) ToPlainText() string {
+	for {
+		text := response.renderPlainText()
+		if len([]byte(text)) <= hierarchyContentMaxBytes || len(response.Rows) == 0 {
+			return text
+		}
+		response.Rows = response.Rows[:len(response.Rows)-1]
+	}
+}
+
+func (response hierarchyEdgeListResponse) renderPlainText() string {
+	lines := []string{lineprotocol.HeaderLine(response.Total, len(response.Rows), len(response.Rows) < response.Total, response.Unit)}
+	for _, row := range response.Rows {
+		lines = append(lines, hierarchyEdgeRecord(row))
+	}
+	if hint := strings.TrimSpace(response.Hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func hierarchyEdgeRecord(row hierarchyEdgeRow) string {
+	fields := []lineprotocol.Field{
+		{Key: "direction", Value: row.Direction},
+		{Key: "name", Value: row.Item.Name},
+		{Key: "kind", Value: strconv.Itoa(row.Item.Kind)},
+		{Key: "file", Value: row.Item.File},
+		{Key: "line", Value: strconv.Itoa(row.Item.Line)},
+		{Key: "col", Value: strconv.Itoa(row.Item.Col)},
+	}
+	if row.HasCallSites {
+		fields = append(fields,
+			lineprotocol.Field{Key: "sites_total", Value: strconv.Itoa(row.SitesTotal)},
+			lineprotocol.Field{Key: "sites_showing", Value: strconv.Itoa(len(row.Sites))},
+			lineprotocol.Field{Key: "sites_truncated", Value: strconv.Itoa(boolToInt(len(row.Sites) < row.SitesTotal))},
+		)
+		if len(row.Sites) > 0 {
+			fields = append(fields,
+				lineprotocol.Field{Key: "site_file", Value: row.Sites[0].File},
+				lineprotocol.Field{Key: "site_line", Value: strconv.Itoa(row.Sites[0].Line)},
+				lineprotocol.Field{Key: "site_col", Value: strconv.Itoa(row.Sites[0].Col)},
+			)
+		}
+	}
+	return lineprotocol.FieldsRecord("ROW", fields...)
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func compactCallHierarchyEdges(ctx context.Context, items []protocol.CallHierarchyResult) ([]hierarchyEdgeRow, []hierarchyEdgeRow) {
+	var incoming, outgoing []hierarchyEdgeRow
+	for _, result := range items {
+		for _, edge := range result.Incoming {
+			incoming = append(incoming, compactCallEdge(ctx, "incoming", edge.From, edge.From.URI, edge.FromRanges))
+		}
+		for _, edge := range result.Outgoing {
+			outgoing = append(outgoing, compactCallEdge(ctx, "outgoing", edge.To, result.Item.URI, edge.FromRanges))
+		}
+	}
+	return incoming, outgoing
+}
+
+func compactCallEdge(ctx context.Context, direction string, item protocol.CallHierarchyItem, siteURI string, ranges []protocol.Range) hierarchyEdgeRow {
+	shown := ranges
+	if len(shown) > 1 {
+		shown = shown[:1]
+	}
+	return hierarchyEdgeRow{
+		Direction: direction, Item: compactCallHierarchyItem(ctx, item),
+		Sites: compactHierarchyRanges(ctx, siteURI, shown), SitesTotal: len(ranges), HasCallSites: true,
+	}
+}
+
+func compactTypeHierarchyEdges(ctx context.Context, items []protocol.TypeHierarchyResult) ([]hierarchyEdgeRow, []hierarchyEdgeRow) {
+	var supertypes, subtypes []hierarchyEdgeRow
+	for _, result := range items {
+		for _, item := range result.Supertypes {
+			supertypes = append(supertypes, hierarchyEdgeRow{Direction: "supertype", Item: compactTypeHierarchyItem(ctx, item)})
+		}
+		for _, item := range result.Subtypes {
+			subtypes = append(subtypes, hierarchyEdgeRow{Direction: "subtype", Item: compactTypeHierarchyItem(ctx, item)})
+		}
+	}
+	return supertypes, subtypes
+}
+
+func compactTypeHierarchyItem(ctx context.Context, item protocol.TypeHierarchyItem) compactHierarchyItem {
+	return compactHierarchyItem{
+		Name: item.Name, Kind: item.Kind, File: compactToolFilePath(ctx, item.URI),
+		Line: format.FromLSP(item.SelectionRange.Start.Line), Col: format.FromLSP(item.SelectionRange.Start.Character), Detail: item.Detail,
+	}
 }
 
 func groupLocationsByFile(ctx context.Context, items []protocol.LocationResult, total int) protocol.GroupedLocationResult {
@@ -52,44 +154,6 @@ func groupLocationsByFile(ctx context.Context, items []protocol.LocationResult, 
 	}
 	grouped.Data = relative
 	return grouped
-}
-
-func compactCallHierarchyResults(ctx context.Context, items []protocol.CallHierarchyResult) []compactHierarchyResult {
-	out := make([]compactHierarchyResult, 0, len(items))
-	for i := range items {
-		row := compactHierarchyResult{Item: compactCallHierarchyItem(ctx, items[i].Item)}
-		row.Incoming = compactIncomingCalls(ctx, items[i].Incoming)
-		row.Outgoing = compactOutgoingCalls(ctx, items[i].Item, items[i].Outgoing)
-		out = append(out, row)
-	}
-	return out
-}
-
-func compactIncomingCalls(ctx context.Context, calls []protocol.CallHierarchyIncomingCall) []compactHierarchyIncomingCall {
-	out := make([]compactHierarchyIncomingCall, 0, len(calls))
-	for i := range calls {
-		from := compactCallHierarchyItem(ctx, calls[i].From)
-		out = append(out, compactHierarchyIncomingCall{
-			From:       from,
-			FromRanges: compactHierarchyRanges(ctx, calls[i].From.URI, calls[i].FromRanges),
-		})
-	}
-	return out
-}
-
-func compactOutgoingCalls(
-	ctx context.Context,
-	source protocol.CallHierarchyItem,
-	calls []protocol.CallHierarchyOutgoingCall,
-) []compactHierarchyOutgoingCall {
-	out := make([]compactHierarchyOutgoingCall, 0, len(calls))
-	for i := range calls {
-		out = append(out, compactHierarchyOutgoingCall{
-			To:         compactCallHierarchyItem(ctx, calls[i].To),
-			FromRanges: compactHierarchyRanges(ctx, source.URI, calls[i].FromRanges),
-		})
-	}
-	return out
 }
 
 func compactCallHierarchyItem(ctx context.Context, item protocol.CallHierarchyItem) compactHierarchyItem {

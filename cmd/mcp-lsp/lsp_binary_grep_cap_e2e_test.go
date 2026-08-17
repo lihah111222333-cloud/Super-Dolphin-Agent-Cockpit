@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -18,32 +17,26 @@ func TestLSPBinaryGrepStopsAtDefaultMaxResultsWithHint(t *testing.T) {
 	result := client.callTool(t, "grep", map[string]any{
 		"action": "text_search",
 		"query":  "needle",
-		"path":   root,
+		"paths":  []string{root},
 		"glob":   "*.txt",
 	})
 	if result.IsError {
 		t.Fatalf("grep returned tool error: %s", result.ContentText())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
-	if payload.Total != 50 || payload.Showing != 50 || !payload.Truncated {
-		t.Fatalf("grep payload = total:%d showing:%d truncated:%t, want 50/50/true; content=%s",
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
+	if payload.Total != 61 || payload.Showing != 50 || !payload.Truncated {
+		t.Fatalf("grep payload = total:%d showing:%d truncated:%t, want 61/50/true; content=%s",
 			payload.Total, payload.Showing, payload.Truncated, result.ContentText())
 	}
 	lowerHint := strings.ToLower(payload.Hint)
-	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "path") && !strings.Contains(lowerHint, "glob")) {
-		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow path/glob", payload.Hint)
+	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "paths") && !strings.Contains(lowerHint, "glob")) {
+		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow paths/glob", payload.Hint)
 	}
 
 	largeRows := lspBinaryGrepRowsForFile(t, root, payload, "00-large.txt")
 	if len(largeRows.Rows) != 50 {
 		t.Fatalf("large file rows = %d, want 50", len(largeRows.Rows))
 	}
-}
-
-type lspBinaryGrepFileRows struct {
-	Cols []string `json:"cols"`
-	Rows [][]any  `json:"rows"`
 }
 
 func lspBinaryGrepNeedleLines(count int) string {
@@ -61,7 +54,7 @@ func lspBinaryGrepRowsForFile(
 	wantRel string,
 ) lspBinaryGrepFileRows {
 	t.Helper()
-	for path, raw := range payload.Data {
+	for path, rows := range payload.Data {
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			t.Fatalf("relative grep path %q: %v", path, err)
@@ -69,12 +62,8 @@ func lspBinaryGrepRowsForFile(
 		if filepath.ToSlash(rel) != wantRel {
 			continue
 		}
-		var rows lspBinaryGrepFileRows
-		if err := json.Unmarshal(raw, &rows); err != nil {
-			t.Fatalf("decode grep rows for %s: %v; raw=%s", wantRel, err, raw)
-		}
 		return rows
 	}
-	t.Fatalf("grep payload missing %s; structured files=%#v", wantRel, payload.Data)
+	t.Fatalf("grep payload missing %s; content files=%#v", wantRel, payload.Data)
 	return lspBinaryGrepFileRows{}
 }

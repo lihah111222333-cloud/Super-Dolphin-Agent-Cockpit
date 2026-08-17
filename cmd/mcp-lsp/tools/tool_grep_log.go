@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"errors"
+	"regexp/syntax"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -20,18 +22,17 @@ func logGrepCallDecoded(input grepToolInput, limit int) {
 
 // runGrepTextSearch 只在可信 workspace roots 内运行文本搜索。
 // runtime fallback 曾经会读兄弟 worktree；现在遇到该场景直接报 stale-root，要求调用方传入明确作用域。
-func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, limit int) ([]search.SearchMatch, error) {
+func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, limit int) (search.CountedSearchResult, error) {
 	root, roots, err := grepWorkspaceRoots(ctx)
 	if err != nil {
 		pkglogger.Warn("mcp-lsp grep text_search workspace roots failed", grepLogAttrs(input,
 			"error", err,
 		)...)
-		return nil, err
+		return search.CountedSearchResult{}, err
 	}
 	opts := search.TextSearchOptions{
 		Root:          root,
 		Roots:         roots,
-		Path:          input.Path,
 		Paths:         input.Paths,
 		Glob:          input.Glob,
 		Query:         input.Query,
@@ -46,46 +47,30 @@ func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, l
 		"limit", limit,
 		"max_file_bytes", maxReadFileBytes,
 	)...)
-	matches, err := search.SearchText(ctx, opts)
+	result, err := search.SearchTextCounted(ctx, opts)
 	if err != nil {
 		pkglogger.Warn("mcp-lsp grep text_search failed", grepLogAttrs(input,
 			"root", root,
 			"roots_count", len(roots),
 			"error", err,
 		)...)
-		return nil, err
+		if _, ok := errors.AsType[*syntax.Error](err); ok {
+			return search.CountedSearchResult{}, common.NewCodedToolError(
+				"invalid_params", err, false, "fix-regex-syntax-or-set-regex=false-for-literal-search",
+			)
+		}
+		return search.CountedSearchResult{}, err
 	}
 	pkglogger.Info("mcp-lsp grep text_search returned", grepLogAttrs(input,
 		"root", root,
 		"roots_count", len(roots),
-		"matches", len(matches),
+		"matches", len(result.Matches),
+		"total", result.Total,
 	)...)
-	if len(matches) > 0 {
-		return matches, nil
+	if len(result.Matches) > 0 {
+		return result, nil
 	}
-	if grepRuntimeFallbackWouldSearchOutsideRoots(ctx, input) {
-		err := errors.New(staleWorkspaceRootMessage())
-		pkglogger.Warn("mcp-lsp grep text_search stale workspace root", grepLogAttrs(input,
-			"root", root,
-			"roots_count", len(roots),
-			"error", err,
-		)...)
-		return nil, err
-	}
-	return nil, nil
-}
-
-// filterAndLogGrepMatches 执行结果上限裁剪，并记录裁剪前后的数量。
-func filterAndLogGrepMatches(input grepToolInput, matches []search.SearchMatch, limit int) ([]search.SearchMatch, int, bool) {
-	filtered, total, truncated := search.FilterAndCapSearchMatches(matches, limit)
-	pkglogger.Info("mcp-lsp grep matches filtered", grepLogAttrs(input,
-		"raw_matches", len(matches),
-		"filtered_matches", len(filtered),
-		"total", total,
-		"truncated", truncated,
-		"limit", limit,
-	)...)
-	return filtered, total, truncated
+	return result, nil
 }
 
 // logGrepResponseEmpty 记录空结果，区分原始无匹配和过滤后为空。
@@ -120,13 +105,12 @@ func finalizeGrepResponse(input grepToolInput, resp *grepResponse) {
 	pkglogger.Info("mcp-lsp grep response ready", attrs...)
 }
 
-// grepLogAttrs 统一 grep 日志字段，避免每个阶段手写 path/query 信息。
+// grepLogAttrs 统一 grep 日志字段，避免每个阶段手写 paths/query 信息。
 func grepLogAttrs(input grepToolInput, attrs ...any) []any {
 	base := []any{
 		"tool", "grep",
 		"action", input.Action,
 		"query", input.Query,
-		"path", input.Path,
 		"paths_count", len(input.Paths),
 		"glob", input.Glob,
 		"regex", input.Regex,

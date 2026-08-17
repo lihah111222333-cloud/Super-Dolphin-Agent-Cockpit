@@ -53,6 +53,11 @@ type StructureManager interface {
 	SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error)
 }
 
+// SemanticTokensLegendManager 暴露当前文档实际 LSP server 在 initialize 中声明的 semantic legend。
+type SemanticTokensLegendManager interface {
+	SemanticTokensLegend(ctx context.Context, uri string) (tokenTypes []string, tokenModifiers []string, err error)
+}
+
 // BestEffortDocumentSymbolManager 允许实现方在语义 LSP 不可用时返回降级文档符号。
 // 调用方需要显式识别该接口，避免普通 DocumentSymbol 悄悄降级。
 type BestEffortDocumentSymbolManager interface {
@@ -62,6 +67,18 @@ type BestEffortDocumentSymbolManager interface {
 // CompletionManager 封装补全查询能力。
 type CompletionManager interface {
 	Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error)
+}
+
+// CompletionAttribution 保存实际 completion 文档选择得到的语言和 initialize serverInfo。
+type CompletionAttribution struct {
+	LanguageID    string
+	ServerName    string
+	ServerVersion string
+}
+
+// CompletionAttributionManager 是 completion handler 按需读取运行时归因的窄接口。
+type CompletionAttributionManager interface {
+	CompletionAttribution(ctx context.Context, uri string) (CompletionAttribution, error)
 }
 
 // EditManager 封装 rename、code_action 和 format 等会产生编辑结果的能力。

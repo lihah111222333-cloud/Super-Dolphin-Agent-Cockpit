@@ -2,10 +2,11 @@ package tools
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -13,7 +14,7 @@ const (
 	// defaultFunctionModeLimit 是函数窗口读取的默认最大行数。
 	defaultFunctionModeLimit = 300
 
-	// lineWindowReason* 标记 read_file 降级到行窗口的原因，最终展示在 footer。
+	// lineWindowReason* 标记 read_file 降级到行窗口的原因，最终写入 ATTR.reason。
 	lineWindowReasonExplicit        = "explicit"
 	lineWindowReasonBatch           = "batch"
 	lineWindowReasonNoLSP           = "no symbol provider available"
@@ -21,26 +22,20 @@ const (
 	lineWindowReasonOutsideFunction = "line is outside any function"
 )
 
-// renderReadContent 是旧测试兼容入口，按显式行窗口渲染内容。
-func renderReadContent(content string, offset, limit int, _ bool) string {
-	req := readFileRequest{rawPath: "file", line: offset, limit: limit}
-	return renderLineWindow("file", content, req, lineWindowReasonExplicit)
+type readRenderMeta struct {
+	file, scope, reason, symbol, hint string
+	total, start, end, requestedStart int
 }
 
-// renderLineWindowWithinBudget 在单文件读取超出输出预算时按整行缩短窗口。
-// 它保留普通 read_file 的行号和下一段读取提示，避免预算中间件把整段结果
-// 替换成 result_too_large。
+// renderLineWindowWithinBudget 在单文件读取超出输出预算时按完整 ROW 缩短窗口。
 func renderLineWindowWithinBudget(displayPath, content string, req readFileRequest, reason string, budgetBytes int) string {
 	rendered := renderLineWindow(displayPath, content, req, reason)
 	if fitsReadTextBudget(rendered, budgetBytes) {
 		return rendered
 	}
-	lines := splitNormalizedLines(content)
-	if content == "" {
-		lines = []string{}
-	}
+	lines := protocolSourceLines(content)
 	if len(lines) == 0 {
-		return truncateRenderedReadText(rendered, displayPath, 1, budgetBytes)
+		return rendered
 	}
 	start := clampOffset(req.line, len(lines))
 	if req.line <= 0 {
@@ -67,28 +62,20 @@ func renderLineWindowWithinBudget(displayPath, content string, req readFileReque
 	if best != "" {
 		return best
 	}
-	candidateReq := req
-	candidateReq.line = start
-	candidateReq.limit = 1
-	return truncateRenderedReadText(appendReadBudgetTruncation(renderLineWindow(displayPath, content, candidateReq, reason), budgetBytes), displayPath, start+1, budgetBytes)
+	return renderReadBudgetOmission(displayPath, start, len(lines), budgetBytes)
 }
 
-// renderLineWindow 渲染 1-based 行号窗口，并自动向上包含紧邻注释。
+// renderLineWindow 渲染 1-based 行窗口，并自动向上包含紧邻注释。
 func renderLineWindow(displayPath, content string, req readFileRequest, reason string) string {
-	lines := splitNormalizedLines(content)
-	if content == "" {
-		lines = []string{}
-	}
+	lines := protocolSourceLines(content)
 	if len(lines) == 0 {
-		return "TEXT\n\n[scope=file 0 lines]"
-	}
-
-	if req.line <= 0 && req.limit <= 0 {
-		rendered := format.RenderLineNumberedText(strings.Join(lines, "\n"), 1)
-		return fmt.Sprintf("TEXT\n%s\n\n[scope=file %d lines]", rendered, len(lines))
+		return renderReadRows(readRenderMeta{file: displayPath, scope: "lines", reason: reason}, nil)
 	}
 
 	start := clampOffset(req.line, len(lines))
+	if req.line <= 0 {
+		start = 1
+	}
 	requestedStart := start
 	actualLimit := shared.ClampLimit(req.limit, 1, maxReadFileLimit, defaultReadFileLimit)
 
@@ -102,10 +89,85 @@ func renderLineWindow(displayPath, content string, req readFileRequest, reason s
 	}
 
 	end := minInt(start+actualLimit-1, len(lines))
-	segment := strings.Join(lines[start-1:end], "\n")
-	rendered := format.RenderLineNumberedText(segment, start)
-	footer := renderLineWindowFooter(displayPath, requestedStart, start, end, len(lines), req.limit, reason)
-	return fmt.Sprintf("TEXT\n%s\n\n%s", rendered, footer)
+	meta := readRenderMeta{
+		file: displayPath, scope: "lines", reason: reason,
+		total: len(lines), start: start, end: end, requestedStart: requestedStart,
+		hint: lineWindowContinuationHint(displayPath, start, end, len(lines), req.limit),
+	}
+	return renderReadRows(meta, lines[start-1:end])
+}
+
+func protocolSourceLines(content string) []string {
+	if content == "" {
+		return nil
+	}
+	lines := splitNormalizedLines(content)
+	if strings.HasSuffix(strings.ReplaceAll(content, "\r\n", "\n"), "\n") && len(lines) > 0 {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func renderReadRows(meta readRenderMeta, rows []string) string {
+	showing := len(rows)
+	lines := []string{lineprotocol.HeaderLine(meta.total, showing, showing < meta.total, "line")}
+	lines = append(lines, lineprotocol.FieldsRecord("ATTR",
+		lineprotocol.Field{Key: "file", Value: meta.file},
+		lineprotocol.Field{Key: "scope", Value: meta.scope},
+		lineprotocol.Field{Key: "start_line", Value: strconv.Itoa(meta.start)},
+		lineprotocol.Field{Key: "end_line", Value: strconv.Itoa(meta.end)},
+		lineprotocol.Field{Key: "requested_start_line", Value: strconv.Itoa(meta.requestedStart)},
+		lineprotocol.Field{Key: "reason", Value: meta.reason},
+		lineprotocol.Field{Key: "symbol", Value: meta.symbol},
+	))
+	for index, row := range rows {
+		lines = append(lines, lineprotocol.FieldsRecord("ROW",
+			lineprotocol.Field{Key: "line", Value: strconv.Itoa(meta.start + index)},
+			lineprotocol.Field{Key: "text", Value: row},
+		))
+	}
+	if meta.hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", meta.hint))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderBatchReadResponse(response batchReadResponse) string {
+	rows := make([]string, 0)
+	for _, item := range response.Data {
+		if !item.Success {
+			return lineprotocol.ErrorLine("invalid_batch_read", false) + "\n" + lineprotocol.TextRecord("MESSAGE", item.FilePath+": "+item.Error)
+		}
+		doc, err := lineprotocol.Parse(item.Content)
+		if err != nil {
+			return lineprotocol.ErrorLine("invalid_batch_read", false) + "\n" + lineprotocol.TextRecord("MESSAGE", item.FilePath+": "+err.Error())
+		}
+		for _, record := range doc.Records {
+			if record.Kind != "ROW" {
+				continue
+			}
+			text, hasText := record.Fields["text"]
+			if len(record.Fields) != 2 || record.Fields["line"] == "" || !hasText {
+				return lineprotocol.ErrorLine("invalid_batch_read", false) + "\n" + lineprotocol.TextRecord("MESSAGE", item.FilePath+": invalid source ROW fields")
+			}
+			rows = append(rows, lineprotocol.FieldsRecord("ROW", lineprotocol.Field{Key: "file", Value: item.FilePath}, lineprotocol.Field{Key: "line", Value: record.Fields["line"]}, lineprotocol.Field{Key: "text", Value: text}))
+		}
+	}
+	lines := append([]string{lineprotocol.HeaderLine(response.rowTotal, len(rows), len(rows) < response.rowTotal, "line")}, rows...)
+	if len(rows) < response.rowTotal {
+		lines = append(lines, lineprotocol.TextRecord("HINT", batchReadTruncatedHint))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func lineWindowContinuationHint(displayPath string, start, end, total, limit int) string {
+	if end < total {
+		return fmt.Sprintf("next: file action=read_file pos=%s:%d limit=%d", displayPath, end+1, max(limit, 1))
+	}
+	if start > 1 {
+		return fmt.Sprintf("previous: file action=read_file pos=%s:1 limit=%d", displayPath, start-1)
+	}
+	return ""
 }
 
 // fitsReadTextBudget 判断渲染结果是否落在工具输出预算内。
@@ -113,92 +175,37 @@ func fitsReadTextBudget(text string, budgetBytes int) bool {
 	return budgetBytes <= 0 || len([]byte(text)) <= budgetBytes
 }
 
-// appendReadBudgetTruncation 在被预算裁剪的输出末尾追加可见提示。
+// appendReadBudgetTruncation 在被预算裁剪的输出末尾追加协议内 WARNING。
 func appendReadBudgetTruncation(rendered string, budgetBytes int) string {
-	return fmt.Sprintf("%s\n[truncated to fit output budget %d bytes]", rendered, budgetBytes)
+	return rendered + "\n" + lineprotocol.TextRecord("WARNING", fmt.Sprintf("read_file rows reduced to fit output budget %d bytes", budgetBytes))
 }
 
-// truncateRenderedReadText 是极端长单行的兜底裁剪：整行无法放入预算时，
-// 先保住预算与下一段读取提示，再截断可见文本。
+// truncateRenderedReadText 在函数窗口极端超限时返回完整协议记录，不截断 escape 或 ROW。
 func truncateRenderedReadText(rendered, displayPath string, nextLine int, budgetBytes int) string {
 	if fitsReadTextBudget(rendered, budgetBytes) {
 		return rendered
 	}
-	nextPath := strings.TrimSpace(displayPath)
-	if nextPath == "" {
-		nextPath = "file"
-	}
-	if nextLine <= 0 {
-		nextLine = 1
-	}
-	hint := fmt.Sprintf("\n[truncated to fit output budget %d bytes; use pos=%q to continue]", budgetBytes, fmt.Sprintf("%s:%d", nextPath, nextLine))
-	remaining := budgetBytes - len([]byte(hint))
-	if remaining <= 0 {
-		return truncateUTF8Bytes(hint, budgetBytes)
-	}
-	return truncateUTF8Bytes(rendered, remaining) + hint
+	return renderReadBudgetOmission(displayPath, max(nextLine-1, 1), max(nextLine, 1), budgetBytes)
 }
 
-// truncateUTF8Bytes 在字节上限内截断文本，并避免切断 UTF-8 rune；
-// 调用方负责把关键提示先预留进预算。
-func truncateUTF8Bytes(text string, maxBytes int) string {
-	if maxBytes <= 0 {
-		return ""
+func renderReadBudgetOmission(displayPath string, start, total, budgetBytes int) string {
+	meta := readRenderMeta{
+		file: displayPath, scope: "lines", reason: "output_budget", total: total,
+		hint: fmt.Sprintf("next: file action=read_file pos=%s:%d limit=1", displayPath, start),
 	}
-	if len([]byte(text)) <= maxBytes {
-		return text
-	}
-	const suffix = "..."
-	if maxBytes <= len(suffix) {
-		return suffix[:maxBytes]
-	}
-	keep := maxBytes - len(suffix)
-	cut := 0
-	for idx := range text {
-		if idx > keep {
-			break
-		}
-		cut = idx
-	}
-	return text[:cut] + suffix
-}
-
-// renderLineWindowFooter 生成行窗口范围、limit、降级原因和下一段读取提示。
-func renderLineWindowFooter(displayPath string, requestedStart, start, end, total, limit int, reason string) string {
-	parts := []string{fmt.Sprintf("scope=lines L%d-L%d of %d total", start, end, total)}
-	if limit > 0 {
-		parts = append(parts, fmt.Sprintf("limit=%d", limit))
-	}
-	switch reason {
-	case "", lineWindowReasonExplicit, lineWindowReasonBatch:
-	default:
-		parts = append(parts, reason)
-	}
-	if end < total {
-		nextPath := strings.TrimSpace(displayPath)
-		if nextPath == "" {
-			nextPath = "file"
-		}
-		parts = append(parts, fmt.Sprintf("use pos=%q to continue", fmt.Sprintf("%s:%d", nextPath, end+1)))
-	}
-	if start < requestedStart {
-		parts = append(parts, fmt.Sprintf("auto-expanded upward from L%d to include adjacent comments", requestedStart))
-	}
-	return "[" + strings.Join(parts, "; ") + "]"
+	return renderReadRows(meta, nil) + "\n" +
+		lineprotocol.TextRecord("WARNING", fmt.Sprintf("source line omitted because it exceeds output budget %d bytes", budgetBytes))
 }
 
 // renderFunctionWindow 渲染完整函数窗口，并在超出 limit 时保留可重试提示。
-func renderFunctionWindow(content, name string, startLine, endLine, limit int) string {
-	lines := splitNormalizedLines(content)
+func renderFunctionWindow(displayPath, content, name string, startLine, endLine, limit int) string {
+	lines := protocolSourceLines(content)
 	if content == "" || len(lines) == 0 {
-		return "TEXT\n\n[scope=file 0 lines]"
+		return renderReadRows(readRenderMeta{file: displayPath, scope: "function", symbol: name}, nil)
 	}
 	start := clampOffset(startLine, len(lines))
 	end := clampOffset(endLine, len(lines))
-	if end < start {
-		end = start
-	}
-
+	end = max(end, start)
 	commentStart := expandStartToIncludeComments(lines, start)
 	fullLineCount := end - commentStart + 1
 	actualLimit := shared.ClampLimit(limit, 1, maxReadFileLimit, defaultFunctionModeLimit)
@@ -210,23 +217,14 @@ func renderFunctionWindow(content, name string, startLine, endLine, limit int) s
 	if renderEnd > len(lines) {
 		renderEnd = len(lines)
 	}
-
-	segment := strings.Join(lines[commentStart-1:renderEnd], "\n")
-	rendered := format.RenderLineNumberedText(segment, commentStart)
-	footer := renderFunctionFooter(name, commentStart, end, renderEnd, fullLineCount, capped)
-	return fmt.Sprintf("TEXT\n%s\n\n%s", rendered, footer)
-}
-
-// renderFunctionFooter 生成函数窗口 footer，标明实际函数范围和是否被裁剪。
-func renderFunctionFooter(name string, start, end, renderEnd, fullLineCount int, capped bool) string {
-	label := strings.TrimSpace(name)
-	if label == "" {
-		label = "unknown"
-	}
+	hint := ""
 	if capped {
-		return fmt.Sprintf("[scope=function %s L%d-L%d capped to %d; pass limit=%d for full]", label, start, end, renderEnd-start+1, fullLineCount)
+		hint = fmt.Sprintf("next: file action=read_file pos=%s:%d scope=lines limit=%d", displayPath, renderEnd+1, end-renderEnd)
 	}
-	return fmt.Sprintf("[scope=function %s L%d-L%d]", label, start, end)
+	return renderReadRows(readRenderMeta{
+		file: displayPath, scope: "function", reason: "symbol_window", symbol: strings.TrimSpace(name),
+		total: fullLineCount, start: commentStart, end: renderEnd, requestedStart: start, hint: hint,
+	}, lines[commentStart-1:renderEnd])
 }
 
 // enclosingFunctionName 返回包含目标行的最内层函数名。
@@ -381,7 +379,7 @@ func expandStartToIncludeComments(lines []string, startLine int) int {
 	inMultiLineBlock := false
 	var blockStartMarker string
 
-	for i := 0; i < maxCommentExpandLines; i++ {
+	for range maxCommentExpandLines {
 		prevIdx := current - 2
 		if prevIdx < 0 {
 			break

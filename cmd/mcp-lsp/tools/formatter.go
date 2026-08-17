@@ -2,11 +2,12 @@ package tools
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 // symbolKindName 返回 SymbolKind 的可读名称，未知值返回 SymbolKind(n) 形式。
@@ -46,10 +47,16 @@ func symbolKindName(kind protocol.SymbolKind) string {
 }
 
 // FormatToPlainText 将复杂工具结果渲染为面向模型阅读的纯文本。
-// 只处理已知结构化响应；未知类型返回 ok=false 交给默认 JSON 渲染。
+// 只处理显式文本 provider 和已知结果；未知类型返回 false 交给严格边界报错。
 func FormatToPlainText(result any) (string, bool) {
 	if result == nil {
 		return "", false
+	}
+	if text, ok := formatToolErrorEnvelope(result); ok {
+		return text, true
+	}
+	if provider, ok := result.(interface{ ToPlainText() string }); ok {
+		return provider.ToPlainText(), true
 	}
 	if text, ok := formatBudgetOverflow(result); ok {
 		return text, true
@@ -60,7 +67,50 @@ func FormatToPlainText(result any) (string, bool) {
 	if text, ok := formatOtherStructures(result); ok {
 		return text, true
 	}
-	return formatCompactList(result)
+	return "", false
+}
+
+// formatToolErrorEnvelope 只在 mcp-lsp 边界把类型化错误渲染为稳定错误行协议。
+func formatToolErrorEnvelope(result any) (string, bool) {
+	var envelope common.ToolErrorEnvelope
+	switch value := result.(type) {
+	case common.ToolErrorEnvelope:
+		envelope = value
+	case *common.ToolErrorEnvelope:
+		if value == nil {
+			return "", false
+		}
+		envelope = *value
+	default:
+		return "", false
+	}
+	code := strings.TrimSpace(envelope.Code)
+	if code == "" {
+		code = "tool_error"
+	}
+	lines := []string{lineprotocol.ErrorLine(code, envelope.Retryable)}
+	if message := strings.TrimSpace(envelope.Error); message != "" {
+		lines = append(lines, lineprotocol.TextRecord("MESSAGE", message))
+	}
+	if hint := strings.TrimSpace(envelope.Hint); hint != "" {
+		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
+	}
+	lines = appendToolErrorAttribution(lines, envelope.Meta)
+	return strings.Join(lines, "\n"), true
+}
+
+func appendToolErrorAttribution(lines []string, meta map[string]any) []string {
+	fields := make([]lineprotocol.Field, 0, 2)
+	if tool, ok := meta["tool"].(string); ok && strings.TrimSpace(tool) != "" {
+		fields = append(fields, lineprotocol.Field{Key: "tool", Value: strings.TrimSpace(tool)})
+	}
+	if languageID, ok := meta["language_id"].(string); ok && strings.TrimSpace(languageID) != "" {
+		fields = append(fields, lineprotocol.Field{Key: "language_id", Value: strings.TrimSpace(languageID)})
+	}
+	if len(fields) > 0 {
+		lines = append(lines, lineprotocol.FieldsRecord("ATTR", fields...))
+	}
+	return lines
 }
 
 // formatBudgetOverflow 将 result_too_large 信封转成人类可读提示。
@@ -136,6 +186,8 @@ func formatXrefAndOutline(result any) (string, bool) {
 		return formatTypeHierarchy(val), true
 	case []protocol.DocumentSymbol:
 		return formatDocumentOutline(val), true
+	case documentSymbolListResponse:
+		return val.ToPlainText(), true
 	}
 	return "", false
 }
@@ -149,8 +201,6 @@ func formatOtherStructures(result any) (string, bool) {
 		return formatFoldingRanges(val), true
 	case *protocol.SemanticTokensResult:
 		return formatSemanticTokens(val), true
-	case *protocol.SignatureHelpResult:
-		return formatSignatureHelp(val), true
 	case []protocol.CompletionItem:
 		return formatCompletionItems(val), true
 	}
@@ -163,7 +213,7 @@ func formatLocations(val []protocol.LocationResult) string {
 		return "No locations found."
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Locations Found: %d total\n", len(val)))
+	fmt.Fprintf(&sb, "Locations Found: %d total\n", len(val))
 	for i, item := range val {
 		loc := item.PrimaryLocation()
 		if loc == nil {
@@ -350,7 +400,7 @@ func formatFoldingRanges(val []protocol.FoldingRange) string {
 		if fr.Kind != "" {
 			kindStr = fmt.Sprintf(" [Kind: %s]", fr.Kind)
 		}
-		sb.WriteString(fmt.Sprintf("  [%d] Lines L%d - L%d%s\n", i+1, fr.StartLine, fr.EndLine, kindStr))
+		fmt.Fprintf(&sb, "  [%d] Lines L%d - L%d%s\n", i+1, fr.StartLine, fr.EndLine, kindStr)
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -361,51 +411,15 @@ func formatSemanticTokens(val *protocol.SemanticTokensResult) string {
 		return "No semantic tokens decoded."
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Semantic Tokens: %d decoded\n", len(val.Decoded)))
+	fmt.Fprintf(&sb, "Semantic Tokens: %d decoded\n", len(val.Decoded))
 	for i, tok := range val.Decoded {
 		if i >= 100 {
 			sb.WriteString("  ...[truncated]\n")
 			break
 		}
-		sb.WriteString(fmt.Sprintf("  L%d:C%d len=%d type=%s mod=%v\n", tok.Line, tok.StartCharacter, tok.Length, tok.TokenType, tok.TokenModifiers))
+		fmt.Fprintf(&sb, "  L%d:C%d len=%d type=%s mod=%v\n", tok.Line, tok.StartCharacter, tok.Length, tok.TokenType, tok.TokenModifiers)
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// formatSignatureHelp 格式化签名帮助。
-func formatSignatureHelp(val *protocol.SignatureHelpResult) string {
-	if val == nil || len(val.Signatures) == 0 {
-		return "No signature help information."
-	}
-	var sb strings.Builder
-	sb.WriteString("Signature Help:\n")
-	for i, sig := range val.Signatures {
-		active := ""
-		if val.ActiveSignature != nil && i == *val.ActiveSignature {
-			active = " (active)"
-		}
-		sb.WriteString(fmt.Sprintf("- Signature%s: `%s`\n", active, sig.Label))
-		if docStr, ok := sig.Documentation.(string); ok && docStr != "" {
-			sb.WriteString(fmt.Sprintf("  Docs: %s\n", docStr))
-		}
-		formatParams(&sb, sig.Parameters, val.ActiveSignature != nil && i == *val.ActiveSignature, val.ActiveParameter)
-	}
-	return strings.TrimSpace(sb.String())
-}
-
-// formatParams 格式化params。
-func formatParams(sb *strings.Builder, params []protocol.ParameterInformationResult, isActiveSig bool, activeParam *int) {
-	if len(params) == 0 {
-		return
-	}
-	sb.WriteString("  Parameters:\n")
-	for j, param := range params {
-		paramActive := ""
-		if isActiveSig && activeParam != nil && j == *activeParam {
-			paramActive = " (active)"
-		}
-		sb.WriteString(fmt.Sprintf("    [%d] `%s`%s\n", j+1, param.Label, paramActive))
-	}
 }
 
 // formatCompletionItems 把补全项列表渲染为纯文本。
@@ -416,88 +430,7 @@ func formatCompletionItems(val []protocol.CompletionItem) string {
 	var sb strings.Builder
 	sb.WriteString("Code Completions:\n")
 	for _, item := range val {
-		sb.WriteString(fmt.Sprintf("- `%s` [Kind %d]: %s\n", item.Label, item.Kind, item.Detail))
+		fmt.Fprintf(&sb, "- `%s` [Kind %d]: %s\n", item.Label, item.Kind, item.Detail)
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// formatCompactList 格式化紧凑列表list。
-func formatCompactList(result any) (string, bool) {
-	rv := reflect.ValueOf(result)
-	if rv.Kind() != reflect.Struct {
-		return "", false
-	}
-	typeName := rv.Type().Name()
-	if !strings.HasPrefix(typeName, "CompactList") {
-		return "", false
-	}
-	dataField := rv.FieldByName("Data")
-	totalField := rv.FieldByName("Total")
-	showingField := rv.FieldByName("Showing")
-	if !dataField.IsValid() || dataField.Kind() != reflect.Slice {
-		return "", false
-	}
-	total := 0
-	if totalField.IsValid() {
-		total = int(totalField.Int())
-	}
-	showing := 0
-	if showingField.IsValid() {
-		showing = int(showingField.Int())
-	}
-	return formatCompactListSlice(dataField, total, showing), true
-}
-
-// formatCompactListSlice 把反射切片渲染为带序号和总量的纯文本列表。
-func formatCompactListSlice(dataField reflect.Value, total, showing int) string {
-	var sb strings.Builder
-	length := dataField.Len()
-	if length == 0 {
-		return "No matches found."
-	}
-	sb.WriteString(fmt.Sprintf("%s: showing %d of %d total\n\n", compactListTitle(dataField), showing, total))
-	for i := 0; i < length; i++ {
-		elem := dataField.Index(i).Interface()
-		sb.WriteString(fmt.Sprintf("  [%d] ", i+1))
-		formatCompactListElem(&sb, elem)
-		sb.WriteString("\n")
-	}
-	return strings.TrimSpace(sb.String())
-}
-
-// compactListTitle 根据元素类型名返回紧凑列表的标题。
-func compactListTitle(dataField reflect.Value) string {
-	elemType := dataField.Type().Elem()
-	for elemType.Kind() == reflect.Pointer {
-		elemType = elemType.Elem()
-	}
-	switch elemType.Name() {
-	case "CompactCompletionItem":
-		return "Code Completions"
-	case "CompactWorkspaceSymbol":
-		return "Workspace Symbol Matches"
-	default:
-		return "Compact Results"
-	}
-}
-
-// formatCompactListElem 格式化紧凑列表listelem。
-func formatCompactListElem(sb *strings.Builder, elem any) {
-	elemVal := reflect.ValueOf(elem)
-	if elemVal.Kind() != reflect.Struct {
-		sb.WriteString(fmt.Sprintf("%+v", elem))
-		return
-	}
-	elemType := elemVal.Type()
-	var fields []string
-	for f := 0; f < elemVal.NumField(); f++ {
-		fieldName := elemType.Field(f).Name
-		fieldVal := elemVal.Field(f).Interface()
-		if str, ok := fieldVal.(string); ok && str != "" {
-			fields = append(fields, fmt.Sprintf("%s: %q", strings.ToLower(fieldName), str))
-		} else if num, ok := fieldVal.(int); ok && num > 0 {
-			fields = append(fields, fmt.Sprintf("%s: %d", strings.ToLower(fieldName), num))
-		}
-	}
-	sb.WriteString(strings.Join(fields, ", "))
 }

@@ -1,12 +1,10 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +12,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -21,119 +20,36 @@ const (
 	// grep 输出预算和提示文本保持稳定，便于模型按提示继续缩小查询。
 	defaultSearchResults = 50
 	maxSearchResults     = 50
-	grepTruncatedHint    = "next: adjust max_results, narrow path/glob, refine query, or search a specific file"
-	grepFuncRangeHint    = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
+	grepTruncatedHint    = "next: adjust max_results, narrow paths/glob, refine query, or search a specific file"
+	grepFuncRangeHint    = `next: call file with {"action":"read_file","pos":"<file>:<func_start>","limit":40}; set limit to func_end-func_start+1`
 )
 
-// grepToolInput 是 grep 工具的外部入参，支持 path/paths/file_paths 三种路径写法。
+// grepToolInput 是 grep 工具的外部入参，搜索范围只接受 paths 数组。
 type grepToolInput struct {
 	Action        string   `json:"action"`
 	Query         string   `json:"query,omitempty"`
-	Path          string   `json:"path,omitempty"`
-	Paths         []string `json:"-"`
+	Paths         []string `json:"paths,omitempty"`
 	Glob          string   `json:"glob,omitempty"`
-	Language      string   `json:"language,omitempty"`
+	ASTLanguage   string   `json:"ast_language,omitempty"`
 	Regex         bool     `json:"regex,omitempty"`
 	CaseSensitive *bool    `json:"case_sensitive,omitempty"`
 	MaxResults    int      `json:"max_results,omitempty"`
 }
 
-// UnmarshalJSON 解码 grep 入参，并把兼容路径字段统一到 Path/Paths。
-func (input *grepToolInput) UnmarshalJSON(raw []byte) error {
-	var decoded struct {
-		Action        string          `json:"action"`
-		Query         string          `json:"query,omitempty"`
-		Path          json.RawMessage `json:"path,omitempty"`
-		Paths         json.RawMessage `json:"paths,omitempty"`
-		FilePaths     json.RawMessage `json:"file_paths,omitempty"`
-		Glob          string          `json:"glob,omitempty"`
-		Language      string          `json:"language,omitempty"`
-		Regex         bool            `json:"regex,omitempty"`
-		CaseSensitive *bool           `json:"case_sensitive,omitempty"`
-		MaxResults    int             `json:"max_results,omitempty"`
+// validateGrepPaths 校验 canonical paths 数组，空数组和空字符串项立即失败。
+func validateGrepPaths(paths []string) error {
+	if paths == nil {
+		return nil
 	}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return err
+	if len(paths) == 0 {
+		return errors.New("paths must contain at least one search root")
 	}
-	path, paths, err := decodeGrepPathInputs(
-		grepPathInput{name: "path", raw: decoded.Path},
-		grepPathInput{name: "paths", raw: decoded.Paths},
-		grepPathInput{name: "file_paths", raw: decoded.FilePaths},
-	)
-	if err != nil {
-		return err
-	}
-	*input = grepToolInput{
-		Action:        decoded.Action,
-		Query:         decoded.Query,
-		Path:          path,
-		Paths:         paths,
-		Glob:          decoded.Glob,
-		Language:      decoded.Language,
-		Regex:         decoded.Regex,
-		CaseSensitive: decoded.CaseSensitive,
-		MaxResults:    decoded.MaxResults,
+	for index, value := range paths {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("paths contains empty search root at index %d", index)
+		}
 	}
 	return nil
-}
-
-// grepPathInput 保存一个兼容路径字段的原始 JSON。
-type grepPathInput struct {
-	name string
-	raw  json.RawMessage
-}
-
-// decodeGrepPathInputs 合并 path、paths 和 file_paths，保持单路径与多路径互斥表示。
-func decodeGrepPathInputs(inputs ...grepPathInput) (string, []string, error) {
-	paths := make([]string, 0, len(inputs))
-	for _, input := range inputs {
-		decoded, err := decodeGrepPathInput(input)
-		if err != nil {
-			return "", nil, err
-		}
-		paths = append(paths, decoded...)
-	}
-	switch len(paths) {
-	case 0:
-		return "", nil, nil
-	case 1:
-		return paths[0], nil, nil
-	default:
-		return "", paths, nil
-	}
-}
-
-// decodeGrepPathInput 解码单个路径字段，接受字符串或字符串数组。
-func decodeGrepPathInput(input grepPathInput) ([]string, error) {
-	raw := bytes.TrimSpace(input.raw)
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return nil, nil
-	}
-	var single string
-	if err := json.Unmarshal(raw, &single); err == nil {
-		return []string{single}, nil
-	}
-	var paths []string
-	if err := json.Unmarshal(raw, &paths); err == nil {
-		return normalizeGrepPathList(input.name, paths)
-	}
-	return nil, fmt.Errorf("%s must be a string or an array of strings", input.name)
-}
-
-// normalizeGrepPathList 校验路径数组，拒绝空数组和空字符串项。
-func normalizeGrepPathList(name string, paths []string) ([]string, error) {
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s array must contain at least one path", name)
-	}
-	normalized := make([]string, 0, len(paths))
-	for index, path := range paths {
-		trimmed := strings.TrimSpace(path)
-		if trimmed == "" {
-			return nil, fmt.Errorf("%s array contains empty path at index %d", name, index)
-		}
-		normalized = append(normalized, trimmed)
-	}
-	return normalized, nil
 }
 
 // grepFileRows 是 grep 响应中单文件的表格化匹配行。
@@ -165,60 +81,85 @@ func NewGrepHandler(cfg Config) Handler {
 
 // handleGrep 分发 grep action，并统一做结果截断、日志和空响应处理。
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {
-	input, err := decodeToolParams[grepToolInput](params, decodeLenient)
+	input, err := decodeToolParams[grepToolInput](params, decodeStrict)
 	if err != nil {
-		return nil, err
+		return nil, invalidGrepParams(err)
+	}
+	if err := validateGrepPaths(input.Paths); err != nil {
+		return nil, invalidGrepParams(err)
+	}
+	if strings.TrimSpace(input.ASTLanguage) != "" && input.Action != "ast_search" {
+		return nil, invalidGrepParams(errors.New("ast_language is only valid for ast_search"))
 	}
 	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
 	logGrepCallDecoded(input, limit)
 
-	var (
-		matches []search.SearchMatch
-		runErr  error
-	)
+	var searchResult search.CountedSearchResult
 	if _, err := dispatchToolAction(ctx, "grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
-			matches, runErr = h.runGrepTextSearch(ctx, input, limit)
-			return nil, runErr
+			var err error
+			searchResult, err = h.runGrepTextSearch(ctx, input, limit)
+			return nil, err
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
 			root, roots, err := grepWorkspaceRoots(ctx)
 			if err != nil {
 				return nil, err
 			}
-			matches, runErr = search.SearchAST(ctx, search.ASTSearchOptions{
+			searchResult, err = search.SearchASTCounted(ctx, search.ASTSearchOptions{
 				Root:         root,
 				Roots:        roots,
-				Path:         input.Path,
 				Paths:        input.Paths,
 				Glob:         input.Glob,
 				Query:        input.Query,
-				Language:     input.Language,
+				Language:     input.ASTLanguage,
 				MaxResults:   limit,
 				MaxFileBytes: maxReadFileBytes,
 			})
-			return nil, runErr
+			if errors.Is(err, search.ErrInvalidASTLanguage) {
+				return nil, invalidGrepASTLanguageParams(err)
+			}
+			return nil, err
 		},
 	}); err != nil {
 		return nil, err
 	}
 
-	filtered, total, truncated := filterAndLogGrepMatches(input, matches, limit)
-	if len(filtered) == 0 {
-		logGrepResponseEmpty(input, len(matches), total)
+	if len(searchResult.Matches) == 0 {
+		logGrepResponseEmpty(input, 0, searchResult.Total)
 		return grepResponse{
 			Data:    map[string]grepFileRows{},
-			Total:   0,
+			Total:   searchResult.Total,
 			Showing: 0,
 			Message: emptyGrepMessage(false),
 		}, nil
 	}
-	resp := buildGrepResponse(filtered, total, truncated)
+	resp := buildGrepResponse(searchResult.Matches, searchResult.Total, searchResult.Truncated)
 	if message := grepMessage(false, resp.DroppedForPayload); message != "" {
 		resp.Message = message
 	}
 	finalizeGrepResponse(input, &resp)
 	return resp, nil
+}
+
+// invalidGrepParams 统一返回不可重试的参数错误，并提示唯一 paths 契约。
+func invalidGrepParams(err error) error {
+	return common.NewCodedToolError(
+		"invalid_params",
+		err,
+		false,
+		"pass search roots only as paths=[\"dir\"]; a single root is a one-element array",
+	)
+}
+
+// invalidGrepASTLanguageParams 返回 AST alias 值域或明确 glob 冲突的参数错误。
+func invalidGrepASTLanguageParams(err error) error {
+	return common.NewCodedToolError(
+		"invalid_params",
+		err,
+		false,
+		"use a registered ast_language alias and align it with any unambiguous glob",
+	)
 }
 
 // grepMessage 组合 regex fallback 和 payload 截断提示。
@@ -248,20 +189,6 @@ func staleWorkspaceRootMessage() string {
 	return "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots"
 }
 
-func grepRuntimeFallbackWouldSearchOutsideRoots(ctx context.Context, input grepToolInput) bool {
-	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
-		return false
-	}
-	if explicitToolWorkDirFromContext(ctx) {
-		return false
-	}
-	if len(input.Paths) > 0 {
-		return false
-	}
-	path := strings.TrimSpace(input.Path)
-	return path != "" && !filepath.IsAbs(path)
-}
-
 func emptyGrepMessage(regexFallback bool) string {
 	if regexFallback {
 		return "regex parse failed; retried query as literal text; no matches found"
@@ -273,8 +200,7 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	for {
 		ensureGrepResponseHint(resp)
 		resp.Message = grepMessage(resp.RegexFallback, resp.DroppedForPayload)
-		raw, err := json.Marshal(resp)
-		if err != nil || len(raw) <= maxBytes {
+		if len([]byte(resp.ToPlainText())) <= maxBytes {
 			return
 		}
 		if !dropLastGrepRow(resp) {
@@ -285,7 +211,7 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	}
 }
 
-// dropLastGrepRow 从行数最多的文件中移除一条匹配，用于把结构化响应压回预算内。
+// dropLastGrepRow 从行数最多的文件中移除一条匹配，用于把最终文本压回预算内。
 // 如果该文件只剩一行，直接移除整个文件块，保证 showing 计数同步下降。
 func dropLastGrepRow(resp *grepResponse) bool {
 	var maxFile string
@@ -396,19 +322,10 @@ func padGrepRows(rows [][]any, width int) [][]any {
 	return rows
 }
 
-// ToPlainText 将结构化 grep 结果渲染为确定顺序的纯文本。
+// ToPlainText 将 grep 结果渲染为确定顺序的紧凑行协议。
 // 纯文本通道保留截断和下一步 hint，方便模型继续缩小查询。
 func (r grepResponse) ToPlainText() string {
-	if r.Total == 0 {
-		return "No matches found."
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search Matches: showing %d of %d total\n", r.Showing, r.Total))
-	if r.Message != "" {
-		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Message))
-	}
-	sb.WriteString("\n")
+	lines := []string{lineprotocol.HeaderLine(r.Total, r.Showing, r.Showing < r.Total, "match")}
 
 	// 固定文件输出顺序，避免 map 遍历导致快照和模型上下文抖动。
 	var files []string
@@ -420,37 +337,47 @@ func (r grepResponse) ToPlainText() string {
 	for _, file := range files {
 		fr := r.Data[file]
 		for _, row := range fr.Rows {
-			r.formatGrepRow(&sb, file, row)
+			if record := r.formatGrepRow(file, row); record != "" {
+				lines = append(lines, record)
+			}
 		}
 	}
-
-	if r.Truncated || r.DroppedForPayload > 0 {
-		sb.WriteString("\nWarning: results were truncated due to limits or budget constraints.\n")
+	if r.Message != "" {
+		lines = append(lines, lineprotocol.TextRecord("MESSAGE", r.Message))
+	}
+	if r.Showing < r.Total {
+		lines = append(lines, lineprotocol.TextRecord("WARNING", "results-truncated"))
 	}
 	if r.Hint != "" {
-		sb.WriteString(fmt.Sprintf("\nHint: %s\n", r.Hint))
+		lines = append(lines, lineprotocol.TextRecord("HINT", r.Hint))
 	}
-
-	return strings.TrimSpace(sb.String())
+	return strings.Join(lines, "\n")
 }
 
-func (r grepResponse) formatGrepRow(sb *strings.Builder, file string, row []any) {
+func (r grepResponse) formatGrepRow(file string, row []any) string {
 	if len(row) < 3 {
-		return
+		return ""
 	}
 	lineVal := numericRowValue(row[0])
 	colVal := numericRowValue(row[1])
 	textVal, _ := row[2].(string)
-
-	funcInfo := ""
+	fields := []lineprotocol.Field{
+		{Key: "file", Value: file},
+		{Key: "line", Value: fmt.Sprint(lineVal)},
+		{Key: "col", Value: fmt.Sprint(colVal)},
+		{Key: "text", Value: textVal},
+	}
 	if len(row) >= 5 {
 		fs := numericRowValue(row[3])
 		fe := numericRowValue(row[4])
 		if fs > 0 && fe >= fs {
-			funcInfo = fmt.Sprintf(" [func L%d-L%d]", fs, fe)
+			fields = append(fields,
+				lineprotocol.Field{Key: "func_start", Value: fmt.Sprint(fs)},
+				lineprotocol.Field{Key: "func_end", Value: fmt.Sprint(fe)},
+			)
 		}
 	}
-	fmt.Fprintf(sb, "%s:%d:%d: %s%s\n", file, lineVal, colVal, textVal, funcInfo)
+	return lineprotocol.FieldsRecord("ROW", fields...)
 }
 
 // numericRowValue 兼容首次构建的 int 和 JSON 往返后的 float64。
