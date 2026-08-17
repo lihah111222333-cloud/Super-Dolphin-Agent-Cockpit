@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -330,9 +331,9 @@ func TestMcpLSPBinaryWSLRepositoryRootColdStartRealGopls_E2E(t *testing.T) {
 	t.Logf("gopls forwarder log:\n%s", readWSLE2ELogTail(t, forwarderLog))
 	t.Logf("gopls daemon log:\n%s", readWSLE2ELogTail(t, daemonLog))
 	requireMCPToolSuccess(t, client, result, "WSL repository-root cold-start definition")
-	if !strings.Contains(result.Result.ContentText()+string(result.Result.StructuredContent), "prepareProcessTreeShutdown") {
-		t.Fatalf("WSL repository-root definition missed target symbol: text=%q structured=%s stderr=%s",
-			result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+	if !strings.Contains(result.Result.ContentText(), "prepareProcessTreeShutdown") {
+		t.Fatalf("WSL repository-root definition missed target symbol: text=%q stderr=%s",
+			result.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -372,10 +373,8 @@ func mcpToolResultSucceeded(result mcpLSPBinaryResponse) bool {
 	if result.Error != nil || result.Result.IsError {
 		return false
 	}
-	var payload struct {
-		Success bool `json:"success"`
-	}
-	return len(result.Result.StructuredContent) > 0 && json.Unmarshal(result.Result.StructuredContent, &payload) == nil && payload.Success
+	doc, err := lineprotocol.Parse(result.Result.ContentText())
+	return err == nil && doc.Error == nil
 }
 
 func readWSLE2ELogTail(t *testing.T, path string) string {
@@ -494,10 +493,10 @@ func requireWSLLocalToolActions(t *testing.T, client *mcpLSPBinaryClient, target
 	for _, check := range checks {
 		result := client.callTool(t, check.tool, check.args)
 		requireMCPToolSuccess(t, client, result, "WSL "+check.label)
-		payload := result.Result.ContentText() + string(result.Result.StructuredContent)
+		payload := result.Result.ContentText()
 		if !strings.Contains(payload, check.want) {
-			t.Fatalf("WSL %s payload missing %q: text=%q structured=%s stderr=%s",
-				check.label, check.want, result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+			t.Fatalf("WSL %s payload missing %q: text=%q stderr=%s",
+				check.label, check.want, result.Result.ContentText(), client.stderrString())
 		}
 	}
 }

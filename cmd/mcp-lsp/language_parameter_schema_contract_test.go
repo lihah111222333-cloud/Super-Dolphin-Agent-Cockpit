@@ -143,12 +143,10 @@ func TestWorkspaceSymbolE2EUsesLineProtocolSourceGuard(t *testing.T) {
 	}
 	text := string(source)
 	for _, forbidden := range []string{
-		`decodeWorkspaceSymbolRows(t, result.Result.StructuredContent)`,
 		`json.Unmarshal(raw, &payload)`,
-		`strings.Contains(string(result.Result.StructuredContent), "Needle09")`,
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Errorf("%s retains workspace symbol structuredContent parser fragment %q", path, forbidden)
+			t.Errorf("%s retains workspace symbol JSON parser fragment %q", path, forbidden)
 		}
 	}
 	for _, required := range []string{
@@ -159,6 +157,63 @@ func TestWorkspaceSymbolE2EUsesLineProtocolSourceGuard(t *testing.T) {
 			t.Errorf("%s missing workspace symbol line protocol parser fragment %q", path, required)
 		}
 	}
+	assertContentOnlyWorkspaceResultSelectors(t, path)
+}
+
+func TestWorkspaceSymbolE2EContentOnlySelectorGuardDetectsFixture(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy_result_selector.go")
+	fixture := []byte("package fixture\nfunc use(result struct{ Result struct{ Auxiliary string } }) { _ = result.Result.Auxiliary }\n")
+	if err := os.WriteFile(path, fixture, 0o600); err != nil {
+		t.Fatalf("write legacy result selector fixture: %v", err)
+	}
+	violations, err := contentOnlyWorkspaceResultSelectorViolations(path)
+	if err != nil {
+		t.Fatalf("scan legacy result selector fixture: %v", err)
+	}
+	if len(violations) != 1 || violations[0] != "Auxiliary" {
+		t.Fatalf("legacy result selector fixture violations = %v, want [Auxiliary]", violations)
+	}
+}
+
+func assertContentOnlyWorkspaceResultSelectors(t *testing.T, path string) {
+	t.Helper()
+	violations, err := contentOnlyWorkspaceResultSelectorViolations(path)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	for _, field := range violations {
+		t.Errorf("%s reads result.Result.%s instead of the content-only contract", path, field)
+	}
+}
+
+func contentOnlyWorkspaceResultSelectorViolations(path string) ([]string, error) {
+	source, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+	violations := make([]string, 0)
+	ast.Inspect(source, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		result, ok := selector.X.(*ast.SelectorExpr)
+		if !ok || result.Sel.Name != "Result" {
+			return true
+		}
+		resultValue, ok := result.X.(*ast.Ident)
+		if !ok || resultValue.Name != "result" {
+			return true
+		}
+		switch selector.Sel.Name {
+		case "ContentText", "IsError":
+			return true
+		default:
+			violations = append(violations, selector.Sel.Name)
+			return true
+		}
+	})
+	return violations, nil
 }
 
 func assertNoLegacyLanguageSelectors(t *testing.T, path, receiver string) {

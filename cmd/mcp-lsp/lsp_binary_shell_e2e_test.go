@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package main
 
@@ -43,14 +42,14 @@ func TestMcpLSPBinaryShellDiagnosticsUsesShellcheck_E2E(t *testing.T) {
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "shell diagnostics")
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total == 0 || !payload.HasFile(target) {
-		t.Fatalf("shell diagnostics returned no rows; payload=%s text=%q stderr=%s",
-			diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("shell diagnostics returned no rows; text=%q stderr=%s",
+			diagnostics.Result.ContentText(), client.stderrString())
 	}
 	if !shellDiagnosticsPayloadHasShellcheckSource(payload, target) {
-		t.Fatalf("shell diagnostics missing shellcheck source/code; payload=%s text=%q stderr=%s",
-			diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("shell diagnostics missing shellcheck source/code; text=%q stderr=%s",
+			diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -82,14 +81,14 @@ func TestMcpLSPBinaryGitHookDiagnosticsRoutesExtensionlessShellHook_E2E(t *testi
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "git hook shell diagnostics")
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total == 0 || !payload.HasFile(target) {
-		t.Fatalf("git hook diagnostics returned no rows; payload=%s text=%q stderr=%s",
-			diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("git hook diagnostics returned no rows; text=%q stderr=%s",
+			diagnostics.Result.ContentText(), client.stderrString())
 	}
 	if got := payload.FirstMessageForFile(t, target); got != "fake shell hook diagnostic" {
-		t.Fatalf("git hook diagnostics message = %q, want fake shell hook diagnostic; payload=%s text=%q stderr=%s",
-			got, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("git hook diagnostics message = %q, want fake shell hook diagnostic; text=%q stderr=%s",
+			got, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 

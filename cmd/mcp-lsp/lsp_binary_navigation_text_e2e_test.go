@@ -37,53 +37,111 @@ func TestMcpLSPBinaryNavigationTextIsReadableAndBounded_E2E(t *testing.T) {
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	t.Run("call hierarchy edges", func(t *testing.T) {
-		hierarchy := client.callTool(t, "xref", map[string]any{
-			"action":      "call_hierarchy",
-			"pos":         target + ":3:6",
-			"language_id": "go",
-			"direction":   "both",
-		})
-		requireMCPToolSuccess(t, client, hierarchy, "call hierarchy readable text")
-		hierarchyText := hierarchy.Result.ContentText()
-		for _, want := range []string{"Incoming Calls:", "caller", "Outgoing Calls:", "callee"} {
-			if !strings.Contains(hierarchyText, want) {
-				t.Fatalf("call hierarchy text = %q, want %q; structured=%s", hierarchyText, want, hierarchy.Result.StructuredContent)
-			}
-		}
-	})
+	t.Run("call hierarchy edges", func(t *testing.T) { requireCallHierarchyTextE2E(t, client, target) })
+	t.Run("document symbol text and budget", func(t *testing.T) { requireDocumentSymbolTextAndBudgetE2E(t, client, target) })
+}
 
-	t.Run("document symbol text and budget", func(t *testing.T) {
-		outline := client.callTool(t, "structure", map[string]any{
-			"action":      "document_symbol",
-			"file_path":   target,
-			"language_id": "go",
-		})
-		requireMCPToolSuccess(t, client, outline, "document symbol readable text")
-		t.Run("readable text", func(t *testing.T) {
-			outlineText := outline.Result.ContentText()
-			if !strings.Contains(outlineText, "Document Symbol Outline:") || !strings.Contains(outlineText, "Symbol00") {
-				t.Fatalf("document symbol text = %q, want readable outline; structured=%s", outlineText, outline.Result.StructuredContent)
-			}
-			if json.Valid([]byte(outlineText)) {
-				t.Fatalf("document symbol text duplicated structured JSON: %s", outlineText)
-			}
-		})
-		t.Run("default budget", func(t *testing.T) {
-			var payload struct {
-				Total     int  `json:"total"`
-				Showing   int  `json:"showing"`
-				Truncated bool `json:"truncated"`
-			}
-			if err := json.Unmarshal(outline.Result.StructuredContent, &payload); err != nil {
-				t.Fatalf("decode document symbol structured content: %v; raw=%s", err, outline.Result.StructuredContent)
-			}
-			if payload.Total != 60 || payload.Showing != 20 || !payload.Truncated {
-				t.Fatalf("document symbol budget = total:%d showing:%d truncated:%v, want 60/20/true; structured=%s",
-					payload.Total, payload.Showing, payload.Truncated, outline.Result.StructuredContent)
-			}
-		})
+func requireCallHierarchyTextE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
+	t.Helper()
+	hierarchy, err := callMCPToolForScopedE2E(client, "xref", map[string]any{
+		"action":      "call_hierarchy",
+		"pos":         target + ":3:6",
+		"language_id": "go",
+		"direction":   "both",
+	}, client.cmd.Dir, []string{client.cmd.Dir})
+	if err != nil {
+		t.Fatalf("call scoped call hierarchy: %v", err)
+	}
+	requireMCPToolSuccess(t, client, hierarchy, "call hierarchy line protocol")
+	text := hierarchy.Result.ContentText()
+	doc := requireLineProtocolDocumentE2E(t, text)
+	requireCallHierarchyHeaderE2E(t, doc.Header, text)
+	requireCallHierarchyRowsE2E(t, doc.Records, text)
+}
+
+func requireLineProtocolDocumentE2E(t *testing.T, text string) lineprotocol.Document {
+	t.Helper()
+	doc, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("parse line protocol: %v; text=%q", err, text)
+	}
+	if doc.Error != nil {
+		t.Fatalf("unexpected line-protocol error: %#v; text=%q", doc.Error, text)
+	}
+	return doc
+}
+
+func requireCallHierarchyHeaderE2E(t *testing.T, header lineprotocol.Header, text string) {
+	t.Helper()
+	if header.Unit != "edge" {
+		t.Fatalf("call hierarchy unit = %q, want edge; text=%q", header.Unit, text)
+	}
+	if header.Total != 2 {
+		t.Fatalf("call hierarchy total = %d, want 2; text=%q", header.Total, text)
+	}
+	if header.Showing != 2 {
+		t.Fatalf("call hierarchy showing = %d, want 2; text=%q", header.Showing, text)
+	}
+}
+
+func requireCallHierarchyRowsE2E(t *testing.T, records []lineprotocol.Record, text string) {
+	t.Helper()
+	rows := callHierarchyRowsE2E(records)
+	if rows["incoming"] != "caller" {
+		t.Fatalf("call hierarchy incoming = %q, want caller; text=%q", rows["incoming"], text)
+	}
+	if rows["outgoing"] != "callee" {
+		t.Fatalf("call hierarchy outgoing = %q, want callee; text=%q", rows["outgoing"], text)
+	}
+}
+
+func callHierarchyRowsE2E(records []lineprotocol.Record) map[string]string {
+	rows := make(map[string]string, len(records))
+	for _, record := range records {
+		if record.Kind != "ROW" {
+			continue
+		}
+		rows[record.Fields["direction"]] = record.Fields["name"]
+	}
+	return rows
+}
+
+func requireDocumentSymbolTextAndBudgetE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
+	t.Helper()
+	outline := client.callTool(t, "structure", map[string]any{
+		"action":      "document_symbol",
+		"file_path":   target,
+		"language_id": "go",
 	})
+	requireMCPToolSuccess(t, client, outline, "document symbol readable text")
+	requireReadableDocumentSymbolTextE2E(t, outline.Result.ContentText())
+	requireDocumentSymbolBudgetE2E(t, outline.Result.ContentText())
+}
+
+func requireReadableDocumentSymbolTextE2E(t *testing.T, text string) {
+	t.Helper()
+	doc, err := lineprotocol.Parse(text)
+	if err != nil || doc.Error != nil || doc.Header.Unit != "symbol" {
+		t.Fatalf("document symbol line protocol = err:%v error:%#v header:%#v text=%q", err, doc.Error, doc.Header, text)
+	}
+	for _, record := range doc.Records {
+		if record.Kind == "ROW" && record.Fields["name"] == "Symbol00" {
+			return
+		}
+	}
+	t.Fatalf("document symbol rows omit Symbol00: %q", text)
+}
+
+func requireDocumentSymbolBudgetE2E(t *testing.T, text string) {
+	t.Helper()
+	doc, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("parse document symbol line protocol: %v; text=%q", err, text)
+	}
+	if doc.Error != nil || doc.Header.Total != 60 || doc.Header.Showing != 20 || !doc.Header.Truncated {
+		t.Fatalf("document symbol budget = error:%#v total:%d showing:%d truncated:%v, want success/60/20/true; text=%q",
+			doc.Error, doc.Header.Total, doc.Header.Showing, doc.Header.Truncated, text)
+	}
 }
 
 // TestMcpLSPBinaryDocumentSymbolPreviewAndDiagnosticsScope_E2E 锁定文档大纲文本预览和空诊断范围。
@@ -105,50 +163,104 @@ func TestMcpLSPBinaryDocumentSymbolPreviewAndDiagnosticsScope_E2E(t *testing.T) 
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	t.Run("document symbol text preview", func(t *testing.T) {
-		result := client.callTool(t, "structure", map[string]any{
-			"action":      "document_symbol",
-			"file_path":   target,
-			"language_id": "go",
-			"max_results": 10,
-		})
-		requireMCPToolSuccess(t, client, result, "document symbol text preview")
-		text := result.Result.ContentText()
-		if !strings.Contains(text, "Symbol00") || strings.Contains(text, "Symbol09") || !strings.Contains(text, "full symbols are in structuredContent") {
-			t.Fatalf("document symbol text is not a bounded preview: text=%q structured=%s", text, result.Result.StructuredContent)
-		}
-		if !strings.Contains(string(result.Result.StructuredContent), "Symbol09") {
-			t.Fatalf("document symbol structured content lost full rows: %s", result.Result.StructuredContent)
-		}
-	})
+	t.Run("document symbol text preview", func(t *testing.T) { requireDocumentSymbolPreviewE2E(t, client, target) })
+	t.Run("empty diagnostics names scope", func(t *testing.T) { requireEmptyDiagnosticsScopeE2E(t, client, target) })
+	t.Run("empty batch diagnostics names scope", func(t *testing.T) { requireEmptyBatchDiagnosticsScopeE2E(t, client, target, sibling) })
+}
 
-	t.Run("empty diagnostics names scope", func(t *testing.T) {
-		result := client.callTool(t, "file", map[string]any{
-			"action":      "diagnostics",
-			"file_path":   target,
-			"language_id": "go",
-		})
-		requireMCPToolSuccess(t, client, result, "empty diagnostics scope")
-		text := result.Result.ContentText()
-		if !strings.Contains(text, "No diagnostics found.") || !strings.Contains(text, filepath.Base(target)) {
-			t.Fatalf("empty diagnostics text does not name checked target: %q", text)
-		}
+func requireDocumentSymbolPreviewE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
+	t.Helper()
+	result := client.callTool(t, "structure", map[string]any{
+		"action":      "document_symbol",
+		"file_path":   target,
+		"language_id": "go",
+		"max_results": 10,
 	})
+	requireMCPToolSuccess(t, client, result, "document symbol text preview")
+	text := result.Result.ContentText()
+	doc := requireLineProtocolDocumentE2E(t, text)
+	requireDocumentSymbolPreviewHeaderE2E(t, doc.Header, text)
+	requireDocumentSymbolNamesE2E(t, doc.Records, text, "Symbol00", "Symbol09")
+}
 
-	t.Run("empty batch diagnostics names scope", func(t *testing.T) {
-		result := client.callTool(t, "file", map[string]any{
-			"action":      "diagnostics",
-			"file_paths":  []string{target, sibling},
-			"language_id": "go",
-		})
-		requireMCPToolSuccess(t, client, result, "empty batch diagnostics scope")
-		text := result.Result.ContentText()
-		for _, want := range []string{"No diagnostics found.", "Checked 2 files", filepath.Base(target), filepath.Base(sibling)} {
-			if !strings.Contains(text, want) {
-				t.Fatalf("empty batch diagnostics text = %q, want %q", text, want)
-			}
+func requireDocumentSymbolPreviewHeaderE2E(t *testing.T, header lineprotocol.Header, text string) {
+	t.Helper()
+	if header.Total != 60 {
+		t.Fatalf("document symbol preview total = %d, want 60; text=%q", header.Total, text)
+	}
+	if header.Showing != 10 {
+		t.Fatalf("document symbol preview showing = %d, want 10; text=%q", header.Showing, text)
+	}
+	if !header.Truncated {
+		t.Fatalf("document symbol preview should be truncated; text=%q", text)
+	}
+}
+
+func requireDocumentSymbolNamesE2E(t *testing.T, records []lineprotocol.Record, text string, wanted ...string) {
+	t.Helper()
+	found := make(map[string]bool, len(wanted))
+	for _, record := range records {
+		if record.Kind != "ROW" {
+			continue
 		}
+		found[record.Fields["name"]] = true
+	}
+	for _, want := range wanted {
+		if !found[want] {
+			t.Fatalf("document symbol rows omit %q: %q", want, text)
+		}
+	}
+}
+
+func requireEmptyDiagnosticsScopeE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
+	t.Helper()
+	result := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   target,
+		"language_id": "go",
 	})
+	requireMCPToolSuccess(t, client, result, "empty diagnostics scope")
+	text := result.Result.ContentText()
+	doc := requireLineProtocolDocumentE2E(t, text)
+	requireEmptyDiagnosticsHeaderE2E(t, doc.Header, text)
+	requireLineProtocolMessageE2E(t, doc.Records, "Checked file: "+target, text)
+}
+
+func requireEmptyBatchDiagnosticsScopeE2E(t *testing.T, client *mcpLSPBinaryClient, target, sibling string) {
+	t.Helper()
+	result := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_paths":  []string{target, sibling},
+		"language_id": "go",
+	})
+	requireMCPToolSuccess(t, client, result, "empty batch diagnostics scope")
+	text := result.Result.ContentText()
+	doc := requireLineProtocolDocumentE2E(t, text)
+	requireEmptyDiagnosticsHeaderE2E(t, doc.Header, text)
+	requireLineProtocolMessageE2E(t, doc.Records, "Checked 2 files: "+target+", "+sibling, text)
+}
+
+func requireEmptyDiagnosticsHeaderE2E(t *testing.T, header lineprotocol.Header, text string) {
+	t.Helper()
+	if header.Unit != "diagnostic" {
+		t.Fatalf("diagnostics unit = %q, want diagnostic; text=%q", header.Unit, text)
+	}
+	if header.Total != 0 {
+		t.Fatalf("diagnostics total = %d, want 0; text=%q", header.Total, text)
+	}
+	if header.Showing != 0 {
+		t.Fatalf("diagnostics showing = %d, want 0; text=%q", header.Showing, text)
+	}
+}
+
+func requireLineProtocolMessageE2E(t *testing.T, records []lineprotocol.Record, want, text string) {
+	t.Helper()
+	for _, record := range records {
+		if record.Kind == "MESSAGE" && record.Value == want {
+			return
+		}
+	}
+	t.Fatalf("line-protocol messages omit %q: %q", want, text)
 }
 
 // TestMcpLSPBinaryWorkspaceSymbolWalkLimitSuggestsFileScope_E2E 锁定语言级遍历超限后的可执行收窄提示。
@@ -181,8 +293,8 @@ func TestMcpLSPBinaryWorkspaceSymbolWalkLimitSuggestsFileScope_E2E(t *testing.T)
 		"query":              "Needle",
 	})
 	if !result.Result.IsError {
-		t.Fatalf("workspace symbol walk limit = success, want structured error; text=%q structured=%s",
-			result.Result.ContentText(), result.Result.StructuredContent)
+		t.Fatalf("workspace symbol walk limit = success, want line-protocol error; text=%q",
+			result.Result.ContentText())
 	}
 	text := result.Result.ContentText()
 	for _, want := range []string{"structure action=workspace_symbol", "file_path=", "query="} {

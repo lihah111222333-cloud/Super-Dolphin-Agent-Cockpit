@@ -53,15 +53,15 @@ func TestMcpLSPBinaryGoCallHierarchyRetriesOnceAfterPerStepTimeout_E2E(t *testin
 	})
 	elapsed := time.Since(started)
 	if result.Result.IsError {
-		t.Fatalf("call hierarchy reported timeout instead of succeeding after one retry; elapsed=%s text=%q structured=%s stderr=%s",
-			elapsed, result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+		t.Fatalf("call hierarchy reported timeout instead of succeeding after one retry; elapsed=%s text=%q stderr=%s",
+			elapsed, result.Result.ContentText(), client.stderrString())
 	}
 	if elapsed < 58*time.Second {
 		t.Fatalf("call hierarchy completed in %s, want first per-step timeout to consume the 60-second budget before retry", elapsed)
 	}
-	if !strings.Contains(string(result.Result.StructuredContent), `"name":"main"`) {
-		t.Fatalf("call hierarchy structured result = %s, want retried main hierarchy; text=%q stderr=%s",
-			result.Result.StructuredContent, result.Result.ContentText(), client.stderrString())
+	if !strings.Contains(result.Result.ContentText(), "main") {
+		t.Fatalf("call hierarchy content = %q, want retried main hierarchy; stderr=%s",
+			result.Result.ContentText(), client.stderrString())
 	}
 	payload, err := os.ReadFile(launchLog)
 	if err != nil {
@@ -97,8 +97,8 @@ func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testi
 		"file_path": target,
 	})
 	if diagnostics.Result.IsError {
-		t.Fatalf("diagnostics returned MCP error result; text=%q structured=%s stderr=%s",
-			diagnostics.Result.ContentText(), diagnostics.Result.StructuredContent, client.stderrString())
+		t.Fatalf("diagnostics returned MCP error result; text=%q stderr=%s",
+			diagnostics.Result.ContentText(), client.stderrString())
 	}
 
 	stderr := waitForFakeGoplsWarningStderr(t, client)
@@ -138,10 +138,10 @@ func TestMcpLSPBinaryGoplsDiagnosticsFallsBackToPullWhenPublishIsSilent_E2E(t *t
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "go diagnostics")
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total != 0 || len(payload.Data) != 0 {
-		t.Fatalf("go diagnostics payload = %#v, want empty diagnostics; raw=%s text=%q stderr=%s",
-			payload, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("go diagnostics payload = %#v, want empty diagnostics; text=%q stderr=%s",
+			payload, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -177,10 +177,10 @@ func TestMcpLSPBinaryGoplsDiagnosticsTreatsReadyBootstrapWithoutPublishAsEmpty_E
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "go diagnostics without publish")
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if payload.Total != 0 || len(payload.Data) != 0 {
-		t.Fatalf("go diagnostics payload = %#v, want empty diagnostics; raw=%s text=%q stderr=%s",
-			payload, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("go diagnostics payload = %#v, want empty diagnostics; text=%q stderr=%s",
+			payload, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 

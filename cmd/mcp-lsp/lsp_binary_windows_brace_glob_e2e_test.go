@@ -27,8 +27,7 @@ func TestLSPBinaryWindowsEscapedBraceGlobMatchesLiteralFilename(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("grep returned tool error for escaped literal-brace glob: %s; stderr=%s", result.ContentText(), client.stderr.String())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
 	if payload.Total != 1 || payload.Showing != 1 {
 		t.Fatalf("escaped literal-brace glob payload = total:%d showing:%d, want 1/1; content=%s stderr=%s",
 			payload.Total, payload.Showing, result.ContentText(), client.stderr.String())

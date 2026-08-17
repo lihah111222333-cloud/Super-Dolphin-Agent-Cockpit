@@ -62,7 +62,7 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsMissingLanguageServers_E2E(t *testin
 			requireMCPToolSuccess(t, client, diagnostics, tc.languageID+" diagnostics after auto-install")
 			requireAutoInstallMarker(t, marker, tc)
 			if tc.languageID == "sql" {
-				payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+				payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 				if payload.Total != 0 || payload.HasFile(target) {
 					t.Fatalf("valid SQLite diagnostics after fake Cargo auto-install = %#v, want no diagnostics", payload)
 				}
@@ -78,12 +78,7 @@ func isLinuxManagedArtifactLanguage(languageID string) bool {
 	case "proto", "lua", "terraform", "sql", "csharp", contract.LSPServiceDart, contract.LSPServiceRust:
 		return true
 	}
-	for _, clangdLanguageID := range contract.ClangdLanguageIDs() {
-		if languageID == clangdLanguageID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(contract.ClangdLanguageIDs(), languageID)
 }
 
 func linkAutoInstallRuntimeDependencies(t *testing.T, binDir string, tc binaryAutoInstallLanguageCase) {
@@ -247,15 +242,14 @@ func requireAutoInstallMarker(t *testing.T, marker string, tc binaryAutoInstallL
 
 func requireAutoInstallDiagnostic(t *testing.T, client *mcpLSPBinaryClient, diagnostics mcpLSPBinaryResponse, target, languageID string) {
 	t.Helper()
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	if !payload.HasFile(target) {
-		t.Fatalf("%s diagnostics missing target %s: payload=%#v raw=%s text=%q stderr=%s",
-			languageID, target, payload, diagnostics.Result.StructuredContent,
-			diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("%s diagnostics missing target %s: payload=%#v text=%q stderr=%s",
+			languageID, target, payload, diagnostics.Result.ContentText(), client.stderrString())
 	}
 	message := payload.FirstMessageForFile(t, target)
 	if !strings.Contains(message, "fake cold-start diagnostic for "+languageID) {
-		t.Fatalf("%s diagnostics message = %q, want fake diagnostic; raw=%s stderr=%s",
-			languageID, message, diagnostics.Result.StructuredContent, client.stderrString())
+		t.Fatalf("%s diagnostics message = %q, want fake diagnostic; text=%q stderr=%s",
+			languageID, message, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }

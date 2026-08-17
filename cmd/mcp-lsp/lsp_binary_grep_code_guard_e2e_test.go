@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,8 +31,7 @@ func TestLSPBinaryGrepFindsCodeGuardPlaceholderInRelativeDirectoryWithTrustedSco
 	if result.IsError {
 		t.Fatalf("grep returned tool error for code_guard placeholder search: %s; stderr=%s", result.ContentText(), client.stderr.String())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
 	if payload.Total != 2 || payload.Showing != 2 {
 		t.Fatalf("grep code_guard placeholder payload = total:%d showing:%d, want 2/2; content=%s stderr=%s",
 			payload.Total, payload.Showing, result.ContentText(), client.stderr.String())
@@ -61,7 +59,7 @@ func codeGuardGrepRowsForFile(
 	wantRel string,
 ) codeGuardGrepFileRows {
 	t.Helper()
-	for path, raw := range payload.Data {
+	for path, rows := range payload.Data {
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			t.Fatalf("relative grep path %q: %v", path, err)
@@ -69,13 +67,9 @@ func codeGuardGrepRowsForFile(
 		if filepath.ToSlash(rel) != wantRel {
 			continue
 		}
-		var rows codeGuardGrepFileRows
-		if err := json.Unmarshal(raw, &rows); err != nil {
-			t.Fatalf("decode grep rows for %s: %v; raw=%s", wantRel, err, raw)
-		}
-		return rows
+		return codeGuardGrepFileRows{Rows: rows.Rows}
 	}
-	t.Fatalf("grep payload missing %s; structured files=%#v", wantRel, payload.Data)
+	t.Fatalf("grep payload missing %s; content files=%#v", wantRel, payload.Data)
 	return codeGuardGrepFileRows{}
 }
 

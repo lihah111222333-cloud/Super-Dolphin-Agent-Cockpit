@@ -38,14 +38,14 @@ func TestLSPBinaryGoDiagnosticsIgnoresUnrelatedAmbientGoWorkForWorktree(t *testi
 		"file_path": target,
 	})
 	if diagnostics.IsError {
-		t.Fatalf("diagnostics returned MCP error result; text=%q structured=%s stderr=%s",
-			diagnostics.ContentText(), diagnostics.StructuredContent, client.stderr.String())
+		t.Fatalf("diagnostics returned MCP error result; text=%q stderr=%s",
+			diagnostics.ContentText(), client.stderr.String())
 	}
 
-	payload := decodeGoWorktreeDiagnosticsStructuredContent(t, diagnostics.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.ContentText())
 	if containsGoWorkspaceConfigurationDiagnostic(payload, target) {
-		t.Fatalf("diagnostics leaked unrelated ambient go.work %s into worktree target; payload=%s text=%q stderr=%s",
-			goWorkPath, diagnostics.StructuredContent, diagnostics.ContentText(), client.stderr.String())
+		t.Fatalf("diagnostics leaked unrelated ambient go.work %s into worktree target; text=%q stderr=%s",
+			goWorkPath, diagnostics.ContentText(), client.stderr.String())
 	}
 }
 
@@ -106,23 +106,7 @@ func requireRealGopls(t *testing.T) {
 	}
 }
 
-type goWorktreeDiagnosticsPayload struct {
-	Data []struct {
-		File string  `json:"file"`
-		Rows [][]any `json:"rows"`
-	} `json:"data"`
-}
-
-func decodeGoWorktreeDiagnosticsStructuredContent(t *testing.T, raw json.RawMessage) goWorktreeDiagnosticsPayload {
-	t.Helper()
-	var payload goWorktreeDiagnosticsPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal diagnostics structuredContent: %v; raw=%s", err, raw)
-	}
-	return payload
-}
-
-func containsGoWorkspaceConfigurationDiagnostic(payload goWorktreeDiagnosticsPayload, target string) bool {
+func containsGoWorkspaceConfigurationDiagnostic(payload diagnosticsPayload, target string) bool {
 	for _, table := range payload.Data {
 		if table.File != target {
 			continue

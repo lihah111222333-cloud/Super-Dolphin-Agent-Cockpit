@@ -60,6 +60,19 @@ func TestDiagnosticsContentOnlyZeroContract(t *testing.T) {
 	}
 }
 
+func TestDecodeDiagnosticsContentText(t *testing.T) {
+	text := "OK total=1 showing=1 truncated=0 unit=diagnostic\n" +
+		"MESSAGE\tChecked+file%3A+main.go\n" +
+		"ROW\tfile=main.go\tline=3\tcol=7\tseverity=warning\tmessage=unused value\tsource=gopls\tcode=U1000"
+	payload := decodeDiagnosticsContentText(t, text)
+	if payload.Total != 1 || !payload.HasFile("main.go") {
+		t.Fatalf("diagnostics payload = %#v, want one row for main.go", payload)
+	}
+	if got := payload.FirstMessageForFile(t, "main.go"); got != "unused value" {
+		t.Fatalf("diagnostics message = %q, want unused value", got)
+	}
+}
+
 func validateMCPToolSuccessResult(response mcpLSPBinaryResponse) error {
 	if response.Result.IsError {
 		return fmt.Errorf("tools/call result has isError=true")
@@ -94,6 +107,81 @@ func validateZeroDiagnosticsResult(response mcpLSPBinaryResponse) error {
 		}
 	}
 	return nil
+}
+
+func decodeDiagnosticsContentText(t *testing.T, text string) diagnosticsPayload {
+	t.Helper()
+	doc := parseDiagnosticsContentDocument(t, text)
+	payload := diagnosticsPayload{Success: true, Total: doc.Header.Total}
+	tables := make(map[string]int)
+	for _, record := range doc.Records {
+		appendDiagnosticContentRecord(t, &payload, tables, record, text)
+	}
+	return payload
+}
+
+func parseDiagnosticsContentDocument(t *testing.T, text string) lineprotocol.Document {
+	t.Helper()
+	doc, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("parse diagnostics line protocol: %v; text=%q", err, text)
+	}
+	if doc.Error != nil || doc.Header.Unit != "diagnostic" {
+		t.Fatalf("diagnostics content is not a successful diagnostic document: error=%#v header=%#v text=%q", doc.Error, doc.Header, text)
+	}
+	return doc
+}
+
+func appendDiagnosticContentRecord(t *testing.T, payload *diagnosticsPayload, tables map[string]int, record lineprotocol.Record, text string) {
+	t.Helper()
+	switch record.Kind {
+	case "MESSAGE":
+		appendDiagnosticsMessage(payload, record.Value)
+	case "ROW":
+		appendDiagnosticsRow(t, payload, tables, record, text)
+	}
+}
+
+func appendDiagnosticsMessage(payload *diagnosticsPayload, message string) {
+	if payload.Meta.Message == "" {
+		payload.Meta.Message = message
+		return
+	}
+	payload.Meta.Message += " " + message
+}
+
+func appendDiagnosticsRow(t *testing.T, payload *diagnosticsPayload, tables map[string]int, record lineprotocol.Record, text string) {
+	t.Helper()
+	file := record.Fields["file"]
+	if strings.TrimSpace(file) == "" {
+		t.Fatalf("diagnostic ROW lacks file field: %q", text)
+	}
+	index := diagnosticsTableIndex(payload, tables, file)
+	row := diagnosticsContentRow(record)
+	payload.Data[index].Rows = append(payload.Data[index].Rows, row)
+}
+
+func diagnosticsTableIndex(payload *diagnosticsPayload, tables map[string]int, file string) int {
+	if index, ok := tables[file]; ok {
+		return index
+	}
+	index := len(payload.Data)
+	tables[file] = index
+	payload.Data = append(payload.Data, diagnosticsTablePayload{File: file})
+	return index
+}
+
+func diagnosticsContentRow(record lineprotocol.Record) []any {
+	row := []any{
+		record.Fields["line"],
+		record.Fields["col"],
+		record.Fields["severity"],
+		record.Fields["message"],
+	}
+	if source, code := record.Fields["source"], record.Fields["code"]; source != "" || code != "" {
+		row = append(row, source, code)
+	}
+	return row
 }
 
 func requireGroupedLocationTextTotal(t *testing.T, response mcpLSPBinaryResponse, minimum int, label string) {

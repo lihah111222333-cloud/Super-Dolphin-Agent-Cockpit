@@ -23,8 +23,7 @@ func TestLSPBinaryGrepBraceGlobMatchesFrontendJSAndJSX(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("grep returned tool error for frontend JS/JSX brace glob: %s; stderr=%s", result.ContentText(), client.stderr.String())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
 	if payload.Total != 2 || payload.Showing != 2 {
 		t.Fatalf("grep brace glob payload = total:%d showing:%d, want 2/2; content=%s stderr=%s",
 			payload.Total, payload.Showing, result.ContentText(), client.stderr.String())

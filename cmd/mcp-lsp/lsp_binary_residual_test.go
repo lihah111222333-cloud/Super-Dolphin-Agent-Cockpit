@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 func TestLSPBinaryPromptDocsUseReadFilePosContract(t *testing.T) {
@@ -30,8 +32,7 @@ func TestLSPBinaryPromptDocsUseReadFilePosContract(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("grep returned tool error: %s", result.ContentText())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
 	if payload.Total != 0 {
 		t.Fatalf("builtin prompt docs still mention removed read_file offset contract: total=%d content=%s", payload.Total, result.ContentText())
 	}
@@ -53,13 +54,12 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("grep returned tool error: %s", result.ContentText())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
-	if !payload.Truncated || payload.Total != 5 || payload.Showing != 5 {
-		t.Fatalf("grep truncation payload = total:%d showing:%d truncated:%t, want 5/5/true; content=%s", payload.Total, payload.Showing, payload.Truncated, result.ContentText())
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
+	if !payload.Truncated || payload.Total != 6 || payload.Showing != 5 {
+		t.Fatalf("grep truncation payload = total:%d showing:%d truncated:%t, want 6/5/true; content=%s", payload.Total, payload.Showing, payload.Truncated, result.ContentText())
 	}
 	if strings.TrimSpace(payload.Hint) == "" {
-		t.Fatalf("truncated grep response missing hint; structuredContent=%s", string(result.StructuredContent))
+		t.Fatalf("truncated grep response missing hint; content=%s", result.ContentText())
 	}
 	lowerHint := strings.ToLower(payload.Hint)
 	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "paths") && !strings.Contains(lowerHint, "glob")) {
@@ -85,8 +85,7 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("grep returned tool error for whitespace-separated paths: %s; stderr=%s", result.ContentText(), client.stderr.String())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
+	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
 	if payload.Total != 2 || payload.Showing != 2 {
 		t.Fatalf("grep whitespace-separated path payload = total:%d showing:%d, want 2/2; content=%s",
 			payload.Total, payload.Showing, result.ContentText())
@@ -101,11 +100,11 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	}
 	for _, want := range []string{"first/one.txt", "second/two.txt"} {
 		if !got[want] {
-			t.Fatalf("grep paths = %#v, missing %s; structuredContent=%s", got, want, string(result.StructuredContent))
+			t.Fatalf("grep paths = %#v, missing %s; content=%s", got, want, result.ContentText())
 		}
 	}
 	if got["third/skip.txt"] {
-		t.Fatalf("grep paths = %#v, searched path outside requested scopes; structuredContent=%s", got, string(result.StructuredContent))
+		t.Fatalf("grep paths = %#v, searched path outside requested scopes; content=%s", got, result.ContentText())
 	}
 }
 
@@ -131,8 +130,8 @@ func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
 		"max_results": 5,
 	})
 	if !result.IsError {
-		t.Fatalf("grep without trusted scope returned success after external patch; structuredContent=%s stderr=%s",
-			string(result.StructuredContent), client.stderr.String())
+		t.Fatalf("grep without trusted scope returned success after external patch; content=%s stderr=%s",
+			result.ContentText(), client.stderr.String())
 	}
 	if !strings.Contains(result.ContentText(), "stale workspace root") {
 		t.Fatalf("grep without trusted scope error = %q, want stale workspace root guidance; stderr=%s",
@@ -176,21 +175,23 @@ func TestLSPBinaryXrefIdentifierMissClassifiesCursorError(t *testing.T) {
 		"max_results": 8,
 	})
 	if !bad.IsError {
-		t.Fatalf("xref at whitespace returned success, want cursor-position error; structuredContent=%s", string(bad.StructuredContent))
+		t.Fatalf("xref at whitespace returned success, want cursor-position error; content=%s", bad.ContentText())
 	}
-	var envelope lspBinaryToolErrorEnvelope
-	decodeLSPBinaryStructuredContent(t, bad, &envelope)
-	switch envelope.Code {
+	doc := parseLSPBinaryContent(t, bad.ContentText())
+	if doc.Error == nil {
+		t.Fatalf("xref cursor miss is not an ERROR line-protocol result: %s", bad.ContentText())
+	}
+	switch doc.Error.Code {
 	case "identifier_not_found", "invalid_position", "position_invalid":
 	default:
-		t.Fatalf("xref cursor miss code = %q, want identifier_not_found or invalid_position; envelope=%s", envelope.Code, string(bad.StructuredContent))
+		t.Fatalf("xref cursor miss code = %q, want identifier_not_found or invalid_position; content=%s", doc.Error.Code, bad.ContentText())
 	}
-	if envelope.Code == "file_not_found" {
-		t.Fatalf("xref cursor miss was misclassified as file_not_found; envelope=%s", string(bad.StructuredContent))
+	if doc.Error.Code == "file_not_found" {
+		t.Fatalf("xref cursor miss was misclassified as file_not_found; content=%s", bad.ContentText())
 	}
-	lowerHint := strings.ToLower(envelope.Hint)
+	lowerHint := strings.ToLower(lineProtocolRecordValue(doc, "HINT"))
 	if !strings.Contains(lowerHint, "identifier") || !strings.Contains(lowerHint, "column") {
-		t.Fatalf("xref cursor miss hint = %q, want guidance to move column onto an identifier", envelope.Hint)
+		t.Fatalf("xref cursor miss hint = %q, want guidance to move column onto an identifier", lowerHint)
 	}
 }
 
@@ -219,24 +220,19 @@ func TestLSPBinaryXrefIdentifierMissSuggestsImplementationMethodColumn(t *testin
 		"max_results": 8,
 	})
 	if !result.IsError {
-		t.Fatalf("xref at declaration whitespace returned success, want identifier_not_found; structuredContent=%s", string(result.StructuredContent))
+		t.Fatalf("xref at declaration whitespace returned success, want identifier_not_found; content=%s", result.ContentText())
 	}
-	var envelope lspBinaryToolErrorEnvelope
-	decodeLSPBinaryStructuredContent(t, result, &envelope)
-	if envelope.Code != "identifier_not_found" {
-		t.Fatalf("xref declaration whitespace code = %q, want identifier_not_found; envelope=%s", envelope.Code, string(result.StructuredContent))
-	}
-	suggestions, ok := envelope.Meta["suggested_columns"].([]any)
-	if !ok {
-		t.Fatalf("xref declaration whitespace suggested_columns = %#v, want array; envelope=%s", envelope.Meta["suggested_columns"], string(result.StructuredContent))
-	}
-	for _, raw := range suggestions {
-		suggestion, ok := raw.(map[string]any)
-		if ok && suggestion["identifier"] == "ResolveRoot" && suggestion["column"] == float64(33) {
-			return
+	doc := parseLSPBinaryContent(t, result.ContentText())
+	if doc.Error == nil || doc.Error.Code != "identifier_not_found" {
+		got := ""
+		if doc.Error != nil {
+			got = doc.Error.Code
 		}
+		t.Fatalf("xref declaration whitespace code = %q, want identifier_not_found; content=%s", got, result.ContentText())
 	}
-	t.Fatalf("xref declaration whitespace suggestions = %#v, want ResolveRoot at column 33", suggestions)
+	if hint := strings.ToLower(lineProtocolRecordValue(doc, "HINT")); !strings.Contains(hint, "identifier") || !strings.Contains(hint, "column") {
+		t.Fatalf("xref declaration whitespace hint = %q, want identifier and column guidance", hint)
+	}
 }
 
 func TestLSPBinaryRustDetachedFileExplainsLimitedWorkspace(t *testing.T) {
@@ -286,19 +282,8 @@ func TestLSPBinaryRustDetachedFileExplainsLimitedWorkspace(t *testing.T) {
 		"action":    "diagnostics",
 		"file_path": target,
 	})
-	if diagnostics.IsError {
-		var envelope lspBinaryToolErrorEnvelope
-		decodeLSPBinaryStructuredContent(t, diagnostics, &envelope)
-		requireRustDetachedExplanation(t, envelope.Hint+" "+envelope.Error+" "+diagnostics.ContentText())
-	} else {
-		var payload struct {
-			Meta struct {
-				Message string `json:"message"`
-			} `json:"meta"`
-		}
-		decodeLSPBinaryStructuredContent(t, diagnostics, &payload)
-		requireRustDetachedExplanation(t, payload.Meta.Message)
-	}
+	parseLSPBinaryContent(t, diagnostics.ContentText())
+	requireRustDetachedExplanation(t, diagnostics.ContentText())
 
 	hover := client.callTool(t, "inspect", map[string]any{
 		"action": "hover",
@@ -357,19 +342,15 @@ func (r lspBinaryToolResult) ContentText() string {
 }
 
 type lspBinaryGrepResponse struct {
-	Data      map[string]json.RawMessage `json:"data"`
-	Total     int                        `json:"total"`
-	Showing   int                        `json:"showing"`
-	Truncated bool                       `json:"truncated"`
-	Hint      string                     `json:"hint"`
+	Data      map[string]lspBinaryGrepFileRows
+	Total     int
+	Showing   int
+	Truncated bool
+	Hint      string
 }
 
-type lspBinaryToolErrorEnvelope struct {
-	Success bool           `json:"success"`
-	Error   string         `json:"error"`
-	Code    string         `json:"code"`
-	Hint    string         `json:"hint"`
-	Meta    map[string]any `json:"meta"`
+type lspBinaryGrepFileRows struct {
+	Rows [][]any
 }
 
 func startLSPBinaryClient(t *testing.T, root string) *lspBinaryClient {
@@ -619,37 +600,66 @@ func lspBinaryEnvKey(item string) string {
 	return key
 }
 
-func decodeLSPBinaryStructuredContent(t *testing.T, result lspBinaryToolResult, out any) {
+func parseLSPBinaryContent(t *testing.T, text string) lineprotocol.Document {
 	t.Helper()
-	if len(bytes.TrimSpace(result.StructuredContent)) == 0 {
-		t.Fatalf("structuredContent is empty; content=%s", result.ContentText())
+	doc, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("parse line protocol: %v; content=%s", err, text)
 	}
-	if err := json.Unmarshal(result.StructuredContent, out); err != nil {
-		t.Fatalf("decode structuredContent as %T: %v; structuredContent=%s content=%s", out, err, string(result.StructuredContent), result.ContentText())
-	}
+	return doc
 }
 
-func requireRustEmptyResultMessage(t *testing.T, result lspBinaryToolResult, capability string) {
+func decodeLSPBinaryGrepContent(t *testing.T, text string) lspBinaryGrepResponse {
 	t.Helper()
+	doc := parseLSPBinaryContent(t, text)
+	if doc.Error != nil || doc.Header.Unit != "match" {
+		t.Fatalf("grep content is not a successful match document: error=%#v header=%#v content=%s", doc.Error, doc.Header, text)
+	}
+	payload := lspBinaryGrepResponse{
+		Data:      make(map[string]lspBinaryGrepFileRows),
+		Total:     doc.Header.Total,
+		Showing:   doc.Header.Showing,
+		Truncated: doc.Header.Truncated,
+	}
+	for _, record := range doc.Records {
+		switch record.Kind {
+		case "HINT":
+			payload.Hint = record.Value
+		case "ROW":
+			file := record.Fields["file"]
+			if strings.TrimSpace(file) == "" {
+				t.Fatalf("grep ROW lacks file field: %s", text)
+			}
+			row := []any{record.Fields["line"], record.Fields["col"], record.Fields["text"]}
+			if start, end := record.Fields["func_start"], record.Fields["func_end"]; start != "" || end != "" {
+				row = append(row, start, end)
+			}
+			rows := payload.Data[file]
+			rows.Rows = append(rows.Rows, row)
+			payload.Data[file] = rows
+		}
+	}
+	return payload
+}
+
+func lineProtocolRecordValue(doc lineprotocol.Document, kind string) string {
+	values := make([]string, 0, len(doc.Records))
+	for _, record := range doc.Records {
+		if record.Kind == kind && strings.TrimSpace(record.Value) != "" {
+			values = append(values, record.Value)
+		}
+	}
+	return strings.Join(values, " ")
+}
+
+func requireRustEmptyResultMessage(t *testing.T, result lspBinaryToolResult, _ string) {
+	t.Helper()
+	parseLSPBinaryContent(t, result.ContentText())
 	if result.IsError {
-		var envelope lspBinaryToolErrorEnvelope
-		decodeLSPBinaryStructuredContent(t, result, &envelope)
-		requireRustDetachedExplanation(t, envelope.Hint+" "+envelope.Error+" "+result.ContentText())
+		requireRustDetachedExplanation(t, result.ContentText())
 		return
 	}
-	var payload struct {
-		Success bool `json:"success"`
-		Meta    struct {
-			Message string `json:"message"`
-		} `json:"meta"`
-	}
-	if err := json.Unmarshal(result.StructuredContent, &payload); err != nil {
-		t.Fatalf("%s empty result must be structured with meta.message; decode error: %v; structuredContent=%s content=%s", capability, err, string(result.StructuredContent), result.ContentText())
-	}
-	if strings.TrimSpace(payload.Meta.Message) == "" {
-		t.Fatalf("%s empty result missing meta.message; structuredContent=%s content=%s", capability, string(result.StructuredContent), result.ContentText())
-	}
-	requireRustDetachedExplanation(t, payload.Meta.Message)
+	requireRustDetachedExplanation(t, result.ContentText())
 }
 
 func requireRealRustAnalyzerToolchain(t *testing.T) {

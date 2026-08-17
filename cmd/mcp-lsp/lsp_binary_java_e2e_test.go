@@ -60,7 +60,7 @@ func TestMcpLSPBinaryJavaToolsAndAndroidClasspathDiagnostics_E2E(t *testing.T) {
 		"pos":    target + ":5:14",
 	})
 	requireMCPToolSuccess(t, client, definition, "java definition")
-	requireGroupedLocationTotal(t, definition.Result.StructuredContent, 1, "java definition")
+	requireGroupedLocationTextTotal(t, definition, 1, "java definition")
 	requireToolResultContains(t, definition, "MainActivity.java", "java definition")
 
 	completion := client.callTool(t, "completion", map[string]any{
@@ -68,9 +68,9 @@ func TestMcpLSPBinaryJavaToolsAndAndroidClasspathDiagnostics_E2E(t *testing.T) {
 		"max_results": 10,
 	})
 	requireMCPToolSuccess(t, client, completion, "java completion")
-	if !stringSliceContains(completionLabelsFromStructuredContent(t, completion.Result.StructuredContent), "onCreate") {
-		t.Fatalf("java completion missing onCreate; structured=%s text=%q stderr=%s",
-			completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
+	if !stringSliceContains(completionLabelsFromContent(t, completion), "onCreate") {
+		t.Fatalf("java completion missing onCreate; text=%q stderr=%s",
+			completion.Result.ContentText(), client.stderrString())
 	}
 
 	diagnostics := client.callTool(t, "file", map[string]any{
@@ -78,11 +78,11 @@ func TestMcpLSPBinaryJavaToolsAndAndroidClasspathDiagnostics_E2E(t *testing.T) {
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "java diagnostics")
-	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
 	message := payload.FirstMessageForFile(t, target)
 	if !javaAndroidClasspathMissingMessage(message) {
-		t.Fatalf("java diagnostics message = %q, want Android classpath missing error; payload=%s text=%q stderr=%s",
-			message, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+		t.Fatalf("java diagnostics message = %q, want Android classpath missing error; text=%q stderr=%s",
+			message, diagnostics.Result.ContentText(), client.stderrString())
 	}
 }
 
@@ -362,26 +362,4 @@ func requireToolResultContains(t *testing.T, response mcpLSPBinaryResponse, want
 	if !strings.Contains(response.Result.ContentText(), want) {
 		t.Fatalf("%s result missing %q; text=%q", label, want, response.Result.ContentText())
 	}
-}
-
-type groupedLocationPayload struct {
-	Data  map[string][]map[string]any `json:"data"`
-	Total int                         `json:"total"`
-}
-
-func requireGroupedLocationTotal(t *testing.T, raw json.RawMessage, minimum int, label string) {
-	t.Helper()
-	var payload groupedLocationPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal %s grouped locations: %v; raw=%s", label, err, raw)
-	}
-	if payload.Total < minimum {
-		t.Fatalf("%s total = %d, want at least %d; payload=%s", label, payload.Total, minimum, raw)
-	}
-	for file, rows := range payload.Data {
-		if strings.TrimSpace(file) != "" && len(rows) > 0 {
-			return
-		}
-	}
-	t.Fatalf("%s returned total %d but no grouped location rows; payload=%s", label, payload.Total, raw)
 }

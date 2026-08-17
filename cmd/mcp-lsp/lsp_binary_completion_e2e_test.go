@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 // TestMcpLSPBinaryStdioRemainsAvailablePastLegacyProcessIdleTimeout_E2E 防止进程级空闲回收关闭 agent 持有的 stdio transport。
@@ -35,7 +37,9 @@ func TestMcpLSPBinaryStdioRemainsAvailablePastLegacyProcessIdleTimeout_E2E(t *te
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 	time.Sleep(200 * time.Millisecond)
-	client.call(t, "tools/list", map[string]any{})
+	if raw := callMcpLSPBinaryRaw(t, client, "tools/list", map[string]any{}); len(raw) == 0 {
+		t.Fatal("tools/list returned an empty result")
+	}
 }
 
 func TestMcpLSPBinaryPythonConstantIdentifierCompletion_E2E(t *testing.T) {
@@ -61,15 +65,15 @@ func TestMcpLSPBinaryPythonConstantIdentifierCompletion_E2E(t *testing.T) {
 		"max_results": 10,
 	})
 	if completion.Result.IsError {
-		t.Fatalf("completion returned MCP error result; text=%q structured=%s stderr=%s",
-			completion.Result.ContentText(), completion.Result.StructuredContent, client.stderrString())
+		t.Fatalf("completion returned MCP error result; text=%q stderr=%s",
+			completion.Result.ContentText(), client.stderrString())
 	}
-	labels := completionLabelsFromStructuredContent(t, completion.Result.StructuredContent)
+	labels := completionLabelsFromContent(t, completion)
 	if slices.Contains(labels, "REG_CN") {
 		return
 	}
-	t.Fatalf("completion at Python constant identifier %s:10:7 returned labels %v, want REG_CN; structured=%s text=%q stderr=%s",
-		target, labels, completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
+	t.Fatalf("completion at Python constant identifier %s:10:7 returned labels %v, want REG_CN; text=%q stderr=%s",
+		target, labels, completion.Result.ContentText(), client.stderrString())
 }
 
 // super-dolphin-ci: helper
@@ -203,31 +207,27 @@ func (c *mcpLSPBinaryClient) waitForHoverText(t *testing.T, pos, want string, ti
 			"action": "hover",
 			"pos":    pos,
 		})
-		if !last.Result.IsError &&
-			(strings.Contains(last.Result.ContentText(), want) ||
-				strings.Contains(string(last.Result.StructuredContent), want)) {
+		if !last.Result.IsError && strings.Contains(last.Result.ContentText(), want) {
 			return
 		}
-		if !completionToolResultHasCode(last.Result.StructuredContent, "lsp_timeout") {
-			t.Fatalf("hover readiness check did not resolve %s; text=%q structured=%s stderr=%s",
-				want, last.Result.ContentText(), last.Result.StructuredContent, c.stderrString())
+		if !completionToolResultHasCode(last.Result.ContentText(), "lsp_timeout") {
+			t.Fatalf("hover readiness check did not resolve %s; text=%q stderr=%s",
+				want, last.Result.ContentText(), c.stderrString())
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("hover readiness timed out waiting for %s; last text=%q structured=%s stderr=%s",
-				want, last.Result.ContentText(), last.Result.StructuredContent, c.stderrString())
+			t.Fatalf("hover readiness timed out waiting for %s; last text=%q stderr=%s",
+				want, last.Result.ContentText(), c.stderrString())
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 }
 
-func completionToolResultHasCode(raw json.RawMessage, code string) bool {
-	var payload struct {
-		Code string `json:"code"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
+func completionToolResultHasCode(text, code string) bool {
+	doc, err := lineprotocol.Parse(text)
+	if err != nil || doc.Error == nil {
 		return false
 	}
-	return payload.Code == code
+	return doc.Error.Code == code
 }
 
 func (c *mcpLSPBinaryClient) call(t *testing.T, method string, params map[string]any) mcpLSPBinaryResponse {
@@ -349,29 +349,6 @@ func (b *lockedStringBuilder) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.builder.String()
-}
-
-func completionLabelsFromStructuredContent(t *testing.T, raw json.RawMessage) []string {
-	t.Helper()
-	var payload struct {
-		Data []struct {
-			Label string `json:"label"`
-		} `json:"data"`
-		Meta struct {
-			Message string `json:"message"`
-		} `json:"meta"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal completion structuredContent: %v; raw=%s", err, raw)
-	}
-	labels := make([]string, 0, len(payload.Data))
-	for _, item := range payload.Data {
-		labels = append(labels, item.Label)
-	}
-	if len(labels) == 0 && payload.Meta.Message != "" {
-		labels = append(labels, fmt.Sprintf("<empty: %s>", payload.Meta.Message))
-	}
-	return labels
 }
 
 func writePythonConstantCompletionFixture(t *testing.T, root string) string {

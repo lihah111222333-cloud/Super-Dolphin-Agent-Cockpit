@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 const windowsHostWSLFullMatrixTimeout = 45 * time.Minute
@@ -211,9 +213,9 @@ func requireWindowsHostWSLSemantics(t *testing.T, client *mcpLSPBinaryClient, ws
 			t.Fatalf("Windows-host WSL %s call: %v; stderr=%s", check.tool, err, client.stderrString())
 		}
 		requireMCPToolSuccess(t, client, result, "Windows-host WSL "+check.tool)
-		payload := result.Result.ContentText() + string(result.Result.StructuredContent)
+		payload := result.Result.ContentText()
 		if !strings.Contains(payload, check.want) {
-			t.Fatalf("Windows-host WSL %s missing %q: text=%q structured=%s", check.tool, check.want, result.Result.ContentText(), result.Result.StructuredContent)
+			t.Fatalf("Windows-host WSL %s missing %q: text=%q", check.tool, check.want, result.Result.ContentText())
 		}
 	}
 }
@@ -225,16 +227,14 @@ func requireWindowsHostWSLRejectsNativeFilePath(t *testing.T, client *mcpLSPBina
 		t.Fatalf("call Windows-path rejection probe: %v", err)
 	}
 	if !wrongPath.Result.IsError {
-		t.Fatalf("Linux sidecar accepted native Windows path %q; text=%q structured=%s stderr=%s", target, wrongPath.Result.ContentText(), wrongPath.Result.StructuredContent, client.stderrString())
+		t.Fatalf("Linux sidecar accepted native Windows path %q; text=%q stderr=%s", target, wrongPath.Result.ContentText(), client.stderrString())
 	}
-	var envelope struct {
-		Code string `json:"code"`
+	doc, err := lineprotocol.Parse(wrongPath.Result.ContentText())
+	if err != nil || doc.Error == nil {
+		t.Fatalf("parse Windows-path rejection line protocol: err=%v doc=%#v text=%q", err, doc, wrongPath.Result.ContentText())
 	}
-	if err := json.Unmarshal(wrongPath.Result.StructuredContent, &envelope); err != nil {
-		t.Fatalf("decode Windows-path rejection envelope: %v; structured=%s", err, wrongPath.Result.StructuredContent)
-	}
-	if envelope.Code != "path_outside_workspace" {
-		t.Fatalf("Windows-path rejection code = %q, want path_outside_workspace; structured=%s", envelope.Code, wrongPath.Result.StructuredContent)
+	if doc.Error.Code != "path_outside_workspace" {
+		t.Fatalf("Windows-path rejection code = %q, want path_outside_workspace; text=%q", doc.Error.Code, wrongPath.Result.ContentText())
 	}
 }
 
