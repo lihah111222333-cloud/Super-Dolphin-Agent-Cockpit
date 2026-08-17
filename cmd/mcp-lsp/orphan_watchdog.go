@@ -13,27 +13,29 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
-// errOrphanProcessSelfTerminated 是检测到进程为孤儿进程（PPID=1 且 CWD 不存在）时的 Sentinel 错误。
-var errOrphanProcessSelfTerminated = errors.New("mcp-lsp: orphan process detected (PPID=1 and CWD invalid), self-terminating")
+// errOrphanProcessSelfTerminated 是检测到进程为孤儿进程（PPID 失活或工作区已被删除）时的 Sentinel 错误。
+var errOrphanProcessSelfTerminated = errors.New("mcp-lsp: orphan process detected (parent inactive or CWD invalid), self-terminating")
 
 const defaultOrphanCheckInterval = 30 * time.Second
 
-// orphanWatchdogRunner 定期校验本 mcp-lsp 进程是否为孤儿进程（PPID=1）且当前工作目录已被删除。
+// orphanWatchdogRunner 定期校验本 mcp-lsp 进程是否为孤儿进程（父进程已失活）或当前工作目录已被删除。
 // 满足条件时返回 Sentinel 错误，触发 RunGroup 优雅取消并释放全部资源。
 type orphanWatchdogRunner struct {
-	interval time.Duration
-	getPpid  func() int
-	getCwd   func() (string, error)
-	statPath func(string) (os.FileInfo, error)
+	interval         time.Duration
+	getPpid          func() int
+	isParentOrphaned func(int) bool
+	getCwd           func() (string, error)
+	statPath         func(string) (os.FileInfo, error)
 }
 
 // newOrphanWatchdogRunner 构建默认的孤儿进程自愈检测 runner。
 func newOrphanWatchdogRunner() platformrunner.Runner {
 	return &orphanWatchdogRunner{
-		interval: defaultOrphanCheckInterval,
-		getPpid:  os.Getppid,
-		getCwd:   os.Getwd,
-		statPath: os.Stat,
+		interval:         defaultOrphanCheckInterval,
+		getPpid:          os.Getppid,
+		isParentOrphaned: isParentOrphaned,
+		getCwd:           os.Getwd,
+		statPath:         os.Stat,
 	}
 }
 
@@ -42,12 +44,12 @@ func (w *orphanWatchdogRunner) Run(ctx context.Context) error {
 	if w == nil {
 		return nil
 	}
-	interval, getPpid, getCwd, statPath := w.resolveProbes()
+	interval, getPpid, isOrphanedProbe, getCwd, statPath := w.resolveProbes()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := w.checkOrphanStatus(getPpid, getCwd, statPath); err != nil {
+		if err := w.checkOrphanStatus(getPpid, isOrphanedProbe, getCwd, statPath); err != nil {
 			if errors.Is(err, errOrphanProcessSelfTerminated) {
 				pkglogger.Error("mcp-lsp orphan watchdog triggered", "error", err)
 				return err
@@ -66,6 +68,7 @@ func (w *orphanWatchdogRunner) Run(ctx context.Context) error {
 func (w *orphanWatchdogRunner) resolveProbes() (
 	time.Duration,
 	func() int,
+	func(int) bool,
 	func() (string, error),
 	func(string) (os.FileInfo, error),
 ) {
@@ -77,6 +80,10 @@ func (w *orphanWatchdogRunner) resolveProbes() (
 	if getPpid == nil {
 		getPpid = os.Getppid
 	}
+	isOrphanedProbe := w.isParentOrphaned
+	if isOrphanedProbe == nil {
+		isOrphanedProbe = isParentOrphaned
+	}
 	getCwd := w.getCwd
 	if getCwd == nil {
 		getCwd = os.Getwd
@@ -85,19 +92,22 @@ func (w *orphanWatchdogRunner) resolveProbes() (
 	if statPath == nil {
 		statPath = os.Stat
 	}
-	return interval, getPpid, getCwd, statPath
+	return interval, getPpid, isOrphanedProbe, getCwd, statPath
 }
 
-// checkOrphanStatus 检测 PPID 和 CWD 状态。
-// 只有 PPID=1 且 CWD 明确返回 ENOENT 时才触发自愈终止；权限或暂态错误不授权破坏性动作。
+// checkOrphanStatus 检测父进程存活状态与工作区 CWD 状态。
+// 满足以下任一条件时返回 errOrphanProcessSelfTerminated 触发自愈终止：
+// 1. 父进程失活（POSIX 下 PPID<=1 或 ESRCH，Windows 下非 STILL_ACTIVE）；
+// 2. 当前工作区目录已被删除 (os.ErrNotExist)。
 func (w *orphanWatchdogRunner) checkOrphanStatus(
 	getPpid func() int,
+	isOrphanedProbe func(int) bool,
 	getCwd func() (string, error),
 	statPath func(string) (os.FileInfo, error),
 ) error {
 	ppid := getPpid()
-	if !isParentOrphaned(ppid) {
-		return nil
+	if isOrphanedProbe != nil && isOrphanedProbe(ppid) {
+		return fmt.Errorf("%w: parent process (ppid=%d) is no longer active", errOrphanProcessSelfTerminated, ppid)
 	}
 
 	cwd, err := getCwd()

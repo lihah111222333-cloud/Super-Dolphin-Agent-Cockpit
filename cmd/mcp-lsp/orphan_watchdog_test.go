@@ -22,72 +22,101 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestOrphanWatchdogStatus(t *testing.T) {
+func TestOrphanWatchdogParentProbe(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ppid not 1 returns nil", func(t *testing.T) {
+	t.Run("parent alive and cwd valid returns nil", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{}
 		err := runner.checkOrphanStatus(
 			func() int { return 100 },
+			func(int) bool { return false },
 			func() (string, error) { return "/valid/path", nil },
 			func(string) (os.FileInfo, error) { return nil, nil },
 		)
 		if err != nil {
-			t.Fatalf("expected nil error when PPID!=1, got: %v", err)
+			t.Fatalf("expected nil error when parent alive and CWD valid, got: %v", err)
 		}
 	})
 
-	t.Run("ppid 1 with valid cwd returns nil", func(t *testing.T) {
+	t.Run("parent orphaned triggers self termination even with valid cwd", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{}
 		err := runner.checkOrphanStatus(
 			func() int { return 1 },
+			func(ppid int) bool { return ppid <= 1 },
 			func() (string, error) { return "/valid/path", nil },
 			func(string) (os.FileInfo, error) { return nil, nil },
 		)
-		if err != nil {
-			t.Fatalf("expected nil error when PPID=1 and CWD valid, got: %v", err)
+		if err == nil {
+			t.Fatal("expected error when parent is orphaned, got nil")
+		}
+		if !errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
 		}
 	})
 
-	t.Run("ppid 1 with cwd error triggers self termination", func(t *testing.T) {
+	t.Run("parent dead by probe triggers self termination", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{}
 		err := runner.checkOrphanStatus(
-			func() int { return 1 },
+			func() int { return 99999 },
+			func(int) bool { return true },
+			func() (string, error) { return "/valid/path", nil },
+			func(string) (os.FileInfo, error) { return nil, nil },
+		)
+		if err == nil {
+			t.Fatal("expected error when parent probe reports dead, got nil")
+		}
+		if !errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
+		}
+	})
+}
+
+func TestOrphanWatchdogCwdProbe(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parent alive with cwd get error triggers self termination", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{}
+		err := runner.checkOrphanStatus(
+			func() int { return 100 },
+			func(int) bool { return false },
 			func() (string, error) { return "", os.ErrNotExist },
 			func(string) (os.FileInfo, error) { return nil, nil },
 		)
 		if err == nil {
-			t.Fatal("expected error when CWD get fails, got nil")
+			t.Fatal("expected error when CWD get fails with ErrNotExist, got nil")
 		}
 		if !errors.Is(err, errOrphanProcessSelfTerminated) {
 			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
 		}
 	})
 
-	t.Run("ppid 1 with cwd stat error triggers self termination", func(t *testing.T) {
+	t.Run("parent alive with cwd stat error triggers self termination", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{}
 		err := runner.checkOrphanStatus(
-			func() int { return 1 },
+			func() int { return 100 },
+			func(int) bool { return false },
 			func() (string, error) { return "/deleted/path", nil },
 			func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
 		)
 		if err == nil {
-			t.Fatal("expected error when CWD stat fails, got nil")
+			t.Fatal("expected error when CWD stat fails with ErrNotExist, got nil")
 		}
 		if !errors.Is(err, errOrphanProcessSelfTerminated) {
 			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
 		}
 	})
 
-	t.Run("ppid 1 with uncertain cwd probe does not authorize self termination", func(t *testing.T) {
+	t.Run("parent alive with uncertain cwd probe does not authorize self termination", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{}
 		err := runner.checkOrphanStatus(
-			func() int { return 1 },
+			func() int { return 100 },
+			func(int) bool { return false },
 			func() (string, error) { return "/protected/path", nil },
 			func(string) (os.FileInfo, error) { return nil, os.ErrPermission },
 		)
@@ -106,10 +135,11 @@ func TestOrphanWatchdogRunLoop(t *testing.T) {
 	t.Run("context cancel exits run loop", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{
-			interval: 10 * time.Millisecond,
-			getPpid:  func() int { return 100 },
-			getCwd:   func() (string, error) { return "/valid", nil },
-			statPath: func(string) (os.FileInfo, error) { return nil, nil },
+			interval:         10 * time.Millisecond,
+			getPpid:          func() int { return 100 },
+			isParentOrphaned: func(int) bool { return false },
+			getCwd:           func() (string, error) { return "/valid", nil },
+			statPath:         func(string) (os.FileInfo, error) { return nil, nil },
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -120,13 +150,32 @@ func TestOrphanWatchdogRunLoop(t *testing.T) {
 		}
 	})
 
-	t.Run("ticker trigger returns orphan error", func(t *testing.T) {
+	t.Run("ticker trigger returns orphan error on parent dead", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{
-			interval: 10 * time.Millisecond,
-			getPpid:  func() int { return 1 },
-			getCwd:   func() (string, error) { return "/deleted", nil },
-			statPath: func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+			interval:         10 * time.Millisecond,
+			getPpid:          func() int { return 1 },
+			isParentOrphaned: func(ppid int) bool { return ppid <= 1 },
+			getCwd:           func() (string, error) { return "/valid", nil },
+			statPath:         func(string) (os.FileInfo, error) { return nil, nil },
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		err := runner.Run(ctx)
+		if err == nil || !errors.Is(err, errOrphanProcessSelfTerminated) {
+			t.Fatalf("expected errOrphanProcessSelfTerminated, got: %v", err)
+		}
+	})
+
+	t.Run("ticker trigger returns orphan error on deleted cwd", func(t *testing.T) {
+		t.Parallel()
+		runner := &orphanWatchdogRunner{
+			interval:         10 * time.Millisecond,
+			getPpid:          func() int { return 100 },
+			isParentOrphaned: func(int) bool { return false },
+			getCwd:           func() (string, error) { return "/deleted", nil },
+			statPath:         func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -140,10 +189,11 @@ func TestOrphanWatchdogRunLoop(t *testing.T) {
 	t.Run("uncertain probe remains observable without self termination", func(t *testing.T) {
 		t.Parallel()
 		runner := &orphanWatchdogRunner{
-			interval: 5 * time.Millisecond,
-			getPpid:  func() int { return 1 },
-			getCwd:   func() (string, error) { return "/protected", nil },
-			statPath: func(string) (os.FileInfo, error) { return nil, os.ErrPermission },
+			interval:         5 * time.Millisecond,
+			getPpid:          func() int { return 100 },
+			isParentOrphaned: func(int) bool { return false },
+			getCwd:           func() (string, error) { return "/protected", nil },
+			statPath:         func(string) (os.FileInfo, error) { return nil, os.ErrPermission },
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 		defer cancel()
