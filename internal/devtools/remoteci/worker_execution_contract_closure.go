@@ -295,9 +295,11 @@ func (closure *workerExecutionGoClosure) enqueueReceiverMethod(unit *workerExecu
 
 // 将已解析的本地 receiver 方法精确加入闭包，拒绝缺失或重复声明。
 func (closure *workerExecutionGoClosure) enqueueWorkerReceiverMethod(directory, receiver, name string) error {
-	if closure.workerExecutionPredeclaredMethod(directory, receiver, name) ||
-		closure.workerExecutionExternalReceiverAlias(directory, receiver) {
+	if closure.workerExecutionPredeclaredMethod(directory, receiver, name) {
 		return nil
+	}
+	if resolved, err := closure.enqueueWorkerAliasedReceiverMethod(directory, receiver, name); resolved {
+		return err
 	}
 	candidates := closure.index.receiverMethods[directory][receiver]
 	methods := make([]*workerExecutionGoUnit, 0, len(candidates))
@@ -326,14 +328,27 @@ func (closure *workerExecutionGoClosure) workerExecutionPredeclaredMethod(direct
 	return receiver == "error" && name == "Error" && len(closure.index.symbols[directory][receiver]) == 0
 }
 
-// 外部类型别名沿用其标准库或第三方方法集，不把别名包误当成方法实现所有者。
-func (closure *workerExecutionGoClosure) workerExecutionExternalReceiverAlias(directory, receiver string) bool {
+// 类型别名的方法集属于其实际 owner；本地别名递归纳入闭包，外部别名在仓库边界终止。
+func (closure *workerExecutionGoClosure) enqueueWorkerAliasedReceiverMethod(directory, receiver, name string) (bool, error) {
 	candidates := closure.index.symbols[directory][receiver]
 	if len(candidates) != 1 {
-		return false
+		return false, nil
 	}
 	typeSpec, ok := candidates[0].node.(*ast.TypeSpec)
-	return ok && typeSpec.Assign.IsValid() && workerExecutionExternalDeclaredType(candidates[0], typeSpec.Type)
+	if !ok || !typeSpec.Assign.IsValid() {
+		return false, nil
+	}
+	aliasDirectory, aliasReceiver, local, external := workerExecutionReceiverType(candidates[0], typeSpec.Type)
+	if external {
+		return true, nil
+	}
+	if !local {
+		return false, nil
+	}
+	if aliasDirectory == directory && aliasReceiver == receiver {
+		return true, fmt.Errorf("worker execution receiver alias %s.%s is cyclic", directory, receiver)
+	}
+	return true, closure.enqueueWorkerReceiverMethod(aliasDirectory, aliasReceiver, name)
 }
 
 // 解析本地、外部或动态 receiver 类型，供方法闭包边界作 fail-fast 判定。
