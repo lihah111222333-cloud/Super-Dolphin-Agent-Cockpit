@@ -89,6 +89,7 @@ func captureTrustedSQLCOutputs(ctx context.Context, sourceCopy string, units []s
 	return manifest, nil
 }
 
+// captureTrustedGitMetadata 冻结 SQLC 执行依赖的仓库元数据，防止生成过程改写 Git 对象路由或索引状态。
 func captureTrustedGitMetadata(ctx context.Context, gitRunner sqlcconfig.GitRunner, sourceCopy string) (trustedTreeManifest, error) {
 	manifest := make(trustedTreeManifest)
 	gitEntry := filepath.Join(sourceCopy, ".git")
@@ -130,6 +131,7 @@ func validateTrustedGitAlternates(sourceCopy, alternatesPath string) error {
 	return validateTrustedGitAlternatePath(sourceCopy, objectRoot)
 }
 
+// readTrustedGitAlternate 读取单一且受限的对象库指向；缺失表示仓库不使用 alternates，而非错误。
 func readTrustedGitAlternate(alternatesPath string) (string, bool, error) {
 	info, err := os.Lstat(alternatesPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -152,15 +154,16 @@ func readTrustedGitAlternate(alternatesPath string) (string, bool, error) {
 	return objectRoot, true, nil
 }
 
+// validateTrustedGitAlternatesFile 只接受物化器可发布且不可被共享写入的常规小文件。
 func validateTrustedGitAlternatesFile(info os.FileInfo) error {
 	if !info.Mode().IsRegular() {
-		return errors.New("trusted Git alternates must be a bounded 0600 regular file")
+		return errors.New("trusted Git alternates must be a bounded non-shared-writable regular file")
 	}
-	if info.Mode().Perm() != 0o600 {
-		return errors.New("trusted Git alternates must be a bounded 0600 regular file")
+	if permission := info.Mode().Perm(); permission != 0o600 && permission != 0o644 {
+		return errors.New("trusted Git alternates must be a bounded non-shared-writable regular file")
 	}
 	if info.Size() <= 1 || info.Size() > 4096 {
-		return errors.New("trusted Git alternates must be a bounded 0600 regular file")
+		return errors.New("trusted Git alternates must be a bounded non-shared-writable regular file")
 	}
 	return nil
 }
@@ -175,6 +178,7 @@ func parseTrustedGitAlternate(data []byte) (string, error) {
 	return string(data[:len(data)-1]), nil
 }
 
+// validateTrustedGitAlternatePath 要求对象库为 source copy 外部的真实绝对目录，避免候选仓库重定向对象读取。
 func validateTrustedGitAlternatePath(sourceCopy, objectRoot string) error {
 	if !filepath.IsAbs(objectRoot) {
 		return errors.New("trusted Git alternate object path must be absolute and clean")
@@ -222,6 +226,7 @@ func trustedGitPath(ctx context.Context, gitRunner sqlcconfig.GitRunner, sourceC
 	return resolved, nil
 }
 
+// captureOptionalTrustedTree 对可选元数据目录做有界快照；不存在时返回空清单供前后精确比较。
 func captureOptionalTrustedTree(ctx context.Context, root string) (trustedTreeManifest, error) {
 	if err := trustedManifestContextError(ctx); err != nil {
 		return nil, err
@@ -295,6 +300,7 @@ func (walk trustedTreeWalk) visit(current string, _ fs.DirEntry, walkErr error) 
 	return nil
 }
 
+// trustedTreeItem 将常规文件或符号链接编码为稳定条目，并拒绝超限及特殊文件。
 func trustedTreeItem(ctx context.Context, path string, info fs.FileInfo) (trustedTreeEntry, error) {
 	if err := trustedManifestContextError(ctx); err != nil {
 		return trustedTreeEntry{}, err
@@ -357,6 +363,7 @@ func trustedManifestContextError(ctx context.Context) error {
 	return errors.Join(ctx.Err(), context.Cause(ctx))
 }
 
+// compareTrustedTree 对前后清单执行精确比较，任何增删、权限或内容漂移都阻断可信执行。
 func compareTrustedTree(ctx context.Context, label string, before, after trustedTreeManifest) error {
 	if err := trustedManifestContextError(ctx); err != nil {
 		return err

@@ -599,10 +599,10 @@ internal/devtools/gate/executor_signal_unix.go	internal	other	go-source	2651	开
 internal/devtools/gate/executor_signal_unix_test.go	internal	other	go-test	7593	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,unix,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_signal_windows.go	internal	other	go-source	735	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,windows,开发工具与生成器辅助包
 internal/devtools/gate/executor_sqlc.go	internal	other	go-source	4552	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,开发工具与生成器辅助包
-internal/devtools/gate/executor_sqlc_manifest.go	internal	other	go-source	12849	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,manifest,开发工具与生成器辅助包
+internal/devtools/gate/executor_sqlc_manifest.go	internal	other	go-source	13801	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,manifest,开发工具与生成器辅助包
 internal/devtools/gate/executor_sqlc_outputs.go	internal	other	go-source	2498	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,outputs,开发工具与生成器辅助包
 internal/devtools/gate/executor_sqlc_postprocess.go	internal	other	go-source	2387	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,postprocess,开发工具与生成器辅助包
-internal/devtools/gate/executor_sqlc_test.go	internal	other	go-test	31027	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_sqlc_test.go	internal	other	go-test	32250	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_test.go	internal	other	go-test	30332	开发工具与生成器辅助包	internal,devtools,gate,executor,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_workspace.go	internal	other	go-source	27886	开发工具与生成器辅助包	internal,devtools,gate,executor,workspace,开发工具与生成器辅助包
 internal/devtools/gate/git_command.go	internal	other	go-source	2515	开发工具与生成器辅助包	internal,devtools,gate,git,command,开发工具与生成器辅助包
