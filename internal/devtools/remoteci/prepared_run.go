@@ -592,6 +592,9 @@ func (coordinator *Coordinator) executePreparedWorkloadMisses(ctx context.Contex
 		coordinator.progress.phase(ProgressPhaseCleanup, "completed")
 		return completeRemoteReuse(prepared.executionCatalog, prepared.reuse.reused, result, coordinator.now)
 	}
+	if err := prepared.input.LedgerStore.BeginRemoteCleanupJournal(jobID, coordinator.config.SourcePrefix+jobID+"/"); err != nil {
+		return result, fmt.Errorf("record remote cleanup OSS prefix intent: %w", err)
+	}
 	tempRoot, err := createRemoteTempRoot()
 	if err != nil {
 		return result, err

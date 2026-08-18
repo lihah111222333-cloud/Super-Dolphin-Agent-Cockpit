@@ -707,11 +707,26 @@ func (coordinator *Coordinator) uploadAndCreateRemoteGroup(ctx context.Context, 
 	if err := coordinator.store.Create(ctx, fullPath, requestKey); err != nil {
 		return "", uploadedKeys, fmt.Errorf("upload remote shard request: %w", err)
 	}
-	group, err := coordinator.runtime.CreateContainerGroup(ctx, coordinator.createRequest(jobID, shard, resources, bootstrapRequestKey, bootstrapDigest, requestKey, fullDigest, request.ShardExecutionManifestDigest, input))
-	if err != nil {
-		return "", uploadedKeys, fmt.Errorf("create remote CI shard %d: %w", index, err)
+	createRequest := coordinator.createRequest(jobID, shard, resources, bootstrapRequestKey, bootstrapDigest, requestKey, fullDigest, request.ShardExecutionManifestDigest, input)
+	groupID, err := coordinator.createJournaledContainerGroup(ctx, jobID, index, input, createRequest)
+	return groupID, uploadedKeys, err
+}
+
+// createJournaledContainerGroup 在 provider side effect 前后分别持久化确定名称和真实 ID。
+func (coordinator *Coordinator) createJournaledContainerGroup(ctx context.Context, jobID string, index int, input RunInput, createRequest eci.CreateRequest) (string, error) {
+	if err := input.LedgerStore.RecordRemoteCleanupContainerGroupIntent(jobID, createRequest.ContainerGroupName); err != nil {
+		return "", fmt.Errorf("record remote cleanup ECI intent: %w", err)
 	}
-	return group.ID, uploadedKeys, nil
+	group, err := coordinator.runtime.CreateContainerGroup(ctx, createRequest)
+	if err != nil {
+		return "", fmt.Errorf("create remote CI shard %d: %w", index, err)
+	}
+	if err := input.LedgerStore.SetRemoteCleanupContainerGroupProviderID(jobID, createRequest.ContainerGroupName, group.ID); err != nil {
+		// provider 已确认创建时必须把真实 ID 交给当前进程的 defer cleanup；
+		// durable journal 同时保留 deterministic name 供崩溃后的精确发现。
+		return group.ID, fmt.Errorf("record remote cleanup ECI provider ID: %w", err)
+	}
+	return group.ID, nil
 }
 
 // buildRemotePlan 校验输入并构造权威 catalog 对应的分片执行计划。

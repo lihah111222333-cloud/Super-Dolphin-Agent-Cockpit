@@ -128,7 +128,7 @@ func validateRunInputBeforeParse(args []string, defaultTarget string, allowNonRe
 	return nil
 }
 
-const singleAuthorityFlagSet = "\x00--config\x00--repository\x00--commit\x00--tree\x00--parent\x00--base\x00--scenario\x00--entrypoint\x00--workload\x00--gate-workload-manifest\x00--target\x00--completion-receipt\x00--local-ref\x00--remote-ref\x00--observed-remote\x00--update-kind\x00--ledger\x00--agent-token\x00--force\x00"
+const singleAuthorityFlagSet = "\x00--config\x00--repository\x00--commit\x00--tree\x00--parent\x00--base\x00--scenario\x00--entrypoint\x00--workload\x00--gate-workload-manifest\x00--target\x00--completion-receipt\x00--local-ref\x00--remote-ref\x00--observed-remote\x00--update-kind\x00--ledger\x00--job-id\x00--agent-token\x00--force\x00"
 
 // rejectDuplicateAuthorityFlags 在标准 flag parser 覆盖值前拒绝重复 authority 输入。
 func rejectDuplicateAuthorityFlags(args []string) error {
