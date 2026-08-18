@@ -217,7 +217,7 @@ func assertLocalPassContractValues(t *testing.T, root string) {
 }
 
 func assertSemanticReplayCacheSchemaOwner(t *testing.T, root string) {
-	semanticSchema := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/ledger_store_sqlite_schema_execution_scope.go")
+	semanticSchema := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/ledger_store_sqlite_namespace_migration.go")
 	if !strings.Contains(semanticSchema, "durationLedgerWorkloadSemanticReplayCacheSchemaStatements") {
 		t.Fatal("v21 semantic replay cache DDL owner is missing")
 	}
