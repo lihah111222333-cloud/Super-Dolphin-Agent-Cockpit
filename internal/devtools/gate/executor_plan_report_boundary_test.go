@@ -103,8 +103,8 @@ func TestDecodePlanExecutionReportRejectsBackendExecutionProfileTamper(t *testin
 		t.Fatalf("packed gate fields = %d, want 15", len(fields))
 	}
 	profileFields := strings.Split(fields[10], ",")
-	if len(profileFields) != 15 {
-		t.Fatalf("packed execution profile fields = %d, want 15", len(profileFields))
+	if len(profileFields) != 16 {
+		t.Fatalf("packed execution profile fields = %d, want 16", len(profileFields))
 	}
 	profileFields[6] = "2" // CacheMissCount: still a valid profile, but different from the signed report.
 	fields[10] = strings.Join(profileFields, ",")
@@ -139,8 +139,8 @@ func TestDecodePlanExecutionReportRejectsRaceGoFlagsTamper(t *testing.T) {
 	}
 	fields := strings.SplitN(records[index].payload, " ", 15)
 	profileFields := strings.Split(fields[10], ",")
-	if len(profileFields) != 15 {
-		t.Fatalf("packed execution profile fields = %d, want 15", len(profileFields))
+	if len(profileFields) != 16 {
+		t.Fatalf("packed execution profile fields = %d, want 16", len(profileFields))
 	}
 	profileFields[0] = hex.EncodeToString([]byte(CanonicalGoFlags(true)))
 	fields[10] = strings.Join(profileFields, ",")

@@ -29,6 +29,7 @@ type DurationLedgerSnapshot struct {
 	Ledger             DurationLedger
 	SampleIndex        *DurationSampleIndex
 	CompileTimingIndex *CompileTimingIndex
+	BatchResourceIndex *BatchResourceIndex
 	// ResourceTierReserves is derived from existing authoritative shard/timing
 	// rows during planning; it is not a second SQLite authority or schema table.
 	ResourceTierReserves []cicontract.WorkloadResourceTierReserve

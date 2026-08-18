@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate/testtiming"
@@ -46,6 +48,9 @@ func (profile ExecutionProfile) Validate() error {
 	if !validExecutionProfileTiming(profile) {
 		return errors.New("execution profile timing is invalid")
 	}
+	if err := profile.BatchResource.Validate(); err != nil {
+		return err
+	}
 	if profile.Frontend != nil {
 		if err := profile.Frontend.Validate(); err != nil {
 			return fmt.Errorf("frontend execution profile: %w", err)
@@ -65,10 +70,62 @@ func (profile ExecutionProfile) ValidateAggregate() error {
 	if !validAggregateExecutionProfileTiming(profile) {
 		return errors.New("aggregate execution profile timing is invalid")
 	}
+	if profile.BatchResource != nil {
+		return errors.New("aggregate execution profile cannot carry batch resource evidence")
+	}
 	if profile.Frontend != nil {
 		return errors.New("aggregate execution profile must keep frontend evidence workload-scoped")
 	}
 	return nil
+}
+
+// Validate 校验 batch 资源证据的完整性和 CPU-time/wall-time 算术闭包。
+func (observation *BatchResourceObservation) Validate() error {
+	if observation == nil {
+		return nil
+	}
+	if err := observation.validateIdentityAndMeasurements(); err != nil {
+		return err
+	}
+	if observation.WallDurationMS > int64(^uint64(0)>>1)/int64(time.Millisecond) {
+		return errors.New("batch resource observation wall duration overflows")
+	}
+	wallNS := observation.WallDurationMS * int64(time.Millisecond)
+	expected, err := averageCPUMilliCores(observation.CPUTimeNS, wallNS)
+	if err != nil || expected != observation.AverageCPUMilliCores {
+		return errors.New("batch resource observation CPU average does not match CPU time and wall time")
+	}
+	return nil
+}
+
+// validateIdentityAndMeasurements 校验 batch 身份与四项资源测量均完整为正。
+func (observation BatchResourceObservation) validateIdentityAndMeasurements() error {
+	if strings.TrimSpace(observation.BatchID) == "" || strings.TrimSpace(observation.BatchID) != observation.BatchID {
+		return errors.New("batch resource observation has invalid batch id")
+	}
+	if observation.CPUTimeNS <= 0 || observation.WallDurationMS <= 0 {
+		return errors.New("batch resource observation requires positive CPU and wall time")
+	}
+	if observation.AverageCPUMilliCores <= 0 || observation.PeakRSSBytes <= 0 {
+		return errors.New("batch resource observation requires positive CPU and RSS measurements")
+	}
+	return nil
+}
+
+// averageCPUMilliCores 用向上取整保留短 batch 的非零 CPU 占用率。
+func averageCPUMilliCores(cpuTimeNS, wallNS int64) (int64, error) {
+	if cpuTimeNS <= 0 || wallNS <= 0 {
+		return 0, errors.New("batch resource CPU and wall time must be positive")
+	}
+	quotient, remainder := cpuTimeNS/wallNS, cpuTimeNS%wallNS
+	if quotient > int64(^uint64(0)>>1)/1000 || remainder > int64(^uint64(0)>>1)/1000 {
+		return 0, errors.New("batch resource CPU average overflows")
+	}
+	result := quotient*1000 + remainder*1000/wallNS
+	if remainder*1000%wallNS != 0 {
+		result++
+	}
+	return result, nil
 }
 
 // validateExecutionProfileCache 校验缓存枚举及“不适用”状态与观测计数的互斥关系。

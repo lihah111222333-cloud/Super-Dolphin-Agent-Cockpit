@@ -174,6 +174,8 @@ func appendExecutionProfileDigest(destination []byte, profile ExecutionProfile) 
 	destination = appendPlanReportField(destination, "execution-startup-ms", strconv.FormatInt(profile.StartupMS, 10))
 	destination = appendPlanReportField(destination, "execution-test-body-ms", strconv.FormatInt(profile.TestBodyMS, 10))
 	destination = appendPlanReportField(destination, "execution-total-ms", strconv.FormatInt(profile.TotalMS, 10))
+	resource, _ := encodePackedBatchResource(profile.BatchResource)
+	destination = appendPlanReportField(destination, "execution-batch-resource", resource)
 	frontend, _ := encodeFrontendExecutionProfile(profile.Frontend)
 	return appendPlanReportField(destination, "frontend-execution-profile", frontend)
 }

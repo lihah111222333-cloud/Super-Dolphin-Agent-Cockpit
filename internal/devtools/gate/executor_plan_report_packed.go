@@ -1,7 +1,9 @@
 package gate
 
 import (
+	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -289,21 +291,36 @@ func encodePackedExecutionProfile(profile ExecutionProfile) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	resource, err := encodePackedBatchResource(profile.BatchResource)
+	if err != nil {
+		return "", err
+	}
 	values := []string{hex.EncodeToString([]byte(profile.GoFlags)), profile.CacheSource, string(profile.CacheStatus), profile.CacheMeasurement,
 		strconv.FormatUint(profile.PrivateHitCount, 10), strconv.FormatUint(profile.BaselineHitCount, 10),
 		strconv.FormatUint(profile.CacheMissCount, 10), strconv.FormatUint(profile.CachePutCount, 10),
 		strconv.FormatInt(profile.MaterializeMS, 10), strconv.FormatInt(profile.DownloadMS, 10),
 		strconv.FormatInt(profile.VerifyMS, 10), strconv.FormatInt(profile.StartupMS, 10),
-		strconv.FormatInt(profile.TestBodyMS, 10), strconv.FormatInt(profile.TotalMS, 10), frontend}
+		strconv.FormatInt(profile.TestBodyMS, 10), strconv.FormatInt(profile.TotalMS, 10), frontend, resource}
 	return strings.Join(values, ","), nil
+}
+
+func encodePackedBatchResource(resource *BatchResourceObservation) (string, error) {
+	if resource == nil {
+		return "", nil
+	}
+	encoded, err := json.Marshal(resource)
+	if err != nil {
+		return "", fmt.Errorf("marshal packed batch resource: %w", err)
+	}
+	return hex.EncodeToString(encoded), nil
 }
 
 func decodePackedExecutionProfile(value string) (ExecutionProfile, error) {
 	fields := strings.Split(value, ",")
-	if len(fields) != 15 || strings.Join(fields, ",") != value {
+	if len(fields) != 16 || strings.Join(fields, ",") != value {
 		return ExecutionProfile{}, errors.New("plan report packed execution profile is invalid")
 	}
-	legacyFields := append([]string{"000001"}, fields[1:]...)
+	legacyFields := append([]string{"000001"}, fields[1:15]...)
 	durations, err := decodeExecutionProfileDurations(legacyFields)
 	if err != nil {
 		return ExecutionProfile{}, err
@@ -321,10 +338,33 @@ func decodePackedExecutionProfile(value string) (ExecutionProfile, error) {
 		return ExecutionProfile{}, err
 	}
 	profile.GoFlags = goFlags
+	profile.BatchResource, err = decodePackedBatchResource(fields[15])
+	if err != nil {
+		return ExecutionProfile{}, err
+	}
 	if err := profile.Validate(); err != nil {
 		return ExecutionProfile{}, err
 	}
 	return profile, nil
+}
+
+func decodePackedBatchResource(value string) (*BatchResourceObservation, error) {
+	if value == "" {
+		return nil, nil
+	}
+	encoded, err := hex.DecodeString(value)
+	if err != nil {
+		return nil, errors.New("plan report packed batch resource is invalid")
+	}
+	var resource BatchResourceObservation
+	if err := json.Unmarshal(encoded, &resource); err != nil {
+		return nil, errors.New("plan report packed batch resource is invalid")
+	}
+	canonical, err := json.Marshal(resource)
+	if err != nil || !bytes.Equal(canonical, encoded) || resource.Validate() != nil {
+		return nil, errors.New("plan report packed batch resource is not canonical")
+	}
+	return &resource, nil
 }
 
 // decodePackedGoFlags restores the canonical profile from its whitespace-safe

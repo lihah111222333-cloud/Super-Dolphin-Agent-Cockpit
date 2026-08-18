@@ -34,20 +34,24 @@ const (
 // CompileArtifactKey 只由编译语义和共享输入组成，不包含 selector 成员或时长估算；
 // GroupID 再绑定有序 WorkloadIDs，以证明计划覆盖和保持 worker 的 selector 顺序。
 type CompileGroup struct {
-	GroupID             string                    `json:"group_id"`
-	PackageTarget       string                    `json:"package_target"`
-	SemanticKey         string                    `json:"semantic_key"`
-	SharedInputDigest   string                    `json:"shared_input_digest"`
-	ProfileDigest       string                    `json:"profile_digest"`
-	ResourceClassID     string                    `json:"resource_class_id"`
-	WorkloadIDs         []GateID                  `json:"workload_ids"`
-	SelectorEstimates   []CompileSelectorEstimate `json:"selector_estimates"`
-	BatchPlan           []CompileGroupBatch       `json:"batch_plan"`
-	BatchPlanDigest     string                    `json:"batch_plan_digest"`
-	BatchPlanWarning    string                    `json:"batch_plan_warning,omitempty"`
-	CompileEstimateMS   int64                     `json:"compile_estimate_ms"`
-	BodyEstimateMS      int64                     `json:"body_estimate_ms"`
-	EstimatedDurationMS int64                     `json:"estimated_duration_ms"`
+	GroupID                string                    `json:"group_id"`
+	PackageTarget          string                    `json:"package_target"`
+	SemanticKey            string                    `json:"semantic_key"`
+	SharedInputDigest      string                    `json:"shared_input_digest"`
+	ProfileDigest          string                    `json:"profile_digest"`
+	ResourceClassID        string                    `json:"resource_class_id"`
+	WorkloadIDs            []GateID                  `json:"workload_ids"`
+	SelectorEstimates      []CompileSelectorEstimate `json:"selector_estimates"`
+	BatchPlan              []CompileGroupBatch       `json:"batch_plan"`
+	BatchPlanDigest        string                    `json:"batch_plan_digest"`
+	BatchPlanWarning       string                    `json:"batch_plan_warning,omitempty"`
+	CompileEstimateMS      int64                     `json:"compile_estimate_ms"`
+	BodyEstimateMS         int64                     `json:"body_estimate_ms"`
+	EstimatedDurationMS    int64                     `json:"estimated_duration_ms"`
+	ResourceEstimateSource string                    `json:"resource_estimate_source,omitempty"`
+	EstimatedCPUMilliCores int64                     `json:"estimated_cpu_millicores,omitempty"`
+	EstimatedPeakRSSBytes  int64                     `json:"estimated_peak_rss_bytes,omitempty"`
+	ConcurrentExecution    bool                      `json:"concurrent_execution,omitempty"`
 }
 
 // CompileSelectorEstimate 是 planner 冻结的单 selector 正文估时。
@@ -255,6 +259,9 @@ func (group CompileGroup) Validate() error {
 	if err := group.validateEstimates(); err != nil {
 		return err
 	}
+	if err := group.validateResourceEstimate(); err != nil {
+		return err
+	}
 	expectedID, err := CompileGroupID(group)
 	if err != nil {
 		return err
@@ -263,6 +270,48 @@ func (group CompileGroup) Validate() error {
 		return errors.New("compile group ID does not match canonical identity")
 	}
 	return nil
+}
+
+// validateResourceEstimate 校验 batch CPU/RSS 画像只能完整出现且并发仅用于 race。
+func (group CompileGroup) validateResourceEstimate() error {
+	if group.hasNoResourceEstimate() {
+		return nil
+	}
+	if group.ResourceEstimateSource != "measured" && group.ResourceEstimateSource != "bootstrap" {
+		return errors.New("compile group resource estimate source is invalid")
+	}
+	if group.EstimatedCPUMilliCores <= 0 || group.EstimatedPeakRSSBytes <= 0 {
+		return errors.New("compile group resource estimate must contain positive CPU and RSS")
+	}
+	if group.ConcurrentExecution && group.SemanticKey != CompileGroupSemanticGoTestRace {
+		return errors.New("only race compile groups may use cross-group concurrent execution")
+	}
+	return nil
+}
+
+func (group CompileGroup) hasNoResourceEstimate() bool {
+	return group.ResourceEstimateSource == "" && group.EstimatedCPUMilliCores == 0 &&
+		group.EstimatedPeakRSSBytes == 0 && !group.ConcurrentExecution
+}
+
+// CompileGroupParallelPackingEligible 只允许资源画像完整、无 exclusive batch 的
+// ordinary race 包进入同一 ECI 的资源受控并发 wave；特殊全局状态包继续独占。
+func CompileGroupParallelPackingEligible(group CompileGroup) bool {
+	if group.SemanticKey != CompileGroupSemanticGoTestRace || group.EstimatedCPUMilliCores <= 0 || group.EstimatedPeakRSSBytes <= 0 {
+		return false
+	}
+	for _, batch := range group.BatchPlan {
+		if batch.Exclusive {
+			return false
+		}
+	}
+	switch group.PackageTarget {
+	case AtomicArchtestPackageTarget, AtomicSuperDolphinGatePackageTarget, AtomicCodexAppPackageTarget,
+		AtomicMcpLSPPackageTarget, AtomicAgentTerminalPackageTarget:
+		return false
+	default:
+		return true
+	}
 }
 
 // validateWorkloadIDs 校验 group 成员非空且不重复。
@@ -776,6 +825,7 @@ func isCodexExclusiveTestName(name string) bool {
 	}
 }
 
+// mcpLSPExclusiveTestNames 返回必须独占 batch 的 MCP LSP 进程/资源边界测试。
 func mcpLSPExclusiveTestNames() map[string]struct{} {
 	return map[string]struct{}{
 		"TestMcpLSPBinaryAllLanguageLifecycleSingleSidecar_E2E":                           {},

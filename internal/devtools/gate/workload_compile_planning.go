@@ -40,6 +40,7 @@ func planLPTWithCompileInputs(catalog WorkloadCatalog, index DurationSampleIndex
 	if err != nil {
 		return nil, nil, err
 	}
+	markParallelCompileGroups(groups, shards)
 	return shards, SortCompileGroupsByID(groups), nil
 }
 
@@ -86,13 +87,15 @@ type compilePlanningBucket struct {
 }
 
 type compilePlanningUnit struct {
-	workloads       []PlannedWorkload
-	group           *CompileGroup
-	costMS          int64
-	affinityKey     string
-	sortID          string
-	tier            cicontract.WorkloadResourceTier
-	resourceClassID string
+	workloads              []PlannedWorkload
+	group                  *CompileGroup
+	costMS                 int64
+	affinityKey            string
+	sortID                 string
+	tier                   cicontract.WorkloadResourceTier
+	resourceClassID        string
+	estimatedCPUMilliCores int64
+	estimatedPeakRSSBytes  int64
 	// hardIsolationReason 是 planner 内部的非持久化进程/receipt 边界证明。
 	hardIsolationReason compileUnitHardIsolationReason
 }
@@ -130,7 +133,7 @@ func buildCompileUnits(planned []PlannedWorkload, index DurationSampleIndex, com
 	})
 	groups := make([]CompileGroup, 0)
 	for _, key := range keys {
-		bucketUnits, bucketGroups, err := splitCompilePlanningBucket(*buckets[key], index.context)
+		bucketUnits, bucketGroups, err := splitCompilePlanningBucket(*buckets[key], index.context, index.BatchResourceIndex)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -165,7 +168,7 @@ func ordinaryCompilePlanningUnit(item PlannedWorkload, context PlanningContext) 
 // 普通 package 保持单一共享编译组；archtest 则按唯一 owner 的 selector 上限
 // 拆成多个独立组，使每个 ECI shard 只承载一个有界 test-binary 进程。每个组
 // 仍只执行一次 go test -c；跨 shard 允许 Go 自身的增量编译，但不共享 CAS。
-func splitCompilePlanningBucket(bucket compilePlanningBucket, context PlanningContext) ([]compilePlanningUnit, []CompileGroup, error) {
+func splitCompilePlanningBucket(bucket compilePlanningBucket, context PlanningContext, resourceIndex BatchResourceIndex) ([]compilePlanningUnit, []CompileGroup, error) {
 	if len(bucket.selectors) == 0 {
 		return nil, nil, errors.New("compile planning bucket is empty")
 	}
@@ -182,7 +185,7 @@ func splitCompilePlanningBucket(bucket compilePlanningBucket, context PlanningCo
 	groups := make([]CompileGroup, 0, len(partitions))
 	for _, partition := range partitions {
 		compileEstimate := maxCompileEstimate(partition)
-		group, err := compileGroupFromPartition(partition, compileEstimate, bucket.affinityKey, context)
+		group, err := compileGroupFromPartition(partition, compileEstimate, bucket.affinityKey, context, resourceIndex)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -196,7 +199,7 @@ func splitCompilePlanningBucket(bucket compilePlanningBucket, context PlanningCo
 		if err != nil {
 			return nil, nil, fmt.Errorf("derive compile group %q hard isolation: %w", group.GroupID, err)
 		}
-		units = append(units, compilePlanningUnit{workloads: workloads, group: group, costMS: compileGroupCriticalDurationMS(*group), affinityKey: bucket.affinityKey, sortID: group.GroupID, tier: bucket.resourceTier, resourceClassID: group.ResourceClassID, hardIsolationReason: reason})
+		units = append(units, compilePlanningUnit{workloads: workloads, group: group, costMS: compileGroupCriticalDurationMS(*group), affinityKey: bucket.affinityKey, sortID: group.GroupID, tier: bucket.resourceTier, resourceClassID: group.ResourceClassID, estimatedCPUMilliCores: group.EstimatedCPUMilliCores, estimatedPeakRSSBytes: group.EstimatedPeakRSSBytes, hardIsolationReason: reason})
 	}
 	return units, groups, nil
 }
@@ -286,7 +289,7 @@ func maxCompileEstimate(selectors []compilePlanningSelector) int64 {
 }
 
 // compileGroupFromPartition 以同档 selector 生成带稳定资源身份和成本闭包的编译组。
-func compileGroupFromPartition(partition []compilePlanningSelector, compileEstimate int64, affinityKey string, context PlanningContext) (CompileGroup, error) {
+func compileGroupFromPartition(partition []compilePlanningSelector, compileEstimate int64, affinityKey string, context PlanningContext, resourceIndex BatchResourceIndex) (CompileGroup, error) {
 	if len(partition) == 0 {
 		return CompileGroup{}, errors.New("compile planning partition is empty")
 	}
@@ -312,7 +315,11 @@ func compileGroupFromPartition(partition []compilePlanningSelector, compileEstim
 	if err != nil {
 		return CompileGroup{}, fmt.Errorf("compile group %q batch plan: %w", affinityKey, err)
 	}
-	group := CompileGroup{PackageTarget: partition[0].input.PackageTarget, SemanticKey: partition[0].input.SemanticKey, SharedInputDigest: partition[0].input.SharedInputDigest, ProfileDigest: partition[0].input.ProfileDigest, ResourceClassID: resourceClassID, WorkloadIDs: ids, SelectorEstimates: selectorEstimates, BatchPlan: batchPlan, BatchPlanWarning: batchWarning, CompileEstimateMS: compileEstimate, BodyEstimateMS: bodyEstimate, EstimatedDurationMS: totalEstimate}
+	source, cpuMilli, peakRSS, err := compileGroupResourceEstimate(partition, batchPlan, resourceClassID, resourceIndex)
+	if err != nil {
+		return CompileGroup{}, err
+	}
+	group := CompileGroup{PackageTarget: partition[0].input.PackageTarget, SemanticKey: partition[0].input.SemanticKey, SharedInputDigest: partition[0].input.SharedInputDigest, ProfileDigest: partition[0].input.ProfileDigest, ResourceClassID: resourceClassID, WorkloadIDs: ids, SelectorEstimates: selectorEstimates, BatchPlan: batchPlan, BatchPlanWarning: batchWarning, CompileEstimateMS: compileEstimate, BodyEstimateMS: bodyEstimate, EstimatedDurationMS: totalEstimate, ResourceEstimateSource: source, EstimatedCPUMilliCores: cpuMilli, EstimatedPeakRSSBytes: peakRSS}
 	return finalizeCompileGroup(group, affinityKey)
 }
 
@@ -816,7 +823,7 @@ func compileShardEligibleGroupCoverage(shard ShardPlan, byID map[string]compileP
 	resourceClassID := ""
 	for _, groupID := range shard.CompileGroupIDs {
 		unit, ok := byID[groupID]
-		if !ok || unit.group == nil || !CompileGroupSerialPackingEligible(*unit.group) || groupWorkloadCount[groupID] == 0 {
+		if !ok || unit.group == nil || (!CompileGroupSerialPackingEligible(*unit.group) && !CompileGroupParallelPackingEligible(*unit.group)) || groupWorkloadCount[groupID] == 0 {
 			return nil, false
 		}
 		classID := compilePlanningUnitResourceClass(unit)

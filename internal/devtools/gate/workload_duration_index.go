@@ -53,6 +53,8 @@ type DurationSampleIndex struct {
 	// CompileTimingIndex 是 owner 资源选择使用的只读 compile-group 历史投影。
 	// 它与 workload 索引并列保存，确保 planner snapshot 不会混入不同规划上下文或 generation 的耗时行。
 	CompileTimingIndex CompileTimingIndex
+	// BatchResourceIndex 保存同 platform/runner/toolchain/mode 的实测 CPU/RSS 历史。
+	BatchResourceIndex BatchResourceIndex
 }
 
 // BuildDurationSampleIndex 对当前 generation 只扫描一次账本，并隔离不同比较环境。
@@ -69,9 +71,10 @@ func BuildDurationSampleIndex(ledger DurationLedger, context PlanningContext) (D
 		return DurationSampleIndex{}, err
 	}
 	index := DurationSampleIndex{
-		context: context,
-		buckets: make(map[durationSampleIndexKey]durationSampleAggregate),
-		Samples: make([]DurationSample, 0, len(ledger.Samples)),
+		context:            context,
+		buckets:            make(map[durationSampleIndexKey]durationSampleAggregate),
+		Samples:            make([]DurationSample, 0, len(ledger.Samples)),
+		BatchResourceIndex: BatchResourceIndex{byWorkload: make(map[GateID][]BatchResourceSample)},
 	}
 	compileTimingIndex, err := BuildCompileTimingIndex(nil)
 	if err != nil {

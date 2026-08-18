@@ -164,10 +164,12 @@ type PlanningContext struct {
 
 // ShardPlan 是单个计划分片及其确定性 workload 顺序。
 type ShardPlan struct {
-	Index               int               `json:"index"`
-	Workloads           []PlannedWorkload `json:"workloads"`
-	CompileGroupIDs     []string          `json:"compile_group_ids,omitempty"`
-	EstimatedDurationMS int64             `json:"estimated_duration_ms"`
+	Index                  int               `json:"index"`
+	Workloads              []PlannedWorkload `json:"workloads"`
+	CompileGroupIDs        []string          `json:"compile_group_ids,omitempty"`
+	EstimatedDurationMS    int64             `json:"estimated_duration_ms"`
+	EstimatedCPUMilliCores int64             `json:"estimated_cpu_millicores,omitempty"`
+	EstimatedPeakRSSBytes  int64             `json:"estimated_peak_rss_bytes,omitempty"`
 }
 
 // PlannedWorkload 是带估算时长的计划 workload。

@@ -67,6 +67,19 @@ func (score compilePackingScore) less(other compilePackingScore) bool {
 
 // provenCompileUnitPacking 对 <=12 unit 做 exact；大输入走有界 compile-aware heuristic。
 func provenCompileUnitPacking(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
+	parallel, conventional := partitionParallelCompileUnits(units)
+	parallelShards, err := packParallelCompileUnits(parallel, target)
+	if err != nil {
+		return nil, err
+	}
+	conventionalShards, err := provenConventionalCompileUnitPacking(conventional, target)
+	if err != nil {
+		return nil, err
+	}
+	return canonicalCompilePacking(append(conventionalShards, parallelShards...)), nil
+}
+
+func provenConventionalCompileUnitPacking(units []compilePlanningUnit, target int64) ([]ShardPlan, error) {
 	if err := validateCompilePlanningUnitsHardIsolation(units); err != nil {
 		return nil, err
 	}

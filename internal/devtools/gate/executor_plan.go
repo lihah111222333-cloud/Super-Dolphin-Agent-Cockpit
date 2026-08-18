@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	ExecutorPlanReportSchemaVersion    = 11
+	ExecutorPlanReportSchemaVersion    = 12
 	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
 	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
 	// ExecutorAgentTokenDigestEnvironment 将远程 worker 报告绑定到已准入的 agent 身份。
@@ -92,6 +92,18 @@ type ExecutionProfile struct {
 	StartupMS        int64                     `json:"startup_ms"`
 	TestBodyMS       int64                     `json:"test_body_ms"`
 	TotalMS          int64                     `json:"total_ms"`
+	BatchResource    *BatchResourceObservation `json:"batch_resource,omitempty"`
+}
+
+// BatchResourceObservation 记录一个共享 test-binary batch 的实测资源画像。
+// 同一 batch 投影出的 selector 必须携带完全相同的对象；持久化消费者按
+// BatchID 去重，禁止把共享进程的 CPU/RSS 对每个 selector 重复计费。
+type BatchResourceObservation struct {
+	BatchID              string `json:"batch_id"`
+	CPUTimeNS            int64  `json:"cpu_time_ns"`
+	WallDurationMS       int64  `json:"wall_duration_ms"`
+	AverageCPUMilliCores int64  `json:"average_cpu_millicores"`
+	PeakRSSBytes         int64  `json:"peak_rss_bytes"`
 }
 
 // FrontendExecutionProfile 只记录 executor 已证明的缓存证据。

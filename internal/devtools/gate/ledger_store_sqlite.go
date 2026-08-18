@@ -79,13 +79,26 @@ func loadSQLiteSnapshotPayload(transaction *sql.Tx, includeSamples bool, plannin
 		return DurationLedgerSnapshot{}, err
 	}
 	snapshot.ResourceTierReserves = reserves
-	index, err := loadSQLiteDurationSampleIndex(transaction, planning, acceptedGeneration)
+	index, batchResources, err := loadSQLitePlanningIndexes(transaction, planning, acceptedGeneration, compileTimingIndex)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
-	index.CompileTimingIndex = compileTimingIndex
+	snapshot.BatchResourceIndex = &batchResources
 	snapshot.SampleIndex = &index
 	return snapshot, nil
+}
+
+func loadSQLitePlanningIndexes(transaction *sql.Tx, planning PlanningContext, generation uint64, compileTiming CompileTimingIndex) (DurationSampleIndex, BatchResourceIndex, error) {
+	index, err := loadSQLiteDurationSampleIndex(transaction, planning, generation)
+	if err != nil {
+		return DurationSampleIndex{}, BatchResourceIndex{}, err
+	}
+	batchResources, err := loadSQLiteBatchResourceIndex(transaction, planning, generation)
+	if err != nil {
+		return DurationSampleIndex{}, BatchResourceIndex{}, err
+	}
+	index.CompileTimingIndex, index.BatchResourceIndex = compileTiming, batchResources
+	return index, batchResources, nil
 }
 
 func loadSQLiteReadAuthority(transaction *sql.Tx) (DurationLedgerSnapshot, uint64, error) {

@@ -61,6 +61,9 @@ func executeCompileGroupBatches(
 	artifacts map[GateID]compiledGroupArtifact,
 	now func() time.Time,
 ) (map[GateID]PlanGateExecution, map[string]error) {
+	if concurrentCompileGroupExecution(groups) {
+		return executeConcurrentCompileGroupBatches(ctx, groups, artifacts, now)
+	}
 	results := make(map[GateID]PlanGateExecution)
 	errorsByGroup := make(map[string]error)
 	for _, group := range groups {
@@ -214,6 +217,8 @@ func quotedSelectorNames(values []string) []string {
 
 type compiledSelectorBatchObservation struct {
 	started, bodyStarted, completed time.Time
+	batchID                         string
+	resourceUsage                   *BatchResourceObservation
 	selectorTimings                 map[string][]GoTestTiming
 	selectorIntervals               map[string]compiledSelectorBatchInterval
 	selectorLogs                    map[string][]byte
@@ -642,18 +647,52 @@ func runCompiledSelectorBatchProcess(ctx context.Context, artifact compiledGroup
 	runErr := runConfiguredCommandWithStart(command, func() {
 		bodyStarted = now().UTC()
 	})
+	completed := now().UTC()
+	resourceUsage, resourceErr := batchResourceObservationFromProcessState(batch.BatchID, command.ProcessState, completed.Sub(started))
+	if command.ProcessState != nil {
+		runErr = errors.Join(runErr, resourceErr)
+	}
 	closeErr := eventWriter.Close()
 	selectorLogs := make(map[string][]byte, len(eventWriter.selectorLogs))
 	for name, selectorLog := range eventWriter.selectorLogs {
 		selectorLogs[name] = selectorLog.Bytes()
 	}
 	observation = compiledSelectorBatchObservation{
-		started: started, bodyStarted: bodyStarted, completed: now().UTC(),
+		started: started, bodyStarted: bodyStarted, completed: completed,
+		batchID: batch.BatchID, resourceUsage: resourceUsage,
 		selectorTimings: eventWriter.selectorTimings, selectorIntervals: eventWriter.selectorIntervals, selectorLogs: selectorLogs, log: log,
 		runErr: runErr, closeErr: closeErr, parseErr: eventWriter.terminalErr,
 		contextErr: ctx.Err(), extraTopLevel: eventWriter.extraTopLevel,
 	}
 	return observation
+}
+
+// batchResourceObservationFromProcessState 将操作系统进程账本规范化为跨平台 wire 单位。
+func batchResourceObservationFromProcessState(batchID string, state *os.ProcessState, wall time.Duration) (*BatchResourceObservation, error) {
+	if state == nil {
+		return nil, errors.New("batch resource process state is missing")
+	}
+	cpuTime := state.UserTime() + state.SystemTime()
+	if cpuTime <= 0 || wall <= 0 {
+		return nil, errors.New("batch resource process timing is not measurable")
+	}
+	wallMS := wall.Milliseconds()
+	if wall%time.Millisecond != 0 {
+		wallMS++
+	}
+	average, err := averageCPUMilliCores(cpuTime.Nanoseconds(), wallMS*int64(time.Millisecond))
+	if err != nil {
+		return nil, err
+	}
+	peakRSS, err := processStatePeakRSSBytes(state)
+	if err != nil {
+		return nil, fmt.Errorf("batch resource peak RSS: %w", err)
+	}
+	result := &BatchResourceObservation{BatchID: batchID, CPUTimeNS: cpuTime.Nanoseconds(), WallDurationMS: wallMS, AverageCPUMilliCores: average, PeakRSSBytes: peakRSS}
+	if err := result.Validate(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // configureCompileGroupBatchCache 让同一 shard 的所有 batch 共享 candidate 增量 cache，
@@ -706,89 +745,6 @@ func validateCompileGroupBatchCacheRoots(artifact compiledGroupArtifact) error {
 		return errors.New("compile group candidate and baseline cache roots must be disjoint")
 	}
 	return nil
-}
-
-// compiledSelectorBatchResults 将每个顶层 selector 生成独立的 canonical 计划结果。
-func compiledSelectorBatchResults(group CompileGroup, argv []string, specs map[GateID]compiledSelectorBatchSpec, observation compiledSelectorBatchObservation) (map[GateID]PlanGateExecution, error) {
-	results := make(map[GateID]PlanGateExecution, len(specs))
-	var resultErr error
-	fullFailureLogAvailable := true
-	for _, id := range group.WorkloadIDs {
-		spec := specs[id]
-		timings := observation.selectorTimings[spec.name]
-		matched := exactGoTestTimings(timings, spec.name)
-		if len(matched) != 1 {
-			selectorErr := fmt.Errorf("compiled selector batch test %q has no unique terminal result", spec.name)
-			cancelled, profileErr := cancelledCompiledSelectorResult(id, argv, observation, spec.name, fullFailureLogAvailable)
-			if profileErr != nil {
-				return results, errors.Join(resultErr, profileErr)
-			}
-			results[id] = cancelled
-			fullFailureLogAvailable = false
-			resultErr = errors.Join(resultErr, selectorErr)
-			continue
-		}
-		interval := observation.selectorIntervals[spec.name]
-		selectorErr := error(nil)
-		if matched[0].Status == GoTestStatusFail {
-			selectorErr = fmt.Errorf("compiled selector %q reported fail", spec.name)
-		}
-		fullFailureLog := selectorErr != nil && fullFailureLogAvailable
-		result, profileErr := compiledSelectorResultWithLog(id, argv, observation, spec.name, timings, interval, selectorErr, fullFailureLog)
-		if profileErr != nil {
-			return results, errors.Join(resultErr, profileErr)
-		}
-		if fullFailureLog {
-			fullFailureLogAvailable = false
-		}
-		if timingErr := validateCompiledSelectorTiming(id, timings); timingErr != nil {
-			result.Status, result.ExitCode = ResultStatusFailed, ExecutorExitCode(timingErr)
-			selectorErr = errors.Join(selectorErr, timingErr)
-		}
-		if result.Status == ResultStatusFailed {
-			resultErr = errors.Join(resultErr, selectorErr, fmt.Errorf("compiled selector %q failed", id))
-		}
-		results[id] = result
-	}
-	return results, resultErr
-}
-
-// compiledSelectorResultWithLog 绑定 selector 专属日志并还原其独立启动、正文和总区间。
-func compiledSelectorResultWithLog(id GateID, argv []string, observation compiledSelectorBatchObservation, selectorName string, timings []GoTestTiming, interval compiledSelectorBatchInterval, selectorErr error, fullDiagnostic bool) (PlanGateExecution, error) {
-	log := newBoundedPlanLog(executorPlanMaxLogBytes)
-	data := observation.selectorLogs[selectorName]
-	if len(data) == 0 && observation.log != nil {
-		data = observation.log.Bytes()
-	}
-	if len(data) != 0 {
-		_, _ = log.Write(compiledSelectorDiagnosticLog(data, selectorErr, fullDiagnostic))
-	}
-	compiledObservation := compiledSelectorObservation{
-		started: observation.started, bodyStarted: observation.bodyStarted, completed: observation.completed,
-		log: log, timings: timings, argv: argv, runErr: selectorErr, contextErr: observation.contextErr,
-	}
-	if interval.runAt.IsZero() || interval.completedAt.IsZero() {
-		return compiledSelectorResult(id, argv, compiledObservation)
-	}
-	started, bodyStarted, completed, intervalErr := canonicalCompiledSelectorBatchInterval(observation.started, interval)
-	if intervalErr != nil {
-		compiledObservation.runErr = errors.Join(compiledObservation.runErr, intervalErr)
-	} else {
-		completed = normalizeCompiledSelectorBatchCompletion(bodyStarted, completed, timings, selectorName)
-		compiledObservation.started, compiledObservation.bodyStarted, compiledObservation.completed = started, bodyStarted, completed
-	}
-	result, profileErr := compiledSelectorResult(id, argv, compiledObservation)
-	if profileErr != nil {
-		return PlanGateExecution{}, profileErr
-	}
-	if intervalErr == nil {
-		canonical, err := CanonicalizePlanGateExecutionTiming(result)
-		if err != nil {
-			return result, err
-		}
-		result = canonical
-	}
-	return result, nil
 }
 
 // normalizeCompiledSelectorBatchCompletion 以 exact top-level test2json timing

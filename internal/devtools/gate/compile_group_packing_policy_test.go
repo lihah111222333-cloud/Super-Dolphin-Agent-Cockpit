@@ -40,3 +40,19 @@ func TestCompileGroupSerialPackingEligibleUsesExplicitFailClosedPolicy(t *testin
 		}
 	}
 }
+
+func TestCompileGroupParallelPackingEligibleRequiresMeasuredOrBootstrapRaceResources(t *testing.T) {
+	ordinary := CompileGroup{PackageTarget: "./internal/devtools/example", SemanticKey: CompileGroupSemanticGoTestRace, ResourceEstimateSource: "bootstrap", EstimatedCPUMilliCores: 500, EstimatedPeakRSSBytes: 1 << 30, BatchPlan: []CompileGroupBatch{{BatchID: "batch-000"}}}
+	if !CompileGroupParallelPackingEligible(ordinary) {
+		t.Fatal("ordinary race group with bounded resources was not parallel-packing eligible")
+	}
+	for _, rejected := range []CompileGroup{
+		{PackageTarget: ordinary.PackageTarget, SemanticKey: CompileGroupSemanticGoTestRace},
+		{PackageTarget: AtomicArchtestPackageTarget, SemanticKey: CompileGroupSemanticGoTestRace, EstimatedCPUMilliCores: 500, EstimatedPeakRSSBytes: 1 << 30},
+		{PackageTarget: ordinary.PackageTarget, SemanticKey: CompileGroupSemanticGoTestRace, EstimatedCPUMilliCores: 500, EstimatedPeakRSSBytes: 1 << 30, BatchPlan: []CompileGroupBatch{{Exclusive: true}}},
+	} {
+		if CompileGroupParallelPackingEligible(rejected) {
+			t.Fatalf("unexpected parallel race eligibility: %#v", rejected)
+		}
+	}
+}
