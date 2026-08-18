@@ -4,8 +4,8 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:6e0eaca40708393de3bb0b4e225487a972bf2462c440fdbdd542d286e8076ea6",
-    "entries_sha256": "sha256:591fdcd8a66d73df0b4794c78f1ea836f2fe18199c79864ff62b9496adc04d65"
+    "source_sha256": "sha256:a6a81b90203f3e992a07c7ba7bb5d0a8096d6034ec38cc325fd005298bbf52a9",
+    "entries_sha256": "sha256:bbf931ba38027459dfea50e49add290dd464a40c9101ce35badfd77ddef52ea2"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",

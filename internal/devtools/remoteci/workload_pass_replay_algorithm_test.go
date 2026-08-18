@@ -303,6 +303,28 @@ func TestPersistentWorkerExecutionDigestAvoidsSecondPrepareRebuild(t *testing.T)
 	}
 }
 
+func TestPersistentPreviousUnscopedWorkerDigestAvoidsSecondPrepareRebuild(t *testing.T) {
+	fixture := newPersistentSemanticReplayFixture(t)
+	key := remoteReplayTreeKey{repositoryRoot: "repo", tree: fixture.source.tree}
+	want := "sha256:" + strings.Repeat("8", 64)
+	first := fixture.persistentCache(t)
+	first.previousUnscopedWorkerDigests[key] = want
+	if err := first.persistComputedInputDigests(); err != nil {
+		t.Fatal(err)
+	}
+	if first.persistentWorkerWrites != 1 {
+		t.Fatalf("first Prepare previous-unscoped worker writes = %d, want 1", first.persistentWorkerWrites)
+	}
+	second := fixture.loadWorkerDigest(t)
+	got, err := second.previousUnscopedWorkerDigest(t.Context(), fixture.source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want || second.previousUnscopedComputations != 0 || second.persistentWorkerHits != 1 {
+		t.Fatalf("second Prepare previous-unscoped digest=%q computations=%d hits=%d", got, second.previousUnscopedComputations, second.persistentWorkerHits)
+	}
+}
+
 // TestPrepareIdentityUsesPersistentCurrentTreeWorkerDigest 锁定 identity 阶段
 // 优先消费当前树 worker 派生摘要，历史为空时才重建执行闭包。
 func TestPrepareIdentityUsesPersistentCurrentTreeWorkerDigest(t *testing.T) {
