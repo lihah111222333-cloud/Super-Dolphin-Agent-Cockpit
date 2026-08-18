@@ -127,17 +127,79 @@ func TestPrewarmRemoteWorkloadPassSourceInputsLoadsPersistentDigest(t *testing.T
 func TestPreloadRemoteWorkloadPassSourceInputsLoadsPersistentDigest(t *testing.T) {
 	cache, source, target, workload, wantDigest := persistentInputReplayTestFixture(t)
 	workloadID := gate.GateID(workload.ID)
+	uncached := gate.Workload{ID: string(gate.GateIDProjectMapCheck)}
+	uncachedID := gate.GateID(uncached.ID)
 	candidates := map[gate.GateID][]gate.WorkloadPassEvidence{
 		workloadID: {{OriginSourceTreeSHA: source.tree}},
+		uncachedID: {{OriginSourceTreeSHA: source.tree}},
 	}
-	workloads := map[gate.GateID]gate.Workload{workloadID: workload}
-	if err := preloadRemoteWorkloadPassSourceInputs(t.Context(), "repo", target.tree, candidates, workloads, cache); err != nil {
+	workloads := map[gate.GateID]gate.Workload{workloadID: workload, uncachedID: uncached}
+	if err := preloadRemoteWorkloadPassSourceInputs(t.Context(), "repo", target.tree, candidates, workloads, nil, cache); err != nil {
 		t.Fatal(err)
 	}
 	key := remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: source.tree}, workloadID: workload.ID}
 	assertPersistentInputDigest(t, cache, key, wantDigest)
 	assertPersistentSemanticVotes(t, cache, key)
-	assertPersistentInputCounters(t, cache)
+	uncachedKey := remoteReplayWorkloadKey{tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: source.tree}, workloadID: uncached.ID}
+	if _, ok := cache.inputDigests[uncachedKey]; !ok {
+		t.Fatal("source preload deferred an uncached workload to serial source voting")
+	}
+	if cache.inputComputations != 1 || cache.persistentInputHits != 1 {
+		t.Fatalf("source preload computations=%d persistent hits=%d, want 1/1", cache.inputComputations, cache.persistentInputHits)
+	}
+}
+
+func TestPreloadRemoteWorkloadPassSourceInputsPrewarmsTargetSemanticVote(t *testing.T) {
+	const repositoryRoot = "repo"
+	newSnapshot := func(tree string) *remoteGitTreeSnapshot {
+		snapshot := testExactGoTestDigestSnapshotWithObservedFiles(
+			"package fixture\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n", "fixture", "unrelated",
+		)
+		snapshot.repositoryRoot = repositoryRoot
+		snapshot.tree = tree
+		return snapshot
+	}
+	target := newSnapshot(strings.Repeat("a", 40))
+	source := newSnapshot(strings.Repeat("b", 40))
+	cache, err := newRemoteReplayCache(repositoryRoot, target.tree, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache.snapshots[remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: source.tree}] = remoteReplaySnapshotResult{snapshot: source, available: true}
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./fixture", "TestX", 1_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workloadID := gate.GateID(workload.ID)
+	candidates := map[gate.GateID][]gate.WorkloadPassEvidence{workloadID: {{OriginSourceTreeSHA: source.tree}}}
+	workloads := map[gate.GateID]gate.Workload{workloadID: workload}
+	if err := preloadRemoteWorkloadPassSourceInputs(t.Context(), repositoryRoot, target.tree, candidates, workloads, nil, cache); err != nil {
+		t.Fatal(err)
+	}
+	targetKey := remoteReplayWorkloadKey{tree: cache.currentTree, workloadID: workload.ID}
+	if cached := cache.semanticInputVotes[targetKey]; !cached.supported || cached.digests.declaration == "" || cached.digests.runtime == "" {
+		t.Fatalf("target semantic vote remained serial: %#v", cached)
+	}
+}
+
+func TestRemoteWorkloadPassSourceInputPartitionsOnlyPrewarmPreferredTree(t *testing.T) {
+	workload := gate.Workload{ID: string(gate.GateIDWhitespaceCheck)}
+	workloadID := gate.GateID(workload.ID)
+	candidates := map[gate.GateID][]gate.WorkloadPassEvidence{workloadID: {
+		{OriginSourceTreeSHA: "slower"},
+		{OriginSourceTreeSHA: "preferred"},
+	}}
+	partitions := remoteWorkloadPassSourceInputPartitions(
+		candidates,
+		map[gate.GateID]gate.Workload{workloadID: workload},
+		map[string]int{"preferred": 0, "slower": 1},
+	)
+	if len(partitions) != 1 || len(partitions["preferred"]) != 1 {
+		t.Fatalf("source input prewarm partitions = %#v", partitions)
+	}
+	if _, overcomputed := partitions["slower"]; overcomputed {
+		t.Fatal("source input prewarm computed a later best-first candidate")
+	}
 }
 
 func assertPersistentInputDigest(t *testing.T, cache *remoteReplayCache, key remoteReplayWorkloadKey, want string) {
@@ -173,6 +235,18 @@ func TestPersistentInputReplayRoundTripsSemanticVotesAcrossPrepare(t *testing.T)
 	}
 }
 
+func TestPersistentInputReplayRejectsSeededBroadDigestDrift(t *testing.T) {
+	cache, source, _, workload, _ := persistentInputReplayTestFixture(t)
+	key := remoteReplayWorkloadKey{
+		tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: source.tree}, workloadID: workload.ID,
+	}
+	cache.inputDigests[key] = remoteReplayInputDigestResult{digest: "sha256:" + strings.Repeat("9", 64), available: true}
+	err := cache.preloadPersistentInputDigests(source, []gate.Workload{workload})
+	if err == nil || !strings.Contains(err.Error(), "drifted from the current identity") {
+		t.Fatalf("persistent seeded digest drift error = %v", err)
+	}
+}
+
 func TestPersistentInputReplayRoundTripsCurrentTargetVotesAcrossPrepare(t *testing.T) {
 	fixture := newPersistentSemanticReplayFixture(t)
 	key := remoteReplayWorkloadKey{
@@ -186,6 +260,7 @@ func TestPersistentInputReplayRoundTripsCurrentTargetVotesAcrossPrepare(t *testi
 	if err := second.bindPersistentInputReplayCache(fixture.store, 1, fixture.target); err != nil {
 		t.Fatal(err)
 	}
+	second.inputDigests[key] = first.inputDigests[key]
 	if err := second.preloadPersistentInputDigests(fixture.target, []gate.Workload{fixture.workload}); err != nil {
 		t.Fatal(err)
 	}

@@ -127,6 +127,73 @@ func TestRemoteReplayCacheRejectsMismatchedCurrentSnapshot(t *testing.T) {
 	}
 }
 
+// TestRemoteReplayCacheSeedsCurrentIdentityInputDigests 锁定 identity 阶段已得出的
+// 当前树摘要直接进入 replay cache，不得在 source vote 中重复计算。
+func TestRemoteReplayCacheSeedsCurrentIdentityInputDigests(t *testing.T) {
+	target := testRemoteReplayAlgorithmSnapshot(strings.Repeat("a", 40), "stable-algorithm", "target")
+	cache, err := newRemoteReplayCache("repo", target.tree, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := gate.WorkloadPassIdentity{
+		WorkloadID: gate.GateIDWhitespaceCheck, ExecutionDigest: "sha256:" + strings.Repeat("b", 64),
+		InputDigest: "sha256:" + strings.Repeat("c", 64), EnvironmentDigest: "sha256:" + strings.Repeat("d", 64),
+	}
+	identity.IdentityDigest, err = gate.WorkloadPassIdentitySHA256(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.seedCurrentInputDigests([]gate.WorkloadPassIdentity{identity}); err != nil {
+		t.Fatal(err)
+	}
+	key := remoteReplayWorkloadKey{tree: cache.currentTree, workloadID: string(identity.WorkloadID)}
+	if got := cache.inputDigests[key]; !got.available || got.digest != identity.InputDigest {
+		t.Fatalf("seeded current input digest = %#v", got)
+	}
+}
+
+func TestPrewarmSemanticInputVotesCachesExactSelector(t *testing.T) {
+	snapshot, cache, selected := semanticInputPrewarmFixture(t)
+	if err := cache.prewarmSemanticInputVotes(t.Context(), snapshot, []gate.Workload{selected}); err != nil {
+		t.Fatal(err)
+	}
+	key := remoteReplayWorkloadKey{tree: cache.currentTree, workloadID: selected.ID}
+	assertSemanticInputPrewarmed(t, cache.semanticInputVotes[key])
+	before := cache.semanticComputations
+	if _, supported, err := cache.semanticInputVoteDigests(t.Context(), snapshot, selected); err != nil || !supported {
+		t.Fatalf("cached semantic input supported=%t error=%v", supported, err)
+	}
+	if cache.semanticComputations != before {
+		t.Fatal("serial source vote recomputed a prewarmed semantic input")
+	}
+}
+
+func semanticInputPrewarmFixture(t *testing.T) (*remoteGitTreeSnapshot, *remoteReplayCache, gate.Workload) {
+	t.Helper()
+	const repositoryRoot = "repo"
+	snapshot := testExactGoTestDigestSnapshotWithObservedFiles(
+		"package fixture\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n", "fixture", "unrelated",
+	)
+	snapshot.repositoryRoot = repositoryRoot
+	snapshot.tree = strings.Repeat("a", 40)
+	cache, err := newRemoteReplayCache(repositoryRoot, snapshot.tree, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, "./fixture", "TestX", 1_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot, cache, selected
+}
+
+func assertSemanticInputPrewarmed(t *testing.T, cached remoteReplaySemanticDigestResult) {
+	t.Helper()
+	if !cached.supported || cached.digests.compile == "" || cached.digests.declaration == "" || cached.digests.runtime == "" {
+		t.Fatalf("prewarmed semantic input = %#v", cached)
+	}
+}
+
 func remoteReplayCacheFixture(t *testing.T) (string, RunInput, *remoteGitTreeSnapshot, *remoteReplayCache) {
 	t.Helper()
 	repositoryRoot, input := coordinatorReuseFixture(t)

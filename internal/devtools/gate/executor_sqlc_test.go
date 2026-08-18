@@ -16,6 +16,24 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 )
 
+// TestConfiguredRunSQLCVerifyExactRepository 在显式 fixture 上复现远端固定二进制策略。
+func TestConfiguredRunSQLCVerifyExactRepository(t *testing.T) {
+	source := os.Getenv("SUPER_DOLPHIN_SQLC_EXACT_REPOSITORY")
+	sqlcBinary := os.Getenv("SUPER_DOLPHIN_SQLC_EXACT_BINARY")
+	if source == "" || sqlcBinary == "" {
+		t.Skip("configured exact SQLC repository is not requested")
+	}
+	gitBinary, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err = runSQLCVerify(t.Context(), gitBinary, sqlcBinary, sqlcTestGoFmtBinary(t), source, sqlcExecutorTestEnvironment(), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("configured exact SQLC verify: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunSQLCVerifyFixtureOrchestrationGreenAndRed(t *testing.T) {
 	gitBinary, err := exec.LookPath("git")
 	if err != nil {

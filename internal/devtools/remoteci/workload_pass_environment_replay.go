@@ -451,11 +451,17 @@ func prewarmRemoteWorkloadPassSourceInputs(
 	cache *remoteReplayCache,
 ) (bool, error) {
 	compatible, err := cache.inputAlgorithmsCompatible(source, target)
-	if err != nil || compatible {
-		return compatible, err
+	if err != nil {
+		return false, err
 	}
 	if err := cache.preloadPersistentInputDigests(source, workloads); err != nil {
 		return false, err
+	}
+	if err := cache.prewarmSemanticInputVotes(ctx, source, workloads); err != nil {
+		return false, err
+	}
+	if compatible {
+		return true, nil
 	}
 	return false, cache.prewarmInputDigests(ctx, repositoryRoot, tree, workloads)
 }

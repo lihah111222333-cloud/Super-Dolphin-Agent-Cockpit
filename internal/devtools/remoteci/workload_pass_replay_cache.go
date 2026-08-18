@@ -132,6 +132,25 @@ func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSna
 	return cache, nil
 }
 
+// seedCurrentInputDigests 把 identity 阶段已经严格校验的当前树 broad 摘要写入
+// 单次 Prepare cache，避免 source vote 对同一 workload 重复计算。
+func (cache *remoteReplayCache) seedCurrentInputDigests(identities []gate.WorkloadPassIdentity) error {
+	if cache == nil {
+		return errors.New("remote workload PASS replay cache is required")
+	}
+	for _, identity := range identities {
+		if err := identity.Validate(); err != nil {
+			return fmt.Errorf("seed current workload input digest: %w", err)
+		}
+		key := remoteReplayWorkloadKey{tree: cache.currentTree, workloadID: string(identity.WorkloadID)}
+		if existing, ok := cache.inputDigests[key]; ok && (!existing.available || existing.digest != identity.InputDigest) {
+			return fmt.Errorf("current workload input digest %q is ambiguous", identity.WorkloadID)
+		}
+		cache.inputDigests[key] = remoteReplayInputDigestResult{digest: identity.InputDigest, available: true}
+	}
+	return nil
+}
+
 // bindPersistentInputReplayCache 把一次 Prepare 的派生输入索引绑定到同一
 // SQLite authority、accepted generation 与当前 producer 算法摘要。
 func (cache *remoteReplayCache) bindPersistentInputReplayCache(store *gate.DurationLedgerStore, acceptedGeneration uint64, current *remoteGitTreeSnapshot) error {
@@ -198,21 +217,37 @@ func (cache *remoteReplayCache) preloadPersistentInputDigests(source *remoteGitT
 		if !ok {
 			return fmt.Errorf("remote workload input replay cache returned unrequested workload %q", workloadID)
 		}
-		key := remoteReplayWorkloadKey{tree: treeKey, workloadID: string(workloadID)}
-		cache.inputDigests[key] = remoteReplayInputDigestResult{digest: value.InputDigest, available: true}
-		cache.semanticInputVotes[key] = remoteReplaySemanticDigestResult{
-			digests: remoteWorkloadInputVoteDigests{
-				compile: value.CompileDigest, declaration: value.DeclarationDigest,
-				runtime: value.RuntimeDigest, runtimeFallback: value.RuntimeFallback,
-			},
-			supported: true,
-		}
-		if err := cache.seedPersistentCompileInputDigest(treeKey, workload, value.CompileDigest); err != nil {
+		if err := cache.rememberPersistentInputReplayHit(treeKey, workloadID, workload, value); err != nil {
 			return err
 		}
-		cache.persistentLoadedInputs[key] = struct{}{}
-		cache.persistentInputHits++
 	}
+	return nil
+}
+
+// rememberPersistentInputReplayHit 合并同一 tree/workload 的 broad 与语义字段，
+// 并拒绝 identity 阶段已冻结值和 SQLite 派生缓存之间的任何漂移。
+func (cache *remoteReplayCache) rememberPersistentInputReplayHit(treeKey remoteReplayTreeKey, workloadID gate.GateID, workload gate.Workload, value gate.WorkloadInputReplayCacheValue) error {
+	key := remoteReplayWorkloadKey{tree: treeKey, workloadID: string(workloadID)}
+	if existing, cached := cache.inputDigests[key]; cached && (!existing.available || existing.digest != value.InputDigest) {
+		return fmt.Errorf("persistent workload input replay %q drifted from the current identity", workloadID)
+	}
+	semantic := remoteReplaySemanticDigestResult{
+		digests: remoteWorkloadInputVoteDigests{
+			compile: value.CompileDigest, declaration: value.DeclarationDigest,
+			runtime: value.RuntimeDigest, runtimeFallback: value.RuntimeFallback,
+		},
+		supported: true,
+	}
+	if existing, cached := cache.semanticInputVotes[key]; cached && existing != semantic {
+		return fmt.Errorf("persistent workload semantic replay %q is ambiguous", workloadID)
+	}
+	cache.inputDigests[key] = remoteReplayInputDigestResult{digest: value.InputDigest, available: true}
+	cache.semanticInputVotes[key] = semantic
+	if err := cache.seedPersistentCompileInputDigest(treeKey, workload, value.CompileDigest); err != nil {
+		return err
+	}
+	cache.persistentLoadedInputs[key] = struct{}{}
+	cache.persistentInputHits++
 	return nil
 }
 
@@ -225,7 +260,10 @@ func (cache *remoteReplayCache) persistentInputLookupWorkloads(tree remoteReplay
 			return nil, nil, fmt.Errorf("remote workload input replay preload repeats workload %q", workload.ID)
 		}
 		byID[workloadID] = workload
-		if _, cached := cache.inputDigests[remoteReplayWorkloadKey{tree: tree, workloadID: workload.ID}]; !cached {
+		key := remoteReplayWorkloadKey{tree: tree, workloadID: workload.ID}
+		_, inputCached := cache.inputDigests[key]
+		_, semanticCached := cache.semanticInputVotes[key]
+		if !inputCached || !semanticCached {
 			pending = append(pending, workloadID)
 		}
 	}

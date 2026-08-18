@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"golang.org/x/sync/errgroup"
 )
 
 // replayRemoteWorkloadPassMisses 只为 exact identity MISS 枚举历史直接 PASS，
@@ -44,7 +45,7 @@ func replayRemoteWorkloadPassMisses(
 	}
 	observe.phase("reuse_source_rank_completed")
 	observe.phase("reuse_source_input_cache_started")
-	if err := preloadRemoteWorkloadPassSourceInputs(ctx, input.RepositoryRoot, input.Tree, candidates, workloads, cache); err != nil {
+	if err := preloadRemoteWorkloadPassSourceInputs(ctx, input.RepositoryRoot, input.Tree, candidates, workloads, treeRanks, cache); err != nil {
 		return err
 	}
 	observe.phase("reuse_source_input_cache_completed")
@@ -67,17 +68,21 @@ func replayRemoteWorkloadPassMisses(
 	return nil
 }
 
-// preloadRemoteWorkloadPassSourceInputs 按 immutable 来源树批量读取当前 producer
-// 的派生输入索引；缺失键仍由后续 best-first 候选裁决按需重算。
-func preloadRemoteWorkloadPassSourceInputs(ctx context.Context, repositoryRoot, targetTree string, candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload, cache *remoteReplayCache) error {
+// preloadRemoteWorkloadPassSourceInputs 批量预热目标树及每个 workload 的首选来源树；
+// 次选来源仅在 best-first 裁决确有需要时按需计算，避免为不会读取的历史树做功。
+func preloadRemoteWorkloadPassSourceInputs(ctx context.Context, repositoryRoot, targetTree string, candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload, treeRanks map[string]int, cache *remoteReplayCache) error {
 	target, available, err := cache.snapshot(ctx, repositoryRoot, targetTree)
 	if err != nil || !available {
 		return err
 	}
-	if err := cache.preloadPersistentInputDigests(target, canonicalRemoteReplayWorkloads(workloads)); err != nil {
+	candidateWorkloads := remoteWorkloadPassSourceCandidateWorkloads(candidates, workloads)
+	if err := cache.preloadPersistentInputDigests(target, candidateWorkloads); err != nil {
 		return err
 	}
-	partitions := remoteWorkloadPassSourceInputPartitions(candidates, workloads)
+	if err := cache.prewarmSemanticInputVotes(ctx, target, candidateWorkloads); err != nil {
+		return err
+	}
+	partitions := remoteWorkloadPassSourceInputPartitions(candidates, workloads, treeRanks)
 	return preloadRemoteWorkloadPassSourcePartitions(ctx, repositoryRoot, target, partitions, cache)
 }
 
@@ -96,14 +101,8 @@ func preloadRemoteWorkloadPassSourcePartitions(ctx context.Context, repositoryRo
 		if !sourceAvailable {
 			continue
 		}
-		compatible, err := cache.inputAlgorithmsCompatible(source, target)
-		if err != nil {
+		if _, err := prewarmRemoteWorkloadPassSourceInputs(ctx, repositoryRoot, tree, partitions[tree], source, target, cache); err != nil {
 			return err
-		}
-		if !compatible {
-			if err := cache.preloadPersistentInputDigests(source, partitions[tree]); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -118,25 +117,109 @@ func canonicalRemoteReplayWorkloads(workloads map[gate.GateID]gate.Workload) []g
 	return result
 }
 
-// remoteWorkloadPassSourceInputPartitions 按不可变来源树聚合去重后的 workload 候选。
-func remoteWorkloadPassSourceInputPartitions(candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload) map[string][]gate.Workload {
+// remoteWorkloadPassSourceCandidateWorkloads 只预热 SQLite 实际返回候选的 workload，
+// 避免为本轮没有历史来源的 catalog 项计算语义摘要。
+func remoteWorkloadPassSourceCandidateWorkloads(candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload) []gate.Workload {
+	selected := make(map[gate.GateID]gate.Workload)
+	for workloadID, evidence := range candidates {
+		if len(evidence) == 0 {
+			continue
+		}
+		if workload, ok := workloads[workloadID]; ok {
+			selected[workloadID] = workload
+		}
+	}
+	return canonicalRemoteReplayWorkloads(selected)
+}
+
+type remoteSemanticInputPrewarmResult struct {
+	digests   remoteWorkloadInputVoteDigests
+	supported bool
+	err       error
+}
+
+// prewarmSemanticInputVotes 先串行冻结 package compile 摘要，再按 package/profile
+// 分组并行计算 selector 声明与运行时观察；共享 cache 只在 worker 全部回收后写入。
+func (cache *remoteReplayCache) prewarmSemanticInputVotes(ctx context.Context, snapshot *remoteGitTreeSnapshot, workloads []gate.Workload) error {
+	pending, keys, compileDigests, err := cache.pendingSemanticInputVotes(ctx, snapshot, workloads)
+	if err != nil || len(pending) == 0 {
+		return err
+	}
+	results := make([]remoteSemanticInputPrewarmResult, len(pending))
+	parseResults := make([]remoteWorkloadInputDigestResult, len(pending))
+	indexes := make([]int, len(pending))
+	for index := range pending {
+		indexes[index] = index
+	}
+	groups := groupRemoteWorkloadInputDigestIndexes(pending, indexes, parseResults)
+	var workers errgroup.Group
+	for _, groupIndexes := range groups {
+		workers.Go(func() error {
+			for _, index := range groupIndexes {
+				results[index].digests, results[index].supported, results[index].err = snapshot.workloadInputVoteDigests(ctx, pending[index], compileDigests[index])
+			}
+			return nil
+		})
+	}
+	_ = workers.Wait()
+	return cache.rememberPrewarmedSemanticInputVotes(pending, keys, parseResults, results)
+}
+
+func (cache *remoteReplayCache) pendingSemanticInputVotes(ctx context.Context, snapshot *remoteGitTreeSnapshot, workloads []gate.Workload) ([]gate.Workload, []remoteReplayWorkloadKey, []string, error) {
+	treeKey, err := remoteReplaySnapshotKey(snapshot)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	pending := make([]gate.Workload, 0, len(workloads))
+	keys := make([]remoteReplayWorkloadKey, 0, len(workloads))
+	compileDigests := make([]string, 0, len(workloads))
+	for _, workload := range workloads {
+		key := remoteReplayWorkloadKey{tree: treeKey, workloadID: workload.ID}
+		if _, cached := cache.semanticInputVotes[key]; cached {
+			continue
+		}
+		compileDigest, supported, computeErr := cache.compileInputDigest(ctx, snapshot, workload)
+		if computeErr != nil {
+			return nil, nil, nil, computeErr
+		}
+		if !supported {
+			continue
+		}
+		pending = append(pending, workload)
+		keys = append(keys, key)
+		compileDigests = append(compileDigests, compileDigest)
+	}
+	return pending, keys, compileDigests, nil
+}
+
+func (cache *remoteReplayCache) rememberPrewarmedSemanticInputVotes(pending []gate.Workload, keys []remoteReplayWorkloadKey, parseResults []remoteWorkloadInputDigestResult, results []remoteSemanticInputPrewarmResult) error {
+	for index, result := range results {
+		cache.semanticComputations++
+		if parseResults[index].err != nil {
+			return fmt.Errorf("prewarm remote workload PASS semantic input %q: %w", pending[index].ID, parseResults[index].err)
+		}
+		if result.err != nil {
+			return fmt.Errorf("prewarm remote workload PASS semantic input %q: %w", pending[index].ID, result.err)
+		}
+		cache.semanticInputVotes[keys[index]] = remoteReplaySemanticDigestResult{digests: result.digests, supported: result.supported}
+	}
+	return nil
+}
+
+// remoteWorkloadPassSourceInputPartitions 按不可变首选来源树聚合 workload；
+// 后续候选保持 best-first 按需裁决，避免预热无效历史分支。
+func remoteWorkloadPassSourceInputPartitions(candidates map[gate.GateID][]gate.WorkloadPassEvidence, workloads map[gate.GateID]gate.Workload, treeRanks map[string]int) map[string][]gate.Workload {
 	partitions := make(map[string][]gate.Workload)
-	seen := make(map[string]map[gate.GateID]struct{})
 	for workloadID, workloadCandidates := range candidates {
 		workload, ok := workloads[workloadID]
 		if !ok {
 			continue
 		}
-		for _, candidate := range canonicalRemoteWorkloadPassSourceCandidates(workloadCandidates) {
-			if seen[candidate.OriginSourceTreeSHA] == nil {
-				seen[candidate.OriginSourceTreeSHA] = make(map[gate.GateID]struct{})
-			}
-			if _, duplicate := seen[candidate.OriginSourceTreeSHA][workloadID]; duplicate {
-				continue
-			}
-			seen[candidate.OriginSourceTreeSHA][workloadID] = struct{}{}
-			partitions[candidate.OriginSourceTreeSHA] = append(partitions[candidate.OriginSourceTreeSHA], workload)
+		ranked := rankedRemoteWorkloadPassSourceCandidates(workloadCandidates, treeRanks)
+		if len(ranked) == 0 {
+			continue
 		}
+		partitions[ranked[0].OriginSourceTreeSHA] = append(partitions[ranked[0].OriginSourceTreeSHA], workload)
 	}
 	return partitions
 }

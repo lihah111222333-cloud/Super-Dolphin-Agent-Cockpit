@@ -344,7 +344,7 @@ func collectGeneratedOutputFile(absolute, relative string, info os.FileInfo, fil
 	if err := validateTreeEntry(absolute, info, relative, treeOutput); err != nil {
 		return err
 	}
-	if filepath.Ext(relative) != ".go" && filepath.Base(relative) != ".gitkeep" {
+	if filepath.Ext(relative) != ".go" {
 		return fmt.Errorf("unexpected non-Go file in SQLC output: %s", relative)
 	}
 	if !outputPermissionAllowed(info, false) {

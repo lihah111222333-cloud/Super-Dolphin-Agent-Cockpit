@@ -4,23 +4,23 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:178440709caa0d92d258827e690dbce3fd53d37a5cb323c2addbe43707297d1f",
-    "entries_sha256": "sha256:555ea70a7e48f803fa7fdf80bc3660fa92b16f11c01a60dd54bcd35dd3bd071b"
+    "source_sha256": "sha256:984e2138ad6799ad04f91e76e7ed824326d835f96f07ed75e02f49b04268a3bc",
+    "entries_sha256": "sha256:529f7da38899d2b998ba3bb5be1575f9fa384ee64b817cba0e9cec8aa0e746f9"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5246,
+  "files": 5244,
   "domains": {
     "other": 1266,
     "remote-ci": 278,
     "docs-agent": 99,
     "app-ui": 754,
     "platform-provider": 1442,
-    "orchestration": 411,
+    "orchestration": 410,
     "modules": 765,
-    "store-sql": 231
+    "store-sql": 230
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -36,8 +36,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 411,
-        "size_kb": 93.1,
+        "file_count": 410,
+        "size_kb": 93,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -57,8 +57,8 @@
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 231,
-        "size_kb": 36.1,
+        "file_count": 230,
+        "size_kb": 36,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -87,11 +87,11 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1038,
+    "cmd": 1037,
     "config": 3,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 3053,
+    "internal": 3052,
     "pkg": 30,
     "scripts": 219,
     "sql": 29,

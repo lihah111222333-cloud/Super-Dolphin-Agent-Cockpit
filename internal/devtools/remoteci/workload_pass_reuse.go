@@ -337,6 +337,9 @@ func prepareRemoteWorkloadReuse(
 	if err != nil {
 		return remoteWorkloadReusePreparation{}, err
 	}
+	if err := replayCache.seedCurrentInputDigests(identities); err != nil {
+		return remoteWorkloadReusePreparation{}, err
+	}
 	if !input.Force {
 		if err := replayCache.bindPersistentInputReplayCache(input.LedgerStore, input.AcceptedGeneration, fingerprintSnapshot); err != nil {
 			return remoteWorkloadReusePreparation{}, err
