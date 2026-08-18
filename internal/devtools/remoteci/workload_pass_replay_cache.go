@@ -14,7 +14,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const remoteWorkerExecutionReplayCacheAlgorithmDomain = "remote-worker-execution-replay-cache-algorithm/v1"
+const remoteWorkerExecutionReplayCacheAlgorithmDomain = "remote-worker-execution-replay-cache-algorithm/v2"
 
 type remoteReplayTreeKey struct {
 	repositoryRoot string
@@ -67,59 +67,62 @@ type remoteReplayAlgorithmDigestResult struct {
 
 // remoteReplayCache 只属于一次串行 Prepare；内容寻址 tree 的成功值和不可用事实可复用，错误始终立即返回。
 type remoteReplayCache struct {
-	snapshots                    map[remoteReplayTreeKey]remoteReplaySnapshotResult
-	inputDigests                 map[remoteReplayWorkloadKey]remoteReplayInputDigestResult
-	compileInputDigests          map[remoteReplayCompileKey]remoteReplayCompileDigestResult
-	semanticInputVotes           map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult
-	previousGroupedWorkerDigests map[remoteReplayTreeKey]string
-	legacyWorkerDigests          map[remoteReplayTreeKey]string
-	previousWorkerDigests        map[remoteReplayTreeKey]string
-	previousStableWorkerDigests  map[remoteReplayTreeKey]string
-	preciseWorkerDigests         map[remoteReplayTreeKey]string
-	environmentDigests           map[remoteReplayEnvironmentKey]string
-	algorithmDigests             map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult
-	currentTree                  remoteReplayTreeKey
-	persistentInputStore         *gate.DurationLedgerStore
-	persistentAcceptedGeneration uint64
-	persistentInputAlgorithm     string
-	persistentWorkerAlgorithm    string
-	persistentLoadedInputs       map[remoteReplayWorkloadKey]struct{}
-	persistentLoadedWorkers      map[remoteReplayTreeKey]struct{}
-	snapshotComputations         uint64
-	snapshotLoads                uint64
-	inputComputations            uint64
-	compileComputations          uint64
-	semanticComputations         uint64
-	previousGroupedComputations  uint64
-	legacyComputations           uint64
-	previousComputations         uint64
-	previousStableComputations   uint64
-	preciseComputations          uint64
-	environmentComputations      uint64
-	algorithmComputations        uint64
-	persistentInputHits          uint64
-	persistentInputWrites        uint64
-	persistentWorkerHits         uint64
-	persistentWorkerWrites       uint64
+	snapshots                     map[remoteReplayTreeKey]remoteReplaySnapshotResult
+	inputDigests                  map[remoteReplayWorkloadKey]remoteReplayInputDigestResult
+	compileInputDigests           map[remoteReplayCompileKey]remoteReplayCompileDigestResult
+	semanticInputVotes            map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult
+	previousGroupedWorkerDigests  map[remoteReplayTreeKey]string
+	previousUnscopedWorkerDigests map[remoteReplayTreeKey]string
+	legacyWorkerDigests           map[remoteReplayTreeKey]string
+	previousWorkerDigests         map[remoteReplayTreeKey]string
+	previousStableWorkerDigests   map[remoteReplayTreeKey]string
+	preciseWorkerDigests          map[remoteReplayTreeKey]string
+	environmentDigests            map[remoteReplayEnvironmentKey]string
+	algorithmDigests              map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult
+	currentTree                   remoteReplayTreeKey
+	persistentInputStore          *gate.DurationLedgerStore
+	persistentAcceptedGeneration  uint64
+	persistentInputAlgorithm      string
+	persistentWorkerAlgorithm     string
+	persistentLoadedInputs        map[remoteReplayWorkloadKey]struct{}
+	persistentLoadedWorkers       map[remoteReplayTreeKey]struct{}
+	snapshotComputations          uint64
+	snapshotLoads                 uint64
+	inputComputations             uint64
+	compileComputations           uint64
+	semanticComputations          uint64
+	previousGroupedComputations   uint64
+	previousUnscopedComputations  uint64
+	legacyComputations            uint64
+	previousComputations          uint64
+	previousStableComputations    uint64
+	preciseComputations           uint64
+	environmentComputations       uint64
+	algorithmComputations         uint64
+	persistentInputHits           uint64
+	persistentInputWrites         uint64
+	persistentWorkerHits          uint64
+	persistentWorkerWrites        uint64
 }
 
 // newRemoteReplayCache 用已完成 correctness 指纹计算的当前快照预热 replay，拒绝错树绑定。
 func newRemoteReplayCache(repositoryRoot, tree string, current *remoteGitTreeSnapshot) (*remoteReplayCache, error) {
 	cache := &remoteReplayCache{
-		snapshots:                    make(map[remoteReplayTreeKey]remoteReplaySnapshotResult),
-		inputDigests:                 make(map[remoteReplayWorkloadKey]remoteReplayInputDigestResult),
-		compileInputDigests:          make(map[remoteReplayCompileKey]remoteReplayCompileDigestResult),
-		semanticInputVotes:           make(map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult),
-		previousGroupedWorkerDigests: make(map[remoteReplayTreeKey]string),
-		legacyWorkerDigests:          make(map[remoteReplayTreeKey]string),
-		previousWorkerDigests:        make(map[remoteReplayTreeKey]string),
-		previousStableWorkerDigests:  make(map[remoteReplayTreeKey]string),
-		preciseWorkerDigests:         make(map[remoteReplayTreeKey]string),
-		environmentDigests:           make(map[remoteReplayEnvironmentKey]string),
-		algorithmDigests:             make(map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult),
-		currentTree:                  remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree},
-		persistentLoadedInputs:       make(map[remoteReplayWorkloadKey]struct{}),
-		persistentLoadedWorkers:      make(map[remoteReplayTreeKey]struct{}),
+		snapshots:                     make(map[remoteReplayTreeKey]remoteReplaySnapshotResult),
+		inputDigests:                  make(map[remoteReplayWorkloadKey]remoteReplayInputDigestResult),
+		compileInputDigests:           make(map[remoteReplayCompileKey]remoteReplayCompileDigestResult),
+		semanticInputVotes:            make(map[remoteReplayWorkloadKey]remoteReplaySemanticDigestResult),
+		previousGroupedWorkerDigests:  make(map[remoteReplayTreeKey]string),
+		previousUnscopedWorkerDigests: make(map[remoteReplayTreeKey]string),
+		legacyWorkerDigests:           make(map[remoteReplayTreeKey]string),
+		previousWorkerDigests:         make(map[remoteReplayTreeKey]string),
+		previousStableWorkerDigests:   make(map[remoteReplayTreeKey]string),
+		preciseWorkerDigests:          make(map[remoteReplayTreeKey]string),
+		environmentDigests:            make(map[remoteReplayEnvironmentKey]string),
+		algorithmDigests:              make(map[remoteReplayTreeKey]remoteReplayAlgorithmDigestResult),
+		currentTree:                   remoteReplayTreeKey{repositoryRoot: repositoryRoot, tree: tree},
+		persistentLoadedInputs:        make(map[remoteReplayWorkloadKey]struct{}),
+		persistentLoadedWorkers:       make(map[remoteReplayTreeKey]struct{}),
 	}
 	if current == nil {
 		return cache, nil

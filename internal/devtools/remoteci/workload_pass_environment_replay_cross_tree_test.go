@@ -71,6 +71,29 @@ func TestCoordinatorPrepareReplaysPreviousPreciseEnvironmentAcrossWorktrees(t *t
 	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
 }
 
+func TestCoordinatorPrepareReplaysPreviousUnscopedEnvironmentAcrossWorktrees(t *testing.T) {
+	originRoot, originInput := coordinatorReuseFixture(t)
+	originResult := runCoordinatorFreshWorkloads(t, originInput)
+	seedCoordinatorPreviousUnscopedEnvironmentEvidence(t, originInput, &originResult)
+
+	candidateRoot := cloneCrossWorktreeCandidate(t, originRoot)
+	runCoordinatorGit(t, candidateRoot, "commit", "--quiet", "--allow-empty", "-m", "scope SQLC worker implementation")
+	store := &coordinatorStore{}
+	runtime := &coordinatorRuntime{}
+	coordinator := newTestCoordinator(t, store, runtime)
+	coordinator.newID = func() (string, error) { return "job-02468ace13579bdf02468ace", nil }
+	prepared, err := coordinator.Prepare(context.Background(), crossWorktreeCandidateInput(t, originInput, candidateRoot))
+	if err != nil {
+		t.Fatalf("previous unscoped environment replay Prepare() error = %v", err)
+	}
+	assertLegacyEnvironmentReplayPrepared(t, prepared, originInput.Tree)
+	result, err := coordinator.RunPrepared(context.Background(), prepared)
+	if err != nil || result.Status != gate.ResultStatusPassed || !result.CleanupComplete {
+		t.Fatalf("previous unscoped environment replay result=%#v error=%v", result, err)
+	}
+	assertCoordinatorNoRemoteSideEffects(t, store, runtime)
+}
+
 func TestCoordinatorPrepareReplaysPreviousStableEnvironmentAcrossWorktrees(t *testing.T) {
 	originRoot, originInput := coordinatorReuseFixture(t)
 	originResult := runCoordinatorFreshWorkloads(t, originInput)
@@ -174,6 +197,19 @@ func seedCoordinatorPreviousPreciseEnvironmentEvidence(t *testing.T, input RunIn
 	digest, err := snapshot.workerExecutionContractDigestPreviousPreciseV4(context.Background())
 	if err != nil {
 		t.Fatalf("derive previous precise worker execution digest: %v", err)
+	}
+	seedCoordinatorEnvironmentEvidenceWithWorkerDigest(t, input, result, digest)
+}
+
+func seedCoordinatorPreviousUnscopedEnvironmentEvidence(t *testing.T, input RunInput, result *RunResult) {
+	t.Helper()
+	snapshot, err := loadRemoteGitTreeSnapshot(context.Background(), input.RepositoryRoot, input.Tree)
+	if err != nil {
+		t.Fatalf("load previous unscoped environment source tree: %v", err)
+	}
+	digest, err := snapshot.workerExecutionContractDigestPreviousUnscopedV4(context.Background())
+	if err != nil {
+		t.Fatalf("derive previous unscoped worker execution digest: %v", err)
 	}
 	seedCoordinatorEnvironmentEvidenceWithWorkerDigest(t, input, result, digest)
 }

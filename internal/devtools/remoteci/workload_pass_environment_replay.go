@@ -539,6 +539,7 @@ func verifyRemoteWorkloadPassHistoricalEnvironment(
 	cache *remoteReplayCache,
 ) (bool, error) {
 	resolvers := []func(context.Context, *remoteGitTreeSnapshot) (string, error){
+		cache.previousUnscopedWorkerDigest,
 		cache.previousGroupedWorkerDigest,
 		cache.legacyWorkerDigest,
 		cache.previousWorkerDigest,

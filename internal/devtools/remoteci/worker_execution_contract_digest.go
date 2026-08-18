@@ -1,12 +1,15 @@
 package remoteci
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/token"
 	"sort"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
@@ -17,12 +20,25 @@ func digestWorkerExecutionClosure(
 	closure *workerExecutionGoClosure,
 	assets *workerExecutionAssets,
 ) (string, error) {
-	return digestWorkerExecutionClosureWithSemanticEnvironment(
+	return digestWorkerExecutionClosureWithEnvironmentAndContent(
 		closure,
 		assets,
+		workerExecutionContractSchemaVersion,
 		cicontract.WorkerExecutionEnvironmentSchemaVersion,
 		cicontract.WorkerExecutionProvenanceID,
 		cicontract.CanonicalWorkerExecutionEnvironment(),
+		workerExecutionScopedUnitContent,
+	)
+}
+
+// digestWorkerExecutionClosurePreviousV4 保留旧环境摘要的完整函数体与注释语义，供历史 PASS 严格复核。
+func digestWorkerExecutionClosurePreviousV4(closure *workerExecutionGoClosure, assets *workerExecutionAssets) (string, error) {
+	return digestWorkerExecutionClosureWithEnvironmentAndContent(
+		closure, assets, workerExecutionPreviousSchemaVersion,
+		cicontract.WorkerExecutionEnvironmentSchemaVersion,
+		cicontract.WorkerExecutionProvenanceID,
+		cicontract.CanonicalWorkerExecutionEnvironment(),
+		workerExecutionUnitContent,
 	)
 }
 
@@ -35,8 +51,25 @@ func digestWorkerExecutionClosureWithSemanticEnvironment(
 	workerExecutionProvenance string,
 	semanticEnvironment []string,
 ) (string, error) {
+	return digestWorkerExecutionClosureWithEnvironmentAndContent(
+		closure, assets, workerExecutionContractSchemaVersion,
+		semanticEnvironmentSchema, workerExecutionProvenance, semanticEnvironment,
+		workerExecutionScopedUnitContent,
+	)
+}
+
+// digestWorkerExecutionClosureWithEnvironmentAndContent 以指定 schema 与源码投影生成确定性 worker 身份。
+func digestWorkerExecutionClosureWithEnvironmentAndContent(
+	closure *workerExecutionGoClosure,
+	assets *workerExecutionAssets,
+	contractSchemaVersion int,
+	semanticEnvironmentSchema string,
+	workerExecutionProvenance string,
+	semanticEnvironment []string,
+	unitContent func(*workerExecutionGoUnit) ([]byte, error),
+) (string, error) {
 	hasher := sha256.New()
-	fmt.Fprintf(hasher, "worker-execution-contract-schema %d\n", workerExecutionContractSchemaVersion)
+	fmt.Fprintf(hasher, "worker-execution-contract-schema %d\n", contractSchemaVersion)
 	fmt.Fprintf(hasher, "platform %s\n", workerExecutionPlatform)
 	fmt.Fprintf(hasher, "semantic-environment-schema %s\n", semanticEnvironmentSchema)
 	fmt.Fprintf(hasher, "execution-provenance %s\n", workerExecutionProvenance)
@@ -51,7 +84,7 @@ func digestWorkerExecutionClosureWithSemanticEnvironment(
 	}
 	sort.Slice(units, func(left, right int) bool { return units[left].key < units[right].key })
 	for _, unit := range units {
-		content, err := workerExecutionUnitContent(unit)
+		content, err := unitContent(unit)
 		if err != nil {
 			return "", err
 		}
@@ -76,6 +109,41 @@ func digestWorkerExecutionClosureWithSemanticEnvironment(
 			fragment.kind, fragment.path, fragment.name, sha256.Sum256(fragment.content))
 	}
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// workerExecutionScopedUnitContent 将 SQLC 专属函数体留给其 full-tree workload 输入摘要，公共身份仍冻结签名与 import。
+func workerExecutionScopedUnitContent(unit *workerExecutionGoUnit) ([]byte, error) {
+	if unit == nil {
+		return nil, fmt.Errorf("worker execution unit is required")
+	}
+	if unit.kind == "func" && strings.HasPrefix(unit.filePath, "internal/devtools/gate/executor_sqlc") && strings.HasSuffix(unit.filePath, ".go") {
+		function, ok := unit.node.(*ast.FuncDecl)
+		if !ok {
+			return nil, fmt.Errorf("scoped worker execution function %q has invalid syntax node", unit.key)
+		}
+		header := *function
+		header.Doc = nil
+		header.Body = nil
+		var output bytes.Buffer
+		if err := format.Node(&output, unit.fileSet, &header); err != nil {
+			return nil, fmt.Errorf("format scoped worker execution function %q: %w", unit.key, err)
+		}
+		return output.Bytes(), nil
+	}
+	return workerExecutionUnitContentWithoutComments(unit)
+}
+
+func workerExecutionUnitContentWithoutComments(unit *workerExecutionGoUnit) ([]byte, error) {
+	content := unit.content
+	if content == nil {
+		content = unit.node
+	}
+	startOffset := unit.fileSet.PositionFor(content.Pos(), false).Offset
+	endOffset := unit.fileSet.PositionFor(content.End(), false).Offset
+	if startOffset < 0 || endOffset < startOffset || endOffset > len(unit.source) {
+		return nil, fmt.Errorf("worker execution source range for %q is invalid", unit.filePath)
+	}
+	return unit.source[startOffset:endOffset], nil
 }
 
 // 保持 Worker 执行契约计算的确定性与 fail-fast 语义。

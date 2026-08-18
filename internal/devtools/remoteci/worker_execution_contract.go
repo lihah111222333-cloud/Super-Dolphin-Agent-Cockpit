@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	workerExecutionContractSchemaVersion = 4
+	workerExecutionContractSchemaVersion = 5
+	workerExecutionPreviousSchemaVersion = 4
 	workerExecutionPlatform              = cicontract.TargetPlatform
 )
 
@@ -218,6 +219,40 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigest(ctx context
 	return digestWorkerExecutionClosure(closure, assets)
 }
 
+// workerExecutionContractDigestPreviousUnscopedV4 重建 SQLC 专属实现收窄前的当前根摘要，只用于验证历史 PASS。
+func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousUnscopedV4(ctx context.Context) (string, error) {
+	if err := validateWorkerExecutionRoots(workerExecutionRoots); err != nil {
+		return "", err
+	}
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return "", err
+	}
+	closure, err := snapshot.resolveWorkerExecutionClosure()
+	if err != nil {
+		return "", err
+	}
+	assets := &workerExecutionAssets{
+		snapshot: snapshot, entries: make(map[string]remoteGitTreeEntry),
+		fragments: make(map[string]workerExecutionFragment), scannedScripts: make(map[string]struct{}),
+	}
+	if err := assets.addLocalGoModuleMetadata(); err != nil {
+		return "", err
+	}
+	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionExecutorConfigFragment(); err != nil {
+		return "", err
+	}
+	if err := assets.addWorkerExecutionSourceManifestAsset(); err != nil {
+		return "", err
+	}
+	return digestWorkerExecutionClosurePreviousV4(closure, assets)
+}
+
 // workerExecutionContractDigestPreviousGroupedDeclarationV4 重建 ValueSpec
 // 收窄前的精确 v4 摘要；只用于验证既有 PASS 来源环境。
 func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousGroupedDeclarationV4(ctx context.Context) (string, error) {
@@ -252,7 +287,7 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousGrou
 	if err := assets.addWorkerExecutionSourceManifestAsset(); err != nil {
 		return "", err
 	}
-	return digestWorkerExecutionClosure(closure, assets)
+	return digestWorkerExecutionClosurePreviousV4(closure, assets)
 }
 
 // workerExecutionContractDigestLegacyV4 recomputes the broad v4 digest that
@@ -285,7 +320,7 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestLegacyV4(ctx
 	if err := assets.resolveWorkerExecutionAssets(ctx, closure); err != nil {
 		return "", err
 	}
-	return digestWorkerExecutionClosure(closure, assets)
+	return digestWorkerExecutionClosurePreviousV4(closure, assets)
 }
 
 // workerExecutionContractDigestPreviousPreciseV4 仅重建稳定语义键修复前的精确 v4 摘要，用于验证已存 PASS 来源环境。
@@ -318,7 +353,7 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousPrec
 	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
 		return "", err
 	}
-	return digestWorkerExecutionClosure(closure, assets)
+	return digestWorkerExecutionClosurePreviousV4(closure, assets)
 }
 
 // workerExecutionContractDigestPreviousStableV4 重建收窄根集合前的 stable-key 摘要。
@@ -348,7 +383,7 @@ func (snapshot *remoteGitTreeSnapshot) workerExecutionContractDigestPreviousStab
 	if err := assets.addWorkerExecutionRequestSemanticFragment(); err != nil {
 		return "", err
 	}
-	return digestWorkerExecutionClosure(closure, assets)
+	return digestWorkerExecutionClosurePreviousV4(closure, assets)
 }
 
 // resolveWorkerExecutionClosure 解析全部受控根的 Go 依赖闭包。
