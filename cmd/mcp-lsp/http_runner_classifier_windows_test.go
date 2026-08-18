@@ -50,7 +50,7 @@ func TestHTTPRunnerInjectsWindowsToolErrorClassifier(t *testing.T) {
 	client := &http.Client{}
 	endpoint := "http://" + addr + "/mcp"
 	sessionID := postHTTPRunnerJSON(t, client, endpoint, "http-test-token", "", `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test"}}}`)
-	body := postHTTPRunnerJSONBody(t, client, endpoint, "http-test-token", sessionID, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"file","arguments":{}}}`)
+	body := postHTTPRunnerJSONBody(t, client, endpoint, "http-test-token", sessionID, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"file","arguments":{"action":"open_file","file_path":"README.md"}}}`)
 	var response map[string]any
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("tools/call response decode error = %v; body=%s", err, body)

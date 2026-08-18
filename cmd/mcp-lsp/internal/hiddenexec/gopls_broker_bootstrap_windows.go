@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -49,7 +50,10 @@ func StartWindowsGoplsBrokerBootstrap() (*WindowsGoplsBrokerBootstrapProcess, er
 	if err != nil {
 		return nil, fmt.Errorf("attest Windows gopls broker bootstrap executable: %w", err)
 	}
-	creationFlags := windowsGoplsBrokerBootstrapCreationFlags()
+	creationFlags, err := windowsGoplsBrokerBootstrapCreationFlags()
+	if err != nil {
+		return nil, fmt.Errorf("resolve Windows gopls broker bootstrap creation flags: %w", err)
+	}
 	pipes, err := newWindowsGoplsBrokerBootstrapPipes()
 	if err != nil {
 		return nil, err
@@ -155,9 +159,29 @@ func (p *WindowsGoplsBrokerBootstrapProcess) ReleaseAuthority() error {
 	return p.releaseErr
 }
 
-// windowsGoplsBrokerBootstrapCreationFlags 让 broker 继承宿主 Job，由宿主管理生命周期。
-func windowsGoplsBrokerBootstrapCreationFlags() uint32 {
-	return uint32(createSuspended | createNewProcessGroup | createNoWindow)
+// windowsGoplsBrokerBootstrapCreationFlags 仅在宿主 Job 明确允许时请求 breakaway。
+func windowsGoplsBrokerBootstrapCreationFlags() (uint32, error) {
+	inJob, err := windowsBootstrapProcessInJob(windows.CurrentProcess())
+	if err != nil {
+		return 0, err
+	}
+	var limitFlags uint32
+	if inJob {
+		var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+		if err := windows.QueryInformationJobObject(0, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
+			return 0, fmt.Errorf("query Windows gopls broker bootstrap Job limits: %w", err)
+		}
+		limitFlags = info.BasicLimitInformation.LimitFlags
+	}
+	return windowsGoplsBrokerBootstrapCreationFlagsForJob(inJob, limitFlags), nil
+}
+
+func windowsGoplsBrokerBootstrapCreationFlagsForJob(inJob bool, limitFlags uint32) uint32 {
+	flags := uint32(createSuspended | createNewProcessGroup | createNoWindow)
+	if inJob && limitFlags&jobObjectLimitBreakawayOK != 0 {
+		flags |= windows.CREATE_BREAKAWAY_FROM_JOB
+	}
+	return flags
 }
 
 // newWindowsGoplsBrokerBootstrapCommand 固定 self 路径、唯一 marker 和匿名标准流。

@@ -11,16 +11,61 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// SyncDirectory 校验目录存在且为目录，Windows 平台无目录级 fsync，直接返回 nil。
-func SyncDirectory(path string) error {
+// syncDirectoryWindowsOps 为 Windows 目录同步封装可测试的系统调用。
+type syncDirectoryWindowsOps struct {
+	open  func(string) (windows.Handle, error)
+	flush func(windows.Handle) error
+	close func(windows.Handle) error
+}
+
+// syncDirectory 在 Windows 平台校验目录后用可写句柄刷新目录并关闭句柄。
+func syncDirectory(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("stat directory for sync %s: %w", RedactPath(path), err)
+		return WrapErrorForPath(fmt.Errorf("stat directory for sync %s: %w", RedactPath(path), err), path)
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("path is not a directory for sync: %s", RedactPath(path))
 	}
+	return syncDirectoryWithOps(path, syncDirectoryWindowsOps{
+		open:  openSyncDirectory,
+		flush: windows.FlushFileBuffers,
+		close: windows.CloseHandle,
+	})
+}
+
+// syncDirectoryWithOps 执行目录同步调用并保留 FlushFileBuffers 与 CloseHandle 的错误链。
+func syncDirectoryWithOps(path string, ops syncDirectoryWindowsOps) error {
+	if ops.open == nil || ops.flush == nil || ops.close == nil {
+		return errors.New("sync directory operations are incomplete")
+	}
+	handle, err := ops.open(path)
+	if err != nil {
+		return WrapErrorForPath(fmt.Errorf("open directory for sync %s: %w", RedactPath(path), err), path)
+	}
+	flushErr := ops.flush(handle)
+	closeErr := ops.close(handle)
+	if err := errors.Join(flushErr, closeErr); err != nil {
+		return WrapErrorForPath(fmt.Errorf("sync directory %s: %w", RedactPath(path), err), path)
+	}
 	return nil
+}
+
+// openSyncDirectory 以可写备份语义句柄打开目录，供 FlushFileBuffers 使用。
+func openSyncDirectory(path string) (windows.Handle, error) {
+	pathPtr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return windows.InvalidHandle, fmt.Errorf("encode directory path: %w", err)
+	}
+	return windows.CreateFile(
+		pathPtr,
+		windows.GENERIC_READ|windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS,
+		0,
+	)
 }
 
 func wrapWindowsPermissionError(err error, path string) error {
@@ -34,7 +79,6 @@ func wrapWindowsPermissionError(err error, path string) error {
 	}
 	return NewWindowsPermissionError("filesystem permission operation", path, err)
 }
-
 
 // CheckExistingOwnerOnly 校验 Windows 路径 ACL 只允许当前用户、Administrators 和 SYSTEM 写入。
 func CheckExistingOwnerOnly(path string, info os.FileInfo) error {

@@ -153,6 +153,9 @@ func TestRenameScriptMainApplyRollsBackWhenFileWriteFails(t *testing.T) {
 	if err := os.WriteFile(blockedFile, []byte(blockedOriginal), 0o400); err != nil {
 		t.Fatalf("write z_blocked.go: %v", err)
 	}
+	if err := os.WriteFile(blockedFile, []byte("probe"), 0o600); err == nil {
+		t.Skip("environment ignores 0400 file permissions (e.g. running as root)")
+	}
 
 	_, stderr, err := runRenameScript(t, "--root", root, "--apply")
 	if err == nil {

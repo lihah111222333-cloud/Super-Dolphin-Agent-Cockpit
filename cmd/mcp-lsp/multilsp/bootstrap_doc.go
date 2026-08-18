@@ -120,6 +120,11 @@ func (m *manager) bootstrapDocumentOpenOnly(ctx context.Context, uri string) err
 	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
 	}
+	if state, managed := m.explicitDocumentForURI(ref.uri); managed && !state.diskClean && state.wireOpen {
+		if _, bound := m.clientForExplicitDocument(state); bound {
+			return nil
+		}
+	}
 	coordinator, err := bootstrapCoordinatorFor(m)
 	if err != nil {
 		return err
@@ -438,7 +443,6 @@ func (c *bootstrapCoordinator) reopenSnapshotForDiagnostics(ctx context.Context,
 		c.states.fail(scope.bootstrapKey(), snapshot.ref.uri, err)
 		return err
 	}
-	m.advanceDocumentDiagnosticEpoch(scope, snapshot.ref.uri)
 	return nil
 }
 

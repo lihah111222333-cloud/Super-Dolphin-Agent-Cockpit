@@ -6,10 +6,8 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
-
 
 // RedactPath 只保留路径 basename，避免日志或错误把用户目录和敏感文件路径泄露出去。
 func RedactPath(path string) string {
@@ -72,34 +70,7 @@ func ProbeWritableDir(dir string) error {
 	return nil
 }
 
-// SyncDirectory 在支持目录 fsync 的平台持久化目录项（Unix 执行 dir.Sync()，Windows 校验有效性后返回 nil）。
+// SyncDirectory 持久化目录项，并委托给当前平台的目录同步实现。
 func SyncDirectory(dir string) error {
-	if runtime.GOOS == "windows" {
-		if strings.TrimSpace(dir) == "" {
-			return errors.New("directory path is required")
-		}
-		info, err := os.Stat(dir)
-		if err != nil {
-			return fmt.Errorf("stat directory %s: %s", RedactPath(dir), SafeError(err))
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("path %s is not a directory", RedactPath(dir))
-		}
-		return nil
-	}
-	dirFile, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("open directory %s: %s", RedactPath(dir), SafeError(err))
-	}
-	if err := dirFile.Sync(); err != nil {
-		_ = dirFile.Close()
-		return fmt.Errorf("sync directory %s: %s", RedactPath(dir), SafeError(err))
-	}
-	if err := dirFile.Close(); err != nil {
-		return fmt.Errorf("close directory %s: %s", RedactPath(dir), SafeError(err))
-	}
-	return nil
+	return syncDirectory(dir)
 }
-
-
-

@@ -356,15 +356,15 @@ func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Cont
 	if err := reopenManagerDocumentForDiagnostics(ctx, manager, target.URI); err != nil {
 		return nil, "", "", err
 	}
-	if err := manager.WaitDiagnosticsStable(ctx, nil); err != nil {
+	if err := manager.WaitDiagnosticsStable(ctx, []string{target.URI}); err != nil {
 		if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
 			return nil, "", "", err
 		}
-		if retryErr := h.waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx, manager); retryErr != nil {
+		if retryErr := h.waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx, manager, target.URI); retryErr != nil {
 			return nil, "", "", retryErr
 		}
 	}
-	items, err := manager.Diagnostics(ctx, nil)
+	items, err := manager.Diagnostics(ctx, []string{target.URI})
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -399,22 +399,32 @@ func reopenManagerDocumentForDiagnostics(ctx context.Context, manager lspmanager
 
 func diagnosticsForTargetURI(uri string, items []protocol.PublishDiagnosticsParams) []protocol.PublishDiagnosticsParams {
 	for _, item := range items {
-		if item.URI == uri {
+		if sameDiagnosticURI(item.URI, uri) {
 			return []protocol.PublishDiagnosticsParams{item}
 		}
 	}
 	return []protocol.PublishDiagnosticsParams{{URI: uri}}
 }
 
+// sameDiagnosticURI 将 LSP URI 解析为宿主路径后再比较；盘符大小写等平台语义由带 build tag 的实现裁决。
+func sameDiagnosticURI(left, right string) bool {
+	if left == right {
+		return true
+	}
+	leftPath, leftErr := format.AbsolutePathFromURI(left)
+	rightPath, rightErr := format.AbsolutePathFromURI(right)
+	return leftErr == nil && rightErr == nil && sameDiagnosticPath(leftPath, rightPath)
+}
+
 // waitSingleFileOverrideDiagnosticsStableWithStartupRetries 只服务显式语言单文件诊断的启动等待。
 // 它复用有限退避策略，但固定等待已经解析出的 manager，避免重新按 .txt 扩展名分组。
-func (h handlerBase) waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx context.Context, manager lspmanager.Manager) error {
+func (h handlerBase) waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx context.Context, manager lspmanager.Manager, uri string) error {
 	var lastErr error
 	for retry := 1; retry <= diagnosticsStartupRetryCount; retry++ {
 		if err := sleepDiagnosticsRetryBackoff(ctx, retry); err != nil {
 			return err
 		}
-		if err := manager.WaitDiagnosticsStable(ctx, nil); err != nil {
+		if err := manager.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
 			if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
 				return err
 			}

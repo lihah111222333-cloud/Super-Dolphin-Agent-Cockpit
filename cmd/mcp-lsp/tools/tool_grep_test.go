@@ -77,6 +77,7 @@ func TestGrepTextSearchSingleTSVFileHonorsGlob(t *testing.T) {
 	if err := os.WriteFile(target, []byte("path\tmodule\ncmd/mcp-orch/main.go\tcmd\n"), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
+	target = canonicalGrepPath(t, target)
 
 	got, err := callGrepTool(t, root, grepToolInput{
 		Action:     "text_search",

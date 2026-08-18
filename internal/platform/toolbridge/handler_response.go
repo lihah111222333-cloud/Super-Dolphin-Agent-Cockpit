@@ -24,6 +24,17 @@ func toolCallErrorResult(text string) *ToolCallResult {
 	return toolCallTextResult(false, text)
 }
 
+// toolCallErrorResultWithMeta attaches trusted protocol metadata without exposing
+// it in the model-visible text content.
+func toolCallErrorResultWithMeta(text string, meta json.RawMessage) *ToolCallResult {
+	result := toolCallErrorResult(text)
+	if len(meta) == 0 || len(result.ContentItems) == 0 {
+		return result
+	}
+	result.ContentItems[0].Meta = append(json.RawMessage(nil), meta...)
+	return result
+}
+
 // toolCallRecoveryFailureResult 仅把显式 carrier 转成 provider 可见的四字段安全结果。
 func toolCallRecoveryFailureResult(err error) (*ToolCallResult, bool) {
 	failure, ok := contract.RecoveryFailureFromError(err)

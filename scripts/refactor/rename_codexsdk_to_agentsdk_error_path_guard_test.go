@@ -203,6 +203,9 @@ func TestProcessRenameFileApplyWriteFailureIncludesContext(t *testing.T) {
 		t.Fatalf("write blocked.go: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(blocked, 0o600) })
+	if err := os.WriteFile(blocked, []byte("probe"), 0o600); err == nil {
+		t.Skip("environment ignores 0400 file permissions (e.g. running as root)")
+	}
 
 	reports := []fileReport{}
 	total := 0

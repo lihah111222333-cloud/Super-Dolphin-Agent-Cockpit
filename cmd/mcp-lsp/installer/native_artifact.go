@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -144,9 +145,16 @@ func (i *NativeArtifactInstaller) InstallArtifact(ctx context.Context, spec Nati
 	if err != nil {
 		return NativeInstallResult{}, err
 	}
+	if stageDir == "" {
+		result, err := existingNativeArtifactResult(finalDir, normalized)
+		if err != nil {
+			return NativeInstallResult{}, fmt.Errorf("existing native artifact %s failed validation: %w", finalDir, err)
+		}
+		return result, nil
+	}
 	committed := false
 	defer func() {
-		if !committed {
+		if !committed && stageDir != "" {
 			_ = os.RemoveAll(stageDir)
 		}
 	}()
@@ -165,7 +173,7 @@ func (i *NativeArtifactInstaller) InstallArtifact(ctx context.Context, spec Nati
 	return result, nil
 }
 
-// prepareNativeInstallTarget 校验 spec，创建 owner 目录并拒绝覆盖既有版本。
+// prepareNativeInstallTarget 校验 spec，创建 owner 目录并识别可复用的既有版本。
 func (i *NativeArtifactInstaller) prepareNativeInstallTarget(spec NativeArtifactSpec) (normalizedNativeArtifactSpec, string, string, error) {
 	normalized, err := normalizeNativeArtifactSpec(spec)
 	if err != nil {
@@ -180,7 +188,7 @@ func (i *NativeArtifactInstaller) prepareNativeInstallTarget(spec NativeArtifact
 	}
 	finalDir := filepath.Join(componentRoot, normalized.version)
 	if _, err := os.Lstat(finalDir); err == nil {
-		return normalizedNativeArtifactSpec{}, "", "", fmt.Errorf("native artifact install already exists: %s", finalDir)
+		return normalized, "", finalDir, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return normalizedNativeArtifactSpec{}, "", "", fmt.Errorf("inspect native artifact install target %s: %w", finalDir, err)
 	}
@@ -189,6 +197,69 @@ func (i *NativeArtifactInstaller) prepareNativeInstallTarget(spec NativeArtifact
 		return normalizedNativeArtifactSpec{}, "", "", fmt.Errorf("create native artifact staging directory: %w", err)
 	}
 	return normalized, stageDir, finalDir, nil
+}
+
+// existingNativeArtifactResult 构造并复核已发布 artifact 的受管路径。
+func existingNativeArtifactResult(finalDir string, normalized normalizedNativeArtifactSpec) (NativeInstallResult, error) {
+	result := NativeInstallResult{
+		Name:         normalized.name,
+		Version:      normalized.version,
+		InstallDir:   finalDir,
+		BinaryPath:   filepath.Join(finalDir, "payload", filepath.FromSlash(normalized.binaryPath)),
+		LauncherPath: filepath.Join(finalDir, "launcher", normalized.launcherName),
+		SHA256:       normalized.sha256,
+	}
+	if err := validateExistingNativeArtifact(result); err != nil {
+		return NativeInstallResult{}, err
+	}
+	return result, nil
+}
+
+// validateExistingNativeArtifact 拒绝不完整目录、错误类型和未绑定到受管二进制的 launcher。
+func validateExistingNativeArtifact(result NativeInstallResult) error {
+	if err := rejectExistingSymlinkComponents(result.InstallDir); err != nil {
+		return err
+	}
+	info, err := os.Lstat(result.InstallDir)
+	if err != nil {
+		return fmt.Errorf("stat install directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("install directory is not a real directory")
+	}
+	if err := validateExistingNativeExecutable("binary", result.BinaryPath); err != nil {
+		return err
+	}
+	if err := validateExistingNativeExecutable("launcher", result.LauncherPath); err != nil {
+		return err
+	}
+	content, err := os.ReadFile(result.LauncherPath)
+	if err != nil {
+		return fmt.Errorf("read managed launcher: %w", err)
+	}
+	expected := "#!/bin/sh\nexec " + shellQuote(result.BinaryPath) + " \"$@\"\n"
+	if string(content) != expected {
+		return fmt.Errorf("managed launcher does not target managed binary %q", result.BinaryPath)
+	}
+	return nil
+}
+
+// validateExistingNativeExecutable 要求缓存路径上的文件是非链接的可执行普通文件。
+func validateExistingNativeExecutable(label, target string) error {
+	if err := rejectExistingSymlinkComponents(target); err != nil {
+		return fmt.Errorf("%s path: %w", label, err)
+	}
+	info, err := os.Lstat(target)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", label, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", label)
+	}
+	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+		return fmt.Errorf("%s is not executable", label)
+	}
+	return nil
 }
 
 // installNativeArtifactStage 下载并解压 artifact，在临时目录内生成最终 launcher。
@@ -730,7 +801,6 @@ func extractNativeTarEntry(reader io.Reader, header *tar.Header, payloadDir stri
 	default:
 		return 0, fmt.Errorf("reject native tar entry %q with unsupported type %d", header.Name, header.Typeflag)
 	}
-	return 0, nil
 }
 
 // validateNativeTarEntry 规范化 tar 项名称并拒绝空文件与重复路径。

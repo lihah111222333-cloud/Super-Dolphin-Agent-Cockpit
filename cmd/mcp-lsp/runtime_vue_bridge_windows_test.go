@@ -97,10 +97,10 @@ func TestRuntimeServerPrepareVueTSCompanionEnvironmentUsesSecondaryLease(t *test
 	if got := runtimeServerEnvValue(companionEnv, multilsp.ResourceCohortLeaseEnv); got == primaryLease || got == "" {
 		t.Fatalf("companion lease path = %q, want a distinct non-empty lease", got)
 	}
-	if got := runtimeServerEnvValue(companionEnv, multilsp.ResourceProcessRSSLimitMBEnv); got != "512" {
-		t.Fatalf("companion RSS limit = %q, want secondary 512 MiB", got)
+	if got := runtimeServerEnvValue(companionEnv, multilsp.ResourceProcessRSSLimitMBEnv); got != "2560" {
+		t.Fatalf("companion RSS limit = %q, want secondary 2560 MiB", got)
 	}
-	if got := runtimeServerEnvValue(companionEnv, "NODE_OPTIONS"); !strings.Contains(got, "--max-old-space-size=384") {
+	if got := runtimeServerEnvValue(companionEnv, "NODE_OPTIONS"); !strings.Contains(got, "--max-old-space-size=2048") {
 		t.Fatalf("companion NODE_OPTIONS = %q, want secondary heap limit", got)
 	}
 	if err := multilsp.ReleaseResourceCohortLease(companionEnv); err != nil {

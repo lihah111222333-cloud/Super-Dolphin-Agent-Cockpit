@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-08-07T08:43:13Z"
+    "updatedAt": "2026-08-17T22:19:50Z"
   },
   "files": {
     "src/entities/client/model/useClientStore.test.js": {
@@ -139,7 +139,7 @@
       ]
     },
     "scripts/rpc-contract-audit.test.mjs": {
-      "lines": 3051,
+      "lines": 3043,
       "maxFuncLen": 86,
       "maxNesting": 7,
       "maxParams": 5,

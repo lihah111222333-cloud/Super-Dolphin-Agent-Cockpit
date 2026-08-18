@@ -76,6 +76,8 @@ type languageOverrideManager struct {
 	didOpenCalls      int
 	reopenURI         string
 	reopenScope       lspmanager.ResolvedToolScope
+	waitURIs          []string
+	diagnosticsURIs   []string
 }
 
 func (m *languageOverrideManager) DidOpen(ctx context.Context, _ string, languageID string, _ int, _ string) error {
@@ -92,6 +94,16 @@ func (m *languageOverrideManager) ReopenDocumentForDiagnostics(ctx context.Conte
 	m.reopenURI = uri
 	m.reopenScope, _ = lspmanager.ResolvedToolScopeFromContext(ctx)
 	return nil
+}
+
+func (m *languageOverrideManager) WaitDiagnosticsStable(_ context.Context, uris []string) error {
+	m.waitURIs = append([]string(nil), uris...)
+	return nil
+}
+
+func (m *languageOverrideManager) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	m.diagnosticsURIs = append([]string(nil), uris...)
+	return nil, nil
 }
 
 func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
@@ -288,5 +300,11 @@ func TestDiagnosticsLanguageOverrideReopensDocumentWithResolvedScope(t *testing.
 	}
 	if manager.reopenScope.LanguageID != "javascript" || manager.reopenScope.ManagerKey != "manager:javascript" {
 		t.Fatalf("reopen scope = %#v, want javascript manager scope", manager.reopenScope)
+	}
+	if len(manager.waitURIs) != 1 || manager.waitURIs[0] != wantURI {
+		t.Fatalf("wait diagnostics URIs = %#v, want [%q]", manager.waitURIs, wantURI)
+	}
+	if len(manager.diagnosticsURIs) != 1 || manager.diagnosticsURIs[0] != wantURI {
+		t.Fatalf("pull diagnostics URIs = %#v, want [%q]", manager.diagnosticsURIs, wantURI)
 	}
 }

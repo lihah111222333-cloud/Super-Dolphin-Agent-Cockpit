@@ -25,7 +25,7 @@ func TestOrdinaryStdioToolCallUsesWindowsClassifier(t *testing.T) {
 		},
 	})}
 
-	result, err := handleScopedToolsCall(context.Background(), provider, "stdio", json.RawMessage(`{"name":"file","arguments":{}}`))
+	result, err := handleScopedToolsCall(context.Background(), provider, "stdio", json.RawMessage(`{"name":"file","arguments":{"action":"open_file","file_path":"README.md"}}`))
 	if err != nil {
 		t.Fatalf("handleScopedToolsCall() error = %v", err)
 	}
@@ -37,6 +37,7 @@ func TestOrdinaryStdioToolCallUsesWindowsClassifier(t *testing.T) {
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
+		Meta map[string]any `json:"_meta"`
 	}
 	if err := json.Unmarshal(payload, &envelope); err != nil || len(envelope.Content) == 0 {
 		t.Fatalf("stdio result decode error=%v payload=%s", err, payload)
@@ -47,5 +48,8 @@ func TestOrdinaryStdioToolCallUsesWindowsClassifier(t *testing.T) {
 	}
 	if bytes.Contains([]byte(envelope.Content[0].Text), []byte(path)) {
 		t.Fatalf("stdio result leaked raw path: %s", envelope.Content[0].Text)
+	}
+	if envelope.Meta["authorization_required"] != true || envelope.Meta["windows_error_code"] != float64(5) || envelope.Meta["windows_permission_kind"] != "access_denied" {
+		t.Fatalf("stdio result _meta = %#v, want ACL metadata side channel", envelope.Meta)
 	}
 }

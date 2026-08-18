@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -738,12 +737,3 @@ func decodeCompletionList(raw json.RawMessage) (*protocol.CompletionList, error)
 func decodeCodeActions(raw json.RawMessage) ([]protocol.CodeActionResult, error) {
 	return decodeUnionList(raw, decodeCodeActionUnion)
 }
-
-// shouldRecoverBootstrapDidOpenWin122 仅允许 Windows 首次 bootstrap/open-only hydration 的精确 Win122 恢复。
-func shouldRecoverBootstrapDidOpenWin122(ctx context.Context, client Client, err error) bool {
-	if runtime.GOOS != "windows" {
-		return false
-	}
-	return isWindows122StartupError(ctx, client, err)
-}
-

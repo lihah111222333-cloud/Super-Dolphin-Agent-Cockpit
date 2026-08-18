@@ -5,7 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
+
+func syncDirectory(dir string) error {
+	return securefs.SyncDirectory(dir)
+}
 
 type transactionLock struct {
 	file *os.File

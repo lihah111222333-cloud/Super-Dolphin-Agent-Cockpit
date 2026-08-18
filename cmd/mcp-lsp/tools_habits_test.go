@@ -103,7 +103,7 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	require.True(t, ok)
 	textOutput := contentList[0]["text"]
 	require.Contains(t, textOutput, "Locations Found:")
-	require.Contains(t, textOutput, filepath.ToSlash(filePath)+":3:6")
+	require.Contains(t, textOutput, filepath.ToSlash(filePath)+":4:7")
 	require.NotContains(t, textOutput, `[{"uri":`)
 
 	_, hasStructuredContent := wrapped["structuredContent"]

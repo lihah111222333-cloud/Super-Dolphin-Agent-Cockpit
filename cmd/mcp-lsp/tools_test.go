@@ -244,7 +244,7 @@ func TestToolsCallAcceptsShortLSPNamesOnly(t *testing.T) {
 		},
 	})
 
-	result, err := handleToolCall(context.Background(), defs, "file", json.RawMessage(`{}`))
+	result, err := handleToolCall(context.Background(), defs, "file", json.RawMessage(`{"action":"open_file","file_path":"cmd/mcp-lsp/tools.go"}`))
 	if err != nil {
 		t.Fatalf("handleToolCall(file) error = %v", err)
 	}
@@ -339,7 +339,8 @@ func TestHandleScopedToolsCallReturnsPlainTextAmbiguousPatchError(t *testing.T) 
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
 	require.NoError(t, err)
 	text := requirePlainTextToolResult(t, result, true)
-	for _, want := range []string{"patch_ambiguous", "HINT\t", "candidate_location=", target + ":1-L1"} {
+	escapedTarget := strings.ReplaceAll(target, `\`, `\\`)
+	for _, want := range []string{"patch_ambiguous", "HINT\t", "candidate_location=", escapedTarget + ":1-L1"} {
 		require.Contains(t, text, want)
 	}
 }

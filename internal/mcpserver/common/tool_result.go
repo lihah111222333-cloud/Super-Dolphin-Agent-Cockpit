@@ -69,10 +69,14 @@ func BuildToolCallResultWithPolicy(value any, policy ToolCallResultPolicy) (map[
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{
+		result := map[string]any{
 			"content": []map[string]string{{"type": "text", "text": text}},
 			"isError": ToolResultIsError(value),
-		}, nil
+		}
+		if meta := trustedToolResultMetadata(value); len(meta) > 0 {
+			result["_meta"] = meta
+		}
+		return result, nil
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -112,6 +116,39 @@ func resolveTextOnlyToolResult(value any, renderer PlainTextRenderer) (string, e
 		return provider.ToolResultText(), nil
 	}
 	return "", fmt.Errorf("text-only tool result has no renderer: %T", value)
+}
+
+// trustedToolResultMetadata exposes only the ACL fields needed by the host approval
+// chain. It is an out-of-band MCP _meta channel; model-visible content remains text-only.
+func trustedToolResultMetadata(value any) map[string]any {
+	var source map[string]any
+	switch envelope := value.(type) {
+	case ToolErrorEnvelope:
+		if envelope.Code != "authorization_required" {
+			return nil
+		}
+		source = envelope.Meta
+	case *ToolErrorEnvelope:
+		if envelope != nil && envelope.Code == "authorization_required" {
+			source = envelope.Meta
+		}
+	default:
+		return nil
+	}
+	if len(source) == 0 {
+		return nil
+	}
+	meta := make(map[string]any, 3)
+	for _, key := range []string{
+		"authorization_required",
+		"windows_error_code",
+		"windows_permission_kind",
+	} {
+		if value, ok := source[key]; ok {
+			meta[key] = value
+		}
+	}
+	return meta
 }
 
 // isNilToolResult 判断工具返回值是否为语义 nil（处理泛型 handler 返回的有类型 nil）。

@@ -1050,7 +1050,7 @@ describe('agentic e2e sandbox fixture', () => {
 
 describe('agentic e2e strict Wails mock', () => {
   it('returns sandbox paths for project and file pickers and fails on out-of-sandbox project paths', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-boundary');
@@ -1077,7 +1077,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('records sandbox-scoped provider preference writes without leaking raw paths', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preferences');
@@ -1169,7 +1169,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('accepts runtime trace metadata on provider preference writes without recording trace values', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-trace');
@@ -1213,7 +1213,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('fails provider preference writes for non-whitelisted keys and out-of-sandbox paths', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-guard');

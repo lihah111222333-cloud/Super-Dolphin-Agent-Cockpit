@@ -17,3 +17,12 @@ func initializeClientWithWindows122Retry(
 	}
 	return client, nil
 }
+
+func isWindows122StartupError(_ context.Context, _ Client, _ error) bool {
+	return false
+}
+
+// shouldRecoverBootstrapDidOpenWin122 在非 Windows 平台始终关闭 Windows 专用恢复路径。
+func shouldRecoverBootstrapDidOpenWin122(context.Context, Client, error) bool {
+	return false
+}

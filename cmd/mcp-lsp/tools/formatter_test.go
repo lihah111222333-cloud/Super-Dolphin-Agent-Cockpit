@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
 func TestFormatToPlainTextUsesCompletionTitleForCompactCompletionList(t *testing.T) {
@@ -64,7 +65,7 @@ func TestFormatCallHierarchy1BasedCoordinates(t *testing.T) {
 		{
 			Item: protocol.CallHierarchyItem{
 				Name: "Caller",
-				Kind: protocol.SymbolKindFunction,
+				Kind: int(protocol.SymbolKindFunction),
 				URI:  "file:///workspace/call.go",
 				Range: protocol.Range{
 					Start: protocol.Position{Line: 9, Character: 4},
@@ -74,7 +75,7 @@ func TestFormatCallHierarchy1BasedCoordinates(t *testing.T) {
 				{
 					From: protocol.CallHierarchyItem{
 						Name: "CallerFrom",
-						Kind: protocol.SymbolKindFunction,
+						Kind: int(protocol.SymbolKindFunction),
 						URI:  "file:///workspace/from.go",
 						Range: protocol.Range{
 							Start: protocol.Position{Line: 19, Character: 8},
@@ -91,7 +92,7 @@ func TestFormatCallHierarchy1BasedCoordinates(t *testing.T) {
 				{
 					To: protocol.CallHierarchyItem{
 						Name: "CalleeTo",
-						Kind: protocol.SymbolKindFunction,
+						Kind: int(protocol.SymbolKindFunction),
 						URI:  "file:///workspace/to.go",
 						Range: protocol.Range{
 							Start: protocol.Position{Line: 39, Character: 2},

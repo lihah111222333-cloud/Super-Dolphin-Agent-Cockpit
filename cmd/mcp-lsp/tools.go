@@ -16,6 +16,12 @@ type ToolHandler func(ctx context.Context, params json.RawMessage) (any, error)
 // ToolHandlers 按工具名索引的处理器映射。
 type ToolHandlers map[string]ToolHandler
 
+// toolSchemaValidator is the narrow validation capability retained by an assembled tool definition.
+// Production definitions store the jsonschema/v6 validator compiled from ToolManifest.Schema once.
+type toolSchemaValidator interface {
+	Validate(any) error
+}
+
 // ToolManifest 描述单个工具的名称、说明和输入/输出 schema。
 type ToolManifest struct {
 	Name         string
@@ -26,8 +32,9 @@ type ToolManifest struct {
 
 // toolDefinition 将工具清单和处理器绑定在一起。
 type toolDefinition struct {
-	Manifest ToolManifest
-	Handler  ToolHandler
+	Manifest  ToolManifest
+	Handler   ToolHandler
+	validator toolSchemaValidator
 }
 
 // newLSPToolManifests 创建所有 LSP 工具的清单列表，顺序与对外暴露顺序一致。
@@ -68,14 +75,9 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 
 // toolDefinitions 将工具清单列表与处理器映射合并为 toolDefinition 切片，缺少处理器时使用 stub。
 func toolDefinitions(handlers ToolHandlers) []toolDefinition {
-	manifests := newLSPToolManifests()
-	defs := make([]toolDefinition, 0, len(manifests))
-	for _, manifest := range manifests {
-		handler := handlers[canonicalToolName(manifest.Name)]
-		if handler == nil {
-			handler = stubToolHandler
-		}
-		defs = append(defs, toolDefinition{Manifest: manifest, Handler: handler})
+	defs, err := compileToolDefinitions(newLSPToolManifests(), handlers)
+	if err != nil {
+		panic("mcp-lsp: tool manifest assembly failed: " + err.Error())
 	}
 	return defs
 }

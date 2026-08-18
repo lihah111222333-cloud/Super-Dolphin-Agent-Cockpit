@@ -96,7 +96,7 @@ func TestDefaultToolErrorClassifiersKeepOriginalPrecedenceOrder(t *testing.T) {
 		"capability_unsupported", "language_unsupported", "schema_invalid", "cwd_required",
 		"cwd_invalid", "provider_required", "provider_invalid", "launch_request_invalid",
 		"invalid_input", "lsp_unavailable", "dependency_missing", "identifier_not_found",
-		"file_not_found", "path_invalid", "path_outside_workspace", "lsp_timeout",
+		"file_not_found", "scope_too_broad", "path_invalid", "path_outside_workspace", "lsp_timeout",
 		"position_invalid", "lsp_client_closed", "scope_ambiguous",
 	}
 	got := defaultToolErrorClassifiers()

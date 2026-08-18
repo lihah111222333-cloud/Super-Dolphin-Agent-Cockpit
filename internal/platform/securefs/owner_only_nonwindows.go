@@ -8,8 +8,15 @@ import (
 	"os"
 )
 
-// SyncDirectory 打开目录并执行 fsync。
-func SyncDirectory(path string) error {
+// syncDirectory 在非 Windows 平台校验目录后执行 Open、Sync 和 Close。
+func syncDirectory(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat directory for sync %s: %s", RedactPath(path), SafeError(err))
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory for sync: %s", RedactPath(path))
+	}
 	dir, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open directory for sync %s: %w", RedactPath(path), err)
@@ -52,4 +59,3 @@ func RestrictOwnerOnly(path string, mode os.FileMode) error {
 	}
 	return CheckExistingOwnerOnly(path, info)
 }
-

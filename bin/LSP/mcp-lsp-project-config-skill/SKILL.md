@@ -54,6 +54,8 @@ description: 配置、安装、检查、修复或迁移项目级 mcp-lsp stdio M
 | Windows ARM64 | bin/LSP/mcp-lsp-windows-arm64.exe | windows/arm64 |
 | Windows x86 | bin/LSP/mcp-lsp-windows-x86.exe | windows/386 |
 
+上表中的 `mcp-lsp-windows-{x64,arm64,x86}.exe` 是发布包的 canonical 文件名及 `windows/{amd64,arm64,386}` 架构映射，供打包、分发和配置示例选择；它们不是运行时 basename 白名单。运行时接受受信交付布局内的其他 `.exe` 名称（例如重命名或版本化名称），但仍强制校验受信 `bin`/`bin/LSP` 安装根、包内 `lsp` bundle、`lsp-manifest.json` 位置与摘要及可执行文件身份；改名不能绕过这些校验。Windows 资产和依赖仍只由 `NativeArch` 选择，`ProcessArch` 不得替代。
+
 不能只按文件名判断。优先用 go version -m 读取 Go 构建元数据并确认 GOOS/GOARCH；macOS/Linux 可用 file 交叉验证 Mach-O/ELF，Windows 可检查 PE Machine。若无法验证实际目标，记录 blocker，不要写配置。
 
 Windows 必须分别记录系统版本/build、操作系统原生架构和当前进程架构。二进制按原生架构选择；仿真进程的架构只用于审计，不能覆盖原生架构。mcp-lsp 安装器会用 Windows API 再次检测这三项并按目录最低版本/build fail-fast；Agent 不得用 `PROCESSOR_ARCHITECTURE` 或当前 shell 位数替代该判断。

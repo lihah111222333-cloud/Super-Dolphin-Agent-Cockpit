@@ -2,10 +2,13 @@ package installer
 
 import (
 	"archive/tar"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 func TestNativeArtifactInstallerAllowsSafeInternalTarSymlinksWhenManifestOptsIn(t *testing.T) {
@@ -24,8 +27,10 @@ func TestNativeArtifactInstallerAllowsSafeInternalTarSymlinksWhenManifestOptsIn(
 	})
 	if err != nil {
 		if win32Code, authorizationRequired := nativeArtifactSymlinkAuthorizationRequired(err); authorizationRequired {
-			t.Logf("safe symlink requires host authorization on this Windows token: win32=%d", win32Code)
-			return
+			if win32Code == 1314 {
+				t.Skipf("safe internal symlink requires Windows symbolic-link privilege (Win32 1314); enable Developer Mode or grant SeCreateSymbolicLinkPrivilege: %v", err)
+			}
+			t.Fatalf("InstallArtifact with safe internal symlink authorization (Win32 %d): %v", win32Code, err)
 		}
 		t.Fatalf("InstallArtifact with safe internal symlink: %v", err)
 	}
@@ -57,4 +62,14 @@ func TestNativeArtifactInstallerRejectsEscapingTarSymlinkEvenWhenManifestOptsIn(
 		t.Fatalf("escaping symlink error = %v, want payload escape rejection", err)
 	}
 	assertNoPublishedInstall(t, filepath.Join(root, "native", "escape"))
+}
+
+// nativeArtifactSymlinkAuthorizationRequired 识别需要宿主授权的 Win32 ACL 5/1314。
+func nativeArtifactSymlinkAuthorizationRequired(err error) (uint32, bool) {
+	var permissionErr *securefs.WindowsPermissionError
+	if !errors.As(err, &permissionErr) {
+		return 0, false
+	}
+	code := permissionErr.Win32Code()
+	return code, code == 5 || code == 1314
 }

@@ -180,6 +180,8 @@ claude mcp get lsp
 | Windows | ARM64 | bin/LSP/mcp-lsp-windows-arm64.exe |
 | Windows | x86 | bin/LSP/mcp-lsp-windows-x86.exe |
 
+表中的 `mcp-lsp-windows-{x64,arm64,x86}.exe` 是发布包的 canonical 文件名及 `windows/{amd64,arm64,386}` 架构映射，供打包、分发和配置示例选择；它们不是运行时 basename 白名单。运行时接受受信交付布局内的其他 `.exe` 名称（例如重命名或版本化名称），但仍强制校验受信 `bin`/`bin/LSP` 安装根、包内 `lsp` bundle、`lsp-manifest.json` 位置与摘要及可执行文件身份；改名不能绕过这些校验。Windows 资产和依赖仍只由 `NativeArch` 选择，`ProcessArch` 不得替代。
+
 配置 Agent 只选择最终启动 MCP server 的客户端平台对应文件，不把其他平台二进制误配为当前命令：
 
 - macOS Apple Silicon（常见 `uname -m` 为 `arm64`）选择 `mcp-lsp-mac-arm`。

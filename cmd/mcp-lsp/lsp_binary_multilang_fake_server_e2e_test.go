@@ -56,13 +56,17 @@ func (j *fakeMultilangLifecycleJournal) recordRequest(req fakeLSPRequest, server
 	if req.Method == "initialize" {
 		server.setRootURI(fakeMultilangInitializeRootURI(req.Params))
 		j.append("initialize", server.rootURI())
-	} else if req.Method == "shutdown" {
+	}
+	if req.Method == "shutdown" {
 		j.append("shutdown", server.rootURI())
 	}
 	j.append("request:"+req.Method, server.rootURI())
-	if req.Method == "textDocument/hover" && j.server == "pyright-langserver" && fakeMultilangPendingRequestGateMissing() {
-		j.append("pending", server.rootURI())
-		waitForFakeMultilangPendingRequestRelease()
+	switch req.Method {
+	case "textDocument/hover":
+		if j.server == "pyright-langserver" && fakeMultilangPendingRequestGateMissing() {
+			j.append("pending", server.rootURI())
+			waitForFakeMultilangPendingRequestRelease()
+		}
 	}
 }
 
@@ -357,8 +361,14 @@ func (s *fakeMultilangDiagnosticsServer) fakeMultilangEditingResult(req fakeLSPR
 		return []map[string]any{{"startLine": 0, "endLine": 1}}
 	case "textDocument/semanticTokens/full":
 		return map[string]any{"data": []int{0, 0, 1, 0, 0}}
-	case "textDocument/prepareCallHierarchy", "textDocument/prepareTypeHierarchy":
+	case "textDocument/prepareCallHierarchy":
 		return []any{}
+	case "textDocument/prepareTypeHierarchy":
+		return []map[string]any{fakeMultilangTypeHierarchyItem(req, "FakeTypeRoot")}
+	case "typeHierarchy/supertypes":
+		return []map[string]any{fakeMultilangTypeHierarchyItem(req, "FakeSuperType")}
+	case "typeHierarchy/subtypes":
+		return []map[string]any{fakeMultilangTypeHierarchyItem(req, "FakeSubType")}
 	case "textDocument/codeAction", "textDocument/formatting":
 		return []any{}
 	case "textDocument/rename":
@@ -369,6 +379,39 @@ func (s *fakeMultilangDiagnosticsServer) fakeMultilangEditingResult(req fakeLSPR
 		return nil
 	default:
 		return nil
+	}
+}
+
+func fakeMultilangTypeHierarchyItem(req fakeLSPRequest, name string) map[string]any {
+	var params struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+		Item struct {
+			URI string `json:"uri"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		fakeMultilangProtocolViolation("decode %s type hierarchy: %v", req.Method, err)
+	}
+	uri := strings.TrimSpace(params.TextDocument.URI)
+	if uri == "" {
+		uri = strings.TrimSpace(params.Item.URI)
+	}
+	if uri == "" {
+		fakeMultilangProtocolViolation("%s requires type hierarchy URI", req.Method)
+	}
+	rangeValue := map[string]any{
+		"start": map[string]int{"line": 0, "character": 0},
+		"end":   map[string]int{"line": 0, "character": 1},
+	}
+	return map[string]any{
+		"name":           name,
+		"kind":           5,
+		"uri":            uri,
+		"range":          rangeValue,
+		"selectionRange": rangeValue,
+		"detail":         "fake-multilang",
 	}
 }
 

@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -133,5 +134,47 @@ func assertJSONObject(t *testing.T, raw json.RawMessage) {
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("raw = %s, want JSON object: %v", raw, err)
+	}
+}
+
+func TestTextOnlyToolCallResultCarriesTrustedMetadataOutOfBand(t *testing.T) {
+	const pathMarker = "C:\\Users\\private\\secret.go"
+	value := ToolErrorEnvelope{
+		Success: false,
+		Error:   "Windows authorization is required.",
+		Code:    "authorization_required",
+		Meta: map[string]any{
+			"authorization_required":  true,
+			"windows_error_code":      uint32(5),
+			"windows_permission_kind": "access_denied",
+			"path_marker":             pathMarker,
+		},
+	}
+	result, err := BuildToolCallResultWithPolicy(value, NewTextOnlyToolCallResultPolicy(func(value any) (string, bool) {
+		envelope, ok := value.(ToolErrorEnvelope)
+		if !ok {
+			return "", false
+		}
+		return envelope.ToPlainText(), true
+	}))
+	if err != nil {
+		t.Fatalf("BuildToolCallResultWithPolicy() error = %v", err)
+	}
+	if _, ok := result["structuredContent"]; ok {
+		t.Fatalf("text-only result unexpectedly contains structuredContent: %#v", result)
+	}
+	meta, ok := result["_meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("text-only result _meta = %T, want trusted metadata object", result["_meta"])
+	}
+	if meta["authorization_required"] != true || meta["windows_error_code"] != uint32(5) || meta["windows_permission_kind"] != "access_denied" {
+		t.Fatalf("ACL metadata = %#v, want typed authorization fields", meta)
+	}
+	if _, leaked := meta["path_marker"]; leaked {
+		t.Fatalf("trusted metadata leaked path marker: %#v", meta)
+	}
+	content, ok := result["content"].([]map[string]string)
+	if !ok || len(content) != 1 || strings.Contains(content[0]["text"], pathMarker) {
+		t.Fatalf("text-only content = %#v, want pure public text", result["content"])
 	}
 }

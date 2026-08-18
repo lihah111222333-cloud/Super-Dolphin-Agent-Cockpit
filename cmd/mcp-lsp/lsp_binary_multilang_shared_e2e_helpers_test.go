@@ -5,7 +5,6 @@ package main
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -13,8 +12,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 )
 
-// 这些 E2E 辅助只构造协议测试 fixture、语言覆盖表和伪服务启动脚本，
-// 不读取或分派宿主平台行为，因此在所有 e2e 目标上共享。
+// 这些 E2E 辅助只构造协议测试 fixture 和语言覆盖表。
+// 平台相关的伪服务启动器位于带平台 build tag 的文件中。
 const (
 	fakeMultilangDiagnosticsEnv        = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTICS"
 	fakeMultilangServerEnv             = "MCP_LSP_FAKE_MULTILANG_SERVER"
@@ -74,6 +73,12 @@ func binaryColdStartLanguageCases(t *testing.T) []binaryColdStartLanguageCase {
 		{languageID: "kotlin", write: writeBinaryColdStartKotlinFixture},
 		{languageID: "lua", write: writeBinaryColdStartLuaFixture},
 		{languageID: "markdown", write: writeBinaryColdStartMarkdownFixture},
+		{languageID: "mq4", write: writeBinaryColdStartMQ4Fixture},
+		{languageID: "mq5", write: writeBinaryColdStartMQ5Fixture},
+		{languageID: "mqh", write: writeBinaryColdStartMQHFixture},
+		{languageID: "mql", write: writeBinaryColdStartMQLFixture},
+		{languageID: "mql4", write: writeBinaryColdStartMQL4Fixture},
+		{languageID: "mql5", write: writeBinaryColdStartMQL5Fixture},
 		{languageID: "objective-c", write: writeBinaryColdStartObjectiveCFixture},
 		{languageID: "objective-cpp", write: writeBinaryColdStartObjectiveCPPFixture},
 		{languageID: "php", write: writeBinaryColdStartPHPFixture},
@@ -92,20 +97,20 @@ func binaryColdStartLanguageCases(t *testing.T) []binaryColdStartLanguageCase {
 		{languageID: "vue", write: writeBinaryColdStartVueFixture},
 		{languageID: "yaml", write: writeBinaryColdStartYAMLFixture},
 	}
-	assertBinaryColdStartCasesCoverDefaultLSPClientLanguages(t, cases)
+	assertBinaryColdStartCasesCoverRequiresLSPClientLanguages(t, cases)
 	return cases
 }
 
-func assertBinaryColdStartCasesCoverDefaultLSPClientLanguages(t *testing.T, cases []binaryColdStartLanguageCase) {
+func assertBinaryColdStartCasesCoverRequiresLSPClientLanguages(t *testing.T, cases []binaryColdStartLanguageCase) {
 	t.Helper()
 	got := make([]string, 0, len(cases))
 	for _, tc := range cases {
 		got = append(got, tc.languageID)
 	}
 	slices.Sort(got)
-	want := defaultBinaryLSPClientLanguageIDs(t)
+	want := requiresLSPClientLanguageIDs(t)
 	if !slices.Equal(got, want) {
-		t.Fatalf("binary cold-start language coverage = %#v, want default LSP client languages %#v", got, want)
+		t.Fatalf("binary cold-start language coverage = %#v, want RequiresLSPClient registry %#v", got, want)
 	}
 }
 
@@ -126,28 +131,14 @@ func defaultBinaryLSPClientLanguageIDs(t *testing.T) []string {
 	return ids
 }
 
-func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	for _, name := range []string{
-		"bash-language-server", "buf", "clangd", "csharp-ls", "dart", "docker-langserver",
-		"graphql-lsp", "gopls", "intelephense", "jdtls", "kotlin-language-server",
-		"lua-language-server", "pyright-langserver", "prisma-language-server", "rust-analyzer",
-		"shellcheck", "sqruff", "sourcekit-lsp", "solargraph", "svelteserver", "terraform-ls",
-		"typescript-language-server", "vscode-css-language-server", "vscode-html-language-server",
-		"vscode-json-language-server", "vscode-markdown-language-server", "vue-language-server",
-		"yaml-language-server",
-	} {
-		script := "#!/bin/sh\n" +
-			fakeMultilangDiagnosticsEnv + "=1 " + fakeMultilangServerEnv + "=" + shellQuote(name) +
-			" exec " + shellQuote(os.Args[0]) +
-			" -test.run=TestFakeMultilangDiagnosticsLangserverHelper -- \"$@\"\n"
-		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-			t.Fatalf("write fake %s: %v", name, err)
-		}
-	}
-	return dir
+var fakeMultilangDiagnosticsLangserverNames = [...]string{
+	"bash-language-server", "buf", "clangd", "csharp-ls", "dart", "docker-langserver",
+	"graphql-lsp", "gopls", "intelephense", "jdtls", "kotlin-language-server",
+	"lua-language-server", "pyright-langserver", "prisma-language-server", "rust-analyzer",
+	"shellcheck", "sqruff", "sourcekit-lsp", "solargraph", "svelteserver", "terraform-ls",
+	"typescript-language-server", "vscode-css-language-server", "vscode-html-language-server",
+	"vscode-json-language-server", "vscode-markdown-language-server", "vue-language-server",
+	"yaml-language-server",
 }
 
 // super-dolphin-ci: helper
@@ -157,4 +148,51 @@ func TestFakeMultilangDiagnosticsLangserverHelper(t *testing.T) {
 	}
 	runFakeMultilangDiagnosticsLangserver()
 	os.Exit(0)
+}
+
+// TestBinaryColdStartLanguageCasesMatchRequiresLSPClientRegistry keeps the
+// platform-neutral binary matrix aligned with every public LSP client alias.
+func TestBinaryColdStartLanguageCasesMatchRequiresLSPClientRegistry(t *testing.T) {
+	cases := binaryColdStartLanguageCases(t)
+	got := make([]string, 0, len(cases))
+	for _, tc := range cases {
+		got = append(got, tc.languageID)
+	}
+	slices.Sort(got)
+	want := requiresLSPClientLanguageIDs(t)
+	if !slices.Equal(got, want) {
+		t.Fatalf("binary cold-start language coverage = %#v, want RequiresLSPClient registry %#v", got, want)
+	}
+}
+
+// The public MQL IDs all route through clangd. Keep their fixtures on the
+// contract extensions: mq4/mql/mql4 use .mq4, mq5/mql5 use .mq5, and mqh uses .mqh.
+func writeBinaryColdStartMQ4Fixture(t *testing.T, root string) string {
+	return writeBinaryColdStartMQLWithExtensionFixture(t, root, ".mq4")
+}
+
+func writeBinaryColdStartMQ5Fixture(t *testing.T, root string) string {
+	return writeBinaryColdStartMQLWithExtensionFixture(t, root, ".mq5")
+}
+
+func writeBinaryColdStartMQHFixture(t *testing.T, root string) string {
+	return writeBinaryColdStartMQLWithExtensionFixture(t, root, ".mqh")
+}
+
+func writeBinaryColdStartMQLFixture(t *testing.T, root string) string {
+	return writeBinaryColdStartMQLWithExtensionFixture(t, root, ".mq4")
+}
+
+func writeBinaryColdStartMQL4Fixture(t *testing.T, root string) string {
+	return writeBinaryColdStartMQLWithExtensionFixture(t, root, ".mq4")
+}
+
+func writeBinaryColdStartMQL5Fixture(t *testing.T, root string) string {
+	return writeBinaryColdStartMQLWithExtensionFixture(t, root, ".mq5")
+}
+
+func writeBinaryColdStartMQLWithExtensionFixture(t *testing.T, root, extension string) string {
+	t.Helper()
+	writeBinaryColdStartFile(t, root, "compile_flags.txt", "-Wall\\n")
+	return writeBinaryColdStartFile(t, root, "main"+extension, "#property strict\\nint OnInit() { return 0; }\\n")
 }

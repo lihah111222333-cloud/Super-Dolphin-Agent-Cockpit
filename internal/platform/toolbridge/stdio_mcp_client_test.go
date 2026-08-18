@@ -116,6 +116,54 @@ func TestStdioMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientCallToolCarriesTrustedTopLevelMetaWithoutStructuredContent(t *testing.T) {
+	transport := newFakeStdioTransport(
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ERROR code=authorization_required retryable=0"}],"isError":true,"_meta":{"authorization_required":true,"windows_error_code":5,"windows_permission_kind":"access_denied"}}}`),
+	)
+	client := newTestStdioMCPClient(t, transport)
+	got, err := client.CallTool(context.Background(), "file", json.RawMessage(`{}`), ToolCallRequest{})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if got == nil || got.Success || len(got.ContentItems) != 1 {
+		t.Fatalf("CallTool() result = %#v, want failed text result", got)
+	}
+	if len(got.StructuredContent) != 0 {
+		t.Fatalf("CallTool() restored structuredContent: %s", got.StructuredContent)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(got.ContentItems[0].Meta, &meta); err != nil {
+		t.Fatalf("content _meta = %s: %v", got.ContentItems[0].Meta, err)
+	}
+	if meta["authorization_required"] != true || meta["windows_error_code"] != float64(5) || meta["windows_permission_kind"] != "access_denied" {
+		t.Fatalf("content _meta = %#v, want ACL metadata", meta)
+	}
+}
+
+func TestStdioMCPClientCallToolCarriesProtocolErrorDataMetadata(t *testing.T) {
+	transport := newFakeStdioTransport(
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"permission denied at C:\\private\\secret.go","data":{"meta":{"authorization_required":true,"windows_error_code":1314,"windows_permission_kind":"privilege_not_held"}}}}`),
+	)
+	client := newTestStdioMCPClient(t, transport)
+	got, err := client.CallTool(context.Background(), "file", json.RawMessage(`{}`), ToolCallRequest{})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if got == nil || got.Success || len(got.ContentItems) != 1 {
+		t.Fatalf("CallTool() result = %#v, want failed text result", got)
+	}
+	if strings.Contains(got.ContentItems[0].Text, "secret.go") {
+		t.Fatalf("protocol error leaked user-visible path: %q", got.ContentItems[0].Text)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(got.ContentItems[0].Meta, &meta); err != nil {
+		t.Fatalf("protocol error _meta = %s: %v", got.ContentItems[0].Meta, err)
+	}
+	if meta["authorization_required"] != true || meta["windows_error_code"] != float64(1314) || meta["windows_permission_kind"] != "privilege_not_held" {
+		t.Fatalf("protocol error _meta = %#v, want ACL metadata", meta)
+	}
+}
+
 func TestStdioMCPClientCallToolRejectsNullSuccessPayload(t *testing.T) {
 	transport := newFakeStdioTransport(
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"null"}],"structuredContent":{}}}`),

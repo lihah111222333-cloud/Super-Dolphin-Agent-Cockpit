@@ -101,7 +101,7 @@ func TestWindowsAtomicReplacePreservesMetadataWithoutDirectorySync(t *testing.T)
 	if !functionCallsSelectorName(syncFile, "OpenFile") || !functionCallsSelectorName(syncFile, "Sync") {
 		t.Fatal("Windows atomic writer must open and flush the replaced file")
 	}
-	syncFn := parseFunctionDecl(t, "atomic_write_parent_windows.go", "syncParentDirectory")
+	syncFn := parseFunctionDecl(t, "atomic_write_windows.go", "syncParentDirectory")
 	if functionCallsSelectorName(syncFn, "Open") || functionCallsSelectorName(syncFn, "Sync") {
 		t.Fatal("Windows syncParentDirectory must not open or flush a directory handle")
 	}

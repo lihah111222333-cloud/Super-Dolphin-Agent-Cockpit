@@ -286,7 +286,7 @@ func TestPackageWindowsVerifiesArm64NativeArtifactsBeforePackaging(t *testing.T)
 
 func TestWindowsBackgroundProcessesHideConsoleWindows(t *testing.T) {
 	codexWindows := readScript(t, "../internal/provider/codexapp/process_windows.go")
-	toolbridgeWindows := readScript(t, "../internal/platform/toolbridge/stdio_process_windows.go")
+	toolbridgeWindows := readScript(t, "../internal/platform/toolbridge/platform_windows.go")
 
 	assertScriptContains(t, codexWindows, "CreationFlags: 0x08000200")
 	assertScriptContains(t, codexWindows, "HideWindow: true")

@@ -17,6 +17,16 @@ func TestSyncDirectoryNonWindows(t *testing.T) {
 	}
 }
 
+func TestSyncDirectoryNonWindowsRejectsRegularFile(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "state.db")
+	if err := os.WriteFile(filePath, []byte("state"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncDirectory(filePath); err == nil {
+		t.Fatal("SyncDirectory(file) error = nil, want non-directory error")
+	}
+}
+
 func TestWrapErrorForPathNonWindowsOnlyRedactsRawPermissionError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "private-state.db")
 	raw := &os.PathError{Op: "open", Path: path, Err: syscall.Errno(5)}
@@ -29,7 +39,6 @@ func TestWrapErrorForPathNonWindowsOnlyRedactsRawPermissionError(t *testing.T) {
 		t.Fatalf("non-Windows wrapped error leaked path: %q", wrapped.Error())
 	}
 }
-
 
 // TestRestrictOwnerOnlyNonWindowsEnforcesOwnerOnly 证明非 Windows 只使用 mode bits
 // 实现 RestrictOwnerOnly，不依赖 Windows ACL 或运行时 GOOS 分支。

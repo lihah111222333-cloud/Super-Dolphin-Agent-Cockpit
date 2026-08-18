@@ -1,5 +1,8 @@
 //go:build e2e && (darwin || linux)
 
+// 资源 cohort E2E 实现由 Darwin 与 Linux 共享；Windows 通过 build tag 明确排除。
+// 平台相关的进程树 RSS 与受控语言服务 helper 保持在同一 Darwin/Linux 编译边界内。
+
 package main
 
 import (

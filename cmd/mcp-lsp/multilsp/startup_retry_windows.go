@@ -137,6 +137,11 @@ func isWindows122StartupError(ctx context.Context, candidate Client, err error) 
 	return false
 }
 
+// shouldRecoverBootstrapDidOpenWin122 仅允许 Windows 首次 bootstrap/open-only hydration 的精确 Win122 恢复。
+func shouldRecoverBootstrapDidOpenWin122(ctx context.Context, client Client, err error) bool {
+	return isWindows122StartupError(ctx, client, err)
+}
+
 func transportDoneAndExited(transport *transport) bool {
 	if transport == nil || transport.done == nil || transport.cmd == nil || transport.cmd.ProcessState == nil {
 		return false

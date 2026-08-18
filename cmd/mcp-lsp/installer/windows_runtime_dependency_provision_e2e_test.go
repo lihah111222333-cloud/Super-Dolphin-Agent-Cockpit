@@ -20,7 +20,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -973,22 +972,20 @@ func verifyWindowsRuntimeDependencyLSPProcess(parent context.Context, executable
 	if command.ProcessState == nil || !command.ProcessState.Exited() {
 		return report, fmt.Errorf("LSP process %d did not reach an exited state", pid)
 	}
-	if runtime.GOOS == "windows" {
-		alive, err := runtimeDependencyWindowsPIDExists(pid)
-		if err != nil {
-			return report, err
+	alive, err := runtimeDependencyWindowsPIDExists(pid)
+	if err != nil {
+		return report, err
+	}
+	report.LSPPIDAlive = alive
+	if alive {
+		currentStartToken, identityErr := windowsRuntimeDependencyProcessStartToken(pid)
+		if identityErr != nil {
+			return report, fmt.Errorf("LSP process %d remains but its start identity cannot be read: %w", pid, identityErr)
 		}
-		report.LSPPIDAlive = alive
-		if alive {
-			currentStartToken, identityErr := windowsRuntimeDependencyProcessStartToken(pid)
-			if identityErr != nil {
-				return report, fmt.Errorf("LSP process %d remains but its start identity cannot be read: %w", pid, identityErr)
-			}
-			if currentStartToken == processStartToken {
-				return report, fmt.Errorf("LSP process %d with the same start identity remains after shutdown/exit", pid)
-			}
-			return report, fmt.Errorf("LSP PID %d was reused by a different start identity after shutdown/exit", pid)
+		if currentStartToken == processStartToken {
+			return report, fmt.Errorf("LSP process %d with the same start identity remains after shutdown/exit", pid)
 		}
+		return report, fmt.Errorf("LSP PID %d was reused by a different start identity after shutdown/exit", pid)
 	}
 	return report, nil
 }

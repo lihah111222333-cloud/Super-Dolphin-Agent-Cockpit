@@ -8,10 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -368,35 +366,6 @@ func TestStructureDocumentSymbolReportsTotalShowingAndTruncation(t *testing.T) {
 	requireStringFieldContains(t, payload, "hint", "max_results")
 }
 
-func TestStructureDocumentSymbolUsesSlowDeadlineBudget(t *testing.T) {
-	root := t.TempDir()
-	target := writeStructureTestFile(t, root, "frontend/big-store.js", "export const clientStore = {};\n")
-	manager := &structureTestManager{
-		documentSymbols: []protocol.DocumentSymbol{reproDocumentSymbol("clientStore")},
-	}
-	registry := &structureTestRegistry{fileManager: manager}
-	handler := NewStructureHandler(registry)
-
-	if _, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
-		Action:     "document_symbol",
-		FilePath:   target,
-		MaxResults: 50,
-	})); err != nil {
-		t.Fatalf("document_symbol returned error: %v", err)
-	}
-	if manager.documentContext == nil {
-		t.Fatal("DocumentSymbol was not called")
-	}
-	deadline, ok := manager.documentContext.Deadline()
-	if !ok {
-		t.Fatal("DocumentSymbol context has no deadline")
-	}
-	remaining := time.Until(deadline)
-	if remaining < middleware.TierSlow-5*time.Second {
-		t.Fatalf("DocumentSymbol deadline budget = %s, want slow tier near %s so large JS outlines do not hit the normal tool timeout", remaining.Round(time.Second), middleware.TierSlow)
-	}
-}
-
 func reproDocumentSymbol(name string) protocol.DocumentSymbol {
 	return protocol.DocumentSymbol{
 		Name: name,
@@ -492,6 +461,39 @@ func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
 	assertWorkspaceSymbolFilePathRouting(t, registry, "frontend/service.ts", "typescript")
 	if manager.gotWorkspaceLang != "typescript" {
 		t.Fatalf("WorkspaceSymbol language = %q", manager.gotWorkspaceLang)
+	}
+}
+
+func TestStructureWorkspaceSymbolUsesJSONManagerWhenServerAdvertisesCapability(t *testing.T) {
+	root := t.TempDir()
+	target := writeStructureTestFile(t, root, "config.json", "{\"stale\":true}\n")
+	manager := structureWorkspaceSymbolManager(target, "StaleWorkspaceNeedle-json")
+	registry := &structureTestRegistry{fileManager: manager}
+	handler := NewStructureHandler(registry)
+	input := marshalStructureParams(t, structureParams{
+		Action:    "workspace_symbol",
+		FilePath:  target,
+		Query:     "StaleWorkspaceNeedle",
+		MatchMode: "fuzzy",
+	})
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("json workspace_symbol returned error: %v", err)
+	}
+	assertWorkspaceSymbolFilePathRouting(t, registry, target, "json")
+	if manager.gotWorkspaceQuery != "StaleWorkspaceNeedle" {
+		t.Fatalf("WorkspaceSymbol query = %q", manager.gotWorkspaceQuery)
+	}
+	if manager.gotWorkspaceLang != "json" {
+		t.Fatalf("WorkspaceSymbol language = %q, want json", manager.gotWorkspaceLang)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal json workspace_symbol result: %v", err)
+	}
+	if !strings.Contains(string(raw), "StaleWorkspaceNeedle-json") {
+		t.Fatalf("json workspace_symbol result = %s, want server result", raw)
 	}
 }
 
@@ -622,7 +624,10 @@ func TestStructureTypeScriptDocumentSymbolUsesNavigationFallbackInsteadOfEmptyEn
 func TestStructureMarkdownWorkspaceSymbolReportsLimitedSupport(t *testing.T) {
 	root := t.TempDir()
 	writeStructureTestFile(t, root, "README.md", "# Intro\n")
-	handler := NewStructureHandler(newMarkdownFallbackRegistry(t, root))
+	target := filepath.Join(root, "README.md")
+	manager := structureWorkspaceSymbolManager(target, "Intro")
+	manager.workspaceSymbolErr = lspmanager.ErrUnsupportedCapability
+	handler := NewStructureHandler(&structureTestRegistry{fileManager: manager})
 
 	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
 		Action:   "workspace_symbol",
@@ -727,21 +732,7 @@ func installStructureFakeTypeScriptNavigationNode(t *testing.T, output string) {
 	if err := os.WriteFile(outputPath, []byte(output), 0o600); err != nil {
 		t.Fatalf("write fake navigation output: %v", err)
 	}
-	nodePath := filepath.Join(dir, "node")
-	script := strings.Join([]string{
-		"#!/bin/sh",
-		"cat >/dev/null",
-		"cat " + structureShellQuote(outputPath),
-		"",
-	}, "\n")
-	if err := os.WriteFile(nodePath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake node: %v", err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
-func structureShellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	installStructureFakeTypeScriptNavigationNodePlatform(t, dir, outputPath)
 }
 
 func requireDocumentSymbolPayloadNames(t *testing.T, payload map[string]any, want []string) {

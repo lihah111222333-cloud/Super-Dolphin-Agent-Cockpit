@@ -259,9 +259,6 @@ func resolveWorkspaceLanguageManager(ctx context.Context, registry lspmanager.Re
 	if workspaceLanguage == sqliteSQLLanguageID {
 		return nil, "", invalidStructureParams(errors.New("SQL workspace_symbol requires file_path so the SQLite sqlc owner can be validated"))
 	}
-	if limitedDocumentFallbackLanguage(workspaceLanguage) != "" {
-		return nil, workspaceLanguage, nil
-	}
 	manager, err := registry.GetManagerForLanguage(ctx, workspaceLanguage)
 	return manager, workspaceLanguage, err
 }
@@ -272,9 +269,6 @@ func resolveWorkspaceFileManager(ctx context.Context, registry lspmanager.Regist
 	}
 	if languageID == "" {
 		languageID = lspmanager.DetectLanguageID(workspaceSymbolPathForValidation(filePath))
-	}
-	if limitedDocumentFallbackLanguage(languageID) != "" {
-		return nil, languageID, nil
 	}
 	manager, err := managerForFile(ctx, registry, filePath, languageID)
 	if err != nil {
@@ -342,9 +336,6 @@ func runWorkspaceSymbols(
 	matchMode, err := normalizeWorkspaceSymbolMatchMode(req.MatchMode)
 	if err != nil {
 		return nil, err
-	}
-	if limitedDocumentFallbackLanguage(languageID) != "" {
-		return unsupportedCapabilityEmptyResult("workspace symbol", languageID), nil
 	}
 	if manager == nil {
 		return nil, errManagerUnavailable

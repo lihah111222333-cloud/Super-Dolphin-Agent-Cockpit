@@ -604,11 +604,27 @@ func (h *Handler) executeCodexSurfaceEntry(
 		return nil, fmt.Errorf("toolbridge: MCP authority lease is required")
 	}
 	var result *ToolCallResult
-	err = h.authorityOwner.WithMCPToolAuthority(ctx, entry.authority.token, func() error {
+	call := func() error {
 		var callErr error
 		result, callErr = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
 		return callErr
-	})
+	}
+	err = h.authorityOwner.WithMCPToolAuthority(ctx, entry.authority.token, call)
+	if err != nil {
+		return result, err
+	}
+	approval, ok := h.windowsACLApprovalRequest(
+		&mcpcontrol.ToolInstance{ClientKind: entry.family}, req, result,
+	)
+	if !ok {
+		return result, nil
+	}
+	decision, approvalErr := h.approvalRequester.RequestApproval(ctx, approval)
+	h.logWindowsACLApprovalDecision(approval, decision, approvalErr)
+	if approvalErr != nil || decision.Approved == nil || !*decision.Approved {
+		return result, nil
+	}
+	err = h.authorityOwner.WithMCPToolAuthority(ctx, entry.authority.token, call)
 	return result, err
 }
 

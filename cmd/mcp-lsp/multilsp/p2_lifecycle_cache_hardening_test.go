@@ -250,7 +250,7 @@ func clearResourceLimitEnvironmentForTest(t *testing.T) {
 
 func TestManagerStoresConfiguredIdleTimeout(t *testing.T) {
 	const want = 37 * time.Minute
-	mgr := NewManager(Config{IdleTimeout: want}).(*manager)
+	mgr := NewManager(Config{WorkspaceRoot: t.TempDir(), IdleTimeout: want}).(*manager)
 	if got := mgr.idleTimeout; got != want {
 		t.Fatalf("manager idle timeout = %s, want %s", got, want)
 	}

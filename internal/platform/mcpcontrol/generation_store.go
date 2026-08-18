@@ -310,3 +310,7 @@ func nextGeneration(latest map[string]uint64, instanceID string, resumeFrom *uin
 	return current, nil
 }
 
+func syncGenerationDirectory(path string) error {
+	return securefs.SyncDirectory(path)
+}
+

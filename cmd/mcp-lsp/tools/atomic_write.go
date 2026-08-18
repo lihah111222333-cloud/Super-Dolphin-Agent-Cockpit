@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 // fileWriter 抽象原子替换需要的文件系统操作，避免编辑路径直接截断目标文件。
@@ -80,11 +79,6 @@ func atomicReplaceFile(path string, content []byte, mode os.FileMode, writer fil
 		return err
 	}
 	return nil
-}
-
-// syncParentDirectory 使用 securefs.SyncDirectory 持久化 rename 后的目录项。
-func syncParentDirectory(dir string, _ fileWriter) error {
-	return securefs.SyncDirectory(dir)
 }
 
 

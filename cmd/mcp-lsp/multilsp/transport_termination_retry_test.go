@@ -1,54 +1,14 @@
 package multilsp
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"os/exec"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 )
-
-func TestTransportWaitMarksExitedServerUnavailableAndFailsPending(t *testing.T) {
-	tr, pending := startExitedTransportForTest(t)
-	waitForTransportExitForTest(t, tr)
-	assertTransportClosedForTest(t, tr)
-	assertPendingFailedForTest(t, pending)
-}
-
-func startExitedTransportForTest(t *testing.T) (*transport, chan pendingResult) {
-	t.Helper()
-	stderr := &limitedBuffer{limit: stderrLimitBytes}
-	cmd := exec.Command("sh", "-c", "printf 'FATAL ERROR: heap out of memory\\n' >&2; exit 134")
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("StdinPipe: %v", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("StdoutPipe: %v", err)
-	}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	tr := &transport{
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  bufio.NewReader(stdout),
-		stderr:  stderr,
-		done:    make(chan struct{}),
-		pending: make(map[string]chan pendingResult),
-	}
-	pending := make(chan pendingResult, 1)
-	tr.pending["1"] = pending
-	goroutines := newTestGoroutineGroup(t)
-	goroutines.Go(func() { tr.wait() })
-	return tr, pending
-}
 
 func waitForTransportExitForTest(t *testing.T, tr *transport) {
 	t.Helper()

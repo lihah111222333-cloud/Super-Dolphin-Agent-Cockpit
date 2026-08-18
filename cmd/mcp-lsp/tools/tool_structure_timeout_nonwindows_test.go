@@ -12,7 +12,7 @@ import (
 
 // TestStructureDocumentSymbolKeepsNonWindowsSlowDeadline 证明非 Windows 平台继续沿用远程既有的
 // slow-tier 工具 deadline，Windows 冷安装策略不会改变其他平台行为。
-func TestStructureDocumentSymbolKeepsNonWindowsSlowDeadline(t *testing.T) {
+func TestStructureDocumentSymbolUsesSlowDeadlineBudget(t *testing.T) {
 	root := t.TempDir()
 	target := writeStructureTestFile(t, root, "frontend/big-store.js", "export const clientStore = {};\n")
 	manager := &structureTestManager{documentSymbols: []protocol.DocumentSymbol{reproDocumentSymbol("clientStore")}}

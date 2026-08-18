@@ -143,10 +143,11 @@ func mustJSON(t *testing.T, event TraceEvent) string {
 }
 
 func TestEnforceMetadataLimit_NoInfiniteLoopOnSmallBytes(t *testing.T) {
-	cfg, err := ParseConfig(EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_METADATA_MAX_BYTES": "10"})
+	cfg, err := ParseConfig(EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_METADATA_MAX_BYTES": "256"})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
+	cfg.MetadataMaxBytes = 10
 	s := NewSanitizer(cfg)
 	metadata := map[string]any{
 		"k1": "val1",

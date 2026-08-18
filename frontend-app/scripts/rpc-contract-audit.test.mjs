@@ -1,22 +1,10 @@
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile as rawReadFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
-const readFile = async (...args) => {
-  const result = await rawReadFile(...args)
-  return typeof result === 'string' ? result.replace(/\r\n/g, '\n') : result
-}
+const readFile = async (...args) => { const res = await rawReadFile(...args); return typeof res === 'string' ? res.replace(/\r\n/g, '\n') : res }
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import {
-  auditRpcContracts,
-  astReferencesFacadeForTest,
-  collectFrontendPayloadKeysFromSource,
-  collectHardcodedPayloadGuardFindingsFromSources,
-  collectPayloadRegistryDrift,
-  collectSidebarRequiredFieldFindingsFromSources,
-  parseContractMatrixForTest,
-  parseRpcMethodsForTest,
-} from './rpc-contract-audit.mjs'
+import { auditRpcContracts, astReferencesFacadeForTest, collectFrontendPayloadKeysFromSource, collectHardcodedPayloadGuardFindingsFromSources, collectPayloadRegistryDrift, collectSidebarRequiredFieldFindingsFromSources, parseContractMatrixForTest, parseRpcMethodsForTest } from './rpc-contract-audit.mjs'
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 const SHADOW_FILES = [
   'internal/contract/rpc_handler.go',

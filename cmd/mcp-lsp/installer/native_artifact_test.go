@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
@@ -85,6 +86,42 @@ func TestNativeArtifactInstallerInstallsHTTPSZipWithManagedLauncher(t *testing.T
 		t.Fatalf("managed launcher does not contain absolute target %q: %s", result.BinaryPath, launcher)
 	}
 	assertNoStagingDirectories(t, filepath.Dir(filepath.Dir(result.InstallDir)))
+}
+
+func TestNativeArtifactInstallerReusesCompletePublishedArtifact(t *testing.T) {
+	archive := buildZipArtifact(t, []zipArtifactEntry{
+		{name: "bin/native-lsp", content: []byte("binary")},
+	})
+	var requests atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/octet-stream")
+		if _, err := io.Copy(w, bytes.NewReader(archive)); err != nil {
+			t.Errorf("write fake artifact: %v", err)
+		}
+	}))
+	defer server.Close()
+	root := filepath.Join(t.TempDir(), "managed-lsp")
+	installer := mustNativeInstaller(t, root, server.Client())
+	spec := validNativeSpec(server.URL, archive, NativeArtifactFormatZip)
+	spec.LauncherName = "native-lsp"
+
+	first, err := installer.InstallArtifact(t.Context(), spec)
+	if err != nil {
+		t.Fatalf("first InstallArtifact: %v", err)
+	}
+	second, err := installer.InstallArtifact(t.Context(), spec)
+	if err != nil {
+		t.Fatalf("second InstallArtifact: %v", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("artifact requests = %d, want exactly one request", got)
+	}
+	if second != first {
+		t.Fatalf("reused result = %#v, first result = %#v", second, first)
+	}
+	assertExecutable(t, second.BinaryPath)
+	assertExecutable(t, second.LauncherPath)
 }
 
 func TestNativeArtifactInstallerRejectsHTTPAndInvalidRoot(t *testing.T) {

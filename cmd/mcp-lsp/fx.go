@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"go.uber.org/fx"
 )
@@ -366,6 +369,214 @@ func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// compileToolDefinitions validates every manifest and compiles its input schema once during assembly.
+// The resulting validator is retained on the definition so handler calls never decode a second, hand-written contract.
+func compileToolDefinitions(manifests []ToolManifest, handlers ToolHandlers) ([]toolDefinition, error) {
+	if len(manifests) == 0 {
+		return nil, errors.New("no LSP tool manifests configured")
+	}
+	defs := make([]toolDefinition, 0, len(manifests))
+	seenNames := make(map[string]struct{}, len(manifests))
+	for _, manifest := range manifests {
+		name := canonicalToolName(manifest.Name)
+		if name == "" {
+			return nil, errors.New("LSP tool manifest has empty name")
+		}
+		if _, exists := seenNames[name]; exists {
+			return nil, fmt.Errorf("duplicate LSP tool manifest: %q", name)
+		}
+		seenNames[name] = struct{}{}
+		if err := validateManifestActions(manifest); err != nil {
+			return nil, err
+		}
+		validator, err := compileToolManifestSchema(manifest)
+		if err != nil {
+			return nil, err
+		}
+		handler := handlers[name]
+		if handler == nil {
+			handler = stubToolHandler
+		}
+		defs = append(defs, toolDefinition{Manifest: manifest, Handler: handler, validator: validator})
+	}
+	return defs, nil
+}
+
+// compileToolManifestSchema compiles the exact ToolManifest.Schema value used by tools/list.
+func compileToolManifestSchema(manifest ToolManifest) (*jsonschema.Schema, error) {
+	if len(manifest.Schema) == 0 {
+		return nil, fmt.Errorf("LSP tool %q has empty input schema", manifest.Name)
+	}
+	raw, err := json.Marshal(manifest.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("marshal schema for tool %q: %w", manifest.Name, err)
+	}
+	var document any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return nil, fmt.Errorf("normalize schema for tool %q: %w", manifest.Name, err)
+	}
+	compiler := jsonschema.NewCompiler()
+	const resource = "mcp-lsp-tool-schema.json"
+	if err := compiler.AddResource(resource, document); err != nil {
+		return nil, fmt.Errorf("register schema for tool %q: %w", manifest.Name, err)
+	}
+	compiled, err := compiler.Compile(resource)
+	if err != nil {
+		return nil, fmt.Errorf("compile schema for tool %q: %w", manifest.Name, err)
+	}
+	return compiled, nil
+}
+
+// validateManifestActions dynamically checks every action enum exposed by every manifest.
+// This prevents a missing or stale action declaration from reaching the runtime validator.
+func validateManifestActions(manifest ToolManifest) error {
+	properties, ok := manifest.Schema["properties"].(map[string]any)
+	if !ok {
+		if _, hasConditions := manifest.Schema["allOf"]; hasConditions {
+			return fmt.Errorf("LSP tool %q has action conditions but no properties", manifest.Name)
+		}
+		return nil
+	}
+	property, exists := properties["action"]
+	if !exists {
+		if _, hasConditions := manifest.Schema["allOf"]; hasConditions {
+			return fmt.Errorf("LSP tool %q has action conditions but no action property", manifest.Name)
+		}
+		return nil
+	}
+	actionSchema, ok := property.(map[string]any)
+	if !ok {
+		return fmt.Errorf("LSP tool %q action schema has invalid type %T", manifest.Name, property)
+	}
+	actions, err := schemaEnumStrings(actionSchema["enum"])
+	if err != nil {
+		return fmt.Errorf("LSP tool %q action enum: %w", manifest.Name, err)
+	}
+	seen := make(map[string]struct{}, len(actions))
+	for _, action := range actions {
+		action = strings.TrimSpace(action)
+		if action == "" {
+			return fmt.Errorf("LSP tool %q action enum contains an empty value", manifest.Name)
+		}
+		if _, exists := seen[action]; exists {
+			return fmt.Errorf("LSP tool %q action enum contains duplicate %q", manifest.Name, action)
+		}
+		seen[action] = struct{}{}
+	}
+	if conditions, ok := manifest.Schema["allOf"].([]any); ok {
+		conditionActions := make(map[string]struct{}, len(conditions))
+		for _, rawCondition := range conditions {
+			condition, ok := rawCondition.(map[string]any)
+			if !ok {
+				return fmt.Errorf("LSP tool %q action condition has invalid type %T", manifest.Name, rawCondition)
+			}
+			ifBlock, ok := condition["if"].(map[string]any)
+			if !ok {
+				return fmt.Errorf("LSP tool %q action condition is missing if block", manifest.Name)
+			}
+			conditionProperties, ok := ifBlock["properties"].(map[string]any)
+			if !ok {
+				return fmt.Errorf("LSP tool %q action condition has invalid properties", manifest.Name)
+			}
+			conditionAction, ok := conditionProperties["action"].(map[string]any)
+			if !ok {
+				return fmt.Errorf("LSP tool %q action condition is missing action const", manifest.Name)
+			}
+			name, ok := conditionAction["const"].(string)
+			if !ok || strings.TrimSpace(name) == "" {
+				return fmt.Errorf("LSP tool %q action condition has invalid const %v", manifest.Name, conditionAction["const"])
+			}
+			if _, exists := seen[name]; !exists {
+				return fmt.Errorf("LSP tool %q action condition %q is missing from action enum", manifest.Name, name)
+			}
+			if _, duplicate := conditionActions[name]; duplicate {
+				return fmt.Errorf("LSP tool %q action conditions contain duplicate %q", manifest.Name, name)
+			}
+			conditionActions[name] = struct{}{}
+		}
+		for action := range seen {
+			if _, exists := conditionActions[action]; !exists {
+				return fmt.Errorf("LSP tool %q action enum %q has no action condition", manifest.Name, action)
+			}
+		}
+	}
+	return nil
+}
+
+func schemaEnumStrings(value any) ([]string, error) {
+	switch values := value.(type) {
+	case []string:
+		if len(values) == 0 {
+			return nil, errors.New("enum is empty")
+		}
+		return append([]string(nil), values...), nil
+	case []any:
+		if len(values) == 0 {
+			return nil, errors.New("enum is empty")
+		}
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			action, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("enum value has type %T, want string", value)
+			}
+			result = append(result, action)
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("enum has type %T, want []string", value)
+	}
+}
+
+func validateToolCallArguments(def toolDefinition, args json.RawMessage) error {
+	validator := def.validator
+	if validator == nil {
+		// Hand-built definitions remain useful to low-level transport tests. Production definitions
+		// always carry the validator compiled by compileToolDefinitions above.
+		if len(def.Manifest.Schema) == 0 {
+			return nil
+		}
+		compiled, err := compileToolManifestSchema(def.Manifest)
+		if err != nil {
+			return common.NewCodedToolError("invalid_params", err, false, "The tool manifest schema is invalid; inspect the sidecar assembly.")
+		}
+		validator = compiled
+	}
+	var value any
+	if err := json.Unmarshal(args, &value); err != nil {
+		return common.NewCodedToolError("invalid_params", fmt.Errorf("arguments are not valid JSON: %w", err), false, "Pass a JSON object matching the tool input schema.")
+	}
+	if unknown := firstUnknownManifestField(def.Manifest.Schema, value); unknown != "" {
+		return common.NewCodedToolError("invalid_params", fmt.Errorf("unknown field %q", unknown), false, "Remove fields not declared by the tool input schema.")
+	}
+	if err := validator.Validate(value); err != nil {
+		return common.NewCodedToolError("invalid_params", fmt.Errorf("tool %q arguments do not match its input schema: %w", def.Manifest.Name, err), false, "Fix the arguments to match the advertised tool schema.")
+	}
+	return nil
+}
+
+func firstUnknownManifestField(raw schema, value any) string {
+	arguments, ok := value.(map[string]any)
+	if !ok {
+		return ""
+	}
+	properties, ok := raw["properties"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	unknown := make([]string, 0)
+	for field := range arguments {
+		if _, declared := properties[field]; !declared {
+			unknown = append(unknown, field)
+		}
+	}
+	if len(unknown) == 0 {
+		return ""
+	}
+	sort.Strings(unknown)
+	return unknown[0]
+}
+
 // handleToolCall 按工具名在定义列表中查找处理器并执行，未找到时返回错误。
 func handleToolCall(ctx context.Context, defs []toolDefinition, name string, args json.RawMessage) (any, error) {
 	trimmed := canonicalToolName(name)
@@ -375,6 +586,9 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 		}
 		if def.Handler == nil {
 			return nil, errors.New("tool handler is not configured")
+		}
+		if err := validateToolCallArguments(def, args); err != nil {
+			return nil, err
 		}
 		return def.Handler(ctx, args)
 	}

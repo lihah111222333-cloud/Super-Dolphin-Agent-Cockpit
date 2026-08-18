@@ -28,6 +28,109 @@ func TestSyncDirectoryWindows(t *testing.T) {
 	}
 }
 
+func TestSyncDirectoryWindowsExecutesFlushAndClose(t *testing.T) {
+	var opened, flushed, closed bool
+	wantErr := windows.ERROR_ACCESS_DENIED
+	err := syncDirectoryWithOps("ignored", syncDirectoryWindowsOps{
+		open: func(string) (windows.Handle, error) {
+			opened = true
+			return windows.Handle(1), nil
+		},
+		flush: func(windows.Handle) error {
+			flushed = true
+			return wantErr
+		},
+		close: func(windows.Handle) error {
+			closed = true
+			return nil
+		},
+	})
+	if !opened || !flushed || !closed {
+		t.Fatalf("syncDirectoryWithOps() calls = open:%v flush:%v close:%v, want all true", opened, flushed, closed)
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("syncDirectoryWithOps() error = %v, want flush error %v in chain", err, wantErr)
+	}
+}
+
+func TestSyncDirectoryWindowsPromotesPermissionErrorsFromSyncOperations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private-state.db")
+	tests := []struct {
+		name      string
+		operation string
+		code      uint32
+	}{
+		{name: "open_access_denied", operation: "open", code: 5},
+		{name: "open_privilege_not_held", operation: "open", code: 1314},
+		{name: "flush_access_denied", operation: "flush", code: 5},
+		{name: "flush_privilege_not_held", operation: "flush", code: 1314},
+		{name: "close_access_denied", operation: "close", code: 5},
+		{name: "close_privilege_not_held", operation: "close", code: 1314},
+	}
+	for _, testCase := range tests {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			raw := syscall.Errno(testCase.code)
+			err := syncDirectoryWithOps(path, syncDirectoryWindowsOps{
+				open: func(string) (windows.Handle, error) {
+					if testCase.operation == "open" {
+						return windows.InvalidHandle, raw
+					}
+					return windows.Handle(1), nil
+				},
+				flush: func(windows.Handle) error {
+					if testCase.operation == "flush" {
+						return raw
+					}
+					return nil
+				},
+				close: func(windows.Handle) error {
+					if testCase.operation == "close" {
+						return raw
+					}
+					return nil
+				},
+			})
+			var permissionErr *WindowsPermissionError
+			if !errors.As(err, &permissionErr) || permissionErr == nil {
+				t.Fatalf("syncDirectoryWithOps() error = %v, want WindowsPermissionError", err)
+			}
+			if got := permissionErr.Win32Code(); got != testCase.code {
+				t.Fatalf("WindowsPermissionError code = %d, want %d", got, testCase.code)
+			}
+			if containsSecurefsPathToken(err.Error(), path, filepath.Dir(path)) {
+				t.Fatalf("syncDirectoryWithOps() leaked raw path: %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestSyncDirectoryWindowsKeepsNonPermissionErrorChain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private-state.db")
+	sentinel := errors.New("flush failed")
+	err := syncDirectoryWithOps(path, syncDirectoryWindowsOps{
+		open: func(string) (windows.Handle, error) {
+			return windows.Handle(1), nil
+		},
+		flush: func(windows.Handle) error {
+			return sentinel
+		},
+		close: func(windows.Handle) error {
+			return nil
+		},
+	})
+	var permissionErr *WindowsPermissionError
+	if errors.As(err, &permissionErr) {
+		t.Fatalf("syncDirectoryWithOps() promoted non-permission error: %#v", permissionErr)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("syncDirectoryWithOps() error = %v, want sentinel in chain", err)
+	}
+	if containsSecurefsPathToken(err.Error(), path, filepath.Dir(path)) {
+		t.Fatalf("syncDirectoryWithOps() leaked raw path: %q", err.Error())
+	}
+}
+
 func TestWrapErrorForPathPromotesWindowsPermissionCodes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "private-state.db")
 	for _, code := range []uint32{5, 1314} {
@@ -61,7 +164,6 @@ func TestWrapErrorForPathDoesNotReplaceTypedWindowsPermissionError(t *testing.T)
 		t.Fatalf("WrapErrorForPath() replaced an existing typed error")
 	}
 }
-
 
 func TestRestrictOwnerOnlyKeepsCurrentUserWritable(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")

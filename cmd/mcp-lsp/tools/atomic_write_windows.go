@@ -29,6 +29,11 @@ func (osFileWriter) Rename(oldPath string, newPath string) error {
 	return syncReplacedFile(newPath)
 }
 
+// syncParentDirectory 在 Windows 平台不刷新目录句柄；ReplaceFileW 已发布结果文件。
+func syncParentDirectory(string, fileWriter) error {
+	return nil
+}
+
 // replaceFilePreservingMetadata 使用 ReplaceFileW 原子替换，并拒绝忽略 DACL 合并错误。
 func replaceFilePreservingMetadata(replacementPath string, replacedPath string) error {
 	return replaceFilePreservingMetadataWithCall(replacementPath, replacedPath, callWindowsReplaceFile, time.Sleep)

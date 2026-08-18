@@ -5,7 +5,7 @@ import { installAgenticE2EMockWails, readAgenticE2EMockWailsState } from './agen
 
 describe('agentic e2e strict Wails mock readiness and ACK contracts', () => {
   it('implements the frontend readiness probe and commit epoch contract', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       await installAgenticE2EMockWails(page, { sandbox: sandboxFixture('/tmp/agentic-e2e-readiness') });
@@ -41,7 +41,7 @@ describe('agentic e2e strict Wails mock readiness and ACK contracts', () => {
   });
 
   it('responds to exact trace-ingest and ui/log ACKs while recording unhandled RPCs', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-known');

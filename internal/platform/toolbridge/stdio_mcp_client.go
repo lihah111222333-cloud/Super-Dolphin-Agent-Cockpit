@@ -54,8 +54,74 @@ type stdioRPCResponse struct {
 	ID     int64           `json:"id,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  *struct {
-		Message string `json:"message"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data,omitempty"`
 	} `json:"error,omitempty"`
+}
+
+type stdioMCPProtocolError struct {
+	message string
+	data    json.RawMessage
+}
+
+func (e *stdioMCPProtocolError) Error() string {
+	if e == nil || strings.TrimSpace(e.message) == "" {
+		return "toolbridge: stdio MCP protocol error"
+	}
+	return e.message
+}
+
+// UnmarshalJSON preserves a trusted top-level MCP _meta object by placing it
+// on the first content block, which is the existing internal metadata carrier.
+// No model-visible text or structuredContent is inspected.
+func (r *peerToolCallResponse) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		Content           []peerToolCallContent `json:"content"`
+		IsError           bool                  `json:"isError,omitempty"`
+		StructuredContent json.RawMessage       `json:"structuredContent,omitempty"`
+		Meta              json.RawMessage       `json:"_meta,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	r.Content = wire.Content
+	r.IsError = wire.IsError
+	r.StructuredContent = wire.StructuredContent
+	if len(strings.TrimSpace(string(wire.Meta))) == 0 || string(wire.Meta) == "null" {
+		return nil
+	}
+	if len(r.Content) == 0 {
+		return errors.New("toolbridge: peer result _meta requires a content block")
+	}
+	meta, err := mergePeerResultMetadata(r.Content[0].Meta, wire.Meta)
+	if err != nil {
+		return err
+	}
+	r.Content[0].Meta = meta
+	return nil
+}
+
+func mergePeerResultMetadata(existing, topLevel json.RawMessage) (json.RawMessage, error) {
+	var merged map[string]json.RawMessage
+	if trimmed := strings.TrimSpace(string(existing)); trimmed != "" && trimmed != "null" {
+		if err := json.Unmarshal(existing, &merged); err != nil {
+			return nil, fmt.Errorf("toolbridge: peer content _meta is invalid: %w", err)
+		}
+	}
+	if merged == nil {
+		merged = make(map[string]json.RawMessage)
+	}
+	var trusted map[string]json.RawMessage
+	if err := json.Unmarshal(topLevel, &trusted); err != nil {
+		return nil, fmt.Errorf("toolbridge: peer result _meta is invalid: %w", err)
+	}
+	if trusted == nil {
+		return nil, errors.New("toolbridge: peer result _meta must be an object")
+	}
+	for key, value := range trusted {
+		merged[key] = append(json.RawMessage(nil), value...)
+	}
+	return json.Marshal(merged)
 }
 
 // stdioRequestResult 把持久读泵分派的响应或终止错误传回对应请求。
@@ -83,22 +149,22 @@ func newStdioMCPClientForValidatedBinary(ctx context.Context, binary providerdto
 	}
 	cmd := exec.Command(strings.TrimSpace(binary.Command[0]), binary.Command[1:]...)
 	cmd.Env = append(stdioParentEnv(os.Environ()), manifestEnv(binary.Env)...)
-	stdioConfigureCommand(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, stdin.Close())
 	}
 	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	guard, err := stdioStartGuardedProcess(cmd, stdioMCPAllowsBreakaway(binary))
+	if err != nil {
+		return nil, errors.Join(err, stdin.Close(), stdout.Close())
 	}
 	client := &stdioMCPClient{
 		cmd:       cmd,
-		guard:     stdioAttachProcessGuard(cmd, stdioMCPAllowsBreakaway(binary)),
+		guard:     guard,
 		transport: mcpwire.NewStdioTransport(stdout, stdin),
 		stdin:     stdin,
 		pending:   make(map[int64]chan stdioRequestResult),
@@ -187,6 +253,11 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.Ra
 	})
 	if err != nil {
 		logToolCallFailure("stdio_mcp", err)
+		if protocolErr, ok := err.(*stdioMCPProtocolError); ok {
+			if meta, hasMeta := protocolErrorMetadata(protocolErr.data); hasMeta {
+				return toolCallErrorResultWithMeta(toolCallPublicError(err), meta), nil
+			}
+		}
 		return toolCallPublicErrorResult(err), nil
 	}
 	var decoded peerToolCallResponse
@@ -194,6 +265,57 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.Ra
 		return nil, err
 	}
 	return adaptMCPResponse(decoded)
+}
+
+// protocolErrorMetadata extracts only the typed ACL metadata carrier from
+// JSON-RPC error.data; error messages are never parsed.
+func protocolErrorMetadata(raw json.RawMessage) (json.RawMessage, bool) {
+	var object map[string]json.RawMessage
+	if len(strings.TrimSpace(string(raw))) == 0 || json.Unmarshal(raw, &object) != nil || object == nil {
+		return nil, false
+	}
+	for _, key := range []string{"_meta", "meta"} {
+		candidate, ok := object[key]
+		if !ok || !jsonObject(candidate) {
+			continue
+		}
+		if hasACLMetadata(candidate) {
+			return append(json.RawMessage(nil), candidate...), true
+		}
+	}
+	if hasACLMetadata(raw) {
+		var filtered map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &filtered); err != nil {
+			return nil, false
+		}
+		for key := range filtered {
+			if key != "authorization_required" && key != "windows_error_code" && key != "windows_permission_kind" {
+				delete(filtered, key)
+			}
+		}
+		encoded, err := json.Marshal(filtered)
+		if err != nil {
+			return nil, false
+		}
+		return encoded, true
+	}
+	return nil, false
+}
+
+func jsonObject(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	return json.Unmarshal(raw, &object) == nil && object != nil
+}
+
+func hasACLMetadata(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil || object == nil {
+		return false
+	}
+	_, required := object["authorization_required"]
+	_, code := object["windows_error_code"]
+	_, kind := object["windows_permission_kind"]
+	return required && code && kind
 }
 
 // request 注册一个有界 pending 请求，串行写入后等待持久读泵按 id 分派响应。
@@ -289,7 +411,10 @@ func (c *stdioMCPClient) readPump() {
 		}
 		result := stdioRequestResult{raw: resp.Result}
 		if resp.Error != nil {
-			result.err = errors.New(resp.Error.Message)
+			result.err = &stdioMCPProtocolError{
+				message: resp.Error.Message,
+				data:    append(json.RawMessage(nil), resp.Error.Data...),
+			}
 		}
 		c.completePending(resp.ID, result)
 	}
