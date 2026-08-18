@@ -37,7 +37,7 @@
 - `file(read_file, pos=<file>:<line>)` 默认读函数窗口；固定行窗口加 `scope=lines`。
 - 拿到 `func_start/func_end` 后直接读：`file(action=read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)`。
 - 所有 LSP 工具都支持 `work_dir`，但必须在可信 workspace roots 内。
-- `max_results` 只裁剪返回结果；出现 `truncated`、`scope_too_broad`、超时或 `retryable` 时必须收窄路径、查询、语言或结果范围后重试，不得解释成全量结果。
+- `max_results` 只裁剪返回结果；出现 `truncated`、`scope_too_broad`、超时或 `retryable` 时必须收窄路径、查询、语言或结果范围后重试，不得解释成全量结果。若 `document_symbol` 返回 `ATTR failure_reason=document_symbol_hard_limit_reached`，必须按 `next_step=narrow_file_or_symbol_scope` 收窄范围；此时 `effective_limit` 已是协议硬上限，不得仅继续增大 `max_results`。
 
 ## 四、禁止
 

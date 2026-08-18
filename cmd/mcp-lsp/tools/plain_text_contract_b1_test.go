@@ -26,6 +26,7 @@ func TestMcpLSPToolPlainTextContractB1(t *testing.T) {
 	t.Run("workspace language selector rejects conflicting language id", testWorkspaceLanguageConflict)
 	t.Run("folding range preserves pre-limit total", testFoldingRangeTotal)
 	t.Run("document symbol renders recursive nodes compactly", testDocumentSymbolLineProtocol)
+	t.Run("document symbol hard limit explains recovery", testDocumentSymbolHardLimitRecovery)
 }
 
 func testToolErrorEnvelopeLineProtocol(t *testing.T) {
@@ -176,6 +177,54 @@ func testDocumentSymbolLineProtocol(t *testing.T) {
 		if fields[key] != want {
 			t.Errorf("document symbol %s = %q, want %q", key, fields[key], want)
 		}
+	}
+}
+
+func testDocumentSymbolHardLimitRecovery(t *testing.T) {
+	root, target := writeWorkspaceSelectorFixture(t)
+	symbols := make([]protocol.DocumentSymbol, 60)
+	for index := range symbols {
+		symbols[index] = protocol.DocumentSymbol{
+			Name: fmt.Sprintf("symbol_%02d", index),
+			Kind: protocol.SymbolKindFunction,
+		}
+	}
+	manager := &structureTestManager{documentSymbols: symbols}
+	result, err := runDocumentSymbols(plainTextToolScope(root), manager, structureParams{FilePath: target, MaxResults: 50})
+	if err != nil {
+		t.Fatalf("runDocumentSymbols() error = %v", err)
+	}
+	text := plainTextForContractResult(t, result)
+	document, err := lineprotocol.Parse(text)
+	if err != nil {
+		t.Fatalf("parse document symbol hard limit text: %v", err)
+	}
+	if document.Error != nil || document.Header.Total != 60 || document.Header.Showing != 50 || !document.Header.Truncated {
+		t.Fatalf("document symbol hard limit = error:%#v total:%d showing:%d truncated:%v, want success/60/50/true; text=%q",
+			document.Error, document.Header.Total, document.Header.Showing, document.Header.Truncated, text)
+	}
+
+	var attributes map[string]string
+	var hint string
+	for _, record := range document.Records {
+		switch record.Kind {
+		case "ATTR":
+			attributes = record.Fields
+		case "HINT":
+			hint = record.Value
+		}
+	}
+	if got := attributes["failure_reason"]; got != "document_symbol_hard_limit_reached" {
+		t.Fatalf("document symbol hard limit failure_reason = %q, want document_symbol_hard_limit_reached; text=%q", got, text)
+	}
+	if got := attributes["effective_limit"]; got != "50" {
+		t.Fatalf("document symbol hard limit effective_limit = %q, want 50; text=%q", got, text)
+	}
+	if got := attributes["next_step"]; got != "narrow_file_or_symbol_scope" {
+		t.Fatalf("document symbol hard limit next_step = %q, want narrow_file_or_symbol_scope; text=%q", got, text)
+	}
+	if hint != "next: document_symbol reached the protocol hard limit (50); narrow the file/symbol scope" {
+		t.Fatalf("document symbol hard limit hint = %q, want recovery plan; text=%q", hint, text)
 	}
 }
 

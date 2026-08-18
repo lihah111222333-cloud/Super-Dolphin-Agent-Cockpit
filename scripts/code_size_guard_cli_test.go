@@ -81,6 +81,50 @@ func TestHostTestModeRunsOneBoundedExactTest(t *testing.T) {
 	}
 }
 
+func TestHostResourceSnapshotRoutesWSLThroughWindowsSampler(t *testing.T) {
+	root := t.TempDir()
+	powershellLog := filepath.Join(root, "powershell.log")
+	fixtures := map[string]string{
+		"uname":          "#!/usr/bin/env bash\nprintf 'Linux\\n'\n",
+		"wslpath":        "#!/usr/bin/env bash\n[[ \"$1\" == '-w' ]] || exit 2\nprintf 'C:\\\\repo\\\\host_resource_snapshot.ps1\\n'\n",
+		"powershell.exe": "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > \"$FAKE_POWERSHELL_LOG\"\nprintf '10.0 8 40.0\\n'\n",
+	}
+	for name, body := range fixtures {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o700); err != nil {
+			t.Fatalf("write fake host probe %s: %v", name, err)
+		}
+	}
+
+	command := exec.Command("bash", "-c", `
+set -euo pipefail
+source "$1"
+printf 'platform=%s\n' "$(host_test_resource_platform)"
+printf 'snapshot=%s\n' "$(host_test_resource_snapshot)"
+`, "bash", filepath.Join("scripts", "test_with_guard.sh"))
+	command.Dir = ".."
+	environment := upsertEnv(os.Environ(), "PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	environment = upsertEnv(environment, "WSL_DISTRO_NAME", "Ubuntu-24.04")
+	environment = upsertEnv(environment, "FAKE_POWERSHELL_LOG", powershellLog)
+	command.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "PATH", "WSL_DISTRO_NAME", "FAKE_POWERSHELL_LOG")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("read WSL host resource snapshot: %v\n%s", err, output)
+	}
+	text := stripWSLInteropBanner(string(output))
+	for _, required := range []string{"platform=wsl", "snapshot=low 10.0 8 40.0"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("WSL host resource snapshot omitted %q:\n%s", required, text)
+		}
+	}
+	invocation, err := os.ReadFile(powershellLog)
+	if err != nil {
+		t.Fatalf("read fake PowerShell invocation: %v", err)
+	}
+	if !strings.Contains(string(invocation), `-File C:\repo\host_resource_snapshot.ps1`) {
+		t.Fatalf("WSL PowerShell sampler path was not converted: %q", invocation)
+	}
+}
+
 func TestHostTestModeRejectsEmptySelectionAndHeavyFlag(t *testing.T) {
 	t.Run("empty selection", func(t *testing.T) {
 		t.Setenv("FAKE_GO_TEST_OUTPUT", "ok  example.test/scripts  0.001s [no tests to run]")

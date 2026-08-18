@@ -248,8 +248,28 @@ host_test_cpu_busy_percent() {
   return 2
 }
 
+host_test_resource_platform() {
+  local kernel_name release=""
+  kernel_name="$(uname -s 2>/dev/null || true)"
+  case "$kernel_name" in
+    MINGW*|MSYS*|CYGWIN*) printf 'windows\n' ;;
+    Darwin) printf 'darwin\n' ;;
+    Linux)
+      if [[ -r /proc/sys/kernel/osrelease ]]; then
+        release="$(</proc/sys/kernel/osrelease)"
+      fi
+      if [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" || "${release,,}" == *microsoft* || "${release,,}" == *wsl* ]]; then
+        printf 'wsl\n'
+      else
+        printf 'linux\n'
+      fi
+      ;;
+    *) printf 'unsupported\n' ;;
+  esac
+}
+
 host_test_windows_resource_snapshot() {
-  local sampler="$ROOT_DIR/scripts/platform/windows/host_resource_snapshot.ps1"
+  local sampler="$ROOT_DIR/scripts/platform/windows/host_resource_snapshot.ps1" sampler_arg
   if [[ ! -r "$sampler" ]]; then
     echo "Windows host resource sampler is unavailable: $sampler" >&2
     return 2
@@ -258,7 +278,19 @@ host_test_windows_resource_snapshot() {
     echo "Windows PowerShell is required for host resource sampling" >&2
     return 2
   fi
-  powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$sampler"
+  sampler_arg="$sampler"
+  if [[ "$(host_test_resource_platform)" == "wsl" ]]; then
+    if ! command -v wslpath >/dev/null 2>&1; then
+      echo "wslpath is required for WSL host resource sampling" >&2
+      return 2
+    fi
+    sampler_arg="$(wslpath -w "$sampler" 2>/dev/null || true)"
+    if [[ -z "$sampler_arg" ]]; then
+      echo "convert Windows host resource sampler path from WSL failed: $sampler" >&2
+      return 2
+    fi
+  fi
+  powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$sampler_arg"
 }
 
 host_test_resource_tier() {
@@ -272,10 +304,10 @@ host_test_resource_tier() {
 }
 
 host_test_resource_snapshot() {
-  local kernel_name logical_cpus="" cpu_busy_percent="" memory_free_percent="" tier="" windows_snapshot=""
-  kernel_name="$(uname -s 2>/dev/null || true)"
-  case "$kernel_name" in
-    MINGW*|MSYS*|CYGWIN*)
+  local platform logical_cpus="" cpu_busy_percent="" memory_free_percent="" tier="" windows_snapshot=""
+  platform="$(host_test_resource_platform)"
+  case "$platform" in
+    windows|wsl)
       if ! windows_snapshot="$(host_test_windows_resource_snapshot)"; then
         echo "host resource evidence is unavailable; route this test to ECI" >&2
         return 2
@@ -283,7 +315,7 @@ host_test_resource_snapshot() {
       windows_snapshot="${windows_snapshot//$'\r'/}"
       read -r cpu_busy_percent logical_cpus memory_free_percent <<<"$windows_snapshot"
       ;;
-    *)
+    darwin)
       if command -v sysctl >/dev/null 2>&1; then
         logical_cpus="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
       fi
@@ -293,9 +325,20 @@ host_test_resource_snapshot() {
       cpu_busy_percent="$(host_test_cpu_busy_percent || true)"
       if command -v memory_pressure >/dev/null 2>&1; then
         memory_free_percent="$(memory_pressure -Q 2>/dev/null | awk -F': ' '/free percentage/ {gsub(/%/, "", $2); print $2; exit}' || true)"
-      elif [[ -r /proc/meminfo ]]; then
-        memory_free_percent="$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {available=$2} END {if (total > 0) printf "%.0f", available*100/total}' /proc/meminfo)"
       fi
+      ;;
+    linux)
+      if command -v getconf >/dev/null 2>&1; then
+        logical_cpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+      fi
+      cpu_busy_percent="$(host_test_cpu_busy_percent || true)"
+      if [[ -r /proc/meminfo ]]; then
+        memory_free_percent="$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {available=$2; found=1} END {if (total > 0 && found) printf "%.0f", available*100/total}' /proc/meminfo)"
+      fi
+      ;;
+    *)
+      echo "unsupported host resource platform: $platform; route this test to ECI" >&2
+      return 2
       ;;
   esac
   if [[ ! "$logical_cpus" =~ ^[0-9]+$ ]] || [[ "$logical_cpus" -le 0 ]] ||

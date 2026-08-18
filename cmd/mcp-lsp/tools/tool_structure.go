@@ -37,11 +37,14 @@ const (
 
 // documentSymbolListResponse 是 document_symbol 的分页响应。
 type documentSymbolListResponse struct {
-	Data      []protocol.DocumentSymbol `json:"data"`
-	Total     int                       `json:"total"`
-	Showing   int                       `json:"showing"`
-	Truncated bool                      `json:"truncated,omitempty"`
-	Hint      string                    `json:"hint,omitempty"`
+	Data           []protocol.DocumentSymbol `json:"data"`
+	Total          int                       `json:"total"`
+	Showing        int                       `json:"showing"`
+	Truncated      bool                      `json:"truncated,omitempty"`
+	FailureReason  string                    `json:"failure_reason,omitempty"`
+	EffectiveLimit int                       `json:"effective_limit,omitempty"`
+	NextStep       string                    `json:"next_step,omitempty"`
+	Hint           string                    `json:"hint,omitempty"`
 }
 
 type workspaceSymbolListResponse struct {
@@ -71,6 +74,13 @@ type semanticTokenListResponse struct {
 // ToPlainText 把递归符号树扁平为稳定的前序 ROW。
 func (response documentSymbolListResponse) ToPlainText() string {
 	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "symbol")}
+	if response.FailureReason != "" {
+		lines = append(lines, lineprotocol.FieldsRecord("ATTR",
+			lineprotocol.Field{Key: "failure_reason", Value: response.FailureReason},
+			lineprotocol.Field{Key: "effective_limit", Value: strconv.Itoa(response.EffectiveLimit)},
+			lineprotocol.Field{Key: "next_step", Value: response.NextStep},
+		))
+	}
 	appendDocumentSymbolRows(&lines, response.Data, 0)
 	return appendStructureHint(lines, response.Hint)
 }
@@ -308,6 +318,12 @@ func runDocumentSymbols(
 	}
 	if resp.Truncated {
 		resp.Hint = "next: increase max_results or narrow the file/symbol scope"
+		if limit == protocol.XRefResultLimit {
+			resp.FailureReason = "document_symbol_hard_limit_reached"
+			resp.EffectiveLimit = limit
+			resp.NextStep = "narrow_file_or_symbol_scope"
+			resp.Hint = fmt.Sprintf("next: document_symbol reached the protocol hard limit (%d); narrow the file/symbol scope", limit)
+		}
 	}
 	return resp, nil
 }
