@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"sync"
 
@@ -149,21 +150,20 @@ func prepareRemoteWorkloadIdentity(
 	)
 	if input.InventorySnapshot != nil {
 		fingerprintSnapshot, err = input.InventorySnapshot.exactTree(input.RepositoryRoot, input.Tree)
-		if err == nil {
-			inputDigests, err = fingerprintSnapshot.remoteWorkloadInputDigests(ctx, workloads)
-		}
 	} else {
-		inputDigests, _, fingerprintSnapshot, err = remoteWorkloadFingerprintsWithSnapshot(
+		fingerprintSnapshot, err = loadRemoteGitTreeSnapshot(
 			ctx,
 			input.RepositoryRoot,
 			input.Tree,
-			workloads,
 		)
+	}
+	if err == nil {
+		inputDigests, err = remoteWorkloadInputDigestsForPrepare(ctx, input, fingerprintSnapshot, workloads)
 	}
 	if err != nil {
 		return RunInput{}, gate.WorkloadCatalog{}, "", nil, err
 	}
-	workerExecutionSemanticDigest, err := fingerprintSnapshot.workerExecutionDigest(ctx)
+	workerExecutionSemanticDigest, err := remoteWorkerExecutionDigestForPrepare(ctx, input, fingerprintSnapshot)
 	if err != nil {
 		return RunInput{}, gate.WorkloadCatalog{}, "", nil, fmt.Errorf("derive remote worker execution semantic digest (%s): %w", fingerprintSnapshot.workerExecutionSourceDiagnostic(), err)
 	}
@@ -180,6 +180,65 @@ func prepareRemoteWorkloadIdentity(
 	}
 	input.InventorySnapshot = nil
 	return input, catalog, catalogDigest, fingerprintSnapshot, nil
+}
+
+// remoteWorkloadInputDigestsForPrepare 优先读取同 accepted generation、当前树与
+// 当前算法绑定的 SQLite 派生摘要；缓存缺项才重新计算，任何坏行仍由 store
+// 校验并立即阻断。
+func remoteWorkloadInputDigestsForPrepare(ctx context.Context, input RunInput, snapshot *remoteGitTreeSnapshot, workloads []gate.Workload) (map[string]string, error) {
+	algorithm, supported, err := snapshot.workloadInputAlgorithmDigest()
+	if err != nil {
+		return nil, err
+	}
+	if !supported {
+		return snapshot.remoteWorkloadInputDigests(ctx, workloads)
+	}
+	workloadIDs := make([]gate.GateID, 0, len(workloads))
+	for _, workload := range workloads {
+		workloadIDs = append(workloadIDs, gate.GateID(workload.ID))
+	}
+	cached, err := input.LedgerStore.LookupWorkloadInputReplayCache(input.AcceptedGeneration, input.Tree, algorithm, workloadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("load current-tree workload input replay cache: %w", err)
+	}
+	result := make(map[string]string, len(workloads))
+	pending := make([]gate.Workload, 0, len(workloads)-len(cached))
+	for _, workload := range workloads {
+		if value, ok := cached[gate.GateID(workload.ID)]; ok {
+			result[workload.ID] = value.InputDigest
+			continue
+		}
+		pending = append(pending, workload)
+	}
+	computed, err := snapshot.remoteWorkloadInputDigests(ctx, pending)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(result, computed)
+	if len(result) != len(workloads) {
+		return nil, errors.New("current-tree workload input replay cache projection is incomplete")
+	}
+	return result, nil
+}
+
+// remoteWorkerExecutionDigestForPrepare 复用与输入算法同代、同树绑定的 worker
+// 摘要；不存在历史派生行时才解析当前树执行闭包。
+func remoteWorkerExecutionDigestForPrepare(ctx context.Context, input RunInput, snapshot *remoteGitTreeSnapshot) (string, error) {
+	inputAlgorithm, supported, err := snapshot.workloadInputAlgorithmDigest()
+	if err != nil {
+		return "", err
+	}
+	if supported {
+		algorithm := sha256.Sum256([]byte(remoteWorkerExecutionReplayCacheAlgorithmDomain + "\n" + inputAlgorithm + "\n"))
+		hits, err := input.LedgerStore.LookupWorkerExecutionReplayCache(input.AcceptedGeneration, fmt.Sprintf("sha256:%x", algorithm), []string{input.Tree})
+		if err != nil {
+			return "", fmt.Errorf("load current-tree worker execution replay cache: %w", err)
+		}
+		if digest := hits[input.Tree]; digest != "" {
+			return digest, nil
+		}
+	}
+	return snapshot.workerExecutionDigest(ctx)
 }
 
 // AllReused 返回 Prepare 已冻结的不可变复用决策。

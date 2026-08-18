@@ -14,6 +14,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
+const remoteWorkerExecutionReplayCacheAlgorithmDomain = "remote-worker-execution-replay-cache-algorithm/v1"
+
 type remoteReplayTreeKey struct {
 	repositoryRoot string
 	tree           string
@@ -149,7 +151,7 @@ func (cache *remoteReplayCache) bindPersistentInputReplayCache(store *gate.Durat
 	cache.persistentInputStore = store
 	cache.persistentAcceptedGeneration = acceptedGeneration
 	cache.persistentInputAlgorithm = digest
-	workerAlgorithm := sha256.Sum256([]byte("remote-worker-execution-replay-cache-algorithm/v1\n" + digest + "\n"))
+	workerAlgorithm := sha256.Sum256([]byte(remoteWorkerExecutionReplayCacheAlgorithmDomain + "\n" + digest + "\n"))
 	cache.persistentWorkerAlgorithm = fmt.Sprintf("sha256:%x", workerAlgorithm)
 	return nil
 }

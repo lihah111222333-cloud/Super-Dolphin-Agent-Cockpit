@@ -43,7 +43,8 @@ chmod 500 "$candidate_source"
 digest=$(sha256_file "$candidate_source")
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 original_materializer=$(declare -f materialize_trusted_gate_launcher_for_tree)
-for shell_name in bash zsh; do
+read -r -a contract_shells <<<"${SUPER_DOLPHIN_TRUSTED_LAUNCHER_CONTRACT_SHELLS:?platform contract shells are required}"
+for shell_name in "${contract_shells[@]}"; do
   command -v "$shell_name" >/dev/null 2>&1 || fail "$shell_name is required for missing-launcher discovery"
   shell_command=("$shell_name")
   [[ "$shell_name" == zsh ]] && shell_command+=(-f)
@@ -143,8 +144,9 @@ actual=$(trusted_gate_launcher_for_tree "$git_repo" "$tree")
 
 validate_trusted_gate_launcher "$git_repo" "$launcher" || fail 'valid content-addressed launcher was rejected'
 [[ "$(trusted_gate_launcher "$git_repo")" == "$launcher" ]] || fail 'valid exact-tree launcher receipt was rejected'
-run_direct_source_tree_test bash
-run_direct_source_tree_test zsh
+for shell_name in "${contract_shells[@]}"; do
+  run_direct_source_tree_test "$shell_name"
+done
 chmod 600 "$(dirname "$launcher")/receipt.json"
 printf '%s\n' '{"fixture":"tampered"}' >"$(dirname "$launcher")/receipt.json"
 chmod 400 "$(dirname "$launcher")/receipt.json"

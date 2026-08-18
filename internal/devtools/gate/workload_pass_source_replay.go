@@ -535,9 +535,10 @@ func workloadPassSourceReplayQuery(identities []WorkloadPassIdentity, retained [
 			proof.origin_job_id, proof.origin_source_tree_sha, proof.origin_receipt_set_sha256,
 			CASE WHEN json_type(proof.origin_execution_json, '$.schema_version') IS NOT NULL THEN json_extract(proof.origin_execution_json, '$.execution') ELSE proof.origin_execution_json END,
 			proof.evidence_sha256
-		FROM requested CROSS JOIN ci_retained_workload_pass_proofs AS proof INDEXED BY idx_ci_retained_workload_pass_proofs_source_replay ON proof.workload_id = requested.workload_id
+		FROM ci_runs AS consumer INDEXED BY idx_ci_runs_accepted_generation
+		CROSS JOIN requested
+		CROSS JOIN ci_retained_workload_pass_proofs AS proof ON proof.consumer_job_id = consumer.job_id AND proof.workload_id = requested.workload_id
 		CROSS JOIN ci_run_workload_results AS result ON result.job_id = proof.consumer_job_id AND result.workload_id = proof.workload_id
-		CROSS JOIN ci_runs AS consumer ON consumer.job_id = proof.consumer_job_id
 		WHERE consumer.accepted_generation IN (?, ?, ?) AND result.disposition = 'reused'
 			AND (consumer.authoritative = 1 OR EXISTS (SELECT 1 FROM ci_check_receipts AS receipt WHERE receipt.job_id = proof.consumer_job_id))
 			AND result.origin_job_id = proof.origin_job_id AND result.origin_accepted_generation = proof.origin_accepted_generation

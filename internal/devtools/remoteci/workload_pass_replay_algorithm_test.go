@@ -194,6 +194,25 @@ func TestPersistentInputReplayRoundTripsCurrentTargetVotesAcrossPrepare(t *testi
 	}
 }
 
+// TestPrepareIdentityUsesPersistentCurrentTreeInputDigest 锁定第二次 Prepare 在
+// 当前树已有 SQLite 派生摘要时直接复用；只有缺项才重新计算。
+func TestPrepareIdentityUsesPersistentCurrentTreeInputDigest(t *testing.T) {
+	fixture := newPersistentSemanticReplayFixture(t)
+	key := remoteReplayWorkloadKey{
+		tree: remoteReplayTreeKey{repositoryRoot: "repo", tree: fixture.target.tree}, workloadID: fixture.workload.ID,
+	}
+	fixture.persistKey(t, key)
+	input := RunInput{LedgerStore: fixture.store, AcceptedGeneration: 1, Tree: fixture.target.tree}
+	digests, err := remoteWorkloadInputDigestsForPrepare(t.Context(), input, fixture.target, []gate.Workload{fixture.workload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "sha256:" + strings.Repeat("c", 64)
+	if got := digests[fixture.workload.ID]; got != want {
+		t.Fatalf("prepared current-tree input digest = %q, want persistent %q", got, want)
+	}
+}
+
 func TestPersistentWorkerExecutionDigestAvoidsSecondPrepareRebuild(t *testing.T) {
 	fixture := newPersistentSemanticReplayFixture(t)
 	key := remoteReplayTreeKey{repositoryRoot: "repo", tree: fixture.source.tree}
@@ -206,6 +225,23 @@ func TestPersistentWorkerExecutionDigestAvoidsSecondPrepareRebuild(t *testing.T)
 	}
 	if got != want || second.preciseComputations != 0 || second.persistentWorkerHits != 1 {
 		t.Fatalf("second Prepare worker digest=%q computations=%d hits=%d", got, second.preciseComputations, second.persistentWorkerHits)
+	}
+}
+
+// TestPrepareIdentityUsesPersistentCurrentTreeWorkerDigest 锁定 identity 阶段
+// 优先消费当前树 worker 派生摘要，历史为空时才重建执行闭包。
+func TestPrepareIdentityUsesPersistentCurrentTreeWorkerDigest(t *testing.T) {
+	fixture := newPersistentSemanticReplayFixture(t)
+	key := remoteReplayTreeKey{repositoryRoot: "repo", tree: fixture.target.tree}
+	want := "sha256:" + strings.Repeat("9", 64)
+	fixture.persistWorkerDigest(t, key, want)
+	input := RunInput{LedgerStore: fixture.store, AcceptedGeneration: 1, Tree: fixture.target.tree}
+	got, err := remoteWorkerExecutionDigestForPrepare(t.Context(), input, fixture.target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("prepared current-tree worker digest = %q, want persistent %q", got, want)
 	}
 }
 

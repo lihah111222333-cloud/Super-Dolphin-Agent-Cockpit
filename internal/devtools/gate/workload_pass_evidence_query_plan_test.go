@@ -33,7 +33,8 @@ func TestWorkloadPassEvidenceLookupQueryPlanUsesIdentityIndex(t *testing.T) {
 }
 
 // TestWorkloadPassSourceReplayQueryPlanUsesPartitionIndexes 锁定 direct proof 按
-// workload/execution/environment 分区、retained proof 按 workload 分区，禁止重复扫整代。
+// workload 分区，并要求 retained proof 从最近三代 consumer 反查，禁止每个 workload
+// 重扫全部历史 proof。
 func TestWorkloadPassSourceReplayQueryPlanUsesPartitionIndexes(t *testing.T) {
 	store := newWorkloadPassEvidenceStore(t, 12)
 	database := openWorkloadPassDatabase(t, store)
@@ -46,10 +47,14 @@ func TestWorkloadPassSourceReplayQueryPlanUsesPartitionIndexes(t *testing.T) {
 	}
 	identity.IdentityDigest = workloadPassIdentityDigest(t, identity)
 	query, args := workloadPassSourceReplayQuery([]WorkloadPassIdentity{identity}, retainedWorkloadPassGenerations(12))
+	if !strings.Contains(query, "FROM ci_runs AS consumer INDEXED BY idx_ci_runs_accepted_generation") || strings.Contains(query, "requested CROSS JOIN ci_retained_workload_pass_proofs") {
+		t.Fatalf("source replay retained query is not recent-consumer-first: %s", query)
+	}
 	details := sqliteQueryPlanDetails(t, database, query, args...)
 	assertSQLiteQueryPlanAccess(t, details, []string{
 		"SEARCH evidence USING INDEX idx_ci_workload_pass_evidence_source_replay (workload_id=? AND execution_digest=? AND environment_digest=? AND accepted_generation=?)",
-		"SEARCH proof USING INDEX idx_ci_retained_workload_pass_proofs_source_replay (workload_id=?)",
+		"SEARCH consumer USING INDEX idx_ci_runs_accepted_generation (accepted_generation=?)",
+		"SEARCH proof USING INDEX sqlite_autoindex_ci_retained_workload_pass_proofs_1 (consumer_job_id=? AND workload_id=?)",
 	})
 	assertSQLiteQueryPlanNoFullTableScan(t, details, []string{"ci_workload_pass_evidence", "ci_retained_workload_pass_proofs"})
 }

@@ -221,6 +221,9 @@ func materializeMcpLSPCandidateFixture(t *testing.T, sourceRoot string) string {
 		t.Fatalf("extract candidate tree %s: %v\n%s", tree, err, output)
 	}
 	runMcpLSPFixtureGit(t, repoRoot, nil, "init", "--quiet")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "gc.auto", "0")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "maintenance.auto", "false")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "maintenance.autoDetach", "false")
 	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "user.name", "mcp-lsp-candidate-test")
 	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "user.email", "mcp-lsp-candidate-test@example.invalid")
 	runMcpLSPFixtureGit(t, repoRoot, nil, "add", "-A")

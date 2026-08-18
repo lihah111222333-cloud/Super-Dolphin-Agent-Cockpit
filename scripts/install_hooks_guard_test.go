@@ -68,6 +68,7 @@ func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T)
 func TestTrustedGateLauncherShellContract(t *testing.T) {
 	installTrustedLauncherContractOSHome(t)
 	command := exec.Command("bash", "tests/test_trusted_gate_launcher_contract.sh")
+	command.Env = append(os.Environ(), "SUPER_DOLPHIN_TRUSTED_LAUNCHER_CONTRACT_SHELLS="+strings.Join(trustedLauncherContractShells(), " "))
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("trusted launcher shell contract failed: %v\n%s", err, output)

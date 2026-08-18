@@ -762,7 +762,7 @@ func configurePinnedSQLCProxy(t *testing.T, goBinary string) {
 	}
 	proxyRoot := filepath.Join(strings.TrimSpace(string(goModCache)), "cache", "download")
 	moduleCache := filepath.Join(proxyRoot, "github.com", "sqlc-dev", "sqlc", "@v")
-	for _, name := range []string{"v1.30.0.info", "v1.30.0.mod", "v1.30.0.zip"} {
+	for _, name := range []string{"list", "v1.30.0.info", "v1.30.0.mod", "v1.30.0.zip"} {
 		if _, err := os.Stat(filepath.Join(moduleCache, name)); err != nil {
 			t.Skipf("pinned sqlc v1.30.0 cache is unavailable; release generation remains N/V: %v", err)
 		}
