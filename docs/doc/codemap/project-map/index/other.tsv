@@ -837,8 +837,8 @@ internal/devtools/sourceexport/path_matcher.go	internal	other	go-source	2765	开
 internal/devtools/sourceexport/path_matcher_test.go	internal	other	go-test	2280	开发工具与生成器辅助包	internal,devtools,sourceexport,path,matcher,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/policy.go	internal	other	go-source	7384	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,开发工具与生成器辅助包
 internal/devtools/sourceexport/policy_test.go	internal	other	go-test	6862	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,test,开发工具与生成器辅助包
-internal/devtools/sqlcconfig/config.go	internal	other	go-source	28098	开发工具与生成器辅助包	internal,devtools,sqlcconfig,config,开发工具与生成器辅助包
-internal/devtools/sqlcconfig/config_test.go	internal	other	go-test	34047	开发工具与生成器辅助包	internal,devtools,sqlcconfig,config,test,开发工具与生成器辅助包
+internal/devtools/sqlcconfig/config.go	internal	other	go-source	28139	开发工具与生成器辅助包	internal,devtools,sqlcconfig,config,开发工具与生成器辅助包
+internal/devtools/sqlcconfig/config_test.go	internal	other	go-test	33503	开发工具与生成器辅助包	internal,devtools,sqlcconfig,config,test,开发工具与生成器辅助包
 internal/devtools/sqlcconfig/git.go	internal	other	go-source	4082	开发工具与生成器辅助包	internal,devtools,sqlcconfig,git,开发工具与生成器辅助包
 internal/devtools/sqlcconfig/git_process_unix.go	internal	other	go-source	643	开发工具与生成器辅助包	internal,devtools,sqlcconfig,git,process,unix,开发工具与生成器辅助包
 internal/devtools/sqlcconfig/git_process_windows.go	internal	other	go-source	296	开发工具与生成器辅助包	internal,devtools,sqlcconfig,git,process,windows,开发工具与生成器辅助包
