@@ -149,7 +149,7 @@ internal/archtest/archguard_ignore_test.go	internal	other	go-test	1641	架构守
 internal/archtest/backend_boundary_canonical_dependencies_test.go	internal	other	go-test	8242	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,canonical,dependencies,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	33874	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_governance.go	internal	other	go-source	30973	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	33844	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	33885	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	18743	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_import_evaluator.go	internal	other	go-source	7396	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,import,evaluator,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	5430	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
@@ -173,7 +173,7 @@ internal/archtest/bootstrap_subscribe_desired_state_guard_test.go	internal	other
 internal/archtest/boundary_registry_test.go	internal	other	go-test	12922	架构守卫、baseline ratchet 与冻结规则	internal,archtest,boundary,registry,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/bus_callback_guard_test.go	internal	other	go-test	10818	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bus,callback,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ci_truth_image_coordinator_contract_guard_test.go	internal	other	go-test	2732	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,truth,image,coordinator,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/ci_truth_image_gate_script_test.go	internal	other	go-test	19410	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,truth,image,gate,script,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ci_truth_image_gate_script_test.go	internal	other	go-test	19461	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,truth,image,gate,script,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/code_size_guard_test.go	internal	other	go-test	8898	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/codexapp_runtime_owner_guard_test.go	internal	other	go-test	576	架构守卫、baseline ratchet 与冻结规则	internal,archtest,codexapp,runtime,owner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/codexapp_session_dispatch_size_guard_test.go	internal	other	go-test	510	架构守卫、baseline ratchet 与冻结规则	internal,archtest,codexapp,session,dispatch,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -317,12 +317,12 @@ internal/archtest/remote_ci_identity_domain_guard_test.go	internal	other	go-test
 internal/archtest/remote_ci_image_layer_direct_read_guard_test.go	internal	other	go-test	7736	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,image,layer,direct,read,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_imagecache_refresh_runtime_guard_test.go	internal	other	go-test	1785	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,imagecache,refresh,runtime,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go	internal	other	go-test	5928	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,incremental,source,transport,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/remote_ci_miss_only_contract_guard_test.go	internal	other	go-test	11859	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,miss,only,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_miss_only_contract_guard_test.go	internal	other	go-test	11858	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,miss,only,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_plan_contract_field_guard_test.go	internal	other	go-test	21631	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,plan,contract,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_plan_report_decoder_binding_guard_test.go	internal	other	go-test	4004	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,plan,report,decoder,binding,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_resource_tier_behavior_guard_test.go	internal	other	go-test	3748	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,resource,tier,behavior,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_resource_tiers_guard_test.go	internal	other	go-test	5858	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,resource,tiers,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/remote_ci_retention_contract_guard_test.go	internal	other	go-test	32903	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,retention,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_retention_contract_guard_test.go	internal	other	go-test	33013	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,retention,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_retired_legacy_artifacts_guard_test.go	internal	other	go-test	2977	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,retired,legacy,artifacts,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_source_bundle_guard_helpers_test.go	internal	other	go-test	2470	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,source,bundle,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_super_gate_atomic_contract_guard_test.go	internal	other	go-test	9072	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,super,gate,atomic,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -519,9 +519,9 @@ internal/devtools/gate/ci_query_store_remote_run_write.go	internal	other	go-sour
 internal/devtools/gate/ci_query_store_remote_scope.go	internal	other	go-source	6834	开发工具与生成器辅助包	internal,devtools,gate,ci,query,store,remote,scope,开发工具与生成器辅助包
 internal/devtools/gate/ci_query_store_remote_terminal_evidence.go	internal	other	go-source	7571	开发工具与生成器辅助包	internal,devtools,gate,ci,query,store,remote,terminal,evidence,开发工具与生成器辅助包
 internal/devtools/gate/ci_query_store_remote_uncreated_test.go	internal	other	go-test	4708	开发工具与生成器辅助包	internal,devtools,gate,ci,query,store,remote,uncreated,test,开发工具与生成器辅助包
-internal/devtools/gate/compile_group.go	internal	other	go-source	36578	开发工具与生成器辅助包	internal,devtools,gate,compile,group,开发工具与生成器辅助包
+internal/devtools/gate/compile_group.go	internal	other	go-source	36667	开发工具与生成器辅助包	internal,devtools,gate,compile,group,开发工具与生成器辅助包
 internal/devtools/gate/compile_group_packing_policy_test.go	internal	other	go-test	1872	开发工具与生成器辅助包	internal,devtools,gate,compile,group,packing,policy,test,开发工具与生成器辅助包
-internal/devtools/gate/compile_group_test.go	internal	other	go-test	10729	开发工具与生成器辅助包	internal,devtools,gate,compile,group,test,开发工具与生成器辅助包
+internal/devtools/gate/compile_group_test.go	internal	other	go-test	10983	开发工具与生成器辅助包	internal,devtools,gate,compile,group,test,开发工具与生成器辅助包
 internal/devtools/gate/compile_timing_history.go	internal	other	go-source	15658	开发工具与生成器辅助包	internal,devtools,gate,compile,timing,history,开发工具与生成器辅助包
 internal/devtools/gate/compile_timing_history_test.go	internal	other	go-test	6224	开发工具与生成器辅助包	internal,devtools,gate,compile,timing,history,test,开发工具与生成器辅助包
 internal/devtools/gate/compile_timing_sqlite_read.go	internal	other	go-source	6787	开发工具与生成器辅助包	internal,devtools,gate,compile,timing,sqlite,read,开发工具与生成器辅助包
@@ -613,7 +613,7 @@ internal/devtools/gate/ledger_store.go	internal	other	go-source	11665	开发工�
 internal/devtools/gate/ledger_store_sqlite.go	internal	other	go-source	18240	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_calibration_checkpoint_migration_test.go	internal	other	go-test	3552	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,calibration,checkpoint,migration,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_index_migration_test.go	internal	other	go-test	12403	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,index,migration,test,开发工具与生成器辅助包
-internal/devtools/gate/ledger_store_sqlite_namespace_migration.go	internal	other	go-source	30030	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,namespace,migration,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_namespace_migration.go	internal	other	go-source	31245	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,namespace,migration,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_namespace_migration_test.go	internal	other	go-test	19871	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,namespace,migration,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_projection_test.go	internal	other	go-test	11582	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,projection,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_read.go	internal	other	go-source	21956	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,read,开发工具与生成器辅助包
@@ -625,7 +625,7 @@ internal/devtools/gate/ledger_store_sqlite_retention_mixed_test.go	internal	othe
 internal/devtools/gate/ledger_store_sqlite_schema.go	internal	other	go-source	31305	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_schema_compile_timing.go	internal	other	go-source	2121	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,compile,timing,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_schema_contracts_test.go	internal	other	go-test	16182	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,contracts,test,开发工具与生成器辅助包
-internal/devtools/gate/ledger_store_sqlite_schema_execution_scope.go	internal	other	go-source	5811	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,execution,scope,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_schema_execution_scope.go	internal	other	go-source	4599	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,execution,scope,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_schema_guard_test.go	internal	other	go-test	27378	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,guard,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_schema_strict.go	internal	other	go-source	8849	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,strict,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_schema_strict_test.go	internal	other	go-test	14532	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,strict,test,开发工具与生成器辅助包
@@ -1115,7 +1115,7 @@ scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	29755
 scripts/guard_fix_commits_have_tests_recovery_test.go	scripts	other	go-test	2652	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,recovery,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/hook_node_runtime_guard_test.go	scripts	other	go-test	3988	工程自动化、测试守卫、代码地图与开发脚本	scripts,hook,node,runtime,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install-hooks.sh	scripts	other	script	2708	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本
-scripts/install_hooks_guard_test.go	scripts	other	go-test	9358	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install_hooks_guard_test.go	scripts	other	go-test	10613	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/local_go_cache.sh	scripts	other	script	7327	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,工程自动化,测试守卫,代码地图与开发脚本
 scripts/local_go_cache_test.go	scripts	other	go-test	13263	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/local_go_cache_windows_e2e_test.go	scripts	other	go-test	1157	工程自动化、测试守卫、代码地图与开发脚本	scripts,local,go,cache,windows,e2e,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -1182,7 +1182,8 @@ scripts/pre_commit_cleanup_guard_test.go	scripts	other	go-test	3458	工程自动
 scripts/pre_commit_merge_snapshot_test.go	scripts	other	go-test	1317	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,merge,snapshot,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_nested_module_guard_test.go	scripts	other	go-test	5578	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,nested,module,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_project_map_refresh_test.go	scripts	other	go-test	3876	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,project,map,refresh,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/pre_commit_signal_unix_test.go	scripts	other	go-test	287	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,signal,unix,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/pre_commit_signal_linux_test.go	scripts	other	go-test	453	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,signal,linux,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/pre_commit_signal_unix_test.go	scripts	other	go-test	297	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,signal,unix,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_signal_windows_test.go	scripts	other	go-test	266	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,signal,windows,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_guard_test.go	scripts	other	go-test	20167	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_linux.sh	scripts	other	script	11570	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,linux,工程自动化,测试守卫,代码地图与开发脚本
@@ -1211,8 +1212,10 @@ scripts/run_mcp_lsp_workload.sh	scripts	other	script	1127	工程自动化、测�
 scripts/sqlc_config_outputs/main.go	scripts	other	go-source	2283	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,config,outputs,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_postprocess.sh	scripts	other	script	3450	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,postprocess,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_verify_worktree.sh	scripts	other	script	3498	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,工程自动化,测试守卫,代码地图与开发脚本
-scripts/sqlc_verify_worktree_guard_test.go	scripts	other	go-test	32823	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	28092	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlc_verify_worktree_guard_test.go	scripts	other	go-test	33630	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	28186	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gate_process_unix_test.go	scripts	other	go-test	601	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,process,unix,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gate_process_windows_test.go	scripts	other	go-test	505	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,process,windows,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main.go	scripts	other	go-source	2605	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main_test.go	scripts	other	go-test	1160	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	4265	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本

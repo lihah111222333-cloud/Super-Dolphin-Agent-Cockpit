@@ -151,10 +151,7 @@ func (f *goWorkFakeClientFactory) NewClientWithOptions(rootDir string, env []str
 	return client, nil
 }
 
-func (f *goWorkFakeClientFactory) NewClientWithOptions(rootDir string, env []string, _ map[string]any, handler protocol.NotificationHandler) (multilsp.Client, error) {
-	return f.NewClientWithEnv(rootDir, env, handler)
-}
-
+// callAt 返回指定顺序的 factory 调用快照。
 func (f *goWorkFakeClientFactory) callAt(t *testing.T, index int) goWorkFakeFactoryCall {
 	t.Helper()
 	f.mu.Lock()

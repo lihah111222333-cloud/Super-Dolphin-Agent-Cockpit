@@ -806,6 +806,7 @@ func mcpLSPExclusiveTestNames() map[string]struct{} {
 		"TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E":                      {},
 		"TestMcpLSPBinaryLinkedWorktreesResourceCohortRecycleAndRecover_E2E":              {},
 		"TestMcpLSPBinaryResourceCohortMalformedReportQuarantine_E2E":                     {},
+		"TestMcpLSPBinaryTypeScriptSecondaryNodeBudget_E2E":                               {},
 		"TestGoplsDaemonCommandOwnsRuntimeRequiresExactBinaryAndSocketRoot":               {},
 	}
 }

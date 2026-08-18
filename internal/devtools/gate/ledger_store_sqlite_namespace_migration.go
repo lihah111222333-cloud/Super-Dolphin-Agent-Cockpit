@@ -315,6 +315,17 @@ func migrateDurationLedgerSQLitePlanningReceiptOnConnection(connection *sql.Conn
 	return preflightDurationLedgerSQLiteSchemaVersion(connection, planningReceiptDurationLedgerSQLiteSchemaVersion)
 }
 
+// durationLedgerWorkloadSemanticReplayCacheSchemaStatements 只属于 v20 到 v21
+// 的显式迁移步骤，禁止混入 current schema 声明文件伪装为启动兼容 DDL。
+func durationLedgerWorkloadSemanticReplayCacheSchemaStatements() []string {
+	return []string{
+		`ALTER TABLE ci_workload_input_replay_cache ADD COLUMN compile_digest TEXT NOT NULL DEFAULT '' CHECK (compile_digest = '' OR (length(compile_digest) = 71 AND substr(compile_digest, 1, 7) = 'sha256:' AND substr(compile_digest, 8) NOT GLOB '*[^0-9a-f]*'));`,
+		`ALTER TABLE ci_workload_input_replay_cache ADD COLUMN declaration_digest TEXT NOT NULL DEFAULT '' CHECK (declaration_digest = '' OR (length(declaration_digest) = 71 AND substr(declaration_digest, 1, 7) = 'sha256:' AND substr(declaration_digest, 8) NOT GLOB '*[^0-9a-f]*'));`,
+		`ALTER TABLE ci_workload_input_replay_cache ADD COLUMN runtime_digest TEXT NOT NULL DEFAULT '' CHECK (runtime_digest = '' OR (length(runtime_digest) = 71 AND substr(runtime_digest, 1, 7) = 'sha256:' AND substr(runtime_digest, 8) NOT GLOB '*[^0-9a-f]*'));`,
+		`ALTER TABLE ci_workload_input_replay_cache ADD COLUMN runtime_fallback INTEGER NOT NULL DEFAULT 0 CHECK (runtime_fallback IN (0, 1));`,
+	}
+}
+
 // migrateDurationLedgerSQLiteSchema20To21 只扩展 workload input 派生缓存，
 // 不回填或改写任何 PASS authority、receipt 或历史耗时证据。
 func migrateDurationLedgerSQLiteSchema20To21(database *sql.DB) error {

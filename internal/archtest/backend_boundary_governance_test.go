@@ -312,6 +312,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 				"internal/devtools/gate",
 				"internal/devtools/gateprivate",
 				"internal/devtools/gatehook",
+				"internal/devtools/mcplspguardcore",
 				"internal/devtools/projectmaptrusted",
 				"internal/devtools/remoteci",
 				"internal/devtools/shardresource",

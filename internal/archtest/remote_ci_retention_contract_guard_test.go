@@ -491,6 +491,7 @@ func TestRemoteCIRetentionIsTheLastDatabaseOperationInEveryWriter(t *testing.T) 
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarning"):             false,
 		remoteCIRetentionFunctionKey("*DurationLedgerStore", "RecordLiveRemoteCITimingWarnings"):            false,
 		remoteCIRetentionFunctionKey("", "saveWorkloadInputReplayCacheTransaction"):                         false,
+		remoteCIRetentionFunctionKey("", "saveWorkerExecutionReplayCacheTransaction"):                       false,
 		remoteCIRetentionFunctionKey("", "finalizeSQLiteRemoteCIRunAuthority"):                              false,
 	}
 	remoteCIRetentionAssertFinalDatabaseOperations(t, directory, expectedCallers)

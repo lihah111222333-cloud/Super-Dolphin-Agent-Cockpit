@@ -218,6 +218,12 @@ func TestMcpLSPExclusiveSetMatchesSourceDirectives(t *testing.T) {
 	assertMcpLSPExclusiveSetEqual(t, sourceNames, registeredNames)
 }
 
+func TestMcpLSPTypeScriptSecondaryNodeBudgetIsExclusive(t *testing.T) {
+	if !isMcpLSPExclusiveTestName("TestMcpLSPBinaryTypeScriptSecondaryNodeBudget_E2E") {
+		t.Fatal("TypeScript secondary Node budget test must run in an exclusive compile group")
+	}
+}
+
 func readMcpLSPExclusiveSourceNames(t *testing.T) map[string]struct{} {
 	t.Helper()
 	_, sourceFile, _, ok := runtime.Caller(0)

@@ -129,12 +129,8 @@ func TestLSPBinaryGrepWithoutTrustedScopeStaysOnProcessWorkspace(t *testing.T) {
 		"paths":       []string{relPath},
 		"max_results": 5,
 	})
-	if result.IsError {
-		t.Fatalf("grep without trusted scope returned error: content=%s stderr=%s", result.ContentText(), client.stderr.String())
-	}
-	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
-	if payload.Total != 0 {
-		t.Fatalf("grep without trusted scope escaped stale process workspace: content=%s stderr=%s", result.ContentText(), client.stderr.String())
+	if !result.IsError || !strings.Contains(result.ContentText(), "stale workspace root; pass work_dir or _workspaceRoots") {
+		t.Fatalf("grep without trusted scope did not reject stale process workspace: content=%s stderr=%s", result.ContentText(), client.stderr.String())
 	}
 }
 

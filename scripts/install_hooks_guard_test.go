@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -65,6 +66,7 @@ func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T)
 }
 
 func TestTrustedGateLauncherShellContract(t *testing.T) {
+	installTrustedLauncherContractOSHome(t)
 	command := exec.Command("bash", "tests/test_trusted_gate_launcher_contract.sh")
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -72,6 +74,37 @@ func TestTrustedGateLauncherShellContract(t *testing.T) {
 	}
 	helper := readRequiredFile(t, filepath.Join(scriptRepoRoot(t), ".githooks", "trusted-gate-launcher.sh"))
 	assertScriptContains(t, helper, `git -C "$repo_root" cat-file blob "${tree}:scripts/build-trusted-gate-launcher.sh"`)
+}
+
+// installTrustedLauncherContractOSHome 为无登录账户的 Linux worker 提供独立的系统 home 解析夹具。
+func installTrustedLauncherContractOSHome(t *testing.T) {
+	t.Helper()
+	cacheRoot := strings.TrimSpace(os.Getenv("GOCACHE"))
+	homeParent, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		homeParent = ""
+	}
+	if info, err := os.Stat(homeParent); err != nil || !info.IsDir() {
+		if cacheRoot == "" {
+			t.Fatalf("trusted launcher test requires an existing OS home or explicit GOCACHE")
+		}
+		homeParent = filepath.Dir(cacheRoot)
+	}
+	home, err := os.MkdirTemp(homeParent, ".trusted-launcher-home-")
+	if err != nil {
+		t.Fatalf("create trusted launcher test home: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	fakeBin := t.TempDir()
+	resolver, body := "getent", "#!/bin/sh\nprintf 'fixture:x:0:0::"+home+":/bin/sh\\n'\n"
+	if runtime.GOOS == "darwin" {
+		resolver = "dscl"
+		body = "#!/bin/sh\nprintf 'NFSHomeDirectory: " + home + "\\n'\n"
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, resolver), []byte(body), 0o700); err != nil {
+		t.Fatalf("write trusted launcher home resolver: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func TestInstallHooksMakeTargetRefusesConflictingHooksPath(t *testing.T) {

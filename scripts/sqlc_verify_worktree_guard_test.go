@@ -1,15 +1,30 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/trustedgitpolicy"
 )
+
+// TestMain 复用单个可写 SQLC 模块缓存，并在 scripts 测试进程退出前回收。
+func TestMain(m *testing.M) {
+	modCache := filepath.Join(os.TempDir(), "super-dolphin-sqlc-mod-cache-"+strconv.Itoa(os.Getpid()))
+	if err := os.Setenv("SUPER_DOLPHIN_SQLC_FIXTURE_MOD_CACHE", modCache); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "configure pinned SQLC fixture module cache: %v\n", err)
+		os.Exit(2)
+	}
+	code := m.Run()
+	_ = os.Chmod(modCache, 0o700)
+	_ = os.RemoveAll(modCache)
+	os.Exit(code)
+}
 
 func TestSQLCVerifyWorktreeMakefileContracts(t *testing.T) {
 	makefile := readRepoFile(t, "../Makefile")
@@ -753,6 +768,12 @@ func configurePinnedSQLCProxy(t *testing.T, goBinary string) {
 		}
 	}
 	t.Setenv("GOPROXY", "file://"+proxyRoot)
+	modCache := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_SQLC_FIXTURE_MOD_CACHE"))
+	if modCache == "" {
+		t.Fatal("pinned SQLC fixture module cache is unavailable")
+	}
+	t.Setenv("GOMODCACHE", modCache)
+	t.Setenv("GOFLAGS", strings.TrimSpace(os.Getenv("GOFLAGS")+" -modcacherw"))
 }
 
 func readFixtureFiles(t *testing.T, root string) string {

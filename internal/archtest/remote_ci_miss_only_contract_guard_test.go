@@ -107,8 +107,8 @@ func assertAcceptedGateProjectionBoundary(t *testing.T, root string) {
 		count := acceptedGateProjectionOccurrences(t, filepath.Join(root, relRoot), acceptedPath)
 		allowedOccurrences += count
 	}
-	if allowedOccurrences != 5 {
-		t.Fatalf("accepted bootstrap ProjectAcceptedGateIDs occurrences = %d, want declaration plus four boundary calls", allowedOccurrences)
+	if allowedOccurrences != 7 {
+		t.Fatalf("accepted bootstrap ProjectAcceptedGateIDs occurrences = %d, want declaration plus six boundary calls", allowedOccurrences)
 	}
 }
 

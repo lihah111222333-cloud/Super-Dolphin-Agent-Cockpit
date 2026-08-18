@@ -274,6 +274,7 @@ func copyCITruthImageScriptFixtures(t *testing.T, root string) {
 func TestCITruthImageScriptFailsClosedWithoutTrustedCoordinator(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, false)
 	logPath, fakeCoordinator := writeFakeCoordinator(t, root)
+	installCITruthImageOSHomeResolver(t, t.TempDir())
 	command := exec.Command("bash", filepath.Join(root, "scripts", "ci_truth_image_gate.sh"), "local-fast")
 	command.Dir = root
 	command.Env = ciTruthImageEnv(filepath.Dir(fakeCoordinator)+string(os.PathListSeparator)+os.Getenv("PATH"), logPath)
