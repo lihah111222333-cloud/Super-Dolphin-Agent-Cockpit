@@ -10,17 +10,11 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-const (
-	windowsGoplsBrokerBootstrapModeArgument = "__super_dolphin_windows_gopls_broker_bootstrap_v1"
-	createBreakawayFromJob                  = 0x01000000
-	jobObjectLimitBreakawayOK               = 0x00000800
-	jobObjectLimitSilentBreakawayOK         = 0x00001000
-)
+const windowsGoplsBrokerBootstrapModeArgument = "__super_dolphin_windows_gopls_broker_bootstrap_v1"
 
 type windowsGoplsBrokerBootstrapPipes struct {
 	requestReader  *os.File
@@ -55,10 +49,7 @@ func StartWindowsGoplsBrokerBootstrap() (*WindowsGoplsBrokerBootstrapProcess, er
 	if err != nil {
 		return nil, fmt.Errorf("attest Windows gopls broker bootstrap executable: %w", err)
 	}
-	creationFlags, err := windowsGoplsBrokerBootstrapCreationFlags()
-	if err != nil {
-		return nil, err
-	}
+	creationFlags := windowsGoplsBrokerBootstrapCreationFlags()
 	pipes, err := newWindowsGoplsBrokerBootstrapPipes()
 	if err != nil {
 		return nil, err
@@ -79,9 +70,6 @@ func RunWindowsGoplsBrokerBootstrapIfRequested(args []string, run func(io.Reader
 		return false, 0
 	}
 	if len(args) != 2 || run == nil {
-		return true, 1
-	}
-	if err := rejectCurrentWindowsKillOnCloseJob(); err != nil {
 		return true, 1
 	}
 	if _, err := attestCurrentWindowsGoplsBrokerExecutable(); err != nil {
@@ -167,37 +155,9 @@ func (p *WindowsGoplsBrokerBootstrapProcess) ReleaseAuthority() error {
 	return p.releaseErr
 }
 
-// windowsGoplsBrokerBootstrapCreationFlags 只在受控 KILL_ON_CLOSE Job 明确授权时请求 breakaway。
-func windowsGoplsBrokerBootstrapCreationFlags() (uint32, error) {
-	flags := uint32(createSuspended | createNewProcessGroup | createNoWindow)
-	inJob, err := windowsBootstrapProcessInJob(windows.CurrentProcess())
-	if err != nil {
-		return 0, fmt.Errorf("inspect current Windows Job membership: %w", err)
-	}
-	if !inJob {
-		return flags, nil
-	}
-	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	if err := windows.QueryInformationJobObject(0, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
-		return 0, fmt.Errorf("query current Windows Job limits: %w", err)
-	}
-	limits := info.BasicLimitInformation.LimitFlags
-	if limits&jobObjectLimitKillOnJobClose == 0 {
-		return flags, nil
-	}
-	if limits&jobObjectLimitSilentBreakawayOK != 0 {
-		return flags, nil
-	}
-	if limits&jobObjectLimitBreakawayOK == 0 {
-		return 0, &WindowsJobPolicyError{
-			Operation:       "current Windows Job does not allow the approved mcp-lsp broker breakaway",
-			LimitFlags:      limits,
-			KillOnClose:     true,
-			BreakawayOK:     false,
-			SilentBreakaway: false,
-		}
-	}
-	return flags | createBreakawayFromJob, nil
+// windowsGoplsBrokerBootstrapCreationFlags 让 broker 继承宿主 Job，由宿主管理生命周期。
+func windowsGoplsBrokerBootstrapCreationFlags() uint32 {
+	return uint32(createSuspended | createNewProcessGroup | createNoWindow)
 }
 
 // newWindowsGoplsBrokerBootstrapCommand 固定 self 路径、唯一 marker 和匿名标准流。
@@ -210,7 +170,7 @@ func newWindowsGoplsBrokerBootstrapCommand(path string, pipes *windowsGoplsBroke
 	return command
 }
 
-// finishWindowsGoplsBrokerBootstrapStart 在 child 执行代码前复核身份、Job 脱离并恢复唯一线程。
+// finishWindowsGoplsBrokerBootstrapStart 在 child 执行代码前复核身份并恢复唯一线程。
 func finishWindowsGoplsBrokerBootstrapStart(command *exec.Cmd, pipes *windowsGoplsBrokerBootstrapPipes, selfProof windowsGoplsBrokerExecutableProof) (*WindowsGoplsBrokerBootstrapProcess, error) {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(command.Process.Pid))
 	if err != nil {
@@ -251,40 +211,6 @@ func verifyStartedWindowsGoplsBrokerBootstrap(command *exec.Cmd, pipes *windowsG
 		requestWriter:      pipes.requestWriter,
 		responseReader:     pipes.responseReader,
 	}, nil
-}
-
-// rejectCurrentWindowsKillOnCloseJob 允许无破坏性外层 Job，但拒绝 broker 留在 KILL_ON_CLOSE Job。
-func rejectCurrentWindowsKillOnCloseJob() error {
-	inJob, err := windowsBootstrapProcessInJob(windows.CurrentProcess())
-	if err != nil {
-		return fmt.Errorf("inspect Windows gopls broker child Job membership: %w", err)
-	}
-	if !inJob {
-		return nil
-	}
-	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	if err := windows.QueryInformationJobObject(0, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
-		return fmt.Errorf("query Windows gopls broker child Job limits: %w", err)
-	}
-	limits := info.BasicLimitInformation.LimitFlags
-	if limits&jobObjectLimitKillOnJobClose != 0 {
-		return fmt.Errorf(
-			"Windows gopls broker bootstrap remains in a KILL_ON_CLOSE Job: %s",
-			windowsGoplsBrokerJobLimitFacts(limits),
-		)
-	}
-	return nil
-}
-
-// windowsGoplsBrokerJobLimitFacts 输出不含路径、PID 或句柄的 Job 策略事实，供启动失败审计。
-func windowsGoplsBrokerJobLimitFacts(limits uint32) string {
-	return fmt.Sprintf(
-		"limit_flags=0x%08x kill_on_close=%t breakaway_ok=%t silent_breakaway_ok=%t",
-		limits,
-		limits&jobObjectLimitKillOnJobClose != 0,
-		limits&jobObjectLimitBreakawayOK != 0,
-		limits&jobObjectLimitSilentBreakawayOK != 0,
-	)
 }
 
 // newWindowsGoplsBrokerBootstrapPipes 创建父写子读和子写父读两组匿名 pipe。

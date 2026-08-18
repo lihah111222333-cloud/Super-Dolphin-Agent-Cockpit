@@ -21,7 +21,11 @@ import (
 
 var ErrProcessTreeCleanupPending = errors.New("CleanupPending: process-tree destructive action is blocked")
 
-const jobObjectLimitKillOnJobClose = 0x00002000
+const (
+	jobObjectLimitBreakawayOK       = 0x00000800
+	jobObjectLimitSilentBreakawayOK = 0x00001000
+	jobObjectLimitKillOnJobClose    = 0x00002000
+)
 
 const windowsStillActive = 259
 

@@ -47,6 +47,16 @@ func TestReadFileWithModeNormalizesCRLF(t *testing.T) {
 	}
 }
 
+func TestRestoreLineEndingsEliminatesMixedCRLFAndLF(t *testing.T) {
+	mixed := "first\r\nsecond\nthird\r\n"
+	if got, want := restoreLineEndings(mixed, lineEndingCRLF), "first\r\nsecond\r\nthird\r\n"; got != want {
+		t.Fatalf("CRLF restoration = %q, want %q", got, want)
+	}
+	if got, want := restoreLineEndings(mixed, lineEndingLF), "first\nsecond\nthird\n"; got != want {
+		t.Fatalf("LF restoration = %q, want %q", got, want)
+	}
+}
+
 func TestReadFileUsesMetaCWDForExternalAbsolutePath(t *testing.T) {
 	mainRoot := t.TempDir()
 	externalRoot := t.TempDir()

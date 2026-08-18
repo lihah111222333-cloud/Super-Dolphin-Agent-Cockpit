@@ -2,23 +2,13 @@
 
 package hiddenexec
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-// TestWindowsGoplsBrokerJobLimitFactsReportsBreakawayPolicy 验证 broker 拒绝原因完整记录 Job flags。
-func TestWindowsGoplsBrokerJobLimitFactsReportsBreakawayPolicy(t *testing.T) {
-	limits := uint32(jobObjectLimitKillOnJobClose | jobObjectLimitBreakawayOK)
-	facts := windowsGoplsBrokerJobLimitFacts(limits)
-	for _, want := range []string{
-		"limit_flags=0x00002800",
-		"kill_on_close=true",
-		"breakaway_ok=true",
-		"silent_breakaway_ok=false",
-	} {
-		if !strings.Contains(facts, want) {
-			t.Fatalf("Job policy facts missing %q: %s", want, facts)
-		}
+// TestWindowsGoplsBrokerBootstrapCreationFlagsKeepsHostJob 验证 broker 不请求脱离宿主 Job。
+func TestWindowsGoplsBrokerBootstrapCreationFlagsKeepsHostJob(t *testing.T) {
+	got := windowsGoplsBrokerBootstrapCreationFlags()
+	want := uint32(createSuspended | createNewProcessGroup | createNoWindow)
+	if got != want {
+		t.Fatalf("bootstrap creation flags = %#x, want %#x", got, want)
 	}
 }

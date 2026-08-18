@@ -80,7 +80,7 @@ func attestOpenWindowsGoplsBrokerExecutable(handle windows.Handle) (windowsGopls
 	return proof, nil
 }
 
-// inspectOpenWindowsGoplsBrokerExecutable 读取固定交付名 mcp-lsp 的最终路径与文件索引。
+// inspectOpenWindowsGoplsBrokerExecutable 读取 Windows broker 可执行文件的最终路径与文件索引。
 func inspectOpenWindowsGoplsBrokerExecutable(handle windows.Handle) (windowsGoplsBrokerExecutableProof, error) {
 	path, err := windowsBootstrapFinalPath(handle)
 	if err != nil {
@@ -94,19 +94,14 @@ func inspectOpenWindowsGoplsBrokerExecutable(handle windows.Handle) (windowsGopl
 	name := filepath.Base(path)
 	allowedName := windowsGoplsBrokerDeliveryNameAllowed(name)
 	if info.FileAttributes&invalidAttributes != 0 || !filepath.IsAbs(path) || !allowedName {
-		return windowsGoplsBrokerExecutableProof{}, errors.New("Windows gopls broker bootstrap executable must use a fixed regular mcp-lsp delivery name")
+		return windowsGoplsBrokerExecutableProof{}, errors.New("Windows gopls broker bootstrap executable must be a regular .exe file")
 	}
 	return windowsGoplsBrokerExecutableProof{path: filepath.Clean(path), volumeSerialNumber: info.VolumeSerialNumber, fileID: uint64(info.FileIndexHigh)<<32 | uint64(info.FileIndexLow)}, nil
 }
 
-// windowsGoplsBrokerDeliveryNameAllowed 锁定 source/bin 与跨平台包的四个 Windows 交付名；架构名必须明确区分 ARM64、x64 和 x86。
+// windowsGoplsBrokerDeliveryNameAllowed 只要求 Windows broker 交付物是 .exe；最终路径、文件身份和 SHA-256 验证仍构成完整信任边界。
 func windowsGoplsBrokerDeliveryNameAllowed(name string) bool {
-	switch strings.ToLower(name) {
-	case "mcp-lsp.exe", "mcp-lsp-windows-arm64.exe", "mcp-lsp-windows-x64.exe", "mcp-lsp-windows-x86.exe":
-		return true
-	default:
-		return false
-	}
+	return strings.EqualFold(filepath.Ext(strings.TrimSpace(name)), ".exe")
 }
 
 // requireSameWindowsGoplsBrokerExecutable 拒绝路径、文件索引或内容摘要的任一漂移。

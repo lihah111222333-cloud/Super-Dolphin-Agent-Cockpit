@@ -262,8 +262,10 @@ func detectLineEnding(content string) lineEndingStyle {
 	return lineEndingLF
 }
 
-// restoreLineEndings 把内部 LF 文本恢复成目标换行风格。
+// restoreLineEndings 先消除输入中的混合 CRLF/LF，再恢复成目标换行风格。
+// 这样 LSP TextEdit 即使携带 LF，也不会把 Windows CRLF 文件写成混合换行。
 func restoreLineEndings(content string, lineEnding lineEndingStyle) string {
+	content = normalizeLineEndings(content)
 	if lineEnding == lineEndingCRLF {
 		return strings.ReplaceAll(content, "\n", string(lineEndingCRLF))
 	}

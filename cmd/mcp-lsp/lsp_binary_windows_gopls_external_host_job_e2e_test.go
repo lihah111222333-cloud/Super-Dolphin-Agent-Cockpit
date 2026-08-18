@@ -62,7 +62,7 @@ func TestWindowsExternalStdioMCPHostWithoutKillOnCloseJobStartsSharedGoplsE2E(t 
 }
 
 // super-dolphin-ci: compile-group-exclusive
-func TestWindowsExternalStdioMCPHostKillOnCloseJobWithoutBreakawayRejectsSharedGoplsE2E(t *testing.T) {
+func TestWindowsExternalStdioMCPHostKillOnCloseJobWithoutBreakawayServesSharedGoplsE2E(t *testing.T) {
 	roots, targets := writeRealGoplsLinkedWorktreeFixtures(t)
 	argsLog := filepath.Join(t.TempDir(), "gopls-args.log")
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
@@ -79,12 +79,20 @@ func TestWindowsExternalStdioMCPHostKillOnCloseJobWithoutBreakawayRejectsSharedG
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 	result := client.callTool(t, "completion", map[string]any{"pos": targets[0] + ":3:1"})
-	if !result.Result.IsError {
-		t.Fatalf("external Windows stdio host shared gopls startup unexpectedly succeeded: structured=%s text=%q", result.Result.StructuredContent, result.Result.ContentText())
+	requireMCPToolSuccess(t, client, result, "KILL_ON_CLOSE Windows stdio host shared gopls startup")
+
+	invocations := waitForFakeGoplsInvocations(t, argsLog, 2)
+	daemon, forwarders := splitWindowsGoplsInvocations(invocations)
+	endpoint, daemonPID := requireWindowsGoplsDaemonInvocation(t, daemon, install.Gopls)
+	if len(forwarders) != 1 {
+		t.Fatalf("gopls forwarder invocations = %v, want one", forwarders)
 	}
-	requireToolResultContains(t, result, "approved mcp-lsp broker breakaway", "external Windows stdio host breakaway rejection")
-	requireWindowsGoplsNoFakeInvocations(t, argsLog, "before KILL_ON_CLOSE Job close")
-	requireWindowsGoplsNoLifecycleArtifacts(t, cacheRoot, "before KILL_ON_CLOSE Job close")
+	requireWindowsGoplsInvocationExecutable(t, forwarders[0], install.Gopls, "forwarder")
+	if got := windowsGoplsArg(forwarders[0], "-remote="); got != endpoint {
+		t.Fatalf("gopls forwarder endpoint = %q, want %q; args=%v", got, endpoint, forwarders[0])
+	}
+	record := waitForWindowsGoplsBrokerRecord(t, cacheRoot)
+	requireWindowsGoplsBrokerRecord(t, record, install, endpoint, daemonPID)
 
 	if client == nil || client.cmd == nil || client.closeHook == nil {
 		t.Fatal("external Windows stdio host KILL_ON_CLOSE lifecycle handles are nil")
@@ -94,9 +102,9 @@ func TestWindowsExternalStdioMCPHostKillOnCloseJobWithoutBreakawayRejectsSharedG
 		t.Fatalf("close external Windows stdio host KILL_ON_CLOSE Job: %v", err)
 	}
 	requireWindowsProcessExit(t, sidecarPID, "mcp-lsp sidecar after KILL_ON_CLOSE Job close")
+	requireWindowsProcessExit(t, daemonPID, "gopls daemon after KILL_ON_CLOSE Job close")
+	requireWindowsProcessExit(t, record.OwnerPID, "gopls broker after KILL_ON_CLOSE Job close")
 	client.close(t)
-	requireWindowsGoplsNoFakeInvocations(t, argsLog, "after KILL_ON_CLOSE Job close")
-	requireWindowsGoplsNoLifecycleArtifacts(t, cacheRoot, "after KILL_ON_CLOSE Job close")
 }
 
 func startWindowsGoplsExternalStdioHostInNonKillingJob(t *testing.T, ctx context.Context, binary, root string, env []string) *mcpLSPBinaryClient {

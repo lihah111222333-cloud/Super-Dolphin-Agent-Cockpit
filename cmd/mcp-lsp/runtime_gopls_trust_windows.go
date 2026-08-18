@@ -121,20 +121,15 @@ func runtimeServerWindowsSelfInstallRoot() (string, error) {
 		!strings.EqualFold(filepath.Base(filepath.Dir(installDir)), "bin") {
 		return "", errors.New("Windows mcp-lsp executable must be installed under the package bin directory")
 	}
-	if runtimeServerWindowsSkillDeliveryNameAllowed(filepath.Base(self)) {
-		return installDir, nil
+	if !runtimeServerWindowsSkillDeliveryNameAllowed(filepath.Base(self)) {
+		return "", errors.New("Windows skill delivery mcp-lsp executable must have the .exe extension")
 	}
-	return "", errors.New("Windows skill delivery mcp-lsp executable name is invalid")
+	return installDir, nil
 }
 
-// runtimeServerWindowsSkillDeliveryNameAllowed 要求跨平台包文件名一眼可见 Windows 平台及 ARM64、x64 或 x86 架构。
+// runtimeServerWindowsSkillDeliveryNameAllowed 只要求 Windows skill 交付物是 .exe；实际信任边界由规范 self 路径、包内 bundle 位置和 manifest 哈希校验共同建立。
 func runtimeServerWindowsSkillDeliveryNameAllowed(name string) bool {
-	switch strings.ToLower(name) {
-	case "mcp-lsp-windows-arm64.exe", "mcp-lsp-windows-x64.exe", "mcp-lsp-windows-x86.exe":
-		return true
-	default:
-		return false
-	}
+	return strings.EqualFold(filepath.Ext(strings.TrimSpace(name)), ".exe")
 }
 
 // runtimeServerWindowsLSPEnvPaths 读取完整的 Windows bundle 环境契约，不接受 PATH 推断。

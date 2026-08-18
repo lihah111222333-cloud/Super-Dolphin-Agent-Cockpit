@@ -46,7 +46,7 @@ func TestToolErrorClassifierPromotesRawWindowsPathErrorToEnvelope(t *testing.T) 
 // TestToolErrorClassifierWindowsJobPolicyError 保证受限 Job 返回 typed failure，而不是 running_slow 或通用错误。
 func TestToolErrorClassifierWindowsJobPolicyError(t *testing.T) {
 	err := &hiddenexec.WindowsJobPolicyError{
-		Operation:       "current Windows Job does not allow the approved mcp-lsp broker breakaway",
+		Operation:       "current Windows Job rejected language-server Job assignment",
 		LimitFlags:      0x00002000,
 		KillOnClose:     true,
 		BreakawayOK:     false,
