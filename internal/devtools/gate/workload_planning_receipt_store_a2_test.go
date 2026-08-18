@@ -90,13 +90,13 @@ func deletePlanningReceiptRunA2(t *testing.T, store *DurationLedgerStore, jobID 
 	}
 }
 
-func TestRemoteCIPlanningReceiptStoreA2Schema19To21(t *testing.T) {
+func TestRemoteCIPlanningReceiptStoreA2Schema19To22(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	database, err := store.openSQLiteAuthority(true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`DROP INDEX idx_ci_remote_run_planning_receipts_status; DROP TABLE ci_remote_run_planning_receipts; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN runtime_fallback; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN runtime_digest; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN declaration_digest; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN compile_digest; PRAGMA user_version = 19`); err != nil {
+	if _, err := database.Exec(`DROP INDEX idx_ci_remote_cleanup_targets_pending; DROP TABLE ci_remote_cleanup_targets; DROP TABLE ci_remote_cleanup_journals; DROP INDEX idx_ci_remote_run_planning_receipts_status; DROP TABLE ci_remote_run_planning_receipts; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN runtime_fallback; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN runtime_digest; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN declaration_digest; ALTER TABLE ci_workload_input_replay_cache DROP COLUMN compile_digest; PRAGMA user_version = 19`); err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
@@ -117,6 +117,6 @@ func TestRemoteCIPlanningReceiptStoreA2Schema19To21(t *testing.T) {
 		t.Fatal(err)
 	}
 	if version != durationLedgerSQLiteSchemaVersion || tableCount != 1 || indexCount != 1 {
-		t.Fatalf("schema 19->21 result version=%d table=%d index=%d", version, tableCount, indexCount)
+		t.Fatalf("schema 19->22 result version=%d table=%d index=%d", version, tableCount, indexCount)
 	}
 }

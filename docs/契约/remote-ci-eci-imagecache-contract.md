@@ -14,7 +14,7 @@
 唯一数据源：`duration-ledger-sqlite/v1`
 accepted baseline JSON schema：`13`
 <!-- cicontract:sqlite-schema:begin -->
-duration-ledger SQLite physical schema：`21`
+duration-ledger SQLite physical schema：`22`
 <!-- cicontract:sqlite-schema:end -->
 非权威缓存材料 schema：`remote-ci-cache-material/v1`
 非权威缓存材料 authority：`non_authoritative_material`

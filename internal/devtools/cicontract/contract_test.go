@@ -476,8 +476,8 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 }
 
 func TestDurationLedgerSQLiteSchemaV21OwnsPlanningReceipt(t *testing.T) {
-	if DurationLedgerSQLiteSchemaVersion != 21 {
-		t.Fatalf("duration-ledger SQLite physical schema = %d, want 21", DurationLedgerSQLiteSchemaVersion)
+	if DurationLedgerSQLiteSchemaVersion != 22 {
+		t.Fatalf("duration-ledger SQLite physical schema = %d, want 22", DurationLedgerSQLiteSchemaVersion)
 	}
 	if !slices.Contains(SQLAuthoritySchemaTables(), RemoteRunPlanningReceiptsTable) {
 		t.Fatalf("planning receipt table %q is not registered", RemoteRunPlanningReceiptsTable)

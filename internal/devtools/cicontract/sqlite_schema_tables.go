@@ -29,6 +29,12 @@ const (
 	RemoteRunPlanningReceiptsTable = "ci_remote_run_planning_receipts"
 	// RemoteRunPlanningReceiptsStatusIndex 是规划回执状态检索索引。
 	RemoteRunPlanningReceiptsStatusIndex = "idx_ci_remote_run_planning_receipts_status"
+	// RemoteCleanupJournalsTable 是不依赖 ci_runs 的远程副作用恢复根。
+	RemoteCleanupJournalsTable = "ci_remote_cleanup_journals"
+	// RemoteCleanupTargetsTable 是远程副作用恢复所需的精确 provider 目标表。
+	RemoteCleanupTargetsTable = "ci_remote_cleanup_targets"
+	// RemoteCleanupTargetsPendingIndex 是按 job 和目标类型读取恢复项的索引。
+	RemoteCleanupTargetsPendingIndex = "idx_ci_remote_cleanup_targets_pending"
 )
 
 // SQLAuthorityAuxiliaryTables 返回不属于事实域绑定但仍受唯一 SQLite authority 管理的表。
@@ -48,6 +54,8 @@ func SQLAuthorityAuxiliaryTables() []string {
 		RetainedWorkloadPassProofsTable,
 		WorkloadInputReplayCacheTable,
 		RemoteRunPlanningReceiptsTable,
+		RemoteCleanupJournalsTable,
+		RemoteCleanupTargetsTable,
 	}
 }
 
@@ -62,6 +70,7 @@ func SQLAuthorityAdditiveSchemaIndexes() []string {
 		WorkloadPassEvidenceSourceReplayIndex,
 		RetainedWorkloadPassProofSourceReplayIndex,
 		RemoteRunPlanningReceiptsStatusIndex,
+		RemoteCleanupTargetsPendingIndex,
 	}
 }
 

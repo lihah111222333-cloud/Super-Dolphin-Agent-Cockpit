@@ -4,16 +4,16 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:1605306b0f85abc72c3a61a2edd534c54cfef28c666c6fe8f3cef44ac9d16ab8",
-    "entries_sha256": "sha256:c3b9c8ea505fa253ba586f851d1de90d7e163c3566f590fbb8019214209b57a0"
+    "source_sha256": "sha256:927bea563bf1fcb785c17ed18134d27ffc837548eaa72deb1a563829518c0971",
+    "entries_sha256": "sha256:00755bcf91193efe3147ca5ae56c44b907da039fa4675bb782b68990b4859844"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5246,
+  "files": 5247,
   "domains": {
-    "other": 1266,
+    "other": 1267,
     "remote-ci": 280,
     "docs-agent": 99,
     "app-ui": 754,
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1266,
-        "size_kb": 254.1,
+        "file_count": 1267,
+        "size_kb": 254.3,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -91,7 +91,7 @@
     "config": 3,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 3054,
+    "internal": 3055,
     "pkg": 30,
     "scripts": 219,
     "sql": 29,

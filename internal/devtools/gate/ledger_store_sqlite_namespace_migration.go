@@ -25,6 +25,8 @@ const runExecutionIdentityDurationLedgerSQLiteSchemaVersion = 19
 
 const planningReceiptDurationLedgerSQLiteSchemaVersion = 20
 
+const workloadSemanticReplayDurationLedgerSQLiteSchemaVersion = 21
+
 // migrateDurationLedgerSQLiteSchema13To14 adds only local-origin projections;
 // the frozen remote PASS table is validated and left untouched.
 func migrateDurationLedgerSQLiteSchema13To14(database *sql.DB, now func() time.Time) error {
@@ -365,8 +367,53 @@ func migrateDurationLedgerSQLiteSemanticReplayCacheOnConnection(connection *sql.
 			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite semantic replay cache", err)
 		}
 	}
-	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, workloadSemanticReplayDurationLedgerSQLiteSchemaVersion)); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite semantic replay cache schema version", err)
+	}
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, workloadSemanticReplayDurationLedgerSQLiteSchemaVersion)
+}
+
+// migrateDurationLedgerSQLiteSchema21To22 只新增独立运维 cleanup journal；它不
+// 引用、回填或改写 ci_runs、PASS、timing、receipt 和 retention 历史根。
+func migrateDurationLedgerSQLiteSchema21To22(database *sql.DB) error {
+	if database == nil {
+		return errors.New("duration ledger SQLite remote cleanup journal migration requires database")
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite remote cleanup journal migration connection", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return mapDurationLedgerSQLiteError("begin duration ledger SQLite remote cleanup journal migration", err)
+	}
+	if err := migrateDurationLedgerSQLiteRemoteCleanupJournalOnConnection(connection); err != nil {
+		return rollbackDurationLedgerSQLiteNamespace(connection, err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return mapDurationLedgerSQLiteError("commit duration ledger SQLite remote cleanup journal migration", err)
+	}
+	return nil
+}
+
+func migrateDurationLedgerSQLiteRemoteCleanupJournalOnConnection(connection *sql.Conn) error {
+	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	if version != workloadSemanticReplayDurationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite remote cleanup journal migration expected schema version %d, got %d", workloadSemanticReplayDurationLedgerSQLiteSchemaVersion, version)
+	}
+	if err := preflightDurationLedgerSQLiteSchemaVersion(connection, workloadSemanticReplayDurationLedgerSQLiteSchemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range durationLedgerRemoteCleanupJournalSchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite remote cleanup journal", err)
+		}
+	}
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite remote cleanup journal schema version", err)
 	}
 	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
 }
@@ -555,7 +602,8 @@ func preflightDurationLedgerSQLiteSchemaVersion(queryer durationLedgerSQLiteSche
 			{workloadInputReplayDurationLedgerSQLiteSchemaVersion, durationLedgerWorkloadInputReplayCacheSchemaStatements},
 			{runExecutionIdentityDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements},
 			{planningReceiptDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIPlanningReceiptSchemaStatements},
-			{durationLedgerSQLiteSchemaVersion, durationLedgerWorkloadSemanticReplayCacheSchemaStatements},
+			{workloadSemanticReplayDurationLedgerSQLiteSchemaVersion, durationLedgerWorkloadSemanticReplayCacheSchemaStatements},
+			{durationLedgerSQLiteSchemaVersion, durationLedgerRemoteCleanupJournalSchemaStatements},
 		} {
 			if version >= step.version {
 				statements = append(statements, step.statements()...)

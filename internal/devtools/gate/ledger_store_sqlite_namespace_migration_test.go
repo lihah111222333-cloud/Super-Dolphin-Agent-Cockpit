@@ -147,6 +147,56 @@ func TestDurationLedgerSQLiteV20ToV21AddsSemanticReplayColumnsWithoutBackfill(t 
 	}
 }
 
+func TestDurationLedgerSQLiteV21ToV22AddsIndependentCleanupJournalWithoutRunMutation(t *testing.T) {
+	database := openStrictSchemaTestDatabase(t, "v21-remote-cleanup-journal.sqlite")
+	defer database.Close()
+	createDurationLedgerSQLiteV20Fixture(t, database)
+	if err := migrateDurationLedgerSQLiteSchema20To21(database); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDurationLedgerSQLiteSchema(t, database)
+
+	migrateDurationLedgerSQLiteSchema(t, database)
+	after := snapshotDurationLedgerSQLiteSchemaObjects(t, database)
+	assertDurationLedgerSQLiteSchemaObjectsUnchanged(t, before.schema, after, "v21 object", "v22 cleanup journal migration")
+	assertSQLiteRowsFingerprintUnchanged(t, database, `SELECT * FROM ci_runs ORDER BY job_id`, before.runCount, before.runDigest, "v21 ci_runs", "v22 cleanup journal migration")
+	assertDurationLedgerSQLiteSchemaObjectsPresent(t, after, []string{
+		"table:ci_remote_cleanup_journals",
+		"table:ci_remote_cleanup_targets",
+		"index:idx_ci_remote_cleanup_targets_pending",
+	}, "v22 remote cleanup journal")
+}
+
+func TestRemoteCleanupJournalPersistsIntentAndRejectsProviderIDDrift(t *testing.T) {
+	store, err := NewDurationLedgerStore(t.TempDir() + "/cleanup.sqlite")
+	mustRemoteCleanupJournalCall(t, err)
+	database, err := store.openSQLiteAuthority(true)
+	mustRemoteCleanupJournalCall(t, err)
+	mustRemoteCleanupJournalCall(t, database.Close())
+	const jobID = "job-cleanup-fixture"
+	const prefix = "source/job-cleanup-fixture/"
+	const groupName = "sdci-cleanup-fixture-s00"
+	mustRemoteCleanupJournalCall(t, store.BeginRemoteCleanupJournal(jobID, prefix))
+	mustRemoteCleanupJournalCall(t, store.BeginRemoteCleanupJournal(jobID, prefix))
+	mustRemoteCleanupJournalCall(t, store.RecordRemoteCleanupContainerGroupIntent(jobID, groupName))
+	mustRemoteCleanupJournalCall(t, store.SetRemoteCleanupContainerGroupProviderID(jobID, groupName, "eci-cleanup-fixture"))
+	if err := store.SetRemoteCleanupContainerGroupProviderID(jobID, groupName, "eci-other"); err == nil {
+		t.Fatal("provider ID drift unexpectedly succeeded")
+	}
+	journal, err := store.LoadRemoteCleanupJournal(jobID)
+	mustRemoteCleanupJournalCall(t, err)
+	if len(journal.Targets) != 2 || journal.Targets[0].Kind != RemoteCleanupTargetECIContainerGroup || journal.Targets[0].ProviderID != "eci-cleanup-fixture" || journal.Targets[1].Kind != RemoteCleanupTargetOSSPrefix || journal.Targets[1].Key != prefix {
+		t.Fatalf("cleanup journal = %#v", journal)
+	}
+}
+
+func mustRemoteCleanupJournalCall(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 type durationLedgerSQLiteSchemaSnapshot struct {
 	schema    map[string]string
 	runCount  int

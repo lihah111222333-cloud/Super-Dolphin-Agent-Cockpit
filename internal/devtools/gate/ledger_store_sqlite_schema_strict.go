@@ -36,7 +36,28 @@ func durationLedgerSQLiteCurrentSchemaStatements() []string {
 	statements = append(statements, durationLedgerWorkloadInputReplayCacheSchemaStatements()...)
 	statements = append(statements, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements()...)
 	statements = append(statements, durationLedgerRemoteCIPlanningReceiptSchemaStatements()...)
-	return append(statements, durationLedgerWorkloadSemanticReplayCacheSchemaStatements()...)
+	statements = append(statements, durationLedgerWorkloadSemanticReplayCacheSchemaStatements()...)
+	return append(statements, durationLedgerRemoteCleanupJournalSchemaStatements()...)
+}
+
+func durationLedgerRemoteCleanupJournalSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS ci_remote_cleanup_journals (
+			job_id TEXT PRIMARY KEY CHECK (length(job_id) > 0),
+			created_at TEXT NOT NULL CHECK (length(created_at) > 0)
+		);`,
+		`CREATE TABLE IF NOT EXISTS ci_remote_cleanup_targets (
+			job_id TEXT NOT NULL CHECK (length(job_id) > 0),
+			target_kind TEXT NOT NULL CHECK (target_kind IN ('oss_prefix', 'eci_container_group')),
+			target_key TEXT NOT NULL CHECK (length(target_key) > 0),
+			provider_id TEXT NOT NULL DEFAULT '',
+			deterministic_name TEXT NOT NULL DEFAULT '',
+			job_tag TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (job_id, target_kind, target_key),
+			CHECK ((target_kind = 'oss_prefix' AND provider_id = '' AND deterministic_name = '' AND job_tag = '') OR (target_kind = 'eci_container_group' AND target_key = deterministic_name AND job_tag = job_id))
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_ci_remote_cleanup_targets_pending ON ci_remote_cleanup_targets (job_id, target_kind, provider_id);`,
+	}
 }
 
 func durationLedgerRemoteCIRunExecutionIdentitySchemaStatements() []string {
