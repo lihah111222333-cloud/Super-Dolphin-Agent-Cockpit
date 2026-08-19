@@ -269,6 +269,71 @@ func TestGoAdapterDoesNotPromotePlatformConstraintsToCustomBuildTags(t *testing.
 	}
 }
 
+func TestGoAdapterDoesNotPromoteArchitectureConstraintsToCustomBuildTags(t *testing.T) {
+	t.Setenv("GOFLAGS", "-mod=mod")
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/arch\n\ngo 1.25.0\n")
+	ordinaryTarget := filepath.Join(root, "backend", "ordinary.go")
+	writeGenericTestFile(t, ordinaryTarget, "package backend\n\nfunc Ordinary() {}\n")
+
+	registry := NewDefaultLanguageAdapterRegistry()
+	goAdapter, ok := registry.AdapterForLanguage("go")
+	if !ok {
+		t.Fatal("missing go adapter")
+	}
+	ordinaryScope, err := goAdapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        root,
+		LanguageID: "go",
+		TargetPath: ordinaryTarget,
+	}, ordinaryTarget)
+	if err != nil {
+		t.Fatalf("ordinary go ResolveRoot: %v", err)
+	}
+
+	targets := []struct {
+		name       string
+		constraint string
+	}{
+		{name: "amd64", constraint: "//go:build amd64\n\npackage backend\n\nfunc Arch() {}\n"},
+		{name: "arm64", constraint: "//go:build arm64\n\npackage backend\n\nfunc Arch() {}\n"},
+		{name: "386", constraint: "//go:build 386\n\npackage backend\n\nfunc Arch() {}\n"},
+		{name: "loong64_or_riscv64", constraint: "//go:build loong64 || riscv64\n\npackage backend\n\nfunc Arch() {}\n"},
+		{name: "wasm", constraint: "//go:build wasm\n\npackage backend\n\nfunc Arch() {}\n"},
+		{name: "compound", constraint: "//go:build (amd64 || arm64) && !386\n\npackage backend\n\nfunc Arch() {}\n"},
+		{name: "arch_feature", constraint: "//go:build amd64.v1\n\npackage backend\n\nfunc Arch() {}\n"},
+	}
+
+	for _, tt := range targets {
+		t.Run(tt.name, func(t *testing.T) {
+			target := filepath.Join(root, "backend", tt.name+".go")
+			writeGenericTestFile(t, target, tt.constraint)
+
+			scope, err := goAdapter.ResolveRoot(context.Background(), LSPToolScope{
+				Family:     defaultLSPToolFamily,
+				CWD:        root,
+				LanguageID: "go",
+				TargetPath: target,
+			}, target)
+			if err != nil {
+				t.Fatalf("go ResolveRoot: %v", err)
+			}
+			if got := scope.LanguageSpecific[goBuildTagsLanguageSpecificKey]; got != "" {
+				t.Fatalf("architecture build constraint promoted to custom tags = %q, want empty", got)
+			}
+			if got, want := goAdapter.CacheKeyParts(scope), goAdapter.CacheKeyParts(ordinaryScope); !reflect.DeepEqual(got, want) {
+				t.Fatalf("architecture target cache key = %#v, want ordinary same-root key %#v", got, want)
+			}
+			if got, want := goAdapter.EnvPolicy(scope), hostGoEnv(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("architecture-tag EnvPolicy = %#v, want %#v", got, want)
+			}
+			if _, ok := goAdapter.InitOptions(scope)["buildFlags"]; ok {
+				t.Fatal("architecture-tag InitOptions unexpectedly contains buildFlags")
+			}
+		})
+	}
+}
+
 func TestGoAdapterLeavesStandaloneIgnoreTagToGopls(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	root := canonicalScopePath(t.TempDir(), "")

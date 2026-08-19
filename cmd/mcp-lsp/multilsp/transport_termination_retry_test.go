@@ -64,6 +64,13 @@ func (o *retryingTerminationProcessTreeOwner) Terminate() error {
 	return nil
 }
 
+func (o *retryingTerminationProcessTreeOwner) Remaining() ([]hiddenexec.ProcessIdentity, error) {
+	if o.terminateCalls.Load() < 2 {
+		return []hiddenexec.ProcessIdentity{{PID: 2}}, nil
+	}
+	return nil, nil
+}
+
 // TestTransportCloseRetriesProcessTreeTerminationAfterFailure 锁定终止失败后的 owner 保留与下一次收敛。
 func TestTransportCloseRetriesProcessTreeTerminationAfterFailure(t *testing.T) {
 	owner := &retryingTerminationProcessTreeOwner{}
@@ -156,6 +163,13 @@ func (o *terminationFailureOwner) Terminate() error {
 	return nil
 }
 
+func (o *terminationFailureOwner) Remaining() ([]hiddenexec.ProcessIdentity, error) {
+	if o.terminateCalls.Load() < 2 {
+		return []hiddenexec.ProcessIdentity{{PID: 2}}, nil
+	}
+	return nil, nil
+}
+
 type convergedTerminationFailureOwner struct {
 	terminationFailureOwner
 }
@@ -177,6 +191,43 @@ func TestTransportCloseReleasesExitedVerifiedTreeAfterBlockedSignal(t *testing.T
 	assertTransportOwnerCalls(t, owner, 1, 1)
 	if !tr.closeComplete {
 		t.Fatal("Close() did not latch completion after verified natural exit")
+	}
+}
+
+type noRemainingProcessTreeOwner struct {
+	terminateCalls atomic.Int32
+	releaseCalls   atomic.Int32
+}
+
+func (o *noRemainingProcessTreeOwner) Terminate() error {
+	o.terminateCalls.Add(1)
+	return nil
+}
+
+func (o *noRemainingProcessTreeOwner) Release() error {
+	o.releaseCalls.Add(1)
+	return nil
+}
+
+func (o *noRemainingProcessTreeOwner) RSSBytes() (uint64, error) { return 0, nil }
+
+func (o *noRemainingProcessTreeOwner) PrepareShutdown() error { return nil }
+
+// TestTransportCloseRetainsOwnerWhenNaturalExitCannotProveRemaining 锁定自然退出缺少 Remaining 证据时不得释放 owner。
+func TestTransportCloseRetainsOwnerWhenNaturalExitCannotProveRemaining(t *testing.T) {
+	owner := &noRemainingProcessTreeOwner{}
+	tr := newTestTransportWithExitedProcess()
+	tr.processTree = owner
+
+	err := tr.Close()
+	if !errors.Is(err, hiddenexec.ErrProcessTreeCleanupPending) {
+		t.Fatalf("Close() without Remaining = %v, want CleanupPending", err)
+	}
+	if got := owner.releaseCalls.Load(); got != 0 {
+		t.Fatalf("Release() calls without Remaining = %d, want zero", got)
+	}
+	if tr.closeComplete {
+		t.Fatal("Close() marked completion without Remaining evidence")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
@@ -164,6 +165,10 @@ func (o *countingProcessTreeOwner) RSSBytes() (uint64, error) {
 func (o *countingProcessTreeOwner) PrepareShutdown() error {
 	o.prepareCalls.Add(1)
 	return o.prepareErr
+}
+
+func (o *countingProcessTreeOwner) Remaining() ([]hiddenexec.ProcessIdentity, error) {
+	return nil, nil
 }
 
 func TestTransportConcurrentCloseTerminatesExplicitOwnerOnce(t *testing.T) {

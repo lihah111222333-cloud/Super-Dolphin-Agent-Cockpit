@@ -4,8 +4,8 @@
   "cache_scope": "node",
   "inputs": {
     "toolchain_lock_sha256": "sha256:1ed9f3c1c170378cf30805a2dd1dfb9ae508a5cfe6347fddfa16f6c5b79e143b",
-    "go_mod_sha256": "sha256:26145dd08c09df3862014377512a54ba2ca9a84adc9e1451258050f9fb1ec75f",
-    "go_sum_sha256": "sha256:8c717e45352a15786cac26ee3e01be1fa81ff838e249c34356a3ed95e75a530a",
+    "go_mod_sha256": "sha256:d670fbf81d59def00aabc51af6184768090a5f9d1b823398f17e572b0671e0fd",
+    "go_sum_sha256": "sha256:33a78fe766d1ae22d76bd07ca0ec120028139af5202cfbe65c5008538c61a54c",
     "go_distribution_lock_sha256": "sha256:e5c78dfb226562952f8b2a7a9c29074e1fe58371ee63359086f04a31a025a9a6",
     "nilness_runner_sha256": "sha256:95dc872b202a527293eb57887ddb8fb4caf0a9f6ec5169fd17cbff99f74e8b9d",
     "nilness_guard_sha256": "sha256:b85f7ca92e06a6783898751dd969328ba9fcdf234f6727680b5e0d60536acd46",

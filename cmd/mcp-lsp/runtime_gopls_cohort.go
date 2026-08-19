@@ -191,6 +191,9 @@ func runtimeServerGoplsFilteredEnvironment(relevant []string, defaultable map[st
 			auxiliaryInput = append(auxiliaryInput, entry)
 			continue
 		}
+		if key == "GCCGO" && !usesGCCGO {
+			continue
+		}
 		defaultValue, defaultableKey := defaultable[key]
 		if defaultableKey && (value == "" || value == defaultValue) && !(key == "GCCGO" && usesGCCGO) {
 			continue
@@ -204,7 +207,11 @@ func runtimeServerGoplsFilteredEnvironment(relevant []string, defaultable map[st
 // runtimeServerGoplsAuxiliaryToolEnvironment 将显式 Go 辅助工具绑定到真实二进制身份。
 func runtimeServerGoplsAuxiliaryToolEnvironment(relevant []string) ([]string, error) {
 	semantic := make([]string, 0, 16)
+	usesGCCGO := runtimeServerGoplsUsesGCCGO(relevant)
 	for _, key := range []string{"CC", "CXX", "FC", "AR", "GCCGO", "GOCACHEPROG", "PKG_CONFIG"} {
+		if key == "GCCGO" && !usesGCCGO {
+			continue
+		}
 		command := runtimeServerGoplsEnvironmentValue(relevant, key)
 		if command == "" {
 			continue
@@ -254,11 +261,18 @@ func runtimeServerGoplsFilterInactiveGCCGO(relevant []string) []string {
 func runtimeServerGoplsUsesGCCGO(relevant []string) bool {
 	fields := strings.Fields(runtimeServerEnvValue(relevant, "GOFLAGS"))
 	for index, field := range fields {
-		if field == "-compiler=gccgo" {
-			return true
+		field = strings.Trim(field, `"'`)
+		for _, prefix := range []string{"-compiler=", "--compiler="} {
+			if value, ok := strings.CutPrefix(field, prefix); ok {
+				if strings.Trim(value, `"'`) == "gccgo" {
+					return true
+				}
+			}
 		}
-		if field == "-compiler" && index+1 < len(fields) && fields[index+1] == "gccgo" {
-			return true
+		if (field == "-compiler" || field == "--compiler") && index+1 < len(fields) {
+			if strings.Trim(fields[index+1], `"'`) == "gccgo" {
+				return true
+			}
 		}
 	}
 	return false

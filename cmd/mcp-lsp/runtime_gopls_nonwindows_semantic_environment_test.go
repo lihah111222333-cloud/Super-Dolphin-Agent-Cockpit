@@ -148,6 +148,11 @@ func TestRuntimeServerArgsIgnoresUnusedDefaultGCCGO(t *testing.T) {
 	if runtimeServerGoplsRemoteID(withoutDefault) != runtimeServerGoplsRemoteID(withDefault) {
 		t.Fatalf("unused default GCCGO split gc cohort: without=%v with=%v", withoutDefault, withDefault)
 	}
+	withExplicitGC := mustRuntimeServerArgs(t, command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64", "GOFLAGS=-compiler=gc", "GCCGO=gccgo"})
+	withoutExplicitGC := mustRuntimeServerArgs(t, command, goplsBinary, []string{"GOOS=linux", "GOARCH=amd64", "GOFLAGS=-compiler=gc", "GCCGO="})
+	if runtimeServerGoplsRemoteID(withExplicitGC) != runtimeServerGoplsRemoteID(withoutExplicitGC) {
+		t.Fatalf("unused GCCGO with -compiler=gc split gc cohort: with=%v without=%v", withExplicitGC, withoutExplicitGC)
+	}
 }
 
 func TestRuntimeServerArgsIgnoresUnavailableGoDefaultAuxiliaryTools(t *testing.T) {
@@ -170,11 +175,48 @@ func TestRuntimeServerArgsRequiresSelectedGCCGO(t *testing.T) {
 	goBinary := writeRuntimeServerCacheFixture(t, "go", runtimeServerFakeGoEnvScript("selected-gccgo"))
 	t.Setenv("PATH", filepath.Dir(goBinary))
 	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2"}}
-	_, err := runtimeServerGoplsAutoDaemonArgs(command, goplsBinary, []string{
-		"GOOS=linux", "GOARCH=amd64", "GOFLAGS=-compiler=gccgo", "GCCGO=gccgo",
-	})
-	if err == nil || !strings.Contains(err.Error(), "resolve GCCGO tool for gopls cohort") {
-		t.Fatalf("runtimeServerGoplsAutoDaemonArgs() error = %v, want selected GCCGO resolution failure", err)
+	for _, goflags := range []string{
+		"GOFLAGS=-compiler=gccgo",
+		"GOFLAGS=--compiler=gccgo",
+		"GOFLAGS=-compiler gccgo",
+		"GOFLAGS=--compiler gccgo",
+		`GOFLAGS=-compiler="gccgo"`,
+	} {
+		_, err := runtimeServerGoplsAutoDaemonArgs(command, goplsBinary, []string{
+			"GOOS=linux", "GOARCH=amd64", goflags, "GCCGO=gccgo",
+		})
+		if err == nil || !strings.Contains(err.Error(), "resolve GCCGO tool for gopls cohort") {
+			t.Fatalf("runtimeServerGoplsAutoDaemonArgs(%s) error = %v, want selected GCCGO resolution failure", goflags, err)
+		}
+	}
+}
+
+func TestRuntimeServerGoplsUsesGCCGO(t *testing.T) {
+	tests := []struct {
+		name string
+		env  []string
+		want bool
+	}{
+		{name: "empty", env: nil, want: false},
+		{name: "compiler_gccgo", env: []string{"GOFLAGS=-compiler=gccgo"}, want: true},
+		{name: "double_dash_compiler_gccgo", env: []string{"GOFLAGS=--compiler=gccgo"}, want: true},
+		{name: "space_compiler_gccgo", env: []string{"GOFLAGS=-compiler gccgo"}, want: true},
+		{name: "double_dash_space_compiler_gccgo", env: []string{"GOFLAGS=--compiler gccgo"}, want: true},
+		{name: "quoted_compiler_gccgo", env: []string{`GOFLAGS=-compiler="gccgo"`}, want: true},
+		{name: "quoted_flag_gccgo", env: []string{`GOFLAGS="-compiler=gccgo"`}, want: true},
+		{name: "single_quoted_compiler_gccgo", env: []string{`GOFLAGS=-compiler='gccgo'`}, want: true},
+		{name: "with_other_flags", env: []string{"GOFLAGS=-tags=integration -compiler=gccgo -v"}, want: true},
+		{name: "compiler_gc", env: []string{"GOFLAGS=-compiler=gc"}, want: false},
+		{name: "double_dash_compiler_gc", env: []string{"GOFLAGS=--compiler=gc"}, want: false},
+		{name: "compiler_other", env: []string{"GOFLAGS=-compiler=clang"}, want: false},
+		{name: "unrelated_flags", env: []string{"GOFLAGS=-v -race"}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runtimeServerGoplsUsesGCCGO(tc.env); got != tc.want {
+				t.Fatalf("runtimeServerGoplsUsesGCCGO(%v) = %v, want %v", tc.env, got, tc.want)
+			}
+		})
 	}
 }
 

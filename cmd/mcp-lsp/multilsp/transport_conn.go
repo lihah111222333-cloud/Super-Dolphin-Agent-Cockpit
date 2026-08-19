@@ -171,15 +171,16 @@ func (t *transport) logShutdownStageResult(stage string, stageErr error) {
 // releaseProcessTreeAfterExit 在进程退出后以 Remaining 证据判定清理是否已经收敛。
 // Darwin 可能因缺少 pidfd 等价物而拒绝破坏性信号，但关闭 stdin 后语言服务器仍会自然退出；
 // 此时 exact owner 报告零成员并成功 Release，先前的零信号错误不应继续冒充 CleanupPending。
-// 没有 Remaining 能力、等待超时或仍有成员时继续保留 owner 与原始终止错误。
+// 没有 Remaining 能力、等待超时或仍有成员时继续保留 owner，并返回可诊断的收敛错误。
 func (t *transport) releaseProcessTreeAfterExit(terminationErr, waitErr error) (error, error, bool) {
 	if waitErr != nil {
 		t.logShutdownStage("release", "skipped", waitErr)
 		return terminationErr, nil, false
 	}
-	if terminationErr != nil && !t.processTreeCanProveRemaining() {
-		t.logShutdownStage("release", "skipped", terminationErr)
-		return terminationErr, nil, false
+	if !t.processTreeCanProveRemaining() {
+		releaseErr := fmt.Errorf("LSP process-tree release blocked: %w: Remaining capability unavailable", hiddenexec.ErrProcessTreeCleanupPending)
+		t.logShutdownStage("release", "skipped", releaseErr)
+		return terminationErr, releaseErr, false
 	}
 	releaseErr, releaseComplete := t.releaseProcessTreeAttempt()
 	t.logShutdownStageResult("release", releaseErr)

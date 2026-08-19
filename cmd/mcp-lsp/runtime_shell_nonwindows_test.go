@@ -43,7 +43,7 @@ func TestSetupInstallerInstallsShellcheckWhenShellServerAlreadyExists(t *testing
 	script := `#!/bin/sh
 set -eu
 case " $* " in
-  *" shellcheck@"*) ;;
+  *" shellcheck "* | *" shellcheck@"*) ;;
   *) echo "missing shellcheck install arg: $*" >&2; exit 1 ;;
 esac
 printf '%s\n' "$*" > "$FAKE_NPM_MARKER"

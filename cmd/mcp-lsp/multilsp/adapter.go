@@ -376,6 +376,8 @@ func isGoToolchainBuildTag(tag string) bool {
 	implicitTags := []string{
 		"aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux",
 		"netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos",
+		"386", "amd64", "arm", "arm64", "loong64", "mips", "mipsle", "mips64", "mips64le",
+		"ppc64", "ppc64le", "riscv64", "s390x", "sparc64", "wasm",
 		"gc", "gccgo", "cgo", "unix", "race", "msan", "asan",
 	}
 	if slices.Contains(implicitTags, tag) || strings.HasPrefix(tag, "go1.") {
