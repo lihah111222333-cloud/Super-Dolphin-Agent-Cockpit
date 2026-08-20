@@ -2,10 +2,15 @@ package eci
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +38,10 @@ const (
 	ArtifactBuilderMemoryGiB = cicontract.CalibrationResourceMemoryGiB
 	// ArtifactBuilderMaxLogBytes 是 builder 日志观察的有界上限。
 	ArtifactBuilderMaxLogBytes = 1 << 20
+	// ArtifactBuilderRequestDigestTag 与 ArtifactBuilderInputDigestTag 是 live group
+	// 唯一允许携带的内容寻址 tag；原始凭据和其他 secret tag 均不属于协议。
+	ArtifactBuilderRequestDigestTag = "request-digest"
+	ArtifactBuilderInputDigestTag   = "input-digest"
 )
 
 var (
@@ -46,6 +55,15 @@ var ErrArtifactBuilderInvalidState = errors.New("artifact builder lifecycle stat
 
 // ErrArtifactBuilderStillPresent 表示 cleanup 的 absence proof 尚未成立。
 var ErrArtifactBuilderStillPresent = errors.New("artifact builder container group is still present")
+
+// ErrArtifactBuilderIdentityDrift 表示 live group 与绑定 request 的身份漂移。
+var ErrArtifactBuilderIdentityDrift = errors.New("artifact builder live identity drift")
+
+// ErrArtifactBuilderExecution 表示 provider 返回了不能形成成功证据的错误终态。
+var ErrArtifactBuilderExecution = errors.New("artifact builder execution failed")
+
+// ErrArtifactBuilderCancelled 表示 builder 在成功证据形成前被取消。
+var ErrArtifactBuilderCancelled = errors.New("artifact builder execution cancelled")
 
 // ArtifactBuilderInput 绑定输入对象及 portable baseline 的全部内容身份。
 type ArtifactBuilderInput struct {
@@ -310,6 +328,15 @@ func validArtifactBuilderOID(value string, length int) bool {
 			return false
 		}
 	}
+	return !allArtifactBuilderOIDZero(value)
+}
+
+func allArtifactBuilderOIDZero(value string) bool {
+	for _, char := range value {
+		if char != '0' {
+			return false
+		}
+	}
 	return true
 }
 
@@ -349,6 +376,73 @@ func artifactBuilderObjectKeyContainsSecretMarker(value string) bool {
 	return false
 }
 
+type artifactBuilderRequestDigestMaterial struct {
+	Provider            string
+	RegionID            string
+	ContainerGroupName  string
+	ContainerName       string
+	Image               string
+	ImageSnapshotID     string
+	EphemeralStorageGiB int64
+	CPU                 float64
+	MemoryGiB           float64
+	VSwitches           []cicontract.ECIVSwitch
+	ScheduleStrategy    string
+	SecurityGroupID     string
+	RAMRoleName         string
+	ArtifactKind        string
+	ArtifactRef         string
+	Command             []string
+	InputDigest         string
+}
+
+func artifactBuilderInputDigest(input ArtifactBuilderInput) (string, error) {
+	return artifactBuilderCanonicalDigest("artifact-builder-input/v1", input)
+}
+
+func artifactBuilderRequestDigest(request ArtifactBuilderRequest) (string, error) {
+	inputDigest, err := artifactBuilderInputDigest(request.Input)
+	if err != nil {
+		return "", err
+	}
+	material := artifactBuilderRequestDigestMaterial{
+		Provider: request.Provider, RegionID: request.RegionID,
+		ContainerGroupName: request.ContainerGroupName, ContainerName: request.ContainerName,
+		Image: request.Image, ImageSnapshotID: request.ImageSnapshotID,
+		EphemeralStorageGiB: request.EphemeralStorageGiB, CPU: request.CPU,
+		MemoryGiB: request.MemoryGiB, VSwitches: request.VSwitches,
+		ScheduleStrategy: request.ScheduleStrategy, SecurityGroupID: request.SecurityGroupID,
+		RAMRoleName: request.RAMRoleName, ArtifactKind: request.ArtifactKind,
+		ArtifactRef: request.ArtifactRef, Command: request.Command, InputDigest: inputDigest,
+	}
+	return artifactBuilderCanonicalDigest("artifact-builder-request/v1", material)
+}
+
+func artifactBuilderCanonicalDigest(domain string, material any) (string, error) {
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return "", fmt.Errorf("artifact builder canonical digest: %w", err)
+	}
+	payload := append([]byte(domain+"\x00"), encoded...)
+	digest := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func artifactBuilderExpectedTags(request ArtifactBuilderRequest) (map[string]string, error) {
+	requestDigest, err := artifactBuilderRequestDigest(request)
+	if err != nil {
+		return nil, err
+	}
+	inputDigest, err := artifactBuilderInputDigest(request.Input)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		ArtifactBuilderRequestDigestTag: requestDigest,
+		ArtifactBuilderInputDigestTag:   inputDigest,
+	}, nil
+}
+
 // ArtifactBuilderActor 是未来 ECI adapter 的最小生命周期 port；本文件不提供云实现。
 type ArtifactBuilderActor interface {
 	Create(context.Context, ArtifactBuilderRequest) (ArtifactBuilderGroup, error)
@@ -360,20 +454,31 @@ type ArtifactBuilderActor interface {
 
 // ArtifactBuilderGroup 是 builder lifecycle 所需的最小 live identity 与状态证据。
 type ArtifactBuilderGroup struct {
-	ID              string
-	Name            string
-	Provider        string
-	RegionID        string
-	Image           string
-	ImageSnapshotID string
-	Status          string
-	Container       ArtifactBuilderContainer
+	ID                  string
+	Name                string
+	Provider            string
+	RegionID            string
+	Image               string
+	ImageSnapshotID     string
+	Command             []string
+	Input               ArtifactBuilderInput
+	EphemeralStorageGiB int64
+	CPU                 float64
+	MemoryGiB           float64
+	VSwitches           []cicontract.ECIVSwitch
+	ScheduleStrategy    string
+	SecurityGroupID     string
+	RAMRoleName         string
+	Tags                map[string]string
+	Status              string
+	Container           ArtifactBuilderContainer
 }
 
 // ArtifactBuilderContainer 是 builder 容器的状态、退出码和真实时间证据。
 type ArtifactBuilderContainer struct {
 	Name       string
 	Image      string
+	Command    []string
 	State      string
 	ExitCode   *int64
 	StartTime  time.Time
@@ -393,6 +498,12 @@ const (
 	ArtifactBuilderGroupFailed = "Failed"
 	// ArtifactBuilderGroupTerminated 表示 provider 返回容器终态。
 	ArtifactBuilderGroupTerminated = "Terminated"
+	// ArtifactBuilderGroupError 表示 provider 返回了错误终态但没有成功证据。
+	ArtifactBuilderGroupError = "Error"
+	// ArtifactBuilderGroupCancelled 表示 builder 在成功证据形成前被取消。
+	ArtifactBuilderGroupCancelled = "Cancelled"
+	// ArtifactBuilderGroupIdentityDrift 表示 provider 明确报告身份漂移。
+	ArtifactBuilderGroupIdentityDrift = "IdentityDrift"
 
 	// ArtifactBuilderContainerRunning 表示容器仍在运行。
 	ArtifactBuilderContainerRunning = "Running"
@@ -414,6 +525,12 @@ const (
 	ArtifactBuilderStateSucceeded ArtifactBuilderState = "succeeded"
 	// ArtifactBuilderStateFailed 表示 builder 已进入失败终态。
 	ArtifactBuilderStateFailed ArtifactBuilderState = "failed"
+	// ArtifactBuilderStateIdentityDrift 表示 live identity 已漂移，必须清理而不能重试或成功。
+	ArtifactBuilderStateIdentityDrift ArtifactBuilderState = "identity_drift"
+	// ArtifactBuilderStateError 表示 provider 或证据校验失败，必须清理而不能成功。
+	ArtifactBuilderStateError ArtifactBuilderState = "error"
+	// ArtifactBuilderStateCancelled 表示 builder 被取消，必须清理而不能成功。
+	ArtifactBuilderStateCancelled ArtifactBuilderState = "cancelled"
 	// ArtifactBuilderStateDeleteRequested 表示已发起唯一 group cleanup。
 	ArtifactBuilderStateDeleteRequested ArtifactBuilderState = "delete_requested"
 	// ArtifactBuilderStateAbsent 表示 provider 已明确确认 group 消失。
@@ -475,6 +592,7 @@ func (lifecycle *ArtifactBuilderLifecycle) ObserveCreated(group ArtifactBuilderG
 	}
 	next, err := lifecycle.observeGroup(group)
 	if err != nil {
+		recordArtifactBuilderObserveFailure(lifecycle, group, err)
 		return err
 	}
 	lifecycle.group = cloneArtifactBuilderGroup(group)
@@ -488,10 +606,13 @@ func (lifecycle *ArtifactBuilderLifecycle) Observe(group ArtifactBuilderGroup) e
 		return ErrArtifactBuilderInvalidState
 	}
 	if group.ID != lifecycle.group.ID {
-		return errors.New("artifact builder lifecycle cannot observe a second container group")
+		lifecycle.group = cloneArtifactBuilderGroup(group)
+		lifecycle.state = ArtifactBuilderStateIdentityDrift
+		return fmt.Errorf("%w: artifact builder lifecycle cannot observe a second container group", ErrArtifactBuilderIdentityDrift)
 	}
 	next, err := lifecycle.observeGroup(group)
 	if err != nil {
+		recordArtifactBuilderObserveFailure(lifecycle, group, err)
 		return err
 	}
 	if !validArtifactBuilderObservationTransition(lifecycle.state, next) {
@@ -500,6 +621,15 @@ func (lifecycle *ArtifactBuilderLifecycle) Observe(group ArtifactBuilderGroup) e
 	lifecycle.group = cloneArtifactBuilderGroup(group)
 	lifecycle.state = next
 	return nil
+}
+
+func recordArtifactBuilderObserveFailure(lifecycle *ArtifactBuilderLifecycle, group ArtifactBuilderGroup, err error) {
+	lifecycle.group = cloneArtifactBuilderGroup(group)
+	if errors.Is(err, ErrArtifactBuilderIdentityDrift) {
+		lifecycle.state = ArtifactBuilderStateIdentityDrift
+		return
+	}
+	lifecycle.state = ArtifactBuilderStateError
 }
 
 // ObserveLogs 接收 bounded builder logs；超限日志必须失败而不能静默截断。
@@ -514,13 +644,44 @@ func (lifecycle *ArtifactBuilderLifecycle) ObserveLogs(logs string) error {
 	return nil
 }
 
+// MarkCancelled 将取消结果收口到 cleanup-only 状态；取消永远不能形成成功证据。
+func (lifecycle *ArtifactBuilderLifecycle) MarkCancelled() error {
+	if lifecycle == nil || !artifactBuilderCleanupEligibleState(lifecycle.state) {
+		return ErrArtifactBuilderInvalidState
+	}
+	lifecycle.state = ArtifactBuilderStateCancelled
+	return nil
+}
+
+func artifactBuilderCleanupEligibleState(state ArtifactBuilderState) bool {
+	switch state {
+	case ArtifactBuilderStateCreated, ArtifactBuilderStateRunning,
+		ArtifactBuilderStateIdentityDrift, ArtifactBuilderStateError:
+		return true
+	default:
+		return false
+	}
+}
+
 // MarkDeleteRequested 记录成功调用 Delete 后的 cleanup 阶段。
 func (lifecycle *ArtifactBuilderLifecycle) MarkDeleteRequested() error {
-	if lifecycle == nil || (lifecycle.state != ArtifactBuilderStateSucceeded && lifecycle.state != ArtifactBuilderStateFailed) {
+	if lifecycle == nil || !artifactBuilderDeleteRequestedState(lifecycle.state) {
 		return ErrArtifactBuilderInvalidState
 	}
 	lifecycle.state = ArtifactBuilderStateDeleteRequested
 	return nil
+}
+
+func artifactBuilderDeleteRequestedState(state ArtifactBuilderState) bool {
+	switch state {
+	case ArtifactBuilderStateCreated, ArtifactBuilderStateRunning,
+		ArtifactBuilderStateSucceeded, ArtifactBuilderStateFailed,
+		ArtifactBuilderStateIdentityDrift, ArtifactBuilderStateError,
+		ArtifactBuilderStateCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 // ConfirmAbsent 只接受 provider 明确返回的 absence proof。
@@ -551,6 +712,12 @@ func (lifecycle *ArtifactBuilderLifecycle) observeGroup(group ArtifactBuilderGro
 		return artifactBuilderTerminalState(group, false)
 	case ArtifactBuilderGroupTerminated:
 		return artifactBuilderTerminatedState(group)
+	case ArtifactBuilderGroupError:
+		return ArtifactBuilderStateError, nil
+	case ArtifactBuilderGroupCancelled:
+		return ArtifactBuilderStateCancelled, nil
+	case ArtifactBuilderGroupIdentityDrift:
+		return "", fmt.Errorf("%w: provider reported identity drift", ErrArtifactBuilderIdentityDrift)
 	default:
 		return "", fmt.Errorf("artifact builder group status %q is unsupported", group.Status)
 	}
@@ -592,31 +759,117 @@ func artifactBuilderTerminatedState(group ArtifactBuilderGroup) (ArtifactBuilder
 
 // validateArtifactBuilderGroupIdentity 校验实时 group 与固定 request 的不可变身份一致。
 func validateArtifactBuilderGroupIdentity(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
+	if !artifactBuilderTokenPattern.MatchString(group.ID) {
+		return errors.New("artifact builder live group ID is invalid")
+	}
+	if err := validateArtifactBuilderLiveStrings(request, group); err != nil {
+		return err
+	}
+	if err := validateArtifactBuilderLiveCommand(request, group); err != nil {
+		return err
+	}
+	if err := validateArtifactBuilderLiveInput(request, group); err != nil {
+		return err
+	}
+	if err := validateArtifactBuilderLiveResources(request, group); err != nil {
+		return err
+	}
+	if err := validateArtifactBuilderLiveInfrastructure(request, group); err != nil {
+		return err
+	}
+	return validateArtifactBuilderLiveTags(request, group)
+}
+
+func validateArtifactBuilderLiveStrings(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
 	identity := []struct {
 		name string
 		got  string
 		want string
 	}{
-		{"group ID", group.ID, ""},
 		{"group name", group.Name, request.ContainerGroupName},
 		{"provider", group.Provider, request.Provider},
 		{"region", group.RegionID, request.RegionID},
 		{"image", group.Image, request.Image},
 		{"image snapshot", group.ImageSnapshotID, request.ImageSnapshotID},
+		{"container name", group.Container.Name, request.ContainerName},
+		{"container image", group.Container.Image, request.Image},
 	}
-	if !artifactBuilderTokenPattern.MatchString(group.ID) {
-		return errors.New("artifact builder live group ID is invalid")
-	}
-	for _, field := range identity[1:] {
+	for _, field := range identity {
 		if field.got != field.want {
-			return fmt.Errorf("artifact builder live %s identity does not match the bound request", field.name)
+			return fmt.Errorf("%w: artifact builder live %s identity does not match the bound request", ErrArtifactBuilderIdentityDrift, field.name)
 		}
 	}
-	if group.Container.Name != request.ContainerName {
-		return errors.New("artifact builder live container identity does not match the bound request")
+	return nil
+}
+
+// validateArtifactBuilderLiveCommand 严格核对 group 或容器回读的固定 builder 命令，缺失或漂移都进入 cleanup。
+func validateArtifactBuilderLiveCommand(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
+	if len(group.Command) == 0 && len(group.Container.Command) == 0 {
+		return fmt.Errorf("%w: artifact builder live command is missing", ErrArtifactBuilderIdentityDrift)
 	}
-	if group.Container.Image != request.Image {
-		return errors.New("artifact builder live container image does not match the bound request")
+	if len(group.Command) > 0 && !slices.Equal(group.Command, request.Command) {
+		return fmt.Errorf("%w: artifact builder live group command does not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	if len(group.Container.Command) > 0 && !slices.Equal(group.Container.Command, request.Command) {
+		return fmt.Errorf("%w: artifact builder live container command does not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	return nil
+}
+
+func validateArtifactBuilderLiveInput(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
+	if group.Input == (ArtifactBuilderInput{}) {
+		return fmt.Errorf("%w: artifact builder live typed input is missing", ErrArtifactBuilderIdentityDrift)
+	}
+	return compareArtifactBuilderInput(request.Input, group.Input)
+}
+
+// compareArtifactBuilderInput 逐项核对 live typed input，确保摘要、大小及 source commit/tree 均绑定原始请求。
+func compareArtifactBuilderInput(want, got ArtifactBuilderInput) error {
+	if got.Key != want.Key || got.SHA256 != want.SHA256 || got.SizeBytes != want.SizeBytes ||
+		got.RepositoryID != want.RepositoryID || got.ObjectFormat != want.ObjectFormat ||
+		got.SourceCommitSHA != want.SourceCommitSHA || got.SourceTreeSHA != want.SourceTreeSHA ||
+		got.BuilderDigest != want.BuilderDigest || got.ToolchainDigest != want.ToolchainDigest {
+		return fmt.Errorf("%w: artifact builder live typed input does not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	return nil
+}
+
+func validateArtifactBuilderLiveResources(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
+	if group.EphemeralStorageGiB != request.EphemeralStorageGiB || group.CPU != request.CPU || group.MemoryGiB != request.MemoryGiB {
+		return fmt.Errorf("%w: artifact builder live resources do not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	if !slices.Equal(group.VSwitches, request.VSwitches) {
+		return fmt.Errorf("%w: artifact builder live vSwitch bindings do not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	return nil
+}
+
+func validateArtifactBuilderLiveInfrastructure(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
+	if group.ScheduleStrategy != request.ScheduleStrategy {
+		return fmt.Errorf("%w: artifact builder live schedule strategy does not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	if group.SecurityGroupID != request.SecurityGroupID || group.RAMRoleName != request.RAMRoleName {
+		return fmt.Errorf("%w: artifact builder live security or RAM identity does not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	return nil
+}
+
+func validateArtifactBuilderLiveTags(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
+	expected, err := artifactBuilderExpectedTags(request)
+	if err != nil {
+		return err
+	}
+	return compareArtifactBuilderTags(expected, group.Tags)
+}
+
+func compareArtifactBuilderTags(expected, got map[string]string) error {
+	if len(got) != len(expected) {
+		return fmt.Errorf("%w: artifact builder live tags are not the canonical digest-only set", ErrArtifactBuilderIdentityDrift)
+	}
+	for key, want := range expected {
+		if got[key] != want || !validArtifactBuilderDigest(got[key]) {
+			return fmt.Errorf("%w: artifact builder live tag %q does not match the canonical digest", ErrArtifactBuilderIdentityDrift, key)
+		}
 	}
 	return nil
 }
@@ -637,11 +890,19 @@ func validateArtifactBuilderTerminal(group ArtifactBuilderGroup, success bool) e
 
 // validArtifactBuilderObservationTransition 判断 Describe 观察状态是否单向推进。
 func validArtifactBuilderObservationTransition(current, next ArtifactBuilderState) bool {
-	switch current {
-	case ArtifactBuilderStateCreated:
-		return next == ArtifactBuilderStateCreated || next == ArtifactBuilderStateRunning || next == ArtifactBuilderStateSucceeded || next == ArtifactBuilderStateFailed
-	case ArtifactBuilderStateRunning:
-		return next == ArtifactBuilderStateRunning || next == ArtifactBuilderStateSucceeded || next == ArtifactBuilderStateFailed
+	if current == ArtifactBuilderStateCreated {
+		return next == ArtifactBuilderStateCreated || next == ArtifactBuilderStateRunning || artifactBuilderTerminalObservationState(next)
+	}
+	if current == ArtifactBuilderStateRunning {
+		return next == ArtifactBuilderStateRunning || artifactBuilderTerminalObservationState(next)
+	}
+	return false
+}
+
+func artifactBuilderTerminalObservationState(state ArtifactBuilderState) bool {
+	switch state {
+	case ArtifactBuilderStateSucceeded, ArtifactBuilderStateFailed, ArtifactBuilderStateError, ArtifactBuilderStateCancelled:
+		return true
 	default:
 		return false
 	}
@@ -654,9 +915,22 @@ func cloneArtifactBuilderRequest(request ArtifactBuilderRequest) ArtifactBuilder
 }
 
 func cloneArtifactBuilderGroup(group ArtifactBuilderGroup) ArtifactBuilderGroup {
+	group.Command = append([]string(nil), group.Command...)
+	group.VSwitches = append([]cicontract.ECIVSwitch(nil), group.VSwitches...)
+	group.Tags = cloneArtifactBuilderTags(group.Tags)
+	group.Container.Command = append([]string(nil), group.Container.Command...)
 	if group.Container.ExitCode != nil {
 		exitCode := *group.Container.ExitCode
 		group.Container.ExitCode = &exitCode
 	}
 	return group
+}
+
+func cloneArtifactBuilderTags(tags map[string]string) map[string]string {
+	if tags == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(tags))
+	maps.Copy(clone, tags)
+	return clone
 }

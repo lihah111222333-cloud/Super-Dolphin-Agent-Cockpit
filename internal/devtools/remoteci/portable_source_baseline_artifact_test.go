@@ -18,11 +18,11 @@ import (
 type testPortableSourceBaselineResolver struct {
 	body    io.ReadCloser
 	size    int64
-	receipt PortableSourceBaselineProducerReceipt
+	receipt SourceBaselineProducerReceipt
 	err     error
 }
 
-func (resolver testPortableSourceBaselineResolver) Resolve(context.Context, string, string) (io.ReadCloser, int64, PortableSourceBaselineProducerReceipt, error) {
+func (resolver testPortableSourceBaselineResolver) Resolve(context.Context, string, string) (io.ReadCloser, int64, SourceBaselineProducerReceipt, error) {
 	return resolver.body, resolver.size, resolver.receipt, resolver.err
 }
 
@@ -85,7 +85,7 @@ func TestValidatePortableSourceBaselineArtifactRejectsReceiptRepositoryDrift(t *
 type portableSourceBaselineFixture struct {
 	bundle  []byte
 	target  PortableRunTarget
-	receipt PortableSourceBaselineProducerReceipt
+	receipt SourceBaselineProducerReceipt
 }
 
 func buildPortableSourceBaselineFixture(t *testing.T) portableSourceBaselineFixture {
@@ -127,7 +127,8 @@ func buildPortableSourceBaselineFixture(t *testing.T) portableSourceBaselineFixt
 	}
 	digest := sha256.Sum256(bundle)
 	artifactDigest := "sha256:" + hex.EncodeToString(digest[:])
-	receipt := PortableSourceBaselineProducerReceipt{
+	receipt := SourceBaselineProducerReceipt{
+		SchemaVersion:     SourceBaselineProducerReceiptSchema,
 		ExecutionProvider: PortableExecutionProvider,
 		BuilderDigest:     "sha256:" + strings.Repeat("a", 64),
 		ToolchainDigest:   "sha256:" + strings.Repeat("c", 64),

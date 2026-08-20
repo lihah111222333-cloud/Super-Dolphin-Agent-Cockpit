@@ -1,6 +1,7 @@
 package oss
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -275,4 +276,173 @@ func writePortableFixtureFile(t *testing.T, data []byte) string {
 		t.Fatal(err)
 	}
 	return filePath
+}
+
+func TestPortableArtifactResolveRejectsWrongBodyEarlyEOFAndCloseFailure(t *testing.T) {
+	want := portableBytesMetadata([]byte("expected body"))
+	key, err := CanonicalPortableFinalBundleKey("portable/", want.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeErr := errors.New("underlying close failed")
+	client := &portableResolveClient{
+		stat:     want,
+		body:     &portableFailingReadCloser{reader: bytes.NewReader([]byte("short")), closeErr: closeErr},
+		size:     want.SizeBytes,
+		metadata: want,
+	}
+	store, err := NewPortableArtifactStore(client, "portable/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, _, err := store.Resolve(context.Background(), PortableArtifactKind, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, readErr := io.ReadAll(body)
+	closeReadErr := body.Close()
+	if !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		t.Fatalf("Resolve read error = %v, want unexpected EOF", readErr)
+	}
+	if !errors.Is(closeReadErr, closeErr) {
+		t.Fatalf("Resolve close error = %v, want %v", closeReadErr, closeErr)
+	}
+}
+
+func TestPortableArtifactResolveRejectsOverlongAndDriftedBodies(t *testing.T) {
+	wantData := []byte("expected body")
+	want := portableBytesMetadata(wantData)
+	key, err := CanonicalPortableFinalBundleKey("portable/", want.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		body []byte
+		want error
+	}{
+		{name: "overlong", body: append(append([]byte(nil), wantData...), 'x'), want: ErrPortableArtifactBodyTooLong},
+		{name: "hash drift", body: []byte("differenttext"), want: ErrPortableArtifactBodyMismatch},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &portableResolveClient{
+				stat:     want,
+				body:     &portableFailingReadCloser{reader: bytes.NewReader(test.body)},
+				size:     want.SizeBytes,
+				metadata: want,
+			}
+			store, err := NewPortableArtifactStore(client, "portable/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _, _, err := store.Resolve(context.Background(), PortableArtifactKind, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, readErr := io.ReadAll(body)
+			if !errors.Is(readErr, test.want) {
+				t.Fatalf("Resolve read error = %v, want %v", readErr, test.want)
+			}
+			if err := body.Close(); !errors.Is(err, test.want) {
+				t.Fatalf("Resolve close = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestPortableArtifactResolveCloseDrainsUnreadBody(t *testing.T) {
+	data := []byte("expected body")
+	want := portableBytesMetadata(data)
+	key, err := CanonicalPortableFinalBundleKey("portable/", want.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	underlying := &portableFailingReadCloser{reader: bytes.NewReader(data)}
+	client := &portableResolveClient{stat: want, body: underlying, size: want.SizeBytes, metadata: want}
+	store, err := NewPortableArtifactStore(client, "portable/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, _, err := store.Resolve(context.Background(), PortableArtifactKind, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := body.Read(make([]byte, 1)); err != nil {
+		t.Fatalf("initial partial read = %v", err)
+	}
+	if err := body.Close(); err != nil {
+		t.Fatalf("Close after partial read = %v", err)
+	}
+	if underlying.closeCount != 1 {
+		t.Fatalf("underlying Close count = %d, want 1", underlying.closeCount)
+	}
+}
+
+func TestPortableArtifactResolveClosesBodyWhenGetFails(t *testing.T) {
+	want := portableBytesMetadata([]byte("expected body"))
+	key, err := CanonicalPortableFinalBundleKey("portable/", want.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getErr := errors.New("get failed")
+	closeErr := errors.New("close failed")
+	underlying := &portableFailingReadCloser{reader: bytes.NewReader(nil), closeErr: closeErr}
+	client := &portableResolveClient{stat: want, body: underlying, size: want.SizeBytes, metadata: want, getErr: getErr}
+	store, err := NewPortableArtifactStore(client, "portable/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.Resolve(context.Background(), PortableArtifactKind, key); !errors.Is(err, getErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("Resolve Get error = %v, want get and close errors", err)
+	}
+	if underlying.closeCount != 1 {
+		t.Fatalf("underlying Close count = %d, want 1", underlying.closeCount)
+	}
+}
+
+type portableResolveClient struct {
+	stat      PortableArtifactMetadata
+	body      io.ReadCloser
+	size      int64
+	metadata  PortableArtifactMetadata
+	getErr    error
+	createErr error
+}
+
+func (c *portableResolveClient) Create(context.Context, string, string) error {
+	if c.createErr != nil {
+		return c.createErr
+	}
+	return errors.New("unexpected create")
+}
+
+func (c *portableResolveClient) Stat(context.Context, string) (PortableArtifactMetadata, error) {
+	return c.stat, nil
+}
+
+func (c *portableResolveClient) Get(context.Context, string, int64) (io.ReadCloser, int64, PortableArtifactMetadata, error) {
+	return c.body, c.size, c.metadata, c.getErr
+}
+
+func (c *portableResolveClient) DeletePrefix(context.Context, string) error {
+	return errors.New("unexpected delete")
+}
+
+func (c *portableResolveClient) ConfirmPrefixEmpty(context.Context, string) (bool, error) {
+	return false, errors.New("unexpected confirm")
+}
+
+type portableFailingReadCloser struct {
+	reader     *bytes.Reader
+	closeErr   error
+	closeCount int
+}
+
+func (r *portableFailingReadCloser) Read(p []byte) (int, error) {
+	return r.reader.Read(p)
+}
+
+func (r *portableFailingReadCloser) Close() error {
+	r.closeCount++
+	return r.closeErr
 }

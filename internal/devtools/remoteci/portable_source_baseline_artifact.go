@@ -24,22 +24,9 @@ const (
 	portableSourceBaselineMaxHeader   = 1 << 20
 )
 
-// PortableSourceBaselineProducerReceipt 是 baseline bundle 的生产者身份回执。
-type PortableSourceBaselineProducerReceipt struct {
-	ExecutionProvider string
-	BuilderDigest     string
-	ToolchainDigest   string
-	RepositoryID      string
-	ObjectFormat      string
-	BaselineCommitSHA string
-	BaselineTreeSHA   string
-	ArtifactSHA256    string
-	ArtifactSizeBytes int64
-}
-
 // SourceBaselineArtifactResolver 解析不透明 kind/key，返回单次流、大小和 typed receipt。
 type SourceBaselineArtifactResolver interface {
-	Resolve(ctx context.Context, kind, key string) (io.ReadCloser, int64, PortableSourceBaselineProducerReceipt, error)
+	Resolve(ctx context.Context, kind, key string) (io.ReadCloser, int64, SourceBaselineProducerReceipt, error)
 }
 
 // ValidatePortableSourceBaselineArtifact 严格校验单个内容寻址 baseline bundle，
@@ -67,22 +54,22 @@ func ValidateSourceBaselineArtifact(ctx context.Context, resolver SourceBaseline
 }
 
 // resolvePortableSourceBaseline 获取解析器返回的 body，并确保错误路径也关闭 body。
-func resolvePortableSourceBaseline(resolver SourceBaselineArtifactResolver, ctx context.Context, expected PortableSourceBaseline) (io.ReadCloser, int64, PortableSourceBaselineProducerReceipt, error) {
+func resolvePortableSourceBaseline(resolver SourceBaselineArtifactResolver, ctx context.Context, expected PortableSourceBaseline) (io.ReadCloser, int64, SourceBaselineProducerReceipt, error) {
 	body, size, receipt, resolveErr := resolver.Resolve(ctx, expected.ArtifactKind, expected.ArtifactKey)
 	if resolveErr != nil {
 		if body != nil && !interfaceValueIsNil(body) {
 			_ = body.Close()
 		}
-		return nil, 0, PortableSourceBaselineProducerReceipt{}, portableSourceBaselineError("resolve artifact")
+		return nil, 0, SourceBaselineProducerReceipt{}, portableSourceBaselineError("resolve artifact")
 	}
 	if body == nil || interfaceValueIsNil(body) {
-		return nil, 0, PortableSourceBaselineProducerReceipt{}, portableSourceBaselineError("resolver returned no body")
+		return nil, 0, SourceBaselineProducerReceipt{}, portableSourceBaselineError("resolver returned no body")
 	}
 	return body, size, receipt, nil
 }
 
 // validatePortableSourceBaselineStream 校验回执、流式物料摘要并复核 Git bundle。
-func validatePortableSourceBaselineStream(ctx context.Context, body io.Reader, size int64, receipt PortableSourceBaselineProducerReceipt, target PortableRunTarget) (err error) {
+func validatePortableSourceBaselineStream(ctx context.Context, body io.Reader, size int64, receipt SourceBaselineProducerReceipt, target PortableRunTarget) (err error) {
 	baseline := target.SourceBaseline
 	if err := validatePortableSourceBaselineReceipt(receipt, target); err != nil {
 		return err
@@ -174,10 +161,9 @@ func createPortableSourceBaselineTemp() (string, error) {
 }
 
 // validatePortableSourceBaselineReceipt 逐字段校验 producer receipt 与 expected。
-func validatePortableSourceBaselineReceipt(receipt PortableSourceBaselineProducerReceipt, target PortableRunTarget) error {
+func validatePortableSourceBaselineReceipt(receipt SourceBaselineProducerReceipt, target PortableRunTarget) error {
 	expected := target.SourceBaseline
-	if receipt.ExecutionProvider != PortableExecutionProvider || !validPortableDigest(receipt.BuilderDigest) ||
-		!validPortableDigest(receipt.ToolchainDigest) || receipt.RepositoryID != target.RepositoryID {
+	if err := receipt.Validate(); err != nil || receipt.RepositoryID != target.RepositoryID {
 		return portableSourceBaselineError("producer identity")
 	}
 	if receipt.ObjectFormat != expected.ObjectFormat || receipt.BaselineCommitSHA != expected.BaselineCommitSHA ||
@@ -208,7 +194,7 @@ func stagePortableSourceBaseline(body io.Reader, bundlePath string, claimedSize 
 }
 
 // validatePortableSourceBaselineBundle 在隔离 bare repo 中复核 bundle 头、导入和 refs。
-func validatePortableSourceBaselineBundle(ctx context.Context, bundlePath string, receipt PortableSourceBaselineProducerReceipt) error {
+func validatePortableSourceBaselineBundle(ctx context.Context, bundlePath string, receipt SourceBaselineProducerReceipt) error {
 	format := gate.GitObjectFormat(receipt.ObjectFormat)
 	advertised, err := readPortableSourceBaselineHeader(bundlePath, format)
 	if err != nil {
@@ -304,7 +290,7 @@ func strictPortableSourceBaselineHead(output []byte, format gate.GitObjectFormat
 }
 
 // validatePortableSourceBaselineObjects 校验隔离仓身份、commit/tree 和完整闭包。
-func validatePortableSourceBaselineObjects(ctx context.Context, bareRoot string, receipt PortableSourceBaselineProducerReceipt, format gate.GitObjectFormat) error {
+func validatePortableSourceBaselineObjects(ctx context.Context, bareRoot string, receipt SourceBaselineProducerReceipt, format gate.GitObjectFormat) error {
 	if err := validatePortableSourceBaselineRepository(ctx, bareRoot, receipt, format); err != nil {
 		return err
 	}
@@ -315,7 +301,7 @@ func validatePortableSourceBaselineObjects(ctx context.Context, bareRoot string,
 }
 
 // validatePortableSourceBaselineRepository 校验 object format 与唯一 ref。
-func validatePortableSourceBaselineRepository(ctx context.Context, bareRoot string, receipt PortableSourceBaselineProducerReceipt, format gate.GitObjectFormat) error {
+func validatePortableSourceBaselineRepository(ctx context.Context, bareRoot string, receipt SourceBaselineProducerReceipt, format gate.GitObjectFormat) error {
 	objectFormat, err := runPortableGitOutput(ctx, bareRoot, "rev-parse", "--show-object-format")
 	if err != nil || string(objectFormat) != string(format)+"\n" {
 		return portableSourceBaselineError("object format")
@@ -328,7 +314,7 @@ func validatePortableSourceBaselineRepository(ctx context.Context, bareRoot stri
 }
 
 // validatePortableSourceBaselineCommit 校验 parentless deterministic commit 和 tree。
-func validatePortableSourceBaselineCommit(ctx context.Context, bareRoot string, receipt PortableSourceBaselineProducerReceipt, format gate.GitObjectFormat) error {
+func validatePortableSourceBaselineCommit(ctx context.Context, bareRoot string, receipt SourceBaselineProducerReceipt, format gate.GitObjectFormat) error {
 	commit, err := readSourceObject(ctx, bareRoot, receipt.BaselineCommitSHA)
 	if err != nil || commit.kind != "commit" {
 		return portableSourceBaselineError("baseline commit")

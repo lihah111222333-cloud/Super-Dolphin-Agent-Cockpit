@@ -70,20 +70,44 @@ func assertSourceBaselineReceiptDecodeRejects(t *testing.T, name string, data []
 
 func TestSourceBaselineBuilderEvidenceBindsInput(t *testing.T) {
 	input := testSourceBaselineBuildInput(t)
-	receipt := testSourceBaselineProducerReceipt(t)
-	evidence := SourceBaselineBuildEvidence{
-		Provider:         PortableExecutionProvider,
-		ContainerGroupID: "group-1",
-		ArtifactKey:      "artifact-1",
-		ReceiptKey:       "receipt-1",
-		Receipt:          receipt,
-	}
+	evidence := testSourceBaselineBuildEvidence(t, input)
 	if err := evidence.ValidateAgainst(input); err != nil {
 		t.Fatalf("SourceBaselineBuildEvidence.ValidateAgainst() error = %v", err)
 	}
 	evidence.Provider = "other/v1"
 	if err := evidence.ValidateAgainst(input); err == nil {
 		t.Fatal("SourceBaselineBuildEvidence.ValidateAgainst() accepted a non-ECI provider")
+	}
+}
+
+func TestSourceBaselineBuildEvidenceRejectsArtifactReceiptKeyDigestDrift(t *testing.T) {
+	input := testSourceBaselineBuildInput(t)
+	for name, mutate := range map[string]func(*SourceBaselineBuildEvidence){
+		"artifact": func(evidence *SourceBaselineBuildEvidence) { evidence.ArtifactKey += ".drift" },
+		"receipt":  func(evidence *SourceBaselineBuildEvidence) { evidence.ReceiptKey += ".drift" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			evidence := testSourceBaselineBuildEvidence(t, input)
+			mutate(&evidence)
+			if err := evidence.ValidateAgainst(input); err == nil {
+				t.Fatal("SourceBaselineBuildEvidence.ValidateAgainst() accepted artifact/receipt key digest drift")
+			}
+		})
+	}
+}
+
+func TestSourceBaselineBuilderRejectsAllZeroOID(t *testing.T) {
+	for name, mutate := range map[string]func(*SourceBaselineBuildInput){
+		"commit": func(input *SourceBaselineBuildInput) { input.CommitSHA = strings.Repeat("0", 40) },
+		"tree":   func(input *SourceBaselineBuildInput) { input.TreeSHA = strings.Repeat("0", 40) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := testSourceBaselineBuildInput(t)
+			mutate(&input)
+			if err := input.Validate(); err == nil {
+				t.Fatal("SourceBaselineBuildInput.Validate() accepted an all-zero OID")
+			}
+		})
 	}
 }
 
@@ -118,6 +142,33 @@ func testSourceBaselineBuildInput(t *testing.T) SourceBaselineBuildInput {
 		InputSizeBytes:  123,
 		BuilderDigest:   "sha256:" + strings.Repeat("b", 64),
 		ToolchainDigest: "sha256:" + strings.Repeat("c", 64),
+	}
+}
+
+func testSourceBaselineBuildEvidence(t *testing.T, input SourceBaselineBuildInput) SourceBaselineBuildEvidence {
+	t.Helper()
+	receipt := testSourceBaselineProducerReceipt(t)
+	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(
+		receipt.RepositoryID,
+		receipt.ObjectFormat,
+		receipt.BaselineTreeSHA,
+		receipt.ArtifactSHA256,
+	)
+	if err != nil {
+		t.Fatalf("canonical source baseline builder keys: %v", err)
+	}
+	inputDigest, err := SourceBaselineBuilderInputDigest(input)
+	if err != nil {
+		t.Fatalf("source baseline builder input digest: %v", err)
+	}
+	return SourceBaselineBuildEvidence{
+		Request:          input,
+		InputDigest:      inputDigest,
+		Provider:         PortableExecutionProvider,
+		ContainerGroupID: "group-1",
+		ArtifactKey:      artifactKey,
+		ReceiptKey:       receiptKey,
+		Receipt:          receipt,
 	}
 }
 

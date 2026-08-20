@@ -67,6 +67,8 @@ func TestArtifactBuilderRequestRejectsIdentityResourceSecretAndPathDrift(t *test
 		{name: "absolute input path", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "/tmp/source.bundle" }},
 		{name: "path traversal", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "objects/../source.bundle" }},
 		{name: "secret role value", mutate: func(config *ArtifactBuilderConfig) { config.RAMRoleName = "role/password=secret" }},
+		{name: "zero source commit oid", mutate: func(config *ArtifactBuilderConfig) { config.Input.SourceCommitSHA = strings.Repeat("0", 40) }},
+		{name: "zero source tree oid", mutate: func(config *ArtifactBuilderConfig) { config.Input.SourceTreeSHA = strings.Repeat("0", 40) }},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -76,6 +78,121 @@ func TestArtifactBuilderRequestRejectsIdentityResourceSecretAndPathDrift(t *test
 				t.Fatal("NewArtifactBuilderRequest() accepted invalid builder identity")
 			}
 		})
+	}
+}
+
+func TestArtifactBuilderLifecycleRejectsLiveCommandInputResourceScheduleAndTagDrift(t *testing.T) {
+	request, err := NewArtifactBuilderRequest(testArtifactBuilderConfig())
+	if err != nil {
+		t.Fatalf("NewArtifactBuilderRequest() error = %v", err)
+	}
+	cases := []struct {
+		name   string
+		mutate func(*ArtifactBuilderGroup)
+	}{
+		{name: "group command", mutate: func(group *ArtifactBuilderGroup) { group.Command[1] = "_wrong" }},
+		{name: "container command", mutate: func(group *ArtifactBuilderGroup) { group.Container.Command[1] = "_wrong" }},
+		{name: "input sha", mutate: func(group *ArtifactBuilderGroup) { group.Input.SHA256 = "sha256:" + strings.Repeat("9", 64) }},
+		{name: "input size", mutate: func(group *ArtifactBuilderGroup) { group.Input.SizeBytes++ }},
+		{name: "source commit", mutate: func(group *ArtifactBuilderGroup) { group.Input.SourceCommitSHA = strings.Repeat("9", 40) }},
+		{name: "source tree", mutate: func(group *ArtifactBuilderGroup) { group.Input.SourceTreeSHA = strings.Repeat("9", 40) }},
+		{name: "cpu", mutate: func(group *ArtifactBuilderGroup) { group.CPU = 2 }},
+		{name: "memory", mutate: func(group *ArtifactBuilderGroup) { group.MemoryGiB = 4 }},
+		{name: "ephemeral storage", mutate: func(group *ArtifactBuilderGroup) { group.EphemeralStorageGiB = 20 }},
+		{name: "vSwitch", mutate: func(group *ArtifactBuilderGroup) { group.VSwitches[0].ZoneID = "cn-test-drift" }},
+		{name: "schedule", mutate: func(group *ArtifactBuilderGroup) { group.ScheduleStrategy = "VSwitchRandomDrift" }},
+		{name: "security group", mutate: func(group *ArtifactBuilderGroup) { group.SecurityGroupID = "sg-drift" }},
+		{name: "RAM role", mutate: func(group *ArtifactBuilderGroup) { group.RAMRoleName = "role-drift" }},
+		{name: "request digest tag", mutate: func(group *ArtifactBuilderGroup) {
+			group.Tags[ArtifactBuilderRequestDigestTag] = "sha256:" + strings.Repeat("9", 64)
+		}},
+		{name: "input digest tag", mutate: func(group *ArtifactBuilderGroup) {
+			group.Tags[ArtifactBuilderInputDigestTag] = "sha256:" + strings.Repeat("9", 64)
+		}},
+		{name: "secret tag", mutate: func(group *ArtifactBuilderGroup) { group.Tags["token"] = "sha256:" + strings.Repeat("9", 64) }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			group := testArtifactBuilderGroup(t, request, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)
+			testCase.mutate(&group)
+			lifecycle, err := NewArtifactBuilderLifecycle(request)
+			if err != nil {
+				t.Fatalf("NewArtifactBuilderLifecycle() error = %v", err)
+			}
+			if err := lifecycle.ObserveCreated(group); err == nil {
+				t.Fatal("ObserveCreated() accepted live identity drift")
+			}
+			if lifecycle.State() != ArtifactBuilderStateIdentityDrift {
+				t.Fatalf("identity drift state = %s", lifecycle.State())
+			}
+			if err := lifecycle.MarkDeleteRequested(); err != nil {
+				t.Fatalf("MarkDeleteRequested() after identity drift error = %v", err)
+			}
+			if lifecycle.State() != ArtifactBuilderStateDeleteRequested {
+				t.Fatalf("cleanup state = %s", lifecycle.State())
+			}
+		})
+	}
+}
+
+func TestArtifactBuilderLifecycleCancellationAndErrorCannotBecomeSucceeded(t *testing.T) {
+	request, err := NewArtifactBuilderRequest(testArtifactBuilderConfig())
+	if err != nil {
+		t.Fatalf("NewArtifactBuilderRequest() error = %v", err)
+	}
+	assertArtifactBuilderCancellationCleanup(t, request)
+	assertArtifactBuilderErrorCleanup(t, request)
+}
+
+func assertArtifactBuilderCancellationCleanup(t *testing.T, request ArtifactBuilderRequest) {
+	t.Helper()
+	lifecycle, err := NewArtifactBuilderLifecycle(request)
+	if err != nil {
+		t.Fatalf("NewArtifactBuilderLifecycle() error = %v", err)
+	}
+	if err := lifecycle.ObserveCreated(testArtifactBuilderGroup(t, request, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)); err != nil {
+		t.Fatalf("ObserveCreated(running) error = %v", err)
+	}
+	if err := lifecycle.MarkCancelled(); err != nil {
+		t.Fatalf("MarkCancelled() error = %v", err)
+	}
+	if lifecycle.State() != ArtifactBuilderStateCancelled {
+		t.Fatalf("cancelled state = %s", lifecycle.State())
+	}
+	if err := lifecycle.MarkDeleteRequested(); err != nil {
+		t.Fatalf("MarkDeleteRequested() after cancellation error = %v", err)
+	}
+	if err := lifecycle.ConfirmAbsent(true); err != nil {
+		t.Fatalf("ConfirmAbsent() after cancellation error = %v", err)
+	}
+	if lifecycle.State() != ArtifactBuilderStateAbsent {
+		t.Fatalf("absent state = %s", lifecycle.State())
+	}
+	if err := lifecycle.Observe(testArtifactBuilderGroup(t, request, ArtifactBuilderGroupSucceeded, ArtifactBuilderContainerTerminated, nil)); err == nil {
+		t.Fatal("cancelled builder became observable after cleanup")
+	}
+}
+
+func assertArtifactBuilderErrorCleanup(t *testing.T, request ArtifactBuilderRequest) {
+	t.Helper()
+	errorLifecycle, err := NewArtifactBuilderLifecycle(request)
+	if err != nil {
+		t.Fatalf("NewArtifactBuilderLifecycle(error path) error = %v", err)
+	}
+	if err := errorLifecycle.ObserveCreated(testArtifactBuilderGroup(t, request, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)); err != nil {
+		t.Fatalf("ObserveCreated(error path) error = %v", err)
+	}
+	if err := errorLifecycle.Observe(testArtifactBuilderGroup(t, request, ArtifactBuilderGroupError, ArtifactBuilderContainerRunning, nil)); err != nil {
+		t.Fatalf("Observe(error status) error = %v", err)
+	}
+	if errorLifecycle.State() != ArtifactBuilderStateError {
+		t.Fatalf("error state = %s", errorLifecycle.State())
+	}
+	if err := errorLifecycle.MarkDeleteRequested(); err != nil {
+		t.Fatalf("MarkDeleteRequested() after error error = %v", err)
+	}
+	if err := errorLifecycle.ConfirmAbsent(true); err != nil {
+		t.Fatalf("ConfirmAbsent() after error error = %v", err)
 	}
 }
 
@@ -96,12 +213,12 @@ func TestArtifactBuilderLifecycleValidatesLiveIdentityTerminalEvidenceAndCleanup
 
 func advanceArtifactBuilderToRunning(t *testing.T, lifecycle *ArtifactBuilderLifecycle, request ArtifactBuilderRequest) {
 	t.Helper()
-	group := testArtifactBuilderGroup(request, ArtifactBuilderGroupPending, "", nil)
+	group := testArtifactBuilderGroup(t, request, ArtifactBuilderGroupPending, "", nil)
 	if err := lifecycle.ObserveCreated(group); err != nil {
 		t.Fatalf("ObserveCreated() error = %v", err)
 	}
 	assertArtifactBuilderState(t, lifecycle, ArtifactBuilderStateCreated)
-	group = testArtifactBuilderGroup(request, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)
+	group = testArtifactBuilderGroup(t, request, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)
 	if err := lifecycle.Observe(group); err != nil {
 		t.Fatalf("Observe(running) error = %v", err)
 	}
@@ -116,7 +233,7 @@ func advanceArtifactBuilderToRunning(t *testing.T, lifecycle *ArtifactBuilderLif
 
 func advanceArtifactBuilderToSucceeded(t *testing.T, lifecycle *ArtifactBuilderLifecycle, request ArtifactBuilderRequest) {
 	t.Helper()
-	group := testArtifactBuilderGroup(request, ArtifactBuilderGroupSucceeded, ArtifactBuilderContainerTerminated, new(int64(0)))
+	group := testArtifactBuilderGroup(t, request, ArtifactBuilderGroupSucceeded, ArtifactBuilderContainerTerminated, new(int64(0)))
 	if err := lifecycle.Observe(group); err != nil {
 		t.Fatalf("Observe(succeeded) error = %v", err)
 	}
@@ -158,12 +275,12 @@ func TestArtifactBuilderLifecycleRejectsWrongLiveIdentityAndIncompleteTerminal(t
 	if err != nil {
 		t.Fatalf("NewArtifactBuilderLifecycle() error = %v", err)
 	}
-	wrongImage := testArtifactBuilderGroup(request, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)
+	wrongImage := testArtifactBuilderGroup(t, request, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)
 	wrongImage.Image = "registry.example.com/other@sha256:" + strings.Repeat("f", 64)
 	if err := lifecycle.ObserveCreated(wrongImage); err == nil {
 		t.Fatal("ObserveCreated() accepted a live image identity drift")
 	}
-	incomplete := testArtifactBuilderGroup(request, ArtifactBuilderGroupSucceeded, ArtifactBuilderContainerTerminated, nil)
+	incomplete := testArtifactBuilderGroup(t, request, ArtifactBuilderGroupSucceeded, ArtifactBuilderContainerTerminated, nil)
 	if err := lifecycle.ObserveCreated(incomplete); err == nil {
 		t.Fatal("ObserveCreated() accepted terminal group without exit evidence")
 	}
@@ -227,18 +344,34 @@ func testArtifactBuilderConfig() ArtifactBuilderConfig {
 	}
 }
 
-func testArtifactBuilderGroup(request ArtifactBuilderRequest, status, containerState string, exitCode *int64) ArtifactBuilderGroup {
+func testArtifactBuilderGroup(t *testing.T, request ArtifactBuilderRequest, status, containerState string, exitCode *int64) ArtifactBuilderGroup {
+	t.Helper()
+	tags, err := artifactBuilderExpectedTags(request)
+	if err != nil {
+		t.Fatal(err)
+	}
 	group := ArtifactBuilderGroup{
-		ID:              "eci-builder-1",
-		Name:            request.ContainerGroupName,
-		Provider:        request.Provider,
-		RegionID:        request.RegionID,
-		Image:           request.Image,
-		ImageSnapshotID: request.ImageSnapshotID,
-		Status:          status,
+		ID:                  "eci-builder-1",
+		Name:                request.ContainerGroupName,
+		Provider:            request.Provider,
+		RegionID:            request.RegionID,
+		Image:               request.Image,
+		ImageSnapshotID:     request.ImageSnapshotID,
+		Command:             append([]string(nil), request.Command...),
+		Input:               request.Input,
+		EphemeralStorageGiB: request.EphemeralStorageGiB,
+		CPU:                 request.CPU,
+		MemoryGiB:           request.MemoryGiB,
+		VSwitches:           append([]cicontract.ECIVSwitch(nil), request.VSwitches...),
+		ScheduleStrategy:    request.ScheduleStrategy,
+		SecurityGroupID:     request.SecurityGroupID,
+		RAMRoleName:         request.RAMRoleName,
+		Tags:                tags,
+		Status:              status,
 		Container: ArtifactBuilderContainer{
 			Name:     request.ContainerName,
 			Image:    request.Image,
+			Command:  append([]string(nil), request.Command...),
 			State:    containerState,
 			ExitCode: exitCode,
 		},

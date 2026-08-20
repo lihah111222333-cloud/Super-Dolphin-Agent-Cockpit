@@ -61,11 +61,42 @@ type SourceBaselineProducerReceipt struct {
 
 // SourceBaselineBuildEvidence 是制品 builder 返回的有界编排证据。
 type SourceBaselineBuildEvidence struct {
+	Request          SourceBaselineBuildInput      `json:"request"`
+	InputDigest      string                        `json:"input_digest"`
 	Provider         string                        `json:"provider"`
 	ContainerGroupID string                        `json:"container_group_id"`
 	ArtifactKey      string                        `json:"artifact_key"`
 	ReceiptKey       string                        `json:"receipt_key"`
 	Receipt          SourceBaselineProducerReceipt `json:"receipt"`
+}
+
+// CanonicalSourceBaselineBuilderKeys 是 artifact 与 receipt 的唯一对象键构造器。
+// 两个键共享 repository/object/tree/artifact identity，但保留不同对象类型后缀。
+func CanonicalSourceBaselineBuilderKeys(repositoryID, objectFormat, treeSHA, artifactSHA string) (string, string, error) {
+	if err := validateBuilderIdentifier("repository_id", repositoryID); err != nil {
+		return "", "", err
+	}
+	format, err := validateBuilderObjectFormat(objectFormat)
+	if err != nil {
+		return "", "", err
+	}
+	if !validOID(treeSHA, format) {
+		return "", "", errors.New("source baseline builder key tree identity is invalid")
+	}
+	if !validPortableDigest(artifactSHA) {
+		return "", "", errors.New("source baseline builder key artifact SHA-256 is invalid")
+	}
+	digest := strings.TrimPrefix(artifactSHA, "sha256:")
+	identity := strings.Join([]string{repositoryID, string(format), treeSHA, digest}, "/")
+	artifactKey := "artifacts/" + identity + ".bundle"
+	receiptKey := "receipts/" + identity + ".json"
+	if err := validateBuilderObjectKey("artifact_key", artifactKey); err != nil {
+		return "", "", err
+	}
+	if err := validateBuilderObjectKey("receipt_key", receiptKey); err != nil {
+		return "", "", err
+	}
+	return artifactKey, receiptKey, nil
 }
 
 // SourceBaselineArtifactBuilderRuntime 是唯一制品 builder 的编排端口。
@@ -181,23 +212,73 @@ func (receipt SourceBaselineProducerReceipt) Validate() error {
 
 // Validate 拒绝跨越编排端口前的不完整证据。
 func (evidence SourceBaselineBuildEvidence) Validate() error {
+	checks := []func() error{
+		evidence.validateRequest,
+		evidence.validateProvider,
+		evidence.validateContainerGroup,
+		evidence.validateReceipt,
+		evidence.validateObjectKeys,
+	}
+	for _, check := range checks {
+		if err := check(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRequest 校验证据携带的 request 与其 domain-separated 摘要。
+func (evidence SourceBaselineBuildEvidence) validateRequest() error {
+	if err := evidence.Request.Validate(); err != nil {
+		return fmt.Errorf("source baseline builder evidence request: %w", err)
+	}
+	inputDigest, err := SourceBaselineBuilderInputDigest(evidence.Request)
+	if err != nil {
+		return fmt.Errorf("derive source baseline builder evidence input digest: %w", err)
+	}
+	if evidence.InputDigest != inputDigest {
+		return errors.New("source baseline builder evidence input digest does not match request")
+	}
+	return nil
+}
+
+// validateProvider 校验证据的唯一执行提供方。
+func (evidence SourceBaselineBuildEvidence) validateProvider() error {
 	if evidence.Provider != PortableExecutionProvider {
 		return errors.New("source baseline builder evidence provider is invalid")
 	}
-	if err := validateBuilderObjectKey("container_group_id", evidence.ContainerGroupID); err != nil {
-		return err
-	}
-	if err := validateBuilderObjectKey("artifact_key", evidence.ArtifactKey); err != nil {
-		return err
-	}
-	if err := validateBuilderObjectKey("receipt_key", evidence.ReceiptKey); err != nil {
-		return err
-	}
+	return nil
+}
+
+// validateContainerGroup 校验 ECI container group 的不透明身份。
+func (evidence SourceBaselineBuildEvidence) validateContainerGroup() error {
+	return validateBuilderObjectKey("container_group_id", evidence.ContainerGroupID)
+}
+
+// validateReceipt 校验证据携带的 producer receipt 及 provider 绑定。
+func (evidence SourceBaselineBuildEvidence) validateReceipt() error {
 	if err := evidence.Receipt.Validate(); err != nil {
 		return err
 	}
 	if evidence.Receipt.ExecutionProvider != evidence.Provider {
 		return errors.New("source baseline builder evidence and receipt providers differ")
+	}
+	return nil
+}
+
+// validateObjectKeys 校验 artifact 与 receipt 共享同一 canonical artifact identity。
+func (evidence SourceBaselineBuildEvidence) validateObjectKeys() error {
+	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(
+		evidence.Receipt.RepositoryID,
+		evidence.Receipt.ObjectFormat,
+		evidence.Receipt.BaselineTreeSHA,
+		evidence.Receipt.ArtifactSHA256,
+	)
+	if err != nil {
+		return fmt.Errorf("derive source baseline builder evidence object keys: %w", err)
+	}
+	if evidence.ArtifactKey != artifactKey || evidence.ReceiptKey != receiptKey {
+		return errors.New("source baseline builder evidence object keys are not bound to the receipt artifact identity")
 	}
 	return nil
 }
@@ -210,11 +291,73 @@ func (evidence SourceBaselineBuildEvidence) ValidateAgainst(input SourceBaseline
 	if err := evidence.Validate(); err != nil {
 		return err
 	}
+	if err := validateSourceBaselineBuilderInputBinding(evidence.Request, input); err != nil {
+		return err
+	}
+	expectedInputDigest, err := SourceBaselineBuilderInputDigest(input)
+	if err != nil {
+		return fmt.Errorf("derive source baseline builder input digest: %w", err)
+	}
+	if evidence.InputDigest != expectedInputDigest {
+		return errors.New("source baseline builder evidence input digest does not match input")
+	}
 	receipt := evidence.Receipt
-	if receipt.BuilderDigest != input.BuilderDigest || receipt.ToolchainDigest != input.ToolchainDigest ||
-		receipt.RepositoryID != input.RepositoryID || receipt.ObjectFormat != input.ObjectFormat ||
-		receipt.BaselineTreeSHA != input.TreeSHA {
-		return errors.New("source baseline builder evidence does not match input")
+	if err := validateSourceBaselineBuilderReceiptBinding(receipt, input); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSourceBaselineBuilderInputBinding(request, input SourceBaselineBuildInput) error {
+	fields := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"schema_version", request.SchemaVersion, input.SchemaVersion},
+		{"repository_id", request.RepositoryID, input.RepositoryID},
+		{"object_format", request.ObjectFormat, input.ObjectFormat},
+		{"commit_sha", request.CommitSHA, input.CommitSHA},
+		{"tree_sha", request.TreeSHA, input.TreeSHA},
+		{"input_object_key", request.InputObjectKey, input.InputObjectKey},
+		{"input_sha256", request.InputSHA256, input.InputSHA256},
+		{"builder_digest", request.BuilderDigest, input.BuilderDigest},
+		{"toolchain_digest", request.ToolchainDigest, input.ToolchainDigest},
+	}
+	for _, field := range fields {
+		if field.got != field.want {
+			return fmt.Errorf("source baseline builder evidence request %s does not match input", field.name)
+		}
+	}
+	if request.InputSizeBytes != input.InputSizeBytes {
+		return errors.New("source baseline builder evidence request input_size_bytes does not match input")
+	}
+	return nil
+}
+
+func validateSourceBaselineBuilderReceiptBinding(receipt SourceBaselineProducerReceipt, input SourceBaselineBuildInput) error {
+	fields := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"builder_digest", receipt.BuilderDigest, input.BuilderDigest},
+		{"toolchain_digest", receipt.ToolchainDigest, input.ToolchainDigest},
+		{"repository_id", receipt.RepositoryID, input.RepositoryID},
+		{"object_format", receipt.ObjectFormat, input.ObjectFormat},
+		{"baseline_tree_sha", receipt.BaselineTreeSHA, input.TreeSHA},
+	}
+	for _, field := range fields {
+		if field.got != field.want {
+			return fmt.Errorf("source baseline builder evidence receipt %s does not match input", field.name)
+		}
+	}
+	expectedCommit, err := DeterministicSourceBaselineCommitSHA(input.TreeSHA, gate.GitObjectFormat(input.ObjectFormat))
+	if err != nil {
+		return fmt.Errorf("derive source baseline builder receipt commit: %w", err)
+	}
+	if receipt.BaselineCommitSHA != expectedCommit {
+		return errors.New("source baseline builder evidence receipt baseline_commit_sha does not match input tree")
 	}
 	return nil
 }

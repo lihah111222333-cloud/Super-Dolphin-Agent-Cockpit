@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"path"
 	"reflect"
@@ -30,6 +31,12 @@ var (
 	// ErrPortableArtifactImmutable means that a final artifact or receipt was
 	// sent to the input-only cleanup surface.
 	ErrPortableArtifactImmutable = errors.New("portable artifact is immutable")
+	// ErrPortableArtifactBodyIncomplete 表示对象流在声明长度验证完成前结束或失败。
+	ErrPortableArtifactBodyIncomplete = errors.New("portable artifact body was not fully verified")
+	// ErrPortableArtifactBodyTooLong 表示对象流包含超过声明长度的字节。
+	ErrPortableArtifactBodyTooLong = errors.New("portable artifact body exceeded its declared length")
+	// ErrPortableArtifactBodyMismatch 表示消费后的正文摘要与内容寻址元数据不一致。
+	ErrPortableArtifactBodyMismatch = errors.New("portable artifact body hash mismatch")
 )
 
 // PortableArtifactMetadata is the only object identity accepted by this store.
@@ -234,25 +241,50 @@ func (s *PortableArtifactStore) Resolve(ctx context.Context, kind, key string) (
 
 // getBounded 从注入端口取得受有界大小约束的对象流。
 func (s *PortableArtifactStore) getBounded(ctx context.Context, key string) (io.ReadCloser, int64, PortableArtifactMetadata, error) {
+	stat, err := s.readBoundedStat(ctx, key)
+	if err != nil {
+		return nil, 0, PortableArtifactMetadata{}, err
+	}
 	body, size, metadata, err := s.client.Get(ctx, key, portableObjectReadLimit)
 	if err != nil {
-		return nil, 0, PortableArtifactMetadata{}, fmt.Errorf("get portable artifact: %w", err)
+		return nil, 0, PortableArtifactMetadata{}, fmt.Errorf("get portable artifact: %w", closePortableBody(body, err))
 	}
 	if body == nil {
 		return nil, 0, PortableArtifactMetadata{}, errors.New("portable artifact get returned a nil body")
 	}
+	if err := validatePortableMetadata(metadata); err != nil {
+		return nil, 0, PortableArtifactMetadata{}, closePortableBody(body, err)
+	}
+	if err := validateBoundedGetIdentity(size, stat, metadata); err != nil {
+		return nil, 0, PortableArtifactMetadata{}, closePortableBody(body, err)
+	}
+	return newBoundedPortableReadCloser(body, stat), stat.SizeBytes, metadata, nil
+}
+
+func (s *PortableArtifactStore) readBoundedStat(ctx context.Context, key string) (PortableArtifactMetadata, error) {
+	stat, err := s.client.Stat(ctx, key)
+	if err != nil {
+		return PortableArtifactMetadata{}, fmt.Errorf("stat portable artifact: %w", err)
+	}
+	if err := validatePortableMetadata(stat); err != nil {
+		return PortableArtifactMetadata{}, fmt.Errorf("validate portable artifact stat: %w", err)
+	}
+	wantDigest, ok := portableKeyDigest(key)
+	if !ok || !samePortableDigest(wantDigest, stat.SHA256) {
+		return PortableArtifactMetadata{}, ErrPortableArtifactConflict
+	}
+	return stat, nil
+}
+
+// validateBoundedGetIdentity 校验 Get 返回的长度和元数据与 Stat 身份一致。
+func validateBoundedGetIdentity(size int64, stat, metadata PortableArtifactMetadata) error {
+	if size == stat.SizeBytes && metadata.SizeBytes == size && portableMetadataMatches(stat, metadata) {
+		return nil
+	}
 	if size <= 0 || size > portableObjectReadLimit {
-		_ = body.Close()
-		return nil, 0, PortableArtifactMetadata{}, errors.New("portable artifact size is outside the bounded read limit")
+		return errors.New("portable artifact size is outside the bounded read limit")
 	}
-	if err := validatePortableMetadata(metadata); err != nil || metadata.SizeBytes != size {
-		_ = body.Close()
-		if err == nil {
-			err = errors.New("portable artifact metadata size does not match body size")
-		}
-		return nil, 0, PortableArtifactMetadata{}, err
-	}
-	return &boundedPortableReadCloser{ReadCloser: body, remaining: size}, size, metadata, nil
+	return ErrPortableArtifactConflict
 }
 
 // Delete 只删除 input staging generation，最终对象不可删除。
@@ -320,10 +352,17 @@ func (s *PortableArtifactStore) existingIdentity(ctx context.Context, key string
 	return s.readExistingIdentity(ctx, key, stat, want)
 }
 
+func closePortableBody(body io.ReadCloser, err error) error {
+	if body == nil {
+		return err
+	}
+	return errors.Join(err, body.Close())
+}
+
 func (s *PortableArtifactStore) readExistingIdentity(ctx context.Context, key string, stat, want PortableArtifactMetadata) (bool, error) {
 	body, size, got, err := s.client.Get(ctx, key, portableObjectReadLimit)
 	if err != nil {
-		return false, err
+		return false, closePortableBody(body, err)
 	}
 	if body == nil {
 		return false, errors.New("portable object get returned a nil body")
@@ -435,25 +474,193 @@ func (c existingPortableArtifactClient) ConfirmPrefixEmpty(ctx context.Context, 
 }
 
 type boundedPortableReadCloser struct {
-	io.ReadCloser
-	remaining int64
+	body       io.ReadCloser
+	expected   PortableArtifactMetadata
+	hash       hash.Hash
+	remaining  int64
+	consumed   int64
+	readErr    error
+	noProgress int
+	verified   bool
+	closed     bool
+	closeErr   error
 }
 
-// Read 在不允许越界的剩余长度内读取对象内容。
+func newBoundedPortableReadCloser(body io.ReadCloser, expected PortableArtifactMetadata) *boundedPortableReadCloser {
+	return &boundedPortableReadCloser{body: body, expected: expected, hash: sha256.New(), remaining: expected.SizeBytes}
+}
+
+// Read 在消费时校验对象的精确长度和内容摘要。
 func (r *boundedPortableReadCloser) Read(p []byte) (int, error) {
+	if n, err, done := r.readState(); done {
+		return n, err
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
 	if r.remaining == 0 {
+		return r.readBeyondExpected()
+	}
+	return r.readExpected(p)
+}
+
+func (r *boundedPortableReadCloser) readState() (int, error, bool) {
+	if r.closed {
+		return 0, errors.New("portable artifact reader is closed"), true
+	}
+	if r.readErr != nil {
+		return 0, r.readErr, true
+	}
+	if r.verified {
+		return 0, io.EOF, true
+	}
+	return 0, nil, false
+}
+
+func (r *boundedPortableReadCloser) readExpected(p []byte) (int, error) {
+	if int64(len(p)) > r.remaining {
+		p = p[:int(r.remaining)]
+	}
+	n, err := r.body.Read(p)
+	if recordErr := r.recordRead(p, n, err); recordErr != nil {
+		return n, r.fail(recordErr)
+	}
+	if err == nil {
+		return n, nil
+	}
+	return n, r.finishExpectedRead(err)
+}
+
+// recordRead 记录正文摘要并拒绝非法读取结果或无进展读取。
+func (r *boundedPortableReadCloser) recordRead(p []byte, n int, err error) error {
+	if n < 0 || n > len(p) {
+		return fmt.Errorf("portable artifact reader returned invalid byte count %d", n)
+	}
+	if n > 0 {
+		if writeErr := r.record(p[:n]); writeErr != nil {
+			return writeErr
+		}
+		r.noProgress = 0
+	} else if err == nil {
+		return r.noteNoProgress()
+	}
+	return nil
+}
+
+func (r *boundedPortableReadCloser) noteNoProgress() error {
+	r.noProgress++
+	if r.noProgress >= portableReadNoProgressLimit {
+		return errors.Join(ErrPortableArtifactBodyIncomplete, io.ErrNoProgress)
+	}
+	return nil
+}
+
+func (r *boundedPortableReadCloser) finishExpectedRead(err error) error {
+	if err == io.EOF {
+		if r.remaining != 0 {
+			return r.fail(errors.Join(ErrPortableArtifactBodyIncomplete, io.ErrUnexpectedEOF))
+		}
+		if verifyErr := r.verifyDigest(); verifyErr != nil {
+			return r.fail(verifyErr)
+		}
+		r.verified = true
+		return io.EOF
+	}
+	return r.fail(errors.Join(ErrPortableArtifactBodyIncomplete, err))
+}
+
+func (r *boundedPortableReadCloser) fail(err error) error {
+	if r.readErr == nil {
+		r.readErr = err
+	}
+	return r.readErr
+}
+
+func (r *boundedPortableReadCloser) record(p []byte) error {
+	written, err := r.hash.Write(p)
+	if err != nil {
+		return err
+	}
+	if written != len(p) {
+		return io.ErrShortWrite
+	}
+	r.remaining -= int64(len(p))
+	r.consumed += int64(len(p))
+	return nil
+}
+
+// readBeyondExpected 探测声明长度后的额外字节并完成摘要验证。
+func (r *boundedPortableReadCloser) readBeyondExpected() (int, error) {
+	var extra [1]byte
+	n, err := r.body.Read(extra[:])
+	if n < 0 || n > len(extra) {
+		return 0, r.fail(fmt.Errorf("portable artifact reader returned invalid byte count %d", n))
+	}
+	if n > 0 {
+		return 0, r.fail(errors.Join(ErrPortableArtifactConflict, ErrPortableArtifactBodyTooLong))
+	}
+	if err == nil {
+		r.noProgress++
+		if r.noProgress >= portableReadNoProgressLimit {
+			return 0, r.fail(errors.Join(ErrPortableArtifactBodyIncomplete, io.ErrNoProgress))
+		}
+		return 0, nil
+	}
+	r.noProgress = 0
+	if err == io.EOF {
+		if verifyErr := r.verifyDigest(); verifyErr != nil {
+			return 0, r.fail(verifyErr)
+		}
+		r.verified = true
 		return 0, io.EOF
 	}
-	if int64(len(p)) > r.remaining {
-		p = p[:r.remaining]
-	}
-	n, err := r.ReadCloser.Read(p)
-	r.remaining -= int64(n)
-	if r.remaining < 0 {
-		return n, errors.New("portable artifact reader exceeded its bound")
-	}
-	return n, err
+	return 0, r.fail(errors.Join(ErrPortableArtifactBodyIncomplete, err))
 }
+
+func (r *boundedPortableReadCloser) verifyDigest() error {
+	actual := PortableArtifactMetadata{SHA256: "sha256:" + hex.EncodeToString(r.hash.Sum(nil)), SizeBytes: r.consumed}
+	if actual.SizeBytes != r.expected.SizeBytes {
+		return errors.Join(ErrPortableArtifactBodyIncomplete, io.ErrUnexpectedEOF)
+	}
+	if !portableMetadataMatches(actual, r.expected) {
+		return errors.Join(ErrPortableArtifactConflict, ErrPortableArtifactBodyMismatch)
+	}
+	return nil
+}
+
+// Close 在调用方少读时有界排空并合并底层 Close 错误。
+func (r *boundedPortableReadCloser) Close() error {
+	if r.closed {
+		return r.closeErr
+	}
+	var verifyErr error
+	if r.readErr != nil {
+		verifyErr = r.readErr
+	} else if !r.verified {
+		verifyErr = r.drain()
+	}
+	r.closed = true
+	r.closeErr = errors.Join(verifyErr, r.body.Close())
+	return r.closeErr
+}
+
+// drain 在关闭前有界排空未消费内容，确保流完整性已经验证。
+func (r *boundedPortableReadCloser) drain() error {
+	buffer := make([]byte, 32*1024)
+	for !r.verified && r.readErr == nil {
+		_, err := r.Read(buffer)
+		if err == nil {
+			continue
+		}
+		if err == io.EOF && r.verified {
+			return nil
+		}
+		return err
+	}
+	return r.readErr
+}
+
+const portableReadNoProgressLimit = 100
 
 func canonicalPortableFinalKey(prefix, digest, suffix string) (string, error) {
 	if err := validatePortableStorePrefix(prefix); err != nil {
