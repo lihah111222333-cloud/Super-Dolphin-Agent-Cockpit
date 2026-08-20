@@ -21,7 +21,9 @@ const (
 	// ArtifactBuilderArtifactRef 是 baseline bundle 唯一允许广告的 ref。
 	ArtifactBuilderArtifactRef = "refs/source/baseline"
 	// ArtifactBuilderCommand 是镜像内唯一允许执行的 source-baseline builder 命令。
-	ArtifactBuilderCommand = "/usr/local/bin/super-dolphin-remote-ci-artifact-builder"
+	ArtifactBuilderCommand = "/usr/local/bin/super-dolphin-remote-ci"
+	// ArtifactBuilderSubcommand 是同一独立远程 CI 二进制的内部 builder worker 入口。
+	ArtifactBuilderSubcommand = "_artifact-build"
 	// ArtifactBuilderScheduleStrategy 是 builder 请求固定的多可用区调度策略。
 	ArtifactBuilderScheduleStrategy = cicontract.ECIMultiZoneScheduleStrategy
 	// ArtifactBuilderEphemeralStorageGiB 是每个 builder ECI group 的固定临时盘容量。
@@ -117,7 +119,7 @@ func NewArtifactBuilderRequest(config ArtifactBuilderConfig) (ArtifactBuilderReq
 		RAMRoleName:         config.RAMRoleName,
 		ArtifactKind:        ArtifactBuilderArtifactKind,
 		ArtifactRef:         ArtifactBuilderArtifactRef,
-		Command:             []string{ArtifactBuilderCommand},
+		Command:             []string{ArtifactBuilderCommand, ArtifactBuilderSubcommand},
 		Input:               config.Input,
 	}
 	if err := request.Validate(); err != nil {
@@ -217,11 +219,12 @@ func (request ArtifactBuilderRequest) validateInfrastructureIdentity() error {
 	return nil
 }
 
+// validateProtocol 校验同一独立 binary 的内部 builder 子命令与 artifact 协议。
 func (request ArtifactBuilderRequest) validateProtocol() error {
 	if request.ArtifactKind != ArtifactBuilderArtifactKind || request.ArtifactRef != ArtifactBuilderArtifactRef {
 		return errors.New("artifact builder kind or ref is not the portable source-baseline contract")
 	}
-	if len(request.Command) != 1 || request.Command[0] != ArtifactBuilderCommand {
+	if len(request.Command) != 2 || request.Command[0] != ArtifactBuilderCommand || request.Command[1] != ArtifactBuilderSubcommand {
 		return errors.New("artifact builder command must be the fixed portable source-baseline builder")
 	}
 	return nil
@@ -268,7 +271,7 @@ func (request ArtifactBuilderRequest) CommandLine() ([]string, error) {
 	}
 	input := request.Input
 	args := []string{
-		request.Command[0],
+		request.Command[0], request.Command[1],
 		"--artifact-kind", request.ArtifactKind,
 		"--artifact-ref", request.ArtifactRef,
 		"--input-key", input.Key,

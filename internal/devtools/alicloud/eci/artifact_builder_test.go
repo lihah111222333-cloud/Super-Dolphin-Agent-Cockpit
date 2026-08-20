@@ -36,7 +36,7 @@ func assertArtifactBuilderCommand(t *testing.T, request ArtifactBuilderRequest) 
 	if err != nil {
 		t.Fatalf("CommandLine() error = %v", err)
 	}
-	if len(command) == 0 || command[0] != ArtifactBuilderCommand {
+	if len(command) < 2 || command[0] != ArtifactBuilderCommand || command[1] != ArtifactBuilderSubcommand {
 		t.Fatalf("builder command = %#v", command)
 	}
 	if slices.Contains(command, "go") || slices.Contains(command, "test") || slices.Contains(command, "workload") {
