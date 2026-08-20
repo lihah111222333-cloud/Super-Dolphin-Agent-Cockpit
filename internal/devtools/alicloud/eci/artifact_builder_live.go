@@ -142,18 +142,36 @@ func mapArtifactBuilderGroup(live ContainerGroup) (ArtifactBuilderGroup, error) 
 	if len(vSwitches) == 0 {
 		return ArtifactBuilderGroup{}, fmt.Errorf("%w: live vSwitch identity is missing", ErrArtifactBuilderIdentityDrift)
 	}
+	status, err := artifactBuilderLiveStatus(live.Status)
+	if err != nil {
+		return ArtifactBuilderGroup{}, err
+	}
 	return ArtifactBuilderGroup{
 		ID: live.ID, Name: live.Name, Provider: parsed.provider, RegionID: live.RegionID,
 		Image: container.Image, ImageSnapshotID: live.ImageSnapshotID, CompilerPath: parsed.compilerPath, Command: artifactBuilderGroupCommand(container.Command, container.Args),
 		Input: parsed.input, EphemeralStorageGiB: live.EphemeralStorageGiB, CPU: live.CPU, MemoryGiB: live.MemoryGiB,
 		VSwitches: vSwitches, SecurityGroupID: live.SecurityGroupID, RAMRoleName: live.RAMRoleName,
-		OSSBucket: parsed.bucket, OSSInternalEndpoint: parsed.endpoint, Tags: tags, Status: live.Status,
+		OSSBucket: parsed.bucket, OSSInternalEndpoint: parsed.endpoint, Tags: tags, Status: status,
 		Container: ArtifactBuilderContainer{
 			Name: container.Name, Image: container.Image, Command: append([]string(nil), container.Command...),
 			Args: append([]string(nil), container.Args...), State: container.CurrentState.State,
 			ExitCode: container.CurrentState.ExitCode, StartTime: container.CurrentState.StartTime, FinishTime: container.CurrentState.FinishTime,
 		},
 	}, nil
+}
+
+// artifactBuilderLiveStatus 将 provider Scheduling 状态收敛为 builder Creating，其他冻结状态保持精确。
+func artifactBuilderLiveStatus(status string) (string, error) {
+	switch status {
+	case "Scheduling":
+		return ArtifactBuilderGroupCreating, nil
+	case ArtifactBuilderGroupPending, ArtifactBuilderGroupCreating, ArtifactBuilderGroupRunning,
+		ArtifactBuilderGroupSucceeded, ArtifactBuilderGroupFailed, ArtifactBuilderGroupTerminated,
+		ArtifactBuilderGroupError, ArtifactBuilderGroupCancelled, ArtifactBuilderGroupIdentityDrift:
+		return status, nil
+	default:
+		return "", fmt.Errorf("artifact builder provider status %q is unsupported", status)
+	}
 }
 
 func artifactBuilderGroupCommand(command, args []string) []string {
