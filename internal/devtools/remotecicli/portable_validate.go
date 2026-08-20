@@ -52,6 +52,8 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 		return dispatchValidate(args[1:], stdout, stderr)
 	case "_artifact-build":
 		return dispatchArtifactBuild(args[1:], stdout, stderr)
+	case "_artifact-identity":
+		return dispatchArtifactIdentity(args[1:], stdout, stderr)
 	case "execute":
 		return ErrExecutionContractUpgradeRequired
 	default:

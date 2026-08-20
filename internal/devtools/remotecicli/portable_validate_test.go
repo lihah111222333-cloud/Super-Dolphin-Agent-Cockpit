@@ -339,3 +339,13 @@ func TestArtifactBuildDispatchIsStrict(t *testing.T) {
 		t.Fatalf("artifact-build dispatch result = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
 }
+
+// TestArtifactIdentityDispatchIsStrict locks the internal observed identity command.
+func TestArtifactIdentityDispatchIsStrict(t *testing.T) {
+	t.Parallel()
+
+	code, stdout, stderr := executeCLI([]string{"_artifact-identity", "--unexpected"})
+	if code == 0 || stdout != "" || stderr == "" {
+		t.Fatalf("artifact-identity unknown flag result = code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}
