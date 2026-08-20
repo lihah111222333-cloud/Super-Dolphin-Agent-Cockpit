@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const ImageCacheRefreshReceiptSchema = "remote-ci-imagecache-refresh-receipt/v2"
+const ImageCacheRefreshReceiptSchema = "remote-ci-imagecache-refresh-receipt/v3"
 
 var refreshGitObjectPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
@@ -34,6 +34,7 @@ type ImageCacheRefreshReceipt struct {
 	ImageCacheSnapshotID       string `json:"image_cache_snapshot_id"`
 	ImageCacheStatus           string `json:"image_cache_status"`
 	GateBinarySHA256           string `json:"gate_binary_sha256"`
+	RemoteCIBinarySHA256       string `json:"remote_ci_binary_sha256"`
 	BuilderCompileSeconds      int64  `json:"builder_compile_seconds"`
 	VerificationCompileSeconds int64  `json:"verification_compile_seconds"`
 	RetentionDays              int64  `json:"retention_days"`
@@ -80,7 +81,7 @@ func (receipt ImageCacheRefreshReceipt) validateImages() error {
 			return fmt.Errorf("remote ImageCache refresh receipt image %q is not immutable", image)
 		}
 	}
-	if !isCanonicalSHA256(receipt.ImageDigest) || !strings.HasSuffix(receipt.Image, "@"+receipt.ImageDigest) || !isCanonicalSHA256(receipt.GateBinarySHA256) {
+	if !isCanonicalSHA256(receipt.ImageDigest) || !strings.HasSuffix(receipt.Image, "@"+receipt.ImageDigest) || !isCanonicalSHA256(receipt.GateBinarySHA256) || !isCanonicalSHA256(receipt.RemoteCIBinarySHA256) {
 		return errors.New("remote ImageCache refresh receipt digest binding is invalid")
 	}
 	return nil

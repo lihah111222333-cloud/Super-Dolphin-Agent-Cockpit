@@ -7,7 +7,7 @@ readonly crane_object='source-bundles/baseline-refresh/tools/go-containerregistr
 readonly crane_sha256='f76db5d7544a3c691a90fea7c87561342b2f03f1090f0299f029eafa1da3de41'
 readonly accepted_base_digest='502e70fdbbae19d29722810179649e37b4bf38894a7e3d9bcdcd858372435aa7'
 readonly accepted_base_archive_sha256='0387001cad8918d779fb78c5d2e5234ba3725a677c3f5f6ebadb9744a40aeaa5'
-readonly receipt_schema='remote-ci-imagecache-refresh-receipt/v2'
+readonly receipt_schema='remote-ci-imagecache-refresh-receipt/v3'
 readonly image_cache_size_gib=100
 
 config='config/remote-ci/aliyun.json'
@@ -226,7 +226,7 @@ validate_refresh_receipt() {
   local receipt_file=$1
   jq -e --arg schema "$receipt_schema" '
     type == "object" and
-    keys == ["action","authoritative","base_image","base_snapshot_id","builder_compile_seconds","execution_provider","gate_binary_sha256","image","image_cache_id","image_cache_name","image_cache_snapshot_id","image_cache_status","image_digest","mutates_sqlite","oci_base_image","refreshed_at_unix_sec","refreshed_at_utc","region_id","retention_days","schema_version","source_commit","source_tree","verification_compile_seconds"] and
+    keys == ["action","authoritative","base_image","base_snapshot_id","builder_compile_seconds","execution_provider","gate_binary_sha256","image","image_cache_id","image_cache_name","image_cache_snapshot_id","image_cache_status","image_digest","mutates_sqlite","oci_base_image","refreshed_at_unix_sec","refreshed_at_utc","region_id","remote_ci_binary_sha256","retention_days","schema_version","source_commit","source_tree","verification_compile_seconds"] and
     .schema_version == $schema and .authoritative == false and
     .action == "candidate_created_not_accepted" and
     .execution_provider == "aliyun-eci/v1" and (.region_id | type == "string" and length > 0) and .mutates_sqlite == false and
@@ -242,6 +242,7 @@ validate_refresh_receipt() {
     (.image_cache_snapshot_id | type == "string" and length > 0) and
     .image_cache_status == "Ready" and
     (.gate_binary_sha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+    (.remote_ci_binary_sha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
     (.builder_compile_seconds | type == "number" and . >= 0 and floor == .) and
     (.verification_compile_seconds | type == "number" and . >= 0 and floor == .) and
     (.retention_days | type == "number" and . >= 1 and . <= 30 and floor == .) and
@@ -364,15 +365,22 @@ while IFS= read -r package_dir; do
   fi
 done </tmp/package-dirs.txt
 GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/candidate-gate ./cmd/super-dolphin-gate
-completed=$(date +%s)
 gate_sha=$(sha256sum /tmp/candidate-gate | cut -d ' ' -f1)
+GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci
+remote_ci_binary_sha256=$(sha256sum /tmp/candidate-remote-ci | cut -d ' ' -f1)
+completed=$(date +%s)
 mkdir -p /tmp/overlay/opt/super-dolphin/cache/go-build
 mkdir -p /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache
+mkdir -p /tmp/overlay/usr/local/bin
 : >/tmp/overlay/opt/super-dolphin/cache/go-build/.wh..wh..opq
 : >/tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache/.wh..wh..opq
 cp -a /tmp/go-build/. /tmp/overlay/opt/super-dolphin/cache/go-build/
 cp -a /tmp/gomod/. /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache/
 chmod -R a-w /tmp/overlay/opt/super-dolphin/cache/go-build /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache
+cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci
+chown 0:0 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci
+chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci
+test -x /tmp/overlay/usr/local/bin/super-dolphin-remote-ci
 tar -C /tmp/overlay -cf /tmp/cache-layer.tar .
 cat >/tmp/registry.yml <<'REGISTRY'
 version: 0.1
@@ -395,7 +403,7 @@ curl -fsS http://127.0.0.1:5000/v2/ >/dev/null
 /tmp/bin/crane push --insecure /tmp/base-image.tar "127.0.0.1:5000/sdci/accepted-base:${BASE_TAG}"
 /tmp/bin/crane append --insecure -b "127.0.0.1:5000/sdci/accepted-base:${BASE_TAG}" -f /tmp/cache-layer.tar -t "127.0.0.1:5000/sdci/successor:${SOURCE_TREE}"
 successor_digest=$(/tmp/bin/crane digest --insecure "127.0.0.1:5000/sdci/successor:${SOURCE_TREE}")
-printf 'refresh-builder-ready tree=%s digest=%s compile_seconds=%s gate_sha256=%s\n' "$SOURCE_TREE" "$successor_digest" "$((completed-started))" "$gate_sha"
+printf 'refresh-builder-ready tree=%s digest=%s compile_seconds=%s gate_sha256=%s remote_ci_binary_sha256=%s\n' "$SOURCE_TREE" "$successor_digest" "$((completed-started))" "$gate_sha" "$remote_ci_binary_sha256"
 wait "$registry_pid"
 EOF
 }
@@ -405,7 +413,7 @@ wait_for_builder() {
   while ((SECONDS < deadline)); do
     status=$(eci_json DescribeContainerGroups --ContainerGroupIds "[\"${builder_group_id}\"]" | jq -r '.ContainerGroups[0].Status // "missing"')
     log=$(eci_json DescribeContainerLog --ContainerGroupId "$builder_group_id" --ContainerName builder 2>/dev/null | jq -r '.Content // empty')
-    builder_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-builder-ready tree=([^ ]+) digest=(sha256:[0-9a-f]{64}) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}).*/\1 \2 \3 \4/p' | tail -1)
+    builder_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-builder-ready tree=([^ ]+) digest=(sha256:[0-9a-f]{64}) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}) remote_ci_binary_sha256=([0-9a-f]{64}).*/\1 \2 \3 \4 \5/p' | tail -1)
     [[ -z "$builder_ready" ]] || return 0
     [[ "$status" != Failed && "$status" != Succeeded ]] || die "builder terminated before readiness: ${status}: $(printf '%s' "$log" | tail -20)"
     sleep "$poll_seconds"
@@ -440,7 +448,7 @@ start_builder() {
     --ImageSnapshotId "$base_snapshot")
   builder_group_id=$(printf '%s' "$result" | jq -er '.ContainerGroupId')
   wait_for_builder
-  read -r ready_tree successor_digest compile_seconds gate_sha256 <<<"$builder_ready"
+  read -r ready_tree successor_digest compile_seconds gate_sha256 remote_ci_binary_sha256 <<<"$builder_ready"
   [[ "$ready_tree" == "$source_tree" ]] || die 'builder returned the wrong source tree'
   builder_ip=$(eci_json DescribeContainerGroups --ContainerGroupIds "[\"${builder_group_id}\"]" | jq -er '.ContainerGroups[0].IntranetIp')
 }
@@ -474,7 +482,7 @@ verify_image_cache() {
   local verify_script result status log deadline
   # 该脚本由远端 ECI shell 展开，本地必须保留其中的环境变量与命令替换。
   # shellcheck disable=SC2016
-  verify_script='set -eu; test -z "$(find /opt/super-dolphin/cache/go-build /opt/super-dolphin-gate/runtime/go-mod-cache -perm /222 -print -quit)"; mkdir -p /tmp/src /tmp/go-build /tmp/gomod; curl -fsSL --retry 3 "$SOURCE_URL" -o /tmp/source.tar.gz; printf "%s  %s\n" "$SOURCE_SHA256" /tmp/source.tar.gz | sha256sum -c -; tar -xzf /tmp/source.tar.gz -C /tmp/src; test -s /opt/super-dolphin-gate/frontend-embed/index.html; mkdir -p /tmp/src/cmd/agent-terminal; cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dist; cp -a /opt/super-dolphin/cache/go-build/. /tmp/go-build/; chmod -R u+w /tmp/go-build; chmod 0700 /tmp/gomod; /super-dolphin-gate worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache /tmp/gomod; cd /tmp/src; GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go list -deps -test ./... >/dev/null; started=$(date +%s); GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/verified-gate ./cmd/super-dolphin-gate; completed=$(date +%s); printf "refresh-verify-ready tree=%s compile_seconds=%s gate_sha256=%s\n" "$SOURCE_TREE" "$((completed-started))" "$(sha256sum /tmp/verified-gate | cut -d " " -f1)"'
+  verify_script='set -eu; test -z "$(find /opt/super-dolphin/cache/go-build /opt/super-dolphin-gate/runtime/go-mod-cache -perm /222 -print -quit)"; test -x /usr/local/bin/super-dolphin-remote-ci; verified_remote_ci_binary_sha256=$(sha256sum /usr/local/bin/super-dolphin-remote-ci | cut -d " " -f1); test "$verified_remote_ci_binary_sha256" = "$EXPECTED_REMOTE_CI_BINARY_SHA256"; mkdir -p /tmp/src /tmp/go-build /tmp/gomod; curl -fsSL --retry 3 "$SOURCE_URL" -o /tmp/source.tar.gz; printf "%s  %s\n" "$SOURCE_SHA256" /tmp/source.tar.gz | sha256sum -c -; tar -xzf /tmp/source.tar.gz -C /tmp/src; test -s /opt/super-dolphin-gate/frontend-embed/index.html; mkdir -p /tmp/src/cmd/agent-terminal; cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dist; cp -a /opt/super-dolphin/cache/go-build/. /tmp/go-build/; chmod -R u+w /tmp/go-build; chmod 0700 /tmp/gomod; /super-dolphin-gate worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache /tmp/gomod; cd /tmp/src; GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go list -deps -test ./... >/dev/null; started=$(date +%s); GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/verified-gate ./cmd/super-dolphin-gate; completed=$(date +%s); printf "refresh-verify-ready tree=%s compile_seconds=%s gate_sha256=%s remote_ci_binary_sha256=%s\n" "$SOURCE_TREE" "$((completed-started))" "$(sha256sum /tmp/verified-gate | cut -d " " -f1)" "$verified_remote_ci_binary_sha256"'
   result=$(eci_json CreateContainerGroup --ContainerGroupName "sdci-imagecache-verify-${source_tree:0:8}-$(date -u +%Y%m%d%H%M%S)" \
     --SecurityGroupId "$security_group" --VSwitchId "$vswitch_csv" --ScheduleStrategy VSwitchRandom \
     --RestartPolicy Never --Cpu 8 --Memory 16 --EphemeralStorage 100 \
@@ -483,6 +491,7 @@ verify_image_cache() {
     --Container.1.EnvironmentVar.1.Key SOURCE_URL --Container.1.EnvironmentVar.1.Value "$(sign_internal_object "$source_object")" \
     --Container.1.EnvironmentVar.2.Key SOURCE_SHA256 --Container.1.EnvironmentVar.2.Value "$source_sha256" \
     --Container.1.EnvironmentVar.3.Key SOURCE_TREE --Container.1.EnvironmentVar.3.Value "$source_tree" \
+    --Container.1.EnvironmentVar.4.Key EXPECTED_REMOTE_CI_BINARY_SHA256 --Container.1.EnvironmentVar.4.Value "$remote_ci_binary_sha256" \
     --ImageSnapshotId "$image_cache_snapshot")
   verify_group_id=$(printf '%s' "$result" | jq -er '.ContainerGroupId')
   deadline=$((SECONDS + timeout_seconds))
@@ -492,10 +501,10 @@ verify_image_cache() {
     if [[ "$log" == *ErrImageNeverPull* || "$log" == *ImagePullBackOff* || "$log" == *InvalidImageName* ]]; then
       die "ImageCache verification cannot start from the cached image: $(printf '%s' "$log" | tail -5)"
     fi
-    verify_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-verify-ready tree=([^ ]+) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}).*/\1 \2 \3/p' | tail -1)
+    verify_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-verify-ready tree=([^ ]+) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}) remote_ci_binary_sha256=([0-9a-f]{64}).*/\1 \2 \3 \4/p' | tail -1)
     if [[ -n "$verify_ready" ]]; then
-      read -r verify_tree verify_compile_seconds verify_gate_sha256 <<<"$verify_ready"
-      [[ "$verify_tree" == "$source_tree" && "$verify_gate_sha256" == "$gate_sha256" ]] || die 'verification identity drifted'
+      read -r verify_tree verify_compile_seconds verify_gate_sha256 verify_remote_ci_binary_sha256 <<<"$verify_ready"
+      [[ "$verify_tree" == "$source_tree" && "$verify_gate_sha256" == "$gate_sha256" && "$verify_remote_ci_binary_sha256" == "$remote_ci_binary_sha256" ]] || die 'verification identity drifted'
       return 0
     fi
     [[ "$status" != Failed && "$status" != Succeeded ]] || die "verification terminated without receipt: ${status}: $(printf '%s' "$log" | tail -20)"
@@ -513,9 +522,10 @@ print_receipt() {
     --arg image "${builder_ip}:5000/sdci/successor@${successor_digest}" \
     --arg image_digest "$successor_digest" --arg cache_id "$image_cache_id" --arg cache_name "$image_cache_name" --arg snapshot_id "$image_cache_snapshot" \
     --arg gate_sha256 "sha256:${gate_sha256}" --argjson build_seconds "$compile_seconds" \
+    --arg remote_ci_binary_sha256 "sha256:${remote_ci_binary_sha256}" \
     --argjson verify_seconds "$verify_compile_seconds" --argjson retention_days "$retention_days" \
     --arg refreshed_at_utc "$refreshed_at_utc" --argjson refreshed_at_unix_sec "$refreshed_at_unix_sec" \
-    '{schema_version:$schema, authoritative:false, action:"candidate_created_not_accepted", execution_provider:"aliyun-eci/v1", region_id:$region_id, source_commit:$commit, source_tree:$tree, base_image:$base_image, base_snapshot_id:$base_snapshot, oci_base_image:$oci_base_image, image:$image, image_digest:$image_digest, image_cache_id:$cache_id, image_cache_name:$cache_name, image_cache_snapshot_id:$snapshot_id, image_cache_status:"Ready", gate_binary_sha256:$gate_sha256, builder_compile_seconds:$build_seconds, verification_compile_seconds:$verify_seconds, retention_days:$retention_days, refreshed_at_unix_sec:$refreshed_at_unix_sec, refreshed_at_utc:$refreshed_at_utc, mutates_sqlite:false}'
+    '{schema_version:$schema, authoritative:false, action:"candidate_created_not_accepted", execution_provider:"aliyun-eci/v1", region_id:$region_id, source_commit:$commit, source_tree:$tree, base_image:$base_image, base_snapshot_id:$base_snapshot, oci_base_image:$oci_base_image, image:$image, image_digest:$image_digest, image_cache_id:$cache_id, image_cache_name:$cache_name, image_cache_snapshot_id:$snapshot_id, image_cache_status:"Ready", gate_binary_sha256:$gate_sha256, remote_ci_binary_sha256:$remote_ci_binary_sha256, builder_compile_seconds:$build_seconds, verification_compile_seconds:$verify_seconds, retention_days:$retention_days, refreshed_at_unix_sec:$refreshed_at_unix_sec, refreshed_at_utc:$refreshed_at_utc, mutates_sqlite:false}'
 }
 
 persist_receipt() {

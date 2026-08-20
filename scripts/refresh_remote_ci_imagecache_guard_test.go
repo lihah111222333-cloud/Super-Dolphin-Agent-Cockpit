@@ -20,7 +20,7 @@ func TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary(t *test
 		t.Fatal(err)
 	}
 	source := strings.ToLower(string(content))
-	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=100"} {
+	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=100", "remote-ci-imagecache-refresh-receipt/v3", "go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci", "cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "chown 0:0 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "remote_ci_binary_sha256"} {
 		if !strings.Contains(source, strings.ToLower(required)) {
 			t.Errorf("refresh script is missing %q", required)
 		}
@@ -155,6 +155,76 @@ func TestRemoteCIImageCacheRefreshVerificationCannotPullFromBuilder(t *testing.T
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("refresh verifier does not preserve the read-only runtime cache contract: missing %q", required)
+		}
+	}
+}
+
+// TestRemoteCIImageCacheRefreshPortableBinaryUsesOneBuilderArtifact 锁定 portable binary 只在 ECI builder 内构建一次并以固定权限验收。
+func TestRemoteCIImageCacheRefreshPortableBinaryUsesOneBuilderArtifact(t *testing.T) {
+	source := readRefreshScript(t)
+	builder := refreshScriptSection(t, source, "builder_script() {", "wait_for_builder() {", "refresh builder")
+	verify := refreshScriptSection(t, source, "verify_image_cache() {", "print_receipt() {", "refresh verifier")
+	assertPortableBuilderContract(t, builder)
+	assertPortableVerifierContract(t, source, verify)
+}
+
+func readRefreshScript(t *testing.T) string {
+	t.Helper()
+	content, err := os.ReadFile("refresh_remote_ci_imagecache.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
+func refreshScriptSection(t *testing.T, source, startMarker, endMarker, label string) string {
+	t.Helper()
+	start := strings.Index(source, startMarker)
+	end := strings.Index(source, endMarker)
+	if start < 0 || end <= start {
+		t.Fatalf("%s script boundary is unavailable", label)
+	}
+	return source[start:end]
+}
+
+func assertPortableBuilderContract(t *testing.T, builder string) {
+	t.Helper()
+	if got := strings.Count(builder, "go build -trimpath"); got != 2 {
+		t.Fatalf("builder go build count = %d, want 2", got)
+	}
+	if got := strings.Count(builder, "./cmd/super-dolphin-remote-ci"); got != 1 {
+		t.Fatalf("remote CI binary build count = %d, want 1", got)
+	}
+	assertRefreshMarkers(t, builder, []string{
+		"go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci",
+		"cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
+		"chown 0:0 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
+		"chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
+		"remote_ci_binary_sha256=$(sha256sum /tmp/candidate-remote-ci",
+	})
+}
+
+func assertPortableVerifierContract(t *testing.T, source, verify string) {
+	t.Helper()
+	assertRefreshMarkers(t, verify, []string{
+		"test -x /usr/local/bin/super-dolphin-remote-ci",
+		"sha256sum /usr/local/bin/super-dolphin-remote-ci",
+		"EXPECTED_REMOTE_CI_BINARY_SHA256",
+		"remote_ci_binary_sha256=%s",
+	})
+	if strings.Contains(verify, "./cmd/super-dolphin-remote-ci") {
+		t.Fatal("verifier must validate the installed portable binary instead of rebuilding it")
+	}
+	if !strings.Contains(source, "\"$verify_remote_ci_binary_sha256\" == \"$remote_ci_binary_sha256\"") {
+		t.Fatal("refresh script does not compare builder and verifier portable binary digests")
+	}
+}
+
+func assertRefreshMarkers(t *testing.T, source string, required []string) {
+	t.Helper()
+	for _, marker := range required {
+		if !strings.Contains(source, marker) {
+			t.Errorf("refresh script is missing %q", marker)
 		}
 	}
 }

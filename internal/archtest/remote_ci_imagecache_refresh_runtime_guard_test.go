@@ -16,12 +16,13 @@ func TestRemoteCIImageCacheRefreshRuntimeFieldChain(t *testing.T) {
 		{"OCIBaseImage", "oci_base_image"}, {"Image", "image"},
 		{"ImageCacheID", "image_cache_id"}, {"ImageCacheName", "image_cache_name"},
 		{"ImageCacheSnapshotID", "image_cache_snapshot_id"}, {"ImageCacheStatus", "image_cache_status"},
+		{"RemoteCIBinarySHA256", "remote_ci_binary_sha256"},
 		{"RetentionDays", "retention_days"}, {"MutatesSQLite", "mutates_sqlite"},
 	})
 
 	for path, markers := range map[string][]string{
 		filepath.Join(root, "scripts", "refresh_remote_ci_imagecache.sh"): {
-			`remote-ci-imagecache-refresh-receipt/v2`, `image_cache_name`, `region_id`,
+			`remote-ci-imagecache-refresh-receipt/v3`, `image_cache_name`, `region_id`, `remote_ci_binary_sha256`,
 		},
 		filepath.Join(root, "cmd", "super-dolphin-gate", "remote_imagecache_refresh_runtime.go"): {
 			"DecodeImageCacheRefreshReceipt", ".DescribeImageCache(", "ValidateReadyImageCache", "receipt.OCIBaseImage != state.RuntimeImage", "input.ImageCacheOnly = true",
