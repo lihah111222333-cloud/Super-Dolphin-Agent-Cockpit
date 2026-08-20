@@ -1,6 +1,9 @@
 package remoteci
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestRemoteWorkloadInputFingerprintDomainVector 固定 input-fingerprint/v2 与内部 schema 4 的规范向量。
 func TestRemoteWorkloadInputFingerprintDomainVector(t *testing.T) {
@@ -39,5 +42,22 @@ func TestRemoteWorkloadGoTestInputFingerprintDomainVector(t *testing.T) {
 	const want = "sha256:3090b34f9d759b3e9f6667ea5dd3d35068b47871025f3adfd953075a2c9a9447"
 	if got != want {
 		t.Fatalf("digestGoTestEntries() = %q, want fixed vector %q", got, want)
+	}
+}
+
+// TestSafeRemoteGitFailureRedactsRepositoryTreeAndPaths 锁定可观察 Git 错误不泄漏仓库身份。
+func TestSafeRemoteGitFailureRedactsRepositoryTreeAndPaths(t *testing.T) {
+	repository := "/private/target/repository"
+	tree := strings.Repeat("a", 40)
+	diagnostic := safeRemoteGitFailure("fatal: not a git repository: '"+repository+"' for "+tree+"\n", repository, tree)
+	for _, secret := range []string{repository, tree, "/private/target"} {
+		if strings.Contains(diagnostic, secret) {
+			t.Fatalf("safeRemoteGitFailure leaked %q: %q", secret, diagnostic)
+		}
+	}
+	for _, want := range []string{"fatal:", "not", "git", "repository:", "<repository>", "<tree>"} {
+		if !strings.Contains(diagnostic, want) {
+			t.Fatalf("safeRemoteGitFailure = %q, want %q", diagnostic, want)
+		}
 	}
 }

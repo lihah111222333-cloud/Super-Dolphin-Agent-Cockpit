@@ -38,11 +38,12 @@ type RuntimeSeedManifest struct {
 }
 
 type executorPreparedRuntimeSeeds struct {
-	runtimeSeedRoot       string
-	runtimeSeedManifest   string
-	manifest              RuntimeSeedManifest
-	goRootsVerified       bool
-	frontendRootsVerified bool
+	runtimeSeedRoot           string
+	runtimeSeedManifest       string
+	manifest                  RuntimeSeedManifest
+	goRootsVerified           bool
+	frontendRootsVerified     bool
+	candidateGoLocksMustMatch bool
 }
 
 // installRuntimeSeeds 按执行边界取得已验证 manifest 后安装锁文件绑定的依赖种子。
@@ -54,7 +55,7 @@ func installRuntimeSeeds(config executorConfig, layout executorLayout, program E
 	if err != nil {
 		return err
 	}
-	if program.NeedsGoSeed {
+	if program.NeedsGoSeed && prepared.candidateGoLocksMustMatch {
 		if err := validateGoRuntimeSeedLocks(layout, manifest); err != nil {
 			return err
 		}
@@ -143,6 +144,7 @@ func standaloneRuntimeSeedManifest(
 			return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, err
 		}
 	}
+	prepared.candidateGoLocksMustMatch = true
 	return prepared.manifest, *prepared, nil
 }
 

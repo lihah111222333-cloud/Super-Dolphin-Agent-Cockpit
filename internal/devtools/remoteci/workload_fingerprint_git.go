@@ -22,6 +22,8 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
+const remoteGitFailureDiagnosticMaxRunes = 256
+
 func loadRemoteGitTreeSnapshot(ctx context.Context, repositoryRoot string, tree string) (*remoteGitTreeSnapshot, error) {
 	return loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx, repositoryRoot, tree, gate.CandidateObjectAuthority{})
 }
@@ -29,6 +31,7 @@ func loadRemoteGitTreeSnapshot(ctx context.Context, repositoryRoot string, tree 
 // remoteGitTreeListingObserverContextKey 仅供同包测试观察严格 tree listing；生产 context 不携带该值。
 type remoteGitTreeListingObserverContextKey struct{}
 
+// loadRemoteGitTreeSnapshotWithCandidateObjectAuthority 使用一次性 ODB proof 读取精确 tree。
 func loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx context.Context, repositoryRoot string, tree string, authority gate.CandidateObjectAuthority) (*remoteGitTreeSnapshot, error) {
 	if !validRemoteGitTreeRequest(ctx, repositoryRoot, tree) {
 		return nil, errors.New("remote workload fingerprint Git identity is incomplete")
@@ -40,9 +43,11 @@ func loadRemoteGitTreeSnapshotWithCandidateObjectAuthority(ctx context.Context, 
 	if err := gate.ConfigureBoundedCommand(command); err != nil {
 		return nil, err
 	}
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
 	output, err := command.Output()
 	if err != nil {
-		return nil, fmt.Errorf("list remote workload fingerprint tree: %w", remoteGitContextError(ctx, err))
+		return nil, fmt.Errorf("list remote workload fingerprint tree %s: %w: %s", tree, remoteGitContextError(ctx, err), safeRemoteGitFailure(stderr.String(), repositoryRoot, tree))
 	}
 	entries, byPath, err := parseRemoteGitTreeEntries(output)
 	if err != nil {
@@ -382,6 +387,27 @@ func remoteGitContextError(ctx context.Context, commandErr error) error {
 		return errors.Join(ctx.Err(), commandErr)
 	}
 	return commandErr
+}
+
+// safeRemoteGitFailure 保留 Git 失败分类，同时移除仓库、对象路径、tree 与控制字符。
+func safeRemoteGitFailure(stderr string, repositoryRoot string, tree string) string {
+	diagnostic := strings.ReplaceAll(stderr, repositoryRoot, "<repository>")
+	diagnostic = strings.ReplaceAll(diagnostic, tree, "<tree>")
+	fields := strings.Fields(diagnostic)
+	for index, field := range fields {
+		if strings.Contains(field, "/") {
+			fields[index] = "<path>"
+		}
+	}
+	diagnostic = strings.Join(fields, " ")
+	if diagnostic == "" {
+		return "stderr unavailable"
+	}
+	runes := []rune(diagnostic)
+	if len(runes) > remoteGitFailureDiagnosticMaxRunes {
+		return string(runes[:remoteGitFailureDiagnosticMaxRunes]) + "..."
+	}
+	return diagnostic
 }
 
 func (snapshot *remoteGitTreeSnapshot) gitBlobQuery(paths []string) []byte {

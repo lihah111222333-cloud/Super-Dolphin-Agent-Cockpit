@@ -122,6 +122,7 @@ func canonicalExactGoTestProcessCompletion(id GateID, timings []GoTestTiming, st
 	return bodyStarted.Add(time.Duration(timing.bodyMS) * time.Millisecond)
 }
 
+// exactGoTestBodyDuration 从唯一匹配的测试事件提取严格正正文耗时。
 func exactGoTestBodyDuration(id GateID, timings []GoTestTiming) (int64, bool) {
 	if !isExactGoTestWorkload(id) {
 		return 0, false
@@ -294,7 +295,16 @@ func planGateFailureSummary(gateErr error, contextErr error, status ResultStatus
 	} else if errors.Is(contextErr, context.Canceled) {
 		reason = "peer-cancellation"
 	}
-	return fmt.Appendf(nil, "[gate-executor] outcome status=%s exit_code=%d reason=%s\n", status, exitCode, reason)
+	return fmt.Appendf(nil, "[gate-executor] outcome status=%s exit_code=%d reason=%s stage=%s\n", status, exitCode, reason, executorFailureStage(gateErr))
+}
+
+// executorFailureStage 从内部 typed error 提取固定阶段，不消费或输出原始错误文本。
+func executorFailureStage(err error) string {
+	stageErr, ok := errors.AsType[*executorStageError](err)
+	if !ok || stageErr == nil || stageErr.stage == "" {
+		return "unspecified"
+	}
+	return stageErr.stage
 }
 
 // classifyPlanGateOutcome 只用 gate error 与父 context authority 生成 canonical status/exit。

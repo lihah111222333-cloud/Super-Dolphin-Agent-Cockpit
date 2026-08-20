@@ -456,10 +456,21 @@ func TestPlanGateFailureSummaryIsBoundedAndDoesNotEchoRawError(t *testing.T) {
 	if strings.Contains(string(summary), secret) {
 		t.Fatalf("failure summary leaked raw error: %q", summary)
 	}
-	for _, want := range []string{"status=failed", "exit_code=1", "reason=execution-error"} {
+	for _, want := range []string{"status=failed", "exit_code=1", "reason=execution-error", "stage=unspecified"} {
 		if !strings.Contains(string(summary), want) {
 			t.Fatalf("failure summary = %q, want %q", summary, want)
 		}
+	}
+	staged := wrapExecutorStage(executorFailureStagePrepareRun, errors.New(secret))
+	stagedSummary := planGateFailureSummary(staged, nil, ResultStatusFailed, 1)
+	if !strings.Contains(string(stagedSummary), "stage=prepare-run") {
+		t.Fatalf("staged failure summary = %q, want safe stage", stagedSummary)
+	}
+	if !strings.Contains(staged.Error(), secret) {
+		t.Fatalf("staged local error lost root cause: %q", staged)
+	}
+	if strings.Contains(string(stagedSummary), secret) {
+		t.Fatalf("staged failure summary leaked raw error: %q", stagedSummary)
 	}
 	log := newBoundedPlanLog(24)
 	if _, err := log.Write(summary); err != nil {

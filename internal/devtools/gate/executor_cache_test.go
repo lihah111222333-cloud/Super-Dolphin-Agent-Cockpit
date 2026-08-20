@@ -42,6 +42,11 @@ func TestExecutorReusesPreparedCachesWithinShard(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoot, "first-gate")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runner cache seed was mutated: %v", err)
 	}
+	writeTestFile(t, filepath.Join(config.sourcePath, "go.sum"), "candidate module sum\n", 0o600)
+	commitExecutorSnapshot(t, config.sourcePath, "candidate dependency lock drift")
+	if err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program); err != nil {
+		t.Fatalf("prepared executor rejected candidate dependency lock drift: %v", err)
+	}
 	standaloneConfig := config
 	standaloneConfig.preparedRuntimeSeeds = nil
 	err := executeProgram(context.Background(), standaloneConfig, GateIDBackendTestWithGuard, program)

@@ -44,7 +44,49 @@ const (
 	ExecutorSelfCommandName                = "super-dolphin-gate"
 	executorPlaywrightBrowsersPath         = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
 	executorSearchPath                     = ExecutorSearchPath
+	executorFailureStageConfig             = "config"
+	executorFailureStageProgram            = "program"
+	executorFailureStageWorkspace          = "workspace"
+	executorFailureStagePrepareRun         = "prepare-run"
+	executorFailureStageRun                = "run"
+	executorFailureStageCleanup            = "cleanup"
 )
+
+type executorStageError struct {
+	stage string
+	cause error
+}
+
+// Error 添加稳定执行阶段并保留本地根因；远程摘要只消费 typed stage，不输出该文本。
+func (err *executorStageError) Error() string {
+	if err == nil {
+		return "gate executor stage failed"
+	}
+	label := "gate executor stage failed"
+	if err.stage != "" {
+		label = "gate executor " + err.stage + " stage failed"
+	}
+	if err.cause == nil {
+		return label
+	}
+	return label + ": " + err.cause.Error()
+}
+
+// Unwrap 保留内部根因供本进程分类，不把原始文本写入远程日志。
+func (err *executorStageError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+// wrapExecutorStage 把内部错误绑定到固定阶段；nil 不产生伪失败。
+func wrapExecutorStage(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &executorStageError{stage: stage, cause: err}
+}
 
 type executorConfig struct {
 	sourcePath              string
@@ -198,35 +240,35 @@ func ExecutorExitCode(err error) int {
 // executeProgram 建立一次性工作区，校验可信输入并执行固定门禁程序。
 func executeProgram(ctx context.Context, config executorConfig, id GateID, program ExecutorProgram) (retErr error) {
 	if config.nowFunc == nil {
-		return errors.New("executor clock is required")
+		return wrapExecutorStage(executorFailureStageConfig, errors.New("executor clock is required"))
 	}
 	started := config.nowFunc()
 	if err := validateExecutorConfig(config); err != nil {
-		return err
+		return wrapExecutorStage(executorFailureStageConfig, err)
 	}
 	if err := validateExecutorProgram(program); err != nil {
-		return fmt.Errorf("gate %q executor program: %w", id, err)
+		return wrapExecutorStage(executorFailureStageProgram, fmt.Errorf("gate %q executor program: %w", id, err))
 	}
 	if program.Strategy == ExecutorStrategyReleaseAttestation {
-		return errors.New("release attestation requires canonical prerequisites from the plan executor")
+		return wrapExecutorStage(executorFailureStageProgram, errors.New("release attestation requires canonical prerequisites from the plan executor"))
 	}
 	layout, err := prepareExecutorWorkspace(config)
 	if err != nil {
-		return err
+		return wrapExecutorStage(executorFailureStageWorkspace, err)
 	}
 	defer func() {
-		retErr = errors.Join(retErr, cleanupExecutorWorkspace(layout))
+		retErr = errors.Join(retErr, wrapExecutorStage(executorFailureStageCleanup, cleanupExecutorWorkspace(layout)))
 	}()
 	environment, steps, gitBinary, err := prepareExecutorRun(ctx, config, layout, program)
 	if err != nil {
 		recordExecutorExecutionTiming(config.executionTiming, started, config.nowFunc(), config.nowFunc())
-		return err
+		return wrapExecutorStage(executorFailureStagePrepareRun, err)
 	}
 	fmt.Fprintf(config.stderr, "[gate-executor] gate=%s cwd=%s env=%s\n", id, layout.sourceCopy, strings.Join(environmentKeys(environment), ","))
 	bodyStarted := config.nowFunc()
 	err = runExecutorProgram(ctx, config, id, program, layout, environment, steps, gitBinary)
 	recordExecutorExecutionTiming(config.executionTiming, started, bodyStarted, config.nowFunc())
-	return err
+	return wrapExecutorStage(executorFailureStageRun, err)
 }
 
 func recordExecutorExecutionTiming(timing *executorExecutionTiming, started, bodyStarted, completed time.Time) {
