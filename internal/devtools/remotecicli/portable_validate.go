@@ -17,6 +17,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -201,6 +202,31 @@ func digestBytes(data []byte) string {
 // gitObjectResolver 通过 git object database 读取绑定 target tree，不读取当前工作树文件。
 type gitObjectResolver struct{}
 
+// ResolveObjectFormat 读取显式仓库的 canonical Git object format。
+func (gitObjectResolver) ResolveObjectFormat(ctx context.Context, repositoryRoot string) (string, error) {
+	if ctx == nil {
+		return "", errors.New("resolve object format context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	output, err := runBoundedGitObjectCommand(ctx, repositoryRoot, gitObjectFormatMaxBytes, "rev-parse", "--show-object-format")
+	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return "", contextErr
+		}
+		return "", errors.New("resolve object format failed")
+	}
+	switch string(output) {
+	case "sha1\n":
+		return "sha1", nil
+	case "sha256\n":
+		return "sha256", nil
+	default:
+		return "", errors.New("resolve object format returned invalid output")
+	}
+}
+
 // ResolveCommitTree 将显式 commit 解析为其 tree，并拒绝空或多行输出。
 func (gitObjectResolver) ResolveCommitTree(ctx context.Context, repositoryRoot, commitSHA string) (string, error) {
 	output, err := runGitObjectCommand(ctx, repositoryRoot, "rev-parse", commitSHA+"^{tree}")
@@ -245,6 +271,49 @@ func parseGitTreeEntry(raw []byte, expectedPath string) (string, string, error) 
 		return "", "", errors.New("git tree entry metadata is invalid")
 	}
 	return fields[0], fields[1], nil
+}
+
+const gitObjectFormatMaxBytes = len("sha256\n")
+
+// runBoundedGitObjectCommand 执行受控只读 Git 查询并限制 stdout 字节数。
+func runBoundedGitObjectCommand(ctx context.Context, repositoryRoot string, maxBytes int, args ...string) ([]byte, error) {
+	if ctx == nil || repositoryRoot == "" || maxBytes <= 0 || len(args) == 0 {
+		return nil, errors.New("bounded git object command inputs are incomplete")
+	}
+	if err := validateAbsolutePathComponents(repositoryRoot, true); err != nil {
+		return nil, err
+	}
+	commandArgs := append([]string{"-C", repositoryRoot}, args...)
+	command := exec.CommandContext(ctx, "git", commandArgs...)
+	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+		return nil, err
+	}
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := command.Start(); err != nil {
+		return nil, err
+	}
+	return readBoundedGitObjectCommand(command, stdout, maxBytes)
+}
+
+// readBoundedGitObjectCommand 读取有限 stdout，并在超限时终止和回收精确进程。
+func readBoundedGitObjectCommand(command *exec.Cmd, stdout io.Reader, maxBytes int) ([]byte, error) {
+	output, readErr := io.ReadAll(io.LimitReader(stdout, int64(maxBytes)+1))
+	if len(output) > maxBytes {
+		killErr := command.Process.Kill()
+		waitErr := command.Wait()
+		if killErr != nil || waitErr != nil {
+			return nil, errors.New("bounded git object command termination failed")
+		}
+		return nil, errors.New("bounded git object command output exceeds limit")
+	}
+	waitErr := command.Wait()
+	if readErr != nil || waitErr != nil {
+		return nil, errors.New("bounded git object command failed")
+	}
+	return output, nil
 }
 
 // runGitObjectCommand 执行只读 git object 查询，不允许进入旧 gate binary。
