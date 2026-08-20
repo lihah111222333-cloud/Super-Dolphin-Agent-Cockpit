@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：5397
+> 已索引文件：5401
 >
-> 未细分职责文件：19
+> 未细分职责文件：21
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 19 |
-| 未细分职责占比 | 0.35% |
+| 未细分职责文件数 | 21 |
+| 未细分职责占比 | 0.39% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 15 |
+| `cmd` | 17 |
 | `.githooks` | 2 |
 | `internal` | 2 |
 
@@ -45,6 +45,8 @@
 - `cmd/mcp-schema-compiler-helper/main.go`
 - `cmd/super-dolphin-guard/main.go`
 - `cmd/super-dolphin-guard/main_test.go`
+- `cmd/super-dolphin-remote-ci/main.go`
+- `cmd/super-dolphin-remote-ci/main_test.go`
 - `internal/e2e/rpc_runtime/doc_test.go`
 - `internal/e2e/rpc_runtime/runtime_e2e_test.go`
 

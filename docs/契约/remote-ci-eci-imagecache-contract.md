@@ -1,7 +1,7 @@
 # 远程 CI ECI ImageCache 单路径契约
 
 状态：Accepted
-适用范围：`cmd/super-dolphin-gate`、`internal/devtools/remoteci`、`internal/devtools/gate`、`internal/devtools/heteroci`、`internal/devtools/alicloud/{eci,oss}`、`scripts/refresh_remote_ci_imagecache.sh`、Git hooks
+适用范围：`cmd/super-dolphin-gate`、`internal/devtools/remoteci`、`internal/devtools/gate`、`internal/devtools/heteroci`、`internal/devtools/alicloud/{eci,oss}`、`scripts/refresh_remote_ci_imagecache.sh`、Git hooks，以及未来独立 `super-dolphin-remote-ci` 引擎边界（仅 Accepted 预留，当前未接线）
 权威远程 ECI 目标平台：`linux/amd64`
 本地非权威异构拓扑平台：Linux、Windows、Darwin/macOS
 
@@ -25,6 +25,16 @@ duration-ledger SQLite physical schema：`22`
 
 本文冻结远程 CI 的唯一生产架构。后续实现、重构、子代理任务和代码审查必须以本契约为边界；历史计划、旧迁移说明和已删除实现不得覆盖本文。
 
+## 未来独立 `super-dolphin-remote-ci` 引擎边界（Accepted 预留，当前未接线）
+
+本节只冻结未来独立引擎的输入、产物和 authority 边界，不宣称本仓库当前 runtime 已经接线。未来引擎必须把三类输入分开绑定：engine 输入是独立 `super-dolphin-remote-ci` exact source tree 的 `engine.tree_sha`；target 输入是目标 exact source tree 的 `target.tree_sha`；global authority 输入仍是既有唯一 Coordinator 与同一 SQLite authority。三者必须由 composition root 显式传入，或由同一组已验证参数无歧义检测得到；禁止以 cwd/HEAD/default/fallback 充当任一输入，也禁止把 engine、target、global authority 合并为一个隐式根。
+
+`engine.tree_sha` 只允许经过唯一的阿里云 ECI `aliyun-eci/v1` artifact builder 生成 content-addressed portable runtime artifact。artifact digest 必须绑定 source/toolchain/protocol/workload-manifest ABI digest，并同时绑定 exact engine tree、实际 toolchain、协议 ABI 和 workload-manifest ABI；tag、warm binary、宿主编译结果、target worktree 或未绑定 digest 的镜像都不是 artifact identity。该 builder 是未来引擎的唯一 artifact builder，不是第二 Coordinator 或第二 executor。
+
+`target.tree_sha` 只提供 target source 与 workload。target tree 不再要求含 `cmd/super-dolphin-gate`，也不承担 engine artifact 构建职责。repository-owned workload manifest 必须通过 `workload_manifest.path` 指向 target tree 内的 repo-relative regular blob，并以从该 `target.tree_sha` 解析出的 blob 字节计算 `workload_manifest.sha256`；manifest 的 ABI 也必须进入上述 source/toolchain/protocol/workload-manifest ABI digest。禁止宿主绝对 manifest 路径、禁止宿主绝对 worktree、宿主文件时间或未绑定的临时目录参与 manifest、source、workload 或 artifact identity。
+
+未来 composition root 的 `validate-only` 形态只能验证 engine/target/global authority 的身份、引用、regular-blob 和 digest 绑定，必须不得产出 plan/PASS、shard、ECI side effect 或 SQLite authority 写入。它只能返回 validation evidence；只有接入既有唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 唯一路径后，才可进入正常规划与执行。当前实现继续以本文已有路径为准；本节未来 engine 仍标记为未接线。
+
 Git hook 的职责边界固定为：`pre-commit` 先用受信 Gate 在 exact staged tree 上校验项目地图，drift 时自动刷新并暂存受管输出，再对最终 exact staged tree 运行仓库代码守卫；该过程不执行候选生成器，不进入本契约的 remote CI 执行路径，也不消费 remote config、duration ledger 或 agent token。`pre-push` 是 Git 交付路径唯一的完整 remote ECI 门禁，并继续绑定 exact pushed ref update。手动 remote run 与 release 入口不受该 hook 分工影响。
 
 本契约不禁止非权威的宿主开发红绿测试。宿主入口唯一为 `scripts/test_with_guard.sh --host-test <light|medium>`：只接受一个精确 Go package、一个精确 top-level `Test` selector、`-count=1` 和有界 timeout；light 不接受 build tag 且 timeout 不超过 120 秒，medium 只可额外使用 `-tags=e2e` 且 timeout 不超过 600 秒。入口必须在执行前后使用 5 秒采样窗口获取实际 CPU busy 百分比并读取可用内存证据：低负载（CPU busy 小于 50% 且可用内存不少于 25%）或中负载（CPU busy 小于 80% 且可用内存不少于 15%）均可运行 light/medium；CPU busy 达到 80%、可用内存低于 15%、无法取证或其他高负载必须 fail-fast 并转 ECI。不得使用 load average/逻辑 CPU 比值替代 CPU busy，因为 runnable 与 I/O wait 不等于实际 CPU 占用。宿主执行固定限制 light=`GOMAXPROCS=2,-p=1`、medium=`GOMAXPROCS=4,-p=2`，结果必须标记 `LOCAL_NON_AUTHORITATIVE`，不得写入 SQLite authority、PASS evidence、release receipt 或冒充 ECI。宿主编译缓存必须由 `scripts/local_go_cache.sh` 按本机 Go 二进制、`asm/cgo/compile/link` 工具闭包、目标平台、架构级别、CGO/C 工具链与编译策略生成身份；同一设备的 linked worktree 共享该身份的持久 `GOCACHE`，每次运行使用独立 `GOTMPDIR`。每台设备只读取自己的 Git common-dir 邻接缓存与私有状态 JSON；发现协议可跨设备复用，但对象物料、绝对路径和状态文件不得跨设备传输或进入 Git。race、benchmark、fuzz、整包/递归包、多 selector、超过 medium 上限、重型代码门禁和未知负载仍只允许 `super-dolphin-gate test --target=remote` 经 ECI 执行；不得 remote-to-local fallback。
@@ -47,6 +57,7 @@ Git hook 的职责边界固定为：`pre-commit` 先用受信 Gate 在 exact sta
    - 前端锁定依赖、`node_modules`、Vite dependency optimizer cache 与 Playwright 浏览器；
    - Gate、gopls、sqlc、sqruff、ripgrep、Node、npm、Git、Make 等锁定工具；
    - `/opt/super-dolphin-gate/source-baseline.git`，其中仅含 `RunnerBaseTree` 的完整 tree/blob closure 与一个确定性的无 parent baseline commit。
+   - **§1.1 未来 engine artifact 边界**：独立 `super-dolphin-remote-ci` 的 `engine.tree_sha` 必须在唯一 ECI artifact builder 内编译为 content-addressed portable runtime artifact；artifact digest 必须绑定 exact engine source、toolchain、protocol ABI 和 workload-manifest ABI。target tree 只提供 source/workload，不是 engine builder 输入，也不要求含 `cmd/super-dolphin-gate`；当前 v3 runtime 尚未接线该未来 builder。
 2. normal CI 仅在 accepted singleton 为空时消费配置中的 strict ECI generation-one receipt，在实时复核阿里云 ECI 事实后原子首写 correctness baseline 与账本元数据；singleton 非空后继续只读该 SQLite identity。`pre-push` 从 exact pushed tree 非阻塞启动唯一隔离 dispatcher；`scripts/refresh_remote_ci_imagecache.sh` 创建有限期非权威 ImageCache 加速物料且不读写 SQLite。normal run 必须严格读取 OSS current receipt、绑定 accepted OCI base，并实时 Describe 精确复核 region、Ready cache ID/name/image/snapshot 后，才把本次执行镜像和 snapshot 切换到刷新层；accepted generation、runner correctness identity、PASS 与历史权威均保持 SQLite 不变。
 3. 空 accepted singleton 的唯一初始化入口是 normal run/hook 的配置回执 bootstrap；独立 `provision-generation-one` 命令不得存在。仓库只验证并原子写入该 receipt，绝不创建 ImageCache 或候选。
 4. 多个 agent 可以并发触发 Git hook，多个 remote CI job 可以并发运行，且所有可分片的前端、后端、normal、e2e 和 race 工作负载按历史耗时动态规划并无上限并发执行。不得设置全局 hook 锁、active-job lock、semaphore、`errgroup.SetLimit`、`max_shards`、`max_concurrency`、admission cap 或共享原始 token；同一 worktree 的 Git `index.lock` 只是 Git index 一致性边界，绝不是 CI 并发上限。
@@ -73,6 +84,10 @@ Git hook 的职责边界固定为：`pre-commit` 先用受信 Gate 在 exact sta
 | 运行时缓存选择 | strict OSS current receipt 与实时 ECI Describe 完全一致的有限期 Ready `ImageCacheId + ImageSnapshotId + immutable image`，并绑定 accepted OCI base | tag、自动匹配、registry tag、未实时复核或已过期缓存 |
 | 候选源码 | 精确 Git commit/tree/patch identity | 工作目录当前内容、未绑定临时目录 |
 | 候选 Gate 编译身份 | exact tree 的真实 Go 传递编译闭包与工具链摘要 | 手工输入清单、文件时间、warm workspace binary |
+| 未来 engine source | 独立 `super-dolphin-remote-ci` 的 exact `engine.tree_sha`，并显式绑定 source/toolchain/protocol/workload-manifest ABI digest | cwd/HEAD/default/fallback、当前 target tree、宿主 worktree 或未绑定临时目录 |
+| 未来 portable runtime artifact | 唯一 `aliyun-eci/v1` artifact builder 从 engine exact tree 产出的 content-addressed artifact；digest 同时绑定 exact engine source、toolchain、protocol ABI 与 workload-manifest ABI | tag、warm binary、宿主编译、target tree 直接构建、第二 builder 或第二 executor |
+| 未来 target source/workload | exact `target.tree_sha` 只提供 source/workload；`workload_manifest.path` 必须是该 tree 内 repo-relative regular blob，`workload_manifest.sha256` 必须由该 tree 的 blob bytes 计算；不要求含 `cmd/super-dolphin-gate` | 宿主绝对 manifest 路径、宿主绝对 worktree、cwd/HEAD/default/fallback、未绑定 manifest |
+| 未来 global authority | 既有唯一 Coordinator + 同一 duration-ledger SQLite authority；engine artifact 与 target source 都只能作为显式输入被它消费 | engine 自有 coordinator、target 自有 PASS/plan、第二 SQLite/receipt authority 或第二 executor |
 | check receipt、timing、warning 与 reuse proof | 同一 duration-ledger SQLite | OSS 对象、日志、环境变量、独立数据库或本地文件 |
 
 SQLite 状态中的 JSON 只是严格 schema 编码；它不是 JSON 文件真相源。OSS 只传输内容寻址请求、候选源码和刷新物料回执；回执只在实时 ECI readback 成功后选择加速层，绝不提供 correctness、PASS、accepted generation 或历史权威。
@@ -120,11 +135,14 @@ Git hook / remote run
 - 仓库可提供 hook 外的版本化 Git 启动器，从 GitHub CLI 的系统凭据存储取得上述 GHCR 短期凭据，并从目标仓库已验证的受信 Gate 签发当前 Git 进程链的 agent token。启动器只能通过环境 `exec git`，不得把原始凭据写入 Git 配置、文件、SQLite、日志或 argv；Git hook 与 Gate 仍不得自行签发、缓存或静默补齐凭据。目标仓库、GitHub CLI 身份、凭据对或 bootstrap 任一不可验证时必须 fail-fast。
 - 禁止 `AutoMatchImageCache` 参与正常 shard 选择。
 - 候选 Gate 必须在 shard 内从 exact candidate tree 增量编译；不得复用未绑定候选树的预编译二进制。
+- **§3.3 未来 engine artifact seam**：未来独立 `super-dolphin-remote-ci` 只允许把 exact `engine.tree_sha` 送入唯一 ECI artifact builder，输出绑定 source/toolchain/protocol/workload-manifest ABI digest 的 content-addressed portable runtime artifact；target `target.tree_sha` 只提供 source/workload。该 artifact seam 不创建第二 Coordinator、第二 SQLite authority 或第二 executor；当前 v3 candidate Gate 编译路径仍是现行实现，未来 seam 未接线。
 - 候选源码 transport 必须使用唯一标准 v2 `git-bundle-thin`：每次 CI 生成一个 tree 等于 SourceSpec parent/base tree、唯一 parent 等于 accepted baseline 的确定性 candidate-parent synthetic commit，再生成 tree 等于候选且唯一 parent 等于该 synthetic base 的确定性 transport commit，并以相对 baseline 的 bundle 传输；bundle header 必须恰好广告一个 baseline prerequisite 和唯一 `refs/source/materialized`。物化工作树必须同时发布只读 `refs/source/base` 指向 synthetic base commit，所有 diff/LSP changed-files 门禁只能比较该 base 到候选，禁止因 ref 缺失退化为整树扫描。禁止自包含 bundle、full fallback、raw whole repo、候选原始历史或第二 bundle/manifest 形态。
+- **§3.5 future target/manifest binding**：未来 target transport 仍必须从 exact `target.tree_sha` 解析；repository-owned workload manifest 只能是该 tree 中由 `workload_manifest.path` 指向的 repo-relative regular blob，并以同一 tree 解析出的 `workload_manifest.sha256` 绑定其原始字节和 workload-manifest ABI。manifest、source 或 worktree 不得从宿主绝对路径读取，禁止以 cwd/HEAD/default/fallback 或未绑定临时 worktree 替代 target tree；target tree 只提供 source/workload，不要求含 `cmd/super-dolphin-gate`。engine `engine.tree_sha` 与 target `target.tree_sha` 必须保持不同身份域，并分别进入未来 artifact/执行请求的显式 digest 绑定。
 - UID 0 materializer 完成候选 checkout 后，唯一 bootstrap 必须以 `a+rX` 发布整个 `/workspace/source`（包括 `.git/objects/info/alternates`）供 UID 65532 worker 读取；worker 对该卷的挂载必须保持只读。禁止通过让 worker 使用 root、改成可写源码卷、复制第二份源码或吞掉权限错误绕过该边界。
 - accepted materializer 与候选 coordinator 之间的 Gate CLI compile-closure 是跨代稳定握手：只允许根 Go module 的生产导入闭包、根 `go.mod`/`go.sum` 与 toolchain lock。Gate CLI 源码导入 repository-local `replace` module 必须 fail-fast；该类嵌套 module 的 `go.mod`/`go.sum` 只纳入 worker execution digest，禁止动态加入 Gate 握手导致已接受镜像中的 materializer 与候选算法漂移。
 - source bundle `source.bundle` 与 strict manifest `source-manifest.json` 必须在同一 job 的完整内容寻址上传成功并完成摘要/字段验证后，才可按同一 SQLite authority 的 LPT 计划创建全部并发 shards；任何单个对象缺失、部分上传或验证失败都必须 fail-fast，不能先创建 shard。
   - PASS lookup 必须先读取 canonical `WorkloadCatalog`、每个 workload 的 exact correctness fingerprint 与 worker semantic digest；PASS workload 永不得进入 planner、compile closure、LPT、resource、shard、bootstrap request、OSS/temp 或 ECI side effect，部分命中只投影 MISS。PASS environment schema 固定为 `remote-workload-pass-environment/v10`，旧版本严格拒绝。每个 MISS shard 必须在创建 ECI 前以 create-only 方式上传两个同 job、内容寻址且不可互换的对象：冻结 accepted 顶层 schema 14 + CompileGroup schema 1 bootstrap request，以及携带 canonical CompileGroup schema 2、batch plan 与 `shard_execution_manifest_digest` 的完整 current ShardRequest；任一上传失败都不得创建 ECI。accepted bootstrap `gate_ids` 只在 accepted encoder/identity 边界将 expansion-only `backend:nilness::go-package::<pkg>` 与 `frontend:preflight::frontend-guard::<target>` 分别投影为 canonical `backend:nilness` 与 `frontend:preflight`；完整 current ShardRequest 和 worker manifest 必须保留精确 per-package 与 frontend target IDs，coordinator/current worker 不得消费或执行该 projection。accepted ImageCache Gate 只可严格解码 bootstrap request，并在 gate-owned 固定路径原子发布临时 v1 manifest；候选 Gate 编译完成后必须由同一 init 容器的 `_remote-install-manifest` 严格下载完整 current request，校验两个对象的原始 SHA-256、同一 job 目录、稳定身份及旧 v1 manifest，再以 fsync + rename 原子替换固定路径为完整 v2 manifest。该 installer 只安装 manifest，不得执行测试或成为第二 executor；worker 仍是唯一 executor，argv 只能传固定 `--manifest-path /workspace/work/shard-execution-manifest.json` 与摘要，禁止长 `--gates` 列表。完整 current ShardRequest JSON（含 compile groups）与冻结 bootstrap request 各自总字节数上限均为 `1 MiB`，编码、上传前和相应 strict decoder 必须共用该上限并 fail-fast；禁止 unknown-field 宽松解码、schema 协商、兼容 fallback 或刷新 accepted ImageCache 来绕过滚动升级。
+- **§3.7 future protocol/validation-only boundary**：未来 engine artifact 的引用必须是 content-addressed digest，并交叉绑定 `engine.tree_sha`、target `target.tree_sha`、source/toolchain/protocol/workload-manifest ABI digest 与 repository-owned manifest 的 `workload_manifest.path`/`workload_manifest.sha256`；不得把 target tree 中的 Gate 可执行文件、宿主绝对 manifest 或默认路径当作 engine identity。future composition root 的 `validate-only` 只允许验证这些绑定和唯一 Coordinator/SQLite authority 的显式输入，不得产出 plan/PASS、shard、ECI 或 SQLite authority side effect；正常执行仍只能沿既有 `aliyun-eci/v1` 唯一路径，不能接入第二 executor。该 future protocol 仍未接线。
 - Go/module/build cache、Node/npm、前端依赖/Vite 构建 cache、Playwright 浏览器及系统依赖必须直接读取 accepted ImageCache 的不可变镜像层。完整依赖树与构建缓存树的内容摘要、链接和写权限只能在不可变镜像构建及 ECI 内容验收时全量扫描；normal shard 只允许严格解码当前 manifest、校验固定根和 accepted 镜像只读挂载，禁止每分片、每 lane、每 workload 运行 `WalkDir`、整树摘要或逐文件权限复验。ECI request 的数据面必须且只能声明 `source-data`、`work-data`、`temp-data` 三个 EmptyDir；normal shard 只额外允许一个 init-only、只读、无凭据的 bootstrap ConfigFileVolume 绕过 ECI command/argument 字符限制，main container 不得挂载，且三个 EmptyDir 与控制投影的总卷数必须在创建前校验不超过 ECI 固定 20 卷上限。该投影不得承载源码、依赖、缓存、registry 凭据、签名 URL 或状态。禁止 FlexVolume/OSS bootstrap、`expanded-data`、DataCache、缓存卷、subPath 挂载、解压目录或逐分片复制展开。`node_modules` 与 `.vite` 必须直接链接镜像层，`.vite-temp` 才可位于分片私有工作目录；前端 `dist` 是构建结果，不得伪装成可复用 build cache 打入镜像。Go 增量编译必须只使用当前 accepted ImageCache 内唯一只读 build-cache seed 与分片私有的小型写层，不得创建 `cache-seeds` 多代目录、额外 seed 链或按 seed 代际分叉的观察字段，也不得把 seed 复制到外挂卷。Dockerfile 与 seed worker 属于必须审计的配方输入，不得进入可复用依赖内容 identity；仅配方/脚本变化而锁定依赖、工具链和模块清单不变时必须直接复用上一代 runtime 镜像，不得重跑 Go/npm/Playwright/tool seed。
 - cache hit 只能加速已证明等价的输入、物化或编译；strict workload PASS reuse 只能从同一 SQLite authority 的当前 accepted generation 及其前两代（最近 3 代）完整权威 fresh evidence 取得；future 或更旧 evidence 必须 miss/fail-fast，不能复用。identity 必须覆盖该 workload 的可观察源码、测试、脚本、命令、平台、真正影响结果的 policy/toolchain、runtime dependency seed 和 exact execution semantic digest；普通/校准 execution mode、资源策略、终止预算以及协调器或 candidate Gate 的整体源码/工具链只作本次 run 审计或耗时规划，不得让等价 PASS 全局失效；exact Go test/benchmark fingerprint 必须额外包含同包所有适用 `_test.go` 编译输入和目标运行时观察闭包。cache/source-only baseline refresh 不使其失效；依赖、工具链、policy 或 workload Gate 语义变化必须使其失效。它不能省略候选物化或身份验证，不能以 whole-tree/裸生产源码粗指纹、agent token/job/generation/snapshot、RunnerImage/RunnerIdentity/RunnerConfigDigest/GateBinary/BaselineManifest、JSON/OSS/.pass 或旧 `ci_workload_fingerprints` 冒充等价。同一 SQLite 可保存由当前 producer 算法对 immutable source tree 重算得到的 workload input 派生索引，但键必须完整绑定 accepted generation、source tree、producer algorithm digest 与 workload，行必须带 canonical integrity SHA-256，只能消除重复重算，绝不能单独形成 PASS、proof、retention root 或第二 truth source；索引只保留最近三代，缺失、不兼容、漂移或校验失败时仍走完整来源树重算或 fail-fast。每个 reused check 必须含 canonical reuse proof SHA-256；non-reused check 禁止携带该字段；有效 PASS 必须 `passed && (executed || reused)`，同一 run 可混合 executed miss 与 reused hit。
 
@@ -258,6 +276,9 @@ Windows workload 按 inventory 中任意 `N` 个 live Windows 节点的实时容
 - 通用 provider abstraction、第二云 provider、非阿里云 ECI executor 或任何 non-ECI 执行 fallback；
 - ACR 专用 auth、RAM role token、registry control-plane 或 repository 管理；ECI 返回的 opaque immutable image identity 不属于此类控制面；
 - JSON baseline/ledger truth source、双写、宽松 schema 兼容或迁移回读；
+- 未来 `super-dolphin-remote-ci` 之外的 engine artifact builder、target tree 直接构建 engine、未绑定 source/toolchain/protocol/workload-manifest ABI digest 的 runtime artifact，或把 engine/target/global authority 合并为一个隐式输入；未来唯一 builder 必须是 `aliyun-eci/v1` ECI 路径，且不形成第二 Coordinator、SQLite authority 或 executor；
+- target tree 要求含 `cmd/super-dolphin-gate`、从宿主绝对 manifest 路径或宿主绝对 worktree 读取 workload、以 cwd/HEAD/default/fallback 替代显式 `engine.tree_sha`/`target.tree_sha`/authority 输入，或把 `workload_manifest.path` 指向非 target-tree repo-relative regular blob；
+- `validate-only` composition root 产出 plan/PASS、创建 shard/ECI、写入 SQLite authority，或以验证结果冒充实际执行/接线 evidence；
 - accepted ECI materializer 之外的 candidate CLI artifact builder、跨 shard test-binary CAS、第二 executor；同一 ECI shard worker 路径内的 compile-group test binary 编译是唯一允许的测试二进制编译入口；
 - JSON/OSS/.pass/旧 `ci_workload_fingerprints` workload PASS 结果缓存、第二 authority，或任何未绑定同一 SQLite canonical proof 的 `reused` 返回/跳过路径；
 - spot 到按量计费、remote 到 local、cache miss 到无缓存执行之外的隐式 fallback；
@@ -279,6 +300,8 @@ Windows workload 按 inventory 中任意 `N` 个 live Windows 节点的实时容
 6. 远程验收必须绑定同一个候选 tree、accepted ImageCache generation/snapshot、固定资源证据和完整耗时账本。
 7. 非 authoritative 候选验证只能标记 `NOT_VERIFIED`；不能用本地 PASS、缓存命中或外部 ImageCache 供给完成替代远程 CI 速度验收。
 8. 目标是正常前后端 CI 在可比较的 warm accepted generation 上 100 秒内完成；超过目标必须以账本定位并继续优化。
+9. 未来 engine boundary 的 guard 必须先在缺少 engine/target/manifest/authority 分离时保持 RED，再在 Accepted 文档具备 exact `engine.tree_sha`、exact `target.tree_sha`、repo-relative regular blob、`workload_manifest.sha256`、唯一 ECI artifact builder、content-addressed portable runtime artifact 和 ABI digest 绑定后 GREEN；这只是契约守卫，不得宣称 runtime 已接线。
+10. future composition root 的 `validate-only` 测试必须证明只做显式输入和 digest 绑定验证，不产出 plan/PASS 或任何 Coordinator、ECI、SQLite authority side effect；target manifest 测试必须证明其来源是 `target.tree_sha` 内的 regular blob，而非宿主绝对 manifest/worktree。
 
 修改本契约必须在同一变更中更新相关架构守卫和测试。任何临时兼容、降级或第二路径都必须直接拒绝，不允许以 TODO 保留在生产入口。
 
@@ -339,3 +362,17 @@ Windows workload 按 inventory 中任意 `N` 个 live Windows 节点的实时容
 | `7.7` | §7 | required-check 精确绑定当前持久化 workload catalog；较小 profile 不伪造 release-only 检查，release 仍覆盖完整六类 | `catalog-scoped observation + receipt + SQLite reload validation` |
 | `7.8` | §7 | 阿里云 ECI 终态生命周期字段允许沿同一 Describe 路径按 PollInterval 每分片最多重读 3 次；不得伪造时间、提前消费报告、移出 pending、取消兄弟或跳过清理，窗口耗尽仍 fail-fast | `bounded terminal evidence reread + fanout drain tests + timing guard` |
 <!-- cicontract:end -->
+
+### §10 future engine boundary mapping（Accepted 预留，当前未接线）
+
+下表是未来独立 `super-dolphin-remote-ci` 引擎的文档级映射，不加入当前 `cicontract.CanonicalMarkdown`，也不宣称已有 runtime owner、执行接线或 PASS authority。未来实现必须先让这些 guard 从 RED 收敛到 GREEN，再由唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 路径接入。
+
+| ID | 章节 | 未来代码约束 | 当前执行层 |
+| --- | --- | --- | --- |
+| `future-engine.1` | §1.1 | exact `engine.tree_sha` 只能经唯一 ECI artifact builder 生成 content-addressed portable runtime artifact，并绑定 source/toolchain/protocol/workload-manifest ABI digest | `documentation guard RED→GREEN; runtime not wired` |
+| `future-engine.2` | §2 | engine、target、global authority 是三个显式输入域；target 使用 exact `target.tree_sha`，manifest 使用 target-tree repo-relative regular blob 与 `workload_manifest.sha256` | `strict identity/manifest guard; runtime not wired` |
+| `future-engine.3` | §3.3 | engine artifact builder 是唯一 builder；target tree 只提供 source/workload，不要求含 `cmd/super-dolphin-gate`，且不产生第二 Coordinator/executor | `artifact boundary guard; runtime not wired` |
+| `future-engine.4` | §3.5 | target transport 和 workload manifest 均从 `target.tree_sha` 解析，禁止宿主绝对 manifest/worktree 以及 cwd/HEAD/default/fallback | `tree/blob provenance guard; runtime not wired` |
+| `future-engine.5` | §3.7 | protocol 必须交叉绑定 engine/target/artifact/manifest ABI digest；`validate-only` 只能验证，不得产出 plan/PASS 或 side effect | `validation-only guard; runtime not wired` |
+| `future-engine.6` | §8 | 禁止第二 artifact builder、第二 executor、target Gate artifact、host-path manifest、隐式输入与 validation-only promotion | `forbidden-path archtest guard` |
+| `future-engine.7` | §9 | RED→GREEN guard、LSP/测试/尺寸证据与未接线声明必须随 future contract 变更保留 | `contract review evidence` |

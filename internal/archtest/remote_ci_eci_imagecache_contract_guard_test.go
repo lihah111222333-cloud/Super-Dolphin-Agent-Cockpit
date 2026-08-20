@@ -24,6 +24,45 @@ func TestRemoteCIECIImageCacheContractDocumentationAnchors(t *testing.T) {
 	}
 }
 
+// TestRemoteCIFuturePortableEngineBoundaryContract reserves the future
+// super-dolphin-remote-ci engine boundary without claiming that runtime wiring
+// already exists in this repository.
+func TestRemoteCIFuturePortableEngineBoundaryContract(t *testing.T) {
+	root := findRepoRoot(t)
+	contract := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(cicontract.DocumentPath)))
+	for _, required := range []string{
+		"super-dolphin-remote-ci",
+		"engine.tree_sha",
+		"target.tree_sha",
+		"content-addressed portable runtime artifact",
+		"source/toolchain/protocol/workload-manifest ABI digest",
+		"repo-relative regular blob",
+		"workload_manifest.sha256",
+		"workload_manifest.path",
+		"cmd/super-dolphin-gate",
+		"cwd/HEAD/default/fallback",
+		"禁止宿主绝对 manifest 路径",
+		"禁止宿主绝对 worktree",
+		"validate-only",
+		"不得产出 plan/PASS",
+		"未接线",
+	} {
+		if !strings.Contains(contract, required) {
+			t.Errorf("accepted remote CI contract is missing future portable-engine boundary marker %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"宿主 absolute manifest",
+		"宿主 absolute worktree",
+		"target tree 必须含 `cmd/super-dolphin-gate`",
+		"validate-only 产出 plan/PASS",
+	} {
+		if strings.Contains(contract, forbidden) {
+			t.Errorf("accepted remote CI contract contains forbidden future portable-engine boundary marker %q", forbidden)
+		}
+	}
+}
+
 // TestRemoteCIContractHasOneCodeOwner 将 accepted 文档绑定到唯一 Go owner，
 // 并拒绝生产消费者在本地重声明平台、耗时或刷新状态协议。
 func TestRemoteCIContractHasOneCodeOwner(t *testing.T) {
