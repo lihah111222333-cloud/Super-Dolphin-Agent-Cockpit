@@ -324,3 +324,13 @@ func mustReadFile(t *testing.T, path string) []byte {
 	}
 	return data
 }
+
+// TestArtifactBuildDispatchIsStrict 锁定内部 builder 子命令的 fail-fast 分派。
+func TestArtifactBuildDispatchIsStrict(t *testing.T) {
+	t.Parallel()
+
+	code, stdout, stderr := executeCLI([]string{"_artifact-build"})
+	if code == 0 || stdout != "" || stderr == "" {
+		t.Fatalf("artifact-build dispatch result = code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}

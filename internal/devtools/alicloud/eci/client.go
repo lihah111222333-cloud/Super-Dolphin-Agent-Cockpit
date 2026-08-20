@@ -117,19 +117,24 @@ type VolumeMount struct {
 
 // ContainerGroup is the subset of ECI state required by the caller.
 type ContainerGroup struct {
-	ID             string                `json:"ContainerGroupId"`
-	Name           string                `json:"ContainerGroupName"`
-	RegionID       string                `json:"RegionId"`
-	CPU            float64               `json:"Cpu"`
-	MemoryGiB      float64               `json:"Memory"`
-	Status         string                `json:"Status"`
-	CreationTime   time.Time             `json:"CreationTime"`
-	SucceededTime  time.Time             `json:"SucceededTime"`
-	FailedTime     time.Time             `json:"FailedTime"`
-	Containers     []ContainerStatus     `json:"Containers,omitempty"`
-	InitContainers []ContainerStatus     `json:"InitContainers,omitempty"`
-	Tags           []ContainerGroupTag   `json:"Tags,omitempty"`
-	Events         []ContainerGroupEvent `json:"Events,omitempty"`
+	ID                  string                `json:"ContainerGroupId"`
+	Name                string                `json:"ContainerGroupName"`
+	RegionID            string                `json:"RegionId"`
+	VSwitchID           string                `json:"VSwitchId"`
+	SecurityGroupID     string                `json:"SecurityGroupId"`
+	RAMRoleName         string                `json:"RamRoleName"`
+	EphemeralStorageGiB int64                 `json:"EphemeralStorage"`
+	ImageSnapshotID     string                `json:"ImageSnapshotId"`
+	CPU                 float64               `json:"Cpu"`
+	MemoryGiB           float64               `json:"Memory"`
+	Status              string                `json:"Status"`
+	CreationTime        time.Time             `json:"CreationTime"`
+	SucceededTime       time.Time             `json:"SucceededTime"`
+	FailedTime          time.Time             `json:"FailedTime"`
+	Containers          []ContainerStatus     `json:"Containers,omitempty"`
+	InitContainers      []ContainerStatus     `json:"InitContainers,omitempty"`
+	Tags                []ContainerGroupTag   `json:"Tags,omitempty"`
+	Events              []ContainerGroupEvent `json:"Events,omitempty"`
 }
 
 // ContainerGroupTag 保留 ECI 返回的 immutable identity label。
@@ -142,6 +147,8 @@ type ContainerGroupTag struct {
 type ContainerStatus struct {
 	Name         string         `json:"Name"`
 	Image        string         `json:"Image"`
+	Command      []string       `json:"Command,omitempty"`
+	Args         []string       `json:"Args,omitempty"`
 	CurrentState ContainerState `json:"CurrentState"`
 }
 

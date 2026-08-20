@@ -328,8 +328,10 @@ func testArtifactBuilderConfig() ArtifactBuilderConfig {
 			{ID: "vsw-zone-a", ZoneID: "cn-test-a"},
 			{ID: "vsw-zone-b", ZoneID: "cn-test-b"},
 		},
-		SecurityGroupID: "sg-builder-1",
-		RAMRoleName:     "AliyunECIArtifactBuilderRole",
+		SecurityGroupID:     "sg-builder-1",
+		RAMRoleName:         "AliyunECIArtifactBuilderRole",
+		OSSBucket:           "builder-bucket",
+		OSSInternalEndpoint: "https://oss-cn-shenzhen-internal.aliyuncs.com",
 		Input: ArtifactBuilderInput{
 			Key:             "objects/source-baseline.bundle",
 			SHA256:          "sha256:" + strings.Repeat("b", 64),
