@@ -130,6 +130,33 @@ func CanonicalSourceBaselineBuilderKeys(artifactPrefix, repositoryID, objectForm
 	return artifactKey, receiptKey, nil
 }
 
+// ValidateSourceBaselineBuilderReceiptKey 校验 builder receipt 的 repository、object format、tree 与 artifact identity 路径。
+func ValidateSourceBaselineBuilderReceiptKey(key, artifactPrefix string) error {
+	if err := validateBuilderArtifactPrefix(artifactPrefix); err != nil {
+		return err
+	}
+	if err := validateBuilderObjectKey("receipt_key", key); err != nil {
+		return err
+	}
+	relative, found := strings.CutPrefix(key, artifactPrefix+"receipts/")
+	if !found {
+		return errors.New("source baseline builder receipt key prefix is invalid")
+	}
+	parts := strings.Split(relative, "/")
+	if len(parts) != 4 || validateBuilderIdentifier("repository_id", parts[0]) != nil {
+		return errors.New("source baseline builder receipt key identity is invalid")
+	}
+	format, err := validateBuilderObjectFormat(parts[1])
+	if err != nil || !validOID(parts[2], format) {
+		return errors.New("source baseline builder receipt key Git identity is invalid")
+	}
+	digest, found := strings.CutSuffix(parts[3], ".json")
+	if !found || !validPortableDigest("sha256:"+digest) {
+		return errors.New("source baseline builder receipt key digest is invalid")
+	}
+	return nil
+}
+
 // SourceBaselineArtifactBuilderRuntime 是唯一制品 builder 的编排端口。
 type SourceBaselineArtifactBuilderRuntime interface {
 	Build(ctx context.Context, input SourceBaselineBuildInput) (SourceBaselineBuildEvidence, error)

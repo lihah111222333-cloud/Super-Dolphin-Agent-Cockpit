@@ -244,6 +244,9 @@ func (runtime *ArtifactBuilderRuntime) collectEvidence(ctx, pollCtx context.Cont
 
 // readReceipt 读取并核对 canonical receipt 的原始摘要和 producer digest。
 func (runtime *ArtifactBuilderRuntime) readReceipt(ctx context.Context, output artifactBuildRuntimeOutput, artifactPrefix string) (remoteci.SourceBaselineProducerReceipt, error) {
+	if err := remoteci.ValidateSourceBaselineBuilderReceiptKey(output.ReceiptKey, artifactPrefix); err != nil {
+		return remoteci.SourceBaselineProducerReceipt{}, err
+	}
 	receiptBytes, metadata, err := runtime.deps.Store.ReadReceipt(ctx, output.ReceiptKey, 1<<20)
 	if err != nil {
 		return remoteci.SourceBaselineProducerReceipt{}, err

@@ -272,9 +272,50 @@ func (actor *observingArtifactBuilderActor) ConfirmAbsent(ctx context.Context, g
 	return absent, err
 }
 
+type builderSimulationObjectReader interface {
+	Read(context.Context, string, int64) ([]byte, error)
+}
+
+// builderSimulationRuntimeStore 对 builder nested receipt 使用 bounded raw read，其余生命周期委托严格 portable store。
+type builderSimulationRuntimeStore struct {
+	portable *oss.PortableArtifactStore
+	objects  builderSimulationObjectReader
+	prefix   string
+}
+
+// ReadReceipt 校验 builder receipt key 并从实际字节派生元数据。
+func (store *builderSimulationRuntimeStore) ReadReceipt(ctx context.Context, key string, maxBytes int64) ([]byte, oss.PortableArtifactMetadata, error) {
+	if store == nil || store.portable == nil || store.objects == nil {
+		return nil, oss.PortableArtifactMetadata{}, errors.New("builder simulation runtime store is incomplete")
+	}
+	if err := remoteci.ValidateSourceBaselineBuilderReceiptKey(key, store.prefix); err != nil {
+		return nil, oss.PortableArtifactMetadata{}, err
+	}
+	payload, err := store.objects.Read(ctx, key, maxBytes)
+	if err != nil {
+		return nil, oss.PortableArtifactMetadata{}, err
+	}
+	return payload, oss.PortableArtifactMetadata{SHA256: runtimeDigestBytes(payload), SizeBytes: int64(len(payload))}, nil
+}
+
+// Resolve 委托 final artifact 的严格解析。
+func (store *builderSimulationRuntimeStore) Resolve(ctx context.Context, kind, key string) (io.ReadCloser, int64, oss.PortableArtifactMetadata, error) {
+	return store.portable.Resolve(ctx, kind, key)
+}
+
+// Delete 委托 input staging 清理。
+func (store *builderSimulationRuntimeStore) Delete(ctx context.Context, key string) error {
+	return store.portable.Delete(ctx, key)
+}
+
+// ConfirmAbsent 委托 input staging 不存在证明。
+func (store *builderSimulationRuntimeStore) ConfirmAbsent(ctx context.Context, key string) (bool, error) {
+	return store.portable.ConfirmAbsent(ctx, key)
+}
+
 // observingArtifactBuilderStore 记录既有 runtime 的 input 不存在证明。
 type observingArtifactBuilderStore struct {
-	delegate    *oss.PortableArtifactStore
+	delegate    ArtifactBuilderRuntimeStore
 	inputAbsent bool
 }
 
@@ -532,7 +573,8 @@ func prepareBuilderSimulationBuild(bound remoteci.BoundBuilderSimulationRequest,
 	}
 	recorder := &builderSimulationRecorder{writer: writer}
 	actor := &observingArtifactBuilderActor{delegate: eci.NewArtifactBuilderActor(client), recorder: recorder}
-	observingStore := &observingArtifactBuilderStore{delegate: store}
+	runtimeStore := &builderSimulationRuntimeStore{portable: store, objects: ossClient, prefix: request.Artifact.Prefix}
+	observingStore := &observingArtifactBuilderStore{delegate: runtimeStore}
 	runtime, err := NewArtifactBuilderRuntime(ArtifactBuilderRuntimeDependencies{Actor: actor, Store: observingStore,
 		RequestFactory: builderSimulationRequestFactory(config, input), Clock: time.Now,
 		PollInterval: builderSimulationPollInterval, PollTimeout: builderSimulationPollTimeout,

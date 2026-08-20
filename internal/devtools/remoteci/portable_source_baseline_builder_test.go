@@ -270,6 +270,27 @@ func TestArtifactIdentityDigestBindsExactSourceCommitTreeAndObservedABI(t *testi
 	}
 }
 
+// TestValidateSourceBaselineBuilderReceiptKeyRequiresNestedIdentity 锁定 builder receipt 的唯一嵌套身份形状。
+func TestValidateSourceBaselineBuilderReceiptKeyRequiresNestedIdentity(t *testing.T) {
+	prefix := "baseline-artifacts/builder-simulation/test/"
+	_, key, err := CanonicalSourceBaselineBuilderKeys(prefix, "repository-1", "sha1", strings.Repeat("1", 40), "sha256:"+strings.Repeat("2", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateSourceBaselineBuilderReceiptKey(key, prefix); err != nil {
+		t.Fatalf("ValidateSourceBaselineBuilderReceiptKey() error = %v", err)
+	}
+	for _, invalid := range []string{
+		prefix + "receipts/" + strings.Repeat("2", 64) + ".json",
+		strings.Replace(key, "/sha1/", "/sha512/", 1),
+		strings.TrimSuffix(key, ".json") + ".receipt",
+	} {
+		if err := ValidateSourceBaselineBuilderReceiptKey(invalid, prefix); err == nil {
+			t.Fatalf("ValidateSourceBaselineBuilderReceiptKey() accepted %q", invalid)
+		}
+	}
+}
+
 func TestArtifactBuilderRuntimeIsOrchestrationOnly(t *testing.T) {
 	var runtime SourceBaselineArtifactBuilderRuntime = testArtifactBuilderRuntime{}
 	evidence, err := runtime.Build(context.Background(), testSourceBaselineBuildInput(t))

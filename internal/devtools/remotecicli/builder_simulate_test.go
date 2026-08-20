@@ -2,6 +2,7 @@ package remotecicli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/oss"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -203,6 +205,32 @@ func TestBuilderSimulationLocalCleanupFailurePrecedesTerminal(t *testing.T) {
 	if decodeErr != nil || result.ProcessExitCode != remoteci.BuilderSimulationExitCodeCleanupFailure || result.Cleanup.HostInputAbsent {
 		t.Fatalf("cleanup result = %+v, decode error = %v", result, decodeErr)
 	}
+}
+
+// TestBuilderSimulationRuntimeStoreReadsNestedBuilderReceipt 锁定 production adapter 接受唯一 builder nested receipt key。
+func TestBuilderSimulationRuntimeStoreReadsNestedBuilderReceipt(t *testing.T) {
+	prefix := "baseline-artifacts/builder-simulation/test/"
+	_, key, err := remoteci.CanonicalSourceBaselineBuilderKeys(prefix, "repository-1", "sha1", strings.Repeat("1", 40), builderSimulationResultDigest("2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("receipt")
+	store := &builderSimulationRuntimeStore{portable: &oss.PortableArtifactStore{}, prefix: prefix,
+		objects: builderSimulationObjectReaderFunc(func(context.Context, string, int64) ([]byte, error) { return payload, nil })}
+	got, metadata, err := store.ReadReceipt(context.Background(), key, 1<<20)
+	if err != nil {
+		t.Fatalf("ReadReceipt() error = %v", err)
+	}
+	if !bytes.Equal(got, payload) || metadata.SHA256 != runtimeDigestBytes(payload) || metadata.SizeBytes != int64(len(payload)) {
+		t.Fatalf("ReadReceipt() = %q, %+v", got, metadata)
+	}
+}
+
+type builderSimulationObjectReaderFunc func(context.Context, string, int64) ([]byte, error)
+
+// Read 将测试函数适配为 bounded object reader。
+func (read builderSimulationObjectReaderFunc) Read(ctx context.Context, key string, maxBytes int64) ([]byte, error) {
+	return read(ctx, key, maxBytes)
 }
 
 // builderSimulationTestResult creates a complete successful terminal fixture.
