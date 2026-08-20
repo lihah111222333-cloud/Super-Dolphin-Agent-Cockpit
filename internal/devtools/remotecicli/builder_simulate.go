@@ -438,7 +438,11 @@ func validBuilderSimulationImmutableImage(value string) bool {
 
 // createBuilderSimulationInputPath 分配私有有界 host 输出路径。
 func createBuilderSimulationInputPath() (string, func() error, error) {
-	root, err := os.MkdirTemp("", builderSimulationInputTempPrefix)
+	temporaryRoot, err := canonicalBuilderSimulationTempRoot()
+	if err != nil {
+		return "", func() error { return nil }, err
+	}
+	root, err := os.MkdirTemp(temporaryRoot, builderSimulationInputTempPrefix)
 	if err != nil {
 		return "", func() error { return nil }, err
 	}
@@ -447,6 +451,22 @@ func createBuilderSimulationInputPath() (string, func() error, error) {
 		return "", func() error { return nil }, err
 	}
 	return filepath.Join(root, "input.bundle"), func() error { return os.RemoveAll(root) }, nil
+}
+
+// canonicalBuilderSimulationTempRoot 解析并校验 OS 临时目录的真实 canonical 根。
+func canonicalBuilderSimulationTempRoot() (string, error) {
+	configured := os.TempDir()
+	if configured == "" {
+		return "", errors.New("OS temporary directory is empty")
+	}
+	resolved, err := filepath.EvalSymlinks(configured)
+	if err != nil {
+		return "", errors.New("OS temporary directory cannot be canonicalized")
+	}
+	if err := validateAbsolutePathComponents(resolved, true); err != nil {
+		return "", errors.New("canonical OS temporary directory is not trusted")
+	}
+	return resolved, nil
 }
 
 type builderSimulationPreparedBuild struct {

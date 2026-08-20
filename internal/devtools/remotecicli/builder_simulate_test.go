@@ -3,6 +3,8 @@ package remotecicli
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +52,31 @@ func TestBuilderSimulationGroupNameRejectsInvalidDigest(t *testing.T) {
 	name, err := builderSimulationGroupName("sha256:" + strings.Repeat("a", 64))
 	if err != nil || name != "sd-builder-aaaaaaaaaaaaaaaa" {
 		t.Fatalf("builderSimulationGroupName() = %q, %v", name, err)
+	}
+}
+
+// TestBuilderSimulationInputPathUsesCanonicalOSTempRoot 锁定 macOS 临时目录 symlink 的 canonical 解析。
+func TestBuilderSimulationInputPathUsesCanonicalOSTempRoot(t *testing.T) {
+	t.Parallel()
+
+	path, cleanup, err := createBuilderSimulationInputPath()
+	if err != nil {
+		t.Fatalf("createBuilderSimulationInputPath() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := cleanup(); err != nil {
+			t.Errorf("cleanup input path: %v", err)
+		}
+	})
+	wantRoot, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks(os.TempDir()) error = %v", err)
+	}
+	if gotRoot := filepath.Dir(filepath.Dir(path)); gotRoot != wantRoot {
+		t.Fatalf("input path parent = %q, want canonical OS temp root %q", gotRoot, wantRoot)
+	}
+	if err := validateAbsolutePathComponents(filepath.Dir(path), true); err != nil {
+		t.Fatalf("created input directory is not canonical: %v", err)
 	}
 }
 
