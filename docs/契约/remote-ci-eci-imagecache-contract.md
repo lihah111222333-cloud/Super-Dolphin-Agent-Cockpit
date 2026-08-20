@@ -1,7 +1,7 @@
 # 远程 CI ECI ImageCache 单路径契约
 
 状态：Accepted
-适用范围：`cmd/super-dolphin-gate`、`internal/devtools/remoteci`、`internal/devtools/gate`、`internal/devtools/heteroci`、`internal/devtools/alicloud/{eci,oss}`、`scripts/refresh_remote_ci_imagecache.sh`、Git hooks，以及未来独立 `super-dolphin-remote-ci` 引擎边界（仅 Accepted 预留，当前未接线）
+适用范围：`cmd/super-dolphin-gate`、`internal/devtools/remoteci`、`internal/devtools/gate`、`internal/devtools/heteroci`、`internal/devtools/alicloud/{eci,oss}`、`scripts/refresh_remote_ci_imagecache.sh`、Git hooks，以及未来独立 `super-dolphin-remote-ci` 引擎边界（validate-only 已冻结、builder-simulation 已获 Accepted 授权、正常执行仍未接线）
 权威远程 ECI 目标平台：`linux/amd64`
 本地非权威异构拓扑平台：Linux、Windows、Darwin/macOS
 
@@ -25,17 +25,46 @@ duration-ledger SQLite physical schema：`22`
 
 本文冻结远程 CI 的唯一生产架构。后续实现、重构、子代理任务和代码审查必须以本契约为边界；历史计划、旧迁移说明和已删除实现不得覆盖本文。
 
-## 未来独立 `super-dolphin-remote-ci` 引擎边界（Accepted 预留，当前未接线）
+## 未来独立 `super-dolphin-remote-ci` 引擎边界（Accepted 分层边界，正常执行仍未接线）
 
-本节只冻结未来独立引擎的输入、产物和 authority 边界，不宣称本仓库当前 runtime 已经接线。未来引擎必须把三类输入分开绑定：engine 输入是独立 `super-dolphin-remote-ci` exact source tree 的 `engine.tree_sha`；target 输入是目标 exact source tree 的 `target.tree_sha`；global authority 输入仍是既有唯一 Coordinator 与同一 SQLite authority。三者必须由 composition root 显式传入，或由同一组已验证参数无歧义检测得到；禁止以 cwd/HEAD/default/fallback 充当任一输入，也禁止把 engine、target、global authority 合并为一个隐式根。
+本节冻结未来独立引擎的输入、产物和 authority 边界，并把无副作用 validate-only、非权威 builder-simulation 与尚未接线的正常执行明确分层；Accepted 文档不等于生产实现或实云验收已经存在。未来引擎必须把三类输入分开绑定：engine 输入是独立 `super-dolphin-remote-ci` exact source tree 的 `engine.tree_sha`；target 输入是目标 exact source tree 的 `target.tree_sha`；global authority 输入仍是既有唯一 Coordinator 与同一 SQLite authority。三者必须由 composition root 显式传入，或由同一组已验证参数无歧义检测得到；禁止以 cwd/HEAD/default/fallback 充当任一输入，也禁止把 engine、target、global authority 合并为一个隐式根。
 
 `engine.tree_sha` 只允许经过唯一的阿里云 ECI `aliyun-eci/v1` artifact builder 生成 content-addressed portable runtime artifact。artifact digest 必须绑定 source/toolchain/protocol/workload-manifest ABI digest，并同时绑定 exact engine tree、实际 toolchain、协议 ABI 和 workload-manifest ABI；tag、warm binary、宿主编译结果、target worktree 或未绑定 digest 的镜像都不是 artifact identity。该 builder 是未来引擎的唯一 artifact builder，不是第二 Coordinator 或第二 executor。
 
 `target.tree_sha` 只提供 target source 与 workload。target tree 不再要求含 `cmd/super-dolphin-gate`，也不承担 engine artifact 构建职责。repository-owned workload manifest 必须通过 `workload_manifest.path` 指向 target tree 内的 repo-relative regular blob，并以从该 `target.tree_sha` 解析出的 blob 字节计算 `workload_manifest.sha256`；manifest 的 ABI 也必须进入上述 source/toolchain/protocol/workload-manifest ABI digest。禁止宿主绝对 manifest 路径、禁止宿主绝对 worktree、宿主文件时间或未绑定的临时目录参与 manifest、source、workload 或 artifact identity。
 
-未来 composition root 的 `validate-only` 形态只能验证 engine/target/global authority 的身份、引用、regular-blob 和 digest 绑定，必须不得产出 plan/PASS、shard、ECI side effect 或 SQLite authority 写入。它只能返回 validation evidence；只有接入既有唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 唯一路径后，才可进入正常规划与执行。当前实现继续以本文已有路径为准；本节未来 engine 仍标记为未接线。
+未来 composition root 的 `validate-only` 形态只能验证 engine/target/global authority 的身份、引用、regular-blob 和 digest 绑定，必须不得产出 plan/PASS、shard、ECI side effect 或 SQLite authority 写入。`validate-only remains side-effect free`；它只能返回 validation evidence。下述 builder-simulation 是与 validate-only 分离的 additive 非权威供给边界；只有另行接入既有唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 唯一路径后，才可进入正常规划与执行，正常执行仍未接线。
 
-### 未来 portable source baseline artifact（Accepted 预留，当前未接线）
+### `remote-ci-engine-builder-simulation/v1` additive Accepted 子契约
+
+<!-- future-engine-builder-simulation:begin -->
+`remote-ci-engine-builder-simulation/v1` 是 `builder-simulation Accepted` 的 additive 子契约，只授权正式 host 命令 `builder-simulate` 对 engine portable artifact builder 做一次非权威实云演练。它不修改主契约 `remote-ci-aliyun-eci-imagecache/v5`、正常执行路径、global authority、accepted generation 或 SQLite schema；无论构建 outcome 为何，结果状态固定为 `always NOT_VERIFIED`。本子契约只给实现卡授权，不证明实现、部署或实云证据已经存在；实现、失败注入和实云证据必须逐卡取得并复核，在此之前不得报告完成。
+
+现有 `validate-only remains side-effect free`，未来正常执行仍未接线。`builder-simulate` 不得调用或生成 `execute/workload/Coordinator/plan/PASS/SQLite`，不得装配 normal runtime，不得创建 second artifact builder、第二 Coordinator、第二 executor、第二 authority 或 fallback。它不得从 cwd/HEAD/default/fallback、环境变量、branch、remote、可执行文件位置或 target 内容推断任一必填输入，不得读取 host manifest 或宿主绝对 worktree 作为 target source，也不得把 credential、宿主路径、profile、对象 key 或 provider raw log 投影到 machine stdout 或 observable stderr。
+
+唯一请求 schema 是 `remote-ci-builder-simulation-request/v1`。caller 必须一次性显式提供 `operation_id`、`execution_provider=aliyun-eci/v1` 以及下列字段；unknown、duplicate、null、缺失、空值、非 canonical digest、相对/不 clean/symlink 路径、旧 schema 或 trailing JSON 必须在任何 OSS/ECI side effect 前 fail-fast：
+
+- engine：`engine.repository_root`、`engine.repository_id`、`engine.object_format`、`engine.commit_sha`、`engine.tree_sha`、`expected_builder_digest`、`expected_toolchain_digest`、`protocol_abi_digest`；composition root 必须在显式 engine repository 中证明 commit 精确解析到 tree，host 只可从该 exact commit/tree 生成私有、短生命周期 input bundle，该 bundle 不是最终 artifact。
+- target：`target.repository_root`、`target.repository_id`、`target.object_format`、`target.commit_sha`、`target.tree_sha`；target 只提供 source/workload，不得成为 engine builder 输入。
+- target manifest：`workload_manifest.path`、`workload_manifest.sha256`、`workload_manifest.abi_digest`；path 必须是 `target.tree_sha` 内的 repo-relative regular blob，SHA 必须由该 blob 原始字节计算，`workload_manifest_abi_digest` 必须等于已验证 manifest ABI，而不是 host manifest、工作树文件或 caller 自报内容。
+- artifact/provider：`artifact.prefix`、阿里云 CLI 的显式绝对 regular executable、credential profile、region、2--10 个跨至少两个 zone 的 vSwitch、security group、RAM role、OSS bucket/public endpoint/internal endpoint、immutable image、ImageCache ID 和 snapshot ID。profile 和 credential 只可进入受信进程/API 参数，不得进入 artifact identity、result 或 event。
+
+artifact identity 必须交叉绑定 exact engine commit/tree、input bundle byte SHA/size、artifact byte SHA/size、`protocol_abi_digest`、`workload_manifest_abi_digest`、`observed_builder_digest` 与 `observed_toolchain_digest`。ECI worker 必须从实际运行的 builder binary 和实际 toolchain 产生 observed 值，再分别与 `expected_builder_digest`、`expected_toolchain_digest` 比较；只回显 caller expected 值、使用宿主工具链或缺少任一 observed 值必须失败。target binding digest 另行绑定 exact target commit/tree 与 manifest path/SHA/ABI；target tree 或 workload 内容不得反向污染 engine source identity，但 ABI 漂移必须改变 artifact identity。
+
+允许的 side effect 严格只有以下一条顺序链：从 explicit engine repo+commit+tree 生成 host input bundle；对 `artifact.prefix` 下 operation-scoped input 执行一次 create-only OSS staging；通过现有唯一 artifact builder 创建 exactly one aliyun-eci/v1 container group；严格读回并验证 immutable artifact + canonical receipt；最后在成功、失败或取消的全部路径取得 `container_group_absent=true` 与 `input_staging_absent=true`。最终 artifact 和 receipt 只有严格成对且 artifact bytes、receipt、唯一 ref、zero-parent commit、0 prerequisites 与完整 closure 全部验证后才可保留为 `validated_pair`；partial artifact 或无 receipt 对象保持不可用且非权威。
+
+ECI request 的 deterministic group name 必须由 operation/request identity 推导，并以 request/input digest tags 绑定同一请求。Create 返回、响应 decode 或首次 Describe 不确定时，必须按 name + tags 有界 reconcile；找到恰好一个 group 后继续同一 lifecycle 和清理，找到多个、identity drift 或窗口内无法证明唯一/不存在都必须失败。即使没有取得 group ID，也必须按 request identity 继续删除与 absence 查询；无法证明 group 不存在时只能返回 cleanup-unproven，禁止成功、重建或创建第二 group。
+
+machine stdout 唯一 terminal schema 是 `remote-ci-builder-simulation-result/v1`，每次可解析调用恰好输出一个 bounded canonical JSON object。必填 identity 至少包括 status=`NOT_VERIFIED`、outcome、operation ID、request/engine/target binding digests、artifact byte/identity/receipt digests、provider/group terminal identity、真实 start/finish/exit、publication state、`container_group_absent`、`input_staging_absent` 和可选稳定 error code；不得输出宿主路径、profile、credential、raw object key 或 provider raw log。success 仅表示 builder artifact 演练及 cleanup proof 完整，不构成 CI、workload、release 或 PASS authority。
+
+observable stderr 唯一 schema 是 JSONL `remote-ci-builder-simulation-event/v1`；每行必须有 operation ID、严格递增 seq、time、固定 stage/state、request digest 和可选安全 resource ID/digest/error code。允许阶段固定覆盖 request validation、engine/target binding、input bundle、OSS staging、ECI create/observe、artifact validation、cleanup group absence、cleanup input absence 与 terminal；不得输出自由文本、credential、宿主路径、object key、provider raw log 或底层 error string。
+
+退出码冻结为：`exit code 0` 只允许 artifact/receipt 与两项 absence proof 全部成立；`exit code 1` 表示构建/云失败但 cleanup 已证明；`exit code 2` 表示 side effect 前的 request/identity/contract 失败；`exit code 3` 表示 machine output channel 失败并仍须完成 cleanup；`exit code 4` 表示 group 或 input 任一 absence 未证明。cleanup 失败优先于此前成功，任何 outcome 都保持 `NOT_VERIFIED`。
+
+V3/WJBoot 必须消费 same engine binary/artifact identity，并各自提供 different target descriptor；相同 engine source/toolchain/protocol/workload-manifest ABI 时，target 仓库、target tree 或 target 是否含 `cmd/super-dolphin-gate` 都不得要求重建 engine artifact。different target 必须得到不同 target binding digest；manifest ABI 变化必须改变 engine artifact identity。该跨仓规则不允许把 V3 SQLite、schema/migration、Gate binary 或仓库路径移植到 WJBoot。
+<!-- future-engine-builder-simulation:end -->
+
+### 未来 portable source baseline artifact（Accepted 供给边界；正常执行仍未接线）
 
 未来 engine source baseline 的 portable artifact byte domain 固定为标准自包含 Git bundle 单文件 `source-baseline-git-bundle/v1`。该单文件只能有唯一 advertised ref `refs/source/baseline` -> `DeterministicSourceBaselineCommitSHA` 的 zero-parent commit；bundle 必须有 0 prerequisites，并携带该 baseline commit 所需完整且无额外的 tree/blob closure。artifact SHA/size 按实际 bundle bytes 计算，不能按导入后的仓库、裸对象目录或工作树推导。
 
