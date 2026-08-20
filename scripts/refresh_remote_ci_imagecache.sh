@@ -370,6 +370,15 @@ cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dis
 chmod -R u+w /tmp/go-build
 cd /tmp/src
 started=$(date +%s)
+GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci
+raw_artifact_identity=$(/tmp/candidate-remote-ci _artifact-identity) || { printf 'refresh-builder-artifact-identity-failed\n' >&2; exit 24; }
+artifact_identity=$(parse_artifact_identity "$raw_artifact_identity") || { printf 'refresh-builder-artifact-identity-invalid\n' >&2; exit 24; }
+observed_builder_sha256=$(printf '%s' "$artifact_identity" | jq -er '.builder_sha256')
+remote_ci_toolchain_digest=$(printf '%s' "$artifact_identity" | jq -er '.toolchain_digest')
+protocol_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.protocol_abi_digest')
+workload_manifest_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.workload_manifest_abi_digest')
+remote_ci_binary_sha256=$(sha256sum /tmp/candidate-remote-ci | cut -d ' ' -f1)
+test "$observed_builder_sha256" = "sha256:${remote_ci_binary_sha256}"
 mkdir -p /tmp/event-probe
 printf 'module cacheprobe\n\ngo 1.26.5\n\nrequire github.com/kelindar/event %s\n' "$EVENT_VERSION" >/tmp/event-probe/go.mod
 printf 'github.com/kelindar/event %s %s\ngithub.com/kelindar/event %s/go.mod %s\n' "$EVENT_VERSION" "$EVENT_SUM" "$EVENT_VERSION" "$EVENT_GOMOD_SUM" >/tmp/event-probe/go.sum
@@ -391,15 +400,6 @@ while IFS= read -r package_dir; do
 done </tmp/package-dirs.txt
 GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/candidate-gate ./cmd/super-dolphin-gate
 gate_sha=$(sha256sum /tmp/candidate-gate | cut -d ' ' -f1)
-GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci
-raw_artifact_identity=$(/tmp/candidate-remote-ci _artifact-identity) || { printf 'refresh-builder-artifact-identity-failed\n' >&2; exit 24; }
-artifact_identity=$(parse_artifact_identity "$raw_artifact_identity") || { printf 'refresh-builder-artifact-identity-invalid\n' >&2; exit 24; }
-observed_builder_sha256=$(printf '%s' "$artifact_identity" | jq -er '.builder_sha256')
-remote_ci_toolchain_digest=$(printf '%s' "$artifact_identity" | jq -er '.toolchain_digest')
-protocol_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.protocol_abi_digest')
-workload_manifest_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.workload_manifest_abi_digest')
-remote_ci_binary_sha256=$(sha256sum /tmp/candidate-remote-ci | cut -d ' ' -f1)
-test "$observed_builder_sha256" = "sha256:${remote_ci_binary_sha256}"
 completed=$(date +%s)
 mkdir -p /tmp/overlay/opt/super-dolphin/cache/go-build
 mkdir -p /tmp/overlay/opt/super-dolphin-gate/runtime/go-mod-cache

@@ -150,7 +150,7 @@ func measureArtifactBuilderObservedIdentity(ctx context.Context, deps artifactBu
 	}
 	toolchainDigest, err := measureObservedToolchainDigest(ctx, deps)
 	if err != nil {
-		return ArtifactBuilderObservedIdentity{}, observedIdentityStageError("toolchain_closure")
+		return ArtifactBuilderObservedIdentity{}, err
 	}
 	protocolABIDigest, err := remoteci.BuilderSimulationProtocolABIDigest()
 	if err != nil || !canonicalObservedDigest(protocolABIDigest) {
@@ -212,11 +212,14 @@ func measureObservedBuilderDigest(executable io.ReadSeeker) (string, error) {
 func measureObservedToolchainDigest(ctx context.Context, deps artifactBuilderObservedIdentityDependencies) (string, error) {
 	compilerPath, err := deps.CompilerPath()
 	if err != nil || compilerPath == "" {
-		return "", errors.New("resolve compiler identity failed")
+		return "", observedIdentityStageError("compiler_path")
 	}
 	digest, err := deps.CompilerClosureDigest(ctx, compilerPath)
-	if err != nil || !canonicalObservedDigest(digest) {
-		return "", errors.New("measure compiler closure failed")
+	if err != nil {
+		return "", observedIdentityStageError("toolchain_" + toolchainidentity.FailureStage(err))
+	}
+	if !canonicalObservedDigest(digest) {
+		return "", observedIdentityStageError("toolchain_digest")
 	}
 	return digest, nil
 }

@@ -27,6 +27,30 @@ const (
 	maxDigestFieldBytes   = 128
 )
 
+type failureStageError struct{ stage string }
+
+// Error 只返回稳定工具链测量阶段，不泄露绝对路径。
+func (failure *failureStageError) Error() string {
+	return "toolchain identity stage failed: " + failure.stage
+}
+
+func stageFailure(stage string, cause error) error {
+	failure := &failureStageError{stage: stage}
+	if cause == nil {
+		return failure
+	}
+	return errors.Join(failure, cause)
+}
+
+// FailureStage 返回安全、稳定的工具链测量失败阶段。
+func FailureStage(err error) string {
+	var failure *failureStageError
+	if errors.As(err, &failure) {
+		return failure.stage
+	}
+	return "unknown"
+}
+
 // DigestExecutable 对已打开的可执行文件字节流计算摘要，不解析或暴露文件路径。
 func DigestExecutable(reader io.Reader) (string, error) {
 	if isNilReader(reader) {
@@ -66,29 +90,33 @@ func DigestFile(filePath string) (string, error) {
 // DigestDirectory 对完整 regular 文件闭包按 slash 相对路径排序并计算 canonical 摘要。
 func DigestDirectory(root string) (string, error) {
 	if !cleanAbsolutePath(root) {
-		return "", errors.New("identity closure root must be a clean absolute path")
+		return "", stageFailure("closure_root", nil)
 	}
 	if err := validateClosureRoot(root); err != nil {
-		return "", err
+		return "", stageFailure("closure_root", err)
 	}
 	entries, err := collectClosureEntries(root)
 	if err != nil {
-		return "", err
+		return "", stageFailure("closure_walk", err)
 	}
-	return digestClosureManifest(entries)
+	digest, err := digestClosureManifest(entries)
+	if err != nil {
+		return "", stageFailure("closure_digest", err)
+	}
+	return digest, nil
 }
 
 // CompilerClosureDigest 运行调用方显式 compiler 解析 GOROOT 并计算 regular 文件闭包摘要。
 func CompilerClosureDigest(ctx context.Context, compilerPath string) (string, error) {
 	if ctx == nil {
-		return "", errors.New("compiler closure context is required")
+		return "", stageFailure("preflight", nil)
 	}
 	if err := validateCompilerPath(compilerPath); err != nil {
-		return "", err
+		return "", stageFailure("compiler_path", err)
 	}
 	root, err := compilerGOROOT(ctx, compilerPath)
 	if err != nil {
-		return "", err
+		return "", stageFailure("compiler_goroot", err)
 	}
 	return DigestDirectory(root)
 }

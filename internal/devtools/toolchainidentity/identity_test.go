@@ -170,6 +170,8 @@ func TestCompilerClosureDigestRejectsUnsafeCompilerPath(t *testing.T) {
 	} {
 		if _, err := CompilerClosureDigest(context.Background(), path); err == nil {
 			t.Fatalf("CompilerClosureDigest(%s) accepted %q", name, path)
+		} else if FailureStage(err) != "compiler_path" {
+			t.Fatalf("CompilerClosureDigest(%s) stage = %q", name, FailureStage(err))
 		}
 	}
 	link := filepath.Join(root, "compiler-link")
@@ -201,6 +203,9 @@ func TestCompilerClosureDigestDoesNotExposeAbsoluteGOROOT(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), root) {
 		t.Fatalf("CompilerClosureDigest exposed absolute GOROOT in error: %v", err)
+	}
+	if FailureStage(err) != "closure_walk" {
+		t.Fatalf("CompilerClosureDigest symlink stage = %q", FailureStage(err))
 	}
 }
 

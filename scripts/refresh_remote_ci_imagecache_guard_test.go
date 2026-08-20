@@ -195,6 +195,11 @@ func assertPortableBuilderContract(t *testing.T, builder string) {
 	if got := strings.Count(builder, "./cmd/super-dolphin-remote-ci"); got != 1 {
 		t.Fatalf("remote CI binary build count = %d, want 1", got)
 	}
+	identity := strings.Index(builder, "raw_artifact_identity=$(/tmp/candidate-remote-ci _artifact-identity)")
+	warm := strings.Index(builder, "mkdir -p /tmp/event-probe")
+	if identity < 0 || warm < 0 || identity >= warm {
+		t.Fatal("builder does not fail fast on portable identity before cache warming")
+	}
 	assertRefreshMarkers(t, builder, []string{
 		"go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci",
 		"/tmp/candidate-remote-ci _artifact-identity",

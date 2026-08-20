@@ -63,7 +63,7 @@ func TestArtifactBuilderObservedIdentityFailureStageDoesNotLeakCause(t *testing.
 			return "", errors.New("/secret/goroot/private")
 		},
 	})
-	if err == nil || observedIdentityFailureStage(err) != "toolchain_closure" {
+	if err == nil || observedIdentityFailureStage(err) != "toolchain_unknown" {
 		t.Fatalf("failure stage = %q, error=%v", observedIdentityFailureStage(err), err)
 	}
 	if strings.Contains(err.Error(), "/secret/") {
