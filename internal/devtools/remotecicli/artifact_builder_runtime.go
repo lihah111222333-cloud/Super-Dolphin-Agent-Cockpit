@@ -178,7 +178,7 @@ func (runtime *ArtifactBuilderRuntime) collectEvidence(ctx, pollCtx context.Cont
 	if err := validateArtifactBuildRuntimeOutput(output, inputDigest); err != nil {
 		return remoteci.SourceBaselineBuildEvidence{}, err
 	}
-	receipt, err := runtime.readReceipt(pollCtx, output)
+	receipt, err := runtime.readReceipt(pollCtx, output, input.ArtifactPrefix)
 	if err != nil {
 		return remoteci.SourceBaselineBuildEvidence{}, err
 	}
@@ -196,7 +196,7 @@ func (runtime *ArtifactBuilderRuntime) collectEvidence(ctx, pollCtx context.Cont
 }
 
 // readReceipt 读取并核对 canonical receipt 的原始摘要和 producer digest。
-func (runtime *ArtifactBuilderRuntime) readReceipt(ctx context.Context, output artifactBuildRuntimeOutput) (remoteci.SourceBaselineProducerReceipt, error) {
+func (runtime *ArtifactBuilderRuntime) readReceipt(ctx context.Context, output artifactBuildRuntimeOutput, artifactPrefix string) (remoteci.SourceBaselineProducerReceipt, error) {
 	receiptBytes, metadata, err := runtime.deps.Store.ReadReceipt(ctx, output.ReceiptKey, 1<<20)
 	if err != nil {
 		return remoteci.SourceBaselineProducerReceipt{}, err
@@ -205,7 +205,7 @@ func (runtime *ArtifactBuilderRuntime) readReceipt(ctx context.Context, output a
 	if err != nil {
 		return remoteci.SourceBaselineProducerReceipt{}, err
 	}
-	if err := validateArtifactBuildRuntimeReceipt(output, receiptBytes, metadata, receipt); err != nil {
+	if err := validateArtifactBuildRuntimeReceipt(output, receiptBytes, metadata, receipt, artifactPrefix); err != nil {
 		return remoteci.SourceBaselineProducerReceipt{}, err
 	}
 	return receipt, nil
@@ -216,8 +216,9 @@ func (runtime *ArtifactBuilderRuntime) validateRequestBinding(input remoteci.Sou
 		return err
 	}
 	requestInput := remoteci.SourceBaselineBuildInput{
-		SchemaVersion: remoteci.SourceBaselineBuilderInputSchema,
-		RepositoryID:  input.RepositoryID, ObjectFormat: input.ObjectFormat,
+		SchemaVersion:  remoteci.SourceBaselineBuilderInputSchema,
+		ArtifactPrefix: input.ArtifactPrefix,
+		RepositoryID:   input.RepositoryID, ObjectFormat: input.ObjectFormat,
 		CommitSHA: input.CommitSHA, TreeSHA: input.TreeSHA,
 		InputObjectKey: request.Input.Key, InputSHA256: request.Input.SHA256,
 		InputSizeBytes: request.Input.SizeBytes, BuilderDigest: request.Input.BuilderDigest,
@@ -236,6 +237,7 @@ func (runtime *ArtifactBuilderRuntime) validateRequestBinding(input remoteci.Sou
 // artifactBuilderInputsEqual 逐字段核对请求是否仍指向已 staging 的输入。
 func artifactBuilderInputsEqual(input remoteci.SourceBaselineBuildInput, request eci.ArtifactBuilderInput) bool {
 	return request.Key == input.InputObjectKey && request.SHA256 == input.InputSHA256 && request.SizeBytes == input.InputSizeBytes &&
+		request.ArtifactPrefix == input.ArtifactPrefix &&
 		request.RepositoryID == input.RepositoryID && request.ObjectFormat == input.ObjectFormat &&
 		request.SourceCommitSHA == input.CommitSHA && request.SourceTreeSHA == input.TreeSHA &&
 		request.BuilderDigest == input.BuilderDigest && request.ToolchainDigest == input.ToolchainDigest
@@ -572,7 +574,7 @@ func validateArtifactBuildRuntimeOutputIdentity(output artifactBuildRuntimeOutpu
 	return nil
 }
 
-func validateArtifactBuildRuntimeReceipt(output artifactBuildRuntimeOutput, raw []byte, metadata oss.PortableArtifactMetadata, receipt remoteci.SourceBaselineProducerReceipt) error {
+func validateArtifactBuildRuntimeReceipt(output artifactBuildRuntimeOutput, raw []byte, metadata oss.PortableArtifactMetadata, receipt remoteci.SourceBaselineProducerReceipt, artifactPrefix string) error {
 	rawDigest := runtimeDigestBytes(raw)
 	receiptDigest, err := remoteci.SourceBaselineProducerReceiptDigest(receipt)
 	if err != nil {
@@ -581,7 +583,7 @@ func validateArtifactBuildRuntimeReceipt(output artifactBuildRuntimeOutput, raw 
 	if err := validateArtifactBuildRuntimeReceiptMaterial(output, raw, metadata, rawDigest, receiptDigest, receipt); err != nil {
 		return err
 	}
-	return validateArtifactBuildRuntimeReceiptKeys(output, receipt)
+	return validateArtifactBuildRuntimeReceiptKeys(output, receipt, artifactPrefix)
 }
 
 // validateArtifactBuildRuntimeReceiptMaterial 核对 receipt 正文、对象元数据和 artifact 绑定。
@@ -592,8 +594,8 @@ func validateArtifactBuildRuntimeReceiptMaterial(output artifactBuildRuntimeOutp
 	return nil
 }
 
-func validateArtifactBuildRuntimeReceiptKeys(output artifactBuildRuntimeOutput, receipt remoteci.SourceBaselineProducerReceipt) error {
-	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(receipt.RepositoryID, receipt.ObjectFormat, receipt.BaselineTreeSHA, receipt.ArtifactSHA256)
+func validateArtifactBuildRuntimeReceiptKeys(output artifactBuildRuntimeOutput, receipt remoteci.SourceBaselineProducerReceipt, artifactPrefix string) error {
+	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(artifactPrefix, receipt.RepositoryID, receipt.ObjectFormat, receipt.BaselineTreeSHA, receipt.ArtifactSHA256)
 	if err != nil || output.ArtifactKey != artifactKey || output.ReceiptKey != receiptKey {
 		return errors.New("artifact build receipt keys are not canonical")
 	}

@@ -132,14 +132,14 @@ func newRuntimeFixture(t *testing.T) runtimeFixture {
 		t.Fatal(err)
 	}
 	input := remoteci.SourceBaselineBuildInput{
-		SchemaVersion: remoteci.SourceBaselineBuilderInputSchema, RepositoryID: "repository-1", ObjectFormat: "sha1",
-		CommitSHA: strings.Repeat("2", 40), TreeSHA: tree, InputObjectKey: "input-1", InputSHA256: "sha256:" + strings.Repeat("a", 64),
+		SchemaVersion: remoteci.SourceBaselineBuilderInputSchema, ArtifactPrefix: "runtime/", RepositoryID: "repository-1", ObjectFormat: "sha1",
+		CommitSHA: strings.Repeat("2", 40), TreeSHA: tree, InputObjectKey: "runtime/inputs/input-1", InputSHA256: "sha256:" + strings.Repeat("a", 64),
 		InputSizeBytes: 123, BuilderDigest: "sha256:" + strings.Repeat("b", 64), ToolchainDigest: "sha256:" + strings.Repeat("c", 64),
 	}
 	bundle := makeBaselineBundle(t, tree, commit)
 	bundleSum := sha256.Sum256(bundle)
 	artifactDigest := "sha256:" + hex.EncodeToString(bundleSum[:])
-	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(input.RepositoryID, input.ObjectFormat, tree, artifactDigest)
+	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, tree, artifactDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func newRuntimeFixture(t *testing.T) runtimeFixture {
 		Image: "registry.example/remote@sha256:" + strings.Repeat("d", 64), ImageSnapshotID: "snapshot-1", EphemeralStorageGiB: eci.ArtifactBuilderEphemeralStorageGiB,
 		CPU: eci.ArtifactBuilderCPU, MemoryGiB: eci.ArtifactBuilderMemoryGiB, VSwitches: []cicontract.ECIVSwitch{{ID: "vsw-zone-a", ZoneID: "cn-test-a"}, {ID: "vsw-zone-b", ZoneID: "cn-test-b"}},
 		SecurityGroupID: "sg-1", RAMRoleName: "role-1", OSSBucket: "bucket-name", OSSInternalEndpoint: "https://oss.example", Input: eci.ArtifactBuilderInput{
-			Key: input.InputObjectKey, SHA256: input.InputSHA256, SizeBytes: input.InputSizeBytes, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat,
+			ArtifactPrefix: input.ArtifactPrefix, Key: input.InputObjectKey, SHA256: input.InputSHA256, SizeBytes: input.InputSizeBytes, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat,
 			SourceCommitSHA: input.CommitSHA, SourceTreeSHA: input.TreeSHA, BuilderDigest: input.BuilderDigest, ToolchainDigest: input.ToolchainDigest,
 		}})
 	if err != nil {
@@ -192,6 +192,7 @@ func runtimeGroup(request eci.ArtifactBuilderRequest, status, containerState str
 
 func runtimeExpectedTags(request eci.ArtifactBuilderRequest) map[string]string {
 	inputDigest := runtimeECIDigest("artifact-builder-input/v1", struct {
+		ArtifactPrefix  string `json:"artifact_prefix"`
 		Key             string `json:"input_key"`
 		SHA256          string `json:"input_sha256"`
 		SizeBytes       int64  `json:"input_size_bytes"`
@@ -201,7 +202,7 @@ func runtimeExpectedTags(request eci.ArtifactBuilderRequest) map[string]string {
 		SourceTreeSHA   string `json:"source_tree_sha"`
 		BuilderDigest   string `json:"builder_digest"`
 		ToolchainDigest string `json:"toolchain_digest"`
-	}{request.Input.Key, request.Input.SHA256, request.Input.SizeBytes, request.Input.RepositoryID, request.Input.ObjectFormat, request.Input.SourceCommitSHA, request.Input.SourceTreeSHA, request.Input.BuilderDigest, request.Input.ToolchainDigest})
+	}{request.Input.ArtifactPrefix, request.Input.Key, request.Input.SHA256, request.Input.SizeBytes, request.Input.RepositoryID, request.Input.ObjectFormat, request.Input.SourceCommitSHA, request.Input.SourceTreeSHA, request.Input.BuilderDigest, request.Input.ToolchainDigest})
 	requestDigest := runtimeECIDigest("artifact-builder-request/v1", struct {
 		Provider            string
 		RegionID            string

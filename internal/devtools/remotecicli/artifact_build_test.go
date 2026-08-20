@@ -123,6 +123,7 @@ func TestArtifactBuildRejectsUnknownMissingDuplicateAndIMDSFlags(t *testing.T) {
 type artifactBuildTestFixture struct {
 	bundle          []byte
 	inputKey        string
+	artifactPrefix  string
 	inputSHA256     string
 	inputSizeBytes  int64
 	repositoryID    string
@@ -153,7 +154,7 @@ func newArtifactBuildTestFixture(t *testing.T) artifactBuildTestFixture {
 	}
 	digest := sha256.Sum256(bundle)
 	return artifactBuildTestFixture{
-		bundle: bundle, inputKey: "inputs/source.bundle", inputSHA256: "sha256:" + hex.EncodeToString(digest[:]), inputSizeBytes: int64(len(bundle)),
+		bundle: bundle, artifactPrefix: "cli/", inputKey: "cli/inputs/source.bundle", inputSHA256: "sha256:" + hex.EncodeToString(digest[:]), inputSizeBytes: int64(len(bundle)),
 		repositoryID: "repository-1", objectFormat: "sha1", commitSHA: commit, treeSHA: tree,
 		builderDigest: "sha256:" + strings.Repeat("b", 64), toolchainDigest: "sha256:" + strings.Repeat("c", 64),
 	}
@@ -164,6 +165,7 @@ func artifactBuildTestArgs(fixture artifactBuildTestFixture, ossEndpoint string)
 		"--execution-provider", remoteci.PortableExecutionProvider,
 		"--oss-endpoint", ossEndpoint, "--oss-bucket", artifactBuildTestBucket, "--ram-role-name", "AliyunECIArtifactBuilderRole",
 		"--artifact-kind", remoteci.PortableSourceBaselineArtifactKind, "--artifact-ref", remoteci.PortableSourceBaselineArtifactRef,
+		"--artifact-prefix", fixture.artifactPrefix,
 		"--input-key", fixture.inputKey, "--input-sha256", fixture.inputSHA256, "--input-size-bytes", strconv.FormatInt(fixture.inputSizeBytes, 10),
 		"--repository-id", fixture.repositoryID, "--object-format", fixture.objectFormat, "--source-commit-sha", fixture.commitSHA, "--source-tree-sha", fixture.treeSHA,
 		"--builder-digest", fixture.builderDigest, "--toolchain-digest", fixture.toolchainDigest,
@@ -252,11 +254,11 @@ func artifactBuildTestRoute(path string) (string, string, bool) {
 	}
 	key := strings.TrimPrefix(path, prefix)
 	switch {
-	case strings.HasPrefix(key, "inputs/"):
+	case strings.HasPrefix(key, "cli/inputs/"):
 		return key, "input", true
-	case strings.HasPrefix(key, "artifacts/"):
+	case strings.HasPrefix(key, "cli/artifacts/"):
 		return key, "artifact", true
-	case strings.HasPrefix(key, "receipts/"):
+	case strings.HasPrefix(key, "cli/receipts/"):
 		return key, "receipt", true
 	default:
 		return key, "other", true
@@ -335,7 +337,7 @@ func assertArtifactBuildOSSOrder(t *testing.T, state *artifactBuildTestOSSState)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	for key, object := range state.objects {
-		if strings.HasPrefix(key, "artifacts/") || strings.HasPrefix(key, "receipts/") {
+		if strings.HasPrefix(key, "cli/artifacts/") || strings.HasPrefix(key, "cli/receipts/") {
 			if !object.forbidOnly {
 				t.Fatalf("object %q did not use create-only upload", key)
 			}

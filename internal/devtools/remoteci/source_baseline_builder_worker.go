@@ -76,7 +76,7 @@ func (result SourceBaselineBuilderWorkerResult) validateInputDigest(input Source
 
 // validateObjectKeys 校验 artifact/receipt 键绑定到内容身份。
 func (result SourceBaselineBuilderWorkerResult) validateObjectKeys(input SourceBaselineBuildInput) error {
-	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.RepositoryID, input.ObjectFormat, input.TreeSHA, result.Receipt.ArtifactSHA256)
+	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, input.TreeSHA, result.Receipt.ArtifactSHA256)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (worker *SourceBaselineBuilderWorker) buildWithinTemp(ctx context.Context, 
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
 
-	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.RepositoryID, input.ObjectFormat, input.TreeSHA, artifactDigest)
+	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, input.TreeSHA, artifactDigest)
 	if err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}

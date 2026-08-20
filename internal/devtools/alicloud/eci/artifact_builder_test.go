@@ -3,6 +3,7 @@ package eci
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -42,9 +43,29 @@ func assertArtifactBuilderCommand(t *testing.T, request ArtifactBuilderRequest) 
 	if slices.Contains(command, "go") || slices.Contains(command, "test") || slices.Contains(command, "workload") {
 		t.Fatalf("builder command unexpectedly contains workload execution: %#v", command)
 	}
-	for _, value := range []string{testArtifactBuilderConfig().Input.Key, testArtifactBuilderConfig().Input.SHA256, testArtifactBuilderConfig().Input.SourceCommitSHA, testArtifactBuilderConfig().Input.SourceTreeSHA, testArtifactBuilderConfig().Input.BuilderDigest, testArtifactBuilderConfig().Input.ToolchainDigest} {
+	for _, value := range []string{testArtifactBuilderConfig().Input.ArtifactPrefix, testArtifactBuilderConfig().Input.Key, testArtifactBuilderConfig().Input.SHA256, testArtifactBuilderConfig().Input.SourceCommitSHA, testArtifactBuilderConfig().Input.SourceTreeSHA, testArtifactBuilderConfig().Input.BuilderDigest, testArtifactBuilderConfig().Input.ToolchainDigest} {
 		if !slices.Contains(command, value) {
 			t.Errorf("builder command does not bind input value %q: %#v", value, command)
+		}
+	}
+}
+
+func TestArtifactBuilderCommandLineHasExactInputFieldSet(t *testing.T) {
+	request, err := NewArtifactBuilderRequest(testArtifactBuilderConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := request.CommandLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
+	if len(command[2:]) != len(want)*2 {
+		t.Fatalf("builder command field count = %d, want %d: %#v", len(command[2:])/2, len(want), command)
+	}
+	for index, field := range want {
+		if command[2+index*2] != field {
+			t.Fatalf("builder command field %d = %q, want %q: %#v", index, command[2+index*2], field, command)
 		}
 	}
 }
@@ -66,6 +87,11 @@ func TestArtifactBuilderRequestRejectsIdentityResourceSecretAndPathDrift(t *test
 		{name: "signed URL", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "https://oss.example/bundle?signature=secret" }},
 		{name: "absolute input path", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "/tmp/source.bundle" }},
 		{name: "path traversal", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "objects/../source.bundle" }},
+		{name: "missing artifact prefix", mutate: func(config *ArtifactBuilderConfig) { config.Input.ArtifactPrefix = "" }},
+		{name: "artifact prefix without slash", mutate: func(config *ArtifactBuilderConfig) { config.Input.ArtifactPrefix = "objects" }},
+		{name: "artifact prefix traversal", mutate: func(config *ArtifactBuilderConfig) { config.Input.ArtifactPrefix = "objects/../" }},
+		{name: "artifact prefix absolute", mutate: func(config *ArtifactBuilderConfig) { config.Input.ArtifactPrefix = "/objects/" }},
+		{name: "input prefix drift", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "other/source.bundle" }},
 		{name: "secret role value", mutate: func(config *ArtifactBuilderConfig) { config.RAMRoleName = "role/password=secret" }},
 		{name: "zero source commit oid", mutate: func(config *ArtifactBuilderConfig) { config.Input.SourceCommitSHA = strings.Repeat("0", 40) }},
 		{name: "zero source tree oid", mutate: func(config *ArtifactBuilderConfig) { config.Input.SourceTreeSHA = strings.Repeat("0", 40) }},
@@ -76,6 +102,23 @@ func TestArtifactBuilderRequestRejectsIdentityResourceSecretAndPathDrift(t *test
 			testCase.mutate(&config)
 			if _, err := NewArtifactBuilderRequest(config); err == nil {
 				t.Fatal("NewArtifactBuilderRequest() accepted invalid builder identity")
+			}
+		})
+	}
+}
+
+func TestArtifactBuilderInputRejectsEveryZeroField(t *testing.T) {
+	input := testArtifactBuilderConfig().Input
+	value := reflect.ValueOf(&input).Elem()
+	typeOfInput := value.Type()
+	for index := 0; index < value.NumField(); index++ {
+		name := typeOfInput.Field(index).Name
+		t.Run(name, func(t *testing.T) {
+			candidate := testArtifactBuilderConfig().Input
+			field := reflect.ValueOf(&candidate).Elem().Field(index)
+			field.Set(reflect.Zero(field.Type()))
+			if err := candidate.Validate(); err == nil {
+				t.Fatalf("ArtifactBuilderInput.Validate() accepted zero field %s", name)
 			}
 		})
 	}
@@ -333,7 +376,8 @@ func testArtifactBuilderConfig() ArtifactBuilderConfig {
 		OSSBucket:           "builder-bucket",
 		OSSInternalEndpoint: "https://oss-cn-shenzhen-internal.aliyuncs.com",
 		Input: ArtifactBuilderInput{
-			Key:             "objects/source-baseline.bundle",
+			ArtifactPrefix:  "builder/",
+			Key:             "builder/inputs/source-baseline.bundle",
 			SHA256:          "sha256:" + strings.Repeat("b", 64),
 			SizeBytes:       4096,
 			RepositoryID:    "repository-1",

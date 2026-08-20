@@ -211,11 +211,12 @@ func newSourceBaselineBuilderWorkerFixture(t *testing.T) sourceBaselineBuilderWo
 	digest := sha256.Sum256(bundle)
 	input := SourceBaselineBuildInput{
 		SchemaVersion:   SourceBaselineBuilderInputSchema,
+		ArtifactPrefix:  "worker/",
 		RepositoryID:    "repository-1",
 		ObjectFormat:    string(gate.GitObjectFormatSHA1),
 		CommitSHA:       commit,
 		TreeSHA:         tree,
-		InputObjectKey:  "input-1",
+		InputObjectKey:  "worker/inputs/input-1",
 		InputSHA256:     "sha256:" + hex.EncodeToString(digest[:]),
 		InputSizeBytes:  int64(len(bundle)),
 		BuilderDigest:   "sha256:" + strings.Repeat("b", 64),

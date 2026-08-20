@@ -34,6 +34,7 @@ const (
 // SourceBaselineBuildInput 是一次 source baseline 制品构建的完整显式输入。
 type SourceBaselineBuildInput struct {
 	SchemaVersion   string `json:"schema_version"`
+	ArtifactPrefix  string `json:"artifact_prefix"`
 	RepositoryID    string `json:"repository_id"`
 	ObjectFormat    string `json:"object_format"`
 	CommitSHA       string `json:"commit_sha"`
@@ -72,7 +73,10 @@ type SourceBaselineBuildEvidence struct {
 
 // CanonicalSourceBaselineBuilderKeys 是 artifact 与 receipt 的唯一对象键构造器。
 // 两个键共享 repository/object/tree/artifact identity，但保留不同对象类型后缀。
-func CanonicalSourceBaselineBuilderKeys(repositoryID, objectFormat, treeSHA, artifactSHA string) (string, string, error) {
+func CanonicalSourceBaselineBuilderKeys(artifactPrefix, repositoryID, objectFormat, treeSHA, artifactSHA string) (string, string, error) {
+	if err := validateBuilderArtifactPrefix(artifactPrefix); err != nil {
+		return "", "", err
+	}
 	if err := validateBuilderIdentifier("repository_id", repositoryID); err != nil {
 		return "", "", err
 	}
@@ -88,8 +92,8 @@ func CanonicalSourceBaselineBuilderKeys(repositoryID, objectFormat, treeSHA, art
 	}
 	digest := strings.TrimPrefix(artifactSHA, "sha256:")
 	identity := strings.Join([]string{repositoryID, string(format), treeSHA, digest}, "/")
-	artifactKey := "artifacts/" + identity + ".bundle"
-	receiptKey := "receipts/" + identity + ".json"
+	artifactKey := artifactPrefix + "artifacts/" + identity + ".bundle"
+	receiptKey := artifactPrefix + "receipts/" + identity + ".json"
 	if err := validateBuilderObjectKey("artifact_key", artifactKey); err != nil {
 		return "", "", err
 	}
@@ -109,6 +113,9 @@ func (input SourceBaselineBuildInput) Validate() error {
 	if input.SchemaVersion != SourceBaselineBuilderInputSchema {
 		return errors.New("source baseline builder input schema is invalid")
 	}
+	if err := validateBuilderArtifactPrefix(input.ArtifactPrefix); err != nil {
+		return err
+	}
 	if err := validateBuilderIdentifier("repository_id", input.RepositoryID); err != nil {
 		return err
 	}
@@ -121,6 +128,9 @@ func (input SourceBaselineBuildInput) Validate() error {
 	}
 	if err := validateBuilderObjectKey("input_object_key", input.InputObjectKey); err != nil {
 		return err
+	}
+	if !strings.HasPrefix(input.InputObjectKey, input.ArtifactPrefix) {
+		return errors.New("source baseline builder input object key must use artifact prefix")
 	}
 	if err := validateBuilderInputMaterial(input); err != nil {
 		return err
@@ -269,6 +279,7 @@ func (evidence SourceBaselineBuildEvidence) validateReceipt() error {
 // validateObjectKeys 校验 artifact 与 receipt 共享同一 canonical artifact identity。
 func (evidence SourceBaselineBuildEvidence) validateObjectKeys() error {
 	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(
+		evidence.Request.ArtifactPrefix,
 		evidence.Receipt.RepositoryID,
 		evidence.Receipt.ObjectFormat,
 		evidence.Receipt.BaselineTreeSHA,
@@ -315,6 +326,7 @@ func validateSourceBaselineBuilderInputBinding(request, input SourceBaselineBuil
 		want string
 	}{
 		{"schema_version", request.SchemaVersion, input.SchemaVersion},
+		{"artifact_prefix", request.ArtifactPrefix, input.ArtifactPrefix},
 		{"repository_id", request.RepositoryID, input.RepositoryID},
 		{"object_format", request.ObjectFormat, input.ObjectFormat},
 		{"commit_sha", request.CommitSHA, input.CommitSHA},
@@ -565,6 +577,56 @@ func validateBuilderIdentifier(field, value string) error {
 	}
 	if strings.Contains(value, "://") || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") {
 		return fmt.Errorf("%s must not be a URL or path", field)
+	}
+	return nil
+}
+
+// validateBuilderArtifactPrefix 校验 caller 提供的 clean、repository-relative slash prefix。
+func validateBuilderArtifactPrefix(value string) error {
+	if err := validateBuilderArtifactPrefixShape(value); err != nil {
+		return err
+	}
+	if err := validateBuilderArtifactPrefixBoundary(value); err != nil {
+		return err
+	}
+	trimmed := strings.TrimSuffix(value, "/")
+	if err := validateBuilderArtifactPrefixCharacters(trimmed); err != nil {
+		return err
+	}
+	if err := validateBuilderArtifactPrefixClean(value, trimmed); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateBuilderArtifactPrefixShape(value string) error {
+	if value == "" || strings.TrimSpace(value) != value || !strings.HasSuffix(value, "/") {
+		return errors.New("source baseline builder artifact prefix must be non-empty and end with slash")
+	}
+	return nil
+}
+
+// validateBuilderArtifactPrefixBoundary 校验 prefix 不携带绝对路径或跨协议边界。
+func validateBuilderArtifactPrefixBoundary(value string) error {
+	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") || strings.Contains(value, "\\") || strings.Contains(value, "://") || (len(value) >= 2 && value[1] == ':') {
+		return errors.New("source baseline builder artifact prefix must be repository-relative")
+	}
+	return nil
+}
+
+// validateBuilderArtifactPrefixCharacters 校验 prefix 不含空白或控制字符。
+func validateBuilderArtifactPrefixCharacters(value string) error {
+	if builderTokenHasWhitespaceOrControl(value) {
+		return errors.New("source baseline builder artifact prefix contains whitespace or control characters")
+	}
+	return nil
+}
+
+// validateBuilderArtifactPrefixClean 校验 prefix 的路径组件规范化后保持不变。
+func validateBuilderArtifactPrefixClean(value, trimmed string) error {
+	clean := path.Clean(trimmed)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean+"/" != value {
+		return errors.New("source baseline builder artifact prefix must be clean and must not escape")
 	}
 	return nil
 }

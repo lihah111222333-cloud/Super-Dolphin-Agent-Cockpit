@@ -202,7 +202,7 @@ func parseArtifactBuilderContainerCommand(command, args []string) (artifactBuild
 	if err != nil {
 		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live builder input size is invalid", ErrArtifactBuilderIdentityDrift)
 	}
-	input := ArtifactBuilderInput{Key: values["--input-key"], SHA256: values["--input-sha256"], SizeBytes: size, RepositoryID: values["--repository-id"], ObjectFormat: values["--object-format"], SourceCommitSHA: values["--source-commit-sha"], SourceTreeSHA: values["--source-tree-sha"], BuilderDigest: values["--builder-digest"], ToolchainDigest: values["--toolchain-digest"]}
+	input := ArtifactBuilderInput{ArtifactPrefix: values["--artifact-prefix"], Key: values["--input-key"], SHA256: values["--input-sha256"], SizeBytes: size, RepositoryID: values["--repository-id"], ObjectFormat: values["--object-format"], SourceCommitSHA: values["--source-commit-sha"], SourceTreeSHA: values["--source-tree-sha"], BuilderDigest: values["--builder-digest"], ToolchainDigest: values["--toolchain-digest"]}
 	if err := input.Validate(); err != nil {
 		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live builder input is invalid: %v", ErrArtifactBuilderIdentityDrift, err)
 	}
@@ -225,7 +225,7 @@ func validateArtifactBuilderContainerCommandShape(command, args []string) error 
 // parseArtifactBuilderFlags 解析并拒绝未知、重复或不成对的 live argv。
 func parseArtifactBuilderFlags(args []string) (map[string]string, error) {
 	allowed := map[string]struct{}{}
-	for _, key := range []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"} {
+	for _, key := range []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"} {
 		allowed[key] = struct{}{}
 	}
 	values := make(map[string]string)
@@ -243,7 +243,7 @@ func parseArtifactBuilderFlags(args []string) (map[string]string, error) {
 
 // validateArtifactBuilderParsedFlags 校验 live argv 的固定协议字段集合。
 func validateArtifactBuilderParsedFlags(values map[string]string) error {
-	required := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
+	required := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
 	for _, key := range required {
 		if strings.TrimSpace(values[key]) == "" {
 			return fmt.Errorf("%w: live builder command omitted %s", ErrArtifactBuilderIdentityDrift, key)
@@ -345,13 +345,22 @@ func validateArtifactBuilderLiveInput(request ArtifactBuilderRequest, group Arti
 
 // compareArtifactBuilderInput 逐项核对 live typed input，确保摘要、大小及 source commit/tree 均绑定请求。
 func compareArtifactBuilderInput(want, got ArtifactBuilderInput) error {
-	if got.Key != want.Key || got.SHA256 != want.SHA256 || got.SizeBytes != want.SizeBytes ||
-		got.RepositoryID != want.RepositoryID || got.ObjectFormat != want.ObjectFormat ||
-		got.SourceCommitSHA != want.SourceCommitSHA || got.SourceTreeSHA != want.SourceTreeSHA ||
-		got.BuilderDigest != want.BuilderDigest || got.ToolchainDigest != want.ToolchainDigest {
+	if !artifactBuilderInputMaterialMatches(want, got) || !artifactBuilderInputGitIdentityMatches(want, got) || !artifactBuilderInputDigestMatches(want, got) {
 		return fmt.Errorf("%w: artifact builder live typed input does not match the bound request", ErrArtifactBuilderIdentityDrift)
 	}
 	return nil
+}
+
+func artifactBuilderInputMaterialMatches(want, got ArtifactBuilderInput) bool {
+	return got.ArtifactPrefix == want.ArtifactPrefix && got.Key == want.Key && got.SHA256 == want.SHA256 && got.SizeBytes == want.SizeBytes
+}
+
+func artifactBuilderInputGitIdentityMatches(want, got ArtifactBuilderInput) bool {
+	return got.RepositoryID == want.RepositoryID && got.ObjectFormat == want.ObjectFormat && got.SourceCommitSHA == want.SourceCommitSHA && got.SourceTreeSHA == want.SourceTreeSHA
+}
+
+func artifactBuilderInputDigestMatches(want, got ArtifactBuilderInput) bool {
+	return got.BuilderDigest == want.BuilderDigest && got.ToolchainDigest == want.ToolchainDigest
 }
 
 func validateArtifactBuilderLiveTags(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {

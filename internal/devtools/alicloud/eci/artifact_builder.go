@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
@@ -65,6 +66,7 @@ var ErrArtifactBuilderCancelled = errors.New("artifact builder execution cancell
 
 // ArtifactBuilderInput 绑定输入对象及 portable baseline 的全部内容身份。
 type ArtifactBuilderInput struct {
+	ArtifactPrefix  string `json:"artifact_prefix"`
 	Key             string `json:"input_key"`
 	SHA256          string `json:"input_sha256"`
 	SizeBytes       int64  `json:"input_size_bytes"`
@@ -254,8 +256,14 @@ func (request ArtifactBuilderRequest) validateProtocol() error {
 
 // Validate 校验输入对象 key、Git object identity 与 producer/toolchain digest。
 func (input ArtifactBuilderInput) Validate() error {
+	if err := validateArtifactBuilderPrefix(input.ArtifactPrefix); err != nil {
+		return err
+	}
 	if !validArtifactBuilderObjectKey(input.Key) {
 		return errors.New("artifact builder input key must be a clean repository-relative object key")
+	}
+	if !strings.HasPrefix(input.Key, input.ArtifactPrefix) {
+		return errors.New("artifact builder input key must use artifact prefix")
 	}
 	if !validArtifactBuilderDigest(input.SHA256) || !validArtifactBuilderDigest(input.BuilderDigest) || !validArtifactBuilderDigest(input.ToolchainDigest) {
 		return errors.New("artifact builder input, builder, and toolchain digests must be canonical sha256 values")
@@ -297,6 +305,7 @@ func (request ArtifactBuilderRequest) CommandLine() ([]string, error) {
 		"--execution-provider", request.Provider,
 		"--artifact-kind", request.ArtifactKind,
 		"--artifact-ref", request.ArtifactRef,
+		"--artifact-prefix", input.ArtifactPrefix,
 		"--input-key", input.Key,
 		"--input-sha256", input.SHA256,
 		"--input-size-bytes", strconv.FormatInt(input.SizeBytes, 10),
@@ -353,6 +362,56 @@ func validArtifactBuilderObjectKey(value string) bool {
 		return false
 	}
 	return !artifactBuilderObjectKeyContainsSecretMarker(value)
+}
+
+// validateArtifactBuilderPrefix 校验 caller 提供的 clean、repository-relative slash prefix。
+func validateArtifactBuilderPrefix(value string) error {
+	if err := validateArtifactBuilderPrefixShape(value); err != nil {
+		return err
+	}
+	if err := validateArtifactBuilderPrefixBoundary(value); err != nil {
+		return err
+	}
+	trimmed := strings.TrimSuffix(value, "/")
+	if err := validateArtifactBuilderPrefixCharacters(trimmed); err != nil {
+		return err
+	}
+	if err := validateArtifactBuilderPrefixClean(value, trimmed); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateArtifactBuilderPrefixShape(value string) error {
+	if value == "" || strings.TrimSpace(value) != value || !strings.HasSuffix(value, "/") {
+		return errors.New("artifact builder artifact prefix must be non-empty and end with slash")
+	}
+	return nil
+}
+
+// validateArtifactBuilderPrefixBoundary 校验 prefix 不携带绝对路径或跨协议边界。
+func validateArtifactBuilderPrefixBoundary(value string) error {
+	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") || strings.Contains(value, "\\") || strings.Contains(value, "://") || (len(value) >= 2 && value[1] == ':') {
+		return errors.New("artifact builder artifact prefix must be repository-relative")
+	}
+	return nil
+}
+
+// validateArtifactBuilderPrefixCharacters 校验 prefix 不含空白或控制字符。
+func validateArtifactBuilderPrefixCharacters(value string) error {
+	if strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return errors.New("artifact builder artifact prefix contains whitespace or control characters")
+	}
+	return nil
+}
+
+// validateArtifactBuilderPrefixClean 校验 prefix 的路径组件规范化后保持不变。
+func validateArtifactBuilderPrefixClean(value, trimmed string) error {
+	clean := path.Clean(trimmed)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean+"/" != value {
+		return errors.New("artifact builder artifact prefix must be clean and must not escape")
+	}
+	return nil
 }
 
 func validArtifactBuilderObjectKeyShape(value string) bool {

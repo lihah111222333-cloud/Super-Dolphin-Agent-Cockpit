@@ -3,6 +3,7 @@ package remoteci
 import (
 	"bytes"
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -111,6 +112,23 @@ func TestSourceBaselineBuilderRejectsAllZeroOID(t *testing.T) {
 	}
 }
 
+func TestSourceBaselineBuilderInputRejectsEveryZeroField(t *testing.T) {
+	input := testSourceBaselineBuildInput(t)
+	value := reflect.ValueOf(&input).Elem()
+	typeOfInput := value.Type()
+	for index := 0; index < value.NumField(); index++ {
+		name := typeOfInput.Field(index).Name
+		t.Run(name, func(t *testing.T) {
+			candidate := testSourceBaselineBuildInput(t)
+			field := reflect.ValueOf(&candidate).Elem().Field(index)
+			field.Set(reflect.Zero(field.Type()))
+			if err := candidate.Validate(); err == nil {
+				t.Fatalf("SourceBaselineBuildInput.Validate() accepted zero field %s", name)
+			}
+		})
+	}
+}
+
 func TestArtifactBuilderRuntimeIsOrchestrationOnly(t *testing.T) {
 	var runtime SourceBaselineArtifactBuilderRuntime = testArtifactBuilderRuntime{}
 	evidence, err := runtime.Build(context.Background(), testSourceBaselineBuildInput(t))
@@ -133,11 +151,12 @@ func testSourceBaselineBuildInput(t *testing.T) SourceBaselineBuildInput {
 	tree := strings.Repeat("1", 40)
 	return SourceBaselineBuildInput{
 		SchemaVersion:   SourceBaselineBuilderInputSchema,
+		ArtifactPrefix:  "builder/",
 		RepositoryID:    "repository-1",
 		ObjectFormat:    string(gate.GitObjectFormatSHA1),
 		CommitSHA:       strings.Repeat("2", 40),
 		TreeSHA:         tree,
-		InputObjectKey:  "input-1",
+		InputObjectKey:  "builder/inputs/input-1",
 		InputSHA256:     "sha256:" + strings.Repeat("a", 64),
 		InputSizeBytes:  123,
 		BuilderDigest:   "sha256:" + strings.Repeat("b", 64),
@@ -149,6 +168,7 @@ func testSourceBaselineBuildEvidence(t *testing.T, input SourceBaselineBuildInpu
 	t.Helper()
 	receipt := testSourceBaselineProducerReceipt(t)
 	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(
+		input.ArtifactPrefix,
 		receipt.RepositoryID,
 		receipt.ObjectFormat,
 		receipt.BaselineTreeSHA,

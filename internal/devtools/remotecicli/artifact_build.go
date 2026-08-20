@@ -29,6 +29,7 @@ type artifactBuildFlags struct {
 	ramRole           string
 	artifactKind      string
 	artifactRef       string
+	artifactPrefix    string
 	inputKey          string
 	inputSHA256       string
 	inputSizeBytes    int64
@@ -155,11 +156,11 @@ func prepareArtifactBuildWorker(args []string, stderr io.Writer, dependencies ar
 // parseArtifactBuildFlags 严格解析 _artifact-build 参数，拒绝未知、重复和缺失字段。
 func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 	var values struct {
-		executionProvider, ossEndpoint, ossBucket, ramRole         strictStringFlag
-		artifactKind, artifactRef, inputKey, inputSHA256           strictStringFlag
-		repositoryID, objectFormat, sourceCommitSHA, sourceTreeSHA strictStringFlag
-		builderDigest, toolchainDigest                             strictStringFlag
-		inputSizeBytes                                             strictInt64Flag
+		executionProvider, ossEndpoint, ossBucket, ramRole               strictStringFlag
+		artifactKind, artifactRef, artifactPrefix, inputKey, inputSHA256 strictStringFlag
+		repositoryID, objectFormat, sourceCommitSHA, sourceTreeSHA       strictStringFlag
+		builderDigest, toolchainDigest                                   strictStringFlag
+		inputSizeBytes                                                   strictInt64Flag
 	}
 	set := flag.NewFlagSet("_artifact-build", flag.ContinueOnError)
 	set.SetOutput(io.Discard)
@@ -169,6 +170,7 @@ func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 	set.Var(&values.ramRole, "ram-role-name", "")
 	set.Var(&values.artifactKind, "artifact-kind", "")
 	set.Var(&values.artifactRef, "artifact-ref", "")
+	set.Var(&values.artifactPrefix, "artifact-prefix", "")
 	set.Var(&values.inputKey, "input-key", "")
 	set.Var(&values.inputSHA256, "input-sha256", "")
 	set.Var(&values.inputSizeBytes, "input-size-bytes", "")
@@ -191,6 +193,7 @@ func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 		{"ram-role-name", values.ramRole.set},
 		{"artifact-kind", values.artifactKind.set},
 		{"artifact-ref", values.artifactRef.set},
+		{"artifact-prefix", values.artifactPrefix.set},
 		{"input-key", values.inputKey.set},
 		{"input-sha256", values.inputSHA256.set},
 		{"input-size-bytes", values.inputSizeBytes.set},
@@ -213,6 +216,7 @@ func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 		ramRole:           values.ramRole.value,
 		artifactKind:      values.artifactKind.value,
 		artifactRef:       values.artifactRef.value,
+		artifactPrefix:    values.artifactPrefix.value,
 		inputKey:          values.inputKey.value,
 		inputSHA256:       values.inputSHA256.value,
 		inputSizeBytes:    values.inputSizeBytes.value,
@@ -232,6 +236,7 @@ func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 func (flags artifactBuildFlags) sourceBaselineBuildInput() (remoteci.SourceBaselineBuildInput, error) {
 	input := remoteci.SourceBaselineBuildInput{
 		SchemaVersion:   remoteci.SourceBaselineBuilderInputSchema,
+		ArtifactPrefix:  flags.artifactPrefix,
 		RepositoryID:    flags.repositoryID,
 		ObjectFormat:    flags.objectFormat,
 		CommitSHA:       flags.sourceCommitSHA,
@@ -301,7 +306,7 @@ func validateArtifactBuildUpload(flags artifactBuildFlags, uploadKind int, state
 }
 
 func validateArtifactBuildArtifactKey(flags artifactBuildFlags, key, artifactSHA256 string) error {
-	artifactKey, _, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, artifactSHA256)
+	artifactKey, _, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.artifactPrefix, flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, artifactSHA256)
 	if err != nil {
 		return err
 	}
@@ -315,7 +320,7 @@ func validateArtifactBuildReceiptKey(flags artifactBuildFlags, state *artifactBu
 	if state.artifactSHA256 == "" {
 		return errors.New("receipt upload was attempted before artifact upload")
 	}
-	_, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, state.artifactSHA256)
+	_, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.artifactPrefix, flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, state.artifactSHA256)
 	if err != nil || key != receiptKey {
 		return errors.New("receipt upload key is not canonical")
 	}

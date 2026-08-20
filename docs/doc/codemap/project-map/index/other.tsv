@@ -961,10 +961,10 @@ internal/devtools/projectmaptrusted/generator_asset.go	internal	other	go-source	
 internal/devtools/projectmaptrusted/generator_asset_sync_test.go	internal	other	go-test	2106	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,generator,asset,sync,test,开发工具与生成器辅助包
 internal/devtools/projectmaptrusted/project_map.go	internal	other	go-source	31936	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,开发工具与生成器辅助包
 internal/devtools/projectmaptrusted/project_map_test.go	internal	other	go-test	14700	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,test,开发工具与生成器辅助包
-internal/devtools/remotecicli/artifact_build.go	internal	other	go-source	14933	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,build,开发工具与生成器辅助包
-internal/devtools/remotecicli/artifact_build_test.go	internal	other	go-test	14570	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,build,test,开发工具与生成器辅助包
-internal/devtools/remotecicli/artifact_builder_runtime.go	internal	other	go-source	24828	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,builder,runtime,开发工具与生成器辅助包
-internal/devtools/remotecicli/artifact_builder_runtime_test.go	internal	other	go-test	17819	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,builder,runtime,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/artifact_build.go	internal	other	go-source	15230	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,build,开发工具与生成器辅助包
+internal/devtools/remotecicli/artifact_build_test.go	internal	other	go-test	14689	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,build,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/artifact_builder_runtime.go	internal	other	go-source	25061	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,builder,runtime,开发工具与生成器辅助包
+internal/devtools/remotecicli/artifact_builder_runtime_test.go	internal	other	go-test	18002	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,builder,runtime,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	15480	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	13207	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
 internal/devtools/shardresource/planner.go	internal	other	go-source	20508	开发工具与生成器辅助包	internal,devtools,shardresource,planner,开发工具与生成器辅助包
