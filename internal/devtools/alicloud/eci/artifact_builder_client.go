@@ -203,7 +203,7 @@ func artifactBuilderCreateArgs(client *Client, request ArtifactBuilderRequest, t
 		"--Container.1.Cpu", formatResource(request.CPU),
 		"--Container.1.Memory", formatResource(request.MemoryGiB),
 		"--Container.1.ImagePullPolicy", "Never",
-		"--Container.1.SecurityContext.ReadOnlyRootFilesystem", "true",
+		"--Container.1.SecurityContext.ReadOnlyRootFilesystem", "false",
 		"--Container.1.SecurityContext.RunAsUser", strconv.Itoa(cicontract.RemoteWorkerUID),
 		"--Container.1.SecurityContextRunAsGroup", strconv.Itoa(cicontract.RemoteWorkerGID),
 	}

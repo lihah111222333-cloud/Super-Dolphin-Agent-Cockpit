@@ -81,6 +81,7 @@ func assertArtifactBuilderCreateArgv(t *testing.T, createCall []string, request 
 		{"--Memory", "8"},
 		{"--EphemeralStorage", "100"},
 		{"--ImageSnapshotId", request.ImageSnapshotID},
+		{"--Container.1.SecurityContext.ReadOnlyRootFilesystem", "false"},
 		{"--Container.1.Command.1", ArtifactBuilderCommand},
 		{"--Container.1.Arg.1", ArtifactBuilderSubcommand},
 		{"--Container.1.Arg.3", request.CompilerPath},
