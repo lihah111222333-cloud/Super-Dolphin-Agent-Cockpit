@@ -2,7 +2,6 @@ package trustedlauncher
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +10,7 @@ import (
 
 	gateclosure "github.com/lihah111222333-cloud/super-dolphin-agent/build/gate/closure"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/toolchainidentity"
 )
 
 // VerifyOptions 将运行中 executable 绑定到自身回执，并验证它兼容候选 Git tree。
@@ -178,12 +178,7 @@ func validateNonWritableArtifactPath(path string) error {
 }
 
 func digestFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return "sha256:" + fmt.Sprintf("%x", sum[:]), nil
+	return toolchainidentity.DigestFile(path)
 }
 
 // writeReceiptFile 以 create-only、fsync 与只读权限持久化严格回执。

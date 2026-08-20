@@ -10,7 +10,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/godistribution"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/projectmaptrusted"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/toolchainidentity"
 )
 
 // BuildOptions selects one exact Git tree and one controlled install root.
@@ -473,59 +473,9 @@ func validateSecureDirectory(path string) error {
 }
 
 func compilerClosureDigest(ctx context.Context, compilerPath string) (string, error) {
-	command := exec.CommandContext(ctx, compilerPath, "env", "GOROOT")
-	environment, err := launcherBuildEnvironment(os.TempDir(), filepath.Join(os.TempDir(), "super-dolphin-launcher-go-build-cache"))
-	if err != nil {
-		return "", err
-	}
-	command.Env = environment
-	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
-		return "", err
-	}
-	output, err := command.Output()
+	digest, err := toolchainidentity.CompilerClosureDigest(ctx, compilerPath)
 	if err != nil {
 		return "", fmt.Errorf("resolve Go toolchain root: %w", err)
 	}
-	root := strings.TrimSpace(string(output))
-	if !filepath.IsAbs(root) {
-		return "", errors.New("Go toolchain root must be absolute")
-	}
-	return digestDirectory(root)
-}
-
-// digestDirectory 对无链接的完整编译器目录产生稳定 closure 摘要。
-func digestDirectory(root string) (string, error) {
-	var entries []string
-	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("toolchain closure contains symlink %s", path)
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if !entry.Type().IsRegular() {
-			return fmt.Errorf("toolchain closure contains non-regular path %s", path)
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		entries = append(entries, relative)
-		return nil
-	}); err != nil {
-		return "", err
-	}
-	sort.Strings(entries)
-	var manifest bytes.Buffer
-	for _, relative := range entries {
-		digest, err := digestFile(filepath.Join(root, relative))
-		if err != nil {
-			return "", err
-		}
-		fmt.Fprintf(&manifest, "%s\\x00%s\\n", filepath.ToSlash(relative), digest)
-	}
-	return digestBytes(manifest.Bytes()), nil
+	return digest, nil
 }
