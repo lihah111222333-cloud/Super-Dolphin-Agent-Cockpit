@@ -253,17 +253,40 @@ func BuilderSimulationProtocolABIDigest() (string, error) {
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
+// builderSimulationProtocolABIMaterial 收集 Result/Event 及其 nested wire ABI 与枚举材料。
 func builderSimulationProtocolABIMaterial() ([]byte, error) {
 	rootTypes := []reflect.Type{
 		reflect.TypeFor[BuilderSimulationRequest](), reflect.TypeFor[BuilderSimulationEngine](),
 		reflect.TypeFor[BuilderSimulationTarget](), reflect.TypeFor[BuilderSimulationArtifact](),
 		reflect.TypeFor[BuilderSimulationECI](), reflect.TypeFor[BuilderSimulationOSS](),
 		reflect.TypeFor[PortableWorkloadManifest](), reflect.TypeFor[cicontract.ECIVSwitch](),
+		reflect.TypeFor[BuilderSimulationResult](), reflect.TypeFor[BuilderSimulationResultArtifact](),
+		reflect.TypeFor[BuilderSimulationResultCloud](), reflect.TypeFor[BuilderSimulationResultCleanup](),
+		reflect.TypeFor[BuilderSimulationResultError](),
+		reflect.TypeFor[BuilderSimulationEvent](),
 	}
 	var material bytes.Buffer
 	for _, value := range []string{
 		BuilderSimulationContractID, BuilderSimulationRequestSchema, cicontract.ExecutionProviderID,
 		PortableWorkloadManifestSchemaVersion, cicontract.ECIMultiZoneScheduleStrategy, "sha1", "sha256",
+		BuilderSimulationResultSchema, BuilderSimulationEventSchema,
+		BuilderSimulationResultStatusNotVerified, BuilderSimulationOutcomeSucceeded, BuilderSimulationOutcomeFailed,
+		fmt.Sprintf("%d", BuilderSimulationExitCodeSuccess), fmt.Sprintf("%d", BuilderSimulationExitCodeBuildFailure),
+		fmt.Sprintf("%d", BuilderSimulationExitCodeContractFailure), fmt.Sprintf("%d", BuilderSimulationExitCodeOutputChannelFailure),
+		fmt.Sprintf("%d", BuilderSimulationExitCodeCleanupFailure), BuilderSimulationArtifactKindPortableRuntime,
+		BuilderSimulationPublicationStateValidatedPair, BuilderSimulationPublicationStatePartial,
+		BuilderSimulationPublicationStateNotApplicable, BuilderSimulationCloudStatusNotStarted,
+		BuilderSimulationCloudStatusSucceeded, BuilderSimulationCloudStatusFailed,
+		BuilderSimulationAuthorityEffectsNone,
+		BuilderSimulationEventStateStarted, BuilderSimulationEventStateSucceeded,
+		BuilderSimulationEventStateFailed, BuilderSimulationEventStateSkipped,
+		BuilderSimulationEventStageRequestValidated, BuilderSimulationEventStageEngineBound,
+		BuilderSimulationEventStageTargetManifestBound, BuilderSimulationEventStageInputBundleBuilt,
+		BuilderSimulationEventStageInputStaged, BuilderSimulationEventStageECICreateRequested,
+		BuilderSimulationEventStageECIGroupObserved, BuilderSimulationEventStageArtifactValidated,
+		BuilderSimulationEventStageCleanupStarted, BuilderSimulationEventStageCleanupGroupAbsent,
+		BuilderSimulationEventStageCleanupInputAbsent,
+		BuilderSimulationEventStageTerminal,
 	} {
 		writeRepositoryFrame(&material, []byte(value))
 	}
@@ -314,9 +337,9 @@ func builderSimulationABIFieldValues(field reflect.StructField, seen map[string]
 	return [4]string{field.Name, jsonName, field.Type.String(), field.Type.Kind().String()}, nil
 }
 
-// validBuilderSimulationABIType 将 request ABI 限定为 string、nested struct 与 struct slice。
+// validBuilderSimulationABIType 将协议 ABI 限定为 JSON scalar、nested struct 与 struct slice。
 func validBuilderSimulationABIType(value reflect.Type) bool {
-	if value.Kind() == reflect.String || value.Kind() == reflect.Struct {
+	if value.Kind() == reflect.String || value.Kind() == reflect.Struct || value.Kind() == reflect.Bool || value.Kind() == reflect.Int || value.Kind() == reflect.Int64 || value.Kind() == reflect.Uint || value.Kind() == reflect.Uint64 {
 		return true
 	}
 	return value.Kind() == reflect.Slice && value.Elem().Kind() == reflect.Struct

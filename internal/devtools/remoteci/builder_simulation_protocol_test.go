@@ -87,6 +87,20 @@ func TestBuilderSimulationProtocolABIDigestIsStableAndSeparated(t *testing.T) {
 	if err != nil || workload == first {
 		t.Fatalf("workload ABI digest = %q, protocol = %q, error=%v", workload, first, err)
 	}
+	material, err := builderSimulationProtocolABIMaterial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{
+		BuilderSimulationResultSchema, BuilderSimulationEventSchema,
+		BuilderSimulationOutcomeSucceeded, BuilderSimulationOutcomeFailed,
+		BuilderSimulationEventStageRequestValidated, BuilderSimulationEventStageTerminal,
+		reflect.TypeFor[BuilderSimulationResult]().Name(), reflect.TypeFor[BuilderSimulationEvent]().Name(),
+	} {
+		if !bytes.Contains(material, []byte(marker)) {
+			t.Fatalf("protocol ABI material is missing %q", marker)
+		}
+	}
 }
 
 func TestBuilderSimulationProtocolABIRejectsAmbiguousOrUnsupportedWireTypes(t *testing.T) {
