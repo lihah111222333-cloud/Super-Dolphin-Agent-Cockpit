@@ -21,6 +21,19 @@ func TestArtifactBuilderRequestBindsPortableSourceBaseline(t *testing.T) {
 	assertArtifactBuilderCommand(t, request)
 }
 
+// TestArtifactBuilderRequestAcceptsImmutableRegistryPort 验证 ImageCache 回执中的显式 registry 端口可进入唯一 builder 请求。
+func TestArtifactBuilderRequestAcceptsImmutableRegistryPort(t *testing.T) {
+	config := testArtifactBuilderConfig()
+	config.Image = "172.16.27.252:5000/sdci/successor@sha256:" + strings.Repeat("b", 64)
+	request, err := NewArtifactBuilderRequest(config)
+	if err != nil {
+		t.Fatalf("NewArtifactBuilderRequest() rejected immutable registry port: %v", err)
+	}
+	if request.Image != config.Image {
+		t.Fatalf("builder image = %q, want %q", request.Image, config.Image)
+	}
+}
+
 func assertArtifactBuilderRequestIdentity(t *testing.T, request ArtifactBuilderRequest) {
 	t.Helper()
 	if request.Provider != ArtifactBuilderProvider || request.ArtifactKind != ArtifactBuilderArtifactKind || request.ArtifactRef != ArtifactBuilderArtifactRef {

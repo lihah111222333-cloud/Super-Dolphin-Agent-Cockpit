@@ -46,7 +46,6 @@ const (
 var (
 	artifactBuilderTokenPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	artifactBuilderNamePattern  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	artifactBuilderImagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*@sha256:[0-9a-f]{64}$`)
 )
 
 // ErrArtifactBuilderInvalidState 表示 builder lifecycle 触发了非法迁移。
@@ -217,7 +216,7 @@ func (request ArtifactBuilderRequest) validateNamesAndImage() error {
 	if !artifactBuilderNamePattern.MatchString(request.ContainerGroupName) || !artifactBuilderNamePattern.MatchString(request.ContainerName) || request.ContainerGroupName == request.ContainerName {
 		return errors.New("artifact builder container group and container names are invalid or not distinct")
 	}
-	if !artifactBuilderImagePattern.MatchString(request.Image) || strings.ContainsAny(request.Image, "?#") {
+	if !imageDigestPattern.MatchString(request.Image) || strings.ContainsAny(request.Image, "?#") {
 		return errors.New("artifact builder image must be an immutable sha256 digest reference")
 	}
 	if !validArtifactBuilderSnapshot(request.ImageSnapshotID) {
