@@ -206,16 +206,16 @@ func assertPortableBuilderContract(t *testing.T, builder string) {
 		"test -f \"$compiler_path\"",
 		"test -x \"$compiler_path\"",
 		"_artifact-identity --compiler-path \"$compiler_path\"",
-		"jq -e -c -s",
-		"builder_sha256",
-		"remote_ci_toolchain_digest",
-		"protocol_abi_digest",
-		"workload_manifest_abi_digest",
+		"test -n \"$raw_artifact_identity\"",
+		"artifact_identity=%s",
 		"cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
 		"tar --owner=0 --group=0 --numeric-owner",
 		"chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
 		"remote_ci_binary_sha256=$(sha256sum /tmp/candidate-remote-ci",
 	})
+	if strings.Contains(builder, "jq ") {
+		t.Fatal("ECI builder must leave artifact identity JSON parsing to the trusted host")
+	}
 }
 
 func assertPortableVerifierContract(t *testing.T, source, verify string) {
@@ -226,18 +226,12 @@ func assertPortableVerifierContract(t *testing.T, source, verify string) {
 		"stat -c %a /usr/local/bin/super-dolphin-remote-ci",
 		"sha256sum /usr/local/bin/super-dolphin-remote-ci",
 		"EXPECTED_REMOTE_CI_BINARY_SHA256",
-		"EXPECTED_REMOTE_CI_TOOLCHAIN_DIGEST",
-		"EXPECTED_PROTOCOL_ABI_DIGEST",
-		"EXPECTED_WORKLOAD_MANIFEST_ABI_DIGEST",
 		"compiler_path=$(command -v go)",
 		"test -f \"$compiler_path\"",
 		"test -x \"$compiler_path\"",
 		"/usr/local/bin/super-dolphin-remote-ci _artifact-identity --compiler-path \"$compiler_path\"",
-		"jq -e -c -s",
+		"artifact_identity=%s",
 		"remote_ci_binary_sha256=%s",
-		"remote_ci_toolchain_digest=%s",
-		"protocol_abi_digest=%s",
-		"workload_manifest_abi_digest=%s",
 	})
 	if strings.Contains(verify, "./cmd/super-dolphin-remote-ci") {
 		t.Fatal("verifier must validate the installed portable binary instead of rebuilding it")
@@ -245,6 +239,15 @@ func assertPortableVerifierContract(t *testing.T, source, verify string) {
 	if !strings.Contains(source, "\"$verify_remote_ci_binary_sha256\" == \"$remote_ci_binary_sha256\"") {
 		t.Fatal("refresh script does not compare builder and verifier portable binary digests")
 	}
+	assertRefreshMarkers(t, source, []string{
+		"parse_artifact_identity()",
+		"artifact_identity=$(parse_artifact_identity \"$raw_artifact_identity\")",
+		"verify_identity=$(parse_artifact_identity \"$raw_verify_identity\")",
+		"verify_toolchain=$(printf '%s' \"$verify_identity\" | jq -er '.toolchain_digest')",
+		"\"$verify_toolchain\" == \"$remote_ci_toolchain_digest\"",
+		"\"$verify_protocol\" == \"$protocol_abi_digest\"",
+		"\"$verify_workload\" == \"$workload_manifest_abi_digest\"",
+	})
 }
 
 func assertRefreshMarkers(t *testing.T, source string, required []string) {

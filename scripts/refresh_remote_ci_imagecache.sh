@@ -327,11 +327,6 @@ print_plan() {
     '{schema_version:$schema, authoritative:false, action:"create_candidate_only", source_commit:$commit, source_tree:$tree, base_image:$base_image, base_snapshot_id:$base_snapshot, oci_base_image:$oci_base_image, source_object:$source_object, source_sha256:$source_sha256, module_object:$module_object, module_sha256:$module_sha256, retention_days:$retention_days, mutates_sqlite:false}'
 }
 
-builder_script() {
-  cat <<'EOF'
-set -eu
-mkdir -p /tmp/bin /tmp/registry-store /tmp/src /tmp/gomod /tmp/go-build /tmp/overlay
-fetch() { curl -fsSL --retry 3 "$1" -o "$2"; printf "%s  %s\n" "$3" "$2" | sha256sum -c -; }
 parse_artifact_identity() {
   raw=$1
   canonical=$(printf '%s' "$raw" | jq -e -c -s '
@@ -354,6 +349,12 @@ parse_artifact_identity() {
   [[ "$raw" == "$canonical" ]] || return 1
   printf '%s' "$canonical"
 }
+
+builder_script() {
+  cat <<'EOF'
+set -eu
+mkdir -p /tmp/bin /tmp/registry-store /tmp/src /tmp/gomod /tmp/go-build /tmp/overlay
+fetch() { curl -fsSL --retry 3 "$1" -o "$2"; printf "%s  %s\n" "$3" "$2" | sha256sum -c -; }
 fetch "$REGISTRY_URL" /tmp/registry.tar.gz "$REGISTRY_SHA256"
 fetch "$CRANE_URL" /tmp/crane.tar.gz "$CRANE_SHA256"
 fetch "$SOURCE_URL" /tmp/source.tar.gz "$SOURCE_SHA256"
@@ -375,13 +376,8 @@ test -f "$compiler_path" && test ! -L "$compiler_path" && test -x "$compiler_pat
 started=$(date +%s)
 GOTOOLCHAIN=local GOPROXY=off GOMODCACHE=/tmp/gomod GOCACHE=/tmp/go-build CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci
 raw_artifact_identity=$(/tmp/candidate-remote-ci _artifact-identity --compiler-path "$compiler_path") || { printf 'refresh-builder-artifact-identity-failed\n' >&2; exit 24; }
-artifact_identity=$(parse_artifact_identity "$raw_artifact_identity") || { printf 'refresh-builder-artifact-identity-invalid\n' >&2; exit 24; }
-observed_builder_sha256=$(printf '%s' "$artifact_identity" | jq -er '.builder_sha256')
-remote_ci_toolchain_digest=$(printf '%s' "$artifact_identity" | jq -er '.toolchain_digest')
-protocol_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.protocol_abi_digest')
-workload_manifest_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.workload_manifest_abi_digest')
+test -n "$raw_artifact_identity" && test "$(printf '%s\n' "$raw_artifact_identity" | wc -l | tr -d ' ')" = 1 || { printf 'refresh-builder-artifact-identity-invalid\n' >&2; exit 24; }
 remote_ci_binary_sha256=$(sha256sum /tmp/candidate-remote-ci | cut -d ' ' -f1)
-test "$observed_builder_sha256" = "sha256:${remote_ci_binary_sha256}"
 mkdir -p /tmp/event-probe
 printf 'module cacheprobe\n\ngo 1.26.5\n\nrequire github.com/kelindar/event %s\n' "$EVENT_VERSION" >/tmp/event-probe/go.mod
 printf 'github.com/kelindar/event %s %s\ngithub.com/kelindar/event %s/go.mod %s\n' "$EVENT_VERSION" "$EVENT_SUM" "$EVENT_VERSION" "$EVENT_GOMOD_SUM" >/tmp/event-probe/go.sum
@@ -437,7 +433,7 @@ curl -fsS http://127.0.0.1:5000/v2/ >/dev/null
 /tmp/bin/crane push --insecure /tmp/base-image.tar "127.0.0.1:5000/sdci/accepted-base:${BASE_TAG}"
 /tmp/bin/crane append --insecure -b "127.0.0.1:5000/sdci/accepted-base:${BASE_TAG}" -f /tmp/cache-layer.tar -t "127.0.0.1:5000/sdci/successor:${SOURCE_TREE}"
 successor_digest=$(/tmp/bin/crane digest --insecure "127.0.0.1:5000/sdci/successor:${SOURCE_TREE}")
-printf 'refresh-builder-ready tree=%s digest=%s compile_seconds=%s gate_sha256=%s remote_ci_binary_sha256=%s remote_ci_toolchain_digest=%s protocol_abi_digest=%s workload_manifest_abi_digest=%s\n' "$SOURCE_TREE" "$successor_digest" "$((completed-started))" "$gate_sha" "$remote_ci_binary_sha256" "$remote_ci_toolchain_digest" "$protocol_abi_digest" "$workload_manifest_abi_digest"
+printf 'refresh-builder-ready tree=%s digest=%s compile_seconds=%s gate_sha256=%s remote_ci_binary_sha256=%s artifact_identity=%s\n' "$SOURCE_TREE" "$successor_digest" "$((completed-started))" "$gate_sha" "$remote_ci_binary_sha256" "$raw_artifact_identity"
 wait "$registry_pid"
 EOF
 }
@@ -447,7 +443,7 @@ wait_for_builder() {
   while ((SECONDS < deadline)); do
     status=$(eci_json DescribeContainerGroups --ContainerGroupIds "[\"${builder_group_id}\"]" | jq -r '.ContainerGroups[0].Status // "missing"')
     log=$(eci_json DescribeContainerLog --ContainerGroupId "$builder_group_id" --ContainerName builder 2>/dev/null | jq -r '.Content // empty')
-    builder_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-builder-ready tree=([^ ]+) digest=(sha256:[0-9a-f]{64}) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}) remote_ci_binary_sha256=([0-9a-f]{64}) remote_ci_toolchain_digest=(sha256:[0-9a-f]{64}) protocol_abi_digest=(sha256:[0-9a-f]{64}) workload_manifest_abi_digest=(sha256:[0-9a-f]{64}).*/\1 \2 \3 \4 \5 \6 \7 \8/p' | tail -1)
+    builder_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-builder-ready tree=([^ ]+) digest=(sha256:[0-9a-f]{64}) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}) remote_ci_binary_sha256=([0-9a-f]{64}) artifact_identity=([^ ]+).*/\1 \2 \3 \4 \5 \6/p' | tail -1)
     [[ -z "$builder_ready" ]] || return 0
     [[ "$status" != Failed && "$status" != Succeeded ]] || die "builder terminated before readiness: ${status}: $(printf '%s' "$log" | tail -20)"
     sleep "$poll_seconds"
@@ -482,8 +478,15 @@ start_builder() {
     --ImageSnapshotId "$base_snapshot")
   builder_group_id=$(printf '%s' "$result" | jq -er '.ContainerGroupId')
   wait_for_builder
-  read -r ready_tree successor_digest compile_seconds gate_sha256 remote_ci_binary_sha256 remote_ci_toolchain_digest protocol_abi_digest workload_manifest_abi_digest <<<"$builder_ready"
+  local raw_artifact_identity artifact_identity observed_builder_sha256
+  read -r ready_tree successor_digest compile_seconds gate_sha256 remote_ci_binary_sha256 raw_artifact_identity <<<"$builder_ready"
   [[ "$ready_tree" == "$source_tree" ]] || die 'builder returned the wrong source tree'
+  artifact_identity=$(parse_artifact_identity "$raw_artifact_identity") || die 'builder returned an invalid artifact identity'
+  observed_builder_sha256=$(printf '%s' "$artifact_identity" | jq -er '.builder_sha256')
+  remote_ci_toolchain_digest=$(printf '%s' "$artifact_identity" | jq -er '.toolchain_digest')
+  protocol_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.protocol_abi_digest')
+  workload_manifest_abi_digest=$(printf '%s' "$artifact_identity" | jq -er '.workload_manifest_abi_digest')
+  [[ "$observed_builder_sha256" == "sha256:${remote_ci_binary_sha256}" ]] || die 'builder executable identity drifted'
   builder_ip=$(eci_json DescribeContainerGroups --ContainerGroupIds "[\"${builder_group_id}\"]" | jq -er '.ContainerGroups[0].IntranetIp')
 }
 
@@ -513,10 +516,10 @@ create_image_cache() {
 }
 
 verify_image_cache() {
-  local verify_script result status log deadline
+  local verify_script result status log deadline raw_verify_identity verify_identity verify_builder_sha verify_toolchain verify_protocol verify_workload
   # 该脚本由远端 ECI shell 展开，本地必须保留其中的环境变量与命令替换。
   # shellcheck disable=SC2016
-	verify_script='set -eu; test -z "$(find /opt/super-dolphin/cache/go-build /opt/super-dolphin-gate/runtime/go-mod-cache -perm /222 -print -quit)"; test -x /usr/local/bin/super-dolphin-remote-ci; test "$(stat -c %u:%g /usr/local/bin/super-dolphin-remote-ci)" = "0:0"; test "$(stat -c %a /usr/local/bin/super-dolphin-remote-ci)" = "555"; compiler_path=$(command -v go); case "$compiler_path" in /*) ;; *) exit 24 ;; esac; test -f "$compiler_path" && test ! -L "$compiler_path" && test -x "$compiler_path"; verified_remote_ci_binary_sha256=$(sha256sum /usr/local/bin/super-dolphin-remote-ci | cut -d " " -f1); test "$verified_remote_ci_binary_sha256" = "$EXPECTED_REMOTE_CI_BINARY_SHA256"; raw_artifact_identity=$(/usr/local/bin/super-dolphin-remote-ci _artifact-identity --compiler-path "$compiler_path"); artifact_identity=$(printf "%s" "$raw_artifact_identity" | jq -e -c -s "if length != 1 then error(\"artifact identity must contain exactly one JSON value\") elif (.[0] | type) != \"object\" then error(\"artifact identity must be an object\") elif (.[0] | keys) != [\"builder_sha256\",\"protocol_abi_digest\",\"schema_version\",\"toolchain_digest\",\"workload_manifest_abi_digest\"] then error(\"artifact identity fields are invalid\") elif .[0].schema_version != \"artifact-builder-observed-identity/v1\" then error(\"artifact identity schema is invalid\") else .[0] end"); test "$raw_artifact_identity" = "$artifact_identity"; verified_builder_sha256=$(printf "%s" "$artifact_identity" | jq -er ".builder_sha256"); verified_toolchain_digest=$(printf "%s" "$artifact_identity" | jq -er ".toolchain_digest"); verified_protocol_abi_digest=$(printf "%s" "$artifact_identity" | jq -er ".protocol_abi_digest"); verified_workload_manifest_abi_digest=$(printf "%s" "$artifact_identity" | jq -er ".workload_manifest_abi_digest"); test "$verified_builder_sha256" = "sha256:$verified_remote_ci_binary_sha256"; test "$verified_toolchain_digest" = "$EXPECTED_REMOTE_CI_TOOLCHAIN_DIGEST"; test "$verified_protocol_abi_digest" = "$EXPECTED_PROTOCOL_ABI_DIGEST"; test "$verified_workload_manifest_abi_digest" = "$EXPECTED_WORKLOAD_MANIFEST_ABI_DIGEST"; mkdir -p /tmp/src /tmp/go-build /tmp/gomod; curl -fsSL --retry 3 "$SOURCE_URL" -o /tmp/source.tar.gz; printf "%s  %s\n" "$SOURCE_SHA256" /tmp/source.tar.gz | sha256sum -c -; tar -xzf /tmp/source.tar.gz -C /tmp/src; test -s /opt/super-dolphin-gate/frontend-embed/index.html; mkdir -p /tmp/src/cmd/agent-terminal; cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dist; cp -a /opt/super-dolphin/cache/go-build/. /tmp/go-build/; chmod -R u+w /tmp/go-build; chmod 0700 /tmp/gomod; /super-dolphin-gate worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache /tmp/gomod; cd /tmp/src; GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go list -deps -test ./... >/dev/null; started=$(date +%s); GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/verified-gate ./cmd/super-dolphin-gate; completed=$(date +%s); printf "refresh-verify-ready tree=%s compile_seconds=%s gate_sha256=%s remote_ci_binary_sha256=%s remote_ci_toolchain_digest=%s protocol_abi_digest=%s workload_manifest_abi_digest=%s\n" "$SOURCE_TREE" "$((completed-started))" "$(sha256sum /tmp/verified-gate | cut -d " " -f1)" "$verified_remote_ci_binary_sha256" "$verified_toolchain_digest" "$verified_protocol_abi_digest" "$verified_workload_manifest_abi_digest"'
+  verify_script='set -eu; test -z "$(find /opt/super-dolphin/cache/go-build /opt/super-dolphin-gate/runtime/go-mod-cache -perm /222 -print -quit)"; test -x /usr/local/bin/super-dolphin-remote-ci; test "$(stat -c %u:%g /usr/local/bin/super-dolphin-remote-ci)" = "0:0"; test "$(stat -c %a /usr/local/bin/super-dolphin-remote-ci)" = "555"; compiler_path=$(command -v go); case "$compiler_path" in /*) ;; *) exit 24 ;; esac; test -f "$compiler_path" && test ! -L "$compiler_path" && test -x "$compiler_path"; verified_remote_ci_binary_sha256=$(sha256sum /usr/local/bin/super-dolphin-remote-ci | cut -d " " -f1); test "$verified_remote_ci_binary_sha256" = "$EXPECTED_REMOTE_CI_BINARY_SHA256"; raw_artifact_identity=$(/usr/local/bin/super-dolphin-remote-ci _artifact-identity --compiler-path "$compiler_path"); test -n "$raw_artifact_identity" && test "$(printf "%s\n" "$raw_artifact_identity" | wc -l | tr -d " ")" = 1; mkdir -p /tmp/src /tmp/go-build /tmp/gomod; curl -fsSL --retry 3 "$SOURCE_URL" -o /tmp/source.tar.gz; printf "%s  %s\n" "$SOURCE_SHA256" /tmp/source.tar.gz | sha256sum -c -; tar -xzf /tmp/source.tar.gz -C /tmp/src; test -s /opt/super-dolphin-gate/frontend-embed/index.html; mkdir -p /tmp/src/cmd/agent-terminal; cp -a /opt/super-dolphin-gate/frontend-embed /tmp/src/cmd/agent-terminal/web-dist; cp -a /opt/super-dolphin/cache/go-build/. /tmp/go-build/; chmod -R u+w /tmp/go-build; chmod 0700 /tmp/gomod; /super-dolphin-gate worker go-module-overlay /opt/super-dolphin-gate/runtime/go-mod-cache /tmp/gomod; cd /tmp/src; GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go list -deps -test ./... >/dev/null; started=$(date +%s); GOTOOLCHAIN=local GOPROXY=off GOCACHE=/tmp/go-build GOMODCACHE=/tmp/gomod CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/verified-gate ./cmd/super-dolphin-gate; completed=$(date +%s); printf "refresh-verify-ready tree=%s compile_seconds=%s gate_sha256=%s remote_ci_binary_sha256=%s artifact_identity=%s\n" "$SOURCE_TREE" "$((completed-started))" "$(sha256sum /tmp/verified-gate | cut -d " " -f1)" "$verified_remote_ci_binary_sha256" "$raw_artifact_identity"'
   result=$(eci_json CreateContainerGroup --ContainerGroupName "sdci-imagecache-verify-${source_tree:0:8}-$(date -u +%Y%m%d%H%M%S)" \
     --SecurityGroupId "$security_group" --VSwitchId "$vswitch_csv" --ScheduleStrategy VSwitchRandom \
     --RestartPolicy Never --Cpu 8 --Memory 16 --EphemeralStorage 100 \
@@ -526,9 +529,6 @@ verify_image_cache() {
     --Container.1.EnvironmentVar.2.Key SOURCE_SHA256 --Container.1.EnvironmentVar.2.Value "$source_sha256" \
     --Container.1.EnvironmentVar.3.Key SOURCE_TREE --Container.1.EnvironmentVar.3.Value "$source_tree" \
     --Container.1.EnvironmentVar.4.Key EXPECTED_REMOTE_CI_BINARY_SHA256 --Container.1.EnvironmentVar.4.Value "$remote_ci_binary_sha256" \
-    --Container.1.EnvironmentVar.5.Key EXPECTED_REMOTE_CI_TOOLCHAIN_DIGEST --Container.1.EnvironmentVar.5.Value "$remote_ci_toolchain_digest" \
-    --Container.1.EnvironmentVar.6.Key EXPECTED_PROTOCOL_ABI_DIGEST --Container.1.EnvironmentVar.6.Value "$protocol_abi_digest" \
-    --Container.1.EnvironmentVar.7.Key EXPECTED_WORKLOAD_MANIFEST_ABI_DIGEST --Container.1.EnvironmentVar.7.Value "$workload_manifest_abi_digest" \
     --ImageSnapshotId "$image_cache_snapshot")
   verify_group_id=$(printf '%s' "$result" | jq -er '.ContainerGroupId')
   deadline=$((SECONDS + timeout_seconds))
@@ -538,10 +538,15 @@ verify_image_cache() {
     if [[ "$log" == *ErrImageNeverPull* || "$log" == *ImagePullBackOff* || "$log" == *InvalidImageName* ]]; then
       die "ImageCache verification cannot start from the cached image: $(printf '%s' "$log" | tail -5)"
     fi
-    verify_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-verify-ready tree=([^ ]+) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}) remote_ci_binary_sha256=([0-9a-f]{64}) remote_ci_toolchain_digest=(sha256:[0-9a-f]{64}) protocol_abi_digest=(sha256:[0-9a-f]{64}) workload_manifest_abi_digest=(sha256:[0-9a-f]{64}).*/\1 \2 \3 \4 \5 \6 \7/p' | tail -1)
+    verify_ready=$(printf '%s\n' "$log" | sed -nE 's/.*refresh-verify-ready tree=([^ ]+) compile_seconds=([0-9]+) gate_sha256=([0-9a-f]{64}) remote_ci_binary_sha256=([0-9a-f]{64}) artifact_identity=([^ ]+).*/\1 \2 \3 \4 \5/p' | tail -1)
     if [[ -n "$verify_ready" ]]; then
-      read -r verify_tree verify_compile_seconds verify_gate_sha256 verify_remote_ci_binary_sha256 verify_remote_ci_toolchain_digest verify_protocol_abi_digest verify_workload_manifest_abi_digest <<<"$verify_ready"
-      [[ "$verify_tree" == "$source_tree" && "$verify_gate_sha256" == "$gate_sha256" && "$verify_remote_ci_binary_sha256" == "$remote_ci_binary_sha256" && "$verify_remote_ci_toolchain_digest" == "$remote_ci_toolchain_digest" && "$verify_protocol_abi_digest" == "$protocol_abi_digest" && "$verify_workload_manifest_abi_digest" == "$workload_manifest_abi_digest" ]] || die 'verification identity drifted'
+      read -r verify_tree verify_compile_seconds verify_gate_sha256 verify_remote_ci_binary_sha256 raw_verify_identity <<<"$verify_ready"
+      verify_identity=$(parse_artifact_identity "$raw_verify_identity") || die 'verification returned an invalid artifact identity'
+      verify_builder_sha=$(printf '%s' "$verify_identity" | jq -er '.builder_sha256')
+      verify_toolchain=$(printf '%s' "$verify_identity" | jq -er '.toolchain_digest')
+      verify_protocol=$(printf '%s' "$verify_identity" | jq -er '.protocol_abi_digest')
+      verify_workload=$(printf '%s' "$verify_identity" | jq -er '.workload_manifest_abi_digest')
+      [[ "$verify_tree" == "$source_tree" && "$verify_gate_sha256" == "$gate_sha256" && "$verify_remote_ci_binary_sha256" == "$remote_ci_binary_sha256" && "$verify_builder_sha" == "sha256:${remote_ci_binary_sha256}" && "$verify_toolchain" == "$remote_ci_toolchain_digest" && "$verify_protocol" == "$protocol_abi_digest" && "$verify_workload" == "$workload_manifest_abi_digest" ]] || die 'verification identity drifted'
       return 0
     fi
     [[ "$status" != Failed && "$status" != Succeeded ]] || die "verification terminated without receipt: ${status}: $(printf '%s' "$log" | tail -20)"
