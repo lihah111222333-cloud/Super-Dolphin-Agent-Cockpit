@@ -60,7 +60,20 @@ func portableRunInputFixture(t *testing.T) (PortableRunInput, *portableRunGitRes
 	targetRoot := filepath.Join(t.TempDir(), "target")
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	ledgerPath := filepath.Join(t.TempDir(), "ledger.sqlite")
-	manifest := []byte(`{"schema_version":"portable-workload-manifest/v1","repository_id":"repo-1"}`)
+	manifest, err := RepositoryWorkloadManifest{
+		SchemaVersion:         PortableWorkloadManifestSchemaVersion,
+		RepositoryID:          "repo-1",
+		Modules:               []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/repo-1"}},
+		ExcludedNestedModules: []string{},
+		Workloads: []RepositoryWorkload{{
+			ID: "go-test/example", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".",
+			Package: "./example", Name: "TestExample", Platform: RepositoryWorkloadPlatformLinuxAMD64,
+			ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal,
+		}},
+	}.CanonicalEncode()
+	if err != nil {
+		t.Fatal(err)
+	}
 	engineCommit := "1111111111111111111111111111111111111111"
 	engineTree := "2222222222222222222222222222222222222222"
 	targetCommit := "3333333333333333333333333333333333333333"

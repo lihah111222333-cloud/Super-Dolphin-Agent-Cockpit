@@ -106,7 +106,7 @@ func portableCLIRealDescriptor(t *testing.T) string {
 	runGitFixture(t, repository, "config", "user.name", "Portable Test")
 	manifestPath := filepath.Join(repository, "ci", "workloads.json")
 	mustMkdirAll(t, filepath.Dir(manifestPath))
-	manifest := []byte(`{"schema_version":"portable-workload-manifest/v1","repository_id":"fixture"}`)
+	manifest := portableCLIManifest(t)
 	mustWriteTestFile(t, manifestPath, manifest)
 	runGitFixture(t, repository, "add", "ci/workloads.json")
 	runGitFixture(t, repository, "commit", "-m", "测试 portable manifest")
@@ -128,6 +128,27 @@ func portableCLIRealDescriptor(t *testing.T) string {
 	descriptorPath := filepath.Join(t.TempDir(), "descriptor.json")
 	mustWriteTestFile(t, descriptorPath, raw)
 	return descriptorPath
+}
+
+// portableCLIManifest 生成 target tree 所拥有的 strict workload manifest。
+func portableCLIManifest(t *testing.T) []byte {
+	t.Helper()
+	manifest := remoteci.RepositoryWorkloadManifest{
+		SchemaVersion:         remoteci.PortableWorkloadManifestSchemaVersion,
+		RepositoryID:          "fixture",
+		Modules:               []remoteci.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}},
+		ExcludedNestedModules: []string{},
+		Workloads: []remoteci.RepositoryWorkload{{
+			ID: "go-test/example", Kind: remoteci.RepositoryWorkloadKindGoTest, ModuleRoot: ".",
+			Package: "./example", Name: "TestExample", Platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64,
+			ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
+		}},
+	}
+	encoded, err := manifest.CanonicalEncode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 // assertPortableProgressStages 验证 validate 的 bounded stage 日志完整可观察。

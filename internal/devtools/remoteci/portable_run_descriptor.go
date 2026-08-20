@@ -333,6 +333,13 @@ func validatePortableWorkloadManifest(ctx context.Context, resolver GitObjectRes
 	if len(blob.Data) == 0 || bytesDigest(blob.Data) != input.WorkloadManifest.SHA256 {
 		return errors.New("workload manifest blob digest does not match the bound target tree")
 	}
+	manifest, err := DecodeRepositoryWorkloadManifest(blob.Data)
+	if err != nil {
+		return fmt.Errorf("decode workload manifest from target tree: %w", err)
+	}
+	if manifest.SchemaVersion != input.WorkloadManifest.SchemaVersion || manifest.RepositoryID != input.Target.RepositoryID {
+		return errors.New("workload manifest identity does not match the portable run target")
+	}
 	return nil
 }
 
