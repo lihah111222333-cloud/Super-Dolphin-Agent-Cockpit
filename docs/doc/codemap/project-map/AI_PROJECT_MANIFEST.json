@@ -4,17 +4,17 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:1a021e77c1c771348b38a8d8a5e397d4f8413f9d9c6698621b18655fe6601452",
-    "entries_sha256": "sha256:ec7bd517a3c12279971db7089faa31f42bd5986eaf4e966bc76cedae652bdd68"
+    "source_sha256": "sha256:6755323987b3e69f59c38b1165cc864c112a338730e9e505285ef9864eff9d56",
+    "entries_sha256": "sha256:eb8ee571b58c6ce89df8bca4badf9b97b5419f6c54c09bb2fcd5f40774bebb6a"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5408,
+  "files": 5414,
   "domains": {
     "other": 1413,
-    "remote-ci": 295,
+    "remote-ci": 301,
     "docs-agent": 99,
     "app-ui": 754,
     "platform-provider": 1442,
@@ -64,8 +64,8 @@
       {
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
-        "file_count": 295,
-        "size_kb": 80.8,
+        "file_count": 301,
+        "size_kb": 82.3,
         "desc": "远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker"
       },
       {
@@ -91,7 +91,7 @@
     "config": 3,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 3200,
+    "internal": 3206,
     "pkg": 30,
     "scripts": 229,
     "sql": 29,
