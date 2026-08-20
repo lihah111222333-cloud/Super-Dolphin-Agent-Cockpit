@@ -4,7 +4,17 @@ param(
     [Parameter(Mandatory = $true)][string]$RepoPath,
     [Parameter(Mandatory = $true)][string]$Command,
     [string]$InstallPath = 'C:\ProgramData\SuperDolphin\heteroci',
-    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][ValidatePattern('^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$')][string]$RunnerId
+    [Parameter(Mandatory = $true)][Alias('NodeId')][ValidateNotNullOrEmpty()][ValidatePattern('^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$')][string]$RunnerId,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$RepositoryId,
+    [Parameter(Mandatory = $true)][string]$ObjectStoreRoot,
+    [Parameter(Mandatory = $true)][string]$WorktreeRoot,
+    [Parameter(Mandatory = $true)][string]$CacheRoot,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ToolchainIdentity,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$GOOS,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$GOARCH,
+    [Parameter(Mandatory = $true)][ValidateSet('0', '1')][string]$CGOEnabled,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ModuleIdentity,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$WorkloadIdentity
 )
 
 Set-StrictMode -Version Latest
@@ -13,6 +23,37 @@ $ErrorActionPreference = 'Stop'
 function Stop-Fast {
     param([Parameter(Mandatory = $true)][string]$Message)
     throw "deploy_windows_host: $Message"
+}
+
+function Assert-DeploymentIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value) -or $Value.Length -gt 512) {
+        Stop-Fast "$Label must be explicit and bounded"
+    }
+    foreach ($character in $Value.ToCharArray()) {
+        if ([char]::IsControl($character)) { Stop-Fast "$Label contains a control character" }
+    }
+}
+
+function Assert-DeploymentNodeLocalPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($Path.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+        Stop-Fast "$Label must not use a UNC or network-share path"
+    }
+    $root = [System.IO.Path]::GetPathRoot($Path)
+    if ($root -notmatch '^[A-Za-z]:\\$') { Stop-Fast "$Label must belong to one explicit local drive" }
+    $drive = [System.IO.DriveInfo]::new($root)
+    if (-not $drive.IsReady -or $drive.DriveType -ne [System.IO.DriveType]::Fixed) {
+        Stop-Fast "$Label must belong to a ready fixed local drive"
+    }
 }
 
 function Assert-NoReparsePoints {
@@ -238,16 +279,40 @@ if (-not $Yes) { Stop-Fast 'deployment is non-interactive; pass -Yes' }
 if ($env:OS -ne 'Windows_NT') { Stop-Fast 'this installer only runs on Windows' }
 if ($RunnerId -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$') { Stop-Fast '-RunnerId contains unsupported characters' }
 if ([string]::IsNullOrWhiteSpace($Command)) { Stop-Fast '-Command must not be empty' }
+[void](Assert-DeploymentIdentity -Value $RepositoryId -Label 'RepositoryId')
+[void](Assert-DeploymentIdentity -Value $ToolchainIdentity -Label 'ToolchainIdentity')
+[void](Assert-DeploymentIdentity -Value $GOOS -Label 'GOOS')
+[void](Assert-DeploymentIdentity -Value $GOARCH -Label 'GOARCH')
+[void](Assert-DeploymentIdentity -Value $ModuleIdentity -Label 'ModuleIdentity')
+[void](Assert-DeploymentIdentity -Value $WorkloadIdentity -Label 'WorkloadIdentity')
 
 $RepoPath = Get-CanonicalAbsolutePath -Path $RepoPath -Label 'RepoPath'
 if (-not (Test-Path -LiteralPath $RepoPath -PathType Container)) { Stop-Fast 'RepoPath must name a directory' }
 $InstallPath = Get-CanonicalAbsolutePath -Path $InstallPath -Label 'InstallPath' -AllowMissing
+$ObjectStoreRoot = Get-CanonicalAbsolutePath -Path $ObjectStoreRoot -Label 'ObjectStoreRoot'
+$WorktreeRoot = Get-CanonicalAbsolutePath -Path $WorktreeRoot -Label 'WorktreeRoot'
+$CacheRoot = Get-CanonicalAbsolutePath -Path $CacheRoot -Label 'CacheRoot' -AllowMissing
+[void](Assert-DeploymentNodeLocalPath -Path $ObjectStoreRoot -Label 'ObjectStoreRoot')
+[void](Assert-DeploymentNodeLocalPath -Path $WorktreeRoot -Label 'WorktreeRoot')
+[void](Assert-DeploymentNodeLocalPath -Path $CacheRoot -Label 'CacheRoot')
+if (-not (Test-Path -LiteralPath $ObjectStoreRoot -PathType Container)) { Stop-Fast 'ObjectStoreRoot must name the existing Git common directory' }
+if (-not (Test-Path -LiteralPath $WorktreeRoot -PathType Container)) { Stop-Fast 'WorktreeRoot must name the existing Git worktree root' }
 
 $git = Get-Command git.exe -ErrorAction SilentlyContinue
 if ($null -eq $git) { Stop-Fast 'git.exe is required' }
 $gitRootRaw = (& $git.Source -C $RepoPath rev-parse --show-toplevel 2>$null | Out-String).Trim()
 if (($LASTEXITCODE -ne 0) -or [string]::IsNullOrWhiteSpace($gitRootRaw)) { Stop-Fast 'RepoPath is not a Git worktree' }
 $gitRootCanonical = Get-CanonicalAbsolutePath -Path $gitRootRaw -Label 'Git worktree root'
+if ($WorktreeRoot.TrimEnd('\', '/') -ine $gitRootCanonical.TrimEnd('\', '/')) {
+    Stop-Fast 'WorktreeRoot must equal the uniquely verified Git worktree root'
+}
+$gitCommonRaw = (& $git.Source -C $RepoPath rev-parse --git-common-dir 2>$null | Out-String).Trim()
+if (($LASTEXITCODE -ne 0) -or [string]::IsNullOrWhiteSpace($gitCommonRaw)) { Stop-Fast 'Git common directory is unavailable' }
+if (-not [System.IO.Path]::IsPathRooted($gitCommonRaw)) { $gitCommonRaw = Join-Path $RepoPath $gitCommonRaw }
+$gitCommonCanonical = Get-CanonicalAbsolutePath -Path $gitCommonRaw -Label 'Git common directory'
+if ($ObjectStoreRoot.TrimEnd('\', '/') -ine $gitCommonCanonical.TrimEnd('\', '/')) {
+    Stop-Fast 'ObjectStoreRoot must equal the uniquely verified Git common directory'
+}
 
 $computer = Get-CimInstance -ClassName Win32_ComputerSystem -Property NumberOfLogicalProcessors,TotalPhysicalMemory -ErrorAction Stop
 $totalLogicalProcessors = [uint64]$computer.NumberOfLogicalProcessors
@@ -317,7 +382,17 @@ if (Test-Path -LiteralPath $runnerPath -PathType Any) {
 $commandBase64 = ConvertTo-VerifiedBase64Token -Value $Command -Label 'Command'
 $runnerInvocation = '& ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $runnerPath) +
     ' -RepoPath ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $RepoPath) +
-    ' -RunnerId ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $RunnerId) +
+    ' -NodeId ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $RunnerId) +
+    ' -RepositoryId ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $RepositoryId) +
+    ' -ObjectStoreRoot ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $ObjectStoreRoot) +
+    ' -WorktreeRoot ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $WorktreeRoot) +
+    ' -CacheRoot ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $CacheRoot) +
+    ' -ToolchainIdentity ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $ToolchainIdentity) +
+    ' -GOOS ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $GOOS) +
+    ' -GOARCH ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $GOARCH) +
+    ' -CGOEnabled ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $CGOEnabled) +
+    ' -ModuleIdentity ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $ModuleIdentity) +
+    ' -WorkloadIdentity ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $WorkloadIdentity) +
     ' -CommandBase64 ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $commandBase64)
 $actionToken = ConvertTo-VerifiedBase64Token -Value $runnerInvocation -Label 'ScheduledTask action'
 $actionArguments = "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $actionToken"
@@ -476,7 +551,13 @@ if ($cleanupExceptions.Count -gt 0) {
     authority = 'LOCAL_NON_AUTHORITATIVE'
     status = 'NOT_VERIFIED'
     runner_id = $RunnerId
+    node_id = $RunnerId
+    cache_scope = 'windows_node_local'
+    repository_id = $RepositoryId
     repository = $RepoPath
+    object_store_root = $ObjectStoreRoot
+    worktree_root = $WorktreeRoot
+    cache_root = $CacheRoot
     install_path = $InstallPath
     total_logical_processors = $totalLogicalProcessors
     total_physical_memory_bytes = $totalPhysicalMemoryBytes

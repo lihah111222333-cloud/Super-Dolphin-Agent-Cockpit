@@ -3,7 +3,18 @@ param(
     [Parameter(Mandatory = $true)][string]$RepoPath,
     [string]$Command,
     [string]$CommandBase64,
-    [string]$RunnerId = 'windows-host',
+    [Parameter(Mandatory = $true)][Alias('RunnerId')][string]$NodeId,
+    [string]$RepositoryId,
+    [string]$RepositoryRoot,
+    [Parameter(Mandatory = $true)][string]$ObjectStoreRoot,
+    [Parameter(Mandatory = $true)][string]$WorktreeRoot,
+    [Parameter(Mandatory = $true)][string]$CacheRoot,
+    [Parameter(Mandatory = $true)][string]$ToolchainIdentity,
+    [Parameter(Mandatory = $true)][string]$GOOS,
+    [Parameter(Mandatory = $true)][string]$GOARCH,
+    [Parameter(Mandatory = $true)][ValidateSet('0', '1')][string]$CGOEnabled,
+    [Parameter(Mandatory = $true)][string]$ModuleIdentity,
+    [Parameter(Mandatory = $true)][string]$WorkloadIdentity,
     [int]$TimeoutSeconds = 120
 )
 
@@ -11,8 +22,215 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Stop-Fast([string]$Message) { throw "windows_runner: $Message" }
+
+function Assert-IdentityField {
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) { Stop-Fast "$Label must be explicit and non-empty" }
+    if ($Value.Length -gt 512) { Stop-Fast "$Label is too long" }
+    foreach ($character in $Value.ToCharArray()) {
+        if ([char]::IsControl($character)) { Stop-Fast "$Label contains a control character" }
+    }
+    return $Value
+}
+
+function ConvertTo-Sha256Identity {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($Value)
+        $digest = $sha256.ComputeHash($bytes)
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    return 'sha256:' + ([BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant())
+}
+
+function Assert-NoReparsePoints {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$AllowMissing
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($fullPath)
+    if ([string]::IsNullOrWhiteSpace($root)) { Stop-Fast 'path has no filesystem root' }
+    $rootItem = Get-Item -LiteralPath $root -ErrorAction Stop
+    if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Stop-Fast "path contains a reparse point: $Path"
+    }
+
+    $current = $root
+    $relative = $fullPath.Substring($root.Length)
+    foreach ($segment in ($relative -split '[\\/]+')) {
+        if ([string]::IsNullOrEmpty($segment)) { continue }
+        $current = [System.IO.Path]::Combine($current, $segment)
+        $item = Get-Item -LiteralPath $current -ErrorAction SilentlyContinue
+        if ($null -eq $item) {
+            if ($AllowMissing) { return }
+            Stop-Fast "path does not exist: $Path"
+        }
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Stop-Fast "path contains a reparse point: $Path"
+        }
+    }
+}
+
+function Resolve-ExplicitDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [switch]$Create
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { Stop-Fast "$Label must be explicit" }
+    foreach ($character in $Path.ToCharArray()) {
+        if ([char]::IsControl($character)) { Stop-Fast "$Label contains a control character" }
+    }
+    if (-not [System.IO.Path]::IsPathRooted($Path)) { Stop-Fast "$Label must be absolute" }
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+    }
+    catch {
+        Stop-Fast "$Label must be a valid absolute path"
+    }
+    $root = [System.IO.Path]::GetPathRoot($fullPath)
+    if ([string]::IsNullOrWhiteSpace($root) -or $fullPath.TrimEnd('\', '/') -ieq $root.TrimEnd('\', '/')) {
+        Stop-Fast "$Label must not be a filesystem root"
+    }
+
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Container)) {
+        if (-not $Create) { Stop-Fast "$Label directory does not exist" }
+        Assert-NoReparsePoints -Path $fullPath -AllowMissing
+        New-Item -ItemType Directory -Path $fullPath -Force -ErrorAction Stop | Out-Null
+    }
+    $item = Get-Item -LiteralPath $fullPath -ErrorAction Stop
+    if ($item.PSProvider.Name -ne 'FileSystem' -or -not ($item -is [System.IO.DirectoryInfo])) {
+        Stop-Fast "$Label must be a filesystem directory"
+    }
+    Assert-NoReparsePoints -Path $fullPath
+    return [System.IO.Path]::GetFullPath([string]$item.FullName)
+}
+
+function Assert-NodeLocalFixedPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($Path.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+        Stop-Fast "$Label must not use a UNC or network-share path"
+    }
+    $root = [System.IO.Path]::GetPathRoot($Path)
+    if ($root -notmatch '^[A-Za-z]:\\$') { Stop-Fast "$Label must belong to one explicit local drive" }
+    $drive = [System.IO.DriveInfo]::new($root)
+    if (-not $drive.IsReady -or $drive.DriveType -ne [System.IO.DriveType]::Fixed) {
+        Stop-Fast "$Label must belong to a ready fixed local drive"
+    }
+}
+
+function Get-NodeScopedCacheRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$BaseRoot,
+        [Parameter(Mandatory = $true)][string]$NodeIdentity,
+        [Parameter(Mandatory = $true)][string]$RepositoryIdentity
+    )
+
+    $scopeRoot = Join-Path $BaseRoot 'windows-node-local-v1'
+    $nodeRoot = Join-Path $scopeRoot ('node-' + (ConvertTo-Sha256Identity -Value $NodeIdentity).Substring(7))
+    $repositoryRoot = Join-Path $nodeRoot ('repository-' + (ConvertTo-Sha256Identity -Value $RepositoryIdentity).Substring(7))
+    return Resolve-ExplicitDirectory -Path $repositoryRoot -Label 'node-local cache root' -Create
+}
+
+function Assert-RootsDisjoint {
+    param([Parameter(Mandatory = $true)][string[]]$Roots)
+
+    for ($index = 0; $index -lt $Roots.Count; $index++) {
+        for ($other = $index + 1; $other -lt $Roots.Count; $other++) {
+            $left = $Roots[$index].TrimEnd('\', '/') + '\'
+            $right = $Roots[$other].TrimEnd('\', '/') + '\'
+            if ($left.StartsWith($right, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $right.StartsWith($left, [System.StringComparison]::OrdinalIgnoreCase)) {
+                Stop-Fast 'repository object-store, worktree, and cache roots must be disjoint'
+            }
+        }
+    }
+}
+
+function Get-GitValue {
+    param(
+        [Parameter(Mandatory = $true)][string]$GitExecutable,
+        [Parameter(Mandatory = $true)][string]$Worktree,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $output = (& $GitExecutable -C $Worktree @Arguments 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($output) -or $output.Contains("`n") -or $output.Contains("`r")) {
+        Stop-Fast "$Label could not be uniquely verified from the explicit Git root"
+    }
+    return $output
+}
+
+function Get-CacheManifest {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Expected
+    )
+
+    $manifestExists = Test-Path -LiteralPath $ManifestPath -PathType Any -ErrorAction SilentlyContinue
+    if ($manifestExists -and -not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+        Stop-Fast 'cache manifest path is not a regular file'
+    }
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { return $false }
+    Assert-NoReparsePoints -Path $ManifestPath
+    try {
+        $manifest = [string]::new([System.IO.File]::ReadAllText($ManifestPath)) | ConvertFrom-Json
+    }
+    catch {
+        Stop-Fast 'cache manifest is not valid JSON'
+    }
+    $expectedNames = @($Expected.Keys | Sort-Object)
+    $actualNames = @($manifest.PSObject.Properties.Name | Sort-Object)
+    if (($actualNames -join "`n") -cne ($expectedNames -join "`n")) {
+        Stop-Fast 'cache manifest fields are not exact'
+    }
+    foreach ($name in $expectedNames) {
+        if ([string]$manifest.$name -cne [string]$Expected[$name]) {
+            Stop-Fast "cache manifest identity drift detected for $name"
+        }
+    }
+    return $true
+}
+
+function Write-CacheManifest {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Manifest
+    )
+
+    $json = $Manifest | ConvertTo-Json -Compress -Depth 3
+    $temporary = "$ManifestPath.$PID.tmp"
+    try {
+        [System.IO.File]::WriteAllText($temporary, $json, [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporary -Destination $ManifestPath -Force -ErrorAction Stop
+    }
+    catch {
+        if (Test-Path -LiteralPath $temporary -PathType Any) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+        Stop-Fast 'cache manifest atomic write failed'
+    }
+}
+
 function Get-NodeExecutorMutexName {
-    $mutexName = 'Global\SuperDolphin-Heteroci-NodeExecutor-v1'
+    param([Parameter(Mandatory = $true)][string]$NodeIdentity)
+
+    $nodeDigest = (ConvertTo-Sha256Identity -Value $NodeIdentity).Substring(7)
+    $mutexName = 'Global\SuperDolphin-Heteroci-NodeExecutor-v2-' + $nodeDigest
     if ($mutexName.Length -gt 260) { Stop-Fast 'node executor mutex name exceeds the Windows limit' }
     return $mutexName
 }
@@ -32,6 +250,97 @@ if (-not [string]::IsNullOrWhiteSpace($CommandBase64)) {
     }
 }
 if ([string]::IsNullOrWhiteSpace($Command)) { Stop-Fast 'decoded command must not be empty or whitespace' }
+
+[void](Assert-IdentityField -Value $NodeId -Label 'NodeId')
+[void](Assert-IdentityField -Value $ToolchainIdentity -Label 'ToolchainIdentity')
+[void](Assert-IdentityField -Value $GOOS -Label 'GOOS')
+[void](Assert-IdentityField -Value $GOARCH -Label 'GOARCH')
+[void](Assert-IdentityField -Value $ModuleIdentity -Label 'ModuleIdentity')
+[void](Assert-IdentityField -Value $WorkloadIdentity -Label 'WorkloadIdentity')
+
+$RepoPath = Resolve-ExplicitDirectory -Path $RepoPath -Label 'RepoPath'
+$git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue
+if ($null -eq $git) { $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue }
+if ($null -eq $git) { Stop-Fast 'git executable is required to verify the explicit repository root' }
+$gitExecutable = [string]$git.Source
+$gitRootRaw = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', '--show-toplevel') -Label 'Git worktree root'
+$gitRootCanonical = Resolve-ExplicitDirectory -Path $gitRootRaw -Label 'Git worktree root'
+if (-not [string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    $RepositoryRoot = Resolve-ExplicitDirectory -Path $RepositoryRoot -Label 'RepositoryRoot'
+    if ($RepositoryRoot.TrimEnd('\', '/') -ine $gitRootCanonical.TrimEnd('\', '/')) {
+        Stop-Fast 'RepositoryRoot does not match the uniquely verified Git worktree root'
+    }
+}
+else {
+    $RepositoryRoot = $gitRootCanonical
+}
+$gitCommonRaw = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', '--git-common-dir') -Label 'Git common directory'
+if (-not [System.IO.Path]::IsPathRooted($gitCommonRaw)) {
+    $gitCommonRaw = Join-Path $RepoPath $gitCommonRaw
+}
+$gitCommonRoot = Resolve-ExplicitDirectory -Path $gitCommonRaw -Label 'Git common directory'
+$objectFormat = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', '--show-object-format') -Label 'Git object format'
+if ([string]::IsNullOrWhiteSpace($RepositoryId)) {
+    $RepositoryId = 'git-common-dir/' + (ConvertTo-Sha256Identity -Value ($objectFormat + '|' + $gitCommonRoot)).Substring(7)
+}
+[void](Assert-IdentityField -Value $RepositoryId -Label 'RepositoryId')
+
+$ObjectStoreRoot = Resolve-ExplicitDirectory -Path $ObjectStoreRoot -Label 'ObjectStoreRoot'
+$WorktreeRoot = Resolve-ExplicitDirectory -Path $WorktreeRoot -Label 'WorktreeRoot'
+$CacheRoot = Resolve-ExplicitDirectory -Path $CacheRoot -Label 'CacheRoot' -Create
+[void](Assert-NodeLocalFixedPath -Path $ObjectStoreRoot -Label 'ObjectStoreRoot')
+[void](Assert-NodeLocalFixedPath -Path $WorktreeRoot -Label 'WorktreeRoot')
+[void](Assert-NodeLocalFixedPath -Path $CacheRoot -Label 'CacheRoot')
+$nodeObjectStoreRoot = $ObjectStoreRoot
+$nodeWorktreeRoot = $WorktreeRoot
+if ($nodeWorktreeRoot.TrimEnd('\', '/') -ine $gitRootCanonical.TrimEnd('\', '/')) {
+    Stop-Fast 'WorktreeRoot must equal the uniquely verified Git worktree root'
+}
+if ($nodeObjectStoreRoot.TrimEnd('\', '/') -ine $gitCommonRoot.TrimEnd('\', '/')) {
+    Stop-Fast 'ObjectStoreRoot must equal the uniquely verified Git common directory'
+}
+$nodeCacheRoot = Get-NodeScopedCacheRoot -BaseRoot $CacheRoot -NodeIdentity $NodeId -RepositoryIdentity $RepositoryId
+Assert-RootsDisjoint -Roots @($nodeObjectStoreRoot, $nodeCacheRoot)
+Assert-RootsDisjoint -Roots @($nodeWorktreeRoot, $nodeCacheRoot)
+
+$cacheIdentityMaterial = [ordered]@{
+    schema_version = 'windows-node-local-cache/v1'
+    cache_scope = 'windows_node_local'
+    node_id = $NodeId
+    repository_id = $RepositoryId
+    object_format = $objectFormat
+    toolchain_identity = $ToolchainIdentity
+    goos = $GOOS
+    goarch = $GOARCH
+    cgo_enabled = $CGOEnabled
+    module_identity = $ModuleIdentity
+}
+$cacheIdentityJson = [string]($cacheIdentityMaterial | ConvertTo-Json -Compress -Depth 3)
+$cacheIdentity = ConvertTo-Sha256Identity -Value $cacheIdentityJson
+$cacheIdentityRoot = Resolve-ExplicitDirectory -Path (Join-Path $nodeCacheRoot ('identity-' + $cacheIdentity.Substring(7))) -Label 'cache identity root' -Create
+$goModCacheRoot = Resolve-ExplicitDirectory -Path (Join-Path $cacheIdentityRoot 'gomodcache') -Label 'GOMODCACHE root' -Create
+$goCacheRoot = Resolve-ExplicitDirectory -Path (Join-Path $cacheIdentityRoot 'gocache') -Label 'GOCACHE root' -Create
+$goTmpRoot = Resolve-ExplicitDirectory -Path (Join-Path $cacheIdentityRoot 'gotmp') -Label 'GOTMPDIR root' -Create
+$cacheManifestPath = Join-Path $cacheIdentityRoot 'cache-manifest.json'
+$cacheManifest = [ordered]@{
+    schema_version = 'windows-node-local-cache/v1'
+    cache_scope = 'windows_node_local'
+    node_id = $NodeId
+    repository_id = $RepositoryId
+    identity = $cacheIdentity
+    toolchain_identity = $ToolchainIdentity
+    goos = $GOOS
+    goarch = $GOARCH
+    cgo_enabled = $CGOEnabled
+    module_identity = $ModuleIdentity
+}
+$cacheReady = Get-CacheManifest -ManifestPath $cacheManifestPath -Expected $cacheManifest
+if ($cacheReady -and (-not (Test-Path -LiteralPath $goModCacheRoot -PathType Container) -or
+        -not (Test-Path -LiteralPath $goCacheRoot -PathType Container) -or
+        -not (Test-Path -LiteralPath $goTmpRoot -PathType Container))) {
+    Stop-Fast 'cache manifest is ready but one or more cache directories are missing'
+}
+$cacheSeedState = if ($cacheReady) { 'ready' } else { 'cold' }
 
 function ConvertTo-StrictPositiveUInt64 {
     param(
@@ -77,6 +386,21 @@ $env:NOT_VERIFIED = '1'
 $env:SUPER_DOLPHIN_AUTHORITY = 'LOCAL_NON_AUTHORITATIVE'
 $env:SUPER_DOLPHIN_RESULT_STATUS = 'NOT_VERIFIED'
 $env:SUPER_DOLPHIN_RUNTIME = 'windows_native'
+$env:SUPER_DOLPHIN_CACHE_SCOPE = 'windows_node_local'
+$env:SUPER_DOLPHIN_NODE_ID = $NodeId
+$env:SUPER_DOLPHIN_REPOSITORY_ID = $RepositoryId
+$env:SUPER_DOLPHIN_CACHE_IDENTITY = $cacheIdentity
+$env:SUPER_DOLPHIN_CACHE_SEED_STATE = $cacheSeedState
+$env:SUPER_DOLPHIN_WORKLOAD_IDENTITY = $WorkloadIdentity
+$env:SUPER_DOLPHIN_OBJECT_STORE_ROOT = $nodeObjectStoreRoot
+$env:SUPER_DOLPHIN_WORKTREE_ROOT = $nodeWorktreeRoot
+$env:SUPER_DOLPHIN_CACHE_ROOT = $nodeCacheRoot
+$env:GOMODCACHE = $goModCacheRoot
+$env:GOCACHE = $goCacheRoot
+$env:GOTMPDIR = $goTmpRoot
+$env:GOOS = $GOOS
+$env:GOARCH = $GOARCH
+$env:CGO_ENABLED = $CGOEnabled
 
 Add-Type -TypeDefinition @'
 using System;
@@ -327,6 +651,10 @@ public static class SuperDolphinWindows {
     return WaitForHandle(process, milliseconds, "process");
   }
 
+  public static bool WaitForJobEmpty(IntPtr job, uint milliseconds) {
+    return WaitForHandle(job, milliseconds, "Job Object");
+  }
+
   static bool WaitForHandle(IntPtr handle, uint milliseconds, string description) {
     if (handle == IntPtr.Zero) {
       throw new ArgumentException(description + " handle is required");
@@ -530,7 +858,7 @@ $cleanupDone = $false
 $processExitCode = $null
 $primaryError = $null
 $cleanupError = $null
-$mutexName = Get-NodeExecutorMutexName
+$mutexName = Get-NodeExecutorMutexName -NodeIdentity $NodeId
 $mutex = $null
 $mutexHeld = $false
 $mutexWasAbandoned = $false
@@ -570,6 +898,10 @@ try {
     }
     $processExited = $true
     $processExitCode = [SuperDolphinWindows]::GetExitCode($launch.ProcessHandle)
+    if (-not [SuperDolphinWindows]::WaitForJobEmpty($job, 5000)) {
+        $processExited = $false
+        Stop-Fast 'root process exited while Job Object descendants remained active'
+    }
 }
 catch {
     $primaryError = $_.Exception
@@ -654,8 +986,20 @@ if ($null -ne $cleanupError) {
 if ($null -ne $mutexCleanupError) {
     throw $mutexCleanupError
 }
+[void](Write-CacheManifest -ManifestPath $cacheManifestPath -Manifest $cacheManifest)
 [pscustomobject]@{
-	runner_id = $RunnerId
+	runner_id = $NodeId
+	node_id = $NodeId
+	repository_id = $RepositoryId
+	cache_scope = 'windows_node_local'
+	cache_seed_state = $cacheSeedState
+	cache_identity = $cacheIdentity
+	cache = [pscustomobject]@{
+		seed_state = $cacheSeedState
+		identity = $cacheIdentity
+		gomodcache = $goModCacheRoot
+		gocache = $goCacheRoot
+	}
 	authority = 'LOCAL_NON_AUTHORITATIVE'
 	runtime = 'windows_native'
 	total_logical_processors = $totalLogicalProcessors
