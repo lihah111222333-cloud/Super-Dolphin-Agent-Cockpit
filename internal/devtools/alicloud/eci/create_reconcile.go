@@ -27,28 +27,66 @@ func (c *Client) reconcileCreatedContainerGroup(
 	tags map[string]string,
 	cause error,
 ) (ContainerGroup, error) {
+	group, present, err := c.reconcileArtifactBuilderRequest(ctx, name, tags)
+	if err != nil {
+		return ContainerGroup{}, errors.Join(cause, err)
+	}
+	if !present {
+		return ContainerGroup{}, errors.Join(cause, errors.New("reconcile ECI container group found no exact match"))
+	}
+	return group, nil
+}
+
+// reconcileArtifactBuilderRequest 按 name+exact tags 查询一次并区分 absent、唯一匹配和歧义。
+// 同名或同标签但不同时满足两者的资源属于 identity drift，绝不被当作 absent。
+func (c *Client) reconcileArtifactBuilderRequest(ctx context.Context, name string, tags map[string]string) (ContainerGroup, bool, error) {
 	args := []string{"--ContainerGroupName", name}
 	args = appendIndexedMap(args, "--Tag", tags)
 	output, err := c.run(ctx, "DescribeContainerGroups", args...)
 	if err != nil {
-		return ContainerGroup{}, errors.Join(cause, fmt.Errorf("reconcile ECI container group %s: %w", name, err))
+		return ContainerGroup{}, false, errors.New("reconcile ECI container group query failed")
 	}
 	var response struct {
 		ContainerGroups []ContainerGroup `json:"ContainerGroups"`
 	}
 	if err := decodeJSON(output, &response); err != nil {
-		return ContainerGroup{}, errors.Join(cause, fmt.Errorf("decode reconciled ECI container groups: %w", err))
+		return ContainerGroup{}, false, errors.New("reconcile ECI container group response is malformed")
 	}
-	matches := make([]ContainerGroup, 0, len(response.ContainerGroups))
-	for _, group := range response.ContainerGroups {
-		if group.Name == name && group.ID != "" && exactContainerGroupTags(group.Tags, tags) {
+	return selectArtifactBuilderRequestGroup(response.ContainerGroups, name, tags)
+}
+
+// selectArtifactBuilderRequestGroup 从 provider 结果中选择唯一 exact request identity。
+func selectArtifactBuilderRequestGroup(groups []ContainerGroup, name string, tags map[string]string) (ContainerGroup, bool, error) {
+	matches := make([]ContainerGroup, 0, len(groups))
+	identityDrift := false
+	for _, group := range groups {
+		exact, drift := classifyArtifactBuilderRequestGroup(group, name, tags)
+		if exact {
 			matches = append(matches, group)
+			continue
+		}
+		if drift {
+			identityDrift = true
 		}
 	}
-	if len(matches) != 1 {
-		return ContainerGroup{}, errors.Join(cause, fmt.Errorf("reconcile ECI container group %s: found %d matches", name, len(matches)))
+	if identityDrift {
+		return ContainerGroup{}, false, ErrArtifactBuilderIdentityDrift
 	}
-	return matches[0], nil
+	switch len(matches) {
+	case 0:
+		return ContainerGroup{}, false, nil
+	case 1:
+		return matches[0], true, nil
+	default:
+		return ContainerGroup{}, false, errors.New("reconcile ECI container group found multiple exact matches")
+	}
+}
+
+// classifyArtifactBuilderRequestGroup 区分 exact match、identity drift 与无关资源。
+func classifyArtifactBuilderRequestGroup(group ContainerGroup, name string, tags map[string]string) (exact, drift bool) {
+	sameName := group.Name == name
+	exactTags := exactContainerGroupTags(group.Tags, tags)
+	return sameName && exactTags && group.ID != "", sameName || exactTags
 }
 
 // exactContainerGroupTags 要求控制面返回的标签集合与创建请求逐项相等，

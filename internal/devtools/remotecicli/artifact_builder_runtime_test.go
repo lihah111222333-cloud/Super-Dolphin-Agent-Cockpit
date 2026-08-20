@@ -102,6 +102,47 @@ func TestArtifactBuilderRuntimeCancellationUsesIndependentCleanupContext(t *test
 	}
 }
 
+func TestArtifactBuilderRuntimeCreateErrorCleansLaterVisibleRequestIdentity(t *testing.T) {
+	fixture := newRuntimeFixture(t)
+	actor := &scriptedArtifactBuilderActor{
+		groups:    []eci.ArtifactBuilderGroup{fixture.pending},
+		createErr: errors.New("CreateContainerGroup response decode failed"),
+		requestMatches: []eci.ArtifactBuilderRequestMatch{
+			{},
+			{Present: true, GroupID: fixture.succeeded.ID, Group: fixture.succeeded},
+			{},
+			{},
+		},
+	}
+	store := &scriptedArtifactBuilderStore{receipt: fixture.receiptBytes, artifact: fixture.bundle, receiptKey: fixture.receiptKey, artifactKey: fixture.artifactKey}
+	runtime := mustRuntime(t, fixture, actor, store)
+	if _, err := runtime.Build(context.Background(), fixture.input); err == nil {
+		t.Fatal("Build() accepted uncertain Create failure")
+	}
+	if actor.requestReconcileCalls < 3 || actor.deleteCalls != 1 || actor.absentCalls != 1 {
+		t.Fatalf("request-identity cleanup = reconcile:%d delete:%d absent:%d", actor.requestReconcileCalls, actor.deleteCalls, actor.absentCalls)
+	}
+}
+
+func TestArtifactBuilderRuntimeRequestDriftStillDeletesExactMatchedGroup(t *testing.T) {
+	fixture := newRuntimeFixture(t)
+	actor := &scriptedArtifactBuilderActor{
+		createErr: errors.New("CreateContainerGroup response decode failed"),
+		requestMatches: []eci.ArtifactBuilderRequestMatch{
+			{Present: true, GroupID: fixture.succeeded.ID}, {}, {},
+		},
+		requestErrors: []error{eci.ErrArtifactBuilderIdentityDrift, nil, nil},
+	}
+	store := &scriptedArtifactBuilderStore{receipt: fixture.receiptBytes, artifact: fixture.bundle, receiptKey: fixture.receiptKey, artifactKey: fixture.artifactKey}
+	runtime := mustRuntime(t, fixture, actor, store)
+	if _, err := runtime.Build(context.Background(), fixture.input); err == nil {
+		t.Fatal("Build() accepted request identity drift")
+	}
+	if actor.deleteCalls != 1 || actor.absentCalls != 1 || actor.requestReconcileCalls < 3 {
+		t.Fatalf("drift cleanup = reconcile:%d delete:%d absent:%d", actor.requestReconcileCalls, actor.deleteCalls, actor.absentCalls)
+	}
+}
+
 func mustRuntime(t *testing.T, fixture runtimeFixture, actor *scriptedArtifactBuilderActor, store *scriptedArtifactBuilderStore) *ArtifactBuilderRuntime {
 	t.Helper()
 	runtime, err := NewArtifactBuilderRuntime(ArtifactBuilderRuntimeDependencies{
@@ -287,13 +328,35 @@ func runGitRuntimeBytes(t *testing.T, dir string, data []byte, args ...string) [
 type scriptedArtifactBuilderActor struct {
 	groups                                                          []eci.ArtifactBuilderGroup
 	logs                                                            string
+	createErr                                                       error
+	requestMatches                                                  []eci.ArtifactBuilderRequestMatch
+	requestErrors                                                   []error
 	absentPending                                                   int
 	createCalls, describeCalls, logsCalls, deleteCalls, absentCalls int
+	requestReconcileCalls                                           int
 }
 
 func (actor *scriptedArtifactBuilderActor) Create(context.Context, eci.ArtifactBuilderRequest) (eci.ArtifactBuilderGroup, error) {
 	actor.createCalls++
+	if actor.createErr != nil {
+		return eci.ArtifactBuilderGroup{}, actor.createErr
+	}
 	return actor.groups[0], nil
+}
+
+func (actor *scriptedArtifactBuilderActor) ReconcileRequest(context.Context, eci.ArtifactBuilderRequest) (eci.ArtifactBuilderRequestMatch, error) {
+	actor.requestReconcileCalls++
+	if len(actor.requestMatches) == 0 {
+		return eci.ArtifactBuilderRequestMatch{}, nil
+	}
+	match := actor.requestMatches[0]
+	actor.requestMatches = actor.requestMatches[1:]
+	var err error
+	if len(actor.requestErrors) != 0 {
+		err = actor.requestErrors[0]
+		actor.requestErrors = actor.requestErrors[1:]
+	}
+	return match, err
 }
 
 func (actor *scriptedArtifactBuilderActor) Describe(context.Context, string) (eci.ArtifactBuilderGroup, error) {

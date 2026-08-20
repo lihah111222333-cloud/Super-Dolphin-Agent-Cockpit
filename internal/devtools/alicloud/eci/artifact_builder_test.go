@@ -342,6 +342,10 @@ func (artifactBuilderActorStub) Create(context.Context, ArtifactBuilderRequest) 
 	return ArtifactBuilderGroup{}, nil
 }
 
+func (artifactBuilderActorStub) ReconcileRequest(context.Context, ArtifactBuilderRequest) (ArtifactBuilderRequestMatch, error) {
+	return ArtifactBuilderRequestMatch{}, nil
+}
+
 func (artifactBuilderActorStub) Describe(context.Context, string) (ArtifactBuilderGroup, error) {
 	return ArtifactBuilderGroup{}, nil
 }

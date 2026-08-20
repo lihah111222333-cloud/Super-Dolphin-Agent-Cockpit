@@ -126,7 +126,7 @@ func portableCLIRealDescriptor(t *testing.T) string {
 	reader := fileIdentityReader{}
 	ledgerIdentity := mustFileIdentity(t, reader, ledgerPath)
 	configDigest := mustFileDigest(t, reader, configPath)
-	input := portableCLIFixtureInput(repository, commit, tree, manifest, configPath, configDigest, ledgerPath, ledgerIdentity)
+	input := portableCLIFixtureInput(t, repository, commit, tree, manifest, configPath, configDigest, ledgerPath, ledgerIdentity)
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
@@ -204,8 +204,13 @@ func mustFileDigest(t *testing.T, reader fileIdentityReader, path string) string
 }
 
 // portableCLIFixtureInput 构造只用于真实适配器测试的完整 validate-only 描述符。
-func portableCLIFixtureInput(repository, commit, tree string, manifest []byte, configPath, configDigest, ledgerPath, ledgerIdentity string) remoteci.PortableRunInput {
+func portableCLIFixtureInput(t *testing.T, repository, commit, tree string, manifest []byte, configPath, configDigest, ledgerPath, ledgerIdentity string) remoteci.PortableRunInput {
+	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
+	abiDigest, err := remoteci.RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatalf("derive workload manifest ABI digest: %v", err)
+	}
 	return remoteci.PortableRunInput{
 		ExecutionProvider: remoteci.PortableExecutionProvider,
 		ContractID:        remoteci.PortableRunContractID,
@@ -218,7 +223,7 @@ func portableCLIFixtureInput(repository, commit, tree string, manifest []byte, c
 				BundleContractID: remoteci.PortableBundleContractID, ArtifactKind: "source-baseline",
 				ArtifactKey: "fixture/baseline", ArtifactSHA256: digest, ArtifactSizeBytes: 1,
 			}},
-		WorkloadManifest: remoteci.PortableWorkloadManifest{RepoRelativePath: "ci/workloads.json", SHA256: digestBytes(manifest),
+		WorkloadManifest: remoteci.PortableWorkloadManifest{RepoRelativePath: "ci/workloads.json", SHA256: digestBytes(manifest), ABIDigest: abiDigest,
 			SchemaVersion: remoteci.PortableWorkloadManifestSchemaVersion, RepositoryID: "fixture"},
 		Authority: remoteci.PortableRunAuthority{ConfigPath: configPath, ConfigSHA256: configDigest,
 			LedgerPath: ledgerPath, LedgerFileIdentity: ledgerIdentity},

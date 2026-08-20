@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -15,16 +14,14 @@ import (
 // artifactBuilderClient adapts the existing ECI control-plane boundary without
 // sharing normal shard Runtime or its three-volume/init-container request.
 type artifactBuilderClient struct {
-	client   *Client
-	mu       sync.RWMutex
-	requests map[string]ArtifactBuilderRequest
+	client *Client
 }
 
 var _ ArtifactBuilderActor = (*artifactBuilderClient)(nil)
 
 // NewArtifactBuilderActor 创建绑定现有 ECI 控制面的 portable artifact builder actor。
 func NewArtifactBuilderActor(client *Client) ArtifactBuilderActor {
-	return &artifactBuilderClient{client: client, requests: make(map[string]ArtifactBuilderRequest)}
+	return &artifactBuilderClient{client: client}
 }
 
 func (actor *artifactBuilderClient) requireClient() (*Client, error) {
@@ -74,6 +71,39 @@ func (actor *artifactBuilderClient) Create(ctx context.Context, request Artifact
 	return actor.bindCreatedGroup(request, live)
 }
 
+// ReconcileRequest 查询控制面中的 request identity，不读取本地 map 作为资源真相。
+func (actor *artifactBuilderClient) ReconcileRequest(ctx context.Context, request ArtifactBuilderRequest) (ArtifactBuilderRequestMatch, error) {
+	client, err := actor.requireClient()
+	if err != nil {
+		return ArtifactBuilderRequestMatch{}, err
+	}
+	if err := request.Validate(); err != nil {
+		return ArtifactBuilderRequestMatch{}, err
+	}
+	tags, err := artifactBuilderExpectedTags(request)
+	if err != nil {
+		return ArtifactBuilderRequestMatch{}, err
+	}
+	live, present, err := client.reconcileArtifactBuilderRequest(ctx, request.ContainerGroupName, tags)
+	if err != nil || !present {
+		return ArtifactBuilderRequestMatch{Present: present}, err
+	}
+	match := ArtifactBuilderRequestMatch{Present: true, GroupID: live.ID}
+	group, err := mapArtifactBuilderGroup(live)
+	if err != nil {
+		return match, err
+	}
+	lifecycle, err := NewArtifactBuilderLifecycle(request)
+	if err != nil {
+		return match, err
+	}
+	if err := lifecycle.ObserveCreated(group); err != nil {
+		return match, err
+	}
+	match.Group = group
+	return match, nil
+}
+
 func (actor *artifactBuilderClient) bindCreatedGroup(request ArtifactBuilderRequest, live ContainerGroup) (ArtifactBuilderGroup, error) {
 	group, err := mapArtifactBuilderGroup(live)
 	if err != nil {
@@ -86,9 +116,6 @@ func (actor *artifactBuilderClient) bindCreatedGroup(request ArtifactBuilderRequ
 	if err := lifecycle.ObserveCreated(group); err != nil {
 		return ArtifactBuilderGroup{}, err
 	}
-	actor.mu.Lock()
-	actor.requests[group.ID] = request
-	actor.mu.Unlock()
 	return group, nil
 }
 
@@ -121,18 +148,6 @@ func (actor *artifactBuilderClient) Describe(ctx context.Context, id string) (Ar
 	if err != nil {
 		return ArtifactBuilderGroup{}, err
 	}
-	actor.mu.RLock()
-	request, known := actor.requests[id]
-	actor.mu.RUnlock()
-	if known {
-		lifecycle, lifecycleErr := NewArtifactBuilderLifecycle(request)
-		if lifecycleErr != nil {
-			return ArtifactBuilderGroup{}, lifecycleErr
-		}
-		if lifecycleErr := lifecycle.ObserveCreated(group); lifecycleErr != nil {
-			return ArtifactBuilderGroup{}, lifecycleErr
-		}
-	}
 	return group, nil
 }
 
@@ -161,11 +176,6 @@ func (actor *artifactBuilderClient) ConfirmAbsent(ctx context.Context, groupID s
 		return false, err
 	}
 	absent, err := client.ConfirmContainerGroupAbsent(ctx, groupID)
-	if err == nil && absent {
-		actor.mu.Lock()
-		delete(actor.requests, groupID)
-		actor.mu.Unlock()
-	}
 	return absent, err
 }
 

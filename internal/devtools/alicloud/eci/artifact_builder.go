@@ -513,9 +513,18 @@ func artifactBuilderExpectedTags(request ArtifactBuilderRequest) (map[string]str
 	}, nil
 }
 
+// ArtifactBuilderRequestMatch 是按 request name+tags 回查得到的唯一匹配。
+// Present=false 只表示本次 provider 查询明确返回了零个匹配；它不依赖 actor 内存状态。
+type ArtifactBuilderRequestMatch struct {
+	Present bool
+	GroupID string
+	Group   ArtifactBuilderGroup
+}
+
 // ArtifactBuilderActor 是未来 ECI adapter 的最小生命周期 port；本文件不提供云实现。
 type ArtifactBuilderActor interface {
 	Create(context.Context, ArtifactBuilderRequest) (ArtifactBuilderGroup, error)
+	ReconcileRequest(context.Context, ArtifactBuilderRequest) (ArtifactBuilderRequestMatch, error)
 	Describe(context.Context, string) (ArtifactBuilderGroup, error)
 	Logs(context.Context, string, string) (string, error)
 	Delete(context.Context, string) error

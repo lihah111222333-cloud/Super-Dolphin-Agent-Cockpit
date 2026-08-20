@@ -96,8 +96,10 @@ func (runtime *ArtifactBuilderRuntime) Build(ctx context.Context, input remoteci
 		return evidence, err
 	}
 	var groupID string
+	var request eci.ArtifactBuilderRequest
+	var requestReady bool
 	defer func() {
-		cleanupErr := runtime.cleanup(ctx, groupID, input.InputObjectKey)
+		cleanupErr := runtime.cleanup(ctx, request, requestReady, groupID, input.InputObjectKey)
 		if cleanupErr != nil {
 			err = errors.Join(err, cleanupErr)
 		}
@@ -114,6 +116,7 @@ func (runtime *ArtifactBuilderRuntime) Build(ctx context.Context, input remoteci
 	if requestErr != nil {
 		return evidence, requestErr
 	}
+	requestReady = true
 	return runtime.buildRequest(ctx, input, inputDigest, request, &groupID)
 }
 
@@ -329,20 +332,13 @@ func (resolver runtimeArtifactResolver) Resolve(_ context.Context, kind, key str
 }
 
 // cleanup 使用 WithoutCancel 和统一 deadline 清理 group 与 input staging。
-func (runtime *ArtifactBuilderRuntime) cleanup(ctx context.Context, groupID, inputKey string) error {
+func (runtime *ArtifactBuilderRuntime) cleanup(ctx context.Context, request eci.ArtifactBuilderRequest, requestReady bool, groupID, inputKey string) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtime.deps.CleanupTimeout)
 	defer cancel()
 	var cleanupErr error
 	runtime.observe(ArtifactBuilderRuntimeEvent{Stage: "cleanup", GroupID: groupID, Cleanup: true})
-	if groupID != "" {
-		if err := runtime.deps.Actor.Delete(cleanupCtx, groupID); err != nil {
-			cleanupErr = errors.Join(cleanupErr, errors.New("artifact builder group cleanup failed"))
-		}
-		if err := waitRuntimeAbsence(cleanupCtx, runtime.deps.PollInterval, func() (bool, error) {
-			return runtime.deps.Actor.ConfirmAbsent(cleanupCtx, groupID)
-		}); err != nil {
-			cleanupErr = errors.Join(cleanupErr, errors.New("artifact builder group absence proof failed"))
-		}
+	if err := runtime.cleanupBuilderGroup(cleanupCtx, request, requestReady, groupID); err != nil {
+		cleanupErr = errors.Join(cleanupErr, errors.New("artifact builder group cleanup failed"))
 	}
 	if err := runtime.deps.Store.Delete(cleanupCtx, inputKey); err != nil {
 		cleanupErr = errors.Join(cleanupErr, errors.New("artifact builder input cleanup failed"))
@@ -353,6 +349,116 @@ func (runtime *ArtifactBuilderRuntime) cleanup(ctx context.Context, groupID, inp
 		cleanupErr = errors.Join(cleanupErr, errors.New("artifact builder input absence proof failed"))
 	}
 	return cleanupErr
+}
+
+const cleanupRequestAbsenceRounds = 2
+
+type builderGroupCleanupState struct {
+	groupID              string
+	requestAbsenceRounds int
+	idAbsent             bool
+	deleteIssued         bool
+	permanentErr         error
+}
+
+// cleanupBuilderGroup 轮询 request identity 与已知 group ID，直到两者都证明不存在。
+func (runtime *ArtifactBuilderRuntime) cleanupBuilderGroup(ctx context.Context, request eci.ArtifactBuilderRequest, requestReady bool, groupID string) error {
+	if !requestReady && groupID == "" {
+		return nil
+	}
+	requestAbsenceRounds, idAbsent := cleanupRequestInitialState(requestReady, groupID)
+	state := builderGroupCleanupState{groupID: groupID, requestAbsenceRounds: requestAbsenceRounds, idAbsent: idAbsent}
+	for {
+		if requestReady {
+			runtime.reconcileCleanupRequest(ctx, request, &state)
+		}
+		if err := runtime.cleanupKnownGroup(ctx, &state); err != nil {
+			return err
+		}
+		if state.requestAbsenceRounds >= cleanupRequestAbsenceRounds && state.idAbsent {
+			return state.permanentErr
+		}
+		if err := waitRuntimeCleanupInterval(ctx, runtime.deps.PollInterval); err != nil {
+			return errors.Join(state.permanentErr, errors.New("artifact builder group cleanup deadline exceeded"))
+		}
+	}
+}
+
+// reconcileCleanupRequest 把一次 name+tags 查询结果合并到 cleanup 状态。
+func (runtime *ArtifactBuilderRuntime) reconcileCleanupRequest(ctx context.Context, request eci.ArtifactBuilderRequest, state *builderGroupCleanupState) {
+	match, err := runtime.deps.Actor.ReconcileRequest(ctx, request)
+	if match.Present {
+		state.requestAbsenceRounds = 0
+		bindCleanupRequestMatch(state, match)
+	} else if err == nil {
+		state.requestAbsenceRounds++
+	}
+	if err != nil {
+		state.requestAbsenceRounds = 0
+		if errors.Is(err, eci.ErrArtifactBuilderIdentityDrift) {
+			state.permanentErr = errors.Join(state.permanentErr, errors.New("artifact builder request identity drifted"))
+		}
+		return
+	}
+}
+
+// bindCleanupRequestMatch 绑定 later-visible group，并拒绝同一 request 指向不同 ID。
+func bindCleanupRequestMatch(state *builderGroupCleanupState, match eci.ArtifactBuilderRequestMatch) {
+	if match.GroupID == "" {
+		state.permanentErr = errors.Join(state.permanentErr, errors.New("artifact builder request match omitted group identity"))
+		return
+	}
+	if state.idAbsent || state.groupID == "" {
+		state.groupID, state.idAbsent, state.deleteIssued = match.GroupID, false, false
+		return
+	}
+	if state.groupID != match.GroupID {
+		state.permanentErr = errors.Join(state.permanentErr, errors.New("artifact builder request identity drifted"))
+	}
+}
+
+// cleanupKnownGroup 删除并回读当前已知 group ID；瞬时 provider 错误留给下一轮重试。
+func (runtime *ArtifactBuilderRuntime) cleanupKnownGroup(ctx context.Context, state *builderGroupCleanupState) error {
+	if state.groupID == "" || state.idAbsent {
+		return nil
+	}
+	absent, err := runtime.ensureGroupAbsent(ctx, state.groupID, &state.deleteIssued)
+	if err != nil {
+		if ctx.Err() != nil {
+			return errors.Join(state.permanentErr, errors.New("artifact builder group cleanup deadline exceeded"))
+		}
+		return nil
+	}
+	state.idAbsent = absent
+	return nil
+}
+
+func cleanupRequestInitialState(requestReady bool, groupID string) (int, bool) {
+	if !requestReady {
+		return cleanupRequestAbsenceRounds, groupID == ""
+	}
+	return 0, groupID == ""
+}
+
+func (runtime *ArtifactBuilderRuntime) ensureGroupAbsent(ctx context.Context, groupID string, deleteIssued *bool) (bool, error) {
+	if !*deleteIssued {
+		if err := runtime.deps.Actor.Delete(ctx, groupID); err != nil {
+			return false, err
+		}
+		*deleteIssued = true
+	}
+	return runtime.deps.Actor.ConfirmAbsent(ctx, groupID)
+}
+
+func waitRuntimeCleanupInterval(ctx context.Context, interval time.Duration) error {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // waitRuntimeAbsence 在 cleanup deadline 内轮询 provider/store 的 absence proof。
