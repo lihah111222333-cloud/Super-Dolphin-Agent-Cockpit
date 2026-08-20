@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -163,6 +164,36 @@ func TestSourceBaselineBuilderWorkerUploadsReceiptOnlyAfterArtifact(t *testing.T
 		if !beforeTemps[name] {
 			t.Fatalf("builder temporary root %q was not cleaned up", name)
 		}
+	}
+}
+
+func TestSourceBaselineBuilderWorkerFailureReportsTypedStageWithoutCause(t *testing.T) {
+	fixture := newSourceBaselineBuilderWorkerFixture(t)
+	worker, err := NewSourceBaselineBuilderWorker(ArtifactIO{
+		DownloadInput: func(_ context.Context, _ string, destination io.Writer) (int64, error) {
+			return copySourceBaselineWorkerFixture(destination, fixture.inputPath)
+		},
+		UploadArtifact: func(context.Context, string, string, SourceBaselineArtifactMetadata) error {
+			return errorsSourceBaselineBuilderWorkerUpload
+		},
+		UploadReceipt: func(context.Context, string, string, SourceBaselineArtifactMetadata) error { return nil },
+	}, sourceBaselineBuilderWorkerObserver(fixture.input))
+	if err != nil {
+		t.Fatalf("NewSourceBaselineBuilderWorker() error = %v", err)
+	}
+	_, err = worker.Build(context.Background(), fixture.input)
+	if err == nil {
+		t.Fatal("Build() accepted injected artifact upload failure")
+	}
+	var stageErr SourceBaselineBuilderStageError
+	if !errors.As(err, &stageErr) {
+		t.Fatalf("Build() error type = %T, want SourceBaselineBuilderStageError", err)
+	}
+	if stageErr.Stage != SourceBaselineBuilderStageUploadArtifact {
+		t.Fatalf("Build() failure stage = %q, want %q", stageErr.Stage, SourceBaselineBuilderStageUploadArtifact)
+	}
+	if strings.Contains(err.Error(), "injected artifact upload failure") {
+		t.Fatalf("Build() error leaked raw cause: %q", err)
 	}
 }
 

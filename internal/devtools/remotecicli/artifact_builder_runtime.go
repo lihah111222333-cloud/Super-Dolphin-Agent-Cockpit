@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	artifactBuildRuntimeSchema = "source-baseline-artifact-build/v1"
-	artifactBuildRuntimePrefix = "SUPER_DOLPHIN_ARTIFACT_BUILD_RESULT "
+	artifactBuildRuntimeSchema            = "source-baseline-artifact-build/v1"
+	artifactBuildRuntimePrefix            = "SUPER_DOLPHIN_ARTIFACT_BUILD_RESULT "
+	artifactBuilderRuntimeFailureLogStage = "failure_log"
 )
 
 // ArtifactBuilderRuntimeStore 是 runtime 需要的最小对象端口。
@@ -151,6 +152,7 @@ func (runtime *ArtifactBuilderRuntime) createBuilder(ctx context.Context, reques
 		return group, nil, err
 	}
 	if err := lifecycle.ObserveCreated(group); err != nil {
+		runtime.observeTerminalFailureLog(ctx, lifecycle, group)
 		return group, nil, err
 	}
 	return group, lifecycle, nil
@@ -160,6 +162,7 @@ func (runtime *ArtifactBuilderRuntime) createBuilder(ctx context.Context, reques
 func (runtime *ArtifactBuilderRuntime) observeBuilder(ctx context.Context, lifecycle *eci.ArtifactBuilderLifecycle, group eci.ArtifactBuilderGroup) (eci.ArtifactBuilderGroup, string, error) {
 	group, err := runtime.poll(ctx, lifecycle, group)
 	if err != nil {
+		runtime.observeTerminalFailureLog(ctx, lifecycle, group)
 		return group, "", err
 	}
 	logs, err := runtime.deps.Actor.Logs(ctx, group.ID, group.Container.Name)
@@ -170,6 +173,42 @@ func (runtime *ArtifactBuilderRuntime) observeBuilder(ctx context.Context, lifec
 		return group, "", err
 	}
 	return group, logs, nil
+}
+
+// observeTerminalFailureLog 仅在 provider 终态失败后读取一次有界日志；轮询超时和取消不读取日志。
+func (runtime *ArtifactBuilderRuntime) observeTerminalFailureLog(ctx context.Context, lifecycle *eci.ArtifactBuilderLifecycle, group eci.ArtifactBuilderGroup) {
+	if lifecycle == nil || !artifactBuilderFailureState(lifecycle.State()) || !artifactBuilderTerminalFailureStatus(group.Status) || group.ID == "" || group.Container.Name == "" {
+		return
+	}
+	logs, err := runtime.deps.Actor.Logs(ctx, group.ID, group.Container.Name)
+	if err != nil || lifecycle.ObserveLogs(logs) != nil {
+		return
+	}
+	stage, ok := remoteci.SourceBaselineBuilderFailureStageFromLog(logs)
+	if !ok {
+		stage = remoteci.SourceBaselineBuilderStageResult
+	}
+	runtime.observe(ArtifactBuilderRuntimeEvent{Stage: artifactBuilderRuntimeFailureLogStage, GroupID: group.ID, Status: string(stage), Digest: runtimeDigestBytes([]byte(logs))})
+}
+
+func artifactBuilderFailureState(state eci.ArtifactBuilderState) bool {
+	switch state {
+	case eci.ArtifactBuilderStateFailed, eci.ArtifactBuilderStateError, eci.ArtifactBuilderStateCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+// artifactBuilderTerminalFailureStatus 只接受 provider 已明确声明的失败终态。
+func artifactBuilderTerminalFailureStatus(status string) bool {
+	switch status {
+	case eci.ArtifactBuilderGroupFailed, eci.ArtifactBuilderGroupError,
+		eci.ArtifactBuilderGroupCancelled, eci.ArtifactBuilderGroupTerminated:
+		return true
+	default:
+		return false
+	}
 }
 
 // collectEvidence 严格解码输出、回执并验证最终 portable artifact。

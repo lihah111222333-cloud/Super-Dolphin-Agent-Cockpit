@@ -141,6 +141,28 @@ func TestBuilderSimulationFailureCloudPreservesObservedTerminalEvidence(t *testi
 	}
 }
 
+func TestBuilderSimulationFailureLogProjectsStageAndDigest(t *testing.T) {
+	var stderr bytes.Buffer
+	writer := newBuilderSimulationEventWriter(&stderr, "operation-1", builderSimulationResultDigest("1"))
+	recorder := &builderSimulationRecorder{writer: writer}
+	logs := "progress: artifact build failed stage=build_bundle\nsecret=/private/worktree\n"
+	recorder.observe(ArtifactBuilderRuntimeEvent{Stage: "failure_log", GroupID: "group-1", Status: "build_bundle", Digest: digestText(logs)})
+	events, err := remoteci.DecodeBuilderSimulationEventJSONL(stderr.Bytes())
+	if err != nil {
+		t.Fatalf("failure log event JSONL decode error = %v; stderr=%q", err, stderr.String())
+	}
+	if len(events) != 1 {
+		t.Fatalf("failure log event count = %d, want 1", len(events))
+	}
+	event := events[0]
+	if event.Stage != remoteci.BuilderSimulationEventStageECIGroupObserved || event.State != remoteci.BuilderSimulationEventStateFailed || event.ResourceDigest != digestText(logs) || event.ErrorCode != "build_bundle" {
+		t.Fatalf("failure log projection = %#v", event)
+	}
+	if strings.Contains(stderr.String(), "private/worktree") {
+		t.Fatalf("failure log projection leaked raw log: %q", stderr.String())
+	}
+}
+
 // TestBuilderSimulationFailureStageReportsCreateWithoutGroupID 锁定 create 错误不会伪装成 OSS staging 失败。
 func TestBuilderSimulationFailureStageReportsCreateWithoutGroupID(t *testing.T) {
 	if got := builderSimulationFailureStage(&builderSimulationRecorder{createAttempted: true}); got != remoteci.BuilderSimulationEventStageECICreateRequested {

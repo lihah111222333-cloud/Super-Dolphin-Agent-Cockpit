@@ -22,6 +22,85 @@ const (
 	sourceBaselineBuilderTempPrefix = ".source-baseline-builder-"
 )
 
+// SourceBaselineBuilderStage is the stable, non-sensitive worker failure stage.
+// Its token is safe to project to progress and JSONL error_code fields.
+type SourceBaselineBuilderStage string
+
+const (
+	SourceBaselineBuilderStageDownloadInput    SourceBaselineBuilderStage = "download_input"
+	SourceBaselineBuilderStageImportInput      SourceBaselineBuilderStage = "import_input"
+	SourceBaselineBuilderStageBuildRepository  SourceBaselineBuilderStage = "build_repository"
+	SourceBaselineBuilderStageBuildBundle      SourceBaselineBuilderStage = "build_bundle"
+	SourceBaselineBuilderStageObserveIdentity  SourceBaselineBuilderStage = "observe_identity"
+	SourceBaselineBuilderStageReceipt          SourceBaselineBuilderStage = "receipt"
+	SourceBaselineBuilderStageValidateArtifact SourceBaselineBuilderStage = "validate_artifact"
+	SourceBaselineBuilderStageUploadArtifact   SourceBaselineBuilderStage = "upload_artifact"
+	SourceBaselineBuilderStageUploadReceipt    SourceBaselineBuilderStage = "upload_receipt"
+	SourceBaselineBuilderStageResult           SourceBaselineBuilderStage = "result"
+)
+
+// SourceBaselineBuilderStageError reports only a stable stage token. It does
+// not retain or unwrap the underlying error, so paths, credentials and raw
+// provider diagnostics cannot cross the worker boundary.
+type SourceBaselineBuilderStageError struct {
+	Stage SourceBaselineBuilderStage
+}
+
+// Error 返回只含稳定阶段且不携带底层原因的有界诊断。
+func (err SourceBaselineBuilderStageError) Error() string {
+	return "source baseline builder failed stage=" + string(err.Stage)
+}
+
+func sourceBaselineBuilderStageValid(stage SourceBaselineBuilderStage) bool {
+	switch stage {
+	case SourceBaselineBuilderStageDownloadInput, SourceBaselineBuilderStageImportInput,
+		SourceBaselineBuilderStageBuildRepository, SourceBaselineBuilderStageBuildBundle,
+		SourceBaselineBuilderStageObserveIdentity, SourceBaselineBuilderStageReceipt,
+		SourceBaselineBuilderStageValidateArtifact, SourceBaselineBuilderStageUploadArtifact,
+		SourceBaselineBuilderStageUploadReceipt, SourceBaselineBuilderStageResult:
+		return true
+	default:
+		return false
+	}
+}
+
+func sourceBaselineBuilderStageFailure(stage SourceBaselineBuilderStage, _ error) error {
+	if !sourceBaselineBuilderStageValid(stage) {
+		stage = SourceBaselineBuilderStageResult
+	}
+	return SourceBaselineBuilderStageError{Stage: stage}
+}
+
+// SourceBaselineBuilderFailureStage 返回 worker 错误的稳定阶段；未知错误统一投影为 result。
+func SourceBaselineBuilderFailureStage(err error) SourceBaselineBuilderStage {
+	var stageErr SourceBaselineBuilderStageError
+	if errors.As(err, &stageErr) && sourceBaselineBuilderStageValid(stageErr.Stage) {
+		return stageErr.Stage
+	}
+	var stageErrPtr *SourceBaselineBuilderStageError
+	if errors.As(err, &stageErrPtr) && stageErrPtr != nil && sourceBaselineBuilderStageValid(stageErrPtr.Stage) {
+		return stageErrPtr.Stage
+	}
+	return SourceBaselineBuilderStageResult
+}
+
+// SourceBaselineBuilderFailureStageFromLog 只从有界日志提取白名单阶段，不向调用方返回原始日志。
+func SourceBaselineBuilderFailureStageFromLog(logs string) (SourceBaselineBuilderStage, bool) {
+	const prefix = "progress: artifact build failed stage="
+	for line := range strings.SplitSeq(logs, "\n") {
+		line = strings.TrimSpace(line)
+		token, ok := strings.CutPrefix(line, prefix)
+		if !ok {
+			continue
+		}
+		stage := SourceBaselineBuilderStage(token)
+		if sourceBaselineBuilderStageValid(stage) {
+			return stage, true
+		}
+	}
+	return SourceBaselineBuilderStageResult, false
+}
+
 // SourceBaselineArtifactMetadata is the content identity passed to upload adapters.
 type SourceBaselineArtifactMetadata struct {
 	SHA256                 string
@@ -133,19 +212,19 @@ func NewSourceBaselineBuilderWorker(artifactIO ArtifactIO, observer ArtifactBuil
 // Build 下载、验证、构建、复核并发布一个 source baseline。
 func (worker *SourceBaselineBuilderWorker) Build(ctx context.Context, input SourceBaselineBuildInput) (result SourceBaselineBuilderWorkerResult, err error) {
 	if worker == nil {
-		return SourceBaselineBuilderWorkerResult{}, errors.New("source baseline builder worker is nil")
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, errors.New("source baseline builder worker is nil"))
 	}
 	if err := worker.validateIO(); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, err)
 	}
 	if ctx == nil {
-		return SourceBaselineBuilderWorkerResult{}, errors.New("source baseline builder context is nil")
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, errors.New("source baseline builder context is nil"))
 	}
 	if err := ctx.Err(); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, err)
 	}
 	if err := input.Validate(); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, err)
 	}
 
 	temporaryRoot, err := createSourceBaselineBuilderTemp()
@@ -153,7 +232,10 @@ func (worker *SourceBaselineBuilderWorker) Build(ctx context.Context, input Sour
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
 	defer func() {
-		err = errors.Join(err, removeSourceBaselineBuilderTemp(temporaryRoot))
+		if cleanupErr := removeSourceBaselineBuilderTemp(temporaryRoot); cleanupErr != nil && err == nil {
+			result = SourceBaselineBuilderWorkerResult{}
+			err = sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, cleanupErr)
+		}
 	}()
 
 	return worker.buildWithinTemp(ctx, input, temporaryRoot)
@@ -167,26 +249,26 @@ func (worker *SourceBaselineBuilderWorker) buildWithinTemp(ctx context.Context, 
 	}
 	observed, err := worker.observeIdentity(ctx, input)
 	if err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageObserveIdentity, err)
 	}
 	artifactIdentityDigest, err := ArtifactIdentityDigest(input.RepositoryID, input.ObjectFormat, input.CommitSHA, input.TreeSHA, artifactDigest, artifactSize, observed, input.ProtocolABIDigest, input.WorkloadManifestABIDigest)
 	if err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, err)
 	}
 	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, input.TreeSHA, artifactIdentityDigest)
 	if err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, err)
 	}
 	receipt, receiptBytes, err := buildSourceBaselineBuilderReceipt(input, observed, baselineCommit, artifactDigest, artifactSize, artifactIdentityDigest)
 	if err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageReceipt, err)
 	}
 	receiptPath := filepath.Join(temporaryRoot, "source-baseline-receipt.json")
 	if err := writeSourceBaselineBuilderReceipt(receiptPath, receiptBytes); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageReceipt, err)
 	}
 	if err := validateBuiltSourceBaselineArtifact(ctx, artifactPath, input, receipt, artifactKey, artifactDigest, artifactSize); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageValidateArtifact, err)
 	}
 	return worker.publishSourceBaselineBuilder(ctx, artifactPath, artifactKey, receiptPath, receiptKey, artifactDigest, artifactSize, receipt, receiptBytes, input)
 }
@@ -222,21 +304,21 @@ func validateBuiltSourceBaselineArtifact(ctx context.Context, artifactPath strin
 func (worker *SourceBaselineBuilderWorker) buildSourceBaselineBuilderArtifact(ctx context.Context, input SourceBaselineBuildInput, temporaryRoot string) (string, string, string, int64, error) {
 	inputPath := filepath.Join(temporaryRoot, "builder-input.bundle")
 	if err := worker.downloadAndVerifyInput(ctx, input, inputPath); err != nil {
-		return "", "", "", 0, err
+		return "", "", "", 0, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageDownloadInput, err)
 	}
 	inputRepository := filepath.Join(temporaryRoot, "builder-input.git")
 	if err := importSourceBaselineBuilderInput(ctx, inputPath, inputRepository, temporaryRoot, input); err != nil {
-		return "", "", "", 0, err
+		return "", "", "", 0, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageImportInput, err)
 	}
 	baselineRepository := filepath.Join(temporaryRoot, "baseline.git")
 	baselineCommit, err := buildSourceBaselineBuilderRepository(ctx, inputRepository, baselineRepository, temporaryRoot, input)
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", 0, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageBuildRepository, err)
 	}
 	artifactPath := filepath.Join(temporaryRoot, "source-baseline.bundle")
 	artifactDigest, artifactSize, err := createSourceBaselineBuilderBundle(ctx, baselineRepository, artifactPath, input, baselineCommit)
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", 0, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageBuildBundle, err)
 	}
 	return artifactPath, baselineCommit, artifactDigest, artifactSize, nil
 }
@@ -244,16 +326,16 @@ func (worker *SourceBaselineBuilderWorker) buildSourceBaselineBuilderArtifact(ct
 func (worker *SourceBaselineBuilderWorker) publishSourceBaselineBuilder(ctx context.Context, artifactPath, artifactKey, receiptPath, receiptKey, artifactDigest string, artifactSize int64, receipt SourceBaselineProducerReceipt, receiptBytes []byte, input SourceBaselineBuildInput) (SourceBaselineBuilderWorkerResult, error) {
 	artifactMetadata := SourceBaselineArtifactMetadata{SHA256: artifactDigest, SizeBytes: artifactSize, ArtifactIdentityDigest: receipt.ArtifactIdentityDigest}
 	if err := worker.uploadArtifact(ctx, artifactPath, artifactKey, artifactMetadata); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageUploadArtifact, err)
 	}
 	receiptMetadata := SourceBaselineArtifactMetadata{SHA256: bytesDigest(receiptBytes), SizeBytes: int64(len(receiptBytes)), ArtifactIdentityDigest: receipt.ArtifactIdentityDigest}
 	if err := worker.uploadReceipt(ctx, receiptPath, receiptKey, receiptMetadata); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageUploadReceipt, err)
 	}
 
 	inputDigest, err := SourceBaselineBuilderInputDigest(input)
 	if err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, err)
 	}
 	result := SourceBaselineBuilderWorkerResult{
 		ArtifactKey: artifactKey,
@@ -262,7 +344,7 @@ func (worker *SourceBaselineBuilderWorker) publishSourceBaselineBuilder(ctx cont
 		InputDigest: inputDigest,
 	}
 	if err := result.ValidateAgainst(input); err != nil {
-		return SourceBaselineBuilderWorkerResult{}, err
+		return SourceBaselineBuilderWorkerResult{}, sourceBaselineBuilderStageFailure(SourceBaselineBuilderStageResult, err)
 	}
 	return result, nil
 }

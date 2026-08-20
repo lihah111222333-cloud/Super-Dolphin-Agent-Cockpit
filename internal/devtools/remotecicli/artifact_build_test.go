@@ -87,6 +87,12 @@ func TestArtifactBuildRejectsWrongInputAndReceiptMetadata(t *testing.T) {
 		if stdout.Len() != 0 || strings.Contains(stderr.String(), fixture.inputKey) {
 			t.Fatalf("wrong metadata result leaked output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 		}
+		if !strings.Contains(stderr.String(), "progress: artifact build failed stage=upload_artifact\n") {
+			t.Fatalf("artifact failure stage was not observable: stderr=%q", stderr.String())
+		}
+		if strings.Contains(stderr.String(), "wrong artifact") {
+			t.Fatalf("artifact failure leaked raw cause: stderr=%q", stderr.String())
+		}
 		events := state.eventsSnapshot()
 		if strings.Contains(strings.Join(events, ","), "receipt") {
 			t.Fatalf("receipt upload started after artifact metadata rejection: %v", events)

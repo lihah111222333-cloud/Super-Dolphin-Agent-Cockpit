@@ -146,6 +146,15 @@ func (recorder *builderSimulationRecorder) emitRuntimeEvent(event ArtifactBuilde
 		recorder.writer.emit(remoteci.BuilderSimulationEventStageECIGroupObserved, remoteci.BuilderSimulationEventStateSucceeded, event.GroupID, event.Digest, "")
 	case "artifact":
 		recorder.writer.emit(remoteci.BuilderSimulationEventStageArtifactValidated, remoteci.BuilderSimulationEventStateSucceeded, event.GroupID, event.Digest, "")
+	case "failure_log":
+		errorCode := string(remoteci.SourceBaselineBuilderStageResult)
+		if event.Status != "" {
+			stage := remoteci.SourceBaselineBuilderStage(event.Status)
+			if _, ok := remoteci.SourceBaselineBuilderFailureStageFromLog("progress: artifact build failed stage=" + string(stage)); ok {
+				errorCode = event.Status
+			}
+		}
+		recorder.writer.emit(remoteci.BuilderSimulationEventStageECIGroupObserved, remoteci.BuilderSimulationEventStateFailed, event.GroupID, event.Digest, errorCode)
 	case "cleanup":
 		recorder.writer.emit(remoteci.BuilderSimulationEventStageCleanupStarted, remoteci.BuilderSimulationEventStateStarted, event.GroupID, "", "")
 	}

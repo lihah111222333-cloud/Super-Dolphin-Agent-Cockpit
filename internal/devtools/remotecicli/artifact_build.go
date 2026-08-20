@@ -112,26 +112,33 @@ func observeArtifactBuilderIdentity(ctx context.Context, compilerPath string) (r
 func dispatchArtifactBuildWithDependencies(args []string, stdout, stderr io.Writer, dependencies artifactBuildDependencies) error {
 	input, artifactIO, observer, err := prepareArtifactBuildWorker(args, stderr, dependencies)
 	if err != nil {
-		return err
+		return artifactBuildFailure(stderr, remoteci.SourceBaselineBuilderFailureStage(err), "artifact build failed", nil)
 	}
 	if err := writeProgress(stderr, "artifact build started"); err != nil {
 		return newCLIFailure("write progress", err)
 	}
 	if observer == nil {
-		return newCLIFailure("artifact builder observed identity observer is required", nil)
+		return artifactBuildFailure(stderr, remoteci.SourceBaselineBuilderStageResult, "artifact builder observed identity observer is required", nil)
 	}
 	result, err := remoteci.BuildSourceBaselineArtifact(context.Background(), artifactIO, input, observer)
 	if err != nil {
-		return newCLIFailure("artifact build failed", nil)
+		return artifactBuildFailure(stderr, remoteci.SourceBaselineBuilderFailureStage(err), "artifact build failed", nil)
 	}
 	output, err := boundedArtifactBuildJSON(result)
 	if err != nil {
-		return newCLIFailure("render artifact build result", nil)
+		return artifactBuildFailure(stderr, remoteci.SourceBaselineBuilderStageResult, "render artifact build result", nil)
 	}
 	if _, err := stdout.Write(output); err != nil {
-		return newCLIFailure("write result", err)
+		return artifactBuildFailure(stderr, remoteci.SourceBaselineBuilderStageResult, "write result", err)
 	}
 	return writeProgress(stderr, "artifact build completed")
+}
+
+func artifactBuildFailure(stderr io.Writer, stage remoteci.SourceBaselineBuilderStage, message string, cause error) error {
+	if progressErr := writeProgress(stderr, "artifact build failed stage="+string(stage)); progressErr != nil {
+		return newCLIFailure("write progress", progressErr)
+	}
+	return newCLIFailure(message, cause)
 }
 
 // prepareArtifactBuildWorker 校验输入并组装 worker 的下载与上传端口。

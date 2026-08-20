@@ -95,6 +95,87 @@ func TestArtifactBuilderRuntimeFailureDoesNotRecreateAndStillCleans(t *testing.T
 	}
 }
 
+func TestArtifactBuilderRuntimeTerminalFailureFetchesOneSafeFailureLog(t *testing.T) {
+	fixture := newRuntimeFixture(t)
+	failed := fixture.succeeded
+	failed.Status = eci.ArtifactBuilderGroupFailed
+	failed.Container.ExitCode = new(int64(7))
+	logs := "progress: artifact build started\nprogress: artifact build failed stage=build_repository\nsecret=/private/worktree\n"
+	actor := &scriptedArtifactBuilderActor{groups: []eci.ArtifactBuilderGroup{fixture.pending, failed}, logs: logs}
+	store := &scriptedArtifactBuilderStore{receipt: fixture.receiptBytes, artifact: fixture.bundle, receiptKey: fixture.receiptKey, artifactKey: fixture.artifactKey}
+	var events []ArtifactBuilderRuntimeEvent
+	runtime, err := NewArtifactBuilderRuntime(ArtifactBuilderRuntimeDependencies{
+		Actor: actor, Store: store, RequestFactory: func(remoteci.SourceBaselineBuildInput) (eci.ArtifactBuilderRequest, error) {
+			return fixture.request, nil
+		},
+		Clock: time.Now, PollInterval: time.Millisecond, PollTimeout: time.Second, CleanupTimeout: time.Second,
+		Observer: func(event ArtifactBuilderRuntimeEvent) { events = append(events, event) },
+	})
+	if err != nil {
+		t.Fatalf("NewArtifactBuilderRuntime() error = %v", err)
+	}
+	if _, err := runtime.Build(context.Background(), fixture.input); err == nil {
+		t.Fatal("Build() accepted failed builder group")
+	}
+	if actor.logsCalls != 1 {
+		t.Fatalf("terminal failure Logs calls = %d, want 1", actor.logsCalls)
+	}
+	assertArtifactBuilderFailureLogEvent(t, events, logs)
+}
+
+// assertArtifactBuilderFailureLogEvent 校验失败日志只投影稳定阶段与摘要。
+func assertArtifactBuilderFailureLogEvent(t *testing.T, events []ArtifactBuilderRuntimeEvent, logs string) {
+	t.Helper()
+	wantDigest := runtimeDigestBytes([]byte(logs))
+	var failureLog *ArtifactBuilderRuntimeEvent
+	for index := range events {
+		if events[index].Stage == "failure_log" {
+			failureLog = &events[index]
+			break
+		}
+	}
+	if failureLog == nil || failureLog.Status != "build_repository" || failureLog.Digest != wantDigest {
+		t.Fatalf("failure log event = %#v, want stage/digest build_repository/%s", failureLog, wantDigest)
+	}
+	for _, event := range events {
+		if strings.Contains(event.Key, "private/worktree") || strings.Contains(event.Digest, "private/worktree") {
+			t.Fatalf("failure log event leaked raw log: %#v", event)
+		}
+	}
+}
+
+// TestArtifactBuilderRuntimeIdentityDriftDoesNotReadForeignLogs 锁定 foreign group 不进入失败日志边界。
+func TestArtifactBuilderRuntimeIdentityDriftDoesNotReadForeignLogs(t *testing.T) {
+	fixture := newRuntimeFixture(t)
+	foreign := fixture.succeeded
+	foreign.ID += "-foreign"
+	actor := &scriptedArtifactBuilderActor{groups: []eci.ArtifactBuilderGroup{fixture.pending, foreign}, logs: "progress: artifact build failed stage=upload_receipt\n"}
+	store := &scriptedArtifactBuilderStore{receipt: fixture.receiptBytes, artifact: fixture.bundle, receiptKey: fixture.receiptKey, artifactKey: fixture.artifactKey}
+	runtime := mustRuntime(t, fixture, actor, store)
+	if _, err := runtime.Build(context.Background(), fixture.input); err == nil {
+		t.Fatal("Build() accepted foreign group identity")
+	}
+	if actor.logsCalls != 0 {
+		t.Fatalf("identity drift Logs calls = %d, want 0", actor.logsCalls)
+	}
+}
+
+// TestArtifactBuilderRuntimeMalformedPendingDoesNotReadLogs 锁定非终态 shape 错误不触发失败日志读取。
+func TestArtifactBuilderRuntimeMalformedPendingDoesNotReadLogs(t *testing.T) {
+	fixture := newRuntimeFixture(t)
+	malformed := fixture.pending
+	malformed.Container.State = eci.ArtifactBuilderContainerRunning
+	actor := &scriptedArtifactBuilderActor{groups: []eci.ArtifactBuilderGroup{malformed}, logs: "progress: artifact build failed stage=download_input\n"}
+	store := &scriptedArtifactBuilderStore{receipt: fixture.receiptBytes, artifact: fixture.bundle, receiptKey: fixture.receiptKey, artifactKey: fixture.artifactKey}
+	runtime := mustRuntime(t, fixture, actor, store)
+	if _, err := runtime.Build(context.Background(), fixture.input); err == nil {
+		t.Fatal("Build() accepted malformed pending group")
+	}
+	if actor.logsCalls != 0 {
+		t.Fatalf("malformed pending Logs calls = %d, want 0", actor.logsCalls)
+	}
+}
+
 func TestArtifactBuilderRuntimeRejectsProviderTerminalEvidenceDrift(t *testing.T) {
 	for name, mutate := range map[string]func(*eci.ArtifactBuilderGroup){
 		"status": func(group *eci.ArtifactBuilderGroup) { group.Status = eci.ArtifactBuilderGroupFailed },
